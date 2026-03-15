@@ -1,0 +1,22 @@
+[#]*
+*.bak
+*.o
+*.old
+*.orig
+*.tdy
+*.tmp
+*~
+.*
+
+# Keep some vscode files
+!.vscode
+.vscode/*
+!.vscode/launch.json
+!.vscode/settings.json
+
+# Keep some config files
+!.clang-format
+!.devcontainer
+!.gitignore
+!.perlcriticrc
+!.perltidyrc
