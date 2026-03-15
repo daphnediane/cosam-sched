@@ -1,0 +1,16 @@
+# cpanfile for cosam_sched
+requires 'perl', '>= 5.038';
+requires 'Date::Parse';
+requires 'Feature::Compat::Class';
+requires 'File::Slurp';
+requires 'Getopt::Long';
+requires 'JSON';
+requires 'List::MoreUtils';
+requires 'Readonly';
+requires 'Spreadsheet::ParseXLSX';
+
+on 'develop' => sub {
+    requires 'App::cpanminus';
+    requires 'Perl::Critic';
+    requires 'Perl::Tidy';
+};

@@ -1,0 +1,10 @@
+{
+    "perl.perlInc": [
+        "${workspaceFolder}/lib",
+        "${workspaceFolder}/local/lib/perl5",
+        "/Volumes/CaseSens/Repositories/mine/desc_tbl/schedule-grid/lib",
+        "/Volumes/CaseSens/Repositories/mine/desc_tbl/schedule-grid/local/lib/perl5",
+        "/workspaces/schedule-to-html/lib",
+        "/workspaces/schedule-to-html/local/lib/perl5"
+    ]
+}

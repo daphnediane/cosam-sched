@@ -1,0 +1,18 @@
+--indent-columns=4
+--maximum-line-length=78
+--break-at-old-comma-breakpoints
+--paren-tightness=0
+--square-bracket-tightness=0
+--brace-tightness=0
+--block-brace-tightness=0
+--continuation-indentation=4
+--vertical-tightness=2
+--closing-token-indentation=0
+--space-for-semicolon
+--nooutdent-long-quotes
+--nooutdent-long-comments
+--closing-side-comments
+--nowant-right-space="A"
+--weld-nested-containers
+--opening-brace-always-on-right
+--want-break-before="A % + - * / x != == >= <= =~ !~ < > | & = **= += *= &= <<= &&= -= /= |= >>= ||= .= %= ^= x="

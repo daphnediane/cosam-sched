@@ -1,0 +1,130 @@
+#!/usr/bin/env perl
+
+use v5.38.0;
+use utf8;
+use warnings;
+
+use FindBin qw{ $RealBin };
+use lib "${RealBin}/lib";
+
+use Getopt::Long qw{ GetOptions };
+use JSON         qw{ encode_json };
+use File::Slurp  qw{ write_file };
+
+use Convert::Workbook qw{};
+use Convert::Rooms    qw{};
+use Convert::Types    qw{};
+use Convert::Events   qw{};
+
+my $input_file;
+my $output_file = 'schedule.json';
+my $title       = '';
+my $help        = 0;
+
+GetOptions(
+    'input|i=s'  => \$input_file,
+    'output|o=s' => \$output_file,
+    'title|t=s'  => \$title,
+    'help|h'     => \$help,
+) or die "Error in command line arguments\n";
+
+if ( $help || !defined $input_file ) {
+    say q{Usage: schedule_to_json --input <file.xlsx|file.txt> [--output schedule.json] [--title "Event Name"]};
+    exit( $help ? 0 : 1 );
+}
+
+say "Reading: ${input_file}";
+
+my $wb = Convert::Workbook::open_workbook( $input_file );
+die "Unable to open: ${input_file}\n" unless defined $wb;
+
+say 'Sheets: ', join( ', ', $wb->worksheets() );
+
+my $rooms = Convert::Rooms::read_rooms( $wb );
+say 'Rooms: ', scalar @{ $rooms };
+
+my $panel_types = Convert::Types::read_panel_types( $wb );
+say 'Panel types: ', scalar @{ $panel_types };
+
+my ( $events, $presenters ) = Convert::Events::read_events( $wb, $rooms, $panel_types );
+say 'Events: ', scalar @{ $events };
+say 'Presenters: ', scalar @{ $presenters };
+
+my $visible_rooms = [
+    map {
+        {
+            id        => $_->{ id },
+            shortName => $_->{ short_name },
+            longName  => $_->{ long_name },
+            sortKey   => $_->{ sort_key },
+        }
+    } grep { !$_->{ is_hidden } } @{ $rooms }
+];
+
+my $visible_types = [
+    map {
+        {
+            prefix     => $_->{ prefix },
+            kind       => $_->{ kind },
+            isWorkshop => $_->{ is_workshop } ? JSON::true : JSON::false,
+            isCafe     => $_->{ is_cafe } ? JSON::true : JSON::false,
+            isBreak    => $_->{ is_break } ? JSON::true : JSON::false,
+            color      => $_->{ color },
+        }
+    } grep { !$_->{ is_hidden } } @{ $panel_types }
+];
+
+my $json_presenters = [
+    map {
+        { name => $_->{ name }, rank => $_->{ rank } }
+    } @{ $presenters }
+];
+
+my $json_events = [
+    map {
+        {
+            id          => $_->{ id },
+            name        => $_->{ name },
+            description => $_->{ description },
+            startTime   => $_->{ start_time },
+            endTime     => $_->{ end_time },
+            duration    => $_->{ duration },
+            room        => $_->{ room },
+            roomId      => $_->{ room_id },
+            panelType   => $_->{ panel_type },
+            kind        => $_->{ kind },
+            color       => $_->{ color },
+            cost        => $_->{ cost },
+            isFree      => $_->{ is_free } ? JSON::true : JSON::false,
+            isKids      => $_->{ is_kids } ? JSON::true : JSON::false,
+            isWorkshop  => $_->{ is_workshop } ? JSON::true : JSON::false,
+            isBreak     => $_->{ is_break } ? JSON::true : JSON::false,
+            difficulty  => $_->{ difficulty },
+            capacity    => $_->{ capacity },
+            presenters  => $_->{ presenters },
+            note        => $_->{ note },
+            prereq      => $_->{ prereq },
+            ticketUrl   => $_->{ ticket_url },
+            isFull      => $_->{ is_full } ? JSON::true : JSON::false,
+        }
+    } @{ $events }
+];
+
+my $output = {
+    meta => {
+        generated => do {
+            my @t = gmtime;
+            sprintf '%04d-%02d-%02dT%02d:%02d:%02dZ',
+                $t[5] + 1900, $t[4] + 1, $t[3], $t[2], $t[1], $t[0];
+        },
+        title => $title || 'Event Schedule',
+    },
+    rooms      => $visible_rooms,
+    panelTypes => $visible_types,
+    presenters => $json_presenters,
+    events     => $json_events,
+};
+
+my $json = JSON->new->utf8->pretty->canonical->encode( $output );
+write_file( $output_file, { binmode => ':raw' }, $json );
+say "Written: ${output_file}";

@@ -9,14 +9,11 @@
 .*
 
 # Keep some vscode files
-!.vscode
-.vscode/*
-!.vscode/launch.json
-!.vscode/settings.json
+!/.vscode
+/.vscode/perl-lang
 
 # Keep some config files
-!.clang-format
-!.devcontainer
-!.gitignore
+!/.devcontainer
+!.git*[^~]
 !.perlcriticrc
 !.perltidyrc

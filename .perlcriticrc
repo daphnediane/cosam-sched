@@ -1,0 +1,28 @@
+severity = 1
+exclude = BuiltinFunctions::ProhibitUniversalIsa ControlStructures::ProhibitPostfixControls Modules::RequireVersionVar TooMuchCode::ProhibitUnnecessaryUTF8Pragma ValuesAndExpressions::ProhibitVersionStrings
+verbose = %f:%l:%c: %m [%p], near '%r'.  (Severity: %s)\n
+
+[Variables::ProhibitPunctuationVars]
+allow = $$ $! ${^PREMATCH} ${^POSTMATCH} ${^MATCH} $+ %+
+
+[Subroutines::ProhibitUnusedPrivateSubroutines]
+private_name_regex = _(?!do_)\w+
+allow = _init _string
+
+[TestingAndDebugging::ProhibitNoWarnings]
+allow_with_category_restriction = 1
+
+[TestingAndDebugging::RequireUseStrict]
+equivalent_modules = common::sense
+
+[TestingAndDebugging::RequireUseWarnings]
+equivalent_modules = common::sense
+
+[ValuesAndExpressions::ProhibitMagicNumbers]
+allowed_values = -1 0 1 2
+
+[TooMuchCode::ProhibitDuplicateLiteral]
+allowlist = q{} q{ } q{, } q{: } q{::} q{_} q{.} q{-} q{--} q{%} q{=s} q{=s@} q{=s%} q{=s%%} q{|} q{$} q{CODE} q{ARRAY} '#' qq{\n} qq{\t} q{-1} 2
+
+[Modules::RequireExplicitPackage]
+allow_import_of = Object::Pad Feature::Compat::Class utf8 feature warnings
