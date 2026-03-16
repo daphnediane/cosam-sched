@@ -26,7 +26,6 @@
 
 # Ignore json files
 *.json
-!sample-data.json
 
 # Ignore local perl modules
 /local/
