@@ -352,13 +352,13 @@
       roomGroup.appendChild(el('label', {}, 'Room'));
       const roomChips = el('div', { className: 'cosam-filter-checkboxes' });
       for (const room of this.state.data.rooms) {
-        const name = room.longName || room.shortName;
-        const selected = this.state.filters.rooms.has(room.id);
+        const name = room.long_name || room.short_name;
+        const selected = this.state.filters.rooms.has(room.uid);
         const chip = el('span', {
           className: 'cosam-filter-chip' + (selected ? ' selected' : ''),
           onClick: () => {
-            if (this.state.filters.rooms.has(room.id)) this.state.filters.rooms.delete(room.id);
-            else this.state.filters.rooms.add(room.id);
+            if (this.state.filters.rooms.has(room.uid)) this.state.filters.rooms.delete(room.uid);
+            else this.state.filters.rooms.add(room.uid);
             this.render();
           },
         }, name);
@@ -557,11 +557,11 @@
         meta.appendChild(timeSpan);
       }
       if (evt.roomId !== null && evt.roomId !== undefined) {
-        const room = this.state.data.rooms.find(r => r.id === evt.roomId);
+        const room = this.state.data.rooms.find(r => r.uid === evt.roomId);
         if (room) {
-          let roomDisplay = room.longName || room.shortName;
-          if (room.hotelRoom && room.hotelRoom !== (room.longName || room.shortName)) {
-            roomDisplay = `${room.longName || room.shortName}<br><small style="opacity: 0.8">(${room.hotelRoom})</small>`;
+          let roomDisplay = room.long_name || room.short_name;
+          if (room.hotel_room && room.hotel_room !== (room.long_name || room.short_name)) {
+            roomDisplay = `${room.long_name || room.short_name}<br><small style="opacity: 0.8">(${room.hotel_room})</small>`;
           }
           const roomSpan = el('span');
           roomSpan.innerHTML = ICONS.mappin + ' ' + roomDisplay;
@@ -627,9 +627,9 @@
       // Get visible rooms from regular events only (BREAK room excluded)
       const roomIds = [...new Set(regularEvents.map(e => e.roomId).filter(id => id !== null && id !== undefined))];
       const roomOrder = this.state.data.rooms
-        .filter(r => roomIds.includes(r.id))
-        .sort((a, b) => a.sortKey - b.sortKey)
-        .map(r => r.id);
+        .filter(r => roomIds.includes(r.uid))
+        .sort((a, b) => a.sort_key - b.sort_key)
+        .map(r => r.uid);
 
       // Add any rooms not in the rooms list
       for (const rid of roomIds) {
@@ -652,10 +652,10 @@
       const headerRow = el('tr');
       headerRow.appendChild(el('th', {}, 'Time'));
       for (const roomId of roomOrder) {
-        const room = this.state.data.rooms.find(r => r.id === roomId);
-        let roomDisplay = room ? (room.longName || room.shortName) : 'Unknown';
-        if (room && room.hotelRoom && room.hotelRoom !== (room.longName || room.shortName)) {
-          roomDisplay = `${room.longName || room.shortName}<br><small style="opacity: 0.8">(${room.hotelRoom})</small>`;
+        const room = this.state.data.rooms.find(r => r.uid === roomId);
+        let roomDisplay = room ? (room.long_name || room.short_name) : 'Unknown';
+        if (room && room.hotel_room && room.hotel_room !== (room.long_name || room.short_name)) {
+          roomDisplay = `${room.long_name || room.short_name}<br><small style="opacity: 0.8">(${room.hotel_room})</small>`;
         }
         const th = el('th');
         th.innerHTML = roomDisplay;
@@ -820,11 +820,11 @@
         meta.appendChild(el('span', {}, evt.duration + ' min'));
       }
       if (evt.roomId !== null && evt.roomId !== undefined) {
-        const room = this.state.data.rooms.find(r => r.id === evt.roomId);
+        const room = this.state.data.rooms.find(r => r.uid === evt.roomId);
         if (room) {
-          let roomDisplay = room.longName || room.shortName;
-          if (room.hotelRoom && room.hotelRoom !== (room.longName || room.shortName)) {
-            roomDisplay = `${room.longName || room.shortName}<br><small style="opacity: 0.8">(${room.hotelRoom})</small>`;
+          let roomDisplay = room.long_name || room.short_name;
+          if (room.hotel_room && room.hotel_room !== (room.long_name || room.short_name)) {
+            roomDisplay = `${room.long_name || room.short_name}<br><small style="opacity: 0.8">(${room.hotel_room})</small>`;
           }
           const rs = el('span');
           rs.innerHTML = ICONS.mappin + ' ' + roomDisplay;
