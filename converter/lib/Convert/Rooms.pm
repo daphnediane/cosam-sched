@@ -36,7 +36,10 @@ sub read_rooms ( $wb, $lookup_config = {} ) {
 
         my $short_name = $data->{ Room_Name } // $data->{ Room }
             // $data->{ Name };
-        my $long_name = $data->{ Long_Name } // $short_name;
+        my $long_name_raw = $data->{ Long_Name };
+        my $long_name = (defined $long_name_raw && $long_name_raw ne '#ERROR!') 
+            ? $long_name_raw 
+            : ($data->{ Hotel_Room } // $short_name);
         $short_name //= $long_name;
 
         next unless defined $short_name;
@@ -47,6 +50,7 @@ sub read_rooms ( $wb, $lookup_config = {} ) {
 
         push @rooms, {
             id         => $next_id++,
+            uid        => $next_id - 1,  # Use id as uid
             short_name => $short_name,
             long_name  => $long_name,
             hotel_room => $hotel_room,
@@ -57,9 +61,12 @@ sub read_rooms ( $wb, $lookup_config = {} ) {
 
     @rooms = sort { $a->{ sort_key } <=> $b->{ sort_key } } @rooms;
 
-    # Re-assign ids after sort
+    # Re-assign ids after sort but preserve original UIDs
     my $idx = 0;
-    $_->{ id } = $idx++ for @rooms;
+    for my $room (@rooms) {
+        $room->{ id } = $idx++;
+        # UID was already assigned during creation
+    }
 
     return \@rooms;
 } ## end sub read_rooms

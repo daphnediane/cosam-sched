@@ -182,7 +182,7 @@
 
       // Rooms — breaks pass through
       if (this.filters.rooms.size > 0) {
-        events = events.filter(e => this._isBreakEvent(e) || (e.room && this.filters.rooms.has(e.room)));
+        events = events.filter(e => this._isBreakEvent(e) || (e.roomId && this.filters.rooms.has(e.roomId)));
       }
 
       // Types — breaks excluded when filtering by type
@@ -353,12 +353,12 @@
       const roomChips = el('div', { className: 'cosam-filter-checkboxes' });
       for (const room of this.state.data.rooms) {
         const name = room.longName || room.shortName;
-        const selected = this.state.filters.rooms.has(name);
+        const selected = this.state.filters.rooms.has(room.id);
         const chip = el('span', {
           className: 'cosam-filter-chip' + (selected ? ' selected' : ''),
           onClick: () => {
-            if (this.state.filters.rooms.has(name)) this.state.filters.rooms.delete(name);
-            else this.state.filters.rooms.add(name);
+            if (this.state.filters.rooms.has(room.id)) this.state.filters.rooms.delete(room.id);
+            else this.state.filters.rooms.add(room.id);
             this.render();
           },
         }, name);
@@ -556,10 +556,17 @@
         timeSpan.innerHTML = ICONS.clock + ' ' + escapeHtml(formatTimeRange(evt.startTime, evt.endTime));
         meta.appendChild(timeSpan);
       }
-      if (evt.room) {
-        const roomSpan = el('span');
-        roomSpan.innerHTML = ICONS.mappin + ' ' + escapeHtml(evt.room);
-        meta.appendChild(roomSpan);
+      if (evt.roomId !== null && evt.roomId !== undefined) {
+        const room = this.state.data.rooms.find(r => r.id === evt.roomId);
+        if (room) {
+          let roomDisplay = room.longName || room.shortName;
+          if (room.hotelRoom && room.hotelRoom !== (room.longName || room.shortName)) {
+            roomDisplay = `${room.longName || room.shortName}<br><small style="opacity: 0.8">(${room.hotelRoom})</small>`;
+          }
+          const roomSpan = el('span');
+          roomSpan.innerHTML = ICONS.mappin + ' ' + roomDisplay;
+          meta.appendChild(roomSpan);
+        }
       }
       if (evt.kind) {
         meta.appendChild(el('span', {}, evt.kind));
@@ -618,14 +625,15 @@
       const breakEvents = events.filter(e => this.state._isBreakEvent(e));
 
       // Get visible rooms from regular events only (BREAK room excluded)
-      const roomNames = [...new Set(regularEvents.map(e => e.room).filter(Boolean))];
+      const roomIds = [...new Set(regularEvents.map(e => e.roomId).filter(id => id !== null && id !== undefined))];
       const roomOrder = this.state.data.rooms
-        .filter(r => roomNames.includes(r.longName) || roomNames.includes(r.shortName))
-        .map(r => r.longName || r.shortName);
+        .filter(r => roomIds.includes(r.id))
+        .sort((a, b) => a.sortKey - b.sortKey)
+        .map(r => r.id);
 
       // Add any rooms not in the rooms list
-      for (const rn of roomNames) {
-        if (!roomOrder.includes(rn)) roomOrder.push(rn);
+      for (const rid of roomIds) {
+        if (!roomOrder.includes(rid)) roomOrder.push(rid);
       }
 
       if (roomOrder.length === 0) {
@@ -643,8 +651,15 @@
       const thead = el('thead');
       const headerRow = el('tr');
       headerRow.appendChild(el('th', {}, 'Time'));
-      for (const room of roomOrder) {
-        headerRow.appendChild(el('th', {}, room));
+      for (const roomId of roomOrder) {
+        const room = this.state.data.rooms.find(r => r.id === roomId);
+        let roomDisplay = room ? (room.longName || room.shortName) : 'Unknown';
+        if (room && room.hotelRoom && room.hotelRoom !== (room.longName || room.shortName)) {
+          roomDisplay = `${room.longName || room.shortName}<br><small style="opacity: 0.8">(${room.hotelRoom})</small>`;
+        }
+        const th = el('th');
+        th.innerHTML = roomDisplay;
+        headerRow.appendChild(th);
       }
       thead.appendChild(headerRow);
       table.appendChild(thead);
@@ -674,16 +689,16 @@
 
         if (slotBreaks.length > 0) {
           // Determine which rooms have real events at this time
-          const occupiedRooms = new Set(slotRegular.map(e => e.room).filter(Boolean));
+          const occupiedRoomIds = new Set(slotRegular.map(e => e.roomId).filter(id => id !== null && id !== undefined));
 
           // Build cells: span across unoccupied rooms, show real events in occupied rooms
           let i = 0;
           while (i < roomOrder.length) {
-            const room = roomOrder[i];
-            if (occupiedRooms.has(room)) {
+            const roomId = roomOrder[i];
+            if (occupiedRoomIds.has(roomId)) {
               // Room has a real event — render it normally
               const td = el('td');
-              const roomEvents = slotRegular.filter(e => e.room === room);
+              const roomEvents = slotRegular.filter(e => e.roomId === roomId);
               for (const evt of roomEvents) {
                 td.appendChild(this._buildGridEvent(evt));
               }
@@ -692,14 +707,13 @@
             } else {
               // Start a span across consecutive unoccupied rooms
               let spanEnd = i + 1;
-              while (spanEnd < roomOrder.length && !occupiedRooms.has(roomOrder[spanEnd])) {
+              while (spanEnd < roomOrder.length && !occupiedRoomIds.has(roomOrder[spanEnd])) {
                 spanEnd++;
               }
               const colspan = spanEnd - i;
-              const td = el('td', { className: 'cosam-grid-break-cell' });
-              if (colspan > 1) td.setAttribute('colspan', colspan);
-              for (const brk of slotBreaks) {
-                td.appendChild(this._buildGridBreak(brk));
+              const td = el('td', { colspan: colspan });
+              for (const breakEvt of slotBreaks) {
+                td.appendChild(this._buildBreakBanner(breakEvt));
               }
               tr.appendChild(td);
               i = spanEnd;
@@ -707,9 +721,9 @@
           }
         } else {
           // Normal row — no breaks
-          for (const room of roomOrder) {
+          for (const roomId of roomOrder) {
             const td = el('td');
-            const roomEvents = slotRegular.filter(e => e.room === room);
+            const roomEvents = slotRegular.filter(e => e.roomId === roomId);
             for (const evt of roomEvents) {
               td.appendChild(this._buildGridEvent(evt));
             }
@@ -805,10 +819,17 @@
       if (evt.duration) {
         meta.appendChild(el('span', {}, evt.duration + ' min'));
       }
-      if (evt.room) {
-        const rs = el('span');
-        rs.innerHTML = ICONS.mappin + ' ' + escapeHtml(evt.room);
-        meta.appendChild(rs);
+      if (evt.roomId !== null && evt.roomId !== undefined) {
+        const room = this.state.data.rooms.find(r => r.id === evt.roomId);
+        if (room) {
+          let roomDisplay = room.longName || room.shortName;
+          if (room.hotelRoom && room.hotelRoom !== (room.longName || room.shortName)) {
+            roomDisplay = `${room.longName || room.shortName}<br><small style="opacity: 0.8">(${room.hotelRoom})</small>`;
+          }
+          const rs = el('span');
+          rs.innerHTML = ICONS.mappin + ' ' + roomDisplay;
+          meta.appendChild(rs);
+        }
       }
       if (evt.kind) {
         meta.appendChild(el('span', {}, evt.kind));

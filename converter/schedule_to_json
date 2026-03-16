@@ -88,8 +88,10 @@ my $visible_rooms = [
     map {
         {
             id        => $_->{ id },
+            uid       => $_->{ uid },
             shortName => $_->{ short_name },
             longName  => $_->{ long_name },
+            hotelRoom => $_->{ hotel_room },
             sortKey   => $_->{ sort_key },
         }
     } grep { !$_->{ is_hidden } } @{ $rooms }
@@ -123,8 +125,7 @@ my $json_events = [
             startTime   => $_->{ start_time },
             endTime     => $_->{ end_time },
             duration    => $_->{ duration },
-            room        => $_->{ room },
-            roomId      => $_->{ room_id },
+            roomId      => $_->{ roomId },
             panelType   => $_->{ panel_type },
             kind        => $_->{ kind },
             color       => $_->{ color },

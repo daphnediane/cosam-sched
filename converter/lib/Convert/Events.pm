@@ -197,9 +197,44 @@ sub _build_room_lookup ( $rooms ) {
         if ( defined $room->{ long_name } ) {
             $map{ lc $room->{ long_name } } //= $room;
         }
+        if ( defined $room->{ hotel_room } ) {
+            $map{ lc $room->{ hotel_room } } //= $room;
+        }
     } ## end for my $room ( @{ $rooms...})
     return \%map;
 } ## end sub _build_room_lookup
+
+sub _find_or_create_room ( $rooms, $room_lookup, $room_name ) {
+    return undef unless defined $room_name;
+    
+    # Try to find existing room by various names
+    my $room = $room_lookup->{ lc $room_name };
+    return $room if $room;
+    
+    # Create new room if not found
+    my %existing_uids = map { $_->{ uid } => 1 } @$rooms;
+    my $new_uid = 0;
+    while ( exists $existing_uids{ $new_uid } ) {
+        $new_uid++;
+    }
+    
+    my $new_room = {
+        id         => scalar @$rooms,
+        uid        => $new_uid,
+        short_name => $room_name,
+        long_name  => $room_name,
+        hotel_room => $room_name,
+        sort_key   => 999,  # Put new rooms at the end
+        is_hidden  => 0,
+    };
+    
+    push @$rooms, $new_room;
+    
+    # Update lookup with new room
+    $room_lookup->{ lc $room_name } = $new_room;
+    
+    return $new_room;
+}
 
 # ── PanelType lookup helpers ─────────────────────────────────────────────────
 
@@ -292,7 +327,7 @@ sub read_events ( $wb, $rooms, $panel_types, $lookup_config = {} ) {
             // $data->{ RoomName };
         my $room_obj;
         if ( defined $room_name ) {
-            $room_obj = $room_lookup->{ lc $room_name };
+            $room_obj = _find_or_create_room( $rooms, $room_lookup, $room_name );
         }
 
         # SPLIT events are page-break markers for print layout; skip entirely
@@ -400,10 +435,7 @@ sub read_events ( $wb, $rooms, $panel_types, $lookup_config = {} ) {
             duration    => defined $duration_seconds
             ? int( $duration_seconds / 60 )
             : undef,
-            room => $room_obj
-            ? ( $room_obj->{ long_name } // $room_obj->{ short_name } )
-            : $room_name,
-            room_id    => $room_obj ? $room_obj->{ id } : undef,
+            roomId      => $room_obj ? $room_obj->{ id } : undef,
             panel_type => $panel_type
             ? $panel_type->{ prefix }
             : ( $id_prefix ne q{} ? $id_prefix : undef ),
