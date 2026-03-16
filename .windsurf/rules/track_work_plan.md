@@ -13,6 +13,7 @@ Work items are stored as individual markdown files in the `work-plan/` directory
 - **DOCS** - Documentation updates
 - **REFACTOR** - Code restructuring without functional changes
 - **TEST** - Test additions or improvements
+- **EDITOR** - Desktop schedule editor application (Rust/GPUI)
 
 ### Work Item File Layout
 
