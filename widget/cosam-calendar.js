@@ -2,11 +2,16 @@
  * CosAm Calendar Widget
  * Embeddable interactive event calendar for Cosplay America
  * Vanilla JS — no framework dependencies
+ * 
+ * Copyright (c) 2026 Daphne Pfister
+ * SPDX-License-Identifier: BSD-2-Clause
+ * See LICENSE file for full license text
  */
 (function () {
   'use strict';
 
   // ── SVG Icons ────────────────────────────────────────────────────────────
+  // @TODO(dpfister): Double check if Windsurf borrowed this icons from somewhere and if so replace with properly attributed SVG assets.
 
   const ICONS = {
     star: '<svg viewBox="0 0 24 24"><polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2"/></svg>',
@@ -145,9 +150,20 @@
       return window.location.href.split('#')[0] + '#starred=' + encodeURIComponent(ids);
     }
 
+    _isBreakEvent(e) {
+      return e.isBreak || e.panelType === 'BREAK';
+    }
+
+    _isSplitEvent(e) {
+      return e.panelType === 'SPLIT' || e.room === 'SPLIT';
+    }
+
     filteredEvents() {
       if (!this.data) return [];
       let events = this.data.events;
+
+      // Remove SPLIT events (page-break markers for print layout)
+      events = events.filter(e => !this._isSplitEvent(e));
 
       // Day filter
       if (this.activeDay) {
@@ -158,36 +174,38 @@
       if (this.filters.search) {
         const q = this.filters.search.toLowerCase();
         events = events.filter(e =>
+          this._isBreakEvent(e) ||
           (e.name && e.name.toLowerCase().includes(q)) ||
           (e.description && e.description.toLowerCase().includes(q)) ||
           (e.presenters && e.presenters.some(p => p.toLowerCase().includes(q)))
         );
       }
 
-      // Rooms
+      // Rooms — breaks pass through
       if (this.filters.rooms.size > 0) {
-        events = events.filter(e => e.room && this.filters.rooms.has(e.room));
+        events = events.filter(e => this._isBreakEvent(e) || (e.room && this.filters.rooms.has(e.room)));
       }
 
-      // Types
+      // Types — breaks pass through
       if (this.filters.types.size > 0) {
-        events = events.filter(e => e.panelType && this.filters.types.has(e.panelType));
+        events = events.filter(e => this._isBreakEvent(e) || (e.panelType && this.filters.types.has(e.panelType)));
       }
 
       // Cost
       if (this.filters.cost === 'free') {
-        events = events.filter(e => e.isFree);
+        events = events.filter(e => this._isBreakEvent(e) || e.isFree);
       } else if (this.filters.cost === 'paid') {
-        events = events.filter(e => !e.isFree && !e.isWorkshop);
+        events = events.filter(e => this._isBreakEvent(e) || (!e.isFree && !e.isWorkshop));
       } else if (this.filters.cost === 'workshop') {
-        events = events.filter(e => e.isWorkshop);
+        events = events.filter(e => this._isBreakEvent(e) || e.isWorkshop);
       }
 
       // Presenter
       if (this.filters.presenter) {
         const p = this.filters.presenter.toLowerCase();
         events = events.filter(e =>
-          e.presenters && e.presenters.some(pr => pr.toLowerCase().includes(p))
+          this._isBreakEvent(e) ||
+          (e.presenters && e.presenters.some(pr => pr.toLowerCase().includes(p)))
         );
       }
 
@@ -463,18 +481,53 @@
         groups.get(key).push(evt);
       }
 
+      const showAllDays = !this.state.activeDay;
+      let lastDayKey = null;
+
       for (const [timeKey, evts] of groups) {
         const group = el('div', { className: 'cosam-time-group' });
-        const timeLabel = evts[0] ? formatTime(evts[0].startTime) : timeKey;
-        group.appendChild(el('div', { className: 'cosam-time-header' }, timeLabel));
+        let timeLabel = evts[0] ? formatTime(evts[0].startTime) : timeKey;
+        if (showAllDays && evts[0]) {
+          const dayKey = getDayKey(evts[0].startTime);
+          if (dayKey !== lastDayKey) {
+            timeLabel = getDayLabel(evts[0].startTime) + '\n' + timeLabel;
+            lastDayKey = dayKey;
+          }
+        }
+        const timeHeader = el('div', { className: 'cosam-time-header' });
+        timeHeader.style.whiteSpace = 'pre-line';
+        timeHeader.textContent = timeLabel;
+        group.appendChild(timeHeader);
 
         for (const evt of evts) {
-          group.appendChild(this._buildEventCard(evt));
+          if (this.state._isBreakEvent(evt)) {
+            group.appendChild(this._buildBreakBanner(evt));
+          } else {
+            group.appendChild(this._buildEventCard(evt));
+          }
         }
         container.appendChild(group);
       }
 
       return container;
+    }
+
+    _buildBreakBanner(evt) {
+      const banner = el('div', {
+        className: 'cosam-break-banner',
+        onClick: () => { this.state.modalEvent = evt; this._showModal(evt); },
+      });
+      banner.appendChild(el('div', { className: 'cosam-break-name' }, evt.name));
+      if (evt.description) {
+        banner.appendChild(el('div', { className: 'cosam-break-desc' }, evt.description));
+      }
+      const timeStr = formatTimeRange(evt.startTime, evt.endTime);
+      if (timeStr) {
+        const meta = el('div', { className: 'cosam-break-meta' });
+        meta.innerHTML = ICONS.clock + ' ' + escapeHtml(timeStr);
+        banner.appendChild(meta);
+      }
+      return banner;
     }
 
     _buildEventCard(evt) {
@@ -563,8 +616,12 @@
     _buildGridView(events) {
       const container = el('div', { className: 'cosam-grid-view' });
 
-      // Get visible rooms for this day's events
-      const roomNames = [...new Set(events.map(e => e.room).filter(Boolean))];
+      // Separate break events from regular events
+      const regularEvents = events.filter(e => !this.state._isBreakEvent(e));
+      const breakEvents = events.filter(e => this.state._isBreakEvent(e));
+
+      // Get visible rooms from regular events only (BREAK room excluded)
+      const roomNames = [...new Set(regularEvents.map(e => e.room).filter(Boolean))];
       const roomOrder = this.state.data.rooms
         .filter(r => roomNames.includes(r.longName) || roomNames.includes(r.shortName))
         .map(r => r.longName || r.shortName);
@@ -579,7 +636,7 @@
         return container;
       }
 
-      // Get time slots
+      // Get time slots from all events (including breaks)
       const timeSlots = [...new Set(events.map(e => getTimeSlotKey(e.startTime)))].sort();
 
       // Build table
@@ -597,19 +654,70 @@
 
       // Body
       const tbody = el('tbody');
+      const showAllDays = !this.state.activeDay;
+      let lastDayKey = null;
+
       for (const timeSlot of timeSlots) {
         const tr = el('tr');
         const slotEvents = events.filter(e => getTimeSlotKey(e.startTime) === timeSlot);
-        const timeLabel = slotEvents.length > 0 ? formatTime(slotEvents[0].startTime) : '';
-        tr.appendChild(el('td', {}, timeLabel));
-
-        for (const room of roomOrder) {
-          const td = el('td');
-          const roomEvents = slotEvents.filter(e => e.room === room);
-          for (const evt of roomEvents) {
-            td.appendChild(this._buildGridEvent(evt));
+        const slotRegular = slotEvents.filter(e => !this.state._isBreakEvent(e));
+        const slotBreaks = slotEvents.filter(e => this.state._isBreakEvent(e));
+        let timeLabel = slotEvents.length > 0 ? formatTime(slotEvents[0].startTime) : '';
+        if (showAllDays && slotEvents.length > 0) {
+          const dayKey = getDayKey(slotEvents[0].startTime);
+          if (dayKey !== lastDayKey) {
+            timeLabel = getDayLabel(slotEvents[0].startTime) + '\n' + timeLabel;
+            lastDayKey = dayKey;
           }
-          tr.appendChild(td);
+        }
+        const timeTd = el('td');
+        timeTd.style.whiteSpace = 'pre-line';
+        timeTd.textContent = timeLabel;
+        tr.appendChild(timeTd);
+
+        if (slotBreaks.length > 0) {
+          // Determine which rooms have real events at this time
+          const occupiedRooms = new Set(slotRegular.map(e => e.room).filter(Boolean));
+
+          // Build cells: span across unoccupied rooms, show real events in occupied rooms
+          let i = 0;
+          while (i < roomOrder.length) {
+            const room = roomOrder[i];
+            if (occupiedRooms.has(room)) {
+              // Room has a real event — render it normally
+              const td = el('td');
+              const roomEvents = slotRegular.filter(e => e.room === room);
+              for (const evt of roomEvents) {
+                td.appendChild(this._buildGridEvent(evt));
+              }
+              tr.appendChild(td);
+              i++;
+            } else {
+              // Start a span across consecutive unoccupied rooms
+              let spanEnd = i + 1;
+              while (spanEnd < roomOrder.length && !occupiedRooms.has(roomOrder[spanEnd])) {
+                spanEnd++;
+              }
+              const colspan = spanEnd - i;
+              const td = el('td', { className: 'cosam-grid-break-cell' });
+              if (colspan > 1) td.setAttribute('colspan', colspan);
+              for (const brk of slotBreaks) {
+                td.appendChild(this._buildGridBreak(brk));
+              }
+              tr.appendChild(td);
+              i = spanEnd;
+            }
+          }
+        } else {
+          // Normal row — no breaks
+          for (const room of roomOrder) {
+            const td = el('td');
+            const roomEvents = slotRegular.filter(e => e.room === room);
+            for (const evt of roomEvents) {
+              td.appendChild(this._buildGridEvent(evt));
+            }
+            tr.appendChild(td);
+          }
         }
         tbody.appendChild(tr);
       }
@@ -617,6 +725,18 @@
       container.appendChild(table);
 
       return container;
+    }
+
+    _buildGridBreak(evt) {
+      const div = el('div', {
+        className: 'cosam-grid-break',
+        onClick: () => { this.state.modalEvent = evt; this._showModal(evt); },
+      });
+      div.appendChild(el('div', { className: 'cosam-grid-break-name' }, evt.name));
+      if (evt.duration) {
+        div.appendChild(el('div', { className: 'cosam-grid-event-time' }, evt.duration + ' min'));
+      }
+      return div;
     }
 
     _buildGridEvent(evt) {
@@ -834,10 +954,11 @@
         .then(data => {
           state.data = data;
 
-          // Extract days
+          // Extract days (skip SPLIT events which are print-layout markers)
           const daySet = new Map();
           for (const evt of data.events) {
             if (!evt.startTime) continue;
+            if (state._isSplitEvent(evt)) continue;
             const key = getDayKey(evt.startTime);
             if (!daySet.has(key)) {
               daySet.set(key, getDayLabel(evt.startTime));
