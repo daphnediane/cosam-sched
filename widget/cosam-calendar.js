@@ -482,12 +482,23 @@
       const showAllDays = !this.state.activeDay;
       let lastDayKey = null;
 
-      for (const [timeKey, evts] of groups) {
+      // Sort time keys chronologically for proper day transition detection
+      const sortedTimeKeys = Array.from(groups.keys()).sort();
+
+      for (const timeKey of sortedTimeKeys) {
+        const evts = groups.get(timeKey);
         const group = el('div', { className: 'cosam-time-group' });
         let timeLabel = evts[0] ? formatTime(evts[0].startTime) : timeKey;
         if (showAllDays && evts[0]) {
           const dayKey = getDayKey(evts[0].startTime);
           if (dayKey !== lastDayKey) {
+            // Add sleep break between days (except for first day)
+            if (lastDayKey !== null) {
+              const sleepBreak = el('div', { className: 'cosam-sleep-break' });
+              sleepBreak.appendChild(el('div', { className: 'cosam-sleep-break-icon' }, '🌙'));
+              sleepBreak.appendChild(el('div', { className: 'cosam-sleep-break-text' }, 'Overnight Break'));
+              container.appendChild(sleepBreak);
+            }
             timeLabel = getDayLabel(evts[0].startTime) + '\n' + timeLabel;
             lastDayKey = dayKey;
           }
@@ -678,6 +689,17 @@
         if (showAllDays && slotEvents.length > 0) {
           const dayKey = getDayKey(slotEvents[0].startTime);
           if (dayKey !== lastDayKey) {
+            // Add sleep break row between days (except for first day)
+            if (lastDayKey !== null) {
+              const sleepRow = el('tr', { className: 'cosam-sleep-break-row' });
+              const sleepCell = el('td', { colspan: roomOrder.length + 1 });
+              const sleepBreak = el('div', { className: 'cosam-sleep-break' });
+              sleepBreak.appendChild(el('div', { className: 'cosam-sleep-break-icon' }, '🌙'));
+              sleepBreak.appendChild(el('div', { className: 'cosam-sleep-break-text' }, 'Overnight Break'));
+              sleepCell.appendChild(sleepBreak);
+              sleepRow.appendChild(sleepCell);
+              tbody.appendChild(sleepRow);
+            }
             timeLabel = getDayLabel(slotEvents[0].startTime) + '\n' + timeLabel;
             lastDayKey = dayKey;
           }
