@@ -12,6 +12,11 @@
 !/.vscode
 /.vscode/perl-lang
 
+# Keep work plan files
+!/.windsurf
+/.windsurf/*
+!/.windsurf/rules
+
 # Keep some config files
 !/.devcontainer
 !.git*[^~]
