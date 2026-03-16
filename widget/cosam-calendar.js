@@ -629,6 +629,9 @@
     // ── Grid View ──
 
     _buildGridView(events) {
+      console.log('=== BUILD GRID VIEW STARTED ===');
+      console.log('Total events:', events.length);
+
       const container = el('div', { className: 'cosam-grid-view' });
 
       // Separate break events from regular events
@@ -638,9 +641,9 @@
       // Get visible rooms from regular events only (BREAK room excluded)
       const roomIds = [...new Set(regularEvents.map(e => e.roomId).filter(id => id !== null && id !== undefined))];
       const roomOrder = this.state.data.rooms
-        .filter(r => roomIds.includes(r.uid))
-        .sort((a, b) => a.sort_key - b.sort_key)
-        .map(r => r.uid);
+        .filter(r => roomIds.includes(r.uid || r.id))
+        .sort((a, b) => (a.sort_key || a.sortKey) - (b.sort_key || b.sortKey))
+        .map(r => r.uid || r.id);
 
       // Add any rooms not in the rooms list
       for (const rid of roomIds) {
@@ -652,63 +655,197 @@
         return container;
       }
 
-      // Get time slots from all events (including breaks)
-      const timeSlots = [...new Set(events.map(e => getTimeSlotKey(e.startTime)))].sort();
+      // Generate time slots - include all event start/end times plus key transition points
+      const eventTimeKeys = [...new Set(events.flatMap(e => [getTimeSlotKey(e.startTime), getTimeSlotKey(e.endTime)]))].sort();
 
-      // Build table
-      const table = el('table', { className: 'cosam-grid-table' });
+      // Add important transition times (end of days) to ensure overnight breaks work
+      const transitionKeys = new Set();
+      const dayGroups = {};
 
-      // Header
-      const thead = el('thead');
-      const headerRow = el('tr');
-      headerRow.appendChild(el('th', {}, 'Time'));
-      for (const roomId of roomOrder) {
-        const room = this.state.data.rooms.find(r => r.uid === roomId);
-        let roomDisplay = room ? (room.long_name || room.short_name) : 'Unknown';
-        if (room && room.hotel_room && room.hotel_room !== (room.long_name || room.short_name)) {
-          roomDisplay = `${room.long_name || room.short_name}<br><small style="opacity: 0.8">(${room.hotel_room})</small>`;
-        }
-        const th = el('th');
-        th.innerHTML = roomDisplay;
-        headerRow.appendChild(th);
+      // Group events by day
+      for (const key of eventTimeKeys) {
+        const dayKey = getDayKey(key + ':00');
+        if (!dayGroups[dayKey]) dayGroups[dayKey] = [];
+        dayGroups[dayKey].push(key);
       }
-      thead.appendChild(headerRow);
-      table.appendChild(thead);
 
-      // Body
-      const tbody = el('tbody');
+      // For each day, add the last event time as a transition point
+      for (const dayKey in dayGroups) {
+        const dayTimes = dayGroups[dayKey].sort();
+        if (dayTimes.length > 0) {
+          const lastTime = dayTimes[dayTimes.length - 1];
+          transitionKeys.add(lastTime);
+        }
+      }
+
+      // Combine all time keys
+      const allTimeKeys = [...new Set([...eventTimeKeys, ...transitionKeys])].sort();
+
+      console.log('Event time keys:', eventTimeKeys);
+      console.log('Transition keys:', Array.from(transitionKeys));
+      console.log('All time keys:', allTimeKeys);
+
+      // Convert to shorter names: weekday number + hour + minute (e.g., t51030 for Friday 10:30 AM)
+      const timeSlotMap = {};
+      const timeSlots = allTimeKeys.map(key => {
+        const date = new Date(key + ':00');
+        const dayNum = date.getDay(); // 0=Sunday, 1=Monday, ..., 5=Friday, 6=Saturday
+        const hour = date.getHours();
+        const minute = date.getMinutes();
+        const shortName = `t${dayNum}${hour.toString().padStart(2, '0')}${minute.toString().padStart(2, '0')}`;
+        timeSlotMap[key] = shortName;
+        return shortName;
+      });
+
+      // Create grid template styles
+      const gridColumns = `[time] minmax(80px, 120px) ` + roomOrder.map(roomId => `[room-${roomId}] 1fr`).join(' ');
+      const gridRows = `[header] auto ` + timeSlots.map(timeSlot => `[${timeSlot}] minmax(60px, auto)`).join(' ') + ` [footer] auto`;
+
+      console.log('Final gridRows string:', gridRows);
+      console.log('gridRows length:', gridRows.length);
+      console.log('timeSlots length:', timeSlots.length);
+      console.log('First few time slots:', timeSlots.slice(0, 10));
+      console.log('Last few time slots:', timeSlots.slice(-10));
+
+      console.log('Generated grid columns:', gridColumns);
+      console.log('Generated grid rows:', gridRows);
+      console.log('Time slots for rows:', timeSlots);
+
+      // Build CSS grid
+      const grid = el('div', {
+        className: 'cosam-grid',
+        role: 'table',
+        'aria-label': 'Schedule grid view',
+        style: {
+          gridTemplateColumns: gridColumns,
+          gridTemplateRows: gridRows
+        }
+      });
+
+      grid.style.gridTemplateColumns = gridColumns;
+      grid.style.gridTemplateRows = gridRows;
+
+      console.log('Applied grid styles - columns:', grid.style.gridTemplateColumns);
+      console.log('Applied grid styles - rows:', grid.style.gridTemplateRows);
+
+      // Add header row
+      const header = this._buildGridHeader(roomOrder);
+      header.style.gridRow = 'header';
+      grid.appendChild(header);
+
+      // Add time slots and events
       const showAllDays = !this.state.activeDay;
       let lastDayKey = null;
 
-      for (const timeSlot of timeSlots) {
-        const tr = el('tr');
-        const slotEvents = events.filter(e => getTimeSlotKey(e.startTime) === timeSlot);
+      for (let i = 0; i < timeSlots.length; i++) {
+        const timeSlot = timeSlots[i];
+        const originalKey = allTimeKeys[i];
+        const slotEvents = events.filter(e => getTimeSlotKey(e.startTime) === originalKey);
         const slotRegular = slotEvents.filter(e => !this.state._isBreakEvent(e));
         const slotBreaks = slotEvents.filter(e => this.state._isBreakEvent(e));
+
+        console.log('Time slot:', timeSlot);
+        console.log('Regular events:', slotRegular.map(e => e.name));
+        console.log('Break events:', slotBreaks.map(e => e.name));
+
         let timeLabel = slotEvents.length > 0 ? formatTime(slotEvents[0].startTime) : '';
         if (showAllDays && slotEvents.length > 0) {
           const dayKey = getDayKey(slotEvents[0].startTime);
+          console.log('Processing time slot:', timeSlot, 'with day:', dayKey, 'lastDayKey:', lastDayKey);
           if (dayKey !== lastDayKey) {
+            console.log('Day transition detected from', lastDayKey, 'to', dayKey);
             // Add sleep break row between days (except for first day)
             if (lastDayKey !== null) {
-              const sleepRow = el('tr', { className: 'cosam-sleep-break-row' });
-              const sleepCell = el('td', { colspan: roomOrder.length + 1 });
-              const sleepBreak = el('div', { className: 'cosam-sleep-break' });
-              sleepBreak.appendChild(el('div', { className: 'cosam-sleep-break-icon' }, '🌙'));
-              sleepBreak.appendChild(el('div', { className: 'cosam-sleep-break-text' }, 'Overnight Break'));
-              sleepCell.appendChild(sleepBreak);
-              sleepRow.appendChild(sleepCell);
-              tbody.appendChild(sleepRow);
+              // Find the last time slot of the previous day
+              let lastSlotIndex = i - 1;
+              console.log('Looking for last slot of previous day:', lastDayKey, 'starting from index:', lastSlotIndex);
+              while (lastSlotIndex >= 0) {
+                const prevKey = allTimeKeys[lastSlotIndex];
+                const prevDayKey = getDayKey(prevKey + ':00');
+                console.log('Checking slot', lastSlotIndex, 'key:', prevKey, 'day:', prevDayKey);
+                if (prevDayKey === lastDayKey) {
+                  console.log('Found last slot of previous day at index:', lastSlotIndex, 'slot:', timeSlots[lastSlotIndex]);
+                  break;
+                }
+                lastSlotIndex--;
+              }
+
+              if (lastSlotIndex >= 0) {
+                // Create sleep break that spans from last slot of previous day to current slot
+                const sleepBreak = this._buildGridSleepBreak(roomOrder.length + 1);
+                sleepBreak.style.gridColumn = `room-${roomOrder[0]} / -1`; // Span only room columns, not time column
+                sleepBreak.style.gridRow = `${timeSlots[lastSlotIndex]} / ${timeSlot}`;
+                console.log('Creating sleep break with gridRow:', `${timeSlots[lastSlotIndex]} / ${timeSlot}`);
+                grid.appendChild(sleepBreak);
+              } else {
+                console.log('Could not find last slot for previous day:', lastDayKey);
+              }
             }
             timeLabel = getDayLabel(slotEvents[0].startTime) + '\n' + timeLabel;
             lastDayKey = dayKey;
           }
         }
-        const timeTd = el('td');
-        timeTd.style.whiteSpace = 'pre-line';
-        timeTd.textContent = timeLabel;
-        tr.appendChild(timeTd);
 
+        // Add time slot header
+        const timeHeader = el('div', {
+          className: 'cosam-grid-time-header',
+          style: {
+            gridColumn: 'time',
+            gridRow: timeSlot,
+            whiteSpace: 'pre-line'
+          }
+        });
+
+        // Always show time label, even if no events start at this time
+        if (slotEvents.length > 0) {
+          timeLabel = formatTime(slotEvents[0].startTime);
+        } else {
+          // For transition slots without events, format the time from the original key
+          const originalKey = allTimeKeys[i];
+          const date = new Date(originalKey + ':00');
+          timeLabel = formatTime(date.toISOString());
+        }
+
+        if (showAllDays && slotEvents.length > 0) {
+          const dayKey = getDayKey(slotEvents[0].startTime);
+          if (dayKey !== lastDayKey) {
+            console.log('Day transition detected from', lastDayKey, 'to', dayKey);
+            // Add sleep break row between days (except for first day)
+            if (lastDayKey !== null) {
+              // Find the last time slot of the previous day
+              let lastSlotIndex = i - 1;
+              console.log('Looking for last slot of previous day:', lastDayKey, 'starting from index:', lastSlotIndex);
+              while (lastSlotIndex >= 0) {
+                const prevKey = allTimeKeys[lastSlotIndex];
+                const prevDayKey = getDayKey(prevKey + ':00');
+                console.log('Checking slot', lastSlotIndex, 'key:', prevKey, 'day:', prevDayKey);
+                if (prevDayKey === lastDayKey) {
+                  console.log('Found last slot of previous day at index:', lastSlotIndex, 'slot:', timeSlots[lastSlotIndex]);
+                  break;
+                }
+                lastSlotIndex--;
+              }
+
+              if (lastSlotIndex >= 0) {
+                // Create sleep break that spans from last slot of previous day to current slot
+                const sleepBreak = this._buildGridSleepBreak(roomOrder.length + 1);
+                sleepBreak.style.gridColumn = `room-${roomOrder[0]} / -1`; // Span only room columns, not time column
+                sleepBreak.style.gridRow = `${timeSlots[lastSlotIndex]} / ${timeSlot}`;
+                console.log('Creating sleep break with gridRow:', `${timeSlots[lastSlotIndex]} / ${timeSlot}`);
+                grid.appendChild(sleepBreak);
+              } else {
+                console.log('Could not find last slot for previous day:', lastDayKey);
+              }
+            }
+            timeLabel = getDayLabel(slotEvents[0].startTime) + '\n' + timeLabel;
+            lastDayKey = dayKey;
+          }
+        }
+
+        timeHeader.textContent = timeLabel;
+        grid.appendChild(timeHeader);
+
+        // Add events for each room
         if (slotBreaks.length > 0) {
           // Determine which rooms have real events at this time
           const occupiedRoomIds = new Set(slotRegular.map(e => e.roomId).filter(id => id !== null && id !== undefined));
@@ -719,12 +856,27 @@
             const roomId = roomOrder[i];
             if (occupiedRoomIds.has(roomId)) {
               // Room has a real event — render it normally
-              const td = el('td');
               const roomEvents = slotRegular.filter(e => e.roomId === roomId);
               for (const evt of roomEvents) {
-                td.appendChild(this._buildGridEvent(evt));
+                const eventEl = this._buildGridEvent(evt);
+                eventEl.style.gridColumn = `room-${roomId}`;
+
+                // Calculate row span for multi-time slot events
+                const endTimeSlot = getTimeSlotKey(evt.endTime);
+                const endRowIndex = timeSlots.indexOf(endTimeSlot);
+                const startRowIndex = timeSlots.indexOf(timeSlot);
+
+                if (endRowIndex > startRowIndex && endRowIndex < timeSlots.length) {
+                  // Multi-time slot event - span to end time
+                  const endSlotName = timeSlots[endRowIndex];
+                  eventEl.style.gridRow = `${timeSlot} / ${endSlotName}`;
+                } else {
+                  // Single time slot event
+                  eventEl.style.gridRow = timeSlot;
+                }
+
+                grid.appendChild(eventEl);
               }
-              tr.appendChild(td);
               i++;
             } else {
               // Start a span across consecutive unoccupied rooms
@@ -732,32 +884,169 @@
               while (spanEnd < roomOrder.length && !occupiedRoomIds.has(roomOrder[spanEnd])) {
                 spanEnd++;
               }
-              const colspan = spanEnd - i;
-              const td = el('td', { colspan: colspan });
+              const startRoom = roomOrder[i];
+              const endRoom = roomOrder[spanEnd - 1];
               for (const breakEvt of slotBreaks) {
-                td.appendChild(this._buildBreakBanner(breakEvt));
+                const breakEl = this._buildGridBreak(breakEvt);
+
+                // Calculate grid column span
+                if (spanEnd === i + 1) {
+                  // Single room
+                  breakEl.style.gridColumn = `room-${startRoom}`;
+                } else {
+                  // Multiple rooms - span to the room after the last unoccupied room
+                  const nextRoomIndex = spanEnd < roomOrder.length ? spanEnd : roomOrder.length;
+                  const endRoomName = nextRoomIndex < roomOrder.length ? `room-${roomOrder[nextRoomIndex]}` : -1;
+                  breakEl.style.gridColumn = `room-${startRoom} / ${endRoomName}`;
+                }
+
+                // Calculate row span for break events
+                const endTimeSlot = getTimeSlotKey(breakEvt.endTime);
+                const endSlotShortName = timeSlotMap[endTimeSlot];
+                const endRowIndex = timeSlots.indexOf(endSlotShortName);
+                const startRowIndex = i;
+
+                if (endRowIndex > startRowIndex && endRowIndex < timeSlots.length) {
+                  // Multi-time slot break - span to end time
+                  const endSlotName = timeSlots[endRowIndex];
+                  breakEl.style.gridRow = `${timeSlot} / ${endSlotName}`;
+                } else {
+                  // Single time slot break
+                  breakEl.style.gridRow = timeSlot;
+                }
+
+                grid.appendChild(breakEl);
               }
-              tr.appendChild(td);
               i = spanEnd;
             }
           }
         } else {
           // Normal row — no breaks
+          console.log('Processing normal row for time slot:', timeSlot);
           for (const roomId of roomOrder) {
-            const td = el('td');
             const roomEvents = slotRegular.filter(e => e.roomId === roomId);
+            console.log('Room', roomId, 'events:', roomEvents.map(e => e.name));
             for (const evt of roomEvents) {
-              td.appendChild(this._buildGridEvent(evt));
+              const eventEl = this._buildGridEvent(evt);
+              eventEl.style.gridColumn = `room-${roomId}`;
+
+              // Calculate row span for multi-time slot events
+              const endTimeSlot = getTimeSlotKey(evt.endTime);
+              const endSlotShortName = timeSlotMap[endTimeSlot];
+              const endRowIndex = timeSlots.indexOf(endSlotShortName);
+              const startRowIndex = i;
+
+              console.log('Event:', evt.name);
+              console.log('Start time:', timeSlot, 'Start index:', startRowIndex);
+              console.log('End time:', endTimeSlot, 'End index:', endRowIndex);
+              console.log('Duration:', evt.duration, 'minutes');
+              console.log('Available time slots:', timeSlots);
+
+              if (endRowIndex > startRowIndex) {
+                // Multi-time slot event - span to end time
+                const endSlotName = timeSlots[endRowIndex] || timeSlots[timeSlots.length - 1];
+                console.log('End slot name:', endSlotName);
+                eventEl.style.gridRow = `${timeSlot} / ${endSlotName}`;
+                console.log('Applied gridRow (exact):', eventEl.style.gridRow);
+              } else {
+                // Calculate span based on duration if no exact end time slot found
+                const durationMinutes = evt.duration || 60;
+                const slotsToSpan = Math.ceil(durationMinutes / 30); // 30-minute slots
+                console.log('Calculated slots to span:', slotsToSpan);
+
+                if (slotsToSpan > 1 && startRowIndex + slotsToSpan <= timeSlots.length) {
+                  const endSlotName = timeSlots[startRowIndex + slotsToSpan];
+                  eventEl.style.gridRow = `${timeSlot} / ${endSlotName}`;
+                  console.log('Applied gridRow (duration):', eventEl.style.gridRow);
+                } else {
+                  // Single time slot event
+                  eventEl.style.gridRow = timeSlot;
+                  console.log('Applied gridRow (single):', eventEl.style.gridRow);
+                }
+              }
+
+              console.log('Final event element styles:', eventEl.style.cssText);
+
+              grid.appendChild(eventEl);
             }
-            tr.appendChild(td);
           }
         }
-        tbody.appendChild(tr);
       }
-      table.appendChild(tbody);
-      container.appendChild(table);
 
+      // Add subtle background gridlines
+      // Horizontal row lines at each time slot
+      for (const ts of timeSlots) {
+        const rowLine = el('div', {
+          className: 'cosam-grid-row-line',
+          style: {
+            gridColumn: `room-${roomOrder[0]} / -1`,
+            gridRow: ts
+          }
+        });
+        grid.appendChild(rowLine);
+      }
+      // Vertical column lines between rooms
+      for (let r = 0; r < roomOrder.length - 1; r++) {
+        const colLine = el('div', {
+          className: 'cosam-grid-col-line',
+          style: {
+            gridColumn: `room-${roomOrder[r]}`,
+            gridRow: `${timeSlots[0]} / footer`
+          }
+        });
+        grid.appendChild(colLine);
+      }
+
+      // Add footer row
+      const footer = el('div', { className: 'cosam-grid-footer' });
+      footer.style.gridRow = 'footer';
+      footer.style.gridColumn = '1 / -1'; // Span all columns
+
+      // Add footer content
+      const footerContent = el('div', { className: 'cosam-grid-footer-content' });
+      footerContent.textContent = 'End of Schedule';
+      footer.appendChild(footerContent);
+
+      grid.appendChild(footer);
+
+      container.appendChild(grid);
       return container;
+    }
+
+    _buildGridHeader(roomOrder) {
+      const header = el('div', { className: 'cosam-grid-header' });
+
+      // Time header
+      const timeHeader = el('div', {
+        className: 'cosam-grid-header-cell cosam-grid-time-header',
+        style: { gridColumn: 'time' }
+      });
+      timeHeader.textContent = 'Time';
+      header.appendChild(timeHeader);
+
+      // Room headers
+      for (const roomId of roomOrder) {
+        const room = this.state.data.rooms.find(r => (r.uid || r.id) === roomId);
+        let roomDisplay = room ? (room.long_name || room.longName || room.short_name || room.shortName) : 'Unknown';
+        if (room && room.hotel_room && room.hotel_room !== (room.long_name || room.longName || room.short_name || room.shortName)) {
+          roomDisplay = `${room.long_name || room.longName || room.short_name || room.shortName}<br><small style="opacity: 0.8">(${room.hotel_room})</small>`;
+        }
+        const roomHeader = el('div', {
+          className: 'cosam-grid-header-cell',
+          style: { gridColumn: `room-${roomId}` }
+        });
+        roomHeader.innerHTML = roomDisplay;
+        header.appendChild(roomHeader);
+      }
+
+      return header;
+    }
+
+    _buildGridSleepBreak(columnCount) {
+      const sleepBreak = el('div', { className: 'cosam-sleep-break' });
+      sleepBreak.appendChild(el('div', { className: 'cosam-sleep-break-icon' }, '🌙'));
+      sleepBreak.appendChild(el('div', { className: 'cosam-sleep-break-text' }, 'Overnight Break'));
+      return sleepBreak;
     }
 
     _buildGridBreak(evt) {
@@ -777,11 +1066,24 @@
       const color = evt.color || this._typeColor(evt.panelType);
       const div = el('div', {
         className: 'cosam-grid-event' + (isStarred ? ' starred' : ''),
-        style: { backgroundColor: color ? color + '18' : '#f3f4f6', borderLeftColor: color || 'transparent' },
+        style: { backgroundColor: '#ffffff', borderLeftColor: color || 'transparent' },
         onClick: () => { this.state.modalEvent = evt; this._showModal(evt); },
       });
 
       div.appendChild(el('div', { className: 'cosam-grid-event-name' }, evt.name));
+
+      // Add room information for mobile view
+      if (evt.roomId !== null && evt.roomId !== undefined) {
+        const room = this.state.data.rooms.find(r => (r.uid || r.id) === evt.roomId);
+        if (room) {
+          let roomDisplay = room.long_name || room.longName || room.short_name || room.shortName;
+          if (room.hotel_room && room.hotel_room !== (room.long_name || room.longName || room.short_name || room.shortName)) {
+            roomDisplay = `${room.long_name || room.longName || room.short_name || room.shortName} (${room.hotel_room})`;
+          }
+          div.appendChild(el('div', { className: 'cosam-grid-event-room' }, roomDisplay));
+        }
+      }
+
       if (evt.duration) {
         div.appendChild(el('div', { className: 'cosam-grid-event-time' }, evt.duration + ' min'));
       }
@@ -991,6 +1293,10 @@
       fetch(dataUrl)
         .then(r => { if (!r.ok) throw new Error('HTTP ' + r.status); return r.json(); })
         .then(data => {
+          console.log('=== RAW DATA LOADED ===');
+          console.log('Total events in data:', data.events?.length || 0);
+          console.log('Event names:', data.events?.map(e => e.name) || []);
+
           state.data = data;
 
           // Extract days (skip SPLIT events which are print-layout markers)
