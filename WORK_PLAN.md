@@ -1,6 +1,6 @@
 # Cosplay America Schedule - Work Plan
 
-Generated on: Mon Mar 16 10:53:46 2026
+Generated on: Mon Mar 16 11:16:13 2026
 
 ## Completed
 
@@ -14,6 +14,18 @@ Generated on: Mon Mar 16 10:53:46 2026
 ---
 
 ## High Priority
+
+### [ACCESSIBILITY-001] Accessibility Improvements
+
+**Status:** Open
+
+**Summary:** Implement comprehensive accessibility improvements for screen readers and color blindness support.
+
+**Description:** Implement comprehensive accessibility improvements to ensure the schedule is usable by screen readers and users with various types of color blindness, following W3C WAI standards and achieving WCAG 2.1 AA compliance.
+
+*See full details in: [work-plan/ACCESSIBILITY-001.md](work-plan/ACCESSIBILITY-001.md)*
+
+---
 
 ### [BUGFIX-004] Hide staff only / private events from converted JSON
 
