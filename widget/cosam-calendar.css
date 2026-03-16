@@ -618,6 +618,57 @@
   color: var(--cosam-text-muted);
 }
 
+/* ── Sleep Break ─────────────────────────────────────────────────────────── */
+
+.cosam-sleep-break {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  padding: 16px;
+  margin: 20px 0;
+  background: linear-gradient(135deg, #1e293b 0%, #334155 100%);
+  border-radius: var(--cosam-radius);
+  color: white;
+  text-align: center;
+  font-weight: 500;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1);
+}
+
+.cosam-sleep-break-icon {
+  font-size: 20px;
+  animation: twinkle 2s ease-in-out infinite;
+}
+
+.cosam-sleep-break-text {
+  font-size: 14px;
+  letter-spacing: 0.5px;
+}
+
+@keyframes twinkle {
+
+  0%,
+  100% {
+    opacity: 1;
+    transform: scale(1);
+  }
+
+  50% {
+    opacity: 0.7;
+    transform: scale(0.95);
+  }
+}
+
+.cosam-sleep-break-row {
+  background: transparent;
+}
+
+.cosam-sleep-break-row td {
+  padding: 0;
+  border: none;
+  background: transparent;
+}
+
 /* ── Event Detail Modal ───────────────────────────────────────────────────── */
 
 .cosam-modal-overlay {
