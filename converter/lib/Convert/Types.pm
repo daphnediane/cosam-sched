@@ -25,11 +25,12 @@ sub read_panel_types ( $wb ) {
         my $prefix = $data->{ Prefix } // q{};
         next if $prefix eq q{};
 
-        my $kind = $data->{ Panel_Kind } // $data->{ PanelKind } // $data->{ Kind } // $prefix;
+        my $kind = $data->{ Panel_Kind } // $data->{ PanelKind }
+            // $data->{ Kind } // $prefix;
 
-        my $is_break    = ( $kind =~ m{\A br}xmsi )        ? 1 : 0;
-        my $is_cafe     = ( $kind =~ m{\A caf[eé] \z}xmsi ) ? 1 : 0;
-        my $is_workshop = ( $prefix =~ m{\A .W \z}xmsi )   ? 1 : 0;
+        my $is_break    = ( $kind   =~ m{\A br}xmsi )         ? 1 : 0;
+        my $is_cafe     = ( $kind   =~ m{\A caf[eé] \z}xmsi ) ? 1 : 0;
+        my $is_workshop = ( $prefix =~ m{\A .W \z}xmsi )      ? 1 : 0;
 
         my $is_hidden = 0;
         if ( defined $data->{ Hidden } && $data->{ Hidden } ne q{} ) {
@@ -64,9 +65,9 @@ sub read_panel_types ( $wb ) {
             is_hidden   => $is_hidden,
             color       => $color,
         };
-    }
+    } ## end for my $row ( @rows )
 
     return \@types;
-}
+} ## end sub read_panel_types
 
 1;

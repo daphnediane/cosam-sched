@@ -17,3 +17,7 @@
 !.git*[^~]
 !.perlcriticrc
 !.perltidyrc
+
+# Ignore json files
+*.json
+!sample-data.json

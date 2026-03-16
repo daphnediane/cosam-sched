@@ -22,9 +22,9 @@ sub find_sheet ( $wb, @names ) {
                 return $ws;
             }
         }
-    }
+    } ## end for my $name ( @names )
     return;
-}
+} ## end sub find_sheet
 
 sub get_rows ( $sheet ) {
     return unless defined $sheet;
@@ -42,24 +42,24 @@ sub get_rows ( $sheet ) {
                 my $value   = $cell->value();
 
                 # Handle HYPERLINK formulas — extract the URL
-                if (   defined $formula
+                if ( defined $formula
                     && $formula
                     =~ m{ \A HYPERLINK \( " (?<url>[^"]+) " (?:, " (?<title>[^"]+) " )? \) \s*\z }xms
                 ) {
                     $value = $+{ url };
-                }
+                } ## end if ( defined $formula ...)
 
                 undef $value unless defined $value && $value =~ m{\S}xms;
                 push @row, $value;
-            }
+            } ## end if ( defined $cell )
             else {
                 push @row, undef;
             }
-        }
+        } ## end for my $col_idx ( $min_col...)
         push @rows, \@row;
-    }
+    } ## end for my $row_idx ( $min_row...)
 
     return @rows;
-}
+} ## end sub get_rows
 
 1;

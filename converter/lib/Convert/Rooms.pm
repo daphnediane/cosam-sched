@@ -28,8 +28,9 @@ sub read_rooms ( $wb ) {
     for my $row ( @rows ) {
         my $data = canonical_data( \@header, \@san_header, $row );
 
-        my $short_name = $data->{ Room_Name } // $data->{ Room } // $data->{ Name };
-        my $long_name  = $data->{ Long_Name } // $short_name;
+        my $short_name = $data->{ Room_Name } // $data->{ Room }
+            // $data->{ Name };
+        my $long_name = $data->{ Long_Name } // $short_name;
         $short_name //= $long_name;
 
         next unless defined $short_name;
@@ -39,14 +40,14 @@ sub read_rooms ( $wb ) {
         my $hotel_room   = $data->{ Hotel_Room } // $data->{ HotelRoom };
 
         push @rooms, {
-            id          => $next_id++,
-            short_name  => $short_name,
-            long_name   => $long_name,
-            hotel_room  => $hotel_room,
-            sort_key    => $sort_key,
-            is_hidden   => ( $sort_key >= 100 ) ? 1 : 0,
+            id         => $next_id++,
+            short_name => $short_name,
+            long_name  => $long_name,
+            hotel_room => $hotel_room,
+            sort_key   => $sort_key,
+            is_hidden  => ( $sort_key >= 100 ) ? 1 : 0,
         };
-    }
+    } ## end for my $row ( @rows )
 
     @rooms = sort { $a->{ sort_key } <=> $b->{ sort_key } } @rooms;
 
@@ -55,6 +56,6 @@ sub read_rooms ( $wb ) {
     $_->{ id } = $idx++ for @rooms;
 
     return \@rooms;
-}
+} ## end sub read_rooms
 
 1;

@@ -4,9 +4,10 @@ use v5.38.0;
 use utf8;
 use warnings;
 
-use Date::Parse       qw{ str2time };
-use POSIX             qw{ strftime };
-use Convert::Canonical qw{ canonical_header canonical_headers canonical_data };
+use Date::Parse qw{ str2time };
+use POSIX       qw{ strftime };
+use Convert::Canonical
+    qw{ canonical_header canonical_headers canonical_data };
 use Convert::SheetUtil qw{ find_sheet get_rows };
 
 # ── Presenter column detection ────────────────────────────────────────────────
@@ -34,17 +35,19 @@ sub _parse_presenter_header ( $hdr ) {
             index    => int( $2 ),
             is_other => 0,
         };
-    }
+    } ## end if ( $h =~ m{\A ([gjsip]) (\d+) \z}xmsi)
 
     # "Guest1", "Staff2", etc.
-    if ( $h =~ m{\A (Guest|Judge|Staff|Invited|Panelist|Fan_Panelist) [\s_]* (\d+) \z}xmsi ) {
+    if ( $h
+        =~ m{\A (Guest|Judge|Staff|Invited|Panelist|Fan_Panelist) [\s_]* (\d+) \z}xmsi
+    ) {
         my $prefix = lc substr( $1, 0, 1 );
         return {
             rank     => $RANK_PREFIXES{ $prefix },
             index    => int( $2 ),
             is_other => 0,
         };
-    }
+    } ## end if ( $h =~ ...)
 
     # "Others" / "Other" / "other_panelists"
     if ( $h =~ m{\A other}xmsi ) {
@@ -52,7 +55,7 @@ sub _parse_presenter_header ( $hdr ) {
     }
 
     return;
-}
+} ## end sub _parse_presenter_header
 
 # ── Time parsing ──────────────────────────────────────────────────────────────
 
@@ -71,7 +74,7 @@ sub _parse_datetime ( $text ) {
 
     warn "Unable to parse time: ${s}\n";
     return;
-}
+} ## end sub _parse_datetime
 
 sub _seconds_to_iso ( $seconds ) {
     return unless defined $seconds;
@@ -96,11 +99,12 @@ sub _parse_duration ( $text ) {
     }
 
     return;
-}
+} ## end sub _parse_duration
 
 # ── Cost normalization ────────────────────────────────────────────────────────
 
-my $RE_FREE  = qr{ \A (?: free | (?=n) (?: nothing | n /? a ) | [\$]? (?: 0+ (?: [.] 0+ )? | [.] 0+ ) ) \z }xmsi;
+my $RE_FREE
+    = qr{ \A (?: free | (?=n) (?: nothing | n /? a ) | [\$]? (?: 0+ (?: [.] 0+ )? | [.] 0+ ) ) \z }xmsi;
 my $RE_TBD   = qr{ \A [\$]? T [.]? B [.]? D [.]? \z }xmsi;
 my $RE_MODEL = qr{ model }xmsi;
 
@@ -109,14 +113,15 @@ sub _normalize_cost ( $text ) {
     my $s = "$text";
     $s =~ s{\A \s+}{}xms;
     $s =~ s{\s+ \z}{}xms;
-    return { cost => undef, is_free => 1, is_kids => 0 } if $s eq q{} || $s eq q{*};
+    return { cost => undef, is_free => 1, is_kids => 0 }
+        if $s eq q{} || $s eq q{*};
 
-    return { cost => undef, is_free => 1, is_kids => 0 } if $s =~ $RE_FREE;
-    return { cost => undef, is_free => 1, is_kids => 1 } if lc $s eq 'kids';
-    return { cost => 'TBD', is_free => 0, is_kids => 0 } if $s =~ $RE_TBD;
+    return { cost => undef,   is_free => 1, is_kids => 0 } if $s =~ $RE_FREE;
+    return { cost => undef,   is_free => 1, is_kids => 1 } if lc $s eq 'kids';
+    return { cost => 'TBD',   is_free => 0, is_kids => 0 } if $s =~ $RE_TBD;
     return { cost => 'model', is_free => 0, is_kids => 0 } if $s =~ $RE_MODEL;
     return { cost => $s, is_free => 0, is_kids => 0 };
-}
+} ## end sub _normalize_cost
 
 sub _normalize_full ( $text ) {
     return 0 unless defined $text;
@@ -126,7 +131,7 @@ sub _normalize_full ( $text ) {
     return 0 if $s eq q{};
     return 0 if $s =~ m{\A not? \z}xmsi;
     return 1;
-}
+} ## end sub _normalize_full
 
 # ── Extract ID prefix ────────────────────────────────────────────────────────
 
@@ -136,7 +141,7 @@ sub _extract_id_prefix ( $id ) {
         return uc $1;
     }
     return q{};
-}
+} ## end sub _extract_id_prefix
 
 # ── Room lookup helpers ───────────────────────────────────────────────────────
 
@@ -149,9 +154,9 @@ sub _build_room_lookup ( $rooms ) {
         if ( defined $room->{ long_name } ) {
             $map{ lc $room->{ long_name } } //= $room;
         }
-    }
+    } ## end for my $room ( @{ $rooms...})
     return \%map;
-}
+} ## end sub _build_room_lookup
 
 # ── PanelType lookup helpers ─────────────────────────────────────────────────
 
@@ -164,13 +169,14 @@ sub _build_type_lookup ( $panel_types ) {
         if ( length( $key ) > 2 ) {
             $map{ substr( $key, 0, 2 ) } //= $pt;
         }
-    }
+    } ## end for my $pt ( @{ $panel_types...})
     return \%map;
-}
+} ## end sub _build_type_lookup
 
 # ── Main read function ────────────────────────────────────────────────────────
 
 sub read_events ( $wb, $rooms, $panel_types ) {
+
     # Try "Schedule" sheet, fall back to first sheet
     my $sheet = find_sheet( $wb, 'Schedule' );
     if ( !defined $sheet ) {
@@ -200,11 +206,11 @@ sub read_events ( $wb, $rooms, $panel_types ) {
         next unless defined $info;
         $info->{ col_index } = $i;
         push @presenter_cols, $info;
-    }
+    } ## end for my $i ( 0 .. $#header)
 
     my $room_lookup = _build_room_lookup( $rooms );
     my $type_lookup = _build_type_lookup( $panel_types );
-    my %presenter_set;  # name -> rank
+    my %presenter_set;    # name -> rank
     my @events;
 
     for my $row ( @rows ) {
@@ -212,41 +218,50 @@ sub read_events ( $wb, $rooms, $panel_types ) {
 
         my $data = canonical_data( \@header, \@san_header, $row );
 
-        my $uniq_id = $data->{ Uniq_ID } // $data->{ UniqID } // $data->{ ID } // $data->{ Id };
-        my $name    = $data->{ Name } // $data->{ Panel_Name } // $data->{ PanelName };
+        my $uniq_id = $data->{ Uniq_ID } // $data->{ UniqID }
+            // $data->{ ID } // $data->{ Id };
+        my $name = $data->{ Name } // $data->{ Panel_Name }
+            // $data->{ PanelName };
         next unless defined $name;
 
         # Time
-        my $start_seconds = _parse_datetime(
-            $data->{ Start_Time } // $data->{ StartTime } // $data->{ Start }
-        );
-        my $end_seconds = _parse_datetime(
-            $data->{ End_Time } // $data->{ EndTime } // $data->{ End }
-        );
-        my $duration_seconds = _parse_duration(
-            $data->{ Duration }
-        );
+        my $start_seconds
+            = _parse_datetime( $data->{ Start_Time } // $data->{ StartTime }
+                // $data->{ Start } );
+        my $end_seconds
+            = _parse_datetime( $data->{ End_Time } // $data->{ EndTime }
+                // $data->{ End } );
+        my $duration_seconds = _parse_duration( $data->{ Duration } );
 
         # Compute missing time values
-        if ( !defined $end_seconds && defined $start_seconds && defined $duration_seconds ) {
+        if (  !defined $end_seconds
+            && defined $start_seconds
+            && defined $duration_seconds ) {
             $end_seconds = $start_seconds + $duration_seconds;
         }
-        if ( !defined $duration_seconds && defined $start_seconds && defined $end_seconds ) {
+        if (  !defined $duration_seconds
+            && defined $start_seconds
+            && defined $end_seconds ) {
             $duration_seconds = $end_seconds - $start_seconds;
         }
 
-        next unless defined $start_seconds; # Skip events without start time
+        next unless defined $start_seconds;   # Skip events without start time
 
         # Room
-        my $room_name = $data->{ Room } // $data->{ Room_Name } // $data->{ RoomName };
+        my $room_name = $data->{ Room } // $data->{ Room_Name }
+            // $data->{ RoomName };
         my $room_obj;
         if ( defined $room_name ) {
             $room_obj = $room_lookup->{ lc $room_name };
         }
 
+        # SPLIT events are page-break markers for print layout; skip entirely
+        next if defined $room_name && lc( $room_name ) eq 'split';
+
         # Panel type
         my $id_prefix = _extract_id_prefix( $uniq_id );
-        my $kind_raw  = $data->{ Kind } // $data->{ Panel_Kind } // $data->{ PanelKind };
+        my $kind_raw  = $data->{ Kind } // $data->{ Panel_Kind }
+            // $data->{ PanelKind };
         my $panel_type = $type_lookup->{ lc $id_prefix } if $id_prefix ne q{};
 
         if ( !defined $panel_type && defined $kind_raw ) {
@@ -255,8 +270,8 @@ sub read_events ( $wb, $rooms, $panel_types ) {
                     $panel_type = $pt;
                     last;
                 }
-            }
-        }
+            } ## end for my $pt ( @{ $panel_types...})
+        } ## end if ( !defined $panel_type...)
 
         # Cost
         my $cost_info = _normalize_cost( $data->{ Cost } );
@@ -273,7 +288,8 @@ sub read_events ( $wb, $rooms, $panel_types ) {
             next if $names_str eq q{};
 
             # Split on comma/and separators
-            my @parts = split m{\s*(?:,\s*(?:and\s+)?|\band\s+)}xmsi, $names_str;
+            my @parts = split m{\s*(?:,\s*(?:and\s+)?|\band\s+)}xmsi,
+                $names_str;
             for my $part ( @parts ) {
                 $part =~ s{\A \s+}{}xms;
                 $part =~ s{\s+ \z}{}xms;
@@ -283,12 +299,20 @@ sub read_events ( $wb, $rooms, $panel_types ) {
                 if ( !exists $presenter_set{ $part } ) {
                     $presenter_set{ $part } = $pc->{ rank } // 'fan_panelist';
                 }
-            }
-        }
+            } ## end for my $part ( @parts )
+        } ## end for my $pc ( @presenter_cols)
 
-        my $is_workshop = $panel_type ? $panel_type->{ is_workshop } : ( $id_prefix =~ m{W\z}xmsi ? 1 : 0 );
-        my $is_break    = $panel_type ? $panel_type->{ is_break }    : 0;
-        my $is_hidden   = $panel_type ? $panel_type->{ is_hidden }   : 0;
+        my $is_workshop
+            = $panel_type
+            ? $panel_type->{ is_workshop }
+            : ( $id_prefix =~ m{W\z}xmsi ? 1 : 0 );
+        my $is_break
+            = $panel_type ? $panel_type->{ is_break }
+            : ( $id_prefix eq 'BREAK'
+                || ( defined $room_name && lc( $room_name ) eq 'break' ) )
+            ? 1
+            : 0;
+        my $is_hidden = $panel_type ? $panel_type->{ is_hidden } : 0;
 
         next if $is_hidden;
 
@@ -298,11 +322,17 @@ sub read_events ( $wb, $rooms, $panel_types ) {
             description => $data->{ Description },
             start_time  => _seconds_to_iso( $start_seconds ),
             end_time    => _seconds_to_iso( $end_seconds ),
-            duration    => defined $duration_seconds ? int( $duration_seconds / 60 ) : undef,
-            room        => $room_obj ? ( $room_obj->{ long_name } // $room_obj->{ short_name } ) : $room_name,
-            room_id     => $room_obj ? $room_obj->{ id } : undef,
-            panel_type  => $panel_type ? $panel_type->{ prefix } : ( $id_prefix ne q{} ? $id_prefix : undef ),
-            kind        => $panel_type ? $panel_type->{ kind } : $kind_raw,
+            duration    => defined $duration_seconds
+            ? int( $duration_seconds / 60 )
+            : undef,
+            room => $room_obj
+            ? ( $room_obj->{ long_name } // $room_obj->{ short_name } )
+            : $room_name,
+            room_id    => $room_obj ? $room_obj->{ id } : undef,
+            panel_type => $panel_type
+            ? $panel_type->{ prefix }
+            : ( $id_prefix ne q{} ? $id_prefix : undef ),
+            kind        => $panel_type ? $panel_type->{ kind }  : $kind_raw,
             color       => $panel_type ? $panel_type->{ color } : undef,
             cost        => $cost_info->{ cost },
             is_free     => $cost_info->{ is_free },
@@ -317,15 +347,14 @@ sub read_events ( $wb, $rooms, $panel_types ) {
             ticket_url  => $data->{ Ticket_Sale } // $data->{ TicketSale },
             is_full     => $is_full,
         };
-    }
+    } ## end for my $row ( @rows )
 
     # Build presenter list
-    my @presenter_list =
-        sort { $a->{ name } cmp $b->{ name } }
-        map  { { name => $_, rank => $presenter_set{ $_ } } }
+    my @presenter_list = sort { $a->{ name } cmp $b->{ name } }
+        map { { name => $_, rank => $presenter_set{ $_ } } }
         keys %presenter_set;
 
     return ( \@events, \@presenter_list );
-}
+} ## end sub read_events
 
 1;

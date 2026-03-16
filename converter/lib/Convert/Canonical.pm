@@ -29,7 +29,7 @@ sub canonical_header ( $hdr ) {
     $hdr =~ s{\A_}{}xmsg;
     $hdr =~ s{_\z}{}xmsg;
     return $hdr;
-}
+} ## end sub canonical_header
 
 sub canonical_headers ( @hdrs ) {
     return map { defined $_ ? canonical_header( $_ ) : undef } @hdrs;
@@ -54,9 +54,9 @@ sub canonical_data ( $header, $san_header, $raw ) {
 
         $data{ $header_text } = $raw_text;
         $data{ $header_alt }  = $raw_text if defined $header_alt;
-    }
+    } ## end foreach my $column ( keys @...)
 
     return \%data;
-}
+} ## end sub canonical_data
 
 1;

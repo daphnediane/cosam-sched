@@ -13,10 +13,9 @@ sub open_workbook ( $filename ) {
         die "Unable to parse: ${filename}: " . $parser->error() . "\n"
             unless defined $wb;
         return $wb;
-    }
+    } ## end if ( $filename =~ m{[.]xlsx\z}xmsi)
 
-    die "Unsupported file format: ${filename}\n"
-        . "Supported: .xlsx\n";
-}
+    die "Unsupported file format: ${filename}\n" . "Supported: .xlsx\n";
+} ## end sub open_workbook
 
 1;
