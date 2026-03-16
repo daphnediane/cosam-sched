@@ -1,6 +1,6 @@
 # Cosplay America Schedule - Work Plan
 
-Generated on: Sun Mar 15 23:55:41 2026
+Generated on: Mon Mar 16 10:53:46 2026
 
 ## Completed
 
@@ -9,6 +9,7 @@ Generated on: Sun Mar 15 23:55:41 2026
 * [BUGFIX-003](work-plan/BUGFIX-003.md) Remove "free" labeling from events as all events require registration.
 * [FEATURE-001](work-plan/FEATURE-001.md) Implement a two-part system for Cosplay America schedule management.
 * [FEATURE-002](work-plan/FEATURE-002.md) Filter out SPLIT page-break markers and display BREAK time slots stretched across rooms.
+* [UI-001](work-plan/UI-001.md) Display both the programming room name (e.g., "Programming 1") and the actual hotel room location.
 
 ---
 
@@ -75,6 +76,18 @@ See also: `docs/spreadsheet-format.md` and schedule-to-html README §Panelist.
 
 ---
 
+### [FEATURE-007] Reference panel types by UID instead of hardcoding colors
+
+**Status:** Open
+
+**Summary:** Replace hardcoded panel type colors with CSS-based UID reference system for theming.
+
+**Description:** Currently panel type colors are hardcoded in the event data, making it difficult to implement themes and maintain consistent styling. This change will make panel types reference UIDs and use CSS classes for colors, enabling proper theming support.
+
+*See full details in: [work-plan/FEATURE-007.md](work-plan/FEATURE-007.md)*
+
+---
+
 ### [UI-002] Fix event title and star overlap
 
 **Status:** Open
@@ -84,6 +97,18 @@ See also: `docs/spreadsheet-format.md` and schedule-to-html README §Panelist.
 **Description:** Currently, long event titles can underlap the star icon, making both difficult to read.
 
 *See full details in: [work-plan/UI-002.md](work-plan/UI-002.md)*
+
+---
+
+### [UI-004] Switch from tables to proper grid layout
+
+**Status:** Open
+
+**Summary:** Replace table-based layout with CSS grid similar to schedule-to-html implementation.
+
+**Description:** The current implementation uses HTML tables for layout, which is inflexible and doesn't provide the modern responsive design capabilities needed. The schedule-to-html system uses CSS grid which provides better control over layout, responsive behavior, and visual presentation.
+
+*See full details in: [work-plan/UI-004.md](work-plan/UI-004.md)*
 
 ---
 
@@ -119,18 +144,6 @@ wrong. Neither tool provides any warning to the schedule author.
 
 ---
 
-### [UI-001] Rooms should list both the room name and the hotel room
-
-**Status:** Open
-
-**Summary:** Display both the programming room name (e.g., "Programming 1") and the actual hotel room location.
-
-**Description:** Currently only the programming room names are shown. Attendees need to see both the programming designation and the actual hotel room number/location for easier navigation.
-
-*See full details in: [work-plan/UI-001.md](work-plan/UI-001.md)*
-
----
-
 ### [UI-003] Add dark mode / light mode switch
 
 **Status:** Open
@@ -140,6 +153,18 @@ wrong. Neither tool provides any warning to the schedule author.
 **Description:** Users want the option to switch between dark mode, light mode, and the default Cosplay America color scheme.
 
 *See full details in: [work-plan/UI-003.md](work-plan/UI-003.md)*
+
+---
+
+### [UI-005] Implement sticky headers or additional header rows
+
+**Status:** Open
+
+**Summary:** Add sticky headers or repeat day headers between time blocks in grid view for better navigation.
+
+**Description:** When viewing the schedule grid, users lose context of which day/time they're viewing as they scroll. Either sticky headers should follow the scroll, or additional header rows should be inserted between days to maintain context.
+
+*See full details in: [work-plan/UI-005.md](work-plan/UI-005.md)*
 
 ---
 
