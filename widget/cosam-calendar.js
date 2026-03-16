@@ -92,6 +92,7 @@
     constructor() {
       this.data = null;
       this.view = 'list'; // 'list' or 'grid'
+      this.theme = 'cosam';
       this.activeDay = null;
       this.days = [];
       this.starred = new Set();
@@ -105,10 +106,30 @@
       };
       this.filtersOpen = false;
       this.modalEvent = null;
+      this._loadTheme();
       this._loadStarred();
     }
 
     _storageKey() { return 'cosam-calendar-starred'; }
+    _themeStorageKey() { return 'cosam-calendar-theme'; }
+
+    _loadTheme() {
+      try {
+        const raw = localStorage.getItem(this._themeStorageKey());
+        if (raw) this.theme = raw;
+      } catch (e) { /* ignore */ }
+    }
+
+    _saveTheme() {
+      try {
+        localStorage.setItem(this._themeStorageKey(), this.theme);
+      } catch (e) { /* ignore */ }
+    }
+
+    setTheme(theme) {
+      this.theme = theme || 'cosam';
+      this._saveTheme();
+    }
 
     _loadStarred() {
       try {
@@ -151,11 +172,11 @@
     }
 
     _isBreakEvent(e) {
-      return e.isBreak || e.panelType === 'BREAK';
+      return e.isBreak || e.panelType === 'panel-type-break' || e.panelType === 'panel-type-brk';
     }
 
     _isSplitEvent(e) {
-      return e.panelType === 'SPLIT' || e.room === 'SPLIT';
+      return e.panelType === 'panel-type-split' || e.room === 'SPLIT';
     }
 
     filteredEvents() {
@@ -222,7 +243,11 @@
     constructor(rootEl, state) {
       this.root = rootEl;
       this.state = state;
+      this._filtersId = 'cosam-filters-panel';
+      this._eventsRegionId = 'cosam-events-region';
       this.root.classList.add('cosam-calendar');
+      this.root.setAttribute('role', 'region');
+      this.root.setAttribute('aria-label', 'Cosplay America schedule');
     }
 
     render() {
@@ -231,20 +256,86 @@
         this.root.appendChild(el('div', { className: 'cosam-loading' }, 'Loading schedule...'));
         return;
       }
+      this.root.setAttribute('data-theme', this.state.theme || 'cosam');
+      this._ensurePanelTypeThemeStyles();
+      this.root.appendChild(el('a', { className: 'cosam-skip-link', href: '#' + this._eventsRegionId }, 'Skip to events'));
       this.root.appendChild(this._buildToolbar());
       this.root.appendChild(this._buildFilters());
       this.root.appendChild(this._buildDayTabs());
 
       const events = this.state.filteredEvents();
+      const eventsRegion = el('section', {
+        id: this._eventsRegionId,
+        className: 'cosam-events-region',
+        'aria-live': 'polite',
+        'aria-label': 'Filtered schedule results',
+      });
       if (events.length === 0) {
-        this.root.appendChild(el('div', { className: 'cosam-empty' }, 'No events match your filters.'));
+        eventsRegion.appendChild(el('div', { className: 'cosam-empty' }, 'No events match your filters.'));
       } else if (this.state.view === 'grid') {
-        this.root.appendChild(this._buildGridView(events));
+        eventsRegion.appendChild(this._buildGridView(events));
       } else {
-        this.root.appendChild(this._buildListView(events));
+        eventsRegion.appendChild(this._buildListView(events));
       }
+      this.root.appendChild(eventsRegion);
 
       this.root.appendChild(this._buildModal());
+    }
+
+    _normalizePanelTypeUid(value) {
+      if (!value) return null;
+      const raw = String(value).trim().toLowerCase();
+      if (!raw) return null;
+      if (raw.startsWith('panel-type-')) return raw;
+      const slug = raw.replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '');
+      return slug ? `panel-type-${slug}` : null;
+    }
+
+    _panelTypeClass(panelTypeUid) {
+      const uid = this._normalizePanelTypeUid(panelTypeUid);
+      if (!uid) return '';
+      return 'cosam-panel-type-' + uid.replace(/^panel-type-/, '');
+    }
+
+    _normalizeDataModel(data) {
+      if (!data || typeof data !== 'object') return data;
+      const panelTypes = Array.isArray(data.panelTypes)
+        ? data.panelTypes.map((pt) => ({
+          ...pt,
+          uid: this._normalizePanelTypeUid(pt.uid || pt.prefix),
+        }))
+        : [];
+
+      const events = Array.isArray(data.events)
+        ? data.events.map((evt) => ({
+          ...evt,
+          panelType: this._normalizePanelTypeUid(evt.panelType),
+        }))
+        : [];
+
+      return { ...data, panelTypes, events };
+    }
+
+    _ensurePanelTypeThemeStyles() {
+      const panelTypes = this.state.data && this.state.data.panelTypes;
+      if (!Array.isArray(panelTypes) || panelTypes.length === 0) return;
+
+      const styleId = 'cosam-panel-type-style';
+      let styleEl = document.getElementById(styleId);
+      if (!styleEl) {
+        styleEl = document.createElement('style');
+        styleEl.id = styleId;
+        document.head.appendChild(styleEl);
+      }
+
+      const rules = [];
+      for (const pt of panelTypes) {
+        const cls = this._panelTypeClass(pt.uid || pt.prefix);
+        if (!cls || !pt.color) continue;
+        rules.push(`.cosam-calendar .cosam-event-color-bar.${cls}{background:${pt.color};}`);
+        rules.push(`.cosam-calendar .cosam-grid-event.${cls}{border-left-color:${pt.color};}`);
+      }
+      styleEl.textContent = rules.join('\n');
     }
 
     // ── Toolbar ──
@@ -254,14 +345,20 @@
 
       // View toggles
       const listBtn = el('button', {
+        type: 'button',
         className: 'cosam-btn cosam-btn-icon' + (this.state.view === 'list' ? ' active' : ''),
         title: 'List View',
+        'aria-label': 'List view',
+        'aria-pressed': this.state.view === 'list' ? 'true' : 'false',
         innerHTML: ICONS.list,
         onClick: () => { this.state.view = 'list'; this.render(); },
       });
       const gridBtn = el('button', {
+        type: 'button',
         className: 'cosam-btn cosam-btn-icon' + (this.state.view === 'grid' ? ' active' : ''),
         title: 'Grid View',
+        'aria-label': 'Grid view',
+        'aria-pressed': this.state.view === 'grid' ? 'true' : 'false',
         innerHTML: ICONS.grid,
         onClick: () => { this.state.view = 'grid'; this.render(); },
       });
@@ -269,16 +366,21 @@
 
       // Filter toggle
       const filterBtn = el('button', {
+        type: 'button',
         className: 'cosam-btn' + (this.state.filtersOpen ? ' active' : ''),
         innerHTML: ICONS.filter + ' Filters',
+        'aria-expanded': this.state.filtersOpen ? 'true' : 'false',
+        'aria-controls': this._filtersId,
         onClick: () => { this.state.filtersOpen = !this.state.filtersOpen; this.render(); },
       });
       left.appendChild(filterBtn);
 
       // Starred only toggle
       const starBtn = el('button', {
+        type: 'button',
         className: 'cosam-btn' + (this.state.filters.starredOnly ? ' active' : ''),
         innerHTML: ICONS.star + ' My Schedule',
+        'aria-pressed': this.state.filters.starredOnly ? 'true' : 'false',
         onClick: () => { this.state.filters.starredOnly = !this.state.filters.starredOnly; this.render(); },
       });
       left.appendChild(starBtn);
@@ -292,6 +394,7 @@
         type: 'text',
         placeholder: 'Search events...',
         value: this.state.filters.search,
+        'aria-label': 'Search events',
       });
       let searchTimer = null;
       searchInput.addEventListener('input', () => {
@@ -307,10 +410,33 @@
       searchWrap.appendChild(searchInput);
       right.appendChild(searchWrap);
 
+      const themeSelect = el('select', {
+        className: 'cosam-theme-select',
+        'aria-label': 'Theme',
+      });
+      const themeOptions = [
+        ['cosam', 'CosAm'],
+        ['light', 'Light'],
+        ['dark', 'Dark'],
+        ['high-contrast', 'High Contrast'],
+      ];
+      for (const [value, label] of themeOptions) {
+        const option = el('option', { value }, label);
+        if (this.state.theme === value) option.selected = true;
+        themeSelect.appendChild(option);
+      }
+      themeSelect.addEventListener('change', () => {
+        this.state.setTheme(themeSelect.value);
+        this.render();
+      });
+      right.appendChild(themeSelect);
+
       // Share
       const shareBtn = el('button', {
+        type: 'button',
         className: 'cosam-btn cosam-btn-icon',
         title: 'Share starred events',
+        'aria-label': 'Share starred events',
         innerHTML: ICONS.share,
         onClick: () => {
           const url = this.state.getShareUrl();
@@ -328,8 +454,10 @@
 
       // Print
       const printBtn = el('button', {
+        type: 'button',
         className: 'cosam-btn cosam-btn-icon',
         title: 'Print schedule',
+        'aria-label': 'Print schedule',
         innerHTML: ICONS.print,
         onClick: () => this._handlePrint(),
       });
@@ -342,7 +470,12 @@
     // ── Filters ──
 
     _buildFilters() {
-      const panel = el('div', { className: 'cosam-filters' + (this.state.filtersOpen ? ' open' : '') });
+      const panel = el('div', {
+        id: this._filtersId,
+        className: 'cosam-filters' + (this.state.filtersOpen ? ' open' : ''),
+        role: 'region',
+        'aria-label': 'Schedule filters',
+      });
 
       // Row 1: Room + Type
       const row1 = el('div', { className: 'cosam-filter-row' });
@@ -354,8 +487,10 @@
       for (const room of this.state.data.rooms) {
         const name = room.long_name || room.short_name;
         const selected = this.state.filters.rooms.has(room.uid);
-        const chip = el('span', {
+        const chip = el('button', {
+          type: 'button',
           className: 'cosam-filter-chip' + (selected ? ' selected' : ''),
+          'aria-pressed': selected ? 'true' : 'false',
           onClick: () => {
             if (this.state.filters.rooms.has(room.uid)) this.state.filters.rooms.delete(room.uid);
             else this.state.filters.rooms.add(room.uid);
@@ -373,12 +508,15 @@
       const typeChips = el('div', { className: 'cosam-filter-checkboxes' });
       for (const pt of this.state.data.panelTypes) {
         if (pt.isBreak || pt.isHidden) continue;
-        const selected = this.state.filters.types.has(pt.prefix);
-        const chip = el('span', {
+        const typeValue = pt.uid || pt.prefix;
+        const selected = this.state.filters.types.has(typeValue);
+        const chip = el('button', {
+          type: 'button',
           className: 'cosam-filter-chip' + (selected ? ' selected' : ''),
+          'aria-pressed': selected ? 'true' : 'false',
           onClick: () => {
-            if (this.state.filters.types.has(pt.prefix)) this.state.filters.types.delete(pt.prefix);
-            else this.state.filters.types.add(pt.prefix);
+            if (this.state.filters.types.has(typeValue)) this.state.filters.types.delete(typeValue);
+            else this.state.filters.types.add(typeValue);
             this.render();
           },
         }, pt.kind || pt.prefix);
@@ -397,8 +535,10 @@
       const costChips = el('div', { className: 'cosam-filter-checkboxes' });
       for (const [value, label] of [['all', 'All'], ['included', 'Included'], ['paid', 'Additional Cost'], ['workshop', 'Workshops']]) {
         const selected = this.state.filters.cost === value;
-        const chip = el('span', {
+        const chip = el('button', {
+          type: 'button',
           className: 'cosam-filter-chip' + (selected ? ' selected' : ''),
+          'aria-pressed': selected ? 'true' : 'false',
           onClick: () => { this.state.filters.cost = value; this.render(); },
         }, label);
         costChips.appendChild(chip);
@@ -428,6 +568,7 @@
       // Clear filters button
       const actions = el('div', { className: 'cosam-filter-actions' });
       actions.appendChild(el('button', {
+        type: 'button',
         className: 'cosam-btn',
         onClick: () => {
           this.state.filters.search = '';
@@ -524,7 +665,16 @@
     _buildBreakBanner(evt) {
       const banner = el('div', {
         className: 'cosam-break-banner',
+        role: 'button',
+        tabindex: '0',
         onClick: () => { this.state.modalEvent = evt; this._showModal(evt); },
+      });
+      banner.addEventListener('keydown', (e) => {
+        if (e.key === 'Enter' || e.key === ' ') {
+          e.preventDefault();
+          this.state.modalEvent = evt;
+          this._showModal(evt);
+        }
       });
       banner.appendChild(el('div', { className: 'cosam-break-name' }, evt.name));
       if (evt.description) {
@@ -541,16 +691,16 @@
 
     _buildEventCard(evt) {
       const isStarred = this.state.starred.has(evt.id);
+      const typeClass = this._panelTypeClass(evt.panelType);
       const card = el('div', {
         className: 'cosam-event-card' + (isStarred ? ' starred' : ''),
       });
 
       // Color bar
-      const color = evt.color || this._typeColor(evt.panelType);
-      if (color) {
+      if (typeClass) {
         card.appendChild(el('div', {
-          className: 'cosam-event-color-bar',
-          style: { backgroundColor: color },
+          className: 'cosam-event-color-bar ' + typeClass,
+          'aria-hidden': 'true',
         }));
       }
 
@@ -603,18 +753,29 @@
       }
 
       // Click to expand / open modal
+      body.setAttribute('role', 'button');
+      body.setAttribute('tabindex', '0');
       body.addEventListener('click', () => {
         this.state.modalEvent = evt;
         this._showModal(evt);
+      });
+      body.addEventListener('keydown', (e) => {
+        if (e.key === 'Enter' || e.key === ' ') {
+          e.preventDefault();
+          this.state.modalEvent = evt;
+          this._showModal(evt);
+        }
       });
 
       card.appendChild(body);
 
       // Star button
       const starBtn = el('button', {
+        type: 'button',
         className: 'cosam-event-star' + (isStarred ? ' starred' : ''),
         innerHTML: ICONS.star,
         title: isStarred ? 'Remove from My Schedule' : 'Add to My Schedule',
+        'aria-label': isStarred ? 'Remove from My Schedule' : 'Add to My Schedule',
         onClick: (e) => {
           e.stopPropagation();
           this.state.toggleStar(evt.id);
@@ -629,9 +790,6 @@
     // ── Grid View ──
 
     _buildGridView(events) {
-      console.log('=== BUILD GRID VIEW STARTED ===');
-      console.log('Total events:', events.length);
-
       const container = el('div', { className: 'cosam-grid-view' });
 
       // Separate break events from regular events
@@ -681,10 +839,6 @@
       // Combine all time keys
       const allTimeKeys = [...new Set([...eventTimeKeys, ...transitionKeys])].sort();
 
-      console.log('Event time keys:', eventTimeKeys);
-      console.log('Transition keys:', Array.from(transitionKeys));
-      console.log('All time keys:', allTimeKeys);
-
       // Convert to shorter names: weekday number + hour + minute (e.g., t51030 for Friday 10:30 AM)
       const timeSlotMap = {};
       const timeSlots = allTimeKeys.map(key => {
@@ -701,16 +855,6 @@
       const gridColumns = `[time] minmax(80px, 120px) ` + roomOrder.map(roomId => `[room-${roomId}] 1fr`).join(' ');
       const gridRows = `[header] auto ` + timeSlots.map(timeSlot => `[${timeSlot}] minmax(60px, auto)`).join(' ') + ` [footer] auto`;
 
-      console.log('Final gridRows string:', gridRows);
-      console.log('gridRows length:', gridRows.length);
-      console.log('timeSlots length:', timeSlots.length);
-      console.log('First few time slots:', timeSlots.slice(0, 10));
-      console.log('Last few time slots:', timeSlots.slice(-10));
-
-      console.log('Generated grid columns:', gridColumns);
-      console.log('Generated grid rows:', gridRows);
-      console.log('Time slots for rows:', timeSlots);
-
       // Build CSS grid
       const grid = el('div', {
         className: 'cosam-grid',
@@ -724,9 +868,6 @@
 
       grid.style.gridTemplateColumns = gridColumns;
       grid.style.gridTemplateRows = gridRows;
-
-      console.log('Applied grid styles - columns:', grid.style.gridTemplateColumns);
-      console.log('Applied grid styles - rows:', grid.style.gridTemplateRows);
 
       // Add header row
       const header = this._buildGridHeader(roomOrder);
@@ -744,27 +885,18 @@
         const slotRegular = slotEvents.filter(e => !this.state._isBreakEvent(e));
         const slotBreaks = slotEvents.filter(e => this.state._isBreakEvent(e));
 
-        console.log('Time slot:', timeSlot);
-        console.log('Regular events:', slotRegular.map(e => e.name));
-        console.log('Break events:', slotBreaks.map(e => e.name));
-
         let timeLabel = slotEvents.length > 0 ? formatTime(slotEvents[0].startTime) : '';
         if (showAllDays && slotEvents.length > 0) {
           const dayKey = getDayKey(slotEvents[0].startTime);
-          console.log('Processing time slot:', timeSlot, 'with day:', dayKey, 'lastDayKey:', lastDayKey);
           if (dayKey !== lastDayKey) {
-            console.log('Day transition detected from', lastDayKey, 'to', dayKey);
             // Add sleep break row between days (except for first day)
             if (lastDayKey !== null) {
               // Find the last time slot of the previous day
               let lastSlotIndex = i - 1;
-              console.log('Looking for last slot of previous day:', lastDayKey, 'starting from index:', lastSlotIndex);
               while (lastSlotIndex >= 0) {
                 const prevKey = allTimeKeys[lastSlotIndex];
                 const prevDayKey = getDayKey(prevKey + ':00');
-                console.log('Checking slot', lastSlotIndex, 'key:', prevKey, 'day:', prevDayKey);
                 if (prevDayKey === lastDayKey) {
-                  console.log('Found last slot of previous day at index:', lastSlotIndex, 'slot:', timeSlots[lastSlotIndex]);
                   break;
                 }
                 lastSlotIndex--;
@@ -775,10 +907,7 @@
                 const sleepBreak = this._buildGridSleepBreak(roomOrder.length + 1);
                 sleepBreak.style.gridColumn = `room-${roomOrder[0]} / -1`; // Span only room columns, not time column
                 sleepBreak.style.gridRow = `${timeSlots[lastSlotIndex]} / ${timeSlot}`;
-                console.log('Creating sleep break with gridRow:', `${timeSlots[lastSlotIndex]} / ${timeSlot}`);
                 grid.appendChild(sleepBreak);
-              } else {
-                console.log('Could not find last slot for previous day:', lastDayKey);
               }
             }
             timeLabel = getDayLabel(slotEvents[0].startTime) + '\n' + timeLabel;
@@ -809,18 +938,14 @@
         if (showAllDays && slotEvents.length > 0) {
           const dayKey = getDayKey(slotEvents[0].startTime);
           if (dayKey !== lastDayKey) {
-            console.log('Day transition detected from', lastDayKey, 'to', dayKey);
             // Add sleep break row between days (except for first day)
             if (lastDayKey !== null) {
               // Find the last time slot of the previous day
               let lastSlotIndex = i - 1;
-              console.log('Looking for last slot of previous day:', lastDayKey, 'starting from index:', lastSlotIndex);
               while (lastSlotIndex >= 0) {
                 const prevKey = allTimeKeys[lastSlotIndex];
                 const prevDayKey = getDayKey(prevKey + ':00');
-                console.log('Checking slot', lastSlotIndex, 'key:', prevKey, 'day:', prevDayKey);
                 if (prevDayKey === lastDayKey) {
-                  console.log('Found last slot of previous day at index:', lastSlotIndex, 'slot:', timeSlots[lastSlotIndex]);
                   break;
                 }
                 lastSlotIndex--;
@@ -831,10 +956,7 @@
                 const sleepBreak = this._buildGridSleepBreak(roomOrder.length + 1);
                 sleepBreak.style.gridColumn = `room-${roomOrder[0]} / -1`; // Span only room columns, not time column
                 sleepBreak.style.gridRow = `${timeSlots[lastSlotIndex]} / ${timeSlot}`;
-                console.log('Creating sleep break with gridRow:', `${timeSlots[lastSlotIndex]} / ${timeSlot}`);
                 grid.appendChild(sleepBreak);
-              } else {
-                console.log('Could not find last slot for previous day:', lastDayKey);
               }
             }
             timeLabel = getDayLabel(slotEvents[0].startTime) + '\n' + timeLabel;
@@ -922,10 +1044,8 @@
           }
         } else {
           // Normal row — no breaks
-          console.log('Processing normal row for time slot:', timeSlot);
           for (const roomId of roomOrder) {
             const roomEvents = slotRegular.filter(e => e.roomId === roomId);
-            console.log('Room', roomId, 'events:', roomEvents.map(e => e.name));
             for (const evt of roomEvents) {
               const eventEl = this._buildGridEvent(evt);
               eventEl.style.gridColumn = `room-${roomId}`;
@@ -936,36 +1056,23 @@
               const endRowIndex = timeSlots.indexOf(endSlotShortName);
               const startRowIndex = i;
 
-              console.log('Event:', evt.name);
-              console.log('Start time:', timeSlot, 'Start index:', startRowIndex);
-              console.log('End time:', endTimeSlot, 'End index:', endRowIndex);
-              console.log('Duration:', evt.duration, 'minutes');
-              console.log('Available time slots:', timeSlots);
-
               if (endRowIndex > startRowIndex) {
                 // Multi-time slot event - span to end time
                 const endSlotName = timeSlots[endRowIndex] || timeSlots[timeSlots.length - 1];
-                console.log('End slot name:', endSlotName);
                 eventEl.style.gridRow = `${timeSlot} / ${endSlotName}`;
-                console.log('Applied gridRow (exact):', eventEl.style.gridRow);
               } else {
                 // Calculate span based on duration if no exact end time slot found
                 const durationMinutes = evt.duration || 60;
                 const slotsToSpan = Math.ceil(durationMinutes / 30); // 30-minute slots
-                console.log('Calculated slots to span:', slotsToSpan);
 
                 if (slotsToSpan > 1 && startRowIndex + slotsToSpan <= timeSlots.length) {
                   const endSlotName = timeSlots[startRowIndex + slotsToSpan];
                   eventEl.style.gridRow = `${timeSlot} / ${endSlotName}`;
-                  console.log('Applied gridRow (duration):', eventEl.style.gridRow);
                 } else {
                   // Single time slot event
                   eventEl.style.gridRow = timeSlot;
-                  console.log('Applied gridRow (single):', eventEl.style.gridRow);
                 }
               }
-
-              console.log('Final event element styles:', eventEl.style.cssText);
 
               grid.appendChild(eventEl);
             }
@@ -1052,7 +1159,16 @@
     _buildGridBreak(evt) {
       const div = el('div', {
         className: 'cosam-grid-break',
+        role: 'button',
+        tabindex: '0',
         onClick: () => { this.state.modalEvent = evt; this._showModal(evt); },
+      });
+      div.addEventListener('keydown', (e) => {
+        if (e.key === 'Enter' || e.key === ' ') {
+          e.preventDefault();
+          this.state.modalEvent = evt;
+          this._showModal(evt);
+        }
       });
       div.appendChild(el('div', { className: 'cosam-grid-break-name' }, evt.name));
       if (evt.duration) {
@@ -1063,11 +1179,19 @@
 
     _buildGridEvent(evt) {
       const isStarred = this.state.starred.has(evt.id);
-      const color = evt.color || this._typeColor(evt.panelType);
+      const typeClass = this._panelTypeClass(evt.panelType);
       const div = el('div', {
-        className: 'cosam-grid-event' + (isStarred ? ' starred' : ''),
-        style: { backgroundColor: '#ffffff', borderLeftColor: color || 'transparent' },
+        className: 'cosam-grid-event' + (isStarred ? ' starred' : '') + (typeClass ? (' ' + typeClass) : ''),
+        role: 'button',
+        tabindex: '0',
         onClick: () => { this.state.modalEvent = evt; this._showModal(evt); },
+      });
+      div.addEventListener('keydown', (e) => {
+        if (e.key === 'Enter' || e.key === ' ') {
+          e.preventDefault();
+          this.state.modalEvent = evt;
+          this._showModal(evt);
+        }
       });
 
       div.appendChild(el('div', { className: 'cosam-grid-event-name' }, evt.name));
@@ -1090,6 +1214,8 @@
 
       // Star indicator
       const starEl = el('span', {
+        role: 'button',
+        tabindex: '0',
         className: 'cosam-grid-event-star' + (isStarred ? ' starred' : ''),
         innerHTML: ICONS.star,
         onClick: (e) => {
@@ -1097,6 +1223,14 @@
           this.state.toggleStar(evt.id);
           this.render();
         },
+      });
+      starEl.addEventListener('keydown', (e) => {
+        if (e.key === 'Enter' || e.key === ' ') {
+          e.preventDefault();
+          e.stopPropagation();
+          this.state.toggleStar(evt.id);
+          this.render();
+        }
       });
       div.appendChild(starEl);
 
@@ -1125,8 +1259,10 @@
 
       // Close button
       modal.appendChild(el('button', {
+        type: 'button',
         className: 'cosam-modal-close',
         innerHTML: ICONS.x,
+        'aria-label': 'Close dialog',
         onClick: () => this._modalOverlay.classList.remove('open'),
       }));
 
@@ -1197,6 +1333,7 @@
       // Star action
       const isStarred = this.state.starred.has(evt.id);
       const starBtn = el('button', {
+        type: 'button',
         className: 'cosam-btn' + (isStarred ? ' active' : ''),
         innerHTML: ICONS.star + (isStarred ? ' Remove from My Schedule' : ' Add to My Schedule'),
         onClick: () => {
@@ -1266,13 +1403,6 @@
       setTimeout(() => { printWin.print(); }, 500);
     }
 
-    // ── Color helpers ──
-
-    _typeColor(prefix) {
-      if (!prefix || !this.state.data) return null;
-      const pt = this.state.data.panelTypes.find(t => t.prefix === prefix);
-      return pt ? pt.color : null;
-    }
   }
 
   // ── Public API ──────────────────────────────────────────────────────────
@@ -1292,11 +1422,8 @@
       const dataUrl = opts.dataUrl || 'schedule.json';
       fetch(dataUrl)
         .then(r => { if (!r.ok) throw new Error('HTTP ' + r.status); return r.json(); })
-        .then(data => {
-          console.log('=== RAW DATA LOADED ===');
-          console.log('Total events in data:', data.events?.length || 0);
-          console.log('Event names:', data.events?.map(e => e.name) || []);
-
+        .then(rawData => {
+          const data = renderer._normalizeDataModel(rawData);
           state.data = data;
 
           // Extract days (skip SPLIT events which are print-layout markers)
