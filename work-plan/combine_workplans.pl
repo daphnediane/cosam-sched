@@ -83,9 +83,25 @@ open my $out, '>', $output_file or die "Can't write $output_file: $!";
 print $out "# Cosplay America Schedule - Work Plan\n\n";
 print $out "Generated on: " . scalar(localtime) . "\n\n";
 
-# Group by priority
+# Separate completed and open items
+my @completed = grep { $_->{status} eq 'Completed' } @items;
+my @open = grep { $_->{status} ne 'Completed' } @items;
+
+# Output completed items as a simple list
+if (@completed) {
+    print $out "## Completed\n\n";
+    
+    for my $item (sort { $a->{prefix} cmp $b->{prefix} || $a->{num} <=> $b->{num} } @completed) {
+        my $relative_file = $item->{file};
+        print $out "* [$item->{prefix}-$item->{num}]($relative_file) $item->{summary}\n";
+    }
+    
+    print $out "\n---\n\n";
+}
+
+# Group open items by priority
 my %by_priority;
-for my $item (@items) {
+for my $item (@open) {
     push @{$by_priority{$item->{priority}}}, $item;
 }
 
@@ -98,18 +114,13 @@ for my $priority (qw(High Medium Low)) {
     for my $item (@{$by_priority{$priority}}) {
         print $out "### [$item->{prefix}-$item->{num}] $item->{title}\n\n";
         
-        if ($item->{status} eq 'Completed') {
-            print $out "**Status:** $item->{status}\n\n";
-            print $out "$item->{summary}\n\n";
-        } else {
-            print $out "**Status:** $item->{status}\n\n";
-            print $out "**Summary:** $item->{summary}\n\n";
-            print $out "**Description:** $item->{description}\n\n";
-            
-            # Add link to full file
-            my $relative_file = $item->{file};
-            print $out "*See full details in: [$relative_file]($relative_file)*\n\n";
-        }
+        print $out "**Status:** $item->{status}\n\n";
+        print $out "**Summary:** $item->{summary}\n\n";
+        print $out "**Description:** $item->{description}\n\n";
+        
+        # Add link to full file
+        my $relative_file = $item->{file};
+        print $out "*See full details in: [$relative_file]($relative_file)*\n\n";
         
         print $out "---\n\n";
     }

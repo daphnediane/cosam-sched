@@ -26,3 +26,6 @@
 # Ignore json files
 *.json
 !sample-data.json
+
+# Ignore test year html file
+20[0-9][0-9].html

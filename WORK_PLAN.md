@@ -1,32 +1,18 @@
 # Cosplay America Schedule - Work Plan
 
-Generated on: Sun Mar 15 21:40:21 2026
+Generated on: Sun Mar 15 23:55:41 2026
+
+## Completed
+
+* [BUGFIX-001](work-plan/BUGFIX-001.md) Converting the existing spreadsheets loses presenter information during the conversion process.
+* [BUGFIX-002](work-plan/BUGFIX-002.md) Break events should only be visible when filtering by room or when no filters are applied.
+* [BUGFIX-003](work-plan/BUGFIX-003.md) Remove "free" labeling from events as all events require registration.
+* [FEATURE-001](work-plan/FEATURE-001.md) Implement a two-part system for Cosplay America schedule management.
+* [FEATURE-002](work-plan/FEATURE-002.md) Filter out SPLIT page-break markers and display BREAK time slots stretched across rooms.
+
+---
 
 ## High Priority
-
-### [BUGFIX-001] Fix missing presenters
-
-**Status:** Open
-
-**Summary:** Converting the existing spreadsheets loses presenter information during the conversion process.
-
-**Description:** The converter is not properly extracting presenter data from the spreadsheet columns. This results in events without presenter information in the generated JSON, which is critical for attendees to know who is running each event.
-
-*See full details in: [work-plan/BUGFIX-001.md](work-plan/BUGFIX-001.md)*
-
----
-
-### [BUGFIX-003] Do not list events as free
-
-**Status:** Open
-
-**Summary:** Remove "free" labeling from events as all events require registration.
-
-**Description:** Currently, some events are marked as "free" which misleads attendees. All events require convention registration, only paid workshops have additional costs.
-
-*See full details in: [work-plan/BUGFIX-003.md](work-plan/BUGFIX-003.md)*
-
----
 
 ### [BUGFIX-004] Hide staff only / private events from converted JSON
 
@@ -40,19 +26,28 @@ Generated on: Sun Mar 15 21:40:21 2026
 
 ---
 
-### [FEATURE-001] Interactive event calendar with spreadsheet-to-JSON converter
+### [BUGFIX-005] Support Hide Panelist and Alt Panelist fields
 
-**Status:** Completed
+**Status:** Open
 
-Implement a two-part system for Cosplay America schedule management.
+**Summary:** The converter ignores the "Hide Panelist" and "Alt Panelist" spreadsheet columns, so presenter suppression and override text are not honored in the JSON output.
 
----
+**Description:** In the schedule-to-html spreadsheet format, two columns control presenter display:
 
-### [FEATURE-002] Handle SPLIT and BREAK special events
+- **Hide Panelist**: When non-blank (e.g. "Yes" or "*"), the event's presenter
+  list should be suppressed entirely. This is used for events where listing the
+  panelists is not appropriate (e.g. staff-run logistics panels).
 
-**Status:** Completed
+- **Alt Panelist**: When set, the computed presenter list is replaced with this
+  text (e.g. "Mystery Guest"). Useful for one-off presenters who don't have
+  their own column or for special display.
 
-Filter out SPLIT page-break markers and display BREAK time slots stretched across rooms.
+Currently `Events.pm` reads presenter columns but never checks these fields,
+so all detected presenters are unconditionally included in the JSON output.
+
+See also: `docs/spreadsheet-format.md` and schedule-to-html README §Panelist.
+
+*See full details in: [work-plan/BUGFIX-005.md](work-plan/BUGFIX-005.md)*
 
 ---
 
@@ -94,15 +89,21 @@ Filter out SPLIT page-break markers and display BREAK time slots stretched acros
 
 ## Medium Priority
 
-### [BUGFIX-002] Don't show breaks when any filter besides room is selected
+### [BUGFIX-006] Detect and warn about scheduling conflicts
 
 **Status:** Open
 
-**Summary:** Break events should only be visible when filtering by room or when no filters are applied.
+**Summary:** The converter does not detect or report scheduling conflicts such as a presenter double-booked across overlapping events, or two non-break events in the same room at the same time.
 
-**Description:** Currently, break events appear regardless of active filters (except room filter). This creates confusion as breaks should only show in the context of room schedules, not when filtering by type, cost, or presenter.
+**Description:** When building the schedule spreadsheet, mistakes happen — a presenter may be
+marked as attending two events that overlap in time, or two events may be
+accidentally assigned to the same room at the same time.
 
-*See full details in: [work-plan/BUGFIX-002.md](work-plan/BUGFIX-002.md)*
+Currently the converter silently produces JSON with these conflicts, and the
+widget displays overlapping events without any indication that something is
+wrong. Neither tool provides any warning to the schedule author.
+
+*See full details in: [work-plan/BUGFIX-006.md](work-plan/BUGFIX-006.md)*
 
 ---
 

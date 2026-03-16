@@ -170,11 +170,10 @@
         events = events.filter(e => getDayKey(e.startTime) === this.activeDay);
       }
 
-      // Search
+      // Search — breaks excluded when searching
       if (this.filters.search) {
         const q = this.filters.search.toLowerCase();
         events = events.filter(e =>
-          this._isBreakEvent(e) ||
           (e.name && e.name.toLowerCase().includes(q)) ||
           (e.description && e.description.toLowerCase().includes(q)) ||
           (e.presenters && e.presenters.some(p => p.toLowerCase().includes(q)))
@@ -186,26 +185,25 @@
         events = events.filter(e => this._isBreakEvent(e) || (e.room && this.filters.rooms.has(e.room)));
       }
 
-      // Types — breaks pass through
+      // Types — breaks excluded when filtering by type
       if (this.filters.types.size > 0) {
-        events = events.filter(e => this._isBreakEvent(e) || (e.panelType && this.filters.types.has(e.panelType)));
+        events = events.filter(e => e.panelType && this.filters.types.has(e.panelType));
       }
 
-      // Cost
-      if (this.filters.cost === 'free') {
-        events = events.filter(e => this._isBreakEvent(e) || e.isFree);
+      // Cost — breaks excluded when filtering by cost
+      if (this.filters.cost === 'included') {
+        events = events.filter(e => e.isFree);
       } else if (this.filters.cost === 'paid') {
-        events = events.filter(e => this._isBreakEvent(e) || (!e.isFree && !e.isWorkshop));
+        events = events.filter(e => !e.isFree && !e.isWorkshop);
       } else if (this.filters.cost === 'workshop') {
-        events = events.filter(e => this._isBreakEvent(e) || e.isWorkshop);
+        events = events.filter(e => e.isWorkshop);
       }
 
-      // Presenter
+      // Presenter — breaks excluded when filtering by presenter
       if (this.filters.presenter) {
         const p = this.filters.presenter.toLowerCase();
         events = events.filter(e =>
-          this._isBreakEvent(e) ||
-          (e.presenters && e.presenters.some(pr => pr.toLowerCase().includes(p)))
+          e.presenters && e.presenters.some(pr => pr.toLowerCase().includes(p))
         );
       }
 
@@ -397,7 +395,7 @@
       const costGroup = el('div', { className: 'cosam-filter-group' });
       costGroup.appendChild(el('label', {}, 'Cost'));
       const costChips = el('div', { className: 'cosam-filter-checkboxes' });
-      for (const [value, label] of [['all', 'All'], ['free', 'Free'], ['paid', 'Paid'], ['workshop', 'Workshops']]) {
+      for (const [value, label] of [['all', 'All'], ['included', 'Included'], ['paid', 'Additional Cost'], ['workshop', 'Workshops']]) {
         const selected = this.state.filters.cost === value;
         const chip = el('span', {
           className: 'cosam-filter-chip' + (selected ? ' selected' : ''),
@@ -570,7 +568,6 @@
 
       // Badges
       const badges = el('div', { className: 'cosam-event-badges' });
-      if (evt.isFree && !evt.isWorkshop) badges.appendChild(el('span', { className: 'cosam-badge cosam-badge-free' }, 'Free'));
       if (evt.isWorkshop) badges.appendChild(el('span', { className: 'cosam-badge cosam-badge-workshop' }, 'Workshop'));
       if (evt.cost && evt.cost !== 'TBD' && !evt.isFree) badges.appendChild(el('span', { className: 'cosam-badge cosam-badge-paid' }, evt.cost));
       if (evt.isFull) badges.appendChild(el('span', { className: 'cosam-badge cosam-badge-full' }, 'Full'));
@@ -820,7 +817,6 @@
 
       // Badges
       const badges = el('div', { className: 'cosam-event-badges' });
-      if (evt.isFree && !evt.isWorkshop) badges.appendChild(el('span', { className: 'cosam-badge cosam-badge-free' }, 'Free'));
       if (evt.isWorkshop) badges.appendChild(el('span', { className: 'cosam-badge cosam-badge-workshop' }, 'Workshop'));
       if (evt.cost && evt.cost !== 'TBD' && !evt.isFree) badges.appendChild(el('span', { className: 'cosam-badge cosam-badge-paid' }, evt.cost));
       if (evt.isFull) badges.appendChild(el('span', { className: 'cosam-badge cosam-badge-full' }, 'Full'));

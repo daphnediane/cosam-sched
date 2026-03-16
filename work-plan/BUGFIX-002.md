@@ -6,7 +6,7 @@ Break events should only be visible when filtering by room or when no filters ar
 
 ## Status
 
-Open
+Completed
 
 ## Priority
 
@@ -18,6 +18,12 @@ Currently, break events appear regardless of active filters (except room filter)
 
 ## Implementation Details
 
-- Modify filteredEvents() in cosam-calendar.js
-- Add logic to exclude break events when any non-room filter is active
-- Ensure room filter still shows breaks appropriately with colspan logic
+- ~~Modify filteredEvents() in cosam-calendar.js~~
+- ~~Add logic to exclude break events when any non-room filter is active~~
+- ~~Ensure room filter still shows breaks appropriately with colspan logic~~
+
+## Resolution
+
+Removed `this._isBreakEvent(e) ||` pass-through from search, type, cost, and
+presenter filter clauses in `filteredEvents()`. Breaks now only pass through
+the room filter, so they disappear when any other filter is active.

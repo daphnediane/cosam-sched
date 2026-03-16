@@ -31,6 +31,42 @@ sub _parse_presenter_header ( $hdr ) {
     $h =~ s{\s+ \z}{}xms;
     return if $h eq q{};
 
+    # Kind:Name=Group format (e.g. "G:Yaya Han", "P:Lady Gatita=Group")
+    # See docs/spreadsheet-format.md for details on presenter column headers.
+    if ( $h =~ m{\A ([GJSIP]) : (.+) \z}xmsi ) {
+        my $prefix    = lc $1;
+        my $name_part = $2;
+
+        # Strip =Group suffix
+        $name_part =~ s{ = .+ \z}{}xms;
+
+        # Strip leading < (always-grouped marker from schedule-to-html)
+        $name_part =~ s{\A <}{}xms;
+        $name_part =~ s{\A \s+}{}xms;
+        $name_part =~ s{\s+ \z}{}xms;
+
+        # Kind:Other — cell value contains comma-separated names
+        if ( lc $name_part eq 'other' ) {
+            return {
+                rank     => $RANK_PREFIXES{ $prefix },
+                index    => 0,
+                is_other => 1,
+                is_named => 0,
+            };
+        }
+
+        return if $name_part eq q{};
+
+        # Kind:Name — cell value is a flag; name comes from the header
+        return {
+            rank        => $RANK_PREFIXES{ $prefix },
+            index       => 0,
+            is_other    => 0,
+            is_named    => 1,
+            header_name => $name_part,
+        };
+    } ## end if ( $h =~ m{\A ([GJSIP]) : (.+) \z}xmsi)
+
     # Pattern: single letter prefix + digits (e.g. "g1", "p2", "j01")
     if ( $h =~ m{\A ([gjsip]) (\d+) \z}xmsi ) {
         my $prefix = lc $1;
@@ -38,6 +74,7 @@ sub _parse_presenter_header ( $hdr ) {
             rank     => $RANK_PREFIXES{ $prefix },
             index    => int( $2 ),
             is_other => 0,
+            is_named => 0,
         };
     } ## end if ( $h =~ m{\A ([gjsip]) (\d+) \z}xmsi)
 
@@ -50,12 +87,13 @@ sub _parse_presenter_header ( $hdr ) {
             rank     => $RANK_PREFIXES{ $prefix },
             index    => int( $2 ),
             is_other => 0,
+            is_named => 0,
         };
     } ## end if ( $h =~ ...)
 
     # "Others" / "Other" / "other_panelists"
     if ( $h =~ m{\A other}xmsi ) {
-        return { rank => undef, index => 0, is_other => 1 };
+        return { rank => undef, index => 0, is_other => 1, is_named => 0 };
     }
 
     return;
@@ -286,25 +324,60 @@ sub read_events ( $wb, $rooms, $panel_types ) {
         for my $pc ( @presenter_cols ) {
             my $val = $row->[ $pc->{ col_index } ];
             next unless defined $val;
-            my $names_str = "$val";
-            $names_str =~ s{\A \s+}{}xms;
-            $names_str =~ s{\s+ \z}{}xms;
-            next if $names_str eq q{};
+            my $cell_str = "$val";
+            $cell_str =~ s{\A \s+}{}xms;
+            $cell_str =~ s{\s+ \z}{}xms;
+            next if $cell_str eq q{};
 
-            # Split on comma/and separators
-            my @parts = split m{\s*(?:,\s*(?:and\s+)?|\band\s+)}xmsi,
-                $names_str;
-            for my $part ( @parts ) {
-                $part =~ s{\A \s+}{}xms;
-                $part =~ s{\s+ \z}{}xms;
-                next if $part eq q{};
-
-                push @event_presenters, $part;
-                if ( !exists $presenter_set{ $part } ) {
-                    $presenter_set{ $part } = $pc->{ rank } // 'fan_panelist';
+            if ( $pc->{ is_named } ) {
+                # Kind:Name column — cell is a flag ("Yes", "*", etc.)
+                # Any non-blank value means this presenter is attending.
+                my $name = $pc->{ header_name };
+                push @event_presenters, $name;
+                if ( !exists $presenter_set{ $name } ) {
+                    $presenter_set{ $name }
+                        = $pc->{ rank } // 'fan_panelist';
                 }
-            } ## end for my $part ( @parts )
+            }
+            else {
+                # g1/Guest1/Other or Kind:Other — cell contains names
+                my @parts
+                    = split m{\s*(?:,\s*(?:and\s+)?|\band\s+)}xmsi,
+                    $cell_str;
+                for my $part ( @parts ) {
+                    $part =~ s{\A \s+}{}xms;
+                    $part =~ s{\s+ \z}{}xms;
+                    next if $part eq q{};
+
+                    push @event_presenters, $part;
+                    if ( !exists $presenter_set{ $part } ) {
+                        $presenter_set{ $part }
+                            = $pc->{ rank } // 'fan_panelist';
+                    }
+                } ## end for my $part ( @parts )
+            }
         } ## end for my $pc ( @presenter_cols)
+
+        # Fallback: generic Presenter / Presenters column
+        if ( @event_presenters == 0 ) {
+            my $presenter_raw = $data->{ Presenter } // $data->{ Presenters }
+                // $data->{ Presenter_s };
+            if ( defined $presenter_raw && $presenter_raw =~ m{\S}xms ) {
+                my @parts
+                    = split m{\s*(?:,\s*(?:and\s+)?|\band\s+)}xmsi,
+                    $presenter_raw;
+                for my $part ( @parts ) {
+                    $part =~ s{\A \s+}{}xms;
+                    $part =~ s{\s+ \z}{}xms;
+                    next if $part eq q{};
+
+                    push @event_presenters, $part;
+                    if ( !exists $presenter_set{ $part } ) {
+                        $presenter_set{ $part } = 'fan_panelist';
+                    }
+                } ## end for my $part ( @parts )
+            } ## end if ( defined $presenter_raw...)
+        } ## end if ( @event_presenters == 0 )
 
         my $is_workshop
             = $panel_type
