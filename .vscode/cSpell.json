@@ -2,7 +2,31 @@
     "version": "0.2",
     "language": "en",
     "words": [
+        "ARRAYFORMULA",
+        "binmode",
+        "byday",
+        "cosam",
+        "dpfister",
+        "Getopt",
+        "gjsip",
+        "gmtime",
+        "grayscale",
+        "gridlines",
+        "localtime",
         "perlcriticrc",
-        "perltidyrc"
+        "perltidyrc",
+        "Pfister",
+        "prereq",
+        "rgba",
+        "roommap",
+        "sprintf",
+        "strftime",
+        "subpanel",
+        "subpanels",
+        "uids",
+        "underlap",
+        "WCAG",
+        "xmsg",
+        "xmsi"
     ]
 }

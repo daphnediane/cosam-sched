@@ -6,7 +6,7 @@ The converter does not detect or report scheduling conflicts such as a presenter
 
 ## Status
 
-Open
+Completed
 
 ## Priority
 
@@ -45,36 +45,48 @@ iteration, but the core deliverable is converter warnings.
 
 ### Converter (`Events.pm` or `schedule_to_json`)
 
-1. After all events are parsed, build indexes:
-   - By presenter: `{ presenter_name => [ list of (start, end, event_id) ] }`
-   - By room: `{ room_id => [ list of (start, end, event_id) ] }`
+**✅ COMPLETED:**
 
-2. For each presenter, sort their events by start time and check for overlaps.
-   Skip any event where `is_break` is true.
+1. **Added conflict detection function** to `Convert::Events::detect_conflicts()`:
+   - Builds presenter and room indexes
+   - Checks for overlapping events (skipping break events)
+   - Emits detailed warnings to STDERR
 
-3. For each room, sort events by start time and check for overlaps.
-   Skip any pair where either event has `is_break` set.
+2. **Enhanced JSON output** in `schedule_to_json`:
+   - Added `conflicts` array to top-level JSON structure
+   - Added `conflicts` array to each event with references to conflicting events
+   - Each conflict includes type, details, and conflicting event ID
 
-4. Emit warnings to STDERR in a clear format:
+3. **Warning format** as specified:
 
    ```text
    WARNING: Presenter "Jane Doe" is double-booked:
-     FP032 "Foam Armor 101" (Sat 10:00-11:00, Panel Room 1)
-     GP045 "Guest Q&A" (Sat 10:30-11:30, Main)
+     FP032 "Foam Armor 101" (10:00-11:00, room 10)
+     GP045 "Guest Q&A" (10:30-11:30, room 1)
 
-   WARNING: Room conflict in "Panel Room 1":
-     FP032 "Foam Armor 101" (Sat 10:00-11:00)
-     FW019 "Advanced Sewing" (Sat 10:00-11:00)
+   WARNING: Room conflict in room 10:
+     FP032 "Foam Armor 101" (10:00-11:00)
+     FW019 "Advanced Sewing" (10:00-11:00)
    ```
 
-5. Optionally add a `--strict` flag that turns warnings into errors
-   (non-zero exit code).
+4. **Break event handling**: Break events are excluded from conflict detection as expected
+
+5. **Multi-way conflict support**: Enhanced to handle 3+ events conflicting in same room or with same presenter:
+   - Groups overlapping events and reports all pairwise conflicts
+   - Special warning format for multi-way conflicts:
+
+   ```text
+   WARNING: Presenter "Name" has N-way booking conflict:
+     EVENT1 "Name" (time, room)
+     EVENT2 "Name" (time, room)
+     EVENT3 "Name" (time, room)
+   ```
 
 ### Widget (future, optional)
 
-- Could add a `conflicts` array to the JSON output that the widget reads
-- Visual indicator (e.g. warning icon) on conflicting events
-- Tooltip explaining the conflict
+- The JSON now includes conflict data that the widget can use for visual indicators
+- Each event has a `conflicts` array with details about what it conflicts with
+- Top-level `conflicts` array provides complete conflict overview
 
 ## Testing
 

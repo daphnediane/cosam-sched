@@ -472,4 +472,211 @@ sub read_events ( $wb, $rooms, $panel_types, $lookup_config = {} ) {
     return ( \@events, \@presenter_list );
 } ## end sub read_events
 
+# ── Conflict detection ────────────────────────────────────────────────────────
+
+sub _events_overlap ( $event1, $event2 ) {
+    return 0 unless defined $event1->{ start_time } && defined $event2->{ start_time };
+    return 0 unless defined $event1->{ end_time } && defined $event2->{ end_time };
+    
+    my $start1 = $event1->{ start_time };
+    my $end1   = $event1->{ end_time };
+    my $start2 = $event2->{ start_time };
+    my $end2   = $event2->{ end_time };
+    
+    # Events overlap if start1 < end2 AND start2 < end1
+    return ( $start1 lt $end2 && $start2 lt $end1 );
+}
+
+sub detect_conflicts ( $events ) {
+    my @conflicts;
+    
+    # Build presenter index: { presenter_name => [ event_refs ] }
+    my %presenter_events;
+    for my $event ( @$events ) {
+        next if $event->{ is_break };
+        for my $presenter ( @{ $event->{ presenters } } ) {
+            push @{ $presenter_events{ $presenter } }, $event;
+        }
+    }
+    
+    # Build room index: { room_id => [ event_refs ] }
+    my %room_events;
+    for my $event ( @$events ) {
+        next if $event->{ is_break };
+        next unless defined $event->{ roomId };
+        push @{ $room_events{ $event->{ roomId } } }, $event;
+    }
+    
+    # Check presenter conflicts
+    for my $presenter ( sort keys %presenter_events ) {
+        my $presenter_event_list = $presenter_events{ $presenter };
+        next if @$presenter_event_list < 2;
+        
+        # Sort by start time
+        my @sorted_events = sort { $a->{ start_time } cmp $b->{ start_time } } @$presenter_event_list;
+        
+        # Find overlapping groups
+        my @overlap_groups = _find_overlap_groups( @sorted_events );
+        
+        for my $group ( @overlap_groups ) {
+            next if @$group < 2;  # Skip single-event groups
+            
+            # Create conflicts for all pairs in this group
+            for my $i ( 0 .. $#$group - 1 ) {
+                for my $j ( $i + 1 .. $#$group ) {
+                    push @conflicts, {
+                        type      => 'presenter',
+                        presenter => $presenter,
+                        event1    => $group->[$i],
+                        event2    => $group->[$j],
+                    };
+                }
+            }
+            
+            # Warning for multi-way conflicts
+            if ( @$group > 2 ) {
+                warn sprintf(
+                    "WARNING: Presenter \"%s\" has %d-way booking conflict:\n",
+                    $presenter, scalar @$group
+                );
+                for my $event ( @$group ) {
+                    warn sprintf(
+                        "  %s \"%s\" (%s, %s)\n",
+                        $event->{ id } // 'unknown',
+                        $event->{ name },
+                        _format_time_range( $event ),
+                        $event->{ roomId } // 'no room',
+                    );
+                }
+                warn "\n";
+            } else {
+                # Standard two-way conflict warning
+                my $event1 = $group->[0];
+                my $event2 = $group->[1];
+                warn sprintf(
+                    "WARNING: Presenter \"%s\" is double-booked:\n  %s \"%s\" (%s, %s)\n  %s \"%s\" (%s, %s)\n",
+                    $presenter,
+                    $event1->{ id } // 'unknown',
+                    $event1->{ name },
+                    _format_time_range( $event1 ),
+                    $event1->{ roomId } // 'no room',
+                    $event2->{ id } // 'unknown', 
+                    $event2->{ name },
+                    _format_time_range( $event2 ),
+                    $event2->{ roomId } // 'no room',
+                );
+            }
+        }
+    }
+    
+    # Check room conflicts
+    for my $room_id ( sort keys %room_events ) {
+        my $room_event_list = $room_events{ $room_id };
+        next if @$room_event_list < 2;
+        
+        # Sort by start time
+        my @sorted_events = sort { $a->{ start_time } cmp $b->{ start_time } } @$room_event_list;
+        
+        # Find overlapping groups
+        my @overlap_groups = _find_overlap_groups( @sorted_events );
+        
+        for my $group ( @overlap_groups ) {
+            next if @$group < 2;  # Skip single-event groups
+            
+            # Create conflicts for all pairs in this group
+            for my $i ( 0 .. $#$group - 1 ) {
+                for my $j ( $i + 1 .. $#$group ) {
+                    push @conflicts, {
+                        type   => 'room',
+                        room   => $room_id,
+                        event1 => $group->[$i],
+                        event2 => $group->[$j],
+                    };
+                }
+            }
+            
+            # Warning for multi-way conflicts
+            if ( @$group > 2 ) {
+                warn sprintf(
+                    "WARNING: Room %d has %d-way scheduling conflict:\n",
+                    $room_id, scalar @$group
+                );
+                for my $event ( @$group ) {
+                    warn sprintf(
+                        "  %s \"%s\" (%s)\n",
+                        $event->{ id } // 'unknown',
+                        $event->{ name },
+                        _format_time_range( $event ),
+                    );
+                }
+                warn "\n";
+            } else {
+                # Standard two-way conflict warning
+                my $event1 = $group->[0];
+                my $event2 = $group->[1];
+                warn sprintf(
+                    "WARNING: Room conflict in room %d:\n  %s \"%s\" (%s)\n  %s \"%s\" (%s)\n",
+                    $room_id,
+                    $event1->{ id } // 'unknown',
+                    $event1->{ name },
+                    _format_time_range( $event1 ),
+                    $event2->{ id } // 'unknown',
+                    $event2->{ name },
+                    _format_time_range( $event2 ),
+                );
+            }
+        }
+    }
+    
+    return \@conflicts;
+}
+
+sub _find_overlap_groups ( @sorted_events ) {
+    my @groups;
+    my @current_group;
+    
+    for my $event ( @sorted_events ) {
+        if ( !@current_group ) {
+            # Start first group
+            push @current_group, $event;
+        }
+        else {
+            # Check if this event overlaps with any event in current group
+            my $overlaps_with_group = 0;
+            for my $group_event ( @current_group ) {
+                if ( _events_overlap( $event, $group_event ) ) {
+                    $overlaps_with_group = 1;
+                    last;
+                }
+            }
+            
+            if ( $overlaps_with_group ) {
+                # Add to current group
+                push @current_group, $event;
+            }
+            else {
+                # Save current group and start new one
+                push @groups, [@current_group] if @current_group > 1;
+                @current_group = ($event);
+            }
+        }
+    }
+    
+    # Save final group
+    push @groups, [@current_group] if @current_group > 1;
+    
+    return @groups;
+}
+
+sub _format_time_range ( $event ) {
+    my $start = $event->{ start_time };
+    my $end   = $event->{ end_time };
+    
+    # Extract time portion from ISO format
+    $start =~ s{T(\d{2}:\d{2}).*}{$1} if defined $start;
+    $end   =~ s{T(\d{2}:\d{2}).*}{$1} if defined $end;
+    
+    return "${start}-${end}";
+}
+
 1;

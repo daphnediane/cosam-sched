@@ -1,12 +1,13 @@
 # Cosplay America Schedule - Work Plan
 
-Generated on: Mon Mar 16 14:02:03 2026
+Generated on: Mon Mar 16 16:07:21 2026
 
 ## Completed
 
 * [BUGFIX-001](work-plan/BUGFIX-001.md) Converting the existing spreadsheets loses presenter information during the conversion process.
 * [BUGFIX-002](work-plan/BUGFIX-002.md) Break events should only be visible when filtering by room or when no filters are applied.
 * [BUGFIX-003](work-plan/BUGFIX-003.md) Remove "free" labeling from events as all events require registration.
+* [BUGFIX-006](work-plan/BUGFIX-006.md) The converter does not detect or report scheduling conflicts such as a presenter double-booked across overlapping events, or two non-break events in the same room at the same time.
 * [FEATURE-001](work-plan/FEATURE-001.md) Implement a two-part system for Cosplay America schedule management.
 * [FEATURE-002](work-plan/FEATURE-002.md) Filter out SPLIT page-break markers and display BREAK time slots stretched across rooms.
 * [FEATURE-007](work-plan/FEATURE-007.md) Replace hardcoded panel type colors with CSS-based UID reference system for theming.
@@ -34,9 +35,9 @@ Generated on: Mon Mar 16 14:02:03 2026
 
 **Status:** Open
 
-**Summary:** Filter out internal staff events from the public schedule JSON.
+**Summary:** Filter out internal staff events from the public schedule JSON using the "Hidden" field in PanelTypes sheet and add `--staff` option to include private events.
 
-**Description:** Staff-only events are being included in the public JSON output. These should be filtered out during conversion to maintain privacy and reduce clutter.
+**Description:** Staff-only events are being included in the public JSON output. These should be filtered out during conversion to maintain privacy and reduce clutter. The PanelTypes sheet already has a "Hidden" column for this purpose.
 
 *See full details in: [work-plan/BUGFIX-004.md](work-plan/BUGFIX-004.md)*
 
@@ -91,6 +92,45 @@ See also: `docs/spreadsheet-format.md` and schedule-to-html README §Panelist.
 
 ---
 
+### [FEATURE-008] Allow room-wide events with subpanel overlaps
+
+**Status:** Open
+
+**Summary:** Enable room-wide events like Market Expo to overlap with subpanels in the same room without triggering false conflict warnings.
+
+**Description:** Currently the converter flags conflicts when room-wide events (like Market Expo) overlap with scheduled subpanels (like Learn to solder workshops) in the same room. These overlaps are intentional - the room-wide event marks the overall operating hours while subpanels are specific activities within that timeframe.
+
+The 2025 schedule shows this pattern:
+
+- ME100 "Market Expo" (13:00-18:00) in room 15
+- FD001S1 "Learn to solder" (14:00-16:00) in room 15
+- ME101 "Market Expo" (10:00-19:00) in room 15  
+- FD001S2 "Learn to solder" (10:00-12:00) in room 15
+- FD001S3 "Learn to solder" (14:00-16:00) in room 15
+
+*See full details in: [work-plan/FEATURE-008.md](work-plan/FEATURE-008.md)*
+
+---
+
+### [FEATURE-009] Handle group presenter conflicts intelligently
+
+**Status:** Open
+
+**Summary:** Enable presenter conflict detection to distinguish between individual presenters and groups, allowing groups like "UNC Staff" to be scheduled in multiple panels simultaneously.
+
+**Description:** Currently the converter flags conflicts when the same presenter name appears in overlapping events, but this creates false positives for presenter groups. Groups like "UNC Staff", "Pros and Cons", or "Guest Panelists" represent multiple people who can be in different panels at the same time.
+
+The 2025 schedule shows this issue:
+
+- UNC Staff scheduled for both "Parasol History and Construction" (10:00-11:00, room 4)
+- UNC Staff also scheduled for "Reshaping the Body" (10:00-11:00, room 5)
+
+This is not a real conflict since UNC Staff represents multiple staff members who can be split across different panels.
+
+*See full details in: [work-plan/FEATURE-009.md](work-plan/FEATURE-009.md)*
+
+---
+
 ### [UI-002] Fix event title and star overlap
 
 **Status:** Open
@@ -105,24 +145,6 @@ See also: `docs/spreadsheet-format.md` and schedule-to-html README §Panelist.
 
 ## Medium Priority
 
-### [BUGFIX-006] Detect and warn about scheduling conflicts
-
-**Status:** Open
-
-**Summary:** The converter does not detect or report scheduling conflicts such as a presenter double-booked across overlapping events, or two non-break events in the same room at the same time.
-
-**Description:** When building the schedule spreadsheet, mistakes happen — a presenter may be
-marked as attending two events that overlap in time, or two events may be
-accidentally assigned to the same room at the same time.
-
-Currently the converter silently produces JSON with these conflicts, and the
-widget displays overlapping events without any indication that something is
-wrong. Neither tool provides any warning to the schedule author.
-
-*See full details in: [work-plan/BUGFIX-006.md](work-plan/BUGFIX-006.md)*
-
----
-
 ### [FEATURE-006] Add a compact printed schedule
 
 **Status:** Open
@@ -135,6 +157,18 @@ wrong. Neither tool provides any warning to the schedule author.
 
 ---
 
+### [FEATURE-010] Enhance presenter group display and filtering in widget
+
+**Status:** Open
+
+**Summary:** Update the schedule widget to properly display presenter groups and allow filtering by both individual presenters and groups, following the group handling logic from the original implementation.
+
+**Description:** The current widget displays presenters as a simple list of names, but doesn't handle the sophisticated group logic from the original schedule-to-html system. Users need to see groups properly formatted and be able to filter by groups like "UNC Staff" in addition to individual presenters.
+
+*See full details in: [work-plan/FEATURE-010.md](work-plan/FEATURE-010.md)*
+
+---
+
 ### [UI-005] Implement sticky headers or additional header rows
 
 **Status:** Open
@@ -144,6 +178,47 @@ wrong. Neither tool provides any warning to the schedule author.
 **Description:** When viewing the schedule grid, users lose context of which day/time they're viewing as they scroll. Either sticky headers should follow the scroll, or additional header rows should be inserted between days to maintain context.
 
 *See full details in: [work-plan/UI-005.md](work-plan/UI-005.md)*
+
+---
+
+### [UI-006] Visual conflict indicators in schedule widget
+
+**Status:** Open
+
+**Summary:** Add visual indicators to the schedule widget to highlight conflicting events, making it easy for users to identify and understand scheduling conflicts.
+
+**Description:** The converter now includes conflict data in the JSON output, but the widget doesn't display this information to users. Users need visual cues to quickly identify conflicting events and understand what the conflicts are.
+
+Based on the 2025 schedule data, conflicts include:
+
+- Room conflicts (Market Expo vs Learn to solder sessions)
+- Presenter conflicts (UNC Staff double-booked)
+
+*See full details in: [work-plan/UI-006.md](work-plan/UI-006.md)*
+
+---
+
+### [UI-007] Improve room filter to exclude room-hours-only rooms
+
+**Status:** Open
+
+**Summary:** Update the room filter dropdown to only include rooms that have scheduled panels, excluding rooms that only contain room-hours events (RH prefix or "Is Room Hours" flag).
+
+**Description:** Currently the room filter shows all rooms from the Rooms sheet, including rooms that only contain room-hours events like "Market Expo" or "Registration". These rooms clutter the filter and don't contain actual panels that users want to filter by.
+
+*See full details in: [work-plan/UI-007.md](work-plan/UI-007.md)*
+
+---
+
+### [UI-008] Display room hours separately from schedule grid
+
+**Status:** Open
+
+**Summary:** Add a dedicated room hours section to display operating hours for rooms with RH/Is Room Hours events, formatted by day and room type as shown in the example layout.
+
+**Description:** Room-hours events (RH prefix or "Is Room Hours" flag) currently appear in the main schedule grid, but they represent operating hours rather than specific panels. These should be displayed separately in a more readable format that shows when each area is open.
+
+*See full details in: [work-plan/UI-008.md](work-plan/UI-008.md)*
 
 ---
 

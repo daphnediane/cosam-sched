@@ -84,6 +84,30 @@ my ( $events, $presenters ) = Convert::Events::read_events( $wb, $rooms, $panel_
 say 'Events: ', scalar @{ $events };
 say 'Presenters: ', scalar @{ $presenters };
 
+# Detect conflicts
+my $conflicts = Convert::Events::detect_conflicts( $events );
+say 'Conflicts detected: ', scalar @$conflicts if @$conflicts;
+
+# Add conflict references to events
+my %event_conflicts;
+for my $conflict ( @$conflicts ) {
+    push @{ $event_conflicts{ $conflict->{ event1 }{ id } } }, {
+        type    => $conflict->{ type },
+        details => $conflict->{ type } eq 'presenter' 
+            ? "Double-booked with: " . $conflict->{ event2 }{ name } . " (presenter: " . $conflict->{ presenter } . ")"
+            : "Room conflict with: " . $conflict->{ event2 }{ name },
+        conflict_event_id => $conflict->{ event2 }{ id },
+    };
+    
+    push @{ $event_conflicts{ $conflict->{ event2 }{ id } } }, {
+        type    => $conflict->{ type },
+        details => $conflict->{ type } eq 'presenter'
+            ? "Double-booked with: " . $conflict->{ event1 }{ name } . " (presenter: " . $conflict->{ presenter } . ")"
+            : "Room conflict with: " . $conflict->{ event1 }{ name },
+        conflict_event_id => $conflict->{ event1 }{ id },
+    };
+}
+
 my $visible_rooms = [
     map {
         {
@@ -118,6 +142,7 @@ my $json_presenters = [
 
 my $json_events = [
     map {
+        my $event_conflict_refs = $event_conflicts{ $_->{ id } } || [];
         {
             id          => $_->{ id },
             name        => $_->{ name },
@@ -140,8 +165,27 @@ my $json_events = [
             prereq      => $_->{ prereq },
             ticketUrl   => $_->{ ticket_url },
             isFull      => $_->{ is_full } ? JSON::true : JSON::false,
+            conflicts   => $event_conflict_refs,
         }
     } @{ $events }
+];
+
+my $json_conflicts = [
+    map {
+        {
+            type      => $_->{ type },
+            presenter => $_->{ presenter } // JSON::null,
+            room      => $_->{ room } // JSON::null,
+            event1    => {
+                id   => $_->{ event1 }{ id },
+                name => $_->{ event1 }{ name },
+            },
+            event2    => {
+                id   => $_->{ event2 }{ id },
+                name => $_->{ event2 }{ name },
+            },
+        }
+    } @$conflicts
 ];
 
 my $output = {
@@ -157,6 +201,7 @@ my $output = {
     panelTypes => $visible_types,
     presenters => $json_presenters,
     events     => $json_events,
+    conflicts  => $json_conflicts,
 };
 
 my $json = JSON->new->utf8->pretty->canonical->encode( $output );
