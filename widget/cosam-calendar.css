@@ -5,7 +5,7 @@
   --cosam-accent: #6b21a8;
   --cosam-accent-light: #a855f7;
   --cosam-accent-bg: #f3e8ff;
-  --cosam-bg: #ffffff;
+  --cosam-bg: #f5f5f5;
   --cosam-bg-alt: #f9fafb;
   --cosam-border: #e5e7eb;
   --cosam-text: #1f2937;
@@ -443,11 +443,159 @@
   -webkit-overflow-scrolling: touch;
 }
 
+/* Grey background for the entire grid */
+.cosam-grid {
+  display: grid;
+  border: 2px solid #40c8ed;
+  border-radius: 8px;
+  overflow: hidden;
+  z-index: 1;
+  position: relative;
+  gap: 0;
+  background: #f5f5f5;
+}
+
+/* Subtle gridlines on the grey background (matching schedule-to-html style) */
+.cosam-grid-row-line {
+  border-top: 1px solid rgba(183, 235, 248, 0.55);
+  pointer-events: none;
+  z-index: 2;
+  align-self: start;
+}
+
+.cosam-grid-col-line {
+  width: 1px;
+  background: rgba(183, 235, 248, 0.55);
+  justify-self: end;
+  align-self: stretch;
+  pointer-events: none;
+  z-index: 2;
+}
+
+.cosam-grid-header {
+  display: contents;
+}
+
+.cosam-grid-header-cell {
+  background: #40c8ed;
+  color: #18191c;
+  padding: 8px 6px;
+  font-size: 13px;
+  font-weight: 600;
+  text-align: center;
+  position: sticky;
+  top: 0;
+  z-index: 3;
+  position: relative;
+  z-index: 4;
+  border-right: 1px solid #d0d0d0;
+  border-bottom: 1px solid #d0d0d0;
+}
+
+.cosam-grid-header-cell:last-child {
+  border-right: none;
+}
+
+.cosam-grid-time-header {
+  text-align: right;
+  padding-right: 10px !important;
+  min-width: 80px;
+  background: #40c8ed !important;
+  z-index: 4;
+  border-right: 1px solid #d0d0d0 !important;
+  border-bottom: 1px solid #d0d0d0 !important;
+}
+
+.cosam-grid-event {
+  padding: 6px 8px;
+  border-radius: 6px;
+  margin: 2px;
+  cursor: pointer;
+  font-size: 12px;
+  line-height: 1.3;
+  border-left: 8px solid transparent;
+  transition: all 0.2s ease;
+  position: relative;
+  background: #ffffff !important;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.1);
+  z-index: 10;
+}
+
+.cosam-grid-event:hover {
+  transform: translateY(-1px);
+  box-shadow: 0 2px 6px rgba(0, 0, 0, 0.15);
+}
+
+.cosam-grid-event.starred {
+  border-left-color: var(--cosam-star);
+}
+
+.cosam-grid-event-name {
+  font-weight: 600;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.cosam-grid-event-time {
+  font-size: 11px;
+  color: var(--cosam-text-muted);
+}
+
+.cosam-grid-event-room {
+  font-size: 11px;
+  color: var(--cosam-text-muted);
+  font-style: italic;
+  margin-top: 2px;
+}
+
+@media (max-width: 768px) {
+  .cosam-grid-event-room {
+    display: block;
+    /* Show room info on mobile */
+  }
+}
+
+@media (min-width: 769px) {
+  .cosam-grid-event-room {
+    display: none;
+    /* Hide room info on desktop, shown in header */
+  }
+}
+
+.cosam-grid-event-star {
+  position: absolute;
+  top: 2px;
+  right: 2px;
+  width: 16px;
+  height: 16px;
+  cursor: pointer;
+  color: var(--cosam-text-light);
+}
+
+.cosam-grid-event-star.starred {
+  color: var(--cosam-star);
+}
+
+.cosam-grid-event-star svg {
+  width: 14px;
+  height: 14px;
+  stroke: currentColor;
+  stroke-width: 2;
+  fill: none;
+}
+
+.cosam-grid-event-star.starred svg {
+  fill: currentColor;
+}
+
+/* Legacy table styles (kept for fallback) */
 .cosam-grid-table {
   width: 100%;
   border-collapse: collapse;
   table-layout: fixed;
   min-width: 600px;
+  display: none;
+  /* Hide table by default */
 }
 
 .cosam-grid-table th {
@@ -485,64 +633,80 @@
   background: var(--cosam-bg-alt);
 }
 
-.cosam-grid-event {
-  padding: 4px 6px;
-  border-radius: 4px;
-  margin-bottom: 2px;
+/* ── Break Events ────────────────────────────────────────────────────────── */
+
+.cosam-grid-break {
+  padding: 8px 12px;
+  border-radius: 6px;
+  margin: 2px;
   cursor: pointer;
   font-size: 12px;
-  line-height: 1.3;
-  border-left: 3px solid transparent;
-  transition: box-shadow 0.15s;
-  position: relative;
+  font-weight: 500;
+  text-align: center;
+  background: repeating-linear-gradient(-45deg,
+      #e0e0e0,
+      #e0e0e0 8px,
+      #d5d5d5 8px,
+      #d5d5d5 16px);
+  border: 1px solid #c0c0c0;
+  border-left: 4px solid #999;
+  transition: all 0.2s ease;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.1);
+  color: #666;
+  z-index: 10;
 }
 
-.cosam-grid-event:hover {
-  box-shadow: var(--cosam-shadow);
+.cosam-grid-break:hover {
+  transform: translateY(-1px);
+  box-shadow: 0 2px 6px rgba(0, 0, 0, 0.15);
+  border-color: #b0b0b0;
 }
 
-.cosam-grid-event.starred {
-  border-left-color: var(--cosam-star);
-}
-
-.cosam-grid-event-name {
+.cosam-grid-break-name {
   font-weight: 600;
-  overflow: hidden;
-  text-overflow: ellipsis;
+  color: #666;
 }
 
-.cosam-grid-event-time {
-  font-size: 11px;
-  color: var(--cosam-text-muted);
+/* Time column cells */
+.cosam-grid-time-header:not(.cosam-grid-header-cell) {
+  background: #40c8ed !important;
+  border-right: 1px solid #d0d0d0 !important;
+  border-bottom: 1px solid #d0d0d0 !important;
+  font-weight: 500 !important;
+  color: #18191c !important;
+  z-index: 5;
 }
 
-.cosam-grid-event-star {
-  position: absolute;
-  top: 2px;
-  right: 2px;
-  width: 16px;
-  height: 16px;
-  cursor: pointer;
-  color: var(--cosam-text-light);
+/* Remove individual cell backgrounds - grid lines handle separation */
+.cosam-grid>div:not(.cosam-grid-header-cell):not(.cosam-grid-event):not(.cosam-grid-break):not(.cosam-sleep-break):not(.cosam-grid-row-line):not(.cosam-grid-col-line) {
+  background: transparent;
+  border: none;
+  margin: 0;
 }
 
-.cosam-grid-event-star.starred {
-  color: var(--cosam-star);
+/* Sleep break styling */
+.cosam-sleep-break {
+  padding: 12px 16px;
+  border-radius: 8px;
+  margin: 2px;
+  background: linear-gradient(135deg, #e8e8e8, #d5d5d5);
+  border: 1px solid #c0c0c0;
+  text-align: center;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.1);
+  color: #666;
+  z-index: 10;
 }
 
-.cosam-grid-event-star svg {
-  width: 14px;
-  height: 14px;
-  stroke: currentColor;
-  stroke-width: 2;
-  fill: none;
+.cosam-sleep-break-icon {
+  font-size: 18px;
+  margin-bottom: 4px;
 }
 
-.cosam-grid-event-star.starred svg {
-  fill: currentColor;
+.cosam-sleep-break-text {
+  font-weight: 600;
+  color: #666;
+  font-size: 13px;
 }
-
-/* ── Break Events ────────────────────────────────────────────────────────── */
 
 .cosam-break-banner {
   padding: 12px 16px;
@@ -823,14 +987,40 @@
     display: block !important;
   }
 
-  .cosam-grid-table {
+  .cosam-grid {
     min-width: auto;
     font-size: 10px;
+    gap: 1px;
+    border: 1px solid #999;
+    background: #f5f5f5;
   }
 
-  .cosam-grid-table th,
-  .cosam-grid-table td {
+  .cosam-grid-header-cell {
     padding: 3px 4px;
+    border-bottom: 1px solid #999;
+    font-size: 9px;
+    background: #e8e8e8;
+  }
+
+  .cosam-grid-event {
+    margin: 1px;
+    padding: 2px 3px;
+    font-size: 9px;
+    border: 1px solid #ccc;
+    background: #ffffff;
+  }
+
+  .cosam-grid-event-room {
+    display: block !important;
+    /* Show room info in print */
+  }
+
+  .cosam-grid-row-line {
+    border-top: 1px solid #ccc;
+  }
+
+  .cosam-grid-col-line {
+    background: #ccc;
   }
 
   .cosam-time-header {
@@ -843,6 +1033,66 @@
     margin: 16px 0 8px;
     page-break-after: avoid;
   }
+}
+
+/* ── Responsive Grid ───────────────────────────────────────────────────────── */
+
+@media (max-width: 768px) {
+  .cosam-grid {
+    grid-template-columns: 1fr !important;
+    grid-template-rows: auto !important;
+  }
+
+  .cosam-grid-header-cell {
+    position: static !important;
+    border-bottom: 1px solid var(--cosam-border) !important;
+  }
+
+  .cosam-grid-header-cell:not(.cosam-grid-time-header) {
+    display: none;
+    /* Hide room headers on mobile, show room name in event */
+  }
+
+  .cosam-grid-time-header {
+    text-align: left !important;
+    padding-right: 6px !important;
+    font-weight: 600 !important;
+    background: var(--cosam-accent-bg) !important;
+    color: var(--cosam-accent) !important;
+  }
+
+  .cosam-grid-event {
+    margin: 4px 0;
+    grid-column: 1 !important;
+  }
+
+  .cosam-grid-break {
+    grid-column: 1 !important;
+  }
+
+  .cosam-sleep-break {
+    grid-column: 1 !important;
+  }
+
+  .cosam-grid-row-line,
+  .cosam-grid-col-line {
+    display: none;
+  }
+}
+
+/* Grid Footer */
+.cosam-grid-footer {
+  background: var(--cosam-bg-alt);
+  border-top: 2px solid var(--cosam-accent);
+  padding: 8px;
+  text-align: center;
+  font-weight: 600;
+  color: var(--cosam-text);
+}
+
+.cosam-grid-footer-content {
+  opacity: 0.7;
+  font-size: 0.9em;
 }
 
 /* ── Responsive ───────────────────────────────────────────────────────────── */
