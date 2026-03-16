@@ -87,12 +87,11 @@ say 'Presenters: ', scalar @{ $presenters };
 my $visible_rooms = [
     map {
         {
-            id        => $_->{ id },
-            uid       => $_->{ uid },
-            shortName => $_->{ short_name },
-            longName  => $_->{ long_name },
-            hotelRoom => $_->{ hotel_room },
-            sortKey   => $_->{ sort_key },
+            uid        => $_->{ uid },
+            short_name => $_->{ short_name },
+            long_name  => $_->{ long_name },
+            hotel_room => $_->{ hotel_room },
+            sort_key   => $_->{ sort_key },
         }
     } grep { !$_->{ is_hidden } } @{ $rooms }
 ];

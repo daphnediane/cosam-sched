@@ -29,7 +29,7 @@ sub read_rooms ( $wb, $lookup_config = {} ) {
     }
 
     my @rooms;
-    my $next_id = 0;
+    my $next_uid = 0;
 
     for my $row ( @rows ) {
         my $data = canonical_data( \@header, \@san_header, $row );
@@ -49,8 +49,7 @@ sub read_rooms ( $wb, $lookup_config = {} ) {
         my $hotel_room   = $data->{ Hotel_Room } // $data->{ HotelRoom };
 
         push @rooms, {
-            id         => $next_id++,
-            uid        => $next_id - 1,  # Use id as uid
+            uid        => $next_uid++,
             short_name => $short_name,
             long_name  => $long_name,
             hotel_room => $hotel_room,
@@ -61,12 +60,7 @@ sub read_rooms ( $wb, $lookup_config = {} ) {
 
     @rooms = sort { $a->{ sort_key } <=> $b->{ sort_key } } @rooms;
 
-    # Re-assign ids after sort but preserve original UIDs
-    my $idx = 0;
-    for my $room (@rooms) {
-        $room->{ id } = $idx++;
-        # UID was already assigned during creation
-    }
+    # No need to reassign ids since we only use uid now
 
     return \@rooms;
 } ## end sub read_rooms

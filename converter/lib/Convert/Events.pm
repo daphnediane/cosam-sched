@@ -219,7 +219,6 @@ sub _find_or_create_room ( $rooms, $room_lookup, $room_name ) {
     }
     
     my $new_room = {
-        id         => scalar @$rooms,
         uid        => $new_uid,
         short_name => $room_name,
         long_name  => $room_name,
@@ -435,7 +434,7 @@ sub read_events ( $wb, $rooms, $panel_types, $lookup_config = {} ) {
             duration    => defined $duration_seconds
             ? int( $duration_seconds / 60 )
             : undef,
-            roomId      => $room_obj ? $room_obj->{ id } : undef,
+            roomId      => $room_obj ? $room_obj->{ uid } : undef,
             panel_type => $panel_type
             ? $panel_type->{ prefix }
             : ( $id_prefix ne q{} ? $id_prefix : undef ),
