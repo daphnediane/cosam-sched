@@ -29,6 +29,7 @@ my $config_file = '';
 my $schedule_table = 'Schedule';
 my $roommap_table  = 'RoomMap';
 my $prefix_table   = 'Prefix';
+my $staff_mode     = 0;
 
 GetOptions(
     'input|i=s'           => \$input_file,
@@ -38,6 +39,7 @@ GetOptions(
     'schedule-table=s'    => \$schedule_table,
     'roommap-table=s'     => \$roommap_table,
     'prefix-table=s'      => \$prefix_table,
+    'staff'               => \$staff_mode,
     'help|h'              => \$help,
 ) or die "Error in command line arguments\n";
 
@@ -50,6 +52,8 @@ if ( $help || !defined $input_file ) {
     say q{  --schedule-table <name>  Table/sheet name for schedule data (default: Schedule)};
     say q{  --roommap-table <name>    Table/sheet name for room mapping (default: RoomMap)};
     say q{  --prefix-table <name>     Table/sheet name for panel type prefixes (default: Prefix)};
+    say q{  --staff                   Include staff-only/private events in output};
+    say q{  --help                    Show this help message};
     exit( $help ? 0 : 1 );
 }
 
@@ -80,9 +84,12 @@ say 'Rooms: ', scalar @{ $rooms };
 my $panel_types = Convert::Types::read_panel_types( $wb, $lookup_config );
 say 'Panel types: ', scalar @{ $panel_types };
 
-my ( $events, $presenters ) = Convert::Events::read_events( $wb, $rooms, $panel_types, $lookup_config );
+my ( $events, $presenters ) = Convert::Events::read_events( $wb, $rooms, $panel_types, $lookup_config, $staff_mode );
 say 'Events: ', scalar @{ $events };
 say 'Presenters: ', scalar @{ $presenters };
+
+# Generate credits for display
+$events = Convert::Events::generate_credits( $events, $presenters );
 
 # Detect conflicts
 my $conflicts = Convert::Events::detect_conflicts( $events );
@@ -91,19 +98,22 @@ say 'Conflicts detected: ', scalar @$conflicts if @$conflicts;
 # Add conflict references to events
 my %event_conflicts;
 for my $conflict ( @$conflicts ) {
+    my $is_group_conflict = $conflict->{ type } eq 'group_presenter';
+    my $details = $is_group_conflict
+        ? "Group presenter overlap: " . $conflict->{ presenter } . " in multiple events"
+        : $conflict->{ type } eq 'presenter'
+            ? "Double-booked with: " . $conflict->{ event2 }{ name } . " (presenter: " . $conflict->{ presenter } . ")"
+            : "Room conflict with: " . $conflict->{ event2 }{ name };
+    
     push @{ $event_conflicts{ $conflict->{ event1 }{ id } } }, {
         type    => $conflict->{ type },
-        details => $conflict->{ type } eq 'presenter' 
-            ? "Double-booked with: " . $conflict->{ event2 }{ name } . " (presenter: " . $conflict->{ presenter } . ")"
-            : "Room conflict with: " . $conflict->{ event2 }{ name },
+        details => $details,
         conflict_event_id => $conflict->{ event2 }{ id },
     };
     
     push @{ $event_conflicts{ $conflict->{ event2 }{ id } } }, {
         type    => $conflict->{ type },
-        details => $conflict->{ type } eq 'presenter'
-            ? "Double-booked with: " . $conflict->{ event1 }{ name } . " (presenter: " . $conflict->{ presenter } . ")"
-            : "Room conflict with: " . $conflict->{ event1 }{ name },
+        details => $details,
         conflict_event_id => $conflict->{ event1 }{ id },
     };
 }
@@ -136,7 +146,14 @@ my $visible_types = [
 
 my $json_presenters = [
     map {
-        { name => $_->{ name }, rank => $_->{ rank } }
+        {
+            name => $_->{ name }, 
+            rank => $_->{ rank },
+            groups => $_->{ groups } || [],
+            is_group => $_->{ is_group } || JSON::false,
+            members => $_->{ members } || [],
+            always_grouped => $_->{ always_grouped } || JSON::false,
+        }
     } @{ $presenters }
 ];
 
@@ -161,6 +178,7 @@ my $json_events = [
             difficulty  => $_->{ difficulty },
             capacity    => $_->{ capacity },
             presenters  => $_->{ presenters },
+            credits     => $_->{ credits },
             note        => $_->{ note },
             prereq      => $_->{ prereq },
             ticketUrl   => $_->{ ticket_url },

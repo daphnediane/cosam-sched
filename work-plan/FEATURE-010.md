@@ -6,7 +6,7 @@ Update the schedule widget to properly display presenter groups and allow filter
 
 ## Status
 
-Open
+Completed
 
 ## Priority
 
@@ -46,7 +46,7 @@ The current widget displays presenters as a simple list of names, but doesn't ha
 
 ### Filter Enhancement
 
-3. **Update presenter filter dropdown**:
+1. **Update presenter filter dropdown**:
 
    ```javascript
    function buildPresenterFilter(presenters) {
@@ -57,7 +57,7 @@ The current widget displays presenters as a simple list of names, but doesn't ha
    }
    ```
 
-4. **Group filtering logic**:
+2. **Group filtering logic**:
 
    - When group selected, show events where any group member presents
    - When individual selected, show only their specific events
@@ -66,7 +66,7 @@ The current widget displays presenters as a simple list of names, but doesn't ha
 
 ### Data Structure Updates
 
-5. **Enhanced presenter data in JSON**:
+1. **Enhanced presenter data in JSON**:
 
    ```json
    {
@@ -89,7 +89,7 @@ The current widget displays presenters as a simple list of names, but doesn't ha
    }
    ```
 
-6. **Event presenter relationships**:
+2. **Event presenter relationships**:
 
    ```json
    {
@@ -115,14 +115,14 @@ The current widget displays presenters as a simple list of names, but doesn't ha
 
 ### Widget UI Updates
 
-7. **Presenter display formatting**:
+1. **Presenter display formatting**:
 
    - Group names shown when all members attend
    - Individual names shown for partial attendance
    - Always-grouped presenters always shown as group
    - Mixed attendance: "Group Name (Individual Name)"
 
-8. **Filter dropdown styling**:
+2. **Filter dropdown styling**:
 
    - Groups shown with different styling (bold, icon, etc.)
    - Clear visual distinction between individuals and groups
@@ -130,7 +130,7 @@ The current widget displays presenters as a simple list of names, but doesn't ha
 
 ### Testing
 
-9. **Test scenarios**:
+1. **Test scenarios**:
 
    - Single presenter events
    - Group events with all members attending

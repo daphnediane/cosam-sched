@@ -99,7 +99,7 @@ if (@completed) {
     print $out "\n---\n\n";
 }
 
-# Add summary of todo items
+# Add summary of todo items as nested list
 if (@open) {
     print $out "## Summary of Open Items\n\n";
     
@@ -111,15 +111,15 @@ if (@open) {
         push @{$by_priority{$item->{priority}}}, $item;
     }
     
-    # Output summary list by priority
+    # Output summary list by priority as nested list
     for my $priority (qw(High Medium Low)) {
         next unless exists $by_priority{$priority};
         
-        print $out "### $priority Priority\n\n";
+        print $out "* **$priority Priority**\n";
         
         for my $item (sort { $a->{prefix} cmp $b->{prefix} || $a->{num} <=> $b->{num} } @{$by_priority{$priority}}) {
             my $relative_file = $item->{file};
-            print $out "* [$item->{prefix}-$item->{num}]($relative_file) $item->{summary}\n";
+            print $out "  * [$item->{prefix}-$item->{num}]($relative_file) $item->{summary}\n";
         }
         
         print $out "\n";
@@ -134,11 +134,11 @@ for my $item (@open) {
     push @{$by_priority{$item->{priority}}}, $item;
 }
 
-# Output each priority section
+# Output each priority section with different heading to avoid duplicates
 for my $priority (qw(High Medium Low)) {
     next unless exists $by_priority{$priority};
     
-    print $out "## $priority Priority\n\n";
+    print $out "## Open $priority Priority Items\n\n";
     
     for my $item (@{$by_priority{$priority}}) {
         print $out "### [$item->{prefix}-$item->{num}] $item->{title}\n\n";
@@ -151,10 +151,24 @@ for my $priority (qw(High Medium Low)) {
         my $relative_file = $item->{file};
         print $out "*See full details in: [$relative_file]($relative_file)*\n\n";
         
-        print $out "---\n\n";
+        # Add separator, but not after the last item
+        if ($item != $by_priority{$priority}[-1]) {
+            print $out "---\n\n";
+        }
     }
 }
 
 close $out;
 
-print "Generated $output_file with " . scalar(@items) . " work items\n";
+# Trim trailing whitespace from the output file
+my $content = do {
+    local $/;
+    open my $fh, '<', $output_file or die "Can't read $output_file: $!";
+    <$fh>;
+};
+$content =~ s/\n\s*$/\n/;
+open my $fh_out, '>', $output_file or die "Can't write $output_file: $!";
+print $fh_out $content;
+close $fh_out;
+
+print STDERR "Generated $output_file with " . scalar(@items) . " work items\n";

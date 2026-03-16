@@ -6,7 +6,7 @@ Filter out internal staff events from the public schedule JSON using the "Hidden
 
 ## Status
 
-Open
+Completed
 
 ## Priority
 
@@ -32,7 +32,7 @@ Staff-only events are being included in the public JSON output. These should be 
 
 ### Staff Mode Option
 
-3. **Add `--staff` command line flag**:
+1. **Add `--staff` command line flag**:
 
    ```bash
    schedule_to_json --staff --input schedule.xlsx --output staff_schedule.json
@@ -40,15 +40,13 @@ Staff-only events are being included in the public JSON output. These should be 
 
    When `--staff` is specified, include hidden events. Useful for internal staff schedules and planning. Default behavior (no `--staff`) excludes hidden events.
 
-4. **Update schedule_to_json script**:
+2. **Update schedule_to_json script**:
 
    - Add `staff` parameter to GetOptions
    - Pass staff flag to Events processing
    - Update output documentation to reflect staff mode
 
-### Validation
-
-5. **Add validation checks**:
+3. **Add validation checks**:
 
    - Verify no hidden events in public JSON output
    - Optional: Count and report filtered hidden events

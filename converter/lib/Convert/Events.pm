@@ -32,13 +32,63 @@ sub _parse_presenter_header ( $hdr ) {
     $h =~ s{\s+ \z}{}xms;
     return if $h eq q{};
 
-    # Kind:Name=Group format (e.g. "G:Yaya Han", "P:Lady Gatita=Group")
-    # See docs/spreadsheet-format.md for details on presenter column headers.
+    # Kind:Name==Group format (always show as group)
+    if ( $h =~ m{\A ([GJSIP]) : (.+) == (.+) \z}xmsi ) {
+        my $prefix    = lc $1;
+        my $name_part = $2;
+        my $group_name = $3;
+
+        # Strip leading < (always-grouped marker from schedule-to-html)
+        $name_part =~ s{\A <}{}xms;
+        $name_part =~ s{\A \s+}{}xms;
+        $name_part =~ s{\s+ \z}{}xms;
+
+        return if $name_part eq q{};
+
+        # Kind:Name==Group — always show as group
+        return {
+            rank           => $RANK_PREFIXES{ $prefix },
+            index          => 0,
+            is_other       => 0,
+            is_named       => 1,
+            header_name    => $name_part,
+            group_name     => $group_name,
+            is_group_member => 1,
+            always_grouped => 1,
+        };
+    }
+    
+    # Kind:Name=Group format (group member)
+    if ( $h =~ m{\A ([GJSIP]) : (.+) = (.+) \z}xmsi ) {
+        my $prefix    = lc $1;
+        my $name_part = $2;
+        my $group_name = $3;
+
+        # Strip leading < (always-grouped marker from schedule-to-html)
+        $name_part =~ s{\A <}{}xms;
+        $name_part =~ s{\A \s+}{}xms;
+        $name_part =~ s{\s+ \z}{}xms;
+
+        return if $name_part eq q{};
+
+        # Kind:Name=Group — presenter is member of Group
+        return {
+            rank           => $RANK_PREFIXES{ $prefix },
+            index          => 0,
+            is_other       => 0,
+            is_named       => 1,
+            header_name    => $name_part,
+            group_name     => $group_name,
+            is_group_member => 1,
+            always_grouped => 0,
+        };
+    }
+    
     if ( $h =~ m{\A ([GJSIP]) : (.+) \z}xmsi ) {
         my $prefix    = lc $1;
         my $name_part = $2;
 
-        # Strip =Group suffix
+        # Strip =Group suffix (backward compatibility)
         $name_part =~ s{ = .+ \z}{}xms;
 
         # Strip leading < (always-grouped marker from schedule-to-html)
@@ -262,7 +312,7 @@ sub _build_type_lookup ( $panel_types ) {
 
 # ── Main read function ────────────────────────────────────────────────────────
 
-sub read_events ( $wb, $rooms, $panel_types, $lookup_config = {} ) {
+sub read_events ( $wb, $rooms, $panel_types, $lookup_config = {}, $staff_mode = 0 ) {
 
     # Try to find schedule data using lookup hierarchy
     my $source = find_data_source($wb, $lookup_config, 'schedule');
@@ -294,7 +344,8 @@ sub read_events ( $wb, $rooms, $panel_types, $lookup_config = {} ) {
 
     my $room_lookup = _build_room_lookup( $rooms );
     my $type_lookup = _build_type_lookup( $panel_types );
-    my %presenter_set;    # name -> rank
+    my %presenter_set;    # name -> { rank, groups, is_group }
+    my %group_members;    # group_name -> [member_names]
     my @events;
 
     for my $row ( @rows ) {
@@ -377,8 +428,27 @@ sub read_events ( $wb, $rooms, $panel_types, $lookup_config = {} ) {
                 my $name = $pc->{ header_name };
                 push @event_presenters, $name;
                 if ( !exists $presenter_set{ $name } ) {
-                    $presenter_set{ $name }
-                        = $pc->{ rank } // 'fan_panelist';
+                    my %presenter_info = (
+                        rank => $pc->{ rank } // 'fan_panelist',
+                        groups => [],
+                        is_group => 0,
+                    );
+                    
+                    # Track group membership
+                    if ( $pc->{ is_group_member } && $pc->{ group_name } ) {
+                        push @{ $presenter_info{groups} }, $pc->{ group_name };
+                        push @{ $group_members{ $pc->{ group_name } } }, $name;
+                        
+                        # Track always_grouped flag
+                        $presenter_info{always_grouped} = $pc->{ always_grouped } || 0;
+                    }
+                    
+                    # Check if this presenter is actually a group
+                    if ( _is_group_presenter($name) ) {
+                        $presenter_info{is_group} = 1;
+                    }
+                    
+                    $presenter_set{ $name } = \%presenter_info;
                 }
             }
             else {
@@ -393,8 +463,12 @@ sub read_events ( $wb, $rooms, $panel_types, $lookup_config = {} ) {
 
                     push @event_presenters, $part;
                     if ( !exists $presenter_set{ $part } ) {
-                        $presenter_set{ $part }
-                            = $pc->{ rank } // 'fan_panelist';
+                        my %presenter_info = (
+                            rank => $pc->{ rank } // 'fan_panelist',
+                            groups => [],
+                            is_group => _is_group_presenter($part) ? 1 : 0,
+                        );
+                        $presenter_set{ $part } = \%presenter_info;
                     }
                 } ## end for my $part ( @parts )
             }
@@ -415,7 +489,12 @@ sub read_events ( $wb, $rooms, $panel_types, $lookup_config = {} ) {
 
                     push @event_presenters, $part;
                     if ( !exists $presenter_set{ $part } ) {
-                        $presenter_set{ $part } = 'fan_panelist';
+                        my %presenter_info = (
+                            rank => 'fan_panelist',
+                            groups => [],
+                            is_group => _is_group_presenter($part) ? 1 : 0,
+                        );
+                        $presenter_set{ $part } = \%presenter_info;
                     }
                 } ## end for my $part ( @parts )
             } ## end if ( defined $presenter_raw...)
@@ -433,7 +512,8 @@ sub read_events ( $wb, $rooms, $panel_types, $lookup_config = {} ) {
             : 0;
         my $is_hidden = $panel_type ? $panel_type->{ is_hidden } : 0;
 
-        next if $is_hidden;
+        # Skip hidden events unless in staff mode
+        next if $is_hidden && !$staff_mode;
 
         push @events, {
             id          => $uniq_id // sprintf( 'row%d', scalar @events ),
@@ -464,15 +544,207 @@ sub read_events ( $wb, $rooms, $panel_types, $lookup_config = {} ) {
         };
     } ## end for my $row ( @rows )
 
-    # Build presenter list
+    # Post-process presenters to handle = suffix group members
+    for my $presenter_name ( keys %presenter_set ) {
+        if ( $presenter_name =~ m{ \A (.+) = \z }xms ) {
+            my $base_name = $1;
+            my $info = $presenter_set{ $presenter_name };
+            
+            # This is a group member, use the group_name from header if available
+            my $group_name;
+            if ( $info->{ groups } && @{ $info->{ groups } } > 0 ) {
+                $group_name = $info->{ groups }[0];
+            } else {
+                # Fallback: try to infer group name
+                $group_name = $base_name;
+                if ( $base_name =~ m{ \A (Pro|Con) \z }xmsi ) {
+                    $group_name = 'Pros and Cons';
+                }
+            }
+            
+            # Add group membership
+            push @{ $info->{groups} }, $group_name if !grep { $_ eq $group_name } @{ $info->{groups} || [] };
+            push @{ $group_members{ $group_name } }, $presenter_name;
+            
+            # Ensure the group exists as a presenter
+            if ( !exists $presenter_set{ $group_name } ) {
+                $presenter_set{ $group_name } = {
+                    rank => 'guest',
+                    groups => [],
+                    is_group => 1,
+                };
+            }
+        }
+    }
+    
+    # Also ensure all referenced groups exist as presenters
+    for my $presenter_name ( keys %presenter_set ) {
+        my $info = $presenter_set{ $presenter_name };
+        next unless $info->{ groups } && @{ $info->{ groups } } > 0;
+        
+        for my $group_name ( @{ $info->{ groups } } ) {
+            # Ensure the group exists as a presenter
+            if ( !exists $presenter_set{ $group_name } ) {
+                $presenter_set{ $group_name } = {
+                    rank => 'guest',
+                    groups => [],
+                    is_group => 1,
+                };
+            }
+            
+            # Add this presenter as a member of the group
+            push @{ $group_members{ $group_name } }, $presenter_name
+                unless grep { $_ eq $presenter_name } @{ $group_members{ $group_name } || [] };
+        }
+    }
+
+    # Build presenter list with group information
     my @presenter_list = sort { $a->{ name } cmp $b->{ name } }
-        map { { name => $_, rank => $presenter_set{ $_ } } }
+        map { 
+            my $info = $presenter_set{ $_ };
+            {
+                name => $_,
+                rank => $info->{ rank },
+                groups => $info->{ groups } || [],
+                is_group => $info->{ is_group } || 0,
+                members => $info->{ is_group } ? ($group_members{ $_ } || []) : [],
+            }
+        }
         keys %presenter_set;
 
     return ( \@events, \@presenter_list );
 } ## end sub read_events
 
+# ── Credits generation ───────────────────────────────────────────────────────────
+
+sub generate_credits ( $events, $presenters ) {
+    # Build presenter lookup
+    my %presenter_lookup;
+    for my $p ( @$presenters ) {
+        $presenter_lookup{ $p->{ name } } = $p;
+    }
+    
+    # Generate credits for each event
+    for my $event ( @$events ) {
+        my @credits;
+        my @presenters = @{ $event->{ presenters } };
+        my %processed;
+        
+        # Handle always-grouped presenters first
+        for my $name ( @presenters ) {
+            next if $processed{ $name };
+            
+            my $info = $presenter_lookup{ $name };
+            if ( !$info || !$info->{ always_grouped } ) {
+                next;
+            }
+            
+            # Always show as group name
+            push @credits, $name;
+            $processed{ $name } = 1;
+        }
+        
+        # Handle regular presenters and groups
+        for my $name ( @presenters ) {
+            next if $processed{ $name };
+            
+            my $info = $presenter_lookup{ $name };
+            if ( !$info ) {
+                push @credits, $name;
+                $processed{ $name } = 1;
+                next;
+            }
+            
+            # Check if this presenter is a member of any group
+            if ( $info->{ groups } && @{ $info->{ groups } } > 0 ) {
+                for my $group_name ( @{ $info->{ groups } } ) {
+                    my $group_info = $presenter_lookup{ $group_name };
+                    next unless $group_info && $group_info->{ is_group };
+                    
+                    my $members = $group_info->{ members } || [];
+                    my @present_members = grep { my $m = $_; grep { $_ eq $m } @presenters } @$members;
+                    
+                    # Mark all members as processed to avoid duplicates
+                    for my $member ( @present_members ) {
+                        $processed{ $member } = 1;
+                    }
+                    $processed{ $group_name } = 1;
+                    
+                    if ( @present_members == @$members && @$members > 0 ) {
+                        # All members present, show group name
+                        push @credits, $group_name;
+                    }
+                    else {
+                        # Partial attendance - show individual members with group context
+                        for my $member ( @present_members ) {
+                            push @credits, "$member of $group_name";
+                        }
+                    }
+                    last; # Only handle first group for now
+                }
+            }
+            elsif ( $info->{ is_group } ) {
+                # This is a group name that's directly in the presenters list
+                my $members = $info->{ members } || [];
+                my @present_members = grep { my $m = $_; grep { $_ eq $m } @presenters } @$members;
+                
+                if ( @present_members == 0 ) {
+                    # No members actually present, show group name
+                    push @credits, $name;
+                }
+                elsif ( @present_members == @$members && @$members > 0 ) {
+                    # All members present, show group name
+                    push @credits, $name;
+                }
+                else {
+                    # Partial attendance - show individual members with group context
+                    for my $member ( @present_members ) {
+                        push @credits, "$member of $name";
+                    }
+                }
+                
+                $processed{ $name } = 1;
+                for my $member ( @present_members ) {
+                    $processed{ $member } = 1;
+                }
+            }
+            else {
+                # Individual presenter
+                push @credits, $name;
+                $processed{ $name } = 1;
+            }
+        }
+        
+        $event->{ credits } = \@credits;
+    }
+    
+    return $events;
+} ## end sub generate_credits
+
 # ── Conflict detection ────────────────────────────────────────────────────────
+
+# Group presenter detection patterns
+my @GROUP_PATTERNS = (
+    qr{\b (?i:staff) \z}xms,
+);
+
+sub _is_group_presenter ( $presenter_name, $presenter_info = undef ) {
+    # Check if presenter info indicates it's a group
+    return 1 if $presenter_info && $presenter_info->{ is_group };
+    
+    # Check if presenter name ends with = (group member indicator)
+    return 1 if $presenter_name =~ m{ = \z }xms;
+    
+    # Check against group patterns (e.g., names ending with "staff")
+    for my $pattern (@GROUP_PATTERNS) {
+        return 1 if $presenter_name =~ $pattern;
+    }
+    
+    # Check if presenter comes from =Group header
+    return 1 if $presenter_info && $presenter_info->{ is_group_member };
+    
+    return 0;
+}
 
 sub _events_overlap ( $event1, $event2 ) {
     return 0 unless defined $event1->{ start_time } && defined $event2->{ start_time };
@@ -512,6 +784,31 @@ sub detect_conflicts ( $events ) {
         my $presenter_event_list = $presenter_events{ $presenter };
         next if @$presenter_event_list < 2;
         
+        # Skip group presenters - they can be in multiple places
+        if ( _is_group_presenter($presenter) ) {
+            # Still track conflicts for JSON data but mark as group type
+            my @sorted_events = sort { $a->{ start_time } cmp $b->{ start_time } } @$presenter_event_list;
+            my @overlap_groups = _find_overlap_groups( @sorted_events );
+            
+            for my $group ( @overlap_groups ) {
+                next if @$group < 2;
+                
+                # Create conflicts marked as group type
+                for my $i ( 0 .. $#$group - 1 ) {
+                    for my $j ( $i + 1 .. $#$group ) {
+                        push @conflicts, {
+                            type      => 'group_presenter',
+                            presenter => $presenter,
+                            event1    => $group->[$i],
+                            event2    => $group->[$j],
+                        };
+                    }
+                }
+            }
+            next;
+        }
+        
+        # Individual presenter conflict detection
         # Sort by start time
         my @sorted_events = sort { $a->{ start_time } cmp $b->{ start_time } } @$presenter_event_list;
         

@@ -17,8 +17,11 @@
         "perltidyrc",
         "Pfister",
         "prereq",
+        "prio",
         "rgba",
         "roommap",
+        "SPLITDAY",
+        "SPLITNIGHT",
         "sprintf",
         "strftime",
         "subpanel",
@@ -26,7 +29,10 @@
         "uids",
         "underlap",
         "WCAG",
+        "workplan",
+        "workplans",
         "xmsg",
-        "xmsi"
+        "xmsi",
+        "Yaya"
     ]
 }

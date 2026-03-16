@@ -6,7 +6,7 @@ Enable presenter conflict detection to distinguish between individual presenters
 
 ## Status
 
-Open
+Completed
 
 ## Priority
 
