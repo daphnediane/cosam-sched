@@ -222,10 +222,37 @@
 
       // Presenter — breaks excluded when filtering by presenter
       if (this.filters.presenter) {
-        const p = this.filters.presenter.toLowerCase();
-        events = events.filter(e =>
-          e.presenters && e.presenters.some(pr => pr.toLowerCase().includes(p))
-        );
+        const selectedPresenter = this.filters.presenter;
+        const presenterData = this.data.presenters.find(p => p.name === selectedPresenter);
+
+        if (presenterData && presenterData.is_group) {
+          // Group selected - show events where any group member presents
+          const groupMembers = new Set(presenterData.members || []);
+          events = events.filter(e =>
+            e.presenters && e.presenters.some(pr => groupMembers.has(pr))
+          );
+        } else {
+          // Individual presenter selected - need to check for "X of Group" format
+          const p = selectedPresenter.toLowerCase();
+          events = events.filter(e => {
+            if (!e.presenters) return false;
+
+            // Direct match
+            if (e.presenters.some(pr => pr.toLowerCase() === p)) {
+              return true;
+            }
+
+            // Check for "X of Group" format
+            return e.presenters.some(pr => {
+              const match = pr.match(/^(\S+) \s+ of \s+ (.+)$/i);
+              if (match) {
+                const [, individual, group] = match;
+                return individual.toLowerCase() === p || group.toLowerCase() === p;
+              }
+              return false;
+            });
+          });
+        }
       }
 
       // Starred only
@@ -549,13 +576,44 @@
       // Presenter filter
       const presGroup = el('div', { className: 'cosam-filter-group' });
       presGroup.appendChild(el('label', {}, 'Presenter'));
+
+      // Separate presenters into individuals and groups
+      const individuals = [];
+      const groups = [];
+
+      for (const p of this.state.data.presenters) {
+        if (p.is_group) {
+          groups.push(p);
+        } else {
+          individuals.push(p);
+        }
+      }
+
       const presSelect = el('select');
       presSelect.appendChild(el('option', { value: '' }, '— All Presenters —'));
-      for (const p of this.state.data.presenters) {
-        const opt = el('option', { value: p.name }, p.name);
-        if (this.state.filters.presenter === p.name) opt.selected = true;
-        presSelect.appendChild(opt);
+
+      // Add individuals first
+      if (individuals.length > 0) {
+        const indivGroup = el('optgroup', { label: 'Individual Presenters' });
+        for (const p of individuals) {
+          const opt = el('option', { value: p.name }, p.name);
+          if (this.state.filters.presenter === p.name) opt.selected = true;
+          indivGroup.appendChild(opt);
+        }
+        presSelect.appendChild(indivGroup);
       }
+
+      // Add groups with visual distinction
+      if (groups.length > 0) {
+        const groupGroup = el('optgroup', { label: 'Presenter Groups' });
+        for (const p of groups) {
+          const opt = el('option', { value: p.name }, p.name);
+          if (this.state.filters.presenter === p.name) opt.selected = true;
+          groupGroup.appendChild(opt);
+        }
+        presSelect.appendChild(groupGroup);
+      }
+
       presSelect.addEventListener('change', () => {
         this.state.filters.presenter = presSelect.value;
         this.render();
@@ -742,9 +800,9 @@
       if (evt.isKids) badges.appendChild(el('span', { className: 'cosam-badge cosam-badge-kids' }, 'Kids'));
       if (badges.children.length > 0) body.appendChild(badges);
 
-      // Presenters
-      if (evt.presenters && evt.presenters.length > 0) {
-        body.appendChild(el('div', { className: 'cosam-event-presenters' }, evt.presenters.join(', ')));
+      // Presenters/Credits
+      if (evt.credits && evt.credits.length > 0) {
+        body.appendChild(el('div', { className: 'cosam-event-presenters' }, evt.credits.join(', ')));
       }
 
       // Description (hidden, shown on expand)
@@ -1309,9 +1367,9 @@
         modal.appendChild(el('div', { className: 'cosam-modal-desc' }, evt.description));
       }
 
-      // Presenters
-      if (evt.presenters && evt.presenters.length > 0) {
-        modal.appendChild(el('div', { className: 'cosam-modal-presenters' }, 'Presenters: ' + evt.presenters.join(', ')));
+      // Presenters/Credits
+      if (evt.credits && evt.credits.length > 0) {
+        modal.appendChild(el('div', { className: 'cosam-modal-presenters' }, 'Presenters: ' + evt.credits.join(', ')));
       }
 
       // Note
