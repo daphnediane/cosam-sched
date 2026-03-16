@@ -1,6 +1,6 @@
 # Cosplay America Schedule - Work Plan
 
-Generated on: Mon Mar 16 16:07:21 2026
+Generated on: Mon Mar 16 16:12:25 2026
 
 ## Completed
 
@@ -14,6 +14,36 @@ Generated on: Mon Mar 16 16:07:21 2026
 * [UI-001](work-plan/UI-001.md) Display both the programming room name (e.g., "Programming 1") and the actual hotel room location.
 * [UI-003](work-plan/UI-003.md) Implement theme switching with dark, light, and CosAm color modes.
 * [UI-004](work-plan/UI-004.md) Replace table-based layout with CSS grid similar to schedule-to-html implementation.
+
+---
+
+## Summary of Open Items
+
+**Total open items:** 15
+
+### High Priority
+
+* [ACCESSIBILITY-001](work-plan/ACCESSIBILITY-001.md) Implement comprehensive accessibility improvements for screen readers and color blindness support.
+* [BUGFIX-004](work-plan/BUGFIX-004.md) Filter out internal staff events from the public schedule JSON using the "Hidden" field in PanelTypes sheet and add `--staff` option to include private events.
+* [BUGFIX-005](work-plan/BUGFIX-005.md) The converter ignores the "Hide Panelist" and "Alt Panelist" spreadsheet columns, so presenter suppression and override text are not honored in the JSON output.
+* [FEATURE-003](work-plan/FEATURE-003.md) Enable reading schedule data directly from Google Sheets.
+* [FEATURE-005](work-plan/FEATURE-005.md) Add a grid view option to the printable schedule in addition to the existing list view.
+* [FEATURE-008](work-plan/FEATURE-008.md) Enable room-wide events like Market Expo to overlap with subpanels in the same room without triggering false conflict warnings.
+* [FEATURE-009](work-plan/FEATURE-009.md) Enable presenter conflict detection to distinguish between individual presenters and groups, allowing groups like "UNC Staff" to be scheduled in multiple panels simultaneously.
+* [UI-002](work-plan/UI-002.md) Prevent event titles from overlapping with the "my schedule" star icon.
+
+### Medium Priority
+
+* [FEATURE-006](work-plan/FEATURE-006.md) Create a compact print format optimized for minimal paper usage.
+* [FEATURE-010](work-plan/FEATURE-010.md) Update the schedule widget to properly display presenter groups and allow filtering by both individual presenters and groups, following the group handling logic from the original implementation.
+* [UI-005](work-plan/UI-005.md) Add sticky headers or repeat day headers between time blocks in grid view for better navigation.
+* [UI-006](work-plan/UI-006.md) Add visual indicators to the schedule widget to highlight conflicting events, making it easy for users to identify and understand scheduling conflicts.
+* [UI-007](work-plan/UI-007.md) Update the room filter dropdown to only include rooms that have scheduled panels, excluding rooms that only contain room-hours events (RH prefix or "Is Room Hours" flag).
+* [UI-008](work-plan/UI-008.md) Add a dedicated room hours section to display operating hours for rooms with RH/Is Room Hours events, formatted by day and room type as shown in the example layout.
+
+### Low Priority
+
+* [FEATURE-004](work-plan/FEATURE-004.md) Create a cross-platform desktop application for schedule editing.
 
 ---
 

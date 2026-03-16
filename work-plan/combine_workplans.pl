@@ -99,6 +99,35 @@ if (@completed) {
     print $out "\n---\n\n";
 }
 
+# Add summary of todo items
+if (@open) {
+    print $out "## Summary of Open Items\n\n";
+    
+    print $out "**Total open items:** " . scalar(@open) . "\n\n";
+    
+    # Group open items by priority for summary list
+    my %by_priority;
+    for my $item (@open) {
+        push @{$by_priority{$item->{priority}}}, $item;
+    }
+    
+    # Output summary list by priority
+    for my $priority (qw(High Medium Low)) {
+        next unless exists $by_priority{$priority};
+        
+        print $out "### $priority Priority\n\n";
+        
+        for my $item (sort { $a->{prefix} cmp $b->{prefix} || $a->{num} <=> $b->{num} } @{$by_priority{$priority}}) {
+            my $relative_file = $item->{file};
+            print $out "* [$item->{prefix}-$item->{num}]($relative_file) $item->{summary}\n";
+        }
+        
+        print $out "\n";
+    }
+    
+    print $out "---\n\n";
+}
+
 # Group open items by priority
 my %by_priority;
 for my $item (@open) {
