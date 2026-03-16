@@ -2,11 +2,16 @@
  * CosAm Calendar Widget
  * Embeddable interactive event calendar for Cosplay America
  * Vanilla JS — no framework dependencies
+ * 
+ * Copyright (c) 2026 Daphne Pfister
+ * SPDX-License-Identifier: BSD-2-Clause
+ * See LICENSE file for full license text
  */
 (function () {
   'use strict';
 
   // ── SVG Icons ────────────────────────────────────────────────────────────
+  // @TODO(dpfister): Double check if Windsurf borrowed this icons from somewhere and if so replace with properly attributed SVG assets.
 
   const ICONS = {
     star: '<svg viewBox="0 0 24 24"><polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2"/></svg>',

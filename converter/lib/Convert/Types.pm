@@ -1,3 +1,7 @@
+# Copyright (c) 2026 Daphne Pfister
+# SPDX-License-Identifier: BSD-2-Clause
+# See LICENSE file for full license text
+
 package Convert::Types;
 
 use v5.38.0;
