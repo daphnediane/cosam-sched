@@ -1,6 +1,6 @@
 # Cosplay America Schedule - Work Plan
 
-Generated on: Mon Mar 16 11:16:13 2026
+Generated on: Mon Mar 16 13:48:51 2026
 
 ## Completed
 
@@ -10,6 +10,7 @@ Generated on: Mon Mar 16 11:16:13 2026
 * [FEATURE-001](work-plan/FEATURE-001.md) Implement a two-part system for Cosplay America schedule management.
 * [FEATURE-002](work-plan/FEATURE-002.md) Filter out SPLIT page-break markers and display BREAK time slots stretched across rooms.
 * [UI-001](work-plan/UI-001.md) Display both the programming room name (e.g., "Programming 1") and the actual hotel room location.
+* [UI-004](work-plan/UI-004.md) Replace table-based layout with CSS grid similar to schedule-to-html implementation.
 
 ---
 
@@ -109,18 +110,6 @@ See also: `docs/spreadsheet-format.md` and schedule-to-html README §Panelist.
 **Description:** Currently, long event titles can underlap the star icon, making both difficult to read.
 
 *See full details in: [work-plan/UI-002.md](work-plan/UI-002.md)*
-
----
-
-### [UI-004] Switch from tables to proper grid layout
-
-**Status:** Open
-
-**Summary:** Replace table-based layout with CSS grid similar to schedule-to-html implementation.
-
-**Description:** The current implementation uses HTML tables for layout, which is inflexible and doesn't provide the modern responsive design capabilities needed. The schedule-to-html system uses CSS grid which provides better control over layout, responsive behavior, and visual presentation.
-
-*See full details in: [work-plan/UI-004.md](work-plan/UI-004.md)*
 
 ---
 
