@@ -1,6 +1,6 @@
 # Cosplay America Schedule - Work Plan
 
-Generated on: Mon Mar 16 17:05:06 2026
+Generated on: Mon Mar 16 17:52:39 2026
 
 ## Completed
 
@@ -22,17 +22,25 @@ Generated on: Mon Mar 16 17:05:06 2026
 
 ## Summary of Open Items
 
-**Total open items:** 12
+**Total open items:** 22
 
 * **High Priority**
   * [ACCESSIBILITY-001](work-plan/ACCESSIBILITY-001.md) Implement comprehensive accessibility improvements for screen readers and color blindness support.
   * [BUGFIX-005](work-plan/BUGFIX-005.md) The converter ignores the "Hide Panelist" and "Alt Panelist" spreadsheet columns, so presenter suppression and override text are not honored in the JSON output.
+  * [EDITOR-500](work-plan/EDITOR-500.md) Add the ability to import schedule data from XLSX spreadsheets.
+  * [EDITOR-501](work-plan/EDITOR-501.md) Add the ability to export schedule data to XLSX spreadsheets.
+  * [EDITOR-502](work-plan/EDITOR-502.md) Implement inline editing of individual schedule events.
+  * [EDITOR-504](work-plan/EDITOR-504.md) Implement saving the schedule as JSON, matching the format consumed by the widget.
   * [FEATURE-003](work-plan/FEATURE-003.md) Enable reading schedule data directly from Google Sheets.
   * [FEATURE-005](work-plan/FEATURE-005.md) Add a grid view option to the printable schedule in addition to the existing list view.
   * [FEATURE-008](work-plan/FEATURE-008.md) Enable room-wide events like Market Expo to overlap with subpanels in the same room without triggering false conflict warnings.
   * [UI-002](work-plan/UI-002.md) Prevent event titles from overlapping with the "my schedule" star icon.
 
 * **Medium Priority**
+  * [EDITOR-503](work-plan/EDITOR-503.md) Detect and highlight scheduling conflicts between events.
+  * [EDITOR-505](work-plan/EDITOR-505.md) Enable drag-and-drop to move events between time slots and rooms.
+  * [EDITOR-506](work-plan/EDITOR-506.md) Implement undo/redo for all editing operations.
+  * [EDITOR-509](work-plan/EDITOR-509.md) Package the editor as standalone executables for macOS, Windows, and Linux.
   * [FEATURE-006](work-plan/FEATURE-006.md) Create a compact print format optimized for minimal paper usage.
   * [UI-005](work-plan/UI-005.md) Add sticky headers or repeat day headers between time blocks in grid view for better navigation.
   * [UI-006](work-plan/UI-006.md) Add visual indicators to the schedule widget to highlight conflicting events, making it easy for users to identify and understand scheduling conflicts.
@@ -40,6 +48,8 @@ Generated on: Mon Mar 16 17:05:06 2026
   * [UI-008](work-plan/UI-008.md) Add a dedicated room hours section to display operating hours for rooms with RH/Is Room Hours events, formatted by day and room type as shown in the example layout.
 
 * **Low Priority**
+  * [EDITOR-507](work-plan/EDITOR-507.md) Support reading from and writing to Google Sheets.
+  * [EDITOR-508](work-plan/EDITOR-508.md) Support reading from and writing to Excel files stored in OneDrive.
   * [FEATURE-004](work-plan/FEATURE-004.md) Create a cross-platform desktop application for schedule editing.
 
 ---
@@ -80,6 +90,54 @@ so all detected presenters are unconditionally included in the JSON output.
 See also: `docs/spreadsheet-format.md` and schedule-to-html README §Panelist.
 
 *See full details in: [work-plan/BUGFIX-005.md](work-plan/BUGFIX-005.md)*
+
+---
+
+### [EDITOR-500] XLSX Import Support
+
+**Status:** Open
+
+**Summary:** Add the ability to import schedule data from XLSX spreadsheets.
+
+**Description:** Implement reading XLSX files using the `calamine` crate, parsing the Schedule, Rooms, and PanelTypes sheets into the existing data model. This enables direct editing of spreadsheet-sourced data without going through the Perl converter first.
+
+*See full details in: [work-plan/EDITOR-500.md](work-plan/EDITOR-500.md)*
+
+---
+
+### [EDITOR-501] XLSX Export Support
+
+**Status:** Open
+
+**Summary:** Add the ability to export schedule data to XLSX spreadsheets.
+
+**Description:** Implement writing schedule data to XLSX files using the `rust_xlsxwriter` crate. This allows round-tripping data back to spreadsheet format for sharing with non-technical staff.
+
+*See full details in: [work-plan/EDITOR-501.md](work-plan/EDITOR-501.md)*
+
+---
+
+### [EDITOR-502] Event Editing UI
+
+**Status:** Open
+
+**Summary:** Implement inline editing of individual schedule events.
+
+**Description:** Allow users to click on an event card to edit its properties: name, description, time, room assignment, panel type, presenters, and flags. Changes should update the in-memory schedule model and mark the file as dirty.
+
+*See full details in: [work-plan/EDITOR-502.md](work-plan/EDITOR-502.md)*
+
+---
+
+### [EDITOR-504] JSON Export and Save
+
+**Status:** Open
+
+**Summary:** Implement saving the schedule as JSON, matching the format consumed by the widget.
+
+**Description:** Allow saving the in-memory schedule back to `schedule.json` format. This enables the editor to serve as the primary authoring tool, with output directly usable by the web widget.
+
+*See full details in: [work-plan/EDITOR-504.md](work-plan/EDITOR-504.md)*
 
 ---
 
@@ -138,6 +196,54 @@ The 2025 schedule shows this pattern:
 *See full details in: [work-plan/UI-002.md](work-plan/UI-002.md)*
 
 ## Open Medium Priority Items
+
+### [EDITOR-503] Conflict Detection
+
+**Status:** Open
+
+**Summary:** Detect and highlight scheduling conflicts between events.
+
+**Description:** Automatically identify events that overlap in the same room or involve the same presenter at the same time. Display conflicts visually and provide a summary view.
+
+*See full details in: [work-plan/EDITOR-503.md](work-plan/EDITOR-503.md)*
+
+---
+
+### [EDITOR-505] Drag-and-Drop Event Scheduling
+
+**Status:** Open
+
+**Summary:** Enable drag-and-drop to move events between time slots and rooms.
+
+**Description:** Implement a grid or timeline view where events can be dragged to change their time or room assignment. This provides an intuitive visual scheduling experience.
+
+*See full details in: [work-plan/EDITOR-505.md](work-plan/EDITOR-505.md)*
+
+---
+
+### [EDITOR-506] Undo/Redo Support
+
+**Status:** Open
+
+**Summary:** Implement undo/redo for all editing operations.
+
+**Description:** Track all changes to the schedule model and allow users to undo and redo them. Essential for a comfortable editing experience.
+
+*See full details in: [work-plan/EDITOR-506.md](work-plan/EDITOR-506.md)*
+
+---
+
+### [EDITOR-509] Application Packaging and Distribution
+
+**Status:** Open
+
+**Summary:** Package the editor as standalone executables for macOS, Windows, and Linux.
+
+**Description:** Set up build and packaging pipelines to produce distributable application bundles. Users should be able to download and run the editor without installing Rust or other development tools.
+
+*See full details in: [work-plan/EDITOR-509.md](work-plan/EDITOR-509.md)*
+
+---
 
 ### [FEATURE-006] Add a compact printed schedule
 
@@ -204,12 +310,36 @@ Based on the 2025 schedule data, conflicts include:
 
 ## Open Low Priority Items
 
-### [FEATURE-004] Develop a standalone editor app
+### [EDITOR-507] Google Sheets Integration
 
 **Status:** Open
 
+**Summary:** Support reading from and writing to Google Sheets.
+
+**Description:** Enable the editor to connect to Google Sheets for collaborative schedule management. This allows multiple staff members to work from a shared spreadsheet while using the editor for visualization and conflict detection.
+
+*See full details in: [work-plan/EDITOR-507.md](work-plan/EDITOR-507.md)*
+
+---
+
+### [EDITOR-508] OneDrive/Office 365 Integration
+
+**Status:** Open
+
+**Summary:** Support reading from and writing to Excel files stored in OneDrive.
+
+**Description:** Enable the editor to work with XLSX files shared via OneDrive/Office 365. This supports workflows where the schedule spreadsheet lives in a shared OneDrive folder.
+
+*See full details in: [work-plan/EDITOR-508.md](work-plan/EDITOR-508.md)*
+
+---
+
+### [FEATURE-004] Develop a standalone editor app
+
+**Status:** In Progress
+
 **Summary:** Create a cross-platform desktop application for schedule editing.
 
-**Description:** Build a standalone editor (Electron/Node) that works on Windows and Mac for editing schedules and generating output.
+**Description:** Build a standalone cross-platform desktop editor using Rust and GPUI for editing schedules and generating output. Supports macOS, Windows, and Linux.
 
 *See full details in: [work-plan/FEATURE-004.md](work-plan/FEATURE-004.md)*

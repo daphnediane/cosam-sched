@@ -6,7 +6,7 @@ Create a cross-platform desktop application for schedule editing.
 
 ## Status
 
-Open
+In Progress
 
 ## Priority
 
@@ -14,13 +14,13 @@ Low
 
 ## Description
 
-Build a standalone editor (Electron/Node) that works on Windows and Mac for editing schedules and generating output.
+Build a standalone cross-platform desktop editor using Rust and GPUI for editing schedules and generating output. Supports macOS, Windows, and Linux.
 
 ## Implementation Details
 
-- Choose framework: Electron for cross-platform support
-- Design intuitive schedule editing interface
-- Support import/export of schedule data
-- Include validation and conflict detection
-- Package as executable for both platforms
-- Consider auto-update mechanism
+- Framework: Rust with GPUI for cross-platform UI
+- Data model: Rust structs matching schedule.json schema (serde)
+- JSON load/display with day tabs, room sidebar, event cards
+- Future: XLSX import/export, event editing, conflict detection
+- Future: Google Sheets and OneDrive integration
+- Package as executable for all platforms
