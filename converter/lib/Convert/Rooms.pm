@@ -10,12 +10,14 @@ use warnings;
 
 use Convert::Canonical qw{ canonical_headers canonical_data };
 use Convert::SheetUtil qw{ find_sheet get_rows };
+use Convert::Lookup    qw{ :all };
 
-sub read_rooms ( $wb ) {
-    my $sheet = find_sheet( $wb, 'Rooms' );
-    return [] unless defined $sheet;
+sub read_rooms ( $wb, $lookup_config = {} ) {
+    my $source = find_data_source($wb, $lookup_config, 'roommap');
+    return [] unless defined $source;
 
-    my @rows = get_rows( $sheet );
+    my $rows_ref = Convert::Lookup::get_data_rows($source);
+    my @rows = @$rows_ref;
     return [] if @rows < 2;
 
     my @header     = @{ shift @rows };

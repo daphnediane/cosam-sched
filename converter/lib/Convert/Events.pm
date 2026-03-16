@@ -13,6 +13,7 @@ use POSIX       qw{ strftime };
 use Convert::Canonical
     qw{ canonical_header canonical_headers canonical_data };
 use Convert::SheetUtil qw{ find_sheet get_rows };
+use Convert::Lookup    qw{ :all };
 
 # ── Presenter column detection ────────────────────────────────────────────────
 
@@ -217,17 +218,14 @@ sub _build_type_lookup ( $panel_types ) {
 
 # ── Main read function ────────────────────────────────────────────────────────
 
-sub read_events ( $wb, $rooms, $panel_types ) {
+sub read_events ( $wb, $rooms, $panel_types, $lookup_config = {} ) {
 
-    # Try "Schedule" sheet, fall back to first sheet
-    my $sheet = find_sheet( $wb, 'Schedule' );
-    if ( !defined $sheet ) {
-        my @all_sheets = $wb->worksheets();
-        $sheet = $all_sheets[ 0 ] if @all_sheets;
-    }
-    return ( [], [] ) unless defined $sheet;
+    # Try to find schedule data using lookup hierarchy
+    my $source = find_data_source($wb, $lookup_config, 'schedule');
+    return ( [], [] ) unless defined $source;
 
-    my @rows = get_rows( $sheet );
+    my $rows_ref = Convert::Lookup::get_data_rows($source);
+    my @rows = @$rows_ref;
     return ( [], [] ) if @rows < 2;
 
     my @header     = @{ shift @rows };

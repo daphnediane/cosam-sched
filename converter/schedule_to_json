@@ -10,6 +10,7 @@ use warnings;
 
 use FindBin qw{ $RealBin };
 use lib "${RealBin}/lib";
+use lib "${RealBin}/../local/lib/perl5";
 
 use Getopt::Long qw{ GetOptions };
 use JSON         qw{ encode_json };
@@ -24,33 +25,62 @@ my $input_file;
 my $output_file = 'schedule.json';
 my $title       = '';
 my $help        = 0;
+my $config_file = '';
+my $schedule_table = 'Schedule';
+my $roommap_table  = 'RoomMap';
+my $prefix_table   = 'Prefix';
 
 GetOptions(
-    'input|i=s'  => \$input_file,
-    'output|o=s' => \$output_file,
-    'title|t=s'  => \$title,
-    'help|h'     => \$help,
+    'input|i=s'           => \$input_file,
+    'output|o=s'          => \$output_file,
+    'title|t=s'           => \$title,
+    'config|c=s'          => \$config_file,
+    'schedule-table=s'    => \$schedule_table,
+    'roommap-table=s'     => \$roommap_table,
+    'prefix-table=s'      => \$prefix_table,
+    'help|h'              => \$help,
 ) or die "Error in command line arguments\n";
 
 if ( $help || !defined $input_file ) {
-    say q{Usage: schedule_to_json --input <file.xlsx|file.txt> [--output schedule.json] [--title "Event Name"]};
+    say q{Usage: schedule_to_json --input <file.xlsx|google_sheets_url> [options]};
+    say q{Options:};
+    say q{  --output <file>          Output JSON file (default: schedule.json)};
+    say q{  --title <string>          Event title};
+    say q{  --config <file.yaml>      YAML file with Google Sheets API configuration};
+    say q{  --schedule-table <name>  Table/sheet name for schedule data (default: Schedule)};
+    say q{  --roommap-table <name>    Table/sheet name for room mapping (default: RoomMap)};
+    say q{  --prefix-table <name>     Table/sheet name for panel type prefixes (default: Prefix)};
     exit( $help ? 0 : 1 );
 }
 
 say "Reading: ${input_file}";
 
-my $wb = Convert::Workbook::open_workbook( $input_file );
+# Load configuration if provided
+my $config = {};
+if ($config_file) {
+    die "Config file not found: ${config_file}\n" unless -f $config_file;
+    $config->{config_file} = $config_file;
+    say "Using config file: ${config_file}";
+}
+
+my $wb = Convert::Workbook::open_workbook( $input_file, $config );
 die "Unable to open: ${input_file}\n" unless defined $wb;
 
-say 'Sheets: ', join( ', ', $wb->worksheets() );
+# Create lookup configuration
+my $lookup_config = {
+    schedule_table => $schedule_table,
+    roommap_table  => $roommap_table,
+    prefix_table   => $prefix_table,
+};
 
-my $rooms = Convert::Rooms::read_rooms( $wb );
+say "Reading schedule data from: ${input_file}";
+my $rooms = Convert::Rooms::read_rooms( $wb, $lookup_config );
 say 'Rooms: ', scalar @{ $rooms };
 
-my $panel_types = Convert::Types::read_panel_types( $wb );
+my $panel_types = Convert::Types::read_panel_types( $wb, $lookup_config );
 say 'Panel types: ', scalar @{ $panel_types };
 
-my ( $events, $presenters ) = Convert::Events::read_events( $wb, $rooms, $panel_types );
+my ( $events, $presenters ) = Convert::Events::read_events( $wb, $rooms, $panel_types, $lookup_config );
 say 'Events: ', scalar @{ $events };
 say 'Presenters: ', scalar @{ $presenters };
 

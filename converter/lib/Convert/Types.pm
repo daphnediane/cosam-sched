@@ -10,12 +10,14 @@ use warnings;
 
 use Convert::Canonical qw{ canonical_headers canonical_data };
 use Convert::SheetUtil qw{ find_sheet get_rows };
+use Convert::Lookup    qw{ :all };
 
-sub read_panel_types ( $wb ) {
-    my $sheet = find_sheet( $wb, 'PanelTypes', 'Panel Types', 'PanelType' );
-    return [] unless defined $sheet;
+sub read_panel_types ( $wb, $lookup_config = {} ) {
+    my $source = find_data_source($wb, $lookup_config, 'prefix');
+    return [] unless defined $source;
 
-    my @rows = get_rows( $sheet );
+    my $rows_ref = Convert::Lookup::get_data_rows($source);
+    my @rows = @$rows_ref;
     return [] if @rows < 2;
 
     my @header     = @{ shift @rows };

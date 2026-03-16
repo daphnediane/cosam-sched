@@ -1,0 +1,12 @@
+# Google Sheets API Configuration
+# This file should be in YAML format, not JSON
+
+auth:
+  class: OAuth2Client
+  client_id: your_client_id_here
+  client_secret: your_client_secret_here
+  token_file: path/to/token/file.yaml
+
+# Optional: Additional API settings
+# timeout: 30
+# throttle: 1

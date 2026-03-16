@@ -8,6 +8,9 @@ requires 'JSON';
 requires 'List::MoreUtils';
 requires 'Readonly';
 requires 'Spreadsheet::ParseXLSX';
+requires 'Google::RestApi::SheetsApi4';
+requires 'Archive::Zip';
+requires 'XML::Simple';
 
 on 'develop' => sub {
     requires 'App::cpanminus';

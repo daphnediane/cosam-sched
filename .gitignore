@@ -5,6 +5,7 @@
 *.orig
 *.tdy
 *.tmp
+*.xlsx
 *~
 .*
 
@@ -26,6 +27,9 @@
 # Ignore json files
 *.json
 !sample-data.json
+
+# Ignore local perl modules
+/local/
 
 # Ignore test year html file
 20[0-9][0-9].html
