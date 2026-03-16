@@ -99,6 +99,7 @@ my $visible_rooms = [
 my $visible_types = [
     map {
         {
+            uid        => $_->{ uid },
             prefix     => $_->{ prefix },
             kind       => $_->{ kind },
             isWorkshop => $_->{ is_workshop } ? JSON::true : JSON::false,
@@ -127,7 +128,6 @@ my $json_events = [
             roomId      => $_->{ roomId },
             panelType   => $_->{ panel_type },
             kind        => $_->{ kind },
-            color       => $_->{ color },
             cost        => $_->{ cost },
             isFree      => $_->{ is_free } ? JSON::true : JSON::false,
             isKids      => $_->{ is_kids } ? JSON::true : JSON::false,

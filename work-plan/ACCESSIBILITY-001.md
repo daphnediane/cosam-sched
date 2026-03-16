@@ -6,7 +6,7 @@ Implement comprehensive accessibility improvements for screen readers and color 
 
 ## Status
 
-Open
+In Progress
 
 ## Priority
 
@@ -76,3 +76,9 @@ Implement comprehensive accessibility improvements to ensure the schedule is usa
 - Prioritize screen reader compatibility for schedule data
 - Ensure grid layouts maintain logical reading order
 - Test thoroughly with actual assistive technology
+- Initial implementation started:
+  - Added skip link and live results region in widget UI
+  - Added keyboard activation (`Enter`/`Space`) for non-native clickable elements
+  - Added visible focus styles via `:focus-visible`
+  - Added theme switcher with high-contrast theme option
+  - Switched theme architecture to CSS custom properties for light/dark/cosam/high-contrast

@@ -1,6 +1,6 @@
 # Cosplay America Schedule - Work Plan
 
-Generated on: Mon Mar 16 13:48:51 2026
+Generated on: Mon Mar 16 14:02:03 2026
 
 ## Completed
 
@@ -9,7 +9,9 @@ Generated on: Mon Mar 16 13:48:51 2026
 * [BUGFIX-003](work-plan/BUGFIX-003.md) Remove "free" labeling from events as all events require registration.
 * [FEATURE-001](work-plan/FEATURE-001.md) Implement a two-part system for Cosplay America schedule management.
 * [FEATURE-002](work-plan/FEATURE-002.md) Filter out SPLIT page-break markers and display BREAK time slots stretched across rooms.
+* [FEATURE-007](work-plan/FEATURE-007.md) Replace hardcoded panel type colors with CSS-based UID reference system for theming.
 * [UI-001](work-plan/UI-001.md) Display both the programming room name (e.g., "Programming 1") and the actual hotel room location.
+* [UI-003](work-plan/UI-003.md) Implement theme switching with dark, light, and CosAm color modes.
 * [UI-004](work-plan/UI-004.md) Replace table-based layout with CSS grid similar to schedule-to-html implementation.
 
 ---
@@ -18,7 +20,7 @@ Generated on: Mon Mar 16 13:48:51 2026
 
 ### [ACCESSIBILITY-001] Accessibility Improvements
 
-**Status:** Open
+**Status:** In Progress
 
 **Summary:** Implement comprehensive accessibility improvements for screen readers and color blindness support.
 
@@ -89,18 +91,6 @@ See also: `docs/spreadsheet-format.md` and schedule-to-html README §Panelist.
 
 ---
 
-### [FEATURE-007] Reference panel types by UID instead of hardcoding colors
-
-**Status:** Open
-
-**Summary:** Replace hardcoded panel type colors with CSS-based UID reference system for theming.
-
-**Description:** Currently panel type colors are hardcoded in the event data, making it difficult to implement themes and maintain consistent styling. This change will make panel types reference UIDs and use CSS classes for colors, enabling proper theming support.
-
-*See full details in: [work-plan/FEATURE-007.md](work-plan/FEATURE-007.md)*
-
----
-
 ### [UI-002] Fix event title and star overlap
 
 **Status:** Open
@@ -142,18 +132,6 @@ wrong. Neither tool provides any warning to the schedule author.
 **Description:** Some attendees prefer a pocket-sized schedule. A compact format with smaller fonts and condensed layout would be valuable.
 
 *See full details in: [work-plan/FEATURE-006.md](work-plan/FEATURE-006.md)*
-
----
-
-### [UI-003] Add dark mode / light mode switch
-
-**Status:** Open
-
-**Summary:** Implement theme switching with dark, light, and CosAm color modes.
-
-**Description:** Users want the option to switch between dark mode, light mode, and the default Cosplay America color scheme.
-
-*See full details in: [work-plan/UI-003.md](work-plan/UI-003.md)*
 
 ---
 

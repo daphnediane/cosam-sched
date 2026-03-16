@@ -186,6 +186,16 @@ sub _extract_id_prefix ( $id ) {
     return q{};
 } ## end sub _extract_id_prefix
 
+sub _panel_type_uid_from_prefix ( $prefix ) {
+    return undef unless defined $prefix;
+    my $slug = lc "$prefix";
+    $slug =~ s{[^a-z0-9]+}{-}xmsg;
+    $slug =~ s{\A -+}{}xms;
+    $slug =~ s{-+ \z}{}xms;
+    return undef if $slug eq q{};
+    return 'panel-type-' . $slug;
+}
+
 # ── Room lookup helpers ───────────────────────────────────────────────────────
 
 sub _build_room_lookup ( $rooms ) {
@@ -436,10 +446,9 @@ sub read_events ( $wb, $rooms, $panel_types, $lookup_config = {} ) {
             : undef,
             roomId      => $room_obj ? $room_obj->{ uid } : undef,
             panel_type => $panel_type
-            ? $panel_type->{ prefix }
-            : ( $id_prefix ne q{} ? $id_prefix : undef ),
+            ? $panel_type->{ uid }
+            : _panel_type_uid_from_prefix( $id_prefix ),
             kind        => $panel_type ? $panel_type->{ kind }  : $kind_raw,
-            color       => $panel_type ? $panel_type->{ color } : undef,
             cost        => $cost_info->{ cost },
             is_free     => $cost_info->{ is_free },
             is_kids     => $cost_info->{ is_kids },

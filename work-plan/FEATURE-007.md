@@ -6,7 +6,7 @@ Replace hardcoded panel type colors with CSS-based UID reference system for them
 
 ## Status
 
-Open
+Completed
 
 ## Priority
 

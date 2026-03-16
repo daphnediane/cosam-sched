@@ -30,6 +30,11 @@ sub read_panel_types ( $wb, $lookup_config = {} ) {
 
         my $prefix = $data->{ Prefix } // q{};
         next if $prefix eq q{};
+        my $prefix_uc = uc $prefix;
+        my $uid       = 'panel-type-' . lc $prefix_uc;
+        $uid =~ s{[^a-z0-9]+}{-}xmsg;
+        $uid =~ s{\A -+}{}xms;
+        $uid =~ s{-+ \z}{}xms;
 
         my $kind = $data->{ Panel_Kind } // $data->{ PanelKind }
             // $data->{ Kind } // $prefix;
@@ -63,7 +68,8 @@ sub read_panel_types ( $wb, $lookup_config = {} ) {
         my $color = $data->{ Color };
 
         push @types, {
-            prefix      => uc( $prefix ),
+            uid         => $uid,
+            prefix      => $prefix_uc,
             kind        => $kind,
             is_break    => $is_break,
             is_cafe     => $is_cafe,
