@@ -6,7 +6,7 @@ Add the ability to import schedule data from XLSX spreadsheets.
 
 ## Status
 
-Open
+Completed
 
 ## Priority
 

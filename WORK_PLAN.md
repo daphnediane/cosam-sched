@@ -1,6 +1,6 @@
 # Cosplay America Schedule - Work Plan
 
-Generated on: Mon Mar 16 17:52:39 2026
+Generated on: Mon Mar 16 23:23:39 2026
 
 ## Completed
 
@@ -9,6 +9,8 @@ Generated on: Mon Mar 16 17:52:39 2026
 * [BUGFIX-003](work-plan/BUGFIX-003.md) Remove "free" labeling from events as all events require registration.
 * [BUGFIX-004](work-plan/BUGFIX-004.md) Filter out internal staff events from the public schedule JSON using the "Hidden" field in PanelTypes sheet and add `--staff` option to include private events.
 * [BUGFIX-006](work-plan/BUGFIX-006.md) The converter does not detect or report scheduling conflicts such as a presenter double-booked across overlapping events, or two non-break events in the same room at the same time.
+* [EDITOR-500](work-plan/EDITOR-500.md) Add the ability to import schedule data from XLSX spreadsheets.
+* [EDITOR-504](work-plan/EDITOR-504.md) Implement saving the schedule as JSON, matching the format consumed by the widget.
 * [FEATURE-001](work-plan/FEATURE-001.md) Implement a two-part system for Cosplay America schedule management.
 * [FEATURE-002](work-plan/FEATURE-002.md) Filter out SPLIT page-break markers and display BREAK time slots stretched across rooms.
 * [FEATURE-007](work-plan/FEATURE-007.md) Replace hardcoded panel type colors with CSS-based UID reference system for theming.
@@ -22,15 +24,13 @@ Generated on: Mon Mar 16 17:52:39 2026
 
 ## Summary of Open Items
 
-**Total open items:** 22
+**Total open items:** 20
 
 * **High Priority**
   * [ACCESSIBILITY-001](work-plan/ACCESSIBILITY-001.md) Implement comprehensive accessibility improvements for screen readers and color blindness support.
   * [BUGFIX-005](work-plan/BUGFIX-005.md) The converter ignores the "Hide Panelist" and "Alt Panelist" spreadsheet columns, so presenter suppression and override text are not honored in the JSON output.
-  * [EDITOR-500](work-plan/EDITOR-500.md) Add the ability to import schedule data from XLSX spreadsheets.
   * [EDITOR-501](work-plan/EDITOR-501.md) Add the ability to export schedule data to XLSX spreadsheets.
   * [EDITOR-502](work-plan/EDITOR-502.md) Implement inline editing of individual schedule events.
-  * [EDITOR-504](work-plan/EDITOR-504.md) Implement saving the schedule as JSON, matching the format consumed by the widget.
   * [FEATURE-003](work-plan/FEATURE-003.md) Enable reading schedule data directly from Google Sheets.
   * [FEATURE-005](work-plan/FEATURE-005.md) Add a grid view option to the printable schedule in addition to the existing list view.
   * [FEATURE-008](work-plan/FEATURE-008.md) Enable room-wide events like Market Expo to overlap with subpanels in the same room without triggering false conflict warnings.
@@ -93,18 +93,6 @@ See also: `docs/spreadsheet-format.md` and schedule-to-html README §Panelist.
 
 ---
 
-### [EDITOR-500] XLSX Import Support
-
-**Status:** Open
-
-**Summary:** Add the ability to import schedule data from XLSX spreadsheets.
-
-**Description:** Implement reading XLSX files using the `calamine` crate, parsing the Schedule, Rooms, and PanelTypes sheets into the existing data model. This enables direct editing of spreadsheet-sourced data without going through the Perl converter first.
-
-*See full details in: [work-plan/EDITOR-500.md](work-plan/EDITOR-500.md)*
-
----
-
 ### [EDITOR-501] XLSX Export Support
 
 **Status:** Open
@@ -126,18 +114,6 @@ See also: `docs/spreadsheet-format.md` and schedule-to-html README §Panelist.
 **Description:** Allow users to click on an event card to edit its properties: name, description, time, room assignment, panel type, presenters, and flags. Changes should update the in-memory schedule model and mark the file as dirty.
 
 *See full details in: [work-plan/EDITOR-502.md](work-plan/EDITOR-502.md)*
-
----
-
-### [EDITOR-504] JSON Export and Save
-
-**Status:** Open
-
-**Summary:** Implement saving the schedule as JSON, matching the format consumed by the widget.
-
-**Description:** Allow saving the in-memory schedule back to `schedule.json` format. This enables the editor to serve as the primary authoring tool, with output directly usable by the web widget.
-
-*See full details in: [work-plan/EDITOR-504.md](work-plan/EDITOR-504.md)*
 
 ---
 

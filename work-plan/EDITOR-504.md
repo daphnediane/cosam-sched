@@ -6,7 +6,7 @@ Implement saving the schedule as JSON, matching the format consumed by the widge
 
 ## Status
 
-Open
+Completed
 
 ## Priority
 
