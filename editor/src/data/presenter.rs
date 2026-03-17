@@ -1,5 +1,7 @@
 use serde::{Deserialize, Deserializer, Serialize};
 
+use super::source_info::{ChangeState, SourceInfo};
+
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct Presenter {
     pub name: String,
@@ -12,6 +14,10 @@ pub struct Presenter {
     pub groups: Vec<String>,
     #[serde(default, deserialize_with = "deserialize_bool_or_int")]
     pub always_grouped: bool,
+    #[serde(default, skip_serializing)]
+    pub source: Option<SourceInfo>,
+    #[serde(default, skip_serializing)]
+    pub change_state: ChangeState,
 }
 
 fn deserialize_bool_or_int<'de, D>(deserializer: D) -> Result<bool, D::Error>
@@ -88,6 +94,8 @@ mod tests {
             members: vec![],
             groups: vec![],
             always_grouped: false,
+            source: None,
+            change_state: ChangeState::Unchanged,
         };
         let json = serde_json::to_string(&p).unwrap();
         let p2: Presenter = serde_json::from_str(&json).unwrap();

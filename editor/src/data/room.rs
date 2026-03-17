@@ -1,5 +1,7 @@
 use serde::{Deserialize, Serialize};
 
+use super::source_info::{ChangeState, SourceInfo};
+
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct Room {
     pub uid: u32,
@@ -7,6 +9,10 @@ pub struct Room {
     pub long_name: String,
     pub hotel_room: String,
     pub sort_key: u32,
+    #[serde(default, skip_serializing)]
+    pub source: Option<SourceInfo>,
+    #[serde(default, skip_serializing)]
+    pub change_state: ChangeState,
 }
 
 #[cfg(test)]
@@ -37,6 +43,8 @@ mod tests {
             long_name: "Workshop 1".into(),
             hotel_room: "Salon A".into(),
             sort_key: 4,
+            source: None,
+            change_state: ChangeState::Unchanged,
         };
         let json = serde_json::to_string(&room).unwrap();
         let room2: Room = serde_json::from_str(&json).unwrap();

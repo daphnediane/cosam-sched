@@ -1,5 +1,7 @@
 use serde::{Deserialize, Serialize};
 
+use super::source_info::{ChangeState, SourceInfo};
+
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct TimelineEntry {
@@ -10,6 +12,10 @@ pub struct TimelineEntry {
     pub time_type: Option<String>,
     #[serde(default)]
     pub note: Option<String>,
+    #[serde(default, skip_serializing)]
+    pub source: Option<SourceInfo>,
+    #[serde(default, skip_serializing)]
+    pub change_state: ChangeState,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -18,6 +24,10 @@ pub struct TimeType {
     pub uid: String,
     pub prefix: String,
     pub kind: String,
+    #[serde(default, skip_serializing)]
+    pub source: Option<SourceInfo>,
+    #[serde(default, skip_serializing)]
+    pub change_state: ChangeState,
 }
 
 impl TimeType {
@@ -77,6 +87,8 @@ mod tests {
             description: "Thursday Morning".to_string(),
             time_type: Some("time-type-split".to_string()),
             note: Some("Opening ceremonies".to_string()),
+            source: None,
+            change_state: ChangeState::Unchanged,
         };
         let json = serde_json::to_string(&entry).unwrap();
         let entry2: TimelineEntry = serde_json::from_str(&json).unwrap();
@@ -89,6 +101,8 @@ mod tests {
             uid: "time-type-split".to_string(),
             prefix: "SPLIT".to_string(),
             kind: "Page split".to_string(),
+            source: None,
+            change_state: ChangeState::Unchanged,
         };
         let json = serde_json::to_string(&time_type).unwrap();
         let time_type2: TimeType = serde_json::from_str(&json).unwrap();

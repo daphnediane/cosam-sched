@@ -11,6 +11,7 @@ use super::panel_type::PanelType;
 use super::presenter::Presenter;
 use super::room::Room;
 use super::schedule::{Meta, Schedule};
+use super::source_info::{ChangeState, ImportedSheetPresence, SourceInfo};
 use super::timeline::{TimeType, TimelineEntry};
 
 pub struct XlsxImportOptions {
@@ -53,6 +54,8 @@ fn convert_split_types_to_timeline(
             uid: TimeType::uid_from_prefix(&split_type.prefix),
             prefix: split_type.prefix.clone(),
             kind: split_type.kind.clone(),
+            source: None,
+            change_state: ChangeState::Converted,
         };
         time_types.push(time_type);
 
@@ -74,6 +77,8 @@ fn convert_split_types_to_timeline(
                 description: event.name.clone(),
                 time_type: Some(TimeType::uid_from_prefix(&split_type.prefix)),
                 note: event.note.clone(),
+                source: None,
+                change_state: ChangeState::Converted,
             };
             timeline.push(timeline_entry);
         }
@@ -98,15 +103,32 @@ pub fn import_xlsx(path: &Path, options: &XlsxImportOptions) -> Result<Schedule>
 
     let sheet_names = workbook.sheet_names().to_vec();
 
-    let rooms = read_rooms(&mut workbook, &sheet_names, &options.rooms_sheet)?;
-    let panel_types = read_panel_types(&mut workbook, &sheet_names, &options.panel_types_sheet)?;
+    let file_path_str = path.display().to_string();
+
+    let rooms = read_rooms(&mut workbook, &sheet_names, &options.rooms_sheet, &file_path_str)?;
+    let panel_types = read_panel_types(
+        &mut workbook,
+        &sheet_names,
+        &options.panel_types_sheet,
+        &file_path_str,
+    )?;
     let (events, presenters) = read_events(
         &mut workbook,
         &sheet_names,
         &options.schedule_sheet,
         &rooms,
         &panel_types,
+        &file_path_str,
     )?;
+
+    let imported_sheets = ImportedSheetPresence {
+        has_room_map: !rooms.is_empty()
+            && rooms.iter().any(|r| r.source.is_some()),
+        has_panel_types: !panel_types.is_empty()
+            && panel_types.iter().any(|pt| pt.source.is_some()),
+        has_presenters: false,
+        has_schedule: !events.is_empty(),
+    };
 
     // Add any missing panel types that were referenced in events
     let mut panel_types = panel_types;
@@ -139,6 +161,8 @@ pub fn import_xlsx(path: &Path, options: &XlsxImportOptions) -> Result<Schedule>
                 is_hidden: false,
                 is_room_hours: false,
                 bw_color: None,
+                source: None,
+                change_state: ChangeState::Converted,
             });
         }
     }
@@ -165,6 +189,8 @@ pub fn import_xlsx(path: &Path, options: &XlsxImportOptions) -> Result<Schedule>
         panel_types,
         time_types,
         presenters,
+        deleted_items: Vec::new(),
+        imported_sheets,
     })
 }
 
@@ -187,12 +213,12 @@ fn find_sheet_range(
     workbook: &mut Xlsx<std::io::BufReader<std::fs::File>>,
     sheet_names: &[String],
     preferred_names: &[&str],
-) -> Option<Range<Data>> {
+) -> Option<(String, Range<Data>)> {
     for name in preferred_names {
         let lower = name.to_lowercase();
         if let Some(actual) = sheet_names.iter().find(|s| s.to_lowercase() == lower) {
             if let Ok(range) = workbook.worksheet_range(actual) {
-                return Some(range);
+                return Some((actual.clone(), range));
             }
         }
     }
@@ -279,11 +305,13 @@ fn read_rooms(
     workbook: &mut Xlsx<std::io::BufReader<std::fs::File>>,
     sheet_names: &[String],
     preferred: &str,
+    file_path: &str,
 ) -> Result<Vec<Room>> {
-    let range = match find_sheet_range(workbook, sheet_names, &[preferred, "RoomMap", "Rooms"]) {
-        Some(r) => r,
-        None => return Ok(Vec::new()),
-    };
+    let (sheet_name, range) =
+        match find_sheet_range(workbook, sheet_names, &[preferred, "RoomMap", "Rooms"]) {
+            Some(r) => r,
+            None => return Ok(Vec::new()),
+        };
 
     if range.height() < 2 {
         return Ok(Vec::new());
@@ -326,17 +354,18 @@ fn read_rooms(
         let uid = next_uid;
         next_uid += 1;
 
-        let is_hidden = sort_key >= 100;
-        if is_hidden {
-            continue;
-        }
-
         rooms.push(Room {
             uid,
             short_name,
             long_name,
             hotel_room,
             sort_key,
+            source: Some(SourceInfo {
+                file_path: Some(file_path.to_string()),
+                sheet_name: Some(sheet_name.clone()),
+                row_index: Some(row_idx as u32),
+            }),
+            change_state: ChangeState::Unchanged,
         });
     }
 
@@ -349,12 +378,13 @@ fn read_panel_types(
     workbook: &mut Xlsx<std::io::BufReader<std::fs::File>>,
     sheet_names: &[String],
     preferred: &str,
+    file_path: &str,
 ) -> Result<Vec<PanelType>> {
-    let range = match find_sheet_range(workbook, sheet_names, &[preferred, "Prefix", "PanelTypes"])
-    {
-        Some(r) => r,
-        None => return Ok(Vec::new()),
-    };
+    let (sheet_name, range) =
+        match find_sheet_range(workbook, sheet_names, &[preferred, "Prefix", "PanelTypes"]) {
+            Some(r) => r,
+            None => return Ok(Vec::new()),
+        };
 
     if range.height() < 2 {
         return Ok(Vec::new());
@@ -394,7 +424,7 @@ fn read_panel_types(
             .map(|s| is_truthy(s))
             .unwrap_or(false);
 
-        let is_split = get_field(&data, &["Is_Split"])
+        let _is_split = get_field(&data, &["Is_Split"])
             .map(|s| is_truthy(s))
             .unwrap_or_else(|| {
                 prefix == "SPLIT"
@@ -422,6 +452,12 @@ fn read_panel_types(
             is_hidden,
             is_room_hours,
             bw_color,
+            source: Some(SourceInfo {
+                file_path: Some(file_path.to_string()),
+                sheet_name: Some(sheet_name.clone()),
+                row_index: Some(row_idx as u32),
+            }),
+            change_state: ChangeState::Unchanged,
         });
     }
 
@@ -749,13 +785,14 @@ fn read_events(
     preferred: &str,
     rooms: &[Room],
     panel_types: &[PanelType],
+    file_path: &str,
 ) -> Result<(Vec<Event>, Vec<Presenter>)> {
     let first_sheet = sheet_names.first().map(|s| s.as_str()).unwrap_or("");
-    let range = match find_sheet_range(workbook, sheet_names, &[preferred, "Schedule", first_sheet])
-    {
-        Some(r) => r,
-        None => return Ok((Vec::new(), Vec::new())),
-    };
+    let (sheet_name, range) =
+        match find_sheet_range(workbook, sheet_names, &[preferred, "Schedule", first_sheet]) {
+            Some(r) => r,
+            None => return Ok((Vec::new(), Vec::new())),
+        };
 
     if range.height() < 2 {
         return Ok((Vec::new(), Vec::new()));
@@ -889,13 +926,6 @@ fn read_events(
             })
         });
 
-        // Skip hidden panel types (except SPLIT which are always visible)
-        if let Some(ref pt) = panel_type {
-            if pt.is_hidden {
-                continue;
-            }
-        }
-
         // Cost
         let cost_raw = get_field(&data, &["Cost"]).cloned();
         let (cost, is_free, is_kids) = normalize_cost(cost_raw.as_ref());
@@ -1019,6 +1049,12 @@ fn read_events(
             is_kids,
             hide_panelist,
             alt_panelist,
+            source: Some(SourceInfo {
+                file_path: Some(file_path.to_string()),
+                sheet_name: Some(sheet_name.clone()),
+                row_index: Some(row_idx as u32),
+            }),
+            change_state: ChangeState::Unchanged,
         });
     }
 
@@ -1034,6 +1070,8 @@ fn read_events(
                 members,
                 groups: info.groups,
                 always_grouped: info.always_grouped,
+                source: None,
+                change_state: ChangeState::Converted,
             }
         })
         .collect();

@@ -1,5 +1,7 @@
 use serde::{Deserialize, Serialize};
 
+use super::source_info::{ChangeState, SourceInfo};
+
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct PanelType {
@@ -21,6 +23,10 @@ pub struct PanelType {
     pub is_room_hours: bool,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub bw_color: Option<String>,
+    #[serde(default, skip_serializing)]
+    pub source: Option<SourceInfo>,
+    #[serde(default, skip_serializing)]
+    pub change_state: ChangeState,
 }
 
 impl PanelType {
@@ -108,6 +114,8 @@ mod tests {
             is_hidden: false,
             is_room_hours: false,
             bw_color: None,
+            source: None,
+            change_state: ChangeState::Unchanged,
         };
         let json = serde_json::to_string(&pt).unwrap();
         let pt2: PanelType = serde_json::from_str(&json).unwrap();

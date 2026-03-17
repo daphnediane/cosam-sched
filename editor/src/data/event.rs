@@ -1,6 +1,8 @@
 use chrono::NaiveDateTime;
 use serde::{Deserialize, Serialize};
 
+use super::source_info::{ChangeState, SourceInfo};
+
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct EventConflict {
     #[serde(rename = "type")]
@@ -52,6 +54,10 @@ pub struct Event {
     pub hide_panelist: bool,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub alt_panelist: Option<String>,
+    #[serde(default, skip_serializing)]
+    pub source: Option<SourceInfo>,
+    #[serde(default, skip_serializing)]
+    pub change_state: ChangeState,
 }
 
 impl Event {

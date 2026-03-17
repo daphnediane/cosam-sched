@@ -4,5 +4,6 @@
         "${workspaceFolder}/local/lib/perl5",
         "converter/lib",
         "local/lib/perl5"
-    ]
+    ],
+    "editor.formatOnSave": false
 }

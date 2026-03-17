@@ -261,6 +261,7 @@ mod tests {
     use super::*;
     use crate::data::panel_type::PanelType;
     use crate::data::room::Room;
+    use crate::data::source_info::ChangeState;
     use crate::data::timeline::TimeType;
 
     #[test]
@@ -271,6 +272,8 @@ mod tests {
             long_name: "Main Hall".to_string(),
             hotel_room: "Grand Ballroom".to_string(),
             sort_key: 1,
+            source: None,
+            change_state: ChangeState::Unchanged,
         }];
 
         #[cfg(feature = "xlsx_export")]
@@ -293,12 +296,16 @@ mod tests {
             is_hidden: false,
             is_room_hours: false,
             bw_color: None,
+            source: None,
+            change_state: ChangeState::Unchanged,
         }];
 
         let time_types = vec![TimeType {
             uid: "time-type-split".to_string(),
             prefix: "SPLIT".to_string(),
             kind: "Page split".to_string(),
+            source: None,
+            change_state: ChangeState::Unchanged,
         }];
 
         #[cfg(feature = "xlsx_export")]
