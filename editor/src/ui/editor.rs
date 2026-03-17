@@ -11,12 +11,19 @@ use crate::data::Schedule;
 use crate::data::xlsx_import::XlsxImportOptions;
 use crate::ui::day_tabs::{DayTabEvent, DayTabs};
 use crate::ui::event_card::EventCard;
+use crate::ui::grid_view::GridView;
 use crate::ui::sidebar::{RoomEntry, Sidebar, SidebarEvent};
 
 #[derive(Debug, Clone, Copy, PartialEq)]
 enum FileType {
     Json,
     Xlsx,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq)]
+enum ViewMode {
+    List,
+    Grid,
 }
 
 actions!(
@@ -34,9 +41,11 @@ pub struct ScheduleEditor {
     days: Vec<NaiveDate>,
     selected_day_index: usize,
     selected_room: Option<u32>,
+    view_mode: ViewMode,
     day_tabs: Entity<DayTabs>,
     sidebar: Entity<Sidebar>,
     event_cards: Vec<Entity<EventCard>>,
+    grid_view: Option<Entity<GridView>>,
 }
 
 impl ScheduleEditor {
@@ -57,6 +66,7 @@ impl ScheduleEditor {
                     this.day_tabs
                         .update(cx, |tabs, _cx| tabs.set_selected(*idx));
                     this.rebuild_event_cards(cx);
+                    this.rebuild_grid_view(cx);
                     cx.notify();
                 }
             },
@@ -73,6 +83,7 @@ impl ScheduleEditor {
                     this.selected_room = *uid;
                     this.sidebar.update(cx, |sb, _cx| sb.set_selected(*uid));
                     this.rebuild_event_cards(cx);
+                    this.rebuild_grid_view(cx);
                     cx.notify();
                 }
             },
@@ -89,6 +100,9 @@ impl ScheduleEditor {
             })
         });
 
+        let days = schedule.as_ref().map(|s| s.days()).unwrap_or_default();
+        let days_count = days.len();
+
         let mut editor = Self {
             focus_handle: cx.focus_handle(),
             schedule,
@@ -97,14 +111,17 @@ impl ScheduleEditor {
             has_unsaved_changes: false,
             status_message: None,
             days,
-            selected_day_index: 0,
+            selected_day_index: days_count, // Default to "All Days"
             selected_room: None,
+            view_mode: ViewMode::Grid,
             day_tabs,
             sidebar,
             event_cards: Vec::new(),
+            grid_view: None,
         };
 
         editor.rebuild_event_cards(cx);
+        editor.rebuild_grid_view(cx);
         editor
     }
 
@@ -124,12 +141,12 @@ impl ScheduleEditor {
 
     fn load_schedule(&mut self, schedule: Schedule, path: Option<PathBuf>, cx: &mut Context<Self>) {
         self.days = schedule.days();
-        self.selected_day_index = 0;
+        self.selected_day_index = self.days.len(); // Default to "All Days"
         self.selected_room = None;
 
         self.day_tabs.update(cx, |tabs, _cx| {
             tabs.days = self.days.clone();
-            tabs.selected_index = 0;
+            tabs.selected_index = self.days.len(); // Select "All Days"
         });
 
         let room_entries = Self::build_room_entries(Some(&schedule));
@@ -160,6 +177,7 @@ impl ScheduleEditor {
         self.update_window_title(cx);
         self.update_menus(cx);
         self.rebuild_event_cards(cx);
+        self.rebuild_grid_view(cx);
         cx.notify();
     }
 
@@ -313,6 +331,34 @@ impl ScheduleEditor {
                 cx.new(|_cx| EventCard::new(event, room_name, panel_color, panel_type))
             })
             .collect();
+    }
+
+    fn rebuild_grid_view(&mut self, cx: &mut Context<Self>) {
+        let Some(ref schedule) = self.schedule else {
+            self.grid_view = None;
+            return;
+        };
+
+        let selected_day = if self.selected_day_index < self.days.len() {
+            self.days.get(self.selected_day_index).copied()
+        } else {
+            None // All Days selected
+        };
+
+        let grid_view =
+            cx.new(|_cx| GridView::new(schedule.clone(), selected_day, self.selected_room));
+
+        self.grid_view = Some(grid_view);
+    }
+
+    fn set_view_mode(&mut self, mode: ViewMode, cx: &mut Context<Self>) {
+        if self.view_mode != mode {
+            self.view_mode = mode;
+            if mode == ViewMode::Grid {
+                self.rebuild_grid_view(cx);
+            }
+            cx.notify();
+        }
     }
 
     fn update_window_title(&self, _cx: &mut Context<Self>) {
@@ -543,6 +589,21 @@ impl Render for ScheduleEditor {
                             .child("Use Open to load an XLSX spreadsheet or JSON file"),
                     ),
             );
+        } else if self.view_mode == ViewMode::Grid {
+            // Show grid view
+            if let Some(ref grid_view) = self.grid_view {
+                content = content.child(grid_view.clone());
+            } else {
+                content = content.child(
+                    div()
+                        .flex()
+                        .justify_center()
+                        .items_center()
+                        .py(px(48.0))
+                        .text_color(empty_color)
+                        .child("Grid view not available"),
+                );
+            }
         } else if self.event_cards.is_empty() {
             content = content.child(
                 div()
@@ -594,6 +655,69 @@ impl Render for ScheduleEditor {
                                     .text_sm()
                                     .text_color(subtitle_color)
                                     .child(event_count_text),
+                            )
+                            .child(
+                                div()
+                                    .flex()
+                                    .gap(px(4.0))
+                                    .child(
+                                        div()
+                                            .px(px(8.0))
+                                            .py(px(4.0))
+                                            .text_xs()
+                                            .font_weight(gpui::FontWeight::MEDIUM)
+                                            .border_1()
+                                            .border_color(rgb(0xE5E7EB))
+                                            .rounded(px(4.0))
+                                            .bg(if self.view_mode == ViewMode::List {
+                                                rgb(0x3B82F6)
+                                            } else {
+                                                rgb(0xFFFFFF)
+                                            })
+                                            .text_color(if self.view_mode == ViewMode::List {
+                                                rgb(0xFFFFFF)
+                                            } else {
+                                                rgb(0x374151)
+                                            })
+                                            .cursor_pointer()
+                                            .hover(|style| style.bg(rgb(0xF3F4F6)))
+                                            .child("List")
+                                            .on_mouse_down(
+                                                gpui::MouseButton::Left,
+                                                cx.listener(|this, _ev, _window, cx| {
+                                                    this.set_view_mode(ViewMode::List, cx);
+                                                }),
+                                            ),
+                                    )
+                                    .child(
+                                        div()
+                                            .px(px(8.0))
+                                            .py(px(4.0))
+                                            .text_xs()
+                                            .font_weight(gpui::FontWeight::MEDIUM)
+                                            .border_1()
+                                            .border_color(rgb(0xE5E7EB))
+                                            .rounded(px(4.0))
+                                            .bg(if self.view_mode == ViewMode::Grid {
+                                                rgb(0x3B82F6)
+                                            } else {
+                                                rgb(0xFFFFFF)
+                                            })
+                                            .text_color(if self.view_mode == ViewMode::Grid {
+                                                rgb(0xFFFFFF)
+                                            } else {
+                                                rgb(0x374151)
+                                            })
+                                            .cursor_pointer()
+                                            .hover(|style| style.bg(rgb(0xF3F4F6)))
+                                            .child("Grid")
+                                            .on_mouse_down(
+                                                gpui::MouseButton::Left,
+                                                cx.listener(|this, _ev, _window, cx| {
+                                                    this.set_view_mode(ViewMode::Grid, cx);
+                                                }),
+                                            ),
+                                    ),
                             ),
                     ),
             );
@@ -619,15 +743,31 @@ impl Render for ScheduleEditor {
                 .child(self.day_tabs.clone()),
         );
 
-        // Body: sidebar + content
-        layout = layout.child(
-            div()
-                .flex()
-                .flex_grow()
-                .overflow_hidden()
-                .child(self.sidebar.clone())
-                .child(content),
-        );
+        // Body: sidebar + content + details (conditional)
+        let body = div().flex().flex_grow().overflow_hidden();
+
+        // Add sidebar only in list view
+        let body = if self.view_mode == ViewMode::List {
+            body.child(self.sidebar.clone()).child(content)
+        } else {
+            body.child(content)
+        };
+
+        // Add details panel for both views
+        let details_panel = div()
+            .w(px(300.0))
+            .border_l_1()
+            .border_color(rgb(0xE5E7EB))
+            .bg(rgb(0xF9FAFB))
+            .p(px(16.0))
+            .child(
+                div()
+                    .text_sm()
+                    .text_color(rgb(0x6B7280))
+                    .child("Select an item to view details"),
+            );
+
+        layout = layout.child(body.child(details_panel));
 
         layout
     }

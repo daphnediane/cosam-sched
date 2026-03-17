@@ -32,6 +32,40 @@ impl Render for DayTabs {
 
         let mut row = div().flex().gap(px(4.0)).p(px(8.0));
 
+        // Add "All Days" option first
+        let all_days_label = SharedString::from("All Days");
+        let is_all_days_selected = self.selected_index == self.days.len(); // All Days is at the end
+        let all_days_idx = self.days.len();
+
+        let mut all_days_tab = div()
+            .id(SharedString::from("day-tab-all"))
+            .px(px(16.0))
+            .py(px(8.0))
+            .rounded(px(6.0))
+            .text_sm()
+            .cursor_pointer()
+            .child(all_days_label);
+
+        if is_all_days_selected {
+            all_days_tab = all_days_tab.bg(active_bg).text_color(active_text);
+        } else {
+            all_days_tab = all_days_tab
+                .bg(inactive_bg)
+                .text_color(inactive_text)
+                .hover(|style| style.bg(hover_bg));
+        }
+
+        all_days_tab = all_days_tab.on_mouse_down(
+            MouseButton::Left,
+            cx.listener(move |this, _ev, _window, cx| {
+                this.selected_index = all_days_idx;
+                cx.emit(DayTabEvent::Selected(all_days_idx));
+            }),
+        );
+
+        row = row.child(all_days_tab);
+
+        // Add individual day tabs
         for (i, day) in self.days.iter().enumerate() {
             let label = SharedString::from(day.format("%A, %b %d").to_string());
             let is_selected = i == self.selected_index;
@@ -72,7 +106,7 @@ impl Render for DayTabs {
 
 #[derive(Debug, Clone)]
 pub enum DayTabEvent {
-    Selected(usize),
+    Selected(usize), // usize == days.len() means "All Days"
 }
 
 impl EventEmitter<DayTabEvent> for DayTabs {}
