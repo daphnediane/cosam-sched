@@ -253,11 +253,6 @@ impl ScheduleEditor {
         let receiver = cx.prompt_for_new_path(default_dir, Some(&suggested_name));
 
         let schedule_clone = schedule.clone();
-        let source_xlsx_path = if self.current_file_type == Some(FileType::Xlsx) {
-            self.current_path.clone()
-        } else {
-            None
-        };
 
         cx.spawn(async move |this, cx| {
             let Ok(Ok(Some(path))) = receiver.await else {
@@ -271,17 +266,7 @@ impl ScheduleEditor {
                 .to_lowercase();
 
             let (result, file_type) = if ext == "xlsx" {
-                let result = match &source_xlsx_path {
-                    Some(source) => {
-                        std::fs::copy(source, &path)
-                            .map_err(|e| anyhow::anyhow!("Failed to copy XLSX: {e}"))
-                            .and_then(|_| {
-                                xlsx_update::update_xlsx(&schedule_clone, &path)
-                            })
-                    }
-                    None => xlsx_export::export_to_xlsx(&schedule_clone, &path),
-                };
-                (result, FileType::Xlsx)
+                (xlsx_export::export_to_xlsx(&schedule_clone, &path), FileType::Xlsx)
             } else {
                 let mut json_schedule = schedule_clone;
                 (json_schedule.save_json(&path), FileType::Json)

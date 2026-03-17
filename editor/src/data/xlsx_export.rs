@@ -1,3 +1,4 @@
+use std::collections::HashMap;
 use std::path::Path;
 
 use anyhow::{Context, Result};
@@ -10,6 +11,128 @@ use super::room::Room;
 use super::schedule::Schedule;
 use super::source_info::ChangeState;
 use super::timeline::TimeType;
+
+const SCHEDULE_FIXED_HEADERS: &[&str] = &[
+    "Uniq ID",
+    "Name",
+    "Description",
+    "Start Time",
+    "End Time",
+    "Duration",
+    "Room",
+    "Kind",
+    "Cost",
+    "Capacity",
+    "Difficulty",
+    "Note",
+    "Prereq",
+    "Ticket Sale",
+    "Full",
+    "Hide Panelist",
+    "Alt Panelist",
+];
+
+const RANK_ORDER: &[(&str, char)] = &[
+    ("guest", 'G'),
+    ("judge", 'J'),
+    ("staff", 'S'),
+    ("invited_guest", 'I'),
+    ("fan_panelist", 'P'),
+];
+
+const MIN_PANELS_FOR_NAMED_COLUMN: usize = 3;
+
+struct ExportPresenterColumn {
+    header: String,
+    presenter_name: Option<String>,
+    rank: String,
+    is_other: bool,
+}
+
+fn build_presenter_columns(schedule: &Schedule) -> Vec<ExportPresenterColumn> {
+    let presenter_map: HashMap<&str, &Presenter> = schedule
+        .presenters
+        .iter()
+        .filter(|p| p.change_state != ChangeState::Deleted)
+        .map(|p| (p.name.as_str(), p))
+        .collect();
+
+    let mut event_count: HashMap<&str, usize> = HashMap::new();
+    for event in &schedule.events {
+        if event.change_state == ChangeState::Deleted {
+            continue;
+        }
+        for name in &event.presenters {
+            *event_count.entry(name.as_str()).or_insert(0) += 1;
+        }
+    }
+
+    let mut columns = Vec::new();
+
+    for &(rank_str, prefix_char) in RANK_ORDER {
+        let mut named_for_rank: Vec<(&str, &Presenter)> = Vec::new();
+        let mut has_other = false;
+
+        for (&name, &presenter) in &presenter_map {
+            if presenter.rank != rank_str {
+                continue;
+            }
+            if presenter.is_group {
+                continue;
+            }
+            let count = event_count.get(name).copied().unwrap_or(0);
+            let has_groups = !presenter.groups.is_empty();
+            if has_groups || count >= MIN_PANELS_FOR_NAMED_COLUMN {
+                named_for_rank.push((name, presenter));
+            } else if count > 0 {
+                has_other = true;
+            }
+        }
+
+        for (&name, _) in &event_count {
+            if presenter_map.contains_key(name) {
+                continue;
+            }
+            if rank_str == "fan_panelist" {
+                has_other = true;
+            }
+        }
+
+        named_for_rank.sort_by_key(|(name, _)| *name);
+
+        for (name, presenter) in named_for_rank {
+            let header = if presenter.always_grouped {
+                if let Some(group) = presenter.groups.first() {
+                    format!("{}:{}=={}", prefix_char, name, group)
+                } else {
+                    format!("{}:{}", prefix_char, name)
+                }
+            } else if let Some(group) = presenter.groups.first() {
+                format!("{}:{}={}", prefix_char, name, group)
+            } else {
+                format!("{}:{}", prefix_char, name)
+            };
+
+            columns.push(ExportPresenterColumn {
+                header,
+                presenter_name: Some(name.to_string()),
+                rank: rank_str.to_string(),
+                is_other: false,
+            });
+        }
+
+        if has_other {
+            columns.push(ExportPresenterColumn {
+                header: format!("{}:Other", prefix_char),
+                presenter_name: None,
+                rank: rank_str.to_string(),
+                is_other: true,
+            });
+        }
+    }
+
+    columns
+}
 
 pub fn export_to_xlsx(schedule: &Schedule, path: &Path) -> Result<()> {
     let mut book = umya_spreadsheet::new_file();
@@ -38,19 +161,21 @@ pub fn export_to_xlsx(schedule: &Schedule, path: &Path) -> Result<()> {
         add_table(ws, "PrefixTable", prefix_headers, last_row);
     }
 
-    let schedule_headers = &[
-        "Uniq ID", "Name", "Description", "Start Time", "End Time", "Duration", "Room",
-        "Kind", "Cost", "Capacity", "Difficulty", "Note", "Prereq", "Ticket Sale", "Full",
-        "Hide Panelist", "Alt Panelist", "Presenters",
-    ];
+    let presenter_columns = build_presenter_columns(schedule);
+    let schedule_headers: Vec<String> = SCHEDULE_FIXED_HEADERS
+        .iter()
+        .map(|s| s.to_string())
+        .chain(presenter_columns.iter().map(|c| c.header.clone()))
+        .collect();
     book.new_sheet("Schedule")
         .map_err(|e| anyhow::anyhow!("{e}"))?;
     {
         let ws = book
             .get_sheet_by_name_mut("Schedule")
             .ok_or_else(|| anyhow::anyhow!("Sheet 'Schedule' not found"))?;
-        let last_row = write_schedule_sheet(ws, schedule)?;
-        add_table(ws, "ScheduleTable", schedule_headers, last_row);
+        let last_row = write_schedule_sheet(ws, schedule, &presenter_columns)?;
+        let header_refs: Vec<&str> = schedule_headers.iter().map(|s| s.as_str()).collect();
+        add_table(ws, "ScheduleTable", &header_refs, last_row);
     }
 
     let presenter_headers = &[
@@ -178,30 +303,43 @@ fn write_panel_types_sheet(
     row - 1
 }
 
-fn write_schedule_sheet(ws: &mut Worksheet, schedule: &Schedule) -> Result<u32> {
-    set_headers(
-        ws,
-        &[
-            "Uniq ID",
-            "Name",
-            "Description",
-            "Start Time",
-            "End Time",
-            "Duration",
-            "Room",
-            "Kind",
-            "Cost",
-            "Capacity",
-            "Difficulty",
-            "Note",
-            "Prereq",
-            "Ticket Sale",
-            "Full",
-            "Hide Panelist",
-            "Alt Panelist",
-            "Presenters",
-        ],
-    );
+fn write_schedule_sheet(
+    ws: &mut Worksheet,
+    schedule: &Schedule,
+    presenter_columns: &[ExportPresenterColumn],
+) -> Result<u32> {
+    let fixed_count = SCHEDULE_FIXED_HEADERS.len() as u32;
+    for (col_0, header) in SCHEDULE_FIXED_HEADERS.iter().enumerate() {
+        let col = col_0 as u32 + 1;
+        ws.get_cell_mut((col, 1)).set_value(*header);
+    }
+    for (i, pcol) in presenter_columns.iter().enumerate() {
+        let col = fixed_count + i as u32 + 1;
+        ws.get_cell_mut((col, 1)).set_value(pcol.header.as_str());
+    }
+
+    let presenter_map: HashMap<&str, &Presenter> = schedule
+        .presenters
+        .iter()
+        .filter(|p| p.change_state != ChangeState::Deleted)
+        .map(|p| (p.name.as_str(), p))
+        .collect();
+
+    let named_presenters: HashMap<&str, u32> = presenter_columns
+        .iter()
+        .enumerate()
+        .filter_map(|(i, c)| {
+            c.presenter_name
+                .as_deref()
+                .map(|name| (name, fixed_count + i as u32 + 1))
+        })
+        .collect();
+
+    let other_columns: Vec<(usize, &ExportPresenterColumn)> = presenter_columns
+        .iter()
+        .enumerate()
+        .filter(|(_, c)| c.is_other)
+        .collect();
 
     let mut row = 2u32;
 
@@ -261,8 +399,24 @@ fn write_schedule_sheet(ws: &mut Worksheet, schedule: &Schedule) -> Result<u32> 
         }
         set_opt(ws, 17, row, &event.alt_panelist);
 
-        if !event.presenters.is_empty() {
-            set_str(ws, 18, row, &event.presenters.join(", "));
+        let mut other_names: HashMap<&str, Vec<&str>> = HashMap::new();
+        for presenter_name in &event.presenters {
+            if let Some(&col) = named_presenters.get(presenter_name.as_str()) {
+                set_str(ws, col, row, "Yes");
+            } else {
+                let rank = presenter_map
+                    .get(presenter_name.as_str())
+                    .map(|p| p.rank.as_str())
+                    .unwrap_or("fan_panelist");
+                other_names.entry(rank).or_default().push(presenter_name.as_str());
+            }
+        }
+
+        for &(i, ref ocol) in &other_columns {
+            if let Some(names) = other_names.get(ocol.rank.as_str()) {
+                let col = fixed_count + i as u32 + 1;
+                set_str(ws, col, row, &names.join(", "));
+            }
         }
 
         row += 1;
@@ -460,6 +614,11 @@ mod tests {
         assert_eq!(sched_ws.get_value((1, 2)), "GP001");
         assert_eq!(sched_ws.get_value((2, 2)), "Test Panel");
 
+        let fixed_col_count = SCHEDULE_FIXED_HEADERS.len() as u32;
+        let other_col = fixed_col_count + 1;
+        assert_eq!(sched_ws.get_value((other_col, 1)), "G:Other");
+        assert_eq!(sched_ws.get_value((other_col, 2)), "Alice");
+
         let pres_ws = book.get_sheet_by_name("Presenters")
             .expect("Presenters sheet should exist");
         assert_eq!(pres_ws.get_value((1, 1)), "Name");
@@ -491,6 +650,141 @@ mod tests {
         let room_ws = book.get_sheet_by_name("RoomMap").unwrap();
         assert_eq!(room_ws.get_value((1, 2)), "Main");
         assert_eq!(room_ws.get_value((1, 3)), "", "Deleted room should not appear");
+
+        std::fs::remove_file(&path).ok();
+    }
+
+    #[test]
+    fn test_export_presenter_columns() {
+        let dt = |s: &str| {
+            chrono::NaiveDateTime::parse_from_str(s, "%Y-%m-%dT%H:%M:%S").unwrap()
+        };
+        let make_event = |id: &str, presenters: Vec<&str>| Event {
+            id: id.to_string(),
+            name: format!("Panel {id}"),
+            description: None,
+            start_time: dt("2026-06-26T09:00:00"),
+            end_time: dt("2026-06-26T10:00:00"),
+            duration: 60,
+            room_id: Some(1),
+            panel_type: Some("panel-type-gp".to_string()),
+            cost: None,
+            capacity: None,
+            difficulty: None,
+            note: None,
+            prereq: None,
+            ticket_url: None,
+            presenters: presenters.into_iter().map(String::from).collect(),
+            credits: Vec::new(),
+            conflicts: Vec::new(),
+            is_free: true,
+            is_full: false,
+            is_kids: false,
+            hide_panelist: false,
+            alt_panelist: None,
+            source: None,
+            change_state: ChangeState::Unchanged,
+        };
+
+        let mut schedule = make_test_schedule();
+        schedule.presenters = vec![
+            Presenter {
+                name: "Pro".to_string(),
+                rank: "guest".to_string(),
+                is_group: false,
+                members: Vec::new(),
+                groups: vec!["Pros and Cons".to_string()],
+                always_grouped: false,
+                source: None,
+                change_state: ChangeState::Unchanged,
+            },
+            Presenter {
+                name: "Con".to_string(),
+                rank: "guest".to_string(),
+                is_group: false,
+                members: Vec::new(),
+                groups: vec!["Pros and Cons".to_string()],
+                always_grouped: true,
+                source: None,
+                change_state: ChangeState::Unchanged,
+            },
+            Presenter {
+                name: "Pros and Cons".to_string(),
+                rank: "guest".to_string(),
+                is_group: true,
+                members: vec!["Pro".to_string(), "Con".to_string()],
+                groups: Vec::new(),
+                always_grouped: false,
+                source: None,
+                change_state: ChangeState::Unchanged,
+            },
+            Presenter {
+                name: "Bob".to_string(),
+                rank: "fan_panelist".to_string(),
+                is_group: false,
+                members: Vec::new(),
+                groups: Vec::new(),
+                always_grouped: false,
+                source: None,
+                change_state: ChangeState::Unchanged,
+            },
+        ];
+        schedule.events = vec![
+            make_event("GP001", vec!["Pro", "Con"]),
+            make_event("GP002", vec!["Pro"]),
+            make_event("GP003", vec!["Pro", "Bob"]),
+        ];
+
+        let columns = build_presenter_columns(&schedule);
+        let headers: Vec<&str> = columns.iter().map(|c| c.header.as_str()).collect();
+
+        assert!(
+            headers.contains(&"G:Con==Pros and Cons"),
+            "Con should have ==Group header, got: {headers:?}"
+        );
+        assert!(
+            headers.contains(&"G:Pro=Pros and Cons"),
+            "Pro should have =Group header, got: {headers:?}"
+        );
+        assert!(
+            headers.contains(&"P:Other"),
+            "Bob (1 panel) should go to P:Other, got: {headers:?}"
+        );
+        assert!(
+            !headers.iter().any(|h| h.contains("Pros and Cons") && h.starts_with("G:Pros")),
+            "Group entity 'Pros and Cons' should not get its own column"
+        );
+
+        let dir = std::env::temp_dir();
+        let path = dir.join("test_export_presenter_columns.xlsx");
+        export_to_xlsx(&schedule, &path).expect("export should succeed");
+
+        let book = umya_spreadsheet::reader::xlsx::read(&path)
+            .expect("should read back exported XLSX");
+        let sched_ws = book.get_sheet_by_name("Schedule").unwrap();
+
+        let fixed = SCHEDULE_FIXED_HEADERS.len() as u32;
+        let mut pro_col = None;
+        let mut other_col = None;
+        for i in 0..columns.len() {
+            let col = fixed + i as u32 + 1;
+            let header = sched_ws.get_value((col, 1));
+            if header.starts_with("G:Pro=") {
+                pro_col = Some(col);
+            }
+            if header == "P:Other" {
+                other_col = Some(col);
+            }
+        }
+
+        let pro_col = pro_col.expect("Pro column should exist");
+        assert_eq!(sched_ws.get_value((pro_col, 2)), "Yes");
+        assert_eq!(sched_ws.get_value((pro_col, 3)), "Yes");
+        assert_eq!(sched_ws.get_value((pro_col, 4)), "Yes");
+
+        let other_col = other_col.expect("P:Other column should exist");
+        assert_eq!(sched_ws.get_value((other_col, 2)), "");
+        assert_eq!(sched_ws.get_value((other_col, 4)), "Bob");
 
         std::fs::remove_file(&path).ok();
     }
