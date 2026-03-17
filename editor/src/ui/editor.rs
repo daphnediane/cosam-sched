@@ -8,6 +8,7 @@ use gpui::{
 };
 
 use crate::data::Schedule;
+use crate::data::xlsx_export;
 use crate::data::xlsx_import::XlsxImportOptions;
 use crate::data::xlsx_update;
 use crate::ui::day_tabs::{DayTabEvent, DayTabs};
@@ -22,7 +23,7 @@ enum FileType {
 
 actions!(
     schedule_editor,
-    [FileOpen, FileSave, FileSaveAsJson, FileExportPublicJson]
+    [FileOpen, FileSave, FileSaveAs, FileExportPublicJson]
 );
 
 pub struct ScheduleEditor {
@@ -221,7 +222,7 @@ impl ScheduleEditor {
         .detach();
     }
 
-    fn do_save(&mut self, _window: &mut Window, cx: &mut Context<Self>) {
+    fn do_save_as(&mut self, _window: &mut Window, cx: &mut Context<Self>) {
         let Some(ref schedule) = self.schedule else {
             self.status_message = Some("No schedule to save".to_string());
             cx.notify();
@@ -234,33 +235,63 @@ impl ScheduleEditor {
             .and_then(|p| p.parent())
             .unwrap_or_else(|| std::path::Path::new("."));
 
+        let current_ext = self
+            .current_path
+            .as_ref()
+            .and_then(|p| p.extension())
+            .and_then(|e| e.to_str())
+            .unwrap_or("json");
+
         let suggested_name = self
             .current_path
             .as_ref()
             .and_then(|p| p.file_stem())
             .and_then(|s| s.to_str())
-            .map(|stem| format!("{stem}.json"))
+            .map(|stem| format!("{stem}.{current_ext}"))
             .unwrap_or_else(|| "schedule.json".to_string());
 
         let receiver = cx.prompt_for_new_path(default_dir, Some(&suggested_name));
 
-        let mut schedule_clone = schedule.clone();
-        // Always save all data now - staff mode is removed
+        let schedule_clone = schedule.clone();
+        let source_xlsx_path = if self.current_file_type == Some(FileType::Xlsx) {
+            self.current_path.clone()
+        } else {
+            None
+        };
 
         cx.spawn(async move |this, cx| {
             let Ok(Ok(Some(path))) = receiver.await else {
                 return;
             };
 
-            // Always save all events now - staff mode is removed
+            let ext = path
+                .extension()
+                .and_then(|e| e.to_str())
+                .unwrap_or("")
+                .to_lowercase();
 
-            let result = schedule_clone.save_json(&path);
+            let (result, file_type) = if ext == "xlsx" {
+                let result = match &source_xlsx_path {
+                    Some(source) => {
+                        std::fs::copy(source, &path)
+                            .map_err(|e| anyhow::anyhow!("Failed to copy XLSX: {e}"))
+                            .and_then(|_| {
+                                xlsx_update::update_xlsx(&schedule_clone, &path)
+                            })
+                    }
+                    None => xlsx_export::export_to_xlsx(&schedule_clone, &path),
+                };
+                (result, FileType::Xlsx)
+            } else {
+                let mut json_schedule = schedule_clone;
+                (json_schedule.save_json(&path), FileType::Json)
+            };
 
             cx.update(|cx| {
                 this.update(cx, |editor, cx| match result {
                     Ok(()) => {
                         editor.current_path = Some(path.clone());
-                        editor.current_file_type = Some(FileType::Json);
+                        editor.current_file_type = Some(file_type);
                         editor.has_unsaved_changes = false;
                         editor.status_message = Some(format!("Saved: {}", path.display()));
                         cx.notify();
@@ -412,13 +443,13 @@ impl ScheduleEditor {
         .detach();
     }
 
-    fn file_save_as_json(
+    fn file_save_as(
         &mut self,
-        _: &FileSaveAsJson,
+        _: &FileSaveAs,
         _window: &mut Window,
         cx: &mut Context<Self>,
     ) {
-        self.do_save(_window, cx);
+        self.do_save_as(_window, cx);
     }
 
     fn file_export_public_json(
@@ -617,7 +648,7 @@ impl Render for ScheduleEditor {
             this.on_action(cx.listener(Self::file_save))
         });
         layout = layout.when(self.schedule.is_some(), |this| {
-            this.on_action(cx.listener(Self::file_save_as_json))
+            this.on_action(cx.listener(Self::file_save_as))
                 .on_action(cx.listener(Self::file_export_public_json))
         });
 

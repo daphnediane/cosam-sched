@@ -2,316 +2,496 @@ use std::path::Path;
 
 use anyhow::{Context, Result};
 use chrono::NaiveDateTime;
+use umya_spreadsheet::structs::{Table, TableColumn, TableStyleInfo, Worksheet};
 
-#[cfg(feature = "xlsx_export")]
-use rust_xlsxwriter::{Format, Workbook, Worksheet, XlsxError};
-
-use super::event::Event;
 use super::panel_type::PanelType;
 use super::presenter::Presenter;
 use super::room::Room;
 use super::schedule::Schedule;
-use super::timeline::{TimeType, TimelineEntry};
+use super::source_info::ChangeState;
+use super::timeline::TimeType;
 
-#[cfg(feature = "xlsx_export")]
 pub fn export_to_xlsx(schedule: &Schedule, path: &Path) -> Result<()> {
-    let mut workbook = Workbook::new();
+    let mut book = umya_spreadsheet::new_file();
 
-    // Export Rooms sheet
-    let worksheet = export_rooms_worksheet(&schedule.rooms)?;
-    workbook.push_worksheet(worksheet);
+    let room_headers = &["Room Name", "Long Name", "Hotel Room", "Sort Key"];
+    {
+        let ws = book
+            .get_sheet_mut(&0)
+            .ok_or_else(|| anyhow::anyhow!("No default sheet"))?;
+        ws.set_name("RoomMap");
+        let last_row = write_rooms_sheet(ws, &schedule.rooms);
+        add_table(ws, "RoomMapTable", room_headers, last_row);
+    }
 
-    // Export Panel Types sheet (including time types as special)
-    let worksheet = export_panel_types_worksheet(&schedule.panel_types, &schedule.time_types)?;
-    workbook.push_worksheet(worksheet);
+    let prefix_headers = &[
+        "Prefix", "Panel Kind", "Color", "BW", "Is Break", "Is Workshop", "Is Café",
+        "Is Room Hours", "Hidden",
+    ];
+    book.new_sheet("Prefix")
+        .map_err(|e| anyhow::anyhow!("{e}"))?;
+    {
+        let ws = book
+            .get_sheet_by_name_mut("Prefix")
+            .ok_or_else(|| anyhow::anyhow!("Sheet 'Prefix' not found"))?;
+        let last_row = write_panel_types_sheet(ws, &schedule.panel_types, &schedule.time_types);
+        add_table(ws, "PrefixTable", prefix_headers, last_row);
+    }
 
-    // Export Schedule sheet (including timeline as events)
-    let worksheet = export_schedule_worksheet(&schedule.events, &schedule.timeline)?;
-    workbook.push_worksheet(worksheet);
+    let schedule_headers = &[
+        "Uniq ID", "Name", "Description", "Start Time", "End Time", "Duration", "Room",
+        "Kind", "Cost", "Capacity", "Difficulty", "Note", "Prereq", "Ticket Sale", "Full",
+        "Hide Panelist", "Alt Panelist", "Presenters",
+    ];
+    book.new_sheet("Schedule")
+        .map_err(|e| anyhow::anyhow!("{e}"))?;
+    {
+        let ws = book
+            .get_sheet_by_name_mut("Schedule")
+            .ok_or_else(|| anyhow::anyhow!("Sheet 'Schedule' not found"))?;
+        let last_row = write_schedule_sheet(ws, schedule)?;
+        add_table(ws, "ScheduleTable", schedule_headers, last_row);
+    }
 
-    // Export Presenters sheet
-    let worksheet = export_presenters_worksheet(&schedule.presenters)?;
-    workbook.push_worksheet(worksheet);
+    let presenter_headers = &[
+        "Name", "Rank", "Is Group", "Members", "Groups", "Always Grouped",
+    ];
+    book.new_sheet("Presenters")
+        .map_err(|e| anyhow::anyhow!("{e}"))?;
+    {
+        let ws = book
+            .get_sheet_by_name_mut("Presenters")
+            .ok_or_else(|| anyhow::anyhow!("Sheet 'Presenters' not found"))?;
+        let last_row = write_presenters_sheet(ws, &schedule.presenters);
+        add_table(ws, "PresentersTable", presenter_headers, last_row);
+    }
 
-    workbook
-        .save(path)
-        .map_err(|e| anyhow::anyhow!("Failed to save XLSX: {}", e))?;
+    umya_spreadsheet::writer::xlsx::write(&book, path)
+        .map_err(|e| anyhow::anyhow!("Failed to write XLSX {}: {e}", path.display()))?;
 
     Ok(())
 }
 
-#[cfg(not(feature = "xlsx_export"))]
-pub fn export_to_xlsx(_schedule: &Schedule, _path: &Path) -> Result<()> {
-    anyhow::bail!("XLSX export feature not enabled. Enable with --features xlsx_export")
+fn add_table(ws: &mut Worksheet, name: &str, headers: &[&str], last_data_row: u32) {
+    let num_cols = headers.len() as u32;
+    let last_row = last_data_row.max(2);
+    let mut table = Table::new(name, ((1u32, 1u32), (num_cols, last_row)));
+    table.set_display_name(name);
+    for header in headers {
+        table.add_column(TableColumn::new(header));
+    }
+    let style = TableStyleInfo::new("TableStyleMedium2", false, false, true, false);
+    table.set_style_info(Some(style));
+    ws.add_table(table);
 }
 
-#[cfg(feature = "xlsx_export")]
-fn export_rooms_worksheet(rooms: &[Room]) -> Result<Worksheet> {
-    let mut worksheet = Worksheet::new();
-
-    // Headers
-    let headers = ["UID", "Short Name", "Long Name", "Hotel Room", "Sort Key"];
-    for (col, header) in headers.iter().enumerate() {
-        worksheet.write_string(0, col as u16, header)?;
+fn set_headers(ws: &mut Worksheet, headers: &[&str]) {
+    for (col_0, header) in headers.iter().enumerate() {
+        let col = col_0 as u32 + 1;
+        ws.get_cell_mut((col, 1)).set_value(*header);
     }
-
-    // Data rows
-    for (row, room) in rooms.iter().enumerate() {
-        let row_idx = row as u32 + 1;
-        worksheet.write_number(row_idx, 0, room.uid as f64)?;
-        worksheet.write_string(row_idx, 1, &room.short_name)?;
-        worksheet.write_string(row_idx, 2, &room.long_name)?;
-        worksheet.write_string(row_idx, 3, &room.hotel_room)?;
-        worksheet.write_number(row_idx, 4, room.sort_key as f64)?;
-    }
-
-    Ok(worksheet)
 }
 
-#[cfg(feature = "xlsx_export")]
-fn export_panel_types_worksheet(
+fn set_str(ws: &mut Worksheet, col: u32, row: u32, value: &str) {
+    ws.get_cell_mut((col, row)).set_value(value);
+}
+
+fn set_opt(ws: &mut Worksheet, col: u32, row: u32, value: &Option<String>) {
+    if let Some(v) = value {
+        ws.get_cell_mut((col, row)).set_value(v.as_str());
+    }
+}
+
+fn write_rooms_sheet(ws: &mut Worksheet, rooms: &[Room]) -> u32 {
+    set_headers(ws, &["Room Name", "Long Name", "Hotel Room", "Sort Key"]);
+
+    let mut row = 2u32;
+    for room in rooms {
+        if room.change_state == ChangeState::Deleted {
+            continue;
+        }
+        set_str(ws, 1, row, &room.short_name);
+        set_str(ws, 2, row, &room.long_name);
+        set_str(ws, 3, row, &room.hotel_room);
+        set_str(ws, 4, row, &room.sort_key.to_string());
+        row += 1;
+    }
+    row - 1
+}
+
+fn write_panel_types_sheet(
+    ws: &mut Worksheet,
     panel_types: &[PanelType],
     time_types: &[TimeType],
-) -> Result<Worksheet> {
-    let mut worksheet = Worksheet::new();
+) -> u32 {
+    set_headers(
+        ws,
+        &[
+            "Prefix",
+            "Panel Kind",
+            "Color",
+            "BW",
+            "Is Break",
+            "Is Workshop",
+            "Is Café",
+            "Is Room Hours",
+            "Hidden",
+        ],
+    );
 
-    // Headers
-    let headers = [
-        "Prefix",
-        "Panel Kind",
-        "Color",
-        "Is Break",
-        "Is Workshop",
-        "Is Café",
-        "Hidden",
-        "Is Split",
-    ];
-    for (col, header) in headers.iter().enumerate() {
-        worksheet.write_string(0, col as u16, header)?;
+    let mut row = 2u32;
+    for pt in panel_types {
+        if pt.change_state == ChangeState::Deleted {
+            continue;
+        }
+        set_str(ws, 1, row, &pt.prefix);
+        set_str(ws, 2, row, &pt.kind);
+        set_opt(ws, 3, row, &pt.color);
+        set_opt(ws, 4, row, &pt.bw_color);
+        if pt.is_break {
+            set_str(ws, 5, row, "Yes");
+        }
+        if pt.is_workshop {
+            set_str(ws, 6, row, "Yes");
+        }
+        if pt.is_cafe {
+            set_str(ws, 7, row, "Yes");
+        }
+        if pt.is_room_hours {
+            set_str(ws, 8, row, "Yes");
+        }
+        if pt.is_hidden {
+            set_str(ws, 9, row, "Yes");
+        }
+        row += 1;
     }
 
-    // Panel type rows
-    for (row, pt) in panel_types.iter().enumerate() {
-        let row_idx = row as u32 + 1;
-        worksheet.write_string(row_idx, 0, &pt.prefix)?;
-        worksheet.write_string(row_idx, 1, &pt.kind)?;
-        worksheet.write_string(row_idx, 2, &pt.color.clone().unwrap_or_default())?;
-        worksheet.write_string(row_idx, 3, if pt.is_break { "1" } else { "" })?;
-        worksheet.write_string(row_idx, 4, if pt.is_workshop { "1" } else { "" })?;
-        worksheet.write_string(row_idx, 5, if pt.is_cafe { "1" } else { "" })?;
-        worksheet.write_string(row_idx, 6, if pt.is_hidden { "1" } else { "" })?;
-        worksheet.write_string(row_idx, 7, "")?; // Is Split = false for regular panel types
+    for tt in time_types {
+        if tt.change_state == ChangeState::Deleted {
+            continue;
+        }
+        set_str(ws, 1, row, &tt.prefix);
+        set_str(ws, 2, row, &tt.kind);
+        set_str(ws, 9, row, "Special");
+        row += 1;
     }
-
-    // Time type rows (marked as Special in Hidden column, Is Split = true)
-    for (row_offset, tt) in time_types.iter().enumerate() {
-        let row_idx = (panel_types.len() + row_offset + 1) as u32;
-        worksheet.write_string(row_idx, 0, &tt.prefix)?;
-        worksheet.write_string(row_idx, 1, &tt.kind)?;
-        worksheet.write_string(row_idx, 2, "")?;
-        worksheet.write_string(row_idx, 3, "")?;
-        worksheet.write_string(row_idx, 4, "")?;
-        worksheet.write_string(row_idx, 5, "")?;
-        worksheet.write_string(row_idx, 6, "Special")?; // Mark as Special
-        worksheet.write_string(row_idx, 7, "1")?; // Is Split = true for time types
-    }
-
-    Ok(worksheet)
+    row - 1
 }
 
-#[cfg(feature = "xlsx_export")]
-fn export_schedule_worksheet(events: &[Event], timeline: &[TimelineEntry]) -> Result<Worksheet> {
-    let mut worksheet = Worksheet::new();
+fn write_schedule_sheet(ws: &mut Worksheet, schedule: &Schedule) -> Result<u32> {
+    set_headers(
+        ws,
+        &[
+            "Uniq ID",
+            "Name",
+            "Description",
+            "Start Time",
+            "End Time",
+            "Duration",
+            "Room",
+            "Kind",
+            "Cost",
+            "Capacity",
+            "Difficulty",
+            "Note",
+            "Prereq",
+            "Ticket Sale",
+            "Full",
+            "Hide Panelist",
+            "Alt Panelist",
+            "Presenters",
+        ],
+    );
 
-    // Headers
-    let headers = [
-        "ID",
-        "Name",
-        "Description",
-        "Start Time",
-        "End Time",
-        "Duration",
-        "Room",
-        "Prefix",
-        "Cost",
-        "Capacity",
-        "Difficulty",
-        "Note",
-        "Prereq",
-        "Ticket URL",
-        "Presenters",
-    ];
-    for (col, header) in headers.iter().enumerate() {
-        worksheet.write_string(0, col as u16, header)?;
-    }
+    let mut row = 2u32;
 
-    // Regular event rows
-    for (row, event) in events.iter().enumerate() {
-        let row_idx = row as u32 + 1;
-        let room_id = event.room_id.map(|id| id.to_string()).unwrap_or_default();
+    for event in &schedule.events {
+        if event.change_state == ChangeState::Deleted {
+            continue;
+        }
 
-        let prefix = event
+        set_str(ws, 1, row, &event.id);
+        set_str(ws, 2, row, &event.name);
+        set_opt(ws, 3, row, &event.description);
+        set_str(
+            ws,
+            4,
+            row,
+            &event.start_time.format("%-m/%-d/%Y %-I:%M %p").to_string(),
+        );
+        set_str(
+            ws,
+            5,
+            row,
+            &event.end_time.format("%-m/%-d/%Y %-I:%M %p").to_string(),
+        );
+        set_str(ws, 6, row, &event.duration.to_string());
+
+        let room_name = event
+            .room_id
+            .and_then(|rid| schedule.room_by_id(rid))
+            .map(|r| r.short_name.as_str())
+            .unwrap_or("");
+        set_str(ws, 7, row, room_name);
+
+        let kind = event
             .panel_type
             .as_ref()
-            .and_then(|pt| pt.strip_prefix("panel-type-"))
-            .unwrap_or("")
-            .to_uppercase();
+            .and_then(|pt_uid| {
+                schedule
+                    .panel_types
+                    .iter()
+                    .find(|pt| pt.effective_uid() == *pt_uid)
+            })
+            .map(|pt| pt.kind.as_str())
+            .unwrap_or("");
+        set_str(ws, 8, row, kind);
 
-        worksheet.write_string(row_idx, 0, &event.id)?;
-        worksheet.write_string(row_idx, 1, &event.name)?;
-        worksheet.write_string(row_idx, 2, &event.description.clone().unwrap_or_default())?;
-        worksheet.write_string(
-            row_idx,
-            3,
-            &event.start_time.format("%Y-%m-%d %H:%M:%S").to_string(),
-        )?;
-        worksheet.write_string(
-            row_idx,
-            4,
-            &event.end_time.format("%Y-%m-%d %H:%M:%S").to_string(),
-        )?;
-        worksheet.write_number(row_idx, 5, event.duration as f64)?;
-        worksheet.write_string(row_idx, 6, &room_id)?;
-        worksheet.write_string(row_idx, 7, &prefix)?;
-        worksheet.write_string(row_idx, 8, &event.cost.clone().unwrap_or_default())?;
-        worksheet.write_string(row_idx, 9, &event.capacity.clone().unwrap_or_default())?;
-        worksheet.write_string(row_idx, 10, &event.difficulty.clone().unwrap_or_default())?;
-        worksheet.write_string(row_idx, 11, &event.note.clone().unwrap_or_default())?;
-        worksheet.write_string(row_idx, 12, &event.prereq.clone().unwrap_or_default())?;
-        worksheet.write_string(row_idx, 13, &event.ticket_url.clone().unwrap_or_default())?;
-        worksheet.write_string(row_idx, 14, &event.presenters.join(", "))?;
+        set_opt(ws, 9, row, &event.cost);
+        set_opt(ws, 10, row, &event.capacity);
+        set_opt(ws, 11, row, &event.difficulty);
+        set_opt(ws, 12, row, &event.note);
+        set_opt(ws, 13, row, &event.prereq);
+        set_opt(ws, 14, row, &event.ticket_url);
+        if event.is_full {
+            set_str(ws, 15, row, "Yes");
+        }
+        if event.hide_panelist {
+            set_str(ws, 16, row, "Yes");
+        }
+        set_opt(ws, 17, row, &event.alt_panelist);
+
+        if !event.presenters.is_empty() {
+            set_str(ws, 18, row, &event.presenters.join(", "));
+        }
+
+        row += 1;
     }
 
-    // Timeline rows (converted to events with 30-minute duration)
-    for (row_offset, timeline_entry) in timeline.iter().enumerate() {
-        let start_time: NaiveDateTime = timeline_entry.start_time.parse().with_context(|| {
-            format!("Invalid timeline start time: {}", timeline_entry.start_time)
+    for entry in &schedule.timeline {
+        if entry.change_state == ChangeState::Deleted {
+            continue;
+        }
+        let start_time: NaiveDateTime = entry.start_time.parse().with_context(|| {
+            format!("Invalid timeline start time: {}", entry.start_time)
         })?;
         let end_time = start_time + chrono::Duration::minutes(30);
 
-        let prefix = timeline_entry
+        let prefix = entry
             .time_type
             .as_ref()
             .and_then(|tt| tt.strip_prefix("time-type-"))
             .unwrap_or("SPLIT")
             .to_uppercase();
 
-        let row_idx = (events.len() + row_offset + 1) as u32;
-        worksheet.write_string(row_idx, 0, &timeline_entry.id)?;
-        worksheet.write_string(row_idx, 1, &timeline_entry.description)?;
-        worksheet.write_string(row_idx, 2, &timeline_entry.note.clone().unwrap_or_default())?;
-        worksheet.write_string(
-            row_idx,
-            3,
-            &start_time.format("%Y-%m-%d %H:%M:%S").to_string(),
-        )?;
-        worksheet.write_string(
-            row_idx,
+        set_str(ws, 1, row, &entry.id);
+        set_str(ws, 2, row, &entry.description);
+        set_opt(ws, 3, row, &entry.note);
+        set_str(
+            ws,
             4,
-            &end_time.format("%Y-%m-%d %H:%M:%S").to_string(),
-        )?;
-        worksheet.write_number(row_idx, 5, 30.0)?; // 30 minutes duration
-        worksheet.write_string(row_idx, 6, "")?; // No room
-        worksheet.write_string(row_idx, 7, &prefix)?;
-        worksheet.write_string(row_idx, 8, "")?; // No cost
-        worksheet.write_string(row_idx, 9, "")?; // No capacity
-        worksheet.write_string(row_idx, 10, "")?; // No difficulty
-        worksheet.write_string(row_idx, 11, "")?; // No note
-        worksheet.write_string(row_idx, 12, "")?; // No prereq
-        worksheet.write_string(row_idx, 13, "")?; // No ticket URL
-        worksheet.write_string(row_idx, 14, "")?; // No presenters
+            row,
+            &start_time.format("%-m/%-d/%Y %-I:%M %p").to_string(),
+        );
+        set_str(
+            ws,
+            5,
+            row,
+            &end_time.format("%-m/%-d/%Y %-I:%M %p").to_string(),
+        );
+        set_str(ws, 6, row, "30");
+        set_str(ws, 8, row, &prefix);
+
+        row += 1;
     }
 
-    Ok(worksheet)
+    Ok(row - 1)
 }
 
-#[cfg(feature = "xlsx_export")]
-fn export_presenters_worksheet(presenters: &[Presenter]) -> Result<Worksheet> {
-    let mut worksheet = Worksheet::new();
+fn write_presenters_sheet(ws: &mut Worksheet, presenters: &[Presenter]) -> u32 {
+    set_headers(
+        ws,
+        &[
+            "Name",
+            "Rank",
+            "Is Group",
+            "Members",
+            "Groups",
+            "Always Grouped",
+        ],
+    );
 
-    // Headers
-    let headers = [
-        "Name",
-        "Rank",
-        "Is Group",
-        "Members",
-        "Groups",
-        "Always Grouped",
-    ];
-    for (col, header) in headers.iter().enumerate() {
-        worksheet.write_string(0, col as u16, header)?;
+    let mut row = 2u32;
+    for presenter in presenters {
+        if presenter.change_state == ChangeState::Deleted {
+            continue;
+        }
+        set_str(ws, 1, row, &presenter.name);
+        set_str(ws, 2, row, &presenter.rank);
+        if presenter.is_group {
+            set_str(ws, 3, row, "Yes");
+        }
+        if !presenter.members.is_empty() {
+            set_str(ws, 4, row, &presenter.members.join(", "));
+        }
+        if !presenter.groups.is_empty() {
+            set_str(ws, 5, row, &presenter.groups.join(", "));
+        }
+        if presenter.always_grouped {
+            set_str(ws, 6, row, "Yes");
+        }
+        row += 1;
     }
-
-    // Data rows
-    for (row, presenter) in presenters.iter().enumerate() {
-        let row_idx = row as u32 + 1;
-        worksheet.write_string(row_idx, 0, &presenter.name)?;
-        worksheet.write_string(row_idx, 1, &presenter.rank)?;
-        worksheet.write_string(row_idx, 2, if presenter.is_group { "1" } else { "" })?;
-        worksheet.write_string(row_idx, 3, &presenter.members.join(", "))?;
-        worksheet.write_string(row_idx, 4, &presenter.groups.join(", "))?;
-        worksheet.write_string(row_idx, 5, if presenter.always_grouped { "1" } else { "" })?;
-    }
-
-    Ok(worksheet)
+    row - 1
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::data::panel_type::PanelType;
-    use crate::data::room::Room;
-    use crate::data::source_info::ChangeState;
-    use crate::data::timeline::TimeType;
+    use crate::data::event::Event;
+    use crate::data::schedule::Meta;
+    use crate::data::source_info::ImportedSheetPresence;
 
-    #[test]
-    fn test_export_rooms_worksheet() {
-        let rooms = vec![Room {
-            uid: 1,
-            short_name: "Main".to_string(),
-            long_name: "Main Hall".to_string(),
-            hotel_room: "Grand Ballroom".to_string(),
-            sort_key: 1,
-            source: None,
-            change_state: ChangeState::Unchanged,
-        }];
+    fn make_test_schedule() -> Schedule {
+        let dt = |s: &str| {
+            chrono::NaiveDateTime::parse_from_str(s, "%Y-%m-%dT%H:%M:%S").unwrap()
+        };
 
-        #[cfg(feature = "xlsx_export")]
-        {
-            let worksheet = export_rooms_worksheet(&rooms).unwrap();
-            // Test would need to verify worksheet content
+        Schedule {
+            conflicts: Vec::new(),
+            meta: Meta {
+                title: "Test".to_string(),
+                generated: "2026-01-01".to_string(),
+                version: Some(4),
+                generator: None,
+                start_time: None,
+                end_time: None,
+            },
+            timeline: Vec::new(),
+            events: vec![Event {
+                id: "GP001".to_string(),
+                name: "Test Panel".to_string(),
+                description: Some("A test panel".to_string()),
+                start_time: dt("2026-06-26T09:00:00"),
+                end_time: dt("2026-06-26T10:00:00"),
+                duration: 60,
+                room_id: Some(1),
+                panel_type: Some("panel-type-gp".to_string()),
+                cost: None,
+                capacity: None,
+                difficulty: None,
+                note: None,
+                prereq: None,
+                ticket_url: None,
+                presenters: vec!["Alice".to_string()],
+                credits: Vec::new(),
+                conflicts: Vec::new(),
+                is_free: true,
+                is_full: false,
+                is_kids: false,
+                hide_panelist: false,
+                alt_panelist: None,
+                source: None,
+                change_state: ChangeState::Unchanged,
+            }],
+            rooms: vec![Room {
+                uid: 1,
+                short_name: "Main".to_string(),
+                long_name: "Main Hall".to_string(),
+                hotel_room: "Grand Ballroom".to_string(),
+                sort_key: 1,
+                source: None,
+                change_state: ChangeState::Unchanged,
+            }],
+            panel_types: vec![PanelType {
+                uid: Some("panel-type-gp".to_string()),
+                prefix: "GP".to_string(),
+                kind: "Guest Panel".to_string(),
+                color: Some("#E2F9D7".to_string()),
+                is_break: false,
+                is_cafe: false,
+                is_workshop: false,
+                is_hidden: false,
+                is_room_hours: false,
+                bw_color: None,
+                source: None,
+                change_state: ChangeState::Unchanged,
+            }],
+            time_types: Vec::new(),
+            presenters: vec![Presenter {
+                name: "Alice".to_string(),
+                rank: "guest".to_string(),
+                is_group: false,
+                members: Vec::new(),
+                groups: Vec::new(),
+                always_grouped: false,
+                source: None,
+                change_state: ChangeState::Unchanged,
+            }],
+            imported_sheets: ImportedSheetPresence::default(),
         }
     }
 
     #[test]
-    fn test_export_panel_types_worksheet() {
-        let panel_types = vec![PanelType {
-            uid: Some("panel-type-gp".to_string()),
-            prefix: "GP".to_string(),
-            kind: "Guest Panel".to_string(),
-            color: Some("#E2F9D7".to_string()),
-            is_break: false,
-            is_cafe: false,
-            is_workshop: false,
-            is_hidden: false,
-            is_room_hours: false,
-            bw_color: None,
-            source: None,
-            change_state: ChangeState::Unchanged,
-        }];
+    fn test_export_roundtrip() {
+        let schedule = make_test_schedule();
+        let dir = std::env::temp_dir();
+        let path = dir.join("test_export_roundtrip.xlsx");
 
-        let time_types = vec![TimeType {
-            uid: "time-type-split".to_string(),
-            prefix: "SPLIT".to_string(),
-            kind: "Page split".to_string(),
-            source: None,
-            change_state: ChangeState::Unchanged,
-        }];
+        export_to_xlsx(&schedule, &path).expect("export should succeed");
+        assert!(path.exists(), "XLSX file should be created");
 
-        #[cfg(feature = "xlsx_export")]
-        {
-            let worksheet = export_panel_types_worksheet(&panel_types, &time_types).unwrap();
-            // Test would need to verify worksheet content
-        }
+        let book = umya_spreadsheet::reader::xlsx::read(&path)
+            .expect("should read back exported XLSX");
+
+        let room_ws = book.get_sheet_by_name("RoomMap")
+            .expect("RoomMap sheet should exist");
+        assert_eq!(room_ws.get_value((1, 1)), "Room Name");
+        assert_eq!(room_ws.get_value((1, 2)), "Main");
+
+        let prefix_ws = book.get_sheet_by_name("Prefix")
+            .expect("Prefix sheet should exist");
+        assert_eq!(prefix_ws.get_value((1, 1)), "Prefix");
+        assert_eq!(prefix_ws.get_value((1, 2)), "GP");
+
+        let sched_ws = book.get_sheet_by_name("Schedule")
+            .expect("Schedule sheet should exist");
+        assert_eq!(sched_ws.get_value((1, 1)), "Uniq ID");
+        assert_eq!(sched_ws.get_value((1, 2)), "GP001");
+        assert_eq!(sched_ws.get_value((2, 2)), "Test Panel");
+
+        let pres_ws = book.get_sheet_by_name("Presenters")
+            .expect("Presenters sheet should exist");
+        assert_eq!(pres_ws.get_value((1, 1)), "Name");
+        assert_eq!(pres_ws.get_value((1, 2)), "Alice");
+
+        std::fs::remove_file(&path).ok();
+    }
+
+    #[test]
+    fn test_export_skips_deleted() {
+        let mut schedule = make_test_schedule();
+        schedule.rooms.push(Room {
+            uid: 2,
+            short_name: "Deleted".to_string(),
+            long_name: "Gone".to_string(),
+            hotel_room: "".to_string(),
+            sort_key: 99,
+            source: None,
+            change_state: ChangeState::Deleted,
+        });
+
+        let dir = std::env::temp_dir();
+        let path = dir.join("test_export_skips_deleted.xlsx");
+
+        export_to_xlsx(&schedule, &path).expect("export should succeed");
+
+        let book = umya_spreadsheet::reader::xlsx::read(&path)
+            .expect("should read back exported XLSX");
+        let room_ws = book.get_sheet_by_name("RoomMap").unwrap();
+        assert_eq!(room_ws.get_value((1, 2)), "Main");
+        assert_eq!(room_ws.get_value((1, 3)), "", "Deleted room should not appear");
+
+        std::fs::remove_file(&path).ok();
     }
 }

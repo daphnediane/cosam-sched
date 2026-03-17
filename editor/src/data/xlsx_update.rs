@@ -156,6 +156,17 @@ fn calamine_row_to_umya(row_index: u32) -> u32 {
     row_index + 1
 }
 
+fn update_table_areas(worksheet: &mut Worksheet, new_last_row: u32) {
+    let last_row = new_last_row.max(2);
+    for table in worksheet.get_tables_mut() {
+        let (start, end) = table.get_area();
+        let start_col = *start.get_col_num();
+        let start_row = *start.get_row_num();
+        let end_col = *end.get_col_num();
+        table.set_area(((start_col, start_row), (end_col, last_row)));
+    }
+}
+
 // ── Rooms ──────────────────────────────────────────────────────────────────
 
 fn write_room_to_row(
@@ -238,6 +249,11 @@ fn update_rooms_sheet(
             .ok_or_else(|| anyhow::anyhow!("Sheet '{sheet_name}' not found"))?;
         write_room_to_row(worksheet, &header_map, next_row, room);
         next_row += 1;
+    }
+
+    let final_last_row = next_row - 1;
+    if let Some(ws) = book.get_sheet_by_name_mut(sheet_name) {
+        update_table_areas(ws, final_last_row);
     }
 
     Ok(())
@@ -348,6 +364,11 @@ fn update_panel_types_sheet(
             .ok_or_else(|| anyhow::anyhow!("Sheet '{sheet_name}' not found"))?;
         write_panel_type_to_row(worksheet, &header_map, next_row, panel_type);
         next_row += 1;
+    }
+
+    let final_last_row = next_row - 1;
+    if let Some(ws) = book.get_sheet_by_name_mut(sheet_name) {
+        update_table_areas(ws, final_last_row);
     }
 
     Ok(())
@@ -521,6 +542,11 @@ fn update_schedule_sheet(
             .ok_or_else(|| anyhow::anyhow!("Sheet '{sheet_name}' not found"))?;
         write_event_to_row(worksheet, &header_map, next_row, event, schedule);
         next_row += 1;
+    }
+
+    let final_last_row = next_row - 1;
+    if let Some(ws) = book.get_sheet_by_name_mut(sheet_name) {
+        update_table_areas(ws, final_last_row);
     }
 
     Ok(())

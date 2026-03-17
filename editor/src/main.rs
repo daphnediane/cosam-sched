@@ -11,7 +11,7 @@ use gpui::{
 
 use data::{Schedule, XlsxImportOptions};
 use ui::ScheduleEditor;
-use ui::editor::{FileExportPublicJson, FileOpen, FileSave, FileSaveAsJson};
+use ui::editor::{FileExportPublicJson, FileOpen, FileSave, FileSaveAs};
 
 actions!(
     main,
@@ -176,7 +176,7 @@ fn set_app_menus(cx: &mut App) {
                 MenuItem::separator(),
                 MenuItem::action("Open...", FileOpen),
                 MenuItem::action("Save", FileSave),
-                MenuItem::action("Save As JSON...", FileSaveAsJson),
+                MenuItem::action("Save As...", FileSaveAs),
                 MenuItem::action("Export Public JSON...", FileExportPublicJson),
                 MenuItem::separator(),
                 MenuItem::action("Close Window", CloseWindow),
