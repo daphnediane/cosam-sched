@@ -1,5 +1,7 @@
 # Widget (`widget/`)
 
+Embeddable vanilla JS/CSS calendar widget. No framework dependencies — designed to work inside Squarespace Code Blocks.
+
 Interactive event calendar for Cosplay America. This is a complete rewrite of the [schedule-to-html](https://github.com/daphnediane/schedule-to-html) project, adapted for modern web embedding with enhanced interactivity.
 
 ## License
