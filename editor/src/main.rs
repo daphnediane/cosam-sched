@@ -4,10 +4,26 @@ mod ui;
 use std::path::PathBuf;
 
 use gpui::prelude::*;
-use gpui::{App, Application, Bounds, WindowBounds, WindowOptions, px, size};
+use gpui::{
+    App, Application, Bounds, Focusable, KeyBinding, Menu, MenuItem, SystemMenuType, WindowBounds,
+    WindowOptions, actions, px, size,
+};
 
 use data::{Schedule, XlsxImportOptions};
 use ui::ScheduleEditor;
+use ui::editor::{FileExportPublicJson, FileOpen, FileSave, FileSaveAsJson};
+
+actions!(
+    main,
+    [
+        Quit,
+        HideApp,
+        HideOtherApps,
+        ShowAllApps,
+        NewWindow,
+        CloseWindow
+    ]
+);
 
 struct CliArgs {
     input: Option<PathBuf>,
@@ -139,6 +155,83 @@ fn resolve_input(cli: &CliArgs) -> Option<PathBuf> {
     None
 }
 
+fn set_app_menus(cx: &mut App) {
+    cx.set_menus(vec![
+        Menu {
+            name: "App".into(),
+            items: vec![
+                MenuItem::os_submenu("Services", SystemMenuType::Services),
+                MenuItem::separator(),
+                MenuItem::action("Hide cosam-editor", HideApp),
+                MenuItem::action("Hide Others", HideOtherApps),
+                MenuItem::action("Show All", ShowAllApps),
+                MenuItem::separator(),
+                MenuItem::action("Quit", Quit),
+            ],
+        },
+        Menu {
+            name: "File".into(),
+            items: vec![
+                MenuItem::action("New Window", NewWindow),
+                MenuItem::separator(),
+                MenuItem::action("Open...", FileOpen),
+                MenuItem::action("Save", FileSave),
+                MenuItem::action("Save As JSON...", FileSaveAsJson),
+                MenuItem::action("Export Public JSON...", FileExportPublicJson),
+                MenuItem::separator(),
+                MenuItem::action("Close Window", CloseWindow),
+            ],
+        },
+    ]);
+}
+
+fn quit(_: &Quit, cx: &mut App) {
+    cx.quit();
+}
+
+fn hide_app(_: &HideApp, cx: &mut App) {
+    cx.hide();
+}
+
+fn hide_other_apps(_: &HideOtherApps, cx: &mut App) {
+    cx.hide_other_apps();
+}
+
+fn show_all_apps(_: &ShowAllApps, cx: &mut App) {
+    cx.unhide_other_apps();
+}
+
+fn close_window(_: &CloseWindow, cx: &mut App) {
+    if let Some(active_window) = cx.active_window() {
+        let _ = active_window.update(cx, |_, window, _cx| {
+            window.remove_window();
+        });
+    }
+}
+
+fn open_editor_window(
+    initial_schedule: Option<Schedule>,
+    input_path: Option<PathBuf>,
+    staff_mode: bool,
+    cx: &mut App,
+) -> anyhow::Result<()> {
+    let bounds = Bounds::centered(None, size(px(1200.), px(800.)), cx);
+    cx.open_window(
+        WindowOptions {
+            window_bounds: Some(WindowBounds::Windowed(bounds)),
+            ..Default::default()
+        },
+        move |window, cx| {
+            let editor = cx.new(|cx| {
+                ScheduleEditor::new(initial_schedule.clone(), input_path.clone(), staff_mode, cx)
+            });
+            window.focus(&editor.focus_handle(cx));
+            editor
+        },
+    )?;
+    Ok(())
+}
+
 fn main() {
     let cli = parse_args();
     let import_options = build_import_options(&cli);
@@ -196,23 +289,35 @@ fn main() {
     let staff_mode = cli.staff_mode;
 
     Application::new().run(move |cx: &mut App| {
-        let bounds = Bounds::centered(None, size(px(1200.), px(800.)), cx);
-        cx.open_window(
-            WindowOptions {
-                window_bounds: Some(WindowBounds::Windowed(bounds)),
-                ..Default::default()
-            },
-            |_window, cx| {
-                cx.new(|cx| {
-                    ScheduleEditor::new(
-                        initial_schedule.clone(),
-                        input_path.clone(),
-                        staff_mode,
-                        cx,
-                    )
-                })
-            },
-        )
-        .expect("Failed to open window");
+        // Register app-level handlers and keybindings
+        cx.on_action(quit);
+        cx.on_action(hide_app);
+        cx.on_action(hide_other_apps);
+        cx.on_action(show_all_apps);
+        cx.on_action(close_window);
+
+        let initial_schedule_for_new_window = initial_schedule.clone();
+        let input_path_for_new_window = input_path.clone();
+        cx.on_action(move |_: &NewWindow, cx| {
+            let _ = open_editor_window(
+                initial_schedule_for_new_window.clone(),
+                input_path_for_new_window.clone(),
+                staff_mode,
+                cx,
+            );
+        });
+
+        cx.bind_keys([KeyBinding::new("cmd-q", Quit, None)]);
+        cx.bind_keys([
+            KeyBinding::new("cmd-h", HideApp, None),
+            KeyBinding::new("cmd-alt-h", HideOtherApps, None),
+            KeyBinding::new("cmd-n", NewWindow, None),
+            KeyBinding::new("cmd-w", CloseWindow, None),
+        ]);
+
+        // Set up menus globally
+        set_app_menus(cx);
+        open_editor_window(initial_schedule.clone(), input_path.clone(), staff_mode, cx)
+            .expect("Failed to open window");
     });
 }

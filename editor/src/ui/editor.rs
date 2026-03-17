@@ -2,7 +2,10 @@ use std::path::PathBuf;
 
 use chrono::NaiveDate;
 use gpui::prelude::*;
-use gpui::{Context, Entity, PathPromptOptions, SharedString, Window, div, px, rgb};
+use gpui::{
+    App, Context, Entity, FocusHandle, Focusable, PathPromptOptions, SharedString, Window, actions,
+    div, px, rgb,
+};
 
 use crate::data::Schedule;
 use crate::data::xlsx_import::XlsxImportOptions;
@@ -10,10 +13,23 @@ use crate::ui::day_tabs::{DayTabEvent, DayTabs};
 use crate::ui::event_card::EventCard;
 use crate::ui::sidebar::{RoomEntry, Sidebar, SidebarEvent};
 
+#[derive(Debug, Clone, Copy, PartialEq)]
+enum FileType {
+    Json,
+    Xlsx,
+}
+
+actions!(
+    schedule_editor,
+    [FileOpen, FileSave, FileSaveAsJson, FileExportPublicJson]
+);
+
 pub struct ScheduleEditor {
+    focus_handle: FocusHandle,
     schedule: Option<Schedule>,
     current_path: Option<PathBuf>,
-    staff_mode: bool,
+    current_file_type: Option<FileType>,
+    has_unsaved_changes: bool,
     status_message: Option<String>,
     days: Vec<NaiveDate>,
     selected_day_index: usize,
@@ -27,7 +43,7 @@ impl ScheduleEditor {
     pub fn new(
         schedule: Option<Schedule>,
         path: Option<PathBuf>,
-        staff_mode: bool,
+        _staff_mode: bool, // Parameter kept for compatibility but unused
         cx: &mut Context<Self>,
     ) -> Self {
         let days = schedule.as_ref().map(|s| s.days()).unwrap_or_default();
@@ -63,10 +79,22 @@ impl ScheduleEditor {
         )
         .detach();
 
+        let current_file_type = path.as_ref().and_then(|p| {
+            p.extension().and_then(|ext| ext.to_str()).map(|ext| {
+                match ext.to_lowercase().as_str() {
+                    "json" => FileType::Json,
+                    "xlsx" => FileType::Xlsx,
+                    _ => FileType::Json, // Default to JSON for unknown extensions
+                }
+            })
+        });
+
         let mut editor = Self {
+            focus_handle: cx.focus_handle(),
             schedule,
             current_path: path,
-            staff_mode,
+            current_file_type,
+            has_unsaved_changes: false,
             status_message: None,
             days,
             selected_day_index: 0,
@@ -75,6 +103,7 @@ impl ScheduleEditor {
             sidebar,
             event_cards: Vec::new(),
         };
+
         editor.rebuild_event_cards(cx);
         editor
     }
@@ -112,9 +141,24 @@ impl ScheduleEditor {
         let event_count = schedule.events.len();
         let room_count = schedule.rooms.len();
         self.schedule = Some(schedule);
-        self.current_path = path;
+        self.current_path = path.clone();
+
+        // Update file type based on the loaded path
+        self.current_file_type = path.as_ref().and_then(|p| {
+            p.extension().and_then(|ext| ext.to_str()).map(|ext| {
+                match ext.to_lowercase().as_str() {
+                    "json" => FileType::Json,
+                    "xlsx" => FileType::Xlsx,
+                    _ => FileType::Json,
+                }
+            })
+        });
+
+        self.has_unsaved_changes = false;
         self.status_message = Some(format!("Loaded {event_count} events, {room_count} rooms"));
 
+        self.update_window_title(cx);
+        self.update_menus(cx);
         self.rebuild_event_cards(cx);
         cx.notify();
     }
@@ -153,15 +197,8 @@ impl ScheduleEditor {
                 return;
             }
 
-            let staff_mode = cx
-                .update(|cx| {
-                    this.update(cx, |editor, _cx| editor.staff_mode)
-                        .unwrap_or(false)
-                })
-                .unwrap_or(false);
-
             let import_options = XlsxImportOptions {
-                staff_mode,
+                staff_mode: false, // Always use full mode now
                 ..XlsxImportOptions::default()
             };
 
@@ -207,16 +244,14 @@ impl ScheduleEditor {
         let receiver = cx.prompt_for_new_path(default_dir, Some(&suggested_name));
 
         let mut schedule_clone = schedule.clone();
-        let staff_mode = self.staff_mode;
+        // Always save all data now - staff mode is removed
 
         cx.spawn(async move |this, cx| {
             let Ok(Ok(Some(path))) = receiver.await else {
                 return;
             };
 
-            if !staff_mode {
-                schedule_clone.events.retain(|_e| true);
-            }
+            // Always save all events now - staff mode is removed
 
             let result = schedule_clone.save_json(&path);
 
@@ -224,6 +259,8 @@ impl ScheduleEditor {
                 this.update(cx, |editor, cx| match result {
                     Ok(()) => {
                         editor.current_path = Some(path.clone());
+                        editor.current_file_type = Some(FileType::Json);
+                        editor.has_unsaved_changes = false;
                         editor.status_message = Some(format!("Saved: {}", path.display()));
                         cx.notify();
                     }
@@ -277,18 +314,178 @@ impl ScheduleEditor {
             })
             .collect();
     }
+
+    fn update_window_title(&self, _cx: &mut Context<Self>) {
+        // Window title is updated in render via Window::set_window_title.
+    }
+
+    fn update_menus(&self, _cx: &mut Context<Self>) {
+        // Menu enablement is controlled by conditional action handlers in render.
+    }
+
+    fn can_save(&self) -> bool {
+        self.schedule.is_some()
+            && self.current_file_type == Some(FileType::Json)
+            && self.current_path.is_some()
+    }
+
+    fn can_export(&self) -> bool {
+        self.schedule.is_some()
+    }
+
+    fn window_title(&self) -> String {
+        let app_title = "Cosplay America Schedule Editor";
+        let file_name = self
+            .current_path
+            .as_ref()
+            .and_then(|path| path.file_name())
+            .and_then(|name| name.to_str());
+
+        match file_name {
+            Some(name) if self.has_unsaved_changes => format!("{app_title} — {name}*"),
+            Some(name) => format!("{app_title} — {name}"),
+            None => app_title.to_string(),
+        }
+    }
+
+    // Action handlers
+    fn file_open(&mut self, _: &FileOpen, _window: &mut Window, cx: &mut Context<Self>) {
+        self.do_open(_window, cx);
+    }
+
+    fn file_save(&mut self, _: &FileSave, _window: &mut Window, cx: &mut Context<Self>) {
+        if !self.can_save() {
+            self.status_message = Some("Cannot save: No JSON file loaded".to_string());
+            cx.notify();
+            return;
+        }
+
+        let Some(ref schedule) = self.schedule else {
+            self.status_message = Some("No schedule to save".to_string());
+            cx.notify();
+            return;
+        };
+
+        let Some(ref path) = self.current_path else {
+            self.status_message = Some("No file path available".to_string());
+            cx.notify();
+            return;
+        };
+
+        let mut schedule_clone = schedule.clone();
+        let path_clone = path.clone();
+
+        cx.spawn(async move |this, cx| {
+            let result = schedule_clone.save_json(&path_clone);
+
+            cx.update(|cx| {
+                this.update(cx, |editor, cx| match result {
+                    Ok(()) => {
+                        editor.has_unsaved_changes = false;
+                        editor.status_message = Some(format!("Saved: {}", path_clone.display()));
+                        editor.update_window_title(cx);
+                        cx.notify();
+                    }
+                    Err(e) => {
+                        editor.status_message = Some(format!("Save error: {e}"));
+                        cx.notify();
+                    }
+                })
+            })
+            .ok();
+        })
+        .detach();
+    }
+
+    fn file_save_as_json(
+        &mut self,
+        _: &FileSaveAsJson,
+        _window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        self.do_save(_window, cx);
+    }
+
+    fn file_export_public_json(
+        &mut self,
+        _: &FileExportPublicJson,
+        _window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        let Some(ref schedule) = self.schedule else {
+            self.status_message = Some("No schedule to export".to_string());
+            cx.notify();
+            return;
+        };
+
+        let default_dir = self
+            .current_path
+            .as_ref()
+            .and_then(|p| p.parent())
+            .unwrap_or_else(|| std::path::Path::new("."));
+
+        let suggested_name = self
+            .current_path
+            .as_ref()
+            .and_then(|p| p.file_stem())
+            .and_then(|s| s.to_str())
+            .map(|stem| format!("{}-public.json", stem))
+            .unwrap_or_else(|| "schedule-public.json".to_string());
+
+        let receiver = cx.prompt_for_new_path(default_dir, Some(&suggested_name));
+
+        let mut schedule_clone = schedule.clone();
+
+        cx.spawn(async move |this, cx| {
+            let Ok(Ok(Some(path))) = receiver.await else {
+                return;
+            };
+
+            let hidden_panel_type_uids = schedule_clone
+                .panel_types
+                .iter()
+                .filter(|panel_type| panel_type.is_hidden)
+                .map(|panel_type| panel_type.effective_uid())
+                .collect::<std::collections::HashSet<_>>();
+
+            schedule_clone.events.retain(|event| {
+                let is_hidden_panel_type = event
+                    .panel_type
+                    .as_ref()
+                    .is_some_and(|panel_type_uid| hidden_panel_type_uids.contains(panel_type_uid));
+                !is_hidden_panel_type
+            });
+
+            let result = schedule_clone.save_json(&path);
+
+            cx.update(|cx| {
+                this.update(cx, |editor, cx| match result {
+                    Ok(()) => {
+                        editor.status_message =
+                            Some(format!("Exported public schedule: {}", path.display()));
+                        cx.notify();
+                    }
+                    Err(e) => {
+                        editor.status_message = Some(format!("Export error: {e}"));
+                        cx.notify();
+                    }
+                })
+            })
+            .ok();
+        })
+        .detach();
+    }
 }
 
 impl Render for ScheduleEditor {
-    fn render(&mut self, _window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+    fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+        window.set_window_title(&self.window_title());
+        window.set_window_edited(self.has_unsaved_changes);
+
         let bg = rgb(0xF9FAFB);
         let title_color = rgb(0x111827);
         let subtitle_color = rgb(0x6B7280);
         let empty_color = rgb(0x9CA3AF);
-        let btn_bg = rgb(0xE5E7EB);
-        let btn_hover = rgb(0xD1D5DB);
-        let btn_active_bg = rgb(0x2563EB);
-        let btn_active_text = rgb(0xFFFFFF);
         let status_color = rgb(0x059669);
 
         let title = self
@@ -301,83 +498,7 @@ impl Render for ScheduleEditor {
         let event_count = self.schedule.as_ref().map(|s| s.events.len()).unwrap_or(0);
         let event_count_text = SharedString::from(format!("{event_count} events"));
 
-        // Build toolbar buttons
-        let open_button = div()
-            .id("btn-open")
-            .px(px(12.0))
-            .py(px(6.0))
-            .bg(btn_bg)
-            .rounded(px(4.0))
-            .text_sm()
-            .cursor_pointer()
-            .hover(|style| style.bg(btn_hover))
-            .on_mouse_down(
-                gpui::MouseButton::Left,
-                cx.listener(|this, _ev, window, cx| {
-                    this.do_open(window, cx);
-                }),
-            )
-            .child("Open…");
-
-        let save_button = div()
-            .id("btn-save")
-            .px(px(12.0))
-            .py(px(6.0))
-            .bg(btn_bg)
-            .rounded(px(4.0))
-            .text_sm()
-            .cursor_pointer()
-            .hover(|style| style.bg(btn_hover))
-            .on_mouse_down(
-                gpui::MouseButton::Left,
-                cx.listener(|this, _ev, window, cx| {
-                    this.do_save(window, cx);
-                }),
-            )
-            .child("Save JSON…");
-
-        let staff_label = if self.staff_mode {
-            "Staff Mode: ON"
-        } else {
-            "Staff Mode: OFF"
-        };
-        let staff_bg = if self.staff_mode {
-            btn_active_bg
-        } else {
-            btn_bg
-        };
-        let staff_text = if self.staff_mode {
-            btn_active_text
-        } else {
-            title_color
-        };
-
-        let staff_button = div()
-            .id("btn-staff")
-            .px(px(12.0))
-            .py(px(6.0))
-            .bg(staff_bg)
-            .text_color(staff_text)
-            .rounded(px(4.0))
-            .text_sm()
-            .cursor_pointer()
-            .hover(|style| style.bg(btn_hover))
-            .on_mouse_down(
-                gpui::MouseButton::Left,
-                cx.listener(|this, _ev, _window, cx| {
-                    this.staff_mode = !this.staff_mode;
-                    cx.notify();
-                }),
-            )
-            .child(staff_label);
-
-        let toolbar = div()
-            .flex()
-            .gap(px(8.0))
-            .items_center()
-            .child(open_button)
-            .child(save_button)
-            .child(staff_button);
+        // No toolbar buttons needed anymore - using menus instead
 
         // Status bar (if there's a message)
         let status_bar = self.status_message.as_ref().map(|msg| {
@@ -443,7 +564,9 @@ impl Render for ScheduleEditor {
             .size_full()
             .flex()
             .flex_col()
+            .track_focus(&self.focus_handle)
             .bg(rgb(0xFFFFFF))
+            .on_action(cx.listener(Self::file_open))
             // Title bar with toolbar
             .child(
                 div()
@@ -472,9 +595,16 @@ impl Render for ScheduleEditor {
                                     .text_color(subtitle_color)
                                     .child(event_count_text),
                             ),
-                    )
-                    .child(toolbar),
+                    ),
             );
+
+        layout = layout.when(self.can_save(), |this| {
+            this.on_action(cx.listener(Self::file_save))
+        });
+        layout = layout.when(self.schedule.is_some(), |this| {
+            this.on_action(cx.listener(Self::file_save_as_json))
+                .on_action(cx.listener(Self::file_export_public_json))
+        });
 
         // Status bar
         if let Some(status) = status_bar {
@@ -500,5 +630,11 @@ impl Render for ScheduleEditor {
         );
 
         layout
+    }
+}
+
+impl Focusable for ScheduleEditor {
+    fn focus_handle(&self, _cx: &App) -> FocusHandle {
+        self.focus_handle.clone()
     }
 }
