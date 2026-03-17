@@ -23,8 +23,6 @@ pub struct Event {
     pub duration: u32,
     #[serde(default)]
     pub room_id: Option<u32>,
-    #[serde(default)]
-    pub kind: Option<String>,
     pub panel_type: Option<String>,
     #[serde(default)]
     pub cost: Option<String>,

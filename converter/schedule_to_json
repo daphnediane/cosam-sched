@@ -81,18 +81,77 @@ say "Reading schedule data from: ${input_file}";
 my $rooms = Convert::Rooms::read_rooms( $wb, $lookup_config );
 say 'Rooms: ', scalar @{ $rooms };
 
-my $panel_types = Convert::Types::read_panel_types( $wb, $lookup_config );
+my ( $panel_types, $time_types ) = Convert::Types::read_panel_types( $wb, $lookup_config );
 say 'Panel types: ', scalar @{ $panel_types };
+say 'Time types: ', scalar @{ $time_types } if $time_types;
 
 my ( $events, $presenters ) = Convert::Events::read_events( $wb, $rooms, $panel_types, $lookup_config, $staff_mode );
 say 'Events: ', scalar @{ $events };
 say 'Presenters: ', scalar @{ $presenters };
 
+# Generate timeline entries from split events
+my @timeline;
+my @split_time_types;
+my @filtered_panel_types;
+
+# Process time types and create timeline entries
+if ( $time_types && @$time_types ) {
+    @split_time_types = @$time_types;
+    
+    # Filter out split panel types
+    @filtered_panel_types = grep { 
+        my $prefix = $_->{ prefix };
+        !( $prefix eq 'SPLIT' || $prefix =~ m{\A SP}xms || $prefix =~ m{\A SPLIT}xms )
+    } @$panel_types;
+} else {
+    # Legacy mode: find split panel types and convert them
+    @filtered_panel_types = @$panel_types;
+    
+    my @split_panel_types = grep { 
+        my $prefix = $_->{ prefix };
+        ( $prefix eq 'SPLIT' || $prefix =~ m{\A SP}xms || $prefix =~ m{\A SPLIT}xms )
+    } @$panel_types;
+    
+    # Convert split panel types to time types
+    for my $split_pt ( @split_panel_types ) {
+        push @split_time_types, {
+            uid    => 'time-type-' . lc $split_pt->{ prefix },
+            prefix => $split_pt->{ prefix },
+            kind   => $split_pt->{ kind },
+        };
+    }
+}
+
+# Create timeline entries from events with split panel types
+for my $event ( @$events ) {
+    if ( defined $event->{ panel_type } && $event->{ panel_type } =~ m{^panel-type-(.+)}xmsi ) {
+        my $prefix = uc $1;
+        
+        # Check if this is a split panel type
+        if ( $prefix eq 'SPLIT' || $prefix =~ m{\A SP}xms || $prefix =~ m{\A SPLIT}xms ) {
+            # Convert to timeline entry
+            push @timeline, {
+                id          => $event->{ id },
+                startTime   => $event->{ start_time },
+                description => $event->{ name },
+                timeType    => 'time-type-' . lc $prefix,
+                note        => $event->{ note },
+            };
+            
+            # Remove this event from regular events
+            $event->{ _is_timeline } = 1;
+        }
+    }
+}
+
+# Filter out timeline events from regular events
+my @filtered_events = grep { !$_->{ _is_timeline } } @$events;
+
 # Generate credits for display
-$events = Convert::Events::generate_credits( $events, $presenters );
+@filtered_events = @{ Convert::Events::generate_credits( \@filtered_events, $presenters ) };
 
 # Detect conflicts
-my $conflicts = Convert::Events::detect_conflicts( $events );
+my $conflicts = Convert::Events::detect_conflicts( \@filtered_events );
 say 'Conflicts detected: ', scalar @$conflicts if @$conflicts;
 
 # Add conflict references to events
@@ -118,6 +177,38 @@ for my $conflict ( @$conflicts ) {
     };
 }
 
+# Add any missing panel types that were referenced in events
+my %used_prefixes;
+foreach my $event (@filtered_events) {
+    if (defined $event->{ panel_type } && $event->{ panel_type } =~ m{^panel-type-(.+)}xmsi) {
+        my $prefix = uc $1;
+        $used_prefixes{ $prefix } = 1;
+    }
+}
+
+# Add missing panel types
+foreach my $prefix (keys %used_prefixes) {
+    my $exists = grep { $_->{ prefix } eq $prefix } @filtered_panel_types;
+    next if $exists;
+    
+    my $kind = "${prefix} Panel";
+    my $is_workshop = $prefix =~ m{W\z}xmsi ? 1 : 0;
+    my $is_break = $prefix =~ m{\A BR}xmsi ? 1 : 0;
+    
+    push @filtered_panel_types, {
+        uid         => "panel-type-" . lc $prefix,
+        prefix      => $prefix,
+        kind        => $kind,
+        is_workshop => $is_workshop,
+        is_cafe     => 0,
+        is_break    => $is_break,
+        is_hidden   => 0,
+        is_room_hours => 0,
+        color       => undef,
+        bw_color    => undef,
+    };
+}
+
 my $visible_rooms = [
     map {
         {
@@ -130,40 +221,6 @@ my $visible_rooms = [
     } grep { !$_->{ is_hidden } } @{ $rooms }
 ];
 
-# Add any missing panel types that were referenced in events
-my %used_prefixes;
-foreach my $event (@{ $events }) {
-    if (defined $event->{ panel_type } && $event->{ panel_type } =~ m{^panel-type-(.+)}xmsi) {
-        my $prefix = uc $1;
-        $used_prefixes{ $prefix } = 1;
-    }
-}
-
-# Add missing panel types
-foreach my $prefix (keys %used_prefixes) {
-    my $exists = grep { $_->{ prefix } eq $prefix } @{ $panel_types };
-    next if $exists;
-    
-    my $kind = "${prefix} Panel";
-    my $is_workshop = $prefix =~ m{W\z}xmsi ? 1 : 0;
-    my $is_break = $prefix =~ m{\A BR}xmsi ? 1 : 0;
-    my $is_split = $prefix eq 'SPLIT' ? 1 : 0;
-    
-    push @{ $panel_types }, {
-        uid         => "panel-type-" . lc $prefix,
-        prefix      => $prefix,
-        kind        => $kind,
-        is_workshop => $is_workshop,
-        is_cafe     => 0,
-        is_break    => $is_break,
-        is_hidden   => 0,
-        is_room_hours => 0,
-        is_split    => $is_split,
-        color       => undef,
-        bw_color    => undef,
-    };
-}
-
 my $visible_types = [
     map {
         {
@@ -173,10 +230,19 @@ my $visible_types = [
             isWorkshop => $_->{ is_workshop } ? JSON::true : JSON::false,
             isCafe     => $_->{ is_cafe } ? JSON::true : JSON::false,
             isBreak    => $_->{ is_break } ? JSON::true : JSON::false,
-            isSplit    => $_->{ is_split } ? JSON::true : JSON::false,
             color      => $_->{ color },
         }
-    } grep { !$_->{ is_hidden } } @{ $panel_types }
+    } grep { !$_->{ is_hidden } } @filtered_panel_types
+];
+
+my $json_time_types = [
+    map {
+        {
+            uid    => $_->{ uid },
+            prefix => $_->{ prefix },
+            kind   => $_->{ kind },
+        }
+    } @split_time_types
 ];
 
 my $json_presenters = [
@@ -204,7 +270,6 @@ my $json_events = [
             duration    => $_->{ duration },
             roomId      => $_->{ roomId },
             panelType   => $_->{ panel_type },
-            kind        => $_->{ kind },
             cost        => $_->{ cost },
             isFree      => $_->{ is_free } ? JSON::true : JSON::false,
             isKids      => $_->{ is_kids } ? JSON::true : JSON::false,
@@ -218,7 +283,19 @@ my $json_events = [
             isFull      => $_->{ is_full } ? JSON::true : JSON::false,
             conflicts   => $event_conflict_refs,
         }
-    } @{ $events }
+    } @filtered_events
+];
+
+my $json_timeline = [
+    map {
+        {
+            id          => $_->{ id },
+            startTime   => $_->{ startTime },
+            description => $_->{ description },
+            timeType    => $_->{ timeType },
+            note        => $_->{ note },
+        }
+    } @timeline
 ];
 
 my $json_conflicts = [
@@ -239,6 +316,34 @@ my $json_conflicts = [
     } @$conflicts
 ];
 
+# Calculate schedule bounds
+my ($min_time, $max_time);
+for my $event (@filtered_events) {
+    if (defined $event->{ start_time }) {
+        $min_time = $event->{ start_time } if !defined $min_time || $event->{ start_time } lt $min_time;
+    }
+    if (defined $event->{ end_time }) {
+        $max_time = $event->{ end_time } if !defined $max_time || $event->{ end_time } gt $max_time;
+    }
+}
+
+# Add timeline entries to bounds calculation
+for my $timeline_entry (@timeline) {
+    if (defined $timeline_entry->{ startTime }) {
+        $min_time = $timeline_entry->{ startTime } if !defined $min_time || $timeline_entry->{ startTime } lt $min_time;
+        
+        # Timeline entries have implicit 30-minute duration
+        my $start_dt = $timeline_entry->{ startTime };
+        $start_dt =~ s/T.*//; # Extract date part
+        my $end_dt = $start_dt . 'T00:30:00Z'; # Add 30 minutes
+        $max_time = $end_dt if !defined $max_time || $end_dt gt $max_time;
+    }
+}
+
+# Set reasonable defaults if no times found
+$min_time = '2026-06-25T17:00:00Z' if !defined $min_time; # Thursday evening
+$max_time = '2026-06-28T18:00:00Z' if !defined $max_time; # Sunday evening
+
 my $output = {
     meta => {
         generated => do {
@@ -247,11 +352,15 @@ my $output = {
                 $t[5] + 1900, $t[4] + 1, $t[3], $t[2], $t[1], $t[0];
         },
         title     => $title || 'Event Schedule',
-        version   => 3,
+        version   => 4,
         generator => 'schedule_to_json',
+        startTime => $min_time,
+        endTime   => $max_time,
     },
+    timeline    => $json_timeline,
     rooms      => $visible_rooms,
     panelTypes => $visible_types,
+    timeTypes  => $json_time_types,
     presenters => $json_presenters,
     events     => $json_events,
     conflicts  => $json_conflicts,

@@ -41,11 +41,15 @@ impl EventCard {
         };
         let color = panel_type_color.map(parse_hex_color).unwrap_or(0xCCCCCC);
 
+        let kind = panel_type
+            .map(|pt| pt.kind.clone())
+            .unwrap_or_else(|| "Event".to_string());
+
         Self {
             name: SharedString::from(event.name.clone()),
             time_range: SharedString::from(time_range),
             room_name: SharedString::from(room_name.to_string()),
-            kind: SharedString::from(event.kind.clone().unwrap_or_default()),
+            kind: SharedString::from(kind),
             presenters: SharedString::from(presenters),
             color,
             is_workshop: panel_type.map(|pt| pt.is_workshop).unwrap_or(false),

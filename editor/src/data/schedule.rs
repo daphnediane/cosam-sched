@@ -9,6 +9,7 @@ use super::event::Event;
 use super::panel_type::PanelType;
 use super::presenter::Presenter;
 use super::room::Room;
+use super::timeline::{TimeType, TimelineEntry};
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct Meta {
@@ -18,6 +19,10 @@ pub struct Meta {
     pub version: Option<u32>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub generator: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub start_time: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub end_time: Option<String>,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -44,9 +49,13 @@ pub struct Schedule {
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub conflicts: Vec<ScheduleConflict>,
     pub meta: Meta,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub timeline: Vec<TimelineEntry>,
     pub events: Vec<Event>,
     pub rooms: Vec<Room>,
     pub panel_types: Vec<PanelType>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub time_types: Vec<TimeType>,
     pub presenters: Vec<Presenter>,
 }
 
@@ -55,8 +64,12 @@ impl Schedule {
     pub fn load(path: &Path) -> Result<Self> {
         let content = std::fs::read_to_string(path)
             .with_context(|| format!("Failed to read {}", path.display()))?;
-        let schedule: Schedule = serde_json::from_str(&content)
+        let mut schedule: Schedule = serde_json::from_str(&content)
             .with_context(|| format!("Failed to parse JSON from {}", path.display()))?;
+
+        // Auto-migrate to v4 if needed
+        schedule.migrate_to_v4();
+
         Ok(schedule)
     }
 
@@ -73,13 +86,154 @@ impl Schedule {
 
     pub fn save_json(&mut self, path: &Path) -> Result<()> {
         self.meta.generated = chrono::Utc::now().format("%Y-%m-%dT%H:%M:%SZ").to_string();
-        self.meta.version = Some(3);
+        self.meta.version = Some(4);
         self.meta.generator = Some(format!("cosam-editor {}", env!("CARGO_PKG_VERSION")));
+
+        // Calculate start and end times if not present
+        if self.meta.start_time.is_none() || self.meta.end_time.is_none() {
+            self.calculate_schedule_bounds();
+        }
+
         let json =
             serde_json::to_string_pretty(self).context("Failed to serialize schedule to JSON")?;
         std::fs::write(path, json.as_bytes())
             .with_context(|| format!("Failed to write {}", path.display()))?;
         Ok(())
+    }
+
+    /// Calculate schedule start and end times from events and timeline entries
+    pub fn calculate_schedule_bounds(&mut self) {
+        let mut min_time: Option<chrono::NaiveDateTime> = None;
+        let mut max_time: Option<chrono::NaiveDateTime> = None;
+
+        // Check events
+        for event in &self.events {
+            if min_time.is_none() || Some(event.start_time) < min_time {
+                min_time = Some(event.start_time);
+            }
+            if max_time.is_none() || Some(event.end_time) > max_time {
+                max_time = Some(event.end_time);
+            }
+        }
+
+        // Check timeline entries
+        for timeline_entry in &self.timeline {
+            if let Ok(start_time) = chrono::NaiveDateTime::parse_from_str(
+                &timeline_entry.start_time,
+                "%Y-%m-%dT%H:%M:%S",
+            ) {
+                if min_time.is_none() || Some(start_time) < min_time {
+                    min_time = Some(start_time);
+                }
+                // Timeline entries have implicit 30-minute duration
+                let end_time = start_time + chrono::Duration::minutes(30);
+                if max_time.is_none() || Some(end_time) > max_time {
+                    max_time = Some(end_time);
+                }
+            }
+        }
+
+        // Set meta fields
+        if let Some(min_time) = min_time {
+            self.meta.start_time = Some(min_time.format("%Y-%m-%dT%H:%M:%SZ").to_string());
+        }
+        if let Some(max_time) = max_time {
+            self.meta.end_time = Some(max_time.format("%Y-%m-%dT%H:%M:%SZ").to_string());
+        }
+
+        // If still no times found, set reasonable defaults for Cosplay America
+        // @todo assume the last weekend of the upcoming June.
+        if self.meta.start_time.is_none() {
+            self.meta.start_time = Some("2026-06-25T17:00:00Z".to_string()); // Thursday evening
+        }
+        if self.meta.end_time.is_none() {
+            self.meta.end_time = Some("2026-06-28T18:00:00Z".to_string()); // Sunday evening
+        }
+    }
+
+    /// Migrate v3 format to v4 format
+    pub fn migrate_to_v4(&mut self) {
+        if self.meta.version.unwrap_or(1) >= 4 {
+            return; // Already v4 or higher
+        }
+
+        // Convert split panel types to time types and timeline
+        let (panel_types, time_types, timeline) = self.convert_split_panel_types();
+
+        // Remove kind field from events (it will be derived from panel type)
+        for event in &mut self.events {
+            // kind field is already removed from struct, so no action needed
+        }
+
+        // Update schedule
+        self.panel_types = panel_types;
+        self.time_types = time_types;
+        self.timeline = timeline;
+
+        // Calculate schedule bounds
+        self.calculate_schedule_bounds();
+
+        // Update version
+        self.meta.version = Some(4);
+    }
+
+    /// Convert split panel types to time types and timeline entries
+    fn convert_split_panel_types(
+        &self,
+    ) -> (
+        Vec<super::panel_type::PanelType>,
+        Vec<super::timeline::TimeType>,
+        Vec<super::timeline::TimelineEntry>,
+    ) {
+        let mut time_types = Vec::new();
+        let mut timeline = Vec::new();
+        let mut filtered_panel_types = Vec::new();
+
+        // Find split panel types and convert them
+        for panel_type in &self.panel_types {
+            if panel_type.prefix.to_uppercase() == "SPLIT"
+                || panel_type.prefix.to_uppercase().starts_with("SP")
+                || panel_type.prefix.to_uppercase().starts_with("SPLIT")
+            {
+                // Create time type
+                let time_type = super::timeline::TimeType {
+                    uid: super::timeline::TimeType::uid_from_prefix(&panel_type.prefix),
+                    prefix: panel_type.prefix.clone(),
+                    kind: panel_type.kind.clone(),
+                };
+                time_types.push(time_type);
+
+                // Find events with this panel type and convert to timeline entries
+                let split_events: Vec<_> = self
+                    .events
+                    .iter()
+                    .filter(|e| {
+                        e.panel_type
+                            .as_ref()
+                            .map(|pt| pt == &panel_type.effective_uid())
+                            .unwrap_or(false)
+                    })
+                    .collect();
+
+                for (i, event) in split_events.iter().enumerate() {
+                    let timeline_entry = super::timeline::TimelineEntry {
+                        id: format!("{}{:02}", panel_type.prefix, i + 1),
+                        start_time: event.start_time.format("%Y-%m-%dT%H:%M:%S").to_string(),
+                        description: event.name.clone(),
+                        time_type: Some(super::timeline::TimeType::uid_from_prefix(
+                            &panel_type.prefix,
+                        )),
+                        note: event.note.clone(),
+                    };
+                    timeline.push(timeline_entry);
+                }
+            } else {
+                // Keep non-split panel types
+                filtered_panel_types.push(panel_type.clone());
+            }
+        }
+
+        (filtered_panel_types, time_types, timeline)
     }
 
     #[must_use]

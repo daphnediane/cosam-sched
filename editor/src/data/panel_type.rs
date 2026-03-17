@@ -21,8 +21,6 @@ pub struct PanelType {
     pub is_room_hours: bool,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub bw_color: Option<String>,
-    #[serde(default)]
-    pub is_split: bool,
 }
 
 impl PanelType {
@@ -110,7 +108,6 @@ mod tests {
             is_hidden: false,
             is_room_hours: false,
             bw_color: None,
-            is_split: false,
         };
         let json = serde_json::to_string(&pt).unwrap();
         let pt2: PanelType = serde_json::from_str(&json).unwrap();

@@ -9,9 +9,11 @@ the calendar widget. The file is produced by either the Perl converter
 ```json
 {
   "meta": { ... },
+  "timeline": { ... },
   "events": [ ... ],
   "rooms": [ ... ],
   "panelTypes": [ ... ],
+  "timeTypes": [ ... ],
   "presenters": [ ... ],
   "conflicts": [ ... ]
 }
@@ -32,6 +34,27 @@ Metadata about the schedule file itself.
 | `generated` | string  | yes      | ISO 8601 UTC timestamp of when the file was generated (e.g. `"2026-06-26T14:00:00Z"`)             |
 | `version`   | integer | no       | Schema version number. Current version is `3`. Absent in older files (implies v1)                 |
 | `generator` | string  | no       | Identifier of the tool that produced the file (e.g. `"cosam-editor 0.1.0"`, `"schedule_to_json"`) |
+| `startTime` | string  | no       | ISO 8601 UTC timestamp of the schedule start date (e.g. `"2026-06-26T00:00:00Z"`)                 |
+| `endTime`   | string  | no       | ISO 8601 UTC timestamp of the schedule end date (e.g. `"2026-06-28T23:59:59Z"`)                   |
+
+---
+
+## `timeline`
+
+Array of key time markers used for layout, navigation, and formatting.
+
+| Field         | Type           | Required | Description                                                                                                                     |
+| ------------- | -------------- | -------- | ------------------------------------------------------------------------------------------------------------------------------- |
+| `id`          | string         | yes      | Unique identifier for the time marker (e.g. `"SPLIT01"`)                                                                        |
+| `startTime`   | string         | yes      | ISO 8601 UTC timestamp for the marker                                                                                           |
+| `description` | string         | yes      | Description of the time marker (e.g. `"Thursday Morning"`)                                                                      |
+| `timeType`    | string \| null | no       | Time type UID in format `"time-type-{prefix}"` where prefix is lowercased (e.g. `"time-type-gw"`). References `timeTypes[].uid` |
+| `note`        | string \| null | no       | Additional notes for the event                                                                                                  |
+
+When converting from spreadsheet, this array is populated with events that panel type
+that have `Is Split` set to any truthy value, or begin with `"SP"` or `"SPLIT"`. When
+exporting to spreadsheet, these a duration of 30 minutes will be used, and the
+endTime will be calculated as startTime + 30 minutes.
 
 ---
 
@@ -145,7 +168,6 @@ Array of panel type objects defining event categories.
 | `isCafe`     | boolean | no       | True for café/social events                                                                             |
 | `isWorkshop` | boolean | yes      | True for workshop events                                                                                |
 | `isHidden`   | boolean | no       | True for hidden panel types                                                                             |
-| `isSplit`    | boolean | no       | True for reference split time                                                                           |
 
 The `uid` field is the canonical reference used in `events[].panelType`.
 
@@ -155,6 +177,24 @@ Panel types may have an `isHidden` boolean (not included in output). Hidden
 panel types are filtered from the public schedule unless staff mode is enabled.
 Events with hidden panel types (e.g. staff meals) are excluded from non-staff
 output.
+
+---
+
+## `timeTypes`
+
+Array of time type objects defining time categories.
+
+| Field    | Type   | Required | Description                                                                                           |
+| -------- | ------ | -------- | ----------------------------------------------------------------------------------------------------- |
+| `uid`    | string | yes      | Unique identifier in format `"time-type-{prefix}"` where prefix is lowercased (e.g. `"time-type-gw"`) |
+| `prefix` | string | yes      | Short prefix code, uppercase (e.g. `"SPLIT"`, `"SPLITDAY"`)                                           |
+| `kind`   | string | no       | Human-readable category name (e.g. `"Page split"`, `"Split day"`)                                     |
+
+The `uid` field is the canonical reference used in `timeline[].timeType`.
+
+When converting from spreadsheet, this array is populated from panel types that have
+`Is Split` set to any truthy value, or begin with `"SP"` or `"SPLIT"`. When
+exporting to spreadsheet, time types will be store with other prefixes in panel types.
 
 ---
 
@@ -252,3 +292,8 @@ The editor is intended to replace the Perl converter. Status of alignment:
   the Hidden field in the spreadsheet. Widget checks `panelTypes[].isSplit` and
   `panelTypes[].isBreak` first (V3) with fallback to inline event fields for V2
   compatibility.
+- **v4**: Adds `meta.startTime` and `meta.endTime` for the entire schedule.
+  Removes `events[].kind` field replaced by `panelTypes[].kind`. Removes
+  `panelTypes[].isSplit` field. Adds `timeline` array for key time markers used
+  for layout, navigation, and formatting. Adds `timeTypes` array for time
+  category definitions.

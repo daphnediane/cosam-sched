@@ -11,6 +11,7 @@ use super::panel_type::PanelType;
 use super::presenter::Presenter;
 use super::room::Room;
 use super::schedule::{Meta, Schedule};
+use super::timeline::{TimeType, TimelineEntry};
 
 pub struct XlsxImportOptions {
     pub title: String,
@@ -30,6 +31,65 @@ impl Default for XlsxImportOptions {
             panel_types_sheet: "Prefix".to_string(),
         }
     }
+}
+
+fn convert_split_types_to_timeline(
+    panel_types: &[PanelType],
+    events: &[Event],
+) -> (Vec<PanelType>, Vec<TimeType>, Vec<TimelineEntry>) {
+    let mut time_types = Vec::new();
+    let mut timeline = Vec::new();
+    let mut filtered_panel_types = panel_types.to_vec();
+
+    // Find split panel types and convert them to time types
+    let split_types: Vec<_> = panel_types
+        .iter()
+        .filter(|pt| is_split_prefix(&pt.prefix))
+        .collect();
+
+    for split_type in split_types {
+        // Create time type
+        let time_type = TimeType {
+            uid: TimeType::uid_from_prefix(&split_type.prefix),
+            prefix: split_type.prefix.clone(),
+            kind: split_type.kind.clone(),
+        };
+        time_types.push(time_type);
+
+        // Find events with this panel type and convert to timeline entries
+        let split_events: Vec<_> = events
+            .iter()
+            .filter(|e| {
+                e.panel_type
+                    .as_ref()
+                    .map(|pt| pt == &split_type.effective_uid())
+                    .unwrap_or(false)
+            })
+            .collect();
+
+        for (i, event) in split_events.iter().enumerate() {
+            let timeline_entry = TimelineEntry {
+                id: format!("{}{:02}", split_type.prefix, i + 1),
+                start_time: event.start_time.format("%Y-%m-%dT%H:%M:%S").to_string(),
+                description: event.name.clone(),
+                time_type: Some(TimeType::uid_from_prefix(&split_type.prefix)),
+                note: event.note.clone(),
+            };
+            timeline.push(timeline_entry);
+        }
+
+        // Remove split type from panel types
+        filtered_panel_types.retain(|pt| pt.prefix != split_type.prefix);
+    }
+
+    (filtered_panel_types, time_types, timeline)
+}
+
+// Helper function to determine if a prefix indicates a split/time type
+fn is_split_prefix(prefix: &str) -> bool {
+    prefix.to_uppercase() == "SPLIT"
+        || prefix.to_uppercase().starts_with("SP")
+        || prefix.to_uppercase().starts_with("SPLIT")
 }
 
 pub fn import_xlsx(path: &Path, options: &XlsxImportOptions) -> Result<Schedule> {
@@ -67,7 +127,6 @@ pub fn import_xlsx(path: &Path, options: &XlsxImportOptions) -> Result<Schedule>
             let kind = format!("{} Panel", prefix);
             let is_workshop = prefix.ends_with('W');
             let is_break = prefix.to_uppercase().starts_with("BR");
-            let is_split = prefix.to_uppercase() == "SPLIT";
 
             panel_types.push(PanelType {
                 uid: Some(format!("panel-type-{}", prefix.to_lowercase())),
@@ -80,24 +139,31 @@ pub fn import_xlsx(path: &Path, options: &XlsxImportOptions) -> Result<Schedule>
                 is_hidden: false,
                 is_room_hours: false,
                 bw_color: None,
-                is_split,
             });
         }
     }
 
     let generated = chrono::Utc::now().format("%Y-%m-%dT%H:%M:%SZ").to_string();
 
+    // Convert split panel types to time types and timeline entries
+    let (mut panel_types, time_types, timeline) =
+        convert_split_types_to_timeline(&panel_types, &events);
+
     Ok(Schedule {
         conflicts: Vec::new(),
         meta: Meta {
             title: options.title.clone(),
             generated,
-            version: Some(3),
+            version: Some(4),
             generator: Some(format!("cosam-editor {}", env!("CARGO_PKG_VERSION"))),
+            start_time: None, // Will be calculated later
+            end_time: None,   // Will be calculated later
         },
+        timeline,
         events,
         rooms,
         panel_types,
+        time_types,
         presenters,
     })
 }
@@ -328,20 +394,22 @@ fn read_panel_types(
             .map(|s| is_truthy(s))
             .unwrap_or(false);
 
+        let is_split = get_field(&data, &["Is_Split"])
+            .map(|s| is_truthy(s))
+            .unwrap_or_else(|| {
+                prefix == "SPLIT"
+                    || prefix.to_uppercase().starts_with("SP")
+                    || prefix.to_uppercase().starts_with("SPLIT")
+            });
+
         let color = get_field(&data, &["Color"]).cloned();
         let bw_color = get_field(&data, &["BW", "Bw"]).cloned();
 
         let uid = Some(PanelType::uid_from_prefix(&prefix));
-        let is_split = prefix.to_uppercase() == "SPLIT";
 
-        // Parse is_hidden after is_split so we can override it for SPLIT types
-        let is_hidden = if is_split {
-            false
-        } else {
-            get_field(&data, &["Hidden"])
-                .map(|s| !s.is_empty())
-                .unwrap_or(false)
-        };
+        let is_hidden = get_field(&data, &["Hidden"])
+            .map(|s| !s.is_empty())
+            .unwrap_or(false);
 
         types.push(PanelType {
             uid,
@@ -354,7 +422,6 @@ fn read_panel_types(
             is_hidden,
             is_room_hours,
             bw_color,
-            is_split,
         });
     }
 
@@ -924,14 +991,6 @@ fn read_events(
             panel_type.map(|pt| pt.effective_uid())
         };
 
-        let kind = panel_type.map(|pt| pt.kind.clone()).or_else(|| {
-            if !id_prefix.is_empty() {
-                Some(format!("{} Panel", id_prefix))
-            } else {
-                kind_raw.clone()
-            }
-        });
-
         let hide_panelist = get_field(&data, &["Hide_Panelist", "HidePanelist"])
             .map(|s| is_truthy(s))
             .unwrap_or(false);
@@ -945,7 +1004,6 @@ fn read_events(
             end_time,
             duration,
             room_id,
-            kind,
             panel_type: panel_type_uid,
             cost,
             capacity: get_field(&data, &["Capacity"]).cloned(),

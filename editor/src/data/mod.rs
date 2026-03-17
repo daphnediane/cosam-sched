@@ -3,6 +3,8 @@ pub mod panel_type;
 pub mod presenter;
 pub mod room;
 pub mod schedule;
+pub mod timeline;
+pub mod xlsx_export;
 pub mod xlsx_import;
 
 pub use event::Event;
@@ -10,4 +12,6 @@ pub use panel_type::PanelType;
 pub use presenter::Presenter;
 pub use room::Room;
 pub use schedule::{Meta, Schedule};
+pub use timeline::{TimeType, TimelineEntry};
+pub use xlsx_export::export_to_xlsx;
 pub use xlsx_import::XlsxImportOptions;

@@ -24,6 +24,7 @@ sub read_panel_types ( $wb, $lookup_config = {} ) {
     my @san_header = canonical_headers( @header );
 
     my @types;
+    my @time_types;
 
     for my $row ( @rows ) {
         my $data = canonical_data( \@header, \@san_header, $row );
@@ -42,7 +43,9 @@ sub read_panel_types ( $wb, $lookup_config = {} ) {
         my $is_break    = ( $kind   =~ m{\A br}xmsi )         ? 1 : 0;
         my $is_cafe     = ( $kind   =~ m{\A caf[eé] \z}xmsi ) ? 1 : 0;
         my $is_workshop = ( $prefix =~ m{\A .W \z}xmsi )      ? 1 : 0;
-        my $is_split    = ( $prefix_uc eq 'SPLIT' )          ? 1 : 0;
+        my $is_split    = ( $prefix_uc eq 'SPLIT' )          
+            || ( $prefix_uc =~ m{\A SP}xms )
+            || ( $prefix_uc =~ m{\A SPLIT}xms ) ? 1 : 0;
 
         my $is_hidden = 0;
         if ( defined $data->{ Hidden } && $data->{ Hidden } ne q{} ) {
@@ -65,23 +68,43 @@ sub read_panel_types ( $wb, $lookup_config = {} ) {
                 $is_cafe = $data->{ $field_name } ? 1 : 0;
             }
         }
+        for my $field_name ( qw{ Is_Split } ) {
+            if ( defined $data->{ $field_name } ) {
+                $is_split = $data->{ $field_name } ? 1 : 0;
+            }
+        }
 
         my $color = $data->{ Color };
 
-        push @types, {
-            uid         => $uid,
-            prefix      => $prefix_uc,
-            kind        => $kind,
-            is_break    => $is_break,
-            is_cafe     => $is_cafe,
-            is_workshop => $is_workshop,
-            is_hidden   => $is_hidden,
-            is_split    => $is_split,
-            color       => $color,
-        };
+        # Check if this is a time type (split only)
+        if ( $is_split ) {
+            # This is a time type
+            my $time_uid = 'time-type-' . lc $prefix_uc;
+            $time_uid =~ s{[^a-z0-9]+}{-}xmsg;
+            $time_uid =~ s{\A -+}{}xms;
+            $time_uid =~ s{-+ \z}{}xms;
+            
+            push @time_types, {
+                uid    => $time_uid,
+                prefix => $prefix_uc,
+                kind   => $kind,
+            };
+        } else {
+            # This is a regular panel type (v4 format - no is_split field)
+            push @types, {
+                uid         => $uid,
+                prefix      => $prefix_uc,
+                kind        => $kind,
+                is_break    => $is_break,
+                is_cafe     => $is_cafe,
+                is_workshop => $is_workshop,
+                is_hidden   => $is_hidden,
+                color       => $color,
+            };
+        }
     } ## end for my $row ( @rows )
 
-    return \@types;
+    return wantarray ? ( \@types, \@time_types ) : \@types;
 } ## end sub read_panel_types
 
 1;
