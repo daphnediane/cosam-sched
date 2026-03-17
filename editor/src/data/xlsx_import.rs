@@ -189,12 +189,11 @@ pub fn import_xlsx(path: &Path, options: &XlsxImportOptions) -> Result<Schedule>
         panel_types,
         time_types,
         presenters,
-        deleted_items: Vec::new(),
         imported_sheets,
     })
 }
 
-fn canonical_header(header: &str) -> Option<String> {
+pub(super) fn canonical_header(header: &str) -> Option<String> {
     let trimmed = header.trim();
     if trimmed.is_empty() {
         return None;

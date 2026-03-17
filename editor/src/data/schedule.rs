@@ -9,7 +9,7 @@ use super::event::Event;
 use super::panel_type::PanelType;
 use super::presenter::Presenter;
 use super::room::Room;
-use super::source_info::{ChangeState, DeletedItem, ImportedSheetPresence};
+use super::source_info::{ChangeState, ImportedSheetPresence};
 use super::timeline::{TimeType, TimelineEntry};
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -58,8 +58,6 @@ pub struct Schedule {
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub time_types: Vec<TimeType>,
     pub presenters: Vec<Presenter>,
-    #[serde(default, skip_serializing)]
-    pub deleted_items: Vec<DeletedItem>,
     #[serde(default, skip_serializing)]
     pub imported_sheets: ImportedSheetPresence,
 }

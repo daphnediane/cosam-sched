@@ -9,6 +9,7 @@ use gpui::{
 
 use crate::data::Schedule;
 use crate::data::xlsx_import::XlsxImportOptions;
+use crate::data::xlsx_update;
 use crate::ui::day_tabs::{DayTabEvent, DayTabs};
 use crate::ui::event_card::EventCard;
 use crate::ui::sidebar::{RoomEntry, Sidebar, SidebarEvent};
@@ -325,8 +326,8 @@ impl ScheduleEditor {
 
     fn can_save(&self) -> bool {
         self.schedule.is_some()
-            && self.current_file_type == Some(FileType::Json)
             && self.current_path.is_some()
+            && matches!(self.current_file_type, Some(FileType::Json) | Some(FileType::Xlsx))
     }
 
     fn can_export(&self) -> bool {
@@ -355,7 +356,7 @@ impl ScheduleEditor {
 
     fn file_save(&mut self, _: &FileSave, _window: &mut Window, cx: &mut Context<Self>) {
         if !self.can_save() {
-            self.status_message = Some("Cannot save: No JSON file loaded".to_string());
+            self.status_message = Some("Cannot save: No file loaded".to_string());
             cx.notify();
             return;
         }
@@ -372,15 +373,29 @@ impl ScheduleEditor {
             return;
         };
 
+        let file_type = self.current_file_type;
         let mut schedule_clone = schedule.clone();
         let path_clone = path.clone();
 
         cx.spawn(async move |this, cx| {
-            let result = schedule_clone.save_json(&path_clone);
+            let result = if file_type == Some(FileType::Xlsx) {
+                let update_result = xlsx_update::update_xlsx(&schedule_clone, &path_clone);
+                if update_result.is_ok() {
+                    xlsx_update::post_save_cleanup(&mut schedule_clone);
+                }
+                update_result
+            } else {
+                schedule_clone.save_json(&path_clone)
+            };
 
             cx.update(|cx| {
                 this.update(cx, |editor, cx| match result {
                     Ok(()) => {
+                        if file_type == Some(FileType::Xlsx) {
+                            if let Some(ref mut sched) = editor.schedule {
+                                xlsx_update::post_save_cleanup(sched);
+                            }
+                        }
                         editor.has_unsaved_changes = false;
                         editor.status_message = Some(format!("Saved: {}", path_clone.display()));
                         editor.update_window_title(cx);

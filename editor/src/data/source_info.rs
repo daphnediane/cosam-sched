@@ -21,23 +21,6 @@ pub enum ChangeState {
     Replaced,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
-pub enum DeletedItemKind {
-    Event,
-    Room,
-    PanelType,
-    TimeType,
-    TimelineEntry,
-    Presenter,
-}
-
-#[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
-pub struct DeletedItem {
-    pub kind: DeletedItemKind,
-    pub key: String,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub source: Option<SourceInfo>,
-}
 
 #[derive(Debug, Clone, PartialEq, Eq, Default, Serialize, Deserialize)]
 pub struct ImportedSheetPresence {

@@ -7,13 +7,14 @@ pub mod source_info;
 pub mod timeline;
 pub mod xlsx_export;
 pub mod xlsx_import;
+pub mod xlsx_update;
 
 pub use event::Event;
 pub use panel_type::PanelType;
 pub use presenter::Presenter;
 pub use room::Room;
 pub use schedule::{Meta, Schedule};
-pub use source_info::{ChangeState, DeletedItem, DeletedItemKind, ImportedSheetPresence, SourceInfo};
+pub use source_info::{ChangeState, ImportedSheetPresence, SourceInfo};
 pub use timeline::{TimeType, TimelineEntry};
 pub use xlsx_export::export_to_xlsx;
 pub use xlsx_import::XlsxImportOptions;
