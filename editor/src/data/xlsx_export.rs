@@ -137,58 +137,58 @@ fn build_presenter_columns(schedule: &Schedule) -> Vec<ExportPresenterColumn> {
 pub fn export_to_xlsx(schedule: &Schedule, path: &Path) -> Result<()> {
     let mut book = umya_spreadsheet::new_file();
 
-    let room_headers = &["Room Name", "Long Name", "Hotel Room", "Sort Key"];
-    {
-        let ws = book
-            .get_sheet_mut(&0)
-            .ok_or_else(|| anyhow::anyhow!("No default sheet"))?;
-        ws.set_name("RoomMap");
-        let last_row = write_rooms_sheet(ws, &schedule.rooms);
-        add_table(ws, "RoomMapTable", room_headers, last_row);
-    }
-
-    let prefix_headers = &[
-        "Prefix", "Panel Kind", "Color", "BW", "Is Break", "Is Workshop", "Is Café",
-        "Is Room Hours", "Hidden",
-    ];
-    book.new_sheet("Prefix")
-        .map_err(|e| anyhow::anyhow!("{e}"))?;
-    {
-        let ws = book
-            .get_sheet_by_name_mut("Prefix")
-            .ok_or_else(|| anyhow::anyhow!("Sheet 'Prefix' not found"))?;
-        let last_row = write_panel_types_sheet(ws, &schedule.panel_types, &schedule.time_types);
-        add_table(ws, "PrefixTable", prefix_headers, last_row);
-    }
-
     let presenter_columns = build_presenter_columns(schedule);
     let schedule_headers: Vec<String> = SCHEDULE_FIXED_HEADERS
         .iter()
         .map(|s| s.to_string())
         .chain(presenter_columns.iter().map(|c| c.header.clone()))
         .collect();
-    book.new_sheet("Schedule")
+    {
+        let ws = book
+            .get_sheet_mut(&0)
+            .ok_or_else(|| anyhow::anyhow!("No default sheet"))?;
+        ws.set_name("Schedule");
+        let last_row = write_schedule_sheet(ws, schedule, &presenter_columns)?;
+        let header_refs: Vec<&str> = schedule_headers.iter().map(|s| s.as_str()).collect();
+        add_table(ws, "Schedule", &header_refs, last_row);
+    }
+
+    let room_headers = &["Room Name", "Long Name", "Hotel Room", "Sort Key"];
+    book.new_sheet("Rooms")
         .map_err(|e| anyhow::anyhow!("{e}"))?;
     {
         let ws = book
-            .get_sheet_by_name_mut("Schedule")
-            .ok_or_else(|| anyhow::anyhow!("Sheet 'Schedule' not found"))?;
-        let last_row = write_schedule_sheet(ws, schedule, &presenter_columns)?;
-        let header_refs: Vec<&str> = schedule_headers.iter().map(|s| s.as_str()).collect();
-        add_table(ws, "ScheduleTable", &header_refs, last_row);
+            .get_sheet_by_name_mut("Rooms")
+            .ok_or_else(|| anyhow::anyhow!("Sheet 'Rooms' not found"))?;
+        let last_row = write_rooms_sheet(ws, &schedule.rooms);
+        add_table(ws, "RoomMap", room_headers, last_row);
     }
 
     let presenter_headers = &[
         "Name", "Rank", "Is Group", "Members", "Groups", "Always Grouped",
     ];
-    book.new_sheet("Presenters")
+    book.new_sheet("People")
         .map_err(|e| anyhow::anyhow!("{e}"))?;
     {
         let ws = book
-            .get_sheet_by_name_mut("Presenters")
-            .ok_or_else(|| anyhow::anyhow!("Sheet 'Presenters' not found"))?;
+            .get_sheet_by_name_mut("People")
+            .ok_or_else(|| anyhow::anyhow!("Sheet 'People' not found"))?;
         let last_row = write_presenters_sheet(ws, &schedule.presenters);
-        add_table(ws, "PresentersTable", presenter_headers, last_row);
+        add_table(ws, "Presenters", presenter_headers, last_row);
+    }
+
+    let prefix_headers = &[
+        "Prefix", "Panel Kind", "Color", "BW", "Is Break", "Is Workshop", "Is Café",
+        "Is Room Hours", "Hidden",
+    ];
+    book.new_sheet("PanelTypes")
+        .map_err(|e| anyhow::anyhow!("{e}"))?;
+    {
+        let ws = book
+            .get_sheet_by_name_mut("PanelTypes")
+            .ok_or_else(|| anyhow::anyhow!("Sheet 'PanelTypes' not found"))?;
+        let last_row = write_panel_types_sheet(ws, &schedule.panel_types, &schedule.time_types);
+        add_table(ws, "Prefix", prefix_headers, last_row);
     }
 
     umya_spreadsheet::writer::xlsx::write(&book, path)
@@ -598,13 +598,13 @@ mod tests {
         let book = umya_spreadsheet::reader::xlsx::read(&path)
             .expect("should read back exported XLSX");
 
-        let room_ws = book.get_sheet_by_name("RoomMap")
-            .expect("RoomMap sheet should exist");
+        let room_ws = book.get_sheet_by_name("Rooms")
+            .expect("Rooms sheet should exist");
         assert_eq!(room_ws.get_value((1, 1)), "Room Name");
         assert_eq!(room_ws.get_value((1, 2)), "Main");
 
-        let prefix_ws = book.get_sheet_by_name("Prefix")
-            .expect("Prefix sheet should exist");
+        let prefix_ws = book.get_sheet_by_name("PanelTypes")
+            .expect("PanelTypes sheet should exist");
         assert_eq!(prefix_ws.get_value((1, 1)), "Prefix");
         assert_eq!(prefix_ws.get_value((1, 2)), "GP");
 
@@ -619,8 +619,8 @@ mod tests {
         assert_eq!(sched_ws.get_value((other_col, 1)), "G:Other");
         assert_eq!(sched_ws.get_value((other_col, 2)), "Alice");
 
-        let pres_ws = book.get_sheet_by_name("Presenters")
-            .expect("Presenters sheet should exist");
+        let pres_ws = book.get_sheet_by_name("People")
+            .expect("People sheet should exist");
         assert_eq!(pres_ws.get_value((1, 1)), "Name");
         assert_eq!(pres_ws.get_value((1, 2)), "Alice");
 
@@ -647,7 +647,7 @@ mod tests {
 
         let book = umya_spreadsheet::reader::xlsx::read(&path)
             .expect("should read back exported XLSX");
-        let room_ws = book.get_sheet_by_name("RoomMap").unwrap();
+        let room_ws = book.get_sheet_by_name("Rooms").unwrap();
         assert_eq!(room_ws.get_value((1, 2)), "Main");
         assert_eq!(room_ws.get_value((1, 3)), "", "Deleted room should not appear");
 
