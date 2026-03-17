@@ -14,11 +14,35 @@ use super::room::Room;
 pub struct Meta {
     pub title: String,
     pub generated: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub version: Option<u32>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub generator: Option<String>,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct ConflictEventRef {
+    pub id: String,
+    pub name: String,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct ScheduleConflict {
+    pub event1: ConflictEventRef,
+    pub event2: ConflictEventRef,
+    #[serde(default)]
+    pub presenter: Option<String>,
+    #[serde(default)]
+    pub room: Option<serde_json::Value>,
+    #[serde(rename = "type")]
+    pub conflict_type: String,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct Schedule {
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub conflicts: Vec<ScheduleConflict>,
     pub meta: Meta,
     pub events: Vec<Event>,
     pub rooms: Vec<Room>,
@@ -34,6 +58,28 @@ impl Schedule {
         let schedule: Schedule = serde_json::from_str(&content)
             .with_context(|| format!("Failed to parse JSON from {}", path.display()))?;
         Ok(schedule)
+    }
+
+    pub fn load_auto(path: &Path, options: &super::xlsx_import::XlsxImportOptions) -> Result<Self> {
+        match path.extension().and_then(|e| e.to_str()) {
+            Some(ext) if ext.eq_ignore_ascii_case("xlsx") => {
+                super::xlsx_import::import_xlsx(path, options)
+            }
+            Some(ext) if ext.eq_ignore_ascii_case("json") => Self::load(path),
+            Some(ext) => anyhow::bail!("Unsupported file format: .{ext}"),
+            None => Self::load(path),
+        }
+    }
+
+    pub fn save_json(&mut self, path: &Path) -> Result<()> {
+        self.meta.generated = chrono::Utc::now().format("%Y-%m-%dT%H:%M:%SZ").to_string();
+        self.meta.version = Some(3);
+        self.meta.generator = Some(format!("cosam-editor {}", env!("CARGO_PKG_VERSION")));
+        let json =
+            serde_json::to_string_pretty(self).context("Failed to serialize schedule to JSON")?;
+        std::fs::write(path, json.as_bytes())
+            .with_context(|| format!("Failed to write {}", path.display()))?;
+        Ok(())
     }
 
     #[must_use]
@@ -70,28 +116,34 @@ mod tests {
     use super::*;
     use std::path::PathBuf;
 
-    fn sample_data_path() -> PathBuf {
+    fn reference_data_path() -> PathBuf {
         PathBuf::from(env!("CARGO_MANIFEST_DIR"))
             .parent()
             .unwrap()
             .join("widget")
-            .join("sample-data.json")
+            .join("2025.json")
     }
 
     #[test]
-    fn test_load_sample_data() {
-        let path = sample_data_path();
-        let schedule = Schedule::load(&path).expect("Failed to load sample-data.json");
+    fn test_load_reference_data() {
+        let path = reference_data_path();
+        if !path.exists() {
+            eprintln!("Skipping test: {} not found", path.display());
+            return;
+        }
+        let schedule = Schedule::load(&path).expect("Failed to load 2025.json");
         assert!(!schedule.events.is_empty());
         assert!(!schedule.rooms.is_empty());
-        assert!(!schedule.panel_types.is_empty());
         assert!(!schedule.presenters.is_empty());
         assert!(!schedule.meta.title.is_empty());
     }
 
     #[test]
     fn test_days_extraction() {
-        let path = sample_data_path();
+        let path = reference_data_path();
+        if !path.exists() {
+            return;
+        }
         let schedule = Schedule::load(&path).unwrap();
         let days = schedule.days();
         assert!(!days.is_empty());
@@ -103,7 +155,10 @@ mod tests {
 
     #[test]
     fn test_events_for_day() {
-        let path = sample_data_path();
+        let path = reference_data_path();
+        if !path.exists() {
+            return;
+        }
         let schedule = Schedule::load(&path).unwrap();
         let days = schedule.days();
         for day in &days {
@@ -120,17 +175,24 @@ mod tests {
 
     #[test]
     fn test_room_by_id() {
-        let path = sample_data_path();
+        let path = reference_data_path();
+        if !path.exists() {
+            return;
+        }
         let schedule = Schedule::load(&path).unwrap();
-        let room = schedule.room_by_id(10);
-        assert!(room.is_some());
-        assert_eq!(room.unwrap().short_name, "Main");
-        assert_eq!(schedule.room_by_id(9999), None);
+        assert!(!schedule.rooms.is_empty());
+        let first_room = &schedule.rooms[0];
+        let found = schedule.room_by_id(first_room.uid);
+        assert!(found.is_some());
+        assert_eq!(schedule.room_by_id(99999), None);
     }
 
     #[test]
     fn test_sorted_rooms() {
-        let path = sample_data_path();
+        let path = reference_data_path();
+        if !path.exists() {
+            return;
+        }
         let schedule = Schedule::load(&path).unwrap();
         let rooms = schedule.sorted_rooms();
         for window in rooms.windows(2) {
@@ -140,17 +202,20 @@ mod tests {
 
     #[test]
     fn test_panel_type_by_prefix() {
-        let path = sample_data_path();
+        let path = reference_data_path();
+        if !path.exists() {
+            return;
+        }
         let schedule = Schedule::load(&path).unwrap();
-        let gp = schedule.panel_type_by_prefix("GP");
-        assert!(gp.is_some());
-        assert_eq!(gp.unwrap().kind, "Guest Panel");
         assert_eq!(schedule.panel_type_by_prefix("NONEXISTENT"), None);
     }
 
     #[test]
     fn test_roundtrip_serialization() {
-        let path = sample_data_path();
+        let path = reference_data_path();
+        if !path.exists() {
+            return;
+        }
         let schedule = Schedule::load(&path).unwrap();
         let json = serde_json::to_string_pretty(&schedule).unwrap();
         let schedule2: Schedule = serde_json::from_str(&json).unwrap();

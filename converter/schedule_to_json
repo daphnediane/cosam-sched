@@ -130,6 +130,40 @@ my $visible_rooms = [
     } grep { !$_->{ is_hidden } } @{ $rooms }
 ];
 
+# Add any missing panel types that were referenced in events
+my %used_prefixes;
+foreach my $event (@{ $events }) {
+    if (defined $event->{ panel_type } && $event->{ panel_type } =~ m{^panel-type-(.+)}xmsi) {
+        my $prefix = uc $1;
+        $used_prefixes{ $prefix } = 1;
+    }
+}
+
+# Add missing panel types
+foreach my $prefix (keys %used_prefixes) {
+    my $exists = grep { $_->{ prefix } eq $prefix } @{ $panel_types };
+    next if $exists;
+    
+    my $kind = "${prefix} Panel";
+    my $is_workshop = $prefix =~ m{W\z}xmsi ? 1 : 0;
+    my $is_break = $prefix =~ m{\A BR}xmsi ? 1 : 0;
+    my $is_split = $prefix eq 'SPLIT' ? 1 : 0;
+    
+    push @{ $panel_types }, {
+        uid         => "panel-type-" . lc $prefix,
+        prefix      => $prefix,
+        kind        => $kind,
+        is_workshop => $is_workshop,
+        is_cafe     => 0,
+        is_break    => $is_break,
+        is_hidden   => 0,
+        is_room_hours => 0,
+        is_split    => $is_split,
+        color       => undef,
+        bw_color    => undef,
+    };
+}
+
 my $visible_types = [
     map {
         {
@@ -139,6 +173,7 @@ my $visible_types = [
             isWorkshop => $_->{ is_workshop } ? JSON::true : JSON::false,
             isCafe     => $_->{ is_cafe } ? JSON::true : JSON::false,
             isBreak    => $_->{ is_break } ? JSON::true : JSON::false,
+            isSplit    => $_->{ is_split } ? JSON::true : JSON::false,
             color      => $_->{ color },
         }
     } grep { !$_->{ is_hidden } } @{ $panel_types }
@@ -173,8 +208,6 @@ my $json_events = [
             cost        => $_->{ cost },
             isFree      => $_->{ is_free } ? JSON::true : JSON::false,
             isKids      => $_->{ is_kids } ? JSON::true : JSON::false,
-            isWorkshop  => $_->{ is_workshop } ? JSON::true : JSON::false,
-            isBreak     => $_->{ is_break } ? JSON::true : JSON::false,
             difficulty  => $_->{ difficulty },
             capacity    => $_->{ capacity },
             presenters  => $_->{ presenters },
@@ -213,7 +246,9 @@ my $output = {
             sprintf '%04d-%02d-%02dT%02d:%02d:%02dZ',
                 $t[5] + 1900, $t[4] + 1, $t[3], $t[2], $t[1], $t[0];
         },
-        title => $title || 'Event Schedule',
+        title     => $title || 'Event Schedule',
+        version   => 3,
+        generator => 'schedule_to_json',
     },
     rooms      => $visible_rooms,
     panelTypes => $visible_types,

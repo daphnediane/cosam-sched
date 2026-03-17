@@ -172,11 +172,33 @@
     }
 
     _isBreakEvent(e) {
+      // First check panelTypes[].isBreak from JSON data (V3+)
+      if (e.panelType && this._isBreakPanelType(e.panelType)) {
+        return true;
+      }
+      // Fallback for backwards compatibility (V2 and earlier)
       return e.isBreak || e.panelType === 'panel-type-break' || e.panelType === 'panel-type-brk';
     }
 
+    _isBreakPanelType(panelType) {
+      if (!panelType || !this.data.panelTypes) return false;
+      const pt = this.data.panelTypes.find(p => p.uid === panelType);
+      return pt && pt.isBreak;
+    }
+
     _isSplitEvent(e) {
+      // First check panelTypes[].isSplit from JSON data (V3+)
+      if (e.panelType && this._isSplitPanelType(e.panelType)) {
+        return true;
+      }
+      // Fallback for backwards compatibility (V2 and earlier)
       return e.panelType === 'panel-type-split' || e.room === 'SPLIT';
+    }
+
+    _isSplitPanelType(panelType) {
+      if (!panelType || !this.data.panelTypes) return false;
+      const pt = this.data.panelTypes.find(p => p.uid === panelType);
+      return pt && pt.isSplit;
     }
 
     filteredEvents() {

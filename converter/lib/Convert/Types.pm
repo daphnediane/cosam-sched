@@ -42,6 +42,7 @@ sub read_panel_types ( $wb, $lookup_config = {} ) {
         my $is_break    = ( $kind   =~ m{\A br}xmsi )         ? 1 : 0;
         my $is_cafe     = ( $kind   =~ m{\A caf[eé] \z}xmsi ) ? 1 : 0;
         my $is_workshop = ( $prefix =~ m{\A .W \z}xmsi )      ? 1 : 0;
+        my $is_split    = ( $prefix_uc eq 'SPLIT' )          ? 1 : 0;
 
         my $is_hidden = 0;
         if ( defined $data->{ Hidden } && $data->{ Hidden } ne q{} ) {
@@ -75,6 +76,7 @@ sub read_panel_types ( $wb, $lookup_config = {} ) {
             is_cafe     => $is_cafe,
             is_workshop => $is_workshop,
             is_hidden   => $is_hidden,
+            is_split    => $is_split,
             color       => $color,
         };
     } ## end for my $row ( @rows )

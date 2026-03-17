@@ -1,5 +1,5 @@
 use gpui::prelude::*;
-use gpui::{div, px, rgb, Context, SharedString, Window};
+use gpui::{Context, SharedString, Window, div, px, rgb};
 
 use crate::data::Event;
 
@@ -19,22 +19,27 @@ pub struct EventCard {
 }
 
 impl EventCard {
-    pub fn new(event: &Event, room_name: &str) -> Self {
+    pub fn new(
+        event: &Event,
+        room_name: &str,
+        panel_type_color: Option<&str>,
+        panel_type: Option<&crate::data::panel_type::PanelType>,
+    ) -> Self {
         let time_range = format!(
             "{} – {}",
             event.start_time.format("%l:%M %p").to_string().trim(),
             event.end_time.format("%l:%M %p").to_string().trim(),
         );
-        let presenters = if event.presenters.is_empty() {
-            String::new()
+        let presenters = if event.credits.is_empty() {
+            if event.presenters.is_empty() {
+                String::new()
+            } else {
+                event.presenters.join(", ")
+            }
         } else {
-            event.presenters.join(", ")
+            event.credits.join(", ")
         };
-        let color = event
-            .color
-            .as_deref()
-            .map(parse_hex_color)
-            .unwrap_or(0xCCCCCC);
+        let color = panel_type_color.map(parse_hex_color).unwrap_or(0xCCCCCC);
 
         Self {
             name: SharedString::from(event.name.clone()),
@@ -43,7 +48,7 @@ impl EventCard {
             kind: SharedString::from(event.kind.clone().unwrap_or_default()),
             presenters: SharedString::from(presenters),
             color,
-            is_workshop: event.is_workshop,
+            is_workshop: panel_type.map(|pt| pt.is_workshop).unwrap_or(false),
         }
     }
 }

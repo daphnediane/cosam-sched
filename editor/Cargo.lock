@@ -1161,6 +1161,7 @@ dependencies = [
  "calamine",
  "chrono",
  "gpui",
+ "regex",
  "rust_xlsxwriter",
  "serde",
  "serde_json",

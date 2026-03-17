@@ -29,7 +29,7 @@ sub read_rooms ( $wb, $lookup_config = {} ) {
     }
 
     my @rooms;
-    my $next_uid = 0;
+    my $next_uid = 1;
 
     for my $row ( @rows ) {
         my $data = canonical_data( \@header, \@san_header, $row );

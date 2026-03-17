@@ -2,6 +2,16 @@ use chrono::NaiveDateTime;
 use serde::{Deserialize, Serialize};
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct EventConflict {
+    #[serde(rename = "type")]
+    pub conflict_type: String,
+    #[serde(default)]
+    pub details: Option<String>,
+    #[serde(default)]
+    pub conflict_event_id: Option<String>,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct Event {
     pub id: String,
@@ -15,7 +25,7 @@ pub struct Event {
     pub room_id: Option<u32>,
     #[serde(default)]
     pub kind: Option<String>,
-    pub panel_type: String,
+    pub panel_type: Option<String>,
     #[serde(default)]
     pub cost: Option<String>,
     #[serde(default)]
@@ -29,19 +39,21 @@ pub struct Event {
     #[serde(default)]
     pub ticket_url: Option<String>,
     #[serde(default)]
-    pub color: Option<String>,
-    #[serde(default)]
     pub presenters: Vec<String>,
     #[serde(default)]
-    pub is_break: bool,
+    pub credits: Vec<String>,
+    #[serde(default)]
+    pub conflicts: Vec<EventConflict>,
     #[serde(default)]
     pub is_free: bool,
     #[serde(default)]
     pub is_full: bool,
     #[serde(default)]
     pub is_kids: bool,
-    #[serde(default)]
-    pub is_workshop: bool,
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub hide_panelist: bool,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub alt_panelist: Option<String>,
 }
 
 impl Event {
@@ -56,7 +68,7 @@ mod tests {
     use super::*;
 
     #[test]
-    fn test_event_deserialize_full() {
+    fn test_event_deserialize_converter_format() {
         let json = r##"{
             "id": "GP002",
             "name": "Cosplay Contest Misconceptions",
@@ -66,29 +78,26 @@ mod tests {
             "duration": 60,
             "roomId": 10,
             "kind": "Guest Panel",
-            "panelType": "GP",
+            "panelType": "panel-type-gp",
             "cost": null,
             "capacity": null,
             "difficulty": null,
             "note": null,
             "prereq": null,
             "ticketUrl": null,
-            "color": "#E2F9D7",
             "presenters": ["December Wynn", "Pro"],
-            "isBreak": false,
+            "credits": ["December Wynn", "Pros and Cons Cosplay"],
+            "conflicts": [],
             "isFree": true,
             "isFull": false,
-            "isKids": false,
-            "isWorkshop": false
+            "isKids": false
         }"##;
         let event: Event = serde_json::from_str(json).unwrap();
         assert_eq!(event.id, "GP002");
-        assert_eq!(event.name, "Cosplay Contest Misconceptions");
-        assert_eq!(event.duration, 60);
-        assert_eq!(event.room_id, Some(10));
-        assert_eq!(event.presenters.len(), 2);
+        assert_eq!(event.panel_type, Some("panel-type-gp".into()));
+        assert_eq!(event.credits.len(), 2);
+        assert!(event.conflicts.is_empty());
         assert!(event.is_free);
-        assert!(!event.is_break);
     }
 
     #[test]
@@ -99,14 +108,13 @@ mod tests {
             "startTime": "2026-06-26T12:00:00",
             "endTime": "2026-06-26T13:00:00",
             "duration": 60,
-            "panelType": "BRK",
-            "isBreak": true
+            "panelType": "panel-type-brk"
         }"#;
         let event: Event = serde_json::from_str(json).unwrap();
         assert_eq!(event.id, "BRK001");
-        assert!(event.is_break);
         assert_eq!(event.room_id, None);
         assert!(event.presenters.is_empty());
+        assert!(event.credits.is_empty());
         assert_eq!(event.description, None);
     }
 
@@ -121,15 +129,16 @@ mod tests {
             "duration": 120,
             "roomId": 0,
             "kind": "Guest Workshop",
-            "panelType": "GW",
+            "panelType": "panel-type-gw",
             "cost": "$20.00",
             "capacity": "15",
             "difficulty": "Beginner",
             "note": "Materials provided",
             "prereq": null,
             "ticketUrl": null,
-            "color": "#FDEEB5",
             "presenters": ["Sayakat Cosplay"],
+            "credits": ["Sayakat Cosplay"],
+            "conflicts": [],
             "isBreak": false,
             "isFree": false,
             "isFull": false,
@@ -150,7 +159,7 @@ mod tests {
             "startTime": "2026-06-26T14:00:00",
             "endTime": "2026-06-26T15:00:00",
             "duration": 60,
-            "panelType": "GP"
+            "panelType": "panel-type-gp"
         }"#;
         let event: Event = serde_json::from_str(json).unwrap();
         assert_eq!(
