@@ -106,17 +106,14 @@ This creates `docs/WORK_PLAN.md` with:
 
 All work plan files must follow markdown lint rules.
 
-**Recommended Approach:**
-Use the following IDE extensions for automatic markdown formatting:
+**For Cascade AI Agents:**
 
-1. **Install Extensions:**
-   - `DavidAnson.vscode-markdownlint` - The actual markdownlint formatter
-   - `franneck94.workspace-formatter` - Directory-level formatting tool
+- Auto-formatters are configured in the IDE (markdownlint + workspace-formatter)
+- When making edits to work plan files, remind the user to run formatting on the `docs/` directory
+- Be aware that file layout may change after using `edit` and related tools due to auto-formatting
+- If markdown lint errors are detected, suggest: "Right-click docs/work-plan/ and select 'Format Directory'"
 
-2. **Format Directory:**
-   - Right-click on the `docs/work-plan/` directory
-   - Select "Format Directory" from the context menu
-   - The extensions will automatically fix all markdown formatting issues
+**Formatting Tools in Use:**
 
-**Alternative Manual Approach:**
-Open individual files and save them to trigger the IDE's built-in markdownlint auto-formatter.
+- `DavidAnson.vscode-markdownlint` - Markdown linting and formatting
+- `franneck94.workspace-formatter` - Directory-level formatting
