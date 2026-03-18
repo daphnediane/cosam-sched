@@ -2,9 +2,10 @@ use std::collections::HashMap;
 use std::path::Path;
 
 use anyhow::{Context, Result};
-use calamine::{Data, Range, Reader, Xlsx, open_workbook};
 use chrono::NaiveDateTime;
 use regex::Regex;
+use umya_spreadsheet::structs::Worksheet;
+use umya_spreadsheet::Spreadsheet;
 
 use super::event::Event;
 use super::panel_type::PanelType;
@@ -17,9 +18,9 @@ use super::timeline::{TimeType, TimelineEntry};
 pub struct XlsxImportOptions {
     pub title: String,
     pub staff_mode: bool,
-    pub schedule_sheet: String,
-    pub rooms_sheet: String,
-    pub panel_types_sheet: String,
+    pub schedule_table: String,
+    pub rooms_table: String,
+    pub panel_types_table: String,
 }
 
 impl Default for XlsxImportOptions {
@@ -27,9 +28,9 @@ impl Default for XlsxImportOptions {
         Self {
             title: "Event Schedule".to_string(),
             staff_mode: false,
-            schedule_sheet: "Schedule".to_string(),
-            rooms_sheet: "RoomMap".to_string(),
-            panel_types_sheet: "Prefix".to_string(),
+            schedule_table: "Schedule".to_string(),
+            rooms_table: "RoomMap".to_string(),
+            panel_types_table: "Prefix".to_string(),
         }
     }
 }
@@ -37,19 +38,18 @@ impl Default for XlsxImportOptions {
 fn convert_split_types_to_timeline(
     panel_types: &[PanelType],
     events: &[Event],
-) -> (Vec<PanelType>, Vec<TimeType>, Vec<TimelineEntry>) {
+) -> (Vec<PanelType>, Vec<TimeType>, Vec<TimelineEntry>, Vec<Event>) {
     let mut time_types = Vec::new();
     let mut timeline = Vec::new();
     let mut filtered_panel_types = panel_types.to_vec();
+    let mut split_uids: std::collections::HashSet<String> = std::collections::HashSet::new();
 
-    // Find split panel types and convert them to time types
     let split_types: Vec<_> = panel_types
         .iter()
         .filter(|pt| is_split_prefix(&pt.prefix))
         .collect();
 
     for split_type in split_types {
-        // Create time type
         let time_type = TimeType {
             uid: TimeType::uid_from_prefix(&split_type.prefix),
             prefix: split_type.prefix.clone(),
@@ -58,8 +58,8 @@ fn convert_split_types_to_timeline(
             change_state: ChangeState::Converted,
         };
         time_types.push(time_type);
+        split_uids.insert(split_type.effective_uid());
 
-        // Find events with this panel type and convert to timeline entries
         let split_events: Vec<_> = events
             .iter()
             .filter(|e| {
@@ -83,11 +83,21 @@ fn convert_split_types_to_timeline(
             timeline.push(timeline_entry);
         }
 
-        // Remove split type from panel types
         filtered_panel_types.retain(|pt| pt.prefix != split_type.prefix);
     }
 
-    (filtered_panel_types, time_types, timeline)
+    let filtered_events: Vec<Event> = events
+        .iter()
+        .filter(|e| {
+            e.panel_type
+                .as_ref()
+                .map(|uid| !split_uids.contains(uid))
+                .unwrap_or(true)
+        })
+        .cloned()
+        .collect();
+
+    (filtered_panel_types, time_types, timeline, filtered_events)
 }
 
 // Helper function to determine if a prefix indicates a split/time type
@@ -98,43 +108,32 @@ fn is_split_prefix(prefix: &str) -> bool {
 }
 
 pub fn import_xlsx(path: &Path, options: &XlsxImportOptions) -> Result<Schedule> {
-    let mut workbook: Xlsx<_> =
-        open_workbook(path).with_context(|| format!("Failed to open {}", path.display()))?;
-
-    let sheet_names = workbook.sheet_names().to_vec();
+    let book = umya_spreadsheet::reader::xlsx::read(path)
+        .with_context(|| format!("Failed to open {}", path.display()))?;
 
     let file_path_str = path.display().to_string();
 
-    let rooms = read_rooms(&mut workbook, &sheet_names, &options.rooms_sheet, &file_path_str)?;
-    let panel_types = read_panel_types(
-        &mut workbook,
-        &sheet_names,
-        &options.panel_types_sheet,
-        &file_path_str,
-    )?;
+    let rooms = read_rooms(&book, &options.rooms_table, &file_path_str)?;
+    let panel_types = read_panel_types(&book, &options.panel_types_table, &file_path_str)?;
     let (events, presenters) = read_events(
-        &mut workbook,
-        &sheet_names,
-        &options.schedule_sheet,
+        &book,
+        &options.schedule_table,
         &rooms,
         &panel_types,
         &file_path_str,
     )?;
 
     let imported_sheets = ImportedSheetPresence {
-        has_room_map: !rooms.is_empty()
-            && rooms.iter().any(|r| r.source.is_some()),
+        has_room_map: !rooms.is_empty() && rooms.iter().any(|r| r.source.is_some()),
         has_panel_types: !panel_types.is_empty()
             && panel_types.iter().any(|pt| pt.source.is_some()),
         has_presenters: false,
         has_schedule: !events.is_empty(),
     };
 
-    // Add any missing panel types that were referenced in events
     let mut panel_types = panel_types;
     let mut used_prefixes = std::collections::HashSet::new();
 
-    // Collect all used prefixes from events
     for event in &events {
         if let Some(ref panel_type_uid) = event.panel_type {
             if let Some(prefix) = panel_type_uid.strip_prefix("panel-type-") {
@@ -143,7 +142,6 @@ pub fn import_xlsx(path: &Path, options: &XlsxImportOptions) -> Result<Schedule>
         }
     }
 
-    // Add missing panel types
     for prefix in used_prefixes {
         if !panel_types.iter().any(|pt| pt.prefix == prefix) {
             let kind = format!("{} Panel", prefix);
@@ -169,8 +167,7 @@ pub fn import_xlsx(path: &Path, options: &XlsxImportOptions) -> Result<Schedule>
 
     let generated = chrono::Utc::now().format("%Y-%m-%dT%H:%M:%SZ").to_string();
 
-    // Convert split panel types to time types and timeline entries
-    let (mut panel_types, time_types, timeline) =
+    let (panel_types, time_types, timeline, events) =
         convert_split_types_to_timeline(&panel_types, &events);
 
     Ok(Schedule {
@@ -180,8 +177,8 @@ pub fn import_xlsx(path: &Path, options: &XlsxImportOptions) -> Result<Schedule>
             generated,
             version: Some(4),
             generator: Some(format!("cosam-editor {}", env!("CARGO_PKG_VERSION"))),
-            start_time: None, // Will be calculated later
-            end_time: None,   // Will be calculated later
+            start_time: None,
+            end_time: None,
         },
         timeline,
         events,
@@ -208,57 +205,131 @@ pub(super) fn canonical_header(header: &str) -> Option<String> {
     Some(result.to_string())
 }
 
-fn find_sheet_range(
-    workbook: &mut Xlsx<std::io::BufReader<std::fs::File>>,
-    sheet_names: &[String],
-    preferred_names: &[&str],
-) -> Option<(String, Range<Data>)> {
-    for name in preferred_names {
-        let lower = name.to_lowercase();
-        if let Some(actual) = sheet_names.iter().find(|s| s.to_lowercase() == lower) {
-            if let Ok(range) = workbook.worksheet_range(actual) {
-                return Some((actual.clone(), range));
+/// Describes a contiguous data range in a worksheet (all coordinates are 1-based umya values).
+/// `header_row` holds the column headers; data rows start at `header_row + 1`.
+struct DataRange {
+    sheet_name: String,
+    start_col: u32,
+    header_row: u32,
+    end_col: u32,
+    end_row: u32,
+}
+
+impl DataRange {
+    fn has_data(&self) -> bool {
+        self.end_row > self.header_row && self.end_col >= self.start_col
+    }
+}
+
+/// Search order:
+///   1. Named table matching `primary_name` (case-insensitive) on any sheet.
+///   2. Sheet whose name matches `primary_name` (case-insensitive).
+///   3. Sheets whose names match each entry in `fallback_sheet_names` in order.
+fn find_data_range(
+    book: &Spreadsheet,
+    primary_name: &str,
+    fallback_sheet_names: &[&str],
+) -> Option<DataRange> {
+    let primary_lower = primary_name.to_lowercase();
+
+    for sheet in book.get_sheet_collection() {
+        for table in sheet.get_tables() {
+            if table.get_name().to_lowercase() == primary_lower {
+                let (start, end) = table.get_area();
+                return Some(DataRange {
+                    sheet_name: sheet.get_name().to_string(),
+                    start_col: *start.get_col_num(),
+                    header_row: *start.get_row_num(),
+                    end_col: *end.get_col_num(),
+                    end_row: *end.get_row_num(),
+                });
             }
         }
     }
+
+    let mut all_names: Vec<&str> = vec![primary_name];
+    all_names.extend_from_slice(fallback_sheet_names);
+    for name in all_names {
+        let lower = name.to_lowercase();
+        if let Some(sheet) = book
+            .get_sheet_collection()
+            .iter()
+            .find(|s| s.get_name().to_lowercase() == lower)
+        {
+            let end_col = sheet.get_highest_column();
+            let end_row = sheet.get_highest_row();
+            if end_row >= 2 && end_col >= 1 {
+                return Some(DataRange {
+                    sheet_name: sheet.get_name().to_string(),
+                    start_col: 1,
+                    header_row: 1,
+                    end_col,
+                    end_row,
+                });
+            }
+        }
+    }
+
     None
 }
 
-fn cell_to_string(cell: &Data) -> Option<String> {
-    match cell {
-        Data::Empty => None,
-        Data::String(s) => {
-            let trimmed = s.trim();
-            if trimmed.is_empty() {
-                None
-            } else {
-                Some(trimmed.to_string())
-            }
-        }
-        Data::Float(f) => Some(f.to_string()),
-        Data::Int(i) => Some(i.to_string()),
-        Data::Bool(b) => Some(b.to_string()),
-        Data::Error(_) => None,
-        Data::DateTime(_) => None,
-        Data::DateTimeIso(s) => Some(s.to_string()),
-        Data::DurationIso(s) => Some(s.to_string()),
+fn get_cell_str(ws: &Worksheet, col: u32, row: u32) -> Option<String> {
+    let value = ws.get_value((col, row));
+    let trimmed = value.trim();
+    if trimmed.is_empty() {
+        None
+    } else {
+        Some(trimmed.to_string())
     }
 }
 
-fn build_column_map(
-    range: &Range<Data>,
-) -> (Vec<String>, Vec<Option<String>>, HashMap<String, usize>) {
-    let mut raw_headers = Vec::new();
-    let mut canonical_headers = Vec::new();
-    let mut col_map = HashMap::new();
+fn get_cell_number(ws: &Worksheet, col: u32, row: u32) -> Option<f64> {
+    ws.get_value_number((col, row))
+}
 
-    if range.height() == 0 {
-        return (raw_headers, canonical_headers, col_map);
+/// Extract a URL from a cell: checks the hyperlink relationship first, then parses a
+/// `HYPERLINK("url","text")` formula. Returns `None` if no URL is found.
+fn extract_hyperlink_url(ws: &Worksheet, col: u32, row: u32) -> Option<String> {
+    let cell = ws.get_cell((col, row))?;
+
+    if let Some(hyperlink) = cell.get_hyperlink() {
+        let url = hyperlink.get_url();
+        if !url.is_empty() {
+            return Some(url.to_string());
+        }
     }
 
-    for col in 0..range.width() {
-        let cell = range.get((0, col)).cloned().unwrap_or(Data::Empty);
-        let raw = cell_to_string(&cell).unwrap_or_default();
+    let formula = cell.get_formula();
+    if !formula.is_empty() {
+        if let Some(url) = parse_hyperlink_formula(formula) {
+            return Some(url);
+        }
+    }
+
+    None
+}
+
+/// Parse `HYPERLINK("url","text")` (without leading `=`) and return the URL.
+fn parse_hyperlink_formula(formula: &str) -> Option<String> {
+    let upper = formula.to_uppercase();
+    if !upper.starts_with("HYPERLINK(") {
+        return None;
+    }
+    let re = Regex::new(r#"(?i)^HYPERLINK\s*\(\s*"([^"]+)""#).ok()?;
+    re.captures(formula).map(|caps| caps[1].to_string())
+}
+
+fn build_column_map(
+    ws: &Worksheet,
+    range: &DataRange,
+) -> (Vec<String>, Vec<Option<String>>, HashMap<String, u32>) {
+    let mut raw_headers = Vec::new();
+    let mut canonical_headers = Vec::new();
+    let mut col_map: HashMap<String, u32> = HashMap::new();
+
+    for col in range.start_col..=range.end_col {
+        let raw = ws.get_value((col, range.header_row));
+        let raw = raw.trim().to_string();
         let canon = canonical_header(&raw);
         if let Some(ref key) = canon {
             col_map.entry(key.clone()).or_insert(col);
@@ -280,19 +351,19 @@ fn get_field<'a>(row_data: &'a HashMap<String, String>, keys: &[&str]) -> Option
 }
 
 fn row_to_map(
-    range: &Range<Data>,
-    row_idx: usize,
+    ws: &Worksheet,
+    row: u32,
+    range: &DataRange,
     raw_headers: &[String],
     canonical_headers: &[Option<String>],
 ) -> HashMap<String, String> {
     let mut data = HashMap::new();
-    for col in 0..range.width() {
-        let cell = range.get((row_idx, col)).cloned().unwrap_or(Data::Empty);
-        if let Some(value) = cell_to_string(&cell) {
-            if !raw_headers[col].is_empty() {
-                data.insert(raw_headers[col].clone(), value.clone());
+    for (i, col) in (range.start_col..=range.end_col).enumerate() {
+        if let Some(value) = get_cell_str(ws, col, row) {
+            if !raw_headers[i].is_empty() {
+                data.insert(raw_headers[i].clone(), value.clone());
             }
-            if let Some(ref key) = canonical_headers[col] {
+            if let Some(ref key) = canonical_headers[i] {
                 data.entry(key.clone()).or_insert(value);
             }
         }
@@ -300,28 +371,26 @@ fn row_to_map(
     data
 }
 
-fn read_rooms(
-    workbook: &mut Xlsx<std::io::BufReader<std::fs::File>>,
-    sheet_names: &[String],
-    preferred: &str,
-    file_path: &str,
-) -> Result<Vec<Room>> {
-    let (sheet_name, range) =
-        match find_sheet_range(workbook, sheet_names, &[preferred, "RoomMap", "Rooms"]) {
-            Some(r) => r,
-            None => return Ok(Vec::new()),
-        };
+fn read_rooms(book: &Spreadsheet, preferred: &str, file_path: &str) -> Result<Vec<Room>> {
+    let range = match find_data_range(book, preferred, &["RoomMap", "Rooms"]) {
+        Some(r) => r,
+        None => return Ok(Vec::new()),
+    };
 
-    if range.height() < 2 {
+    let ws = book
+        .get_sheet_by_name(&range.sheet_name)
+        .ok_or_else(|| anyhow::anyhow!("Sheet '{}' not found", range.sheet_name))?;
+
+    if !range.has_data() {
         return Ok(Vec::new());
     }
 
-    let (raw_headers, canonical_headers, _col_map) = build_column_map(&range);
+    let (raw_headers, canonical_headers, _col_map) = build_column_map(ws, &range);
     let mut rooms = Vec::new();
     let mut next_uid: u32 = 1;
 
-    for row_idx in 1..range.height() {
-        let data = row_to_map(&range, row_idx, &raw_headers, &canonical_headers);
+    for row in (range.header_row + 1)..=range.end_row {
+        let data = row_to_map(ws, row, &range, &raw_headers, &canonical_headers);
 
         let short_name = get_field(&data, &["Room_Name", "Room", "Name"]).cloned();
         let long_name_raw = get_field(&data, &["Long_Name"]).cloned();
@@ -361,39 +430,40 @@ fn read_rooms(
             sort_key,
             source: Some(SourceInfo {
                 file_path: Some(file_path.to_string()),
-                sheet_name: Some(sheet_name.clone()),
-                row_index: Some(row_idx as u32),
+                sheet_name: Some(range.sheet_name.clone()),
+                row_index: Some(row),
             }),
             change_state: ChangeState::Unchanged,
         });
     }
 
     rooms.sort_by_key(|r| r.sort_key);
-
     Ok(rooms)
 }
 
 fn read_panel_types(
-    workbook: &mut Xlsx<std::io::BufReader<std::fs::File>>,
-    sheet_names: &[String],
+    book: &Spreadsheet,
     preferred: &str,
     file_path: &str,
 ) -> Result<Vec<PanelType>> {
-    let (sheet_name, range) =
-        match find_sheet_range(workbook, sheet_names, &[preferred, "Prefix", "PanelTypes"]) {
-            Some(r) => r,
-            None => return Ok(Vec::new()),
-        };
+    let range = match find_data_range(book, preferred, &["Prefix", "PanelTypes"]) {
+        Some(r) => r,
+        None => return Ok(Vec::new()),
+    };
 
-    if range.height() < 2 {
+    let ws = book
+        .get_sheet_by_name(&range.sheet_name)
+        .ok_or_else(|| anyhow::anyhow!("Sheet '{}' not found", range.sheet_name))?;
+
+    if !range.has_data() {
         return Ok(Vec::new());
     }
 
-    let (raw_headers, canonical_headers, _col_map) = build_column_map(&range);
+    let (raw_headers, canonical_headers, _col_map) = build_column_map(ws, &range);
     let mut types = Vec::new();
 
-    for row_idx in 1..range.height() {
-        let data = row_to_map(&range, row_idx, &raw_headers, &canonical_headers);
+    for row in (range.header_row + 1)..=range.end_row {
+        let data = row_to_map(ws, row, &range, &raw_headers, &canonical_headers);
 
         let prefix = match get_field(&data, &["Prefix"]) {
             Some(p) if !p.is_empty() => p.to_uppercase(),
@@ -453,8 +523,8 @@ fn read_panel_types(
             bw_color,
             source: Some(SourceInfo {
                 file_path: Some(file_path.to_string()),
-                sheet_name: Some(sheet_name.clone()),
-                row_index: Some(row_idx as u32),
+                sheet_name: Some(range.sheet_name.clone()),
+                row_index: Some(row),
             }),
             change_state: ChangeState::Unchanged,
         });
@@ -470,7 +540,7 @@ fn is_truthy(value: &str) -> bool {
 
 #[derive(Debug)]
 struct PresenterColumn {
-    col_index: usize,
+    col: u32,
     rank: String,
     is_other: bool,
     is_named: bool,
@@ -479,7 +549,7 @@ struct PresenterColumn {
     always_grouped: bool,
 }
 
-fn parse_presenter_header(header: &str, col_index: usize) -> Option<PresenterColumn> {
+fn parse_presenter_header(header: &str, col: u32) -> Option<PresenterColumn> {
     let header = header.trim();
     if header.is_empty() {
         return None;
@@ -507,7 +577,7 @@ fn parse_presenter_header(header: &str, col_index: usize) -> Option<PresenterCol
             return None;
         }
         return Some(PresenterColumn {
-            col_index,
+            col,
             rank: rank.to_string(),
             is_other: false,
             is_named: true,
@@ -529,7 +599,7 @@ fn parse_presenter_header(header: &str, col_index: usize) -> Option<PresenterCol
             return None;
         }
         return Some(PresenterColumn {
-            col_index,
+            col,
             rank: rank.to_string(),
             is_other: false,
             is_named: true,
@@ -545,7 +615,6 @@ fn parse_presenter_header(header: &str, col_index: usize) -> Option<PresenterCol
         let prefix = caps[1].to_lowercase().chars().next()?;
         let rank = rank_prefixes.get(&prefix)?;
         let mut name = caps[2].to_string();
-        // Strip =Group suffix
         if let Some(eq_pos) = name.find('=') {
             name.truncate(eq_pos);
         }
@@ -553,7 +622,7 @@ fn parse_presenter_header(header: &str, col_index: usize) -> Option<PresenterCol
 
         if name.to_lowercase() == "other" {
             return Some(PresenterColumn {
-                col_index,
+                col,
                 rank: rank.to_string(),
                 is_other: true,
                 is_named: false,
@@ -568,7 +637,7 @@ fn parse_presenter_header(header: &str, col_index: usize) -> Option<PresenterCol
         }
 
         return Some(PresenterColumn {
-            col_index,
+            col,
             rank: rank.to_string(),
             is_other: false,
             is_named: true,
@@ -584,7 +653,7 @@ fn parse_presenter_header(header: &str, col_index: usize) -> Option<PresenterCol
         let prefix = caps[1].to_lowercase().chars().next()?;
         let rank = rank_prefixes.get(&prefix)?;
         return Some(PresenterColumn {
-            col_index,
+            col,
             rank: rank.to_string(),
             is_other: false,
             is_named: false,
@@ -601,7 +670,7 @@ fn parse_presenter_header(header: &str, col_index: usize) -> Option<PresenterCol
         let first_char = caps[1].to_lowercase().chars().next()?;
         let rank = rank_prefixes.get(&first_char)?;
         return Some(PresenterColumn {
-            col_index,
+            col,
             rank: rank.to_string(),
             is_other: false,
             is_named: false,
@@ -611,10 +680,48 @@ fn parse_presenter_header(header: &str, col_index: usize) -> Option<PresenterCol
         });
     }
 
-    // "Other" / "Others"
-    if header.to_lowercase().starts_with("other") {
+    // "Fan Panelist" (2016 format: fan panelist other column)
+    if header.to_lowercase() == "fan panelist" {
         return Some(PresenterColumn {
-            col_index,
+            col,
+            rank: "fan_panelist".to_string(),
+            is_other: true,
+            is_named: false,
+            header_name: None,
+            group_name: None,
+            always_grouped: false,
+        });
+    }
+
+    // "Other Guests" → guest other, "Other Staff" → staff other
+    let lower = header.to_lowercase();
+    if lower == "other guests" || lower == "other guest" {
+        return Some(PresenterColumn {
+            col,
+            rank: "guest".to_string(),
+            is_other: true,
+            is_named: false,
+            header_name: None,
+            group_name: None,
+            always_grouped: false,
+        });
+    }
+    if lower == "other staff" {
+        return Some(PresenterColumn {
+            col,
+            rank: "staff".to_string(),
+            is_other: true,
+            is_named: false,
+            header_name: None,
+            group_name: None,
+            always_grouped: false,
+        });
+    }
+
+    // Generic "Other"/"Others" → fan_panelist other
+    if lower.starts_with("other") {
+        return Some(PresenterColumn {
+            col,
             rank: "fan_panelist".to_string(),
             is_other: true,
             is_named: false,
@@ -641,16 +748,16 @@ fn excel_serial_to_naive_datetime(serial: f64) -> Option<NaiveDateTime> {
     Some(NaiveDateTime::new(date, time))
 }
 
-fn parse_datetime_cell(cell: &Data) -> Option<NaiveDateTime> {
-    match cell {
-        Data::DateTime(excel_dt) => excel_serial_to_naive_datetime(excel_dt.as_f64()),
-        Data::DateTimeIso(s) => NaiveDateTime::parse_from_str(s, "%Y-%m-%dT%H:%M:%S")
-            .ok()
-            .or_else(|| NaiveDateTime::parse_from_str(s, "%Y-%m-%d %H:%M:%S").ok()),
-        Data::String(s) => parse_datetime_string(s),
-        Data::Float(f) => excel_serial_to_naive_datetime(*f),
-        _ => None,
+fn parse_datetime_value(str_val: Option<String>, num_val: Option<f64>) -> Option<NaiveDateTime> {
+    if let Some(s) = str_val {
+        if let Some(dt) = parse_datetime_string(&s) {
+            return Some(dt);
+        }
     }
+    if let Some(f) = num_val {
+        return excel_serial_to_naive_datetime(f);
+    }
+    None
 }
 
 fn parse_datetime_string(text: &str) -> Option<NaiveDateTime> {
@@ -699,31 +806,21 @@ fn parse_datetime_string(text: &str) -> Option<NaiveDateTime> {
     None
 }
 
-fn parse_duration_cell(cell: &Data) -> Option<u32> {
-    match cell {
-        Data::DateTime(excel_dt) => {
-            let f = excel_dt.as_f64();
-            if f < 1.0 {
-                Some((f * 24.0 * 60.0).round() as u32)
-            } else {
-                let dt = excel_serial_to_naive_datetime(f)?;
-                let midnight = dt.date().and_hms_opt(0, 0, 0)?;
-                let diff = (dt - midnight).num_minutes();
-                if diff > 0 { Some(diff as u32) } else { None }
-            }
+fn parse_duration_value(str_val: Option<String>, num_val: Option<f64>) -> Option<u32> {
+    if let Some(s) = str_val {
+        if let Some(d) = parse_duration_string(&s) {
+            return Some(d);
         }
-        Data::Float(f) => {
-            if *f < 1.0 && *f > 0.0 {
-                Some((f * 24.0 * 60.0).round() as u32)
-            } else {
-                Some(*f as u32)
-            }
-        }
-        Data::Int(i) => Some(*i as u32),
-        Data::String(s) => parse_duration_string(s),
-        Data::DurationIso(s) => parse_duration_string(s),
-        _ => None,
     }
+    if let Some(f) = num_val {
+        if f > 0.0 && f < 1.0 {
+            return Some((f * 24.0 * 60.0).round() as u32);
+        }
+        if f >= 1.0 {
+            return Some(f as u32);
+        }
+    }
+    None
 }
 
 fn parse_duration_string(text: &str) -> Option<u32> {
@@ -779,30 +876,55 @@ fn split_presenter_names(text: &str) -> Vec<String> {
 }
 
 fn read_events(
-    workbook: &mut Xlsx<std::io::BufReader<std::fs::File>>,
-    sheet_names: &[String],
+    book: &Spreadsheet,
     preferred: &str,
     rooms: &[Room],
     panel_types: &[PanelType],
     file_path: &str,
 ) -> Result<(Vec<Event>, Vec<Presenter>)> {
-    let first_sheet = sheet_names.first().map(|s| s.as_str()).unwrap_or("");
-    let (sheet_name, range) =
-        match find_sheet_range(workbook, sheet_names, &[preferred, "Schedule", first_sheet]) {
-            Some(r) => r,
-            None => return Ok((Vec::new(), Vec::new())),
-        };
+    let first_sheet_name = book
+        .get_sheet_collection()
+        .first()
+        .map(|s| s.get_name().to_string());
+    let first_sheet_ref: &str = first_sheet_name.as_deref().unwrap_or("");
+    let range = match find_data_range(book, preferred, &["Schedule", first_sheet_ref]) {
+        Some(r) => r,
+        None => return Ok((Vec::new(), Vec::new())),
+    };
 
-    if range.height() < 2 {
+    let ws = book
+        .get_sheet_by_name(&range.sheet_name)
+        .ok_or_else(|| anyhow::anyhow!("Sheet '{}' not found", range.sheet_name))?;
+
+    if !range.has_data() {
         return Ok((Vec::new(), Vec::new()));
     }
 
-    let (raw_headers, canonical_headers, _col_map) = build_column_map(&range);
+    let (raw_headers, canonical_headers, col_map) = build_column_map(ws, &range);
+
+    let ticket_cols: std::collections::HashSet<u32> = raw_headers
+        .iter()
+        .enumerate()
+        .filter_map(|(i, h)| {
+            let lower = h.to_lowercase();
+            if lower == "ticket_sale"
+                || lower == "ticketsale"
+                || lower == "ticket sale"
+                || lower == "simpletix_event"
+                || lower == "simpletixevent"
+                || lower == "simpletix event"
+            {
+                Some(range.start_col + i as u32)
+            } else {
+                None
+            }
+        })
+        .collect();
 
     let presenter_cols: Vec<PresenterColumn> = raw_headers
         .iter()
         .enumerate()
-        .filter_map(|(i, h)| parse_presenter_header(h, i))
+        .filter_map(|(i, h)| parse_presenter_header(h, range.start_col + i as u32))
         .collect();
 
     let room_lookup: HashMap<String, &Room> = rooms
@@ -842,8 +964,35 @@ fn read_events(
         }
     }
 
-    for row_idx in 1..range.height() {
-        let data = row_to_map(&range, row_idx, &raw_headers, &canonical_headers);
+    let start_time_col = col_map
+        .get("Start_Time")
+        .or_else(|| col_map.get("StartTime"))
+        .or_else(|| col_map.get("Start"))
+        .copied();
+    let end_time_col = col_map
+        .get("End_Time")
+        .or_else(|| col_map.get("EndTime"))
+        .or_else(|| col_map.get("End"))
+        .or_else(|| col_map.get("Lend"))
+        .copied();
+    let duration_col = col_map.get("Duration").copied();
+
+    for row in (range.header_row + 1)..=range.end_row {
+        let mut data = row_to_map(ws, row, &range, &raw_headers, &canonical_headers);
+
+        for &col in &ticket_cols {
+            if let Some(url) = extract_hyperlink_url(ws, col, row) {
+                let header_idx = (col - range.start_col) as usize;
+                if let Some(canon) = canonical_headers.get(header_idx).and_then(|c| c.as_ref()) {
+                    data.insert(canon.clone(), url.clone());
+                }
+                if let Some(raw) = raw_headers.get(header_idx) {
+                    if !raw.is_empty() {
+                        data.insert(raw.clone(), url);
+                    }
+                }
+            }
+        }
 
         let uniq_id = get_field(&data, &["Uniq_ID", "UniqID", "ID", "Id"]).cloned();
         let name = match get_field(&data, &["Name", "Panel_Name", "PanelName"]) {
@@ -851,39 +1000,23 @@ fn read_events(
             None => continue,
         };
 
-        // Parse start time from the raw cell
-        let start_time_col = canonical_headers.iter().position(|h| {
-            h.as_deref() == Some("Start_Time")
-                || h.as_deref() == Some("StartTime")
-                || h.as_deref() == Some("Start")
-        });
-
-        let start_time = start_time_col
-            .and_then(|col| range.get((row_idx, col)))
-            .and_then(parse_datetime_cell);
-
+        let start_time = parse_datetime_value(
+            start_time_col.and_then(|c| get_cell_str(ws, c, row)),
+            start_time_col.and_then(|c| get_cell_number(ws, c, row)),
+        );
         let start_time = match start_time {
             Some(dt) => dt,
             None => continue,
         };
 
-        let end_time_col = canonical_headers.iter().position(|h| {
-            h.as_deref() == Some("End_Time")
-                || h.as_deref() == Some("EndTime")
-                || h.as_deref() == Some("End")
-                || h.as_deref() == Some("Lend")
-        });
-
-        let end_time_from_cell = end_time_col
-            .and_then(|col| range.get((row_idx, col)))
-            .and_then(parse_datetime_cell);
-
-        let duration_col = canonical_headers
-            .iter()
-            .position(|h| h.as_deref() == Some("Duration"));
-        let duration_minutes = duration_col
-            .and_then(|col| range.get((row_idx, col)))
-            .and_then(parse_duration_cell);
+        let end_time_from_cell = parse_datetime_value(
+            end_time_col.and_then(|c| get_cell_str(ws, c, row)),
+            end_time_col.and_then(|c| get_cell_number(ws, c, row)),
+        );
+        let duration_minutes = parse_duration_value(
+            duration_col.and_then(|c| get_cell_str(ws, c, row)),
+            duration_col.and_then(|c| get_cell_number(ws, c, row)),
+        );
 
         let (end_time, duration) = match (end_time_from_cell, duration_minutes) {
             (Some(et), Some(d)) => (et, d),
@@ -901,14 +1034,12 @@ fn read_events(
             }
         };
 
-        // Room
         let room_name = get_field(&data, &["Room", "Room_Name", "RoomName"]).cloned();
         let room_id = room_name
             .as_ref()
             .and_then(|rn| room_lookup.get(&rn.to_lowercase()))
             .map(|r| r.uid);
 
-        // Panel type
         let id_prefix = extract_id_prefix(uniq_id.as_deref());
         let kind_raw = get_field(&data, &["Kind", "Panel_Kind", "PanelKind"]).cloned();
         let panel_type = if !id_prefix.is_empty() {
@@ -925,21 +1056,15 @@ fn read_events(
             })
         });
 
-        // Cost
         let cost_raw = get_field(&data, &["Cost"]).cloned();
         let (cost, is_free, is_kids) = normalize_cost(cost_raw.as_ref());
         let is_full = get_field(&data, &["Full"])
             .map(|s| is_truthy(s))
             .unwrap_or(false);
 
-        // Presenters
         let mut event_presenters: Vec<String> = Vec::new();
         for pc in &presenter_cols {
-            let cell = range
-                .get((row_idx, pc.col_index))
-                .cloned()
-                .unwrap_or(Data::Empty);
-            let cell_str = match cell_to_string(&cell) {
+            let cell_str = match get_cell_str(ws, pc.col, row) {
                 Some(s) => s,
                 None => continue,
             };
@@ -1050,8 +1175,8 @@ fn read_events(
             alt_panelist,
             source: Some(SourceInfo {
                 file_path: Some(file_path.to_string()),
-                sheet_name: Some(sheet_name.clone()),
-                row_index: Some(row_idx as u32),
+                sheet_name: Some(range.sheet_name.clone()),
+                row_index: Some(row),
             }),
             change_state: ChangeState::Unchanged,
         });
@@ -1188,6 +1313,110 @@ mod tests {
 
         let names = split_presenter_names("Single Name");
         assert_eq!(names, vec!["Single Name"]);
+    }
+
+    #[test]
+    fn test_parse_hyperlink_formula() {
+        let url = parse_hyperlink_formula(
+            r#"HYPERLINK("https://www.simpletix.com/e/fw001-tickets-219590","purchase")"#,
+        );
+        assert_eq!(
+            url.as_deref(),
+            Some("https://www.simpletix.com/e/fw001-tickets-219590")
+        );
+        assert!(parse_hyperlink_formula("SUM(A1:A2)").is_none());
+        assert!(parse_hyperlink_formula("").is_none());
+    }
+
+    #[test]
+    fn test_split_events_filtered_from_events() {
+        use super::super::panel_type::PanelType;
+        use chrono::NaiveDateTime;
+
+        let split_pt = PanelType {
+            uid: Some("panel-type-split".to_string()),
+            prefix: "SPLIT".to_string(),
+            kind: "Split".to_string(),
+            color: None,
+            is_break: false,
+            is_cafe: false,
+            is_workshop: false,
+            is_hidden: false,
+            is_room_hours: false,
+            bw_color: None,
+            source: None,
+            change_state: ChangeState::Converted,
+        };
+        let regular_pt = PanelType {
+            uid: Some("panel-type-gp".to_string()),
+            prefix: "GP".to_string(),
+            kind: "General Panel".to_string(),
+            color: None,
+            is_break: false,
+            is_cafe: false,
+            is_workshop: false,
+            is_hidden: false,
+            is_room_hours: false,
+            bw_color: None,
+            source: None,
+            change_state: ChangeState::Converted,
+        };
+
+        let start = NaiveDateTime::parse_from_str("2026-06-27T10:00:00", "%Y-%m-%dT%H:%M:%S")
+            .unwrap();
+        let end = NaiveDateTime::parse_from_str("2026-06-27T10:30:00", "%Y-%m-%dT%H:%M:%S")
+            .unwrap();
+
+        let split_event = Event {
+            id: "SPLIT01".to_string(),
+            name: "Day Break".to_string(),
+            panel_type: Some("panel-type-split".to_string()),
+            start_time: start,
+            end_time: end,
+            duration: 30,
+            room_id: None,
+            description: None,
+            cost: None,
+            capacity: None,
+            difficulty: None,
+            note: None,
+            prereq: None,
+            ticket_url: None,
+            presenters: Vec::new(),
+            credits: Vec::new(),
+            conflicts: Vec::new(),
+            is_free: true,
+            is_full: false,
+            is_kids: false,
+            hide_panelist: false,
+            alt_panelist: None,
+            source: None,
+            change_state: ChangeState::Unchanged,
+        };
+        let regular_event = Event {
+            id: "GP001".to_string(),
+            name: "My Panel".to_string(),
+            panel_type: Some("panel-type-gp".to_string()),
+            ..split_event.clone()
+        };
+
+        let panel_types = vec![split_pt, regular_pt];
+        let events = vec![split_event, regular_event];
+        let (filtered_pts, _time_types, timeline, filtered_events) =
+            convert_split_types_to_timeline(&panel_types, &events);
+
+        assert!(
+            !filtered_events.iter().any(|e| e.panel_type.as_deref()
+                == Some("panel-type-split")),
+            "SPLIT events must be removed from events"
+        );
+        assert_eq!(filtered_events.len(), 1);
+        assert_eq!(filtered_events[0].id, "GP001");
+        assert_eq!(timeline.len(), 1);
+        assert!(
+            !filtered_pts.iter().any(|pt| pt.prefix == "SPLIT"),
+            "SPLIT panel type must be removed from panel_types"
+        );
     }
 
     #[test]

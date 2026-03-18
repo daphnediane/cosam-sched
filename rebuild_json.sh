@@ -9,27 +9,36 @@ set -e
 # Get script directory and project root
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 EDITOR_DIR="$SCRIPT_DIR/editor"
+INPUT_DIR="$SCRIPT_DIR/input"
 
 echo "Rebuilding JSON files for testing..."
 echo "Script directory: $SCRIPT_DIR"
 echo "Editor directory: $EDITOR_DIR"
+echo "Input directory: $INPUT_DIR"
 echo ""
 
 declare -a built=()
-# Build both years
-for year in 2025 2026; do
+
+for year in $(seq 2016 $(date +%Y)); do
+    src="$INPUT_DIR/${year} Schedule.xlsx"
+    if [ ! -f "$src" ]; then
+        echo "Skipping ${year} - file not found"
+        continue
+    fi
 
     # Build files for this year
     echo "Building ${year} files..."
     cd "$EDITOR_DIR"
 
     echo "  Building ${year}.json with Perl converter..."
-    ../converter/schedule_to_json --input "../input/${year} Schedule.xlsx" --output ../widget/${year}.json --title "Cosplay America ${year} Schedule"
-    built+=("${year}.json (Perl converter)")
+    ../converter/schedule_to_json --input "$src" --output ../widget/${year}.json --title "Cosplay America ${year} Schedule" &&
+        built+=("${year}.json (Perl converter)") ||
+        built+=("${year}.json (Perl converter) - FAILED")
 
     echo "  Building ${year}-editor.json with Rust editor..."
-    cargo run -- --input "../input/${year} Schedule.xlsx" --output ../widget/${year}-editor.json --title "Cosplay America ${year} Schedule"
-    built+=("${year}-editor.json (Rust editor)")
+    cargo run -- --input "$src" --output ../widget/${year}-editor.json --title "Cosplay America ${year} Schedule" &&
+        built+=("${year}-editor.json (Rust editor)") ||
+        built+=("${year}-editor.json (Rust editor) - FAILED")
 
 done
 

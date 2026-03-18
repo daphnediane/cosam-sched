@@ -152,10 +152,6 @@ fn set_cell_bool(
     set_cell_str(worksheet, header_map, row, keys, text);
 }
 
-fn calamine_row_to_umya(row_index: u32) -> u32 {
-    row_index + 1
-}
-
 fn update_table_areas(worksheet: &mut Worksheet, new_last_row: u32) {
     let last_row = new_last_row.max(2);
     for table in worksheet.get_tables_mut() {
@@ -217,16 +213,15 @@ fn update_rooms_sheet(
         match room.change_state {
             ChangeState::Deleted => {
                 if let Some(row_index) = room.source.as_ref().and_then(|s| s.row_index) {
-                    rows_to_delete.push(calamine_row_to_umya(row_index));
+                    rows_to_delete.push(row_index);
                 }
             }
             ChangeState::Modified | ChangeState::Replaced => {
                 if let Some(row_index) = room.source.as_ref().and_then(|s| s.row_index) {
-                    let umya_row = calamine_row_to_umya(row_index);
                     let worksheet = book
                         .get_sheet_by_name_mut(sheet_name)
                         .ok_or_else(|| anyhow::anyhow!("Sheet '{sheet_name}' not found"))?;
-                    write_room_to_row(worksheet, &header_map, umya_row, room);
+                    write_room_to_row(worksheet, &header_map, row_index, room);
                 }
             }
             ChangeState::Added => {
@@ -332,16 +327,15 @@ fn update_panel_types_sheet(
         match panel_type.change_state {
             ChangeState::Deleted => {
                 if let Some(row_index) = panel_type.source.as_ref().and_then(|s| s.row_index) {
-                    rows_to_delete.push(calamine_row_to_umya(row_index));
+                    rows_to_delete.push(row_index);
                 }
             }
             ChangeState::Modified | ChangeState::Replaced => {
                 if let Some(row_index) = panel_type.source.as_ref().and_then(|s| s.row_index) {
-                    let umya_row = calamine_row_to_umya(row_index);
                     let worksheet = book
                         .get_sheet_by_name_mut(sheet_name)
                         .ok_or_else(|| anyhow::anyhow!("Sheet '{sheet_name}' not found"))?;
-                    write_panel_type_to_row(worksheet, &header_map, umya_row, panel_type);
+                    write_panel_type_to_row(worksheet, &header_map, row_index, panel_type);
                 }
             }
             ChangeState::Added => {
@@ -510,16 +504,15 @@ fn update_schedule_sheet(
         match event.change_state {
             ChangeState::Deleted => {
                 if let Some(row_index) = event.source.as_ref().and_then(|s| s.row_index) {
-                    rows_to_delete.push(calamine_row_to_umya(row_index));
+                    rows_to_delete.push(row_index);
                 }
             }
             ChangeState::Modified | ChangeState::Replaced => {
                 if let Some(row_index) = event.source.as_ref().and_then(|s| s.row_index) {
-                    let umya_row = calamine_row_to_umya(row_index);
                     let worksheet = book
                         .get_sheet_by_name_mut(sheet_name)
                         .ok_or_else(|| anyhow::anyhow!("Sheet '{sheet_name}' not found"))?;
-                    write_event_to_row(worksheet, &header_map, umya_row, event, schedule);
+                    write_event_to_row(worksheet, &header_map, row_index, event, schedule);
                 }
             }
             ChangeState::Added => {
@@ -884,10 +877,4 @@ mod tests {
         assert_eq!(result, None);
     }
 
-    #[test]
-    fn test_calamine_row_to_umya() {
-        assert_eq!(calamine_row_to_umya(0), 1);
-        assert_eq!(calamine_row_to_umya(1), 2);
-        assert_eq!(calamine_row_to_umya(10), 11);
-    }
 }
