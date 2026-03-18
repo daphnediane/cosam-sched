@@ -8,10 +8,10 @@ use gpui::{
     WindowOptions, actions, px, size,
 };
 
-use schedule_core::data::{Schedule, XlsxImportOptions};
 pub use schedule_core::data;
-use ui::ScheduleEditor;
+use schedule_core::data::{Schedule, XlsxImportOptions};
 use ui::editor::{FileExportPublicJson, FileOpen, FileSave, FileSaveAs};
+use ui::{MenuState, ScheduleEditor};
 
 actions!(
     main,
@@ -62,7 +62,7 @@ fn parse_args() -> CliArgs {
                     cli.title = args[i].clone();
                 }
             }
-                        "--schedule-table" => {
+            "--schedule-table" => {
                 i += 1;
                 if i < args.len() {
                     cli.schedule_table = args[i].clone();
@@ -137,6 +137,26 @@ fn resolve_input(cli: &CliArgs) -> Option<PathBuf> {
 }
 
 fn set_app_menus(cx: &mut App) {
+    let menu_state = cx.global::<MenuState>();
+
+    let mut file_items = vec![
+        MenuItem::action("New Window", NewWindow),
+        MenuItem::separator(),
+        MenuItem::action("Open...", FileOpen),
+    ];
+
+    if menu_state.schedule_loaded {
+        file_items.push(MenuItem::action("Save", FileSave));
+        file_items.push(MenuItem::action("Save As...", FileSaveAs));
+        file_items.push(MenuItem::action(
+            "Export Public JSON...",
+            FileExportPublicJson,
+        ));
+    }
+
+    file_items.push(MenuItem::separator());
+    file_items.push(MenuItem::action("Close Window", CloseWindow));
+
     cx.set_menus(vec![
         Menu {
             name: "App".into(),
@@ -152,16 +172,7 @@ fn set_app_menus(cx: &mut App) {
         },
         Menu {
             name: "File".into(),
-            items: vec![
-                MenuItem::action("New Window", NewWindow),
-                MenuItem::separator(),
-                MenuItem::action("Open...", FileOpen),
-                MenuItem::action("Save", FileSave),
-                MenuItem::action("Save As...", FileSaveAs),
-                MenuItem::action("Export Public JSON...", FileExportPublicJson),
-                MenuItem::separator(),
-                MenuItem::action("Close Window", CloseWindow),
-            ],
+            items: file_items,
         },
     ]);
 }
@@ -202,9 +213,8 @@ fn open_editor_window(
             ..Default::default()
         },
         move |window, cx| {
-            let editor = cx.new(|cx| {
-                ScheduleEditor::new(initial_schedule.clone(), input_path.clone(), cx)
-            });
+            let editor =
+                cx.new(|cx| ScheduleEditor::new(initial_schedule.clone(), input_path.clone(), cx));
             window.focus(&editor.focus_handle(cx));
             editor
         },
@@ -228,7 +238,6 @@ fn main() {
         None => None,
     };
 
-    
     Application::new().run(move |cx: &mut App| {
         // Register app-level handlers and keybindings
         cx.on_action(quit);
@@ -254,6 +263,13 @@ fn main() {
             KeyBinding::new("cmd-n", NewWindow, None),
             KeyBinding::new("cmd-w", CloseWindow, None),
         ]);
+
+        // Set up global state
+        cx.set_global(MenuState::new());
+
+        // Update menu state based on whether we have an initial schedule
+        let menu_state = cx.global_mut::<MenuState>();
+        menu_state.schedule_loaded = initial_schedule.is_some();
 
         // Set up menus globally
         set_app_menus(cx);

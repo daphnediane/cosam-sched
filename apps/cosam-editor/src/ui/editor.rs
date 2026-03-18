@@ -7,10 +7,10 @@ use gpui::{
     div, px, rgb,
 };
 
-use crate::data::{Schedule, JsonExportMode};
 use crate::data::xlsx_export;
 use crate::data::xlsx_import::XlsxImportOptions;
 use crate::data::xlsx_update;
+use crate::data::{JsonExportMode, Schedule};
 use crate::ui::day_tabs::{DayTabEvent, DayTabs};
 use crate::ui::event_card::EventCard;
 use crate::ui::sidebar::{RoomEntry, Sidebar, SidebarEvent};
@@ -42,11 +42,7 @@ pub struct ScheduleEditor {
 }
 
 impl ScheduleEditor {
-    pub fn new(
-        schedule: Option<Schedule>,
-        path: Option<PathBuf>,
-        cx: &mut Context<Self>,
-    ) -> Self {
+    pub fn new(schedule: Option<Schedule>, path: Option<PathBuf>, cx: &mut Context<Self>) -> Self {
         let days = schedule.as_ref().map(|s| s.days()).unwrap_or_default();
 
         let day_tabs = cx.new(|_cx| DayTabs::new(days.clone()));
@@ -264,9 +260,15 @@ impl ScheduleEditor {
                 .to_lowercase();
 
             let (result, file_type) = if ext == "xlsx" {
-                (xlsx_export::export_to_xlsx(&schedule_clone, &path), FileType::Xlsx)
+                (
+                    xlsx_export::export_to_xlsx(&schedule_clone, &path),
+                    FileType::Xlsx,
+                )
             } else {
-                (schedule_clone.save_json_with_mode(&path, JsonExportMode::Staff), FileType::Json)
+                (
+                    schedule_clone.save_json_with_mode(&path, JsonExportMode::Staff),
+                    FileType::Json,
+                )
             };
 
             cx.update(|cx| {
@@ -334,13 +336,16 @@ impl ScheduleEditor {
     }
 
     fn update_menus(&self, _cx: &mut Context<Self>) {
-        // Menu enablement is controlled by conditional action handlers in render.
+        // Menu state updates would go here when we implement dynamic menu updates
     }
 
     fn can_save(&self) -> bool {
         self.schedule.is_some()
             && self.current_path.is_some()
-            && matches!(self.current_file_type, Some(FileType::Json) | Some(FileType::Xlsx))
+            && matches!(
+                self.current_file_type,
+                Some(FileType::Json) | Some(FileType::Xlsx)
+            )
     }
 
     fn can_export(&self) -> bool {
@@ -425,12 +430,7 @@ impl ScheduleEditor {
         .detach();
     }
 
-    fn file_save_as(
-        &mut self,
-        _: &FileSaveAs,
-        _window: &mut Window,
-        cx: &mut Context<Self>,
-    ) {
+    fn file_save_as(&mut self, _: &FileSaveAs, _window: &mut Window, cx: &mut Context<Self>) {
         self.do_save_as(_window, cx);
     }
 
@@ -614,7 +614,7 @@ impl Render for ScheduleEditor {
         layout = layout.when(self.can_save(), |this| {
             this.on_action(cx.listener(Self::file_save))
         });
-        layout = layout.when(self.schedule.is_some(), |this| {
+        layout = layout.when(self.can_export(), |this| {
             this.on_action(cx.listener(Self::file_save_as))
                 .on_action(cx.listener(Self::file_export_public_json))
         });
