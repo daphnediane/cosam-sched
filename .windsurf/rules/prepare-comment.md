@@ -26,11 +26,9 @@ feat: Add work plan tracking system
 
 Implement a structured work plan system for tracking project tasks and progress.
 
-- Create work-plan/ directory with individual markdown files for each work item
-- Add combine_workplans.pl script to generate WORK_PLAN.md from individual files
-- Add fix_markdown_format.pl to ensure markdown lint compliance
+- Create docs/work-plan/ directory with individual markdown files for each work item
+- Add scripts/combine-workplans.pl to generate docs/WORK_PLAN.md from individual files
 - Create Windsurf rules documenting work plan structure and management
-- Add update_workplan.sh wrapper script for easy regeneration
 - Document completed work from commit history (FEATURE-001, FEATURE-002)
 - Update .gitignore to preserve .windsurf/rules directory
 

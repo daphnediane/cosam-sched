@@ -6,11 +6,10 @@
 use strict;
 use warnings;
 use File::Find;
-use JSON::MaybeXS;
 
 # Configuration
-my $workplan_dir = 'work-plan';
-my $output_file  = 'WORK_PLAN.md';
+my $workplan_dir = 'docs/work-plan';
+my $output_file  = 'docs/WORK_PLAN.md';
 
 # Priority order
 my %priority_order = (
@@ -105,6 +104,7 @@ if ( @completed ) {
         } @completed
     ) {
         my $relative_file = $item->{ file };
+        $relative_file =~ s{^docs/}{};
         print $out
             "* [$item->{prefix}-$item->{num}]($relative_file) $item->{summary}\n";
     } ## end for my $item ( sort { $a...})
@@ -137,6 +137,7 @@ if ( @open ) {
             } @{ $by_priority{ $priority } }
         ) {
             my $relative_file = $item->{ file };
+            $relative_file =~ s{^docs/}{};
             print $out
                 "  * [$item->{prefix}-$item->{num}]($relative_file) $item->{summary}\n";
         } ## end for my $item ( sort { $a...})
@@ -168,6 +169,7 @@ for my $priority ( qw(High Medium Low) ) {
 
         # Add link to full file
         my $relative_file = $item->{ file };
+        $relative_file =~ s{^docs/}{};
         print $out
             "*See full details in: [$relative_file]($relative_file)*\n\n";
 
