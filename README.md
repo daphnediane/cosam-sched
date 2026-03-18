@@ -14,34 +14,17 @@ Two components:
 
 ## Repository Layout
 
-- `editor/` — Rust workspace member containing:
-  - `cosam-editor` (GUI binary)
-  - `cosam-convert` (CLI binary)
-  - shared `data` library module used by both binaries
+- `crates/schedule-core/` — shared Rust library for schedule data models and import/export logic
+- `apps/cosam-editor/` — Rust GUI application (`cosam-editor`)
+- `apps/cosam-convert/` — Rust CLI application (`cosam-convert`)
 - `widget/` — embeddable JavaScript/CSS calendar widget
-- `work-plan/` — individual work plan items and generation scripts
-- `converter/` — legacy Perl converter (kept during migration)
+- `docs/work-plan/` — individual work plan items
+- `docs/WORK_PLAN.md` — generated combined work plan
+- `scripts/` — project scripts, including work plan generation/formatting tools
 
-## Converter (`converter/`)
+Rust code is organized as a top-level Cargo workspace.
 
-Perl tool that reads a schedule spreadsheet (XLSX) and produces a `schedule.json` database.
-
-### Usage
-
-```
-perl converter/schedule_to_json --input path/to/schedule.xlsx --output schedule.json --title "Cosplay America 2026"
-```
-
-### Dependencies
-
-Install via cpanm/carton from the `cpanfile`:
-```
-cpanm --installdeps .
-```
-
-Key dependency: `Spreadsheet::ParseXLSX` for reading `.xlsx` files.
-
-## Editor + Rust CLI (`editor/`)
+## Rust Apps + Core Library
 
 Rust project with two binaries that share the same data import/export pipeline:
 
@@ -51,9 +34,9 @@ Rust project with two binaries that share the same data import/export pipeline:
 ### Rust CLI usage
 
 ```bash
-cargo run --manifest-path editor/Cargo.toml --bin cosam-convert -- \
+cargo run -p cosam-convert -- \
   --input path/to/schedule.xlsx \
-  --output widget/2026-editor.json \
+  --output widget/2026.json \
   --title "Cosplay America 2026"
 ```
 

@@ -2,11 +2,10 @@
 set -euo pipefail
 
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-MANIFEST_PATH="$ROOT_DIR/editor/Cargo.toml"
 WINDOWS_TARGET="x86_64-pc-windows-gnu"
 
 echo "Building Rust CLI and GUI for macOS (native)..."
-cargo build --manifest-path "$MANIFEST_PATH" --bin cosam-convert --bin cosam-editor
+cargo build --manifest-path "$ROOT_DIR/Cargo.toml" -p cosam-convert -p cosam-editor
 
 echo "Checking Windows cross-compile prerequisites..."
 if ! rustup target list --installed | grep -q "^${WINDOWS_TARGET}$"; then
@@ -22,6 +21,6 @@ if ! command -v x86_64-w64-mingw32-gcc >/dev/null 2>&1; then
 fi
 
 echo "Building Rust CLI and GUI for Windows (${WINDOWS_TARGET})..."
-cargo build --manifest-path "$MANIFEST_PATH" --target "$WINDOWS_TARGET" --bin cosam-convert --bin cosam-editor
+cargo build --manifest-path "$ROOT_DIR/Cargo.toml" --target "$WINDOWS_TARGET" -p cosam-convert -p cosam-editor
 
 echo "Build complete."

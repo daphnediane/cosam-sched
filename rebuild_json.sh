@@ -8,12 +8,10 @@ set -e
 
 # Get script directory and project root
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-EDITOR_DIR="$SCRIPT_DIR/editor"
 INPUT_DIR="$SCRIPT_DIR/input"
 
 echo "Rebuilding JSON files for testing..."
 echo "Script directory: $SCRIPT_DIR"
-echo "Editor directory: $EDITOR_DIR"
 echo "Input directory: $INPUT_DIR"
 echo ""
 
@@ -28,17 +26,12 @@ for year in $(seq 2016 $(date +%Y)); do
 
     # Build files for this year
     echo "Building ${year} files..."
-    cd "$EDITOR_DIR"
+    cd "$SCRIPT_DIR"
 
-    echo "  Building ${year}.json with Perl converter..."
-    ../converter/schedule_to_json --input "$src" --output ../widget/${year}.json --title "Cosplay America ${year} Schedule" &&
-        built+=("${year}.json (Perl converter)") ||
-        built+=("${year}.json (Perl converter) - FAILED")
-
-    echo "  Building ${year}-editor.json with Rust converter CLI..."
-    cargo run --bin cosam-convert -- --input "$src" --output ../widget/${year}-editor.json --title "Cosplay America ${year} Schedule" &&
-        built+=("${year}-editor.json (Rust converter CLI)") ||
-        built+=("${year}-editor.json (Rust converter CLI) - FAILED")
+    echo "  Building ${year}.json with Rust converter CLI..."
+    cargo run -p cosam-convert -- --input "$src" --output "widget/${year}.json" --title "Cosplay America ${year} Schedule" &&
+        built+=("${year}.json (Rust converter CLI)") ||
+        built+=("${year}.json (Rust converter CLI) - FAILED")
 
 done
 
@@ -46,5 +39,5 @@ echo "All JSON files rebuilt successfully!"
 echo ""
 echo "Files created:"
 for file in "${built[@]}"; do
-    echo "  - ../widget/$file"
+    echo "  - widget/$file"
 done

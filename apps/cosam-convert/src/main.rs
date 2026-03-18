@@ -1,6 +1,6 @@
 use std::path::PathBuf;
 
-use cosam_editor::data::{Schedule, XlsxImportOptions};
+use schedule_core::data::{Schedule, XlsxImportOptions};
 
 struct CliArgs {
     input: PathBuf,

@@ -7,13 +7,13 @@ use strict;
 use warnings;
 use File::Find;
 
-# Find all markdown files in work-plan directory
+# Find all markdown files in docs/work-plan directory
 my @files;
 find(sub {
     return unless -f && /\.md$/;
     return if $File::Find::name =~ /fix_markdown_format\.pl$/;
     push @files, $File::Find::name;
-}, 'work-plan');
+}, 'docs/work-plan');
 
 for my $file (@files) {
     print "Fixing $file...\n";

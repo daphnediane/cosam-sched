@@ -18,6 +18,13 @@ Enable the editor and converter CLI to read and write schedule data via Google S
 
 Current state: the Perl converter has an unverified Google Sheets path and has not been production-tested for this workflow. Rust support should include explicit validation against real sheets before considering this complete.
 
+Legacy implementation notes from the removed Perl-era docs are archived in branch `feature/final-perl-converter` (`GOOGLE_SHEETS.md`, `google-sheets-config.example.yaml`). Key takeaways to carry forward for Rust:
+
+- OAuth 2.0 credentials flow with explicit token-file handling
+- Support direct Google Sheets URLs and robust spreadsheet ID extraction
+- Handle both formal table metadata and heuristic range detection
+- Validate auth, permissions, and error-path UX before calling the feature production-ready
+
 ## Implementation Details
 
 - Google Sheets API integration via OAuth 2.0 (desktop app flow)

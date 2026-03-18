@@ -1,6 +1,6 @@
 # Cosplay America Schedule - Work Plan
 
-Generated on: Tue Mar 17 22:33:07 2026
+Generated on: Tue Mar 17 23:36:03 2026
 
 ## Completed
 
@@ -9,6 +9,8 @@ Generated on: Tue Mar 17 22:33:07 2026
 * [BUGFIX-003](work-plan/BUGFIX-003.md) Remove "free" labeling from events as all events require registration.
 * [BUGFIX-004](work-plan/BUGFIX-004.md) Filter out internal staff events from the public schedule JSON using the "Hidden" field in PanelTypes sheet and add `--staff` option to include private events.
 * [BUGFIX-006](work-plan/BUGFIX-006.md) The converter does not detect or report scheduling conflicts such as a presenter double-booked across overlapping events, or two non-break events in the same room at the same time.
+* [CLEANUP-001](work-plan/CLEANUP-001.md) Complete repository layout cleanup by moving planning outputs under `docs/`, relocating work-plan tools to `scripts/`, and retiring deprecated Perl converter paths.
+* [CLEANUP-002](work-plan/CLEANUP-002.md) Migrate to an `apps/` + `crates/` Rust workspace layout, retire the legacy Perl converter now that parity is reached, and track the remaining non-blocking cleanup follow-up items.
 * [EDITOR-500](work-plan/EDITOR-500.md) Add the ability to import schedule data from XLSX spreadsheets.
 * [EDITOR-504](work-plan/EDITOR-504.md) Implement saving the schedule as JSON, matching the format consumed by the widget.
 * [FEATURE-001](work-plan/FEATURE-001.md) Implement a two-part system for Cosplay America schedule management.
@@ -24,7 +26,7 @@ Generated on: Tue Mar 17 22:33:07 2026
 
 ## Summary of Open Items
 
-**Total open items:** 22
+**Total open items:** 21
 
 * **High Priority**
   * [ACCESSIBILITY-001](work-plan/ACCESSIBILITY-001.md) Implement comprehensive accessibility improvements for screen readers and color blindness support.
@@ -37,7 +39,6 @@ Generated on: Tue Mar 17 22:33:07 2026
   * [UI-002](work-plan/UI-002.md) Prevent event titles from overlapping with the "my schedule" star icon.
 
 * **Medium Priority**
-  * [CLEANUP-001](work-plan/CLEANUP-001.md) Define and execute a staged cleanup plan to move project planning and generated planning outputs under `docs/`, centralize maintenance scripts/tools, and retire legacy Perl conversion code once Rust parity is fully validated.
   * [EDITOR-503](work-plan/EDITOR-503.md) Detect and highlight scheduling conflicts between events.
   * [EDITOR-505](work-plan/EDITOR-505.md) Enable drag-and-drop to move events between time slots and rooms.
   * [EDITOR-506](work-plan/EDITOR-506.md) Implement undo/redo for all editing operations.
@@ -175,18 +176,6 @@ The 2025 schedule shows this pattern:
 
 ## Open Medium Priority Items
 
-### [CLEANUP-001] Repository Layout and Legacy Cleanup Plan
-
-**Status:** Open
-
-**Summary:** Define and execute a staged cleanup plan to move project planning and generated planning outputs under `docs/`, centralize maintenance scripts/tools, and retire legacy Perl conversion code once Rust parity is fully validated.
-
-**Description:** Capture the deferred repository reorganization work so it can be completed in one focused pass after current parity and build goals are stabilized. This cleanup should improve top-level repo clarity, reduce mixed-purpose script placement, and formalize retirement steps for legacy Perl tooling.
-
-*See full details in: [work-plan/CLEANUP-001.md](work-plan/CLEANUP-001.md)*
-
----
-
 ### [EDITOR-503] Conflict Detection
 
 **Status:** Open
@@ -321,6 +310,13 @@ Based on the 2025 schedule data, conflicts include:
 **Description:** Enable the editor and converter CLI to read and write schedule data via Google Sheets, while keeping this item focused on transport/authentication and schema parity rather than multi-device sync strategy.
 
 Current state: the Perl converter has an unverified Google Sheets path and has not been production-tested for this workflow. Rust support should include explicit validation against real sheets before considering this complete.
+
+Legacy implementation notes from the removed Perl-era docs are archived in branch `feature/final-perl-converter` (`GOOGLE_SHEETS.md`, `google-sheets-config.example.yaml`). Key takeaways to carry forward for Rust:
+
+- OAuth 2.0 credentials flow with explicit token-file handling
+- Support direct Google Sheets URLs and robust spreadsheet ID extraction
+- Handle both formal table metadata and heuristic range detection
+- Validate auth, permissions, and error-path UX before calling the feature production-ready
 
 *See full details in: [work-plan/EDITOR-507.md](work-plan/EDITOR-507.md)*
 

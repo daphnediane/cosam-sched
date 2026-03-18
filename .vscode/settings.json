@@ -1,9 +1,3 @@
 {
-    "perl.perlInc": [
-        "${workspaceFolder}/converter/lib",
-        "${workspaceFolder}/local/lib/perl5",
-        "converter/lib",
-        "local/lib/perl5"
-    ],
     "editor.formatOnSave": false
 }

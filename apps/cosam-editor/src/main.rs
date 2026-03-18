@@ -8,8 +8,8 @@ use gpui::{
     WindowOptions, actions, px, size,
 };
 
-use cosam_editor::data::{Schedule, XlsxImportOptions};
-pub use cosam_editor::data;
+use schedule_core::data::{Schedule, XlsxImportOptions};
+pub use schedule_core::data;
 use ui::ScheduleEditor;
 use ui::editor::{FileExportPublicJson, FileOpen, FileSave, FileSaveAs};
 

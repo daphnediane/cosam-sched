@@ -1,0 +1,14 @@
+[package]
+name = "cosam-convert"
+version = "0.1.0"
+edition = "2024"
+description = "Command-line schedule converter for Cosplay America"
+license = "BSD-2-Clause"
+
+[[bin]]
+name = "cosam-convert"
+path = "src/main.rs"
+
+[dependencies]
+anyhow = "1"
+schedule-core = { path = "../../crates/schedule-core" }

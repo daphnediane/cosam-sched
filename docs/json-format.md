@@ -1,8 +1,8 @@
 # Schedule JSON Format
 
 This document describes the JSON file format used by the schedule editor and
-the calendar widget. The file is produced by either the Perl converter
-(`converter/schedule_to_json`) or the Rust editor (`editor/`).
+the calendar widget. The file is produced by the Rust CLI (`apps/cosam-convert`)
+or Rust editor (`apps/cosam-editor`).
 
 ## Top-Level Structure
 
@@ -256,6 +256,9 @@ Optional array of detected scheduling conflicts.
 ## Differences: Editor vs. Converter
 
 The editor is intended to replace the Perl converter. Status of alignment:
+
+Legacy Perl converter implementation details are preserved in branch
+`feature/final-perl-converter`.
 
 | Feature            | Converter                    | Editor                         | Status                                            |
 | ------------------ | ---------------------------- | ------------------------------ | ------------------------------------------------- |

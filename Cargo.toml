@@ -1,3 +1,7 @@
 [workspace]
-members = ["editor"]
+members = [
+    "crates/schedule-core",
+    "apps/cosam-editor",
+    "apps/cosam-convert",
+]
 resolver = "2"
