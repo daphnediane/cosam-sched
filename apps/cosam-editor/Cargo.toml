@@ -14,4 +14,5 @@ path = "src/main.rs"
 gpui = "0.2"
 anyhow = "1"
 chrono = { version = "0.4", features = ["serde"] }
+rfd = "0.15"
 schedule-core = { path = "../../crates/schedule-core" }

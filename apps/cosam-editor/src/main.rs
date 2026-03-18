@@ -6,18 +6,20 @@
 
 use std::path::PathBuf;
 
+mod menu;
+mod shortcuts;
 mod ui;
 
 use gpui::prelude::*;
 use gpui::{
-    App, Application, Bounds, Focusable, KeyBinding, Menu, MenuItem, SystemMenuType, WindowBounds,
-    WindowOptions, actions, px, size,
+    App, Application, Bounds, Focusable, TitlebarOptions, WindowBounds, WindowOptions, actions,
+    px, size,
 };
 
 pub use schedule_core::data;
 use schedule_core::data::{Schedule, XlsxImportOptions};
 use ui::editor::{FileExportPublicJson, FileOpen, FileSave, FileSaveAs};
-use ui::{MenuState, ScheduleEditor};
+use ui::ScheduleEditor;
 
 actions!(
     main,
@@ -142,47 +144,6 @@ fn resolve_input(cli: &CliArgs) -> Option<PathBuf> {
     None
 }
 
-fn set_app_menus(cx: &mut App) {
-    let menu_state = cx.global::<MenuState>();
-
-    let mut file_items = vec![
-        MenuItem::action("New Window", NewWindow),
-        MenuItem::separator(),
-        MenuItem::action("Open...", FileOpen),
-    ];
-
-    if menu_state.schedule_loaded {
-        file_items.push(MenuItem::action("Save", FileSave));
-        file_items.push(MenuItem::action("Save As...", FileSaveAs));
-        file_items.push(MenuItem::action(
-            "Export Public JSON...",
-            FileExportPublicJson,
-        ));
-    }
-
-    file_items.push(MenuItem::separator());
-    file_items.push(MenuItem::action("Close Window", CloseWindow));
-
-    cx.set_menus(vec![
-        Menu {
-            name: "App".into(),
-            items: vec![
-                MenuItem::os_submenu("Services", SystemMenuType::Services),
-                MenuItem::separator(),
-                MenuItem::action("Hide cosam-editor", HideApp),
-                MenuItem::action("Hide Others", HideOtherApps),
-                MenuItem::action("Show All", ShowAllApps),
-                MenuItem::separator(),
-                MenuItem::action("Quit", Quit),
-            ],
-        },
-        Menu {
-            name: "File".into(),
-            items: file_items,
-        },
-    ]);
-}
-
 fn quit(_: &Quit, cx: &mut App) {
     cx.quit();
 }
@@ -213,11 +174,20 @@ fn open_editor_window(
     cx: &mut App,
 ) -> anyhow::Result<()> {
     let bounds = Bounds::centered(None, size(px(1200.), px(800.)), cx);
-    cx.open_window(
-        WindowOptions {
-            window_bounds: Some(WindowBounds::Windowed(bounds)),
+    let mut window_options = WindowOptions {
+        window_bounds: Some(WindowBounds::Windowed(bounds)),
+        ..Default::default()
+    };
+
+    if cfg!(target_os = "windows") {
+        window_options.titlebar = Some(TitlebarOptions {
+            appears_transparent: false,
             ..Default::default()
-        },
+        });
+    }
+
+    cx.open_window(
+        window_options,
         move |window, cx| {
             let editor =
                 cx.new(|cx| ScheduleEditor::new(initial_schedule.clone(), input_path.clone(), cx));
@@ -262,24 +232,12 @@ fn main() {
             );
         });
 
-        cx.bind_keys([KeyBinding::new("cmd-q", Quit, None)]);
-        cx.bind_keys([
-            KeyBinding::new("cmd-h", HideApp, None),
-            KeyBinding::new("cmd-alt-h", HideOtherApps, None),
-            KeyBinding::new("cmd-n", NewWindow, None),
-            KeyBinding::new("cmd-w", CloseWindow, None),
-        ]);
-
-        // Set up global state
-        cx.set_global(MenuState::new());
-
-        // Update menu state based on whether we have an initial schedule
-        let menu_state = cx.global_mut::<MenuState>();
-        menu_state.schedule_loaded = initial_schedule.is_some();
+        shortcuts::bind_app_shortcuts(cx);
 
         // Set up menus globally
-        set_app_menus(cx);
+        menu::set_app_menus(cx);
         open_editor_window(initial_schedule.clone(), input_path.clone(), cx)
             .expect("Failed to open window");
+        cx.activate(true);
     });
 }

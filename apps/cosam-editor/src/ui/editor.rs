@@ -9,7 +9,7 @@ use std::path::PathBuf;
 use chrono::NaiveDate;
 use gpui::prelude::*;
 use gpui::{
-    App, Context, Entity, FocusHandle, Focusable, PathPromptOptions, SharedString, Window, actions,
+    App, Context, Entity, FocusHandle, Focusable, SharedString, Window, actions,
     div, px, rgb,
 };
 
@@ -45,6 +45,8 @@ pub struct ScheduleEditor {
     day_tabs: Entity<DayTabs>,
     sidebar: Entity<Sidebar>,
     event_cards: Vec<Entity<EventCard>>,
+    #[cfg(not(target_os = "macos"))]
+    menu_bar: Entity<crate::menu::WindowsMenuBar>,
 }
 
 impl ScheduleEditor {
@@ -105,6 +107,8 @@ impl ScheduleEditor {
             day_tabs,
             sidebar,
             event_cards: Vec::new(),
+            #[cfg(not(target_os = "macos"))]
+            menu_bar: cx.new(|cx| crate::menu::WindowsMenuBar::new(cx)),
         };
 
         editor.rebuild_event_cards(cx);
@@ -167,43 +171,41 @@ impl ScheduleEditor {
     }
 
     fn do_open(&mut self, _window: &mut Window, cx: &mut Context<Self>) {
-        let receiver = cx.prompt_for_paths(PathPromptOptions {
-            files: true,
-            directories: false,
-            multiple: false,
-            prompt: Some("Open Schedule (XLSX or JSON)".into()),
-        });
+        let default_dir = self
+            .current_path
+            .as_ref()
+            .and_then(|p| p.parent())
+            .unwrap_or_else(|| std::path::Path::new("."));
+
+        let Some(path) = rfd::FileDialog::new()
+            .set_directory(default_dir)
+            .add_filter("Schedule files", &["json", "xlsx"])
+            .add_filter("JSON", &["json"])
+            .add_filter("Excel Workbook", &["xlsx"])
+            .add_filter("All files", &["*"])
+            .pick_file()
+        else {
+            return;
+        };
+
+        let ext = path
+            .extension()
+            .and_then(|e| e.to_str())
+            .unwrap_or("")
+            .to_lowercase();
+
+        if ext != "xlsx" && ext != "json" {
+            self.status_message =
+                Some("Unsupported file type. Please select .xlsx or .json".to_string());
+            cx.notify();
+            return;
+        }
+
+        let import_options = XlsxImportOptions {
+            ..XlsxImportOptions::default()
+        };
 
         cx.spawn(async move |this, cx| {
-            let Ok(Ok(Some(paths))) = receiver.await else {
-                return;
-            };
-            let Some(path) = paths.into_iter().next() else {
-                return;
-            };
-
-            let ext = path
-                .extension()
-                .and_then(|e| e.to_str())
-                .unwrap_or("")
-                .to_lowercase();
-
-            if ext != "xlsx" && ext != "json" {
-                cx.update(|cx| {
-                    this.update(cx, |editor, cx| {
-                        editor.status_message =
-                            Some("Unsupported file type. Please select .xlsx or .json".to_string());
-                        cx.notify();
-                    })
-                })
-                .ok();
-                return;
-            }
-
-            let import_options = XlsxImportOptions {
-                ..XlsxImportOptions::default()
-            };
-
             let result = Schedule::load_auto(&path, &import_options);
 
             cx.update(|cx| {
@@ -250,15 +252,28 @@ impl ScheduleEditor {
             .map(|stem| format!("{stem}.{current_ext}"))
             .unwrap_or_else(|| "schedule.json".to_string());
 
-        let receiver = cx.prompt_for_new_path(default_dir, Some(&suggested_name));
+        let mut dialog = rfd::FileDialog::new()
+            .set_directory(default_dir)
+            .set_file_name(&suggested_name);
+
+        if current_ext == "xlsx" {
+            dialog = dialog
+                .add_filter("Excel Workbook", &["xlsx"])
+                .add_filter("JSON", &["json"]);
+        } else {
+            dialog = dialog
+                .add_filter("JSON", &["json"])
+                .add_filter("Excel Workbook", &["xlsx"]);
+        }
+        dialog = dialog.add_filter("All files", &["*"]);
+
+        let Some(path) = dialog.save_file() else {
+            return;
+        };
 
         let schedule_clone = schedule.clone();
 
         cx.spawn(async move |this, cx| {
-            let Ok(Ok(Some(path))) = receiver.await else {
-                return;
-            };
-
             let ext = path
                 .extension()
                 .and_then(|e| e.to_str())
@@ -466,15 +481,19 @@ impl ScheduleEditor {
             .map(|stem| format!("{}-public.json", stem))
             .unwrap_or_else(|| "schedule-public.json".to_string());
 
-        let receiver = cx.prompt_for_new_path(default_dir, Some(&suggested_name));
+        let Some(path) = rfd::FileDialog::new()
+            .set_directory(default_dir)
+            .set_file_name(&suggested_name)
+            .add_filter("JSON", &["json"])
+            .add_filter("All files", &["*"])
+            .save_file()
+        else {
+            return;
+        };
 
         let schedule_clone = schedule.clone();
 
         cx.spawn(async move |this, cx| {
-            let Ok(Ok(Some(path))) = receiver.await else {
-                return;
-            };
-
             let result = schedule_clone.save_json_with_mode(&path, JsonExportMode::Public);
 
             cx.update(|cx| {
@@ -516,8 +535,6 @@ impl Render for ScheduleEditor {
 
         let event_count = self.schedule.as_ref().map(|s| s.events.len()).unwrap_or(0);
         let event_count_text = SharedString::from(format!("{event_count} events"));
-
-        // No toolbar buttons needed anymore - using menus instead
 
         // Status bar (if there's a message)
         let status_bar = self.status_message.as_ref().map(|msg| {
@@ -581,11 +598,20 @@ impl Render for ScheduleEditor {
         // Main layout
         let mut layout = div()
             .size_full()
+            .relative()
             .flex()
             .flex_col()
             .track_focus(&self.focus_handle)
             .bg(rgb(0xFFFFFF))
-            .on_action(cx.listener(Self::file_open))
+            .on_action(cx.listener(Self::file_open));
+
+        // Platform menu bar (Windows/Linux only; macOS uses native menus)
+        #[cfg(not(target_os = "macos"))]
+        {
+            layout = layout.child(self.menu_bar.clone());
+        }
+
+        layout = layout
             // Title bar with toolbar
             .child(
                 div()

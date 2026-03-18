@@ -4,9 +4,6 @@
  * See LICENSE file for full license text
  */
 
-pub mod day_tabs;
-pub mod editor;
-pub mod event_card;
-pub mod sidebar;
+use gpui::App;
 
-pub use editor::ScheduleEditor;
+pub(super) fn bind_platform_shortcuts(_cx: &mut App) {}
