@@ -92,6 +92,8 @@ impl Schedule {
         self.meta.version = Some(4);
         self.meta.generator = Some(format!("cosam-editor {}", env!("CARGO_PKG_VERSION")));
 
+        super::post_process::apply_schedule_parity(self);
+
         // Calculate start and end times if not present
         if self.meta.start_time.is_none() || self.meta.end_time.is_none() {
             self.calculate_schedule_bounds();
@@ -162,11 +164,6 @@ impl Schedule {
 
         // Convert split panel types to time types and timeline
         let (panel_types, time_types, timeline) = self.convert_split_panel_types();
-
-        // Remove kind field from events (it will be derived from panel type)
-        for event in &mut self.events {
-            // kind field is already removed from struct, so no action needed
-        }
 
         // Update schedule
         self.panel_types = panel_types;

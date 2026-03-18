@@ -1,5 +1,6 @@
 pub mod event;
 pub mod panel_type;
+pub mod post_process;
 pub mod presenter;
 pub mod room;
 pub mod schedule;
@@ -11,6 +12,7 @@ pub mod xlsx_update;
 
 pub use event::Event;
 pub use panel_type::PanelType;
+pub use post_process::apply_schedule_parity;
 pub use presenter::Presenter;
 pub use room::Room;
 pub use schedule::{Meta, Schedule};

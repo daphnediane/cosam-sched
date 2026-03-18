@@ -1,7 +1,6 @@
-mod data;
-mod ui;
-
 use std::path::PathBuf;
+
+mod ui;
 
 use gpui::prelude::*;
 use gpui::{
@@ -9,7 +8,8 @@ use gpui::{
     WindowOptions, actions, px, size,
 };
 
-use data::{Schedule, XlsxImportOptions};
+use cosam_editor::data::{Schedule, XlsxImportOptions};
+pub use cosam_editor::data;
 use ui::ScheduleEditor;
 use ui::editor::{FileExportPublicJson, FileOpen, FileSave, FileSaveAs};
 
@@ -27,26 +27,22 @@ actions!(
 
 struct CliArgs {
     input: Option<PathBuf>,
-    output: Option<PathBuf>,
     title: String,
     staff_mode: bool,
     schedule_table: String,
     roommap_table: String,
     prefix_table: String,
-    headless: bool,
 }
 
 fn parse_args() -> CliArgs {
     let args: Vec<String> = std::env::args().collect();
     let mut cli = CliArgs {
         input: None,
-        output: None,
         title: String::new(),
         staff_mode: false,
         schedule_table: "Schedule".to_string(),
         roommap_table: "RoomMap".to_string(),
         prefix_table: "Prefix".to_string(),
-        headless: false,
     };
 
     let mut i = 1;
@@ -59,10 +55,8 @@ fn parse_args() -> CliArgs {
                 }
             }
             "--output" | "-o" => {
-                i += 1;
-                if i < args.len() {
-                    cli.output = Some(PathBuf::from(&args[i]));
-                }
+                eprintln!("--output is not supported by cosam-editor. Use cosam-convert instead.");
+                std::process::exit(1);
             }
             "--title" | "-t" => {
                 i += 1;
@@ -107,10 +101,6 @@ fn parse_args() -> CliArgs {
         i += 1;
     }
 
-    if cli.input.is_some() && cli.output.is_some() {
-        cli.headless = true;
-    }
-
     cli
 }
 
@@ -120,7 +110,6 @@ fn print_usage() {
          \n\
          Options:\n\
          \x20 --input, -i <file>        Input file (.json or .xlsx)\n\
-         \x20 --output, -o <file>       Output JSON file (enables headless convert mode)\n\
          \x20 --title, -t <string>      Event title (for XLSX import)\n\
          \x20 --staff                   Include staff/hidden events\n\
          \x20 --schedule-table <name>   Sheet name for schedule data (default: Schedule)\n\
@@ -128,8 +117,7 @@ fn print_usage() {
          \x20 --prefix-table <name>     Sheet name for panel types (default: Prefix)\n\
          \x20 --help, -h                Show this help message\n\
          \n\
-         Without --output, opens the GUI editor.\n\
-         With both --input and --output, converts without opening the GUI."
+         Use cosam-convert for command-line conversion."
     );
 }
 
@@ -235,44 +223,6 @@ fn open_editor_window(
 fn main() {
     let cli = parse_args();
     let import_options = build_import_options(&cli);
-
-    if cli.headless {
-        let input = cli.input.as_ref().expect("headless mode requires --input");
-        let output = cli
-            .output
-            .as_ref()
-            .expect("headless mode requires --output");
-
-        eprintln!("Reading: {}", input.display());
-        let mut schedule = match Schedule::load_auto(input, &import_options) {
-            Ok(s) => s,
-            Err(e) => {
-                eprintln!("Error loading schedule: {e}");
-                std::process::exit(1);
-            }
-        };
-
-        if !cli.title.is_empty() {
-            schedule.meta.title = cli.title.clone();
-        }
-
-        eprintln!(
-            "Events: {}, Rooms: {}, Panel types: {}, Presenters: {}",
-            schedule.events.len(),
-            schedule.rooms.len(),
-            schedule.panel_types.len(),
-            schedule.presenters.len(),
-        );
-
-        match schedule.save_json(output) {
-            Ok(()) => eprintln!("Written: {}", output.display()),
-            Err(e) => {
-                eprintln!("Error saving: {e}");
-                std::process::exit(1);
-            }
-        }
-        return;
-    }
 
     let input_path = resolve_input(&cli);
     let initial_schedule = match &input_path {

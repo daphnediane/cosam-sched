@@ -32,3 +32,6 @@
 
 # Ignore test year html file
 20[0-9][0-9].html
+
+# Ignore target directory
+/target

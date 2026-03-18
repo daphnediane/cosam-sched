@@ -123,6 +123,30 @@ pub fn import_xlsx(path: &Path, options: &XlsxImportOptions) -> Result<Schedule>
         &file_path_str,
     )?;
 
+    let mut events = events;
+    let mut panel_types = panel_types;
+
+    if !options.staff_mode {
+        let hidden_type_uids: std::collections::HashSet<String> = panel_types
+            .iter()
+            .filter(|panel_type| panel_type.is_hidden && !is_split_prefix(&panel_type.prefix))
+            .map(PanelType::effective_uid)
+            .collect();
+
+        if !hidden_type_uids.is_empty() {
+            events.retain(|event| {
+                event
+                    .panel_type
+                    .as_ref()
+                    .map(|panel_type_uid| !hidden_type_uids.contains(panel_type_uid))
+                    .unwrap_or(true)
+            });
+            panel_types.retain(|panel_type| {
+                !panel_type.is_hidden || is_split_prefix(&panel_type.prefix)
+            });
+        }
+    }
+
     let imported_sheets = ImportedSheetPresence {
         has_room_map: !rooms.is_empty() && rooms.iter().any(|r| r.source.is_some()),
         has_panel_types: !panel_types.is_empty()
@@ -131,7 +155,6 @@ pub fn import_xlsx(path: &Path, options: &XlsxImportOptions) -> Result<Schedule>
         has_schedule: !events.is_empty(),
     };
 
-    let mut panel_types = panel_types;
     let mut used_prefixes = std::collections::HashSet::new();
 
     for event in &events {
@@ -170,7 +193,7 @@ pub fn import_xlsx(path: &Path, options: &XlsxImportOptions) -> Result<Schedule>
     let (panel_types, time_types, timeline, events) =
         convert_split_types_to_timeline(&panel_types, &events);
 
-    Ok(Schedule {
+    let mut schedule = Schedule {
         conflicts: Vec::new(),
         meta: Meta {
             title: options.title.clone(),
@@ -187,7 +210,10 @@ pub fn import_xlsx(path: &Path, options: &XlsxImportOptions) -> Result<Schedule>
         time_types,
         presenters,
         imported_sheets,
-    })
+    };
+
+    super::post_process::apply_schedule_parity(&mut schedule);
+    Ok(schedule)
 }
 
 pub(super) fn canonical_header(header: &str) -> Option<String> {
@@ -1019,7 +1045,10 @@ fn read_events(
         );
 
         let (end_time, duration) = match (end_time_from_cell, duration_minutes) {
-            (Some(et), Some(d)) => (et, d),
+            (Some(et), Some(_)) => {
+                let diff = (et - start_time).num_minutes().max(0) as u32;
+                (et, diff)
+            }
             (Some(et), None) => {
                 let diff = (et - start_time).num_minutes().max(0) as u32;
                 (et, diff)

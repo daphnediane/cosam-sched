@@ -12,6 +12,16 @@ This project is a rewrite of and based on the original [schedule-to-html](https:
 
 Two components:
 
+## Repository Layout
+
+- `editor/` — Rust workspace member containing:
+  - `cosam-editor` (GUI binary)
+  - `cosam-convert` (CLI binary)
+  - shared `data` library module used by both binaries
+- `widget/` — embeddable JavaScript/CSS calendar widget
+- `work-plan/` — individual work plan items and generation scripts
+- `converter/` — legacy Perl converter (kept during migration)
+
 ## Converter (`converter/`)
 
 Perl tool that reads a schedule spreadsheet (XLSX) and produces a `schedule.json` database.
@@ -30,6 +40,37 @@ cpanm --installdeps .
 ```
 
 Key dependency: `Spreadsheet::ParseXLSX` for reading `.xlsx` files.
+
+## Editor + Rust CLI (`editor/`)
+
+Rust project with two binaries that share the same data import/export pipeline:
+
+- `cosam-editor` — GUI editor for interactive schedule editing
+- `cosam-convert` — command-line converter for XLSX/JSON to schedule JSON output
+
+### Rust CLI usage
+
+```bash
+cargo run --manifest-path editor/Cargo.toml --bin cosam-convert -- \
+  --input path/to/schedule.xlsx \
+  --output widget/2026-editor.json \
+  --title "Cosplay America 2026"
+```
+
+### Build for macOS and Windows
+
+Use the helper script:
+
+```bash
+./scripts/build-rust-targets.sh
+```
+
+Prerequisites for Windows cross-build on macOS:
+
+```bash
+rustup target add x86_64-pc-windows-gnu
+sudo port install mingw-w64
+```
 
 ### Spreadsheet Format
 

@@ -35,10 +35,10 @@ for year in $(seq 2016 $(date +%Y)); do
         built+=("${year}.json (Perl converter)") ||
         built+=("${year}.json (Perl converter) - FAILED")
 
-    echo "  Building ${year}-editor.json with Rust editor..."
-    cargo run -- --input "$src" --output ../widget/${year}-editor.json --title "Cosplay America ${year} Schedule" &&
-        built+=("${year}-editor.json (Rust editor)") ||
-        built+=("${year}-editor.json (Rust editor) - FAILED")
+    echo "  Building ${year}-editor.json with Rust converter CLI..."
+    cargo run --bin cosam-convert -- --input "$src" --output ../widget/${year}-editor.json --title "Cosplay America ${year} Schedule" &&
+        built+=("${year}-editor.json (Rust converter CLI)") ||
+        built+=("${year}-editor.json (Rust converter CLI) - FAILED")
 
 done
 

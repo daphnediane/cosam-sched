@@ -11,6 +11,7 @@ Work items are stored as individual markdown files in the `work-plan/` directory
 - **UI** - User interface improvements and visual changes
 - **PERFORMANCE** - Optimizations and performance improvements
 - **DOCS** - Documentation updates
+- **CLEANUP** - Repository structure and technical debt cleanup
 - **REFACTOR** - Code restructuring without functional changes
 - **TEST** - Test additions or improvements
 - **EDITOR** - Desktop schedule editor application (Rust/GPUI)

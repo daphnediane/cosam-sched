@@ -1,6 +1,6 @@
 # Cosplay America Schedule - Work Plan
 
-Generated on: Mon Mar 16 23:23:39 2026
+Generated on: Tue Mar 17 22:33:07 2026
 
 ## Completed
 
@@ -24,7 +24,7 @@ Generated on: Mon Mar 16 23:23:39 2026
 
 ## Summary of Open Items
 
-**Total open items:** 20
+**Total open items:** 22
 
 * **High Priority**
   * [ACCESSIBILITY-001](work-plan/ACCESSIBILITY-001.md) Implement comprehensive accessibility improvements for screen readers and color blindness support.
@@ -37,10 +37,12 @@ Generated on: Mon Mar 16 23:23:39 2026
   * [UI-002](work-plan/UI-002.md) Prevent event titles from overlapping with the "my schedule" star icon.
 
 * **Medium Priority**
+  * [CLEANUP-001](work-plan/CLEANUP-001.md) Define and execute a staged cleanup plan to move project planning and generated planning outputs under `docs/`, centralize maintenance scripts/tools, and retire legacy Perl conversion code once Rust parity is fully validated.
   * [EDITOR-503](work-plan/EDITOR-503.md) Detect and highlight scheduling conflicts between events.
   * [EDITOR-505](work-plan/EDITOR-505.md) Enable drag-and-drop to move events between time slots and rooms.
   * [EDITOR-506](work-plan/EDITOR-506.md) Implement undo/redo for all editing operations.
   * [EDITOR-509](work-plan/EDITOR-509.md) Package the editor as standalone executables for macOS, Windows, and Linux.
+  * [EDITOR-510](work-plan/EDITOR-510.md) Define how multiple people and devices can safely edit a single schedule with conflict handling independent of any specific storage backend.
   * [FEATURE-006](work-plan/FEATURE-006.md) Create a compact print format optimized for minimal paper usage.
   * [UI-005](work-plan/UI-005.md) Add sticky headers or repeat day headers between time blocks in grid view for better navigation.
   * [UI-006](work-plan/UI-006.md) Add visual indicators to the schedule widget to highlight conflicting events, making it easy for users to identify and understand scheduling conflicts.
@@ -173,6 +175,18 @@ The 2025 schedule shows this pattern:
 
 ## Open Medium Priority Items
 
+### [CLEANUP-001] Repository Layout and Legacy Cleanup Plan
+
+**Status:** Open
+
+**Summary:** Define and execute a staged cleanup plan to move project planning and generated planning outputs under `docs/`, centralize maintenance scripts/tools, and retire legacy Perl conversion code once Rust parity is fully validated.
+
+**Description:** Capture the deferred repository reorganization work so it can be completed in one focused pass after current parity and build goals are stabilized. This cleanup should improve top-level repo clarity, reduce mixed-purpose script placement, and formalize retirement steps for legacy Perl tooling.
+
+*See full details in: [work-plan/CLEANUP-001.md](work-plan/CLEANUP-001.md)*
+
+---
+
 ### [EDITOR-503] Conflict Detection
 
 **Status:** Open
@@ -218,6 +232,18 @@ The 2025 schedule shows this pattern:
 **Description:** Set up build and packaging pipelines to produce distributable application bundles. Users should be able to download and run the editor without installing Rust or other development tools.
 
 *See full details in: [work-plan/EDITOR-509.md](work-plan/EDITOR-509.md)*
+
+---
+
+### [EDITOR-510] Multi-Device Schedule Sync Strategy
+
+**Status:** Open
+
+**Summary:** Define how multiple people and devices can safely edit a single schedule with conflict handling independent of any specific storage backend.
+
+**Description:** Design the synchronization and conflict-resolution model for concurrent editing across desktop clients. This is intentionally backend-agnostic so it can support Google Sheets, OneDrive, or future storage options without rewriting core merge behavior.
+
+*See full details in: [work-plan/EDITOR-510.md](work-plan/EDITOR-510.md)*
 
 ---
 
@@ -292,7 +318,9 @@ Based on the 2025 schedule data, conflicts include:
 
 **Summary:** Support reading from and writing to Google Sheets.
 
-**Description:** Enable the editor to connect to Google Sheets for collaborative schedule management. This allows multiple staff members to work from a shared spreadsheet while using the editor for visualization and conflict detection.
+**Description:** Enable the editor and converter CLI to read and write schedule data via Google Sheets, while keeping this item focused on transport/authentication and schema parity rather than multi-device sync strategy.
+
+Current state: the Perl converter has an unverified Google Sheets path and has not been production-tested for this workflow. Rust support should include explicit validation against real sheets before considering this complete.
 
 *See full details in: [work-plan/EDITOR-507.md](work-plan/EDITOR-507.md)*
 
