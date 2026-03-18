@@ -50,7 +50,7 @@ Upload `cosam-calendar.css`, `cosam-calendar.js`, and your `schedule.json` to a 
 
 ## Local Development
 
-```
+```bash
 cd widget
 python3 -m http.server 8080
 # Open http://localhost:8080/embed.html
