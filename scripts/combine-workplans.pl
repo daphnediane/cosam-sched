@@ -6,10 +6,21 @@
 use strict;
 use warnings;
 use File::Find;
+use FindBin;
+use File::Spec;
+
+# Get script directory and project root
+my $script_dir = $FindBin::Bin;
+my $root_dir = "$script_dir/..";
 
 # Configuration
-my $workplan_dir = 'docs/work-plan';
-my $output_file = 'docs/WORK_PLAN.md';
+my $workplan_dir = "$root_dir/docs/work-plan";
+my $output_file = "$root_dir/docs/WORK_PLAN.md";
+
+# Calculate relative path from output file to workplan directory
+my $relative_workplan_path = File::Spec->abs2rel($workplan_dir, "$root_dir/docs");
+# Convert forward slashes to forward slashes for markdown consistency
+$relative_workplan_path =~ s/\\/\//g;
 
 # Priority order
 my %priority_order = (
@@ -22,7 +33,7 @@ my %priority_order = (
 my @files;
 find(sub {
     return unless -f && /\.md$/;
-    return if $File::Find::name =~ /combine_workplans\.pl$/;
+    return if $File::Find::name =~ /combine-workplans\.pl$/;
     push @files, $File::Find::name;
 }, $workplan_dir);
 
@@ -91,8 +102,8 @@ if (@completed) {
     print $out "## Completed\n\n";
     
     for my $item (sort { $a->{prefix} cmp $b->{prefix} || $a->{num} <=> $b->{num} } @completed) {
-        my $relative_file = $item->{file};
-        $relative_file =~ s{^docs/}{};
+        my $filename = "$item->{prefix}-$item->{num}.md";
+        my $relative_file = "$relative_workplan_path/$filename";
         print $out "* [$item->{prefix}-$item->{num}]($relative_file) $item->{summary}\n";
     }
     
@@ -118,8 +129,8 @@ if (@open) {
         print $out "* **$priority Priority**\n";
         
         for my $item (sort { $a->{prefix} cmp $b->{prefix} || $a->{num} <=> $b->{num} } @{$by_priority{$priority}}) {
-            my $relative_file = $item->{file};
-            $relative_file =~ s{^docs/}{};
+            my $filename = "$item->{prefix}-$item->{num}.md";
+            my $relative_file = "$relative_workplan_path/$filename";
             print $out "  * [$item->{prefix}-$item->{num}]($relative_file) $item->{summary}\n";
         }
         
@@ -149,8 +160,8 @@ for my $priority (qw(High Medium Low)) {
         print $out "**Description:** $item->{description}\n\n";
         
         # Add link to full file
-        my $relative_file = $item->{file};
-        $relative_file =~ s{^docs/}{};
+        my $filename = "$item->{prefix}-$item->{num}.md";
+        my $relative_file = "$relative_workplan_path/$filename";
         print $out "*See full details in: [$relative_file]($relative_file)*\n\n";
         
         # Add separator, but not after the last item
