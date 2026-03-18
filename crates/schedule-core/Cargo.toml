@@ -4,6 +4,7 @@ version = "0.1.0"
 edition = "2024"
 description = "Shared schedule data and conversion logic for Cosplay America"
 license = "BSD-2-Clause"
+authors = ["Daphne Pfister"]
 
 [lib]
 path = "src/lib.rs"

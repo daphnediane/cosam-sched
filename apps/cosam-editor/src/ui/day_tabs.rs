@@ -1,3 +1,9 @@
+/*
+ * Copyright (c) 2026 Daphne Pfister
+ * SPDX-License-Identifier: BSD-2-Clause
+ * See LICENSE file for full license text
+ */
+
 use chrono::NaiveDate;
 use gpui::prelude::*;
 use gpui::{Context, EventEmitter, MouseButton, SharedString, Window, div, px, rgb};

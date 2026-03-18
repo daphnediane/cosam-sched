@@ -4,6 +4,7 @@ version = "0.1.0"
 edition = "2024"
 description = "Desktop schedule editor for Cosplay America"
 license = "BSD-2-Clause"
+authors = ["Daphne Pfister"]
 
 [[bin]]
 name = "cosam-editor"
