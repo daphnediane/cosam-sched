@@ -1,4 +1,5 @@
 pub mod event;
+pub mod json_export_mode;
 pub mod panel_type;
 pub mod post_process;
 pub mod presenter;
@@ -11,6 +12,7 @@ pub mod xlsx_import;
 pub mod xlsx_update;
 
 pub use event::Event;
+pub use json_export_mode::JsonExportMode;
 pub use panel_type::PanelType;
 pub use post_process::apply_schedule_parity;
 pub use presenter::Presenter;

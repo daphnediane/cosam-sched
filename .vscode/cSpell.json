@@ -3,9 +3,13 @@
     "language": "en",
     "words": [
         "ARRAYFORMULA",
+        "arrayref",
         "binmode",
         "byday",
+        "chrono",
+        "clippy",
         "cosam",
+        "cpufeatures",
         "dpfister",
         "Getopt",
         "gjsip",

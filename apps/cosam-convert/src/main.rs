@@ -1,12 +1,12 @@
 use std::path::PathBuf;
 
-use schedule_core::data::{Schedule, XlsxImportOptions};
+use schedule_core::data::{Schedule, XlsxImportOptions, JsonExportMode};
 
 struct CliArgs {
     input: PathBuf,
     output: PathBuf,
     title: String,
-    staff_mode: bool,
+    export_mode: JsonExportMode,
     schedule_table: String,
     roommap_table: String,
     prefix_table: String,
@@ -18,7 +18,7 @@ fn parse_args() -> anyhow::Result<CliArgs> {
     let mut input: Option<PathBuf> = None;
     let mut output = PathBuf::from("schedule.json");
     let mut title = String::new();
-    let mut staff_mode = false;
+    let mut export_mode = JsonExportMode::Public;
     let mut schedule_table = "Schedule".to_string();
     let mut roommap_table = "RoomMap".to_string();
     let mut prefix_table = "Prefix".to_string();
@@ -77,7 +77,7 @@ fn parse_args() -> anyhow::Result<CliArgs> {
                 config_file = Some(PathBuf::from(&arguments[index]));
             }
             "--staff" => {
-                staff_mode = true;
+                export_mode = JsonExportMode::Staff;
             }
             "--help" | "-h" => {
                 print_usage();
@@ -102,7 +102,7 @@ fn parse_args() -> anyhow::Result<CliArgs> {
         input,
         output,
         title,
-        staff_mode,
+        export_mode,
         schedule_table,
         roommap_table,
         prefix_table,
@@ -133,7 +133,6 @@ fn build_import_options(cli: &CliArgs) -> XlsxImportOptions {
         } else {
             cli.title.clone()
         },
-        staff_mode: cli.staff_mode,
         schedule_table: cli.schedule_table.clone(),
         rooms_table: cli.roommap_table.clone(),
         panel_types_table: cli.prefix_table.clone(),
@@ -179,7 +178,7 @@ fn main() {
         schedule.presenters.len()
     );
 
-    match schedule.save_json(&cli.output) {
+    match schedule.save_json_with_mode(&cli.output, cli.export_mode) {
         Ok(()) => eprintln!("Written: {}", cli.output.display()),
         Err(error) => {
             eprintln!("Error saving: {error}");

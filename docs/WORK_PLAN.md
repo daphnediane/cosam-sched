@@ -1,6 +1,6 @@
 # Cosplay America Schedule - Work Plan
 
-Generated on: Tue Mar 17 23:36:03 2026
+Generated on: Wed Mar 18 00:34:54 2026
 
 ## Completed
 
@@ -313,10 +313,10 @@ Current state: the Perl converter has an unverified Google Sheets path and has n
 
 Legacy implementation notes from the removed Perl-era docs are archived in branch `feature/final-perl-converter` (`GOOGLE_SHEETS.md`, `google-sheets-config.example.yaml`). Key takeaways to carry forward for Rust:
 
-- OAuth 2.0 credentials flow with explicit token-file handling
-- Support direct Google Sheets URLs and robust spreadsheet ID extraction
-- Handle both formal table metadata and heuristic range detection
-- Validate auth, permissions, and error-path UX before calling the feature production-ready
+* OAuth 2.0 credentials flow with explicit token-file handling
+* Support direct Google Sheets URLs and robust spreadsheet ID extraction
+* Handle both formal table metadata and heuristic range detection
+* Validate auth, permissions, and error-path UX before calling the feature production-ready
 
 *See full details in: [work-plan/EDITOR-507.md](work-plan/EDITOR-507.md)*
 

@@ -17,7 +17,6 @@ use super::timeline::{TimeType, TimelineEntry};
 
 pub struct XlsxImportOptions {
     pub title: String,
-    pub staff_mode: bool,
     pub schedule_table: String,
     pub rooms_table: String,
     pub panel_types_table: String,
@@ -27,7 +26,6 @@ impl Default for XlsxImportOptions {
     fn default() -> Self {
         Self {
             title: "Event Schedule".to_string(),
-            staff_mode: false,
             schedule_table: "Schedule".to_string(),
             rooms_table: "RoomMap".to_string(),
             panel_types_table: "Prefix".to_string(),
@@ -123,29 +121,7 @@ pub fn import_xlsx(path: &Path, options: &XlsxImportOptions) -> Result<Schedule>
         &file_path_str,
     )?;
 
-    let mut events = events;
     let mut panel_types = panel_types;
-
-    if !options.staff_mode {
-        let hidden_type_uids: std::collections::HashSet<String> = panel_types
-            .iter()
-            .filter(|panel_type| panel_type.is_hidden && !is_split_prefix(&panel_type.prefix))
-            .map(PanelType::effective_uid)
-            .collect();
-
-        if !hidden_type_uids.is_empty() {
-            events.retain(|event| {
-                event
-                    .panel_type
-                    .as_ref()
-                    .map(|panel_type_uid| !hidden_type_uids.contains(panel_type_uid))
-                    .unwrap_or(true)
-            });
-            panel_types.retain(|panel_type| {
-                !panel_type.is_hidden || is_split_prefix(&panel_type.prefix)
-            });
-        }
-    }
 
     let imported_sheets = ImportedSheetPresence {
         has_room_map: !rooms.is_empty() && rooms.iter().any(|r| r.source.is_some()),

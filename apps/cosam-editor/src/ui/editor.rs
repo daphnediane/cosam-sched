@@ -7,7 +7,7 @@ use gpui::{
     div, px, rgb,
 };
 
-use crate::data::Schedule;
+use crate::data::{Schedule, JsonExportMode};
 use crate::data::xlsx_export;
 use crate::data::xlsx_import::XlsxImportOptions;
 use crate::data::xlsx_update;
@@ -45,7 +45,6 @@ impl ScheduleEditor {
     pub fn new(
         schedule: Option<Schedule>,
         path: Option<PathBuf>,
-        _staff_mode: bool, // Parameter kept for compatibility but unused
         cx: &mut Context<Self>,
     ) -> Self {
         let days = schedule.as_ref().map(|s| s.days()).unwrap_or_default();
@@ -200,7 +199,6 @@ impl ScheduleEditor {
             }
 
             let import_options = XlsxImportOptions {
-                staff_mode: false, // Always use full mode now
                 ..XlsxImportOptions::default()
             };
 
@@ -268,8 +266,7 @@ impl ScheduleEditor {
             let (result, file_type) = if ext == "xlsx" {
                 (xlsx_export::export_to_xlsx(&schedule_clone, &path), FileType::Xlsx)
             } else {
-                let mut json_schedule = schedule_clone;
-                (json_schedule.save_json(&path), FileType::Json)
+                (schedule_clone.save_json_with_mode(&path, JsonExportMode::Staff), FileType::Json)
             };
 
             cx.update(|cx| {
@@ -401,7 +398,7 @@ impl ScheduleEditor {
                 }
                 update_result
             } else {
-                schedule_clone.save_json(&path_clone)
+                schedule_clone.save_json_with_mode(&path_clone, JsonExportMode::Staff)
             };
 
             cx.update(|cx| {
@@ -465,29 +462,14 @@ impl ScheduleEditor {
 
         let receiver = cx.prompt_for_new_path(default_dir, Some(&suggested_name));
 
-        let mut schedule_clone = schedule.clone();
+        let schedule_clone = schedule.clone();
 
         cx.spawn(async move |this, cx| {
             let Ok(Ok(Some(path))) = receiver.await else {
                 return;
             };
 
-            let hidden_panel_type_uids = schedule_clone
-                .panel_types
-                .iter()
-                .filter(|panel_type| panel_type.is_hidden)
-                .map(|panel_type| panel_type.effective_uid())
-                .collect::<std::collections::HashSet<_>>();
-
-            schedule_clone.events.retain(|event| {
-                let is_hidden_panel_type = event
-                    .panel_type
-                    .as_ref()
-                    .is_some_and(|panel_type_uid| hidden_panel_type_uids.contains(panel_type_uid));
-                !is_hidden_panel_type
-            });
-
-            let result = schedule_clone.save_json(&path);
+            let result = schedule_clone.save_json_with_mode(&path, JsonExportMode::Public);
 
             cx.update(|cx| {
                 this.update(cx, |editor, cx| match result {

@@ -87,7 +87,23 @@ impl Schedule {
         }
     }
 
-    pub fn save_json(&mut self, path: &Path) -> Result<()> {
+    pub fn save_json(&self, path: &Path) -> Result<()> {
+        self.clone().save_json_to_file(path)
+    }
+
+    pub fn save_json_with_mode(&self, path: &Path, mode: super::JsonExportMode) -> Result<()> {
+        // Get the schedule to save (filtered if needed)
+        let mut schedule_to_save = if mode == super::JsonExportMode::Public {
+            self.filter_for_public_export()
+        } else {
+            self.clone()
+        };
+        
+        // Save the filtered/unfiltered schedule
+        schedule_to_save.save_json_to_file(path)
+    }
+    
+    fn save_json_to_file(&mut self, path: &Path) -> Result<()> {
         self.meta.generated = chrono::Utc::now().format("%Y-%m-%dT%H:%M:%SZ").to_string();
         self.meta.version = Some(4);
         self.meta.generator = Some(format!("cosam-editor {}", env!("CARGO_PKG_VERSION")));
@@ -104,6 +120,32 @@ impl Schedule {
         std::fs::write(path, json.as_bytes())
             .with_context(|| format!("Failed to write {}", path.display()))?;
         Ok(())
+    }
+
+    fn filter_for_public_export(&self) -> Schedule {
+        let mut schedule = self.clone();
+
+        let hidden_type_uids: std::collections::HashSet<String> = schedule
+            .panel_types
+            .iter()
+            .filter(|panel_type| panel_type.is_hidden)
+            .map(|panel_type| panel_type.effective_uid())
+            .collect();
+
+        if !hidden_type_uids.is_empty() {
+            schedule.events.retain(|event| {
+                event
+                    .panel_type
+                    .as_ref()
+                    .map(|panel_type_uid| !hidden_type_uids.contains(panel_type_uid))
+                    .unwrap_or(true)
+            });
+            schedule.panel_types.retain(|panel_type| {
+                !panel_type.is_hidden
+            });
+        }
+
+        schedule
     }
 
     /// Calculate schedule start and end times from events and timeline entries
@@ -394,5 +436,174 @@ mod tests {
         let result = Schedule::load(&path);
         assert!(result.is_err());
         let _ = std::fs::remove_file(&path);
+    }
+
+    #[test]
+    fn test_json_export_mode_filtering() {
+        let mut schedule = Schedule {
+            conflicts: Vec::new(),
+            meta: super::Meta {
+                title: "Test Schedule".to_string(),
+                generated: "2024-01-01T00:00:00Z".to_string(),
+                version: Some(2),
+                generator: None,
+                start_time: None,
+                end_time: None,
+            },
+            timeline: Vec::new(),
+            events: Vec::new(),
+            rooms: Vec::new(),
+            panel_types: Vec::new(),
+            time_types: Vec::new(),
+            presenters: Vec::new(),
+            imported_sheets: Default::default(),
+        };
+        
+        // Add some panel types
+        schedule.panel_types.push(super::PanelType {
+            uid: Some("panel-type-public".to_string()),
+            prefix: "PUB".to_string(),
+            kind: "Public".to_string(),
+            is_hidden: false,
+            color: None,
+            is_break: false,
+            is_cafe: false,
+            is_workshop: false,
+            is_room_hours: false,
+            bw_color: None,
+            source: None,
+            change_state: Default::default(),
+        });
+        
+        schedule.panel_types.push(super::PanelType {
+            uid: Some("panel-type-hidden".to_string()),
+            prefix: "HID".to_string(),
+            kind: "Hidden".to_string(),
+            is_hidden: true,
+            color: None,
+            is_break: false,
+            is_cafe: false,
+            is_workshop: false,
+            is_room_hours: false,
+            bw_color: None,
+            source: None,
+            change_state: Default::default(),
+        });
+        
+        schedule.panel_types.push(super::PanelType {
+            uid: Some("panel-type-split".to_string()),
+            prefix: "SPLIT".to_string(),
+            kind: "Split".to_string(),
+            is_hidden: true, // Even though hidden, splits should be handled normally
+            color: None,
+            is_break: false,
+            is_cafe: false,
+            is_workshop: false,
+            is_room_hours: false,
+            bw_color: None,
+            source: None,
+            change_state: Default::default(),
+        });
+        
+        // Add events for each panel type
+        let base_time = chrono::NaiveDateTime::parse_from_str("2024-01-01T10:00:00", "%Y-%m-%dT%H:%M:%S").unwrap();
+        
+        schedule.events.push(super::Event {
+            id: "event-public".to_string(),
+            name: "Public Event".to_string(),
+            description: None,
+            start_time: base_time,
+            end_time: base_time + chrono::Duration::hours(1),
+            duration: 60,
+            room_id: None,
+            panel_type: Some("panel-type-public".to_string()),
+            cost: None,
+            capacity: None,
+            difficulty: None,
+            note: None,
+            prereq: None,
+            ticket_url: None,
+            presenters: Vec::new(),
+            credits: Vec::new(),
+            conflicts: Vec::new(),
+            is_free: false,
+            is_full: false,
+            is_kids: false,
+            hide_panelist: false,
+            alt_panelist: None,
+            source: None,
+            change_state: Default::default(),
+        });
+        
+        schedule.events.push(super::Event {
+            id: "event-hidden".to_string(),
+            name: "Hidden Event".to_string(),
+            description: None,
+            start_time: base_time + chrono::Duration::hours(2),
+            end_time: base_time + chrono::Duration::hours(3),
+            duration: 60,
+            room_id: None,
+            panel_type: Some("panel-type-hidden".to_string()),
+            cost: None,
+            capacity: None,
+            difficulty: None,
+            note: None,
+            prereq: None,
+            ticket_url: None,
+            presenters: Vec::new(),
+            credits: Vec::new(),
+            conflicts: Vec::new(),
+            is_free: false,
+            is_full: false,
+            is_kids: false,
+            hide_panelist: false,
+            alt_panelist: None,
+            source: None,
+            change_state: Default::default(),
+        });
+        
+        schedule.events.push(super::Event {
+            id: "event-split".to_string(),
+            name: "Split Event".to_string(),
+            description: None,
+            start_time: base_time + chrono::Duration::hours(4),
+            end_time: base_time + chrono::Duration::hours(5),
+            duration: 60,
+            room_id: None,
+            panel_type: Some("panel-type-split".to_string()),
+            cost: None,
+            capacity: None,
+            difficulty: None,
+            note: None,
+            prereq: None,
+            ticket_url: None,
+            presenters: Vec::new(),
+            credits: Vec::new(),
+            conflicts: Vec::new(),
+            is_free: false,
+            is_full: false,
+            is_kids: false,
+            hide_panelist: false,
+            alt_panelist: None,
+            source: None,
+            change_state: Default::default(),
+        });
+        
+        // Test filtering directly
+        let filtered_schedule = schedule.filter_for_public_export();
+        assert_eq!(filtered_schedule.panel_types.len(), 1); // Only public panel type
+        assert_eq!(filtered_schedule.events.len(), 1); // Only event with public panel type
+        
+        // Verify the correct panel type remains
+        assert_eq!(filtered_schedule.panel_types[0].uid, Some("panel-type-public".to_string()));
+        assert_eq!(filtered_schedule.events[0].panel_type, Some("panel-type-public".to_string()));
+        
+        // Test that hidden panel types are filtered out
+        assert!(!filtered_schedule.panel_types.iter().any(|pt| pt.is_hidden));
+        assert!(!filtered_schedule.events.iter().any(|e| {
+            e.panel_type.as_ref().map_or(false, |uid| {
+                uid == "panel-type-hidden" || uid == "panel-type-split"
+            })
+        }));
     }
 }

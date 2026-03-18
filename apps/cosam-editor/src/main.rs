@@ -28,7 +28,6 @@ actions!(
 struct CliArgs {
     input: Option<PathBuf>,
     title: String,
-    staff_mode: bool,
     schedule_table: String,
     roommap_table: String,
     prefix_table: String,
@@ -39,7 +38,6 @@ fn parse_args() -> CliArgs {
     let mut cli = CliArgs {
         input: None,
         title: String::new(),
-        staff_mode: false,
         schedule_table: "Schedule".to_string(),
         roommap_table: "RoomMap".to_string(),
         prefix_table: "Prefix".to_string(),
@@ -64,10 +62,7 @@ fn parse_args() -> CliArgs {
                     cli.title = args[i].clone();
                 }
             }
-            "--staff" => {
-                cli.staff_mode = true;
-            }
-            "--schedule-table" => {
+                        "--schedule-table" => {
                 i += 1;
                 if i < args.len() {
                     cli.schedule_table = args[i].clone();
@@ -111,7 +106,6 @@ fn print_usage() {
          Options:\n\
          \x20 --input, -i <file>        Input file (.json or .xlsx)\n\
          \x20 --title, -t <string>      Event title (for XLSX import)\n\
-         \x20 --staff                   Include staff/hidden events\n\
          \x20 --schedule-table <name>   Sheet name for schedule data (default: Schedule)\n\
          \x20 --roommap-table <name>    Sheet name for room mapping (default: RoomMap)\n\
          \x20 --prefix-table <name>     Sheet name for panel types (default: Prefix)\n\
@@ -128,7 +122,6 @@ fn build_import_options(cli: &CliArgs) -> XlsxImportOptions {
         } else {
             cli.title.clone()
         },
-        staff_mode: cli.staff_mode,
         schedule_table: cli.schedule_table.clone(),
         rooms_table: cli.roommap_table.clone(),
         panel_types_table: cli.prefix_table.clone(),
@@ -200,7 +193,6 @@ fn close_window(_: &CloseWindow, cx: &mut App) {
 fn open_editor_window(
     initial_schedule: Option<Schedule>,
     input_path: Option<PathBuf>,
-    staff_mode: bool,
     cx: &mut App,
 ) -> anyhow::Result<()> {
     let bounds = Bounds::centered(None, size(px(1200.), px(800.)), cx);
@@ -211,7 +203,7 @@ fn open_editor_window(
         },
         move |window, cx| {
             let editor = cx.new(|cx| {
-                ScheduleEditor::new(initial_schedule.clone(), input_path.clone(), staff_mode, cx)
+                ScheduleEditor::new(initial_schedule.clone(), input_path.clone(), cx)
             });
             window.focus(&editor.focus_handle(cx));
             editor
@@ -236,8 +228,7 @@ fn main() {
         None => None,
     };
 
-    let staff_mode = cli.staff_mode;
-
+    
     Application::new().run(move |cx: &mut App| {
         // Register app-level handlers and keybindings
         cx.on_action(quit);
@@ -252,7 +243,6 @@ fn main() {
             let _ = open_editor_window(
                 initial_schedule_for_new_window.clone(),
                 input_path_for_new_window.clone(),
-                staff_mode,
                 cx,
             );
         });
@@ -267,7 +257,7 @@ fn main() {
 
         // Set up menus globally
         set_app_menus(cx);
-        open_editor_window(initial_schedule.clone(), input_path.clone(), staff_mode, cx)
+        open_editor_window(initial_schedule.clone(), input_path.clone(), cx)
             .expect("Failed to open window");
     });
 }
