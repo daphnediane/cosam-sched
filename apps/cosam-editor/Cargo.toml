@@ -12,6 +12,8 @@ path = "src/main.rs"
 
 [dependencies]
 gpui = "0.2"
+gpui-component = "0.5"
+gpui-component-assets = "0.5"
 anyhow = "1"
 chrono = { version = "0.4", features = ["serde"] }
 rfd = "0.15"

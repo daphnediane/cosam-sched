@@ -24,5 +24,9 @@ pub(super) fn menus() -> Vec<Menu> {
             name: "File".into(),
             items: super::file_menu_items(false),
         },
+        Menu {
+            name: "Edit".into(),
+            items: super::edit_menu_items(),
+        },
     ]
 }

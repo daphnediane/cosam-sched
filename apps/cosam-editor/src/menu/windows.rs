@@ -6,15 +6,20 @@
 
 use gpui::prelude::*;
 use gpui::{
-    Context, Menu, OwnedMenu, OwnedMenuItem, SharedString, Window, anchored, deferred, div, px,
-    rgb,
+    Context, Menu, OwnedMenu, OwnedMenuItem, SharedString, Window, anchored, deferred, div, px, rgb,
 };
 
 pub(super) fn menus() -> Vec<Menu> {
-    vec![Menu {
-        name: "File".into(),
-        items: super::file_menu_items(true),
-    }]
+    vec![
+        Menu {
+            name: "File".into(),
+            items: super::file_menu_items(true),
+        },
+        Menu {
+            name: "Edit".into(),
+            items: super::edit_menu_items(),
+        },
+    ]
 }
 
 pub struct WindowsMenuBar {
@@ -80,13 +85,11 @@ impl WindowsMenuBar {
                         );
                     }
 
-                    popup = popup.child(
-                        row.on_click(cx.listener(move |this, _, window, cx| {
-                            this.open_menu_index = None;
-                            cx.notify();
-                            window.dispatch_action(action.boxed_clone(), cx);
-                        })),
-                    );
+                    popup = popup.child(row.on_click(cx.listener(move |this, _, window, cx| {
+                        this.open_menu_index = None;
+                        cx.notify();
+                        window.dispatch_action(action.boxed_clone(), cx);
+                    })));
                 }
                 OwnedMenuItem::Submenu(_) | OwnedMenuItem::SystemMenu(_) => {}
             }

@@ -13,6 +13,13 @@ mod windows;
 #[cfg(not(target_os = "macos"))]
 pub use windows::WindowsMenuBar;
 
+pub(super) fn edit_menu_items() -> Vec<MenuItem> {
+    vec![
+        MenuItem::action("Undo", crate::EditUndo),
+        MenuItem::action("Redo", crate::EditRedo),
+    ]
+}
+
 fn file_menu_items(include_exit: bool) -> Vec<MenuItem> {
     let mut file_items = vec![
         MenuItem::action("New Window", crate::NewWindow),

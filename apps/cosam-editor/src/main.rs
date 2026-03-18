@@ -12,14 +12,15 @@ mod ui;
 
 use gpui::prelude::*;
 use gpui::{
-    App, Application, Bounds, Focusable, TitlebarOptions, WindowBounds, WindowOptions, actions,
-    px, size,
+    App, Application, Bounds, Focusable, TitlebarOptions, WindowBounds, WindowOptions, actions, px,
+    size,
 };
+use gpui_component::Root;
 
 pub use schedule_core::data;
 use schedule_core::data::{Schedule, XlsxImportOptions};
-use ui::editor::{FileExportPublicJson, FileOpen, FileSave, FileSaveAs};
 use ui::ScheduleEditor;
+use ui::editor::{EditRedo, EditUndo, FileExportPublicJson, FileOpen, FileSave, FileSaveAs};
 
 actions!(
     main,
@@ -186,15 +187,12 @@ fn open_editor_window(
         });
     }
 
-    cx.open_window(
-        window_options,
-        move |window, cx| {
-            let editor =
-                cx.new(|cx| ScheduleEditor::new(initial_schedule.clone(), input_path.clone(), cx));
-            window.focus(&editor.focus_handle(cx));
-            editor
-        },
-    )?;
+    cx.open_window(window_options, move |window, cx| {
+        let editor =
+            cx.new(|cx| ScheduleEditor::new(initial_schedule.clone(), input_path.clone(), cx));
+        window.focus(&editor.focus_handle(cx));
+        cx.new(|cx| Root::new(editor, window, cx))
+    })?;
     Ok(())
 }
 
@@ -215,6 +213,7 @@ fn main() {
     };
 
     Application::new().run(move |cx: &mut App| {
+        gpui_component::init(cx);
         // Register app-level handlers and keybindings
         cx.on_action(quit);
         cx.on_action(hide_app);

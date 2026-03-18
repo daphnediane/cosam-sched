@@ -20,6 +20,8 @@ pub fn bind_app_shortcuts(cx: &mut App) {
         KeyBinding::new("secondary-n", crate::NewWindow, None),
         KeyBinding::new("secondary-w", crate::CloseWindow, None),
         KeyBinding::new("secondary-q", crate::Quit, None),
+        KeyBinding::new("secondary-z", crate::EditUndo, None),
+        KeyBinding::new("secondary-shift-z", crate::EditRedo, None),
     ]);
 
     #[cfg(target_os = "macos")]

@@ -9,17 +9,21 @@ use std::path::PathBuf;
 use chrono::NaiveDate;
 use gpui::prelude::*;
 use gpui::{
-    App, Context, Entity, FocusHandle, Focusable, SharedString, Window, actions,
-    div, px, rgb,
+    App, Context, Entity, FocusHandle, Focusable, SharedString, Window, actions, div, px, rgb,
 };
+use gpui_component::resizable::{h_resizable, resizable_panel};
 
+use crate::data::source_info::ChangeState;
 use crate::data::xlsx_export;
 use crate::data::xlsx_import::XlsxImportOptions;
 use crate::data::xlsx_update;
-use crate::data::{JsonExportMode, Schedule};
+use crate::data::{Event, JsonExportMode, Schedule};
 use crate::ui::day_tabs::{DayTabEvent, DayTabs};
-use crate::ui::event_card::EventCard;
+use crate::ui::detail_pane::{DetailPane, DetailPaneEvent, DetailPaneMode};
+use crate::ui::event_card::{EventCard, EventCardEvent};
 use crate::ui::sidebar::{RoomEntry, Sidebar, SidebarEvent};
+
+const MAX_UNDO_STEPS: usize = 50;
 
 #[derive(Debug, Clone, Copy, PartialEq)]
 enum FileType {
@@ -29,7 +33,15 @@ enum FileType {
 
 actions!(
     schedule_editor,
-    [FileOpen, FileSave, FileSaveAs, FileExportPublicJson]
+    [
+        FileOpen,
+        FileSave,
+        FileSaveAs,
+        FileExportPublicJson,
+        EditUndo,
+        EditRedo,
+        NewEvent,
+    ]
 );
 
 pub struct ScheduleEditor {
@@ -42,9 +54,13 @@ pub struct ScheduleEditor {
     days: Vec<NaiveDate>,
     selected_day_index: usize,
     selected_room: Option<u32>,
+    selected_event_id: Option<String>,
     day_tabs: Entity<DayTabs>,
     sidebar: Entity<Sidebar>,
     event_cards: Vec<Entity<EventCard>>,
+    detail_pane: Option<Entity<DetailPane>>,
+    undo_stack: Vec<Vec<Event>>,
+    redo_stack: Vec<Vec<Event>>,
     #[cfg(not(target_os = "macos"))]
     menu_bar: Entity<crate::menu::WindowsMenuBar>,
 }
@@ -104,9 +120,13 @@ impl ScheduleEditor {
             days,
             selected_day_index: 0,
             selected_room: None,
+            selected_event_id: None,
             day_tabs,
             sidebar,
             event_cards: Vec::new(),
+            detail_pane: None,
+            undo_stack: Vec::new(),
+            redo_stack: Vec::new(),
             #[cfg(not(target_os = "macos"))]
             menu_bar: cx.new(|cx| crate::menu::WindowsMenuBar::new(cx)),
         };
@@ -133,6 +153,10 @@ impl ScheduleEditor {
         self.days = schedule.days();
         self.selected_day_index = 0;
         self.selected_room = None;
+        self.selected_event_id = None;
+        self.detail_pane = None;
+        self.undo_stack.clear();
+        self.redo_stack.clear();
 
         self.day_tabs.update(cx, |tabs, _cx| {
             tabs.days = self.days.clone();
@@ -331,9 +355,11 @@ impl ScheduleEditor {
 
         events.sort_by_key(|e| e.start_time);
 
+        let selected_id = self.selected_event_id.clone();
         self.event_cards = events
             .iter()
             .map(|event| {
+                let is_selected = selected_id.as_deref() == Some(event.id.as_str());
                 let room_name = event
                     .room_id
                     .and_then(|rid| schedule.room_by_id(rid))
@@ -347,9 +373,233 @@ impl ScheduleEditor {
                     })
                 });
                 let panel_color = panel_type.and_then(|pt| pt.color.as_deref());
-                cx.new(|_cx| EventCard::new(event, room_name, panel_color, panel_type))
+                let card = cx.new(|_cx| {
+                    EventCard::new(event, room_name, panel_color, panel_type, is_selected)
+                });
+                cx.subscribe(
+                    &card,
+                    |this: &mut Self, _entity, event: &EventCardEvent, cx| {
+                        let EventCardEvent::Clicked(id) = event;
+                        this.open_detail_for_event(id.clone(), cx);
+                    },
+                )
+                .detach();
+                card
             })
             .collect();
+    }
+
+    fn push_undo_snapshot(&mut self) {
+        if let Some(ref schedule) = self.schedule {
+            if self.undo_stack.len() >= MAX_UNDO_STEPS {
+                self.undo_stack.remove(0);
+            }
+            self.undo_stack.push(schedule.events.clone());
+            self.redo_stack.clear();
+        }
+    }
+
+    fn do_undo(&mut self, _: &EditUndo, _window: &mut Window, cx: &mut Context<Self>) {
+        let Some(snapshot) = self.undo_stack.pop() else {
+            return;
+        };
+        if let Some(ref mut schedule) = self.schedule {
+            self.redo_stack.push(schedule.events.clone());
+            schedule.events = snapshot;
+            self.has_unsaved_changes = true;
+        }
+        self.selected_event_id = None;
+        self.detail_pane = None;
+        self.rebuild_event_cards(cx);
+        cx.notify();
+    }
+
+    fn do_redo(&mut self, _: &EditRedo, _window: &mut Window, cx: &mut Context<Self>) {
+        let Some(snapshot) = self.redo_stack.pop() else {
+            return;
+        };
+        if let Some(ref mut schedule) = self.schedule {
+            self.undo_stack.push(schedule.events.clone());
+            schedule.events = snapshot;
+            self.has_unsaved_changes = true;
+        }
+        self.selected_event_id = None;
+        self.detail_pane = None;
+        self.rebuild_event_cards(cx);
+        cx.notify();
+    }
+
+    fn open_detail_for_event(&mut self, event_id: String, cx: &mut Context<Self>) {
+        let Some(ref schedule) = self.schedule else {
+            return;
+        };
+        let Some(event) = schedule.events.iter().find(|e| e.id == event_id).cloned() else {
+            return;
+        };
+        self.selected_event_id = Some(event_id);
+        let rooms: Vec<(u32, String)> = schedule
+            .sorted_rooms()
+            .iter()
+            .map(|r| (r.uid, r.long_name.clone()))
+            .collect();
+        let panel_types: Vec<(String, String)> = schedule
+            .panel_types
+            .iter()
+            .map(|pt| (pt.effective_uid().to_string(), pt.kind.clone()))
+            .collect();
+        let presenter_names: Vec<String> =
+            schedule.presenters.iter().map(|p| p.name.clone()).collect();
+        let pane = cx.new(|cx| {
+            DetailPane::new(
+                DetailPaneMode::Editing(event),
+                rooms,
+                panel_types,
+                presenter_names,
+                cx,
+            )
+        });
+        cx.subscribe(
+            &pane,
+            |this: &mut Self, _entity, event: &DetailPaneEvent, cx| match event {
+                DetailPaneEvent::Save(updated) => {
+                    this.apply_save(updated.clone(), cx);
+                }
+                DetailPaneEvent::Delete(id) => {
+                    this.apply_delete(id.clone(), cx);
+                }
+                DetailPaneEvent::Cancel => {
+                    this.selected_event_id = None;
+                    this.detail_pane = None;
+                    this.rebuild_event_cards(cx);
+                    cx.notify();
+                }
+            },
+        )
+        .detach();
+        self.detail_pane = Some(pane);
+        self.rebuild_event_cards(cx);
+        cx.notify();
+    }
+
+    fn open_new_event(&mut self, _: &NewEvent, _window: &mut Window, cx: &mut Context<Self>) {
+        let Some(ref schedule) = self.schedule else {
+            return;
+        };
+        let day = self.days.get(self.selected_day_index).copied();
+        let selected_event_end = self.selected_event_id.as_ref().and_then(|id| {
+            schedule
+                .events
+                .iter()
+                .find(|e| &e.id == id)
+                .map(|e| e.end_time)
+        });
+        let default_room = self
+            .selected_event_id
+            .as_ref()
+            .and_then(|id| schedule.events.iter().find(|e| &e.id == id))
+            .and_then(|e| e.room_id)
+            .or(self.selected_room);
+        let default_panel_type = schedule
+            .panel_types
+            .iter()
+            .find(|pt| !pt.is_hidden)
+            .map(|pt| pt.effective_uid().to_string());
+        let rooms: Vec<(u32, String)> = schedule
+            .sorted_rooms()
+            .iter()
+            .map(|r| (r.uid, r.long_name.clone()))
+            .collect();
+        let panel_types: Vec<(String, String)> = schedule
+            .panel_types
+            .iter()
+            .map(|pt| (pt.effective_uid().to_string(), pt.kind.clone()))
+            .collect();
+        let presenter_names: Vec<String> =
+            schedule.presenters.iter().map(|p| p.name.clone()).collect();
+        let pane = cx.new(|cx| {
+            DetailPane::new(
+                DetailPaneMode::Creating {
+                    day,
+                    default_start: selected_event_end,
+                    default_room,
+                    default_panel_type,
+                },
+                rooms,
+                panel_types,
+                presenter_names,
+                cx,
+            )
+        });
+        cx.subscribe(
+            &pane,
+            |this: &mut Self, _entity, event: &DetailPaneEvent, cx| match event {
+                DetailPaneEvent::Save(new_event) => {
+                    this.apply_save(new_event.clone(), cx);
+                }
+                DetailPaneEvent::Delete(_) => {}
+                DetailPaneEvent::Cancel => {
+                    this.selected_event_id = None;
+                    this.detail_pane = None;
+                    this.rebuild_event_cards(cx);
+                    cx.notify();
+                }
+            },
+        )
+        .detach();
+        self.selected_event_id = None;
+        self.detail_pane = Some(pane);
+        self.rebuild_event_cards(cx);
+        cx.notify();
+    }
+
+    fn apply_save(&mut self, mut updated: Event, cx: &mut Context<Self>) {
+        if self.schedule.is_none() {
+            return;
+        }
+        self.push_undo_snapshot();
+        let Some(ref mut schedule) = self.schedule else {
+            return;
+        };
+        if let Some(pos) = schedule.events.iter().position(|e| e.id == updated.id) {
+            if updated.change_state == ChangeState::Unchanged {
+                updated.change_state = ChangeState::Modified;
+            }
+            schedule.events[pos] = updated.clone();
+        } else {
+            let was_deleted = schedule
+                .events
+                .iter()
+                .any(|e| e.id == updated.id && e.change_state == ChangeState::Deleted);
+            updated.change_state = if was_deleted {
+                ChangeState::Replaced
+            } else {
+                ChangeState::Added
+            };
+            schedule.events.push(updated.clone());
+        }
+        self.has_unsaved_changes = true;
+        self.selected_event_id = Some(updated.id.clone());
+        self.detail_pane = None;
+        self.rebuild_event_cards(cx);
+        cx.notify();
+    }
+
+    fn apply_delete(&mut self, event_id: String, cx: &mut Context<Self>) {
+        if self.schedule.is_none() {
+            return;
+        }
+        self.push_undo_snapshot();
+        let Some(ref mut schedule) = self.schedule else {
+            return;
+        };
+        if let Some(event) = schedule.events.iter_mut().find(|e| e.id == event_id) {
+            event.change_state = ChangeState::Deleted;
+        }
+        self.has_unsaved_changes = true;
+        self.selected_event_id = None;
+        self.detail_pane = None;
+        self.rebuild_event_cards(cx);
+        cx.notify();
     }
 
     fn update_window_title(&self, _cx: &mut Context<Self>) {
@@ -382,10 +632,20 @@ impl ScheduleEditor {
             .and_then(|name| name.to_str());
 
         match file_name {
-            Some(name) if self.has_unsaved_changes => format!("{app_title} — {name}*"),
+            Some(name) if self.has_unsaved_changes => {
+                format!("{app_title} — {name} (modified)")
+            }
             Some(name) => format!("{app_title} — {name}"),
             None => app_title.to_string(),
         }
+    }
+
+    fn edit_undo(&mut self, action: &EditUndo, window: &mut Window, cx: &mut Context<Self>) {
+        self.do_undo(action, window, cx);
+    }
+
+    fn edit_redo(&mut self, action: &EditRedo, window: &mut Window, cx: &mut Context<Self>) {
+        self.do_redo(action, window, cx);
     }
 
     // Action handlers
@@ -525,6 +785,7 @@ impl Render for ScheduleEditor {
         let subtitle_color = rgb(0x6B7280);
         let empty_color = rgb(0x9CA3AF);
         let status_color = rgb(0x059669);
+        let has_schedule = self.schedule.is_some();
 
         let title = self
             .schedule
@@ -603,13 +864,37 @@ impl Render for ScheduleEditor {
             .flex_col()
             .track_focus(&self.focus_handle)
             .bg(rgb(0xFFFFFF))
-            .on_action(cx.listener(Self::file_open));
+            .on_action(cx.listener(Self::file_open))
+            .on_action(cx.listener(Self::edit_undo))
+            .on_action(cx.listener(Self::edit_redo));
 
         // Platform menu bar (Windows/Linux only; macOS uses native menus)
         #[cfg(not(target_os = "macos"))]
         {
             layout = layout.child(self.menu_bar.clone());
         }
+
+        // Plus button (new event)
+        let plus_btn = div()
+            .id("new-event-btn")
+            .px(px(12.0))
+            .py(px(6.0))
+            .bg(rgb(0x2563EB))
+            .hover(|s| s.bg(rgb(0x1D4ED8)))
+            .rounded(px(6.0))
+            .text_sm()
+            .text_color(rgb(0xFFFFFF))
+            .font_weight(gpui::FontWeight::BOLD)
+            .cursor_pointer()
+            .child("+  New Event")
+            .when(has_schedule, |this| {
+                this.on_mouse_down(
+                    gpui::MouseButton::Left,
+                    cx.listener(|this, _ev, window, cx| {
+                        this.open_new_event(&NewEvent, window, cx);
+                    }),
+                )
+            });
 
         layout = layout
             // Title bar with toolbar
@@ -640,7 +925,8 @@ impl Render for ScheduleEditor {
                                     .text_color(subtitle_color)
                                     .child(event_count_text),
                             ),
-                    ),
+                    )
+                    .child(plus_btn),
             );
 
         layout = layout.when(self.can_save(), |this| {
@@ -664,16 +950,39 @@ impl Render for ScheduleEditor {
                 .child(self.day_tabs.clone()),
         );
 
-        // Body: sidebar + content
-        layout = layout.child(
-            div()
-                .flex()
-                .flex_grow()
-                .overflow_hidden()
-                .child(self.sidebar.clone())
-                .child(content),
-        );
+        // Body: sidebar + content + optional detail pane
+        let body = div()
+            .flex()
+            .flex_grow()
+            .overflow_hidden()
+            .child(self.sidebar.clone())
+            .child(if let Some(ref pane) = self.detail_pane {
+                h_resizable("editor-content-detail")
+                    .child(
+                        resizable_panel()
+                            .size_range(px(200.0)..gpui::Pixels::MAX)
+                            .child(content),
+                    )
+                    .child(
+                        resizable_panel()
+                            .size(px(380.0))
+                            .size_range(px(250.0)..px(700.0))
+                            .child(
+                                div()
+                                    .id("detail-pane-scroll")
+                                    .h_full()
+                                    .border_l_1()
+                                    .border_color(rgb(0xE5E7EB))
+                                    .overflow_y_scroll()
+                                    .child(pane.clone()),
+                            ),
+                    )
+                    .into_any_element()
+            } else {
+                content.into_any_element()
+            });
 
+        layout = layout.child(body);
         layout
     }
 }
