@@ -8,6 +8,7 @@ pub mod day_tabs;
 pub mod detail_pane;
 pub mod editor;
 pub mod event_card;
+pub mod panel_edit_window;
 pub mod sidebar;
 
 pub use editor::ScheduleEditor;

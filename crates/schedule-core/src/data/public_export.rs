@@ -65,7 +65,11 @@ pub struct PublicSchedule {
 }
 
 fn join_parts(parts: &[Option<&str>]) -> Option<String> {
-    let joined: Vec<&str> = parts.iter().filter_map(|p| *p).filter(|s| !s.is_empty()).collect();
+    let joined: Vec<&str> = parts
+        .iter()
+        .filter_map(|p| *p)
+        .filter(|s| !s.is_empty())
+        .collect();
     if joined.is_empty() {
         None
     } else {
@@ -78,10 +82,7 @@ fn effective_alt_panelist(
     part_val: Option<&str>,
     base_val: Option<&str>,
 ) -> Option<String> {
-    session_val
-        .or(part_val)
-        .or(base_val)
-        .map(|s| s.to_string())
+    session_val.or(part_val).or(base_val).map(|s| s.to_string())
 }
 
 fn compute_credits(
@@ -186,8 +187,16 @@ impl Schedule {
                         panel.alt_panelist.as_deref(),
                     );
 
-                    let capacity = session.capacity.as_ref().or(panel.capacity.as_ref()).cloned();
-                    let ticket_url = session.ticket_url.as_ref().or(panel.ticket_url.as_ref()).cloned();
+                    let capacity = session
+                        .capacity
+                        .as_ref()
+                        .or(panel.capacity.as_ref())
+                        .cloned();
+                    let ticket_url = session
+                        .ticket_url
+                        .as_ref()
+                        .or(panel.ticket_url.as_ref())
+                        .cloned();
 
                     let mut all_credited: Vec<String> = Vec::new();
                     for name in &panel.credited_presenters {
@@ -263,13 +272,11 @@ impl Schedule {
             }
         }
 
-        flat_panels.sort_by(|a, b| {
-            match (&a.start_time, &b.start_time) {
-                (Some(a_time), Some(b_time)) => a_time.cmp(b_time),
-                (Some(_), None) => std::cmp::Ordering::Less,
-                (None, Some(_)) => std::cmp::Ordering::Greater,
-                (None, None) => a.id.cmp(&b.id),
-            }
+        flat_panels.sort_by(|a, b| match (&a.start_time, &b.start_time) {
+            (Some(a_time), Some(b_time)) => a_time.cmp(b_time),
+            (Some(_), None) => std::cmp::Ordering::Less,
+            (None, Some(_)) => std::cmp::Ordering::Greater,
+            (None, None) => a.id.cmp(&b.id),
         });
 
         let visible_panel_types: Vec<_> = self

@@ -1,6 +1,6 @@
 # Cosplay America Schedule - Work Plan
 
-Generated on: Wed Mar 18 23:02:54 2026
+Generated on: Thu Mar 19 10:33:42 2026
 
 ## Completed
 
@@ -20,6 +20,15 @@ Generated on: Wed Mar 18 23:02:54 2026
 * [FEATURE-010](work-plan/FEATURE-010.md) Update the schedule widget to properly display presenter groups and allow filtering by both individual presenters and groups, following the group handling logic from the original implementation.
 * [FEATURE-011](work-plan/FEATURE-011.md) Define the v5 JSON format for the schedule data, introducing a
 base→part→session hierarchy, public/private split, and multi-room sessions.
+* [FEATURE-012](work-plan/FEATURE-012.md) Define the Rust data structures for the v5 JSON format in `crates/schedule-core`.
+* [FEATURE-014](work-plan/FEATURE-014.md) Update `xlsx_import` to directly build the v5 base→part→session hierarchy
+when importing spreadsheet data.
+* [FEATURE-015](work-plan/FEATURE-015.md) Implement serialization of the v5 full/private JSON format from the
+`Schedule` struct.
+* [FEATURE-016](work-plan/FEATURE-016.md) Implement the public export mode that flattens the v5 hierarchy into an
+ordered `panels` array suitable for the `cosam-calendar.js` widget.
+* [FEATURE-018](work-plan/FEATURE-018.md) Update `apps/cosam-editor` to work with the v5 `Schedule` struct and expose
+the base→part→session hierarchy in the UI.
 * [UI-001](work-plan/UI-001.md) Display both the programming room name (e.g., "Programming 1") and the actual hotel room location.
 * [UI-003](work-plan/UI-003.md) Implement theme switching with dark, light, and CosAm color modes.
 * [UI-004](work-plan/UI-004.md) Replace table-based layout with CSS grid similar to schedule-to-html implementation.
@@ -28,7 +37,7 @@ base→part→session hierarchy, public/private split, and multi-room sessions.
 
 ## Summary of Open Items
 
-**Total open items:** 27
+**Total open items:** 22
 
 * **High Priority**
   * [ACCESSIBILITY-001](work-plan/ACCESSIBILITY-001.md) Implement comprehensive accessibility improvements for screen readers and color blindness support.
@@ -38,11 +47,6 @@ base→part→session hierarchy, public/private split, and multi-room sessions.
   * [FEATURE-003](work-plan/FEATURE-003.md) Enable reading schedule data directly from Google Sheets.
   * [FEATURE-005](work-plan/FEATURE-005.md) Add a grid view option to the printable schedule in addition to the existing list view.
   * [FEATURE-008](work-plan/FEATURE-008.md) Enable room-wide events like Market Expo to overlap with subpanels in the same room without triggering false conflict warnings.
-  * [FEATURE-012](work-plan/FEATURE-012.md) Define the Rust data structures for the v5 JSON format in `crates/schedule-core`.
-  * [FEATURE-014](work-plan/FEATURE-014.md) Update `xlsx_import` to directly build the v5 base→part→session hierarchy
-when importing spreadsheet data.
-  * [FEATURE-016](work-plan/FEATURE-016.md) Implement the public export mode that flattens the v5 hierarchy into an
-ordered `panels` array suitable for the `cosam-calendar.js` widget.
   * [FEATURE-017](work-plan/FEATURE-017.md) Update `widget/cosam-calendar.js` to consume the v5 public JSON format.
   * [UI-002](work-plan/UI-002.md) Prevent event titles from overlapping with the "my schedule" star icon.
 
@@ -53,10 +57,6 @@ ordered `panels` array suitable for the `cosam-calendar.js` widget.
   * [EDITOR-509](work-plan/EDITOR-509.md) Package the editor as standalone executables for macOS, Windows, and Linux.
   * [EDITOR-510](work-plan/EDITOR-510.md) Define how multiple people and devices can safely edit a single schedule with conflict handling independent of any specific storage backend.
   * [FEATURE-006](work-plan/FEATURE-006.md) Create a compact print format optimized for minimal paper usage.
-  * [FEATURE-015](work-plan/FEATURE-015.md) Implement serialization of the v5 full/private JSON format from the
-`Schedule` struct.
-  * [FEATURE-018](work-plan/FEATURE-018.md) Update `apps/cosam-editor` to work with the v5 `Schedule` struct and expose
-the base→part→session hierarchy in the UI.
   * [UI-005](work-plan/UI-005.md) Add sticky headers or repeat day headers between time blocks in grid view for better navigation.
   * [UI-006](work-plan/UI-006.md) Add visual indicators to the schedule widget to highlight conflicting events, making it easy for users to identify and understand scheduling conflicts.
   * [UI-007](work-plan/UI-007.md) Update the room filter dropdown to only include rooms that have scheduled panels, excluding rooms that only contain room-hours events (RH prefix or "Is Room Hours" flag).
@@ -176,50 +176,6 @@ The 2025 schedule shows this pattern:
 
 ---
 
-### [FEATURE-012] v5 Rust structs in schedule-core
-
-**Status:** Open
-
-**Summary:** Define the Rust data structures for the v5 JSON format in `crates/schedule-core`.
-
-**Description:** Implement the Rust types that correspond to the v5 private JSON format
-specified in `docs/json-private-v5.md`. This is the foundational step required
-by all subsequent v5 work items.
-
-*See full details in: [work-plan/FEATURE-012.md](work-plan/FEATURE-012.md)*
-
----
-
-### [FEATURE-014] xlsx_import: build v5 panel hierarchy
-
-**Status:** Open
-
-**Summary:** Update `xlsx_import` to directly build the v5 base→part→session hierarchy
-when importing spreadsheet data.
-
-**Description:** Currently `xlsx_import` produces a flat `Vec<Event>`. This work item replaces
-that with direct population of `IndexMap<String, Panel>` per the v5 private
-format (`docs/json-private-v5.md`).
-
-*See full details in: [work-plan/FEATURE-014.md](work-plan/FEATURE-014.md)*
-
----
-
-### [FEATURE-016] v5 public JSON export (flattened for widget)
-
-**Status:** Open
-
-**Summary:** Implement the public export mode that flattens the v5 hierarchy into an
-ordered `panels` array suitable for the `cosam-calendar.js` widget.
-
-**Description:** `save_json_with_mode(Public)` must flatten the `panels` hash into a
-chronologically ordered array per `docs/json-public-v5.md`, computing
-effective field values, credits, and filtering out all private fields.
-
-*See full details in: [work-plan/FEATURE-016.md](work-plan/FEATURE-016.md)*
-
----
-
 ### [FEATURE-017] Widget v5 support
 
 **Status:** Open
@@ -315,36 +271,6 @@ key from `events` to `panels` and replaces the scalar `roomId` with a
 **Description:** Some attendees prefer a pocket-sized schedule. A compact format with smaller fonts and condensed layout would be valuable.
 
 *See full details in: [work-plan/FEATURE-006.md](work-plan/FEATURE-006.md)*
-
----
-
-### [FEATURE-015] v5 private JSON export
-
-**Status:** Open
-
-**Summary:** Implement serialization of the v5 full/private JSON format from the
-`Schedule` struct.
-
-**Description:** Update `Schedule::save_json_with_mode(Full)` to serialize the `panels` hash
-per `docs/json-private-v5.md`. The output includes all fields at every level,
-including private internal-use fields.
-
-*See full details in: [work-plan/FEATURE-015.md](work-plan/FEATURE-015.md)*
-
----
-
-### [FEATURE-018] Editor v5 data model
-
-**Status:** Open
-
-**Summary:** Update `apps/cosam-editor` to work with the v5 `Schedule` struct and expose
-the base→part→session hierarchy in the UI.
-
-**Description:** The editor currently uses the v4 flat `events` list. This work item updates
-the editor to read, display, and edit v5 data using the new `Panel`,
-`PanelPart`, and `PanelSession` types from FEATURE-012.
-
-*See full details in: [work-plan/FEATURE-018.md](work-plan/FEATURE-018.md)*
 
 ---
 

@@ -7,7 +7,7 @@ the base→part→session hierarchy in the UI.
 
 ## Status
 
-In Progress
+Completed
 
 ## Priority
 

@@ -12,15 +12,17 @@ use gpui::{
     App, Context, Entity, FocusHandle, Focusable, SharedString, Window, actions, div, px, rgb,
 };
 use gpui_component::resizable::{h_resizable, resizable_panel};
+use indexmap::IndexMap;
 
 use crate::data::source_info::ChangeState;
 use crate::data::xlsx_export;
 use crate::data::xlsx_import::XlsxImportOptions;
 use crate::data::xlsx_update;
-use crate::data::{Event, Schedule};
+use crate::data::{Panel, Schedule};
 use crate::ui::day_tabs::{DayTabEvent, DayTabs};
-use crate::ui::detail_pane::{DetailPane, DetailPaneEvent, DetailPaneMode};
+use crate::ui::detail_pane::{DetailPane, DetailPaneEvent};
 use crate::ui::event_card::{EventCard, EventCardEvent};
+use crate::ui::panel_edit_window::{PanelEditWindow, PanelEditWindowEvent};
 use crate::ui::sidebar::{RoomEntry, Sidebar, SidebarEvent};
 
 const MAX_UNDO_STEPS: usize = 50;
@@ -59,8 +61,8 @@ pub struct ScheduleEditor {
     sidebar: Entity<Sidebar>,
     event_cards: Vec<Entity<EventCard>>,
     detail_pane: Option<Entity<DetailPane>>,
-    undo_stack: Vec<Vec<Event>>,
-    redo_stack: Vec<Vec<Event>>,
+    undo_stack: Vec<IndexMap<String, Panel>>,
+    redo_stack: Vec<IndexMap<String, Panel>>,
     #[cfg(not(target_os = "macos"))]
     menu_bar: Entity<crate::menu::WindowsMenuBar>,
 }
@@ -105,7 +107,7 @@ impl ScheduleEditor {
                 match ext.to_lowercase().as_str() {
                     "json" => FileType::Json,
                     "xlsx" => FileType::Xlsx,
-                    _ => FileType::Json, // Default to JSON for unknown extensions
+                    _ => FileType::Json,
                 }
             })
         });
@@ -174,7 +176,6 @@ impl ScheduleEditor {
         self.schedule = Some(schedule);
         self.current_path = path.clone();
 
-        // Update file type based on the loaded path
         self.current_file_type = path.as_ref().and_then(|p| {
             p.extension().and_then(|ext| ext.to_str()).map(|ext| {
                 match ext.to_lowercase().as_str() {
@@ -344,95 +345,50 @@ impl ScheduleEditor {
             return;
         };
 
-        let use_panels = !schedule.panels.is_empty();
+        let mut sessions = schedule.sessions_for_day(day);
 
-        if use_panels {
-            let mut sessions = schedule.sessions_for_day(day);
-
-            if let Some(room_uid) = self.selected_room {
-                sessions.retain(|s| s.room_ids.contains(&room_uid));
-            }
-
-            let selected_id = self.selected_event_id.clone();
-            self.event_cards = sessions
-                .iter()
-                .map(|session| {
-                    let is_selected = selected_id.as_deref() == Some(session.session_id.as_str());
-                    let room_name = session
-                        .room_ids
-                        .first()
-                        .and_then(|rid| schedule.room_by_id(*rid))
-                        .map(|r| r.long_name.as_str())
-                        .unwrap_or("—");
-                    let panel_type = session.panel_type.as_ref().and_then(|pt_uid| {
-                        schedule
-                            .panel_types
-                            .iter()
-                            .find(|pt| pt.effective_uid() == *pt_uid)
-                    });
-                    let panel_color = panel_type.and_then(|pt| pt.color.as_deref());
-                    let card = cx.new(|_cx| {
-                        EventCard::from_session(
-                            session,
-                            room_name,
-                            panel_color,
-                            panel_type,
-                            is_selected,
-                        )
-                    });
-                    cx.subscribe(
-                        &card,
-                        |this: &mut Self, _entity, event: &EventCardEvent, cx| {
-                            let EventCardEvent::Clicked(id) = event;
-                            this.open_detail_for_event(id.clone(), cx);
-                        },
-                    )
-                    .detach();
-                    card
-                })
-                .collect();
-        } else {
-            let mut events = schedule.events_for_day(day);
-
-            if let Some(room_uid) = self.selected_room {
-                events.retain(|e| e.room_id == Some(room_uid));
-            }
-
-            events.sort_by_key(|e| e.start_time);
-
-            let selected_id = self.selected_event_id.clone();
-            self.event_cards = events
-                .iter()
-                .map(|event| {
-                    let is_selected = selected_id.as_deref() == Some(event.id.as_str());
-                    let room_name = event
-                        .room_id
-                        .and_then(|rid| schedule.room_by_id(rid))
-                        .map(|r| r.long_name.as_str())
-                        .unwrap_or("—");
-                    let panel_type = event.panel_type.as_ref().and_then(|pt_uid| {
-                        self.schedule.as_ref().and_then(|s| {
-                            s.panel_types
-                                .iter()
-                                .find(|pt| pt.effective_uid() == *pt_uid)
-                        })
-                    });
-                    let panel_color = panel_type.and_then(|pt| pt.color.as_deref());
-                    let card = cx.new(|_cx| {
-                        EventCard::new(event, room_name, panel_color, panel_type, is_selected)
-                    });
-                    cx.subscribe(
-                        &card,
-                        |this: &mut Self, _entity, event: &EventCardEvent, cx| {
-                            let EventCardEvent::Clicked(id) = event;
-                            this.open_detail_for_event(id.clone(), cx);
-                        },
-                    )
-                    .detach();
-                    card
-                })
-                .collect();
+        if let Some(room_uid) = self.selected_room {
+            sessions.retain(|s| s.room_ids.contains(&room_uid));
         }
+
+        let selected_id = self.selected_event_id.clone();
+        self.event_cards = sessions
+            .iter()
+            .map(|session| {
+                let is_selected = selected_id.as_deref() == Some(session.session_id.as_str());
+                let room_name = session
+                    .room_ids
+                    .first()
+                    .and_then(|rid| schedule.room_by_id(*rid))
+                    .map(|r| r.long_name.as_str())
+                    .unwrap_or("—");
+                let panel_type = session.panel_type.as_ref().and_then(|pt_uid| {
+                    schedule
+                        .panel_types
+                        .iter()
+                        .find(|pt| pt.effective_uid() == *pt_uid)
+                });
+                let panel_color = panel_type.and_then(|pt| pt.color.as_deref());
+                let card = cx.new(|_cx| {
+                    EventCard::from_session(
+                        session,
+                        room_name,
+                        panel_color,
+                        panel_type,
+                        is_selected,
+                    )
+                });
+                cx.subscribe(
+                    &card,
+                    |this: &mut Self, _entity, event: &EventCardEvent, cx| {
+                        let EventCardEvent::Clicked(id) = event;
+                        this.open_detail_for_event(id.clone(), cx);
+                    },
+                )
+                .detach();
+                card
+            })
+            .collect();
     }
 
     fn push_undo_snapshot(&mut self) {
@@ -440,7 +396,7 @@ impl ScheduleEditor {
             if self.undo_stack.len() >= MAX_UNDO_STEPS {
                 self.undo_stack.remove(0);
             }
-            self.undo_stack.push(schedule.events.clone());
+            self.undo_stack.push(schedule.panels.clone());
             self.redo_stack.clear();
         }
     }
@@ -450,8 +406,8 @@ impl ScheduleEditor {
             return;
         };
         if let Some(ref mut schedule) = self.schedule {
-            self.redo_stack.push(schedule.events.clone());
-            schedule.events = snapshot;
+            self.redo_stack.push(schedule.panels.clone());
+            schedule.panels = snapshot;
             self.has_unsaved_changes = true;
         }
         self.selected_event_id = None;
@@ -465,8 +421,8 @@ impl ScheduleEditor {
             return;
         };
         if let Some(ref mut schedule) = self.schedule {
-            self.undo_stack.push(schedule.events.clone());
-            schedule.events = snapshot;
+            self.undo_stack.push(schedule.panels.clone());
+            schedule.panels = snapshot;
             self.has_unsaved_changes = true;
         }
         self.selected_event_id = None;
@@ -475,14 +431,74 @@ impl ScheduleEditor {
         cx.notify();
     }
 
-    fn open_detail_for_event(&mut self, event_id: String, cx: &mut Context<Self>) {
+    fn open_detail_for_event(&mut self, session_id: String, cx: &mut Context<Self>) {
         let Some(ref schedule) = self.schedule else {
             return;
         };
-        let Some(event) = schedule.events.iter().find(|e| e.id == event_id).cloned() else {
+
+        let mut found_base_id: Option<String> = None;
+        'outer: for (base_id, panel) in schedule.panels.iter() {
+            for part in &panel.parts {
+                for session in &part.sessions {
+                    if session.id == session_id {
+                        found_base_id = Some(base_id.clone());
+                        break 'outer;
+                    }
+                }
+            }
+        }
+
+        let Some(base_id) = found_base_id else {
             return;
         };
-        self.selected_event_id = Some(event_id);
+        let Some(panel) = schedule.panels.get(&base_id).cloned() else {
+            return;
+        };
+
+        self.selected_event_id = Some(session_id.clone());
+
+        let rooms: Vec<(u32, String)> = schedule
+            .sorted_rooms()
+            .iter()
+            .map(|r| (r.uid, r.long_name.clone()))
+            .collect();
+        let panel_types: Vec<(String, String)> = schedule
+            .panel_types
+            .iter()
+            .map(|pt| (pt.effective_uid().to_string(), pt.kind.clone()))
+            .collect();
+
+        let pane = cx.new(|_cx| DetailPane::new(&panel, &rooms, &panel_types, &session_id));
+        cx.subscribe(
+            &pane,
+            |this: &mut Self, _entity, event: &DetailPaneEvent, cx| match event {
+                DetailPaneEvent::Close => {
+                    this.selected_event_id = None;
+                    this.detail_pane = None;
+                    this.rebuild_event_cards(cx);
+                    cx.notify();
+                }
+                DetailPaneEvent::OpenEdit {
+                    base_id,
+                    session_id,
+                } => {
+                    this.open_edit_window(base_id.clone(), session_id.clone(), cx);
+                }
+            },
+        )
+        .detach();
+        self.detail_pane = Some(pane);
+        self.rebuild_event_cards(cx);
+        cx.notify();
+    }
+
+    fn open_edit_window(&mut self, base_id: String, session_id: String, cx: &mut Context<Self>) {
+        let Some(ref schedule) = self.schedule else {
+            return;
+        };
+        let Some(panel) = schedule.panels.get(&base_id).cloned() else {
+            return;
+        };
         let rooms: Vec<(u32, String)> = schedule
             .sorted_rooms()
             .iter()
@@ -495,61 +511,49 @@ impl ScheduleEditor {
             .collect();
         let presenter_names: Vec<String> =
             schedule.presenters.iter().map(|p| p.name.clone()).collect();
-        let pane = cx.new(|cx| {
-            DetailPane::new(
-                DetailPaneMode::Editing(event),
-                rooms,
-                panel_types,
-                presenter_names,
-                cx,
-            )
+
+        let edit_entity = cx.new(|cx| {
+            PanelEditWindow::new(panel, &session_id, rooms, panel_types, presenter_names, cx)
         });
         cx.subscribe(
-            &pane,
-            |this: &mut Self, _entity, event: &DetailPaneEvent, cx| match event {
-                DetailPaneEvent::Save(updated) => {
-                    this.apply_save(updated.clone(), cx);
+            &edit_entity,
+            |this: &mut Self, _entity, event: &PanelEditWindowEvent, cx| match event {
+                PanelEditWindowEvent::Save(panel) => {
+                    this.apply_panel_save(panel.clone(), cx);
                 }
-                DetailPaneEvent::Delete(id) => {
-                    this.apply_delete(id.clone(), cx);
-                }
-                DetailPaneEvent::Cancel => {
-                    this.selected_event_id = None;
-                    this.detail_pane = None;
-                    this.rebuild_event_cards(cx);
-                    cx.notify();
+                PanelEditWindowEvent::SessionDeleted {
+                    base_id,
+                    session_id,
+                } => {
+                    this.apply_session_delete(base_id.clone(), session_id.clone(), cx);
                 }
             },
         )
         .detach();
-        self.detail_pane = Some(pane);
-        self.rebuild_event_cards(cx);
-        cx.notify();
+
+        let entity_for_window = edit_entity;
+        if cx
+            .open_window(gpui::WindowOptions::default(), move |window, cx| {
+                window.focus(&entity_for_window.focus_handle(cx));
+                cx.new(|cx| gpui_component::Root::new(entity_for_window.clone(), window, cx))
+            })
+            .is_err()
+        {
+            self.status_message = Some("Failed to open edit window".to_string());
+            cx.notify();
+        }
     }
 
     fn open_new_event(&mut self, _: &NewEvent, _window: &mut Window, cx: &mut Context<Self>) {
         let Some(ref schedule) = self.schedule else {
+            self.status_message = Some("No schedule loaded".to_string());
+            cx.notify();
             return;
         };
-        let day = self.days.get(self.selected_day_index).copied();
-        let selected_event_end = self.selected_event_id.as_ref().and_then(|id| {
-            schedule
-                .events
-                .iter()
-                .find(|e| &e.id == id)
-                .map(|e| e.end_time)
-        });
-        let default_room = self
-            .selected_event_id
-            .as_ref()
-            .and_then(|id| schedule.events.iter().find(|e| &e.id == id))
-            .and_then(|e| e.room_id)
-            .or(self.selected_room);
-        let default_panel_type = schedule
-            .panel_types
-            .iter()
-            .find(|pt| !pt.is_hidden)
-            .map(|pt| pt.effective_uid().to_string());
+
+        let new_id = format!("new-{}", chrono::Utc::now().timestamp_millis());
+        let panel = Panel::new(new_id);
+
         let rooms: Vec<(u32, String)> = schedule
             .sorted_rooms()
             .iter()
@@ -562,88 +566,76 @@ impl ScheduleEditor {
             .collect();
         let presenter_names: Vec<String> =
             schedule.presenters.iter().map(|p| p.name.clone()).collect();
-        let pane = cx.new(|cx| {
-            DetailPane::new(
-                DetailPaneMode::Creating {
-                    day,
-                    default_start: selected_event_end,
-                    default_room,
-                    default_panel_type,
-                },
-                rooms,
-                panel_types,
-                presenter_names,
-                cx,
-            )
-        });
+
+        let edit_entity =
+            cx.new(|cx| PanelEditWindow::new(panel, "", rooms, panel_types, presenter_names, cx));
         cx.subscribe(
-            &pane,
-            |this: &mut Self, _entity, event: &DetailPaneEvent, cx| match event {
-                DetailPaneEvent::Save(new_event) => {
-                    this.apply_save(new_event.clone(), cx);
+            &edit_entity,
+            |this: &mut Self, _entity, event: &PanelEditWindowEvent, cx| match event {
+                PanelEditWindowEvent::Save(panel) => {
+                    this.apply_panel_save(panel.clone(), cx);
                 }
-                DetailPaneEvent::Delete(_) => {}
-                DetailPaneEvent::Cancel => {
-                    this.selected_event_id = None;
-                    this.detail_pane = None;
-                    this.rebuild_event_cards(cx);
-                    cx.notify();
+                PanelEditWindowEvent::SessionDeleted {
+                    base_id,
+                    session_id,
+                } => {
+                    this.apply_session_delete(base_id.clone(), session_id.clone(), cx);
                 }
             },
         )
         .detach();
-        self.selected_event_id = None;
-        self.detail_pane = Some(pane);
-        self.rebuild_event_cards(cx);
-        cx.notify();
+
+        let entity_for_window = edit_entity;
+        if cx
+            .open_window(gpui::WindowOptions::default(), move |window, cx| {
+                window.focus(&entity_for_window.focus_handle(cx));
+                cx.new(|cx| gpui_component::Root::new(entity_for_window.clone(), window, cx))
+            })
+            .is_err()
+        {
+            self.status_message = Some("Failed to open new panel window".to_string());
+            cx.notify();
+        }
     }
 
-    fn apply_save(&mut self, mut updated: Event, cx: &mut Context<Self>) {
-        if self.schedule.is_none() {
-            return;
-        }
+    pub fn apply_panel_save(&mut self, mut panel: Panel, cx: &mut Context<Self>) {
         self.push_undo_snapshot();
-        let Some(ref mut schedule) = self.schedule else {
-            return;
-        };
-        if let Some(pos) = schedule.events.iter().position(|e| e.id == updated.id) {
-            if updated.change_state == ChangeState::Unchanged {
-                updated.change_state = ChangeState::Modified;
+        if let Some(ref mut schedule) = self.schedule {
+            let is_existing = schedule.panels.contains_key(&panel.id);
+            if panel.change_state == ChangeState::Unchanged {
+                panel.change_state = if is_existing {
+                    ChangeState::Modified
+                } else {
+                    ChangeState::Added
+                };
             }
-            schedule.events[pos] = updated.clone();
-        } else {
-            let was_deleted = schedule
-                .events
-                .iter()
-                .any(|e| e.id == updated.id && e.change_state == ChangeState::Deleted);
-            updated.change_state = if was_deleted {
-                ChangeState::Replaced
-            } else {
-                ChangeState::Added
-            };
-            schedule.events.push(updated.clone());
+            schedule.panels.insert(panel.id.clone(), panel);
+            self.has_unsaved_changes = true;
         }
-        self.has_unsaved_changes = true;
-        self.selected_event_id = Some(updated.id.clone());
-        self.detail_pane = None;
         self.rebuild_event_cards(cx);
         cx.notify();
     }
 
-    fn apply_delete(&mut self, event_id: String, cx: &mut Context<Self>) {
-        if self.schedule.is_none() {
-            return;
-        }
+    pub fn apply_session_delete(
+        &mut self,
+        base_id: String,
+        session_id: String,
+        cx: &mut Context<Self>,
+    ) {
         self.push_undo_snapshot();
-        let Some(ref mut schedule) = self.schedule else {
-            return;
-        };
-        if let Some(event) = schedule.events.iter_mut().find(|e| e.id == event_id) {
-            event.change_state = ChangeState::Deleted;
+        if let Some(ref mut schedule) = self.schedule {
+            if let Some(panel) = schedule.panels.get_mut(&base_id) {
+                for part in &mut panel.parts {
+                    part.sessions.retain(|s| s.id != session_id);
+                }
+                panel.parts.retain(|p| !p.sessions.is_empty());
+            }
+            self.has_unsaved_changes = true;
         }
-        self.has_unsaved_changes = true;
-        self.selected_event_id = None;
-        self.detail_pane = None;
+        if self.selected_event_id.as_deref() == Some(session_id.as_str()) {
+            self.selected_event_id = None;
+            self.detail_pane = None;
+        }
         self.rebuild_event_cards(cx);
         cx.notify();
     }
@@ -694,7 +686,6 @@ impl ScheduleEditor {
         self.do_redo(action, window, cx);
     }
 
-    // Action handlers
     fn file_open(&mut self, _: &FileOpen, _window: &mut Window, cx: &mut Context<Self>) {
         self.do_open(_window, cx);
     }
@@ -843,7 +834,6 @@ impl Render for ScheduleEditor {
         let panel_count = self.schedule.as_ref().map(|s| s.panels.len()).unwrap_or(0);
         let panel_count_text = SharedString::from(format!("{panel_count} panels"));
 
-        // Status bar (if there's a message)
         let status_bar = self.status_message.as_ref().map(|msg| {
             div()
                 .px(px(16.0))
@@ -854,7 +844,6 @@ impl Render for ScheduleEditor {
                 .child(SharedString::from(msg.clone()))
         });
 
-        // Build the content area
         let mut content = div()
             .id("content-scroll")
             .flex()
@@ -902,7 +891,6 @@ impl Render for ScheduleEditor {
             }
         }
 
-        // Main layout
         let mut layout = div()
             .size_full()
             .relative()
@@ -914,13 +902,11 @@ impl Render for ScheduleEditor {
             .on_action(cx.listener(Self::edit_undo))
             .on_action(cx.listener(Self::edit_redo));
 
-        // Platform menu bar (Windows/Linux only; macOS uses native menus)
         #[cfg(not(target_os = "macos"))]
         {
             layout = layout.child(self.menu_bar.clone());
         }
 
-        // Plus button (new event)
         let plus_btn = div()
             .id("new-event-btn")
             .px(px(12.0))
@@ -942,38 +928,36 @@ impl Render for ScheduleEditor {
                 )
             });
 
-        layout = layout
-            // Title bar with toolbar
-            .child(
-                div()
-                    .flex()
-                    .justify_between()
-                    .items_center()
-                    .px(px(16.0))
-                    .py(px(8.0))
-                    .border_b_1()
-                    .border_color(rgb(0xE5E7EB))
-                    .child(
-                        div()
-                            .flex()
-                            .gap(px(16.0))
-                            .items_center()
-                            .child(
-                                div()
-                                    .text_lg()
-                                    .font_weight(gpui::FontWeight::BOLD)
-                                    .text_color(title_color)
-                                    .child(title),
-                            )
-                            .child(
-                                div()
-                                    .text_sm()
-                                    .text_color(subtitle_color)
-                                    .child(panel_count_text),
-                            ),
-                    )
-                    .child(plus_btn),
-            );
+        layout = layout.child(
+            div()
+                .flex()
+                .justify_between()
+                .items_center()
+                .px(px(16.0))
+                .py(px(8.0))
+                .border_b_1()
+                .border_color(rgb(0xE5E7EB))
+                .child(
+                    div()
+                        .flex()
+                        .gap(px(16.0))
+                        .items_center()
+                        .child(
+                            div()
+                                .text_lg()
+                                .font_weight(gpui::FontWeight::BOLD)
+                                .text_color(title_color)
+                                .child(title),
+                        )
+                        .child(
+                            div()
+                                .text_sm()
+                                .text_color(subtitle_color)
+                                .child(panel_count_text),
+                        ),
+                )
+                .child(plus_btn),
+        );
 
         layout = layout.when(self.can_save(), |this| {
             this.on_action(cx.listener(Self::file_save))
@@ -983,12 +967,10 @@ impl Render for ScheduleEditor {
                 .on_action(cx.listener(Self::file_export_public_json))
         });
 
-        // Status bar
         if let Some(status) = status_bar {
             layout = layout.child(status);
         }
 
-        // Day tabs
         layout = layout.child(
             div()
                 .border_b_1()
@@ -996,7 +978,6 @@ impl Render for ScheduleEditor {
                 .child(self.day_tabs.clone()),
         );
 
-        // Body: sidebar + content + optional detail pane
         let body = div()
             .flex()
             .flex_grow()
@@ -1015,11 +996,10 @@ impl Render for ScheduleEditor {
                             .size_range(px(250.0)..px(700.0))
                             .child(
                                 div()
-                                    .id("detail-pane-scroll")
+                                    .id("detail-pane-wrapper")
                                     .h_full()
                                     .border_l_1()
                                     .border_color(rgb(0xE5E7EB))
-                                    .overflow_y_scroll()
                                     .child(pane.clone()),
                             ),
                     )
