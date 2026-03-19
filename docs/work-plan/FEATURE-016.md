@@ -7,7 +7,7 @@ ordered `panels` array suitable for the `cosam-calendar.js` widget.
 
 ## Status
 
-Open
+Completed
 
 ## Priority
 

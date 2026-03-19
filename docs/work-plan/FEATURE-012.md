@@ -6,7 +6,7 @@ Define the Rust data structures for the v5 JSON format in `crates/schedule-core`
 
 ## Status
 
-Open
+Completed
 
 ## Priority
 

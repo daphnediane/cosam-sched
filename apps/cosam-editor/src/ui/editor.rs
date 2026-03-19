@@ -17,7 +17,7 @@ use crate::data::source_info::ChangeState;
 use crate::data::xlsx_export;
 use crate::data::xlsx_import::XlsxImportOptions;
 use crate::data::xlsx_update;
-use crate::data::{Event, JsonExportMode, Schedule};
+use crate::data::{Event, Schedule};
 use crate::ui::day_tabs::{DayTabEvent, DayTabs};
 use crate::ui::detail_pane::{DetailPane, DetailPaneEvent, DetailPaneMode};
 use crate::ui::event_card::{EventCard, EventCardEvent};
@@ -169,7 +169,7 @@ impl ScheduleEditor {
             sb.selected_room = None;
         });
 
-        let event_count = schedule.events.len();
+        let panel_count = schedule.panels.len();
         let room_count = schedule.rooms.len();
         self.schedule = Some(schedule);
         self.current_path = path.clone();
@@ -186,7 +186,7 @@ impl ScheduleEditor {
         });
 
         self.has_unsaved_changes = false;
-        self.status_message = Some(format!("Loaded {event_count} events, {room_count} rooms"));
+        self.status_message = Some(format!("Loaded {panel_count} panels, {room_count} rooms"));
 
         self.update_window_title(cx);
         self.update_menus(cx);
@@ -310,10 +310,7 @@ impl ScheduleEditor {
                     FileType::Xlsx,
                 )
             } else {
-                (
-                    schedule_clone.save_json_with_mode(&path, JsonExportMode::Staff),
-                    FileType::Json,
-                )
+                (schedule_clone.save_json(&path), FileType::Json)
             };
 
             cx.update(|cx| {
@@ -347,46 +344,95 @@ impl ScheduleEditor {
             return;
         };
 
-        let mut events = schedule.events_for_day(day);
+        let use_panels = !schedule.panels.is_empty();
 
-        if let Some(room_uid) = self.selected_room {
-            events.retain(|e| e.room_id == Some(room_uid));
-        }
+        if use_panels {
+            let mut sessions = schedule.sessions_for_day(day);
 
-        events.sort_by_key(|e| e.start_time);
+            if let Some(room_uid) = self.selected_room {
+                sessions.retain(|s| s.room_ids.contains(&room_uid));
+            }
 
-        let selected_id = self.selected_event_id.clone();
-        self.event_cards = events
-            .iter()
-            .map(|event| {
-                let is_selected = selected_id.as_deref() == Some(event.id.as_str());
-                let room_name = event
-                    .room_id
-                    .and_then(|rid| schedule.room_by_id(rid))
-                    .map(|r| r.long_name.as_str())
-                    .unwrap_or("—");
-                let panel_type = event.panel_type.as_ref().and_then(|pt_uid| {
-                    self.schedule.as_ref().and_then(|s| {
-                        s.panel_types
+            let selected_id = self.selected_event_id.clone();
+            self.event_cards = sessions
+                .iter()
+                .map(|session| {
+                    let is_selected = selected_id.as_deref() == Some(session.session_id.as_str());
+                    let room_name = session
+                        .room_ids
+                        .first()
+                        .and_then(|rid| schedule.room_by_id(*rid))
+                        .map(|r| r.long_name.as_str())
+                        .unwrap_or("—");
+                    let panel_type = session.panel_type.as_ref().and_then(|pt_uid| {
+                        schedule
+                            .panel_types
                             .iter()
                             .find(|pt| pt.effective_uid() == *pt_uid)
-                    })
-                });
-                let panel_color = panel_type.and_then(|pt| pt.color.as_deref());
-                let card = cx.new(|_cx| {
-                    EventCard::new(event, room_name, panel_color, panel_type, is_selected)
-                });
-                cx.subscribe(
-                    &card,
-                    |this: &mut Self, _entity, event: &EventCardEvent, cx| {
-                        let EventCardEvent::Clicked(id) = event;
-                        this.open_detail_for_event(id.clone(), cx);
-                    },
-                )
-                .detach();
-                card
-            })
-            .collect();
+                    });
+                    let panel_color = panel_type.and_then(|pt| pt.color.as_deref());
+                    let card = cx.new(|_cx| {
+                        EventCard::from_session(
+                            session,
+                            room_name,
+                            panel_color,
+                            panel_type,
+                            is_selected,
+                        )
+                    });
+                    cx.subscribe(
+                        &card,
+                        |this: &mut Self, _entity, event: &EventCardEvent, cx| {
+                            let EventCardEvent::Clicked(id) = event;
+                            this.open_detail_for_event(id.clone(), cx);
+                        },
+                    )
+                    .detach();
+                    card
+                })
+                .collect();
+        } else {
+            let mut events = schedule.events_for_day(day);
+
+            if let Some(room_uid) = self.selected_room {
+                events.retain(|e| e.room_id == Some(room_uid));
+            }
+
+            events.sort_by_key(|e| e.start_time);
+
+            let selected_id = self.selected_event_id.clone();
+            self.event_cards = events
+                .iter()
+                .map(|event| {
+                    let is_selected = selected_id.as_deref() == Some(event.id.as_str());
+                    let room_name = event
+                        .room_id
+                        .and_then(|rid| schedule.room_by_id(rid))
+                        .map(|r| r.long_name.as_str())
+                        .unwrap_or("—");
+                    let panel_type = event.panel_type.as_ref().and_then(|pt_uid| {
+                        self.schedule.as_ref().and_then(|s| {
+                            s.panel_types
+                                .iter()
+                                .find(|pt| pt.effective_uid() == *pt_uid)
+                        })
+                    });
+                    let panel_color = panel_type.and_then(|pt| pt.color.as_deref());
+                    let card = cx.new(|_cx| {
+                        EventCard::new(event, room_name, panel_color, panel_type, is_selected)
+                    });
+                    cx.subscribe(
+                        &card,
+                        |this: &mut Self, _entity, event: &EventCardEvent, cx| {
+                            let EventCardEvent::Clicked(id) = event;
+                            this.open_detail_for_event(id.clone(), cx);
+                        },
+                    )
+                    .detach();
+                    card
+                })
+                .collect();
+        }
     }
 
     fn push_undo_snapshot(&mut self) {
@@ -684,7 +730,7 @@ impl ScheduleEditor {
                 }
                 update_result
             } else {
-                schedule_clone.save_json_with_mode(&path_clone, JsonExportMode::Staff)
+                schedule_clone.save_json(&path_clone)
             };
 
             cx.update(|cx| {
@@ -754,7 +800,7 @@ impl ScheduleEditor {
         let schedule_clone = schedule.clone();
 
         cx.spawn(async move |this, cx| {
-            let result = schedule_clone.save_json_with_mode(&path, JsonExportMode::Public);
+            let result = schedule_clone.export_public(&path);
 
             cx.update(|cx| {
                 this.update(cx, |editor, cx| match result {
@@ -794,8 +840,8 @@ impl Render for ScheduleEditor {
             .unwrap_or_else(|| "No schedule loaded".to_string());
         let title = SharedString::from(title);
 
-        let event_count = self.schedule.as_ref().map(|s| s.events.len()).unwrap_or(0);
-        let event_count_text = SharedString::from(format!("{event_count} events"));
+        let panel_count = self.schedule.as_ref().map(|s| s.panels.len()).unwrap_or(0);
+        let panel_count_text = SharedString::from(format!("{panel_count} panels"));
 
         // Status bar (if there's a message)
         let status_bar = self.status_message.as_ref().map(|msg| {
@@ -848,7 +894,7 @@ impl Render for ScheduleEditor {
                     .items_center()
                     .py(px(48.0))
                     .text_color(empty_color)
-                    .child("No events for this selection"),
+                    .child("No panels for this selection"),
             );
         } else {
             for card in &self.event_cards {
@@ -886,7 +932,7 @@ impl Render for ScheduleEditor {
             .text_color(rgb(0xFFFFFF))
             .font_weight(gpui::FontWeight::BOLD)
             .cursor_pointer()
-            .child("+  New Event")
+            .child("+  New Panel")
             .when(has_schedule, |this| {
                 this.on_mouse_down(
                     gpui::MouseButton::Left,
@@ -923,7 +969,7 @@ impl Render for ScheduleEditor {
                                 div()
                                     .text_sm()
                                     .text_color(subtitle_color)
-                                    .child(event_count_text),
+                                    .child(panel_count_text),
                             ),
                     )
                     .child(plus_btn),

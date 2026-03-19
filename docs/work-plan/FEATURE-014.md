@@ -7,7 +7,7 @@ when importing spreadsheet data.
 
 ## Status
 
-Open
+Completed
 
 ## Priority
 

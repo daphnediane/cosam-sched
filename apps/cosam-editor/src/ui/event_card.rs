@@ -8,6 +8,7 @@ use gpui::prelude::*;
 use gpui::{Context, EventEmitter, MouseButton, SharedString, Window, div, px, rgb};
 
 use crate::data::Event;
+use crate::data::SessionDisplayInfo;
 use crate::data::source_info::ChangeState;
 
 fn parse_hex_color(hex: &str) -> u32 {
@@ -74,6 +75,42 @@ impl EventCard {
             is_workshop: panel_type.map(|pt| pt.is_workshop).unwrap_or(false),
             is_selected,
             change_state: event.change_state,
+        }
+    }
+
+    pub fn from_session(
+        session: &SessionDisplayInfo,
+        room_name: &str,
+        panel_type_color: Option<&str>,
+        panel_type: Option<&crate::data::panel_type::PanelType>,
+        is_selected: bool,
+    ) -> Self {
+        let time_range = format!(
+            "{} – {}",
+            session.start_time.format("%l:%M %p").to_string().trim(),
+            session.end_time.format("%l:%M %p").to_string().trim(),
+        );
+        let presenters = if session.presenters.is_empty() {
+            String::new()
+        } else {
+            session.presenters.join(", ")
+        };
+        let color = panel_type_color.map(parse_hex_color).unwrap_or(0xCCCCCC);
+        let kind = panel_type
+            .map(|pt| pt.kind.clone())
+            .unwrap_or_else(|| "Panel".to_string());
+
+        Self {
+            event_id: session.session_id.clone(),
+            name: SharedString::from(session.name.clone()),
+            time_range: SharedString::from(time_range),
+            room_name: SharedString::from(room_name.to_string()),
+            kind: SharedString::from(kind),
+            presenters: SharedString::from(presenters),
+            color,
+            is_workshop: panel_type.map(|pt| pt.is_workshop).unwrap_or(false),
+            is_selected,
+            change_state: session.change_state,
         }
     }
 }

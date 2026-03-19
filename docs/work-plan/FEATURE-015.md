@@ -7,7 +7,7 @@ Implement serialization of the v5 full/private JSON format from the
 
 ## Status
 
-Open
+Completed
 
 ## Priority
 

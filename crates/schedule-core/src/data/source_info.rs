@@ -27,7 +27,6 @@ pub enum ChangeState {
     Replaced,
 }
 
-
 #[derive(Debug, Clone, PartialEq, Eq, Default, Serialize, Deserialize)]
 pub struct ImportedSheetPresence {
     pub has_room_map: bool,

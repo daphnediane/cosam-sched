@@ -9,14 +9,31 @@ use std::path::Path;
 
 use anyhow::{Context, Result};
 use chrono::NaiveDate;
+use indexmap::IndexMap;
 use serde::{Deserialize, Serialize};
 
 use super::event::Event;
+use super::panel::Panel;
 use super::panel_type::PanelType;
 use super::presenter::Presenter;
 use super::room::Room;
 use super::source_info::{ChangeState, ImportedSheetPresence};
 use super::timeline::{TimeType, TimelineEntry};
+
+/// Lightweight struct for displaying a panel session in the editor UI
+#[derive(Debug, Clone)]
+pub struct SessionDisplayInfo {
+    pub session_id: String,
+    pub base_id: String,
+    pub name: String,
+    pub panel_type: Option<String>,
+    pub start_time: chrono::NaiveDateTime,
+    pub end_time: chrono::NaiveDateTime,
+    pub room_ids: Vec<u32>,
+    pub presenters: Vec<String>,
+    pub is_full: bool,
+    pub change_state: ChangeState,
+}
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct Meta {
@@ -24,6 +41,8 @@ pub struct Meta {
     pub generated: String,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub version: Option<u32>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub variant: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub generator: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -58,6 +77,9 @@ pub struct Schedule {
     pub meta: Meta,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub timeline: Vec<TimelineEntry>,
+    #[serde(default, skip_serializing_if = "IndexMap::is_empty")]
+    pub panels: IndexMap<String, Panel>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub events: Vec<Event>,
     pub rooms: Vec<Room>,
     pub panel_types: Vec<PanelType>,
@@ -97,21 +119,20 @@ impl Schedule {
         self.clone().save_json_to_file(path)
     }
 
-    pub fn save_json_with_mode(&self, path: &Path, mode: super::JsonExportMode) -> Result<()> {
-        // Get the schedule to save (filtered if needed)
-        let mut schedule_to_save = if mode == super::JsonExportMode::Public {
-            self.filter_for_public_export()
-        } else {
-            self.clone()
-        };
-        
-        // Save the filtered/unfiltered schedule
-        schedule_to_save.save_json_to_file(path)
-    }
-    
     fn save_json_to_file(&mut self, path: &Path) -> Result<()> {
         self.meta.generated = chrono::Utc::now().format("%Y-%m-%dT%H:%M:%SZ").to_string();
-        self.meta.version = Some(4);
+
+        // Set version based on format; preserve variant if already set by caller
+        if !self.panels.is_empty() {
+            self.meta.version = Some(5);
+            if self.meta.variant.is_none() {
+                self.meta.variant = Some("full".to_string());
+            }
+        } else {
+            self.meta.version = Some(4);
+            self.meta.variant = None;
+        }
+
         self.meta.generator = Some(format!("cosam-editor {}", env!("CARGO_PKG_VERSION")));
 
         super::post_process::apply_schedule_parity(self);
@@ -128,38 +149,40 @@ impl Schedule {
         Ok(())
     }
 
-    fn filter_for_public_export(&self) -> Schedule {
-        let mut schedule = self.clone();
-
-        let hidden_type_uids: std::collections::HashSet<String> = schedule
-            .panel_types
-            .iter()
-            .filter(|panel_type| panel_type.is_hidden)
-            .map(|panel_type| panel_type.effective_uid())
-            .collect();
-
-        if !hidden_type_uids.is_empty() {
-            schedule.events.retain(|event| {
-                event
-                    .panel_type
-                    .as_ref()
-                    .map(|panel_type_uid| !hidden_type_uids.contains(panel_type_uid))
-                    .unwrap_or(true)
-            });
-            schedule.panel_types.retain(|panel_type| {
-                !panel_type.is_hidden
-            });
-        }
-
-        schedule
-    }
-
-    /// Calculate schedule start and end times from events and timeline entries
+    /// Calculate schedule start and end times from panels, events, and timeline entries
     pub fn calculate_schedule_bounds(&mut self) {
         let mut min_time: Option<chrono::NaiveDateTime> = None;
         let mut max_time: Option<chrono::NaiveDateTime> = None;
 
-        // Check events
+        // Check panel sessions
+        for panel in self.panels.values() {
+            for part in &panel.parts {
+                for session in &part.sessions {
+                    if let Some(ref st) = session.start_time {
+                        if let Ok(start) =
+                            chrono::NaiveDateTime::parse_from_str(st, "%Y-%m-%dT%H:%M:%S")
+                        {
+                            if min_time.is_none() || Some(start) < min_time {
+                                min_time = Some(start);
+                            }
+                            let end = if let Some(ref et) = session.end_time {
+                                chrono::NaiveDateTime::parse_from_str(et, "%Y-%m-%dT%H:%M:%S")
+                                    .unwrap_or(
+                                        start + chrono::Duration::minutes(session.duration as i64),
+                                    )
+                            } else {
+                                start + chrono::Duration::minutes(session.duration as i64)
+                            };
+                            if max_time.is_none() || Some(end) > max_time {
+                                max_time = Some(end);
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
+        // Check events (v4 fallback)
         for event in &self.events {
             if min_time.is_none() || Some(event.start_time) < min_time {
                 min_time = Some(event.start_time);
@@ -178,7 +201,6 @@ impl Schedule {
                 if min_time.is_none() || Some(start_time) < min_time {
                     min_time = Some(start_time);
                 }
-                // Timeline entries have implicit 30-minute duration
                 let end_time = start_time + chrono::Duration::minutes(30);
                 if max_time.is_none() || Some(end_time) > max_time {
                     max_time = Some(end_time);
@@ -290,13 +312,87 @@ impl Schedule {
 
     #[must_use]
     pub fn days(&self) -> Vec<NaiveDate> {
-        let dates: BTreeSet<NaiveDate> = self.events.iter().map(|e| e.date()).collect();
+        let mut dates: BTreeSet<NaiveDate> = self.events.iter().map(|e| e.date()).collect();
+
+        for panel in self.panels.values() {
+            for part in &panel.parts {
+                for session in &part.sessions {
+                    if let Some(ref st) = session.start_time {
+                        if let Ok(dt) =
+                            chrono::NaiveDateTime::parse_from_str(st, "%Y-%m-%dT%H:%M:%S")
+                        {
+                            dates.insert(dt.date());
+                        }
+                    }
+                }
+            }
+        }
+
         dates.into_iter().collect()
     }
 
     #[must_use]
     pub fn events_for_day(&self, day: &NaiveDate) -> Vec<&Event> {
         self.events.iter().filter(|e| &e.date() == day).collect()
+    }
+
+    /// Returns flattened session display info for a given day from the v5 panels hierarchy
+    #[must_use]
+    pub fn sessions_for_day(&self, day: &NaiveDate) -> Vec<SessionDisplayInfo> {
+        let mut results = Vec::new();
+        for panel in self.panels.values() {
+            for part in &panel.parts {
+                for session in &part.sessions {
+                    let start_dt = session.start_time.as_ref().and_then(|st| {
+                        chrono::NaiveDateTime::parse_from_str(st, "%Y-%m-%dT%H:%M:%S").ok()
+                    });
+                    if let Some(start) = start_dt {
+                        if &start.date() == day {
+                            let end_dt = session
+                                .end_time
+                                .as_ref()
+                                .and_then(|et| {
+                                    chrono::NaiveDateTime::parse_from_str(et, "%Y-%m-%dT%H:%M:%S")
+                                        .ok()
+                                })
+                                .unwrap_or(
+                                    start + chrono::Duration::minutes(session.duration as i64),
+                                );
+
+                            let presenters: Vec<String> = {
+                                let mut all = panel.credited_presenters.clone();
+                                for name in &part.credited_presenters {
+                                    if !all.contains(name) {
+                                        all.push(name.clone());
+                                    }
+                                }
+                                for name in &session.credited_presenters {
+                                    if !all.contains(name) {
+                                        all.push(name.clone());
+                                    }
+                                }
+                                all
+                            };
+
+                            results.push(SessionDisplayInfo {
+                                session_id: session.id.clone(),
+                                base_id: panel.id.clone(),
+                                name: panel.name.clone(),
+                                panel_type: panel.panel_type.clone(),
+                                start_time: start,
+                                end_time: end_dt,
+                                room_ids: session.room_ids.clone(),
+                                presenters,
+                                is_full: session.is_full,
+                                change_state: session.change_state,
+                            });
+                        }
+                    }
+                }
+            }
+        }
+        results.sort_by_key(|s| s.start_time);
+        results
     }
 
     #[must_use]
@@ -442,174 +538,5 @@ mod tests {
         let result = Schedule::load(&path);
         assert!(result.is_err());
         let _ = std::fs::remove_file(&path);
-    }
-
-    #[test]
-    fn test_json_export_mode_filtering() {
-        let mut schedule = Schedule {
-            conflicts: Vec::new(),
-            meta: super::Meta {
-                title: "Test Schedule".to_string(),
-                generated: "2024-01-01T00:00:00Z".to_string(),
-                version: Some(2),
-                generator: None,
-                start_time: None,
-                end_time: None,
-            },
-            timeline: Vec::new(),
-            events: Vec::new(),
-            rooms: Vec::new(),
-            panel_types: Vec::new(),
-            time_types: Vec::new(),
-            presenters: Vec::new(),
-            imported_sheets: Default::default(),
-        };
-        
-        // Add some panel types
-        schedule.panel_types.push(super::PanelType {
-            uid: Some("panel-type-public".to_string()),
-            prefix: "PUB".to_string(),
-            kind: "Public".to_string(),
-            is_hidden: false,
-            color: None,
-            is_break: false,
-            is_cafe: false,
-            is_workshop: false,
-            is_room_hours: false,
-            bw_color: None,
-            source: None,
-            change_state: Default::default(),
-        });
-        
-        schedule.panel_types.push(super::PanelType {
-            uid: Some("panel-type-hidden".to_string()),
-            prefix: "HID".to_string(),
-            kind: "Hidden".to_string(),
-            is_hidden: true,
-            color: None,
-            is_break: false,
-            is_cafe: false,
-            is_workshop: false,
-            is_room_hours: false,
-            bw_color: None,
-            source: None,
-            change_state: Default::default(),
-        });
-        
-        schedule.panel_types.push(super::PanelType {
-            uid: Some("panel-type-split".to_string()),
-            prefix: "SPLIT".to_string(),
-            kind: "Split".to_string(),
-            is_hidden: true, // Even though hidden, splits should be handled normally
-            color: None,
-            is_break: false,
-            is_cafe: false,
-            is_workshop: false,
-            is_room_hours: false,
-            bw_color: None,
-            source: None,
-            change_state: Default::default(),
-        });
-        
-        // Add events for each panel type
-        let base_time = chrono::NaiveDateTime::parse_from_str("2024-01-01T10:00:00", "%Y-%m-%dT%H:%M:%S").unwrap();
-        
-        schedule.events.push(super::Event {
-            id: "event-public".to_string(),
-            name: "Public Event".to_string(),
-            description: None,
-            start_time: base_time,
-            end_time: base_time + chrono::Duration::hours(1),
-            duration: 60,
-            room_id: None,
-            panel_type: Some("panel-type-public".to_string()),
-            cost: None,
-            capacity: None,
-            difficulty: None,
-            note: None,
-            prereq: None,
-            ticket_url: None,
-            presenters: Vec::new(),
-            credits: Vec::new(),
-            conflicts: Vec::new(),
-            is_free: false,
-            is_full: false,
-            is_kids: false,
-            hide_panelist: false,
-            alt_panelist: None,
-            source: None,
-            change_state: Default::default(),
-        });
-        
-        schedule.events.push(super::Event {
-            id: "event-hidden".to_string(),
-            name: "Hidden Event".to_string(),
-            description: None,
-            start_time: base_time + chrono::Duration::hours(2),
-            end_time: base_time + chrono::Duration::hours(3),
-            duration: 60,
-            room_id: None,
-            panel_type: Some("panel-type-hidden".to_string()),
-            cost: None,
-            capacity: None,
-            difficulty: None,
-            note: None,
-            prereq: None,
-            ticket_url: None,
-            presenters: Vec::new(),
-            credits: Vec::new(),
-            conflicts: Vec::new(),
-            is_free: false,
-            is_full: false,
-            is_kids: false,
-            hide_panelist: false,
-            alt_panelist: None,
-            source: None,
-            change_state: Default::default(),
-        });
-        
-        schedule.events.push(super::Event {
-            id: "event-split".to_string(),
-            name: "Split Event".to_string(),
-            description: None,
-            start_time: base_time + chrono::Duration::hours(4),
-            end_time: base_time + chrono::Duration::hours(5),
-            duration: 60,
-            room_id: None,
-            panel_type: Some("panel-type-split".to_string()),
-            cost: None,
-            capacity: None,
-            difficulty: None,
-            note: None,
-            prereq: None,
-            ticket_url: None,
-            presenters: Vec::new(),
-            credits: Vec::new(),
-            conflicts: Vec::new(),
-            is_free: false,
-            is_full: false,
-            is_kids: false,
-            hide_panelist: false,
-            alt_panelist: None,
-            source: None,
-            change_state: Default::default(),
-        });
-        
-        // Test filtering directly
-        let filtered_schedule = schedule.filter_for_public_export();
-        assert_eq!(filtered_schedule.panel_types.len(), 1); // Only public panel type
-        assert_eq!(filtered_schedule.events.len(), 1); // Only event with public panel type
-        
-        // Verify the correct panel type remains
-        assert_eq!(filtered_schedule.panel_types[0].uid, Some("panel-type-public".to_string()));
-        assert_eq!(filtered_schedule.events[0].panel_type, Some("panel-type-public".to_string()));
-        
-        // Test that hidden panel types are filtered out
-        assert!(!filtered_schedule.panel_types.iter().any(|pt| pt.is_hidden));
-        assert!(!filtered_schedule.events.iter().any(|e| {
-            e.panel_type.as_ref().map_or(false, |uid| {
-                uid == "panel-type-hidden" || uid == "panel-type-split"
-            })
-        }));
     }
 }

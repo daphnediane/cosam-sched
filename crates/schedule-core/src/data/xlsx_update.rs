@@ -29,8 +29,7 @@ pub fn update_xlsx(schedule: &Schedule, path: &Path) -> Result<()> {
     }
 
     if schedule.imported_sheets.has_panel_types {
-        if let Some(sheet_name) =
-            find_sheet_name(schedule.panel_types.iter().map(|pt| &pt.source))
+        if let Some(sheet_name) = find_sheet_name(schedule.panel_types.iter().map(|pt| &pt.source))
         {
             update_panel_types_sheet(&mut book, &sheet_name, schedule)?;
         }
@@ -277,7 +276,13 @@ fn write_panel_type_to_row(
         &panel_type.kind,
     );
     set_cell_opt_str(worksheet, header_map, row, &["Color"], &panel_type.color);
-    set_cell_opt_str(worksheet, header_map, row, &["BW", "Bw"], &panel_type.bw_color);
+    set_cell_opt_str(
+        worksheet,
+        header_map,
+        row,
+        &["BW", "Bw"],
+        &panel_type.bw_color,
+    );
     set_cell_bool(
         worksheet,
         header_map,
@@ -570,10 +575,12 @@ mod tests {
                 title: "Test".to_string(),
                 generated: "2026-01-01".to_string(),
                 version: Some(4),
+                variant: None,
                 generator: None,
                 start_time: None,
                 end_time: None,
             },
+            panels: indexmap::IndexMap::new(),
             timeline: vec![
                 TimelineEntry {
                     id: "TL01".to_string(),
@@ -882,5 +889,4 @@ mod tests {
         let result = find_sheet_name(sources.iter());
         assert_eq!(result, None);
     }
-
 }

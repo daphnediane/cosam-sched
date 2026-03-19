@@ -6,13 +6,13 @@
 
 use std::path::PathBuf;
 
-use schedule_core::data::{Schedule, XlsxImportOptions, JsonExportMode};
+use schedule_core::data::{Schedule, XlsxImportOptions, export_to_xlsx};
 
 struct CliArgs {
     input: PathBuf,
-    output: PathBuf,
+    output: Option<PathBuf>,
+    export: Option<PathBuf>,
     title: String,
-    export_mode: JsonExportMode,
     schedule_table: String,
     roommap_table: String,
     prefix_table: String,
@@ -22,9 +22,9 @@ struct CliArgs {
 fn parse_args() -> anyhow::Result<CliArgs> {
     let arguments: Vec<String> = std::env::args().collect();
     let mut input: Option<PathBuf> = None;
-    let mut output = PathBuf::from("schedule.json");
+    let mut output: Option<PathBuf> = None;
+    let mut export: Option<PathBuf> = None;
     let mut title = String::new();
-    let mut export_mode = JsonExportMode::Public;
     let mut schedule_table = "Schedule".to_string();
     let mut roommap_table = "RoomMap".to_string();
     let mut prefix_table = "Prefix".to_string();
@@ -45,7 +45,14 @@ fn parse_args() -> anyhow::Result<CliArgs> {
                 if index >= arguments.len() {
                     anyhow::bail!("Missing value for --output");
                 }
-                output = PathBuf::from(&arguments[index]);
+                output = Some(PathBuf::from(&arguments[index]));
+            }
+            "--export" | "-e" => {
+                index += 1;
+                if index >= arguments.len() {
+                    anyhow::bail!("Missing value for --export");
+                }
+                export = Some(PathBuf::from(&arguments[index]));
             }
             "--title" | "-t" => {
                 index += 1;
@@ -82,9 +89,6 @@ fn parse_args() -> anyhow::Result<CliArgs> {
                 }
                 config_file = Some(PathBuf::from(&arguments[index]));
             }
-            "--staff" => {
-                export_mode = JsonExportMode::Staff;
-            }
             "--help" | "-h" => {
                 print_usage();
                 std::process::exit(0);
@@ -107,8 +111,8 @@ fn parse_args() -> anyhow::Result<CliArgs> {
     Ok(CliArgs {
         input,
         output,
+        export,
         title,
-        export_mode,
         schedule_table,
         roommap_table,
         prefix_table,
@@ -121,14 +125,16 @@ fn print_usage() {
         "Usage: cosam-convert --input <file.xlsx|file.json> [options]\n\
          \n\
          Options:\n\
-         \x20 --output, -o <file>       Output JSON file (default: schedule.json)\n\
-         \x20 --title, -t <string>      Event title (for XLSX import)\n\
-         \x20 --config, -c <file.yaml>  Reserved for future Google Sheets support\n\
-         \x20 --staff                   Include staff/hidden events\n\
-         \x20 --schedule-table <name>   Sheet name for schedule data (default: Schedule)\n\
-         \x20 --roommap-table <name>    Sheet name for room mapping (default: RoomMap)\n\
-         \x20 --prefix-table <name>     Sheet name for panel types (default: Prefix)\n\
-         \x20 --help, -h                Show this help message"
+         \x20 --output, -o <file.json|file.xlsx>  Save private/full schedule (format by extension)\n\
+         \x20 --export, -e <file.json>            Export public schedule JSON\n\
+         \x20 --title, -t <string>                Event title (for XLSX import)\n\
+         \x20 --config, -c <file.yaml>            Reserved for future Google Sheets support\n\
+         \x20 --schedule-table <name>             Sheet name for schedule data (default: Schedule)\n\
+         \x20 --roommap-table <name>              Sheet name for room mapping (default: RoomMap)\n\
+         \x20 --prefix-table <name>               Sheet name for panel types (default: Prefix)\n\
+         \x20 --help, -h                          Show this help message\n\
+         \n\
+         If neither --output nor --export is given, the input is parsed and summarized."
     );
 }
 
@@ -142,6 +148,18 @@ fn build_import_options(cli: &CliArgs) -> XlsxImportOptions {
         schedule_table: cli.schedule_table.clone(),
         rooms_table: cli.roommap_table.clone(),
         panel_types_table: cli.prefix_table.clone(),
+    }
+}
+
+fn save_output(schedule: &Schedule, path: &std::path::Path) -> anyhow::Result<()> {
+    let ext = path
+        .extension()
+        .and_then(|e| e.to_str())
+        .unwrap_or("")
+        .to_lowercase();
+    match ext.as_str() {
+        "xlsx" => export_to_xlsx(schedule, path),
+        _ => schedule.save_json(path),
     }
 }
 
@@ -177,18 +195,36 @@ fn main() {
     }
 
     eprintln!(
-        "Events: {}, Rooms: {}, Panel types: {}, Presenters: {}",
-        schedule.events.len(),
+        "Panels: {}, Rooms: {}, Panel types: {}, Presenters: {}",
+        schedule.panels.len(),
         schedule.rooms.len(),
         schedule.panel_types.len(),
         schedule.presenters.len()
     );
 
-    match schedule.save_json_with_mode(&cli.output, cli.export_mode) {
-        Ok(()) => eprintln!("Written: {}", cli.output.display()),
-        Err(error) => {
-            eprintln!("Error saving: {error}");
-            std::process::exit(1);
+    let mut had_error = false;
+
+    if let Some(ref output_path) = cli.output {
+        match save_output(&schedule, output_path) {
+            Ok(()) => eprintln!("Written: {}", output_path.display()),
+            Err(error) => {
+                eprintln!("Error writing {}: {error}", output_path.display());
+                had_error = true;
+            }
         }
+    }
+
+    if let Some(ref export_path) = cli.export {
+        match schedule.export_public(export_path) {
+            Ok(()) => eprintln!("Exported: {}", export_path.display()),
+            Err(error) => {
+                eprintln!("Error exporting {}: {error}", export_path.display());
+                had_error = true;
+            }
+        }
+    }
+
+    if had_error {
+        std::process::exit(1);
     }
 }

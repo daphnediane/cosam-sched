@@ -9,17 +9,18 @@ use std::path::Path;
 
 use anyhow::{Context, Result};
 use chrono::NaiveDateTime;
+use indexmap::IndexMap;
 use regex::Regex;
-use umya_spreadsheet::structs::Worksheet;
 use umya_spreadsheet::Spreadsheet;
+use umya_spreadsheet::structs::Worksheet;
 
-use super::event::Event;
+use super::panel::{Panel, apply_common_prefix};
+use super::panel_id::PanelId;
 use super::panel_type::PanelType;
 use super::presenter::Presenter;
 use super::room::Room;
 use super::schedule::{Meta, Schedule};
 use super::source_info::{ChangeState, ImportedSheetPresence, SourceInfo};
-use super::timeline::{TimeType, TimelineEntry};
 
 pub struct XlsxImportOptions {
     pub title: String,
@@ -39,78 +40,6 @@ impl Default for XlsxImportOptions {
     }
 }
 
-fn convert_split_types_to_timeline(
-    panel_types: &[PanelType],
-    events: &[Event],
-) -> (Vec<PanelType>, Vec<TimeType>, Vec<TimelineEntry>, Vec<Event>) {
-    let mut time_types = Vec::new();
-    let mut timeline = Vec::new();
-    let mut filtered_panel_types = panel_types.to_vec();
-    let mut split_uids: std::collections::HashSet<String> = std::collections::HashSet::new();
-
-    let split_types: Vec<_> = panel_types
-        .iter()
-        .filter(|pt| is_split_prefix(&pt.prefix))
-        .collect();
-
-    for split_type in split_types {
-        let time_type = TimeType {
-            uid: TimeType::uid_from_prefix(&split_type.prefix),
-            prefix: split_type.prefix.clone(),
-            kind: split_type.kind.clone(),
-            source: None,
-            change_state: ChangeState::Converted,
-        };
-        time_types.push(time_type);
-        split_uids.insert(split_type.effective_uid());
-
-        let split_events: Vec<_> = events
-            .iter()
-            .filter(|e| {
-                e.panel_type
-                    .as_ref()
-                    .map(|pt| pt == &split_type.effective_uid())
-                    .unwrap_or(false)
-            })
-            .collect();
-
-        for (i, event) in split_events.iter().enumerate() {
-            let timeline_entry = TimelineEntry {
-                id: format!("{}{:02}", split_type.prefix, i + 1),
-                start_time: event.start_time.format("%Y-%m-%dT%H:%M:%S").to_string(),
-                description: event.name.clone(),
-                time_type: Some(TimeType::uid_from_prefix(&split_type.prefix)),
-                note: event.note.clone(),
-                source: None,
-                change_state: ChangeState::Converted,
-            };
-            timeline.push(timeline_entry);
-        }
-
-        filtered_panel_types.retain(|pt| pt.prefix != split_type.prefix);
-    }
-
-    let filtered_events: Vec<Event> = events
-        .iter()
-        .filter(|e| {
-            e.panel_type
-                .as_ref()
-                .map(|uid| !split_uids.contains(uid))
-                .unwrap_or(true)
-        })
-        .cloned()
-        .collect();
-
-    (filtered_panel_types, time_types, timeline, filtered_events)
-}
-
-// Helper function to determine if a prefix indicates a split/time type
-fn is_split_prefix(prefix: &str) -> bool {
-    prefix.to_uppercase() == "SPLIT"
-        || prefix.to_uppercase().starts_with("SP")
-        || prefix.to_uppercase().starts_with("SPLIT")
-}
-
 pub fn import_xlsx(path: &Path, options: &XlsxImportOptions) -> Result<Schedule> {
     let book = umya_spreadsheet::reader::xlsx::read(path)
         .with_context(|| format!("Failed to open {}", path.display()))?;
@@ -119,7 +48,19 @@ pub fn import_xlsx(path: &Path, options: &XlsxImportOptions) -> Result<Schedule>
 
     let rooms = read_rooms(&book, &options.rooms_table, &file_path_str)?;
     let panel_types = read_panel_types(&book, &options.panel_types_table, &file_path_str)?;
-    let (events, presenters) = read_events(
+
+    let imported_sheets = ImportedSheetPresence {
+        has_room_map: !rooms.is_empty() && rooms.iter().any(|r| r.source.is_some()),
+        has_panel_types: !panel_types.is_empty()
+            && panel_types.iter().any(|pt| pt.source.is_some()),
+        has_presenters: false,
+        has_schedule: true, // We'll assume schedule exists if we get here
+    };
+
+    let generated = chrono::Utc::now().format("%Y-%m-%dT%H:%M:%SZ").to_string();
+
+    // Always use v5 format with panels
+    let (panels, presenters) = read_events_v5(
         &book,
         &options.schedule_table,
         &rooms,
@@ -127,69 +68,23 @@ pub fn import_xlsx(path: &Path, options: &XlsxImportOptions) -> Result<Schedule>
         &file_path_str,
     )?;
 
-    let mut panel_types = panel_types;
-
-    let imported_sheets = ImportedSheetPresence {
-        has_room_map: !rooms.is_empty() && rooms.iter().any(|r| r.source.is_some()),
-        has_panel_types: !panel_types.is_empty()
-            && panel_types.iter().any(|pt| pt.source.is_some()),
-        has_presenters: false,
-        has_schedule: !events.is_empty(),
-    };
-
-    let mut used_prefixes = std::collections::HashSet::new();
-
-    for event in &events {
-        if let Some(ref panel_type_uid) = event.panel_type {
-            if let Some(prefix) = panel_type_uid.strip_prefix("panel-type-") {
-                used_prefixes.insert(prefix.to_uppercase());
-            }
-        }
-    }
-
-    for prefix in used_prefixes {
-        if !panel_types.iter().any(|pt| pt.prefix == prefix) {
-            let kind = format!("{} Panel", prefix);
-            let is_workshop = prefix.ends_with('W');
-            let is_break = prefix.to_uppercase().starts_with("BR");
-
-            panel_types.push(PanelType {
-                uid: Some(format!("panel-type-{}", prefix.to_lowercase())),
-                prefix: prefix.clone(),
-                kind,
-                color: None,
-                is_break,
-                is_cafe: false,
-                is_workshop,
-                is_hidden: false,
-                is_room_hours: false,
-                bw_color: None,
-                source: None,
-                change_state: ChangeState::Converted,
-            });
-        }
-    }
-
-    let generated = chrono::Utc::now().format("%Y-%m-%dT%H:%M:%SZ").to_string();
-
-    let (panel_types, time_types, timeline, events) =
-        convert_split_types_to_timeline(&panel_types, &events);
-
     let mut schedule = Schedule {
         conflicts: Vec::new(),
         meta: Meta {
             title: options.title.clone(),
             generated,
-            version: Some(4),
+            version: Some(5),
+            variant: Some("full".to_string()),
             generator: Some(format!("cosam-editor {}", env!("CARGO_PKG_VERSION"))),
             start_time: None,
             end_time: None,
         },
-        timeline,
-        events,
+        timeline: Vec::new(),
+        panels,
+        events: Vec::new(),
         rooms,
         panel_types,
-        time_types,
+        time_types: Vec::new(),
         presenters,
         imported_sheets,
     };
@@ -883,13 +778,41 @@ fn split_presenter_names(text: &str) -> Vec<String> {
         .collect()
 }
 
-fn read_events(
+fn extract_id_prefix(id: Option<&str>) -> String {
+    let id = match id {
+        Some(id) => id,
+        None => return String::new(),
+    };
+    let re = Regex::new(r"^([A-Za-z]+)").expect("valid regex");
+    re.captures(id)
+        .map(|caps| caps[1].to_uppercase())
+        .unwrap_or_default()
+}
+
+/// Prepend a narrowed base/part prefix tail to an existing sibling field value.
+///
+/// When a common prefix narrows and the stripped portion needs to be pushed down
+/// to existing siblings, their stored value gets the old tail prepended:
+/// - `prepend_suffix("DEF GH", None)` → `Some("DEF GH")`
+/// - `prepend_suffix("DEF GH", Some("xyz"))` → `Some("DEF GH xyz")`
+/// - `prepend_suffix("", Some("xyz"))` → `Some("xyz")` (no-op)
+fn prepend_suffix(prefix: &str, existing: Option<&str>) -> Option<String> {
+    if prefix.is_empty() {
+        return existing.map(|s| s.to_string());
+    }
+    match existing.filter(|s| !s.is_empty()) {
+        None => Some(prefix.to_string()),
+        Some(val) => Some(format!("{} {}", prefix, val)),
+    }
+}
+
+fn read_events_v5(
     book: &Spreadsheet,
     preferred: &str,
     rooms: &[Room],
     panel_types: &[PanelType],
     file_path: &str,
-) -> Result<(Vec<Event>, Vec<Presenter>)> {
+) -> Result<(IndexMap<String, Panel>, Vec<Presenter>)> {
     let first_sheet_name = book
         .get_sheet_collection()
         .first()
@@ -897,7 +820,7 @@ fn read_events(
     let first_sheet_ref: &str = first_sheet_name.as_deref().unwrap_or("");
     let range = match find_data_range(book, preferred, &["Schedule", first_sheet_ref]) {
         Some(r) => r,
-        None => return Ok((Vec::new(), Vec::new())),
+        None => return Ok((IndexMap::new(), Vec::new())),
     };
 
     let ws = book
@@ -905,7 +828,7 @@ fn read_events(
         .ok_or_else(|| anyhow::anyhow!("Sheet '{}' not found", range.sheet_name))?;
 
     if !range.has_data() {
-        return Ok((Vec::new(), Vec::new()));
+        return Ok((IndexMap::new(), Vec::new()));
     }
 
     let (raw_headers, canonical_headers, col_map) = build_column_map(ws, &range);
@@ -959,7 +882,7 @@ fn read_events(
     }
     let mut presenter_map: HashMap<String, PresenterInfo> = HashMap::new();
     let mut group_members: HashMap<String, Vec<String>> = HashMap::new();
-    let mut events = Vec::new();
+    let mut panels: IndexMap<String, Panel> = IndexMap::new();
 
     for pc in &presenter_cols {
         if let Some(ref name) = pc.header_name {
@@ -1008,6 +931,18 @@ fn read_events(
             None => continue,
         };
 
+        let panel_id = match PanelId::parse(&uniq_id.as_deref().unwrap_or("")) {
+            Some(pid) => pid,
+            None => {
+                // Create a fake panel ID for rows without proper IDs
+                PanelId {
+                    base_id: format!("row{}", row),
+                    part_num: None,
+                    session_num: None,
+                }
+            }
+        };
+
         let start_time = parse_datetime_value(
             start_time_col.and_then(|c| get_cell_str(ws, c, row)),
             start_time_col.and_then(|c| get_cell_number(ws, c, row)),
@@ -1046,10 +981,17 @@ fn read_events(
         };
 
         let room_name = get_field(&data, &["Room", "Room_Name", "RoomName"]).cloned();
-        let room_id = room_name
-            .as_ref()
-            .and_then(|rn| room_lookup.get(&rn.to_lowercase()))
-            .map(|r| r.uid);
+        let room_ids: Vec<u32> = if let Some(ref room_name) = room_name {
+            room_name
+                .split(',')
+                .filter_map(|name| {
+                    let trimmed = name.trim();
+                    room_lookup.get(&trimmed.to_lowercase()).map(|r| r.uid)
+                })
+                .collect()
+        } else {
+            Vec::new()
+        };
 
         let id_prefix = extract_id_prefix(uniq_id.as_deref());
         let kind_raw = get_field(&data, &["Kind", "Panel_Kind", "PanelKind"]).cloned();
@@ -1148,49 +1090,221 @@ fn read_events(
             }
         }
 
-        // Always extract the prefix from the event ID for auto panel type creation
-        let id_prefix = extract_id_prefix(uniq_id.as_deref());
+        // Get the panel type UID
         let panel_type_uid = if !id_prefix.is_empty() {
             Some(format!("panel-type-{}", id_prefix.to_lowercase()))
         } else {
             panel_type.map(|pt| pt.effective_uid())
         };
 
+        // Get other fields
+        let description = get_field(&data, &["Description"]).cloned();
+        let note = get_field(&data, &["Note"]).cloned();
+        let prereq = get_field(&data, &["Prereq"]).cloned();
+        let alt_panelist = get_field(&data, &["Alt_Panelist", "AltPanelist"]).cloned();
+        let capacity = get_field(&data, &["Capacity"]).cloned();
+        let difficulty = get_field(&data, &["Difficulty"]).cloned();
+        let ticket_url = get_field(&data, &["Ticket_Sale", "TicketSale"]).cloned();
+        let simple_tix_event = get_field(&data, &["SimpleTix_Event", "SimpleTixEvent"]).cloned();
         let hide_panelist = get_field(&data, &["Hide_Panelist", "HidePanelist"])
             .map(|s| is_truthy(s))
             .unwrap_or(false);
-        let alt_panelist = get_field(&data, &["Alt_Panelist", "AltPanelist"]).cloned();
+        let seats_sold =
+            get_field(&data, &["Seats_Sold", "SeatsSold"]).and_then(|s| s.parse::<u32>().ok());
+        let pre_reg_max = get_field(&data, &["PreReg_Max", "PreRegMax"]).cloned();
+        let notes_non_printing =
+            get_field(&data, &["Notes_Non_Printing", "NotesNonPrinting"]).cloned();
+        let workshop_notes = get_field(&data, &["Workshop_Notes", "WorkshopNotes"]).cloned();
+        let power_needs = get_field(&data, &["Power_Needs", "PowerNeeds"]).cloned();
+        let sewing_machines = get_field(&data, &["Sewing_Machines", "SewingMachines"])
+            .map(|s| is_truthy(s))
+            .unwrap_or(false);
+        let av_notes = get_field(&data, &["AV_Notes", "AVNotes"]).cloned();
+        let have_ticket_image =
+            get_field(&data, &["Have_Ticket_Image", "HaveTicketImage"]).map(|s| is_truthy(s));
 
-        events.push(Event {
-            id: uniq_id.unwrap_or_else(|| format!("row{}", events.len())),
-            name,
-            description: get_field(&data, &["Description"]).cloned(),
-            start_time,
-            end_time,
-            duration,
-            room_id,
-            panel_type: panel_type_uid,
-            cost,
-            capacity: get_field(&data, &["Capacity"]).cloned(),
-            difficulty: get_field(&data, &["Difficulty"]).cloned(),
-            note: get_field(&data, &["Note"]).cloned(),
-            prereq: get_field(&data, &["Prereq"]).cloned(),
-            ticket_url: get_field(&data, &["Ticket_Sale", "TicketSale"]).cloned(),
-            presenters: event_presenters,
-            credits: Vec::new(),
-            conflicts: Vec::new(),
-            is_free,
-            is_full,
-            is_kids,
-            hide_panelist,
-            alt_panelist,
-            source: Some(SourceInfo {
-                file_path: Some(file_path.to_string()),
-                sheet_name: Some(range.sheet_name.clone()),
-                row_index: Some(row),
-            }),
-            change_state: ChangeState::Unchanged,
+        // Find or create the base panel
+        let panel = panels.entry(panel_id.base_id.clone()).or_insert_with(|| {
+            let mut p = Panel::new(panel_id.base_id.clone());
+            p.name = name.clone();
+            p.panel_type = panel_type_uid.clone();
+            p.cost = cost.clone();
+            p.capacity = capacity.clone();
+            p.difficulty = difficulty.clone();
+            p.ticket_url = ticket_url.clone();
+            p.is_free = is_free;
+            p.is_kids = is_kids;
+            p.simple_tix_event = simple_tix_event.clone();
+            p.have_ticket_image = have_ticket_image;
+            // Store first description/note/prereq at base level
+            p.description = description.clone();
+            p.note = note.clone();
+            p.prereq = prereq.clone();
+            p.credited_presenters = event_presenters.clone();
+            p
         });
+
+        // Apply common-prefix algorithm at base level.
+        // Each call returns (new_entry_suffix, old_prefix_suffix_if_narrowed).
+        // Neither value includes the separator space; join_parts adds it back.
+        let (base_desc_suffix, narrowed_base_desc) = match description.as_deref() {
+            Some(v) => apply_common_prefix(&mut panel.description, v),
+            None => (String::new(), None),
+        };
+        let (base_note_suffix, narrowed_base_note) = match note.as_deref() {
+            Some(v) => apply_common_prefix(&mut panel.note, v),
+            None => (String::new(), None),
+        };
+        let (base_prereq_suffix, narrowed_base_prereq) = match prereq.as_deref() {
+            Some(v) => apply_common_prefix(&mut panel.prereq, v),
+            None => (String::new(), None),
+        };
+
+        // When the base prefix narrowed, push the old base tail to all existing parts.
+        if narrowed_base_desc.is_some()
+            || narrowed_base_note.is_some()
+            || narrowed_base_prereq.is_some()
+        {
+            for ep in &mut panel.parts {
+                if let Some(ref tail) = narrowed_base_desc {
+                    ep.description = prepend_suffix(tail, ep.description.as_deref());
+                }
+                if let Some(ref tail) = narrowed_base_note {
+                    ep.note = prepend_suffix(tail, ep.note.as_deref());
+                }
+                if let Some(ref tail) = narrowed_base_prereq {
+                    ep.prereq = prepend_suffix(tail, ep.prereq.as_deref());
+                }
+            }
+        }
+
+        let panel_id_str = panel.id.clone();
+
+        // Detect whether this part already exists before find_or_create_part.
+        let part_already_exists = panel_id
+            .part_num
+            .map(|n| panel.parts.iter().any(|p| p.part_num == Some(n)))
+            .unwrap_or(!panel.parts.is_empty());
+
+        // Find or create the part
+        let part = panel.find_or_create_part(panel_id.part_num);
+
+        // Apply common-prefix at the part level using the base-level suffixes.
+        let (part_desc_suffix, part_note_suffix, part_prereq_suffix) = if part_already_exists {
+            let (s_desc, n_desc) = apply_common_prefix(&mut part.description, &base_desc_suffix);
+            let (s_note, n_note) = apply_common_prefix(&mut part.note, &base_note_suffix);
+            let (s_prereq, n_prereq) = apply_common_prefix(&mut part.prereq, &base_prereq_suffix);
+            // When part-level fields narrowed, push old tails to all existing sessions.
+            if n_desc.is_some() || n_note.is_some() || n_prereq.is_some() {
+                for es in &mut part.sessions {
+                    if let Some(ref tail) = n_desc {
+                        es.description = prepend_suffix(tail, es.description.as_deref());
+                    }
+                    if let Some(ref tail) = n_note {
+                        es.note = prepend_suffix(tail, es.note.as_deref());
+                    }
+                    if let Some(ref tail) = n_prereq {
+                        es.prereq = prepend_suffix(tail, es.prereq.as_deref());
+                    }
+                }
+            }
+            (s_desc, s_note, s_prereq)
+        } else {
+            if !base_desc_suffix.is_empty() {
+                part.description = Some(base_desc_suffix.clone());
+            }
+            if !base_note_suffix.is_empty() {
+                part.note = Some(base_note_suffix.clone());
+            }
+            if !base_prereq_suffix.is_empty() {
+                part.prereq = Some(base_prereq_suffix.clone());
+            }
+            (String::new(), String::new(), String::new())
+        };
+
+        // Add presenters to part
+        for presenter in &event_presenters {
+            if !part.credited_presenters.contains(presenter) {
+                part.credited_presenters.push(presenter.clone());
+            }
+        }
+
+        // Clone values before creating session
+        let part_sessions_count = part.sessions.len();
+
+        // Create the session
+        let session_id =
+            uniq_id.unwrap_or_else(|| format!("{}-session-{}", panel_id_str, part_sessions_count));
+        let session = part.find_or_create_session(panel_id.session_num, session_id);
+
+        // Set session fields
+        session.room_ids = room_ids;
+        session.start_time = Some(start_time.format("%Y-%m-%dT%H:%M:%S").to_string());
+        session.end_time = Some(end_time.format("%Y-%m-%dT%H:%M:%S").to_string());
+        session.duration = duration;
+        session.is_full = is_full;
+        session.capacity = capacity;
+        session.seats_sold = seats_sold;
+        session.pre_reg_max = pre_reg_max;
+        session.ticket_url = ticket_url;
+        session.simple_tix_event = simple_tix_event;
+        session.hide_panelist = hide_panelist;
+        session.notes_non_printing = notes_non_printing;
+        session.workshop_notes = workshop_notes;
+        session.power_needs = power_needs;
+        session.sewing_machines = sewing_machines;
+        session.av_notes = av_notes;
+        session.source = Some(SourceInfo {
+            file_path: Some(file_path.to_string()),
+            sheet_name: Some(range.sheet_name.clone()),
+            row_index: Some(row),
+        });
+
+        // Store the part-level suffixes as the session's unique fields.
+        if !part_desc_suffix.is_empty() {
+            session.description = Some(part_desc_suffix);
+        }
+        if !part_note_suffix.is_empty() {
+            session.note = Some(part_note_suffix);
+        }
+        if !part_prereq_suffix.is_empty() {
+            session.prereq = Some(part_prereq_suffix);
+        }
+
+        // Store alt_panelist at session level; post-processing promotes uniform values upward.
+        session.alt_panelist = alt_panelist;
+
+        // Add presenters to session
+        session.credited_presenters = event_presenters;
+    }
+
+    // Post-processing: promote uniform alt_panelist values up the hierarchy.
+    // If all sessions within a part share the same value, move it to the part level.
+    // If all parts then share the same value, move it to the base level.
+    for panel in panels.values_mut() {
+        for part in &mut panel.parts {
+            if part.sessions.is_empty() {
+                continue;
+            }
+            let first = part.sessions[0].alt_panelist.clone();
+            if part.sessions.iter().all(|s| s.alt_panelist == first) {
+                part.alt_panelist = first;
+                for session in &mut part.sessions {
+                    session.alt_panelist = None;
+                }
+            }
+        }
+
+        if panel.parts.is_empty() {
+            continue;
+        }
+        let first = panel.parts[0].alt_panelist.clone();
+        if panel.parts.iter().all(|p| p.alt_panelist == first) {
+            panel.alt_panelist = first;
+            for part in &mut panel.parts {
+                part.alt_panelist = None;
+            }
+        }
     }
 
     let mut presenters: Vec<Presenter> = presenter_map
@@ -1212,18 +1326,7 @@ fn read_events(
         .collect();
     presenters.sort_by(|a, b| a.name.cmp(&b.name));
 
-    Ok((events, presenters))
-}
-
-fn extract_id_prefix(id: Option<&str>) -> String {
-    let id = match id {
-        Some(id) => id,
-        None => return String::new(),
-    };
-    let re = Regex::new(r"^([A-Za-z]+)").expect("valid regex");
-    re.captures(id)
-        .map(|caps| caps[1].to_uppercase())
-        .unwrap_or_default()
+    Ok((panels, presenters))
 }
 
 #[cfg(test)]
@@ -1337,97 +1440,6 @@ mod tests {
         );
         assert!(parse_hyperlink_formula("SUM(A1:A2)").is_none());
         assert!(parse_hyperlink_formula("").is_none());
-    }
-
-    #[test]
-    fn test_split_events_filtered_from_events() {
-        use super::super::panel_type::PanelType;
-        use chrono::NaiveDateTime;
-
-        let split_pt = PanelType {
-            uid: Some("panel-type-split".to_string()),
-            prefix: "SPLIT".to_string(),
-            kind: "Split".to_string(),
-            color: None,
-            is_break: false,
-            is_cafe: false,
-            is_workshop: false,
-            is_hidden: false,
-            is_room_hours: false,
-            bw_color: None,
-            source: None,
-            change_state: ChangeState::Converted,
-        };
-        let regular_pt = PanelType {
-            uid: Some("panel-type-gp".to_string()),
-            prefix: "GP".to_string(),
-            kind: "General Panel".to_string(),
-            color: None,
-            is_break: false,
-            is_cafe: false,
-            is_workshop: false,
-            is_hidden: false,
-            is_room_hours: false,
-            bw_color: None,
-            source: None,
-            change_state: ChangeState::Converted,
-        };
-
-        let start = NaiveDateTime::parse_from_str("2026-06-27T10:00:00", "%Y-%m-%dT%H:%M:%S")
-            .unwrap();
-        let end = NaiveDateTime::parse_from_str("2026-06-27T10:30:00", "%Y-%m-%dT%H:%M:%S")
-            .unwrap();
-
-        let split_event = Event {
-            id: "SPLIT01".to_string(),
-            name: "Day Break".to_string(),
-            panel_type: Some("panel-type-split".to_string()),
-            start_time: start,
-            end_time: end,
-            duration: 30,
-            room_id: None,
-            description: None,
-            cost: None,
-            capacity: None,
-            difficulty: None,
-            note: None,
-            prereq: None,
-            ticket_url: None,
-            presenters: Vec::new(),
-            credits: Vec::new(),
-            conflicts: Vec::new(),
-            is_free: true,
-            is_full: false,
-            is_kids: false,
-            hide_panelist: false,
-            alt_panelist: None,
-            source: None,
-            change_state: ChangeState::Unchanged,
-        };
-        let regular_event = Event {
-            id: "GP001".to_string(),
-            name: "My Panel".to_string(),
-            panel_type: Some("panel-type-gp".to_string()),
-            ..split_event.clone()
-        };
-
-        let panel_types = vec![split_pt, regular_pt];
-        let events = vec![split_event, regular_event];
-        let (filtered_pts, _time_types, timeline, filtered_events) =
-            convert_split_types_to_timeline(&panel_types, &events);
-
-        assert!(
-            !filtered_events.iter().any(|e| e.panel_type.as_deref()
-                == Some("panel-type-split")),
-            "SPLIT events must be removed from events"
-        );
-        assert_eq!(filtered_events.len(), 1);
-        assert_eq!(filtered_events[0].id, "GP001");
-        assert_eq!(timeline.len(), 1);
-        assert!(
-            !filtered_pts.iter().any(|pt| pt.prefix == "SPLIT"),
-            "SPLIT panel type must be removed from panel_types"
-        );
     }
 
     #[test]

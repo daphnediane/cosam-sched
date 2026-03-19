@@ -171,7 +171,12 @@ pub fn export_to_xlsx(schedule: &Schedule, path: &Path) -> Result<()> {
     }
 
     let presenter_headers = &[
-        "Name", "Rank", "Is Group", "Members", "Groups", "Always Grouped",
+        "Name",
+        "Rank",
+        "Is Group",
+        "Members",
+        "Groups",
+        "Always Grouped",
     ];
     book.new_sheet("People")
         .map_err(|e| anyhow::anyhow!("{e}"))?;
@@ -184,8 +189,15 @@ pub fn export_to_xlsx(schedule: &Schedule, path: &Path) -> Result<()> {
     }
 
     let prefix_headers = &[
-        "Prefix", "Panel Kind", "Color", "BW", "Is Break", "Is Workshop", "Is Café",
-        "Is Room Hours", "Hidden",
+        "Prefix",
+        "Panel Kind",
+        "Color",
+        "BW",
+        "Is Break",
+        "Is Workshop",
+        "Is Café",
+        "Is Room Hours",
+        "Hidden",
     ];
     book.new_sheet("PanelTypes")
         .map_err(|e| anyhow::anyhow!("{e}"))?;
@@ -414,7 +426,10 @@ fn write_schedule_sheet(
                     .get(presenter_name.as_str())
                     .map(|p| p.rank.as_str())
                     .unwrap_or("fan_panelist");
-                other_names.entry(rank).or_default().push(presenter_name.as_str());
+                other_names
+                    .entry(rank)
+                    .or_default()
+                    .push(presenter_name.as_str());
             }
         }
 
@@ -432,9 +447,10 @@ fn write_schedule_sheet(
         if entry.change_state == ChangeState::Deleted {
             continue;
         }
-        let start_time: NaiveDateTime = entry.start_time.parse().with_context(|| {
-            format!("Invalid timeline start time: {}", entry.start_time)
-        })?;
+        let start_time: NaiveDateTime = entry
+            .start_time
+            .parse()
+            .with_context(|| format!("Invalid timeline start time: {}", entry.start_time))?;
         let end_time = start_time + chrono::Duration::minutes(30);
 
         let prefix = entry
@@ -513,9 +529,7 @@ mod tests {
     use crate::data::source_info::ImportedSheetPresence;
 
     fn make_test_schedule() -> Schedule {
-        let dt = |s: &str| {
-            chrono::NaiveDateTime::parse_from_str(s, "%Y-%m-%dT%H:%M:%S").unwrap()
-        };
+        let dt = |s: &str| chrono::NaiveDateTime::parse_from_str(s, "%Y-%m-%dT%H:%M:%S").unwrap();
 
         Schedule {
             conflicts: Vec::new(),
@@ -523,11 +537,13 @@ mod tests {
                 title: "Test".to_string(),
                 generated: "2026-01-01".to_string(),
                 version: Some(4),
+                variant: None,
                 generator: None,
                 start_time: None,
                 end_time: None,
             },
             timeline: Vec::new(),
+            panels: indexmap::IndexMap::new(),
             events: vec![Event {
                 id: "GP001".to_string(),
                 name: "Test Panel".to_string(),
@@ -601,20 +617,23 @@ mod tests {
         export_to_xlsx(&schedule, &path).expect("export should succeed");
         assert!(path.exists(), "XLSX file should be created");
 
-        let book = umya_spreadsheet::reader::xlsx::read(&path)
-            .expect("should read back exported XLSX");
+        let book =
+            umya_spreadsheet::reader::xlsx::read(&path).expect("should read back exported XLSX");
 
-        let room_ws = book.get_sheet_by_name("Rooms")
+        let room_ws = book
+            .get_sheet_by_name("Rooms")
             .expect("Rooms sheet should exist");
         assert_eq!(room_ws.get_value((1, 1)), "Room Name");
         assert_eq!(room_ws.get_value((1, 2)), "Main");
 
-        let prefix_ws = book.get_sheet_by_name("PanelTypes")
+        let prefix_ws = book
+            .get_sheet_by_name("PanelTypes")
             .expect("PanelTypes sheet should exist");
         assert_eq!(prefix_ws.get_value((1, 1)), "Prefix");
         assert_eq!(prefix_ws.get_value((1, 2)), "GP");
 
-        let sched_ws = book.get_sheet_by_name("Schedule")
+        let sched_ws = book
+            .get_sheet_by_name("Schedule")
             .expect("Schedule sheet should exist");
         assert_eq!(sched_ws.get_value((1, 1)), "Uniq ID");
         assert_eq!(sched_ws.get_value((1, 2)), "GP001");
@@ -625,7 +644,8 @@ mod tests {
         assert_eq!(sched_ws.get_value((other_col, 1)), "G:Other");
         assert_eq!(sched_ws.get_value((other_col, 2)), "Alice");
 
-        let pres_ws = book.get_sheet_by_name("People")
+        let pres_ws = book
+            .get_sheet_by_name("People")
             .expect("People sheet should exist");
         assert_eq!(pres_ws.get_value((1, 1)), "Name");
         assert_eq!(pres_ws.get_value((1, 2)), "Alice");
@@ -651,20 +671,22 @@ mod tests {
 
         export_to_xlsx(&schedule, &path).expect("export should succeed");
 
-        let book = umya_spreadsheet::reader::xlsx::read(&path)
-            .expect("should read back exported XLSX");
+        let book =
+            umya_spreadsheet::reader::xlsx::read(&path).expect("should read back exported XLSX");
         let room_ws = book.get_sheet_by_name("Rooms").unwrap();
         assert_eq!(room_ws.get_value((1, 2)), "Main");
-        assert_eq!(room_ws.get_value((1, 3)), "", "Deleted room should not appear");
+        assert_eq!(
+            room_ws.get_value((1, 3)),
+            "",
+            "Deleted room should not appear"
+        );
 
         std::fs::remove_file(&path).ok();
     }
 
     #[test]
     fn test_export_presenter_columns() {
-        let dt = |s: &str| {
-            chrono::NaiveDateTime::parse_from_str(s, "%Y-%m-%dT%H:%M:%S").unwrap()
-        };
+        let dt = |s: &str| chrono::NaiveDateTime::parse_from_str(s, "%Y-%m-%dT%H:%M:%S").unwrap();
         let make_event = |id: &str, presenters: Vec<&str>| Event {
             id: id.to_string(),
             name: format!("Panel {id}"),
@@ -757,7 +779,9 @@ mod tests {
             "Bob (1 panel) should go to P:Other, got: {headers:?}"
         );
         assert!(
-            !headers.iter().any(|h| h.contains("Pros and Cons") && h.starts_with("G:Pros")),
+            !headers
+                .iter()
+                .any(|h| h.contains("Pros and Cons") && h.starts_with("G:Pros")),
             "Group entity 'Pros and Cons' should not get its own column"
         );
 
@@ -765,8 +789,8 @@ mod tests {
         let path = dir.join("test_export_presenter_columns.xlsx");
         export_to_xlsx(&schedule, &path).expect("export should succeed");
 
-        let book = umya_spreadsheet::reader::xlsx::read(&path)
-            .expect("should read back exported XLSX");
+        let book =
+            umya_spreadsheet::reader::xlsx::read(&path).expect("should read back exported XLSX");
         let sched_ws = book.get_sheet_by_name("Schedule").unwrap();
 
         let fixed = SCHEDULE_FIXED_HEADERS.len() as u32;
