@@ -1,12 +1,8 @@
-# Schedule JSON Format — Public / Widget (v5)
+# Schedule JSON Format v5 - Public/Widget
 
-This document describes the public JSON format consumed by the
-`widget/cosam-calendar.js` schedule widget, version 5. This format is
-produced by the Rust converter or editor in public export mode.
+This document describes version 5 of the schedule JSON format, public/widget variant. This format is produced by the Rust converter or editor in public export mode and consumed by the schedule widget.
 
-For the full private format with all fields, see
-[json-private-v5.md](json-private-v5.md).  
-For the archived v4 format, see [json-format-v4.md](json-format-v4.md).
+This document is generated from the structured documentation in [json-schedule](json-schedule).
 
 ---
 
@@ -24,123 +20,179 @@ For the archived v4 format, see [json-format-v4.md](json-format-v4.md).
 }
 ```
 
-`conflicts` is omitted from public output. `panels` is a **flat ordered
-array** pre-flattened from the private hierarchical format by the exporter —
-the widget does not need to understand the base→part→session hierarchy.
+## Structures Overview
 
----
+- [meta](meta-v5.md) - Metadata about the schedule file (shared with private format)
+- [panels](panels-public-v5.md) - Flattened panels array with pre-computed effective values
+- [rooms](rooms-v4.md) - Physical and virtual event spaces (same as v4)
+- [panelTypes](panelTypes-v4.md) - Event category definitions (same as v4)
+- [timeTypes](timeTypes-v4.md) - Time category definitions (same as v4)
+- [timeline](timeline-v4.md) - Key time markers for layout and navigation (same as v4)
+- [presenters](presenters-v4.md) - People and groups that present events (same as v4)
 
-## `meta`
+## Structure Details
 
-| Field       | Type    | Required | Description                        |
-| ----------- | ------- | -------- | ---------------------------------- |
-| `title`     | string  | yes      | Display title                      |
-| `generated` | string  | yes      | ISO 8601 UTC timestamp             |
-| `version`   | integer | yes      | Always `5` for this format         |
-| `variant`   | string  | yes      | Always `"public"` for this format  |
-| `generator` | string  | no       | Tool identifier string             |
-| `startTime` | string  | no       | Schedule start time (ISO 8601 UTC) |
-| `endTime`   | string  | no       | Schedule end time (ISO 8601 UTC)   |
+### [`meta`](json-schedule/meta-v5.md)
 
----
+`meta` is a JSON object containing metadata about the schedule file itself.
 
-## `panels` Array
+**Access:** Public
 
-Each entry represents one **session** — the smallest schedulable unit. For
-panels with no part or session subdivisions (the common case), there is
-exactly one entry with `partNum: null` and `sessionNum: null`.
+**Status:** Supported in v5
 
-Entries are ordered chronologically by `startTime`. Unscheduled sessions
-(null `startTime`) appear at the end.
+**Key Fields:**
 
-### Panel Entry Fields
+| Field       | Type    | Public | Description                                                 |
+| ----------- | ------- | ------ | ----------------------------------------------------------- |
+| `title`     | string  | yes    | Display title for the schedule                              |
+| `generated` | string  | yes    | ISO 8601 UTC timestamp when the file was generated          |
+| `version`   | integer | yes    | Schema version number (always `5` for this format)          |
+| `variant`   | string  | yes    | Format variant: `"full"` for private, `"public"` for public |
+| `generator` | string  | yes    | Identifier of the tool that produced the file               |
+| `startTime` | string  | yes    | ISO 8601 UTC timestamp of the schedule start date           |
 
-| Field         | Type            | Required | Description                                                         |
-| ------------- | --------------- | -------- | ------------------------------------------------------------------- |
-| `id`          | string          | yes      | Full Uniq ID of this session (e.g. `"GW097P1S2"`, `"GP002"`)        |
-| `baseId`      | string          | yes      | Base panel ID (e.g. `"GW097"`, `"GP002"`)                           |
-| `partNum`     | integer \| null | yes      | Part number; `null` when no part subdivision                        |
-| `sessionNum`  | integer \| null | yes      | Session number; `null` when no session subdivision                  |
-| `name`        | string          | yes      | Display name (from base panel)                                      |
-| `panelType`   | string \| null  | yes      | Panel type UID (e.g. `"panel-type-gw"`)                             |
-| `roomIds`     | integer[]       | yes      | Room UIDs for this session; empty array if unscheduled              |
-| `startTime`   | string \| null  | yes      | ISO 8601 local datetime; null if unscheduled                        |
-| `endTime`     | string \| null  | yes      | ISO 8601 local datetime                                             |
-| `duration`    | integer         | yes      | Duration in minutes                                                 |
-| `description` | string \| null  | no       | Effective description (base + part + session concatenated)          |
-| `note`        | string \| null  | no       | Effective note                                                      |
-| `prereq`      | string \| null  | no       | Effective prerequisite text                                         |
-| `cost`        | string \| null  | no       | Cost string from base (see Cost Values in `json-format-v4.md`)      |
-| `capacity`    | string \| null  | no       | Effective seat capacity (session override or base default)          |
-| `difficulty`  | string \| null  | no       | Skill level indicator (from base)                                   |
-| `ticketUrl`   | string \| null  | no       | Effective ticket URL (session override or base default)             |
-| `isFree`      | boolean         | yes      | True if no additional cost                                          |
-| `isFull`      | boolean         | yes      | True if this session is at capacity                                 |
-| `isKids`      | boolean         | yes      | True for kids-only panels                                           |
-| `credits`     | string[]        | yes      | Formatted credit strings for public display (see Credits below)     |
-| `presenters`  | string[]        | yes      | All individual presenter names for filtering and search (see below) |
+*See full details in: [`meta-v5.md`](json-schedule/meta-v5.md)*
 
-### `startTime` and `endTime` Format
+### [`panels`](json-schedule/panels-public-v5.md)
 
-ISO 8601 local datetimes **without** a timezone suffix: `YYYY-MM-DDTHH:MM:SS`.
-The timezone is the event venue's local time. See `json-format-v4.md` for
-details on the cost value format.
+`panels` is a JSON array where each entry represents one **session** - the smallest schedulable unit, flattened from the private hierarchical format.
 
-### Optional fields and null values
+**Access:** Public
 
-Fields marked `no` in the Required column may be omitted entirely when their
-value is null, false, or an empty array. Absent fields are treated as null /
-false / `[]` by the widget. The exporter omits these fields to reduce file
-size.
+**Status:** Supported in v5 (public format only)
 
----
+**Key Fields:**
 
-## Credits
+| Field         | Type            | Public | Description                                                  |
+| ------------- | --------------- | ------ | ------------------------------------------------------------ |
+| `id`          | string          | yes    | Full Uniq ID of this session (e.g. `"GW097P1S2"`, `"GP002"`) |
+| `baseId`      | string          | yes    | Base panel ID (e.g. `"GW097"`, `"GP002"`)                    |
+| `partNum`     | integer \| null | yes    | Part number; `null` when no part subdivision                 |
+| `sessionNum`  | integer \| null | yes    | Session number; `null` when no session subdivision           |
+| `name`        | string          | yes    | Display name (from base panel)                               |
+| `panelType`   | string \| null  | yes    | Panel type UID (e.g. `"panel-type-gw"`)                      |
+| `roomIds`     | integer[]       | yes    | Room UIDs for this session; empty array if unscheduled       |
+| `startTime`   | string \| null  | yes    | ISO 8601 local datetime; null if unscheduled                 |
+| `endTime`     | string \| null  | yes    | ISO 8601 local datetime                                      |
+| `duration`    | integer         | yes    | Duration in minutes                                          |
+| `description` | string \| null  | yes    | Effective description (base + part + session concatenated)   |
+| `note`        | string \| null  | yes    | Effective note                                               |
+| `prereq`      | string \| null  | yes    | Effective prerequisite text                                  |
+| `cost`        | string \| null  | yes    | Cost string from base (see Cost Values in v4 documentation)  |
+| `capacity`    | string \| null  | yes    | Effective seat capacity (session override or base default)   |
+| `difficulty`  | string \| null  | yes    | Skill level indicator (from base)                            |
+| `ticketUrl`   | string \| null  | yes    | Effective ticket URL (session override or base default)      |
+| `isFree`      | boolean         | yes    | True if no additional cost                                   |
+| `isFull`      | boolean         | yes    | True if this session is at capacity                          |
+| `isKids`      | boolean         | yes    | True for kids-only panels                                    |
+| `credits`     | string[]        | yes    | Formatted credit strings for public display                  |
 
-The `credits` array is computed by the exporter from the effective presenter
-and `altPanelist` values:
+*See full details in: [`panels-public-v5.md`](json-schedule/panels-public-v5.md)*
 
-1. If `hidePanelist` is true on the session, `credits` is an empty array.
-2. Otherwise, if an effective `altPanelist` value exists (first non-null among
-   session → part → base), credits is a single-element array containing that
-   string: `["<altPanelist value>"]`.
-3. Otherwise, credits are generated by group resolution from the union of all
-   `creditedPresenters` across base, part, and session levels, following the
-   same rules as v4 (see `json-format-v4.md` § Credits Generation).
+### [`rooms`](json-schedule/rooms-v4.md)
 
----
+`rooms` is a JSON array where each entry represents a physical or virtual space where events can be scheduled.
 
-## `presenters` (per panel entry)
+**Access:** Public
 
-The `presenters` array on each panel entry contains all individual presenter
-names (credited and uncredited) from across base, part, and session levels.
-This list is used by the widget for presenter filtering and search. It
-contains raw individual names, not group names or formatted credits.
+**Status:** Supported in v4
 
----
+**Key Fields:**
 
-## `rooms`, `panelTypes`, `timeTypes`, `timeline`
+| Field        | Type    | Public | Description                                   |
+| ------------ | ------- | ------ | --------------------------------------------- |
+| `uid`        | integer | yes    | Unique room identifier from spreadsheet       |
+| `short_name` | string  | yes    | Abbreviated room name for compact display     |
+| `long_name`  | string  | yes    | Full room name                                |
+| `hotel_room` | string  | yes    | Physical hotel room identifier                |
 
-These arrays are identical in structure to v4. See
-[json-format-v4.md](json-format-v4.md) for complete field definitions.
+*See full details in: [`rooms-v4.md`](json-schedule/rooms-v4.md)*
 
----
+### [`panelTypes`](json-schedule/panelTypes-v4.md)
 
-## `presenters` (top-level array)
+`panelTypes` is a JSON array where each entry defines a category of events.
 
-The top-level `presenters` array defines all presenters and groups for the
-schedule, used to populate the presenter filter dropdown. Structure is
-identical to v4.
+**Access:** Public
 
----
+**Status:** Supported in v4
 
-## Example (abbreviated)
+**Key Fields:**
+
+| Field        | Type    | Public | Description                                         |
+| ------------ | ------- | ------ | --------------------------------------------------- |
+| `uid`        | string  | yes    | Unique identifier in format `"panel-type-{prefix}"` |
+| `prefix`     | string  | yes    | Short prefix code, uppercase                        |
+| `kind`       | string  | yes    | Human-readable category name                        |
+| `color`      | string  | yes    | Hex color code with `#` prefix                      |
+| `isBreak`    | boolean | yes    | True for break-type events                          |
+| `isCafe`     | boolean | yes    | True for café/social events                         |
+| `isWorkshop` | boolean | yes    | True for workshop events                            |
+
+*See full details in: [`panelTypes-v4.md`](json-schedule/panelTypes-v4.md)*
+
+### [`timeTypes`](json-schedule/timeTypes-v4.md)
+
+`timeTypes` is a JSON array where each entry defines a category of time markers used in the timeline.
+
+**Access:** Public
+
+**Status:** Supported in v4
+
+**Key Fields:**
+
+| Field    | Type   | Public | Description                                        |
+| -------- | ------ | ------ | -------------------------------------------------- |
+| `uid`    | string | yes    | Unique identifier in format `"time-type-{prefix}"` |
+| `prefix` | string | yes    | Short prefix code, uppercase                       |
+
+*See full details in: [`timeTypes-v4.md`](json-schedule/timeTypes-v4.md)*
+
+### [`timeline`](json-schedule/timeline-v4.md)
+
+`timeline` is a JSON array of key time markers used for layout, navigation, and formatting.
+
+**Access:** Public
+
+**Status:** Supported in v4
+
+**Key Fields:**
+
+| Field         | Type           | Public | Description                                                  |
+| ------------- | -------------- | ------ | ------------------------------------------------------------ |
+| `id`          | string         | yes    | Unique identifier for the time marker                        |
+| `startTime`   | string         | yes    | ISO 8601 UTC timestamp for the marker                        |
+| `description` | string         | yes    | Description of the time marker                               |
+| `timeType`    | string \| null | yes    | Time type UID, references [timeTypes](timeTypes-v4.md)[].uid |
+
+*See full details in: [`timeline-v4.md`](json-schedule/timeline-v4.md)*
+
+### [`presenters`](json-schedule/presenters-v4.md)
+
+`presenters` is a JSON array where each entry represents a person or group that can be assigned to events.
+
+**Access:** Public
+
+**Status:** Supported in v4
+
+**Key Fields:**
+
+| Field            | Type     | Public | Description                                                                        |
+| ---------------- | -------- | ------ | ---------------------------------------------------------------------------------- |
+| `name`           | string   | yes    | Display name                                                                       |
+| `rank`           | string   | yes    | Role: `"guest"`, `"judge"`, `"staff"`, `"invited_guest"`, or `"fan_panelist"`      |
+| `is_group`       | boolean  | yes    | True if this entry represents a group rather than an individual                    |
+| `members`        | string[] | yes    | For groups: list of individual member names. Empty for individuals                 |
+| `groups`         | string[] | yes    | For individuals: list of group names this person belongs to. Empty for non-members |
+
+*See full details in: [`presenters-v4.md`](json-schedule/presenters-v4.md)*
+
+## Complete Example
 
 ```json
 {
   "meta": {
     "title": "Cosplay America 2026 Schedule",
-    "generated": "2026-06-01T00:00:00Z",
+    "generated": "2026-06-01T12:00:00Z",
     "version": 5,
     "variant": "public",
     "generator": "cosam-editor 0.2.0",
@@ -164,7 +216,6 @@ identical to v4.
       "prereq": null,
       "cost": null,
       "capacity": null,
-      "preRegMax": null,
       "difficulty": null,
       "ticketUrl": null,
       "isFree": true,
@@ -172,74 +223,24 @@ identical to v4.
       "isKids": false,
       "credits": ["December Wynn", "Pros and Cons Cosplay"],
       "presenters": ["December Wynn", "Pro", "Con"]
-    },
-    {
-      "id": "GW097P1",
-      "baseId": "GW097",
-      "partNum": 1,
-      "sessionNum": null,
-      "name": "Advanced Foam Techniques",
-      "panelType": "panel-type-gw",
-      "roomIds": [3],
-      "startTime": "2026-06-26T10:00:00",
-      "endTime": "2026-06-26T12:00:00",
-      "duration": 120,
-      "description": "Common intro Part 1 unique content",
-      "note": null,
-      "prereq": null,
-      "cost": "$35.00",
-      "capacity": "15",
-      "preRegMax": "12",
-      "difficulty": "Intermediate",
-      "ticketUrl": "https://simpletix.com/…",
-      "isFree": false,
-      "isFull": false,
-      "isKids": false,
-      "credits": ["Sayakat Cosplay"],
-      "presenters": ["Sayakat Cosplay"]
-    },
-    {
-      "id": "GW097P2",
-      "baseId": "GW097",
-      "partNum": 2,
-      "sessionNum": null,
-      "name": "Advanced Foam Techniques",
-      "panelType": "panel-type-gw",
-      "roomIds": [3],
-      "startTime": "2026-06-26T14:00:00",
-      "endTime": "2026-06-26T16:00:00",
-      "duration": 120,
-      "description": "Common intro Part 2 unique content",
-      "note": null,
-      "prereq": "GW097P1",
-      "cost": "$35.00",
-      "capacity": "15",
-      "preRegMax": "12",
-      "difficulty": "Intermediate",
-      "ticketUrl": "https://simpletix.com/…",
-      "isFree": false,
-      "isFull": false,
-      "isKids": false,
-      "credits": ["Sayakat Cosplay"],
-      "presenters": ["Sayakat Cosplay"]
     }
   ],
-  "rooms": [
-    { "uid": 3, "short_name": "WS 1", "long_name": "Workshop Room 1", "hotel_room": "Salon A", "sort_key": 1 },
-    { "uid": 10, "short_name": "GP", "long_name": "Main Panel Room", "hotel_room": "Salon B/C", "sort_key": 2 }
-  ],
-  "panelTypes": [
-    { "uid": "panel-type-gp", "prefix": "GP", "kind": "Guest Panel", "color": "#FDEEB5", "isBreak": false, "isWorkshop": false },
-    { "uid": "panel-type-gw", "prefix": "GW", "kind": "Guest Workshop", "color": "#B5D8FD", "isBreak": false, "isWorkshop": true }
-  ],
+  "rooms": [],
+  "panelTypes": [],
   "timeTypes": [],
   "timeline": [],
-  "presenters": [
-    { "name": "December Wynn", "rank": "guest", "is_group": false, "members": [], "groups": [], "always_grouped": false },
-    { "name": "Pros and Cons Cosplay", "rank": "guest", "is_group": true, "members": ["Pro", "Con"], "groups": [], "always_grouped": false },
-    { "name": "Pro", "rank": "guest", "is_group": false, "members": [], "groups": ["Pros and Cons Cosplay"], "always_grouped": false },
-    { "name": "Con", "rank": "guest", "is_group": false, "members": [], "groups": ["Pros and Cons Cosplay"], "always_grouped": false },
-    { "name": "Sayakat Cosplay", "rank": "guest", "is_group": false, "members": [], "groups": [], "always_grouped": false }
-  ]
+  "presenters": []
 }
 ```
+
+## Migration Notes
+
+---
+
+## Related Documentation
+
+- [JSON Schedule Documentation](json-schedule/) - Complete structured documentation
+- [Schedule JSON Format v4](json-format-v4.md) - This document describes version 4 of the schedule JSON format. V4 introduces timeline support and time types while maintaining backward compatibility with earlier versions.
+- [Schedule JSON Format v5 - Private/Full](json-private-v5.md) - This document describes version 5 of the schedule JSON format, private/full variant. This format is produced and consumed by the Rust editor and converter for internal data storage and editing.
+
+*This document is automatically generated. Do not edit directly.*

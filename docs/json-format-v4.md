@@ -1,15 +1,17 @@
-# Schedule JSON Format
+# Schedule JSON Format v4
 
-This document describes the JSON file format used by the schedule editor and
-the calendar widget. The file is produced by the Rust CLI (`apps/cosam-convert`)
-or Rust editor (`apps/cosam-editor`).
+This document describes version 4 of the schedule JSON format. V4 introduces timeline support and time types while maintaining backward compatibility with earlier versions.
+
+This document is generated from the structured documentation in [json-schedule](json-schedule).
+
+---
 
 ## Top-Level Structure
 
 ```json
 {
   "meta": { ... },
-  "timeline": { ... },
+  "timeline": [ ... ],
   "events": [ ... ],
   "rooms": [ ... ],
   "panelTypes": [ ... ],
@@ -19,289 +21,277 @@ or Rust editor (`apps/cosam-editor`).
 }
 ```
 
-All top-level keys are required except `conflicts`, which may be omitted when
-there are no scheduling conflicts.
+## Structures Overview
+
+- [meta](meta-v4.md) - Metadata about the schedule file
+- [timeline](timeline-v4.md) - Key time markers for layout and navigation
+- [events](events-v4.md) - Array of scheduled events
+- [rooms](rooms-v4.md) - Physical and virtual event spaces
+- [panelTypes](panelTypes-v4.md) - Event category definitions
+- [timeTypes](timeTypes-v4.md) - Time category definitions
+- [presenters](presenters-v4.md) - People and groups that present events
+- [conflicts](conflicts-v4.md) - Detected scheduling conflicts
+
+## Structure Details
+
+### [`meta`](json-schedule/meta-v4.md)
+
+`meta` is a JSON object containing metadata about the schedule file itself.
+
+**Access:** Public
+
+**Status:** Supported in v4
+
+**Key Fields:**
+
+| Field       | Type    | Public | Description                                        |
+| ----------- | ------- | ------ | -------------------------------------------------- |
+| `title`     | string  | yes    | Display title for the schedule                     |
+| `generated` | string  | yes    | ISO 8601 UTC timestamp when the file was generated |
+| `version`   | integer | yes    | Schema version number (always `4` for this format) |
+| `generator` | string  | yes    | Identifier of the tool that produced the file      |
+| `startTime` | string  | yes    | ISO 8601 UTC timestamp of the schedule start date  |
+
+*See full details in: [`meta-v4.md`](json-schedule/meta-v4.md)*
+
+### [`timeline`](json-schedule/timeline-v4.md)
+
+`timeline` is a JSON array of key time markers used for layout, navigation, and formatting.
+
+**Access:** Public
+
+**Status:** Supported in v4
+
+**Key Fields:**
+
+| Field         | Type           | Public | Description                                                  |
+| ------------- | -------------- | ------ | ------------------------------------------------------------ |
+| `id`          | string         | yes    | Unique identifier for the time marker                        |
+| `startTime`   | string         | yes    | ISO 8601 UTC timestamp for the marker                        |
+| `description` | string         | yes    | Description of the time marker                               |
+| `timeType`    | string \| null | yes    | Time type UID, references [timeTypes](timeTypes-v4.md)[].uid |
+
+*See full details in: [`timeline-v4.md`](json-schedule/timeline-v4.md)*
+
+### [`events`](json-schedule/events-v4.md)
+
+`events` is a JSON array where each entry represents a single scheduled item.
+
+**Access:** Public
+
+**Status:** Supported in v4
+
+**Key Fields:**
+
+| Field         | Type            | Public | Description                                                     |
+| ------------- | --------------- | ------ | --------------------------------------------------------------- |
+| `id`          | string          | yes    | Unique event ID, typically prefix + number                      |
+| `name`        | string          | yes    | Display name of the event                                       |
+| `description` | string \| null  | yes    | Long description text                                           |
+| `startTime`   | string          | yes    | ISO 8601 local time without timezone                            |
+| `endTime`     | string          | yes    | ISO 8601 local time without timezone                            |
+| `duration`    | integer         | yes    | Duration in minutes                                             |
+| `roomId`      | integer \| null | yes    | References [rooms](rooms-v4.md)[].uid                           |
+| `panelType`   | string \| null  | yes    | Panel type UID, references [panelTypes](panelTypes-v4.md)[].uid |
+| `kind`        | string \| null  | yes    | Human-readable event type                                       |
+| `cost`        | string \| null  | yes    | Cost as formatted currency string                               |
+| `capacity`    | string \| null  | yes    | Maximum attendees as string                                     |
+| `difficulty`  | string \| null  | yes    | Skill level or difficulty rating                                |
+| `note`        | string \| null  | yes    | Additional notes for the event                                  |
+| `prereq`      | string \| null  | yes    | Prerequisites text                                              |
+| `ticketUrl`   | string \| null  | yes    | URL for ticket purchase                                         |
+| `presenters`  | string[]        | yes    | All presenter names (credited and uncredited)                   |
+| `credits`     | string[]        | yes    | Public-facing attribution list                                  |
+| `conflicts`   | object[]        | yes    | List of scheduling conflicts for this event                     |
+| `isFree`      | boolean         | yes    | True if the event has no cost                                   |
+| `isFull`      | boolean         | yes    | True if the event is at capacity                                |
+
+*See full details in: [`events-v4.md`](json-schedule/events-v4.md)*
+
+### [`rooms`](json-schedule/rooms-v4.md)
+
+`rooms` is a JSON array where each entry represents a physical or virtual space where events can be scheduled.
+
+**Access:** Public
+
+**Status:** Supported in v4
+
+**Key Fields:**
+
+| Field        | Type    | Public | Description                                   |
+| ------------ | ------- | ------ | --------------------------------------------- |
+| `uid`        | integer | yes    | Unique room identifier from spreadsheet       |
+| `short_name` | string  | yes    | Abbreviated room name for compact display     |
+| `long_name`  | string  | yes    | Full room name                                |
+| `hotel_room` | string  | yes    | Physical hotel room identifier                |
+
+*See full details in: [`rooms-v4.md`](json-schedule/rooms-v4.md)*
+
+### [`panelTypes`](json-schedule/panelTypes-v4.md)
+
+`panelTypes` is a JSON array where each entry defines a category of events.
+
+**Access:** Public
+
+**Status:** Supported in v4
+
+**Key Fields:**
+
+| Field        | Type    | Public | Description                                         |
+| ------------ | ------- | ------ | --------------------------------------------------- |
+| `uid`        | string  | yes    | Unique identifier in format `"panel-type-{prefix}"` |
+| `prefix`     | string  | yes    | Short prefix code, uppercase                        |
+| `kind`       | string  | yes    | Human-readable category name                        |
+| `color`      | string  | yes    | Hex color code with `#` prefix                      |
+| `isBreak`    | boolean | yes    | True for break-type events                          |
+| `isCafe`     | boolean | yes    | True for café/social events                         |
+| `isWorkshop` | boolean | yes    | True for workshop events                            |
+
+*See full details in: [`panelTypes-v4.md`](json-schedule/panelTypes-v4.md)*
+
+### [`timeTypes`](json-schedule/timeTypes-v4.md)
+
+`timeTypes` is a JSON array where each entry defines a category of time markers used in the timeline.
+
+**Access:** Public
+
+**Status:** Supported in v4
+
+**Key Fields:**
+
+| Field    | Type   | Public | Description                                        |
+| -------- | ------ | ------ | -------------------------------------------------- |
+| `uid`    | string | yes    | Unique identifier in format `"time-type-{prefix}"` |
+| `prefix` | string | yes    | Short prefix code, uppercase                       |
+
+*See full details in: [`timeTypes-v4.md`](json-schedule/timeTypes-v4.md)*
+
+### [`presenters`](json-schedule/presenters-v4.md)
+
+`presenters` is a JSON array where each entry represents a person or group that can be assigned to events.
+
+**Access:** Public
+
+**Status:** Supported in v4
+
+**Key Fields:**
+
+| Field            | Type     | Public | Description                                                                        |
+| ---------------- | -------- | ------ | ---------------------------------------------------------------------------------- |
+| `name`           | string   | yes    | Display name                                                                       |
+| `rank`           | string   | yes    | Role: `"guest"`, `"judge"`, `"staff"`, `"invited_guest"`, or `"fan_panelist"`      |
+| `is_group`       | boolean  | yes    | True if this entry represents a group rather than an individual                    |
+| `members`        | string[] | yes    | For groups: list of individual member names. Empty for individuals                 |
+| `groups`         | string[] | yes    | For individuals: list of group names this person belongs to. Empty for non-members |
+
+*See full details in: [`presenters-v4.md`](json-schedule/presenters-v4.md)*
+
+### [`conflicts`](json-schedule/conflicts-v4.md)
+
+`conflicts` is an optional JSON array of detected scheduling conflicts at the top level.
+
+**Access:** Public
+
+**Status:** Supported in v4
+
+**Key Fields:**
+
+| Field       | Type           | Public | Description                                     |
+| ----------- | -------------- | ------ | ----------------------------------------------- |
+| `type`      | string         | yes    | `"room"`, `"presenter"`, or `"group_presenter"` |
+| `room`      | string \| null | yes    | Room UID (for room conflicts)                   |
+| `presenter` | string \| null | yes    | Presenter name (for presenter/group conflicts)  |
+| `event1`    | object         | yes    | `{ "id": "...", "name": "..." }`                |
+
+*See full details in: [`conflicts-v4.md`](json-schedule/conflicts-v4.md)*
+
+## Complete Example
+
+```json
+{
+  "meta": {
+    "title": "Cosplay America 2026 Schedule",
+    "generated": "2026-06-01T12:00:00Z",
+    "version": 4,
+    "generator": "cosam-editor 0.2.0",
+    "startTime": "2026-06-26T17:00:00Z",
+    "endTime": "2026-06-28T18:00:00Z"
+  },
+  "timeline": [
+    {
+      "id": "SPLIT01",
+      "startTime": "2026-06-26T17:00:00Z",
+      "description": "Thursday Evening",
+      "timeType": "time-type-split",
+      "note": null
+    }
+  ],
+  "events": [
+    {
+      "id": "GP002",
+      "name": "Cosplay Contest Misconceptions",
+      "startTime": "2026-06-26T14:00:00",
+      "endTime": "2026-06-26T15:00:00",
+      "duration": 60,
+      "roomId": 10,
+      "panelType": "panel-type-gp",
+      "presenters": ["December Wynn", "Pro", "Con"],
+      "credits": ["December Wynn", "Pros and Cons Cosplay"],
+      "conflicts": [],
+      "isFree": true,
+      "isFull": false,
+      "isKids": false
+    }
+  ],
+  "rooms": [
+    {
+      "uid": 10,
+      "short_name": "GP",
+      "long_name": "Main Panel Room",
+      "hotel_room": "Salon B/C",
+      "sort_key": 1
+    }
+  ],
+  "panelTypes": [
+    {
+      "uid": "panel-type-gp",
+      "prefix": "GP",
+      "kind": "Guest Panel",
+      "color": "#FDEEB5",
+      "isBreak": false,
+      "isWorkshop": false,
+      "isHidden": false
+    }
+  ],
+  "timeTypes": [
+    {
+      "uid": "time-type-split",
+      "prefix": "SPLIT",
+      "kind": "Page split"
+    }
+  ],
+  "presenters": [
+    {
+      "name": "December Wynn",
+      "rank": "guest",
+      "is_group": false,
+      "members": [],
+      "groups": [],
+      "always_grouped": false
+    }
+  ],
+  "conflicts": []
+}
+```
+
+## Migration Notes
 
 ---
 
-## `meta`
+## Related Documentation
 
-Metadata about the schedule file itself.
+- [JSON Schedule Documentation](json-schedule/) - Complete structured documentation
+- [Schedule JSON Format v5 - Private/Full](json-private-v5.md) - This document describes version 5 of the schedule JSON format, private/full variant. This format is produced and consumed by the Rust editor and converter for internal data storage and editing.
+- [Schedule JSON Format v5 - Public/Widget](json-public-v5.md) - This document describes version 5 of the schedule JSON format, public/widget variant. This format is produced by the Rust converter or editor in public export mode and consumed by the schedule widget.
 
-| Field       | Type    | Required | Description            |
-| ----------- | ------- | -------- | ---------------------- |
-| `title`     | string  | yes      | Display title          |
-| `generated` | string  | yes      | ISO 8601 UTC timestamp |
-| `version`   | integer | no       | Current schema is `4`  |
-| `generator` | string  | no       | Tool identifier        |
-| `startTime` | string  | no       | Schedule start time    |
-| `endTime`   | string  | no       | Schedule end time      |
-
-Examples: `title` might be `"Cosplay America 2026 Schedule"`, and
-`generator` might be `"cosam-editor 0.1.0"`.
-
-For older files, absent `version` implies legacy `v1` format.
-
----
-
-## `timeline`
-
-Array of key time markers used for layout, navigation, and formatting.
-
-| Field         | Type           | Required | Description                                                                                                                     |
-| ------------- | -------------- | -------- | ------------------------------------------------------------------------------------------------------------------------------- |
-| `id`          | string         | yes      | Unique identifier for the time marker (e.g. `"SPLIT01"`)                                                                        |
-| `startTime`   | string         | yes      | ISO 8601 UTC timestamp for the marker                                                                                           |
-| `description` | string         | yes      | Description of the time marker (e.g. `"Thursday Morning"`)                                                                      |
-| `timeType`    | string \| null | no       | Time type UID in format `"time-type-{prefix}"` where prefix is lowercased (e.g. `"time-type-gw"`). References `timeTypes[].uid` |
-| `note`        | string \| null | no       | Additional notes for the event                                                                                                  |
-
-When converting from spreadsheet, this array is populated with events that panel type
-that have `Is Split` set to any truthy value, or begin with `"SP"` or `"SPLIT"`. When
-exporting to spreadsheet, these a duration of 30 minutes will be used, and the
-endTime will be calculated as startTime + 30 minutes.
-
----
-
-## `events`
-
-Array of event objects. Each event represents a single scheduled item.
-
-| Field         | Type            | Required | Description                                                                                                                                                                                                                           |
-| ------------- | --------------- | -------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `id`          | string          | yes      | Unique event ID, typically prefix + number (e.g. `"GP002"`, `"GW006P1"`)                                                                                                                                                              |
-| `name`        | string          | yes      | Display name of the event                                                                                                                                                                                                             |
-| `description` | string \| null  | no       | Long description text                                                                                                                                                                                                                 |
-| `startTime`   | string          | yes      | ISO 8601 local time without timezone (e.g. `"2026-06-26T14:00:00"`)                                                                                                                                                                   |
-| `endTime`     | string          | yes      | ISO 8601 local time without timezone                                                                                                                                                                                                  |
-| `duration`    | integer         | yes      | Duration in minutes                                                                                                                                                                                                                   |
-| `roomId`      | integer \| null | no       | References `rooms[].uid`. Null for events without a room (breaks, staff meals)                                                                                                                                                        |
-| `panelType`   | string \| null  | no       | Panel type UID in format `"panel-type-{prefix}"` where prefix is lowercased (e.g. `"panel-type-gw"`). References `panelTypes[].uid`                                                                                                   |
-| `kind`        | string \| null  | no       | Human-readable event type (e.g. `"Guest Workshop"`, `"Main Event"`). Derived from the panel type's `kind` field                                                                                                                       |
-| `cost`        | string \| null  | no       | Cost as formatted string including currency symbol (e.g. `"$5.00"`, `"$120.00"`, `"TBD"`, `"model"`). Null means free                                                                                                                 |
-| `capacity`    | string \| null  | no       | Maximum attendees as string (e.g. `"12"`)                                                                                                                                                                                             |
-| `difficulty`  | string \| null  | no       | Skill level or difficulty rating                                                                                                                                                                                                      |
-| `note`        | string \| null  | no       | Additional notes for the event                                                                                                                                                                                                        |
-| `prereq`      | string \| null  | no       | Prerequisites text                                                                                                                                                                                                                    |
-| `ticketUrl`   | string \| null  | no       | URL for ticket purchase                                                                                                                                                                                                               |
-| `presenters`  | string[]        | yes      | List of presenter names associated with this event. Includes all presenters (credited and uncredited). Individual member names are used here, not group names (e.g. `["Pro", "Con"]` not `["Pros and Cons Cosplay"]`)                 |
-| `credits`     | string[]        | yes      | Public-facing attribution list. Uses group names when all group members are present (e.g. `["Pros and Cons Cosplay"]` instead of `["Pro", "Con"]`). Omits uncredited/hidden presenters. See [Credits Generation](#credits-generation) |
-| `conflicts`   | object[]        | yes      | List of scheduling conflicts for this event. Empty array when no conflicts. See [Per-Event Conflicts](#per-event-conflicts)                                                                                                           |
-| `isFree`      | boolean         | yes      | True if the event has no cost                                                                                                                                                                                                         |
-| `isFull`      | boolean         | yes      | True if the event is at capacity                                                                                                                                                                                                      |
-| `isKids`      | boolean         | yes      | True for kids-only events                                                                                                                                                                                                             |
-
-### `startTime` and `endTime` Format
-
-Times are ISO 8601 local datetimes **without** a timezone suffix:
-`YYYY-MM-DDTHH:MM:SS`. The timezone is assumed to be the event venue's local
-time. The `duration` field must be consistent with the difference between
-`startTime` and `endTime`.
-
-### Cost Values
-
-| Spreadsheet Value             | JSON `cost`                    | `isFree`                   |
-| ----------------------------- | ------------------------------ | -------------------------- |
-| empty / `*` / free / n/a / $0 | `null`                         | `true`                     |
-| `kids`                        | `null`                         | `true` (`isKids` = `true`) |
-| `TBD` / `T.B.D.`              | `"TBD"`                        | `false`                    |
-| `model`                       | `"model"`                      | `false`                    |
-| numeric or `$X.XX`            | `"$X.XX"` (currency formatted) | `false`                    |
-
-### Credits Generation
-
-The `credits` array is derived from `presenters` using group resolution:
-
-1. **Always-grouped presenters** are added first using their group name.
-2. For each remaining presenter:
-   - If the presenter belongs to a **group** and **all members** of that group
-     are in the event's `presenters`, the **group name** is used (e.g.
-     `"Pros and Cons Cosplay"` instead of individual `"Pro"` and `"Con"`).
-   - If only **some members** are present, each is shown as
-     `"{member} of {group}"` (e.g. `"Con of Pros and Cons Cosplay"`).
-   - Otherwise the individual name is used.
-3. Duplicate names are suppressed.
-
-Credits are the names shown publicly in the schedule display. The `presenters`
-list retains the raw individual names for scheduling and conflict detection.
-
-### Per-Event Conflicts
-
-Each entry in the per-event `conflicts` array:
-
-| Field               | Type           | Description                         |
-| ------------------- | -------------- | ----------------------------------- |
-| `type`              | string         | `"room"` or `"presenter"`           |
-| `conflict_event_id` | string \| null | ID of the conflicting event         |
-| `details`           | string \| null | Human-readable conflict description |
-
----
-
-## `rooms`
-
-Array of room objects. Rooms represent physical or virtual spaces.
-
-| Field        | Type    | Required | Description                                                                       |
-| ------------ | ------- | -------- | --------------------------------------------------------------------------------- |
-| `uid`        | integer | yes      | Unique room identifier. Assigned from the spreadsheet; not necessarily sequential |
-| `short_name` | string  | yes      | Abbreviated room name for compact display                                         |
-| `long_name`  | string  | yes      | Full room name                                                                    |
-| `hotel_room` | string  | yes      | Physical hotel room identifier (e.g. `"Salon F/G"`)                               |
-| `sort_key`   | integer | yes      | Display sort order (lower = first). 1-indexed                                     |
-
-Room UIDs are assigned based on the order they appear in the spreadsheet's
-Rooms sheet. They are stable identifiers that must be consistent between the
-`rooms` array and all `roomId` references in events.
-
-Virtual rooms may exist for break events, day separators, or staff meals.
-These virtual rooms may not appear in the `rooms` array but can still be
-referenced by `roomId` in events.
-
----
-
-## `panelTypes`
-
-Array of panel type objects defining event categories.
-
-| Field        | Type    | Required | Description                                                                                             |
-| ------------ | ------- | -------- | ------------------------------------------------------------------------------------------------------- |
-| `uid`        | string  | yes      | Unique identifier in format `"panel-type-{prefix}"` where prefix is lowercased (e.g. `"panel-type-gw"`) |
-| `prefix`     | string  | yes      | Short prefix code, uppercase (e.g. `"GW"`, `"ME"`)                                                      |
-| `kind`       | string  | no       | Human-readable category name (e.g. `"Guest Workshop"`)                                                  |
-| `color`      | string  | yes      | Hex color code with `#` prefix (e.g. `"#FDEEB5"`)                                                       |
-| `isBreak`    | boolean | yes      | True for break-type events                                                                              |
-| `isCafe`     | boolean | no       | True for café/social events                                                                             |
-| `isWorkshop` | boolean | yes      | True for workshop events                                                                                |
-| `isHidden`   | boolean | no       | True for hidden panel types                                                                             |
-
-The `uid` field is the canonical reference used in `events[].panelType`.
-
-### Hidden Panel Types
-
-Panel types may have an `isHidden` boolean (not included in output). Hidden
-panel types are filtered from the public schedule unless staff mode is enabled.
-Events with hidden panel types (e.g. staff meals) are excluded from non-staff
-output.
-
----
-
-## `timeTypes`
-
-Array of time type objects defining time categories.
-
-| Field    | Type   | Required | Description                                                                                           |
-| -------- | ------ | -------- | ----------------------------------------------------------------------------------------------------- |
-| `uid`    | string | yes      | Unique identifier in format `"time-type-{prefix}"` where prefix is lowercased (e.g. `"time-type-gw"`) |
-| `prefix` | string | yes      | Short prefix code, uppercase (e.g. `"SPLIT"`, `"SPLITDAY"`)                                           |
-| `kind`   | string | no       | Human-readable category name (e.g. `"Page split"`, `"Split day"`)                                     |
-
-The `uid` field is the canonical reference used in `timeline[].timeType`.
-
-When converting from spreadsheet, this array is populated from panel types that have
-`Is Split` set to any truthy value, or begin with `"SP"` or `"SPLIT"`. When
-exporting to spreadsheet, time types will be store with other prefixes in panel types.
-
----
-
-## `presenters`
-
-Array of presenter objects.
-
-| Field            | Type     | Required | Description                                                                                      |
-| ---------------- | -------- | -------- | ------------------------------------------------------------------------------------------------ |
-| `name`           | string   | yes      | Display name                                                                                     |
-| `rank`           | string   | yes      | Role: `"guest"`, `"judge"`, `"staff"`, `"invited_guest"`, or `"fan_panelist"`                    |
-| `is_group`       | boolean  | yes      | True if this entry represents a group (e.g. `"Pros and Cons Cosplay"`) rather than an individual |
-| `members`        | string[] | yes      | For groups: list of individual member names. Empty for individuals                               |
-| `groups`         | string[] | yes      | For individuals: list of group names this person belongs to. Empty for non-members               |
-| `always_grouped` | boolean  | yes      | If true, this presenter always appears under their group name in credits                         |
-
-### Group/Member Relationships
-
-Presenters can be individuals or groups. Group membership is bidirectional:
-
-- A **group** entry (e.g. `"Pros and Cons Cosplay"`) has `is_group: true` and
-  `members: ["Pro", "Con"]`.
-- Each **member** entry (e.g. `"Pro"`) has `groups: ["Pros and Cons Cosplay"]`.
-
-This relationship is used during [credits generation](#credits-generation) to
-determine whether to show the group name or individual names in the schedule.
-
-### Presenter Column Parsing
-
-In the spreadsheet, presenter columns use a naming convention to indicate rank
-and grouping:
-
-| Header Pattern     | Meaning                                        |
-| ------------------ | ---------------------------------------------- |
-| `Guest:Name`       | Named guest presenter                          |
-| `Guest:Other`      | Column for listing guest names in cell values  |
-| `Judge:Name`       | Named judge                                    |
-| `Staff:Name`       | Named staff member                             |
-| `Guest:Name=Group` | Named guest who is a member of the named group |
-| `g1`, `g2`, etc.   | Legacy: positional guest columns               |
-| `p1`, `p2`, etc.   | Legacy: positional panelist columns            |
-
----
-
-## `conflicts` (Top-Level)
-
-Optional array of detected scheduling conflicts.
-
-| Field       | Type           | Description                                      |
-| ----------- | -------------- | ------------------------------------------------ |
-| `type`      | string         | `"room"` or `"presenter"` or `"group_presenter"` |
-| `room`      | string \| null | Room UID (for room conflicts)                    |
-| `presenter` | string \| null | Presenter name (for presenter/group conflicts)   |
-| `event1`    | object         | `{ "id": "...", "name": "..." }`                 |
-| `event2`    | object         | `{ "id": "...", "name": "..." }`                 |
-
----
-
-## Differences: Editor vs. Converter
-
-The editor is intended to replace the Perl converter. Status of alignment:
-
-Legacy Perl converter implementation details are preserved in branch
-`feature/final-perl-converter`.
-
-| Feature            | Converter                    | Editor                         | Status                                            |
-| ------------------ | ---------------------------- | ------------------------------ | ------------------------------------------------- |
-| `credits` field    | Present on all events        | Empty array (populated later)  | Partial: struct present, generation logic pending |
-| `conflicts`        | Top-level + per-event        | Empty arrays (populated later) | Partial: structs present, detection logic pending |
-| `panelType` format | `"panel-type-gw"` (uid)      | `"panel-type-gw"` (uid)        | **Done**                                          |
-| `panelTypes[].uid` | Present                      | Present                        | **Done**                                          |
-| `cost` format      | `"$5.00"` (currency)         | `"$5.00"` (currency)           | **Done**                                          |
-| `duration`         | Correct (from spreadsheet)   | Sometimes wrong                | Bug: duration parsing                             |
-| `endTime`          | Correct                      | Sometimes wrong                | Related to duration bug                           |
-| Room UIDs          | From spreadsheet order       | From spreadsheet order         | **Done**                                          |
-| Presenter model    | Full (groups, members)       | Full (groups, members)         | **Done**                                          |
-| SPLIT events       | Generated for day separators | Not generated                  | Needs implementation                              |
-| `color` on events  | Not present                  | Not present                    | **Done**                                          |
-| `meta.version`     | `2`                          | `2`                            | **Done**                                          |
-| `meta.generator`   | `"schedule_to_json"`         | `"cosam-editor {ver}"`         | **Done**                                          |
-
----
-
-## Version History
-
-- **v1** (implicit): Original format produced by the Perl converter. No
-  `version` or `generator` fields in `meta`.
-- **v2**: Adds `meta.version` and `meta.generator` fields. Both the Perl
-  converter and the Rust editor now produce v2 output. The schema is otherwise
-  backward-compatible with v1 (new fields have defaults, so v1 files still
-  parse correctly). The editor adds `panelTypes[].isHidden`,
-  `panelTypes[].isRoomHours`, `panelTypes[].bwColor`, `events[].hidePanelist`,
-  and `events[].altPanelist` for spreadsheet round-tripping; these fields are
-  omitted when not set.
-- **v3**: Adds `panelTypes[].isSplit` field to indicate split events. Removes
-  `events[].isWorkshop` and `events[].isBreak` fields (these are now only available
-  in `panelTypes[]`). SPLIT events are always visible (never hidden) regardless of
-  the Hidden field in the spreadsheet. Widget checks `panelTypes[].isSplit` and
-  `panelTypes[].isBreak` first (V3) with fallback to inline event fields for V2
-  compatibility.
-- **v4**: Adds `meta.startTime` and `meta.endTime` for the entire schedule.
-  Removes `events[].kind` field replaced by `panelTypes[].kind`. Removes
-  `panelTypes[].isSplit` field. Adds `timeline` array for key time markers used
-  for layout, navigation, and formatting. Adds `timeTypes` array for time
-  category definitions.
+*This document is automatically generated. Do not edit directly.*

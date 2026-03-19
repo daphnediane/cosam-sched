@@ -40,8 +40,8 @@ Claude Opus 4.6 Thinking
 
 ## Process
 
-1. Check the existing `next_commit.tmp` file if it exists to see if it contains uncommitted work
-2. Use the `edit` tool to replace the entire contents of `next_commit.tmp`
+1. Remove existing `next_commit.tmp` file if it exists: `rm next_commit.tmp`
+2. Use the `write_to_file` tool to create a fresh `next_commit.tmp` file
 3. Follow the format exactly as specified
 4. Include all significant changes in the bullet points
 5. Ensure the file ends with the AI attribution line
