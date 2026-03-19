@@ -1,38 +1,38 @@
 # Cosplay America Schedule - Work Plan
 
-Generated on: Thu Mar 19 10:43:14 2026
+Generated on: 03/19/2026 19:29:10
 
 ## Completed
 
-* [BUGFIX-001](work-plan/BUGFIX-001.md) Converting the existing spreadsheets loses presenter information during the conversion process.
-* [BUGFIX-002](work-plan/BUGFIX-002.md) Break events should only be visible when filtering by room or when no filters are applied.
-* [BUGFIX-003](work-plan/BUGFIX-003.md) Remove "free" labeling from events as all events require registration.
-* [BUGFIX-004](work-plan/BUGFIX-004.md) Filter out internal staff events from the public schedule JSON using the "Hidden" field in PanelTypes sheet and add `--staff` option to include private events.
-* [BUGFIX-006](work-plan/BUGFIX-006.md) The converter does not detect or report scheduling conflicts such as a presenter double-booked across overlapping events, or two non-break events in the same room at the same time.
-* [CLEANUP-001](work-plan/CLEANUP-001.md) Complete repository layout cleanup by moving planning outputs under `docs/`, relocating work-plan tools to `scripts/`, and retiring deprecated Perl converter paths.
-* [CLEANUP-002](work-plan/CLEANUP-002.md) Migrate to an `apps/` + `crates/` Rust workspace layout, retire the legacy Perl converter now that parity is reached, and track the remaining non-blocking cleanup follow-up items.
-* [EDITOR-500](work-plan/EDITOR-500.md) Add the ability to import schedule data from XLSX spreadsheets.
-* [EDITOR-504](work-plan/EDITOR-504.md) Implement saving the schedule as JSON, matching the format consumed by the widget.
-* [FEATURE-001](work-plan/FEATURE-001.md) Implement a two-part system for Cosplay America schedule management.
-* [FEATURE-002](work-plan/FEATURE-002.md) Filter out SPLIT page-break markers and display BREAK time slots stretched across rooms.
-* [FEATURE-007](work-plan/FEATURE-007.md) Replace hardcoded panel type colors with CSS-based UID reference system for theming.
-* [FEATURE-009](work-plan/FEATURE-009.md) Enable presenter conflict detection to distinguish between individual presenters and groups, allowing groups like "UNC Staff" to be scheduled in multiple panels simultaneously.
-* [FEATURE-010](work-plan/FEATURE-010.md) Update the schedule widget to properly display presenter groups and allow filtering by both individual presenters and groups, following the group handling logic from the original implementation.
-* [FEATURE-011](work-plan/FEATURE-011.md) Define the v5 JSON format for the schedule data, introducing a
+* [BUGFIX-001] Converting the existing spreadsheets loses presenter information during the conversion process.
+* [BUGFIX-002] Break events should only be visible when filtering by room or when no filters are applied.
+* [BUGFIX-003] Remove "free" labeling from events as all events require registration.
+* [BUGFIX-004] Filter out internal staff events from the public schedule JSON using the "Hidden" field in PanelTypes sheet and add `--staff` option to include private events.
+* [BUGFIX-006] The converter does not detect or report scheduling conflicts such as a presenter double-booked across overlapping events, or two non-break events in the same room at the same time.
+* [CLEANUP-001] Complete repository layout cleanup by moving planning outputs under `docs/`, relocating work-plan tools to `scripts/`, and retiring deprecated Perl converter paths.
+* [CLEANUP-002] Migrate to an `apps/` + `crates/` Rust workspace layout, retire the legacy Perl converter now that parity is reached, and track the remaining non-blocking cleanup follow-up items.
+* [EDITOR-500] Add the ability to import schedule data from XLSX spreadsheets.
+* [EDITOR-504] Implement saving the schedule as JSON, matching the format consumed by the widget.
+* [FEATURE-001] Implement a two-part system for Cosplay America schedule management.
+* [FEATURE-002] Filter out SPLIT page-break markers and display BREAK time slots stretched across rooms.
+* [FEATURE-007] Replace hardcoded panel type colors with CSS-based UID reference system for theming.
+* [FEATURE-009] Enable presenter conflict detection to distinguish between individual presenters and groups, allowing groups like "UNC Staff" to be scheduled in multiple panels simultaneously.
+* [FEATURE-010] Update the schedule widget to properly display presenter groups and allow filtering by both individual presenters and groups, following the group handling logic from the original implementation.
+* [FEATURE-011] Define the v5 JSON format for the schedule data, introducing a
 base→part→session hierarchy, public/private split, and multi-room sessions.
-* [FEATURE-012](work-plan/FEATURE-012.md) Define the Rust data structures for the v5 JSON format in `crates/schedule-core`.
-* [FEATURE-014](work-plan/FEATURE-014.md) Update `xlsx_import` to directly build the v5 base→part→session hierarchy
+* [FEATURE-012] Define the Rust data structures for the v5 JSON format in `crates/schedule-core`.
+* [FEATURE-014] Update `xlsx_import` to directly build the v5 base→part→session hierarchy
 when importing spreadsheet data.
-* [FEATURE-015](work-plan/FEATURE-015.md) Implement serialization of the v5 full/private JSON format from the
+* [FEATURE-015] Implement serialization of the v5 full/private JSON format from the
 `Schedule` struct.
-* [FEATURE-016](work-plan/FEATURE-016.md) Implement the public export mode that flattens the v5 hierarchy into an
+* [FEATURE-016] Implement the public export mode that flattens the v5 hierarchy into an
 ordered `panels` array suitable for the `cosam-calendar.js` widget.
-* [FEATURE-017](work-plan/FEATURE-017.md) Update `widget/cosam-calendar.js` to consume the v5 public JSON format.
-* [FEATURE-018](work-plan/FEATURE-018.md) Update `apps/cosam-editor` to work with the v5 `Schedule` struct and expose
+* [FEATURE-017] Update `widget/cosam-calendar.js` to consume the v5 public JSON format.
+* [FEATURE-018] Update `apps/cosam-editor` to work with the v5 `Schedule` struct and expose
 the base→part→session hierarchy in the UI.
-* [UI-001](work-plan/UI-001.md) Display both the programming room name (e.g., "Programming 1") and the actual hotel room location.
-* [UI-003](work-plan/UI-003.md) Implement theme switching with dark, light, and CosAm color modes.
-* [UI-004](work-plan/UI-004.md) Replace table-based layout with CSS grid similar to schedule-to-html implementation.
+* [UI-001] Display both the programming room name (e.g., "Programming 1") and the actual hotel room location.
+* [UI-003] Implement theme switching with dark, light, and CosAm color modes.
+* [UI-004] Replace table-based layout with CSS grid similar to schedule-to-html implementation.
 
 ---
 
@@ -41,31 +41,31 @@ the base→part→session hierarchy in the UI.
 **Total open items:** 21
 
 * **High Priority**
-  * [ACCESSIBILITY-001](work-plan/ACCESSIBILITY-001.md) Implement comprehensive accessibility improvements for screen readers and color blindness support.
-  * [BUGFIX-005](work-plan/BUGFIX-005.md) The converter ignores the "Hide Panelist" and "Alt Panelist" spreadsheet columns, so presenter suppression and override text are not honored in the JSON output.
-  * [EDITOR-501](work-plan/EDITOR-501.md) Add the ability to export schedule data to XLSX spreadsheets.
-  * [EDITOR-502](work-plan/EDITOR-502.md) Implement inline editing of individual schedule events.
-  * [FEATURE-003](work-plan/FEATURE-003.md) Enable reading schedule data directly from Google Sheets.
-  * [FEATURE-005](work-plan/FEATURE-005.md) Add a grid view option to the printable schedule in addition to the existing list view.
-  * [FEATURE-008](work-plan/FEATURE-008.md) Enable room-wide events like Market Expo to overlap with subpanels in the same room without triggering false conflict warnings.
-  * [UI-002](work-plan/UI-002.md) Prevent event titles from overlapping with the "my schedule" star icon.
+  * [ACCESSIBILITY-001] Implement comprehensive accessibility improvements for screen readers and color blindness support.
+  * [BUGFIX-005] The converter ignores the "Hide Panelist" and "Alt Panelist" spreadsheet columns, so presenter suppression and override text are not honored in the JSON output.
+  * [EDITOR-501] Add the ability to export schedule data to XLSX spreadsheets.
+  * [EDITOR-502] Implement inline editing of individual schedule events.
+  * [FEATURE-003] Enable reading schedule data directly from Google Sheets.
+  * [FEATURE-005] Add a grid view option to the printable schedule in addition to the existing list view.
+  * [FEATURE-008] Enable room-wide events like Market Expo to overlap with subpanels in the same room without triggering false conflict warnings.
+  * [UI-002] Prevent event titles from overlapping with the "my schedule" star icon.
 
 * **Medium Priority**
-  * [EDITOR-503](work-plan/EDITOR-503.md) Detect and highlight scheduling conflicts between events.
-  * [EDITOR-505](work-plan/EDITOR-505.md) Enable drag-and-drop to move events between time slots and rooms.
-  * [EDITOR-506](work-plan/EDITOR-506.md) Implement undo/redo for all editing operations.
-  * [EDITOR-509](work-plan/EDITOR-509.md) Package the editor as standalone executables for macOS, Windows, and Linux.
-  * [EDITOR-510](work-plan/EDITOR-510.md) Define how multiple people and devices can safely edit a single schedule with conflict handling independent of any specific storage backend.
-  * [FEATURE-006](work-plan/FEATURE-006.md) Create a compact print format optimized for minimal paper usage.
-  * [UI-005](work-plan/UI-005.md) Add sticky headers or repeat day headers between time blocks in grid view for better navigation.
-  * [UI-006](work-plan/UI-006.md) Add visual indicators to the schedule widget to highlight conflicting events, making it easy for users to identify and understand scheduling conflicts.
-  * [UI-007](work-plan/UI-007.md) Update the room filter dropdown to only include rooms that have scheduled panels, excluding rooms that only contain room-hours events (RH prefix or "Is Room Hours" flag).
-  * [UI-008](work-plan/UI-008.md) Add a dedicated room hours section to display operating hours for rooms with RH/Is Room Hours events, formatted by day and room type as shown in the example layout.
+  * [EDITOR-503] Detect and highlight scheduling conflicts between events.
+  * [EDITOR-505] Enable drag-and-drop to move events between time slots and rooms.
+  * [EDITOR-506] Implement undo/redo for all editing operations.
+  * [EDITOR-509] Package the editor as standalone executables for macOS, Windows, and Linux.
+  * [EDITOR-510] Define how multiple people and devices can safely edit a single schedule with conflict handling independent of any specific storage backend.
+  * [FEATURE-006] Create a compact print format optimized for minimal paper usage.
+  * [UI-005] Add sticky headers or repeat day headers between time blocks in grid view for better navigation.
+  * [UI-006] Add visual indicators to the schedule widget to highlight conflicting events, making it easy for users to identify and understand scheduling conflicts.
+  * [UI-007] Update the room filter dropdown to only include rooms that have scheduled panels, excluding rooms that only contain room-hours events (RH prefix or "Is Room Hours" flag).
+  * [UI-008] Add a dedicated room hours section to display operating hours for rooms with RH/Is Room Hours events, formatted by day and room type as shown in the example layout.
 
 * **Low Priority**
-  * [EDITOR-507](work-plan/EDITOR-507.md) Support reading from and writing to Google Sheets.
-  * [EDITOR-508](work-plan/EDITOR-508.md) Support reading from and writing to Excel files stored in OneDrive.
-  * [FEATURE-004](work-plan/FEATURE-004.md) Create a cross-platform desktop application for schedule editing.
+  * [EDITOR-507] Support reading from and writing to Google Sheets.
+  * [EDITOR-508] Support reading from and writing to Excel files stored in OneDrive.
+  * [FEATURE-004] Create a cross-platform desktop application for schedule editing.
 
 ---
 
@@ -78,8 +78,6 @@ the base→part→session hierarchy in the UI.
 **Summary:** Implement comprehensive accessibility improvements for screen readers and color blindness support.
 
 **Description:** Implement comprehensive accessibility improvements to ensure the schedule is usable by screen readers and users with various types of color blindness, following W3C WAI standards and achieving WCAG 2.1 AA compliance.
-
-*See full details in: [work-plan/ACCESSIBILITY-001.md](work-plan/ACCESSIBILITY-001.md)*
 
 ---
 
@@ -104,8 +102,6 @@ so all detected presenters are unconditionally included in the JSON output.
 
 See also: `docs/spreadsheet-format.md` and schedule-to-html README §Panelist.
 
-*See full details in: [work-plan/BUGFIX-005.md](work-plan/BUGFIX-005.md)*
-
 ---
 
 ### [EDITOR-501] XLSX Export Support
@@ -115,8 +111,6 @@ See also: `docs/spreadsheet-format.md` and schedule-to-html README §Panelist.
 **Summary:** Add the ability to export schedule data to XLSX spreadsheets.
 
 **Description:** Implement writing schedule data to XLSX files using the `rust_xlsxwriter` crate. This allows round-tripping data back to spreadsheet format for sharing with non-technical staff.
-
-*See full details in: [work-plan/EDITOR-501.md](work-plan/EDITOR-501.md)*
 
 ---
 
@@ -128,8 +122,6 @@ See also: `docs/spreadsheet-format.md` and schedule-to-html README §Panelist.
 
 **Description:** Allow users to click on an event card to edit its properties: name, description, time, room assignment, panel type, presenters, and flags. Changes should update the in-memory schedule model and mark the file as dirty.
 
-*See full details in: [work-plan/EDITOR-502.md](work-plan/EDITOR-502.md)*
-
 ---
 
 ### [FEATURE-003] Support Google Sheets for schedule data
@@ -140,8 +132,6 @@ See also: `docs/spreadsheet-format.md` and schedule-to-html README §Panelist.
 
 **Description:** The convention is moving to Google Sheets next year. The converter needs to support reading from Google Sheets API in addition to XLSX files.
 
-*See full details in: [work-plan/FEATURE-003.md](work-plan/FEATURE-003.md)*
-
 ---
 
 ### [FEATURE-005] Printable schedules should include a grid option
@@ -151,8 +141,6 @@ See also: `docs/spreadsheet-format.md` and schedule-to-html README §Panelist.
 **Summary:** Add a grid view option to the printable schedule in addition to the existing list view.
 
 **Description:** Currently, printing only shows a list view of events. A grid view similar to the on-screen grid would be useful for attendees who prefer a visual schedule layout.
-
-*See full details in: [work-plan/FEATURE-005.md](work-plan/FEATURE-005.md)*
 
 ---
 
@@ -172,8 +160,6 @@ The 2025 schedule shows this pattern:
 * FD001S2 "Learn to solder" (10:00-12:00) in room 15
 * FD001S3 "Learn to solder" (14:00-16:00) in room 15
 
-*See full details in: [work-plan/FEATURE-008.md](work-plan/FEATURE-008.md)*
-
 ---
 
 ### [UI-002] Fix event title and star overlap
@@ -183,8 +169,6 @@ The 2025 schedule shows this pattern:
 **Summary:** Prevent event titles from overlapping with the "my schedule" star icon.
 
 **Description:** Currently, long event titles can underlap the star icon, making both difficult to read.
-
-*See full details in: [work-plan/UI-002.md](work-plan/UI-002.md)*
 
 ## Open Medium Priority Items
 
@@ -196,8 +180,6 @@ The 2025 schedule shows this pattern:
 
 **Description:** Automatically identify events that overlap in the same room or involve the same presenter at the same time. Display conflicts visually and provide a summary view.
 
-*See full details in: [work-plan/EDITOR-503.md](work-plan/EDITOR-503.md)*
-
 ---
 
 ### [EDITOR-505] Drag-and-Drop Event Scheduling
@@ -207,8 +189,6 @@ The 2025 schedule shows this pattern:
 **Summary:** Enable drag-and-drop to move events between time slots and rooms.
 
 **Description:** Implement a grid or timeline view where events can be dragged to change their time or room assignment. This provides an intuitive visual scheduling experience.
-
-*See full details in: [work-plan/EDITOR-505.md](work-plan/EDITOR-505.md)*
 
 ---
 
@@ -220,8 +200,6 @@ The 2025 schedule shows this pattern:
 
 **Description:** Track all changes to the schedule model and allow users to undo and redo them. Essential for a comfortable editing experience.
 
-*See full details in: [work-plan/EDITOR-506.md](work-plan/EDITOR-506.md)*
-
 ---
 
 ### [EDITOR-509] Application Packaging and Distribution
@@ -231,8 +209,6 @@ The 2025 schedule shows this pattern:
 **Summary:** Package the editor as standalone executables for macOS, Windows, and Linux.
 
 **Description:** Set up build and packaging pipelines to produce distributable application bundles. Users should be able to download and run the editor without installing Rust or other development tools.
-
-*See full details in: [work-plan/EDITOR-509.md](work-plan/EDITOR-509.md)*
 
 ---
 
@@ -244,8 +220,6 @@ The 2025 schedule shows this pattern:
 
 **Description:** Design the synchronization and conflict-resolution model for concurrent editing across desktop clients. This is intentionally backend-agnostic so it can support Google Sheets, OneDrive, or future storage options without rewriting core merge behavior.
 
-*See full details in: [work-plan/EDITOR-510.md](work-plan/EDITOR-510.md)*
-
 ---
 
 ### [FEATURE-006] Add a compact printed schedule
@@ -256,8 +230,6 @@ The 2025 schedule shows this pattern:
 
 **Description:** Some attendees prefer a pocket-sized schedule. A compact format with smaller fonts and condensed layout would be valuable.
 
-*See full details in: [work-plan/FEATURE-006.md](work-plan/FEATURE-006.md)*
-
 ---
 
 ### [UI-005] Implement sticky headers or additional header rows
@@ -267,8 +239,6 @@ The 2025 schedule shows this pattern:
 **Summary:** Add sticky headers or repeat day headers between time blocks in grid view for better navigation.
 
 **Description:** When viewing the schedule grid, users lose context of which day/time they're viewing as they scroll. Either sticky headers should follow the scroll, or additional header rows should be inserted between days to maintain context.
-
-*See full details in: [work-plan/UI-005.md](work-plan/UI-005.md)*
 
 ---
 
@@ -285,8 +255,6 @@ Based on the 2025 schedule data, conflicts include:
 * Room conflicts (Market Expo vs Learn to solder sessions)
 * Presenter conflicts (UNC Staff double-booked)
 
-*See full details in: [work-plan/UI-006.md](work-plan/UI-006.md)*
-
 ---
 
 ### [UI-007] Improve room filter to exclude room-hours-only rooms
@@ -297,8 +265,6 @@ Based on the 2025 schedule data, conflicts include:
 
 **Description:** Currently the room filter shows all rooms from the Rooms sheet, including rooms that only contain room-hours events like "Market Expo" or "Registration". These rooms clutter the filter and don't contain actual panels that users want to filter by.
 
-*See full details in: [work-plan/UI-007.md](work-plan/UI-007.md)*
-
 ---
 
 ### [UI-008] Display room hours separately from schedule grid
@@ -308,8 +274,6 @@ Based on the 2025 schedule data, conflicts include:
 **Summary:** Add a dedicated room hours section to display operating hours for rooms with RH/Is Room Hours events, formatted by day and room type as shown in the example layout.
 
 **Description:** Room-hours events (RH prefix or "Is Room Hours" flag) currently appear in the main schedule grid, but they represent operating hours rather than specific panels. These should be displayed separately in a more readable format that shows when each area is open.
-
-*See full details in: [work-plan/UI-008.md](work-plan/UI-008.md)*
 
 ## Open Low Priority Items
 
@@ -330,8 +294,6 @@ Legacy implementation notes from the removed Perl-era docs are archived in branc
 * Handle both formal table metadata and heuristic range detection
 * Validate auth, permissions, and error-path UX before calling the feature production-ready
 
-*See full details in: [work-plan/EDITOR-507.md](work-plan/EDITOR-507.md)*
-
 ---
 
 ### [EDITOR-508] OneDrive/Office 365 Integration
@@ -341,8 +303,6 @@ Legacy implementation notes from the removed Perl-era docs are archived in branc
 **Summary:** Support reading from and writing to Excel files stored in OneDrive.
 
 **Description:** Enable the editor to work with XLSX files shared via OneDrive/Office 365. This supports workflows where the schedule spreadsheet lives in a shared OneDrive folder.
-
-*See full details in: [work-plan/EDITOR-508.md](work-plan/EDITOR-508.md)*
 
 ---
 
@@ -354,4 +314,50 @@ Legacy implementation notes from the removed Perl-era docs are archived in branc
 
 **Description:** Build a standalone cross-platform desktop editor using Rust and GPUI for editing schedules and generating output. Supports macOS, Windows, and Linux.
 
-*See full details in: [work-plan/FEATURE-004.md](work-plan/FEATURE-004.md)*
+---
+
+[ACCESSIBILITY-001]: work-plan/medium/ACCESSIBILITY-001.md
+[BUGFIX-001]: work-plan/done/BUGFIX-001.md
+[BUGFIX-002]: work-plan/done/BUGFIX-002.md
+[BUGFIX-003]: work-plan/done/BUGFIX-003.md
+[BUGFIX-004]: work-plan/done/BUGFIX-004.md
+[BUGFIX-005]: work-plan/high/BUGFIX-005.md
+[BUGFIX-006]: work-plan/done/BUGFIX-006.md
+[CLEANUP-001]: work-plan/done/CLEANUP-001.md
+[CLEANUP-002]: work-plan/done/CLEANUP-002.md
+[EDITOR-500]: work-plan/done/EDITOR-500.md
+[EDITOR-501]: work-plan/high/EDITOR-501.md
+[EDITOR-502]: work-plan/high/EDITOR-502.md
+[EDITOR-503]: work-plan/medium/EDITOR-503.md
+[EDITOR-504]: work-plan/done/EDITOR-504.md
+[EDITOR-505]: work-plan/medium/EDITOR-505.md
+[EDITOR-506]: work-plan/medium/EDITOR-506.md
+[EDITOR-507]: work-plan/low/EDITOR-507.md
+[EDITOR-508]: work-plan/low/EDITOR-508.md
+[EDITOR-509]: work-plan/medium/EDITOR-509.md
+[EDITOR-510]: work-plan/medium/EDITOR-510.md
+[FEATURE-001]: work-plan/done/FEATURE-001.md
+[FEATURE-002]: work-plan/done/FEATURE-002.md
+[FEATURE-003]: work-plan/high/FEATURE-003.md
+[FEATURE-004]: work-plan/medium/FEATURE-004.md
+[FEATURE-005]: work-plan/high/FEATURE-005.md
+[FEATURE-006]: work-plan/medium/FEATURE-006.md
+[FEATURE-007]: work-plan/done/FEATURE-007.md
+[FEATURE-008]: work-plan/high/FEATURE-008.md
+[FEATURE-009]: work-plan/done/FEATURE-009.md
+[FEATURE-010]: work-plan/done/FEATURE-010.md
+[FEATURE-011]: work-plan/done/FEATURE-011.md
+[FEATURE-012]: work-plan/done/FEATURE-012.md
+[FEATURE-014]: work-plan/done/FEATURE-014.md
+[FEATURE-015]: work-plan/done/FEATURE-015.md
+[FEATURE-016]: work-plan/done/FEATURE-016.md
+[FEATURE-017]: work-plan/done/FEATURE-017.md
+[FEATURE-018]: work-plan/done/FEATURE-018.md
+[UI-001]: work-plan/done/UI-001.md
+[UI-002]: work-plan/high/UI-002.md
+[UI-003]: work-plan/done/UI-003.md
+[UI-004]: work-plan/done/UI-004.md
+[UI-005]: work-plan/medium/UI-005.md
+[UI-006]: work-plan/medium/UI-006.md
+[UI-007]: work-plan/medium/UI-007.md
+[UI-008]: work-plan/medium/UI-008.md

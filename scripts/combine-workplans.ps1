@@ -32,6 +32,21 @@ if (-not $WorkplanDir) {
 $OutputFile = Join-Path $RootDir $OutputFile
 $OutputFile = [System.IO.Path]::GetFullPath($OutputFile)
 
+# Subdirectories for organization
+$StatusDirs = @{
+    'Completed'   = 'done'
+    'In Progress' = 'medium'
+    'Blocked'     = 'high'
+    'Not Started' = 'low'
+}
+
+# Default priority mapping for items without explicit status
+$PriorityDefaults = @{
+    'High'   = 'high'
+    'Medium' = 'medium'
+    'Low'    = 'low'
+}
+
 # Priority order
 $PriorityOrder = @{
     'High'   = 1
@@ -48,16 +63,31 @@ function Write-Status {
 function Get-WorkplanFiles {
     param([string]$Directory)
     
-    Write-Status "Scanning for workplan files in $Directory"
+    Write-Status "Scanning for workplan files in $Directory and subdirectories"
     
-    $files = Get-ChildItem -Path $Directory -Filter "*.md" -File | 
-    Where-Object { $_.Name -ne "combine-workplans.ps1" } |
-    Sort-Object FullName
+    $files = @()
+    $subdirs = @('', 'done', 'high', 'medium', 'low')
+    
+    foreach ($subdir in $subdirs) {
+        $searchDir = if ($subdir) { Join-Path $Directory $subdir } else { $Directory }
+        if (-not (Test-Path $searchDir)) { continue }
+        
+        $subdirFiles = Get-ChildItem -Path $searchDir -Filter "*.md" -File | 
+        Where-Object { $_.Name -ne "combine-workplans.ps1" } |
+        ForEach-Object { 
+            # Add current subdirectory as custom property
+            $_ | Add-Member -NotePropertyName "CurrentSubdir" -NotePropertyValue $subdir -PassThru 
+        }
+        
+        $files += $subdirFiles
+    }
+    
+    $files = $files | Sort-Object FullName
     
     if ($Verbose) {
         Write-Host "Found $($files.Count) markdown files"
         foreach ($file in $files) {
-            Write-Host "  - $($file.Name)"
+            Write-Host "  - $($file.Name) (in $($file.CurrentSubdir))"
         }
     }
     
@@ -83,7 +113,7 @@ function Import-WorkplanFile {
     # Extract prefix and number from filename
     if ($File.BaseName -match '([^-]+)-(\d+)$') {
         $prefix = $matches[1]
-        $num = [int]$matches[2]
+        $num = $matches[2]  # Keep as string to preserve leading zeros
     }
     else {
         throw "Cannot parse filename format: $($File.Name). Expected format: prefix-number.md"
@@ -94,16 +124,17 @@ function Import-WorkplanFile {
     $relativeWorkplanPath = [System.IO.Path]::GetRelativePath($outputDir, $WorkplanDir).Replace('\', '/')
     
     return @{
-        File         = $File.FullName
-        RelativeFile = "$relativeWorkplanPath/$($File.Name)"
-        Prefix       = $prefix
-        Number       = $num
-        Title        = $title
-        Summary      = $summary
-        Status       = $status
-        Priority     = $priority
-        Description  = $description
-        FullContent  = $content
+        File           = $File.FullName
+        RelativeFile   = "$relativeWorkplanPath/$($File.Name)"
+        Prefix         = $prefix
+        Number         = $num
+        Title          = $title
+        Summary        = $summary
+        Status         = $status
+        Priority       = $priority
+        Description    = $description
+        FullContent    = $content
+        CurrentSubdir  = $File.CurrentSubdir
     }
 }
 
@@ -118,7 +149,7 @@ function Set-WorkplanOrder {
     }, @{
         Expression = { $_.Prefix }
     }, @{
-        Expression = { $_.Number }
+        Expression = { [int]$_.Number }  # Convert to int only for sorting
     }
 }
 
@@ -135,14 +166,19 @@ function New-WorkPlanContent {
     $completed = $Items | Where-Object { $_.Status -eq 'Completed' }
     $open = $Items | Where-Object { $_.Status -ne 'Completed' }
     
+    # Collect all links for glossary
+    $allLinks = @{}
+    
     # Output completed items
     if ($completed) {
         $content += "## Completed"
         $content += ""
         
-        $sortedCompleted = $completed | Sort-Object -Property Prefix, Number
+        $sortedCompleted = $completed | Sort-Object -Property Prefix, @{Expression={[int]$_.Number}}
         foreach ($item in $sortedCompleted) {
-            $content += "* [$($item.Prefix)-$($item.Number)]($($item.RelativeFile)) $($item.Summary)"
+            $linkId = "$($item.Prefix)-$($item.Number)"
+            $allLinks[$linkId] = Get-RelativePath -Item $item
+            $content += "* [$linkId] $($item.Summary)"
         }
         
         $content += ""
@@ -167,9 +203,11 @@ function New-WorkPlanContent {
             
             $content += "* **$priority Priority**"
             
-            $sortedItems = $group.Group | Sort-Object -Property Prefix, Number
+            $sortedItems = $group.Group | Sort-Object -Property Prefix, @{Expression={[int]$_.Number}}
             foreach ($item in $sortedItems) {
-                $content += "  * [$($item.Prefix)-$($item.Number)]($($item.RelativeFile)) $($item.Summary)"
+                $linkId = "$($item.Prefix)-$($item.Number)"
+                $allLinks[$linkId] = Get-RelativePath -Item $item
+                $content += "  * [$linkId] $($item.Summary)"
             }
             
             $content += ""
@@ -189,19 +227,20 @@ function New-WorkPlanContent {
         $content += "## Open $priority Priority Items"
         $content += ""
         
-        $sortedItems = $group.Group | Sort-Object -Property Prefix, Number
+        $sortedItems = $group.Group | Sort-Object -Property Prefix, @{Expression={[int]$_.Number}}
         for ($i = 0; $i -lt $sortedItems.Count; $i++) {
             $item = $sortedItems[$i]
             
-            $content += "### [$($item.Prefix)-$($item.Number)] $($item.Title)"
+            $linkId = "$($item.Prefix)-$($item.Number)"
+            $allLinks[$linkId] = Get-RelativePath -Item $item
+            
+            $content += "### [$linkId] $($item.Title)"
             $content += ""
             $content += "**Status:** $($item.Status)"
             $content += ""
             $content += "**Summary:** $($item.Summary)"
             $content += ""
             $content += "**Description:** $($item.Description)"
-            $content += ""
-            $content += "*See full details in: [$($item.RelativeFile)]($($item.RelativeFile))*"
             $content += ""
             
             # Add separator, but not after the last item
@@ -212,7 +251,97 @@ function New-WorkPlanContent {
         }
     }
     
+    # Add link glossary at the end (no header to avoid rendering issues)
+    $content += "---"
+    $content += ""
+    
+    foreach ($linkId in ($allLinks.Keys | Sort-Object)) {
+        $content += "[$linkId]: $($allLinks[$linkId])"
+    }
+    
     return $content -join "`r`n"
+}
+
+function Get-RelativePath {
+    param([hashtable]$Item)
+    
+    # Build relative path based on current subdirectory
+    $filename = "$($Item.Prefix)-$($Item.Number).md"
+    if ($Item.CurrentSubdir) {
+        return "work-plan/$($Item.CurrentSubdir)/$filename"
+    } else {
+        return "work-plan/$filename"
+    }
+}
+
+function Invoke-FileReorganization {
+    param([array]$Items)
+    
+    Write-Status "Reorganizing files to correct directories..."
+    
+    # Ensure target directories exist
+    $targetDirs = @('done', 'high', 'medium', 'low')
+    foreach ($dir in $targetDirs) {
+        $fullDir = Join-Path $WorkplanDir $dir
+        if (-not (Test-Path $fullDir)) {
+            New-Item -ItemType Directory -Path $fullDir -Force | Out-Null
+            Write-Status "Created directory: $fullDir"
+        }
+    }
+    
+    # Process each item and move if needed
+    foreach ($item in $Items) {
+        $targetSubdir = Get-TargetDirectory -Item $item
+        $targetDir = Join-Path $WorkplanDir $targetSubdir
+        
+        # Skip if already in correct location
+        if ($item.CurrentSubdir -eq $targetSubdir) {
+            if ($Verbose) { Write-Host "Already in correct location: $($item.Prefix)-$($item.Number).md" }
+            continue
+        }
+        
+        $filename = "$($item.Prefix)-$($item.Number).md"
+        $sourcePath = $item.File
+        $targetPath = Join-Path $targetDir $filename
+        
+        # Check if target file already exists
+        if (Test-Path $targetPath) {
+            Write-Warning "Target file already exists: $targetPath"
+            Write-Warning "Skipping move of: $sourcePath"
+            continue
+        }
+        
+        # Move the file
+        try {
+            Move-Item -Path $sourcePath -Destination $targetPath -Force
+            Write-Status "Moved: $filename -> $targetSubdir/"
+            
+            # Update the file path in the item for correct linking
+            $item.File = $targetPath
+            $item.CurrentSubdir = $targetSubdir
+        }
+        catch {
+            $errorMsg = "Failed to move {0} to {1}: {2}" -f $sourcePath, $targetPath, $_.Exception.Message
+            Write-Error $errorMsg
+        }
+    }
+}
+
+function Get-TargetDirectory {
+    param([hashtable]$Item)
+    
+    # Use status mapping first
+    if ($StatusDirs.ContainsKey($Item.Status)) {
+        return $StatusDirs[$Item.Status]
+    }
+    
+    # Fall back to priority mapping
+    if ($PriorityDefaults.ContainsKey($Item.Priority)) {
+        return $PriorityDefaults[$Item.Priority]
+    }
+    
+    # Default to medium for unknown cases
+    return 'medium'
 }
 
 # Main execution
@@ -246,7 +375,7 @@ try {
     # Sort items
     $sortedItems = Set-WorkplanOrder -Items $items
     
-    # Generate content
+    # Generate content (will be regenerated after file moves)
     $content = New-WorkPlanContent -Items $sortedItems
     
     # Ensure output directory exists
@@ -255,11 +384,21 @@ try {
         New-Item -ItemType Directory -Path $outputDir -Force | Out-Null
     }
     
-    # Write output file
-    $content | Out-File -FilePath $OutputFile -Encoding UTF8 -NoNewline
+    # Write output file with LF line endings
+    $contentLf = $content -replace "`r`n", "`n"
+    $contentLf | Out-File -FilePath $OutputFile -Encoding UTF8 -NoNewline
     
     Write-Status "Generated $OutputFile with $($items.Count) work items"
     
+    # Reorganize files to correct directories first
+    Invoke-FileReorganization -Items $items
+    
+    # Regenerate WORK_PLAN.md with updated file paths
+    $content = New-WorkPlanContent -Items $items
+    $contentLf = $content -replace "`r`n", "`n"
+    $contentLf | Out-File -FilePath $OutputFile -Encoding UTF8 -NoNewline
+    
+    Write-Status "File reorganization complete"
 }
 catch {
     Write-Error "Failed to generate work plan: $_"
