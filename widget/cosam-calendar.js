@@ -203,7 +203,7 @@
 
     filteredEvents() {
       if (!this.data) return [];
-      let events = this.data.events;
+      let events = this.data.panels;
 
       // Remove SPLIT events (page-break markers for print layout)
       events = events.filter(e => !this._isSplitEvent(e));
@@ -225,7 +225,7 @@
 
       // Rooms — breaks pass through
       if (this.filters.rooms.size > 0) {
-        events = events.filter(e => this._isBreakEvent(e) || (e.roomId && this.filters.rooms.has(e.roomId)));
+        events = events.filter(e => this._isBreakEvent(e) || (e.roomIds && e.roomIds.some(id => this.filters.rooms.has(id))));
       }
 
       // Types — breaks excluded when filtering by type
@@ -355,14 +355,15 @@
         }))
         : [];
 
-      const events = Array.isArray(data.events)
-        ? data.events.map((evt) => ({
+      // V5 panels array
+      const events = Array.isArray(data.panels)
+        ? data.panels.map((evt) => ({
           ...evt,
           panelType: this._normalizePanelTypeUid(evt.panelType),
         }))
         : [];
 
-      return { ...data, panelTypes, events };
+      return { ...data, panelTypes, events: data.panels };
     }
 
     _ensurePanelTypeThemeStyles() {
@@ -797,15 +798,21 @@
         timeSpan.innerHTML = ICONS.clock + ' ' + escapeHtml(formatTimeRange(evt.startTime, evt.endTime));
         meta.appendChild(timeSpan);
       }
-      if (evt.roomId !== null && evt.roomId !== undefined) {
-        const room = this.state.data.rooms.find(r => r.uid === evt.roomId);
-        if (room) {
+      // Rooms - V5 roomIds array
+      if (evt.roomIds && evt.roomIds.length > 0) {
+        const roomNames = evt.roomIds.map(roomId => {
+          const room = this.state.data.rooms.find(r => r.uid === roomId);
+          if (!room) return null;
           let roomDisplay = room.long_name || room.short_name;
           if (room.hotel_room && room.hotel_room !== (room.long_name || room.short_name)) {
             roomDisplay = `${room.long_name || room.short_name}<br><small style="opacity: 0.8">(${room.hotel_room})</small>`;
           }
+          return roomDisplay;
+        }).filter(Boolean);
+
+        if (roomNames.length > 0) {
           const roomSpan = el('span');
-          roomSpan.innerHTML = ICONS.mappin + ' ' + roomDisplay;
+          roomSpan.innerHTML = ICONS.mappin + ' ' + roomNames.join(', ');
           meta.appendChild(roomSpan);
         }
       }
@@ -877,7 +884,7 @@
       const breakEvents = events.filter(e => this.state._isBreakEvent(e));
 
       // Get visible rooms from regular events only (BREAK room excluded)
-      const roomIds = [...new Set(regularEvents.map(e => e.roomId).filter(id => id !== null && id !== undefined))];
+      const roomIds = [...new Set(regularEvents.flatMap(e => e.roomIds).filter(id => id !== null && id !== undefined))];
       const roomOrder = this.state.data.rooms
         .filter(r => roomIds.includes(r.uid || r.id))
         .sort((a, b) => (a.sort_key || a.sortKey) - (b.sort_key || b.sortKey))
@@ -1050,7 +1057,7 @@
         // Add events for each room
         if (slotBreaks.length > 0) {
           // Determine which rooms have real events at this time
-          const occupiedRoomIds = new Set(slotRegular.map(e => e.roomId).filter(id => id !== null && id !== undefined));
+          const occupiedRoomIds = new Set(slotRegular.flatMap(e => e.roomIds).filter(id => id !== null && id !== undefined));
 
           // Build cells: span across unoccupied rooms, show real events in occupied rooms
           let i = 0;
@@ -1058,7 +1065,7 @@
             const roomId = roomOrder[i];
             if (occupiedRoomIds.has(roomId)) {
               // Room has a real event — render it normally
-              const roomEvents = slotRegular.filter(e => e.roomId === roomId);
+              const roomEvents = slotRegular.filter(e => e.roomIds && e.roomIds.includes(roomId));
               for (const evt of roomEvents) {
                 const eventEl = this._buildGridEvent(evt);
                 eventEl.style.gridColumn = `room-${roomId}`;
@@ -1125,7 +1132,7 @@
         } else {
           // Normal row — no breaks
           for (const roomId of roomOrder) {
-            const roomEvents = slotRegular.filter(e => e.roomId === roomId);
+            const roomEvents = slotRegular.filter(e => e.roomIds && e.roomIds.includes(roomId));
             for (const evt of roomEvents) {
               const eventEl = this._buildGridEvent(evt);
               eventEl.style.gridColumn = `room-${roomId}`;
@@ -1277,14 +1284,19 @@
       div.appendChild(el('div', { className: 'cosam-grid-event-name' }, evt.name));
 
       // Add room information for mobile view
-      if (evt.roomId !== null && evt.roomId !== undefined) {
-        const room = this.state.data.rooms.find(r => (r.uid || r.id) === evt.roomId);
-        if (room) {
+      if (evt.roomIds && evt.roomIds.length > 0) {
+        const roomNames = evt.roomIds.map(roomId => {
+          const room = this.state.data.rooms.find(r => r.uid === roomId);
+          if (!room) return null;
           let roomDisplay = room.long_name || room.longName || room.short_name || room.shortName;
           if (room.hotel_room && room.hotel_room !== (room.long_name || room.longName || room.short_name || room.shortName)) {
             roomDisplay = `${room.long_name || room.longName || room.short_name || room.shortName} (${room.hotel_room})`;
           }
-          div.appendChild(el('div', { className: 'cosam-grid-event-room' }, roomDisplay));
+          return roomDisplay;
+        }).filter(Boolean);
+
+        if (roomNames.length > 0) {
+          div.appendChild(el('div', { className: 'cosam-grid-event-room' }, roomNames.join(', ')));
         }
       }
 
@@ -1359,15 +1371,21 @@
       if (evt.duration) {
         meta.appendChild(el('span', {}, evt.duration + ' min'));
       }
-      if (evt.roomId !== null && evt.roomId !== undefined) {
-        const room = this.state.data.rooms.find(r => r.uid === evt.roomId);
-        if (room) {
+      // Rooms - V5 roomIds array
+      if (evt.roomIds && evt.roomIds.length > 0) {
+        const roomNames = evt.roomIds.map(roomId => {
+          const room = this.state.data.rooms.find(r => r.uid === roomId);
+          if (!room) return null;
           let roomDisplay = room.long_name || room.short_name;
           if (room.hotel_room && room.hotel_room !== (room.long_name || room.short_name)) {
             roomDisplay = `${room.long_name || room.short_name}<br><small style="opacity: 0.8">(${room.hotel_room})</small>`;
           }
+          return roomDisplay;
+        }).filter(Boolean);
+
+        if (roomNames.length > 0) {
           const rs = el('span');
-          rs.innerHTML = ICONS.mappin + ' ' + roomDisplay;
+          rs.innerHTML = ICONS.mappin + ' ' + roomNames.join(', ');
           meta.appendChild(rs);
         }
       }
@@ -1508,7 +1526,8 @@
 
           // Extract days (skip SPLIT events which are print-layout markers)
           const daySet = new Map();
-          for (const evt of data.events) {
+          const events = data.panels;
+          for (const evt of events) {
             if (!evt.startTime) continue;
             if (state._isSplitEvent(evt)) continue;
             const key = getDayKey(evt.startTime);
