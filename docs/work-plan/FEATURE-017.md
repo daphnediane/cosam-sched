@@ -6,7 +6,7 @@ Update `widget/cosam-calendar.js` to consume the v5 public JSON format.
 
 ## Status
 
-Open
+Completed
 
 ## Priority
 

@@ -1,6 +1,6 @@
 # Cosplay America Schedule - Work Plan
 
-Generated on: Thu Mar 19 10:33:42 2026
+Generated on: Thu Mar 19 10:43:14 2026
 
 ## Completed
 
@@ -27,6 +27,7 @@ when importing spreadsheet data.
 `Schedule` struct.
 * [FEATURE-016](work-plan/FEATURE-016.md) Implement the public export mode that flattens the v5 hierarchy into an
 ordered `panels` array suitable for the `cosam-calendar.js` widget.
+* [FEATURE-017](work-plan/FEATURE-017.md) Update `widget/cosam-calendar.js` to consume the v5 public JSON format.
 * [FEATURE-018](work-plan/FEATURE-018.md) Update `apps/cosam-editor` to work with the v5 `Schedule` struct and expose
 the base→part→session hierarchy in the UI.
 * [UI-001](work-plan/UI-001.md) Display both the programming room name (e.g., "Programming 1") and the actual hotel room location.
@@ -37,7 +38,7 @@ the base→part→session hierarchy in the UI.
 
 ## Summary of Open Items
 
-**Total open items:** 22
+**Total open items:** 21
 
 * **High Priority**
   * [ACCESSIBILITY-001](work-plan/ACCESSIBILITY-001.md) Implement comprehensive accessibility improvements for screen readers and color blindness support.
@@ -47,7 +48,6 @@ the base→part→session hierarchy in the UI.
   * [FEATURE-003](work-plan/FEATURE-003.md) Enable reading schedule data directly from Google Sheets.
   * [FEATURE-005](work-plan/FEATURE-005.md) Add a grid view option to the printable schedule in addition to the existing list view.
   * [FEATURE-008](work-plan/FEATURE-008.md) Enable room-wide events like Market Expo to overlap with subpanels in the same room without triggering false conflict warnings.
-  * [FEATURE-017](work-plan/FEATURE-017.md) Update `widget/cosam-calendar.js` to consume the v5 public JSON format.
   * [UI-002](work-plan/UI-002.md) Prevent event titles from overlapping with the "my schedule" star icon.
 
 * **Medium Priority**
@@ -173,20 +173,6 @@ The 2025 schedule shows this pattern:
 * FD001S3 "Learn to solder" (14:00-16:00) in room 15
 
 *See full details in: [work-plan/FEATURE-008.md](work-plan/FEATURE-008.md)*
-
----
-
-### [FEATURE-017] Widget v5 support
-
-**Status:** Open
-
-**Summary:** Update `widget/cosam-calendar.js` to consume the v5 public JSON format.
-
-**Description:** The v5 public format (see `docs/json-public-v5.md`) changes the top-level
-key from `events` to `panels` and replaces the scalar `roomId` with a
-`roomIds` array. The widget must be updated to handle these changes.
-
-*See full details in: [work-plan/FEATURE-017.md](work-plan/FEATURE-017.md)*
 
 ---
 
