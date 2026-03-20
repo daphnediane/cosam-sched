@@ -65,21 +65,20 @@ function Get-WorkplanFiles {
     
     Write-Status "Scanning for workplan files in $Directory and subdirectories"
     
-    $files = @()
-    $subdirs = @('', 'done', 'high', 'medium', 'low')
-    
-    foreach ($subdir in $subdirs) {
-        $searchDir = if ($subdir) { Join-Path $Directory $subdir } else { $Directory }
-        if (-not (Test-Path $searchDir)) { continue }
-        
-        $subdirFiles = Get-ChildItem -Path $searchDir -Filter "*.md" -File | 
-        Where-Object { $_.Name -ne "combine-workplans.ps1" } |
-        ForEach-Object { 
-            # Add current subdirectory as custom property
-            $_ | Add-Member -NotePropertyName "CurrentSubdir" -NotePropertyValue $subdir -PassThru 
+    $files = Get-ChildItem -Path $Directory -Filter "*.md" -File -Recurse | 
+    Where-Object { $_.Name -ne "combine-workplans.ps1" } |
+    ForEach-Object { 
+        # Determine which subdirectory this file is in
+        $relativePath = $_.FullName.Substring($Directory.Length)
+        $subdir = if ($relativePath -match '^[/\\]([^/\\]+)') { 
+            $matches[1] 
+        }
+        else { 
+            '' 
         }
         
-        $files += $subdirFiles
+        # Add current subdirectory as custom property
+        $_ | Add-Member -NotePropertyName "CurrentSubdir" -NotePropertyValue $subdir -PassThru 
     }
     
     $files = $files | Sort-Object FullName

@@ -48,25 +48,34 @@ my %priority_order = (
     'Low'    => 3,
 );
 
-# Read all work plan files from subdirectories
+# Read all work plan files using recursive search
 my @files;
-for my $subdir ( '', qw(done high medium low) ) {
-    my $search_dir = $subdir ? "$workplan_dir/$subdir" : $workplan_dir;
-    next unless -d $search_dir;
+find(
+    sub {
+        return unless -f && /\.md$/;
+        return if $File::Find::name =~ /combine-workplans\.pl$/;
 
-    find(
-        sub {
-            return unless -f && /\.md$/;
-            return if $File::Find::name =~ /combine-workplans\.pl$/;
-            push @files, $File::Find::name;
-        },
-        $search_dir
-    );
-} ## end for my $subdir ( '', qw(done high medium low))
+        # Determine which subdirectory this file is in
+        my $relative_path = $File::Find::name;
+        $relative_path =~ s/^\Q$workplan_dir\E//;
+        my $subdir = '';
+        if ( $relative_path =~ m{^[/\\]([^/\\]+)} ) {
+            $subdir = $1;
+        }
+
+        # Store the subdirectory info for later use
+        push @files, {
+            path   => $File::Find::name,
+            subdir => $subdir,
+        };
+    },
+    $workplan_dir
+);
 
 # Parse each file
 my @items;
-for my $file ( sort @files ) {
+for my $file_info ( sort { $a->{ path } cmp $b->{ path } } @files ) {
+    my $file    = $file_info->{ path };
     my $content = do {
         local $/;
         open my $fh, '<', $file or die "Can't read $file: $!";
@@ -93,12 +102,6 @@ for my $file ( sort @files ) {
     # Extract prefix and number from filename
     my ( $prefix, $num ) = $file =~ m{/([^/]+)-(\d+)\.md$};
 
-    # Determine current subdirectory
-    my $current_subdir = '';
-    if ( $file =~ m{^\Q$workplan_dir\E/([^/]+)/} ) {
-        $current_subdir = $1;
-    }
-
     push @items, {
         file           => $file,
         prefix         => $prefix,
@@ -109,9 +112,9 @@ for my $file ( sort @files ) {
         priority       => $priority,
         description    => $description,
         full_content   => $content,
-        current_subdir => $current_subdir,
+        current_subdir => $file_info->{ subdir },
     };
-} ## end for my $file ( sort @files)
+} ## end for my $file_info ( sort...)
 
 # Sort by priority, then by prefix and number
 @items = sort {
