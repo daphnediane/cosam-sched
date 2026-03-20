@@ -6,9 +6,9 @@
 
 use std::path::PathBuf;
 
-use schedule_core::data::{Schedule, XlsxImportOptions, export_to_xlsx};
-
-mod widget_embed;
+use schedule_core::data::{
+    Schedule, WidgetSources, XlsxImportOptions, export_to_xlsx, write_embed_html, write_test_html,
+};
 
 struct CliArgs {
     input: PathBuf,
@@ -401,7 +401,7 @@ fn main() {
     }
 
     if cli.export_embed.is_some() || cli.export_test.is_some() {
-        let sources = match widget_embed::WidgetSources::resolve(
+        let sources = match WidgetSources::resolve(
             cli.widget.as_deref(),
             cli.widget_css.as_deref(),
             cli.widget_js.as_deref(),
@@ -423,7 +423,7 @@ fn main() {
         };
 
         if let Some(ref embed_path) = cli.export_embed {
-            match widget_embed::write_embed_html(
+            match write_embed_html(
                 embed_path,
                 &json_data,
                 &sources,
@@ -444,7 +444,7 @@ fn main() {
             } else {
                 &cli.title
             };
-            match widget_embed::write_test_html(
+            match write_test_html(
                 test_path,
                 &json_data,
                 title,

@@ -25,6 +25,8 @@ pub(super) fn menus() -> Vec<Menu> {
 pub struct WindowsMenuBar {
     menus: Vec<OwnedMenu>,
     open_menu_index: Option<usize>,
+    open_submenu_index: Option<usize>,
+    submenu_rect: Option<gpui::Bounds<gpui::Pixels>>,
 }
 
 impl WindowsMenuBar {
@@ -33,6 +35,8 @@ impl WindowsMenuBar {
         Self {
             menus,
             open_menu_index: None,
+            open_submenu_index: None,
+            submenu_rect: None,
         }
     }
 
@@ -87,6 +91,93 @@ impl WindowsMenuBar {
 
                     popup = popup.child(row.on_click(cx.listener(move |this, _, window, cx| {
                         this.open_menu_index = None;
+                        this.open_submenu_index = None;
+                        cx.notify();
+                        window.dispatch_action(action.boxed_clone(), cx);
+                    })));
+                }
+                OwnedMenuItem::Submenu(submenu) => {
+                    let submenu_name = submenu.name.clone();
+                    let submenu_items = submenu.items.clone();
+                    let mut row = div()
+                        .id(SharedString::from(format!("menu-item-{i}")))
+                        .flex()
+                        .items_center()
+                        .justify_between()
+                        .px(px(12.0))
+                        .py(px(6.0))
+                        .mx(px(4.0))
+                        .rounded_sm()
+                        .cursor_pointer()
+                        .hover(|s| s.bg(rgb(0xE5E7EB)))
+                        .child(SharedString::from(submenu_name.clone()))
+                        .child(div().text_color(rgb(0x9CA3AF)).child("▶"));
+
+                    popup =
+                        popup.child(row.on_click(cx.listener(move |this, event, window, cx| {
+                            this.open_submenu_index = Some(i);
+                            cx.notify();
+                        })));
+                }
+                OwnedMenuItem::SystemMenu(_) => {}
+            }
+        }
+
+        popup
+    }
+
+    fn render_submenu_popup(
+        &self,
+        submenu: &OwnedMenu,
+        window: &Window,
+        cx: &mut Context<Self>,
+    ) -> impl IntoElement {
+        let mut popup = div()
+            .id("submenu-popup")
+            .min_w(px(200.0))
+            .py(px(4.0))
+            .bg(rgb(0xFFFFFF))
+            .border_1()
+            .border_color(rgb(0xD1D5DB))
+            .rounded_md()
+            .shadow_lg()
+            .text_sm()
+            .occlude();
+
+        for (i, item) in submenu.items.iter().enumerate() {
+            match item {
+                OwnedMenuItem::Separator => {
+                    popup = popup.child(div().h(px(1.0)).my(px(4.0)).bg(rgb(0xE5E7EB)));
+                }
+                OwnedMenuItem::Action { name, action, .. } => {
+                    let shortcut = window.keystroke_text_for(action.as_ref());
+                    let action = action.boxed_clone();
+                    let mut row = div()
+                        .id(SharedString::from(format!("submenu-item-{i}")))
+                        .flex()
+                        .items_center()
+                        .justify_between()
+                        .px(px(12.0))
+                        .py(px(6.0))
+                        .mx(px(4.0))
+                        .rounded_sm()
+                        .cursor_pointer()
+                        .hover(|s| s.bg(rgb(0xE5E7EB)))
+                        .child(SharedString::from(name.clone()));
+
+                    if !shortcut.is_empty() {
+                        row = row.child(
+                            div()
+                                .text_xs()
+                                .text_color(rgb(0x9CA3AF))
+                                .ml(px(24.0))
+                                .child(SharedString::from(shortcut)),
+                        );
+                    }
+
+                    popup = popup.child(row.on_click(cx.listener(move |this, _, window, cx| {
+                        this.open_menu_index = None;
+                        this.open_submenu_index = None;
                         cx.notify();
                         window.dispatch_action(action.boxed_clone(), cx);
                     })));

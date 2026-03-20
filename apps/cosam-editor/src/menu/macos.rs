@@ -13,6 +13,8 @@ pub(super) fn menus() -> Vec<Menu> {
             items: vec![
                 MenuItem::os_submenu("Services", SystemMenuType::Services),
                 MenuItem::separator(),
+                MenuItem::action("Settings...", crate::AppSettings),
+                MenuItem::separator(),
                 MenuItem::action("Hide cosam-editor", crate::HideApp),
                 MenuItem::action("Hide Others", crate::HideOtherApps),
                 MenuItem::action("Show All", crate::ShowAllApps),

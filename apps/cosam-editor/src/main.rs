@@ -7,20 +7,26 @@
 use std::path::PathBuf;
 
 mod menu;
+mod settings;
 mod shortcuts;
 mod ui;
 
 use gpui::prelude::*;
 use gpui::{
-    App, Application, Bounds, Focusable, TitlebarOptions, WindowBounds, WindowOptions, actions, px,
-    size,
+    App, Application, Bounds, Focusable, Point, SharedString, Size, TitlebarOptions, Window,
+    WindowBackgroundAppearance, WindowBounds, WindowDecorations, WindowKind, WindowOptions,
+    actions, div, px, rgb, size,
 };
-use gpui_component::Root;
+use gpui_component::{Root, StyledExt};
 
 pub use schedule_core::data;
 use schedule_core::data::{Schedule, XlsxImportOptions};
 use ui::ScheduleEditor;
-use ui::editor::{EditRedo, EditUndo, FileExportPublicJson, FileOpen, FileSave, FileSaveAs};
+use ui::editor::{
+    EditRedo, EditUndo, FileExportEmbed, FileExportPublicJson, FileExportTest, FileOpen, FileSave,
+    FileSaveAs, NewEvent,
+};
+use ui::settings_window::SettingsWindow;
 
 actions!(
     main,
@@ -30,7 +36,8 @@ actions!(
         HideOtherApps,
         ShowAllApps,
         NewWindow,
-        CloseWindow
+        CloseWindow,
+        AppSettings,
     ]
 );
 
@@ -166,6 +173,55 @@ fn close_window(_: &CloseWindow, cx: &mut App) {
         let _ = active_window.update(cx, |_, window, _cx| {
             window.remove_window();
         });
+    }
+}
+
+fn app_settings(_: &AppSettings, cx: &mut App) {
+    // For now, just create a simple window with a message
+    // TODO: Implement proper settings window with SettingsWindow
+    cx.open_window(
+        WindowOptions {
+            window_bounds: Some(WindowBounds::Windowed(Bounds {
+                origin: Point::new(px(100.0), px(100.0)),
+                size: Size::new(px(400.0), px(200.0)),
+            })),
+            titlebar: Some(TitlebarOptions {
+                title: Some("Settings".into()),
+                appears_transparent: true,
+                traffic_light_position: Some(Point::new(px(12.0), px(12.0))),
+            }),
+            window_background: WindowBackgroundAppearance::Transparent,
+            focus: true,
+            show: true,
+            kind: WindowKind::Normal,
+            is_movable: true,
+            display_id: None,
+            is_resizable: true,
+            is_minimizable: true,
+            app_id: Some("cosam-editor".into()),
+            window_min_size: Some(Size::new(px(300.0), px(150.0))),
+            window_decorations: Some(WindowDecorations::Server),
+            tabbing_identifier: None,
+        },
+        |window, cx| cx.new(|_cx| SettingsPlaceholder),
+    );
+}
+
+struct SettingsPlaceholder;
+impl Render for SettingsPlaceholder {
+    fn render(&mut self, _window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+        div()
+            .bg(rgb(0xFFFFFF))
+            .border_1()
+            .border_color(rgb(0xE5E7EB))
+            .p_4()
+            .child(div().text_lg().font_semibold().mb_2().child("Settings"))
+            .child(
+                div()
+                    .text_sm()
+                    .text_color(rgb(0x6B7280))
+                    .child("Settings window will be implemented here."),
+            )
     }
 }
 

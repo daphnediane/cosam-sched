@@ -9,6 +9,7 @@ pub mod detail_pane;
 pub mod editor;
 pub mod event_card;
 pub mod panel_edit_window;
+pub mod settings_window;
 pub mod sidebar;
 pub mod web_preview;
 

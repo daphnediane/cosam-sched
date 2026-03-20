@@ -17,6 +17,9 @@ pub(super) fn edit_menu_items() -> Vec<MenuItem> {
     vec![
         MenuItem::action("Undo", crate::EditUndo),
         MenuItem::action("Redo", crate::EditRedo),
+        MenuItem::separator(),
+        // TODO: Implement settings functionality
+        // MenuItem::action("Settings...", crate::AppSettings),
     ]
 }
 
@@ -27,7 +30,14 @@ fn file_menu_items(include_exit: bool) -> Vec<MenuItem> {
         MenuItem::action("Open...", crate::FileOpen),
         MenuItem::action("Save", crate::FileSave),
         MenuItem::action("Save As...", crate::FileSaveAs),
-        MenuItem::action("Export Public JSON...", crate::FileExportPublicJson),
+        MenuItem::submenu(Menu {
+            name: "Export".into(),
+            items: vec![
+                MenuItem::action("Public JSON...", crate::FileExportPublicJson),
+                MenuItem::action("Embedded Widget...", crate::FileExportEmbed),
+                MenuItem::action("Test page...", crate::FileExportTest),
+            ],
+        }),
         MenuItem::separator(),
         MenuItem::action("Close Window", crate::CloseWindow),
     ];

@@ -1,6 +1,6 @@
 # Cosplay America Schedule - Work Plan
 
-Generated on: 03/20/2026 00:35:33
+Generated on: Fri Mar 20 18:18:36 2026
 
 ## Completed
 
@@ -39,7 +39,7 @@ the base→part→session hierarchy in the UI.
 
 ## Summary of Open Items
 
-**Total open items:** 21
+**Total open items:** 22
 
 * **High Priority**
   * [ACCESSIBILITY-001] Implement comprehensive accessibility improvements for screen readers and color blindness support.
@@ -52,6 +52,7 @@ the base→part→session hierarchy in the UI.
   * [UI-002] Prevent event titles from overlapping with the "my schedule" star icon.
 
 * **Medium Priority**
+  * [EDITOR-003] Add functional settings window with export preferences and application configuration options.
   * [EDITOR-505] Enable drag-and-drop to move events between time slots and rooms.
   * [EDITOR-506] Implement undo/redo for all editing operations.
   * [EDITOR-509] Package the editor as standalone executables for macOS, Windows, and Linux.
@@ -172,6 +173,22 @@ The 2025 schedule shows this pattern:
 **Description:** Currently, long event titles can underlap the star icon, making both difficult to read.
 
 ## Open Medium Priority Items
+
+### [EDITOR-003] Implement Settings Window and Preferences
+
+**Status:** Open
+
+**Summary:** Add functional settings window with export preferences and application configuration options.
+
+**Description:** Implement a complete settings system for the Cosam Editor application, including:
+
+- Settings window accessible from Edit menu
+- Export preferences (minification, file paths, templates)
+- Application preferences (theme, shortcuts, etc.)
+- Settings persistence using existing settings infrastructure
+- Proper integration with GPUI window system
+
+---
 
 ### [EDITOR-505] Drag-and-Drop Event Scheduling
 
@@ -328,6 +345,7 @@ Once `gpui_web` (GPUI's planned web/webview integration) becomes available, revi
 [BUGFIX-006]: work-plan/done/BUGFIX-006.md
 [CLEANUP-001]: work-plan/done/CLEANUP-001.md
 [CLEANUP-002]: work-plan/done/CLEANUP-002.md
+[EDITOR-003]: work-plan/medium/EDITOR-003.md
 [EDITOR-500]: work-plan/done/EDITOR-500.md
 [EDITOR-501]: work-plan/high/EDITOR-501.md
 [EDITOR-502]: work-plan/high/EDITOR-502.md

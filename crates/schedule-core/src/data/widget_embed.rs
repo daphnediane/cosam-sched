@@ -8,9 +8,9 @@ use std::path::{Path, PathBuf};
 
 use anyhow::{Context, Result};
 
-const BUILTIN_CSS: &str = include_str!("../../../widget/cosam-calendar.css");
-const BUILTIN_JS: &str = include_str!("../../../widget/cosam-calendar.js");
-const BUILTIN_TEMPLATE: &str = include_str!("../../../widget/square-template.html");
+const BUILTIN_CSS: &str = include_str!("../../../../widget/cosam-calendar.css");
+const BUILTIN_JS: &str = include_str!("../../../../widget/cosam-calendar.js");
+const BUILTIN_TEMPLATE: &str = include_str!("../../../../widget/square-template.html");
 
 const COPYRIGHT_COMMENT: &str = "\
 <!-- CosAm Calendar Widget | Copyright (c) 2026 Daphne Pfister | BSD-2-Clause | https://github.com/daphnediane/cosam-sched -->";
@@ -188,6 +188,68 @@ pub fn generate_test_html(
     } else {
         Ok(raw)
     }
+}
+
+pub fn generate_preview_html(
+    json_data: &str,
+    title: &str,
+    sources: &WidgetSources,
+    generation: u64,
+) -> Result<String> {
+    Ok(format!(
+        r#"<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <meta name="cosam-generation" content="{generation}">
+  <title>{title} — Preview</title>
+  <style>
+    body {{
+      margin: 0;
+      padding: 20px;
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+      background: #f5f5f5;
+    }}
+    .page-header {{
+      text-align: center;
+      padding: 20px;
+      margin-bottom: 20px;
+    }}
+    .page-header h1 {{
+      margin: 0 0 8px 0;
+      font-size: 28px;
+      color: #1f2937;
+    }}
+    .page-header p {{
+      margin: 0;
+      color: #6b7280;
+      font-size: 14px;
+    }}
+{css}
+  </style>
+</head>
+<body>
+  <div class="page-header">
+    <h1>{title}</h1>
+    <p>Editor Preview — auto-refreshes when data changes</p>
+  </div>
+  <div id="cosam-calendar"></div>
+  <script>
+{js}
+  </script>
+  <script>
+    CosAmCalendar.init({{
+      el: '#cosam-calendar',
+      data: {json_data},
+      watchForChanges: true
+    }});
+  </script>
+</body>
+</html>"#,
+        css = sources.css,
+        js = sources.js,
+    ))
 }
 
 fn minify_html_content(html: &str) -> Result<String> {

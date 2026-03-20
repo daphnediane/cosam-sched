@@ -47,6 +47,8 @@ actions!(
         FileSave,
         FileSaveAs,
         FileExportPublicJson,
+        FileExportEmbed,
+        FileExportTest,
         EditUndo,
         EditRedo,
         NewEvent,
@@ -874,6 +876,174 @@ impl ScheduleEditor {
         })
         .detach();
     }
+
+    fn file_export_embed(
+        &mut self,
+        _: &FileExportEmbed,
+        _window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        let Some(ref schedule) = self.schedule else {
+            self.status_message = Some("No schedule to export".to_string());
+            cx.notify();
+            return;
+        };
+
+        let default_dir = self
+            .current_path
+            .as_ref()
+            .and_then(|p| p.parent())
+            .unwrap_or_else(|| std::path::Path::new("."));
+
+        let suggested_name = self
+            .current_path
+            .as_ref()
+            .and_then(|p| p.file_stem())
+            .and_then(|s| s.to_str())
+            .map(|stem| format!("{}-embed.html", stem))
+            .unwrap_or_else(|| "schedule-embed.html".to_string());
+
+        let Some(path) = rfd::FileDialog::new()
+            .set_directory(default_dir)
+            .set_file_name(&suggested_name)
+            .add_filter("HTML", &["html", "htm"])
+            .add_filter("All files", &["*"])
+            .save_file()
+        else {
+            return;
+        };
+
+        let schedule_clone = schedule.clone();
+
+        cx.spawn(async move |this, cx| {
+            // Convert schedule to JSON string
+            let json_data = match schedule_clone.export_public_json_string() {
+                Ok(json) => json,
+                Err(e) => {
+                    cx.update(|cx| {
+                        this.update(cx, |editor, cx| {
+                            editor.status_message =
+                                Some(format!("Failed to serialize schedule: {e}"));
+                            cx.notify();
+                        })
+                    })
+                    .ok();
+                    return;
+                }
+            };
+
+            // Create widget sources (using built-in defaults)
+            let sources = schedule_core::data::WidgetSources::default();
+
+            let result = schedule_core::data::write_embed_html(
+                &path, &json_data, &sources, true, // minified
+                None, // style_page
+            );
+
+            cx.update(|cx| {
+                this.update(cx, |editor, cx| match result {
+                    Ok(()) => {
+                        editor.status_message =
+                            Some(format!("Exported embedded widget: {}", path.display()));
+                        cx.notify();
+                    }
+                    Err(e) => {
+                        editor.status_message = Some(format!("Export error: {e}"));
+                        cx.notify();
+                    }
+                })
+            })
+            .ok();
+        })
+        .detach();
+    }
+
+    fn file_export_test(
+        &mut self,
+        _: &FileExportTest,
+        _window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        let Some(ref schedule) = self.schedule else {
+            self.status_message = Some("No schedule to export".to_string());
+            cx.notify();
+            return;
+        };
+
+        let default_dir = self
+            .current_path
+            .as_ref()
+            .and_then(|p| p.parent())
+            .unwrap_or_else(|| std::path::Path::new("."));
+
+        let suggested_name = self
+            .current_path
+            .as_ref()
+            .and_then(|p| p.file_stem())
+            .and_then(|s| s.to_str())
+            .map(|stem| format!("{}-test.html", stem))
+            .unwrap_or_else(|| "schedule-test.html".to_string());
+
+        let Some(path) = rfd::FileDialog::new()
+            .set_directory(default_dir)
+            .set_file_name(&suggested_name)
+            .add_filter("HTML", &["html", "htm"])
+            .add_filter("All files", &["*"])
+            .save_file()
+        else {
+            return;
+        };
+
+        let schedule_clone = schedule.clone();
+
+        cx.spawn(async move |this, cx| {
+            // Convert schedule to JSON string
+            let json_data = match schedule_clone.export_public_json_string() {
+                Ok(json) => json,
+                Err(e) => {
+                    cx.update(|cx| {
+                        this.update(cx, |editor, cx| {
+                            editor.status_message =
+                                Some(format!("Failed to serialize schedule: {e}"));
+                            cx.notify();
+                        })
+                    })
+                    .ok();
+                    return;
+                }
+            };
+
+            // Create widget sources (using built-in defaults)
+            let sources = schedule_core::data::WidgetSources::default();
+
+            // Extract title from filename
+            let title = path
+                .file_stem()
+                .and_then(|s| s.to_str())
+                .unwrap_or("Schedule");
+
+            let result = schedule_core::data::write_test_html(
+                &path, &json_data, title, &sources, true, // minified
+                None, // style_page
+            );
+
+            cx.update(|cx| {
+                this.update(cx, |editor, cx| match result {
+                    Ok(()) => {
+                        editor.status_message =
+                            Some(format!("Exported test page: {}", path.display()));
+                        cx.notify();
+                    }
+                    Err(e) => {
+                        editor.status_message = Some(format!("Export error: {e}"));
+                        cx.notify();
+                    }
+                })
+            })
+            .ok();
+        })
+        .detach();
+    }
 }
 
 impl Render for ScheduleEditor {
@@ -1160,6 +1330,8 @@ impl Render for ScheduleEditor {
         layout = layout.when(self.can_export(), |this| {
             this.on_action(cx.listener(Self::file_save_as))
                 .on_action(cx.listener(Self::file_export_public_json))
+                .on_action(cx.listener(Self::file_export_embed))
+                .on_action(cx.listener(Self::file_export_test))
         });
 
         if let Some(status) = status_bar {
