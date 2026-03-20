@@ -2,20 +2,11 @@
 /* All styles scoped under .cosam-calendar to avoid conflicts with host page  */
 
 .cosam-calendar {
-  font-family: var(--cosam-font);
-  color: var(--cosam-text);
-  line-height: 1.5;
-  box-sizing: border-box;
-  max-width: 1200px;
-  margin: 0 auto;
-}
-
-.cosam-calendar[data-theme="default"] {
   --cosam-accent: #6b21a8;
   --cosam-accent-light: #a855f7;
   --cosam-accent-bg: #f3e8ff;
-  --cosam-bg: transparent;
-  --cosam-bg-alt: rgba(245, 245, 245, 0.8);
+  --cosam-bg: #f5f5f5;
+  --cosam-bg-alt: #f9fafb;
   --cosam-border: #e5e7eb;
   --cosam-text: #1f2937;
   --cosam-text-muted: #6b7280;
@@ -26,7 +17,7 @@
   --cosam-workshop: #2563eb;
   --cosam-full: #ef4444;
   --cosam-focus-ring: #111827;
-  --cosam-grid-bg: rgba(245, 245, 245, 0.8);
+  --cosam-grid-bg: #f5f5f5;
   --cosam-grid-header-bg: #40c8ed;
   --cosam-grid-header-text: #18191c;
   --cosam-grid-line: rgba(183, 235, 248, 0.55);
@@ -39,20 +30,27 @@
   --cosam-radius: 8px;
   --cosam-shadow: 0 1px 3px rgba(0, 0, 0, 0.1);
   --cosam-font: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+
+  font-family: var(--cosam-font);
+  color: var(--cosam-text);
+  line-height: 1.5;
+  box-sizing: border-box;
+  max-width: 1200px;
+  margin: 0 auto;
 }
 
 .cosam-calendar[data-theme="light"] {
   --cosam-accent: #0f4c81;
   --cosam-accent-light: #3b82f6;
   --cosam-accent-bg: #e0f2fe;
-  --cosam-bg: transparent;
-  --cosam-bg-alt: rgba(248, 250, 252, 0.8);
+  --cosam-bg: #ffffff;
+  --cosam-bg-alt: #f8fafc;
   --cosam-border: #dbe3ee;
   --cosam-text: #0f172a;
   --cosam-text-muted: #475569;
   --cosam-text-light: #64748b;
   --cosam-focus-ring: #0f172a;
-  --cosam-grid-bg: rgba(248, 250, 252, 0.8);
+  --cosam-grid-bg: #f8fafc;
   --cosam-grid-header-bg: #bae6fd;
   --cosam-grid-header-text: #082f49;
   --cosam-grid-line: #d2e6f4;
@@ -367,89 +365,13 @@
   font-size: 14px;
   font-weight: 600;
   color: var(--cosam-accent);
-  padding: 6px 0 6px 16px;
+  padding: 6px 0;
   border-bottom: 1px solid var(--cosam-border);
   margin-bottom: 8px;
   position: sticky;
   top: 0;
   background: var(--cosam-bg);
   z-index: 2;
-}
-
-/* Default theme - transparent background for time headers */
-.cosam-calendar[data-theme="default"] .cosam-time-header {
-  background: transparent;
-}
-
-/* Light theme - transparent background for time headers */
-.cosam-calendar[data-theme="light"] .cosam-time-header {
-  background: transparent;
-}
-
-/* Dark theme - fully opaque background */
-.cosam-calendar[data-theme="dark"] .cosam-time-header {
-  background: #0b1220;
-}
-
-/* Dark theme specific overrides for accessibility */
-.cosam-calendar[data-theme="dark"] .cosam-event-card {
-  background: #111827;
-  border: 1px solid #22314a;
-}
-
-.cosam-calendar[data-theme="dark"] .cosam-btn {
-  background: #1e293b;
-  border: 1px solid #22314a;
-  color: #e5edf7;
-}
-
-.cosam-calendar[data-theme="dark"] .cosam-btn:hover {
-  background: #334155;
-  border-color: #93c5fd;
-}
-
-.cosam-calendar[data-theme="dark"] .cosam-btn.active {
-  background: #1d4f73;
-  color: #f8fafc;
-  border-color: #1d4f73;
-}
-
-.cosam-calendar[data-theme="dark"] .cosam-day-tab {
-  color: #9fb3cc;
-}
-
-.cosam-calendar[data-theme="dark"] .cosam-day-tab:hover {
-  color: #93c5fd;
-}
-
-.cosam-calendar[data-theme="dark"] .cosam-day-tab.active {
-  color: #93c5fd;
-  border-bottom-color: #93c5fd;
-}
-
-.cosam-calendar[data-theme="dark"] .cosam-filters {
-  background: #131c2f;
-  border: 1px solid #22314a;
-}
-
-.cosam-calendar[data-theme="dark"] .cosam-theme-select {
-  background: #1e293b;
-  border: 1px solid #22314a;
-  color: #e5edf7;
-}
-
-.cosam-calendar[data-theme="dark"] .cosam-search-wrap input {
-  background: #1e293b;
-  border: 1px solid #22314a;
-  color: #e5edf7;
-}
-
-/* High contrast theme - full background with padding */
-.cosam-calendar[data-theme="high-contrast"] .cosam-time-header {
-  background: var(--cosam-bg);
-  padding: 8px 12px;
-  border-radius: var(--cosam-radius);
-  margin-bottom: 8px;
 }
 
 .cosam-event-card {

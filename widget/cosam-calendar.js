@@ -106,7 +106,7 @@
     constructor() {
       this.data = null;
       this.view = 'list'; // 'list' or 'grid'
-      this.theme = 'default';
+      this.theme = 'cosam';
       this.activeDay = null;
       this.days = [];
       this.starred = new Set();
@@ -141,7 +141,7 @@
     }
 
     setTheme(theme) {
-      this.theme = theme || 'default';
+      this.theme = theme || 'cosam';
       this._saveTheme();
     }
 
@@ -319,7 +319,7 @@
         this.root.appendChild(el('div', { className: 'cosam-loading' }, 'Loading schedule...'));
         return;
       }
-      this.root.setAttribute('data-theme', this.state.theme || 'default');
+      this.root.setAttribute('data-theme', this.state.theme || 'cosam');
       this._ensurePanelTypeThemeStyles();
       this.root.appendChild(el('a', { className: 'cosam-skip-link', href: '#' + this._eventsRegionId }, 'Skip to events'));
       this.root.appendChild(this._buildToolbar());
@@ -479,7 +479,7 @@
         'aria-label': 'Theme',
       });
       const themeOptions = [
-        ['default', 'Default'],
+        ['cosam', 'CosAm'],
         ['light', 'Light'],
         ['dark', 'Dark'],
         ['high-contrast', 'High Contrast'],
