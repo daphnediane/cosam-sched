@@ -8,12 +8,13 @@ use std::collections::HashSet;
 use std::path::Path;
 
 use anyhow::{Context, Result};
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 
 use super::presenter::Presenter;
+use super::room::Room;
 use super::schedule::{Meta, Schedule};
 
-#[derive(Debug, Clone, Serialize)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct PublicPanel {
     pub id: String,
@@ -52,7 +53,7 @@ pub struct PublicPanel {
     pub presenters: Vec<String>,
 }
 
-#[derive(Debug, Clone, Serialize)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct PublicSchedule {
     pub meta: Meta,
@@ -247,12 +248,17 @@ impl Schedule {
                     let mut panel_name = panel.name.clone();
                     
                     // Add part/session suffixes for multi-part or multi-session panels
-                    if part.part_num.is_some() || session.session_num.is_some() {
+                    // Only add part number if there are multiple parts
+                    let should_show_part_num = part.part_num.is_some() && panel.parts.len() > 1;
+                    // Only add session number if there are multiple sessions in this part
+                    let should_show_session_num = session.session_num.is_some() && part.sessions.len() > 1;
+                    
+                    if should_show_part_num || should_show_session_num {
                         let mut suffix_parts = Vec::new();
-                        if let Some(part_num) = part.part_num {
+                        if let Some(part_num) = part.part_num.filter(|_| should_show_part_num) {
                             suffix_parts.push(format!("Part {}", part_num));
                         }
-                        if let Some(session_num) = session.session_num {
+                        if let Some(session_num) = session.session_num.filter(|_| should_show_session_num) {
                             suffix_parts.push(format!("Session {}", session_num));
                         }
                         if !suffix_parts.is_empty() {
@@ -326,5 +332,276 @@ impl Schedule {
         std::fs::write(path, json.as_bytes())
             .with_context(|| format!("Failed to write {}", path.display()))?;
         Ok(())
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::data::panel::{Panel, PanelPart, PanelSession};
+    use crate::data::schedule::{Meta, Schedule};
+    use indexmap::IndexMap;
+
+    #[test]
+    fn test_part_session_numbering_in_titles() {
+        let mut schedule = Schedule {
+            conflicts: Vec::new(),
+            meta: Meta {
+                title: "Test Schedule".to_string(),
+                generated: "2023-01-01T00:00:00Z".to_string(),
+                version: Some(2),
+                variant: None,
+                generator: None,
+                start_time: None,
+                end_time: None,
+            },
+            timeline: Vec::new(),
+            panels: IndexMap::new(),
+            events: Vec::new(),
+            rooms: vec![Room {
+                uid: 1,
+                short_name: "Room 1".to_string(),
+                long_name: "Room 1".to_string(),
+                hotel_room: "Room 1".to_string(),
+                sort_key: 1,
+                source: None,
+                change_state: Default::default(),
+            }],
+            panel_types: Vec::new(),
+            time_types: Vec::new(),
+            presenters: Vec::new(),
+            imported_sheets: Default::default(),
+        };
+
+        // Test case 1: Single part, single session - no numbering
+        let mut panel1 = Panel::new("panel1".to_string());
+        panel1.name = "Single Panel".to_string();
+        panel1.parts.push(PanelPart {
+            part_num: Some(1),
+            description: None,
+            note: None,
+            prereq: None,
+            alt_panelist: None,
+            credited_presenters: Vec::new(),
+            uncredited_presenters: Vec::new(),
+            sessions: vec![PanelSession {
+                id: "session1".to_string(),
+                session_num: Some(1),
+                description: None,
+                note: None,
+                prereq: None,
+                alt_panelist: None,
+                room_ids: vec![1],
+                start_time: None,
+                end_time: None,
+                duration: 60,
+                is_full: false,
+                capacity: None,
+                seats_sold: None,
+                pre_reg_max: None,
+                ticket_url: None,
+                simple_tix_event: None,
+                hide_panelist: false,
+                credited_presenters: Vec::new(),
+                uncredited_presenters: Vec::new(),
+                notes_non_printing: None,
+                workshop_notes: None,
+                power_needs: None,
+                sewing_machines: false,
+                av_notes: None,
+                conflicts: Vec::new(),
+                extras: IndexMap::new(),
+                source: None,
+                change_state: Default::default(),
+            }],
+            change_state: Default::default(),
+        });
+        schedule.panels.insert("panel1".to_string(), panel1);
+
+        // Test case 2: Multiple parts, single session each - show part numbers
+        let mut panel2 = Panel::new("panel2".to_string());
+        panel2.name = "Multi Part Panel".to_string();
+        panel2.parts.push(PanelPart {
+            part_num: Some(1),
+            description: None,
+            note: None,
+            prereq: None,
+            alt_panelist: None,
+            credited_presenters: Vec::new(),
+            uncredited_presenters: Vec::new(),
+            sessions: vec![PanelSession {
+                id: "session2a".to_string(),
+                session_num: Some(1),
+                description: None,
+                note: None,
+                prereq: None,
+                alt_panelist: None,
+                room_ids: vec![1],
+                start_time: None,
+                end_time: None,
+                duration: 60,
+                is_full: false,
+                capacity: None,
+                seats_sold: None,
+                pre_reg_max: None,
+                ticket_url: None,
+                simple_tix_event: None,
+                hide_panelist: false,
+                credited_presenters: Vec::new(),
+                uncredited_presenters: Vec::new(),
+                notes_non_printing: None,
+                workshop_notes: None,
+                power_needs: None,
+                sewing_machines: false,
+                av_notes: None,
+                conflicts: Vec::new(),
+                extras: IndexMap::new(),
+                source: None,
+                change_state: Default::default(),
+            }],
+            change_state: Default::default(),
+        });
+        panel2.parts.push(PanelPart {
+            part_num: Some(2),
+            description: None,
+            note: None,
+            prereq: None,
+            alt_panelist: None,
+            credited_presenters: Vec::new(),
+            uncredited_presenters: Vec::new(),
+            sessions: vec![PanelSession {
+                id: "session2b".to_string(),
+                session_num: Some(1),
+                description: None,
+                note: None,
+                prereq: None,
+                alt_panelist: None,
+                room_ids: vec![1],
+                start_time: None,
+                end_time: None,
+                duration: 60,
+                is_full: false,
+                capacity: None,
+                seats_sold: None,
+                pre_reg_max: None,
+                ticket_url: None,
+                simple_tix_event: None,
+                hide_panelist: false,
+                credited_presenters: Vec::new(),
+                uncredited_presenters: Vec::new(),
+                notes_non_printing: None,
+                workshop_notes: None,
+                power_needs: None,
+                sewing_machines: false,
+                av_notes: None,
+                conflicts: Vec::new(),
+                extras: IndexMap::new(),
+                source: None,
+                change_state: Default::default(),
+            }],
+            change_state: Default::default(),
+        });
+        schedule.panels.insert("panel2".to_string(), panel2);
+
+        // Test case 3: Single part, multiple sessions - show session numbers
+        let mut panel3 = Panel::new("panel3".to_string());
+        panel3.name = "Multi Session Panel".to_string();
+        panel3.parts.push(PanelPart {
+            part_num: Some(1),
+            description: None,
+            note: None,
+            prereq: None,
+            alt_panelist: None,
+            credited_presenters: Vec::new(),
+            uncredited_presenters: Vec::new(),
+            sessions: vec![
+                PanelSession {
+                    id: "session3a".to_string(),
+                    session_num: Some(1),
+                    description: None,
+                    note: None,
+                    prereq: None,
+                    alt_panelist: None,
+                    room_ids: vec![1],
+                    start_time: None,
+                    end_time: None,
+                    duration: 60,
+                    is_full: false,
+                    capacity: None,
+                    seats_sold: None,
+                    pre_reg_max: None,
+                    ticket_url: None,
+                    simple_tix_event: None,
+                    hide_panelist: false,
+                    credited_presenters: Vec::new(),
+                    uncredited_presenters: Vec::new(),
+                    notes_non_printing: None,
+                    workshop_notes: None,
+                    power_needs: None,
+                    sewing_machines: false,
+                    av_notes: None,
+                    conflicts: Vec::new(),
+                    extras: IndexMap::new(),
+                    source: None,
+                    change_state: Default::default(),
+                },
+                PanelSession {
+                    id: "session3b".to_string(),
+                    session_num: Some(2),
+                    description: None,
+                    note: None,
+                    prereq: None,
+                    alt_panelist: None,
+                    room_ids: vec![1],
+                    start_time: None,
+                    end_time: None,
+                    duration: 60,
+                    is_full: false,
+                    capacity: None,
+                    seats_sold: None,
+                    pre_reg_max: None,
+                    ticket_url: None,
+                    simple_tix_event: None,
+                    hide_panelist: false,
+                    credited_presenters: Vec::new(),
+                    uncredited_presenters: Vec::new(),
+                    notes_non_printing: None,
+                    workshop_notes: None,
+                    power_needs: None,
+                    sewing_machines: false,
+                    av_notes: None,
+                    conflicts: Vec::new(),
+                    extras: IndexMap::new(),
+                    source: None,
+                    change_state: Default::default(),
+                },
+            ],
+            change_state: Default::default(),
+        });
+        schedule.panels.insert("panel3".to_string(), panel3);
+
+        let json_result = schedule.export_public_json_string().unwrap();
+
+        // Verify the titles by checking the JSON directly
+        assert!(json_result.contains("\"Single Panel\""), 
+                "Should not add numbering for single part/session. JSON: {}", json_result);
+        
+        // Multiple parts should show part numbers
+        assert!(json_result.contains("\"Multi Part Panel (Part 1)\""), 
+                "Should show part number for multi-part panel. JSON: {}", json_result);
+        assert!(json_result.contains("\"Multi Part Panel (Part 2)\""), 
+                "Should show part number for multi-part panel. JSON: {}", json_result);
+        
+        // Multiple sessions should show session numbers
+        assert!(json_result.contains("\"Multi Session Panel (Session 1)\""), 
+                "Should show session number for multi-session panel. JSON: {}", json_result);
+        assert!(json_result.contains("\"Multi Session Panel (Session 2)\""), 
+                "Should show session number for multi-session panel. JSON: {}", json_result);
+        
+        // Ensure we don't have unwanted numbering
+        assert!(!json_result.contains("\"Single Panel (Part 1)\""), 
+                "Should not add part number for single part. JSON: {}", json_result);
+        assert!(!json_result.contains("\"Single Panel (Session 1)\""), 
+                "Should not add session number for single session. JSON: {}", json_result);
     }
 }
