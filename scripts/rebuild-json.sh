@@ -10,19 +10,23 @@ set -e
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 ROOT_DIR="$(cd "$SCRIPT_DIR/.." && pwd)"
 INPUT_DIR="$ROOT_DIR/input"
-WIDGET_DIR="$ROOT_DIR/widget"
+OUTPUT_DIR="$ROOT_DIR/output"
 
 echo "Rebuilding JSON files for testing..."
 echo "Script directory: $SCRIPT_DIR"
 echo "Input directory: $INPUT_DIR"
-echo "Widget directory: $WIDGET_DIR"
+echo "Output directory: $OUTPUT_DIR"
 echo ""
+
+mkdir -p "$OUTPUT_DIR"
 
 declare -a built=()
 
 for year in $(seq 2016 $(date +%Y)); do
     src="$INPUT_DIR/${year} Schedule.xlsx"
-    dest="$WIDGET_DIR/${year}.json"
+    dest="$OUTPUT_DIR/${year}.json"
+    embed="$OUTPUT_DIR/${year}-embed.html"
+    test_html="$OUTPUT_DIR/${year}-test.html"
     if [ ! -f "$src" ]; then
         echo "Skipping ${year} - file not found"
         continue
@@ -32,10 +36,15 @@ for year in $(seq 2016 $(date +%Y)); do
     echo "Building ${year} files..."
     cd "$ROOT_DIR"
 
-    echo "  Building ${year}.json with Rust converter CLI..."
-    cargo run -p cosam-convert -- --input "$src" --export "$dest" --title "Cosplay America ${year} Schedule" &&
-        built+=("${year}.json (Rust converter CLI)") ||
-        built+=("${year}.json (Rust converter CLI) - FAILED")
+    echo "  Building ${year}.json, embed, and test page..."
+    cargo run -p cosam-convert -- \
+        --input "$src" \
+        --export "$dest" \
+        --export-embed "$embed" \
+        --export-test "$test_html" \
+        --title "Cosplay America ${year} Schedule" &&
+        built+=("${year} (json + embed + test)") ||
+        built+=("${year} - FAILED")
 
 done
 

@@ -40,6 +40,3 @@
 !package.json
 !package-lock.json
 /node_modules/
-
-# Ignore generated minified widget files
-widget/cosam-mini-embed.html

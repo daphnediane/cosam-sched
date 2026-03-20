@@ -17,7 +17,8 @@ Two components:
 - `crates/schedule-core/` — shared Rust library for schedule data models and import/export logic
 - `apps/cosam-editor/` — Rust GUI application (`cosam-editor`)
 - `apps/cosam-convert/` — Rust CLI application (`cosam-convert`)
-- `widget/` — embeddable JavaScript/CSS calendar widget
+- `widget/` — embeddable JavaScript/CSS calendar widget (source only)
+- `output/` — generated files: JSON, embed HTML, test pages (gitignored)
 - `docs/work-plan/` — individual work plan items
 - `docs/WORK_PLAN.md` — generated combined work plan
 - `scripts/` — project scripts, including work plan generation/formatting tools
@@ -36,7 +37,7 @@ Rust project with two binaries that share the same data import/export pipeline:
 ```bash
 cargo run -p cosam-convert -- \
   --input path/to/schedule.xlsx \
-  --output widget/2026.json \
+  --export output/2026.json \
   --title "Cosplay America 2026"
 ```
 
@@ -71,8 +72,7 @@ Embeddable vanilla JS/CSS calendar widget. No framework dependencies — designe
 
 - `cosam-calendar.js` — calendar logic (IIFE, exposes `CosAmCalendar.init()`)
 - `cosam-calendar.css` — all styling (responsive, print-friendly, scoped under `.cosam-calendar`)
-- `embed.html` — demo/test page
-- `sample-data.json` — sample schedule data for testing
+- `square-template.html` — Squarespace simulation template for test page generation
 
 ### Embedding
 
@@ -105,8 +105,31 @@ Upload `cosam-calendar.css`, `cosam-calendar.js`, and your `schedule.json` to a 
 
 ### Local Development
 
+Generate a test page that simulates the widget inside the Squarespace site:
+
 ```bash
-cd widget
-python3 -m http.server 8080
-# Open http://localhost:8080/embed.html
+cargo run -p cosam-convert -- \
+  --input "input/2026 Schedule.xlsx" \
+  --export output/2026.json \
+  --export-embed output/2026-embed.html \
+  --export-test output/2026-test.html \
+  --title "Cosplay America 2026 Schedule"
+# Open output/2026-test.html in a browser
+```
+
+To iterate on widget CSS/JS without rebuilding the Rust binary:
+
+```bash
+cargo run -p cosam-convert -- \
+  --input "input/2026 Schedule.xlsx" \
+  --export-test output/2026-test.html \
+  --widget widget/ \
+  --no-minified \
+  --title "Cosplay America 2026 Schedule"
+```
+
+Rebuild all years at once:
+
+```bash
+./scripts/rebuild-json.sh
 ```

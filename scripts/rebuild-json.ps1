@@ -15,6 +15,7 @@ $ErrorActionPreference = "Stop"
 $ScriptDir = Split-Path -Parent $MyInvocation.MyCommand.Path
 $RootDir = Split-Path -Parent $ScriptDir
 $InputDir = Join-Path $RootDir "input"
+$OutputDir = Join-Path $RootDir "output"
 
 function Write-Status {
     param([string]$Message)
@@ -33,8 +34,13 @@ try {
     Write-Status "Rebuilding JSON files for testing..."
     Write-Host "Script directory: $ScriptDir"
     Write-Host "Input directory: $InputDir"
+    Write-Host "Output directory: $OutputDir"
     Write-Host "Project root: $RootDir"
     Write-Host ""
+
+    if (-not (Test-Path $OutputDir)) {
+        New-Item -ItemType Directory -Path $OutputDir | Out-Null
+    }
     
     $builtFiles = @()
     $currentYear = (Get-Date).Year
@@ -50,14 +56,17 @@ try {
         # Build files for this year
         Write-Status "Building ${year} files..."
         
-        $outputDir = Join-Path $RootDir "widget"
-        $outputFile = Join-Path $outputDir "${year}.json"
+        $outputFile = Join-Path $OutputDir "${year}.json"
+        $embedFile = Join-Path $OutputDir "${year}-embed.html"
+        $testFile = Join-Path $OutputDir "${year}-test.html"
         
-        Write-Host "  Building ${year}.json with Rust converter CLI..."
+        Write-Host "  Building ${year}.json, embed, and test page..."
         
         if ($Verbose) {
             Write-Host "    Source: $srcFile"
             Write-Host "    Output: $outputFile"
+            Write-Host "    Embed: $embedFile"
+            Write-Host "    Test: $testFile"
         }
         
         try {
@@ -69,7 +78,9 @@ try {
                 "-p", "cosam-convert", 
                 "--",
                 "--input", $srcFile,
-                "--output", $outputFile,
+                "--export", $outputFile,
+                "--export-embed", $embedFile,
+                "--export-test", $testFile,
                 "--title", "Cosplay America ${year} Schedule"
             )
             
@@ -80,8 +91,8 @@ try {
             & cargo @cargoArgs
             
             if ($LASTEXITCODE -eq 0) {
-                $builtFiles += "${year}.json (Rust converter CLI)"
-                Write-Host "    ✓ Successfully built ${year}.json"
+                $builtFiles += "${year} (json + embed + test)"
+                Write-Host "    ✓ Successfully built ${year} files"
             }
             else {
                 throw "Cargo command failed with exit code $LASTEXITCODE"
@@ -89,7 +100,7 @@ try {
             
         }
         catch {
-            $builtFiles += "${year}.json (Rust converter CLI) - FAILED: $($_.Exception.Message)"
+            $builtFiles += "${year} - FAILED: $($_.Exception.Message)"
             Write-Warning "Failed to build ${year}.json: $($_.Exception.Message)"
         }
         finally {
@@ -103,7 +114,7 @@ try {
     Write-Host ""
     Write-Host "Files processed:"
     foreach ($file in $builtFiles) {
-        Write-Host "  - widget/$file"
+        Write-Host "  - output/$file"
     }
     
     $successCount = ($builtFiles | Where-Object { $_ -notlike "*FAILED*" }).Count

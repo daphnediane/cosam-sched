@@ -8,15 +8,24 @@ use std::path::PathBuf;
 
 use schedule_core::data::{Schedule, XlsxImportOptions, export_to_xlsx};
 
+mod widget_embed;
+
 struct CliArgs {
     input: PathBuf,
     output: Option<PathBuf>,
     export: Option<PathBuf>,
+    export_embed: Option<PathBuf>,
+    export_test: Option<PathBuf>,
     title: String,
     schedule_table: String,
     roommap_table: String,
     prefix_table: String,
     config_file: Option<PathBuf>,
+    widget: Option<String>,
+    widget_css: Option<String>,
+    widget_js: Option<String>,
+    test_template: Option<String>,
+    minified: bool,
 }
 
 fn parse_args() -> anyhow::Result<CliArgs> {
@@ -24,11 +33,18 @@ fn parse_args() -> anyhow::Result<CliArgs> {
     let mut input: Option<PathBuf> = None;
     let mut output: Option<PathBuf> = None;
     let mut export: Option<PathBuf> = None;
+    let mut export_embed: Option<PathBuf> = None;
+    let mut export_test: Option<PathBuf> = None;
     let mut title = String::new();
     let mut schedule_table = "Schedule".to_string();
     let mut roommap_table = "RoomMap".to_string();
     let mut prefix_table = "Prefix".to_string();
     let mut config_file: Option<PathBuf> = None;
+    let mut widget: Option<String> = None;
+    let mut widget_css: Option<String> = None;
+    let mut widget_js: Option<String> = None;
+    let mut test_template: Option<String> = None;
+    let mut minified = true;
 
     let mut index = 1;
     while index < arguments.len() {
@@ -89,6 +105,54 @@ fn parse_args() -> anyhow::Result<CliArgs> {
                 }
                 config_file = Some(PathBuf::from(&arguments[index]));
             }
+            "--export-embed" => {
+                index += 1;
+                if index >= arguments.len() {
+                    anyhow::bail!("Missing value for --export-embed");
+                }
+                export_embed = Some(PathBuf::from(&arguments[index]));
+            }
+            "--export-test" => {
+                index += 1;
+                if index >= arguments.len() {
+                    anyhow::bail!("Missing value for --export-test");
+                }
+                export_test = Some(PathBuf::from(&arguments[index]));
+            }
+            "--widget" => {
+                index += 1;
+                if index >= arguments.len() {
+                    anyhow::bail!("Missing value for --widget");
+                }
+                widget = Some(arguments[index].clone());
+            }
+            "--widget-css" => {
+                index += 1;
+                if index >= arguments.len() {
+                    anyhow::bail!("Missing value for --widget-css");
+                }
+                widget_css = Some(arguments[index].clone());
+            }
+            "--widget-js" => {
+                index += 1;
+                if index >= arguments.len() {
+                    anyhow::bail!("Missing value for --widget-js");
+                }
+                widget_js = Some(arguments[index].clone());
+            }
+            "--test-template" => {
+                index += 1;
+                if index >= arguments.len() {
+                    anyhow::bail!("Missing value for --test-template");
+                }
+                test_template = Some(arguments[index].clone());
+            }
+            "--minified" => {
+                minified = true;
+            }
+            "--no-minified" | "--for-debug" => {
+                minified = false;
+            }
             "--help" | "-h" => {
                 print_usage();
                 std::process::exit(0);
@@ -112,11 +176,18 @@ fn parse_args() -> anyhow::Result<CliArgs> {
         input,
         output,
         export,
+        export_embed,
+        export_test,
         title,
         schedule_table,
         roommap_table,
         prefix_table,
         config_file,
+        widget,
+        widget_css,
+        widget_js,
+        test_template,
+        minified,
     })
 }
 
@@ -133,6 +204,16 @@ fn print_usage() {
          \x20 --roommap-table <name>              Sheet name for room mapping (default: RoomMap)\n\
          \x20 --prefix-table <name>               Sheet name for panel types (default: Prefix)\n\
          \x20 --help, -h                          Show this help message\n\
+         \n\
+         Widget / Embed options:\n\
+         \x20 --export-embed <file.html>           Export embeddable HTML (inline CSS/JS/JSON)\n\
+         \x20 --export-test <file.html>            Export standalone test page (Squarespace sim)\n\
+         \x20 --widget <builtin|dir|basename>      Override both CSS and JS sources\n\
+         \x20 --widget-css <builtin|path>          Override CSS source only\n\
+         \x20 --widget-js <builtin|path>           Override JS source only\n\
+         \x20 --test-template <builtin|file>       Override test page template\n\
+         \x20 --minified                           Minify output (default)\n\
+         \x20 --no-minified, --for-debug           Skip minification for debugging\n\
          \n\
          If neither --output nor --export is given, the input is parsed and summarized."
     );
@@ -170,12 +251,12 @@ fn print_conflicts(schedule: &Schedule) {
     }
 
     eprintln!("Conflicts found: {}", schedule.conflicts.len());
-    
+
     let mut room_conflicts = 0;
     let mut presenter_conflicts = 0;
     let mut group_presenter_conflicts = 0;
     let mut title_conflicts = 0;
-    
+
     for conflict in &schedule.conflicts {
         match conflict.conflict_type.as_str() {
             "room" => room_conflicts += 1,
@@ -185,7 +266,7 @@ fn print_conflicts(schedule: &Schedule) {
             _ => {}
         }
     }
-    
+
     if room_conflicts > 0 {
         eprintln!("  Room conflicts: {}", room_conflicts);
     }
@@ -198,11 +279,11 @@ fn print_conflicts(schedule: &Schedule) {
     if title_conflicts > 0 {
         eprintln!("  Title/ID mismatches: {}", title_conflicts);
     }
-    
+
     // Count panel sessions with conflicts
     let mut sessions_with_conflicts = 0;
     let mut total_session_conflicts = 0;
-    
+
     for panel in schedule.panels.values() {
         for part in &panel.parts {
             for session in &part.sessions {
@@ -213,27 +294,34 @@ fn print_conflicts(schedule: &Schedule) {
             }
         }
     }
-    
+
     if sessions_with_conflicts > 0 {
-        eprintln!("Panel sessions with conflicts: {} (total conflicts: {})", 
-                 sessions_with_conflicts, total_session_conflicts);
+        eprintln!(
+            "Panel sessions with conflicts: {} (total conflicts: {})",
+            sessions_with_conflicts, total_session_conflicts
+        );
     }
-    
+
     // Show first few conflicts as examples
     let max_examples = 5;
     for (i, conflict) in schedule.conflicts.iter().take(max_examples).enumerate() {
-        eprintln!("  {}. {} vs {} ({})", 
-                 i + 1,
-                 conflict.event1.name,
-                 conflict.event2.name,
-                 conflict.conflict_type);
+        eprintln!(
+            "  {}. {} vs {} ({})",
+            i + 1,
+            conflict.event1.name,
+            conflict.event2.name,
+            conflict.conflict_type
+        );
         if let Some(ref presenter) = conflict.presenter {
             eprintln!("     Presenter: {}", presenter);
         }
     }
-    
+
     if schedule.conflicts.len() > max_examples {
-        eprintln!("  ... and {} more conflicts", schedule.conflicts.len() - max_examples);
+        eprintln!(
+            "  ... and {} more conflicts",
+            schedule.conflicts.len() - max_examples
+        );
     }
 }
 
@@ -297,6 +385,60 @@ fn main() {
             Err(error) => {
                 eprintln!("Error exporting {}: {error}", export_path.display());
                 had_error = true;
+            }
+        }
+    }
+
+    if cli.export_embed.is_some() || cli.export_test.is_some() {
+        let sources = match widget_embed::WidgetSources::resolve(
+            cli.widget.as_deref(),
+            cli.widget_css.as_deref(),
+            cli.widget_js.as_deref(),
+            cli.test_template.as_deref(),
+        ) {
+            Ok(sources) => sources,
+            Err(error) => {
+                eprintln!("Error resolving widget sources: {error}");
+                std::process::exit(1);
+            }
+        };
+
+        let json_data = match schedule.export_public_json_string() {
+            Ok(json) => json,
+            Err(error) => {
+                eprintln!("Error generating public JSON: {error}");
+                std::process::exit(1);
+            }
+        };
+
+        if let Some(ref embed_path) = cli.export_embed {
+            match widget_embed::write_embed_html(embed_path, &json_data, &sources, cli.minified) {
+                Ok(()) => {}
+                Err(error) => {
+                    eprintln!("Error writing embed HTML: {error}");
+                    had_error = true;
+                }
+            }
+        }
+
+        if let Some(ref test_path) = cli.export_test {
+            let title = if cli.title.is_empty() {
+                &schedule.meta.title
+            } else {
+                &cli.title
+            };
+            match widget_embed::write_test_html(
+                test_path,
+                &json_data,
+                title,
+                &sources,
+                cli.minified,
+            ) {
+                Ok(()) => {}
+                Err(error) => {
+                    eprintln!("Error writing test HTML: {error}");
+                    had_error = true;
+                }
             }
         }
     }

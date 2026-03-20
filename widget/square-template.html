@@ -1,0 +1,173 @@
+<!DOCTYPE html>
+<!--
+  Squarespace Simulation Template for CosAm Calendar Widget Testing
+
+  This template approximates the styling environment of the Cosplay America
+  Squarespace site so the calendar widget can be tested in a realistic context.
+  It is NOT a copy of the live site — just enough CSS/layout to catch styling
+  conflicts and verify visual appearance.
+-->
+<html lang="en-US">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="initial-scale=1">
+  <title>{TITLE} — Cosplay America // Test</title>
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Libre+Franklin:ital,wght@0,400;0,500;0,700;1,400;1,700&family=Fjalla+One:ital,wght@0,400">
+  <style>
+    /* Squarespace Bedford-family base resets */
+    *, *::before, *::after { box-sizing: border-box; }
+    html {
+      font-size: 16px;
+      -webkit-font-smoothing: antialiased;
+      -moz-osx-font-smoothing: grayscale;
+    }
+    body {
+      margin: 0;
+      padding: 0;
+      font-family: 'Libre Franklin', Helvetica, Arial, sans-serif;
+      font-weight: 400;
+      line-height: 1.8em;
+      color: #1a1a1a;
+      background-color: #fff;
+    }
+    h1, h2, h3, h4, h5, h6 {
+      font-family: 'Fjalla One', Helvetica, Arial, sans-serif;
+      font-weight: 400;
+      text-transform: uppercase;
+      letter-spacing: 0.08em;
+      line-height: 1.2em;
+    }
+    a { color: #1a1a1a; }
+    a:hover { opacity: 0.7; }
+
+    /* Site border (Bedford tweak) */
+    .Site {
+      border: 4px solid #1a1a1a;
+      min-height: 100vh;
+    }
+
+    /* Header */
+    .Header {
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      padding: 30px 40px;
+      border-bottom: 1px solid #e0e0e0;
+    }
+    .Header-branding {
+      text-decoration: none;
+      display: flex;
+      align-items: center;
+    }
+    .Header-branding-logo {
+      max-width: 320px;
+      height: auto;
+    }
+    .Header-nav {
+      display: flex;
+      gap: 20px;
+      flex-wrap: wrap;
+      justify-content: center;
+      padding: 10px 40px;
+      border-bottom: 1px solid #e0e0e0;
+      font-family: 'Fjalla One', Helvetica, Arial, sans-serif;
+      text-transform: uppercase;
+      letter-spacing: 0.12em;
+      font-size: 13px;
+    }
+    .Header-nav a {
+      text-decoration: none;
+      padding: 5px 0;
+    }
+
+    /* Intro / banner area */
+    .Intro {
+      position: relative;
+      height: 300px;
+      background: #1a1a1a;
+      overflow: hidden;
+    }
+    .Intro-image {
+      width: 100%;
+      height: 100%;
+      object-fit: cover;
+      opacity: 0.6;
+    }
+
+    /* Main content area — where the widget lives */
+    .Main {
+      max-width: 1020px;
+      margin: 0 auto;
+      padding: 40px 40px 60px;
+    }
+    .Main-content {
+      width: 100%;
+    }
+    .page-title {
+      text-align: center;
+      margin: 0 0 30px 0;
+      font-size: 2em;
+    }
+
+    /* Footer */
+    .Footer {
+      border-top: 1px solid #e0e0e0;
+      padding: 40px;
+      text-align: center;
+      font-size: 12px;
+      color: #999;
+    }
+
+    /* Squarespace code block wrapper (widget lives inside this) */
+    .sqs-block-code .sqs-block-content {
+      overflow: visible;
+    }
+  </style>
+</head>
+<body>
+  <div class="Site">
+    <!-- Simplified header -->
+    <header class="Header">
+      <a href="https://www.cosplayamerica.com/" class="Header-branding">
+        <img
+          src="https://images.squarespace-cdn.com/content/v1/537078ece4b039e44f87fa21/1431641747599-V69CQKHMO0TKKKGSREC4/CosplayAmericaHorizLogo.png?format=750w"
+          alt="Cosplay America"
+          class="Header-branding-logo"
+        >
+      </a>
+    </header>
+    <nav class="Header-nav">
+      <a href="#">Home</a>
+      <a href="#">Register</a>
+      <a href="#">Location</a>
+      <a href="#">Guests</a>
+      <a href="#">Programming</a>
+      <a href="#">Schedule</a>
+      <a href="#">Policies &amp; FAQ</a>
+      <a href="#">Contact</a>
+    </nav>
+
+    <!-- Banner -->
+    <div class="Intro"></div>
+
+    <!-- Main content -->
+    <main class="Main">
+      <section class="Main-content">
+        <h1 class="page-title">Programming Schedule</h1>
+        <div class="sqs-block-code">
+          <div class="sqs-block-content">
+{WIDGET_BLOCK}
+          </div>
+        </div>
+      </section>
+    </main>
+
+    <!-- Footer -->
+    <footer class="Footer">
+      <p>Cosplay America — Test Template</p>
+      <p>This is a local test page, not the live site.</p>
+    </footer>
+  </div>
+</body>
+</html>
