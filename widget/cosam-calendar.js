@@ -51,9 +51,23 @@
     const d = new Date(isoStr);
     let h = d.getHours();
     const m = d.getMinutes();
+    if (h === 0 && m === 0) return 'Midnight';
+    if (h === 12 && m === 0) return 'Noon';
     const ampm = h >= 12 ? 'PM' : 'AM';
     h = h % 12 || 12;
     return m === 0 ? `${h} ${ampm}` : `${h}:${String(m).padStart(2, '0')} ${ampm}`;
+  }
+
+  function formatTimeGrid(isoStr) {
+    if (!isoStr) return '';
+    const d = new Date(isoStr);
+    let h = d.getHours();
+    const m = d.getMinutes();
+    if (h === 0 && m === 0) return 'Midnight';
+    if (h === 12 && m === 0) return 'Noon';
+    const ampm = h >= 12 ? 'PM' : 'AM';
+    h = h % 12 || 12;
+    return m === 0 ? `${h} ${ampm}` : `${h}:${String(m).padStart(2, '0')}`;
   }
 
   function formatTimeRange(start, end) {
@@ -794,27 +808,31 @@
       // Meta
       const meta = el('div', { className: 'cosam-event-meta' });
       if (evt.startTime) {
-        const timeSpan = el('span');
+        const timeSpan = el('span', { className: 'cosam-meta-time' });
         timeSpan.innerHTML = ICONS.clock + ' ' + escapeHtml(formatTimeRange(evt.startTime, evt.endTime));
         meta.appendChild(timeSpan);
       }
       // Rooms - V5 roomIds array
       if (evt.roomIds && evt.roomIds.length > 0) {
-        const roomNames = evt.roomIds.map(roomId => {
+        const roomSpan = el('span', { className: 'cosam-meta-room' });
+        roomSpan.innerHTML = ICONS.mappin;
+        const roomElements = [];
+        for (const roomId of evt.roomIds) {
           const room = this.state.data.rooms.find(r => r.uid === roomId);
-          if (!room) return null;
-          let roomDisplay = room.long_name || room.short_name;
-          if (room.hotel_room && room.hotel_room !== (room.long_name || room.short_name)) {
-            roomDisplay = `${room.long_name || room.short_name}<br><small style="opacity: 0.8">(${room.hotel_room})</small>`;
+          if (!room) continue;
+          const roomName = room.long_name || room.short_name;
+          const textWrap = el('span', { className: 'cosam-meta-room-text' });
+          textWrap.appendChild(el('span', {}, roomName));
+          if (room.hotel_room && room.hotel_room !== roomName) {
+            textWrap.appendChild(el('span', { className: 'cosam-meta-room-sub' }, `(${room.hotel_room})`));
           }
-          return roomDisplay;
-        }).filter(Boolean);
-
-        if (roomNames.length > 0) {
-          const roomSpan = el('span');
-          roomSpan.innerHTML = ICONS.mappin + ' ' + roomNames.join(', ');
-          meta.appendChild(roomSpan);
+          roomElements.push(textWrap);
         }
+        for (let i = 0; i < roomElements.length; i++) {
+          if (i > 0) roomSpan.appendChild(document.createTextNode(', '));
+          roomSpan.appendChild(roomElements[i]);
+        }
+        if (roomElements.length > 0) meta.appendChild(roomSpan);
       }
       if (evt.kind) {
         meta.appendChild(el('span', {}, evt.kind));
@@ -972,86 +990,64 @@
         const slotRegular = slotEvents.filter(e => !this.state._isBreakEvent(e));
         const slotBreaks = slotEvents.filter(e => this.state._isBreakEvent(e));
 
-        let timeLabel = slotEvents.length > 0 ? formatTime(slotEvents[0].startTime) : '';
-        if (showAllDays && slotEvents.length > 0) {
-          const dayKey = getDayKey(slotEvents[0].startTime);
+        // Compute time label (grid uses compact format without AM/PM on half hours)
+        let timeLabel;
+        if (slotEvents.length > 0) {
+          timeLabel = formatTimeGrid(slotEvents[0].startTime);
+        } else {
+          const date = new Date(originalKey + ':00');
+          timeLabel = formatTimeGrid(date.toISOString());
+        }
+
+        // Determine if this is a half-hour (non-on-the-hour) slot
+        const slotDate = new Date(originalKey + ':00');
+        const isHalfHour = slotDate.getMinutes() !== 0;
+
+        // Day transition handling
+        let dayLabel = null;
+        if (showAllDays) {
+          const dayKey = slotEvents.length > 0
+            ? getDayKey(slotEvents[0].startTime)
+            : getDayKey(originalKey + ':00');
           if (dayKey !== lastDayKey) {
-            // Add sleep break row between days (except for first day)
             if (lastDayKey !== null) {
-              // Find the last time slot of the previous day
               let lastSlotIndex = i - 1;
               while (lastSlotIndex >= 0) {
                 const prevKey = allTimeKeys[lastSlotIndex];
                 const prevDayKey = getDayKey(prevKey + ':00');
-                if (prevDayKey === lastDayKey) {
-                  break;
-                }
+                if (prevDayKey === lastDayKey) break;
                 lastSlotIndex--;
               }
-
               if (lastSlotIndex >= 0) {
-                // Create sleep break that spans from last slot of previous day to current slot
                 const sleepBreak = this._buildGridSleepBreak(roomOrder.length + 1);
-                sleepBreak.style.gridColumn = `room-${roomOrder[0]} / -1`; // Span only room columns, not time column
+                sleepBreak.style.gridColumn = `room-${roomOrder[0]} / -1`;
                 sleepBreak.style.gridRow = `${timeSlots[lastSlotIndex]} / ${timeSlot}`;
                 grid.appendChild(sleepBreak);
               }
             }
-            timeLabel = getDayLabel(slotEvents[0].startTime) + '\n' + timeLabel;
+            const daySource = slotEvents.length > 0 ? slotEvents[0].startTime : originalKey + ':00';
+            const dayDate = new Date(daySource);
+            dayLabel = dayDate.toLocaleDateString('en-US', { weekday: 'long' });
             lastDayKey = dayKey;
           }
         }
 
-        // Add time slot header
+        // Build time header with structured content
         const timeHeader = el('div', {
-          className: 'cosam-grid-time-header',
+          className: 'cosam-grid-time-header' + (isHalfHour ? ' cosam-grid-time-half' : ''),
           style: {
             gridColumn: 'time',
             gridRow: timeSlot,
-            whiteSpace: 'pre-line'
           }
         });
 
-        // Always show time label, even if no events start at this time
-        if (slotEvents.length > 0) {
-          timeLabel = formatTime(slotEvents[0].startTime);
-        } else {
-          // For transition slots without events, format the time from the original key
-          const originalKey = allTimeKeys[i];
-          const date = new Date(originalKey + ':00');
-          timeLabel = formatTime(date.toISOString());
+        if (dayLabel) {
+          timeHeader.appendChild(el('div', { className: 'cosam-grid-day-label' }, dayLabel));
         }
+        timeHeader.appendChild(el('div', {
+          className: isHalfHour ? 'cosam-grid-time-minor' : 'cosam-grid-time-major'
+        }, timeLabel));
 
-        if (showAllDays && slotEvents.length > 0) {
-          const dayKey = getDayKey(slotEvents[0].startTime);
-          if (dayKey !== lastDayKey) {
-            // Add sleep break row between days (except for first day)
-            if (lastDayKey !== null) {
-              // Find the last time slot of the previous day
-              let lastSlotIndex = i - 1;
-              while (lastSlotIndex >= 0) {
-                const prevKey = allTimeKeys[lastSlotIndex];
-                const prevDayKey = getDayKey(prevKey + ':00');
-                if (prevDayKey === lastDayKey) {
-                  break;
-                }
-                lastSlotIndex--;
-              }
-
-              if (lastSlotIndex >= 0) {
-                // Create sleep break that spans from last slot of previous day to current slot
-                const sleepBreak = this._buildGridSleepBreak(roomOrder.length + 1);
-                sleepBreak.style.gridColumn = `room-${roomOrder[0]} / -1`; // Span only room columns, not time column
-                sleepBreak.style.gridRow = `${timeSlots[lastSlotIndex]} / ${timeSlot}`;
-                grid.appendChild(sleepBreak);
-              }
-            }
-            timeLabel = getDayLabel(slotEvents[0].startTime) + '\n' + timeLabel;
-            lastDayKey = dayKey;
-          }
-        }
-
-        timeHeader.textContent = timeLabel;
         grid.appendChild(timeHeader);
 
         // Add events for each room
@@ -1198,7 +1194,19 @@
 
       // Add footer content
       const footerContent = el('div', { className: 'cosam-grid-footer-content' });
-      footerContent.textContent = 'End of Schedule';
+      let footerText = 'End of Schedule';
+      if (this.state.data && this.state.data.meta && this.state.data.meta.generated) {
+        const genDate = new Date(this.state.data.meta.generated);
+        const month = genDate.toLocaleDateString('en-US', { month: 'short' });
+        const day = genDate.getDate();
+        let h = genDate.getHours();
+        const m = genDate.getMinutes();
+        const ampm = h >= 12 ? 'PM' : 'AM';
+        h = h % 12 || 12;
+        const timeStr = `${h}:${String(m).padStart(2, '0')} ${ampm}`;
+        footerText = `Updated: ${month} ${day} ${timeStr}`;
+      }
+      footerContent.textContent = footerText;
       footer.appendChild(footerContent);
 
       grid.appendChild(footer);
@@ -1364,7 +1372,7 @@
       // Meta
       const meta = el('div', { className: 'cosam-modal-meta' });
       if (evt.startTime) {
-        const ts = el('span');
+        const ts = el('span', { className: 'cosam-meta-time' });
         ts.innerHTML = ICONS.clock + ' ' + escapeHtml(formatTimeRange(evt.startTime, evt.endTime));
         meta.appendChild(ts);
       }
@@ -1373,21 +1381,25 @@
       }
       // Rooms - V5 roomIds array
       if (evt.roomIds && evt.roomIds.length > 0) {
-        const roomNames = evt.roomIds.map(roomId => {
+        const rs = el('span', { className: 'cosam-meta-room' });
+        rs.innerHTML = ICONS.mappin;
+        const roomElements = [];
+        for (const roomId of evt.roomIds) {
           const room = this.state.data.rooms.find(r => r.uid === roomId);
-          if (!room) return null;
-          let roomDisplay = room.long_name || room.short_name;
-          if (room.hotel_room && room.hotel_room !== (room.long_name || room.short_name)) {
-            roomDisplay = `${room.long_name || room.short_name}<br><small style="opacity: 0.8">(${room.hotel_room})</small>`;
+          if (!room) continue;
+          const roomName = room.long_name || room.short_name;
+          const textWrap = el('span', { className: 'cosam-meta-room-text' });
+          textWrap.appendChild(el('span', {}, roomName));
+          if (room.hotel_room && room.hotel_room !== roomName) {
+            textWrap.appendChild(el('span', { className: 'cosam-meta-room-sub' }, `(${room.hotel_room})`));
           }
-          return roomDisplay;
-        }).filter(Boolean);
-
-        if (roomNames.length > 0) {
-          const rs = el('span');
-          rs.innerHTML = ICONS.mappin + ' ' + roomNames.join(', ');
-          meta.appendChild(rs);
+          roomElements.push(textWrap);
         }
+        for (let i = 0; i < roomElements.length; i++) {
+          if (i > 0) rs.appendChild(document.createTextNode(', '));
+          rs.appendChild(roomElements[i]);
+        }
+        if (roomElements.length > 0) meta.appendChild(rs);
       }
       if (evt.kind) {
         meta.appendChild(el('span', {}, evt.kind));
@@ -1522,10 +1534,8 @@
     }
     state.days = [...daySet.entries()].sort((a, b) => a[0].localeCompare(b[0])).map(([key, label]) => ({ key, label }));
 
-    // Default to first day
-    if (state.days.length > 0) {
-      state.activeDay = state.days[0].key;
-    }
+    // Default to All Days
+    state.activeDay = null;
 
     // Default view: grid on desktop, list on mobile
     state.view = window.innerWidth >= 768 ? 'grid' : 'list';

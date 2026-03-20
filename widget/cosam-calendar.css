@@ -447,6 +447,36 @@
   gap: 3px;
 }
 
+.cosam-event-meta svg {
+  width: 14px;
+  height: 14px;
+  stroke: currentColor;
+  stroke-width: 2;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+  fill: none;
+  flex-shrink: 0;
+}
+
+.cosam-meta-time {
+  white-space: nowrap;
+}
+
+.cosam-meta-room {
+  display: inline-flex;
+  align-items: flex-start;
+  gap: 4px;
+}
+
+.cosam-meta-room-text {
+  display: inline;
+}
+
+.cosam-meta-room-sub {
+  font-size: 0.85em;
+  opacity: 0.8;
+}
+
 .cosam-event-presenters {
   font-size: 13px;
   color: var(--cosam-text-muted);
@@ -612,6 +642,38 @@
   z-index: 4;
   border-right: 1px solid var(--cosam-grid-border-soft) !important;
   border-bottom: 1px solid var(--cosam-grid-border-soft) !important;
+}
+
+.cosam-grid-time-header.cosam-grid-header-cell {
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  align-items: flex-end;
+}
+
+.cosam-grid-day-label {
+  font-size: 10px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  margin-bottom: 2px;
+  padding-top: 4px;
+}
+
+.cosam-grid-time-major {
+  font-size: 14px;
+  font-weight: 600;
+}
+
+.cosam-grid-time-minor {
+  font-size: 13px;
+  font-weight: 600;
+  opacity: 1;
+}
+
+.cosam-grid-time-half {
+  padding-top: 4px !important;
+  padding-bottom: 4px !important;
 }
 
 .cosam-grid-event {
@@ -1013,6 +1075,17 @@
   gap: 4px;
 }
 
+.cosam-modal-meta svg {
+  width: 16px;
+  height: 16px;
+  stroke: currentColor;
+  stroke-width: 2;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+  fill: none;
+  flex-shrink: 0;
+}
+
 .cosam-modal-desc {
   font-size: 14px;
   line-height: 1.7;
@@ -1193,7 +1266,7 @@
 
 /* Grid Footer */
 .cosam-grid-footer {
-  background: var(--cosam-bg-alt);
+  background: var(--cosam-grid-header-bg);
   border-top: 2px solid var(--cosam-accent);
   padding: 8px;
   text-align: center;
