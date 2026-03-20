@@ -16,8 +16,7 @@ This project is a rewrite of and based on the original [schedule-to-html](https:
 
 - `cosam-calendar.js` — calendar logic (IIFE, exposes `CosAmCalendar.init()`)
 - `cosam-calendar.css` — all styling (responsive, print-friendly, scoped under `.cosam-calendar`)
-- `embed.html` — demo/test page
-- `sample-data.json` — sample schedule data for testing
+- `square-template.html` — Squarespace simulation template for test page generation
 
 ## Embedding
 
@@ -50,8 +49,31 @@ Upload `cosam-calendar.css`, `cosam-calendar.js`, and your `schedule.json` to a 
 
 ## Local Development
 
+Generate a test page that simulates the widget inside the Squarespace site:
+
 ```bash
-cd widget
-python3 -m http.server 8080
-# Open http://localhost:8080/embed.html
+cargo run -p cosam-convert -- \
+  --input "input/2026 Schedule.xlsx" \
+  --export output/2026.json \
+  --export-embed output/2026-embed.html \
+  --export-test output/2026-test.html \
+  --title "Cosplay America 2026 Schedule"
+# Open output/2026-test.html in a browser
+```
+
+To iterate on widget CSS/JS without rebuilding the Rust binary:
+
+```bash
+cargo run -p cosam-convert -- \
+  --input "input/2026 Schedule.xlsx" \
+  --export-test output/2026-test.html \
+  --widget widget/ \
+  --no-minified \
+  --title "Cosplay America 2026 Schedule"
+```
+
+Rebuild all years at once:
+
+```bash
+./scripts/rebuild-json.sh
 ```
