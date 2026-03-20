@@ -1505,6 +1505,51 @@
 
   // ── Public API ──────────────────────────────────────────────────────────
 
+  function applyData(rawData, state, renderer, rootEl) {
+    const data = renderer._normalizeDataModel(rawData);
+    state.data = data;
+
+    // Extract days (skip SPLIT events which are print-layout markers)
+    const daySet = new Map();
+    const events = data.panels;
+    for (const evt of events) {
+      if (!evt.startTime) continue;
+      if (state._isSplitEvent(evt)) continue;
+      const key = getDayKey(evt.startTime);
+      if (!daySet.has(key)) {
+        daySet.set(key, getDayLabel(evt.startTime));
+      }
+    }
+    state.days = [...daySet.entries()].sort((a, b) => a[0].localeCompare(b[0])).map(([key, label]) => ({ key, label }));
+
+    // Default to first day
+    if (state.days.length > 0) {
+      state.activeDay = state.days[0].key;
+    }
+
+    // Default view: grid on desktop, list on mobile
+    state.view = window.innerWidth >= 768 ? 'grid' : 'list';
+
+    renderer.render();
+  }
+
+  function startFileWatcher() {
+    var meta = document.querySelector('meta[name="cosam-generation"]');
+    if (!meta) return;
+    var currentGeneration = meta.getAttribute('content');
+    setInterval(function () {
+      fetch(location.href, { cache: 'no-store' })
+        .then(function (r) { return r.text(); })
+        .then(function (html) {
+          var match = html.match(/name="cosam-generation"\s+content="([^"]+)"/);
+          if (match && match[1] !== currentGeneration) {
+            location.reload();
+          }
+        })
+        .catch(function () {});
+    }, 2000);
+  }
+
   window.CosAmCalendar = {
     init: function (opts) {
       const rootEl = typeof opts.el === 'string' ? document.querySelector(opts.el) : opts.el;
@@ -1516,36 +1561,21 @@
       // Show loading
       renderer.render();
 
+      if (opts.watchForChanges) {
+        startFileWatcher();
+      }
+
+      if (opts.data) {
+        applyData(opts.data, state, renderer, rootEl);
+        return;
+      }
+
       // Fetch data
       const dataUrl = opts.dataUrl || 'schedule.json';
       fetch(dataUrl)
         .then(r => { if (!r.ok) throw new Error('HTTP ' + r.status); return r.json(); })
         .then(rawData => {
-          const data = renderer._normalizeDataModel(rawData);
-          state.data = data;
-
-          // Extract days (skip SPLIT events which are print-layout markers)
-          const daySet = new Map();
-          const events = data.panels;
-          for (const evt of events) {
-            if (!evt.startTime) continue;
-            if (state._isSplitEvent(evt)) continue;
-            const key = getDayKey(evt.startTime);
-            if (!daySet.has(key)) {
-              daySet.set(key, getDayLabel(evt.startTime));
-            }
-          }
-          state.days = [...daySet.entries()].sort((a, b) => a[0].localeCompare(b[0])).map(([key, label]) => ({ key, label }));
-
-          // Default to first day
-          if (state.days.length > 0) {
-            state.activeDay = state.days[0].key;
-          }
-
-          // Default view: grid on desktop, list on mobile
-          state.view = window.innerWidth >= 768 ? 'grid' : 'list';
-
-          renderer.render();
+          applyData(rawData, state, renderer, rootEl);
         })
         .catch(err => {
           rootEl.innerHTML = '<div class="cosam-calendar"><div class="cosam-empty">Failed to load schedule: ' + escapeHtml(err.message) + '</div></div>';

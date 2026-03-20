@@ -146,7 +146,7 @@ fn compute_credits(
 }
 
 impl Schedule {
-    pub fn export_public(&self, path: &Path) -> Result<()> {
+    pub fn export_public_json_string(&self) -> Result<String> {
         let hidden_type_uids: HashSet<String> = self
             .panel_types
             .iter()
@@ -302,8 +302,12 @@ impl Schedule {
             presenters: self.presenters.clone(),
         };
 
-        let json = serde_json::to_string_pretty(&public)
-            .context("Failed to serialize public schedule to JSON")?;
+        serde_json::to_string_pretty(&public)
+            .context("Failed to serialize public schedule to JSON")
+    }
+
+    pub fn export_public(&self, path: &Path) -> Result<()> {
+        let json = self.export_public_json_string()?;
         std::fs::write(path, json.as_bytes())
             .with_context(|| format!("Failed to write {}", path.display()))?;
         Ok(())

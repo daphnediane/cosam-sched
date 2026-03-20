@@ -1175,6 +1175,7 @@ dependencies = [
  "gpui-component",
  "gpui-component-assets",
  "indexmap",
+ "open",
  "rfd",
  "schedule-core",
 ]

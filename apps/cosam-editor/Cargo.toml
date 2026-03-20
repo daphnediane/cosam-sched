@@ -18,4 +18,5 @@ anyhow = "1"
 indexmap = "2"
 chrono = { version = "0.4", features = ["serde"] }
 rfd = "0.15"
+open = "5"
 schedule-core = { path = "../../crates/schedule-core" }

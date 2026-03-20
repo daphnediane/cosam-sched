@@ -24,6 +24,7 @@ use crate::ui::detail_pane::{DetailPane, DetailPaneEvent};
 use crate::ui::event_card::{EventCard, EventCardEvent};
 use crate::ui::panel_edit_window::{PanelEditWindow, PanelEditWindowEvent};
 use crate::ui::sidebar::{RoomEntry, Sidebar, SidebarEvent};
+use crate::ui::web_preview;
 
 const MAX_UNDO_STEPS: usize = 50;
 
@@ -31,6 +32,12 @@ const MAX_UNDO_STEPS: usize = 50;
 enum FileType {
     Json,
     Xlsx,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub enum ViewMode {
+    ListView,
+    WebPreview,
 }
 
 actions!(
@@ -63,6 +70,8 @@ pub struct ScheduleEditor {
     detail_pane: Option<Entity<DetailPane>>,
     undo_stack: Vec<IndexMap<String, Panel>>,
     redo_stack: Vec<IndexMap<String, Panel>>,
+    active_view: ViewMode,
+    preview_open_in_browser: bool,
     #[cfg(not(target_os = "macos"))]
     menu_bar: Entity<crate::menu::WindowsMenuBar>,
 }
@@ -129,6 +138,8 @@ impl ScheduleEditor {
             detail_pane: None,
             undo_stack: Vec::new(),
             redo_stack: Vec::new(),
+            active_view: ViewMode::ListView,
+            preview_open_in_browser: false,
             #[cfg(not(target_os = "macos"))]
             menu_bar: cx.new(|cx| crate::menu::WindowsMenuBar::new(cx)),
         };
@@ -648,6 +659,59 @@ impl ScheduleEditor {
         // Menu state updates would go here when we implement dynamic menu updates
     }
 
+    fn switch_to_list_view(&mut self, cx: &mut Context<Self>) {
+        self.active_view = ViewMode::ListView;
+        self.status_message = Some("Switched to list view".to_string());
+        cx.notify();
+    }
+
+    fn switch_to_web_preview(&mut self, cx: &mut Context<Self>) {
+        self.active_view = ViewMode::WebPreview;
+        self.refresh_web_preview(cx);
+    }
+
+    fn refresh_web_preview(&mut self, cx: &mut Context<Self>) {
+        let Some(ref schedule) = self.schedule else {
+            self.status_message = Some("No schedule to preview".to_string());
+            cx.notify();
+            return;
+        };
+
+        match web_preview::write_preview(schedule) {
+            Ok(path) => {
+                if let Err(err) = web_preview::open_preview_in_browser(&path) {
+                    self.status_message = Some(format!("Failed to open browser: {err}"));
+                    cx.notify();
+                    return;
+                }
+                self.preview_open_in_browser = true;
+                self.status_message = Some("Preview updated".to_string());
+            }
+            Err(err) => {
+                self.status_message = Some(format!("Preview error: {err}"));
+            }
+        }
+        cx.notify();
+    }
+
+    fn reopen_preview_in_browser(&mut self, cx: &mut Context<Self>) {
+        let path = web_preview::preview_file_path();
+        if !path.exists() {
+            self.refresh_web_preview(cx);
+            return;
+        }
+        match web_preview::open_preview_in_browser(&path) {
+            Ok(()) => {
+                self.preview_open_in_browser = true;
+                self.status_message = Some("Reopened preview in browser".to_string());
+            }
+            Err(err) => {
+                self.status_message = Some(format!("Failed to open browser: {err}"));
+            }
+        }
+        cx.notify();
+    }
+
     fn can_save(&self) -> bool {
         self.schedule.is_some()
             && self.current_path.is_some()
@@ -875,6 +939,73 @@ impl Render for ScheduleEditor {
                             .child("Use Open to load an XLSX spreadsheet or JSON file"),
                     ),
             );
+        } else if self.active_view == ViewMode::WebPreview {
+            let refresh_btn = div()
+                .id("refresh-preview-btn")
+                .px(px(16.0))
+                .py(px(8.0))
+                .bg(rgb(0x6B21A8))
+                .hover(|s| s.bg(rgb(0x581C87)))
+                .rounded(px(6.0))
+                .text_sm()
+                .text_color(rgb(0xFFFFFF))
+                .font_weight(gpui::FontWeight::BOLD)
+                .cursor_pointer()
+                .child("Refresh Preview")
+                .on_mouse_down(
+                    gpui::MouseButton::Left,
+                    cx.listener(|this, _ev, _window, cx| {
+                        this.refresh_web_preview(cx);
+                    }),
+                );
+
+            let reopen_btn = div()
+                .id("reopen-preview-btn")
+                .px(px(16.0))
+                .py(px(8.0))
+                .bg(rgb(0xF3F4F6))
+                .hover(|s| s.bg(rgb(0xE5E7EB)))
+                .rounded(px(6.0))
+                .text_sm()
+                .text_color(rgb(0x374151))
+                .font_weight(gpui::FontWeight::BOLD)
+                .cursor_pointer()
+                .child("Reopen in Browser")
+                .on_mouse_down(
+                    gpui::MouseButton::Left,
+                    cx.listener(|this, _ev, _window, cx| {
+                        this.reopen_preview_in_browser(cx);
+                    }),
+                );
+
+            content = content.child(
+                div()
+                    .flex()
+                    .flex_col()
+                    .justify_center()
+                    .items_center()
+                    .py(px(80.0))
+                    .gap(px(16.0))
+                    .child(
+                        div()
+                            .text_lg()
+                            .text_color(title_color)
+                            .child("Preview is open in your browser"),
+                    )
+                    .child(
+                        div()
+                            .text_sm()
+                            .text_color(subtitle_color)
+                            .child("The browser auto-reloads when data changes (Safari/Firefox)"),
+                    )
+                    .child(
+                        div()
+                            .flex()
+                            .gap(px(12.0))
+                            .child(refresh_btn)
+                            .child(reopen_btn),
+                    ),
+            );
         } else if self.event_cards.is_empty() {
             content = content.child(
                 div()
@@ -907,6 +1038,67 @@ impl Render for ScheduleEditor {
             layout = layout.child(self.menu_bar.clone());
         }
 
+        let active_view = self.active_view;
+
+        let view_toggle_btn = |id: &'static str,
+                               label: &'static str,
+                               _mode: ViewMode,
+                               is_active: bool| {
+            let mut btn = div()
+                .id(id)
+                .px(px(10.0))
+                .py(px(4.0))
+                .rounded(px(4.0))
+                .text_xs()
+                .cursor_pointer();
+            if is_active {
+                btn = btn
+                    .bg(rgb(0x6B21A8))
+                    .text_color(rgb(0xFFFFFF));
+            } else {
+                btn = btn
+                    .bg(rgb(0xF3F4F6))
+                    .text_color(rgb(0x374151))
+                    .hover(|s| s.bg(rgb(0xE5E7EB)));
+            }
+            btn.child(label)
+        };
+
+        let list_btn = view_toggle_btn(
+            "view-list-btn",
+            "List View",
+            ViewMode::ListView,
+            active_view == ViewMode::ListView,
+        )
+        .on_mouse_down(
+            gpui::MouseButton::Left,
+            cx.listener(|this, _ev, _window, cx| {
+                this.switch_to_list_view(cx);
+            }),
+        );
+
+        let preview_btn = view_toggle_btn(
+            "view-preview-btn",
+            "Web Preview",
+            ViewMode::WebPreview,
+            active_view == ViewMode::WebPreview,
+        )
+        .when(has_schedule, |this| {
+            this.on_mouse_down(
+                gpui::MouseButton::Left,
+                cx.listener(|this, _ev, _window, cx| {
+                    this.switch_to_web_preview(cx);
+                }),
+            )
+        });
+
+        let view_selector = div()
+            .flex()
+            .gap(px(4.0))
+            .items_center()
+            .child(list_btn)
+            .child(preview_btn);
+
         let plus_btn = div()
             .id("new-event-btn")
             .px(px(12.0))
@@ -927,6 +1119,13 @@ impl Render for ScheduleEditor {
                     }),
                 )
             });
+
+        let header_right = div()
+            .flex()
+            .gap(px(12.0))
+            .items_center()
+            .child(view_selector)
+            .child(plus_btn);
 
         layout = layout.child(
             div()
@@ -956,7 +1155,7 @@ impl Render for ScheduleEditor {
                                 .child(panel_count_text),
                         ),
                 )
-                .child(plus_btn),
+                .child(header_right),
         );
 
         layout = layout.when(self.can_save(), |this| {
@@ -1010,6 +1209,12 @@ impl Render for ScheduleEditor {
 
         layout = layout.child(body);
         layout
+    }
+}
+
+impl Drop for ScheduleEditor {
+    fn drop(&mut self) {
+        web_preview::cleanup_preview();
     }
 }
 
