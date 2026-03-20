@@ -163,6 +163,80 @@ fn save_output(schedule: &Schedule, path: &std::path::Path) -> anyhow::Result<()
     }
 }
 
+fn print_conflicts(schedule: &Schedule) {
+    if schedule.conflicts.is_empty() {
+        eprintln!("No conflicts detected");
+        return;
+    }
+
+    eprintln!("Conflicts found: {}", schedule.conflicts.len());
+    
+    let mut room_conflicts = 0;
+    let mut presenter_conflicts = 0;
+    let mut group_presenter_conflicts = 0;
+    let mut title_conflicts = 0;
+    
+    for conflict in &schedule.conflicts {
+        match conflict.conflict_type.as_str() {
+            "room" => room_conflicts += 1,
+            "presenter" => presenter_conflicts += 1,
+            "group_presenter" => group_presenter_conflicts += 1,
+            "title_id_mismatch" => title_conflicts += 1,
+            _ => {}
+        }
+    }
+    
+    if room_conflicts > 0 {
+        eprintln!("  Room conflicts: {}", room_conflicts);
+    }
+    if presenter_conflicts > 0 {
+        eprintln!("  Presenter conflicts: {}", presenter_conflicts);
+    }
+    if group_presenter_conflicts > 0 {
+        eprintln!("  Group presenter conflicts: {}", group_presenter_conflicts);
+    }
+    if title_conflicts > 0 {
+        eprintln!("  Title/ID mismatches: {}", title_conflicts);
+    }
+    
+    // Count panel sessions with conflicts
+    let mut sessions_with_conflicts = 0;
+    let mut total_session_conflicts = 0;
+    
+    for panel in schedule.panels.values() {
+        for part in &panel.parts {
+            for session in &part.sessions {
+                if !session.conflicts.is_empty() {
+                    sessions_with_conflicts += 1;
+                    total_session_conflicts += session.conflicts.len();
+                }
+            }
+        }
+    }
+    
+    if sessions_with_conflicts > 0 {
+        eprintln!("Panel sessions with conflicts: {} (total conflicts: {})", 
+                 sessions_with_conflicts, total_session_conflicts);
+    }
+    
+    // Show first few conflicts as examples
+    let max_examples = 5;
+    for (i, conflict) in schedule.conflicts.iter().take(max_examples).enumerate() {
+        eprintln!("  {}. {} vs {} ({})", 
+                 i + 1,
+                 conflict.event1.name,
+                 conflict.event2.name,
+                 conflict.conflict_type);
+        if let Some(ref presenter) = conflict.presenter {
+            eprintln!("     Presenter: {}", presenter);
+        }
+    }
+    
+    if schedule.conflicts.len() > max_examples {
+        eprintln!("  ... and {} more conflicts", schedule.conflicts.len() - max_examples);
+    }
+}
+
 fn main() {
     let cli = match parse_args() {
         Ok(arguments) => arguments,
@@ -201,6 +275,9 @@ fn main() {
         schedule.panel_types.len(),
         schedule.presenters.len()
     );
+
+    // Report conflicts
+    print_conflicts(&schedule);
 
     let mut had_error = false;
 

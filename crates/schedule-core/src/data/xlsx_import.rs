@@ -789,6 +789,30 @@ fn extract_id_prefix(id: Option<&str>) -> String {
         .unwrap_or_default()
 }
 
+/// Strip trailing part/session numbers from a panel title
+/// 
+/// Removes patterns like:
+/// - " (Session #)"
+/// - " (Part #)"  
+/// - " (Part #, Session #)"
+/// 
+/// Returns the cleaned title and a tuple of (part_num, session_num) if found
+fn strip_title_suffix(title: &str) -> (String, Option<u32>, Option<u32>) {
+    let re = Regex::new(r"(?i)\s*\((?:Part\s+(\d+)(?:,\s*Session\s+(\d+))?|Session\s+(\d+))\)\s*$")
+        .expect("valid regex");
+    
+    if let Some(caps) = re.captures(title) {
+        let base_title = title[..caps.get(0).unwrap().start()].trim().to_string();
+        
+        let part_num = caps.get(1).and_then(|m| m.as_str().parse().ok());
+        let session_num = caps.get(2).or_else(|| caps.get(3)).and_then(|m| m.as_str().parse().ok());
+        
+        (base_title, part_num, session_num)
+    } else {
+        (title.to_string(), None, None)
+    }
+}
+
 /// Prepend a narrowed base/part prefix tail to an existing sibling field value.
 ///
 /// When a common prefix narrows and the stripped portion needs to be pushed down
@@ -926,21 +950,40 @@ fn read_events_v5(
         }
 
         let uniq_id = get_field(&data, &["Uniq_ID", "UniqID", "ID", "Id"]).cloned();
-        let name = match get_field(&data, &["Name", "Panel_Name", "PanelName"]) {
+        let raw_name = match get_field(&data, &["Name", "Panel_Name", "PanelName"]) {
             Some(n) => n.clone(),
             None => continue,
         };
+        
+        // Strip trailing part/session numbers from title
+        let (name, title_part_num, title_session_num) = strip_title_suffix(&raw_name);
 
         let panel_id = match PanelId::parse(&uniq_id.as_deref().unwrap_or("")) {
             Some(pid) => pid,
             None => {
                 // Create a fake panel ID for rows without proper IDs
+                // Use title-derived parts if available
                 PanelId {
                     base_id: format!("row{}", row),
-                    part_num: None,
-                    session_num: None,
+                    part_num: title_part_num,
+                    session_num: title_session_num,
                 }
             }
+        };
+        
+        // Check for conflicts between title suffixes and Uniq ID parts
+        let has_conflict = match (&panel_id.part_num, &panel_id.session_num, &title_part_num, &title_session_num) {
+            (None, None, Some(_), Some(_)) => true,  // ID has none, title has both
+            (None, None, Some(_), None) => true,     // ID has none, title has part
+            (None, None, None, Some(_)) => true,     // ID has none, title has session
+            (Some(_id_part), None, None, Some(_)) => true,  // ID has part, title has session
+            (None, Some(_id_session), Some(_), None) => true, // ID has session, title has part
+            (Some(id_part), Some(id_session), Some(title_part), Some(title_session)) => {
+                id_part != title_part || id_session != title_session
+            }
+            (Some(id_part), None, Some(title_part), None) => id_part != title_part,
+            (None, Some(id_session), None, Some(title_session)) => id_session != title_session,
+            _ => false,
         };
 
         let start_time = parse_datetime_value(
@@ -1271,6 +1314,22 @@ fn read_events_v5(
             session.prereq = Some(part_prereq_suffix);
         }
 
+        // Add conflict if detected
+        if has_conflict {
+            let conflict_details = format!(
+                "Title suffix (Part:{}, Session:{}) doesn't match Uniq ID (Part:{}, Session:{})",
+                title_part_num.unwrap_or(0),
+                title_session_num.unwrap_or(0),
+                panel_id.part_num.unwrap_or(0),
+                panel_id.session_num.unwrap_or(0)
+            );
+            session.conflicts.push(super::event::EventConflict {
+                conflict_type: "title_id_mismatch".to_string(),
+                details: Some(conflict_details),
+                conflict_event_id: None,
+            });
+        }
+
         // Store alt_panelist at session level; post-processing promotes uniform values upward.
         session.alt_panelist = alt_panelist;
 
@@ -1332,6 +1391,43 @@ fn read_events_v5(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn test_strip_title_suffix() {
+        // Test basic suffix removal
+        let (title, part, session) = strip_title_suffix("My Panel (Part 1)");
+        assert_eq!(title, "My Panel");
+        assert_eq!(part, Some(1));
+        assert_eq!(session, None);
+
+        let (title, part, session) = strip_title_suffix("My Panel (Session 2)");
+        assert_eq!(title, "My Panel");
+        assert_eq!(part, None);
+        assert_eq!(session, Some(2));
+
+        let (title, part, session) = strip_title_suffix("My Panel (Part 3, Session 2)");
+        assert_eq!(title, "My Panel");
+        assert_eq!(part, Some(3));
+        assert_eq!(session, Some(2));
+
+        // Test no suffix
+        let (title, part, session) = strip_title_suffix("My Panel");
+        assert_eq!(title, "My Panel");
+        assert_eq!(part, None);
+        assert_eq!(session, None);
+
+        // Test with extra spaces
+        let (title, part, session) = strip_title_suffix("My Panel   (Part 1)   ");
+        assert_eq!(title, "My Panel");
+        assert_eq!(part, Some(1));
+        assert_eq!(session, None);
+
+        // Test case insensitive
+        let (title, part, session) = strip_title_suffix("My Panel (part 1, session 2)");
+        assert_eq!(title, "My Panel");
+        assert_eq!(part, Some(1));
+        assert_eq!(session, Some(2));
+    }
 
     #[test]
     fn test_canonical_header() {

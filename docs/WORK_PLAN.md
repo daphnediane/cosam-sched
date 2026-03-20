@@ -1,6 +1,6 @@
 # Cosplay America Schedule - Work Plan
 
-Generated on: Thu Mar 19 20:29:17 2026
+Generated on: Fri Mar 20 00:18:04 2026
 
 ## Completed
 
@@ -20,6 +20,8 @@ Generated on: Thu Mar 19 20:29:17 2026
 * [CLEANUP-002] Migrate to an `apps/` + `crates/` Rust workspace layout, retire the legacy Perl converter now that parity is reached, and track the remaining non-blocking cleanup follow-up items.
 * [EDITOR-500] Add the ability to import schedule data from XLSX spreadsheets.
 * [EDITOR-500] Add the ability to import schedule data from XLSX spreadsheets.
+* [EDITOR-503] Detect and highlight scheduling conflicts between events.
+* [EDITOR-503] Detect and highlight scheduling conflicts between events.
 * [EDITOR-504] Implement saving the schedule as JSON, matching the format consumed by the widget.
 * [EDITOR-504] Implement saving the schedule as JSON, matching the format consumed by the widget.
 * [FEATURE-001] Implement a two-part system for Cosplay America schedule management.
@@ -67,7 +69,7 @@ the base→part→session hierarchy in the UI.
 
 ## Summary of Open Items
 
-**Total open items:** 44
+**Total open items:** 42
 
 * **High Priority**
   * [ACCESSIBILITY-001] Implement comprehensive accessibility improvements for screen readers and color blindness support.
@@ -88,8 +90,6 @@ the base→part→session hierarchy in the UI.
   * [UI-002] Prevent event titles from overlapping with the "my schedule" star icon.
 
 * **Medium Priority**
-  * [EDITOR-503] Detect and highlight scheduling conflicts between events.
-  * [EDITOR-503] Detect and highlight scheduling conflicts between events.
   * [EDITOR-505] Enable drag-and-drop to move events between time slots and rooms.
   * [EDITOR-505] Enable drag-and-drop to move events between time slots and rooms.
   * [EDITOR-506] Implement undo/redo for all editing operations.
@@ -324,26 +324,6 @@ The 2025 schedule shows this pattern:
 **Description:** Currently, long event titles can underlap the star icon, making both difficult to read.
 
 ## Open Medium Priority Items
-
-### [EDITOR-503] Conflict Detection
-
-**Status:** Open
-
-**Summary:** Detect and highlight scheduling conflicts between events.
-
-**Description:** Automatically identify events that overlap in the same room or involve the same presenter at the same time. Display conflicts visually and provide a summary view.
-
----
-
-### [EDITOR-503] Conflict Detection
-
-**Status:** Open
-
-**Summary:** Detect and highlight scheduling conflicts between events.
-
-**Description:** Automatically identify events that overlap in the same room or involve the same presenter at the same time. Display conflicts visually and provide a summary view.
-
----
 
 ### [EDITOR-505] Drag-and-Drop Event Scheduling
 

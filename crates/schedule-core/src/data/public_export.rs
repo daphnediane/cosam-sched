@@ -244,12 +244,28 @@ impl Schedule {
                         }
                     }
 
+                    let mut panel_name = panel.name.clone();
+                    
+                    // Add part/session suffixes for multi-part or multi-session panels
+                    if part.part_num.is_some() || session.session_num.is_some() {
+                        let mut suffix_parts = Vec::new();
+                        if let Some(part_num) = part.part_num {
+                            suffix_parts.push(format!("Part {}", part_num));
+                        }
+                        if let Some(session_num) = session.session_num {
+                            suffix_parts.push(format!("Session {}", session_num));
+                        }
+                        if !suffix_parts.is_empty() {
+                            panel_name = format!("{} ({})", panel_name, suffix_parts.join(", "));
+                        }
+                    }
+
                     flat_panels.push(PublicPanel {
                         id: session.id.clone(),
                         base_id: panel.id.clone(),
                         part_num: part.part_num,
                         session_num: session.session_num,
-                        name: panel.name.clone(),
+                        name: panel_name,
                         panel_type: panel.panel_type.clone(),
                         room_ids: session.room_ids.clone(),
                         start_time: session.start_time.clone(),

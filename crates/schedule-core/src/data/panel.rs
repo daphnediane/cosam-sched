@@ -77,6 +77,8 @@ pub struct PanelSession {
     pub sewing_machines: bool,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub av_notes: Option<String>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub conflicts: Vec<super::event::EventConflict>,
     #[serde(skip_serializing_if = "IndexMap::is_empty")]
     pub extras: ExtraFields,
     #[serde(skip)]
@@ -239,6 +241,7 @@ impl PanelPart {
                 power_needs: None,
                 sewing_machines: false,
                 av_notes: None,
+                conflicts: Vec::new(),
                 extras: IndexMap::new(),
                 source: None,
                 change_state: ChangeState::Unchanged,
