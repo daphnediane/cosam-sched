@@ -120,69 +120,156 @@
       };
       this.filtersOpen = false;
       this.modalEvent = null;
-      this._loadTheme();
-      this._loadStarred();
+      this.stylePageBody = false;
+      this._hasRestoredState = false;
+      this._loadState();
+      this._loadFromHash();
     }
 
     _storageKey() { return 'cosam-calendar-starred'; }
     _themeStorageKey() { return 'cosam-calendar-theme'; }
+    _stateStorageKey() { return 'cosam-calendar-state'; }
 
-    _loadTheme() {
+    _loadState() {
       try {
-        const raw = localStorage.getItem(this._themeStorageKey());
-        if (raw) this.theme = raw;
+        const raw = localStorage.getItem(this._stateStorageKey());
+        if (raw) {
+          const saved = JSON.parse(raw);
+          if (saved.theme) this.theme = saved.theme;
+          if (saved.view) this.view = saved.view;
+          if (saved.activeDay !== undefined) this.activeDay = saved.activeDay;
+          if (saved.filtersOpen !== undefined) this.filtersOpen = saved.filtersOpen;
+          if (saved.starred) this.starred = new Set(saved.starred);
+          if (saved.filters) {
+            if (saved.filters.search) this.filters.search = saved.filters.search;
+            if (saved.filters.rooms) this.filters.rooms = new Set(saved.filters.rooms);
+            if (saved.filters.types) this.filters.types = new Set(saved.filters.types);
+            if (saved.filters.cost) this.filters.cost = saved.filters.cost;
+            if (saved.filters.presenter) this.filters.presenter = saved.filters.presenter;
+            if (saved.filters.starredOnly) this.filters.starredOnly = saved.filters.starredOnly;
+          }
+          this._hasRestoredState = true;
+          return;
+        }
+      } catch (e) { /* ignore */ }
+
+      try {
+        const themeRaw = localStorage.getItem(this._themeStorageKey());
+        if (themeRaw) this.theme = themeRaw;
+      } catch (e) { /* ignore */ }
+      try {
+        const starredRaw = localStorage.getItem(this._storageKey());
+        if (starredRaw) this.starred = new Set(JSON.parse(starredRaw));
       } catch (e) { /* ignore */ }
     }
 
-    _saveTheme() {
+    _saveState() {
       try {
-        localStorage.setItem(this._themeStorageKey(), this.theme);
+        const state = {
+          theme: this.theme,
+          view: this.view,
+          activeDay: this.activeDay,
+          filtersOpen: this.filtersOpen,
+          starred: [...this.starred],
+          filters: {
+            search: this.filters.search,
+            rooms: [...this.filters.rooms],
+            types: [...this.filters.types],
+            cost: this.filters.cost,
+            presenter: this.filters.presenter,
+            starredOnly: this.filters.starredOnly,
+          },
+        };
+        localStorage.setItem(this._stateStorageKey(), JSON.stringify(state));
       } catch (e) { /* ignore */ }
     }
 
     setTheme(theme) {
       this.theme = theme || 'cosam';
-      this._saveTheme();
-    }
-
-    _loadStarred() {
-      try {
-        const raw = localStorage.getItem(this._storageKey());
-        if (raw) this.starred = new Set(JSON.parse(raw));
-      } catch (e) { /* ignore */ }
-      // Also check URL hash
-      this._loadFromHash();
-    }
-
-    _saveStarred() {
-      try {
-        localStorage.setItem(this._storageKey(), JSON.stringify([...this.starred]));
-      } catch (e) { /* ignore */ }
+      this._saveState();
     }
 
     _loadFromHash() {
       const hash = window.location.hash;
-      if (!hash) return;
-      const m = hash.match(/starred=([^&]+)/);
-      if (m) {
-        const ids = decodeURIComponent(m[1]).split(',').filter(Boolean);
+      if (!hash || hash.length < 2) return;
+      const params = new URLSearchParams(hash.substring(1));
+
+      if (params.has('starred')) {
+        const ids = decodeURIComponent(params.get('starred')).split(',').filter(Boolean);
         if (ids.length > 0) {
           for (const id of ids) this.starred.add(id);
-          this._saveStarred();
         }
       }
+      if (params.has('view')) {
+        const view = params.get('view');
+        if (view === 'list' || view === 'grid') this.view = view;
+      }
+      if (params.has('day')) {
+        this.activeDay = params.get('day') || null;
+      }
+      if (params.has('search')) {
+        this.filters.search = params.get('search');
+      }
+      if (params.has('rooms')) {
+        const rooms = decodeURIComponent(params.get('rooms')).split(',').filter(Boolean);
+        this.filters.rooms = new Set(rooms);
+      }
+      if (params.has('types')) {
+        const types = decodeURIComponent(params.get('types')).split(',').filter(Boolean);
+        this.filters.types = new Set(types);
+      }
+      if (params.has('cost')) {
+        this.filters.cost = params.get('cost');
+      }
+      if (params.has('presenter')) {
+        this.filters.presenter = decodeURIComponent(params.get('presenter'));
+      }
+      if (params.has('starredOnly')) {
+        this.filters.starredOnly = params.get('starredOnly') === '1';
+      }
+
+      this._saveState();
     }
 
     toggleStar(eventId) {
       if (this.starred.has(eventId)) this.starred.delete(eventId);
       else this.starred.add(eventId);
-      this._saveStarred();
+      this._saveState();
     }
 
     getShareUrl() {
-      if (this.starred.size === 0) return window.location.href.split('#')[0];
-      const ids = [...this.starred].join(',');
-      return window.location.href.split('#')[0] + '#starred=' + encodeURIComponent(ids);
+      const parts = [];
+
+      if (this.starred.size > 0) {
+        parts.push('starred=' + encodeURIComponent([...this.starred].join(',')));
+      }
+      if (this.view && this.view !== 'list') {
+        parts.push('view=' + this.view);
+      }
+      if (this.activeDay) {
+        parts.push('day=' + encodeURIComponent(this.activeDay));
+      }
+      if (this.filters.search) {
+        parts.push('search=' + encodeURIComponent(this.filters.search));
+      }
+      if (this.filters.rooms.size > 0) {
+        parts.push('rooms=' + encodeURIComponent([...this.filters.rooms].join(',')));
+      }
+      if (this.filters.types.size > 0) {
+        parts.push('types=' + encodeURIComponent([...this.filters.types].join(',')));
+      }
+      if (this.filters.cost && this.filters.cost !== 'all') {
+        parts.push('cost=' + this.filters.cost);
+      }
+      if (this.filters.presenter) {
+        parts.push('presenter=' + encodeURIComponent(this.filters.presenter));
+      }
+      if (this.filters.starredOnly) {
+        parts.push('starredOnly=1');
+      }
+
+      const base = window.location.href.split('#')[0];
+      return parts.length > 0 ? base + '#' + parts.join('&') : base;
     }
 
     _isBreakEvent(e) {
@@ -319,7 +406,10 @@
         this.root.appendChild(el('div', { className: 'cosam-loading' }, 'Loading schedule...'));
         return;
       }
-      this.root.setAttribute('data-theme', this.state.theme || 'cosam');
+      const theme = this.state.theme || 'cosam';
+      this.root.setAttribute('data-theme', theme);
+      this._applyPageStyling(theme);
+      this.state._saveState();
       this._ensurePanelTypeThemeStyles();
       this.root.appendChild(el('a', { className: 'cosam-skip-link', href: '#' + this._eventsRegionId }, 'Skip to events'));
       this.root.appendChild(this._buildToolbar());
@@ -343,6 +433,19 @@
       this.root.appendChild(eventsRegion);
 
       this.root.appendChild(this._buildModal());
+
+      // Apply color bar styles after rendering
+      this._updateColorBarStyles();
+    }
+
+    _applyPageStyling(theme) {
+      if (this.state.stylePageBody) {
+        document.body.classList.add('cosam-page-styled');
+        document.body.setAttribute('data-cosam-theme', theme);
+      } else {
+        document.body.classList.remove('cosam-page-styled');
+        document.body.removeAttribute('data-cosam-theme');
+      }
     }
 
     _normalizePanelTypeUid(value) {
@@ -384,22 +487,42 @@
       const panelTypes = this.state.data && this.state.data.panelTypes;
       if (!Array.isArray(panelTypes) || panelTypes.length === 0) return;
 
-      const styleId = 'cosam-panel-type-style';
-      let styleEl = document.getElementById(styleId);
-      if (!styleEl) {
-        styleEl = document.createElement('style');
-        styleEl.id = styleId;
-        document.head.appendChild(styleEl);
-      }
-
-      const rules = [];
+      // Store panel type colors for direct application
+      this._panelTypeColors = new Map();
       for (const pt of panelTypes) {
         const cls = this._panelTypeClass(pt.uid || pt.prefix);
         if (!cls || !pt.color) continue;
-        rules.push(`.cosam-calendar .cosam-event-color-bar.${cls}{background:${pt.color};}`);
-        rules.push(`.cosam-calendar .cosam-grid-event.${cls}{border-left-color:${pt.color};}`);
+        this._panelTypeColors.set(cls, pt.color);
       }
-      styleEl.textContent = rules.join('\n');
+
+      // Apply styles to existing color bars
+      this._updateColorBarStyles();
+    }
+
+    _updateColorBarStyles() {
+      if (!this._panelTypeColors) return;
+
+      // Update list view color bars
+      const colorBars = this.root.querySelectorAll('.cosam-event-color-bar');
+      for (const bar of colorBars) {
+        for (const [cls, color] of this._panelTypeColors) {
+          if (bar.classList.contains(cls)) {
+            bar.style.backgroundColor = color;
+            break;
+          }
+        }
+      }
+
+      // Update grid view events
+      const gridEvents = this.root.querySelectorAll('.cosam-grid-event');
+      for (const event of gridEvents) {
+        for (const [cls, color] of this._panelTypeColors) {
+          if (event.classList.contains(cls)) {
+            event.style.borderLeftColor = color;
+            break;
+          }
+        }
+      }
     }
 
     // ── Toolbar ──
@@ -479,7 +602,7 @@
         'aria-label': 'Theme',
       });
       const themeOptions = [
-        ['cosam', 'CosAm'],
+        ['cosam', 'Default'],
         ['light', 'Light'],
         ['dark', 'Dark'],
         ['high-contrast', 'High Contrast'],
@@ -724,7 +847,8 @@
       for (const timeKey of sortedTimeKeys) {
         const evts = groups.get(timeKey);
         const group = el('div', { className: 'cosam-time-group' });
-        let timeLabel = evts[0] ? formatTime(evts[0].startTime) : timeKey;
+        const timeLabel = evts[0] ? formatTime(evts[0].startTime) : timeKey;
+        let dayLabel = null;
         if (showAllDays && evts[0]) {
           const dayKey = getDayKey(evts[0].startTime);
           if (dayKey !== lastDayKey) {
@@ -735,13 +859,15 @@
               sleepBreak.appendChild(el('div', { className: 'cosam-sleep-break-text' }, 'Overnight Break'));
               container.appendChild(sleepBreak);
             }
-            timeLabel = getDayLabel(evts[0].startTime) + '\n' + timeLabel;
+            dayLabel = getDayLabel(evts[0].startTime);
             lastDayKey = dayKey;
           }
         }
         const timeHeader = el('div', { className: 'cosam-time-header' });
-        timeHeader.style.whiteSpace = 'pre-line';
-        timeHeader.textContent = timeLabel;
+        if (dayLabel) {
+          timeHeader.appendChild(el('div', { className: 'cosam-time-header-day' }, dayLabel));
+        }
+        timeHeader.appendChild(el('div', { className: 'cosam-time-header-time' }, timeLabel));
         group.appendChild(timeHeader);
 
         for (const evt of evts) {
@@ -1534,12 +1660,18 @@
     }
     state.days = [...daySet.entries()].sort((a, b) => a[0].localeCompare(b[0])).map(([key, label]) => ({ key, label }));
 
-    // Default to All Days
-    state.activeDay = null;
+    // Only set defaults if no saved/hash state was loaded
+    if (!state._hasRestoredState) {
+      state.activeDay = null;
+      state.view = window.innerWidth >= 768 ? 'grid' : 'list';
+    }
 
-    // Default view: grid on desktop, list on mobile
-    state.view = window.innerWidth >= 768 ? 'grid' : 'list';
+    // Validate restored activeDay against available days
+    if (state.activeDay && !state.days.some(d => d.key === state.activeDay)) {
+      state.activeDay = null;
+    }
 
+    renderer._ensurePanelTypeThemeStyles();
     renderer.render();
   }
 
@@ -1566,6 +1698,9 @@
       if (!rootEl) { console.error('CosAmCalendar: element not found:', opts.el); return; }
 
       const state = new CalendarState();
+      if (opts.stylePageBody !== undefined) {
+        state.stylePageBody = !!opts.stylePageBody;
+      }
       const renderer = new CalendarRenderer(rootEl, state);
 
       // Show loading

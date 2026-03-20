@@ -43,7 +43,7 @@ This avoids recompiling when only widget files change.
 
 ### Batch rebuild
 
-`./scripts/rebuild-json.sh` processes all years from `input/` into `output/`.
+`./scripts/export-schedules.sh` processes all years from `input/` into `output/`.
 
 ### Minification
 

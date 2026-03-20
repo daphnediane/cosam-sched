@@ -32,11 +32,7 @@ impl Default for WidgetSources {
     }
 }
 
-fn resolve_asset_path(
-    value: &str,
-    extension: &str,
-    default_basename: &str,
-) -> Result<PathBuf> {
+fn resolve_asset_path(value: &str, extension: &str, default_basename: &str) -> Result<PathBuf> {
     let path = Path::new(value);
 
     if path.is_file() {
@@ -115,9 +111,7 @@ impl WidgetSources {
             } else {
                 let tmpl_path = Path::new(tmpl_val);
                 sources.template = std::fs::read_to_string(tmpl_path)
-                    .with_context(|| {
-                        format!("Failed to read template: {}", tmpl_path.display())
-                    })?;
+                    .with_context(|| format!("Failed to read template: {}", tmpl_path.display()))?;
             }
         }
 
@@ -129,7 +123,13 @@ pub fn generate_embed_html(
     json_data: &str,
     sources: &WidgetSources,
     minified: bool,
+    style_page: Option<bool>,
 ) -> Result<String> {
+    let style_page_line = match style_page {
+        Some(true) => "\n            stylePageBody: true,",
+        Some(false) => "\n            stylePageBody: false,",
+        None => "",
+    };
     let raw = format!(
         r#"{COPYRIGHT_COMMENT}
 <style>
@@ -153,7 +153,7 @@ window.cosamScheduleData = {json_data};
     if (typeof CosAmCalendar !== 'undefined' && window.cosamScheduleData) {{
         CosAmCalendar.init({{
             el: document.getElementById('cosam-calendar-root'),
-            data: window.cosamScheduleData
+            data: window.cosamScheduleData,{style_page_line}
         }});
     }}
 }})();
@@ -174,8 +174,9 @@ pub fn generate_test_html(
     title: &str,
     sources: &WidgetSources,
     minified: bool,
+    style_page: Option<bool>,
 ) -> Result<String> {
-    let embed_block = generate_embed_html(json_data, sources, false)?;
+    let embed_block = generate_embed_html(json_data, sources, false, style_page)?;
 
     let raw = sources
         .template
@@ -205,8 +206,9 @@ pub fn write_embed_html(
     json_data: &str,
     sources: &WidgetSources,
     minified: bool,
+    style_page: Option<bool>,
 ) -> Result<()> {
-    let html = generate_embed_html(json_data, sources, minified)?;
+    let html = generate_embed_html(json_data, sources, minified, style_page)?;
     if let Some(parent) = path.parent() {
         std::fs::create_dir_all(parent)
             .with_context(|| format!("Failed to create directory: {}", parent.display()))?;
@@ -215,11 +217,7 @@ pub fn write_embed_html(
         .with_context(|| format!("Failed to write embed HTML: {}", path.display()))?;
 
     let size = html.len();
-    eprintln!(
-        "Embed HTML: {} ({})",
-        path.display(),
-        format_size(size)
-    );
+    eprintln!("Embed HTML: {} ({})", path.display(), format_size(size));
     Ok(())
 }
 
@@ -229,8 +227,9 @@ pub fn write_test_html(
     title: &str,
     sources: &WidgetSources,
     minified: bool,
+    style_page: Option<bool>,
 ) -> Result<()> {
-    let html = generate_test_html(json_data, title, sources, minified)?;
+    let html = generate_test_html(json_data, title, sources, minified, style_page)?;
     if let Some(parent) = path.parent() {
         std::fs::create_dir_all(parent)
             .with_context(|| format!("Failed to create directory: {}", parent.display()))?;
@@ -239,11 +238,7 @@ pub fn write_test_html(
         .with_context(|| format!("Failed to write test HTML: {}", path.display()))?;
 
     let size = html.len();
-    eprintln!(
-        "Test HTML: {} ({})",
-        path.display(),
-        format_size(size)
-    );
+    eprintln!("Test HTML: {} ({})", path.display(), format_size(size));
     Ok(())
 }
 

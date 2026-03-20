@@ -26,6 +26,7 @@ struct CliArgs {
     widget_js: Option<String>,
     test_template: Option<String>,
     minified: bool,
+    style_page: Option<bool>,
 }
 
 fn parse_args() -> anyhow::Result<CliArgs> {
@@ -45,6 +46,7 @@ fn parse_args() -> anyhow::Result<CliArgs> {
     let mut widget_js: Option<String> = None;
     let mut test_template: Option<String> = None;
     let mut minified = true;
+    let mut style_page: Option<bool> = None;
 
     let mut index = 1;
     while index < arguments.len() {
@@ -153,6 +155,12 @@ fn parse_args() -> anyhow::Result<CliArgs> {
             "--no-minified" | "--for-debug" => {
                 minified = false;
             }
+            "--style-page" => {
+                style_page = Some(true);
+            }
+            "--no-style-page" => {
+                style_page = Some(false);
+            }
             "--help" | "-h" => {
                 print_usage();
                 std::process::exit(0);
@@ -188,6 +196,7 @@ fn parse_args() -> anyhow::Result<CliArgs> {
         widget_js,
         test_template,
         minified,
+        style_page,
     })
 }
 
@@ -214,6 +223,8 @@ fn print_usage() {
          \x20 --test-template <builtin|file>       Override test page template\n\
          \x20 --minified                           Minify output (default)\n\
          \x20 --no-minified, --for-debug           Skip minification for debugging\n\
+         \x20 --style-page                         Set stylePageBody: true in widget init\n\
+         \x20 --no-style-page                      Set stylePageBody: false in widget init\n\
          \n\
          If neither --output nor --export is given, the input is parsed and summarized."
     );
@@ -412,7 +423,13 @@ fn main() {
         };
 
         if let Some(ref embed_path) = cli.export_embed {
-            match widget_embed::write_embed_html(embed_path, &json_data, &sources, cli.minified) {
+            match widget_embed::write_embed_html(
+                embed_path,
+                &json_data,
+                &sources,
+                cli.minified,
+                cli.style_page,
+            ) {
                 Ok(()) => {}
                 Err(error) => {
                     eprintln!("Error writing embed HTML: {error}");
@@ -433,6 +450,7 @@ fn main() {
                 title,
                 &sources,
                 cli.minified,
+                cli.style_page,
             ) {
                 Ok(()) => {}
                 Err(error) => {

@@ -1,6 +1,6 @@
 #!/bin/bash
 
-# Helper script to rebuild all JSON files for testing
+# Helper script to export all schedule files
 # Copyright (c) 2026 Daphne Pfister
 # SPDX-License-Identifier: BSD-2-Clause
 
@@ -20,13 +20,24 @@ echo ""
 
 mkdir -p "$OUTPUT_DIR"
 
+# Build cosam-convert once at the start
+echo "Building cosam-convert..."
+cd "$ROOT_DIR"
+cargo build -p cosam-convert --release
+CONVERT_BIN="$ROOT_DIR/target/release/cosam-convert"
+
 declare -a built=()
+declare -a failed=()
 
 for year in $(seq 2016 $(date +%Y)); do
+    year_dir="$OUTPUT_DIR/$year"
+    mkdir -p "$year_dir"
     src="$INPUT_DIR/${year} Schedule.xlsx"
-    dest="$OUTPUT_DIR/${year}.json"
-    embed="$OUTPUT_DIR/${year}-embed.html"
-    test_html="$OUTPUT_DIR/${year}-test.html"
+    dest="$year_dir/public.json"
+    embed="$year_dir/embed.html"
+    test_html="$year_dir/test.html"
+    style_page="$year_dir/style-page.html"
+    style_embed="$year_dir/style-embed.html"
     if [ ! -f "$src" ]; then
         echo "Skipping ${year} - file not found"
         continue
@@ -34,18 +45,25 @@ for year in $(seq 2016 $(date +%Y)); do
 
     # Build files for this year
     echo "Building ${year} files..."
-    cd "$ROOT_DIR"
 
     echo "  Building ${year}.json, embed, and test page..."
-    cargo run -p cosam-convert -- \
+    "$CONVERT_BIN" \
         --input "$src" \
         --export "$dest" \
         --export-embed "$embed" \
         --export-test "$test_html" \
         --title "Cosplay America ${year} Schedule" &&
-        built+=("${year} (json + embed + test)") ||
-        built+=("${year} - FAILED")
-
+        built+=("$dest" "$embed" "$test_html") ||
+        failed+=("$dest" "$embed" "$test_html")
+    echo "  Building ${year} style page..."
+    "$CONVERT_BIN" \
+        --input "$src" \
+        --export-test "$style_page" \
+        --export-embed "$style_embed" \
+        --style-page \
+        --title "Cosplay America ${year} Schedule" &&
+        built+=("$style_page" "$style_embed") ||
+        failed+=("$style_page" "$style_embed")
 done
 
 echo "All JSON files rebuilt successfully!"
@@ -54,3 +72,12 @@ echo "Files created:"
 for file in "${built[@]}"; do
     echo "  - $file"
 done
+
+if [ ${#failed[@]} -gt 0 ]; then
+    echo ""
+    echo "Files failed:"
+    for file in "${failed[@]}"; do
+        echo "  - $file"
+    done
+    exit 10
+fi

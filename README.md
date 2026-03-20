@@ -131,5 +131,5 @@ cargo run -p cosam-convert -- \
 Rebuild all years at once:
 
 ```bash
-./scripts/rebuild-json.sh
+./scripts/export-schedules.sh
 ```
