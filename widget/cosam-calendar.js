@@ -1546,7 +1546,7 @@
             location.reload();
           }
         })
-        .catch(function () {});
+        .catch(function () { });
     }, 2000);
   }
 
