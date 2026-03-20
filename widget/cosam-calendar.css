@@ -7,6 +7,10 @@
   --cosam-accent-bg: #f3e8ff;
   --cosam-bg: #f5f5f5;
   --cosam-bg-alt: #f9fafb;
+  --cosam-widget-bg: transparent;
+  --cosam-page-bg: inherit;
+  --cosam-page-text: #1f2937;
+  --cosam-time-header-bg: transparent;
   --cosam-border: #e5e7eb;
   --cosam-text: #1f2937;
   --cosam-text-muted: #6b7280;
@@ -18,8 +22,8 @@
   --cosam-full: #ef4444;
   --cosam-focus-ring: #111827;
   --cosam-grid-bg: #f5f5f5;
-  --cosam-grid-header-bg: #40c8ed;
-  --cosam-grid-header-text: #18191c;
+  --cosam-grid-header-bg: #2a9ec7;
+  --cosam-grid-header-text: #ffffff;
   --cosam-grid-line: rgba(183, 235, 248, 0.55);
   --cosam-grid-border: #40c8ed;
   --cosam-grid-border-soft: #d0d0d0;
@@ -27,6 +31,8 @@
   --cosam-break-bg: repeating-linear-gradient(-45deg, #e0e0e0, #e0e0e0 8px, #d5d5d5 8px, #d5d5d5 16px);
   --cosam-break-border: #c0c0c0;
   --cosam-break-text: #666;
+  --cosam-footer-bg: #2a9ec7;
+  --cosam-footer-text: #ffffff;
   --cosam-radius: 8px;
   --cosam-shadow: 0 1px 3px rgba(0, 0, 0, 0.1);
   --cosam-font: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
@@ -37,6 +43,9 @@
   box-sizing: border-box;
   max-width: 1200px;
   margin: 0 auto;
+  background: var(--cosam-widget-bg);
+  padding: 16px;
+  border-radius: var(--cosam-radius);
 }
 
 .cosam-calendar[data-theme="light"] {
@@ -45,6 +54,10 @@
   --cosam-accent-bg: #e0f2fe;
   --cosam-bg: #ffffff;
   --cosam-bg-alt: #f8fafc;
+  --cosam-widget-bg: #f8fafc;
+  --cosam-page-bg: #f8fafc;
+  --cosam-page-text: #0f172a;
+  --cosam-time-header-bg: #f8fafc;
   --cosam-border: #dbe3ee;
   --cosam-text: #0f172a;
   --cosam-text-muted: #475569;
@@ -57,6 +70,8 @@
   --cosam-grid-border: #7dd3fc;
   --cosam-grid-border-soft: #bfd3e3;
   --cosam-event-bg: #ffffff;
+  --cosam-footer-bg: #e0f2fe;
+  --cosam-footer-text: #0c4a6e;
 }
 
 .cosam-calendar[data-theme="dark"] {
@@ -65,6 +80,10 @@
   --cosam-accent-bg: #1e293b;
   --cosam-bg: #0b1220;
   --cosam-bg-alt: #131c2f;
+  --cosam-widget-bg: #0f1729;
+  --cosam-page-bg: #0f1729;
+  --cosam-page-text: #e5edf7;
+  --cosam-time-header-bg: #0f1729;
   --cosam-border: #22314a;
   --cosam-text: #e5edf7;
   --cosam-text-muted: #9fb3cc;
@@ -80,6 +99,8 @@
   --cosam-break-bg: repeating-linear-gradient(-45deg, #1f2937, #1f2937 8px, #111827 8px, #111827 16px);
   --cosam-break-border: #334155;
   --cosam-break-text: #cbd5e1;
+  --cosam-footer-bg: #000000;
+  --cosam-footer-text: #ffff00;
 }
 
 .cosam-calendar[data-theme="high-contrast"] {
@@ -88,6 +109,10 @@
   --cosam-accent-bg: #000000;
   --cosam-bg: #000000;
   --cosam-bg-alt: #111111;
+  --cosam-widget-bg: #000000;
+  --cosam-page-bg: #000000;
+  --cosam-page-text: #ffffff;
+  --cosam-time-header-bg: #000000;
   --cosam-border: #ffffff;
   --cosam-text: #ffffff;
   --cosam-text-muted: #ffffff;
@@ -104,6 +129,8 @@
   --cosam-break-bg: repeating-linear-gradient(-45deg, #000000, #000000 8px, #222222 8px, #222222 16px);
   --cosam-break-border: #ffffff;
   --cosam-break-text: #ffffff;
+  --cosam-footer-bg: #000000;
+  --cosam-footer-text: #ffffff;
 }
 
 .cosam-calendar *,
@@ -120,7 +147,9 @@
   gap: 8px;
   align-items: center;
   margin-bottom: 12px;
-  padding: 8px 0;
+  padding: 8px 12px;
+  background: var(--cosam-bg);
+  border-radius: var(--cosam-radius);
 }
 
 .cosam-toolbar-left {
@@ -164,6 +193,11 @@
   border-color: var(--cosam-accent);
 }
 
+/* High contrast: active buttons need dark text for contrast against yellow background */
+.cosam-calendar[data-theme="high-contrast"] .cosam-btn.active {
+  color: #000;
+}
+
 .cosam-btn-icon {
   padding: 6px 8px;
 }
@@ -196,13 +230,16 @@
   margin-bottom: 16px;
   overflow-x: auto;
   -webkit-overflow-scrolling: touch;
+  background: var(--cosam-bg);
+  border-radius: var(--cosam-radius) var(--cosam-radius) 0 0;
+  padding: 0 8px;
 }
 
 .cosam-day-tab {
   padding: 10px 20px;
   border: none;
   background: none;
-  color: var(--cosam-text-muted);
+  color: var(--cosam-text);
   font-size: 15px;
   font-weight: 500;
   cursor: pointer;
@@ -347,6 +384,7 @@
   font-size: 14px;
   font-family: var(--cosam-font);
   color: var(--cosam-text);
+  background: var(--cosam-event-bg);
 }
 
 /* ── List View ────────────────────────────────────────────────────────────── */
@@ -365,13 +403,29 @@
   font-size: 14px;
   font-weight: 600;
   color: var(--cosam-accent);
-  padding: 6px 0;
+  padding: 6px 16px;
   border-bottom: 1px solid var(--cosam-border);
   margin-bottom: 8px;
   position: sticky;
   top: 0;
-  background: var(--cosam-bg);
+  background: var(--cosam-time-header-bg, var(--cosam-bg));
   z-index: 2;
+}
+
+/* Time headers: transparent background, no left padding, no border for cleaner look */
+.cosam-time-header {
+  background: transparent;
+  padding-left: 0;
+  border-bottom: none;
+}
+
+.cosam-time-header-day {
+  font-size: 15px;
+  font-weight: 700;
+}
+
+.cosam-time-header-time {
+  font-size: 14px;
 }
 
 .cosam-event-card {
@@ -1006,6 +1060,38 @@
   background: transparent;
 }
 
+/* ── Page-level Styling (opt-in via stylePageBody) ────────────────────────── */
+
+body.cosam-page-styled[data-cosam-theme="light"] {
+  background-color: #f8fafc !important;
+  color: #0f172a !important;
+}
+
+body.cosam-page-styled[data-cosam-theme="dark"] {
+  background-color: #0f1729 !important;
+  color: #e5edf7 !important;
+}
+
+body.cosam-page-styled[data-cosam-theme="high-contrast"] {
+  background-color: #000000 !important;
+  color: #ffffff !important;
+}
+
+body.cosam-page-styled h1,
+body.cosam-page-styled h2,
+body.cosam-page-styled h3,
+body.cosam-page-styled h4,
+body.cosam-page-styled h5,
+body.cosam-page-styled h6,
+body.cosam-page-styled p,
+body.cosam-page-styled a {
+  color: inherit !important;
+}
+
+body.cosam-page-styled a:hover {
+  opacity: 0.7;
+}
+
 /* ── Event Detail Modal ───────────────────────────────────────────────────── */
 
 .cosam-modal-overlay {
@@ -1265,13 +1351,25 @@
 }
 
 /* Grid Footer */
-.cosam-grid-footer {
-  background: var(--cosam-grid-header-bg);
-  border-top: 2px solid var(--cosam-accent);
+.cosam-calendar .cosam-grid-footer {
+  background: var(--cosam-footer-bg, #2a9ec7) !important;
+  border-top: 2px solid var(--cosam-grid-border, #40c8ed) !important;
   padding: 8px;
   text-align: center;
-  font-weight: 600;
-  color: var(--cosam-text);
+  color: var(--cosam-footer-text, #ffffff) !important;
+}
+
+
+/* Default theme: force footer colors */
+.cosam-calendar[data-theme="cosam"] .cosam-grid-footer {
+  background: #2a9ec7 !important;
+  border-top: 2px solid #40c8ed !important;
+  color: #ffffff !important;
+}
+
+/* High contrast: add stronger border for footer separation */
+.cosam-calendar[data-theme="high-contrast"] .cosam-grid-footer {
+  border-top: 3px solid #ffffff;
 }
 
 .cosam-grid-footer-content {
