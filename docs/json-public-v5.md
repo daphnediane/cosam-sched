@@ -99,12 +99,12 @@ This document is generated from the structured documentation in [json-schedule](
 
 **Key Fields:**
 
-| Field        | Type    | Public | Description                                   |
-| ------------ | ------- | ------ | --------------------------------------------- |
-| `uid`        | integer | yes    | Unique room identifier from spreadsheet       |
-| `short_name` | string  | yes    | Abbreviated room name for compact display     |
-| `long_name`  | string  | yes    | Full room name                                |
-| `hotel_room` | string  | yes    | Physical hotel room identifier                |
+| Field        | Type    | Public | Description                               |
+| ------------ | ------- | ------ | ----------------------------------------- |
+| `uid`        | integer | yes    | Unique room identifier from spreadsheet   |
+| `short_name` | string  | yes    | Abbreviated room name for compact display |
+| `long_name`  | string  | yes    | Full room name                            |
+| `hotel_room` | string  | yes    | Physical hotel room identifier            |
 
 *See full details in: [`rooms-v4.md`](json-schedule/rooms-v4.md)*
 
@@ -176,13 +176,13 @@ This document is generated from the structured documentation in [json-schedule](
 
 **Key Fields:**
 
-| Field            | Type     | Public | Description                                                                        |
-| ---------------- | -------- | ------ | ---------------------------------------------------------------------------------- |
-| `name`           | string   | yes    | Display name                                                                       |
-| `rank`           | string   | yes    | Role: `"guest"`, `"judge"`, `"staff"`, `"invited_guest"`, or `"fan_panelist"`      |
-| `is_group`       | boolean  | yes    | True if this entry represents a group rather than an individual                    |
-| `members`        | string[] | yes    | For groups: list of individual member names. Empty for individuals                 |
-| `groups`         | string[] | yes    | For individuals: list of group names this person belongs to. Empty for non-members |
+| Field      | Type     | Public | Description                                                                        |
+| ---------- | -------- | ------ | ---------------------------------------------------------------------------------- |
+| `name`     | string   | yes    | Display name                                                                       |
+| `rank`     | string   | yes    | Role: `"guest"`, `"judge"`, `"staff"`, `"invited_guest"`, or `"fan_panelist"`      |
+| `is_group` | boolean  | yes    | True if this entry represents a group rather than an individual                    |
+| `members`  | string[] | yes    | For groups: list of individual member names. Empty for individuals                 |
+| `groups`   | string[] | yes    | For individuals: list of group names this person belongs to. Empty for non-members |
 
 *See full details in: [`presenters-v4.md`](json-schedule/presenters-v4.md)*
 

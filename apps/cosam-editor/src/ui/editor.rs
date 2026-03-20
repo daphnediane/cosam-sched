@@ -1040,29 +1040,25 @@ impl Render for ScheduleEditor {
 
         let active_view = self.active_view;
 
-        let view_toggle_btn = |id: &'static str,
-                               label: &'static str,
-                               _mode: ViewMode,
-                               is_active: bool| {
-            let mut btn = div()
-                .id(id)
-                .px(px(10.0))
-                .py(px(4.0))
-                .rounded(px(4.0))
-                .text_xs()
-                .cursor_pointer();
-            if is_active {
-                btn = btn
-                    .bg(rgb(0x6B21A8))
-                    .text_color(rgb(0xFFFFFF));
-            } else {
-                btn = btn
-                    .bg(rgb(0xF3F4F6))
-                    .text_color(rgb(0x374151))
-                    .hover(|s| s.bg(rgb(0xE5E7EB)));
-            }
-            btn.child(label)
-        };
+        let view_toggle_btn =
+            |id: &'static str, label: &'static str, _mode: ViewMode, is_active: bool| {
+                let mut btn = div()
+                    .id(id)
+                    .px(px(10.0))
+                    .py(px(4.0))
+                    .rounded(px(4.0))
+                    .text_xs()
+                    .cursor_pointer();
+                if is_active {
+                    btn = btn.bg(rgb(0x6B21A8)).text_color(rgb(0xFFFFFF));
+                } else {
+                    btn = btn
+                        .bg(rgb(0xF3F4F6))
+                        .text_color(rgb(0x374151))
+                        .hover(|s| s.bg(rgb(0xE5E7EB)));
+                }
+                btn.child(label)
+            };
 
         let list_btn = view_toggle_btn(
             "view-list-btn",

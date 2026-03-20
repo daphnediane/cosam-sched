@@ -302,8 +302,7 @@ impl Schedule {
             presenters: self.presenters.clone(),
         };
 
-        serde_json::to_string_pretty(&public)
-            .context("Failed to serialize public schedule to JSON")
+        serde_json::to_string_pretty(&public).context("Failed to serialize public schedule to JSON")
     }
 
     pub fn export_public(&self, path: &Path) -> Result<()> {
