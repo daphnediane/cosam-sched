@@ -5,10 +5,11 @@
  */
 
 use std::collections::HashMap;
+use std::fs;
 use std::path::Path;
 
 use anyhow::{Context, Result};
-use chrono::NaiveDateTime;
+use chrono::{DateTime, NaiveDateTime, Utc};
 use indexmap::IndexMap;
 use regex::Regex;
 use umya_spreadsheet::Spreadsheet;
@@ -52,7 +53,46 @@ pub fn import_xlsx(path: &Path, options: &XlsxImportOptions) -> Result<Schedule>
     let properties = book.get_properties();
     let creator = properties.get_creator();
     let last_modified_by = properties.get_last_modified_by();
-    let modified = properties.get_modified();
+    let modified_raw = properties.get_modified();
+
+    // Validate and sanitize the modified timestamp
+    // Google Sheets exports often contain incorrect timestamps (e.g., 2006-09-16)
+    let file_metadata = fs::metadata(path)
+        .with_context(|| format!("Failed to get file metadata for {}", path.display()))?;
+    let file_modified = file_metadata
+        .modified()
+        .with_context(|| format!("Failed to get file modified time for {}", path.display()))?;
+    let file_modified_datetime: DateTime<Utc> = file_modified.into();
+
+    let modified = if modified_raw.is_empty() {
+        None
+    } else {
+        // Try to parse the timestamp and validate it's reasonable
+        if let Ok(parsed) = DateTime::parse_from_rfc3339(modified_raw) {
+            let timestamp = parsed.with_timezone(&Utc);
+
+            // Treat any timestamp from 2009 or earlier as suspect (Google Sheets export bug)
+            let cutoff_year = DateTime::parse_from_rfc3339("2010-01-01T00:00:00Z").unwrap();
+
+            if timestamp > cutoff_year {
+                Some(modified_raw.to_string())
+            } else {
+                // Timestamp is from 2009 or earlier, use file modified time instead
+                Some(
+                    file_modified_datetime
+                        .format("%Y-%m-%dT%H:%M:%SZ")
+                        .to_string(),
+                )
+            }
+        } else {
+            // Failed to parse, use file modified time instead
+            Some(
+                file_modified_datetime
+                    .format("%Y-%m-%dT%H:%M:%SZ")
+                    .to_string(),
+            )
+        }
+    };
 
     let rooms = read_rooms(&book, &options.rooms_table, &file_path_str)?;
     let panel_types = read_panel_types(&book, &options.panel_types_table, &file_path_str)?;
@@ -65,8 +105,8 @@ pub fn import_xlsx(path: &Path, options: &XlsxImportOptions) -> Result<Schedule>
         has_schedule: true, // We'll assume schedule exists if we get here
     };
 
-    let generated = if options.use_modified_as_generated && !modified.is_empty() {
-        modified.to_string()
+    let generated = if options.use_modified_as_generated && modified.is_some() {
+        modified.clone().unwrap()
     } else {
         chrono::Utc::now().format("%Y-%m-%dT%H:%M:%SZ").to_string()
     };
@@ -100,11 +140,7 @@ pub fn import_xlsx(path: &Path, options: &XlsxImportOptions) -> Result<Schedule>
             } else {
                 Some(last_modified_by.to_string())
             },
-            modified: if modified.is_empty() {
-                None
-            } else {
-                Some(modified.to_string())
-            },
+            modified,
         },
         timeline: Vec::new(),
         panels,

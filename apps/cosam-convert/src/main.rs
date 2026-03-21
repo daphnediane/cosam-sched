@@ -539,6 +539,12 @@ fn main() {
 
     // Process all output jobs
     for job in &cli.output_jobs {
+        // Update schedule title if custom title is provided for this job
+        let original_title = schedule.meta.title.clone();
+        if !job.settings.title.is_empty() {
+            schedule.meta.title = job.settings.title.clone();
+        }
+
         let result = match job.job_type {
             OutputType::Export => match schedule.export_public(&job.path) {
                 Ok(()) => {
@@ -622,7 +628,10 @@ fn main() {
             }
         };
 
-        if result.is_err() {
+        // Restore original title for next job
+        schedule.meta.title = original_title;
+
+        if let Err(error) = result {
             had_error = true;
         }
     }
