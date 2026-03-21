@@ -312,10 +312,15 @@ impl Schedule {
             .collect();
 
         let mut meta = self.meta.clone();
-        meta.version = Some(5);
+        meta.version = Some(6);
         meta.variant = Some("public".to_string());
         meta.generated = chrono::Utc::now().format("%Y-%m-%dT%H:%M:%SZ").to_string();
         meta.generator = Some(format!("cosam-editor {}", env!("CARGO_PKG_VERSION")));
+
+        // Remove private Excel metadata fields for public format
+        meta.creator = None;
+        meta.last_modified_by = None;
+        // Keep modified field as it's public in v6
 
         let public = PublicSchedule {
             meta,
@@ -357,6 +362,9 @@ mod tests {
                 generator: None,
                 start_time: None,
                 end_time: None,
+                creator: None,
+                last_modified_by: None,
+                modified: None,
             },
             timeline: Vec::new(),
             panels: IndexMap::new(),

@@ -27,6 +27,7 @@ pub struct XlsxImportOptions {
     pub schedule_table: String,
     pub rooms_table: String,
     pub panel_types_table: String,
+    pub use_modified_as_generated: bool,
 }
 
 impl Default for XlsxImportOptions {
@@ -36,6 +37,7 @@ impl Default for XlsxImportOptions {
             schedule_table: "Schedule".to_string(),
             rooms_table: "RoomMap".to_string(),
             panel_types_table: "Prefix".to_string(),
+            use_modified_as_generated: false,
         }
     }
 }
@@ -45,6 +47,12 @@ pub fn import_xlsx(path: &Path, options: &XlsxImportOptions) -> Result<Schedule>
         .with_context(|| format!("Failed to open {}", path.display()))?;
 
     let file_path_str = path.display().to_string();
+
+    // Extract Excel metadata
+    let properties = book.get_properties();
+    let creator = properties.get_creator();
+    let last_modified_by = properties.get_last_modified_by();
+    let modified = properties.get_modified();
 
     let rooms = read_rooms(&book, &options.rooms_table, &file_path_str)?;
     let panel_types = read_panel_types(&book, &options.panel_types_table, &file_path_str)?;
@@ -57,9 +65,13 @@ pub fn import_xlsx(path: &Path, options: &XlsxImportOptions) -> Result<Schedule>
         has_schedule: true, // We'll assume schedule exists if we get here
     };
 
-    let generated = chrono::Utc::now().format("%Y-%m-%dT%H:%M:%SZ").to_string();
+    let generated = if options.use_modified_as_generated && !modified.is_empty() {
+        modified.to_string()
+    } else {
+        chrono::Utc::now().format("%Y-%m-%dT%H:%M:%SZ").to_string()
+    };
 
-    // Always use v5 format with panels
+    // Always use v6 format with panels
     let (panels, presenters) = read_events_v5(
         &book,
         &options.schedule_table,
@@ -73,11 +85,26 @@ pub fn import_xlsx(path: &Path, options: &XlsxImportOptions) -> Result<Schedule>
         meta: Meta {
             title: options.title.clone(),
             generated,
-            version: Some(5),
+            version: Some(6),
             variant: Some("full".to_string()),
             generator: Some(format!("cosam-editor {}", env!("CARGO_PKG_VERSION"))),
             start_time: None,
             end_time: None,
+            creator: if creator.is_empty() {
+                None
+            } else {
+                Some(creator.to_string())
+            },
+            last_modified_by: if last_modified_by.is_empty() {
+                None
+            } else {
+                Some(last_modified_by.to_string())
+            },
+            modified: if modified.is_empty() {
+                None
+            } else {
+                Some(modified.to_string())
+            },
         },
         timeline: Vec::new(),
         panels,

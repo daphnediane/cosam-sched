@@ -55,6 +55,7 @@ struct CliArgs {
     roommap_table: String,
     prefix_table: String,
     config_file: Option<PathBuf>,
+    use_modified_as_generated: bool,
 }
 
 fn check_duplicate_output(output_jobs: &[OutputJob], path: &PathBuf) -> anyhow::Result<()> {
@@ -73,6 +74,7 @@ fn parse_args() -> anyhow::Result<CliArgs> {
     let mut roommap_table = "RoomMap".to_string();
     let mut prefix_table = "Prefix".to_string();
     let mut config_file: Option<PathBuf> = None;
+    let mut use_modified_as_generated = false;
 
     // Current settings that get cloned for each output
     let mut current_settings = OutputSettings::default();
@@ -168,6 +170,9 @@ fn parse_args() -> anyhow::Result<CliArgs> {
             }
             "--check" | "--validate" => {
                 check_only = true;
+            }
+            "--use-modified-as-generated" => {
+                use_modified_as_generated = true;
             }
             // New builtin options
             "--builtin-css" => {
@@ -328,6 +333,7 @@ fn parse_args() -> anyhow::Result<CliArgs> {
         roommap_table,
         prefix_table,
         config_file,
+        use_modified_as_generated,
     })
 }
 
@@ -380,6 +386,7 @@ fn build_import_options(cli: &CliArgs) -> XlsxImportOptions {
         schedule_table: cli.schedule_table.clone(),
         rooms_table: cli.roommap_table.clone(),
         panel_types_table: cli.prefix_table.clone(),
+        use_modified_as_generated: cli.use_modified_as_generated,
     }
 }
 

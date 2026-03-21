@@ -579,6 +579,9 @@ mod tests {
                 generator: None,
                 start_time: None,
                 end_time: None,
+                creator: None,
+                last_modified_by: None,
+                modified: None,
             },
             panels: indexmap::IndexMap::new(),
             timeline: vec![

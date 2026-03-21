@@ -141,6 +141,7 @@ fn build_import_options(cli: &CliArgs) -> XlsxImportOptions {
         schedule_table: cli.schedule_table.clone(),
         rooms_table: cli.roommap_table.clone(),
         panel_types_table: cli.prefix_table.clone(),
+        use_modified_as_generated: false,
     }
 }
 

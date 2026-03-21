@@ -242,5 +242,7 @@ This document is generated from the structured documentation in [json-schedule](
 - [JSON Schedule Documentation](json-schedule/) - Complete structured documentation
 - [Schedule JSON Format v4](json-format-v4.md) - This document describes version 4 of the schedule JSON format. V4 introduces timeline support and time types while maintaining backward compatibility with earlier versions.
 - [Schedule JSON Format v5 - Private/Full](json-private-v5.md) - This document describes version 5 of the schedule JSON format, private/full variant. This format is produced and consumed by the Rust editor and converter for internal data storage and editing.
+- [v6-Private](json-private-v6.md) - Private format documentation for JSON schedule format v6.
+- [v6-Public](json-public-v6.md) - Public format documentation for JSON schedule format v6.
 
 *This document is automatically generated. Do not edit directly.*

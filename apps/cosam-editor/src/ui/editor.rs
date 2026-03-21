@@ -309,7 +309,17 @@ impl ScheduleEditor {
             return;
         };
 
-        let schedule_clone = schedule.clone();
+        let mut schedule_clone = schedule.clone();
+
+        // Update Excel metadata when saving
+        let current_time = chrono::Utc::now().format("%Y-%m-%dT%H:%M:%SZ").to_string();
+        let username = std::env::var("USER")
+            .or_else(|_| std::env::var("USERNAME"))
+            .or_else(|_| std::env::var("LOGNAME"))
+            .unwrap_or_else(|_| "Unknown User".to_string());
+
+        schedule_clone.meta.last_modified_by = Some(username.clone());
+        schedule_clone.meta.modified = Some(current_time);
 
         cx.spawn(async move |this, cx| {
             let ext = path
@@ -778,6 +788,16 @@ impl ScheduleEditor {
         let file_type = self.current_file_type;
         let mut schedule_clone = schedule.clone();
         let path_clone = path.clone();
+
+        // Update Excel metadata when saving
+        let current_time = chrono::Utc::now().format("%Y-%m-%dT%H:%M:%SZ").to_string();
+        let username = std::env::var("USER")
+            .or_else(|_| std::env::var("USERNAME"))
+            .or_else(|_| std::env::var("LOGNAME"))
+            .unwrap_or_else(|_| "Unknown User".to_string());
+
+        schedule_clone.meta.last_modified_by = Some(username.clone());
+        schedule_clone.meta.modified = Some(current_time);
 
         cx.spawn(async move |this, cx| {
             let result = if file_type == Some(FileType::Xlsx) {

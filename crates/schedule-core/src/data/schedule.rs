@@ -49,6 +49,12 @@ pub struct Meta {
     pub start_time: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub end_time: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub creator: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub last_modified_by: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub modified: Option<String>,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -124,7 +130,7 @@ impl Schedule {
 
         // Set version based on format; preserve variant if already set by caller
         if !self.panels.is_empty() {
-            self.meta.version = Some(5);
+            self.meta.version = Some(6);
             if self.meta.variant.is_none() {
                 self.meta.variant = Some("full".to_string());
             }

@@ -1321,17 +1321,42 @@
       // Add footer content
       const footerContent = el('div', { className: 'cosam-grid-footer-content' });
       let footerText = 'End of Schedule';
-      if (this.state.data && this.state.data.meta && this.state.data.meta.generated) {
-        const genDate = new Date(this.state.data.meta.generated);
-        const month = genDate.toLocaleDateString('en-US', { month: 'short' });
-        const day = genDate.getDate();
-        let h = genDate.getHours();
-        const m = genDate.getMinutes();
-        const ampm = h >= 12 ? 'PM' : 'AM';
-        h = h % 12 || 12;
-        const timeStr = `${h}:${String(m).padStart(2, '0')} ${ampm}`;
-        footerText = `Updated: ${month} ${day} ${timeStr}`;
+
+      if (this.state.data && this.state.data.meta) {
+        const meta = this.state.data.meta;
+        let timestamps = [];
+
+        // Add modified time if available
+        if (meta.modified) {
+          const modDate = new Date(meta.modified);
+          const month = modDate.toLocaleDateString('en-US', { month: 'short' });
+          const day = modDate.getDate();
+          let h = modDate.getHours();
+          let m = modDate.getMinutes();
+          const ampm = h >= 12 ? 'PM' : 'AM';
+          h = h % 12 || 12;
+          const timeStr = `${h}:${String(m).padStart(2, '0')} ${ampm}`;
+          timestamps.push(`Modified: ${month} ${day} ${timeStr}`);
+        }
+
+        // Add generated time if available and different from modified
+        if (meta.generated && (!meta.modified || meta.generated !== meta.modified)) {
+          const genDate = new Date(meta.generated);
+          const month = genDate.toLocaleDateString('en-US', { month: 'short' });
+          const day = genDate.getDate();
+          let h = genDate.getHours();
+          let m = genDate.getMinutes();
+          const ampm = h >= 12 ? 'PM' : 'AM';
+          h = h % 12 || 12;
+          const timeStr = `${h}:${String(m).padStart(2, '0')} ${ampm}`;
+          timestamps.push(`Generated: ${month} ${day} ${timeStr}`);
+        }
+
+        if (timestamps.length > 0) {
+          footerText = timestamps.join(' | ');
+        }
       }
+
       footerContent.textContent = footerText;
       footer.appendChild(footerContent);
 
