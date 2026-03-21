@@ -10,43 +10,74 @@ use schedule_core::data::{
     Schedule, WidgetSources, XlsxImportOptions, export_to_xlsx, write_embed_html, write_test_html,
 };
 
-struct CliArgs {
-    input: PathBuf,
-    output: Option<PathBuf>,
-    export: Option<PathBuf>,
-    export_embed: Option<PathBuf>,
-    export_test: Option<PathBuf>,
-    title: String,
-    schedule_table: String,
-    roommap_table: String,
-    prefix_table: String,
-    config_file: Option<PathBuf>,
-    widget: Option<String>,
+#[derive(Debug, Clone)]
+struct OutputSettings {
     widget_css: Option<String>,
     widget_js: Option<String>,
     test_template: Option<String>,
     minified: bool,
     style_page: Option<bool>,
+    title: String,
+}
+
+impl Default for OutputSettings {
+    fn default() -> Self {
+        Self {
+            widget_css: None,
+            widget_js: None,
+            test_template: None,
+            minified: true,
+            style_page: None,
+            title: String::new(),
+        }
+    }
+}
+
+#[derive(Debug)]
+struct OutputJob {
+    path: PathBuf,
+    settings: OutputSettings,
+    job_type: OutputType,
+}
+
+#[derive(Debug)]
+enum OutputType {
+    Export,
+    ExportEmbed,
+    ExportTest,
+}
+
+struct CliArgs {
+    input: PathBuf,
+    output_jobs: Vec<OutputJob>,
+    check_only: bool,
+    schedule_table: String,
+    roommap_table: String,
+    prefix_table: String,
+    config_file: Option<PathBuf>,
+}
+
+fn check_duplicate_output(output_jobs: &[OutputJob], path: &PathBuf) -> anyhow::Result<()> {
+    if output_jobs.iter().any(|job| job.path == *path) {
+        anyhow::bail!("Output file specified multiple times: {}", path.display());
+    }
+    Ok(())
 }
 
 fn parse_args() -> anyhow::Result<CliArgs> {
     let arguments: Vec<String> = std::env::args().collect();
     let mut input: Option<PathBuf> = None;
-    let mut output: Option<PathBuf> = None;
-    let mut export: Option<PathBuf> = None;
-    let mut export_embed: Option<PathBuf> = None;
-    let mut export_test: Option<PathBuf> = None;
-    let mut title = String::new();
+    let mut output_jobs: Vec<OutputJob> = Vec::new();
+    let mut check_only = false;
     let mut schedule_table = "Schedule".to_string();
     let mut roommap_table = "RoomMap".to_string();
     let mut prefix_table = "Prefix".to_string();
     let mut config_file: Option<PathBuf> = None;
-    let mut widget: Option<String> = None;
-    let mut widget_css: Option<String> = None;
-    let mut widget_js: Option<String> = None;
-    let mut test_template: Option<String> = None;
-    let mut minified = true;
-    let mut style_page: Option<bool> = None;
+
+    // Current settings that get cloned for each output
+    let mut current_settings = OutputSettings::default();
+    // Track first setting index that hasn't been consumed by an output
+    let mut first_setting_index: Option<usize> = None;
 
     let mut index = 1;
     while index < arguments.len() {
@@ -63,28 +94,56 @@ fn parse_args() -> anyhow::Result<CliArgs> {
                 if index >= arguments.len() {
                     anyhow::bail!("Missing value for --output");
                 }
-                output = Some(PathBuf::from(&arguments[index]));
+                let path = PathBuf::from(&arguments[index]);
+                check_duplicate_output(&output_jobs, &path)?;
+                output_jobs.push(OutputJob {
+                    path,
+                    settings: current_settings.clone(),
+                    job_type: OutputType::Export,
+                });
+                first_setting_index = None;
             }
             "--export" | "-e" => {
                 index += 1;
                 if index >= arguments.len() {
                     anyhow::bail!("Missing value for --export");
                 }
-                export = Some(PathBuf::from(&arguments[index]));
+                let path = PathBuf::from(&arguments[index]);
+                check_duplicate_output(&output_jobs, &path)?;
+                output_jobs.push(OutputJob {
+                    path,
+                    settings: current_settings.clone(),
+                    job_type: OutputType::Export,
+                });
+                first_setting_index = None;
             }
-            "--title" | "-t" => {
+            "--export-embed" => {
                 index += 1;
                 if index >= arguments.len() {
-                    anyhow::bail!("Missing value for --title");
+                    anyhow::bail!("Missing value for --export-embed");
                 }
-                title = arguments[index].clone();
+                let path = PathBuf::from(&arguments[index]);
+                check_duplicate_output(&output_jobs, &path)?;
+                output_jobs.push(OutputJob {
+                    path,
+                    settings: current_settings.clone(),
+                    job_type: OutputType::ExportEmbed,
+                });
+                first_setting_index = None;
             }
-            "--schedule-table" => {
+            "--export-test" => {
                 index += 1;
                 if index >= arguments.len() {
-                    anyhow::bail!("Missing value for --schedule-table");
+                    anyhow::bail!("Missing value for --export-test");
                 }
-                schedule_table = arguments[index].clone();
+                let path = PathBuf::from(&arguments[index]);
+                check_duplicate_output(&output_jobs, &path)?;
+                output_jobs.push(OutputJob {
+                    path,
+                    settings: current_settings.clone(),
+                    job_type: OutputType::ExportTest,
+                });
+                first_setting_index = None;
             }
             "--roommap-table" => {
                 index += 1;
@@ -107,59 +166,125 @@ fn parse_args() -> anyhow::Result<CliArgs> {
                 }
                 config_file = Some(PathBuf::from(&arguments[index]));
             }
-            "--export-embed" => {
-                index += 1;
-                if index >= arguments.len() {
-                    anyhow::bail!("Missing value for --export-embed");
-                }
-                export_embed = Some(PathBuf::from(&arguments[index]));
+            "--check" | "--validate" => {
+                check_only = true;
             }
-            "--export-test" => {
-                index += 1;
-                if index >= arguments.len() {
-                    anyhow::bail!("Missing value for --export-test");
+            // New builtin options
+            "--builtin-css" => {
+                if first_setting_index.is_none() {
+                    first_setting_index = Some(index);
                 }
-                export_test = Some(PathBuf::from(&arguments[index]));
+                current_settings.widget_css = None;
             }
+            "--builtin-js" => {
+                if first_setting_index.is_none() {
+                    first_setting_index = Some(index);
+                }
+                current_settings.widget_js = None;
+            }
+            "--builtin-widget" => {
+                if first_setting_index.is_none() {
+                    first_setting_index = Some(index);
+                }
+                current_settings.widget_css = None;
+                current_settings.widget_js = None;
+            }
+            "--builtin-template" => {
+                if first_setting_index.is_none() {
+                    first_setting_index = Some(index);
+                }
+                current_settings.test_template = None;
+            }
+            "--builtin" => {
+                if first_setting_index.is_none() {
+                    first_setting_index = Some(index);
+                }
+                current_settings.widget_css = None;
+                current_settings.widget_js = None;
+                current_settings.test_template = None;
+            }
+            "--default" => {
+                if first_setting_index.is_none() {
+                    first_setting_index = Some(index);
+                }
+                current_settings = OutputSettings::default();
+            }
+            // Settings options that track first usage
             "--widget" => {
+                if first_setting_index.is_none() {
+                    first_setting_index = Some(index);
+                }
                 index += 1;
                 if index >= arguments.len() {
                     anyhow::bail!("Missing value for --widget");
                 }
-                widget = Some(arguments[index].clone());
+                let widget_value = arguments[index].clone();
+                current_settings.widget_css = Some(widget_value.clone());
+                current_settings.widget_js = Some(widget_value);
             }
             "--widget-css" => {
+                if first_setting_index.is_none() {
+                    first_setting_index = Some(index);
+                }
                 index += 1;
                 if index >= arguments.len() {
                     anyhow::bail!("Missing value for --widget-css");
                 }
-                widget_css = Some(arguments[index].clone());
+                current_settings.widget_css = Some(arguments[index].clone());
             }
             "--widget-js" => {
+                if first_setting_index.is_none() {
+                    first_setting_index = Some(index);
+                }
                 index += 1;
                 if index >= arguments.len() {
                     anyhow::bail!("Missing value for --widget-js");
                 }
-                widget_js = Some(arguments[index].clone());
+                current_settings.widget_js = Some(arguments[index].clone());
             }
             "--test-template" => {
+                if first_setting_index.is_none() {
+                    first_setting_index = Some(index);
+                }
                 index += 1;
                 if index >= arguments.len() {
                     anyhow::bail!("Missing value for --test-template");
                 }
-                test_template = Some(arguments[index].clone());
+                current_settings.test_template = Some(arguments[index].clone());
+            }
+            "--title" => {
+                if first_setting_index.is_none() {
+                    first_setting_index = Some(index);
+                }
+                index += 1;
+                if index >= arguments.len() {
+                    anyhow::bail!("Missing value for --title");
+                }
+                current_settings.title = arguments[index].clone();
             }
             "--minified" => {
-                minified = true;
+                if first_setting_index.is_none() {
+                    first_setting_index = Some(index);
+                }
+                current_settings.minified = true;
             }
             "--no-minified" | "--for-debug" => {
-                minified = false;
+                if first_setting_index.is_none() {
+                    first_setting_index = Some(index);
+                }
+                current_settings.minified = false;
             }
             "--style-page" => {
-                style_page = Some(true);
+                if first_setting_index.is_none() {
+                    first_setting_index = Some(index);
+                }
+                current_settings.style_page = Some(true);
             }
             "--no-style-page" => {
-                style_page = Some(false);
+                if first_setting_index.is_none() {
+                    first_setting_index = Some(index);
+                }
+                current_settings.style_page = Some(false);
             }
             "--help" | "-h" => {
                 print_usage();
@@ -180,23 +305,29 @@ fn parse_args() -> anyhow::Result<CliArgs> {
         anyhow::bail!("--input is required");
     };
 
+    // Check for unused settings
+    if let Some(unused_index) = first_setting_index {
+        anyhow::bail!(
+            "Settings specified at argument {} but no output file specified after them. \
+             Settings must be followed by an output option (--output, --export, --export-embed, --export-test)",
+            arguments[unused_index]
+        );
+    }
+
+    if output_jobs.is_empty() && !check_only {
+        anyhow::bail!(
+            "At least one output option is required (--output, --export, --export-embed, --export-test) unless --check is specified"
+        );
+    }
+
     Ok(CliArgs {
         input,
-        output,
-        export,
-        export_embed,
-        export_test,
-        title,
+        output_jobs,
+        check_only,
         schedule_table,
         roommap_table,
         prefix_table,
         config_file,
-        widget,
-        widget_css,
-        widget_js,
-        test_template,
-        minified,
-        style_page,
     })
 }
 
@@ -207,36 +338,45 @@ fn print_usage() {
          Options:\n\
          \x20 --output, -o <file.json|file.xlsx>  Save private/full schedule (format by extension)\n\
          \x20 --export, -e <file.json>            Export public schedule JSON\n\
-         \x20 --title, -t <string>                Event title (for XLSX import)\n\
+         \x20 --export-embed <file.html>           Export embeddable HTML (inline CSS/JS/JSON)\n\
+         \x20 --export-test <file.html>            Export standalone test page (Squarespace sim)\n\
+         \x20 --check, --validate                  Validate input and exit with error if conflicts found\n\
          \x20 --config, -c <file.yaml>            Reserved for future Google Sheets support\n\
          \x20 --schedule-table <name>             Sheet name for schedule data (default: Schedule)\n\
          \x20 --roommap-table <name>              Sheet name for room mapping (default: RoomMap)\n\
          \x20 --prefix-table <name>               Sheet name for panel types (default: Prefix)\n\
          \x20 --help, -h                          Show this help message\n\
          \n\
-         Widget / Embed options:\n\
-         \x20 --export-embed <file.html>           Export embeddable HTML (inline CSS/JS/JSON)\n\
-         \x20 --export-test <file.html>            Export standalone test page (Squarespace sim)\n\
-         \x20 --widget <builtin|dir|basename>      Override both CSS and JS sources\n\
-         \x20 --widget-css <builtin|path>          Override CSS source only\n\
-         \x20 --widget-js <builtin|path>           Override JS source only\n\
-         \x20 --test-template <builtin|file>       Override test page template\n\
+         Output settings (apply to subsequent outputs):\n\
+         \x20 --title <string>                     Event title (for test pages)\n\
+         \x20 --widget <basename>                  Set both CSS and JS to basename.css/.js\n\
+         \x20 --widget-css <path>                  Override CSS source (default: builtin)\n\
+         \x20 --widget-js <path>                   Override JS source (default: builtin)\n\
+         \x20 --test-template <path>                Override test page template (default: builtin)\n\
          \x20 --minified                           Minify output (default)\n\
          \x20 --no-minified, --for-debug           Skip minification for debugging\n\
          \x20 --style-page                         Set stylePageBody: true in widget init\n\
          \x20 --no-style-page                      Set stylePageBody: false in widget init\n\
          \n\
-         If neither --output nor --export is given, the input is parsed and summarized."
+         Builtin resource shortcuts:\n\
+         \x20 --builtin-css                         Use builtin CSS\n\
+         \x20 --builtin-js                          Use builtin JS\n\
+         \x20 --builtin-widget                      Use builtin CSS and JS\n\
+         \x20 --builtin-template                    Use builtin template\n\
+         \x20 --builtin                             Use builtin CSS, JS, and template\n\
+         \x20 --default                            Reset all settings to defaults\n\
+         \n\
+         Examples:\n\
+         \x20 cosam-convert --input schedule.xlsx --export public.json\n\
+         \x20 cosam-convert --input schedule.xlsx --minified --export-embed min.html --no-minified --export-embed max.html\n\
+         \x20 cosam-convert --input schedule.xlsx --check  # Validate only\n\
+         \x20 cosam-convert --input schedule.xlsx --check --export public.json  # Validate before exporting"
     );
 }
 
 fn build_import_options(cli: &CliArgs) -> XlsxImportOptions {
     XlsxImportOptions {
-        title: if cli.title.is_empty() {
-            "Event Schedule".to_string()
-        } else {
-            cli.title.clone()
-        },
+        title: "Event Schedule".to_string(),
         schedule_table: cli.schedule_table.clone(),
         rooms_table: cli.roommap_table.clone(),
         panel_types_table: cli.prefix_table.clone(),
@@ -363,10 +503,6 @@ fn main() {
         }
     };
 
-    if !cli.title.is_empty() {
-        schedule.meta.title = cli.title.clone();
-    }
-
     eprintln!(
         "Panels: {}, Rooms: {}, Panel types: {}, Presenters: {}",
         schedule.panels.len(),
@@ -378,86 +514,109 @@ fn main() {
     // Report conflicts
     print_conflicts(&schedule);
 
+    // If check mode and there are conflicts, exit with error
+    if cli.check_only && !schedule.conflicts.is_empty() {
+        eprintln!(
+            "Validation failed - {} conflicts detected",
+            schedule.conflicts.len()
+        );
+        std::process::exit(1);
+    }
+
+    if cli.check_only {
+        eprintln!("Validation completed successfully");
+        return;
+    }
+
     let mut had_error = false;
 
-    if let Some(ref output_path) = cli.output {
-        match save_output(&schedule, output_path) {
-            Ok(()) => eprintln!("Written: {}", output_path.display()),
-            Err(error) => {
-                eprintln!("Error writing {}: {error}", output_path.display());
-                had_error = true;
-            }
-        }
-    }
+    // Process all output jobs
+    for job in &cli.output_jobs {
+        let result = match job.job_type {
+            OutputType::Export => match schedule.export_public(&job.path) {
+                Ok(()) => {
+                    eprintln!("Exported: {}", job.path.display());
+                    Ok(())
+                }
+                Err(error) => {
+                    eprintln!("Error exporting {}: {error}", job.path.display());
+                    Err(error)
+                }
+            },
+            OutputType::ExportEmbed | OutputType::ExportTest => {
+                // Resolve widget sources for this job
+                let sources = match WidgetSources::resolve(
+                    job.settings.widget_css.as_deref(),
+                    job.settings.widget_js.as_deref(),
+                    job.settings.test_template.as_deref(),
+                ) {
+                    Ok(sources) => sources,
+                    Err(error) => {
+                        eprintln!("Error resolving widget sources: {error}");
+                        had_error = true;
+                        continue;
+                    }
+                };
 
-    if let Some(ref export_path) = cli.export {
-        match schedule.export_public(export_path) {
-            Ok(()) => eprintln!("Exported: {}", export_path.display()),
-            Err(error) => {
-                eprintln!("Error exporting {}: {error}", export_path.display());
-                had_error = true;
-            }
-        }
-    }
+                let json_data = match schedule.export_public_json_string() {
+                    Ok(json) => json,
+                    Err(error) => {
+                        eprintln!("Error generating public JSON: {error}");
+                        had_error = true;
+                        continue;
+                    }
+                };
 
-    if cli.export_embed.is_some() || cli.export_test.is_some() {
-        let sources = match WidgetSources::resolve(
-            cli.widget.as_deref(),
-            cli.widget_css.as_deref(),
-            cli.widget_js.as_deref(),
-            cli.test_template.as_deref(),
-        ) {
-            Ok(sources) => sources,
-            Err(error) => {
-                eprintln!("Error resolving widget sources: {error}");
-                std::process::exit(1);
+                match job.job_type {
+                    OutputType::ExportEmbed => {
+                        match write_embed_html(
+                            &job.path,
+                            &json_data,
+                            &sources,
+                            job.settings.minified,
+                            job.settings.style_page,
+                        ) {
+                            Ok(()) => {
+                                eprintln!("Written: {}", job.path.display());
+                                Ok(())
+                            }
+                            Err(error) => {
+                                eprintln!("Error writing embed HTML: {error}");
+                                Err(error)
+                            }
+                        }
+                    }
+                    OutputType::ExportTest => {
+                        let title = if job.settings.title.is_empty() {
+                            &schedule.meta.title
+                        } else {
+                            &job.settings.title
+                        };
+                        match write_test_html(
+                            &job.path,
+                            &json_data,
+                            title,
+                            &sources,
+                            job.settings.minified,
+                            job.settings.style_page,
+                        ) {
+                            Ok(()) => {
+                                eprintln!("Written: {}", job.path.display());
+                                Ok(())
+                            }
+                            Err(error) => {
+                                eprintln!("Error writing test HTML: {error}");
+                                Err(error)
+                            }
+                        }
+                    }
+                    _ => unreachable!(),
+                }
             }
         };
 
-        let json_data = match schedule.export_public_json_string() {
-            Ok(json) => json,
-            Err(error) => {
-                eprintln!("Error generating public JSON: {error}");
-                std::process::exit(1);
-            }
-        };
-
-        if let Some(ref embed_path) = cli.export_embed {
-            match write_embed_html(
-                embed_path,
-                &json_data,
-                &sources,
-                cli.minified,
-                cli.style_page,
-            ) {
-                Ok(()) => {}
-                Err(error) => {
-                    eprintln!("Error writing embed HTML: {error}");
-                    had_error = true;
-                }
-            }
-        }
-
-        if let Some(ref test_path) = cli.export_test {
-            let title = if cli.title.is_empty() {
-                &schedule.meta.title
-            } else {
-                &cli.title
-            };
-            match write_test_html(
-                test_path,
-                &json_data,
-                title,
-                &sources,
-                cli.minified,
-                cli.style_page,
-            ) {
-                Ok(()) => {}
-                Err(error) => {
-                    eprintln!("Error writing test HTML: {error}");
-                    had_error = true;
-                }
-            }
+        if result.is_err() {
+            had_error = true;
         }
     }
 

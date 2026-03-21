@@ -41,6 +41,59 @@ cargo run -p cosam-convert -- \
   --title "Cosplay America 2026"
 ```
 
+#### Multiple outputs with different settings
+
+The new CLI supports multiple output files with different settings per output:
+
+```bash
+# Generate both minified and unminified versions
+cargo run -p cosam-convert -- \
+  --input schedule.xlsx \
+  --minified --export-embed min.html \
+  --no-minified --export-embed max.html
+
+# Generate multiple outputs with different titles
+cargo run -p cosam-convert -- \
+  --input schedule.xlsx \
+  --title "Public Schedule" --export public.json \
+  --title "Internal Schedule" --export internal.json
+```
+
+#### Validation mode
+
+Check schedule validity without generating output:
+
+```bash
+cargo run -p cosam-convert -- \
+  --input schedule.xlsx \
+  --check
+```
+
+#### Builtin resources
+
+Use `--builtin-*` options to specify built-in CSS, JS, and templates:
+
+```bash
+# Use all builtin resources
+cargo run -p cosam-convert -- \
+  --input schedule.xlsx \
+  --builtin \
+  --export-embed embed.html
+
+# Use builtin CSS only
+cargo run -p cosam-convert -- \
+  --input schedule.xlsx \
+  --builtin-css \
+  --widget-js custom.js \
+  --export-embed embed.html
+
+# Reset to defaults
+cargo run -p cosam-convert -- \
+  --input schedule.xlsx \
+  --default \
+  --export-embed embed.html
+```
+
 ### Build for macOS and Windows
 
 Use the helper script:
@@ -126,6 +179,26 @@ cargo run -p cosam-convert -- \
   --widget widget/ \
   --no-minified \
   --title "Cosplay America 2026 Schedule"
+```
+
+#### Multiple outputs in a single command
+
+The updated export script now uses the new multi-output functionality to generate all files in a single command:
+
+```bash
+# Old way (multiple calls)
+./scripts/export-schedules.sh
+
+# New way (single call with multiple outputs)
+cargo run -p cosam-convert -- \
+  --input schedule.xlsx \
+  --title "Cosplay America 2026 Schedule" \
+  --export public.json \
+  --export-embed embed.html \
+  --export-test test.html \
+  --style-page \
+  --export-embed style-embed.html \
+  --export-test style-page.html
 ```
 
 Rebuild all years at once:
