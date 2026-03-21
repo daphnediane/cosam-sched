@@ -35,10 +35,14 @@ impl SettingsManager {
         let config_dir = dirs::config_dir()
             .context("Could not find config directory")?
             .join("cosam-editor");
-        
-        std::fs::create_dir_all(&config_dir)
-            .with_context(|| format!("Failed to create config directory: {}", config_dir.display()))?;
-        
+
+        std::fs::create_dir_all(&config_dir).with_context(|| {
+            format!(
+                "Failed to create config directory: {}",
+                config_dir.display()
+            )
+        })?;
+
         Ok(config_dir)
     }
 
@@ -48,13 +52,15 @@ impl SettingsManager {
 
     pub fn load_settings() -> Result<ExportSettings> {
         let settings_file = Self::settings_file()?;
-        
+
         if settings_file.exists() {
-            let content = std::fs::read_to_string(&settings_file)
-                .with_context(|| format!("Failed to read settings file: {}", settings_file.display()))?;
-            
-            serde_json::from_str(&content)
-                .with_context(|| format!("Failed to parse settings file: {}", settings_file.display()))
+            let content = std::fs::read_to_string(&settings_file).with_context(|| {
+                format!("Failed to read settings file: {}", settings_file.display())
+            })?;
+
+            serde_json::from_str(&content).with_context(|| {
+                format!("Failed to parse settings file: {}", settings_file.display())
+            })
         } else {
             Ok(ExportSettings::default())
         }
@@ -62,13 +68,14 @@ impl SettingsManager {
 
     pub fn save_settings(settings: &ExportSettings) -> Result<()> {
         let settings_file = Self::settings_file()?;
-        
-        let content = serde_json::to_string_pretty(settings)
-            .context("Failed to serialize settings")?;
-        
-        std::fs::write(&settings_file, content)
-            .with_context(|| format!("Failed to write settings file: {}", settings_file.display()))?;
-        
+
+        let content =
+            serde_json::to_string_pretty(settings).context("Failed to serialize settings")?;
+
+        std::fs::write(&settings_file, content).with_context(|| {
+            format!("Failed to write settings file: {}", settings_file.display())
+        })?;
+
         Ok(())
     }
 

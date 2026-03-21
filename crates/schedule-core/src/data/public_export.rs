@@ -246,19 +246,22 @@ impl Schedule {
                     }
 
                     let mut panel_name = panel.name.clone();
-                    
+
                     // Add part/session suffixes for multi-part or multi-session panels
                     // Only add part number if there are multiple parts
                     let should_show_part_num = part.part_num.is_some() && panel.parts.len() > 1;
                     // Only add session number if there are multiple sessions in this part
-                    let should_show_session_num = session.session_num.is_some() && part.sessions.len() > 1;
-                    
+                    let should_show_session_num =
+                        session.session_num.is_some() && part.sessions.len() > 1;
+
                     if should_show_part_num || should_show_session_num {
                         let mut suffix_parts = Vec::new();
                         if let Some(part_num) = part.part_num.filter(|_| should_show_part_num) {
                             suffix_parts.push(format!("Part {}", part_num));
                         }
-                        if let Some(session_num) = session.session_num.filter(|_| should_show_session_num) {
+                        if let Some(session_num) =
+                            session.session_num.filter(|_| should_show_session_num)
+                        {
                             suffix_parts.push(format!("Session {}", session_num));
                         }
                         if !suffix_parts.is_empty() {
@@ -583,25 +586,46 @@ mod tests {
         let json_result = schedule.export_public_json_string().unwrap();
 
         // Verify the titles by checking the JSON directly
-        assert!(json_result.contains("\"Single Panel\""), 
-                "Should not add numbering for single part/session. JSON: {}", json_result);
-        
+        assert!(
+            json_result.contains("\"Single Panel\""),
+            "Should not add numbering for single part/session. JSON: {}",
+            json_result
+        );
+
         // Multiple parts should show part numbers
-        assert!(json_result.contains("\"Multi Part Panel (Part 1)\""), 
-                "Should show part number for multi-part panel. JSON: {}", json_result);
-        assert!(json_result.contains("\"Multi Part Panel (Part 2)\""), 
-                "Should show part number for multi-part panel. JSON: {}", json_result);
-        
+        assert!(
+            json_result.contains("\"Multi Part Panel (Part 1)\""),
+            "Should show part number for multi-part panel. JSON: {}",
+            json_result
+        );
+        assert!(
+            json_result.contains("\"Multi Part Panel (Part 2)\""),
+            "Should show part number for multi-part panel. JSON: {}",
+            json_result
+        );
+
         // Multiple sessions should show session numbers
-        assert!(json_result.contains("\"Multi Session Panel (Session 1)\""), 
-                "Should show session number for multi-session panel. JSON: {}", json_result);
-        assert!(json_result.contains("\"Multi Session Panel (Session 2)\""), 
-                "Should show session number for multi-session panel. JSON: {}", json_result);
-        
+        assert!(
+            json_result.contains("\"Multi Session Panel (Session 1)\""),
+            "Should show session number for multi-session panel. JSON: {}",
+            json_result
+        );
+        assert!(
+            json_result.contains("\"Multi Session Panel (Session 2)\""),
+            "Should show session number for multi-session panel. JSON: {}",
+            json_result
+        );
+
         // Ensure we don't have unwanted numbering
-        assert!(!json_result.contains("\"Single Panel (Part 1)\""), 
-                "Should not add part number for single part. JSON: {}", json_result);
-        assert!(!json_result.contains("\"Single Panel (Session 1)\""), 
-                "Should not add session number for single session. JSON: {}", json_result);
+        assert!(
+            !json_result.contains("\"Single Panel (Part 1)\""),
+            "Should not add part number for single part. JSON: {}",
+            json_result
+        );
+        assert!(
+            !json_result.contains("\"Single Panel (Session 1)\""),
+            "Should not add session number for single session. JSON: {}",
+            json_result
+        );
     }
 }

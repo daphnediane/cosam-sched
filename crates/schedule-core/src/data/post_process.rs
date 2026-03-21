@@ -278,7 +278,14 @@ fn detect_panel_conflicts(schedule: &mut Schedule) {
         .collect();
 
     // Collect all panel sessions with their time and location info
-    let mut panel_sessions: Vec<(String, String, chrono::NaiveDateTime, chrono::NaiveDateTime, Vec<u32>, Vec<String>)> = Vec::new();
+    let mut panel_sessions: Vec<(
+        String,
+        String,
+        chrono::NaiveDateTime,
+        chrono::NaiveDateTime,
+        Vec<u32>,
+        Vec<String>,
+    )> = Vec::new();
     let mut session_index_map: HashMap<String, usize> = HashMap::new();
 
     for (_panel_idx, (panel_id, panel)) in schedule.panels.iter().enumerate() {
@@ -296,21 +303,27 @@ fn detect_panel_conflicts(schedule: &mut Schedule) {
                         chrono::NaiveDateTime::parse_from_str(end_str, "%Y-%m-%dT%H:%M:%S"),
                     ) {
                         let session_key = format!("{}-{}-{}", panel_id, part_idx, session_idx);
-                        let all_presenters: Vec<String> = session.credited_presenters.iter()
+                        let all_presenters: Vec<String> = session
+                            .credited_presenters
+                            .iter()
                             .chain(session.uncredited_presenters.iter())
                             .cloned()
                             .collect();
-                        
+
                         panel_sessions.push((
                             session_key.clone(),
-                            format!("{} (Part {}, Session {})", panel.name, 
-                                part.part_num.unwrap_or(0), session.session_num.unwrap_or(0)),
+                            format!(
+                                "{} (Part {}, Session {})",
+                                panel.name,
+                                part.part_num.unwrap_or(0),
+                                session.session_num.unwrap_or(0)
+                            ),
                             start_time,
                             end_time,
                             session.room_ids.clone(),
                             all_presenters,
                         ));
-                        
+
                         session_index_map.insert(session_key, panel_sessions.len() - 1);
                     }
                 }
@@ -345,7 +358,7 @@ fn detect_panel_conflicts(schedule: &mut Schedule) {
                 for second_pos in (first_pos + 1)..overlap_group.len() {
                     let first_idx = overlap_group[first_pos];
                     let second_idx = overlap_group[second_pos];
-                    
+
                     add_panel_session_conflict(
                         schedule,
                         &panel_sessions[first_idx],
@@ -363,7 +376,10 @@ fn detect_panel_conflicts(schedule: &mut Schedule) {
     let mut presenter_sessions: HashMap<String, Vec<usize>> = HashMap::new();
     for (session_idx, (_, _, _, _, _, presenters)) in panel_sessions.iter().enumerate() {
         for presenter in presenters {
-            presenter_sessions.entry(presenter.clone()).or_default().push(session_idx);
+            presenter_sessions
+                .entry(presenter.clone())
+                .or_default()
+                .push(session_idx);
         }
     }
 
@@ -392,7 +408,7 @@ fn detect_panel_conflicts(schedule: &mut Schedule) {
                 for second_pos in (first_pos + 1)..overlap_group.len() {
                     let first_idx = overlap_group[first_pos];
                     let second_idx = overlap_group[second_pos];
-                    
+
                     add_panel_session_conflict(
                         schedule,
                         &panel_sessions[first_idx],
@@ -408,7 +424,17 @@ fn detect_panel_conflicts(schedule: &mut Schedule) {
 }
 
 /// Find overlapping groups among panel sessions
-fn find_session_overlap_groups(session_indexes: &[usize], sessions: &[(String, String, chrono::NaiveDateTime, chrono::NaiveDateTime, Vec<u32>, Vec<String>)]) -> Vec<Vec<usize>> {
+fn find_session_overlap_groups(
+    session_indexes: &[usize],
+    sessions: &[(
+        String,
+        String,
+        chrono::NaiveDateTime,
+        chrono::NaiveDateTime,
+        Vec<u32>,
+        Vec<String>,
+    )],
+) -> Vec<Vec<usize>> {
     let mut overlap_groups: Vec<Vec<usize>> = Vec::new();
     let Some(first_index) = session_indexes.first().copied() else {
         return overlap_groups;
@@ -440,8 +466,22 @@ fn find_session_overlap_groups(session_indexes: &[usize], sessions: &[(String, S
 /// Add a conflict between two panel sessions
 fn add_panel_session_conflict(
     schedule: &mut Schedule,
-    first_session: &(String, String, chrono::NaiveDateTime, chrono::NaiveDateTime, Vec<u32>, Vec<String>),
-    second_session: &(String, String, chrono::NaiveDateTime, chrono::NaiveDateTime, Vec<u32>, Vec<String>),
+    first_session: &(
+        String,
+        String,
+        chrono::NaiveDateTime,
+        chrono::NaiveDateTime,
+        Vec<u32>,
+        Vec<String>,
+    ),
+    second_session: &(
+        String,
+        String,
+        chrono::NaiveDateTime,
+        chrono::NaiveDateTime,
+        Vec<u32>,
+        Vec<String>,
+    ),
     conflict_type: &str,
     presenter_name: Option<String>,
     room_value: Option<serde_json::Value>,
@@ -462,14 +502,16 @@ fn add_panel_session_conflict(
     });
 
     // Find the actual panel sessions and add conflicts to them
-    if let Some((first_panel_id, first_part_idx, first_session_idx)) = parse_session_key(&first_session.0) {
+    if let Some((first_panel_id, first_part_idx, first_session_idx)) =
+        parse_session_key(&first_session.0)
+    {
         if let Some(panel) = schedule.panels.get_mut(first_panel_id) {
             if let Some(part) = panel.parts.get_mut(first_part_idx) {
                 if let Some(session) = part.sessions.get_mut(first_session_idx) {
                     let details = match conflict_type {
-                        "group_presenter" => presenter_name
-                            .as_ref()
-                            .map(|name| format!("Group presenter overlap: {name} in multiple events")),
+                        "group_presenter" => presenter_name.as_ref().map(|name| {
+                            format!("Group presenter overlap: {name} in multiple events")
+                        }),
                         "presenter" => presenter_name.as_ref().map(|name| {
                             format!(
                                 "Double-booked with: {} (presenter: {name})",
@@ -489,14 +531,16 @@ fn add_panel_session_conflict(
         }
     }
 
-    if let Some((second_panel_id, second_part_idx, second_session_idx)) = parse_session_key(&second_session.0) {
+    if let Some((second_panel_id, second_part_idx, second_session_idx)) =
+        parse_session_key(&second_session.0)
+    {
         if let Some(panel) = schedule.panels.get_mut(second_panel_id) {
             if let Some(part) = panel.parts.get_mut(second_part_idx) {
                 if let Some(session) = part.sessions.get_mut(second_session_idx) {
                     let details = match conflict_type {
-                        "group_presenter" => presenter_name
-                            .as_ref()
-                            .map(|name| format!("Group presenter overlap: {name} in multiple events")),
+                        "group_presenter" => presenter_name.as_ref().map(|name| {
+                            format!("Group presenter overlap: {name} in multiple events")
+                        }),
                         "presenter" => presenter_name.as_ref().map(|name| {
                             format!(
                                 "Double-booked with: {} (presenter: {name})",

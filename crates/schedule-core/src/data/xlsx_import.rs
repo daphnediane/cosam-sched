@@ -790,23 +790,26 @@ fn extract_id_prefix(id: Option<&str>) -> String {
 }
 
 /// Strip trailing part/session numbers from a panel title
-/// 
+///
 /// Removes patterns like:
 /// - " (Session #)"
 /// - " (Part #)"  
 /// - " (Part #, Session #)"
-/// 
+///
 /// Returns the cleaned title and a tuple of (part_num, session_num) if found
 fn strip_title_suffix(title: &str) -> (String, Option<u32>, Option<u32>) {
     let re = Regex::new(r"(?i)\s*\((?:Part\s+(\d+)(?:,\s*Session\s+(\d+))?|Session\s+(\d+))\)\s*$")
         .expect("valid regex");
-    
+
     if let Some(caps) = re.captures(title) {
         let base_title = title[..caps.get(0).unwrap().start()].trim().to_string();
-        
+
         let part_num = caps.get(1).and_then(|m| m.as_str().parse().ok());
-        let session_num = caps.get(2).or_else(|| caps.get(3)).and_then(|m| m.as_str().parse().ok());
-        
+        let session_num = caps
+            .get(2)
+            .or_else(|| caps.get(3))
+            .and_then(|m| m.as_str().parse().ok());
+
         (base_title, part_num, session_num)
     } else {
         (title.to_string(), None, None)
@@ -954,7 +957,7 @@ fn read_events_v5(
             Some(n) => n.clone(),
             None => continue,
         };
-        
+
         // Strip trailing part/session numbers from title
         let (name, title_part_num, title_session_num) = strip_title_suffix(&raw_name);
 
@@ -970,13 +973,18 @@ fn read_events_v5(
                 }
             }
         };
-        
+
         // Check for conflicts between title suffixes and Uniq ID parts
-        let has_conflict = match (&panel_id.part_num, &panel_id.session_num, &title_part_num, &title_session_num) {
-            (None, None, Some(_), Some(_)) => true,  // ID has none, title has both
-            (None, None, Some(_), None) => true,     // ID has none, title has part
-            (None, None, None, Some(_)) => true,     // ID has none, title has session
-            (Some(_id_part), None, None, Some(_)) => true,  // ID has part, title has session
+        let has_conflict = match (
+            &panel_id.part_num,
+            &panel_id.session_num,
+            &title_part_num,
+            &title_session_num,
+        ) {
+            (None, None, Some(_), Some(_)) => true, // ID has none, title has both
+            (None, None, Some(_), None) => true,    // ID has none, title has part
+            (None, None, None, Some(_)) => true,    // ID has none, title has session
+            (Some(_id_part), None, None, Some(_)) => true, // ID has part, title has session
             (None, Some(_id_session), Some(_), None) => true, // ID has session, title has part
             (Some(id_part), Some(id_session), Some(title_part), Some(title_session)) => {
                 id_part != title_part || id_session != title_session
