@@ -779,6 +779,44 @@
   }
 }
 
+@keyframes twinkleStar1 {
+
+  0%,
+  100% {
+    opacity: 0.5;
+    filter: brightness(0.9);
+  }
+
+  45% {
+    opacity: 0.9;
+    filter: brightness(1.3);
+  }
+
+  70% {
+    opacity: 0.65;
+    filter: brightness(1.05);
+  }
+}
+
+@keyframes twinkleStar2 {
+
+  0%,
+  100% {
+    opacity: 0.45;
+    filter: brightness(0.85);
+  }
+
+  35% {
+    opacity: 0.88;
+    filter: brightness(1.35);
+  }
+
+  75% {
+    opacity: 0.6;
+    filter: brightness(1.05);
+  }
+}
+
 @media (min-width: 769px) {
   .cosam-grid-event-room {
     display: none;
@@ -1043,6 +1081,489 @@
     opacity: 0.7;
     transform: scale(0.95);
   }
+}
+
+@keyframes moonGlow {
+
+  0%,
+  100% {
+    text-shadow: 0 0 8px rgba(255, 255, 200, 0.4);
+  }
+
+  50% {
+    text-shadow: 0 0 16px rgba(255, 255, 200, 0.7);
+  }
+}
+
+/* Implicit overnight break styling */
+.cosam-implicit-overnight-break {
+  --overnight-bg: linear-gradient(135deg, #3b4976, #2c3a5e, #3b4976);
+  --overnight-border: #5a6a8a;
+  --overnight-text: #d4daf0;
+  --overnight-star-color: rgba(255, 255, 255, 0.8);
+  --overnight-star-dim: rgba(255, 255, 255, 0.4);
+  --overnight-star-bright: rgba(255, 255, 230, 1);
+
+  background: var(--overnight-bg) !important;
+  border: 1px solid var(--overnight-border) !important;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.15) !important;
+  position: relative;
+  overflow: hidden;
+  color: var(--overnight-text) !important;
+}
+
+.cosam-calendar[data-theme="dark"] .cosam-implicit-overnight-break {
+  --overnight-bg: linear-gradient(135deg, #1a1a2e, #16213e, #1a1a2e);
+  --overnight-border: #334155;
+  --overnight-text: #cbd5e1;
+}
+
+.cosam-calendar[data-theme="high-contrast"] .cosam-implicit-overnight-break {
+  --overnight-bg: linear-gradient(135deg, #111122, #0a0a1a, #111122);
+  --overnight-border: #ffffff;
+  --overnight-text: #ffffff;
+  --overnight-star-color: rgba(255, 255, 255, 1);
+  --overnight-star-dim: rgba(255, 255, 255, 0.7);
+  --overnight-star-bright: rgba(255, 255, 200, 1);
+}
+
+.cosam-implicit-overnight-break .cosam-break-name,
+.cosam-implicit-overnight-break .cosam-break-desc,
+.cosam-implicit-overnight-break .cosam-break-meta,
+.cosam-implicit-overnight-break .cosam-grid-break-name {
+  color: var(--overnight-text) !important;
+}
+
+/* Star field layer 1 - smaller stars */
+.cosam-implicit-overnight-break::before {
+  content: '';
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  top: 0;
+  left: 0;
+  background: transparent;
+  box-shadow:
+    12px 8px 0 0.5px var(--overnight-star-dim),
+    45px 14px 0 0.3px var(--overnight-star-color),
+    82px 6px 0 0.5px var(--overnight-star-dim),
+    120px 18px 0 0.3px var(--overnight-star-color),
+    155px 10px 0 0.5px var(--overnight-star-dim),
+    190px 22px 0 0.3px var(--overnight-star-color),
+    230px 5px 0 0.5px var(--overnight-star-dim),
+    268px 16px 0 0.3px var(--overnight-star-color),
+    310px 9px 0 0.5px var(--overnight-star-dim),
+    348px 20px 0 0.3px var(--overnight-star-color),
+    385px 12px 0 0.5px var(--overnight-star-dim),
+    422px 7px 0 0.3px var(--overnight-star-color),
+    460px 19px 0 0.5px var(--overnight-star-dim),
+    500px 11px 0 0.3px var(--overnight-star-color),
+    540px 15px 0 0.5px var(--overnight-star-dim),
+    578px 8px 0 0.3px var(--overnight-star-color),
+    620px 21px 0 0.5px var(--overnight-star-dim),
+    660px 13px 0 0.3px var(--overnight-star-color),
+    700px 6px 0 0.5px var(--overnight-star-dim),
+    738px 17px 0 0.3px var(--overnight-star-color),
+    780px 10px 0 0.5px var(--overnight-star-dim),
+    820px 23px 0 0.3px var(--overnight-star-color),
+    860px 14px 0 0.5px var(--overnight-star-dim),
+    900px 8px 0 0.3px var(--overnight-star-color),
+    940px 19px 0 0.5px var(--overnight-star-dim),
+    65px 26px 0 0.3px var(--overnight-star-color),
+    135px 30px 0 0.5px var(--overnight-star-dim),
+    205px 28px 0 0.3px var(--overnight-star-color),
+    275px 32px 0 0.5px var(--overnight-star-dim),
+    345px 27px 0 0.3px var(--overnight-star-color),
+    415px 34px 0 0.5px var(--overnight-star-dim),
+    485px 29px 0 0.3px var(--overnight-star-color),
+    555px 33px 0 0.5px var(--overnight-star-dim),
+    625px 25px 0 0.3px var(--overnight-star-color),
+    695px 31px 0 0.5px var(--overnight-star-dim),
+    765px 28px 0 0.3px var(--overnight-star-color),
+    835px 35px 0 0.5px var(--overnight-star-dim),
+    /* Scattered pattern for taller list view */
+    15px 42px 0 0.5px var(--overnight-star-dim),
+    48px 48px 0 0.3px var(--overnight-star-color),
+    85px 40px 0 0.5px var(--overnight-star-dim),
+    123px 52px 0 0.3px var(--overnight-star-color),
+    158px 44px 0 0.5px var(--overnight-star-dim),
+    193px 56px 0 0.3px var(--overnight-star-color),
+    233px 39px 0 0.5px var(--overnight-star-dim),
+    271px 50px 0 0.3px var(--overnight-star-color),
+    313px 43px 0 0.5px var(--overnight-star-dim),
+    351px 54px 0 0.3px var(--overnight-star-color),
+    388px 46px 0 0.5px var(--overnight-star-dim),
+    425px 41px 0 0.3px var(--overnight-star-color),
+    463px 53px 0 0.5px var(--overnight-star-dim),
+    503px 45px 0 0.3px var(--overnight-star-color),
+    543px 49px 0 0.5px var(--overnight-star-dim),
+    581px 42px 0 0.3px var(--overnight-star-color),
+    623px 55px 0 0.5px var(--overnight-star-dim),
+    663px 47px 0 0.3px var(--overnight-star-color),
+    703px 40px 0 0.5px var(--overnight-star-dim),
+    741px 51px 0 0.3px var(--overnight-star-color),
+    783px 44px 0 0.5px var(--overnight-star-dim),
+    823px 57px 0 0.3px var(--overnight-star-color),
+    863px 48px 0 0.5px var(--overnight-star-dim),
+    903px 42px 0 0.3px var(--overnight-star-color),
+    943px 53px 0 0.5px var(--overnight-star-dim),
+    68px 60px 0 0.3px var(--overnight-star-color),
+    138px 64px 0 0.5px var(--overnight-star-dim),
+    208px 62px 0 0.3px var(--overnight-star-color),
+    278px 66px 0 0.5px var(--overnight-star-dim),
+    348px 61px 0 0.3px var(--overnight-star-color),
+    418px 68px 0 0.5px var(--overnight-star-dim),
+    488px 63px 0 0.3px var(--overnight-star-color),
+    558px 67px 0 0.5px var(--overnight-star-dim),
+    628px 59px 0 0.3px var(--overnight-star-color),
+    698px 65px 0 0.5px var(--overnight-star-dim),
+    768px 62px 0 0.3px var(--overnight-star-color),
+    838px 69px 0 0.5px var(--overnight-star-dim),
+    /* More scattered rows */
+    18px 78px 0 0.5px var(--overnight-star-dim),
+    51px 84px 0 0.3px var(--overnight-star-color),
+    88px 76px 0 0.5px var(--overnight-star-dim),
+    126px 88px 0 0.3px var(--overnight-star-color),
+    161px 80px 0 0.5px var(--overnight-star-dim),
+    196px 92px 0 0.3px var(--overnight-star-color),
+    236px 75px 0 0.5px var(--overnight-star-dim),
+    274px 86px 0 0.3px var(--overnight-star-color),
+    316px 79px 0 0.5px var(--overnight-star-dim),
+    354px 90px 0 0.3px var(--overnight-star-color),
+    391px 82px 0 0.5px var(--overnight-star-dim),
+    428px 77px 0 0.3px var(--overnight-star-color),
+    466px 89px 0 0.5px var(--overnight-star-dim),
+    506px 81px 0 0.3px var(--overnight-star-color),
+    546px 85px 0 0.5px var(--overnight-star-dim),
+    584px 78px 0 0.3px var(--overnight-star-color),
+    626px 91px 0 0.5px var(--overnight-star-dim),
+    666px 83px 0 0.3px var(--overnight-star-color),
+    706px 76px 0 0.5px var(--overnight-star-dim),
+    744px 87px 0 0.3px var(--overnight-star-color),
+    786px 80px 0 0.5px var(--overnight-star-dim),
+    826px 93px 0 0.3px var(--overnight-star-color),
+    866px 84px 0 0.5px var(--overnight-star-dim),
+    906px 78px 0 0.3px var(--overnight-star-color),
+    946px 89px 0 0.5px var(--overnight-star-dim),
+    71px 96px 0 0.3px var(--overnight-star-color),
+    141px 100px 0 0.5px var(--overnight-star-dim),
+    211px 98px 0 0.3px var(--overnight-star-color),
+    281px 102px 0 0.5px var(--overnight-star-dim),
+    351px 97px 0 0.3px var(--overnight-star-color),
+    421px 104px 0 0.5px var(--overnight-star-dim),
+    491px 99px 0 0.3px var(--overnight-star-color),
+    561px 103px 0 0.5px var(--overnight-star-dim),
+    631px 95px 0 0.3px var(--overnight-star-color),
+    701px 101px 0 0.5px var(--overnight-star-dim),
+    771px 98px 0 0.3px var(--overnight-star-color),
+    841px 105px 0 0.5px var(--overnight-star-dim),
+    /* Extend to wider containers */
+    980px 12px 0 0.5px var(--overnight-star-dim),
+    1020px 18px 0 0.3px var(--overnight-star-color),
+    1060px 8px 0 0.5px var(--overnight-star-dim),
+    1100px 22px 0 0.3px var(--overnight-star-color),
+    1140px 5px 0 0.5px var(--overnight-star-dim),
+    1180px 16px 0 0.3px var(--overnight-star-color),
+    1220px 10px 0 0.5px var(--overnight-star-dim),
+    1260px 20px 0 0.3px var(--overnight-star-color),
+    1300px 14px 0 0.5px var(--overnight-star-dim),
+    1340px 7px 0 0.3px var(--overnight-star-color),
+    1380px 19px 0 0.5px var(--overnight-star-dim),
+    1420px 11px 0 0.3px var(--overnight-star-color),
+    1460px 15px 0 0.5px var(--overnight-star-dim),
+    1500px 8px 0 0.3px var(--overnight-star-color),
+    1540px 21px 0 0.5px var(--overnight-star-dim),
+    1580px 13px 0 0.3px var(--overnight-star-color),
+    1620px 6px 0 0.5px var(--overnight-star-dim),
+    1660px 17px 0 0.3px var(--overnight-star-color),
+    1700px 10px 0 0.5px var(--overnight-star-dim),
+    1740px 23px 0 0.3px var(--overnight-star-color),
+    1780px 14px 0 0.5px var(--overnight-star-dim),
+    1820px 8px 0 0.3px var(--overnight-star-color),
+    1860px 19px 0 0.5px var(--overnight-star-dim),
+    990px 42px 0 0.5px var(--overnight-star-dim),
+    1030px 48px 0 0.3px var(--overnight-star-color),
+    1070px 40px 0 0.5px var(--overnight-star-dim),
+    1110px 52px 0 0.3px var(--overnight-star-color),
+    1150px 44px 0 0.5px var(--overnight-star-dim),
+    1190px 56px 0 0.3px var(--overnight-star-color),
+    1230px 39px 0 0.5px var(--overnight-star-dim),
+    1270px 50px 0 0.3px var(--overnight-star-color),
+    1310px 43px 0 0.5px var(--overnight-star-dim),
+    1350px 54px 0 0.3px var(--overnight-star-color),
+    1390px 46px 0 0.5px var(--overnight-star-dim),
+    1430px 41px 0 0.3px var(--overnight-star-color),
+    1470px 53px 0 0.5px var(--overnight-star-dim),
+    1510px 45px 0 0.3px var(--overnight-star-color),
+    1550px 49px 0 0.5px var(--overnight-star-dim),
+    1590px 42px 0 0.3px var(--overnight-star-color),
+    1630px 55px 0 0.5px var(--overnight-star-dim),
+    1670px 47px 0 0.3px var(--overnight-star-color),
+    1710px 40px 0 0.5px var(--overnight-star-dim),
+    1750px 51px 0 0.3px var(--overnight-star-color),
+    1790px 44px 0 0.5px var(--overnight-star-dim),
+    1830px 57px 0 0.3px var(--overnight-star-color),
+    1870px 48px 0 0.5px var(--overnight-star-dim),
+    1000px 78px 0 0.5px var(--overnight-star-dim),
+    1040px 84px 0 0.3px var(--overnight-star-color),
+    1080px 76px 0 0.5px var(--overnight-star-dim),
+    1120px 88px 0 0.3px var(--overnight-star-color),
+    1160px 80px 0 0.5px var(--overnight-star-dim),
+    1200px 92px 0 0.3px var(--overnight-star-color),
+    1240px 75px 0 0.5px var(--overnight-star-dim),
+    1280px 86px 0 0.3px var(--overnight-star-color),
+    1320px 79px 0 0.5px var(--overnight-star-dim),
+    1360px 90px 0 0.3px var(--overnight-star-color),
+    1400px 82px 0 0.5px var(--overnight-star-dim),
+    1440px 77px 0 0.3px var(--overnight-star-color),
+    1480px 89px 0 0.5px var(--overnight-star-dim),
+    1520px 81px 0 0.3px var(--overnight-star-color),
+    1560px 85px 0 0.5px var(--overnight-star-dim),
+    1600px 78px 0 0.3px var(--overnight-star-color),
+    1640px 91px 0 0.5px var(--overnight-star-dim),
+    1680px 83px 0 0.3px var(--overnight-star-color),
+    1720px 76px 0 0.5px var(--overnight-star-dim),
+    1760px 87px 0 0.3px var(--overnight-star-color),
+    1800px 80px 0 0.5px var(--overnight-star-dim),
+    1840px 93px 0 0.3px var(--overnight-star-color),
+    1880px 84px 0 0.5px var(--overnight-star-dim),
+    1010px 100px 0 0.3px var(--overnight-star-color),
+    1050px 105px 0 0.5px var(--overnight-star-dim),
+    1090px 98px 0 0.3px var(--overnight-star-color),
+    1130px 102px 0 0.5px var(--overnight-star-dim),
+    1170px 97px 0 0.3px var(--overnight-star-color),
+    1210px 104px 0 0.5px var(--overnight-star-dim),
+    1250px 99px 0 0.3px var(--overnight-star-color),
+    1290px 103px 0 0.5px var(--overnight-star-dim),
+    1330px 95px 0 0.3px var(--overnight-star-color),
+    1370px 101px 0 0.5px var(--overnight-star-dim),
+    1410px 98px 0 0.3px var(--overnight-star-color),
+    1450px 105px 0 0.5px var(--overnight-star-dim),
+    1490px 97px 0 0.3px var(--overnight-star-color),
+    1530px 101px 0 0.5px var(--overnight-star-dim),
+    1570px 98px 0 0.3px var(--overnight-star-color),
+    1610px 105px 0 0.5px var(--overnight-star-dim),
+    1650px 97px 0 0.3px var(--overnight-star-color),
+    1690px 101px 0 0.5px var(--overnight-star-dim),
+    1730px 98px 0 0.3px var(--overnight-star-color),
+    1770px 105px 0 0.5px var(--overnight-star-dim),
+    1810px 97px 0 0.3px var(--overnight-star-color),
+    1850px 101px 0 0.5px var(--overnight-star-dim),
+    1890px 98px 0 0.3px var(--overnight-star-color);
+  animation: twinkleStar1 6s ease-in-out infinite;
+  pointer-events: none;
+}
+
+/* Star field layer 2 - larger, brighter stars with offset timing */
+.cosam-implicit-overnight-break::after {
+  content: '';
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  top: 0;
+  left: 0;
+  background: transparent;
+  box-shadow:
+    30px 11px 0 1px var(--overnight-star-bright),
+    98px 20px 0 0.8px var(--overnight-star-bright),
+    175px 7px 0 1px var(--overnight-star-bright),
+    250px 15px 0 0.8px var(--overnight-star-bright),
+    330px 24px 0 1px var(--overnight-star-bright),
+    410px 9px 0 0.8px var(--overnight-star-bright),
+    495px 22px 0 1px var(--overnight-star-bright),
+    575px 13px 0 0.8px var(--overnight-star-bright),
+    650px 18px 0 1px var(--overnight-star-bright),
+    730px 7px 0 0.8px var(--overnight-star-bright),
+    810px 20px 0 1px var(--overnight-star-bright),
+    890px 12px 0 0.8px var(--overnight-star-bright),
+    108px 32px 0 1px var(--overnight-star-bright),
+    288px 30px 0 0.8px var(--overnight-star-bright),
+    468px 35px 0 1px var(--overnight-star-bright),
+    648px 33px 0 0.8px var(--overnight-star-bright),
+    828px 29px 0 1px var(--overnight-star-bright),
+    /* Scattered pattern for taller list view */
+    35px 45px 0 1px var(--overnight-star-bright),
+    103px 54px 0 0.8px var(--overnight-star-bright),
+    180px 41px 0 1px var(--overnight-star-bright),
+    255px 49px 0 0.8px var(--overnight-star-bright),
+    335px 58px 0 1px var(--overnight-star-bright),
+    415px 43px 0 0.8px var(--overnight-star-bright),
+    500px 56px 0 1px var(--overnight-star-bright),
+    580px 47px 0 0.8px var(--overnight-star-bright),
+    655px 52px 0 1px var(--overnight-star-bright),
+    735px 41px 0 0.8px var(--overnight-star-bright),
+    815px 54px 0 1px var(--overnight-star-bright),
+    895px 46px 0 0.8px var(--overnight-star-bright),
+    113px 66px 0 1px var(--overnight-star-bright),
+    293px 64px 0 0.8px var(--overnight-star-bright),
+    473px 69px 0 1px var(--overnight-star-bright),
+    653px 67px 0 0.8px var(--overnight-star-bright),
+    833px 63px 0 1px var(--overnight-star-bright),
+    /* More scattered rows */
+    40px 79px 0 1px var(--overnight-star-bright),
+    108px 88px 0 0.8px var(--overnight-star-bright),
+    185px 75px 0 1px var(--overnight-star-bright),
+    260px 83px 0 0.8px var(--overnight-star-bright),
+    340px 92px 0 1px var(--overnight-star-bright),
+    420px 77px 0 0.8px var(--overnight-star-bright),
+    505px 90px 0 1px var(--overnight-star-bright),
+    585px 81px 0 0.8px var(--overnight-star-bright),
+    660px 86px 0 1px var(--overnight-star-bright),
+    740px 75px 0 0.8px var(--overnight-star-bright),
+    820px 88px 0 1px var(--overnight-star-bright),
+    900px 80px 0 0.8px var(--overnight-star-bright),
+    118px 100px 0 1px var(--overnight-star-bright),
+    298px 98px 0 0.8px var(--overnight-star-bright),
+    478px 103px 0 1px var(--overnight-star-bright),
+    658px 101px 0 0.8px var(--overnight-star-bright),
+    838px 97px 0 1px var(--overnight-star-bright),
+    /* Extend to wider containers */
+    920px 11px 0 1px var(--overnight-star-bright),
+    988px 20px 0 0.8px var(--overnight-star-bright),
+    1065px 7px 0 1px var(--overnight-star-bright),
+    1140px 15px 0 0.8px var(--overnight-star-bright),
+    1220px 24px 0 1px var(--overnight-star-bright),
+    1300px 9px 0 0.8px var(--overnight-star-bright),
+    1385px 22px 0 1px var(--overnight-star-bright),
+    1465px 13px 0 0.8px var(--overnight-star-bright),
+    1540px 18px 0 1px var(--overnight-star-bright),
+    1620px 7px 0 0.8px var(--overnight-star-bright),
+    1700px 20px 0 1px var(--overnight-star-bright),
+    1780px 12px 0 0.8px var(--overnight-star-bright),
+    998px 32px 0 1px var(--overnight-star-bright),
+    1178px 30px 0 0.8px var(--overnight-star-bright),
+    1358px 35px 0 1px var(--overnight-star-bright),
+    1538px 33px 0 0.8px var(--overnight-star-bright),
+    1718px 29px 0 1px var(--overnight-star-bright),
+    925px 45px 0 1px var(--overnight-star-bright),
+    993px 54px 0 0.8px var(--overnight-star-bright),
+    1070px 41px 0 1px var(--overnight-star-bright),
+    1145px 49px 0 0.8px var(--overnight-star-bright),
+    1225px 58px 0 1px var(--overnight-star-bright),
+    1305px 43px 0 0.8px var(--overnight-star-bright),
+    1390px 56px 0 1px var(--overnight-star-bright),
+    1470px 47px 0 0.8px var(--overnight-star-bright),
+    1545px 52px 0 1px var(--overnight-star-bright),
+    1625px 41px 0 0.8px var(--overnight-star-bright),
+    1705px 54px 0 1px var(--overnight-star-bright),
+    1785px 46px 0 0.8px var(--overnight-star-bright),
+    1003px 66px 0 1px var(--overnight-star-bright),
+    1183px 64px 0 0.8px var(--overnight-star-bright),
+    1363px 69px 0 1px var(--overnight-star-bright),
+    1543px 67px 0 0.8px var(--overnight-star-bright),
+    1723px 63px 0 1px var(--overnight-star-bright),
+    930px 79px 0 1px var(--overnight-star-bright),
+    998px 88px 0 0.8px var(--overnight-star-bright),
+    1075px 75px 0 1px var(--overnight-star-bright),
+    1150px 83px 0 0.8px var(--overnight-star-bright),
+    1230px 92px 0 1px var(--overnight-star-bright),
+    1310px 77px 0 0.8px var(--overnight-star-bright),
+    1395px 90px 0 1px var(--overnight-star-bright),
+    1475px 81px 0 0.8px var(--overnight-star-bright),
+    1550px 86px 0 1px var(--overnight-star-bright),
+    1630px 75px 0 0.8px var(--overnight-star-bright),
+    1710px 88px 0 1px var(--overnight-star-bright),
+    1790px 80px 0 0.8px var(--overnight-star-bright),
+    1008px 100px 0 1px var(--overnight-star-bright),
+    1188px 98px 0 0.8px var(--overnight-star-bright),
+    1368px 103px 0 1px var(--overnight-star-bright),
+    1548px 101px 0 0.8px var(--overnight-star-bright),
+    1728px 97px 0 1px var(--overnight-star-bright);
+  animation: twinkleStar2 8s ease-in-out infinite;
+  pointer-events: none;
+}
+
+.cosam-implicit-overnight-moon {
+  font-size: 16px;
+  display: inline-block;
+  animation: moonGlow 3s ease-in-out infinite;
+  position: relative;
+  z-index: 1;
+}
+
+.cosam-implicit-overnight-break .cosam-break-name,
+.cosam-implicit-overnight-break .cosam-break-desc,
+.cosam-implicit-overnight-break .cosam-break-meta,
+.cosam-implicit-overnight-break .cosam-grid-break-name,
+.cosam-implicit-overnight-break .cosam-grid-event-time {
+  position: relative;
+  z-index: 1;
+}
+
+/* Override star field with lower-density, less regular layers */
+.cosam-implicit-overnight-break {
+  --overnight-star-color: rgba(255, 255, 255, 0.72);
+  --overnight-star-dim: rgba(255, 255, 255, 0.42);
+  --overnight-star-bright: rgba(255, 255, 230, 0.95);
+}
+
+.cosam-implicit-overnight-break::before,
+.cosam-implicit-overnight-break::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  width: auto;
+  height: auto;
+  pointer-events: none;
+}
+
+.cosam-implicit-overnight-break::before {
+  background-image:
+    radial-gradient(circle at 4% 14%, var(--overnight-star-dim) 0 0.8px, transparent 1.8px),
+    radial-gradient(circle at 9% 67%, var(--overnight-star-color) 0 1.0px, transparent 2.1px),
+    radial-gradient(circle at 15% 33%, var(--overnight-star-dim) 0 0.8px, transparent 1.8px),
+    radial-gradient(circle at 21% 82%, var(--overnight-star-color) 0 1.0px, transparent 2.1px),
+    radial-gradient(circle at 26% 18%, var(--overnight-star-dim) 0 0.8px, transparent 1.8px),
+    radial-gradient(circle at 31% 58%, var(--overnight-star-color) 0 1.0px, transparent 2.1px),
+    radial-gradient(circle at 37% 28%, var(--overnight-star-dim) 0 0.8px, transparent 1.8px),
+    radial-gradient(circle at 42% 74%, var(--overnight-star-color) 0 1.0px, transparent 2.1px),
+    radial-gradient(circle at 48% 11%, var(--overnight-star-dim) 0 0.8px, transparent 1.8px),
+    radial-gradient(circle at 53% 47%, var(--overnight-star-color) 0 1.0px, transparent 2.1px),
+    radial-gradient(circle at 59% 86%, var(--overnight-star-dim) 0 0.8px, transparent 1.8px),
+    radial-gradient(circle at 64% 24%, var(--overnight-star-color) 0 1.0px, transparent 2.1px),
+    radial-gradient(circle at 70% 63%, var(--overnight-star-dim) 0 0.8px, transparent 1.8px),
+    radial-gradient(circle at 76% 38%, var(--overnight-star-color) 0 1.0px, transparent 2.1px),
+    radial-gradient(circle at 82% 79%, var(--overnight-star-dim) 0 0.8px, transparent 1.8px),
+    radial-gradient(circle at 87% 16%, var(--overnight-star-color) 0 1.0px, transparent 2.1px),
+    radial-gradient(circle at 92% 55%, var(--overnight-star-dim) 0 0.8px, transparent 1.8px),
+    radial-gradient(circle at 97% 34%, var(--overnight-star-color) 0 1.0px, transparent 2.1px);
+  background-size: 100% 100%;
+  background-repeat: no-repeat;
+  opacity: 0.72;
+  animation: twinkleStar1 9s ease-in-out infinite;
+  z-index: 0;
+}
+
+.cosam-implicit-overnight-break::after {
+  background-image:
+    radial-gradient(circle at 7% 41%, var(--overnight-star-bright) 0 1.4px, transparent 3px),
+    radial-gradient(circle at 18% 12%, var(--overnight-star-bright) 0 1.6px, transparent 3.4px),
+    radial-gradient(circle at 29% 73%, var(--overnight-star-bright) 0 1.5px, transparent 3.2px),
+    radial-gradient(circle at 41% 27%, var(--overnight-star-bright) 0 1.6px, transparent 3.4px),
+    radial-gradient(circle at 52% 61%, var(--overnight-star-bright) 0 1.4px, transparent 3px),
+    radial-gradient(circle at 63% 19%, var(--overnight-star-bright) 0 1.6px, transparent 3.4px),
+    radial-gradient(circle at 74% 84%, var(--overnight-star-bright) 0 1.5px, transparent 3.2px),
+    radial-gradient(circle at 85% 36%, var(--overnight-star-bright) 0 1.6px, transparent 3.4px),
+    radial-gradient(circle at 95% 68%, var(--overnight-star-bright) 0 1.4px, transparent 3px);
+  background-size: 100% 100%;
+  background-repeat: no-repeat;
+  opacity: 0.6;
+  animation: twinkleStar2 12s ease-in-out infinite;
+  z-index: 0;
+}
+
+.cosam-implicit-overnight-break .cosam-break-name,
+.cosam-implicit-overnight-break .cosam-grid-break-name {
+  display: inline-block;
+  text-shadow: 0 1px 2px rgba(6, 10, 20, 0.65), 0 0 10px rgba(6, 10, 20, 0.35);
+  z-index: 2;
+}
+
+.cosam-implicit-overnight-break .cosam-break-desc,
+.cosam-implicit-overnight-break .cosam-break-meta,
+.cosam-implicit-overnight-break .cosam-grid-event-time {
+  text-shadow: 0 1px 2px rgba(6, 10, 20, 0.6);
+  z-index: 2;
 }
 
 .cosam-calendar :focus-visible {

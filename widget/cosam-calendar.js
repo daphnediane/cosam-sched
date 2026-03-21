@@ -46,6 +46,62 @@
     return e;
   }
 
+  function isOvernightBreak(startTime, endTime) {
+    const start = new Date(startTime);
+    const end = new Date(endTime);
+    const startDay = start.toDateString();
+    const endDay = end.toDateString();
+
+    // Different days = overnight
+    if (startDay !== endDay) return true;
+
+    // Same day but spans 4 AM
+    const startHour = start.getHours();
+    const endHour = end.getHours();
+    return startHour < 4 && endHour > 4;
+  }
+
+  function getImplicitBreaks(events, isBreakFn) {
+    const breaks = [];
+    const nonBreakEvents = events.filter(e => !isBreakFn(e));
+    const sortedEvents = [...nonBreakEvents].sort((a, b) => new Date(a.startTime) - new Date(b.startTime));
+
+    if (sortedEvents.length === 0) return breaks;
+
+    // Track the latest end time seen so far across all rooms
+    let latestEnd = new Date(sortedEvents[0].endTime);
+    let latestEndStr = sortedEvents[0].endTime;
+
+    for (let i = 1; i < sortedEvents.length; i++) {
+      const next = sortedEvents[i];
+      const nextStart = new Date(next.startTime);
+      const gapHours = (nextStart - latestEnd) / (1000 * 60 * 60);
+
+      // If gap > 3 hours from the latest end time, create an implicit break
+      if (gapHours > 3) {
+        const isOvernight = isOvernightBreak(latestEnd, nextStart);
+        breaks.push({
+          id: `implicit-break-${i}`,
+          name: isOvernight ? 'Overnight Break' : 'Break',
+          startTime: latestEndStr,
+          endTime: next.startTime,
+          isImplicit: true,
+          isOvernight: isOvernight,
+          description: isOvernight ? 'Overnight break period' : 'Break period'
+        });
+      }
+
+      // Update latest end time if this event ends later
+      const nextEnd = new Date(next.endTime);
+      if (nextEnd > latestEnd) {
+        latestEnd = nextEnd;
+        latestEndStr = next.endTime;
+      }
+    }
+
+    return breaks;
+  }
+
   function formatTime(isoStr) {
     if (!isoStr) return '';
     const d = new Date(isoStr);
@@ -273,6 +329,10 @@
     }
 
     _isBreakEvent(e) {
+      // Check if it's an implicit break
+      if (e.isImplicit) {
+        return true;
+      }
       // First check panelTypes[].isBreak from JSON data (V3+)
       if (e.panelType && this._isBreakPanelType(e.panelType)) {
         return true;
@@ -381,6 +441,12 @@
       // Starred only
       if (this.filters.starredOnly) {
         events = events.filter(e => this.starred.has(e.id));
+      }
+
+      // Add implicit breaks after all filtering (except search)
+      if (!this.filters.search) {
+        const implicitBreaks = getImplicitBreaks(events, e => this._isBreakEvent(e));
+        events = [...events, ...implicitBreaks];
       }
 
       return events;
@@ -848,17 +914,11 @@
         const evts = groups.get(timeKey);
         const group = el('div', { className: 'cosam-time-group' });
         const timeLabel = evts[0] ? formatTime(evts[0].startTime) : timeKey;
+        // Day transition handling
         let dayLabel = null;
-        if (showAllDays && evts[0]) {
+        if (showAllDays && evts && evts.length > 0) {
           const dayKey = getDayKey(evts[0].startTime);
           if (dayKey !== lastDayKey) {
-            // Add sleep break between days (except for first day)
-            if (lastDayKey !== null) {
-              const sleepBreak = el('div', { className: 'cosam-sleep-break' });
-              sleepBreak.appendChild(el('div', { className: 'cosam-sleep-break-icon' }, '🌙'));
-              sleepBreak.appendChild(el('div', { className: 'cosam-sleep-break-text' }, 'Overnight Break'));
-              container.appendChild(sleepBreak);
-            }
             dayLabel = getDayLabel(evts[0].startTime);
             lastDayKey = dayKey;
           }
@@ -884,8 +944,9 @@
     }
 
     _buildBreakBanner(evt) {
+      const isImplicitOvernight = evt.isImplicit && evt.isOvernight;
       const banner = el('div', {
-        className: 'cosam-break-banner',
+        className: 'cosam-break-banner' + (isImplicitOvernight ? ' cosam-implicit-overnight-break' : ''),
         role: 'button',
         tabindex: '0',
         onClick: () => { this.state.modalEvent = evt; this._showModal(evt); },
@@ -897,7 +958,16 @@
           this._showModal(evt);
         }
       });
-      banner.appendChild(el('div', { className: 'cosam-break-name' }, evt.name));
+
+      // Add moon for implicit overnight breaks
+      if (isImplicitOvernight) {
+        const nameWrapper = el('div', { className: 'cosam-break-name' });
+        nameWrapper.appendChild(el('span', { className: 'cosam-implicit-overnight-moon' }, '🌙'));
+        nameWrapper.appendChild(document.createTextNode(' ' + evt.name));
+        banner.appendChild(nameWrapper);
+      } else {
+        banner.appendChild(el('div', { className: 'cosam-break-name' }, evt.name));
+      }
       if (evt.description) {
         banner.appendChild(el('div', { className: 'cosam-break-desc' }, evt.description));
       }
@@ -1044,31 +1114,10 @@
         return container;
       }
 
-      // Generate time slots - include all event start/end times plus key transition points
+      // Generate time slots from event start/end times
       const eventTimeKeys = [...new Set(events.flatMap(e => [getTimeSlotKey(e.startTime), getTimeSlotKey(e.endTime)]))].sort();
 
-      // Add important transition times (end of days) to ensure overnight breaks work
-      const transitionKeys = new Set();
-      const dayGroups = {};
-
-      // Group events by day
-      for (const key of eventTimeKeys) {
-        const dayKey = getDayKey(key + ':00');
-        if (!dayGroups[dayKey]) dayGroups[dayKey] = [];
-        dayGroups[dayKey].push(key);
-      }
-
-      // For each day, add the last event time as a transition point
-      for (const dayKey in dayGroups) {
-        const dayTimes = dayGroups[dayKey].sort();
-        if (dayTimes.length > 0) {
-          const lastTime = dayTimes[dayTimes.length - 1];
-          transitionKeys.add(lastTime);
-        }
-      }
-
-      // Combine all time keys
-      const allTimeKeys = [...new Set([...eventTimeKeys, ...transitionKeys])].sort();
+      const allTimeKeys = eventTimeKeys;
 
       // Convert to shorter names: weekday number + hour + minute (e.g., t51030 for Friday 10:30 AM)
       const timeSlotMap = {};
@@ -1136,24 +1185,9 @@
             ? getDayKey(slotEvents[0].startTime)
             : getDayKey(originalKey + ':00');
           if (dayKey !== lastDayKey) {
-            if (lastDayKey !== null) {
-              let lastSlotIndex = i - 1;
-              while (lastSlotIndex >= 0) {
-                const prevKey = allTimeKeys[lastSlotIndex];
-                const prevDayKey = getDayKey(prevKey + ':00');
-                if (prevDayKey === lastDayKey) break;
-                lastSlotIndex--;
-              }
-              if (lastSlotIndex >= 0) {
-                const sleepBreak = this._buildGridSleepBreak(roomOrder.length + 1);
-                sleepBreak.style.gridColumn = `room-${roomOrder[0]} / -1`;
-                sleepBreak.style.gridRow = `${timeSlots[lastSlotIndex]} / ${timeSlot}`;
-                grid.appendChild(sleepBreak);
-              }
-            }
             const daySource = slotEvents.length > 0 ? slotEvents[0].startTime : originalKey + ':00';
-            const dayDate = new Date(daySource);
-            dayLabel = dayDate.toLocaleDateString('en-US', { weekday: 'long' });
+            const eventTime = new Date(daySource);
+            dayLabel = eventTime.toLocaleDateString('en-US', { weekday: 'long' });
             lastDayKey = dayKey;
           }
         }
@@ -1403,8 +1437,9 @@
     }
 
     _buildGridBreak(evt) {
+      const isImplicitOvernight = evt.isImplicit && evt.isOvernight;
       const div = el('div', {
-        className: 'cosam-grid-break',
+        className: 'cosam-grid-break' + (isImplicitOvernight ? ' cosam-implicit-overnight-break' : ''),
         role: 'button',
         tabindex: '0',
         onClick: () => { this.state.modalEvent = evt; this._showModal(evt); },
@@ -1416,7 +1451,16 @@
           this._showModal(evt);
         }
       });
-      div.appendChild(el('div', { className: 'cosam-grid-break-name' }, evt.name));
+
+      // Add moon for implicit overnight breaks
+      if (isImplicitOvernight) {
+        const nameWrapper = el('div', { className: 'cosam-grid-break-name' });
+        nameWrapper.appendChild(el('span', { className: 'cosam-implicit-overnight-moon' }, '🌙'));
+        nameWrapper.appendChild(document.createTextNode(' ' + evt.name));
+        div.appendChild(nameWrapper);
+      } else {
+        div.appendChild(el('div', { className: 'cosam-grid-break-name' }, evt.name));
+      }
       if (evt.duration) {
         div.appendChild(el('div', { className: 'cosam-grid-event-time' }, evt.duration + ' min'));
       }
