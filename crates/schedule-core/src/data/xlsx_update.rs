@@ -29,7 +29,8 @@ pub fn update_xlsx(schedule: &Schedule, path: &Path) -> Result<()> {
     }
 
     if schedule.imported_sheets.has_panel_types {
-        if let Some(sheet_name) = find_sheet_name(schedule.panel_types.iter().map(|pt| &pt.source))
+        if let Some(sheet_name) =
+            find_sheet_name(schedule.panel_types.iter().map(|(_, pt)| &pt.source))
         {
             update_panel_types_sheet(&mut book, &sheet_name, schedule)?;
         }
@@ -57,7 +58,7 @@ pub fn post_save_cleanup(schedule: &mut Schedule) {
         .retain(|r| r.change_state != ChangeState::Deleted);
     schedule
         .panel_types
-        .retain(|pt| pt.change_state != ChangeState::Deleted);
+        .retain(|_, pt| pt.change_state != ChangeState::Deleted);
     schedule
         .presenters
         .retain(|p| p.change_state != ChangeState::Deleted);
@@ -74,7 +75,7 @@ pub fn post_save_cleanup(schedule: &mut Schedule) {
     for room in &mut schedule.rooms {
         room.change_state = ChangeState::Unchanged;
     }
-    for panel_type in &mut schedule.panel_types {
+    for (_, panel_type) in &mut schedule.panel_types {
         panel_type.change_state = ChangeState::Unchanged;
     }
     for presenter in &mut schedule.presenters {
@@ -334,7 +335,7 @@ fn update_panel_types_sheet(
     let mut rows_to_delete: Vec<u32> = Vec::new();
     let mut rows_to_append: Vec<&PanelType> = Vec::new();
 
-    for panel_type in &schedule.panel_types {
+    for (_, panel_type) in &schedule.panel_types {
         match panel_type.change_state {
             ChangeState::Deleted => {
                 if let Some(row_index) = panel_type.source.as_ref().and_then(|s| s.row_index) {
@@ -450,9 +451,9 @@ fn write_event_to_row(
             schedule
                 .panel_types
                 .iter()
-                .find(|pt| pt.effective_uid() == *pt_uid)
+                .find(|(_, pt)| pt.effective_uid() == *pt_uid)
         })
-        .map(|pt| pt.kind.as_str())
+        .map(|(_, pt)| pt.kind.as_str())
         .unwrap_or("");
     set_cell_str(
         worksheet,
@@ -742,20 +743,26 @@ mod tests {
                     change_state: ChangeState::Deleted,
                 },
             ],
-            panel_types: vec![PanelType {
-                uid: Some("panel-type-gp".to_string()),
-                prefix: "GP".to_string(),
-                kind: "General Panel".to_string(),
-                color: None,
-                is_break: false,
-                is_cafe: false,
-                is_workshop: false,
-                is_hidden: false,
-                is_room_hours: false,
-                bw_color: None,
-                source: None,
-                change_state: ChangeState::Modified,
-            }],
+            panel_types: HashMap::from([(
+                "GP".to_string(),
+                PanelType {
+                    uid: Some("panel-type-gp".to_string()),
+                    prefix: "GP".to_string(),
+                    kind: "General Panel".to_string(),
+                    color: None,
+                    is_break: false,
+                    is_cafe: false,
+                    is_workshop: false,
+                    is_hidden: false,
+                    is_room_hours: false,
+                    bw_color: None,
+                    is_implicit: false,
+                    is_overnight: false,
+                    is_private: false,
+                    source: None,
+                    change_state: ChangeState::Modified,
+                },
+            )]),
             time_types: vec![TimeType {
                 uid: "time-type-split".to_string(),
                 prefix: "SPLIT".to_string(),
@@ -840,7 +847,7 @@ mod tests {
         for room in &schedule.rooms {
             assert_eq!(room.change_state, ChangeState::Unchanged);
         }
-        for panel_type in &schedule.panel_types {
+        for (_, panel_type) in &schedule.panel_types {
             assert_eq!(panel_type.change_state, ChangeState::Unchanged);
         }
         for presenter in &schedule.presenters {

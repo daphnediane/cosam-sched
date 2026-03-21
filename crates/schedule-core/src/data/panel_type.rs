@@ -29,6 +29,12 @@ pub struct PanelType {
     pub is_room_hours: bool,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub bw_color: Option<String>,
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub is_implicit: bool,
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub is_overnight: bool,
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub is_private: bool,
     #[serde(default, skip_serializing)]
     pub source: Option<SourceInfo>,
     #[serde(default, skip_serializing)]
@@ -45,9 +51,8 @@ impl PanelType {
     }
 
     pub fn effective_uid(&self) -> String {
-        self.uid
-            .clone()
-            .unwrap_or_else(|| Self::uid_from_prefix(&self.prefix))
+        // For v7, uid is the prefix directly
+        self.prefix.clone()
     }
 }
 
@@ -110,16 +115,19 @@ mod tests {
     #[test]
     fn test_panel_type_roundtrip() {
         let pt = PanelType {
-            uid: Some("panel-type-gw".into()),
-            prefix: "GW".into(),
-            kind: "Guest Workshop".into(),
-            color: Some("#FDEEB5".into()),
+            uid: Some("panel-type-gp".into()),
+            prefix: "GP".into(),
+            kind: "Guest Panel".into(),
+            color: Some("#E2F9D7".into()),
             is_break: false,
             is_cafe: false,
-            is_workshop: true,
+            is_workshop: false,
             is_hidden: false,
             is_room_hours: false,
             bw_color: None,
+            is_implicit: false,
+            is_overnight: false,
+            is_private: false,
             source: None,
             change_state: ChangeState::Unchanged,
         };

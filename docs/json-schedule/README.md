@@ -9,6 +9,8 @@ The JSON format has evolved through several major versions:
 - **v1-v3**: Legacy formats (see historical notes in v4 documentation)
 - **v4**: Current stable format with flat events array and timeline support
 - **v5**: Latest format with hierarchical panels structure (private/public variants)
+- **v6**: Incremental update with implicit break generation and backend processing
+- **v7**: Prefix-based panelType format and optimized implicit break handling
 
 ## Format Variants
 

@@ -100,7 +100,7 @@ pub fn import_xlsx(path: &Path, options: &XlsxImportOptions) -> Result<Schedule>
     let imported_sheets = ImportedSheetPresence {
         has_room_map: !rooms.is_empty() && rooms.iter().any(|r| r.source.is_some()),
         has_panel_types: !panel_types.is_empty()
-            && panel_types.iter().any(|pt| pt.source.is_some()),
+            && panel_types.iter().any(|(_, pt)| pt.source.is_some()),
         has_presenters: false,
         has_schedule: true, // We'll assume schedule exists if we get here
     };
@@ -411,10 +411,10 @@ fn read_panel_types(
     book: &Spreadsheet,
     preferred: &str,
     file_path: &str,
-) -> Result<Vec<PanelType>> {
+) -> Result<HashMap<String, PanelType>> {
     let range = match find_data_range(book, preferred, &["Prefix", "PanelTypes"]) {
         Some(r) => r,
-        None => return Ok(Vec::new()),
+        None => return Ok(HashMap::new()),
     };
 
     let ws = book
@@ -422,11 +422,11 @@ fn read_panel_types(
         .ok_or_else(|| anyhow::anyhow!("Sheet '{}' not found", range.sheet_name))?;
 
     if !range.has_data() {
-        return Ok(Vec::new());
+        return Ok(HashMap::new());
     }
 
     let (raw_headers, canonical_headers, _col_map) = build_column_map(ws, &range);
-    let mut types = Vec::new();
+    let mut types = HashMap::new();
 
     for row in (range.header_row + 1)..=range.end_row {
         let data = row_to_map(ws, row, &range, &raw_headers, &canonical_headers);
@@ -470,30 +470,45 @@ fn read_panel_types(
         let color = get_field(&data, &["Color"]).cloned();
         let bw_color = get_field(&data, &["BW", "Bw"]).cloned();
 
-        let uid = Some(PanelType::uid_from_prefix(&prefix));
+        // For v7, use prefix directly as uid instead of panel-type-{prefix}
+        let uid = Some(prefix.clone());
 
         let is_hidden = get_field(&data, &["Hidden"])
             .map(|s| !s.is_empty())
             .unwrap_or(false);
 
-        types.push(PanelType {
-            uid,
-            prefix,
-            kind,
-            color,
-            is_break,
-            is_cafe,
-            is_workshop,
-            is_hidden,
-            is_room_hours,
-            bw_color,
-            source: Some(SourceInfo {
-                file_path: Some(file_path.to_string()),
-                sheet_name: Some(range.sheet_name.clone()),
-                row_index: Some(row),
-            }),
-            change_state: ChangeState::Unchanged,
-        });
+        let is_private = get_field(&data, &["Private"])
+            .map(|s| !s.is_empty())
+            .unwrap_or_else(|| {
+                // Infer private status from hidden status for older spreadsheets
+                // Most hidden panels are private events
+                is_hidden
+            });
+
+        types.insert(
+            prefix.clone(),
+            PanelType {
+                uid,
+                prefix,
+                kind,
+                color,
+                is_break,
+                is_cafe,
+                is_workshop,
+                is_hidden,
+                is_room_hours,
+                bw_color,
+                is_implicit: false,
+                is_overnight: false,
+                is_private,
+                source: Some(SourceInfo {
+                    file_path: Some(file_path.to_string()),
+                    sheet_name: Some(range.sheet_name.clone()),
+                    row_index: Some(row),
+                }),
+                change_state: ChangeState::Unchanged,
+            },
+        );
     }
 
     Ok(types)
@@ -900,7 +915,7 @@ fn read_events_v5(
     book: &Spreadsheet,
     preferred: &str,
     rooms: &[Room],
-    panel_types: &[PanelType],
+    panel_types: &HashMap<String, PanelType>,
     file_path: &str,
 ) -> Result<(IndexMap<String, Panel>, Vec<Presenter>)> {
     let first_sheet_name = book
@@ -962,7 +977,7 @@ fn read_events_v5(
 
     let type_lookup: HashMap<String, &PanelType> = panel_types
         .iter()
-        .map(|pt| (pt.prefix.to_lowercase(), pt))
+        .map(|(_, pt)| (pt.prefix.to_lowercase(), pt))
         .collect();
 
     struct PresenterInfo {
@@ -1119,7 +1134,8 @@ fn read_events_v5(
             kind_raw.as_ref().and_then(|kr| {
                 panel_types
                     .iter()
-                    .find(|pt| pt.kind.to_lowercase() == kr.to_lowercase())
+                    .find(|(_, pt)| pt.kind.to_lowercase() == kr.to_lowercase())
+                    .map(|(_, pt)| pt)
             })
         });
 

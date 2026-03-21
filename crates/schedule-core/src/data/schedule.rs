@@ -4,7 +4,7 @@
  * See LICENSE file for full license text
  */
 
-use std::collections::BTreeSet;
+use std::collections::{BTreeSet, HashMap};
 use std::path::Path;
 
 use anyhow::{Context, Result};
@@ -88,7 +88,8 @@ pub struct Schedule {
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub events: Vec<Event>,
     pub rooms: Vec<Room>,
-    pub panel_types: Vec<PanelType>,
+    #[serde(default, skip_serializing_if = "HashMap::is_empty")]
+    pub panel_types: HashMap<String, PanelType>,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub time_types: Vec<TimeType>,
     pub presenters: Vec<Presenter>,
@@ -257,16 +258,16 @@ impl Schedule {
     fn convert_split_panel_types(
         &self,
     ) -> (
-        Vec<super::panel_type::PanelType>,
+        HashMap<String, super::panel_type::PanelType>,
         Vec<super::timeline::TimeType>,
         Vec<super::timeline::TimelineEntry>,
     ) {
         let mut time_types = Vec::new();
         let mut timeline = Vec::new();
-        let mut filtered_panel_types = Vec::new();
+        let mut filtered_panel_types = HashMap::new();
 
         // Find split panel types and convert them
-        for panel_type in &self.panel_types {
+        for (prefix, panel_type) in &self.panel_types {
             if panel_type.prefix.to_uppercase() == "SPLIT"
                 || panel_type.prefix.to_uppercase().starts_with("SP")
                 || panel_type.prefix.to_uppercase().starts_with("SPLIT")
@@ -309,7 +310,7 @@ impl Schedule {
                 }
             } else {
                 // Keep non-split panel types
-                filtered_panel_types.push(panel_type.clone());
+                filtered_panel_types.insert(prefix.clone(), panel_type.clone());
             }
         }
 
@@ -415,7 +416,7 @@ impl Schedule {
 
     #[must_use]
     pub fn panel_type_by_prefix(&self, prefix: &str) -> Option<&PanelType> {
-        self.panel_types.iter().find(|pt| pt.prefix == prefix)
+        self.panel_types.get(prefix)
     }
 }
 

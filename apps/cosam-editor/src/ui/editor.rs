@@ -389,7 +389,8 @@ impl ScheduleEditor {
                     schedule
                         .panel_types
                         .iter()
-                        .find(|pt| pt.effective_uid() == *pt_uid)
+                        .find(|(_, pt)| pt.effective_uid() == *pt_uid)
+                        .map(|(_, pt)| pt)
                 });
                 let panel_color = panel_type.and_then(|pt| pt.color.as_deref());
                 let card = cx.new(|_cx| {
@@ -488,7 +489,7 @@ impl ScheduleEditor {
         let panel_types: Vec<(String, String)> = schedule
             .panel_types
             .iter()
-            .map(|pt| (pt.effective_uid().to_string(), pt.kind.clone()))
+            .map(|(_, pt)| (pt.effective_uid().to_string(), pt.kind.clone()))
             .collect();
 
         let pane = cx.new(|_cx| DetailPane::new(&panel, &rooms, &panel_types, &session_id));
@@ -530,7 +531,7 @@ impl ScheduleEditor {
         let panel_types: Vec<(String, String)> = schedule
             .panel_types
             .iter()
-            .map(|pt| (pt.effective_uid().to_string(), pt.kind.clone()))
+            .map(|(_, pt)| (pt.effective_uid().to_string(), pt.kind.clone()))
             .collect();
         let presenter_names: Vec<String> =
             schedule.presenters.iter().map(|p| p.name.clone()).collect();
@@ -585,7 +586,7 @@ impl ScheduleEditor {
         let panel_types: Vec<(String, String)> = schedule
             .panel_types
             .iter()
-            .map(|pt| (pt.effective_uid().to_string(), pt.kind.clone()))
+            .map(|(_, pt)| (pt.effective_uid().to_string(), pt.kind.clone()))
             .collect();
         let presenter_names: Vec<String> =
             schedule.presenters.iter().map(|p| p.name.clone()).collect();

@@ -62,6 +62,7 @@ for year in $(seq 2016 $(date +%Y)); do
     year_dir="$OUTPUT_DIR/$year"
     mkdir -p "$year_dir"
     src="$INPUT_DIR/${year} Schedule.xlsx"
+    full="$year_dir/schedule.json"
     dest="$year_dir/public.json"
     embed="$year_dir/embed.html"
     test_html="$year_dir/test.html"
@@ -77,14 +78,15 @@ for year in $(seq 2016 $(date +%Y)); do
     "$CONVERT_BIN" \
         --input "$src" \
         --title "Cosplay America ${year} Schedule" \
+        --output "$full" \
         --export "$dest" \
         --export-embed "$embed" \
         --export-test "$test_html" \
         --style-page \
         --export-embed "$style_embed" \
         --export-test "$style_page" &&
-        built+=("$dest" "$embed" "$test_html" "$style_embed" "$style_page") ||
-        failed+=("$dest" "$embed" "$test_html" "$style_embed" "$style_page")
+        built+=("$full" "$dest" "$embed" "$test_html" "$style_embed" "$style_page") ||
+        failed+=("$full" "$dest" "$embed" "$test_html" "$style_embed" "$style_page")
 done
 
 echo "All JSON files rebuilt successfully!"

@@ -264,7 +264,7 @@ fn write_rooms_sheet(ws: &mut Worksheet, rooms: &[Room]) -> u32 {
 
 fn write_panel_types_sheet(
     ws: &mut Worksheet,
-    panel_types: &[PanelType],
+    panel_types: &HashMap<String, PanelType>,
     time_types: &[TimeType],
 ) -> u32 {
     set_headers(
@@ -283,7 +283,7 @@ fn write_panel_types_sheet(
     );
 
     let mut row = 2u32;
-    for pt in panel_types {
+    for (_, pt) in panel_types {
         if pt.change_state == ChangeState::Deleted {
             continue;
         }
@@ -397,9 +397,9 @@ fn write_schedule_sheet(
                 schedule
                     .panel_types
                     .iter()
-                    .find(|pt| pt.effective_uid() == *pt_uid)
+                    .find(|(_, pt)| pt.effective_uid() == *pt_uid)
             })
-            .map(|pt| pt.kind.as_str())
+            .map(|(_, pt)| pt.kind.as_str())
             .unwrap_or("");
         set_str(ws, 8, row, kind);
 
@@ -582,20 +582,26 @@ mod tests {
                 source: None,
                 change_state: ChangeState::Unchanged,
             }],
-            panel_types: vec![PanelType {
-                uid: Some("panel-type-gp".to_string()),
-                prefix: "GP".to_string(),
-                kind: "Guest Panel".to_string(),
-                color: Some("#E2F9D7".to_string()),
-                is_break: false,
-                is_cafe: false,
-                is_workshop: false,
-                is_hidden: false,
-                is_room_hours: false,
-                bw_color: None,
-                source: None,
-                change_state: ChangeState::Unchanged,
-            }],
+            panel_types: HashMap::from([(
+                "GP".to_string(),
+                PanelType {
+                    uid: Some("panel-type-gp".to_string()),
+                    prefix: "GP".to_string(),
+                    kind: "Guest Panel".to_string(),
+                    color: Some("#E2F9D7".to_string()),
+                    is_break: false,
+                    is_cafe: false,
+                    is_workshop: false,
+                    is_hidden: false,
+                    is_room_hours: false,
+                    bw_color: None,
+                    is_implicit: false,
+                    is_overnight: false,
+                    is_private: false,
+                    source: None,
+                    change_state: ChangeState::Unchanged,
+                },
+            )]),
             time_types: Vec::new(),
             presenters: vec![Presenter {
                 name: "Alice".to_string(),

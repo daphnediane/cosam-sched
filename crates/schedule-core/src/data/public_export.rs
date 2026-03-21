@@ -4,7 +4,7 @@
  * See LICENSE file for full license text
  */
 
-use std::collections::HashSet;
+use std::collections::{HashMap, HashSet};
 use std::path::Path;
 
 use anyhow::{Context, Result};
@@ -59,7 +59,7 @@ pub struct PublicSchedule {
     pub meta: Meta,
     pub panels: Vec<PublicPanel>,
     pub rooms: Vec<super::room::Room>,
-    pub panel_types: Vec<super::panel_type::PanelType>,
+    pub panel_types: HashMap<String, super::panel_type::PanelType>,
     pub time_types: Vec<super::timeline::TimeType>,
     pub timeline: Vec<super::timeline::TimelineEntry>,
     pub presenters: Vec<Presenter>,
@@ -151,8 +151,8 @@ impl Schedule {
         let hidden_type_uids: HashSet<String> = self
             .panel_types
             .iter()
-            .filter(|pt| pt.is_hidden)
-            .map(|pt| pt.effective_uid())
+            .filter(|(_, pt)| pt.is_hidden)
+            .map(|(_, pt)| pt.effective_uid())
             .collect();
 
         let mut flat_panels: Vec<PublicPanel> = Vec::new();
@@ -269,13 +269,39 @@ impl Schedule {
                         }
                     }
 
+                    // For v7, convert panelType to prefix format
+                    let panel_type_v7 = if let Some(ref pt_uid) = panel.panel_type {
+                        // Handle both old format (panel-type-me) and new format (ME)
+                        if pt_uid.starts_with("panel-type-") {
+                            // Extract prefix from old format and convert to uppercase
+                            let prefix = pt_uid.strip_prefix("panel-type-").unwrap_or(pt_uid);
+                            let prefix_upper = prefix.to_uppercase();
+                            // Find the panel type by prefix
+                            if let Some((_, pt)) = self
+                                .panel_types
+                                .iter()
+                                .find(|(_, pt)| pt.prefix.to_uppercase() == prefix_upper)
+                            {
+                                Some(pt.prefix.to_uppercase())
+                            } else {
+                                // Fallback to the extracted prefix in uppercase
+                                Some(prefix_upper)
+                            }
+                        } else {
+                            // Already in prefix format or unknown format, ensure uppercase
+                            Some(pt_uid.to_uppercase())
+                        }
+                    } else {
+                        None
+                    };
+
                     flat_panels.push(PublicPanel {
                         id: session.id.clone(),
                         base_id: panel.id.clone(),
                         part_num: part.part_num,
                         session_num: session.session_num,
                         name: panel_name,
-                        panel_type: panel.panel_type.clone(),
+                        panel_type: panel_type_v7,
                         room_ids: session.room_ids.clone(),
                         start_time: session.start_time.clone(),
                         end_time: session.end_time.clone(),
@@ -304,15 +330,21 @@ impl Schedule {
             (None, None) => a.id.cmp(&b.id),
         });
 
-        let visible_panel_types: Vec<_> = self
+        // For v7, panelTypes is already a HashMap, so just filter and remove uid field
+        let panel_types_map: HashMap<String, _> = self
             .panel_types
             .iter()
-            .filter(|pt| !pt.is_hidden)
-            .cloned()
+            .filter(|(_, pt)| !pt.is_hidden || (pt.is_break && pt.is_implicit))
+            .map(|(prefix, pt)| {
+                let mut pt_v7 = pt.clone();
+                // Remove uid field since it's redundant with object key in v7
+                pt_v7.uid = None;
+                (prefix.clone(), pt_v7)
+            })
             .collect();
 
         let mut meta = self.meta.clone();
-        meta.version = Some(6);
+        meta.version = Some(7);
         meta.variant = Some("public".to_string());
         meta.generated = chrono::Utc::now().format("%Y-%m-%dT%H:%M:%SZ").to_string();
         meta.generator = Some(format!("cosam-editor {}", env!("CARGO_PKG_VERSION")));
@@ -326,7 +358,7 @@ impl Schedule {
             meta,
             panels: flat_panels,
             rooms: self.rooms.clone(),
-            panel_types: visible_panel_types,
+            panel_types: panel_types_map,
             time_types: self.time_types.clone(),
             timeline: self.timeline.clone(),
             presenters: self.presenters.clone(),
@@ -378,7 +410,7 @@ mod tests {
                 source: None,
                 change_state: Default::default(),
             }],
-            panel_types: Vec::new(),
+            panel_types: HashMap::new(),
             time_types: Vec::new(),
             presenters: Vec::new(),
             imported_sheets: Default::default(),

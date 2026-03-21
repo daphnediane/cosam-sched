@@ -163,110 +163,181 @@ fn detect_conflicts(schedule: &mut Schedule) {
     let panel_type_lookup: HashMap<String, &PanelType> = schedule
         .panel_types
         .iter()
-        .map(|panel_type| (panel_type.effective_uid(), panel_type))
+        .map(|(_, panel_type)| (panel_type.effective_uid(), panel_type))
         .collect();
 
-    let mut presenter_events: HashMap<String, Vec<usize>> = HashMap::new();
-    let mut room_events: HashMap<u32, Vec<usize>> = HashMap::new();
+    // Collect all sessions with their time and location info for conflict detection
+    let mut all_sessions = Vec::new();
+    for (panel_index, panel) in schedule.panels.values().enumerate() {
+        for (part_index, part) in panel.parts.iter().enumerate() {
+            for (session_index, session) in part.sessions.iter().enumerate() {
+                // Skip break sessions
+                if let Some(ref pt_uid) = panel.panel_type {
+                    if is_break_event(Some(pt_uid), &panel_type_lookup) {
+                        continue;
+                    }
+                }
 
-    for (event_index, event) in schedule.events.iter().enumerate() {
-        if is_break_event(event.panel_type.as_deref(), &panel_type_lookup) {
-            continue;
-        }
+                // Parse times - skip sessions with invalid times
+                let start_time = match session.start_time.as_deref().and_then(|s| {
+                    chrono::NaiveDateTime::parse_from_str(s, "%Y-%m-%dT%H:%M:%S").ok()
+                }) {
+                    Some(time) => time,
+                    None => continue,
+                };
 
-        for presenter_name in &event.presenters {
-            presenter_events
-                .entry(presenter_name.clone())
-                .or_default()
-                .push(event_index);
-        }
+                let end_time = match session.end_time.as_deref().and_then(|s| {
+                    chrono::NaiveDateTime::parse_from_str(s, "%Y-%m-%dT%H:%M:%S").ok()
+                }) {
+                    Some(time) => time,
+                    None => continue,
+                };
 
-        if let Some(room_id) = event.room_id {
-            room_events.entry(room_id).or_default().push(event_index);
+                let mut presenters = session.credited_presenters.clone();
+                presenters.extend(session.uncredited_presenters.clone());
+
+                all_sessions.push((
+                    panel_index,
+                    part_index,
+                    session_index,
+                    session.id.clone(),
+                    start_time,
+                    end_time,
+                    session.room_ids.clone(),
+                    presenters,
+                ));
+            }
         }
     }
 
-    let mut top_level_conflicts = Vec::new();
-    let mut per_event_conflicts: HashMap<usize, Vec<EventConflict>> = HashMap::new();
+    // Simple conflict detection: check for overlapping sessions with same presenters or rooms
+    let mut conflicts = Vec::new();
+    let mut session_conflicts: HashMap<(usize, usize, usize), Vec<super::event::EventConflict>> =
+        HashMap::new();
 
-    for (presenter_name, event_indexes) in presenter_events {
-        if event_indexes.len() < 2 {
-            continue;
-        }
+    // Check each session against every other session for conflicts
+    for i in 0..all_sessions.len() {
+        for j in (i + 1)..all_sessions.len() {
+            let (p1_idx, pt1_idx, s1_idx, id1, start1, end1, rooms1, presenters1) =
+                &all_sessions[i];
+            let (p2_idx, pt2_idx, s2_idx, id2, start2, end2, rooms2, presenters2) =
+                &all_sessions[j];
 
-        let mut sorted_event_indexes = event_indexes;
-        sorted_event_indexes.sort_by_key(|index| schedule.events[*index].start_time);
-
-        let overlap_groups = find_overlap_groups(&sorted_event_indexes, schedule);
-        let group_presenter = is_group_presenter(&presenter_name, &schedule.presenters);
-        let conflict_type = if group_presenter {
-            "group_presenter"
-        } else {
-            "presenter"
-        };
-
-        for overlap_group in overlap_groups {
-            if overlap_group.len() < 2 {
-                continue;
+            // Check for time overlap
+            if start1 >= end2 || start2 >= end1 {
+                continue; // No overlap
             }
 
-            for first_position in 0..(overlap_group.len() - 1) {
-                for second_position in (first_position + 1)..overlap_group.len() {
-                    let first_event_index = overlap_group[first_position];
-                    let second_event_index = overlap_group[second_position];
-                    add_conflict_pair(
-                        schedule,
-                        &mut top_level_conflicts,
-                        &mut per_event_conflicts,
-                        first_event_index,
-                        second_event_index,
-                        conflict_type,
-                        Some(presenter_name.clone()),
-                        None,
-                    );
+            // Check for presenter conflicts
+            let mut conflict_found = false;
+            for presenter in presenters1 {
+                if presenters2.contains(presenter) {
+                    conflict_found = true;
+                    let conflict_type = if is_group_presenter(presenter, &schedule.presenters) {
+                        "group_presenter"
+                    } else {
+                        "presenter"
+                    };
+
+                    // Add to top-level conflicts
+                    conflicts.push(super::schedule::ScheduleConflict {
+                        event1: super::schedule::ConflictEventRef {
+                            id: id1.clone(),
+                            name: format!("Session {}", s1_idx + 1),
+                        },
+                        event2: super::schedule::ConflictEventRef {
+                            id: id2.clone(),
+                            name: format!("Session {}", s2_idx + 1),
+                        },
+                        presenter: Some(presenter.clone()),
+                        room: None,
+                        conflict_type: conflict_type.to_string(),
+                    });
+
+                    // Add to session conflicts
+                    let details = format!("Conflict with session (presenter: {})", presenter);
+                    session_conflicts
+                        .entry((*p1_idx, *pt1_idx, *s1_idx))
+                        .or_default()
+                        .push(super::event::EventConflict {
+                            conflict_type: conflict_type.to_string(),
+                            details: Some(details),
+                            conflict_event_id: Some(id2.clone()),
+                        });
+
+                    let details = format!("Conflict with session (presenter: {})", presenter);
+                    session_conflicts
+                        .entry((*p2_idx, *pt2_idx, *s2_idx))
+                        .or_default()
+                        .push(super::event::EventConflict {
+                            conflict_type: conflict_type.to_string(),
+                            details: Some(details),
+                            conflict_event_id: Some(id1.clone()),
+                        });
+                }
+            }
+
+            // Check for room conflicts
+            for room in rooms1 {
+                if rooms2.contains(room) && !conflict_found {
+                    // Add to top-level conflicts
+                    conflicts.push(super::schedule::ScheduleConflict {
+                        event1: super::schedule::ConflictEventRef {
+                            id: id1.clone(),
+                            name: format!("Session {}", s1_idx + 1),
+                        },
+                        event2: super::schedule::ConflictEventRef {
+                            id: id2.clone(),
+                            name: format!("Session {}", s2_idx + 1),
+                        },
+                        presenter: None,
+                        room: Some(serde_json::json!(room)),
+                        conflict_type: "room".to_string(),
+                    });
+
+                    // Add to session conflicts
+                    let details = format!("Room conflict with session");
+                    session_conflicts
+                        .entry((*p1_idx, *pt1_idx, *s1_idx))
+                        .or_default()
+                        .push(super::event::EventConflict {
+                            conflict_type: "room".to_string(),
+                            details: Some(details),
+                            conflict_event_id: Some(id2.clone()),
+                        });
+
+                    let details = format!("Room conflict with session");
+                    session_conflicts
+                        .entry((*p2_idx, *pt2_idx, *s2_idx))
+                        .or_default()
+                        .push(super::event::EventConflict {
+                            conflict_type: "room".to_string(),
+                            details: Some(details),
+                            conflict_event_id: Some(id1.clone()),
+                        });
+                    break; // Only add one room conflict per pair
                 }
             }
         }
     }
 
-    for (room_id, event_indexes) in room_events {
-        if event_indexes.len() < 2 {
-            continue;
-        }
-
-        let mut sorted_event_indexes = event_indexes;
-        sorted_event_indexes.sort_by_key(|index| schedule.events[*index].start_time);
-        let overlap_groups = find_overlap_groups(&sorted_event_indexes, schedule);
-
-        for overlap_group in overlap_groups {
-            if overlap_group.len() < 2 {
-                continue;
-            }
-
-            for first_position in 0..(overlap_group.len() - 1) {
-                for second_position in (first_position + 1)..overlap_group.len() {
-                    let first_event_index = overlap_group[first_position];
-                    let second_event_index = overlap_group[second_position];
-                    add_conflict_pair(
-                        schedule,
-                        &mut top_level_conflicts,
-                        &mut per_event_conflicts,
-                        first_event_index,
-                        second_event_index,
-                        "room",
-                        None,
-                        Some(serde_json::json!(room_id)),
-                    );
+    // Apply conflicts to the actual panel sessions
+    for ((panel_index, part_index, session_index), conflicts) in session_conflicts {
+        if let Some((_, panel)) = schedule.panels.get_index_mut(panel_index) {
+            if let Some(part) = panel.parts.get_mut(part_index) {
+                if let Some(session) = part.sessions.get_mut(session_index) {
+                    session.conflicts = conflicts;
                 }
             }
         }
     }
 
-    for (event_index, event) in schedule.events.iter_mut().enumerate() {
-        event.conflicts = per_event_conflicts.remove(&event_index).unwrap_or_default();
-    }
+    schedule.conflicts = conflicts.clone();
 
-    schedule.conflicts = top_level_conflicts;
+    // Debug: Print conflict count
+    if !conflicts.is_empty() {
+        println!("Detected {} top-level conflicts", conflicts.len());
+    }
 }
 
 /// Detect conflicts in panel sessions (room and presenter overlaps)
@@ -274,7 +345,7 @@ fn detect_panel_conflicts(schedule: &mut Schedule) {
     let panel_type_lookup: HashMap<String, &PanelType> = schedule
         .panel_types
         .iter()
-        .map(|panel_type| (panel_type.effective_uid(), panel_type))
+        .map(|(_, panel_type)| (panel_type.effective_uid(), panel_type))
         .collect();
 
     // Collect all panel sessions with their time and location info
