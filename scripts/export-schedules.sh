@@ -30,33 +30,6 @@ CONVERT_BIN="$ROOT_DIR/target/release/cosam-convert"
 
 declare -a built=()
 declare -a failed=()
-declare -a conflict_years=()
-
-echo ""
-echo "Validating all schedules..."
-for year in $(seq 2016 $(date +%Y)); do
-    src="$INPUT_DIR/${year} Schedule.xlsx"
-    if [ ! -f "$src" ]; then
-        echo "Skipping ${year} - file not found"
-        continue
-    fi
-
-    echo "  Validating ${year}..."
-    if ! "$CONVERT_BIN" --input "$src" --check >/dev/null 2>&1; then
-        echo "    ${year} has conflicts"
-        conflict_years+=("$year")
-    else
-        echo "    ${year} - OK"
-    fi
-done
-
-if [ ${#conflict_years[@]} -gt 0 ]; then
-    echo ""
-    echo "Schedules with conflicts: ${conflict_years[*]}"
-    echo ""
-fi
-
-echo "Building all output files..."
 
 for year in $(seq 2016 $(date +%Y)); do
     year_dir="$OUTPUT_DIR/$year"
@@ -72,19 +45,27 @@ for year in $(seq 2016 $(date +%Y)); do
         continue
     fi
 
-    # Build files for this year using new multi-output functionality
-    echo "  Building ${year} files..."
+    # Build files for this year
+    echo "Building ${year} files..."
+
+    echo "  Building ${year}.json, embed, and test page..."
     "$CONVERT_BIN" \
         --input "$src" \
-        --title "Cosplay America ${year} Schedule" \
         --export "$dest" \
         --export-embed "$embed" \
         --export-test "$test_html" \
-        --style-page \
+        --title "Cosplay America ${year} Schedule" &&
+        built+=("$dest" "$embed" "$test_html") ||
+        failed+=("$dest" "$embed" "$test_html")
+    echo "  Building ${year} style page..."
+    "$CONVERT_BIN" \
+        --input "$src" \
+        --export-test "$style_page" \
         --export-embed "$style_embed" \
-        --export-test "$style_page" &&
-        built+=("$dest" "$embed" "$test_html" "$style_embed" "$style_page") ||
-        failed+=("$dest" "$embed" "$test_html" "$style_embed" "$style_page")
+        --style-page \
+        --title "Cosplay America ${year} Schedule" &&
+        built+=("$style_page" "$style_embed") ||
+        failed+=("$style_page" "$style_embed")
 done
 
 echo "All JSON files rebuilt successfully!"
@@ -93,14 +74,6 @@ echo "Files created:"
 for file in "${built[@]}"; do
     echo "  - $file"
 done
-
-if [ ${#conflict_years[@]} -gt 0 ]; then
-    echo ""
-    echo "Schedules with conflicts that were still processed:"
-    for year in "${conflict_years[@]}"; do
-        echo "  - ${year} Schedule"
-    done
-fi
 
 if [ ${#failed[@]} -gt 0 ]; then
     echo ""

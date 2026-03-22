@@ -60,30 +60,59 @@ fn resolve_asset_path(value: &str, extension: &str, default_basename: &str) -> R
     anyhow::bail!("Cannot find {extension} file for '{value}'");
 }
 
+fn is_builtin(value: &str) -> bool {
+    value.eq_ignore_ascii_case("builtin")
+}
+
 impl WidgetSources {
     pub fn resolve(
+        widget: Option<&str>,
         widget_css: Option<&str>,
         widget_js: Option<&str>,
         test_template: Option<&str>,
     ) -> Result<Self> {
         let mut sources = Self::default();
 
+        if let Some(base) = widget {
+            if !is_builtin(base) {
+                let css_path = resolve_asset_path(base, "css", "cosam-calendar")?;
+                sources.css = std::fs::read_to_string(&css_path)
+                    .with_context(|| format!("Failed to read CSS: {}", css_path.display()))?;
+
+                let js_path = resolve_asset_path(base, "js", "cosam-calendar")?;
+                sources.js = std::fs::read_to_string(&js_path)
+                    .with_context(|| format!("Failed to read JS: {}", js_path.display()))?;
+            }
+        }
+
         if let Some(css_val) = widget_css {
-            let css_path = resolve_asset_path(css_val, "css", "cosam-calendar")?;
-            sources.css = std::fs::read_to_string(&css_path)
-                .with_context(|| format!("Failed to read CSS: {}", css_path.display()))?;
+            if is_builtin(css_val) {
+                sources.css = BUILTIN_CSS.to_string();
+            } else {
+                let css_path = resolve_asset_path(css_val, "css", "cosam-calendar")?;
+                sources.css = std::fs::read_to_string(&css_path)
+                    .with_context(|| format!("Failed to read CSS: {}", css_path.display()))?;
+            }
         }
 
         if let Some(js_val) = widget_js {
-            let js_path = resolve_asset_path(js_val, "js", "cosam-calendar")?;
-            sources.js = std::fs::read_to_string(&js_path)
-                .with_context(|| format!("Failed to read JS: {}", js_path.display()))?;
+            if is_builtin(js_val) {
+                sources.js = BUILTIN_JS.to_string();
+            } else {
+                let js_path = resolve_asset_path(js_val, "js", "cosam-calendar")?;
+                sources.js = std::fs::read_to_string(&js_path)
+                    .with_context(|| format!("Failed to read JS: {}", js_path.display()))?;
+            }
         }
 
         if let Some(tmpl_val) = test_template {
-            let tmpl_path = Path::new(tmpl_val);
-            sources.template = std::fs::read_to_string(tmpl_path)
-                .with_context(|| format!("Failed to read template: {}", tmpl_path.display()))?;
+            if is_builtin(tmpl_val) {
+                sources.template = BUILTIN_TEMPLATE.to_string();
+            } else {
+                let tmpl_path = Path::new(tmpl_val);
+                sources.template = std::fs::read_to_string(tmpl_path)
+                    .with_context(|| format!("Failed to read template: {}", tmpl_path.display()))?;
+            }
         }
 
         Ok(sources)
