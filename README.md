@@ -41,6 +41,87 @@ cargo run -p cosam-convert -- \
   --title "Cosplay America 2026"
 ```
 
+#### Output Options
+
+The CLI provides two different output options:
+
+- `--output` / `-o` - **Full/Private Schedule**: Saves the complete schedule data including all panels, timeline entries, hidden types, and internal metadata. This is the raw data format used for editing and internal processing.
+- `--export` / `-e` - **Public Schedule**: Exports a filtered, public-facing version with hidden panels removed, presenter privacy respected, and optimized for display/public consumption.
+
+**Use `--output` for:**
+
+- Full data backups
+- Editor input files
+- Internal processing
+- When you need all timeline entries and hidden panels
+
+**Use `--export` for:**
+
+- Public display
+- Widget data
+- Web embedding
+- When you need only visible, public-safe content
+
+#### Multiple outputs with different settings
+
+The new CLI supports multiple output files with different settings per output:
+
+```bash
+# Generate both minified and unminified versions
+cargo run -p cosam-convert -- \
+  --input schedule.xlsx \
+  --minified --export-embed min.html \
+  --no-minified --export-embed max.html
+
+# Generate both full and public versions
+cargo run -p cosam-convert -- \
+  --input schedule.xlsx \
+  --title "Cosplay America 2026 Schedule" \
+  --output full-schedule.json \
+  --export public.json
+
+# Generate multiple outputs with different titles
+cargo run -p cosam-convert -- \
+  --input schedule.xlsx \
+  --title "Public Schedule" --export public.json \
+  --title "Internal Schedule" --output internal.json
+```
+
+#### Validation mode
+
+Check schedule validity without generating output:
+
+```bash
+cargo run -p cosam-convert -- \
+  --input schedule.xlsx \
+  --check
+```
+
+#### Builtin resources
+
+Use `--builtin-*` options to specify built-in CSS, JS, and templates:
+
+```bash
+# Use all builtin resources
+cargo run -p cosam-convert -- \
+  --input schedule.xlsx \
+  --builtin \
+  --export-embed embed.html
+
+# Use builtin CSS only
+cargo run -p cosam-convert -- \
+  --input schedule.xlsx \
+  --builtin-css \
+  --widget-js custom.js \
+  --export-embed embed.html
+
+# Reset to defaults
+cargo run -p cosam-convert -- \
+  --input schedule.xlsx \
+  --default \
+  --export-embed embed.html
+```
+
 ### Build for macOS and Windows
 
 Use the helper script:
@@ -110,7 +191,7 @@ Generate a test page that simulates the widget inside the Squarespace site:
 ```bash
 cargo run -p cosam-convert -- \
   --input "input/2026 Schedule.xlsx" \
-  --export output/2026.json \
+  --output output/2026.json \
   --export-embed output/2026-embed.html \
   --export-test output/2026-test.html \
   --title "Cosplay America 2026 Schedule"
@@ -126,6 +207,27 @@ cargo run -p cosam-convert -- \
   --widget widget/ \
   --no-minified \
   --title "Cosplay America 2026 Schedule"
+```
+
+#### Multiple outputs in a single command
+
+The updated export script now uses the new multi-output functionality to generate all files in a single command:
+
+```bash
+# Old way (multiple calls)
+./scripts/export-schedules.sh
+
+# New way (single call with multiple outputs)
+cargo run -p cosam-convert -- \
+  --input schedule.xlsx \
+  --title "Cosplay America 2026 Schedule" \
+  --output full-schedule.json \
+  --export public.json \
+  --export-embed embed.html \
+  --export-test test.html \
+  --style-page \
+  --export-embed style-embed.html \
+  --export-test style-page.html
 ```
 
 Rebuild all years at once:
