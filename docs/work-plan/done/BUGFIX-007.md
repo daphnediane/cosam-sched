@@ -6,7 +6,7 @@ The `==Group` syntax in presenter headers incorrectly sets `always_grouped` on t
 
 ## Status
 
-Open
+Completed
 
 ## Priority
 

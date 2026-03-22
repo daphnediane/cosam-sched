@@ -6,7 +6,7 @@ Implement the `credits` field generation based on `always_shown`/`always_grouped
 
 ## Status
 
-Open
+Completed
 
 ## Priority
 

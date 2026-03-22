@@ -607,7 +607,7 @@ fn parse_presenter_header(header: &str, col: u32) -> Option<PresenterColumn> {
 
 struct PresenterInfo {
     rank: String,
-    groups: Vec<String>,
+    groups: std::collections::BTreeSet<String>,
     always_grouped: bool,
 }
 
@@ -618,7 +618,7 @@ fn parse_presenter_data(
     rank: &str,
     data: &str,
     presenter_map: &mut HashMap<String, PresenterInfo>,
-    group_members: &mut HashMap<String, Vec<String>>,
+    group_members: &mut HashMap<String, std::collections::BTreeSet<String>>,
     always_shown_groups: &mut HashSet<String>,
 ) -> Option<(String, bool)> {
     let data = data.trim();
@@ -706,7 +706,7 @@ fn parse_presenter_data(
         .entry(uid.clone())
         .or_insert_with(|| PresenterInfo {
             rank: rank.to_string(),
-            groups: Vec::new(),
+            groups: std::collections::BTreeSet::new(),
             always_grouped,
         });
     if always_grouped {
@@ -715,13 +715,9 @@ fn parse_presenter_data(
 
     // Register group membership
     if let Some(ref group) = group_name {
-        if !entry.groups.contains(group) {
-            entry.groups.push(group.clone());
-        }
-        group_members
-            .entry(group.clone())
-            .or_default()
-            .push(uid.clone());
+        entry.groups.insert(group.clone());
+        let group_entry = group_members.entry(group.clone()).or_default();
+        group_entry.insert(uid.clone());
         if always_shown_group {
             always_shown_groups.insert(group.clone());
         }
@@ -985,7 +981,7 @@ fn read_panels(
         .collect();
 
     let mut presenter_map: HashMap<String, PresenterInfo> = HashMap::new();
-    let mut group_members: HashMap<String, Vec<String>> = HashMap::new();
+    let mut group_members: HashMap<String, std::collections::BTreeSet<String>> = HashMap::new();
     let mut always_shown_groups: HashSet<String> = HashSet::new();
     let mut panels: IndexMap<String, Panel> = IndexMap::new();
 
@@ -1186,7 +1182,7 @@ fn read_panels(
                         .entry(part.clone())
                         .or_insert_with(|| PresenterInfo {
                             rank: "fan_panelist".to_string(),
-                            groups: Vec::new(),
+                            groups: std::collections::BTreeSet::new(),
                             always_grouped: false,
                         });
                     credited_presenters.push(part);
@@ -1456,6 +1452,27 @@ fn read_panels(
             }
         })
         .collect();
+
+    // Add groups that were only referenced through members but don't have explicit entries
+    for (group_name, members) in group_members {
+        if !presenters.iter().any(|p| p.name == group_name) {
+            let always_shown = always_shown_groups.contains(&group_name);
+            presenters.push(Presenter {
+                id: None,
+                name: group_name,
+                rank: "guest".to_string(), // Default rank for groups
+                is_group: true,
+                members,
+                groups: std::collections::BTreeSet::new(),
+                always_grouped: false,
+                always_shown,
+                metadata: None,
+                source: None,
+                change_state: ChangeState::Converted,
+            });
+        }
+    }
+
     presenters.sort_by(|a, b| a.name.cmp(&b.name));
 
     Ok((panels, presenters))
@@ -1513,6 +1530,61 @@ mod tests {
     }
 
     #[test]
+    fn test_parse_presenter_data_with_prefixes() {
+        let mut presenter_map: HashMap<String, PresenterInfo> = HashMap::new();
+        let mut group_members: HashMap<String, std::collections::BTreeSet<String>> = HashMap::new();
+        let mut always_shown_groups: HashSet<String> = HashSet::new();
+
+        // Test <Name prefix (always_grouped)
+        let header = PresenterHeader::Other;
+        let result = parse_presenter_data(
+            &header,
+            "fan_panelist",
+            "<John Doe=Test Group",
+            &mut presenter_map,
+            &mut group_members,
+            &mut always_shown_groups,
+        );
+        assert_eq!(result, Some(("John Doe".to_string(), true)));
+
+        let presenter = presenter_map.get("John Doe").unwrap();
+        assert!(presenter.always_grouped);
+        let mut expected_groups = std::collections::BTreeSet::new();
+        expected_groups.insert("Test Group".to_string());
+        assert_eq!(presenter.groups, expected_groups);
+
+        // Test ==Group prefix (always_shown)
+        let result2 = parse_presenter_data(
+            &header,
+            "fan_panelist",
+            "Jane Doe==Always Shown Group",
+            &mut presenter_map,
+            &mut group_members,
+            &mut always_shown_groups,
+        );
+        assert_eq!(result2, Some(("Jane Doe".to_string(), true)));
+        assert!(always_shown_groups.contains("Always Shown Group"));
+
+        // Test combination: <Name==Group
+        let result3 = parse_presenter_data(
+            &header,
+            "fan_panelist",
+            "<Bob Smith==Special Group",
+            &mut presenter_map,
+            &mut group_members,
+            &mut always_shown_groups,
+        );
+        assert_eq!(result3, Some(("Bob Smith".to_string(), true)));
+
+        let bob_presenter = presenter_map.get("Bob Smith").unwrap();
+        assert!(bob_presenter.always_grouped);
+        let mut expected_special_groups = std::collections::BTreeSet::new();
+        expected_special_groups.insert("Special Group".to_string());
+        assert_eq!(bob_presenter.groups, expected_special_groups);
+        assert!(always_shown_groups.contains("Special Group"));
+    }
+
+    #[test]
     fn test_parse_presenter_header_kind_name() {
         let col = parse_presenter_header("G:Yaya Han", 5).expect("should parse");
         assert_eq!(col.rank_prefix, 'g');
@@ -1564,7 +1636,7 @@ mod tests {
 
     fn empty_maps() -> (
         HashMap<String, PresenterInfo>,
-        HashMap<String, Vec<String>>,
+        HashMap<String, std::collections::BTreeSet<String>>,
         HashSet<String>,
     ) {
         (HashMap::new(), HashMap::new(), HashSet::new())
@@ -1614,7 +1686,9 @@ mod tests {
             parse_presenter_data(&header, "guest", "Yes", &mut pm, &mut gm, &mut asg)
                 .expect("should parse");
         assert_eq!(uid, "John");
-        assert_eq!(pm["John"].groups, vec!["UNC Staff"]);
+        let mut expected_groups = std::collections::BTreeSet::new();
+        expected_groups.insert("UNC Staff".to_string());
+        assert_eq!(pm["John"].groups, expected_groups);
         assert!(!pm["John"].always_grouped);
         assert!(
             asg.contains("UNC Staff"),
@@ -1635,7 +1709,9 @@ mod tests {
             pm["Jane"].always_grouped,
             "< prefix should set always_grouped"
         );
-        assert_eq!(pm["Jane"].groups, vec!["UNC Staff"]);
+        let mut expected_jane_groups = std::collections::BTreeSet::new();
+        expected_jane_groups.insert("UNC Staff".to_string());
+        assert_eq!(pm["Jane"].groups, expected_jane_groups);
         assert!(
             !asg.contains("UNC Staff"),
             "single = should not set always_shown_group"
@@ -1685,7 +1761,9 @@ mod tests {
         )
         .expect("should parse");
         assert_eq!(uid, "Triffin Morris");
-        assert_eq!(pm["Triffin Morris"].groups, vec!["UNC Staff"]);
+        let mut expected_triffin_groups = std::collections::BTreeSet::new();
+        expected_triffin_groups.insert("UNC Staff".to_string());
+        assert_eq!(pm["Triffin Morris"].groups, expected_triffin_groups);
         assert!(!asg.contains("UNC Staff"));
     }
 

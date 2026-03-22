@@ -6,7 +6,7 @@ The converter ignores the "Hide Panelist" and "Alt Panelist" spreadsheet columns
 
 ## Status
 
-Open
+Completed
 
 ## Priority
 

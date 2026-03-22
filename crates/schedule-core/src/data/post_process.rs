@@ -751,8 +751,13 @@ mod tests {
                 name: "Pros and Cons Cosplay".to_string(),
                 rank: "guest".to_string(),
                 is_group: true,
-                members: vec!["Pro".to_string(), "Con".to_string()],
-                groups: Vec::new(),
+                members: {
+                    let mut members = std::collections::BTreeSet::new();
+                    members.insert("Pro".to_string());
+                    members.insert("Con".to_string());
+                    members
+                },
+                groups: std::collections::BTreeSet::new(),
                 always_grouped: false,
                 always_shown: false,
                 metadata: None,
@@ -764,8 +769,12 @@ mod tests {
                 name: "Pro".to_string(),
                 rank: "guest".to_string(),
                 is_group: false,
-                members: Vec::new(),
-                groups: vec!["Pros and Cons Cosplay".to_string()],
+                members: std::collections::BTreeSet::new(),
+                groups: {
+                    let mut groups = std::collections::BTreeSet::new();
+                    groups.insert("Pros and Cons Cosplay".to_string());
+                    groups
+                },
                 always_grouped: false,
                 always_shown: false,
                 metadata: None,
@@ -777,8 +786,12 @@ mod tests {
                 name: "Con".to_string(),
                 rank: "guest".to_string(),
                 is_group: false,
-                members: Vec::new(),
-                groups: vec!["Pros and Cons Cosplay".to_string()],
+                members: std::collections::BTreeSet::new(),
+                groups: {
+                    let mut groups = std::collections::BTreeSet::new();
+                    groups.insert("Pros and Cons Cosplay".to_string());
+                    groups
+                },
                 always_grouped: false,
                 always_shown: false,
                 metadata: None,

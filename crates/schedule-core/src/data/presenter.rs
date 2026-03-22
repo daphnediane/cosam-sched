@@ -18,9 +18,9 @@ pub struct Presenter {
     #[serde(default, deserialize_with = "deserialize_bool_or_int")]
     pub is_group: bool,
     #[serde(default)]
-    pub members: Vec<String>,
+    pub members: std::collections::BTreeSet<String>,
     #[serde(default)]
-    pub groups: Vec<String>,
+    pub groups: std::collections::BTreeSet<String>,
     #[serde(default, deserialize_with = "deserialize_bool_or_int")]
     pub always_grouped: bool,
     #[serde(default, deserialize_with = "deserialize_bool_or_int")]
@@ -56,8 +56,8 @@ mod tests {
         assert_eq!(p.name, "Yaya Han");
         assert_eq!(p.rank, "guest");
         assert!(!p.is_group);
-        assert!(p.members.is_empty());
-        assert!(p.groups.is_empty());
+        assert_eq!(p.members, std::collections::BTreeSet::new());
+        assert_eq!(p.groups, std::collections::BTreeSet::new());
         assert!(!p.always_grouped);
         assert!(!p.always_shown);
         assert_eq!(p.id, None);
@@ -75,7 +75,10 @@ mod tests {
         }"#;
         let p: Presenter = serde_json::from_str(json).unwrap();
         assert!(p.is_group);
-        assert_eq!(p.members, vec!["Pro", "Con"]);
+        let mut expected_members = std::collections::BTreeSet::new();
+        expected_members.insert("Pro".to_string());
+        expected_members.insert("Con".to_string());
+        assert_eq!(p.members, expected_members);
     }
 
     #[test]
@@ -96,7 +99,9 @@ mod tests {
             "always_grouped": false
         }"#;
         let p: Presenter = serde_json::from_str(json).unwrap();
-        assert_eq!(p.groups, vec!["Pros and Cons Cosplay"]);
+        let mut expected_groups = std::collections::BTreeSet::new();
+        expected_groups.insert("Pros and Cons Cosplay".to_string());
+        assert_eq!(p.groups, expected_groups);
         assert!(!p.is_group);
     }
 
@@ -107,8 +112,8 @@ mod tests {
             name: "Sayakat Cosplay".into(),
             rank: "fan_panelist".into(),
             is_group: false,
-            members: vec![],
-            groups: vec![],
+            members: std::collections::BTreeSet::new(),
+            groups: std::collections::BTreeSet::new(),
             always_grouped: false,
             always_shown: false,
             metadata: None,

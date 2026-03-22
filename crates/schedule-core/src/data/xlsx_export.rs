@@ -503,10 +503,30 @@ fn write_presenters_sheet(ws: &mut Worksheet, presenters: &[Presenter]) -> u32 {
             set_str(ws, 3, row, "Yes");
         }
         if !presenter.members.is_empty() {
-            set_str(ws, 4, row, &presenter.members.join(", "));
+            set_str(
+                ws,
+                4,
+                row,
+                &presenter
+                    .members
+                    .iter()
+                    .map(|s| s.as_str())
+                    .collect::<Vec<_>>()
+                    .join(", "),
+            );
         }
         if !presenter.groups.is_empty() {
-            set_str(ws, 5, row, &presenter.groups.join(", "));
+            set_str(
+                ws,
+                5,
+                row,
+                &presenter
+                    .groups
+                    .iter()
+                    .map(|s| s.as_str())
+                    .collect::<Vec<_>>()
+                    .join(", "),
+            );
         }
         if presenter.always_grouped {
             set_str(ws, 6, row, "Yes");
@@ -609,8 +629,8 @@ mod tests {
                 name: "Alice".to_string(),
                 rank: "guest".to_string(),
                 is_group: false,
-                members: Vec::new(),
-                groups: Vec::new(),
+                members: std::collections::BTreeSet::new(),
+                groups: std::collections::BTreeSet::new(),
                 always_grouped: false,
                 always_shown: false,
                 metadata: None,
@@ -736,8 +756,12 @@ mod tests {
                 name: "Pro".to_string(),
                 rank: "guest".to_string(),
                 is_group: false,
-                members: Vec::new(),
-                groups: vec!["Pros and Cons".to_string()],
+                members: std::collections::BTreeSet::new(),
+                groups: {
+                    let mut groups = std::collections::BTreeSet::new();
+                    groups.insert("Pros and Cons".to_string());
+                    groups
+                },
                 always_grouped: false,
                 always_shown: false,
                 metadata: None,
@@ -749,8 +773,12 @@ mod tests {
                 name: "Con".to_string(),
                 rank: "guest".to_string(),
                 is_group: false,
-                members: Vec::new(),
-                groups: vec!["Pros and Cons".to_string()],
+                members: std::collections::BTreeSet::new(),
+                groups: {
+                    let mut groups = std::collections::BTreeSet::new();
+                    groups.insert("Pros and Cons".to_string());
+                    groups
+                },
                 always_grouped: true,
                 always_shown: false,
                 metadata: None,
@@ -762,8 +790,13 @@ mod tests {
                 name: "Pros and Cons".to_string(),
                 rank: "guest".to_string(),
                 is_group: true,
-                members: vec!["Pro".to_string(), "Con".to_string()],
-                groups: Vec::new(),
+                members: {
+                    let mut members = std::collections::BTreeSet::new();
+                    members.insert("Pro".to_string());
+                    members.insert("Con".to_string());
+                    members
+                },
+                groups: std::collections::BTreeSet::new(),
                 always_grouped: false,
                 always_shown: false,
                 metadata: None,
@@ -775,8 +808,8 @@ mod tests {
                 name: "Bob".to_string(),
                 rank: "fan_panelist".to_string(),
                 is_group: false,
-                members: Vec::new(),
-                groups: Vec::new(),
+                members: std::collections::BTreeSet::new(),
+                groups: std::collections::BTreeSet::new(),
                 always_grouped: false,
                 always_shown: false,
                 metadata: None,

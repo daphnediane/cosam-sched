@@ -6,7 +6,7 @@ Support the `<Name` prefix syntax in spreadsheet presenter headers to set `alway
 
 ## Status
 
-Open
+Completed
 
 ## Priority
 
