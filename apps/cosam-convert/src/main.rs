@@ -557,7 +557,7 @@ fn main() {
                     Err(error)
                 }
             },
-            OutputType::Export => match schedule.export_public(&job.path) {
+            OutputType::Export => match schedule.export_display(&job.path) {
                 Ok(()) => {
                     eprintln!("Exported: {}", job.path.display());
                     Ok(())
@@ -582,7 +582,7 @@ fn main() {
                     }
                 };
 
-                let json_data = match schedule.export_public_json_string() {
+                let json_data = match schedule.export_display_json_string() {
                     Ok(json) => json,
                     Err(error) => {
                         eprintln!("Error generating public JSON: {error}");

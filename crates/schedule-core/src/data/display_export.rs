@@ -15,7 +15,7 @@ use super::schedule::{Meta, Schedule};
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
-pub struct PublicPanel {
+pub struct DisplayPanel {
     pub id: String,
     pub base_id: String,
     pub part_num: Option<u32>,
@@ -54,9 +54,9 @@ pub struct PublicPanel {
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
-pub struct PublicSchedule {
+pub struct DisplaySchedule {
     pub meta: Meta,
-    pub panels: Vec<PublicPanel>,
+    pub panels: Vec<DisplayPanel>,
     pub rooms: Vec<super::room::Room>,
     pub panel_types: indexmap::IndexMap<String, super::panel_type::PanelType>,
     #[serde(skip_serializing_if = "Vec::is_empty")]
@@ -146,7 +146,7 @@ fn compute_credits(
 }
 
 impl Schedule {
-    pub fn export_public_json_string(&self) -> Result<String> {
+    pub fn export_display_json_string(&self) -> Result<String> {
         let excluded_type_uids: HashSet<String> = self
             .panel_types
             .iter()
@@ -188,7 +188,7 @@ impl Schedule {
         }
         timeline_entries.sort_by(|a, b| a.start_time.cmp(&b.start_time));
 
-        let mut flat_panels: Vec<PublicPanel> = Vec::new();
+        let mut flat_panels: Vec<DisplayPanel> = Vec::new();
 
         for panel in self.panels.values() {
             if let Some(ref pt_uid) = panel.panel_type {
@@ -302,7 +302,7 @@ impl Schedule {
                         }
                     }
 
-                    flat_panels.push(PublicPanel {
+                    flat_panels.push(DisplayPanel {
                         id: session.id.clone(),
                         base_id: panel.id.clone(),
                         part_num: part.part_num,
@@ -355,7 +355,7 @@ impl Schedule {
         meta.last_modified_by = None;
         // Keep modified field as it's public in v6
 
-        let public = PublicSchedule {
+        let display = DisplaySchedule {
             meta,
             panels: flat_panels,
             rooms: self.rooms.clone(),
@@ -364,11 +364,12 @@ impl Schedule {
             presenters: self.presenters.clone(),
         };
 
-        serde_json::to_string_pretty(&public).context("Failed to serialize public schedule to JSON")
+        serde_json::to_string_pretty(&display)
+            .context("Failed to serialize display schedule to JSON")
     }
 
-    pub fn export_public(&self, path: &Path) -> Result<()> {
-        let json = self.export_public_json_string()?;
+    pub fn export_display(&self, path: &Path) -> Result<()> {
+        let json = self.export_display_json_string()?;
         std::fs::write(path, json.as_bytes())
             .with_context(|| format!("Failed to write {}", path.display()))?;
         Ok(())
@@ -377,7 +378,6 @@ impl Schedule {
 
 #[cfg(test)]
 mod tests {
-    use super::*;
     use crate::data::panel::{Panel, PanelPart, PanelSession};
     use crate::data::room::Room;
     use crate::data::schedule::{Meta, Schedule};
@@ -415,7 +415,6 @@ mod tests {
                 change_state: Default::default(),
             }],
             panel_types: IndexMap::new(),
-            time_types: Vec::new(),
             presenters: Vec::new(),
             imported_sheets: Default::default(),
         };
@@ -627,7 +626,7 @@ mod tests {
         });
         schedule.panels.insert("panel3".to_string(), panel3);
 
-        let json_result = schedule.export_public_json_string().unwrap();
+        let json_result = schedule.export_display_json_string().unwrap();
 
         // Verify the titles by checking the JSON directly
         assert!(

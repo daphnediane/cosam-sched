@@ -16,7 +16,6 @@ use super::presenter::Presenter;
 use super::room::Room;
 use super::schedule::Schedule;
 use super::source_info::ChangeState;
-use super::timeline::TimeType;
 
 const SCHEDULE_FIXED_HEADERS: &[&str] = &[
     "Uniq ID",
@@ -205,7 +204,7 @@ pub fn export_to_xlsx(schedule: &Schedule, path: &Path) -> Result<()> {
         let ws = book
             .get_sheet_by_name_mut("PanelTypes")
             .ok_or_else(|| anyhow::anyhow!("Sheet 'PanelTypes' not found"))?;
-        let last_row = write_panel_types_sheet(ws, &schedule.panel_types, &schedule.time_types);
+        let last_row = write_panel_types_sheet(ws, &schedule.panel_types);
         add_table(ws, "Prefix", prefix_headers, last_row);
     }
 
@@ -265,7 +264,6 @@ fn write_rooms_sheet(ws: &mut Worksheet, rooms: &[Room]) -> u32 {
 fn write_panel_types_sheet(
     ws: &mut Worksheet,
     panel_types: &indexmap::IndexMap<String, PanelType>,
-    time_types: &[TimeType],
 ) -> u32 {
     set_headers(
         ws,
@@ -321,15 +319,6 @@ fn write_panel_types_sheet(
         row += 1;
     }
 
-    for tt in time_types {
-        if tt.change_state == ChangeState::Deleted {
-            continue;
-        }
-        set_str(ws, 1, row, &tt.prefix);
-        set_str(ws, 2, row, &tt.kind);
-        set_str(ws, 9, row, "Special");
-        row += 1;
-    }
     row - 1
 }
 
@@ -615,7 +604,6 @@ mod tests {
                 );
                 pt_map
             },
-            time_types: Vec::new(),
             presenters: vec![Presenter {
                 id: None,
                 name: "Alice".to_string(),

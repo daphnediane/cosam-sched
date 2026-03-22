@@ -875,7 +875,7 @@ impl ScheduleEditor {
         let schedule_clone = schedule.clone();
 
         cx.spawn(async move |this, cx| {
-            let result = schedule_clone.export_public(&path);
+            let result = schedule_clone.export_display(&path);
 
             cx.update(|cx| {
                 this.update(cx, |editor, cx| match result {
@@ -935,7 +935,7 @@ impl ScheduleEditor {
 
         cx.spawn(async move |this, cx| {
             // Convert schedule to JSON string
-            let json_data = match schedule_clone.export_public_json_string() {
+            let json_data = match schedule_clone.export_display_json_string() {
                 Ok(json) => json,
                 Err(e) => {
                     cx.update(|cx| {
@@ -1016,7 +1016,7 @@ impl ScheduleEditor {
 
         cx.spawn(async move |this, cx| {
             // Convert schedule to JSON string
-            let json_data = match schedule_clone.export_public_json_string() {
+            let json_data = match schedule_clone.export_display_json_string() {
                 Ok(json) => json,
                 Err(e) => {
                     cx.update(|cx| {

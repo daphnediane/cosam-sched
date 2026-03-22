@@ -4,7 +4,7 @@
  * See LICENSE file for full license text
  */
 
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::fs;
 use std::path::Path;
 
@@ -147,7 +147,6 @@ pub fn import_xlsx(path: &Path, options: &XlsxImportOptions) -> Result<Schedule>
         events: Vec::new(),
         rooms,
         panel_types,
-        time_types: Vec::new(),
         presenters,
         imported_sheets,
     };
@@ -525,15 +524,28 @@ fn is_truthy(value: &str) -> bool {
     !lower.is_empty() && lower != "0" && lower != "no" && lower != "false"
 }
 
+#[derive(Debug, Clone, PartialEq)]
+enum PresenterHeader {
+    Named(String),
+    Other,
+}
+
 #[derive(Debug)]
 struct PresenterColumn {
     col: u32,
-    rank: String,
-    is_other: bool,
-    is_named: bool,
-    header_name: Option<String>,
-    group_name: Option<String>,
-    always_grouped: bool,
+    rank_prefix: char,
+    header: PresenterHeader,
+}
+
+fn rank_for_prefix(prefix: char) -> Option<&'static str> {
+    match prefix {
+        'g' => Some("guest"),
+        'j' => Some("judge"),
+        's' => Some("staff"),
+        'i' => Some("invited_guest"),
+        'p' => Some("fan_panelist"),
+        _ => None,
+    }
 }
 
 fn parse_presenter_header(header: &str, col: u32) -> Option<PresenterColumn> {
@@ -542,141 +554,25 @@ fn parse_presenter_header(header: &str, col: u32) -> Option<PresenterColumn> {
         return None;
     }
 
-    let rank_prefixes: HashMap<char, &str> = [
-        ('g', "guest"),
-        ('j', "judge"),
-        ('s', "staff"),
-        ('i', "invited_guest"),
-        ('p', "fan_panelist"),
-    ]
-    .into_iter()
-    .collect();
-
-    // Kind:Name==Group format (always grouped)
-    let re_double_eq = Regex::new(r"(?i)^([GJSIP]):(.+)==(.+)$").expect("valid regex");
-    if let Some(caps) = re_double_eq.captures(header) {
-        let prefix = caps[1].to_lowercase().chars().next()?;
-        let rank = rank_prefixes.get(&prefix)?;
-        let mut name = caps[2].to_string();
-        name = name.trim_start_matches('<').trim().to_string();
-        let group = caps[3].trim().to_string();
-        if name.is_empty() {
-            return None;
-        }
-        return Some(PresenterColumn {
-            col,
-            rank: rank.to_string(),
-            is_other: false,
-            is_named: true,
-            header_name: Some(name),
-            group_name: Some(group),
-            always_grouped: true,
-        });
-    }
-
-    // Kind:Name=Group format (member of group)
-    let re_single_eq = Regex::new(r"(?i)^([GJSIP]):(.+)=(.+)$").expect("valid regex");
-    if let Some(caps) = re_single_eq.captures(header) {
-        let prefix = caps[1].to_lowercase().chars().next()?;
-        let rank = rank_prefixes.get(&prefix)?;
-        let mut name = caps[2].to_string();
-        name = name.trim_start_matches('<').trim().to_string();
-        let group = caps[3].trim().to_string();
-        if name.is_empty() {
-            return None;
-        }
-        return Some(PresenterColumn {
-            col,
-            rank: rank.to_string(),
-            is_other: false,
-            is_named: true,
-            header_name: Some(name),
-            group_name: Some(group),
-            always_grouped: false,
-        });
-    }
-
-    // Kind:Name or Kind:Other format
+    // Kind:Rest format — [GJSIP]:...
     let re_kind = Regex::new(r"(?i)^([GJSIP]):(.+)$").expect("valid regex");
     if let Some(caps) = re_kind.captures(header) {
         let prefix = caps[1].to_lowercase().chars().next()?;
-        let rank = rank_prefixes.get(&prefix)?;
-        let mut name = caps[2].to_string();
-        if let Some(eq_pos) = name.find('=') {
-            name.truncate(eq_pos);
-        }
-        name = name.trim_start_matches('<').trim().to_string();
-
-        if name.to_lowercase() == "other" {
-            return Some(PresenterColumn {
-                col,
-                rank: rank.to_string(),
-                is_other: true,
-                is_named: false,
-                header_name: None,
-                group_name: None,
-                always_grouped: false,
-            });
-        }
-
-        if name.is_empty() {
+        // Verify it's a known rank prefix
+        rank_for_prefix(prefix)?;
+        let rest = caps[2].trim().to_string();
+        if rest.is_empty() {
             return None;
         }
-
+        let header_kind = if rest.eq_ignore_ascii_case("other") {
+            PresenterHeader::Other
+        } else {
+            PresenterHeader::Named(rest)
+        };
         return Some(PresenterColumn {
             col,
-            rank: rank.to_string(),
-            is_other: false,
-            is_named: true,
-            header_name: Some(name),
-            group_name: None,
-            always_grouped: false,
-        });
-    }
-
-    // Legacy: letter + digits (g1, p2, etc.)
-    let re_legacy = Regex::new(r"(?i)^([gjsip])(\d+)$").expect("valid regex");
-    if let Some(caps) = re_legacy.captures(header) {
-        let prefix = caps[1].to_lowercase().chars().next()?;
-        let rank = rank_prefixes.get(&prefix)?;
-        return Some(PresenterColumn {
-            col,
-            rank: rank.to_string(),
-            is_other: false,
-            is_named: false,
-            header_name: None,
-            group_name: None,
-            always_grouped: false,
-        });
-    }
-
-    // "Guest1", "Staff2", etc.
-    let re_word = Regex::new(r"(?i)^(Guest|Judge|Staff|Invited|Panelist|Fan_Panelist)\s*(\d+)$")
-        .expect("valid regex");
-    if let Some(caps) = re_word.captures(header) {
-        let first_char = caps[1].to_lowercase().chars().next()?;
-        let rank = rank_prefixes.get(&first_char)?;
-        return Some(PresenterColumn {
-            col,
-            rank: rank.to_string(),
-            is_other: false,
-            is_named: false,
-            header_name: None,
-            group_name: None,
-            always_grouped: false,
-        });
-    }
-
-    // "Fan Panelist" (2016 format: fan panelist other column)
-    if header.to_lowercase() == "fan panelist" {
-        return Some(PresenterColumn {
-            col,
-            rank: "fan_panelist".to_string(),
-            is_other: true,
-            is_named: false,
-            header_name: None,
-            group_name: None,
-            always_grouped: false,
+            rank_prefix: prefix,
+            header: header_kind,
         });
     }
 
@@ -685,40 +581,153 @@ fn parse_presenter_header(header: &str, col: u32) -> Option<PresenterColumn> {
     if lower == "other guests" || lower == "other guest" {
         return Some(PresenterColumn {
             col,
-            rank: "guest".to_string(),
-            is_other: true,
-            is_named: false,
-            header_name: None,
-            group_name: None,
-            always_grouped: false,
+            rank_prefix: 'g',
+            header: PresenterHeader::Other,
         });
     }
     if lower == "other staff" {
         return Some(PresenterColumn {
             col,
-            rank: "staff".to_string(),
-            is_other: true,
-            is_named: false,
-            header_name: None,
-            group_name: None,
-            always_grouped: false,
+            rank_prefix: 's',
+            header: PresenterHeader::Other,
         });
     }
 
-    // Generic "Other"/"Others" → fan_panelist other
-    if lower.starts_with("other") {
+    // "Fan Panelist" or generic "Other"/"Others"
+    if lower == "fan panelist" || lower.starts_with("other") {
         return Some(PresenterColumn {
             col,
-            rank: "fan_panelist".to_string(),
-            is_other: true,
-            is_named: false,
-            header_name: None,
-            group_name: None,
-            always_grouped: false,
+            rank_prefix: 'p',
+            header: PresenterHeader::Other,
         });
     }
 
     None
+}
+
+struct PresenterInfo {
+    rank: String,
+    groups: Vec<String>,
+    always_grouped: bool,
+}
+
+/// Parse presenter data from a cell value, register it in the collection maps,
+/// and return `(uid, is_credited)` if a presenter was found.
+fn parse_presenter_data(
+    header: &PresenterHeader,
+    rank: &str,
+    data: &str,
+    presenter_map: &mut HashMap<String, PresenterInfo>,
+    group_members: &mut HashMap<String, Vec<String>>,
+    always_shown_groups: &mut HashSet<String>,
+) -> Option<(String, bool)> {
+    let data = data.trim();
+    if data.is_empty() {
+        return None;
+    }
+
+    // Check for * prefix → uncredited
+    let (data, mut uncredited) = if let Some(rest) = data.strip_prefix('*') {
+        (rest.trim(), true)
+    } else {
+        (data, false)
+    };
+
+    // Determine encoded_name based on header type
+    let encoded_name = match header {
+        PresenterHeader::Named(header_name) => {
+            // For named headers, the header IS the name
+            // Check if data is "Unlisted" → uncredited
+            if data.eq_ignore_ascii_case("unlisted") {
+                uncredited = true;
+            }
+            header_name.clone()
+        }
+        PresenterHeader::Other => {
+            // For Other headers, the cell data IS the name
+            data.to_string()
+        }
+    };
+
+    if encoded_name.is_empty() {
+        return None;
+    }
+
+    // Split on first '=' to get presenter and optional group
+    let (presenter_raw, group_raw) = if let Some(eq_pos) = encoded_name.find('=') {
+        let name_part = encoded_name[..eq_pos].trim().to_string();
+        let group_part = encoded_name[eq_pos + 1..].trim().to_string();
+        (
+            name_part,
+            if group_part.is_empty() {
+                None
+            } else {
+                Some(group_part)
+            },
+        )
+    } else {
+        (encoded_name, None)
+    };
+
+    // Check if presenter begins with '<' → always_grouped
+    let (presenter_name, always_grouped) = if let Some(rest) = presenter_raw.strip_prefix('<') {
+        (rest.trim().to_string(), true)
+    } else {
+        (presenter_raw, false)
+    };
+
+    // Check if group begins with '=' (original was '==') → always_shown_group
+    let (group_name, always_shown_group) = match group_raw {
+        Some(g) => {
+            if let Some(rest) = g.strip_prefix('=') {
+                (Some(rest.trim().to_string()), true)
+            } else {
+                (Some(g), false)
+            }
+        }
+        None => (None, false),
+    };
+
+    // Filter out empty group after stripping
+    let group_name = group_name.filter(|g| !g.is_empty());
+
+    // If presenter name is empty but group is present, the presenter IS the group
+    let uid = if presenter_name.is_empty() {
+        match group_name {
+            Some(ref g) => g.clone(),
+            None => return None,
+        }
+    } else {
+        presenter_name
+    };
+
+    // Register the presenter in the map
+    let entry = presenter_map
+        .entry(uid.clone())
+        .or_insert_with(|| PresenterInfo {
+            rank: rank.to_string(),
+            groups: Vec::new(),
+            always_grouped,
+        });
+    if always_grouped {
+        entry.always_grouped = true;
+    }
+
+    // Register group membership
+    if let Some(ref group) = group_name {
+        if !entry.groups.contains(group) {
+            entry.groups.push(group.clone());
+        }
+        group_members
+            .entry(group.clone())
+            .or_default()
+            .push(uid.clone());
+        if always_shown_group {
+            always_shown_groups.insert(group.clone());
+        }
+    }
+
+    Some((uid, !uncredited))
 }
 
 fn excel_serial_to_naive_datetime(serial: f64) -> Option<NaiveDateTime> {
@@ -975,25 +984,10 @@ fn read_panels(
         .map(|(prefix, pt)| (prefix.to_lowercase(), pt))
         .collect();
 
-    struct PresenterInfo {
-        rank: String,
-        groups: Vec<String>,
-        always_grouped: bool,
-    }
     let mut presenter_map: HashMap<String, PresenterInfo> = HashMap::new();
     let mut group_members: HashMap<String, Vec<String>> = HashMap::new();
+    let mut always_shown_groups: HashSet<String> = HashSet::new();
     let mut panels: IndexMap<String, Panel> = IndexMap::new();
-
-    for pc in &presenter_cols {
-        if let Some(ref name) = pc.header_name {
-            if let Some(ref group) = pc.group_name {
-                group_members
-                    .entry(group.clone())
-                    .or_default()
-                    .push(name.clone());
-            }
-        }
-    }
 
     let start_time_col = col_map
         .get("Start_Time")
@@ -1143,65 +1137,47 @@ fn read_panels(
             .map(|s| is_truthy(s))
             .unwrap_or(false);
 
-        let mut event_presenters: Vec<String> = Vec::new();
+        let mut credited_presenters: Vec<String> = Vec::new();
+        let mut uncredited_presenters: Vec<String> = Vec::new();
         for pc in &presenter_cols {
             let cell_str = match get_cell_str(ws, pc.col, row) {
                 Some(s) => s,
                 None => continue,
             };
 
-            if pc.is_named {
-                if let Some(ref header_name) = pc.header_name {
-                    event_presenters.push(header_name.clone());
-                    let entry =
-                        presenter_map
-                            .entry(header_name.clone())
-                            .or_insert_with(|| PresenterInfo {
-                                rank: pc.rank.clone(),
-                                groups: Vec::new(),
-                                always_grouped: pc.always_grouped,
-                            });
-                    if let Some(ref group) = pc.group_name {
-                        if !entry.groups.contains(group) {
-                            entry.groups.push(group.clone());
-                        }
-                    }
-                    if pc.always_grouped {
-                        entry.always_grouped = true;
-                    }
-                }
-            } else {
-                let names = if pc.is_other {
-                    split_presenter_names(&cell_str)
-                } else {
-                    vec![cell_str]
+            let rank = rank_for_prefix(pc.rank_prefix).unwrap_or("fan_panelist");
+
+            // For Other columns, split by commas; for Named, each chunk is the whole cell
+            let chunks: Vec<String> = match &pc.header {
+                PresenterHeader::Other => split_presenter_names(&cell_str),
+                PresenterHeader::Named(_) => vec![cell_str],
+            };
+
+            for chunk in chunks {
+                let (uid, is_credited) = match parse_presenter_data(
+                    &pc.header,
+                    rank,
+                    &chunk,
+                    &mut presenter_map,
+                    &mut group_members,
+                    &mut always_shown_groups,
+                ) {
+                    Some(r) => r,
+                    None => continue,
                 };
-                for presenter_name in names {
-                    if presenter_name.is_empty() {
-                        continue;
+
+                if is_credited {
+                    if !credited_presenters.contains(&uid) {
+                        credited_presenters.push(uid);
                     }
-                    let clean_name = if let Some(eq_pos) = presenter_name.find('=') {
-                        presenter_name[..eq_pos].trim().to_string()
-                    } else {
-                        presenter_name
-                    };
-                    if clean_name.is_empty() {
-                        continue;
-                    }
-                    event_presenters.push(clean_name.clone());
-                    presenter_map
-                        .entry(clean_name)
-                        .or_insert_with(|| PresenterInfo {
-                            rank: pc.rank.clone(),
-                            groups: Vec::new(),
-                            always_grouped: false,
-                        });
+                } else if !uncredited_presenters.contains(&uid) {
+                    uncredited_presenters.push(uid);
                 }
             }
         }
 
         // Fallback: Presenter/Presenters column
-        if event_presenters.is_empty() {
+        if credited_presenters.is_empty() && uncredited_presenters.is_empty() {
             if let Some(presenter_raw) =
                 get_field(&data, &["Presenter", "Presenters", "Presenter_s"])
             {
@@ -1213,7 +1189,7 @@ fn read_panels(
                             groups: Vec::new(),
                             always_grouped: false,
                         });
-                    event_presenters.push(part);
+                    credited_presenters.push(part);
                 }
             }
         }
@@ -1269,7 +1245,8 @@ fn read_panels(
             p.description = description.clone();
             p.note = note.clone();
             p.prereq = prereq.clone();
-            p.credited_presenters = event_presenters.clone();
+            p.credited_presenters = credited_presenters.clone();
+            p.uncredited_presenters = uncredited_presenters.clone();
             p
         });
 
@@ -1352,9 +1329,14 @@ fn read_panels(
         };
 
         // Add presenters to part
-        for presenter in &event_presenters {
+        for presenter in &credited_presenters {
             if !part.credited_presenters.contains(presenter) {
                 part.credited_presenters.push(presenter.clone());
+            }
+        }
+        for presenter in &uncredited_presenters {
+            if !part.uncredited_presenters.contains(presenter) {
+                part.uncredited_presenters.push(presenter.clone());
             }
         }
 
@@ -1420,7 +1402,8 @@ fn read_panels(
         session.alt_panelist = alt_panelist;
 
         // Add presenters to session
-        session.credited_presenters = event_presenters;
+        session.credited_presenters = credited_presenters;
+        session.uncredited_presenters = uncredited_presenters;
     }
 
     // Post-processing: promote uniform alt_panelist values up the hierarchy.
@@ -1457,6 +1440,7 @@ fn read_panels(
         .map(|(name, info)| {
             let is_group = group_members.contains_key(&name);
             let members = group_members.get(&name).cloned().unwrap_or_default();
+            let always_shown = is_group && always_shown_groups.contains(&name);
             Presenter {
                 id: None,
                 name,
@@ -1465,7 +1449,7 @@ fn read_panels(
                 members,
                 groups: info.groups,
                 always_grouped: info.always_grouped,
-                always_shown: false,
+                always_shown,
                 metadata: None,
                 source: None,
                 change_state: ChangeState::Converted,
@@ -1531,32 +1515,40 @@ mod tests {
     #[test]
     fn test_parse_presenter_header_kind_name() {
         let col = parse_presenter_header("G:Yaya Han", 5).expect("should parse");
-        assert_eq!(col.rank, "guest");
-        assert!(col.is_named);
-        assert!(!col.is_other);
-        assert_eq!(col.header_name.as_deref(), Some("Yaya Han"));
+        assert_eq!(col.rank_prefix, 'g');
+        assert_eq!(col.header, PresenterHeader::Named("Yaya Han".to_string()));
+    }
+
+    #[test]
+    fn test_parse_presenter_header_kind_name_with_group() {
+        // Header stores full rest including =Group; parsing happens in parse_presenter_data
+        let col = parse_presenter_header("G:John==UNC Staff", 1).expect("should parse");
+        assert_eq!(col.rank_prefix, 'g');
+        assert_eq!(
+            col.header,
+            PresenterHeader::Named("John==UNC Staff".to_string())
+        );
     }
 
     #[test]
     fn test_parse_presenter_header_kind_other() {
         let col = parse_presenter_header("S:Other", 3).expect("should parse");
-        assert_eq!(col.rank, "staff");
-        assert!(col.is_other);
-        assert!(!col.is_named);
+        assert_eq!(col.rank_prefix, 's');
+        assert_eq!(col.header, PresenterHeader::Other);
     }
 
     #[test]
-    fn test_parse_presenter_header_legacy() {
-        let col = parse_presenter_header("g1", 0).expect("should parse");
-        assert_eq!(col.rank, "guest");
-        assert!(!col.is_named);
-        assert!(!col.is_other);
+    fn test_parse_presenter_header_other_guests() {
+        let col = parse_presenter_header("Other Guests", 0).expect("should parse");
+        assert_eq!(col.rank_prefix, 'g');
+        assert_eq!(col.header, PresenterHeader::Other);
     }
 
     #[test]
-    fn test_parse_presenter_header_word_prefix() {
-        let col = parse_presenter_header("Guest1", 0).expect("should parse");
-        assert_eq!(col.rank, "guest");
+    fn test_parse_presenter_header_fan_panelist() {
+        let col = parse_presenter_header("Fan Panelist", 0).expect("should parse");
+        assert_eq!(col.rank_prefix, 'p');
+        assert_eq!(col.header, PresenterHeader::Other);
     }
 
     #[test]
@@ -1564,6 +1556,188 @@ mod tests {
         assert!(parse_presenter_header("Room", 0).is_none());
         assert!(parse_presenter_header("Name", 0).is_none());
         assert!(parse_presenter_header("Duration", 0).is_none());
+        assert!(parse_presenter_header("g1", 0).is_none());
+        assert!(parse_presenter_header("Guest1", 0).is_none());
+    }
+
+    // --- parse_presenter_data tests ---
+
+    fn empty_maps() -> (
+        HashMap<String, PresenterInfo>,
+        HashMap<String, Vec<String>>,
+        HashSet<String>,
+    ) {
+        (HashMap::new(), HashMap::new(), HashSet::new())
+    }
+
+    #[test]
+    fn test_parse_data_named_simple() {
+        let (mut pm, mut gm, mut asg) = empty_maps();
+        let header = PresenterHeader::Named("Yaya Han".to_string());
+        let (uid, credited) =
+            parse_presenter_data(&header, "guest", "Yes", &mut pm, &mut gm, &mut asg)
+                .expect("should parse");
+        assert_eq!(uid, "Yaya Han");
+        assert!(credited);
+        assert!(pm.contains_key("Yaya Han"));
+        assert!(gm.is_empty());
+        assert!(asg.is_empty());
+    }
+
+    #[test]
+    fn test_parse_data_named_unlisted() {
+        let (mut pm, mut gm, mut asg) = empty_maps();
+        let header = PresenterHeader::Named("Secret Guest".to_string());
+        let (uid, credited) =
+            parse_presenter_data(&header, "guest", "Unlisted", &mut pm, &mut gm, &mut asg)
+                .expect("should parse");
+        assert_eq!(uid, "Secret Guest");
+        assert!(!credited, "Unlisted should be uncredited");
+    }
+
+    #[test]
+    fn test_parse_data_named_star_uncredited() {
+        let (mut pm, mut gm, mut asg) = empty_maps();
+        let header = PresenterHeader::Named("Helper".to_string());
+        let (uid, credited) =
+            parse_presenter_data(&header, "guest", "*Yes", &mut pm, &mut gm, &mut asg)
+                .expect("should parse");
+        assert_eq!(uid, "Helper");
+        assert!(!credited, "* prefix should be uncredited");
+    }
+
+    #[test]
+    fn test_parse_data_named_with_double_eq_group() {
+        let (mut pm, mut gm, mut asg) = empty_maps();
+        let header = PresenterHeader::Named("John==UNC Staff".to_string());
+        let (uid, _credited) =
+            parse_presenter_data(&header, "guest", "Yes", &mut pm, &mut gm, &mut asg)
+                .expect("should parse");
+        assert_eq!(uid, "John");
+        assert_eq!(pm["John"].groups, vec!["UNC Staff"]);
+        assert!(!pm["John"].always_grouped);
+        assert!(
+            asg.contains("UNC Staff"),
+            "== should set always_shown_group"
+        );
+        assert!(gm.contains_key("UNC Staff"));
+    }
+
+    #[test]
+    fn test_parse_data_named_lt_always_grouped() {
+        let (mut pm, mut gm, mut asg) = empty_maps();
+        let header = PresenterHeader::Named("<Jane=UNC Staff".to_string());
+        let (uid, _credited) =
+            parse_presenter_data(&header, "guest", "Yes", &mut pm, &mut gm, &mut asg)
+                .expect("should parse");
+        assert_eq!(uid, "Jane");
+        assert!(
+            pm["Jane"].always_grouped,
+            "< prefix should set always_grouped"
+        );
+        assert_eq!(pm["Jane"].groups, vec!["UNC Staff"]);
+        assert!(
+            !asg.contains("UNC Staff"),
+            "single = should not set always_shown_group"
+        );
+    }
+
+    #[test]
+    fn test_parse_data_named_lt_double_eq_combined() {
+        let (mut pm, mut gm, mut asg) = empty_maps();
+        let header = PresenterHeader::Named("<Bob==Team".to_string());
+        let (uid, _credited) =
+            parse_presenter_data(&header, "guest", "Yes", &mut pm, &mut gm, &mut asg)
+                .expect("should parse");
+        assert_eq!(uid, "Bob");
+        assert!(
+            pm["Bob"].always_grouped,
+            "< prefix should set always_grouped"
+        );
+        assert!(asg.contains("Team"), "== should set always_shown_group");
+        assert!(gm.contains_key("Team"));
+    }
+
+    #[test]
+    fn test_parse_data_other_simple() {
+        let (mut pm, mut gm, mut asg) = empty_maps();
+        let header = PresenterHeader::Other;
+        let (uid, credited) =
+            parse_presenter_data(&header, "guest", "Alice", &mut pm, &mut gm, &mut asg)
+                .expect("should parse");
+        assert_eq!(uid, "Alice");
+        assert!(credited);
+        assert!(pm.contains_key("Alice"));
+        assert!(gm.is_empty());
+    }
+
+    #[test]
+    fn test_parse_data_other_with_group() {
+        let (mut pm, mut gm, mut asg) = empty_maps();
+        let header = PresenterHeader::Other;
+        let (uid, _credited) = parse_presenter_data(
+            &header,
+            "guest",
+            "Triffin Morris=UNC Staff",
+            &mut pm,
+            &mut gm,
+            &mut asg,
+        )
+        .expect("should parse");
+        assert_eq!(uid, "Triffin Morris");
+        assert_eq!(pm["Triffin Morris"].groups, vec!["UNC Staff"]);
+        assert!(!asg.contains("UNC Staff"));
+    }
+
+    #[test]
+    fn test_parse_data_other_with_double_eq_group() {
+        let (mut pm, mut gm, mut asg) = empty_maps();
+        let header = PresenterHeader::Other;
+        let (uid, _credited) = parse_presenter_data(
+            &header,
+            "guest",
+            "Triffin Morris==UNC Staff",
+            &mut pm,
+            &mut gm,
+            &mut asg,
+        )
+        .expect("should parse");
+        assert_eq!(uid, "Triffin Morris");
+        assert!(
+            asg.contains("UNC Staff"),
+            "== should set always_shown_group"
+        );
+    }
+
+    #[test]
+    fn test_parse_data_other_star_uncredited() {
+        let (mut pm, mut gm, mut asg) = empty_maps();
+        let header = PresenterHeader::Other;
+        let (uid, credited) =
+            parse_presenter_data(&header, "guest", "*Helper", &mut pm, &mut gm, &mut asg)
+                .expect("should parse");
+        assert_eq!(uid, "Helper");
+        assert!(!credited, "* prefix should be uncredited");
+    }
+
+    #[test]
+    fn test_parse_data_blank_returns_none() {
+        let (mut pm, mut gm, mut asg) = empty_maps();
+        let header = PresenterHeader::Other;
+        assert!(parse_presenter_data(&header, "guest", "", &mut pm, &mut gm, &mut asg).is_none());
+        assert!(parse_presenter_data(&header, "guest", "  ", &mut pm, &mut gm, &mut asg).is_none());
+    }
+
+    #[test]
+    fn test_parse_data_empty_name_with_group() {
+        let (mut pm, mut gm, mut asg) = empty_maps();
+        let header = PresenterHeader::Named("==UNC Staff".to_string());
+        let (uid, credited) =
+            parse_presenter_data(&header, "guest", "Yes", &mut pm, &mut gm, &mut asg)
+                .expect("should parse");
+        assert_eq!(uid, "UNC Staff", "empty name should use group as uid");
+        assert!(credited);
+        assert!(pm.contains_key("UNC Staff"));
     }
 
     #[test]

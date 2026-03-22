@@ -65,9 +65,6 @@ pub fn post_save_cleanup(schedule: &mut Schedule) {
     schedule
         .timeline
         .retain(|t| t.change_state != ChangeState::Deleted);
-    schedule
-        .time_types
-        .retain(|tt| tt.change_state != ChangeState::Deleted);
 
     for event in &mut schedule.events {
         event.change_state = ChangeState::Unchanged;
@@ -83,9 +80,6 @@ pub fn post_save_cleanup(schedule: &mut Schedule) {
     }
     for entry in &mut schedule.timeline {
         entry.change_state = ChangeState::Unchanged;
-    }
-    for time_type in &mut schedule.time_types {
-        time_type.change_state = ChangeState::Unchanged;
     }
 }
 
@@ -555,7 +549,7 @@ mod tests {
     use crate::data::presenter::Presenter;
     use crate::data::schedule::{Meta, Schedule};
     use crate::data::source_info::ImportedSheetPresence;
-    use crate::data::timeline::{TimeType, TimelineEntry};
+    use crate::data::timeline::TimelineEntry;
     use chrono::NaiveDateTime;
 
     fn make_schedule_with_change_states() -> Schedule {
@@ -763,13 +757,6 @@ mod tests {
                 );
                 pt_map
             },
-            time_types: vec![TimeType {
-                uid: "time-type-split".to_string(),
-                prefix: "SPLIT".to_string(),
-                kind: "Split".to_string(),
-                source: None,
-                change_state: ChangeState::Converted,
-            }],
             presenters: vec![
                 Presenter {
                     id: None,
@@ -862,9 +849,6 @@ mod tests {
         for entry in &schedule.timeline {
             assert_eq!(entry.change_state, ChangeState::Unchanged);
         }
-        for time_type in &schedule.time_types {
-            assert_eq!(time_type.change_state, ChangeState::Unchanged);
-        }
     }
 
     #[test]
@@ -877,7 +861,6 @@ mod tests {
         assert!(schedule.events.iter().any(|e| e.id == "GP004"));
         assert!(schedule.rooms.iter().any(|r| r.short_name == "Main"));
         assert!(schedule.presenters.iter().any(|p| p.name == "Alice"));
-        assert_eq!(schedule.time_types.len(), 1);
     }
 
     #[test]

@@ -4,13 +4,13 @@
  * See LICENSE file for full license text
  */
 
+pub mod display_export;
 pub mod event;
 pub mod panel;
 pub mod panel_id;
 pub mod panel_type;
 pub mod post_process;
 pub mod presenter;
-pub mod public_export;
 pub mod room;
 pub mod schedule;
 pub mod source_info;
@@ -31,7 +31,7 @@ pub use presenter::Presenter;
 pub use room::Room;
 pub use schedule::{Meta, Schedule, SessionDisplayInfo};
 pub use source_info::{ChangeState, ImportedSheetPresence, SourceInfo};
-pub use timeline::{TimeType, TimelineEntry};
+pub use timeline::TimelineEntry;
 pub use widget_embed::{
     WidgetSources, generate_embed_html, generate_preview_html, generate_test_html,
     write_embed_html, write_test_html,

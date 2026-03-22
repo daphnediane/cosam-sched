@@ -14,7 +14,7 @@ const WIDGET_CSS: &str = include_str!("../../../../widget/cosam-calendar.css");
 const WIDGET_JS: &str = include_str!("../../../../widget/cosam-calendar.js");
 
 pub fn generate_preview_html(schedule: &Schedule) -> Result<String> {
-    let json_data = schedule.export_public_json_string()?;
+    let json_data = schedule.export_display_json_string()?;
     let title = &schedule.meta.title;
     let generation = std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)

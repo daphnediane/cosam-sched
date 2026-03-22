@@ -27,28 +27,6 @@ pub struct TimelineEntry {
     pub change_state: ChangeState,
 }
 
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub struct TimeType {
-    pub uid: String,
-    pub prefix: String,
-    pub kind: String,
-    #[serde(default, skip_serializing)]
-    pub source: Option<SourceInfo>,
-    #[serde(default, skip_serializing)]
-    pub change_state: ChangeState,
-}
-
-impl TimeType {
-    pub fn uid_from_prefix(prefix: &str) -> String {
-        let slug = prefix
-            .to_lowercase()
-            .replace(|c: char| !c.is_alphanumeric(), "-");
-        let slug = slug.trim_matches('-');
-        format!("time-type-{slug}")
-    }
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -69,26 +47,6 @@ mod tests {
     }
 
     #[test]
-    fn test_time_type_deserialize() {
-        let json = r##"{
-            "uid": "time-type-split",
-            "prefix": "SPLIT",
-            "kind": "Page split"
-        }"##;
-        let time_type: TimeType = serde_json::from_str(json).unwrap();
-        assert_eq!(time_type.uid, "time-type-split");
-        assert_eq!(time_type.prefix, "SPLIT");
-        assert_eq!(time_type.kind, "Page split");
-    }
-
-    #[test]
-    fn test_uid_from_prefix() {
-        assert_eq!(TimeType::uid_from_prefix("SPLIT"), "time-type-split");
-        assert_eq!(TimeType::uid_from_prefix("SPLITDAY"), "time-type-splitday");
-        assert_eq!(TimeType::uid_from_prefix("GW"), "time-type-gw");
-    }
-
-    #[test]
     fn test_timeline_entry_roundtrip() {
         let entry = TimelineEntry {
             id: "SPLIT01".to_string(),
@@ -103,19 +61,5 @@ mod tests {
         let json = serde_json::to_string(&entry).unwrap();
         let entry2: TimelineEntry = serde_json::from_str(&json).unwrap();
         assert_eq!(entry, entry2);
-    }
-
-    #[test]
-    fn test_time_type_roundtrip() {
-        let time_type = TimeType {
-            uid: "time-type-split".to_string(),
-            prefix: "SPLIT".to_string(),
-            kind: "Page split".to_string(),
-            source: None,
-            change_state: ChangeState::Unchanged,
-        };
-        let json = serde_json::to_string(&time_type).unwrap();
-        let time_type2: TimeType = serde_json::from_str(&json).unwrap();
-        assert_eq!(time_type, time_type2);
     }
 }

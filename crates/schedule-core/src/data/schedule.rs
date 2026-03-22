@@ -18,7 +18,7 @@ use super::panel_type::PanelType;
 use super::presenter::Presenter;
 use super::room::Room;
 use super::source_info::{ChangeState, ImportedSheetPresence};
-use super::timeline::{TimeType, TimelineEntry};
+use super::timeline::TimelineEntry;
 
 /// Lightweight struct for displaying a panel session in the editor UI
 #[derive(Debug, Clone)]
@@ -92,8 +92,6 @@ pub struct Schedule {
     pub rooms: Vec<Room>,
     #[serde(default, skip_serializing_if = "IndexMap::is_empty")]
     pub panel_types: IndexMap<String, PanelType>,
-    #[serde(default, skip_serializing_if = "Vec::is_empty")]
-    pub time_types: Vec<TimeType>,
     pub presenters: Vec<Presenter>,
     #[serde(default, skip_serializing)]
     pub imported_sheets: ImportedSheetPresence,
@@ -104,11 +102,8 @@ impl Schedule {
     pub fn load(path: &Path) -> Result<Self> {
         let content = std::fs::read_to_string(path)
             .with_context(|| format!("Failed to read {}", path.display()))?;
-        let mut schedule: Schedule = serde_json::from_str(&content)
+        let schedule: Schedule = serde_json::from_str(&content)
             .with_context(|| format!("Failed to parse JSON from {}", path.display()))?;
-
-        // Auto-migrate to v4 if needed
-        schedule.migrate_to_v4();
 
         Ok(schedule)
     }
@@ -233,90 +228,6 @@ impl Schedule {
         if self.meta.end_time.is_none() {
             self.meta.end_time = Some("2026-06-28T18:00:00Z".to_string()); // Sunday evening
         }
-    }
-
-    /// Migrate v3 format to v4 format
-    pub fn migrate_to_v4(&mut self) {
-        if self.meta.version.unwrap_or(1) >= 4 {
-            return; // Already v4 or higher
-        }
-
-        // Convert split panel types to time types and timeline
-        let (panel_types, time_types, timeline) = self.convert_split_panel_types();
-
-        // Update schedule
-        self.panel_types = panel_types;
-        self.time_types = time_types;
-        self.timeline = timeline;
-
-        // Calculate schedule bounds
-        self.calculate_schedule_bounds();
-
-        // Update version
-        self.meta.version = Some(4);
-    }
-
-    /// Convert split panel types to time types and timeline entries
-    fn convert_split_panel_types(
-        &self,
-    ) -> (
-        IndexMap<String, super::panel_type::PanelType>,
-        Vec<super::timeline::TimeType>,
-        Vec<super::timeline::TimelineEntry>,
-    ) {
-        let mut time_types = Vec::new();
-        let mut timeline = Vec::new();
-        let mut filtered_panel_types = IndexMap::new();
-
-        for (prefix, panel_type) in &self.panel_types {
-            let upper = prefix.to_uppercase();
-            if upper == "SPLIT" || upper.starts_with("SP") || upper.starts_with("SPLIT") {
-                let time_type = super::timeline::TimeType {
-                    uid: super::timeline::TimeType::uid_from_prefix(prefix),
-                    prefix: prefix.clone(),
-                    kind: panel_type.kind.clone(),
-                    source: None,
-                    change_state: ChangeState::Converted,
-                };
-                time_types.push(time_type);
-
-                let legacy_uid = format!(
-                    "panel-type-{}",
-                    prefix
-                        .to_lowercase()
-                        .replace(|c: char| !c.is_alphanumeric(), "-")
-                        .trim_matches('-')
-                );
-                let split_events: Vec<_> = self
-                    .events
-                    .iter()
-                    .filter(|e| {
-                        e.panel_type
-                            .as_ref()
-                            .map(|pt| pt == &legacy_uid)
-                            .unwrap_or(false)
-                    })
-                    .collect();
-
-                for (i, event) in split_events.iter().enumerate() {
-                    let timeline_entry = super::timeline::TimelineEntry {
-                        id: format!("{}{:02}", prefix, i + 1),
-                        start_time: event.start_time.format("%Y-%m-%dT%H:%M:%S").to_string(),
-                        description: event.name.clone(),
-                        panel_type: Some(prefix.clone()),
-                        note: event.note.clone(),
-                        metadata: None,
-                        source: None,
-                        change_state: ChangeState::Converted,
-                    };
-                    timeline.push(timeline_entry);
-                }
-            } else {
-                filtered_panel_types.insert(prefix.clone(), panel_type.clone());
-            }
-        }
-
-        (filtered_panel_types, time_types, timeline)
     }
 
     #[must_use]

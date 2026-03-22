@@ -27,5 +27,6 @@
 # Ignore target directory
 /target
 
-# Ignore ouput directory
+# Ignore input and output directory
+/input
 /output

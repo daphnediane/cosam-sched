@@ -737,7 +737,6 @@ mod tests {
             events: Vec::new(),
             rooms: Vec::new(),
             panel_types: indexmap::IndexMap::new(),
-            time_types: Vec::new(),
             presenters: Vec::new(),
             imported_sheets: ImportedSheetPresence::default(),
         }
