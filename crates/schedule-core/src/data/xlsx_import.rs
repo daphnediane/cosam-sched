@@ -111,8 +111,7 @@ pub fn import_xlsx(path: &Path, options: &XlsxImportOptions) -> Result<Schedule>
         chrono::Utc::now().format("%Y-%m-%dT%H:%M:%SZ").to_string()
     };
 
-    // Always use v6 format with panels
-    let (panels, presenters) = read_events_v5(
+    let (panels, presenters) = read_panels(
         &book,
         &options.schedule_table,
         &rooms,
@@ -492,7 +491,7 @@ fn read_panel_types(
 
         let is_private = get_field(&data, &["Is_Private", "IsPrivate"])
             .map(|s| is_truthy(s))
-            .unwrap_or(false);
+            .unwrap_or_else(|| prefix == "SM" || prefix == "ZZ");
 
         types.insert(
             prefix.clone(),
@@ -863,17 +862,6 @@ fn split_presenter_names(text: &str) -> Vec<String> {
         .collect()
 }
 
-fn extract_id_prefix(id: Option<&str>) -> String {
-    let id = match id {
-        Some(id) => id,
-        None => return String::new(),
-    };
-    let re = Regex::new(r"^([A-Za-z]+)").expect("valid regex");
-    re.captures(id)
-        .map(|caps| caps[1].to_uppercase())
-        .unwrap_or_default()
-}
-
 /// Strip trailing part/session numbers from a panel title
 ///
 /// Removes patterns like:
@@ -918,7 +906,7 @@ fn prepend_suffix(prefix: &str, existing: Option<&str>) -> Option<String> {
     }
 }
 
-fn read_events_v5(
+fn read_panels(
     book: &Spreadsheet,
     preferred: &str,
     rooms: &[Room],
@@ -1049,15 +1037,20 @@ fn read_events_v5(
         let panel_id = match PanelId::parse(&uniq_id.as_deref().unwrap_or("")) {
             Some(pid) => pid,
             None => {
+                // @TODO: Skip these records entirely, this was an old way to delete a panel from the schedule
                 // Create a fake panel ID for rows without proper IDs
                 // Use title-derived parts if available
                 PanelId {
-                    base_id: format!("row{}", row),
+                    prefix: String::new(),
+                    prefix_num: row,
                     part_num: title_part_num,
                     session_num: title_session_num,
+                    suffix: None,
                 }
             }
         };
+
+        // @TODO: Check if panel id has already been used and if so try adding an alphabetical suffix starting with A until a unique id is found
 
         // Check for conflicts between title suffixes and Uniq ID parts
         let has_conflict = match (
@@ -1129,10 +1122,9 @@ fn read_events_v5(
             Vec::new()
         };
 
-        let id_prefix = extract_id_prefix(uniq_id.as_deref());
         let kind_raw = get_field(&data, &["Kind", "Panel_Kind", "PanelKind"]).cloned();
-        let panel_type = if !id_prefix.is_empty() {
-            type_lookup.get(&id_prefix.to_lowercase()).copied()
+        let panel_type = if !panel_id.prefix.is_empty() {
+            type_lookup.get(&panel_id.prefix.to_lowercase()).copied()
         } else {
             None
         };
@@ -1226,11 +1218,13 @@ fn read_events_v5(
             }
         }
 
-        let panel_type_uid = if !id_prefix.is_empty() {
-            Some(id_prefix.to_uppercase())
-        } else {
-            panel_type.map(|pt| pt.prefix.clone())
-        };
+        let panel_type_uid = panel_type.map(|pt| pt.prefix.clone()).or_else(|| {
+            if !panel_id.prefix.is_empty() {
+                Some(panel_id.prefix.clone())
+            } else {
+                None
+            }
+        });
 
         // Get other fields
         let description = get_field(&data, &["Description"]).cloned();
@@ -1259,8 +1253,8 @@ fn read_events_v5(
             get_field(&data, &["Have_Ticket_Image", "HaveTicketImage"]).map(|s| is_truthy(s));
 
         // Find or create the base panel
-        let panel = panels.entry(panel_id.base_id.clone()).or_insert_with(|| {
-            let mut p = Panel::new(panel_id.base_id.clone());
+        let panel = panels.entry(panel_id.base_id()).or_insert_with(|| {
+            let mut p = Panel::new(panel_id.base_id());
             p.name = name.clone();
             p.panel_type = panel_type_uid.clone();
             p.cost = cost.clone();
@@ -1596,16 +1590,6 @@ mod tests {
             normalize_cost(Some(&"$20.00".to_string())),
             (Some("$20.00".to_string()), false, false)
         );
-    }
-
-    #[test]
-    fn test_extract_id_prefix() {
-        assert_eq!(extract_id_prefix(Some("GP002")), "GP");
-        assert_eq!(extract_id_prefix(Some("FW001")), "FW");
-        assert_eq!(extract_id_prefix(Some("GW019A")), "GW");
-        assert_eq!(extract_id_prefix(Some("SPLIT01")), "SPLIT");
-        assert_eq!(extract_id_prefix(Some("BREAK01")), "BREAK");
-        assert_eq!(extract_id_prefix(None), "");
     }
 
     #[test]

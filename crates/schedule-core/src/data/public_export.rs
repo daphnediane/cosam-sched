@@ -59,7 +59,7 @@ pub struct PublicSchedule {
     pub panels: Vec<PublicPanel>,
     pub rooms: Vec<super::room::Room>,
     pub panel_types: indexmap::IndexMap<String, super::panel_type::PanelType>,
-    pub time_types: Vec<super::timeline::TimeType>,
+    #[serde(skip_serializing_if = "Vec::is_empty")]
     pub timeline: Vec<super::timeline::TimelineEntry>,
     pub presenters: Vec<Presenter>,
 }
@@ -147,18 +147,52 @@ fn compute_credits(
 
 impl Schedule {
     pub fn export_public_json_string(&self) -> Result<String> {
-        let hidden_type_uids: HashSet<String> = self
+        let excluded_type_uids: HashSet<String> = self
             .panel_types
             .iter()
-            .filter(|(_, pt)| pt.is_hidden)
+            .filter(|(_, pt)| pt.is_hidden || pt.is_private || pt.is_timeline)
             .map(|(prefix, _)| prefix.clone())
             .collect();
+
+        // Build timeline entries from is_timeline panels
+        let timeline_type_uids: HashSet<String> = self
+            .panel_types
+            .iter()
+            .filter(|(_, pt)| pt.is_timeline)
+            .map(|(prefix, _)| prefix.clone())
+            .collect();
+
+        let mut timeline_entries: Vec<super::timeline::TimelineEntry> = self.timeline.clone();
+        for panel in self.panels.values() {
+            let is_timeline_panel = panel
+                .panel_type
+                .as_ref()
+                .map(|pt| timeline_type_uids.contains(pt))
+                .unwrap_or(false);
+            if is_timeline_panel {
+                for part in &panel.parts {
+                    for session in &part.sessions {
+                        timeline_entries.push(super::timeline::TimelineEntry {
+                            id: session.id.clone(),
+                            start_time: session.start_time.clone().unwrap_or_default(),
+                            description: panel.name.clone(),
+                            panel_type: panel.panel_type.clone(),
+                            note: panel.note.clone(),
+                            metadata: None,
+                            source: None,
+                            change_state: Default::default(),
+                        });
+                    }
+                }
+            }
+        }
+        timeline_entries.sort_by(|a, b| a.start_time.cmp(&b.start_time));
 
         let mut flat_panels: Vec<PublicPanel> = Vec::new();
 
         for panel in self.panels.values() {
             if let Some(ref pt_uid) = panel.panel_type {
-                if hidden_type_uids.contains(pt_uid) {
+                if excluded_type_uids.contains(pt_uid) {
                     continue;
                 }
             }
@@ -306,7 +340,7 @@ impl Schedule {
         let visible_panel_types: indexmap::IndexMap<String, _> = self
             .panel_types
             .iter()
-            .filter(|(_, pt)| !pt.is_hidden)
+            .filter(|(_, pt)| !pt.is_hidden && !pt.is_private && !pt.is_timeline)
             .map(|(k, v)| (k.clone(), v.clone()))
             .collect();
 
@@ -326,8 +360,7 @@ impl Schedule {
             panels: flat_panels,
             rooms: self.rooms.clone(),
             panel_types: visible_panel_types,
-            time_types: self.time_types.clone(),
-            timeline: self.timeline.clone(),
+            timeline: timeline_entries,
             presenters: self.presenters.clone(),
         };
 
