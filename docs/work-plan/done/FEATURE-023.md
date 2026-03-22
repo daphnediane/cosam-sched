@@ -6,7 +6,7 @@ Implement the v7 JSON schedule format changes in the Rust codebase: panelTypes h
 
 ## Status
 
-Open
+Completed
 
 ## Priority
 
