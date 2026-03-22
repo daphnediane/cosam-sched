@@ -1,6 +1,6 @@
 # Cosplay America Schedule - Work Plan
 
-Generated on: Sun Mar 22 18:53:22 2026
+Generated on: Sun Mar 22 19:05:02 2026
 
 ## Completed
 
@@ -15,6 +15,7 @@ Generated on: Sun Mar 22 18:53:22 2026
 * [CLEANUP-001] Complete repository layout cleanup by moving planning outputs under `docs/`, relocating work-plan tools to `scripts/`, and retiring deprecated Perl converter paths.
 * [CLEANUP-002] Migrate to an `apps/` + `crates/` Rust workspace layout, retire the legacy Perl converter now that parity is reached, and track the remaining non-blocking cleanup follow-up items.
 * [EDITOR-500] Add the ability to import schedule data from XLSX spreadsheets.
+* [EDITOR-501] Add the ability to export schedule data to XLSX spreadsheets.
 * [EDITOR-503] Detect and highlight scheduling conflicts between events.
 * [EDITOR-504] Implement saving the schedule as JSON, matching the format consumed by the widget.
 * [FEATURE-001] Implement a two-part system for Cosplay America schedule management.
@@ -49,7 +50,6 @@ the base→part→session hierarchy in the UI.
 
 * **High Priority**
   * [ACCESSIBILITY-001] Implement comprehensive accessibility improvements for screen readers and color blindness support.
-  * [EDITOR-501] Add the ability to export schedule data to XLSX spreadsheets.
   * [EDITOR-502] Implement inline editing of individual schedule events.
   * [FEATURE-003] Enable reading schedule data directly from Google Sheets.
   * [FEATURE-005] Add a grid view option to the printable schedule in addition to the existing list view.
@@ -64,6 +64,7 @@ the base→part→session hierarchy in the UI.
   * [EDITOR-510] Define how multiple people and devices can safely edit a single schedule with conflict handling independent of any specific storage backend.
   * [FEATURE-006] Create a compact print format optimized for minimal paper usage.
   * [FEATURE-019] Populate the `metadata` field on all item types from non-standard spreadsheet columns during xlsx import.
+  * [FEATURE-501] Add a new command-line tool for in-place modifications of XLSX schedule files
   * [UI-005] Add sticky headers or repeat day headers between time blocks in grid view for better navigation.
   * [UI-006] Add visual indicators to the schedule widget to highlight conflicting events, making it easy for users to identify and understand scheduling conflicts.
   * [UI-007] Update the room filter dropdown to only include rooms that have scheduled panels, excluding rooms that only contain room-hours events (RH prefix or "Is Room Hours" flag).
@@ -87,16 +88,6 @@ the base→part→session hierarchy in the UI.
 **Summary:** Implement comprehensive accessibility improvements for screen readers and color blindness support.
 
 **Description:** Implement comprehensive accessibility improvements to ensure the schedule is usable by screen readers and users with various types of color blindness, following W3C WAI standards and achieving WCAG 2.1 AA compliance.
-
----
-
-### [EDITOR-501] XLSX Export Support
-
-**Status:** Open - XLSX export incomplete
-
-**Summary:** Add the ability to export schedule data to XLSX spreadsheets.
-
-**Description:** XLSX export functionality exists but is incomplete - it exports the file structure but no panel data because it's still using the old `schedule.events` format instead of the new v7 `schedule.panels` format.
 
 ---
 
@@ -234,6 +225,16 @@ The 2025 schedule shows this pattern:
 
 ---
 
+### [FEATURE-501] cosam-modify command
+
+**Status:** Open
+
+**Summary:** Add a new command-line tool for in-place modifications of XLSX schedule files
+
+**Description:** Create a new `cosam-modify` command that allows programmatic in-place modifications of XLSX schedule files, similar to what cosam-editor does but for command-line automation and scripting.
+
+---
+
 ### [UI-005] Implement sticky headers or additional header rows
 
 **Status:** Open
@@ -353,7 +354,7 @@ Once `gpui_web` (GPUI's planned web/webview integration) becomes available, revi
 [CLEANUP-002]: work-plan/done/CLEANUP-002.md
 [EDITOR-003]: work-plan/medium/EDITOR-003.md
 [EDITOR-500]: work-plan/done/EDITOR-500.md
-[EDITOR-501]: work-plan/high/EDITOR-501.md
+[EDITOR-501]: work-plan/done/EDITOR-501.md
 [EDITOR-502]: work-plan/high/EDITOR-502.md
 [EDITOR-503]: work-plan/done/EDITOR-503.md
 [EDITOR-504]: work-plan/done/EDITOR-504.md
@@ -386,6 +387,7 @@ Once `gpui_web` (GPUI's planned web/webview integration) becomes available, revi
 [FEATURE-021]: work-plan/done/FEATURE-021.md
 [FEATURE-022]: work-plan/low/FEATURE-022.md
 [FEATURE-023]: work-plan/done/FEATURE-023.md
+[FEATURE-501]: work-plan/medium/FEATURE-501.md
 [UI-001]: work-plan/done/UI-001.md
 [UI-002]: work-plan/high/UI-002.md
 [UI-003]: work-plan/done/UI-003.md

@@ -10,6 +10,7 @@ use std::path::Path;
 use anyhow::Result;
 use umya_spreadsheet::structs::Worksheet;
 
+use super::panel::Panel;
 use super::panel_type::PanelType;
 use super::room::Room;
 use super::schedule::Schedule;
@@ -54,6 +55,9 @@ pub fn post_save_cleanup(schedule: &mut Schedule) {
         .events
         .retain(|e| e.change_state != ChangeState::Deleted);
     schedule
+        .panels
+        .retain(|_, p| p.change_state != ChangeState::Deleted);
+    schedule
         .rooms
         .retain(|r| r.change_state != ChangeState::Deleted);
     schedule
@@ -69,6 +73,15 @@ pub fn post_save_cleanup(schedule: &mut Schedule) {
     for event in &mut schedule.events {
         event.change_state = ChangeState::Unchanged;
     }
+    for panel in schedule.panels.values_mut() {
+        panel.change_state = ChangeState::Unchanged;
+        for part in &mut panel.parts {
+            part.change_state = ChangeState::Unchanged;
+            for session in &mut part.sessions {
+                session.change_state = ChangeState::Unchanged;
+            }
+        }
+    }
     for room in &mut schedule.rooms {
         room.change_state = ChangeState::Unchanged;
     }
@@ -81,6 +94,130 @@ pub fn post_save_cleanup(schedule: &mut Schedule) {
     for entry in &mut schedule.timeline {
         entry.change_state = ChangeState::Unchanged;
     }
+}
+
+/// Represents a flattened session for XLSX update
+struct UpdateSession {
+    id: String,
+    name: String,
+    description: Option<String>,
+    start_time: Option<String>,
+    end_time: Option<String>,
+    duration: u32,
+    room_id: Option<u32>,
+    panel_type: Option<String>,
+    cost: Option<String>,
+    capacity: Option<String>,
+    difficulty: Option<String>,
+    note: Option<String>,
+    prereq: Option<String>,
+    ticket_url: Option<String>,
+    is_full: bool,
+    hide_panelist: bool,
+    alt_panelist: Option<String>,
+    presenters: Vec<String>,
+    change_state: ChangeState,
+    source: Option<SourceInfo>,
+}
+
+/// Flatten the panel hierarchy into updateable sessions with change tracking
+fn flatten_panel_sessions_for_update(schedule: &Schedule) -> Vec<UpdateSession> {
+    let mut sessions = Vec::new();
+
+    for (_, panel) in &schedule.panels {
+        if panel.change_state == ChangeState::Deleted {
+            continue;
+        }
+
+        for part in &panel.parts {
+            if part.change_state == ChangeState::Deleted {
+                continue;
+            }
+
+            for session in &part.sessions {
+                if session.change_state == ChangeState::Deleted {
+                    continue;
+                }
+
+                // Combine presenters from panel, part, and session
+                let mut presenters = Vec::new();
+                presenters.extend(panel.credited_presenters.iter().cloned());
+                presenters.extend(panel.uncredited_presenters.iter().cloned());
+                presenters.extend(part.credited_presenters.iter().cloned());
+                presenters.extend(part.uncredited_presenters.iter().cloned());
+
+                // Use session-specific room if available, otherwise fall back to first room
+                let room_id = session.room_ids.first().copied();
+
+                // Determine the overall change state (highest priority)
+                let change_state =
+                    match (panel.change_state, part.change_state, session.change_state) {
+                        (ChangeState::Deleted, _, _) | (_, ChangeState::Deleted, _) => {
+                            ChangeState::Deleted
+                        }
+                        (ChangeState::Added, _, _)
+                        | (_, ChangeState::Added, _)
+                        | (_, _, ChangeState::Added) => ChangeState::Added,
+                        (ChangeState::Modified, _, _)
+                        | (_, ChangeState::Modified, _)
+                        | (_, _, ChangeState::Modified) => ChangeState::Modified,
+                        (ChangeState::Replaced, _, _)
+                        | (_, ChangeState::Replaced, _)
+                        | (_, _, ChangeState::Replaced) => ChangeState::Replaced,
+                        _ => ChangeState::Unchanged,
+                    };
+
+                sessions.push(UpdateSession {
+                    id: session.id.clone(),
+                    name: panel.name.clone(),
+                    description: session
+                        .description
+                        .as_ref()
+                        .or_else(|| part.description.as_ref())
+                        .or_else(|| panel.description.as_ref())
+                        .cloned(),
+                    start_time: session.start_time.clone(),
+                    end_time: session.end_time.clone(),
+                    duration: session.duration,
+                    room_id,
+                    panel_type: panel.panel_type.clone(),
+                    cost: panel.cost.clone(),
+                    capacity: session
+                        .capacity
+                        .as_ref()
+                        .or_else(|| panel.capacity.as_ref())
+                        .cloned(),
+                    difficulty: panel.difficulty.clone(),
+                    note: session
+                        .note
+                        .as_ref()
+                        .or_else(|| part.note.as_ref())
+                        .or_else(|| panel.note.as_ref())
+                        .cloned(),
+                    prereq: session
+                        .prereq
+                        .as_ref()
+                        .or_else(|| part.prereq.as_ref())
+                        .or_else(|| panel.prereq.as_ref())
+                        .cloned(),
+                    ticket_url: panel.ticket_url.clone(),
+                    is_full: session.is_full,
+                    hide_panelist: panel.alt_panelist.is_some(), // Approximation
+                    alt_panelist: session
+                        .alt_panelist
+                        .as_ref()
+                        .or_else(|| part.alt_panelist.as_ref())
+                        .or_else(|| panel.alt_panelist.as_ref())
+                        .cloned(),
+                    presenters,
+                    change_state,
+                    source: session.source.clone(), // Use session source info
+                });
+            }
+        }
+    }
+
+    sessions
 }
 
 fn find_sheet_name<'a, I>(sources: I) -> Option<String>
@@ -483,6 +620,119 @@ fn write_event_to_row(
     );
 }
 
+fn write_session_to_row(
+    worksheet: &mut Worksheet,
+    header_map: &HashMap<String, u32>,
+    row: u32,
+    session: &UpdateSession,
+    schedule: &Schedule,
+) {
+    set_cell_str(
+        worksheet,
+        header_map,
+        row,
+        &["Uniq_ID", "UniqID", "ID", "Id"],
+        &session.id,
+    );
+    set_cell_str(
+        worksheet,
+        header_map,
+        row,
+        &["Name", "Panel_Name", "PanelName"],
+        &session.name,
+    );
+    set_cell_opt_str(
+        worksheet,
+        header_map,
+        row,
+        &["Description"],
+        &session.description,
+    );
+
+    if let Some(start_time) = &session.start_time {
+        set_cell_str(
+            worksheet,
+            header_map,
+            row,
+            &["Start_Time", "StartTime", "Start"],
+            start_time,
+        );
+    }
+
+    if let Some(end_time) = &session.end_time {
+        set_cell_str(
+            worksheet,
+            header_map,
+            row,
+            &["End_Time", "EndTime", "End", "Lend"],
+            end_time,
+        );
+    }
+
+    set_cell_u32(worksheet, header_map, row, &["Duration"], session.duration);
+
+    let room_name = session
+        .room_id
+        .and_then(|rid| schedule.room_by_id(rid))
+        .map(|r| r.short_name.as_str())
+        .unwrap_or("");
+    set_cell_str(
+        worksheet,
+        header_map,
+        row,
+        &["Room", "Room_Name", "RoomName"],
+        room_name,
+    );
+
+    let kind = session
+        .panel_type
+        .as_ref()
+        .and_then(|pt_uid| schedule.panel_types.get(pt_uid))
+        .map(|pt| pt.kind.as_str())
+        .unwrap_or("");
+    set_cell_str(
+        worksheet,
+        header_map,
+        row,
+        &["Kind", "Panel_Kind", "PanelKind"],
+        kind,
+    );
+
+    set_cell_opt_str(worksheet, header_map, row, &["Cost"], &session.cost);
+    set_cell_opt_str(worksheet, header_map, row, &["Capacity"], &session.capacity);
+    set_cell_opt_str(
+        worksheet,
+        header_map,
+        row,
+        &["Difficulty"],
+        &session.difficulty,
+    );
+    set_cell_opt_str(worksheet, header_map, row, &["Note"], &session.note);
+    set_cell_opt_str(worksheet, header_map, row, &["Prereq"], &session.prereq);
+    set_cell_opt_str(
+        worksheet,
+        header_map,
+        row,
+        &["Ticket_Sale", "TicketSale"],
+        &session.ticket_url,
+    );
+    set_cell_bool(worksheet, header_map, row, &["Full"], session.is_full);
+    set_cell_bool(
+        worksheet,
+        header_map,
+        row,
+        &["Hide_Panelist", "HidePanelist"],
+        session.hide_panelist,
+    );
+    set_cell_opt_str(
+        worksheet,
+        header_map,
+        row,
+        &["Alt_Panelist", "AltPanelist"],
+        &session.alt_panelist,
+    );
+}
+
 fn update_schedule_sheet(
     book: &mut umya_spreadsheet::Spreadsheet,
     sheet_name: &str,
@@ -495,25 +745,27 @@ fn update_schedule_sheet(
     let highest_row = worksheet.get_highest_row();
 
     let mut rows_to_delete: Vec<u32> = Vec::new();
-    let mut events_to_append: Vec<&super::event::Event> = Vec::new();
+    let mut sessions_to_append: Vec<&UpdateSession> = Vec::new();
 
-    for event in &schedule.events {
-        match event.change_state {
+    let sessions = flatten_panel_sessions_for_update(schedule);
+
+    for session in &sessions {
+        match session.change_state {
             ChangeState::Deleted => {
-                if let Some(row_index) = event.source.as_ref().and_then(|s| s.row_index) {
+                if let Some(row_index) = session.source.as_ref().and_then(|s| s.row_index) {
                     rows_to_delete.push(row_index);
                 }
             }
             ChangeState::Modified | ChangeState::Replaced => {
-                if let Some(row_index) = event.source.as_ref().and_then(|s| s.row_index) {
+                if let Some(row_index) = session.source.as_ref().and_then(|s| s.row_index) {
                     let worksheet = book
                         .get_sheet_by_name_mut(sheet_name)
                         .ok_or_else(|| anyhow::anyhow!("Sheet '{sheet_name}' not found"))?;
-                    write_event_to_row(worksheet, &header_map, row_index, event, schedule);
+                    write_session_to_row(worksheet, &header_map, row_index, session, schedule);
                 }
             }
             ChangeState::Added => {
-                events_to_append.push(event);
+                sessions_to_append.push(session);
             }
             ChangeState::Unchanged | ChangeState::Converted => {}
         }
@@ -526,11 +778,11 @@ fn update_schedule_sheet(
     }
 
     let mut next_row = highest_row + 1 - rows_to_delete.len() as u32;
-    for event in events_to_append {
+    for session in sessions_to_append {
         let worksheet = book
             .get_sheet_by_name_mut(sheet_name)
             .ok_or_else(|| anyhow::anyhow!("Sheet '{sheet_name}' not found"))?;
-        write_event_to_row(worksheet, &header_map, next_row, event, schedule);
+        write_session_to_row(worksheet, &header_map, next_row, session, schedule);
         next_row += 1;
     }
 

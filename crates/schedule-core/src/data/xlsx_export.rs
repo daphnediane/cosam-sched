@@ -11,6 +11,7 @@ use anyhow::{Context, Result};
 use chrono::NaiveDateTime;
 use umya_spreadsheet::structs::{Table, TableColumn, TableStyleInfo, Worksheet};
 
+use super::panel::Panel;
 use super::panel_type::PanelType;
 use super::presenter::Presenter;
 use super::room::Room;
@@ -322,6 +323,108 @@ fn write_panel_types_sheet(
     row - 1
 }
 
+/// Represents a flattened session for XLSX export
+struct ExportSession {
+    id: String,
+    name: String,
+    description: Option<String>,
+    start_time: Option<String>,
+    end_time: Option<String>,
+    duration: u32,
+    room_id: Option<u32>,
+    panel_type: Option<String>,
+    cost: Option<String>,
+    capacity: Option<String>,
+    difficulty: Option<String>,
+    note: Option<String>,
+    prereq: Option<String>,
+    ticket_url: Option<String>,
+    is_full: bool,
+    hide_panelist: bool,
+    alt_panelist: Option<String>,
+    presenters: Vec<String>,
+}
+
+/// Flatten the panel hierarchy into exportable sessions
+fn flatten_panel_sessions(schedule: &Schedule) -> Vec<ExportSession> {
+    let mut sessions = Vec::new();
+
+    for (_, panel) in &schedule.panels {
+        if panel.change_state == ChangeState::Deleted {
+            continue;
+        }
+
+        for part in &panel.parts {
+            if part.change_state == ChangeState::Deleted {
+                continue;
+            }
+
+            for session in &part.sessions {
+                if session.change_state == ChangeState::Deleted {
+                    continue;
+                }
+
+                // Combine presenters from panel, part, and session
+                let mut presenters = Vec::new();
+                presenters.extend(panel.credited_presenters.iter().cloned());
+                presenters.extend(panel.uncredited_presenters.iter().cloned());
+                presenters.extend(part.credited_presenters.iter().cloned());
+                presenters.extend(part.uncredited_presenters.iter().cloned());
+
+                // Use session-specific room if available, otherwise fall back to first room
+                let room_id = session.room_ids.first().copied();
+
+                sessions.push(ExportSession {
+                    id: session.id.clone(),
+                    name: panel.name.clone(),
+                    description: session
+                        .description
+                        .as_ref()
+                        .or_else(|| part.description.as_ref())
+                        .or_else(|| panel.description.as_ref())
+                        .cloned(),
+                    start_time: session.start_time.clone(),
+                    end_time: session.end_time.clone(),
+                    duration: session.duration,
+                    room_id,
+                    panel_type: panel.panel_type.clone(),
+                    cost: panel.cost.clone(),
+                    capacity: session
+                        .capacity
+                        .as_ref()
+                        .or_else(|| panel.capacity.as_ref())
+                        .cloned(),
+                    difficulty: panel.difficulty.clone(),
+                    note: session
+                        .note
+                        .as_ref()
+                        .or_else(|| part.note.as_ref())
+                        .or_else(|| panel.note.as_ref())
+                        .cloned(),
+                    prereq: session
+                        .prereq
+                        .as_ref()
+                        .or_else(|| part.prereq.as_ref())
+                        .or_else(|| panel.prereq.as_ref())
+                        .cloned(),
+                    ticket_url: panel.ticket_url.clone(),
+                    is_full: session.is_full,
+                    hide_panelist: panel.alt_panelist.is_some(), // Approximation
+                    alt_panelist: session
+                        .alt_panelist
+                        .as_ref()
+                        .or_else(|| part.alt_panelist.as_ref())
+                        .or_else(|| panel.alt_panelist.as_ref())
+                        .cloned(),
+                    presenters,
+                });
+            }
+        }
+    }
+
+    sessions
+}
+
 fn write_schedule_sheet(
     ws: &mut Worksheet,
     schedule: &Schedule,
@@ -362,36 +465,31 @@ fn write_schedule_sheet(
 
     let mut row = 2u32;
 
-    for event in &schedule.events {
-        if event.change_state == ChangeState::Deleted {
-            continue;
+    let sessions = flatten_panel_sessions(schedule);
+
+    for session in sessions {
+        set_str(ws, 1, row, &session.id);
+        set_str(ws, 2, row, &session.name);
+        set_opt(ws, 3, row, &session.description);
+
+        if let Some(start_time) = &session.start_time {
+            set_str(ws, 4, row, start_time);
         }
 
-        set_str(ws, 1, row, &event.id);
-        set_str(ws, 2, row, &event.name);
-        set_opt(ws, 3, row, &event.description);
-        set_str(
-            ws,
-            4,
-            row,
-            &event.start_time.format("%-m/%-d/%Y %-I:%M %p").to_string(),
-        );
-        set_str(
-            ws,
-            5,
-            row,
-            &event.end_time.format("%-m/%-d/%Y %-I:%M %p").to_string(),
-        );
-        set_str(ws, 6, row, &event.duration.to_string());
+        if let Some(end_time) = &session.end_time {
+            set_str(ws, 5, row, end_time);
+        }
 
-        let room_name = event
+        set_str(ws, 6, row, &session.duration.to_string());
+
+        let room_name = session
             .room_id
             .and_then(|rid| schedule.room_by_id(rid))
             .map(|r| r.short_name.as_str())
             .unwrap_or("");
         set_str(ws, 7, row, room_name);
 
-        let kind = event
+        let kind = session
             .panel_type
             .as_ref()
             .and_then(|pt_uid| schedule.panel_types.get(pt_uid))
@@ -399,22 +497,22 @@ fn write_schedule_sheet(
             .unwrap_or("");
         set_str(ws, 8, row, kind);
 
-        set_opt(ws, 9, row, &event.cost);
-        set_opt(ws, 10, row, &event.capacity);
-        set_opt(ws, 11, row, &event.difficulty);
-        set_opt(ws, 12, row, &event.note);
-        set_opt(ws, 13, row, &event.prereq);
-        set_opt(ws, 14, row, &event.ticket_url);
-        if event.is_full {
+        set_opt(ws, 9, row, &session.cost);
+        set_opt(ws, 10, row, &session.capacity);
+        set_opt(ws, 11, row, &session.difficulty);
+        set_opt(ws, 12, row, &session.note);
+        set_opt(ws, 13, row, &session.prereq);
+        set_opt(ws, 14, row, &session.ticket_url);
+        if session.is_full {
             set_str(ws, 15, row, "Yes");
         }
-        if event.hide_panelist {
+        if session.hide_panelist {
             set_str(ws, 16, row, "Yes");
         }
-        set_opt(ws, 17, row, &event.alt_panelist);
+        set_opt(ws, 17, row, &session.alt_panelist);
 
         let mut other_names: HashMap<&str, Vec<&str>> = HashMap::new();
-        for presenter_name in &event.presenters {
+        for presenter_name in &session.presenters {
             if let Some(&col) = named_presenters.get(presenter_name.as_str()) {
                 set_str(ws, col, row, "Yes");
             } else {
