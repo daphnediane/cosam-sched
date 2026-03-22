@@ -8,8 +8,10 @@ use std::collections::HashSet;
 use std::path::Path;
 
 use anyhow::{Context, Result};
+use chrono::{NaiveDateTime, Timelike};
 use serde::{Deserialize, Serialize};
 
+use super::panel_type::PanelType;
 use super::presenter::Presenter;
 use super::schedule::{Meta, Schedule};
 
@@ -62,6 +64,20 @@ pub struct DisplaySchedule {
     #[serde(skip_serializing_if = "Vec::is_empty")]
     pub timeline: Vec<super::timeline::TimelineEntry>,
     pub presenters: Vec<Presenter>,
+}
+
+fn parse_local_datetime(s: &str) -> Option<NaiveDateTime> {
+    NaiveDateTime::parse_from_str(s, "%Y-%m-%dT%H:%M:%S").ok()
+}
+
+fn is_overnight_break(gap_start: &NaiveDateTime, gap_end: &NaiveDateTime) -> bool {
+    // Overnight if on different dates, or if the gap crosses 4 AM
+    if gap_start.date() != gap_end.date() {
+        return true;
+    }
+    let start_hour = gap_start.hour();
+    let end_hour = gap_end.hour();
+    start_hour < 4 && end_hour >= 4
 }
 
 fn join_parts(parts: &[Option<&str>]) -> Option<String> {
@@ -337,12 +353,161 @@ impl Schedule {
             (None, None) => a.id.cmp(&b.id),
         });
 
-        let visible_panel_types: indexmap::IndexMap<String, _> = self
+        // Generate baked-in implicit breaks (%IB / %NB)
+        let visible_room_ids: Vec<u32> = self
+            .rooms
+            .iter()
+            .filter(|r| !r.is_break)
+            .map(|r| r.uid)
+            .collect();
+
+        let break_type_uids: HashSet<&String> = self
+            .panel_types
+            .iter()
+            .filter(|(_, pt)| pt.is_break)
+            .map(|(prefix, _)| prefix)
+            .collect();
+
+        // Collect scheduled non-break panels for gap detection
+        let scheduled: Vec<&DisplayPanel> = flat_panels
+            .iter()
+            .filter(|p| {
+                p.start_time.is_some()
+                    && p.end_time.is_some()
+                    && !p
+                        .panel_type
+                        .as_ref()
+                        .is_some_and(|pt| break_type_uids.contains(pt))
+            })
+            .collect();
+
+        let mut implicit_breaks: Vec<DisplayPanel> = Vec::new();
+        let mut has_ib = false;
+        let mut has_nb = false;
+
+        if scheduled.len() > 1 {
+            let mut latest_end = parse_local_datetime(scheduled[0].end_time.as_ref().unwrap());
+            let mut latest_end_str = scheduled[0].end_time.clone();
+
+            for panel in &scheduled[1..] {
+                let start_str = panel.start_time.as_ref().unwrap();
+                if let (Some(latest), Some(next_start)) =
+                    (latest_end, parse_local_datetime(start_str))
+                {
+                    let gap_minutes = (next_start - latest).num_minutes();
+                    // Match widget heuristic: gaps > 3 hours become implicit breaks
+                    if gap_minutes > 180 {
+                        let is_overnight = is_overnight_break(&latest, &next_start);
+                        let prefix = if is_overnight { "%NB" } else { "%IB" };
+                        let id = format!("{}{:03}", prefix, implicit_breaks.len() + 1);
+                        let duration = gap_minutes.max(0) as u32;
+
+                        if is_overnight {
+                            has_nb = true;
+                        } else {
+                            has_ib = true;
+                        }
+
+                        implicit_breaks.push(DisplayPanel {
+                            id: id.clone(),
+                            base_id: id,
+                            part_num: None,
+                            session_num: None,
+                            name: if is_overnight {
+                                "Overnight Break".to_string()
+                            } else {
+                                "Break".to_string()
+                            },
+                            panel_type: Some(prefix.to_string()),
+                            room_ids: visible_room_ids.clone(),
+                            start_time: latest_end_str.clone(),
+                            end_time: Some(start_str.clone()),
+                            duration,
+                            description: None,
+                            note: None,
+                            prereq: None,
+                            cost: None,
+                            capacity: None,
+                            difficulty: None,
+                            ticket_url: None,
+                            is_free: true,
+                            is_full: false,
+                            is_kids: false,
+                            credits: Vec::new(),
+                            presenters: Vec::new(),
+                        });
+                    }
+                }
+
+                // Update latest end time if this panel ends later
+                if let Some(next_end) = parse_local_datetime(panel.end_time.as_ref().unwrap()) {
+                    if latest_end.map_or(true, |le| next_end > le) {
+                        latest_end = Some(next_end);
+                        latest_end_str = panel.end_time.clone();
+                    }
+                }
+            }
+        }
+
+        // Merge implicit breaks and re-sort
+        if !implicit_breaks.is_empty() {
+            flat_panels.extend(implicit_breaks);
+            flat_panels.sort_by(|a, b| match (&a.start_time, &b.start_time) {
+                (Some(a_time), Some(b_time)) => a_time.cmp(b_time),
+                (Some(_), None) => std::cmp::Ordering::Less,
+                (None, Some(_)) => std::cmp::Ordering::Greater,
+                (None, None) => a.id.cmp(&b.id),
+            });
+        }
+
+        let mut visible_panel_types: indexmap::IndexMap<String, _> = self
             .panel_types
             .iter()
             .filter(|(_, pt)| !pt.is_hidden && !pt.is_private && !pt.is_timeline)
             .map(|(k, v)| (k.clone(), v.clone()))
             .collect();
+
+        // Add synthetic panel types for baked-in breaks
+        if has_ib {
+            visible_panel_types.insert(
+                "%IB".to_string(),
+                PanelType {
+                    prefix: "%IB".to_string(),
+                    kind: "Implicit Break".to_string(),
+                    colors: indexmap::indexmap! { "color".to_string() => "#F5F5F5".to_string() },
+                    is_break: true,
+                    is_cafe: false,
+                    is_workshop: false,
+                    is_hidden: false,
+                    is_room_hours: false,
+                    is_timeline: false,
+                    is_private: false,
+                    metadata: None,
+                    source: None,
+                    change_state: Default::default(),
+                },
+            );
+        }
+        if has_nb {
+            visible_panel_types.insert(
+                "%NB".to_string(),
+                PanelType {
+                    prefix: "%NB".to_string(),
+                    kind: "Overnight Break".to_string(),
+                    colors: indexmap::indexmap! { "color".to_string() => "#F5F5F5".to_string() },
+                    is_break: true,
+                    is_cafe: false,
+                    is_workshop: false,
+                    is_hidden: false,
+                    is_room_hours: false,
+                    is_timeline: false,
+                    is_private: false,
+                    metadata: None,
+                    source: None,
+                    change_state: Default::default(),
+                },
+            );
+        }
 
         let mut meta = self.meta.clone();
         meta.version = Some(7);

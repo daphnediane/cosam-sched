@@ -46,61 +46,6 @@
     return e;
   }
 
-  function isOvernightBreak(startTime, endTime) {
-    const start = new Date(startTime);
-    const end = new Date(endTime);
-    const startDay = start.toDateString();
-    const endDay = end.toDateString();
-
-    // Different days = overnight
-    if (startDay !== endDay) return true;
-
-    // Same day but spans 4 AM
-    const startHour = start.getHours();
-    const endHour = end.getHours();
-    return startHour < 4 && endHour > 4;
-  }
-
-  function getImplicitBreaks(events, isBreakFn) {
-    const breaks = [];
-    const nonBreakEvents = events.filter(e => !isBreakFn(e));
-    const sortedEvents = [...nonBreakEvents].sort((a, b) => new Date(a.startTime) - new Date(b.startTime));
-
-    if (sortedEvents.length === 0) return breaks;
-
-    // Track the latest end time seen so far across all rooms
-    let latestEnd = new Date(sortedEvents[0].endTime);
-    let latestEndStr = sortedEvents[0].endTime;
-
-    for (let i = 1; i < sortedEvents.length; i++) {
-      const next = sortedEvents[i];
-      const nextStart = new Date(next.startTime);
-      const gapHours = (nextStart - latestEnd) / (1000 * 60 * 60);
-
-      // If gap > 3 hours from the latest end time, create an implicit break
-      if (gapHours > 3) {
-        const isOvernight = isOvernightBreak(latestEnd, nextStart);
-        breaks.push({
-          id: `implicit-break-${i}`,
-          name: isOvernight ? 'Overnight Break' : 'Break',
-          startTime: latestEndStr,
-          endTime: next.startTime,
-          isImplicit: true,
-          isOvernight: isOvernight,
-          description: isOvernight ? 'Overnight break period' : 'Break period'
-        });
-      }
-
-      // Update latest end time if this event ends later
-      const nextEnd = new Date(next.endTime);
-      if (nextEnd > latestEnd) {
-        latestEnd = nextEnd;
-        latestEndStr = next.endTime;
-      }
-    }
-
-    return breaks;
-  }
 
   function formatTime(isoStr) {
     if (!isoStr) return '';
@@ -198,7 +143,7 @@
           if (saved.starred) this.starred = new Set(saved.starred);
           if (saved.filters) {
             if (saved.filters.search) this.filters.search = saved.filters.search;
-            if (saved.filters.rooms) this.filters.rooms = new Set(saved.filters.rooms);
+            if (saved.filters.rooms) this.filters.rooms = new Set(saved.filters.rooms.map(Number));
             if (saved.filters.types) this.filters.types = new Set(saved.filters.types);
             if (saved.filters.cost) this.filters.cost = saved.filters.cost;
             if (saved.filters.presenter) this.filters.presenter = saved.filters.presenter;
@@ -267,7 +212,7 @@
         this.filters.search = params.get('search');
       }
       if (params.has('rooms')) {
-        const rooms = decodeURIComponent(params.get('rooms')).split(',').filter(Boolean);
+        const rooms = decodeURIComponent(params.get('rooms')).split(',').filter(Boolean).map(Number);
         this.filters.rooms = new Set(rooms);
       }
       if (params.has('types')) {
@@ -329,37 +274,15 @@
     }
 
     _isBreakEvent(e) {
-      // Check if it's an implicit break
-      if (e.isImplicit) {
-        return true;
-      }
-      // First check panelTypes[].isBreak from JSON data (V3+)
-      if (e.panelType && this._isBreakPanelType(e.panelType)) {
-        return true;
-      }
-      // Fallback for backwards compatibility (V2 and earlier)
-      return e.isBreak || e.panelType === 'panel-type-break' || e.panelType === 'panel-type-brk';
-    }
-
-    _isBreakPanelType(panelType) {
-      if (!panelType || !this.data.panelTypes) return false;
-      const pt = this.data.panelTypes.find(p => p.uid === panelType);
+      if (!e.panelType || !this.data.panelTypes) return false;
+      const pt = this.data.panelTypes.find(p => p.uid === e.panelType);
       return pt && pt.isBreak;
     }
 
     _isSplitEvent(e) {
-      // First check panelTypes[].isSplit from JSON data (V3+)
-      if (e.panelType && this._isSplitPanelType(e.panelType)) {
-        return true;
-      }
-      // Fallback for backwards compatibility (V2 and earlier)
-      return e.panelType === 'panel-type-split' || e.room === 'SPLIT';
-    }
-
-    _isSplitPanelType(panelType) {
-      if (!panelType || !this.data.panelTypes) return false;
-      const pt = this.data.panelTypes.find(p => p.uid === panelType);
-      return pt && pt.isSplit;
+      if (!e.panelType || !this.data.panelTypes) return false;
+      const pt = this.data.panelTypes.find(p => p.uid === e.panelType);
+      return pt && pt.isTimeline;
     }
 
     filteredEvents() {
@@ -443,12 +366,6 @@
         events = events.filter(e => this.starred.has(e.id));
       }
 
-      // Add implicit breaks after all filtering (except search)
-      if (!this.filters.search) {
-        const implicitBreaks = getImplicitBreaks(events, e => this._isBreakEvent(e));
-        events = [...events, ...implicitBreaks];
-      }
-
       return events;
     }
   }
@@ -514,39 +431,32 @@
       }
     }
 
-    _normalizePanelTypeUid(value) {
-      if (!value) return null;
-      const raw = String(value).trim().toLowerCase();
-      if (!raw) return null;
-      if (raw.startsWith('panel-type-')) return raw;
-      const slug = raw.replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '');
-      return slug ? `panel-type-${slug}` : null;
-    }
-
     _panelTypeClass(panelTypeUid) {
-      const uid = this._normalizePanelTypeUid(panelTypeUid);
-      if (!uid) return '';
-      return 'cosam-panel-type-' + uid.replace(/^panel-type-/, '');
+      if (!panelTypeUid) return '';
+      const slug = String(panelTypeUid).trim().toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '');
+      return slug ? 'cosam-panel-type-' + slug : '';
     }
 
     _normalizeDataModel(data) {
       if (!data || typeof data !== 'object') return data;
-      const panelTypes = Array.isArray(data.panelTypes)
-        ? data.panelTypes.map((pt) => ({
+
+      // v7 hashmap panelTypes: convert to array with uid and flattened color
+      let panelTypes;
+      if (data.panelTypes && typeof data.panelTypes === 'object' && !Array.isArray(data.panelTypes)) {
+        panelTypes = Object.entries(data.panelTypes).map(([prefix, pt]) => ({
           ...pt,
-          uid: this._normalizePanelTypeUid(pt.uid || pt.prefix),
-        }))
-        : [];
+          uid: prefix,
+          prefix: prefix,
+          color: (pt.colors && pt.colors.color) || null,
+        }));
+      } else {
+        panelTypes = [];
+      }
 
-      // V5 panels array
-      const events = Array.isArray(data.panels)
-        ? data.panels.map((evt) => ({
-          ...evt,
-          panelType: this._normalizePanelTypeUid(evt.panelType),
-        }))
-        : [];
+      // Panels are used as-is; panelType is the raw prefix matching panelTypes keys
+      const panels = Array.isArray(data.panels) ? data.panels : [];
 
-      return { ...data, panelTypes, events: data.panels };
+      return { ...data, panelTypes, panels };
     }
 
     _ensurePanelTypeThemeStyles() {
@@ -556,7 +466,7 @@
       // Store panel type colors for direct application
       this._panelTypeColors = new Map();
       for (const pt of panelTypes) {
-        const cls = this._panelTypeClass(pt.uid || pt.prefix);
+        const cls = this._panelTypeClass(pt.uid);
         if (!cls || !pt.color) continue;
         this._panelTypeColors.set(cls, pt.color);
       }
@@ -760,8 +670,8 @@
       typeGroup.appendChild(el('label', {}, 'Event Type'));
       const typeChips = el('div', { className: 'cosam-filter-checkboxes' });
       for (const pt of this.state.data.panelTypes) {
-        if (pt.isBreak || pt.isHidden) continue;
-        const typeValue = pt.uid || pt.prefix;
+        if (pt.isBreak || pt.isHidden || pt.isTimeline || pt.isPrivate) continue;
+        const typeValue = pt.uid;
         const selected = this.state.filters.types.has(typeValue);
         const chip = el('button', {
           type: 'button',
@@ -772,7 +682,7 @@
             else this.state.filters.types.add(typeValue);
             this.render();
           },
-        }, pt.kind || pt.prefix);
+        }, pt.kind || pt.uid);
         typeChips.appendChild(chip);
       }
       typeGroup.appendChild(typeChips);
@@ -944,9 +854,9 @@
     }
 
     _buildBreakBanner(evt) {
-      const isImplicitOvernight = evt.isImplicit && evt.isOvernight;
+      const isOvernight = evt.panelType === '%NB';
       const banner = el('div', {
-        className: 'cosam-break-banner' + (isImplicitOvernight ? ' cosam-implicit-overnight-break' : ''),
+        className: 'cosam-break-banner' + (isOvernight ? ' cosam-implicit-overnight-break' : ''),
         role: 'button',
         tabindex: '0',
         onClick: () => { this.state.modalEvent = evt; this._showModal(evt); },
@@ -959,8 +869,8 @@
         }
       });
 
-      // Add moon for implicit overnight breaks
-      if (isImplicitOvernight) {
+      // Add moon for overnight breaks
+      if (isOvernight) {
         const nameWrapper = el('div', { className: 'cosam-break-name' });
         nameWrapper.appendChild(el('span', { className: 'cosam-implicit-overnight-moon' }, '🌙'));
         nameWrapper.appendChild(document.createTextNode(' ' + evt.name));
@@ -1437,9 +1347,9 @@
     }
 
     _buildGridBreak(evt) {
-      const isImplicitOvernight = evt.isImplicit && evt.isOvernight;
+      const isOvernight = evt.panelType === '%NB';
       const div = el('div', {
-        className: 'cosam-grid-break' + (isImplicitOvernight ? ' cosam-implicit-overnight-break' : ''),
+        className: 'cosam-grid-break' + (isOvernight ? ' cosam-implicit-overnight-break' : ''),
         role: 'button',
         tabindex: '0',
         onClick: () => { this.state.modalEvent = evt; this._showModal(evt); },
@@ -1452,8 +1362,8 @@
         }
       });
 
-      // Add moon for implicit overnight breaks
-      if (isImplicitOvernight) {
+      // Add moon for overnight breaks
+      if (isOvernight) {
         const nameWrapper = el('div', { className: 'cosam-grid-break-name' });
         nameWrapper.appendChild(el('span', { className: 'cosam-implicit-overnight-moon' }, '🌙'));
         nameWrapper.appendChild(document.createTextNode(' ' + evt.name));
