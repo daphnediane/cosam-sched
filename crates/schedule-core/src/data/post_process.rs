@@ -163,7 +163,7 @@ fn detect_conflicts(schedule: &mut Schedule) {
     let panel_type_lookup: HashMap<String, &PanelType> = schedule
         .panel_types
         .iter()
-        .map(|panel_type| (panel_type.effective_uid(), panel_type))
+        .map(|(prefix, panel_type)| (prefix.clone(), panel_type))
         .collect();
 
     let mut presenter_events: HashMap<String, Vec<usize>> = HashMap::new();
@@ -274,7 +274,7 @@ fn detect_panel_conflicts(schedule: &mut Schedule) {
     let panel_type_lookup: HashMap<String, &PanelType> = schedule
         .panel_types
         .iter()
-        .map(|panel_type| (panel_type.effective_uid(), panel_type))
+        .map(|(prefix, panel_type)| (prefix.clone(), panel_type))
         .collect();
 
     // Collect all panel sessions with their time and location info
@@ -727,6 +727,7 @@ mod tests {
                 generator: Some("test".to_string()),
                 start_time: None,
                 end_time: None,
+                next_presenter_id: None,
                 creator: None,
                 last_modified_by: None,
                 modified: None,
@@ -735,7 +736,7 @@ mod tests {
             panels: indexmap::IndexMap::new(),
             events: Vec::new(),
             rooms: Vec::new(),
-            panel_types: Vec::new(),
+            panel_types: indexmap::IndexMap::new(),
             time_types: Vec::new(),
             presenters: Vec::new(),
             imported_sheets: ImportedSheetPresence::default(),
@@ -747,32 +748,41 @@ mod tests {
         let mut schedule = empty_schedule();
         schedule.presenters = vec![
             Presenter {
+                id: None,
                 name: "Pros and Cons Cosplay".to_string(),
                 rank: "guest".to_string(),
                 is_group: true,
                 members: vec!["Pro".to_string(), "Con".to_string()],
                 groups: Vec::new(),
                 always_grouped: false,
+                always_shown: false,
+                metadata: None,
                 source: None,
                 change_state: ChangeState::Unchanged,
             },
             Presenter {
+                id: None,
                 name: "Pro".to_string(),
                 rank: "guest".to_string(),
                 is_group: false,
                 members: Vec::new(),
                 groups: vec!["Pros and Cons Cosplay".to_string()],
                 always_grouped: false,
+                always_shown: false,
+                metadata: None,
                 source: None,
                 change_state: ChangeState::Unchanged,
             },
             Presenter {
+                id: None,
                 name: "Con".to_string(),
                 rank: "guest".to_string(),
                 is_group: false,
                 members: Vec::new(),
                 groups: vec!["Pros and Cons Cosplay".to_string()],
                 always_grouped: false,
+                always_shown: false,
+                metadata: None,
                 source: None,
                 change_state: ChangeState::Unchanged,
             },

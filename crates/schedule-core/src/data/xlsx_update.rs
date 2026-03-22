@@ -29,7 +29,8 @@ pub fn update_xlsx(schedule: &Schedule, path: &Path) -> Result<()> {
     }
 
     if schedule.imported_sheets.has_panel_types {
-        if let Some(sheet_name) = find_sheet_name(schedule.panel_types.iter().map(|pt| &pt.source))
+        if let Some(sheet_name) =
+            find_sheet_name(schedule.panel_types.values().map(|pt| &pt.source))
         {
             update_panel_types_sheet(&mut book, &sheet_name, schedule)?;
         }
@@ -57,7 +58,7 @@ pub fn post_save_cleanup(schedule: &mut Schedule) {
         .retain(|r| r.change_state != ChangeState::Deleted);
     schedule
         .panel_types
-        .retain(|pt| pt.change_state != ChangeState::Deleted);
+        .retain(|_, pt| pt.change_state != ChangeState::Deleted);
     schedule
         .presenters
         .retain(|p| p.change_state != ChangeState::Deleted);
@@ -74,7 +75,7 @@ pub fn post_save_cleanup(schedule: &mut Schedule) {
     for room in &mut schedule.rooms {
         room.change_state = ChangeState::Unchanged;
     }
-    for panel_type in &mut schedule.panel_types {
+    for panel_type in schedule.panel_types.values_mut() {
         panel_type.change_state = ChangeState::Unchanged;
     }
     for presenter in &mut schedule.presenters {
@@ -275,14 +276,10 @@ fn write_panel_type_to_row(
         &["Panel_Kind", "PanelKind", "Kind"],
         &panel_type.kind,
     );
-    set_cell_opt_str(worksheet, header_map, row, &["Color"], &panel_type.color);
-    set_cell_opt_str(
-        worksheet,
-        header_map,
-        row,
-        &["BW", "Bw"],
-        &panel_type.bw_color,
-    );
+    let color_opt = panel_type.color().map(|s| s.to_string());
+    set_cell_opt_str(worksheet, header_map, row, &["Color"], &color_opt);
+    let bw_opt = panel_type.bw_color().map(|s| s.to_string());
+    set_cell_opt_str(worksheet, header_map, row, &["BW", "Bw"], &bw_opt);
     set_cell_bool(
         worksheet,
         header_map,
@@ -334,7 +331,7 @@ fn update_panel_types_sheet(
     let mut rows_to_delete: Vec<u32> = Vec::new();
     let mut rows_to_append: Vec<&PanelType> = Vec::new();
 
-    for panel_type in &schedule.panel_types {
+    for (_prefix, panel_type) in &schedule.panel_types {
         match panel_type.change_state {
             ChangeState::Deleted => {
                 if let Some(row_index) = panel_type.source.as_ref().and_then(|s| s.row_index) {
@@ -446,12 +443,7 @@ fn write_event_to_row(
     let kind = event
         .panel_type
         .as_ref()
-        .and_then(|pt_uid| {
-            schedule
-                .panel_types
-                .iter()
-                .find(|pt| pt.effective_uid() == *pt_uid)
-        })
+        .and_then(|pt_uid| schedule.panel_types.get(pt_uid))
         .map(|pt| pt.kind.as_str())
         .unwrap_or("");
     set_cell_str(
@@ -579,6 +571,7 @@ mod tests {
                 generator: None,
                 start_time: None,
                 end_time: None,
+                next_presenter_id: None,
                 creator: None,
                 last_modified_by: None,
                 modified: None,
@@ -589,8 +582,9 @@ mod tests {
                     id: "TL01".to_string(),
                     start_time: "2026-06-26T09:00:00".to_string(),
                     description: "Opening".to_string(),
-                    time_type: None,
+                    panel_type: None,
                     note: None,
+                    metadata: None,
                     source: None,
                     change_state: ChangeState::Unchanged,
                 },
@@ -598,8 +592,9 @@ mod tests {
                     id: "TL02".to_string(),
                     start_time: "2026-06-26T10:00:00".to_string(),
                     description: "Deleted entry".to_string(),
-                    time_type: None,
+                    panel_type: None,
                     note: None,
+                    metadata: None,
                     source: None,
                     change_state: ChangeState::Deleted,
                 },
@@ -729,6 +724,8 @@ mod tests {
                     long_name: "Main Hall".to_string(),
                     hotel_room: "Ballroom A".to_string(),
                     sort_key: 1,
+                    is_break: false,
+                    metadata: None,
                     source: None,
                     change_state: ChangeState::Unchanged,
                 },
@@ -738,24 +735,34 @@ mod tests {
                     long_name: "Old Room".to_string(),
                     hotel_room: "".to_string(),
                     sort_key: 2,
+                    is_break: false,
+                    metadata: None,
                     source: None,
                     change_state: ChangeState::Deleted,
                 },
             ],
-            panel_types: vec![PanelType {
-                uid: Some("panel-type-gp".to_string()),
-                prefix: "GP".to_string(),
-                kind: "General Panel".to_string(),
-                color: None,
-                is_break: false,
-                is_cafe: false,
-                is_workshop: false,
-                is_hidden: false,
-                is_room_hours: false,
-                bw_color: None,
-                source: None,
-                change_state: ChangeState::Modified,
-            }],
+            panel_types: {
+                let mut pt_map = indexmap::IndexMap::new();
+                pt_map.insert(
+                    "GP".to_string(),
+                    PanelType {
+                        prefix: "GP".to_string(),
+                        kind: "General Panel".to_string(),
+                        colors: indexmap::IndexMap::new(),
+                        is_break: false,
+                        is_cafe: false,
+                        is_workshop: false,
+                        is_hidden: false,
+                        is_room_hours: false,
+                        is_timeline: false,
+                        is_private: false,
+                        metadata: None,
+                        source: None,
+                        change_state: ChangeState::Modified,
+                    },
+                );
+                pt_map
+            },
             time_types: vec![TimeType {
                 uid: "time-type-split".to_string(),
                 prefix: "SPLIT".to_string(),
@@ -765,22 +772,28 @@ mod tests {
             }],
             presenters: vec![
                 Presenter {
+                    id: None,
                     name: "Alice".to_string(),
                     rank: "guest".to_string(),
                     is_group: false,
                     members: Vec::new(),
                     groups: Vec::new(),
                     always_grouped: false,
+                    always_shown: false,
+                    metadata: None,
                     source: None,
                     change_state: ChangeState::Converted,
                 },
                 Presenter {
+                    id: None,
                     name: "Bob".to_string(),
                     rank: "staff".to_string(),
                     is_group: false,
                     members: Vec::new(),
                     groups: Vec::new(),
                     always_grouped: false,
+                    always_shown: false,
+                    metadata: None,
                     source: None,
                     change_state: ChangeState::Deleted,
                 },
@@ -840,7 +853,7 @@ mod tests {
         for room in &schedule.rooms {
             assert_eq!(room.change_state, ChangeState::Unchanged);
         }
-        for panel_type in &schedule.panel_types {
+        for panel_type in schedule.panel_types.values() {
             assert_eq!(panel_type.change_state, ChangeState::Unchanged);
         }
         for presenter in &schedule.presenters {

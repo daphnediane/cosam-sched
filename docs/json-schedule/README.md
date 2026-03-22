@@ -8,25 +8,29 @@ The JSON format has evolved through several major versions:
 
 - **v1-v3**: Legacy formats (see historical notes in v4 documentation)
 - **v4**: Current stable format with flat events array and timeline support
-- **v5**: Latest format with hierarchical panels structure (private/public variants)
+- **v5**: Hierarchical panels structure (private/public variants)
+- **v6**: Excel metadata integration
+- **v7**: Latest format with panelTypes hashmap, named color sets, merged timeTypes, stable presenter IDs, baked-in breaks (full/display variants)
 
 ## Format Variants
 
 Starting with v5, the format has two variants:
 
-### Private/Full Format
+### Full Format (Private)
 
 - **Purpose**: Internal data storage and editing
 - **Structure**: Hierarchical panels with base→part→session nesting
-- **Fields**: Complete data including internal notes, workshop requirements, etc.
+- **Fields**: Complete data including internal notes, workshop requirements, optional metadata
 - **Access**: Private/internal use only
 
-### Public/Widget Format  
+### Display Format (Public)
 
 - **Purpose**: Public schedule display and widget consumption
-- **Structure**: Flattened panels array for simple rendering
-- **Fields**: Public-facing data only (credits, not internal notes)
+- **Structure**: Flattened panels array for simple rendering, with baked-in breaks (v7+)
+- **Fields**: Public-facing data only (credits, not internal notes; no metadata)
 - **Access**: Public consumption
+
+Note: In v5–v6 the variant names were `"full"` and `"public"`. In v7+ they are `"full"` and `"display"`.
 
 ## Adding a New Version
 
@@ -99,6 +103,7 @@ perl scripts/combine-json-docs.pl
 ```
 
 This will automatically:
+
 - Discover the new version files
 - Extract structure dependencies
 - Generate combined documents in `docs/`:
@@ -129,6 +134,8 @@ The following files are automatically generated and should not be edited directl
 - `docs/json-format-v4.md`
 - `docs/json-private-v5.md`
 - `docs/json-public-v5.md`
+- `docs/json-private-v6.md`
+- `docs/json-public-v6.md`
 - (Future versions as added)
 
 Edit the source files in `docs/json-schedule/` instead.
@@ -159,19 +166,44 @@ Each data structure is documented in its own file following the pattern `<struct
 - [PanelSession-v5.md](PanelSession-v5.md) - Panel session objects (private)
 - [panels-public-v5.md](panels-public-v5.md) - Flattened panels array (public)
 
+### v6 Documentation
+
+- [v6-private.md](v6-private.md) - Private format entry point
+- [v6-public.md](v6-public.md) - Public format entry point
+- [meta-v6.md](meta-v6.md) - Metadata structure with Excel metadata
+
+### v7 Documentation
+
+- [v7-full.md](v7-full.md) - Full format entry point
+- [v7-display.md](v7-display.md) - Display format entry point
+- [meta-v7.md](meta-v7.md) - Metadata with `nextPresenterId` and variant naming
+- [panelTypes-v7.md](panelTypes-v7.md) - Panel types hashmap with named color sets
+- [rooms-v7.md](rooms-v7.md) - Room definitions with `is_break` flag
+- [presenters-v7.md](presenters-v7.md) - Presenters with stable integer ID and corrected group semantics
+- [panels-v7.md](panels-v7.md) - Hierarchical panels hash (full format)
+- [PanelSession-v7.md](PanelSession-v7.md) - Panel session objects (`extras` → `metadata`)
+- [panels-display-v7.md](panels-display-v7.md) - Flattened panels with baked-in breaks (display format)
+- [timeline-v7.md](timeline-v7.md) - Timeline markers referencing panelType prefix
+- [conflicts-v7.md](conflicts-v7.md) - Conflict detection structures
+
 ## Quick Reference
 
-| Version    | Entry Point                    | Structure           | Use Case             |
-| ---------- | ------------------------------ | ------------------- | -------------------- |
-| v4         | [v4.md](v4.md)                 | Flat events array   | Legacy compatibility |
-| v5-private | [v5-private.md](v5-private.md) | Hierarchical panels | Internal editing     |
-| v5-public  | [v5-public.md](v5-public.md)   | Flattened panels    | Public widget        |
+| Version    | Entry Point                    | Structure                   | Use Case             |
+| ---------- | ------------------------------ | --------------------------- | -------------------- |
+| v4         | [v4.md](v4.md)                 | Flat events array           | Legacy compatibility |
+| v5-private | [v5-private.md](v5-private.md) | Hierarchical panels         | Internal editing     |
+| v5-public  | [v5-public.md](v5-public.md)   | Flattened panels            | Public widget        |
+| v6-private | [v6-private.md](v6-private.md) | Hierarchical + Excel meta   | Internal editing     |
+| v6-public  | [v6-public.md](v6-public.md)   | Flattened + Excel meta      | Public widget        |
+| v7-full    | [v7-full.md](v7-full.md)       | Hashmap panelTypes + breaks | Internal editing     |
+| v7-display | [v7-display.md](v7-display.md) | Flattened + baked breaks    | Public widget        |
 
 ## Migration Notes
 
 - **v4 → v5-private**: Convert flat `events` array to hierarchical `panels` hash
 - **v5-private → v5-public**: Flatten hierarchical structure and filter private fields
 - **v4 → v5-public**: Use v4→v5-private conversion then flatten for public output
+- **v6 → v7**: No migration needed — all JSON files are regenerated from spreadsheet each release
 
 ## Related Documentation
 

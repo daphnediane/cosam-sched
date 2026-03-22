@@ -11,7 +11,6 @@ use anyhow::{Context, Result};
 use serde::{Deserialize, Serialize};
 
 use super::presenter::Presenter;
-use super::room::Room;
 use super::schedule::{Meta, Schedule};
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -59,7 +58,7 @@ pub struct PublicSchedule {
     pub meta: Meta,
     pub panels: Vec<PublicPanel>,
     pub rooms: Vec<super::room::Room>,
-    pub panel_types: Vec<super::panel_type::PanelType>,
+    pub panel_types: indexmap::IndexMap<String, super::panel_type::PanelType>,
     pub time_types: Vec<super::timeline::TimeType>,
     pub timeline: Vec<super::timeline::TimelineEntry>,
     pub presenters: Vec<Presenter>,
@@ -151,8 +150,8 @@ impl Schedule {
         let hidden_type_uids: HashSet<String> = self
             .panel_types
             .iter()
-            .filter(|pt| pt.is_hidden)
-            .map(|pt| pt.effective_uid())
+            .filter(|(_, pt)| pt.is_hidden)
+            .map(|(prefix, _)| prefix.clone())
             .collect();
 
         let mut flat_panels: Vec<PublicPanel> = Vec::new();
@@ -304,16 +303,16 @@ impl Schedule {
             (None, None) => a.id.cmp(&b.id),
         });
 
-        let visible_panel_types: Vec<_> = self
+        let visible_panel_types: indexmap::IndexMap<String, _> = self
             .panel_types
             .iter()
-            .filter(|pt| !pt.is_hidden)
-            .cloned()
+            .filter(|(_, pt)| !pt.is_hidden)
+            .map(|(k, v)| (k.clone(), v.clone()))
             .collect();
 
         let mut meta = self.meta.clone();
-        meta.version = Some(6);
-        meta.variant = Some("public".to_string());
+        meta.version = Some(7);
+        meta.variant = Some("display".to_string());
         meta.generated = chrono::Utc::now().format("%Y-%m-%dT%H:%M:%SZ").to_string();
         meta.generator = Some(format!("cosam-editor {}", env!("CARGO_PKG_VERSION")));
 
@@ -347,6 +346,7 @@ impl Schedule {
 mod tests {
     use super::*;
     use crate::data::panel::{Panel, PanelPart, PanelSession};
+    use crate::data::room::Room;
     use crate::data::schedule::{Meta, Schedule};
     use indexmap::IndexMap;
 
@@ -362,6 +362,7 @@ mod tests {
                 generator: None,
                 start_time: None,
                 end_time: None,
+                next_presenter_id: None,
                 creator: None,
                 last_modified_by: None,
                 modified: None,
@@ -375,10 +376,12 @@ mod tests {
                 long_name: "Room 1".to_string(),
                 hotel_room: "Room 1".to_string(),
                 sort_key: 1,
+                is_break: false,
+                metadata: None,
                 source: None,
                 change_state: Default::default(),
             }],
-            panel_types: Vec::new(),
+            panel_types: IndexMap::new(),
             time_types: Vec::new(),
             presenters: Vec::new(),
             imported_sheets: Default::default(),
@@ -421,7 +424,7 @@ mod tests {
                 sewing_machines: false,
                 av_notes: None,
                 conflicts: Vec::new(),
-                extras: IndexMap::new(),
+                metadata: IndexMap::new(),
                 source: None,
                 change_state: Default::default(),
             }],
@@ -466,7 +469,7 @@ mod tests {
                 sewing_machines: false,
                 av_notes: None,
                 conflicts: Vec::new(),
-                extras: IndexMap::new(),
+                metadata: IndexMap::new(),
                 source: None,
                 change_state: Default::default(),
             }],
@@ -506,7 +509,7 @@ mod tests {
                 sewing_machines: false,
                 av_notes: None,
                 conflicts: Vec::new(),
-                extras: IndexMap::new(),
+                metadata: IndexMap::new(),
                 source: None,
                 change_state: Default::default(),
             }],
@@ -552,7 +555,7 @@ mod tests {
                     sewing_machines: false,
                     av_notes: None,
                     conflicts: Vec::new(),
-                    extras: IndexMap::new(),
+                    metadata: IndexMap::new(),
                     source: None,
                     change_state: Default::default(),
                 },
@@ -582,7 +585,7 @@ mod tests {
                     sewing_machines: false,
                     av_notes: None,
                     conflicts: Vec::new(),
-                    extras: IndexMap::new(),
+                    metadata: IndexMap::new(),
                     source: None,
                     change_state: Default::default(),
                 },

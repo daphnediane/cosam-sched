@@ -100,7 +100,7 @@ pub fn import_xlsx(path: &Path, options: &XlsxImportOptions) -> Result<Schedule>
     let imported_sheets = ImportedSheetPresence {
         has_room_map: !rooms.is_empty() && rooms.iter().any(|r| r.source.is_some()),
         has_panel_types: !panel_types.is_empty()
-            && panel_types.iter().any(|pt| pt.source.is_some()),
+            && panel_types.values().any(|pt| pt.source.is_some()),
         has_presenters: false,
         has_schedule: true, // We'll assume schedule exists if we get here
     };
@@ -125,11 +125,12 @@ pub fn import_xlsx(path: &Path, options: &XlsxImportOptions) -> Result<Schedule>
         meta: Meta {
             title: options.title.clone(),
             generated,
-            version: Some(6),
+            version: Some(7),
             variant: Some("full".to_string()),
             generator: Some(format!("cosam-editor {}", env!("CARGO_PKG_VERSION"))),
             start_time: None,
             end_time: None,
+            next_presenter_id: None,
             creator: if creator.is_empty() {
                 None
             } else {
@@ -394,6 +395,8 @@ fn read_rooms(book: &Spreadsheet, preferred: &str, file_path: &str) -> Result<Ve
             long_name,
             hotel_room,
             sort_key,
+            is_break: false,
+            metadata: None,
             source: Some(SourceInfo {
                 file_path: Some(file_path.to_string()),
                 sheet_name: Some(range.sheet_name.clone()),
@@ -411,10 +414,10 @@ fn read_panel_types(
     book: &Spreadsheet,
     preferred: &str,
     file_path: &str,
-) -> Result<Vec<PanelType>> {
+) -> Result<IndexMap<String, PanelType>> {
     let range = match find_data_range(book, preferred, &["Prefix", "PanelTypes"]) {
         Some(r) => r,
-        None => return Ok(Vec::new()),
+        None => return Ok(IndexMap::new()),
     };
 
     let ws = book
@@ -422,11 +425,11 @@ fn read_panel_types(
         .ok_or_else(|| anyhow::anyhow!("Sheet '{}' not found", range.sheet_name))?;
 
     if !range.has_data() {
-        return Ok(Vec::new());
+        return Ok(IndexMap::new());
     }
 
     let (raw_headers, canonical_headers, _col_map) = build_column_map(ws, &range);
-    let mut types = Vec::new();
+    let mut types = IndexMap::new();
 
     for row in (range.header_row + 1)..=range.end_row {
         let data = row_to_map(ws, row, &range, &raw_headers, &canonical_headers);
@@ -467,33 +470,52 @@ fn read_panel_types(
                     || prefix.to_uppercase().starts_with("SPLIT")
             });
 
-        let color = get_field(&data, &["Color"]).cloned();
-        let bw_color = get_field(&data, &["BW", "Bw"]).cloned();
-
-        let uid = Some(PanelType::uid_from_prefix(&prefix));
+        let mut colors = IndexMap::new();
+        if let Some(c) = get_field(&data, &["Color"]).cloned() {
+            if !c.is_empty() {
+                colors.insert("color".to_string(), c);
+            }
+        }
+        if let Some(bw) = get_field(&data, &["BW", "Bw"]).cloned() {
+            if !bw.is_empty() {
+                colors.insert("bw".to_string(), bw);
+            }
+        }
 
         let is_hidden = get_field(&data, &["Hidden"])
             .map(|s| !s.is_empty())
             .unwrap_or(false);
 
-        types.push(PanelType {
-            uid,
-            prefix,
-            kind,
-            color,
-            is_break,
-            is_cafe,
-            is_workshop,
-            is_hidden,
-            is_room_hours,
-            bw_color,
-            source: Some(SourceInfo {
-                file_path: Some(file_path.to_string()),
-                sheet_name: Some(range.sheet_name.clone()),
-                row_index: Some(row),
-            }),
-            change_state: ChangeState::Unchanged,
-        });
+        let is_timeline = get_field(&data, &["Is_TimeLine", "Is_Timeline", "IsTimeLine"])
+            .map(|s| is_truthy(s))
+            .unwrap_or_else(|| prefix == "SPLIT" || prefix.starts_with("SP"));
+
+        let is_private = get_field(&data, &["Is_Private", "IsPrivate"])
+            .map(|s| is_truthy(s))
+            .unwrap_or(false);
+
+        types.insert(
+            prefix.clone(),
+            PanelType {
+                prefix: prefix.clone(),
+                kind,
+                colors,
+                is_break,
+                is_cafe,
+                is_workshop,
+                is_hidden,
+                is_room_hours,
+                is_timeline,
+                is_private,
+                metadata: None,
+                source: Some(SourceInfo {
+                    file_path: Some(file_path.to_string()),
+                    sheet_name: Some(range.sheet_name.clone()),
+                    row_index: Some(row),
+                }),
+                change_state: ChangeState::Unchanged,
+            },
+        );
     }
 
     Ok(types)
@@ -900,7 +922,7 @@ fn read_events_v5(
     book: &Spreadsheet,
     preferred: &str,
     rooms: &[Room],
-    panel_types: &[PanelType],
+    panel_types: &IndexMap<String, PanelType>,
     file_path: &str,
 ) -> Result<(IndexMap<String, Panel>, Vec<Presenter>)> {
     let first_sheet_name = book
@@ -962,7 +984,7 @@ fn read_events_v5(
 
     let type_lookup: HashMap<String, &PanelType> = panel_types
         .iter()
-        .map(|pt| (pt.prefix.to_lowercase(), pt))
+        .map(|(prefix, pt)| (prefix.to_lowercase(), pt))
         .collect();
 
     struct PresenterInfo {
@@ -1118,7 +1140,7 @@ fn read_events_v5(
         let panel_type = panel_type.or_else(|| {
             kind_raw.as_ref().and_then(|kr| {
                 panel_types
-                    .iter()
+                    .values()
                     .find(|pt| pt.kind.to_lowercase() == kr.to_lowercase())
             })
         });
@@ -1204,11 +1226,10 @@ fn read_events_v5(
             }
         }
 
-        // Get the panel type UID
         let panel_type_uid = if !id_prefix.is_empty() {
-            Some(format!("panel-type-{}", id_prefix.to_lowercase()))
+            Some(id_prefix.to_uppercase())
         } else {
-            panel_type.map(|pt| pt.effective_uid())
+            panel_type.map(|pt| pt.prefix.clone())
         };
 
         // Get other fields
@@ -1443,12 +1464,15 @@ fn read_events_v5(
             let is_group = group_members.contains_key(&name);
             let members = group_members.get(&name).cloned().unwrap_or_default();
             Presenter {
+                id: None,
                 name,
                 rank: info.rank,
                 is_group,
                 members,
                 groups: info.groups,
                 always_grouped: info.always_grouped,
+                always_shown: false,
+                metadata: None,
                 source: None,
                 change_state: ChangeState::Converted,
             }

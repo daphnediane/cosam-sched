@@ -50,6 +50,8 @@ pub struct Meta {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub end_time: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub next_presenter_id: Option<u32>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub creator: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub last_modified_by: Option<String>,
@@ -88,7 +90,8 @@ pub struct Schedule {
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub events: Vec<Event>,
     pub rooms: Vec<Room>,
-    pub panel_types: Vec<PanelType>,
+    #[serde(default, skip_serializing_if = "IndexMap::is_empty")]
+    pub panel_types: IndexMap<String, PanelType>,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub time_types: Vec<TimeType>,
     pub presenters: Vec<Presenter>,
@@ -130,7 +133,7 @@ impl Schedule {
 
         // Set version based on format; preserve variant if already set by caller
         if !self.panels.is_empty() {
-            self.meta.version = Some(6);
+            self.meta.version = Some(7);
             if self.meta.variant.is_none() {
                 self.meta.variant = Some("full".to_string());
             }
@@ -257,59 +260,59 @@ impl Schedule {
     fn convert_split_panel_types(
         &self,
     ) -> (
-        Vec<super::panel_type::PanelType>,
+        IndexMap<String, super::panel_type::PanelType>,
         Vec<super::timeline::TimeType>,
         Vec<super::timeline::TimelineEntry>,
     ) {
         let mut time_types = Vec::new();
         let mut timeline = Vec::new();
-        let mut filtered_panel_types = Vec::new();
+        let mut filtered_panel_types = IndexMap::new();
 
-        // Find split panel types and convert them
-        for panel_type in &self.panel_types {
-            if panel_type.prefix.to_uppercase() == "SPLIT"
-                || panel_type.prefix.to_uppercase().starts_with("SP")
-                || panel_type.prefix.to_uppercase().starts_with("SPLIT")
-            {
-                // Create time type
+        for (prefix, panel_type) in &self.panel_types {
+            let upper = prefix.to_uppercase();
+            if upper == "SPLIT" || upper.starts_with("SP") || upper.starts_with("SPLIT") {
                 let time_type = super::timeline::TimeType {
-                    uid: super::timeline::TimeType::uid_from_prefix(&panel_type.prefix),
-                    prefix: panel_type.prefix.clone(),
+                    uid: super::timeline::TimeType::uid_from_prefix(prefix),
+                    prefix: prefix.clone(),
                     kind: panel_type.kind.clone(),
                     source: None,
                     change_state: ChangeState::Converted,
                 };
                 time_types.push(time_type);
 
-                // Find events with this panel type and convert to timeline entries
+                let legacy_uid = format!(
+                    "panel-type-{}",
+                    prefix
+                        .to_lowercase()
+                        .replace(|c: char| !c.is_alphanumeric(), "-")
+                        .trim_matches('-')
+                );
                 let split_events: Vec<_> = self
                     .events
                     .iter()
                     .filter(|e| {
                         e.panel_type
                             .as_ref()
-                            .map(|pt| pt == &panel_type.effective_uid())
+                            .map(|pt| pt == &legacy_uid)
                             .unwrap_or(false)
                     })
                     .collect();
 
                 for (i, event) in split_events.iter().enumerate() {
                     let timeline_entry = super::timeline::TimelineEntry {
-                        id: format!("{}{:02}", panel_type.prefix, i + 1),
+                        id: format!("{}{:02}", prefix, i + 1),
                         start_time: event.start_time.format("%Y-%m-%dT%H:%M:%S").to_string(),
                         description: event.name.clone(),
-                        time_type: Some(super::timeline::TimeType::uid_from_prefix(
-                            &panel_type.prefix,
-                        )),
+                        panel_type: Some(prefix.clone()),
                         note: event.note.clone(),
+                        metadata: None,
                         source: None,
                         change_state: ChangeState::Converted,
                     };
                     timeline.push(timeline_entry);
                 }
             } else {
-                // Keep non-split panel types
-                filtered_panel_types.push(panel_type.clone());
+                filtered_panel_types.insert(prefix.clone(), panel_type.clone());
             }
         }
 
@@ -415,7 +418,13 @@ impl Schedule {
 
     #[must_use]
     pub fn panel_type_by_prefix(&self, prefix: &str) -> Option<&PanelType> {
-        self.panel_types.iter().find(|pt| pt.prefix == prefix)
+        self.panel_types.get(prefix)
+    }
+
+    pub fn populate_panel_type_prefixes(&mut self) {
+        for (prefix, panel_type) in &mut self.panel_types {
+            panel_type.prefix = prefix.clone();
+        }
     }
 }
 

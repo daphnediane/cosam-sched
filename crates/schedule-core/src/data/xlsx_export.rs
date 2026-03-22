@@ -264,7 +264,7 @@ fn write_rooms_sheet(ws: &mut Worksheet, rooms: &[Room]) -> u32 {
 
 fn write_panel_types_sheet(
     ws: &mut Worksheet,
-    panel_types: &[PanelType],
+    panel_types: &indexmap::IndexMap<String, PanelType>,
     time_types: &[TimeType],
 ) -> u32 {
     set_headers(
@@ -279,18 +279,24 @@ fn write_panel_types_sheet(
             "Is Café",
             "Is Room Hours",
             "Hidden",
+            "Is TimeLine",
+            "Is Private",
         ],
     );
 
     let mut row = 2u32;
-    for pt in panel_types {
+    for (prefix, pt) in panel_types {
         if pt.change_state == ChangeState::Deleted {
             continue;
         }
-        set_str(ws, 1, row, &pt.prefix);
+        set_str(ws, 1, row, prefix);
         set_str(ws, 2, row, &pt.kind);
-        set_opt(ws, 3, row, &pt.color);
-        set_opt(ws, 4, row, &pt.bw_color);
+        if let Some(c) = pt.color() {
+            set_str(ws, 3, row, c);
+        }
+        if let Some(bw) = pt.bw_color() {
+            set_str(ws, 4, row, bw);
+        }
         if pt.is_break {
             set_str(ws, 5, row, "Yes");
         }
@@ -305,6 +311,12 @@ fn write_panel_types_sheet(
         }
         if pt.is_hidden {
             set_str(ws, 9, row, "Yes");
+        }
+        if pt.is_timeline {
+            set_str(ws, 10, row, "Yes");
+        }
+        if pt.is_private {
+            set_str(ws, 11, row, "Yes");
         }
         row += 1;
     }
@@ -393,12 +405,7 @@ fn write_schedule_sheet(
         let kind = event
             .panel_type
             .as_ref()
-            .and_then(|pt_uid| {
-                schedule
-                    .panel_types
-                    .iter()
-                    .find(|pt| pt.effective_uid() == *pt_uid)
-            })
+            .and_then(|pt_uid| schedule.panel_types.get(pt_uid))
             .map(|pt| pt.kind.as_str())
             .unwrap_or("");
         set_str(ws, 8, row, kind);
@@ -454,9 +461,8 @@ fn write_schedule_sheet(
         let end_time = start_time + chrono::Duration::minutes(30);
 
         let prefix = entry
-            .time_type
-            .as_ref()
-            .and_then(|tt| tt.strip_prefix("time-type-"))
+            .panel_type
+            .as_deref()
             .unwrap_or("SPLIT")
             .to_uppercase();
 
@@ -541,6 +547,7 @@ mod tests {
                 generator: None,
                 start_time: None,
                 end_time: None,
+                next_presenter_id: None,
                 creator: None,
                 last_modified_by: None,
                 modified: None,
@@ -579,31 +586,46 @@ mod tests {
                 long_name: "Main Hall".to_string(),
                 hotel_room: "Grand Ballroom".to_string(),
                 sort_key: 1,
-                source: None,
-                change_state: ChangeState::Unchanged,
-            }],
-            panel_types: vec![PanelType {
-                uid: Some("panel-type-gp".to_string()),
-                prefix: "GP".to_string(),
-                kind: "Guest Panel".to_string(),
-                color: Some("#E2F9D7".to_string()),
                 is_break: false,
-                is_cafe: false,
-                is_workshop: false,
-                is_hidden: false,
-                is_room_hours: false,
-                bw_color: None,
+                metadata: None,
                 source: None,
                 change_state: ChangeState::Unchanged,
             }],
+            panel_types: {
+                let mut pt_map = indexmap::IndexMap::new();
+                let mut colors = indexmap::IndexMap::new();
+                colors.insert("color".to_string(), "#E2F9D7".to_string());
+                pt_map.insert(
+                    "GP".to_string(),
+                    PanelType {
+                        prefix: "GP".to_string(),
+                        kind: "Guest Panel".to_string(),
+                        colors,
+                        is_break: false,
+                        is_cafe: false,
+                        is_workshop: false,
+                        is_hidden: false,
+                        is_room_hours: false,
+                        is_timeline: false,
+                        is_private: false,
+                        metadata: None,
+                        source: None,
+                        change_state: ChangeState::Unchanged,
+                    },
+                );
+                pt_map
+            },
             time_types: Vec::new(),
             presenters: vec![Presenter {
+                id: None,
                 name: "Alice".to_string(),
                 rank: "guest".to_string(),
                 is_group: false,
                 members: Vec::new(),
                 groups: Vec::new(),
                 always_grouped: false,
+                always_shown: false,
+                metadata: None,
                 source: None,
                 change_state: ChangeState::Unchanged,
             }],
@@ -665,6 +687,8 @@ mod tests {
             long_name: "Gone".to_string(),
             hotel_room: "".to_string(),
             sort_key: 99,
+            is_break: false,
+            metadata: None,
             source: None,
             change_state: ChangeState::Deleted,
         });
@@ -720,42 +744,54 @@ mod tests {
         let mut schedule = make_test_schedule();
         schedule.presenters = vec![
             Presenter {
+                id: None,
                 name: "Pro".to_string(),
                 rank: "guest".to_string(),
                 is_group: false,
                 members: Vec::new(),
                 groups: vec!["Pros and Cons".to_string()],
                 always_grouped: false,
+                always_shown: false,
+                metadata: None,
                 source: None,
                 change_state: ChangeState::Unchanged,
             },
             Presenter {
+                id: None,
                 name: "Con".to_string(),
                 rank: "guest".to_string(),
                 is_group: false,
                 members: Vec::new(),
                 groups: vec!["Pros and Cons".to_string()],
                 always_grouped: true,
+                always_shown: false,
+                metadata: None,
                 source: None,
                 change_state: ChangeState::Unchanged,
             },
             Presenter {
+                id: None,
                 name: "Pros and Cons".to_string(),
                 rank: "guest".to_string(),
                 is_group: true,
                 members: vec!["Pro".to_string(), "Con".to_string()],
                 groups: Vec::new(),
                 always_grouped: false,
+                always_shown: false,
+                metadata: None,
                 source: None,
                 change_state: ChangeState::Unchanged,
             },
             Presenter {
+                id: None,
                 name: "Bob".to_string(),
                 rank: "fan_panelist".to_string(),
                 is_group: false,
                 members: Vec::new(),
                 groups: Vec::new(),
                 always_grouped: false,
+                always_shown: false,
+                metadata: None,
                 source: None,
                 change_state: ChangeState::Unchanged,
             },

@@ -6,10 +6,13 @@
 
 use serde::{Deserialize, Deserializer, Serialize};
 
+use super::panel::ExtraFields;
 use super::source_info::{ChangeState, SourceInfo};
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct Presenter {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub id: Option<u32>,
     pub name: String,
     pub rank: String,
     #[serde(default, deserialize_with = "deserialize_bool_or_int")]
@@ -20,6 +23,10 @@ pub struct Presenter {
     pub groups: Vec<String>,
     #[serde(default, deserialize_with = "deserialize_bool_or_int")]
     pub always_grouped: bool,
+    #[serde(default, deserialize_with = "deserialize_bool_or_int")]
+    pub always_shown: bool,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub metadata: Option<ExtraFields>,
     #[serde(default, skip_serializing)]
     pub source: Option<SourceInfo>,
     #[serde(default, skip_serializing)]
@@ -52,6 +59,8 @@ mod tests {
         assert!(p.members.is_empty());
         assert!(p.groups.is_empty());
         assert!(!p.always_grouped);
+        assert!(!p.always_shown);
+        assert_eq!(p.id, None);
     }
 
     #[test]
@@ -94,12 +103,15 @@ mod tests {
     #[test]
     fn test_presenter_roundtrip() {
         let p = Presenter {
+            id: Some(5),
             name: "Sayakat Cosplay".into(),
             rank: "fan_panelist".into(),
             is_group: false,
             members: vec![],
             groups: vec![],
             always_grouped: false,
+            always_shown: false,
+            metadata: None,
             source: None,
             change_state: ChangeState::Unchanged,
         };

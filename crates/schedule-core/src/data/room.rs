@@ -6,6 +6,7 @@
 
 use serde::{Deserialize, Serialize};
 
+use super::panel::ExtraFields;
 use super::source_info::{ChangeState, SourceInfo};
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -15,6 +16,10 @@ pub struct Room {
     pub long_name: String,
     pub hotel_room: String,
     pub sort_key: u32,
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub is_break: bool,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub metadata: Option<ExtraFields>,
     #[serde(default, skip_serializing)]
     pub source: Option<SourceInfo>,
     #[serde(default, skip_serializing)]
@@ -49,6 +54,8 @@ mod tests {
             long_name: "Workshop 1".into(),
             hotel_room: "Salon A".into(),
             sort_key: 4,
+            is_break: false,
+            metadata: None,
             source: None,
             change_state: ChangeState::Unchanged,
         };

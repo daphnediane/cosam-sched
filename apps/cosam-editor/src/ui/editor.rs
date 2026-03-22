@@ -385,13 +385,11 @@ impl ScheduleEditor {
                     .and_then(|rid| schedule.room_by_id(*rid))
                     .map(|r| r.long_name.as_str())
                     .unwrap_or("—");
-                let panel_type = session.panel_type.as_ref().and_then(|pt_uid| {
-                    schedule
-                        .panel_types
-                        .iter()
-                        .find(|pt| pt.effective_uid() == *pt_uid)
-                });
-                let panel_color = panel_type.and_then(|pt| pt.color.as_deref());
+                let panel_type = session
+                    .panel_type
+                    .as_ref()
+                    .and_then(|pt_uid| schedule.panel_types.get(pt_uid));
+                let panel_color = panel_type.and_then(|pt| pt.color());
                 let card = cx.new(|_cx| {
                     EventCard::from_session(
                         session,
@@ -488,7 +486,7 @@ impl ScheduleEditor {
         let panel_types: Vec<(String, String)> = schedule
             .panel_types
             .iter()
-            .map(|pt| (pt.effective_uid().to_string(), pt.kind.clone()))
+            .map(|(prefix, pt)| (prefix.clone(), pt.kind.clone()))
             .collect();
 
         let pane = cx.new(|_cx| DetailPane::new(&panel, &rooms, &panel_types, &session_id));
@@ -530,7 +528,7 @@ impl ScheduleEditor {
         let panel_types: Vec<(String, String)> = schedule
             .panel_types
             .iter()
-            .map(|pt| (pt.effective_uid().to_string(), pt.kind.clone()))
+            .map(|(prefix, pt)| (prefix.clone(), pt.kind.clone()))
             .collect();
         let presenter_names: Vec<String> =
             schedule.presenters.iter().map(|p| p.name.clone()).collect();
@@ -585,7 +583,7 @@ impl ScheduleEditor {
         let panel_types: Vec<(String, String)> = schedule
             .panel_types
             .iter()
-            .map(|pt| (pt.effective_uid().to_string(), pt.kind.clone()))
+            .map(|(prefix, pt)| (prefix.clone(), pt.kind.clone()))
             .collect();
         let presenter_names: Vec<String> =
             schedule.presenters.iter().map(|p| p.name.clone()).collect();

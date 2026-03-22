@@ -133,7 +133,9 @@ This is the format used by actual Cosplay America spreadsheets, with support for
 | ------------------- | ---------------------------------------------------------------------------------- |
 | `G:Name`            | Guest named *Name*. Cell is a flag — any non-blank value means they are attending. |
 | `G:Name=Group`      | Guest named *Name*, member of *Group*. Cell is a flag.                             |
-| `G:Name==Group`     | Guest named *Name*, **always shown as member of Group** (group takes precedence).  |
+| `G:Name==Group`     | Guest named *Name*, member of *Group*. Sets `always_shown` on the **Group**.       |
+| `G:<Name=Group`     | Guest named *Name*, member of *Group*. Sets `always_grouped` on **Name**.          |
+| `G:<Name==Group`    | Combination: `always_shown` on Group, `always_grouped` on Name.                    |
 | `G:Other`           | Cell contains a **comma-separated list** of additional guest names.                |
 | `J:Name`, `J:Other` | Same as above for **judges**.                                                      |
 | `S:Name`, `S:Other` | Same as above for **staff**.                                                       |
@@ -143,9 +145,11 @@ This is the format used by actual Cosplay America spreadsheets, with support for
 **Group Handling:**
 
 - **Single `=`** (`G:Name=Group`): Individual presenter who is a member of Group. The presenter may be shown individually or as part of the group depending on context.
-- **Double `==`** (`G:Name==Group`): Presenter is **always shown as part of Group**. The group name takes precedence in credits.
+- **Double `==`** (`G:Name==Group`): Sets `always_shown` on the **Group** — the group name is shown in credits even when not all members are present. This flag applies to the group, not the individual member.
+- **`<` prefix** (`G:<Name=Group`): Sets `always_grouped` on the **individual member** — this member always appears under their group name in credits, never individually.
+- **Combined** (`G:<Name==Group`): Both flags set — the group is always shown, and this member always appears under the group.
 - **Group names in `Other` columns**: Names are processed for `=Group` and `==Group` syntax similar to header columns. If no `=` syntax is used, the name is treated as an individual presenter unless it has already been defined as a group elsewhere.
-- **Group relationships**: Groups can have multiple members, and presenters can belong to multiple groups.
+- **Group relationships**: Groups can have multiple members, and presenters can belong to multiple groups. Groups of groups are supported.
 
 **Name Parsing:**
 
@@ -255,17 +259,22 @@ converter.
 
 A sheet named **PanelTypes** maps Uniq ID prefixes to panel kinds.
 
-| Column        | Description                                     |
-| ------------- | ----------------------------------------------- |
-| Prefix        | Two-letter prefix of Uniq ID (e.g. `GP`, `FW`). |
-| Panel Kind    | Human-readable kind name (e.g. `Guest Panel`).  |
-| Hidden        | Non-blank if this type should be hidden.        |
-| Is Workshop   | Non-blank if this type is a paid workshop.      |
-| Is Break      | Non-blank if this type represents a break.      |
-| Is Café       | Non-blank if this type is a café panel.         |
-| Is Room Hours | Non-blank if this type represents room hours.   |
-| Color         | CSS color for the panel type (e.g. `#db2777`).  |
-| BW            | Alternate color for monochrome output.          |
+| Column        | Description                                                             |
+| ------------- | ----------------------------------------------------------------------- |
+| Prefix        | Two-letter prefix of Uniq ID (e.g. `GP`, `FW`). This is the panel type  |
+|               | identifier in v7+ (used as the hashmap key in the JSON format).         |
+| Panel Kind    | Human-readable kind name (e.g. `Guest Panel`).                          |
+| Hidden        | Non-blank if this type should be hidden from public schedule.           |
+| Is Workshop   | Non-blank if this type is a paid workshop.                              |
+| Is Break      | Non-blank if this type represents a break.                              |
+| Is Café       | Non-blank if this type is a café panel.                                 |
+| Is Room Hours | Non-blank if this type represents room operating hours.                 |
+| Is TimeLine   | Non-blank if this type is a timeline/page-split marker. If absent,      |
+|               | inferred from prefix starting with `SP` or `SPLIT`.                     |
+| Is Private    | Non-blank if this type is private/staff-only (e.g. Staff Meal, ZZ).     |
+| Color         | CSS color for the panel type (e.g. `#db2777`). Stored in the `colors`   |
+|               | hashmap under the key `"color"` in v7+.                                 |
+| BW            | Alternate color for monochrome output. Stored in `colors` under `"bw"`. |
 
 ## Sample Column Layouts by Year
 

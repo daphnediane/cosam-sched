@@ -79,8 +79,8 @@ pub struct PanelSession {
     pub av_notes: Option<String>,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub conflicts: Vec<super::event::EventConflict>,
-    #[serde(skip_serializing_if = "IndexMap::is_empty")]
-    pub extras: ExtraFields,
+    #[serde(default, alias = "extras", skip_serializing_if = "IndexMap::is_empty")]
+    pub metadata: ExtraFields,
     #[serde(skip)]
     pub source: Option<SourceInfo>,
     #[serde(skip)]
@@ -149,6 +149,8 @@ pub struct Panel {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub have_ticket_image: Option<bool>,
     pub parts: Vec<PanelPart>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub metadata: Option<ExtraFields>,
     #[serde(skip)]
     pub change_state: ChangeState,
 }
@@ -176,6 +178,7 @@ impl Panel {
             simple_tix_event: None,
             have_ticket_image: None,
             parts: Vec::new(),
+            metadata: None,
             change_state: ChangeState::Unchanged,
         }
     }
@@ -242,7 +245,7 @@ impl PanelPart {
                 sewing_machines: false,
                 av_notes: None,
                 conflicts: Vec::new(),
-                extras: IndexMap::new(),
+                metadata: IndexMap::new(),
                 source: None,
                 change_state: ChangeState::Unchanged,
             };

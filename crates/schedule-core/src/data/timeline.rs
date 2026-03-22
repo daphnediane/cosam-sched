@@ -6,6 +6,7 @@
 
 use serde::{Deserialize, Serialize};
 
+use super::panel::ExtraFields;
 use super::source_info::{ChangeState, SourceInfo};
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -14,10 +15,12 @@ pub struct TimelineEntry {
     pub id: String,
     pub start_time: String,
     pub description: String,
-    #[serde(default)]
-    pub time_type: Option<String>,
+    #[serde(default, alias = "timeType")]
+    pub panel_type: Option<String>,
     #[serde(default)]
     pub note: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub metadata: Option<ExtraFields>,
     #[serde(default, skip_serializing)]
     pub source: Option<SourceInfo>,
     #[serde(default, skip_serializing)]
@@ -56,13 +59,13 @@ mod tests {
             "id": "SPLIT01",
             "startTime": "2026-06-26T09:00:00",
             "description": "Thursday Morning",
-            "timeType": "time-type-split",
+            "panelType": "SPLIT",
             "note": "Opening ceremonies"
         }"##;
         let entry: TimelineEntry = serde_json::from_str(json).unwrap();
         assert_eq!(entry.id, "SPLIT01");
         assert_eq!(entry.description, "Thursday Morning");
-        assert_eq!(entry.time_type, Some("time-type-split".into()));
+        assert_eq!(entry.panel_type, Some("SPLIT".into()));
     }
 
     #[test]
@@ -91,8 +94,9 @@ mod tests {
             id: "SPLIT01".to_string(),
             start_time: "2026-06-26T09:00:00".to_string(),
             description: "Thursday Morning".to_string(),
-            time_type: Some("time-type-split".to_string()),
+            panel_type: Some("SPLIT".to_string()),
             note: Some("Opening ceremonies".to_string()),
+            metadata: None,
             source: None,
             change_state: ChangeState::Unchanged,
         };

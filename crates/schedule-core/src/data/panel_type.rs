@@ -4,19 +4,20 @@
  * See LICENSE file for full license text
  */
 
+use indexmap::IndexMap;
 use serde::{Deserialize, Serialize};
 
+use super::panel::ExtraFields;
 use super::source_info::{ChangeState, SourceInfo};
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct PanelType {
-    #[serde(default)]
-    pub uid: Option<String>,
+    #[serde(default, skip)]
     pub prefix: String,
     pub kind: String,
-    #[serde(default)]
-    pub color: Option<String>,
+    #[serde(default, skip_serializing_if = "IndexMap::is_empty")]
+    pub colors: IndexMap<String, String>,
     #[serde(default)]
     pub is_break: bool,
     #[serde(default)]
@@ -27,8 +28,12 @@ pub struct PanelType {
     pub is_hidden: bool,
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
     pub is_room_hours: bool,
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub is_timeline: bool,
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub is_private: bool,
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub bw_color: Option<String>,
+    pub metadata: Option<ExtraFields>,
     #[serde(default, skip_serializing)]
     pub source: Option<SourceInfo>,
     #[serde(default, skip_serializing)]
@@ -36,18 +41,12 @@ pub struct PanelType {
 }
 
 impl PanelType {
-    pub fn uid_from_prefix(prefix: &str) -> String {
-        let slug = prefix
-            .to_lowercase()
-            .replace(|c: char| !c.is_alphanumeric(), "-");
-        let slug = slug.trim_matches('-');
-        format!("panel-type-{slug}")
+    pub fn color(&self) -> Option<&str> {
+        self.colors.get("color").map(|s| s.as_str())
     }
 
-    pub fn effective_uid(&self) -> String {
-        self.uid
-            .clone()
-            .unwrap_or_else(|| Self::uid_from_prefix(&self.prefix))
+    pub fn bw_color(&self) -> Option<&str> {
+        self.colors.get("bw").map(|s| s.as_str())
     }
 }
 
@@ -58,40 +57,24 @@ mod tests {
     #[test]
     fn test_panel_type_deserialize() {
         let json = r##"{
-            "uid": "panel-type-gp",
-            "prefix": "GP",
             "kind": "Guest Panel",
-            "color": "#E2F9D7",
+            "colors": { "color": "#E2F9D7", "bw": "#CCCCCC" },
             "isBreak": false,
             "isCafe": false,
             "isWorkshop": false
         }"##;
         let pt: PanelType = serde_json::from_str(json).unwrap();
-        assert_eq!(pt.prefix, "GP");
         assert_eq!(pt.kind, "Guest Panel");
-        assert_eq!(pt.color, Some("#E2F9D7".into()));
-        assert_eq!(pt.uid, Some("panel-type-gp".into()));
+        assert_eq!(pt.color(), Some("#E2F9D7"));
+        assert_eq!(pt.bw_color(), Some("#CCCCCC"));
         assert!(!pt.is_break);
-    }
-
-    #[test]
-    fn test_panel_type_no_uid() {
-        let json = r##"{
-            "prefix": "GP",
-            "kind": "Guest Panel",
-            "color": "#E2F9D7"
-        }"##;
-        let pt: PanelType = serde_json::from_str(json).unwrap();
-        assert_eq!(pt.uid, None);
-        assert_eq!(pt.effective_uid(), "panel-type-gp");
     }
 
     #[test]
     fn test_panel_type_break() {
         let json = r##"{
-            "prefix": "BRK",
             "kind": "Break",
-            "color": "#CCCCCC",
+            "colors": { "color": "#CCCCCC" },
             "isBreak": true,
             "isCafe": false,
             "isWorkshop": false
@@ -101,30 +84,61 @@ mod tests {
     }
 
     #[test]
-    fn test_uid_from_prefix() {
-        assert_eq!(PanelType::uid_from_prefix("GW"), "panel-type-gw");
-        assert_eq!(PanelType::uid_from_prefix("ME"), "panel-type-me");
-        assert_eq!(PanelType::uid_from_prefix("SPLIT"), "panel-type-split");
+    fn test_panel_type_timeline() {
+        let json = r##"{
+            "kind": "Page split",
+            "isTimeline": true
+        }"##;
+        let pt: PanelType = serde_json::from_str(json).unwrap();
+        assert!(pt.is_timeline);
+        assert!(!pt.is_break);
     }
 
     #[test]
     fn test_panel_type_roundtrip() {
+        let mut colors = IndexMap::new();
+        colors.insert("color".into(), "#FDEEB5".into());
+        colors.insert("bw".into(), "#DDDDDD".into());
         let pt = PanelType {
-            uid: Some("panel-type-gw".into()),
-            prefix: "GW".into(),
+            prefix: String::new(),
             kind: "Guest Workshop".into(),
-            color: Some("#FDEEB5".into()),
+            colors,
             is_break: false,
             is_cafe: false,
             is_workshop: true,
             is_hidden: false,
             is_room_hours: false,
-            bw_color: None,
+            is_timeline: false,
+            is_private: false,
+            metadata: None,
             source: None,
             change_state: ChangeState::Unchanged,
         };
         let json = serde_json::to_string(&pt).unwrap();
         let pt2: PanelType = serde_json::from_str(&json).unwrap();
         assert_eq!(pt, pt2);
+    }
+
+    #[test]
+    fn test_color_accessors() {
+        let mut colors = IndexMap::new();
+        colors.insert("color".into(), "#E2F9D7".into());
+        let pt = PanelType {
+            prefix: String::new(),
+            kind: "Test".into(),
+            colors,
+            is_break: false,
+            is_cafe: false,
+            is_workshop: false,
+            is_hidden: false,
+            is_room_hours: false,
+            is_timeline: false,
+            is_private: false,
+            metadata: None,
+            source: None,
+            change_state: ChangeState::Unchanged,
+        };
+        assert_eq!(pt.color(), Some("#E2F9D7"));
+        assert_eq!(pt.bw_color(), None);
     }
 }
