@@ -1277,6 +1277,17 @@ dependencies = [
 ]
 
 [[package]]
+name = "cosam-modify"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "chrono",
+ "schedule-core",
+ "serde",
+ "serde_json",
+]
+
+[[package]]
 name = "cosmic-text"
 version = "0.14.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"

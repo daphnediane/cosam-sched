@@ -3,5 +3,6 @@ members = [
     "crates/schedule-core",
     "apps/cosam-editor",
     "apps/cosam-convert",
+    "apps/cosam-modify",
 ]
 resolver = "2"

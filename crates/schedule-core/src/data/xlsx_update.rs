@@ -8,6 +8,7 @@ use std::collections::HashMap;
 use std::path::Path;
 
 use anyhow::Result;
+use chrono::Utc;
 use umya_spreadsheet::structs::Worksheet;
 
 use super::panel::Panel;
@@ -22,6 +23,19 @@ use super::xlsx_import::canonical_header;
 pub fn update_xlsx(schedule: &Schedule, path: &Path) -> Result<()> {
     let mut book = umya_spreadsheet::reader::xlsx::read(path)
         .map_err(|e| anyhow::anyhow!("Failed to read XLSX {}: {e}", path.display()))?;
+
+    {
+        let properties = book.get_properties_mut();
+        if let Some(ref modified) = schedule.meta.modified {
+            properties.set_modified(modified);
+        } else {
+            let now = Utc::now().format("%Y-%m-%dT%H:%M:%SZ").to_string();
+            properties.set_modified(&now);
+        }
+        if let Some(ref modified_by) = schedule.meta.last_modified_by {
+            properties.set_last_modified_by(modified_by);
+        }
+    }
 
     if schedule.imported_sheets.has_room_map {
         if let Some(sheet_name) = find_sheet_name(schedule.rooms.iter().map(|r| &r.source)) {

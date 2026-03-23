@@ -1,6 +1,6 @@
 # Cosplay America Schedule - Work Plan
 
-Generated on: Sun Mar 22 19:05:02 2026
+Generated on: Sun Mar 22 21:16:00 2026
 
 ## Completed
 
@@ -38,6 +38,7 @@ the base→part→session hierarchy in the UI.
 * [FEATURE-020] Implement the `credits` field generation based on `always_shown`/`always_grouped` semantics from schedule-to-html.
 * [FEATURE-021] Support the `<Name` prefix syntax in spreadsheet presenter headers to set `always_grouped` on individual members.
 * [FEATURE-023] Implement the v7 JSON schedule format changes in the Rust codebase: panelTypes hashmap, named color sets, merged timeTypes, stable presenter IDs, baked-in breaks, and metadata fields.
+* [FEATURE-501] Add a new command-line tool for in-place modifications of XLSX schedule files
 * [UI-001] Display both the programming room name (e.g., "Programming 1") and the actual hotel room location.
 * [UI-003] Implement theme switching with dark, light, and CosAm color modes.
 * [UI-004] Replace table-based layout with CSS grid similar to schedule-to-html implementation.
@@ -46,7 +47,7 @@ the base→part→session hierarchy in the UI.
 
 ## Summary of Open Items
 
-**Total open items:** 23
+**Total open items:** 22
 
 * **High Priority**
   * [ACCESSIBILITY-001] Implement comprehensive accessibility improvements for screen readers and color blindness support.
@@ -64,7 +65,6 @@ the base→part→session hierarchy in the UI.
   * [EDITOR-510] Define how multiple people and devices can safely edit a single schedule with conflict handling independent of any specific storage backend.
   * [FEATURE-006] Create a compact print format optimized for minimal paper usage.
   * [FEATURE-019] Populate the `metadata` field on all item types from non-standard spreadsheet columns during xlsx import.
-  * [FEATURE-501] Add a new command-line tool for in-place modifications of XLSX schedule files
   * [UI-005] Add sticky headers or repeat day headers between time blocks in grid view for better navigation.
   * [UI-006] Add visual indicators to the schedule widget to highlight conflicting events, making it easy for users to identify and understand scheduling conflicts.
   * [UI-007] Update the room filter dropdown to only include rooms that have scheduled panels, excluding rooms that only contain room-hours events (RH prefix or "Is Room Hours" flag).
@@ -225,16 +225,6 @@ The 2025 schedule shows this pattern:
 
 ---
 
-### [FEATURE-501] cosam-modify command
-
-**Status:** Open
-
-**Summary:** Add a new command-line tool for in-place modifications of XLSX schedule files
-
-**Description:** Create a new `cosam-modify` command that allows programmatic in-place modifications of XLSX schedule files, similar to what cosam-editor does but for command-line automation and scripting.
-
----
-
 ### [UI-005] Implement sticky headers or additional header rows
 
 **Status:** Open
@@ -387,7 +377,7 @@ Once `gpui_web` (GPUI's planned web/webview integration) becomes available, revi
 [FEATURE-021]: work-plan/done/FEATURE-021.md
 [FEATURE-022]: work-plan/low/FEATURE-022.md
 [FEATURE-023]: work-plan/done/FEATURE-023.md
-[FEATURE-501]: work-plan/medium/FEATURE-501.md
+[FEATURE-501]: work-plan/done/FEATURE-501.md
 [UI-001]: work-plan/done/UI-001.md
 [UI-002]: work-plan/high/UI-002.md
 [UI-003]: work-plan/done/UI-003.md

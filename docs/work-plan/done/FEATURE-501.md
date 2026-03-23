@@ -6,7 +6,7 @@ Add a new command-line tool for in-place modifications of XLSX schedule files
 
 ## Status
 
-Open
+Completed
 
 ## Priority
 

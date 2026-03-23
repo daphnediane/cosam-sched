@@ -40,9 +40,11 @@ Claude Opus 4.6 Thinking
 
 ## Process
 
-1. Remove existing `next_commit.tmp` file if it exists: `rm next_commit.tmp`
-2. Use the `write_to_file` tool to create a fresh `next_commit.tmp` file
+1. Use either the `write_to_file` or `edit` tool to create or update the `next_commit.tmp` file.
+2. If `next_commit.tmp` already exists, Cascade cannot overwrite it using `write_to_file` and must use the `edit` tool or you can remove it first
+   - On Unix/macOS: `rm next_commit.tmp`
+   - On Windows: `del next_commit.tmp`
 3. Follow the format exactly as specified
 4. Include all significant changes in the bullet points
 5. Ensure the file ends with the AI attribution line
-6. The file will be overwritten for each new commit, so always start fresh
+6. The file may be left behind from a previous commit, so always start fresh unless instructed otherwise
