@@ -81,7 +81,8 @@ function Build-Target {
     $cargoArgs = @(
         "--manifest-path", "$RootDir\Cargo.toml",
         "-p", "cosam-convert",
-        "-p", "cosam-editor"
+        "-p", "cosam-editor",
+        "-p", "cosam-modify"
     )
     
     if (-not $IsNative) {

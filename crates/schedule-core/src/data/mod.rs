@@ -27,7 +27,7 @@ pub use panel::{
 pub use panel_id::PanelId;
 pub use panel_type::PanelType;
 pub use post_process::apply_schedule_parity;
-pub use presenter::Presenter;
+pub use presenter::{Presenter, PresenterRank};
 pub use room::Room;
 pub use schedule::{Meta, Schedule, SessionDisplayInfo};
 pub use source_info::{ChangeState, ImportedSheetPresence, SourceInfo};

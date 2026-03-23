@@ -12,7 +12,7 @@ use chrono::{NaiveDateTime, Timelike};
 use serde::{Deserialize, Serialize};
 
 use super::panel_type::PanelType;
-use super::presenter::Presenter;
+use super::presenter::{Presenter, PresenterGroup, PresenterMember, PresenterRank};
 use super::schedule::{Meta, Schedule};
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -134,11 +134,11 @@ fn compute_credits(
             continue;
         }
         if let Some(presenter) = presenter_lookup.get(name.as_str()) {
-            if presenter.is_group {
+            if presenter.is_group() {
                 // For always_shown groups, check if we should show "Member of Group" format
-                if presenter.always_shown {
+                if presenter.always_shown() {
                     let unique_members: std::collections::HashSet<_> =
-                        presenter.members.iter().collect();
+                        presenter.members().iter().collect();
                     let credited_members_in_group: Vec<&String> = unique_members
                         .iter()
                         .filter(|member| credited_presenters.contains(member))
@@ -168,7 +168,7 @@ fn compute_credits(
                             // All members present, show just the group name
                             credits.push(name.clone());
                             used_groups.insert(name.clone());
-                            for member in &presenter.members {
+                            for member in presenter.members() {
                                 used_as_member.insert(member.as_str());
                             }
                         }
@@ -176,7 +176,7 @@ fn compute_credits(
                 } else {
                     // Regular group logic
                     let show_as_group = presenter
-                        .members
+                        .members()
                         .iter()
                         .all(|member| credited_presenters.contains(member));
 
@@ -184,13 +184,13 @@ fn compute_credits(
                         if !used_groups.contains(name) {
                             credits.push(name.clone());
                             used_groups.insert(name.clone());
-                            for member in &presenter.members {
+                            for member in presenter.members() {
                                 used_as_member.insert(member.as_str());
                             }
                         }
                     } else {
                         // Group is not always_shown and not all members present, show members individually
-                        for member in &presenter.members {
+                        for member in presenter.members() {
                             if credited_presenters.contains(member)
                                 && !used_as_member.contains(member.as_str())
                             {
@@ -200,29 +200,29 @@ fn compute_credits(
                         }
                     }
                 }
-            } else if presenter.always_grouped && !presenter.groups.is_empty() {
+            } else if presenter.always_grouped() && !presenter.groups().is_empty() {
                 // This member should always appear under their group name
-                for group_name in &presenter.groups {
+                for group_name in presenter.groups() {
                     if let Some(group) = presenter_lookup.get(group_name.as_str()) {
                         // Check if this group should be shown and handle partial membership
-                        let show_as_group = group.always_shown
+                        let show_as_group = group.always_shown()
                             || group
-                                .members
+                                .members()
                                 .iter()
                                 .all(|member| credited_presenters.contains(member));
 
                         if !used_groups.contains(group_name) {
                             if show_as_group {
                                 // For always_shown groups, check if we should show "Member of Group" format
-                                if group.always_shown {
+                                if group.always_shown() {
                                     let credited_members_in_group: Vec<&String> = group
-                                        .members
+                                        .members()
                                         .iter()
                                         .filter(|member| credited_presenters.contains(member))
                                         .collect();
 
                                     // If not all members are present (partial attendance), show "Member of Group" for each
-                                    if credited_members_in_group.len() < group.members.len() {
+                                    if credited_members_in_group.len() < group.members().len() {
                                         // Show each credited member as "Member of Group"
                                         for member in &credited_members_in_group {
                                             credits.push(format!("{} of {}", member, group_name));
@@ -233,7 +233,7 @@ fn compute_credits(
                                         // All members present, show just the group name
                                         credits.push(group_name.clone());
                                         used_groups.insert(group_name.clone());
-                                        for member in &group.members {
+                                        for member in group.members() {
                                             used_as_member.insert(member.as_str());
                                         }
                                     }
@@ -241,7 +241,7 @@ fn compute_credits(
                                     // Regular group, show just the group name
                                     credits.push(group_name.clone());
                                     used_groups.insert(group_name.clone());
-                                    for member in &group.members {
+                                    for member in group.members() {
                                         used_as_member.insert(member.as_str());
                                     }
                                 }
@@ -259,29 +259,29 @@ fn compute_credits(
             continue;
         }
         if let Some(presenter) = presenter_lookup.get(name.as_str()) {
-            if !presenter.is_group && !presenter.always_grouped {
+            if !presenter.is_group() && !presenter.always_grouped() {
                 // Check if this presenter belongs to any groups that should be shown
                 let mut group_shown = false;
-                for group_name in &presenter.groups {
+                for group_name in presenter.groups() {
                     if !used_groups.contains(group_name) {
                         if let Some(group) = presenter_lookup.get(group_name.as_str()) {
-                            let show_as_group = group.always_shown
+                            let show_as_group = group.always_shown()
                                 || group
-                                    .members
+                                    .members()
                                     .iter()
                                     .all(|member| credited_presenters.contains(member));
 
                             if show_as_group {
                                 // For always_shown groups, check if we should show "Member of Group" format
-                                if group.always_shown {
+                                if group.always_shown() {
                                     let credited_members_in_group: Vec<&String> = group
-                                        .members
+                                        .members()
                                         .iter()
                                         .filter(|member| credited_presenters.contains(member))
                                         .collect();
 
                                     // If not all members are present (partial attendance), show "Member of Group" for each
-                                    if credited_members_in_group.len() < group.members.len() {
+                                    if credited_members_in_group.len() < group.members().len() {
                                         // Show each credited member as "Member of Group"
                                         for member in &credited_members_in_group {
                                             credits.push(format!("{} of {}", member, group_name));
@@ -292,7 +292,7 @@ fn compute_credits(
                                         // All members present, show just the group name
                                         credits.push(group_name.clone());
                                         used_groups.insert(group_name.clone());
-                                        for member in &group.members {
+                                        for member in group.members() {
                                             used_as_member.insert(member.as_str());
                                         }
                                     }
@@ -300,7 +300,7 @@ fn compute_credits(
                                     // Regular group, show just the group name
                                     credits.push(group_name.clone());
                                     used_groups.insert(group_name.clone());
-                                    for member in &group.members {
+                                    for member in group.members() {
                                         used_as_member.insert(member.as_str());
                                     }
                                 }
@@ -708,7 +708,7 @@ impl Schedule {
 #[cfg(test)]
 mod tests {
     use crate::data::panel::{Panel, PanelPart, PanelSession};
-    use crate::data::presenter::Presenter;
+    use crate::data::presenter::{Presenter, PresenterGroup, PresenterMember, PresenterRank};
     use crate::data::room::Room;
     use crate::data::schedule::{Meta, Schedule};
     use indexmap::IndexMap;
@@ -720,12 +720,9 @@ mod tests {
             Presenter {
                 id: None,
                 name: "John Doe".to_string(),
-                rank: "fan_panelist".to_string(),
-                is_group: false,
-                members: std::collections::BTreeSet::new(),
-                groups: std::collections::BTreeSet::new(),
-                always_grouped: false,
-                always_shown: false,
+                rank: PresenterRank::from_str("fan_panelist"),
+                is_member: PresenterMember::NotMember,
+                is_grouped: PresenterGroup::NotGroup,
                 metadata: None,
                 source: None,
                 change_state: Default::default(),
@@ -734,16 +731,16 @@ mod tests {
             Presenter {
                 id: None,
                 name: "Jane Smith".to_string(),
-                rank: "fan_panelist".to_string(),
-                is_group: false,
-                members: std::collections::BTreeSet::new(),
-                groups: {
-                    let mut groups = std::collections::BTreeSet::new();
-                    groups.insert("Test Group".to_string());
-                    groups
-                },
-                always_grouped: true,
-                always_shown: false,
+                rank: PresenterRank::from_str("fan_panelist"),
+                is_member: PresenterMember::IsMember(
+                    {
+                        let mut groups = std::collections::BTreeSet::new();
+                        groups.insert("Test Group".to_string());
+                        groups
+                    },
+                    true,
+                ),
+                is_grouped: PresenterGroup::NotGroup,
                 metadata: None,
                 source: None,
                 change_state: Default::default(),
@@ -752,16 +749,16 @@ mod tests {
             Presenter {
                 id: None,
                 name: "Bob Johnson".to_string(),
-                rank: "fan_panelist".to_string(),
-                is_group: false,
-                members: std::collections::BTreeSet::new(),
-                groups: {
-                    let mut groups = std::collections::BTreeSet::new();
-                    groups.insert("Test Group".to_string());
-                    groups
-                },
-                always_grouped: false,
-                always_shown: false,
+                rank: PresenterRank::from_str("fan_panelist"),
+                is_member: PresenterMember::IsMember(
+                    {
+                        let mut groups = std::collections::BTreeSet::new();
+                        groups.insert("Test Group".to_string());
+                        groups
+                    },
+                    false,
+                ),
+                is_grouped: PresenterGroup::NotGroup,
                 metadata: None,
                 source: None,
                 change_state: Default::default(),
@@ -770,17 +767,17 @@ mod tests {
             Presenter {
                 id: None,
                 name: "Test Group".to_string(),
-                rank: "guest".to_string(),
-                is_group: true,
-                members: {
-                    let mut members = std::collections::BTreeSet::new();
-                    members.insert("Jane Smith".to_string());
-                    members.insert("Bob Johnson".to_string());
-                    members
-                },
-                groups: std::collections::BTreeSet::new(),
-                always_grouped: false,
-                always_shown: true,
+                rank: PresenterRank::from_str("guest"),
+                is_member: PresenterMember::NotMember,
+                is_grouped: PresenterGroup::IsGroup(
+                    {
+                        let mut members = std::collections::BTreeSet::new();
+                        members.insert("Jane Smith".to_string());
+                        members.insert("Bob Johnson".to_string());
+                        members
+                    },
+                    true,
+                ),
                 metadata: None,
                 source: None,
                 change_state: Default::default(),
@@ -789,17 +786,17 @@ mod tests {
             Presenter {
                 id: None,
                 name: "Regular Group".to_string(),
-                rank: "guest".to_string(),
-                is_group: true,
-                members: {
-                    let mut members = std::collections::BTreeSet::new();
-                    members.insert("Alice Brown".to_string());
-                    members.insert("Charlie Wilson".to_string());
-                    members
-                },
-                groups: std::collections::BTreeSet::new(),
-                always_grouped: false,
-                always_shown: false,
+                rank: PresenterRank::from_str("guest"),
+                is_member: PresenterMember::NotMember,
+                is_grouped: PresenterGroup::IsGroup(
+                    {
+                        let mut members = std::collections::BTreeSet::new();
+                        members.insert("Alice Brown".to_string());
+                        members.insert("Charlie Wilson".to_string());
+                        members
+                    },
+                    false,
+                ),
                 metadata: None,
                 source: None,
                 change_state: Default::default(),
@@ -808,16 +805,16 @@ mod tests {
             Presenter {
                 id: None,
                 name: "Alice Brown".to_string(),
-                rank: "fan_panelist".to_string(),
-                is_group: false,
-                members: std::collections::BTreeSet::new(),
-                groups: {
-                    let mut groups = std::collections::BTreeSet::new();
-                    groups.insert("Regular Group".to_string());
-                    groups
-                },
-                always_grouped: false,
-                always_shown: false,
+                rank: PresenterRank::from_str("fan_panelist"),
+                is_member: PresenterMember::IsMember(
+                    {
+                        let mut groups = std::collections::BTreeSet::new();
+                        groups.insert("Regular Group".to_string());
+                        groups
+                    },
+                    false,
+                ),
+                is_grouped: PresenterGroup::NotGroup,
                 metadata: None,
                 source: None,
                 change_state: Default::default(),
@@ -825,16 +822,16 @@ mod tests {
             Presenter {
                 id: None,
                 name: "Charlie Wilson".to_string(),
-                rank: "fan_panelist".to_string(),
-                is_group: false,
-                members: std::collections::BTreeSet::new(),
-                groups: {
-                    let mut groups = std::collections::BTreeSet::new();
-                    groups.insert("Regular Group".to_string());
-                    groups
-                },
-                always_grouped: false,
-                always_shown: false,
+                rank: PresenterRank::from_str("fan_panelist"),
+                is_member: PresenterMember::IsMember(
+                    {
+                        let mut groups = std::collections::BTreeSet::new();
+                        groups.insert("Regular Group".to_string());
+                        groups
+                    },
+                    false,
+                ),
+                is_grouped: PresenterGroup::NotGroup,
                 metadata: None,
                 source: None,
                 change_state: Default::default(),
@@ -900,12 +897,9 @@ mod tests {
             Presenter {
                 id: None,
                 name: "John Doe".to_string(),
-                rank: "fan_panelist".to_string(),
-                is_group: false,
-                members: std::collections::BTreeSet::new(),
-                groups: std::collections::BTreeSet::new(),
-                always_grouped: false,
-                always_shown: false,
+                rank: PresenterRank::from_str("fan_panelist"),
+                is_member: PresenterMember::NotMember,
+                is_grouped: PresenterGroup::NotGroup,
                 metadata: None,
                 source: None,
                 change_state: Default::default(),
@@ -913,17 +907,17 @@ mod tests {
             Presenter {
                 id: None,
                 name: "Test Group".to_string(),
-                rank: "guest".to_string(),
-                is_group: true,
-                members: {
-                    let mut members = std::collections::BTreeSet::new();
-                    members.insert("John Doe".to_string());
-                    members.insert("Jane Doe".to_string());
-                    members
-                },
-                groups: std::collections::BTreeSet::new(),
-                always_grouped: false,
-                always_shown: false,
+                rank: PresenterRank::from_str("guest"),
+                is_member: PresenterMember::NotMember,
+                is_grouped: PresenterGroup::IsGroup(
+                    {
+                        let mut members = std::collections::BTreeSet::new();
+                        members.insert("John Doe".to_string());
+                        members.insert("Jane Doe".to_string());
+                        members
+                    },
+                    false,
+                ),
                 metadata: None,
                 source: None,
                 change_state: Default::default(),

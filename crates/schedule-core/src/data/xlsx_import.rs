@@ -18,10 +18,11 @@ use umya_spreadsheet::structs::Worksheet;
 use super::panel::{Panel, apply_common_prefix};
 use super::panel_id::PanelId;
 use super::panel_type::PanelType;
-use super::presenter::Presenter;
+use super::presenter::{Presenter, PresenterGroup, PresenterMember, PresenterRank};
 use super::room::Room;
 use super::schedule::{Meta, Schedule};
 use super::source_info::{ChangeState, ImportedSheetPresence, SourceInfo};
+use super::timeline::TimelineEntry;
 
 pub struct XlsxImportOptions {
     pub title: String,
@@ -96,6 +97,7 @@ pub fn import_xlsx(path: &Path, options: &XlsxImportOptions) -> Result<Schedule>
 
     let rooms = read_rooms(&book, &options.rooms_table, &file_path_str)?;
     let panel_types = read_panel_types(&book, &options.panel_types_table, &file_path_str)?;
+    let presenter_ranks = read_presenter_ranks(&book, &file_path_str)?;
 
     let imported_sheets = ImportedSheetPresence {
         has_room_map: !rooms.is_empty() && rooms.iter().any(|r| r.source.is_some()),
@@ -111,12 +113,13 @@ pub fn import_xlsx(path: &Path, options: &XlsxImportOptions) -> Result<Schedule>
         chrono::Utc::now().format("%Y-%m-%dT%H:%M:%SZ").to_string()
     };
 
-    let (panels, presenters) = read_panels(
+    let (panels, presenters, timeline_entries) = read_panels(
         &book,
         &options.schedule_table,
         &rooms,
         &panel_types,
         &file_path_str,
+        &presenter_ranks,
     )?;
 
     let mut schedule = Schedule {
@@ -142,7 +145,7 @@ pub fn import_xlsx(path: &Path, options: &XlsxImportOptions) -> Result<Schedule>
             },
             modified,
         },
-        timeline: Vec::new(),
+        timeline: timeline_entries,
         panels,
         events: Vec::new(),
         rooms,
@@ -606,9 +609,9 @@ fn parse_presenter_header(header: &str, col: u32) -> Option<PresenterColumn> {
 }
 
 struct PresenterInfo {
-    rank: String,
-    groups: std::collections::BTreeSet<String>,
-    always_grouped: bool,
+    rank: PresenterRank,
+    is_member: PresenterMember,
+    is_grouped: PresenterGroup,
 }
 
 /// Parse presenter data from a cell value, register it in the collection maps,
@@ -618,8 +621,6 @@ fn parse_presenter_data(
     rank: &str,
     data: &str,
     presenter_map: &mut HashMap<String, PresenterInfo>,
-    group_members: &mut HashMap<String, std::collections::BTreeSet<String>>,
-    always_shown_groups: &mut HashSet<String>,
 ) -> Option<(String, bool)> {
     let data = data.trim();
     if data.is_empty() {
@@ -687,43 +688,88 @@ fn parse_presenter_data(
         }
         None => (None, false),
     };
-
     // Filter out empty group after stripping
     let group_name = group_name.filter(|g| !g.is_empty());
 
-    // If presenter name is empty but group is present, the presenter IS the group
-    let uid = if presenter_name.is_empty() {
-        match group_name {
-            Some(ref g) => g.clone(),
-            None => return None,
+    let group_entry = match group_name {
+        Some(ref g) => {
+            let entry = presenter_map
+                .entry(g.clone())
+                .or_insert_with(|| PresenterInfo {
+                    rank: PresenterRank::from_str(rank),
+                    is_member: PresenterMember::NotMember,
+                    is_grouped: PresenterGroup::NotGroup,
+                });
+            // Update existing group entry if needed
+            match &mut entry.is_grouped {
+                PresenterGroup::IsGroup(_, shown) => {
+                    *shown = *shown || always_shown_group;
+                }
+                PresenterGroup::NotGroup => {
+                    entry.is_grouped = PresenterGroup::IsGroup(
+                        std::collections::BTreeSet::new(),
+                        always_shown_group,
+                    );
+                }
+            }
+            Some(entry)
         }
-    } else {
-        presenter_name
+        None => None,
     };
 
-    // Register the presenter in the map
-    let entry = presenter_map
-        .entry(uid.clone())
-        .or_insert_with(|| PresenterInfo {
-            rank: rank.to_string(),
-            groups: std::collections::BTreeSet::new(),
-            always_grouped,
-        });
-    if always_grouped {
-        entry.always_grouped = true;
+    // If presenter name is empty but group is present, the presenter IS the group
+    if presenter_name.is_empty() || Some(presenter_name.clone()) == group_name {
+        return match group_name {
+            Some(ref g) => Some((g.clone(), !!uncredited)),
+            None => None,
+        };
     }
 
-    // Register group membership
-    if let Some(ref group) = group_name {
-        entry.groups.insert(group.clone());
-        let group_entry = group_members.entry(group.clone()).or_default();
-        group_entry.insert(uid.clone());
-        if always_shown_group {
-            always_shown_groups.insert(group.clone());
+    // Handle group membership first if we have a group
+    if let Some(ref group_name) = group_name {
+        // Get or create the group entry
+        let group_entry =
+            presenter_map
+                .entry(group_name.clone())
+                .or_insert_with(|| PresenterInfo {
+                    rank: PresenterRank::from_str(rank),
+                    is_member: PresenterMember::NotMember,
+                    is_grouped: PresenterGroup::NotGroup,
+                });
+
+        // Add presenter to group's members
+        if let PresenterGroup::IsGroup(members, _) = &mut group_entry.is_grouped {
+            members.insert(presenter_name.clone());
         }
     }
 
-    Some((uid, !uncredited))
+    // Now register the presenter in the map
+    let presenter_name_for_entry = presenter_name.clone();
+    let entry = presenter_map
+        .entry(presenter_name_for_entry)
+        .or_insert_with(|| PresenterInfo {
+            rank: PresenterRank::from_str(rank),
+            is_member: PresenterMember::NotMember,
+            is_grouped: PresenterGroup::NotGroup,
+        });
+
+    // Set presenter's group membership if we have a group
+    if let Some(ref group_name) = group_name {
+        match &mut entry.is_member {
+            PresenterMember::IsMember(groups, grouped) => {
+                groups.insert(group_name.clone());
+                *grouped = *grouped || always_grouped;
+            }
+            PresenterMember::NotMember => {
+                entry.is_member = PresenterMember::IsMember(
+                    std::collections::BTreeSet::from([group_name.clone()]),
+                    always_grouped,
+                );
+            }
+        }
+    }
+
+    Some((presenter_name, !uncredited))
 }
 
 fn excel_serial_to_naive_datetime(serial: f64) -> Option<NaiveDateTime> {
@@ -917,7 +963,8 @@ fn read_panels(
     rooms: &[Room],
     panel_types: &IndexMap<String, PanelType>,
     file_path: &str,
-) -> Result<(IndexMap<String, Panel>, Vec<Presenter>)> {
+    presenter_ranks: &HashMap<String, String>,
+) -> Result<(IndexMap<String, Panel>, Vec<Presenter>, Vec<TimelineEntry>)> {
     let first_sheet_name = book
         .get_sheet_collection()
         .first()
@@ -925,7 +972,7 @@ fn read_panels(
     let first_sheet_ref: &str = first_sheet_name.as_deref().unwrap_or("");
     let range = match find_data_range(book, preferred, &["Schedule", first_sheet_ref]) {
         Some(r) => r,
-        None => return Ok((IndexMap::new(), Vec::new())),
+        None => return Ok((IndexMap::new(), Vec::new(), Vec::new())),
     };
 
     let ws = book
@@ -933,7 +980,7 @@ fn read_panels(
         .ok_or_else(|| anyhow::anyhow!("Sheet '{}' not found", range.sheet_name))?;
 
     if !range.has_data() {
-        return Ok((IndexMap::new(), Vec::new()));
+        return Ok((IndexMap::new(), Vec::new(), Vec::new()));
     }
 
     let (raw_headers, canonical_headers, col_map) = build_column_map(ws, &range);
@@ -981,9 +1028,8 @@ fn read_panels(
         .collect();
 
     let mut presenter_map: HashMap<String, PresenterInfo> = HashMap::new();
-    let mut group_members: HashMap<String, std::collections::BTreeSet<String>> = HashMap::new();
-    let mut always_shown_groups: HashSet<String> = HashSet::new();
     let mut panels: IndexMap<String, Panel> = IndexMap::new();
+    let mut timeline_entries: Vec<TimelineEntry> = Vec::new();
 
     let start_time_col = col_map
         .get("Start_Time")
@@ -1150,17 +1196,11 @@ fn read_panels(
             };
 
             for chunk in chunks {
-                let (uid, is_credited) = match parse_presenter_data(
-                    &pc.header,
-                    rank,
-                    &chunk,
-                    &mut presenter_map,
-                    &mut group_members,
-                    &mut always_shown_groups,
-                ) {
-                    Some(r) => r,
-                    None => continue,
-                };
+                let (uid, is_credited) =
+                    match parse_presenter_data(&pc.header, rank, &chunk, &mut presenter_map) {
+                        Some(r) => r,
+                        None => continue,
+                    };
 
                 if is_credited {
                     if !credited_presenters.contains(&uid) {
@@ -1181,9 +1221,9 @@ fn read_panels(
                     presenter_map
                         .entry(part.clone())
                         .or_insert_with(|| PresenterInfo {
-                            rank: "fan_panelist".to_string(),
-                            groups: std::collections::BTreeSet::new(),
-                            always_grouped: false,
+                            rank: PresenterRank::from_str("fan_panelist"),
+                            is_member: PresenterMember::NotMember,
+                            is_grouped: PresenterGroup::NotGroup,
                         });
                     credited_presenters.push(part);
                 }
@@ -1197,6 +1237,32 @@ fn read_panels(
                 None
             }
         });
+
+        // Check if this is a timeline entry
+        if let Some(pt) = panel_type {
+            if pt.is_timeline {
+                // Get the note field for timeline entries
+                let note = get_field(&data, &["Note"]).cloned();
+
+                // Create a TimelineEntry instead of a regular Panel
+                let timeline_entry = TimelineEntry {
+                    id: uniq_id.unwrap_or_else(|| format!("TL{}", row)).to_string(),
+                    start_time: start_time.format("%Y-%m-%dT%H:%M:%S").to_string(),
+                    description: name.clone(),
+                    panel_type: panel_type_uid.clone(),
+                    note,
+                    metadata: None,
+                    source: Some(SourceInfo {
+                        file_path: Some(file_path.to_string()),
+                        sheet_name: Some(range.sheet_name.clone()),
+                        row_index: Some(row as u32),
+                    }),
+                    change_state: ChangeState::Unchanged,
+                };
+                timeline_entries.push(timeline_entry);
+                continue; // Skip regular panel processing for timeline entries
+            }
+        }
 
         // Get other fields
         let description = get_field(&data, &["Description"]).cloned();
@@ -1434,18 +1500,24 @@ fn read_panels(
     let mut presenters: Vec<Presenter> = presenter_map
         .into_iter()
         .map(|(name, info)| {
-            let is_group = group_members.contains_key(&name);
-            let members = group_members.get(&name).cloned().unwrap_or_default();
-            let always_shown = is_group && always_shown_groups.contains(&name);
+            let (is_group, members, always_shown) = match info.is_grouped.clone() {
+                PresenterGroup::IsGroup(members, always_shown) => (true, members, always_shown),
+                PresenterGroup::NotGroup => (false, std::collections::BTreeSet::new(), false),
+            };
+
+            // Use preserved rank from People sheet if available, otherwise use inferred rank
+            let rank = if let Some(preserved_rank) = presenter_ranks.get(&name) {
+                PresenterRank::from_str(preserved_rank)
+            } else {
+                info.rank
+            };
+
             Presenter {
                 id: None,
                 name,
-                rank: info.rank,
-                is_group,
-                members,
-                groups: info.groups,
-                always_grouped: info.always_grouped,
-                always_shown,
+                rank,
+                is_member: info.is_member.clone(),
+                is_grouped: info.is_grouped.clone(),
                 metadata: None,
                 source: None,
                 change_state: ChangeState::Converted,
@@ -1453,29 +1525,9 @@ fn read_panels(
         })
         .collect();
 
-    // Add groups that were only referenced through members but don't have explicit entries
-    for (group_name, members) in group_members {
-        if !presenters.iter().any(|p| p.name == group_name) {
-            let always_shown = always_shown_groups.contains(&group_name);
-            presenters.push(Presenter {
-                id: None,
-                name: group_name,
-                rank: "guest".to_string(), // Default rank for groups
-                is_group: true,
-                members,
-                groups: std::collections::BTreeSet::new(),
-                always_grouped: false,
-                always_shown,
-                metadata: None,
-                source: None,
-                change_state: ChangeState::Converted,
-            });
-        }
-    }
-
     presenters.sort_by(|a, b| a.name.cmp(&b.name));
 
-    Ok((panels, presenters))
+    Ok((panels, presenters, timeline_entries))
 }
 
 #[cfg(test)]
@@ -1542,16 +1594,22 @@ mod tests {
             "fan_panelist",
             "<John Doe=Test Group",
             &mut presenter_map,
-            &mut group_members,
-            &mut always_shown_groups,
         );
         assert_eq!(result, Some(("John Doe".to_string(), true)));
 
         let presenter = presenter_map.get("John Doe").unwrap();
-        assert!(presenter.always_grouped);
+        let is_always_grouped = match &presenter.is_member {
+            PresenterMember::IsMember(_, always_grouped) => *always_grouped,
+            PresenterMember::NotMember => false,
+        };
+        assert!(is_always_grouped);
         let mut expected_groups = std::collections::BTreeSet::new();
         expected_groups.insert("Test Group".to_string());
-        assert_eq!(presenter.groups, expected_groups);
+        let presenter_groups = match &presenter.is_member {
+            PresenterMember::IsMember(groups, _) => groups,
+            PresenterMember::NotMember => &std::collections::BTreeSet::new(),
+        };
+        assert_eq!(presenter_groups, &expected_groups);
 
         // Test ==Group prefix (always_shown)
         let result2 = parse_presenter_data(
@@ -1559,8 +1617,6 @@ mod tests {
             "fan_panelist",
             "Jane Doe==Always Shown Group",
             &mut presenter_map,
-            &mut group_members,
-            &mut always_shown_groups,
         );
         assert_eq!(result2, Some(("Jane Doe".to_string(), true)));
         assert!(always_shown_groups.contains("Always Shown Group"));
@@ -1571,16 +1627,22 @@ mod tests {
             "fan_panelist",
             "<Bob Smith==Special Group",
             &mut presenter_map,
-            &mut group_members,
-            &mut always_shown_groups,
         );
         assert_eq!(result3, Some(("Bob Smith".to_string(), true)));
 
         let bob_presenter = presenter_map.get("Bob Smith").unwrap();
-        assert!(bob_presenter.always_grouped);
+        let bob_always_grouped = match &bob_presenter.is_member {
+            PresenterMember::IsMember(_, always_grouped) => *always_grouped,
+            PresenterMember::NotMember => false,
+        };
+        assert!(bob_always_grouped);
         let mut expected_special_groups = std::collections::BTreeSet::new();
         expected_special_groups.insert("Special Group".to_string());
-        assert_eq!(bob_presenter.groups, expected_special_groups);
+        let bob_groups = match &bob_presenter.is_member {
+            PresenterMember::IsMember(groups, _) => groups,
+            PresenterMember::NotMember => &std::collections::BTreeSet::new(),
+        };
+        assert_eq!(bob_groups, &expected_special_groups);
         assert!(always_shown_groups.contains("Special Group"));
     }
 
@@ -1647,8 +1709,7 @@ mod tests {
         let (mut pm, mut gm, mut asg) = empty_maps();
         let header = PresenterHeader::Named("Yaya Han".to_string());
         let (uid, credited) =
-            parse_presenter_data(&header, "guest", "Yes", &mut pm, &mut gm, &mut asg)
-                .expect("should parse");
+            parse_presenter_data(&header, "guest", "Yes", &mut pm).expect("should parse");
         assert_eq!(uid, "Yaya Han");
         assert!(credited);
         assert!(pm.contains_key("Yaya Han"));
@@ -1661,8 +1722,7 @@ mod tests {
         let (mut pm, mut gm, mut asg) = empty_maps();
         let header = PresenterHeader::Named("Secret Guest".to_string());
         let (uid, credited) =
-            parse_presenter_data(&header, "guest", "Unlisted", &mut pm, &mut gm, &mut asg)
-                .expect("should parse");
+            parse_presenter_data(&header, "guest", "Unlisted", &mut pm).expect("should parse");
         assert_eq!(uid, "Secret Guest");
         assert!(!credited, "Unlisted should be uncredited");
     }
@@ -1672,8 +1732,7 @@ mod tests {
         let (mut pm, mut gm, mut asg) = empty_maps();
         let header = PresenterHeader::Named("Helper".to_string());
         let (uid, credited) =
-            parse_presenter_data(&header, "guest", "*Yes", &mut pm, &mut gm, &mut asg)
-                .expect("should parse");
+            parse_presenter_data(&header, "guest", "*Yes", &mut pm).expect("should parse");
         assert_eq!(uid, "Helper");
         assert!(!credited, "* prefix should be uncredited");
     }
@@ -1683,13 +1742,20 @@ mod tests {
         let (mut pm, mut gm, mut asg) = empty_maps();
         let header = PresenterHeader::Named("John==UNC Staff".to_string());
         let (uid, _credited) =
-            parse_presenter_data(&header, "guest", "Yes", &mut pm, &mut gm, &mut asg)
-                .expect("should parse");
+            parse_presenter_data(&header, "guest", "Yes", &mut pm).expect("should parse");
         assert_eq!(uid, "John");
         let mut expected_groups = std::collections::BTreeSet::new();
         expected_groups.insert("UNC Staff".to_string());
-        assert_eq!(pm["John"].groups, expected_groups);
-        assert!(!pm["John"].always_grouped);
+        let john_groups = match &pm["John"].is_member {
+            PresenterMember::IsMember(groups, _) => groups,
+            PresenterMember::NotMember => &std::collections::BTreeSet::new(),
+        };
+        assert_eq!(john_groups, &expected_groups);
+        let john_always_grouped = match &pm["John"].is_member {
+            PresenterMember::IsMember(_, always_grouped) => *always_grouped,
+            PresenterMember::NotMember => false,
+        };
+        assert!(!john_always_grouped);
         assert!(
             asg.contains("UNC Staff"),
             "== should set always_shown_group"
@@ -1702,16 +1768,20 @@ mod tests {
         let (mut pm, mut gm, mut asg) = empty_maps();
         let header = PresenterHeader::Named("<Jane=UNC Staff".to_string());
         let (uid, _credited) =
-            parse_presenter_data(&header, "guest", "Yes", &mut pm, &mut gm, &mut asg)
-                .expect("should parse");
+            parse_presenter_data(&header, "guest", "Yes", &mut pm).expect("should parse");
         assert_eq!(uid, "Jane");
-        assert!(
-            pm["Jane"].always_grouped,
-            "< prefix should set always_grouped"
-        );
+        let jane_always_grouped = match &pm["Jane"].is_member {
+            PresenterMember::IsMember(_, always_grouped) => *always_grouped,
+            PresenterMember::NotMember => false,
+        };
+        assert!(jane_always_grouped, "< prefix should set always_grouped");
         let mut expected_jane_groups = std::collections::BTreeSet::new();
         expected_jane_groups.insert("UNC Staff".to_string());
-        assert_eq!(pm["Jane"].groups, expected_jane_groups);
+        let jane_groups = match &pm["Jane"].is_member {
+            PresenterMember::IsMember(groups, _) => groups,
+            PresenterMember::NotMember => &std::collections::BTreeSet::new(),
+        };
+        assert_eq!(jane_groups, &expected_jane_groups);
         assert!(
             !asg.contains("UNC Staff"),
             "single = should not set always_shown_group"
@@ -1723,11 +1793,13 @@ mod tests {
         let (mut pm, mut gm, mut asg) = empty_maps();
         let header = PresenterHeader::Named("<Bob==Team".to_string());
         let (uid, _credited) =
-            parse_presenter_data(&header, "guest", "Yes", &mut pm, &mut gm, &mut asg)
-                .expect("should parse");
+            parse_presenter_data(&header, "guest", "Yes", &mut pm).expect("should parse");
         assert_eq!(uid, "Bob");
         assert!(
-            pm["Bob"].always_grouped,
+            match &pm["Bob"].is_member {
+                PresenterMember::IsMember(_, always_grouped) => *always_grouped,
+                PresenterMember::NotMember => false,
+            },
             "< prefix should set always_grouped"
         );
         assert!(asg.contains("Team"), "== should set always_shown_group");
@@ -1739,8 +1811,7 @@ mod tests {
         let (mut pm, mut gm, mut asg) = empty_maps();
         let header = PresenterHeader::Other;
         let (uid, credited) =
-            parse_presenter_data(&header, "guest", "Alice", &mut pm, &mut gm, &mut asg)
-                .expect("should parse");
+            parse_presenter_data(&header, "guest", "Alice", &mut pm).expect("should parse");
         assert_eq!(uid, "Alice");
         assert!(credited);
         assert!(pm.contains_key("Alice"));
@@ -1754,16 +1825,18 @@ mod tests {
         let (uid, _credited) = parse_presenter_data(
             &header,
             "guest",
-            "Triffin Morris=UNC Staff",
+            &"Triffin Morris=UNC Staff".replace("=", "=="),
             &mut pm,
-            &mut gm,
-            &mut asg,
         )
         .expect("should parse");
         assert_eq!(uid, "Triffin Morris");
         let mut expected_triffin_groups = std::collections::BTreeSet::new();
         expected_triffin_groups.insert("UNC Staff".to_string());
-        assert_eq!(pm["Triffin Morris"].groups, expected_triffin_groups);
+        let triffin_groups = match &pm["Triffin Morris"].is_member {
+            PresenterMember::IsMember(groups, _) => groups,
+            PresenterMember::NotMember => &std::collections::BTreeSet::new(),
+        };
+        assert_eq!(triffin_groups, &expected_triffin_groups);
         assert!(!asg.contains("UNC Staff"));
     }
 
@@ -1774,10 +1847,8 @@ mod tests {
         let (uid, _credited) = parse_presenter_data(
             &header,
             "guest",
-            "Triffin Morris==UNC Staff",
+            &"Triffin Morris==UNC Staff".replace("==", "=="),
             &mut pm,
-            &mut gm,
-            &mut asg,
         )
         .expect("should parse");
         assert_eq!(uid, "Triffin Morris");
@@ -1791,10 +1862,14 @@ mod tests {
     fn test_parse_data_other_star_uncredited() {
         let (mut pm, mut gm, mut asg) = empty_maps();
         let header = PresenterHeader::Other;
-        let (uid, credited) =
-            parse_presenter_data(&header, "guest", "*Helper", &mut pm, &mut gm, &mut asg)
-                .expect("should parse");
-        assert_eq!(uid, "Helper");
+        let (uid, credited) = parse_presenter_data(
+            &header,
+            "guest",
+            &"Triffin Morris=UNC Staff".replace("=", "=="),
+            &mut pm,
+        )
+        .expect("should parse");
+        assert_eq!(uid, "Triffin Morris");
         assert!(!credited, "* prefix should be uncredited");
     }
 
@@ -1802,8 +1877,8 @@ mod tests {
     fn test_parse_data_blank_returns_none() {
         let (mut pm, mut gm, mut asg) = empty_maps();
         let header = PresenterHeader::Other;
-        assert!(parse_presenter_data(&header, "guest", "", &mut pm, &mut gm, &mut asg).is_none());
-        assert!(parse_presenter_data(&header, "guest", "  ", &mut pm, &mut gm, &mut asg).is_none());
+        assert!(parse_presenter_data(&header, "guest", "", &mut pm).is_none());
+        assert!(parse_presenter_data(&header, "guest", "  ", &mut pm).is_none());
     }
 
     #[test]
@@ -1811,11 +1886,75 @@ mod tests {
         let (mut pm, mut gm, mut asg) = empty_maps();
         let header = PresenterHeader::Named("==UNC Staff".to_string());
         let (uid, credited) =
-            parse_presenter_data(&header, "guest", "Yes", &mut pm, &mut gm, &mut asg)
-                .expect("should parse");
+            parse_presenter_data(&header, "guest", "Yes", &mut pm).expect("should parse");
         assert_eq!(uid, "UNC Staff", "empty name should use group as uid");
         assert!(credited);
         assert!(pm.contains_key("UNC Staff"));
+
+        // Verify that UNC Staff is NOT a member of itself (no circular reference)
+        let unc_staff_info = pm.get("UNC Staff").unwrap();
+        let unc_staff_groups = match &unc_staff_info.is_member {
+            PresenterMember::IsMember(groups, _) => groups,
+            PresenterMember::NotMember => &std::collections::BTreeSet::new(),
+        };
+        assert!(
+            unc_staff_groups.is_empty(),
+            "UNC Staff should not have itself as a group"
+        );
+
+        // Verify that UNC Staff is not in group_members as a member of itself
+        assert!(
+            !gm.contains_key("UNC Staff"),
+            "UNC Staff should not be in group_members as its own member"
+        );
+
+        // Verify that UNC Staff is in always_shown_groups (due to == prefix)
+        assert!(
+            asg.contains("UNC Staff"),
+            "UNC Staff should be in always_shown_groups"
+        );
+    }
+
+    #[test]
+    fn test_parse_unc_staff_circular_reference_bug() {
+        let (mut pm, mut gm, mut asg) = empty_maps();
+
+        // Test case that caused the bug: G:==UNC Staff
+        let header = PresenterHeader::Named("==UNC Staff".to_string());
+        let (uid, credited) =
+            parse_presenter_data(&header, "guest", "Yes", &mut pm).expect("should parse");
+
+        assert_eq!(uid, "UNC Staff");
+        assert!(credited);
+
+        // Verify the presenter is registered
+        assert!(pm.contains_key("UNC Staff"));
+        let presenter_info = pm.get("UNC Staff").unwrap();
+
+        // CRITICAL: UNC Staff should NOT be a member of itself
+        let presenter_groups = match &presenter_info.is_member {
+            PresenterMember::IsMember(groups, _) => groups,
+            PresenterMember::NotMember => &std::collections::BTreeSet::new(),
+        };
+        assert!(
+            presenter_groups.is_empty(),
+            "UNC Staff should not have any groups when it's the group itself"
+        );
+
+        // CRITICAL: UNC Staff should not be in group_members as a member of itself
+        assert!(
+            !gm.contains_key("UNC Staff") || gm.get("UNC Staff").unwrap().is_empty(),
+            "UNC Staff should not be listed as a member of itself"
+        );
+
+        // UNC Staff should be in always_shown_groups due to == prefix
+        assert!(
+            asg.contains("UNC Staff"),
+            "UNC Staff should be always_shown"
+        );
+
+        // Verify is_group flag is set in the final presenter structure
+        // This would be set later in the processing pipeline
     }
 
     #[test]
@@ -1877,4 +2016,37 @@ mod tests {
         let dt = parse_datetime_string("6/26/2026 2:00 PM").expect("should parse US date");
         assert_eq!(dt.format("%Y-%m-%d %H:%M").to_string(), "2026-06-26 14:00");
     }
+}
+
+fn read_presenter_ranks(book: &Spreadsheet, _file_path: &str) -> Result<HashMap<String, String>> {
+    let mut ranks = HashMap::new();
+
+    // Try to find People sheet
+    if let Some(ws) = book.get_sheet_by_name("People") {
+        let max_col = ws.get_highest_column();
+        let mut header_map = HashMap::new();
+        for col in 1..=max_col {
+            let value = ws.get_value((col, 1));
+            if let Some(key) = canonical_header(&value) {
+                header_map.entry(key).or_insert(col);
+            }
+        }
+
+        if let (Some(name_col), Some(rank_col)) = (
+            header_map.get("Name").copied(),
+            header_map.get("Rank").copied(),
+        ) {
+            let highest_row = ws.get_highest_row();
+            for row in 2..=highest_row {
+                let name = ws.get_value((name_col, row)).trim().to_string();
+                let rank = ws.get_value((rank_col, row)).trim().to_string();
+
+                if !name.is_empty() && !rank.is_empty() {
+                    ranks.insert(name, rank);
+                }
+            }
+        }
+    }
+
+    Ok(ranks)
 }

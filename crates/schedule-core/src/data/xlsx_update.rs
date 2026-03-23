@@ -13,6 +13,7 @@ use umya_spreadsheet::structs::Worksheet;
 
 use super::panel::Panel;
 use super::panel_type::PanelType;
+use super::presenter::{Presenter, PresenterGroup, PresenterMember, PresenterRank};
 use super::room::Room;
 use super::schedule::Schedule;
 use super::source_info::{ChangeState, SourceInfo};
@@ -1027,12 +1028,9 @@ mod tests {
                 Presenter {
                     id: None,
                     name: "Alice".to_string(),
-                    rank: "guest".to_string(),
-                    is_group: false,
-                    members: std::collections::BTreeSet::new(),
-                    groups: std::collections::BTreeSet::new(),
-                    always_grouped: false,
-                    always_shown: false,
+                    rank: PresenterRank::from_str("guest"),
+                    is_member: PresenterMember::NotMember,
+                    is_grouped: PresenterGroup::NotGroup,
                     metadata: None,
                     source: None,
                     change_state: ChangeState::Converted,
@@ -1040,15 +1038,12 @@ mod tests {
                 Presenter {
                     id: None,
                     name: "Bob".to_string(),
-                    rank: "staff".to_string(),
-                    is_group: false,
-                    members: std::collections::BTreeSet::new(),
-                    groups: std::collections::BTreeSet::new(),
-                    always_grouped: false,
-                    always_shown: false,
+                    rank: PresenterRank::from_str("staff"),
+                    is_member: PresenterMember::NotMember,
+                    is_grouped: PresenterGroup::NotGroup,
                     metadata: None,
                     source: None,
-                    change_state: ChangeState::Deleted,
+                    change_state: ChangeState::Converted,
                 },
             ],
             imported_sheets: ImportedSheetPresence {

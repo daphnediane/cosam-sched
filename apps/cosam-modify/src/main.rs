@@ -1319,8 +1319,8 @@ fn list_presenters(
         })
         .map(|presenter| PresenterListRow {
             name: presenter.name.clone(),
-            rank: presenter.rank.clone(),
-            is_group: presenter.is_group,
+            rank: presenter.rank.as_str().to_string(),
+            is_group: presenter.is_group(),
         })
         .collect();
 

@@ -14,7 +14,6 @@ Supported in v7
 
 | Field            | Type           | Public | Description                                                                        |
 | ---------------- | -------------- | ------ | ---------------------------------------------------------------------------------- |
-| `id`             | integer        | yes    | Stable unique integer identifier (never reused)                                    |
 | `name`           | string         | yes    | Display name                                                                       |
 | `rank`           | string         | yes    | Role: `"guest"`, `"judge"`, `"staff"`, `"invited_guest"`, or `"fan_panelist"`      |
 | `is_group`       | boolean        | yes    | True if this entry represents a group rather than an individual                    |
@@ -27,10 +26,6 @@ Supported in v7
 ## Description
 
 Presenters can be individuals or groups. The array defines all presenters and groups for the schedule, used to populate the presenter filter dropdown and for credits generation.
-
-### Stable Integer IDs
-
-Each presenter has a stable integer `id` assigned from a monotonically increasing counter tracked in `meta.nextPresenterId`. IDs are never reused — if a presenter is removed, their ID is not recycled. This ensures stable references across edits.
 
 ### Group/Member Relationships
 
@@ -75,7 +70,6 @@ These two flags control credit display and are set via spreadsheet header syntax
 ```json
 [
   {
-    "id": 1,
     "name": "December Wynn",
     "rank": "guest",
     "is_group": false,
@@ -85,7 +79,6 @@ These two flags control credit display and are set via spreadsheet header syntax
     "always_shown": false
   },
   {
-    "id": 2,
     "name": "Pros and Cons Cosplay",
     "rank": "guest",
     "is_group": true,
@@ -95,7 +88,6 @@ These two flags control credit display and are set via spreadsheet header syntax
     "always_shown": true
   },
   {
-    "id": 3,
     "name": "Pro",
     "rank": "guest",
     "is_group": false,
@@ -109,8 +101,8 @@ These two flags control credit display and are set via spreadsheet header syntax
 
 ## Notes
 
-- The `id` field is new in v7 and must be unique across all presenters
 - `always_shown` is new in v7; in v4–v6 only `always_grouped` existed
 - In v4–v6, `==Group` incorrectly set `always_grouped` on the member; in v7 it correctly sets `always_shown` on the group
 - `metadata` is only present in the full format and is stripped in the display variant
 - Group membership must be defined in both directions (group lists members, members list groups)
+- **Note**: A stable integer ID system was planned for v7 but not implemented. Presenters are identified by name for now.

@@ -8,8 +8,8 @@ use std::collections::{HashMap, HashSet};
 
 use super::event::EventConflict;
 use super::panel_type::PanelType;
-use super::presenter::Presenter;
 use super::schedule::{ConflictEventRef, Schedule, ScheduleConflict};
+use crate::data::presenter::{Presenter, PresenterGroup, PresenterMember, PresenterRank};
 
 const GROUP_SUFFIX_PATTERNS: [&str; 1] = ["staff"];
 
@@ -67,7 +67,7 @@ fn generate_credits(schedule: &mut Schedule) {
                 continue;
             };
 
-            if presenter_info.always_grouped {
+            if presenter_info.always_grouped() {
                 credits.push(presenter_name.clone());
                 processed.insert(presenter_name.clone());
             }
@@ -84,34 +84,34 @@ fn generate_credits(schedule: &mut Schedule) {
                 continue;
             };
 
-            if !presenter_info.groups.is_empty() {
+            if !presenter_info.groups().is_empty() {
                 let mut handled_group = false;
-                for group_name in &presenter_info.groups {
+                for group_name in presenter_info.groups() {
                     let Some(group_info) = presenter_lookup.get(group_name.as_str()) else {
                         continue;
                     };
-                    if !group_info.is_group {
+                    if !group_info.is_group() {
                         continue;
                     }
 
                     let present_members: Vec<&str> = group_info
-                        .members
+                        .members()
                         .iter()
                         .map(String::as_str)
                         .filter(|member_name| presenters.iter().any(|name| name == member_name))
                         .collect();
 
-                    for member_name in &present_members {
+                    for member_name in group_info.members() {
                         processed.insert((*member_name).to_string());
                     }
                     processed.insert(group_name.clone());
 
-                    if !group_info.members.is_empty()
-                        && present_members.len() == group_info.members.len()
+                    if !group_info.members().is_empty()
+                        && present_members.len() == group_info.members().len()
                     {
                         credits.push(group_name.clone());
                     } else {
-                        for member_name in present_members {
+                        for member_name in group_info.members() {
                             credits.push(format!("{member_name} of {group_name}"));
                         }
                     }
@@ -125,26 +125,29 @@ fn generate_credits(schedule: &mut Schedule) {
                 }
             }
 
-            if presenter_info.is_group {
+            if presenter_info.is_group() {
                 let present_members: Vec<&str> = presenter_info
-                    .members
+                    .members()
                     .iter()
                     .map(String::as_str)
                     .filter(|member_name| presenters.iter().any(|name| name == member_name))
                     .collect();
 
                 if present_members.is_empty()
-                    || (!presenter_info.members.is_empty()
-                        && present_members.len() == presenter_info.members.len())
+                    || (!presenter_info.members().is_empty()
+                        && present_members.len() == presenter_info.members().len())
                 {
                     credits.push(presenter_name.clone());
                 } else {
-                    for member_name in &present_members {
+                    for member_name in presenter_info.members() {
                         credits.push(format!("{member_name} of {presenter_name}"));
                     }
                 }
 
                 processed.insert(presenter_name.clone());
+                for member_name in presenter_info.members() {
+                    processed.insert(member_name.to_string());
+                }
                 for member_name in present_members {
                     processed.insert(member_name.to_string());
                 }
@@ -600,7 +603,7 @@ fn is_group_presenter(presenter_name: &str, presenters: &[Presenter]) -> bool {
     presenters
         .iter()
         .find(|presenter| presenter.name == presenter_name)
-        .map(|presenter| presenter.is_group)
+        .map(|presenter| presenter.is_group())
         .unwrap_or(false)
 }
 
@@ -708,6 +711,7 @@ fn add_conflict_pair(
 mod tests {
     use super::*;
     use crate::data::event::Event;
+    use crate::data::presenter::PresenterRank;
     use crate::data::schedule::Meta;
     use crate::data::source_info::{ChangeState, ImportedSheetPresence};
     use chrono::NaiveDateTime;
@@ -749,54 +753,54 @@ mod tests {
             Presenter {
                 id: None,
                 name: "Pros and Cons Cosplay".to_string(),
-                rank: "guest".to_string(),
-                is_group: true,
-                members: {
-                    let mut members = std::collections::BTreeSet::new();
-                    members.insert("Pro".to_string());
-                    members.insert("Con".to_string());
-                    members
-                },
-                groups: std::collections::BTreeSet::new(),
-                always_grouped: false,
-                always_shown: false,
+                rank: PresenterRank::from_str("guest"),
+                is_member: PresenterMember::NotMember,
+                is_grouped: PresenterGroup::IsGroup(
+                    {
+                        let mut members = std::collections::BTreeSet::new();
+                        members.insert("Pro".to_string());
+                        members.insert("Con".to_string());
+                        members
+                    },
+                    false,
+                ),
                 metadata: None,
                 source: None,
-                change_state: ChangeState::Unchanged,
+                change_state: Default::default(),
             },
             Presenter {
                 id: None,
                 name: "Pro".to_string(),
-                rank: "guest".to_string(),
-                is_group: false,
-                members: std::collections::BTreeSet::new(),
-                groups: {
-                    let mut groups = std::collections::BTreeSet::new();
-                    groups.insert("Pros and Cons Cosplay".to_string());
-                    groups
-                },
-                always_grouped: false,
-                always_shown: false,
+                rank: PresenterRank::from_str("guest"),
+                is_member: PresenterMember::IsMember(
+                    {
+                        let mut groups = std::collections::BTreeSet::new();
+                        groups.insert("Pros and Cons Cosplay".to_string());
+                        groups
+                    },
+                    false,
+                ),
+                is_grouped: PresenterGroup::NotGroup,
                 metadata: None,
                 source: None,
-                change_state: ChangeState::Unchanged,
+                change_state: Default::default(),
             },
             Presenter {
                 id: None,
                 name: "Con".to_string(),
-                rank: "guest".to_string(),
-                is_group: false,
-                members: std::collections::BTreeSet::new(),
-                groups: {
-                    let mut groups = std::collections::BTreeSet::new();
-                    groups.insert("Pros and Cons Cosplay".to_string());
-                    groups
-                },
-                always_grouped: false,
-                always_shown: false,
+                rank: PresenterRank::from_str("guest"),
+                is_member: PresenterMember::IsMember(
+                    {
+                        let mut groups = std::collections::BTreeSet::new();
+                        groups.insert("Pros and Cons Cosplay".to_string());
+                        groups
+                    },
+                    false,
+                ),
+                is_grouped: PresenterGroup::NotGroup,
                 metadata: None,
                 source: None,
-                change_state: ChangeState::Unchanged,
+                change_state: Default::default(),
             },
         ];
 

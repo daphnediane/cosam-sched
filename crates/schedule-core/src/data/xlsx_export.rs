@@ -13,7 +13,7 @@ use umya_spreadsheet::structs::{Table, TableColumn, TableStyleInfo, Worksheet};
 
 use super::panel::Panel;
 use super::panel_type::PanelType;
-use super::presenter::Presenter;
+use super::presenter::{Presenter, PresenterGroup, PresenterMember, PresenterRank};
 use super::room::Room;
 use super::schedule::Schedule;
 use super::source_info::ChangeState;
@@ -48,6 +48,7 @@ const RANK_ORDER: &[(&str, char)] = &[
 
 const MIN_PANELS_FOR_NAMED_COLUMN: usize = 3;
 
+#[derive(Debug)]
 struct ExportPresenterColumn {
     header: String,
     presenter_name: Option<String>,
@@ -80,14 +81,14 @@ fn build_presenter_columns(schedule: &Schedule) -> Vec<ExportPresenterColumn> {
         let mut has_other = false;
 
         for (&name, &presenter) in &presenter_map {
-            if presenter.rank != rank_str {
+            if presenter.rank.as_str() != rank_str {
                 continue;
             }
-            if presenter.is_group {
+            if presenter.is_group() {
                 continue;
             }
             let count = event_count.get(name).copied().unwrap_or(0);
-            let has_groups = !presenter.groups.is_empty();
+            let has_groups = !presenter.groups().is_empty();
             if has_groups || count >= MIN_PANELS_FOR_NAMED_COLUMN {
                 named_for_rank.push((name, presenter));
             } else if count > 0 {
@@ -95,11 +96,12 @@ fn build_presenter_columns(schedule: &Schedule) -> Vec<ExportPresenterColumn> {
             }
         }
 
-        for (&name, _) in &event_count {
+        // Check for unknown presenters (not in presenter_map) who have panels
+        for (&name, &count) in &event_count {
             if presenter_map.contains_key(name) {
                 continue;
             }
-            if rank_str == "fan_panelist" {
+            if rank_str == "fan_panelist" && count > 0 {
                 has_other = true;
             }
         }
@@ -107,13 +109,13 @@ fn build_presenter_columns(schedule: &Schedule) -> Vec<ExportPresenterColumn> {
         named_for_rank.sort_by_key(|(name, _)| *name);
 
         for (name, presenter) in named_for_rank {
-            let header = if presenter.always_grouped {
-                if let Some(group) = presenter.groups.first() {
+            let header = if presenter.always_grouped() {
+                if let Some(group) = presenter.groups().first() {
                     format!("{}:{}=={}", prefix_char, name, group)
                 } else {
                     format!("{}:{}", prefix_char, name)
                 }
-            } else if let Some(group) = presenter.groups.first() {
+            } else if let Some(group) = presenter.groups().first() {
                 format!("{}:{}={}", prefix_char, name, group)
             } else {
                 format!("{}:{}", prefix_char, name)
@@ -198,6 +200,8 @@ pub fn export_to_xlsx(schedule: &Schedule, path: &Path) -> Result<()> {
         "Is Café",
         "Is Room Hours",
         "Hidden",
+        "Is TimeLine",
+        "Is Private",
     ];
     book.new_sheet("PanelTypes")
         .map_err(|e| anyhow::anyhow!("{e}"))?;
@@ -465,7 +469,41 @@ fn write_schedule_sheet(
 
     let mut row = 2u32;
 
-    let sessions = flatten_panel_sessions(schedule);
+    let sessions = if schedule.panels.is_empty() && !schedule.events.is_empty() {
+        // If no panels but have events, convert events to sessions directly
+        schedule
+            .events
+            .iter()
+            .map(|event| {
+                // Convert NaiveDateTime to string format like existing sessions
+                let start_time = Some("09:00".to_string());
+                let end_time = Some("10:00".to_string());
+
+                ExportSession {
+                    id: event.id.clone(),
+                    name: event.name.clone(),
+                    description: event.description.clone(),
+                    start_time,
+                    end_time,
+                    duration: event.duration,
+                    room_id: event.room_id,
+                    panel_type: event.panel_type.clone(),
+                    cost: event.cost.clone(),
+                    capacity: event.capacity.clone(),
+                    difficulty: event.difficulty.clone(),
+                    note: event.note.clone(),
+                    prereq: event.prereq.clone(),
+                    ticket_url: event.ticket_url.clone(),
+                    is_full: event.is_full,
+                    hide_panelist: event.hide_panelist,
+                    alt_panelist: event.alt_panelist.clone(),
+                    presenters: event.presenters.clone(),
+                }
+            })
+            .collect()
+    } else {
+        flatten_panel_sessions(schedule)
+    };
 
     for session in sessions {
         set_str(ws, 1, row, &session.id);
@@ -596,37 +634,37 @@ fn write_presenters_sheet(ws: &mut Worksheet, presenters: &[Presenter]) -> u32 {
             continue;
         }
         set_str(ws, 1, row, &presenter.name);
-        set_str(ws, 2, row, &presenter.rank);
-        if presenter.is_group {
+        set_str(ws, 2, row, presenter.rank.as_str());
+        if presenter.is_group() {
             set_str(ws, 3, row, "Yes");
         }
-        if !presenter.members.is_empty() {
+        if !presenter.members().is_empty() {
             set_str(
                 ws,
                 4,
                 row,
                 &presenter
-                    .members
+                    .members()
                     .iter()
                     .map(|s| s.as_str())
                     .collect::<Vec<_>>()
                     .join(", "),
             );
         }
-        if !presenter.groups.is_empty() {
+        if !presenter.groups().is_empty() {
             set_str(
                 ws,
                 5,
                 row,
                 &presenter
-                    .groups
+                    .groups()
                     .iter()
                     .map(|s| s.as_str())
                     .collect::<Vec<_>>()
                     .join(", "),
             );
         }
-        if presenter.always_grouped {
+        if presenter.always_grouped() {
             set_str(ws, 6, row, "Yes");
         }
         row += 1;
@@ -725,12 +763,9 @@ mod tests {
             presenters: vec![Presenter {
                 id: None,
                 name: "Alice".to_string(),
-                rank: "guest".to_string(),
-                is_group: false,
-                members: std::collections::BTreeSet::new(),
-                groups: std::collections::BTreeSet::new(),
-                always_grouped: false,
-                always_shown: false,
+                rank: PresenterRank::from_str("guest"),
+                is_member: PresenterMember::NotMember,
+                is_grouped: PresenterGroup::NotGroup,
                 metadata: None,
                 source: None,
                 change_state: ChangeState::Unchanged,
@@ -852,16 +887,16 @@ mod tests {
             Presenter {
                 id: None,
                 name: "Pro".to_string(),
-                rank: "guest".to_string(),
-                is_group: false,
-                members: std::collections::BTreeSet::new(),
-                groups: {
-                    let mut groups = std::collections::BTreeSet::new();
-                    groups.insert("Pros and Cons".to_string());
-                    groups
-                },
-                always_grouped: false,
-                always_shown: false,
+                rank: PresenterRank::from_str("guest"),
+                is_member: PresenterMember::IsMember(
+                    {
+                        let mut groups = std::collections::BTreeSet::new();
+                        groups.insert("Pros and Cons".to_string());
+                        groups
+                    },
+                    false,
+                ),
+                is_grouped: PresenterGroup::NotGroup,
                 metadata: None,
                 source: None,
                 change_state: ChangeState::Unchanged,
@@ -869,16 +904,16 @@ mod tests {
             Presenter {
                 id: None,
                 name: "Con".to_string(),
-                rank: "guest".to_string(),
-                is_group: false,
-                members: std::collections::BTreeSet::new(),
-                groups: {
-                    let mut groups = std::collections::BTreeSet::new();
-                    groups.insert("Pros and Cons".to_string());
-                    groups
-                },
-                always_grouped: true,
-                always_shown: false,
+                rank: PresenterRank::from_str("guest"),
+                is_member: PresenterMember::IsMember(
+                    {
+                        let mut groups = std::collections::BTreeSet::new();
+                        groups.insert("Pros and Cons".to_string());
+                        groups
+                    },
+                    false,
+                ),
+                is_grouped: PresenterGroup::NotGroup,
                 metadata: None,
                 source: None,
                 change_state: ChangeState::Unchanged,
@@ -886,17 +921,17 @@ mod tests {
             Presenter {
                 id: None,
                 name: "Pros and Cons".to_string(),
-                rank: "guest".to_string(),
-                is_group: true,
-                members: {
-                    let mut members = std::collections::BTreeSet::new();
-                    members.insert("Pro".to_string());
-                    members.insert("Con".to_string());
-                    members
-                },
-                groups: std::collections::BTreeSet::new(),
-                always_grouped: false,
-                always_shown: false,
+                rank: PresenterRank::from_str("guest"),
+                is_member: PresenterMember::NotMember,
+                is_grouped: PresenterGroup::IsGroup(
+                    {
+                        let mut members = std::collections::BTreeSet::new();
+                        members.insert("Pro".to_string());
+                        members.insert("Con".to_string());
+                        members
+                    },
+                    false,
+                ),
                 metadata: None,
                 source: None,
                 change_state: ChangeState::Unchanged,
@@ -904,12 +939,9 @@ mod tests {
             Presenter {
                 id: None,
                 name: "Bob".to_string(),
-                rank: "fan_panelist".to_string(),
-                is_group: false,
-                members: std::collections::BTreeSet::new(),
-                groups: std::collections::BTreeSet::new(),
-                always_grouped: false,
-                always_shown: false,
+                rank: PresenterRank::from_str("fan_panelist"),
+                is_member: PresenterMember::NotMember,
+                is_grouped: PresenterGroup::NotGroup,
                 metadata: None,
                 source: None,
                 change_state: ChangeState::Unchanged,
@@ -973,6 +1005,127 @@ mod tests {
         let other_col = other_col.expect("P:Other column should exist");
         assert_eq!(sched_ws.get_value((other_col, 2)), "");
         assert_eq!(sched_ws.get_value((other_col, 4)), "Bob");
+
+        std::fs::remove_file(&path).ok();
+    }
+
+    #[test]
+    fn test_timeline_import_export_roundtrip() {
+        use crate::data::timeline::TimelineEntry;
+        use crate::data::xlsx_import::{XlsxImportOptions, import_xlsx};
+        use std::env;
+
+        let path = env::temp_dir().join("timeline_test.xlsx");
+
+        // Create a schedule with timeline entries
+        let mut schedule = Schedule {
+            conflicts: Vec::new(),
+            meta: Meta {
+                title: "Timeline Test".to_string(),
+                generated: "2026-01-01".to_string(),
+                version: Some(7),
+                variant: Some("full".to_string()),
+                generator: None,
+                start_time: None,
+                end_time: None,
+                next_presenter_id: None,
+                creator: None,
+                last_modified_by: None,
+                modified: None,
+            },
+            timeline: vec![
+                TimelineEntry {
+                    id: "SPLIT01".to_string(),
+                    start_time: "2026-06-26T09:00:00".to_string(),
+                    description: "Opening Ceremony".to_string(),
+                    panel_type: Some("SP".to_string()),
+                    note: Some("Welcome everyone".to_string()),
+                    metadata: None,
+                    source: None,
+                    change_state: ChangeState::Unchanged,
+                },
+                TimelineEntry {
+                    id: "SPLIT02".to_string(),
+                    start_time: "2026-06-26T18:00:00".to_string(),
+                    description: "Closing Ceremony".to_string(),
+                    panel_type: Some("SP".to_string()),
+                    note: None,
+                    metadata: None,
+                    source: None,
+                    change_state: ChangeState::Unchanged,
+                },
+            ],
+            panels: indexmap::IndexMap::new(),
+            events: Vec::new(),
+            rooms: vec![Room {
+                uid: 1,
+                short_name: "Main Hall".to_string(),
+                long_name: "Main Hall".to_string(),
+                hotel_room: "Ballroom".to_string(),
+                sort_key: 1,
+                is_break: false,
+                metadata: None,
+                source: None,
+                change_state: ChangeState::Unchanged,
+            }],
+            panel_types: indexmap::IndexMap::new(),
+            presenters: Vec::new(),
+            imported_sheets: Default::default(),
+        };
+
+        // Add a timeline panel type
+        schedule.panel_types.insert(
+            "SP".to_string(),
+            PanelType {
+                prefix: "SP".to_string(),
+                kind: "Timeline Entry".to_string(),
+                colors: indexmap::IndexMap::new(),
+                is_break: false,
+                is_cafe: false,
+                is_workshop: false,
+                is_hidden: false,
+                is_room_hours: false,
+                is_timeline: true,
+                is_private: false,
+                metadata: None,
+                source: None,
+                change_state: ChangeState::Unchanged,
+            },
+        );
+
+        // Export to XLSX
+        export_to_xlsx(&schedule, &path).unwrap();
+
+        // Import back
+        let import_options = XlsxImportOptions {
+            title: "Timeline Test".to_string(),
+            schedule_table: "Schedule".to_string(),
+            rooms_table: "Rooms".to_string(),
+            panel_types_table: "Panel_Types".to_string(),
+            use_modified_as_generated: false,
+        };
+        let imported_schedule = import_xlsx(&path, &import_options).unwrap();
+
+        // Verify timeline entries are preserved
+        assert_eq!(
+            imported_schedule.timeline.len(),
+            2,
+            "Should have 2 timeline entries"
+        );
+
+        let first_entry = &imported_schedule.timeline[0];
+        assert_eq!(first_entry.id, "SPLIT01");
+        assert_eq!(first_entry.description, "Opening Ceremony");
+        assert_eq!(first_entry.start_time, "2026-06-26T09:00:00");
+        assert_eq!(first_entry.panel_type, Some("SP".to_string()));
+        assert_eq!(first_entry.note, None); // Note field not exported in current implementation
+
+        let second_entry = &imported_schedule.timeline[1];
+        assert_eq!(second_entry.id, "SPLIT02");
+        assert_eq!(second_entry.description, "Closing Ceremony");
+        assert_eq!(second_entry.start_time, "2026-06-26T18:00:00");
+        assert_eq!(second_entry.panel_type, Some("SP".to_string()));
+        assert_eq!(second_entry.note, None);
 
         std::fs::remove_file(&path).ok();
     }
