@@ -9,6 +9,7 @@ use std::path::{Path, PathBuf};
 
 use anyhow::{Context, Result};
 use chrono::{Datelike, Duration, NaiveDate, NaiveDateTime, NaiveTime, Timelike, Utc, Weekday};
+use schedule_core::data::panel::ExtraValue;
 use schedule_core::data::xlsx_update;
 use schedule_core::data::{ChangeState, Schedule, XlsxImportOptions};
 use serde::Serialize;
@@ -37,6 +38,7 @@ enum SelectScope {
     Panel,
     Presenter,
     Room,
+    Type,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -49,6 +51,8 @@ enum SelectField {
     Type,
     Id,
     Name,
+    Prefix,
+    Kind,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -121,6 +125,16 @@ enum Command {
     UpdateFromJson {
         path: PathBuf,
     },
+    Query {
+        fields: Vec<String>,
+    },
+    SetMetadata {
+        key: String,
+        value: String,
+    },
+    ClearMetadata {
+        key: String,
+    },
 }
 
 #[derive(Debug, Clone)]
@@ -134,6 +148,8 @@ struct SessionRef {
 struct SelectionResult {
     panel_ids: BTreeSet<String>,
     sessions: Vec<SessionRef>,
+    room_ids: Vec<u32>,
+    panel_type_prefixes: Vec<String>,
     explicit_session_selector: bool,
 }
 
@@ -180,14 +196,20 @@ fn print_usage() {
          \x20 --help, -h                        Show this help message\n\
          \n\
          Selectors (AND semantics):\n\
-         \x20 --select [panel|presenter|room] [<field>:][relationship:]<value>[,[relationship:]<value>...]\n\
+         \x20 --select [panel|presenter|room|type] [<field>:][relationship:]<value>[,[relationship:]<value>...]\n\
          \n\
          Relationships: <, <=, =, =>, >, !, ~ (optional trailing colon)\n\
-         Fields: day, start|begin, dur|duration|length, room, presenter, type, id, name\n\
+         Panel fields: day, start|begin, dur|duration|length, room, presenter, type, id, name\n\
+         Room fields:  id, name\n\
+         Type fields:  prefix|id, kind|name\n\
+         Wildcard: use * or all to select all entities of a scope\n\
          \n\
          Commands:\n\
          \x20 list [panels|rooms|presenters]\n\
+         \x20 query <field>[,<field>...]  (fields: id,name,description,note,av-note,room,start,end,duration,type,cost,capacity,difficulty,prereq,presenters,credited,uncredited,metadata,change-state,all)\n\
          \x20 set description|note|av-note <text>\n\
+         \x20 set-metadata <key> <value>\n\
+         \x20 clear-metadata <key>\n\
          \x20 add-presenter <name>\n\
          \x20 remove-presenter <name>\n\
          \x20 reschedule [-room|--room <name>] [--day <weekday>] [--start <hh>:<mm>] [--duration <min|hour:min>] [--end <hh>:<mm>]\n\
@@ -199,7 +221,11 @@ fn print_usage() {
          \x20 cosam-modify --file test.xlsx --select panel name:\"Armor 101\" set note \"Bring foam\"\n\
          \x20 cosam-modify --file test.xlsx --select room name:\"Main Events\" list panels\n\
          \x20 cosam-modify --file test.xlsx --select panel id:panel-10-1 remove-session\n\
-         \x20 cosam-modify --file test.xlsx --select presenter name:\"Yaya Han\" add-presenter \"Guest Host\" -- --select panel id:panel-20 cancel"
+         \x20 cosam-modify --file test.xlsx --select presenter name:\"Yaya Han\" add-presenter \"Guest Host\" -- --select panel id:panel-20 cancel\n\
+         \x20 cosam-modify --file test.xlsx --select type prefix:GP set-metadata ThemeColor '#FF8800'\n\
+         \x20 cosam-modify --file test.xlsx --select room name:'Workshop 1' set-metadata Notes 'Has sewing machines'\n\
+         \x20 cosam-modify --file test.xlsx --select type '*' query prefix,kind,metadata\n\
+         \x20 cosam-modify --file test.xlsx --select room '*' query name,metadata"
     );
 }
 
@@ -277,7 +303,8 @@ fn parse_args() -> Result<CliArgs> {
                 break;
             }
             "list" | "set" | "add-presenter" | "remove-presenter" | "reschedule" | "cancel"
-            | "remove-session" | "update-from-json" => {
+            | "remove-session" | "update-from-json" | "query" | "set-metadata"
+            | "clear-metadata" => {
                 break;
             }
             other => anyhow::bail!("Unknown argument: {other}"),
@@ -524,6 +551,46 @@ fn parse_stage(tokens: &[String]) -> Result<Stage> {
             index += 1;
             Command::UpdateFromJson { path }
         }
+        "query" => {
+            index += 1;
+            let spec = tokens
+                .get(index)
+                .cloned()
+                .context("query requires at least one field name")?;
+            index += 1;
+            let fields: Vec<String> = spec
+                .split(',')
+                .map(|s| s.trim().to_lowercase())
+                .filter(|s| !s.is_empty())
+                .collect();
+            if fields.is_empty() {
+                anyhow::bail!("query requires at least one field name");
+            }
+            Command::Query { fields }
+        }
+        "set-metadata" => {
+            index += 1;
+            let key = tokens
+                .get(index)
+                .cloned()
+                .context("set-metadata requires a key")?;
+            index += 1;
+            let value = tokens
+                .get(index)
+                .cloned()
+                .context("set-metadata requires a value")?;
+            index += 1;
+            Command::SetMetadata { key, value }
+        }
+        "clear-metadata" => {
+            index += 1;
+            let key = tokens
+                .get(index)
+                .cloned()
+                .context("clear-metadata requires a key")?;
+            index += 1;
+            Command::ClearMetadata { key }
+        }
         other => anyhow::bail!("Unknown command: {other}"),
     };
 
@@ -539,6 +606,7 @@ fn parse_select_scope(value: &str) -> Option<SelectScope> {
         "panel" => Some(SelectScope::Panel),
         "presenter" => Some(SelectScope::Presenter),
         "room" => Some(SelectScope::Room),
+        "type" | "panel-type" | "panel_type" => Some(SelectScope::Type),
         _ => None,
     }
 }
@@ -553,6 +621,8 @@ fn parse_select_field(value: &str) -> Option<SelectField> {
         "type" => Some(SelectField::Type),
         "id" => Some(SelectField::Id),
         "name" => Some(SelectField::Name),
+        "prefix" => Some(SelectField::Prefix),
+        "kind" => Some(SelectField::Kind),
         _ => None,
     }
 }
@@ -679,6 +749,12 @@ fn parse_time_selector_value(value: &str) -> Option<u32> {
 }
 
 fn text_clause_matches(candidates: &[String], clause: &SelectClause) -> bool {
+    // Wildcard: * or "all" with Smart relationship matches everything.
+    if clause.relationship == SelectRelationship::Smart
+        && (clause.value == "*" || clause.value.eq_ignore_ascii_case("all"))
+    {
+        return true;
+    }
     match clause.relationship {
         SelectRelationship::Smart => {
             if candidates
@@ -868,7 +944,9 @@ fn query_clause_matches_session(
                 text_clause_matches(&room_names, clause)
             }
             SelectScope::Panel => text_clause_matches(&[panel.name.clone()], clause),
+            SelectScope::Type => false,
         },
+        Some(SelectField::Prefix) | Some(SelectField::Kind) => false,
         None => match query.scope {
             SelectScope::Panel => {
                 let mut values = vec![panel.id.clone(), panel.name.clone(), session.id.clone()];
@@ -911,6 +989,7 @@ fn query_clause_matches_session(
                 }
                 text_clause_matches(&values, clause)
             }
+            SelectScope::Type => false,
         },
     }
 }
@@ -942,7 +1021,9 @@ fn query_matches_panel_only(
         | Some(SelectField::Start)
         | Some(SelectField::Duration)
         | Some(SelectField::Room)
-        | Some(SelectField::Presenter) => false,
+        | Some(SelectField::Presenter)
+        | Some(SelectField::Prefix)
+        | Some(SelectField::Kind) => false,
         None => {
             let mut values = vec![panel.id.clone(), panel.name.clone()];
             if let Some(ref panel_type_id) = panel.panel_type {
@@ -985,6 +1066,50 @@ fn selectors_have_explicit_session_filter(selectors: &Selectors) -> bool {
     })
 }
 
+fn panel_type_matches_selectors(
+    panel_type: &schedule_core::data::PanelType,
+    selectors: &Selectors,
+) -> bool {
+    selectors.queries.iter().all(|query| {
+        if query.scope != SelectScope::Type {
+            return true;
+        }
+        query.clauses.iter().any(|clause| {
+            let values: Vec<String> = match query.field {
+                Some(SelectField::Prefix) | Some(SelectField::Id) => {
+                    vec![panel_type.prefix.clone()]
+                }
+                Some(SelectField::Kind) | Some(SelectField::Name) => {
+                    vec![panel_type.kind.clone()]
+                }
+                None => vec![panel_type.prefix.clone(), panel_type.kind.clone()],
+                _ => return false,
+            };
+            text_clause_matches(&values, clause)
+        })
+    })
+}
+
+fn room_matches_selectors(room: &schedule_core::data::Room, selectors: &Selectors) -> bool {
+    selectors.queries.iter().all(|query| {
+        if query.scope != SelectScope::Room {
+            return true;
+        }
+        query.clauses.iter().any(|clause| {
+            let values: Vec<String> = match query.field {
+                Some(SelectField::Name) | None => vec![
+                    room.short_name.clone(),
+                    room.long_name.clone(),
+                    room.hotel_room.clone(),
+                ],
+                Some(SelectField::Id) => vec![room.uid.to_string()],
+                _ => return false,
+            };
+            text_clause_matches(&values, clause)
+        })
+    })
+}
+
 fn collect_selection(schedule: &Schedule, selectors: &Selectors) -> SelectionResult {
     let mut result = SelectionResult {
         explicit_session_selector: selectors_have_explicit_session_filter(selectors),
@@ -992,6 +1117,42 @@ fn collect_selection(schedule: &Schedule, selectors: &Selectors) -> SelectionRes
     };
 
     let no_filters = selectors.queries.is_empty();
+    let has_room_queries = selectors
+        .queries
+        .iter()
+        .any(|q| q.scope == SelectScope::Room);
+    let has_type_queries = selectors
+        .queries
+        .iter()
+        .any(|q| q.scope == SelectScope::Type);
+    let has_panel_queries = selectors
+        .queries
+        .iter()
+        .any(|q| !matches!(q.scope, SelectScope::Room | SelectScope::Type));
+    let only_non_panel = !no_filters && !has_panel_queries;
+
+    // Collect rooms only when explicitly selected or no filters at all.
+    if no_filters || has_room_queries {
+        for room in &schedule.rooms {
+            if no_filters || room_matches_selectors(room, selectors) {
+                result.room_ids.push(room.uid);
+            }
+        }
+    }
+
+    // Collect panel types only when explicitly selected or no filters at all.
+    if no_filters || has_type_queries {
+        for (_prefix, panel_type) in &schedule.panel_types {
+            if no_filters || panel_type_matches_selectors(panel_type, selectors) {
+                result.panel_type_prefixes.push(panel_type.prefix.clone());
+            }
+        }
+    }
+
+    // Skip panel/session collection when the selector is only room/type scoped.
+    if only_non_panel {
+        return result;
+    }
 
     for (panel_id, panel) in &schedule.panels {
         if no_filters {
@@ -1034,6 +1195,18 @@ fn collect_selection(schedule: &Schedule, selectors: &Selectors) -> SelectionRes
     }
 
     result
+}
+
+fn mark_room_modified(room: &mut schedule_core::data::Room) {
+    if room.change_state == ChangeState::Unchanged {
+        room.change_state = ChangeState::Modified;
+    }
+}
+
+fn mark_panel_type_modified(panel_type: &mut schedule_core::data::PanelType) {
+    if panel_type.change_state == ChangeState::Unchanged {
+        panel_type.change_state = ChangeState::Modified;
+    }
 }
 
 fn mark_panel_modified(panel: &mut schedule_core::data::Panel) {
@@ -1555,31 +1728,15 @@ fn execute_remove_session(schedule: &mut Schedule, selection: &SelectionResult) 
         anyhow::bail!("No sessions matched --select");
     }
 
-    let mut grouped: HashMap<String, HashMap<usize, Vec<usize>>> = HashMap::new();
     for reference in &selection.sessions {
-        grouped
-            .entry(reference.panel_id.clone())
-            .or_default()
-            .entry(reference.part_index)
-            .or_default()
-            .push(reference.session_index);
-    }
-
-    for (panel_id, by_part) in grouped {
-        if let Some(panel) = schedule.panels.get_mut(&panel_id) {
-            for (part_index, mut session_indices) in by_part {
-                if let Some(part) = panel.parts.get_mut(part_index) {
-                    session_indices.sort_unstable();
-                    session_indices.dedup();
-                    for idx in session_indices.into_iter().rev() {
-                        if idx < part.sessions.len() {
-                            part.sessions.remove(idx);
-                        }
-                    }
-                    mark_part_modified(part);
-                }
-            }
-            panel.parts.retain(|part| !part.sessions.is_empty());
+        if let Some(panel) = schedule.panels.get_mut(&reference.panel_id)
+            && let Some(part) = panel.parts.get_mut(reference.part_index)
+            && let Some(session) = part.sessions.get_mut(reference.session_index)
+        {
+            // Soft-delete: mark Deleted so update_xlsx writes the * prefix to the XLSX row.
+            // post_save_cleanup removes Deleted sessions from memory after the file is saved.
+            session.change_state = ChangeState::Deleted;
+            mark_part_modified(part);
             mark_panel_modified(panel);
         }
     }
@@ -1744,6 +1901,596 @@ fn execute_update_from_json(
     Ok(())
 }
 
+fn join_opt_text(parts: &[Option<&str>]) -> String {
+    parts
+        .iter()
+        .filter_map(|s| *s)
+        .filter(|s| !s.is_empty())
+        .collect::<Vec<_>>()
+        .join(" ")
+}
+
+fn execute_query(
+    schedule: &Schedule,
+    selection: &SelectionResult,
+    fields: &[String],
+    format: OutputFormat,
+) -> Result<()> {
+    let want_all = fields.iter().any(|f| f == "all");
+    let want = |name: &str| -> bool {
+        want_all
+            || fields
+                .iter()
+                .any(|f| f.as_str() == name || f.replace('-', "_") == name.replace('-', "_"))
+    };
+
+    let room_lookup: HashMap<u32, String> = schedule
+        .rooms
+        .iter()
+        .map(|r| (r.uid, r.short_name.clone()))
+        .collect();
+
+    let mut rows: Vec<serde_json::Map<String, Value>> = Vec::new();
+
+    for reference in &selection.sessions {
+        let Some(panel) = schedule.panels.get(&reference.panel_id) else {
+            continue;
+        };
+        let Some(part) = panel.parts.get(reference.part_index) else {
+            continue;
+        };
+        let Some(session) = part.sessions.get(reference.session_index) else {
+            continue;
+        };
+
+        let mut obj = serde_json::Map::new();
+
+        if want("id") {
+            obj.insert("id".to_string(), Value::String(session.id.clone()));
+        }
+        if want("name") {
+            obj.insert("name".to_string(), Value::String(panel.name.clone()));
+        }
+        if want("description") {
+            let text = join_opt_text(&[
+                panel.description.as_deref(),
+                part.description.as_deref(),
+                session.description.as_deref(),
+            ]);
+            obj.insert(
+                "description".to_string(),
+                if text.is_empty() {
+                    Value::Null
+                } else {
+                    Value::String(text)
+                },
+            );
+        }
+        if want("note") {
+            let text = join_opt_text(&[
+                panel.note.as_deref(),
+                part.note.as_deref(),
+                session.note.as_deref(),
+            ]);
+            obj.insert(
+                "note".to_string(),
+                if text.is_empty() {
+                    Value::Null
+                } else {
+                    Value::String(text)
+                },
+            );
+        }
+        if want("av-note") || want("av_note") {
+            obj.insert(
+                "av-note".to_string(),
+                session
+                    .av_notes
+                    .as_deref()
+                    .map(|s| Value::String(s.to_string()))
+                    .unwrap_or(Value::Null),
+            );
+        }
+        if want("prereq") {
+            let text = join_opt_text(&[
+                panel.prereq.as_deref(),
+                part.prereq.as_deref(),
+                session.prereq.as_deref(),
+            ]);
+            obj.insert(
+                "prereq".to_string(),
+                if text.is_empty() {
+                    Value::Null
+                } else {
+                    Value::String(text)
+                },
+            );
+        }
+        if want("room") {
+            let rooms: Vec<Value> = session
+                .room_ids
+                .iter()
+                .map(|&id| {
+                    room_lookup
+                        .get(&id)
+                        .map(|n| Value::String(n.clone()))
+                        .unwrap_or_else(|| Value::Number(id.into()))
+                })
+                .collect();
+            obj.insert("room".to_string(), Value::Array(rooms));
+        }
+        if want("start") {
+            obj.insert(
+                "start".to_string(),
+                session
+                    .start_time
+                    .as_deref()
+                    .map(|s| Value::String(s.to_string()))
+                    .unwrap_or(Value::Null),
+            );
+        }
+        if want("end") {
+            obj.insert(
+                "end".to_string(),
+                session
+                    .end_time
+                    .as_deref()
+                    .map(|s| Value::String(s.to_string()))
+                    .unwrap_or(Value::Null),
+            );
+        }
+        if want("duration") {
+            obj.insert(
+                "duration".to_string(),
+                Value::Number(session.duration.into()),
+            );
+        }
+        if want("type") {
+            obj.insert(
+                "type".to_string(),
+                panel
+                    .panel_type
+                    .as_deref()
+                    .map(|s| Value::String(s.to_string()))
+                    .unwrap_or(Value::Null),
+            );
+        }
+        if want("cost") {
+            obj.insert(
+                "cost".to_string(),
+                panel
+                    .cost
+                    .as_deref()
+                    .map(|s| Value::String(s.to_string()))
+                    .unwrap_or(Value::Null),
+            );
+        }
+        if want("capacity") {
+            let cap = session.capacity.as_deref().or(panel.capacity.as_deref());
+            obj.insert(
+                "capacity".to_string(),
+                cap.map(|s| Value::String(s.to_string()))
+                    .unwrap_or(Value::Null),
+            );
+        }
+        if want("difficulty") {
+            obj.insert(
+                "difficulty".to_string(),
+                panel
+                    .difficulty
+                    .as_deref()
+                    .map(|s| Value::String(s.to_string()))
+                    .unwrap_or(Value::Null),
+            );
+        }
+        if want("presenters") {
+            let mut all: Vec<String> = Vec::new();
+            for name in panel
+                .credited_presenters
+                .iter()
+                .chain(&part.credited_presenters)
+                .chain(&session.credited_presenters)
+            {
+                if !all.contains(name) {
+                    all.push(name.clone());
+                }
+            }
+            for name in panel
+                .uncredited_presenters
+                .iter()
+                .chain(&part.uncredited_presenters)
+                .chain(&session.uncredited_presenters)
+            {
+                let tagged = format!("{name}(*)");
+                if !all.iter().any(|a| a == name || a == &tagged) {
+                    all.push(tagged);
+                }
+            }
+            obj.insert(
+                "presenters".to_string(),
+                Value::Array(all.into_iter().map(Value::String).collect()),
+            );
+        }
+        if want("credited") {
+            let mut names: Vec<String> = Vec::new();
+            for name in panel
+                .credited_presenters
+                .iter()
+                .chain(&part.credited_presenters)
+                .chain(&session.credited_presenters)
+            {
+                if !names.contains(name) {
+                    names.push(name.clone());
+                }
+            }
+            obj.insert(
+                "credited".to_string(),
+                Value::Array(names.into_iter().map(Value::String).collect()),
+            );
+        }
+        if want("uncredited") {
+            let mut names: Vec<String> = Vec::new();
+            for name in panel
+                .uncredited_presenters
+                .iter()
+                .chain(&part.uncredited_presenters)
+                .chain(&session.uncredited_presenters)
+            {
+                if !names.contains(name) {
+                    names.push(name.clone());
+                }
+            }
+            obj.insert(
+                "uncredited".to_string(),
+                Value::Array(names.into_iter().map(Value::String).collect()),
+            );
+        }
+        if want("metadata") {
+            let mut meta_obj = serde_json::Map::new();
+            for (k, v) in &session.metadata {
+                let json_val = match v {
+                    ExtraValue::String(s) => Value::String(s.clone()),
+                    ExtraValue::Formula(fv) => {
+                        let mut m = serde_json::Map::new();
+                        m.insert("formula".to_string(), Value::String(fv.formula.clone()));
+                        m.insert("value".to_string(), Value::String(fv.value.clone()));
+                        Value::Object(m)
+                    }
+                };
+                meta_obj.insert(k.clone(), json_val);
+            }
+            obj.insert("metadata".to_string(), Value::Object(meta_obj));
+        }
+        if want("change-state") || want("change_state") {
+            obj.insert(
+                "change-state".to_string(),
+                Value::String(format!("{:?}", session.change_state)),
+            );
+        }
+
+        rows.push(obj);
+    }
+
+    // Rooms
+    for &room_id in &selection.room_ids {
+        let Some(room) = schedule.rooms.iter().find(|r| r.uid == room_id) else {
+            continue;
+        };
+        let mut obj = serde_json::Map::new();
+        obj.insert("_entity".to_string(), Value::String("room".to_string()));
+        if want("id") {
+            obj.insert("id".to_string(), Value::Number(room.uid.into()));
+        }
+        if want("name") || want_all {
+            obj.insert("name".to_string(), Value::String(room.short_name.clone()));
+        }
+        if want("long-name") || want_all {
+            obj.insert(
+                "long-name".to_string(),
+                if room.long_name.is_empty() {
+                    Value::Null
+                } else {
+                    Value::String(room.long_name.clone())
+                },
+            );
+        }
+        if want("hotel-room") || want_all {
+            obj.insert(
+                "hotel-room".to_string(),
+                if room.hotel_room.is_empty() {
+                    Value::Null
+                } else {
+                    Value::String(room.hotel_room.clone())
+                },
+            );
+        }
+        if want("sort-key") || want_all {
+            obj.insert("sort-key".to_string(), Value::Number(room.sort_key.into()));
+        }
+        if want("metadata") {
+            let mut meta_obj = serde_json::Map::new();
+            if let Some(meta) = &room.metadata {
+                for (k, v) in meta.iter() {
+                    let json_val = match v {
+                        ExtraValue::String(s) => Value::String(s.clone()),
+                        ExtraValue::Formula(fv) => {
+                            let mut m = serde_json::Map::new();
+                            m.insert("formula".to_string(), Value::String(fv.formula.clone()));
+                            m.insert("value".to_string(), Value::String(fv.value.clone()));
+                            Value::Object(m)
+                        }
+                    };
+                    meta_obj.insert(k.clone(), json_val);
+                }
+            }
+            obj.insert("metadata".to_string(), Value::Object(meta_obj));
+        }
+        if want("change-state") || want("change_state") {
+            obj.insert(
+                "change-state".to_string(),
+                Value::String(format!("{:?}", room.change_state)),
+            );
+        }
+        rows.push(obj);
+    }
+
+    // Panel types
+    for prefix in &selection.panel_type_prefixes {
+        let Some(pt) = schedule.panel_types.get(prefix) else {
+            continue;
+        };
+        let mut obj = serde_json::Map::new();
+        obj.insert(
+            "_entity".to_string(),
+            Value::String("panel-type".to_string()),
+        );
+        if want("id") || want("prefix") {
+            obj.insert("prefix".to_string(), Value::String(pt.prefix.clone()));
+        }
+        if want("name") || want("kind") || want_all {
+            obj.insert("kind".to_string(), Value::String(pt.kind.clone()));
+        }
+        if want("color") || want_all {
+            obj.insert(
+                "color".to_string(),
+                pt.color()
+                    .map(|s| Value::String(s.to_string()))
+                    .unwrap_or(Value::Null),
+            );
+        }
+        if want("bw-color") || want("bw_color") || want_all {
+            obj.insert(
+                "bw-color".to_string(),
+                pt.bw_color()
+                    .map(|s| Value::String(s.to_string()))
+                    .unwrap_or(Value::Null),
+            );
+        }
+        if want("metadata") {
+            let mut meta_obj = serde_json::Map::new();
+            if let Some(meta) = &pt.metadata {
+                for (k, v) in meta.iter() {
+                    let json_val = match v {
+                        ExtraValue::String(s) => Value::String(s.clone()),
+                        ExtraValue::Formula(fv) => {
+                            let mut m = serde_json::Map::new();
+                            m.insert("formula".to_string(), Value::String(fv.formula.clone()));
+                            m.insert("value".to_string(), Value::String(fv.value.clone()));
+                            Value::Object(m)
+                        }
+                    };
+                    meta_obj.insert(k.clone(), json_val);
+                }
+            }
+            obj.insert("metadata".to_string(), Value::Object(meta_obj));
+        }
+        if want("change-state") || want("change_state") {
+            obj.insert(
+                "change-state".to_string(),
+                Value::String(format!("{:?}", pt.change_state)),
+            );
+        }
+        rows.push(obj);
+    }
+
+    match format {
+        OutputFormat::Human => {
+            if rows.is_empty() {
+                println!("(no matches)");
+            }
+            for row in &rows {
+                let entity = row
+                    .get("_entity")
+                    .and_then(Value::as_str)
+                    .unwrap_or("session");
+                let header = match entity {
+                    "room" => {
+                        let name = row.get("name").and_then(Value::as_str).unwrap_or("?");
+                        format!("[room] {name}")
+                    }
+                    "panel-type" => {
+                        let prefix = row.get("prefix").and_then(Value::as_str).unwrap_or("?");
+                        let kind = row.get("kind").and_then(Value::as_str).unwrap_or("");
+                        if kind.is_empty() {
+                            format!("[type] {prefix}")
+                        } else {
+                            format!("[type] {prefix} | {kind}")
+                        }
+                    }
+                    _ => {
+                        let id = row.get("id").and_then(Value::as_str).unwrap_or("?");
+                        let name = row.get("name").and_then(Value::as_str).unwrap_or("");
+                        if name.is_empty() {
+                            id.to_string()
+                        } else {
+                            format!("{id} | {name}")
+                        }
+                    }
+                };
+                println!("{header}");
+                for (k, v) in row {
+                    if matches!(k.as_str(), "id" | "name" | "prefix" | "kind" | "_entity") {
+                        continue;
+                    }
+                    match v {
+                        Value::Null => println!("  {k}: <null>"),
+                        Value::Array(arr) => {
+                            if arr.is_empty() {
+                                println!("  {k}: []");
+                            } else {
+                                let items: Vec<String> = arr
+                                    .iter()
+                                    .map(|v| {
+                                        v.as_str()
+                                            .map(String::from)
+                                            .unwrap_or_else(|| v.to_string())
+                                    })
+                                    .collect();
+                                println!("  {k}: {}", items.join(", "));
+                            }
+                        }
+                        Value::Object(map) => {
+                            if map.is_empty() {
+                                println!("  {k}: {{}}");
+                            } else {
+                                println!("  {k}:");
+                                for (mk, mv) in map {
+                                    match mv {
+                                        Value::Object(inner) => {
+                                            let formula = inner
+                                                .get("formula")
+                                                .and_then(Value::as_str)
+                                                .unwrap_or("");
+                                            let val = inner
+                                                .get("value")
+                                                .and_then(Value::as_str)
+                                                .unwrap_or("");
+                                            println!("    {mk}: ={formula} [→ {val}]");
+                                        }
+                                        other => {
+                                            let s = other
+                                                .as_str()
+                                                .map(String::from)
+                                                .unwrap_or_else(|| other.to_string());
+                                            println!("    {mk}: {s}");
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                        other => {
+                            let s = other
+                                .as_str()
+                                .map(String::from)
+                                .unwrap_or_else(|| other.to_string());
+                            println!("  {k}: {s}");
+                        }
+                    }
+                }
+            }
+        }
+        OutputFormat::Json => {
+            println!("{}", serde_json::to_string_pretty(&rows)?);
+        }
+    }
+
+    Ok(())
+}
+
+fn execute_set_metadata(
+    schedule: &mut Schedule,
+    selection: &SelectionResult,
+    key: &str,
+    value: &str,
+) -> Result<()> {
+    let has_targets = !selection.sessions.is_empty()
+        || !selection.room_ids.is_empty()
+        || !selection.panel_type_prefixes.is_empty();
+    if !has_targets {
+        anyhow::bail!("No entities matched for set-metadata");
+    }
+    for reference in &selection.sessions {
+        if let Some(panel) = schedule.panels.get_mut(&reference.panel_id)
+            && let Some(part) = panel.parts.get_mut(reference.part_index)
+            && let Some(session) = part.sessions.get_mut(reference.session_index)
+        {
+            session
+                .metadata
+                .insert(key.to_string(), ExtraValue::String(value.to_string()));
+            mark_session_modified(session);
+            mark_part_modified(part);
+            mark_panel_modified(panel);
+        }
+    }
+    for &room_id in &selection.room_ids {
+        if let Some(room) = schedule.rooms.iter_mut().find(|r| r.uid == room_id) {
+            room.metadata
+                .get_or_insert_with(Default::default)
+                .insert(key.to_string(), ExtraValue::String(value.to_string()));
+            mark_room_modified(room);
+        }
+    }
+    for prefix in &selection.panel_type_prefixes {
+        if let Some(pt) = schedule.panel_types.get_mut(prefix) {
+            pt.metadata
+                .get_or_insert_with(Default::default)
+                .insert(key.to_string(), ExtraValue::String(value.to_string()));
+            mark_panel_type_modified(pt);
+        }
+    }
+    Ok(())
+}
+
+fn execute_clear_metadata(
+    schedule: &mut Schedule,
+    selection: &SelectionResult,
+    key: &str,
+) -> Result<()> {
+    let has_targets = !selection.sessions.is_empty()
+        || !selection.room_ids.is_empty()
+        || !selection.panel_type_prefixes.is_empty();
+    if !has_targets {
+        anyhow::bail!("No entities matched for clear-metadata");
+    }
+    for reference in &selection.sessions {
+        if let Some(panel) = schedule.panels.get_mut(&reference.panel_id)
+            && let Some(part) = panel.parts.get_mut(reference.part_index)
+            && let Some(session) = part.sessions.get_mut(reference.session_index)
+        {
+            if session.metadata.shift_remove(key).is_some() {
+                mark_session_modified(session);
+                mark_part_modified(part);
+                mark_panel_modified(panel);
+            }
+        }
+    }
+    for &room_id in &selection.room_ids {
+        if let Some(room) = schedule.rooms.iter_mut().find(|r| r.uid == room_id) {
+            if room
+                .metadata
+                .as_mut()
+                .and_then(|m| m.shift_remove(key))
+                .is_some()
+            {
+                mark_room_modified(room);
+            }
+        }
+    }
+    for prefix in &selection.panel_type_prefixes {
+        if let Some(pt) = schedule.panel_types.get_mut(prefix) {
+            if pt
+                .metadata
+                .as_mut()
+                .and_then(|m| m.shift_remove(key))
+                .is_some()
+            {
+                mark_panel_type_modified(pt);
+            }
+        }
+    }
+    Ok(())
+}
+
 fn execute_stage(schedule: &mut Schedule, stage: &Stage, format: OutputFormat) -> Result<()> {
     let selection = collect_selection(schedule, &stage.selectors);
 
@@ -1776,6 +2523,11 @@ fn execute_stage(schedule: &mut Schedule, stage: &Stage, format: OutputFormat) -
         Command::Cancel => execute_cancel(schedule, &selection)?,
         Command::RemoveSession => execute_remove_session(schedule, &selection)?,
         Command::UpdateFromJson { path } => execute_update_from_json(schedule, &selection, path)?,
+        Command::Query { fields } => execute_query(schedule, &selection, fields, format)?,
+        Command::SetMetadata { key, value } => {
+            execute_set_metadata(schedule, &selection, key, value)?
+        }
+        Command::ClearMetadata { key } => execute_clear_metadata(schedule, &selection, key)?,
     }
 
     Ok(())

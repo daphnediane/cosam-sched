@@ -4,9 +4,7 @@
  * See LICENSE file for full license text
  */
 
-use std::collections::HashMap;
-#[cfg(test)]
-use std::collections::HashSet;
+use std::collections::{HashMap, HashSet};
 use std::fs;
 use std::path::Path;
 
@@ -17,7 +15,7 @@ use regex::Regex;
 use umya_spreadsheet::Spreadsheet;
 use umya_spreadsheet::structs::Worksheet;
 
-use super::panel::{Panel, apply_common_prefix};
+use super::panel::{ExtraFields, ExtraValue, FormulaValue, Panel, apply_common_prefix};
 use super::panel_id::PanelId;
 use super::panel_type::PanelType;
 use super::presenter::{Presenter, PresenterGroup, PresenterMember, PresenterRank};
@@ -101,11 +99,13 @@ pub fn import_xlsx(path: &Path, options: &XlsxImportOptions) -> Result<Schedule>
     let panel_types = read_panel_types(&book, &options.panel_types_table, &file_path_str)?;
     let presenter_ranks = read_presenter_ranks(&book, &file_path_str)?;
 
+    let has_presenters = book.get_sheet_by_name("People").is_some()
+        || book.get_sheet_by_name("Presenters").is_some();
     let imported_sheets = ImportedSheetPresence {
         has_room_map: !rooms.is_empty() && rooms.iter().any(|r| r.source.is_some()),
         has_panel_types: !panel_types.is_empty()
             && panel_types.values().any(|pt| pt.source.is_some()),
-        has_presenters: false,
+        has_presenters,
         has_schedule: true, // We'll assume schedule exists if we get here
     };
 
@@ -288,6 +288,36 @@ fn parse_hyperlink_formula(formula: &str) -> Option<String> {
     re.captures(formula).map(|caps| caps[1].to_string())
 }
 
+/// Capture raw-header columns that are not in `known_aliases` as ExtraFields metadata.
+/// Uses canonical_header normalization to match regardless of spacing/punctuation.
+fn collect_extra_metadata(
+    row_data: &HashMap<String, String>,
+    raw_headers: &[String],
+    known_aliases: &[&str],
+) -> Option<ExtraFields> {
+    let known_canonical: HashSet<String> = known_aliases
+        .iter()
+        .filter_map(|h| canonical_header(h))
+        .collect();
+    let mut meta = ExtraFields::new();
+    for raw in raw_headers {
+        if raw.is_empty() {
+            continue;
+        }
+        let is_known = canonical_header(raw)
+            .map(|c| known_canonical.contains(&c))
+            .unwrap_or(true);
+        if !is_known {
+            if let Some(value) = row_data.get(raw.as_str()) {
+                if !value.is_empty() {
+                    meta.insert(raw.clone(), ExtraValue::String(value.clone()));
+                }
+            }
+        }
+    }
+    if meta.is_empty() { None } else { Some(meta) }
+}
+
 fn build_column_map(
     ws: &Worksheet,
     range: &DataRange,
@@ -391,6 +421,19 @@ fn read_rooms(book: &Spreadsheet, preferred: &str, file_path: &str) -> Result<Ve
         let uid = next_uid;
         next_uid += 1;
 
+        const ROOM_KNOWN: &[&str] = &[
+            "Room_Name",
+            "Room",
+            "Name",
+            "Long_Name",
+            "Hotel_Room",
+            "HotelRoom",
+            "Sort_Key",
+            "SortKey",
+            "Is_Break",
+        ];
+        let metadata = collect_extra_metadata(&data, &raw_headers, ROOM_KNOWN);
+
         rooms.push(Room {
             uid,
             short_name,
@@ -398,7 +441,7 @@ fn read_rooms(book: &Spreadsheet, preferred: &str, file_path: &str) -> Result<Ve
             hotel_room,
             sort_key,
             is_break: false,
-            metadata: None,
+            metadata,
             source: Some(SourceInfo {
                 file_path: Some(file_path.to_string()),
                 sheet_name: Some(range.sheet_name.clone()),
@@ -496,6 +539,30 @@ fn read_panel_types(
             .map(|s| is_truthy(s))
             .unwrap_or_else(|| prefix == "SM" || prefix == "ZZ");
 
+        const PANEL_TYPE_KNOWN: &[&str] = &[
+            "Prefix",
+            "Panel_Kind",
+            "PanelKind",
+            "Kind",
+            "Color",
+            "BW",
+            "Bw",
+            "Is_Break",
+            "Is_Cafe",
+            "Is_Café",
+            "Is_Workshop",
+            "Is_Room_Hours",
+            "IsRoomHours",
+            "Is_Split",
+            "Hidden",
+            "Is_TimeLine",
+            "Is_Timeline",
+            "IsTimeLine",
+            "Is_Private",
+            "IsPrivate",
+        ];
+        let metadata = collect_extra_metadata(&data, &raw_headers, PANEL_TYPE_KNOWN);
+
         types.insert(
             prefix.clone(),
             PanelType {
@@ -509,7 +576,7 @@ fn read_panel_types(
                 is_room_hours,
                 is_timeline,
                 is_private,
-                metadata: None,
+                metadata,
                 source: Some(SourceInfo {
                     file_path: Some(file_path.to_string()),
                     sheet_name: Some(range.sheet_name.clone()),
@@ -529,19 +596,19 @@ fn is_truthy(value: &str) -> bool {
 }
 
 #[derive(Debug, Clone, PartialEq)]
-enum PresenterHeader {
+pub(super) enum PresenterHeader {
     Named(String),
     Other,
 }
 
 #[derive(Debug)]
-struct PresenterColumn {
-    col: u32,
-    rank_prefix: char,
-    header: PresenterHeader,
+pub(super) struct PresenterColumn {
+    pub(super) col: u32,
+    pub(super) rank_prefix: char,
+    pub(super) header: PresenterHeader,
 }
 
-fn rank_for_prefix(prefix: char) -> Option<&'static str> {
+pub(super) fn rank_for_prefix(prefix: char) -> Option<&'static str> {
     match prefix {
         'g' => Some("guest"),
         'j' => Some("judge"),
@@ -552,7 +619,7 @@ fn rank_for_prefix(prefix: char) -> Option<&'static str> {
     }
 }
 
-fn parse_presenter_header(header: &str, col: u32) -> Option<PresenterColumn> {
+pub(super) fn parse_presenter_header(header: &str, col: u32) -> Option<PresenterColumn> {
     let header = header.trim();
     if header.is_empty() {
         return None;
@@ -1045,6 +1112,100 @@ fn read_panels(
         .filter_map(|(i, h)| parse_presenter_header(h, range.start_col + i as u32))
         .collect();
 
+    // Known canonical header names for standard schedule columns
+    let known_canonical_headers: HashSet<&str> = [
+        "Uniq_ID",
+        "UniqID",
+        "ID",
+        "Id",
+        "Name",
+        "Panel_Name",
+        "PanelName",
+        "Description",
+        "Start_Time",
+        "StartTime",
+        "Start",
+        "End_Time",
+        "EndTime",
+        "End",
+        "Duration",
+        "Room",
+        "Room_Name",
+        "RoomName",
+        "Kind",
+        "Panel_Kind",
+        "PanelKind",
+        "Cost",
+        "Capacity",
+        "Difficulty",
+        "Note",
+        "Prereq",
+        "Ticket_Sale",
+        "TicketSale",
+        "Full",
+        "Is_Full",
+        "IsFull",
+        "Hide_Panelist",
+        "HidePanelist",
+        "Alt_Panelist",
+        "AltPanelist",
+        "Presenter",
+        "Presenters",
+        "Presenter_s",
+        "Seats_Sold",
+        "SeatsSold",
+        "PreReg_Max",
+        "PreRegMax",
+        "Notes_Non_Printing",
+        "NotesNonPrinting",
+        "Workshop_Notes",
+        "WorkshopNotes",
+        "Power_Needs",
+        "PowerNeeds",
+        "Sewing_Machines",
+        "SewingMachines",
+        "AV_Notes",
+        "AVNotes",
+        "Have_Ticket_Image",
+        "HaveTicketImage",
+        "SimpleTix_Event",
+        "SimpleTixEvent",
+        "Lstart",
+        "Lend",
+        "Old_Uniq_Id",
+        "OldUniqId",
+    ]
+    .iter()
+    .copied()
+    .collect();
+
+    // Identify non-standard columns as metadata candidates:
+    // columns not in the known set, not a presenter column, and not a ticket column.
+    let presenter_col_indices: HashSet<u32> = presenter_cols.iter().map(|pc| pc.col).collect();
+    let metadata_cols: Vec<(String, u32)> = raw_headers
+        .iter()
+        .enumerate()
+        .filter_map(|(i, raw_h)| {
+            if raw_h.is_empty() {
+                return None;
+            }
+            let col = range.start_col + i as u32;
+            if presenter_col_indices.contains(&col) || ticket_cols.contains(&col) {
+                return None;
+            }
+            let is_known = canonical_headers
+                .get(i)
+                .and_then(|c| c.as_ref())
+                .map(|c| known_canonical_headers.contains(c.as_str()))
+                .unwrap_or(false);
+            if is_known {
+                None
+            } else {
+                Some((raw_h.clone(), col))
+            }
+        })
+        .collect();
+
     let room_lookup: HashMap<String, &Room> = rooms
         .iter()
         .flat_map(|r| {
@@ -1095,7 +1256,14 @@ fn read_panels(
             }
         }
 
-        let uniq_id = get_field(&data, &["Uniq_ID", "UniqID", "ID", "Id"]).cloned();
+        let raw_uniq_id = get_field(&data, &["Uniq_ID", "UniqID", "ID", "Id"]).cloned();
+        // A leading * means this row was soft-deleted by xlsx_update; strip it and mark deleted.
+        let (uniq_id, is_deleted_row) = match raw_uniq_id {
+            Some(ref s) if s.starts_with('*') => {
+                (Some(s.trim_start_matches('*').to_string()), true)
+            }
+            other => (other, false),
+        };
         let raw_name = match get_field(&data, &["Name", "Panel_Name", "PanelName"]) {
             Some(n) => n.clone(),
             None => {
@@ -1490,6 +1658,9 @@ fn read_panels(
             sheet_name: Some(range.sheet_name.clone()),
             row_index: Some(row),
         });
+        if is_deleted_row {
+            session.change_state = ChangeState::Deleted;
+        }
 
         // Store the part-level suffixes as the session's unique fields.
         if !part_desc_suffix.is_empty() {
@@ -1524,6 +1695,33 @@ fn read_panels(
         // Add presenters to session
         session.credited_presenters = credited_presenters;
         session.uncredited_presenters = uncredited_presenters;
+
+        // Collect metadata from non-standard columns
+        if !metadata_cols.is_empty() {
+            let metadata: IndexMap<String, ExtraValue> = metadata_cols
+                .iter()
+                .filter_map(|(raw_h, col)| {
+                    let cell = ws.get_cell((*col, row))?;
+                    let formula = cell.get_formula().to_string();
+                    let str_val = ws.get_value((*col, row)).trim().to_string();
+                    if str_val.is_empty() && formula.is_empty() {
+                        return None;
+                    }
+                    let value = if !formula.is_empty() {
+                        ExtraValue::Formula(FormulaValue {
+                            formula,
+                            value: str_val,
+                        })
+                    } else {
+                        ExtraValue::String(str_val)
+                    };
+                    Some((raw_h.clone(), value))
+                })
+                .collect();
+            if !metadata.is_empty() {
+                session.metadata = metadata;
+            }
+        }
     }
 
     // Post-processing: promote uniform alt_panelist values up the hierarchy.

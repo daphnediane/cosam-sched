@@ -6,7 +6,7 @@ Investigate xlsx_update module for potential corruption issues and determine if 
 
 ## Status
 
-Open
+Completed
 
 ## Priority
 
@@ -33,6 +33,16 @@ The xlsx_update module may be creating corrupted Excel files (though openable). 
 - Decide whether to disable xlsx_update temporarily
 - Fix or document the presenter column threshold logic
 - Ensure all xlsx_update tests pass or are properly disabled
+
+## Resolution
+
+Root causes identified and fixed in phase 5/6 work:
+
+- **Corruption**: `write_session_to_row` was writing static values to `Lend` (formula column). Fixed by removing `"Lend"` from end-time keys.
+- **Presenter columns**: Added `HeaderMaps` with `presenter_cols`, `write_presenter_columns` helper, and presenter data (`all_presenters`, `credited_set`) in `UpdateSession`.
+- **No-deletion policy**: Replaced `book.remove_row` calls with `*`-prefix marking on Uniq ID + Old Uniq Id.
+- **test_post_save_cleanup_removes_deleted**: Fixed fixture (Bob `Converted` → `Deleted`); test re-enabled.
+- All 79 tests pass.
 
 ## Notes
 

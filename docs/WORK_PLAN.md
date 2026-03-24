@@ -1,6 +1,6 @@
 # Cosplay America Schedule - Work Plan
 
-Generated on: Mon Mar 23 23:08:08 2026
+Generated on: Tue Mar 24 01:22:48 2026
 
 ## Completed
 
@@ -39,6 +39,7 @@ the base→part→session hierarchy in the UI.
 * [FEATURE-021] Support the `<Name` prefix syntax in spreadsheet presenter headers to set `always_grouped` on individual members.
 * [FEATURE-023] Implement the v7 JSON schedule format changes in the Rust codebase: panelTypes hashmap, named color sets, merged timeTypes, stable presenter IDs, baked-in breaks, and metadata fields.
 * [FEATURE-501] Add a new command-line tool for in-place modifications of XLSX schedule files
+* [INVESTIGATE-001] Investigate xlsx_update module for potential corruption issues and determine if it should be disabled
 * [UI-001] Display both the programming room name (e.g., "Programming 1") and the actual hotel room location.
 * [UI-003] Implement theme switching with dark, light, and CosAm color modes.
 * [UI-004] Replace table-based layout with CSS grid similar to schedule-to-html implementation.
@@ -48,7 +49,7 @@ the base→part→session hierarchy in the UI.
 
 ## Summary of Open Items
 
-**Total open items:** 23
+**Total open items:** 22
 
 * **High Priority**
   * [ACCESSIBILITY-001] Implement comprehensive accessibility improvements for screen readers and color blindness support.
@@ -56,7 +57,6 @@ the base→part→session hierarchy in the UI.
   * [FEATURE-003] Enable reading schedule data directly from Google Sheets.
   * [FEATURE-005] Add a grid view option to the printable schedule in addition to the existing list view.
   * [FEATURE-008] Enable room-wide events like Market Expo to overlap with subpanels in the same room without triggering false conflict warnings.
-  * [INVESTIGATE-001] Investigate xlsx_update module for potential corruption issues and determine if it should be disabled
   * [UI-002] Prevent event titles from overlapping with the "my schedule" star icon.
 
 * **Medium Priority**
@@ -138,21 +138,6 @@ The 2025 schedule shows this pattern:
 * ME101 "Market Expo" (10:00-19:00) in room 15  
 * FD001S2 "Learn to solder" (10:00-12:00) in room 15
 * FD001S3 "Learn to solder" (14:00-16:00) in room 15
-
----
-
-### [INVESTIGATE-001] Investigate xlsx_update functionality and corruption issues
-
-**Status:** Open
-
-**Summary:** Investigate xlsx_update module for potential corruption issues and determine if it should be disabled
-
-**Description:** The xlsx_update module may be creating corrupted Excel files (though openable). Need to investigate:
-
-- Whether xlsx_update is actually corrupting files
-- If the corruption is cosmetic or functional
-- Whether the module should be disabled until properly fixed
-- The fundamental design issues with update vs export approaches
 
 ---
 
@@ -395,7 +380,7 @@ Once `gpui_web` (GPUI's planned web/webview integration) becomes available, revi
 [FEATURE-022]: work-plan/low/FEATURE-022.md
 [FEATURE-023]: work-plan/done/FEATURE-023.md
 [FEATURE-501]: work-plan/done/FEATURE-501.md
-[INVESTIGATE-001]: work-plan/high/INVESTIGATE-001.md
+[INVESTIGATE-001]: work-plan/done/INVESTIGATE-001.md
 [UI-001]: work-plan/done/UI-001.md
 [UI-002]: work-plan/high/UI-002.md
 [UI-003]: work-plan/done/UI-003.md
