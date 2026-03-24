@@ -5,3 +5,4 @@
  */
 
 pub mod data;
+pub mod xlsx;

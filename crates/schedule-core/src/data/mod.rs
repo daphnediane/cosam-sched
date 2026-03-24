@@ -16,10 +16,6 @@ pub mod schedule;
 pub mod source_info;
 pub mod timeline;
 pub mod widget_embed;
-pub mod xlsx_export;
-pub mod xlsx_grid;
-pub mod xlsx_import;
-pub mod xlsx_update;
 
 pub use event::Event;
 pub use panel::{
@@ -37,5 +33,3 @@ pub use widget_embed::{
     WidgetSources, generate_embed_html, generate_preview_html, generate_test_html,
     write_embed_html, write_test_html,
 };
-pub use xlsx_export::export_to_xlsx;
-pub use xlsx_import::XlsxImportOptions;

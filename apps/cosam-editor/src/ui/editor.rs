@@ -15,9 +15,6 @@ use gpui_component::resizable::{h_resizable, resizable_panel};
 use indexmap::IndexMap;
 
 use crate::data::source_info::ChangeState;
-use crate::data::xlsx_export;
-use crate::data::xlsx_import::XlsxImportOptions;
-use crate::data::xlsx_update;
 use crate::data::{Panel, Schedule};
 use crate::ui::day_tabs::{DayTabEvent, DayTabs};
 use crate::ui::detail_pane::{DetailPane, DetailPaneEvent};
@@ -25,6 +22,7 @@ use crate::ui::event_card::{EventCard, EventCardEvent};
 use crate::ui::panel_edit_window::{PanelEditWindow, PanelEditWindowEvent};
 use crate::ui::sidebar::{RoomEntry, Sidebar, SidebarEvent};
 use crate::ui::web_preview;
+use schedule_core::xlsx::{XlsxImportOptions, export_to_xlsx, post_save_cleanup, update_xlsx};
 
 const MAX_UNDO_STEPS: usize = 50;
 
@@ -239,9 +237,7 @@ impl ScheduleEditor {
             return;
         }
 
-        let import_options = XlsxImportOptions {
-            ..XlsxImportOptions::default()
-        };
+        let import_options = XlsxImportOptions::default();
 
         cx.spawn(async move |this, cx| {
             let result = Schedule::load_auto(&path, &import_options);
@@ -329,10 +325,7 @@ impl ScheduleEditor {
                 .to_lowercase();
 
             let (result, file_type) = if ext == "xlsx" {
-                (
-                    xlsx_export::export_to_xlsx(&schedule_clone, &path),
-                    FileType::Xlsx,
-                )
+                (export_to_xlsx(&schedule_clone, &path), FileType::Xlsx)
             } else {
                 (schedule_clone.save_json(&path), FileType::Json)
             };
@@ -799,9 +792,9 @@ impl ScheduleEditor {
 
         cx.spawn(async move |this, cx| {
             let result = if file_type == Some(FileType::Xlsx) {
-                let update_result = xlsx_update::update_xlsx(&schedule_clone, &path_clone);
+                let update_result = update_xlsx(&schedule_clone, &path_clone);
                 if update_result.is_ok() {
-                    xlsx_update::post_save_cleanup(&mut schedule_clone);
+                    post_save_cleanup(&mut schedule_clone);
                 }
                 update_result
             } else {
@@ -813,7 +806,7 @@ impl ScheduleEditor {
                     Ok(()) => {
                         if file_type == Some(FileType::Xlsx) {
                             if let Some(ref mut sched) = editor.schedule {
-                                xlsx_update::post_save_cleanup(sched);
+                                post_save_cleanup(sched);
                             }
                         }
                         editor.has_unsaved_changes = false;

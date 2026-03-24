@@ -53,6 +53,31 @@ impl PresenterRank {
             PresenterRank::Custom(_) => 'I', // Default custom ranks to 'I' prefix
         }
     }
+
+    /// Map the single-character column prefix used in XLSX presenter column
+    /// headers (`G`, `J`, `S`, `I`, `P`) to the corresponding `PresenterRank`.
+    /// Case-insensitive. Returns `None` for unknown characters.
+    pub fn from_prefix_char(c: char) -> Option<Self> {
+        match c.to_ascii_uppercase() {
+            'G' => Some(PresenterRank::Guest),
+            'J' => Some(PresenterRank::Judge),
+            'S' => Some(PresenterRank::Staff),
+            'I' => Some(PresenterRank::InvitedGuest),
+            'P' => Some(PresenterRank::FanPanelist),
+            _ => None,
+        }
+    }
+
+    /// All standard (non-custom) ranks in priority order used for column layout.
+    pub fn standard_ranks() -> &'static [PresenterRank] {
+        &[
+            PresenterRank::Guest,
+            PresenterRank::Judge,
+            PresenterRank::Staff,
+            PresenterRank::InvitedGuest,
+            PresenterRank::FanPanelist,
+        ]
+    }
 }
 
 impl Serialize for PresenterRank {

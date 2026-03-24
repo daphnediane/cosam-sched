@@ -10,8 +10,8 @@ use std::path::{Path, PathBuf};
 use anyhow::{Context, Result};
 use chrono::{Datelike, Duration, NaiveDate, NaiveDateTime, NaiveTime, Timelike, Utc, Weekday};
 use schedule_core::data::panel::ExtraValue;
-use schedule_core::data::xlsx_update;
-use schedule_core::data::{ChangeState, Schedule, XlsxImportOptions};
+use schedule_core::data::{ChangeState, Schedule};
+use schedule_core::xlsx::{XlsxImportOptions, post_save_cleanup, update_xlsx};
 use serde::Serialize;
 use serde_json::Value;
 
@@ -2553,8 +2553,8 @@ fn save_back(schedule: &mut Schedule, path: &Path) -> Result<()> {
         .to_lowercase();
 
     if ext == "xlsx" {
-        xlsx_update::update_xlsx(schedule, path)?;
-        xlsx_update::post_save_cleanup(schedule);
+        update_xlsx(schedule, path)?;
+        post_save_cleanup(schedule);
         Ok(())
     } else {
         schedule.save_json(path)

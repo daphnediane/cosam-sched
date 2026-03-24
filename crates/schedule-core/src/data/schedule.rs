@@ -105,10 +105,10 @@ impl Schedule {
         Ok(schedule)
     }
 
-    pub fn load_auto(path: &Path, options: &super::xlsx_import::XlsxImportOptions) -> Result<Self> {
+    pub fn load_auto(path: &Path, options: &crate::xlsx::read::XlsxImportOptions) -> Result<Self> {
         match path.extension().and_then(|e| e.to_str()) {
             Some(ext) if ext.eq_ignore_ascii_case("xlsx") => {
-                super::xlsx_import::import_xlsx(path, options)
+                crate::xlsx::read::import_xlsx(path, options)
             }
             Some(ext) if ext.eq_ignore_ascii_case("json") => Self::load(path),
             Some(ext) => anyhow::bail!("Unsupported file format: .{ext}"),

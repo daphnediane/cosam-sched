@@ -18,7 +18,8 @@ use gpui::{
 use gpui_component::Root;
 
 pub use schedule_core::data;
-use schedule_core::data::{Schedule, XlsxImportOptions};
+use schedule_core::data::Schedule;
+use schedule_core::xlsx::XlsxImportOptions;
 use ui::ScheduleEditor;
 use ui::editor::{
     EditRedo, EditUndo, FileExportEmbed, FileExportPublicJson, FileExportTest, FileOpen, FileSave,

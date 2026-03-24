@@ -6,9 +6,8 @@
 
 use std::path::PathBuf;
 
-use schedule_core::data::{
-    Schedule, WidgetSources, XlsxImportOptions, export_to_xlsx, write_embed_html, write_test_html,
-};
+use schedule_core::data::{Schedule, WidgetSources, write_embed_html, write_test_html};
+use schedule_core::xlsx::{XlsxImportOptions, export_to_xlsx};
 
 #[derive(Debug, Clone)]
 struct OutputSettings {
