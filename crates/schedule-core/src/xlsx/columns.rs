@@ -8,12 +8,13 @@
 //!
 //! Each table has a module containing [`FieldDef`] constants for every
 //! recognized column.  A `FieldDef` carries:
-//! - `export`    – the canonical header string written when creating a file.
+//! - `export`    – the header string written when creating a file (matches the
+//!                 real 2026 spreadsheet column names).
 //! - `canonical` – the lookup key produced by `canonical_header(export)`.
-//! - `aliases`   – additional canonical lookup keys accepted during import
-//!                 (already in canonical / underscore form).
+//! - `aliases`   – additional lookup keys accepted during import; may be raw
+//!                 spreadsheet strings or canonical forms from older files.
 //!
-//! Use `FieldDef::keys()` to iterate over all accepted canonical keys (primary
+//! Use `FieldDef::keys()` to iterate over all accepted lookup keys (primary
 //! + aliases) when building a lookup map, and `FieldDef::export` when writing
 //! the header row.
 
@@ -24,12 +25,12 @@ pub struct FieldDef {
     pub export: &'static str,
     /// Primary canonical lookup key; equals `canonical_header(self.export)`.
     pub canonical: &'static str,
-    /// Extra canonical keys accepted during import in addition to `canonical`.
+    /// Extra lookup keys accepted during import in addition to `canonical`.
     pub aliases: &'static [&'static str],
 }
 
 impl FieldDef {
-    /// Iterate over all accepted canonical lookup keys (primary + aliases).
+    /// Iterate over all accepted lookup keys (primary canonical + aliases).
     pub fn keys(&self) -> impl Iterator<Item = &'static str> {
         std::iter::once(self.canonical).chain(self.aliases.iter().copied())
     }
@@ -47,34 +48,16 @@ pub mod schedule {
         aliases: &["UniqID", "ID", "Id"],
     };
 
+    pub const OLD_UNIQ_ID: FieldDef = FieldDef {
+        export: "Old Uniq Id",
+        canonical: "Old_Uniq_Id",
+        aliases: &["OldUniqId", "Old_ID", "OldID"],
+    };
+
     pub const NAME: FieldDef = FieldDef {
         export: "Name",
         canonical: "Name",
         aliases: &["Panel_Name", "PanelName", "Title"],
-    };
-
-    pub const DESCRIPTION: FieldDef = FieldDef {
-        export: "Description",
-        canonical: "Description",
-        aliases: &["Desc"],
-    };
-
-    pub const START_TIME: FieldDef = FieldDef {
-        export: "Start Time",
-        canonical: "Start_Time",
-        aliases: &["StartTime", "Start", "Begin"],
-    };
-
-    pub const END_TIME: FieldDef = FieldDef {
-        export: "End Time",
-        canonical: "End_Time",
-        aliases: &["EndTime", "End"],
-    };
-
-    pub const DURATION: FieldDef = FieldDef {
-        export: "Duration",
-        canonical: "Duration",
-        aliases: &["Length"],
     };
 
     pub const ROOM: FieldDef = FieldDef {
@@ -83,40 +66,28 @@ pub mod schedule {
         aliases: &["Room_Name", "Location"],
     };
 
-    pub const KIND: FieldDef = FieldDef {
-        export: "Kind",
-        canonical: "Kind",
-        aliases: &["Type", "Panel_Type", "PanelType", "Prefix"],
+    pub const START_TIME: FieldDef = FieldDef {
+        export: "Start Time",
+        canonical: "Start_Time",
+        aliases: &["StartTime", "Start", "Begin"],
     };
 
-    pub const COST: FieldDef = FieldDef {
-        export: "Cost",
-        canonical: "Cost",
-        aliases: &["Price", "Fee"],
+    pub const DURATION: FieldDef = FieldDef {
+        export: "Duration",
+        canonical: "Duration",
+        aliases: &["Length"],
     };
 
-    pub const CAPACITY: FieldDef = FieldDef {
-        export: "Capacity",
-        canonical: "Capacity",
-        aliases: &["Cap", "Max"],
+    pub const END_TIME: FieldDef = FieldDef {
+        export: "End Time",
+        canonical: "End_Time",
+        aliases: &["EndTime", "End"],
     };
 
-    pub const PRE_REG_MAX: FieldDef = FieldDef {
-        export: "Pre-Reg Max",
-        canonical: "Pre-Reg_Max",
-        aliases: &["PreRegMax", "Pre_Reg_Max"],
-    };
-
-    pub const DIFFICULTY: FieldDef = FieldDef {
-        export: "Difficulty",
-        canonical: "Difficulty",
-        aliases: &["Level"],
-    };
-
-    pub const NOTE: FieldDef = FieldDef {
-        export: "Note",
-        canonical: "Note",
-        aliases: &["Notes", "AV_Note", "AV_Notes", "AV"],
+    pub const DESCRIPTION: FieldDef = FieldDef {
+        export: "Description",
+        canonical: "Description",
+        aliases: &["Desc"],
     };
 
     pub const PREREQ: FieldDef = FieldDef {
@@ -125,16 +96,88 @@ pub mod schedule {
         aliases: &["Prerequisite", "Prerequisites", "Pre_Req"],
     };
 
+    pub const NOTE: FieldDef = FieldDef {
+        export: "Note",
+        canonical: "Note",
+        aliases: &["Notes"],
+    };
+
+    pub const NOTES_NON_PRINTING: FieldDef = FieldDef {
+        export: "Notes (Non Printing)",
+        canonical: "Notes_Non_Printing",
+        aliases: &["NotesNonPrinting", "Notes_Non_Printing"],
+    };
+
+    pub const WORKSHOP_NOTES: FieldDef = FieldDef {
+        export: "Workshop Notes",
+        canonical: "Workshop_Notes",
+        aliases: &["WorkshopNotes"],
+    };
+
+    pub const POWER_NEEDS: FieldDef = FieldDef {
+        export: "Power Needs",
+        canonical: "Power_Needs",
+        aliases: &["PowerNeeds"],
+    };
+
+    pub const SEWING_MACHINES: FieldDef = FieldDef {
+        export: "Sewing Machines",
+        canonical: "Sewing_Machines",
+        aliases: &["SewingMachines"],
+    };
+
+    pub const AV_NOTES: FieldDef = FieldDef {
+        export: "AV Notes",
+        canonical: "AV_Notes",
+        aliases: &["AVNotes", "AV_Note", "AVNote", "AV"],
+    };
+
+    pub const DIFFICULTY: FieldDef = FieldDef {
+        export: "Difficulty",
+        canonical: "Difficulty",
+        aliases: &["Level"],
+    };
+
+    pub const COST: FieldDef = FieldDef {
+        export: "Cost",
+        canonical: "Cost",
+        aliases: &["Price", "Fee"],
+    };
+
+    pub const SEATS_SOLD: FieldDef = FieldDef {
+        export: "Seats Sold",
+        canonical: "Seats_Sold",
+        aliases: &["SeatsSold"],
+    };
+
+    pub const PRE_REG_MAX: FieldDef = FieldDef {
+        export: "Prereg Max",
+        canonical: "Prereg_Max",
+        aliases: &["Pre_Reg_Max", "PreRegMax", "Pre-Reg_Max", "Pre-Reg Max"],
+    };
+
+    pub const CAPACITY: FieldDef = FieldDef {
+        export: "Capacity",
+        canonical: "Capacity",
+        aliases: &["Cap", "Max"],
+    };
+
+    pub const HAVE_TICKET_IMAGE: FieldDef = FieldDef {
+        export: "Have Ticket Image",
+        canonical: "Have_Ticket_Image",
+        aliases: &["HaveTicketImage"],
+    };
+
+    pub const SIMPLE_TIX_EVENT: FieldDef = FieldDef {
+        export: "SimpleTix Event",
+        canonical: "Simple_Tix_Event",
+        aliases: &["SimpleTixEvent"],
+    };
+
     pub const TICKET_SALE: FieldDef = FieldDef {
         export: "Ticket Sale",
         canonical: "Ticket_Sale",
         aliases: &["TicketSale", "Tickets", "Sale"],
-    };
-
-    pub const FULL: FieldDef = FieldDef {
-        export: "Full",
-        canonical: "Full",
-        aliases: &["IsFull", "Is_Full", "Sold_Out"],
     };
 
     pub const HIDE_PANELIST: FieldDef = FieldDef {
@@ -149,10 +192,16 @@ pub mod schedule {
         aliases: &["AltPanelist", "Alt_Presenter", "Alt"],
     };
 
-    pub const OLD_UNIQ_ID: FieldDef = FieldDef {
-        export: "Old Uniq Id",
-        canonical: "Old_Uniq_Id",
-        aliases: &["OldUniqId", "Old_ID", "OldID"],
+    pub const KIND: FieldDef = FieldDef {
+        export: "Kind",
+        canonical: "Kind",
+        aliases: &["Type", "Panel_Type", "PanelType", "Prefix"],
+    };
+
+    pub const FULL: FieldDef = FieldDef {
+        export: "Full",
+        canonical: "Full",
+        aliases: &["IsFull", "Is_Full", "Sold_Out"],
     };
 
     pub const TICKET_URL: FieldDef = FieldDef {
@@ -185,26 +234,38 @@ pub mod schedule {
         aliases: &[],
     };
 
-    /// All fixed (non-presenter) column definitions in export order.
+    /// All fixed (non-presenter) column definitions in 2026 spreadsheet order.
     pub const ALL: &[FieldDef] = &[
         UNIQ_ID,
+        OLD_UNIQ_ID,
         NAME,
-        DESCRIPTION,
-        START_TIME,
-        END_TIME,
-        DURATION,
         ROOM,
-        KIND,
-        COST,
-        CAPACITY,
-        DIFFICULTY,
-        NOTE,
+        START_TIME,
+        DURATION,
+        DESCRIPTION,
         PREREQ,
+        NOTE,
+        NOTES_NON_PRINTING,
+        WORKSHOP_NOTES,
+        POWER_NEEDS,
+        SEWING_MACHINES,
+        AV_NOTES,
+        DIFFICULTY,
+        COST,
+        SEATS_SOLD,
+        PRE_REG_MAX,
+        CAPACITY,
+        HAVE_TICKET_IMAGE,
+        SIMPLE_TIX_EVENT,
         TICKET_SALE,
-        FULL,
         HIDE_PANELIST,
         ALT_PANELIST,
-        OLD_UNIQ_ID,
+        END_TIME,
+        KIND,
+        FULL,
+        TICKET_URL,
+        IS_FREE,
+        IS_KIDS,
     ];
 }
 
@@ -220,6 +281,12 @@ pub mod room_map {
         aliases: &["Room", "Name", "Short_Name", "ShortName"],
     };
 
+    pub const SORT_KEY: FieldDef = FieldDef {
+        export: "Sort Key",
+        canonical: "Sort_Key",
+        aliases: &["SortKey", "Sort", "Order"],
+    };
+
     pub const LONG_NAME: FieldDef = FieldDef {
         export: "Long Name",
         canonical: "Long_Name",
@@ -232,14 +299,43 @@ pub mod room_map {
         aliases: &["HotelRoom", "Hotel", "Building"],
     };
 
-    pub const SORT_KEY: FieldDef = FieldDef {
-        export: "Sort Key",
-        canonical: "Sort_Key",
-        aliases: &["SortKey", "Sort", "Order"],
+    /// All primary column definitions in 2026 spreadsheet order.
+    pub const ALL: &[FieldDef] = &[ROOM_NAME, SORT_KEY, LONG_NAME, HOTEL_ROOM];
+
+    // Extra columns present in 2026 spreadsheets — recognized but stored as
+    // room metadata rather than first-class struct fields.
+    pub const NAME_ALT: FieldDef = FieldDef {
+        export: "Name Alt",
+        canonical: "Name_Alt",
+        aliases: &["NameAlt"],
     };
 
-    /// All column definitions in export order.
-    pub const ALL: &[FieldDef] = &[ROOM_NAME, LONG_NAME, HOTEL_ROOM, SORT_KEY];
+    pub const SUFFIX: FieldDef = FieldDef {
+        export: "Suffix",
+        canonical: "Suffix",
+        aliases: &[],
+    };
+
+    pub const ORIG_SORT: FieldDef = FieldDef {
+        export: "Orig Sort",
+        canonical: "Orig_Sort",
+        aliases: &["OrigSort"],
+    };
+
+    pub const ORIG_SUFFIX: FieldDef = FieldDef {
+        export: "Orig Suffix",
+        canonical: "Orig_Suffix",
+        aliases: &["OrigSuffix"],
+    };
+
+    pub const NOTES: FieldDef = FieldDef {
+        export: "Notes",
+        canonical: "Notes",
+        aliases: &[],
+    };
+
+    /// Extra metadata columns (outside ALL — not first-class struct fields).
+    pub const EXTRA: &[FieldDef] = &[NAME_ALT, SUFFIX, ORIG_SORT, ORIG_SUFFIX, NOTES];
 }
 
 // ─── Panel types table ────────────────────────────────────────────────────────
@@ -272,6 +368,25 @@ pub mod panel_types {
         aliases: &["Bw", "BwColor", "Bw_Color", "Grayscale"],
     };
 
+    pub const HIDDEN: FieldDef = FieldDef {
+        export: "Hidden",
+        canonical: "Hidden",
+        aliases: &["IsHidden", "Is_Hidden", "Hide"],
+    };
+
+    pub const IS_TIMELINE: FieldDef = FieldDef {
+        export: "Is Timeline",
+        canonical: "Is_Timeline",
+        // "Is_Time_Line" is what canonical_header produces for old "IsTimeLine" / "Is_TimeLine"
+        aliases: &["Is_Time_Line", "IsTimeLine", "IsTimeline", "Timeline"],
+    };
+
+    pub const IS_PRIVATE: FieldDef = FieldDef {
+        export: "Is Private",
+        canonical: "Is_Private",
+        aliases: &["IsPrivate", "Private"],
+    };
+
     pub const IS_BREAK: FieldDef = FieldDef {
         export: "Is Break",
         canonical: "Is_Break",
@@ -284,49 +399,31 @@ pub mod panel_types {
         aliases: &["IsWorkshop", "Workshop"],
     };
 
-    pub const IS_CAFE: FieldDef = FieldDef {
-        export: "Is Café",
-        canonical: "Is_Café",
-        aliases: &["Is_Cafe", "IsCafe", "IsCafé", "Cafe", "Café"],
-    };
-
     pub const IS_ROOM_HOURS: FieldDef = FieldDef {
         export: "Is Room Hours",
         canonical: "Is_Room_Hours",
         aliases: &["IsRoomHours", "Room_Hours", "RoomHours"],
     };
 
-    pub const HIDDEN: FieldDef = FieldDef {
-        export: "Hidden",
-        canonical: "Hidden",
-        aliases: &["IsHidden", "Is_Hidden", "Hide"],
+    pub const IS_CAFE: FieldDef = FieldDef {
+        export: "Is Café",
+        canonical: "Is_Café",
+        aliases: &["Is_Cafe", "IsCafe", "IsCafé", "Cafe", "Café"],
     };
 
-    pub const IS_TIMELINE: FieldDef = FieldDef {
-        export: "Is TimeLine",
-        canonical: "Is_TimeLine",
-        aliases: &["IsTimeLine", "Is_Timeline", "IsTimeline", "Timeline"],
-    };
-
-    pub const IS_PRIVATE: FieldDef = FieldDef {
-        export: "Is Private",
-        canonical: "Is_Private",
-        aliases: &["IsPrivate", "Private"],
-    };
-
-    /// All column definitions in export order.
+    /// All column definitions in 2026 spreadsheet order.
     pub const ALL: &[FieldDef] = &[
         PREFIX,
         PANEL_KIND,
         COLOR,
         BW_COLOR,
-        IS_BREAK,
-        IS_WORKSHOP,
-        IS_CAFE,
-        IS_ROOM_HOURS,
         HIDDEN,
         IS_TIMELINE,
         IS_PRIVATE,
+        IS_BREAK,
+        IS_WORKSHOP,
+        IS_ROOM_HOURS,
+        IS_CAFE,
     ];
 }
 
@@ -336,16 +433,21 @@ pub mod panel_types {
 pub mod people {
     use super::FieldDef;
 
+    /// Person name column — "Person" is the 2026 header; "Name", "Panelist",
+    /// "Presenter" are accepted aliases from older or alternate formats.
     pub const NAME: FieldDef = FieldDef {
-        export: "Name",
-        canonical: "Name",
-        aliases: &["Presenter", "Speaker"],
+        export: "Person",
+        canonical: "Person",
+        aliases: &["Name", "Panelist", "Presenter", "Speaker"],
     };
 
-    pub const RANK: FieldDef = FieldDef {
-        export: "Rank",
-        canonical: "Rank",
-        aliases: &["Type", "Role", "Level"],
+    /// Classification / rank column — "Classification" is the 2026 header.
+    /// Note: Classification values (e.g. "Sponsor") don't always match
+    /// PresenterRank::as_str() — use PresenterRank::from_classification().
+    pub const CLASSIFICATION: FieldDef = FieldDef {
+        export: "Classification",
+        canonical: "Classification",
+        aliases: &["Rank", "Type", "Role", "Level"],
     };
 
     pub const IS_GROUP: FieldDef = FieldDef {
@@ -373,7 +475,14 @@ pub mod people {
     };
 
     /// All column definitions in export order.
-    pub const ALL: &[FieldDef] = &[NAME, RANK, IS_GROUP, MEMBERS, GROUPS, ALWAYS_GROUPED];
+    pub const ALL: &[FieldDef] = &[
+        NAME,
+        CLASSIFICATION,
+        IS_GROUP,
+        MEMBERS,
+        GROUPS,
+        ALWAYS_GROUPED,
+    ];
 }
 
 #[cfg(test)]
@@ -404,7 +513,62 @@ mod tests {
     }
 
     #[test]
-    fn test_people_all_count() {
-        assert_eq!(people::ALL.len(), 6);
+    fn test_people_export_names() {
+        assert_eq!(people::NAME.export, "Person");
+        assert_eq!(people::CLASSIFICATION.export, "Classification");
+    }
+
+    #[test]
+    fn test_people_name_aliases() {
+        let keys: Vec<_> = people::NAME.keys().collect();
+        assert!(keys.contains(&"Person"));
+        assert!(keys.contains(&"Name"));
+        assert!(keys.contains(&"Panelist"));
+        assert!(keys.contains(&"Presenter"));
+    }
+
+    #[test]
+    fn test_note_columns_are_separate() {
+        let note_keys: Vec<_> = schedule::NOTE.keys().collect();
+        let av_keys: Vec<_> = schedule::AV_NOTES.keys().collect();
+        // NOTE must not contain AV aliases
+        assert!(!note_keys.contains(&"AV_Notes"));
+        assert!(!note_keys.contains(&"AV"));
+        // AV_NOTES must not contain plain Note
+        assert!(!av_keys.contains(&"Note"));
+        assert!(!av_keys.contains(&"Notes"));
+        // They must be distinct canonical keys
+        assert_ne!(schedule::NOTE.canonical, schedule::AV_NOTES.canonical);
+    }
+
+    #[test]
+    fn test_is_timeline_canonical() {
+        assert_eq!(panel_types::IS_TIMELINE.export, "Is Timeline");
+        assert_eq!(panel_types::IS_TIMELINE.canonical, "Is_Timeline");
+        let keys: Vec<_> = panel_types::IS_TIMELINE.keys().collect();
+        assert!(keys.contains(&"Is_Time_Line"));
+    }
+
+    #[test]
+    fn test_pre_reg_max_canonical() {
+        assert_eq!(schedule::PRE_REG_MAX.export, "Prereg Max");
+        assert_eq!(schedule::PRE_REG_MAX.canonical, "Prereg_Max");
+    }
+
+    #[test]
+    fn test_schedule_all_count() {
+        assert_eq!(schedule::ALL.len(), 30);
+    }
+
+    #[test]
+    fn test_room_map_extra_not_in_all() {
+        let all_canonicals: Vec<_> = room_map::ALL.iter().map(|f| f.canonical).collect();
+        for extra in room_map::EXTRA {
+            assert!(
+                !all_canonicals.contains(&extra.canonical),
+                "{} should not be in room_map::ALL",
+                extra.canonical
+            );
+        }
     }
 }

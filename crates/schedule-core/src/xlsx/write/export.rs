@@ -18,6 +18,7 @@ use crate::data::schedule::Schedule;
 use crate::data::source_info::ChangeState;
 #[allow(unused_imports)]
 use crate::data::{panel::Panel, panel_type::PanelType};
+use crate::xlsx::columns::people;
 
 use super::common::{SCHEDULE_FIXED_HEADERS, add_table, flatten_panel_sessions};
 
@@ -178,12 +179,12 @@ pub fn export_to_xlsx(schedule: &Schedule, path: &Path) -> Result<()> {
     }
 
     let presenter_headers = &[
-        "Name",
-        "Rank",
-        "Is Group",
-        "Members",
-        "Groups",
-        "Always Grouped",
+        people::NAME.export,
+        people::CLASSIFICATION.export,
+        people::IS_GROUP.export,
+        people::MEMBERS.export,
+        people::GROUPS.export,
+        people::ALWAYS_GROUPED.export,
     ];
     book.new_sheet("People")
         .map_err(|e| anyhow::anyhow!("{e}"))?;
@@ -558,12 +559,12 @@ fn write_presenters_sheet(ws: &mut Worksheet, presenters: &[Presenter]) -> u32 {
     set_headers(
         ws,
         &[
-            "Name",
-            "Rank",
-            "Is Group",
-            "Members",
-            "Groups",
-            "Always Grouped",
+            people::NAME.export,
+            people::CLASSIFICATION.export,
+            people::IS_GROUP.export,
+            people::MEMBERS.export,
+            people::GROUPS.export,
+            people::ALWAYS_GROUPED.export,
         ],
     );
 

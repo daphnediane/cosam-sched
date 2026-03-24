@@ -23,6 +23,7 @@ use crate::data::panel::ExtraFields;
 use crate::data::panel::ExtraValue;
 use crate::data::schedule::{Meta, Schedule};
 use crate::data::source_info::ImportedSheetPresence;
+use crate::xlsx::columns::FieldDef;
 
 pub(crate) use headers::{
     PresenterColumn, PresenterHeader, canonical_header, parse_presenter_header,
@@ -284,6 +285,19 @@ pub(super) fn get_field<'a>(
     None
 }
 
+/// Look up a value in `row_data` using all keys from a [`FieldDef`] (canonical + aliases).
+pub(super) fn get_field_def<'a>(
+    row_data: &'a HashMap<String, String>,
+    field: &FieldDef,
+) -> Option<&'a String> {
+    for key in field.keys() {
+        if let Some(val) = row_data.get(key) {
+            return Some(val);
+        }
+    }
+    None
+}
+
 pub(super) fn row_to_map(
     ws: &Worksheet,
     row: u32,
@@ -305,17 +319,19 @@ pub(super) fn row_to_map(
     data
 }
 
-/// Capture raw-header columns that are not in `known_aliases` as ExtraFields metadata.
-/// Uses canonical_header normalization to match regardless of spacing/punctuation.
+/// Capture raw-header columns that are not covered by `known_fields` as ExtraFields metadata.
+/// A column is "known" if its canonical key matches any key in any of the `known_fields`
+/// entries (canonical or alias). Uses canonical_header normalization.
 pub(super) fn collect_extra_metadata(
     row_data: &HashMap<String, String>,
     raw_headers: &[String],
-    known_aliases: &[&str],
+    known_fields: &[FieldDef],
 ) -> Option<ExtraFields> {
     use std::collections::HashSet;
-    let known_canonical: HashSet<String> = known_aliases
+    let known_canonical: HashSet<String> = known_fields
         .iter()
-        .filter_map(|h| canonical_header(h))
+        .flat_map(|f| f.keys())
+        .filter_map(|k| canonical_header(k))
         .collect();
     let mut meta = ExtraFields::new();
     for raw in raw_headers {

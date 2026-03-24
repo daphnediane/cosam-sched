@@ -21,10 +21,15 @@ use crate::data::room::Room;
 use crate::data::source_info::{ChangeState, SourceInfo};
 use crate::data::timeline::TimelineEntry;
 
+use crate::xlsx::columns::schedule as sc;
+
 use super::find_data_range;
 use super::headers::{PresenterColumn, PresenterHeader, parse_presenter_header};
 use super::people::{PresenterInfo, parse_presenter_data};
-use super::{build_column_map, get_cell_number, get_cell_str, get_field, is_truthy, row_to_map};
+use super::{
+    build_column_map, canonical_header, get_cell_number, get_cell_str, get_field, get_field_def,
+    is_truthy, row_to_map,
+};
 
 pub(super) fn read_panels(
     book: &Spreadsheet,
@@ -72,18 +77,17 @@ pub(super) fn read_panels(
 
     let (raw_headers, canonical_headers, col_map) = build_column_map(ws, &range);
 
-    let ticket_cols: HashSet<u32> = raw_headers
+    let ticket_field_keys: HashSet<String> = sc::TICKET_SALE
+        .keys()
+        .chain(sc::SIMPLE_TIX_EVENT.keys())
+        .filter_map(|k| canonical_header(k))
+        .collect();
+    let ticket_cols: HashSet<u32> = canonical_headers
         .iter()
         .enumerate()
-        .filter_map(|(i, h)| {
-            let lower = h.to_lowercase();
-            if lower == "ticket_sale"
-                || lower == "ticketsale"
-                || lower == "ticket sale"
-                || lower == "simpletix_event"
-                || lower == "simpletixevent"
-                || lower == "simpletix event"
-            {
+        .filter_map(|(i, canon)| {
+            let key = canon.as_deref()?;
+            if ticket_field_keys.contains(key) {
                 Some(range.start_col + i as u32)
             } else {
                 None
@@ -97,72 +101,13 @@ pub(super) fn read_panels(
         .filter_map(|(i, h)| parse_presenter_header(h, range.start_col + i as u32))
         .collect();
 
-    // Known canonical header names for standard schedule columns
-    let known_canonical_headers: HashSet<&str> = [
-        "Uniq_ID",
-        "UniqID",
-        "ID",
-        "Id",
-        "Name",
-        "Panel_Name",
-        "PanelName",
-        "Description",
-        "Start_Time",
-        "StartTime",
-        "Start",
-        "End_Time",
-        "EndTime",
-        "End",
-        "Duration",
-        "Room",
-        "Room_Name",
-        "RoomName",
-        "Kind",
-        "Panel_Kind",
-        "PanelKind",
-        "Cost",
-        "Capacity",
-        "Difficulty",
-        "Note",
-        "Prereq",
-        "Ticket_Sale",
-        "TicketSale",
-        "Full",
-        "Is_Full",
-        "IsFull",
-        "Hide_Panelist",
-        "HidePanelist",
-        "Alt_Panelist",
-        "AltPanelist",
-        "Presenter",
-        "Presenters",
-        "Presenter_s",
-        "Seats_Sold",
-        "SeatsSold",
-        "PreReg_Max",
-        "PreRegMax",
-        "Notes_Non_Printing",
-        "NotesNonPrinting",
-        "Workshop_Notes",
-        "WorkshopNotes",
-        "Power_Needs",
-        "PowerNeeds",
-        "Sewing_Machines",
-        "SewingMachines",
-        "AV_Notes",
-        "AVNotes",
-        "Have_Ticket_Image",
-        "HaveTicketImage",
-        "SimpleTix_Event",
-        "SimpleTixEvent",
-        "Lstart",
-        "Lend",
-        "Old_Uniq_Id",
-        "OldUniqId",
-    ]
-    .iter()
-    .copied()
-    .collect();
+    // Known canonical keys derived from FieldDef constants (ALL + Lstart/Lend + presenter fallback).
+    let known_canonical_headers: HashSet<String> = sc::ALL
+        .iter()
+        .chain([sc::LSTART, sc::LEND].iter())
+        .flat_map(|f| f.keys())
+        .filter_map(|k| canonical_header(k))
+        .collect();
 
     // Identify non-standard columns as metadata candidates:
     // columns not in the known set, not a presenter column, and not a ticket column.
@@ -212,17 +157,9 @@ pub(super) fn read_panels(
     let mut panels: IndexMap<String, Panel> = IndexMap::new();
     let mut timeline_entries: Vec<TimelineEntry> = Vec::new();
 
-    let start_time_col = col_map
-        .get("Start_Time")
-        .or_else(|| col_map.get("StartTime"))
-        .or_else(|| col_map.get("Start"))
-        .copied();
-    let end_time_col = col_map
-        .get("End_Time")
-        .or_else(|| col_map.get("EndTime"))
-        .or_else(|| col_map.get("End"))
-        .copied();
-    let duration_col = col_map.get("Duration").copied();
+    let start_time_col = col_map.get(sc::START_TIME.canonical).copied();
+    let end_time_col = col_map.get(sc::END_TIME.canonical).copied();
+    let duration_col = col_map.get(sc::DURATION.canonical).copied();
 
     for row in (range.header_row + 1)..=range.end_row {
         let mut data = row_to_map(ws, row, &range, &raw_headers, &canonical_headers);
@@ -241,7 +178,7 @@ pub(super) fn read_panels(
             }
         }
 
-        let raw_uniq_id = get_field(&data, &["Uniq_ID", "UniqID", "ID", "Id"]).cloned();
+        let raw_uniq_id = get_field_def(&data, &sc::UNIQ_ID).cloned();
         // A leading * means this row was soft-deleted by xlsx_update; strip it and mark deleted.
         let (uniq_id, is_deleted_row) = match raw_uniq_id {
             Some(ref s) if s.starts_with('*') => {
@@ -249,7 +186,7 @@ pub(super) fn read_panels(
             }
             other => (other, false),
         };
-        let raw_name = match get_field(&data, &["Name", "Panel_Name", "PanelName"]) {
+        let raw_name = match get_field_def(&data, &sc::NAME) {
             Some(n) => n.clone(),
             None => {
                 continue;
@@ -341,7 +278,7 @@ pub(super) fn read_panels(
             }
         };
 
-        let room_name = get_field(&data, &["Room", "Room_Name", "RoomName"]).cloned();
+        let room_name = get_field_def(&data, &sc::ROOM).cloned();
         let room_ids: Vec<u32> = if let Some(ref room_name) = room_name {
             room_name
                 .split(',')
@@ -354,7 +291,7 @@ pub(super) fn read_panels(
             Vec::new()
         };
 
-        let kind_raw = get_field(&data, &["Kind", "Panel_Kind", "PanelKind"]).cloned();
+        let kind_raw = get_field_def(&data, &sc::KIND).cloned();
         let panel_type = if !panel_id.prefix.is_empty() {
             type_lookup.get(&panel_id.prefix.to_lowercase()).copied()
         } else {
@@ -369,9 +306,9 @@ pub(super) fn read_panels(
             })
         });
 
-        let cost_raw = get_field(&data, &["Cost"]).cloned();
+        let cost_raw = get_field_def(&data, &sc::COST).cloned();
         let (cost, is_free, is_kids) = normalize_cost(cost_raw.as_ref());
-        let is_full = get_field(&data, &["Full"])
+        let is_full = get_field_def(&data, &sc::FULL)
             .map(|s| is_truthy(s))
             .unwrap_or(false);
 
@@ -411,7 +348,7 @@ pub(super) fn read_panels(
         // Fallback: Presenter/Presenters column
         if credited_presenters.is_empty() && uncredited_presenters.is_empty() {
             if let Some(presenter_raw) =
-                get_field(&data, &["Presenter", "Presenters", "Presenter_s"])
+                get_field(&data, &["Presenter", "Presenters", "Presenter_s", "Person"])
             {
                 for part in split_presenter_names(presenter_raw) {
                     presenter_map
@@ -438,7 +375,7 @@ pub(super) fn read_panels(
         if let Some(pt) = panel_type {
             if pt.is_timeline {
                 // Get the note field for timeline entries
-                let note = get_field(&data, &["Note"]).cloned();
+                let note = get_field_def(&data, &sc::NOTE).cloned();
 
                 // Create a TimelineEntry instead of a regular Panel
                 let timeline_entry = TimelineEntry {
@@ -461,30 +398,27 @@ pub(super) fn read_panels(
         }
 
         // Get other fields
-        let description = get_field(&data, &["Description"]).cloned();
-        let note = get_field(&data, &["Note"]).cloned();
-        let prereq = get_field(&data, &["Prereq"]).cloned();
-        let alt_panelist = get_field(&data, &["Alt_Panelist", "AltPanelist"]).cloned();
-        let capacity = get_field(&data, &["Capacity"]).cloned();
-        let difficulty = get_field(&data, &["Difficulty"]).cloned();
-        let ticket_url = get_field(&data, &["Ticket_Sale", "TicketSale"]).cloned();
-        let simple_tix_event = get_field(&data, &["SimpleTix_Event", "SimpleTixEvent"]).cloned();
-        let hide_panelist = get_field(&data, &["Hide_Panelist", "HidePanelist"])
+        let description = get_field_def(&data, &sc::DESCRIPTION).cloned();
+        let note = get_field_def(&data, &sc::NOTE).cloned();
+        let prereq = get_field_def(&data, &sc::PREREQ).cloned();
+        let alt_panelist = get_field_def(&data, &sc::ALT_PANELIST).cloned();
+        let capacity = get_field_def(&data, &sc::CAPACITY).cloned();
+        let difficulty = get_field_def(&data, &sc::DIFFICULTY).cloned();
+        let ticket_url = get_field_def(&data, &sc::TICKET_SALE).cloned();
+        let simple_tix_event = get_field_def(&data, &sc::SIMPLE_TIX_EVENT).cloned();
+        let hide_panelist = get_field_def(&data, &sc::HIDE_PANELIST)
             .map(|s| is_truthy(s))
             .unwrap_or(false);
-        let seats_sold =
-            get_field(&data, &["Seats_Sold", "SeatsSold"]).and_then(|s| s.parse::<u32>().ok());
-        let pre_reg_max = get_field(&data, &["PreReg_Max", "PreRegMax"]).cloned();
-        let notes_non_printing =
-            get_field(&data, &["Notes_Non_Printing", "NotesNonPrinting"]).cloned();
-        let workshop_notes = get_field(&data, &["Workshop_Notes", "WorkshopNotes"]).cloned();
-        let power_needs = get_field(&data, &["Power_Needs", "PowerNeeds"]).cloned();
-        let sewing_machines = get_field(&data, &["Sewing_Machines", "SewingMachines"])
+        let seats_sold = get_field_def(&data, &sc::SEATS_SOLD).and_then(|s| s.parse::<u32>().ok());
+        let pre_reg_max = get_field_def(&data, &sc::PRE_REG_MAX).cloned();
+        let notes_non_printing = get_field_def(&data, &sc::NOTES_NON_PRINTING).cloned();
+        let workshop_notes = get_field_def(&data, &sc::WORKSHOP_NOTES).cloned();
+        let power_needs = get_field_def(&data, &sc::POWER_NEEDS).cloned();
+        let sewing_machines = get_field_def(&data, &sc::SEWING_MACHINES)
             .map(|s| is_truthy(s))
             .unwrap_or(false);
-        let av_notes = get_field(&data, &["AV_Notes", "AVNotes"]).cloned();
-        let have_ticket_image =
-            get_field(&data, &["Have_Ticket_Image", "HaveTicketImage"]).map(|s| is_truthy(s));
+        let av_notes = get_field_def(&data, &sc::AV_NOTES).cloned();
+        let have_ticket_image = get_field_def(&data, &sc::HAVE_TICKET_IMAGE).map(|s| is_truthy(s));
 
         // Find or create the base panel, handling duplicates
         let is_duplicate = panels.contains_key(&panel_id.base_id());

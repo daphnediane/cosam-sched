@@ -10,7 +10,9 @@ use umya_spreadsheet::Spreadsheet;
 use crate::data::room::Room;
 use crate::data::source_info::{ChangeState, SourceInfo};
 
-use super::{build_column_map, collect_extra_metadata, find_data_range, get_field, row_to_map};
+use crate::xlsx::columns::room_map;
+
+use super::{build_column_map, collect_extra_metadata, find_data_range, get_field_def, row_to_map};
 
 pub(super) fn read_rooms(
     book: &Spreadsheet,
@@ -37,9 +39,9 @@ pub(super) fn read_rooms(
     for row in (range.header_row + 1)..=range.end_row {
         let data = row_to_map(ws, row, &range, &raw_headers, &canonical_headers);
 
-        let short_name = get_field(&data, &["Room_Name", "Room", "Name"]).cloned();
-        let long_name_raw = get_field(&data, &["Long_Name"]).cloned();
-        let hotel_room = get_field(&data, &["Hotel_Room", "HotelRoom"])
+        let short_name = get_field_def(&data, &room_map::ROOM_NAME).cloned();
+        let long_name_raw = get_field_def(&data, &room_map::LONG_NAME).cloned();
+        let hotel_room = get_field_def(&data, &room_map::HOTEL_ROOM)
             .cloned()
             .unwrap_or_default();
 
@@ -59,7 +61,7 @@ pub(super) fn read_rooms(
             }
         };
 
-        let sort_key: u32 = get_field(&data, &["Sort_Key", "SortKey"])
+        let sort_key: u32 = get_field_def(&data, &room_map::SORT_KEY)
             .and_then(|s| s.parse::<f64>().ok())
             .map(|f| f as u32)
             .unwrap_or(999);
@@ -67,18 +69,14 @@ pub(super) fn read_rooms(
         let uid = next_uid;
         next_uid += 1;
 
-        const ROOM_KNOWN: &[&str] = &[
-            "Room_Name",
-            "Room",
-            "Name",
-            "Long_Name",
-            "Hotel_Room",
-            "HotelRoom",
-            "Sort_Key",
-            "SortKey",
-            "Is_Break",
-        ];
-        let metadata = collect_extra_metadata(&data, &raw_headers, ROOM_KNOWN);
+        // Known = primary columns + extra metadata columns (Name Alt, Suffix, etc.)
+        // Extra columns flow to room metadata for roundtripping.
+        let known: Vec<_> = room_map::ALL
+            .iter()
+            .chain(room_map::EXTRA.iter())
+            .copied()
+            .collect();
+        let metadata = collect_extra_metadata(&data, &raw_headers, &known);
 
         rooms.push(Room {
             uid,

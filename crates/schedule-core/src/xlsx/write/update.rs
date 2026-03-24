@@ -15,10 +15,11 @@ use umya_spreadsheet::structs::Worksheet;
 
 use crate::data::panel::{ExtraFields, ExtraValue};
 use crate::data::panel_type::PanelType;
-use crate::data::presenter::{Presenter, PresenterGroup, PresenterMember, PresenterRank};
+use crate::data::presenter::Presenter;
 use crate::data::room::Room;
 use crate::data::schedule::Schedule;
 use crate::data::source_info::{ChangeState, SourceInfo};
+use crate::xlsx::columns::{FieldDef, panel_types as pt, people, room_map, schedule as sc};
 use crate::xlsx::read::{
     PresenterColumn, PresenterHeader, canonical_header, parse_presenter_header,
 };
@@ -374,51 +375,51 @@ fn write_presenter_columns(
     }
 }
 
-fn set_cell_str(
+fn set_cell_field(
     worksheet: &mut Worksheet,
     header_map: &HashMap<String, u32>,
     row: u32,
-    keys: &[&str],
+    field: &FieldDef,
     value: &str,
 ) {
-    for key in keys {
-        if let Some(&col) = header_map.get(*key) {
+    for key in field.keys() {
+        if let Some(&col) = header_map.get(key) {
             worksheet.get_cell_mut((col, row)).set_value(value);
             return;
         }
     }
 }
 
-fn set_cell_opt_str(
+fn set_cell_opt_field(
     worksheet: &mut Worksheet,
     header_map: &HashMap<String, u32>,
     row: u32,
-    keys: &[&str],
+    field: &FieldDef,
     value: &Option<String>,
 ) {
-    let value = value.as_deref().unwrap_or("");
-    set_cell_str(worksheet, header_map, row, keys, value);
+    set_cell_field(
+        worksheet,
+        header_map,
+        row,
+        field,
+        value.as_deref().unwrap_or(""),
+    );
 }
 
-fn set_cell_u32(
+fn set_cell_bool_field(
     worksheet: &mut Worksheet,
     header_map: &HashMap<String, u32>,
     row: u32,
-    keys: &[&str],
-    value: u32,
-) {
-    set_cell_str(worksheet, header_map, row, keys, &value.to_string());
-}
-
-fn set_cell_bool(
-    worksheet: &mut Worksheet,
-    header_map: &HashMap<String, u32>,
-    row: u32,
-    keys: &[&str],
+    field: &FieldDef,
     value: bool,
 ) {
-    let text = if value { "Yes" } else { "" };
-    set_cell_str(worksheet, header_map, row, keys, text);
+    set_cell_field(
+        worksheet,
+        header_map,
+        row,
+        field,
+        if value { "Yes" } else { "" },
+    );
 }
 
 // ── Rooms ──────────────────────────────────────────────────────────────────
@@ -430,27 +431,33 @@ fn write_room_to_row(
     row: u32,
     room: &Room,
 ) {
-    set_cell_str(
+    set_cell_field(
         worksheet,
         header_map,
         row,
-        &["Room_Name", "Room", "Name"],
+        &room_map::ROOM_NAME,
         &room.short_name,
     );
-    set_cell_str(worksheet, header_map, row, &["Long_Name"], &room.long_name);
-    set_cell_str(
+    set_cell_field(
         worksheet,
         header_map,
         row,
-        &["Hotel_Room", "HotelRoom"],
+        &room_map::LONG_NAME,
+        &room.long_name,
+    );
+    set_cell_field(
+        worksheet,
+        header_map,
+        row,
+        &room_map::HOTEL_ROOM,
         &room.hotel_room,
     );
-    set_cell_u32(
+    set_cell_field(
         worksheet,
         header_map,
         row,
-        &["Sort_Key", "SortKey"],
-        room.sort_key,
+        &room_map::SORT_KEY,
+        &room.sort_key.to_string(),
     );
     write_metadata_to_row(worksheet, raw_map, row, &room.metadata);
 }
@@ -549,51 +556,45 @@ fn write_panel_type_to_row(
     row: u32,
     panel_type: &PanelType,
 ) {
-    set_cell_str(worksheet, header_map, row, &["Prefix"], &panel_type.prefix);
-    set_cell_str(
+    set_cell_field(worksheet, header_map, row, &pt::PREFIX, &panel_type.prefix);
+    set_cell_field(
         worksheet,
         header_map,
         row,
-        &["Panel_Kind", "PanelKind", "Kind"],
+        &pt::PANEL_KIND,
         &panel_type.kind,
     );
     let color_opt = panel_type.color().map(|s| s.to_string());
-    set_cell_opt_str(worksheet, header_map, row, &["Color"], &color_opt);
+    set_cell_opt_field(worksheet, header_map, row, &pt::COLOR, &color_opt);
     let bw_opt = panel_type.bw_color().map(|s| s.to_string());
-    set_cell_opt_str(worksheet, header_map, row, &["BW", "Bw"], &bw_opt);
-    set_cell_bool(
+    set_cell_opt_field(worksheet, header_map, row, &pt::BW_COLOR, &bw_opt);
+    set_cell_bool_field(
         worksheet,
         header_map,
         row,
-        &["Is_Break"],
+        &pt::IS_BREAK,
         panel_type.is_break,
     );
-    set_cell_bool(
+    set_cell_bool_field(worksheet, header_map, row, &pt::IS_CAFE, panel_type.is_cafe);
+    set_cell_bool_field(
         worksheet,
         header_map,
         row,
-        &["Is_Cafe", "Is_Café"],
-        panel_type.is_cafe,
-    );
-    set_cell_bool(
-        worksheet,
-        header_map,
-        row,
-        &["Is_Workshop"],
+        &pt::IS_WORKSHOP,
         panel_type.is_workshop,
     );
-    set_cell_bool(
+    set_cell_bool_field(
         worksheet,
         header_map,
         row,
-        &["Is_Room_Hours", "IsRoomHours"],
+        &pt::IS_ROOM_HOURS,
         panel_type.is_room_hours,
     );
-    set_cell_str(
+    set_cell_field(
         worksheet,
         header_map,
         row,
-        &["Hidden"],
+        &pt::HIDDEN,
         if panel_type.is_hidden { "Yes" } else { "" },
     );
     write_metadata_to_row(worksheet, raw_map, row, &panel_type.metadata);
@@ -697,19 +698,19 @@ fn write_presenter_to_row(
     row: u32,
     presenter: &Presenter,
 ) {
-    set_cell_str(worksheet, header_map, row, &["Name"], &presenter.name);
-    set_cell_str(
+    set_cell_field(worksheet, header_map, row, &people::NAME, &presenter.name);
+    set_cell_field(
         worksheet,
         header_map,
         row,
-        &["Rank"],
+        &people::CLASSIFICATION,
         presenter.rank.as_str(),
     );
-    set_cell_bool(
+    set_cell_bool_field(
         worksheet,
         header_map,
         row,
-        &["Is_Group", "IsGroup"],
+        &people::IS_GROUP,
         presenter.is_group(),
     );
     let members_str = presenter
@@ -719,7 +720,7 @@ fn write_presenter_to_row(
         .collect::<Vec<_>>()
         .join(", ");
     if !members_str.is_empty() {
-        set_cell_str(worksheet, header_map, row, &["Members"], &members_str);
+        set_cell_field(worksheet, header_map, row, &people::MEMBERS, &members_str);
     }
     let groups_str = presenter
         .groups()
@@ -728,13 +729,13 @@ fn write_presenter_to_row(
         .collect::<Vec<_>>()
         .join(", ");
     if !groups_str.is_empty() {
-        set_cell_str(worksheet, header_map, row, &["Groups"], &groups_str);
+        set_cell_field(worksheet, header_map, row, &people::GROUPS, &groups_str);
     }
-    set_cell_bool(
+    set_cell_bool_field(
         worksheet,
         header_map,
         row,
-        &["Always_Grouped", "AlwaysGrouped"],
+        &people::ALWAYS_GROUPED,
         presenter.always_grouped(),
     );
 }
@@ -751,7 +752,10 @@ fn update_people_sheet(
     let highest_row = worksheet.get_highest_row();
 
     // Build a name→row map to locate existing presenter rows.
-    let name_col = header_map.get("Name").copied().unwrap_or(1);
+    let name_col = people::NAME
+        .keys()
+        .find_map(|k| header_map.get(k).copied())
+        .unwrap_or(1);
     let mut name_to_row: HashMap<String, u32> = HashMap::new();
     for row in 2..=highest_row {
         let name = worksheet.get_value((name_col, row)).trim().to_string();
@@ -776,7 +780,7 @@ fn update_people_sheet(
                         .get_sheet_by_name_mut(sheet_name)
                         .ok_or_else(|| anyhow::anyhow!("Sheet '{sheet_name}' not found"))?;
                     let prefixed = format!("*{}", presenter.name);
-                    set_cell_str(worksheet, &header_map, row_index, &["Name"], &prefixed);
+                    set_cell_field(worksheet, &header_map, row_index, &people::NAME, &prefixed);
                 }
             }
             ChangeState::Modified | ChangeState::Replaced => {
@@ -827,38 +831,26 @@ fn write_session_to_row(
 ) {
     let hm = &header_maps.canonical;
 
-    set_cell_str(
-        worksheet,
-        hm,
-        row,
-        &["Uniq_ID", "UniqID", "ID", "Id"],
-        &session.id,
-    );
-    set_cell_str(
-        worksheet,
-        hm,
-        row,
-        &["Name", "Panel_Name", "PanelName"],
-        &session.name,
-    );
-    set_cell_opt_str(worksheet, hm, row, &["Description"], &session.description);
+    set_cell_field(worksheet, hm, row, &sc::UNIQ_ID, &session.id);
+    set_cell_field(worksheet, hm, row, &sc::NAME, &session.name);
+    set_cell_opt_field(worksheet, hm, row, &sc::DESCRIPTION, &session.description);
 
     // Always write start_time (even empty) so unscheduled rows are cleared correctly.
     // Never write to Lstart or Lend — those are formula columns.
     let start_val = session.start_time.as_deref().unwrap_or("");
-    set_cell_str(
-        worksheet,
-        hm,
-        row,
-        &["Start_Time", "StartTime", "Start"],
-        start_val,
-    );
+    set_cell_field(worksheet, hm, row, &sc::START_TIME, start_val);
 
     // End time: only write to explicit End Time column, not Lend (which is formula-based).
     let end_val = session.end_time.as_deref().unwrap_or("");
-    set_cell_str(worksheet, hm, row, &["End_Time", "EndTime", "End"], end_val);
+    set_cell_field(worksheet, hm, row, &sc::END_TIME, end_val);
 
-    set_cell_u32(worksheet, hm, row, &["Duration"], session.duration);
+    set_cell_field(
+        worksheet,
+        hm,
+        row,
+        &sc::DURATION,
+        &session.duration.to_string(),
+    );
 
     // Always write room (empty when unscheduled) to clear stale data.
     let room_name = session
@@ -866,13 +858,7 @@ fn write_session_to_row(
         .and_then(|rid| schedule.room_by_id(rid))
         .map(|r| r.short_name.as_str())
         .unwrap_or("");
-    set_cell_str(
-        worksheet,
-        hm,
-        row,
-        &["Room", "Room_Name", "RoomName"],
-        room_name,
-    );
+    set_cell_field(worksheet, hm, row, &sc::ROOM, room_name);
 
     let kind = session
         .panel_type
@@ -880,41 +866,23 @@ fn write_session_to_row(
         .and_then(|pt_uid| schedule.panel_types.get(pt_uid))
         .map(|pt| pt.kind.as_str())
         .unwrap_or("");
-    set_cell_str(
-        worksheet,
-        hm,
-        row,
-        &["Kind", "Panel_Kind", "PanelKind"],
-        kind,
-    );
+    set_cell_field(worksheet, hm, row, &sc::KIND, kind);
 
-    set_cell_opt_str(worksheet, hm, row, &["Cost"], &session.cost);
-    set_cell_opt_str(worksheet, hm, row, &["Capacity"], &session.capacity);
-    set_cell_opt_str(worksheet, hm, row, &["Difficulty"], &session.difficulty);
-    set_cell_opt_str(worksheet, hm, row, &["Note"], &session.note);
-    set_cell_opt_str(worksheet, hm, row, &["Prereq"], &session.prereq);
-    set_cell_opt_str(
+    set_cell_opt_field(worksheet, hm, row, &sc::COST, &session.cost);
+    set_cell_opt_field(worksheet, hm, row, &sc::CAPACITY, &session.capacity);
+    set_cell_opt_field(worksheet, hm, row, &sc::DIFFICULTY, &session.difficulty);
+    set_cell_opt_field(worksheet, hm, row, &sc::NOTE, &session.note);
+    set_cell_opt_field(worksheet, hm, row, &sc::PREREQ, &session.prereq);
+    set_cell_opt_field(worksheet, hm, row, &sc::TICKET_SALE, &session.ticket_url);
+    set_cell_bool_field(worksheet, hm, row, &sc::FULL, session.is_full);
+    set_cell_bool_field(
         worksheet,
         hm,
         row,
-        &["Ticket_Sale", "TicketSale"],
-        &session.ticket_url,
-    );
-    set_cell_bool(worksheet, hm, row, &["Full"], session.is_full);
-    set_cell_bool(
-        worksheet,
-        hm,
-        row,
-        &["Hide_Panelist", "HidePanelist"],
+        &sc::HIDE_PANELIST,
         session.hide_panelist,
     );
-    set_cell_opt_str(
-        worksheet,
-        hm,
-        row,
-        &["Alt_Panelist", "AltPanelist"],
-        &session.alt_panelist,
-    );
+    set_cell_opt_field(worksheet, hm, row, &sc::ALT_PANELIST, &session.alt_panelist);
 
     // Write presenter columns (existing columns only; no new columns added).
     write_presenter_columns(worksheet, header_maps, row, session, schedule);
@@ -976,18 +944,17 @@ fn update_schedule_sheet(
                         .get_sheet_by_name_mut(sheet_name)
                         .ok_or_else(|| anyhow::anyhow!("Sheet '{sheet_name}' not found"))?;
                     let prefixed_id = format!("*{}", session.id);
-                    set_cell_str(
+                    set_cell_field(
                         worksheet,
                         &header_maps.canonical,
                         row_index,
-                        &["Uniq_ID", "UniqID", "ID", "Id"],
+                        &sc::UNIQ_ID,
                         &prefixed_id,
                     );
                     // Write original ID to Old Uniq Id if that column exists and cell is empty
-                    let old_id_col = header_maps
-                        .canonical
-                        .get("Old_Uniq_Id")
-                        .or_else(|| header_maps.canonical.get("OldUniqId"))
+                    let old_id_col = sc::OLD_UNIQ_ID
+                        .keys()
+                        .find_map(|k| header_maps.canonical.get(k))
                         .copied();
                     if let Some(col) = old_id_col {
                         let current = worksheet.get_value((col, row_index));
@@ -1037,7 +1004,7 @@ fn update_schedule_sheet(
 mod tests {
     use super::*;
     use crate::data::panel::{Panel, PanelPart, PanelSession};
-    use crate::data::presenter::Presenter;
+    use crate::data::presenter::{Presenter, PresenterGroup, PresenterMember, PresenterRank};
     use crate::data::schedule::{Meta, Schedule};
     use crate::data::source_info::ImportedSheetPresence;
     use crate::data::timeline::TimelineEntry;
