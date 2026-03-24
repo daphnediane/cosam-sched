@@ -206,7 +206,8 @@ sub generate_work_plan {
     my ( @items ) = @_;
 
     # Open output file
-    open my $out, '>', $output_file or die "Can't write $output_file: $!";
+    open my $out, '>', $output_file
+        or die "Can't write $output_file: $!";
 
     print $out "# Cosplay America Schedule - Work Plan\n\n";
     print $out "Generated on: " . scalar( localtime ) . "\n\n";
