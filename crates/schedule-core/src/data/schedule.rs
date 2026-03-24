@@ -12,7 +12,6 @@ use chrono::NaiveDate;
 use indexmap::IndexMap;
 use serde::{Deserialize, Serialize};
 
-use super::event::Event;
 use super::panel::Panel;
 use super::panel_type::PanelType;
 use super::presenter::Presenter;
@@ -87,8 +86,6 @@ pub struct Schedule {
     pub timeline: Vec<TimelineEntry>,
     #[serde(default, skip_serializing_if = "IndexMap::is_empty")]
     pub panels: IndexMap<String, Panel>,
-    #[serde(default, skip_serializing_if = "Vec::is_empty")]
-    pub events: Vec<Event>,
     pub rooms: Vec<Room>,
     #[serde(default, skip_serializing_if = "IndexMap::is_empty")]
     pub panel_types: IndexMap<String, PanelType>,
@@ -153,7 +150,7 @@ impl Schedule {
         Ok(())
     }
 
-    /// Calculate schedule start and end times from panels, events, and timeline entries
+    /// Calculate schedule start and end times from panels and timeline entries
     pub fn calculate_schedule_bounds(&mut self) {
         let mut min_time: Option<chrono::NaiveDateTime> = None;
         let mut max_time: Option<chrono::NaiveDateTime> = None;
@@ -183,16 +180,6 @@ impl Schedule {
                         }
                     }
                 }
-            }
-        }
-
-        // Check events (v4 fallback)
-        for event in &self.events {
-            if min_time.is_none() || Some(event.start_time) < min_time {
-                min_time = Some(event.start_time);
-            }
-            if max_time.is_none() || Some(event.end_time) > max_time {
-                max_time = Some(event.end_time);
             }
         }
 
@@ -232,7 +219,7 @@ impl Schedule {
 
     #[must_use]
     pub fn days(&self) -> Vec<NaiveDate> {
-        let mut dates: BTreeSet<NaiveDate> = self.events.iter().map(|e| e.date()).collect();
+        let mut dates: BTreeSet<NaiveDate> = BTreeSet::new();
 
         for panel in self.panels.values() {
             for part in &panel.parts {
@@ -249,11 +236,6 @@ impl Schedule {
         }
 
         dates.into_iter().collect()
-    }
-
-    #[must_use]
-    pub fn events_for_day(&self, day: &NaiveDate) -> Vec<&Event> {
-        self.events.iter().filter(|e| &e.date() == day).collect()
     }
 
     /// Returns flattened session display info for a given day from the v5 panels hierarchy
@@ -339,6 +321,39 @@ impl Schedule {
     }
 }
 
+impl Default for Schedule {
+    fn default() -> Self {
+        Self {
+            conflicts: Vec::new(),
+            meta: Meta::default(),
+            timeline: Vec::new(),
+            panels: IndexMap::new(),
+            rooms: Vec::new(),
+            panel_types: IndexMap::new(),
+            presenters: Vec::new(),
+            imported_sheets: ImportedSheetPresence::default(),
+        }
+    }
+}
+
+impl Default for Meta {
+    fn default() -> Self {
+        Self {
+            title: "Event Schedule".to_string(),
+            generated: chrono::Utc::now().format("%Y-%m-%dT%H:%M:%SZ").to_string(),
+            version: Some(7),
+            variant: None,
+            generator: Some("cosam-sched".to_string()),
+            start_time: None,
+            end_time: None,
+            next_presenter_id: None,
+            creator: None,
+            last_modified_by: None,
+            modified: None,
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -356,11 +371,10 @@ mod tests {
     fn test_load_reference_data() {
         let path = reference_data_path();
         if !path.exists() {
-            eprintln!("Skipping test: {} not found", path.display());
             return;
         }
         let schedule = Schedule::load(&path).expect("Failed to load 2025.json");
-        assert!(!schedule.events.is_empty());
+        assert!(!schedule.panels.is_empty());
         assert!(!schedule.rooms.is_empty());
         assert!(!schedule.presenters.is_empty());
         assert!(!schedule.meta.title.is_empty());
@@ -378,26 +392,6 @@ mod tests {
         // Days should be sorted
         for window in days.windows(2) {
             assert!(window[0] < window[1]);
-        }
-    }
-
-    #[test]
-    fn test_events_for_day() {
-        let path = reference_data_path();
-        if !path.exists() {
-            return;
-        }
-        let schedule = Schedule::load(&path).unwrap();
-        let days = schedule.days();
-        for day in &days {
-            let day_events = schedule.events_for_day(day);
-            assert!(
-                !day_events.is_empty(),
-                "Day {day} should have at least one event"
-            );
-            for event in &day_events {
-                assert_eq!(&event.date(), day);
-            }
         }
     }
 

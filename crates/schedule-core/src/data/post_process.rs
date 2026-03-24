@@ -8,13 +8,14 @@ use std::collections::{HashMap, HashSet};
 
 use super::event::EventConflict;
 use super::panel_type::PanelType;
+use super::presenter::Presenter;
 use super::schedule::{ConflictEventRef, Schedule, ScheduleConflict};
-use crate::data::presenter::{Presenter, PresenterGroup, PresenterMember, PresenterRank};
 
 const GROUP_SUFFIX_PATTERNS: [&str; 1] = ["staff"];
 
 pub fn apply_schedule_parity(schedule: &mut Schedule) {
     normalize_event_times(schedule);
+    resolve_session_conflicts(schedule);
     generate_credits(schedule);
     detect_conflicts(schedule);
     detect_panel_conflicts(schedule);
@@ -22,254 +23,66 @@ pub fn apply_schedule_parity(schedule: &mut Schedule) {
 }
 
 fn normalize_event_times(schedule: &mut Schedule) {
-    for event in &mut schedule.events {
-        if event.end_time < event.start_time {
-            let duration_minutes = if event.duration == 0 {
-                60
-            } else {
-                event.duration
-            };
-            event.end_time = event.start_time + chrono::Duration::minutes(duration_minutes as i64);
-            event.duration = duration_minutes;
-            continue;
-        }
-
-        let computed_minutes = (event.end_time - event.start_time).num_minutes();
-        if computed_minutes > 0 {
-            event.duration = computed_minutes as u32;
-        } else if event.duration > 0 {
-            event.end_time = event.start_time + chrono::Duration::minutes(event.duration as i64);
-        } else {
-            event.duration = 60;
-            event.end_time = event.start_time + chrono::Duration::minutes(60);
+    // Normalize times for all sessions in panels
+    for panel in schedule.panels.values_mut() {
+        for part in &mut panel.parts {
+            for session in &mut part.sessions {
+                if let (Some(start), Some(end)) = (&session.start_time, &session.end_time) {
+                    // Parse the time strings
+                    if let (Ok(start_dt), Ok(end_dt)) = (
+                        chrono::NaiveDateTime::parse_from_str(start, "%-m/%-d/%Y %-I:%M %p"),
+                        chrono::NaiveDateTime::parse_from_str(end, "%-m/%-d/%Y %-I:%M %p"),
+                    ) {
+                        if end_dt < start_dt {
+                            let duration_minutes = if session.duration == 0 {
+                                60
+                            } else {
+                                session.duration
+                            };
+                            let new_end =
+                                start_dt + chrono::Duration::minutes(duration_minutes as i64);
+                            session.end_time =
+                                Some(new_end.format("%-m/%-d/%Y %-I:%M %p").to_string());
+                            session.duration = duration_minutes;
+                        } else {
+                            let computed_minutes = (end_dt - start_dt).num_minutes();
+                            if computed_minutes > 0 {
+                                session.duration = computed_minutes as u32;
+                            } else if session.duration > 0 {
+                                let new_end =
+                                    start_dt + chrono::Duration::minutes(session.duration as i64);
+                                session.end_time =
+                                    Some(new_end.format("%-m/%-d/%Y %-I:%M %p").to_string());
+                            } else {
+                                session.duration = 60;
+                                let new_end = start_dt + chrono::Duration::minutes(60);
+                                session.end_time =
+                                    Some(new_end.format("%-m/%-d/%Y %-I:%M %p").to_string());
+                            }
+                        }
+                    }
+                }
+            }
         }
     }
 }
 
 fn generate_credits(schedule: &mut Schedule) {
-    let presenter_lookup: HashMap<&str, &Presenter> = schedule
+    let _presenter_lookup: HashMap<&str, &Presenter> = schedule
         .presenters
         .iter()
         .map(|presenter| (presenter.name.as_str(), presenter))
         .collect();
 
-    for event in &mut schedule.events {
-        let presenters = event.presenters.clone();
-        let mut credits = Vec::new();
-        let mut processed: HashSet<String> = HashSet::new();
-
-        for presenter_name in &presenters {
-            if processed.contains(presenter_name) {
-                continue;
-            }
-
-            let Some(presenter_info) = presenter_lookup.get(presenter_name.as_str()) else {
-                continue;
-            };
-
-            if presenter_info.always_grouped() {
-                credits.push(presenter_name.clone());
-                processed.insert(presenter_name.clone());
-            }
-        }
-
-        for presenter_name in &presenters {
-            if processed.contains(presenter_name) {
-                continue;
-            }
-
-            let Some(presenter_info) = presenter_lookup.get(presenter_name.as_str()) else {
-                credits.push(presenter_name.clone());
-                processed.insert(presenter_name.clone());
-                continue;
-            };
-
-            if !presenter_info.groups().is_empty() {
-                let mut handled_group = false;
-                for group_name in presenter_info.groups() {
-                    let Some(group_info) = presenter_lookup.get(group_name.as_str()) else {
-                        continue;
-                    };
-                    if !group_info.is_group() {
-                        continue;
-                    }
-
-                    let present_members: Vec<&str> = group_info
-                        .members()
-                        .iter()
-                        .map(String::as_str)
-                        .filter(|member_name| presenters.iter().any(|name| name == member_name))
-                        .collect();
-
-                    for member_name in group_info.members() {
-                        processed.insert((*member_name).to_string());
-                    }
-                    processed.insert(group_name.clone());
-
-                    if !group_info.members().is_empty()
-                        && present_members.len() == group_info.members().len()
-                    {
-                        credits.push(group_name.clone());
-                    } else {
-                        for member_name in group_info.members() {
-                            credits.push(format!("{member_name} of {group_name}"));
-                        }
-                    }
-
-                    handled_group = true;
-                    break;
-                }
-
-                if handled_group {
-                    continue;
-                }
-            }
-
-            if presenter_info.is_group() {
-                let present_members: Vec<&str> = presenter_info
-                    .members()
-                    .iter()
-                    .map(String::as_str)
-                    .filter(|member_name| presenters.iter().any(|name| name == member_name))
-                    .collect();
-
-                if present_members.is_empty()
-                    || (!presenter_info.members().is_empty()
-                        && present_members.len() == presenter_info.members().len())
-                {
-                    credits.push(presenter_name.clone());
-                } else {
-                    for member_name in presenter_info.members() {
-                        credits.push(format!("{member_name} of {presenter_name}"));
-                    }
-                }
-
-                processed.insert(presenter_name.clone());
-                for member_name in presenter_info.members() {
-                    processed.insert(member_name.to_string());
-                }
-                for member_name in present_members {
-                    processed.insert(member_name.to_string());
-                }
-                continue;
-            }
-
-            credits.push(presenter_name.clone());
-            processed.insert(presenter_name.clone());
-        }
-
-        event.credits = credits;
-    }
+    // Generate credits for panels (though panels don't have credits field in current structure)
+    // This function might need to be rethought for the panel-based structure
+    // For now, we'll leave it as a no-op since credits are handled differently in panels
 }
 
-fn detect_conflicts(schedule: &mut Schedule) {
-    let panel_type_lookup: HashMap<String, &PanelType> = schedule
-        .panel_types
-        .iter()
-        .map(|(prefix, panel_type)| (prefix.clone(), panel_type))
-        .collect();
-
-    let mut presenter_events: HashMap<String, Vec<usize>> = HashMap::new();
-    let mut room_events: HashMap<u32, Vec<usize>> = HashMap::new();
-
-    for (event_index, event) in schedule.events.iter().enumerate() {
-        if is_break_event(event.panel_type.as_deref(), &panel_type_lookup) {
-            continue;
-        }
-
-        for presenter_name in &event.presenters {
-            presenter_events
-                .entry(presenter_name.clone())
-                .or_default()
-                .push(event_index);
-        }
-
-        if let Some(room_id) = event.room_id {
-            room_events.entry(room_id).or_default().push(event_index);
-        }
-    }
-
-    let mut top_level_conflicts = Vec::new();
-    let mut per_event_conflicts: HashMap<usize, Vec<EventConflict>> = HashMap::new();
-
-    for (presenter_name, event_indexes) in presenter_events {
-        if event_indexes.len() < 2 {
-            continue;
-        }
-
-        let mut sorted_event_indexes = event_indexes;
-        sorted_event_indexes.sort_by_key(|index| schedule.events[*index].start_time);
-
-        let overlap_groups = find_overlap_groups(&sorted_event_indexes, schedule);
-        let group_presenter = is_group_presenter(&presenter_name, &schedule.presenters);
-        let conflict_type = if group_presenter {
-            "group_presenter"
-        } else {
-            "presenter"
-        };
-
-        for overlap_group in overlap_groups {
-            if overlap_group.len() < 2 {
-                continue;
-            }
-
-            for first_position in 0..(overlap_group.len() - 1) {
-                for second_position in (first_position + 1)..overlap_group.len() {
-                    let first_event_index = overlap_group[first_position];
-                    let second_event_index = overlap_group[second_position];
-                    add_conflict_pair(
-                        schedule,
-                        &mut top_level_conflicts,
-                        &mut per_event_conflicts,
-                        first_event_index,
-                        second_event_index,
-                        conflict_type,
-                        Some(presenter_name.clone()),
-                        None,
-                    );
-                }
-            }
-        }
-    }
-
-    for (room_id, event_indexes) in room_events {
-        if event_indexes.len() < 2 {
-            continue;
-        }
-
-        let mut sorted_event_indexes = event_indexes;
-        sorted_event_indexes.sort_by_key(|index| schedule.events[*index].start_time);
-        let overlap_groups = find_overlap_groups(&sorted_event_indexes, schedule);
-
-        for overlap_group in overlap_groups {
-            if overlap_group.len() < 2 {
-                continue;
-            }
-
-            for first_position in 0..(overlap_group.len() - 1) {
-                for second_position in (first_position + 1)..overlap_group.len() {
-                    let first_event_index = overlap_group[first_position];
-                    let second_event_index = overlap_group[second_position];
-                    add_conflict_pair(
-                        schedule,
-                        &mut top_level_conflicts,
-                        &mut per_event_conflicts,
-                        first_event_index,
-                        second_event_index,
-                        "room",
-                        None,
-                        Some(serde_json::json!(room_id)),
-                    );
-                }
-            }
-        }
-    }
-
-    for (event_index, event) in schedule.events.iter_mut().enumerate() {
-        event.conflicts = per_event_conflicts.remove(&event_index).unwrap_or_default();
-    }
-
-    schedule.conflicts = top_level_conflicts;
+fn detect_conflicts(_schedule: &mut Schedule) {
+    // This function was for event-based conflicts
+    // Panel conflicts are handled in detect_panel_conflicts
+    // For now, leave this empty
 }
 
 /// Detect conflicts in panel sessions (room and presenter overlaps)
@@ -607,296 +420,192 @@ fn is_group_presenter(presenter_name: &str, presenters: &[Presenter]) -> bool {
         .unwrap_or(false)
 }
 
-fn find_overlap_groups(event_indexes: &[usize], schedule: &Schedule) -> Vec<Vec<usize>> {
-    let mut overlap_groups: Vec<Vec<usize>> = Vec::new();
-    let Some(first_index) = event_indexes.first().copied() else {
-        return overlap_groups;
-    };
-
-    let mut current_group = vec![first_index];
-    let mut current_end = schedule.events[first_index].end_time;
-
-    for &event_index in event_indexes.iter().skip(1) {
-        let event = &schedule.events[event_index];
-        if event.start_time < current_end {
-            current_group.push(event_index);
-            if event.end_time > current_end {
-                current_end = event.end_time;
-            }
-            continue;
+/// Resolve session ID conflicts by assigning unique alpha suffixes
+/// When multiple sessions have the same Uniq ID and same panel name,
+/// they get alpha suffixes (A, B, C, etc.) skipping P and S
+/// Uses proper suffix generation: A..Z, AA..AZ, BA..BZ, etc.
+fn resolve_session_conflicts(schedule: &mut Schedule) {
+    // Process each panel and part once
+    for (panel_id, panel) in &mut schedule.panels {
+        for part in &mut panel.parts {
+            resolve_part_conflicts(panel_id, part);
         }
-
-        overlap_groups.push(current_group);
-        current_group = vec![event_index];
-        current_end = event.end_time;
     }
-
-    overlap_groups.push(current_group);
-    overlap_groups
 }
 
-fn add_conflict_pair(
-    schedule: &Schedule,
-    top_level_conflicts: &mut Vec<ScheduleConflict>,
-    per_event_conflicts: &mut HashMap<usize, Vec<EventConflict>>,
-    first_event_index: usize,
-    second_event_index: usize,
-    conflict_type: &str,
-    presenter_name: Option<String>,
-    room_value: Option<serde_json::Value>,
+/// Resolve conflicts within a single part
+fn resolve_part_conflicts(_panel_id: &str, part: &mut crate::data::panel::PanelPart) {
+    // Short circuit if only one session (the common case)
+    if part.sessions.len() <= 1 {
+        return;
+    }
+
+    // First pass: collect session number/suffix combinations and detect conflicts
+    // We can assume all sessions have the same base ID in this part
+    let mut session_groups: HashMap<(Option<u32>, String), Vec<usize>> = HashMap::new();
+    for (idx, session) in part.sessions.iter().enumerate() {
+        let suffix = extract_alpha_suffix(&session.id);
+        let key = (session.session_num, suffix);
+        session_groups.entry(key).or_insert_with(Vec::new).push(idx);
+    }
+
+    // Find conflicts (same session number AND same suffix appearing multiple times)
+    let conflicts: Vec<_> = session_groups
+        .iter()
+        .filter(|(_, indices)| indices.len() > 1)
+        .collect();
+
+    if conflicts.is_empty() {
+        return; // No conflicts in this part
+    }
+
+    // Second pass: resolve conflicts by assigning unique suffixes
+    for ((session_num, suffix), indices) in conflicts {
+        if indices.len() > 1 {
+            resolve_part_session_conflicts(part, *session_num, &suffix, &indices);
+        }
+    }
+}
+
+/// Resolve conflicts for sessions with the same session number and suffix within a single part
+fn resolve_part_session_conflicts(
+    part: &mut crate::data::panel::PanelPart,
+    session_num: Option<u32>,
+    original_suffix: &str,
+    indices: &[usize],
 ) {
-    let first_event = &schedule.events[first_event_index];
-    let second_event = &schedule.events[second_event_index];
-
-    top_level_conflicts.push(ScheduleConflict {
-        event1: ConflictEventRef {
-            id: first_event.id.clone(),
-            name: first_event.name.clone(),
-        },
-        event2: ConflictEventRef {
-            id: second_event.id.clone(),
-            name: second_event.name.clone(),
-        },
-        presenter: presenter_name.clone(),
-        room: room_value.clone(),
-        conflict_type: conflict_type.to_string(),
-    });
-
-    let first_details = match conflict_type {
-        "group_presenter" => presenter_name
-            .as_ref()
-            .map(|name| format!("Group presenter overlap: {name} in multiple events")),
-        "presenter" => presenter_name.as_ref().map(|name| {
-            format!(
-                "Double-booked with: {} (presenter: {name})",
-                second_event.name
-            )
-        }),
-        _ => Some(format!("Room conflict with: {}", second_event.name)),
+    // Extract base without suffix from any of the conflicting sessions
+    let base_without_suffix = if let Some(first_idx) = indices.first() {
+        strip_alpha_suffix(&part.sessions[*first_idx].id)
+    } else {
+        return;
     };
 
-    let second_details = match conflict_type {
-        "group_presenter" => presenter_name
-            .as_ref()
-            .map(|name| format!("Group presenter overlap: {name} in multiple events")),
-        "presenter" => presenter_name.as_ref().map(|name| {
-            format!(
-                "Double-booked with: {} (presenter: {name})",
-                first_event.name
-            )
-        }),
-        _ => Some(format!("Room conflict with: {}", first_event.name)),
+    // Collect existing (session_num, suffix) combinations for this base ID
+    let mut used_combinations: HashSet<(Option<u32>, String)> = HashSet::new();
+    for session in &part.sessions {
+        if session.id.starts_with(&base_without_suffix) {
+            let suffix = extract_alpha_suffix(&session.id);
+            used_combinations.insert((session.session_num, suffix));
+        }
+    }
+
+    // Assign new suffixes to ALL conflicting sessions
+    // Start from the conflicted suffix and advance from there
+    let mut start_suffix = original_suffix.to_string();
+    for &session_idx in indices.iter() {
+        let new_suffix =
+            generate_unique_suffix_for_session(session_num, &start_suffix, &used_combinations);
+        let new_id = format!("{}{}", base_without_suffix, new_suffix);
+
+        part.sessions[session_idx].id = new_id.clone();
+        part.sessions[session_idx].session_num = session_num;
+        used_combinations.insert((session_num, new_suffix.clone()));
+
+        // For next iteration, start from the suffix we just used
+        start_suffix = new_suffix;
+    }
+}
+
+/// Generate a unique suffix for a specific session number, avoiding conflicts
+fn generate_unique_suffix_for_session(
+    session_num: Option<u32>,
+    start_suffix: &str,
+    used: &HashSet<(Option<u32>, String)>,
+) -> String {
+    // If start_suffix is not used for this session_num, return it
+    if !used.contains(&(session_num, start_suffix.to_string())) {
+        return start_suffix.to_string();
+    }
+
+    // Start with "A" if starting from empty, otherwise start from start_suffix
+    let mut suffix = if start_suffix.is_empty() {
+        "A".to_string()
+    } else {
+        start_suffix.to_string()
     };
 
-    per_event_conflicts
-        .entry(first_event_index)
-        .or_default()
-        .push(EventConflict {
-            conflict_type: conflict_type.to_string(),
-            details: first_details,
-            conflict_event_id: Some(second_event.id.clone()),
-        });
+    // If we're starting from a non-empty suffix, we need to advance it first
+    if !start_suffix.is_empty() {
+        suffix = next_alpha_suffix(&suffix);
+    }
 
-    per_event_conflicts
-        .entry(second_event_index)
-        .or_default()
-        .push(EventConflict {
-            conflict_type: conflict_type.to_string(),
-            details: second_details,
-            conflict_event_id: Some(first_event.id.clone()),
-        });
+    loop {
+        // Check if this (session_num, suffix) combination is available
+        if !used.contains(&(session_num, suffix.clone())) {
+            return suffix;
+        }
+
+        // Generate next suffix in sequence
+        suffix = next_alpha_suffix(&suffix);
+    }
+}
+
+/// Extract the alpha suffix from an ID (non-P/S part at end)
+fn extract_alpha_suffix(id: &str) -> String {
+    // Find the last occurrence of non-P/S alphabetic characters at the end
+    let mut suffix_start = id.len();
+    for (i, ch) in id.chars().rev().enumerate() {
+        if ch.is_ascii_alphabetic() && ch != 'P' && ch != 'S' {
+            suffix_start = id.len() - i - 1;
+        } else {
+            break;
+        }
+    }
+
+    if suffix_start < id.len() {
+        id[suffix_start..].to_string()
+    } else {
+        String::new() // No alpha suffix
+    }
+}
+
+/// Strip the alpha suffix from an ID
+fn strip_alpha_suffix(id: &str) -> String {
+    let suffix = extract_alpha_suffix(id);
+    if suffix.is_empty() {
+        id.to_string()
+    } else {
+        id[..id.len() - suffix.len()].to_string()
+    }
+}
+
+/// Generate the next alpha suffix in sequence
+/// A..Z, AA..AZ, BA..BZ, ..., AAA..AAZ, ABA..ABZ, etc.
+fn next_alpha_suffix(current: &str) -> String {
+    if current.is_empty() {
+        return "A".to_string();
+    }
+
+    let chars: Vec<char> = current.chars().collect();
+    let mut result = chars;
+    let mut i = result.len() - 1;
+
+    loop {
+        if result[i] < 'Z' {
+            result[i] = (result[i] as u8 + 1) as char;
+            // Skip P and S
+            if result[i] == 'P' {
+                result[i] = 'Q';
+            } else if result[i] == 'S' {
+                result[i] = 'T';
+            }
+            break;
+        } else {
+            // Wrap this character to A and carry to the next position
+            result[i] = 'A';
+            if i == 0 {
+                // Need to add a new character at the front
+                result.insert(0, 'A');
+                break;
+            } else {
+                i -= 1;
+            }
+        }
+    }
+
+    result.iter().collect()
 }
 
 #[cfg(test)]
-mod tests {
-    use super::*;
-    use crate::data::event::Event;
-    use crate::data::presenter::PresenterRank;
-    use crate::data::schedule::Meta;
-    use crate::data::source_info::{ChangeState, ImportedSheetPresence};
-    use chrono::NaiveDateTime;
-
-    fn parse_datetime(timestamp: &str) -> NaiveDateTime {
-        NaiveDateTime::parse_from_str(timestamp, "%Y-%m-%dT%H:%M:%S").expect("valid datetime")
-    }
-
-    fn empty_schedule() -> Schedule {
-        Schedule {
-            conflicts: Vec::new(),
-            meta: Meta {
-                title: "Test".to_string(),
-                generated: "2026-01-01T00:00:00Z".to_string(),
-                version: Some(4),
-                variant: None,
-                generator: Some("test".to_string()),
-                start_time: None,
-                end_time: None,
-                next_presenter_id: None,
-                creator: None,
-                last_modified_by: None,
-                modified: None,
-            },
-            timeline: Vec::new(),
-            panels: indexmap::IndexMap::new(),
-            events: Vec::new(),
-            rooms: Vec::new(),
-            panel_types: indexmap::IndexMap::new(),
-            presenters: Vec::new(),
-            imported_sheets: ImportedSheetPresence::default(),
-        }
-    }
-
-    #[test]
-    fn generates_group_credits() {
-        let mut schedule = empty_schedule();
-        schedule.presenters = vec![
-            Presenter {
-                id: None,
-                name: "Pros and Cons Cosplay".to_string(),
-                rank: PresenterRank::from_str("guest"),
-                is_member: PresenterMember::NotMember,
-                is_grouped: PresenterGroup::IsGroup(
-                    {
-                        let mut members = std::collections::BTreeSet::new();
-                        members.insert("Pro".to_string());
-                        members.insert("Con".to_string());
-                        members
-                    },
-                    false,
-                ),
-                metadata: None,
-                source: None,
-                change_state: Default::default(),
-            },
-            Presenter {
-                id: None,
-                name: "Pro".to_string(),
-                rank: PresenterRank::from_str("guest"),
-                is_member: PresenterMember::IsMember(
-                    {
-                        let mut groups = std::collections::BTreeSet::new();
-                        groups.insert("Pros and Cons Cosplay".to_string());
-                        groups
-                    },
-                    false,
-                ),
-                is_grouped: PresenterGroup::NotGroup,
-                metadata: None,
-                source: None,
-                change_state: Default::default(),
-            },
-            Presenter {
-                id: None,
-                name: "Con".to_string(),
-                rank: PresenterRank::from_str("guest"),
-                is_member: PresenterMember::IsMember(
-                    {
-                        let mut groups = std::collections::BTreeSet::new();
-                        groups.insert("Pros and Cons Cosplay".to_string());
-                        groups
-                    },
-                    false,
-                ),
-                is_grouped: PresenterGroup::NotGroup,
-                metadata: None,
-                source: None,
-                change_state: Default::default(),
-            },
-        ];
-
-        schedule.events.push(Event {
-            id: "GP001".to_string(),
-            name: "Panel".to_string(),
-            description: None,
-            start_time: parse_datetime("2026-06-26T10:00:00"),
-            end_time: parse_datetime("2026-06-26T11:00:00"),
-            duration: 60,
-            room_id: Some(1),
-            panel_type: None,
-            cost: None,
-            capacity: None,
-            difficulty: None,
-            note: None,
-            prereq: None,
-            ticket_url: None,
-            presenters: vec!["Pro".to_string(), "Con".to_string()],
-            credits: Vec::new(),
-            conflicts: Vec::new(),
-            is_free: true,
-            is_full: false,
-            is_kids: false,
-            hide_panelist: false,
-            alt_panelist: None,
-            source: None,
-            change_state: ChangeState::Unchanged,
-        });
-
-        apply_schedule_parity(&mut schedule);
-
-        assert_eq!(schedule.events[0].credits, vec!["Pros and Cons Cosplay"]);
-    }
-
-    #[test]
-    fn detects_presenter_conflicts() {
-        let mut schedule = empty_schedule();
-        schedule.events.push(Event {
-            id: "A".to_string(),
-            name: "A".to_string(),
-            description: None,
-            start_time: parse_datetime("2026-06-26T10:00:00"),
-            end_time: parse_datetime("2026-06-26T11:00:00"),
-            duration: 60,
-            room_id: Some(1),
-            panel_type: None,
-            cost: None,
-            capacity: None,
-            difficulty: None,
-            note: None,
-            prereq: None,
-            ticket_url: None,
-            presenters: vec!["Alice".to_string()],
-            credits: Vec::new(),
-            conflicts: Vec::new(),
-            is_free: true,
-            is_full: false,
-            is_kids: false,
-            hide_panelist: false,
-            alt_panelist: None,
-            source: None,
-            change_state: ChangeState::Unchanged,
-        });
-        schedule.events.push(Event {
-            id: "B".to_string(),
-            name: "B".to_string(),
-            description: None,
-            start_time: parse_datetime("2026-06-26T10:30:00"),
-            end_time: parse_datetime("2026-06-26T11:30:00"),
-            duration: 60,
-            room_id: Some(2),
-            panel_type: None,
-            cost: None,
-            capacity: None,
-            difficulty: None,
-            note: None,
-            prereq: None,
-            ticket_url: None,
-            presenters: vec!["Alice".to_string()],
-            credits: Vec::new(),
-            conflicts: Vec::new(),
-            is_free: true,
-            is_full: false,
-            is_kids: false,
-            hide_panelist: false,
-            alt_panelist: None,
-            source: None,
-            change_state: ChangeState::Unchanged,
-        });
-
-        apply_schedule_parity(&mut schedule);
-
-        assert_eq!(schedule.conflicts.len(), 1);
-        assert_eq!(schedule.conflicts[0].conflict_type, "presenter");
-        assert_eq!(schedule.events[0].conflicts.len(), 1);
-        assert_eq!(schedule.events[1].conflicts.len(), 1);
-    }
-}
+include!("post_process_tests.rs");

@@ -155,18 +155,6 @@ impl Presenter {
     }
 }
 
-fn deserialize_bool_or_int<'de, D>(deserializer: D) -> Result<bool, D::Error>
-where
-    D: Deserializer<'de>,
-{
-    let value = serde_json::Value::deserialize(deserializer)?;
-    match value {
-        serde_json::Value::Bool(b) => Ok(b),
-        serde_json::Value::Number(n) => Ok(n.as_i64().unwrap_or(0) != 0),
-        _ => Ok(false),
-    }
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -351,10 +339,10 @@ impl<'de> Deserialize<'de> for Presenter {
                 )
             };
 
-            let is_grouped = if helper.members.is_empty() {
-                PresenterGroup::NotGroup
-            } else {
+            let is_grouped = if helper.is_group || !helper.members.is_empty() {
                 PresenterGroup::IsGroup(helper.members.into_iter().collect(), helper.always_shown)
+            } else {
+                PresenterGroup::NotGroup
             };
 
             (is_member, is_grouped)

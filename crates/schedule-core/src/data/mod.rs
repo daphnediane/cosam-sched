@@ -17,6 +17,7 @@ pub mod source_info;
 pub mod timeline;
 pub mod widget_embed;
 pub mod xlsx_export;
+pub mod xlsx_grid;
 pub mod xlsx_import;
 pub mod xlsx_update;
 

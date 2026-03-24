@@ -77,14 +77,24 @@ pub struct PanelSession {
     pub sewing_machines: bool,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub av_notes: Option<String>,
-    #[serde(default, skip_serializing_if = "Vec::is_empty")]
-    pub conflicts: Vec<super::event::EventConflict>,
-    #[serde(default, alias = "extras", skip_serializing_if = "IndexMap::is_empty")]
-    pub metadata: ExtraFields,
     #[serde(skip)]
     pub source: Option<SourceInfo>,
     #[serde(skip)]
     pub change_state: ChangeState,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub conflicts: Vec<super::event::EventConflict>,
+    #[serde(default, alias = "extras", skip_serializing_if = "IndexMap::is_empty")]
+    pub metadata: ExtraFields,
+}
+
+impl PanelSession {
+    /// Returns true if this session is scheduled (has start time, room, and duration/end time)
+    pub fn is_scheduled(&self) -> bool {
+        let has_time = self.start_time.is_some();
+        let has_room = !self.room_ids.is_empty();
+        let has_duration_or_end = self.duration > 0 || self.end_time.is_some();
+        has_time && has_room && has_duration_or_end
+    }
 }
 
 /// Represents a part of a panel
@@ -206,52 +216,44 @@ impl Panel {
 }
 
 impl PanelPart {
-    /// Find or create a session within this part
-    pub fn find_or_create_session(
+    /// Always create a new session (used during import to avoid overwriting)
+    pub fn create_new_session(
         &mut self,
         session_num: Option<u32>,
         id: String,
     ) -> &mut PanelSession {
-        if let Some(idx) = self
-            .sessions
-            .iter()
-            .position(|s| s.session_num == session_num)
-        {
-            &mut self.sessions[idx]
-        } else {
-            let session = PanelSession {
-                id,
-                session_num,
-                description: None,
-                note: None,
-                prereq: None,
-                alt_panelist: None,
-                room_ids: Vec::new(),
-                start_time: None,
-                end_time: None,
-                duration: 60,
-                is_full: false,
-                capacity: None,
-                seats_sold: None,
-                pre_reg_max: None,
-                ticket_url: None,
-                simple_tix_event: None,
-                hide_panelist: false,
-                credited_presenters: Vec::new(),
-                uncredited_presenters: Vec::new(),
-                notes_non_printing: None,
-                workshop_notes: None,
-                power_needs: None,
-                sewing_machines: false,
-                av_notes: None,
-                conflicts: Vec::new(),
-                metadata: IndexMap::new(),
-                source: None,
-                change_state: ChangeState::Unchanged,
-            };
-            self.sessions.push(session);
-            self.sessions.last_mut().unwrap()
-        }
+        let session = PanelSession {
+            id,
+            session_num,
+            description: None,
+            note: None,
+            prereq: None,
+            alt_panelist: None,
+            room_ids: Vec::new(),
+            start_time: None,
+            end_time: None,
+            duration: 60,
+            is_full: false,
+            capacity: None,
+            seats_sold: None,
+            pre_reg_max: None,
+            ticket_url: None,
+            simple_tix_event: None,
+            hide_panelist: false,
+            credited_presenters: Vec::new(),
+            uncredited_presenters: Vec::new(),
+            notes_non_printing: None,
+            workshop_notes: None,
+            power_needs: None,
+            sewing_machines: false,
+            av_notes: None,
+            source: None,
+            change_state: ChangeState::Unchanged,
+            conflicts: Vec::new(),
+            metadata: IndexMap::new(),
+        };
+        self.sessions.push(session);
+        self.sessions.last_mut().unwrap()
     }
 }
 

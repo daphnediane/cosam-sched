@@ -72,7 +72,8 @@ function Get-WorkplanFiles {
         $relativePath = $_.FullName.Substring($Directory.Length)
         $subdir = if ($relativePath -match '^[/\\]([^/\\]+)') { 
             $matches[1] 
-        } else { 
+        }
+        else { 
             '' 
         }
         
@@ -122,17 +123,17 @@ function Import-WorkplanFile {
     $relativeWorkplanPath = [System.IO.Path]::GetRelativePath($outputDir, $WorkplanDir).Replace('\', '/')
     
     return @{
-        File           = $File.FullName
-        RelativeFile   = "$relativeWorkplanPath/$($File.Name)"
-        Prefix         = $prefix
-        Number         = $num
-        Title          = $title
-        Summary        = $summary
-        Status         = $status
-        Priority       = $priority
-        Description    = $description
-        FullContent    = $content
-        CurrentSubdir  = $File.CurrentSubdir
+        File          = $File.FullName
+        RelativeFile  = "$relativeWorkplanPath/$($File.Name)"
+        Prefix        = $prefix
+        Number        = $num
+        Title         = $title
+        Summary       = $summary
+        Status        = $status
+        Priority      = $priority
+        Description   = $description
+        FullContent   = $content
+        CurrentSubdir = $File.CurrentSubdir
     }
 }
 
@@ -172,7 +173,7 @@ function New-WorkPlanContent {
         $content += "## Completed"
         $content += ""
         
-        $sortedCompleted = $completed | Sort-Object -Property Prefix, @{Expression={[int]$_.Number}}
+        $sortedCompleted = $completed | Sort-Object -Property Prefix, @{Expression = { [int]$_.Number } }
         foreach ($item in $sortedCompleted) {
             $linkId = "$($item.Prefix)-$($item.Number)"
             $allLinks[$linkId] = Get-RelativePath -Item $item
@@ -201,7 +202,7 @@ function New-WorkPlanContent {
             
             $content += "* **$priority Priority**"
             
-            $sortedItems = $group.Group | Sort-Object -Property Prefix, @{Expression={[int]$_.Number}}
+            $sortedItems = $group.Group | Sort-Object -Property Prefix, @{Expression = { [int]$_.Number } }
             foreach ($item in $sortedItems) {
                 $linkId = "$($item.Prefix)-$($item.Number)"
                 $allLinks[$linkId] = Get-RelativePath -Item $item
@@ -225,7 +226,7 @@ function New-WorkPlanContent {
         $content += "## Open $priority Priority Items"
         $content += ""
         
-        $sortedItems = $group.Group | Sort-Object -Property Prefix, @{Expression={[int]$_.Number}}
+        $sortedItems = $group.Group | Sort-Object -Property Prefix, @{Expression = { [int]$_.Number } }
         for ($i = 0; $i -lt $sortedItems.Count; $i++) {
             $item = $sortedItems[$i]
             
@@ -267,7 +268,8 @@ function Get-RelativePath {
     $filename = "$($Item.Prefix)-$($Item.Number).md"
     if ($Item.CurrentSubdir) {
         return "work-plan/$($Item.CurrentSubdir)/$filename"
-    } else {
+    }
+    else {
         return "work-plan/$filename"
     }
 }

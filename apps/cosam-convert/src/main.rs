@@ -71,7 +71,7 @@ fn parse_args() -> anyhow::Result<CliArgs> {
     let mut input: Option<PathBuf> = None;
     let mut output_jobs: Vec<OutputJob> = Vec::new();
     let mut check_only = false;
-    let mut schedule_table = "Schedule".to_string();
+    let schedule_table = "Schedule".to_string();
     let mut roommap_table = "RoomMap".to_string();
     let mut prefix_table = "Prefix".to_string();
     let mut config_file: Option<PathBuf> = None;
@@ -511,9 +511,23 @@ fn main() {
         }
     };
 
+    // Count total sessions across all panels
+    let total_sessions: usize = schedule
+        .panels
+        .values()
+        .map(|panel| {
+            panel
+                .parts
+                .iter()
+                .map(|part| part.sessions.len())
+                .sum::<usize>()
+        })
+        .sum();
+
     eprintln!(
-        "Panels: {}, Rooms: {}, Panel types: {}, Presenters: {}",
+        "Panels: {}, Sessions: {}, Rooms: {}, Panel types: {}, Presenters: {}",
         schedule.panels.len(),
+        total_sessions,
         schedule.rooms.len(),
         schedule.panel_types.len(),
         schedule.presenters.len()
@@ -642,7 +656,7 @@ fn main() {
         // Restore original title for next job
         schedule.meta.title = original_title;
 
-        if let Err(error) = result {
+        if let Err(_) = result {
             had_error = true;
         }
     }

@@ -4,19 +4,20 @@
  * See LICENSE file for full license text
  */
 
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::path::Path;
 
 use anyhow::{Context, Result};
 use chrono::NaiveDateTime;
 use umya_spreadsheet::structs::{Table, TableColumn, TableStyleInfo, Worksheet};
 
-use super::panel::Panel;
-use super::panel_type::PanelType;
+#[allow(unused_imports)]
 use super::presenter::{Presenter, PresenterGroup, PresenterMember, PresenterRank};
 use super::room::Room;
 use super::schedule::Schedule;
 use super::source_info::ChangeState;
+#[allow(unused_imports)]
+use super::{panel::Panel, panel_type::PanelType};
 
 const SCHEDULE_FIXED_HEADERS: &[&str] = &[
     "Uniq ID",
@@ -65,12 +66,43 @@ fn build_presenter_columns(schedule: &Schedule) -> Vec<ExportPresenterColumn> {
         .collect();
 
     let mut event_count: HashMap<&str, usize> = HashMap::new();
-    for event in &schedule.events {
-        if event.change_state == ChangeState::Deleted {
+    // Count presenters from panels (not events)
+    for (_, panel) in &schedule.panels {
+        if panel.change_state == ChangeState::Deleted {
             continue;
         }
-        for name in &event.presenters {
+
+        // Count presenters from panel credited/uncredited lists
+        for name in &panel.credited_presenters {
             *event_count.entry(name.as_str()).or_insert(0) += 1;
+        }
+        for name in &panel.uncredited_presenters {
+            *event_count.entry(name.as_str()).or_insert(0) += 1;
+        }
+
+        // Also count from parts and sessions
+        for part in &panel.parts {
+            if part.change_state == ChangeState::Deleted {
+                continue;
+            }
+            for name in &part.credited_presenters {
+                *event_count.entry(name.as_str()).or_insert(0) += 1;
+            }
+            for name in &part.uncredited_presenters {
+                *event_count.entry(name.as_str()).or_insert(0) += 1;
+            }
+            for session in &part.sessions {
+                if session.change_state == ChangeState::Deleted {
+                    continue;
+                }
+                // Count presenters from session credited/uncredited lists
+                for name in &session.credited_presenters {
+                    *event_count.entry(name.as_str()).or_insert(0) += 1;
+                }
+                for name in &session.uncredited_presenters {
+                    *event_count.entry(name.as_str()).or_insert(0) += 1;
+                }
+            }
         }
     }
 
@@ -150,6 +182,7 @@ pub fn export_to_xlsx(schedule: &Schedule, path: &Path) -> Result<()> {
         .iter()
         .map(|s| s.to_string())
         .chain(presenter_columns.iter().map(|c| c.header.clone()))
+        .chain(vec!["Lstart".to_string(), "Lend".to_string()])
         .collect();
     {
         let ws = book
@@ -211,6 +244,15 @@ pub fn export_to_xlsx(schedule: &Schedule, path: &Path) -> Result<()> {
             .ok_or_else(|| anyhow::anyhow!("Sheet 'PanelTypes' not found"))?;
         let last_row = write_panel_types_sheet(ws, &schedule.panel_types);
         add_table(ws, "Prefix", prefix_headers, last_row);
+    }
+
+    // Add Grid sheet
+    book.new_sheet("Grid").map_err(|e| anyhow::anyhow!("{e}"))?;
+    {
+        let ws = book
+            .get_sheet_by_name_mut("Grid")
+            .ok_or_else(|| anyhow::anyhow!("Sheet 'Grid' not found"))?;
+        super::xlsx_grid::write_grid_sheet(ws, schedule)?;
     }
 
     umya_spreadsheet::writer::xlsx::write(&book, path)
@@ -347,6 +389,8 @@ struct ExportSession {
     hide_panelist: bool,
     alt_panelist: Option<String>,
     presenters: Vec<String>,
+    // Track which presenters are credited vs uncredited
+    credited_presenters: HashSet<String>,
 }
 
 /// Flatten the panel hierarchy into exportable sessions
@@ -369,11 +413,46 @@ fn flatten_panel_sessions(schedule: &Schedule) -> Vec<ExportSession> {
                 }
 
                 // Combine presenters from panel, part, and session
+                // Use a HashSet to track which presenters are credited
+                use std::collections::HashSet;
                 let mut presenters = Vec::new();
-                presenters.extend(panel.credited_presenters.iter().cloned());
-                presenters.extend(panel.uncredited_presenters.iter().cloned());
-                presenters.extend(part.credited_presenters.iter().cloned());
-                presenters.extend(part.uncredited_presenters.iter().cloned());
+                let mut credited_presenters: HashSet<&str> = HashSet::new();
+                let mut all_presenters: HashSet<&str> = HashSet::new();
+
+                // Collect all presenters and track which are credited
+                // Panel level
+                for name in &panel.credited_presenters {
+                    credited_presenters.insert(name.as_str());
+                    all_presenters.insert(name.as_str());
+                }
+                for name in &panel.uncredited_presenters {
+                    all_presenters.insert(name.as_str());
+                }
+
+                // Part level
+                for name in &part.credited_presenters {
+                    credited_presenters.insert(name.as_str());
+                    all_presenters.insert(name.as_str());
+                }
+                for name in &part.uncredited_presenters {
+                    all_presenters.insert(name.as_str());
+                }
+
+                // Session level
+                for name in &session.credited_presenters {
+                    credited_presenters.insert(name.as_str());
+                    all_presenters.insert(name.as_str());
+                }
+                for name in &session.uncredited_presenters {
+                    all_presenters.insert(name.as_str());
+                }
+
+                // Build the presenters list (for ExportSession)
+                presenters.extend(all_presenters.iter().map(|&s| s.to_string()));
+
+                // Convert HashSet to String HashSet for storage
+                let credited_set: HashSet<String> =
+                    credited_presenters.iter().map(|&s| s.to_string()).collect();
 
                 // Use session-specific room if available, otherwise fall back to first room
                 let room_id = session.room_ids.first().copied();
@@ -421,6 +500,7 @@ fn flatten_panel_sessions(schedule: &Schedule) -> Vec<ExportSession> {
                         .or_else(|| panel.alt_panelist.as_ref())
                         .cloned(),
                     presenters,
+                    credited_presenters: credited_set,
                 });
             }
         }
@@ -443,6 +523,12 @@ fn write_schedule_sheet(
         let col = fixed_count + i as u32 + 1;
         ws.get_cell_mut((col, 1)).set_value(pcol.header.as_str());
     }
+
+    // Add Lstart and Lend headers after presenter columns
+    let lstart_col = fixed_count + presenter_columns.len() as u32 + 1;
+    let lend_col = fixed_count + presenter_columns.len() as u32 + 2;
+    ws.get_cell_mut((lstart_col, 1)).set_value("Lstart");
+    ws.get_cell_mut((lend_col, 1)).set_value("Lend");
 
     let presenter_map: HashMap<&str, &Presenter> = schedule
         .presenters
@@ -469,41 +555,7 @@ fn write_schedule_sheet(
 
     let mut row = 2u32;
 
-    let sessions = if schedule.panels.is_empty() && !schedule.events.is_empty() {
-        // If no panels but have events, convert events to sessions directly
-        schedule
-            .events
-            .iter()
-            .map(|event| {
-                // Convert NaiveDateTime to string format like existing sessions
-                let start_time = Some("09:00".to_string());
-                let end_time = Some("10:00".to_string());
-
-                ExportSession {
-                    id: event.id.clone(),
-                    name: event.name.clone(),
-                    description: event.description.clone(),
-                    start_time,
-                    end_time,
-                    duration: event.duration,
-                    room_id: event.room_id,
-                    panel_type: event.panel_type.clone(),
-                    cost: event.cost.clone(),
-                    capacity: event.capacity.clone(),
-                    difficulty: event.difficulty.clone(),
-                    note: event.note.clone(),
-                    prereq: event.prereq.clone(),
-                    ticket_url: event.ticket_url.clone(),
-                    is_full: event.is_full,
-                    hide_panelist: event.hide_panelist,
-                    alt_panelist: event.alt_panelist.clone(),
-                    presenters: event.presenters.clone(),
-                }
-            })
-            .collect()
-    } else {
-        flatten_panel_sessions(schedule)
-    };
+    let sessions = flatten_panel_sessions(schedule);
 
     for session in sessions {
         set_str(ws, 1, row, &session.id);
@@ -550,26 +602,85 @@ fn write_schedule_sheet(
         set_opt(ws, 17, row, &session.alt_panelist);
 
         let mut other_names: HashMap<&str, Vec<&str>> = HashMap::new();
+
+        // Handle all presenters using the stored credited/uncredited sets
         for presenter_name in &session.presenters {
             if let Some(&col) = named_presenters.get(presenter_name.as_str()) {
-                set_str(ws, col, row, "Yes");
+                // Check if this presenter is credited
+                if session.credited_presenters.contains(presenter_name) {
+                    set_str(ws, col, row, "Yes");
+                } else {
+                    set_str(ws, col, row, "*");
+                }
             } else {
+                // Not a named column, add to Other
                 let rank = presenter_map
                     .get(presenter_name.as_str())
                     .map(|p| p.rank.as_str())
                     .unwrap_or("fan_panelist");
-                other_names
-                    .entry(rank)
-                    .or_default()
-                    .push(presenter_name.as_str());
+
+                if session.credited_presenters.contains(presenter_name) {
+                    other_names
+                        .entry(rank)
+                        .or_default()
+                        .push(presenter_name.as_str());
+                } else {
+                    // Add with * prefix for uncredited
+                    let prefixed = format!("*{}", presenter_name);
+                    other_names
+                        .entry(rank)
+                        .or_default()
+                        .push(Box::leak(prefixed.into_boxed_str()));
+                }
             }
         }
 
+        // Handle Other columns
         for &(i, ref ocol) in &other_columns {
-            if let Some(names) = other_names.get(ocol.rank.as_str()) {
+            let rank = ocol.rank.as_str();
+            if let Some(names) = other_names.get(rank) {
                 let col = fixed_count + i as u32 + 1;
                 set_str(ws, col, row, &names.join(", "));
             }
+        }
+
+        // Set Lstart formula (dynamic column position)
+        let lstart_formula =
+            "IF(ISBLANK([@[Start Time]]),MAX([Start Time])+TIME(80,0,0),[@[Start Time]])";
+        let cell = ws.get_cell_mut((lstart_col, row));
+        // Try to set as formula (without = prefix)
+        cell.set_formula(lstart_formula);
+        // Also set the calculated value for Excel compatibility
+        if let Some(start_time) = &session.start_time {
+            // For events, use the actual start time
+            cell.set_value(start_time);
+        } else {
+            // For timeline entries, this will be handled separately
+            cell.set_value("");
+        }
+
+        // Set Lend formula (dynamic column position)
+        let lend_formula = "=[@Lstart]+IF(ISBLANK([@Duration]),0,[@Duration])";
+        let cell = ws.get_cell_mut((lend_col, row));
+        // Remove the = prefix for set_formula
+        let lend_formula_clean = &lend_formula[1..];
+        cell.set_formula(lend_formula_clean);
+        // Also set the calculated value for Excel compatibility
+        if let Some(start_time) = &session.start_time {
+            // Calculate end time: start_time + duration
+            use chrono::Duration;
+            let end_time = if session.duration > 0 {
+                // Parse the start_time string and add duration minutes
+                chrono::NaiveDateTime::parse_from_str(start_time, "%-m/%-d/%Y %-I:%M %p")
+                    .map(|dt| dt + Duration::minutes(session.duration as i64))
+                    .map(|dt| dt.format("%-m/%-d/%Y %-I:%M %p").to_string())
+                    .unwrap_or_else(|_| start_time.clone())
+            } else {
+                start_time.clone()
+            };
+            cell.set_value(&end_time);
+        } else {
+            cell.set_value("");
         }
 
         row += 1;
@@ -608,6 +719,18 @@ fn write_schedule_sheet(
         );
         set_str(ws, 6, row, "30");
         set_str(ws, 8, row, &prefix);
+
+        // Set Lstart formula for timeline entries (dynamic column position)
+        let lstart_formula = "=[@[Start Time]]";
+        let cell = ws.get_cell_mut((lstart_col, row));
+        cell.set_formula(&lstart_formula[1..]); // Remove = prefix
+        cell.set_value(&start_time.format("%-m/%-d/%Y %-I:%M %p").to_string());
+
+        // Set Lend formula for timeline entries (dynamic column position)
+        let lend_formula = "=[@[End Time]]";
+        let cell = ws.get_cell_mut((lend_col, row));
+        cell.set_formula(&lend_formula[1..]); // Remove = prefix
+        cell.set_value(&end_time.format("%-m/%-d/%Y %-I:%M %p").to_string());
 
         row += 1;
     }
@@ -676,10 +799,12 @@ fn write_presenters_sheet(ws: &mut Worksheet, presenters: &[Presenter]) -> u32 {
 mod tests {
     use super::*;
     use crate::data::event::Event;
+    use crate::data::panel::{PanelPart, PanelSession};
     use crate::data::schedule::Meta;
     use crate::data::source_info::ImportedSheetPresence;
 
     fn make_test_schedule() -> Schedule {
+        #[allow(unused_variables)]
         let dt = |s: &str| chrono::NaiveDateTime::parse_from_str(s, "%Y-%m-%dT%H:%M:%S").unwrap();
 
         Schedule {
@@ -698,33 +823,75 @@ mod tests {
                 modified: None,
             },
             timeline: Vec::new(),
-            panels: indexmap::IndexMap::new(),
-            events: vec![Event {
-                id: "GP001".to_string(),
-                name: "Test Panel".to_string(),
-                description: Some("A test panel".to_string()),
-                start_time: dt("2026-06-26T09:00:00"),
-                end_time: dt("2026-06-26T10:00:00"),
-                duration: 60,
-                room_id: Some(1),
-                panel_type: Some("panel-type-gp".to_string()),
-                cost: None,
-                capacity: None,
-                difficulty: None,
-                note: None,
-                prereq: None,
-                ticket_url: None,
-                presenters: vec!["Alice".to_string()],
-                credits: Vec::new(),
-                conflicts: Vec::new(),
-                is_free: true,
-                is_full: false,
-                is_kids: false,
-                hide_panelist: false,
-                alt_panelist: None,
-                source: None,
-                change_state: ChangeState::Unchanged,
-            }],
+            panels: {
+                let mut panels = indexmap::IndexMap::new();
+                panels.insert(
+                    "GP001".to_string(),
+                    Panel {
+                        id: "GP001".to_string(),
+                        name: "Test Panel".to_string(),
+                        panel_type: Some("panel-type-GP".to_string()),
+                        description: None,
+                        note: None,
+                        prereq: None,
+                        alt_panelist: None,
+                        cost: None,
+                        capacity: None,
+                        pre_reg_max: None,
+                        difficulty: None,
+                        ticket_url: None,
+                        is_free: false,
+                        is_kids: false,
+                        credited_presenters: vec![],
+                        uncredited_presenters: vec![],
+                        simple_tix_event: None,
+                        have_ticket_image: None,
+                        parts: vec![PanelPart {
+                            part_num: None,
+                            description: None,
+                            note: None,
+                            prereq: None,
+                            alt_panelist: None,
+                            credited_presenters: vec![],
+                            uncredited_presenters: vec!["Alice".to_string()],
+                            sessions: vec![PanelSession {
+                                id: "GP002S1".to_string(),
+                                session_num: Some(1),
+                                description: None,
+                                note: None,
+                                prereq: None,
+                                alt_panelist: None,
+                                room_ids: vec![1],
+                                start_time: Some("2026-01-01T10:00:00".to_string()),
+                                end_time: Some("2026-01-01T11:00:00".to_string()),
+                                duration: 60,
+                                is_full: false,
+                                capacity: None,
+                                seats_sold: None,
+                                pre_reg_max: None,
+                                ticket_url: None,
+                                simple_tix_event: None,
+                                hide_panelist: false,
+                                credited_presenters: vec!["Alice".to_string()],
+                                uncredited_presenters: vec![],
+                                notes_non_printing: None,
+                                workshop_notes: None,
+                                power_needs: None,
+                                sewing_machines: false,
+                                av_notes: None,
+                                source: None,
+                                change_state: ChangeState::Unchanged,
+                                conflicts: vec![],
+                                metadata: indexmap::IndexMap::new(),
+                            }],
+                            change_state: ChangeState::Unchanged,
+                        }],
+                        metadata: None,
+                        change_state: ChangeState::Unchanged,
+                    },
+                );
+                panels
+            },
             rooms: vec![Room {
                 uid: 1,
                 short_name: "Main".to_string(),
@@ -802,7 +969,7 @@ mod tests {
             .get_sheet_by_name("Schedule")
             .expect("Schedule sheet should exist");
         assert_eq!(sched_ws.get_value((1, 1)), "Uniq ID");
-        assert_eq!(sched_ws.get_value((1, 2)), "GP001");
+        assert_eq!(sched_ws.get_value((1, 2)), "GP002S1");
         assert_eq!(sched_ws.get_value((2, 2)), "Test Panel");
 
         let fixed_col_count = SCHEDULE_FIXED_HEADERS.len() as u32;
@@ -855,6 +1022,7 @@ mod tests {
     #[test]
     fn test_export_presenter_columns() {
         let dt = |s: &str| chrono::NaiveDateTime::parse_from_str(s, "%Y-%m-%dT%H:%M:%S").unwrap();
+        #[allow(unused_variables)]
         let make_event = |id: &str, presenters: Vec<&str>| Event {
             id: id.to_string(),
             name: format!("Panel {id}"),
@@ -911,7 +1079,7 @@ mod tests {
                         groups.insert("Pros and Cons".to_string());
                         groups
                     },
-                    false,
+                    true, // always_grouped
                 ),
                 is_grouped: PresenterGroup::NotGroup,
                 metadata: None,
@@ -947,11 +1115,204 @@ mod tests {
                 change_state: ChangeState::Unchanged,
             },
         ];
-        schedule.events = vec![
-            make_event("GP001", vec!["Pro", "Con"]),
-            make_event("GP002", vec!["Pro"]),
-            make_event("GP003", vec!["Pro", "Bob"]),
-        ];
+        // Create test panels with presenters
+        let mut panels = indexmap::IndexMap::new();
+        panels.insert(
+            "GP001".to_string(),
+            Panel {
+                id: "GP001".to_string(),
+                name: "Panel 1".to_string(),
+                panel_type: Some("panel-type-GP".to_string()),
+                description: None,
+                note: None,
+                prereq: None,
+                alt_panelist: None,
+                cost: None,
+                capacity: None,
+                pre_reg_max: None,
+                difficulty: None,
+                ticket_url: None,
+                is_free: false,
+                is_kids: false,
+                credited_presenters: vec!["Pro".to_string(), "Con".to_string()],
+                uncredited_presenters: vec![],
+                simple_tix_event: None,
+                have_ticket_image: None,
+                parts: vec![PanelPart {
+                    part_num: None,
+                    description: None,
+                    note: None,
+                    prereq: None,
+                    alt_panelist: None,
+                    credited_presenters: vec!["Pro".to_string(), "Con".to_string()],
+                    uncredited_presenters: vec![],
+                    sessions: vec![PanelSession {
+                        id: "GP001S1".to_string(),
+                        session_num: Some(1),
+                        description: None,
+                        note: None,
+                        prereq: None,
+                        alt_panelist: None,
+                        room_ids: vec![1],
+                        start_time: Some("2026-01-01T10:00:00".to_string()),
+                        end_time: Some("2026-01-01T11:00:00".to_string()),
+                        duration: 60,
+                        is_full: false,
+                        capacity: None,
+                        seats_sold: None,
+                        pre_reg_max: None,
+                        ticket_url: None,
+                        simple_tix_event: None,
+                        hide_panelist: false,
+                        credited_presenters: vec!["Pro".to_string(), "Con".to_string()],
+                        uncredited_presenters: vec![],
+                        notes_non_printing: None,
+                        workshop_notes: None,
+                        power_needs: None,
+                        sewing_machines: false,
+                        av_notes: None,
+                        source: None,
+                        change_state: ChangeState::Unchanged,
+                        conflicts: vec![],
+                        metadata: indexmap::IndexMap::new(),
+                    }],
+                    change_state: ChangeState::Unchanged,
+                }],
+                metadata: None,
+                change_state: ChangeState::Unchanged,
+            },
+        );
+        panels.insert(
+            "GP002".to_string(),
+            Panel {
+                id: "GP002".to_string(),
+                name: "Panel 2".to_string(),
+                panel_type: Some("panel-type-GP".to_string()),
+                description: None,
+                note: None,
+                prereq: None,
+                alt_panelist: None,
+                cost: None,
+                capacity: None,
+                pre_reg_max: None,
+                difficulty: None,
+                ticket_url: None,
+                is_free: false,
+                is_kids: false,
+                credited_presenters: vec!["Pro".to_string()],
+                uncredited_presenters: vec![],
+                simple_tix_event: None,
+                have_ticket_image: None,
+                parts: vec![PanelPart {
+                    part_num: None,
+                    description: None,
+                    note: None,
+                    prereq: None,
+                    alt_panelist: None,
+                    credited_presenters: vec!["Pro".to_string(), "Con".to_string()],
+                    uncredited_presenters: vec![],
+                    sessions: vec![PanelSession {
+                        id: "GP002S1".to_string(),
+                        session_num: Some(1),
+                        description: None,
+                        note: None,
+                        prereq: None,
+                        alt_panelist: None,
+                        room_ids: vec![1],
+                        start_time: Some("2026-01-01T10:00:00".to_string()),
+                        end_time: Some("2026-01-01T11:00:00".to_string()),
+                        duration: 60,
+                        is_full: false,
+                        capacity: None,
+                        seats_sold: None,
+                        pre_reg_max: None,
+                        ticket_url: None,
+                        simple_tix_event: None,
+                        hide_panelist: false,
+                        credited_presenters: vec!["Pro".to_string(), "Con".to_string()],
+                        uncredited_presenters: vec![],
+                        notes_non_printing: None,
+                        workshop_notes: None,
+                        power_needs: None,
+                        sewing_machines: false,
+                        av_notes: None,
+                        source: None,
+                        change_state: ChangeState::Unchanged,
+                        conflicts: vec![],
+                        metadata: indexmap::IndexMap::new(),
+                    }],
+                    change_state: ChangeState::Unchanged,
+                }],
+                metadata: None,
+                change_state: ChangeState::Unchanged,
+            },
+        );
+        panels.insert(
+            "GP003".to_string(),
+            Panel {
+                id: "GP003".to_string(),
+                name: "Panel 3".to_string(),
+                panel_type: Some("panel-type-GP".to_string()),
+                description: None,
+                note: None,
+                prereq: None,
+                alt_panelist: None,
+                cost: None,
+                capacity: None,
+                pre_reg_max: None,
+                difficulty: None,
+                ticket_url: None,
+                is_free: false,
+                is_kids: false,
+                credited_presenters: vec!["Pro".to_string(), "Bob".to_string()],
+                uncredited_presenters: vec![],
+                simple_tix_event: None,
+                have_ticket_image: None,
+                parts: vec![PanelPart {
+                    part_num: None,
+                    description: None,
+                    note: None,
+                    prereq: None,
+                    alt_panelist: None,
+                    credited_presenters: vec!["Pro".to_string(), "Con".to_string()],
+                    uncredited_presenters: vec![],
+                    sessions: vec![PanelSession {
+                        id: "GP003S1".to_string(),
+                        session_num: Some(1),
+                        description: None,
+                        note: None,
+                        prereq: None,
+                        alt_panelist: None,
+                        room_ids: vec![1],
+                        start_time: Some("2026-01-01T10:00:00".to_string()),
+                        end_time: Some("2026-01-01T11:00:00".to_string()),
+                        duration: 60,
+                        is_full: false,
+                        capacity: None,
+                        seats_sold: None,
+                        pre_reg_max: None,
+                        ticket_url: None,
+                        simple_tix_event: None,
+                        hide_panelist: false,
+                        credited_presenters: vec!["Pro".to_string(), "Con".to_string()],
+                        uncredited_presenters: vec![],
+                        notes_non_printing: None,
+                        workshop_notes: None,
+                        power_needs: None,
+                        sewing_machines: false,
+                        av_notes: None,
+                        source: None,
+                        change_state: ChangeState::Unchanged,
+                        conflicts: vec![],
+                        metadata: indexmap::IndexMap::new(),
+                    }],
+                    change_state: ChangeState::Unchanged,
+                }],
+                metadata: None,
+                change_state: ChangeState::Unchanged,
+            },
+        );
+        schedule.panels = panels;
 
         let columns = build_presenter_columns(&schedule);
         let headers: Vec<&str> = columns.iter().map(|c| c.header.as_str()).collect();
@@ -1010,7 +1371,131 @@ mod tests {
     }
 
     #[test]
-    fn test_timeline_import_export_roundtrip() {
+    fn test_export_credited_uncredited_presenters() {
+        let mut schedule = make_test_schedule();
+
+        // Add presenters with different credit status
+        schedule.presenters = vec![
+            Presenter {
+                id: None,
+                name: "Alice".to_string(),
+                rank: PresenterRank::from_str("guest"),
+                is_member: PresenterMember::NotMember,
+                is_grouped: PresenterGroup::NotGroup,
+                metadata: None,
+                source: None,
+                change_state: ChangeState::Unchanged,
+            },
+            Presenter {
+                id: None,
+                name: "Bob".to_string(),
+                rank: PresenterRank::from_str("guest"),
+                is_member: PresenterMember::NotMember,
+                is_grouped: PresenterGroup::NotGroup,
+                metadata: None,
+                source: None,
+                change_state: ChangeState::Unchanged,
+            },
+            Presenter {
+                id: None,
+                name: "Charlie".to_string(),
+                rank: PresenterRank::from_str("guest"),
+                is_member: PresenterMember::NotMember,
+                is_grouped: PresenterGroup::NotGroup,
+                metadata: None,
+                source: None,
+                change_state: ChangeState::Unchanged,
+            },
+        ];
+
+        // Create test panels with mixed credited/uncredited presenters
+        // Alice appears in 3 panels, so she gets her own column
+        // Bob appears in only 1 panel, so he goes to Other column
+        let mut panels = indexmap::IndexMap::new();
+        for (i, panel_id) in ["GP001", "GP002", "GP003"].iter().enumerate() {
+            panels.insert(
+                panel_id.to_string(),
+                Panel {
+                    id: panel_id.to_string(),
+                    name: format!("Panel {}", i + 1),
+                    panel_type: Some("panel-type-GP".to_string()),
+                    description: None,
+                    note: None,
+                    prereq: None,
+                    alt_panelist: None,
+                    cost: None,
+                    capacity: None,
+                    pre_reg_max: None,
+                    difficulty: None,
+                    ticket_url: None,
+                    is_free: false,
+                    is_kids: false,
+                    credited_presenters: vec!["Alice".to_string()],
+                    uncredited_presenters: if i == 0 {
+                        vec!["Bob".to_string()]
+                    } else {
+                        vec![]
+                    },
+                    simple_tix_event: None,
+                    have_ticket_image: None,
+                    parts: vec![PanelPart {
+                        part_num: None,
+                        description: None,
+                        note: None,
+                        prereq: None,
+                        alt_panelist: None,
+                        credited_presenters: vec!["Alice".to_string()],
+                        uncredited_presenters: if i == 0 {
+                            vec!["Bob".to_string()]
+                        } else {
+                            vec![]
+                        },
+                        sessions: vec![PanelSession {
+                            id: format!("{}S1", panel_id),
+                            session_num: Some(1),
+                            description: None,
+                            note: None,
+                            prereq: None,
+                            alt_panelist: None,
+                            room_ids: vec![1],
+                            start_time: Some("2026-01-01T10:00:00".to_string()),
+                            end_time: Some("2026-01-01T11:00:00".to_string()),
+                            duration: 60,
+                            is_full: false,
+                            capacity: None,
+                            seats_sold: None,
+                            pre_reg_max: None,
+                            ticket_url: None,
+                            simple_tix_event: None,
+                            hide_panelist: false,
+                            credited_presenters: vec!["Alice".to_string()],
+                            uncredited_presenters: if i == 0 {
+                                vec!["Bob".to_string()]
+                            } else {
+                                vec![]
+                            },
+                            notes_non_printing: None,
+                            workshop_notes: None,
+                            power_needs: None,
+                            sewing_machines: false,
+                            av_notes: None,
+                            source: None,
+                            change_state: ChangeState::Unchanged,
+                            conflicts: vec![],
+                            metadata: indexmap::IndexMap::new(),
+                        }],
+                        change_state: ChangeState::Unchanged,
+                    }],
+                    metadata: None,
+                    change_state: ChangeState::Unchanged,
+                },
+            );
+        }
+        schedule.panels = panels;
+
+        let dir = std::env::temp_dir();
+        let path = dir.join("test_credited_uncredited.xlsx");
+        export_to_xlsx(&schedule, &path).expect("export should succeed");
         use crate::data::timeline::TimelineEntry;
         use crate::data::xlsx_import::{XlsxImportOptions, import_xlsx};
         use std::env;
@@ -1056,7 +1541,6 @@ mod tests {
                 },
             ],
             panels: indexmap::IndexMap::new(),
-            events: Vec::new(),
             rooms: vec![Room {
                 uid: 1,
                 short_name: "Main Hall".to_string(),

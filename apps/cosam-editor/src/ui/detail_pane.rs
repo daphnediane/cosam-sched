@@ -51,7 +51,6 @@ pub struct DetailPane {
     sessions: Vec<SessionEntry>,
     selected_idx: usize,
     session_dropdown_open: bool,
-    rooms: Vec<(u32, String)>,
 }
 
 impl DetailPane {
@@ -85,7 +84,6 @@ impl DetailPane {
             sessions,
             selected_idx,
             session_dropdown_open: false,
-            rooms: rooms.to_vec(),
         }
     }
 

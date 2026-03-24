@@ -20,7 +20,7 @@ use serde::{Deserialize, Serialize};
 /// # Unsupported Formats for future
 ///
 /// - `"SPLIT"` (no number) - prefix `"SP"`, prefix_num None (will be assigned after table processed)
-/// - `"BREAK"` (no number) - prefix `"BR"`, prefix_num None (will be assigned after table processed) 
+/// - `"BREAK"` (no number) - prefix `"BR"`, prefix_num None (will be assigned after table processed)
 #[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub struct PanelId {
     /// Normalized 2-letter uppercase prefix (e.g. "GP", "SP", "BR")
@@ -215,6 +215,8 @@ mod tests {
         assert!(PanelId::parse("").is_none());
         assert!(PanelId::parse("INVALID").is_none());
         assert!(PanelId::parse("123").is_none());
+        assert!(PanelId::parse("GP001-1").is_none()); // Hyphens are not allowed
+        assert!(PanelId::parse("GP-001").is_none()); // Hyphens are not allowed
 
         // Multi-letter suffix after session
         let pid = PanelId::parse("GW097P2S3XYZ").unwrap();

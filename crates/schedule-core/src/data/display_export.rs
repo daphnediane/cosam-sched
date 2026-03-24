@@ -12,7 +12,7 @@ use chrono::{NaiveDateTime, Timelike};
 use serde::{Deserialize, Serialize};
 
 use super::panel_type::PanelType;
-use super::presenter::{Presenter, PresenterGroup, PresenterMember, PresenterRank};
+use super::presenter::Presenter;
 use super::schedule::{Meta, Schedule};
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -379,6 +379,10 @@ impl Schedule {
 
             for part in &panel.parts {
                 for session in &part.sessions {
+                    // Skip unscheduled panels from display export
+                    if !session.is_scheduled() {
+                        continue;
+                    }
                     let description = join_parts(&[
                         panel.description.as_deref(),
                         part.description.as_deref(),
@@ -970,7 +974,6 @@ mod tests {
             },
             timeline: Vec::new(),
             panels: IndexMap::new(),
-            events: Vec::new(),
             rooms: vec![Room {
                 uid: 1,
                 short_name: "Room 1".to_string(),
@@ -1006,7 +1009,7 @@ mod tests {
                 prereq: None,
                 alt_panelist: None,
                 room_ids: vec![1],
-                start_time: None,
+                start_time: Some("2023-01-01T10:00:00".to_string()),
                 end_time: None,
                 duration: 60,
                 is_full: false,
@@ -1051,7 +1054,7 @@ mod tests {
                 prereq: None,
                 alt_panelist: None,
                 room_ids: vec![1],
-                start_time: None,
+                start_time: Some("2023-01-01T10:00:00".to_string()),
                 end_time: None,
                 duration: 60,
                 is_full: false,
@@ -1091,7 +1094,7 @@ mod tests {
                 prereq: None,
                 alt_panelist: None,
                 room_ids: vec![1],
-                start_time: None,
+                start_time: Some("2023-01-01T10:00:00".to_string()),
                 end_time: None,
                 duration: 60,
                 is_full: false,
@@ -1137,7 +1140,7 @@ mod tests {
                     prereq: None,
                     alt_panelist: None,
                     room_ids: vec![1],
-                    start_time: None,
+                    start_time: Some("2023-01-01T10:00:00".to_string()),
                     end_time: None,
                     duration: 60,
                     is_full: false,
@@ -1167,7 +1170,7 @@ mod tests {
                     prereq: None,
                     alt_panelist: None,
                     room_ids: vec![1],
-                    start_time: None,
+                    start_time: Some("2023-01-01T10:00:00".to_string()),
                     end_time: None,
                     duration: 60,
                     is_full: false,
