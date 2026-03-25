@@ -19,6 +19,7 @@ use crate::data::presenter::Presenter;
 use crate::data::room::Room;
 use crate::data::schedule::Schedule;
 use crate::data::source_info::{ChangeState, SourceInfo};
+use crate::data::time;
 use crate::xlsx::columns::{FieldDef, panel_types as pt, people, room_map, schedule as sc};
 use crate::xlsx::read::{
     PresenterColumn, PresenterHeader, canonical_header, parse_presenter_header,
@@ -53,7 +54,7 @@ pub fn update_xlsx(schedule: &Schedule, path: &Path) -> Result<()> {
         if let Some(ref modified) = schedule.meta.modified {
             properties.set_modified(modified);
         } else {
-            let now = Utc::now().format("%Y-%m-%dT%H:%M:%SZ").to_string();
+            let now = time::format_storage_ts(Utc::now());
             properties.set_modified(&now);
         }
         if let Some(ref modified_by) = schedule.meta.last_modified_by {
@@ -108,7 +109,7 @@ pub fn update_xlsx(schedule: &Schedule, path: &Path) -> Result<()> {
 
     // Update Timestamp sheet if present (record processing time in A2).
     if let Some(ws) = book.get_sheet_by_name_mut("Timestamp") {
-        let now = Local::now().format("%Y-%m-%d %H:%M:%S").to_string();
+        let now = Local::now().format(time::LOCAL_TS_FMT).to_string();
         ws.get_cell_mut((1, 2)).set_value(&now);
     }
 

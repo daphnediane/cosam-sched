@@ -8,6 +8,8 @@ use gpui::prelude::*;
 use gpui::{Context, EventEmitter, MouseButton, SharedString, Window, div, px, rgb};
 use gpui_component::description_list::DescriptionList;
 
+use schedule_core::data::time;
+
 use crate::data::Panel;
 
 struct SessionEntry {
@@ -91,12 +93,8 @@ impl DetailPane {
         let mut entries = Vec::new();
         for part in &panel.parts {
             for session in &part.sessions {
-                let start_dt = session.start_time.as_deref().and_then(|st| {
-                    chrono::NaiveDateTime::parse_from_str(st, "%Y-%m-%dT%H:%M:%S").ok()
-                });
-                let end_dt = session.end_time.as_deref().and_then(|et| {
-                    chrono::NaiveDateTime::parse_from_str(et, "%Y-%m-%dT%H:%M:%S").ok()
-                });
+                let start_dt = session.start_time.as_deref().and_then(time::parse_storage);
+                let end_dt = session.end_time.as_deref().and_then(time::parse_storage);
 
                 let label = if let Some(start) = start_dt {
                     SharedString::from(format!(

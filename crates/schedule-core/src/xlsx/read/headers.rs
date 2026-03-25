@@ -16,7 +16,7 @@ use crate::data::presenter::PresenterRank;
 /// 3. Convert runs of whitespace/punctuation/underscores to `_` and trim.
 ///
 /// Returns `None` for empty or whitespace-only input.
-pub(crate) fn canonical_header(header: &str) -> Option<String> {
+pub fn canonical_header(header: &str) -> Option<String> {
     let trimmed = header.trim();
     if trimmed.is_empty() {
         return None;

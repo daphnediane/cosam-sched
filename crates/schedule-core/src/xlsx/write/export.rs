@@ -16,6 +16,7 @@ use crate::data::presenter::{Presenter, PresenterGroup, PresenterMember, Present
 use crate::data::room::Room;
 use crate::data::schedule::Schedule;
 use crate::data::source_info::ChangeState;
+use crate::data::time;
 #[allow(unused_imports)]
 use crate::data::{panel::Panel, panel_type::PanelType};
 use crate::xlsx::columns::people;
@@ -488,9 +489,9 @@ fn write_schedule_sheet(
             use chrono::Duration;
             let end_time = if session.duration > 0 {
                 // Parse the start_time string and add duration minutes
-                chrono::NaiveDateTime::parse_from_str(start_time, "%-m/%-d/%Y %-I:%M %p")
+                chrono::NaiveDateTime::parse_from_str(start_time, time::XLSX_DISPLAY_FMT)
                     .map(|dt| dt + Duration::minutes(session.duration as i64))
-                    .map(|dt| dt.format("%-m/%-d/%Y %-I:%M %p").to_string())
+                    .map(|dt| dt.format(time::XLSX_DISPLAY_FMT).to_string())
                     .unwrap_or_else(|_| start_time.clone())
             } else {
                 start_time.clone()
@@ -526,13 +527,13 @@ fn write_schedule_sheet(
             ws,
             4,
             row,
-            &start_time.format("%-m/%-d/%Y %-I:%M %p").to_string(),
+            &start_time.format(time::XLSX_DISPLAY_FMT).to_string(),
         );
         set_str(
             ws,
             5,
             row,
-            &end_time.format("%-m/%-d/%Y %-I:%M %p").to_string(),
+            &end_time.format(time::XLSX_DISPLAY_FMT).to_string(),
         );
         set_str(ws, 6, row, "30");
         set_str(ws, 8, row, &prefix);
@@ -541,13 +542,13 @@ fn write_schedule_sheet(
         let lstart_formula = "=[@[Start Time]]";
         let cell = ws.get_cell_mut((lstart_col, row));
         cell.set_formula(&lstart_formula[1..]); // Remove = prefix
-        cell.set_value(&start_time.format("%-m/%-d/%Y %-I:%M %p").to_string());
+        cell.set_value(&start_time.format(time::XLSX_DISPLAY_FMT).to_string());
 
         // Set Lend formula for timeline entries (dynamic column position)
         let lend_formula = "=[@[End Time]]";
         let cell = ws.get_cell_mut((lend_col, row));
         cell.set_formula(&lend_formula[1..]); // Remove = prefix
-        cell.set_value(&end_time.format("%-m/%-d/%Y %-I:%M %p").to_string());
+        cell.set_value(&end_time.format(time::XLSX_DISPLAY_FMT).to_string());
 
         row += 1;
     }

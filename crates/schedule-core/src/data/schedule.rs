@@ -17,6 +17,7 @@ use super::panel_type::PanelType;
 use super::presenter::Presenter;
 use super::room::Room;
 use super::source_info::{ChangeState, ImportedSheetPresence};
+use super::time;
 use super::timeline::TimelineEntry;
 
 /// Lightweight struct for displaying a panel session in the editor UI
@@ -121,7 +122,7 @@ impl Schedule {
     }
 
     fn save_json_to_file(&mut self, path: &Path) -> Result<()> {
-        self.meta.generated = chrono::Utc::now().format("%Y-%m-%dT%H:%M:%SZ").to_string();
+        self.meta.generated = time::format_storage_ts(chrono::Utc::now());
 
         // Set version based on format; preserve variant if already set by caller
         if !self.panels.is_empty() {
@@ -160,17 +161,14 @@ impl Schedule {
             for part in &panel.parts {
                 for session in &part.sessions {
                     if let Some(ref st) = session.start_time {
-                        if let Ok(start) =
-                            chrono::NaiveDateTime::parse_from_str(st, "%Y-%m-%dT%H:%M:%S")
-                        {
+                        if let Some(start) = time::parse_storage(st) {
                             if min_time.is_none() || Some(start) < min_time {
                                 min_time = Some(start);
                             }
                             let end = if let Some(ref et) = session.end_time {
-                                chrono::NaiveDateTime::parse_from_str(et, "%Y-%m-%dT%H:%M:%S")
-                                    .unwrap_or(
-                                        start + chrono::Duration::minutes(session.duration as i64),
-                                    )
+                                time::parse_storage(et).unwrap_or(
+                                    start + chrono::Duration::minutes(session.duration as i64),
+                                )
                             } else {
                                 start + chrono::Duration::minutes(session.duration as i64)
                             };
@@ -185,10 +183,7 @@ impl Schedule {
 
         // Check timeline entries
         for timeline_entry in &self.timeline {
-            if let Ok(start_time) = chrono::NaiveDateTime::parse_from_str(
-                &timeline_entry.start_time,
-                "%Y-%m-%dT%H:%M:%S",
-            ) {
+            if let Some(start_time) = time::parse_storage(&timeline_entry.start_time) {
                 if min_time.is_none() || Some(start_time) < min_time {
                     min_time = Some(start_time);
                 }
@@ -201,10 +196,10 @@ impl Schedule {
 
         // Set meta fields
         if let Some(min_time) = min_time {
-            self.meta.start_time = Some(min_time.format("%Y-%m-%dT%H:%M:%SZ").to_string());
+            self.meta.start_time = Some(time::format_storage_ts(min_time.and_utc()));
         }
         if let Some(max_time) = max_time {
-            self.meta.end_time = Some(max_time.format("%Y-%m-%dT%H:%M:%SZ").to_string());
+            self.meta.end_time = Some(time::format_storage_ts(max_time.and_utc()));
         }
 
         // If still no times found, set reasonable defaults for Cosplay America
@@ -225,9 +220,7 @@ impl Schedule {
             for part in &panel.parts {
                 for session in &part.sessions {
                     if let Some(ref st) = session.start_time {
-                        if let Ok(dt) =
-                            chrono::NaiveDateTime::parse_from_str(st, "%Y-%m-%dT%H:%M:%S")
-                        {
+                        if let Some(dt) = time::parse_storage(st) {
                             dates.insert(dt.date());
                         }
                     }
@@ -245,18 +238,16 @@ impl Schedule {
         for panel in self.panels.values() {
             for part in &panel.parts {
                 for session in &part.sessions {
-                    let start_dt = session.start_time.as_ref().and_then(|st| {
-                        chrono::NaiveDateTime::parse_from_str(st, "%Y-%m-%dT%H:%M:%S").ok()
-                    });
+                    let start_dt = session
+                        .start_time
+                        .as_ref()
+                        .and_then(|st| time::parse_storage(st));
                     if let Some(start) = start_dt {
                         if &start.date() == day {
                             let end_dt = session
                                 .end_time
                                 .as_ref()
-                                .and_then(|et| {
-                                    chrono::NaiveDateTime::parse_from_str(et, "%Y-%m-%dT%H:%M:%S")
-                                        .ok()
-                                })
+                                .and_then(|et| time::parse_storage(et))
                                 .unwrap_or(
                                     start + chrono::Duration::minutes(session.duration as i64),
                                 );
@@ -340,7 +331,7 @@ impl Default for Meta {
     fn default() -> Self {
         Self {
             title: "Event Schedule".to_string(),
-            generated: chrono::Utc::now().format("%Y-%m-%dT%H:%M:%SZ").to_string(),
+            generated: time::format_storage_ts(chrono::Utc::now()),
             version: Some(7),
             variant: None,
             generator: Some("cosam-sched".to_string()),

@@ -22,6 +22,7 @@ use crate::ui::event_card::{EventCard, EventCardEvent};
 use crate::ui::panel_edit_window::{PanelEditWindow, PanelEditWindowEvent};
 use crate::ui::sidebar::{RoomEntry, Sidebar, SidebarEvent};
 use crate::ui::web_preview;
+use schedule_core::data::time;
 use schedule_core::xlsx::{XlsxImportOptions, export_to_xlsx, post_save_cleanup, update_xlsx};
 
 const MAX_UNDO_STEPS: usize = 50;
@@ -308,7 +309,7 @@ impl ScheduleEditor {
         let mut schedule_clone = schedule.clone();
 
         // Update Excel metadata when saving
-        let current_time = chrono::Utc::now().format("%Y-%m-%dT%H:%M:%SZ").to_string();
+        let current_time = time::format_storage_ts(chrono::Utc::now());
         let username = std::env::var("USER")
             .or_else(|_| std::env::var("USERNAME"))
             .or_else(|_| std::env::var("LOGNAME"))
@@ -781,7 +782,7 @@ impl ScheduleEditor {
         let path_clone = path.clone();
 
         // Update Excel metadata when saving
-        let current_time = chrono::Utc::now().format("%Y-%m-%dT%H:%M:%SZ").to_string();
+        let current_time = time::format_storage_ts(chrono::Utc::now());
         let username = std::env::var("USER")
             .or_else(|_| std::env::var("USERNAME"))
             .or_else(|_| std::env::var("LOGNAME"))

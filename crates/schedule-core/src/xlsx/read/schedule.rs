@@ -19,6 +19,7 @@ use crate::data::panel_type::PanelType;
 use crate::data::presenter::{Presenter, PresenterGroup, PresenterMember, PresenterRank};
 use crate::data::room::Room;
 use crate::data::source_info::{ChangeState, SourceInfo};
+use crate::data::time;
 use crate::data::timeline::TimelineEntry;
 
 use crate::xlsx::columns::schedule as sc;
@@ -380,7 +381,7 @@ pub(super) fn read_panels(
                 // Create a TimelineEntry instead of a regular Panel
                 let timeline_entry = TimelineEntry {
                     id: uniq_id.unwrap_or_else(|| format!("TL{}", row)).to_string(),
-                    start_time: start_time.format("%Y-%m-%dT%H:%M:%S").to_string(),
+                    start_time: time::format_storage(start_time),
                     description: name.clone(),
                     panel_type: panel_type_uid.clone(),
                     note,
@@ -557,8 +558,8 @@ pub(super) fn read_panels(
 
         // Set session fields
         session.room_ids = room_ids;
-        session.start_time = Some(start_time.format("%Y-%m-%dT%H:%M:%S").to_string());
-        session.end_time = Some(end_time.format("%Y-%m-%dT%H:%M:%S").to_string());
+        session.start_time = Some(time::format_storage(start_time));
+        session.end_time = Some(time::format_storage(end_time));
         session.duration = duration;
         session.is_full = is_full;
         session.capacity = capacity;
@@ -675,9 +676,24 @@ pub(super) fn read_panels(
     let mut presenters: Vec<Presenter> = presenter_map
         .into_iter()
         .map(|(name, info)| {
-            // Use preserved rank from People sheet if available, otherwise use inferred rank
+            // Resolve rank: use whichever of (schedule-prefix rank, People-sheet
+            // classification) has higher priority (lower number).  When tied at the
+            // InvitedGuest tier, prefer the labelled variant so custom display strings
+            // (e.g. "105th", "Sponsor") are preserved.
             let rank = if let Some(preserved_rank) = presenter_ranks.get(&name) {
-                PresenterRank::from_str(preserved_rank)
+                let people = PresenterRank::from_classification(preserved_rank);
+                let sched = &info.rank;
+                if sched.priority() < people.priority() {
+                    sched.clone()
+                } else if people.priority() < sched.priority() {
+                    people
+                } else {
+                    // Same tier — prefer a labelled InvitedGuest over the plain one.
+                    match (&people, sched) {
+                        (PresenterRank::InvitedGuest(Some(_)), _) => people,
+                        _ => sched.clone(),
+                    }
+                }
             } else {
                 info.rank
             };
@@ -746,7 +762,7 @@ fn excel_serial_to_naive_datetime(serial: f64) -> Option<NaiveDateTime> {
 
 fn parse_datetime_value(str_val: Option<String>, num_val: Option<f64>) -> Option<NaiveDateTime> {
     if let Some(s) = str_val {
-        if let Some(dt) = parse_datetime_string(&s) {
+        if let Some(dt) = time::parse_datetime(&s) {
             return Some(dt);
         }
     }
@@ -756,76 +772,9 @@ fn parse_datetime_value(str_val: Option<String>, num_val: Option<f64>) -> Option
     None
 }
 
-fn parse_datetime_string(text: &str) -> Option<NaiveDateTime> {
-    let text = text.trim();
-    if text.is_empty() {
-        return None;
-    }
-
-    // ISO format
-    if let Ok(dt) = NaiveDateTime::parse_from_str(text, "%Y-%m-%dT%H:%M:%S") {
-        return Some(dt);
-    }
-    if let Ok(dt) = NaiveDateTime::parse_from_str(text, "%Y-%m-%d %H:%M:%S") {
-        return Some(dt);
-    }
-
-    // M-DD-YY HH:MM format (e.g., "6-27-26 18:00")
-    let re_short = Regex::new(r"^(\d{1,2})-(\d{1,2})-(\d{2})\s+(\d{1,2}):(\d{2})$").ok()?;
-    if let Some(caps) = re_short.captures(text) {
-        let month: u32 = caps[1].parse().ok()?;
-        let day: u32 = caps[2].parse().ok()?;
-        let year_short: u32 = caps[3].parse().ok()?;
-        let hour: u32 = caps[4].parse().ok()?;
-        let minute: u32 = caps[5].parse().ok()?;
-
-        // Convert 2-digit year to 4-digit year (assuming 2000s for 00-99)
-        let year = if year_short >= 70 {
-            1900 + year_short as i32
-        } else {
-            2000 + year_short as i32
-        };
-
-        let date = chrono::NaiveDate::from_ymd_opt(year, month, day)?;
-        let time = chrono::NaiveTime::from_hms_opt(hour, minute, 0)?;
-        return Some(NaiveDateTime::new(date, time));
-    }
-
-    // M/DD/YYYY H:MM AM/PM
-    let re_us =
-        Regex::new(r"^(\d{1,2})/(\d{1,2})/(\d{4})\s+(\d{1,2}):(\d{2})(?::(\d{2}))?\s*(AM|PM)?$")
-            .ok()?;
-
-    if let Some(caps) = re_us.captures(text) {
-        let month: u32 = caps[1].parse().ok()?;
-        let day: u32 = caps[2].parse().ok()?;
-        let year: i32 = caps[3].parse().ok()?;
-        let mut hour: u32 = caps[4].parse().ok()?;
-        let minute: u32 = caps[5].parse().ok()?;
-        let second: u32 = caps
-            .get(6)
-            .and_then(|m| m.as_str().parse().ok())
-            .unwrap_or(0);
-
-        if let Some(ampm) = caps.get(7) {
-            match ampm.as_str() {
-                "PM" if hour < 12 => hour += 12,
-                "AM" if hour == 12 => hour = 0,
-                _ => {}
-            }
-        }
-
-        let date = chrono::NaiveDate::from_ymd_opt(year, month, day)?;
-        let time = chrono::NaiveTime::from_hms_opt(hour, minute, second)?;
-        return Some(NaiveDateTime::new(date, time));
-    }
-
-    None
-}
-
 fn parse_duration_value(str_val: Option<String>, num_val: Option<f64>) -> Option<u32> {
     if let Some(s) = str_val {
-        if let Some(d) = parse_duration_string(&s) {
+        if let Some(d) = time::parse_duration_str(&s) {
             return Some(d);
         }
     }
@@ -837,28 +786,6 @@ fn parse_duration_value(str_val: Option<String>, num_val: Option<f64>) -> Option
             return Some(f as u32);
         }
     }
-    None
-}
-
-fn parse_duration_string(text: &str) -> Option<u32> {
-    let text = text.trim();
-    if text.is_empty() {
-        return None;
-    }
-
-    // H:MM or HH:MM
-    let re_hm = Regex::new(r"^(\d+):(\d{1,2})$").ok()?;
-    if let Some(caps) = re_hm.captures(text) {
-        let hours: u32 = caps[1].parse().ok()?;
-        let minutes: u32 = caps[2].parse().ok()?;
-        return Some(hours * 60 + minutes);
-    }
-
-    // Plain number = minutes (only integers, not decimals)
-    if let Ok(minutes) = text.parse::<u32>() {
-        return Some(minutes);
-    }
-
     None
 }
 
@@ -972,15 +899,6 @@ mod tests {
     }
 
     #[test]
-    fn test_parse_duration() {
-        assert_eq!(parse_duration_string("1:00"), Some(60));
-        assert_eq!(parse_duration_string("1:30"), Some(90));
-        assert_eq!(parse_duration_string("2:00"), Some(120));
-        assert_eq!(parse_duration_string("90"), Some(90));
-        assert_eq!(parse_duration_string(""), None);
-    }
-
-    #[test]
     fn test_normalize_cost() {
         assert_eq!(normalize_cost(None), (None, true, false));
         assert_eq!(
@@ -1020,14 +938,5 @@ mod tests {
         );
         assert!(parse_hyperlink_formula("SUM(A1:A2)").is_none());
         assert!(parse_hyperlink_formula("").is_none());
-    }
-
-    #[test]
-    fn test_parse_datetime_string() {
-        let dt = parse_datetime_string("2026-06-26T14:00:00").expect("should parse ISO");
-        assert_eq!(dt.format("%Y-%m-%d %H:%M").to_string(), "2026-06-26 14:00");
-
-        let dt = parse_datetime_string("6/26/2026 2:00 PM").expect("should parse US date");
-        assert_eq!(dt.format("%Y-%m-%d %H:%M").to_string(), "2026-06-26 14:00");
     }
 }

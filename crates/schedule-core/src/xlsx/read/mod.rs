@@ -23,11 +23,11 @@ use crate::data::panel::ExtraFields;
 use crate::data::panel::ExtraValue;
 use crate::data::schedule::{Meta, Schedule};
 use crate::data::source_info::ImportedSheetPresence;
+use crate::data::time;
 use crate::xlsx::columns::FieldDef;
 
-pub(crate) use headers::{
-    PresenterColumn, PresenterHeader, canonical_header, parse_presenter_header,
-};
+pub use headers::canonical_header;
+pub(crate) use headers::{PresenterColumn, PresenterHeader, parse_presenter_header};
 
 pub struct XlsxImportOptions {
     pub title: String,
@@ -84,19 +84,11 @@ pub fn import_xlsx(path: &Path, options: &XlsxImportOptions) -> Result<Schedule>
                 Some(modified_raw.to_string())
             } else {
                 // Timestamp is from 2009 or earlier, use file modified time instead
-                Some(
-                    file_modified_datetime
-                        .format("%Y-%m-%dT%H:%M:%SZ")
-                        .to_string(),
-                )
+                Some(time::format_storage_ts(file_modified_datetime))
             }
         } else {
             // Failed to parse, use file modified time instead
-            Some(
-                file_modified_datetime
-                    .format("%Y-%m-%dT%H:%M:%SZ")
-                    .to_string(),
-            )
+            Some(time::format_storage_ts(file_modified_datetime))
         }
     };
 
@@ -118,7 +110,7 @@ pub fn import_xlsx(path: &Path, options: &XlsxImportOptions) -> Result<Schedule>
     let generated = if options.use_modified_as_generated && modified.is_some() {
         modified.clone().unwrap()
     } else {
-        chrono::Utc::now().format("%Y-%m-%dT%H:%M:%SZ").to_string()
+        time::format_storage_ts(chrono::Utc::now())
     };
 
     let (panels, presenters, timeline_entries) = schedule::read_panels(

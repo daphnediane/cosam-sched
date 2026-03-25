@@ -10,6 +10,7 @@ use anyhow::Result;
 use umya_spreadsheet::Spreadsheet;
 
 use crate::data::presenter::{PresenterGroup, PresenterMember, PresenterRank};
+use crate::xlsx::columns::people;
 
 use super::headers::{PresenterHeader, canonical_header};
 
@@ -178,10 +179,14 @@ pub(super) fn read_presenter_ranks(
 ) -> Result<HashMap<String, String>> {
     let mut ranks = HashMap::new();
 
-    // Try to find People sheet
-    if let Some(ws) = book.get_sheet_by_name("People") {
+    // Try People sheet first, then legacy Presenters sheet name
+    let ws = book
+        .get_sheet_by_name("People")
+        .or_else(|| book.get_sheet_by_name("Presenters"));
+
+    if let Some(ws) = ws {
         let max_col = ws.get_highest_column();
-        let mut header_map = HashMap::new();
+        let mut header_map: HashMap<String, u32> = HashMap::new();
         for col in 1..=max_col {
             let value = ws.get_value((col, 1));
             if let Some(key) = canonical_header(&value) {
@@ -189,10 +194,12 @@ pub(super) fn read_presenter_ranks(
             }
         }
 
-        if let (Some(name_col), Some(rank_col)) = (
-            header_map.get("Name").copied(),
-            header_map.get("Rank").copied(),
-        ) {
+        let name_col = people::NAME.keys().find_map(|k| header_map.get(k).copied());
+        let rank_col = people::CLASSIFICATION
+            .keys()
+            .find_map(|k| header_map.get(k).copied());
+
+        if let (Some(name_col), Some(rank_col)) = (name_col, rank_col) {
             let highest_row = ws.get_highest_row();
             for row in 2..=highest_row {
                 let name = ws.get_value((name_col, row)).trim().to_string();

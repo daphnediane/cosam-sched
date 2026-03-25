@@ -14,10 +14,11 @@ pub enum PresenterRank {
     Guest,
     Judge,
     Staff,
-    InvitedGuest,
+    /// Invited / industry tier with an optional custom display label.
+    /// `None` serializes as `"invited_panelist"`; `Some(label)` serializes as
+    /// the label string directly (e.g. `"Sponsor"`, `"105th"`).
+    InvitedGuest(Option<String>),
     FanPanelist,
-    // Custom ranks like "Sponsor", "Industry", etc.
-    Custom(String),
 }
 
 impl PresenterRank {
@@ -26,9 +27,22 @@ impl PresenterRank {
             PresenterRank::Guest => "guest",
             PresenterRank::Judge => "judge",
             PresenterRank::Staff => "staff",
-            PresenterRank::InvitedGuest => "invited_guest",
+            PresenterRank::InvitedGuest(None) => "invited_panelist",
+            PresenterRank::InvitedGuest(Some(s)) => s.as_str(),
             PresenterRank::FanPanelist => "fan_panelist",
-            PresenterRank::Custom(s) => s,
+        }
+    }
+
+    /// Numeric priority: lower value = higher rank tier.
+    /// Used to resolve conflicts between schedule-prefix rank and People-sheet
+    /// classification — the rank with the lower priority number wins.
+    pub fn priority(&self) -> u8 {
+        match self {
+            PresenterRank::Guest => 0,
+            PresenterRank::Judge => 1,
+            PresenterRank::Staff => 2,
+            PresenterRank::InvitedGuest(_) => 3,
+            PresenterRank::FanPanelist => 4,
         }
     }
 
@@ -37,9 +51,9 @@ impl PresenterRank {
             "guest" => PresenterRank::Guest,
             "judge" => PresenterRank::Judge,
             "staff" => PresenterRank::Staff,
-            "invited_guest" => PresenterRank::InvitedGuest,
+            "invited_guest" | "invited_panelist" => PresenterRank::InvitedGuest(None),
             "fan_panelist" => PresenterRank::FanPanelist,
-            _ => PresenterRank::Custom(s.to_string()),
+            _ => PresenterRank::InvitedGuest(Some(s.to_string())),
         }
     }
 
@@ -48,9 +62,8 @@ impl PresenterRank {
             PresenterRank::Guest => 'G',
             PresenterRank::Judge => 'J',
             PresenterRank::Staff => 'S',
-            PresenterRank::InvitedGuest => 'I',
+            PresenterRank::InvitedGuest(_) => 'I',
             PresenterRank::FanPanelist => 'P',
-            PresenterRank::Custom(_) => 'I', // Default custom ranks to 'I' prefix
         }
     }
 
@@ -62,19 +75,38 @@ impl PresenterRank {
             'G' => Some(PresenterRank::Guest),
             'J' => Some(PresenterRank::Judge),
             'S' => Some(PresenterRank::Staff),
-            'I' => Some(PresenterRank::InvitedGuest),
+            'I' => Some(PresenterRank::InvitedGuest(None)),
             'P' => Some(PresenterRank::FanPanelist),
             _ => None,
         }
     }
 
-    /// All standard (non-custom) ranks in priority order used for column layout.
+    /// Parse a classification string from a spreadsheet cell.
+    /// Accepts display names ("Fan Panelist", "Invited Guest"), internal names
+    /// ("fan_panelist", "invited_guest"), and single-character prefix codes
+    /// ("G", "P", etc.).  Falls back to `InvitedGuest(Some(label))` for anything
+    /// unrecognized so the display string is preserved.
+    pub fn from_classification(s: &str) -> Self {
+        let lower = s.trim().to_lowercase();
+        match lower.as_str() {
+            "guest" | "g" => PresenterRank::Guest,
+            "judge" | "j" => PresenterRank::Judge,
+            "staff" | "s" => PresenterRank::Staff,
+            "invited" | "invited guest" | "invited_guest" | "invited panelist"
+            | "invited_panelist" | "i" => PresenterRank::InvitedGuest(None),
+            "fan" | "fan panelist" | "fan_panelist" | "p" => PresenterRank::FanPanelist,
+            _ => PresenterRank::InvitedGuest(Some(s.trim().to_string())),
+        }
+    }
+
+    /// All standard ranks in priority order used for column layout.
+    /// `InvitedGuest(None)` is the representative for the entire invited tier.
     pub fn standard_ranks() -> &'static [PresenterRank] {
         &[
             PresenterRank::Guest,
             PresenterRank::Judge,
             PresenterRank::Staff,
-            PresenterRank::InvitedGuest,
+            PresenterRank::InvitedGuest(None),
             PresenterRank::FanPanelist,
         ]
     }
@@ -222,28 +254,32 @@ mod tests {
         let json = r#"{"name": "CUT/SEW", "rank": "Sponsor"}"#;
         let p: Presenter = serde_json::from_str(json).unwrap();
         assert_eq!(p.name, "CUT/SEW");
-
-        // Check rank string and prefix before moving
         assert_eq!(p.rank.as_str(), "Sponsor");
-        assert_eq!(p.rank.prefix_char(), 'I'); // Custom ranks default to 'I' prefix
-
-        // Now check the enum variant
-        match p.rank {
-            PresenterRank::Custom(s) => assert_eq!(s, "Sponsor"),
-            _ => panic!("Expected Custom rank"),
-        }
+        assert_eq!(p.rank.prefix_char(), 'I');
+        assert_eq!(
+            p.rank,
+            PresenterRank::InvitedGuest(Some("Sponsor".to_string()))
+        );
     }
 
     #[test]
     fn test_presenter_rank_from_str() {
         assert_eq!(PresenterRank::from_str("guest"), PresenterRank::Guest);
         assert_eq!(
+            PresenterRank::from_str("invited_guest"),
+            PresenterRank::InvitedGuest(None)
+        );
+        assert_eq!(
+            PresenterRank::from_str("invited_panelist"),
+            PresenterRank::InvitedGuest(None)
+        );
+        assert_eq!(
             PresenterRank::from_str("SPONSOR"),
-            PresenterRank::Custom("SPONSOR".to_string())
+            PresenterRank::InvitedGuest(Some("SPONSOR".to_string()))
         );
         assert_eq!(
             PresenterRank::from_str("industry"),
-            PresenterRank::Custom("industry".to_string())
+            PresenterRank::InvitedGuest(Some("industry".to_string()))
         );
     }
 
@@ -262,6 +298,74 @@ mod tests {
         expected_groups.insert("Pros and Cons Cosplay".to_string());
         assert_eq!(p.groups(), &expected_groups);
         assert!(!p.is_group());
+    }
+
+    #[test]
+    fn test_presenter_rank_from_classification() {
+        assert_eq!(
+            PresenterRank::from_classification("Guest"),
+            PresenterRank::Guest
+        );
+        assert_eq!(
+            PresenterRank::from_classification("guest"),
+            PresenterRank::Guest
+        );
+        assert_eq!(
+            PresenterRank::from_classification("G"),
+            PresenterRank::Guest
+        );
+        assert_eq!(
+            PresenterRank::from_classification("Fan Panelist"),
+            PresenterRank::FanPanelist
+        );
+        assert_eq!(
+            PresenterRank::from_classification("fan_panelist"),
+            PresenterRank::FanPanelist
+        );
+        assert_eq!(
+            PresenterRank::from_classification("P"),
+            PresenterRank::FanPanelist
+        );
+        assert_eq!(
+            PresenterRank::from_classification("Invited Guest"),
+            PresenterRank::InvitedGuest(None)
+        );
+        assert_eq!(
+            PresenterRank::from_classification("invited_guest"),
+            PresenterRank::InvitedGuest(None)
+        );
+        assert_eq!(
+            PresenterRank::from_classification("Invited Panelist"),
+            PresenterRank::InvitedGuest(None)
+        );
+        assert_eq!(
+            PresenterRank::from_classification("I"),
+            PresenterRank::InvitedGuest(None)
+        );
+        assert_eq!(
+            PresenterRank::from_classification("Staff"),
+            PresenterRank::Staff
+        );
+        assert_eq!(
+            PresenterRank::from_classification("S"),
+            PresenterRank::Staff
+        );
+        assert_eq!(
+            PresenterRank::from_classification("Judge"),
+            PresenterRank::Judge
+        );
+        assert_eq!(
+            PresenterRank::from_classification("J"),
+            PresenterRank::Judge
+        );
+        assert_eq!(
+            PresenterRank::from_classification("Sponsor"),
+            PresenterRank::InvitedGuest(Some("Sponsor".to_string()))
+        );
+        assert_eq!(
+            PresenterRank::from_classification("105th"),
+            PresenterRank::InvitedGuest(Some("105th".to_string()))
+        );
     }
 
     #[test]

@@ -10,6 +10,7 @@ use umya_spreadsheet::structs::Worksheet;
 
 use crate::data::schedule::Schedule;
 use crate::data::source_info::ChangeState;
+use crate::data::time;
 
 pub(super) fn write_grid_sheet(ws: &mut Worksheet, schedule: &Schedule) -> Result<()> {
     use crate::data::room::Room;
@@ -43,9 +44,7 @@ pub(super) fn write_grid_sheet(ws: &mut Worksheet, schedule: &Schedule) -> Resul
                     continue;
                 }
                 if let Some(ref start_str) = session.start_time {
-                    if let Ok(start_time) =
-                        chrono::NaiveDateTime::parse_from_str(start_str, "%Y-%m-%dT%H:%M:%S")
-                    {
+                    if let Some(start_time) = time::parse_storage(start_str) {
                         times.push(start_time);
                     }
                 }

@@ -10,8 +10,9 @@ use std::path::{Path, PathBuf};
 use anyhow::{Context, Result};
 use chrono::{Datelike, Duration, NaiveDate, NaiveDateTime, NaiveTime, Timelike, Utc, Weekday};
 use schedule_core::data::panel::ExtraValue;
+use schedule_core::data::time;
 use schedule_core::data::{ChangeState, Schedule};
-use schedule_core::xlsx::{XlsxImportOptions, post_save_cleanup, update_xlsx};
+use schedule_core::xlsx::{XlsxImportOptions, canonical_header, post_save_cleanup, update_xlsx};
 use serde::Serialize;
 use serde_json::Value;
 
@@ -611,8 +612,14 @@ fn parse_select_scope(value: &str) -> Option<SelectScope> {
     }
 }
 
+fn normalize_field_name(s: &str) -> String {
+    canonical_header(s)
+        .map(|k| k.to_lowercase())
+        .unwrap_or_else(|| s.to_lowercase().replace('-', "_"))
+}
+
 fn parse_select_field(value: &str) -> Option<SelectField> {
-    match value.to_ascii_lowercase().as_str() {
+    match normalize_field_name(value).as_str() {
         "day" => Some(SelectField::Day),
         "start" | "begin" => Some(SelectField::Start),
         "dur" | "duration" | "length" => Some(SelectField::Duration),
@@ -1247,7 +1254,7 @@ fn room_name_for_output(schedule: &Schedule, room_id: u32) -> Option<String> {
 }
 
 fn parse_timestamp(value: &str) -> Result<NaiveDateTime> {
-    NaiveDateTime::parse_from_str(value, "%Y-%m-%dT%H:%M:%S")
+    time::parse_storage(value)
         .with_context(|| format!("Invalid timestamp '{value}', expected YYYY-MM-DDTHH:MM:SS"))
 }
 
@@ -1683,9 +1690,9 @@ fn execute_reschedule(
                 session.room_ids = vec![room_id];
             }
 
-            session.start_time = Some(new_start.format("%Y-%m-%dT%H:%M:%S").to_string());
+            session.start_time = Some(time::format_storage(new_start));
             session.duration = new_duration;
-            session.end_time = Some(computed_end.format("%Y-%m-%dT%H:%M:%S").to_string());
+            session.end_time = Some(time::format_storage(computed_end));
 
             mark_session_modified(session);
             mark_part_modified(part);
@@ -1918,10 +1925,8 @@ fn execute_query(
 ) -> Result<()> {
     let want_all = fields.iter().any(|f| f == "all");
     let want = |name: &str| -> bool {
-        want_all
-            || fields
-                .iter()
-                .any(|f| f.as_str() == name || f.replace('-', "_") == name.replace('-', "_"))
+        let norm_name = normalize_field_name(name);
+        want_all || fields.iter().any(|f| normalize_field_name(f) == norm_name)
     };
 
     let room_lookup: HashMap<u32, String> = schedule
@@ -2534,7 +2539,7 @@ fn execute_stage(schedule: &mut Schedule, stage: &Stage, format: OutputFormat) -
 }
 
 fn apply_modification_metadata(schedule: &mut Schedule) {
-    let now = Utc::now().format("%Y-%m-%dT%H:%M:%SZ").to_string();
+    let now = time::format_storage_ts(Utc::now());
     let username = std::env::var("USER")
         .or_else(|_| std::env::var("USERNAME"))
         .or_else(|_| std::env::var("LOGNAME"))

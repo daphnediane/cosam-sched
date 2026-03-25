@@ -69,14 +69,9 @@ pub(super) fn read_rooms(
         let uid = next_uid;
         next_uid += 1;
 
-        // Known = primary columns + extra metadata columns (Name Alt, Suffix, etc.)
-        // Extra columns flow to room metadata for roundtripping.
-        let known: Vec<_> = room_map::ALL
-            .iter()
-            .chain(room_map::EXTRA.iter())
-            .copied()
-            .collect();
-        let metadata = collect_extra_metadata(&data, &raw_headers, &known);
+        // Only the primary columns are "known"; EXTRA columns are not first-class
+        // fields and intentionally flow through to room metadata for round tripping.
+        let metadata = collect_extra_metadata(&data, &raw_headers, room_map::ALL);
 
         rooms.push(Room {
             uid,

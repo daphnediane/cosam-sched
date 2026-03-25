@@ -14,6 +14,7 @@ pub mod presenter;
 pub mod room;
 pub mod schedule;
 pub mod source_info;
+pub mod time;
 pub mod timeline;
 pub mod widget_embed;
 
