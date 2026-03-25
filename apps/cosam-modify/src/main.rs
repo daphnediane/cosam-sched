@@ -9,9 +9,10 @@ use std::path::{Path, PathBuf};
 
 use anyhow::{Context, Result};
 use chrono::{Datelike, Duration, NaiveDate, NaiveDateTime, NaiveTime, Timelike, Utc, Weekday};
+use schedule_core::data::Schedule;
 use schedule_core::data::panel::ExtraValue;
 use schedule_core::data::time;
-use schedule_core::data::{ChangeState, Schedule};
+use schedule_core::edit::{EditContext, PanelField, SessionField, SessionScheduleState};
 use schedule_core::xlsx::{XlsxImportOptions, canonical_header, post_save_cleanup, update_xlsx};
 use serde::Serialize;
 use serde_json::Value;
@@ -1204,36 +1205,6 @@ fn collect_selection(schedule: &Schedule, selectors: &Selectors) -> SelectionRes
     result
 }
 
-fn mark_room_modified(room: &mut schedule_core::data::Room) {
-    if room.change_state == ChangeState::Unchanged {
-        room.change_state = ChangeState::Modified;
-    }
-}
-
-fn mark_panel_type_modified(panel_type: &mut schedule_core::data::PanelType) {
-    if panel_type.change_state == ChangeState::Unchanged {
-        panel_type.change_state = ChangeState::Modified;
-    }
-}
-
-fn mark_panel_modified(panel: &mut schedule_core::data::Panel) {
-    if panel.change_state == ChangeState::Unchanged {
-        panel.change_state = ChangeState::Modified;
-    }
-}
-
-fn mark_part_modified(part: &mut schedule_core::data::PanelPart) {
-    if part.change_state == ChangeState::Unchanged {
-        part.change_state = ChangeState::Modified;
-    }
-}
-
-fn mark_session_modified(session: &mut schedule_core::data::PanelSession) {
-    if session.change_state == ChangeState::Unchanged {
-        session.change_state = ChangeState::Modified;
-    }
-}
-
 fn find_room_id(schedule: &Schedule, room_name: &str) -> Result<u32> {
     schedule
         .rooms
@@ -1525,20 +1496,19 @@ fn execute_set(
     field: &SetField,
     value: &str,
 ) -> Result<()> {
+    let mut ctx = EditContext::import(schedule);
     match field {
         SetField::Description | SetField::Note => {
             if selection.panel_ids.is_empty() {
                 anyhow::bail!("No panels matched selectors");
             }
+            let panel_field = match field {
+                SetField::Description => PanelField::Description,
+                SetField::Note => PanelField::Note,
+                SetField::AvNote => unreachable!(),
+            };
             for panel_id in &selection.panel_ids {
-                if let Some(panel) = schedule.panels.get_mut(panel_id) {
-                    match field {
-                        SetField::Description => panel.description = Some(value.to_string()),
-                        SetField::Note => panel.note = Some(value.to_string()),
-                        SetField::AvNote => {}
-                    }
-                    mark_panel_modified(panel);
-                }
+                ctx.set_panel_field(panel_id, panel_field.clone(), Some(value.to_string()));
             }
         }
         SetField::AvNote => {
@@ -1546,15 +1516,13 @@ fn execute_set(
                 anyhow::bail!("set av-note requires session matches");
             }
             for reference in &selection.sessions {
-                if let Some(panel) = schedule.panels.get_mut(&reference.panel_id)
-                    && let Some(part) = panel.parts.get_mut(reference.part_index)
-                    && let Some(session) = part.sessions.get_mut(reference.session_index)
-                {
-                    session.av_notes = Some(value.to_string());
-                    mark_session_modified(session);
-                    mark_part_modified(part);
-                    mark_panel_modified(panel);
-                }
+                ctx.set_session_field(
+                    &reference.panel_id,
+                    reference.part_index,
+                    reference.session_index,
+                    SessionField::AvNotes,
+                    Some(value.to_string()),
+                );
             }
         }
     }
@@ -1572,33 +1540,22 @@ fn apply_presenter_change(
         anyhow::bail!("No sessions matched selectors for presenter update");
     }
 
+    let mut ctx = EditContext::import(schedule);
     for reference in &selection.sessions {
-        if let Some(panel) = schedule.panels.get_mut(&reference.panel_id)
-            && let Some(part) = panel.parts.get_mut(reference.part_index)
-            && let Some(session) = part.sessions.get_mut(reference.session_index)
-        {
-            if add {
-                if !session
-                    .credited_presenters
-                    .iter()
-                    .any(|name| eq_ignore_case(name, presenter_name))
-                {
-                    session.credited_presenters.push(presenter_name.to_string());
-                    mark_session_modified(session);
-                    mark_part_modified(part);
-                    mark_panel_modified(panel);
-                }
-            } else {
-                let before = session.credited_presenters.len();
-                session
-                    .credited_presenters
-                    .retain(|name| !eq_ignore_case(name, presenter_name));
-                if session.credited_presenters.len() != before {
-                    mark_session_modified(session);
-                    mark_part_modified(part);
-                    mark_panel_modified(panel);
-                }
-            }
+        if add {
+            ctx.add_presenter_to_session(
+                &reference.panel_id,
+                reference.part_index,
+                reference.session_index,
+                presenter_name,
+            );
+        } else {
+            ctx.remove_presenter_from_session(
+                &reference.panel_id,
+                reference.part_index,
+                reference.session_index,
+                presenter_name,
+            );
         }
     }
 
@@ -1640,64 +1597,86 @@ fn execute_reschedule(
     };
     let schedule_days = schedule.days();
 
-    for reference in &selection.sessions {
-        if let Some(panel) = schedule.panels.get_mut(&reference.panel_id)
-            && let Some(part) = panel.parts.get_mut(reference.part_index)
-            && let Some(session) = part.sessions.get_mut(reference.session_index)
-        {
-            let existing_start = session
-                .start_time
-                .as_deref()
-                .map(parse_timestamp)
-                .transpose()?;
-            let base_date = resolve_target_date(day, existing_start, &schedule_days)?;
+    // Pre-compute the new state for each session before borrowing mutably.
+    let mut updates: Vec<(usize, SessionScheduleState)> = Vec::new();
+    for (idx, reference) in selection.sessions.iter().enumerate() {
+        let Some(panel) = schedule.panels.get(&reference.panel_id) else {
+            continue;
+        };
+        let Some(part) = panel.parts.get(reference.part_index) else {
+            continue;
+        };
+        let Some(session) = part.sessions.get(reference.session_index) else {
+            continue;
+        };
 
-            let (start_day_offset, start_clock_time) = if let Some((offset, time)) = start_clock {
-                (offset, time)
-            } else if let Some(existing) = existing_start {
-                (0, existing.time())
-            } else {
-                anyhow::bail!(
-                    "Selected session {} has no start_time; provide --start",
-                    session.id
-                );
-            };
+        let existing_start = session
+            .start_time
+            .as_deref()
+            .map(parse_timestamp)
+            .transpose()?;
+        let base_date = resolve_target_date(day, existing_start, &schedule_days)?;
 
-            let start_date = base_date
-                .checked_add_signed(Duration::days(start_day_offset))
-                .context("Invalid date while applying --start")?;
-            let new_start = NaiveDateTime::new(start_date, start_clock_time);
+        let (start_day_offset, start_clock_time) = if let Some((offset, time)) = start_clock {
+            (offset, time)
+        } else if let Some(existing) = existing_start {
+            (0, existing.time())
+        } else {
+            anyhow::bail!(
+                "Selected session {} has no start_time; provide --start",
+                session.id
+            );
+        };
 
-            let new_duration = if let Some(minutes) = duration_override {
-                minutes
-            } else if let Some((end_day_offset, end_clock_time)) = end_clock {
-                let end_date = base_date
-                    .checked_add_signed(Duration::days(end_day_offset))
-                    .context("Invalid date while applying --end")?;
-                let new_end = NaiveDateTime::new(end_date, end_clock_time);
-                let delta = (new_end - new_start).num_minutes();
-                if delta <= 0 {
-                    anyhow::bail!("--end must be after start time");
-                }
-                delta as u32
-            } else {
-                session.duration
-            };
+        let start_date = base_date
+            .checked_add_signed(Duration::days(start_day_offset))
+            .context("Invalid date while applying --start")?;
+        let new_start = NaiveDateTime::new(start_date, start_clock_time);
 
-            let computed_end = new_start + Duration::minutes(new_duration as i64);
-
-            if let Some(room_id) = room_id {
-                session.room_ids = vec![room_id];
+        let new_duration = if let Some(minutes) = duration_override {
+            minutes
+        } else if let Some((end_day_offset, end_clock_time)) = end_clock {
+            let end_date = base_date
+                .checked_add_signed(Duration::days(end_day_offset))
+                .context("Invalid date while applying --end")?;
+            let new_end = NaiveDateTime::new(end_date, end_clock_time);
+            let delta = (new_end - new_start).num_minutes();
+            if delta <= 0 {
+                anyhow::bail!("--end must be after start time");
             }
+            delta as u32
+        } else {
+            session.duration
+        };
 
-            session.start_time = Some(time::format_storage(new_start));
-            session.duration = new_duration;
-            session.end_time = Some(time::format_storage(computed_end));
+        let computed_end = new_start + Duration::minutes(new_duration as i64);
 
-            mark_session_modified(session);
-            mark_part_modified(part);
-            mark_panel_modified(panel);
-        }
+        let new_room_ids = if let Some(rid) = room_id {
+            vec![rid]
+        } else {
+            session.room_ids.clone()
+        };
+
+        updates.push((
+            idx,
+            SessionScheduleState {
+                room_ids: new_room_ids,
+                start_time: Some(time::format_storage(new_start)),
+                end_time: Some(time::format_storage(computed_end)),
+                duration: new_duration,
+            },
+        ));
+    }
+
+    let mut ctx = EditContext::import(schedule);
+    for (idx, new_state) in updates {
+        let reference = &selection.sessions[idx];
+        ctx.reschedule_session(
+            &reference.panel_id,
+            reference.part_index,
+            reference.session_index,
+            new_state,
+        );
     }
 
     Ok(())
@@ -1708,18 +1687,13 @@ fn execute_cancel(schedule: &mut Schedule, selection: &SelectionResult) -> Resul
         anyhow::bail!("cancel requires at least one selected session");
     }
 
+    let mut ctx = EditContext::import(schedule);
     for reference in &selection.sessions {
-        if let Some(panel) = schedule.panels.get_mut(&reference.panel_id)
-            && let Some(part) = panel.parts.get_mut(reference.part_index)
-            && let Some(session) = part.sessions.get_mut(reference.session_index)
-        {
-            session.room_ids.clear();
-            session.start_time = None;
-            session.end_time = None;
-            mark_session_modified(session);
-            mark_part_modified(part);
-            mark_panel_modified(panel);
-        }
+        ctx.unschedule_session(
+            &reference.panel_id,
+            reference.part_index,
+            reference.session_index,
+        );
     }
 
     Ok(())
@@ -1735,17 +1709,15 @@ fn execute_remove_session(schedule: &mut Schedule, selection: &SelectionResult) 
         anyhow::bail!("No sessions matched --select");
     }
 
+    let mut ctx = EditContext::import(schedule);
     for reference in &selection.sessions {
-        if let Some(panel) = schedule.panels.get_mut(&reference.panel_id)
-            && let Some(part) = panel.parts.get_mut(reference.part_index)
-            && let Some(session) = part.sessions.get_mut(reference.session_index)
-        {
-            // Soft-delete: mark Deleted so update_xlsx writes the * prefix to the XLSX row.
-            // post_save_cleanup removes Deleted sessions from memory after the file is saved.
-            session.change_state = ChangeState::Deleted;
-            mark_part_modified(part);
-            mark_panel_modified(panel);
-        }
+        // Soft-delete: mark Deleted so update_xlsx writes the * prefix to the XLSX row.
+        // post_save_cleanup removes Deleted sessions from memory after the file is saved.
+        ctx.soft_delete_session(
+            &reference.panel_id,
+            reference.part_index,
+            reference.session_index,
+        );
     }
 
     Ok(())
@@ -1761,114 +1733,135 @@ fn string_array(value: &Value, key: &str) -> Option<Vec<String>> {
     })
 }
 
-fn apply_panel_json_merge(panel: &mut schedule_core::data::Panel, patch: &Value) {
+fn apply_panel_json_merge(ctx: &mut EditContext<'_>, panel_id: &str, patch: &Value) {
     if let Some(name) = patch.get("name").and_then(Value::as_str) {
-        panel.name = name.to_string();
-        mark_panel_modified(panel);
+        ctx.set_panel_name(panel_id, name);
     }
     if let Some(description) = patch.get("description").and_then(Value::as_str) {
-        panel.description = Some(description.to_string());
-        mark_panel_modified(panel);
+        ctx.set_panel_field(
+            panel_id,
+            PanelField::Description,
+            Some(description.to_string()),
+        );
     }
     if let Some(note) = patch.get("note").and_then(Value::as_str) {
-        panel.note = Some(note.to_string());
-        mark_panel_modified(panel);
+        ctx.set_panel_field(panel_id, PanelField::Note, Some(note.to_string()));
     }
     if let Some(cost) = patch.get("cost").and_then(Value::as_str) {
-        panel.cost = Some(cost.to_string());
-        mark_panel_modified(panel);
+        ctx.set_panel_field(panel_id, PanelField::Cost, Some(cost.to_string()));
     }
     if let Some(capacity) = patch.get("capacity").and_then(Value::as_str) {
-        panel.capacity = Some(capacity.to_string());
-        mark_panel_modified(panel);
+        ctx.set_panel_field(panel_id, PanelField::Capacity, Some(capacity.to_string()));
     }
     if let Some(presenters) = string_array(patch, "presenters") {
-        panel.credited_presenters = presenters;
-        mark_panel_modified(panel);
+        ctx.set_panel_presenters(panel_id, presenters);
     }
 }
 
 fn apply_session_json_merge(
-    schedule: &Schedule,
-    session: &mut schedule_core::data::PanelSession,
+    ctx: &mut EditContext<'_>,
+    panel_id: &str,
+    part_index: usize,
+    session_index: usize,
     patch: &Value,
-) -> Result<()> {
+    room_id_override: Option<u32>,
+    null_room: bool,
+) {
     if let Some(description) = patch.get("description").and_then(Value::as_str) {
-        session.description = Some(description.to_string());
-        mark_session_modified(session);
+        ctx.set_session_field(
+            panel_id,
+            part_index,
+            session_index,
+            SessionField::Description,
+            Some(description.to_string()),
+        );
     }
     if let Some(note) = patch.get("note").and_then(Value::as_str) {
-        session.note = Some(note.to_string());
-        mark_session_modified(session);
+        ctx.set_session_field(
+            panel_id,
+            part_index,
+            session_index,
+            SessionField::Note,
+            Some(note.to_string()),
+        );
     }
     if let Some(av_note) = patch
         .get("avNote")
         .and_then(Value::as_str)
         .or_else(|| patch.get("avNotes").and_then(Value::as_str))
     {
-        session.av_notes = Some(av_note.to_string());
-        mark_session_modified(session);
+        ctx.set_session_field(
+            panel_id,
+            part_index,
+            session_index,
+            SessionField::AvNotes,
+            Some(av_note.to_string()),
+        );
     }
     if patch.get("startTime").is_some() {
-        session.start_time = patch
-            .get("startTime")
-            .and_then(Value::as_str)
-            .map(ToString::to_string);
-        mark_session_modified(session);
+        ctx.set_session_field(
+            panel_id,
+            part_index,
+            session_index,
+            SessionField::StartTime,
+            patch
+                .get("startTime")
+                .and_then(Value::as_str)
+                .map(ToString::to_string),
+        );
     }
     if patch.get("endTime").is_some() {
-        session.end_time = patch
-            .get("endTime")
-            .and_then(Value::as_str)
-            .map(ToString::to_string);
-        mark_session_modified(session);
+        ctx.set_session_field(
+            panel_id,
+            part_index,
+            session_index,
+            SessionField::EndTime,
+            patch
+                .get("endTime")
+                .and_then(Value::as_str)
+                .map(ToString::to_string),
+        );
     }
     if let Some(duration) = patch.get("duration").and_then(Value::as_u64) {
-        session.duration = duration as u32;
-        mark_session_modified(session);
+        ctx.set_session_duration(panel_id, part_index, session_index, duration as u32);
     }
-    if let Some(room_name) = patch
-        .get("roomName")
-        .and_then(Value::as_str)
-        .or_else(|| patch.get("room").and_then(Value::as_str))
-    {
-        let room_id = find_room_id(schedule, room_name)?;
-        session.room_ids = vec![room_id];
-        mark_session_modified(session);
-    }
-    if patch.get("roomName").is_some() && patch.get("roomName").is_some_and(Value::is_null) {
-        session.room_ids.clear();
-        mark_session_modified(session);
+    if let Some(room_id) = room_id_override {
+        // Build a reschedule that only changes the room, keeping existing time/duration.
+        let session = ctx
+            .schedule
+            .panels
+            .get(panel_id)
+            .and_then(|p| p.parts.get(part_index))
+            .and_then(|pt| pt.sessions.get(session_index));
+        if let Some(s) = session {
+            ctx.reschedule_session(
+                panel_id,
+                part_index,
+                session_index,
+                SessionScheduleState {
+                    room_ids: vec![room_id],
+                    start_time: s.start_time.clone(),
+                    end_time: s.end_time.clone(),
+                    duration: s.duration,
+                },
+            );
+        }
+    } else if null_room {
+        ctx.unschedule_session(panel_id, part_index, session_index);
     }
     if let Some(presenters) = string_array(patch, "presenters") {
-        session.credited_presenters = presenters;
-        mark_session_modified(session);
+        ctx.set_session_presenters(panel_id, part_index, session_index, presenters);
     }
     if let Some(add_presenters) = string_array(patch, "addPresenters") {
-        for presenter_name in add_presenters {
-            if !session
-                .credited_presenters
-                .iter()
-                .any(|name| eq_ignore_case(name, &presenter_name))
-            {
-                session.credited_presenters.push(presenter_name);
-                mark_session_modified(session);
-            }
+        for presenter_name in &add_presenters {
+            ctx.add_presenter_to_session(panel_id, part_index, session_index, presenter_name);
         }
     }
     if let Some(remove_presenters) = string_array(patch, "removePresenters") {
-        let before = session.credited_presenters.len();
-        session.credited_presenters.retain(|name| {
-            !remove_presenters
-                .iter()
-                .any(|remove| eq_ignore_case(name, remove))
-        });
-        if session.credited_presenters.len() != before {
-            mark_session_modified(session);
+        for presenter_name in &remove_presenters {
+            ctx.remove_presenter_from_session(panel_id, part_index, session_index, presenter_name);
         }
     }
-
-    Ok(())
 }
 
 fn execute_update_from_json(
@@ -1885,24 +1878,32 @@ fn execute_update_from_json(
     let patch: Value = serde_json::from_str(&patch_text)
         .with_context(|| format!("Invalid JSON patch in {}", patch_path.display()))?;
 
-    for panel_id in &selection.panel_ids {
-        if let Some(panel) = schedule.panels.get_mut(panel_id) {
-            apply_panel_json_merge(panel, &patch);
-        }
-    }
+    // Pre-compute room ID override before creating the mutable context.
+    let room_id_override = patch
+        .get("roomName")
+        .and_then(Value::as_str)
+        .or_else(|| patch.get("room").and_then(Value::as_str))
+        .map(|name| find_room_id(schedule, name))
+        .transpose()?;
+    let null_room = patch.get("roomName").is_some_and(Value::is_null);
 
-    let schedule_view = schedule.clone();
-    for reference in &selection.sessions {
-        if let Some(panel) = schedule.panels.get_mut(&reference.panel_id)
-            && let Some(part) = panel.parts.get_mut(reference.part_index)
-            && let Some(session) = part.sessions.get_mut(reference.session_index)
-        {
-            apply_session_json_merge(&schedule_view, session, &patch)?;
-            if session.change_state != ChangeState::Unchanged {
-                mark_part_modified(part);
-                mark_panel_modified(panel);
-            }
-        }
+    let panel_ids: Vec<String> = selection.panel_ids.iter().cloned().collect();
+    let sessions: Vec<SessionRef> = selection.sessions.clone();
+
+    let mut ctx = EditContext::import(schedule);
+    for panel_id in &panel_ids {
+        apply_panel_json_merge(&mut ctx, panel_id, &patch);
+    }
+    for reference in &sessions {
+        apply_session_json_merge(
+            &mut ctx,
+            &reference.panel_id,
+            reference.part_index,
+            reference.session_index,
+            &patch,
+            room_id_override,
+            null_room,
+        );
     }
 
     Ok(())
@@ -2414,34 +2415,21 @@ fn execute_set_metadata(
     if !has_targets {
         anyhow::bail!("No entities matched for set-metadata");
     }
+    let mut ctx = EditContext::import(schedule);
     for reference in &selection.sessions {
-        if let Some(panel) = schedule.panels.get_mut(&reference.panel_id)
-            && let Some(part) = panel.parts.get_mut(reference.part_index)
-            && let Some(session) = part.sessions.get_mut(reference.session_index)
-        {
-            session
-                .metadata
-                .insert(key.to_string(), ExtraValue::String(value.to_string()));
-            mark_session_modified(session);
-            mark_part_modified(part);
-            mark_panel_modified(panel);
-        }
+        ctx.set_session_metadata(
+            &reference.panel_id,
+            reference.part_index,
+            reference.session_index,
+            key,
+            ExtraValue::String(value.to_string()),
+        );
     }
     for &room_id in &selection.room_ids {
-        if let Some(room) = schedule.rooms.iter_mut().find(|r| r.uid == room_id) {
-            room.metadata
-                .get_or_insert_with(Default::default)
-                .insert(key.to_string(), ExtraValue::String(value.to_string()));
-            mark_room_modified(room);
-        }
+        ctx.set_room_metadata(room_id, key, ExtraValue::String(value.to_string()));
     }
     for prefix in &selection.panel_type_prefixes {
-        if let Some(pt) = schedule.panel_types.get_mut(prefix) {
-            pt.metadata
-                .get_or_insert_with(Default::default)
-                .insert(key.to_string(), ExtraValue::String(value.to_string()));
-            mark_panel_type_modified(pt);
-        }
+        ctx.set_panel_type_metadata(prefix, key, ExtraValue::String(value.to_string()));
     }
     Ok(())
 }
@@ -2457,41 +2445,20 @@ fn execute_clear_metadata(
     if !has_targets {
         anyhow::bail!("No entities matched for clear-metadata");
     }
+    let mut ctx = EditContext::import(schedule);
     for reference in &selection.sessions {
-        if let Some(panel) = schedule.panels.get_mut(&reference.panel_id)
-            && let Some(part) = panel.parts.get_mut(reference.part_index)
-            && let Some(session) = part.sessions.get_mut(reference.session_index)
-        {
-            if session.metadata.shift_remove(key).is_some() {
-                mark_session_modified(session);
-                mark_part_modified(part);
-                mark_panel_modified(panel);
-            }
-        }
+        ctx.clear_session_metadata(
+            &reference.panel_id,
+            reference.part_index,
+            reference.session_index,
+            key,
+        );
     }
     for &room_id in &selection.room_ids {
-        if let Some(room) = schedule.rooms.iter_mut().find(|r| r.uid == room_id) {
-            if room
-                .metadata
-                .as_mut()
-                .and_then(|m| m.shift_remove(key))
-                .is_some()
-            {
-                mark_room_modified(room);
-            }
-        }
+        ctx.clear_room_metadata(room_id, key);
     }
     for prefix in &selection.panel_type_prefixes {
-        if let Some(pt) = schedule.panel_types.get_mut(prefix) {
-            if pt
-                .metadata
-                .as_mut()
-                .and_then(|m| m.shift_remove(key))
-                .is_some()
-            {
-                mark_panel_type_modified(pt);
-            }
-        }
+        ctx.clear_panel_type_metadata(prefix, key);
     }
     Ok(())
 }
@@ -2753,16 +2720,22 @@ mod tests {
 
     #[test]
     fn panel_json_merge_is_partial() {
+        let mut schedule = Schedule::default();
         let mut panel = schedule_core::data::Panel::new("test-1".to_string());
         panel.name = "Original Name".to_string();
         panel.note = Some("keep me".to_string());
+        schedule.panels.insert("test-1".to_string(), panel);
 
         let patch: Value = serde_json::json!({
             "description": "new description"
         });
 
-        apply_panel_json_merge(&mut panel, &patch);
+        {
+            let mut ctx = EditContext::import(&mut schedule);
+            apply_panel_json_merge(&mut ctx, "test-1", &patch);
+        }
 
+        let panel = schedule.panels.get("test-1").unwrap();
         assert_eq!(panel.name, "Original Name");
         assert_eq!(panel.note.as_deref(), Some("keep me"));
         assert_eq!(panel.description.as_deref(), Some("new description"));

@@ -205,4 +205,97 @@ impl EditContext<'_> {
         };
         self.execute(cmd);
     }
+
+    /// Set a metadata key on a room.
+    pub fn set_room_metadata(&mut self, uid: u32, key: &str, value: ExtraValue) {
+        let cmd = EditCommand::SetRoomMetadata {
+            uid,
+            key: key.to_string(),
+            old: None, // filled by apply
+            new: value,
+        };
+        self.execute(cmd);
+    }
+
+    /// Clear a metadata key from a room.
+    pub fn clear_room_metadata(&mut self, uid: u32, key: &str) {
+        let has_key = self
+            .schedule
+            .rooms
+            .iter()
+            .find(|r| r.uid == uid)
+            .and_then(|r| r.metadata.as_ref())
+            .is_some_and(|m| m.contains_key(key));
+
+        if !has_key {
+            return;
+        }
+
+        let cmd = EditCommand::ClearRoomMetadata {
+            uid,
+            key: key.to_string(),
+            old: ExtraValue::String(String::new()), // filled by apply
+        };
+        self.execute(cmd);
+    }
+
+    /// Set a metadata key on a panel type.
+    pub fn set_panel_type_metadata(&mut self, prefix: &str, key: &str, value: ExtraValue) {
+        let cmd = EditCommand::SetPanelTypeMetadata {
+            prefix: prefix.to_string(),
+            key: key.to_string(),
+            old: None, // filled by apply
+            new: value,
+        };
+        self.execute(cmd);
+    }
+
+    /// Clear a metadata key from a panel type.
+    pub fn clear_panel_type_metadata(&mut self, prefix: &str, key: &str) {
+        let has_key = self
+            .schedule
+            .panel_types
+            .get(prefix)
+            .and_then(|pt| pt.metadata.as_ref())
+            .is_some_and(|m| m.contains_key(key));
+
+        if !has_key {
+            return;
+        }
+
+        let cmd = EditCommand::ClearPanelTypeMetadata {
+            prefix: prefix.to_string(),
+            key: key.to_string(),
+            old: ExtraValue::String(String::new()), // filled by apply
+        };
+        self.execute(cmd);
+    }
+
+    /// Replace the entire credited presenter list on a panel.
+    pub fn set_panel_presenters(&mut self, panel_id: &str, presenters: Vec<String>) {
+        let cmd = EditCommand::SetPanelPresenters {
+            panel_id: panel_id.to_string(),
+            old: Vec::new(), // filled by apply
+            new: presenters,
+        };
+        self.execute(cmd);
+    }
+
+    /// Replace the entire credited presenter list on a session.
+    pub fn set_session_presenters(
+        &mut self,
+        panel_id: &str,
+        part_index: usize,
+        session_index: usize,
+        presenters: Vec<String>,
+    ) {
+        let cmd = EditCommand::SetSessionPresenters {
+            panel_id: panel_id.to_string(),
+            part_index,
+            session_index,
+            old: Vec::new(), // filled by apply
+            new: presenters,
+        };
+        self.execute(cmd);
+    }
 }

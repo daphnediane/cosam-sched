@@ -929,4 +929,197 @@ mod tests {
         history.redo(&mut schedule);
         assert_eq!(schedule.panels["panel-1"].name, "Renamed Panel");
     }
+
+    // ── room metadata ──────────────────────────────────────────
+
+    #[test]
+    fn set_and_clear_room_metadata() {
+        let mut schedule = make_test_schedule();
+        let mut history = EditHistory::new();
+
+        {
+            let mut ctx = EditContext::new(&mut schedule, &mut history);
+            ctx.set_room_metadata(10, "floor", ExtraValue::String("3rd".to_string()));
+        }
+
+        let room = &schedule.rooms[0];
+        assert_eq!(
+            room.metadata.as_ref().unwrap().get("floor"),
+            Some(&ExtraValue::String("3rd".to_string()))
+        );
+        assert_eq!(room.change_state, ChangeState::Modified);
+
+        // Clear
+        {
+            let mut ctx = EditContext::new(&mut schedule, &mut history);
+            ctx.clear_room_metadata(10, "floor");
+        }
+
+        let room = &schedule.rooms[0];
+        assert!(room.metadata.is_none() || !room.metadata.as_ref().unwrap().contains_key("floor"));
+
+        // Undo clear → key back
+        history.undo(&mut schedule);
+        let room = &schedule.rooms[0];
+        assert_eq!(
+            room.metadata.as_ref().unwrap().get("floor"),
+            Some(&ExtraValue::String("3rd".to_string()))
+        );
+
+        // Undo set → no metadata
+        history.undo(&mut schedule);
+        let room = &schedule.rooms[0];
+        assert!(room.metadata.is_none() || !room.metadata.as_ref().unwrap().contains_key("floor"));
+    }
+
+    #[test]
+    fn clear_room_metadata_noop_when_missing() {
+        let mut schedule = make_test_schedule();
+        let mut history = EditHistory::new();
+
+        {
+            let mut ctx = EditContext::new(&mut schedule, &mut history);
+            ctx.clear_room_metadata(10, "nonexistent");
+        }
+
+        assert!(!history.can_undo());
+    }
+
+    // ── panel type metadata ────────────────────────────────────
+
+    #[test]
+    fn set_and_clear_panel_type_metadata() {
+        let mut schedule = make_test_schedule();
+        let mut history = EditHistory::new();
+
+        {
+            let mut ctx = EditContext::new(&mut schedule, &mut history);
+            ctx.set_panel_type_metadata("GP", "priority", ExtraValue::String("high".to_string()));
+        }
+
+        let pt = &schedule.panel_types["GP"];
+        assert_eq!(
+            pt.metadata.as_ref().unwrap().get("priority"),
+            Some(&ExtraValue::String("high".to_string()))
+        );
+        assert_eq!(pt.change_state, ChangeState::Modified);
+
+        // Clear
+        {
+            let mut ctx = EditContext::new(&mut schedule, &mut history);
+            ctx.clear_panel_type_metadata("GP", "priority");
+        }
+
+        let pt = &schedule.panel_types["GP"];
+        assert!(pt.metadata.is_none() || !pt.metadata.as_ref().unwrap().contains_key("priority"));
+
+        // Undo clear
+        history.undo(&mut schedule);
+        let pt = &schedule.panel_types["GP"];
+        assert_eq!(
+            pt.metadata.as_ref().unwrap().get("priority"),
+            Some(&ExtraValue::String("high".to_string()))
+        );
+
+        // Undo set
+        history.undo(&mut schedule);
+        let pt = &schedule.panel_types["GP"];
+        assert!(pt.metadata.is_none() || !pt.metadata.as_ref().unwrap().contains_key("priority"));
+    }
+
+    #[test]
+    fn clear_panel_type_metadata_noop_when_missing() {
+        let mut schedule = make_test_schedule();
+        let mut history = EditHistory::new();
+
+        {
+            let mut ctx = EditContext::new(&mut schedule, &mut history);
+            ctx.clear_panel_type_metadata("GP", "nonexistent");
+        }
+
+        assert!(!history.can_undo());
+    }
+
+    // ── panel presenters ───────────────────────────────────────
+
+    #[test]
+    fn set_panel_presenters_and_undo() {
+        let mut schedule = make_test_schedule();
+        // Give the panel some credited presenters
+        schedule
+            .panels
+            .get_mut("panel-1")
+            .unwrap()
+            .credited_presenters = vec!["Alice".to_string(), "Bob".to_string()];
+        let mut history = EditHistory::new();
+
+        {
+            let mut ctx = EditContext::new(&mut schedule, &mut history);
+            ctx.set_panel_presenters("panel-1", vec!["Charlie".to_string(), "Diana".to_string()]);
+        }
+
+        let panel = &schedule.panels["panel-1"];
+        assert_eq!(
+            panel.credited_presenters,
+            vec!["Charlie".to_string(), "Diana".to_string()]
+        );
+        assert_eq!(panel.change_state, ChangeState::Modified);
+
+        history.undo(&mut schedule);
+        let panel = &schedule.panels["panel-1"];
+        assert_eq!(
+            panel.credited_presenters,
+            vec!["Alice".to_string(), "Bob".to_string()]
+        );
+    }
+
+    // ── session presenters ─────────────────────────────────────
+
+    #[test]
+    fn set_session_presenters_and_undo() {
+        let mut schedule = make_test_schedule();
+        let mut history = EditHistory::new();
+
+        {
+            let mut ctx = EditContext::new(&mut schedule, &mut history);
+            ctx.set_session_presenters(
+                "panel-1",
+                0,
+                0,
+                vec!["Charlie".to_string(), "Diana".to_string()],
+            );
+        }
+
+        let session = &schedule.panels["panel-1"].parts[0].sessions[0];
+        assert_eq!(
+            session.credited_presenters,
+            vec!["Charlie".to_string(), "Diana".to_string()]
+        );
+        assert_eq!(session.change_state, ChangeState::Modified);
+
+        history.undo(&mut schedule);
+        let session = &schedule.panels["panel-1"].parts[0].sessions[0];
+        assert_eq!(
+            session.credited_presenters,
+            vec!["Alice".to_string(), "Bob".to_string()]
+        );
+    }
+
+    #[test]
+    fn set_session_presenters_empty_and_undo() {
+        let mut schedule = make_test_schedule();
+        let mut history = EditHistory::new();
+
+        {
+            let mut ctx = EditContext::new(&mut schedule, &mut history);
+            ctx.set_session_presenters("panel-1", 0, 0, Vec::new());
+        }
+
+        let session = &schedule.panels["panel-1"].parts[0].sessions[0];
+        assert!(session.credited_presenters.is_empty());
+
+        history.undo(&mut schedule);
+        let session = &schedule.panels["panel-1"].parts[0].sessions[0];
+        assert_eq!(session.credited_presenters.len(), 2);
+    }
 }

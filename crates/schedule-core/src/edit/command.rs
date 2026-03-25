@@ -290,6 +290,42 @@ pub enum EditCommand {
         key: String,
         old: crate::data::panel::ExtraValue,
     },
+    SetRoomMetadata {
+        uid: u32,
+        key: String,
+        old: Option<crate::data::panel::ExtraValue>,
+        new: crate::data::panel::ExtraValue,
+    },
+    ClearRoomMetadata {
+        uid: u32,
+        key: String,
+        old: crate::data::panel::ExtraValue,
+    },
+    SetPanelTypeMetadata {
+        prefix: String,
+        key: String,
+        old: Option<crate::data::panel::ExtraValue>,
+        new: crate::data::panel::ExtraValue,
+    },
+    ClearPanelTypeMetadata {
+        prefix: String,
+        key: String,
+        old: crate::data::panel::ExtraValue,
+    },
+
+    // ── Presenter lists ─────────────────────────────────────────
+    SetPanelPresenters {
+        panel_id: String,
+        old: Vec<String>,
+        new: Vec<String>,
+    },
+    SetSessionPresenters {
+        panel_id: String,
+        part_index: usize,
+        session_index: usize,
+        old: Vec<String>,
+        new: Vec<String>,
+    },
 
     // ── Batch ───────────────────────────────────────────────────
     Batch(Vec<EditCommand>),
@@ -595,6 +631,70 @@ impl EditCommand {
                 }
                 mark_panel_chain_modified(schedule, panel_id, *part_index);
             }
+            EditCommand::SetRoomMetadata { uid, key, old, new } => {
+                if let Some(room) = schedule.rooms.iter_mut().find(|r| r.uid == *uid) {
+                    let meta = room.metadata.get_or_insert_with(Default::default);
+                    *old = meta.get(key).cloned();
+                    meta.insert(key.clone(), new.clone());
+                    mark_room_modified(room);
+                }
+            }
+            EditCommand::ClearRoomMetadata { uid, key, old } => {
+                if let Some(room) = schedule.rooms.iter_mut().find(|r| r.uid == *uid) {
+                    if let Some(meta) = &mut room.metadata {
+                        if let Some(removed) = meta.shift_remove(key) {
+                            *old = removed;
+                            mark_room_modified(room);
+                        }
+                    }
+                }
+            }
+            EditCommand::SetPanelTypeMetadata {
+                prefix,
+                key,
+                old,
+                new,
+            } => {
+                if let Some(pt) = schedule.panel_types.get_mut(prefix) {
+                    let meta = pt.metadata.get_or_insert_with(Default::default);
+                    *old = meta.get(key).cloned();
+                    meta.insert(key.clone(), new.clone());
+                    mark_panel_type_modified(pt);
+                }
+            }
+            EditCommand::ClearPanelTypeMetadata { prefix, key, old } => {
+                if let Some(pt) = schedule.panel_types.get_mut(prefix) {
+                    if let Some(meta) = &mut pt.metadata {
+                        if let Some(removed) = meta.shift_remove(key) {
+                            *old = removed;
+                            mark_panel_type_modified(pt);
+                        }
+                    }
+                }
+            }
+            EditCommand::SetPanelPresenters { panel_id, old, new } => {
+                if let Some(panel) = schedule.panels.get_mut(panel_id) {
+                    *old = panel.credited_presenters.clone();
+                    panel.credited_presenters = new.clone();
+                    mark_panel_modified(panel);
+                }
+            }
+            EditCommand::SetSessionPresenters {
+                panel_id,
+                part_index,
+                session_index,
+                old,
+                new,
+            } => {
+                if let Some(session) =
+                    get_session_mut(schedule, panel_id, *part_index, *session_index)
+                {
+                    *old = session.credited_presenters.clone();
+                    session.credited_presenters = new.clone();
+                    mark_session_modified(session);
+                }
+                mark_panel_chain_modified(schedule, panel_id, *part_index);
+            }
             EditCommand::Batch(commands) => {
                 for cmd in commands.iter_mut() {
                     cmd.apply(schedule);
@@ -826,6 +926,79 @@ impl EditCommand {
                     get_session_mut(schedule, panel_id, *part_index, *session_index)
                 {
                     session.metadata.insert(key.clone(), old.clone());
+                    mark_session_modified(session);
+                }
+                mark_panel_chain_modified(schedule, panel_id, *part_index);
+            }
+            EditCommand::SetRoomMetadata { uid, key, old, .. } => {
+                if let Some(room) = schedule.rooms.iter_mut().find(|r| r.uid == *uid) {
+                    match old {
+                        Some(val) => {
+                            room.metadata
+                                .get_or_insert_with(Default::default)
+                                .insert(key.clone(), val.clone());
+                        }
+                        None => {
+                            if let Some(meta) = &mut room.metadata {
+                                meta.shift_remove(key);
+                            }
+                        }
+                    }
+                    mark_room_modified(room);
+                }
+            }
+            EditCommand::ClearRoomMetadata { uid, key, old } => {
+                if let Some(room) = schedule.rooms.iter_mut().find(|r| r.uid == *uid) {
+                    room.metadata
+                        .get_or_insert_with(Default::default)
+                        .insert(key.clone(), old.clone());
+                    mark_room_modified(room);
+                }
+            }
+            EditCommand::SetPanelTypeMetadata {
+                prefix, key, old, ..
+            } => {
+                if let Some(pt) = schedule.panel_types.get_mut(prefix) {
+                    match old {
+                        Some(val) => {
+                            pt.metadata
+                                .get_or_insert_with(Default::default)
+                                .insert(key.clone(), val.clone());
+                        }
+                        None => {
+                            if let Some(meta) = &mut pt.metadata {
+                                meta.shift_remove(key);
+                            }
+                        }
+                    }
+                    mark_panel_type_modified(pt);
+                }
+            }
+            EditCommand::ClearPanelTypeMetadata { prefix, key, old } => {
+                if let Some(pt) = schedule.panel_types.get_mut(prefix) {
+                    pt.metadata
+                        .get_or_insert_with(Default::default)
+                        .insert(key.clone(), old.clone());
+                    mark_panel_type_modified(pt);
+                }
+            }
+            EditCommand::SetPanelPresenters { panel_id, old, .. } => {
+                if let Some(panel) = schedule.panels.get_mut(panel_id) {
+                    panel.credited_presenters = old.clone();
+                    mark_panel_modified(panel);
+                }
+            }
+            EditCommand::SetSessionPresenters {
+                panel_id,
+                part_index,
+                session_index,
+                old,
+                ..
+            } => {
+                if let Some(session) =
+                    get_session_mut(schedule, panel_id, *part_index, *session_index)
+                {
+                    session.credited_presenters = old.clone();
                     mark_session_modified(session);
                 }
                 mark_panel_chain_modified(schedule, panel_id, *part_index);
