@@ -867,6 +867,44 @@ mod tests {
         );
     }
 
+    // ── group with no members ────────────────────────────────────
+
+    #[test]
+    fn find_or_create_presenter_group_no_members() {
+        let mut schedule = make_test_schedule();
+        let mut history = EditHistory::new();
+
+        {
+            let mut ctx = EditContext::new(&mut schedule, &mut history);
+            ctx.find_or_create_presenter(
+                "Staff Group",
+                &PresenterOptions {
+                    is_group: Some(true),
+                    always_shown: Some(true),
+                    ..Default::default()
+                },
+            );
+        }
+
+        let p = schedule
+            .presenters
+            .iter()
+            .find(|p| p.name == "Staff Group")
+            .expect("presenter created");
+        assert!(
+            matches!(&p.is_grouped, PresenterGroup::IsGroup(members, shown)
+                if members.is_empty() && *shown),
+            "should be IsGroup with empty members and always_shown=true"
+        );
+
+        // Undo removes the presenter
+        history.undo(&mut schedule);
+        assert!(
+            !schedule.presenters.iter().any(|p| p.name == "Staff Group"),
+            "undo should remove the presenter"
+        );
+    }
+
     // ── set_panel_name ──────────────────────────────────────────
 
     #[test]

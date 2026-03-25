@@ -11,7 +11,7 @@ use crate::data::panel_type::PanelType;
 use crate::data::presenter::{Presenter, PresenterGroup, PresenterMember, PresenterRank};
 use crate::data::room::Room;
 use crate::data::schedule::Schedule;
-use crate::data::source_info::ChangeState;
+use crate::data::source_info::{ChangeState, SourceInfo};
 
 /// Identifies which string field on a panel to set.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -241,14 +241,20 @@ pub enum EditCommand {
     CreateRoom {
         uid: u32,
         snapshot: RoomSnapshot,
+        source: Option<SourceInfo>,
+        change_state: ChangeState,
     },
     CreatePresenter {
         name: String,
         snapshot: PresenterSnapshot,
+        source: Option<SourceInfo>,
+        change_state: ChangeState,
     },
     CreatePanelType {
         prefix: String,
         snapshot: PanelTypeSnapshot,
+        source: Option<SourceInfo>,
+        change_state: ChangeState,
     },
 
     // ── Entity update ───────────────────────────────────────────
@@ -470,7 +476,12 @@ impl EditCommand {
                     }
                 }
             }
-            EditCommand::CreateRoom { uid, snapshot } => {
+            EditCommand::CreateRoom {
+                uid,
+                snapshot,
+                source,
+                change_state,
+            } => {
                 let room = Room {
                     uid: *uid,
                     short_name: snapshot.short_name.clone(),
@@ -479,12 +490,17 @@ impl EditCommand {
                     sort_key: snapshot.sort_key,
                     is_break: snapshot.is_break,
                     metadata: snapshot.metadata.clone(),
-                    source: None,
-                    change_state: ChangeState::Added,
+                    source: source.clone(),
+                    change_state: *change_state,
                 };
                 schedule.rooms.push(room);
             }
-            EditCommand::CreatePresenter { name, snapshot } => {
+            EditCommand::CreatePresenter {
+                name,
+                snapshot,
+                source,
+                change_state,
+            } => {
                 let presenter = Presenter {
                     id: None,
                     name: name.clone(),
@@ -492,12 +508,17 @@ impl EditCommand {
                     is_member: snapshot.is_member.clone(),
                     is_grouped: snapshot.is_grouped.clone(),
                     metadata: snapshot.metadata.clone(),
-                    source: None,
-                    change_state: ChangeState::Added,
+                    source: source.clone(),
+                    change_state: *change_state,
                 };
                 schedule.presenters.push(presenter);
             }
-            EditCommand::CreatePanelType { prefix, snapshot } => {
+            EditCommand::CreatePanelType {
+                prefix,
+                snapshot,
+                source,
+                change_state,
+            } => {
                 let pt = PanelType {
                     prefix: prefix.clone(),
                     kind: snapshot.kind.clone(),
@@ -510,8 +531,8 @@ impl EditCommand {
                     is_timeline: snapshot.is_timeline,
                     is_private: snapshot.is_private,
                     metadata: snapshot.metadata.clone(),
-                    source: None,
-                    change_state: ChangeState::Added,
+                    source: source.clone(),
+                    change_state: *change_state,
                 };
                 schedule.panel_types.insert(prefix.clone(), pt);
             }

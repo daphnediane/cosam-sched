@@ -10,10 +10,9 @@ use indexmap::IndexMap;
 
 use crate::data::panel::ExtraFields;
 use crate::data::presenter::{PresenterGroup, PresenterMember, PresenterRank};
+use crate::data::source_info::{ChangeState, SourceInfo};
 
-use super::command::{
-    EditCommand, PanelTypeSnapshot, PresenterSnapshot, RoomSnapshot,
-};
+use super::command::{EditCommand, PanelTypeSnapshot, PresenterSnapshot, RoomSnapshot};
 use super::context::EditContext;
 
 /// Options for finding or creating a room.
@@ -24,6 +23,11 @@ pub struct RoomOptions {
     pub sort_key: Option<u32>,
     pub is_break: Option<bool>,
     pub metadata: Option<ExtraFields>,
+    /// Explicit UID to use when creating (import mode). If `None`, the next
+    /// available UID is computed automatically.
+    pub uid: Option<u32>,
+    pub source: Option<SourceInfo>,
+    pub change_state: Option<ChangeState>,
 }
 
 /// Options for finding or creating a presenter.
@@ -34,9 +38,14 @@ pub struct PresenterOptions {
     pub add_groups: Vec<String>,
     /// Members to add (only meaningful if the presenter is a group).
     pub add_members: Vec<String>,
+    /// If `true`, mark this presenter as a group even when `add_members` is
+    /// empty (e.g. a group with no members yet).
+    pub is_group: Option<bool>,
     pub always_grouped: Option<bool>,
     pub always_shown: Option<bool>,
     pub metadata: Option<ExtraFields>,
+    pub source: Option<SourceInfo>,
+    pub change_state: Option<ChangeState>,
 }
 
 /// Options for finding or creating a panel type.
@@ -45,6 +54,9 @@ pub struct PanelTypeOptions {
     pub kind: Option<String>,
     pub color: Option<String>,
     pub bw_color: Option<String>,
+    /// Arbitrary color entries (e.g. from import). Merged into the colors map
+    /// alongside `color` and `bw_color`.
+    pub colors: Option<IndexMap<String, String>>,
     pub is_break: Option<bool>,
     pub is_cafe: Option<bool>,
     pub is_workshop: Option<bool>,
@@ -53,6 +65,8 @@ pub struct PanelTypeOptions {
     pub is_timeline: Option<bool>,
     pub is_private: Option<bool>,
     pub metadata: Option<ExtraFields>,
+    pub source: Option<SourceInfo>,
+    pub change_state: Option<ChangeState>,
 }
 
 impl EditContext<'_> {
@@ -104,7 +118,7 @@ impl EditContext<'_> {
             }
             uid
         } else {
-            let uid = self.next_room_uid();
+            let uid = opts.uid.unwrap_or_else(|| self.next_room_uid());
             let snapshot = RoomSnapshot {
                 short_name: short_name.to_string(),
                 long_name: opts
@@ -116,7 +130,12 @@ impl EditContext<'_> {
                 is_break: opts.is_break.unwrap_or(false),
                 metadata: opts.metadata.clone(),
             };
-            let cmd = EditCommand::CreateRoom { uid, snapshot };
+            let cmd = EditCommand::CreateRoom {
+                uid,
+                snapshot,
+                source: opts.source.clone(),
+                change_state: opts.change_state.unwrap_or(ChangeState::Added),
+            };
             self.execute(cmd);
             uid
         }
@@ -125,11 +144,7 @@ impl EditContext<'_> {
     /// Find a presenter by name (case-insensitive), or create one if it does
     /// not exist. If found, specified option fields are merged.
     /// Returns the presenter name as stored.
-    pub fn find_or_create_presenter(
-        &mut self,
-        name: &str,
-        opts: &PresenterOptions,
-    ) -> String {
+    pub fn find_or_create_presenter(&mut self, name: &str, opts: &PresenterOptions) -> String {
         let existing = self
             .schedule
             .presenters
@@ -153,8 +168,7 @@ impl EditContext<'_> {
                 let (groups, always_grouped) = match &mut new_snap.is_member {
                     PresenterMember::IsMember(groups, grouped) => (groups, grouped),
                     PresenterMember::NotMember => {
-                        new_snap.is_member =
-                            PresenterMember::IsMember(BTreeSet::new(), false);
+                        new_snap.is_member = PresenterMember::IsMember(BTreeSet::new(), false);
                         match &mut new_snap.is_member {
                             PresenterMember::IsMember(groups, grouped) => (groups, grouped),
                             _ => unreachable!(),
@@ -178,8 +192,7 @@ impl EditContext<'_> {
                 let (members, always_shown) = match &mut new_snap.is_grouped {
                     PresenterGroup::IsGroup(members, shown) => (members, shown),
                     PresenterGroup::NotGroup => {
-                        new_snap.is_grouped =
-                            PresenterGroup::IsGroup(BTreeSet::new(), false);
+                        new_snap.is_grouped = PresenterGroup::IsGroup(BTreeSet::new(), false);
                         match &mut new_snap.is_grouped {
                             PresenterGroup::IsGroup(members, shown) => (members, shown),
                             _ => unreachable!(),
@@ -223,13 +236,13 @@ impl EditContext<'_> {
                 )
             };
 
-            let is_grouped = if opts.add_members.is_empty() {
-                PresenterGroup::NotGroup
-            } else {
+            let is_grouped = if !opts.add_members.is_empty() || opts.is_group == Some(true) {
                 PresenterGroup::IsGroup(
                     opts.add_members.iter().cloned().collect(),
                     opts.always_shown.unwrap_or(false),
                 )
+            } else {
+                PresenterGroup::NotGroup
             };
 
             let snapshot = PresenterSnapshot {
@@ -241,6 +254,8 @@ impl EditContext<'_> {
             let cmd = EditCommand::CreatePresenter {
                 name: name.to_string(),
                 snapshot,
+                source: opts.source.clone(),
+                change_state: opts.change_state.unwrap_or(ChangeState::Added),
             };
             self.execute(cmd);
             name.to_string()
@@ -251,11 +266,7 @@ impl EditContext<'_> {
     /// does not exist. If found, specified option fields are applied as
     /// updates.
     /// Returns the prefix as stored.
-    pub fn find_or_create_panel_type(
-        &mut self,
-        prefix: &str,
-        opts: &PanelTypeOptions,
-    ) -> String {
+    pub fn find_or_create_panel_type(&mut self, prefix: &str, opts: &PanelTypeOptions) -> String {
         // Panel types use exact prefix matching (they're keys in an IndexMap)
         let existing_key = self
             .schedule
@@ -265,11 +276,7 @@ impl EditContext<'_> {
             .cloned();
 
         if let Some(key) = existing_key {
-            let pt = self
-                .schedule
-                .panel_types
-                .get(&key)
-                .expect("key just found");
+            let pt = self.schedule.panel_types.get(&key).expect("key just found");
             let old_snap = PanelTypeSnapshot::from_panel_type(pt);
             let mut new_snap = old_snap.clone();
 
@@ -281,6 +288,11 @@ impl EditContext<'_> {
             }
             if let Some(ref bw) = opts.bw_color {
                 new_snap.colors.insert("bw".to_string(), bw.clone());
+            }
+            if let Some(ref extra_colors) = opts.colors {
+                for (k, v) in extra_colors {
+                    new_snap.colors.insert(k.clone(), v.clone());
+                }
             }
             if let Some(v) = opts.is_break {
                 new_snap.is_break = v;
@@ -318,6 +330,9 @@ impl EditContext<'_> {
             key
         } else {
             let mut colors = IndexMap::new();
+            if let Some(ref extra_colors) = opts.colors {
+                colors.extend(extra_colors.clone());
+            }
             if let Some(ref color) = opts.color {
                 colors.insert("color".to_string(), color.clone());
             }
@@ -340,6 +355,8 @@ impl EditContext<'_> {
             let cmd = EditCommand::CreatePanelType {
                 prefix: prefix.to_string(),
                 snapshot,
+                source: opts.source.clone(),
+                change_state: opts.change_state.unwrap_or(ChangeState::Added),
             };
             self.execute(cmd);
             prefix.to_string()
@@ -348,12 +365,6 @@ impl EditContext<'_> {
 
     /// Compute the next available room UID.
     fn next_room_uid(&self) -> u32 {
-        self.schedule
-            .rooms
-            .iter()
-            .map(|r| r.uid)
-            .max()
-            .unwrap_or(0)
-            + 1
+        self.schedule.rooms.iter().map(|r| r.uid).max().unwrap_or(0) + 1
     }
 }

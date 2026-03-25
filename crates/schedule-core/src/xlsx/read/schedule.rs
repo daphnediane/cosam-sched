@@ -16,7 +16,7 @@ use crate::data::event::EventConflict;
 use crate::data::panel::{ExtraValue, FormulaValue, Panel, apply_common_prefix};
 use crate::data::panel_id::PanelId;
 use crate::data::panel_type::PanelType;
-use crate::data::presenter::{Presenter, PresenterGroup, PresenterMember, PresenterRank};
+use crate::data::presenter::{PresenterGroup, PresenterMember, PresenterRank};
 use crate::data::room::Room;
 use crate::data::source_info::{ChangeState, SourceInfo};
 use crate::data::time;
@@ -38,8 +38,12 @@ pub(super) fn read_panels(
     rooms: &[Room],
     panel_types: &IndexMap<String, PanelType>,
     file_path: &str,
-    presenter_ranks: &HashMap<String, String>,
-) -> Result<(IndexMap<String, Panel>, Vec<Presenter>, Vec<TimelineEntry>)> {
+    _presenter_ranks: &HashMap<String, String>,
+) -> Result<(
+    IndexMap<String, Panel>,
+    HashMap<String, PresenterInfo>,
+    Vec<TimelineEntry>,
+)> {
     let first_sheet_name = book
         .get_sheet_collection()
         .first()
@@ -65,7 +69,7 @@ pub(super) fn read_panels(
                 r
             }
         }
-        None => return Ok((IndexMap::new(), Vec::new(), Vec::new())),
+        None => return Ok((IndexMap::new(), HashMap::new(), Vec::new())),
     };
 
     let ws = book
@@ -73,7 +77,7 @@ pub(super) fn read_panels(
         .ok_or_else(|| anyhow::anyhow!("Sheet '{}' not found", range.sheet_name))?;
 
     if !range.has_data() {
-        return Ok((IndexMap::new(), Vec::new(), Vec::new()));
+        return Ok((IndexMap::new(), HashMap::new(), Vec::new()));
     }
 
     let (raw_headers, canonical_headers, col_map) = build_column_map(ws, &range);
@@ -673,47 +677,7 @@ pub(super) fn read_panels(
         }
     }
 
-    let mut presenters: Vec<Presenter> = presenter_map
-        .into_iter()
-        .map(|(name, info)| {
-            // Resolve rank: use whichever of (schedule-prefix rank, People-sheet
-            // classification) has higher priority (lower number).  When tied at the
-            // InvitedGuest tier, prefer the labelled variant so custom display strings
-            // (e.g. "105th", "Sponsor") are preserved.
-            let rank = if let Some(preserved_rank) = presenter_ranks.get(&name) {
-                let people = PresenterRank::from_classification(preserved_rank);
-                let sched = &info.rank;
-                if sched.priority() < people.priority() {
-                    sched.clone()
-                } else if people.priority() < sched.priority() {
-                    people
-                } else {
-                    // Same tier — prefer a labelled InvitedGuest over the plain one.
-                    match (&people, sched) {
-                        (PresenterRank::InvitedGuest(Some(_)), _) => people,
-                        _ => sched.clone(),
-                    }
-                }
-            } else {
-                info.rank
-            };
-
-            Presenter {
-                id: None,
-                name,
-                rank,
-                is_member: info.is_member.clone(),
-                is_grouped: info.is_grouped.clone(),
-                metadata: None,
-                source: None,
-                change_state: ChangeState::Converted,
-            }
-        })
-        .collect();
-
-    presenters.sort_by(|a, b| a.name.cmp(&b.name));
-
-    Ok((panels, presenters, timeline_entries))
+    Ok((panels, presenter_map, timeline_entries))
 }
 
 fn extract_hyperlink_url(ws: &umya_spreadsheet::Worksheet, col: u32, row: u32) -> Option<String> {
