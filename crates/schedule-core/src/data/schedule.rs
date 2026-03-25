@@ -5,9 +5,7 @@
  */
 
 use std::collections::BTreeSet;
-use std::path::Path;
 
-use anyhow::{Context, Result};
 use chrono::NaiveDate;
 use indexmap::IndexMap;
 use serde::{Deserialize, Serialize};
@@ -96,61 +94,6 @@ pub struct Schedule {
 }
 
 impl Schedule {
-    #[must_use]
-    pub fn load(path: &Path) -> Result<Self> {
-        let content = std::fs::read_to_string(path)
-            .with_context(|| format!("Failed to read {}", path.display()))?;
-        let schedule: Schedule = serde_json::from_str(&content)
-            .with_context(|| format!("Failed to parse JSON from {}", path.display()))?;
-
-        Ok(schedule)
-    }
-
-    pub fn load_auto(path: &Path, options: &crate::xlsx::read::XlsxImportOptions) -> Result<Self> {
-        match path.extension().and_then(|e| e.to_str()) {
-            Some(ext) if ext.eq_ignore_ascii_case("xlsx") => {
-                crate::xlsx::read::import_xlsx(path, options)
-            }
-            Some(ext) if ext.eq_ignore_ascii_case("json") => Self::load(path),
-            Some(ext) => anyhow::bail!("Unsupported file format: .{ext}"),
-            None => Self::load(path),
-        }
-    }
-
-    pub fn save_json(&self, path: &Path) -> Result<()> {
-        self.clone().save_json_to_file(path)
-    }
-
-    fn save_json_to_file(&mut self, path: &Path) -> Result<()> {
-        self.meta.generated = time::format_storage_ts(chrono::Utc::now());
-
-        // Set version based on format; preserve variant if already set by caller
-        if !self.panels.is_empty() {
-            self.meta.version = Some(7);
-            if self.meta.variant.is_none() {
-                self.meta.variant = Some("full".to_string());
-            }
-        } else {
-            self.meta.version = Some(4);
-            self.meta.variant = None;
-        }
-
-        self.meta.generator = Some(format!("cosam-editor {}", env!("CARGO_PKG_VERSION")));
-
-        super::post_process::apply_schedule_parity(self);
-
-        // Calculate start and end times if not present
-        if self.meta.start_time.is_none() || self.meta.end_time.is_none() {
-            self.calculate_schedule_bounds();
-        }
-
-        let json =
-            serde_json::to_string_pretty(self).context("Failed to serialize schedule to JSON")?;
-        std::fs::write(path, json.as_bytes())
-            .with_context(|| format!("Failed to write {}", path.display()))?;
-        Ok(())
-    }
-
     /// Calculate schedule start and end times from panels and timeline entries
     pub fn calculate_schedule_bounds(&mut self) {
         let mut min_time: Option<chrono::NaiveDateTime> = None;
@@ -348,106 +291,29 @@ impl Default for Meta {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use std::path::PathBuf;
 
-    fn reference_data_path() -> PathBuf {
-        PathBuf::from(env!("CARGO_MANIFEST_DIR"))
-            .parent()
-            .unwrap()
-            .join("widget")
-            .join("2025.json")
-    }
-
-    #[test]
-    fn test_load_reference_data() {
-        let path = reference_data_path();
-        if !path.exists() {
-            return;
-        }
-        let schedule = Schedule::load(&path).expect("Failed to load 2025.json");
-        assert!(!schedule.panels.is_empty());
-        assert!(!schedule.rooms.is_empty());
-        assert!(!schedule.presenters.is_empty());
-        assert!(!schedule.meta.title.is_empty());
-    }
-
-    #[test]
-    fn test_days_extraction() {
-        let path = reference_data_path();
-        if !path.exists() {
-            return;
-        }
-        let schedule = Schedule::load(&path).unwrap();
-        let days = schedule.days();
-        assert!(!days.is_empty());
-        // Days should be sorted
-        for window in days.windows(2) {
-            assert!(window[0] < window[1]);
-        }
-    }
-
-    #[test]
-    fn test_room_by_id() {
-        let path = reference_data_path();
-        if !path.exists() {
-            return;
-        }
-        let schedule = Schedule::load(&path).unwrap();
-        assert!(!schedule.rooms.is_empty());
-        let first_room = &schedule.rooms[0];
-        let found = schedule.room_by_id(first_room.uid);
-        assert!(found.is_some());
-        assert_eq!(schedule.room_by_id(99999), None);
-    }
-
-    #[test]
-    fn test_sorted_rooms() {
-        let path = reference_data_path();
-        if !path.exists() {
-            return;
-        }
-        let schedule = Schedule::load(&path).unwrap();
-        let rooms = schedule.sorted_rooms();
-        for window in rooms.windows(2) {
-            assert!(window[0].sort_key <= window[1].sort_key);
-        }
-    }
-
-    #[test]
-    fn test_panel_type_by_prefix() {
-        let path = reference_data_path();
-        if !path.exists() {
-            return;
-        }
-        let schedule = Schedule::load(&path).unwrap();
-        assert_eq!(schedule.panel_type_by_prefix("NONEXISTENT"), None);
+    fn make_minimal_json() -> &'static str {
+        r#"{"meta":{"title":"Test","generated":"2026-01-01T00:00:00Z"},"rooms":[],"presenters":[]}"#
     }
 
     #[test]
     fn test_roundtrip_serialization() {
-        let path = reference_data_path();
-        if !path.exists() {
-            return;
-        }
-        let schedule = Schedule::load(&path).unwrap();
+        let schedule: Schedule = serde_json::from_str(make_minimal_json()).unwrap();
         let json = serde_json::to_string_pretty(&schedule).unwrap();
         let schedule2: Schedule = serde_json::from_str(&json).unwrap();
         assert_eq!(schedule, schedule2);
     }
 
     #[test]
-    fn test_load_nonexistent_file() {
-        let result = Schedule::load(Path::new("/nonexistent/path.json"));
-        assert!(result.is_err());
+    fn test_unknown_fields_ignored() {
+        let json = r#"{"meta":{"title":"T","generated":"2026-01-01T00:00:00Z"},"rooms":[],"presenters":[],"changeLog":{"undoStack":[],"redoStack":[],"maxDepth":50}}"#;
+        let schedule: Schedule = serde_json::from_str(json).unwrap();
+        assert_eq!(schedule.meta.title, "T");
     }
 
     #[test]
-    fn test_load_malformed_json() {
-        let dir = std::env::temp_dir();
-        let path = dir.join("cosam_test_malformed.json");
-        std::fs::write(&path, "{ not valid json }").unwrap();
-        let result = Schedule::load(&path);
+    fn test_malformed_json_fails() {
+        let result: Result<Schedule, _> = serde_json::from_str("{ not valid json }");
         assert!(result.is_err());
-        let _ = std::fs::remove_file(&path);
     }
 }

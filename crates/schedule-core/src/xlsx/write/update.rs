@@ -20,6 +20,7 @@ use crate::data::room::Room;
 use crate::data::schedule::Schedule;
 use crate::data::source_info::{ChangeState, SourceInfo};
 use crate::data::time;
+use crate::file::ScheduleFile;
 use crate::xlsx::columns::{FieldDef, panel_types as pt, people, room_map, schedule as sc};
 use crate::xlsx::read::{
     PresenterColumn, PresenterHeader, canonical_header, parse_presenter_header,
@@ -29,7 +30,8 @@ use super::common::{FlatSession, flatten_panel_sessions, update_table_areas};
 
 /// Update an existing XLSX file in place, preserving formatting, formulas,
 /// and extra columns. Only modifies rows that have changed.
-pub fn update_xlsx(schedule: &Schedule, path: &Path) -> Result<()> {
+pub fn update_xlsx(sf: &ScheduleFile, path: &Path) -> Result<()> {
+    let schedule = &sf.schedule;
     // Check for an Office lock file (~$filename) which indicates the file is open.
     if let Some(file_name) = path.file_name().and_then(|n| n.to_str()) {
         let lock_name = format!("~${}", file_name);
@@ -150,7 +152,8 @@ pub fn update_xlsx(schedule: &Schedule, path: &Path) -> Result<()> {
 }
 
 /// After a successful save, remove Deleted items and reset all change states.
-pub fn post_save_cleanup(schedule: &mut Schedule) {
+pub fn post_save_cleanup(sf: &mut ScheduleFile) {
+    let schedule = &mut sf.schedule;
     // Remove deleted panels and their parts/sessions
     schedule
         .panels
@@ -1128,58 +1131,58 @@ mod tests {
 
     #[test]
     fn test_post_save_cleanup_removes_deleted() {
-        let mut schedule = make_schedule_with_change_states();
+        let mut sf = crate::file::ScheduleFile::new(make_schedule_with_change_states());
 
-        let initial_room_count = schedule.rooms.len();
-        let initial_presenter_count = schedule.presenters.len();
-        let initial_timeline_count = schedule.timeline.len();
+        let initial_room_count = sf.schedule.rooms.len();
+        let initial_presenter_count = sf.schedule.presenters.len();
+        let initial_timeline_count = sf.schedule.timeline.len();
 
-        post_save_cleanup(&mut schedule);
+        post_save_cleanup(&mut sf);
 
         assert_eq!(
-            schedule.rooms.len(),
+            sf.schedule.rooms.len(),
             initial_room_count - 1,
             "Deleted room should be removed"
         );
         assert_eq!(
-            schedule.presenters.len(),
+            sf.schedule.presenters.len(),
             initial_presenter_count - 1,
             "Deleted presenter should be removed"
         );
         assert_eq!(
-            schedule.timeline.len(),
+            sf.schedule.timeline.len(),
             initial_timeline_count - 1,
             "Deleted timeline entry should be removed"
         );
 
-        assert!(!schedule.rooms.iter().any(|r| r.short_name == "Old"));
-        assert!(!schedule.presenters.iter().any(|p| p.name == "Bob"));
+        assert!(!sf.schedule.rooms.iter().any(|r| r.short_name == "Old"));
+        assert!(!sf.schedule.presenters.iter().any(|p| p.name == "Bob"));
     }
 
     #[test]
     fn test_post_save_cleanup_resets_change_states() {
-        let mut schedule = make_schedule_with_change_states();
-        post_save_cleanup(&mut schedule);
+        let mut sf = crate::file::ScheduleFile::new(make_schedule_with_change_states());
+        post_save_cleanup(&mut sf);
 
-        for room in &schedule.rooms {
+        for room in &sf.schedule.rooms {
             assert_eq!(room.change_state, ChangeState::Unchanged);
         }
-        for presenter in &schedule.presenters {
+        for presenter in &sf.schedule.presenters {
             assert_eq!(presenter.change_state, ChangeState::Unchanged);
         }
-        for timeline in &schedule.timeline {
+        for timeline in &sf.schedule.timeline {
             assert_eq!(timeline.change_state, ChangeState::Unchanged);
         }
     }
 
     #[test]
     fn test_post_save_cleanup_preserves_data() {
-        let mut schedule = make_schedule_with_change_states();
-        post_save_cleanup(&mut schedule);
+        let mut sf = crate::file::ScheduleFile::new(make_schedule_with_change_states());
+        post_save_cleanup(&mut sf);
 
-        assert!(schedule.rooms.iter().any(|r| r.short_name == "Main"));
-        assert!(schedule.presenters.iter().any(|p| p.name == "Alice"));
-        assert!(schedule.timeline.iter().any(|t| t.id == "TL01"));
+        assert!(sf.schedule.rooms.iter().any(|r| r.short_name == "Main"));
+        assert!(sf.schedule.presenters.iter().any(|p| p.name == "Alice"));
+        assert!(sf.schedule.timeline.iter().any(|t| t.id == "TL01"));
     }
 
     #[test]

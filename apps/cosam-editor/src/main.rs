@@ -18,7 +18,6 @@ use gpui::{
 use gpui_component::Root;
 
 pub use schedule_core::data;
-use schedule_core::data::Schedule;
 use schedule_core::xlsx::XlsxImportOptions;
 use ui::ScheduleEditor;
 use ui::editor::{
@@ -207,8 +206,8 @@ fn main() {
 
     let input_path = resolve_input(&cli);
     let initial_schedule = match &input_path {
-        Some(path) => match Schedule::load_auto(path, &import_options) {
-            Ok(s) => Some(s),
+        Some(path) => match schedule_core::xlsx::load_auto(path, &import_options) {
+            Ok(sf) => Some(sf.schedule),
             Err(e) => {
                 eprintln!("Error loading schedule: {e}");
                 std::process::exit(1);

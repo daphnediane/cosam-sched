@@ -9,11 +9,12 @@ use std::path::{Path, PathBuf};
 
 use anyhow::{Context, Result};
 use chrono::{Datelike, Duration, NaiveDate, NaiveDateTime, NaiveTime, Timelike, Utc, Weekday};
+use schedule_core::ScheduleFile;
 use schedule_core::data::Schedule;
 use schedule_core::data::panel::ExtraValue;
 use schedule_core::data::time;
 use schedule_core::edit::{EditContext, PanelField, SessionField, SessionScheduleState};
-use schedule_core::xlsx::{XlsxImportOptions, canonical_header, post_save_cleanup, update_xlsx};
+use schedule_core::xlsx::{XlsxImportOptions, canonical_header};
 use serde::Serialize;
 use serde_json::Value;
 
@@ -137,6 +138,9 @@ enum Command {
     ClearMetadata {
         key: String,
     },
+    Undo,
+    Redo,
+    ShowHistory,
 }
 
 #[derive(Debug, Clone)]
@@ -592,6 +596,18 @@ fn parse_stage(tokens: &[String]) -> Result<Stage> {
                 .context("clear-metadata requires a key")?;
             index += 1;
             Command::ClearMetadata { key }
+        }
+        "undo" => {
+            index += 1;
+            Command::Undo
+        }
+        "redo" => {
+            index += 1;
+            Command::Redo
+        }
+        "show-history" => {
+            index += 1;
+            Command::ShowHistory
         }
         other => anyhow::bail!("Unknown command: {other}"),
     };
@@ -1491,12 +1507,12 @@ fn list_presenters(
 }
 
 fn execute_set(
-    schedule: &mut Schedule,
+    sf: &mut ScheduleFile,
     selection: &SelectionResult,
     field: &SetField,
     value: &str,
 ) -> Result<()> {
-    let mut ctx = EditContext::import(schedule);
+    let mut ctx = sf.edit_context();
     match field {
         SetField::Description | SetField::Note => {
             if selection.panel_ids.is_empty() {
@@ -1531,7 +1547,7 @@ fn execute_set(
 }
 
 fn apply_presenter_change(
-    schedule: &mut Schedule,
+    sf: &mut ScheduleFile,
     selection: &SelectionResult,
     presenter_name: &str,
     add: bool,
@@ -1540,7 +1556,7 @@ fn apply_presenter_change(
         anyhow::bail!("No sessions matched selectors for presenter update");
     }
 
-    let mut ctx = EditContext::import(schedule);
+    let mut ctx = sf.edit_context();
     for reference in &selection.sessions {
         if add {
             ctx.add_presenter_to_session(
@@ -1563,7 +1579,7 @@ fn apply_presenter_change(
 }
 
 fn execute_reschedule(
-    schedule: &mut Schedule,
+    sf: &mut ScheduleFile,
     selection: &SelectionResult,
     room_name: Option<&str>,
     day: Option<&str>,
@@ -1576,7 +1592,7 @@ fn execute_reschedule(
     }
 
     let room_id = if let Some(room_name) = room_name {
-        Some(find_room_id(schedule, room_name)?)
+        Some(find_room_id(&sf.schedule, room_name)?)
     } else {
         None
     };
@@ -1595,12 +1611,12 @@ fn execute_reschedule(
     } else {
         None
     };
-    let schedule_days = schedule.days();
+    let schedule_days = sf.schedule.days();
 
     // Pre-compute the new state for each session before borrowing mutably.
     let mut updates: Vec<(usize, SessionScheduleState)> = Vec::new();
     for (idx, reference) in selection.sessions.iter().enumerate() {
-        let Some(panel) = schedule.panels.get(&reference.panel_id) else {
+        let Some(panel) = sf.schedule.panels.get(&reference.panel_id) else {
             continue;
         };
         let Some(part) = panel.parts.get(reference.part_index) else {
@@ -1668,7 +1684,7 @@ fn execute_reschedule(
         ));
     }
 
-    let mut ctx = EditContext::import(schedule);
+    let mut ctx = sf.edit_context();
     for (idx, new_state) in updates {
         let reference = &selection.sessions[idx];
         ctx.reschedule_session(
@@ -1682,12 +1698,12 @@ fn execute_reschedule(
     Ok(())
 }
 
-fn execute_cancel(schedule: &mut Schedule, selection: &SelectionResult) -> Result<()> {
+fn execute_cancel(sf: &mut ScheduleFile, selection: &SelectionResult) -> Result<()> {
     if selection.sessions.is_empty() {
         anyhow::bail!("cancel requires at least one selected session");
     }
 
-    let mut ctx = EditContext::import(schedule);
+    let mut ctx = sf.edit_context();
     for reference in &selection.sessions {
         ctx.unschedule_session(
             &reference.panel_id,
@@ -1699,7 +1715,7 @@ fn execute_cancel(schedule: &mut Schedule, selection: &SelectionResult) -> Resul
     Ok(())
 }
 
-fn execute_remove_session(schedule: &mut Schedule, selection: &SelectionResult) -> Result<()> {
+fn execute_remove_session(sf: &mut ScheduleFile, selection: &SelectionResult) -> Result<()> {
     if !selection.explicit_session_selector {
         anyhow::bail!(
             "remove-session requires a session-targeting --select (for example: --select panel id:<session-id>)"
@@ -1709,7 +1725,7 @@ fn execute_remove_session(schedule: &mut Schedule, selection: &SelectionResult) 
         anyhow::bail!("No sessions matched --select");
     }
 
-    let mut ctx = EditContext::import(schedule);
+    let mut ctx = sf.edit_context();
     for reference in &selection.sessions {
         // Soft-delete: mark Deleted so update_xlsx writes the * prefix to the XLSX row.
         // post_save_cleanup removes Deleted sessions from memory after the file is saved.
@@ -1865,7 +1881,7 @@ fn apply_session_json_merge(
 }
 
 fn execute_update_from_json(
-    schedule: &mut Schedule,
+    sf: &mut ScheduleFile,
     selection: &SelectionResult,
     patch_path: &Path,
 ) -> Result<()> {
@@ -1883,14 +1899,14 @@ fn execute_update_from_json(
         .get("roomName")
         .and_then(Value::as_str)
         .or_else(|| patch.get("room").and_then(Value::as_str))
-        .map(|name| find_room_id(schedule, name))
+        .map(|name| find_room_id(&sf.schedule, name))
         .transpose()?;
     let null_room = patch.get("roomName").is_some_and(Value::is_null);
 
     let panel_ids: Vec<String> = selection.panel_ids.iter().cloned().collect();
     let sessions: Vec<SessionRef> = selection.sessions.clone();
 
-    let mut ctx = EditContext::import(schedule);
+    let mut ctx = sf.edit_context();
     for panel_id in &panel_ids {
         apply_panel_json_merge(&mut ctx, panel_id, &patch);
     }
@@ -2404,7 +2420,7 @@ fn execute_query(
 }
 
 fn execute_set_metadata(
-    schedule: &mut Schedule,
+    sf: &mut ScheduleFile,
     selection: &SelectionResult,
     key: &str,
     value: &str,
@@ -2415,7 +2431,7 @@ fn execute_set_metadata(
     if !has_targets {
         anyhow::bail!("No entities matched for set-metadata");
     }
-    let mut ctx = EditContext::import(schedule);
+    let mut ctx = sf.edit_context();
     for reference in &selection.sessions {
         ctx.set_session_metadata(
             &reference.panel_id,
@@ -2435,7 +2451,7 @@ fn execute_set_metadata(
 }
 
 fn execute_clear_metadata(
-    schedule: &mut Schedule,
+    sf: &mut ScheduleFile,
     selection: &SelectionResult,
     key: &str,
 ) -> Result<()> {
@@ -2445,7 +2461,7 @@ fn execute_clear_metadata(
     if !has_targets {
         anyhow::bail!("No entities matched for clear-metadata");
     }
-    let mut ctx = EditContext::import(schedule);
+    let mut ctx = sf.edit_context();
     for reference in &selection.sessions {
         ctx.clear_session_metadata(
             &reference.panel_id,
@@ -2463,20 +2479,54 @@ fn execute_clear_metadata(
     Ok(())
 }
 
-fn execute_stage(schedule: &mut Schedule, stage: &Stage, format: OutputFormat) -> Result<()> {
-    let selection = collect_selection(schedule, &stage.selectors);
+fn execute_undo(sf: &mut ScheduleFile) -> Result<()> {
+    if sf.edit_context().undo() {
+        eprintln!("Undo applied.");
+    } else {
+        eprintln!("Nothing to undo.");
+    }
+    Ok(())
+}
+
+fn execute_redo(sf: &mut ScheduleFile) -> Result<()> {
+    if sf.edit_context().redo() {
+        eprintln!("Redo applied.");
+    } else {
+        eprintln!("Nothing to redo.");
+    }
+    Ok(())
+}
+
+fn execute_show_history(sf: &ScheduleFile, format: OutputFormat) {
+    let undo_count = sf.history.undo_count();
+    let redo_count = sf.history.redo_count();
+    match format {
+        OutputFormat::Json => {
+            let obj = serde_json::json!({
+                "undoCount": undo_count,
+                "redoCount": redo_count,
+            });
+            println!("{}", serde_json::to_string_pretty(&obj).unwrap());
+        }
+        OutputFormat::Human => {
+            println!("Undo stack: {undo_count} item(s)");
+            println!("Redo stack: {redo_count} item(s)");
+        }
+    }
+}
+
+fn execute_stage(sf: &mut ScheduleFile, stage: &Stage, format: OutputFormat) -> Result<()> {
+    let selection = collect_selection(&sf.schedule, &stage.selectors);
 
     match &stage.command {
         Command::List(target) => match target {
-            ListTarget::Panels => list_panels(schedule, &selection, format)?,
-            ListTarget::Rooms => list_rooms(schedule, &selection, format)?,
-            ListTarget::Presenters => list_presenters(schedule, &selection, format)?,
+            ListTarget::Panels => list_panels(&sf.schedule, &selection, format)?,
+            ListTarget::Rooms => list_rooms(&sf.schedule, &selection, format)?,
+            ListTarget::Presenters => list_presenters(&sf.schedule, &selection, format)?,
         },
-        Command::Set { field, value } => execute_set(schedule, &selection, field, value)?,
-        Command::AddPresenter { name } => apply_presenter_change(schedule, &selection, name, true)?,
-        Command::RemovePresenter { name } => {
-            apply_presenter_change(schedule, &selection, name, false)?
-        }
+        Command::Set { field, value } => execute_set(sf, &selection, field, value)?,
+        Command::AddPresenter { name } => apply_presenter_change(sf, &selection, name, true)?,
+        Command::RemovePresenter { name } => apply_presenter_change(sf, &selection, name, false)?,
         Command::Reschedule {
             room_name,
             day,
@@ -2484,7 +2534,7 @@ fn execute_stage(schedule: &mut Schedule, stage: &Stage, format: OutputFormat) -
             end_time,
             duration,
         } => execute_reschedule(
-            schedule,
+            sf,
             &selection,
             room_name.as_deref(),
             day.as_deref(),
@@ -2492,14 +2542,15 @@ fn execute_stage(schedule: &mut Schedule, stage: &Stage, format: OutputFormat) -
             end_time.as_deref(),
             duration.as_deref(),
         )?,
-        Command::Cancel => execute_cancel(schedule, &selection)?,
-        Command::RemoveSession => execute_remove_session(schedule, &selection)?,
-        Command::UpdateFromJson { path } => execute_update_from_json(schedule, &selection, path)?,
-        Command::Query { fields } => execute_query(schedule, &selection, fields, format)?,
-        Command::SetMetadata { key, value } => {
-            execute_set_metadata(schedule, &selection, key, value)?
-        }
-        Command::ClearMetadata { key } => execute_clear_metadata(schedule, &selection, key)?,
+        Command::Cancel => execute_cancel(sf, &selection)?,
+        Command::RemoveSession => execute_remove_session(sf, &selection)?,
+        Command::UpdateFromJson { path } => execute_update_from_json(sf, &selection, path)?,
+        Command::Query { fields } => execute_query(&sf.schedule, &selection, fields, format)?,
+        Command::SetMetadata { key, value } => execute_set_metadata(sf, &selection, key, value)?,
+        Command::ClearMetadata { key } => execute_clear_metadata(sf, &selection, key)?,
+        Command::Undo => execute_undo(sf)?,
+        Command::Redo => execute_redo(sf)?,
+        Command::ShowHistory => execute_show_history(sf, format),
     }
 
     Ok(())
@@ -2517,22 +2568,6 @@ fn apply_modification_metadata(schedule: &mut Schedule) {
     schedule.meta.generator = Some(format!("cosam-modify {}", env!("CARGO_PKG_VERSION")));
 }
 
-fn save_back(schedule: &mut Schedule, path: &Path) -> Result<()> {
-    let ext = path
-        .extension()
-        .and_then(|value| value.to_str())
-        .unwrap_or("")
-        .to_lowercase();
-
-    if ext == "xlsx" {
-        update_xlsx(schedule, path)?;
-        post_save_cleanup(schedule);
-        Ok(())
-    } else {
-        schedule.save_json(path)
-    }
-}
-
 fn main() {
     let cli = match parse_args() {
         Ok(args) => args,
@@ -2543,8 +2578,8 @@ fn main() {
         }
     };
 
-    let mut schedule = match Schedule::load_auto(&cli.file, &cli.import_options) {
-        Ok(schedule) => schedule,
+    let mut sf = match schedule_core::xlsx::load_auto(&cli.file, &cli.import_options) {
+        Ok(sf) => sf,
         Err(error) => {
             eprintln!("Failed to load {}: {error}", cli.file.display());
             std::process::exit(1);
@@ -2552,14 +2587,14 @@ fn main() {
     };
 
     for stage in &cli.stages {
-        if let Err(error) = execute_stage(&mut schedule, stage, cli.format) {
+        if let Err(error) = execute_stage(&mut sf, stage, cli.format) {
             eprintln!("Error executing stage: {error}");
             std::process::exit(1);
         }
     }
 
-    apply_modification_metadata(&mut schedule);
-    if let Err(error) = save_back(&mut schedule, &cli.file) {
+    apply_modification_metadata(&mut sf.schedule);
+    if let Err(error) = schedule_core::xlsx::save_auto(&mut sf, &cli.file) {
         eprintln!("Failed to save {}: {error}", cli.file.display());
         std::process::exit(1);
     }

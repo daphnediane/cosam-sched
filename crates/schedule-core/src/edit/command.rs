@@ -5,6 +5,7 @@
  */
 
 use indexmap::IndexMap;
+use serde::{Deserialize, Serialize};
 
 use crate::data::panel::ExtraFields;
 use crate::data::panel_type::PanelType;
@@ -14,7 +15,7 @@ use crate::data::schedule::Schedule;
 use crate::data::source_info::{ChangeState, SourceInfo};
 
 /// Identifies which string field on a panel to set.
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub enum PanelField {
     Description,
     Note,
@@ -27,7 +28,7 @@ pub enum PanelField {
 }
 
 /// Identifies which string field on a session to set.
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub enum SessionField {
     Description,
     Note,
@@ -40,7 +41,7 @@ pub enum SessionField {
 }
 
 /// Snapshot of scheduling-related session state for undo.
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct SessionScheduleState {
     pub room_ids: Vec<u32>,
     pub start_time: Option<String>,
@@ -49,7 +50,7 @@ pub struct SessionScheduleState {
 }
 
 /// Snapshot of a room's mutable fields for undo.
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct RoomSnapshot {
     pub short_name: String,
     pub long_name: String,
@@ -82,7 +83,7 @@ impl RoomSnapshot {
 }
 
 /// Snapshot of a presenter's mutable fields for undo.
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct PresenterSnapshot {
     pub rank: PresenterRank,
     pub is_member: PresenterMember,
@@ -109,7 +110,7 @@ impl PresenterSnapshot {
 }
 
 /// Snapshot of a panel type's mutable fields for undo.
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct PanelTypeSnapshot {
     pub kind: String,
     pub colors: IndexMap<String, String>,
@@ -157,7 +158,7 @@ impl PanelTypeSnapshot {
 ///
 /// Each variant stores the data needed for both forward application and
 /// reversal. Old-state fields are populated at apply-time.
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub enum EditCommand {
     // ── Panel fields ────────────────────────────────────────────
     SetPanelName {

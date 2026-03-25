@@ -19,6 +19,7 @@ use crate::data::source_info::ChangeState;
 use crate::data::time;
 #[allow(unused_imports)]
 use crate::data::{panel::Panel, panel_type::PanelType};
+use crate::file::ScheduleFile;
 use crate::xlsx::columns::people;
 
 use super::common::{SCHEDULE_FIXED_HEADERS, add_table, flatten_panel_sessions};
@@ -148,7 +149,8 @@ fn build_presenter_columns(schedule: &Schedule) -> Vec<ExportPresenterColumn> {
     columns
 }
 
-pub fn export_to_xlsx(schedule: &Schedule, path: &Path) -> Result<()> {
+pub fn export_to_xlsx(sf: &ScheduleFile, path: &Path) -> Result<()> {
+    let schedule = &sf.schedule;
     let mut book = umya_spreadsheet::new_file();
 
     let presenter_columns = build_presenter_columns(schedule);

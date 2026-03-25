@@ -6,8 +6,9 @@
 
 use std::path::PathBuf;
 
-use schedule_core::data::{Schedule, WidgetSources, write_embed_html, write_test_html};
-use schedule_core::xlsx::{XlsxImportOptions, export_to_xlsx};
+use schedule_core::ScheduleFile;
+use schedule_core::data::{WidgetSources, write_embed_html, write_test_html};
+use schedule_core::xlsx::XlsxImportOptions;
 
 #[derive(Debug, Clone)]
 struct OutputSettings {
@@ -390,19 +391,19 @@ fn build_import_options(cli: &CliArgs) -> XlsxImportOptions {
     }
 }
 
-fn save_output(schedule: &Schedule, path: &std::path::Path) -> anyhow::Result<()> {
+fn save_output(sf: &mut ScheduleFile, path: &std::path::Path) -> anyhow::Result<()> {
     let ext = path
         .extension()
         .and_then(|e| e.to_str())
         .unwrap_or("")
         .to_lowercase();
     match ext.as_str() {
-        "xlsx" => export_to_xlsx(schedule, path),
-        _ => schedule.save_json(path),
+        "xlsx" => schedule_core::xlsx::export_to_xlsx(sf, path),
+        _ => sf.save_json(path),
     }
 }
 
-fn print_conflicts(schedule: &Schedule) {
+fn print_conflicts(schedule: &schedule_core::data::Schedule) {
     if schedule.conflicts.is_empty() {
         eprintln!("No conflicts detected");
         return;
@@ -502,8 +503,8 @@ fn main() {
     let import_options = build_import_options(&cli);
     eprintln!("Reading: {}", cli.input.display());
 
-    let mut schedule = match Schedule::load_auto(&cli.input, &import_options) {
-        Ok(schedule) => schedule,
+    let mut sf = match schedule_core::xlsx::load_auto(&cli.input, &import_options) {
+        Ok(sf) => sf,
         Err(error) => {
             eprintln!("Error loading schedule: {error}");
             std::process::exit(1);
@@ -511,7 +512,8 @@ fn main() {
     };
 
     // Count total sessions across all panels
-    let total_sessions: usize = schedule
+    let total_sessions: usize = sf
+        .schedule
         .panels
         .values()
         .map(|panel| {
@@ -525,21 +527,21 @@ fn main() {
 
     eprintln!(
         "Panels: {}, Sessions: {}, Rooms: {}, Panel types: {}, Presenters: {}",
-        schedule.panels.len(),
+        sf.schedule.panels.len(),
         total_sessions,
-        schedule.rooms.len(),
-        schedule.panel_types.len(),
-        schedule.presenters.len()
+        sf.schedule.rooms.len(),
+        sf.schedule.panel_types.len(),
+        sf.schedule.presenters.len()
     );
 
     // Report conflicts
-    print_conflicts(&schedule);
+    print_conflicts(&sf.schedule);
 
     // If check mode and there are conflicts, exit with error
-    if cli.check_only && !schedule.conflicts.is_empty() {
+    if cli.check_only && !sf.schedule.conflicts.is_empty() {
         eprintln!(
             "Validation failed - {} conflicts detected",
-            schedule.conflicts.len()
+            sf.schedule.conflicts.len()
         );
         std::process::exit(1);
     }
@@ -554,13 +556,13 @@ fn main() {
     // Process all output jobs
     for job in &cli.output_jobs {
         // Update schedule title if custom title is provided for this job
-        let original_title = schedule.meta.title.clone();
+        let original_title = sf.schedule.meta.title.clone();
         if !job.settings.title.is_empty() {
-            schedule.meta.title = job.settings.title.clone();
+            sf.schedule.meta.title = job.settings.title.clone();
         }
 
         let result = match job.job_type {
-            OutputType::Output => match save_output(&schedule, &job.path) {
+            OutputType::Output => match save_output(&mut sf, &job.path) {
                 Ok(()) => {
                     eprintln!("Saved: {}", job.path.display());
                     Ok(())
@@ -570,7 +572,7 @@ fn main() {
                     Err(error)
                 }
             },
-            OutputType::Export => match schedule.export_display(&job.path) {
+            OutputType::Export => match sf.schedule.export_display(&job.path) {
                 Ok(()) => {
                     eprintln!("Exported: {}", job.path.display());
                     Ok(())
@@ -595,7 +597,7 @@ fn main() {
                     }
                 };
 
-                let json_data = match schedule.export_display_json_string() {
+                let json_data = match sf.schedule.export_display_json_string() {
                     Ok(json) => json,
                     Err(error) => {
                         eprintln!("Error generating public JSON: {error}");
@@ -625,7 +627,7 @@ fn main() {
                     }
                     OutputType::ExportTest => {
                         let title = if job.settings.title.is_empty() {
-                            &schedule.meta.title
+                            &sf.schedule.meta.title
                         } else {
                             &job.settings.title
                         };
@@ -653,7 +655,7 @@ fn main() {
         };
 
         // Restore original title for next job
-        schedule.meta.title = original_title;
+        sf.schedule.meta.title = original_title;
 
         if let Err(_) = result {
             had_error = true;

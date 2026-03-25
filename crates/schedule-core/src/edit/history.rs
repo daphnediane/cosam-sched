@@ -4,12 +4,16 @@
  * See LICENSE file for full license text
  */
 
+use serde::{Deserialize, Serialize};
+
 use super::command::EditCommand;
 use crate::data::schedule::Schedule;
 
 const DEFAULT_MAX_UNDO: usize = 50;
 
 /// Manages undo/redo stacks of `EditCommand`s.
+#[derive(Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub struct EditHistory {
     undo_stack: Vec<EditCommand>,
     redo_stack: Vec<EditCommand>,
@@ -88,6 +92,23 @@ impl EditHistory {
     pub fn clear(&mut self) {
         self.undo_stack.clear();
         self.redo_stack.clear();
+    }
+
+    /// Returns true if both stacks are empty.
+    pub fn is_empty(&self) -> bool {
+        self.undo_stack.is_empty() && self.redo_stack.is_empty()
+    }
+
+    pub fn undo_stack(&self) -> &[EditCommand] {
+        &self.undo_stack
+    }
+
+    pub fn redo_stack(&self) -> &[EditCommand] {
+        &self.redo_stack
+    }
+
+    pub fn max_depth(&self) -> usize {
+        self.max_depth
     }
 }
 

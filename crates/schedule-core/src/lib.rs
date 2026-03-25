@@ -6,4 +6,7 @@
 
 pub mod data;
 pub mod edit;
+pub mod file;
 pub mod xlsx;
+
+pub use file::ScheduleFile;

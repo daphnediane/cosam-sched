@@ -25,6 +25,7 @@ use crate::data::schedule::{Meta, Schedule};
 use crate::data::source_info::ImportedSheetPresence;
 use crate::data::time;
 use crate::edit::context::EditContext;
+use crate::file::ScheduleFile;
 use crate::xlsx::columns::FieldDef;
 
 pub use headers::canonical_header;
@@ -50,7 +51,7 @@ impl Default for XlsxImportOptions {
     }
 }
 
-pub fn import_xlsx(path: &Path, options: &XlsxImportOptions) -> Result<Schedule> {
+pub fn import_xlsx(path: &Path, options: &XlsxImportOptions) -> Result<ScheduleFile> {
     let book = umya_spreadsheet::reader::xlsx::read(path)
         .with_context(|| format!("Failed to open {}", path.display()))?;
 
@@ -234,7 +235,7 @@ pub fn import_xlsx(path: &Path, options: &XlsxImportOptions) -> Result<Schedule>
     }
 
     crate::data::post_process::apply_schedule_parity(&mut schedule);
-    Ok(schedule)
+    Ok(ScheduleFile::new(schedule))
 }
 
 // ---------------------------------------------------------------------------
