@@ -148,7 +148,10 @@ fn compute_credits(
                     if !used_groups.contains(name) {
                         // If not all members are present (partial attendance), check format
                         if credited_members_in_group.len() < unique_members.len() {
-                            if credited_members_in_group.len() == 1 {
+                            if credited_members_in_group.is_empty() {
+                                // No members credited: show just the group name
+                                credits.push(name.clone());
+                            } else if credited_members_in_group.len() == 1 {
                                 // Single member: "Member of Group"
                                 credits
                                     .push(format!("{} of {}", credited_members_in_group[0], name));
