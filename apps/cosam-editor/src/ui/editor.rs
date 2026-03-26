@@ -206,40 +206,44 @@ impl ScheduleEditor {
             .current_path
             .as_ref()
             .and_then(|p| p.parent())
-            .unwrap_or_else(|| std::path::Path::new("."));
-
-        let Some(path) = rfd::FileDialog::new()
-            .set_directory(default_dir)
-            .add_filter("Schedule files", &["json", "xlsx"])
-            .add_filter("JSON", &["json"])
-            .add_filter("Excel Workbook", &["xlsx"])
-            .add_filter("All files", &["*"])
-            .pick_file()
-        else {
-            return;
-        };
-
-        let ext = path
-            .extension()
-            .and_then(|e| e.to_str())
-            .unwrap_or("")
-            .to_lowercase();
-
-        if ext != "xlsx" && ext != "json" {
-            self.status_message =
-                Some("Unsupported file type. Please select .xlsx or .json".to_string());
-            cx.notify();
-            return;
-        }
-
-        let import_options = XlsxImportOptions::default();
+            .unwrap_or_else(|| std::path::Path::new("."))
+            .to_owned();
 
         cx.spawn(async move |this, cx| {
+            let Some(path) = rfd::FileDialog::new()
+                .set_directory(default_dir)
+                .add_filter("Schedule files", &["json", "xlsx"])
+                .add_filter("JSON", &["json"])
+                .add_filter("Excel Workbook", &["xlsx"])
+                .add_filter("All files", &["*"])
+                .pick_file()
+            else {
+                return;
+            };
+
+            let ext = path
+                .extension()
+                .and_then(|e| e.to_str())
+                .unwrap_or("")
+                .to_lowercase();
+
+            if ext != "xlsx" && ext != "json" {
+                let _ = cx.update(|cx| {
+                    let _ = this.update(cx, |editor, cx| {
+                        editor.status_message =
+                            Some("Unsupported file type. Please select .xlsx or .json".to_string());
+                        cx.notify();
+                    });
+                });
+                return;
+            }
+
+            let import_options = XlsxImportOptions::default();
             let result =
                 schedule_core::xlsx::load_auto(&path, &import_options).map(|sf| sf.schedule);
 
-            cx.update(|cx| {
-                this.update(cx, |editor, cx| match result {
+            let _ = cx.update(|cx| {
+                let _ = this.update(cx, |editor, cx| match result {
                     Ok(schedule) => {
                         editor.load_schedule(schedule, Some(path), cx);
                     }
@@ -247,9 +251,8 @@ impl ScheduleEditor {
                         editor.status_message = Some(format!("Error: {e}"));
                         cx.notify();
                     }
-                })
-            })
-            .ok();
+                });
+            });
         })
         .detach();
     }
@@ -265,14 +268,16 @@ impl ScheduleEditor {
             .current_path
             .as_ref()
             .and_then(|p| p.parent())
-            .unwrap_or_else(|| std::path::Path::new("."));
+            .unwrap_or_else(|| std::path::Path::new("."))
+            .to_owned();
 
         let current_ext = self
             .current_path
             .as_ref()
             .and_then(|p| p.extension())
             .and_then(|e| e.to_str())
-            .unwrap_or("json");
+            .unwrap_or("json")
+            .to_owned();
 
         let suggested_name = self
             .current_path
@@ -282,46 +287,46 @@ impl ScheduleEditor {
             .map(|stem| format!("{stem}.{current_ext}"))
             .unwrap_or_else(|| "schedule.json".to_string());
 
-        let mut dialog = rfd::FileDialog::new()
-            .set_directory(default_dir)
-            .set_file_name(&suggested_name);
-
-        if current_ext == "xlsx" {
-            dialog = dialog
-                .add_filter("Excel Workbook", &["xlsx"])
-                .add_filter("JSON", &["json"]);
-        } else {
-            dialog = dialog
-                .add_filter("JSON", &["json"])
-                .add_filter("Excel Workbook", &["xlsx"]);
-        }
-        dialog = dialog.add_filter("All files", &["*"]);
-
-        let Some(path) = dialog.save_file() else {
-            return;
-        };
-
         let schedule_file_clone = schedule_file.clone();
 
-        // Update Excel metadata when saving
-        let current_time = time::format_storage_ts(chrono::Utc::now());
-        let username = std::env::var("USER")
-            .or_else(|_| std::env::var("USERNAME"))
-            .or_else(|_| std::env::var("LOGNAME"))
-            .unwrap_or_else(|_| "Unknown User".to_string());
-
-        let mut schedule_file_for_save = schedule_file_clone;
-        schedule_file_for_save.schedule.meta.last_modified_by = Some(username.clone());
-        schedule_file_for_save.schedule.meta.modified = Some(current_time);
-
         cx.spawn(async move |this, cx| {
+            let mut dialog = rfd::FileDialog::new()
+                .set_directory(default_dir)
+                .set_file_name(&suggested_name);
+
+            if current_ext == "xlsx" {
+                dialog = dialog
+                    .add_filter("Excel Workbook", &["xlsx"])
+                    .add_filter("JSON", &["json"]);
+            } else {
+                dialog = dialog
+                    .add_filter("JSON", &["json"])
+                    .add_filter("Excel Workbook", &["xlsx"]);
+            }
+            dialog = dialog.add_filter("All files", &["*"]);
+
+            let Some(path) = dialog.save_file() else {
+                return;
+            };
+
+            // Update Excel metadata when saving
+            let current_time = time::format_storage_ts(chrono::Utc::now());
+            let username = std::env::var("USER")
+                .or_else(|_| std::env::var("USERNAME"))
+                .or_else(|_| std::env::var("LOGNAME"))
+                .unwrap_or_else(|_| "Unknown User".to_string());
+
+            let mut schedule_file_for_save = schedule_file_clone;
+            schedule_file_for_save.schedule.meta.last_modified_by = Some(username.clone());
+            schedule_file_for_save.schedule.meta.modified = Some(current_time);
+
             let ext = path
                 .extension()
                 .and_then(|e| e.to_str())
                 .unwrap_or("")
                 .to_lowercase();
 
-            let (result, file_type) = if ext == "xlsx" {
+            let (result, _file_type) = if ext == "xlsx" {
                 (
                     schedule_core::xlsx::export_to_xlsx(&schedule_file_for_save, &path),
                     FileType::Xlsx,
@@ -330,22 +335,22 @@ impl ScheduleEditor {
                 (schedule_file_for_save.save_json(&path), FileType::Json)
             };
 
-            cx.update(|cx| {
-                this.update(cx, |editor, cx| match result {
+            let _ = cx.update(|cx| {
+                let _ = this.update(cx, |editor, cx| match result {
                     Ok(()) => {
                         editor.current_path = Some(path.clone());
-                        editor.current_file_type = Some(file_type);
-                        editor.has_unsaved_changes = false;
-                        editor.status_message = Some(format!("Saved: {}", path.display()));
+                        editor.schedule_file = Some(schedule_file_for_save);
+                        editor.update_menus(cx);
+                        editor.rebuild_event_cards(cx);
+                        editor.status_message = Some(format!("Saved to {}", path.display()));
                         cx.notify();
                     }
                     Err(e) => {
-                        editor.status_message = Some(format!("Save error: {e}"));
+                        editor.status_message = Some(format!("Error saving file: {e}"));
                         cx.notify();
                     }
-                })
-            })
-            .ok();
+                });
+            });
         })
         .detach();
     }
@@ -878,7 +883,8 @@ impl ScheduleEditor {
             .current_path
             .as_ref()
             .and_then(|p| p.parent())
-            .unwrap_or_else(|| std::path::Path::new("."));
+            .unwrap_or_else(|| std::path::Path::new("."))
+            .to_owned();
 
         let suggested_name = self
             .current_path
@@ -888,35 +894,34 @@ impl ScheduleEditor {
             .map(|stem| format!("{}-public.json", stem))
             .unwrap_or_else(|| "schedule-public.json".to_string());
 
-        let Some(path) = rfd::FileDialog::new()
-            .set_directory(default_dir)
-            .set_file_name(&suggested_name)
-            .add_filter("JSON", &["json"])
-            .add_filter("All files", &["*"])
-            .save_file()
-        else {
-            return;
-        };
-
         let schedule_clone = schedule_file.schedule.clone();
 
         cx.spawn(async move |this, cx| {
+            let Some(path) = rfd::FileDialog::new()
+                .set_directory(default_dir)
+                .set_file_name(&suggested_name)
+                .add_filter("JSON", &["json"])
+                .add_filter("All files", &["*"])
+                .save_file()
+            else {
+                return;
+            };
+
             let result = schedule_clone.export_display(&path);
 
-            cx.update(|cx| {
-                this.update(cx, |editor, cx| match result {
+            let _ = cx.update(|cx| {
+                let _ = this.update(cx, |editor, cx| match result {
                     Ok(()) => {
                         editor.status_message =
-                            Some(format!("Exported public schedule: {}", path.display()));
+                            Some(format!("Exported public JSON to {}", path.display()));
                         cx.notify();
                     }
                     Err(e) => {
-                        editor.status_message = Some(format!("Export error: {e}"));
+                        editor.status_message = Some(format!("Error exporting: {e}"));
                         cx.notify();
                     }
-                })
-            })
-            .ok();
+                });
+            });
         })
         .detach();
     }
@@ -937,7 +942,8 @@ impl ScheduleEditor {
             .current_path
             .as_ref()
             .and_then(|p| p.parent())
-            .unwrap_or_else(|| std::path::Path::new("."));
+            .unwrap_or_else(|| std::path::Path::new("."))
+            .to_owned();
 
         let suggested_name = self
             .current_path
@@ -947,31 +953,29 @@ impl ScheduleEditor {
             .map(|stem| format!("{}-embed.html", stem))
             .unwrap_or_else(|| "schedule-embed.html".to_string());
 
-        let Some(path) = rfd::FileDialog::new()
-            .set_directory(default_dir)
-            .set_file_name(&suggested_name)
-            .add_filter("HTML", &["html", "htm"])
-            .add_filter("All files", &["*"])
-            .save_file()
-        else {
-            return;
-        };
-
         let schedule_clone = schedule_file.schedule.clone();
 
         cx.spawn(async move |this, cx| {
+            let Some(path) = rfd::FileDialog::new()
+                .set_directory(default_dir)
+                .set_file_name(&suggested_name)
+                .add_filter("HTML", &["html", "htm"])
+                .add_filter("All files", &["*"])
+                .save_file()
+            else {
+                return;
+            };
+
             // Convert schedule to JSON string
             let json_data = match schedule_clone.export_display_json_string() {
                 Ok(json) => json,
                 Err(e) => {
-                    cx.update(|cx| {
-                        this.update(cx, |editor, cx| {
-                            editor.status_message =
-                                Some(format!("Failed to serialize schedule: {e}"));
+                    let _ = cx.update(|cx| {
+                        let _ = this.update(cx, |editor, cx| {
+                            editor.status_message = Some(format!("Error converting to JSON: {e}"));
                             cx.notify();
-                        })
-                    })
-                    .ok();
+                        });
+                    });
                     return;
                 }
             };
@@ -979,25 +983,24 @@ impl ScheduleEditor {
             // Create widget sources (using built-in defaults)
             let sources = schedule_core::data::WidgetSources::default();
 
-            let result = schedule_core::data::write_embed_html(
+            let result = schedule_core::data::widget_embed::write_embed_html(
                 &path, &json_data, &sources, true, // minified
                 None, // style_page
             );
 
-            cx.update(|cx| {
-                this.update(cx, |editor, cx| match result {
+            let _ = cx.update(|cx| {
+                let _ = this.update(cx, |editor, cx| match result {
                     Ok(()) => {
                         editor.status_message =
-                            Some(format!("Exported embedded widget: {}", path.display()));
+                            Some(format!("Exported embed HTML to {}", path.display()));
                         cx.notify();
                     }
                     Err(e) => {
-                        editor.status_message = Some(format!("Export error: {e}"));
+                        editor.status_message = Some(format!("Error exporting: {e}"));
                         cx.notify();
                     }
-                })
-            })
-            .ok();
+                });
+            });
         })
         .detach();
     }
@@ -1018,7 +1021,8 @@ impl ScheduleEditor {
             .current_path
             .as_ref()
             .and_then(|p| p.parent())
-            .unwrap_or_else(|| std::path::Path::new("."));
+            .unwrap_or_else(|| std::path::Path::new("."))
+            .to_owned();
 
         let suggested_name = self
             .current_path
@@ -1028,31 +1032,32 @@ impl ScheduleEditor {
             .map(|stem| format!("{}-test.html", stem))
             .unwrap_or_else(|| "schedule-test.html".to_string());
 
-        let Some(path) = rfd::FileDialog::new()
-            .set_directory(default_dir)
-            .set_file_name(&suggested_name)
-            .add_filter("HTML", &["html", "htm"])
-            .add_filter("All files", &["*"])
-            .save_file()
-        else {
-            return;
-        };
-
         let schedule_clone = schedule_file.schedule.clone();
 
         cx.spawn(async move |this, cx| {
+            let Some(path) = rfd::FileDialog::new()
+                .set_directory(default_dir)
+                .set_file_name(&suggested_name)
+                .add_filter("HTML", &["html", "htm"])
+                .add_filter("All files", &["*"])
+                .save_file()
+            else {
+                return;
+            };
+
             // Convert schedule to JSON string
             let json_data = match schedule_clone.export_display_json_string() {
                 Ok(json) => json,
                 Err(e) => {
-                    cx.update(|cx| {
-                        this.update(cx, |editor, cx| {
-                            editor.status_message =
-                                Some(format!("Failed to serialize schedule: {e}"));
-                            cx.notify();
+                    let _ = cx
+                        .update(|cx| {
+                            let _ = this.update(cx, |editor, cx| {
+                                editor.status_message =
+                                    Some(format!("Failed to serialize schedule: {e}"));
+                                cx.notify();
+                            });
                         })
-                    })
-                    .ok();
+                        .ok();
                     return;
                 }
             };
@@ -1071,20 +1076,21 @@ impl ScheduleEditor {
                 None, // style_page
             );
 
-            cx.update(|cx| {
-                this.update(cx, |editor, cx| match result {
-                    Ok(()) => {
-                        editor.status_message =
-                            Some(format!("Exported test page: {}", path.display()));
-                        cx.notify();
-                    }
-                    Err(e) => {
-                        editor.status_message = Some(format!("Export error: {e}"));
-                        cx.notify();
-                    }
+            let _ = cx
+                .update(|cx| {
+                    let _ = this.update(cx, |editor, cx| match result {
+                        Ok(()) => {
+                            editor.status_message =
+                                Some(format!("Exported test page: {}", path.display()));
+                            cx.notify();
+                        }
+                        Err(e) => {
+                            editor.status_message = Some(format!("Export error: {e}"));
+                            cx.notify();
+                        }
+                    });
                 })
-            })
-            .ok();
+                .ok();
         })
         .detach();
     }
