@@ -3,6 +3,9 @@
 # Copyright (c) 2026 Daphne Pfister
 # SPDX-License-Identifier: BSD-2-Clause
 # See LICENSE file for full license text
+
+# Mark sure to also update combine-workplans.ps1 when making changes here
+
 use strict;
 use warnings;
 use File::Find;
@@ -219,6 +222,27 @@ sub generate_work_plan {
     # Collect all links for glossary
     my %all_links;
 
+    # Track numbering conflicts and used IDs
+    my %conflicts;
+    my %used_ids;
+    my %prefix_groups;
+
+    for my $item ( @items ) {
+        my $id     = $item->{ num };
+        my $prefix = $item->{ prefix };
+
+        # Track used IDs
+        if ( exists $used_ids{ $id } ) {
+            push @{ $conflicts{ $id } }, $item;
+        }
+        else {
+            $used_ids{ $id } = $item;
+        }
+
+        # Group by prefix
+        push @{ $prefix_groups{ $prefix } }, $item;
+    } ## end for my $item ( @items )
+
     # Output completed items as a simple list
     if ( @completed ) {
         print $out "## Completed\n\n";
@@ -272,34 +296,128 @@ sub generate_work_plan {
         print $out "---\n\n";
     } ## end if ( @open )
 
-    # Group open items by priority
-    my %by_priority;
+    # Add next available IDs section
+    print $out "## Next Available IDs\n\n";
+    print $out "The following ID numbers are available for new items:\n\n";
+
+    # Find max ID used across all items
+    my $max_id = 0;
+    my %all_used_ids;
+    for my $item ( @items ) {
+        my $id = $item->{ num };
+
+        # Convert to integer for proper comparison
+        my $int_id = int( $id );
+        $all_used_ids{ $int_id } = 1;
+        $max_id = $int_id if $int_id > $max_id;
+    } ## end for my $item ( @items )
+
+    # Calculate how many IDs to show (at least 10 more than number of conflicts)
+    my $conflict_count = scalar( keys %conflicts );
+    my $min_count      = $conflict_count + 10;
+    my $count_to_show  = $min_count > 10 ? $min_count : 10;
+
+    # Find available IDs with zero padding
+    my @available;
+    my $check_id = 1;
+    while ( @available < $count_to_show ) {
+        if ( !exists $all_used_ids{ $check_id } ) {
+            push @available, sprintf( "%03d", $check_id );
+        }
+        $check_id++;
+    } ## end while ( @available < $count_to_show)
+
+    print $out "**Available:** " . join( ", ", @available ) . "\n\n";
+    print $out "**Highest used:** $max_id\n\n";
+    print $out "---\n\n";
+
+    # Add numbering conflicts section if any exist
+    if ( %conflicts ) {
+
+        # Filter to only show actual conflicts (IDs with 2+ items)
+        my %actual_conflicts;
+        for my $conflict_id ( keys %conflicts ) {
+
+            # Count total items with this ID (first item in used_ids + conflicts)
+            my $total_count = 1 + scalar( @{ $conflicts{ $conflict_id } } );
+            if ( $total_count >= 2 ) {
+
+                # Check if any of the conflicting items are open
+                my $has_open_items = 0;
+                if ( $used_ids{ $conflict_id }->{ status } ne 'Completed' ) {
+                    $has_open_items = 1;
+                }
+                for my $item ( @{ $conflicts{ $conflict_id } } ) {
+                    if ( $item->{ status } ne 'Completed' ) {
+                        $has_open_items = 1;
+                        last;
+                    }
+                } ## end for my $item ( @{ $conflicts...})
+
+                # Only include conflicts that have at least one open item
+                if ( $has_open_items ) {
+                    $actual_conflicts{ $conflict_id } = [
+                        $used_ids{ $conflict_id },        # Add the first item
+                        @{ $conflicts{ $conflict_id } }   # Add the rest
+                    ];
+                } ## end if ( $has_open_items )
+            } ## end if ( $total_count >= 2)
+        } ## end for my $conflict_id ( keys...)
+
+        if ( %actual_conflicts ) {
+            print $out "### Numbering Conflicts\n\n";
+            print $out
+                "The following ID numbers are used by multiple items:\n\n";
+
+            for my $conflict_id ( sort { $a <=> $b } keys %actual_conflicts )
+            {
+                print $out "#### Suffix `"
+                    . sprintf( "%03d", $conflict_id ) . "`\n\n";
+                for my $item ( @{ $actual_conflicts{ $conflict_id } } ) {
+                    my $status_icon
+                        = $item->{ status } eq 'Completed' ? '✓' : '○';
+                    my $display_id = sprintf(
+                        "%s-%03d", $item->{ prefix },
+                        $item->{ num }
+                    );
+
+                    print $out
+                        "* $status_icon [$display_id] $item->{title}\n";
+                } ## end for my $item ( @{ $actual_conflicts...})
+                print $out "\n";
+            } ## end for my $conflict_id ( sort...)
+            print $out "---\n\n";
+        } ## end if ( %actual_conflicts)
+    } ## end if ( %conflicts )
+
+    # Group open items by prefix for detailed view
+    my %open_by_prefix;
     for my $item ( @open ) {
-        push @{ $by_priority{ $item->{ priority } } }, $item;
+        push @{ $open_by_prefix{ $item->{ prefix } } }, $item;
     }
 
-    # Output each priority section with different heading to avoid duplicates
-    for my $priority ( qw(High Medium Low) ) {
-        next unless exists $by_priority{ $priority };
+    # Output each prefix section
+    for my $prefix ( sort keys %open_by_prefix ) {
+        print $out "## Open $prefix Items\n\n";
 
-        print $out "## Open $priority Priority Items\n\n";
-
-        for my $item ( @{ $by_priority{ $priority } } ) {
+        for my $item ( @{ $open_by_prefix{ $prefix } } ) {
             my $link_id = "$item->{prefix}-$item->{num}";
             $all_links{ $link_id } = get_relative_path( $item );
 
             print $out "### [$link_id] $item->{title}\n\n";
 
             print $out "**Status:** $item->{status}\n\n";
+            print $out "**Priority:** $item->{priority}\n\n";
             print $out "**Summary:** $item->{summary}\n\n";
             print $out "**Description:** $item->{description}\n\n";
 
-            # Add separator, but not after the last item
-            if ( $item != $by_priority{ $priority }[ -1 ] ) {
+            # Add separator, but not after the last item in this prefix
+            if ( $item != $open_by_prefix{ $prefix }[ -1 ] ) {
                 print $out "---\n\n";
             }
-        } ## end for my $item ( @{ $by_priority...})
-    } ## end for my $priority ( qw(High Medium Low))
+        } ## end for my $item ( @{ $open_by_prefix...})
+        print $out "---\n\n";
+    } ## end for my $prefix ( sort keys...)
 
     # Add link glossary at the end (no header to avoid rendering issues)
     print $out "---\n\n";

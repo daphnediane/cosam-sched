@@ -2,7 +2,7 @@
 
 ## Summary
 
-Migrate Presenter.members and Presenter.groups from Vec<String> to BTreeSet<String> to prevent duplicates and maintain sorted order.
+Migrate Presenter.members and Presenter.groups from `Vec<String>` to `BTreeSet<String>` to prevent duplicates and maintain sorted order.
 
 ## Status
 
@@ -14,7 +14,7 @@ High
 
 ## Description
 
-The Presenter struct currently uses Vec<String> for both `members` and `groups` fields, which allows duplicate entries and doesn't guarantee consistent ordering. This migration to BTreeSet<String> provides:
+The Presenter struct currently uses `Vec<String>` for both `members` and `groups` fields, which allows duplicate entries and doesn't guarantee consistent ordering. This migration to `BTreeSet<String>` provides:
 
 1. Automatic duplicate prevention
 2. Sorted ordering for consistent JSON serialization
@@ -41,11 +41,11 @@ The Presenter struct currently uses Vec<String> for both `members` and `groups` 
 5. Fixed test expectations to match new credit display behavior
 
 **JSON Serialization:**
-BTreeSet automatically serializes as sorted JSON arrays, maintaining backward compatibility while providing consistent ordering.
+`BTreeSet` automatically serializes as sorted JSON arrays, maintaining backward compatibility while providing consistent ordering.
 
 ## Acceptance Criteria
 
-- [x] All Presenter struct fields migrated to BTreeSet<String>
+- [x] All Presenter struct fields migrated to `BTreeSet<String>`
 - [x] All compilation errors resolved
 - [x] All 71 tests pass
 - [x] JSON export works correctly with sorted arrays

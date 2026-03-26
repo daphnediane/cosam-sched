@@ -15,6 +15,8 @@ Work items are in `docs/work-plan/` as `<PREFIX>-<###>.md` files, automatically 
 - **BUGFIX** - Fixes for defects
 - **UI** - Interface improvements
 - **EDITOR** - Desktop editor app
+- **CLI** - Command-line interface (cosam-convert, cosam-modify)
+- **DEPLOY** - Packaging, deployment, and distribution
 - **CLEANUP** - Repository cleanup
 - **PERFORMANCE** - Optimizations
 - **DOCS** - Documentation

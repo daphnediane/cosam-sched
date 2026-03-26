@@ -1,12 +1,15 @@
 # XLSX Export Support
 
 ## Summary
+
 Add the ability to export schedule data to XLSX spreadsheets.
 
 ## Status
+
 Completed
 
 ## Priority
+
 High
 
 ## Description

@@ -26,20 +26,20 @@ Create a new `cosam-modify` command that allows programmatic in-place modificati
 
 ### Key Features
 
-**In-place Updates**
+**In-place Updates:**
 
 - Preserve existing formatting, formulas, and extra columns
 - Only modify rows that have changed
 - Maintain Excel-specific features and custom sheets
 
-**Modification Operations**
+**Modification Operations:**
 
 - Add/remove/update panels, rooms, presenters
 - Change panel types and assignments
 - Update scheduling information (times, durations)
 - Apply bulk transformations based on patterns
 
-**Command Interface**
+**Command Interface:**
 
 ```bash
 # Basic usage
@@ -57,13 +57,13 @@ cosam-modify schedule.xlsx --script modifications.json
 
 ### Implementation Details
 
-**Architecture**
+**Architecture:**
 
 - Reuse existing `xlsx_update` module from cosam-editor
 - Add new `cosam-modify` binary application
 - Support multiple operation modes and batch processing
 
-**Core Components**
+**Core Components:**
 
 1. **Command parser** - Handle CLI arguments and operation modes
 2. **Operation engine** - Execute different types of modifications
@@ -71,7 +71,7 @@ cosam-modify schedule.xlsx --script modifications.json
 4. **Script runner** - Execute JSON/YAML modification scripts
 5. **Validation system** - Check data integrity before/after changes
 
-**File Formats**
+**File Formats:**
 
 - **JSON scripts**: Define complex modification sequences
 - **CSV imports**: Bulk data updates from external sources
@@ -79,20 +79,20 @@ cosam-modify schedule.xlsx --script modifications.json
 
 ### Technical Requirements
 
-**Dependencies**
+**Dependencies:**
 
 - Reuse `schedule-core` library (xlsx_update module)
 - Add CLI argument parsing (clap)
 - Add JSON/YAML support for scripts
 - Add logging for batch operations
 
-**Integration Points**
+**Integration Points:**
 
 - Use existing `xlsx_update::update_xlsx()` for in-place updates
 - Use existing `xlsx_import` for reading source files
 - Use existing data structures (Schedule, Panel, etc.)
 
-**Performance Considerations**
+**Performance Considerations:**
 
 - Efficient batch processing for large file sets
 - Progress reporting for long-running operations
@@ -101,28 +101,28 @@ cosam-modify schedule.xlsx --script modifications.json
 
 ### Development Phases
 
-**Phase 1: Core Infrastructure**
+**Phase 1: Core Infrastructure:**
 
 - [ ] Create `cosam-modify` binary application
 - [ ] Implement basic CLI argument parsing
 - [ ] Add simple in-place update functionality
 - [ ] Basic error handling and logging
 
-**Phase 2: Operations Engine**
+**Phase 2: Operations Engine:**
 
 - [ ] Implement add/remove/update operations
 - [ ] Add bulk transformation capabilities
 - [ ] Add validation and safety checks
 - [ ] Support for common modification patterns
 
-**Phase 3: Advanced Features**
+**Phase 3: Advanced Features:**
 
 - [ ] Script execution engine (JSON/YAML)
 - [ ] Batch processing with progress reporting
 - [ ] CSV import/export for bulk data
 - [ ] Configuration file support
 
-**Phase 4: Integration & Testing**
+**Phase 4: Integration & Testing:**
 
 - [ ] Comprehensive test suite
 - [ ] Documentation and examples
@@ -131,21 +131,21 @@ cosam-modify schedule.xlsx --script modifications.json
 
 ### Acceptance Criteria
 
-**Core Functionality**
+**Core Functionality:**
 
 - [ ] Can modify XLSX files in place preserving formatting
 - [ ] Supports basic add/remove/update operations
 - [ ] Handles batch operations on multiple files
 - [ ] Provides clear error messages and logging
 
-**Advanced Features**
+**Advanced Features:**
 
 - [ ] Script execution works for complex modifications
 - [ ] CSV import/export for bulk data operations
 - [ ] Configuration system for default behaviors
 - [ ] Performance suitable for large file sets
 
-**Quality Standards**
+**Quality Standards:**
 
 - [ ] All existing cosam-editor functionality preserved
 - [ ] No data corruption or loss during modifications
@@ -154,14 +154,14 @@ cosam-modify schedule.xlsx --script modifications.json
 
 ### Future Enhancements
 
-**Integration Opportunities**
+**Integration Opportunities:**
 
 - Web API for remote modifications
 - Plugin system for custom operations
 - Integration with version control systems
 - Real-time synchronization with databases
 
-**Advanced Automation**
+**Advanced Automation:**
 
 - Conditional modification rules
 - Cross-file reference updates
