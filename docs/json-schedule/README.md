@@ -11,6 +11,7 @@ The JSON format has evolved through several major versions:
 - **v5**: Hierarchical panels structure (private/public variants)
 - **v6**: Excel metadata integration
 - **v7**: Latest format with panelTypes hashmap, named color sets, merged timeTypes, stable presenter IDs, baked-in breaks (full/display variants)
+- **v8**: Full format with persistent edit history via changeLog field
 
 ## Format Variants
 
@@ -186,6 +187,12 @@ Each data structure is documented in its own file following the pattern `<struct
 - [timeline-v7.md](timeline-v7.md) - Timeline markers referencing panelType prefix
 - [conflicts-v7.md](conflicts-v7.md) - Conflict detection structures
 
+### v8 Documentation
+
+- [v8-full.md](v8-full.md) - Full format entry point with changeLog support
+- [meta-v8.md](meta-v8.md) - Metadata with version 8 and variant `"full"`
+- [changeLog-v8.md](changeLog-v8.md) - Edit history with undo/redo stacks
+
 ## Quick Reference
 
 | Version    | Entry Point                    | Structure                   | Use Case             |
@@ -197,6 +204,7 @@ Each data structure is documented in its own file following the pattern `<struct
 | v6-public  | [v6-public.md](v6-public.md)   | Flattened + Excel meta      | Public widget        |
 | v7-full    | [v7-full.md](v7-full.md)       | Hashmap panelTypes + breaks | Internal editing     |
 | v7-display | [v7-display.md](v7-display.md) | Flattened + baked breaks    | Public widget        |
+| v8-full    | [v8-full.md](v8-full.md)       | Full format + changeLog     | Internal editing     |
 
 ## Migration Notes
 
@@ -204,6 +212,7 @@ Each data structure is documented in its own file following the pattern `<struct
 - **v5-private → v5-public**: Flatten hierarchical structure and filter private fields
 - **v4 → v5-public**: Use v4→v5-private conversion then flatten for public output
 - **v6 → v7**: No migration needed — all JSON files are regenerated from spreadsheet each release
+- **v7 → v8**: No migration needed — alpha software, all files regenerated from canonical spreadsheets
 
 ## Related Documentation
 
