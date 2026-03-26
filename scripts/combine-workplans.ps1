@@ -4,6 +4,8 @@
 # Copyright (c) 2026 Daphne Pfister
 # SPDX-License-Identifier: BSD-2-Clause
 
+# Mark sure to also update combine-workplans.pl when making changes here
+
 param(
     [string]$WorkplanDir = "docs/work-plan",
     [string]$OutputFile = "docs/WORK_PLAN.md",
@@ -168,6 +170,26 @@ function New-WorkPlanContent {
     # Collect all links for glossary
     $allLinks = @{}
     
+    # Track numbering conflicts and used IDs
+    $conflicts = @{}
+    $usedIds = @{}
+    
+    foreach ($item in $Items) {
+        $id = $item.Number
+        $prefix = $item.Prefix
+        
+        # Track used IDs
+        if ($usedIds.ContainsKey($id)) {
+            if (-not $conflicts.ContainsKey($id)) {
+                $conflicts[$id] = @()
+            }
+            $conflicts[$id] += $item
+        }
+        else {
+            $usedIds[$id] = $item
+        }
+    }
+    
     # Output completed items
     if ($completed) {
         $content += "## Completed"
@@ -216,17 +238,104 @@ function New-WorkPlanContent {
         $content += ""
     }
     
-    # Group open items by priority for detailed sections
-    $byPriority = $open | Group-Object -Property Priority
+    # Add next available IDs section
+    $content += "## Next Available IDs"
+    $content += ""
+    $content += "The following ID numbers are available for new items:"
+    $content += ""
     
-    foreach ($priority in @('High', 'Medium', 'Low')) {
-        $group = $byPriority | Where-Object { $_.Name -eq $priority }
-        if (-not $group) { continue }
+    # Find max ID used across all items
+    $maxId = 0
+    $allUsedIds = @{}
+    foreach ($item in $Items) {
+        $id = [int]$item.Number
+        $allUsedIds[$id] = $true
+        if ($id -gt $maxId) { $maxId = $id }
+    }
+    
+    # Calculate how many IDs to show (at least 10 more than number of conflicts)
+    $conflictCount = $conflicts.Keys.Count
+    $minCount = $conflictCount + 10
+    $countToShow = if ($minCount -gt 10) { $minCount } else { 10 }
+    
+    # Find available IDs with zero padding
+    $available = @()
+    $checkId = 1
+    while ($available.Count -lt $countToShow) {
+        if (-not $allUsedIds.ContainsKey($checkId)) {
+            $available += "{0:D3}" -f $checkId
+        }
+        $checkId++
+    }
+    
+    $content += "**Available:** $($available -join ', ')"
+    $content += ""
+    $content += "**Highest used:** $maxId"
+    $content += ""
+    $content += "---"
+    $content += ""
+    
+    # Add numbering conflicts section if any exist
+    if ($conflicts.Keys.Count -gt 0) {
+        # Filter to only show actual conflicts (IDs with 2+ items) and exclude completed-only conflicts
+        $actualConflicts = @{}
+        foreach ($conflictId in $conflicts.Keys) {
+            $totalItems = 1 + $conflicts[$conflictId].Count
+            if ($totalItems -ge 2) {
+                # Check if any of the conflicting items are open
+                $hasOpenItems = $false
+                if ($usedIds[$conflictId].Status -ne 'Completed') {
+                    $hasOpenItems = $true
+                }
+                foreach ($item in $conflicts[$conflictId]) {
+                    if ($item.Status -ne 'Completed') {
+                        $hasOpenItems = $true
+                        break
+                    }
+                }
+                # Only include conflicts that have at least one open item
+                if ($hasOpenItems) {
+                    $actualConflicts[$conflictId] = @($usedIds[$conflictId]) + $conflicts[$conflictId]
+                }
+            }
+        }
         
-        $content += "## Open $priority Priority Items"
+        if ($actualConflicts.Keys.Count -gt 0) {
+            $content += "### Numbering Conflicts"
+            $content += ""
+            $content += "The following ID numbers are used by multiple items:"
+            $content += ""
+            
+            foreach ($conflictId in ($actualConflicts.Keys | Sort-Object { [int]$_ })) {
+                $content += "#### Suffix `"{0:D3}`"" -f $conflictId
+                $content += ""
+                foreach ($item in $actualConflicts[$conflictId]) {
+                    $statusIcon = if ($item.Status -eq 'Completed') { '✓' } else { '○' }
+                    $displayId = "{0}-{1:D3}" -f $item.Prefix, $item.Number
+                    $content += "* $statusIcon [$displayId] $($item.Title)"
+                }
+                $content += ""
+            }
+            $content += "---"
+            $content += ""
+        }
+    }
+    
+    # Group open items by prefix for detailed view
+    $openByPrefix = @{}
+    foreach ($item in $open) {
+        if (-not $openByPrefix.ContainsKey($item.Prefix)) {
+            $openByPrefix[$item.Prefix] = @()
+        }
+        $openByPrefix[$item.Prefix] += $item
+    }
+    
+    # Output each prefix section
+    foreach ($prefix in ($openByPrefix.Keys | Sort-Object)) {
+        $content += "## Open $prefix Items"
         $content += ""
         
-        $sortedItems = $group.Group | Sort-Object -Property Prefix, @{Expression = { [int]$_.Number } }
+        $sortedItems = $openByPrefix[$prefix] | Sort-Object -Property @{Expression = { [int]$_.Number } }
         for ($i = 0; $i -lt $sortedItems.Count; $i++) {
             $item = $sortedItems[$i]
             
@@ -237,17 +346,21 @@ function New-WorkPlanContent {
             $content += ""
             $content += "**Status:** $($item.Status)"
             $content += ""
+            $content += "**Priority:** $($item.Priority)"
+            $content += ""
             $content += "**Summary:** $($item.Summary)"
             $content += ""
             $content += "**Description:** $($item.Description)"
             $content += ""
             
-            # Add separator, but not after the last item
+            # Add separator, but not after the last item in this prefix
             if ($i -lt $sortedItems.Count - 1) {
                 $content += "---"
                 $content += ""
             }
         }
+        $content += "---"
+        $content += ""
     }
     
     # Add link glossary at the end (no header to avoid rendering issues)
