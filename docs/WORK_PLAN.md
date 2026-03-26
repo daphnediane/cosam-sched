@@ -1,6 +1,6 @@
 # Cosplay America Schedule - Work Plan
 
-Generated on: Wed Mar 25 21:43:41 2026
+Generated on: Wed Mar 25 22:08:03 2026
 
 ## Completed
 
@@ -41,6 +41,7 @@ the base→part→session hierarchy in the UI.
 * [FEATURE-024] Create documentation for the new v8 JSON format with changeLog support
 * [FEATURE-501] Add a new command-line tool for in-place modifications of XLSX schedule files
 * [INVESTIGATE-001] Investigate xlsx_update module for potential corruption issues and determine if it should be disabled
+* [TEST-013] Add comprehensive tests for cosam-modify's new undo/redo/show-history commands
 * [UI-001] Display both the programming room name (e.g., "Programming 1") and the actual hotel room location.
 * [UI-003] Implement theme switching with dark, light, and CosAm color modes.
 * [UI-004] Replace table-based layout with CSS grid similar to schedule-to-html implementation.
@@ -50,13 +51,12 @@ the base→part→session hierarchy in the UI.
 
 ## Summary of Open Items
 
-**Total open items:** 25
+**Total open items:** 24
 
 * **High Priority**
   * [FEATURE-027] Enable reading schedule data directly from Google Sheets.
   * [FEATURE-031] Add a grid view option to the printable schedule in addition to the existing list view.
   * [FEATURE-035] Enable room-wide events like Market Expo to overlap with subpanels in the same room without triggering false conflict warnings.
-  * [TEST-013] Add comprehensive tests for cosam-modify's new undo/redo/show-history commands
   * [UI-026] Prevent event titles from overlapping with the "my schedule" star icon.
   * [UI-038] Implement comprehensive accessibility improvements for screen readers and color blindness support.
   * [UI-502] Implement inline editing of individual schedule events.
@@ -308,20 +308,6 @@ The 2025 schedule shows this pattern:
 
 ---
 
-## Open TEST Items
-
-### [TEST-013] cosam-modify Test Coverage
-
-**Status:** Open
-
-**Priority:** High
-
-**Summary:** Add comprehensive tests for cosam-modify's new undo/redo/show-history commands
-
-**Description:** cosam-modify now supports persistent undo/redo via EditHistory, but lacks automated tests for these features.
-
----
-
 ## Open UI Items
 
 ### [UI-026] Fix event title and star overlap
@@ -486,7 +472,7 @@ Based on the 2025 schedule data, conflicts include:
 [FEATURE-039]: work-plan/low/FEATURE-039.md
 [FEATURE-501]: work-plan/done/FEATURE-501.md
 [INVESTIGATE-001]: work-plan/done/INVESTIGATE-001.md
-[TEST-013]: work-plan/high/TEST-013.md
+[TEST-013]: work-plan/done/TEST-013.md
 [UI-001]: work-plan/done/UI-001.md
 [UI-003]: work-plan/done/UI-003.md
 [UI-004]: work-plan/done/UI-004.md

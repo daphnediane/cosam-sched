@@ -6,7 +6,7 @@ Add comprehensive tests for cosam-modify's new undo/redo/show-history commands
 
 ## Status
 
-Open
+Completed
 
 ## Priority
 

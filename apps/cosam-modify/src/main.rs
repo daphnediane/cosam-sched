@@ -2775,4 +2775,415 @@ mod tests {
         assert_eq!(panel.note.as_deref(), Some("keep me"));
         assert_eq!(panel.description.as_deref(), Some("new description"));
     }
+
+    // --- helpers for undo/redo tests ---
+
+    fn create_test_schedule_file() -> ScheduleFile {
+        use indexmap::IndexMap;
+        use schedule_core::data::panel::{Panel, PanelPart, PanelSession};
+        use schedule_core::data::room::Room;
+        use schedule_core::data::schedule::Meta;
+        use schedule_core::data::source_info::ChangeState;
+
+        let mut panels = IndexMap::new();
+        let mut panel = Panel::new("test-panel-1".to_string());
+        panel.name = "Armor 101".to_string();
+        panel.description = Some("Original description".to_string());
+        panel.note = Some("Original note".to_string());
+
+        let session = PanelSession {
+            id: "test-panel-1-0-0".to_string(),
+            session_num: Some(1),
+            description: None,
+            note: None,
+            prereq: None,
+            alt_panelist: None,
+            room_ids: vec![10],
+            start_time: Some("2026-07-10T10:00:00".to_string()),
+            end_time: Some("2026-07-10T11:00:00".to_string()),
+            duration: 60,
+            is_full: false,
+            capacity: None,
+            seats_sold: None,
+            pre_reg_max: None,
+            ticket_url: None,
+            simple_tix_event: None,
+            hide_panelist: false,
+            credited_presenters: vec!["Alice".to_string(), "Bob".to_string()],
+            uncredited_presenters: Vec::new(),
+            notes_non_printing: None,
+            workshop_notes: None,
+            power_needs: None,
+            sewing_machines: false,
+            av_notes: None,
+            source: None,
+            change_state: ChangeState::Unchanged,
+            conflicts: Vec::new(),
+            metadata: IndexMap::new(),
+        };
+
+        let part = PanelPart {
+            part_num: None,
+            description: None,
+            note: None,
+            prereq: None,
+            alt_panelist: None,
+            credited_presenters: Vec::new(),
+            uncredited_presenters: Vec::new(),
+            sessions: vec![session],
+            change_state: ChangeState::Unchanged,
+        };
+        panel.parts = vec![part];
+        panels.insert("test-panel-1".to_string(), panel);
+
+        let rooms = vec![
+            Room {
+                uid: 10,
+                short_name: "Main".to_string(),
+                long_name: "Main Events".to_string(),
+                hotel_room: "Salon F/G".to_string(),
+                sort_key: 1,
+                is_break: false,
+                metadata: None,
+                source: None,
+                change_state: ChangeState::Unchanged,
+            },
+            Room {
+                uid: 20,
+                short_name: "Workshop 1".to_string(),
+                long_name: "Workshop Room 1".to_string(),
+                hotel_room: "Salon A".to_string(),
+                sort_key: 2,
+                is_break: false,
+                metadata: None,
+                source: None,
+                change_state: ChangeState::Unchanged,
+            },
+        ];
+
+        let schedule = Schedule {
+            conflicts: Vec::new(),
+            meta: Meta {
+                title: "Test Schedule".to_string(),
+                generated: "2026-01-01T00:00:00Z".to_string(),
+                version: Some(8),
+                variant: Some("full".to_string()),
+                generator: None,
+                start_time: None,
+                end_time: None,
+                next_presenter_id: None,
+                creator: None,
+                last_modified_by: None,
+                modified: None,
+            },
+            timeline: Vec::new(),
+            panels,
+            rooms,
+            panel_types: IndexMap::new(),
+            presenters: Vec::new(),
+            imported_sheets: Default::default(),
+        };
+
+        ScheduleFile::new(schedule)
+    }
+
+    fn select_panel(sf: &ScheduleFile, panel_id: &str) -> SelectionResult {
+        let selectors = Selectors {
+            queries: vec![SelectQuery {
+                scope: SelectScope::Panel,
+                field: Some(SelectField::Id),
+                clauses: vec![SelectClause {
+                    relationship: SelectRelationship::Equal,
+                    value: panel_id.to_string(),
+                }],
+            }],
+        };
+        collect_selection(&sf.schedule, &selectors)
+    }
+
+    // --- undo/redo unit tests ---
+
+    #[test]
+    fn test_undo_no_history() {
+        let mut sf = create_test_schedule_file();
+        let result = sf.edit_context().undo();
+        assert!(!result, "undo on empty history should return false");
+    }
+
+    #[test]
+    fn test_redo_no_history() {
+        let mut sf = create_test_schedule_file();
+        let result = sf.edit_context().redo();
+        assert!(!result, "redo on empty history should return false");
+    }
+
+    #[test]
+    fn test_undo_single_set_description() {
+        let mut sf = create_test_schedule_file();
+        let selection = select_panel(&sf, "test-panel-1");
+
+        execute_set(&mut sf, &selection, &SetField::Description, "New desc").unwrap();
+        assert_eq!(
+            sf.schedule.panels["test-panel-1"].description.as_deref(),
+            Some("New desc")
+        );
+
+        sf.edit_context().undo();
+        assert_eq!(
+            sf.schedule.panels["test-panel-1"].description.as_deref(),
+            Some("Original description")
+        );
+    }
+
+    #[test]
+    fn test_undo_multiple_commands() {
+        let mut sf = create_test_schedule_file();
+        let selection = select_panel(&sf, "test-panel-1");
+
+        execute_set(&mut sf, &selection, &SetField::Description, "Desc 2").unwrap();
+        execute_set(&mut sf, &selection, &SetField::Note, "Note 2").unwrap();
+
+        assert_eq!(
+            sf.schedule.panels["test-panel-1"].description.as_deref(),
+            Some("Desc 2")
+        );
+        assert_eq!(
+            sf.schedule.panels["test-panel-1"].note.as_deref(),
+            Some("Note 2")
+        );
+
+        sf.edit_context().undo();
+        assert_eq!(
+            sf.schedule.panels["test-panel-1"].note.as_deref(),
+            Some("Original note"),
+            "first undo should restore note"
+        );
+        assert_eq!(
+            sf.schedule.panels["test-panel-1"].description.as_deref(),
+            Some("Desc 2"),
+            "description should still be changed after undoing note"
+        );
+
+        sf.edit_context().undo();
+        assert_eq!(
+            sf.schedule.panels["test-panel-1"].description.as_deref(),
+            Some("Original description"),
+            "second undo should restore description"
+        );
+    }
+
+    #[test]
+    fn test_redo_after_undo() {
+        let mut sf = create_test_schedule_file();
+        let selection = select_panel(&sf, "test-panel-1");
+
+        execute_set(&mut sf, &selection, &SetField::Description, "Changed").unwrap();
+        sf.edit_context().undo();
+        assert_eq!(
+            sf.schedule.panels["test-panel-1"].description.as_deref(),
+            Some("Original description")
+        );
+
+        sf.edit_context().redo();
+        assert_eq!(
+            sf.schedule.panels["test-panel-1"].description.as_deref(),
+            Some("Changed"),
+            "redo should re-apply the change"
+        );
+    }
+
+    #[test]
+    fn test_show_history_empty() {
+        let sf = create_test_schedule_file();
+        assert_eq!(sf.history.undo_count(), 0);
+        assert_eq!(sf.history.redo_count(), 0);
+    }
+
+    #[test]
+    fn test_show_history_after_commands() {
+        let mut sf = create_test_schedule_file();
+        let selection = select_panel(&sf, "test-panel-1");
+
+        execute_set(&mut sf, &selection, &SetField::Description, "D1").unwrap();
+        execute_set(&mut sf, &selection, &SetField::Note, "N1").unwrap();
+        assert_eq!(sf.history.undo_count(), 2);
+        assert_eq!(sf.history.redo_count(), 0);
+
+        sf.edit_context().undo();
+        assert_eq!(sf.history.undo_count(), 1);
+        assert_eq!(sf.history.redo_count(), 1);
+    }
+
+    #[test]
+    fn test_undo_set_metadata() {
+        let mut sf = create_test_schedule_file();
+        let selection = select_panel(&sf, "test-panel-1");
+
+        execute_set_metadata(&mut sf, &selection, "ThemeColor", "#FF0000").unwrap();
+        {
+            let session = &sf.schedule.panels["test-panel-1"].parts[0].sessions[0];
+            assert!(session.metadata.contains_key("ThemeColor"));
+        }
+
+        sf.edit_context().undo();
+        {
+            let session = &sf.schedule.panels["test-panel-1"].parts[0].sessions[0];
+            assert!(
+                !session.metadata.contains_key("ThemeColor"),
+                "undo should remove metadata key"
+            );
+        }
+    }
+
+    #[test]
+    fn test_undo_clear_metadata() {
+        let mut sf = create_test_schedule_file();
+        let selection = select_panel(&sf, "test-panel-1");
+
+        execute_set_metadata(&mut sf, &selection, "Color", "red").unwrap();
+        execute_clear_metadata(&mut sf, &selection, "Color").unwrap();
+        {
+            let session = &sf.schedule.panels["test-panel-1"].parts[0].sessions[0];
+            assert!(!session.metadata.contains_key("Color"));
+        }
+
+        sf.edit_context().undo();
+        {
+            let session = &sf.schedule.panels["test-panel-1"].parts[0].sessions[0];
+            assert!(
+                session.metadata.contains_key("Color"),
+                "undo of clear-metadata should restore the key"
+            );
+        }
+    }
+
+    #[test]
+    fn test_undo_add_presenter() {
+        let mut sf = create_test_schedule_file();
+        let selection = select_panel(&sf, "test-panel-1");
+
+        assert_eq!(
+            sf.schedule.panels["test-panel-1"].parts[0].sessions[0]
+                .credited_presenters
+                .len(),
+            2
+        );
+
+        apply_presenter_change(&mut sf, &selection, "Charlie", true).unwrap();
+        assert_eq!(
+            sf.schedule.panels["test-panel-1"].parts[0].sessions[0]
+                .credited_presenters
+                .len(),
+            3
+        );
+
+        sf.edit_context().undo();
+        assert_eq!(
+            sf.schedule.panels["test-panel-1"].parts[0].sessions[0]
+                .credited_presenters
+                .len(),
+            2,
+            "undo should remove the added presenter"
+        );
+    }
+
+    #[test]
+    fn test_undo_remove_presenter() {
+        let mut sf = create_test_schedule_file();
+        let selection = select_panel(&sf, "test-panel-1");
+
+        apply_presenter_change(&mut sf, &selection, "Alice", false).unwrap();
+        assert_eq!(
+            sf.schedule.panels["test-panel-1"].parts[0].sessions[0]
+                .credited_presenters
+                .len(),
+            1
+        );
+
+        sf.edit_context().undo();
+        let presenters =
+            &sf.schedule.panels["test-panel-1"].parts[0].sessions[0].credited_presenters;
+        assert_eq!(presenters.len(), 2, "undo should restore removed presenter");
+        assert!(
+            presenters.iter().any(|p| p == "Alice"),
+            "Alice should be restored"
+        );
+    }
+
+    #[test]
+    fn test_undo_reschedule() {
+        let mut sf = create_test_schedule_file();
+        let selection = select_panel(&sf, "test-panel-1");
+
+        let orig_start = sf.schedule.panels["test-panel-1"].parts[0].sessions[0]
+            .start_time
+            .clone();
+        let orig_room_ids = sf.schedule.panels["test-panel-1"].parts[0].sessions[0]
+            .room_ids
+            .clone();
+
+        execute_reschedule(
+            &mut sf,
+            &selection,
+            Some("Workshop 1"),
+            None,
+            Some("14:00"),
+            None,
+            Some("90"),
+        )
+        .unwrap();
+
+        let session = &sf.schedule.panels["test-panel-1"].parts[0].sessions[0];
+        assert_eq!(session.room_ids, vec![20]);
+        assert_eq!(session.duration, 90);
+
+        sf.edit_context().undo();
+        let session = &sf.schedule.panels["test-panel-1"].parts[0].sessions[0];
+        assert_eq!(session.start_time, orig_start);
+        assert_eq!(session.room_ids, orig_room_ids);
+        assert_eq!(session.duration, 60);
+    }
+
+    #[test]
+    fn test_undo_cancel() {
+        let mut sf = create_test_schedule_file();
+        let selection = select_panel(&sf, "test-panel-1");
+
+        let orig_start = sf.schedule.panels["test-panel-1"].parts[0].sessions[0]
+            .start_time
+            .clone();
+        let orig_room_ids = sf.schedule.panels["test-panel-1"].parts[0].sessions[0]
+            .room_ids
+            .clone();
+
+        execute_cancel(&mut sf, &selection).unwrap();
+        let session = &sf.schedule.panels["test-panel-1"].parts[0].sessions[0];
+        assert!(session.room_ids.is_empty());
+        assert!(session.start_time.is_none());
+
+        sf.edit_context().undo();
+        let session = &sf.schedule.panels["test-panel-1"].parts[0].sessions[0];
+        assert_eq!(session.start_time, orig_start);
+        assert_eq!(session.room_ids, orig_room_ids);
+    }
+
+    #[test]
+    fn test_undo_set_av_note() {
+        let mut sf = create_test_schedule_file();
+        let selection = select_panel(&sf, "test-panel-1");
+
+        execute_set(&mut sf, &selection, &SetField::AvNote, "Needs mic").unwrap();
+        assert_eq!(
+            sf.schedule.panels["test-panel-1"].parts[0].sessions[0]
+                .av_notes
+                .as_deref(),
+            Some("Needs mic")
+        );
+
+        sf.edit_context().undo();
+        assert_eq!(
+            sf.schedule.panels["test-panel-1"].parts[0].sessions[0].av_notes, None,
+            "undo should restore original av_notes"
+        );
+    }
 }
