@@ -26,6 +26,7 @@ pub(super) fn edit_menu_items() -> Vec<MenuItem> {
 fn file_menu_items(include_exit: bool) -> Vec<MenuItem> {
     let mut file_items = vec![
         MenuItem::action("New Window", crate::NewWindow),
+        MenuItem::action("New Schedule", crate::NewSchedule),
         MenuItem::separator(),
         MenuItem::action("Open...", crate::FileOpen),
         MenuItem::action("Save", crate::FileSave),

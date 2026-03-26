@@ -41,7 +41,6 @@ pub enum ViewMode {
 actions!(
     schedule_editor,
     [
-        FileOpen,
         FileSave,
         FileSaveAs,
         FileExportPublicJson,
@@ -142,6 +141,7 @@ impl ScheduleEditor {
         };
 
         editor.rebuild_event_cards(cx);
+
         editor
     }
 
@@ -238,17 +238,47 @@ impl ScheduleEditor {
                 return;
             }
 
+            // Try to load the file first to validate it
             let import_options = XlsxImportOptions::default();
-            let result =
-                schedule_core::xlsx::load_auto(&path, &import_options).map(|sf| sf.schedule);
+            let result = schedule_core::xlsx::load_auto(&path, &import_options);
 
             let _ = cx.update(|cx| {
                 let _ = this.update(cx, |editor, cx| match result {
-                    Ok(schedule) => {
-                        editor.load_schedule(schedule, Some(path), cx);
+                    Ok(_) => {
+                        // File loaded successfully, open in new window
+                        // Use the app context to open a new window
+                        let path_clone = path.clone();
+                        let bounds = gpui::Bounds::centered(
+                            None,
+                            gpui::size(gpui::px(1200.), gpui::px(800.)),
+                            cx,
+                        );
+                        let window_options = gpui::WindowOptions {
+                            window_bounds: Some(gpui::WindowBounds::Windowed(bounds)),
+                            ..Default::default()
+                        };
+
+                        let new_editor = cx.new(|cx| {
+                            // Load the schedule for the new window
+                            let import_options = XlsxImportOptions::default();
+                            match schedule_core::xlsx::load_auto(&path_clone, &import_options) {
+                                Ok(sf) => ScheduleEditor::new(
+                                    Some(sf.schedule),
+                                    Some(path_clone.clone()),
+                                    cx,
+                                ),
+                                Err(_) => ScheduleEditor::new(None, None, cx),
+                            }
+                        });
+
+                        let _ = cx.open_window(window_options, move |window, cx| {
+                            window.focus(&new_editor.focus_handle(cx));
+                            cx.new(|cx| gpui_component::Root::new(new_editor, window, cx))
+                        });
                     }
                     Err(e) => {
-                        editor.status_message = Some(format!("Error: {e}"));
+                        // Show error message instead of crashing
+                        editor.status_message = Some(format!("Error loading file: {e}"));
                         cx.notify();
                     }
                 });
@@ -789,10 +819,6 @@ impl ScheduleEditor {
         self.do_redo(action, window, cx);
     }
 
-    fn file_open(&mut self, _: &FileOpen, _window: &mut Window, cx: &mut Context<Self>) {
-        self.do_open(_window, cx);
-    }
-
     fn file_save(&mut self, _: &FileSave, _window: &mut Window, cx: &mut Context<Self>) {
         if !self.can_save() {
             self.status_message = Some("Cannot save: No file loaded".to_string());
@@ -1259,7 +1285,6 @@ impl Render for ScheduleEditor {
             .flex_col()
             .track_focus(&self.focus_handle)
             .bg(rgb(0xFFFFFF))
-            .on_action(cx.listener(Self::file_open))
             .on_action(cx.listener(Self::edit_undo))
             .on_action(cx.listener(Self::edit_redo));
 

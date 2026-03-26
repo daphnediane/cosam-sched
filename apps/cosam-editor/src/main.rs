@@ -22,8 +22,7 @@ use schedule_core::data::Schedule;
 use schedule_core::xlsx::XlsxImportOptions;
 use ui::ScheduleEditor;
 use ui::editor::{
-    EditRedo, EditUndo, FileExportEmbed, FileExportPublicJson, FileExportTest, FileOpen, FileSave,
-    FileSaveAs,
+    EditRedo, EditUndo, FileExportEmbed, FileExportPublicJson, FileExportTest, FileSave, FileSaveAs,
 };
 
 actions!(
@@ -35,6 +34,8 @@ actions!(
         ShowAllApps,
         NewWindow,
         CloseWindow,
+        FileOpen,
+        NewSchedule,
     ]
 );
 
@@ -174,6 +175,65 @@ fn close_window(_: &CloseWindow, cx: &mut App) {
     }
 }
 
+fn file_open(_: &FileOpen, cx: &mut App) {
+    let Some(path) = rfd::FileDialog::new()
+        .add_filter("Schedule files", &["json", "xlsx"])
+        .add_filter("JSON", &["json"])
+        .add_filter("Excel Workbook", &["xlsx"])
+        .add_filter("All files", &["*"])
+        .pick_file()
+    else {
+        return;
+    };
+
+    let ext = path
+        .extension()
+        .and_then(|e| e.to_str())
+        .unwrap_or("")
+        .to_lowercase();
+
+    if ext != "xlsx" && ext != "json" {
+        eprintln!("Unsupported file type. Please select .xlsx or .json");
+        return;
+    }
+
+    // Try to load the file
+    let import_options = XlsxImportOptions::default();
+    match schedule_core::xlsx::load_auto(&path, &import_options) {
+        Ok(sf) => {
+            let bounds = Bounds::centered(None, size(px(1200.), px(800.)), cx);
+            let window_options = WindowOptions {
+                window_bounds: Some(WindowBounds::Windowed(bounds)),
+                ..Default::default()
+            };
+
+            let _ = cx.open_window(window_options, move |window, cx| {
+                let new_editor =
+                    cx.new(|cx| ScheduleEditor::new(Some(sf.schedule), Some(path.clone()), cx));
+                window.focus(&new_editor.focus_handle(cx));
+                cx.new(|cx| Root::new(new_editor, window, cx))
+            });
+        }
+        Err(e) => {
+            eprintln!("Error loading file: {}", e);
+        }
+    }
+}
+
+fn new_schedule(_: &NewSchedule, cx: &mut App) {
+    let bounds = Bounds::centered(None, size(px(1200.), px(800.)), cx);
+    let window_options = WindowOptions {
+        window_bounds: Some(WindowBounds::Windowed(bounds)),
+        ..Default::default()
+    };
+
+    let _ = cx.open_window(window_options, move |window, cx| {
+        let new_editor = cx.new(|cx| ScheduleEditor::new(None, None, cx));
+        window.focus(&new_editor.focus_handle(cx));
+        cx.new(|cx| Root::new(new_editor, window, cx))
+    });
+}
+
 fn open_editor_window(
     initial_schedule: Option<Schedule>,
     input_path: Option<PathBuf>,
@@ -225,6 +285,8 @@ fn main() {
         cx.on_action(hide_other_apps);
         cx.on_action(show_all_apps);
         cx.on_action(close_window);
+        cx.on_action(file_open);
+        cx.on_action(new_schedule);
 
         let initial_schedule_for_new_window = initial_schedule.clone();
         let input_path_for_new_window = input_path.clone();
@@ -240,8 +302,15 @@ fn main() {
 
         // Set up menus globally
         menu::set_app_menus(cx);
-        open_editor_window(initial_schedule.clone(), input_path.clone(), cx)
-            .expect("Failed to open window");
+
+        if input_path.is_some() {
+            // Open with the provided file
+            open_editor_window(initial_schedule.clone(), input_path.clone(), cx)
+                .expect("Failed to open window");
+        } else {
+            // No file provided, show file dialog immediately
+            cx.dispatch_action(&FileOpen);
+        }
         cx.activate(true);
     });
 }
