@@ -8,7 +8,8 @@
 mod tests {
     use indexmap::IndexMap;
 
-    use crate::data::panel::{ExtraValue, Panel, PanelPart, PanelSession};
+    use crate::data::panel::{ExtraValue, Panel};
+    use crate::data::panel_set::PanelSet;
     use crate::data::panel_type::PanelType;
     use crate::data::presenter::{Presenter, PresenterGroup, PresenterMember, PresenterRank};
     use crate::data::room::Room;
@@ -19,57 +20,39 @@ mod tests {
     use crate::edit::find::{PanelTypeOptions, PresenterOptions, RoomOptions};
     use crate::edit::history::EditHistory;
 
+    fn get_panel<'a>(schedule: &'a Schedule, id: &str) -> &'a Panel {
+        schedule
+            .panel_sets
+            .values()
+            .flat_map(|ps| ps.panels.iter())
+            .find(|p| p.id == id)
+            .unwrap_or_else(|| panic!("panel '{}' not found", id))
+    }
+
+    fn get_panel_mut<'a>(schedule: &'a mut Schedule, id: &str) -> &'a mut Panel {
+        schedule
+            .panel_sets
+            .values_mut()
+            .flat_map(|ps| ps.panels.iter_mut())
+            .find(|p| p.id == id)
+            .unwrap_or_else(|| panic!("panel '{}' not found", id))
+    }
+
     fn make_test_schedule() -> Schedule {
-        let mut panels = IndexMap::new();
-        let mut panel = Panel::new("panel-1".to_string());
+        let mut panel = Panel::new("panel-1", "panel-1");
         panel.name = "Test Panel".to_string();
         panel.description = Some("Original description".to_string());
         panel.note = Some("Original note".to_string());
+        panel.room_ids = vec![10];
+        panel.start_time = Some("2026-07-10T10:00:00".to_string());
+        panel.end_time = Some("2026-07-10T11:00:00".to_string());
+        panel.duration = 60;
+        panel.credited_presenters = vec!["Alice".to_string(), "Bob".to_string()];
 
-        let session = PanelSession {
-            id: "panel-1-1".to_string(),
-            session_num: Some(1),
-            description: None,
-            note: None,
-            prereq: None,
-            alt_panelist: None,
-            room_ids: vec![10],
-            start_time: Some("2026-07-10T10:00:00".to_string()),
-            end_time: Some("2026-07-10T11:00:00".to_string()),
-            duration: 60,
-            is_full: false,
-            capacity: None,
-            seats_sold: None,
-            pre_reg_max: None,
-            ticket_url: None,
-            simple_tix_event: None,
-            hide_panelist: false,
-            credited_presenters: vec!["Alice".to_string(), "Bob".to_string()],
-            uncredited_presenters: Vec::new(),
-            notes_non_printing: None,
-            workshop_notes: None,
-            power_needs: None,
-            sewing_machines: false,
-            av_notes: None,
-            source: None,
-            change_state: ChangeState::Unchanged,
-            conflicts: Vec::new(),
-            metadata: IndexMap::new(),
-        };
-
-        let part = PanelPart {
-            part_num: None,
-            description: None,
-            note: None,
-            prereq: None,
-            alt_panelist: None,
-            credited_presenters: Vec::new(),
-            uncredited_presenters: Vec::new(),
-            sessions: vec![session],
-            change_state: ChangeState::Unchanged,
-        };
-        panel.parts = vec![part];
-        panels.insert("panel-1".to_string(), panel);
+        let mut ps = PanelSet::new("panel-1");
+        ps.panels.push(panel);
+        let mut panel_sets = IndexMap::new();
+        panel_sets.insert("panel-1".to_string(), ps);
 
         let rooms = vec![Room {
             uid: 10,
@@ -144,7 +127,7 @@ mod tests {
                 modified: None,
             },
             timeline: Vec::new(),
-            panels,
+            panel_sets,
             rooms,
             panel_types,
             presenters,
@@ -180,11 +163,11 @@ mod tests {
         }
 
         assert_eq!(
-            schedule.panels["panel-1"].description.as_deref(),
+            get_panel(&schedule, "panel-1").description.as_deref(),
             Some("New description")
         );
         assert_eq!(
-            schedule.panels["panel-1"].change_state,
+            get_panel(&schedule, "panel-1").change_state,
             ChangeState::Modified
         );
         assert!(history.can_undo());
@@ -192,14 +175,14 @@ mod tests {
         // Undo
         history.undo(&mut schedule);
         assert_eq!(
-            schedule.panels["panel-1"].description.as_deref(),
+            get_panel(&schedule, "panel-1").description.as_deref(),
             Some("Original description")
         );
 
         // Redo
         history.redo(&mut schedule);
         assert_eq!(
-            schedule.panels["panel-1"].description.as_deref(),
+            get_panel(&schedule, "panel-1").description.as_deref(),
             Some("New description")
         );
     }
@@ -214,11 +197,11 @@ mod tests {
             ctx.set_panel_field("panel-1", PanelField::Note, None);
         }
 
-        assert_eq!(schedule.panels["panel-1"].note, None);
+        assert_eq!(get_panel(&schedule, "panel-1").note, None);
 
         history.undo(&mut schedule);
         assert_eq!(
-            schedule.panels["panel-1"].note.as_deref(),
+            get_panel(&schedule, "panel-1").note.as_deref(),
             Some("Original note")
         );
     }
@@ -241,13 +224,13 @@ mod tests {
             );
         }
 
-        let session = &schedule.panels["panel-1"].parts[0].sessions[0];
-        assert_eq!(session.av_notes.as_deref(), Some("Need projector"));
-        assert_eq!(session.change_state, ChangeState::Modified);
+        let panel = get_panel(&schedule, "panel-1");
+        assert_eq!(panel.av_notes.as_deref(), Some("Need projector"));
+        assert_eq!(panel.change_state, ChangeState::Modified);
 
         history.undo(&mut schedule);
-        let session = &schedule.panels["panel-1"].parts[0].sessions[0];
-        assert_eq!(session.av_notes, None);
+        let panel = get_panel(&schedule, "panel-1");
+        assert_eq!(panel.av_notes, None);
     }
 
     // ── add / remove presenter + undo ───────────────────────────
@@ -262,13 +245,13 @@ mod tests {
             ctx.add_presenter_to_session("panel-1", 0, 0, "Charlie");
         }
 
-        let session = &schedule.panels["panel-1"].parts[0].sessions[0];
-        assert_eq!(session.credited_presenters.len(), 3);
-        assert_eq!(session.credited_presenters[2], "Charlie");
+        let panel = get_panel(&schedule, "panel-1");
+        assert_eq!(panel.credited_presenters.len(), 3);
+        assert_eq!(panel.credited_presenters[2], "Charlie");
 
         history.undo(&mut schedule);
-        let session = &schedule.panels["panel-1"].parts[0].sessions[0];
-        assert_eq!(session.credited_presenters.len(), 2);
+        let panel = get_panel(&schedule, "panel-1");
+        assert_eq!(panel.credited_presenters.len(), 2);
     }
 
     #[test]
@@ -281,8 +264,8 @@ mod tests {
             ctx.add_presenter_to_session("panel-1", 0, 0, "alice"); // case-insensitive
         }
 
-        let session = &schedule.panels["panel-1"].parts[0].sessions[0];
-        assert_eq!(session.credited_presenters.len(), 2);
+        let panel = get_panel(&schedule, "panel-1");
+        assert_eq!(panel.credited_presenters.len(), 2);
         assert!(!history.can_undo());
     }
 
@@ -296,15 +279,15 @@ mod tests {
             ctx.remove_presenter_from_session("panel-1", 0, 0, "Alice");
         }
 
-        let session = &schedule.panels["panel-1"].parts[0].sessions[0];
-        assert_eq!(session.credited_presenters.len(), 1);
-        assert_eq!(session.credited_presenters[0], "Bob");
+        let panel = get_panel(&schedule, "panel-1");
+        assert_eq!(panel.credited_presenters.len(), 1);
+        assert_eq!(panel.credited_presenters[0], "Bob");
 
         history.undo(&mut schedule);
-        let session = &schedule.panels["panel-1"].parts[0].sessions[0];
-        assert_eq!(session.credited_presenters.len(), 2);
-        assert_eq!(session.credited_presenters[0], "Alice");
-        assert_eq!(session.credited_presenters[1], "Bob");
+        let panel = get_panel(&schedule, "panel-1");
+        assert_eq!(panel.credited_presenters.len(), 2);
+        assert_eq!(panel.credited_presenters[0], "Alice");
+        assert_eq!(panel.credited_presenters[1], "Bob");
     }
 
     // ── reschedule + undo ───────────────────────────────────────
@@ -329,16 +312,16 @@ mod tests {
             );
         }
 
-        let session = &schedule.panels["panel-1"].parts[0].sessions[0];
-        assert_eq!(session.room_ids, vec![20]);
-        assert_eq!(session.duration, 90);
-        assert_eq!(session.start_time.as_deref(), Some("2026-07-11T14:00:00"));
+        let panel = get_panel(&schedule, "panel-1");
+        assert_eq!(panel.room_ids, vec![20]);
+        assert_eq!(panel.duration, 90);
+        assert_eq!(panel.start_time.as_deref(), Some("2026-07-11T14:00:00"));
 
         history.undo(&mut schedule);
-        let session = &schedule.panels["panel-1"].parts[0].sessions[0];
-        assert_eq!(session.room_ids, vec![10]);
-        assert_eq!(session.duration, 60);
-        assert_eq!(session.start_time.as_deref(), Some("2026-07-10T10:00:00"));
+        let panel = get_panel(&schedule, "panel-1");
+        assert_eq!(panel.room_ids, vec![10]);
+        assert_eq!(panel.duration, 60);
+        assert_eq!(panel.start_time.as_deref(), Some("2026-07-10T10:00:00"));
     }
 
     // ── unschedule + undo ───────────────────────────────────────
@@ -353,16 +336,16 @@ mod tests {
             ctx.unschedule_session("panel-1", 0, 0);
         }
 
-        let session = &schedule.panels["panel-1"].parts[0].sessions[0];
-        assert!(session.room_ids.is_empty());
-        assert_eq!(session.start_time, None);
-        assert_eq!(session.end_time, None);
+        let panel = get_panel(&schedule, "panel-1");
+        assert!(panel.room_ids.is_empty());
+        assert_eq!(panel.start_time, None);
+        assert_eq!(panel.end_time, None);
 
         history.undo(&mut schedule);
-        let session = &schedule.panels["panel-1"].parts[0].sessions[0];
-        assert_eq!(session.room_ids, vec![10]);
-        assert_eq!(session.start_time.as_deref(), Some("2026-07-10T10:00:00"));
-        assert_eq!(session.duration, 60);
+        let panel = get_panel(&schedule, "panel-1");
+        assert_eq!(panel.room_ids, vec![10]);
+        assert_eq!(panel.start_time.as_deref(), Some("2026-07-10T10:00:00"));
+        assert_eq!(panel.duration, 60);
     }
 
     // ── soft delete + undo ──────────────────────────────────────
@@ -377,12 +360,12 @@ mod tests {
             ctx.soft_delete_session("panel-1", 0, 0);
         }
 
-        let session = &schedule.panels["panel-1"].parts[0].sessions[0];
-        assert_eq!(session.change_state, ChangeState::Deleted);
+        let panel = get_panel(&schedule, "panel-1");
+        assert_eq!(panel.change_state, ChangeState::Deleted);
 
         history.undo(&mut schedule);
-        let session = &schedule.panels["panel-1"].parts[0].sessions[0];
-        assert_eq!(session.change_state, ChangeState::Unchanged);
+        let panel = get_panel(&schedule, "panel-1");
+        assert_eq!(panel.change_state, ChangeState::Unchanged);
     }
 
     #[test]
@@ -396,17 +379,13 @@ mod tests {
         }
 
         assert_eq!(
-            schedule.panels["panel-1"].change_state,
-            ChangeState::Deleted
-        );
-        assert_eq!(
-            schedule.panels["panel-1"].parts[0].sessions[0].change_state,
+            get_panel(&schedule, "panel-1").change_state,
             ChangeState::Deleted
         );
 
         history.undo(&mut schedule);
         assert_eq!(
-            schedule.panels["panel-1"].change_state,
+            get_panel(&schedule, "panel-1").change_state,
             ChangeState::Unchanged
         );
     }
@@ -683,9 +662,9 @@ mod tests {
             );
         }
 
-        let session = &schedule.panels["panel-1"].parts[0].sessions[0];
+        let panel = get_panel(&schedule, "panel-1");
         assert_eq!(
-            session.metadata.get("ThemeColor"),
+            panel.metadata.get("ThemeColor"),
             Some(&ExtraValue::String("#FF0000".to_string()))
         );
 
@@ -694,21 +673,21 @@ mod tests {
             ctx.clear_session_metadata("panel-1", 0, 0, "ThemeColor");
         }
 
-        let session = &schedule.panels["panel-1"].parts[0].sessions[0];
-        assert!(!session.metadata.contains_key("ThemeColor"));
+        let panel = get_panel(&schedule, "panel-1");
+        assert!(!panel.metadata.contains_key("ThemeColor"));
 
         // Undo clear
         history.undo(&mut schedule);
-        let session = &schedule.panels["panel-1"].parts[0].sessions[0];
+        let panel = get_panel(&schedule, "panel-1");
         assert_eq!(
-            session.metadata.get("ThemeColor"),
+            panel.metadata.get("ThemeColor"),
             Some(&ExtraValue::String("#FF0000".to_string()))
         );
 
         // Undo set
         history.undo(&mut schedule);
-        let session = &schedule.panels["panel-1"].parts[0].sessions[0];
-        assert!(!session.metadata.contains_key("ThemeColor"));
+        let panel = get_panel(&schedule, "panel-1");
+        assert!(!panel.metadata.contains_key("ThemeColor"));
     }
 
     // ── batch undo ──────────────────────────────────────────────
@@ -740,22 +719,22 @@ mod tests {
         }
 
         assert_eq!(
-            schedule.panels["panel-1"].description.as_deref(),
+            get_panel(&schedule, "panel-1").description.as_deref(),
             Some("Batch desc")
         );
         assert_eq!(
-            schedule.panels["panel-1"].note.as_deref(),
+            get_panel(&schedule, "panel-1").note.as_deref(),
             Some("Batch note")
         );
         assert_eq!(history.undo_count(), 1); // single batch
 
         history.undo(&mut schedule);
         assert_eq!(
-            schedule.panels["panel-1"].description.as_deref(),
+            get_panel(&schedule, "panel-1").description.as_deref(),
             Some("Original description")
         );
         assert_eq!(
-            schedule.panels["panel-1"].note.as_deref(),
+            get_panel(&schedule, "panel-1").note.as_deref(),
             Some("Original note")
         );
     }
@@ -815,24 +794,24 @@ mod tests {
         }
 
         assert_eq!(
-            schedule.panels["panel-1"].description.as_deref(),
+            get_panel(&schedule, "panel-1").description.as_deref(),
             Some("Step 3")
         );
 
         // Undo all 3
         history.undo(&mut schedule);
         assert_eq!(
-            schedule.panels["panel-1"].description.as_deref(),
+            get_panel(&schedule, "panel-1").description.as_deref(),
             Some("Step 2")
         );
         history.undo(&mut schedule);
         assert_eq!(
-            schedule.panels["panel-1"].description.as_deref(),
+            get_panel(&schedule, "panel-1").description.as_deref(),
             Some("Step 1")
         );
         history.undo(&mut schedule);
         assert_eq!(
-            schedule.panels["panel-1"].description.as_deref(),
+            get_panel(&schedule, "panel-1").description.as_deref(),
             Some("Original description")
         );
 
@@ -842,12 +821,12 @@ mod tests {
         // Redo 2 steps
         history.redo(&mut schedule);
         assert_eq!(
-            schedule.panels["panel-1"].description.as_deref(),
+            get_panel(&schedule, "panel-1").description.as_deref(),
             Some("Step 1")
         );
         history.redo(&mut schedule);
         assert_eq!(
-            schedule.panels["panel-1"].description.as_deref(),
+            get_panel(&schedule, "panel-1").description.as_deref(),
             Some("Step 2")
         );
 
@@ -862,7 +841,7 @@ mod tests {
         }
         assert!(!history.can_redo());
         assert_eq!(
-            schedule.panels["panel-1"].description.as_deref(),
+            get_panel(&schedule, "panel-1").description.as_deref(),
             Some("Step 2b")
         );
     }
@@ -917,17 +896,17 @@ mod tests {
             ctx.set_panel_name("panel-1", "Renamed Panel");
         }
 
-        assert_eq!(schedule.panels["panel-1"].name, "Renamed Panel");
+        assert_eq!(get_panel(&schedule, "panel-1").name, "Renamed Panel");
         assert_eq!(
-            schedule.panels["panel-1"].change_state,
+            get_panel(&schedule, "panel-1").change_state,
             ChangeState::Modified
         );
 
         history.undo(&mut schedule);
-        assert_eq!(schedule.panels["panel-1"].name, "Test Panel");
+        assert_eq!(get_panel(&schedule, "panel-1").name, "Test Panel");
 
         history.redo(&mut schedule);
-        assert_eq!(schedule.panels["panel-1"].name, "Renamed Panel");
+        assert_eq!(get_panel(&schedule, "panel-1").name, "Renamed Panel");
     }
 
     // ── room metadata ──────────────────────────────────────────
@@ -1046,11 +1025,8 @@ mod tests {
     fn set_panel_presenters_and_undo() {
         let mut schedule = make_test_schedule();
         // Give the panel some credited presenters
-        schedule
-            .panels
-            .get_mut("panel-1")
-            .unwrap()
-            .credited_presenters = vec!["Alice".to_string(), "Bob".to_string()];
+        get_panel_mut(&mut schedule, "panel-1").credited_presenters =
+            vec!["Alice".to_string(), "Bob".to_string()];
         let mut history = EditHistory::new();
 
         {
@@ -1058,7 +1034,7 @@ mod tests {
             ctx.set_panel_presenters("panel-1", vec!["Charlie".to_string(), "Diana".to_string()]);
         }
 
-        let panel = &schedule.panels["panel-1"];
+        let panel = get_panel(&schedule, "panel-1");
         assert_eq!(
             panel.credited_presenters,
             vec!["Charlie".to_string(), "Diana".to_string()]
@@ -1066,7 +1042,7 @@ mod tests {
         assert_eq!(panel.change_state, ChangeState::Modified);
 
         history.undo(&mut schedule);
-        let panel = &schedule.panels["panel-1"];
+        let panel = get_panel(&schedule, "panel-1");
         assert_eq!(
             panel.credited_presenters,
             vec!["Alice".to_string(), "Bob".to_string()]
@@ -1090,17 +1066,17 @@ mod tests {
             );
         }
 
-        let session = &schedule.panels["panel-1"].parts[0].sessions[0];
+        let panel = get_panel(&schedule, "panel-1");
         assert_eq!(
-            session.credited_presenters,
+            panel.credited_presenters,
             vec!["Charlie".to_string(), "Diana".to_string()]
         );
-        assert_eq!(session.change_state, ChangeState::Modified);
+        assert_eq!(panel.change_state, ChangeState::Modified);
 
         history.undo(&mut schedule);
-        let session = &schedule.panels["panel-1"].parts[0].sessions[0];
+        let panel = get_panel(&schedule, "panel-1");
         assert_eq!(
-            session.credited_presenters,
+            panel.credited_presenters,
             vec!["Alice".to_string(), "Bob".to_string()]
         );
     }
@@ -1115,11 +1091,11 @@ mod tests {
             ctx.set_session_presenters("panel-1", 0, 0, Vec::new());
         }
 
-        let session = &schedule.panels["panel-1"].parts[0].sessions[0];
-        assert!(session.credited_presenters.is_empty());
+        let panel = get_panel(&schedule, "panel-1");
+        assert!(panel.credited_presenters.is_empty());
 
         history.undo(&mut schedule);
-        let session = &schedule.panels["panel-1"].parts[0].sessions[0];
-        assert_eq!(session.credited_presenters.len(), 2);
+        let panel = get_panel(&schedule, "panel-1");
+        assert_eq!(panel.credited_presenters.len(), 2);
     }
 }

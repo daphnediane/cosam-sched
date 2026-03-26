@@ -13,7 +13,7 @@ use schedule_core::ScheduleFile;
 use schedule_core::data::Schedule;
 use schedule_core::data::panel::ExtraValue;
 use schedule_core::data::time;
-use schedule_core::edit::{EditContext, PanelField, SessionField, SessionScheduleState};
+use schedule_core::edit::{EditContext, PanelField, SessionScheduleState};
 use schedule_core::xlsx::{XlsxImportOptions, canonical_header};
 use serde::Serialize;
 use serde_json::Value;
@@ -146,8 +146,6 @@ enum Command {
 #[derive(Debug, Clone)]
 struct SessionRef {
     panel_id: String,
-    part_index: usize,
-    session_index: usize,
 }
 
 #[derive(Debug, Clone, Default)]
@@ -723,27 +721,8 @@ fn cmp_string_ignore_case(left: &str, right: &str) -> std::cmp::Ordering {
     left.to_ascii_lowercase().cmp(&right.to_ascii_lowercase())
 }
 
-fn session_presenters(
-    panel: &schedule_core::data::Panel,
-    part_index: usize,
-    session_index: usize,
-) -> Vec<String> {
-    let mut names = panel.credited_presenters.clone();
-    if let Some(part) = panel.parts.get(part_index) {
-        for name in &part.credited_presenters {
-            if !names.contains(name) {
-                names.push(name.clone());
-            }
-        }
-        if let Some(session) = part.sessions.get(session_index) {
-            for name in &session.credited_presenters {
-                if !names.contains(name) {
-                    names.push(name.clone());
-                }
-            }
-        }
-    }
-    names
+fn session_presenters(panel: &schedule_core::data::Panel) -> Vec<String> {
+    panel.credited_presenters.clone()
 }
 
 fn parse_time_selector_value(value: &str) -> Option<u32> {
@@ -831,42 +810,23 @@ fn compare_u32(left: u32, right: u32, relationship: SelectRelationship) -> bool 
 fn query_matches_session(
     schedule: &Schedule,
     panel: &schedule_core::data::Panel,
-    part_index: usize,
-    session_index: usize,
     query: &SelectQuery,
 ) -> bool {
-    let Some(part) = panel.parts.get(part_index) else {
-        return false;
-    };
-    let Some(session) = part.sessions.get(session_index) else {
-        return false;
-    };
-
-    query.clauses.iter().any(|clause| {
-        query_clause_matches_session(
-            schedule,
-            panel,
-            part_index,
-            session_index,
-            session,
-            query,
-            clause,
-        )
-    })
+    query
+        .clauses
+        .iter()
+        .any(|clause| query_clause_matches_session(schedule, panel, query, clause))
 }
 
 fn query_clause_matches_session(
     schedule: &Schedule,
     panel: &schedule_core::data::Panel,
-    part_index: usize,
-    session_index: usize,
-    session: &schedule_core::data::PanelSession,
     query: &SelectQuery,
     clause: &SelectClause,
 ) -> bool {
     match query.field {
         Some(SelectField::Day) => {
-            let Some(start_text) = session.start_time.as_deref() else {
+            let Some(start_text) = panel.start_time.as_deref() else {
                 return false;
             };
             let Ok(start_time) = parse_timestamp(start_text) else {
@@ -901,7 +861,7 @@ fn query_clause_matches_session(
             }
         }
         Some(SelectField::Start) => {
-            let Some(start_text) = session.start_time.as_deref() else {
+            let Some(start_text) = panel.start_time.as_deref() else {
                 return false;
             };
             let session_minutes = parse_timestamp(start_text)
@@ -918,14 +878,14 @@ fn query_clause_matches_session(
         Some(SelectField::Duration) => {
             let target = parse_duration_spec(&clause.value).ok();
             if let Some(target) = target {
-                compare_u32(session.duration, target, clause.relationship)
+                compare_u32(panel.duration, target, clause.relationship)
             } else {
-                text_clause_matches(&[session.duration.to_string()], clause)
+                text_clause_matches(&[panel.duration.to_string()], clause)
             }
         }
         Some(SelectField::Room) => {
             let mut room_names = Vec::new();
-            for room_id in &session.room_ids {
+            for room_id in &panel.room_ids {
                 if let Some(room) = schedule.room_by_id(*room_id) {
                     room_names.push(room.short_name.clone());
                     room_names.push(room.long_name.clone());
@@ -935,7 +895,7 @@ fn query_clause_matches_session(
             text_clause_matches(&room_names, clause)
         }
         Some(SelectField::Presenter) => {
-            let names = session_presenters(panel, part_index, session_index);
+            let names = session_presenters(panel);
             text_clause_matches(&names, clause)
         }
         Some(SelectField::Type) => {
@@ -949,17 +909,15 @@ fn query_clause_matches_session(
             }
             text_clause_matches(&values, clause)
         }
-        Some(SelectField::Id) => {
-            text_clause_matches(&[panel.id.clone(), session.id.clone()], clause)
-        }
+        Some(SelectField::Id) => text_clause_matches(&[panel.id.clone()], clause),
         Some(SelectField::Name) => match query.scope {
             SelectScope::Presenter => {
-                let names = session_presenters(panel, part_index, session_index);
+                let names = session_presenters(panel);
                 text_clause_matches(&names, clause)
             }
             SelectScope::Room => {
                 let mut room_names = Vec::new();
-                for room_id in &session.room_ids {
+                for room_id in &panel.room_ids {
                     if let Some(room) = schedule.room_by_id(*room_id) {
                         room_names.push(room.short_name.clone());
                         room_names.push(room.long_name.clone());
@@ -973,7 +931,7 @@ fn query_clause_matches_session(
         Some(SelectField::Prefix) | Some(SelectField::Kind) => false,
         None => match query.scope {
             SelectScope::Panel => {
-                let mut values = vec![panel.id.clone(), panel.name.clone(), session.id.clone()];
+                let mut values = vec![panel.id.clone(), panel.name.clone()];
                 if let Some(ref panel_type_id) = panel.panel_type {
                     values.push(panel_type_id.clone());
                     if let Some(panel_type) = schedule.panel_types.get(panel_type_id) {
@@ -981,30 +939,30 @@ fn query_clause_matches_session(
                         values.push(panel_type.prefix.clone());
                     }
                 }
-                if let Some(ref start) = session.start_time {
+                if let Some(ref start) = panel.start_time {
                     values.push(start.clone());
                 }
-                if let Some(ref end) = session.end_time {
+                if let Some(ref end) = panel.end_time {
                     values.push(end.clone());
                 }
-                values.push(session.duration.to_string());
-                for room_id in &session.room_ids {
+                values.push(panel.duration.to_string());
+                for room_id in &panel.room_ids {
                     if let Some(room) = schedule.room_by_id(*room_id) {
                         values.push(room.short_name.clone());
                         values.push(room.long_name.clone());
                         values.push(room.hotel_room.clone());
                     }
                 }
-                values.extend(session_presenters(panel, part_index, session_index));
+                values.extend(session_presenters(panel));
                 text_clause_matches(&values, clause)
             }
             SelectScope::Presenter => {
-                let names = session_presenters(panel, part_index, session_index);
+                let names = session_presenters(panel);
                 text_clause_matches(&names, clause)
             }
             SelectScope::Room => {
                 let mut values = Vec::new();
-                for room_id in &session.room_ids {
+                for room_id in &panel.room_ids {
                     if let Some(room) = schedule.room_by_id(*room_id) {
                         values.push(room.short_name.clone());
                         values.push(room.long_name.clone());
@@ -1065,14 +1023,12 @@ fn query_matches_panel_only(
 fn session_matches(
     schedule: &Schedule,
     panel: &schedule_core::data::Panel,
-    part_index: usize,
-    session_index: usize,
     selectors: &Selectors,
 ) -> bool {
     selectors
         .queries
         .iter()
-        .all(|query| query_matches_session(schedule, panel, part_index, session_index, query))
+        .all(|query| query_matches_session(schedule, panel, query))
 }
 
 fn selectors_have_explicit_session_filter(selectors: &Selectors) -> bool {
@@ -1178,42 +1134,30 @@ fn collect_selection(schedule: &Schedule, selectors: &Selectors) -> SelectionRes
         return result;
     }
 
-    for (panel_id, panel) in &schedule.panels {
-        if no_filters {
-            result.panel_ids.insert(panel_id.clone());
-            for (part_index, part) in panel.parts.iter().enumerate() {
-                for session_index in 0..part.sessions.len() {
-                    result.sessions.push(SessionRef {
-                        panel_id: panel_id.clone(),
-                        part_index,
-                        session_index,
-                    });
-                }
+    for ps in schedule.panel_sets.values() {
+        for panel in &ps.panels {
+            if no_filters {
+                result.panel_ids.insert(panel.id.clone());
+                result.sessions.push(SessionRef {
+                    panel_id: panel.id.clone(),
+                });
+                continue;
             }
-            continue;
-        }
 
-        for (part_index, part) in panel.parts.iter().enumerate() {
-            for session_index in 0..part.sessions.len() {
-                if session_matches(schedule, panel, part_index, session_index, selectors) {
-                    result.panel_ids.insert(panel_id.clone());
-                    result.sessions.push(SessionRef {
-                        panel_id: panel_id.clone(),
-                        part_index,
-                        session_index,
-                    });
+            if session_matches(schedule, panel, selectors) {
+                result.panel_ids.insert(panel.id.clone());
+                result.sessions.push(SessionRef {
+                    panel_id: panel.id.clone(),
+                });
+            } else {
+                let query_match = !selectors.queries.is_empty()
+                    && selectors
+                        .queries
+                        .iter()
+                        .all(|query| query_matches_panel_only(schedule, panel, query));
+                if query_match {
+                    result.panel_ids.insert(panel.id.clone());
                 }
-            }
-        }
-
-        if panel.parts.is_empty() {
-            let query_match = !selectors.queries.is_empty()
-                && selectors
-                    .queries
-                    .iter()
-                    .all(|query| query_matches_panel_only(schedule, panel, query));
-            if query_match {
-                result.panel_ids.insert(panel_id.clone());
             }
         }
     }
@@ -1327,44 +1271,35 @@ fn list_panels(
     format: OutputFormat,
 ) -> Result<()> {
     let rows: Vec<PanelListRow> = schedule
-        .panels
-        .iter()
-        .filter(|(panel_id, _)| selection.panel_ids.contains(*panel_id))
-        .map(|(panel_id, panel)| {
+        .panel_sets
+        .values()
+        .flat_map(|ps| ps.panels.iter())
+        .filter(|panel| selection.panel_ids.contains(&panel.id))
+        .map(|panel| {
             let mut room_names: BTreeSet<String> = BTreeSet::new();
             let mut start_times: BTreeSet<String> = BTreeSet::new();
             let mut presenters: BTreeSet<String> = BTreeSet::new();
-            let mut session_count = 0usize;
 
-            for part in &panel.parts {
-                for session in &part.sessions {
-                    session_count += 1;
-                    for room_id in &session.room_ids {
-                        if let Some(name) = room_name_for_output(schedule, *room_id) {
-                            room_names.insert(name);
-                        }
-                    }
-                    if let Some(ref start) = session.start_time {
-                        start_times.insert(start.clone());
-                    }
-                    for name in &session.credited_presenters {
-                        presenters.insert(name.clone());
-                    }
+            for room_id in &panel.room_ids {
+                if let Some(name) = room_name_for_output(schedule, *room_id) {
+                    room_names.insert(name);
                 }
             }
-
+            if let Some(ref start) = panel.start_time {
+                start_times.insert(start.clone());
+            }
             for name in &panel.credited_presenters {
                 presenters.insert(name.clone());
             }
 
             PanelListRow {
-                id: panel_id.clone(),
+                id: panel.id.clone(),
                 name: panel.name.clone(),
                 panel_type: panel.panel_type.clone(),
                 room_names: room_names.into_iter().collect(),
                 start_times: start_times.into_iter().collect(),
                 presenters: presenters.into_iter().collect(),
-                session_count,
+                session_count: 1,
             }
         })
         .collect();
@@ -1402,11 +1337,13 @@ fn list_rooms(
     } else {
         let mut ids = BTreeSet::new();
         for reference in &selection.sessions {
-            if let Some(panel) = schedule.panels.get(&reference.panel_id)
-                && let Some(part) = panel.parts.get(reference.part_index)
-                && let Some(session) = part.sessions.get(reference.session_index)
+            if let Some(panel) = schedule
+                .panel_sets
+                .values()
+                .flat_map(|ps| ps.panels.iter())
+                .find(|p| p.id == reference.panel_id)
             {
-                for room_id in &session.room_ids {
+                for room_id in &panel.room_ids {
                     ids.insert(*room_id);
                 }
             }
@@ -1458,17 +1395,13 @@ fn list_presenters(
     } else {
         let mut names = BTreeSet::new();
         for reference in &selection.sessions {
-            if let Some(panel) = schedule.panels.get(&reference.panel_id)
-                && let Some(part) = panel.parts.get(reference.part_index)
-                && let Some(session) = part.sessions.get(reference.session_index)
+            if let Some(panel) = schedule
+                .panel_sets
+                .values()
+                .flat_map(|ps| ps.panels.iter())
+                .find(|p| p.id == reference.panel_id)
             {
                 for name in &panel.credited_presenters {
-                    names.insert(name.clone());
-                }
-                for name in &part.credited_presenters {
-                    names.insert(name.clone());
-                }
-                for name in &session.credited_presenters {
                     names.insert(name.clone());
                 }
             }
@@ -1532,11 +1465,9 @@ fn execute_set(
                 anyhow::bail!("set av-note requires session matches");
             }
             for reference in &selection.sessions {
-                ctx.set_session_field(
+                ctx.set_panel_field(
                     &reference.panel_id,
-                    reference.part_index,
-                    reference.session_index,
-                    SessionField::AvNotes,
+                    PanelField::AvNotes,
                     Some(value.to_string()),
                 );
             }
@@ -1559,19 +1490,9 @@ fn apply_presenter_change(
     let mut ctx = sf.edit_context();
     for reference in &selection.sessions {
         if add {
-            ctx.add_presenter_to_session(
-                &reference.panel_id,
-                reference.part_index,
-                reference.session_index,
-                presenter_name,
-            );
+            ctx.add_presenter_to_panel(&reference.panel_id, presenter_name);
         } else {
-            ctx.remove_presenter_from_session(
-                &reference.panel_id,
-                reference.part_index,
-                reference.session_index,
-                presenter_name,
-            );
+            ctx.remove_presenter_from_panel(&reference.panel_id, presenter_name);
         }
     }
 
@@ -1616,17 +1537,17 @@ fn execute_reschedule(
     // Pre-compute the new state for each session before borrowing mutably.
     let mut updates: Vec<(usize, SessionScheduleState)> = Vec::new();
     for (idx, reference) in selection.sessions.iter().enumerate() {
-        let Some(panel) = sf.schedule.panels.get(&reference.panel_id) else {
-            continue;
-        };
-        let Some(part) = panel.parts.get(reference.part_index) else {
-            continue;
-        };
-        let Some(session) = part.sessions.get(reference.session_index) else {
+        let Some(panel) = sf
+            .schedule
+            .panel_sets
+            .values()
+            .flat_map(|ps| ps.panels.iter())
+            .find(|p| p.id == reference.panel_id)
+        else {
             continue;
         };
 
-        let existing_start = session
+        let existing_start = panel
             .start_time
             .as_deref()
             .map(parse_timestamp)
@@ -1639,8 +1560,8 @@ fn execute_reschedule(
             (0, existing.time())
         } else {
             anyhow::bail!(
-                "Selected session {} has no start_time; provide --start",
-                session.id
+                "Selected panel {} has no start_time; provide --start",
+                panel.id
             );
         };
 
@@ -1662,7 +1583,7 @@ fn execute_reschedule(
             }
             delta as u32
         } else {
-            session.duration
+            panel.duration
         };
 
         let computed_end = new_start + Duration::minutes(new_duration as i64);
@@ -1670,7 +1591,7 @@ fn execute_reschedule(
         let new_room_ids = if let Some(rid) = room_id {
             vec![rid]
         } else {
-            session.room_ids.clone()
+            panel.room_ids.clone()
         };
 
         updates.push((
@@ -1687,12 +1608,7 @@ fn execute_reschedule(
     let mut ctx = sf.edit_context();
     for (idx, new_state) in updates {
         let reference = &selection.sessions[idx];
-        ctx.reschedule_session(
-            &reference.panel_id,
-            reference.part_index,
-            reference.session_index,
-            new_state,
-        );
+        ctx.reschedule_panel(&reference.panel_id, new_state);
     }
 
     Ok(())
@@ -1705,11 +1621,7 @@ fn execute_cancel(sf: &mut ScheduleFile, selection: &SelectionResult) -> Result<
 
     let mut ctx = sf.edit_context();
     for reference in &selection.sessions {
-        ctx.unschedule_session(
-            &reference.panel_id,
-            reference.part_index,
-            reference.session_index,
-        );
+        ctx.unschedule_panel(&reference.panel_id);
     }
 
     Ok(())
@@ -1728,12 +1640,8 @@ fn execute_remove_session(sf: &mut ScheduleFile, selection: &SelectionResult) ->
     let mut ctx = sf.edit_context();
     for reference in &selection.sessions {
         // Soft-delete: mark Deleted so update_xlsx writes the * prefix to the XLSX row.
-        // post_save_cleanup removes Deleted sessions from memory after the file is saved.
-        ctx.soft_delete_session(
-            &reference.panel_id,
-            reference.part_index,
-            reference.session_index,
-        );
+        // post_save_cleanup removes Deleted panels from memory after the file is saved.
+        ctx.soft_delete_panel(&reference.panel_id);
     }
 
     Ok(())
@@ -1777,49 +1685,31 @@ fn apply_panel_json_merge(ctx: &mut EditContext<'_>, panel_id: &str, patch: &Val
 fn apply_session_json_merge(
     ctx: &mut EditContext<'_>,
     panel_id: &str,
-    part_index: usize,
-    session_index: usize,
     patch: &Value,
     room_id_override: Option<u32>,
     null_room: bool,
 ) {
     if let Some(description) = patch.get("description").and_then(Value::as_str) {
-        ctx.set_session_field(
+        ctx.set_panel_field(
             panel_id,
-            part_index,
-            session_index,
-            SessionField::Description,
+            PanelField::Description,
             Some(description.to_string()),
         );
     }
     if let Some(note) = patch.get("note").and_then(Value::as_str) {
-        ctx.set_session_field(
-            panel_id,
-            part_index,
-            session_index,
-            SessionField::Note,
-            Some(note.to_string()),
-        );
+        ctx.set_panel_field(panel_id, PanelField::Note, Some(note.to_string()));
     }
     if let Some(av_note) = patch
         .get("avNote")
         .and_then(Value::as_str)
         .or_else(|| patch.get("avNotes").and_then(Value::as_str))
     {
-        ctx.set_session_field(
-            panel_id,
-            part_index,
-            session_index,
-            SessionField::AvNotes,
-            Some(av_note.to_string()),
-        );
+        ctx.set_panel_field(panel_id, PanelField::AvNotes, Some(av_note.to_string()));
     }
     if patch.get("startTime").is_some() {
-        ctx.set_session_field(
+        ctx.set_panel_field(
             panel_id,
-            part_index,
-            session_index,
-            SessionField::StartTime,
+            PanelField::StartTime,
             patch
                 .get("startTime")
                 .and_then(Value::as_str)
@@ -1827,11 +1717,9 @@ fn apply_session_json_merge(
         );
     }
     if patch.get("endTime").is_some() {
-        ctx.set_session_field(
+        ctx.set_panel_field(
             panel_id,
-            part_index,
-            session_index,
-            SessionField::EndTime,
+            PanelField::EndTime,
             patch
                 .get("endTime")
                 .and_then(Value::as_str)
@@ -1839,43 +1727,38 @@ fn apply_session_json_merge(
         );
     }
     if let Some(duration) = patch.get("duration").and_then(Value::as_u64) {
-        ctx.set_session_duration(panel_id, part_index, session_index, duration as u32);
+        ctx.set_panel_duration(panel_id, duration as u32);
     }
     if let Some(room_id) = room_id_override {
-        // Build a reschedule that only changes the room, keeping existing time/duration.
-        let session = ctx
+        let state = ctx
             .schedule
-            .panels
-            .get(panel_id)
-            .and_then(|p| p.parts.get(part_index))
-            .and_then(|pt| pt.sessions.get(session_index));
-        if let Some(s) = session {
-            ctx.reschedule_session(
-                panel_id,
-                part_index,
-                session_index,
-                SessionScheduleState {
-                    room_ids: vec![room_id],
-                    start_time: s.start_time.clone(),
-                    end_time: s.end_time.clone(),
-                    duration: s.duration,
-                },
-            );
+            .panel_sets
+            .values()
+            .flat_map(|ps| ps.panels.iter())
+            .find(|p| p.id == panel_id)
+            .map(|p| SessionScheduleState {
+                room_ids: vec![room_id],
+                start_time: p.start_time.clone(),
+                end_time: p.end_time.clone(),
+                duration: p.duration,
+            });
+        if let Some(s) = state {
+            ctx.reschedule_panel(panel_id, s);
         }
     } else if null_room {
-        ctx.unschedule_session(panel_id, part_index, session_index);
+        ctx.unschedule_panel(panel_id);
     }
     if let Some(presenters) = string_array(patch, "presenters") {
-        ctx.set_session_presenters(panel_id, part_index, session_index, presenters);
+        ctx.set_panel_presenters(panel_id, presenters);
     }
     if let Some(add_presenters) = string_array(patch, "addPresenters") {
         for presenter_name in &add_presenters {
-            ctx.add_presenter_to_session(panel_id, part_index, session_index, presenter_name);
+            ctx.add_presenter_to_panel(panel_id, presenter_name);
         }
     }
     if let Some(remove_presenters) = string_array(patch, "removePresenters") {
         for presenter_name in &remove_presenters {
-            ctx.remove_presenter_from_session(panel_id, part_index, session_index, presenter_name);
+            ctx.remove_presenter_from_panel(panel_id, presenter_name);
         }
     }
 }
@@ -1914,8 +1797,6 @@ fn execute_update_from_json(
         apply_session_json_merge(
             &mut ctx,
             &reference.panel_id,
-            reference.part_index,
-            reference.session_index,
             &patch,
             room_id_override,
             null_room,
@@ -1923,15 +1804,6 @@ fn execute_update_from_json(
     }
 
     Ok(())
-}
-
-fn join_opt_text(parts: &[Option<&str>]) -> String {
-    parts
-        .iter()
-        .filter_map(|s| *s)
-        .filter(|s| !s.is_empty())
-        .collect::<Vec<_>>()
-        .join(" ")
 }
 
 fn execute_query(
@@ -1955,30 +1827,25 @@ fn execute_query(
     let mut rows: Vec<serde_json::Map<String, Value>> = Vec::new();
 
     for reference in &selection.sessions {
-        let Some(panel) = schedule.panels.get(&reference.panel_id) else {
-            continue;
-        };
-        let Some(part) = panel.parts.get(reference.part_index) else {
-            continue;
-        };
-        let Some(session) = part.sessions.get(reference.session_index) else {
+        let Some(panel) = schedule
+            .panel_sets
+            .values()
+            .flat_map(|ps| ps.panels.iter())
+            .find(|p| p.id == reference.panel_id)
+        else {
             continue;
         };
 
         let mut obj = serde_json::Map::new();
 
         if want("id") {
-            obj.insert("id".to_string(), Value::String(session.id.clone()));
+            obj.insert("id".to_string(), Value::String(panel.id.clone()));
         }
         if want("name") {
             obj.insert("name".to_string(), Value::String(panel.name.clone()));
         }
         if want("description") {
-            let text = join_opt_text(&[
-                panel.description.as_deref(),
-                part.description.as_deref(),
-                session.description.as_deref(),
-            ]);
+            let text = panel.description.as_deref().unwrap_or("").to_string();
             obj.insert(
                 "description".to_string(),
                 if text.is_empty() {
@@ -1989,11 +1856,7 @@ fn execute_query(
             );
         }
         if want("note") {
-            let text = join_opt_text(&[
-                panel.note.as_deref(),
-                part.note.as_deref(),
-                session.note.as_deref(),
-            ]);
+            let text = panel.note.as_deref().unwrap_or("").to_string();
             obj.insert(
                 "note".to_string(),
                 if text.is_empty() {
@@ -2006,7 +1869,7 @@ fn execute_query(
         if want("av-note") || want("av_note") {
             obj.insert(
                 "av-note".to_string(),
-                session
+                panel
                     .av_notes
                     .as_deref()
                     .map(|s| Value::String(s.to_string()))
@@ -2014,11 +1877,7 @@ fn execute_query(
             );
         }
         if want("prereq") {
-            let text = join_opt_text(&[
-                panel.prereq.as_deref(),
-                part.prereq.as_deref(),
-                session.prereq.as_deref(),
-            ]);
+            let text = panel.prereq.as_deref().unwrap_or("").to_string();
             obj.insert(
                 "prereq".to_string(),
                 if text.is_empty() {
@@ -2029,7 +1888,7 @@ fn execute_query(
             );
         }
         if want("room") {
-            let rooms: Vec<Value> = session
+            let rooms: Vec<Value> = panel
                 .room_ids
                 .iter()
                 .map(|&id| {
@@ -2044,7 +1903,7 @@ fn execute_query(
         if want("start") {
             obj.insert(
                 "start".to_string(),
-                session
+                panel
                     .start_time
                     .as_deref()
                     .map(|s| Value::String(s.to_string()))
@@ -2054,7 +1913,7 @@ fn execute_query(
         if want("end") {
             obj.insert(
                 "end".to_string(),
-                session
+                panel
                     .end_time
                     .as_deref()
                     .map(|s| Value::String(s.to_string()))
@@ -2062,10 +1921,7 @@ fn execute_query(
             );
         }
         if want("duration") {
-            obj.insert(
-                "duration".to_string(),
-                Value::Number(session.duration.into()),
-            );
+            obj.insert("duration".to_string(), Value::Number(panel.duration.into()));
         }
         if want("type") {
             obj.insert(
@@ -2088,10 +1944,12 @@ fn execute_query(
             );
         }
         if want("capacity") {
-            let cap = session.capacity.as_deref().or(panel.capacity.as_deref());
             obj.insert(
                 "capacity".to_string(),
-                cap.map(|s| Value::String(s.to_string()))
+                panel
+                    .capacity
+                    .as_deref()
+                    .map(|s| Value::String(s.to_string()))
                     .unwrap_or(Value::Null),
             );
         }
@@ -2107,22 +1965,12 @@ fn execute_query(
         }
         if want("presenters") {
             let mut all: Vec<String> = Vec::new();
-            for name in panel
-                .credited_presenters
-                .iter()
-                .chain(&part.credited_presenters)
-                .chain(&session.credited_presenters)
-            {
+            for name in &panel.credited_presenters {
                 if !all.contains(name) {
                     all.push(name.clone());
                 }
             }
-            for name in panel
-                .uncredited_presenters
-                .iter()
-                .chain(&part.uncredited_presenters)
-                .chain(&session.uncredited_presenters)
-            {
+            for name in &panel.uncredited_presenters {
                 let tagged = format!("{name}(*)");
                 if !all.iter().any(|a| a == name || a == &tagged) {
                     all.push(tagged);
@@ -2134,42 +1982,34 @@ fn execute_query(
             );
         }
         if want("credited") {
-            let mut names: Vec<String> = Vec::new();
-            for name in panel
-                .credited_presenters
-                .iter()
-                .chain(&part.credited_presenters)
-                .chain(&session.credited_presenters)
-            {
-                if !names.contains(name) {
-                    names.push(name.clone());
-                }
-            }
             obj.insert(
                 "credited".to_string(),
-                Value::Array(names.into_iter().map(Value::String).collect()),
+                Value::Array(
+                    panel
+                        .credited_presenters
+                        .iter()
+                        .cloned()
+                        .map(Value::String)
+                        .collect(),
+                ),
             );
         }
         if want("uncredited") {
-            let mut names: Vec<String> = Vec::new();
-            for name in panel
-                .uncredited_presenters
-                .iter()
-                .chain(&part.uncredited_presenters)
-                .chain(&session.uncredited_presenters)
-            {
-                if !names.contains(name) {
-                    names.push(name.clone());
-                }
-            }
             obj.insert(
                 "uncredited".to_string(),
-                Value::Array(names.into_iter().map(Value::String).collect()),
+                Value::Array(
+                    panel
+                        .uncredited_presenters
+                        .iter()
+                        .cloned()
+                        .map(Value::String)
+                        .collect(),
+                ),
             );
         }
         if want("metadata") {
             let mut meta_obj = serde_json::Map::new();
-            for (k, v) in &session.metadata {
+            for (k, v) in &panel.metadata {
                 let json_val = match v {
                     ExtraValue::String(s) => Value::String(s.clone()),
                     ExtraValue::Formula(fv) => {
@@ -2186,7 +2026,7 @@ fn execute_query(
         if want("change-state") || want("change_state") {
             obj.insert(
                 "change-state".to_string(),
-                Value::String(format!("{:?}", session.change_state)),
+                Value::String(format!("{:?}", panel.change_state)),
             );
         }
 
@@ -2433,10 +2273,8 @@ fn execute_set_metadata(
     }
     let mut ctx = sf.edit_context();
     for reference in &selection.sessions {
-        ctx.set_session_metadata(
+        ctx.set_panel_metadata(
             &reference.panel_id,
-            reference.part_index,
-            reference.session_index,
             key,
             ExtraValue::String(value.to_string()),
         );
@@ -2463,12 +2301,7 @@ fn execute_clear_metadata(
     }
     let mut ctx = sf.edit_context();
     for reference in &selection.sessions {
-        ctx.clear_session_metadata(
-            &reference.panel_id,
-            reference.part_index,
-            reference.session_index,
-            key,
-        );
+        ctx.clear_panel_metadata(&reference.panel_id, key);
     }
     for &room_id in &selection.room_ids {
         ctx.clear_room_metadata(room_id, key);
@@ -2755,11 +2588,14 @@ mod tests {
 
     #[test]
     fn panel_json_merge_is_partial() {
+        use schedule_core::data::panel_set::PanelSet;
         let mut schedule = Schedule::default();
-        let mut panel = schedule_core::data::Panel::new("test-1".to_string());
+        let mut panel = schedule_core::data::Panel::new("test-1", "test-1");
         panel.name = "Original Name".to_string();
         panel.note = Some("keep me".to_string());
-        schedule.panels.insert("test-1".to_string(), panel);
+        let mut ps = PanelSet::new("test-1");
+        ps.panels.push(panel);
+        schedule.panel_sets.insert("test-1".to_string(), ps);
 
         let patch: Value = serde_json::json!({
             "description": "new description"
@@ -2770,7 +2606,7 @@ mod tests {
             apply_panel_json_merge(&mut ctx, "test-1", &patch);
         }
 
-        let panel = schedule.panels.get("test-1").unwrap();
+        let panel = schedule.panel_sets["test-1"].panels.first().unwrap();
         assert_eq!(panel.name, "Original Name");
         assert_eq!(panel.note.as_deref(), Some("keep me"));
         assert_eq!(panel.description.as_deref(), Some("new description"));
@@ -2780,61 +2616,26 @@ mod tests {
 
     fn create_test_schedule_file() -> ScheduleFile {
         use indexmap::IndexMap;
-        use schedule_core::data::panel::{Panel, PanelPart, PanelSession};
+        use schedule_core::data::panel::Panel;
+        use schedule_core::data::panel_set::PanelSet;
         use schedule_core::data::room::Room;
         use schedule_core::data::schedule::Meta;
         use schedule_core::data::source_info::ChangeState;
 
-        let mut panels = IndexMap::new();
-        let mut panel = Panel::new("test-panel-1".to_string());
+        let mut panel_sets: IndexMap<String, PanelSet> = IndexMap::new();
+        let mut panel = Panel::new("test-panel-1", "test-panel-1");
         panel.name = "Armor 101".to_string();
         panel.description = Some("Original description".to_string());
         panel.note = Some("Original note".to_string());
-
-        let session = PanelSession {
-            id: "test-panel-1-0-0".to_string(),
-            session_num: Some(1),
-            description: None,
-            note: None,
-            prereq: None,
-            alt_panelist: None,
-            room_ids: vec![10],
-            start_time: Some("2026-07-10T10:00:00".to_string()),
-            end_time: Some("2026-07-10T11:00:00".to_string()),
-            duration: 60,
-            is_full: false,
-            capacity: None,
-            seats_sold: None,
-            pre_reg_max: None,
-            ticket_url: None,
-            simple_tix_event: None,
-            hide_panelist: false,
-            credited_presenters: vec!["Alice".to_string(), "Bob".to_string()],
-            uncredited_presenters: Vec::new(),
-            notes_non_printing: None,
-            workshop_notes: None,
-            power_needs: None,
-            sewing_machines: false,
-            av_notes: None,
-            source: None,
-            change_state: ChangeState::Unchanged,
-            conflicts: Vec::new(),
-            metadata: IndexMap::new(),
-        };
-
-        let part = PanelPart {
-            part_num: None,
-            description: None,
-            note: None,
-            prereq: None,
-            alt_panelist: None,
-            credited_presenters: Vec::new(),
-            uncredited_presenters: Vec::new(),
-            sessions: vec![session],
-            change_state: ChangeState::Unchanged,
-        };
-        panel.parts = vec![part];
-        panels.insert("test-panel-1".to_string(), panel);
+        panel.session_num = Some(1);
+        panel.room_ids = vec![10];
+        panel.start_time = Some("2026-07-10T10:00:00".to_string());
+        panel.end_time = Some("2026-07-10T11:00:00".to_string());
+        panel.duration = 60;
+        panel.credited_presenters = vec!["Alice".to_string(), "Bob".to_string()];
+        let mut ps = PanelSet::new("test-panel-1");
+        ps.panels.push(panel);
+        panel_sets.insert("test-panel-1".to_string(), ps);
 
         let rooms = vec![
             Room {
@@ -2877,7 +2678,7 @@ mod tests {
                 modified: None,
             },
             timeline: Vec::new(),
-            panels,
+            panel_sets,
             rooms,
             panel_types: IndexMap::new(),
             presenters: Vec::new(),

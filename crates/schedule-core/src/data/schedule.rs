@@ -11,6 +11,7 @@ use indexmap::IndexMap;
 use serde::{Deserialize, Serialize};
 
 use super::panel::Panel;
+use super::panel_set::PanelSet;
 use super::panel_type::PanelType;
 use super::presenter::Presenter;
 use super::room::Room;
@@ -84,7 +85,7 @@ pub struct Schedule {
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub timeline: Vec<TimelineEntry>,
     #[serde(default, skip_serializing_if = "IndexMap::is_empty")]
-    pub panels: IndexMap<String, Panel>,
+    pub panel_sets: IndexMap<String, PanelSet>,
     pub rooms: Vec<Room>,
     #[serde(default, skip_serializing_if = "IndexMap::is_empty")]
     pub panel_types: IndexMap<String, PanelType>,
@@ -94,31 +95,37 @@ pub struct Schedule {
 }
 
 impl Schedule {
-    /// Calculate schedule start and end times from panels and timeline entries
+    /// Iterate all panels across all panel sets.
+    pub fn all_panels(&self) -> impl Iterator<Item = &Panel> {
+        self.panel_sets.values().flat_map(|ps| ps.panels.iter())
+    }
+
+    /// Iterate all panels mutably across all panel sets.
+    pub fn all_panels_mut(&mut self) -> impl Iterator<Item = &mut Panel> {
+        self.panel_sets
+            .values_mut()
+            .flat_map(|ps| ps.panels.iter_mut())
+    }
+
+    /// Calculate schedule start and end times from panel_sets and timeline entries
     pub fn calculate_schedule_bounds(&mut self) {
         let mut min_time: Option<chrono::NaiveDateTime> = None;
         let mut max_time: Option<chrono::NaiveDateTime> = None;
 
-        // Check panel sessions
-        for panel in self.panels.values() {
-            for part in &panel.parts {
-                for session in &part.sessions {
-                    if let Some(ref st) = session.start_time {
-                        if let Some(start) = time::parse_storage(st) {
-                            if min_time.is_none() || Some(start) < min_time {
-                                min_time = Some(start);
-                            }
-                            let end = if let Some(ref et) = session.end_time {
-                                time::parse_storage(et).unwrap_or(
-                                    start + chrono::Duration::minutes(session.duration as i64),
-                                )
-                            } else {
-                                start + chrono::Duration::minutes(session.duration as i64)
-                            };
-                            if max_time.is_none() || Some(end) > max_time {
-                                max_time = Some(end);
-                            }
-                        }
+        for panel in self.all_panels() {
+            if let Some(ref st) = panel.start_time {
+                if let Some(start) = time::parse_storage(st) {
+                    if min_time.is_none() || Some(start) < min_time {
+                        min_time = Some(start);
+                    }
+                    let end = if let Some(ref et) = panel.end_time {
+                        time::parse_storage(et)
+                            .unwrap_or(start + chrono::Duration::minutes(panel.duration as i64))
+                    } else {
+                        start + chrono::Duration::minutes(panel.duration as i64)
+                    };
+                    if max_time.is_none() || Some(end) > max_time {
+                        max_time = Some(end);
                     }
                 }
             }
@@ -159,14 +166,10 @@ impl Schedule {
     pub fn days(&self) -> Vec<NaiveDate> {
         let mut dates: BTreeSet<NaiveDate> = BTreeSet::new();
 
-        for panel in self.panels.values() {
-            for part in &panel.parts {
-                for session in &part.sessions {
-                    if let Some(ref st) = session.start_time {
-                        if let Some(dt) = time::parse_storage(st) {
-                            dates.insert(dt.date());
-                        }
-                    }
+        for panel in self.all_panels() {
+            if let Some(ref st) = panel.start_time {
+                if let Some(dt) = time::parse_storage(st) {
+                    dates.insert(dt.date());
                 }
             }
         }
@@ -174,56 +177,35 @@ impl Schedule {
         dates.into_iter().collect()
     }
 
-    /// Returns flattened session display info for a given day from the v5 panels hierarchy
+    /// Returns panel display info for a given day from the flat panel_sets model.
     #[must_use]
     pub fn sessions_for_day(&self, day: &NaiveDate) -> Vec<SessionDisplayInfo> {
         let mut results = Vec::new();
-        for panel in self.panels.values() {
-            for part in &panel.parts {
-                for session in &part.sessions {
-                    let start_dt = session
-                        .start_time
+        for panel in self.all_panels() {
+            let start_dt = panel
+                .start_time
+                .as_ref()
+                .and_then(|st| time::parse_storage(st));
+            if let Some(start) = start_dt {
+                if &start.date() == day {
+                    let end_dt = panel
+                        .end_time
                         .as_ref()
-                        .and_then(|st| time::parse_storage(st));
-                    if let Some(start) = start_dt {
-                        if &start.date() == day {
-                            let end_dt = session
-                                .end_time
-                                .as_ref()
-                                .and_then(|et| time::parse_storage(et))
-                                .unwrap_or(
-                                    start + chrono::Duration::minutes(session.duration as i64),
-                                );
+                        .and_then(|et| time::parse_storage(et))
+                        .unwrap_or(start + chrono::Duration::minutes(panel.duration as i64));
 
-                            let presenters: Vec<String> = {
-                                let mut all = panel.credited_presenters.clone();
-                                for name in &part.credited_presenters {
-                                    if !all.contains(name) {
-                                        all.push(name.clone());
-                                    }
-                                }
-                                for name in &session.credited_presenters {
-                                    if !all.contains(name) {
-                                        all.push(name.clone());
-                                    }
-                                }
-                                all
-                            };
-
-                            results.push(SessionDisplayInfo {
-                                session_id: session.id.clone(),
-                                base_id: panel.id.clone(),
-                                name: panel.name.clone(),
-                                panel_type: panel.panel_type.clone(),
-                                start_time: start,
-                                end_time: end_dt,
-                                room_ids: session.room_ids.clone(),
-                                presenters,
-                                is_full: session.is_full,
-                                change_state: session.change_state,
-                            });
-                        }
-                    }
+                    results.push(SessionDisplayInfo {
+                        session_id: panel.id.clone(),
+                        base_id: panel.base_id.clone(),
+                        name: panel.name.clone(),
+                        panel_type: panel.panel_type.clone(),
+                        start_time: start,
+                        end_time: end_dt,
+                        room_ids: panel.room_ids.clone(),
+                        presenters: panel.credited_presenters.clone(),
+                        is_full: panel.is_full,
+                        change_state: panel.change_state,
+                    });
                 }
             }
         }
@@ -261,7 +243,7 @@ impl Default for Schedule {
             conflicts: Vec::new(),
             meta: Meta::default(),
             timeline: Vec::new(),
-            panels: IndexMap::new(),
+            panel_sets: IndexMap::new(),
             rooms: Vec::new(),
             panel_types: IndexMap::new(),
             presenters: Vec::new(),

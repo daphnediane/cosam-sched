@@ -43,38 +43,16 @@ fn build_presenter_columns(schedule: &Schedule) -> Vec<ExportPresenterColumn> {
         .collect();
 
     let mut event_count: HashMap<&str, usize> = HashMap::new();
-    for (_, panel) in &schedule.panels {
-        if panel.change_state == ChangeState::Deleted {
-            continue;
-        }
-
-        for name in &panel.credited_presenters {
-            *event_count.entry(name.as_str()).or_insert(0) += 1;
-        }
-        for name in &panel.uncredited_presenters {
-            *event_count.entry(name.as_str()).or_insert(0) += 1;
-        }
-
-        for part in &panel.parts {
-            if part.change_state == ChangeState::Deleted {
+    for ps in schedule.panel_sets.values() {
+        for panel in &ps.panels {
+            if panel.change_state == ChangeState::Deleted {
                 continue;
             }
-            for name in &part.credited_presenters {
-                *event_count.entry(name.as_str()).or_insert(0) += 1;
+            for name in &panel.credited_presenters {
+                *event_count.entry(name.as_str()).or_insert(0usize) += 1;
             }
-            for name in &part.uncredited_presenters {
-                *event_count.entry(name.as_str()).or_insert(0) += 1;
-            }
-            for session in &part.sessions {
-                if session.change_state == ChangeState::Deleted {
-                    continue;
-                }
-                for name in &session.credited_presenters {
-                    *event_count.entry(name.as_str()).or_insert(0) += 1;
-                }
-                for name in &session.uncredited_presenters {
-                    *event_count.entry(name.as_str()).or_insert(0) += 1;
-                }
+            for name in &panel.uncredited_presenters {
+                *event_count.entry(name.as_str()).or_insert(0usize) += 1;
             }
         }
     }
@@ -618,11 +596,29 @@ fn write_presenters_sheet(ws: &mut Worksheet, presenters: &[Presenter]) -> u32 {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::data::panel::{Panel, PanelPart, PanelSession};
+    use crate::data::panel::Panel;
+    use crate::data::panel_set::PanelSet;
     use crate::data::schedule::Meta;
     use crate::data::source_info::ImportedSheetPresence;
 
     fn make_test_schedule() -> Schedule {
+        let mut panel = Panel::new("GP001S1", "GP001");
+        panel.name = "Test Panel".to_string();
+        panel.panel_type = Some("GP".to_string());
+        panel.session_num = Some(1);
+        panel.room_ids = vec![1];
+        panel.start_time = Some("2026-01-01T10:00:00".to_string());
+        panel.end_time = Some("2026-01-01T11:00:00".to_string());
+        panel.duration = 60;
+        panel.credited_presenters = vec!["Alice".to_string()];
+        panel.change_state = ChangeState::Unchanged;
+
+        let mut ps = PanelSet::new("GP001");
+        ps.panels.push(panel);
+
+        let mut panel_sets = indexmap::IndexMap::new();
+        panel_sets.insert("GP001".to_string(), ps);
+
         Schedule {
             conflicts: Vec::new(),
             meta: Meta {
@@ -639,75 +635,7 @@ mod tests {
                 modified: None,
             },
             timeline: Vec::new(),
-            panels: {
-                let mut panels = indexmap::IndexMap::new();
-                panels.insert(
-                    "GP001".to_string(),
-                    Panel {
-                        id: "GP001".to_string(),
-                        name: "Test Panel".to_string(),
-                        panel_type: Some("GP".to_string()),
-                        description: None,
-                        note: None,
-                        prereq: None,
-                        alt_panelist: None,
-                        cost: None,
-                        capacity: None,
-                        pre_reg_max: None,
-                        difficulty: None,
-                        ticket_url: None,
-                        is_free: false,
-                        is_kids: false,
-                        credited_presenters: vec![],
-                        uncredited_presenters: vec![],
-                        simple_tix_event: None,
-                        have_ticket_image: None,
-                        metadata: None,
-                        parts: vec![PanelPart {
-                            part_num: None,
-                            description: None,
-                            note: None,
-                            prereq: None,
-                            alt_panelist: None,
-                            credited_presenters: vec![],
-                            uncredited_presenters: vec!["Alice".to_string()],
-                            sessions: vec![PanelSession {
-                                id: "GP001S1".to_string(),
-                                session_num: Some(1),
-                                description: None,
-                                note: None,
-                                prereq: None,
-                                alt_panelist: None,
-                                room_ids: vec![1],
-                                start_time: Some("2026-01-01T10:00:00".to_string()),
-                                end_time: Some("2026-01-01T11:00:00".to_string()),
-                                duration: 60,
-                                is_full: false,
-                                capacity: None,
-                                seats_sold: None,
-                                pre_reg_max: None,
-                                ticket_url: None,
-                                simple_tix_event: None,
-                                hide_panelist: false,
-                                credited_presenters: vec!["Alice".to_string()],
-                                uncredited_presenters: vec![],
-                                notes_non_printing: None,
-                                workshop_notes: None,
-                                power_needs: None,
-                                sewing_machines: false,
-                                av_notes: None,
-                                source: None,
-                                change_state: ChangeState::Unchanged,
-                                conflicts: Vec::new(),
-                                metadata: indexmap::IndexMap::new(),
-                            }],
-                            change_state: ChangeState::Unchanged,
-                        }],
-                        change_state: ChangeState::Unchanged,
-                    },
-                );
-                panels
-            },
+            panel_sets,
             rooms: vec![crate::data::room::Room {
                 uid: 1,
                 short_name: "Main".to_string(),
@@ -733,12 +661,9 @@ mod tests {
     #[test]
     fn test_flatten_export_excludes_deleted() {
         let mut schedule = make_test_schedule();
-        // Mark the session as deleted
-        if let Some(panel) = schedule.panels.get_mut("GP001") {
-            for part in &mut panel.parts {
-                for session in &mut part.sessions {
-                    session.change_state = ChangeState::Deleted;
-                }
+        if let Some(ps) = schedule.panel_sets.get_mut("GP001") {
+            for panel in &mut ps.panels {
+                panel.change_state = ChangeState::Deleted;
             }
         }
         let sessions = flatten_panel_sessions(&schedule, false);

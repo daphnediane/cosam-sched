@@ -88,53 +88,19 @@ impl PanelEditWindow {
             return;
         }
 
-        let part_idx = self.selected_part_idx;
-        let session_idx = self.selected_session_idx;
-        let current_session = self
-            .draft_panel
-            .parts
-            .get(part_idx)
-            .and_then(|p| p.sessions.get(session_idx));
-        let current_part = self.draft_panel.parts.get(part_idx);
-        let has_multiple_parts = self.draft_panel.parts.len() > 1;
-
         let name_val = self.draft_panel.name.clone();
         let desc_base_val = self.draft_panel.description.clone().unwrap_or_default();
         let note_base_val = self.draft_panel.note.clone().unwrap_or_default();
         let prereq_base_val = self.draft_panel.prereq.clone().unwrap_or_default();
         let cost_val = self.draft_panel.cost.clone().unwrap_or_default();
 
-        let desc_part_val = current_part
-            .and_then(|p| p.description.clone())
-            .unwrap_or_default();
-        let note_part_val = current_part
-            .and_then(|p| p.note.clone())
-            .unwrap_or_default();
-        let prereq_part_val = current_part
-            .and_then(|p| p.prereq.clone())
-            .unwrap_or_default();
-
-        let start_val = current_session
-            .and_then(|s| s.start_time.clone())
-            .unwrap_or_default();
-        let end_val = current_session
-            .and_then(|s| s.end_time.clone())
-            .unwrap_or_default();
-        let desc_sess_val = current_session
-            .and_then(|s| s.description.clone())
-            .unwrap_or_default();
-        let note_sess_val = current_session
-            .and_then(|s| s.note.clone())
-            .unwrap_or_default();
-        let prereq_sess_val = current_session
-            .and_then(|s| s.prereq.clone())
-            .unwrap_or_default();
-        let capacity_val = current_session
-            .and_then(|s| s.capacity.clone())
-            .unwrap_or_default();
-        let alt_panelist_val = current_session
-            .and_then(|s| s.alt_panelist.clone())
-            .unwrap_or_default();
+        let start_val = self.draft_panel.start_time.clone().unwrap_or_default();
+        let end_val = self.draft_panel.end_time.clone().unwrap_or_default();
+        let desc_sess_val = self.draft_panel.description.clone().unwrap_or_default();
+        let note_sess_val = self.draft_panel.note.clone().unwrap_or_default();
+        let prereq_sess_val = self.draft_panel.prereq.clone().unwrap_or_default();
+        let capacity_val = self.draft_panel.capacity.clone().unwrap_or_default();
+        let alt_panelist_val = self.draft_panel.alt_panelist.clone().unwrap_or_default();
 
         let name_input = cx.new(|cx| InputState::new(window, cx).default_value(name_val));
         let description_base_input = cx.new(|cx| {
@@ -147,25 +113,9 @@ impl PanelEditWindow {
             cx.new(|cx| InputState::new(window, cx).default_value(prereq_base_val));
         let cost_input = cx.new(|cx| InputState::new(window, cx).default_value(cost_val));
 
-        let description_part_input = if has_multiple_parts {
-            Some(cx.new(|cx| {
-                InputState::new(window, cx)
-                    .default_value(desc_part_val)
-                    .multi_line(true)
-            }))
-        } else {
-            None
-        };
-        let note_part_input = if has_multiple_parts {
-            Some(cx.new(|cx| InputState::new(window, cx).default_value(note_part_val)))
-        } else {
-            None
-        };
-        let prereq_part_input = if has_multiple_parts {
-            Some(cx.new(|cx| InputState::new(window, cx).default_value(prereq_part_val)))
-        } else {
-            None
-        };
+        let description_part_input: Option<gpui::Entity<InputState>> = None;
+        let note_part_input: Option<gpui::Entity<InputState>> = None;
+        let prereq_part_input: Option<gpui::Entity<InputState>> = None;
 
         let start_time_input = cx.new(|cx| InputState::new(window, cx).default_value(start_val));
         let end_time_input = cx.new(|cx| InputState::new(window, cx).default_value(end_val));
@@ -254,20 +204,11 @@ impl PanelEditWindow {
             |this, entity, event: &InputEvent, cx| {
                 if let InputEvent::Change = event {
                     let text = entity.read(cx).value();
-                    let part_idx = this.selected_part_idx;
-                    let sess_idx = this.selected_session_idx;
-                    if let Some(session) = this
-                        .draft_panel
-                        .parts
-                        .get_mut(part_idx)
-                        .and_then(|p| p.sessions.get_mut(sess_idx))
-                    {
-                        session.start_time = if text.is_empty() {
-                            None
-                        } else {
-                            Some(text.to_string())
-                        };
-                    }
+                    this.draft_panel.start_time = if text.is_empty() {
+                        None
+                    } else {
+                        Some(text.to_string())
+                    };
                     this.schedule_save(cx);
                 }
             },
@@ -277,20 +218,11 @@ impl PanelEditWindow {
             |this, entity, event: &InputEvent, cx| {
                 if let InputEvent::Change = event {
                     let text = entity.read(cx).value();
-                    let part_idx = this.selected_part_idx;
-                    let sess_idx = this.selected_session_idx;
-                    if let Some(session) = this
-                        .draft_panel
-                        .parts
-                        .get_mut(part_idx)
-                        .and_then(|p| p.sessions.get_mut(sess_idx))
-                    {
-                        session.end_time = if text.is_empty() {
-                            None
-                        } else {
-                            Some(text.to_string())
-                        };
-                    }
+                    this.draft_panel.end_time = if text.is_empty() {
+                        None
+                    } else {
+                        Some(text.to_string())
+                    };
                     this.schedule_save(cx);
                 }
             },
@@ -300,20 +232,11 @@ impl PanelEditWindow {
             |this, entity, event: &InputEvent, cx| {
                 if let InputEvent::Change = event {
                     let text = entity.read(cx).value();
-                    let part_idx = this.selected_part_idx;
-                    let sess_idx = this.selected_session_idx;
-                    if let Some(session) = this
-                        .draft_panel
-                        .parts
-                        .get_mut(part_idx)
-                        .and_then(|p| p.sessions.get_mut(sess_idx))
-                    {
-                        session.description = if text.is_empty() {
-                            None
-                        } else {
-                            Some(text.to_string())
-                        };
-                    }
+                    this.draft_panel.description = if text.is_empty() {
+                        None
+                    } else {
+                        Some(text.to_string())
+                    };
                     this.schedule_save(cx);
                 }
             },
@@ -323,20 +246,11 @@ impl PanelEditWindow {
             |this, entity, event: &InputEvent, cx| {
                 if let InputEvent::Change = event {
                     let text = entity.read(cx).value();
-                    let part_idx = this.selected_part_idx;
-                    let sess_idx = this.selected_session_idx;
-                    if let Some(session) = this
-                        .draft_panel
-                        .parts
-                        .get_mut(part_idx)
-                        .and_then(|p| p.sessions.get_mut(sess_idx))
-                    {
-                        session.note = if text.is_empty() {
-                            None
-                        } else {
-                            Some(text.to_string())
-                        };
-                    }
+                    this.draft_panel.note = if text.is_empty() {
+                        None
+                    } else {
+                        Some(text.to_string())
+                    };
                     this.schedule_save(cx);
                 }
             },
@@ -346,20 +260,11 @@ impl PanelEditWindow {
             |this, entity, event: &InputEvent, cx| {
                 if let InputEvent::Change = event {
                     let text = entity.read(cx).value();
-                    let part_idx = this.selected_part_idx;
-                    let sess_idx = this.selected_session_idx;
-                    if let Some(session) = this
-                        .draft_panel
-                        .parts
-                        .get_mut(part_idx)
-                        .and_then(|p| p.sessions.get_mut(sess_idx))
-                    {
-                        session.prereq = if text.is_empty() {
-                            None
-                        } else {
-                            Some(text.to_string())
-                        };
-                    }
+                    this.draft_panel.prereq = if text.is_empty() {
+                        None
+                    } else {
+                        Some(text.to_string())
+                    };
                     this.schedule_save(cx);
                 }
             },
@@ -369,20 +274,11 @@ impl PanelEditWindow {
             |this, entity, event: &InputEvent, cx| {
                 if let InputEvent::Change = event {
                     let text = entity.read(cx).value();
-                    let part_idx = this.selected_part_idx;
-                    let sess_idx = this.selected_session_idx;
-                    if let Some(session) = this
-                        .draft_panel
-                        .parts
-                        .get_mut(part_idx)
-                        .and_then(|p| p.sessions.get_mut(sess_idx))
-                    {
-                        session.capacity = if text.is_empty() {
-                            None
-                        } else {
-                            Some(text.to_string())
-                        };
-                    }
+                    this.draft_panel.capacity = if text.is_empty() {
+                        None
+                    } else {
+                        Some(text.to_string())
+                    };
                     this.schedule_save(cx);
                 }
             },
@@ -392,82 +288,19 @@ impl PanelEditWindow {
             |this, entity, event: &InputEvent, cx| {
                 if let InputEvent::Change = event {
                     let text = entity.read(cx).value();
-                    let part_idx = this.selected_part_idx;
-                    let sess_idx = this.selected_session_idx;
-                    if let Some(session) = this
-                        .draft_panel
-                        .parts
-                        .get_mut(part_idx)
-                        .and_then(|p| p.sessions.get_mut(sess_idx))
-                    {
-                        session.alt_panelist = if text.is_empty() {
-                            None
-                        } else {
-                            Some(text.to_string())
-                        };
-                    }
+                    this.draft_panel.alt_panelist = if text.is_empty() {
+                        None
+                    } else {
+                        Some(text.to_string())
+                    };
                     this.schedule_save(cx);
                 }
             },
         ));
 
-        if let Some(ref part_input) = description_part_input {
-            self._subscriptions.push(cx.subscribe(
-                part_input,
-                |this, entity, event: &InputEvent, cx| {
-                    if let InputEvent::Change = event {
-                        let text = entity.read(cx).value();
-                        let part_idx = this.selected_part_idx;
-                        if let Some(part) = this.draft_panel.parts.get_mut(part_idx) {
-                            part.description = if text.is_empty() {
-                                None
-                            } else {
-                                Some(text.to_string())
-                            };
-                        }
-                        this.schedule_save(cx);
-                    }
-                },
-            ));
-        }
-        if let Some(ref part_input) = note_part_input {
-            self._subscriptions.push(cx.subscribe(
-                part_input,
-                |this, entity, event: &InputEvent, cx| {
-                    if let InputEvent::Change = event {
-                        let text = entity.read(cx).value();
-                        let part_idx = this.selected_part_idx;
-                        if let Some(part) = this.draft_panel.parts.get_mut(part_idx) {
-                            part.note = if text.is_empty() {
-                                None
-                            } else {
-                                Some(text.to_string())
-                            };
-                        }
-                        this.schedule_save(cx);
-                    }
-                },
-            ));
-        }
-        if let Some(ref part_input) = prereq_part_input {
-            self._subscriptions.push(cx.subscribe(
-                part_input,
-                |this, entity, event: &InputEvent, cx| {
-                    if let InputEvent::Change = event {
-                        let text = entity.read(cx).value();
-                        let part_idx = this.selected_part_idx;
-                        if let Some(part) = this.draft_panel.parts.get_mut(part_idx) {
-                            part.prereq = if text.is_empty() {
-                                None
-                            } else {
-                                Some(text.to_string())
-                            };
-                        }
-                        this.schedule_save(cx);
-                    }
-                },
-            ));
-        }
+        let _ = description_part_input.as_ref();
+        let _ = note_part_input.as_ref();
+        let _ = prereq_part_input.as_ref();
 
         self.inputs = Some(PanelEditInputs {
             name_input,
@@ -488,17 +321,7 @@ impl PanelEditWindow {
         });
     }
 
-    fn find_session_indices(panel: &Panel, session_id: &str) -> (usize, usize) {
-        if session_id.is_empty() {
-            return (0, 0);
-        }
-        for (part_idx, part) in panel.parts.iter().enumerate() {
-            for (session_idx, session) in part.sessions.iter().enumerate() {
-                if session.id == session_id {
-                    return (part_idx, session_idx);
-                }
-            }
-        }
+    fn find_session_indices(_panel: &Panel, _session_id: &str) -> (usize, usize) {
         (0, 0)
     }
 
@@ -516,16 +339,8 @@ impl PanelEditWindow {
     }
 
     fn delete_current_session(&mut self, cx: &mut Context<Self>) {
-        let part_idx = self.selected_part_idx;
-        let session_idx = self.selected_session_idx;
-        let session_id = self
-            .draft_panel
-            .parts
-            .get(part_idx)
-            .and_then(|p| p.sessions.get(session_idx))
-            .map(|s| s.id.clone());
-        let Some(session_id) = session_id else { return };
-        let base_id = self.draft_panel.id.clone();
+        let session_id = self.draft_panel.id.clone();
+        let base_id = self.draft_panel.base_id.clone();
         cx.emit(PanelEditWindowEvent::SessionDeleted {
             base_id,
             session_id,
@@ -581,19 +396,14 @@ impl Render for PanelEditWindow {
         let bg = rgb(0xFFFFFF);
         let panel_id = SharedString::from(self.draft_panel.id.clone());
 
-        let current_session = self
-            .draft_panel
-            .parts
-            .get(self.selected_part_idx)
-            .and_then(|p| p.sessions.get(self.selected_session_idx));
-        let is_full = current_session.map(|s| s.is_full).unwrap_or(false);
-        let hide_panelist = current_session.map(|s| s.hide_panelist).unwrap_or(false);
+        let is_full = self.draft_panel.is_full;
+        let hide_panelist = self.draft_panel.hide_panelist;
         let panel_is_free = self.draft_panel.is_free;
         let panel_is_kids = self.draft_panel.is_kids;
-        let current_room_id = current_session.and_then(|s| s.room_ids.first().copied());
+        let current_room_id = self.draft_panel.room_ids.first().copied();
         let current_room_name = current_room_id
             .and_then(|rid| self.rooms.iter().find(|(uid, _)| *uid == rid))
-            .map(|(_, name)| name.as_str())
+            .map(|(_, name): &(u32, String)| name.as_str())
             .unwrap_or("— No room —");
         let current_panel_type_uid = self.draft_panel.panel_type.clone().unwrap_or_default();
         let current_panel_type_name = self
@@ -603,19 +413,9 @@ impl Render for PanelEditWindow {
             .map(|(_, kind)| kind.as_str())
             .unwrap_or("— None —");
 
-        let has_multiple_parts = self.draft_panel.parts.len() > 1;
-        let has_sessions = self
-            .draft_panel
-            .parts
-            .get(self.selected_part_idx)
-            .map(|p| !p.sessions.is_empty())
-            .unwrap_or(false);
-        let total_sessions: usize = self
-            .draft_panel
-            .parts
-            .iter()
-            .map(|p| p.sessions.len())
-            .sum();
+        let has_multiple_parts = false;
+        let has_sessions = true;
+        let total_sessions: usize = 1;
 
         let inputs = self.inputs.as_ref().expect("ensure_inputs was called");
 
@@ -924,8 +724,6 @@ impl Render for PanelEditWindow {
                 );
             if room_open {
                 let rooms = self.rooms.clone();
-                let part_idx = self.selected_part_idx;
-                let sess_idx = self.selected_session_idx;
                 let mut list = div()
                     .border_1()
                     .border_color(rgb(0xD1D5DB))
@@ -952,14 +750,7 @@ impl Render for PanelEditWindow {
                             .on_mouse_down(
                                 MouseButton::Left,
                                 cx.listener(move |this, _, _, cx| {
-                                    if let Some(session) = this
-                                        .draft_panel
-                                        .parts
-                                        .get_mut(part_idx)
-                                        .and_then(|p| p.sessions.get_mut(sess_idx))
-                                    {
-                                        session.room_ids = vec![item_uid];
-                                    }
+                                    this.draft_panel.room_ids = vec![item_uid];
                                     this.room_dropdown_open = false;
                                     this.schedule_save(cx);
                                     cx.notify();
@@ -1016,16 +807,7 @@ impl Render for PanelEditWindow {
                             .on_mouse_down(
                                 MouseButton::Left,
                                 cx.listener(move |this, _, _, cx| {
-                                    let pi = this.selected_part_idx;
-                                    let si = this.selected_session_idx;
-                                    if let Some(session) = this
-                                        .draft_panel
-                                        .parts
-                                        .get_mut(pi)
-                                        .and_then(|p| p.sessions.get_mut(si))
-                                    {
-                                        session.is_full = !session.is_full;
-                                    }
+                                    this.draft_panel.is_full = !this.draft_panel.is_full;
                                     this.schedule_save(cx);
                                     cx.notify();
                                 }),
@@ -1044,16 +826,8 @@ impl Render for PanelEditWindow {
                             .on_mouse_down(
                                 MouseButton::Left,
                                 cx.listener(move |this, _, _, cx| {
-                                    let pi = this.selected_part_idx;
-                                    let si = this.selected_session_idx;
-                                    if let Some(session) = this
-                                        .draft_panel
-                                        .parts
-                                        .get_mut(pi)
-                                        .and_then(|p| p.sessions.get_mut(si))
-                                    {
-                                        session.hide_panelist = !session.hide_panelist;
-                                    }
+                                    this.draft_panel.hide_panelist =
+                                        !this.draft_panel.hide_panelist;
                                     this.schedule_save(cx);
                                     cx.notify();
                                 }),

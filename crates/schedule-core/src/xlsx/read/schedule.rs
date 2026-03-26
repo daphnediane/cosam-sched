@@ -13,8 +13,9 @@ use regex::Regex;
 use umya_spreadsheet::Spreadsheet;
 
 use crate::data::event::EventConflict;
-use crate::data::panel::{ExtraValue, FormulaValue, Panel, apply_common_prefix};
+use crate::data::panel::{ExtraValue, FormulaValue, Panel};
 use crate::data::panel_id::PanelId;
+use crate::data::panel_set::PanelSet;
 use crate::data::panel_type::PanelType;
 use crate::data::presenter::{PresenterGroup, PresenterMember, PresenterRank};
 use crate::data::room::Room;
@@ -40,7 +41,7 @@ pub(super) fn read_panels(
     file_path: &str,
     _presenter_ranks: &HashMap<String, String>,
 ) -> Result<(
-    IndexMap<String, Panel>,
+    IndexMap<String, PanelSet>,
     HashMap<String, PresenterInfo>,
     Vec<TimelineEntry>,
 )> {
@@ -77,7 +78,7 @@ pub(super) fn read_panels(
         .ok_or_else(|| anyhow::anyhow!("Sheet '{}' not found", range.sheet_name))?;
 
     if !range.has_data() {
-        return Ok((IndexMap::new(), HashMap::new(), Vec::new()));
+        return Ok((IndexMap::new(), HashMap::new(), Vec::new())); // 3-tuple still matches
     }
 
     let (raw_headers, canonical_headers, col_map) = build_column_map(ws, &range);
@@ -159,7 +160,7 @@ pub(super) fn read_panels(
         .collect();
 
     let mut presenter_map: HashMap<String, PresenterInfo> = HashMap::new();
-    let mut panels: IndexMap<String, Panel> = IndexMap::new();
+    let mut panel_sets: IndexMap<String, PanelSet> = IndexMap::new();
     let mut timeline_entries: Vec<TimelineEntry> = Vec::new();
 
     let start_time_col = col_map.get(sc::START_TIME.canonical).copied();
@@ -425,176 +426,59 @@ pub(super) fn read_panels(
         let av_notes = get_field_def(&data, &sc::AV_NOTES).cloned();
         let have_ticket_image = get_field_def(&data, &sc::HAVE_TICKET_IMAGE).map(|s| is_truthy(s));
 
-        // Find or create the base panel, handling duplicates
-        let is_duplicate = panels.contains_key(&panel_id.base_id());
-        let panel = panels.entry(panel_id.base_id()).or_insert_with(|| {
-            let mut p = Panel::new(panel_id.base_id());
-            p.name = name.clone();
-            p.panel_type = panel_type_uid.clone();
-            p.cost = cost.clone();
-            p.capacity = capacity.clone();
-            p.difficulty = difficulty.clone();
-            p.ticket_url = ticket_url.clone();
-            p.is_free = is_free;
-            p.is_kids = is_kids;
-            p.simple_tix_event = simple_tix_event.clone();
-            p.have_ticket_image = have_ticket_image;
-            // Store first description/note/prereq at base level
-            p.description = description.clone();
-            p.note = note.clone();
-            p.prereq = prereq.clone();
-            p.credited_presenters = credited_presenters.clone();
-            p.uncredited_presenters = uncredited_presenters.clone();
-            p
-        });
+        // Find or create the PanelSet for this base panel
+        let base_id = panel_id.base_id();
+        let ps = panel_sets
+            .entry(base_id.clone())
+            .or_insert_with(|| PanelSet::new(&base_id));
 
-        // Handle duplicate Uniq ID cases
-        if is_duplicate {
-            if panel.name == name {
-                // Same Uniq ID + Same Name → Different sessions with alpha suffixes
-            } else {
-                // Same Uniq ID + Different Name → Update to new unused ID of same panel type
-                // TODO: Generate new unused ID of same panel type
-            }
-        }
-
-        // Apply common-prefix algorithm at base level.
-        // Each call returns (new_entry_suffix, old_prefix_suffix_if_narrowed).
-        // Neither value includes the separator space; join_parts adds it back.
-        let (base_desc_suffix, narrowed_base_desc) = match description.as_deref() {
-            Some(v) => apply_common_prefix(&mut panel.description, v),
-            None => (String::new(), None),
-        };
-        let (base_note_suffix, narrowed_base_note) = match note.as_deref() {
-            Some(v) => apply_common_prefix(&mut panel.note, v),
-            None => (String::new(), None),
-        };
-        let (base_prereq_suffix, narrowed_base_prereq) = match prereq.as_deref() {
-            Some(v) => apply_common_prefix(&mut panel.prereq, v),
-            None => (String::new(), None),
-        };
-
-        // When the base prefix narrowed, push the old base tail to all existing parts.
-        if narrowed_base_desc.is_some()
-            || narrowed_base_note.is_some()
-            || narrowed_base_prereq.is_some()
-        {
-            for ep in &mut panel.parts {
-                if let Some(ref tail) = narrowed_base_desc {
-                    ep.description = prepend_suffix(tail, ep.description.as_deref());
-                }
-                if let Some(ref tail) = narrowed_base_note {
-                    ep.note = prepend_suffix(tail, ep.note.as_deref());
-                }
-                if let Some(ref tail) = narrowed_base_prereq {
-                    ep.prereq = prepend_suffix(tail, ep.prereq.as_deref());
-                }
-            }
-        }
-
-        let panel_id_str = panel.id.clone();
-
-        // Detect whether this part already exists before find_or_create_part.
-        let part_already_exists = panel_id
-            .part_num
-            .map(|n| panel.parts.iter().any(|p| p.part_num == Some(n)))
-            .unwrap_or(!panel.parts.is_empty());
-
-        // Find or create the part
-        let part = panel.find_or_create_part(panel_id.part_num);
-
-        // Apply common-prefix at the part level using the base-level suffixes.
-        let (part_desc_suffix, part_note_suffix, part_prereq_suffix) = if part_already_exists {
-            let (s_desc, n_desc) = apply_common_prefix(&mut part.description, &base_desc_suffix);
-            let (s_note, n_note) = apply_common_prefix(&mut part.note, &base_note_suffix);
-            let (s_prereq, n_prereq) = apply_common_prefix(&mut part.prereq, &base_prereq_suffix);
-            // When part-level fields narrowed, push old tails to all existing sessions.
-            if n_desc.is_some() || n_note.is_some() || n_prereq.is_some() {
-                for es in &mut part.sessions {
-                    if let Some(ref tail) = n_desc {
-                        es.description = prepend_suffix(tail, es.description.as_deref());
-                    }
-                    if let Some(ref tail) = n_note {
-                        es.note = prepend_suffix(tail, es.note.as_deref());
-                    }
-                    if let Some(ref tail) = n_prereq {
-                        es.prereq = prepend_suffix(tail, es.prereq.as_deref());
-                    }
-                }
-            }
-            (s_desc, s_note, s_prereq)
-        } else {
-            if !base_desc_suffix.is_empty() {
-                part.description = Some(base_desc_suffix.clone());
-            }
-            if !base_note_suffix.is_empty() {
-                part.note = Some(base_note_suffix.clone());
-            }
-            if !base_prereq_suffix.is_empty() {
-                part.prereq = Some(base_prereq_suffix.clone());
-            }
-            (String::new(), String::new(), String::new())
-        };
-
-        // Add presenters to part
-        for presenter in &credited_presenters {
-            if !part.credited_presenters.contains(presenter) {
-                part.credited_presenters.push(presenter.clone());
-            }
-        }
-        for presenter in &uncredited_presenters {
-            if !part.uncredited_presenters.contains(presenter) {
-                part.uncredited_presenters.push(presenter.clone());
-            }
-        }
-
-        // Clone values before creating session
-        let part_sessions_count = part.sessions.len();
-
-        // Create the session - always add new during import, handle conflicts in post-processing
+        // Build the flat panel's full ID from the Uniq_ID, or synthesize one
         let session_id = if let Some(ref id) = uniq_id {
             id.clone()
         } else {
-            format!("{}-session-{}", panel_id_str, part_sessions_count)
+            format!("{}-session-{}", base_id, ps.panels.len())
         };
 
-        let session = part.create_new_session(panel_id.session_num, session_id);
-
-        // Set session fields
-        session.room_ids = room_ids;
-        session.start_time = Some(time::format_storage(start_time));
-        session.end_time = Some(time::format_storage(end_time));
-        session.duration = duration;
-        session.is_full = is_full;
-        session.capacity = capacity;
-        session.seats_sold = seats_sold;
-        session.pre_reg_max = pre_reg_max;
-        session.ticket_url = ticket_url;
-        session.simple_tix_event = simple_tix_event;
-        session.hide_panelist = hide_panelist;
-        session.notes_non_printing = notes_non_printing;
-        session.workshop_notes = workshop_notes;
-        session.power_needs = power_needs;
-        session.sewing_machines = sewing_machines;
-        session.av_notes = av_notes;
-        session.source = Some(SourceInfo {
+        // Create the flat panel with all fields from this row
+        let mut panel = Panel::new(&session_id, &base_id);
+        panel.name = name.clone();
+        panel.part_num = panel_id.part_num;
+        panel.session_num = panel_id.session_num;
+        panel.panel_type = panel_type_uid.clone();
+        panel.room_ids = room_ids;
+        panel.start_time = Some(time::format_storage(start_time));
+        panel.end_time = Some(time::format_storage(end_time));
+        panel.duration = duration;
+        panel.cost = cost.clone();
+        panel.is_free = is_free;
+        panel.is_kids = is_kids;
+        panel.is_full = is_full;
+        panel.capacity = capacity;
+        panel.seats_sold = seats_sold;
+        panel.pre_reg_max = pre_reg_max;
+        panel.ticket_url = ticket_url;
+        panel.simple_tix_event = simple_tix_event;
+        panel.have_ticket_image = have_ticket_image;
+        panel.hide_panelist = hide_panelist;
+        panel.difficulty = difficulty;
+        panel.description = description;
+        panel.note = note;
+        panel.prereq = prereq;
+        panel.alt_panelist = alt_panelist;
+        panel.credited_presenters = credited_presenters;
+        panel.uncredited_presenters = uncredited_presenters;
+        panel.notes_non_printing = notes_non_printing;
+        panel.workshop_notes = workshop_notes;
+        panel.power_needs = power_needs;
+        panel.sewing_machines = sewing_machines;
+        panel.av_notes = av_notes;
+        panel.source = Some(SourceInfo {
             file_path: Some(file_path.to_string()),
             sheet_name: Some(range.sheet_name.clone()),
             row_index: Some(row),
         });
         if is_deleted_row {
-            session.change_state = ChangeState::Deleted;
-        }
-
-        // Store the part-level suffixes as the session's unique fields.
-        if !part_desc_suffix.is_empty() {
-            session.description = Some(part_desc_suffix);
-        }
-        if !part_note_suffix.is_empty() {
-            session.note = Some(part_note_suffix);
-        }
-        if !part_prereq_suffix.is_empty() {
-            session.prereq = Some(part_prereq_suffix);
+            panel.change_state = ChangeState::Deleted;
         }
 
         // Add conflict if detected
@@ -606,19 +490,12 @@ pub(super) fn read_panels(
                 panel_id.part_num.unwrap_or(0),
                 panel_id.session_num.unwrap_or(0)
             );
-            session.conflicts.push(EventConflict {
+            panel.conflicts.push(EventConflict {
                 conflict_type: "title_id_mismatch".to_string(),
                 details: Some(conflict_details),
                 conflict_event_id: None,
             });
         }
-
-        // Store alt_panelist at session level; post-processing promotes uniform values upward.
-        session.alt_panelist = alt_panelist;
-
-        // Add presenters to session
-        session.credited_presenters = credited_presenters;
-        session.uncredited_presenters = uncredited_presenters;
 
         // Collect metadata from non-standard columns
         if !metadata_cols.is_empty() {
@@ -643,41 +520,14 @@ pub(super) fn read_panels(
                 })
                 .collect();
             if !metadata.is_empty() {
-                session.metadata = metadata;
+                panel.metadata = metadata;
             }
         }
+
+        ps.panels.push(panel);
     }
 
-    // Post-processing: promote uniform alt_panelist values up the hierarchy.
-    // If all sessions within a part share the same value, move it to the part level.
-    // If all parts then share the same value, move it to the base level.
-    for panel in panels.values_mut() {
-        for part in &mut panel.parts {
-            if part.sessions.is_empty() {
-                continue;
-            }
-            let first = part.sessions[0].alt_panelist.clone();
-            if part.sessions.iter().all(|s| s.alt_panelist == first) {
-                part.alt_panelist = first;
-                for session in &mut part.sessions {
-                    session.alt_panelist = None;
-                }
-            }
-        }
-
-        if panel.parts.is_empty() {
-            continue;
-        }
-        let first = panel.parts[0].alt_panelist.clone();
-        if panel.parts.iter().all(|p| p.alt_panelist == first) {
-            panel.alt_panelist = first;
-            for part in &mut panel.parts {
-                part.alt_panelist = None;
-            }
-        }
-    }
-
-    Ok((panels, presenter_map, timeline_entries))
+    Ok((panel_sets, presenter_map, timeline_entries))
 }
 
 fn extract_hyperlink_url(ws: &umya_spreadsheet::Worksheet, col: u32, row: u32) -> Option<String> {
@@ -807,17 +657,6 @@ fn strip_title_suffix(title: &str) -> (String, Option<u32>, Option<u32>) {
         (base_title, part_num, session_num)
     } else {
         (title.to_string(), None, None)
-    }
-}
-
-/// Prepend a narrowed base/part prefix tail to an existing sibling field value.
-fn prepend_suffix(prefix: &str, existing: Option<&str>) -> Option<String> {
-    if prefix.is_empty() {
-        return existing.map(|s| s.to_string());
-    }
-    match existing.filter(|s| !s.is_empty()) {
-        None => Some(prefix.to_string()),
-        Some(val) => Some(format!("{} {}", prefix, val)),
     }
 }
 

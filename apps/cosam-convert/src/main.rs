@@ -443,13 +443,11 @@ fn print_conflicts(schedule: &schedule_core::data::Schedule) {
     let mut sessions_with_conflicts = 0;
     let mut total_session_conflicts = 0;
 
-    for panel in schedule.panels.values() {
-        for part in &panel.parts {
-            for session in &part.sessions {
-                if !session.conflicts.is_empty() {
-                    sessions_with_conflicts += 1;
-                    total_session_conflicts += session.conflicts.len();
-                }
+    for ps in schedule.panel_sets.values() {
+        for panel in &ps.panels {
+            if !panel.conflicts.is_empty() {
+                sessions_with_conflicts += 1;
+                total_session_conflicts += panel.conflicts.len();
             }
         }
     }
@@ -511,23 +509,17 @@ fn main() {
         }
     };
 
-    // Count total sessions across all panels
+    // Count total panels across all panel sets
     let total_sessions: usize = sf
         .schedule
-        .panels
+        .panel_sets
         .values()
-        .map(|panel| {
-            panel
-                .parts
-                .iter()
-                .map(|part| part.sessions.len())
-                .sum::<usize>()
-        })
+        .map(|ps| ps.panels.len())
         .sum();
 
     eprintln!(
-        "Panels: {}, Sessions: {}, Rooms: {}, Panel types: {}, Presenters: {}",
-        sf.schedule.panels.len(),
+        "Panel sets: {}, Panels: {}, Rooms: {}, Panel types: {}, Presenters: {}",
+        sf.schedule.panel_sets.len(),
         total_sessions,
         sf.schedule.rooms.len(),
         sf.schedule.panel_types.len(),

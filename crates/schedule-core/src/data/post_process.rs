@@ -23,42 +23,36 @@ pub fn apply_schedule_parity(schedule: &mut Schedule) {
 }
 
 fn normalize_event_times(schedule: &mut Schedule) {
-    // Normalize times for all sessions in panels
-    for panel in schedule.panels.values_mut() {
-        for part in &mut panel.parts {
-            for session in &mut part.sessions {
-                if let (Some(start), Some(end)) = (&session.start_time, &session.end_time) {
-                    // Parse the time strings
-                    if let (Ok(start_dt), Ok(end_dt)) = (
-                        chrono::NaiveDateTime::parse_from_str(start, "%-m/%-d/%Y %-I:%M %p"),
-                        chrono::NaiveDateTime::parse_from_str(end, "%-m/%-d/%Y %-I:%M %p"),
-                    ) {
-                        if end_dt < start_dt {
-                            let duration_minutes = if session.duration == 0 {
-                                60
-                            } else {
-                                session.duration
-                            };
-                            let new_end =
-                                start_dt + chrono::Duration::minutes(duration_minutes as i64);
-                            session.end_time =
-                                Some(new_end.format("%-m/%-d/%Y %-I:%M %p").to_string());
-                            session.duration = duration_minutes;
+    for ps in schedule.panel_sets.values_mut() {
+        for panel in &mut ps.panels {
+            if let (Some(start), Some(end)) = (&panel.start_time, &panel.end_time) {
+                if let (Ok(start_dt), Ok(end_dt)) = (
+                    chrono::NaiveDateTime::parse_from_str(start, "%-m/%-d/%Y %-I:%M %p"),
+                    chrono::NaiveDateTime::parse_from_str(end, "%-m/%-d/%Y %-I:%M %p"),
+                ) {
+                    if end_dt < start_dt {
+                        let duration_minutes = if panel.duration == 0 {
+                            60
                         } else {
-                            let computed_minutes = (end_dt - start_dt).num_minutes();
-                            if computed_minutes > 0 {
-                                session.duration = computed_minutes as u32;
-                            } else if session.duration > 0 {
-                                let new_end =
-                                    start_dt + chrono::Duration::minutes(session.duration as i64);
-                                session.end_time =
-                                    Some(new_end.format("%-m/%-d/%Y %-I:%M %p").to_string());
-                            } else {
-                                session.duration = 60;
-                                let new_end = start_dt + chrono::Duration::minutes(60);
-                                session.end_time =
-                                    Some(new_end.format("%-m/%-d/%Y %-I:%M %p").to_string());
-                            }
+                            panel.duration
+                        };
+                        let new_end = start_dt + chrono::Duration::minutes(duration_minutes as i64);
+                        panel.end_time = Some(new_end.format("%-m/%-d/%Y %-I:%M %p").to_string());
+                        panel.duration = duration_minutes;
+                    } else {
+                        let computed_minutes = (end_dt - start_dt).num_minutes();
+                        if computed_minutes > 0 {
+                            panel.duration = computed_minutes as u32;
+                        } else if panel.duration > 0 {
+                            let new_end =
+                                start_dt + chrono::Duration::minutes(panel.duration as i64);
+                            panel.end_time =
+                                Some(new_end.format("%-m/%-d/%Y %-I:%M %p").to_string());
+                        } else {
+                            panel.duration = 60;
+                            let new_end = start_dt + chrono::Duration::minutes(60);
+                            panel.end_time =
+                                Some(new_end.format("%-m/%-d/%Y %-I:%M %p").to_string());
                         }
                     }
                 }
@@ -93,7 +87,6 @@ fn detect_panel_conflicts(schedule: &mut Schedule) {
         .map(|(prefix, panel_type)| (prefix.clone(), panel_type))
         .collect();
 
-    // Collect all panel sessions with their time and location info
     let mut panel_sessions: Vec<(
         String,
         String,
@@ -104,44 +97,35 @@ fn detect_panel_conflicts(schedule: &mut Schedule) {
     )> = Vec::new();
     let mut session_index_map: HashMap<String, usize> = HashMap::new();
 
-    for (_panel_idx, (panel_id, panel)) in schedule.panels.iter().enumerate() {
-        if let Some(ref pt_uid) = panel.panel_type {
-            if is_break_event(Some(pt_uid), &panel_type_lookup) {
-                continue;
+    for ps in schedule.panel_sets.values() {
+        for panel in &ps.panels {
+            if let Some(ref pt_uid) = panel.panel_type {
+                if is_break_event(Some(pt_uid), &panel_type_lookup) {
+                    continue;
+                }
             }
-        }
 
-        for (part_idx, part) in panel.parts.iter().enumerate() {
-            for (session_idx, session) in part.sessions.iter().enumerate() {
-                if let (Some(start_str), Some(end_str)) = (&session.start_time, &session.end_time) {
-                    if let (Ok(start_time), Ok(end_time)) = (
-                        chrono::NaiveDateTime::parse_from_str(start_str, "%Y-%m-%dT%H:%M:%S"),
-                        chrono::NaiveDateTime::parse_from_str(end_str, "%Y-%m-%dT%H:%M:%S"),
-                    ) {
-                        let session_key = format!("{}-{}-{}", panel_id, part_idx, session_idx);
-                        let all_presenters: Vec<String> = session
-                            .credited_presenters
-                            .iter()
-                            .chain(session.uncredited_presenters.iter())
-                            .cloned()
-                            .collect();
+            if let (Some(start_str), Some(end_str)) = (&panel.start_time, &panel.end_time) {
+                if let (Ok(start_time), Ok(end_time)) = (
+                    chrono::NaiveDateTime::parse_from_str(start_str, "%Y-%m-%dT%H:%M:%S"),
+                    chrono::NaiveDateTime::parse_from_str(end_str, "%Y-%m-%dT%H:%M:%S"),
+                ) {
+                    let all_presenters: Vec<String> = panel
+                        .credited_presenters
+                        .iter()
+                        .chain(panel.uncredited_presenters.iter())
+                        .cloned()
+                        .collect();
 
-                        panel_sessions.push((
-                            session_key.clone(),
-                            format!(
-                                "{} (Part {}, Session {})",
-                                panel.name,
-                                part.part_num.unwrap_or(0),
-                                session.session_num.unwrap_or(0)
-                            ),
-                            start_time,
-                            end_time,
-                            session.room_ids.clone(),
-                            all_presenters,
-                        ));
-
-                        session_index_map.insert(session_key, panel_sessions.len() - 1);
-                    }
+                    panel_sessions.push((
+                        panel.id.clone(),
+                        panel.name.clone(),
+                        start_time,
+                        end_time,
+                        panel.room_ids.clone(),
+                        all_presenters,
+                    ));
+                    session_index_map.insert(panel.id.clone(), panel_sessions.len() - 1);
                 }
             }
         }
@@ -302,7 +286,6 @@ fn add_panel_session_conflict(
     presenter_name: Option<String>,
     room_value: Option<serde_json::Value>,
 ) {
-    // Add to top-level conflicts
     schedule.conflicts.push(ScheduleConflict {
         event1: ConflictEventRef {
             id: first_session.0.clone(),
@@ -317,73 +300,54 @@ fn add_panel_session_conflict(
         conflict_type: conflict_type.to_string(),
     });
 
-    // Find the actual panel sessions and add conflicts to them
-    if let Some((first_panel_id, first_part_idx, first_session_idx)) =
-        parse_session_key(&first_session.0)
-    {
-        if let Some(panel) = schedule.panels.get_mut(first_panel_id) {
-            if let Some(part) = panel.parts.get_mut(first_part_idx) {
-                if let Some(session) = part.sessions.get_mut(first_session_idx) {
-                    let details = match conflict_type {
-                        "group_presenter" => presenter_name.as_ref().map(|name| {
-                            format!("Group presenter overlap: {name} in multiple events")
-                        }),
-                        "presenter" => presenter_name.as_ref().map(|name| {
-                            format!(
-                                "Double-booked with: {} (presenter: {name})",
-                                second_session.1
-                            )
-                        }),
-                        _ => Some(format!("Room conflict with: {}", second_session.1)),
-                    };
-
-                    session.conflicts.push(EventConflict {
-                        conflict_type: conflict_type.to_string(),
-                        details,
-                        conflict_event_id: Some(second_session.0.clone()),
-                    });
-                }
+    // Helper closure: find a flat panel by id across all panel_sets
+    let get_panel_id = |panels: &mut indexmap::IndexMap<String, super::panel_set::PanelSet>,
+                        id: &str|
+     -> Option<(String, usize)> {
+        for (base_id, ps) in panels.iter() {
+            if let Some(idx) = ps.panels.iter().position(|p| p.id == id) {
+                return Some((base_id.clone(), idx));
             }
         }
-    }
+        None
+    };
 
-    if let Some((second_panel_id, second_part_idx, second_session_idx)) =
-        parse_session_key(&second_session.0)
-    {
-        if let Some(panel) = schedule.panels.get_mut(second_panel_id) {
-            if let Some(part) = panel.parts.get_mut(second_part_idx) {
-                if let Some(session) = part.sessions.get_mut(second_session_idx) {
-                    let details = match conflict_type {
-                        "group_presenter" => presenter_name.as_ref().map(|name| {
-                            format!("Group presenter overlap: {name} in multiple events")
-                        }),
-                        "presenter" => presenter_name.as_ref().map(|name| {
-                            format!(
-                                "Double-booked with: {} (presenter: {name})",
-                                first_session.1
-                            )
-                        }),
-                        _ => Some(format!("Room conflict with: {}", first_session.1)),
-                    };
-
-                    session.conflicts.push(EventConflict {
-                        conflict_type: conflict_type.to_string(),
-                        details,
-                        conflict_event_id: Some(first_session.0.clone()),
-                    });
-                }
-            }
+    let make_details = |conflict_type: &str,
+                        presenter_name: &Option<String>,
+                        other_name: &str|
+     -> Option<String> {
+        match conflict_type {
+            "group_presenter" => presenter_name
+                .as_ref()
+                .map(|name| format!("Group presenter overlap: {name} in multiple events")),
+            "presenter" => presenter_name
+                .as_ref()
+                .map(|name| format!("Double-booked with: {} (presenter: {name})", other_name)),
+            _ => Some(format!("Room conflict with: {}", other_name)),
         }
-    }
-}
+    };
 
-/// Parse a session key back into panel_id, part_idx, session_idx
-fn parse_session_key(key: &str) -> Option<(&str, usize, usize)> {
-    let mut parts = key.splitn(3, '-');
-    let panel_id = parts.next()?;
-    let part_idx: usize = parts.next()?.parse().ok()?;
-    let session_idx: usize = parts.next()?.parse().ok()?;
-    Some((panel_id, part_idx, session_idx))
+    if let Some((base_id, idx)) = get_panel_id(&mut schedule.panel_sets, &first_session.0) {
+        let details = make_details(conflict_type, &presenter_name, &second_session.1);
+        schedule.panel_sets.get_mut(&base_id).unwrap().panels[idx]
+            .conflicts
+            .push(EventConflict {
+                conflict_type: conflict_type.to_string(),
+                details,
+                conflict_event_id: Some(second_session.0.clone()),
+            });
+    }
+
+    if let Some((base_id, idx)) = get_panel_id(&mut schedule.panel_sets, &second_session.0) {
+        let details = make_details(conflict_type, &presenter_name, &first_session.1);
+        schedule.panel_sets.get_mut(&base_id).unwrap().panels[idx]
+            .conflicts
+            .push(EventConflict {
+                conflict_type: conflict_type.to_string(),
+                details,
+                conflict_event_id: Some(first_session.0.clone()),
+            });
+    }
 }
 
 fn is_break_event(
@@ -420,90 +384,64 @@ fn is_group_presenter(presenter_name: &str, presenters: &[Presenter]) -> bool {
         .unwrap_or(false)
 }
 
-/// Resolve session ID conflicts by assigning unique alpha suffixes
-/// When multiple sessions have the same Uniq ID and same panel name,
-/// they get alpha suffixes (A, B, C, etc.) skipping P and S
-/// Uses proper suffix generation: A..Z, AA..AZ, BA..BZ, etc.
-fn resolve_session_conflicts(schedule: &mut Schedule) {
-    // Process each panel and part once
-    for (panel_id, panel) in &mut schedule.panels {
-        for part in &mut panel.parts {
-            resolve_part_conflicts(panel_id, part);
-        }
+/// Resolve panel ID conflicts within each [`PanelSet`] by assigning unique
+/// alpha suffixes.  Two flat panels in the same set that share the same `id`
+/// AND `session_num` are considered duplicates; panels with the same `id` but
+/// different `session_num` values are left as-is.
+///
+/// Alpha suffixes use A..Z, AA..AZ, … skipping P and S.
+pub(crate) fn resolve_session_conflicts(schedule: &mut Schedule) {
+    for ps in schedule.panel_sets.values_mut() {
+        resolve_panelset_conflicts(ps);
     }
 }
 
-/// Resolve conflicts within a single part
-fn resolve_part_conflicts(_panel_id: &str, part: &mut crate::data::panel::PanelPart) {
-    // Short circuit if only one session (the common case)
-    if part.sessions.len() <= 1 {
+/// Resolve ID conflicts within a single [`PanelSet`].
+fn resolve_panelset_conflicts(ps: &mut super::panel_set::PanelSet) {
+    if ps.panels.len() <= 1 {
         return;
     }
 
-    // First pass: collect session number/suffix combinations and detect conflicts
-    // We can assume all sessions have the same base ID in this part
-    let mut session_groups: HashMap<(Option<u32>, String), Vec<usize>> = HashMap::new();
-    for (idx, session) in part.sessions.iter().enumerate() {
-        let suffix = extract_alpha_suffix(&session.id);
-        let key = (session.session_num, suffix);
-        session_groups.entry(key).or_insert_with(Vec::new).push(idx);
+    // Group panel indices by (id, session_num)
+    let mut groups: HashMap<(String, Option<u32>), Vec<usize>> = HashMap::new();
+    for (idx, panel) in ps.panels.iter().enumerate() {
+        let suffix = extract_alpha_suffix(&panel.id);
+        let key = (strip_alpha_suffix(&panel.id) + &suffix, panel.session_num);
+        groups.entry(key).or_default().push(idx);
     }
 
-    // Find conflicts (same session number AND same suffix appearing multiple times)
-    let conflicts: Vec<_> = session_groups
+    // Collect conflicting groups (same id AND session_num, > 1 panel)
+    let conflicts: Vec<_> = groups
         .iter()
         .filter(|(_, indices)| indices.len() > 1)
+        .map(|(key, indices)| (key.clone(), indices.clone()))
         .collect();
 
     if conflicts.is_empty() {
-        return; // No conflicts in this part
-    }
-
-    // Second pass: resolve conflicts by assigning unique suffixes
-    for ((session_num, suffix), indices) in conflicts {
-        if indices.len() > 1 {
-            resolve_part_session_conflicts(part, *session_num, &suffix, &indices);
-        }
-    }
-}
-
-/// Resolve conflicts for sessions with the same session number and suffix within a single part
-fn resolve_part_session_conflicts(
-    part: &mut crate::data::panel::PanelPart,
-    session_num: Option<u32>,
-    original_suffix: &str,
-    indices: &[usize],
-) {
-    // Extract base without suffix from any of the conflicting sessions
-    let base_without_suffix = if let Some(first_idx) = indices.first() {
-        strip_alpha_suffix(&part.sessions[*first_idx].id)
-    } else {
         return;
-    };
-
-    // Collect existing (session_num, suffix) combinations for this base ID
-    let mut used_combinations: HashSet<(Option<u32>, String)> = HashSet::new();
-    for session in &part.sessions {
-        if session.id.starts_with(&base_without_suffix) {
-            let suffix = extract_alpha_suffix(&session.id);
-            used_combinations.insert((session.session_num, suffix));
-        }
     }
 
-    // Assign new suffixes to ALL conflicting sessions
-    // Start from the conflicted suffix and advance from there
-    let mut start_suffix = original_suffix.to_string();
-    for &session_idx in indices.iter() {
-        let new_suffix =
-            generate_unique_suffix_for_session(session_num, &start_suffix, &used_combinations);
-        let new_id = format!("{}{}", base_without_suffix, new_suffix);
+    for ((conflicted_id, session_num), indices) in conflicts {
+        let base_without_suffix = strip_alpha_suffix(&conflicted_id);
+        let original_suffix = extract_alpha_suffix(&conflicted_id);
 
-        part.sessions[session_idx].id = new_id.clone();
-        part.sessions[session_idx].session_num = session_num;
-        used_combinations.insert((session_num, new_suffix.clone()));
+        // Collect all used (session_num, suffix) pairs in this PanelSet
+        let mut used: HashSet<(Option<u32>, String)> = HashSet::new();
+        for panel in &ps.panels {
+            if panel.id.starts_with(&base_without_suffix) {
+                used.insert((panel.session_num, extract_alpha_suffix(&panel.id)));
+            }
+        }
 
-        // For next iteration, start from the suffix we just used
-        start_suffix = new_suffix;
+        let mut start_suffix = original_suffix;
+        for &panel_idx in &indices {
+            let new_suffix = generate_unique_suffix_for_session(session_num, &start_suffix, &used);
+            let new_id = format!("{}{}", base_without_suffix, new_suffix);
+            ps.panels[panel_idx].id = new_id;
+            ps.panels[panel_idx].session_num = session_num;
+            used.insert((session_num, new_suffix.clone()));
+            start_suffix = new_suffix;
+        }
     }
 }
 

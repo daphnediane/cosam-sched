@@ -14,9 +14,14 @@ use crate::data::room::Room;
 use crate::data::schedule::Schedule;
 use crate::data::source_info::{ChangeState, SourceInfo};
 
-/// Identifies which string field on a panel to set.
+/// Identifies which `Option<String>` field on a flat [`crate::data::Panel`] to set.
+///
+/// In the flat model a `Panel` is fully self-contained so this enum covers
+/// both what used to live on the base panel **and** what used to live on a
+/// `PanelSession`.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub enum PanelField {
+    // ── Base panel fields ────────────────────────────────────────
     Description,
     Note,
     Prereq,
@@ -25,20 +30,22 @@ pub enum PanelField {
     Difficulty,
     PanelType,
     AltPanelist,
-}
-
-/// Identifies which string field on a session to set.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-pub enum SessionField {
-    Description,
-    Note,
-    Prereq,
-    AltPanelist,
-    Capacity,
-    AvNotes,
+    PreRegMax,
+    TicketUrl,
+    SimpleTicketEvent,
+    HaveTicketImage,
+    // ── Scheduling / session fields (now part of flat Panel) ─────
     StartTime,
     EndTime,
+    AvNotes,
+    NotesNonPrinting,
+    WorkshopNotes,
+    PowerNeeds,
 }
+
+/// `SessionField` is kept as a type alias for backward source-level
+/// compatibility. New code should use [`PanelField`] directly.
+pub type SessionField = PanelField;
 
 /// Snapshot of scheduling-related session state for undo.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -158,9 +165,13 @@ impl PanelTypeSnapshot {
 ///
 /// Each variant stores the data needed for both forward application and
 /// reversal. Old-state fields are populated at apply-time.
+///
+/// In the flat model every [`crate::data::Panel`] is fully self-contained and
+/// is addressed by its full Uniq ID (e.g. `"GP002P1S2"`).  The old
+/// `(base_id, part_index, session_index)` triple is no longer needed.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub enum EditCommand {
-    // ── Panel fields ────────────────────────────────────────────
+    // ── Panel fields (covers what used to be both panel- and session-level) ──
     SetPanelName {
         panel_id: String,
         old: String,
@@ -178,64 +189,54 @@ pub enum EditCommand {
         old: bool,
         new: bool,
     },
-
-    // ── Session fields ──────────────────────────────────────────
-    SetSessionField {
+    SetPanelDuration {
         panel_id: String,
-        part_index: usize,
-        session_index: usize,
-        field: SessionField,
-        old: Option<String>,
-        new: Option<String>,
-    },
-    SetSessionDuration {
-        panel_id: String,
-        part_index: usize,
-        session_index: usize,
         old: u32,
         new: u32,
     },
 
-    // ── Presenters on sessions ──────────────────────────────────
-    AddPresenterToSession {
+    // ── Presenters on panels ─────────────────────────────────────
+    AddPresenterToPanel {
         panel_id: String,
-        part_index: usize,
-        session_index: usize,
         name: String,
     },
-    RemovePresenterFromSession {
+    RemovePresenterFromPanel {
         panel_id: String,
-        part_index: usize,
-        session_index: usize,
         name: String,
         position: usize,
     },
 
-    // ── Scheduling ──────────────────────────────────────────────
-    RescheduleSession {
+    // ── Scheduling ───────────────────────────────────────────────
+    ReschedulePanel {
         panel_id: String,
-        part_index: usize,
-        session_index: usize,
         old_state: SessionScheduleState,
         new_state: SessionScheduleState,
     },
-    UnscheduleSession {
+    UnschedulePanel {
         panel_id: String,
-        part_index: usize,
-        session_index: usize,
         old_state: SessionScheduleState,
     },
 
-    // ── Soft delete ─────────────────────────────────────────────
-    SoftDeleteSession {
-        panel_id: String,
-        part_index: usize,
-        session_index: usize,
-        old_change_state: ChangeState,
-    },
+    // ── Soft delete ──────────────────────────────────────────────
+    /// Soft-delete a single flat Panel.
     SoftDeletePanel {
         panel_id: String,
         old_change_state: ChangeState,
+    },
+    /// Soft-delete all Panels in a PanelSet.
+    SoftDeletePanelSet {
+        base_id: String,
+        old_change_states: Vec<ChangeState>,
+    },
+
+    // ── Panel / PanelSet creation ────────────────────────────────
+    CreatePanelSet {
+        base_id: String,
+        source: Option<SourceInfo>,
+        change_state: ChangeState,
+    },
+    CreatePanel {
+        panel: crate::data::Panel,
     },
 
     // ── Entity creation ─────────────────────────────────────────
@@ -258,7 +259,7 @@ pub enum EditCommand {
         change_state: ChangeState,
     },
 
-    // ── Entity update ───────────────────────────────────────────
+    // ── Entity update ─────────────────────────────────────────────
     UpdateRoom {
         uid: u32,
         old: RoomSnapshot,
@@ -275,19 +276,15 @@ pub enum EditCommand {
         new: PanelTypeSnapshot,
     },
 
-    // ── Metadata ────────────────────────────────────────────────
-    SetSessionMetadata {
+    // ── Metadata ─────────────────────────────────────────────────
+    SetPanelMetadata {
         panel_id: String,
-        part_index: usize,
-        session_index: usize,
         key: String,
         old: Option<crate::data::panel::ExtraValue>,
         new: crate::data::panel::ExtraValue,
     },
-    ClearSessionMetadata {
+    ClearPanelMetadata {
         panel_id: String,
-        part_index: usize,
-        session_index: usize,
         key: String,
         old: crate::data::panel::ExtraValue,
     },
@@ -314,21 +311,14 @@ pub enum EditCommand {
         old: crate::data::panel::ExtraValue,
     },
 
-    // ── Presenter lists ─────────────────────────────────────────
+    // ── Presenter lists ──────────────────────────────────────────
     SetPanelPresenters {
         panel_id: String,
         old: Vec<String>,
         new: Vec<String>,
     },
-    SetSessionPresenters {
-        panel_id: String,
-        part_index: usize,
-        session_index: usize,
-        old: Vec<String>,
-        new: Vec<String>,
-    },
 
-    // ── Batch ───────────────────────────────────────────────────
+    // ── Batch ────────────────────────────────────────────────────
     Batch(Vec<EditCommand>),
 }
 
@@ -337,7 +327,7 @@ impl EditCommand {
     pub fn apply(&mut self, schedule: &mut Schedule) {
         match self {
             EditCommand::SetPanelName { panel_id, old, new } => {
-                if let Some(panel) = schedule.panels.get_mut(panel_id) {
+                if let Some(panel) = get_panel_mut(schedule, panel_id) {
                     *old = panel.name.clone();
                     panel.name = new.clone();
                     mark_panel_modified(panel);
@@ -349,7 +339,7 @@ impl EditCommand {
                 old,
                 new,
             } => {
-                if let Some(panel) = schedule.panels.get_mut(panel_id) {
+                if let Some(panel) = get_panel_mut(schedule, panel_id) {
                     let target = panel_field_ref(panel, field);
                     *old = target.clone();
                     *target = new.clone();
@@ -362,156 +352,117 @@ impl EditCommand {
                 old,
                 new,
             } => {
-                if let Some(panel) = schedule.panels.get_mut(panel_id) {
+                if let Some(panel) = get_panel_mut(schedule, panel_id) {
                     let target = panel_bool_ref(panel, field_name);
                     *old = *target;
                     *target = *new;
                     mark_panel_modified(panel);
                 }
             }
-            EditCommand::SetSessionField {
-                panel_id,
-                part_index,
-                session_index,
-                field,
-                old,
-                new,
-            } => {
-                if let Some(session) =
-                    get_session_mut(schedule, panel_id, *part_index, *session_index)
-                {
-                    let target = session_field_ref(session, field);
-                    *old = target.clone();
-                    *target = new.clone();
-                    mark_session_modified(session);
+            EditCommand::SetPanelDuration { panel_id, old, new } => {
+                if let Some(panel) = get_panel_mut(schedule, panel_id) {
+                    *old = panel.duration;
+                    panel.duration = *new;
+                    mark_panel_modified(panel);
                 }
-                mark_panel_chain_modified(schedule, panel_id, *part_index);
             }
-            EditCommand::SetSessionDuration {
-                panel_id,
-                part_index,
-                session_index,
-                old,
-                new,
-            } => {
-                if let Some(session) =
-                    get_session_mut(schedule, panel_id, *part_index, *session_index)
-                {
-                    *old = session.duration;
-                    session.duration = *new;
-                    mark_session_modified(session);
+            EditCommand::AddPresenterToPanel { panel_id, name } => {
+                if let Some(panel) = get_panel_mut(schedule, panel_id) {
+                    panel.credited_presenters.push(name.clone());
+                    mark_panel_modified(panel);
                 }
-                mark_panel_chain_modified(schedule, panel_id, *part_index);
             }
-            EditCommand::AddPresenterToSession {
+            EditCommand::RemovePresenterFromPanel {
                 panel_id,
-                part_index,
-                session_index,
-                name,
-            } => {
-                if let Some(session) =
-                    get_session_mut(schedule, panel_id, *part_index, *session_index)
-                {
-                    session.credited_presenters.push(name.clone());
-                    mark_session_modified(session);
-                }
-                mark_panel_chain_modified(schedule, panel_id, *part_index);
-            }
-            EditCommand::RemovePresenterFromSession {
-                panel_id,
-                part_index,
-                session_index,
                 name,
                 position,
             } => {
-                if let Some(session) =
-                    get_session_mut(schedule, panel_id, *part_index, *session_index)
-                {
-                    if let Some(pos) = session
+                if let Some(panel) = get_panel_mut(schedule, panel_id) {
+                    if let Some(pos) = panel
                         .credited_presenters
                         .iter()
                         .position(|n| n.eq_ignore_ascii_case(name))
                     {
                         *position = pos;
-                        session.credited_presenters.remove(pos);
-                        mark_session_modified(session);
+                        panel.credited_presenters.remove(pos);
+                        mark_panel_modified(panel);
                     }
                 }
-                mark_panel_chain_modified(schedule, panel_id, *part_index);
             }
-            EditCommand::RescheduleSession {
+            EditCommand::ReschedulePanel {
                 panel_id,
-                part_index,
-                session_index,
                 old_state,
                 new_state,
             } => {
-                if let Some(session) =
-                    get_session_mut(schedule, panel_id, *part_index, *session_index)
-                {
+                if let Some(panel) = get_panel_mut(schedule, panel_id) {
                     *old_state = SessionScheduleState {
-                        room_ids: session.room_ids.clone(),
-                        start_time: session.start_time.clone(),
-                        end_time: session.end_time.clone(),
-                        duration: session.duration,
+                        room_ids: panel.room_ids.clone(),
+                        start_time: panel.start_time.clone(),
+                        end_time: panel.end_time.clone(),
+                        duration: panel.duration,
                     };
-                    session.room_ids = new_state.room_ids.clone();
-                    session.start_time = new_state.start_time.clone();
-                    session.end_time = new_state.end_time.clone();
-                    session.duration = new_state.duration;
-                    mark_session_modified(session);
+                    panel.room_ids = new_state.room_ids.clone();
+                    panel.start_time = new_state.start_time.clone();
+                    panel.end_time = new_state.end_time.clone();
+                    panel.duration = new_state.duration;
+                    mark_panel_modified(panel);
                 }
-                mark_panel_chain_modified(schedule, panel_id, *part_index);
             }
-            EditCommand::UnscheduleSession {
+            EditCommand::UnschedulePanel {
                 panel_id,
-                part_index,
-                session_index,
                 old_state,
             } => {
-                if let Some(session) =
-                    get_session_mut(schedule, panel_id, *part_index, *session_index)
-                {
+                if let Some(panel) = get_panel_mut(schedule, panel_id) {
                     *old_state = SessionScheduleState {
-                        room_ids: session.room_ids.clone(),
-                        start_time: session.start_time.clone(),
-                        end_time: session.end_time.clone(),
-                        duration: session.duration,
+                        room_ids: panel.room_ids.clone(),
+                        start_time: panel.start_time.clone(),
+                        end_time: panel.end_time.clone(),
+                        duration: panel.duration,
                     };
-                    session.room_ids.clear();
-                    session.start_time = None;
-                    session.end_time = None;
-                    mark_session_modified(session);
+                    panel.room_ids.clear();
+                    panel.start_time = None;
+                    panel.end_time = None;
+                    mark_panel_modified(panel);
                 }
-                mark_panel_chain_modified(schedule, panel_id, *part_index);
-            }
-            EditCommand::SoftDeleteSession {
-                panel_id,
-                part_index,
-                session_index,
-                old_change_state,
-            } => {
-                if let Some(session) =
-                    get_session_mut(schedule, panel_id, *part_index, *session_index)
-                {
-                    *old_change_state = session.change_state;
-                    session.change_state = ChangeState::Deleted;
-                }
-                mark_panel_chain_modified(schedule, panel_id, *part_index);
             }
             EditCommand::SoftDeletePanel {
                 panel_id,
                 old_change_state,
             } => {
-                if let Some(panel) = schedule.panels.get_mut(panel_id) {
+                if let Some(panel) = get_panel_mut(schedule, panel_id) {
                     *old_change_state = panel.change_state;
                     panel.change_state = ChangeState::Deleted;
-                    for part in &mut panel.parts {
-                        for session in &mut part.sessions {
-                            session.change_state = ChangeState::Deleted;
-                        }
+                }
+            }
+            EditCommand::SoftDeletePanelSet {
+                base_id,
+                old_change_states,
+            } => {
+                if let Some(ps) = schedule.panel_sets.get_mut(base_id) {
+                    old_change_states.clear();
+                    for panel in &mut ps.panels {
+                        old_change_states.push(panel.change_state);
+                        panel.change_state = ChangeState::Deleted;
                     }
                 }
+            }
+            EditCommand::CreatePanelSet {
+                base_id,
+                source: _,
+                change_state,
+            } => {
+                use crate::data::PanelSet;
+                let mut ps = PanelSet::new(base_id.clone());
+                ps.change_state = *change_state;
+                schedule.panel_sets.insert(base_id.clone(), ps);
+            }
+            EditCommand::CreatePanel { panel } => {
+                let base_id = panel.base_id.clone();
+                let ps = schedule
+                    .panel_sets
+                    .entry(base_id)
+                    .or_insert_with(|| crate::data::PanelSet::new(panel.base_id.clone()));
+                ps.panels.push(panel.clone());
             }
             EditCommand::CreateRoom {
                 uid,
@@ -598,39 +549,25 @@ impl EditCommand {
                     mark_panel_type_modified(pt);
                 }
             }
-            EditCommand::SetSessionMetadata {
+            EditCommand::SetPanelMetadata {
                 panel_id,
-                part_index,
-                session_index,
                 key,
                 old,
                 new,
             } => {
-                if let Some(session) =
-                    get_session_mut(schedule, panel_id, *part_index, *session_index)
-                {
-                    *old = session.metadata.get(key).cloned();
-                    session.metadata.insert(key.clone(), new.clone());
-                    mark_session_modified(session);
+                if let Some(panel) = get_panel_mut(schedule, panel_id) {
+                    *old = panel.metadata.get(key).cloned();
+                    panel.metadata.insert(key.clone(), new.clone());
+                    mark_panel_modified(panel);
                 }
-                mark_panel_chain_modified(schedule, panel_id, *part_index);
             }
-            EditCommand::ClearSessionMetadata {
-                panel_id,
-                part_index,
-                session_index,
-                key,
-                old,
-            } => {
-                if let Some(session) =
-                    get_session_mut(schedule, panel_id, *part_index, *session_index)
-                {
-                    if let Some(removed) = session.metadata.shift_remove(key) {
+            EditCommand::ClearPanelMetadata { panel_id, key, old } => {
+                if let Some(panel) = get_panel_mut(schedule, panel_id) {
+                    if let Some(removed) = panel.metadata.shift_remove(key) {
                         *old = removed;
-                        mark_session_modified(session);
+                        mark_panel_modified(panel);
                     }
                 }
-                mark_panel_chain_modified(schedule, panel_id, *part_index);
             }
             EditCommand::SetRoomMetadata { uid, key, old, new } => {
                 if let Some(room) = schedule.rooms.iter_mut().find(|r| r.uid == *uid) {
@@ -674,27 +611,11 @@ impl EditCommand {
                 }
             }
             EditCommand::SetPanelPresenters { panel_id, old, new } => {
-                if let Some(panel) = schedule.panels.get_mut(panel_id) {
+                if let Some(panel) = get_panel_mut(schedule, panel_id) {
                     *old = panel.credited_presenters.clone();
                     panel.credited_presenters = new.clone();
                     mark_panel_modified(panel);
                 }
-            }
-            EditCommand::SetSessionPresenters {
-                panel_id,
-                part_index,
-                session_index,
-                old,
-                new,
-            } => {
-                if let Some(session) =
-                    get_session_mut(schedule, panel_id, *part_index, *session_index)
-                {
-                    *old = session.credited_presenters.clone();
-                    session.credited_presenters = new.clone();
-                    mark_session_modified(session);
-                }
-                mark_panel_chain_modified(schedule, panel_id, *part_index);
             }
             EditCommand::Batch(commands) => {
                 for cmd in commands.iter_mut() {
@@ -708,7 +629,7 @@ impl EditCommand {
     pub fn undo(&self, schedule: &mut Schedule) {
         match self {
             EditCommand::SetPanelName { panel_id, old, .. } => {
-                if let Some(panel) = schedule.panels.get_mut(panel_id) {
+                if let Some(panel) = get_panel_mut(schedule, panel_id) {
                     panel.name = old.clone();
                     mark_panel_modified(panel);
                 }
@@ -719,7 +640,7 @@ impl EditCommand {
                 old,
                 ..
             } => {
-                if let Some(panel) = schedule.panels.get_mut(panel_id) {
+                if let Some(panel) = get_panel_mut(schedule, panel_id) {
                     *panel_field_ref(panel, field) = old.clone();
                     mark_panel_modified(panel);
                 }
@@ -730,133 +651,86 @@ impl EditCommand {
                 old,
                 ..
             } => {
-                if let Some(panel) = schedule.panels.get_mut(panel_id) {
+                if let Some(panel) = get_panel_mut(schedule, panel_id) {
                     *panel_bool_ref(panel, field_name) = *old;
                     mark_panel_modified(panel);
                 }
             }
-            EditCommand::SetSessionField {
-                panel_id,
-                part_index,
-                session_index,
-                field,
-                old,
-                ..
-            } => {
-                if let Some(session) =
-                    get_session_mut(schedule, panel_id, *part_index, *session_index)
-                {
-                    *session_field_ref(session, field) = old.clone();
-                    mark_session_modified(session);
+            EditCommand::SetPanelDuration { panel_id, old, .. } => {
+                if let Some(panel) = get_panel_mut(schedule, panel_id) {
+                    panel.duration = *old;
+                    mark_panel_modified(panel);
                 }
-                mark_panel_chain_modified(schedule, panel_id, *part_index);
             }
-            EditCommand::SetSessionDuration {
-                panel_id,
-                part_index,
-                session_index,
-                old,
-                ..
-            } => {
-                if let Some(session) =
-                    get_session_mut(schedule, panel_id, *part_index, *session_index)
-                {
-                    session.duration = *old;
-                    mark_session_modified(session);
+            EditCommand::AddPresenterToPanel { panel_id, .. } => {
+                if let Some(panel) = get_panel_mut(schedule, panel_id) {
+                    panel.credited_presenters.pop();
+                    mark_panel_modified(panel);
                 }
-                mark_panel_chain_modified(schedule, panel_id, *part_index);
             }
-            EditCommand::AddPresenterToSession {
+            EditCommand::RemovePresenterFromPanel {
                 panel_id,
-                part_index,
-                session_index,
-                ..
-            } => {
-                if let Some(session) =
-                    get_session_mut(schedule, panel_id, *part_index, *session_index)
-                {
-                    session.credited_presenters.pop();
-                    mark_session_modified(session);
-                }
-                mark_panel_chain_modified(schedule, panel_id, *part_index);
-            }
-            EditCommand::RemovePresenterFromSession {
-                panel_id,
-                part_index,
-                session_index,
                 name,
                 position,
             } => {
-                if let Some(session) =
-                    get_session_mut(schedule, panel_id, *part_index, *session_index)
-                {
-                    let pos = (*position).min(session.credited_presenters.len());
-                    session.credited_presenters.insert(pos, name.clone());
-                    mark_session_modified(session);
+                if let Some(panel) = get_panel_mut(schedule, panel_id) {
+                    let pos = (*position).min(panel.credited_presenters.len());
+                    panel.credited_presenters.insert(pos, name.clone());
+                    mark_panel_modified(panel);
                 }
-                mark_panel_chain_modified(schedule, panel_id, *part_index);
             }
-            EditCommand::RescheduleSession {
+            EditCommand::ReschedulePanel {
                 panel_id,
-                part_index,
-                session_index,
                 old_state,
                 ..
             } => {
-                if let Some(session) =
-                    get_session_mut(schedule, panel_id, *part_index, *session_index)
-                {
-                    session.room_ids = old_state.room_ids.clone();
-                    session.start_time = old_state.start_time.clone();
-                    session.end_time = old_state.end_time.clone();
-                    session.duration = old_state.duration;
-                    mark_session_modified(session);
+                if let Some(panel) = get_panel_mut(schedule, panel_id) {
+                    panel.room_ids = old_state.room_ids.clone();
+                    panel.start_time = old_state.start_time.clone();
+                    panel.end_time = old_state.end_time.clone();
+                    panel.duration = old_state.duration;
+                    mark_panel_modified(panel);
                 }
-                mark_panel_chain_modified(schedule, panel_id, *part_index);
             }
-            EditCommand::UnscheduleSession {
+            EditCommand::UnschedulePanel {
                 panel_id,
-                part_index,
-                session_index,
                 old_state,
             } => {
-                if let Some(session) =
-                    get_session_mut(schedule, panel_id, *part_index, *session_index)
-                {
-                    session.room_ids = old_state.room_ids.clone();
-                    session.start_time = old_state.start_time.clone();
-                    session.end_time = old_state.end_time.clone();
-                    session.duration = old_state.duration;
-                    mark_session_modified(session);
-                }
-                mark_panel_chain_modified(schedule, panel_id, *part_index);
-            }
-            EditCommand::SoftDeleteSession {
-                panel_id,
-                part_index,
-                session_index,
-                old_change_state,
-            } => {
-                if let Some(session) =
-                    get_session_mut(schedule, panel_id, *part_index, *session_index)
-                {
-                    session.change_state = *old_change_state;
+                if let Some(panel) = get_panel_mut(schedule, panel_id) {
+                    panel.room_ids = old_state.room_ids.clone();
+                    panel.start_time = old_state.start_time.clone();
+                    panel.end_time = old_state.end_time.clone();
+                    panel.duration = old_state.duration;
+                    mark_panel_modified(panel);
                 }
             }
             EditCommand::SoftDeletePanel {
                 panel_id,
                 old_change_state,
             } => {
-                if let Some(panel) = schedule.panels.get_mut(panel_id) {
+                if let Some(panel) = get_panel_mut(schedule, panel_id) {
                     panel.change_state = *old_change_state;
-                    // Restoring sub-item change states would require storing
-                    // them all; for now we mark them Modified which is safe.
-                    for part in &mut panel.parts {
-                        for session in &mut part.sessions {
-                            if session.change_state == ChangeState::Deleted {
-                                session.change_state = ChangeState::Modified;
-                            }
-                        }
+                }
+            }
+            EditCommand::SoftDeletePanelSet {
+                base_id,
+                old_change_states,
+            } => {
+                if let Some(ps) = schedule.panel_sets.get_mut(base_id) {
+                    for (panel, &old_cs) in ps.panels.iter_mut().zip(old_change_states.iter()) {
+                        panel.change_state = old_cs;
+                    }
+                }
+            }
+            EditCommand::CreatePanelSet { base_id, .. } => {
+                schedule.panel_sets.shift_remove(base_id);
+            }
+            EditCommand::CreatePanel { panel } => {
+                if let Some(ps) = schedule.panel_sets.get_mut(&panel.base_id) {
+                    ps.panels.retain(|p| p.id != panel.id);
+                    if ps.panels.is_empty() {
+                        let base_id = panel.base_id.clone();
+                        schedule.panel_sets.shift_remove(&base_id);
                     }
                 }
             }
@@ -893,43 +767,26 @@ impl EditCommand {
                     mark_panel_type_modified(pt);
                 }
             }
-            EditCommand::SetSessionMetadata {
-                panel_id,
-                part_index,
-                session_index,
-                key,
-                old,
-                ..
+            EditCommand::SetPanelMetadata {
+                panel_id, key, old, ..
             } => {
-                if let Some(session) =
-                    get_session_mut(schedule, panel_id, *part_index, *session_index)
-                {
+                if let Some(panel) = get_panel_mut(schedule, panel_id) {
                     match old {
                         Some(val) => {
-                            session.metadata.insert(key.clone(), val.clone());
+                            panel.metadata.insert(key.clone(), val.clone());
                         }
                         None => {
-                            session.metadata.shift_remove(key);
+                            panel.metadata.shift_remove(key);
                         }
                     }
-                    mark_session_modified(session);
+                    mark_panel_modified(panel);
                 }
-                mark_panel_chain_modified(schedule, panel_id, *part_index);
             }
-            EditCommand::ClearSessionMetadata {
-                panel_id,
-                part_index,
-                session_index,
-                key,
-                old,
-            } => {
-                if let Some(session) =
-                    get_session_mut(schedule, panel_id, *part_index, *session_index)
-                {
-                    session.metadata.insert(key.clone(), old.clone());
-                    mark_session_modified(session);
+            EditCommand::ClearPanelMetadata { panel_id, key, old } => {
+                if let Some(panel) = get_panel_mut(schedule, panel_id) {
+                    panel.metadata.insert(key.clone(), old.clone());
+                    mark_panel_modified(panel);
                 }
-                mark_panel_chain_modified(schedule, panel_id, *part_index);
             }
             EditCommand::SetRoomMetadata { uid, key, old, .. } => {
                 if let Some(room) = schedule.rooms.iter_mut().find(|r| r.uid == *uid) {
@@ -984,25 +841,10 @@ impl EditCommand {
                 }
             }
             EditCommand::SetPanelPresenters { panel_id, old, .. } => {
-                if let Some(panel) = schedule.panels.get_mut(panel_id) {
+                if let Some(panel) = get_panel_mut(schedule, panel_id) {
                     panel.credited_presenters = old.clone();
                     mark_panel_modified(panel);
                 }
-            }
-            EditCommand::SetSessionPresenters {
-                panel_id,
-                part_index,
-                session_index,
-                old,
-                ..
-            } => {
-                if let Some(session) =
-                    get_session_mut(schedule, panel_id, *part_index, *session_index)
-                {
-                    session.credited_presenters = old.clone();
-                    mark_session_modified(session);
-                }
-                mark_panel_chain_modified(schedule, panel_id, *part_index);
             }
             EditCommand::Batch(commands) => {
                 for cmd in commands.iter().rev() {
@@ -1013,7 +855,19 @@ impl EditCommand {
     }
 }
 
-// ── Helpers ─────────────────────────────────────────────────────
+// ── Helpers ──────────────────────────────────────────────────────────────────
+
+/// Look up a flat Panel by its full Uniq ID across all PanelSets.
+fn get_panel_mut<'a>(
+    schedule: &'a mut Schedule,
+    panel_id: &str,
+) -> Option<&'a mut crate::data::Panel> {
+    schedule
+        .panel_sets
+        .values_mut()
+        .flat_map(|ps| ps.panels.iter_mut())
+        .find(|p| p.id == panel_id)
+}
 
 fn panel_field_ref<'a>(
     panel: &'a mut crate::data::Panel,
@@ -1028,6 +882,20 @@ fn panel_field_ref<'a>(
         PanelField::Difficulty => &mut panel.difficulty,
         PanelField::PanelType => &mut panel.panel_type,
         PanelField::AltPanelist => &mut panel.alt_panelist,
+        PanelField::PreRegMax => &mut panel.pre_reg_max,
+        PanelField::TicketUrl => &mut panel.ticket_url,
+        PanelField::SimpleTicketEvent => &mut panel.simple_tix_event,
+        PanelField::HaveTicketImage => {
+            // HaveTicketImage is bool stored as Option<bool>; return description as proxy
+            // when accessed via string field. (Use SetPanelBool for proper access.)
+            &mut panel.description
+        }
+        PanelField::StartTime => &mut panel.start_time,
+        PanelField::EndTime => &mut panel.end_time,
+        PanelField::AvNotes => &mut panel.av_notes,
+        PanelField::NotesNonPrinting => &mut panel.notes_non_printing,
+        PanelField::WorkshopNotes => &mut panel.workshop_notes,
+        PanelField::PowerNeeds => &mut panel.power_needs,
     }
 }
 
@@ -1039,57 +907,9 @@ fn panel_bool_ref<'a>(panel: &'a mut crate::data::Panel, field_name: &str) -> &'
     }
 }
 
-fn session_field_ref<'a>(
-    session: &'a mut crate::data::PanelSession,
-    field: &SessionField,
-) -> &'a mut Option<String> {
-    match field {
-        SessionField::Description => &mut session.description,
-        SessionField::Note => &mut session.note,
-        SessionField::Prereq => &mut session.prereq,
-        SessionField::AltPanelist => &mut session.alt_panelist,
-        SessionField::Capacity => &mut session.capacity,
-        SessionField::AvNotes => &mut session.av_notes,
-        SessionField::StartTime => &mut session.start_time,
-        SessionField::EndTime => &mut session.end_time,
-    }
-}
-
-fn get_session_mut<'a>(
-    schedule: &'a mut Schedule,
-    panel_id: &str,
-    part_index: usize,
-    session_index: usize,
-) -> Option<&'a mut crate::data::PanelSession> {
-    schedule
-        .panels
-        .get_mut(panel_id)?
-        .parts
-        .get_mut(part_index)?
-        .sessions
-        .get_mut(session_index)
-}
-
 fn mark_panel_modified(panel: &mut crate::data::Panel) {
     if panel.change_state == ChangeState::Unchanged {
         panel.change_state = ChangeState::Modified;
-    }
-}
-
-fn mark_session_modified(session: &mut crate::data::PanelSession) {
-    if session.change_state == ChangeState::Unchanged {
-        session.change_state = ChangeState::Modified;
-    }
-}
-
-fn mark_panel_chain_modified(schedule: &mut Schedule, panel_id: &str, part_index: usize) {
-    if let Some(panel) = schedule.panels.get_mut(panel_id) {
-        if let Some(part) = panel.parts.get_mut(part_index) {
-            if part.change_state == ChangeState::Unchanged {
-                part.change_state = ChangeState::Modified;
-            }
-        }
-        mark_panel_modified(panel);
     }
 }
 

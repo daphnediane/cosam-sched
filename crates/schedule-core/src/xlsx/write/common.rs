@@ -59,10 +59,10 @@ pub(super) struct FlatSession {
     pub(super) source: Option<SourceInfo>,
 }
 
-/// Flatten the panel hierarchy into `FlatSession` rows.
+/// Flatten the `panel_sets` into `FlatSession` rows, one per flat [`Panel`].
 ///
-/// When `include_deleted` is `false` (export path) panels, parts, and sessions
-/// with `ChangeState::Deleted` are skipped.  When `true` (update path) they are
+/// When `include_deleted` is `false` (export path) panels with
+/// `ChangeState::Deleted` are skipped.  When `true` (update path) they are
 /// included so their spreadsheet rows can be marked.
 pub(super) fn flatten_panel_sessions(
     schedule: &Schedule,
@@ -70,124 +70,45 @@ pub(super) fn flatten_panel_sessions(
 ) -> Vec<FlatSession> {
     let mut sessions = Vec::new();
 
-    for (_, panel) in &schedule.panels {
-        if !include_deleted && panel.change_state == ChangeState::Deleted {
-            continue;
-        }
-
-        for part in &panel.parts {
-            if !include_deleted && part.change_state == ChangeState::Deleted {
+    for ps in schedule.panel_sets.values() {
+        for panel in &ps.panels {
+            if !include_deleted && panel.change_state == ChangeState::Deleted {
                 continue;
             }
 
-            for session in &part.sessions {
-                if !include_deleted && session.change_state == ChangeState::Deleted {
-                    continue;
-                }
-
-                // Merge presenters from panel, part, and session levels.
-                let mut all_set: HashSet<String> = HashSet::new();
-                let mut credited_set: HashSet<String> = HashSet::new();
-
-                for p in panel
-                    .credited_presenters
-                    .iter()
-                    .chain(part.credited_presenters.iter())
-                {
-                    all_set.insert(p.clone());
-                    credited_set.insert(p.clone());
-                }
-                for p in panel
-                    .uncredited_presenters
-                    .iter()
-                    .chain(part.uncredited_presenters.iter())
-                {
-                    all_set.insert(p.clone());
-                }
-                for p in &session.credited_presenters {
-                    all_set.insert(p.clone());
-                    credited_set.insert(p.clone());
-                }
-                for p in &session.uncredited_presenters {
-                    all_set.insert(p.clone());
-                    // If the session explicitly marks a presenter as uncredited,
-                    // remove them from the credited set (session level overrides).
-                    if !session.credited_presenters.contains(p) {
-                        credited_set.remove(p);
-                    }
-                }
-
-                let all_presenters: Vec<String> = all_set.into_iter().collect();
-
-                // Determine effective change state (highest-priority wins).
-                let change_state =
-                    match (panel.change_state, part.change_state, session.change_state) {
-                        (ChangeState::Deleted, _, _)
-                        | (_, ChangeState::Deleted, _)
-                        | (_, _, ChangeState::Deleted) => ChangeState::Deleted,
-                        (ChangeState::Added, _, _)
-                        | (_, ChangeState::Added, _)
-                        | (_, _, ChangeState::Added) => ChangeState::Added,
-                        (ChangeState::Modified, _, _)
-                        | (_, ChangeState::Modified, _)
-                        | (_, _, ChangeState::Modified) => ChangeState::Modified,
-                        (ChangeState::Replaced, _, _)
-                        | (_, ChangeState::Replaced, _)
-                        | (_, _, ChangeState::Replaced) => ChangeState::Replaced,
-                        _ => ChangeState::Unchanged,
-                    };
-
-                let room_id = session.room_ids.first().copied();
-
-                sessions.push(FlatSession {
-                    id: session.id.clone(),
-                    name: panel.name.clone(),
-                    description: session
-                        .description
-                        .as_ref()
-                        .or_else(|| part.description.as_ref())
-                        .or_else(|| panel.description.as_ref())
-                        .cloned(),
-                    start_time: session.start_time.clone(),
-                    end_time: session.end_time.clone(),
-                    duration: session.duration,
-                    room_id,
-                    panel_type: panel.panel_type.clone(),
-                    cost: panel.cost.clone(),
-                    capacity: session
-                        .capacity
-                        .as_ref()
-                        .or_else(|| panel.capacity.as_ref())
-                        .cloned(),
-                    difficulty: panel.difficulty.clone(),
-                    note: session
-                        .note
-                        .as_ref()
-                        .or_else(|| part.note.as_ref())
-                        .or_else(|| panel.note.as_ref())
-                        .cloned(),
-                    prereq: session
-                        .prereq
-                        .as_ref()
-                        .or_else(|| part.prereq.as_ref())
-                        .or_else(|| panel.prereq.as_ref())
-                        .cloned(),
-                    ticket_url: panel.ticket_url.clone(),
-                    is_full: session.is_full,
-                    hide_panelist: session.hide_panelist || panel.alt_panelist.is_some(),
-                    alt_panelist: session
-                        .alt_panelist
-                        .as_ref()
-                        .or_else(|| part.alt_panelist.as_ref())
-                        .or_else(|| panel.alt_panelist.as_ref())
-                        .cloned(),
-                    all_presenters,
-                    credited_set,
-                    metadata: session.metadata.clone(),
-                    change_state,
-                    source: session.source.clone(),
-                });
+            let credited_set: HashSet<String> = panel.credited_presenters.iter().cloned().collect();
+            let mut all_set: HashSet<String> = credited_set.clone();
+            for p in &panel.uncredited_presenters {
+                all_set.insert(p.clone());
             }
+            let all_presenters: Vec<String> = all_set.into_iter().collect();
+
+            let room_id = panel.room_ids.first().copied();
+
+            sessions.push(FlatSession {
+                id: panel.id.clone(),
+                name: panel.name.clone(),
+                description: panel.description.clone(),
+                start_time: panel.start_time.clone(),
+                end_time: panel.end_time.clone(),
+                duration: panel.duration,
+                room_id,
+                panel_type: panel.panel_type.clone(),
+                cost: panel.cost.clone(),
+                capacity: panel.capacity.clone(),
+                difficulty: panel.difficulty.clone(),
+                note: panel.note.clone(),
+                prereq: panel.prereq.clone(),
+                ticket_url: panel.ticket_url.clone(),
+                is_full: panel.is_full,
+                hide_panelist: panel.hide_panelist,
+                alt_panelist: panel.alt_panelist.clone(),
+                all_presenters,
+                credited_set,
+                metadata: panel.metadata.clone(),
+                change_state: panel.change_state,
+                source: panel.source.clone(),
+            });
         }
     }
 

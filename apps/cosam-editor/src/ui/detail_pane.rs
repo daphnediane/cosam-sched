@@ -90,119 +90,52 @@ impl DetailPane {
     }
 
     fn build_entries(panel: &Panel, rooms: &[(u32, String)]) -> Vec<SessionEntry> {
-        let mut entries = Vec::new();
-        for part in &panel.parts {
-            for session in &part.sessions {
-                let start_dt = session.start_time.as_deref().and_then(time::parse_storage);
-                let end_dt = session.end_time.as_deref().and_then(time::parse_storage);
+        let start_dt = panel.start_time.as_deref().and_then(time::parse_storage);
+        let end_dt = panel.end_time.as_deref().and_then(time::parse_storage);
 
-                let label = if let Some(start) = start_dt {
-                    SharedString::from(format!(
-                        "{}: {} {}",
-                        session.id,
-                        start.format("%a"),
-                        start.format("%-I:%M %p")
-                    ))
-                } else {
-                    SharedString::from(session.id.clone())
-                };
-
-                let effective_description = Self::effective_concat(
-                    panel.description.as_deref(),
-                    part.description.as_deref(),
-                    session.description.as_deref(),
-                );
-                let effective_note = Self::effective_override(
-                    panel.note.as_deref(),
-                    part.note.as_deref(),
-                    session.note.as_deref(),
-                );
-                let effective_prereq = Self::effective_override(
-                    panel.prereq.as_deref(),
-                    part.prereq.as_deref(),
-                    session.prereq.as_deref(),
-                );
-                let effective_alt_panelist = Self::effective_override(
-                    panel.alt_panelist.as_deref(),
-                    part.alt_panelist.as_deref(),
-                    session.alt_panelist.as_deref(),
-                );
-
-                let mut effective_presenters = panel.credited_presenters.clone();
-                for name in &part.credited_presenters {
-                    if !effective_presenters.contains(name) {
-                        effective_presenters.push(name.clone());
-                    }
-                }
-                for name in &session.credited_presenters {
-                    if !effective_presenters.contains(name) {
-                        effective_presenters.push(name.clone());
-                    }
-                }
-
-                let room_names = session
-                    .room_ids
-                    .iter()
-                    .filter_map(|rid| {
-                        rooms
-                            .iter()
-                            .find(|(uid, _)| uid == rid)
-                            .map(|(_, name)| name.clone())
-                    })
-                    .collect();
-
-                entries.push(SessionEntry {
-                    session_id: session.id.clone(),
-                    label,
-                    effective_description,
-                    effective_note,
-                    effective_prereq,
-                    effective_alt_panelist,
-                    effective_presenters,
-                    room_names,
-                    start_dt,
-                    end_dt,
-                    duration: session.duration,
-                    is_full: session.is_full,
-                    hide_panelist: session.hide_panelist,
-                    capacity: session.capacity.clone(),
-                    notes_non_printing: session.notes_non_printing.clone(),
-                    workshop_notes: session.workshop_notes.clone(),
-                    power_needs: session.power_needs.clone(),
-                    sewing_machines: session.sewing_machines,
-                    av_notes: session.av_notes.clone(),
-                });
-            }
-        }
-        entries
-    }
-
-    fn effective_concat(
-        base: Option<&str>,
-        part: Option<&str>,
-        session: Option<&str>,
-    ) -> Option<String> {
-        let parts: Vec<&str> = [base, part, session]
-            .iter()
-            .filter_map(|s| s.filter(|s| !s.is_empty()))
-            .collect();
-        if parts.is_empty() {
-            None
+        let label = if let Some(start) = start_dt {
+            SharedString::from(format!(
+                "{}: {} {}",
+                panel.id,
+                start.format("%a"),
+                start.format("%-I:%M %p")
+            ))
         } else {
-            Some(parts.join(" "))
-        }
-    }
+            SharedString::from(panel.id.clone())
+        };
 
-    fn effective_override(
-        base: Option<&str>,
-        part: Option<&str>,
-        session: Option<&str>,
-    ) -> Option<String> {
-        session
-            .filter(|s| !s.is_empty())
-            .or_else(|| part.filter(|s| !s.is_empty()))
-            .or_else(|| base.filter(|s| !s.is_empty()))
-            .map(str::to_string)
+        let room_names = panel
+            .room_ids
+            .iter()
+            .filter_map(|rid| {
+                rooms
+                    .iter()
+                    .find(|(uid, _)| uid == rid)
+                    .map(|(_, name)| name.clone())
+            })
+            .collect();
+
+        vec![SessionEntry {
+            session_id: panel.id.clone(),
+            label,
+            effective_description: panel.description.clone(),
+            effective_note: panel.note.clone(),
+            effective_prereq: panel.prereq.clone(),
+            effective_alt_panelist: panel.alt_panelist.clone(),
+            effective_presenters: panel.credited_presenters.clone(),
+            room_names,
+            start_dt,
+            end_dt,
+            duration: panel.duration,
+            is_full: panel.is_full,
+            hide_panelist: panel.hide_panelist,
+            capacity: panel.capacity.clone(),
+            notes_non_printing: panel.notes_non_printing.clone(),
+            workshop_notes: panel.workshop_notes.clone(),
+            power_needs: panel.power_needs.clone(),
+            sewing_machines: panel.sewing_machines,
+            av_notes: panel.av_notes.clone(),
+        }]
     }
 }
 

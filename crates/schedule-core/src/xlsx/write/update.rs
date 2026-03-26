@@ -88,12 +88,13 @@ pub fn update_xlsx(sf: &ScheduleFile, path: &Path) -> Result<()> {
     }
 
     if schedule.imported_sheets.has_schedule {
-        if let Some(sheet_name) = find_sheet_name(schedule.panels.values().flat_map(|p| {
-            p.parts
-                .iter()
-                .flat_map(|part| part.sessions.iter())
-                .map(|s| &s.source)
-        })) {
+        if let Some(sheet_name) = find_sheet_name(
+            schedule
+                .panel_sets
+                .values()
+                .flat_map(|ps| ps.panels.iter())
+                .map(|p| &p.source),
+        ) {
             update_schedule_sheet(&mut book, &sheet_name, schedule)?;
         }
     }
@@ -154,24 +155,16 @@ pub fn update_xlsx(sf: &ScheduleFile, path: &Path) -> Result<()> {
 /// After a successful save, remove Deleted items and reset all change states.
 pub fn post_save_cleanup(sf: &mut ScheduleFile) {
     let schedule = &mut sf.schedule;
-    // Remove deleted panels and their parts/sessions
-    schedule
-        .panels
-        .retain(|_, p| p.change_state != ChangeState::Deleted);
-    for panel in schedule.panels.values_mut() {
-        panel
-            .parts
-            .retain(|p| p.change_state != ChangeState::Deleted);
-        for part in &mut panel.parts {
-            part.sessions
-                .retain(|s| s.change_state != ChangeState::Deleted);
-        }
-        panel.change_state = ChangeState::Unchanged;
-        for part in &mut panel.parts {
-            part.change_state = ChangeState::Unchanged;
-            for session in &mut part.sessions {
-                session.change_state = ChangeState::Unchanged;
-            }
+    // Remove deleted panel sets and their panels
+    schedule.panel_sets.retain(|_, ps| {
+        !ps.panels
+            .iter()
+            .all(|p| p.change_state == ChangeState::Deleted)
+    });
+    for ps in schedule.panel_sets.values_mut() {
+        ps.panels.retain(|p| p.change_state != ChangeState::Deleted);
+        for panel in &mut ps.panels {
+            panel.change_state = ChangeState::Unchanged;
         }
     }
 
@@ -189,13 +182,9 @@ pub fn post_save_cleanup(sf: &mut ScheduleFile) {
         .retain(|t| t.change_state != ChangeState::Deleted);
 
     // Reset change states to Unchanged
-    for panel in schedule.panels.values_mut() {
-        panel.change_state = ChangeState::Unchanged;
-        for part in &mut panel.parts {
-            part.change_state = ChangeState::Unchanged;
-            for session in &mut part.sessions {
-                session.change_state = ChangeState::Unchanged;
-            }
+    for ps in schedule.panel_sets.values_mut() {
+        for panel in &mut ps.panels {
+            panel.change_state = ChangeState::Unchanged;
         }
     }
     for room in &mut schedule.rooms {
@@ -1007,7 +996,8 @@ fn update_schedule_sheet(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::data::panel::{Panel, PanelPart, PanelSession};
+    use crate::data::panel::Panel;
+    use crate::data::panel_set::PanelSet;
     use crate::data::presenter::{Presenter, PresenterGroup, PresenterMember, PresenterRank};
     use crate::data::schedule::{Meta, Schedule};
     use crate::data::source_info::ImportedSheetPresence;
@@ -1029,7 +1019,7 @@ mod tests {
                 last_modified_by: None,
                 modified: None,
             },
-            panels: indexmap::IndexMap::new(),
+            panel_sets: indexmap::IndexMap::new(),
             timeline: vec![
                 TimelineEntry {
                     id: "TL01".to_string(),
@@ -1231,59 +1221,18 @@ mod tests {
 
     #[test]
     fn test_flatten_includes_deleted_sessions() {
-        use indexmap::IndexMap;
-
         let mut schedule = make_schedule_with_change_states();
-        let mut panel = Panel::new("GP-001".to_string());
+        let mut panel = Panel::new("GP-001", "GP-001");
         panel.name = "Test Panel".to_string();
-        panel.change_state = ChangeState::Unchanged;
-        let session = PanelSession {
-            id: "GP-001".to_string(),
-            session_num: None,
-            description: None,
-            note: None,
-            prereq: None,
-            alt_panelist: None,
-            room_ids: Vec::new(),
-            start_time: None,
-            end_time: None,
-            duration: 0,
-            is_full: false,
-            capacity: None,
-            seats_sold: None,
-            pre_reg_max: None,
-            ticket_url: None,
-            simple_tix_event: None,
-            hide_panelist: false,
-            credited_presenters: Vec::new(),
-            uncredited_presenters: Vec::new(),
-            notes_non_printing: None,
-            workshop_notes: None,
-            power_needs: None,
-            sewing_machines: false,
-            av_notes: None,
-            source: Some(SourceInfo {
-                file_path: Some("test.xlsx".to_string()),
-                sheet_name: Some("Schedule".to_string()),
-                row_index: Some(5),
-            }),
-            change_state: ChangeState::Deleted,
-            conflicts: Vec::new(),
-            metadata: IndexMap::new(),
-        };
-        let part = PanelPart {
-            part_num: None,
-            description: None,
-            note: None,
-            prereq: None,
-            alt_panelist: None,
-            credited_presenters: Vec::new(),
-            uncredited_presenters: Vec::new(),
-            sessions: vec![session],
-            change_state: ChangeState::Unchanged,
-        };
-        panel.parts.push(part);
-        schedule.panels.insert("GP-001".to_string(), panel);
+        panel.change_state = ChangeState::Deleted;
+        panel.source = Some(SourceInfo {
+            file_path: Some("test.xlsx".to_string()),
+            sheet_name: Some("Schedule".to_string()),
+            row_index: Some(5),
+        });
+        let mut ps = PanelSet::new("GP-001");
+        ps.panels.push(panel);
+        schedule.panel_sets.insert("GP-001".to_string(), ps);
 
         let sessions = flatten_panel_sessions(&schedule, true);
         let deleted: Vec<_> = sessions
@@ -1296,57 +1245,15 @@ mod tests {
 
     #[test]
     fn test_flatten_merges_presenter_credited_status() {
-        use indexmap::IndexMap;
-
         let mut schedule = make_schedule_with_change_states();
-        let mut panel = Panel::new("GP-002".to_string());
+        let mut panel = Panel::new("GP-002", "GP-002");
         panel.name = "Presenter Panel".to_string();
         panel.credited_presenters = vec!["Alice".to_string()];
         panel.uncredited_presenters = vec!["Bob".to_string()];
-        panel.change_state = ChangeState::Unchanged;
-        let session = PanelSession {
-            id: "GP-002".to_string(),
-            session_num: None,
-            description: None,
-            note: None,
-            prereq: None,
-            alt_panelist: None,
-            room_ids: Vec::new(),
-            start_time: None,
-            end_time: None,
-            duration: 0,
-            is_full: false,
-            capacity: None,
-            seats_sold: None,
-            pre_reg_max: None,
-            ticket_url: None,
-            simple_tix_event: None,
-            hide_panelist: false,
-            credited_presenters: Vec::new(),
-            uncredited_presenters: Vec::new(),
-            notes_non_printing: None,
-            workshop_notes: None,
-            power_needs: None,
-            sewing_machines: false,
-            av_notes: None,
-            source: None,
-            change_state: ChangeState::Modified,
-            conflicts: Vec::new(),
-            metadata: IndexMap::new(),
-        };
-        let part = PanelPart {
-            part_num: None,
-            description: None,
-            note: None,
-            prereq: None,
-            alt_panelist: None,
-            credited_presenters: Vec::new(),
-            uncredited_presenters: Vec::new(),
-            sessions: vec![session],
-            change_state: ChangeState::Unchanged,
-        };
-        panel.parts.push(part);
-        schedule.panels.insert("GP-002".to_string(), panel);
+        panel.change_state = ChangeState::Modified;
+        let mut ps = PanelSet::new("GP-002");
+        ps.panels.push(panel);
+        schedule.panel_sets.insert("GP-002".to_string(), ps);
 
         let sessions = flatten_panel_sessions(&schedule, true);
         let s = sessions.iter().find(|s| s.id == "GP-002").unwrap();

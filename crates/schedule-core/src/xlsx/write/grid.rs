@@ -37,16 +37,14 @@ pub(super) fn write_grid_sheet(ws: &mut Worksheet, schedule: &Schedule) -> Resul
     }
 
     // Add panel session times
-    for panel in schedule.panels.values() {
-        for part in &panel.parts {
-            for session in &part.sessions {
-                if session.change_state == ChangeState::Deleted {
-                    continue;
-                }
-                if let Some(ref start_str) = session.start_time {
-                    if let Some(start_time) = time::parse_storage(start_str) {
-                        times.push(start_time);
-                    }
+    for ps in schedule.panel_sets.values() {
+        for panel in &ps.panels {
+            if panel.change_state == ChangeState::Deleted {
+                continue;
+            }
+            if let Some(ref start_str) = panel.start_time {
+                if let Some(start_time) = time::parse_storage(start_str) {
+                    times.push(start_time);
                 }
             }
         }

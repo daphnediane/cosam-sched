@@ -80,27 +80,6 @@ fn is_overnight_break(gap_start: &NaiveDateTime, gap_end: &NaiveDateTime) -> boo
     start_hour < 4 && end_hour >= 4
 }
 
-fn join_parts(parts: &[Option<&str>]) -> Option<String> {
-    let joined: Vec<&str> = parts
-        .iter()
-        .filter_map(|p| *p)
-        .filter(|s| !s.is_empty())
-        .collect();
-    if joined.is_empty() {
-        None
-    } else {
-        Some(joined.join(" "))
-    }
-}
-
-fn effective_alt_panelist(
-    session_val: Option<&str>,
-    part_val: Option<&str>,
-    base_val: Option<&str>,
-) -> Option<String> {
-    session_val.or(part_val).or(base_val).map(|s| s.to_string())
-}
-
 fn compute_credits(
     hide_panelist: bool,
     alt_panelist: Option<&str>,
@@ -346,174 +325,122 @@ impl Schedule {
             .collect();
 
         let mut timeline_entries: Vec<super::timeline::TimelineEntry> = self.timeline.clone();
-        for panel in self.panels.values() {
-            let is_timeline_panel = panel
-                .panel_type
-                .as_ref()
-                .map(|pt| timeline_type_uids.contains(pt))
-                .unwrap_or(false);
-            if is_timeline_panel {
-                for part in &panel.parts {
-                    for session in &part.sessions {
-                        timeline_entries.push(super::timeline::TimelineEntry {
-                            id: session.id.clone(),
-                            start_time: session.start_time.clone().unwrap_or_default(),
-                            description: panel.name.clone(),
-                            panel_type: panel.panel_type.clone(),
-                            note: panel.note.clone(),
-                            metadata: None,
-                            source: None,
-                            change_state: Default::default(),
-                        });
-                    }
+        for ps in self.panel_sets.values() {
+            for panel in &ps.panels {
+                let is_timeline_panel = panel
+                    .panel_type
+                    .as_ref()
+                    .map(|pt| timeline_type_uids.contains(pt))
+                    .unwrap_or(false);
+                if is_timeline_panel {
+                    timeline_entries.push(super::timeline::TimelineEntry {
+                        id: panel.id.clone(),
+                        start_time: panel.start_time.clone().unwrap_or_default(),
+                        description: panel.name.clone(),
+                        panel_type: panel.panel_type.clone(),
+                        note: panel.note.clone(),
+                        metadata: None,
+                        source: None,
+                        change_state: Default::default(),
+                    });
                 }
             }
         }
         timeline_entries.sort_by(|a, b| a.start_time.cmp(&b.start_time));
 
-        let mut flat_panels: Vec<DisplayPanel> = Vec::new();
-
-        for panel in self.panels.values() {
-            if let Some(ref pt_uid) = panel.panel_type {
-                if excluded_type_uids.contains(pt_uid) {
-                    continue;
+        // Pre-compute per-PanelSet stats for title suffix logic.
+        // `multi_part_bases`: base_ids that have > 1 distinct part_num.
+        // `multi_session_keys`: (base_id, part_num) combos with > 1 panel.
+        use std::collections::HashMap;
+        let mut part_nums_per_base: HashMap<&str, std::collections::HashSet<Option<u32>>> =
+            HashMap::new();
+        let mut panels_per_part: HashMap<(&str, Option<u32>), usize> = HashMap::new();
+        for ps in self.panel_sets.values() {
+            for panel in &ps.panels {
+                if panel.is_scheduled() {
+                    part_nums_per_base
+                        .entry(panel.base_id.as_str())
+                        .or_default()
+                        .insert(panel.part_num);
+                    *panels_per_part
+                        .entry((panel.base_id.as_str(), panel.part_num))
+                        .or_insert(0) += 1;
                 }
             }
+        }
 
-            for part in &panel.parts {
-                for session in &part.sessions {
-                    // Skip unscheduled panels from display export
-                    if !session.is_scheduled() {
+        let mut flat_panels: Vec<DisplayPanel> = Vec::new();
+
+        for ps in self.panel_sets.values() {
+            for panel in &ps.panels {
+                if let Some(ref pt_uid) = panel.panel_type {
+                    if excluded_type_uids.contains(pt_uid) {
                         continue;
                     }
-                    let description = join_parts(&[
-                        panel.description.as_deref(),
-                        part.description.as_deref(),
-                        session.description.as_deref(),
-                    ]);
-                    let note = join_parts(&[
-                        panel.note.as_deref(),
-                        part.note.as_deref(),
-                        session.note.as_deref(),
-                    ]);
-                    let prereq = join_parts(&[
-                        panel.prereq.as_deref(),
-                        part.prereq.as_deref(),
-                        session.prereq.as_deref(),
-                    ]);
-
-                    let alt_panelist = effective_alt_panelist(
-                        session.alt_panelist.as_deref(),
-                        part.alt_panelist.as_deref(),
-                        panel.alt_panelist.as_deref(),
-                    );
-
-                    let capacity = session
-                        .capacity
-                        .as_ref()
-                        .or(panel.capacity.as_ref())
-                        .cloned();
-                    let ticket_url = session
-                        .ticket_url
-                        .as_ref()
-                        .or(panel.ticket_url.as_ref())
-                        .cloned();
-
-                    let mut all_credited: Vec<String> = Vec::new();
-                    for name in &panel.credited_presenters {
-                        if !all_credited.contains(name) {
-                            all_credited.push(name.clone());
-                        }
-                    }
-                    for name in &part.credited_presenters {
-                        if !all_credited.contains(name) {
-                            all_credited.push(name.clone());
-                        }
-                    }
-                    for name in &session.credited_presenters {
-                        if !all_credited.contains(name) {
-                            all_credited.push(name.clone());
-                        }
-                    }
-
-                    let credits = compute_credits(
-                        session.hide_panelist,
-                        alt_panelist.as_deref(),
-                        &all_credited,
-                        &self.presenters,
-                    );
-
-                    let mut all_presenters: Vec<String> = Vec::new();
-                    for name in &all_credited {
-                        if !all_presenters.contains(name) {
-                            all_presenters.push(name.clone());
-                        }
-                    }
-                    for name in &panel.uncredited_presenters {
-                        if !all_presenters.contains(name) {
-                            all_presenters.push(name.clone());
-                        }
-                    }
-                    for name in &part.uncredited_presenters {
-                        if !all_presenters.contains(name) {
-                            all_presenters.push(name.clone());
-                        }
-                    }
-                    for name in &session.uncredited_presenters {
-                        if !all_presenters.contains(name) {
-                            all_presenters.push(name.clone());
-                        }
-                    }
-
-                    let mut panel_name = panel.name.clone();
-
-                    // Add part/session suffixes for multi-part or multi-session panels
-                    // Only add part number if there are multiple parts
-                    let should_show_part_num = part.part_num.is_some() && panel.parts.len() > 1;
-                    // Only add session number if there are multiple sessions in this part
-                    let should_show_session_num =
-                        session.session_num.is_some() && part.sessions.len() > 1;
-
-                    if should_show_part_num || should_show_session_num {
-                        let mut suffix_parts = Vec::new();
-                        if let Some(part_num) = part.part_num.filter(|_| should_show_part_num) {
-                            suffix_parts.push(format!("Part {}", part_num));
-                        }
-                        if let Some(session_num) =
-                            session.session_num.filter(|_| should_show_session_num)
-                        {
-                            suffix_parts.push(format!("Session {}", session_num));
-                        }
-                        if !suffix_parts.is_empty() {
-                            panel_name = format!("{} ({})", panel_name, suffix_parts.join(", "));
-                        }
-                    }
-
-                    flat_panels.push(DisplayPanel {
-                        id: session.id.clone(),
-                        base_id: panel.id.clone(),
-                        part_num: part.part_num,
-                        session_num: session.session_num,
-                        name: panel_name,
-                        panel_type: panel.panel_type.clone(),
-                        room_ids: session.room_ids.clone(),
-                        start_time: session.start_time.clone(),
-                        end_time: session.end_time.clone(),
-                        duration: session.duration,
-                        description,
-                        note,
-                        prereq,
-                        cost: panel.cost.clone(),
-                        capacity,
-                        difficulty: panel.difficulty.clone(),
-                        ticket_url,
-                        is_free: panel.is_free,
-                        is_full: session.is_full,
-                        is_kids: panel.is_kids,
-                        credits,
-                        presenters: all_presenters,
-                    });
                 }
+                if !panel.is_scheduled() {
+                    continue;
+                }
+
+                let multi_part = part_nums_per_base
+                    .get(panel.base_id.as_str())
+                    .map_or(false, |s| s.len() > 1);
+                let multi_session = panels_per_part
+                    .get(&(panel.base_id.as_str(), panel.part_num))
+                    .map_or(false, |&c| c > 1);
+
+                let mut panel_name = panel.name.clone();
+                if multi_part || multi_session {
+                    let mut suffix_parts = Vec::new();
+                    if let Some(pn) = panel.part_num.filter(|_| multi_part) {
+                        suffix_parts.push(format!("Part {}", pn));
+                    }
+                    if let Some(sn) = panel.session_num.filter(|_| multi_session) {
+                        suffix_parts.push(format!("Session {}", sn));
+                    }
+                    if !suffix_parts.is_empty() {
+                        panel_name = format!("{} ({})", panel_name, suffix_parts.join(", "));
+                    }
+                }
+
+                let credits = compute_credits(
+                    panel.hide_panelist,
+                    panel.alt_panelist.as_deref(),
+                    &panel.credited_presenters,
+                    &self.presenters,
+                );
+
+                let mut all_presenters = panel.credited_presenters.clone();
+                for name in &panel.uncredited_presenters {
+                    if !all_presenters.contains(name) {
+                        all_presenters.push(name.clone());
+                    }
+                }
+
+                flat_panels.push(DisplayPanel {
+                    id: panel.id.clone(),
+                    base_id: panel.base_id.clone(),
+                    part_num: panel.part_num,
+                    session_num: panel.session_num,
+                    name: panel_name,
+                    panel_type: panel.panel_type.clone(),
+                    room_ids: panel.room_ids.clone(),
+                    start_time: panel.start_time.clone(),
+                    end_time: panel.end_time.clone(),
+                    duration: panel.duration,
+                    description: panel.description.clone(),
+                    note: panel.note.clone(),
+                    prereq: panel.prereq.clone(),
+                    cost: panel.cost.clone(),
+                    capacity: panel.capacity.clone(),
+                    difficulty: panel.difficulty.clone(),
+                    ticket_url: panel.ticket_url.clone(),
+                    is_free: panel.is_free,
+                    is_full: panel.is_full,
+                    is_kids: panel.is_kids,
+                    credits,
+                    presenters: all_presenters,
+                });
             }
         }
 
@@ -714,7 +641,8 @@ impl Schedule {
 
 #[cfg(test)]
 mod tests {
-    use crate::data::panel::{Panel, PanelPart, PanelSession};
+    use crate::data::panel::Panel;
+    use crate::data::panel_set::PanelSet;
     use crate::data::presenter::{Presenter, PresenterGroup, PresenterMember, PresenterRank};
     use crate::data::room::Room;
     use crate::data::schedule::{Meta, Schedule};
@@ -958,6 +886,23 @@ mod tests {
         assert_eq!(credits, Vec::<String>::new());
     }
 
+    fn make_scheduled_panel(
+        id: &str,
+        base_id: &str,
+        part_num: Option<u32>,
+        session_num: Option<u32>,
+        name: &str,
+    ) -> Panel {
+        let mut p = Panel::new(id, base_id);
+        p.name = name.to_string();
+        p.part_num = part_num;
+        p.session_num = session_num;
+        p.room_ids = vec![1];
+        p.start_time = Some("2023-01-01T10:00:00".to_string());
+        p.duration = 60;
+        p
+    }
+
     #[test]
     fn test_part_session_numbering_in_titles() {
         let mut schedule = Schedule {
@@ -976,7 +921,7 @@ mod tests {
                 modified: None,
             },
             timeline: Vec::new(),
-            panels: IndexMap::new(),
+            panel_sets: IndexMap::new(),
             rooms: vec![Room {
                 uid: 1,
                 short_name: "Room 1".to_string(),
@@ -993,212 +938,52 @@ mod tests {
             imported_sheets: Default::default(),
         };
 
-        // Test case 1: Single part, single session - no numbering
-        let mut panel1 = Panel::new("panel1".to_string());
-        panel1.name = "Single Panel".to_string();
-        panel1.parts.push(PanelPart {
-            part_num: Some(1),
-            description: None,
-            note: None,
-            prereq: None,
-            alt_panelist: None,
-            credited_presenters: Vec::new(),
-            uncredited_presenters: Vec::new(),
-            sessions: vec![PanelSession {
-                id: "session1".to_string(),
-                session_num: Some(1),
-                description: None,
-                note: None,
-                prereq: None,
-                alt_panelist: None,
-                room_ids: vec![1],
-                start_time: Some("2023-01-01T10:00:00".to_string()),
-                end_time: None,
-                duration: 60,
-                is_full: false,
-                capacity: None,
-                seats_sold: None,
-                pre_reg_max: None,
-                ticket_url: None,
-                simple_tix_event: None,
-                hide_panelist: false,
-                credited_presenters: Vec::new(),
-                uncredited_presenters: Vec::new(),
-                notes_non_printing: None,
-                workshop_notes: None,
-                power_needs: None,
-                sewing_machines: false,
-                av_notes: None,
-                conflicts: Vec::new(),
-                metadata: IndexMap::new(),
-                source: None,
-                change_state: Default::default(),
-            }],
-            change_state: Default::default(),
-        });
-        schedule.panels.insert("panel1".to_string(), panel1);
+        // Test case 1: Single-part, single-session panel — no numbering
+        let mut ps1 = PanelSet::new("panel1");
+        ps1.panels.push(make_scheduled_panel(
+            "panel1",
+            "panel1",
+            Some(1),
+            Some(1),
+            "Single Panel",
+        ));
+        schedule.panel_sets.insert("panel1".to_string(), ps1);
 
-        // Test case 2: Multiple parts, single session each - show part numbers
-        let mut panel2 = Panel::new("panel2".to_string());
-        panel2.name = "Multi Part Panel".to_string();
-        panel2.parts.push(PanelPart {
-            part_num: Some(1),
-            description: None,
-            note: None,
-            prereq: None,
-            alt_panelist: None,
-            credited_presenters: Vec::new(),
-            uncredited_presenters: Vec::new(),
-            sessions: vec![PanelSession {
-                id: "session2a".to_string(),
-                session_num: Some(1),
-                description: None,
-                note: None,
-                prereq: None,
-                alt_panelist: None,
-                room_ids: vec![1],
-                start_time: Some("2023-01-01T10:00:00".to_string()),
-                end_time: None,
-                duration: 60,
-                is_full: false,
-                capacity: None,
-                seats_sold: None,
-                pre_reg_max: None,
-                ticket_url: None,
-                simple_tix_event: None,
-                hide_panelist: false,
-                credited_presenters: Vec::new(),
-                uncredited_presenters: Vec::new(),
-                notes_non_printing: None,
-                workshop_notes: None,
-                power_needs: None,
-                sewing_machines: false,
-                av_notes: None,
-                conflicts: Vec::new(),
-                metadata: IndexMap::new(),
-                source: None,
-                change_state: Default::default(),
-            }],
-            change_state: Default::default(),
-        });
-        panel2.parts.push(PanelPart {
-            part_num: Some(2),
-            description: None,
-            note: None,
-            prereq: None,
-            alt_panelist: None,
-            credited_presenters: Vec::new(),
-            uncredited_presenters: Vec::new(),
-            sessions: vec![PanelSession {
-                id: "session2b".to_string(),
-                session_num: Some(1),
-                description: None,
-                note: None,
-                prereq: None,
-                alt_panelist: None,
-                room_ids: vec![1],
-                start_time: Some("2023-01-01T10:00:00".to_string()),
-                end_time: None,
-                duration: 60,
-                is_full: false,
-                capacity: None,
-                seats_sold: None,
-                pre_reg_max: None,
-                ticket_url: None,
-                simple_tix_event: None,
-                hide_panelist: false,
-                credited_presenters: Vec::new(),
-                uncredited_presenters: Vec::new(),
-                notes_non_printing: None,
-                workshop_notes: None,
-                power_needs: None,
-                sewing_machines: false,
-                av_notes: None,
-                conflicts: Vec::new(),
-                metadata: IndexMap::new(),
-                source: None,
-                change_state: Default::default(),
-            }],
-            change_state: Default::default(),
-        });
-        schedule.panels.insert("panel2".to_string(), panel2);
+        // Test case 2: Multi-part panel — show part numbers
+        let mut ps2 = PanelSet::new("panel2");
+        ps2.panels.push(make_scheduled_panel(
+            "panel2P1S1",
+            "panel2",
+            Some(1),
+            Some(1),
+            "Multi Part Panel",
+        ));
+        ps2.panels.push(make_scheduled_panel(
+            "panel2P2S1",
+            "panel2",
+            Some(2),
+            Some(1),
+            "Multi Part Panel",
+        ));
+        schedule.panel_sets.insert("panel2".to_string(), ps2);
 
-        // Test case 3: Single part, multiple sessions - show session numbers
-        let mut panel3 = Panel::new("panel3".to_string());
-        panel3.name = "Multi Session Panel".to_string();
-        panel3.parts.push(PanelPart {
-            part_num: Some(1),
-            description: None,
-            note: None,
-            prereq: None,
-            alt_panelist: None,
-            credited_presenters: Vec::new(),
-            uncredited_presenters: Vec::new(),
-            sessions: vec![
-                PanelSession {
-                    id: "session3a".to_string(),
-                    session_num: Some(1),
-                    description: None,
-                    note: None,
-                    prereq: None,
-                    alt_panelist: None,
-                    room_ids: vec![1],
-                    start_time: Some("2023-01-01T10:00:00".to_string()),
-                    end_time: None,
-                    duration: 60,
-                    is_full: false,
-                    capacity: None,
-                    seats_sold: None,
-                    pre_reg_max: None,
-                    ticket_url: None,
-                    simple_tix_event: None,
-                    hide_panelist: false,
-                    credited_presenters: Vec::new(),
-                    uncredited_presenters: Vec::new(),
-                    notes_non_printing: None,
-                    workshop_notes: None,
-                    power_needs: None,
-                    sewing_machines: false,
-                    av_notes: None,
-                    conflicts: Vec::new(),
-                    metadata: IndexMap::new(),
-                    source: None,
-                    change_state: Default::default(),
-                },
-                PanelSession {
-                    id: "session3b".to_string(),
-                    session_num: Some(2),
-                    description: None,
-                    note: None,
-                    prereq: None,
-                    alt_panelist: None,
-                    room_ids: vec![1],
-                    start_time: Some("2023-01-01T10:00:00".to_string()),
-                    end_time: None,
-                    duration: 60,
-                    is_full: false,
-                    capacity: None,
-                    seats_sold: None,
-                    pre_reg_max: None,
-                    ticket_url: None,
-                    simple_tix_event: None,
-                    hide_panelist: false,
-                    credited_presenters: Vec::new(),
-                    uncredited_presenters: Vec::new(),
-                    notes_non_printing: None,
-                    workshop_notes: None,
-                    power_needs: None,
-                    sewing_machines: false,
-                    av_notes: None,
-                    conflicts: Vec::new(),
-                    metadata: IndexMap::new(),
-                    source: None,
-                    change_state: Default::default(),
-                },
-            ],
-            change_state: Default::default(),
-        });
-        schedule.panels.insert("panel3".to_string(), panel3);
+        // Test case 3: Single-part, multi-session panel — show session numbers
+        let mut ps3 = PanelSet::new("panel3");
+        ps3.panels.push(make_scheduled_panel(
+            "panel3P1S1",
+            "panel3",
+            Some(1),
+            Some(1),
+            "Multi Session Panel",
+        ));
+        ps3.panels.push(make_scheduled_panel(
+            "panel3P1S2",
+            "panel3",
+            Some(1),
+            Some(2),
+            "Multi Session Panel",
+        ));
+        schedule.panel_sets.insert("panel3".to_string(), ps3);
 
         let json_result = schedule.export_display_json_string().unwrap();
 

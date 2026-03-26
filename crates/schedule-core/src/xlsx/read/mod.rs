@@ -131,7 +131,7 @@ pub fn import_xlsx(path: &Path, options: &XlsxImportOptions) -> Result<ScheduleF
             modified,
         },
         timeline: Vec::new(),
-        panels: Default::default(),
+        panel_sets: Default::default(),
         rooms: Vec::new(),
         panel_types: Default::default(),
         presenters: Vec::new(),
@@ -160,8 +160,7 @@ pub fn import_xlsx(path: &Path, options: &XlsxImportOptions) -> Result<ScheduleF
         has_schedule: true,
     };
 
-    // Read panels (still uses direct construction for panels/sessions)
-    let (panels, presenter_map, timeline_entries) = schedule::read_panels(
+    let (panel_sets, presenter_map, timeline_entries) = schedule::read_panels(
         &book,
         &options.schedule_table,
         &schedule.rooms,
@@ -170,7 +169,7 @@ pub fn import_xlsx(path: &Path, options: &XlsxImportOptions) -> Result<ScheduleF
         &presenter_ranks,
     )?;
 
-    schedule.panels = panels;
+    schedule.panel_sets = panel_sets;
     schedule.timeline = timeline_entries;
 
     // Convert the intermediate presenter map into Presenter entities via the

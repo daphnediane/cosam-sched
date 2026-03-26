@@ -6,63 +6,80 @@
 
 use crate::data::panel::ExtraValue;
 
-use super::command::{EditCommand, PanelField, SessionField, SessionScheduleState};
+use super::command::{EditCommand, PanelField, SessionScheduleState};
 use super::context::EditContext;
 
+/// Convenience re-export so callers can still spell `SessionField` even though
+/// it is now just an alias for `PanelField`.
+pub use super::command::SessionField;
+
 impl EditContext<'_> {
-    /// Set an `Option<String>` field on a panel.
+    // ── Panel-level field setters ────────────────────────────────────────────
+
+    /// Set an `Option<String>` field on a flat Panel (addressed by full Uniq ID).
     pub fn set_panel_field(&mut self, panel_id: &str, field: PanelField, value: Option<String>) {
-        let cmd = EditCommand::SetPanelField {
+        self.execute(EditCommand::SetPanelField {
             panel_id: panel_id.to_string(),
             field,
-            old: None, // filled by apply
+            old: None,
             new: value,
-        };
-        self.execute(cmd);
+        });
     }
 
-    /// Set the panel name (a required `String` field, not `Option<String>`).
+    /// Set the name field on a flat Panel.
     pub fn set_panel_name(&mut self, panel_id: &str, name: &str) {
-        let cmd = EditCommand::SetPanelName {
+        self.execute(EditCommand::SetPanelName {
             panel_id: panel_id.to_string(),
-            old: String::new(), // filled by apply
+            old: String::new(),
             new: name.to_string(),
-        };
-        self.execute(cmd);
+        });
     }
 
-    /// Set a boolean field on a panel.
+    /// Set a boolean field on a flat Panel.
     pub fn set_panel_bool(&mut self, panel_id: &str, field_name: &str, value: bool) {
-        let cmd = EditCommand::SetPanelBool {
+        self.execute(EditCommand::SetPanelBool {
             panel_id: panel_id.to_string(),
             field_name: field_name.to_string(),
-            old: false, // filled by apply
+            old: false,
             new: value,
-        };
-        self.execute(cmd);
+        });
     }
 
-    /// Set an `Option<String>` field on a session.
+    /// Set the duration of a flat Panel.
+    pub fn set_panel_duration(&mut self, panel_id: &str, duration: u32) {
+        self.execute(EditCommand::SetPanelDuration {
+            panel_id: panel_id.to_string(),
+            old: 0,
+            new: duration,
+        });
+    }
+
+    // ── Backward-compat wrappers for callers that still use session addressing ──
+    //
+    // In the flat model a "session" is just a Panel.  The `panel_id` here must
+    // already be the full Uniq ID of the target flat Panel; `part_index` and
+    // `session_index` are ignored (kept for API stability while callers migrate).
+
+    /// Set an `Option<String>` field on a (flat) Panel.
+    ///
+    /// *Deprecated alias* — use [`set_panel_field`] directly.  The
+    /// `part_index` and `session_index` parameters are ignored in the flat model.
+    #[allow(unused_variables)]
     pub fn set_session_field(
         &mut self,
         panel_id: &str,
         part_index: usize,
         session_index: usize,
-        field: SessionField,
+        field: PanelField,
         value: Option<String>,
     ) {
-        let cmd = EditCommand::SetSessionField {
-            panel_id: panel_id.to_string(),
-            part_index,
-            session_index,
-            field,
-            old: None, // filled by apply
-            new: value,
-        };
-        self.execute(cmd);
+        self.set_panel_field(panel_id, field, value);
     }
 
-    /// Set the duration of a session.
+    /// Set the duration of a (flat) Panel.
+    ///
+    /// *Deprecated alias* — use [`set_panel_duration`] directly.
+    #[allow(unused_variables)]
     pub fn set_session_duration(
         &mut self,
         panel_id: &str,
@@ -70,33 +87,21 @@ impl EditContext<'_> {
         session_index: usize,
         duration: u32,
     ) {
-        let cmd = EditCommand::SetSessionDuration {
-            panel_id: panel_id.to_string(),
-            part_index,
-            session_index,
-            old: 0, // filled by apply
-            new: duration,
-        };
-        self.execute(cmd);
+        self.set_panel_duration(panel_id, duration);
     }
 
-    /// Add a credited presenter to a session.
-    pub fn add_presenter_to_session(
-        &mut self,
-        panel_id: &str,
-        part_index: usize,
-        session_index: usize,
-        name: &str,
-    ) {
-        // Check for duplicate first
+    // ── Presenters ───────────────────────────────────────────────────────────
+
+    /// Add a credited presenter to a flat Panel (deduplicated).
+    pub fn add_presenter_to_panel(&mut self, panel_id: &str, name: &str) {
         let already_present = self
             .schedule
-            .panels
-            .get(panel_id)
-            .and_then(|p| p.parts.get(part_index))
-            .and_then(|pt| pt.sessions.get(session_index))
-            .is_some_and(|s| {
-                s.credited_presenters
+            .panel_sets
+            .values()
+            .flat_map(|ps| ps.panels.iter())
+            .find(|p| p.id == panel_id)
+            .is_some_and(|p| {
+                p.credited_presenters
                     .iter()
                     .any(|n| n.eq_ignore_ascii_case(name))
             });
@@ -105,16 +110,35 @@ impl EditContext<'_> {
             return;
         }
 
-        let cmd = EditCommand::AddPresenterToSession {
+        self.execute(EditCommand::AddPresenterToPanel {
             panel_id: panel_id.to_string(),
-            part_index,
-            session_index,
             name: name.to_string(),
-        };
-        self.execute(cmd);
+        });
     }
 
-    /// Remove a credited presenter from a session.
+    /// *Deprecated alias* — use [`add_presenter_to_panel`] directly.
+    #[allow(unused_variables)]
+    pub fn add_presenter_to_session(
+        &mut self,
+        panel_id: &str,
+        part_index: usize,
+        session_index: usize,
+        name: &str,
+    ) {
+        self.add_presenter_to_panel(panel_id, name);
+    }
+
+    /// Remove a credited presenter from a flat Panel.
+    pub fn remove_presenter_from_panel(&mut self, panel_id: &str, name: &str) {
+        self.execute(EditCommand::RemovePresenterFromPanel {
+            panel_id: panel_id.to_string(),
+            name: name.to_string(),
+            position: 0,
+        });
+    }
+
+    /// *Deprecated alias* — use [`remove_presenter_from_panel`] directly.
+    #[allow(unused_variables)]
     pub fn remove_presenter_from_session(
         &mut self,
         panel_id: &str,
@@ -122,17 +146,27 @@ impl EditContext<'_> {
         session_index: usize,
         name: &str,
     ) {
-        let cmd = EditCommand::RemovePresenterFromSession {
-            panel_id: panel_id.to_string(),
-            part_index,
-            session_index,
-            name: name.to_string(),
-            position: 0, // filled by apply
-        };
-        self.execute(cmd);
+        self.remove_presenter_from_panel(panel_id, name);
     }
 
-    /// Reschedule a session with new room/time/duration.
+    // ── Scheduling ───────────────────────────────────────────────────────────
+
+    /// Reschedule a flat Panel with new room / time / duration.
+    pub fn reschedule_panel(&mut self, panel_id: &str, new_state: SessionScheduleState) {
+        self.execute(EditCommand::ReschedulePanel {
+            panel_id: panel_id.to_string(),
+            old_state: SessionScheduleState {
+                room_ids: Vec::new(),
+                start_time: None,
+                end_time: None,
+                duration: 0,
+            },
+            new_state,
+        });
+    }
+
+    /// *Deprecated alias* — use [`reschedule_panel`] directly.
+    #[allow(unused_variables)]
     pub fn reschedule_session(
         &mut self,
         panel_id: &str,
@@ -140,22 +174,43 @@ impl EditContext<'_> {
         session_index: usize,
         new_state: SessionScheduleState,
     ) {
-        let cmd = EditCommand::RescheduleSession {
-            panel_id: panel_id.to_string(),
-            part_index,
-            session_index,
-            old_state: SessionScheduleState {
-                room_ids: Vec::new(),
-                start_time: None,
-                end_time: None,
-                duration: 0,
-            }, // filled by apply
-            new_state,
-        };
-        self.execute(cmd);
+        self.reschedule_panel(panel_id, new_state);
     }
 
-    /// Set a metadata key on a session.
+    // ── Metadata ─────────────────────────────────────────────────────────────
+
+    /// Set a metadata key on a flat Panel.
+    pub fn set_panel_metadata(&mut self, panel_id: &str, key: &str, value: ExtraValue) {
+        self.execute(EditCommand::SetPanelMetadata {
+            panel_id: panel_id.to_string(),
+            key: key.to_string(),
+            old: None,
+            new: value,
+        });
+    }
+
+    /// Clear a metadata key from a flat Panel.
+    pub fn clear_panel_metadata(&mut self, panel_id: &str, key: &str) {
+        let has_key = self
+            .schedule
+            .panel_sets
+            .values()
+            .flat_map(|ps| ps.panels.iter())
+            .find(|p| p.id == panel_id)
+            .is_some_and(|p| p.metadata.contains_key(key));
+
+        if !has_key {
+            return;
+        }
+        self.execute(EditCommand::ClearPanelMetadata {
+            panel_id: panel_id.to_string(),
+            key: key.to_string(),
+            old: ExtraValue::String(String::new()),
+        });
+    }
+
+    /// *Deprecated alias* for [`set_panel_metadata`].
+    #[allow(unused_variables)]
     pub fn set_session_metadata(
         &mut self,
         panel_id: &str,
@@ -164,18 +219,11 @@ impl EditContext<'_> {
         key: &str,
         value: ExtraValue,
     ) {
-        let cmd = EditCommand::SetSessionMetadata {
-            panel_id: panel_id.to_string(),
-            part_index,
-            session_index,
-            key: key.to_string(),
-            old: None, // filled by apply
-            new: value,
-        };
-        self.execute(cmd);
+        self.set_panel_metadata(panel_id, key, value);
     }
 
-    /// Clear a metadata key from a session.
+    /// *Deprecated alias* for [`clear_panel_metadata`].
+    #[allow(unused_variables)]
     pub fn clear_session_metadata(
         &mut self,
         panel_id: &str,
@@ -183,38 +231,17 @@ impl EditContext<'_> {
         session_index: usize,
         key: &str,
     ) {
-        // Only emit if the key exists
-        let has_key = self
-            .schedule
-            .panels
-            .get(panel_id)
-            .and_then(|p| p.parts.get(part_index))
-            .and_then(|pt| pt.sessions.get(session_index))
-            .is_some_and(|s| s.metadata.contains_key(key));
-
-        if !has_key {
-            return;
-        }
-
-        let cmd = EditCommand::ClearSessionMetadata {
-            panel_id: panel_id.to_string(),
-            part_index,
-            session_index,
-            key: key.to_string(),
-            old: ExtraValue::String(String::new()), // filled by apply
-        };
-        self.execute(cmd);
+        self.clear_panel_metadata(panel_id, key);
     }
 
     /// Set a metadata key on a room.
     pub fn set_room_metadata(&mut self, uid: u32, key: &str, value: ExtraValue) {
-        let cmd = EditCommand::SetRoomMetadata {
+        self.execute(EditCommand::SetRoomMetadata {
             uid,
             key: key.to_string(),
-            old: None, // filled by apply
+            old: None,
             new: value,
-        };
-        self.execute(cmd);
+        });
     }
 
     /// Clear a metadata key from a room.
@@ -230,24 +257,21 @@ impl EditContext<'_> {
         if !has_key {
             return;
         }
-
-        let cmd = EditCommand::ClearRoomMetadata {
+        self.execute(EditCommand::ClearRoomMetadata {
             uid,
             key: key.to_string(),
-            old: ExtraValue::String(String::new()), // filled by apply
-        };
-        self.execute(cmd);
+            old: ExtraValue::String(String::new()),
+        });
     }
 
     /// Set a metadata key on a panel type.
     pub fn set_panel_type_metadata(&mut self, prefix: &str, key: &str, value: ExtraValue) {
-        let cmd = EditCommand::SetPanelTypeMetadata {
+        self.execute(EditCommand::SetPanelTypeMetadata {
             prefix: prefix.to_string(),
             key: key.to_string(),
-            old: None, // filled by apply
+            old: None,
             new: value,
-        };
-        self.execute(cmd);
+        });
     }
 
     /// Clear a metadata key from a panel type.
@@ -262,26 +286,26 @@ impl EditContext<'_> {
         if !has_key {
             return;
         }
-
-        let cmd = EditCommand::ClearPanelTypeMetadata {
+        self.execute(EditCommand::ClearPanelTypeMetadata {
             prefix: prefix.to_string(),
             key: key.to_string(),
-            old: ExtraValue::String(String::new()), // filled by apply
-        };
-        self.execute(cmd);
+            old: ExtraValue::String(String::new()),
+        });
     }
 
-    /// Replace the entire credited presenter list on a panel.
+    // ── Presenter lists ──────────────────────────────────────────────────────
+
+    /// Replace the entire credited presenter list on a flat Panel.
     pub fn set_panel_presenters(&mut self, panel_id: &str, presenters: Vec<String>) {
-        let cmd = EditCommand::SetPanelPresenters {
+        self.execute(EditCommand::SetPanelPresenters {
             panel_id: panel_id.to_string(),
-            old: Vec::new(), // filled by apply
+            old: Vec::new(),
             new: presenters,
-        };
-        self.execute(cmd);
+        });
     }
 
-    /// Replace the entire credited presenter list on a session.
+    /// *Deprecated alias* — use [`set_panel_presenters`] directly.
+    #[allow(unused_variables)]
     pub fn set_session_presenters(
         &mut self,
         panel_id: &str,
@@ -289,13 +313,6 @@ impl EditContext<'_> {
         session_index: usize,
         presenters: Vec<String>,
     ) {
-        let cmd = EditCommand::SetSessionPresenters {
-            panel_id: panel_id.to_string(),
-            part_index,
-            session_index,
-            old: Vec::new(), // filled by apply
-            new: presenters,
-        };
-        self.execute(cmd);
+        self.set_panel_presenters(panel_id, presenters);
     }
 }

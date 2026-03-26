@@ -15,7 +15,7 @@ use gpui_component::resizable::{h_resizable, resizable_panel};
 use indexmap::IndexMap;
 
 use crate::data::source_info::ChangeState;
-use crate::data::{Panel, Schedule};
+use crate::data::{Panel, PanelSet, Schedule};
 use crate::ui::day_tabs::{DayTabEvent, DayTabs};
 use crate::ui::detail_pane::{DetailPane, DetailPaneEvent};
 use crate::ui::event_card::{EventCard, EventCardEvent};
@@ -69,8 +69,8 @@ pub struct ScheduleEditor {
     sidebar: Entity<Sidebar>,
     event_cards: Vec<Entity<EventCard>>,
     detail_pane: Option<Entity<DetailPane>>,
-    undo_stack: Vec<IndexMap<String, Panel>>,
-    redo_stack: Vec<IndexMap<String, Panel>>,
+    undo_stack: Vec<IndexMap<String, PanelSet>>,
+    redo_stack: Vec<IndexMap<String, PanelSet>>,
     active_view: ViewMode,
     preview_open_in_browser: bool,
     #[cfg(not(target_os = "macos"))]
@@ -183,7 +183,7 @@ impl ScheduleEditor {
             sb.selected_room = None;
         });
 
-        let panel_count = schedule.panels.len();
+        let panel_count: usize = schedule.panel_sets.values().map(|ps| ps.panels.len()).sum();
         let room_count = schedule.rooms.len();
         self.schedule = Some(schedule);
         self.current_path = path.clone();
@@ -416,7 +416,7 @@ impl ScheduleEditor {
             if self.undo_stack.len() >= MAX_UNDO_STEPS {
                 self.undo_stack.remove(0);
             }
-            self.undo_stack.push(schedule.panels.clone());
+            self.undo_stack.push(schedule.panel_sets.clone());
             self.redo_stack.clear();
         }
     }
@@ -426,8 +426,8 @@ impl ScheduleEditor {
             return;
         };
         if let Some(ref mut schedule) = self.schedule {
-            self.redo_stack.push(schedule.panels.clone());
-            schedule.panels = snapshot;
+            self.redo_stack.push(schedule.panel_sets.clone());
+            schedule.panel_sets = snapshot;
             self.has_unsaved_changes = true;
         }
         self.selected_event_id = None;
@@ -441,8 +441,8 @@ impl ScheduleEditor {
             return;
         };
         if let Some(ref mut schedule) = self.schedule {
-            self.undo_stack.push(schedule.panels.clone());
-            schedule.panels = snapshot;
+            self.undo_stack.push(schedule.panel_sets.clone());
+            schedule.panel_sets = snapshot;
             self.has_unsaved_changes = true;
         }
         self.selected_event_id = None;
@@ -456,22 +456,13 @@ impl ScheduleEditor {
             return;
         };
 
-        let mut found_base_id: Option<String> = None;
-        'outer: for (base_id, panel) in schedule.panels.iter() {
-            for part in &panel.parts {
-                for session in &part.sessions {
-                    if session.id == session_id {
-                        found_base_id = Some(base_id.clone());
-                        break 'outer;
-                    }
-                }
-            }
-        }
-
-        let Some(base_id) = found_base_id else {
-            return;
-        };
-        let Some(panel) = schedule.panels.get(&base_id).cloned() else {
+        let panel = schedule
+            .panel_sets
+            .values()
+            .flat_map(|ps| ps.panels.iter())
+            .find(|p| p.id == session_id)
+            .cloned();
+        let Some(panel) = panel else {
             return;
         };
 
@@ -516,9 +507,16 @@ impl ScheduleEditor {
         let Some(ref schedule) = self.schedule else {
             return;
         };
-        let Some(panel) = schedule.panels.get(&base_id).cloned() else {
+        let Some(panel) = schedule
+            .panel_sets
+            .values()
+            .flat_map(|ps| ps.panels.iter())
+            .find(|p| p.id == session_id)
+            .cloned()
+        else {
             return;
         };
+        let _ = base_id;
         let rooms: Vec<(u32, String)> = schedule
             .sorted_rooms()
             .iter()
@@ -572,7 +570,7 @@ impl ScheduleEditor {
         };
 
         let new_id = format!("new-{}", chrono::Utc::now().timestamp_millis());
-        let panel = Panel::new(new_id);
+        let panel = Panel::new(new_id.clone(), new_id.clone());
 
         let rooms: Vec<(u32, String)> = schedule
             .sorted_rooms()
@@ -621,7 +619,13 @@ impl ScheduleEditor {
     pub fn apply_panel_save(&mut self, mut panel: Panel, cx: &mut Context<Self>) {
         self.push_undo_snapshot();
         if let Some(ref mut schedule) = self.schedule {
-            let is_existing = schedule.panels.contains_key(&panel.id);
+            let panel_id = panel.id.clone();
+            let base_id = panel.base_id.clone();
+            let is_existing = schedule
+                .panel_sets
+                .values()
+                .flat_map(|ps| ps.panels.iter())
+                .any(|p| p.id == panel_id);
             if panel.change_state == ChangeState::Unchanged {
                 panel.change_state = if is_existing {
                     ChangeState::Modified
@@ -629,7 +633,15 @@ impl ScheduleEditor {
                     ChangeState::Added
                 };
             }
-            schedule.panels.insert(panel.id.clone(), panel);
+            let ps = schedule
+                .panel_sets
+                .entry(base_id.clone())
+                .or_insert_with(|| PanelSet::new(base_id));
+            if let Some(existing) = ps.panels.iter_mut().find(|p| p.id == panel_id) {
+                *existing = panel;
+            } else {
+                ps.panels.push(panel);
+            }
             self.has_unsaved_changes = true;
         }
         self.rebuild_event_cards(cx);
@@ -644,11 +656,8 @@ impl ScheduleEditor {
     ) {
         self.push_undo_snapshot();
         if let Some(ref mut schedule) = self.schedule {
-            if let Some(panel) = schedule.panels.get_mut(&base_id) {
-                for part in &mut panel.parts {
-                    part.sessions.retain(|s| s.id != session_id);
-                }
-                panel.parts.retain(|p| !p.sessions.is_empty());
+            if let Some(ps) = schedule.panel_sets.get_mut(&base_id) {
+                ps.panels.retain(|p| p.id != session_id);
             }
             self.has_unsaved_changes = true;
         }
@@ -1087,7 +1096,16 @@ impl Render for ScheduleEditor {
             .unwrap_or_else(|| "No schedule loaded".to_string());
         let title = SharedString::from(title);
 
-        let panel_count = self.schedule.as_ref().map(|s| s.panels.len()).unwrap_or(0);
+        let panel_count = self
+            .schedule
+            .as_ref()
+            .map(|s| {
+                s.panel_sets
+                    .values()
+                    .map(|ps| ps.panels.len())
+                    .sum::<usize>()
+            })
+            .unwrap_or(0);
         let panel_count_text = SharedString::from(format!("{panel_count} panels"));
 
         let status_bar = self.status_message.as_ref().map(|msg| {
