@@ -1,6 +1,6 @@
 # Cosplay America Schedule - Work Plan
 
-Generated on: Wed Mar 25 22:08:03 2026
+Generated on: Thu Mar 26 14:15:44 2026
 
 ## Completed
 
@@ -51,12 +51,13 @@ the base→part→session hierarchy in the UI.
 
 ## Summary of Open Items
 
-**Total open items:** 24
+**Total open items:** 26
 
 * **High Priority**
   * [FEATURE-027] Enable reading schedule data directly from Google Sheets.
   * [FEATURE-031] Add a grid view option to the printable schedule in addition to the existing list view.
   * [FEATURE-035] Enable room-wide events like Market Expo to overlap with subpanels in the same room without triggering false conflict warnings.
+  * [REFACTOR-022] Refactor Panel time fields to use a unified TimeRange enum that eliminates inconsistency between duration and end_time fields and centralizes all timing logic.
   * [UI-026] Prevent event titles from overlapping with the "my schedule" star icon.
   * [UI-038] Implement comprehensive accessibility improvements for screen readers and color blindness support.
   * [UI-502] Implement inline editing of individual schedule events.
@@ -68,6 +69,7 @@ the base→part→session hierarchy in the UI.
   * [EDITOR-510] Define how multiple people and devices can safely edit a single schedule with conflict handling independent of any specific storage backend.
   * [FEATURE-019] Populate the `metadata` field on all item types from non-standard spreadsheet columns during xlsx import.
   * [FEATURE-033] Create a compact print format optimized for minimal paper usage.
+  * [FEATURE-040] Implement conflict detection and recording when both duration and end time are specified in XLSX data but result in different effective end times.
   * [UI-032] Add sticky headers or repeat day headers between time blocks in grid view for better navigation.
   * [UI-034] Add visual indicators to the schedule widget to highlight conflicting events, making it easy for users to identify and understand scheduling conflicts.
   * [UI-036] Update the room filter dropdown to only include rooms that have scheduled panels, excluding rooms that only contain room-hours events (RH prefix or "Is Room Hours" flag).
@@ -89,7 +91,7 @@ the base→part→session hierarchy in the UI.
 
 The following ID numbers are available for new items:
 
-**Available:** 022, 040, 041, 042, 043, 044, 045, 046, 047, 048, 049, 050, 051, 052, 053, 054
+**Available:** 041, 042, 043, 044, 045, 046, 047, 048, 049, 050, 051, 052, 053, 054, 055, 056
 
 **Highest used:** 511
 
@@ -284,6 +286,18 @@ The 2025 schedule shows this pattern:
 
 ---
 
+### [FEATURE-040] Duration/End Time Conflict Detection
+
+**Status:** 📋 **Ready** - Design specified, implementation pending
+
+**Priority:** Medium
+
+**Summary:** Implement conflict detection and recording when both duration and end time are specified in XLSX data but result in different effective end times.
+
+**Description:** When reading XLSX schedule data, conflicts can occur when both duration and end time are specified but don't align. The current logic prioritizes duration over end time but doesn't record the conflict for user visibility.
+
+---
+
 ### [FEATURE-030] Develop a standalone editor app
 
 **Status:** In Progress
@@ -305,6 +319,20 @@ The 2025 schedule shows this pattern:
 **Summary:** Support nested group membership (groups whose members include other groups) in presenter processing and credit resolution.
 
 **Description:** The `schedule-to-html` project supported groups-of-groups, where a group's members list could include the name of another group. The current Rust code does not handle this case — group membership is assumed to be individuals only.
+
+---
+
+## Open REFACTOR Items
+
+### [REFACTOR-022] Semantic Datetime and Duration Representation
+
+**Status:** ✅ **Completed** - TimeRange fully implemented and tested
+
+**Priority:** High
+
+**Summary:** Refactor Panel time fields to use a unified TimeRange enum that eliminates inconsistency between duration and end_time fields and centralizes all timing logic.
+
+**Description:** Refactor the Panel struct to use a unified `TimeRange` enum instead of separate `start_time`, `end_time`, and `duration` fields, eliminating potential inconsistency and providing clearer business logic. All timing logic is now centralized in the TimeRange enum in `time.rs`.
 
 ---
 
@@ -470,8 +498,10 @@ Based on the 2025 schedule data, conflicts include:
 [FEATURE-033]: work-plan/medium/FEATURE-033.md
 [FEATURE-035]: work-plan/high/FEATURE-035.md
 [FEATURE-039]: work-plan/low/FEATURE-039.md
+[FEATURE-040]: work-plan/medium/FEATURE-040.md
 [FEATURE-501]: work-plan/done/FEATURE-501.md
 [INVESTIGATE-001]: work-plan/done/INVESTIGATE-001.md
+[REFACTOR-022]: work-plan/high/REFACTOR-022.md
 [TEST-013]: work-plan/done/TEST-013.md
 [UI-001]: work-plan/done/UI-001.md
 [UI-003]: work-plan/done/UI-003.md

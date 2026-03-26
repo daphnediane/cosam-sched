@@ -6,10 +6,13 @@
 
 use std::collections::HashSet;
 
+use anyhow::Result;
 use indexmap::IndexMap;
 use umya_spreadsheet::structs::{Table, TableColumn, TableStyleInfo, Worksheet};
 
 use crate::data::panel::ExtraValue;
+use crate::data::panel::Panel;
+use crate::data::panel_type::PanelType;
 use crate::data::schedule::Schedule;
 use crate::data::source_info::{ChangeState, SourceInfo};
 
@@ -89,9 +92,12 @@ pub(super) fn flatten_panel_sessions(
                 id: panel.id.clone(),
                 name: panel.name.clone(),
                 description: panel.description.clone(),
-                start_time: panel.start_time.clone(),
-                end_time: panel.end_time.clone(),
-                duration: panel.duration,
+                start_time: panel.timing.start_time_str(),
+                end_time: panel.timing.end_time_str(),
+                duration: panel
+                    .effective_duration()
+                    .map(|d: chrono::Duration| d.num_minutes() as u32)
+                    .unwrap_or(0),
                 room_id,
                 panel_type: panel.panel_type.clone(),
                 cost: panel.cost.clone(),

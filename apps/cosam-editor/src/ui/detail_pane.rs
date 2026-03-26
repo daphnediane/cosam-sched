@@ -8,9 +8,7 @@ use gpui::prelude::*;
 use gpui::{Context, EventEmitter, MouseButton, SharedString, Window, div, px, rgb};
 use gpui_component::description_list::DescriptionList;
 
-use schedule_core::data::time;
-
-use crate::data::Panel;
+use schedule_core::data::panel::Panel;
 
 struct SessionEntry {
     session_id: String,
@@ -90,8 +88,8 @@ impl DetailPane {
     }
 
     fn build_entries(panel: &Panel, rooms: &[(u32, String)]) -> Vec<SessionEntry> {
-        let start_dt = panel.start_time.as_deref().and_then(time::parse_storage);
-        let end_dt = panel.end_time.as_deref().and_then(time::parse_storage);
+        let start_dt = panel.timing.start_time();
+        let end_dt = panel.timing.effective_end_time();
 
         let label = if let Some(start) = start_dt {
             SharedString::from(format!(
@@ -126,7 +124,7 @@ impl DetailPane {
             room_names,
             start_dt,
             end_dt,
-            duration: panel.duration,
+            duration: panel.effective_duration_minutes().unwrap_or(0),
             is_full: panel.is_full,
             hide_panelist: panel.hide_panelist,
             capacity: panel.capacity.clone(),

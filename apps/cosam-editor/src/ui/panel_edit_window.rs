@@ -94,8 +94,8 @@ impl PanelEditWindow {
         let prereq_base_val = self.draft_panel.prereq.clone().unwrap_or_default();
         let cost_val = self.draft_panel.cost.clone().unwrap_or_default();
 
-        let start_val = self.draft_panel.start_time.clone().unwrap_or_default();
-        let end_val = self.draft_panel.end_time.clone().unwrap_or_default();
+        let start_val = self.draft_panel.start_time_str().unwrap_or_default();
+        let end_val = self.draft_panel.end_time_str().unwrap_or_default();
         let desc_sess_val = self.draft_panel.description.clone().unwrap_or_default();
         let note_sess_val = self.draft_panel.note.clone().unwrap_or_default();
         let prereq_sess_val = self.draft_panel.prereq.clone().unwrap_or_default();
@@ -204,10 +204,10 @@ impl PanelEditWindow {
             |this, entity, event: &InputEvent, cx| {
                 if let InputEvent::Change = event {
                     let text = entity.read(cx).value();
-                    this.draft_panel.start_time = if text.is_empty() {
-                        None
+                    if text.is_empty() {
+                        this.draft_panel.timing.clear_start_time();
                     } else {
-                        Some(text.to_string())
+                        this.draft_panel.timing.set_start_time_from_str(&text);
                     };
                     this.schedule_save(cx);
                 }
@@ -218,10 +218,10 @@ impl PanelEditWindow {
             |this, entity, event: &InputEvent, cx| {
                 if let InputEvent::Change = event {
                     let text = entity.read(cx).value();
-                    this.draft_panel.end_time = if text.is_empty() {
-                        None
+                    if text.is_empty() {
+                        this.draft_panel.timing.clear_end_time();
                     } else {
-                        Some(text.to_string())
+                        this.draft_panel.timing.set_end_time_from_str(&text);
                     };
                     this.schedule_save(cx);
                 }

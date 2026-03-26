@@ -13,6 +13,7 @@ use crate::data::presenter::{Presenter, PresenterGroup, PresenterMember, Present
 use crate::data::room::Room;
 use crate::data::schedule::Schedule;
 use crate::data::source_info::{ChangeState, SourceInfo};
+use crate::data::time::TimeRange;
 
 /// Identifies which `Option<String>` field on a flat [`crate::data::Panel`] to set.
 ///
@@ -51,9 +52,7 @@ pub type SessionField = PanelField;
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct SessionScheduleState {
     pub room_ids: Vec<u32>,
-    pub start_time: Option<String>,
-    pub end_time: Option<String>,
-    pub duration: u32,
+    pub timing: crate::data::time::TimeRange,
 }
 
 /// Snapshot of a room's mutable fields for undo.
@@ -191,8 +190,8 @@ pub enum EditCommand {
     },
     SetPanelDuration {
         panel_id: String,
-        old: u32,
-        new: u32,
+        old: Option<chrono::Duration>,
+        new: Option<chrono::Duration>,
     },
 
     // ── Presenters on panels ─────────────────────────────────────
@@ -340,9 +339,12 @@ impl EditCommand {
                 new,
             } => {
                 if let Some(panel) = get_panel_mut(schedule, panel_id) {
-                    let target = panel_field_ref(panel, field);
-                    *old = target.clone();
-                    *target = new.clone();
+                    let mut target = panel_field_ref(panel, field);
+                    *old = target.as_string();
+                    target.set_from_string(new.clone()).unwrap_or_else(|e| {
+                        // Log error but continue - this shouldn't happen in normal usage
+                        eprintln!("Error setting panel field: {}", e);
+                    });
                     mark_panel_modified(panel);
                 }
             }
@@ -361,8 +363,11 @@ impl EditCommand {
             }
             EditCommand::SetPanelDuration { panel_id, old, new } => {
                 if let Some(panel) = get_panel_mut(schedule, panel_id) {
-                    *old = panel.duration;
-                    panel.duration = *new;
+                    *old = panel.timing.duration();
+                    if let Some(new_duration) = *new {
+                        panel.timing.set_duration(new_duration);
+                    }
+
                     mark_panel_modified(panel);
                 }
             }
@@ -397,14 +402,13 @@ impl EditCommand {
                 if let Some(panel) = get_panel_mut(schedule, panel_id) {
                     *old_state = SessionScheduleState {
                         room_ids: panel.room_ids.clone(),
-                        start_time: panel.start_time.clone(),
-                        end_time: panel.end_time.clone(),
-                        duration: panel.duration,
+                        timing: panel.timing.clone(),
                     };
                     panel.room_ids = new_state.room_ids.clone();
-                    panel.start_time = new_state.start_time.clone();
-                    panel.end_time = new_state.end_time.clone();
-                    panel.duration = new_state.duration;
+
+                    // Set timing from new state
+                    panel.timing = new_state.timing.clone();
+
                     mark_panel_modified(panel);
                 }
             }
@@ -415,13 +419,11 @@ impl EditCommand {
                 if let Some(panel) = get_panel_mut(schedule, panel_id) {
                     *old_state = SessionScheduleState {
                         room_ids: panel.room_ids.clone(),
-                        start_time: panel.start_time.clone(),
-                        end_time: panel.end_time.clone(),
-                        duration: panel.duration,
+                        timing: panel.timing.clone(),
                     };
                     panel.room_ids.clear();
-                    panel.start_time = None;
-                    panel.end_time = None;
+                    panel.timing = TimeRange::Unspecified;
+
                     mark_panel_modified(panel);
                 }
             }
@@ -641,7 +643,11 @@ impl EditCommand {
                 ..
             } => {
                 if let Some(panel) = get_panel_mut(schedule, panel_id) {
-                    *panel_field_ref(panel, field) = old.clone();
+                    let mut target = panel_field_ref(panel, field);
+                    target.set_from_string(old.clone()).unwrap_or_else(|e| {
+                        // Log error but continue - this shouldn't happen in normal usage
+                        eprintln!("Error undoing panel field: {}", e);
+                    });
                     mark_panel_modified(panel);
                 }
             }
@@ -658,7 +664,10 @@ impl EditCommand {
             }
             EditCommand::SetPanelDuration { panel_id, old, .. } => {
                 if let Some(panel) = get_panel_mut(schedule, panel_id) {
-                    panel.duration = *old;
+                    if let Some(old_duration) = *old {
+                        panel.timing.set_duration(old_duration);
+                    }
+
                     mark_panel_modified(panel);
                 }
             }
@@ -686,9 +695,10 @@ impl EditCommand {
             } => {
                 if let Some(panel) = get_panel_mut(schedule, panel_id) {
                     panel.room_ids = old_state.room_ids.clone();
-                    panel.start_time = old_state.start_time.clone();
-                    panel.end_time = old_state.end_time.clone();
-                    panel.duration = old_state.duration;
+
+                    // Restore timing from old state
+                    panel.timing = old_state.timing.clone();
+
                     mark_panel_modified(panel);
                 }
             }
@@ -698,9 +708,10 @@ impl EditCommand {
             } => {
                 if let Some(panel) = get_panel_mut(schedule, panel_id) {
                     panel.room_ids = old_state.room_ids.clone();
-                    panel.start_time = old_state.start_time.clone();
-                    panel.end_time = old_state.end_time.clone();
-                    panel.duration = old_state.duration;
+
+                    // Restore timing from old state
+                    panel.timing = old_state.timing.clone();
+
                     mark_panel_modified(panel);
                 }
             }
@@ -869,33 +880,112 @@ fn get_panel_mut<'a>(
         .find(|p| p.id == panel_id)
 }
 
-fn panel_field_ref<'a>(
-    panel: &'a mut crate::data::Panel,
-    field: &PanelField,
-) -> &'a mut Option<String> {
+fn panel_field_ref<'a>(panel: &'a mut crate::data::Panel, field: &PanelField) -> PanelFieldRef<'a> {
     match field {
-        PanelField::Description => &mut panel.description,
-        PanelField::Note => &mut panel.note,
-        PanelField::Prereq => &mut panel.prereq,
-        PanelField::Cost => &mut panel.cost,
-        PanelField::Capacity => &mut panel.capacity,
-        PanelField::Difficulty => &mut panel.difficulty,
-        PanelField::PanelType => &mut panel.panel_type,
-        PanelField::AltPanelist => &mut panel.alt_panelist,
-        PanelField::PreRegMax => &mut panel.pre_reg_max,
-        PanelField::TicketUrl => &mut panel.ticket_url,
-        PanelField::SimpleTicketEvent => &mut panel.simple_tix_event,
+        PanelField::Description => PanelFieldRef::String(&mut panel.description),
+        PanelField::Note => PanelFieldRef::String(&mut panel.note),
+        PanelField::Prereq => PanelFieldRef::String(&mut panel.prereq),
+        PanelField::Cost => PanelFieldRef::String(&mut panel.cost),
+        PanelField::Capacity => PanelFieldRef::String(&mut panel.capacity),
+        PanelField::Difficulty => PanelFieldRef::String(&mut panel.difficulty),
+        PanelField::PanelType => PanelFieldRef::String(&mut panel.panel_type),
+        PanelField::AltPanelist => PanelFieldRef::String(&mut panel.alt_panelist),
+        PanelField::PreRegMax => PanelFieldRef::String(&mut panel.pre_reg_max),
+        PanelField::TicketUrl => PanelFieldRef::String(&mut panel.ticket_url),
+        PanelField::SimpleTicketEvent => PanelFieldRef::String(&mut panel.simple_tix_event),
         PanelField::HaveTicketImage => {
             // HaveTicketImage is bool stored as Option<bool>; return description as proxy
-            // when accessed via string field. (Use SetPanelBool for proper access.)
-            &mut panel.description
+            return PanelFieldRef::String(&mut panel.description);
         }
-        PanelField::StartTime => &mut panel.start_time,
-        PanelField::EndTime => &mut panel.end_time,
-        PanelField::AvNotes => &mut panel.av_notes,
-        PanelField::NotesNonPrinting => &mut panel.notes_non_printing,
-        PanelField::WorkshopNotes => &mut panel.workshop_notes,
-        PanelField::PowerNeeds => &mut panel.power_needs,
+        PanelField::StartTime => PanelFieldRef::StartTime(&mut panel.timing),
+        PanelField::EndTime => PanelFieldRef::EndTime(&mut panel.timing),
+        PanelField::AvNotes => PanelFieldRef::String(&mut panel.av_notes),
+        PanelField::NotesNonPrinting => PanelFieldRef::String(&mut panel.notes_non_printing),
+        PanelField::WorkshopNotes => PanelFieldRef::String(&mut panel.workshop_notes),
+        PanelField::PowerNeeds => PanelFieldRef::String(&mut panel.power_needs),
+    }
+}
+
+/// Enum representing different field reference types for flexible editing
+pub enum PanelFieldRef<'a> {
+    String(&'a mut Option<String>),
+    DateTime(&'a mut Option<chrono::NaiveDateTime>),
+    StartTime(&'a mut crate::data::time::TimeRange),
+    EndTime(&'a mut crate::data::time::TimeRange),
+    Duration(&'a mut crate::data::time::TimeRange),
+}
+
+impl<'a> PanelFieldRef<'a> {
+    /// Get the current value as a string for serialization/editing
+    pub fn as_string(&self) -> Option<String> {
+        match self {
+            PanelFieldRef::String(opt) => (*opt).clone(),
+            PanelFieldRef::DateTime(opt) => opt.map(|dt| crate::data::time::format_storage(dt)),
+            PanelFieldRef::StartTime(timerange) => timerange.start_time_str(),
+            PanelFieldRef::EndTime(timerange) => timerange.end_time_str(),
+            PanelFieldRef::Duration(timerange) => timerange.duration_minutes_str(),
+        }
+    }
+
+    /// Set the value from a string input (with parsing for datetime fields)
+    pub fn set_from_string(&mut self, value: Option<String>) -> Result<(), String> {
+        match self {
+            PanelFieldRef::String(opt) => {
+                **opt = value;
+                Ok(())
+            }
+            PanelFieldRef::DateTime(opt) => {
+                if let Some(s) = value {
+                    if let Some(dt) = crate::data::time::parse_datetime(&s) {
+                        **opt = Some(dt);
+                        Ok(())
+                    } else {
+                        Err(format!("Invalid datetime format: {}", s))
+                    }
+                } else {
+                    **opt = None;
+                    Ok(())
+                }
+            }
+            PanelFieldRef::StartTime(timerange) => {
+                if let Some(s) = value {
+                    if timerange.set_start_time_from_str(&s) {
+                        Ok(())
+                    } else {
+                        Err(format!("Invalid datetime format: {}", s))
+                    }
+                } else {
+                    timerange.clear_start_time();
+                    Ok(())
+                }
+            }
+            PanelFieldRef::EndTime(timerange) => {
+                if let Some(s) = value {
+                    if let Some(dt) = crate::data::time::parse_datetime(&s) {
+                        // Use preserve_start method for user-friendly end time setting
+                        timerange.set_end_time_preserve_start(dt);
+                        Ok(())
+                    } else {
+                        Err(format!("Invalid datetime format: {}", s))
+                    }
+                } else {
+                    timerange.clear_end_time();
+                    Ok(())
+                }
+            }
+            PanelFieldRef::Duration(timerange) => {
+                if let Some(s) = value {
+                    if timerange.set_duration_from_str(&s) {
+                        Ok(())
+                    } else {
+                        Err(format!("Invalid duration format: {}", s))
+                    }
+                } else {
+                    timerange.clear_duration();
+                    Ok(())
+                }
+            }
+        }
     }
 }
 

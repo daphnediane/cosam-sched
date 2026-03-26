@@ -490,8 +490,7 @@ fn write_schedule_sheet(
         }
         let start_time: NaiveDateTime = entry
             .start_time
-            .parse()
-            .with_context(|| format!("Invalid timeline start time: {}", entry.start_time))?;
+            .ok_or_else(|| anyhow::anyhow!("Timeline entry missing start time: {}", entry.id))?;
         let end_time = start_time + chrono::Duration::minutes(30);
 
         let prefix = entry
@@ -607,9 +606,9 @@ mod tests {
         panel.panel_type = Some("GP".to_string());
         panel.session_num = Some(1);
         panel.room_ids = vec![1];
-        panel.start_time = Some("2026-01-01T10:00:00".to_string());
-        panel.end_time = Some("2026-01-01T11:00:00".to_string());
-        panel.duration = 60;
+        panel.set_start_time_from_str("2026-01-01T10:00:00");
+        panel.set_end_time_from_str("2026-01-01T11:00:00");
+        panel.set_duration_minutes(60);
         panel.credited_presenters = vec!["Alice".to_string()];
         panel.change_state = ChangeState::Unchanged;
 

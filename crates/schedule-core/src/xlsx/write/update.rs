@@ -1023,7 +1023,13 @@ mod tests {
             timeline: vec![
                 TimelineEntry {
                     id: "TL01".to_string(),
-                    start_time: "2026-06-26T09:00:00".to_string(),
+                    start_time: Some(
+                        chrono::NaiveDateTime::parse_from_str(
+                            "2026-06-26T09:00:00",
+                            "%Y-%m-%dT%H:%M:%S",
+                        )
+                        .unwrap(),
+                    ),
                     description: "Opening".to_string(),
                     panel_type: None,
                     note: None,
@@ -1033,7 +1039,13 @@ mod tests {
                 },
                 TimelineEntry {
                     id: "TL02".to_string(),
-                    start_time: "2026-06-26T10:00:00".to_string(),
+                    start_time: Some(
+                        chrono::NaiveDateTime::parse_from_str(
+                            "2026-06-26T10:00:00",
+                            "%Y-%m-%dT%H:%M:%S",
+                        )
+                        .unwrap(),
+                    ),
                     description: "Deleted entry".to_string(),
                     panel_type: None,
                     note: None,

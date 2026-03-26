@@ -14,51 +14,11 @@ use super::schedule::{ConflictEventRef, Schedule, ScheduleConflict};
 const GROUP_SUFFIX_PATTERNS: [&str; 1] = ["staff"];
 
 pub fn apply_schedule_parity(schedule: &mut Schedule) {
-    normalize_event_times(schedule);
     resolve_session_conflicts(schedule);
     generate_credits(schedule);
     detect_conflicts(schedule);
     detect_panel_conflicts(schedule);
     schedule.calculate_schedule_bounds();
-}
-
-fn normalize_event_times(schedule: &mut Schedule) {
-    for ps in schedule.panel_sets.values_mut() {
-        for panel in &mut ps.panels {
-            if let (Some(start), Some(end)) = (&panel.start_time, &panel.end_time) {
-                if let (Ok(start_dt), Ok(end_dt)) = (
-                    chrono::NaiveDateTime::parse_from_str(start, "%-m/%-d/%Y %-I:%M %p"),
-                    chrono::NaiveDateTime::parse_from_str(end, "%-m/%-d/%Y %-I:%M %p"),
-                ) {
-                    if end_dt < start_dt {
-                        let duration_minutes = if panel.duration == 0 {
-                            60
-                        } else {
-                            panel.duration
-                        };
-                        let new_end = start_dt + chrono::Duration::minutes(duration_minutes as i64);
-                        panel.end_time = Some(new_end.format("%-m/%-d/%Y %-I:%M %p").to_string());
-                        panel.duration = duration_minutes;
-                    } else {
-                        let computed_minutes = (end_dt - start_dt).num_minutes();
-                        if computed_minutes > 0 {
-                            panel.duration = computed_minutes as u32;
-                        } else if panel.duration > 0 {
-                            let new_end =
-                                start_dt + chrono::Duration::minutes(panel.duration as i64);
-                            panel.end_time =
-                                Some(new_end.format("%-m/%-d/%Y %-I:%M %p").to_string());
-                        } else {
-                            panel.duration = 60;
-                            let new_end = start_dt + chrono::Duration::minutes(60);
-                            panel.end_time =
-                                Some(new_end.format("%-m/%-d/%Y %-I:%M %p").to_string());
-                        }
-                    }
-                }
-            }
-        }
-    }
 }
 
 fn generate_credits(schedule: &mut Schedule) {
@@ -105,28 +65,25 @@ fn detect_panel_conflicts(schedule: &mut Schedule) {
                 }
             }
 
-            if let (Some(start_str), Some(end_str)) = (&panel.start_time, &panel.end_time) {
-                if let (Ok(start_time), Ok(end_time)) = (
-                    chrono::NaiveDateTime::parse_from_str(start_str, "%Y-%m-%dT%H:%M:%S"),
-                    chrono::NaiveDateTime::parse_from_str(end_str, "%Y-%m-%dT%H:%M:%S"),
-                ) {
-                    let all_presenters: Vec<String> = panel
-                        .credited_presenters
-                        .iter()
-                        .chain(panel.uncredited_presenters.iter())
-                        .cloned()
-                        .collect();
+            if let (Some(start_time), Some(end_time)) =
+                (panel.timing.start_time(), panel.effective_end_time())
+            {
+                let all_presenters: Vec<String> = panel
+                    .credited_presenters
+                    .iter()
+                    .chain(panel.uncredited_presenters.iter())
+                    .cloned()
+                    .collect();
 
-                    panel_sessions.push((
-                        panel.id.clone(),
-                        panel.name.clone(),
-                        start_time,
-                        end_time,
-                        panel.room_ids.clone(),
-                        all_presenters,
-                    ));
-                    session_index_map.insert(panel.id.clone(), panel_sessions.len() - 1);
-                }
+                panel_sessions.push((
+                    panel.id.clone(),
+                    panel.name.clone(),
+                    start_time,
+                    end_time,
+                    panel.room_ids.clone(),
+                    all_presenters,
+                ));
+                session_index_map.insert(panel.id.clone(), panel_sessions.len() - 1);
             }
         }
     }

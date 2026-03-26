@@ -8,13 +8,13 @@ use anyhow::Result;
 use chrono::Timelike;
 use umya_spreadsheet::structs::Worksheet;
 
+use crate::data::panel::Panel;
+use crate::data::panel_type::PanelType;
+use crate::data::room::Room;
 use crate::data::schedule::Schedule;
 use crate::data::source_info::ChangeState;
-use crate::data::time;
 
 pub(super) fn write_grid_sheet(ws: &mut Worksheet, schedule: &Schedule) -> Result<()> {
-    use crate::data::room::Room;
-
     // Get unique rooms from schedule, excluding break/room-hours rooms
     let mut rooms: Vec<&Room> = schedule
         .rooms
@@ -31,7 +31,7 @@ pub(super) fn write_grid_sheet(ws: &mut Worksheet, schedule: &Schedule) -> Resul
         if entry.change_state == ChangeState::Deleted {
             continue;
         }
-        if let Ok(start_time) = entry.start_time.parse::<chrono::NaiveDateTime>() {
+        if let Some(start_time) = entry.start_time {
             times.push(start_time);
         }
     }
@@ -42,10 +42,8 @@ pub(super) fn write_grid_sheet(ws: &mut Worksheet, schedule: &Schedule) -> Resul
             if panel.change_state == ChangeState::Deleted {
                 continue;
             }
-            if let Some(ref start_str) = panel.start_time {
-                if let Some(start_time) = time::parse_storage(start_str) {
-                    times.push(start_time);
-                }
+            if let Some(start_time) = panel.timing.start_time() {
+                times.push(start_time);
             }
         }
     }

@@ -28,7 +28,7 @@ pub struct DisplayPanel {
     pub room_ids: Vec<u32>,
     pub start_time: Option<String>,
     pub end_time: Option<String>,
-    pub duration: u32,
+    pub duration: Option<u32>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub description: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -335,7 +335,7 @@ impl Schedule {
                 if is_timeline_panel {
                     timeline_entries.push(super::timeline::TimelineEntry {
                         id: panel.id.clone(),
-                        start_time: panel.start_time.clone().unwrap_or_default(),
+                        start_time: panel.timing.start_time(),
                         description: panel.name.clone(),
                         panel_type: panel.panel_type.clone(),
                         note: panel.note.clone(),
@@ -425,9 +425,9 @@ impl Schedule {
                     name: panel_name,
                     panel_type: panel.panel_type.clone(),
                     room_ids: panel.room_ids.clone(),
-                    start_time: panel.start_time.clone(),
-                    end_time: panel.end_time.clone(),
-                    duration: panel.duration,
+                    start_time: panel.timing.start_time_str(),
+                    end_time: panel.timing.end_time_str(),
+                    duration: panel.effective_duration_minutes(),
                     description: panel.description.clone(),
                     note: panel.note.clone(),
                     prereq: panel.prereq.clone(),
@@ -520,7 +520,7 @@ impl Schedule {
                             room_ids: visible_room_ids.clone(),
                             start_time: latest_end_str.clone(),
                             end_time: Some(start_str.clone()),
-                            duration,
+                            duration: Some(duration),
                             description: None,
                             note: None,
                             prereq: None,
@@ -898,8 +898,8 @@ mod tests {
         p.part_num = part_num;
         p.session_num = session_num;
         p.room_ids = vec![1];
-        p.start_time = Some("2023-01-01T10:00:00".to_string());
-        p.duration = 60;
+        p.set_start_time_from_str("2023-01-01T10:00:00");
+        p.set_duration_minutes(60);
         p
     }
 

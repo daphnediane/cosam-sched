@@ -4,16 +4,22 @@
  * See LICENSE file for full license text
  */
 
+use chrono::NaiveDateTime;
 use serde::{Deserialize, Serialize};
 
 use super::panel::ExtraFields;
 use super::source_info::{ChangeState, SourceInfo};
+use super::time::{deserialize_optional_datetime, serialize_optional_datetime};
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct TimelineEntry {
     pub id: String,
-    pub start_time: String,
+    #[serde(
+        serialize_with = "serialize_optional_datetime",
+        deserialize_with = "deserialize_optional_datetime"
+    )]
+    pub start_time: Option<NaiveDateTime>,
     pub description: String,
     #[serde(default, alias = "timeType")]
     pub panel_type: Option<String>,
@@ -50,7 +56,10 @@ mod tests {
     fn test_timeline_entry_roundtrip() {
         let entry = TimelineEntry {
             id: "SPLIT01".to_string(),
-            start_time: "2026-06-26T09:00:00".to_string(),
+            start_time: Some(
+                chrono::NaiveDateTime::parse_from_str("2026-06-26T09:00:00", "%Y-%m-%dT%H:%M:%S")
+                    .unwrap(),
+            ),
             description: "Thursday Morning".to_string(),
             panel_type: Some("SPLIT".to_string()),
             note: Some("Opening ceremonies".to_string()),

@@ -16,9 +16,7 @@ impl EditContext<'_> {
             panel_id: panel_id.to_string(),
             old_state: SessionScheduleState {
                 room_ids: Vec::new(),
-                start_time: None,
-                end_time: None,
-                duration: 0,
+                timing: crate::data::time::TimeRange::Unspecified,
             },
         });
     }

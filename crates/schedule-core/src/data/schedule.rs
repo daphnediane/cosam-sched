@@ -113,33 +113,28 @@ impl Schedule {
         let mut max_time: Option<chrono::NaiveDateTime> = None;
 
         for panel in self.all_panels() {
-            if let Some(ref st) = panel.start_time {
-                if let Some(start) = time::parse_storage(st) {
-                    if min_time.is_none() || Some(start) < min_time {
-                        min_time = Some(start);
-                    }
-                    let end = if let Some(ref et) = panel.end_time {
-                        time::parse_storage(et)
-                            .unwrap_or(start + chrono::Duration::minutes(panel.duration as i64))
-                    } else {
-                        start + chrono::Duration::minutes(panel.duration as i64)
-                    };
-                    if max_time.is_none() || Some(end) > max_time {
-                        max_time = Some(end);
-                    }
+            if let Some(start) = panel.timing.start_time() {
+                if min_time.is_none() || Some(start) < min_time {
+                    min_time = Some(start);
+                }
+                let end = panel.effective_end_time().unwrap_or_else(|| {
+                    let start = panel.timing.start_time().unwrap();
+                    start
+                        + panel
+                            .effective_duration()
+                            .unwrap_or(chrono::Duration::minutes(60))
+                });
+                if max_time.is_none() || Some(end) > max_time {
+                    max_time = Some(end);
                 }
             }
         }
 
         // Check timeline entries
         for timeline_entry in &self.timeline {
-            if let Some(start_time) = time::parse_storage(&timeline_entry.start_time) {
+            if let Some(start_time) = timeline_entry.start_time {
                 if min_time.is_none() || Some(start_time) < min_time {
                     min_time = Some(start_time);
-                }
-                let end_time = start_time + chrono::Duration::minutes(30);
-                if max_time.is_none() || Some(end_time) > max_time {
-                    max_time = Some(end_time);
                 }
             }
         }
@@ -167,10 +162,8 @@ impl Schedule {
         let mut dates: BTreeSet<NaiveDate> = BTreeSet::new();
 
         for panel in self.all_panels() {
-            if let Some(ref st) = panel.start_time {
-                if let Some(dt) = time::parse_storage(st) {
-                    dates.insert(dt.date());
-                }
+            if let Some(start) = panel.timing.start_time() {
+                dates.insert(start.date());
             }
         }
 
@@ -182,17 +175,15 @@ impl Schedule {
     pub fn sessions_for_day(&self, day: &NaiveDate) -> Vec<SessionDisplayInfo> {
         let mut results = Vec::new();
         for panel in self.all_panels() {
-            let start_dt = panel
-                .start_time
-                .as_ref()
-                .and_then(|st| time::parse_storage(st));
+            let start_dt = panel.timing.start_time();
             if let Some(start) = start_dt {
-                if &start.date() == day {
-                    let end_dt = panel
-                        .end_time
-                        .as_ref()
-                        .and_then(|et| time::parse_storage(et))
-                        .unwrap_or(start + chrono::Duration::minutes(panel.duration as i64));
+                if start.date() == *day {
+                    let end_dt = panel.effective_end_time().unwrap_or_else(|| {
+                        start
+                            + panel
+                                .effective_duration()
+                                .unwrap_or(chrono::Duration::minutes(60))
+                    });
 
                     results.push(SessionDisplayInfo {
                         session_id: panel.id.clone(),

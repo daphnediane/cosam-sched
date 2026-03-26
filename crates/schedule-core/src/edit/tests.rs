@@ -44,9 +44,9 @@ mod tests {
         panel.description = Some("Original description".to_string());
         panel.note = Some("Original note".to_string());
         panel.room_ids = vec![10];
-        panel.start_time = Some("2026-07-10T10:00:00".to_string());
-        panel.end_time = Some("2026-07-10T11:00:00".to_string());
-        panel.duration = 60;
+        panel.set_start_time_from_str("2026-07-10T10:00:00");
+        panel.set_end_time_from_str("2026-07-10T11:00:00");
+        panel.set_duration_minutes(60);
         panel.credited_presenters = vec!["Alice".to_string(), "Bob".to_string()];
 
         let mut ps = PanelSet::new("panel-1");
@@ -305,23 +305,35 @@ mod tests {
                 0,
                 SessionScheduleState {
                     room_ids: vec![20],
-                    start_time: Some("2026-07-11T14:00:00".to_string()),
-                    end_time: Some("2026-07-11T15:30:00".to_string()),
-                    duration: 90,
+                    timing: crate::data::time::TimeRange::new_scheduled(
+                        chrono::NaiveDateTime::parse_from_str(
+                            "2026-07-11T14:00:00",
+                            "%Y-%m-%dT%H:%M:%S",
+                        )
+                        .unwrap(),
+                        chrono::Duration::minutes(90),
+                    )
+                    .unwrap(),
                 },
             );
         }
 
         let panel = get_panel(&schedule, "panel-1");
         assert_eq!(panel.room_ids, vec![20]);
-        assert_eq!(panel.duration, 90);
-        assert_eq!(panel.start_time.as_deref(), Some("2026-07-11T14:00:00"));
+        assert_eq!(panel.effective_duration_minutes().unwrap_or(0), 90);
+        assert_eq!(
+            panel.start_time_str().as_deref(),
+            Some("2026-07-11T14:00:00")
+        );
 
         history.undo(&mut schedule);
         let panel = get_panel(&schedule, "panel-1");
         assert_eq!(panel.room_ids, vec![10]);
-        assert_eq!(panel.duration, 60);
-        assert_eq!(panel.start_time.as_deref(), Some("2026-07-10T10:00:00"));
+        assert_eq!(panel.effective_duration_minutes().unwrap_or(0), 60);
+        assert_eq!(
+            panel.start_time_str().as_deref(),
+            Some("2026-07-10T10:00:00")
+        );
     }
 
     // ── unschedule + undo ───────────────────────────────────────
@@ -338,14 +350,17 @@ mod tests {
 
         let panel = get_panel(&schedule, "panel-1");
         assert!(panel.room_ids.is_empty());
-        assert_eq!(panel.start_time, None);
-        assert_eq!(panel.end_time, None);
+        assert_eq!(panel.timing.start_time(), None);
+        assert_eq!(panel.effective_end_time(), None);
 
         history.undo(&mut schedule);
         let panel = get_panel(&schedule, "panel-1");
         assert_eq!(panel.room_ids, vec![10]);
-        assert_eq!(panel.start_time.as_deref(), Some("2026-07-10T10:00:00"));
-        assert_eq!(panel.duration, 60);
+        assert_eq!(
+            panel.start_time_str().as_deref(),
+            Some("2026-07-10T10:00:00")
+        );
+        assert_eq!(panel.effective_duration_minutes().unwrap_or(0), 60);
     }
 
     // ── soft delete + undo ──────────────────────────────────────

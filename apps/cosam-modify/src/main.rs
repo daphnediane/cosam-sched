@@ -807,6 +807,14 @@ fn compare_u32(left: u32, right: u32, relationship: SelectRelationship) -> bool 
     }
 }
 
+fn compare_u32_option(left: Option<u32>, right: u32, relationship: SelectRelationship) -> bool {
+    if let Some(left_val) = left {
+        compare_u32(left_val, right, relationship)
+    } else {
+        false
+    }
+}
+
 fn query_matches_session(
     schedule: &Schedule,
     panel: &schedule_core::data::Panel,
@@ -826,10 +834,10 @@ fn query_clause_matches_session(
 ) -> bool {
     match query.field {
         Some(SelectField::Day) => {
-            let Some(start_text) = panel.start_time.as_deref() else {
+            let Some(start_text) = panel.start_time_str() else {
                 return false;
             };
-            let Ok(start_time) = parse_timestamp(start_text) else {
+            let Ok(start_time) = parse_timestamp(&start_text) else {
                 return false;
             };
 
@@ -861,10 +869,10 @@ fn query_clause_matches_session(
             }
         }
         Some(SelectField::Start) => {
-            let Some(start_text) = panel.start_time.as_deref() else {
+            let Some(start_text) = panel.start_time_str() else {
                 return false;
             };
-            let session_minutes = parse_timestamp(start_text)
+            let session_minutes = parse_timestamp(&start_text)
                 .ok()
                 .map(|value| value.time().hour() * 60 + value.time().minute());
             let target_minutes = parse_time_selector_value(&clause.value);
@@ -878,9 +886,16 @@ fn query_clause_matches_session(
         Some(SelectField::Duration) => {
             let target = parse_duration_spec(&clause.value).ok();
             if let Some(target) = target {
-                compare_u32(panel.duration, target, clause.relationship)
+                compare_u32_option(
+                    panel.effective_duration_minutes(),
+                    target,
+                    clause.relationship,
+                )
             } else {
-                text_clause_matches(&[panel.duration.to_string()], clause)
+                text_clause_matches(
+                    &[panel.effective_duration_minutes().unwrap_or(0).to_string()],
+                    clause,
+                )
             }
         }
         Some(SelectField::Room) => {
@@ -939,13 +954,13 @@ fn query_clause_matches_session(
                         values.push(panel_type.prefix.clone());
                     }
                 }
-                if let Some(ref start) = panel.start_time {
-                    values.push(start.clone());
+                if let Some(start) = panel.start_time_str() {
+                    values.push(start);
                 }
-                if let Some(ref end) = panel.end_time {
-                    values.push(end.clone());
+                if let Some(end) = panel.end_time_str() {
+                    values.push(end);
                 }
-                values.push(panel.duration.to_string());
+                values.push(panel.effective_duration_minutes().unwrap_or(0).to_string());
                 for room_id in &panel.room_ids {
                     if let Some(room) = schedule.room_by_id(*room_id) {
                         values.push(room.short_name.clone());
@@ -1285,8 +1300,8 @@ fn list_panels(
                     room_names.insert(name);
                 }
             }
-            if let Some(ref start) = panel.start_time {
-                start_times.insert(start.clone());
+            if let Some(start) = panel.start_time_str() {
+                start_times.insert(start);
             }
             for name in &panel.credited_presenters {
                 presenters.insert(name.clone());
@@ -1548,9 +1563,8 @@ fn execute_reschedule(
         };
 
         let existing_start = panel
-            .start_time
-            .as_deref()
-            .map(parse_timestamp)
+            .start_time_str()
+            .map(|s| parse_timestamp(&s))
             .transpose()?;
         let base_date = resolve_target_date(day, existing_start, &schedule_days)?;
 
@@ -1583,10 +1597,14 @@ fn execute_reschedule(
             }
             delta as u32
         } else {
-            panel.duration
+            panel.effective_duration_minutes().unwrap_or(60)
         };
 
-        let computed_end = new_start + Duration::minutes(new_duration as i64);
+        let timing = schedule_core::data::time::TimeRange::new_scheduled(
+            new_start,
+            chrono::Duration::minutes(new_duration as i64),
+        )
+        .unwrap_or_else(|_| schedule_core::data::time::TimeRange::Unspecified);
 
         let new_room_ids = if let Some(rid) = room_id {
             vec![rid]
@@ -1598,9 +1616,7 @@ fn execute_reschedule(
             idx,
             SessionScheduleState {
                 room_ids: new_room_ids,
-                start_time: Some(time::format_storage(new_start)),
-                end_time: Some(time::format_storage(computed_end)),
-                duration: new_duration,
+                timing,
             },
         ));
     }
@@ -1738,9 +1754,7 @@ fn apply_session_json_merge(
             .find(|p| p.id == panel_id)
             .map(|p| SessionScheduleState {
                 room_ids: vec![room_id],
-                start_time: p.start_time.clone(),
-                end_time: p.end_time.clone(),
-                duration: p.duration,
+                timing: p.timing.clone(),
             });
         if let Some(s) = state {
             ctx.reschedule_panel(panel_id, s);
@@ -1904,9 +1918,8 @@ fn execute_query(
             obj.insert(
                 "start".to_string(),
                 panel
-                    .start_time
-                    .as_deref()
-                    .map(|s| Value::String(s.to_string()))
+                    .start_time_str()
+                    .map(Value::String)
                     .unwrap_or(Value::Null),
             );
         }
@@ -1914,14 +1927,16 @@ fn execute_query(
             obj.insert(
                 "end".to_string(),
                 panel
-                    .end_time
-                    .as_deref()
-                    .map(|s| Value::String(s.to_string()))
+                    .end_time_str()
+                    .map(Value::String)
                     .unwrap_or(Value::Null),
             );
         }
         if want("duration") {
-            obj.insert("duration".to_string(), Value::Number(panel.duration.into()));
+            obj.insert(
+                "duration".to_string(),
+                Value::Number(panel.effective_duration_minutes().unwrap_or(0).into()),
+            );
         }
         if want("type") {
             obj.insert(
@@ -2629,9 +2644,9 @@ mod tests {
         panel.note = Some("Original note".to_string());
         panel.session_num = Some(1);
         panel.room_ids = vec![10];
-        panel.start_time = Some("2026-07-10T10:00:00".to_string());
-        panel.end_time = Some("2026-07-10T11:00:00".to_string());
-        panel.duration = 60;
+        panel.set_start_time_from_str("2026-07-10T10:00:00");
+        panel.set_end_time_from_str("2026-07-10T11:00:00");
+        panel.set_duration_minutes(60);
         panel.credited_presenters = vec!["Alice".to_string(), "Bob".to_string()];
         let mut ps = PanelSet::new("test-panel-1");
         ps.panels.push(panel);
@@ -2725,13 +2740,17 @@ mod tests {
 
         execute_set(&mut sf, &selection, &SetField::Description, "New desc").unwrap();
         assert_eq!(
-            sf.schedule.panels["test-panel-1"].description.as_deref(),
+            sf.schedule.panel_sets["test-panel-1"].panels[0]
+                .description
+                .as_deref(),
             Some("New desc")
         );
 
         sf.edit_context().undo();
         assert_eq!(
-            sf.schedule.panels["test-panel-1"].description.as_deref(),
+            sf.schedule.panel_sets["test-panel-1"].panels[0]
+                .description
+                .as_deref(),
             Some("Original description")
         );
     }
@@ -2745,29 +2764,39 @@ mod tests {
         execute_set(&mut sf, &selection, &SetField::Note, "Note 2").unwrap();
 
         assert_eq!(
-            sf.schedule.panels["test-panel-1"].description.as_deref(),
+            sf.schedule.panel_sets["test-panel-1"].panels[0]
+                .description
+                .as_deref(),
             Some("Desc 2")
         );
         assert_eq!(
-            sf.schedule.panels["test-panel-1"].note.as_deref(),
+            sf.schedule.panel_sets["test-panel-1"].panels[0]
+                .note
+                .as_deref(),
             Some("Note 2")
         );
 
         sf.edit_context().undo();
         assert_eq!(
-            sf.schedule.panels["test-panel-1"].note.as_deref(),
+            sf.schedule.panel_sets["test-panel-1"].panels[0]
+                .note
+                .as_deref(),
             Some("Original note"),
             "first undo should restore note"
         );
         assert_eq!(
-            sf.schedule.panels["test-panel-1"].description.as_deref(),
+            sf.schedule.panel_sets["test-panel-1"].panels[0]
+                .description
+                .as_deref(),
             Some("Desc 2"),
             "description should still be changed after undoing note"
         );
 
         sf.edit_context().undo();
         assert_eq!(
-            sf.schedule.panels["test-panel-1"].description.as_deref(),
+            sf.schedule.panel_sets["test-panel-1"].panels[0]
+                .description
+                .as_deref(),
             Some("Original description"),
             "second undo should restore description"
         );
@@ -2781,13 +2810,17 @@ mod tests {
         execute_set(&mut sf, &selection, &SetField::Description, "Changed").unwrap();
         sf.edit_context().undo();
         assert_eq!(
-            sf.schedule.panels["test-panel-1"].description.as_deref(),
+            sf.schedule.panel_sets["test-panel-1"].panels[0]
+                .description
+                .as_deref(),
             Some("Original description")
         );
 
         sf.edit_context().redo();
         assert_eq!(
-            sf.schedule.panels["test-panel-1"].description.as_deref(),
+            sf.schedule.panel_sets["test-panel-1"].panels[0]
+                .description
+                .as_deref(),
             Some("Changed"),
             "redo should re-apply the change"
         );
@@ -2822,13 +2855,13 @@ mod tests {
 
         execute_set_metadata(&mut sf, &selection, "ThemeColor", "#FF0000").unwrap();
         {
-            let session = &sf.schedule.panels["test-panel-1"].parts[0].sessions[0];
+            let session = &sf.schedule.panel_sets["test-panel-1"].panels[0];
             assert!(session.metadata.contains_key("ThemeColor"));
         }
 
         sf.edit_context().undo();
         {
-            let session = &sf.schedule.panels["test-panel-1"].parts[0].sessions[0];
+            let session = &sf.schedule.panel_sets["test-panel-1"].panels[0];
             assert!(
                 !session.metadata.contains_key("ThemeColor"),
                 "undo should remove metadata key"
@@ -2844,13 +2877,13 @@ mod tests {
         execute_set_metadata(&mut sf, &selection, "Color", "red").unwrap();
         execute_clear_metadata(&mut sf, &selection, "Color").unwrap();
         {
-            let session = &sf.schedule.panels["test-panel-1"].parts[0].sessions[0];
+            let session = &sf.schedule.panel_sets["test-panel-1"].panels[0];
             assert!(!session.metadata.contains_key("Color"));
         }
 
         sf.edit_context().undo();
         {
-            let session = &sf.schedule.panels["test-panel-1"].parts[0].sessions[0];
+            let session = &sf.schedule.panel_sets["test-panel-1"].panels[0];
             assert!(
                 session.metadata.contains_key("Color"),
                 "undo of clear-metadata should restore the key"
@@ -2864,7 +2897,7 @@ mod tests {
         let selection = select_panel(&sf, "test-panel-1");
 
         assert_eq!(
-            sf.schedule.panels["test-panel-1"].parts[0].sessions[0]
+            sf.schedule.panel_sets["test-panel-1"].panels[0]
                 .credited_presenters
                 .len(),
             2
@@ -2872,7 +2905,7 @@ mod tests {
 
         apply_presenter_change(&mut sf, &selection, "Charlie", true).unwrap();
         assert_eq!(
-            sf.schedule.panels["test-panel-1"].parts[0].sessions[0]
+            sf.schedule.panel_sets["test-panel-1"].panels[0]
                 .credited_presenters
                 .len(),
             3
@@ -2880,7 +2913,7 @@ mod tests {
 
         sf.edit_context().undo();
         assert_eq!(
-            sf.schedule.panels["test-panel-1"].parts[0].sessions[0]
+            sf.schedule.panel_sets["test-panel-1"].panels[0]
                 .credited_presenters
                 .len(),
             2,
@@ -2895,15 +2928,14 @@ mod tests {
 
         apply_presenter_change(&mut sf, &selection, "Alice", false).unwrap();
         assert_eq!(
-            sf.schedule.panels["test-panel-1"].parts[0].sessions[0]
+            sf.schedule.panel_sets["test-panel-1"].panels[0]
                 .credited_presenters
                 .len(),
             1
         );
 
         sf.edit_context().undo();
-        let presenters =
-            &sf.schedule.panels["test-panel-1"].parts[0].sessions[0].credited_presenters;
+        let presenters = &sf.schedule.panel_sets["test-panel-1"].panels[0].credited_presenters;
         assert_eq!(presenters.len(), 2, "undo should restore removed presenter");
         assert!(
             presenters.iter().any(|p| p == "Alice"),
@@ -2916,10 +2948,10 @@ mod tests {
         let mut sf = create_test_schedule_file();
         let selection = select_panel(&sf, "test-panel-1");
 
-        let orig_start = sf.schedule.panels["test-panel-1"].parts[0].sessions[0]
-            .start_time
-            .clone();
-        let orig_room_ids = sf.schedule.panels["test-panel-1"].parts[0].sessions[0]
+        let orig_start = sf.schedule.panel_sets["test-panel-1"].panels[0]
+            .timing
+            .start_time();
+        let orig_room_ids = sf.schedule.panel_sets["test-panel-1"].panels[0]
             .room_ids
             .clone();
 
@@ -2934,15 +2966,15 @@ mod tests {
         )
         .unwrap();
 
-        let session = &sf.schedule.panels["test-panel-1"].parts[0].sessions[0];
+        let session = &sf.schedule.panel_sets["test-panel-1"].panels[0];
         assert_eq!(session.room_ids, vec![20]);
-        assert_eq!(session.duration, 90);
+        assert_eq!(session.effective_duration_minutes().unwrap_or(0), 90);
 
         sf.edit_context().undo();
-        let session = &sf.schedule.panels["test-panel-1"].parts[0].sessions[0];
-        assert_eq!(session.start_time, orig_start);
+        let session = &sf.schedule.panel_sets["test-panel-1"].panels[0];
+        assert_eq!(session.timing.start_time(), orig_start);
         assert_eq!(session.room_ids, orig_room_ids);
-        assert_eq!(session.duration, 60);
+        assert_eq!(session.effective_duration_minutes().unwrap_or(0), 60);
     }
 
     #[test]
@@ -2950,21 +2982,21 @@ mod tests {
         let mut sf = create_test_schedule_file();
         let selection = select_panel(&sf, "test-panel-1");
 
-        let orig_start = sf.schedule.panels["test-panel-1"].parts[0].sessions[0]
-            .start_time
-            .clone();
-        let orig_room_ids = sf.schedule.panels["test-panel-1"].parts[0].sessions[0]
+        let orig_start = sf.schedule.panel_sets["test-panel-1"].panels[0]
+            .timing
+            .start_time();
+        let orig_room_ids = sf.schedule.panel_sets["test-panel-1"].panels[0]
             .room_ids
             .clone();
 
         execute_cancel(&mut sf, &selection).unwrap();
-        let session = &sf.schedule.panels["test-panel-1"].parts[0].sessions[0];
+        let session = &sf.schedule.panel_sets["test-panel-1"].panels[0];
         assert!(session.room_ids.is_empty());
-        assert!(session.start_time.is_none());
+        assert!(session.timing.start_time().is_none());
 
         sf.edit_context().undo();
-        let session = &sf.schedule.panels["test-panel-1"].parts[0].sessions[0];
-        assert_eq!(session.start_time, orig_start);
+        let session = &sf.schedule.panel_sets["test-panel-1"].panels[0];
+        assert_eq!(session.timing.start_time(), orig_start);
         assert_eq!(session.room_ids, orig_room_ids);
     }
 
@@ -2975,7 +3007,7 @@ mod tests {
 
         execute_set(&mut sf, &selection, &SetField::AvNote, "Needs mic").unwrap();
         assert_eq!(
-            sf.schedule.panels["test-panel-1"].parts[0].sessions[0]
+            sf.schedule.panel_sets["test-panel-1"].panels[0]
                 .av_notes
                 .as_deref(),
             Some("Needs mic")
@@ -2983,7 +3015,7 @@ mod tests {
 
         sf.edit_context().undo();
         assert_eq!(
-            sf.schedule.panels["test-panel-1"].parts[0].sessions[0].av_notes, None,
+            sf.schedule.panel_sets["test-panel-1"].panels[0].av_notes, None,
             "undo should restore original av_notes"
         );
     }

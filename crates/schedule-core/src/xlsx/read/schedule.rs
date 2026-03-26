@@ -245,14 +245,8 @@ pub(super) fn read_panels(
             start_time_col.and_then(|c| get_cell_number(ws, c, row)),
         );
 
-        // Allow panels without start times - they might be unscheduled
-        let start_time = start_time.unwrap_or_else(|| {
-            // Default to a placeholder time for unscheduled panels
-            chrono::NaiveDateTime::new(
-                chrono::NaiveDate::from_ymd_opt(2026, 6, 26).unwrap(),
-                chrono::NaiveTime::from_hms_opt(12, 0, 0).unwrap(),
-            )
-        });
+        // Keep start_time as None for unscheduled panels
+        let start_time = start_time;
 
         let end_time_from_cell = parse_datetime_value(
             end_time_col.and_then(|c| get_cell_str(ws, c, row)),
@@ -263,24 +257,45 @@ pub(super) fn read_panels(
             duration_col.and_then(|c| get_cell_number(ws, c, row)),
         );
 
-        let (end_time, duration) = match (end_time_from_cell, duration_minutes) {
-            (Some(et), Some(_)) => {
-                let diff = (et - start_time).num_minutes().max(0) as u32;
-                (et, diff)
+        let (end_time, duration) = match (start_time, end_time_from_cell, duration_minutes) {
+            (Some(st), Some(et), Some(_)) => {
+                let diff = (et - st).num_minutes().max(0) as u32;
+                (Some(et), Some(diff))
             }
-            (Some(et), None) => {
-                let diff = (et - start_time).num_minutes().max(0) as u32;
-                (et, diff)
+            (Some(st), Some(et), None) => {
+                let diff = (et - st).num_minutes().max(0) as u32;
+                (Some(et), Some(diff))
             }
-            (None, Some(d)) => {
-                let et = start_time + chrono::Duration::minutes(d as i64);
-                (et, d)
+            (Some(st), None, Some(d)) => {
+                let et = st + chrono::Duration::minutes(d as i64);
+                (Some(et), Some(d))
             }
-            (None, None) => {
-                // Panel is unscheduled - no end time or duration
-                // Use placeholder values but let is_scheduled() handle it
-                let et = start_time + chrono::Duration::hours(1);
-                (et, 60)
+            (Some(st), None, None) => {
+                // Panel has start time but no end time or duration
+                // Default to 1 hour duration
+                let et = st + chrono::Duration::hours(1);
+                (Some(et), Some(60))
+            }
+            (None, Some(et), Some(d)) => {
+                // Panel has end time and duration but no start time
+                // Calculate start time from end time
+                let _st = et - chrono::Duration::minutes(d as i64);
+                (Some(et), Some(d))
+            }
+            (None, Some(et), None) => {
+                // Panel has end time but no start time or duration
+                // Default to 1 hour duration
+                let _st = et - chrono::Duration::hours(1);
+                (Some(et), Some(60))
+            }
+            (None, None, Some(d)) => {
+                // Panel has duration but no start or end time
+                // Keep as unscheduled (no times)
+                (None, Some(d))
+            }
+            (None, None, None) => {
+                // Panel is completely unscheduled
+                (None, None)
             }
         };
 
@@ -384,9 +399,14 @@ pub(super) fn read_panels(
                 let note = get_field_def(&data, &sc::NOTE).cloned();
 
                 // Create a TimelineEntry instead of a regular Panel
+                // Timeline entries require a start time, so skip if none
+                let Some(st) = start_time else {
+                    continue;
+                };
+
                 let timeline_entry = TimelineEntry {
                     id: uniq_id.unwrap_or_else(|| format!("TL{}", row)).to_string(),
-                    start_time: time::format_storage(start_time),
+                    start_time: Some(st),
                     description: name.clone(),
                     panel_type: panel_type_uid.clone(),
                     note,
@@ -446,9 +466,55 @@ pub(super) fn read_panels(
         panel.session_num = panel_id.session_num;
         panel.panel_type = panel_type_uid.clone();
         panel.room_ids = room_ids;
-        panel.start_time = Some(time::format_storage(start_time));
-        panel.end_time = Some(time::format_storage(end_time));
-        panel.duration = duration;
+
+        // Set timing based on what we have using TimeRange constructors
+        // Priority: start+duration > start+end > start only > duration only
+        if let (Some(start), Some(duration_minutes)) = (start_time, duration) {
+            // Use start time and duration (highest priority)
+            let duration = chrono::Duration::minutes(duration_minutes as i64);
+            if let Ok(timerange) = crate::data::time::TimeRange::new_scheduled(start, duration) {
+                // Check for end time conflict if end_time was also specified
+                if let Some(specified_end) = end_time {
+                    let effective_end = timerange.effective_end_time();
+                    if let Some(effective) = effective_end {
+                        if effective != specified_end {
+                            // TODO: Record conflict - specified end time differs from calculated
+                            // This could be stored in a conflicts array or logged
+                        }
+                    }
+                }
+                panel.timing = timerange;
+            } else {
+                // Invalid duration, try to fall back to end_time if available
+                if let Some(end) = end_time {
+                    if let Ok(timerange) = crate::data::time::TimeRange::from_start_end(start, end)
+                    {
+                        panel.timing = timerange;
+                    } else {
+                        // Both duration and end_time invalid, fall back to start only
+                        panel.timing = crate::data::time::TimeRange::UnspecifiedWithStart(start);
+                    }
+                } else {
+                    // No end_time available, fall back to start only
+                    panel.timing = crate::data::time::TimeRange::UnspecifiedWithStart(start);
+                }
+            }
+        } else if let (Some(start), Some(end)) = (start_time, end_time) {
+            // Use start and end time to create a complete TimeRange
+            if let Ok(timerange) = crate::data::time::TimeRange::from_start_end(start, end) {
+                panel.timing = timerange;
+            } else {
+                // Invalid range (end before start), fall back to start only
+                panel.timing = crate::data::time::TimeRange::UnspecifiedWithStart(start);
+            }
+        } else if let Some(start) = start_time {
+            // Only start time available
+            panel.timing = crate::data::time::TimeRange::UnspecifiedWithStart(start);
+        } else if let Some(duration_minutes) = duration {
+            // Only duration available
+            let duration = chrono::Duration::minutes(duration_minutes as i64);
+            panel.timing = crate::data::time::TimeRange::UnspecifiedWithDuration(duration);
+        }
         panel.cost = cost.clone();
         panel.is_free = is_free;
         panel.is_kids = is_kids;
