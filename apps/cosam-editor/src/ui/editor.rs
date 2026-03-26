@@ -12,10 +12,9 @@ use gpui::{
     App, Context, Entity, FocusHandle, Focusable, SharedString, Window, actions, div, px, rgb,
 };
 use gpui_component::resizable::{h_resizable, resizable_panel};
-use indexmap::IndexMap;
 
 use crate::data::source_info::ChangeState;
-use crate::data::{Panel, PanelSet, Schedule};
+use crate::data::{Panel, Schedule};
 use crate::ui::day_tabs::{DayTabEvent, DayTabs};
 use crate::ui::detail_pane::{DetailPane, DetailPaneEvent};
 use crate::ui::event_card::{EventCard, EventCardEvent};
@@ -23,9 +22,9 @@ use crate::ui::panel_edit_window::{PanelEditWindow, PanelEditWindowEvent};
 use crate::ui::sidebar::{RoomEntry, Sidebar, SidebarEvent};
 use crate::ui::web_preview;
 use schedule_core::data::time;
+use schedule_core::edit::context::EditContext;
+use schedule_core::file::ScheduleFile;
 use schedule_core::xlsx::XlsxImportOptions;
-
-const MAX_UNDO_STEPS: usize = 50;
 
 #[derive(Debug, Clone, Copy, PartialEq)]
 enum FileType {
@@ -56,7 +55,7 @@ actions!(
 
 pub struct ScheduleEditor {
     focus_handle: FocusHandle,
-    schedule: Option<Schedule>,
+    schedule_file: Option<ScheduleFile>,
     current_path: Option<PathBuf>,
     current_file_type: Option<FileType>,
     has_unsaved_changes: bool,
@@ -69,8 +68,6 @@ pub struct ScheduleEditor {
     sidebar: Entity<Sidebar>,
     event_cards: Vec<Entity<EventCard>>,
     detail_pane: Option<Entity<DetailPane>>,
-    undo_stack: Vec<IndexMap<String, PanelSet>>,
-    redo_stack: Vec<IndexMap<String, PanelSet>>,
     active_view: ViewMode,
     preview_open_in_browser: bool,
     #[cfg(not(target_os = "macos"))]
@@ -80,6 +77,7 @@ pub struct ScheduleEditor {
 impl ScheduleEditor {
     pub fn new(schedule: Option<Schedule>, path: Option<PathBuf>, cx: &mut Context<Self>) -> Self {
         let days = schedule.as_ref().map(|s| s.days()).unwrap_or_default();
+        let schedule_file = schedule.map(ScheduleFile::new);
 
         let day_tabs = cx.new(|_cx| DayTabs::new(days.clone()));
         cx.subscribe(
@@ -96,7 +94,7 @@ impl ScheduleEditor {
         )
         .detach();
 
-        let room_entries = Self::build_room_entries(schedule.as_ref());
+        let room_entries = Self::build_room_entries(schedule_file.as_ref());
 
         let sidebar = cx.new(|_cx| Sidebar::new(room_entries));
         cx.subscribe(
@@ -124,7 +122,7 @@ impl ScheduleEditor {
 
         let mut editor = Self {
             focus_handle: cx.focus_handle(),
-            schedule,
+            schedule_file,
             current_path: path,
             current_file_type,
             has_unsaved_changes: false,
@@ -137,8 +135,6 @@ impl ScheduleEditor {
             sidebar,
             event_cards: Vec::new(),
             detail_pane: None,
-            undo_stack: Vec::new(),
-            redo_stack: Vec::new(),
             active_view: ViewMode::ListView,
             preview_open_in_browser: false,
             #[cfg(not(target_os = "macos"))]
@@ -149,8 +145,8 @@ impl ScheduleEditor {
         editor
     }
 
-    fn build_room_entries(schedule: Option<&Schedule>) -> Vec<RoomEntry> {
-        let Some(schedule) = schedule else {
+    fn build_room_entries(schedule_file: Option<&ScheduleFile>) -> Vec<RoomEntry> {
+        let Some(schedule) = schedule_file.map(|sf| &sf.schedule) else {
             return Vec::new();
         };
         schedule
@@ -169,15 +165,13 @@ impl ScheduleEditor {
         self.selected_room = None;
         self.selected_event_id = None;
         self.detail_pane = None;
-        self.undo_stack.clear();
-        self.redo_stack.clear();
 
         self.day_tabs.update(cx, |tabs, _cx| {
             tabs.days = self.days.clone();
             tabs.selected_index = 0;
         });
 
-        let room_entries = Self::build_room_entries(Some(&schedule));
+        let room_entries = Self::build_room_entries(self.schedule_file.as_ref());
         self.sidebar.update(cx, |sb, _cx| {
             sb.rooms = room_entries;
             sb.selected_room = None;
@@ -185,7 +179,7 @@ impl ScheduleEditor {
 
         let panel_count: usize = schedule.panel_sets.values().map(|ps| ps.panels.len()).sum();
         let room_count = schedule.rooms.len();
-        self.schedule = Some(schedule);
+        self.schedule_file = Some(ScheduleFile::new(schedule));
         self.current_path = path.clone();
 
         self.current_file_type = path.as_ref().and_then(|p| {
@@ -261,7 +255,7 @@ impl ScheduleEditor {
     }
 
     fn do_save_as(&mut self, _window: &mut Window, cx: &mut Context<Self>) {
-        let Some(ref schedule) = self.schedule else {
+        let Some(ref schedule_file) = self.schedule_file else {
             self.status_message = Some("No schedule to save".to_string());
             cx.notify();
             return;
@@ -307,7 +301,7 @@ impl ScheduleEditor {
             return;
         };
 
-        let mut schedule_clone = schedule.clone();
+        let schedule_file_clone = schedule_file.clone();
 
         // Update Excel metadata when saving
         let current_time = time::format_storage_ts(chrono::Utc::now());
@@ -316,8 +310,9 @@ impl ScheduleEditor {
             .or_else(|_| std::env::var("LOGNAME"))
             .unwrap_or_else(|_| "Unknown User".to_string());
 
-        schedule_clone.meta.last_modified_by = Some(username.clone());
-        schedule_clone.meta.modified = Some(current_time);
+        let mut schedule_file_for_save = schedule_file_clone;
+        schedule_file_for_save.schedule.meta.last_modified_by = Some(username.clone());
+        schedule_file_for_save.schedule.meta.modified = Some(current_time);
 
         cx.spawn(async move |this, cx| {
             let ext = path
@@ -326,14 +321,13 @@ impl ScheduleEditor {
                 .unwrap_or("")
                 .to_lowercase();
 
-            let mut sf = schedule_core::ScheduleFile::new(schedule_clone);
             let (result, file_type) = if ext == "xlsx" {
                 (
-                    schedule_core::xlsx::export_to_xlsx(&sf, &path),
+                    schedule_core::xlsx::export_to_xlsx(&schedule_file_for_save, &path),
                     FileType::Xlsx,
                 )
             } else {
-                (sf.save_json(&path), FileType::Json)
+                (schedule_file_for_save.save_json(&path), FileType::Json)
             };
 
             cx.update(|cx| {
@@ -357,7 +351,7 @@ impl ScheduleEditor {
     }
 
     fn rebuild_event_cards(&mut self, cx: &mut Context<Self>) {
-        let Some(ref schedule) = self.schedule else {
+        let Some(ref schedule_file) = self.schedule_file else {
             self.event_cards.clear();
             return;
         };
@@ -367,7 +361,7 @@ impl ScheduleEditor {
             return;
         };
 
-        let mut sessions = schedule.sessions_for_day(day);
+        let mut sessions = schedule_file.schedule.sessions_for_day(day);
 
         if let Some(room_uid) = self.selected_room {
             sessions.retain(|s| s.room_ids.contains(&room_uid));
@@ -381,13 +375,13 @@ impl ScheduleEditor {
                 let room_name = session
                     .room_ids
                     .first()
-                    .and_then(|rid| schedule.room_by_id(*rid))
+                    .and_then(|rid| schedule_file.schedule.room_by_id(*rid))
                     .map(|r| r.long_name.as_str())
                     .unwrap_or("—");
                 let panel_type = session
                     .panel_type
                     .as_ref()
-                    .and_then(|pt_uid| schedule.panel_types.get(pt_uid));
+                    .and_then(|pt_uid| schedule_file.schedule.panel_types.get(pt_uid));
                 let panel_color = panel_type.and_then(|pt| pt.color());
                 let card = cx.new(|_cx| {
                     EventCard::from_session(
@@ -411,24 +405,15 @@ impl ScheduleEditor {
             .collect();
     }
 
-    fn push_undo_snapshot(&mut self) {
-        if let Some(ref schedule) = self.schedule {
-            if self.undo_stack.len() >= MAX_UNDO_STEPS {
-                self.undo_stack.remove(0);
-            }
-            self.undo_stack.push(schedule.panel_sets.clone());
-            self.redo_stack.clear();
-        }
+    fn get_edit_context(&mut self) -> Option<EditContext<'_>> {
+        self.schedule_file.as_mut().map(|sf| sf.edit_context())
     }
 
     fn do_undo(&mut self, _: &EditUndo, _window: &mut Window, cx: &mut Context<Self>) {
-        let Some(snapshot) = self.undo_stack.pop() else {
-            return;
-        };
-        if let Some(ref mut schedule) = self.schedule {
-            self.redo_stack.push(schedule.panel_sets.clone());
-            schedule.panel_sets = snapshot;
-            self.has_unsaved_changes = true;
+        if let Some(ref mut schedule_file) = self.schedule_file {
+            if schedule_file.history.undo(&mut schedule_file.schedule) {
+                self.has_unsaved_changes = true;
+            }
         }
         self.selected_event_id = None;
         self.detail_pane = None;
@@ -437,13 +422,10 @@ impl ScheduleEditor {
     }
 
     fn do_redo(&mut self, _: &EditRedo, _window: &mut Window, cx: &mut Context<Self>) {
-        let Some(snapshot) = self.redo_stack.pop() else {
-            return;
-        };
-        if let Some(ref mut schedule) = self.schedule {
-            self.undo_stack.push(schedule.panel_sets.clone());
-            schedule.panel_sets = snapshot;
-            self.has_unsaved_changes = true;
+        if let Some(ref mut schedule_file) = self.schedule_file {
+            if schedule_file.history.redo(&mut schedule_file.schedule) {
+                self.has_unsaved_changes = true;
+            }
         }
         self.selected_event_id = None;
         self.detail_pane = None;
@@ -452,11 +434,12 @@ impl ScheduleEditor {
     }
 
     fn open_detail_for_event(&mut self, session_id: String, cx: &mut Context<Self>) {
-        let Some(ref schedule) = self.schedule else {
+        let Some(ref schedule_file) = self.schedule_file else {
             return;
         };
 
-        let panel = schedule
+        let panel = schedule_file
+            .schedule
             .panel_sets
             .values()
             .flat_map(|ps| ps.panels.iter())
@@ -468,12 +451,14 @@ impl ScheduleEditor {
 
         self.selected_event_id = Some(session_id.clone());
 
-        let rooms: Vec<(u32, String)> = schedule
+        let rooms: Vec<(u32, String)> = schedule_file
+            .schedule
             .sorted_rooms()
             .iter()
             .map(|r| (r.uid, r.long_name.clone()))
             .collect();
-        let panel_types: Vec<(String, String)> = schedule
+        let panel_types: Vec<(String, String)> = schedule_file
+            .schedule
             .panel_types
             .iter()
             .map(|(prefix, pt)| (prefix.clone(), pt.kind.clone()))
@@ -504,10 +489,11 @@ impl ScheduleEditor {
     }
 
     fn open_edit_window(&mut self, base_id: String, session_id: String, cx: &mut Context<Self>) {
-        let Some(ref schedule) = self.schedule else {
+        let Some(ref schedule_file) = self.schedule_file else {
             return;
         };
-        let Some(panel) = schedule
+        let Some(panel) = schedule_file
+            .schedule
             .panel_sets
             .values()
             .flat_map(|ps| ps.panels.iter())
@@ -517,18 +503,24 @@ impl ScheduleEditor {
             return;
         };
         let _ = base_id;
-        let rooms: Vec<(u32, String)> = schedule
+        let rooms: Vec<(u32, String)> = schedule_file
+            .schedule
             .sorted_rooms()
             .iter()
             .map(|r| (r.uid, r.long_name.clone()))
             .collect();
-        let panel_types: Vec<(String, String)> = schedule
+        let panel_types: Vec<(String, String)> = schedule_file
+            .schedule
             .panel_types
             .iter()
             .map(|(prefix, pt)| (prefix.clone(), pt.kind.clone()))
             .collect();
-        let presenter_names: Vec<String> =
-            schedule.presenters.iter().map(|p| p.name.clone()).collect();
+        let presenter_names: Vec<String> = schedule_file
+            .schedule
+            .presenters
+            .iter()
+            .map(|p| p.name.clone())
+            .collect();
 
         let edit_entity = cx.new(|cx| {
             PanelEditWindow::new(panel, &session_id, rooms, panel_types, presenter_names, cx)
@@ -563,7 +555,7 @@ impl ScheduleEditor {
     }
 
     fn open_new_event(&mut self, _: &NewEvent, _window: &mut Window, cx: &mut Context<Self>) {
-        let Some(ref schedule) = self.schedule else {
+        let Some(ref schedule_file) = self.schedule_file else {
             self.status_message = Some("No schedule loaded".to_string());
             cx.notify();
             return;
@@ -572,18 +564,24 @@ impl ScheduleEditor {
         let new_id = format!("new-{}", chrono::Utc::now().timestamp_millis());
         let panel = Panel::new(new_id.clone(), new_id.clone());
 
-        let rooms: Vec<(u32, String)> = schedule
+        let rooms: Vec<(u32, String)> = schedule_file
+            .schedule
             .sorted_rooms()
             .iter()
             .map(|r| (r.uid, r.long_name.clone()))
             .collect();
-        let panel_types: Vec<(String, String)> = schedule
+        let panel_types: Vec<(String, String)> = schedule_file
+            .schedule
             .panel_types
             .iter()
             .map(|(prefix, pt)| (prefix.clone(), pt.kind.clone()))
             .collect();
-        let presenter_names: Vec<String> =
-            schedule.presenters.iter().map(|p| p.name.clone()).collect();
+        let presenter_names: Vec<String> = schedule_file
+            .schedule
+            .presenters
+            .iter()
+            .map(|p| p.name.clone())
+            .collect();
 
         let edit_entity =
             cx.new(|cx| PanelEditWindow::new(panel, "", rooms, panel_types, presenter_names, cx));
@@ -617,15 +615,14 @@ impl ScheduleEditor {
     }
 
     pub fn apply_panel_save(&mut self, mut panel: Panel, cx: &mut Context<Self>) {
-        self.push_undo_snapshot();
-        if let Some(ref mut schedule) = self.schedule {
+        if let Some(mut edit_ctx) = self.get_edit_context() {
             let panel_id = panel.id.clone();
-            let base_id = panel.base_id.clone();
-            let is_existing = schedule
+            let is_existing = edit_ctx
+                .schedule
                 .panel_sets
                 .values()
-                .flat_map(|ps| ps.panels.iter())
-                .any(|p| p.id == panel_id);
+                .any(|ps| ps.panels.iter().any(|p| p.id == panel_id));
+
             if panel.change_state == ChangeState::Unchanged {
                 panel.change_state = if is_existing {
                     ChangeState::Modified
@@ -633,15 +630,36 @@ impl ScheduleEditor {
                     ChangeState::Added
                 };
             }
-            let ps = schedule
-                .panel_sets
-                .entry(base_id.clone())
-                .or_insert_with(|| PanelSet::new(base_id));
-            if let Some(existing) = ps.panels.iter_mut().find(|p| p.id == panel_id) {
-                *existing = panel;
+
+            if is_existing {
+                // For existing panels, we need to update all fields individually
+                // This is more complex but ensures proper change tracking
+                let original_panel = edit_ctx
+                    .schedule
+                    .panel_sets
+                    .values()
+                    .flat_map(|ps| ps.panels.iter())
+                    .find(|p| p.id == panel_id)
+                    .cloned();
+
+                if let Some(original) = original_panel {
+                    // Update name if changed
+                    if original.name != panel.name {
+                        edit_ctx.set_panel_name(&panel_id, &panel.name);
+                    }
+
+                    // Update other fields as needed
+                    // For now, we'll use a batch command for the full update
+                    let commands =
+                        vec![schedule_core::edit::command::EditCommand::CreatePanel { panel }];
+                    edit_ctx.execute_batch(commands);
+                }
             } else {
-                ps.panels.push(panel);
+                // For new panels, just create them
+                let command = schedule_core::edit::command::EditCommand::CreatePanel { panel };
+                edit_ctx.execute(command);
             }
+
             self.has_unsaved_changes = true;
         }
         self.rebuild_event_cards(cx);
@@ -650,15 +668,13 @@ impl ScheduleEditor {
 
     pub fn apply_session_delete(
         &mut self,
-        base_id: String,
+        _base_id: String,
         session_id: String,
         cx: &mut Context<Self>,
     ) {
-        self.push_undo_snapshot();
-        if let Some(ref mut schedule) = self.schedule {
-            if let Some(ps) = schedule.panel_sets.get_mut(&base_id) {
-                ps.panels.retain(|p| p.id != session_id);
-            }
+        if let Some(mut edit_ctx) = self.get_edit_context() {
+            // Use the soft delete method from the edit module
+            edit_ctx.soft_delete_panel(&session_id);
             self.has_unsaved_changes = true;
         }
         if self.selected_event_id.as_deref() == Some(session_id.as_str()) {
@@ -689,13 +705,13 @@ impl ScheduleEditor {
     }
 
     fn refresh_web_preview(&mut self, cx: &mut Context<Self>) {
-        let Some(ref schedule) = self.schedule else {
+        let Some(ref schedule_file) = self.schedule_file else {
             self.status_message = Some("No schedule to preview".to_string());
             cx.notify();
             return;
         };
 
-        match web_preview::write_preview(schedule) {
+        match web_preview::write_preview(&schedule_file.schedule) {
             Ok(path) => {
                 if let Err(err) = web_preview::open_preview_in_browser(&path) {
                     self.status_message = Some(format!("Failed to open browser: {err}"));
@@ -731,7 +747,7 @@ impl ScheduleEditor {
     }
 
     fn can_save(&self) -> bool {
-        self.schedule.is_some()
+        self.schedule_file.is_some()
             && self.current_path.is_some()
             && matches!(
                 self.current_file_type,
@@ -740,7 +756,7 @@ impl ScheduleEditor {
     }
 
     fn can_export(&self) -> bool {
-        self.schedule.is_some()
+        self.schedule_file.is_some()
     }
 
     fn window_title(&self) -> String {
@@ -779,7 +795,7 @@ impl ScheduleEditor {
             return;
         }
 
-        let Some(ref schedule) = self.schedule else {
+        let Some(ref mut schedule_file) = self.schedule_file else {
             self.status_message = Some("No schedule to save".to_string());
             cx.notify();
             return;
@@ -792,8 +808,9 @@ impl ScheduleEditor {
         };
 
         let file_type = self.current_file_type;
-        let mut schedule_clone = schedule.clone();
         let path_clone = path.clone();
+
+        let mut schedule_file_clone = schedule_file.clone();
 
         // Update Excel metadata when saving
         let current_time = time::format_storage_ts(chrono::Utc::now());
@@ -802,31 +819,27 @@ impl ScheduleEditor {
             .or_else(|_| std::env::var("LOGNAME"))
             .unwrap_or_else(|_| "Unknown User".to_string());
 
-        schedule_clone.meta.last_modified_by = Some(username.clone());
-        schedule_clone.meta.modified = Some(current_time);
+        schedule_file_clone.schedule.meta.last_modified_by = Some(username.clone());
+        schedule_file_clone.schedule.meta.modified = Some(current_time);
 
         cx.spawn(async move |this, cx| {
             let result = if file_type == Some(FileType::Xlsx) {
-                let mut sf = schedule_core::ScheduleFile::new(schedule_clone);
-                let update_result = schedule_core::xlsx::update_xlsx(&sf, &path_clone);
+                let update_result =
+                    schedule_core::xlsx::update_xlsx(&mut schedule_file_clone, &path_clone);
                 if update_result.is_ok() {
-                    schedule_core::xlsx::post_save_cleanup(&mut sf);
+                    schedule_core::xlsx::post_save_cleanup(&mut schedule_file_clone);
                 }
                 update_result
             } else {
-                let mut sf = schedule_core::ScheduleFile::new(schedule_clone);
-                sf.save_json(&path_clone)
+                schedule_file_clone.save_json(&path_clone)
             };
 
             cx.update(|cx| {
                 this.update(cx, |editor, cx| match result {
                     Ok(()) => {
                         if file_type == Some(FileType::Xlsx) {
-                            if let Some(ref mut sched) = editor.schedule {
-                                let mut sf =
-                                    schedule_core::ScheduleFile::new(std::mem::take(sched));
-                                schedule_core::xlsx::post_save_cleanup(&mut sf);
-                                *sched = sf.schedule;
+                            if let Some(ref mut schedule_file) = editor.schedule_file {
+                                schedule_core::xlsx::post_save_cleanup(schedule_file);
                             }
                         }
                         editor.has_unsaved_changes = false;
@@ -855,7 +868,7 @@ impl ScheduleEditor {
         _window: &mut Window,
         cx: &mut Context<Self>,
     ) {
-        let Some(ref schedule) = self.schedule else {
+        let Some(ref schedule_file) = self.schedule_file else {
             self.status_message = Some("No schedule to export".to_string());
             cx.notify();
             return;
@@ -885,7 +898,7 @@ impl ScheduleEditor {
             return;
         };
 
-        let schedule_clone = schedule.clone();
+        let schedule_clone = schedule_file.schedule.clone();
 
         cx.spawn(async move |this, cx| {
             let result = schedule_clone.export_display(&path);
@@ -914,7 +927,7 @@ impl ScheduleEditor {
         _window: &mut Window,
         cx: &mut Context<Self>,
     ) {
-        let Some(ref schedule) = self.schedule else {
+        let Some(ref schedule_file) = self.schedule_file else {
             self.status_message = Some("No schedule to export".to_string());
             cx.notify();
             return;
@@ -944,7 +957,7 @@ impl ScheduleEditor {
             return;
         };
 
-        let schedule_clone = schedule.clone();
+        let schedule_clone = schedule_file.schedule.clone();
 
         cx.spawn(async move |this, cx| {
             // Convert schedule to JSON string
@@ -995,7 +1008,7 @@ impl ScheduleEditor {
         _window: &mut Window,
         cx: &mut Context<Self>,
     ) {
-        let Some(ref schedule) = self.schedule else {
+        let Some(ref schedule_file) = self.schedule_file else {
             self.status_message = Some("No schedule to export".to_string());
             cx.notify();
             return;
@@ -1025,7 +1038,7 @@ impl ScheduleEditor {
             return;
         };
 
-        let schedule_clone = schedule.clone();
+        let schedule_clone = schedule_file.schedule.clone();
 
         cx.spawn(async move |this, cx| {
             // Convert schedule to JSON string
@@ -1087,20 +1100,21 @@ impl Render for ScheduleEditor {
         let subtitle_color = rgb(0x6B7280);
         let empty_color = rgb(0x9CA3AF);
         let status_color = rgb(0x059669);
-        let has_schedule = self.schedule.is_some();
+        let has_schedule = self.schedule_file.is_some();
 
         let title = self
-            .schedule
+            .schedule_file
             .as_ref()
-            .map(|s| s.meta.title.clone())
+            .map(|s| s.schedule.meta.title.clone())
             .unwrap_or_else(|| "No schedule loaded".to_string());
         let title = SharedString::from(title);
 
         let panel_count = self
-            .schedule
+            .schedule_file
             .as_ref()
             .map(|s| {
-                s.panel_sets
+                s.schedule
+                    .panel_sets
                     .values()
                     .map(|ps| ps.panels.len())
                     .sum::<usize>()
@@ -1127,7 +1141,7 @@ impl Render for ScheduleEditor {
             .p(px(16.0))
             .bg(bg);
 
-        if self.schedule.is_none() {
+        if self.schedule_file.is_none() {
             content = content.child(
                 div()
                     .flex()

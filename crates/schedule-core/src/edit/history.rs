@@ -12,7 +12,7 @@ use crate::data::schedule::Schedule;
 const DEFAULT_MAX_UNDO: usize = 50;
 
 /// Manages undo/redo stacks of `EditCommand`s.
-#[derive(Serialize, Deserialize)]
+#[derive(Serialize, Deserialize, Clone)]
 #[serde(rename_all = "camelCase")]
 pub struct EditHistory {
     undo_stack: Vec<EditCommand>,

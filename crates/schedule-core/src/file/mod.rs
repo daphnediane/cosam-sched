@@ -97,3 +97,12 @@ impl ScheduleFile {
         EditContext::new(&mut self.schedule, &mut self.history)
     }
 }
+
+impl Clone for ScheduleFile {
+    fn clone(&self) -> Self {
+        Self {
+            schedule: self.schedule.clone(),
+            history: self.history.clone(),
+        }
+    }
+}
