@@ -1,6 +1,6 @@
 # Cosplay America Schedule - Work Plan
 
-Generated on: Wed Mar 25 21:33:37 2026
+Generated on: Wed Mar 25 21:43:41 2026
 
 ## Completed
 
@@ -38,6 +38,7 @@ the base→part→session hierarchy in the UI.
 * [FEATURE-020] Implement the `credits` field generation based on `always_shown`/`always_grouped` semantics from schedule-to-html.
 * [FEATURE-021] Support the `<Name` prefix syntax in spreadsheet presenter headers to set `always_grouped` on individual members.
 * [FEATURE-023] Implement the v7 JSON schedule format changes in the Rust codebase: panelTypes hashmap, named color sets, merged timeTypes, stable presenter IDs, baked-in breaks, and metadata fields.
+* [FEATURE-024] Create documentation for the new v8 JSON format with changeLog support
 * [FEATURE-501] Add a new command-line tool for in-place modifications of XLSX schedule files
 * [INVESTIGATE-001] Investigate xlsx_update module for potential corruption issues and determine if it should be disabled
 * [UI-001] Display both the programming room name (e.g., "Programming 1") and the actual hotel room location.
@@ -49,7 +50,7 @@ the base→part→session hierarchy in the UI.
 
 ## Summary of Open Items
 
-**Total open items:** 26
+**Total open items:** 25
 
 * **High Priority**
   * [FEATURE-027] Enable reading schedule data directly from Google Sheets.
@@ -66,7 +67,6 @@ the base→part→session hierarchy in the UI.
   * [EDITOR-029] Add functional settings window with export preferences and application configuration options.
   * [EDITOR-510] Define how multiple people and devices can safely edit a single schedule with conflict handling independent of any specific storage backend.
   * [FEATURE-019] Populate the `metadata` field on all item types from non-standard spreadsheet columns during xlsx import.
-  * [FEATURE-024] Create documentation for the new v8 JSON format with changeLog support
   * [FEATURE-033] Create a compact print format optimized for minimal paper usage.
   * [UI-032] Add sticky headers or repeat day headers between time blocks in grid view for better navigation.
   * [UI-034] Add visual indicators to the schedule widget to highlight conflicting events, making it easy for users to identify and understand scheduling conflicts.
@@ -269,18 +269,6 @@ The 2025 schedule shows this pattern:
 **Summary:** Populate the `metadata` field on all item types from non-standard spreadsheet columns during xlsx import.
 
 **Description:** The `PanelSession` struct has an `extras: ExtraFields` field (renamed to `metadata` in v7) that is defined but never populated during xlsx import — it is always initialized as `IndexMap::new()`. The `row_to_map` function in `xlsx_import.rs` reads all columns into a HashMap, but only known fields are extracted via `get_field()`. The remaining unknown columns are silently discarded.
-
----
-
-### [FEATURE-024] JSON Format Documentation
-
-**Status:** Open
-
-**Priority:** Medium
-
-**Summary:** Create documentation for the new v8 JSON format with changeLog support
-
-**Description:** The ScheduleFile refactor introduced JSON version 8 with an optional `changeLog` field. This needs proper documentation in the docs/json-format/ directory.
 
 ---
 
@@ -489,7 +477,7 @@ Based on the 2025 schedule data, conflicts include:
 [FEATURE-020]: work-plan/done/FEATURE-020.md
 [FEATURE-021]: work-plan/done/FEATURE-021.md
 [FEATURE-023]: work-plan/done/FEATURE-023.md
-[FEATURE-024]: work-plan/medium/FEATURE-024.md
+[FEATURE-024]: work-plan/done/FEATURE-024.md
 [FEATURE-027]: work-plan/high/FEATURE-027.md
 [FEATURE-030]: work-plan/medium/FEATURE-030.md
 [FEATURE-031]: work-plan/high/FEATURE-031.md

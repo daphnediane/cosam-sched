@@ -1204,7 +1204,7 @@ mod tests {
             meta: Meta {
                 title: "Test".to_string(),
                 generated: "2026-01-01".to_string(),
-                version: Some(4),
+                version: Some(8),
                 variant: None,
                 generator: None,
                 start_time: None,

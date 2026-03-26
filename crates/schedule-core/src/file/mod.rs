@@ -10,8 +10,8 @@ use anyhow::{Context, Result};
 
 use crate::data::schedule::Schedule;
 use crate::data::time;
-use crate::edit::history::EditHistory;
 use crate::edit::context::EditContext;
+use crate::edit::history::EditHistory;
 
 /// Combines a `Schedule` with its `EditHistory` for unified JSON persistence.
 ///
@@ -42,8 +42,7 @@ impl ScheduleFile {
             .with_context(|| format!("Failed to parse JSON from {}", path.display()))?;
 
         let history = if let Some(cl) = raw.get("changeLog") {
-            serde_json::from_value(cl.clone())
-                .unwrap_or_else(|_| EditHistory::new())
+            serde_json::from_value(cl.clone()).unwrap_or_else(|_| EditHistory::new())
         } else {
             EditHistory::new()
         };
@@ -63,18 +62,12 @@ impl ScheduleFile {
     pub fn save_json(&mut self, path: &Path) -> Result<()> {
         self.schedule.meta.generated = time::format_storage_ts(chrono::Utc::now());
 
-        if !self.schedule.panels.is_empty() {
-            self.schedule.meta.version = Some(8);
-            if self.schedule.meta.variant.is_none() {
-                self.schedule.meta.variant = Some("full".to_string());
-            }
-        } else {
-            self.schedule.meta.version = Some(4);
-            self.schedule.meta.variant = None;
+        self.schedule.meta.version = Some(8);
+        if self.schedule.meta.variant.is_none() {
+            self.schedule.meta.variant = Some("full".to_string());
         }
 
-        self.schedule.meta.generator =
-            Some(format!("cosam-sched {}", env!("CARGO_PKG_VERSION")));
+        self.schedule.meta.generator = Some(format!("cosam-sched {}", env!("CARGO_PKG_VERSION")));
 
         crate::data::post_process::apply_schedule_parity(&mut self.schedule);
 
@@ -82,19 +75,18 @@ impl ScheduleFile {
             self.schedule.calculate_schedule_bounds();
         }
 
-        let mut obj = serde_json::to_value(&self.schedule)
-            .context("Failed to serialize schedule to JSON")?;
+        let mut obj =
+            serde_json::to_value(&self.schedule).context("Failed to serialize schedule to JSON")?;
 
         if !self.history.is_empty() {
-            let cl = serde_json::to_value(&self.history)
-                .context("Failed to serialize change log")?;
+            let cl =
+                serde_json::to_value(&self.history).context("Failed to serialize change log")?;
             if let Some(map) = obj.as_object_mut() {
                 map.insert("changeLog".to_string(), cl);
             }
         }
 
-        let json =
-            serde_json::to_string_pretty(&obj).context("Failed to format JSON")?;
+        let json = serde_json::to_string_pretty(&obj).context("Failed to format JSON")?;
         std::fs::write(path, json.as_bytes())
             .with_context(|| format!("Failed to write {}", path.display()))?;
         Ok(())

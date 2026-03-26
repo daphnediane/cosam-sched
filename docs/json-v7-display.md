@@ -112,7 +112,6 @@ This document is generated from the structured documentation in [json-schedule](
 
 | Field            | Type     | Public | Description                                                                        |
 | ---------------- | -------- | ------ | ---------------------------------------------------------------------------------- |
-| `id`             | integer  | yes    | Stable unique integer identifier (never reused)                                    |
 | `name`           | string   | yes    | Display name                                                                       |
 | `rank`           | string   | yes    | Role: `"guest"`, `"judge"`, `"staff"`, `"invited_guest"`, or `"fan_panelist"`      |
 | `is_group`       | boolean  | yes    | True if this entry represents a group rather than an individual                    |
@@ -190,5 +189,6 @@ This document is generated from the structured documentation in [json-schedule](
 - [v6-Private](json-private-v6.md) - Private format documentation for JSON schedule format v6.
 - [v6-Public](json-public-v6.md) - Public format documentation for JSON schedule format v6.
 - [v7-Full](json-v7-full.md) - Full format documentation for JSON schedule format v7. This is the editable master format used by the editor and converter.
+- [v8-Full](json-v8-full.md) - Full format documentation for JSON schedule format v8. This is the editable master format used by the editor and converter, with support for persistent edit history via the optional `changeLog` field.
 
 *This document is automatically generated. Do not edit directly.*

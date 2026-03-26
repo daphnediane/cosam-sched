@@ -1,6 +1,6 @@
-# v7-Full
+# v8-Full
 
-Full format documentation for JSON schedule format v7. This is the editable master format used by the editor and converter.
+Full format documentation for JSON schedule format v8. This is the editable master format used by the editor and converter, with support for persistent edit history via the optional `changeLog` field.
 
 This document is generated from the structured documentation in [json-schedule](json-schedule).
 
@@ -16,13 +16,14 @@ This document is generated from the structured documentation in [json-schedule](
   "presenters": [ ... ],
   "panels": { ... },
   "timeline": [ ... ],
-  "conflicts": [ ... ]
+  "conflicts": [ ... ],
+  "changeLog": { ... }
 }
 ```
 
 ## Structures Overview
 
-- [meta-v7.md](meta-v7.md) - Metadata with `nextPresenterId` and variant `"full"`
+- [meta-v8.md](meta-v8.md) - Metadata with version 8 and variant `"full"`
 - [panelTypes-v7.md](panelTypes-v7.md) - Panel types hashmap keyed by prefix, with named color sets
 - [rooms-v7.md](rooms-v7.md) - Room definitions with `is_break` flag
 - [presenters-v7.md](presenters-v7.md) - Presenters with stable integer `id`, `always_shown`, and `always_grouped`
@@ -31,16 +32,17 @@ This document is generated from the structured documentation in [json-schedule](
 - [PanelSession-v7.md](PanelSession-v7.md) - Panel session objects (`extras` renamed to `metadata`)
 - [timeline-v7.md](timeline-v7.md) - Timeline markers referencing panelType prefix
 - [conflicts-v7.md](conflicts-v7.md) - Conflict detection structures
+- [changeLog-v8.md](changeLog-v8.md) - Edit history with undo/redo stacks
 
 ## Structure Details
 
-### [`meta`](json-schedule/meta-v7.md)
+### [`meta`](json-schedule/meta-v8.md)
 
 `meta` is a JSON object containing metadata about the schedule file itself.
 
 **Access:** Public
 
-**Status:** Supported in v7
+**Status:** Supported in v8
 
 **Key Fields:**
 
@@ -48,7 +50,7 @@ This document is generated from the structured documentation in [json-schedule](
 | ----------------- | ------- | ------ | ------------------------------------------------------------ |
 | `title`           | string  | yes    | Display title for the schedule                               |
 | `generated`       | string  | yes    | ISO 8601 UTC timestamp when the file was generated           |
-| `version`         | integer | yes    | Schema version number (always `7` for this format)           |
+| `version`         | integer | yes    | Schema version number (always `8` for this format)           |
 | `variant`         | string  | yes    | Format variant: `"full"` for private, `"display"` for public |
 | `generator`       | string  | yes    | Identifier of the tool that produced the file                |
 | `startTime`       | string  | yes    | ISO 8601 UTC timestamp of the schedule start date            |
@@ -57,7 +59,7 @@ This document is generated from the structured documentation in [json-schedule](
 | `creator`         | string  | no     | Excel file creator/author (full format only)                 |
 | `lastModifiedBy`  | string  | no     | Excel file last modified by (full format only)               |
 
-*See full details in: [`meta-v7.md`](json-schedule/meta-v7.md)*
+*See full details in: [`meta-v8.md`](json-schedule/meta-v8.md)*
 
 ### [`panelTypes`](json-schedule/panelTypes-v7.md)
 
@@ -259,6 +261,27 @@ This document is generated from the structured documentation in [json-schedule](
 
 *See full details in: [`conflicts-v7.md`](json-schedule/conflicts-v7.md)*
 
+### [`changeLog`](json-schedule/changeLog-v8.md)
+
+`changeLog` is a JSON object containing the edit history for a schedule file, enabling persistent undo/redo functionality across application sessions.
+
+**Access:** Private
+
+**Status:** Introduced in v8
+
+**Key Fields:**
+
+| Field       | Type                         | Public | Description                                      |
+| ----------- | ---------------------------- | ------ | ------------------------------------------------ |
+| `undoStack` | array of EditCommand objects | no     | Stack of edits that can be undone (newest first) |
+| `redoStack` | array of EditCommand objects | no     | Stack of edits that can be redone (newest first) |
+
+*See full details in: [`changeLog-v8.md`](json-schedule/changeLog-v8.md)*
+
+## Migration Notes
+
+No automated v7→v8 migration is needed since this is alpha software. All JSON files are regenerated from canonical spreadsheets each release. The changeLog feature is only available for files edited and saved using the v8-aware toolchain.
+
 ---
 
 ## Related Documentation
@@ -270,6 +293,6 @@ This document is generated from the structured documentation in [json-schedule](
 - [v6-Private](json-private-v6.md) - Private format documentation for JSON schedule format v6.
 - [v6-Public](json-public-v6.md) - Public format documentation for JSON schedule format v6.
 - [v7-Display](json-v7-display.md) - Display format documentation for JSON schedule format v7. This is the public-facing format consumed by the schedule widget.
-- [v8-Full](json-v8-full.md) - Full format documentation for JSON schedule format v8. This is the editable master format used by the editor and converter, with support for persistent edit history via the optional `changeLog` field.
+- [v7-Full](json-v7-full.md) - Full format documentation for JSON schedule format v7. This is the editable master format used by the editor and converter.
 
 *This document is automatically generated. Do not edit directly.*

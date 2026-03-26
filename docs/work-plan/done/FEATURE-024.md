@@ -6,7 +6,7 @@ Create documentation for the new v8 JSON format with changeLog support
 
 ## Status
 
-Open
+Completed
 
 ## Priority
 

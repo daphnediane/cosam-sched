@@ -160,5 +160,6 @@ This document is generated from the structured documentation in [json-schedule](
 - [v6-Public](json-public-v6.md) - Public format documentation for JSON schedule format v6.
 - [v7-Display](json-v7-display.md) - Display format documentation for JSON schedule format v7. This is the public-facing format consumed by the schedule widget.
 - [v7-Full](json-v7-full.md) - Full format documentation for JSON schedule format v7. This is the editable master format used by the editor and converter.
+- [v8-Full](json-v8-full.md) - Full format documentation for JSON schedule format v8. This is the editable master format used by the editor and converter, with support for persistent edit history via the optional `changeLog` field.
 
 *This document is automatically generated. Do not edit directly.*
