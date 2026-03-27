@@ -201,21 +201,23 @@ Each data structure is documented in its own file following the pattern `<struct
 - [meta-v9.md](meta-v9.md) - Metadata structure
 - [presenters-v9.md](presenters-v9.md) - Presenters with PresenterSortRank (full format)
 - [presenters-display-v9.md](presenters-display-v9.md) - DisplayPresenter with panelIds (display format)
+- [PanelSet-v9.md](PanelSet-v9.md) - Flat panel sets (replaces hierarchical model)
+- [Panel-v9.md](Panel-v9.md) - Self-contained panel objects with TimeRange timing
 
 ## Quick Reference
 
-| Version    | Entry Point                    | Structure                            | Use Case             |
-| ---------- | ------------------------------ | ------------------------------------ | -------------------- |
-| v4         | [v4.md](v4.md)                 | Flat events array                    | Legacy compatibility |
-| v5-private | [v5-private.md](v5-private.md) | Hierarchical panels                  | Internal editing     |
-| v5-public  | [v5-public.md](v5-public.md)   | Flattened panels                     | Public widget        |
-| v6-private | [v6-private.md](v6-private.md) | Hierarchical + Excel meta            | Internal editing     |
-| v6-public  | [v6-public.md](v6-public.md)   | Flattened + Excel meta               | Public widget        |
-| v7-full    | [v7-full.md](v7-full.md)       | Hashmap panelTypes + breaks          | Internal editing     |
-| v7-display | [v7-display.md](v7-display.md) | Flattened + baked breaks             | Public widget        |
-| v8-full    | [v8-full.md](v8-full.md)       | Full format + changeLog              | Internal editing     |
-| v9-full    | [v9-full.md](v9-full.md)       | PresenterSortRank + DisplayPresenter | Internal editing     |
-| v9-display | [v9-display.md](v9-display.md) | DisplayPresenter with sort_key       | Public widget        |
+| Version    | Entry Point                    | Structure                       | Use Case             |
+| ---------- | ------------------------------ | ------------------------------- | -------------------- |
+| v4         | [v4.md](v4.md)                 | Flat events array               | Legacy compatibility |
+| v5-private | [v5-private.md](v5-private.md) | Hierarchical panels             | Internal editing     |
+| v5-public  | [v5-public.md](v5-public.md)   | Flattened panels                | Public widget        |
+| v6-private | [v6-private.md](v6-private.md) | Hierarchical + Excel meta       | Internal editing     |
+| v6-public  | [v6-public.md](v6-public.md)   | Flattened + Excel meta          | Public widget        |
+| v7-full    | [v7-full.md](v7-full.md)       | Hashmap panelTypes + breaks     | Internal editing     |
+| v7-display | [v7-display.md](v7-display.md) | Flattened + baked breaks        | Public widget        |
+| v8-full    | [v8-full.md](v8-full.md)       | Full format + changeLog         | Internal editing     |
+| v9-full    | [v9-full.md](v9-full.md)       | Flat panels + PresenterSortRank | Internal editing     |
+| v9-display | [v9-display.md](v9-display.md) | DisplayPresenter with sort_key  | Public widget        |
 
 ## Migration Notes
 
@@ -225,6 +227,7 @@ Each data structure is documented in its own file following the pattern `<struct
 - **v6 → v7**: No migration needed — all JSON files are regenerated from spreadsheet each release
 - **v7 → v8**: No migration needed — alpha software, all files regenerated from canonical spreadsheets
 - **v8 → v9**: No migration needed — alpha software, all files regenerated from canonical spreadsheets
+- **v9 → v10**: No migration needed — alpha software, all files regenerated from canonical spreadsheets
 
 ## Related Documentation
 

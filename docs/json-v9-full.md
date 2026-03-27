@@ -26,9 +26,9 @@ This document is generated from the structured documentation in [json-schedule](
 
 - [meta-v9.md](meta-v9.md) - Metadata structure
 - [presenters-v9.md](presenters-v9.md) - Presenters with PresenterSortRank
-- [PanelSet-v8.md](PanelSet-v8.md) - Hierarchical panel sets
-- [Panel-v8.md](Panel-v8.md) - Panel objects
-- [PanelType-v7.md](PanelType-v7.md) - Panel type definitions
+- [PanelSet-v9.md](PanelSet-v9.md) - Flat panel sets
+- [Panel-v9.md](Panel-v9.md) - Self-contained panel objects with TimeRange timing
+- [panelTypes-v7.md](panelTypes-v7.md) - Panel type definitions
 - [rooms-v7.md](rooms-v7.md) - Room definitions
 - [timeline-v7.md](timeline-v7.md) - Timeline markers
 - [conflicts-v7.md](conflicts-v7.md) - Conflict detection
@@ -36,6 +36,30 @@ This document is generated from the structured documentation in [json-schedule](
 - [ImportedSheetPresence-v6.md](ImportedSheetPresence-v6.md) - Sheet tracking
 
 ## Structure Details
+
+### [`panelTypes`](json-schedule/panelTypes-v7.md)
+
+`panelTypes` is a JSON object (hashmap) keyed by uppercase prefix, where each value defines a category of panels.
+
+**Access:** Public
+
+**Status:** Supported in v7
+
+**Key Fields:**
+
+| Field         | Type           | Public | Description                                                   |
+| ------------- | -------------- | ------ | ------------------------------------------------------------- |
+| `kind`        | string         | yes    | Human-readable category name                                  |
+| `colors`      | object         | yes    | Named color sets (see Color Sets below)                       |
+| `isBreak`     | boolean        | yes    | True for break-type panels                                    |
+| `isCafe`      | boolean        | yes    | True for café/social panels                                   |
+| `isWorkshop`  | boolean        | yes    | True for workshop panels                                      |
+| `isHidden`    | boolean        | yes    | True for hidden panel types (staff-only)                      |
+| `isRoomHours` | boolean        | yes    | True for room-hours panels (e.g. Market Expo operating hours) |
+| `isTimeline`  | boolean        | yes    | True for timeline/split panel types (merged from timeTypes)   |
+| `isPrivate`   | boolean        | yes    | True for private panel types (e.g. Staff Meal)                |
+
+*See full details in: [`panelTypes-v7.md`](json-schedule/panelTypes-v7.md)*
 
 ### [`rooms`](json-schedule/rooms-v7.md)
 
