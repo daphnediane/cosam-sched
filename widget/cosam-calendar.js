@@ -105,7 +105,6 @@
 
   class CalendarState {
     constructor() {
-      this.data = null;
       this.view = 'list'; // 'list' or 'grid'
       this.theme = 'cosam';
       this.activeDay = null;
@@ -329,35 +328,31 @@
       // Presenter — breaks excluded when filtering by presenter
       if (this.filters.presenter) {
         const selectedPresenter = this.filters.presenter;
-        const presenterData = this.data.presenters.find(p => p.name === selectedPresenter);
 
-        if (presenterData && presenterData.is_group) {
-          // Group selected - show events where any group member presents
-          const groupMembers = new Set(presenterData.members || []);
-          events = events.filter(e =>
-            e.presenters && e.presenters.some(pr => groupMembers.has(pr))
-          );
-        } else {
-          // Individual presenter selected - need to check for "X of Group" format
-          const p = selectedPresenter.toLowerCase();
-          events = events.filter(e => {
-            if (!e.presenters) return false;
+        // V9 format: Use panelIds for efficient filtering
+        let presenterPanelIds = this.data.presenterToPanels.get(selectedPresenter);
 
-            // Direct match
-            if (e.presenters.some(pr => pr.toLowerCase() === p)) {
-              return true;
-            }
-
-            // Check for "X of Group" format
-            return e.presenters.some(pr => {
-              const match = pr.match(/^(\S+) \s+ of \s+ (.+)$/i);
-              if (match) {
-                const [, individual, group] = match;
-                return individual.toLowerCase() === p || group.toLowerCase() === p;
+        if (!presenterPanelIds) {
+          // If no direct panelIds, check if this is a group and collect from members
+          const selectedPresenterData = this.data.presenters.find(p => p.name === selectedPresenter);
+          if (selectedPresenterData && selectedPresenterData.isGroup && selectedPresenterData.members) {
+            const allGroupPanelIds = new Set();
+            for (const memberName of selectedPresenterData.members) {
+              const memberPanelIds = this.data.presenterToPanels.get(memberName);
+              if (memberPanelIds) {
+                for (const panelId of memberPanelIds) {
+                  allGroupPanelIds.add(panelId);
+                }
               }
-              return false;
-            });
-          });
+            }
+            presenterPanelIds = allGroupPanelIds;
+          }
+        }
+
+        if (presenterPanelIds && presenterPanelIds.size > 0) {
+          events = events.filter(e => presenterPanelIds.has(e.id));
+        } else {
+          events = []; // Presenter not found in V9 data or group has no panels
         }
       }
 
@@ -399,7 +394,7 @@
       this.root.appendChild(this._buildFilters());
       this.root.appendChild(this._buildDayTabs());
 
-      const events = this.state.filteredEvents();
+      const events = this.state.filteredEvents.call(this.state);
       const eventsRegion = el('section', {
         id: this._eventsRegionId,
         className: 'cosam-events-region',
@@ -456,7 +451,53 @@
       // Panels are used as-is; panelType is the raw prefix matching panelTypes keys
       const panels = Array.isArray(data.panels) ? data.panels : [];
 
-      return { ...data, panelTypes, panels };
+      // V9: Filter presenters to only include those with panelIds (used by panels)
+      // and build presenter-to-panel mapping for efficient lookups
+      let presenters = [];
+      let presenterToPanels = new Map();
+
+      if (data.meta && data.meta.version >= 9 && Array.isArray(data.presenters)) {
+        // V9 format: Use DisplayPresenter objects with panelIds
+        // Include all presenters for dropdown, but only build mapping for those with panelIds
+        presenters = data.presenters;
+
+        // Build reverse mapping: presenter -> panels (only for presenters with panelIds)
+        for (const presenter of data.presenters.filter(p => p.panelIds && p.panelIds.length > 0)) {
+          presenterToPanels.set(presenter.name, new Set(presenter.panelIds));
+        }
+      } else {
+        console.error('Unsupported format - expected V9 or higher');
+        presenters = [];
+      }
+
+      // Filter rooms: exclude break rooms and unused rooms
+      let rooms = [];
+      if (Array.isArray(data.rooms)) {
+        // Get all room IDs that are actually used by non-break events
+        const usedRoomIds = new Set();
+        for (const panel of panels) {
+          if (panel.roomIds && panel.kind !== 'Break') {
+            for (const roomId of panel.roomIds) {
+              usedRoomIds.add(roomId);
+            }
+          }
+        }
+
+        // Only include rooms that are used and are not break rooms
+        rooms = data.rooms.filter(room => {
+          const roomId = room.uid || room.id;
+          return usedRoomIds.has(roomId) && !room.is_break;
+        });
+      }
+
+      return {
+        ...data,
+        panelTypes,
+        panels,
+        presenters,
+        rooms,
+        presenterToPanels
+      };
     }
 
     _ensurePanelTypeThemeStyles() {
@@ -718,21 +759,35 @@
       const groups = [];
 
       for (const p of this.state.data.presenters) {
-        if (p.is_group) {
+        if (p.isGroup) {
           groups.push(p);
         } else {
           individuals.push(p);
         }
       }
 
-      const presSelect = el('select');
+      // Single-select dropdown for presenters
+      const presSelect = el('select', {
+        className: 'cosam-select cosam-presenter-select',
+        onChange: (e) => {
+          this.state.filters.presenter = e.target.value;
+          this.render();
+        }
+      });
+
+      // Add "All Presenters" option
       presSelect.appendChild(el('option', { value: '' }, '— All Presenters —'));
 
       // Add individuals first
       if (individuals.length > 0) {
         const indivGroup = el('optgroup', { label: 'Individual Presenters' });
         for (const p of individuals) {
-          const opt = el('option', { value: p.name }, p.name);
+          let displayText = p.name;
+          // V9 format: Show groups in parentheses for individuals
+          if (p.groups && p.groups.length > 0) {
+            displayText += ' (' + p.groups.join(', ') + ')';
+          }
+          const opt = el('option', { value: p.name }, displayText);
           if (this.state.filters.presenter === p.name) opt.selected = true;
           indivGroup.appendChild(opt);
         }
@@ -750,10 +805,6 @@
         presSelect.appendChild(groupGroup);
       }
 
-      presSelect.addEventListener('change', () => {
-        this.state.filters.presenter = presSelect.value;
-        this.render();
-      });
       presGroup.appendChild(presSelect);
       row2.appendChild(presGroup);
 
@@ -1581,7 +1632,7 @@
 
       for (const day of this.state.days) {
         this.state.activeDay = day.key;
-        const events = this.state.filteredEvents();
+        const events = this.state.filteredEvents.call(this.state);
         if (events.length === 0) continue;
 
         printContainer.appendChild(el('div', { className: 'cosam-print-day-label' }, day.label));
@@ -1631,7 +1682,11 @@
     const events = data.panels;
     for (const evt of events) {
       if (!evt.startTime) continue;
-      if (state._isSplitEvent(evt)) continue;
+      // Check for SPLIT events directly here since state._isSplitEvent needs this.state.data
+      if (evt.panelType && data.panelTypes) {
+        const pt = data.panelTypes.find(p => p.uid === evt.panelType);
+        if (pt && pt.isTimeline) continue;
+      }
       const key = getDayKey(evt.startTime);
       if (!daySet.has(key)) {
         daySet.set(key, getDayLabel(evt.startTime));
