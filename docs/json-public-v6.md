@@ -96,5 +96,15 @@ This document is generated from the structured documentation in [json-schedule](
 - [v7-Display](json-v7-display.md) - Display format documentation for JSON schedule format v7. This is the public-facing format consumed by the schedule widget.
 - [v7-Full](json-v7-full.md) - Full format documentation for JSON schedule format v7. This is the editable master format used by the editor and converter.
 - [v8-Full](json-v8-full.md) - Full format documentation for JSON schedule format v8. This is the editable master format used by the editor and converter, with support for persistent edit history via the optional `changeLog` field.
+- [Display Format v9](json-v9-display.md) - **Access Level**: Public
+**Status**: Supported
+**Version**: 9
+
+Public-facing schedule format with DisplayPresenter objects and filtered presenter list.
+- [Full Format v9](json-v9-full.md) - **Access Level**: Private
+**Status**: Supported
+**Version**: 9
+
+Complete internal schedule format with full presenter data and edit history support.
 
 *This document is automatically generated. Do not edit directly.*

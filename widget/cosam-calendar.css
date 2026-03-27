@@ -300,16 +300,25 @@
   margin-bottom: 6px;
 }
 
-.cosam-filter-group select,
 .cosam-filter-group input[type="text"] {
   width: 100%;
   padding: 6px 10px;
   border: 1px solid var(--cosam-border);
   border-radius: var(--cosam-radius);
-  font-size: 14px;
-  font-family: var(--cosam-font);
-  color: var(--cosam-text);
   background: var(--cosam-bg);
+  font-family: var(--cosam-font);
+  font-size: 14px;
+}
+
+/* Multi-select presenter dropdown */
+.cosam-presenter-select {
+  width: 100%;
+  padding: 6px 10px;
+  border: 1px solid var(--cosam-border);
+  border-radius: var(--cosam-radius);
+  background: var(--cosam-bg);
+  font-family: var(--cosam-font);
+  font-size: 14px;
 }
 
 .cosam-filter-checkboxes {

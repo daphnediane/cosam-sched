@@ -1,6 +1,6 @@
 # Cosplay America Schedule - Work Plan
 
-Generated on: Thu Mar 26 14:15:44 2026
+Generated on: Fri Mar 27 00:32:56 2026
 
 ## Completed
 
@@ -51,7 +51,7 @@ the base→part→session hierarchy in the UI.
 
 ## Summary of Open Items
 
-**Total open items:** 26
+**Total open items:** 27
 
 * **High Priority**
   * [FEATURE-027] Enable reading schedule data directly from Google Sheets.
@@ -64,6 +64,7 @@ the base→part→session hierarchy in the UI.
 
 * **Medium Priority**
   * [CLEANUP-028] Refactor xlsx module to be a specialization/implementation detail of ScheduleFile
+  * [CLEANUP-041] Standardize case conventions across all V9 JSON fields to match established V7 patterns
   * [DEPLOY-509] Package the editor as standalone executables for macOS, Windows, and Linux.
   * [EDITOR-029] Add functional settings window with export preferences and application configuration options.
   * [EDITOR-510] Define how multiple people and devices can safely edit a single schedule with conflict handling independent of any specific storage backend.
@@ -91,7 +92,7 @@ the base→part→session hierarchy in the UI.
 
 The following ID numbers are available for new items:
 
-**Available:** 041, 042, 043, 044, 045, 046, 047, 048, 049, 050, 051, 052, 053, 054, 055, 056
+**Available:** 042, 043, 044, 045, 046, 047, 048, 049, 050, 051, 052, 053, 054, 055, 056, 057
 
 **Highest used:** 511
 
@@ -108,6 +109,28 @@ The following ID numbers are available for new items:
 **Summary:** Refactor xlsx module to be a specialization/implementation detail of ScheduleFile
 
 **Description:** Currently `xlsx/mod.rs` exposes `load_auto` and `save_auto` as public functions. A cleaner architecture would make these methods on `ScheduleFile` itself, with xlsx as an internal implementation detail.
+
+---
+
+### [CLEANUP-041] Unify JSON field case conventions
+
+**Status:** Open
+
+**Priority:** Medium
+
+**Summary:** Standardize case conventions across all V9 JSON fields to match established V7 patterns
+
+**Description:** The V9 format introduced inconsistent case conventions by changing presenters from snake_case to camelCase while keeping other fields the same. This cleanup will:
+
+1. **Establish clear convention rules** based on data consumer:
+   - JavaScript-consumed data: camelCase (panels, panelTypes)
+   - Rust-internal data: snake_case (presenters, rooms, timeline)
+
+2. **Update V9 documentation** to reflect correct case conventions
+
+3. **Verify all JSON output** follows the established patterns
+
+4. **Add convention documentation** to prevent future inconsistencies
 
 ---
 
@@ -464,6 +487,7 @@ Based on the 2025 schedule data, conflicts include:
 [CLEANUP-001]: work-plan/done/CLEANUP-001.md
 [CLEANUP-002]: work-plan/done/CLEANUP-002.md
 [CLEANUP-028]: work-plan/medium/CLEANUP-028.md
+[CLEANUP-041]: work-plan/medium/CLEANUP-041.md
 [DEPLOY-509]: work-plan/medium/DEPLOY-509.md
 [EDITOR-025]: work-plan/low/EDITOR-025.md
 [EDITOR-029]: work-plan/medium/EDITOR-029.md

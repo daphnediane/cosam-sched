@@ -65,17 +65,17 @@ This document is generated from the structured documentation in [json-schedule](
 
 **Key Fields:**
 
-| Field         | Type    | Public | Description                                                   |
-| ------------- | ------- | ------ | ------------------------------------------------------------- |
-| `kind`        | string  | yes    | Human-readable category name                                  |
-| `colors`      | object  | yes    | Named color sets (see Color Sets below)                       |
-| `isBreak`     | boolean | yes    | True for break-type panels                                    |
-| `isCafe`      | boolean | yes    | True for café/social panels                                   |
-| `isWorkshop`  | boolean | yes    | True for workshop panels                                      |
-| `isHidden`    | boolean | yes    | True for hidden panel types (staff-only)                      |
-| `isRoomHours` | boolean | yes    | True for room-hours panels (e.g. Market Expo operating hours) |
-| `isTimeline`  | boolean | yes    | True for timeline/split panel types (merged from timeTypes)   |
-| `isPrivate`   | boolean | yes    | True for private panel types (e.g. Staff Meal)                |
+| Field         | Type           | Public | Description                                                   |
+| ------------- | -------------- | ------ | ------------------------------------------------------------- |
+| `kind`        | string         | yes    | Human-readable category name                                  |
+| `colors`      | object         | yes    | Named color sets (see Color Sets below)                       |
+| `isBreak`     | boolean        | yes    | True for break-type panels                                    |
+| `isCafe`      | boolean        | yes    | True for café/social panels                                   |
+| `isWorkshop`  | boolean        | yes    | True for workshop panels                                      |
+| `isHidden`    | boolean        | yes    | True for hidden panel types (staff-only)                      |
+| `isRoomHours` | boolean        | yes    | True for room-hours panels (e.g. Market Expo operating hours) |
+| `isTimeline`  | boolean        | yes    | True for timeline/split panel types (merged from timeTypes)   |
+| `isPrivate`   | boolean        | yes    | True for private panel types (e.g. Staff Meal)                |
 
 *See full details in: [`panelTypes-v7.md`](json-schedule/panelTypes-v7.md)*
 
@@ -89,14 +89,14 @@ This document is generated from the structured documentation in [json-schedule](
 
 **Key Fields:**
 
-| Field        | Type    | Public | Description                                   |
-| ------------ | ------- | ------ | --------------------------------------------- |
-| `uid`        | integer | yes    | Unique room identifier from spreadsheet       |
-| `short_name` | string  | yes    | Abbreviated room name for compact display     |
-| `long_name`  | string  | yes    | Full room name                                |
-| `hotel_room` | string  | yes    | Physical hotel room identifier                |
-| `sort_key`   | integer | yes    | Display sort order (lower = first, 1-indexed) |
-| `is_break`   | boolean | yes    | True for virtual break rooms                  |
+| Field        | Type           | Public | Description                                    |
+| ------------ | -------------- | ------ | ---------------------------------------------- |
+| `uid`        | integer        | yes    | Unique room identifier from spreadsheet        |
+| `short_name` | string         | yes    | Abbreviated room name for compact display      |
+| `long_name`  | string         | yes    | Full room name                                 |
+| `hotel_room` | string         | yes    | Physical hotel room identifier                 |
+| `sort_key`   | integer        | yes    | Display sort order (lower = first, 1-indexed)  |
+| `is_break`   | boolean        | yes    | True for virtual break rooms                   |
 
 *See full details in: [`rooms-v7.md`](json-schedule/rooms-v7.md)*
 
@@ -110,15 +110,15 @@ This document is generated from the structured documentation in [json-schedule](
 
 **Key Fields:**
 
-| Field            | Type     | Public | Description                                                                        |
-| ---------------- | -------- | ------ | ---------------------------------------------------------------------------------- |
-| `name`           | string   | yes    | Display name                                                                       |
-| `rank`           | string   | yes    | Role: `"guest"`, `"judge"`, `"staff"`, `"invited_guest"`, or `"fan_panelist"`      |
-| `is_group`       | boolean  | yes    | True if this entry represents a group rather than an individual                    |
-| `members`        | string[] | yes    | For groups: list of individual member names. Empty for individuals                 |
-| `groups`         | string[] | yes    | For individuals: list of group names this person belongs to. Empty for non-members |
-| `always_grouped` | boolean  | yes    | If true, this member always appears under their group name in credits              |
-| `always_shown`   | boolean  | yes    | If true (on groups), the group name is shown even when not all members present     |
+| Field            | Type           | Public | Description                                                                        |
+| ---------------- | -------------- | ------ | ---------------------------------------------------------------------------------- |
+| `name`           | string         | yes    | Display name                                                                       |
+| `rank`           | string         | yes    | Role: `"guest"`, `"judge"`, `"staff"`, `"invited_guest"`, or `"fan_panelist"`      |
+| `is_group`       | boolean        | yes    | True if this entry represents a group rather than an individual                    |
+| `members`        | string[]       | yes    | For groups: list of individual member names. Empty for individuals                 |
+| `groups`         | string[]       | yes    | For individuals: list of group names this person belongs to. Empty for non-members |
+| `always_grouped` | boolean        | yes    | If true, this member always appears under their group name in credits              |
+| `always_shown`   | boolean        | yes    | If true (on groups), the group name is shown even when not all members present     |
 
 *See full details in: [`presenters-v7.md`](json-schedule/presenters-v7.md)*
 
@@ -190,5 +190,15 @@ This document is generated from the structured documentation in [json-schedule](
 - [v6-Public](json-public-v6.md) - Public format documentation for JSON schedule format v6.
 - [v7-Full](json-v7-full.md) - Full format documentation for JSON schedule format v7. This is the editable master format used by the editor and converter.
 - [v8-Full](json-v8-full.md) - Full format documentation for JSON schedule format v8. This is the editable master format used by the editor and converter, with support for persistent edit history via the optional `changeLog` field.
+- [Display Format v9](json-v9-display.md) - **Access Level**: Public
+**Status**: Supported
+**Version**: 9
+
+Public-facing schedule format with DisplayPresenter objects and filtered presenter list.
+- [Full Format v9](json-v9-full.md) - **Access Level**: Private
+**Status**: Supported
+**Version**: 9
+
+Complete internal schedule format with full presenter data and edit history support.
 
 *This document is automatically generated. Do not edit directly.*

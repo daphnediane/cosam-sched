@@ -67,25 +67,25 @@ This document is generated from the structured documentation in [json-schedule](
 
 **Key Fields:**
 
-| Field                  | Type           | Public | Description                                                      |
-| ---------------------- | -------------- | ------ | ---------------------------------------------------------------- |
-| `id`                   | string         | yes    | Base ID (same as hash key, e.g. `"GW097"`)                       |
-| `name`                 | string         | yes    | Display name of the panel                                        |
-| `panelType`            | string \| null | yes    | Panel type UID (e.g. `"panel-type-gw"`)                          |
-| `description`          | string \| null | yes    | Base portion of description (see Effective Values)               |
-| `note`                 | string \| null | yes    | Base note text                                                   |
-| `prereq`               | string \| null | yes    | Base prerequisite text                                           |
-| `altPanelist`          | string \| null | yes    | Override text for credits line (see Effective Values)            |
-| `cost`                 | string \| null | yes    | Cost string (see Cost Values in v4 documentation)                |
-| `capacity`             | string \| null | yes    | Default seat capacity; sessions may override                     |
-| `preRegMax`            | string \| null | no     | Default pre-reg maximum; sessions may override                   |
-| `difficulty`           | string \| null | yes    | Skill level indicator (e.g. `"Beginner"`, `"3"`)                 |
-| `ticketUrl`            | string \| null | yes    | Default URL for ticket purchase; sessions may override           |
-| `isFree`               | boolean        | yes    | True if no additional cost                                       |
-| `isKids`               | boolean        | yes    | True for kids-only panels                                        |
-| `creditedPresenters`   | string[]       | yes    | Individual presenter names who appear in credits (non-`*` flag)  |
-| `uncreditedPresenters` | string[]       | no     | Individual presenter names attending but suppressed from credits |
-| `simpleTixEvent`       | string \| null | no     | Default SimpleTix admin portal link; sessions may override       |
+| Field                  | Type                           | Public | Description                                                      |
+| ---------------------- | ------------------------------ | ------ | ---------------------------------------------------------------- |
+| `id`                   | string                         | yes    | Base ID (same as hash key, e.g. `"GW097"`)                       |
+| `name`                 | string                         | yes    | Display name of the panel                                        |
+| `panelType`            | string \| null                 | yes    | Panel type UID (e.g. `"panel-type-gw"`)                          |
+| `description`          | string \| null                 | yes    | Base portion of description (see Effective Values)               |
+| `note`                 | string \| null                 | yes    | Base note text                                                   |
+| `prereq`               | string \| null                 | yes    | Base prerequisite text                                           |
+| `altPanelist`          | string \| null                 | yes    | Override text for credits line (see Effective Values)            |
+| `cost`                 | string \| null                 | yes    | Cost string (see Cost Values in v4 documentation)                |
+| `capacity`             | string \| null                 | yes    | Default seat capacity; sessions may override                     |
+| `preRegMax`            | string \| null                 | no     | Default pre-reg maximum; sessions may override                   |
+| `difficulty`           | string \| null                 | yes    | Skill level indicator (e.g. `"Beginner"`, `"3"`)                 |
+| `ticketUrl`            | string \| null                 | yes    | Default URL for ticket purchase; sessions may override           |
+| `isFree`               | boolean                        | yes    | True if no additional cost                                       |
+| `isKids`               | boolean                        | yes    | True for kids-only panels                                        |
+| `creditedPresenters`   | string[]                       | yes    | Individual presenter names who appear in credits (non-`*` flag)  |
+| `uncreditedPresenters` | string[]                       | no     | Individual presenter names attending but suppressed from credits |
+| `simpleTixEvent`       | string \| null                 | no     | Default SimpleTix admin portal link; sessions may override       |
 
 *See full details in: [`panels-v5.md`](json-schedule/panels-v5.md)*
 
@@ -99,15 +99,15 @@ This document is generated from the structured documentation in [json-schedule](
 
 **Key Fields:**
 
-| Field                  | Type            | Public | Description                                                             |
-| ---------------------- | --------------- | ------ | ----------------------------------------------------------------------- |
-| `partNum`              | integer \| null | yes    | Part number (e.g. `1` for `P1` suffix); `null` when no part subdivision |
-| `description`          | string \| null  | yes    | Additive description for this part (appended to base description)       |
-| `note`                 | string \| null  | yes    | Additive note for this part                                             |
-| `prereq`               | string \| null  | yes    | Additive prerequisite text for this part                                |
-| `altPanelist`          | string \| null  | yes    | Override credits text; takes precedence over base when set              |
-| `creditedPresenters`   | string[]        | yes    | Additional credited presenter names for this part                       |
-| `uncreditedPresenters` | string[]        | no     | Additional uncredited presenter names for this part                     |
+| Field                  | Type                                 | Public | Description                                                             |
+| ---------------------- | ------------------------------------ | ------ | ----------------------------------------------------------------------- |
+| `partNum`              | integer \| null                      | yes    | Part number (e.g. `1` for `P1` suffix); `null` when no part subdivision |
+| `description`          | string \| null                       | yes    | Additive description for this part (appended to base description)       |
+| `note`                 | string \| null                       | yes    | Additive note for this part                                             |
+| `prereq`               | string \| null                       | yes    | Additive prerequisite text for this part                                |
+| `altPanelist`          | string \| null                       | yes    | Override credits text; takes precedence over base when set              |
+| `creditedPresenters`   | string[]                             | yes    | Additional credited presenter names for this part                       |
+| `uncreditedPresenters` | string[]                             | no     | Additional uncredited presenter names for this part                     |
 
 *See full details in: [`PanelPart-v5.md`](json-schedule/PanelPart-v5.md)*
 
@@ -160,12 +160,12 @@ This document is generated from the structured documentation in [json-schedule](
 
 **Key Fields:**
 
-| Field        | Type    | Public | Description                               |
-| ------------ | ------- | ------ | ----------------------------------------- |
-| `uid`        | integer | yes    | Unique room identifier from spreadsheet   |
-| `short_name` | string  | yes    | Abbreviated room name for compact display |
-| `long_name`  | string  | yes    | Full room name                            |
-| `hotel_room` | string  | yes    | Physical hotel room identifier            |
+| Field        | Type    | Public | Description                                   |
+| ------------ | ------- | ------ | --------------------------------------------- |
+| `uid`        | integer | yes    | Unique room identifier from spreadsheet       |
+| `short_name` | string  | yes    | Abbreviated room name for compact display     |
+| `long_name`  | string  | yes    | Full room name                                |
+| `hotel_room` | string  | yes    | Physical hotel room identifier                |
 
 *See full details in: [`rooms-v4.md`](json-schedule/rooms-v4.md)*
 
@@ -237,13 +237,13 @@ This document is generated from the structured documentation in [json-schedule](
 
 **Key Fields:**
 
-| Field      | Type     | Public | Description                                                                        |
-| ---------- | -------- | ------ | ---------------------------------------------------------------------------------- |
-| `name`     | string   | yes    | Display name                                                                       |
-| `rank`     | string   | yes    | Role: `"guest"`, `"judge"`, `"staff"`, `"invited_guest"`, or `"fan_panelist"`      |
-| `is_group` | boolean  | yes    | True if this entry represents a group rather than an individual                    |
-| `members`  | string[] | yes    | For groups: list of individual member names. Empty for individuals                 |
-| `groups`   | string[] | yes    | For individuals: list of group names this person belongs to. Empty for non-members |
+| Field            | Type     | Public | Description                                                                        |
+| ---------------- | -------- | ------ | ---------------------------------------------------------------------------------- |
+| `name`           | string   | yes    | Display name                                                                       |
+| `rank`           | string   | yes    | Role: `"guest"`, `"judge"`, `"staff"`, `"invited_guest"`, or `"fan_panelist"`      |
+| `is_group`       | boolean  | yes    | True if this entry represents a group rather than an individual                    |
+| `members`        | string[] | yes    | For groups: list of individual member names. Empty for individuals                 |
+| `groups`         | string[] | yes    | For individuals: list of group names this person belongs to. Empty for non-members |
 
 *See full details in: [`presenters-v4.md`](json-schedule/presenters-v4.md)*
 
@@ -328,5 +328,15 @@ This document is generated from the structured documentation in [json-schedule](
 - [v7-Display](json-v7-display.md) - Display format documentation for JSON schedule format v7. This is the public-facing format consumed by the schedule widget.
 - [v7-Full](json-v7-full.md) - Full format documentation for JSON schedule format v7. This is the editable master format used by the editor and converter.
 - [v8-Full](json-v8-full.md) - Full format documentation for JSON schedule format v8. This is the editable master format used by the editor and converter, with support for persistent edit history via the optional `changeLog` field.
+- [Display Format v9](json-v9-display.md) - **Access Level**: Public
+**Status**: Supported
+**Version**: 9
+
+Public-facing schedule format with DisplayPresenter objects and filtered presenter list.
+- [Full Format v9](json-v9-full.md) - **Access Level**: Private
+**Status**: Supported
+**Version**: 9
+
+Complete internal schedule format with full presenter data and edit history support.
 
 *This document is automatically generated. Do not edit directly.*

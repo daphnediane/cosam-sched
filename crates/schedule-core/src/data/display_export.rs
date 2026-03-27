@@ -77,6 +77,10 @@ pub struct DisplayPresenter {
     pub always_grouped: bool,
     #[serde(skip_serializing_if = "std::ops::Not::not")]
     pub always_shown: bool,
+    /// Panel IDs where this presenter/group should appear.
+    /// Includes direct panel references and indirect references through group membership.
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    pub panel_ids: Vec<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -632,20 +636,142 @@ impl Schedule {
             );
         }
 
-        // Build display presenters: only include those referenced by at
-        // least one visible panel, sorted by sort_key(), with a flat
-        // sequential sort_key assigned.
-        let mut referenced_names: HashSet<String> = HashSet::new();
+        // Build display presenters with bidirectional group membership and panel IDs.
+        //
+        // Logic:
+        // 1. Start with directly referenced presenters from panels
+        // 2. Add groups that contain any directly referenced presenter (individual → group)
+        // 3. Add members of any directly referenced group (group → individual)
+        // 4. For transitive group traversal, only follow group links (not member links)
+        // 5. For each included presenter/group, collect all panel IDs where they should appear
+        let presenter_lookup: std::collections::HashMap<&str, &Presenter> = self
+            .presenters
+            .iter()
+            .map(|p| (p.name.as_str(), p))
+            .collect();
+
+        // Step 1: Find all directly referenced presenters
+        let mut directly_referenced: HashSet<String> = HashSet::new();
         for dp in &flat_panels {
             for name in &dp.presenters {
-                referenced_names.insert(name.clone());
+                directly_referenced.insert(name.clone());
             }
         }
 
+        // Step 2: Find all related presenters through bidirectional group membership
+        let mut included_presenters: HashSet<String> = directly_referenced.clone();
+        let mut to_check_groups: Vec<String> = Vec::new();
+        let mut to_check_members: Vec<String> = Vec::new();
+
+        // Initialize traversal sets
+        for name in &directly_referenced {
+            if let Some(presenter) = presenter_lookup.get(name.as_str()) {
+                if presenter.is_group() {
+                    to_check_members.push(name.clone());
+                } else {
+                    to_check_groups.push(name.clone());
+                }
+            }
+        }
+
+        // Traverse groups: individual → group → group → ... (transitive groups only)
+        while let Some(presenter_name) = to_check_groups.pop() {
+            if let Some(presenter) = presenter_lookup.get(presenter_name.as_str()) {
+                for group_name in presenter.groups() {
+                    if !included_presenters.contains(group_name) {
+                        included_presenters.insert(group_name.clone());
+                        to_check_groups.push(group_name.clone()); // Continue group traversal
+                    }
+                }
+            }
+        }
+
+        // Traverse members: group → individual (direct members only, no further group traversal)
+        while let Some(group_name) = to_check_members.pop() {
+            if let Some(group) = presenter_lookup.get(group_name.as_str()) {
+                for member_name in group.members() {
+                    if !included_presenters.contains(member_name) {
+                        included_presenters.insert(member_name.clone());
+                        // Don't add to to_check_groups - we don't traverse groups from members
+                    }
+                }
+            }
+        }
+
+        // Step 3: For each included presenter, collect panel IDs where they should appear
+        let mut presenter_to_panels: std::collections::HashMap<String, Vec<String>> =
+            std::collections::HashMap::new();
+
+        // Initialize empty panel lists for all included presenters
+        for name in &included_presenters {
+            presenter_to_panels.insert(name.clone(), Vec::new());
+        }
+
+        // For each panel, add its ID to all presenters that should appear on it
+        for dp in &flat_panels {
+            let panel_id = &dp.id;
+
+            // Start with directly referenced presenters on this panel
+            let mut panel_presenters: HashSet<String> = HashSet::new();
+            for name in &dp.presenters {
+                panel_presenters.insert(name.clone());
+            }
+
+            // Expand bidirectional:
+            // - For individuals: add their groups (transitive)
+            // - For groups: add their members (direct only)
+            let mut to_expand_groups: Vec<String> = Vec::new();
+            let mut to_expand_members: Vec<String> = Vec::new();
+
+            for name in &panel_presenters {
+                if let Some(presenter) = presenter_lookup.get(name.as_str()) {
+                    if presenter.is_group() {
+                        to_expand_members.push(name.clone());
+                    } else {
+                        to_expand_groups.push(name.clone());
+                    }
+                }
+            }
+
+            // Transitive group traversal from individuals
+            while let Some(presenter_name) = to_expand_groups.pop() {
+                if let Some(presenter) = presenter_lookup.get(presenter_name.as_str()) {
+                    for group_name in presenter.groups() {
+                        if !panel_presenters.contains(group_name) {
+                            panel_presenters.insert(group_name.clone());
+                            to_expand_groups.push(group_name.clone()); // Continue group traversal
+                        }
+                    }
+                }
+            }
+
+            // Direct member traversal from groups
+            while let Some(group_name) = to_expand_members.pop() {
+                if let Some(group) = presenter_lookup.get(group_name.as_str()) {
+                    for member_name in group.members() {
+                        if !panel_presenters.contains(member_name) {
+                            panel_presenters.insert(member_name.clone());
+                            // Don't traverse groups from members
+                        }
+                    }
+                }
+            }
+
+            // Add this panel ID to all presenters that should appear on it
+            for presenter_name in &panel_presenters {
+                if let Some(panel_ids) = presenter_to_panels.get_mut(presenter_name) {
+                    if !panel_ids.contains(panel_id) {
+                        panel_ids.push(panel_id.clone());
+                    }
+                }
+            }
+        }
+
+        // Step 4: Build DisplayPresenter objects
         let mut display_presenters: Vec<&Presenter> = self
             .presenters
             .iter()
-            .filter(|p| referenced_names.contains(&p.name))
+            .filter(|p| included_presenters.contains(&p.name))
             .collect();
         display_presenters.sort_by(|a, b| a.sort_key().cmp(&b.sort_key()));
 
@@ -661,6 +787,10 @@ impl Schedule {
                 groups: p.groups().iter().cloned().collect(),
                 always_grouped: p.always_grouped(),
                 always_shown: p.always_shown(),
+                panel_ids: presenter_to_panels
+                    .get(&p.name)
+                    .cloned()
+                    .unwrap_or_default(),
             })
             .collect();
 
