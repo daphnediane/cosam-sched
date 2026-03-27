@@ -55,14 +55,14 @@ impl ScheduleFile {
 
     /// Save to a JSON file.
     ///
-    /// - Stamps `meta.generated`, `meta.generator`, `meta.version = 8` (full)
+    /// - Stamps `meta.generated`, `meta.generator`, `meta.version = 9` (full)
     ///   or `4` (empty).
     /// - Calls `apply_schedule_parity` and `calculate_schedule_bounds`.
     /// - Appends `"changeLog"` when history is non-empty.
     pub fn save_json(&mut self, path: &Path) -> Result<()> {
         self.schedule.meta.generated = time::format_storage_ts(chrono::Utc::now());
 
-        self.schedule.meta.version = Some(8);
+        self.schedule.meta.version = Some(9);
         if self.schedule.meta.variant.is_none() {
             self.schedule.meta.variant = Some("full".to_string());
         }

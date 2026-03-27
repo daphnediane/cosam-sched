@@ -45,6 +45,7 @@ struct CliArgs {
     schedule_table: String,
     roommap_table: String,
     prefix_table: String,
+    presenter_table: String,
 }
 
 fn parse_args() -> CliArgs {
@@ -55,6 +56,7 @@ fn parse_args() -> CliArgs {
         schedule_table: "Schedule".to_string(),
         roommap_table: "RoomMap".to_string(),
         prefix_table: "Prefix".to_string(),
+        presenter_table: "Presenters".to_string(),
     };
 
     let mut i = 1;
@@ -94,6 +96,12 @@ fn parse_args() -> CliArgs {
                     cli.prefix_table = args[i].clone();
                 }
             }
+            "--presenter-table" => {
+                i += 1;
+                if i < args.len() {
+                    cli.presenter_table = args[i].clone();
+                }
+            }
             "--help" | "-h" => {
                 print_usage();
                 std::process::exit(0);
@@ -120,9 +128,10 @@ fn print_usage() {
          Options:\n\
          \x20 --input, -i <file>        Input file (.json or .xlsx)\n\
          \x20 --title, -t <string>      Event title (for XLSX import)\n\
-         \x20 --schedule-table <name>   Sheet name for schedule data (default: Schedule)\n\
-         \x20 --roommap-table <name>    Sheet name for room mapping (default: RoomMap)\n\
-         \x20 --prefix-table <name>     Sheet name for panel types (default: Prefix)\n\
+         \x20 --schedule-table <name>   Table name for schedule data (default: Schedule)\n\
+         \x20 --roommap-table <name>    Table name for room mapping (default: RoomMap)\n\
+         \x20 --prefix-table <name>     Table name for panel types (default: Prefix)\n\
+         \x20 --presenter-table <name>  Table name for list of presenters (default: Presenters)\n\
          \x20 --help, -h                Show this help message\n\
          \n\
          Use cosam-convert for command-line conversion."
@@ -139,6 +148,7 @@ fn build_import_options(cli: &CliArgs) -> XlsxImportOptions {
         schedule_table: cli.schedule_table.clone(),
         rooms_table: cli.roommap_table.clone(),
         panel_types_table: cli.prefix_table.clone(),
+        people_table: cli.presenter_table.clone(),
         use_modified_as_generated: false,
     }
 }

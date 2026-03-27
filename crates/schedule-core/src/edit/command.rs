@@ -9,7 +9,9 @@ use serde::{Deserialize, Serialize};
 
 use crate::data::panel::ExtraFields;
 use crate::data::panel_type::PanelType;
-use crate::data::presenter::{Presenter, PresenterGroup, PresenterMember, PresenterRank};
+use crate::data::presenter::{
+    Presenter, PresenterGroup, PresenterMember, PresenterRank, PresenterSortRank,
+};
 use crate::data::room::Room;
 use crate::data::schedule::Schedule;
 use crate::data::source_info::{ChangeState, SourceInfo};
@@ -94,6 +96,7 @@ pub struct PresenterSnapshot {
     pub rank: PresenterRank,
     pub is_member: PresenterMember,
     pub is_grouped: PresenterGroup,
+    pub sort_rank: Option<PresenterSortRank>,
     pub metadata: Option<ExtraFields>,
 }
 
@@ -103,6 +106,7 @@ impl PresenterSnapshot {
             rank: p.rank.clone(),
             is_member: p.is_member.clone(),
             is_grouped: p.is_grouped.clone(),
+            sort_rank: p.sort_rank.clone(),
             metadata: p.metadata.clone(),
         }
     }
@@ -111,6 +115,7 @@ impl PresenterSnapshot {
         p.rank = self.rank.clone();
         p.is_member = self.is_member.clone();
         p.is_grouped = self.is_grouped.clone();
+        p.sort_rank = self.sort_rank.clone();
         p.metadata = self.metadata.clone();
     }
 }
@@ -497,6 +502,7 @@ impl EditCommand {
                     rank: snapshot.rank.clone(),
                     is_member: snapshot.is_member.clone(),
                     is_grouped: snapshot.is_grouped.clone(),
+                    sort_rank: snapshot.sort_rank.clone(),
                     metadata: snapshot.metadata.clone(),
                     source: source.clone(),
                     change_state: *change_state,

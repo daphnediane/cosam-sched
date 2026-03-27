@@ -12,7 +12,7 @@ use chrono::{NaiveDateTime, Timelike};
 use serde::{Deserialize, Serialize};
 
 use super::panel_type::PanelType;
-use super::presenter::Presenter;
+use super::presenter::{Presenter, PresenterRank};
 use super::schedule::{Meta, Schedule};
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -54,6 +54,31 @@ pub struct DisplayPanel {
     pub presenters: Vec<String>,
 }
 
+/// Public-facing presenter for display JSON.
+///
+/// Contains only the fields relevant to consumers (schedule viewers,
+/// guest pages).  Internal fields like `PresenterMember`, `PresenterGroup`,
+/// metadata, source info, and change state are omitted.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct DisplayPresenter {
+    pub name: String,
+    pub rank: PresenterRank,
+    /// Sequential ordering key (0-based) computed from the internal
+    /// `PresenterSortRank`.  Lower values sort first.
+    pub sort_key: u32,
+    #[serde(skip_serializing_if = "std::ops::Not::not")]
+    pub is_group: bool,
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    pub members: Vec<String>,
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    pub groups: Vec<String>,
+    #[serde(skip_serializing_if = "std::ops::Not::not")]
+    pub always_grouped: bool,
+    #[serde(skip_serializing_if = "std::ops::Not::not")]
+    pub always_shown: bool,
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct DisplaySchedule {
@@ -63,7 +88,7 @@ pub struct DisplaySchedule {
     pub panel_types: indexmap::IndexMap<String, super::panel_type::PanelType>,
     #[serde(skip_serializing_if = "Vec::is_empty")]
     pub timeline: Vec<super::timeline::TimelineEntry>,
-    pub presenters: Vec<Presenter>,
+    pub presenters: Vec<DisplayPresenter>,
 }
 
 fn parse_local_datetime(s: &str) -> Option<NaiveDateTime> {
@@ -607,8 +632,40 @@ impl Schedule {
             );
         }
 
+        // Build display presenters: only include those referenced by at
+        // least one visible panel, sorted by sort_key(), with a flat
+        // sequential sort_key assigned.
+        let mut referenced_names: HashSet<String> = HashSet::new();
+        for dp in &flat_panels {
+            for name in &dp.presenters {
+                referenced_names.insert(name.clone());
+            }
+        }
+
+        let mut display_presenters: Vec<&Presenter> = self
+            .presenters
+            .iter()
+            .filter(|p| referenced_names.contains(&p.name))
+            .collect();
+        display_presenters.sort_by(|a, b| a.sort_key().cmp(&b.sort_key()));
+
+        let display_presenters: Vec<DisplayPresenter> = display_presenters
+            .iter()
+            .enumerate()
+            .map(|(idx, p)| DisplayPresenter {
+                name: p.name.clone(),
+                rank: p.rank.clone(),
+                sort_key: idx as u32,
+                is_group: p.is_group(),
+                members: p.members().iter().cloned().collect(),
+                groups: p.groups().iter().cloned().collect(),
+                always_grouped: p.always_grouped(),
+                always_shown: p.always_shown(),
+            })
+            .collect();
+
         let mut meta = self.meta.clone();
-        meta.version = Some(7);
+        meta.version = Some(9);
         meta.variant = Some("display".to_string());
         meta.generated = chrono::Utc::now().format("%Y-%m-%dT%H:%M:%SZ").to_string();
         meta.generator = Some(format!("cosam-editor {}", env!("CARGO_PKG_VERSION")));
@@ -624,7 +681,7 @@ impl Schedule {
             rooms: self.rooms.clone(),
             panel_types: visible_panel_types,
             timeline: timeline_entries,
-            presenters: self.presenters.clone(),
+            presenters: display_presenters,
         };
 
         serde_json::to_string_pretty(&display)
@@ -658,6 +715,7 @@ mod tests {
                 rank: PresenterRank::from_str("fan_panelist"),
                 is_member: PresenterMember::NotMember,
                 is_grouped: PresenterGroup::NotGroup,
+                sort_rank: None,
                 metadata: None,
                 source: None,
                 change_state: Default::default(),
@@ -676,6 +734,7 @@ mod tests {
                     true,
                 ),
                 is_grouped: PresenterGroup::NotGroup,
+                sort_rank: None,
                 metadata: None,
                 source: None,
                 change_state: Default::default(),
@@ -694,6 +753,7 @@ mod tests {
                     false,
                 ),
                 is_grouped: PresenterGroup::NotGroup,
+                sort_rank: None,
                 metadata: None,
                 source: None,
                 change_state: Default::default(),
@@ -713,6 +773,7 @@ mod tests {
                     },
                     true,
                 ),
+                sort_rank: None,
                 metadata: None,
                 source: None,
                 change_state: Default::default(),
@@ -732,6 +793,7 @@ mod tests {
                     },
                     false,
                 ),
+                sort_rank: None,
                 metadata: None,
                 source: None,
                 change_state: Default::default(),
@@ -750,6 +812,7 @@ mod tests {
                     false,
                 ),
                 is_grouped: PresenterGroup::NotGroup,
+                sort_rank: None,
                 metadata: None,
                 source: None,
                 change_state: Default::default(),
@@ -767,6 +830,7 @@ mod tests {
                     false,
                 ),
                 is_grouped: PresenterGroup::NotGroup,
+                sort_rank: None,
                 metadata: None,
                 source: None,
                 change_state: Default::default(),
@@ -835,6 +899,7 @@ mod tests {
                 rank: PresenterRank::from_str("fan_panelist"),
                 is_member: PresenterMember::NotMember,
                 is_grouped: PresenterGroup::NotGroup,
+                sort_rank: None,
                 metadata: None,
                 source: None,
                 change_state: Default::default(),
@@ -853,6 +918,7 @@ mod tests {
                     },
                     false,
                 ),
+                sort_rank: None,
                 metadata: None,
                 source: None,
                 change_state: Default::default(),

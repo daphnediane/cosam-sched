@@ -471,7 +471,18 @@ pub mod people {
     pub const ALWAYS_GROUPED: FieldDef = FieldDef {
         export: "Always Grouped",
         canonical: "Always_Grouped",
-        aliases: &["AlwaysGrouped", "Always_In_Group"],
+        aliases: &[
+            "AlwaysGrouped",
+            "Always_In_Group",
+            "Always_Show_In_Group",
+            "AlwaysShowInGroup",
+        ],
+    };
+
+    pub const ALWAYS_SHOWN: FieldDef = FieldDef {
+        export: "Always Shown",
+        canonical: "Always_Shown",
+        aliases: &["AlwaysShown", "Always_Visible", "Group_Shown", "GroupShown"],
     };
 
     /// All column definitions in export order.
@@ -482,6 +493,7 @@ pub mod people {
         MEMBERS,
         GROUPS,
         ALWAYS_GROUPED,
+        ALWAYS_SHOWN,
     ];
 }
 

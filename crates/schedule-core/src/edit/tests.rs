@@ -11,7 +11,9 @@ mod tests {
     use crate::data::panel::{ExtraValue, Panel};
     use crate::data::panel_set::PanelSet;
     use crate::data::panel_type::PanelType;
-    use crate::data::presenter::{Presenter, PresenterGroup, PresenterMember, PresenterRank};
+    use crate::data::presenter::{
+        Presenter, PresenterGroup, PresenterMember, PresenterRank, PresenterSortRank,
+    };
     use crate::data::room::Room;
     use crate::data::schedule::{Meta, Schedule};
     use crate::data::source_info::{ChangeState, ImportedSheetPresence};
@@ -95,6 +97,7 @@ mod tests {
                 rank: PresenterRank::Guest,
                 is_member: PresenterMember::NotMember,
                 is_grouped: PresenterGroup::NotGroup,
+                sort_rank: None,
                 metadata: None,
                 source: None,
                 change_state: ChangeState::Unchanged,
@@ -105,6 +108,7 @@ mod tests {
                 rank: PresenterRank::FanPanelist,
                 is_member: PresenterMember::NotMember,
                 is_grouped: PresenterGroup::NotGroup,
+                sort_rank: None,
                 metadata: None,
                 source: None,
                 change_state: ChangeState::Unchanged,
@@ -1112,5 +1116,273 @@ mod tests {
         history.undo(&mut schedule);
         let panel = get_panel(&schedule, "panel-1");
         assert_eq!(panel.credited_presenters.len(), 2);
+    }
+
+    // ── update_or_create_presenter ──────────────────────────────
+
+    fn make_empty_schedule() -> Schedule {
+        Schedule {
+            conflicts: Vec::new(),
+            meta: Meta {
+                title: "Test".to_string(),
+                generated: "2026-01-01T00:00:00Z".to_string(),
+                version: Some(7),
+                variant: None,
+                generator: Some("test".to_string()),
+                start_time: None,
+                end_time: None,
+                next_presenter_id: None,
+                creator: None,
+                last_modified_by: None,
+                modified: None,
+            },
+            timeline: Vec::new(),
+            panel_sets: Default::default(),
+            rooms: Vec::new(),
+            panel_types: Default::default(),
+            presenters: Vec::new(),
+            imported_sheets: ImportedSheetPresence::default(),
+        }
+    }
+
+    #[test]
+    fn update_or_create_tagged_simple() {
+        let mut schedule = make_empty_schedule();
+        let name = {
+            let mut ctx = EditContext::import(&mut schedule);
+            ctx.update_or_create_presenter("G:Yaya Han", true, Some(5), Some(0))
+        };
+        assert_eq!(name, Some("Yaya Han".to_string()));
+        assert_eq!(schedule.presenters.len(), 1);
+        let p = &schedule.presenters[0];
+        assert_eq!(p.rank, PresenterRank::Guest);
+        // sort_rank should be schedule_member(5, 0) = {column_index:5, row_index:0, member_index:1}
+        assert_eq!(p.sort_rank, Some(PresenterSortRank::schedule_member(5, 0)));
+    }
+
+    #[test]
+    fn update_or_create_existing_returns_stored_name() {
+        let mut schedule = make_empty_schedule();
+        // Pre-populate
+        schedule.presenters.push(Presenter {
+            id: None,
+            name: "Alice".to_string(),
+            rank: PresenterRank::Guest,
+            is_member: PresenterMember::NotMember,
+            is_grouped: PresenterGroup::NotGroup,
+            sort_rank: None,
+            metadata: None,
+            source: None,
+            change_state: ChangeState::Unchanged,
+        });
+        let name = {
+            let mut ctx = EditContext::import(&mut schedule);
+            ctx.update_or_create_presenter("alice", true, None, None)
+        };
+        // Should return the stored casing
+        assert_eq!(name, Some("Alice".to_string()));
+        assert_eq!(schedule.presenters.len(), 1);
+    }
+
+    #[test]
+    fn update_or_create_tagged_with_group() {
+        let mut schedule = make_empty_schedule();
+        let name = {
+            let mut ctx = EditContext::import(&mut schedule);
+            ctx.update_or_create_presenter("G:John=UNC Staff", true, Some(3), Some(0))
+        };
+        assert_eq!(name, Some("John".to_string()));
+        // Should have created both John and UNC Staff
+        assert_eq!(schedule.presenters.len(), 2);
+
+        let john = schedule
+            .presenters
+            .iter()
+            .find(|p| p.name == "John")
+            .unwrap();
+        assert!(john.groups().contains("UNC Staff"));
+        assert!(!john.always_grouped());
+
+        let group = schedule
+            .presenters
+            .iter()
+            .find(|p| p.name == "UNC Staff")
+            .unwrap();
+        assert!(group.is_group());
+        assert!(group.members().contains("John"));
+        assert!(!group.always_shown());
+    }
+
+    #[test]
+    fn update_or_create_tagged_double_eq_always_shown() {
+        let mut schedule = make_empty_schedule();
+        let name = {
+            let mut ctx = EditContext::import(&mut schedule);
+            ctx.update_or_create_presenter("G:John==UNC Staff", true, None, None)
+        };
+        assert_eq!(name, Some("John".to_string()));
+
+        let group = schedule
+            .presenters
+            .iter()
+            .find(|p| p.name == "UNC Staff")
+            .unwrap();
+        assert!(group.is_group());
+        assert!(group.always_shown(), "== should set always_shown");
+    }
+
+    #[test]
+    fn update_or_create_tagged_lt_always_grouped() {
+        let mut schedule = make_empty_schedule();
+        let name = {
+            let mut ctx = EditContext::import(&mut schedule);
+            ctx.update_or_create_presenter("G:<Jane=UNC Staff", true, None, None)
+        };
+        assert_eq!(name, Some("Jane".to_string()));
+
+        let jane = schedule
+            .presenters
+            .iter()
+            .find(|p| p.name == "Jane")
+            .unwrap();
+        assert!(jane.always_grouped(), "< prefix should set always_grouped");
+        assert!(jane.groups().contains("UNC Staff"));
+
+        let group = schedule
+            .presenters
+            .iter()
+            .find(|p| p.name == "UNC Staff")
+            .unwrap();
+        assert!(
+            !group.always_shown(),
+            "single = should not set always_shown"
+        );
+    }
+
+    #[test]
+    fn update_or_create_tagged_lt_double_eq_combined() {
+        let mut schedule = make_empty_schedule();
+        let name = {
+            let mut ctx = EditContext::import(&mut schedule);
+            ctx.update_or_create_presenter("G:<Bob==Team", true, None, None)
+        };
+        assert_eq!(name, Some("Bob".to_string()));
+
+        let bob = schedule
+            .presenters
+            .iter()
+            .find(|p| p.name == "Bob")
+            .unwrap();
+        assert!(bob.always_grouped());
+
+        let team = schedule
+            .presenters
+            .iter()
+            .find(|p| p.name == "Team")
+            .unwrap();
+        assert!(team.always_shown(), "== should set always_shown");
+    }
+
+    #[test]
+    fn update_or_create_no_tag_creates_with_default_rank() {
+        let mut schedule = make_empty_schedule();
+        let name = {
+            let mut ctx = EditContext::import(&mut schedule);
+            ctx.update_or_create_presenter("Some Person", true, None, None)
+        };
+        assert_eq!(name, Some("Some Person".to_string()));
+        assert_eq!(schedule.presenters[0].rank, PresenterRank::FanPanelist);
+    }
+
+    #[test]
+    fn update_or_create_no_tag_no_create() {
+        let mut schedule = make_empty_schedule();
+        let name = {
+            let mut ctx = EditContext::import(&mut schedule);
+            ctx.update_or_create_presenter("Nobody", false, None, None)
+        };
+        assert_eq!(name, None);
+        assert!(schedule.presenters.is_empty());
+    }
+
+    #[test]
+    fn update_or_create_empty_returns_none() {
+        let mut schedule = make_empty_schedule();
+        let name = {
+            let mut ctx = EditContext::import(&mut schedule);
+            ctx.update_or_create_presenter("", true, None, None)
+        };
+        assert_eq!(name, None);
+    }
+
+    #[test]
+    fn update_or_create_group_only_no_circular() {
+        let mut schedule = make_empty_schedule();
+        // "G:==UNC Staff" → empty name, group = UNC Staff, always_shown
+        let name = {
+            let mut ctx = EditContext::import(&mut schedule);
+            ctx.update_or_create_presenter("G:==UNC Staff", true, None, None)
+        };
+        assert_eq!(name, Some("UNC Staff".to_string()));
+        assert_eq!(schedule.presenters.len(), 1);
+
+        let p = &schedule.presenters[0];
+        assert!(p.is_group());
+        assert!(p.always_shown());
+        // Must NOT be a member of itself
+        assert!(p.groups().is_empty());
+        assert!(!p.members().contains("UNC Staff"));
+    }
+
+    #[test]
+    fn update_or_create_column_and_index_rank() {
+        let mut schedule = make_empty_schedule();
+        {
+            let mut ctx = EditContext::import(&mut schedule);
+            // Create with column_index=7, row_index=3
+            ctx.update_or_create_presenter("P:TestPerson", true, Some(7), Some(3));
+        }
+        let p = &schedule.presenters[0];
+        // Tagged presenter gets member_index=1 (schedule_member)
+        assert_eq!(p.sort_rank, Some(PresenterSortRank::schedule_member(7, 3)));
+    }
+
+    #[test]
+    fn people_table_rank_not_overwritten_by_schedule() {
+        // Regression: People table sets sort_rank with column_index=0.
+        // Schedule processing must not overwrite with higher column_index.
+        let mut schedule = make_empty_schedule();
+        {
+            let mut ctx = EditContext::import(&mut schedule);
+            // Simulate People table: column_index=0, row_index=2
+            ctx.find_or_create_presenter(
+                "Reika",
+                &PresenterOptions {
+                    rank: Some(PresenterRank::Guest),
+                    sort_rank: Some(PresenterSortRank::people(2)),
+                    ..Default::default()
+                },
+            );
+        }
+        assert_eq!(
+            schedule.presenters[0].sort_rank,
+            Some(PresenterSortRank::people(2))
+        );
+
+        {
+            let mut ctx = EditContext::import(&mut schedule);
+            // Simulate schedule column 11, position 0
+            ctx.update_or_create_presenter("G:Reika", true, Some(11), Some(0));
+        }
+        let reika = schedule
+            .presenters
+            .iter()
+            .find(|p| p.name == "Reika")
+            .unwrap();
+        assert_eq!(
+            reika.sort_rank,
+            Some(PresenterSortRank::people(2)),
+            "People table sort_rank must not be overwritten by schedule"
+        );
     }
 }

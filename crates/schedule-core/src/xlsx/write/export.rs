@@ -166,6 +166,7 @@ pub fn export_to_xlsx(sf: &ScheduleFile, path: &Path) -> Result<()> {
         people::MEMBERS.export,
         people::GROUPS.export,
         people::ALWAYS_GROUPED.export,
+        people::ALWAYS_SHOWN.export,
     ];
     book.new_sheet("People")
         .map_err(|e| anyhow::anyhow!("{e}"))?;
@@ -545,6 +546,7 @@ fn write_presenters_sheet(ws: &mut Worksheet, presenters: &[Presenter]) -> u32 {
             people::MEMBERS.export,
             people::GROUPS.export,
             people::ALWAYS_GROUPED.export,
+            people::ALWAYS_SHOWN.export,
         ],
     );
 
@@ -586,6 +588,9 @@ fn write_presenters_sheet(ws: &mut Worksheet, presenters: &[Presenter]) -> u32 {
         }
         if presenter.always_grouped() {
             set_str(ws, 6, row, "Yes");
+        }
+        if presenter.always_shown() {
+            set_str(ws, 7, row, "Yes");
         }
         row += 1;
     }

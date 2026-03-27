@@ -17,17 +17,15 @@ use crate::data::panel::{ExtraValue, FormulaValue, Panel};
 use crate::data::panel_id::PanelId;
 use crate::data::panel_set::PanelSet;
 use crate::data::panel_type::PanelType;
-use crate::data::presenter::{PresenterGroup, PresenterMember, PresenterRank};
-use crate::data::room::Room;
 use crate::data::source_info::{ChangeState, SourceInfo};
 use crate::data::time;
 use crate::data::timeline::TimelineEntry;
+use crate::edit::EditContext;
 
 use crate::xlsx::columns::schedule as sc;
 
 use super::find_data_range;
 use super::headers::{PresenterColumn, PresenterHeader, parse_presenter_header};
-use super::people::{PresenterInfo, parse_presenter_data};
 use super::{
     build_column_map, canonical_header, get_cell_number, get_cell_str, get_field, get_field_def,
     is_truthy, row_to_map,
@@ -36,15 +34,9 @@ use super::{
 pub(super) fn read_panels(
     book: &Spreadsheet,
     preferred: &str,
-    rooms: &[Room],
-    panel_types: &IndexMap<String, PanelType>,
+    ctx: &mut EditContext,
     file_path: &str,
-    _presenter_ranks: &HashMap<String, String>,
-) -> Result<(
-    IndexMap<String, PanelSet>,
-    HashMap<String, PresenterInfo>,
-    Vec<TimelineEntry>,
-)> {
+) -> Result<(IndexMap<String, PanelSet>, Vec<TimelineEntry>)> {
     let first_sheet_name = book
         .get_sheet_collection()
         .first()
@@ -70,7 +62,7 @@ pub(super) fn read_panels(
                 r
             }
         }
-        None => return Ok((IndexMap::new(), HashMap::new(), Vec::new())),
+        None => return Ok((IndexMap::new(), Vec::new())),
     };
 
     let ws = book
@@ -78,7 +70,7 @@ pub(super) fn read_panels(
         .ok_or_else(|| anyhow::anyhow!("Sheet '{}' not found", range.sheet_name))?;
 
     if !range.has_data() {
-        return Ok((IndexMap::new(), HashMap::new(), Vec::new())); // 3-tuple still matches
+        return Ok((IndexMap::new(), Vec::new()));
     }
 
     let (raw_headers, canonical_headers, col_map) = build_column_map(ws, &range);
@@ -142,24 +134,27 @@ pub(super) fn read_panels(
         })
         .collect();
 
-    let room_lookup: HashMap<String, &Room> = rooms
+    // Clone room/type data from ctx.schedule so we can use ctx mutably later
+    let room_uid_lookup: HashMap<String, u32> = ctx
+        .schedule
+        .rooms
         .iter()
         .flat_map(|r| {
-            let mut entries = vec![(r.short_name.to_lowercase(), r)];
-            entries.push((r.long_name.to_lowercase(), r));
+            let mut entries = vec![(r.short_name.to_lowercase(), r.uid)];
+            entries.push((r.long_name.to_lowercase(), r.uid));
             if !r.hotel_room.is_empty() {
-                entries.push((r.hotel_room.to_lowercase(), r));
+                entries.push((r.hotel_room.to_lowercase(), r.uid));
             }
             entries
         })
         .collect();
 
+    let panel_types: IndexMap<String, PanelType> = ctx.schedule.panel_types.clone();
     let type_lookup: HashMap<String, &PanelType> = panel_types
         .iter()
         .map(|(prefix, pt)| (prefix.to_lowercase(), pt))
         .collect();
 
-    let mut presenter_map: HashMap<String, PresenterInfo> = HashMap::new();
     let mut panel_sets: IndexMap<String, PanelSet> = IndexMap::new();
     let mut timeline_entries: Vec<TimelineEntry> = Vec::new();
 
@@ -305,7 +300,7 @@ pub(super) fn read_panels(
                 .split(',')
                 .filter_map(|name| {
                     let trimmed = name.trim();
-                    room_lookup.get(&trimmed.to_lowercase()).map(|r| r.uid)
+                    room_uid_lookup.get(&trimmed.to_lowercase()).copied()
                 })
                 .collect()
         } else {
@@ -341,27 +336,70 @@ pub(super) fn read_panels(
                 None => continue,
             };
 
-            let rank = pc.rank.as_str();
-
             // For Other columns, split by commas; for Named, each chunk is the whole cell
             let chunks: Vec<String> = match &pc.header {
                 PresenterHeader::Other => split_presenter_names(&cell_str),
                 PresenterHeader::Named(_) => vec![cell_str],
             };
 
-            for chunk in chunks {
-                let (uid, is_credited) =
-                    match parse_presenter_data(&pc.header, rank, &chunk, &mut presenter_map) {
-                        Some(r) => r,
-                        None => continue,
-                    };
+            for (sub_index, chunk) in chunks.iter().enumerate() {
+                let chunk = chunk.trim();
+                if chunk.is_empty() {
+                    continue;
+                }
 
-                if is_credited {
-                    if !credited_presenters.contains(&uid) {
-                        credited_presenters.push(uid);
+                // Check for * prefix → uncredited
+                let (chunk, uncredited) = if let Some(rest) = chunk.strip_prefix('*') {
+                    (rest.trim(), true)
+                } else {
+                    (chunk, false)
+                };
+
+                // Build the tagged input for update_or_create_presenter
+                let tagged_input = match &pc.header {
+                    PresenterHeader::Named(header_name) => {
+                        // For named headers, the header name IS the presenter
+                        // Check if cell data says "Unlisted" → uncredited
+                        let is_unlisted = chunk.eq_ignore_ascii_case("unlisted");
+                        let tag = pc.rank.prefix_char();
+                        let input = format!("{}:{}", tag, header_name);
+                        if is_unlisted {
+                            // Still register presenter from header, but mark uncredited
+                            if let Some(name) = ctx.update_or_create_presenter(
+                                &input,
+                                true,
+                                Some(pc.col),
+                                Some(sub_index as u32),
+                            ) {
+                                if !uncredited_presenters.contains(&name) {
+                                    uncredited_presenters.push(name);
+                                }
+                            }
+                            continue;
+                        }
+                        input
                     }
-                } else if !uncredited_presenters.contains(&uid) {
-                    uncredited_presenters.push(uid);
+                    PresenterHeader::Other => {
+                        // For Other columns, the cell data is the name
+                        // Prefix with the rank tag
+                        let tag = pc.rank.prefix_char();
+                        format!("{}:{}", tag, chunk)
+                    }
+                };
+
+                if let Some(name) = ctx.update_or_create_presenter(
+                    &tagged_input,
+                    true,
+                    Some(pc.col),
+                    Some(sub_index as u32),
+                ) {
+                    if uncredited {
+                        if !uncredited_presenters.contains(&name) {
+                            uncredited_presenters.push(name);
+                        }
+                    } else if !credited_presenters.contains(&name) {
+                        credited_presenters.push(name);
+                    }
                 }
             }
         }
@@ -372,14 +410,9 @@ pub(super) fn read_panels(
                 get_field(&data, &["Presenter", "Presenters", "Presenter_s", "Person"])
             {
                 for part in split_presenter_names(presenter_raw) {
-                    presenter_map
-                        .entry(part.clone())
-                        .or_insert_with(|| PresenterInfo {
-                            rank: PresenterRank::from_str("fan_panelist"),
-                            is_member: PresenterMember::NotMember,
-                            is_grouped: PresenterGroup::NotGroup,
-                        });
-                    credited_presenters.push(part);
+                    if let Some(name) = ctx.update_or_create_presenter(&part, true, None, None) {
+                        credited_presenters.push(name);
+                    }
                 }
             }
         }
@@ -593,7 +626,7 @@ pub(super) fn read_panels(
         ps.panels.push(panel);
     }
 
-    Ok((panel_sets, presenter_map, timeline_entries))
+    Ok((panel_sets, timeline_entries))
 }
 
 fn extract_hyperlink_url(ws: &umya_spreadsheet::Worksheet, col: u32, row: u32) -> Option<String> {

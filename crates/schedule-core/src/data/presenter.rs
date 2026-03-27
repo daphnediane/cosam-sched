@@ -151,6 +151,50 @@ pub enum PresenterGroup {
     IsGroup(std::collections::BTreeSet<String>, bool), // Members and always_shown
 }
 
+/// Ordering key for a presenter, recording where it was first defined.
+///
+/// - `column_index`: 0 for the People table, schedule column number otherwise.
+/// - `row_index`: row in the People table, or position in a comma-separated
+///   presenter list on the schedule sheet.
+/// - `member_index`: position within a group's member list (0 for the group
+///   itself or for standalone presenters; 1+ for individual members).
+#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize)]
+pub struct PresenterSortRank {
+    pub column_index: u32,
+    pub row_index: u32,
+    #[serde(default, skip_serializing_if = "is_zero")]
+    pub member_index: u32,
+}
+
+fn is_zero(v: &u32) -> bool {
+    *v == 0
+}
+
+impl PresenterSortRank {
+    pub fn new(column_index: u32, row_index: u32, member_index: u32) -> Self {
+        Self {
+            column_index,
+            row_index,
+            member_index,
+        }
+    }
+
+    /// People table rank: column 0, given row, member_index 0.
+    pub fn people(row_index: u32) -> Self {
+        Self::new(0, row_index, 0)
+    }
+
+    /// Schedule column rank for a group entry.
+    pub fn schedule_group(column_index: u32, row_index: u32) -> Self {
+        Self::new(column_index, row_index, 0)
+    }
+
+    /// Schedule column rank for an individual member entry.
+    pub fn schedule_member(column_index: u32, row_index: u32) -> Self {
+        Self::new(column_index, row_index, 1)
+    }
+}
+
 #[derive(Debug, Clone, PartialEq)]
 pub struct Presenter {
     pub id: Option<u32>,
@@ -158,6 +202,9 @@ pub struct Presenter {
     pub rank: PresenterRank,
     pub is_member: PresenterMember,
     pub is_grouped: PresenterGroup,
+    /// Ordering key recording where this presenter was first defined.
+    /// `None` if no source information is available.
+    pub sort_rank: Option<PresenterSortRank>,
     pub metadata: Option<ExtraFields>,
     pub source: Option<SourceInfo>,
     pub change_state: ChangeState,
@@ -208,6 +255,27 @@ impl Presenter {
         match &self.is_grouped {
             PresenterGroup::IsGroup(_, shown) => *shown,
             PresenterGroup::NotGroup => false,
+        }
+    }
+
+    /// Sort key for ordering presenters (e.g. in credits).
+    /// Compares by classification rank, then sort_rank fields, then name.
+    pub fn sort_key(&self) -> (u8, u32, u32, u32, &str) {
+        match &self.sort_rank {
+            Some(sr) => (
+                self.rank.priority(),
+                sr.column_index,
+                sr.row_index,
+                sr.member_index,
+                &self.name,
+            ),
+            None => (
+                self.rank.priority(),
+                u32::MAX,
+                u32::MAX,
+                u32::MAX,
+                &self.name,
+            ),
         }
     }
 }
@@ -376,6 +444,7 @@ mod tests {
             rank: PresenterRank::from_str("fan_panelist"),
             is_member: PresenterMember::NotMember,
             is_grouped: PresenterGroup::NotGroup,
+            sort_rank: Some(PresenterSortRank::people(3)),
             metadata: None,
             source: None,
             change_state: ChangeState::Unchanged,
@@ -386,7 +455,7 @@ mod tests {
     }
 }
 
-// Custom serialization for Presenter to output v7 format
+// Custom serialization for Presenter to output v9 format
 impl Serialize for Presenter {
     fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
     where
@@ -396,7 +465,6 @@ impl Serialize for Presenter {
 
         let mut state = serializer.serialize_struct("Presenter", 8)?;
 
-        // Only serialize id if it's Some (matches previous v7 behavior)
         if let Some(ref id) = self.id {
             state.serialize_field("id", id)?;
         }
@@ -408,6 +476,9 @@ impl Serialize for Presenter {
         state.serialize_field("groups", &self.groups().iter().collect::<Vec<_>>())?;
         state.serialize_field("always_grouped", &self.always_grouped())?;
         state.serialize_field("always_shown", &self.always_shown())?;
+        if let Some(ref sr) = self.sort_rank {
+            state.serialize_field("sort_rank", sr)?;
+        }
         if let Some(ref metadata) = self.metadata {
             state.serialize_field("metadata", metadata)?;
         }
@@ -415,7 +486,7 @@ impl Serialize for Presenter {
     }
 }
 
-// Custom deserialization for Presenter to handle both v7 and legacy formats
+// Custom deserialization for Presenter (v9 format)
 impl<'de> Deserialize<'de> for Presenter {
     fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
     where
@@ -428,7 +499,6 @@ impl<'de> Deserialize<'de> for Presenter {
             name: String,
             #[serde(default)]
             rank: PresenterRank,
-            // V7 format fields
             #[serde(default)]
             is_group: bool,
             #[serde(default)]
@@ -439,7 +509,9 @@ impl<'de> Deserialize<'de> for Presenter {
             always_grouped: bool,
             #[serde(default)]
             always_shown: bool,
-            // Legacy enum fields (for backward compatibility)
+            #[serde(default)]
+            sort_rank: Option<PresenterSortRank>,
+            // Legacy enum fields (for backward compatibility with old save files)
             #[serde(default)]
             is_member: Option<PresenterMember>,
             #[serde(default)]
@@ -450,15 +522,12 @@ impl<'de> Deserialize<'de> for Presenter {
 
         let helper = PresenterHelper::deserialize(deserializer)?;
 
-        // Determine which format we're dealing with
         let (is_member, is_grouped) = if helper.is_member.is_some() || helper.is_grouped.is_some() {
-            // Legacy format with enums
             (
                 helper.is_member.unwrap_or_default(),
                 helper.is_grouped.unwrap_or_default(),
             )
         } else {
-            // V7 format with separate boolean/array fields
             let is_member = if helper.groups.is_empty() {
                 PresenterMember::NotMember
             } else {
@@ -483,6 +552,7 @@ impl<'de> Deserialize<'de> for Presenter {
             rank: helper.rank,
             is_member,
             is_grouped,
+            sort_rank: helper.sort_rank,
             metadata: helper.metadata,
             source: None,
             change_state: Default::default(),

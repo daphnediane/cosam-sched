@@ -55,6 +55,7 @@ struct CliArgs {
     schedule_table: String,
     roommap_table: String,
     prefix_table: String,
+    presenter_table: String,
     config_file: Option<PathBuf>,
     use_modified_as_generated: bool,
 }
@@ -74,6 +75,7 @@ fn parse_args() -> anyhow::Result<CliArgs> {
     let schedule_table = "Schedule".to_string();
     let mut roommap_table = "RoomMap".to_string();
     let mut prefix_table = "Prefix".to_string();
+    let mut presenter_table = "Presenters".to_string();
     let mut config_file: Option<PathBuf> = None;
     let mut use_modified_as_generated = false;
 
@@ -161,6 +163,13 @@ fn parse_args() -> anyhow::Result<CliArgs> {
                     anyhow::bail!("Missing value for --prefix-table");
                 }
                 prefix_table = arguments[index].clone();
+            }
+            "--presenter-table" => {
+                index += 1;
+                if index >= arguments.len() {
+                    anyhow::bail!("Missing value for --presenter-table");
+                }
+                presenter_table = arguments[index].clone();
             }
             "--config" | "-c" => {
                 index += 1;
@@ -333,6 +342,7 @@ fn parse_args() -> anyhow::Result<CliArgs> {
         schedule_table,
         roommap_table,
         prefix_table,
+        presenter_table,
         config_file,
         use_modified_as_generated,
     })
@@ -349,9 +359,10 @@ fn print_usage() {
          \x20 --export-test <file.html>            Export standalone test page (Squarespace sim)\n\
          \x20 --check, --validate                  Validate input and exit with error if conflicts found\n\
          \x20 --config, -c <file.yaml>            Reserved for future Google Sheets support\n\
-         \x20 --schedule-table <name>             Sheet name for schedule data (default: Schedule)\n\
-         \x20 --roommap-table <name>              Sheet name for room mapping (default: RoomMap)\n\
-         \x20 --prefix-table <name>               Sheet name for panel types (default: Prefix)\n\
+         \x20 --schedule-table <name>             Table name for schedule data (default: Schedule)\n\
+         \x20 --roommap-table <name>              Table name for room mapping (default: RoomMap)\n\
+         \x20 --prefix-table <name>               Table name for panel types (default: Prefix)\n\
+         \x20 --presenter-table <name>            Table name for presenters (default: Presenters)\n\
          \x20 --help, -h                          Show this help message\n\
          \n\
          Output settings (apply to subsequent outputs):\n\
@@ -387,6 +398,7 @@ fn build_import_options(cli: &CliArgs) -> XlsxImportOptions {
         schedule_table: cli.schedule_table.clone(),
         rooms_table: cli.roommap_table.clone(),
         panel_types_table: cli.prefix_table.clone(),
+        people_table: cli.presenter_table.clone(),
         use_modified_as_generated: cli.use_modified_as_generated,
     }
 }

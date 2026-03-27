@@ -193,10 +193,11 @@ fn print_usage() {
          Global options:\n\
          \x20 --file, -f <path>                 Input/output schedule file (.xlsx or .json)\n\
          \x20 --format <human|json>             List output format (default: human)\n\
-         \x20 --schedule-table <name>           XLSX schedule table/sheet (default: Schedule)\n\
-         \x20 --roommap-table <name>            XLSX rooms table/sheet (default: RoomMap)\n\
-         \x20 --prefix-table <name>             XLSX panel type table/sheet (default: Prefix)\n\
-         \x20 --title <string>                  XLSX import title override (default: Event Schedule)\n\
+         \x20 --schedule-table <name>           Table name for schedule data (default: Schedule)\n\
+         \x20 --roommap-table <name>            Table name for room mapping (default: RoomMap)\n\
+         \x20 --prefix-table <name>             Table name for panel types (default: Prefix)\n\
+         \x20 --presenter-table <name>          Table name for presenters (default: Presenters)\n\
+         \x20 --title <string>                  Import title override (default: Event Schedule)\n\
          \x20 --help, -h                        Show this help message\n\
          \n\
          Selectors (AND semantics):\n\
@@ -291,6 +292,13 @@ fn parse_args() -> Result<CliArgs> {
                     anyhow::bail!("Missing value for --prefix-table");
                 }
                 import_options.panel_types_table = arguments[index].clone();
+            }
+            "--presenter-table" => {
+                index += 1;
+                if index >= arguments.len() {
+                    anyhow::bail!("Missing value for --presenter-table");
+                }
+                import_options.people_table = arguments[index].clone();
             }
             "--title" => {
                 index += 1;

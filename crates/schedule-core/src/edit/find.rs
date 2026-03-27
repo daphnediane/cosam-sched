@@ -9,7 +9,7 @@ use std::collections::BTreeSet;
 use indexmap::IndexMap;
 
 use crate::data::panel::ExtraFields;
-use crate::data::presenter::{PresenterGroup, PresenterMember, PresenterRank};
+use crate::data::presenter::{PresenterGroup, PresenterMember, PresenterRank, PresenterSortRank};
 use crate::data::source_info::{ChangeState, SourceInfo};
 
 use super::command::{EditCommand, PanelTypeSnapshot, PresenterSnapshot, RoomSnapshot};
@@ -43,6 +43,8 @@ pub struct PresenterOptions {
     pub is_group: Option<bool>,
     pub always_grouped: Option<bool>,
     pub always_shown: Option<bool>,
+    /// Ordering key recording where this presenter was first defined.
+    pub sort_rank: Option<PresenterSortRank>,
     pub metadata: Option<ExtraFields>,
     pub source: Option<SourceInfo>,
     pub change_state: Option<ChangeState>,
@@ -211,6 +213,21 @@ impl EditContext<'_> {
                 }
             }
 
+            // Update sort_rank — earlier (lower) sort_rank wins.
+            // PresenterSortRank derives Ord so direct comparison works.
+            if let Some(ref new_sr) = opts.sort_rank {
+                match &new_snap.sort_rank {
+                    None => {
+                        new_snap.sort_rank = Some(new_sr.clone());
+                    }
+                    Some(existing_sr) => {
+                        if new_sr < existing_sr {
+                            new_snap.sort_rank = Some(new_sr.clone());
+                        }
+                    }
+                }
+            }
+
             if let Some(ref metadata) = opts.metadata {
                 new_snap.metadata = Some(metadata.clone());
             }
@@ -249,6 +266,7 @@ impl EditContext<'_> {
                 rank,
                 is_member,
                 is_grouped,
+                sort_rank: opts.sort_rank.clone(),
                 metadata: opts.metadata.clone(),
             };
             let cmd = EditCommand::CreatePresenter {
@@ -361,6 +379,188 @@ impl EditContext<'_> {
             self.execute(cmd);
             prefix.to_string()
         }
+    }
+
+    /// Parse a potentially tagged presenter string and find-or-create the
+    /// presenter (and optional group) in the schedule.
+    ///
+    /// Tagged format: `<tag>:[<][name][=[=]group]` where tag is one of
+    /// `G/J/I/S/P` (case-insensitive).
+    ///
+    /// - If the input matches an existing presenter name exactly
+    ///   (case-insensitive), returns `Some(stored_name)` immediately.
+    /// - If the input has a tag prefix, parses it to extract rank, name,
+    ///   group, and flags (`always_grouped`, `always_shown`), then
+    ///   creates/updates both the group and name entries via
+    ///   `find_or_create_presenter`.
+    /// - If `always_create` is true and the input has no tag, creates the
+    ///   presenter with default rank (`FanPanelist`).
+    /// - Returns `None` if the input is empty, or if a tag prefix is
+    ///   present but resolves to `Other` (a column-type header, not a
+    ///   real presenter).
+    pub fn update_or_create_presenter(
+        &mut self,
+        input: &str,
+        always_create: bool,
+        column_index: Option<u32>,
+        row_index: Option<u32>,
+    ) -> Option<String> {
+        let input = input.trim();
+        if input.is_empty() {
+            return None;
+        }
+
+        // Quick check: does it already exist as-is?
+        if let Some(existing) = self
+            .schedule
+            .presenters
+            .iter()
+            .find(|p| p.name.eq_ignore_ascii_case(input))
+        {
+            return Some(existing.name.clone());
+        }
+
+        // Try to parse tag prefix  (e.g. "G:Name=Group")
+        if let Some((rank, rest)) = Self::parse_tag_prefix(input) {
+            return self.process_tagged_presenter(&rest, rank, column_index, row_index);
+        }
+
+        // No tag prefix — create if always_create, otherwise None
+        if always_create {
+            let sort_rank = match (column_index, row_index) {
+                (Some(ci), Some(ri)) => Some(PresenterSortRank::new(ci, ri, 0)),
+                _ => None,
+            };
+            let opts = PresenterOptions {
+                rank: Some(PresenterRank::FanPanelist),
+                sort_rank,
+                ..Default::default()
+            };
+            Some(self.find_or_create_presenter(input, &opts))
+        } else {
+            None
+        }
+    }
+
+    /// Parse a single-char tag prefix (`G:`, `J:`, etc.) from the start of
+    /// a presenter string. Returns `(rank, rest)` if found.
+    fn parse_tag_prefix(input: &str) -> Option<(PresenterRank, String)> {
+        let mut chars = input.chars();
+        let first = chars.next()?;
+        let colon = chars.next()?;
+        if colon != ':' {
+            return None;
+        }
+        let rank = PresenterRank::from_prefix_char(first)?;
+        let rest = input[2..].trim().to_string();
+        Some((rank, rest))
+    }
+
+    /// Process the portion after the tag prefix, handling `<`, `=`, `==`
+    /// syntax for group membership and flags.
+    ///
+    /// Returns the presenter name (or group name if no individual name),
+    /// or `None` if the result is just "Other".
+    fn process_tagged_presenter(
+        &mut self,
+        rest: &str,
+        rank: PresenterRank,
+        column_index: Option<u32>,
+        row_index: Option<u32>,
+    ) -> Option<String> {
+        if rest.is_empty() {
+            return None;
+        }
+
+        // "Other" is a column-type marker, not a real presenter
+        if rest.eq_ignore_ascii_case("other") {
+            return None;
+        }
+
+        // Split on first '=' to get name and optional group
+        let (name_raw, group_raw) = if let Some(eq_pos) = rest.find('=') {
+            let name_part = rest[..eq_pos].trim().to_string();
+            let group_part = rest[eq_pos + 1..].trim().to_string();
+            (
+                name_part,
+                if group_part.is_empty() {
+                    None
+                } else {
+                    Some(group_part)
+                },
+            )
+        } else {
+            (rest.to_string(), None)
+        };
+
+        // Check for '<' prefix → always_grouped
+        let (presenter_name, always_grouped) = if let Some(stripped) = name_raw.strip_prefix('<') {
+            (stripped.trim().to_string(), true)
+        } else {
+            (name_raw, false)
+        };
+
+        // Check for '=' prefix on group (original '==' in input) → always_shown
+        let (group_name, always_shown) = match group_raw {
+            Some(g) => {
+                if let Some(stripped) = g.strip_prefix('=') {
+                    let gn = stripped.trim().to_string();
+                    (if gn.is_empty() { None } else { Some(gn) }, true)
+                } else {
+                    (Some(g), false)
+                }
+            }
+            None => (None, false),
+        };
+
+        // Build sort ranks using member_index: 0 for the group, 1 for the
+        // individual member.
+        let group_sort = match (column_index, row_index) {
+            (Some(ci), Some(ri)) => Some(PresenterSortRank::schedule_group(ci, ri)),
+            _ => None,
+        };
+        let member_sort = match (column_index, row_index) {
+            (Some(ci), Some(ri)) => Some(PresenterSortRank::schedule_member(ci, ri)),
+            _ => None,
+        };
+
+        // Create/update group if present
+        if let Some(ref gname) = group_name {
+            let mut group_opts = PresenterOptions {
+                rank: Some(rank.clone()),
+                is_group: Some(true),
+                always_shown: Some(always_shown),
+                sort_rank: group_sort,
+                ..Default::default()
+            };
+            if !presenter_name.is_empty() {
+                group_opts.add_members = vec![presenter_name.clone()];
+            }
+            self.find_or_create_presenter(gname, &group_opts);
+        }
+
+        // If presenter name is empty or same as group, return the group name
+        if presenter_name.is_empty() {
+            return group_name;
+        }
+        if group_name
+            .as_ref()
+            .is_some_and(|g| g.eq_ignore_ascii_case(&presenter_name))
+        {
+            return group_name;
+        }
+
+        // Create/update the individual presenter
+        let mut name_opts = PresenterOptions {
+            rank: Some(rank),
+            sort_rank: member_sort,
+            ..Default::default()
+        };
+        if let Some(ref gname) = group_name {
+            name_opts.add_groups = vec![gname.clone()];
+            name_opts.always_grouped = Some(always_grouped);
+        }
+        Some(self.find_or_create_presenter(&presenter_name, &name_opts))
     }
 
     /// Compute the next available room UID.

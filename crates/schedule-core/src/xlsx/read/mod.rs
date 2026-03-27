@@ -36,6 +36,7 @@ pub struct XlsxImportOptions {
     pub schedule_table: String,
     pub rooms_table: String,
     pub panel_types_table: String,
+    pub people_table: String,
     pub use_modified_as_generated: bool,
 }
 
@@ -46,6 +47,7 @@ impl Default for XlsxImportOptions {
             schedule_table: "Schedule".to_string(),
             rooms_table: "RoomMap".to_string(),
             panel_types_table: "Prefix".to_string(),
+            people_table: "Presenters".to_string(),
             use_modified_as_generated: false,
         }
     }
@@ -94,8 +96,6 @@ pub fn import_xlsx(path: &Path, options: &XlsxImportOptions) -> Result<ScheduleF
         }
     };
 
-    let presenter_ranks = people::read_presenter_ranks(&book, &file_path_str)?;
-
     let has_presenters = book.get_sheet_by_name("People").is_some()
         || book.get_sheet_by_name("Presenters").is_some();
 
@@ -138,7 +138,7 @@ pub fn import_xlsx(path: &Path, options: &XlsxImportOptions) -> Result<ScheduleF
         imported_sheets: Default::default(),
     };
 
-    // Populate rooms and panel types through the edit module
+    // Populate rooms, panel types, and presenters through the edit module
     {
         let mut ctx = EditContext::import(&mut schedule);
         rooms::read_rooms_into(&book, &options.rooms_table, &file_path_str, &mut ctx)?;
@@ -148,6 +148,7 @@ pub fn import_xlsx(path: &Path, options: &XlsxImportOptions) -> Result<ScheduleF
             &file_path_str,
             &mut ctx,
         )?;
+        people::read_presenters_into(&book, &options.people_table, &file_path_str, &mut ctx)?;
     }
 
     // Derive imported_sheets flags from the populated schedule
@@ -160,78 +161,14 @@ pub fn import_xlsx(path: &Path, options: &XlsxImportOptions) -> Result<ScheduleF
         has_schedule: true,
     };
 
-    let (panel_sets, presenter_map, timeline_entries) = schedule::read_panels(
-        &book,
-        &options.schedule_table,
-        &schedule.rooms,
-        &schedule.panel_types,
-        &file_path_str,
-        &presenter_ranks,
-    )?;
+    // Read panels (will auto-create missing presenters via EditContext)
+    let (panel_sets, timeline_entries) = {
+        let mut ctx = EditContext::import(&mut schedule);
+        schedule::read_panels(&book, &options.schedule_table, &mut ctx, &file_path_str)?
+    };
 
     schedule.panel_sets = panel_sets;
     schedule.timeline = timeline_entries;
-
-    // Convert the intermediate presenter map into Presenter entities via the
-    // edit module, resolving ranks against the People-sheet classifications.
-    {
-        let mut ctx = EditContext::import(&mut schedule);
-        let mut names: Vec<_> = presenter_map.keys().cloned().collect();
-        names.sort();
-        for name in names {
-            let info = &presenter_map[&name];
-            // Resolve rank: use whichever of (schedule-prefix rank,
-            // People-sheet classification) has higher priority (lower number).
-            // When tied at the InvitedGuest tier, prefer the labelled variant
-            // so custom display strings (e.g. "105th", "Sponsor") are preserved.
-            let rank = if let Some(preserved_rank) = presenter_ranks.get(&name) {
-                use crate::data::presenter::PresenterRank;
-                let people = PresenterRank::from_classification(preserved_rank);
-                let sched = &info.rank;
-                if sched.priority() < people.priority() {
-                    sched.clone()
-                } else if people.priority() < sched.priority() {
-                    people
-                } else {
-                    match (&people, sched) {
-                        (PresenterRank::InvitedGuest(Some(_)), _) => people,
-                        _ => sched.clone(),
-                    }
-                }
-            } else {
-                info.rank.clone()
-            };
-
-            // Build groups / members lists from the PresenterInfo enums
-            let (add_groups, always_grouped) = match &info.is_member {
-                crate::data::presenter::PresenterMember::IsMember(groups, grouped) => {
-                    (groups.iter().cloned().collect(), Some(*grouped))
-                }
-                crate::data::presenter::PresenterMember::NotMember => (Vec::new(), None),
-            };
-            let (add_members, is_group, always_shown) = match &info.is_grouped {
-                crate::data::presenter::PresenterGroup::IsGroup(members, shown) => {
-                    (members.iter().cloned().collect(), Some(true), Some(*shown))
-                }
-                crate::data::presenter::PresenterGroup::NotGroup => (Vec::new(), None, None),
-            };
-
-            ctx.find_or_create_presenter(
-                &name,
-                &crate::edit::find::PresenterOptions {
-                    rank: Some(rank),
-                    add_groups,
-                    add_members,
-                    is_group,
-                    always_grouped,
-                    always_shown,
-                    metadata: None,
-                    source: None,
-                    change_state: Some(crate::data::source_info::ChangeState::Converted),
-                },
-            );
-        }
-    }
 
     crate::data::post_process::apply_schedule_parity(&mut schedule);
     Ok(ScheduleFile::new(schedule))

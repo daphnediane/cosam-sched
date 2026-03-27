@@ -731,6 +731,13 @@ fn write_presenter_to_row(
         &people::ALWAYS_GROUPED,
         presenter.always_grouped(),
     );
+    set_cell_bool_field(
+        worksheet,
+        header_map,
+        row,
+        &people::ALWAYS_SHOWN,
+        presenter.always_shown(),
+    );
 }
 
 fn update_people_sheet(
@@ -1107,6 +1114,7 @@ mod tests {
                     rank: PresenterRank::from_str("guest"),
                     is_member: PresenterMember::NotMember,
                     is_grouped: PresenterGroup::NotGroup,
+                    sort_rank: None,
                     metadata: None,
                     source: None,
                     change_state: ChangeState::Converted,
@@ -1117,6 +1125,7 @@ mod tests {
                     rank: PresenterRank::from_str("staff"),
                     is_member: PresenterMember::NotMember,
                     is_grouped: PresenterGroup::NotGroup,
+                    sort_rank: None,
                     metadata: None,
                     source: None,
                     change_state: ChangeState::Deleted,
