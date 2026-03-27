@@ -47,8 +47,10 @@ impl ScheduleFile {
             EditHistory::new()
         };
 
-        let schedule: Schedule = serde_json::from_value(raw)
+        let mut schedule: Schedule = serde_json::from_value(raw)
             .with_context(|| format!("Failed to deserialize schedule from {}", path.display()))?;
+
+        schedule.build_relationships_from_presenters();
 
         Ok(Self { schedule, history })
     }

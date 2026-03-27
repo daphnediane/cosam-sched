@@ -26,9 +26,9 @@ Complete internal schedule format with full presenter data and edit history supp
 
 - [meta-v9.md](meta-v9.md) - Metadata structure
 - [presenters-v9.md](presenters-v9.md) - Presenters with PresenterSortRank
-- [PanelSet-v8.md](PanelSet-v8.md) - Hierarchical panel sets
-- [Panel-v8.md](Panel-v8.md) - Panel objects
-- [PanelType-v7.md](PanelType-v7.md) - Panel type definitions
+- [PanelSet-v9.md](PanelSet-v9.md) - Flat panel sets
+- [Panel-v9.md](Panel-v9.md) - Self-contained panel objects with TimeRange timing
+- [panelTypes-v7.md](panelTypes-v7.md) - Panel type definitions
 - [rooms-v7.md](rooms-v7.md) - Room definitions
 - [timeline-v7.md](timeline-v7.md) - Timeline markers
 - [conflicts-v7.md](conflicts-v7.md) - Conflict detection
@@ -39,7 +39,8 @@ Complete internal schedule format with full presenter data and edit history supp
 
 - **PresenterSortRank**: New struct replaces `columnRank` and `indexRank` with unified sorting
 - **memberIndex**: Eliminates index-doubling hack for group vs member ordering
-- **No other structural changes** - v9 maintains compatibility with v8 for all other structures
+- **Flat panel model**: PanelSets now contain a flat `panels` array instead of hierarchical `base → parts → sessions` nesting
+- **TimeRange timing**: Panel timing uses a tagged enum (`Unspecified`, `UnspecifiedWithDuration`, `UnspecifiedWithStart`, `Scheduled`) instead of flat `startTime`/`endTime`/`duration` fields
 
 ## Complete Example
 
@@ -61,20 +62,23 @@ Complete internal schedule format with full presenter data and edit history supp
   "conflicts": [],
   "panelSets": {
     "panel-001": {
-      "base": {
-        "id": "panel-001",
-        "baseId": "panel-001",
-        "name": "Opening Ceremony",
-        "panelType": "panel-type-ceremony",
-        "roomIds": [1],
-        "timing": {
-          "startTime": "2026-05-29T17:00:00Z"
-        },
-        "credits": ["MC Host"],
-        "presenters": ["MC Host"]
-      },
-      "parts": [],
-      "sessions": []
+      "baseId": "panel-001",
+      "panels": [
+        {
+          "id": "panel-001",
+          "baseId": "panel-001",
+          "name": "Opening Ceremony",
+          "panelType": "panel-type-ceremony",
+          "roomIds": [1],
+          "timing": {
+            "Scheduled": {
+              "start_time": "2026-05-29T17:00:00",
+              "duration": 60
+            }
+          },
+          "creditedPresenters": ["MC Host"]
+        }
+      ]
     }
   },
   "panelTypes": {

@@ -135,6 +135,7 @@ mod tests {
             rooms,
             panel_types,
             presenters,
+            relationships: Default::default(),
             imported_sheets: ImportedSheetPresence::default(),
         }
     }
@@ -1141,6 +1142,7 @@ mod tests {
             rooms: Vec::new(),
             panel_types: Default::default(),
             presenters: Vec::new(),
+            relationships: Default::default(),
             imported_sheets: ImportedSheetPresence::default(),
         }
     }

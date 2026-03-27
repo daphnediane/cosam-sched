@@ -13,7 +13,8 @@ use serde::{Deserialize, Serialize};
 use super::panel::Panel;
 use super::panel_set::PanelSet;
 use super::panel_type::PanelType;
-use super::presenter::Presenter;
+use super::presenter::{Presenter, PresenterGroup, PresenterMember};
+use super::relationship::{GroupEdge, RelationshipManager};
 use super::room::Room;
 use super::source_info::{ChangeState, ImportedSheetPresence};
 use super::time;
@@ -90,6 +91,8 @@ pub struct Schedule {
     #[serde(default, skip_serializing_if = "IndexMap::is_empty")]
     pub panel_types: IndexMap<String, PanelType>,
     pub presenters: Vec<Presenter>,
+    #[serde(skip)]
+    pub relationships: RelationshipManager,
     #[serde(default, skip_serializing)]
     pub imported_sheets: ImportedSheetPresence,
 }
@@ -221,6 +224,62 @@ impl Schedule {
         self.panel_types.get(prefix)
     }
 
+    /// Populate `self.relationships` from the legacy `is_member`/`is_grouped`
+    /// fields on each `Presenter`.  Call after deserialization to bridge old
+    /// data into the new edge-based model.
+    pub fn build_relationships_from_presenters(&mut self) {
+        self.relationships = RelationshipManager::new();
+        for presenter in &self.presenters {
+            match &presenter.is_grouped {
+                PresenterGroup::IsGroup(members, always_shown) => {
+                    if members.is_empty() {
+                        // Group-only edge (group exists but has no members listed here)
+                        self.relationships
+                            .add_edge(GroupEdge::group_only(presenter.name.clone(), *always_shown));
+                    } else {
+                        for member in members {
+                            self.relationships.add_edge(GroupEdge {
+                                member: member.clone(),
+                                group: presenter.name.clone(),
+                                always_grouped: false,
+                                always_shown: *always_shown,
+                            });
+                        }
+                    }
+                }
+                PresenterGroup::NotGroup => {}
+            }
+            match &presenter.is_member {
+                PresenterMember::IsMember(groups, always_grouped) => {
+                    for group in groups {
+                        // Only add if not already present (the group side may have added it)
+                        if !self
+                            .relationships
+                            .get_direct_groups(&presenter.name)
+                            .contains(group)
+                        {
+                            self.relationships.add_edge(GroupEdge {
+                                member: presenter.name.clone(),
+                                group: group.clone(),
+                                always_grouped: *always_grouped,
+                                always_shown: false,
+                            });
+                        } else if *always_grouped {
+                            // Edge exists but we need to set always_grouped
+                            self.relationships.add_edge(GroupEdge {
+                                member: presenter.name.clone(),
+                                group: group.clone(),
+                                always_grouped: true,
+                                always_shown: self.relationships.is_always_shown(group),
+                            });
+                        }
+                    }
+                }
+                PresenterMember::NotMember => {}
+            }
+        }
+    }
+
     pub fn populate_panel_type_prefixes(&mut self) {
         for (prefix, panel_type) in &mut self.panel_types {
             panel_type.prefix = prefix.clone();
@@ -238,6 +297,7 @@ impl Default for Schedule {
             rooms: Vec::new(),
             panel_types: IndexMap::new(),
             presenters: Vec::new(),
+            relationships: RelationshipManager::new(),
             imported_sheets: ImportedSheetPresence::default(),
         }
     }
@@ -288,5 +348,77 @@ mod tests {
     fn test_malformed_json_fails() {
         let result: Result<Schedule, _> = serde_json::from_str("{ not valid json }");
         assert!(result.is_err());
+    }
+
+    #[test]
+    fn test_build_relationships_from_presenters() {
+        use crate::data::presenter::{PresenterGroup, PresenterMember, PresenterRank};
+
+        let mut schedule = Schedule::default();
+        schedule.presenters = vec![
+            Presenter {
+                id: Some(1),
+                name: "Pros and Cons Cosplay".to_string(),
+                rank: PresenterRank::Guest,
+                is_member: PresenterMember::NotMember,
+                is_grouped: PresenterGroup::IsGroup(
+                    ["Pro".to_string(), "Con".to_string()].into_iter().collect(),
+                    false,
+                ),
+                sort_rank: None,
+                metadata: None,
+                source: None,
+                change_state: ChangeState::Unchanged,
+            },
+            Presenter {
+                id: Some(2),
+                name: "Pro".to_string(),
+                rank: PresenterRank::Guest,
+                is_member: PresenterMember::IsMember(
+                    ["Pros and Cons Cosplay".to_string()].into_iter().collect(),
+                    true,
+                ),
+                is_grouped: PresenterGroup::NotGroup,
+                sort_rank: None,
+                metadata: None,
+                source: None,
+                change_state: ChangeState::Unchanged,
+            },
+            Presenter {
+                id: Some(3),
+                name: "Con".to_string(),
+                rank: PresenterRank::Guest,
+                is_member: PresenterMember::IsMember(
+                    ["Pros and Cons Cosplay".to_string()].into_iter().collect(),
+                    false,
+                ),
+                is_grouped: PresenterGroup::NotGroup,
+                sort_rank: None,
+                metadata: None,
+                source: None,
+                change_state: ChangeState::Unchanged,
+            },
+        ];
+
+        schedule.build_relationships_from_presenters();
+
+        // Group should be recognized
+        assert!(schedule.relationships.is_group("Pros and Cons Cosplay"));
+        assert!(!schedule.relationships.is_group("Pro"));
+
+        // Direct members
+        let members = schedule
+            .relationships
+            .get_direct_members("Pros and Cons Cosplay");
+        assert!(members.contains(&"Pro".to_string()));
+        assert!(members.contains(&"Con".to_string()));
+
+        // Direct groups
+        let groups = schedule.relationships.get_direct_groups("Pro");
+        assert!(groups.contains(&"Pros and Cons Cosplay".to_string()));
+
+        // always_grouped flag (Pro has it, Con doesn't)
+        assert!(schedule.relationships.is_any_always_grouped("Pro"));
+        assert!(!schedule.relationships.is_any_always_grouped("Con"));
     }
 }

@@ -653,6 +653,7 @@ mod tests {
             }],
             panel_types: indexmap::IndexMap::new(),
             presenters: Vec::new(),
+            relationships: Default::default(),
             imported_sheets: ImportedSheetPresence {
                 has_room_map: true,
                 has_panel_types: false,

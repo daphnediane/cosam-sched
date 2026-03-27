@@ -1131,6 +1131,7 @@ mod tests {
                     change_state: ChangeState::Deleted,
                 },
             ],
+            relationships: Default::default(),
             imported_sheets: ImportedSheetPresence {
                 has_room_map: true,
                 has_panel_types: true,

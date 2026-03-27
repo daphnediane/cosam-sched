@@ -1131,6 +1131,7 @@ mod tests {
             }],
             panel_types: IndexMap::new(),
             presenters: Vec::new(),
+            relationships: Default::default(),
             imported_sheets: Default::default(),
         };
 
