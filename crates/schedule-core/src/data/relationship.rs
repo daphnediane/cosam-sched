@@ -142,10 +142,15 @@ impl RelationshipManager {
                 .push(edge.group.clone());
         }
 
-        self.group_to_members
-            .entry(edge.group.clone())
-            .or_default()
-            .push(edge.member.clone());
+        if !edge.member.is_empty() {
+            self.group_to_members
+                .entry(edge.group.clone())
+                .or_default()
+                .push(edge.member.clone());
+        } else {
+            // Group-only edge: ensure the group key exists in the index
+            self.group_to_members.entry(edge.group.clone()).or_default();
+        }
 
         // Invalidate cache
         self.invalidate_cache();

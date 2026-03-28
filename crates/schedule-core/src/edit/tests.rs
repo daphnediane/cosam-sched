@@ -1511,4 +1511,72 @@ mod tests {
             "People table sort_rank must not be overwritten by schedule"
         );
     }
+
+    #[test]
+    fn xlsx_syntax_populates_relationship_manager() {
+        // Verify that all G: syntax variants correctly populate the RelationshipManager
+        let mut schedule = make_empty_schedule();
+        {
+            let mut ctx = EditContext::import(&mut schedule);
+
+            // G:Name=Group → always_grouped=false, always_shown=false
+            ctx.update_or_create_presenter("G:Alice=TeamA", true, None, None);
+
+            // G:Name==Group → always_shown=true
+            ctx.update_or_create_presenter("G:Bob==TeamB", true, None, None);
+
+            // G:<Name=Group → always_grouped=true
+            ctx.update_or_create_presenter("G:<Carol=TeamC", true, None, None);
+
+            // G:<Name==Group → always_grouped=true, always_shown=true
+            ctx.update_or_create_presenter("G:<Dave==TeamD", true, None, None);
+
+            // G:==Group → group-only edge (empty member), always_shown=true
+            ctx.update_or_create_presenter("G:==TeamE", true, None, None);
+        }
+
+        let rels = &schedule.relationships;
+
+        // G:Alice=TeamA
+        assert!(rels.is_group("TeamA"));
+        assert!(
+            rels.direct_members_of("TeamA")
+                .contains(&"Alice".to_string())
+        );
+        assert!(
+            rels.direct_groups_of("Alice")
+                .contains(&"TeamA".to_string())
+        );
+        assert!(!rels.is_any_always_grouped("Alice"));
+        assert!(!rels.is_always_shown("TeamA"));
+
+        // G:Bob==TeamB
+        assert!(rels.is_group("TeamB"));
+        assert!(rels.direct_members_of("TeamB").contains(&"Bob".to_string()));
+        assert!(!rels.is_any_always_grouped("Bob"));
+        assert!(rels.is_always_shown("TeamB"));
+
+        // G:<Carol=TeamC
+        assert!(rels.is_group("TeamC"));
+        assert!(
+            rels.direct_members_of("TeamC")
+                .contains(&"Carol".to_string())
+        );
+        assert!(rels.is_any_always_grouped("Carol"));
+        assert!(!rels.is_always_shown("TeamC"));
+
+        // G:<Dave==TeamD
+        assert!(rels.is_group("TeamD"));
+        assert!(
+            rels.direct_members_of("TeamD")
+                .contains(&"Dave".to_string())
+        );
+        assert!(rels.is_any_always_grouped("Dave"));
+        assert!(rels.is_always_shown("TeamD"));
+
+        // G:==TeamE (group-only, no member)
+        assert!(rels.is_group("TeamE"));
+        assert!(rels.direct_members_of("TeamE").is_empty());
+        assert!(rels.is_always_shown("TeamE"));
+    }
 }
