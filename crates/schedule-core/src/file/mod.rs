@@ -5,6 +5,7 @@
  */
 
 pub mod display_export;
+pub mod full_export;
 use std::path::Path;
 
 use anyhow::{Context, Result};
