@@ -13,6 +13,7 @@ The JSON format has evolved through several major versions:
 - **v7**: Latest format with panelTypes hashmap, named color sets, merged timeTypes, stable presenter IDs, baked-in breaks (full/display variants)
 - **v8**: Full format with persistent edit history via changeLog field
 - **v9**: PresenterSortRank struct replaces column_rank/index_rank, DisplayPresenter with flat sort_key in public format
+- **v10**: Flat presenter relationship fields (`isGroup`, `members`, `groups`, `alwaysGrouped`, `alwaysShown`) replace enum-based `isMember`/`isGrouped`; internally managed by RelationshipManager
 
 ## Format Variants
 
@@ -204,20 +205,28 @@ Each data structure is documented in its own file following the pattern `<struct
 - [PanelSet-v9.md](PanelSet-v9.md) - Flat panel sets (replaces hierarchical model)
 - [Panel-v9.md](Panel-v9.md) - Self-contained panel objects with TimeRange timing
 
+### v10 Documentation
+
+- [v10-full.md](v10-full.md) - Full format entry point
+- [v10-display.md](v10-display.md) - Display format entry point (unchanged from v9)
+- [presenters-v10.md](presenters-v10.md) - Presenters with flat relationship fields
+
 ## Quick Reference
 
-| Version    | Entry Point                    | Structure                       | Use Case             |
-| ---------- | ------------------------------ | ------------------------------- | -------------------- |
-| v4         | [v4.md](v4.md)                 | Flat events array               | Legacy compatibility |
-| v5-private | [v5-private.md](v5-private.md) | Hierarchical panels             | Internal editing     |
-| v5-public  | [v5-public.md](v5-public.md)   | Flattened panels                | Public widget        |
-| v6-private | [v6-private.md](v6-private.md) | Hierarchical + Excel meta       | Internal editing     |
-| v6-public  | [v6-public.md](v6-public.md)   | Flattened + Excel meta          | Public widget        |
-| v7-full    | [v7-full.md](v7-full.md)       | Hashmap panelTypes + breaks     | Internal editing     |
-| v7-display | [v7-display.md](v7-display.md) | Flattened + baked breaks        | Public widget        |
-| v8-full    | [v8-full.md](v8-full.md)       | Full format + changeLog         | Internal editing     |
-| v9-full    | [v9-full.md](v9-full.md)       | Flat panels + PresenterSortRank | Internal editing     |
-| v9-display | [v9-display.md](v9-display.md) | DisplayPresenter with sort_key  | Public widget        |
+| Version     | Entry Point                      | Structure                       | Use Case             |
+| ----------- | -------------------------------- | ------------------------------- | -------------------- |
+| v4          | [v4.md](v4.md)                   | Flat events array               | Legacy compatibility |
+| v5-private  | [v5-private.md](v5-private.md)   | Hierarchical panels             | Internal editing     |
+| v5-public   | [v5-public.md](v5-public.md)     | Flattened panels                | Public widget        |
+| v6-private  | [v6-private.md](v6-private.md)   | Hierarchical + Excel meta       | Internal editing     |
+| v6-public   | [v6-public.md](v6-public.md)     | Flattened + Excel meta          | Public widget        |
+| v7-full     | [v7-full.md](v7-full.md)         | Hashmap panelTypes + breaks     | Internal editing     |
+| v7-display  | [v7-display.md](v7-display.md)   | Flattened + baked breaks        | Public widget        |
+| v8-full     | [v8-full.md](v8-full.md)         | Full format + changeLog         | Internal editing     |
+| v9-full     | [v9-full.md](v9-full.md)         | Flat panels + PresenterSortRank | Internal editing     |
+| v9-display  | [v9-display.md](v9-display.md)   | DisplayPresenter with sort_key  | Public widget        |
+| v10-full    | [v10-full.md](v10-full.md)       | Flat presenter relationships    | Internal editing     |
+| v10-display | [v10-display.md](v10-display.md) | Display (unchanged from v9)     | Public widget        |
 
 ## Migration Notes
 
