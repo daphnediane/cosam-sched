@@ -2641,6 +2641,7 @@ mod tests {
         use indexmap::IndexMap;
         use schedule_core::data::panel::Panel;
         use schedule_core::data::panel_set::PanelSet;
+        use schedule_core::data::relationship::RelationshipManager;
         use schedule_core::data::room::Room;
         use schedule_core::data::schedule::Meta;
         use schedule_core::data::source_info::ChangeState;
@@ -2706,6 +2707,7 @@ mod tests {
             panel_types: IndexMap::new(),
             presenters: Vec::new(),
             imported_sheets: Default::default(),
+            relationships: RelationshipManager::new(),
         };
 
         ScheduleFile::new(schedule)

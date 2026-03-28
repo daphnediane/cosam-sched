@@ -1,6 +1,6 @@
 # Cosplay America Schedule - Work Plan
 
-Generated on: Fri Mar 27 00:32:56 2026
+Generated on: Fri Mar 27 22:21:12 2026
 
 ## Completed
 
@@ -64,7 +64,7 @@ the base→part→session hierarchy in the UI.
 
 * **Medium Priority**
   * [CLEANUP-028] Refactor xlsx module to be a specialization/implementation detail of ScheduleFile
-  * [CLEANUP-041] Standardize case conventions across all V9 JSON fields to match established V7 patterns
+  * [CLEANUP-041] Standardize case conventions
   * [DEPLOY-509] Package the editor as standalone executables for macOS, Windows, and Linux.
   * [EDITOR-029] Add functional settings window with export preferences and application configuration options.
   * [EDITOR-510] Define how multiple people and devices can safely edit a single schedule with conflict handling independent of any specific storage backend.
@@ -118,13 +118,13 @@ The following ID numbers are available for new items:
 
 **Priority:** Medium
 
-**Summary:** Standardize case conventions across all V9 JSON fields to match established V7 patterns
+**Summary:** Standardize case conventions
 
 **Description:** The V9 format introduced inconsistent case conventions by changing presenters from snake_case to camelCase while keeping other fields the same. This cleanup will:
 
 1. **Establish clear convention rules** based on data consumer:
-   - JavaScript-consumed data: camelCase (panels, panelTypes)
-   - Rust-internal data: snake_case (presenters, rooms, timeline)
+   * JavaScript-consumed data: camelCase (panels, panelTypes)
+   * Rust-internal data: snake_case (presenters, rooms, timeline)
 
 2. **Update V9 documentation** to reflect correct case conventions
 

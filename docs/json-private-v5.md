@@ -321,6 +321,8 @@ This document is generated from the structured documentation in [json-schedule](
 ## Related Documentation
 
 - [JSON Schedule Documentation](json-schedule/) - Complete structured documentation
+- [Display Format v10](json-v10-display.md) - Public-facing schedule format with DisplayPresenter objects and filtered presenter list.
+- [Full Format v10](json-v10-full.md) - Complete internal schedule format with flat presenter relationship fields and edit history support.
 - [Schedule JSON Format v4](json-format-v4.md) - This document describes version 4 of the schedule JSON format. V4 introduces timeline support and time types while maintaining backward compatibility with earlier versions.
 - [Schedule JSON Format v5 - Public/Widget](json-public-v5.md) - This document describes version 5 of the schedule JSON format, public/widget variant. This format is produced by the Rust converter or editor in public export mode and consumed by the schedule widget.
 - [v6-Private](json-private-v6.md) - Private format documentation for JSON schedule format v6.
@@ -328,15 +330,7 @@ This document is generated from the structured documentation in [json-schedule](
 - [v7-Display](json-v7-display.md) - Display format documentation for JSON schedule format v7. This is the public-facing format consumed by the schedule widget.
 - [v7-Full](json-v7-full.md) - Full format documentation for JSON schedule format v7. This is the editable master format used by the editor and converter.
 - [v8-Full](json-v8-full.md) - Full format documentation for JSON schedule format v8. This is the editable master format used by the editor and converter, with support for persistent edit history via the optional `changeLog` field.
-- [Display Format v9](json-v9-display.md) - **Access Level**: Public
-**Status**: Supported
-**Version**: 9
-
-Public-facing schedule format with DisplayPresenter objects and filtered presenter list.
-- [Full Format v9](json-v9-full.md) - **Access Level**: Private
-**Status**: Supported
-**Version**: 9
-
-Complete internal schedule format with full presenter data and edit history support.
+- [Display Format v9](json-v9-display.md) - Public-facing schedule format with DisplayPresenter objects and filtered presenter list.
+- [Full Format v9](json-v9-full.md) - Complete internal schedule format with full presenter data and edit history support.
 
 *This document is automatically generated. Do not edit directly.*

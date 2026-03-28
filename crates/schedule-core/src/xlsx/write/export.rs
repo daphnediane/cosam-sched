@@ -7,18 +7,16 @@
 use std::collections::HashMap;
 use std::path::Path;
 
-use anyhow::{Context, Result};
+use anyhow::Result;
 use chrono::NaiveDateTime;
 use umya_spreadsheet::structs::Worksheet;
 
-#[allow(unused_imports)]
-use crate::data::presenter::{Presenter, PresenterGroup, PresenterMember, PresenterRank};
+use crate::data::panel_type::PanelType;
+use crate::data::presenter::Presenter;
 use crate::data::room::Room;
 use crate::data::schedule::Schedule;
 use crate::data::source_info::ChangeState;
 use crate::data::time;
-#[allow(unused_imports)]
-use crate::data::{panel::Panel, panel_type::PanelType};
 use crate::file::ScheduleFile;
 use crate::xlsx::columns::people;
 

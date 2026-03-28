@@ -4,15 +4,11 @@
  * See LICENSE file for full license text
  */
 
-use chrono::NaiveDateTime;
 use indexmap::IndexMap;
 use serde::{Deserialize, Serialize};
 
 use super::source_info::{ChangeState, SourceInfo};
-use super::time::{
-    TimeRange, deserialize_optional_datetime, deserialize_optional_duration,
-    serialize_optional_datetime, serialize_optional_duration,
-};
+use super::time::TimeRange;
 use crate::data::time;
 
 /// Input types for flexible start time setter

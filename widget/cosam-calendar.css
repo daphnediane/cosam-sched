@@ -229,7 +229,6 @@
   border-bottom: 2px solid var(--cosam-border);
   margin-bottom: 16px;
   overflow-x: auto;
-  -webkit-overflow-scrolling: touch;
   background: var(--cosam-bg);
   border-radius: var(--cosam-radius) var(--cosam-radius) 0 0;
   padding: 0 8px;
@@ -339,6 +338,7 @@
   cursor: pointer;
   background: var(--cosam-bg);
   transition: background 0.15s, border-color 0.15s;
+  -webkit-user-select: none;
   user-select: none;
   color: var(--cosam-text);
 }
@@ -640,7 +640,6 @@
 
 .cosam-grid-view {
   overflow-x: auto;
-  -webkit-overflow-scrolling: touch;
 }
 
 /* Grey background for the entire grid */

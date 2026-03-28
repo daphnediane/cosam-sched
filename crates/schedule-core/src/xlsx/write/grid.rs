@@ -8,8 +8,6 @@ use anyhow::Result;
 use chrono::Timelike;
 use umya_spreadsheet::structs::Worksheet;
 
-use crate::data::panel::Panel;
-use crate::data::panel_type::PanelType;
 use crate::data::room::Room;
 use crate::data::schedule::Schedule;
 use crate::data::source_info::ChangeState;

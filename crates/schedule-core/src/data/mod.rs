@@ -4,7 +4,6 @@
  * See LICENSE file for full license text
  */
 
-pub mod display_export;
 pub mod event;
 pub mod panel;
 pub mod panel_id;

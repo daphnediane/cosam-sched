@@ -230,6 +230,11 @@ sub discover_versions {
             my ( $title )       = $content =~ /^#\s+(.+)$/m;
             my ( $description ) = $content =~ /^#\s+.+?\n\n(.+?)(?=\n##|\z)/s;
 
+            # Remove structured metadata from description (Access, Status, Version lines)
+            $description =~ s/\*\*Access Level\*\*:.+?\n//g if $description;
+            $description =~ s/\*\*Status\*\*:.+?\n//g       if $description;
+            $description =~ s/\*\*Version\*\*:.+?\n//g      if $description;
+
             # Clean up description
             $description =~ s/^\s+|\s+$//g if $description;
 

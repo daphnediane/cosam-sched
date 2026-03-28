@@ -11,9 +11,12 @@ use anyhow::{Context, Result};
 use chrono::{NaiveDateTime, Timelike};
 use serde::{Deserialize, Serialize};
 
-use super::panel_type::PanelType;
-use super::presenter::{Presenter, PresenterRank};
-use super::schedule::{Meta, Schedule};
+use crate::data::panel_type::PanelType;
+use crate::data::presenter::{Presenter, PresenterRank};
+use crate::data::schedule::{Meta, Schedule};
+use crate::data::room::Room;
+use crate::data::timeline::TimelineEntry;
+use crate::data::relationship::RelationshipManager;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -88,10 +91,10 @@ pub struct DisplayPresenter {
 pub struct DisplaySchedule {
     pub meta: Meta,
     pub panels: Vec<DisplayPanel>,
-    pub rooms: Vec<super::room::Room>,
-    pub panel_types: indexmap::IndexMap<String, super::panel_type::PanelType>,
+    pub rooms: Vec<Room>,
+    pub panel_types: indexmap::IndexMap<String, PanelType>,
     #[serde(skip_serializing_if = "Vec::is_empty")]
-    pub timeline: Vec<super::timeline::TimelineEntry>,
+    pub timeline: Vec<TimelineEntry>,
     pub presenters: Vec<DisplayPresenter>,
 }
 
@@ -113,7 +116,7 @@ fn compute_credits(
     hide_panelist: bool,
     alt_panelist: Option<&str>,
     credited_presenters: &[String],
-    rels: &super::relationship::RelationshipManager,
+    rels: &RelationshipManager,
 ) -> Vec<String> {
     if hide_panelist {
         return Vec::new();
@@ -332,7 +335,7 @@ impl Schedule {
             .map(|(prefix, _)| prefix.clone())
             .collect();
 
-        let mut timeline_entries: Vec<super::timeline::TimelineEntry> = self.timeline.clone();
+        let mut timeline_entries: Vec<TimelineEntry> = self.timeline.clone();
         for ps in self.panel_sets.values() {
             for panel in &ps.panels {
                 let is_timeline_panel = panel
@@ -341,7 +344,7 @@ impl Schedule {
                     .map(|pt| timeline_type_uids.contains(pt))
                     .unwrap_or(false);
                 if is_timeline_panel {
-                    timeline_entries.push(super::timeline::TimelineEntry {
+                    timeline_entries.push(TimelineEntry {
                         id: panel.id.clone(),
                         start_time: panel.timing.start_time(),
                         description: panel.name.clone(),

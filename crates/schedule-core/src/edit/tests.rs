@@ -211,7 +211,7 @@ mod tests {
         );
     }
 
-    // ── set_session_field + undo ────────────────────────────────
+    // ── set_panel_field + undo ────────────────────────────────
 
     #[test]
     fn set_session_av_notes_and_undo() {
@@ -220,10 +220,8 @@ mod tests {
 
         {
             let mut ctx = EditContext::new(&mut schedule, &mut history);
-            ctx.set_session_field(
+            ctx.set_panel_field(
                 "panel-1",
-                0,
-                0,
                 SessionField::AvNotes,
                 Some("Need projector".to_string()),
             );
@@ -247,7 +245,7 @@ mod tests {
 
         {
             let mut ctx = EditContext::new(&mut schedule, &mut history);
-            ctx.add_presenter_to_session("panel-1", 0, 0, "Charlie");
+            ctx.add_presenter_to_panel("panel-1", "Charlie");
         }
 
         let panel = get_panel(&schedule, "panel-1");
@@ -266,7 +264,7 @@ mod tests {
 
         {
             let mut ctx = EditContext::new(&mut schedule, &mut history);
-            ctx.add_presenter_to_session("panel-1", 0, 0, "alice"); // case-insensitive
+            ctx.add_presenter_to_panel("panel-1", "alice"); // case-insensitive
         }
 
         let panel = get_panel(&schedule, "panel-1");
@@ -281,7 +279,7 @@ mod tests {
 
         {
             let mut ctx = EditContext::new(&mut schedule, &mut history);
-            ctx.remove_presenter_from_session("panel-1", 0, 0, "Alice");
+            ctx.remove_presenter_from_panel("panel-1", "Alice");
         }
 
         let panel = get_panel(&schedule, "panel-1");
@@ -304,10 +302,8 @@ mod tests {
 
         {
             let mut ctx = EditContext::new(&mut schedule, &mut history);
-            ctx.reschedule_session(
+            ctx.reschedule_panel(
                 "panel-1",
-                0,
-                0,
                 SessionScheduleState {
                     room_ids: vec![20],
                     timing: crate::data::time::TimeRange::new_scheduled(
@@ -350,7 +346,7 @@ mod tests {
 
         {
             let mut ctx = EditContext::new(&mut schedule, &mut history);
-            ctx.unschedule_session("panel-1", 0, 0);
+            ctx.unschedule_panel("panel-1");
         }
 
         let panel = get_panel(&schedule, "panel-1");
@@ -377,7 +373,7 @@ mod tests {
 
         {
             let mut ctx = EditContext::new(&mut schedule, &mut history);
-            ctx.soft_delete_session("panel-1", 0, 0);
+            ctx.soft_delete_panel("panel-1");
         }
 
         let panel = get_panel(&schedule, "panel-1");
@@ -673,10 +669,8 @@ mod tests {
 
         {
             let mut ctx = EditContext::new(&mut schedule, &mut history);
-            ctx.set_session_metadata(
+            ctx.set_panel_metadata(
                 "panel-1",
-                0,
-                0,
                 "ThemeColor",
                 ExtraValue::String("#FF0000".to_string()),
             );
@@ -690,7 +684,7 @@ mod tests {
 
         {
             let mut ctx = EditContext::new(&mut schedule, &mut history);
-            ctx.clear_session_metadata("panel-1", 0, 0, "ThemeColor");
+            ctx.clear_panel_metadata("panel-1", "ThemeColor");
         }
 
         let panel = get_panel(&schedule, "panel-1");
@@ -1078,12 +1072,7 @@ mod tests {
 
         {
             let mut ctx = EditContext::new(&mut schedule, &mut history);
-            ctx.set_session_presenters(
-                "panel-1",
-                0,
-                0,
-                vec!["Charlie".to_string(), "Diana".to_string()],
-            );
+            ctx.set_panel_presenters("panel-1", vec!["Charlie".to_string(), "Diana".to_string()]);
         }
 
         let panel = get_panel(&schedule, "panel-1");
@@ -1108,7 +1097,7 @@ mod tests {
 
         {
             let mut ctx = EditContext::new(&mut schedule, &mut history);
-            ctx.set_session_presenters("panel-1", 0, 0, Vec::new());
+            ctx.set_panel_presenters("panel-1", Vec::new());
         }
 
         let panel = get_panel(&schedule, "panel-1");
@@ -1397,7 +1386,6 @@ mod tests {
 
     #[test]
     fn remove_relationship_command() {
-        use crate::data::relationship::GroupEdge;
         use crate::edit::command::EditCommand;
 
         let mut schedule = make_empty_schedule();

@@ -1,9 +1,5 @@
 # Full Format v9
 
-**Access Level**: Private
-**Status**: Supported
-**Version**: 9
-
 Complete internal schedule format with full presenter data and edit history support.
 
 This document is generated from the structured documentation in [json-schedule](json-schedule).
@@ -30,9 +26,9 @@ This document is generated from the structured documentation in [json-schedule](
 
 - [meta-v9.md](meta-v9.md) - Metadata structure
 - [presenters-v9.md](presenters-v9.md) - Presenters with PresenterSortRank
-- [PanelSet-v8.md](PanelSet-v8.md) - Hierarchical panel sets
-- [Panel-v8.md](Panel-v8.md) - Panel objects
-- [PanelType-v7.md](PanelType-v7.md) - Panel type definitions
+- [PanelSet-v9.md](PanelSet-v9.md) - Flat panel sets
+- [Panel-v9.md](Panel-v9.md) - Self-contained panel objects with TimeRange timing
+- [panelTypes-v7.md](panelTypes-v7.md) - Panel type definitions
 - [rooms-v7.md](rooms-v7.md) - Room definitions
 - [timeline-v7.md](timeline-v7.md) - Timeline markers
 - [conflicts-v7.md](conflicts-v7.md) - Conflict detection
@@ -40,6 +36,30 @@ This document is generated from the structured documentation in [json-schedule](
 - [ImportedSheetPresence-v6.md](ImportedSheetPresence-v6.md) - Sheet tracking
 
 ## Structure Details
+
+### [`panelTypes`](json-schedule/panelTypes-v7.md)
+
+`panelTypes` is a JSON object (hashmap) keyed by uppercase prefix, where each value defines a category of panels.
+
+**Access:** Public
+
+**Status:** Supported in v7
+
+**Key Fields:**
+
+| Field         | Type           | Public | Description                                                   |
+| ------------- | -------------- | ------ | ------------------------------------------------------------- |
+| `kind`        | string         | yes    | Human-readable category name                                  |
+| `colors`      | object         | yes    | Named color sets (see Color Sets below)                       |
+| `isBreak`     | boolean        | yes    | True for break-type panels                                    |
+| `isCafe`      | boolean        | yes    | True for café/social panels                                   |
+| `isWorkshop`  | boolean        | yes    | True for workshop panels                                      |
+| `isHidden`    | boolean        | yes    | True for hidden panel types (staff-only)                      |
+| `isRoomHours` | boolean        | yes    | True for room-hours panels (e.g. Market Expo operating hours) |
+| `isTimeline`  | boolean        | yes    | True for timeline/split panel types (merged from timeTypes)   |
+| `isPrivate`   | boolean        | yes    | True for private panel types (e.g. Staff Meal)                |
+
+*See full details in: [`panelTypes-v7.md`](json-schedule/panelTypes-v7.md)*
 
 ### [`rooms`](json-schedule/rooms-v7.md)
 
@@ -123,6 +143,8 @@ This document is generated from the structured documentation in [json-schedule](
 ## Related Documentation
 
 - [JSON Schedule Documentation](json-schedule/) - Complete structured documentation
+- [Display Format v10](json-v10-display.md) - Public-facing schedule format with DisplayPresenter objects and filtered presenter list.
+- [Full Format v10](json-v10-full.md) - Complete internal schedule format with flat presenter relationship fields and edit history support.
 - [Schedule JSON Format v4](json-format-v4.md) - This document describes version 4 of the schedule JSON format. V4 introduces timeline support and time types while maintaining backward compatibility with earlier versions.
 - [Schedule JSON Format v5 - Private/Full](json-private-v5.md) - This document describes version 5 of the schedule JSON format, private/full variant. This format is produced and consumed by the Rust editor and converter for internal data storage and editing.
 - [Schedule JSON Format v5 - Public/Widget](json-public-v5.md) - This document describes version 5 of the schedule JSON format, public/widget variant. This format is produced by the Rust converter or editor in public export mode and consumed by the schedule widget.
@@ -131,10 +153,6 @@ This document is generated from the structured documentation in [json-schedule](
 - [v7-Display](json-v7-display.md) - Display format documentation for JSON schedule format v7. This is the public-facing format consumed by the schedule widget.
 - [v7-Full](json-v7-full.md) - Full format documentation for JSON schedule format v7. This is the editable master format used by the editor and converter.
 - [v8-Full](json-v8-full.md) - Full format documentation for JSON schedule format v8. This is the editable master format used by the editor and converter, with support for persistent edit history via the optional `changeLog` field.
-- [Display Format v9](json-v9-display.md) - **Access Level**: Public
-**Status**: Supported
-**Version**: 9
-
-Public-facing schedule format with DisplayPresenter objects and filtered presenter list.
+- [Display Format v9](json-v9-display.md) - Public-facing schedule format with DisplayPresenter objects and filtered presenter list.
 
 *This document is automatically generated. Do not edit directly.*

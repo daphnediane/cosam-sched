@@ -60,36 +60,6 @@ impl EditContext<'_> {
     // already be the full Uniq ID of the target flat Panel; `part_index` and
     // `session_index` are ignored (kept for API stability while callers migrate).
 
-    /// Set an `Option<String>` field on a (flat) Panel.
-    ///
-    /// *Deprecated alias* — use [`set_panel_field`] directly.  The
-    /// `part_index` and `session_index` parameters are ignored in the flat model.
-    #[allow(unused_variables)]
-    pub fn set_session_field(
-        &mut self,
-        panel_id: &str,
-        part_index: usize,
-        session_index: usize,
-        field: PanelField,
-        value: Option<String>,
-    ) {
-        self.set_panel_field(panel_id, field, value);
-    }
-
-    /// Set the duration of a (flat) Panel.
-    ///
-    /// *Deprecated alias* — use [`set_panel_duration`] directly.
-    #[allow(unused_variables)]
-    pub fn set_session_duration(
-        &mut self,
-        panel_id: &str,
-        part_index: usize,
-        session_index: usize,
-        duration: u32,
-    ) {
-        self.set_panel_duration(panel_id, duration);
-    }
-
     // ── Presenters ───────────────────────────────────────────────────────────
 
     /// Add a credited presenter to a flat Panel (deduplicated).
@@ -116,18 +86,6 @@ impl EditContext<'_> {
         });
     }
 
-    /// *Deprecated alias* — use [`add_presenter_to_panel`] directly.
-    #[allow(unused_variables)]
-    pub fn add_presenter_to_session(
-        &mut self,
-        panel_id: &str,
-        part_index: usize,
-        session_index: usize,
-        name: &str,
-    ) {
-        self.add_presenter_to_panel(panel_id, name);
-    }
-
     /// Remove a credited presenter from a flat Panel.
     pub fn remove_presenter_from_panel(&mut self, panel_id: &str, name: &str) {
         self.execute(EditCommand::RemovePresenterFromPanel {
@@ -135,18 +93,6 @@ impl EditContext<'_> {
             name: name.to_string(),
             position: 0,
         });
-    }
-
-    /// *Deprecated alias* — use [`remove_presenter_from_panel`] directly.
-    #[allow(unused_variables)]
-    pub fn remove_presenter_from_session(
-        &mut self,
-        panel_id: &str,
-        part_index: usize,
-        session_index: usize,
-        name: &str,
-    ) {
-        self.remove_presenter_from_panel(panel_id, name);
     }
 
     // ── Scheduling ───────────────────────────────────────────────────────────
@@ -161,18 +107,6 @@ impl EditContext<'_> {
             },
             new_state,
         });
-    }
-
-    /// *Deprecated alias* — use [`reschedule_panel`] directly.
-    #[allow(unused_variables)]
-    pub fn reschedule_session(
-        &mut self,
-        panel_id: &str,
-        part_index: usize,
-        session_index: usize,
-        new_state: SessionScheduleState,
-    ) {
-        self.reschedule_panel(panel_id, new_state);
     }
 
     // ── Metadata ─────────────────────────────────────────────────────────────
@@ -205,31 +139,6 @@ impl EditContext<'_> {
             key: key.to_string(),
             old: ExtraValue::String(String::new()),
         });
-    }
-
-    /// *Deprecated alias* for [`set_panel_metadata`].
-    #[allow(unused_variables)]
-    pub fn set_session_metadata(
-        &mut self,
-        panel_id: &str,
-        part_index: usize,
-        session_index: usize,
-        key: &str,
-        value: ExtraValue,
-    ) {
-        self.set_panel_metadata(panel_id, key, value);
-    }
-
-    /// *Deprecated alias* for [`clear_panel_metadata`].
-    #[allow(unused_variables)]
-    pub fn clear_session_metadata(
-        &mut self,
-        panel_id: &str,
-        part_index: usize,
-        session_index: usize,
-        key: &str,
-    ) {
-        self.clear_panel_metadata(panel_id, key);
     }
 
     /// Set a metadata key on a room.
@@ -300,17 +209,5 @@ impl EditContext<'_> {
             old: Vec::new(),
             new: presenters,
         });
-    }
-
-    /// *Deprecated alias* — use [`set_panel_presenters`] directly.
-    #[allow(unused_variables)]
-    pub fn set_session_presenters(
-        &mut self,
-        panel_id: &str,
-        part_index: usize,
-        session_index: usize,
-        presenters: Vec<String>,
-    ) {
-        self.set_panel_presenters(panel_id, presenters);
     }
 }

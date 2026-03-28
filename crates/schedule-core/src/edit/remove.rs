@@ -21,24 +21,12 @@ impl EditContext<'_> {
         });
     }
 
-    /// *Deprecated alias* — use [`unschedule_panel`] directly.
-    #[allow(unused_variables)]
-    pub fn unschedule_session(&mut self, panel_id: &str, part_index: usize, session_index: usize) {
-        self.unschedule_panel(panel_id);
-    }
-
     /// Soft-delete a single flat Panel: marks it `ChangeState::Deleted`.
     pub fn soft_delete_panel(&mut self, panel_id: &str) {
         self.execute(EditCommand::SoftDeletePanel {
             panel_id: panel_id.to_string(),
             old_change_state: ChangeState::Unchanged,
         });
-    }
-
-    /// *Deprecated alias* for [`soft_delete_panel`].
-    #[allow(unused_variables)]
-    pub fn soft_delete_session(&mut self, panel_id: &str, part_index: usize, session_index: usize) {
-        self.soft_delete_panel(panel_id);
     }
 
     /// Soft-delete every Panel in a PanelSet (addressed by base ID).

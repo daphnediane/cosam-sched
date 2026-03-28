@@ -6,13 +6,10 @@
 
 use std::collections::HashSet;
 
-use anyhow::Result;
 use indexmap::IndexMap;
 use umya_spreadsheet::structs::{Table, TableColumn, TableStyleInfo, Worksheet};
 
 use crate::data::panel::ExtraValue;
-use crate::data::panel::Panel;
-use crate::data::panel_type::PanelType;
 use crate::data::schedule::Schedule;
 use crate::data::source_info::{ChangeState, SourceInfo};
 

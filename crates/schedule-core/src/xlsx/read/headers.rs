@@ -8,7 +8,7 @@ use regex::Regex;
 
 use crate::data::presenter::PresenterRank;
 
-/// Normalise an Excel column header to a canonical key used for lookup.
+/// Normalize an Excel column header to a canonical key used for lookup.
 ///
 /// Steps applied in order:
 /// 1. Split at camelCase lowercase→uppercase boundaries (`PanelKind` → `Panel Kind`).
@@ -27,7 +27,7 @@ pub fn canonical_header(header: &str) -> Option<String> {
     // Step 2: uppercase-run before UpperCamelCase word (e.g. "AVNotes" → "AV Notes")
     let re_uc_run = Regex::new(r"([A-Z]+)([A-Z][a-z])").expect("valid regex");
     let s = re_uc_run.replace_all(&s, "${1} ${2}");
-    // Step 3: normalise separators (whitespace, underscore, punctuation) to a single `_`
+    // Step 3: normalize separators (whitespace, underscore, punctuation) to a single `_`
     let re_sep = Regex::new(r"[\s_/:().,]+").expect("valid regex");
     let s = re_sep.replace_all(&s, "_");
     let s = s.trim_matches('_');

@@ -8,17 +8,17 @@ Public-facing presenter structure with flat sortKey and panel IDs for widget con
 
 ## Fields
 
-| Field | Type | Public | Description |
-| ----- | ---- | ------ | ----------- |
-| name | String | ✓ | Presenter or group name |
-| rank | String | ✓ | Presenter rank (guest, staff, fan_panelist, etc.) |
-| sortKey | Integer | ✓ | Sequential ordering key (0-based) |
-| isGroup | Boolean | ✓ | True if this is a group |
-| members | Array<String> | ✓ | Group member names (empty for individuals) |
-| groups | Array<String> | ✓ | Groups this presenter belongs to (empty for groups) |
-| alwaysGrouped | Boolean | ✓ | Always display under group name |
-| alwaysShown | Boolean | ✓ | Always show group even with partial membership |
-| panelIds | Array<String> | ✓ | Panel IDs where this presenter/group should appear |
+| Field         | Type            | Public | Description                                         |
+| ------------- | --------------- | ------ | --------------------------------------------------- |
+| name          | String          | ✓      | Presenter or group name                             |
+| rank          | String          | ✓      | Presenter rank (guest, staff, fan_panelist, etc.)   |
+| sortKey       | Integer         | ✓      | Sequential ordering key (0-based)                   |
+| isGroup       | Boolean         | ✓      | True if this is a group                             |
+| members       | `Array<String>` | ✓      | Group member names (empty for individuals)          |
+| groups        | `Array<String>` | ✓      | Groups this presenter belongs to (empty for groups) |
+| alwaysGrouped | Boolean         | ✓      | Always display under group name                     |
+| alwaysShown   | Boolean         | ✓      | Always show group even with partial membership      |
+| panelIds      | `Array<String>` | ✓      | Panel IDs where this presenter/group should appear  |
 
 ## Key Changes from v8 Display Format
 
@@ -38,6 +38,7 @@ The display format includes presenters through bidirectional group traversal:
 4. **Direct members only**: Group → individual (doesn't recurse into individual's groups)
 
 This ensures:
+
 - If "Pro" of "Pros and Cons Cosplay" presents solo, both "Pro" AND "Pros and Cons Cosplay" appear
 - If "Imperial Storm Troopers" presents, both "105th" and "501st" appear (groups of groups)
 - "Birthday Party Princesses" doesn't appear just because a 105th member belongs to it

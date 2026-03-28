@@ -8,10 +8,10 @@ Groups related panels under a common base ID using a flat model.
 
 ## Fields
 
-| Field    | Type          | Public | Description                                         |
-| -------- | ------------- | ------ | --------------------------------------------------- |
+| Field    | Type          | Public | Description                                          |
+| -------- | ------------- | ------ | ---------------------------------------------------- |
 | base\_id | String        | ✗      | Base identifier for the panel group (e.g. `"GP002"`) |
-| panels   | Array\<Panel> | ✗      | Flat array of all panels in this set                |
+| panels   | Array\<Panel> | ✗      | Flat array of all panels in this set                 |
 
 ## Key Changes from v8
 

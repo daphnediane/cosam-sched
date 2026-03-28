@@ -8,41 +8,41 @@ A fully self-contained panel entry in the flat model. Each panel belongs to a Pa
 
 ## Fields
 
-| Field                 | Type                   | Public | Description                                              |
-| --------------------- | ---------------------- | ------ | -------------------------------------------------------- |
-| id                    | String                 | ✓      | Unique identifier (e.g. `"GP002P1S2"`)                   |
-| baseId                | String                 | ✗      | Base ID of containing PanelSet (e.g. `"GP002"`)          |
-| partNum               | Integer \| null        | ✗      | Part number (omitted if null)                            |
-| sessionNum            | Integer \| null        | ✗      | Session number (omitted if null)                         |
-| name                  | String                 | ✓      | Panel display name                                       |
-| panelType             | String \| null         | ✓      | Panel type UID (e.g. `"panel-type-GP"`)                  |
-| description           | String \| null         | ✓      | Panel description                                        |
-| note                  | String \| null         | ✓      | Additional notes                                         |
-| prereq                | String \| null         | ✓      | Prerequisites                                            |
-| altPanelist           | String \| null         | ✗      | Alternative panelist label for display                   |
-| cost                  | String \| null         | ✓      | Cost (formatted as currency, e.g. `"$5.00"`)            |
-| capacity              | String \| null         | ✓      | Room capacity                                            |
-| preRegMax             | String \| null         | ✗      | Pre-registration maximum                                 |
-| difficulty            | String \| null         | ✓      | Difficulty level                                         |
-| ticketUrl             | String \| null         | ✓      | Ticket purchase URL                                      |
-| simpleTixEvent        | String \| null         | ✗      | SimpleTix event identifier                               |
-| haveTicketImage       | Boolean \| null        | ✗      | Whether a ticket image exists                            |
-| isFree                | Boolean                | ✓      | Free admission (default false, omitted when false)       |
-| isKids                | Boolean                | ✓      | Kids-friendly (default false, omitted when false)        |
-| isFull                | Boolean                | ✓      | Event is full (default false, omitted when false)        |
-| hidePanelist          | Boolean                | ✗      | Hide panelist names in display (default false)           |
-| sewingMachines        | Boolean                | ✗      | Requires sewing machines (default false)                 |
-| roomIds               | Array\<Integer>        | ✓      | Room UIDs (empty array omitted)                          |
-| timing                | TimeRange              | ✓      | Timing information (see below)                           |
-| seatsSold             | Integer \| null        | ✗      | Number of seats sold                                     |
-| creditedPresenters    | Array\<String>         | ✓      | Presenter names for credits (empty array omitted)        |
-| uncreditedPresenters  | Array\<String>         | ✗      | Hidden presenter names (empty array omitted)             |
-| notesNonPrinting      | String \| null         | ✗      | Internal notes (not for display)                         |
-| workshopNotes         | String \| null         | ✗      | Workshop-specific notes                                  |
-| powerNeeds            | String \| null         | ✗      | Power requirements                                       |
-| avNotes               | String \| null         | ✗      | Audio/visual notes                                       |
-| conflicts             | Array\<EventConflict>  | ✗      | Detected conflicts (empty array omitted)                 |
-| metadata              | Object                 | ✗      | Extra key-value pairs from non-standard columns (omitted when empty) |
+| Field                | Type                  | Public | Description                                                          |
+| -------------------- | --------------------- | ------ | -------------------------------------------------------------------- |
+| id                   | String                | ✓      | Unique identifier (e.g. `"GP002P1S2"`)                               |
+| baseId               | String                | ✗      | Base ID of containing PanelSet (e.g. `"GP002"`)                      |
+| partNum              | Integer \| null       | ✗      | Part number (omitted if null)                                        |
+| sessionNum           | Integer \| null       | ✗      | Session number (omitted if null)                                     |
+| name                 | String                | ✓      | Panel display name                                                   |
+| panelType            | String \| null        | ✓      | Panel type UID (e.g. `"panel-type-GP"`)                              |
+| description          | String \| null        | ✓      | Panel description                                                    |
+| note                 | String \| null        | ✓      | Additional notes                                                     |
+| prereq               | String \| null        | ✓      | Prerequisites                                                        |
+| altPanelist          | String \| null        | ✗      | Alternative panelist label for display                               |
+| cost                 | String \| null        | ✓      | Cost (formatted as currency, e.g. `"$5.00"`)                         |
+| capacity             | String \| null        | ✓      | Room capacity                                                        |
+| preRegMax            | String \| null        | ✗      | Pre-registration maximum                                             |
+| difficulty           | String \| null        | ✓      | Difficulty level                                                     |
+| ticketUrl            | String \| null        | ✓      | Ticket purchase URL                                                  |
+| simpleTixEvent       | String \| null        | ✗      | SimpleTix event identifier                                           |
+| haveTicketImage      | Boolean \| null       | ✗      | Whether a ticket image exists                                        |
+| isFree               | Boolean               | ✓      | Free admission (default false, omitted when false)                   |
+| isKids               | Boolean               | ✓      | Kids-friendly (default false, omitted when false)                    |
+| isFull               | Boolean               | ✓      | Event is full (default false, omitted when false)                    |
+| hidePanelist         | Boolean               | ✗      | Hide panelist names in display (default false)                       |
+| sewingMachines       | Boolean               | ✗      | Requires sewing machines (default false)                             |
+| roomIds              | Array\<Integer>       | ✓      | Room UIDs (empty array omitted)                                      |
+| timing               | TimeRange             | ✓      | Timing information (see below)                                       |
+| seatsSold            | Integer \| null       | ✗      | Number of seats sold                                                 |
+| creditedPresenters   | Array\<String>        | ✓      | Presenter names for credits (empty array omitted)                    |
+| uncreditedPresenters | Array\<String>        | ✗      | Hidden presenter names (empty array omitted)                         |
+| notesNonPrinting     | String \| null        | ✗      | Internal notes (not for display)                                     |
+| workshopNotes        | String \| null        | ✗      | Workshop-specific notes                                              |
+| powerNeeds           | String \| null        | ✗      | Power requirements                                                   |
+| avNotes              | String \| null        | ✗      | Audio/visual notes                                                   |
+| conflicts            | Array\<EventConflict> | ✗      | Detected conflicts (empty array omitted)                             |
+| metadata             | Object                | ✗      | Extra key-value pairs from non-standard columns (omitted when empty) |
 
 ## TimeRange Serialization
 
