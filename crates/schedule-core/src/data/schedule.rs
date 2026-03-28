@@ -238,10 +238,16 @@ impl Schedule {
                             .add_edge(GroupEdge::group_only(presenter.name.clone(), *always_shown));
                     } else {
                         for member in members {
+                            // Preserve always_grouped from any existing edge
+                            let existing_ag = self
+                                .relationships
+                                .find_edge(member, &presenter.name)
+                                .map(|e| e.always_grouped)
+                                .unwrap_or(false);
                             self.relationships.add_edge(GroupEdge {
                                 member: member.clone(),
                                 group: presenter.name.clone(),
-                                always_grouped: false,
+                                always_grouped: existing_ag,
                                 always_shown: *always_shown,
                             });
                         }
@@ -252,27 +258,18 @@ impl Schedule {
             match &presenter.is_member {
                 PresenterMember::IsMember(groups, always_grouped) => {
                     for group in groups {
-                        // Only add if not already present (the group side may have added it)
-                        if !self
+                        // Preserve always_shown from any existing edge
+                        let existing_as = self
                             .relationships
-                            .get_direct_groups(&presenter.name)
-                            .contains(group)
-                        {
-                            self.relationships.add_edge(GroupEdge {
-                                member: presenter.name.clone(),
-                                group: group.clone(),
-                                always_grouped: *always_grouped,
-                                always_shown: false,
-                            });
-                        } else if *always_grouped {
-                            // Edge exists but we need to set always_grouped
-                            self.relationships.add_edge(GroupEdge {
-                                member: presenter.name.clone(),
-                                group: group.clone(),
-                                always_grouped: true,
-                                always_shown: self.relationships.is_always_shown(group),
-                            });
-                        }
+                            .find_edge(&presenter.name, group)
+                            .map(|e| e.always_shown)
+                            .unwrap_or(false);
+                        self.relationships.add_edge(GroupEdge {
+                            member: presenter.name.clone(),
+                            group: group.clone(),
+                            always_grouped: *always_grouped,
+                            always_shown: existing_as,
+                        });
                     }
                 }
                 PresenterMember::NotMember => {}

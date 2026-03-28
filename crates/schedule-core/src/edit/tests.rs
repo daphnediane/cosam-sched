@@ -1350,6 +1350,130 @@ mod tests {
     }
 
     #[test]
+    fn add_relationship_command() {
+        use crate::data::relationship::GroupEdge;
+        use crate::edit::command::EditCommand;
+
+        let mut schedule = make_empty_schedule();
+        // Create two presenters first
+        {
+            let mut ctx = EditContext::import(&mut schedule);
+            ctx.find_or_create_presenter(
+                "Alice",
+                &PresenterOptions {
+                    rank: Some(PresenterRank::Guest),
+                    ..Default::default()
+                },
+            );
+            ctx.find_or_create_presenter(
+                "Team Alice",
+                &PresenterOptions {
+                    rank: Some(PresenterRank::Guest),
+                    is_group: Some(true),
+                    ..Default::default()
+                },
+            );
+        }
+
+        // Add a relationship via command
+        let mut cmd = EditCommand::AddRelationship {
+            edge: GroupEdge::new("Alice".to_string(), "Team Alice".to_string(), true, false),
+        };
+        cmd.apply(&mut schedule);
+
+        assert!(schedule.relationships.is_group("Team Alice"));
+        let members = schedule.relationships.get_direct_members("Team Alice");
+        assert!(members.contains(&"Alice".to_string()));
+        assert!(schedule.relationships.is_any_always_grouped("Alice"));
+
+        // Undo it
+        cmd.undo(&mut schedule);
+        let members = schedule.relationships.get_direct_members("Team Alice");
+        assert!(
+            !members.contains(&"Alice".to_string()),
+            "Alice should be removed after undo"
+        );
+    }
+
+    #[test]
+    fn remove_relationship_command() {
+        use crate::data::relationship::GroupEdge;
+        use crate::edit::command::EditCommand;
+
+        let mut schedule = make_empty_schedule();
+        // Create a presenter with a group relationship
+        {
+            let mut ctx = EditContext::import(&mut schedule);
+            ctx.find_or_create_presenter(
+                "Team Bob",
+                &PresenterOptions {
+                    rank: Some(PresenterRank::Guest),
+                    is_group: Some(true),
+                    add_members: vec!["Bob".to_string()],
+                    ..Default::default()
+                },
+            );
+            ctx.find_or_create_presenter(
+                "Bob",
+                &PresenterOptions {
+                    rank: Some(PresenterRank::Guest),
+                    add_groups: vec!["Team Bob".to_string()],
+                    ..Default::default()
+                },
+            );
+        }
+
+        // Verify relationship exists
+        assert!(schedule.relationships.is_group("Team Bob"));
+
+        // Remove via command
+        let mut cmd = EditCommand::RemoveRelationship {
+            member: "Bob".to_string(),
+            group: "Team Bob".to_string(),
+            old_edge: None,
+        };
+        cmd.apply(&mut schedule);
+
+        let members = schedule.relationships.get_direct_members("Team Bob");
+        assert!(
+            !members.contains(&"Bob".to_string()),
+            "Bob should be removed from Team Bob"
+        );
+
+        // Undo restores the edge
+        cmd.undo(&mut schedule);
+        let members = schedule.relationships.get_direct_members("Team Bob");
+        assert!(
+            members.contains(&"Bob".to_string()),
+            "Bob should be restored after undo"
+        );
+    }
+
+    #[test]
+    fn create_presenter_syncs_relationships() {
+        let mut schedule = make_empty_schedule();
+        {
+            let mut ctx = EditContext::import(&mut schedule);
+            ctx.find_or_create_presenter(
+                "Duo Group",
+                &PresenterOptions {
+                    rank: Some(PresenterRank::Guest),
+                    is_group: Some(true),
+                    add_members: vec!["Member A".to_string()],
+                    always_shown: Some(true),
+                    ..Default::default()
+                },
+            );
+        }
+
+        // RelationshipManager should be in sync after CreatePresenter
+        assert!(schedule.relationships.is_group("Duo Group"));
+        assert!(schedule.relationships.is_always_shown("Duo Group"));
+        let members = schedule.relationships.get_direct_members("Duo Group");
+        assert!(members.contains(&"Member A".to_string()));
+    }
+
+    #[test]
     fn people_table_rank_not_overwritten_by_schedule() {
         // Regression: People table sets sort_rank with column_index=0.
         // Schedule processing must not overwrite with higher column_index.

@@ -113,7 +113,7 @@ fn compute_credits(
     hide_panelist: bool,
     alt_panelist: Option<&str>,
     credited_presenters: &[String],
-    all_presenters: &[Presenter],
+    rels: &super::relationship::RelationshipManager,
 ) -> Vec<String> {
     if hide_panelist {
         return Vec::new();
@@ -127,11 +127,6 @@ fn compute_credits(
         return Vec::new();
     }
 
-    let presenter_lookup: std::collections::HashMap<&str, &Presenter> = all_presenters
-        .iter()
-        .map(|p| (p.name.as_str(), p))
-        .collect();
-
     let mut credits: Vec<String> = Vec::new();
     let mut used_as_member: HashSet<&str> = HashSet::new();
     let mut used_groups: HashSet<String> = HashSet::new();
@@ -141,122 +136,114 @@ fn compute_credits(
         if used_as_member.contains(name.as_str()) {
             continue;
         }
-        if let Some(presenter) = presenter_lookup.get(name.as_str()) {
-            if presenter.is_group() {
-                // For always_shown groups, check if we should show "Member of Group" format
-                if presenter.always_shown() {
-                    let unique_members: std::collections::HashSet<_> =
-                        presenter.members().iter().collect();
-                    let credited_members_in_group: Vec<&String> = unique_members
-                        .iter()
-                        .filter(|member| credited_presenters.contains(member))
-                        .copied()
-                        .collect();
+        if rels.is_group(name) {
+            let members = rels.direct_members_of(name);
+            // For always_shown groups, check if we should show "Member of Group" format
+            if rels.is_always_shown(name) {
+                let unique_members: std::collections::HashSet<_> = members.iter().collect();
+                let credited_members_in_group: Vec<&String> = unique_members
+                    .iter()
+                    .filter(|member| credited_presenters.contains(member))
+                    .copied()
+                    .collect();
 
-                    if !used_groups.contains(name) {
-                        // If not all members are present (partial attendance), check format
-                        if credited_members_in_group.len() < unique_members.len() {
-                            if credited_members_in_group.is_empty() {
-                                // No members credited: show just the group name
-                                credits.push(name.clone());
-                            } else if credited_members_in_group.len() == 1 {
-                                // Single member: "Member of Group"
-                                credits
-                                    .push(format!("{} of {}", credited_members_in_group[0], name));
-                            } else {
-                                // Multiple members: "Group (Member1, Member2, ...)"
-                                let member_names: Vec<String> = credited_members_in_group
-                                    .iter()
-                                    .map(|s| s.to_string())
-                                    .collect();
-                                credits.push(format!("{} ({})", name, member_names.join(", ")));
-                            }
-                            for member in &credited_members_in_group {
-                                used_as_member.insert(member.as_str());
-                            }
-                            used_groups.insert(name.clone());
-                        } else {
-                            // All members present, show just the group name
+                if !used_groups.contains(name) {
+                    // If not all members are present (partial attendance), check format
+                    if credited_members_in_group.len() < unique_members.len() {
+                        if credited_members_in_group.is_empty() {
+                            // No members credited: show just the group name
                             credits.push(name.clone());
-                            used_groups.insert(name.clone());
-                            for member in presenter.members() {
-                                used_as_member.insert(member.as_str());
-                            }
+                        } else if credited_members_in_group.len() == 1 {
+                            // Single member: "Member of Group"
+                            credits.push(format!("{} of {}", credited_members_in_group[0], name));
+                        } else {
+                            // Multiple members: "Group (Member1, Member2, ...)"
+                            let member_names: Vec<String> = credited_members_in_group
+                                .iter()
+                                .map(|s| s.to_string())
+                                .collect();
+                            credits.push(format!("{} ({})", name, member_names.join(", ")));
+                        }
+                        for member in &credited_members_in_group {
+                            used_as_member.insert(member.as_str());
+                        }
+                        used_groups.insert(name.clone());
+                    } else {
+                        // All members present, show just the group name
+                        credits.push(name.clone());
+                        used_groups.insert(name.clone());
+                        for member in members {
+                            used_as_member.insert(member.as_str());
+                        }
+                    }
+                }
+            } else {
+                // Regular group logic
+                let show_as_group = members
+                    .iter()
+                    .all(|member| credited_presenters.contains(member));
+
+                if show_as_group {
+                    if !used_groups.contains(name) {
+                        credits.push(name.clone());
+                        used_groups.insert(name.clone());
+                        for member in members {
+                            used_as_member.insert(member.as_str());
                         }
                     }
                 } else {
-                    // Regular group logic
-                    let show_as_group = presenter
-                        .members()
+                    // Group is not always_shown and not all members present, show members individually
+                    for member in members {
+                        if credited_presenters.contains(member)
+                            && !used_as_member.contains(member.as_str())
+                        {
+                            credits.push(member.clone());
+                            used_as_member.insert(member.as_str());
+                        }
+                    }
+                }
+            }
+        } else if rels.is_any_always_grouped(name) {
+            let groups = rels.direct_groups_of(name);
+            // This member should always appear under their group name
+            for group_name in groups {
+                let group_members = rels.direct_members_of(group_name);
+                // Check if this group should be shown and handle partial membership
+                let show_as_group = rels.is_always_shown(group_name)
+                    || group_members
                         .iter()
                         .all(|member| credited_presenters.contains(member));
 
-                    if show_as_group {
-                        if !used_groups.contains(name) {
-                            credits.push(name.clone());
-                            used_groups.insert(name.clone());
-                            for member in presenter.members() {
+                if !used_groups.contains(group_name) && show_as_group {
+                    // For always_shown groups, check if we should show "Member of Group" format
+                    if rels.is_always_shown(group_name) {
+                        let credited_members_in_group: Vec<&String> = group_members
+                            .iter()
+                            .filter(|member| credited_presenters.contains(member))
+                            .collect();
+
+                        // If not all members are present (partial attendance), show "Member of Group" for each
+                        if credited_members_in_group.len() < group_members.len() {
+                            // Show each credited member as "Member of Group"
+                            for member in &credited_members_in_group {
+                                credits.push(format!("{} of {}", member, group_name));
+                                used_as_member.insert(member.as_str());
+                            }
+                            used_groups.insert(group_name.clone());
+                        } else {
+                            // All members present, show just the group name
+                            credits.push(group_name.clone());
+                            used_groups.insert(group_name.clone());
+                            for member in group_members {
                                 used_as_member.insert(member.as_str());
                             }
                         }
                     } else {
-                        // Group is not always_shown and not all members present, show members individually
-                        for member in presenter.members() {
-                            if credited_presenters.contains(member)
-                                && !used_as_member.contains(member.as_str())
-                            {
-                                credits.push(member.clone());
-                                used_as_member.insert(member.as_str());
-                            }
-                        }
-                    }
-                }
-            } else if presenter.always_grouped() && !presenter.groups().is_empty() {
-                // This member should always appear under their group name
-                for group_name in presenter.groups() {
-                    if let Some(group) = presenter_lookup.get(group_name.as_str()) {
-                        // Check if this group should be shown and handle partial membership
-                        let show_as_group = group.always_shown()
-                            || group
-                                .members()
-                                .iter()
-                                .all(|member| credited_presenters.contains(member));
-
-                        if !used_groups.contains(group_name) {
-                            if show_as_group {
-                                // For always_shown groups, check if we should show "Member of Group" format
-                                if group.always_shown() {
-                                    let credited_members_in_group: Vec<&String> = group
-                                        .members()
-                                        .iter()
-                                        .filter(|member| credited_presenters.contains(member))
-                                        .collect();
-
-                                    // If not all members are present (partial attendance), show "Member of Group" for each
-                                    if credited_members_in_group.len() < group.members().len() {
-                                        // Show each credited member as "Member of Group"
-                                        for member in &credited_members_in_group {
-                                            credits.push(format!("{} of {}", member, group_name));
-                                            used_as_member.insert(member.as_str());
-                                        }
-                                        used_groups.insert(group_name.clone());
-                                    } else {
-                                        // All members present, show just the group name
-                                        credits.push(group_name.clone());
-                                        used_groups.insert(group_name.clone());
-                                        for member in group.members() {
-                                            used_as_member.insert(member.as_str());
-                                        }
-                                    }
-                                } else {
-                                    // Regular group, show just the group name
-                                    credits.push(group_name.clone());
-                                    used_groups.insert(group_name.clone());
-                                    for member in group.members() {
-                                        used_as_member.insert(member.as_str());
-                                    }
-                                }
-                            }
+                        // Regular group, show just the group name
+                        credits.push(group_name.clone());
+                        used_groups.insert(group_name.clone());
+                        for member in group_members {
+                            used_as_member.insert(member.as_str());
                         }
                     }
                 }
@@ -269,67 +256,59 @@ fn compute_credits(
         if used_as_member.contains(name.as_str()) {
             continue;
         }
-        if let Some(presenter) = presenter_lookup.get(name.as_str()) {
-            if !presenter.is_group() && !presenter.always_grouped() {
-                // Check if this presenter belongs to any groups that should be shown
-                let mut group_shown = false;
-                for group_name in presenter.groups() {
-                    if !used_groups.contains(group_name) {
-                        if let Some(group) = presenter_lookup.get(group_name.as_str()) {
-                            let show_as_group = group.always_shown()
-                                || group
-                                    .members()
-                                    .iter()
-                                    .all(|member| credited_presenters.contains(member));
+        if !rels.is_group(name) && !rels.is_any_always_grouped(name) {
+            // Check if this presenter belongs to any groups that should be shown
+            let mut group_shown = false;
+            for group_name in rels.direct_groups_of(name) {
+                if !used_groups.contains(group_name) {
+                    let group_members = rels.direct_members_of(group_name);
+                    let show_as_group = rels.is_always_shown(group_name)
+                        || group_members
+                            .iter()
+                            .all(|member| credited_presenters.contains(member));
 
-                            if show_as_group {
-                                // For always_shown groups, check if we should show "Member of Group" format
-                                if group.always_shown() {
-                                    let credited_members_in_group: Vec<&String> = group
-                                        .members()
-                                        .iter()
-                                        .filter(|member| credited_presenters.contains(member))
-                                        .collect();
+                    if show_as_group {
+                        // For always_shown groups, check if we should show "Member of Group" format
+                        if rels.is_always_shown(group_name) {
+                            let credited_members_in_group: Vec<&String> = group_members
+                                .iter()
+                                .filter(|member| credited_presenters.contains(member))
+                                .collect();
 
-                                    // If not all members are present (partial attendance), show "Member of Group" for each
-                                    if credited_members_in_group.len() < group.members().len() {
-                                        // Show each credited member as "Member of Group"
-                                        for member in &credited_members_in_group {
-                                            credits.push(format!("{} of {}", member, group_name));
-                                            used_as_member.insert(member.as_str());
-                                        }
-                                        used_groups.insert(group_name.clone());
-                                    } else {
-                                        // All members present, show just the group name
-                                        credits.push(group_name.clone());
-                                        used_groups.insert(group_name.clone());
-                                        for member in group.members() {
-                                            used_as_member.insert(member.as_str());
-                                        }
-                                    }
-                                } else {
-                                    // Regular group, show just the group name
-                                    credits.push(group_name.clone());
-                                    used_groups.insert(group_name.clone());
-                                    for member in group.members() {
-                                        used_as_member.insert(member.as_str());
-                                    }
+                            // If not all members are present (partial attendance), show "Member of Group" for each
+                            if credited_members_in_group.len() < group_members.len() {
+                                // Show each credited member as "Member of Group"
+                                for member in &credited_members_in_group {
+                                    credits.push(format!("{} of {}", member, group_name));
+                                    used_as_member.insert(member.as_str());
                                 }
-                                group_shown = true;
-                                break;
+                                used_groups.insert(group_name.clone());
+                            } else {
+                                // All members present, show just the group name
+                                credits.push(group_name.clone());
+                                used_groups.insert(group_name.clone());
+                                for member in group_members {
+                                    used_as_member.insert(member.as_str());
+                                }
+                            }
+                        } else {
+                            // Regular group, show just the group name
+                            credits.push(group_name.clone());
+                            used_groups.insert(group_name.clone());
+                            for member in group_members {
+                                used_as_member.insert(member.as_str());
                             }
                         }
+                        group_shown = true;
+                        break;
                     }
                 }
-
-                if !group_shown {
-                    // Show as individual presenter
-                    credits.push(name.clone());
-                }
             }
-        } else {
-            // Presenter not found in lookup, show as-is
-            credits.push(name.clone());
+
+            if !group_shown {
+                // Show as individual presenter
+                credits.push(name.clone());
+            }
         }
     }
 
@@ -436,7 +415,7 @@ impl Schedule {
                     panel.hide_panelist,
                     panel.alt_panelist.as_deref(),
                     &panel.credited_presenters,
-                    &self.presenters,
+                    &self.relationships,
                 );
 
                 let mut all_presenters = panel.credited_presenters.clone();
@@ -644,11 +623,7 @@ impl Schedule {
         // 3. Add members of any directly referenced group (group → individual)
         // 4. For transitive group traversal, only follow group links (not member links)
         // 5. For each included presenter/group, collect all panel IDs where they should appear
-        let presenter_lookup: std::collections::HashMap<&str, &Presenter> = self
-            .presenters
-            .iter()
-            .map(|p| (p.name.as_str(), p))
-            .collect();
+        let rels = &self.relationships;
 
         // Step 1: Find all directly referenced presenters
         let mut directly_referenced: HashSet<String> = HashSet::new();
@@ -665,35 +640,29 @@ impl Schedule {
 
         // Initialize traversal sets
         for name in &directly_referenced {
-            if let Some(presenter) = presenter_lookup.get(name.as_str()) {
-                if presenter.is_group() {
-                    to_check_members.push(name.clone());
-                } else {
-                    to_check_groups.push(name.clone());
-                }
+            if rels.is_group(name) {
+                to_check_members.push(name.clone());
+            } else {
+                to_check_groups.push(name.clone());
             }
         }
 
         // Traverse groups: individual → group → group → ... (transitive groups only)
         while let Some(presenter_name) = to_check_groups.pop() {
-            if let Some(presenter) = presenter_lookup.get(presenter_name.as_str()) {
-                for group_name in presenter.groups() {
-                    if !included_presenters.contains(group_name) {
-                        included_presenters.insert(group_name.clone());
-                        to_check_groups.push(group_name.clone()); // Continue group traversal
-                    }
+            for group_name in rels.direct_groups_of(&presenter_name) {
+                if !included_presenters.contains(group_name) {
+                    included_presenters.insert(group_name.clone());
+                    to_check_groups.push(group_name.clone()); // Continue group traversal
                 }
             }
         }
 
         // Traverse members: group → individual (direct members only, no further group traversal)
         while let Some(group_name) = to_check_members.pop() {
-            if let Some(group) = presenter_lookup.get(group_name.as_str()) {
-                for member_name in group.members() {
-                    if !included_presenters.contains(member_name) {
-                        included_presenters.insert(member_name.clone());
-                        // Don't add to to_check_groups - we don't traverse groups from members
-                    }
+            for member_name in rels.direct_members_of(&group_name) {
+                if !included_presenters.contains(member_name) {
+                    included_presenters.insert(member_name.clone());
+                    // Don't add to to_check_groups - we don't traverse groups from members
                 }
             }
         }
@@ -724,35 +693,29 @@ impl Schedule {
             let mut to_expand_members: Vec<String> = Vec::new();
 
             for name in &panel_presenters {
-                if let Some(presenter) = presenter_lookup.get(name.as_str()) {
-                    if presenter.is_group() {
-                        to_expand_members.push(name.clone());
-                    } else {
-                        to_expand_groups.push(name.clone());
-                    }
+                if rels.is_group(name) {
+                    to_expand_members.push(name.clone());
+                } else {
+                    to_expand_groups.push(name.clone());
                 }
             }
 
             // Transitive group traversal from individuals
             while let Some(presenter_name) = to_expand_groups.pop() {
-                if let Some(presenter) = presenter_lookup.get(presenter_name.as_str()) {
-                    for group_name in presenter.groups() {
-                        if !panel_presenters.contains(group_name) {
-                            panel_presenters.insert(group_name.clone());
-                            to_expand_groups.push(group_name.clone()); // Continue group traversal
-                        }
+                for group_name in rels.direct_groups_of(&presenter_name) {
+                    if !panel_presenters.contains(group_name) {
+                        panel_presenters.insert(group_name.clone());
+                        to_expand_groups.push(group_name.clone()); // Continue group traversal
                     }
                 }
             }
 
             // Direct member traversal from groups
             while let Some(group_name) = to_expand_members.pop() {
-                if let Some(group) = presenter_lookup.get(group_name.as_str()) {
-                    for member_name in group.members() {
-                        if !panel_presenters.contains(member_name) {
-                            panel_presenters.insert(member_name.clone());
-                            // Don't traverse groups from members
-                        }
+                for member_name in rels.direct_members_of(&group_name) {
+                    if !panel_presenters.contains(member_name) {
+                        panel_presenters.insert(member_name.clone());
+                        // Don't traverse groups from members
                     }
                 }
             }
@@ -782,11 +745,11 @@ impl Schedule {
                 name: p.name.clone(),
                 rank: p.rank.clone(),
                 sort_key: idx as u32,
-                is_group: p.is_group(),
-                members: p.members().iter().cloned().collect(),
-                groups: p.groups().iter().cloned().collect(),
-                always_grouped: p.always_grouped(),
-                always_shown: p.always_shown(),
+                is_group: rels.is_group(&p.name),
+                members: rels.direct_members_of(&p.name).to_vec(),
+                groups: rels.direct_groups_of(&p.name).to_vec(),
+                always_grouped: rels.is_any_always_grouped(&p.name),
+                always_shown: rels.is_always_shown(&p.name),
                 panel_ids: presenter_to_panels
                     .get(&p.name)
                     .cloned()
@@ -831,9 +794,19 @@ mod tests {
     use crate::data::panel::Panel;
     use crate::data::panel_set::PanelSet;
     use crate::data::presenter::{Presenter, PresenterGroup, PresenterMember, PresenterRank};
+    use crate::data::relationship::RelationshipManager;
     use crate::data::room::Room;
     use crate::data::schedule::{Meta, Schedule};
     use indexmap::IndexMap;
+
+    /// Build a RelationshipManager from a slice of Presenters (mirrors
+    /// Schedule::build_relationships_from_presenters for test use).
+    fn rels_from_presenters(presenters: &[Presenter]) -> RelationshipManager {
+        let mut schedule = Schedule::default();
+        schedule.presenters = presenters.to_vec();
+        schedule.build_relationships_from_presenters();
+        schedule.relationships
+    }
 
     #[test]
     fn test_compute_credits_enhanced_logic() {
@@ -967,12 +940,14 @@ mod tests {
             },
         ];
 
+        let rels = rels_from_presenters(&presenters);
+
         // Test 1: Always shown group with partial membership should show "Member of Group" format
         let credits = super::compute_credits(
             false,
             None,
             &["Jane Smith".to_string()], // Only one member of always_shown group
-            &presenters,
+            &rels,
         );
         assert_eq!(credits, vec!["Jane Smith of Test Group"]);
 
@@ -981,7 +956,7 @@ mod tests {
             false,
             None,
             &["Alice Brown".to_string(), "Charlie Wilson".to_string()],
-            &presenters,
+            &rels,
         );
         assert_eq!(credits, vec!["Regular Group"]);
 
@@ -990,16 +965,16 @@ mod tests {
             false,
             None,
             &["Alice Brown".to_string()], // Only one member of regular group
-            &presenters,
+            &rels,
         );
         assert_eq!(credits, vec!["Alice Brown"]);
 
         // Test 4: Always grouped member should show "Member of Group" format when group is always_shown
-        let credits = super::compute_credits(false, None, &["Jane Smith".to_string()], &presenters);
+        let credits = super::compute_credits(false, None, &["Jane Smith".to_string()], &rels);
         assert_eq!(credits, vec!["Jane Smith of Test Group"]);
 
         // Test 5: Regular presenter should show individual name
-        let credits = super::compute_credits(false, None, &["John Doe".to_string()], &presenters);
+        let credits = super::compute_credits(false, None, &["John Doe".to_string()], &rels);
         assert_eq!(credits, vec!["John Doe"]);
 
         // Test 6: Mixed scenario - always shown group, regular group, and individual
@@ -1011,7 +986,7 @@ mod tests {
                 "Jane Smith".to_string(),
                 "Alice Brown".to_string(),
             ],
-            &presenters,
+            &rels,
         );
         // Should show: Jane Smith of Test Group (always_shown partial), John Doe (individual), Alice Brown (partial regular group)
         assert_eq!(
@@ -1055,12 +1030,14 @@ mod tests {
             },
         ];
 
+        let rels = rels_from_presenters(&presenters);
+
         // Test normal case
-        let credits = super::compute_credits(false, None, &["John Doe".to_string()], &presenters);
+        let credits = super::compute_credits(false, None, &["John Doe".to_string()], &rels);
         assert_eq!(credits, vec!["John Doe"]);
 
         // Test hide_panelist
-        let credits = super::compute_credits(true, None, &["John Doe".to_string()], &presenters);
+        let credits = super::compute_credits(true, None, &["John Doe".to_string()], &rels);
         assert_eq!(credits, Vec::<String>::new());
 
         // Test alt_panelist
@@ -1068,7 +1045,7 @@ mod tests {
             false,
             Some("Mystery Guest"),
             &["John Doe".to_string()],
-            &presenters,
+            &rels,
         );
         assert_eq!(credits, vec!["Mystery Guest"]);
 
@@ -1077,7 +1054,7 @@ mod tests {
             true,
             Some("Mystery Guest"),
             &["John Doe".to_string()],
-            &presenters,
+            &rels,
         );
         assert_eq!(credits, Vec::<String>::new());
     }

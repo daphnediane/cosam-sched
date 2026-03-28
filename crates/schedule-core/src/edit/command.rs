@@ -12,6 +12,7 @@ use crate::data::panel_type::PanelType;
 use crate::data::presenter::{
     Presenter, PresenterGroup, PresenterMember, PresenterRank, PresenterSortRank,
 };
+use crate::data::relationship::GroupEdge;
 use crate::data::room::Room;
 use crate::data::schedule::Schedule;
 use crate::data::source_info::{ChangeState, SourceInfo};
@@ -322,6 +323,16 @@ pub enum EditCommand {
         new: Vec<String>,
     },
 
+    // ── Relationships ─────────────────────────────────────────────
+    AddRelationship {
+        edge: GroupEdge,
+    },
+    RemoveRelationship {
+        member: String,
+        group: String,
+        old_edge: Option<GroupEdge>,
+    },
+
     // ── Batch ────────────────────────────────────────────────────
     Batch(Vec<EditCommand>),
 }
@@ -508,6 +519,7 @@ impl EditCommand {
                     change_state: *change_state,
                 };
                 schedule.presenters.push(presenter);
+                schedule.build_relationships_from_presenters();
             }
             EditCommand::CreatePanelType {
                 prefix,
@@ -549,6 +561,7 @@ impl EditCommand {
                     new.apply_to(presenter);
                     mark_presenter_modified(presenter);
                 }
+                schedule.build_relationships_from_presenters();
             }
             EditCommand::UpdatePanelType { prefix, old, new } => {
                 if let Some(pt) = schedule.panel_types.get_mut(prefix) {
@@ -624,6 +637,17 @@ impl EditCommand {
                     panel.credited_presenters = new.clone();
                     mark_panel_modified(panel);
                 }
+            }
+            EditCommand::AddRelationship { edge } => {
+                schedule.relationships.add_edge(edge.clone());
+            }
+            EditCommand::RemoveRelationship {
+                member,
+                group,
+                old_edge,
+            } => {
+                *old_edge = schedule.relationships.find_edge(member, group).cloned();
+                schedule.relationships.remove_edge(member, group);
             }
             EditCommand::Batch(commands) => {
                 for cmd in commands.iter_mut() {
@@ -758,6 +782,7 @@ impl EditCommand {
                 schedule
                     .presenters
                     .retain(|p| !p.name.eq_ignore_ascii_case(name));
+                schedule.build_relationships_from_presenters();
             }
             EditCommand::CreatePanelType { prefix, .. } => {
                 schedule.panel_types.shift_remove(prefix);
@@ -777,6 +802,7 @@ impl EditCommand {
                     old.apply_to(presenter);
                     mark_presenter_modified(presenter);
                 }
+                schedule.build_relationships_from_presenters();
             }
             EditCommand::UpdatePanelType { prefix, old, .. } => {
                 if let Some(pt) = schedule.panel_types.get_mut(prefix) {
@@ -861,6 +887,16 @@ impl EditCommand {
                 if let Some(panel) = get_panel_mut(schedule, panel_id) {
                     panel.credited_presenters = old.clone();
                     mark_panel_modified(panel);
+                }
+            }
+            EditCommand::AddRelationship { edge } => {
+                schedule
+                    .relationships
+                    .remove_edge(&edge.member, &edge.group);
+            }
+            EditCommand::RemoveRelationship { old_edge, .. } => {
+                if let Some(edge) = old_edge {
+                    schedule.relationships.add_edge(edge.clone());
                 }
             }
             EditCommand::Batch(commands) => {

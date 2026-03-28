@@ -228,6 +228,22 @@ impl RelationshipManager {
         self.cache.get_inclusive_groups(member)
     }
 
+    /// Get direct parent groups for a member (non-caching, borrows `&self`).
+    pub fn direct_groups_of(&self, member: &str) -> &[String] {
+        self.member_to_groups
+            .get(member)
+            .map(|v| v.as_slice())
+            .unwrap_or(&[])
+    }
+
+    /// Get direct members for a group (non-caching, borrows `&self`).
+    pub fn direct_members_of(&self, group: &str) -> &[String] {
+        self.group_to_members
+            .get(group)
+            .map(|v| v.as_slice())
+            .unwrap_or(&[])
+    }
+
     /// Check if a presenter is a group
     pub fn is_group(&self, name: &str) -> bool {
         self.group_to_members.contains_key(name)
@@ -259,6 +275,13 @@ impl RelationshipManager {
     /// Get all edges (for debugging/serialization)
     pub fn edges(&self) -> Iter<'_, GroupEdge> {
         self.edges.iter()
+    }
+
+    /// Find an edge by member/group pair, returning a reference if it exists.
+    pub fn find_edge(&self, member: &str, group: &str) -> Option<&GroupEdge> {
+        self.edges
+            .iter()
+            .find(|e| e.member == member && e.group == group)
     }
 
     /// Invalidate the cache
