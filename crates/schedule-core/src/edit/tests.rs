@@ -1513,6 +1513,80 @@ mod tests {
     }
 
     #[test]
+    fn sync_presenters_from_relationships_after_add() {
+        use crate::data::relationship::GroupEdge;
+        use crate::edit::command::EditCommand;
+
+        let mut schedule = make_empty_schedule();
+        {
+            let mut ctx = EditContext::import(&mut schedule);
+            ctx.find_or_create_presenter(
+                "Alpha",
+                &PresenterOptions {
+                    rank: Some(PresenterRank::Guest),
+                    ..Default::default()
+                },
+            );
+            ctx.find_or_create_presenter(
+                "BetaGroup",
+                &PresenterOptions {
+                    rank: Some(PresenterRank::Guest),
+                    is_group: Some(true),
+                    ..Default::default()
+                },
+            );
+        }
+
+        // Alpha is not a member of BetaGroup yet
+        assert!(
+            schedule
+                .presenters
+                .iter()
+                .find(|p| p.name == "Alpha")
+                .unwrap()
+                .groups()
+                .is_empty()
+        );
+
+        // Add relationship via command (only touches RelationshipManager)
+        let mut cmd = EditCommand::AddRelationship {
+            edge: GroupEdge::new("Alpha".to_string(), "BetaGroup".to_string(), true, false),
+        };
+        cmd.apply(&mut schedule);
+
+        // Presenter struct is NOT yet updated
+        assert!(
+            schedule
+                .presenters
+                .iter()
+                .find(|p| p.name == "Alpha")
+                .unwrap()
+                .groups()
+                .is_empty()
+        );
+
+        // Sync from RelationshipManager
+        schedule.sync_presenters_from_relationships();
+
+        // Now Presenter struct should reflect the relationship
+        let alpha = schedule
+            .presenters
+            .iter()
+            .find(|p| p.name == "Alpha")
+            .unwrap();
+        assert!(alpha.groups().contains("BetaGroup"));
+        assert!(alpha.always_grouped());
+
+        let beta = schedule
+            .presenters
+            .iter()
+            .find(|p| p.name == "BetaGroup")
+            .unwrap();
+        assert!(beta.is_group());
+        assert!(beta.members().contains("Alpha"));
+    }
+
+    #[test]
     fn xlsx_syntax_populates_relationship_manager() {
         // Verify that all G: syntax variants correctly populate the RelationshipManager
         let mut schedule = make_empty_schedule();

@@ -71,6 +71,10 @@ impl ScheduleFile {
 
         self.schedule.meta.generator = Some(format!("cosam-sched {}", env!("CARGO_PKG_VERSION")));
 
+        // Sync presenter struct fields from RelationshipManager so that
+        // changes made via AddRelationship/RemoveRelationship are serialized.
+        self.schedule.sync_presenters_from_relationships();
+
         crate::data::post_process::apply_schedule_parity(&mut self.schedule);
 
         if self.schedule.meta.start_time.is_none() || self.schedule.meta.end_time.is_none() {
