@@ -111,7 +111,10 @@ impl Schedule {
     }
 
     /// Calculate schedule start and end times from panel_sets and timeline entries
-    pub fn calculate_schedule_bounds(&mut self) {
+    /// Returns a TimeRange without modifying the schedule
+    pub fn calculate_schedule_bounds(
+        &self,
+    ) -> (Option<chrono::NaiveDateTime>, Option<chrono::NaiveDateTime>) {
         let mut min_time: Option<chrono::NaiveDateTime> = None;
         let mut max_time: Option<chrono::NaiveDateTime> = None;
 
@@ -141,6 +144,13 @@ impl Schedule {
                 }
             }
         }
+
+        (min_time, max_time)
+    }
+
+    /// Update schedule start and end times in metadata from calculated bounds
+    pub fn update_schedule_bounds(&mut self) {
+        let (min_time, max_time) = self.calculate_schedule_bounds();
 
         // Set meta fields
         if let Some(min_time) = min_time {
@@ -274,43 +284,6 @@ impl Schedule {
                 }
                 PresenterMember::NotMember => {}
             }
-        }
-    }
-
-    /// Update each `Presenter`'s `is_member`/`is_grouped` fields from the
-    /// current `RelationshipManager` state.  Call before serialization to
-    /// ensure that changes made via `AddRelationship`/`RemoveRelationship`
-    /// commands are reflected in the serialized output.
-    pub fn sync_presenters_from_relationships(&mut self) {
-        for presenter in &mut self.presenters {
-            let name = &presenter.name;
-            let groups: std::collections::BTreeSet<String> = self
-                .relationships
-                .direct_groups_of(name)
-                .iter()
-                .cloned()
-                .collect();
-            let members: std::collections::BTreeSet<String> = self
-                .relationships
-                .direct_members_of(name)
-                .iter()
-                .cloned()
-                .collect();
-            let is_group = self.relationships.is_group(name);
-            let always_grouped = self.relationships.is_any_always_grouped(name);
-            let always_shown = self.relationships.is_always_shown(name);
-
-            presenter.is_member = if groups.is_empty() {
-                PresenterMember::NotMember
-            } else {
-                PresenterMember::IsMember(groups, always_grouped)
-            };
-
-            presenter.is_grouped = if is_group {
-                PresenterGroup::IsGroup(members, always_shown)
-            } else {
-                PresenterGroup::NotGroup
-            };
         }
     }
 

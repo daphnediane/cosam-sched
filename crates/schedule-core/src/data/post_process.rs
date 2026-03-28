@@ -18,7 +18,7 @@ pub fn apply_schedule_parity(schedule: &mut Schedule) {
     generate_credits(schedule);
     detect_conflicts(schedule);
     detect_panel_conflicts(schedule);
-    schedule.calculate_schedule_bounds();
+    schedule.update_schedule_bounds();
 }
 
 fn generate_credits(schedule: &mut Schedule) {
