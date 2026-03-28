@@ -149,7 +149,7 @@ impl FullSchedule {
 
     /// Convert this FullSchedule back to a Schedule with proper relationships.
     pub fn to_schedule(&self) -> Result<Schedule> {
-        use crate::data::presenter::{Presenter, PresenterGroup, PresenterMember};
+        use crate::data::presenter::Presenter;
 
         let relationships = self.build_relationships_from_presenters();
 
@@ -158,34 +158,10 @@ impl FullSchedule {
             .presenters
             .iter()
             .map(|fp| {
-                let (is_member, is_grouped) = if fp.is_group {
-                    (
-                        PresenterMember::NotMember,
-                        PresenterGroup::IsGroup(
-                            fp.members.iter().cloned().collect(),
-                            fp.always_shown,
-                        ),
-                    )
-                } else {
-                    (
-                        if fp.groups.is_empty() {
-                            PresenterMember::NotMember
-                        } else {
-                            PresenterMember::IsMember(
-                                fp.groups.iter().cloned().collect(),
-                                fp.always_grouped,
-                            )
-                        },
-                        PresenterGroup::NotGroup,
-                    )
-                };
-
                 Ok(Presenter {
                     id: None, // IDs are not stored in v10 format
                     name: fp.name.clone(),
                     rank: fp.rank.clone(),
-                    is_member,
-                    is_grouped,
                     sort_rank: fp.sort_rank.clone(),
                     metadata: fp.metadata.clone(),
                     source: None, // Source info is not stored in v10 format
@@ -333,8 +309,6 @@ mod tests {
                 id: Some(1),
                 name: "Group1".to_string(),
                 rank: PresenterRank::Guest,
-                is_member: crate::data::presenter::PresenterMember::NotMember,
-                is_grouped: crate::data::presenter::PresenterGroup::NotGroup,
                 sort_rank: Some(PresenterSortRank::people(0)),
                 metadata: None,
                 source: None,
@@ -344,8 +318,6 @@ mod tests {
                 id: Some(2),
                 name: "Member1".to_string(),
                 rank: PresenterRank::FanPanelist,
-                is_member: crate::data::presenter::PresenterMember::NotMember,
-                is_grouped: crate::data::presenter::PresenterGroup::NotGroup,
                 sort_rank: Some(PresenterSortRank::people(1)),
                 metadata: None,
                 source: None,
@@ -355,8 +327,6 @@ mod tests {
                 id: Some(4),
                 name: "Member2".to_string(),
                 rank: PresenterRank::FanPanelist,
-                is_member: crate::data::presenter::PresenterMember::NotMember,
-                is_grouped: crate::data::presenter::PresenterGroup::NotGroup,
                 sort_rank: Some(PresenterSortRank::people(2)),
                 metadata: None,
                 source: None,
@@ -401,8 +371,6 @@ mod tests {
             id: Some(1),
             name: "Test Presenter".to_string(),
             rank: PresenterRank::Guest,
-            is_member: crate::data::presenter::PresenterMember::NotMember,
-            is_grouped: crate::data::presenter::PresenterGroup::NotGroup,
             sort_rank: None,
             metadata: None,
             source: None,

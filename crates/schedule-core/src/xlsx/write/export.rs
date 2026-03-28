@@ -67,11 +67,11 @@ fn build_presenter_columns(schedule: &Schedule) -> Vec<ExportPresenterColumn> {
             if presenter.rank.as_str() != rank_str {
                 continue;
             }
-            if presenter.is_group() {
+            if schedule.relationships.is_group(name) {
                 continue;
             }
             let count = event_count.get(name).copied().unwrap_or(0);
-            let has_groups = !presenter.groups().is_empty();
+            let has_groups = !schedule.relationships.direct_groups_of(name).is_empty();
             if has_groups || count >= MIN_PANELS_FOR_NAMED_COLUMN {
                 named_for_rank.push((name, presenter));
             } else if count > 0 {
@@ -91,14 +91,23 @@ fn build_presenter_columns(schedule: &Schedule) -> Vec<ExportPresenterColumn> {
 
         named_for_rank.sort_by_key(|(name, _)| *name);
 
-        for (name, presenter) in named_for_rank {
-            let header = if presenter.always_grouped() {
-                if let Some(group) = presenter.groups().first() {
+        for (name, _presenter) in named_for_rank {
+            let groups = schedule.relationships.direct_groups_of(name);
+            let always_grouped = groups.iter().any(|group| {
+                schedule
+                    .relationships
+                    .find_edge(name, group)
+                    .map(|edge| edge.always_grouped)
+                    .unwrap_or(false)
+            });
+
+            let header = if always_grouped {
+                if let Some(group) = groups.first() {
                     format!("{}:{}=={}", prefix_char, name, group)
                 } else {
                     format!("{}:{}", prefix_char, name)
                 }
-            } else if let Some(group) = presenter.groups().first() {
+            } else if let Some(group) = groups.first() {
                 format!("{}:{}={}", prefix_char, name, group)
             } else {
                 format!("{}:{}", prefix_char, name)
@@ -172,7 +181,7 @@ pub fn export_to_xlsx(sf: &ScheduleFile, path: &Path) -> Result<()> {
         let ws = book
             .get_sheet_by_name_mut("People")
             .ok_or_else(|| anyhow::anyhow!("Sheet 'People' not found"))?;
-        let last_row = write_presenters_sheet(ws, &schedule.presenters);
+        let last_row = write_presenters_sheet(ws, schedule);
         add_table(ws, "Presenters", presenter_headers, last_row);
     }
 
@@ -534,7 +543,7 @@ fn write_schedule_sheet(
     Ok(row - 1)
 }
 
-fn write_presenters_sheet(ws: &mut Worksheet, presenters: &[Presenter]) -> u32 {
+fn write_presenters_sheet(ws: &mut Worksheet, schedule: &Schedule) -> u32 {
     set_headers(
         ws,
         &[
@@ -549,45 +558,54 @@ fn write_presenters_sheet(ws: &mut Worksheet, presenters: &[Presenter]) -> u32 {
     );
 
     let mut row = 2u32;
-    for presenter in presenters {
+    for presenter in &schedule.presenters {
         if presenter.change_state == ChangeState::Deleted {
             continue;
         }
         set_str(ws, 1, row, &presenter.name);
         set_str(ws, 2, row, presenter.rank.as_str());
-        if presenter.is_group() {
+        if schedule.relationships.is_group(&presenter.name) {
             set_str(ws, 3, row, "Yes");
         }
-        if !presenter.members().is_empty() {
+        let members = schedule.relationships.direct_members_of(&presenter.name);
+        if !members.is_empty() {
             set_str(
                 ws,
                 4,
                 row,
-                &presenter
-                    .members()
+                &members
                     .iter()
-                    .map(|s| s.as_str())
+                    .map(|s: &String| s.as_str())
                     .collect::<Vec<_>>()
                     .join(", "),
             );
         }
-        if !presenter.groups().is_empty() {
+        let groups = schedule.relationships.direct_groups_of(&presenter.name);
+        if !groups.is_empty() {
             set_str(
                 ws,
                 5,
                 row,
-                &presenter
-                    .groups()
+                &groups
                     .iter()
-                    .map(|s| s.as_str())
+                    .map(|s: &String| s.as_str())
                     .collect::<Vec<_>>()
                     .join(", "),
             );
         }
-        if presenter.always_grouped() {
+        // Check always_grouped and always_shown from relationships
+        let always_grouped = groups.iter().any(|group| {
+            schedule
+                .relationships
+                .find_edge(&presenter.name, group)
+                .map(|edge| edge.always_grouped)
+                .unwrap_or(false)
+        });
+        if always_grouped {
             set_str(ws, 6, row, "Yes");
         }
-        if presenter.always_shown() {
+        let always_shown = schedule.relationships.is_always_shown(&presenter.name);
+        if always_shown {
             set_str(ws, 7, row, "Yes");
         }
         row += 1;

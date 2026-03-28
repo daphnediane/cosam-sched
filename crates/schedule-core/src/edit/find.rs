@@ -4,12 +4,11 @@
  * See LICENSE file for full license text
  */
 
-use std::collections::BTreeSet;
-
 use indexmap::IndexMap;
 
 use crate::data::panel::ExtraFields;
-use crate::data::presenter::{PresenterGroup, PresenterMember, PresenterRank, PresenterSortRank};
+use crate::data::presenter::{PresenterRank, PresenterSortRank};
+use crate::data::relationship::GroupEdge;
 use crate::data::source_info::{ChangeState, SourceInfo};
 
 use super::command::{EditCommand, PanelTypeSnapshot, PresenterSnapshot, RoomSnapshot};
@@ -34,20 +33,18 @@ pub struct RoomOptions {
 #[derive(Debug, Clone, Default)]
 pub struct PresenterOptions {
     pub rank: Option<PresenterRank>,
-    /// Groups to add to this presenter's membership list.
-    pub add_groups: Vec<String>,
-    /// Members to add (only meaningful if the presenter is a group).
-    pub add_members: Vec<String>,
-    /// If `true`, mark this presenter as a group even when `add_members` is
-    /// empty (e.g. a group with no members yet).
-    pub is_group: Option<bool>,
-    pub always_grouped: Option<bool>,
-    pub always_shown: Option<bool>,
     /// Ordering key recording where this presenter was first defined.
     pub sort_rank: Option<PresenterSortRank>,
     pub metadata: Option<ExtraFields>,
     pub source: Option<SourceInfo>,
     pub change_state: Option<ChangeState>,
+
+    // Relationship management fields
+    pub add_groups: Vec<String>,
+    pub add_members: Vec<String>,
+    pub is_group: Option<bool>,
+    pub always_grouped: Option<bool>,
+    pub always_shown: Option<bool>,
 }
 
 /// Options for finding or creating a panel type.
@@ -165,54 +162,6 @@ impl EditContext<'_> {
                 }
             }
 
-            // Merge groups
-            if !opts.add_groups.is_empty() {
-                let (groups, always_grouped) = match &mut new_snap.is_member {
-                    PresenterMember::IsMember(groups, grouped) => (groups, grouped),
-                    PresenterMember::NotMember => {
-                        new_snap.is_member = PresenterMember::IsMember(BTreeSet::new(), false);
-                        match &mut new_snap.is_member {
-                            PresenterMember::IsMember(groups, grouped) => (groups, grouped),
-                            _ => unreachable!(),
-                        }
-                    }
-                };
-                for group in &opts.add_groups {
-                    groups.insert(group.clone());
-                }
-                if let Some(ag) = opts.always_grouped {
-                    *always_grouped = ag;
-                }
-            } else if let Some(ag) = opts.always_grouped {
-                if let PresenterMember::IsMember(_, grouped) = &mut new_snap.is_member {
-                    *grouped = ag;
-                }
-            }
-
-            // Merge members (if this presenter is/becomes a group)
-            if !opts.add_members.is_empty() {
-                let (members, always_shown) = match &mut new_snap.is_grouped {
-                    PresenterGroup::IsGroup(members, shown) => (members, shown),
-                    PresenterGroup::NotGroup => {
-                        new_snap.is_grouped = PresenterGroup::IsGroup(BTreeSet::new(), false);
-                        match &mut new_snap.is_grouped {
-                            PresenterGroup::IsGroup(members, shown) => (members, shown),
-                            _ => unreachable!(),
-                        }
-                    }
-                };
-                for member in &opts.add_members {
-                    members.insert(member.clone());
-                }
-                if let Some(shown) = opts.always_shown {
-                    *always_shown = shown;
-                }
-            } else if let Some(shown) = opts.always_shown {
-                if let PresenterGroup::IsGroup(_, s) = &mut new_snap.is_grouped {
-                    *s = shown;
-                }
-            }
-
             // Update sort_rank — earlier (lower) sort_rank wins.
             // PresenterSortRank derives Ord so direct comparison works.
             if let Some(ref new_sr) = opts.sort_rank {
@@ -232,52 +181,145 @@ impl EditContext<'_> {
                 new_snap.metadata = Some(metadata.clone());
             }
 
+            let mut commands = Vec::new();
+
             if old_snap != new_snap {
-                let cmd = EditCommand::UpdatePresenter {
+                commands.push(EditCommand::UpdatePresenter {
                     name: stored_name.clone(),
                     old: old_snap,
                     new: new_snap,
-                };
-                self.execute(cmd);
+                });
             }
+
+            // Add relationship commands to the same batch
+            let relationship_commands = self.collect_relationship_commands(&stored_name, opts);
+            commands.extend(relationship_commands);
+
+            // Execute all commands as a single batch
+            if !commands.is_empty() {
+                self.execute_batch(commands);
+            }
+
             stored_name
         } else {
             let rank = opts.rank.clone().unwrap_or_default();
 
-            let is_member = if opts.add_groups.is_empty() {
-                PresenterMember::NotMember
-            } else {
-                PresenterMember::IsMember(
-                    opts.add_groups.iter().cloned().collect(),
-                    opts.always_grouped.unwrap_or(false),
-                )
-            };
-
-            let is_grouped = if !opts.add_members.is_empty() || opts.is_group == Some(true) {
-                PresenterGroup::IsGroup(
-                    opts.add_members.iter().cloned().collect(),
-                    opts.always_shown.unwrap_or(false),
-                )
-            } else {
-                PresenterGroup::NotGroup
-            };
-
             let snapshot = PresenterSnapshot {
                 rank,
-                is_member,
-                is_grouped,
                 sort_rank: opts.sort_rank.clone(),
                 metadata: opts.metadata.clone(),
             };
-            let cmd = EditCommand::CreatePresenter {
+
+            let mut commands = Vec::new();
+
+            // Create the main presenter
+            commands.push(EditCommand::CreatePresenter {
                 name: name.to_string(),
                 snapshot,
                 source: opts.source.clone(),
                 change_state: opts.change_state.unwrap_or(ChangeState::Added),
-            };
-            self.execute(cmd);
+            });
+
+            // Add relationship commands to the same batch
+            let relationship_commands = self.collect_relationship_commands(name, opts);
+            commands.extend(relationship_commands);
+
+            // Execute all commands as a single batch
+            self.execute_batch(commands);
+
             name.to_string()
         }
+    }
+
+    /// Collect relationship-related commands without executing them
+    fn collect_relationship_commands(
+        &self,
+        presenter_name: &str,
+        opts: &PresenterOptions,
+    ) -> Vec<EditCommand> {
+        let mut commands = Vec::new();
+
+        // Handle is_group and always_shown flags
+        if let Some(is_group) = opts.is_group {
+            if is_group {
+                // Create a group-only edge if this is a group
+                let edge = GroupEdge::group_only(
+                    presenter_name.to_string(),
+                    opts.always_shown.unwrap_or(false),
+                );
+                commands.push(EditCommand::AddRelationship { edge });
+            }
+        }
+
+        // Handle add_groups (presenter -> group relationships)
+        for group_name in &opts.add_groups {
+            // Ensure the group presenter exists through command system
+            if !self
+                .schedule
+                .presenters
+                .iter()
+                .any(|p| p.name.eq_ignore_ascii_case(group_name))
+            {
+                // Create the group presenter command
+                let snapshot = PresenterSnapshot {
+                    rank: PresenterRank::default(),
+                    sort_rank: None,
+                    metadata: None,
+                };
+                commands.push(EditCommand::CreatePresenter {
+                    name: group_name.clone(),
+                    snapshot,
+                    source: None,
+                    change_state: ChangeState::Added,
+                });
+
+                // Create the group-only edge
+                let edge = GroupEdge::group_only(group_name.clone(), false);
+                commands.push(EditCommand::AddRelationship { edge });
+            }
+
+            let edge = GroupEdge::new(
+                presenter_name.to_string(),
+                group_name.clone(),
+                opts.always_grouped.unwrap_or(false), // always_grouped
+                false,                                // always_shown
+            );
+            commands.push(EditCommand::AddRelationship { edge });
+        }
+
+        // Handle add_members (group -> presenter relationships)
+        for member_name in &opts.add_members {
+            // Ensure the member presenter exists through command system
+            if !self
+                .schedule
+                .presenters
+                .iter()
+                .any(|p| p.name.eq_ignore_ascii_case(member_name))
+            {
+                // Create the member presenter command
+                let snapshot = PresenterSnapshot {
+                    rank: PresenterRank::default(),
+                    sort_rank: None,
+                    metadata: None,
+                };
+                commands.push(EditCommand::CreatePresenter {
+                    name: member_name.clone(),
+                    snapshot,
+                    source: None,
+                    change_state: ChangeState::Added,
+                });
+            }
+
+            let edge = GroupEdge::new(
+                member_name.clone(),
+                presenter_name.to_string(),
+                false, // always_grouped
+                false, // always_shown
+            );
+            commands.push(EditCommand::AddRelationship { edge });
+        }
+
+        commands
     }
 
     /// Find a panel type by prefix (case-insensitive), or create one if it
@@ -526,17 +568,33 @@ impl EditContext<'_> {
 
         // Create/update group if present
         if let Some(ref gname) = group_name {
-            let mut group_opts = PresenterOptions {
+            let group_opts = PresenterOptions {
                 rank: Some(rank.clone()),
-                is_group: Some(true),
-                always_shown: Some(always_shown),
                 sort_rank: group_sort,
                 ..Default::default()
             };
-            if !presenter_name.is_empty() {
-                group_opts.add_members = vec![presenter_name.clone()];
-            }
             self.find_or_create_presenter(gname, &group_opts);
+
+            // Add group-only edge if always_shown
+            if always_shown {
+                let cmd = EditCommand::AddRelationship {
+                    edge: crate::data::relationship::GroupEdge::group_only(gname.clone(), true),
+                };
+                self.execute(cmd);
+            }
+
+            // Add member edges if presenter name is provided and different from group
+            if !presenter_name.is_empty() && !presenter_name.eq_ignore_ascii_case(gname) {
+                let cmd = EditCommand::AddRelationship {
+                    edge: crate::data::relationship::GroupEdge::new(
+                        presenter_name.clone(),
+                        gname.clone(),
+                        always_grouped,
+                        false, // members don't set always_shown on the group edge
+                    ),
+                };
+                self.execute(cmd);
+            }
         }
 
         // If presenter name is empty or same as group, return the group name
@@ -551,16 +609,27 @@ impl EditContext<'_> {
         }
 
         // Create/update the individual presenter
-        let mut name_opts = PresenterOptions {
+        let name_opts = PresenterOptions {
             rank: Some(rank),
             sort_rank: member_sort,
             ..Default::default()
         };
+        let presenter_name = self.find_or_create_presenter(&presenter_name, &name_opts);
+
+        // Add relationship to group if present
         if let Some(ref gname) = group_name {
-            name_opts.add_groups = vec![gname.clone()];
-            name_opts.always_grouped = Some(always_grouped);
+            let cmd = EditCommand::AddRelationship {
+                edge: crate::data::relationship::GroupEdge::new(
+                    presenter_name.clone(),
+                    gname.clone(),
+                    always_grouped,
+                    false, // individual members don't set always_shown on groups
+                ),
+            };
+            self.execute(cmd);
         }
-        Some(self.find_or_create_presenter(&presenter_name, &name_opts))
+
+        Some(presenter_name)
     }
 
     /// Compute the next available room UID.

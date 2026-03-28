@@ -172,7 +172,6 @@ pub fn import_xlsx(path: &Path, options: &XlsxImportOptions) -> Result<ScheduleF
     schedule.timeline = timeline_entries;
 
     crate::data::post_process::apply_schedule_parity(&mut schedule);
-    schedule.build_relationships_from_presenters();
     Ok(ScheduleFile::new(schedule))
 }
 

@@ -137,20 +137,6 @@ impl Default for PresenterRank {
     }
 }
 
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Default)]
-pub enum PresenterMember {
-    #[default]
-    NotMember,
-    IsMember(std::collections::BTreeSet<String>, bool), // Groups and always_grouped
-}
-
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Default)]
-pub enum PresenterGroup {
-    #[default]
-    NotGroup,
-    IsGroup(std::collections::BTreeSet<String>, bool), // Members and always_shown
-}
-
 /// Ordering key for a presenter, recording where it was first defined.
 ///
 /// - `column_index`: 0 for the People table, schedule column number otherwise.
@@ -195,13 +181,11 @@ impl PresenterSortRank {
     }
 }
 
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct Presenter {
     pub id: Option<u32>,
     pub name: String,
     pub rank: PresenterRank,
-    pub is_member: PresenterMember,
-    pub is_grouped: PresenterGroup,
     /// Ordering key recording where this presenter was first defined.
     /// `None` if no source information is available.
     pub sort_rank: Option<PresenterSortRank>,
@@ -211,53 +195,6 @@ pub struct Presenter {
 }
 
 impl Presenter {
-    /// Helper method to check if presenter is a group (for backward compatibility)
-    pub fn is_group(&self) -> bool {
-        matches!(self.is_grouped, PresenterGroup::IsGroup(_, _))
-    }
-
-    /// Helper method to get members (for backward compatibility)
-    pub fn members(&self) -> &std::collections::BTreeSet<String> {
-        match &self.is_grouped {
-            PresenterGroup::IsGroup(members, _) => members,
-            PresenterGroup::NotGroup => {
-                // Return a reference to an empty set
-                static EMPTY_SET: std::sync::OnceLock<std::collections::BTreeSet<String>> =
-                    std::sync::OnceLock::new();
-                EMPTY_SET.get_or_init(std::collections::BTreeSet::new)
-            }
-        }
-    }
-
-    /// Helper method to get groups (for backward compatibility)
-    pub fn groups(&self) -> &std::collections::BTreeSet<String> {
-        match &self.is_member {
-            PresenterMember::IsMember(groups, _) => groups,
-            PresenterMember::NotMember => {
-                // Return a reference to an empty set
-                static EMPTY_SET: std::sync::OnceLock<std::collections::BTreeSet<String>> =
-                    std::sync::OnceLock::new();
-                EMPTY_SET.get_or_init(std::collections::BTreeSet::new)
-            }
-        }
-    }
-
-    /// Helper method to check if always_grouped (for backward compatibility)
-    pub fn always_grouped(&self) -> bool {
-        match &self.is_member {
-            PresenterMember::IsMember(_, grouped) => *grouped,
-            PresenterMember::NotMember => false,
-        }
-    }
-
-    /// Helper method to check if always_shown (for backward compatibility)
-    pub fn always_shown(&self) -> bool {
-        match &self.is_grouped {
-            PresenterGroup::IsGroup(_, shown) => *shown,
-            PresenterGroup::NotGroup => false,
-        }
-    }
-
     /// Sort key for ordering presenters (e.g. in credits).
     /// Compares by classification rank, then sort_rank fields, then name.
     pub fn sort_key(&self) -> (u8, u32, u32, u32, &str) {
@@ -290,11 +227,6 @@ mod tests {
         let p: Presenter = serde_json::from_str(json).unwrap();
         assert_eq!(p.name, "Yaya Han");
         assert_eq!(p.rank, PresenterRank::Guest);
-        assert!(!p.is_group());
-        assert_eq!(p.members(), &std::collections::BTreeSet::new());
-        assert_eq!(p.groups(), &std::collections::BTreeSet::new());
-        assert!(!p.always_grouped());
-        assert!(!p.always_shown());
         assert_eq!(p.id, None);
     }
 
@@ -309,11 +241,7 @@ mod tests {
             "always_grouped": false
         }"#;
         let p: Presenter = serde_json::from_str(json).unwrap();
-        assert!(p.is_group());
-        let mut expected_members = std::collections::BTreeSet::new();
-        expected_members.insert("Pro".to_string());
-        expected_members.insert("Con".to_string());
-        assert_eq!(p.members(), &expected_members);
+        assert_eq!(p.name, "Pros and Cons Cosplay");
         assert_eq!(p.rank, PresenterRank::Guest);
     }
 
@@ -349,23 +277,6 @@ mod tests {
             PresenterRank::from_str("industry"),
             PresenterRank::InvitedGuest(Some("industry".to_string()))
         );
-    }
-
-    #[test]
-    fn test_presenter_with_groups() {
-        let json = r#"{
-            "name": "Con",
-            "rank": "guest",
-            "is_group": false,
-            "members": [],
-            "groups": ["Pros and Cons Cosplay"],
-            "always_grouped": false
-        }"#;
-        let p: Presenter = serde_json::from_str(json).unwrap();
-        let mut expected_groups = std::collections::BTreeSet::new();
-        expected_groups.insert("Pros and Cons Cosplay".to_string());
-        assert_eq!(p.groups(), &expected_groups);
-        assert!(!p.is_group());
     }
 
     #[test]
@@ -442,8 +353,6 @@ mod tests {
             id: Some(5),
             name: "Sayakat Cosplay".into(),
             rank: PresenterRank::from_str("fan_panelist"),
-            is_member: PresenterMember::NotMember,
-            is_grouped: PresenterGroup::NotGroup,
             sort_rank: Some(PresenterSortRank::people(3)),
             metadata: None,
             source: None,
@@ -452,110 +361,5 @@ mod tests {
         let json = serde_json::to_string(&p).unwrap();
         let p2: Presenter = serde_json::from_str(&json).unwrap();
         assert_eq!(p, p2);
-    }
-}
-
-// Custom serialization for Presenter to output v9 format
-impl Serialize for Presenter {
-    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
-    where
-        S: Serializer,
-    {
-        use serde::ser::SerializeStruct;
-
-        let mut state = serializer.serialize_struct("Presenter", 8)?;
-
-        if let Some(ref id) = self.id {
-            state.serialize_field("id", id)?;
-        }
-
-        state.serialize_field("name", &self.name)?;
-        state.serialize_field("rank", &self.rank)?;
-        state.serialize_field("is_group", &self.is_group())?;
-        state.serialize_field("members", &self.members().iter().collect::<Vec<_>>())?;
-        state.serialize_field("groups", &self.groups().iter().collect::<Vec<_>>())?;
-        state.serialize_field("always_grouped", &self.always_grouped())?;
-        state.serialize_field("always_shown", &self.always_shown())?;
-        if let Some(ref sr) = self.sort_rank {
-            state.serialize_field("sort_rank", sr)?;
-        }
-        if let Some(ref metadata) = self.metadata {
-            state.serialize_field("metadata", metadata)?;
-        }
-        state.end()
-    }
-}
-
-// Custom deserialization for Presenter (v9 format)
-impl<'de> Deserialize<'de> for Presenter {
-    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
-    where
-        D: Deserializer<'de>,
-    {
-        #[derive(Deserialize)]
-        struct PresenterHelper {
-            #[serde(default)]
-            id: Option<u32>,
-            name: String,
-            #[serde(default)]
-            rank: PresenterRank,
-            #[serde(default)]
-            is_group: bool,
-            #[serde(default)]
-            members: Vec<String>,
-            #[serde(default)]
-            groups: Vec<String>,
-            #[serde(default)]
-            always_grouped: bool,
-            #[serde(default)]
-            always_shown: bool,
-            #[serde(default)]
-            sort_rank: Option<PresenterSortRank>,
-            // Legacy enum fields (for backward compatibility with old save files)
-            #[serde(default)]
-            is_member: Option<PresenterMember>,
-            #[serde(default)]
-            is_grouped: Option<PresenterGroup>,
-            #[serde(default, skip_serializing_if = "Option::is_none")]
-            metadata: Option<ExtraFields>,
-        }
-
-        let helper = PresenterHelper::deserialize(deserializer)?;
-
-        let (is_member, is_grouped) = if helper.is_member.is_some() || helper.is_grouped.is_some() {
-            (
-                helper.is_member.unwrap_or_default(),
-                helper.is_grouped.unwrap_or_default(),
-            )
-        } else {
-            let is_member = if helper.groups.is_empty() {
-                PresenterMember::NotMember
-            } else {
-                PresenterMember::IsMember(
-                    helper.groups.into_iter().collect(),
-                    helper.always_grouped,
-                )
-            };
-
-            let is_grouped = if helper.is_group || !helper.members.is_empty() {
-                PresenterGroup::IsGroup(helper.members.into_iter().collect(), helper.always_shown)
-            } else {
-                PresenterGroup::NotGroup
-            };
-
-            (is_member, is_grouped)
-        };
-
-        Ok(Presenter {
-            id: helper.id,
-            name: helper.name,
-            rank: helper.rank,
-            is_member,
-            is_grouped,
-            sort_rank: helper.sort_rank,
-            metadata: helper.metadata,
-            source: None,
-            change_state: Default::default(),
-        })
     }
 }

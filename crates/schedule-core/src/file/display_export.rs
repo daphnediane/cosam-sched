@@ -13,10 +13,10 @@ use serde::{Deserialize, Serialize};
 
 use crate::data::panel_type::PanelType;
 use crate::data::presenter::{Presenter, PresenterRank};
-use crate::data::schedule::{Meta, Schedule};
-use crate::data::room::Room;
-use crate::data::timeline::TimelineEntry;
 use crate::data::relationship::RelationshipManager;
+use crate::data::room::Room;
+use crate::data::schedule::{Meta, Schedule};
+use crate::data::timeline::TimelineEntry;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -796,154 +796,53 @@ impl Schedule {
 mod tests {
     use crate::data::panel::Panel;
     use crate::data::panel_set::PanelSet;
-    use crate::data::presenter::{Presenter, PresenterGroup, PresenterMember, PresenterRank};
     use crate::data::relationship::RelationshipManager;
     use crate::data::room::Room;
     use crate::data::schedule::{Meta, Schedule};
     use indexmap::IndexMap;
 
-    /// Build a RelationshipManager from a slice of Presenters (mirrors
-    /// Schedule::build_relationships_from_presenters for test use).
-    fn rels_from_presenters(presenters: &[Presenter]) -> RelationshipManager {
-        let mut schedule = Schedule::default();
-        schedule.presenters = presenters.to_vec();
-        schedule.build_relationships_from_presenters();
-        schedule.relationships
-    }
-
     #[test]
     fn test_compute_credits_enhanced_logic() {
-        let presenters = vec![
-            // Regular presenter
-            Presenter {
-                id: None,
-                name: "John Doe".to_string(),
-                rank: PresenterRank::from_str("fan_panelist"),
-                is_member: PresenterMember::NotMember,
-                is_grouped: PresenterGroup::NotGroup,
-                sort_rank: None,
-                metadata: None,
-                source: None,
-                change_state: Default::default(),
-            },
-            // Always grouped member
-            Presenter {
-                id: None,
-                name: "Jane Smith".to_string(),
-                rank: PresenterRank::from_str("fan_panelist"),
-                is_member: PresenterMember::IsMember(
-                    {
-                        let mut groups = std::collections::BTreeSet::new();
-                        groups.insert("Test Group".to_string());
-                        groups
-                    },
-                    true,
-                ),
-                is_grouped: PresenterGroup::NotGroup,
-                sort_rank: None,
-                metadata: None,
-                source: None,
-                change_state: Default::default(),
-            },
-            // Regular group member
-            Presenter {
-                id: None,
-                name: "Bob Johnson".to_string(),
-                rank: PresenterRank::from_str("fan_panelist"),
-                is_member: PresenterMember::IsMember(
-                    {
-                        let mut groups = std::collections::BTreeSet::new();
-                        groups.insert("Test Group".to_string());
-                        groups
-                    },
-                    false,
-                ),
-                is_grouped: PresenterGroup::NotGroup,
-                sort_rank: None,
-                metadata: None,
-                source: None,
-                change_state: Default::default(),
-            },
-            // Always shown group
-            Presenter {
-                id: None,
-                name: "Test Group".to_string(),
-                rank: PresenterRank::from_str("guest"),
-                is_member: PresenterMember::NotMember,
-                is_grouped: PresenterGroup::IsGroup(
-                    {
-                        let mut members = std::collections::BTreeSet::new();
-                        members.insert("Jane Smith".to_string());
-                        members.insert("Bob Johnson".to_string());
-                        members
-                    },
-                    true,
-                ),
-                sort_rank: None,
-                metadata: None,
-                source: None,
-                change_state: Default::default(),
-            },
-            // Regular group
-            Presenter {
-                id: None,
-                name: "Regular Group".to_string(),
-                rank: PresenterRank::from_str("guest"),
-                is_member: PresenterMember::NotMember,
-                is_grouped: PresenterGroup::IsGroup(
-                    {
-                        let mut members = std::collections::BTreeSet::new();
-                        members.insert("Alice Brown".to_string());
-                        members.insert("Charlie Wilson".to_string());
-                        members
-                    },
-                    false,
-                ),
-                sort_rank: None,
-                metadata: None,
-                source: None,
-                change_state: Default::default(),
-            },
-            // Regular group members
-            Presenter {
-                id: None,
-                name: "Alice Brown".to_string(),
-                rank: PresenterRank::from_str("fan_panelist"),
-                is_member: PresenterMember::IsMember(
-                    {
-                        let mut groups = std::collections::BTreeSet::new();
-                        groups.insert("Regular Group".to_string());
-                        groups
-                    },
-                    false,
-                ),
-                is_grouped: PresenterGroup::NotGroup,
-                sort_rank: None,
-                metadata: None,
-                source: None,
-                change_state: Default::default(),
-            },
-            Presenter {
-                id: None,
-                name: "Charlie Wilson".to_string(),
-                rank: PresenterRank::from_str("fan_panelist"),
-                is_member: PresenterMember::IsMember(
-                    {
-                        let mut groups = std::collections::BTreeSet::new();
-                        groups.insert("Regular Group".to_string());
-                        groups
-                    },
-                    false,
-                ),
-                is_grouped: PresenterGroup::NotGroup,
-                sort_rank: None,
-                metadata: None,
-                source: None,
-                change_state: Default::default(),
-            },
-        ];
+        // Build relationships manually
+        let mut rels = RelationshipManager::new();
 
-        let rels = rels_from_presenters(&presenters);
+        // Jane Smith is always_grouped member of Test Group
+        rels.add_edge(crate::data::relationship::GroupEdge::new(
+            "Jane Smith".to_string(),
+            "Test Group".to_string(),
+            true,  // always_grouped
+            false, // always_shown
+        ));
+
+        // Bob Johnson is regular member of Test Group
+        rels.add_edge(crate::data::relationship::GroupEdge::new(
+            "Bob Johnson".to_string(),
+            "Test Group".to_string(),
+            false, // always_grouped
+            false, // always_shown
+        ));
+
+        // Test Group is always_shown (group-only edge)
+        rels.add_edge(crate::data::relationship::GroupEdge::group_only(
+            "Test Group".to_string(),
+            true, // always_shown
+        ));
+
+        // Alice Brown is regular member of Regular Group
+        rels.add_edge(crate::data::relationship::GroupEdge::new(
+            "Alice Brown".to_string(),
+            "Regular Group".to_string(),
+            false, // always_grouped
+            false, // always_shown
+        ));
+
+        // Charlie Wilson is regular member of Regular Group
+        rels.add_edge(crate::data::relationship::GroupEdge::new(
+            "Charlie Wilson".to_string(),
+            "Regular Group".to_string(),
+            false, // always_grouped
+            false, // always_shown
+        ));
 
         // Test 1: Always shown group with partial membership should show "Member of Group" format
         let credits = super::compute_credits(
@@ -1000,40 +899,14 @@ mod tests {
 
     #[test]
     fn test_compute_credits_hide_alt_panelist() {
-        let presenters = vec![
-            Presenter {
-                id: None,
-                name: "John Doe".to_string(),
-                rank: PresenterRank::from_str("fan_panelist"),
-                is_member: PresenterMember::NotMember,
-                is_grouped: PresenterGroup::NotGroup,
-                sort_rank: None,
-                metadata: None,
-                source: None,
-                change_state: Default::default(),
-            },
-            Presenter {
-                id: None,
-                name: "Test Group".to_string(),
-                rank: PresenterRank::from_str("guest"),
-                is_member: PresenterMember::NotMember,
-                is_grouped: PresenterGroup::IsGroup(
-                    {
-                        let mut members = std::collections::BTreeSet::new();
-                        members.insert("John Doe".to_string());
-                        members.insert("Jane Doe".to_string());
-                        members
-                    },
-                    false,
-                ),
-                sort_rank: None,
-                metadata: None,
-                source: None,
-                change_state: Default::default(),
-            },
-        ];
-
-        let rels = rels_from_presenters(&presenters);
+        // Build relationships manually
+        let mut rels = RelationshipManager::new();
+        rels.add_edge(crate::data::relationship::GroupEdge::new(
+            "John Doe".to_string(),
+            "Test Group".to_string(),
+            false, // always_grouped
+            false, // always_shown
+        ));
 
         // Test normal case
         let credits = super::compute_credits(false, None, &["John Doe".to_string()], &rels);

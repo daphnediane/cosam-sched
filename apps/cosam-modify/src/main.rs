@@ -1443,7 +1443,7 @@ fn list_presenters(
         .map(|presenter| PresenterListRow {
             name: presenter.name.clone(),
             rank: presenter.rank.as_str().to_string(),
-            is_group: presenter.is_group(),
+            is_group: schedule.relationships.is_group(&presenter.name),
         })
         .collect();
 

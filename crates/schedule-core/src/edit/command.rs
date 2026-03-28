@@ -9,9 +9,7 @@ use serde::{Deserialize, Serialize};
 
 use crate::data::panel::ExtraFields;
 use crate::data::panel_type::PanelType;
-use crate::data::presenter::{
-    Presenter, PresenterGroup, PresenterMember, PresenterRank, PresenterSortRank,
-};
+use crate::data::presenter::{Presenter, PresenterRank, PresenterSortRank};
 use crate::data::relationship::GroupEdge;
 use crate::data::room::Room;
 use crate::data::schedule::Schedule;
@@ -95,8 +93,6 @@ impl RoomSnapshot {
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct PresenterSnapshot {
     pub rank: PresenterRank,
-    pub is_member: PresenterMember,
-    pub is_grouped: PresenterGroup,
     pub sort_rank: Option<PresenterSortRank>,
     pub metadata: Option<ExtraFields>,
 }
@@ -105,8 +101,6 @@ impl PresenterSnapshot {
     pub fn from_presenter(p: &Presenter) -> Self {
         Self {
             rank: p.rank.clone(),
-            is_member: p.is_member.clone(),
-            is_grouped: p.is_grouped.clone(),
             sort_rank: p.sort_rank.clone(),
             metadata: p.metadata.clone(),
         }
@@ -114,8 +108,6 @@ impl PresenterSnapshot {
 
     pub fn apply_to(&self, p: &mut Presenter) {
         p.rank = self.rank.clone();
-        p.is_member = self.is_member.clone();
-        p.is_grouped = self.is_grouped.clone();
         p.sort_rank = self.sort_rank.clone();
         p.metadata = self.metadata.clone();
     }
@@ -511,15 +503,12 @@ impl EditCommand {
                     id: None,
                     name: name.clone(),
                     rank: snapshot.rank.clone(),
-                    is_member: snapshot.is_member.clone(),
-                    is_grouped: snapshot.is_grouped.clone(),
                     sort_rank: snapshot.sort_rank.clone(),
                     metadata: snapshot.metadata.clone(),
                     source: source.clone(),
                     change_state: *change_state,
                 };
                 schedule.presenters.push(presenter);
-                schedule.build_relationships_from_presenters();
             }
             EditCommand::CreatePanelType {
                 prefix,
@@ -561,7 +550,6 @@ impl EditCommand {
                     new.apply_to(presenter);
                     mark_presenter_modified(presenter);
                 }
-                schedule.build_relationships_from_presenters();
             }
             EditCommand::UpdatePanelType { prefix, old, new } => {
                 if let Some(pt) = schedule.panel_types.get_mut(prefix) {
@@ -782,7 +770,6 @@ impl EditCommand {
                 schedule
                     .presenters
                     .retain(|p| !p.name.eq_ignore_ascii_case(name));
-                schedule.build_relationships_from_presenters();
             }
             EditCommand::CreatePanelType { prefix, .. } => {
                 schedule.panel_types.shift_remove(prefix);
@@ -802,7 +789,6 @@ impl EditCommand {
                     old.apply_to(presenter);
                     mark_presenter_modified(presenter);
                 }
-                schedule.build_relationships_from_presenters();
             }
             EditCommand::UpdatePanelType { prefix, old, .. } => {
                 if let Some(pt) = schedule.panel_types.get_mut(prefix) {

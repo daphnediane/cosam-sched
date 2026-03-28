@@ -9,15 +9,16 @@ use std::collections::HashMap;
 use anyhow::Result;
 use umya_spreadsheet::Spreadsheet;
 
-use crate::data::presenter::{PresenterGroup, PresenterMember, PresenterRank};
+use crate::data::presenter::PresenterRank;
 use crate::xlsx::columns::people;
 
 /// Intermediate presenter data read from the People/Presenter sheet.
 #[derive(Default, Clone)]
 pub(super) struct PresenterInfo {
     pub(super) rank: PresenterRank,
-    pub(super) is_member: PresenterMember,
-    pub(super) is_grouped: PresenterGroup,
+    pub(super) is_group: bool,
+    pub(super) always_grouped: bool,
+    pub(super) always_shown: bool,
 }
 
 /// Read full presenter data from People/Presenter sheet including all columns
@@ -60,90 +61,24 @@ pub(super) fn read_presenter_data(
 
                 // Read group relationships
                 if let Some(is_group_val) = super::get_field_def(&row_data, &people::IS_GROUP) {
-                    if super::is_truthy(is_group_val) {
-                        info.is_grouped = crate::data::presenter::PresenterGroup::IsGroup(
-                            std::collections::BTreeSet::new(),
-                            false,
-                        );
-                    }
+                    info.is_group = super::is_truthy(is_group_val);
                 }
 
-                // Read members
-                if let Some(members_val) = super::get_field_def(&row_data, &people::MEMBERS) {
-                    if !matches!(
-                        info.is_grouped,
-                        crate::data::presenter::PresenterGroup::IsGroup(_, _)
-                    ) {
-                        info.is_grouped = crate::data::presenter::PresenterGroup::IsGroup(
-                            std::collections::BTreeSet::new(),
-                            false,
-                        );
-                    }
-                    if let crate::data::presenter::PresenterGroup::IsGroup(ref mut members, _) =
-                        info.is_grouped
-                    {
-                        for member in members_val.split(',') {
-                            let member = member.trim();
-                            if !member.is_empty() {
-                                members.insert(member.to_string());
-                            }
-                        }
-                    }
-                }
-
-                // Read groups
-                if let Some(groups_val) = super::get_field_def(&row_data, &people::GROUPS) {
-                    let groups: std::collections::BTreeSet<String> = groups_val
-                        .split(',')
-                        .map(|g| g.trim().to_string())
-                        .filter(|g| !g.is_empty())
-                        .collect();
-
-                    if !groups.is_empty() {
-                        info.is_member =
-                            crate::data::presenter::PresenterMember::IsMember(groups, false);
-                    }
-                }
+                // Note: Members and Groups columns are processed later to build relationships
+                // The actual member/group relationships are handled in the calling code
 
                 // Read always_grouped
                 if let Some(always_grouped_val) =
                     super::get_field_def(&row_data, &people::ALWAYS_GROUPED)
                 {
-                    if super::is_truthy(always_grouped_val) {
-                        match &mut info.is_member {
-                            crate::data::presenter::PresenterMember::IsMember(
-                                _,
-                                always_grouped,
-                            ) => {
-                                *always_grouped = true;
-                            }
-                            crate::data::presenter::PresenterMember::NotMember => {
-                                info.is_member = crate::data::presenter::PresenterMember::IsMember(
-                                    std::collections::BTreeSet::new(),
-                                    true,
-                                );
-                            }
-                        }
-                    }
+                    info.always_grouped = super::is_truthy(always_grouped_val);
                 }
 
                 // Read always_shown
                 if let Some(always_shown_val) =
                     super::get_field_def(&row_data, &people::ALWAYS_SHOWN)
                 {
-                    if super::is_truthy(always_shown_val) {
-                        match &mut info.is_grouped {
-                            crate::data::presenter::PresenterGroup::IsGroup(_, always_shown) => {
-                                *always_shown = true;
-                            }
-                            crate::data::presenter::PresenterGroup::NotGroup => {
-                                info.is_grouped = crate::data::presenter::PresenterGroup::IsGroup(
-                                    std::collections::BTreeSet::new(),
-                                    true,
-                                );
-                            }
-                        }
-                    }
+                    info.always_shown = super::is_truthy(always_shown_val);
                 }
 
                 presenters.insert(name.to_string(), info);
@@ -168,40 +103,21 @@ pub(super) fn read_presenters_into(
             &name,
             &crate::edit::find::PresenterOptions {
                 rank: Some(info.rank.clone()),
-                add_groups: match &info.is_member {
-                    crate::data::presenter::PresenterMember::IsMember(groups, _) => {
-                        groups.iter().cloned().collect()
-                    }
-                    crate::data::presenter::PresenterMember::NotMember => Vec::new(),
-                },
-                add_members: match &info.is_grouped {
-                    crate::data::presenter::PresenterGroup::IsGroup(members, _) => {
-                        members.iter().cloned().collect()
-                    }
-                    crate::data::presenter::PresenterGroup::NotGroup => Vec::new(),
-                },
-                is_group: Some(matches!(
-                    info.is_grouped,
-                    crate::data::presenter::PresenterGroup::IsGroup(_, _)
-                )),
-                always_grouped: match &info.is_member {
-                    crate::data::presenter::PresenterMember::IsMember(_, grouped) => Some(*grouped),
-                    crate::data::presenter::PresenterMember::NotMember => Some(false),
-                },
-                always_shown: match &info.is_grouped {
-                    crate::data::presenter::PresenterGroup::IsGroup(_, shown) => Some(*shown),
-                    crate::data::presenter::PresenterGroup::NotGroup => Some(false),
-                },
-                sort_rank: Some(crate::data::presenter::PresenterSortRank::people(
-                    row_index as u32,
-                )),
+                sort_rank: None,
                 metadata: None,
                 source: Some(crate::data::source_info::SourceInfo {
                     file_path: Some(_file_path.to_string()),
                     sheet_name: Some(people_table.to_string()),
-                    row_index: None,
+                    row_index: Some(row_index as u32 + 1),
                 }),
-                change_state: Some(crate::data::source_info::ChangeState::Converted),
+                change_state: Default::default(),
+
+                // Relationship fields (empty for XLSX import)
+                add_groups: Vec::new(),
+                add_members: Vec::new(),
+                is_group: None,
+                always_grouped: None,
+                always_shown: None,
             },
         );
     }

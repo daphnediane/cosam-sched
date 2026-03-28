@@ -690,6 +690,7 @@ fn write_presenter_to_row(
     header_map: &HashMap<String, u32>,
     row: u32,
     presenter: &Presenter,
+    schedule: &Schedule,
 ) {
     set_cell_field(worksheet, header_map, row, &people::NAME, &presenter.name);
     set_cell_field(
@@ -704,21 +705,23 @@ fn write_presenter_to_row(
         header_map,
         row,
         &people::IS_GROUP,
-        presenter.is_group(),
+        schedule.relationships.is_group(&presenter.name),
     );
-    let members_str = presenter
-        .members()
+    let members_str = schedule
+        .relationships
+        .direct_members_of(&presenter.name)
         .iter()
-        .map(|s| s.as_str())
+        .map(|s: &String| s.as_str())
         .collect::<Vec<_>>()
         .join(", ");
     if !members_str.is_empty() {
         set_cell_field(worksheet, header_map, row, &people::MEMBERS, &members_str);
     }
-    let groups_str = presenter
-        .groups()
+    let groups_str = schedule
+        .relationships
+        .direct_groups_of(&presenter.name)
         .iter()
-        .map(|s| s.as_str())
+        .map(|s: &String| s.as_str())
         .collect::<Vec<_>>()
         .join(", ");
     if !groups_str.is_empty() {
@@ -729,14 +732,24 @@ fn write_presenter_to_row(
         header_map,
         row,
         &people::ALWAYS_GROUPED,
-        presenter.always_grouped(),
+        schedule
+            .relationships
+            .direct_groups_of(&presenter.name)
+            .iter()
+            .any(|group| {
+                schedule
+                    .relationships
+                    .find_edge(&presenter.name, group)
+                    .map(|edge| edge.always_grouped)
+                    .unwrap_or(false)
+            }),
     );
     set_cell_bool_field(
         worksheet,
         header_map,
         row,
         &people::ALWAYS_SHOWN,
-        presenter.always_shown(),
+        schedule.relationships.is_always_shown(&presenter.name),
     );
 }
 
@@ -793,7 +806,7 @@ fn update_people_sheet(
                     let worksheet = book
                         .get_sheet_by_name_mut(sheet_name)
                         .ok_or_else(|| anyhow::anyhow!("Sheet '{sheet_name}' not found"))?;
-                    write_presenter_to_row(worksheet, &header_map, row_index, presenter);
+                    write_presenter_to_row(worksheet, &header_map, row_index, presenter, schedule);
                 }
             }
             ChangeState::Added => {
@@ -808,7 +821,7 @@ fn update_people_sheet(
         let worksheet = book
             .get_sheet_by_name_mut(sheet_name)
             .ok_or_else(|| anyhow::anyhow!("Sheet '{sheet_name}' not found"))?;
-        write_presenter_to_row(worksheet, &header_map, next_row, presenter);
+        write_presenter_to_row(worksheet, &header_map, next_row, presenter, schedule);
         next_row += 1;
     }
 
@@ -1005,7 +1018,7 @@ mod tests {
     use super::*;
     use crate::data::panel::Panel;
     use crate::data::panel_set::PanelSet;
-    use crate::data::presenter::{Presenter, PresenterGroup, PresenterMember, PresenterRank};
+    use crate::data::presenter::{Presenter, PresenterRank};
     use crate::data::schedule::{Meta, Schedule};
     use crate::data::source_info::ImportedSheetPresence;
     use crate::data::timeline::TimelineEntry;
@@ -1112,8 +1125,6 @@ mod tests {
                     id: None,
                     name: "Alice".to_string(),
                     rank: PresenterRank::from_str("guest"),
-                    is_member: PresenterMember::NotMember,
-                    is_grouped: PresenterGroup::NotGroup,
                     sort_rank: None,
                     metadata: None,
                     source: None,
@@ -1123,12 +1134,10 @@ mod tests {
                     id: None,
                     name: "Bob".to_string(),
                     rank: PresenterRank::from_str("staff"),
-                    is_member: PresenterMember::NotMember,
-                    is_grouped: PresenterGroup::NotGroup,
                     sort_rank: None,
                     metadata: None,
                     source: None,
-                    change_state: ChangeState::Deleted,
+                    change_state: ChangeState::Converted,
                 },
             ],
             relationships: Default::default(),

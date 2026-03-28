@@ -11,9 +11,7 @@ mod tests {
     use crate::data::panel::{ExtraValue, Panel};
     use crate::data::panel_set::PanelSet;
     use crate::data::panel_type::PanelType;
-    use crate::data::presenter::{
-        Presenter, PresenterGroup, PresenterMember, PresenterRank, PresenterSortRank,
-    };
+    use crate::data::presenter::{Presenter, PresenterRank, PresenterSortRank};
     use crate::data::room::Room;
     use crate::data::schedule::{Meta, Schedule};
     use crate::data::source_info::{ChangeState, ImportedSheetPresence};
@@ -95,8 +93,6 @@ mod tests {
                 id: None,
                 name: "Alice".to_string(),
                 rank: PresenterRank::Guest,
-                is_member: PresenterMember::NotMember,
-                is_grouped: PresenterGroup::NotGroup,
                 sort_rank: None,
                 metadata: None,
                 source: None,
@@ -106,8 +102,6 @@ mod tests {
                 id: None,
                 name: "Bob".to_string(),
                 rank: PresenterRank::FanPanelist,
-                is_member: PresenterMember::NotMember,
-                is_grouped: PresenterGroup::NotGroup,
                 sort_rank: None,
                 metadata: None,
                 source: None,
@@ -554,11 +548,24 @@ mod tests {
             );
         }
 
-        assert_eq!(schedule.presenters.len(), 3);
-        let charlie = &schedule.presenters[2];
+        assert_eq!(schedule.presenters.len(), 4); // Alice, Bob, Charlie, and auto-created Judges Panel
+        let charlie = schedule
+            .presenters
+            .iter()
+            .find(|p| p.name == "Charlie")
+            .expect("Charlie should exist");
         assert_eq!(charlie.name, "Charlie");
         assert_eq!(charlie.rank, PresenterRank::Judge);
-        assert!(charlie.groups().contains("Judges Panel"));
+        assert!(
+            schedule
+                .relationships
+                .direct_groups_of(&charlie.name)
+                .contains(&"Judges Panel".to_string())
+        );
+
+        // Verify Judges Panel was auto-created as a group
+        assert!(schedule.presenters.iter().any(|p| p.name == "Judges Panel"));
+        assert!(schedule.relationships.is_group("Judges Panel"));
         assert_eq!(charlie.change_state, ChangeState::Added);
 
         history.undo(&mut schedule);
@@ -587,8 +594,13 @@ mod tests {
             .iter()
             .find(|p| p.name == "Alice")
             .unwrap();
-        assert!(alice.groups().contains("Cosplay Group"));
-        assert!(alice.always_grouped());
+        assert!(
+            schedule
+                .relationships
+                .direct_groups_of(&alice.name)
+                .contains(&"Cosplay Group".to_string())
+        );
+        assert!(schedule.relationships.is_any_always_grouped(&alice.name));
 
         history.undo(&mut schedule);
         let alice = schedule
@@ -596,8 +608,13 @@ mod tests {
             .iter()
             .find(|p| p.name == "Alice")
             .unwrap();
-        assert!(!alice.always_grouped());
-        assert!(alice.groups().is_empty());
+        assert!(!schedule.relationships.is_any_always_grouped(&alice.name));
+        assert!(
+            schedule
+                .relationships
+                .direct_groups_of(&alice.name)
+                .is_empty()
+        );
     }
 
     // ── find_or_create_panel_type ───────────────────────────────
@@ -884,11 +901,8 @@ mod tests {
             .iter()
             .find(|p| p.name == "Staff Group")
             .expect("presenter created");
-        assert!(
-            matches!(&p.is_grouped, PresenterGroup::IsGroup(members, shown)
-                if members.is_empty() && *shown),
-            "should be IsGroup with empty members and always_shown=true"
-        );
+        assert!(schedule.relationships.is_group(&p.name));
+        assert!(schedule.relationships.is_always_shown(&p.name));
 
         // Undo removes the presenter
         history.undo(&mut schedule);
@@ -1159,8 +1173,6 @@ mod tests {
             id: None,
             name: "Alice".to_string(),
             rank: PresenterRank::Guest,
-            is_member: PresenterMember::NotMember,
-            is_grouped: PresenterGroup::NotGroup,
             sort_rank: None,
             metadata: None,
             source: None,
@@ -1191,17 +1203,27 @@ mod tests {
             .iter()
             .find(|p| p.name == "John")
             .unwrap();
-        assert!(john.groups().contains("UNC Staff"));
-        assert!(!john.always_grouped());
+        assert!(
+            schedule
+                .relationships
+                .direct_groups_of(&john.name)
+                .contains(&"UNC Staff".to_string())
+        );
+        assert!(!schedule.relationships.is_any_always_grouped(&john.name));
 
         let group = schedule
             .presenters
             .iter()
             .find(|p| p.name == "UNC Staff")
             .unwrap();
-        assert!(group.is_group());
-        assert!(group.members().contains("John"));
-        assert!(!group.always_shown());
+        assert!(schedule.relationships.is_group(&group.name));
+        assert!(
+            schedule
+                .relationships
+                .direct_members_of(&group.name)
+                .contains(&"John".to_string())
+        );
+        assert!(!schedule.relationships.is_always_shown(&group.name));
     }
 
     #[test]
@@ -1218,8 +1240,11 @@ mod tests {
             .iter()
             .find(|p| p.name == "UNC Staff")
             .unwrap();
-        assert!(group.is_group());
-        assert!(group.always_shown(), "== should set always_shown");
+        assert!(schedule.relationships.is_group(&group.name));
+        assert!(
+            schedule.relationships.is_always_shown(&group.name),
+            "== should set always_shown"
+        );
     }
 
     #[test]
@@ -1236,8 +1261,16 @@ mod tests {
             .iter()
             .find(|p| p.name == "Jane")
             .unwrap();
-        assert!(jane.always_grouped(), "< prefix should set always_grouped");
-        assert!(jane.groups().contains("UNC Staff"));
+        assert!(
+            schedule.relationships.is_any_always_grouped(&jane.name),
+            "< prefix should set always_grouped"
+        );
+        assert!(
+            schedule
+                .relationships
+                .direct_groups_of(&jane.name)
+                .contains(&"UNC Staff".to_string())
+        );
 
         let group = schedule
             .presenters
@@ -1245,7 +1278,7 @@ mod tests {
             .find(|p| p.name == "UNC Staff")
             .unwrap();
         assert!(
-            !group.always_shown(),
+            !schedule.relationships.is_always_shown(&group.name),
             "single = should not set always_shown"
         );
     }
@@ -1264,14 +1297,17 @@ mod tests {
             .iter()
             .find(|p| p.name == "Bob")
             .unwrap();
-        assert!(bob.always_grouped());
+        assert!(schedule.relationships.is_any_always_grouped(&bob.name));
 
         let team = schedule
             .presenters
             .iter()
             .find(|p| p.name == "Team")
             .unwrap();
-        assert!(team.always_shown(), "== should set always_shown");
+        assert!(
+            schedule.relationships.is_always_shown(&team.name),
+            "== should set always_shown"
+        );
     }
 
     #[test]
@@ -1318,11 +1354,16 @@ mod tests {
         assert_eq!(schedule.presenters.len(), 1);
 
         let p = &schedule.presenters[0];
-        assert!(p.is_group());
-        assert!(p.always_shown());
+        assert!(schedule.relationships.is_group(&p.name));
+        assert!(schedule.relationships.is_always_shown(&p.name));
         // Must NOT be a member of itself
-        assert!(p.groups().is_empty());
-        assert!(!p.members().contains("UNC Staff"));
+        assert!(schedule.relationships.direct_groups_of(&p.name).is_empty());
+        assert!(
+            !schedule
+                .relationships
+                .direct_members_of(&p.name)
+                .contains(&"UNC Staff".to_string())
+        );
     }
 
     #[test]
@@ -1371,13 +1412,13 @@ mod tests {
         cmd.apply(&mut schedule);
 
         assert!(schedule.relationships.is_group("Team Alice"));
-        let members = schedule.relationships.get_direct_members("Team Alice");
+        let members = schedule.relationships.direct_members_of("Team Alice");
         assert!(members.contains(&"Alice".to_string()));
         assert!(schedule.relationships.is_any_always_grouped("Alice"));
 
         // Undo it
         cmd.undo(&mut schedule);
-        let members = schedule.relationships.get_direct_members("Team Alice");
+        let members = schedule.relationships.direct_members_of("Team Alice");
         assert!(
             !members.contains(&"Alice".to_string()),
             "Alice should be removed after undo"
@@ -1422,7 +1463,7 @@ mod tests {
         };
         cmd.apply(&mut schedule);
 
-        let members = schedule.relationships.get_direct_members("Team Bob");
+        let members = schedule.relationships.direct_members_of("Team Bob");
         assert!(
             !members.contains(&"Bob".to_string()),
             "Bob should be removed from Team Bob"
@@ -1430,7 +1471,7 @@ mod tests {
 
         // Undo restores the edge
         cmd.undo(&mut schedule);
-        let members = schedule.relationships.get_direct_members("Team Bob");
+        let members = schedule.relationships.direct_members_of("Team Bob");
         assert!(
             members.contains(&"Bob".to_string()),
             "Bob should be restored after undo"
@@ -1457,7 +1498,7 @@ mod tests {
         // RelationshipManager should be in sync after CreatePresenter
         assert!(schedule.relationships.is_group("Duo Group"));
         assert!(schedule.relationships.is_always_shown("Duo Group"));
-        let members = schedule.relationships.get_direct_members("Duo Group");
+        let members = schedule.relationships.direct_members_of("Duo Group");
         assert!(members.contains(&"Member A".to_string()));
     }
 

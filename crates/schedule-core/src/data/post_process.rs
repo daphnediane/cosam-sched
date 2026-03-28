@@ -149,7 +149,7 @@ fn detect_panel_conflicts(schedule: &mut Schedule) {
         sorted_indexes.sort_by_key(|idx| panel_sessions[*idx].2); // sort by start time
 
         let overlap_groups = find_session_overlap_groups(&sorted_indexes, &panel_sessions);
-        let group_presenter = is_group_presenter(&presenter_name, &schedule.presenters);
+        let group_presenter = is_group_presenter(&presenter_name, schedule);
         let conflict_type = if group_presenter {
             "group_presenter"
         } else {
@@ -321,7 +321,7 @@ fn is_break_event(
         .unwrap_or(false)
 }
 
-fn is_group_presenter(presenter_name: &str, presenters: &[Presenter]) -> bool {
+fn is_group_presenter(presenter_name: &str, schedule: &Schedule) -> bool {
     if presenter_name.ends_with('=') {
         return true;
     }
@@ -334,11 +334,7 @@ fn is_group_presenter(presenter_name: &str, presenters: &[Presenter]) -> bool {
         return true;
     }
 
-    presenters
-        .iter()
-        .find(|presenter| presenter.name == presenter_name)
-        .map(|presenter| presenter.is_group())
-        .unwrap_or(false)
+    schedule.relationships.is_group(presenter_name)
 }
 
 /// Resolve panel ID conflicts within each [`PanelSet`] by assigning unique

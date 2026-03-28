@@ -209,18 +209,6 @@ impl RelationshipManager {
         self.edges.remove(&group_only_edge);
     }
 
-    /// Get direct parent groups for a member
-    pub fn get_direct_groups(&mut self, member: &str) -> &[String] {
-        self.ensure_cache_valid();
-        self.cache.get_direct_groups(member)
-    }
-
-    /// Get direct members for a group
-    pub fn get_direct_members(&mut self, group: &str) -> &[String] {
-        self.ensure_cache_valid();
-        self.cache.get_direct_members(group)
-    }
-
     /// Get all members (transitive) for a group
     pub fn get_inclusive_members(&mut self, group: &str) -> &[String] {
         self.ensure_cache_valid();
@@ -413,11 +401,11 @@ mod tests {
         ));
 
         assert_eq!(
-            manager.get_direct_groups(&"Alice".to_string()),
+            manager.direct_groups_of("Alice"),
             <&[String]>::from(&["Team A".to_string()])
         );
         assert_eq!(
-            manager.get_direct_members(&"Team A".to_string()),
+            manager.direct_members_of("Team A"),
             <&[String]>::from(&["Alice".to_string()])
         );
         assert!(manager.is_group("Team A"));
@@ -433,7 +421,7 @@ mod tests {
 
         assert!(manager.is_group(&"Team A".to_string()));
         assert_eq!(
-            manager.get_direct_members(&"Team A".to_string()),
+            manager.direct_members_of("Team A"),
             <&[String]>::from(&["".to_string()])
         );
         assert!(manager.is_always_shown(&"Team A".to_string()));
@@ -450,20 +438,14 @@ mod tests {
             false,
         ));
         assert_eq!(
-            manager.get_direct_groups(&"Alice".to_string()),
+            manager.direct_groups_of("Alice"),
             <&[String]>::from(&["Team A".to_string()])
         );
 
         manager.remove_edge("Alice", "Team A");
-        assert_eq!(
-            manager.get_direct_groups(&"Alice".to_string()),
-            <&[String]>::from(&[])
-        );
-        assert_eq!(
-            manager.get_direct_members(&"Team A".to_string()),
-            <&[String]>::from(&[])
-        );
-        assert!(!manager.is_group(&"Team A".to_string()));
+        assert_eq!(manager.direct_groups_of("Alice"), <&[String]>::from(&[]));
+        assert_eq!(manager.direct_members_of("Team A"), <&[String]>::from(&[]));
+        assert!(!manager.is_group("Team A"));
     }
 
     #[test]
@@ -484,16 +466,13 @@ mod tests {
         ));
 
         assert_eq!(
-            manager.get_direct_members(&"Team A".to_string()),
+            manager.direct_members_of("Team A"),
             <&[String]>::from(&["Alice".to_string(), "Bob".to_string()])
         );
 
-        manager.clear_group(&"Team A".to_string());
-        assert_eq!(
-            manager.get_direct_members(&"Team A".to_string()),
-            <&[String]>::from(&[])
-        );
-        assert!(!manager.is_group(&"Team A".to_string()));
+        manager.clear_group("Team A");
+        assert_eq!(manager.direct_members_of("Team A"), <&[String]>::from(&[]));
+        assert!(!manager.is_group("Team A"));
     }
 
     #[test]
@@ -586,7 +565,7 @@ mod tests {
         manager.remove_edge("Alice", "Team A");
         assert!(!manager.is_group("Team A"));
         assert!(!manager.is_always_grouped("Alice", "Team A"));
-        assert_eq!(manager.get_direct_groups("Alice"), &[] as &[String]);
+        assert_eq!(manager.direct_groups_of("Alice"), &[] as &[String]);
     }
 
     #[test]

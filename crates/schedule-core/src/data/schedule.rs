@@ -13,12 +13,12 @@ use serde::{Deserialize, Serialize};
 use super::panel::Panel;
 use super::panel_set::PanelSet;
 use super::panel_type::PanelType;
-use super::presenter::{Presenter, PresenterGroup, PresenterMember};
-use super::relationship::{GroupEdge, RelationshipManager};
+use super::relationship::RelationshipManager;
 use super::room::Room;
 use super::source_info::{ChangeState, ImportedSheetPresence};
 use super::time;
 use super::timeline::TimelineEntry;
+use crate::data::presenter::Presenter;
 
 /// Lightweight struct for displaying a panel session in the editor UI
 #[derive(Debug, Clone)]
@@ -234,59 +234,6 @@ impl Schedule {
         self.panel_types.get(prefix)
     }
 
-    /// Populate `self.relationships` from the legacy `is_member`/`is_grouped`
-    /// fields on each `Presenter`.  Call after deserialization to bridge old
-    /// data into the new edge-based model.
-    pub fn build_relationships_from_presenters(&mut self) {
-        self.relationships = RelationshipManager::new();
-        for presenter in &self.presenters {
-            match &presenter.is_grouped {
-                PresenterGroup::IsGroup(members, always_shown) => {
-                    if members.is_empty() {
-                        // Group-only edge (group exists but has no members listed here)
-                        self.relationships
-                            .add_edge(GroupEdge::group_only(presenter.name.clone(), *always_shown));
-                    } else {
-                        for member in members {
-                            // Preserve always_grouped from any existing edge
-                            let existing_ag = self
-                                .relationships
-                                .find_edge(member, &presenter.name)
-                                .map(|e| e.always_grouped)
-                                .unwrap_or(false);
-                            self.relationships.add_edge(GroupEdge {
-                                member: member.clone(),
-                                group: presenter.name.clone(),
-                                always_grouped: existing_ag,
-                                always_shown: *always_shown,
-                            });
-                        }
-                    }
-                }
-                PresenterGroup::NotGroup => {}
-            }
-            match &presenter.is_member {
-                PresenterMember::IsMember(groups, always_grouped) => {
-                    for group in groups {
-                        // Preserve always_shown from any existing edge
-                        let existing_as = self
-                            .relationships
-                            .find_edge(&presenter.name, group)
-                            .map(|e| e.always_shown)
-                            .unwrap_or(false);
-                        self.relationships.add_edge(GroupEdge {
-                            member: presenter.name.clone(),
-                            group: group.clone(),
-                            always_grouped: *always_grouped,
-                            always_shown: existing_as,
-                        });
-                    }
-                }
-                PresenterMember::NotMember => {}
-            }
-        }
-    }
-
     pub fn populate_panel_type_prefixes(&mut self) {
         for (prefix, panel_type) in &mut self.panel_types {
             panel_type.prefix = prefix.clone();
@@ -359,7 +306,7 @@ mod tests {
 
     #[test]
     fn test_build_relationships_from_presenters() {
-        use crate::data::presenter::{PresenterGroup, PresenterMember, PresenterRank};
+        use crate::data::presenter::PresenterRank;
 
         let mut schedule = Schedule::default();
         schedule.presenters = vec![
@@ -367,11 +314,6 @@ mod tests {
                 id: Some(1),
                 name: "Pros and Cons Cosplay".to_string(),
                 rank: PresenterRank::Guest,
-                is_member: PresenterMember::NotMember,
-                is_grouped: PresenterGroup::IsGroup(
-                    ["Pro".to_string(), "Con".to_string()].into_iter().collect(),
-                    false,
-                ),
                 sort_rank: None,
                 metadata: None,
                 source: None,
@@ -381,11 +323,6 @@ mod tests {
                 id: Some(2),
                 name: "Pro".to_string(),
                 rank: PresenterRank::Guest,
-                is_member: PresenterMember::IsMember(
-                    ["Pros and Cons Cosplay".to_string()].into_iter().collect(),
-                    true,
-                ),
-                is_grouped: PresenterGroup::NotGroup,
                 sort_rank: None,
                 metadata: None,
                 source: None,
@@ -395,11 +332,6 @@ mod tests {
                 id: Some(3),
                 name: "Con".to_string(),
                 rank: PresenterRank::Guest,
-                is_member: PresenterMember::IsMember(
-                    ["Pros and Cons Cosplay".to_string()].into_iter().collect(),
-                    false,
-                ),
-                is_grouped: PresenterGroup::NotGroup,
                 sort_rank: None,
                 metadata: None,
                 source: None,
@@ -407,7 +339,23 @@ mod tests {
             },
         ];
 
-        schedule.build_relationships_from_presenters();
+        // Build relationships manually using RelationshipManager
+        schedule
+            .relationships
+            .add_edge(crate::data::relationship::GroupEdge::new(
+                "Pro".to_string(),
+                "Pros and Cons Cosplay".to_string(),
+                true,
+                false,
+            ));
+        schedule
+            .relationships
+            .add_edge(crate::data::relationship::GroupEdge::new(
+                "Con".to_string(),
+                "Pros and Cons Cosplay".to_string(),
+                false,
+                false,
+            ));
 
         // Group should be recognized
         assert!(schedule.relationships.is_group("Pros and Cons Cosplay"));
@@ -416,12 +364,12 @@ mod tests {
         // Direct members
         let members = schedule
             .relationships
-            .get_direct_members("Pros and Cons Cosplay");
+            .direct_members_of("Pros and Cons Cosplay");
         assert!(members.contains(&"Pro".to_string()));
         assert!(members.contains(&"Con".to_string()));
 
         // Direct groups
-        let groups = schedule.relationships.get_direct_groups("Pro");
+        let groups = schedule.relationships.direct_groups_of("Pro");
         assert!(groups.contains(&"Pros and Cons Cosplay".to_string()));
 
         // always_grouped flag (Pro has it, Con doesn't)
