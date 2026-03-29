@@ -1,0 +1,5 @@
+[workspace]
+members = [
+    "crates/schedule-data",
+]
+resolver = "2"
