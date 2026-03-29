@@ -1,10 +1,12 @@
 [#]*
 *.bak
+*.backup
 *.o
 *.old
 *.orig
 *.tdy
 *.tmp
+*.xlsx
 *~
 .*
 
@@ -26,6 +28,7 @@
 # Ignore target directory
 /target
 
-# Ignore input and output directory
+# Ignore input, output and scratch directory
+/scratch
 /input
 /output
