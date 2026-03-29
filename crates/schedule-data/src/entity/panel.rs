@@ -1045,17 +1045,51 @@ impl Panel {
 }
 
 impl EntityType for Panel {
-    type Id = PanelId;
     type Data = Panel;
 
     const TYPE_NAME: &'static str = "panel";
 
-    fn entity_id(data: &Self::Data) -> Self::Id {
-        PanelId(crate::simple_hash(&data.uid))
-    }
+    fn field_set() -> &'static crate::field::field_set::FieldSet<Self> {
+        use crate::entity::macros::field_set;
+        use std::sync::LazyLock;
 
-    fn fields() -> &'static [FieldDescriptor<Self>] {
-        Self::all_fields()
+        static FIELD_SET: LazyLock<crate::field::field_set::FieldSet<Panel>> = field_set!(Panel, {
+            fields: [
+                &panel_fields::UID,
+                &panel_fields::NAME,
+                &panel_fields::DESCRIPTION,
+                &panel_fields::BASE_UID,
+                &panel_fields::PART_NUM,
+                &panel_fields::SESSION_NUM,
+                &panel_fields::PANEL_TYPE_UID,
+                &panel_fields::NOTE,
+                &panel_fields::PREREQ,
+                &panel_fields::COST,
+                &panel_fields::CAPACITY,
+                &panel_fields::PRE_REG_MAX,
+                &panel_fields::DIFFICULTY,
+                &panel_fields::TICKET_URL,
+                &panel_fields::SIMPLE_TIX_EVENT,
+                &panel_fields::HAVE_TICKET_IMAGE,
+                &panel_fields::IS_FREE,
+                &panel_fields::IS_KIDS,
+                &panel_fields::IS_FULL,
+                &panel_fields::HIDE_PANELIST,
+                &panel_fields::SEWING_MACHINES,
+                &panel_fields::ALT_PANELIST,
+                &panel_fields::SEATS_SOLD,
+                &panel_fields::NOTES_NON_PRINTING,
+                &panel_fields::WORKSHOP_NOTES,
+                &panel_fields::POWER_NEEDS,
+                &panel_fields::AV_NOTES,
+                &panel_fields::START_TIME,
+                &panel_fields::END_TIME,
+                &panel_fields::DURATION
+            ],
+            required: ["uid", "name"]
+        });
+
+        &FIELD_SET
     }
 
     fn validate(data: &Self::Data) -> Result<(), ValidationError> {

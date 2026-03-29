@@ -509,17 +509,35 @@ impl Presenter {
 }
 
 impl EntityType for Presenter {
-    type Id = PresenterId;
     type Data = Presenter;
 
     const TYPE_NAME: &'static str = "presenter";
 
-    fn entity_id(data: &Self::Data) -> Self::Id {
-        PresenterId(crate::simple_hash(&data.uid))
-    }
+    fn field_set() -> &'static crate::field::field_set::FieldSet<Self> {
+        use crate::entity::macros::field_set;
+        use std::sync::LazyLock;
 
-    fn fields() -> &'static [FieldDescriptor<Self>] {
-        Self::all_fields()
+        static FIELD_SET: LazyLock<crate::field::field_set::FieldSet<Presenter>> = field_set!(Presenter, {
+            fields: [
+                &presenter_fields::UID,
+                &presenter_fields::NAME,
+                &presenter_fields::RANK,
+                &presenter_fields::IS_GROUP,
+                &presenter_fields::ALWAYS_GROUPED,
+                &presenter_fields::ALWAYS_SHOWN,
+                &presenter_fields::BIO,
+                &presenter_fields::EMAIL,
+                &presenter_fields::PHONE,
+                &presenter_fields::PRONOUNS,
+                &presenter_fields::WEBSITE,
+                &presenter_fields::SORT_RANK_COLUMN,
+                &presenter_fields::SORT_RANK_ROW,
+                &presenter_fields::SORT_RANK_MEMBER
+            ],
+            required: ["uid", "name"]
+        });
+
+        &FIELD_SET
     }
 
     fn validate(data: &Self::Data) -> Result<(), ValidationError> {

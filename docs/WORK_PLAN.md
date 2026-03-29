@@ -1,6 +1,6 @@
 # Cosplay America Schedule - Work Plan
 
-Generated on: Fri Mar 27 22:21:12 2026
+Generated on: Sun Mar 29 17:56:23 2026
 
 ## Completed
 
@@ -51,13 +51,15 @@ the base→part→session hierarchy in the UI.
 
 ## Summary of Open Items
 
-**Total open items:** 27
+**Total open items:** 28
 
 * **High Priority**
   * [FEATURE-027] Enable reading schedule data directly from Google Sheets.
   * [FEATURE-031] Add a grid view option to the printable schedule in addition to the existing list view.
   * [FEATURE-035] Enable room-wide events like Market Expo to overlap with subpanels in the same room without triggering false conflict warnings.
   * [REFACTOR-022] Refactor Panel time fields to use a unified TimeRange enum that eliminates inconsistency between duration and end_time fields and centralizes all timing logic.
+  * [REFACTOR-036] Feature parity for `schedule-data` focused on `schedule-core/src/data` and
+`schedule-core/src/edit`.
   * [UI-026] Prevent event titles from overlapping with the "my schedule" star icon.
   * [UI-038] Implement comprehensive accessibility improvements for screen readers and color blindness support.
   * [UI-502] Implement inline editing of individual schedule events.
@@ -92,9 +94,20 @@ the base→part→session hierarchy in the UI.
 
 The following ID numbers are available for new items:
 
-**Available:** 042, 043, 044, 045, 046, 047, 048, 049, 050, 051, 052, 053, 054, 055, 056, 057
+**Available:** 042, 043, 044, 045, 046, 047, 048, 049, 050, 051, 052, 053, 054, 055, 056, 057, 058
 
 **Highest used:** 511
+
+---
+
+### Numbering Conflicts
+
+The following ID numbers are used by multiple items:
+
+#### Suffix `036`
+
+* ○ [REFACTOR-036] Schedule-Data Rewrite
+* ○ [UI-036] Improve room filter to exclude room-hours-only rooms
 
 ---
 
@@ -359,6 +372,19 @@ The 2025 schedule shows this pattern:
 
 ---
 
+### [REFACTOR-036] Schedule-Data Rewrite
+
+**Status:** 🚧 In progress
+
+**Priority:** High
+
+**Summary:** Feature parity for `schedule-data` focused on `schedule-core/src/data` and
+`schedule-core/src/edit`.
+
+**Description:** This plan migrates schedule-core data/edit behavior into schedule-data using internal monotonic IDs, spreadsheet-canonical field coverage, soft-delete lifecycle, derived scheduling state, and batched undoable edits delivered phase-by-phase with commit checkpoints.
+
+---
+
 ## Open UI Items
 
 ### [UI-026] Fix event title and star overlap
@@ -526,6 +552,7 @@ Based on the 2025 schedule data, conflicts include:
 [FEATURE-501]: work-plan/done/FEATURE-501.md
 [INVESTIGATE-001]: work-plan/done/INVESTIGATE-001.md
 [REFACTOR-022]: work-plan/high/REFACTOR-022.md
+[REFACTOR-036]: work-plan/high/REFACTOR-036.md
 [TEST-013]: work-plan/done/TEST-013.md
 [UI-001]: work-plan/done/UI-001.md
 [UI-003]: work-plan/done/UI-003.md

@@ -26,23 +26,20 @@ pub use presenter::*;
 pub use room::*;
 
 use std::fmt;
-use std::hash::Hash;
 
 // Import field types
 use crate::field::field_set::FieldSet;
 use crate::field::validation::ValidationError;
 
 /// Generic entity identifier
-pub type EntityId = String;
+pub type EntityId = u64;
 
 /// Core trait for all entity types
 pub trait EntityType: 'static + Send + Sync + Sized {
-    type Id: Copy + Eq + Hash + Send + Sync + fmt::Debug + fmt::Display;
     type Data: Clone + Send + Sync + fmt::Debug;
 
     const TYPE_NAME: &'static str;
 
-    fn entity_id(data: &Self::Data) -> Self::Id;
     fn field_set() -> &'static FieldSet<Self>;
     fn validate(data: &Self::Data) -> Result<(), ValidationError>;
 }
@@ -52,7 +49,6 @@ pub trait EntityType: 'static + Send + Sync + Sized {
 pub enum EntityState {
     Active,
     Inactive,
-    Deleted,
 }
 
 impl Default for EntityState {
