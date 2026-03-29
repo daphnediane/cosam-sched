@@ -1,6 +1,7 @@
 [workspace]
 members = [
     "crates/schedule-core",
+    "crates/schedule-data",
     "apps/cosam-editor",
     "apps/cosam-convert",
     "apps/cosam-modify",

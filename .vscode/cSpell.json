@@ -29,6 +29,7 @@
         "enumflags",
         "evts",
         "fontdb",
+        "fract",
         "Getopt",
         "ginfo",
         "gjsip",
