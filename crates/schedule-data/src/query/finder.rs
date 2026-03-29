@@ -7,7 +7,7 @@
 //! Query finder implementation for searching entities
 
 use super::FieldMatch;
-use crate::entity::{EntityState, EntityType};
+use crate::entity::{EntityId, EntityState, EntityType};
 use crate::schedule::Schedule;
 
 /// Generic finder for entities
@@ -25,12 +25,12 @@ impl<'a, T: EntityType> Finder<'a, T> {
     }
 
     /// Find all entity IDs
-    pub fn list_all(&self) -> Vec<T::Id> {
+    pub fn list_all(&self) -> Vec<EntityId> {
         self.schedule.entities.find::<T>(&[], None)
     }
 
     /// Find entity IDs by state
-    pub fn list_by_state(&self, state: EntityState) -> Vec<T::Id> {
+    pub fn list_by_state(&self, state: EntityState) -> Vec<EntityId> {
         let options = crate::query::QueryOptions::new().with_state(state);
         self.schedule.entities.find::<T>(&[], Some(options))
     }
@@ -47,7 +47,7 @@ impl<'a, T: EntityType> Finder<'a, T> {
     }
 
     /// Find entities matching field conditions
-    pub fn find(&self, matches: &[FieldMatch]) -> Vec<T::Id> {
+    pub fn find(&self, matches: &[FieldMatch]) -> Vec<EntityId> {
         self.schedule.entities.find::<T>(matches, None)
     }
 
@@ -56,7 +56,7 @@ impl<'a, T: EntityType> Finder<'a, T> {
         &self,
         matches: &[FieldMatch],
         options: crate::query::QueryOptions,
-    ) -> Vec<T::Id> {
+    ) -> Vec<EntityId> {
         self.schedule.entities.find::<T>(matches, Some(options))
     }
 
@@ -75,7 +75,7 @@ impl<'a, T: EntityType> Finder<'a, T> {
     }
 
     /// Find single entity by field match (returns first match)
-    pub fn find_one(&self, matches: &[FieldMatch]) -> Option<T::Id> {
+    pub fn find_one(&self, matches: &[FieldMatch]) -> Option<EntityId> {
         let options = crate::query::QueryOptions::new().with_limit(1);
         self.find_with_options(matches, options).into_iter().next()
     }

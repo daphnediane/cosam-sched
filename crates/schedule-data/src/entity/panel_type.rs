@@ -368,17 +368,32 @@ impl PanelType {
 }
 
 impl EntityType for PanelType {
-    type Id = PanelTypeId;
     type Data = PanelType;
 
     const TYPE_NAME: &'static str = "panel_type";
 
-    fn entity_id(data: &Self::Data) -> Self::Id {
-        PanelTypeId(crate::simple_hash(&data.uid))
-    }
+    fn field_set() -> &'static crate::field::field_set::FieldSet<Self> {
+        use crate::entity::macros::field_set;
+        use std::sync::LazyLock;
 
-    fn fields() -> &'static [FieldDescriptor<Self>] {
-        Self::all_fields()
+        static FIELD_SET: LazyLock<crate::field::field_set::FieldSet<PanelType>> = field_set!(PanelType, {
+            fields: [
+                &panel_type_fields::UID,
+                &panel_type_fields::KIND,
+                &panel_type_fields::COLOR,
+                &panel_type_fields::BW_COLOR,
+                &panel_type_fields::IS_BREAK,
+                &panel_type_fields::IS_CAFE,
+                &panel_type_fields::IS_WORKSHOP,
+                &panel_type_fields::IS_HIDDEN,
+                &panel_type_fields::IS_ROOM_HOURS,
+                &panel_type_fields::IS_TIMELINE,
+                &panel_type_fields::IS_PRIVATE
+            ],
+            required: ["uid", "kind"]
+        });
+
+        &FIELD_SET
     }
 
     fn validate(data: &Self::Data) -> Result<(), ValidationError> {

@@ -159,13 +159,8 @@ mod tests {
 
     // Mock EntityType implementation
     impl EntityType for TestEntity {
-        type Id = u32;
         type Data = TestEntity;
         const TYPE_NAME: &'static str = "TestEntity";
-
-        fn entity_id(data: &Self::Data) -> Self::Id {
-            data.id
-        }
 
         fn validate(_data: &Self::Data) -> Result<(), crate::field::validation::ValidationError> {
             Ok(())

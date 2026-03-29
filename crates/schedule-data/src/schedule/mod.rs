@@ -9,25 +9,61 @@
 pub mod storage;
 
 use chrono::NaiveDateTime;
+use std::collections::HashMap;
 use std::fmt;
-use uuid::Uuid;
 
 use crate::entity::edge::{EdgeType, RelationshipDirection};
 use crate::entity::{EntityId, EntityType};
 use crate::field::validation::ValidationError;
+use crate::field::FieldValue;
 use crate::query::{FieldMatch, QueryOptions};
 
 // Re-export storage types
 pub use storage::*;
 
 /// Unique identifier for edges
-pub type EdgeId = Uuid;
+pub type EdgeId = u64;
+
+#[derive(Debug, Clone)]
+pub struct IdAllocators {
+    next_by_type: HashMap<String, u64>,
+    next_edge_id: u64,
+}
+
+impl IdAllocators {
+    pub fn new() -> Self {
+        Self {
+            next_by_type: HashMap::new(),
+            next_edge_id: 1,
+        }
+    }
+
+    pub fn allocate_entity_id(&mut self, type_name: &str) -> u64 {
+        let next = self.next_by_type.entry(type_name.to_string()).or_insert(1);
+        let allocated = *next;
+        *next = allocated.saturating_add(1);
+        allocated
+    }
+
+    pub fn allocate_edge_id(&mut self) -> u64 {
+        let allocated = self.next_edge_id;
+        self.next_edge_id = allocated.saturating_add(1);
+        allocated
+    }
+}
+
+impl Default for IdAllocators {
+    fn default() -> Self {
+        Self::new()
+    }
+}
 
 /// Schedule container holding all entities and relationships
 #[derive(Debug, Clone)]
 pub struct Schedule {
     pub entities: EntityStorage,
     pub edges: EdgeStorage,
+    pub id_allocators: IdAllocators,
     pub metadata: ScheduleMetadata,
 }
 
@@ -36,13 +72,19 @@ impl Schedule {
         Self {
             entities: EntityStorage::new(),
             edges: EdgeStorage::new(),
+            id_allocators: IdAllocators::new(),
             metadata: ScheduleMetadata::new(),
         }
     }
 
     /// Get entity by type and ID
-    pub fn get_entity<T: EntityType>(&self, id: T::Id) -> Option<&T::Data> {
+    pub fn get_entity<T: EntityType>(&self, id: EntityId) -> Option<&T::Data> {
         self.entities.get::<T>(id)
+    }
+
+    /// Get entity by internal monotonic ID
+    pub fn get_entity_by_internal_id<T: EntityType>(&self, internal_id: u64) -> Option<&T::Data> {
+        self.entities.get_by_internal_id::<T>(internal_id)
     }
 
     /// Find entities matching field conditions
@@ -50,7 +92,7 @@ impl Schedule {
         &self,
         matches: &[FieldMatch],
         options: Option<QueryOptions>,
-    ) -> Vec<T::Id> {
+    ) -> Vec<EntityId> {
         self.entities.find::<T>(matches, options)
     }
 
@@ -64,16 +106,29 @@ impl Schedule {
     }
 
     /// Add entity to schedule
-    pub fn add_entity<T: EntityType>(&mut self, entity: T::Data) -> Result<T::Id, ScheduleError> {
-        let id = T::entity_id(&entity);
-        self.entities.add::<T>(entity)?;
-        Ok(id)
+    pub fn add_entity<T: EntityType>(
+        &mut self,
+        entity: T::Data,
+    ) -> Result<EntityId, ScheduleError> {
+        let internal_id = self.id_allocators.allocate_entity_id(T::TYPE_NAME);
+        self.entities.add_with_id::<T>(internal_id, entity)?;
+        Ok(internal_id)
+    }
+
+    /// Add entity and return both internal and external IDs
+    pub fn add_entity_with_internal_id<T: EntityType>(
+        &mut self,
+        entity: T::Data,
+    ) -> Result<u64, ScheduleError> {
+        let internal_id = self.id_allocators.allocate_entity_id(T::TYPE_NAME);
+        self.entities.add_with_id::<T>(internal_id, entity)?;
+        Ok(internal_id)
     }
 
     /// Update entity fields
     pub fn update_entity<T: EntityType>(
         &mut self,
-        id: T::Id,
+        id: EntityId,
         updates: &[(String, FieldValue)],
     ) -> Result<(), ScheduleError> {
         self.entities.update::<T>(id, updates)
@@ -82,7 +137,7 @@ impl Schedule {
     /// Find entities related to a given entity
     pub fn find_related<T: EntityType>(
         &self,
-        entity_id: T::Id,
+        entity_id: EntityId,
         edge_type: EdgeType,
         direction: RelationshipDirection,
     ) -> Vec<EntityId> {
@@ -93,11 +148,13 @@ impl Schedule {
     /// Add relationship between entities
     pub fn add_edge<From: EntityType, To: EntityType>(
         &mut self,
-        from_id: From::Id,
-        to_id: To::Id,
+        from_id: EntityId,
+        to_id: EntityId,
         edge_type: EdgeType,
     ) -> Result<EdgeId, ScheduleError> {
-        self.edges.add_edge::<From, To>(from_id, to_id, edge_type)
+        let edge_id = self.id_allocators.allocate_edge_id();
+        self.edges
+            .add_edge_with_id::<From, To>(edge_id, from_id, to_id, edge_type)
     }
 
     /// Remove relationship

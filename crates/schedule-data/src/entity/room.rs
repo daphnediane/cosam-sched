@@ -237,17 +237,27 @@ impl Room {
 }
 
 impl EntityType for Room {
-    type Id = RoomId;
     type Data = Room;
 
     const TYPE_NAME: &'static str = "room";
 
-    fn entity_id(data: &Self::Data) -> Self::Id {
-        RoomId(crate::simple_hash(&data.uid))
-    }
+    fn field_set() -> &'static crate::field::field_set::FieldSet<Self> {
+        use crate::entity::macros::field_set;
+        use std::sync::LazyLock;
 
-    fn fields() -> &'static [FieldDescriptor<Self>] {
-        Self::all_fields()
+        static FIELD_SET: LazyLock<crate::field::field_set::FieldSet<Room>> = field_set!(Room, {
+            fields: [
+                &room_fields::UID,
+                &room_fields::SHORT_NAME,
+                &room_fields::LONG_NAME,
+                &room_fields::HOTEL_ROOM,
+                &room_fields::SORT_KEY,
+                &room_fields::IS_BREAK
+            ],
+            required: ["uid", "short_name"]
+        });
+
+        &FIELD_SET
     }
 
     fn validate(data: &Self::Data) -> Result<(), ValidationError> {

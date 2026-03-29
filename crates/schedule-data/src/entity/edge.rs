@@ -166,14 +166,9 @@ impl Edge {
 }
 
 impl EntityType for Edge {
-    type Id = EdgeId;
     type Data = Edge;
 
     const TYPE_NAME: &'static str = "edge";
-
-    fn entity_id(data: &Self::Data) -> Self::Id {
-        data.uid
-    }
 
     fn field_set() -> &'static FieldSet<Self> {
         Edge::field_set()

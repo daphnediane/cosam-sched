@@ -16,6 +16,13 @@ use crate::field::FieldMatcher;
 pub use finder::*;
 pub use updater::*;
 
+/// Derived scheduling state for active entities.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum DerivedScheduleState {
+    Scheduled,
+    Unscheduled,
+}
+
 /// Field match condition for queries
 #[derive(Debug, Clone)]
 pub struct FieldMatch {
@@ -36,6 +43,7 @@ impl FieldMatch {
 #[derive(Debug, Clone, Default)]
 pub struct QueryOptions {
     pub state_filter: Option<EntityState>,
+    pub schedule_state_filter: Option<DerivedScheduleState>,
     pub limit: Option<usize>,
     pub offset: Option<usize>,
     pub order_by: Option<String>,
@@ -54,6 +62,11 @@ impl QueryOptions {
 
     pub fn with_limit(mut self, limit: usize) -> Self {
         self.limit = Some(limit);
+        self
+    }
+
+    pub fn with_schedule_state(mut self, schedule_state: DerivedScheduleState) -> Self {
+        self.schedule_state_filter = Some(schedule_state);
         self
     }
 

@@ -7,27 +7,33 @@
 //! Entity and edge storage implementation
 
 use std::collections::HashMap;
-use uuid::Uuid;
 
 use super::{EdgeId, ScheduleError};
 use crate::entity::edge::{EdgeType, RelationshipDirection};
-use crate::entity::{EntityState, EntityType};
+use crate::entity::{EntityId, EntityState, EntityType};
 use crate::field::FieldValue;
+use crate::field::NamedField;
 use crate::query::{FieldMatch, QueryOptions};
 
 /// Generic entity storage
 #[derive(Debug, Clone)]
 #[allow(dead_code)]
 pub struct EntityStorage {
-    // Store entities by type name and ID
-    entities: HashMap<String, HashMap<String, StoredEntity>>,
+    // Store entities by type name and internal ID
+    entities: HashMap<String, EntityTypeStorage>,
     // Indexing for efficient queries
     indexes: HashMap<String, HashMap<String, Vec<String>>>,
+}
+
+#[derive(Debug, Clone, Default)]
+struct EntityTypeStorage {
+    by_internal_id: HashMap<u64, StoredEntity>,
 }
 
 #[derive(Debug, Clone)]
 #[allow(dead_code)]
 struct StoredEntity {
+    internal_id: u64,
     data: String, // Serialized JSON data
     state: EntityState,
     created_at: chrono::NaiveDateTime,
@@ -43,13 +49,20 @@ impl EntityStorage {
     }
 
     /// Get entity by type and ID
-    pub fn get<T: EntityType>(&self, id: T::Id) -> Option<&T::Data> {
+    pub fn get<T: EntityType>(&self, id: EntityId) -> Option<&T::Data> {
         let type_name = T::TYPE_NAME;
-        let id_str = id.to_string();
-
         self.entities
             .get(type_name)
-            .and_then(|type_entities| type_entities.get(&id_str))
+            .and_then(|type_entities| type_entities.by_internal_id.get(&id))
+            .and_then(|stored| self.deserialize::<T>(&stored.data))
+    }
+
+    /// Get entity by internal monotonic ID
+    pub fn get_by_internal_id<T: EntityType>(&self, internal_id: u64) -> Option<&T::Data> {
+        let type_name = T::TYPE_NAME;
+        self.entities
+            .get(type_name)
+            .and_then(|type_entities| type_entities.by_internal_id.get(&internal_id))
             .and_then(|stored| self.deserialize::<T>(&stored.data))
     }
 
@@ -68,14 +81,14 @@ impl EntityStorage {
         &self,
         matches: &[FieldMatch],
         options: Option<QueryOptions>,
-    ) -> Vec<T::Id> {
+    ) -> Vec<EntityId> {
         let type_name = T::TYPE_NAME;
         let options = options.unwrap_or_default();
 
         if let Some(type_entities) = self.entities.get(type_name) {
             let mut results = Vec::new();
 
-            for (id_str, stored) in type_entities {
+            for stored in type_entities.by_internal_id.values() {
                 // Apply state filter
                 if let Some(state_filter) = options.state_filter {
                     if stored.state != state_filter {
@@ -88,9 +101,7 @@ impl EntityStorage {
                     let mut matches_all = true;
 
                     for field_match in matches {
-                        let field = T::fields()
-                            .iter()
-                            .find(|f| f.name == field_match.field_name);
+                        let field = T::field_set().get_field(&field_match.field_name);
 
                         if let Some(field) = field {
                             // This is a simplified matching - in practice, you'd need
@@ -106,9 +117,7 @@ impl EntityStorage {
                     }
 
                     if matches_all {
-                        if let Some(id) = self.parse_id::<T>(id_str) {
-                            results.push(id);
-                        }
+                        results.push(stored.internal_id);
                     }
                 }
             }
@@ -141,33 +150,33 @@ impl EntityStorage {
         }
     }
 
-    /// Add entity to storage
-    pub fn add<T: EntityType>(&mut self, entity: T::Data) -> Result<(), ScheduleError> {
+    /// Add entity to storage with pre-allocated internal ID
+    pub fn add_with_id<T: EntityType>(
+        &mut self,
+        internal_id: u64,
+        entity: T::Data,
+    ) -> Result<(), ScheduleError> {
         let type_name = T::TYPE_NAME;
-        let id = T::entity_id(&entity);
-        let id_str = id.to_string();
+
+        let type_entities = self.entities.entry(type_name.to_string()).or_default();
 
         // Check for duplicates
-        if let Some(type_entities) = self.entities.get(type_name) {
-            if type_entities.contains_key(&id_str) {
-                return Err(ScheduleError::DuplicateEntity {
-                    entity_type: type_name.to_string(),
-                    id: id_str,
-                });
-            }
+        if type_entities.by_internal_id.contains_key(&internal_id) {
+            return Err(ScheduleError::DuplicateEntity {
+                entity_type: type_name.to_string(),
+                id: internal_id.to_string(),
+            });
         }
 
         let stored = StoredEntity {
+            internal_id,
             data: self.serialize::<T>(&entity),
             state: EntityState::Active,
             created_at: chrono::Utc::now().naive_utc(),
             updated_at: chrono::Utc::now().naive_utc(),
         };
 
-        self.entities
-            .entry(type_name.to_string())
-            .or_default()
-            .insert(id_str, stored);
+        type_entities.by_internal_id.insert(internal_id, stored);
 
         Ok(())
     }
@@ -175,14 +184,13 @@ impl EntityStorage {
     /// Update entity fields
     pub fn update<T: EntityType>(
         &mut self,
-        id: T::Id,
+        id: EntityId,
         _updates: &[(String, FieldValue)],
     ) -> Result<(), ScheduleError> {
         let type_name = T::TYPE_NAME;
-        let id_str = id.to_string();
 
         if let Some(type_entities) = self.entities.get_mut(type_name) {
-            if let Some(stored) = type_entities.get_mut(&id_str) {
+            if let Some(stored) = type_entities.by_internal_id.get_mut(&id) {
                 // Update timestamp
                 stored.updated_at = chrono::Utc::now().naive_utc();
 
@@ -192,13 +200,13 @@ impl EntityStorage {
             } else {
                 Err(ScheduleError::EntityNotFound {
                     entity_type: type_name.to_string(),
-                    id: id_str,
+                    id: id.to_string(),
                 })
             }
         } else {
             Err(ScheduleError::EntityNotFound {
                 entity_type: type_name.to_string(),
-                id: id_str,
+                id: id.to_string(),
             })
         }
     }
@@ -218,17 +226,11 @@ impl EntityStorage {
     fn simple_field_match<T: EntityType>(
         &self,
         _entity: &T::Data,
-        _field: &FieldDescriptor<T>,
+        _field: &dyn NamedField<T>,
         _matcher: &crate::field::FieldMatcher,
     ) -> bool {
         // Simplified matching - in practice, extract field value and compare
         true
-    }
-
-    fn parse_id<T: EntityType>(&self, _id_str: &str) -> Option<T::Id> {
-        // Simplified ID parsing - in practice, this depends on the ID type
-        // For now, this won't work but serves as a placeholder
-        None
     }
 }
 
@@ -273,13 +275,13 @@ impl EdgeStorage {
     }
 
     /// Add edge between entities
-    pub fn add_edge<From: EntityType, To: EntityType>(
+    pub fn add_edge_with_id<From: EntityType, To: EntityType>(
         &mut self,
-        from_id: From::Id,
-        to_id: To::Id,
+        edge_id: EdgeId,
+        from_id: EntityId,
+        to_id: EntityId,
         edge_type: EdgeType,
     ) -> Result<EdgeId, ScheduleError> {
-        let edge_id = Uuid::new_v4();
         let from_str = from_id.to_string();
         let to_str = to_id.to_string();
 
@@ -349,10 +351,10 @@ impl EdgeStorage {
     /// Find entities related to a given entity
     pub fn find_related<T: EntityType>(
         &self,
-        entity_id: T::Id,
+        entity_id: EntityId,
         edge_type: EdgeType,
         direction: RelationshipDirection,
-    ) -> Vec<String> {
+    ) -> Vec<EntityId> {
         let id_str = entity_id.to_string();
 
         let edge_ids = match direction {
@@ -374,9 +376,10 @@ impl EdgeStorage {
             .iter()
             .filter_map(|&edge_id| self.edges.get(&edge_id))
             .map(|edge| match direction {
-                RelationshipDirection::Outgoing => edge.to_id.clone(),
-                RelationshipDirection::Incoming => edge.from_id.clone(),
+                RelationshipDirection::Outgoing => edge.to_id.parse::<u64>().unwrap_or(0),
+                RelationshipDirection::Incoming => edge.from_id.parse::<u64>().unwrap_or(0),
             })
+            .filter(|id| *id > 0)
             .collect()
     }
 
