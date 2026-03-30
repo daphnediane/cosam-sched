@@ -9,8 +9,9 @@
 use std::fmt;
 
 use crate::entity::EntityType;
+use crate::field::traits::*;
 use crate::field::{
-    DateTimeFieldType, DurationFieldType, FieldDescriptor, FieldError, FieldType, FieldValue,
+    DateTimeFieldType, DurationFieldType, FieldError, FieldSet, FieldType, FieldValue,
     IntegerFieldType, StringFieldType, ValidationError,
 };
 
@@ -62,7 +63,12 @@ pub struct Panel {
 /// Field constants for Panel
 pub mod panel_fields {
     use super::Panel;
+    use crate::entity::EntityType;
+    use crate::field::traits::*;
     use crate::field::*;
+
+    // Import macros from the dedicated macros module
+    use crate::entity::macros::{computed_field, direct_field};
 
     fn validate_time_range(panel: &Panel, _value: &FieldValue) -> Result<(), ValidationError> {
         panel
@@ -670,17 +676,6 @@ pub mod panel_fields {
         panel.time_range.duration().map(FieldValue::Duration)
     }
 
-    pub static UID: FieldDescriptor<Panel> = FieldDescriptor {
-        name: "uid",
-        display_name: "UID",
-        description: "Unique identifier for the panel",
-        required: true,
-        field_type: FieldTypeEnum::String(StringFieldType),
-        reader: FieldReader::Direct(uid_accessor),
-        writer: Some(write_uid),
-        validator: Some(validate_required_uid),
-    };
-
     pub static NAME: FieldDescriptor<Panel> = FieldDescriptor {
         name: "name",
         display_name: "Name",
@@ -999,6 +994,36 @@ pub mod panel_fields {
         writer: Some(write_duration),
         validator: Some(validate_duration),
     };
+
+    // UID field using new macro system
+    direct_field!(
+        UID,
+        "UID",
+        "Unique identifier for the panel",
+        Panel,
+        uid,
+        String
+    );
+
+    impl IndexableField<Panel> for UID {
+        fn is_indexable(&self) -> bool {
+            true
+        }
+
+        fn lookup(&self, query: &str, entity: &Panel) -> Option<MatchStrength> {
+            if entity.uid.eq_ignore_ascii_case(query) {
+                Some(MatchStrength::ExactMatch)
+            } else if entity.uid.to_lowercase().contains(&query.to_lowercase()) {
+                Some(MatchStrength::StrongMatch)
+            } else {
+                Some(MatchStrength::NotMatch)
+            }
+        }
+
+        fn index_priority(&self) -> u8 {
+            200
+        } // High priority for UID
+    }
 }
 
 impl Panel {
@@ -1055,38 +1080,39 @@ impl EntityType for Panel {
 
         static FIELD_SET: LazyLock<crate::field::field_set::FieldSet<Panel>> = field_set!(Panel, {
             fields: [
-                &panel_fields::UID,
-                &panel_fields::NAME,
-                &panel_fields::DESCRIPTION,
-                &panel_fields::BASE_UID,
-                &panel_fields::PART_NUM,
-                &panel_fields::SESSION_NUM,
-                &panel_fields::PANEL_TYPE_UID,
-                &panel_fields::NOTE,
-                &panel_fields::PREREQ,
-                &panel_fields::COST,
-                &panel_fields::CAPACITY,
-                &panel_fields::PRE_REG_MAX,
-                &panel_fields::DIFFICULTY,
-                &panel_fields::TICKET_URL,
-                &panel_fields::SIMPLE_TIX_EVENT,
-                &panel_fields::HAVE_TICKET_IMAGE,
-                &panel_fields::IS_FREE,
-                &panel_fields::IS_KIDS,
-                &panel_fields::IS_FULL,
-                &panel_fields::HIDE_PANELIST,
-                &panel_fields::SEWING_MACHINES,
-                &panel_fields::ALT_PANELIST,
-                &panel_fields::SEATS_SOLD,
-                &panel_fields::NOTES_NON_PRINTING,
-                &panel_fields::WORKSHOP_NOTES,
-                &panel_fields::POWER_NEEDS,
-                &panel_fields::AV_NOTES,
-                &panel_fields::START_TIME,
-                &panel_fields::END_TIME,
-                &panel_fields::DURATION
+                &panel_fields::UID => [],
+                &panel_fields::NAME => [],
+                &panel_fields::DESCRIPTION => [],
+                &panel_fields::BASE_UID => [],
+                &panel_fields::PART_NUM => [],
+                &panel_fields::SESSION_NUM => [],
+                &panel_fields::PANEL_TYPE_UID => [],
+                &panel_fields::NOTE => [],
+                &panel_fields::PREREQ => [],
+                &panel_fields::COST => [],
+                &panel_fields::CAPACITY => [],
+                &panel_fields::PRE_REG_MAX => [],
+                &panel_fields::DIFFICULTY => [],
+                &panel_fields::TICKET_URL => [],
+                &panel_fields::SIMPLE_TIX_EVENT => [],
+                &panel_fields::HAVE_TICKET_IMAGE => [],
+                &panel_fields::IS_FREE => [],
+                &panel_fields::IS_KIDS => [],
+                &panel_fields::IS_FULL => [],
+                &panel_fields::HIDE_PANELIST => [],
+                &panel_fields::SEWING_MACHINES => [],
+                &panel_fields::ALT_PANELIST => [],
+                &panel_fields::SEATS_SOLD => [],
+                &panel_fields::NOTES_NON_PRINTING => [],
+                &panel_fields::WORKSHOP_NOTES => [],
+                &panel_fields::POWER_NEEDS => [],
+                &panel_fields::AV_NOTES => [],
+                &panel_fields::START_TIME => [],
+                &panel_fields::END_TIME => [],
+                &panel_fields::DURATION => []
             ],
-            required: ["uid", "name"]
+            required: ["uid", "name"],
+            indexable: [&panel_fields::UID]
         });
 
         &FIELD_SET

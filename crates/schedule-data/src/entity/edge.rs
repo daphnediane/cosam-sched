@@ -149,8 +149,10 @@ pub mod edge_fields {
 
 impl Edge {
     pub fn field_set() -> &'static FieldSet<Edge> {
-        use crate::entity::macros::field_set;
         use std::sync::LazyLock;
+
+        // Import macros from the dedicated macros module
+        use crate::entity::macros::field_set;
 
         static FIELD_SET: LazyLock<FieldSet<Edge>> = field_set!(Edge, {
             fields: [

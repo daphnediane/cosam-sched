@@ -20,7 +20,7 @@ This plan migrates schedule-core data/edit behavior into schedule-data using int
 ## Phase Status
 
 - Phase 1: Completed
-- Phase 2: Not started
+- Phase 2: In Progress
 - Phase 3: Not started
 - Phase 4: Not started
 - Phase 5: Not started

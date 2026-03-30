@@ -9,14 +9,6 @@
 //! This module provides macros for implementing common field patterns
 //! across all entity types in the schedule-data crate.
 
-#![allow(unused_macros)]
-
-use crate::entity::EntityType;
-use crate::field::field_set::FieldSet;
-use crate::field::traits::*;
-use crate::field::{FieldError, FieldValue, ValidationError};
-use crate::schedule::Schedule;
-
 /// Unified macro for implementing computed fields with custom methods
 /// This macro can handle any combination of read, write, and validate methods
 /// and automatically implements the appropriate traits based on what's provided.
@@ -30,7 +22,7 @@ macro_rules! computed_field {
         }) => {
         pub struct $name;
 
-        impl NamedField<$type> for $name {
+        impl crate::field::traits::NamedField<$type> for $name {
             fn name(&self) -> &'static str {
                 stringify!($name)
             }
@@ -44,22 +36,22 @@ macro_rules! computed_field {
             }
         }
 
-        impl ReadableField<$type> for $name {
-            fn read(&$read_self, $read_entity: &<$type as EntityType>::Data, $read_schedule: &Schedule) -> Option<FieldValue> {
+        impl crate::field::traits::ReadableField<$type> for $name {
+            fn read(&$read_self, $read_entity: &<$type as crate::entity::EntityType>::Data, $read_schedule: &crate::schedule::Schedule) -> Option<crate::field::FieldValue> {
                 $read_body
             }
             fn is_read_computed(&self) -> bool { true }
         }
 
-        impl WritableField<$type> for $name {
-            fn write(&$write_self, $write_entity: &mut <$type as EntityType>::Data, $write_schedule: &Schedule, $write_value: FieldValue) -> Result<(), FieldError> {
+        impl crate::field::traits::WritableField<$type> for $name {
+            fn write(&$write_self, $write_entity: &mut <$type as crate::entity::EntityType>::Data, $write_schedule: &crate::schedule::Schedule, $write_value: crate::field::FieldValue) -> Result<(), crate::field::FieldError> {
                 $write_body
             }
             fn is_write_computed(&self) -> bool { true }
         }
 
-        impl CheckedField<$type> for $name {
-            fn validate(&$validate_self, $validate_schedule: &Schedule, $validate_entity: &mut <$type as EntityType>::Data, $validate_value: &FieldValue) -> Result<(), ValidationError> {
+        impl crate::field::traits::CheckedField<$type> for $name {
+            fn validate(&$validate_self, $validate_schedule: &crate::schedule::Schedule, $validate_entity: &mut <$type as crate::entity::EntityType>::Data, $validate_value: &crate::field::FieldValue) -> Result<(), crate::field::ValidationError> {
                 $validate_body
             }
         }
@@ -73,7 +65,7 @@ macro_rules! computed_field {
         }) => {
         pub struct $name;
 
-        impl NamedField<$type> for $name {
+        impl crate::field::traits::NamedField<$type> for $name {
             fn name(&self) -> &'static str {
                 stringify!($name)
             }
@@ -87,15 +79,15 @@ macro_rules! computed_field {
             }
         }
 
-        impl ReadableField<$type> for $name {
-            fn read(&$read_self, $read_entity: &<$type as EntityType>::Data, $read_schedule: &Schedule) -> Option<FieldValue> {
+        impl crate::field::traits::ReadableField<$type> for $name {
+            fn read(&$read_self, $read_entity: &<$type as crate::entity::EntityType>::Data, $read_schedule: &crate::schedule::Schedule) -> Option<crate::field::FieldValue> {
                 $read_body
             }
             fn is_read_computed(&self) -> bool { true }
         }
 
-        impl WritableField<$type> for $name {
-            fn write(&$write_self, $write_entity: &mut <$type as EntityType>::Data, $write_schedule: &Schedule, $write_value: FieldValue) -> Result<(), FieldError> {
+        impl crate::field::traits::WritableField<$type> for $name {
+            fn write(&$write_self, $write_entity: &mut <$type as crate::entity::EntityType>::Data, $write_schedule: &crate::schedule::Schedule, $write_value: crate::field::FieldValue) -> Result<(), crate::field::FieldError> {
                 $write_body
             }
             fn is_write_computed(&self) -> bool { true }
@@ -111,7 +103,7 @@ macro_rules! computed_field {
         }) => {
         pub struct $name;
 
-        impl NamedField<$type> for $name {
+        impl crate::field::traits::NamedField<$type> for $name {
             fn name(&self) -> &'static str {
                 stringify!($name)
             }
@@ -125,22 +117,22 @@ macro_rules! computed_field {
             }
         }
 
-        impl SimpleReadableField<$type> for $name {
-            fn read(&$read_self, $read_entity: &<$type as EntityType>::Data) -> Option<FieldValue> {
+        impl crate::field::traits::SimpleReadableField<$type> for $name {
+            fn read(&$read_self, $read_entity: &<$type as crate::entity::EntityType>::Data) -> Option<crate::field::FieldValue> {
                 $read_body
             }
             fn is_read_computed(&self) -> bool { true }
         }
 
-        impl SimpleWritableField<$type> for $name {
-            fn write(&$write_self, $write_entity: &mut <$type as EntityType>::Data, $write_value: FieldValue) -> Result<(), FieldError> {
+        impl crate::field::traits::SimpleWritableField<$type> for $name {
+            fn write(&$write_self, $write_entity: &mut <$type as crate::entity::EntityType>::Data, $write_value: crate::field::FieldValue) -> Result<(), crate::field::FieldError> {
                 $write_body
             }
             fn is_write_computed(&self) -> bool { true }
         }
 
-        impl CheckedField<$type> for $name {
-            fn validate(&$validate_self, _schedule: &Schedule, $validate_entity: &mut <$type as EntityType>::Data, $validate_value: &FieldValue) -> Result<(), ValidationError> {
+        impl crate::field::traits::CheckedField<$type> for $name {
+            fn validate(&$validate_self, _schedule: &crate::schedule::Schedule, $validate_entity: &mut <$type as crate::entity::EntityType>::Data, $validate_value: &crate::field::FieldValue) -> Result<(), crate::field::ValidationError> {
                 $validate_body
             }
         }
@@ -154,7 +146,7 @@ macro_rules! computed_field {
         }) => {
         pub struct $name;
 
-        impl NamedField<$type> for $name {
+        impl crate::field::traits::NamedField<$type> for $name {
             fn name(&self) -> &'static str {
                 stringify!($name)
             }
@@ -168,15 +160,15 @@ macro_rules! computed_field {
             }
         }
 
-        impl SimpleReadableField<$type> for $name {
-            fn read(&$read_self, $read_entity: &<$type as EntityType>::Data) -> Option<FieldValue> {
+        impl crate::field::traits::SimpleReadableField<$type> for $name {
+            fn read(&$read_self, $read_entity: &<$type as crate::entity::EntityType>::Data) -> Option<crate::field::FieldValue> {
                 $read_body
             }
             fn is_read_computed(&self) -> bool { true }
         }
 
-        impl SimpleWritableField<$type> for $name {
-            fn write(&$write_self, $write_entity: &mut <$type as EntityType>::Data, $write_value: FieldValue) -> Result<(), FieldError> {
+        impl crate::field::traits::SimpleWritableField<$type> for $name {
+            fn write(&$write_self, $write_entity: &mut <$type as crate::entity::EntityType>::Data, $write_value: crate::field::FieldValue) -> Result<(), crate::field::FieldError> {
                 $write_body
             }
             fn is_write_computed(&self) -> bool { true }
@@ -190,7 +182,7 @@ macro_rules! computed_field {
         }) => {
         pub struct $name;
 
-        impl NamedField<$type> for $name {
+        impl crate::field::traits::NamedField<$type> for $name {
             fn name(&self) -> &'static str {
                 stringify!($name)
             }
@@ -204,8 +196,8 @@ macro_rules! computed_field {
             }
         }
 
-        impl ReadableField<$type> for $name {
-            fn read(&$read_self, $read_entity: &<$type as EntityType>::Data, $read_schedule: &Schedule) -> Option<FieldValue> {
+        impl crate::field::traits::ReadableField<$type> for $name {
+            fn read(&$read_self, $read_entity: &<$type as crate::entity::EntityType>::Data, $read_schedule: &crate::schedule::Schedule) -> Option<crate::field::FieldValue> {
                 $read_body
             }
             fn is_read_computed(&self) -> bool { true }
@@ -219,7 +211,7 @@ macro_rules! computed_field {
         }) => {
         pub struct $name;
 
-        impl NamedField<$type> for $name {
+        impl crate::field::traits::NamedField<$type> for $name {
             fn name(&self) -> &'static str {
                 stringify!($name)
             }
@@ -233,8 +225,8 @@ macro_rules! computed_field {
             }
         }
 
-        impl WritableField<$type> for $name {
-            fn write(&$write_self, $write_entity: &mut <$type as EntityType>::Data, $write_schedule: &Schedule, $write_value: FieldValue) -> Result<(), FieldError> {
+        impl crate::field::traits::WritableField<$type> for $name {
+            fn write(&$write_self, $write_entity: &mut <$type as crate::entity::EntityType>::Data, $write_schedule: &crate::schedule::Schedule, $write_value: crate::field::FieldValue) -> Result<(), crate::field::FieldError> {
                 $write_body
             }
             fn is_write_computed(&self) -> bool { true }
@@ -248,7 +240,7 @@ macro_rules! computed_field {
         }) => {
         pub struct $name;
 
-        impl NamedField<$type> for $name {
+        impl crate::field::traits::NamedField<$type> for $name {
             fn name(&self) -> &'static str {
                 stringify!($name)
             }
@@ -262,8 +254,8 @@ macro_rules! computed_field {
             }
         }
 
-        impl SimpleReadableField<$type> for $name {
-            fn read(&$read_self, $read_entity: &<$type as EntityType>::Data) -> Option<FieldValue> {
+        impl crate::field::traits::SimpleReadableField<$type> for $name {
+            fn read(&$read_self, $read_entity: &<$type as crate::entity::EntityType>::Data) -> Option<crate::field::FieldValue> {
                 $read_body
             }
             fn is_read_computed(&self) -> bool { true }
@@ -277,7 +269,7 @@ macro_rules! computed_field {
         }) => {
         pub struct $name;
 
-        impl NamedField<$type> for $name {
+        impl crate::field::traits::NamedField<$type> for $name {
             fn name(&self) -> &'static str {
                 stringify!($name)
             }
@@ -291,8 +283,8 @@ macro_rules! computed_field {
             }
         }
 
-        impl SimpleWritableField<$type> for $name {
-            fn write(&$write_self, $write_entity: &mut <$type as EntityType>::Data, $write_value: FieldValue) -> Result<(), FieldError> {
+        impl crate::field::traits::SimpleWritableField<$type> for $name {
+            fn write(&$write_self, $write_entity: &mut <$type as crate::entity::EntityType>::Data, $write_value: crate::field::FieldValue) -> Result<(), crate::field::FieldError> {
                 $write_body
             }
             fn is_write_computed(&self) -> bool { true }
@@ -313,7 +305,7 @@ macro_rules! direct_field {
     ($name:ident, $display_name:expr, $description:expr, $type:ty, $field:ident, String) => {
         pub struct $name;
 
-        impl NamedField<$type> for $name {
+        impl crate::field::traits::NamedField<$type> for $name {
             fn name(&self) -> &'static str {
                 stringify!($name)
             }
@@ -327,9 +319,12 @@ macro_rules! direct_field {
             }
         }
 
-        impl SimpleReadableField<$type> for $name {
-            fn read(&self, entity: &<$type as EntityType>::Data) -> Option<FieldValue> {
-                Some(FieldValue::String(entity.$field.clone()))
+        impl crate::field::traits::SimpleReadableField<$type> for $name {
+            fn read(
+                &self,
+                entity: &<$type as crate::entity::EntityType>::Data,
+            ) -> Option<crate::field::FieldValue> {
+                Some(crate::field::FieldValue::String(entity.$field.clone()))
             }
 
             fn is_read_computed(&self) -> bool {
@@ -337,17 +332,17 @@ macro_rules! direct_field {
             }
         }
 
-        impl SimpleWritableField<$type> for $name {
+        impl crate::field::traits::SimpleWritableField<$type> for $name {
             fn write(
                 &self,
-                entity: &mut <$type as EntityType>::Data,
-                value: FieldValue,
-            ) -> Result<(), FieldError> {
-                if let FieldValue::String(v) = value {
+                entity: &mut <$type as crate::entity::EntityType>::Data,
+                value: crate::field::FieldValue,
+            ) -> Result<(), crate::field::FieldError> {
+                if let crate::field::FieldValue::String(v) = value {
                     entity.$field = v;
                     Ok(())
                 } else {
-                    Err(FieldError::CannotStoreComputedField)
+                    Err(crate::field::FieldError::CannotStoreComputedField)
                 }
             }
 
@@ -361,7 +356,7 @@ macro_rules! direct_field {
     ($name:ident, $display_name:expr, $description:expr, $type:ty, $field:ident, i64) => {
         pub struct $name;
 
-        impl NamedField<$type> for $name {
+        impl crate::field::traits::NamedField<$type> for $name {
             fn name(&self) -> &'static str {
                 stringify!($name)
             }
@@ -375,9 +370,12 @@ macro_rules! direct_field {
             }
         }
 
-        impl SimpleReadableField<$type> for $name {
-            fn read(&self, entity: &<$type as EntityType>::Data) -> Option<FieldValue> {
-                Some(FieldValue::Integer(entity.$field))
+        impl crate::field::traits::SimpleReadableField<$type> for $name {
+            fn read(
+                &self,
+                entity: &<$type as crate::entity::EntityType>::Data,
+            ) -> Option<crate::field::FieldValue> {
+                Some(crate::field::FieldValue::Integer(entity.$field))
             }
 
             fn is_read_computed(&self) -> bool {
@@ -385,17 +383,17 @@ macro_rules! direct_field {
             }
         }
 
-        impl SimpleWritableField<$type> for $name {
+        impl crate::field::traits::SimpleWritableField<$type> for $name {
             fn write(
                 &self,
-                entity: &mut <$type as EntityType>::Data,
-                value: FieldValue,
-            ) -> Result<(), FieldError> {
-                if let FieldValue::Integer(v) = value {
+                entity: &mut <$type as crate::entity::EntityType>::Data,
+                value: crate::field::FieldValue,
+            ) -> Result<(), crate::field::FieldError> {
+                if let crate::field::FieldValue::Integer(v) = value {
                     entity.$field = v;
                     Ok(())
                 } else {
-                    Err(FieldError::CannotStoreComputedField)
+                    Err(crate::field::FieldError::CannotStoreComputedField)
                 }
             }
 
@@ -409,7 +407,7 @@ macro_rules! direct_field {
     ($name:ident, $display_name:expr, $description:expr, $type:ty, $field:ident, bool) => {
         pub struct $name;
 
-        impl NamedField<$type> for $name {
+        impl crate::field::traits::NamedField<$type> for $name {
             fn name(&self) -> &'static str {
                 stringify!($name)
             }
@@ -423,9 +421,12 @@ macro_rules! direct_field {
             }
         }
 
-        impl SimpleReadableField<$type> for $name {
-            fn read(&self, entity: &<$type as EntityType>::Data) -> Option<FieldValue> {
-                Some(FieldValue::Boolean(entity.$field))
+        impl crate::field::traits::SimpleReadableField<$type> for $name {
+            fn read(
+                &self,
+                entity: &<$type as crate::entity::EntityType>::Data,
+            ) -> Option<crate::field::FieldValue> {
+                Some(crate::field::FieldValue::Boolean(entity.$field))
             }
 
             fn is_read_computed(&self) -> bool {
@@ -433,17 +434,17 @@ macro_rules! direct_field {
             }
         }
 
-        impl SimpleWritableField<$type> for $name {
+        impl crate::field::traits::SimpleWritableField<$type> for $name {
             fn write(
                 &self,
-                entity: &mut <$type as EntityType>::Data,
-                value: FieldValue,
-            ) -> Result<(), FieldError> {
-                if let FieldValue::Boolean(v) = value {
+                entity: &mut <$type as crate::entity::EntityType>::Data,
+                value: crate::field::FieldValue,
+            ) -> Result<(), crate::field::FieldError> {
+                if let crate::field::FieldValue::Boolean(v) = value {
                     entity.$field = v;
                     Ok(())
                 } else {
-                    Err(FieldError::CannotStoreComputedField)
+                    Err(crate::field::FieldError::CannotStoreComputedField)
                 }
             }
 
@@ -457,7 +458,7 @@ macro_rules! direct_field {
     ($name:ident, $display_name:expr, $description:expr, $type:ty, $field:ident, Option<String>) => {
         pub struct $name;
 
-        impl NamedField<$type> for $name {
+        impl crate::field::traits::NamedField<$type> for $name {
             fn name(&self) -> &'static str {
                 stringify!($name)
             }
@@ -471,9 +472,12 @@ macro_rules! direct_field {
             }
         }
 
-        impl SimpleReadableField<$type> for $name {
-            fn read(&self, entity: &<$type as EntityType>::Data) -> Option<FieldValue> {
-                entity.$field.clone().map(FieldValue::String)
+        impl crate::field::traits::SimpleReadableField<$type> for $name {
+            fn read(
+                &self,
+                entity: &<$type as crate::entity::EntityType>::Data,
+            ) -> Option<crate::field::FieldValue> {
+                entity.$field.clone().map(crate::field::FieldValue::String)
             }
 
             fn is_read_computed(&self) -> bool {
@@ -481,17 +485,17 @@ macro_rules! direct_field {
             }
         }
 
-        impl SimpleWritableField<$type> for $name {
+        impl crate::field::traits::SimpleWritableField<$type> for $name {
             fn write(
                 &self,
-                entity: &mut <$type as EntityType>::Data,
-                value: FieldValue,
-            ) -> Result<(), FieldError> {
-                if let FieldValue::String(v) = value {
+                entity: &mut <$type as crate::entity::EntityType>::Data,
+                value: crate::field::FieldValue,
+            ) -> Result<(), crate::field::FieldError> {
+                if let crate::field::FieldValue::String(v) = value {
                     entity.$field = Some(v);
                     Ok(())
                 } else {
-                    Err(FieldError::CannotStoreComputedField)
+                    Err(crate::field::FieldError::CannotStoreComputedField)
                 }
             }
 
@@ -505,7 +509,7 @@ macro_rules! direct_field {
     ($name:ident, $display_name:expr, $description:expr, $type:ty, $field:ident, Option<i64>) => {
         pub struct $name;
 
-        impl NamedField<$type> for $name {
+        impl crate::field::traits::NamedField<$type> for $name {
             fn name(&self) -> &'static str {
                 stringify!($name)
             }
@@ -519,9 +523,12 @@ macro_rules! direct_field {
             }
         }
 
-        impl SimpleReadableField<$type> for $name {
-            fn read(&self, entity: &<$type as EntityType>::Data) -> Option<FieldValue> {
-                entity.$field.map(FieldValue::Integer)
+        impl crate::field::traits::SimpleReadableField<$type> for $name {
+            fn read(
+                &self,
+                entity: &<$type as crate::entity::EntityType>::Data,
+            ) -> Option<crate::field::FieldValue> {
+                entity.$field.map(crate::field::FieldValue::Integer)
             }
 
             fn is_read_computed(&self) -> bool {
@@ -529,17 +536,17 @@ macro_rules! direct_field {
             }
         }
 
-        impl SimpleWritableField<$type> for $name {
+        impl crate::field::traits::SimpleWritableField<$type> for $name {
             fn write(
                 &self,
-                entity: &mut <$type as EntityType>::Data,
-                value: FieldValue,
-            ) -> Result<(), FieldError> {
-                if let FieldValue::Integer(v) = value {
+                entity: &mut <$type as crate::entity::EntityType>::Data,
+                value: crate::field::FieldValue,
+            ) -> Result<(), crate::field::FieldError> {
+                if let crate::field::FieldValue::Integer(v) = value {
                     entity.$field = Some(v);
                     Ok(())
                 } else {
-                    Err(FieldError::CannotStoreComputedField)
+                    Err(crate::field::FieldError::CannotStoreComputedField)
                 }
             }
 
@@ -553,7 +560,7 @@ macro_rules! direct_field {
     ($name:ident, $display_name:expr, $description:expr, $type:ty, $field:ident, Option<bool>) => {
         pub struct $name;
 
-        impl NamedField<$type> for $name {
+        impl crate::field::traits::NamedField<$type> for $name {
             fn name(&self) -> &'static str {
                 stringify!($name)
             }
@@ -567,9 +574,12 @@ macro_rules! direct_field {
             }
         }
 
-        impl SimpleReadableField<$type> for $name {
-            fn read(&self, entity: &<$type as EntityType>::Data) -> Option<FieldValue> {
-                entity.$field.map(FieldValue::Boolean)
+        impl crate::field::traits::SimpleReadableField<$type> for $name {
+            fn read(
+                &self,
+                entity: &<$type as crate::entity::EntityType>::Data,
+            ) -> Option<crate::field::FieldValue> {
+                entity.$field.map(crate::field::FieldValue::Boolean)
             }
 
             fn is_read_computed(&self) -> bool {
@@ -577,17 +587,17 @@ macro_rules! direct_field {
             }
         }
 
-        impl SimpleWritableField<$type> for $name {
+        impl crate::field::traits::SimpleWritableField<$type> for $name {
             fn write(
                 &self,
-                entity: &mut <$type as EntityType>::Data,
-                value: FieldValue,
-            ) -> Result<(), FieldError> {
-                if let FieldValue::Boolean(v) = value {
+                entity: &mut <$type as crate::entity::EntityType>::Data,
+                value: crate::field::FieldValue,
+            ) -> Result<(), crate::field::FieldError> {
+                if let crate::field::FieldValue::Boolean(v) = value {
                     entity.$field = Some(v);
                     Ok(())
                 } else {
-                    Err(FieldError::CannotStoreComputedField)
+                    Err(crate::field::FieldError::CannotStoreComputedField)
                 }
             }
 
@@ -606,20 +616,20 @@ pub(crate) use direct_field;
 /// Automatically generates the name map from field names and aliases
 /// Uses LazyLock for thread-safe static initialization
 macro_rules! field_set {
-    // Version with aliases: field_set!(Type, { fields: [FIELD1 => ["alias1", "alias2"], FIELD2 => []], required: ["field1"] })
-    ($entity_type:ty, { fields: [$($field:expr => [$($alias:expr),*]),*], required: [$($required:expr),*] }) => {{
+    // Version with aliases and indexable fields: field_set!(Type, { fields: [FIELD1 => ["alias1", "alias2"], FIELD2 => []], required: ["field1"], indexable: [FIELD1, FIELD2] })
+    ($entity_type:ty, { fields: [$($field:expr => [$($alias:expr),*]),*], required: [$($required:expr),*], indexable: [$($indexable:expr),*] }) => {{
         std::sync::LazyLock::new(|| {
             // Use a static array to avoid lifetime issues
             static FIELDS: [&str; 0] = []; // Placeholder - will be replaced by actual fields
 
             // Create field references that live long enough
-            let field_refs: Vec<&dyn NamedField<$entity_type>> = vec![$($field),*];
+            let field_refs: Vec<&dyn crate::field::traits::NamedField<$entity_type>> = vec![$($field),*];
             let fields = field_refs.leak(); // Leak to make references 'static
 
             // Generate name map with primary names and aliases
-            let name_map_entries: Vec<(&str, &dyn NamedField<$entity_type>)> = vec![
+            let name_map_entries: Vec<(&str, &dyn crate::field::traits::NamedField<$entity_type>)> = vec![
                 $(
-                    ($field.name(), $field),
+                    (crate::field::traits::NamedField::name($field), $field),
                     $(
                         ($alias, $field),
                     )*
@@ -627,8 +637,41 @@ macro_rules! field_set {
             ];
             let name_map = name_map_entries.leak(); // Leak to make references 'static
 
+            // Create indexable field references
+            let indexable_refs: Vec<&dyn crate::field::traits::IndexableField<$entity_type>> = vec![$($indexable),*];
+            let indexable_fields = indexable_refs.leak(); // Leak to make references 'static
+
             let required: &[&str] = &[$($required),*];
-            FieldSet::new(fields, name_map, required)
+            FieldSet::new(fields, name_map, required, indexable_fields)
+        })
+    }};
+
+    // Version with aliases but no indexable fields: field_set!(Type, { fields: [FIELD1 => ["alias1", "alias2"], FIELD2 => []], required: ["field1"] })
+    ($entity_type:ty, { fields: [$($field:expr => [$($alias:expr),*]),*], required: [$($required:expr),*] }) => {{
+        std::sync::LazyLock::new(|| {
+            // Use a static array to avoid lifetime issues
+            static FIELDS: [&str; 0] = []; // Placeholder - will be replaced by actual fields
+
+            // Create field references that live long enough
+            let field_refs: Vec<&dyn crate::field::traits::NamedField<$entity_type>> = vec![$($field),*];
+            let fields = field_refs.leak(); // Leak to make references 'static
+
+            // Generate name map with primary names and aliases
+            let name_map_entries: Vec<(&str, &dyn crate::field::traits::NamedField<$entity_type>)> = vec![
+                $(
+                    (crate::field::traits::NamedField::name($field), $field),
+                    $(
+                        ($alias, $field),
+                    )*
+                )*
+            ];
+            let name_map = name_map_entries.leak(); // Leak to make references 'static
+
+            // No indexable fields
+            let indexable_fields: &[&dyn crate::field::traits::IndexableField<$entity_type>] = &[];
+
+            let required: &[&str] = &[$($required),*];
+            FieldSet::new(fields, name_map, required, indexable_fields)
         })
     }};
 
@@ -636,14 +679,17 @@ macro_rules! field_set {
     ($entity_type:ty, { fields: [$($field:expr),*], required: [$($required:expr),*] }) => {{
         std::sync::LazyLock::new(|| {
             // Create field references that live long enough
-            let field_refs: Vec<&dyn NamedField<$entity_type>> = vec![$($field),*];
+            let field_refs: Vec<&dyn crate::field::traits::NamedField<$entity_type>> = vec![$($field),*];
             let fields = field_refs.leak(); // Leak to make references 'static
 
-            let name_map_entries: Vec<(&str, &dyn NamedField<$entity_type>)> = vec![$(($field.name(), $field)),*];
+            let name_map_entries: Vec<(&str, &dyn crate::field::traits::NamedField<$entity_type>)> = vec![$((crate::field::traits::NamedField::name($field), $field)),*];
             let name_map = name_map_entries.leak(); // Leak to make references 'static
 
+            // No indexable fields
+            let indexable_fields: &[&dyn crate::field::traits::IndexableField<$entity_type>] = &[];
+
             let required: &[&str] = &[$($required),*];
-            FieldSet::new(fields, name_map, required)
+            FieldSet::new(fields, name_map, required, indexable_fields)
         })
     }};
 }

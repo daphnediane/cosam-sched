@@ -7,7 +7,8 @@
 //! Presenter entity implementation
 
 use crate::entity::EntityType;
-use crate::field::{FieldDescriptor, ValidationError};
+use crate::field::traits::*;
+use crate::field::{FieldSet, ValidationError};
 use std::fmt;
 
 /// Presenter ID type

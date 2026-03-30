@@ -57,13 +57,44 @@ impl EntityStorage {
             .and_then(|stored| self.deserialize::<T>(&stored.data))
     }
 
-    /// Get entity by internal monotonic ID
-    pub fn get_by_internal_id<T: EntityType>(&self, internal_id: u64) -> Option<&T::Data> {
+    /// Get entity by index query, returning all entities that match at the highest level
+    /// Returns Vec to handle ties at the highest match level
+    pub fn get_by_index<T: EntityType>(&self, query: &str) -> Vec<&T::Data> {
         let type_name = T::TYPE_NAME;
-        self.entities
-            .get(type_name)
-            .and_then(|type_entities| type_entities.by_internal_id.get(&internal_id))
-            .and_then(|stored| self.deserialize::<T>(&stored.data))
+        let field_set = T::field_set();
+
+        if let Some(type_entities) = self.entities.get(type_name) {
+            let mut matches: Vec<(u64, crate::field::traits::FieldMatchResult)> = Vec::new();
+            let mut best_strength = crate::field::traits::MatchStrength::NotMatch;
+
+            // Find all matches and track the best strength
+            for (internal_id, stored) in &type_entities.by_internal_id {
+                if let Some(entity) = self.deserialize::<T>(&stored.data) {
+                    if let Some(match_result) = field_set.match_index(query, *internal_id, entity) {
+                        if match_result.strength > best_strength {
+                            best_strength = match_result.strength;
+                            matches.clear();
+                            matches.push((*internal_id, match_result));
+                        } else if match_result.strength == best_strength {
+                            matches.push((*internal_id, match_result));
+                        }
+                    }
+                }
+            }
+
+            // Return all entities that have the best match strength
+            matches
+                .into_iter()
+                .filter_map(|(internal_id, _)| {
+                    type_entities
+                        .by_internal_id
+                        .get(&internal_id)
+                        .and_then(|stored| self.deserialize::<T>(&stored.data))
+                })
+                .collect()
+        } else {
+            Vec::new()
+        }
     }
 
     /// Get multiple entities matching field conditions
