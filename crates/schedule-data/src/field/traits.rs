@@ -17,6 +17,64 @@ use crate::entity::EntityType;
 use crate::field::{FieldError, FieldValue, ValidationError};
 use crate::schedule::Schedule;
 
+/// Match strength levels for field-based indexing and lookup
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
+pub enum MatchStrength {
+    /// No match at all
+    NotMatch = 0,
+    /// Weak/partial match (e.g., word boundary partial match)
+    WeakMatch = 1,
+    /// Strong match (e.g., contains match, close spelling)
+    StrongMatch = 2,
+    /// Exact match
+    ExactMatch = 3,
+}
+
+/// Result of a field-based lookup with match strength
+#[derive(Debug, Clone)]
+pub struct FieldMatchResult {
+    /// The matched entity's internal ID
+    pub entity_id: u64,
+    /// The strength of the match
+    pub strength: MatchStrength,
+    /// The priority of the match (higher = more important)
+    pub priority: u8,
+    /// The field that produced this match
+    pub field_name: &'static str,
+    /// Optional match details for debugging
+    pub details: Option<String>,
+}
+
+impl FieldMatchResult {
+    pub fn new(entity_id: u64, strength: MatchStrength, field_name: &'static str) -> Self {
+        Self {
+            entity_id,
+            strength,
+            field_name,
+            details: None,
+        }
+    }
+
+    pub fn with_details(mut self, details: String) -> Self {
+        self.details = Some(details);
+        self
+    }
+}
+
+/// Trait for fields that can participate in indexed lookups
+pub trait IndexableField<T: EntityType>: NamedField<T> {
+    /// Check if this field can be used for lookups
+    fn is_indexable(&self) -> bool;
+
+    /// Perform a lookup against this field with a query value
+    fn match_field(&self, query: &str, entity: &T::Data) -> Option<MatchStrength>;
+
+    /// Get the index priority for this field (higher = more important)
+    fn index_priority(&self) -> u8 {
+        100
+    }
+}
+
 /// Generic trait for named fields
 pub trait NamedField<T: EntityType>: 'static + Send + Sync {
     /// The internal name of the field
@@ -1071,6 +1129,7 @@ mod tests {
                     &[&TestIdField, &TestValueField],
                     &FIELD_MAP,
                     &["id"], // only id is required
+                    &[],     // no indexable fields for this test
                 )
             });
             &TEST_FIELD_SET

@@ -10,7 +10,7 @@ use std::fmt;
 use std::sync::LazyLock;
 
 use crate::entity::EntityType;
-use crate::field::traits::NamedField;
+use crate::field::traits::{FieldMatchResult, IndexableField, MatchStrength, NamedField};
 
 /// A static collection of fields for a specific entity type
 pub struct FieldSet<T: EntityType> {
@@ -22,6 +22,9 @@ pub struct FieldSet<T: EntityType> {
 
     /// Collection of required field names
     pub required_fields: &'static [&'static str],
+
+    /// List of indexable fields for lookups
+    pub indexable_fields: &'static [&'static dyn IndexableField<T>],
 }
 
 impl<T: EntityType> FieldSet<T> {
@@ -30,11 +33,13 @@ impl<T: EntityType> FieldSet<T> {
         fields: &'static [&'static dyn NamedField<T>],
         name_map: &'static [(&'static str, &'static dyn NamedField<T>)],
         required_fields: &'static [&'static str],
+        indexable_fields: &'static [&'static dyn IndexableField<T>],
     ) -> Self {
         Self {
             fields,
             name_map,
             required_fields,
+            indexable_fields,
         }
     }
 
@@ -92,6 +97,38 @@ impl<T: EntityType> FieldSet<T> {
         } else {
             Err(FieldValidationError::MissingRequiredFields(missing_fields))
         }
+    }
+
+    /// Perform a ranked match across all indexable fields and return the highest match result
+    pub fn match_index(
+        &self,
+        query: &str,
+        entity_id: u64,
+        entity: &T::Data,
+    ) -> Option<FieldMatchResult> {
+        let mut best_match: Option<FieldMatchResult> = None;
+
+        for field in self.indexable_fields {
+            if let Some(strength) = field.match_field(query, entity) {
+                if strength != MatchStrength::NotMatch {
+                    let priority = field.index_priority();
+                    let result = FieldMatchResult::new(entity_id, strength, field.name());
+
+                    // Update if this is a better match
+                    if let Some(ref best) = best_match {
+                        if result.strength > best.strength
+                            || (result.strength == best.strength && priority > best.priority)
+                        {
+                            best_match = Some(result);
+                        }
+                    } else {
+                        best_match = Some(result);
+                    }
+                }
+            }
+        }
+
+        best_match
     }
 }
 
@@ -177,6 +214,7 @@ mod tests {
                     &[&ID_FIELD, &NAME_FIELD, &VALUE_FIELD],
                     &field_map,
                     &["id"], // only id is required
+                    &[],     // no indexable fields for this test
                 )
             });
             &TEST_FIELD_SET
@@ -238,6 +276,7 @@ mod tests {
         &[&ID_FIELD, &NAME_FIELD, &VALUE_FIELD],
         FIELD_MAP,
         &["id", "name"], // required fields
+        &[],             // no indexable fields for this test
     );
 
     fn create_test_entity() -> TestEntity {
@@ -255,7 +294,7 @@ mod tests {
             &[("id", &ID_FIELD), ("name", &NAME_FIELD)];
         static TEST_REQUIRED: &[&str] = &["id"];
 
-        let field_set = FieldSet::<TestEntity>::new(TEST_FIELDS, TEST_NAME_MAP, TEST_REQUIRED);
+        let field_set = FieldSet::<TestEntity>::new(TEST_FIELDS, TEST_NAME_MAP, TEST_REQUIRED, &[]);
 
         assert_eq!(field_set.fields.len(), 2);
         assert_eq!(field_set.name_map.len(), 2);
@@ -346,7 +385,7 @@ mod tests {
         static TEST_REQUIRED: &[&str] = &["id", "nonexistent"]; // "nonexistent" doesn't exist
 
         let incomplete_field_set =
-            FieldSet::<TestEntity>::new(TEST_FIELDS, TEST_NAME_MAP, TEST_REQUIRED);
+            FieldSet::<TestEntity>::new(TEST_FIELDS, TEST_NAME_MAP, TEST_REQUIRED, &[]);
 
         let entity = create_test_entity();
         let schedule = create_mock_schedule();
