@@ -2,6 +2,7 @@
 members = [
     "crates/schedule-core",
     "crates/schedule-data",
+    "crates/schedule-macro",
     "apps/cosam-editor",
     "apps/cosam-convert",
     "apps/cosam-modify",

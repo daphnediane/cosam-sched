@@ -24,6 +24,8 @@ pub use types::*;
 pub use update_logic::*;
 pub use validation::*;
 
+use crate::EntityId;
+
 /// Universal field value type for generic operations
 #[derive(Debug, Clone, PartialEq)]
 pub enum FieldValue {
@@ -35,7 +37,13 @@ pub enum FieldValue {
     Duration(chrono::Duration),
     List(Vec<FieldValue>),
     Map(HashMap<String, FieldValue>),
-    Id(String),
+    OptionalString(Option<String>),
+    OptionalInteger(Option<i64>),
+    OptionalFloat(Option<f64>),
+    OptionalBoolean(Option<bool>),
+    OptionalDateTime(Option<chrono::NaiveDateTime>),
+    OptionalDuration(Option<chrono::Duration>),
+    EntityId(EntityId),
 }
 
 impl fmt::Display for FieldValue {
@@ -67,7 +75,31 @@ impl fmt::Display for FieldValue {
                 }
                 write!(f, "}}")
             }
-            FieldValue::Id(id) => write!(f, "Id({})", id),
+            FieldValue::OptionalString(opt_s) => match opt_s {
+                Some(s) => write!(f, "{}", s),
+                None => write!(f, "null"),
+            },
+            FieldValue::OptionalInteger(opt_i) => match opt_i {
+                Some(i) => write!(f, "{}", i),
+                None => write!(f, "null"),
+            },
+            FieldValue::OptionalFloat(opt_f) => match opt_f {
+                Some(fl) => write!(f, "{}", fl),
+                None => write!(f, "null"),
+            },
+            FieldValue::OptionalBoolean(opt_b) => match opt_b {
+                Some(b) => write!(f, "{}", b),
+                None => write!(f, "null"),
+            },
+            FieldValue::OptionalDateTime(opt_dt) => match opt_dt {
+                Some(dt) => write!(f, "{}", dt),
+                None => write!(f, "null"),
+            },
+            FieldValue::OptionalDuration(opt_d) => match opt_d {
+                Some(d) => write!(f, "{}m", d.num_minutes()),
+                None => write!(f, "null"),
+            },
+            FieldValue::EntityId(id) => write!(f, "entity:{}", id),
         }
     }
 }

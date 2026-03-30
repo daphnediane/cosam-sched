@@ -5581,11 +5581,21 @@ name = "schedule-data"
 version = "0.1.0"
 dependencies = [
  "chrono",
+ "schedule-macro",
  "serde",
  "serde_json",
  "thiserror 1.0.69",
  "tokio-test",
  "uuid",
+]
+
+[[package]]
+name = "schedule-macro"
+version = "0.1.0"
+dependencies = [
+ "proc-macro2",
+ "quote",
+ "syn 2.0.117",
 ]
 
 [[package]]

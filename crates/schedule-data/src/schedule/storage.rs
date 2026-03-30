@@ -12,7 +12,6 @@ use super::{EdgeId, ScheduleError};
 use crate::entity::edge::{EdgeType, RelationshipDirection};
 use crate::entity::{EntityId, EntityState, EntityType};
 use crate::field::FieldValue;
-use crate::field::NamedField;
 use crate::query::{FieldMatch, QueryOptions};
 
 /// Generic entity storage
@@ -57,8 +56,12 @@ impl EntityStorage {
             .and_then(|stored| self.deserialize::<T>(&stored.data))
     }
 
-    /// Get entity by index query, returning all entities that match at the highest level
-    /// Returns Vec to handle ties at the highest match level
+    /// Get entity by internal monotonic ID (alias for get)
+    pub fn get_by_internal_id<T: EntityType>(&self, internal_id: u64) -> Option<&T::Data> {
+        self.get::<T>(internal_id)
+    }
+
+    /// Get entities by index query, returning all that tie at the best match strength.
     pub fn get_by_index<T: EntityType>(&self, query: &str) -> Vec<&T::Data> {
         let type_name = T::TYPE_NAME;
         let field_set = T::field_set();
@@ -67,7 +70,7 @@ impl EntityStorage {
             let mut matches: Vec<(u64, crate::field::traits::FieldMatchResult)> = Vec::new();
             let mut best_strength = crate::field::traits::MatchStrength::NotMatch;
 
-            // Find all matches and track the best strength
+            // @TODO: Should consider priority if matching strength is the same
             for (internal_id, stored) in &type_entities.by_internal_id {
                 if let Some(entity) = self.deserialize::<T>(&stored.data) {
                     if let Some(match_result) = field_set.match_index(query, *internal_id, entity) {
@@ -82,13 +85,12 @@ impl EntityStorage {
                 }
             }
 
-            // Return all entities that have the best match strength
             matches
                 .into_iter()
-                .filter_map(|(internal_id, _)| {
+                .filter_map(|(id, _)| {
                     type_entities
                         .by_internal_id
-                        .get(&internal_id)
+                        .get(&id)
                         .and_then(|stored| self.deserialize::<T>(&stored.data))
                 })
                 .collect()
@@ -128,16 +130,15 @@ impl EntityStorage {
                 }
 
                 // Apply field matches
-                if let Some(entity) = self.deserialize::<T>(&stored.data) {
+                if let Some(_entity) = self.deserialize::<T>(&stored.data) {
                     let mut matches_all = true;
 
                     for field_match in matches {
                         let field = T::field_set().get_field(&field_match.field_name);
 
-                        if let Some(field) = field {
-                            // This is a simplified matching - in practice, you'd need
-                            // the full Schedule context for relationship fields
-                            if !self.simple_field_match(entity, field, &field_match.matcher) {
+                        if let Some(_field) = field {
+                            // TODO: Implement proper field matching using SimpleReadableField
+                            if !self.simple_field_match::<T>(&field_match.matcher) {
                                 matches_all = false;
                                 break;
                             }
@@ -201,7 +202,7 @@ impl EntityStorage {
 
         let stored = StoredEntity {
             internal_id,
-            data: self.serialize::<T>(&entity),
+            data: format!("{:?}", entity),
             state: EntityState::Active,
             created_at: chrono::Utc::now().naive_utc(),
             updated_at: chrono::Utc::now().naive_utc(),
@@ -243,23 +244,13 @@ impl EntityStorage {
     }
 
     // Helper methods
-    fn serialize<T: EntityType>(&self, entity: &T::Data) -> String {
-        // Simplified serialization - in practice, use serde_json
-        format!("{:?}", entity)
-    }
-
     fn deserialize<T: EntityType>(&self, _data: &str) -> Option<&T::Data> {
         // Simplified deserialization - in practice, use serde_json
         // This is a placeholder that doesn't actually work
         None
     }
 
-    fn simple_field_match<T: EntityType>(
-        &self,
-        _entity: &T::Data,
-        _field: &dyn NamedField<T>,
-        _matcher: &crate::field::FieldMatcher,
-    ) -> bool {
+    fn simple_field_match<T: EntityType>(&self, _matcher: &crate::field::FieldMatcher) -> bool {
         // Simplified matching - in practice, extract field value and compare
         true
     }

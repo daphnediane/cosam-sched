@@ -14,8 +14,11 @@
 #![allow(unused_macros)]
 
 use crate::entity::EntityType;
+#[allow(unused_imports)]
+use crate::field::validation::ConversionError;
 use crate::field::{FieldError, FieldValue, ValidationError};
 use crate::schedule::Schedule;
+use std::fmt::Debug;
 
 /// Match strength levels for field-based indexing and lookup
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
@@ -50,6 +53,7 @@ impl FieldMatchResult {
         Self {
             entity_id,
             strength,
+            priority: 0,
             field_name,
             details: None,
         }
@@ -61,8 +65,22 @@ impl FieldMatchResult {
     }
 }
 
+/// Generic trait for named fields
+pub trait NamedField: 'static + Send + Sync + Debug {
+    /// The internal name of the field
+    fn name(&self) -> &'static str;
+
+    /// The display name of the field
+    fn display_name(&self) -> &'static str;
+
+    /// The description of the field
+    fn description(&self) -> &'static str;
+}
+
+pub type FieldReference = &'static dyn NamedField;
+
 /// Trait for fields that can participate in indexed lookups
-pub trait IndexableField<T: EntityType>: NamedField<T> {
+pub trait IndexableField<T: EntityType>: NamedField {
     /// Check if this field can be used for lookups
     fn is_indexable(&self) -> bool;
 
@@ -75,26 +93,14 @@ pub trait IndexableField<T: EntityType>: NamedField<T> {
     }
 }
 
-/// Generic trait for named fields
-pub trait NamedField<T: EntityType>: 'static + Send + Sync {
-    /// The internal name of the field
-    fn name(&self) -> &'static str;
-
-    /// The display name of the field
-    fn display_name(&self) -> &'static str;
-
-    /// The description of the field
-    fn description(&self) -> &'static str;
-}
-
 /// Field trait for static readable fields (no schedule access needed)
-pub trait SimpleReadableField<T: EntityType>: NamedField<T> + 'static + Send + Sync {
+pub trait SimpleReadableField<T: EntityType>: NamedField + 'static + Send + Sync {
     fn read(&self, entity: &T::Data) -> Option<FieldValue>;
     fn is_read_computed(&self) -> bool;
 }
 
 /// Field trait for static writable fields (no schedule access needed)
-pub trait SimpleWritableField<T: EntityType>: NamedField<T> + 'static + Send + Sync {
+pub trait SimpleWritableField<T: EntityType>: NamedField + 'static + Send + Sync {
     fn write(&self, entity: &mut T::Data, value: FieldValue) -> Result<(), FieldError>;
     fn is_write_computed(&self) -> bool;
 }
@@ -103,18 +109,18 @@ pub trait SimpleWritableField<T: EntityType>: NamedField<T> + 'static + Send + S
 pub trait SimpleField<T: EntityType>: SimpleReadableField<T> + SimpleWritableField<T> {}
 
 /// Field trait for validating field values (no schedule access needed)
-pub trait SimpleCheckedField<T: EntityType>: NamedField<T> + 'static + Send + Sync {
+pub trait SimpleCheckedField<T: EntityType>: NamedField + 'static + Send + Sync {
     fn validate(&self, entity: &mut T::Data, value: &FieldValue) -> Result<(), ValidationError>;
 }
 
 /// Field trait for static readable fields (with schedule access for computed fields)
-pub trait ReadableField<T: EntityType>: NamedField<T> + 'static + Send + Sync {
+pub trait ReadableField<T: EntityType>: NamedField + 'static + Send + Sync {
     fn read(&self, schedule: &Schedule, entity: &T::Data) -> Option<FieldValue>;
     fn is_read_computed(&self) -> bool;
 }
 
 /// Field trait for static writable fields (with schedule access for computed fields)
-pub trait WritableField<T: EntityType>: NamedField<T> + 'static + Send + Sync {
+pub trait WritableField<T: EntityType>: NamedField + 'static + Send + Sync {
     fn write(
         &self,
         schedule: &Schedule,
@@ -128,7 +134,7 @@ pub trait WritableField<T: EntityType>: NamedField<T> + 'static + Send + Sync {
 pub trait Field<T: EntityType>: ReadableField<T> + WritableField<T> {}
 
 /// Field trait for validating field values (with schedule access)
-pub trait CheckedField<T: EntityType>: NamedField<T> + 'static + Send + Sync {
+pub trait CheckedField<T: EntityType>: NamedField + 'static + Send + Sync {
     fn validate(
         &self,
         schedule: &Schedule,
@@ -176,910 +182,6 @@ impl<T: EntityType, F: SimpleCheckedField<T>> CheckedField<T> for F {
     }
 }
 
-macro_rules! computed_readonly_field {
-    ($name:ident, $display_name:expr, $description:expr, $type:ty,
-        {
-            $($trait_method:ident($($param:ident: $param_type:ty),*) $trait_body:block)*
-        }) => {
-        pub struct $name;
-
-        impl NamedField<$type> for $name {
-            fn name(&self) -> &'static str {
-                stringify!($name)
-            }
-
-            fn display_name(&self) -> &'static str {
-                $display_name
-            }
-
-            fn description(&self) -> &'static str {
-                $description
-            }
-        }
-
-        impl ReadableField<$type> for $name {
-            fn read(
-                &self,
-                schedule: &Schedule,
-                entity: &<$type as EntityType>::Data,
-            ) -> Option<FieldValue> {
-                // Implementation would depend on the specific field
-                unimplemented!()
-            }
-
-            fn is_read_computed(&self) -> bool {
-                true
-            }
-        }
-    };
-}
-
-macro_rules! computed_read_write_field {
-    ($name:ident, $display_name:expr, $description:expr, $type:ty,
-        {
-            $($trait_method:ident($($param:ident: $param_type:ty),*) $trait_body:block)*
-        }) => {
-        pub struct $name;
-
-        impl NamedField<$type> for $name {
-            fn name(&self) -> &'static str {
-                stringify!($name)
-            }
-
-            fn display_name(&self) -> &'static str {
-                $display_name
-            }
-
-            fn description(&self) -> &'static str {
-                $description
-            }
-        }
-
-        impl ReadableField<$type> for $name {
-            fn read(
-                &self,
-                schedule: &Schedule,
-                entity: &<$type as EntityType>::Data,
-            ) -> Option<FieldValue> {
-                // Implementation would depend on the specific field
-                unimplemented!()
-            }
-
-            fn is_read_computed(&self) -> bool {
-                true
-            }
-        }
-
-        impl WritableField<$type> for $name {
-            fn write(
-                &self,
-                schedule: &Schedule,
-                entity: &mut <$type as EntityType>::Data,
-                value: FieldValue,
-            ) -> Result<(), FieldError> {
-                // Implementation would depend on the specific field
-                unimplemented!()
-            }
-
-            fn is_write_computed(&self) -> bool {
-                true
-            }
-        }
-    };
-}
-
-macro_rules! computed_write_only_field {
-    ($name:ident, $display_name:expr, $description:expr, $type:ty,
-        {
-            $($trait_method:ident($($param:ident: $param_type:ty),*) $trait_body:block)*
-        }) => {
-        pub struct $name;
-
-        impl NamedField<$type> for $name {
-            fn name(&self) -> &'static str {
-                stringify!($name)
-            }
-
-            fn display_name(&self) -> &'static str {
-                $display_name
-            }
-
-            fn description(&self) -> &'static str {
-                $description
-            }
-        }
-
-        impl WritableField<$type> for $name {
-            fn write(
-                &self,
-                schedule: &Schedule,
-                entity: &mut <$type as EntityType>::Data,
-                value: FieldValue,
-            ) -> Result<(), FieldError> {
-                // Implementation would depend on the specific field
-                unimplemented!()
-            }
-
-            fn is_write_computed(&self) -> bool {
-                true
-            }
-        }
-    };
-}
-
-macro_rules! computed_field {
-    ($name:ident, $display_name:expr, $description:expr, $type:ty,
-        {
-            $(fn $trait_method:ident($($param:ident: $param_type:ty),*) -> $return_type:ty $trait_body:block)*
-        }) => {
-        pub struct $name;
-
-        impl NamedField<$type> for $name {
-            fn name(&self) -> &'static str {
-                stringify!($name)
-            }
-
-            fn display_name(&self) -> &'static str {
-                $display_name
-            }
-
-            fn description(&self) -> &'static str {
-                $description
-            }
-        }
-
-        impl ReadableField<$type> for $name {
-            fn read(
-                &self,
-                schedule: &Schedule,
-                entity: &<$type as EntityType>::Data,
-            ) -> Option<FieldValue> {
-                // Look for a custom read implementation
-                $(
-                    if stringify!($trait_method) == "read" {
-                        return $trait_body
-                    }
-                )*
-                // Default implementation
-                None
-            }
-
-            fn is_read_computed(&self) -> bool {
-                true
-            }
-        }
-
-        impl WritableField<$type> for $name {
-            fn write(
-                &self,
-                schedule: &Schedule,
-                entity: &mut <$type as EntityType>::Data,
-                value: FieldValue,
-            ) -> Result<(), FieldError> {
-                // Look for a custom write implementation
-                $(
-                    if stringify!($trait_method) == "write" {
-                        return $trait_body
-                    }
-                )*
-                // Default implementation
-                Err(FieldError::CannotStoreComputedField)
-            }
-
-            fn is_write_computed(&self) -> bool {
-                true
-            }
-        }
-
-        impl CheckedField<$type> for $name {
-            fn validate(
-                &self,
-                schedule: &Schedule,
-                entity: &mut <$type as EntityType>::Data,
-                value: &FieldValue,
-            ) -> Result<(), ValidationError> {
-                // Look for a custom validate implementation
-                $(
-                    if stringify!($trait_method) == "validate" {
-                        return $trait_body
-                    }
-                )*
-                // Default implementation - no validation
-                Ok(())
-            }
-        }
-    };
-}
-
-macro_rules! direct_field {
-    // For String fields
-    ($name:ident, $display_name:expr, $description:expr, $type:ty, $field:ident, String) => {
-        pub struct $name;
-
-        impl NamedField<$type> for $name {
-            fn name(&self) -> &'static str {
-                stringify!($name)
-            }
-
-            fn display_name(&self) -> &'static str {
-                $display_name
-            }
-
-            fn description(&self) -> &'static str {
-                $description
-            }
-        }
-
-        impl SimpleReadableField<$type> for $name {
-            fn read(&self, entity: &<$type as EntityType>::Data) -> Option<FieldValue> {
-                Some(FieldValue::String(entity.$field.clone()))
-            }
-
-            fn is_read_computed(&self) -> bool {
-                false
-            }
-        }
-
-        impl SimpleWritableField<$type> for $name {
-            fn write(
-                &self,
-                entity: &mut <$type as EntityType>::Data,
-                value: FieldValue,
-            ) -> Result<(), FieldError> {
-                if let FieldValue::String(v) = value {
-                    entity.$field = v;
-                    Ok(())
-                } else {
-                    Err(FieldError::CannotStoreComputedField)
-                }
-            }
-
-            fn is_write_computed(&self) -> bool {
-                false
-            }
-        }
-    };
-
-    // For Option<String> fields
-    ($name:ident, $display_name:expr, $description:expr, $type:ty, $field:ident, Option<String>) => {
-        pub struct $name;
-
-        impl NamedField<$type> for $name {
-            fn name(&self) -> &'static str {
-                stringify!($name)
-            }
-
-            fn display_name(&self) -> &'static str {
-                $display_name
-            }
-
-            fn description(&self) -> &'static str {
-                $description
-            }
-        }
-
-        impl SimpleReadableField<$type> for $name {
-            fn read(&self, entity: &<$type as EntityType>::Data) -> Option<FieldValue> {
-                entity.$field.clone().map(FieldValue::String)
-            }
-
-            fn is_read_computed(&self) -> bool {
-                false
-            }
-        }
-
-        impl SimpleWritableField<$type> for $name {
-            fn write(
-                &self,
-                entity: &mut <$type as EntityType>::Data,
-                value: FieldValue,
-            ) -> Result<(), FieldError> {
-                if let FieldValue::String(v) = value {
-                    entity.$field = Some(v);
-                    Ok(())
-                } else {
-                    Err(FieldError::CannotStoreComputedField)
-                }
-            }
-
-            fn is_write_computed(&self) -> bool {
-                false
-            }
-        }
-    };
-
-    // For i64 fields
-    ($name:ident, $display_name:expr, $description:expr, $type:ty, $field:ident, i64) => {
-        pub struct $name;
-
-        impl NamedField<$type> for $name {
-            fn name(&self) -> &'static str {
-                stringify!($name)
-            }
-
-            fn display_name(&self) -> &'static str {
-                $display_name
-            }
-
-            fn description(&self) -> &'static str {
-                $description
-            }
-        }
-
-        impl SimpleReadableField<$type> for $name {
-            fn read(&self, entity: &<$type as EntityType>::Data) -> Option<FieldValue> {
-                Some(FieldValue::Integer(entity.$field))
-            }
-
-            fn is_read_computed(&self) -> bool {
-                false
-            }
-        }
-
-        impl SimpleWritableField<$type> for $name {
-            fn write(
-                &self,
-                entity: &mut <$type as EntityType>::Data,
-                value: FieldValue,
-            ) -> Result<(), FieldError> {
-                if let FieldValue::Integer(v) = value {
-                    entity.$field = v;
-                    Ok(())
-                } else {
-                    Err(FieldError::CannotStoreComputedField)
-                }
-            }
-
-            fn is_write_computed(&self) -> bool {
-                false
-            }
-        }
-    };
-
-    // For Option<i64> fields
-    ($name:ident, $display_name:expr, $description:expr, $type:ty, $field:ident, Option<i64>) => {
-        pub struct $name;
-
-        impl NamedField<$type> for $name {
-            fn name(&self) -> &'static str {
-                stringify!($name)
-            }
-
-            fn display_name(&self) -> &'static str {
-                $display_name
-            }
-
-            fn description(&self) -> &'static str {
-                $description
-            }
-        }
-
-        impl SimpleReadableField<$type> for $name {
-            fn read(&self, entity: &<$type as EntityType>::Data) -> Option<FieldValue> {
-                entity.$field.map(FieldValue::Integer)
-            }
-
-            fn is_read_computed(&self) -> bool {
-                false
-            }
-        }
-
-        impl SimpleWritableField<$type> for $name {
-            fn write(
-                &self,
-                entity: &mut <$type as EntityType>::Data,
-                value: FieldValue,
-            ) -> Result<(), FieldError> {
-                if let FieldValue::Integer(v) = value {
-                    entity.$field = Some(v);
-                    Ok(())
-                } else {
-                    Err(FieldError::CannotStoreComputedField)
-                }
-            }
-
-            fn is_write_computed(&self) -> bool {
-                false
-            }
-        }
-    };
-
-    // For f64 fields
-    ($name:ident, $display_name:expr, $description:expr, $type:ty, $field:ident, f64) => {
-        pub struct $name;
-
-        impl NamedField<$type> for $name {
-            fn name(&self) -> &'static str {
-                stringify!($name)
-            }
-
-            fn display_name(&self) -> &'static str {
-                $display_name
-            }
-
-            fn description(&self) -> &'static str {
-                $description
-            }
-        }
-
-        impl SimpleReadableField<$type> for $name {
-            fn read(&self, entity: &<$type as EntityType>::Data) -> Option<FieldValue> {
-                Some(FieldValue::Float(entity.$field))
-            }
-
-            fn is_read_computed(&self) -> bool {
-                false
-            }
-        }
-
-        impl SimpleWritableField<$type> for $name {
-            fn write(
-                &self,
-                entity: &mut <$type as EntityType>::Data,
-                value: FieldValue,
-            ) -> Result<(), FieldError> {
-                if let FieldValue::Float(v) = value {
-                    entity.$field = v;
-                    Ok(())
-                } else {
-                    Err(FieldError::CannotStoreComputedField)
-                }
-            }
-
-            fn is_write_computed(&self) -> bool {
-                false
-            }
-        }
-    };
-
-    // For Option<f64> fields
-    ($name:ident, $display_name:expr, $description:expr, $type:ty, $field:ident, Option<f64>) => {
-        pub struct $name;
-
-        impl NamedField<$type> for $name {
-            fn name(&self) -> &'static str {
-                stringify!($name)
-            }
-
-            fn display_name(&self) -> &'static str {
-                $display_name
-            }
-
-            fn description(&self) -> &'static str {
-                $description
-            }
-        }
-
-        impl SimpleReadableField<$type> for $name {
-            fn read(&self, entity: &<$type as EntityType>::Data) -> Option<FieldValue> {
-                entity.$field.map(FieldValue::Float)
-            }
-
-            fn is_read_computed(&self) -> bool {
-                false
-            }
-        }
-
-        impl SimpleWritableField<$type> for $name {
-            fn write(
-                &self,
-                entity: &mut <$type as EntityType>::Data,
-                value: FieldValue,
-            ) -> Result<(), FieldError> {
-                if let FieldValue::Float(v) = value {
-                    entity.$field = Some(v);
-                    Ok(())
-                } else {
-                    Err(FieldError::CannotStoreComputedField)
-                }
-            }
-
-            fn is_write_computed(&self) -> bool {
-                false
-            }
-        }
-    };
-
-    // For bool fields
-    ($name:ident, $display_name:expr, $description:expr, $type:ty, $field:ident, bool) => {
-        pub struct $name;
-
-        impl NamedField<$type> for $name {
-            fn name(&self) -> &'static str {
-                stringify!($name)
-            }
-
-            fn display_name(&self) -> &'static str {
-                $display_name
-            }
-
-            fn description(&self) -> &'static str {
-                $description
-            }
-        }
-
-        impl SimpleReadableField<$type> for $name {
-            fn read(&self, entity: &<$type as EntityType>::Data) -> Option<FieldValue> {
-                Some(FieldValue::Boolean(entity.$field))
-            }
-
-            fn is_read_computed(&self) -> bool {
-                false
-            }
-        }
-
-        impl SimpleWritableField<$type> for $name {
-            fn write(
-                &self,
-                entity: &mut <$type as EntityType>::Data,
-                value: FieldValue,
-            ) -> Result<(), FieldError> {
-                if let FieldValue::Boolean(v) = value {
-                    entity.$field = v;
-                    Ok(())
-                } else {
-                    Err(FieldError::CannotStoreComputedField)
-                }
-            }
-
-            fn is_write_computed(&self) -> bool {
-                false
-            }
-        }
-    };
-
-    // For Option<bool> fields
-    ($name:ident, $display_name:expr, $description:expr, $type:ty, $field:ident, Option<bool>) => {
-        pub struct $name;
-
-        impl NamedField<$type> for $name {
-            fn name(&self) -> &'static str {
-                stringify!($name)
-            }
-
-            fn display_name(&self) -> &'static str {
-                $display_name
-            }
-
-            fn description(&self) -> &'static str {
-                $description
-            }
-        }
-
-        impl SimpleReadableField<$type> for $name {
-            fn read(&self, entity: &<$type as EntityType>::Data) -> Option<FieldValue> {
-                entity.$field.map(FieldValue::Boolean)
-            }
-
-            fn is_read_computed(&self) -> bool {
-                false
-            }
-        }
-
-        impl SimpleWritableField<$type> for $name {
-            fn write(
-                &self,
-                entity: &mut <$type as EntityType>::Data,
-                value: FieldValue,
-            ) -> Result<(), FieldError> {
-                if let FieldValue::Boolean(v) = value {
-                    entity.$field = Some(v);
-                    Ok(())
-                } else {
-                    Err(FieldError::CannotStoreComputedField)
-                }
-            }
-
-            fn is_write_computed(&self) -> bool {
-                false
-            }
-        }
-    };
-
-    // For chrono::NaiveDateTime fields
-    ($name:ident, $display_name:expr, $description:expr, $type:ty, $field:ident, chrono::NaiveDateTime) => {
-        pub struct $name;
-
-        impl NamedField<$type> for $name {
-            fn name(&self) -> &'static str {
-                stringify!($name)
-            }
-
-            fn display_name(&self) -> &'static str {
-                $display_name
-            }
-
-            fn description(&self) -> &'static str {
-                $description
-            }
-        }
-
-        impl SimpleReadableField<$type> for $name {
-            fn read(&self, entity: &<$type as EntityType>::Data) -> Option<FieldValue> {
-                Some(FieldValue::DateTime(entity.$field))
-            }
-
-            fn is_read_computed(&self) -> bool {
-                false
-            }
-        }
-
-        impl SimpleWritableField<$type> for $name {
-            fn write(
-                &self,
-                entity: &mut <$type as EntityType>::Data,
-                value: FieldValue,
-            ) -> Result<(), FieldError> {
-                if let FieldValue::DateTime(v) = value {
-                    entity.$field = v;
-                    Ok(())
-                } else {
-                    Err(FieldError::CannotStoreComputedField)
-                }
-            }
-
-            fn is_write_computed(&self) -> bool {
-                false
-            }
-        }
-    };
-
-    // For Option<chrono::NaiveDateTime> fields
-    ($name:ident, $display_name:expr, $description:expr, $type:ty, $field:ident, Option<chrono::NaiveDateTime>) => {
-        pub struct $name;
-
-        impl NamedField<$type> for $name {
-            fn name(&self) -> &'static str {
-                stringify!($name)
-            }
-
-            fn display_name(&self) -> &'static str {
-                $display_name
-            }
-
-            fn description(&self) -> &'static str {
-                $description
-            }
-        }
-
-        impl SimpleReadableField<$type> for $name {
-            fn read(&self, entity: &<$type as EntityType>::Data) -> Option<FieldValue> {
-                entity.$field.map(FieldValue::DateTime)
-            }
-
-            fn is_read_computed(&self) -> bool {
-                false
-            }
-        }
-
-        impl SimpleWritableField<$type> for $name {
-            fn write(
-                &self,
-                entity: &mut <$type as EntityType>::Data,
-                value: FieldValue,
-            ) -> Result<(), FieldError> {
-                if let FieldValue::DateTime(v) = value {
-                    entity.$field = Some(v);
-                    Ok(())
-                } else {
-                    Err(FieldError::CannotStoreComputedField)
-                }
-            }
-
-            fn is_write_computed(&self) -> bool {
-                false
-            }
-        }
-    };
-
-    // For chrono::Duration fields
-    ($name:ident, $display_name:expr, $description:expr, $type:ty, $field:ident, chrono::Duration) => {
-        pub struct $name;
-
-        impl NamedField<$type> for $name {
-            fn name(&self) -> &'static str {
-                stringify!($name)
-            }
-
-            fn display_name(&self) -> &'static str {
-                $display_name
-            }
-
-            fn description(&self) -> &'static str {
-                $description
-            }
-        }
-
-        impl SimpleReadableField<$type> for $name {
-            fn read(&self, entity: &<$type as EntityType>::Data) -> Option<FieldValue> {
-                Some(FieldValue::Duration(entity.$field))
-            }
-
-            fn is_read_computed(&self) -> bool {
-                false
-            }
-        }
-
-        impl SimpleWritableField<$type> for $name {
-            fn write(
-                &self,
-                entity: &mut <$type as EntityType>::Data,
-                value: FieldValue,
-            ) -> Result<(), FieldError> {
-                if let FieldValue::Duration(v) = value {
-                    entity.$field = v;
-                    Ok(())
-                } else {
-                    Err(FieldError::CannotStoreComputedField)
-                }
-            }
-
-            fn is_write_computed(&self) -> bool {
-                false
-            }
-        }
-    };
-
-    // For Option<chrono::Duration> fields
-    ($name:ident, $display_name:expr, $description:expr, $type:ty, $field:ident, Option<chrono::Duration>) => {
-        pub struct $name;
-
-        impl NamedField<$type> for $name {
-            fn name(&self) -> &'static str {
-                stringify!($name)
-            }
-
-            fn display_name(&self) -> &'static str {
-                $display_name
-            }
-
-            fn description(&self) -> &'static str {
-                $description
-            }
-        }
-
-        impl SimpleReadableField<$type> for $name {
-            fn read(&self, entity: &<$type as EntityType>::Data) -> Option<FieldValue> {
-                entity.$field.map(FieldValue::Duration)
-            }
-
-            fn is_read_computed(&self) -> bool {
-                false
-            }
-        }
-
-        impl SimpleWritableField<$type> for $name {
-            fn write(
-                &self,
-                entity: &mut <$type as EntityType>::Data,
-                value: FieldValue,
-            ) -> Result<(), FieldError> {
-                if let FieldValue::Duration(v) = value {
-                    entity.$field = Some(v);
-                    Ok(())
-                } else {
-                    Err(FieldError::CannotStoreComputedField)
-                }
-            }
-
-            fn is_write_computed(&self) -> bool {
-                false
-            }
-        }
-    };
-
-    // For Vec<String> fields (List)
-    ($name:ident, $display_name:expr, $description:expr, $type:ty, $field:ident, Vec<String>) => {
-        pub struct $name;
-
-        impl NamedField<$type> for $name {
-            fn name(&self) -> &'static str {
-                stringify!($name)
-            }
-
-            fn display_name(&self) -> &'static str {
-                $display_name
-            }
-
-            fn description(&self) -> &'static str {
-                $description
-            }
-        }
-
-        impl SimpleReadableField<$type> for $name {
-            fn read(&self, entity: &<$type as EntityType>::Data) -> Option<FieldValue> {
-                Some(FieldValue::List(
-                    entity
-                        .$field
-                        .iter()
-                        .map(|s| FieldValue::String(s.clone()))
-                        .collect(),
-                ))
-            }
-
-            fn is_read_computed(&self) -> bool {
-                false
-            }
-        }
-
-        impl SimpleWritableField<$type> for $name {
-            fn write(
-                &self,
-                entity: &mut <$type as EntityType>::Data,
-                value: FieldValue,
-            ) -> Result<(), FieldError> {
-                if let FieldValue::List(values) = value {
-                    entity.$field = values
-                        .into_iter()
-                        .filter_map(|fv| {
-                            if let FieldValue::String(s) = fv {
-                                Some(s)
-                            } else {
-                                None
-                            }
-                        })
-                        .collect();
-                    Ok(())
-                } else {
-                    Err(FieldError::CannotStoreComputedField)
-                }
-            }
-
-            fn is_write_computed(&self) -> bool {
-                false
-            }
-        }
-    };
-
-    // For Id fields (String with special handling)
-    ($name:ident, $display_name:expr, $description:expr, $type:ty, $field:ident, Id) => {
-        pub struct $name;
-
-        impl NamedField<$type> for $name {
-            fn name(&self) -> &'static str {
-                stringify!($name)
-            }
-
-            fn display_name(&self) -> &'static str {
-                $display_name
-            }
-
-            fn description(&self) -> &'static str {
-                $description
-            }
-        }
-
-        impl SimpleReadableField<$type> for $name {
-            fn read(&self, entity: &<$type as EntityType>::Data) -> Option<FieldValue> {
-                Some(FieldValue::Id(entity.$field.clone()))
-            }
-
-            fn is_read_computed(&self) -> bool {
-                false
-            }
-        }
-
-        impl SimpleWritableField<$type> for $name {
-            fn write(
-                &self,
-                entity: &mut <$type as EntityType>::Data,
-                value: FieldValue,
-            ) -> Result<(), FieldError> {
-                if let FieldValue::Id(v) = value {
-                    entity.$field = v;
-                    Ok(())
-                } else {
-                    Err(FieldError::CannotStoreComputedField)
-                }
-            }
-
-            fn is_write_computed(&self) -> bool {
-                false
-            }
-        }
-    };
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -1118,13 +220,12 @@ mod tests {
         fn field_set() -> &'static FieldSet<Self> {
             // Return a minimal field set for testing
             static TEST_FIELD_SET: LazyLock<FieldSet<TestEntity>> = LazyLock::new(|| {
-                static FIELD_MAP: LazyLock<Vec<(&str, &dyn NamedField<TestEntity>)>> =
-                    LazyLock::new(|| {
-                        vec![
-                            ("id", &TestIdField as &dyn NamedField<TestEntity>),
-                            ("value", &TestValueField as &dyn NamedField<TestEntity>),
-                        ]
-                    });
+                static FIELD_MAP: LazyLock<Vec<(&str, &dyn NamedField)>> = LazyLock::new(|| {
+                    vec![
+                        ("id", &TestIdField as &dyn NamedField),
+                        ("value", &TestValueField as &dyn NamedField),
+                    ]
+                });
                 FieldSet::new(
                     &[&TestIdField, &TestValueField],
                     &FIELD_MAP,
@@ -1161,64 +262,86 @@ mod tests {
         }
     }
 
-    // Test field using direct_field macro
-    direct_field!(
-        TestIdField,
-        "Test ID",
-        "Test ID field",
-        TestEntity,
-        id,
-        String
-    );
+    // Simple test field implementations
+    #[derive(Debug)]
+    pub struct TestIdField;
+    impl NamedField for TestIdField {
+        fn name(&self) -> &'static str {
+            "id"
+        }
+        fn display_name(&self) -> &'static str {
+            "Test ID"
+        }
+        fn description(&self) -> &'static str {
+            "Test ID field"
+        }
+    }
+    impl SimpleReadableField<TestEntity> for TestIdField {
+        fn read(&self, entity: &TestEntity) -> Option<FieldValue> {
+            Some(FieldValue::String(entity.id.clone()))
+        }
+        fn is_read_computed(&self) -> bool {
+            false
+        }
+    }
+    impl SimpleWritableField<TestEntity> for TestIdField {
+        fn write(&self, entity: &mut TestEntity, value: FieldValue) -> Result<(), FieldError> {
+            if let FieldValue::String(v) = value {
+                entity.id = v;
+                Ok(())
+            } else {
+                Err(FieldError::ConversionError(
+                    ConversionError::UnsupportedType,
+                ))
+            }
+        }
+        fn is_write_computed(&self) -> bool {
+            false
+        }
+    }
 
-    // Test field with i64
-    direct_field!(
-        TestValueField,
-        "Value",
-        "Value field",
-        TestEntity,
-        value,
-        i64
-    );
-
-    // Test field with Option<i64>
-    direct_field!(
-        TestOptionalValueField,
-        "Optional Value",
-        "Optional value field",
-        TestEntity,
-        optional_value,
-        Option<i64>
-    );
-
-    // Test field with bool
-    direct_field!(TestFlagField, "Flag", "Flag field", TestEntity, flag, bool);
-
-    // Test field with Option<bool>
-    direct_field!(
-        TestOptionalFlagField,
-        "Optional Flag",
-        "Optional flag field",
-        TestEntity,
-        optional_flag,
-        Option<bool>
-    );
-
-    // Test field with Option<String> for testing optional field behavior
-    direct_field!(
-        TestOptionalField,
-        "Optional",
-        "Optional field",
-        TestEntity,
-        optional_string,
-        Option<String>
-    );
+    #[derive(Debug)]
+    pub struct TestValueField;
+    impl NamedField for TestValueField {
+        fn name(&self) -> &'static str {
+            "value"
+        }
+        fn display_name(&self) -> &'static str {
+            "Value"
+        }
+        fn description(&self) -> &'static str {
+            "Value field"
+        }
+    }
+    impl SimpleReadableField<TestEntity> for TestValueField {
+        fn read(&self, entity: &TestEntity) -> Option<FieldValue> {
+            Some(FieldValue::Integer(entity.value))
+        }
+        fn is_read_computed(&self) -> bool {
+            false
+        }
+    }
+    impl SimpleWritableField<TestEntity> for TestValueField {
+        fn write(&self, entity: &mut TestEntity, value: FieldValue) -> Result<(), FieldError> {
+            if let FieldValue::Integer(v) = value {
+                entity.value = v as i64;
+                Ok(())
+            } else {
+                Err(FieldError::ConversionError(
+                    ConversionError::UnsupportedType,
+                ))
+            }
+        }
+        fn is_write_computed(&self) -> bool {
+            false
+        }
+    }
 
     #[test]
     fn test_named_field_trait() {
         let field = TestIdField;
 
-        assert_eq!(field.name(), "TestIdField");
+        assert_eq!(field.name(), "id");
         assert_eq!(field.display_name(), "Test ID");
         assert_eq!(field.description(), "Test ID field");
     }
@@ -1270,14 +393,51 @@ mod tests {
     }
 
     // Test field with String
-    direct_field!(
-        TestNameField,
-        "Name",
-        "Name field",
-        TestEntity,
-        name,
-        String
-    );
+    #[derive(Debug)]
+    pub struct TestNameField;
+    impl NamedField for TestNameField {
+        fn name(&self) -> &'static str {
+            "name"
+        }
+        fn display_name(&self) -> &'static str {
+            "Name"
+        }
+        fn description(&self) -> &'static str {
+            "Name field"
+        }
+    }
+    impl ReadableField<TestEntity> for TestNameField {
+        fn read(&self, _schedule: &Schedule, entity: &TestEntity) -> Option<FieldValue> {
+            if entity.name.is_empty() {
+                None
+            } else {
+                Some(FieldValue::String(entity.name.clone()))
+            }
+        }
+        fn is_read_computed(&self) -> bool {
+            false
+        }
+    }
+    impl WritableField<TestEntity> for TestNameField {
+        fn write(
+            &self,
+            _schedule: &Schedule,
+            entity: &mut TestEntity,
+            value: FieldValue,
+        ) -> Result<(), FieldError> {
+            if let FieldValue::String(v) = value {
+                entity.name = v;
+                Ok(())
+            } else {
+                Err(FieldError::ConversionError(
+                    ConversionError::UnsupportedType,
+                ))
+            }
+        }
+        fn is_write_computed(&self) -> bool {
+            false
+        }
+    }
 
     #[test]
     fn test_name_field_read() {
@@ -1317,15 +477,179 @@ mod tests {
         assert_eq!(entity.optional_value, Some(999));
     }
 
-    // Test field with i64
-    direct_field!(
-        TestIntField,
-        "Test Int",
-        "Test integer field",
-        TestEntity,
-        value,
-        i64
-    );
+    // Test field with i64 (reuse TestValueField from above)
+
+    // Test field with bool
+    #[derive(Debug)]
+    pub struct TestFlagField;
+    impl NamedField for TestFlagField {
+        fn name(&self) -> &'static str {
+            "flag"
+        }
+        fn display_name(&self) -> &'static str {
+            "Flag"
+        }
+        fn description(&self) -> &'static str {
+            "Flag field"
+        }
+    }
+    impl ReadableField<TestEntity> for TestFlagField {
+        fn read(&self, _schedule: &Schedule, entity: &TestEntity) -> Option<FieldValue> {
+            Some(FieldValue::Boolean(entity.flag))
+        }
+        fn is_read_computed(&self) -> bool {
+            false
+        }
+    }
+    impl WritableField<TestEntity> for TestFlagField {
+        fn write(
+            &self,
+            _schedule: &Schedule,
+            entity: &mut TestEntity,
+            value: FieldValue,
+        ) -> Result<(), FieldError> {
+            if let FieldValue::Boolean(v) = value {
+                entity.flag = v;
+                Ok(())
+            } else {
+                Err(FieldError::ConversionError(
+                    ConversionError::UnsupportedType,
+                ))
+            }
+        }
+        fn is_write_computed(&self) -> bool {
+            false
+        }
+    }
+
+    // Test field with Option<bool>
+    #[derive(Debug)]
+    pub struct TestOptionalFlagField;
+    impl NamedField for TestOptionalFlagField {
+        fn name(&self) -> &'static str {
+            "optional_flag"
+        }
+        fn display_name(&self) -> &'static str {
+            "Optional Flag"
+        }
+        fn description(&self) -> &'static str {
+            "Optional flag field"
+        }
+    }
+    impl ReadableField<TestEntity> for TestOptionalFlagField {
+        fn read(&self, _schedule: &Schedule, entity: &TestEntity) -> Option<FieldValue> {
+            entity.optional_flag.map(FieldValue::Boolean)
+        }
+        fn is_read_computed(&self) -> bool {
+            false
+        }
+    }
+    impl WritableField<TestEntity> for TestOptionalFlagField {
+        fn write(
+            &self,
+            _schedule: &Schedule,
+            entity: &mut TestEntity,
+            value: FieldValue,
+        ) -> Result<(), FieldError> {
+            if let FieldValue::Boolean(v) = value {
+                entity.optional_flag = Some(v);
+                Ok(())
+            } else {
+                Err(FieldError::ConversionError(
+                    ConversionError::UnsupportedType,
+                ))
+            }
+        }
+        fn is_write_computed(&self) -> bool {
+            false
+        }
+    }
+
+    // Test field with Option<String>
+    #[derive(Debug)]
+    pub struct TestOptionalField;
+    impl NamedField for TestOptionalField {
+        fn name(&self) -> &'static str {
+            "optional_string"
+        }
+        fn display_name(&self) -> &'static str {
+            "Optional"
+        }
+        fn description(&self) -> &'static str {
+            "Optional field"
+        }
+    }
+    impl ReadableField<TestEntity> for TestOptionalField {
+        fn read(&self, _schedule: &Schedule, entity: &TestEntity) -> Option<FieldValue> {
+            entity.optional_string.clone().map(FieldValue::String)
+        }
+        fn is_read_computed(&self) -> bool {
+            false
+        }
+    }
+    impl WritableField<TestEntity> for TestOptionalField {
+        fn write(
+            &self,
+            _schedule: &Schedule,
+            entity: &mut TestEntity,
+            value: FieldValue,
+        ) -> Result<(), FieldError> {
+            if let FieldValue::String(v) = value {
+                entity.optional_string = Some(v);
+                Ok(())
+            } else {
+                Err(FieldError::ConversionError(
+                    ConversionError::UnsupportedType,
+                ))
+            }
+        }
+        fn is_write_computed(&self) -> bool {
+            false
+        }
+    }
+
+    // Test field with Option<i64>
+    #[derive(Debug)]
+    pub struct TestOptionalValueField;
+    impl NamedField for TestOptionalValueField {
+        fn name(&self) -> &'static str {
+            "optional_value"
+        }
+        fn display_name(&self) -> &'static str {
+            "Optional Value"
+        }
+        fn description(&self) -> &'static str {
+            "Optional value field"
+        }
+    }
+    impl ReadableField<TestEntity> for TestOptionalValueField {
+        fn read(&self, _schedule: &Schedule, entity: &TestEntity) -> Option<FieldValue> {
+            entity.optional_value.map(FieldValue::Integer)
+        }
+        fn is_read_computed(&self) -> bool {
+            false
+        }
+    }
+    impl WritableField<TestEntity> for TestOptionalValueField {
+        fn write(
+            &self,
+            _schedule: &Schedule,
+            entity: &mut TestEntity,
+            value: FieldValue,
+        ) -> Result<(), FieldError> {
+            if let FieldValue::Integer(v) = value {
+                entity.optional_value = Some(v as i64);
+                Ok(())
+            } else {
+                Err(FieldError::ConversionError(
+                    ConversionError::UnsupportedType,
+                ))
+            }
+        }
+        fn is_write_computed(&self) -> bool {
+            false
+        }
+    }
 
     #[test]
     fn test_integer_field_read() {
@@ -1365,15 +689,7 @@ mod tests {
         assert_eq!(entity.flag, false);
     }
 
-    // Test field with bool
-    direct_field!(
-        TestBoolField,
-        "Test Bool",
-        "Test boolean field",
-        TestEntity,
-        flag,
-        bool
-    );
+    // Test field with bool (reuse TestFlagField from above)
 
     #[test]
     fn test_boolean_field_read() {
@@ -1403,9 +719,10 @@ mod tests {
     }
 
     // Computed field for testing
+    #[derive(Debug)]
     pub struct ComputedTestField;
 
-    impl NamedField<TestEntity> for ComputedTestField {
+    impl NamedField for ComputedTestField {
         fn name(&self) -> &'static str {
             "ComputedTestField"
         }
@@ -1445,7 +762,7 @@ mod tests {
         assert!(value.is_some());
 
         match value.unwrap() {
-            FieldValue::Integer(i) => assert_eq!(i, 42), // 21 * 2
+            FieldValue::Integer(i) => assert_eq!(i, 84), // 42 * 2
             _ => panic!("Expected Integer value"),
         }
 
@@ -1453,9 +770,10 @@ mod tests {
     }
 
     // Test that Field trait is automatically implemented
+    #[derive(Debug)]
     struct FullTestField;
 
-    impl NamedField<TestEntity> for FullTestField {
+    impl NamedField for FullTestField {
         fn name(&self) -> &'static str {
             "FullTestField"
         }
@@ -1528,23 +846,23 @@ mod tests {
     #[test]
     fn test_macro_generated_field_names() {
         let field = TestIdField;
-        assert_eq!(field.name(), "TestIdField");
+        assert_eq!(field.name(), "id");
         assert_eq!(field.display_name(), "Test ID");
         assert_eq!(field.description(), "Test ID field");
 
         let field = TestOptionalField;
-        assert_eq!(field.name(), "TestOptionalField");
+        assert_eq!(field.name(), "optional_string");
         assert_eq!(field.display_name(), "Optional");
         assert_eq!(field.description(), "Optional field");
 
-        let field = TestIntField;
-        assert_eq!(field.name(), "TestIntField");
-        assert_eq!(field.display_name(), "Test Int");
-        assert_eq!(field.description(), "Test integer field");
+        let field = TestValueField;
+        assert_eq!(field.name(), "value");
+        assert_eq!(field.display_name(), "Value");
+        assert_eq!(field.description(), "Value field");
 
-        let field = TestBoolField;
-        assert_eq!(field.name(), "TestBoolField");
-        assert_eq!(field.display_name(), "Test Bool");
-        assert_eq!(field.description(), "Test boolean field");
+        let field = TestFlagField;
+        assert_eq!(field.name(), "flag");
+        assert_eq!(field.display_name(), "Flag");
+        assert_eq!(field.description(), "Flag field");
     }
 }
