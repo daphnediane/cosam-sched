@@ -277,11 +277,21 @@ name = "schedule-data"
 version = "0.1.0"
 dependencies = [
  "chrono",
+ "schedule-macro",
  "serde",
  "serde_json",
  "thiserror",
  "tokio-test",
  "uuid",
+]
+
+[[package]]
+name = "schedule-macro"
+version = "0.1.0"
+dependencies = [
+ "proc-macro2",
+ "quote",
+ "syn",
 ]
 
 [[package]]

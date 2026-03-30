@@ -6,10 +6,9 @@
 
 //! Field update strategies and validation
 
-use super::{FieldError, FieldValue, ValidationError, ValidatorAccessKind, WriteAccessKind};
+use super::{FieldError, FieldValue, ValidationError};
 use crate::entity::EntityType;
 use crate::schedule::Schedule;
-use std::collections::HashMap;
 
 /// Field update strategy
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -210,255 +209,57 @@ pub trait FieldUpdater<T: EntityType> {
     ) -> Result<(), FieldError>;
 }
 
-/// Default field updater implementation
+// TODO(Step 5): Port DefaultFieldUpdater to new trait model
+// The previous implementation used T::fields(), FieldDescriptor, ValidatorAccessKind,
+// and WriteAccessKind which no longer exist. It needs to be rewritten to use
+// EntityType::field_set() and the NamedField/SimpleReadableField/SimpleWritableField traits.
 pub struct DefaultFieldUpdater;
 
 impl DefaultFieldUpdater {
-    fn should_run_custom_validator<T: EntityType>(
-        field: &crate::field::FieldDescriptor<T>,
-        successful_write_count: usize,
-    ) -> bool {
-        if successful_write_count > 1 {
-            return true;
-        }
-
-        if field.write_access_kind() != WriteAccessKind::Computed {
-            return false;
-        }
-
-        field.validator_access_kind() != ValidatorAccessKind::None
-    }
+    // TODO: Implement DefaultFieldUpdater
 }
 
 impl<T: EntityType> FieldUpdater<T> for DefaultFieldUpdater {
     fn update_field(
         &mut self,
-        entity: &mut T::Data,
-        field_name: &str,
-        value: FieldValue,
-        strategy: UpdateStrategy,
-        schedule: &Schedule,
+        _entity: &mut T::Data,
+        _field_name: &str,
+        _value: FieldValue,
+        _strategy: UpdateStrategy,
+        _schedule: &Schedule,
     ) -> Result<(), FieldError> {
-        let field = T::fields()
-            .iter()
-            .find(|f| f.name == field_name)
-            .ok_or_else(|| {
-                FieldError::ValidationError(ValidationError::ValidationFailed {
-                    field: field_name.to_string(),
-                    reason: "Field not found".to_string(),
-                })
-            })?;
-
-        match strategy {
-            UpdateStrategy::Replace => field.write(entity, value),
-            UpdateStrategy::SetIfNull => {
-                if field.read(entity, schedule).is_none() {
-                    field.write(entity, value)
-                } else {
-                    Ok(())
-                }
-            }
-            UpdateStrategy::Merge | UpdateStrategy::Append => {
-                let merged_value = match (field.read(entity, schedule), value) {
-                    (Some(FieldValue::List(mut existing)), FieldValue::List(new_items)) => {
-                        existing.extend(new_items);
-                        FieldValue::List(existing)
-                    }
-                    (_, v) => v,
-                };
-
-                field.write(entity, merged_value)
-            }
-            UpdateStrategy::Remove => {
-                let reduced_value = match (field.read(entity, schedule), value) {
-                    (Some(FieldValue::List(mut existing)), FieldValue::List(to_remove)) => {
-                        existing.retain(|item| !to_remove.contains(item));
-                        FieldValue::List(existing)
-                    }
-                    (Some(current), _) => current,
-                    (None, _) => return Ok(()),
-                };
-
-                field.write(entity, reduced_value)
-            }
-        }
+        // TODO: Implement update_field
+        unimplemented!()
     }
 
     fn apply_batch_updates(
         &mut self,
-        entity: &mut T::Data,
-        batch: BatchUpdate,
-        schedule: &Schedule,
+        _entity: &mut T::Data,
+        _batch: BatchUpdate,
+        _schedule: &Schedule,
     ) -> UpdateResult {
-        let mut result = UpdateResult::new();
-
-        for update in &batch.updates {
-            match FieldUpdater::<T>::update_field(
-                self,
-                entity,
-                &update.field_name,
-                update.value.clone(),
-                update.strategy,
-                schedule,
-            ) {
-                Ok(()) => {
-                    result.add_success(update.field_name.clone());
-                }
-                Err(error) => {
-                    result.add_failure(update.field_name.clone(), error);
-                    if batch.stop_on_first_error {
-                        break;
-                    }
-                }
-            }
-        }
-
-        let mut successful_write_counts: HashMap<String, usize> = HashMap::new();
-        for field_name in &result.successful_updates {
-            *successful_write_counts
-                .entry(field_name.clone())
-                .or_insert(0) += 1;
-        }
-
-        // Second pass validation after all updates were applied in order.
-        if batch.validate_after {
-            for update in &batch.updates {
-                if !result.successful_updates.contains(&update.field_name) {
-                    continue;
-                }
-
-                if let Some(field) = T::fields().iter().find(|f| f.name == update.field_name) {
-                    let expected_value = match field.field_type.try_convert(&update.value) {
-                        Ok(v) => v,
-                        Err(_) => update.value.clone(),
-                    };
-
-                    if let Some(actual_value) = field.read(entity, schedule) {
-                        if actual_value != expected_value {
-                            result.add_validation_error(ValidationError::ValidationFailed {
-                                field: update.field_name.clone(),
-                                reason: format!(
-                                    "written value mismatch: expected '{}', got '{}'",
-                                    expected_value, actual_value
-                                ),
-                            });
-                            if batch.stop_on_first_error {
-                                return result;
-                            }
-                        }
-                    }
-
-                    let successful_write_count = successful_write_counts
-                        .get(&update.field_name)
-                        .copied()
-                        .unwrap_or(0);
-
-                    if Self::should_run_custom_validator(field, successful_write_count) {
-                        if let Err(error) = field.validate_write(entity, &expected_value) {
-                            result.add_validation_error(error);
-                            if batch.stop_on_first_error {
-                                return result;
-                            }
-                        }
-                    }
-                }
-            }
-
-            if let Err(error) = T::validate(entity) {
-                result.add_validation_error(error);
-            }
-        }
-
-        result
+        // TODO: Implement apply_batch_updates
+        unimplemented!()
     }
 
     fn detect_conflicts(
         &self,
-        entity: &T::Data,
-        updates: &[FieldUpdate],
-        schedule: &Schedule,
+        _entity: &T::Data,
+        _updates: &[FieldUpdate],
+        _schedule: &Schedule,
     ) -> Vec<UpdateConflict> {
-        let mut conflicts = Vec::new();
-
-        for update in updates {
-            if let Some(field) = T::fields().iter().find(|f| f.name == update.field_name) {
-                if let Some(current_value) = field.extract(entity, schedule) {
-                    // Check for value mismatch
-                    if current_value != update.value {
-                        conflicts.push(UpdateConflict {
-                            field_name: update.field_name.clone(),
-                            existing_value: current_value,
-                            new_value: update.value.clone(),
-                            conflict_type: ConflictType::ValueMismatch,
-                        });
-                    }
-                }
-            }
-        }
-
-        conflicts
+        // TODO: Implement detect_conflicts
+        unimplemented!()
     }
 
     fn resolve_conflicts(
         &mut self,
-        entity: &mut T::Data,
-        conflicts: Vec<UpdateConflict>,
-        resolution: ConflictResolution,
-        schedule: &Schedule,
+        _entity: &mut T::Data,
+        _conflicts: Vec<UpdateConflict>,
+        _resolution: ConflictResolution,
+        _schedule: &Schedule,
     ) -> Result<(), FieldError> {
-        for conflict in conflicts {
-            match resolution {
-                ConflictResolution::KeepExisting => {
-                    // Do nothing, keep existing value
-                }
-                ConflictResolution::UseNew => {
-                    // Apply the new value
-                    FieldUpdater::<T>::update_field(
-                        self,
-                        entity,
-                        &conflict.field_name,
-                        conflict.new_value,
-                        UpdateStrategy::Replace,
-                        schedule,
-                    )?;
-                }
-                ConflictResolution::Merge => {
-                    // Try to merge values (simplified for now)
-                    if let (FieldValue::List(mut existing), FieldValue::List(new)) =
-                        (conflict.existing_value.clone(), conflict.new_value.clone())
-                    {
-                        existing.extend(new);
-                        FieldUpdater::<T>::update_field(
-                            self,
-                            entity,
-                            &conflict.field_name,
-                            FieldValue::List(existing),
-                            UpdateStrategy::Replace,
-                            schedule,
-                        )?;
-                    } else {
-                        // Can't merge, use new value
-                        FieldUpdater::<T>::update_field(
-                            self,
-                            entity,
-                            &conflict.field_name,
-                            conflict.new_value,
-                            UpdateStrategy::Replace,
-                            schedule,
-                        )?;
-                    }
-                }
-                ConflictResolution::Fail => {
-                    return Err(FieldError::ValidationError(
-                        ValidationError::ValidationFailed {
-                            field: conflict.field_name,
-                            reason: "Update conflict detected".to_string(),
-                        },
-                    ));
-                }
-            }
-        }
-
-        Ok(())
+        // TODO: Implement resolve_conflicts
+        unimplemented!()
     }
 }

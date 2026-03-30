@@ -11,6 +11,7 @@ serde = { version = "1.0", features = ["derive"] }
 serde_json = "1.0"
 thiserror = "1.0"
 uuid = { version = "1.0", features = ["v4", "serde"] }
+schedule-macro = { path = "../schedule-macro" }
 
 [dev-dependencies]
 tokio-test = "0.4"

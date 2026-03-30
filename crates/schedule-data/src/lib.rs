@@ -4,14 +4,15 @@
  * See LICENSE file for full license text
  */
 
-//! Generic Schedule Data System
+//! Schedule data structures and field management
 //!
-//! This crate provides a type-safe, field-based schedule data system with:
-//! - Generic entity types with compile-time validation
-//! - Field-based querying with type-aware matching
-//! - Edge-based relationship system
-//! - TimeRange state machine for safe time handling
-//! - Comprehensive validation and conflict detection
+//! This crate provides:
+//! - Entity definitions for panels, presenters, rooms, etc.
+//! - Field system with read/write/validate capabilities
+//! - Schedule management and conflict detection
+
+// Re-export the EntityFields proc macro
+pub use schedule_macro::EntityFields;
 
 pub mod entity;
 pub mod field;

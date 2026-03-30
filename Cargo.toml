@@ -1,5 +1,6 @@
 [workspace]
 members = [
+    "crates/schedule-macro",
     "crates/schedule-data",
 ]
 resolver = "2"
