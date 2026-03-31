@@ -91,6 +91,7 @@ pub fn derive_entity_fields(input: TokenStream) -> TokenStream {
     let mut required_field_names: Vec<String> = Vec::new();
     let mut required_field_validations: Vec<TokenStream2> = Vec::new();
     let mut alias_mappings: Vec<TokenStream2> = Vec::new();
+    let mut indexable_field_names: Vec<Ident> = Vec::new();
 
     for field in &data.fields {
         if let Some(field_name) = &field.ident {
@@ -151,6 +152,9 @@ pub fn derive_entity_fields(input: TokenStream) -> TokenStream {
                         }
                     }
 
+                    // Parse custom indexable match closure if present
+                    let custom_match_closure = parse_indexable_match(&field.attrs);
+
                     // Generate the field implementation
                     let field_impl = generate_direct_field(
                         &field_struct_name,
@@ -158,8 +162,14 @@ pub fn derive_entity_fields(input: TokenStream) -> TokenStream {
                         field_name,
                         &field.ty,
                         &field_attrs,
+                        custom_match_closure,
                     );
                     field_implementations.push(field_impl);
+
+                    // Track indexable fields for IndexableField implementation
+                    if field_attrs.indexable.is_some() {
+                        indexable_field_names.push(field_struct_name.clone());
+                    }
 
                     // Generate field constant
                     let explicit_constant_name = parse_field_const_name(&field.attrs);
@@ -356,6 +366,33 @@ fn parse_field_aliases(attrs: &[Attribute]) -> Option<Vec<String>> {
     }
 }
 
+/// Parse indexable match closure from indexable attribute
+fn parse_indexable_match(attrs: &[Attribute]) -> Option<TokenStream2> {
+    for attr in attrs {
+        if attr.path().is_ident("indexable") {
+            if let Meta::List(meta_list) = &attr.meta {
+                // Look for closure pattern in the tokens
+                let tokens_str = meta_list.tokens.to_string();
+
+                // Check if there's a closure (starts with |)
+                if let Some(pipe_start) = tokens_str.find('|') {
+                    if let Some(closure_end) = tokens_str[pipe_start..].find("}") {
+                        let closure_str = &tokens_str[pipe_start..pipe_start + closure_end + 1];
+
+                        // Parse the closure tokens directly
+                        if let Ok(closure_tokens) =
+                            syn::parse_str::<proc_macro2::TokenStream>(closure_str)
+                        {
+                            return Some(closure_tokens);
+                        }
+                    }
+                }
+            }
+        }
+    }
+    None
+}
+
 /// Parse field attributes from struct field attributes
 fn parse_field_attributes(attrs: &[Attribute]) -> Option<FieldAttributes> {
     let mut display = None;
@@ -401,7 +438,9 @@ fn parse_field_attributes(attrs: &[Attribute]) -> Option<FieldAttributes> {
                 }
             }
         } else if attr.path().is_ident("indexable") {
+            // Parse indexable attribute with optional priority and/or closure
             let mut priority = 100; // default priority
+
             if let Meta::List(meta_list) = &attr.meta {
                 // Parse tokens to find priority
                 let tokens_str = meta_list.tokens.to_string();
@@ -456,6 +495,7 @@ fn generate_direct_field(
     field_name: &SynIdent,
     field_type: &Type,
     attrs: &FieldAttributes,
+    custom_match_closure: Option<TokenStream2>,
 ) -> TokenStream2 {
     // Generate the entity type struct name (e.g., PanelEntityType)
     let entity_type_struct_name = Ident::new(
@@ -637,6 +677,131 @@ fn generate_direct_field(
         quote! {}
     };
 
+    // Generate IndexableField implementation if the field is indexable
+    let indexable_impl = if let Some(indexable_attrs) = &attrs.indexable {
+        let priority = indexable_attrs.priority;
+
+        // Use custom match closure if provided, otherwise generate default logic
+        let match_logic = if let Some(closure) = custom_match_closure {
+            quote! {
+                (#closure)(entity, query)
+            }
+        } else {
+            // Generate default matching logic based on field type
+            match get_field_type_category(field_type) {
+                FieldTypeCategory::String | FieldTypeCategory::OptionalString => {
+                    quote! {
+                        if query.is_empty() {
+                            None
+                        } else if let Some(field_value) = crate::field::traits::SimpleReadableField::<#entity_type_struct_name>::read(self, entity) {
+                            if let crate::field::FieldValue::String(s) = field_value {
+                                if s.to_lowercase() == query.to_lowercase() {
+                                    Some(crate::field::traits::MatchStrength::ExactMatch)
+                                } else if s.to_lowercase().contains(&query.to_lowercase()) {
+                                    Some(crate::field::traits::MatchStrength::StrongMatch)
+                                } else if s.split_whitespace().any(|word| word.to_lowercase().starts_with(&query.to_lowercase())) {
+                                    Some(crate::field::traits::MatchStrength::WeakMatch)
+                                } else {
+                                    None
+                                }
+                            } else {
+                                None
+                            }
+                        } else {
+                            None
+                        }
+                    }
+                }
+                FieldTypeCategory::Integer
+                | FieldTypeCategory::OptionalInteger
+                | FieldTypeCategory::EntityId
+                | FieldTypeCategory::InternalId => {
+                    quote! {
+                        if query.is_empty() {
+                            None
+                        } else if let Some(field_value) = crate::field::traits::SimpleReadableField::<#entity_type_struct_name>::read(self, entity) {
+                            if let crate::field::FieldValue::Integer(i) = field_value {
+                                if i.to_string() == query {
+                                    Some(crate::field::traits::MatchStrength::ExactMatch)
+                                } else if i.to_string().contains(query) {
+                                    Some(crate::field::traits::MatchStrength::StrongMatch)
+                                } else {
+                                    None
+                                }
+                            } else if let crate::field::FieldValue::EntityId(id) = field_value {
+                                if id.to_string() == query {
+                                    Some(crate::field::traits::MatchStrength::ExactMatch)
+                                } else if id.to_string().contains(query) {
+                                    Some(crate::field::traits::MatchStrength::StrongMatch)
+                                } else {
+                                    None
+                                }
+                            } else if let crate::field::FieldValue::InternalId(id) = field_value {
+                                if id.to_string() == query {
+                                    Some(crate::field::traits::MatchStrength::ExactMatch)
+                                } else if id.to_string().contains(query) {
+                                    Some(crate::field::traits::MatchStrength::StrongMatch)
+                                } else {
+                                    None
+                                }
+                            } else {
+                                None
+                            }
+                        } else {
+                            None
+                        }
+                    }
+                }
+                FieldTypeCategory::Boolean | FieldTypeCategory::OptionalBoolean => {
+                    quote! {
+                        if query.is_empty() {
+                            None
+                        } else if let Some(field_value) = crate::field::traits::SimpleReadableField::<#entity_type_struct_name>::read(self, entity) {
+                            if let crate::field::FieldValue::Boolean(b) = field_value {
+                                if b.to_string().to_lowercase() == query.to_lowercase() {
+                                    Some(crate::field::traits::MatchStrength::ExactMatch)
+                                } else {
+                                    None
+                                }
+                            } else {
+                                None
+                            }
+                        } else {
+                            None
+                        }
+                    }
+                }
+                FieldTypeCategory::Map => {
+                    quote! {
+                        None // Map fields are not indexable
+                    }
+                }
+            }
+        };
+
+        quote! {
+            impl crate::field::traits::IndexableField<#entity_type_struct_name> for #field_struct_name
+            where
+                #entity_type_struct_name: crate::entity::EntityType,
+                Self: crate::field::traits::NamedField + 'static + Send + Sync
+            {
+                fn is_indexable(&self) -> bool {
+                    true
+                }
+
+                fn match_field(&self, query: &str, entity: &<#entity_type_struct_name as crate::entity::EntityType>::Data) -> Option<crate::field::traits::MatchStrength> {
+                    #match_logic
+                }
+
+                fn index_priority(&self) -> u8 {
+                    #priority
+                }
+            }
+        }
+    } else {
+        quote! {}
+    };
+
     quote! {
         #[derive(Debug)]
         pub struct #field_struct_name;
@@ -670,6 +835,7 @@ fn generate_direct_field(
         }
 
         #simple_writable_impl
+        #indexable_impl
     }
 }
 
