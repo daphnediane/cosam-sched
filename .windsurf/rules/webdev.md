@@ -59,14 +59,14 @@ Builtin template: `widget/square-template.html` (compiled in via `include_str!`)
 
 ## CSS Development
 
-### Architecture
+### CSS Architecture
 
 - `cosam-calendar.css`: Main widget stylesheet
 - Use CSS custom properties for theming and configuration
 - Follow mobile-first responsive design principles
 - Ensure compatibility with Squarespace injection
 
-### Best Practices
+### CSS Best Practices
 
 - Use semantic class names that reflect purpose, not appearance
 - Leverage CSS Grid for schedule layout with proper accessibility
@@ -74,7 +74,7 @@ Builtin template: `widget/square-template.html` (compiled in via `include_str!`)
 - Test across browsers and devices
 - Maintain color contrast ratios per accessibility requirements
 
-### Performance
+### CSS erformance
 
 - Minimize CSS selector specificity
 - Use efficient layout algorithms (Grid > Flexbox > Block)
@@ -83,21 +83,21 @@ Builtin template: `widget/square-template.html` (compiled in via `include_str!`)
 
 ## JavaScript Development
 
-### Architecture
+### JavaScript Architecture
 
 - `cosam-calendar.js`: Main widget script
 - Use modern ES6+ features with appropriate fallbacks
 - Implement event delegation for dynamic content
 - Separate data processing from DOM manipulation
 
-### Best Practices
+### JavaScript Best Practices
 
 - Use semantic HTML5 elements generated from JavaScript
 - Implement proper error handling and graceful degradation
 - Use async/await for asynchronous operations
 - Maintain clean separation between widget logic and host page
 
-### Performance
+### JavaScript Performance
 
 - Minimize DOM manipulation and reflows
 - Use event delegation instead of individual event listeners
@@ -113,7 +113,7 @@ Builtin template: `widget/square-template.html` (compiled in via `include_str!`)
 - Test widget injection into various host environments
 - Validate accessibility with screen readers
 
-### Performance Testing
+### JavaScript Performance Testing
 
 - Monitor load times and render performance
 - Test with large schedule datasets

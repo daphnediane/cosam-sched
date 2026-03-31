@@ -60,13 +60,38 @@ use crate::field::validation::ValidationError;
 pub type EntityId = u64;
 
 /// Core trait for all entity types
-pub trait EntityType: 'static + Send + Sync + Sized {
+pub trait EntityType: 'static + Send + Sync + fmt::Debug {
     type Data: Clone + Send + Sync + fmt::Debug;
 
     const TYPE_NAME: &'static str;
 
-    fn field_set() -> &'static FieldSet<Self>;
-    fn validate(data: &Self::Data) -> Result<(), ValidationError>;
+    fn field_set() -> &'static FieldSet<Self>
+    where
+        Self: Sized;
+    fn validate(data: &Self::Data) -> Result<(), ValidationError>
+    where
+        Self: Sized;
+
+    /// Get the type name for this entity type (for dyn compatibility)
+    fn type_name(&self) -> &'static str {
+        Self::TYPE_NAME
+    }
+}
+
+/// Internal identifier for an entity instance
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct InternalId {
+    pub type_name: &'static str,
+    pub entity_id: EntityId,
+}
+
+impl InternalId {
+    pub fn new<T: EntityType>(entity_id: EntityId) -> Self {
+        Self {
+            type_name: T::TYPE_NAME,
+            entity_id,
+        }
+    }
 }
 
 /// Entity state for soft delete and status tracking
