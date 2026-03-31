@@ -9,8 +9,8 @@
 //! # Overview
 //!
 //! `#[derive(EntityFields)]` generates the field trait implementations and
-//! `EntityType` impl for a struct defined in `schedule-data`.  All generated
-//! code uses fully-qualified `crate::` paths so the consuming entity file only
+//! a separate `EntityType` struct (e.g., `RoomEntityType`) for a struct defined in `schedule-data`.  
+//! All generated code uses fully-qualified `crate::` paths so the consuming entity file only
 //! needs `use crate::EntityFields;` plus imports for its own field types.
 //!
 //! # Supported attributes
@@ -46,8 +46,8 @@
 //! impls (or `ReadableField`/`WritableField` for computed fields needing
 //! schedule access).  A `pub static` constant is emitted for each field.
 //!
-//! It also generates `impl EntityType for T` with `type Data = T`,
-//! `TYPE_NAME` as the lowercase struct name, and a `LazyLock`-based
+//! It also generates a separate `EntityType` struct (e.g., `RoomEntityType`) with `impl EntityType for RoomEntityType`,
+//! `type Data = Room`, `TYPE_NAME` as the lowercase struct name, and a `LazyLock`-based
 //! `field_set()` containing all fields, aliases, required list, and
 //! indexable list.
 
@@ -189,6 +189,12 @@ pub fn derive_entity_fields(input: TokenStream) -> TokenStream {
         .map(|name| generate_field_struct_name(struct_name, name))
         .collect();
 
+    // Generate the entity type struct name (e.g., PanelEntityType)
+    let entity_type_struct_name = Ident::new(
+        &format!("{}EntityType", struct_name),
+        proc_macro2::Span::call_site(),
+    );
+
     // Generate the complete implementation
     let expanded = quote! {
         #(#field_implementations)*
@@ -202,13 +208,17 @@ pub fn derive_entity_fields(input: TokenStream) -> TokenStream {
             #(#field_constants)*
         }
 
-        impl crate::entity::EntityType for #struct_name {
+        /// Generated EntityType struct for #struct_name
+        #[derive(Debug)]
+        pub struct #entity_type_struct_name;
+
+        impl crate::entity::EntityType for #entity_type_struct_name {
             type Data = #struct_name;
 
             const TYPE_NAME: &'static str = #type_name_str;
 
             fn field_set() -> &'static crate::field::field_set::FieldSet<Self> {
-                static FIELD_SET: std::sync::LazyLock<&'static crate::field::field_set::FieldSet<#struct_name>> =
+                static FIELD_SET: std::sync::LazyLock<&'static crate::field::field_set::FieldSet<#entity_type_struct_name>> =
                     std::sync::LazyLock::new(|| {
                         let field_refs: Vec<&dyn crate::field::traits::NamedField> = vec![
                             #(&#field_struct_names,)*
@@ -224,7 +234,7 @@ pub fn derive_entity_fields(input: TokenStream) -> TokenStream {
                         ];
                         let name_map = name_map_entries.leak();
 
-                        let indexable_fields: &[&dyn crate::field::traits::IndexableField<#struct_name>] = &[];
+                        let indexable_fields: &[&dyn crate::field::traits::IndexableField<#entity_type_struct_name>] = &[];
                         let required_vec: Vec<&str> = vec![#(#required_field_names,)*];
                         let required = required_vec.leak() as &[&str];
                         let fs = crate::field::field_set::FieldSet::new(field_slice, name_map, required, indexable_fields);
@@ -447,6 +457,12 @@ fn generate_direct_field(
     field_type: &Type,
     attrs: &FieldAttributes,
 ) -> TokenStream2 {
+    // Generate the entity type struct name (e.g., PanelEntityType)
+    let entity_type_struct_name = Ident::new(
+        &format!("{}EntityType", struct_name),
+        proc_macro2::Span::call_site(),
+    );
+
     // Since we validate types before calling this function, we can assume the type is supported
     let display = &attrs.display;
     let description = &attrs.description;
@@ -588,12 +604,12 @@ fn generate_direct_field(
 
     let simple_writable_impl = if supports_write {
         quote! {
-            impl crate::field::traits::SimpleWritableField<#struct_name> for #field_struct_name
+            impl crate::field::traits::SimpleWritableField<#entity_type_struct_name> for #field_struct_name
             where
-                #struct_name: crate::entity::EntityType,
+                #entity_type_struct_name: crate::entity::EntityType,
                 Self: crate::field::traits::NamedField + 'static + Send + Sync
             {
-                fn write(&self, entity: &mut <#struct_name as crate::entity::EntityType>::Data, value: crate::field::FieldValue) -> Result<(), crate::field::FieldError> {
+                fn write(&self, entity: &mut <#entity_type_struct_name as crate::entity::EntityType>::Data, value: crate::field::FieldValue) -> Result<(), crate::field::FieldError> {
                     #write_conversion
                 }
 
@@ -624,12 +640,12 @@ fn generate_direct_field(
             }
         }
 
-        impl crate::field::traits::SimpleReadableField<#struct_name> for #field_struct_name
+        impl crate::field::traits::SimpleReadableField<#entity_type_struct_name> for #field_struct_name
         where
-            #struct_name: crate::entity::EntityType,
+            #entity_type_struct_name: crate::entity::EntityType,
             Self: crate::field::traits::NamedField + 'static + Send + Sync
         {
-            fn read(&self, entity: &<#struct_name as crate::entity::EntityType>::Data) -> Option<crate::field::FieldValue> {
+            fn read(&self, entity: &<#entity_type_struct_name as crate::entity::EntityType>::Data) -> Option<crate::field::FieldValue> {
                 #read_conversion
             }
 
@@ -691,6 +707,12 @@ fn generate_computed_field(struct_name: &SynIdent, field: &Field) -> TokenStream
     let field_name = field.ident.as_ref().unwrap();
     let field_struct_name = generate_field_struct_name(struct_name, &field_name.to_string());
     let field_name_str = field_name.to_string();
+
+    // Generate the entity type struct name (e.g., PanelEntityType)
+    let entity_type_struct_name = Ident::new(
+        &format!("{}EntityType", struct_name),
+        proc_macro2::Span::call_site(),
+    );
 
     // Parse computed field attributes
     let mut display = "Computed Field".to_string();
@@ -784,11 +806,11 @@ fn generate_computed_field(struct_name: &SynIdent, field: &Field) -> TokenStream
     if let Some(closure) = read_closure {
         if needs_schedule {
             trait_impls.push(quote! {
-                impl crate::field::traits::ReadableField<#struct_name> for #field_struct_name
+                impl crate::field::traits::ReadableField<#entity_type_struct_name> for #field_struct_name
                 where
                     Self: crate::field::traits::NamedField + 'static + Send + Sync
                 {
-                    fn read(&self, entity: &<#struct_name as crate::entity::EntityType>::Data, schedule: &crate::schedule::Schedule) -> Option<crate::field::FieldValue> {
+                    fn read(&self, entity: &<#entity_type_struct_name as crate::entity::EntityType>::Data, schedule: &crate::schedule::Schedule) -> Option<crate::field::FieldValue> {
                         let entity: &#struct_name = entity;
                         (#closure)(schedule, entity)
                     }
@@ -800,11 +822,11 @@ fn generate_computed_field(struct_name: &SynIdent, field: &Field) -> TokenStream
             });
         } else {
             trait_impls.push(quote! {
-                impl crate::field::traits::SimpleReadableField<#struct_name> for #field_struct_name
+                impl crate::field::traits::SimpleReadableField<#entity_type_struct_name> for #field_struct_name
                 where
                     Self: crate::field::traits::NamedField + 'static + Send + Sync
                 {
-                    fn read(&self, entity: &<#struct_name as crate::entity::EntityType>::Data) -> Option<crate::field::FieldValue> {
+                    fn read(&self, entity: &<#entity_type_struct_name as crate::entity::EntityType>::Data) -> Option<crate::field::FieldValue> {
                         let entity: &#struct_name = entity;
                         (#closure)(entity)
                     }
@@ -823,11 +845,11 @@ fn generate_computed_field(struct_name: &SynIdent, field: &Field) -> TokenStream
         let tokens_str = closure.to_string();
         if tokens_str.contains("schedule,") || tokens_str.contains("|schedule") {
             trait_impls.push(quote! {
-                impl crate::field::traits::WritableField<#struct_name> for #field_struct_name
+                impl crate::field::traits::WritableField<#entity_type_struct_name> for #field_struct_name
                 where
                     Self: crate::field::traits::NamedField + 'static + Send + Sync
                 {
-                    fn write(&self, schedule: &crate::schedule::Schedule, entity: &mut <#struct_name as crate::entity::EntityType>::Data, value: crate::field::FieldValue) -> Result<(), crate::field::FieldError> {
+                    fn write(&self, schedule: &crate::schedule::Schedule, entity: &mut <#entity_type_struct_name as crate::entity::EntityType>::Data, value: crate::field::FieldValue) -> Result<(), crate::field::FieldError> {
                         let entity: &mut #struct_name = entity;
                         let value: crate::field::FieldValue = value;
                         (#closure)(schedule, entity, value)
@@ -840,11 +862,11 @@ fn generate_computed_field(struct_name: &SynIdent, field: &Field) -> TokenStream
             });
         } else {
             trait_impls.push(quote! {
-                impl crate::field::traits::SimpleWritableField<#struct_name> for #field_struct_name
+                impl crate::field::traits::SimpleWritableField<#entity_type_struct_name> for #field_struct_name
                 where
                     Self: crate::field::traits::NamedField + 'static + Send + Sync
                 {
-                    fn write(&self, entity: &mut <#struct_name as crate::entity::EntityType>::Data, value: crate::field::FieldValue) -> Result<(), crate::field::FieldError> {
+                    fn write(&self, entity: &mut <#entity_type_struct_name as crate::entity::EntityType>::Data, value: crate::field::FieldValue) -> Result<(), crate::field::FieldError> {
                         let entity: &mut #struct_name = entity;
                         let value: crate::field::FieldValue = value;
                         (#closure)(entity, value)

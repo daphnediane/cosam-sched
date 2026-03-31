@@ -9,7 +9,10 @@
 //! These tests verify that the macro-generated code works correctly when used
 //! from `schedule-data` where `crate::` paths resolve properly.
 
-use schedule_data::entity::{Edge, EdgeType, Panel, PanelType, Presenter, Room};
+use schedule_data::entity::{Edge, EdgeType, Room};
+use schedule_data::entity::{
+    EdgeEntityType, PanelEntityType, PanelTypeEntityType, PresenterEntityType, RoomEntityType,
+};
 use schedule_data::entity::{EntityState, EntityType};
 
 // ---------------------------------------------------------------------------
@@ -18,27 +21,27 @@ use schedule_data::entity::{EntityState, EntityType};
 
 #[test]
 fn room_entity_type_name() {
-    assert_eq!(Room::TYPE_NAME, "room");
+    assert_eq!(RoomEntityType::TYPE_NAME, "room");
 }
 
 #[test]
 fn panel_entity_type_name() {
-    assert_eq!(Panel::TYPE_NAME, "panel");
+    assert_eq!(PanelEntityType::TYPE_NAME, "panel");
 }
 
 #[test]
 fn presenter_entity_type_name() {
-    assert_eq!(Presenter::TYPE_NAME, "presenter");
+    assert_eq!(PresenterEntityType::TYPE_NAME, "presenter");
 }
 
 #[test]
 fn panel_type_entity_type_name() {
-    assert_eq!(PanelType::TYPE_NAME, "panel_type");
+    assert_eq!(PanelTypeEntityType::TYPE_NAME, "panel_type");
 }
 
 #[test]
 fn edge_entity_type_name() {
-    assert_eq!(Edge::TYPE_NAME, "edge");
+    assert_eq!(EdgeEntityType::TYPE_NAME, "edge");
 }
 
 // ---------------------------------------------------------------------------
@@ -47,14 +50,14 @@ fn edge_entity_type_name() {
 
 #[test]
 fn room_field_set_has_fields() {
-    let fs = Room::field_set();
+    let fs = RoomEntityType::field_set();
     assert!(!fs.fields.is_empty(), "Room should have fields");
     assert!(!fs.name_map.is_empty(), "Room should have a name map");
 }
 
 #[test]
 fn room_field_set_required_fields() {
-    let fs = Room::field_set();
+    let fs = RoomEntityType::field_set();
     assert!(
         fs.is_required("long_name"),
         "long_name should be required on Room"
@@ -67,7 +70,7 @@ fn room_field_set_required_fields() {
 
 #[test]
 fn room_field_set_alias_lookup() {
-    let fs = Room::field_set();
+    let fs = RoomEntityType::field_set();
     // Primary name
     assert!(
         fs.get_field("short_name").is_some(),
@@ -91,7 +94,7 @@ fn room_field_set_alias_lookup() {
 
 #[test]
 fn presenter_field_set_alias_lookup() {
-    let fs = Presenter::field_set();
+    let fs = PresenterEntityType::field_set();
     assert!(fs.get_field("name").is_some());
     assert!(fs.get_field("full_name").is_some());
     assert!(fs.get_field("display_name").is_some());
@@ -114,7 +117,7 @@ fn make_test_room() -> Room {
 
 #[test]
 fn room_read_string_field() {
-    let fs = Room::field_set();
+    let fs = RoomEntityType::field_set();
 
     // Find the short_name field and check NamedField metadata
     let field = fs.get_field("short_name").expect("short_name field exists");
@@ -125,7 +128,7 @@ fn room_read_string_field() {
 
 #[test]
 fn room_read_bool_field() {
-    let fs = Room::field_set();
+    let fs = RoomEntityType::field_set();
 
     let field = fs.get_field("is_break").expect("is_break field exists");
     assert_eq!(field.name(), "is_break");
@@ -138,7 +141,7 @@ fn room_read_bool_field() {
 
 #[test]
 fn room_read_integer_field() {
-    let fs = Room::field_set();
+    let fs = RoomEntityType::field_set();
 
     let field = fs.get_field("sort_key").expect("sort_key field exists");
     assert_eq!(field.name(), "sort_key");
@@ -161,7 +164,7 @@ fn make_test_edge() -> Edge {
 
 #[test]
 fn edge_field_set_has_computed_field() {
-    let fs = Edge::field_set();
+    let fs = EdgeEntityType::field_set();
     let field = fs.get_field("edge_type").expect("edge_type field exists");
     assert_eq!(field.name(), "edge_type");
     assert_eq!(field.display_name(), "Edge Type");
@@ -169,7 +172,7 @@ fn edge_field_set_has_computed_field() {
 
 #[test]
 fn edge_field_set_alias() {
-    let fs = Edge::field_set();
+    let fs = EdgeEntityType::field_set();
     // "type" is an alias for edge_type
     assert!(
         fs.get_field("type").is_some(),
@@ -187,7 +190,7 @@ fn edge_field_set_alias() {
 
 #[test]
 fn room_all_field_names_includes_aliases() {
-    let fs = Room::field_set();
+    let fs = RoomEntityType::field_set();
     let names = fs.all_field_names();
     // Should include both primary names and aliases
     assert!(names.contains(&"short_name"), "should contain primary name");
@@ -208,7 +211,7 @@ fn room_all_field_names_includes_aliases() {
 
 #[test]
 fn room_has_indexable_fields() {
-    let fs = Room::field_set();
+    let fs = RoomEntityType::field_set();
     let indexable = fs.get_indexable_fields();
     // NOTE: The macro parses #[indexable] but does not yet generate
     // IndexableField trait impls. This test documents the current state
