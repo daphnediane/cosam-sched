@@ -25,7 +25,8 @@ pub enum RelationshipDirection {
 pub enum EdgeType {
     PresenterToGroup,
     PanelToPresenter,
-    PanelToRoom,
+    PanelToEventRoom,
+    EventRoomToHotelRoom,
     PanelToPanelType,
 }
 
@@ -36,7 +37,8 @@ impl EdgeType {
         match self {
             EdgeType::PresenterToGroup => "presenter_to_group",
             EdgeType::PanelToPresenter => "panel_to_presenter",
-            EdgeType::PanelToRoom => "panel_to_room",
+            EdgeType::PanelToEventRoom => "panel_to_event_room",
+            EdgeType::EventRoomToHotelRoom => "event_room_to_hotel_room",
             EdgeType::PanelToPanelType => "panel_to_panel_type",
         }
     }
@@ -61,7 +63,8 @@ pub struct Edge {
                     match entity.edge_type {
                         EdgeType::PresenterToGroup => "presenter_to_group",
                         EdgeType::PanelToPresenter => "panel_to_presenter",
-                        EdgeType::PanelToRoom => "panel_to_room",
+                        EdgeType::PanelToEventRoom => "panel_to_event_room",
+                        EdgeType::EventRoomToHotelRoom => "event_room_to_hotel_room",
                         EdgeType::PanelToPanelType => "panel_to_panel_type",
                     }
                     .to_string()
@@ -78,8 +81,12 @@ pub struct Edge {
                             entity.edge_type = EdgeType::PanelToPresenter;
                             Ok(())
                         }
-                        "panel_to_room" => {
-                            entity.edge_type = EdgeType::PanelToRoom;
+                        "panel_to_event_room" => {
+                            entity.edge_type = EdgeType::PanelToEventRoom;
+                            Ok(())
+                        }
+                        "event_room_to_hotel_room" => {
+                            entity.edge_type = EdgeType::EventRoomToHotelRoom;
                             Ok(())
                         }
                         "panel_to_panel_type" => {

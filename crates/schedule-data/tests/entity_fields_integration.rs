@@ -9,9 +9,10 @@
 //! These tests verify that the macro-generated code works correctly when used
 //! from `schedule-data` where `crate::` paths resolve properly.
 
-use schedule_data::entity::{Edge, EdgeType, Room};
+use schedule_data::entity::{Edge, EdgeType, EventRoom, HotelRoom};
 use schedule_data::entity::{
-    EdgeEntityType, PanelEntityType, PanelTypeEntityType, PresenterEntityType, RoomEntityType,
+    EdgeEntityType, EventRoomEntityType, HotelRoomEntityType, PanelEntityType, PanelTypeEntityType,
+    PresenterEntityType,
 };
 use schedule_data::entity::{EntityState, EntityType};
 
@@ -20,8 +21,13 @@ use schedule_data::entity::{EntityState, EntityType};
 // ---------------------------------------------------------------------------
 
 #[test]
-fn room_entity_type_name() {
-    assert_eq!(RoomEntityType::TYPE_NAME, "room");
+fn event_room_entity_type_name() {
+    assert_eq!(EventRoomEntityType::TYPE_NAME, "event_room");
+}
+
+#[test]
+fn hotel_room_entity_type_name() {
+    assert_eq!(HotelRoomEntityType::TYPE_NAME, "hotel_room");
 }
 
 #[test]
@@ -49,28 +55,35 @@ fn edge_entity_type_name() {
 // ---------------------------------------------------------------------------
 
 #[test]
-fn room_field_set_has_fields() {
-    let fs = RoomEntityType::field_set();
-    assert!(!fs.fields.is_empty(), "Room should have fields");
-    assert!(!fs.name_map.is_empty(), "Room should have a name map");
+fn event_room_field_set_has_fields() {
+    let fs = EventRoomEntityType::field_set();
+    assert!(!fs.fields.is_empty(), "EventRoom should have fields");
+    assert!(!fs.name_map.is_empty(), "EventRoom should have a name map");
 }
 
 #[test]
-fn room_field_set_required_fields() {
-    let fs = RoomEntityType::field_set();
+fn hotel_room_field_set_has_fields() {
+    let fs = HotelRoomEntityType::field_set();
+    assert!(!fs.fields.is_empty(), "HotelRoom should have fields");
+    assert!(!fs.name_map.is_empty(), "HotelRoom should have a name map");
+}
+
+#[test]
+fn event_room_field_set_required_fields() {
+    let fs = EventRoomEntityType::field_set();
     assert!(
         fs.is_required("long_name"),
-        "long_name should be required on Room"
+        "long_name should be required on EventRoom"
     );
     assert!(
-        !fs.is_required("sort_key"),
-        "sort_key should not be required on Room"
+        !fs.is_required("is_break"),
+        "is_break should not be required on EventRoom"
     );
 }
 
 #[test]
-fn room_field_set_alias_lookup() {
-    let fs = RoomEntityType::field_set();
+fn event_room_field_set_alias_lookup() {
+    let fs = EventRoomEntityType::field_set();
     // Primary name
     assert!(
         fs.get_field("short_name").is_some(),
@@ -101,23 +114,29 @@ fn presenter_field_set_alias_lookup() {
 }
 
 // ---------------------------------------------------------------------------
-// Field read/write tests — Room
+// Field read/write tests — EventRoom
 // ---------------------------------------------------------------------------
 
 #[allow(dead_code)]
-fn make_test_room() -> Room {
-    Room {
+fn make_test_event_room() -> EventRoom {
+    EventRoom {
         short_name: "Main".to_string(),
         long_name: "Main Ballroom".to_string(),
-        hotel_room: "Ballroom A".to_string(),
-        sort_key: 10,
         is_break: false,
     }
 }
 
+#[allow(dead_code)]
+fn make_test_hotel_room() -> HotelRoom {
+    HotelRoom {
+        hotel_room: "Ballroom A".to_string(),
+        sort_key: 10,
+    }
+}
+
 #[test]
-fn room_read_string_field() {
-    let fs = RoomEntityType::field_set();
+fn event_room_read_string_field() {
+    let fs = EventRoomEntityType::field_set();
 
     // Find the short_name field and check NamedField metadata
     let field = fs.get_field("short_name").expect("short_name field exists");
@@ -127,8 +146,8 @@ fn room_read_string_field() {
 }
 
 #[test]
-fn room_read_bool_field() {
-    let fs = RoomEntityType::field_set();
+fn event_room_read_bool_field() {
+    let fs = EventRoomEntityType::field_set();
 
     let field = fs.get_field("is_break").expect("is_break field exists");
     assert_eq!(field.name(), "is_break");
@@ -140,12 +159,22 @@ fn room_read_bool_field() {
 }
 
 #[test]
-fn room_read_integer_field() {
-    let fs = RoomEntityType::field_set();
+fn hotel_room_read_integer_field() {
+    let fs = HotelRoomEntityType::field_set();
 
     let field = fs.get_field("sort_key").expect("sort_key field exists");
     assert_eq!(field.name(), "sort_key");
     assert_eq!(field.display_name(), "Sort Key");
+}
+
+#[test]
+fn hotel_room_read_hotel_room_field() {
+    let fs = HotelRoomEntityType::field_set();
+
+    let field = fs.get_field("hotel_room").expect("hotel_room field exists");
+    assert_eq!(field.name(), "hotel_room");
+    assert_eq!(field.display_name(), "Hotel Room");
+    assert_eq!(field.description(), "Physical hotel room");
 }
 
 // ---------------------------------------------------------------------------
@@ -189,8 +218,8 @@ fn edge_field_set_alias() {
 // ---------------------------------------------------------------------------
 
 #[test]
-fn room_all_field_names_includes_aliases() {
-    let fs = RoomEntityType::field_set();
+fn event_room_all_field_names_includes_aliases() {
+    let fs = EventRoomEntityType::field_set();
     let names = fs.all_field_names();
     // Should include both primary names and aliases
     assert!(names.contains(&"short_name"), "should contain primary name");
@@ -205,13 +234,46 @@ fn room_all_field_names_includes_aliases() {
     );
 }
 
+#[test]
+fn hotel_room_all_field_names_includes_aliases() {
+    let fs = HotelRoomEntityType::field_set();
+    let names = fs.all_field_names();
+    // Should include both primary names and aliases
+    assert!(names.contains(&"hotel_room"), "should contain primary name");
+    assert!(names.contains(&"hotel"), "should contain alias 'hotel'");
+    assert!(
+        names.contains(&"location"),
+        "should contain alias 'location'"
+    );
+    assert!(
+        names.contains(&"sort_key"),
+        "should contain primary 'sort_key'"
+    );
+    assert!(names.contains(&"sort"), "should contain alias 'sort'");
+    assert!(names.contains(&"order"), "should contain alias 'order'");
+}
+
 // ---------------------------------------------------------------------------
 // Indexable fields
 // ---------------------------------------------------------------------------
 
 #[test]
-fn room_has_indexable_fields() {
-    let fs = RoomEntityType::field_set();
+fn event_room_has_indexable_fields() {
+    let fs = EventRoomEntityType::field_set();
+    let indexable = fs.get_indexable_fields();
+    // NOTE: The macro parses #[indexable] but does not yet generate
+    // IndexableField trait impls. This test documents the current state
+    // and should be updated when IndexableField generation is implemented.
+    assert_eq!(
+        indexable.len(),
+        0,
+        "Indexable field generation not yet implemented in macro"
+    );
+}
+
+#[test]
+fn hotel_room_has_indexable_fields() {
+    let fs = HotelRoomEntityType::field_set();
     let indexable = fs.get_indexable_fields();
     // NOTE: The macro parses #[indexable] but does not yet generate
     // IndexableField trait impls. This test documents the current state
