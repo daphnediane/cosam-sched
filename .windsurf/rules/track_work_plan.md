@@ -1,3 +1,8 @@
+---
+trigger: model_decision
+description: When implementing new features, or when limitations or bugs are discovered but not in scope
+globs: docs/work-plan/**/*.md,docs/WORK_PLAN.md
+---
 # Work Plan Tracking Rules
 
 ## Structure
