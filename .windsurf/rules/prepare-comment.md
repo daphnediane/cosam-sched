@@ -1,3 +1,7 @@
+---
+trigger: model_decision
+description: When finishing work and waiting for the user to commit
+---
 # Preparing Commit Comments
 
 ## Commit Message Format
