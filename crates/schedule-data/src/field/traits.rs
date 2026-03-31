@@ -4,12 +4,41 @@
  * See LICENSE file for full license text
  */
 
-//! Field traits and macros for type-safe field operations
+//! Field traits for type-safe entity field operations.
 //!
-//! This module provides:
-//! - Simple field traits for basic operations (no schedule access needed)
-//! - Full field traits for computed operations (with schedule access)
-//! - Macros for implementing common field patterns
+//! # Trait hierarchy
+//!
+//! All field traits require [`NamedField`] which provides the canonical name,
+//! display name, and description.  `NamedField` is **not** generic over `T`.
+//!
+//! Two parallel trait families exist — *Simple* (no schedule access) and *Full*
+//! (receives `&Schedule`).  Blanket impls auto-promote Simple → Full by
+//! discarding the unused schedule reference.
+//!
+//! ```text
+//! NamedField                    name(), display_name(), description()
+//! ├── SimpleReadableField<T>    read(&entity) → Option<FieldValue>
+//! │   └── (blanket) ReadableField<T>
+//! ├── SimpleWritableField<T>    write(&mut entity, FieldValue) → Result
+//! │   └── (blanket) WritableField<T>
+//! ├── SimpleCheckedField<T>     validate(&mut entity, &FieldValue) → Result
+//! │   └── (blanket) CheckedField<T>
+//! ├── IndexableField<T>         match_field(query, &entity) → Option<MatchStrength>
+//! ├── ReadableField<T>          read(&Schedule, &entity) → Option<FieldValue>
+//! ├── WritableField<T>          write(&Schedule, &mut entity, FieldValue) → Result
+//! └── CheckedField<T>           validate(&Schedule, &mut entity, &FieldValue) → Result
+//! ```
+//!
+//! Combo traits: [`SimpleField`] = `SimpleReadableField + SimpleWritableField`,
+//! [`Field`] = `ReadableField + WritableField`.
+//!
+//! # Generated code
+//!
+//! The `#[derive(EntityFields)]` proc-macro in `schedule-macro` generates
+//! `SimpleReadableField` and `SimpleWritableField` impls for direct fields,
+//! and `ReadableField` / `WritableField` for computed fields that reference
+//! the schedule.  See `.windsurf/rules/field-system.md` for the full
+//! attribute reference.
 
 #![allow(unused_macros)]
 

@@ -4,7 +4,30 @@
  * See LICENSE file for full license text
  */
 
-//! Entity module with field definitions
+//! Entity system with type-safe field operations.
+//!
+//! Each entity type (Panel, Presenter, Room, PanelType, Edge) is defined as a
+//! plain Rust struct that derives [`EntityFields`](crate::EntityFields).  The
+//! derive macro generates:
+//!
+//! - Per-field unit structs implementing [`NamedField`](crate::field::traits::NamedField),
+//!   [`SimpleReadableField`](crate::field::traits::SimpleReadableField), and
+//!   [`SimpleWritableField`](crate::field::traits::SimpleWritableField)
+//! - An [`EntityType`] impl with `type Data = Self`
+//! - A static [`FieldSet`](crate::field::field_set::FieldSet) accessible via
+//!   `EntityType::field_set()`
+//!
+//! ## Identifiers
+//!
+//! [`EntityId`] is a monotonic `u64` used as the internal identifier for all
+//! entity instances.  Per-entity typed wrappers (e.g. `PanelId(u64)`) exist
+//! for type-safe public APIs but are not used in the generic entity system.
+//!
+//! ## Re-exports
+//!
+//! Entity types are re-exported explicitly (not via glob) to avoid name
+//! collisions from macro-generated field structs like `NameField`,
+//! `IsBreakField`, etc.
 
 pub mod edge;
 pub mod panel;

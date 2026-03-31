@@ -4,7 +4,23 @@
  * See LICENSE file for full license text
  */
 
-//! Field set implementation for entity field management
+//! Per-entity field registry.
+//!
+//! A [`FieldSet<T>`] is a static, immutable collection of every field
+//! belonging to an entity type `T`.  It is created once (inside a
+//! `LazyLock` in the macro-generated `EntityType::field_set()`) and
+//! provides:
+//!
+//! - **Name lookup** — [`get_field`](FieldSet::get_field) resolves a field
+//!   name or alias to its [`NamedField`] reference.
+//! - **Required-field list** — [`is_required`](FieldSet::is_required) and
+//!   [`validate_entity`](FieldSet::validate_entity).
+//! - **Index matching** — [`match_index`](FieldSet::match_index) iterates
+//!   [`IndexableField`] entries, calls `match_field` on each, and returns
+//!   the single best [`FieldMatchResult`] ranked by `(strength, priority)`.
+//!
+//! The macro populates all four slices (`fields`, `name_map`,
+//! `required_fields`, `indexable_fields`) from struct attributes.
 
 use crate::entity::EntityType;
 use crate::field::traits::{FieldMatchResult, IndexableField, MatchStrength, NamedField};
