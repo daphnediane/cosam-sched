@@ -13,9 +13,10 @@
 //! - Per-field unit structs implementing [`NamedField`](crate::field::traits::NamedField),
 //!   [`SimpleReadableField`](crate::field::traits::SimpleReadableField), and
 //!   [`SimpleWritableField`](crate::field::traits::SimpleWritableField)
-//! - An [`EntityType`] impl with `type Data = Self`
+//! - A separate [`EntityType`] struct (e.g., `PanelEntityType`) with `impl EntityType for PanelEntityType`
+//!   where `type Data = Panel`
 //! - A static [`FieldSet`](crate::field::field_set::FieldSet) accessible via
-//!   `EntityType::field_set()`
+//!   `PanelEntityType::field_set()`
 //!
 //! ## Identifiers
 //!
@@ -42,6 +43,13 @@ pub use panel::Panel;
 pub use panel_type::PanelType;
 pub use presenter::Presenter;
 pub use room::Room;
+
+// Re-export EntityType structs for clean import paths
+pub use edge::EdgeEntityType;
+pub use panel::PanelEntityType;
+pub use panel_type::PanelTypeEntityType;
+pub use presenter::PresenterEntityType;
+pub use room::RoomEntityType;
 
 use std::fmt;
 

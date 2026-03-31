@@ -41,17 +41,27 @@ pub trait EntityType: 'static + Send + Sync + Sized {
 }
 ```
 
-Macro generates `EntityType` with `type Data = Self`, `TYPE_NAME` = lowercase struct name, and `LazyLock<FieldSet<Self>>` registry.
+Macro generates separate `EntityType` struct (e.g., `RoomEntityType`) with `type Data = Room`, `TYPE_NAME` = lowercase struct name, and `LazyLock<FieldSet<EntityType>>` registry.
 
 ## Macro Attributes
 
-### Struct
+### Usage
+
 ```rust
-#[derive(EntityFields, Debug, Clone)]
-pub struct Room { ... }
+use schedule_data::entity::{RoomEntityType, Room};
+
+// Access field set via EntityType
+let fs = RoomEntityType::field_set();
+
+// Access data struct for storage/manipulation
+let room = Room { ... };
+
+// Validate data via EntityType
+RoomEntityType::validate(&room)?;
 ```
 
 ### Direct Fields
+
 ```rust
 #[field(display = "Room Name", description = "Short room name")]
 #[alias("short", "room_name")]       // extra lookup names
@@ -63,6 +73,7 @@ pub short_name: String,
 Supported: `String`, `i64`, `i32`, `u64`, `u32`, `bool`, `EntityId`, `Option<T>`, `HashMap<String, FieldValue>`.
 
 ### Computed Fields
+
 ```rust
 #[computed_field(display = "Edge Type", description = "Type of relationship")]
 #[alias("type", "edge_type")]
@@ -74,6 +85,7 @@ pub edge_type: EdgeType,
 **Critical**: Closure parameters MUST have explicit type annotations. For schedule access, add `schedule` as first parameter: `#[read(|schedule: &Schedule, entity: &Panel| { ... })]`
 
 ### Field Naming
+
 - `#[field_name("custom_name")]` — override internal field name
 - `#[field_const("CUSTOM_CONST")]` — override generated constant name
 
@@ -81,7 +93,7 @@ pub edge_type: EdgeType,
 
 For each field: unit struct, `NamedField` impl, read/write impls, static constant. `pub mod fields { ... }` submodule contains all field structs.
 
-Macro also generates: `EntityType` impl, `field_set()` with `LazyLock`, `validate()` checking required fields.
+Macro also generates: separate `EntityType` struct (e.g., `RoomEntityType`), `EntityType` impl, `field_set()` with `LazyLock`, `validate()` checking required fields.
 
 ## FieldSet and Indexing
 
