@@ -513,6 +513,11 @@ fn generate_direct_field(
                 Some(crate::field::FieldValue::EntityId(entity.#field_name))
             }
         }
+        FieldTypeCategory::InternalId => {
+            quote! {
+                Some(crate::field::FieldValue::InternalId(entity.#field_name))
+            }
+        }
     };
 
     let write_conversion = if supports_write {
@@ -589,6 +594,16 @@ fn generate_direct_field(
                         Ok(())
                     } else if let crate::field::FieldValue::Integer(v) = value {
                         entity.#field_name = v as u64;
+                        Ok(())
+                    } else {
+                        Err(crate::field::FieldError::ConversionError(crate::field::validation::ConversionError::InvalidFormat))
+                    }
+                }
+            }
+            FieldTypeCategory::InternalId => {
+                quote! {
+                    if let crate::field::FieldValue::InternalId(v) = value {
+                        entity.#field_name = v;
                         Ok(())
                     } else {
                         Err(crate::field::FieldError::ConversionError(crate::field::validation::ConversionError::InvalidFormat))
@@ -675,6 +690,7 @@ fn is_supported_type(ty: &Type) -> bool {
                     | "Option"
                     | "HashMap"
                     | "EntityId"
+                    | "InternalId"
             )
         } else {
             false
@@ -692,7 +708,7 @@ fn supports_automatic_write(ty: &Type) -> bool {
             // Only basic types support automatic writing (maps don't support automatic writing)
             matches!(
                 ident.as_str(),
-                "String" | "i64" | "i32" | "u64" | "u32" | "bool" | "EntityId"
+                "String" | "i64" | "i32" | "u64" | "u32" | "bool" | "EntityId" | "InternalId"
             )
         } else {
             false
@@ -944,6 +960,7 @@ enum FieldTypeCategory {
     Boolean,
     Map,
     EntityId,
+    InternalId,
     OptionalString,
     OptionalInteger,
     OptionalBoolean,
@@ -992,6 +1009,8 @@ fn get_field_type_category(ty: &Type) -> FieldTypeCategory {
                 panic!("HashMap must be HashMap<String, FieldValue>")
             } else if ident == "EntityId" {
                 FieldTypeCategory::EntityId
+            } else if ident == "InternalId" {
+                FieldTypeCategory::InternalId
             } else if ident == "Option" {
                 if let PathArguments::AngleBracketed(angle_bracketed) = &segment.arguments {
                     if let Some(GenericArgument::Type(inner_type)) = angle_bracketed.args.first() {

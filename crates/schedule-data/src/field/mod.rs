@@ -25,6 +25,7 @@ pub use update_logic::*;
 pub use validation::*;
 
 use crate::EntityId;
+use crate::InternalId;
 
 /// Universal field value type for generic operations
 #[derive(Debug, Clone, PartialEq)]
@@ -44,6 +45,7 @@ pub enum FieldValue {
     OptionalDateTime(Option<chrono::NaiveDateTime>),
     OptionalDuration(Option<chrono::Duration>),
     EntityId(EntityId),
+    InternalId(InternalId),
 }
 
 impl fmt::Display for FieldValue {
@@ -100,6 +102,9 @@ impl fmt::Display for FieldValue {
                 None => write!(f, "null"),
             },
             FieldValue::EntityId(id) => write!(f, "entity:{}", id),
+            FieldValue::InternalId(internal_id) => {
+                write!(f, "{}:{}", internal_id.type_name, internal_id.entity_id)
+            }
         }
     }
 }
