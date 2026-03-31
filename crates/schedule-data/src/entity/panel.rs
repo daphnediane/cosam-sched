@@ -25,6 +25,7 @@ pub struct Panel {
     #[field(display = "Uniq UID", description = "Unique identifier for the panel")]
     #[alias("uid", "id")]
     #[required]
+    #[indexable(priority = 220)]
     pub uid: String,
 
     #[field(display = "Base UID", description = "Base UID for multi-part sessions")]
@@ -45,6 +46,23 @@ pub struct Panel {
     #[field(display = "Name", description = "Panel name/title")]
     #[alias("name", "title", "panel_name")]
     #[required]
+    #[indexable(priority = 210, |entity: &Panel, query: &str| {
+        let query_lower = query.to_lowercase();
+        let name_lower = entity.name.to_lowercase();
+        if query.is_empty() { None }
+        else if name_lower == query_lower { 
+            Some(crate::field::traits::MatchStrength::ExactMatch) 
+        }
+        else if regex::Regex::new(&format!(r"\b{}", regex::escape(query_lower)))
+            .unwrap()
+            .is_match(&name_lower) {
+            Some(crate::field::traits::MatchStrength::StrongMatch)
+        }
+        else if name_lower.contains(&query_lower) {
+            Some(crate::field::traits::MatchStrength::WeakMatch)
+        }
+        else { None }
+    })]
     pub name: String,
 
     #[field(display = "Panel Type UID", description = "UID of the panel type")]
@@ -153,7 +171,6 @@ pub struct Panel {
     #[field(display = "AV Notes", description = "Audio/visual requirements")]
     #[alias("av_notes", "av", "audio_visual")]
     pub av_notes: Option<String>,
-
     // TODO: Implement use proper syntax and edges to support adding presenters etc...
     /*
     #[computed_field(display = "Add Presenter", description = "Add a presenter to this panel")]
