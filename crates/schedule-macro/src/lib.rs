@@ -4,7 +4,52 @@
  * See LICENSE file for full license text
  */
 
-//! EntityFields proc macro for schedule data structures
+//! Proc-macro crate providing the [`EntityFields`](derive_entity_fields) derive macro.
+//!
+//! # Overview
+//!
+//! `#[derive(EntityFields)]` generates the field trait implementations and
+//! `EntityType` impl for a struct defined in `schedule-data`.  All generated
+//! code uses fully-qualified `crate::` paths so the consuming entity file only
+//! needs `use crate::EntityFields;` plus imports for its own field types.
+//!
+//! # Supported attributes
+//!
+//! ## On direct fields
+//!
+//! | Attribute | Example | Effect |
+//! |-----------|---------|--------|
+//! | `#[field(display = "…", description = "…")]` | `#[field(display = "Room Name", description = "Short name")]` | Sets display name and description |
+//! | `#[alias("a", "b")]` | `#[alias("short", "room_name")]` | Extra lookup names in the `FieldSet` name map |
+//! | `#[required]` | — | Adds to the required-fields list for validation |
+//! | `#[indexable(priority = N)]` | `#[indexable(priority = 180)]` | Marks field for `match_index` lookups |
+//! | `#[field_name("custom")]` | — | Overrides the internal field name (default: Rust field name) |
+//! | `#[field_const("CONST")]` | — | Overrides the generated static constant name |
+//!
+//! ## On computed fields
+//!
+//! | Attribute | Example | Effect |
+//! |-----------|---------|--------|
+//! | `#[computed_field(display = "…", description = "…")]` | — | Marks field as computed (user provides closures) |
+//! | `#[read(\|entity: &T\| { … })]` | See `edge.rs` | Read closure; may take `schedule` as first param |
+//! | `#[write(\|entity: &mut T, value: FieldValue\| { … })]` | See `edge.rs` | Write closure; may take `schedule` as first param |
+//! | `#[validate(\|entity, value\| { … })]` | — | Validation closure (parsed but not yet wired up) |
+//!
+//! **Important**: Closure parameters must have explicit type annotations
+//! (e.g. `entity: &Edge`). The macro cannot infer types through associated
+//! type projections.
+//!
+//! # Generated items
+//!
+//! For each field, the macro generates a unit struct (e.g. `ShortNameField`)
+//! with `NamedField`, `SimpleReadableField<T>`, and `SimpleWritableField<T>`
+//! impls (or `ReadableField`/`WritableField` for computed fields needing
+//! schedule access).  A `pub static` constant is emitted for each field.
+//!
+//! It also generates `impl EntityType for T` with `type Data = T`,
+//! `TYPE_NAME` as the lowercase struct name, and a `LazyLock`-based
+//! `field_set()` containing all fields, aliases, required list, and
+//! indexable list.
 
 use proc_macro::TokenStream;
 use proc_macro2::{Ident, TokenStream as TokenStream2};
@@ -60,6 +105,19 @@ pub fn derive_entity_fields(input: TokenStream) -> TokenStream {
             if is_computed_field(field) {
                 let computed_impl = generate_computed_field(struct_name, field);
                 computed_field_implementations.push(computed_impl);
+
+                // Add computed field to field set tracking so it appears in
+                // the name_map and fields list
+                field_names.push(field_name_str.clone());
+
+                // Generate alias mappings for computed fields too
+                if let Some(aliases) = parse_field_aliases(&field.attrs) {
+                    for alias in aliases {
+                        alias_mappings.push(quote! {
+                            (#alias, &#field_struct_name),
+                        });
+                    }
+                }
             } else {
                 // Parse field attributes
                 let attrs = parse_field_attributes(&field.attrs);
@@ -167,7 +225,8 @@ pub fn derive_entity_fields(input: TokenStream) -> TokenStream {
                         let name_map = name_map_entries.leak();
 
                         let indexable_fields: &[&dyn crate::field::traits::IndexableField<#struct_name>] = &[];
-                        let required: &[&str] = &[];
+                        let required_vec: Vec<&str> = vec![#(#required_field_names,)*];
+                        let required = required_vec.leak() as &[&str];
                         let fs = crate::field::field_set::FieldSet::new(field_slice, name_map, required, indexable_fields);
                         Box::leak(Box::new(fs))
                     });
@@ -307,10 +366,10 @@ fn parse_field_attributes(attrs: &[Attribute]) -> Option<FieldAttributes> {
                             let value_start = start + equals + 1;
                             if let Some(end) = tokens_str[value_start..].find(',') {
                                 let value = &tokens_str[value_start..value_start + end];
-                                display = Some(value.trim_matches('"').trim().to_string());
+                                display = Some(value.trim().trim_matches('"').to_string());
                             } else {
                                 let value = &tokens_str[value_start..];
-                                display = Some(value.trim_matches('"').trim().to_string());
+                                display = Some(value.trim().trim_matches('"').to_string());
                             }
                         }
                     }
@@ -322,10 +381,10 @@ fn parse_field_attributes(attrs: &[Attribute]) -> Option<FieldAttributes> {
                             let value_start = start + equals + 1;
                             if let Some(end) = tokens_str[value_start..].find(',') {
                                 let value = &tokens_str[value_start..value_start + end];
-                                description = Some(value.trim_matches('"').trim().to_string());
+                                description = Some(value.trim().trim_matches('"').to_string());
                             } else {
                                 let value = &tokens_str[value_start..];
-                                description = Some(value.trim_matches('"').trim().to_string());
+                                description = Some(value.trim().trim_matches('"').to_string());
                             }
                         }
                     }
@@ -652,10 +711,10 @@ fn generate_computed_field(struct_name: &SynIdent, field: &Field) -> TokenStream
                             let value_start = start + equals + 1;
                             if let Some(end) = tokens_str[value_start..].find(',') {
                                 let value = &tokens_str[value_start..value_start + end];
-                                display = value.trim_matches('"').trim().to_string();
+                                display = value.trim().trim_matches('"').to_string();
                             } else {
                                 let value = &tokens_str[value_start..];
-                                display = value.trim_matches('"').trim().to_string();
+                                display = value.trim().trim_matches('"').to_string();
                             }
                         }
                     }
@@ -667,10 +726,10 @@ fn generate_computed_field(struct_name: &SynIdent, field: &Field) -> TokenStream
                             let value_start = start + equals + 1;
                             if let Some(end) = tokens_str[value_start..].find(',') {
                                 let value = &tokens_str[value_start..value_start + end];
-                                description = value.trim_matches('"').trim().to_string();
+                                description = value.trim().trim_matches('"').to_string();
                             } else {
                                 let value = &tokens_str[value_start..];
-                                description = value.trim_matches('"').trim().to_string();
+                                description = value.trim().trim_matches('"').to_string();
                             }
                         }
                     }
