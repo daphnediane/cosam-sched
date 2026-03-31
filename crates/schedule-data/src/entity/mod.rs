@@ -31,6 +31,8 @@
 //! `IsBreakField`, etc.
 
 pub mod edge;
+pub mod event_room;
+pub mod hotel_room;
 pub mod panel;
 pub mod panel_type;
 pub mod presenter;
@@ -39,6 +41,8 @@ pub mod room;
 // Re-export entity types (explicit to avoid ambiguous glob re-exports
 // from macro-generated field structs like NameField, IsBreakField, etc.)
 pub use edge::{Edge, EdgeType};
+pub use event_room::EventRoom;
+pub use hotel_room::HotelRoom;
 pub use panel::Panel;
 pub use panel_type::PanelType;
 pub use presenter::Presenter;
@@ -46,6 +50,8 @@ pub use room::Room;
 
 // Re-export EntityType structs for clean import paths
 pub use edge::EdgeEntityType;
+pub use event_room::EventRoomEntityType;
+pub use hotel_room::HotelRoomEntityType;
 pub use panel::PanelEntityType;
 pub use panel_type::PanelTypeEntityType;
 pub use presenter::PresenterEntityType;
