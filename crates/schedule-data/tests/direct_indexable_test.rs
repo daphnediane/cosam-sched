@@ -7,7 +7,7 @@
 //! Direct tests for indexable field implementations
 
 use schedule_data::entity::panel::Panel;
-use schedule_data::field::traits::{IndexableField, MatchStrength, NamedField};
+use schedule_data::field::traits::{match_priority, IndexableField, NamedField};
 
 #[test]
 fn test_direct_panel_uid_indexable() {
@@ -52,12 +52,12 @@ fn test_direct_panel_uid_indexable() {
     // Test exact match
     let result = uid_field.match_field("panel-123", &panel);
     assert!(result.is_some());
-    assert_eq!(result.unwrap(), MatchStrength::ExactMatch);
+    assert_eq!(result.unwrap(), 220); // Scaled exact match: (255 * 220) / 255 = 220
 
     // Test case sensitivity (UID field uses default logic which is case-sensitive)
     let result = uid_field.match_field("Panel-123", &panel);
     assert!(result.is_some());
-    assert_eq!(result.unwrap(), MatchStrength::ExactMatch);
+    assert_eq!(result.unwrap(), 220); // Scaled exact match: (255 * 220) / 255 = 220
 
     // Test no match
     let result = uid_field.match_field("panel-456", &panel);
@@ -111,22 +111,22 @@ fn test_direct_panel_name_indexable() {
     // Test exact match (case insensitive) - using custom closure
     let result = name_field.match_field("advanced rust programming", &panel);
     assert!(result.is_some());
-    assert_eq!(result.unwrap(), MatchStrength::ExactMatch);
+    assert_eq!(result.unwrap(), 210); // Scaled exact match: (255 * 210) / 255 = 210
 
     // Test exact match (different case)
     let result = name_field.match_field("ADVANCED RUST PROGRAMMING", &panel);
     assert!(result.is_some());
-    assert_eq!(result.unwrap(), MatchStrength::ExactMatch);
+    assert_eq!(result.unwrap(), 210); // Scaled exact match: (255 * 210) / 255 = 210
 
     // Test contains match
     let result = name_field.match_field("rust", &panel);
     assert!(result.is_some());
-    assert_eq!(result.unwrap(), MatchStrength::StrongMatch);
+    assert_eq!(result.unwrap(), 82); // Scaled average match: (100 * 210) / 255 = 82
 
-    // Test word boundary match
+    // Test starts with match
     let result = name_field.match_field("adv", &panel);
     assert!(result.is_some());
-    assert_eq!(result.unwrap(), MatchStrength::StrongMatch);
+    assert_eq!(result.unwrap(), 164); // Scaled strong match: (200 * 210) / 255 = 164
 
     // Test no match
     let result = name_field.match_field("python", &panel);

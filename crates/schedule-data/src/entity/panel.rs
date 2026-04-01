@@ -51,15 +51,18 @@ pub struct Panel {
         let name_lower = entity.name.to_lowercase();
         if query.is_empty() { None }
         else if name_lower == query_lower { 
-            Some(crate::field::traits::MatchStrength::ExactMatch) 
+            Some(scaled_exact)
+        }
+        else if name_lower.starts_with(&query_lower) {
+            Some(scaled_strong)
         }
         else if regex::Regex::new(&format!(r"\b{}", regex::escape(query_lower)))
             .unwrap()
             .is_match(&name_lower) {
-            Some(crate::field::traits::MatchStrength::StrongMatch)
+            Some(scaled_average)
         }
         else if name_lower.contains(&query_lower) {
-            Some(crate::field::traits::MatchStrength::WeakMatch)
+            Some(scaled_weak)
         }
         else { None }
     })]

@@ -8,7 +8,7 @@
 
 use schedule_data::entity::panel::Panel;
 use schedule_data::entity::EntityType;
-use schedule_data::field::traits::{IndexableField, MatchStrength};
+use schedule_data::field::traits::{match_priority, IndexableField};
 
 #[test]
 fn test_panel_indexable_functionality() {
@@ -65,31 +65,70 @@ fn test_panel_indexable_functionality() {
     for field in indexable_fields {
         assert!(field.is_indexable());
 
-        // Test exact match for UID field (priority 220)
+        // Test exact match for UID field (priority 220) - should return scaled value
         if field.index_priority() == 220 {
             let result = field.match_field("panel-123", &panel);
             assert!(result.is_some());
-            assert_eq!(result.unwrap(), MatchStrength::ExactMatch);
+            assert_eq!(result.unwrap(), 220); // Scaled exact match: (255 * 220) / 255 = 220
         }
 
         // Test exact match for name field (priority 210) - using custom closure
         if field.index_priority() == 210 {
             let result = field.match_field("advanced rust programming", &panel);
             assert!(result.is_some());
-            assert_eq!(result.unwrap(), MatchStrength::ExactMatch);
+            assert_eq!(result.unwrap(), 210); // Scaled exact match: (255 * 210) / 255 = 210
 
-            // Test contains match
+            // Test contains match (will be AverageMatch due to word boundary)
             let result = field.match_field("rust", &panel);
             assert!(result.is_some());
-            assert_eq!(result.unwrap(), MatchStrength::StrongMatch);
+            assert_eq!(result.unwrap(), 82); // Scaled average match: (100 * 210) / 255 = 82
+
+            // Test starts with match - "adv" should match "Advanced Rust Programming" as StrongMatch
+            let result = field.match_field("adv", &panel);
+            assert!(
+                result.is_some(),
+                "Should match 'adv' in 'Advanced Rust Programming' as StrongMatch"
+            );
+            assert_eq!(result.unwrap(), 164); // Scaled strong match: (200 * 210) / 255 = 164
+
+            // Test that "ann" should NOT match "Advanced Rust Programming" (not a word boundary)
+            let result = field.match_field("ann", &panel);
+            assert!(
+                result.is_none(),
+                "Should not match 'ann' in 'Advanced Rust Programming'"
+            );
+
+            // Test that "shop" would match "Work Shop Room" but not "Workshop"
+            let workshop_panel = Panel {
+                name: "Work Shop Room-3".to_string(),
+                ..panel.clone()
+            };
+            let result = field.match_field("shop", &workshop_panel);
+            assert!(
+                result.is_some(),
+                "Should match 'shop' as word boundary in 'Work Shop Room-3'"
+            );
+            assert_eq!(result.unwrap(), 82); // Scaled average match: (100 * 210) / 255 = 82
+
+            let workshop_panel2 = Panel {
+                name: "Workshop rooming".to_string(),
+                ..panel.clone()
+            };
+            let result = field.match_field("shop", &workshop_panel2);
+            assert!(
+                result.is_some(),
+                "Should match 'shop' in 'Workshop rooming' as WeakMatch"
+            );
+            assert_eq!(result.unwrap(), 41); // Scaled weak match: (50 * 210) / 255 = 41
         }
     }
 }
 
 #[test]
-fn test_match_strength_ordering() {
-    // Verify that MatchStrength enum has correct ordering
-    assert!(MatchStrength::ExactMatch > MatchStrength::StrongMatch);
-    assert!(MatchStrength::StrongMatch > MatchStrength::WeakMatch);
-    assert!(MatchStrength::WeakMatch > MatchStrength::NotMatch);
+fn test_match_priority_ordering() {
+    // Verify that match priority constants have correct ordering
+    assert!(match_priority::EXACT_MATCH > match_priority::STRONG_MATCH);
+    assert!(match_priority::STRONG_MATCH > match_priority::AVERAGE_MATCH);
+    assert!(match_priority::AVERAGE_MATCH > match_priority::WEAK_MATCH);
+    assert!(match_priority::WEAK_MATCH > match_priority::NO_MATCH);
 }

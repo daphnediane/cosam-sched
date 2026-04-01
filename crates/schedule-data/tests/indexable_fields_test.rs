@@ -7,7 +7,7 @@
 //! Tests for indexable field functionality and match strength scoring
 
 use schedule_data::entity::panel::Panel;
-use schedule_data::field::traits::{IndexableField, MatchStrength};
+use schedule_data::field::traits::{match_priority, IndexableField};
 
 #[test]
 fn test_panel_uid_exact_match() {
@@ -47,12 +47,12 @@ fn test_panel_uid_exact_match() {
     // Test exact match
     let result = uid_field.match_field("panel-123", &panel);
     assert!(result.is_some());
-    assert_eq!(result.unwrap(), MatchStrength::ExactMatch);
+    assert_eq!(result.unwrap(), 220); // Scaled exact match: (255 * 220) / 255 = 220
 
     // Test case sensitivity (should be exact match for UID field)
     let result = uid_field.match_field("Panel-123", &panel);
     assert!(result.is_some());
-    assert_eq!(result.unwrap(), MatchStrength::ExactMatch);
+    assert_eq!(result.unwrap(), 220); // Scaled exact match: (255 * 220) / 255 = 220
 
     // Test no match
     let result = uid_field.match_field("panel-456", &panel);
@@ -101,22 +101,22 @@ fn test_panel_name_match_strengths() {
     // Test exact match (case insensitive)
     let result = name_field.match_field("advanced rust programming", &panel);
     assert!(result.is_some());
-    assert_eq!(result.unwrap(), MatchStrength::ExactMatch);
+    assert_eq!(result.unwrap(), 210); // Scaled exact match: (255 * 210) / 255 = 210
 
     // Test exact match (different case)
     let result = name_field.match_field("ADVANCED RUST PROGRAMMING", &panel);
     assert!(result.is_some());
-    assert_eq!(result.unwrap(), MatchStrength::ExactMatch);
+    assert_eq!(result.unwrap(), 210); // Scaled exact match: (255 * 210) / 255 = 210
 
     // Test contains match
     let result = name_field.match_field("rust", &panel);
     assert!(result.is_some());
-    assert_eq!(result.unwrap(), MatchStrength::StrongMatch);
+    assert_eq!(result.unwrap(), 82); // Scaled average match: (100 * 210) / 255 = 82
 
-    // Test word boundary match
+    // Test starts with match
     let result = name_field.match_field("adv", &panel);
     assert!(result.is_some());
-    assert_eq!(result.unwrap(), MatchStrength::StrongMatch);
+    assert_eq!(result.unwrap(), 164); // Scaled strong match: (200 * 210) / 255 = 164
 
     // Test no match
     let result = name_field.match_field("python", &panel);
@@ -139,12 +139,12 @@ fn test_indexable_field_priority() {
 }
 
 #[test]
-fn test_match_strength_ordering() {
-    // Verify that MatchStrength enum has correct ordering
-    assert!(MatchStrength::ExactMatch > MatchStrength::StrongMatch);
-    assert!(MatchStrength::StrongMatch > MatchStrength::WeakMatch);
-    assert!(MatchStrength::WeakMatch > MatchStrength::NotMatch);
-    assert!(MatchStrength::NotMatch == MatchStrength::NotMatch);
+fn test_match_priority_ordering() {
+    // Verify that match priority constants have correct ordering
+    assert!(match_priority::EXACT_MATCH > match_priority::STRONG_MATCH);
+    assert!(match_priority::STRONG_MATCH > match_priority::AVERAGE_MATCH);
+    assert!(match_priority::AVERAGE_MATCH > match_priority::WEAK_MATCH);
+    assert!(match_priority::WEAK_MATCH > match_priority::NO_MATCH);
 }
 
 #[test]

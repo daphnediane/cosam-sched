@@ -68,17 +68,17 @@ impl EntityStorage {
 
         if let Some(type_entities) = self.entities.get(type_name) {
             let mut matches: Vec<(u64, crate::field::traits::FieldMatchResult)> = Vec::new();
-            let mut best_strength = crate::field::traits::MatchStrength::NotMatch;
+            let mut best_priority = crate::field::traits::match_priority::MIN_MATCH; // Start at minimum match level to skip NO_MATCH (0)
 
-            // @TODO: Should consider priority if matching strength is the same
+            // @TODO: Should consider field priority if match priority is the same
             for (internal_id, stored) in &type_entities.by_internal_id {
                 if let Some(entity) = self.deserialize::<T>(&stored.data) {
                     if let Some(match_result) = field_set.match_index(query, *internal_id, entity) {
-                        if match_result.strength > best_strength {
-                            best_strength = match_result.strength;
+                        if match_result.priority > best_priority {
+                            best_priority = match_result.priority;
                             matches.clear();
                             matches.push((*internal_id, match_result));
-                        } else if match_result.strength == best_strength {
+                        } else if match_result.priority == best_priority {
                             matches.push((*internal_id, match_result));
                         }
                     }

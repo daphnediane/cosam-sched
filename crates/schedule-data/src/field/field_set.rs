@@ -23,7 +23,7 @@
 //! `required_fields`, `indexable_fields`) from struct attributes.
 
 use crate::entity::EntityType;
-use crate::field::traits::{FieldMatchResult, IndexableField, MatchStrength, NamedField};
+use crate::field::traits::{FieldMatchResult, IndexableField, MatchPriority, NamedField};
 use crate::field::ValidationError;
 
 /// Field set for managing entity fields with aliases and validation
@@ -109,15 +109,15 @@ impl<T: EntityType> FieldSet<T> {
                 continue;
             }
 
-            if let Some(strength) = idx_field.match_field(query, entity) {
-                if strength == MatchStrength::NotMatch {
+            if let Some(priority) = idx_field.match_field(query, entity) {
+                if priority == crate::field::traits::match_priority::NO_MATCH {
                     continue;
                 }
 
                 let candidate = FieldMatchResult {
                     entity_id,
-                    strength,
-                    priority: idx_field.index_priority(),
+                    priority,
+                    field_priority: idx_field.index_priority(),
                     field_name: idx_field.name(),
                     details: None,
                 };
@@ -125,7 +125,8 @@ impl<T: EntityType> FieldSet<T> {
                 best = Some(match best {
                     None => candidate,
                     Some(prev) => {
-                        if (candidate.strength, candidate.priority) > (prev.strength, prev.priority)
+                        if (candidate.priority, candidate.field_priority)
+                            > (prev.priority, prev.field_priority)
                         {
                             candidate
                         } else {
