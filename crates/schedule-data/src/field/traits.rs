@@ -49,28 +49,38 @@ use crate::field::{FieldError, FieldValue, ValidationError};
 use crate::schedule::Schedule;
 use std::fmt::Debug;
 
-/// Match strength levels for field-based indexing and lookup
-#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
-pub enum MatchStrength {
+/// Match priority for field-based indexing and lookup
+/// Higher values = better matches. 0 = no match.
+/// Common levels: ExactMatch = 255, StrongMatch = 200, AverageMatch = 100, WeakMatch = 50, NoMatch = 0
+pub type MatchPriority = u8;
+
+/// Common match priority levels
+pub mod match_priority {
+    use super::MatchPriority;
+
     /// No match at all
-    NotMatch = 0,
-    /// Weak/partial match (e.g., word boundary partial match)
-    WeakMatch = 1,
-    /// Strong match (e.g., contains match, close spelling)
-    StrongMatch = 2,
+    pub const NO_MATCH: MatchPriority = 0;
+    /// Minimum match level (anything >= 1 is considered a match)
+    pub const MIN_MATCH: MatchPriority = 1;
+    /// Weak/partial match (e.g., substring within word)
+    pub const WEAK_MATCH: MatchPriority = 50;
+    /// Average match (e.g., word boundary)
+    pub const AVERAGE_MATCH: MatchPriority = 100;
+    /// Strong match (e.g., matches at beginning of string)
+    pub const STRONG_MATCH: MatchPriority = 200;
     /// Exact match
-    ExactMatch = 3,
+    pub const EXACT_MATCH: MatchPriority = 255;
 }
 
-/// Result of a field-based lookup with match strength
+/// Result of a field-based lookup with match priority
 #[derive(Debug, Clone)]
 pub struct FieldMatchResult {
     /// The matched entity's internal ID
     pub entity_id: u64,
-    /// The strength of the match
-    pub strength: MatchStrength,
-    /// The priority of the match (higher = more important)
-    pub priority: u8,
+    /// The priority of the match (higher = better match, 0 = no match)
+    pub priority: MatchPriority,
+    /// The field priority (from indexable attribute)
+    pub field_priority: u8,
     /// The field that produced this match
     pub field_name: &'static str,
     /// Optional match details for debugging
@@ -78,11 +88,16 @@ pub struct FieldMatchResult {
 }
 
 impl FieldMatchResult {
-    pub fn new(entity_id: u64, strength: MatchStrength, field_name: &'static str) -> Self {
+    pub fn new(
+        entity_id: u64,
+        priority: MatchPriority,
+        field_priority: u8,
+        field_name: &'static str,
+    ) -> Self {
         Self {
             entity_id,
-            strength,
-            priority: 0,
+            priority,
+            field_priority,
             field_name,
             details: None,
         }
@@ -114,7 +129,7 @@ pub trait IndexableField<T: EntityType>: NamedField {
     fn is_indexable(&self) -> bool;
 
     /// Perform a lookup against this field with a query value
-    fn match_field(&self, query: &str, entity: &T::Data) -> Option<MatchStrength>;
+    fn match_field(&self, query: &str, entity: &T::Data) -> Option<MatchPriority>;
 
     /// Get the index priority for this field (higher = more important)
     fn index_priority(&self) -> u8 {

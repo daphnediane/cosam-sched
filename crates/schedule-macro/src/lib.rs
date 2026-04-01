@@ -244,7 +244,7 @@ pub fn derive_entity_fields(input: TokenStream) -> TokenStream {
                         ];
                         let name_map = name_map_entries.leak();
 
-                        let indexable_fields: &[&dyn crate::field::traits::IndexableField<#entity_type_struct_name>] = &[];
+                        let indexable_fields: &[&dyn crate::field::traits::IndexableField<#entity_type_struct_name>] = &[#(&#indexable_field_names,)*];
                         let required_vec: Vec<&str> = vec![#(#required_field_names,)*];
                         let required = required_vec.leak() as &[&str];
                         let fs = crate::field::field_set::FieldSet::new(field_slice, name_map, required, indexable_fields);
@@ -681,10 +681,24 @@ fn generate_direct_field(
     let indexable_impl = if let Some(indexable_attrs) = &attrs.indexable {
         let priority = indexable_attrs.priority;
 
+        // Pre-compute scaled priorities using constants from schedule-data
+        let scaled_exact = ((255u16 * priority as u16) / 255u16) as u8; // EXACT_MATCH = 255
+        let scaled_strong = ((200u16 * priority as u16) / 255u16) as u8; // STRONG_MATCH = 200 (starts with)
+        let scaled_average = ((100u16 * priority as u16) / 255u16) as u8; // AVERAGE_MATCH = 100 (word boundary)
+        let scaled_weak = ((50u16 * priority as u16) / 255u16) as u8; // WEAK_MATCH = 50 (contains)
+
         // Use custom match closure if provided, otherwise generate default logic
         let match_logic = if let Some(closure) = custom_match_closure {
             quote! {
-                (#closure)(entity, query)
+                {
+                    // Inject scaled priority values into closure scope
+                    let scaled_exact = #scaled_exact;
+                    let scaled_strong = #scaled_strong;
+                    let scaled_average = #scaled_average;
+                    let scaled_weak = #scaled_weak;
+
+                    (#closure)(entity, query)
+                }
             }
         } else {
             // Generate default matching logic based on field type
@@ -695,12 +709,23 @@ fn generate_direct_field(
                             None
                         } else if let Some(field_value) = crate::field::traits::SimpleReadableField::<#entity_type_struct_name>::read(self, entity) {
                             if let crate::field::FieldValue::String(s) = field_value {
-                                if s.to_lowercase() == query.to_lowercase() {
-                                    Some(crate::field::traits::MatchStrength::ExactMatch)
-                                } else if s.to_lowercase().contains(&query.to_lowercase()) {
-                                    Some(crate::field::traits::MatchStrength::StrongMatch)
-                                } else if s.split_whitespace().any(|word| word.to_lowercase().starts_with(&query.to_lowercase())) {
-                                    Some(crate::field::traits::MatchStrength::WeakMatch)
+                                let query_lower = query.to_lowercase();
+                                let s_lower = s.to_lowercase();
+
+                                if s_lower == query_lower {
+                                    // Use pre-computed scaled exact match
+                                    Some(#scaled_exact)
+                                } else if s_lower.starts_with(&query_lower) {
+                                    // Use pre-computed scaled strong match (starts with)
+                                    Some(#scaled_strong)
+                                } else if regex::Regex::new(&format!(r"\b{}\b", regex::escape(&query_lower)))
+                                    .unwrap()
+                                    .is_match(&s_lower) {
+                                    // Use pre-computed scaled average match (word boundary)
+                                    Some(#scaled_average)
+                                } else if s_lower.contains(&query_lower) {
+                                    // Use pre-computed scaled weak match (contains)
+                                    Some(#scaled_weak)
                                 } else {
                                     None
                                 }
@@ -722,25 +747,25 @@ fn generate_direct_field(
                         } else if let Some(field_value) = crate::field::traits::SimpleReadableField::<#entity_type_struct_name>::read(self, entity) {
                             if let crate::field::FieldValue::Integer(i) = field_value {
                                 if i.to_string() == query {
-                                    Some(crate::field::traits::MatchStrength::ExactMatch)
+                                    Some(#scaled_exact)
                                 } else if i.to_string().contains(query) {
-                                    Some(crate::field::traits::MatchStrength::StrongMatch)
+                                    Some(#scaled_strong)
                                 } else {
                                     None
                                 }
                             } else if let crate::field::FieldValue::EntityId(id) = field_value {
                                 if id.to_string() == query {
-                                    Some(crate::field::traits::MatchStrength::ExactMatch)
+                                    Some(#scaled_exact)
                                 } else if id.to_string().contains(query) {
-                                    Some(crate::field::traits::MatchStrength::StrongMatch)
+                                    Some(#scaled_strong)
                                 } else {
                                     None
                                 }
                             } else if let crate::field::FieldValue::InternalId(id) = field_value {
                                 if id.to_string() == query {
-                                    Some(crate::field::traits::MatchStrength::ExactMatch)
+                                    Some(#scaled_exact)
                                 } else if id.to_string().contains(query) {
-                                    Some(crate::field::traits::MatchStrength::StrongMatch)
+                                    Some(#scaled_strong)
                                 } else {
                                     None
                                 }
@@ -759,7 +784,7 @@ fn generate_direct_field(
                         } else if let Some(field_value) = crate::field::traits::SimpleReadableField::<#entity_type_struct_name>::read(self, entity) {
                             if let crate::field::FieldValue::Boolean(b) = field_value {
                                 if b.to_string().to_lowercase() == query.to_lowercase() {
-                                    Some(crate::field::traits::MatchStrength::ExactMatch)
+                                    Some(#scaled_exact)
                                 } else {
                                     None
                                 }
@@ -789,7 +814,7 @@ fn generate_direct_field(
                     true
                 }
 
-                fn match_field(&self, query: &str, entity: &<#entity_type_struct_name as crate::entity::EntityType>::Data) -> Option<crate::field::traits::MatchStrength> {
+                fn match_field(&self, query: &str, entity: &<#entity_type_struct_name as crate::entity::EntityType>::Data) -> Option<crate::field::traits::MatchPriority> {
                     #match_logic
                 }
 
