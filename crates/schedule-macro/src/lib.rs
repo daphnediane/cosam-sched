@@ -528,6 +528,11 @@ fn generate_direct_field(
                 Some(crate::field::FieldValue::Boolean(entity.#field_name))
             }
         }
+        FieldTypeCategory::List => {
+            quote! {
+                Some(crate::field::FieldValue::List(entity.#field_name.iter().map(|x| crate::field::FieldValue::Integer(*x as i64)).collect()))
+            }
+        }
         FieldTypeCategory::Map => {
             quote! {
                 Some(crate::field::FieldValue::Map(entity.#field_name.clone()))
@@ -546,6 +551,11 @@ fn generate_direct_field(
         FieldTypeCategory::OptionalBoolean => {
             quote! {
                 Some(crate::field::FieldValue::OptionalBoolean(entity.#field_name))
+            }
+        }
+        FieldTypeCategory::OptionalList => {
+            quote! {
+                entity.#field_name.as_ref().map(|list| crate::field::FieldValue::List(list.iter().map(|x| crate::field::FieldValue::Integer(*x as i64)).collect()))
             }
         }
         FieldTypeCategory::EntityId => {
@@ -592,6 +602,22 @@ fn generate_direct_field(
                     }
                 }
             }
+            FieldTypeCategory::List => {
+                quote! {
+                    if let crate::field::FieldValue::List(v) = value {
+                        entity.#field_name = v.iter().filter_map(|x| {
+                            if let crate::field::FieldValue::Integer(i) = x {
+                                Some(*i as u64)
+                            } else {
+                                None
+                            }
+                        }).collect();
+                        Ok(())
+                    } else {
+                        Err(crate::field::FieldError::ConversionError(crate::field::validation::ConversionError::InvalidFormat))
+                    }
+                }
+            }
             FieldTypeCategory::OptionalString => {
                 quote! {
                     if let crate::field::FieldValue::OptionalString(v) = value {
@@ -621,6 +647,22 @@ fn generate_direct_field(
                 quote! {
                     if let crate::field::FieldValue::OptionalBoolean(v) = value {
                         entity.#field_name = v;
+                        Ok(())
+                    } else {
+                        Err(crate::field::FieldError::ConversionError(crate::field::validation::ConversionError::InvalidFormat))
+                    }
+                }
+            }
+            FieldTypeCategory::OptionalList => {
+                quote! {
+                    if let crate::field::FieldValue::List(v) = value {
+                        entity.#field_name = Some(v.iter().filter_map(|x| {
+                            if let crate::field::FieldValue::Integer(i) = x {
+                                Some(*i as u64)
+                            } else {
+                                None
+                            }
+                        }).collect());
                         Ok(())
                     } else {
                         Err(crate::field::FieldError::ConversionError(crate::field::validation::ConversionError::InvalidFormat))
@@ -796,6 +838,16 @@ fn generate_direct_field(
                         }
                     }
                 }
+                FieldTypeCategory::List => {
+                    quote! {
+                        None // List fields are not indexable
+                    }
+                }
+                FieldTypeCategory::OptionalList => {
+                    quote! {
+                        None // OptionalList fields are not indexable
+                    }
+                }
                 FieldTypeCategory::Map => {
                     quote! {
                         None // Map fields are not indexable
@@ -880,8 +932,10 @@ fn is_supported_type(ty: &Type) -> bool {
                     | "bool"
                     | "Option"
                     | "HashMap"
+                    | "Vec"
                     | "EntityId"
                     | "InternalId"
+                    | "PresenterRank"
             )
         } else {
             false
@@ -1149,12 +1203,14 @@ enum FieldTypeCategory {
     String,
     Integer,
     Boolean,
+    List,
     Map,
     EntityId,
     InternalId,
     OptionalString,
     OptionalInteger,
     OptionalBoolean,
+    OptionalList,
 }
 
 fn get_field_type_category(ty: &Type) -> FieldTypeCategory {
@@ -1168,6 +1224,22 @@ fn get_field_type_category(ty: &Type) -> FieldTypeCategory {
                 FieldTypeCategory::Integer
             } else if ident == "bool" {
                 FieldTypeCategory::Boolean
+            } else if ident == "Vec" {
+                // Check if it's Vec<SomeSupportedType>
+                if let PathArguments::AngleBracketed(angle_bracketed) = &segment.arguments {
+                    if let Some(GenericArgument::Type(inner_type)) = angle_bracketed.args.first() {
+                        match get_field_type_category(inner_type) {
+                            FieldTypeCategory::String => FieldTypeCategory::List,
+                            FieldTypeCategory::Integer => FieldTypeCategory::List,
+                            FieldTypeCategory::Boolean => FieldTypeCategory::List,
+                            _ => panic!("Unsupported Vec inner type"),
+                        }
+                    } else {
+                        panic!("Vec without inner type")
+                    }
+                } else {
+                    panic!("Vec without angle bracketed arguments")
+                }
             } else if ident == "HashMap" {
                 // Check if it's HashMap<String, FieldValue>
                 if let PathArguments::AngleBracketed(angle_bracketed) = &segment.arguments {
@@ -1202,6 +1274,8 @@ fn get_field_type_category(ty: &Type) -> FieldTypeCategory {
                 FieldTypeCategory::EntityId
             } else if ident == "InternalId" {
                 FieldTypeCategory::InternalId
+            } else if ident == "PresenterRank" {
+                FieldTypeCategory::String // Handle as string for serialization
             } else if ident == "Option" {
                 if let PathArguments::AngleBracketed(angle_bracketed) = &segment.arguments {
                     if let Some(GenericArgument::Type(inner_type)) = angle_bracketed.args.first() {
@@ -1209,6 +1283,7 @@ fn get_field_type_category(ty: &Type) -> FieldTypeCategory {
                             FieldTypeCategory::String => FieldTypeCategory::OptionalString,
                             FieldTypeCategory::Integer => FieldTypeCategory::OptionalInteger,
                             FieldTypeCategory::Boolean => FieldTypeCategory::OptionalBoolean,
+                            FieldTypeCategory::List => FieldTypeCategory::OptionalList,
                             _ => panic!("Unsupported optional field type"),
                         }
                     } else {

@@ -8,8 +8,8 @@
 
 use std::collections::HashMap;
 
-use super::{EdgeId, ScheduleError};
-use crate::entity::edge::{EdgeType, RelationshipDirection};
+use super::{EdgeId, RelationshipDirection, ScheduleError};
+use crate::edge::EdgeType;
 use crate::entity::{EntityId, EntityState, EntityType};
 use crate::field::FieldValue;
 use crate::query::{FieldMatch, QueryOptions};
