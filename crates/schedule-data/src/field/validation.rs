@@ -11,9 +11,18 @@ use std::fmt;
 /// Validation error types
 #[derive(Debug, Clone)]
 pub enum ValidationError {
-    RequiredFieldMissing { field: String },
-    InvalidValue { field: String, value: String, reason: String },
-    ValidationFailed { field: String, reason: String },
+    RequiredFieldMissing {
+        field: String,
+    },
+    InvalidValue {
+        field: String,
+        value: String,
+        reason: String,
+    },
+    ValidationFailed {
+        field: String,
+        reason: String,
+    },
 }
 
 impl fmt::Display for ValidationError {
@@ -22,8 +31,16 @@ impl fmt::Display for ValidationError {
             ValidationError::RequiredFieldMissing { field } => {
                 write!(f, "Required field '{}' is missing", field)
             }
-            ValidationError::InvalidValue { field, value, reason } => {
-                write!(f, "Invalid value '{}' for field '{}': {}", value, field, reason)
+            ValidationError::InvalidValue {
+                field,
+                value,
+                reason,
+            } => {
+                write!(
+                    f,
+                    "Invalid value '{}' for field '{}': {}",
+                    value, field, reason
+                )
             }
             ValidationError::ValidationFailed { field, reason } => {
                 write!(f, "Validation failed for field '{}': {}", field, reason)
@@ -105,23 +122,23 @@ impl ValidationContext {
     pub fn new() -> Self {
         Self::default()
     }
-    
+
     pub fn add_error(&mut self, error: ValidationError) {
         self.errors.push(error);
     }
-    
+
     pub fn add_warning(&mut self, warning: String) {
         self.warnings.push(warning);
     }
-    
+
     pub fn is_valid(&self) -> bool {
         self.errors.is_empty()
     }
-    
+
     pub fn has_warnings(&self) -> bool {
         !self.warnings.is_empty()
     }
-    
+
     pub fn result(self) -> Result<(), Vec<ValidationError>> {
         if self.errors.is_empty() {
             Ok(())
@@ -144,10 +161,14 @@ impl FieldValidator for RequiredValidator {
     fn validate(&self, value: &super::FieldValue) -> Result<(), ValidationError> {
         match value {
             super::FieldValue::String(s) if s.is_empty() => {
-                Err(ValidationError::RequiredFieldMissing { field: "required".to_string() })
+                Err(ValidationError::RequiredFieldMissing {
+                    field: "required".to_string(),
+                })
             }
             super::FieldValue::List(list) if list.is_empty() => {
-                Err(ValidationError::RequiredFieldMissing { field: "required".to_string() })
+                Err(ValidationError::RequiredFieldMissing {
+                    field: "required".to_string(),
+                })
             }
             _ => Ok(()),
         }

@@ -6,8 +6,73 @@
 
 //! Presenter entity implementation
 
+use crate::entity::presenter_rank::PresenterRank;
+use crate::field::{FieldError, FieldValue};
 use crate::EntityFields;
+use serde::{Deserialize, Serialize};
 use std::fmt;
+
+/// Ordering key for a presenter, recording where it was first defined.
+/// Matches schedule-core PresenterSortRank structure.
+#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize)]
+pub struct PresenterSortRank {
+    pub column_index: u32,
+    pub row_index: u32,
+    #[serde(default, skip_serializing_if = "is_zero")]
+    pub member_index: u32,
+}
+
+fn is_zero(v: &u32) -> bool {
+    *v == 0
+}
+
+impl PresenterSortRank {
+    pub fn new(column_index: u32, row_index: u32, member_index: u32) -> Self {
+        Self {
+            column_index,
+            row_index,
+            member_index,
+        }
+    }
+
+    /// People table rank: column 0, given row, member_index 0.
+    pub fn people(row_index: u32) -> Self {
+        Self::new(0, row_index, 0)
+    }
+
+    /// Schedule column rank for a group entry.
+    pub fn schedule_group(column_index: u32, row_index: u32) -> Self {
+        Self::new(column_index, row_index, 0)
+    }
+
+    /// Schedule column rank for an individual member entry.
+    pub fn schedule_member(column_index: u32, row_index: u32) -> Self {
+        Self::new(column_index, row_index, 1)
+    }
+
+    /// Convert to tuple format for computed field: [rank_priority, column, row, member]
+    pub fn to_tuple(&self, rank_priority: u8) -> Vec<u64> {
+        vec![
+            rank_priority as u64,
+            self.column_index as u64,
+            self.row_index as u64,
+            self.member_index as u64,
+        ]
+    }
+
+    /// Convert from tuple format
+    pub fn from_tuple(values: &[u64]) -> Option<Self> {
+        if values.len() >= 4 {
+            Some(Self::new(
+                values[1] as u32, // column_index
+                values[2] as u32, // row_index
+                values[3] as u32, // member_index
+            ))
+        } else {
+            None
+        }
+    }
+}
 
 /// Presenter ID type
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
@@ -28,46 +93,58 @@ pub struct Presenter {
     #[required]
     pub name: String,
 
-    #[field(display = "Rank", description = "Presenter's rank or title")]
-    #[alias("rank", "title", "position")]
-    pub rank: Option<String>,
+    /// Internal rank field - not exposed to users directly
 
-    #[field(
-        display = "Sort Rank Column",
-        description = "Sorting rank for column layout"
+    #[computed_field(
+        display = "Classification",
+        description = "Presenter's classification or rank"
     )]
-    #[alias("sort_rank_column", "column_rank", "col_sort")]
-    pub sort_rank_column: Option<i64>,
+    #[alias("classification", "rank", "class", "presenter_rank")]
+    #[read(|entity: &Presenter| {
+        Some(crate::field::FieldValue::String(entity.rank.to_string()))
+    })]
+    #[write(|entity: &mut Presenter, value: crate::field::FieldValue| {
+        if let crate::field::FieldValue::String(s) = value {
+            entity.rank = PresenterRank::from_str(&s);
+            Ok(())
+        } else {
+            Err(crate::field::FieldError::ConversionError(crate::field::validation::ConversionError::InvalidFormat))
+        }
+    })]
+    pub rank: PresenterRank,
 
-    #[field(display = "Sort Rank Row", description = "Sorting rank for row layout")]
-    #[alias("sort_rank_row", "row_rank", "row_sort")]
-    pub sort_rank_row: Option<i64>,
-
-    #[field(
-        display = "Sort Rank Member",
-        description = "Sorting rank for member layout"
+    #[computed_field(
+        display = "Index Rank",
+        description = "Presenter ordering information [rank_priority, column, row, member]"
     )]
-    #[alias("sort_rank_member", "member_rank", "member_sort")]
-    pub sort_rank_member: Option<i64>,
-
-    #[field(
-        display = "Always Shown",
-        description = "Whether presenter is always visible"
-    )]
-    #[alias("always_shown", "always_visible", "permanent")]
-    pub always_shown: bool,
+    #[alias("index_rank", "sort_rank")]
+    #[read(|entity: &Presenter| {
+        if let Some(sort_rank) = &entity.sort_rank {
+            Some(crate::field::FieldValue::List(sort_rank.to_tuple(entity.rank.priority()).into_iter().map(|x| crate::field::FieldValue::Integer(x as i64)).collect()))
+        } else {
+            Some(crate::field::FieldValue::List(vec![]))
+        }
+    })]
+    #[write(|entity: &mut Presenter, value: crate::field::FieldValue| {
+        if let crate::field::FieldValue::List(values) = value {
+            let int_values: Vec<u64> = values.iter().filter_map(|x| {
+                if let crate::field::FieldValue::Integer(i) = x {
+                    Some(*i as u64)
+                } else {
+                    None
+                }
+            }).collect();
+            entity.sort_rank = PresenterSortRank::from_tuple(&int_values);
+            Ok(())
+        } else {
+            Err(crate::field::FieldError::ConversionError(crate::field::validation::ConversionError::InvalidFormat))
+        }
+    })]
+    pub sort_rank: Option<PresenterSortRank>,
 
     #[field(display = "Bio", description = "Presenter's biography")]
     #[alias("bio", "biography", "description")]
     pub bio: Option<String>,
-
-    #[field(display = "Email", description = "Presenter's email address")]
-    #[alias("email", "email_address", "contact_email")]
-    pub email: Option<String>,
-
-    #[field(display = "Phone", description = "Presenter's phone number")]
-    #[alias("phone", "phone_number", "contact_phone")]
-    pub phone: Option<String>,
 
     // @TODO: Implement edge support for is_group, members, groups, always_grouped, always_shown_in_group
 

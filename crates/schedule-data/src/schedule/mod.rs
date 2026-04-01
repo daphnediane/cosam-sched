@@ -12,7 +12,14 @@ use chrono::NaiveDateTime;
 use std::collections::HashMap;
 use std::fmt;
 
-use crate::entity::edge::{EdgeType, RelationshipDirection};
+use crate::edge::EdgeType;
+
+/// Relationship direction for edge queries
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum RelationshipDirection {
+    Outgoing, // Entity -> Related
+    Incoming, // Related -> Entity
+}
 use crate::entity::{EntityId, EntityType};
 use crate::field::validation::ValidationError;
 use crate::field::FieldValue;
