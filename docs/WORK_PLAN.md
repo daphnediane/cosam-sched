@@ -1,92 +1,44 @@
 # Cosplay America Schedule - Work Plan
 
-Generated on: Sun Mar 29 17:56:23 2026
-
-## Completed
-
-* [BUGFIX-001] Converting the existing spreadsheets loses presenter information during the conversion process.
-* [BUGFIX-002] Break events should only be visible when filtering by room or when no filters are applied.
-* [BUGFIX-003] Remove "free" labeling from events as all events require registration.
-* [BUGFIX-004] Filter out internal staff events from the public schedule JSON using the "Hidden" field in PanelTypes sheet and add `--staff` option to include private events.
-* [BUGFIX-005] The converter ignores the "Hide Panelist" and "Alt Panelist" spreadsheet columns, so presenter suppression and override text are not honored in the JSON output.
-* [BUGFIX-006] The converter does not detect or report scheduling conflicts such as a presenter double-booked across overlapping events, or two non-break events in the same room at the same time.
-* [BUGFIX-007] The `==Group` syntax in presenter headers incorrectly sets `always_grouped` on the member instead of `always_shown` on the group.
-* [BUGFIX-008] Migrate Presenter.members and Presenter.groups from `Vec<String>` to `BTreeSet<String>` to prevent duplicates and maintain sorted order.
-* [CLEANUP-001] Complete repository layout cleanup by moving planning outputs under `docs/`, relocating work-plan tools to `scripts/`, and retiring deprecated Perl converter paths.
-* [CLEANUP-002] Migrate to an `apps/` + `crates/` Rust workspace layout, retire the legacy Perl converter now that parity is reached, and track the remaining non-blocking cleanup follow-up items.
-* [EDITOR-500] Add the ability to import schedule data from XLSX spreadsheets.
-* [EDITOR-501] Add the ability to export schedule data to XLSX spreadsheets.
-* [EDITOR-503] Detect and highlight scheduling conflicts between events.
-* [EDITOR-504] Implement saving the schedule as JSON, matching the format consumed by the widget.
-* [FEATURE-001] Implement a two-part system for Cosplay America schedule management.
-* [FEATURE-002] Filter out SPLIT page-break markers and display BREAK time slots stretched across rooms.
-* [FEATURE-007] Replace hardcoded panel type colors with CSS-based UID reference system for theming.
-* [FEATURE-009] Enable presenter conflict detection to distinguish between individual presenters and groups, allowing groups like "UNC Staff" to be scheduled in multiple panels simultaneously.
-* [FEATURE-010] Update the schedule widget to properly display presenter groups and allow filtering by both individual presenters and groups, following the group handling logic from the original implementation.
-* [FEATURE-011] Define the v5 JSON format for the schedule data, introducing a
-base→part→session hierarchy, public/private split, and multi-room sessions.
-* [FEATURE-012] Define the Rust data structures for the v5 JSON format in `crates/schedule-core`.
-* [FEATURE-014] Update `xlsx_import` to directly build the v5 base→part→session hierarchy
-when importing spreadsheet data.
-* [FEATURE-015] Implement serialization of the v5 full/private JSON format from the
-`Schedule` struct.
-* [FEATURE-016] Implement the public export mode that flattens the v5 hierarchy into an
-ordered `panels` array suitable for the `cosam-calendar.js` widget.
-* [FEATURE-017] Update `widget/cosam-calendar.js` to consume the v5 public JSON format.
-* [FEATURE-018] Update `apps/cosam-editor` to work with the v5 `Schedule` struct and expose
-the base→part→session hierarchy in the UI.
-* [FEATURE-020] Implement the `credits` field generation based on `always_shown`/`always_grouped` semantics from schedule-to-html.
-* [FEATURE-021] Support the `<Name` prefix syntax in spreadsheet presenter headers to set `always_grouped` on individual members.
-* [FEATURE-023] Implement the v7 JSON schedule format changes in the Rust codebase: panelTypes hashmap, named color sets, merged timeTypes, stable presenter IDs, baked-in breaks, and metadata fields.
-* [FEATURE-024] Create documentation for the new v8 JSON format with changeLog support
-* [FEATURE-501] Add a new command-line tool for in-place modifications of XLSX schedule files
-* [INVESTIGATE-001] Investigate xlsx_update module for potential corruption issues and determine if it should be disabled
-* [TEST-013] Add comprehensive tests for cosam-modify's new undo/redo/show-history commands
-* [UI-001] Display both the programming room name (e.g., "Programming 1") and the actual hotel room location.
-* [UI-003] Implement theme switching with dark, light, and CosAm color modes.
-* [UI-004] Replace table-based layout with CSS grid similar to schedule-to-html implementation.
-* [XLSXWRITE-001] Implement XLSX export enhancements including Grid sheet generation, Lstart/Lend calculated columns, and session conflict resolution with alpha suffix assignment.
-
----
+Generated on: Mon Apr  6 09:57:52 2026
 
 ## Summary of Open Items
 
 **Total open items:** 28
 
 * **High Priority**
-  * [FEATURE-027] Enable reading schedule data directly from Google Sheets.
-  * [FEATURE-031] Add a grid view option to the printable schedule in addition to the existing list view.
-  * [FEATURE-035] Enable room-wide events like Market Expo to overlap with subpanels in the same room without triggering false conflict warnings.
-  * [REFACTOR-022] Refactor Panel time fields to use a unified TimeRange enum that eliminates inconsistency between duration and end_time fields and centralizes all timing logic.
-  * [REFACTOR-036] Feature parity for `schedule-data` focused on `schedule-core/src/data` and
-`schedule-core/src/edit`.
-  * [UI-026] Prevent event titles from overlapping with the "my schedule" star icon.
-  * [UI-038] Implement comprehensive accessibility improvements for screen readers and color blindness support.
-  * [UI-502] Implement inline editing of individual schedule events.
+  * [CLI-013] Port cosam-convert from schedule-core to schedule-data for XLSX-to-JSON conversion.
+  * [CLI-014] Port cosam-modify from schedule-core to schedule-data for batch schedule editing.
+  * [EDITOR-015] Port cosam-editor from schedule-core to schedule-data for the GPUI desktop editor.
+  * [FEATURE-007] Define and implement a new JSON format version aligned with schedule-data's internal model.
+  * [FEATURE-008] Implement display/public JSON export for the schedule widget, equivalent to schedule-core's display_export.
+  * [FEATURE-009] Implement XLSX reading and writing against schedule-data entities, replacing schedule-core's xlsx module.
+  * [FEATURE-010] Implement room and presenter conflict detection with support for room-wide event exemptions.
+  * [REFACTOR-001] Replace current generic Edge entity with a trait-based edge system with dedicated storage per relationship type.
+  * [REFACTOR-002] Align all entity fields with spreadsheet canonical columns and schedule-core equivalents.
+  * [REFACTOR-003] Implement public query families for all entity types with ranked index matching.
+  * [REFACTOR-004] Implement per-entity mutation families with deterministic side effects for add, update, restore, and find-or-add operations.
+  * [REFACTOR-005] Implement command-based edit history with undo/redo stacks and atomic batch operations.
+  * [REFACTOR-006] Implement derived scheduling-state propagation and complete the field validation system in schedule-macro.
+  * [TEST-028] Comprehensive integration tests validating schedule-data against schedule-core behavior with real schedule data.
+  * [UI-018] Implement comprehensive accessibility for the schedule widget: screen readers, color blindness support, and keyboard navigation.
+  * [UI-019] Prevent panel titles from overlapping with the "my schedule" star icon in the schedule widget.
 
 * **Medium Priority**
-  * [CLEANUP-028] Refactor xlsx module to be a specialization/implementation detail of ScheduleFile
-  * [CLEANUP-041] Standardize case conventions
-  * [DEPLOY-509] Package the editor as standalone executables for macOS, Windows, and Linux.
-  * [EDITOR-029] Add functional settings window with export preferences and application configuration options.
-  * [EDITOR-510] Define how multiple people and devices can safely edit a single schedule with conflict handling independent of any specific storage backend.
-  * [FEATURE-019] Populate the `metadata` field on all item types from non-standard spreadsheet columns during xlsx import.
-  * [FEATURE-033] Create a compact print format optimized for minimal paper usage.
-  * [FEATURE-040] Implement conflict detection and recording when both duration and end time are specified in XLSX data but result in different effective end times.
-  * [UI-032] Add sticky headers or repeat day headers between time blocks in grid view for better navigation.
-  * [UI-034] Add visual indicators to the schedule widget to highlight conflicting events, making it easy for users to identify and understand scheduling conflicts.
-  * [UI-036] Update the room filter dropdown to only include rooms that have scheduled panels, excluding rooms that only contain room-hours events (RH prefix or "Is Room Hours" flag).
-  * [UI-037] Add a dedicated room hours section to display operating hours for rooms with RH/Is Room Hours events, formatted by day and room type as shown in the example layout.
-  * [UI-505] Enable drag-and-drop to move events between time slots and rooms.
-  * [UI-506] Implement undo/redo for all editing operations.
+  * [EDITOR-016] Implement inline editing of individual panel properties in the editor.
+  * [EDITOR-017] Implement functional settings window with export preferences and application configuration.
+  * [FEATURE-011] Support nested group membership where a group's members can include other groups.
+  * [UI-020] Add visual indicators to the schedule widget to highlight conflicting panels.
+  * [UI-021] Add sticky day/time headers and a separate room hours section to the schedule widget.
+  * [UI-022] Add grid view and compact print format options for the schedule widget.
 
 * **Low Priority**
-  * [EDITOR-025] Migrate cosam-editor from snapshot-based undo/redo to EditHistory-based system
-  * [EDITOR-507] Support reading from and writing to Google Sheets.
-  * [EDITOR-508] Support reading from and writing to Excel files stored in OneDrive.
-  * [EDITOR-511] Revisit embedding a webview directly in the editor window once gpui_web is available.
-  * [FEATURE-030] Create a cross-platform desktop application for schedule editing.
-  * [FEATURE-039] Support nested group membership (groups whose members include other groups) in presenter processing and credit resolution.
+  * [DEPLOY-025] Package the editor as standalone executables for macOS, Windows, and Linux.
+  * [EDITOR-023] Enable drag-and-drop to move panels between time slots and rooms in the editor.
+  * [EDITOR-024] Define how multiple people and devices can safely edit a single schedule with conflict handling.
+  * [EDITOR-026] Support reading from and writing to Excel files stored in OneDrive.
+  * [EDITOR-027] Revisit embedding a webview directly in the editor window once gpui_web is available.
+  * [FEATURE-012] Enable reading schedule data directly from Google Sheets API.
 
 ---
 
@@ -94,66 +46,45 @@ the base→part→session hierarchy in the UI.
 
 The following ID numbers are available for new items:
 
-**Available:** 042, 043, 044, 045, 046, 047, 048, 049, 050, 051, 052, 053, 054, 055, 056, 057, 058
+**Available:** 029, 030, 031, 032, 033, 034, 035, 036, 037, 038
 
-**Highest used:** 511
-
----
-
-### Numbering Conflicts
-
-The following ID numbers are used by multiple items:
-
-#### Suffix `036`
-
-* ○ [REFACTOR-036] Schedule-Data Rewrite
-* ○ [UI-036] Improve room filter to exclude room-hours-only rooms
+**Highest used:** 28
 
 ---
 
-## Open CLEANUP Items
+## Open CLI Items
 
-### [CLEANUP-028] ScheduleFile XLSX Subclassing
+### [CLI-013] Migrate cosam-convert to schedule-data
 
-**Status:** Open
+**Status:** Not Started
 
-**Priority:** Medium
+**Priority:** High
 
-**Summary:** Refactor xlsx module to be a specialization/implementation detail of ScheduleFile
+**Summary:** Port cosam-convert from schedule-core to schedule-data for XLSX-to-JSON conversion.
 
-**Description:** Currently `xlsx/mod.rs` exposes `load_auto` and `save_auto` as public functions. A cleaner architecture would make these methods on `ScheduleFile` itself, with xlsx as an internal implementation detail.
+**Description:** cosam-convert currently uses schedule-core for XLSX import and JSON/HTML export. Migrate it to use schedule-data's `ScheduleFile` API, entity model, and export pipeline. This is the primary CLI tool for producing the schedule widget's JSON.
 
 ---
 
-### [CLEANUP-041] Unify JSON field case conventions
+### [CLI-014] Migrate cosam-modify to schedule-data
 
-**Status:** Open
+**Status:** Not Started
 
-**Priority:** Medium
+**Priority:** High
 
-**Summary:** Standardize case conventions
+**Summary:** Port cosam-modify from schedule-core to schedule-data for batch schedule editing.
 
-**Description:** The V9 format introduced inconsistent case conventions by changing presenters from snake_case to camelCase while keeping other fields the same. This cleanup will:
-
-1. **Establish clear convention rules** based on data consumer:
-   * JavaScript-consumed data: camelCase (panels, panelTypes)
-   * Rust-internal data: snake_case (presenters, rooms, timeline)
-
-2. **Update V9 documentation** to reflect correct case conventions
-
-3. **Verify all JSON output** follows the established patterns
-
-4. **Add convention documentation** to prevent future inconsistencies
+**Description:** cosam-modify is the CLI batch editing tool (103KB main.rs). Migrate it from schedule-core's `EditCommand` system to schedule-data's mutation API and edit history.
 
 ---
 
 ## Open DEPLOY Items
 
-### [DEPLOY-509] Application Packaging and Distribution
+### [DEPLOY-025] Application Packaging and Distribution
 
-**Status:** Open
+**Status:** Not Started
 
-**Priority:** Medium
+**Priority:** Low
 
 **Summary:** Package the editor as standalone executables for macOS, Windows, and Linux.
 
@@ -163,72 +94,69 @@ The following ID numbers are used by multiple items:
 
 ## Open EDITOR Items
 
-### [EDITOR-029] Implement Settings Window and Preferences
+### [EDITOR-015] Migrate cosam-editor to schedule-data
 
-**Status:** Open
+**Status:** Not Started
+
+**Priority:** High
+
+**Summary:** Port cosam-editor from schedule-core to schedule-data for the GPUI desktop editor.
+
+**Description:** cosam-editor currently uses schedule-core data types and its snapshot-based undo system. Migrate to schedule-data's entity model, mutation API, and (optionally) edit history. Evaluate whether to keep snapshot undo or migrate to command-based undo (from old EDITOR-025).
+
+---
+
+### [EDITOR-016] Panel Editing UI
+
+**Status:** Not Started
 
 **Priority:** Medium
 
-**Summary:** Add functional settings window with export preferences and application configuration options.
+**Summary:** Implement inline editing of individual panel properties in the editor.
 
-**Description:** Implement a complete settings system for the Cosam Editor application, including:
-
-* Settings window accessible from Edit menu
-* Export preferences (minification, file paths, templates)
-* Application preferences (theme, shortcuts, etc.)
-* Settings persistence using existing settings infrastructure
-* Proper integration with GPUI window system
+**Description:** Allow users to click on a panel card to edit its properties: name, description, time, room assignment, panel type, presenters, and flags. Changes should update the in-memory schedule model via schedule-data mutations and mark the file as dirty.
 
 ---
 
-### [EDITOR-510] Multi-Device Schedule Sync Strategy
+### [EDITOR-017] Editor Settings and Preferences
 
-**Status:** Open
+**Status:** Not Started
 
 **Priority:** Medium
 
-**Summary:** Define how multiple people and devices can safely edit a single schedule with conflict handling independent of any specific storage backend.
+**Summary:** Implement functional settings window with export preferences and application configuration.
 
-**Description:** Design the synchronization and conflict-resolution model for concurrent editing across desktop clients. This is intentionally backend-agnostic so it can support Google Sheets, OneDrive, or future storage options without rewriting core merge behavior.
+**Description:** Add a settings system for the editor, including export preferences (minification, file paths, templates), application preferences (theme, auto-save), and settings persistence. Infrastructure already exists in `settings.rs` and `ui/settings_window.rs`.
 
 ---
 
-### [EDITOR-025] cosam-editor EditHistory Migration
+### [EDITOR-023] Drag-and-Drop Panel Scheduling
 
-**Status:** Open
+**Status:** Not Started
 
 **Priority:** Low
 
-**Summary:** Migrate cosam-editor from snapshot-based undo/redo to EditHistory-based system
+**Summary:** Enable drag-and-drop to move panels between time slots and rooms in the editor.
 
-**Description:** cosam-editor currently uses a snapshot-based undo/redo system (storing complete panel states) while other apps use the command-based EditHistory. This migration would unify the undo/redo approach across all applications.
+**Description:** Implement a grid or timeline view in the editor where panels can be dragged to change their time or room assignment, providing an intuitive visual scheduling experience.
 
 ---
 
-### [EDITOR-507] Google Sheets Integration
+### [EDITOR-024] Multi-Device Schedule Sync Strategy
 
-**Status:** Open
+**Status:** Not Started
 
 **Priority:** Low
 
-**Summary:** Support reading from and writing to Google Sheets.
+**Summary:** Define how multiple people and devices can safely edit a single schedule with conflict handling.
 
-**Description:** Enable the editor and converter CLI to read and write schedule data via Google Sheets, while keeping this item focused on transport/authentication and schema parity rather than multi-device sync strategy.
-
-Current state: the Perl converter has an unverified Google Sheets path and has not been production-tested for this workflow. Rust support should include explicit validation against real sheets before considering this complete.
-
-Legacy implementation notes from the removed Perl-era docs are archived in branch `feature/final-perl-converter` (`GOOGLE_SHEETS.md`, `google-sheets-config.example.yaml`). Key takeaways to carry forward for Rust:
-
-* OAuth 2.0 credentials flow with explicit token-file handling
-* Support direct Google Sheets URLs and robust spreadsheet ID extraction
-* Handle both formal table metadata and heuristic range detection
-* Validate auth, permissions, and error-path UX before calling the feature production-ready
+**Description:** Design the synchronization and conflict-resolution model for concurrent editing across desktop clients. Backend-agnostic so it can support Google Sheets, OneDrive, or future storage options without rewriting core merge behavior.
 
 ---
 
-### [EDITOR-508] OneDrive/Office 365 Integration
+### [EDITOR-026] OneDrive/Office 365 Integration
 
-**Status:** Open
+**Status:** Not Started
 
 **Priority:** Low
 
@@ -238,332 +166,269 @@ Legacy implementation notes from the removed Perl-era docs are archived in branc
 
 ---
 
-### [EDITOR-511] Embedded Webview Preview
+### [EDITOR-027] Embedded Webview Preview
 
-**Status:** Open
+**Status:** Not Started
 
 **Priority:** Low
 
 **Summary:** Revisit embedding a webview directly in the editor window once gpui_web is available.
 
-**Description:** The editor currently opens schedule previews in the system browser using a temporary HTML file with auto-reload polling. This works but requires context-switching between the editor and browser windows.
-
-Once `gpui_web` (GPUI's planned web/webview integration) becomes available, revisit embedding the preview directly inside the editor window. This would allow side-by-side editing and preview without leaving the application.
+**Description:** The editor currently opens schedule previews in the system browser using a temporary HTML file with auto-reload polling. Once `gpui_web` becomes available, embed the preview directly inside the editor for side-by-side editing.
 
 ---
 
 ## Open FEATURE Items
 
-### [FEATURE-027] Support Google Sheets for schedule data
+### [FEATURE-007] JSON Format V11 — Schedule-Data Native Format
 
-**Status:** Open
-
-**Priority:** High
-
-**Summary:** Enable reading schedule data directly from Google Sheets.
-
-**Description:** The convention is moving to Google Sheets next year. The converter needs to support reading from Google Sheets API in addition to XLSX files.
-
----
-
-### [FEATURE-031] Printable schedules should include a grid option
-
-**Status:** Open
+**Status:** Not Started
 
 **Priority:** High
 
-**Summary:** Add a grid view option to the printable schedule in addition to the existing list view.
+**Summary:** Define and implement a new JSON format version aligned with schedule-data's internal model.
 
-**Description:** Currently, printing only shows a list view of events. A grid view similar to the on-screen grid would be useful for attendees who prefer a visual schedule layout.
+**Description:** The current JSON format (V10) was designed around schedule-core's data model. Schedule-data uses a fundamentally different internal model (monotonic IDs, entity/edge split, field system). A new format version is needed to serialize/deserialize schedule-data's `Schedule` struct directly.
 
 ---
 
-### [FEATURE-035] Allow room-wide events with subpanel overlaps
+### [FEATURE-008] Display JSON Export
 
-**Status:** Open
+**Status:** Not Started
 
 **Priority:** High
 
-**Summary:** Enable room-wide events like Market Expo to overlap with subpanels in the same room without triggering false conflict warnings.
+**Summary:** Implement display/public JSON export for the schedule widget, equivalent to schedule-core's display_export.
 
-**Description:** Currently the converter flags conflicts when room-wide events (like Market Expo) overlap with scheduled subpanels (like Learn to solder workshops) in the same room. These overlaps are intentional - the room-wide event marks the overall operating hours while subpanels are specific activities within that timeframe.
-
-The 2025 schedule shows this pattern:
-
-* ME100 "Market Expo" (13:00-18:00) in room 15
-* FD001S1 "Learn to solder" (14:00-16:00) in room 15
-* ME101 "Market Expo" (10:00-19:00) in room 15  
-* FD001S2 "Learn to solder" (10:00-12:00) in room 15
-* FD001S3 "Learn to solder" (14:00-16:00) in room 15
+**Description:** The schedule widget consumes a display-oriented JSON format (currently V10-display) that differs from the full internal format. Implement export from schedule-data's `Schedule` to this display format, porting logic from `schedule-core/src/file/display_export.rs`.
 
 ---
 
-### [FEATURE-019] Populate metadata from spreadsheet extra columns
+### [FEATURE-009] XLSX Import/Export for Schedule-Data
 
-**Status:** Open
+**Status:** Not Started
+
+**Priority:** High
+
+**Summary:** Implement XLSX reading and writing against schedule-data entities, replacing schedule-core's xlsx module.
+
+**Description:** Port XLSX import/export from `schedule-core/src/xlsx/` into schedule-data, reading spreadsheet rows into entity Data structs via the field system and writing them back. The ScheduleFile abstraction should be the single entry point for all file I/O (from old CLEANUP-028).
+
+---
+
+### [FEATURE-010] Conflict Detection System
+
+**Status:** Not Started
+
+**Priority:** High
+
+**Summary:** Implement room and presenter conflict detection with support for room-wide event exemptions.
+
+**Description:** Port and improve conflict detection from schedule-core and the Perl converter into schedule-data. Detect room conflicts and presenter double-bookings, with proper handling of room-wide events (from old FEATURE-035).
+
+---
+
+### [FEATURE-011] Groups-of-Groups Presenter Processing
+
+**Status:** Not Started
 
 **Priority:** Medium
 
-**Summary:** Populate the `metadata` field on all item types from non-standard spreadsheet columns during xlsx import.
+**Summary:** Support nested group membership where a group's members can include other groups.
 
-**Description:** The `PanelSession` struct has an `extras: ExtraFields` field (renamed to `metadata` in v7) that is defined but never populated during xlsx import — it is always initialized as `IndexMap::new()`. The `row_to_map` function in `xlsx_import.rs` reads all columns into a HashMap, but only known fields are extracted via `get_field()`. The remaining unknown columns are silently discarded.
-
----
-
-### [FEATURE-033] Add a compact printed schedule
-
-**Status:** Open
-
-**Priority:** Medium
-
-**Summary:** Create a compact print format optimized for minimal paper usage.
-
-**Description:** Some attendees prefer a pocket-sized schedule. A compact format with smaller fonts and condensed layout would be valuable.
+**Description:** The `schedule-to-html` Perl project supported groups-of-groups, where a group's members list could include the name of another group. The current Rust code does not handle this. Implement recursive group expansion with cycle detection for credit resolution and conflict detection.
 
 ---
 
-### [FEATURE-040] Duration/End Time Conflict Detection
+### [FEATURE-012] Google Sheets Integration
 
-**Status:** 📋 **Ready** - Design specified, implementation pending
-
-**Priority:** Medium
-
-**Summary:** Implement conflict detection and recording when both duration and end time are specified in XLSX data but result in different effective end times.
-
-**Description:** When reading XLSX schedule data, conflicts can occur when both duration and end time are specified but don't align. The current logic prioritizes duration over end time but doesn't record the conflict for user visibility.
-
----
-
-### [FEATURE-030] Develop a standalone editor app
-
-**Status:** In Progress
+**Status:** Not Started
 
 **Priority:** Low
 
-**Summary:** Create a cross-platform desktop application for schedule editing.
+**Summary:** Enable reading schedule data directly from Google Sheets API.
 
-**Description:** Build a standalone cross-platform desktop editor using Rust and GPUI for editing schedules and generating output. Supports macOS, Windows, and Linux.
-
----
-
-### [FEATURE-039] Support groups-of-groups in presenter processing
-
-**Status:** Open
-
-**Priority:** Low
-
-**Summary:** Support nested group membership (groups whose members include other groups) in presenter processing and credit resolution.
-
-**Description:** The `schedule-to-html` project supported groups-of-groups, where a group's members list could include the name of another group. The current Rust code does not handle this case — group membership is assumed to be individuals only.
+**Description:** The convention is moving to Google Sheets. The converter and editor need to support reading from Google Sheets API in addition to XLSX files. This is transport/authentication only — multi-device sync is a separate concern.
 
 ---
 
 ## Open REFACTOR Items
 
-### [REFACTOR-022] Semantic Datetime and Duration Representation
+### [REFACTOR-001] Edge Trait System and Relationship Storage
 
-**Status:** ✅ **Completed** - TimeRange fully implemented and tested
+**Status:** Not Started
 
 **Priority:** High
 
-**Summary:** Refactor Panel time fields to use a unified TimeRange enum that eliminates inconsistency between duration and end_time fields and centralizes all timing logic.
+**Summary:** Replace current generic Edge entity with a trait-based edge system with dedicated storage per relationship type.
 
-**Description:** Refactor the Panel struct to use a unified `TimeRange` enum instead of separate `start_time`, `end_time`, and `duration` fields, eliminating potential inconsistency and providing clearer business logic. All timing logic is now centralized in the TimeRange enum in `time.rs`.
+**Description:** The current `Edge` entity is a generic catch-all. Replace it with typed edge structs implementing common edge traits, each with dedicated storage, bidirectional index lookups, and relationship-specific behavior (e.g., transitive closure for presenter groups).
 
 ---
 
-### [REFACTOR-036] Schedule-Data Rewrite
+### [REFACTOR-002] Field Alignment with Schedule-Core Canonical Columns
 
-**Status:** 🚧 In progress
+**Status:** Not Started
 
 **Priority:** High
 
-**Summary:** Feature parity for `schedule-data` focused on `schedule-core/src/data` and
-`schedule-core/src/edit`.
+**Summary:** Align all entity fields with spreadsheet canonical columns and schedule-core equivalents.
 
-**Description:** This plan migrates schedule-core data/edit behavior into schedule-data using internal monotonic IDs, spreadsheet-canonical field coverage, soft-delete lifecycle, derived scheduling state, and batched undoable edits delivered phase-by-phase with commit checkpoints.
+**Description:** Review and align entity fields with `crates/schedule-core/src/xlsx/columns.rs` canonical column definitions. Ensure field names and aliases match `docs/spreadsheet-format.md` and JSON format specifications. Add any missing canonical fields.
+
+---
+
+### [REFACTOR-003] Query API Surface
+
+**Status:** Not Started
+
+**Priority:** High
+
+**Summary:** Implement public query families for all entity types with ranked index matching.
+
+**Description:** Port and extend query capabilities from `schedule-core/src/edit/find.rs` into `schedule-data`, providing typed query families per entity type with ranked `FieldSet` index matching.
+
+---
+
+### [REFACTOR-004] Mutation API and Side-Effect Semantics
+
+**Status:** Not Started
+
+**Priority:** High
+
+**Summary:** Implement per-entity mutation families with deterministic side effects for add, update, restore, and find-or-add operations.
+
+**Description:** Port mutation behavior from `schedule-core/src/edit/command.rs` into `schedule-data`, providing typed mutation families that handle side effects (e.g., creating dependent presenters/rooms/edges from panel edits) deterministically.
+
+---
+
+### [REFACTOR-005] Edit Commands, History, and Batch Undo/Redo
+
+**Status:** Not Started
+
+**Priority:** High
+
+**Summary:** Implement command-based edit history with undo/redo stacks and atomic batch operations.
+
+**Description:** Port `EditCommand` equivalents from `schedule-core/src/edit/command.rs` and `schedule-core/src/edit/history.rs` into `schedule-data`. Support atomic multi-step mutations as single undo steps.
+
+---
+
+### [REFACTOR-006] Scheduling Derivation and Field Validation
+
+**Status:** Not Started
+
+**Priority:** High
+
+**Summary:** Implement derived scheduling-state propagation and complete the field validation system in schedule-macro.
+
+**Description:** Implement derived scheduling state (scheduled/unscheduled) based on time_range presence and indirect references (presenter groups). Complete the `#[validate]` attribute in schedule-macro to generate `CheckedField` implementations.
+
+---
+
+## Open TEST Items
+
+### [TEST-028] Integration Testing and Schedule-Core Parity Validation
+
+**Status:** Not Started
+
+**Priority:** High
+
+**Summary:** Comprehensive integration tests validating schedule-data against schedule-core behavior with real schedule data.
+
+**Description:** Before decommissioning schedule-core, validate that schedule-data produces equivalent results for all supported operations using representative real-world schedule data (e.g., 2025 convention schedule).
 
 ---
 
 ## Open UI Items
 
-### [UI-026] Fix event title and star overlap
-
-**Status:** Open
-
-**Priority:** High
-
-**Summary:** Prevent event titles from overlapping with the "my schedule" star icon.
-
-**Description:** Currently, long event titles can underlap the star icon, making both difficult to read.
-
----
-
-### [UI-038] Accessibility Improvements
+### [UI-018] Widget Accessibility Improvements
 
 **Status:** In Progress
 
 **Priority:** High
 
-**Summary:** Implement comprehensive accessibility improvements for screen readers and color blindness support.
+**Summary:** Implement comprehensive accessibility for the schedule widget: screen readers, color blindness support, and keyboard navigation.
 
-**Description:** Implement comprehensive accessibility improvements to ensure the schedule is usable by screen readers and users with various types of color blindness, following W3C WAI standards and achieving WCAG 2.1 AA compliance.
+**Description:** Ensure the schedule widget is usable by screen readers and users with color blindness, following WCAG 2.1 AA compliance. Initial work started: skip link, live results region, keyboard activation, focus styles, theme switcher with high-contrast option, CSS custom properties.
 
 ---
 
-### [UI-502] Event Editing UI
+### [UI-019] Fix Panel Title and Star Overlap in Widget
 
-**Status:** Open
+**Status:** Not Started
 
 **Priority:** High
 
-**Summary:** Implement inline editing of individual schedule events.
+**Summary:** Prevent panel titles from overlapping with the "my schedule" star icon in the schedule widget.
 
-**Description:** Allow users to click on an event card to edit its properties: name, description, time, room assignment, panel type, presenters, and flags. Changes should update the in-memory schedule model and mark the file as dirty.
+**Description:** Long panel titles can underlap the star icon, making both difficult to read. Adjust CSS to ensure proper spacing.
 
 ---
 
-### [UI-032] Implement sticky headers or additional header rows
+### [UI-020] Visual Conflict Indicators in Widget
 
-**Status:** Open
+**Status:** Not Started
 
 **Priority:** Medium
 
-**Summary:** Add sticky headers or repeat day headers between time blocks in grid view for better navigation.
+**Summary:** Add visual indicators to the schedule widget to highlight conflicting panels.
 
-**Description:** When viewing the schedule grid, users lose context of which day/time they're viewing as they scroll. Either sticky headers should follow the scroll, or additional header rows should be inserted between days to maintain context.
+**Description:** Display conflict data from JSON output in the widget. Conflicting panels should have visual cues (icons, colored borders), hover tooltips with details, and click-to-highlight related conflicts.
 
 ---
 
-### [UI-034] Visual conflict indicators in schedule widget
+### [UI-021] Sticky Headers and Room Hours Display in Widget
 
-**Status:** Open
+**Status:** Not Started
 
 **Priority:** Medium
 
-**Summary:** Add visual indicators to the schedule widget to highlight conflicting events, making it easy for users to identify and understand scheduling conflicts.
+**Summary:** Add sticky day/time headers and a separate room hours section to the schedule widget.
 
-**Description:** The converter now includes conflict data in the JSON output, but the widget doesn't display this information to users. Users need visual cues to quickly identify conflicting events and understand what the conflicts are.
-
-Based on the 2025 schedule data, conflicts include:
-
-* Room conflicts (Market Expo vs Learn to solder sessions)
-* Presenter conflicts (UNC Staff double-booked)
+**Description:** Two related widget improvements: (1) sticky or repeated headers so users maintain day/time context while scrolling the grid, and (2) a dedicated room hours section that extracts room-wide events (registration, market expo, etc.) from the main grid into a separate readable display.
 
 ---
 
-### [UI-036] Improve room filter to exclude room-hours-only rooms
+### [UI-022] Printable Schedule Options
 
-**Status:** Open
+**Status:** Not Started
 
 **Priority:** Medium
 
-**Summary:** Update the room filter dropdown to only include rooms that have scheduled panels, excluding rooms that only contain room-hours events (RH prefix or "Is Room Hours" flag).
+**Summary:** Add grid view and compact print format options for the schedule widget.
 
-**Description:** Currently the room filter shows all rooms from the Rooms sheet, including rooms that only contain room-hours events like "Market Expo" or "Registration". These rooms clutter the filter and don't contain actual panels that users want to filter by.
-
----
-
-### [UI-037] Display room hours separately from schedule grid
-
-**Status:** Open
-
-**Priority:** Medium
-
-**Summary:** Add a dedicated room hours section to display operating hours for rooms with RH/Is Room Hours events, formatted by day and room type as shown in the example layout.
-
-**Description:** Room-hours events (RH prefix or "Is Room Hours" flag) currently appear in the main schedule grid, but they represent operating hours rather than specific panels. These should be displayed separately in a more readable format that shows when each area is open.
-
----
-
-### [UI-505] Drag-and-Drop Event Scheduling
-
-**Status:** Open
-
-**Priority:** Medium
-
-**Summary:** Enable drag-and-drop to move events between time slots and rooms.
-
-**Description:** Implement a grid or timeline view where events can be dragged to change their time or room assignment. This provides an intuitive visual scheduling experience.
-
----
-
-### [UI-506] Undo/Redo Support
-
-**Status:** Open
-
-**Priority:** Medium
-
-**Summary:** Implement undo/redo for all editing operations.
-
-**Description:** Track all changes to the schedule model and allow users to undo and redo them. Essential for a comfortable editing experience.
+**Description:** Currently printing only shows a list view. Add a grid view option similar to the on-screen grid, and a compact format optimized for minimal paper usage (pocket-sized schedule).
 
 ---
 
 ---
 
-[BUGFIX-001]: work-plan/done/BUGFIX-001.md
-[BUGFIX-002]: work-plan/done/BUGFIX-002.md
-[BUGFIX-003]: work-plan/done/BUGFIX-003.md
-[BUGFIX-004]: work-plan/done/BUGFIX-004.md
-[BUGFIX-005]: work-plan/done/BUGFIX-005.md
-[BUGFIX-006]: work-plan/done/BUGFIX-006.md
-[BUGFIX-007]: work-plan/done/BUGFIX-007.md
-[BUGFIX-008]: work-plan/done/BUGFIX-008.md
-[CLEANUP-001]: work-plan/done/CLEANUP-001.md
-[CLEANUP-002]: work-plan/done/CLEANUP-002.md
-[CLEANUP-028]: work-plan/medium/CLEANUP-028.md
-[CLEANUP-041]: work-plan/medium/CLEANUP-041.md
-[DEPLOY-509]: work-plan/medium/DEPLOY-509.md
-[EDITOR-025]: work-plan/low/EDITOR-025.md
-[EDITOR-029]: work-plan/medium/EDITOR-029.md
-[EDITOR-500]: work-plan/done/EDITOR-500.md
-[EDITOR-501]: work-plan/done/EDITOR-501.md
-[EDITOR-503]: work-plan/done/EDITOR-503.md
-[EDITOR-504]: work-plan/done/EDITOR-504.md
-[EDITOR-507]: work-plan/low/EDITOR-507.md
-[EDITOR-508]: work-plan/low/EDITOR-508.md
-[EDITOR-510]: work-plan/medium/EDITOR-510.md
-[EDITOR-511]: work-plan/low/EDITOR-511.md
-[FEATURE-001]: work-plan/done/FEATURE-001.md
-[FEATURE-002]: work-plan/done/FEATURE-002.md
-[FEATURE-007]: work-plan/done/FEATURE-007.md
-[FEATURE-009]: work-plan/done/FEATURE-009.md
-[FEATURE-010]: work-plan/done/FEATURE-010.md
-[FEATURE-011]: work-plan/done/FEATURE-011.md
-[FEATURE-012]: work-plan/done/FEATURE-012.md
-[FEATURE-014]: work-plan/done/FEATURE-014.md
-[FEATURE-015]: work-plan/done/FEATURE-015.md
-[FEATURE-016]: work-plan/done/FEATURE-016.md
-[FEATURE-017]: work-plan/done/FEATURE-017.md
-[FEATURE-018]: work-plan/done/FEATURE-018.md
-[FEATURE-019]: work-plan/medium/FEATURE-019.md
-[FEATURE-020]: work-plan/done/FEATURE-020.md
-[FEATURE-021]: work-plan/done/FEATURE-021.md
-[FEATURE-023]: work-plan/done/FEATURE-023.md
-[FEATURE-024]: work-plan/done/FEATURE-024.md
-[FEATURE-027]: work-plan/high/FEATURE-027.md
-[FEATURE-030]: work-plan/medium/FEATURE-030.md
-[FEATURE-031]: work-plan/high/FEATURE-031.md
-[FEATURE-033]: work-plan/medium/FEATURE-033.md
-[FEATURE-035]: work-plan/high/FEATURE-035.md
-[FEATURE-039]: work-plan/low/FEATURE-039.md
-[FEATURE-040]: work-plan/medium/FEATURE-040.md
-[FEATURE-501]: work-plan/done/FEATURE-501.md
-[INVESTIGATE-001]: work-plan/done/INVESTIGATE-001.md
-[REFACTOR-022]: work-plan/high/REFACTOR-022.md
-[REFACTOR-036]: work-plan/high/REFACTOR-036.md
-[TEST-013]: work-plan/done/TEST-013.md
-[UI-001]: work-plan/done/UI-001.md
-[UI-003]: work-plan/done/UI-003.md
-[UI-004]: work-plan/done/UI-004.md
-[UI-026]: work-plan/high/UI-026.md
-[UI-032]: work-plan/medium/UI-032.md
-[UI-034]: work-plan/medium/UI-034.md
-[UI-036]: work-plan/medium/UI-036.md
-[UI-037]: work-plan/medium/UI-037.md
-[UI-038]: work-plan/medium/UI-038.md
-[UI-502]: work-plan/high/UI-502.md
-[UI-505]: work-plan/medium/UI-505.md
-[UI-506]: work-plan/medium/UI-506.md
-[XLSXWRITE-001]: work-plan/done/XLSXWRITE-001.md
+[CLI-013]: work-plan/low/CLI-013.md
+[CLI-014]: work-plan/low/CLI-014.md
+[DEPLOY-025]: work-plan/low/DEPLOY-025.md
+[EDITOR-015]: work-plan/low/EDITOR-015.md
+[EDITOR-016]: work-plan/low/EDITOR-016.md
+[EDITOR-017]: work-plan/low/EDITOR-017.md
+[EDITOR-023]: work-plan/low/EDITOR-023.md
+[EDITOR-024]: work-plan/low/EDITOR-024.md
+[EDITOR-026]: work-plan/low/EDITOR-026.md
+[EDITOR-027]: work-plan/low/EDITOR-027.md
+[FEATURE-007]: work-plan/low/FEATURE-007.md
+[FEATURE-008]: work-plan/low/FEATURE-008.md
+[FEATURE-009]: work-plan/low/FEATURE-009.md
+[FEATURE-010]: work-plan/low/FEATURE-010.md
+[FEATURE-011]: work-plan/low/FEATURE-011.md
+[FEATURE-012]: work-plan/low/FEATURE-012.md
+[REFACTOR-001]: work-plan/low/REFACTOR-001.md
+[REFACTOR-002]: work-plan/low/REFACTOR-002.md
+[REFACTOR-003]: work-plan/low/REFACTOR-003.md
+[REFACTOR-004]: work-plan/low/REFACTOR-004.md
+[REFACTOR-005]: work-plan/low/REFACTOR-005.md
+[REFACTOR-006]: work-plan/low/REFACTOR-006.md
+[TEST-028]: work-plan/low/TEST-028.md
+[UI-018]: work-plan/medium/UI-018.md
+[UI-019]: work-plan/low/UI-019.md
+[UI-020]: work-plan/low/UI-020.md
+[UI-021]: work-plan/low/UI-021.md
+[UI-022]: work-plan/low/UI-022.md
