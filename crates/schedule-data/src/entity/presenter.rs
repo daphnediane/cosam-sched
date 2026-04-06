@@ -122,7 +122,7 @@ pub struct Presenter {
         if let Some(sort_rank) = &entity.sort_rank {
             Some(crate::field::FieldValue::List(sort_rank.to_tuple(entity.rank.priority()).into_iter().map(|x| crate::field::FieldValue::Integer(x as i64)).collect()))
         } else {
-            Some(crate::field::FieldValue::List(vec![]))
+            None
         }
     })]
     #[write(|entity: &mut Presenter, value: crate::field::FieldValue| {
@@ -146,8 +146,76 @@ pub struct Presenter {
     #[alias("bio", "biography", "description")]
     pub bio: Option<String>,
 
-    // @TODO: Implement edge support for is_group, members, groups, always_grouped, always_shown_in_group
+    // Group-related fields for presenter-group relationships
+    #[field(display = "UID", description = "Unique identifier for the presenter")]
+    #[alias("uid", "id")]
+    #[required]
+    #[indexable(priority = 210)]
+    pub uid: String,
 
+    #[field(
+        display = "Is Group",
+        description = "Whether this presenter is a group"
+    )]
+    #[alias("is_group", "group", "presenter_group")]
+    pub is_group: bool,
+
+    #[field(
+        display = "Always Grouped",
+        description = "Whether this presenter should always appear with their group"
+    )]
+    #[alias("always_grouped", "stick_with_group")]
+    pub always_grouped: bool,
+
+    #[field(
+        display = "Always Shown in Group",
+        description = "Whether this presenter's group should always be shown as a group"
+    )]
+    #[alias("always_shown", "show_as_group")]
+    pub always_shown_in_group: bool,
+
+    #[computed_field(
+        display = "Groups",
+        description = "All groups this presenter belongs to"
+    )]
+    #[alias("presenter_groups", "group_list")]
+    #[read(|schedule: &crate::schedule::Schedule, entity_id: crate::entity::EntityId, entity: &Presenter| {
+        let group_ids = schedule.get_presenter_groups(entity_id);
+        Some(crate::field::FieldValue::List(
+            schedule.get_entity_names::<crate::entity::PresenterEntityType>(&group_ids)
+                .into_iter()
+                .map(crate::field::FieldValue::String)
+                .collect()
+        ))
+    })]
+    #[computed_field(
+        display = "Members",
+        description = "All members of this presenter (if this presenter is a group)"
+    )]
+    #[alias("presenter_members", "member_list")]
+    #[read(|schedule: &crate::schedule::Schedule, entity_id: crate::entity::EntityId, entity: &Presenter| {
+        let member_ids = schedule.get_presenter_members(entity_id);
+        Some(crate::field::FieldValue::List(
+            schedule.get_entity_names::<crate::entity::PresenterEntityType>(&member_ids)
+                .into_iter()
+                .map(crate::field::FieldValue::String)
+                .collect()
+        ))
+    })]
+    #[computed_field(
+        display = "Panels",
+        description = "All panels this presenter participates in"
+    )]
+    #[alias("presenter_panels", "panel_list")]
+    #[read(|schedule: &crate::schedule::Schedule, entity_id: crate::entity::EntityId, entity: &Presenter| {
+        let panel_ids = schedule.get_presenter_panels(entity_id);
+        Some(crate::field::FieldValue::List(
+            schedule.get_entity_names::<crate::entity::PanelEntityType>(&panel_ids)
+                .into_iter()
+                .map(crate::field::FieldValue::String)
+                .collect()
+        ))
+    })]
     // @TODO: Not currently in the spreadsheets, Windsurf thought this was a good idea
     // I agree but we currently don't have the data
     #[field(display = "Pronouns", description = "Presenter's preferred pronouns")]

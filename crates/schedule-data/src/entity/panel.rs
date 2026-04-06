@@ -174,13 +174,54 @@ pub struct Panel {
     #[field(display = "AV Notes", description = "Audio/visual requirements")]
     #[alias("av_notes", "av", "audio_visual")]
     pub av_notes: Option<String>,
-    // TODO: Implement use proper syntax and edges to support adding presenters etc...
-    /*
-    #[computed_field(display = "Add Presenter", description = "Add a presenter to this panel")]
-    #[alias("add_presenter")]
-    #[write]
-    fn add_presenter(&self, schedule: &mut Schedule) -> Result<(), FieldError> {
-        unimplemented!()
-    }
-    */
+
+    #[computed_field(
+        name = "presenters",
+        display = "Presenters",
+        description = "All presenters for this panel"
+    )]
+    #[alias("presenter_list", "panelists")]
+    #[read(|schedule: &crate::schedule::Schedule, entity_id: crate::entity::EntityId, entity: &Panel| {
+        let presenter_ids = schedule.get_panel_presenters(entity_id);
+        Some(crate::field::FieldValue::List(
+            schedule.get_entity_names::<crate::entity::PresenterEntityType>(&presenter_ids)
+                .into_iter()
+                .map(crate::field::FieldValue::String)
+                .collect()
+        ))
+    })]
+
+    #[computed_field(
+        name = "event_room",
+        display = "Event Room",
+        description = "Primary event room for this panel"
+    )]
+    #[alias("room", "location", "event_room_name")]
+    #[read(|schedule: &crate::schedule::Schedule, entity_id: crate::entity::EntityId, entity: &Panel| {
+        if let Some(room_id) = schedule.get_panel_event_room(entity_id) {
+            if let Some(room) = schedule.get_entity::<crate::entity::EventRoomEntityType>(room_id) {
+                return Some(crate::field::FieldValue::String(room.long_name.clone()));
+            }
+        }
+        None
+    })]
+
+    #[computed_field(
+        name = "panel_type",
+        display = "Panel Type",
+        description = "Type/category of this panel"
+    )]
+    #[alias("type", "category", "panel_category")]
+    #[read(|schedule: &crate::schedule::Schedule, entity_id: crate::entity::EntityId, entity: &Panel| {
+        if let Some(type_id) = schedule.get_panel_type(entity_id) {
+            if let Some(panel_type) = schedule.get_entity::<crate::entity::PanelTypeEntityType>(type_id) {
+                return Some(crate::field::FieldValue::String(panel_type.prefix.clone()));
+            }
+        }
+        None
+    })]
+    
+    // Internal metadata field for entities with only computed fields
+    #[field(display = "Internal Version", description = "Internal struct version for compatibility")]
+    pub _version: u8,
 }
