@@ -300,7 +300,8 @@ impl Schedule {
         // This is a placeholder - the real implementation would use the field system
         match std::any::type_name::<T>() {
             x if x.contains("Panel") => {
-                if let Some(panel) = (entity as &dyn std::any::Any).downcast_ref::<entity::Panel>()
+                if let Some(panel) =
+                    (entity as &dyn std::any::Any).downcast_ref::<entity::PanelData>()
                 {
                     panel.name.clone()
                 } else {
@@ -309,7 +310,7 @@ impl Schedule {
             }
             x if x.contains("Presenter") => {
                 if let Some(presenter) =
-                    (entity as &dyn std::any::Any).downcast_ref::<entity::Presenter>()
+                    (entity as &dyn std::any::Any).downcast_ref::<entity::PresenterData>()
                 {
                     presenter.name.clone()
                 } else {

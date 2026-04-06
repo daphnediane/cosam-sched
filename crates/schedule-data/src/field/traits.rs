@@ -159,12 +159,7 @@ pub trait SimpleCheckedField<T: EntityType>: NamedField + 'static + Send + Sync 
 
 /// Field trait for static readable fields (with schedule access for computed fields)
 pub trait ReadableField<T: EntityType>: NamedField + 'static + Send + Sync {
-    fn read(
-        &self,
-        schedule: &Schedule,
-        entity_id: crate::entity::EntityId,
-        entity: &T::Data,
-    ) -> Option<FieldValue>;
+    fn read(&self, schedule: &Schedule, entity: &T::Data) -> Option<FieldValue>;
     fn is_read_computed(&self) -> bool;
 }
 
@@ -173,7 +168,6 @@ pub trait WritableField<T: EntityType>: NamedField + 'static + Send + Sync {
     fn write(
         &self,
         schedule: &Schedule,
-        entity_id: crate::entity::EntityId,
         entity: &mut T::Data,
         value: FieldValue,
     ) -> Result<(), FieldError>;
@@ -188,7 +182,6 @@ pub trait CheckedField<T: EntityType>: NamedField + 'static + Send + Sync {
     fn validate(
         &self,
         schedule: &Schedule,
-        entity_id: crate::entity::EntityId,
         entity: &mut T::Data,
         value: &FieldValue,
     ) -> Result<(), ValidationError>;
@@ -196,12 +189,7 @@ pub trait CheckedField<T: EntityType>: NamedField + 'static + Send + Sync {
 
 /// Blanket implementation: any simple readable field can be used as a readable field
 impl<T: EntityType, F: SimpleReadableField<T>> ReadableField<T> for F {
-    fn read(
-        &self,
-        _schedule: &Schedule,
-        _entity_id: crate::entity::EntityId,
-        entity: &T::Data,
-    ) -> Option<FieldValue> {
+    fn read(&self, _schedule: &Schedule, entity: &T::Data) -> Option<FieldValue> {
         self.read(entity)
     }
 
@@ -215,7 +203,6 @@ impl<T: EntityType, F: SimpleWritableField<T>> WritableField<T> for F {
     fn write(
         &self,
         _schedule: &Schedule,
-        _entity_id: crate::entity::EntityId,
         entity: &mut T::Data,
         value: FieldValue,
     ) -> Result<(), FieldError> {
@@ -232,7 +219,6 @@ impl<T: EntityType, F: SimpleCheckedField<T>> CheckedField<T> for F {
     fn validate(
         &self,
         _schedule: &Schedule,
-        _entity_id: crate::entity::EntityId,
         entity: &mut T::Data,
         value: &FieldValue,
     ) -> Result<(), ValidationError> {
@@ -249,6 +235,7 @@ mod tests {
     // Mock entity for testing
     #[derive(Debug, Clone, PartialEq)]
     struct TestEntity {
+        entity_id: crate::entity::EntityId,
         id: String,
         name: String,
         value: i64,
@@ -263,7 +250,16 @@ mod tests {
         duration: chrono::Duration,
         optional_duration: Option<chrono::Duration>,
         tags: Vec<String>,
-        entity_id: String, // For Id field type
+        entity_id_str: String, // For Id field type
+    }
+
+    impl crate::entity::InternalData for TestEntity {
+        fn entity_id(&self) -> crate::entity::EntityId {
+            self.entity_id
+        }
+        fn set_entity_id(&mut self, id: crate::entity::EntityId) {
+            self.entity_id = id;
+        }
     }
 
     // Mock EntityType implementation
@@ -302,6 +298,7 @@ mod tests {
 
     fn create_test_entity() -> TestEntity {
         TestEntity {
+            entity_id: 0,
             id: "123".to_string(),
             name: "Test".to_string(),
             value: 42,
@@ -316,7 +313,7 @@ mod tests {
             duration: chrono::Duration::zero(),
             optional_duration: Some(chrono::Duration::minutes(30)),
             tags: vec!["test".to_string(), "sample".to_string()],
-            entity_id: "entity-123".to_string(),
+            entity_id_str: "entity-123".to_string(),
         }
     }
 
@@ -410,7 +407,7 @@ mod tests {
         let entity = create_test_entity();
         let schedule = create_mock_schedule();
 
-        let value = ReadableField::read(&field, &schedule, 123, &entity);
+        let value = ReadableField::read(&field, &schedule, &entity);
         assert!(value.is_some());
 
         match value.unwrap() {
@@ -430,7 +427,6 @@ mod tests {
         let result = WritableField::write(
             &field,
             &schedule,
-            123,
             &mut entity,
             FieldValue::String("456".to_string()),
         );
@@ -466,12 +462,7 @@ mod tests {
         }
     }
     impl ReadableField<TestEntity> for TestNameField {
-        fn read(
-            &self,
-            _schedule: &Schedule,
-            _entity_id: crate::entity::EntityId,
-            entity: &TestEntity,
-        ) -> Option<FieldValue> {
+        fn read(&self, _schedule: &Schedule, entity: &TestEntity) -> Option<FieldValue> {
             if entity.name.is_empty() {
                 None
             } else {
@@ -486,7 +477,6 @@ mod tests {
         fn write(
             &self,
             _schedule: &Schedule,
-            _entity_id: crate::entity::EntityId,
             entity: &mut TestEntity,
             value: FieldValue,
         ) -> Result<(), FieldError> {
@@ -510,7 +500,7 @@ mod tests {
         let entity = create_test_entity();
         let schedule = create_mock_schedule();
 
-        let value = ReadableField::read(&field, &schedule, 123, &entity);
+        let value = ReadableField::read(&field, &schedule, &entity);
         assert!(value.is_some());
 
         match value.unwrap() {
@@ -526,7 +516,7 @@ mod tests {
         entity.name = "".to_string(); // Empty string for this test
         let schedule = create_mock_schedule();
 
-        let value = ReadableField::read(&field, &schedule, 123, &entity);
+        let value = ReadableField::read(&field, &schedule, &entity);
         assert!(value.is_none());
     }
 
@@ -559,12 +549,7 @@ mod tests {
         }
     }
     impl ReadableField<TestEntity> for TestFlagField {
-        fn read(
-            &self,
-            _schedule: &Schedule,
-            _entity_id: crate::entity::EntityId,
-            entity: &TestEntity,
-        ) -> Option<FieldValue> {
+        fn read(&self, _schedule: &Schedule, entity: &TestEntity) -> Option<FieldValue> {
             Some(FieldValue::Boolean(entity.flag))
         }
         fn is_read_computed(&self) -> bool {
@@ -575,7 +560,6 @@ mod tests {
         fn write(
             &self,
             _schedule: &Schedule,
-            _entity_id: crate::entity::EntityId,
             entity: &mut TestEntity,
             value: FieldValue,
         ) -> Result<(), FieldError> {
@@ -608,12 +592,7 @@ mod tests {
         }
     }
     impl ReadableField<TestEntity> for TestOptionalFlagField {
-        fn read(
-            &self,
-            _schedule: &Schedule,
-            _entity_id: crate::entity::EntityId,
-            entity: &TestEntity,
-        ) -> Option<FieldValue> {
+        fn read(&self, _schedule: &Schedule, entity: &TestEntity) -> Option<FieldValue> {
             entity.optional_flag.map(FieldValue::Boolean)
         }
         fn is_read_computed(&self) -> bool {
@@ -624,7 +603,6 @@ mod tests {
         fn write(
             &self,
             _schedule: &Schedule,
-            _entity_id: crate::entity::EntityId,
             entity: &mut TestEntity,
             value: FieldValue,
         ) -> Result<(), FieldError> {
@@ -657,12 +635,7 @@ mod tests {
         }
     }
     impl ReadableField<TestEntity> for TestOptionalField {
-        fn read(
-            &self,
-            _schedule: &Schedule,
-            _entity_id: crate::entity::EntityId,
-            entity: &TestEntity,
-        ) -> Option<FieldValue> {
+        fn read(&self, _schedule: &Schedule, entity: &TestEntity) -> Option<FieldValue> {
             entity.optional_string.clone().map(FieldValue::String)
         }
         fn is_read_computed(&self) -> bool {
@@ -673,7 +646,6 @@ mod tests {
         fn write(
             &self,
             _schedule: &Schedule,
-            _entity_id: crate::entity::EntityId,
             entity: &mut TestEntity,
             value: FieldValue,
         ) -> Result<(), FieldError> {
@@ -706,12 +678,7 @@ mod tests {
         }
     }
     impl ReadableField<TestEntity> for TestOptionalValueField {
-        fn read(
-            &self,
-            _schedule: &Schedule,
-            _entity_id: crate::entity::EntityId,
-            entity: &TestEntity,
-        ) -> Option<FieldValue> {
+        fn read(&self, _schedule: &Schedule, entity: &TestEntity) -> Option<FieldValue> {
             entity.optional_value.map(FieldValue::Integer)
         }
         fn is_read_computed(&self) -> bool {
@@ -722,7 +689,6 @@ mod tests {
         fn write(
             &self,
             _schedule: &Schedule,
-            _entity_id: crate::entity::EntityId,
             entity: &mut TestEntity,
             value: FieldValue,
         ) -> Result<(), FieldError> {
@@ -746,7 +712,7 @@ mod tests {
         let entity = create_test_entity();
         let schedule = create_mock_schedule();
 
-        let value = ReadableField::read(&field, &schedule, 123, &entity);
+        let value = ReadableField::read(&field, &schedule, &entity);
         assert!(value.is_some());
 
         match value.unwrap() {
@@ -786,7 +752,7 @@ mod tests {
         let entity = create_test_entity();
         let schedule = create_mock_schedule();
 
-        let value = ReadableField::read(&field, &schedule, 123, &entity);
+        let value = ReadableField::read(&field, &schedule, &entity);
         assert!(value.is_some());
 
         match value.unwrap() {
@@ -804,7 +770,7 @@ mod tests {
         let result =
             WritableField::write(&field, &schedule, &mut entity, FieldValue::Boolean(false));
         assert!(result.is_ok());
-        assert_eq!(entity.flag, false);
+        assert!(!entity.flag);
     }
 
     // Computed field for testing
@@ -826,12 +792,7 @@ mod tests {
     }
 
     impl ReadableField<TestEntity> for ComputedTestField {
-        fn read(
-            &self,
-            _schedule: &Schedule,
-            _entity_id: crate::entity::EntityId,
-            entity: &TestEntity,
-        ) -> Option<FieldValue> {
+        fn read(&self, _schedule: &Schedule, entity: &TestEntity) -> Option<FieldValue> {
             Some(FieldValue::Integer(entity.value as i64 * 2))
         }
 
@@ -852,7 +813,7 @@ mod tests {
         assert_eq!(field.description(), "A computed test field");
 
         // Test ReadableField trait
-        let value = ReadableField::read(&field, &schedule, 123, &entity);
+        let value = ReadableField::read(&field, &schedule, &entity);
         assert!(value.is_some());
 
         match value.unwrap() {
@@ -882,12 +843,7 @@ mod tests {
     }
 
     impl ReadableField<TestEntity> for FullTestField {
-        fn read(
-            &self,
-            _schedule: &Schedule,
-            _entity_id: crate::entity::EntityId,
-            _entity: &TestEntity,
-        ) -> Option<FieldValue> {
+        fn read(&self, _schedule: &Schedule, _entity: &TestEntity) -> Option<FieldValue> {
             Some(FieldValue::String("read".to_string()))
         }
 
@@ -900,7 +856,6 @@ mod tests {
         fn write(
             &self,
             _schedule: &Schedule,
-            _entity_id: crate::entity::EntityId,
             _entity: &mut TestEntity,
             value: FieldValue,
         ) -> Result<(), FieldError> {
@@ -922,14 +877,13 @@ mod tests {
         let schedule = create_mock_schedule();
 
         // Should work as ReadableField
-        let value = ReadableField::read(&field, &schedule, 123, &entity);
+        let value = ReadableField::read(&field, &schedule, &entity);
         assert!(value.is_some());
 
         // Should work as WritableField
         let result = WritableField::write(
             &field,
             &schedule,
-            123,
             &mut entity.clone(),
             FieldValue::String("test".to_string()),
         );
@@ -938,7 +892,6 @@ mod tests {
         let result = WritableField::write(
             &field,
             &schedule,
-            123,
             &mut entity.clone(),
             FieldValue::Integer(999),
         );

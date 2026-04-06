@@ -9,12 +9,13 @@
 //! These tests verify that the macro-generated code works correctly when used
 //! from `schedule-data` where `crate::` paths resolve properly.
 
-use schedule_data::entity::{Edge, EdgeType, EventRoom, HotelRoom};
+use schedule_data::entity::event_room::EventRoomData;
+use schedule_data::entity::hotel_room::HotelRoomData;
+use schedule_data::entity::{EntityState, EntityType};
 use schedule_data::entity::{
-    EdgeEntityType, EventRoomEntityType, HotelRoomEntityType, PanelEntityType, PanelTypeEntityType,
+    EventRoomEntityType, HotelRoomEntityType, PanelEntityType, PanelTypeEntityType,
     PresenterEntityType,
 };
-use schedule_data::entity::{EntityState, EntityType};
 
 // ---------------------------------------------------------------------------
 // EntityType impl tests
@@ -43,11 +44,6 @@ fn presenter_entity_type_name() {
 #[test]
 fn panel_type_entity_type_name() {
     assert_eq!(PanelTypeEntityType::TYPE_NAME, "panel_type");
-}
-
-#[test]
-fn edge_entity_type_name() {
-    assert_eq!(EdgeEntityType::TYPE_NAME, "edge");
 }
 
 // ---------------------------------------------------------------------------
@@ -118,19 +114,25 @@ fn presenter_field_set_alias_lookup() {
 // ---------------------------------------------------------------------------
 
 #[allow(dead_code)]
-fn make_test_event_room() -> EventRoom {
-    EventRoom {
+fn make_test_event_room() -> EventRoomData {
+    EventRoomData {
+        entity_id: 0,
         short_name: "Main".to_string(),
         long_name: "Main Ballroom".to_string(),
         is_break: false,
+        get_panels: Vec::new(),
+        hotel_room: None,
+        sort_key_computed: None,
     }
 }
 
 #[allow(dead_code)]
-fn make_test_hotel_room() -> HotelRoom {
-    HotelRoom {
+fn make_test_hotel_room() -> HotelRoomData {
+    HotelRoomData {
+        entity_id: 0,
         hotel_room: "Ballroom A".to_string(),
         sort_key: 10,
+        event_rooms: Vec::new(),
     }
 }
 
@@ -175,42 +177,6 @@ fn hotel_room_read_hotel_room_field() {
     assert_eq!(field.name(), "hotel_room");
     assert_eq!(field.display_name(), "Hotel Room");
     assert_eq!(field.description(), "Physical hotel room");
-}
-
-// ---------------------------------------------------------------------------
-// Field read/write tests — Edge (computed fields)
-// ---------------------------------------------------------------------------
-
-#[allow(dead_code)]
-fn make_test_edge() -> Edge {
-    Edge {
-        from_uid: 1,
-        to_uid: 2,
-        edge_type: EdgeType::PanelToPresenter,
-        metadata: std::collections::HashMap::new(),
-    }
-}
-
-#[test]
-fn edge_field_set_has_computed_field() {
-    let fs = EdgeEntityType::field_set();
-    let field = fs.get_field("edge_type").expect("edge_type field exists");
-    assert_eq!(field.name(), "edge_type");
-    assert_eq!(field.display_name(), "Edge Type");
-}
-
-#[test]
-fn edge_field_set_alias() {
-    let fs = EdgeEntityType::field_set();
-    // "type" is an alias for edge_type
-    assert!(
-        fs.get_field("type").is_some(),
-        "should find edge_type via alias 'type'"
-    );
-    assert!(
-        fs.get_field("edgeType").is_some(),
-        "should find edge_type via alias 'edgeType'"
-    );
 }
 
 // ---------------------------------------------------------------------------
@@ -261,13 +227,10 @@ fn hotel_room_all_field_names_includes_aliases() {
 fn event_room_has_indexable_fields() {
     let fs = EventRoomEntityType::field_set();
     let indexable = fs.get_indexable_fields();
-    // NOTE: The macro parses #[indexable] but does not yet generate
-    // IndexableField trait impls. This test documents the current state
-    // and should be updated when IndexableField generation is implemented.
     assert_eq!(
         indexable.len(),
-        0,
-        "Indexable field generation not yet implemented in macro"
+        2,
+        "EventRoom should have 2 indexable fields (short_name and long_name)"
     );
 }
 
@@ -275,13 +238,10 @@ fn event_room_has_indexable_fields() {
 fn hotel_room_has_indexable_fields() {
     let fs = HotelRoomEntityType::field_set();
     let indexable = fs.get_indexable_fields();
-    // NOTE: The macro parses #[indexable] but does not yet generate
-    // IndexableField trait impls. This test documents the current state
-    // and should be updated when IndexableField generation is implemented.
     assert_eq!(
         indexable.len(),
-        0,
-        "Indexable field generation not yet implemented in macro"
+        1,
+        "HotelRoom should have 1 indexable field (hotel_room)"
     );
 }
 

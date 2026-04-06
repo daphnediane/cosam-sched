@@ -167,9 +167,19 @@ mod tests {
     // Mock entity type for testing
     #[derive(Debug, Clone)]
     struct TestEntity {
+        entity_id: crate::entity::EntityId,
         id: u32,
         name: String,
         value: i32,
+    }
+
+    impl crate::entity::InternalData for TestEntity {
+        fn entity_id(&self) -> crate::entity::EntityId {
+            self.entity_id
+        }
+        fn set_entity_id(&mut self, id: crate::entity::EntityId) {
+            self.entity_id = id;
+        }
     }
 
     // Mock EntityType implementation

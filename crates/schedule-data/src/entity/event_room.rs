@@ -35,10 +35,10 @@ pub struct EventRoom {
         description = "Panels scheduled in this room"
     )]
     #[alias("panels", "scheduled_panels")]
-    #[read(|schedule: &crate::schedule::Schedule, entity_id: crate::entity::EntityId, entity: &EventRoom| {
+    #[read(|schedule: &crate::schedule::Schedule, entity: &EventRoomData| {
         let panel_ids = schedule.find_related::<crate::entity::PanelEntityType>(
-            entity_id, 
-            crate::edge::EdgeType::PanelToEventRoom, 
+            entity.entity_id,
+            crate::edge::EdgeType::PanelToEventRoom,
             crate::schedule::RelationshipDirection::Incoming
         );
         Some(crate::field::FieldValue::List(
@@ -48,6 +48,7 @@ pub struct EventRoom {
                 .collect()
         ))
     })]
+    pub get_panels: Vec<crate::entity::EntityId>,
 
     #[computed_field(
         name = "hotel_room",
@@ -55,10 +56,10 @@ pub struct EventRoom {
         description = "Hotel room that maps to this event room"
     )]
     #[alias("hotel", "physical_room")]
-    #[read(|schedule: &crate::schedule::Schedule, entity_id: crate::entity::EntityId, entity: &EventRoom| {
+    #[read(|schedule: &crate::schedule::Schedule, entity: &EventRoomData| {
         let hotel_room_ids = schedule.find_related::<crate::entity::HotelRoomEntityType>(
-            entity_id, 
-            crate::edge::EdgeType::EventRoomToHotelRoom, 
+            entity.entity_id,
+            crate::edge::EdgeType::EventRoomToHotelRoom,
             crate::schedule::RelationshipDirection::Outgoing
         );
         if let Some(hotel_room_id) = hotel_room_ids.first() {
@@ -68,6 +69,7 @@ pub struct EventRoom {
         }
         None
     })]
+    pub hotel_room: Option<String>,
 
     #[computed_field(
         name = "sort_key",
@@ -75,10 +77,10 @@ pub struct EventRoom {
         description = "Sort key from hotel room"
     )]
     #[alias("sort", "order")]
-    #[read(|schedule: &crate::schedule::Schedule, entity_id: crate::entity::EntityId, entity: &EventRoom| {
+    #[read(|schedule: &crate::schedule::Schedule, entity: &EventRoomData| {
         let hotel_room_ids = schedule.find_related::<crate::entity::HotelRoomEntityType>(
-            entity_id, 
-            crate::edge::EdgeType::EventRoomToHotelRoom, 
+            entity.entity_id,
+            crate::edge::EdgeType::EventRoomToHotelRoom,
             crate::schedule::RelationshipDirection::Outgoing
         );
         if let Some(hotel_room_id) = hotel_room_ids.first() {
@@ -88,8 +90,5 @@ pub struct EventRoom {
         }
         None
     })]
-    
-    // Internal metadata field for entities with only computed fields
-    #[field(display = "Internal Version", description = "Internal struct version for compatibility")]
-    pub _version: u8,
+    pub sort_key_computed: Option<i64>,
 }

@@ -6,12 +6,13 @@
 
 //! Direct tests for indexable field implementations
 
-use schedule_data::entity::panel::Panel;
+use schedule_data::entity::panel::PanelData;
 use schedule_data::field::traits::{match_priority, IndexableField, NamedField};
 
 #[test]
 fn test_direct_panel_uid_indexable() {
-    let panel = Panel {
+    let panel = PanelData {
+        entity_id: 0,
         uid: "panel-123".to_string(),
         base_uid: None,
         part_num: None,
@@ -40,6 +41,9 @@ fn test_direct_panel_uid_indexable() {
         workshop_notes: None,
         power_needs: None,
         av_notes: None,
+        presenters: Vec::new(),
+        event_room: None,
+        panel_type: None,
     };
 
     // Test the UID field directly using the generated field struct
@@ -70,7 +74,8 @@ fn test_direct_panel_uid_indexable() {
 
 #[test]
 fn test_direct_panel_name_indexable() {
-    let panel = Panel {
+    let panel = PanelData {
+        entity_id: 0,
         uid: "panel-123".to_string(),
         base_uid: None,
         part_num: None,
@@ -99,6 +104,9 @@ fn test_direct_panel_name_indexable() {
         workshop_notes: None,
         power_needs: None,
         av_notes: None,
+        presenters: Vec::new(),
+        event_room: None,
+        panel_type: None,
     };
 
     // Test the name field directly using the generated field struct
