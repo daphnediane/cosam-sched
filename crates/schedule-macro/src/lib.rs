@@ -31,8 +31,8 @@
 //! | Attribute | Example | Effect |
 //! |-----------|---------|--------|
 //! | `#[computed_field(display = "…", description = "…")]` | — | Marks field as computed (user provides closures) |
-//! | `#[read(\|entity: &T\| { … })]` | See `edge.rs` | Read closure; may take `schedule` as first param |
-//! | `#[write(\|entity: &mut T, value: FieldValue\| { … })]` | See `edge.rs` | Write closure; may take `schedule` as first param |
+//! | `#[read(\|schedule: &Schedule, entity_id: EntityId, entity: &T\| { … })]` | See `edge.rs` | Read closure; takes schedule, entity_id, and entity |
+//! | `#[write(\|schedule: &Schedule, entity_id: EntityId, entity: &mut T, value: FieldValue\| { … })]` | See `edge.rs` | Write closure; takes schedule, entity_id, entity, and value |
 //! | `#[validate(\|entity, value\| { … })]` | — | Validation closure (parsed but not yet wired up) |
 //!
 //! **Important**: Closure parameters must have explicit type annotations
@@ -206,27 +206,27 @@ pub fn derive_entity_fields(input: TokenStream) -> TokenStream {
     );
 
     // Generate the complete implementation
-    let expanded = quote! {
-        #(#field_implementations)*
+    let field_set_impl = if field_struct_names.is_empty() {
+        quote! {
+            fn field_set() -> &'static crate::field::field_set::FieldSet<Self> {
+                static FIELD_SET: std::sync::LazyLock<&'static crate::field::field_set::FieldSet<#entity_type_struct_name>> =
+                    std::sync::LazyLock::new(|| {
+                        let field_refs: Vec<&dyn crate::field::traits::NamedField> = vec![];
+                        let field_slice = field_refs.leak();
 
-        #(#computed_field_implementations)*
+                        let name_map_entries: Vec<(&str, &dyn crate::field::traits::NamedField)> = vec![];
+                        let name_map = name_map_entries.leak();
 
-        /// Generated field constants
-        pub mod fields {
-            use super::*;
-
-            #(#field_constants)*
+                        let indexable_fields: &[&dyn crate::field::traits::IndexableField<#entity_type_struct_name>] = &[];
+                        let required: &[&str] = &[];
+                        let fs = crate::field::field_set::FieldSet::new(field_slice, name_map, required, indexable_fields);
+                        Box::leak(Box::new(fs))
+                    });
+                *FIELD_SET
+            }
         }
-
-        /// Generated EntityType struct for #struct_name
-        #[derive(Debug)]
-        pub struct #entity_type_struct_name;
-
-        impl crate::entity::EntityType for #entity_type_struct_name {
-            type Data = #struct_name;
-
-            const TYPE_NAME: &'static str = #type_name_str;
-
+    } else {
+        quote! {
             fn field_set() -> &'static crate::field::field_set::FieldSet<Self> {
                 static FIELD_SET: std::sync::LazyLock<&'static crate::field::field_set::FieldSet<#entity_type_struct_name>> =
                     std::sync::LazyLock::new(|| {
@@ -252,6 +252,31 @@ pub fn derive_entity_fields(input: TokenStream) -> TokenStream {
                     });
                 *FIELD_SET
             }
+        }
+    };
+
+    let expanded = quote! {
+        #(#field_implementations)*
+
+        #(#computed_field_implementations)*
+
+        /// Generated field constants
+        pub mod fields {
+            use super::*;
+
+            #(#field_constants)*
+        }
+
+        /// Generated EntityType struct for #struct_name
+        #[derive(Debug)]
+        pub struct #entity_type_struct_name;
+
+        impl crate::entity::EntityType for #entity_type_struct_name {
+            type Data = #struct_name;
+
+            const TYPE_NAME: &'static str = #type_name_str;
+
+            #field_set_impl
 
             fn validate(data: &Self::Data) -> Result<(), crate::field::validation::ValidationError> {
                 #(#required_field_validations)*
@@ -1071,9 +1096,9 @@ fn generate_computed_field(struct_name: &SynIdent, field: &Field) -> TokenStream
                 where
                     Self: crate::field::traits::NamedField + 'static + Send + Sync
                 {
-                    fn read(&self, entity: &<#entity_type_struct_name as crate::entity::EntityType>::Data, schedule: &crate::schedule::Schedule) -> Option<crate::field::FieldValue> {
+                    fn read(&self, schedule: &crate::schedule::Schedule, entity_id: crate::entity::EntityId, entity: &<#entity_type_struct_name as crate::entity::EntityType>::Data) -> Option<crate::field::FieldValue> {
                         let entity: &#struct_name = entity;
-                        (#closure)(schedule, entity)
+                        (#closure)(schedule, entity_id, entity)
                     }
 
                     fn is_read_computed(&self) -> bool {
@@ -1110,10 +1135,10 @@ fn generate_computed_field(struct_name: &SynIdent, field: &Field) -> TokenStream
                 where
                     Self: crate::field::traits::NamedField + 'static + Send + Sync
                 {
-                    fn write(&self, schedule: &crate::schedule::Schedule, entity: &mut <#entity_type_struct_name as crate::entity::EntityType>::Data, value: crate::field::FieldValue) -> Result<(), crate::field::FieldError> {
+                    fn write(&self, schedule: &crate::schedule::Schedule, entity_id: crate::entity::EntityId, entity: &mut <#entity_type_struct_name as crate::entity::EntityType>::Data, value: crate::field::FieldValue) -> Result<(), crate::field::FieldError> {
                         let entity: &mut #struct_name = entity;
                         let value: crate::field::FieldValue = value;
-                        (#closure)(schedule, entity, value)
+                        (#closure)(schedule, entity_id, entity, value)
                     }
 
                     fn is_write_computed(&self) -> bool {

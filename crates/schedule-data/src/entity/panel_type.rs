@@ -90,4 +90,26 @@ pub struct PanelType {
     #[field(display = "B&W Color", description = "Black and white display color")]
     #[alias("bw", "bw_color", "bw_color", "monochrome_color")]
     pub bw_color: Option<String>,
+
+    #[computed_field(
+        display = "Panels",
+        description = "All panels of this type"
+    )]
+    #[alias("panels_of_type", "panel_list", "typed_panels")]
+    #[read(|schedule: &crate::schedule::Schedule, entity_id: crate::entity::EntityId, entity: &PanelType| {
+        let panel_ids = schedule.find_related::<crate::entity::PanelEntityType>(
+            entity_id, 
+            crate::edge::EdgeType::PanelToPanelType, 
+            crate::schedule::RelationshipDirection::Incoming
+        );
+        Some(crate::field::FieldValue::List(
+            schedule.get_entity_names::<crate::entity::PanelEntityType>(&panel_ids)
+                .into_iter()
+                .map(crate::field::FieldValue::String)
+                .collect()
+        ))
+    })]
+    // Internal metadata field for entities with only computed fields
+    #[field(display = "Internal Version", description = "Internal struct version for compatibility")]
+    pub _version: u8,
 }
