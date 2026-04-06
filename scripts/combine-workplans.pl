@@ -445,14 +445,19 @@ sub get_relative_path {
 sub determine_target_directory {
     my ( $item ) = @_;
 
-    # Use status mapping first
-    if ( exists $status_dirs{ $item->{ status } } ) {
-        return $status_dirs{ $item->{ status } };
+    # Completed items always go to done directory
+    if ( $item->{ status } eq 'Completed' ) {
+        return 'done';
     }
 
-    # Fall back to priority mapping
+    # Use priority mapping for non-completed items
     if ( exists $priority_defaults{ $item->{ priority } } ) {
         return $priority_defaults{ $item->{ priority } };
+    }
+
+    # Fall back to status mapping for remaining cases
+    if ( exists $status_dirs{ $item->{ status } } ) {
+        return $status_dirs{ $item->{ status } };
     }
 
     # Default to medium for unknown cases

@@ -141,17 +141,17 @@ function Import-WorkplanFile {
 
 function Set-WorkplanOrder {
     param([array]$Items)
-    
-    return $Items | Sort-Object -Property @{
-        Expression = { 
-            $prio = if ($PriorityOrder.ContainsKey($_.Priority)) { $PriorityOrder[$_.Priority] } else { 999 }
-            return $prio
-        }
-    }, @{
-        Expression = { $_.Prefix }
-    }, @{
-        Expression = { [int]$_.Number }  # Convert to int only for sorting
+
+    # Add sort properties to each item
+    foreach ($item in $Items) {
+        $prio = if ($PriorityOrder.ContainsKey($item.Priority)) { $PriorityOrder[$item.Priority] } else { 999 }
+        $item | Add-Member -NotePropertyName 'SortPriority' -NotePropertyValue $prio -Force
+        $item | Add-Member -NotePropertyName 'SortNumber' -NotePropertyValue ([int]$item.Number) -Force
     }
+
+    # Sort using Sort-Object with scriptblock syntax to avoid single-item array bug
+    $sorted = @($Items | Sort-Object { $_.SortPriority }, { $_.Prefix }, { $_.SortNumber })
+    return $sorted
 }
 
 function New-WorkPlanContent {
@@ -195,7 +195,11 @@ function New-WorkPlanContent {
         $content += "## Completed"
         $content += ""
         
-        $sortedCompleted = $completed | Sort-Object -Property Prefix, @{Expression = { [int]$_.Number } }
+        # Add SortNumber and sort
+        foreach ($item in $completed) {
+            $item | Add-Member -NotePropertyName 'SortNumber' -NotePropertyValue ([int]$item.Number) -Force
+        }
+        $sortedCompleted = @($completed | Sort-Object { $_.Prefix }, { $_.SortNumber })
         foreach ($item in $sortedCompleted) {
             $linkId = "$($item.Prefix)-$($item.Number)"
             $allLinks[$linkId] = Get-RelativePath -Item $item
@@ -224,7 +228,11 @@ function New-WorkPlanContent {
             
             $content += "* **$priority Priority**"
             
-            $sortedItems = $group.Group | Sort-Object -Property Prefix, @{Expression = { [int]$_.Number } }
+            # Add SortNumber and sort
+            foreach ($item in $group.Group) {
+                $item | Add-Member -NotePropertyName 'SortNumber' -NotePropertyValue ([int]$item.Number) -Force
+            }
+            $sortedItems = @($group.Group | Sort-Object { $_.Prefix }, { $_.SortNumber })
             foreach ($item in $sortedItems) {
                 $linkId = "$($item.Prefix)-$($item.Number)"
                 $allLinks[$linkId] = Get-RelativePath -Item $item
@@ -306,7 +314,8 @@ function New-WorkPlanContent {
             $content += "The following ID numbers are used by multiple items:"
             $content += ""
             
-            foreach ($conflictId in ($actualConflicts.Keys | Sort-Object { [int]$_ })) {
+            $sortedConflictIds = $actualConflicts.Keys | ForEach-Object { [int]$_ } | Sort-Object | ForEach-Object { "{0}" -f $_ }
+            foreach ($conflictId in $sortedConflictIds) {
                 $content += "#### Suffix `"{0:D3}`"" -f $conflictId
                 $content += ""
                 foreach ($item in $actualConflicts[$conflictId]) {
@@ -334,8 +343,16 @@ function New-WorkPlanContent {
     foreach ($prefix in ($openByPrefix.Keys | Sort-Object)) {
         $content += "## Open $prefix Items"
         $content += ""
-        
-        $sortedItems = $openByPrefix[$prefix] | Sort-Object -Property @{Expression = { [int]$_.Number } }
+
+        # Add SortNumber and sort
+        $groupItems = $openByPrefix[$prefix]
+
+        foreach ($item in $groupItems) {
+            $item | Add-Member -NotePropertyName 'SortNumber' -NotePropertyValue ([int]$item.Number) -Force
+        }
+        # Sort by priority first, then by number (matches Perl behavior)
+        $sortedItems = @($groupItems | Sort-Object { $_.SortPriority }, { $_.SortNumber })
+
         for ($i = 0; $i -lt $sortedItems.Count; $i++) {
             $item = $sortedItems[$i]
             
@@ -443,14 +460,19 @@ function Invoke-FileReorganization {
 function Get-TargetDirectory {
     param([hashtable]$Item)
     
-    # Use status mapping first
-    if ($StatusDirs.ContainsKey($Item.Status)) {
-        return $StatusDirs[$Item.Status]
+    # Completed items always go to done directory
+    if ($Item.Status -eq 'Completed') {
+        return 'done'
     }
     
-    # Fall back to priority mapping
+    # Use priority mapping for non-completed items
     if ($PriorityDefaults.ContainsKey($Item.Priority)) {
         return $PriorityDefaults[$Item.Priority]
+    }
+    
+    # Fall back to status mapping for remaining cases
+    if ($StatusDirs.ContainsKey($Item.Status)) {
+        return $StatusDirs[$Item.Status]
     }
     
     # Default to medium for unknown cases
@@ -497,8 +519,8 @@ try {
         New-Item -ItemType Directory -Path $outputDir -Force | Out-Null
     }
     
-    # Write output file with LF line endings
-    $contentLf = $content -replace "`r`n", "`n"
+    # Write output file with LF line endings (add trailing newline to match Perl)
+    $contentLf = ($content -replace "`r`n", "`n") + "`n"
     $contentLf | Out-File -FilePath $OutputFile -Encoding UTF8 -NoNewline
     
     Write-Status "Generated $OutputFile with $($items.Count) work items"
@@ -508,7 +530,7 @@ try {
     
     # Regenerate WORK_PLAN.md with updated file paths
     $content = New-WorkPlanContent -Items $items
-    $contentLf = $content -replace "`r`n", "`n"
+    $contentLf = ($content -replace "`r`n", "`n") + "`n"
     $contentLf | Out-File -FilePath $OutputFile -Encoding UTF8 -NoNewline
     
     Write-Status "File reorganization complete"
