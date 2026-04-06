@@ -321,6 +321,8 @@ This document is generated from the structured documentation in [json-schedule](
 ## Related Documentation
 
 - [JSON Schedule Documentation](json-schedule/) - Complete structured documentation
+- [Display Format v10](json-v10-display.md) - Public-facing schedule format with DisplayPresenter objects and filtered presenter list.
+- [Full Format v10](json-v10-full.md) - Complete internal schedule format with flat presenter relationship fields and edit history support.
 - [Schedule JSON Format v4](json-format-v4.md) - This document describes version 4 of the schedule JSON format. V4 introduces timeline support and time types while maintaining backward compatibility with earlier versions.
 - [Schedule JSON Format v5 - Public/Widget](json-public-v5.md) - This document describes version 5 of the schedule JSON format, public/widget variant. This format is produced by the Rust converter or editor in public export mode and consumed by the schedule widget.
 - [v6-Private](json-private-v6.md) - Private format documentation for JSON schedule format v6.
