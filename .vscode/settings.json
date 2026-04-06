@@ -1,0 +1,7 @@
+{
+    "perl.perlInc": [
+        "${workspaceFolder}/local/lib/perl5",
+        "local/lib/perl5"
+    ],
+    "perltidy.profile": ".../.perltidyrc"
+}

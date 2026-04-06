@@ -9,14 +9,23 @@
 .*
 
 # Keep some vscode files
-!.vscode
-.vscode/*
-!.vscode/launch.json
-!.vscode/settings.json
+!/.vscode
+/.vscode/perl-lang
+
+# Keep work plan files
+!/.windsurf
+/.windsurf/*
+!/.windsurf/rules
 
 # Keep some config files
-!.clang-format
-!.devcontainer
-!.gitignore
+!/.devcontainer
+!.git*[^~]
 !.perlcriticrc
 !.perltidyrc
+
+# Ignore target directory
+/target
+
+# Ignore input and output directory
+/input
+/output
