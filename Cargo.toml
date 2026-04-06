@@ -1,10 +1,11 @@
 [workspace]
 members = [
-    "crates/schedule-core",
     "crates/schedule-data",
     "crates/schedule-macro",
-    "apps/cosam-editor",
-    "apps/cosam-convert",
-    "apps/cosam-modify",
+    # Disabled until ported to schedule-data
+    # "crates/schedule-core",
+    # "apps/cosam-editor",
+    # "apps/cosam-convert",
+    # "apps/cosam-modify",
 ]
 resolver = "2"

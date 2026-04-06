@@ -31,8 +31,8 @@
 //! | Attribute | Example | Effect |
 //! |-----------|---------|--------|
 //! | `#[computed_field(display = "…", description = "…")]` | — | Marks field as computed (user provides closures) |
-//! | `#[read(\|schedule: &Schedule, entity_id: EntityId, entity: &T\| { … })]` | See `edge.rs` | Read closure; takes schedule, entity_id, and entity |
-//! | `#[write(\|schedule: &Schedule, entity_id: EntityId, entity: &mut T, value: FieldValue\| { … })]` | See `edge.rs` | Write closure; takes schedule, entity_id, entity, and value |
+//! | `#[read(\|schedule: &Schedule, entity: &T\| { … })]` | See `edge.rs` | Read closure; takes schedule and entity (entity_id available via entity.entity_id) |
+//! | `#[write(\|schedule: &Schedule, entity: &mut T, value: FieldValue\| { … })]` | See `edge.rs` | Write closure; takes schedule, entity, and value |
 //! | `#[validate(\|entity, value\| { … })]` | — | Validation closure (parsed but not yet wired up) |
 //!
 //! **Important**: Closure parameters must have explicit type annotations
@@ -46,10 +46,11 @@
 //! impls (or `ReadableField`/`WritableField` for computed fields needing
 //! schedule access).  A `pub static` constant is emitted for each field.
 //!
-//! It also generates a separate `EntityType` struct (e.g., `RoomEntityType`) with `impl EntityType for RoomEntityType`,
-//! `type Data = Room`, `TYPE_NAME` as the lowercase struct name, and a `LazyLock`-based
-//! `field_set()` containing all fields, aliases, required list, and
-//! indexable list.
+//! It also generates:
+//! - A `<Name>Data` internal storage struct with only stored fields plus `entity_id: EntityId`
+//! - A separate `EntityType` struct (e.g., `RoomEntityType`) with `impl EntityType for RoomEntityType`,
+//!   `type Data = RoomData`, `TYPE_NAME` as the lowercase struct name, and a `LazyLock`-based
+//!   `field_set()` containing all fields, aliases, required list, and indexable list.
 
 use proc_macro::TokenStream;
 use proc_macro2::{Ident, TokenStream as TokenStream2};
@@ -93,6 +94,19 @@ pub fn derive_entity_fields(input: TokenStream) -> TokenStream {
     let mut alias_mappings: Vec<TokenStream2> = Vec::new();
     let mut indexable_field_names: Vec<Ident> = Vec::new();
 
+    // Track stored fields for internal Data struct generation
+    let mut stored_field_defs: Vec<TokenStream2> = Vec::new();
+    let mut stored_field_names_for_copy: Vec<SynIdent> = Vec::new();
+    // Track computed fields for to_public generation
+    let mut computed_field_names_for_public: Vec<SynIdent> = Vec::new();
+    let mut computed_field_types_for_public: Vec<Type> = Vec::new();
+
+    // Generate the internal data struct name (e.g., PanelData)
+    let data_struct_name = Ident::new(
+        &format!("{}Data", struct_name),
+        proc_macro2::Span::call_site(),
+    );
+
     for field in &data.fields {
         if let Some(field_name) = &field.ident {
             let field_name_str = field_name.to_string();
@@ -104,12 +118,24 @@ pub fn derive_entity_fields(input: TokenStream) -> TokenStream {
 
             // Check if this is a computed field FIRST
             if is_computed_field(field) {
-                let computed_impl = generate_computed_field(struct_name, field);
+                let computed_impl = generate_computed_field(struct_name, &data_struct_name, field);
                 computed_field_implementations.push(computed_impl);
 
                 // Add computed field to field set tracking so it appears in
                 // the name_map and fields list
                 field_names.push(field_name_str.clone());
+
+                // Track for public struct generation
+                computed_field_names_for_public.push(field_name.clone());
+                computed_field_types_for_public.push(field.ty.clone());
+
+                // Include backing storage in the internal Data struct —
+                // computed field closures may read/write the underlying field
+                let field_ty = &field.ty;
+                stored_field_defs.push(quote! {
+                    pub #field_name: #field_ty,
+                });
+                stored_field_names_for_copy.push(field_name.clone());
 
                 // Generate alias mappings for computed fields too
                 if let Some(aliases) = parse_field_aliases(&field.attrs) {
@@ -134,6 +160,13 @@ pub fn derive_entity_fields(input: TokenStream) -> TokenStream {
 
                     // Add to field names for field set generation
                     field_names.push(field_name_str.clone());
+
+                    // Track stored field for internal Data struct
+                    let field_ty = &field.ty;
+                    stored_field_defs.push(quote! {
+                        pub #field_name: #field_ty,
+                    });
+                    stored_field_names_for_copy.push(field_name.clone());
 
                     // Check if field is required
                     let is_required = has_required_attribute(&field.attrs);
@@ -185,6 +218,14 @@ pub fn derive_entity_fields(input: TokenStream) -> TokenStream {
                             });
                         }
                     }
+                } else {
+                    // Field without #[field] attribute — still include in internal Data struct
+                    // (e.g., time_range, rank, sort_rank) as non-field storage
+                    let field_ty = &field.ty;
+                    stored_field_defs.push(quote! {
+                        pub #field_name: #field_ty,
+                    });
+                    stored_field_names_for_copy.push(field_name.clone());
                 }
             }
         }
@@ -256,6 +297,14 @@ pub fn derive_entity_fields(input: TokenStream) -> TokenStream {
     };
 
     let expanded = quote! {
+        /// Generated internal storage struct for #struct_name.
+        /// Fields are crate-private; external code should use the field system.
+        #[derive(Debug, Clone)]
+        pub struct #data_struct_name {
+            pub entity_id: crate::entity::EntityId,
+            #(#stored_field_defs)*
+        }
+
         #(#field_implementations)*
 
         #(#computed_field_implementations)*
@@ -271,8 +320,18 @@ pub fn derive_entity_fields(input: TokenStream) -> TokenStream {
         #[derive(Debug)]
         pub struct #entity_type_struct_name;
 
+        impl crate::entity::InternalData for #data_struct_name {
+            fn entity_id(&self) -> crate::entity::EntityId {
+                self.entity_id
+            }
+
+            fn set_entity_id(&mut self, id: crate::entity::EntityId) {
+                self.entity_id = id;
+            }
+        }
+
         impl crate::entity::EntityType for #entity_type_struct_name {
-            type Data = #struct_name;
+            type Data = #data_struct_name;
 
             const TYPE_NAME: &'static str = #type_name_str;
 
@@ -989,7 +1048,11 @@ fn supports_automatic_write(ty: &Type) -> bool {
 }
 
 /// Generate computed field implementation
-fn generate_computed_field(struct_name: &SynIdent, field: &Field) -> TokenStream2 {
+fn generate_computed_field(
+    struct_name: &SynIdent,
+    data_struct_name: &Ident,
+    field: &Field,
+) -> TokenStream2 {
     let field_name = field.ident.as_ref().unwrap();
     let field_struct_name = generate_field_struct_name(struct_name, &field_name.to_string());
     let field_name_str = field_name.to_string();
@@ -1096,9 +1159,9 @@ fn generate_computed_field(struct_name: &SynIdent, field: &Field) -> TokenStream
                 where
                     Self: crate::field::traits::NamedField + 'static + Send + Sync
                 {
-                    fn read(&self, schedule: &crate::schedule::Schedule, entity_id: crate::entity::EntityId, entity: &<#entity_type_struct_name as crate::entity::EntityType>::Data) -> Option<crate::field::FieldValue> {
-                        let entity: &#struct_name = entity;
-                        (#closure)(schedule, entity_id, entity)
+                    fn read(&self, schedule: &crate::schedule::Schedule, entity: &<#entity_type_struct_name as crate::entity::EntityType>::Data) -> Option<crate::field::FieldValue> {
+                        let entity: &#data_struct_name = entity;
+                        (#closure)(schedule, entity)
                     }
 
                     fn is_read_computed(&self) -> bool {
@@ -1113,7 +1176,7 @@ fn generate_computed_field(struct_name: &SynIdent, field: &Field) -> TokenStream
                     Self: crate::field::traits::NamedField + 'static + Send + Sync
                 {
                     fn read(&self, entity: &<#entity_type_struct_name as crate::entity::EntityType>::Data) -> Option<crate::field::FieldValue> {
-                        let entity: &#struct_name = entity;
+                        let entity: &#data_struct_name = entity;
                         (#closure)(entity)
                     }
 
@@ -1135,10 +1198,10 @@ fn generate_computed_field(struct_name: &SynIdent, field: &Field) -> TokenStream
                 where
                     Self: crate::field::traits::NamedField + 'static + Send + Sync
                 {
-                    fn write(&self, schedule: &crate::schedule::Schedule, entity_id: crate::entity::EntityId, entity: &mut <#entity_type_struct_name as crate::entity::EntityType>::Data, value: crate::field::FieldValue) -> Result<(), crate::field::FieldError> {
-                        let entity: &mut #struct_name = entity;
+                    fn write(&self, schedule: &crate::schedule::Schedule, entity: &mut <#entity_type_struct_name as crate::entity::EntityType>::Data, value: crate::field::FieldValue) -> Result<(), crate::field::FieldError> {
+                        let entity: &mut #data_struct_name = entity;
                         let value: crate::field::FieldValue = value;
-                        (#closure)(schedule, entity_id, entity, value)
+                        (#closure)(schedule, entity, value)
                     }
 
                     fn is_write_computed(&self) -> bool {
@@ -1153,7 +1216,7 @@ fn generate_computed_field(struct_name: &SynIdent, field: &Field) -> TokenStream
                     Self: crate::field::traits::NamedField + 'static + Send + Sync
                 {
                     fn write(&self, entity: &mut <#entity_type_struct_name as crate::entity::EntityType>::Data, value: crate::field::FieldValue) -> Result<(), crate::field::FieldError> {
-                        let entity: &mut #struct_name = entity;
+                        let entity: &mut #data_struct_name = entity;
                         let value: crate::field::FieldValue = value;
                         (#closure)(entity, value)
                     }

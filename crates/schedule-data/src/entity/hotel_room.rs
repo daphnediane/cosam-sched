@@ -25,10 +25,10 @@ pub struct HotelRoom {
         description = "All event rooms that map to this hotel room"
     )]
     #[alias("event_rooms", "rooms", "mapped_rooms")]
-    #[read(|schedule: &crate::schedule::Schedule, entity_id: crate::entity::EntityId, entity: &HotelRoom| {
+    #[read(|schedule: &crate::schedule::Schedule, entity: &HotelRoomData| {
         let event_room_ids = schedule.find_related::<crate::entity::EventRoomEntityType>(
-            entity_id, 
-            crate::edge::EdgeType::EventRoomToHotelRoom, 
+            entity.entity_id,
+            crate::edge::EdgeType::EventRoomToHotelRoom,
             crate::schedule::RelationshipDirection::Incoming
         );
         Some(crate::field::FieldValue::List(
@@ -38,7 +38,5 @@ pub struct HotelRoom {
                 .collect()
         ))
     })]
-    // Internal metadata field for entities with only computed fields
-    #[field(display = "Internal Version", description = "Internal struct version for compatibility")]
-    pub _version: u8,
+    pub event_rooms: Vec<crate::entity::EntityId>,
 }

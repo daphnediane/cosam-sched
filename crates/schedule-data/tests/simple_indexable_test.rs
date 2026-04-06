@@ -6,13 +6,14 @@
 
 //! Simple tests for indexable field functionality
 
-use schedule_data::entity::panel::Panel;
+use schedule_data::entity::panel::PanelData;
 use schedule_data::entity::EntityType;
 use schedule_data::field::traits::{match_priority, IndexableField};
 
 #[test]
 fn test_panel_indexable_functionality() {
-    let panel = Panel {
+    let panel = PanelData {
+        entity_id: 0,
         uid: "panel-123".to_string(),
         base_uid: None,
         part_num: None,
@@ -41,6 +42,9 @@ fn test_panel_indexable_functionality() {
         workshop_notes: None,
         power_needs: None,
         av_notes: None,
+        presenters: Vec::new(),
+        event_room: None,
+        panel_type: None,
     };
 
     // Test that we can access the field set and indexable fields
@@ -99,7 +103,7 @@ fn test_panel_indexable_functionality() {
             );
 
             // Test that "shop" would match "Work Shop Room" but not "Workshop"
-            let workshop_panel = Panel {
+            let workshop_panel = PanelData {
                 name: "Work Shop Room-3".to_string(),
                 ..panel.clone()
             };
@@ -110,7 +114,7 @@ fn test_panel_indexable_functionality() {
             );
             assert_eq!(result.unwrap(), 82); // Scaled average match: (100 * 210) / 255 = 82
 
-            let workshop_panel2 = Panel {
+            let workshop_panel2 = PanelData {
                 name: "Workshop rooming".to_string(),
                 ..panel.clone()
             };

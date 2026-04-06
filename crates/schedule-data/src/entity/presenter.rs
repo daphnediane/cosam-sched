@@ -7,7 +7,6 @@
 //! Presenter entity implementation
 
 use crate::entity::presenter_rank::PresenterRank;
-use crate::field::{FieldError, FieldValue};
 use crate::EntityFields;
 use serde::{Deserialize, Serialize};
 use std::fmt;
@@ -100,10 +99,10 @@ pub struct Presenter {
         description = "Presenter's classification or rank"
     )]
     #[alias("classification", "rank", "class", "presenter_rank")]
-    #[read(|entity: &Presenter| {
+    #[read(|entity: &PresenterData| {
         Some(crate::field::FieldValue::String(entity.rank.to_string()))
     })]
-    #[write(|entity: &mut Presenter, value: crate::field::FieldValue| {
+    #[write(|entity: &mut PresenterData, value: crate::field::FieldValue| {
         if let crate::field::FieldValue::String(s) = value {
             entity.rank = PresenterRank::from_str(&s);
             Ok(())
@@ -118,14 +117,14 @@ pub struct Presenter {
         description = "Presenter ordering information [rank_priority, column, row, member]"
     )]
     #[alias("index_rank", "sort_rank")]
-    #[read(|entity: &Presenter| {
+    #[read(|entity: &PresenterData| {
         if let Some(sort_rank) = &entity.sort_rank {
             Some(crate::field::FieldValue::List(sort_rank.to_tuple(entity.rank.priority()).into_iter().map(|x| crate::field::FieldValue::Integer(x as i64)).collect()))
         } else {
             None
         }
     })]
-    #[write(|entity: &mut Presenter, value: crate::field::FieldValue| {
+    #[write(|entity: &mut PresenterData, value: crate::field::FieldValue| {
         if let crate::field::FieldValue::List(values) = value {
             let int_values: Vec<u64> = values.iter().filter_map(|x| {
                 if let crate::field::FieldValue::Integer(i) = x {
@@ -179,8 +178,8 @@ pub struct Presenter {
         description = "All groups this presenter belongs to"
     )]
     #[alias("presenter_groups", "group_list")]
-    #[read(|schedule: &crate::schedule::Schedule, entity_id: crate::entity::EntityId, entity: &Presenter| {
-        let group_ids = schedule.get_presenter_groups(entity_id);
+    #[read(|schedule: &crate::schedule::Schedule, entity: &PresenterData| {
+        let group_ids = schedule.get_presenter_groups(entity.entity_id);
         Some(crate::field::FieldValue::List(
             schedule.get_entity_names::<crate::entity::PresenterEntityType>(&group_ids)
                 .into_iter()
@@ -188,13 +187,15 @@ pub struct Presenter {
                 .collect()
         ))
     })]
+    pub groups: Vec<crate::entity::EntityId>,
+
     #[computed_field(
         display = "Members",
         description = "All members of this presenter (if this presenter is a group)"
     )]
     #[alias("presenter_members", "member_list")]
-    #[read(|schedule: &crate::schedule::Schedule, entity_id: crate::entity::EntityId, entity: &Presenter| {
-        let member_ids = schedule.get_presenter_members(entity_id);
+    #[read(|schedule: &crate::schedule::Schedule, entity: &PresenterData| {
+        let member_ids = schedule.get_presenter_members(entity.entity_id);
         Some(crate::field::FieldValue::List(
             schedule.get_entity_names::<crate::entity::PresenterEntityType>(&member_ids)
                 .into_iter()
@@ -202,13 +203,15 @@ pub struct Presenter {
                 .collect()
         ))
     })]
+    pub members: Vec<crate::entity::EntityId>,
+
     #[computed_field(
         display = "Panels",
         description = "All panels this presenter participates in"
     )]
     #[alias("presenter_panels", "panel_list")]
-    #[read(|schedule: &crate::schedule::Schedule, entity_id: crate::entity::EntityId, entity: &Presenter| {
-        let panel_ids = schedule.get_presenter_panels(entity_id);
+    #[read(|schedule: &crate::schedule::Schedule, entity: &PresenterData| {
+        let panel_ids = schedule.get_presenter_panels(entity.entity_id);
         Some(crate::field::FieldValue::List(
             schedule.get_entity_names::<crate::entity::PanelEntityType>(&panel_ids)
                 .into_iter()
@@ -216,6 +219,8 @@ pub struct Presenter {
                 .collect()
         ))
     })]
+    pub panels: Vec<crate::entity::EntityId>,
+
     // @TODO: Not currently in the spreadsheets, Windsurf thought this was a good idea
     // I agree but we currently don't have the data
     #[field(display = "Pronouns", description = "Presenter's preferred pronouns")]
