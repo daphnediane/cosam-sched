@@ -10,12 +10,13 @@ Updated on: Fri Apr 10 14:29:25 2026
 * [REFACTOR-034] Align HotelRoom entity field aliases with schedule-core canonical column definitions.
 * [REFACTOR-035] Align PanelType entity field aliases with schedule-core canonical column definitions.
 * [REFACTOR-036] Align Presenter entity field aliases with schedule-core canonical column definitions.
+* [REFACTOR-039] Remove `EntityId = u64` type alias and `InternalId` struct from `entity/mod.rs`; add `EntityKind` and `PublicEntityRef` enums; re-export `uuid::Uuid`.
 
 ---
 
 ## Summary of Open Items
 
-**Total open items:** 43
+**Total open items:** 42
 
 * **High Priority**
   * [CLI-013] Port cosam-convert from schedule-core to schedule-data for XLSX-to-JSON conversion.
@@ -33,7 +34,6 @@ Updated on: Fri Apr 10 14:29:25 2026
   * [REFACTOR-031] Extract timeline entries (SPLIT, BREAK, room hours) into a dedicated TimelineEntry entity following the schedule-core pattern.
   * [REFACTOR-037] Migrate from internal u64-based entity IDs to standard UUID v4 for entities, schedules, and edges to enable cross-schedule ID sharing and simplify the public API.
   * [REFACTOR-038] Replace the `EdgeId(u64)` type with `EdgeId(uuid::Uuid)` and add an edge UUID registry to `Schedule` for cross-edge lookups.
-  * [REFACTOR-039] Remove `EntityId = u64` type alias and `InternalId` struct from `entity/mod.rs`; add `EntityKind` and `PublicEntityRef` enums; re-export `uuid::Uuid`.
   * [REFACTOR-040] Replace `FieldValue::EntityId(EntityId)` with `FieldValue::Uuid(Uuid)` and remove `FieldValue::InternalId(InternalId)` from `field/mod.rs`.
   * [REFACTOR-041] Introduce per-entity typed ID newtypes (`PanelId`, `PresenterId`, `EventRoomId`, `HotelRoomId`, `PanelTypeId`) each wrapping `uuid::Uuid`, replacing bare `u64` typed IDs.
   * [REFACTOR-042] Rename `Edge::from_id()` and `Edge::to_id()` to `from_uuid()` and `to_uuid()` returning `Option<uuid::Uuid>`; update `RelationshipStorage` and `RelationshipEdge` trait signatures to use `Uuid`.
@@ -409,29 +409,6 @@ Since UUIDs are standard and self-describing, they can be made public without an
 * Consistent identity model for all objects in the schedule
 
 This work is **blocked** on REFACTOR-039 through REFACTOR-049 (entity UUID migration) being complete. Once entity UUIDs are in place, edge UUIDs become the natural next step.
-
----
-
-### [REFACTOR-039] Replace EntityId and InternalId with Uuid in core entity types
-
-**Status:** Open
-
-**Priority:** High
-
-**Summary:** Remove `EntityId = u64` type alias and `InternalId` struct from `entity/mod.rs`; add `EntityKind` and `PublicEntityRef` enums; re-export `uuid::Uuid`.
-
-**Description:** Part of REFACTOR-037. This phase updates the foundation types that the rest of the UUID migration depends on.
-
-Changes to `crates/schedule-data/src/entity/mod.rs`:
-
-* Remove `pub type EntityId = u64`
-* Remove `InternalId` struct (no longer needed once typed wrappers exist)
-* Update `InternalData` trait: `entity_id() -> EntityId` → `uuid() -> uuid::Uuid` and `set_entity_id` → `set_uuid`
-* Add `pub use uuid::Uuid` re-export for crate-wide convenience
-* Add `pub enum EntityKind { Panel, Presenter, EventRoom, HotelRoom, PanelType }` for registry dispatch
-* Add `pub enum PublicEntityRef { Panel(Panel), Presenter(Presenter), EventRoom(EventRoom), HotelRoom(HotelRoom), PanelType(PanelType) }` as the return type for `Schedule::fetch_uuid`
-
-`EntityKind` and `PublicEntityRef` require the concrete entity structs to be in scope, so the enums are defined at the bottom of `entity/mod.rs` after all the `pub use` re-exports.
 
 ---
 
@@ -840,7 +817,7 @@ New tests to add (can be in `entity_fields_integration.rs` or a new `uuid_regist
 [REFACTOR-036]: work-item/done/REFACTOR-036.md
 [REFACTOR-037]: work-item/high/REFACTOR-037.md
 [REFACTOR-038]: work-item/high/REFACTOR-038.md
-[REFACTOR-039]: work-item/high/REFACTOR-039.md
+[REFACTOR-039]: work-item/done/REFACTOR-039.md
 [REFACTOR-040]: work-item/high/REFACTOR-040.md
 [REFACTOR-041]: work-item/high/REFACTOR-041.md
 [REFACTOR-042]: work-item/high/REFACTOR-042.md

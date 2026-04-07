@@ -6,7 +6,7 @@ Remove `EntityId = u64` type alias and `InternalId` struct from `entity/mod.rs`;
 
 ## Status
 
-Open
+Completed
 
 ## Priority
 
