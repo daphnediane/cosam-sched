@@ -6,7 +6,7 @@ Align HotelRoom entity field aliases with schedule-core canonical column definit
 
 ## Status
 
-Not Started
+Completed
 
 ## Priority
 

@@ -12,12 +12,12 @@ use crate::EntityFields;
 #[derive(EntityFields, Debug, Clone)]
 pub struct HotelRoom {
     #[field(display = "Hotel Room", description = "Physical hotel room")]
-    #[alias("hotel", "location")]
+    #[alias("hotel_room", "Hotel_Room", "hotel", "location")]
     #[indexable(priority = 140)]
     pub hotel_room: String,
 
     #[field(display = "Sort Key", description = "Room display sort order")]
-    #[alias("sort", "order")]
+    #[alias("sort_key", "Sort_Key", "sort", "order")]
     pub sort_key: i64,
 
     #[computed_field(
