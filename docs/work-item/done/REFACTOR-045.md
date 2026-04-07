@@ -6,7 +6,7 @@ Update all five concrete edge implementation files to use typed `*Id(Uuid)` cons
 
 ## Status
 
-Open
+Completed
 
 ## Priority
 

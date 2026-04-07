@@ -8,13 +8,13 @@
 
 use crate::edge::generic::GenericEdgeStorage;
 use crate::edge::{Edge, EdgeError, EdgeId, EdgeStorage};
-use crate::entity::EntityId;
+use crate::entity::{EventRoomId, HotelRoomId, Uuid};
 
 /// EventRoomToHotelRoom edge implementation (many-to-one relationship)
 #[derive(Debug, Clone)]
 pub struct EventRoomToHotelRoomEdge {
-    pub from_id: crate::entity::InternalId, // EventRoom (many)
-    pub to_id: crate::entity::InternalId,   // HotelRoom (one)
+    pub from_id: EventRoomId, // EventRoom (many)
+    pub to_id: HotelRoomId,   // HotelRoom (one)
     pub data: EventRoomToHotelRoomData,
 }
 
@@ -24,14 +24,10 @@ pub struct EventRoomToHotelRoomData {
 }
 
 impl EventRoomToHotelRoomEdge {
-    pub fn new(event_room_id: EntityId, hotel_room_id: EntityId) -> Self {
+    pub fn new(event_room_id: EventRoomId, hotel_room_id: HotelRoomId) -> Self {
         Self {
-            from_id: crate::entity::InternalId::new::<crate::entity::EventRoomEntityType>(
-                event_room_id,
-            ),
-            to_id: crate::entity::InternalId::new::<crate::entity::HotelRoomEntityType>(
-                hotel_room_id,
-            ),
+            from_id: event_room_id,
+            to_id: hotel_room_id,
             data: EventRoomToHotelRoomData {},
         }
     }
@@ -42,12 +38,12 @@ impl Edge for EventRoomToHotelRoomEdge {
     type ToEntity = crate::entity::HotelRoomEntityType;
     type Data = EventRoomToHotelRoomData;
 
-    fn from_id(&self) -> Option<crate::entity::InternalId> {
-        Some(self.from_id)
+    fn from_uuid(&self) -> Option<Uuid> {
+        Some(Uuid::from(self.from_id))
     }
 
-    fn to_id(&self) -> Option<crate::entity::InternalId> {
-        Some(self.to_id)
+    fn to_uuid(&self) -> Option<Uuid> {
+        Some(Uuid::from(self.to_id))
     }
 
     fn data(&self) -> &Self::Data {
@@ -67,11 +63,9 @@ impl Edge for EventRoomToHotelRoomEdge {
 #[derive(Debug, Clone)]
 pub struct EventRoomToHotelRoomStorage {
     edges: GenericEdgeStorage<EventRoomToHotelRoomEdge>,
-    time_range_cache: std::collections::HashMap<
-        EntityId,
-        Vec<(chrono::NaiveDateTime, chrono::NaiveDateTime, EntityId)>,
-    >,
-    panel_usage_cache: std::collections::HashMap<EntityId, Vec<EntityId>>,
+    time_range_cache:
+        std::collections::HashMap<Uuid, Vec<(chrono::NaiveDateTime, chrono::NaiveDateTime, Uuid)>>,
+    panel_usage_cache: std::collections::HashMap<Uuid, Vec<Uuid>>,
     cache_invalidation: u64,
 }
 
@@ -95,9 +89,9 @@ impl EventRoomToHotelRoomStorage {
     /// This will be called by Schedule with access to panel data
     pub fn get_time_ranges(
         &mut self,
-        hotel_room_id: EntityId,
+        hotel_room_id: Uuid,
         _schedule: &super::super::schedule::Schedule,
-    ) -> &[(chrono::NaiveDateTime, chrono::NaiveDateTime, EntityId)] {
+    ) -> &[(chrono::NaiveDateTime, chrono::NaiveDateTime, Uuid)] {
         if self.time_range_cache.contains_key(&hotel_room_id) {
             return self.time_range_cache.get(&hotel_room_id).unwrap();
         }
@@ -112,9 +106,9 @@ impl EventRoomToHotelRoomStorage {
     /// This will be called by Schedule with access to panel data
     pub fn get_panels_using_event_room(
         &mut self,
-        event_room_id: EntityId,
+        event_room_id: Uuid,
         _schedule: &super::super::schedule::Schedule,
-    ) -> &[EntityId] {
+    ) -> &[Uuid] {
         if self.panel_usage_cache.contains_key(&event_room_id) {
             return self.panel_usage_cache.get(&event_room_id).unwrap();
         }
@@ -149,20 +143,16 @@ impl EdgeStorage<EventRoomToHotelRoomEdge> for EventRoomToHotelRoomStorage {
         self.edges.get_edge(edge_id)
     }
 
-    fn find_outgoing(&self, from_id: crate::entity::InternalId) -> Vec<&EventRoomToHotelRoomEdge> {
-        self.edges.find_outgoing(from_id)
+    fn find_outgoing(&self, from_uuid: Uuid) -> Vec<&EventRoomToHotelRoomEdge> {
+        self.edges.find_outgoing(from_uuid)
     }
 
-    fn find_incoming(&self, to_id: crate::entity::InternalId) -> Vec<&EventRoomToHotelRoomEdge> {
-        self.edges.find_incoming(to_id)
+    fn find_incoming(&self, to_uuid: Uuid) -> Vec<&EventRoomToHotelRoomEdge> {
+        self.edges.find_incoming(to_uuid)
     }
 
-    fn edge_exists(
-        &self,
-        from_id: &crate::entity::InternalId,
-        to_id: &crate::entity::InternalId,
-    ) -> bool {
-        self.edges.edge_exists(from_id, to_id)
+    fn edge_exists(&self, from_uuid: Uuid, to_uuid: Uuid) -> bool {
+        self.edges.edge_exists(from_uuid, to_uuid)
     }
 
     fn len(&self) -> usize {
@@ -173,12 +163,40 @@ impl EdgeStorage<EventRoomToHotelRoomEdge> for EventRoomToHotelRoomStorage {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::entity::Uuid;
+
+    fn make_event_room_id(id: u8) -> EventRoomId {
+        EventRoomId::from(Uuid::from_bytes([
+            0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, id,
+        ]))
+    }
+
+    fn make_hotel_room_id(id: u8) -> HotelRoomId {
+        HotelRoomId::from(Uuid::from_bytes([
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            id + 100,
+        ]))
+    }
 
     #[test]
     fn test_cache_invalidation_on_add() {
         let mut storage = EventRoomToHotelRoomStorage::new();
-        let event_room_id: EntityId = 1;
-        let hotel_room_id: EntityId = 10;
+        let event_room_id = make_event_room_id(1);
+        let hotel_room_id = make_hotel_room_id(10);
 
         storage
             .add_edge(EventRoomToHotelRoomEdge::new(event_room_id, hotel_room_id))
@@ -189,8 +207,8 @@ mod tests {
     #[test]
     fn test_cache_invalidation_on_remove() {
         let mut storage = EventRoomToHotelRoomStorage::new();
-        let event_room_id: EntityId = 1;
-        let hotel_room_id: EntityId = 10;
+        let event_room_id = make_event_room_id(1);
+        let hotel_room_id = make_hotel_room_id(10);
 
         let edge_id = storage
             .add_edge(EventRoomToHotelRoomEdge::new(event_room_id, hotel_room_id))
@@ -208,8 +226,8 @@ mod tests {
         storage.invalidate_cache();
 
         // Verify storage is still functional after invalidation
-        let event_room_id: EntityId = 1;
-        let hotel_room_id: EntityId = 10;
+        let event_room_id = make_event_room_id(1);
+        let hotel_room_id = make_hotel_room_id(10);
         storage
             .add_edge(EventRoomToHotelRoomEdge::new(event_room_id, hotel_room_id))
             .unwrap();

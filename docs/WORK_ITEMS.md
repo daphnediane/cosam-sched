@@ -16,12 +16,13 @@ Updated on: Fri Apr 10 14:29:28 2026
 * [REFACTOR-042] Rename `Edge::from_id()` and `Edge::to_id()` to `from_uuid()` and `to_uuid()` returning `Option<uuid::Uuid>`; update `RelationshipStorage` and `RelationshipEdge` trait signatures to use `Uuid`.
 * [REFACTOR-043] Update `schedule-macro/src/lib.rs` to emit `entity_uuid: uuid::Uuid` in generated `*Data` structs, generate a `new()` constructor with `Uuid::now_v7()`, generate a `to_public()` method, and replace `FieldTypeCategory::EntityId`/`InternalId` with `Uuid`.
 * [REFACTOR-044] Replace `HashMap<EntityId, Vec<EdgeId>>` outgoing/incoming indexes in `GenericEdgeStorage` with `HashMap<uuid::Uuid, Vec<EdgeId>>`.
+* [REFACTOR-045] Update all five concrete edge implementation files to use typed `*Id(Uuid)` constructors and implement `from_uuid()`/`to_uuid()` from the `Edge` trait.
 
 ---
 
 ## Summary of Open Items
 
-**Total open items:** 37
+**Total open items:** 36
 
 * **High Priority**
   * [CLI-013] Port cosam-convert from schedule-core to schedule-data for XLSX-to-JSON conversion.
@@ -39,7 +40,6 @@ Updated on: Fri Apr 10 14:29:28 2026
   * [REFACTOR-031] Extract timeline entries (SPLIT, BREAK, room hours) into a dedicated TimelineEntry entity following the schedule-core pattern.
   * [REFACTOR-037] Migrate from internal u64-based entity IDs to standard UUID v4 for entities, schedules, and edges to enable cross-schedule ID sharing and simplify the public API.
   * [REFACTOR-038] Replace the `EdgeId(u64)` type with `EdgeId(uuid::Uuid)` and add an edge UUID registry to `Schedule` for cross-edge lookups.
-  * [REFACTOR-045] Update all five concrete edge implementation files to use typed `*Id(Uuid)` constructors and implement `from_uuid()`/`to_uuid()` from the `Edge` trait.
   * [REFACTOR-046] Replace `HashMap<u64, StoredEntity>` and `u64`-keyed internals in `schedule/storage.rs` with `HashMap<uuid::Uuid, StoredEntity>`.
   * [REFACTOR-047] Remove `IdAllocators` from `Schedule`, add `schedule_id: Uuid` to `ScheduleMetadata`, add a private entity UUID registry, implement `Schedule::fetch_uuid`, and update all typed entity/edge method signatures to use typed ID wrappers.
   * [REFACTOR-048] Expose `Schedule::type_of_uuid` and `Schedule::lookup_uuid` using the private entity registry added in REFACTOR-047, and add `EntityRef<'a>` as the borrowed-data return type for `lookup_uuid`.
@@ -412,44 +412,6 @@ This work is **blocked** on REFACTOR-039 through REFACTOR-049 (entity UUID migra
 
 ---
 
-### [REFACTOR-045] Update edge implementation files to typed UUID IDs
-
-**Status:** Open
-
-**Priority:** High
-
-**Summary:** Update all five concrete edge implementation files to use typed `*Id(Uuid)` constructors and implement `from_uuid()`/`to_uuid()` from the `Edge` trait.
-
-**Description:** Part of REFACTOR-037. After the `Edge` trait is updated (REFACTOR-042) and typed ID wrappers exist (REFACTOR-041), the five concrete edge files need their constructors and `Edge` impl updated.
-
-Files to update:
-
-* `edge/panel_to_presenter.rs`
-  * `new(panel_id: EntityId, presenter_id: EntityId)` → `new(panel_id: PanelId, presenter_id: PresenterId)`
-  * `from_id: InternalId` → `from_id: PanelId`, `to_id: InternalId` → `to_id: PresenterId`
-  * `impl Edge`: `from_uuid() -> Option<Uuid> { Some(self.from_id.0) }`, `to_uuid()` same pattern
-
-* `edge/panel_to_panel_type.rs`
-  * `new(panel_id: EntityId, panel_type_id: EntityId)` → `new(panel_id: PanelId, panel_type_id: PanelTypeId)`
-  * Same `from_uuid`/`to_uuid` pattern
-
-* `edge/panel_to_event_room.rs`
-  * `new(panel_id: PanelId, room_id: EventRoomId)`
-  * Same pattern
-
-* `edge/event_room_to_hotel_room.rs`
-  * `new(event_room_id: EventRoomId, hotel_room_id: HotelRoomId)`
-  * Same pattern
-
-* `edge/presenter_to_group.rs`
-  * `PresenterToGroupEdge` enum variants use `PresenterId` instead of `InternalId`/`EntityId`
-  * `PresenterToGroupStorage` inner `HashMap<EntityId, Vec<EntityId>>` maps → `HashMap<Uuid, Vec<Uuid>>`
-  * `member_to_groups`, `group_to_members`, `groups`, `always_grouped` caches all use `Uuid` keys/values
-  * `RelationshipStorage` impl: `get_inclusive_members(group_id: Uuid)`, `get_inclusive_groups(member_id: Uuid)`, `is_group(uuid: Uuid)`
-  * Construction and lookup methods updated throughout
-
----
-
 ### [REFACTOR-046] Update entity storage to use Uuid keys
 
 **Status:** Open
@@ -697,7 +659,7 @@ New tests to add (can be in `entity_fields_integration.rs` or a new `uuid_regist
 [REFACTOR-042]: work-item/done/REFACTOR-042.md
 [REFACTOR-043]: work-item/done/REFACTOR-043.md
 [REFACTOR-044]: work-item/done/REFACTOR-044.md
-[REFACTOR-045]: work-item/high/REFACTOR-045.md
+[REFACTOR-045]: work-item/done/REFACTOR-045.md
 [REFACTOR-046]: work-item/high/REFACTOR-046.md
 [REFACTOR-047]: work-item/high/REFACTOR-047.md
 [REFACTOR-048]: work-item/high/REFACTOR-048.md

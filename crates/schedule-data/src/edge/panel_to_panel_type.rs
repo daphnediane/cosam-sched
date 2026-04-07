@@ -7,14 +7,14 @@
 //! PanelToPanelType edge implementation
 
 use crate::edge::{Edge, EdgeError, EdgeId, EdgeStorage};
-use crate::entity::EntityId;
+use crate::entity::{PanelId, PanelTypeId, Uuid};
 use std::collections::HashMap;
 
 /// PanelToPanelType edge implementation
 #[derive(Debug, Clone)]
 pub struct PanelToPanelTypeEdge {
-    pub from_id: crate::entity::InternalId, // Panel
-    pub to_id: crate::entity::InternalId,   // PanelType
+    pub from_id: PanelId,   // Panel
+    pub to_id: PanelTypeId, // PanelType
     pub data: PanelToPanelTypeData,
 }
 
@@ -24,12 +24,10 @@ pub struct PanelToPanelTypeData {
 }
 
 impl PanelToPanelTypeEdge {
-    pub fn new(panel_id: EntityId, panel_type_id: EntityId) -> Self {
+    pub fn new(panel_id: PanelId, panel_type_id: PanelTypeId) -> Self {
         Self {
-            from_id: crate::entity::InternalId::new::<crate::entity::PanelEntityType>(panel_id),
-            to_id: crate::entity::InternalId::new::<crate::entity::PanelTypeEntityType>(
-                panel_type_id,
-            ),
+            from_id: panel_id,
+            to_id: panel_type_id,
             data: PanelToPanelTypeData {},
         }
     }
@@ -40,12 +38,12 @@ impl Edge for PanelToPanelTypeEdge {
     type ToEntity = crate::entity::PanelTypeEntityType;
     type Data = PanelToPanelTypeData;
 
-    fn from_id(&self) -> Option<crate::entity::InternalId> {
-        Some(self.from_id)
+    fn from_uuid(&self) -> Option<Uuid> {
+        Some(Uuid::from(self.from_id))
     }
 
-    fn to_id(&self) -> Option<crate::entity::InternalId> {
-        Some(self.to_id)
+    fn to_uuid(&self) -> Option<Uuid> {
+        Some(Uuid::from(self.to_id))
     }
 
     fn data(&self) -> &Self::Data {
@@ -65,9 +63,9 @@ impl Edge for PanelToPanelTypeEdge {
 #[derive(Debug, Clone)]
 pub struct PanelToPanelTypeStorage {
     edges_by_id: HashMap<EdgeId, PanelToPanelTypeEdge>,
-    panel_to_edge_id: HashMap<EntityId, EdgeId>,
-    panel_to_type_index: HashMap<EntityId, EntityId>,
-    type_to_panels: HashMap<EntityId, Vec<EntityId>>,
+    panel_to_edge_id: HashMap<Uuid, EdgeId>,
+    panel_to_type_index: HashMap<Uuid, Uuid>,
+    type_to_panels: HashMap<Uuid, Vec<Uuid>>,
     next_id: u64,
 }
 
@@ -83,12 +81,12 @@ impl PanelToPanelTypeStorage {
     }
 
     /// Get the panel type for a specific panel
-    pub fn get_panel_type(&self, panel_id: EntityId) -> Option<EntityId> {
+    pub fn get_panel_type(&self, panel_id: Uuid) -> Option<Uuid> {
         self.panel_to_type_index.get(&panel_id).copied()
     }
 
     /// Get all panels of a specific type
-    pub fn get_panels_by_type(&self, type_id: EntityId) -> Vec<EntityId> {
+    pub fn get_panels_by_type(&self, type_id: Uuid) -> Vec<Uuid> {
         self.type_to_panels
             .get(&type_id)
             .cloned()
@@ -104,8 +102,8 @@ impl Default for PanelToPanelTypeStorage {
 
 impl EdgeStorage<PanelToPanelTypeEdge> for PanelToPanelTypeStorage {
     fn add_edge(&mut self, edge: PanelToPanelTypeEdge) -> Result<EdgeId, EdgeError> {
-        let panel_id = edge.from_id.entity_id;
-        let type_id = edge.to_id.entity_id;
+        let panel_id = Uuid::from(edge.from_id);
+        let type_id = Uuid::from(edge.to_id);
 
         if let Some(existing_edge_id) = self.panel_to_edge_id.get(&panel_id).copied() {
             self.remove_edge(existing_edge_id)?;
@@ -126,13 +124,15 @@ impl EdgeStorage<PanelToPanelTypeEdge> for PanelToPanelTypeStorage {
 
     fn remove_edge(&mut self, edge_id: EdgeId) -> Result<(), EdgeError> {
         if let Some(edge) = self.edges_by_id.remove(&edge_id) {
-            self.panel_to_type_index.remove(&edge.from_id.entity_id);
-            self.panel_to_edge_id.remove(&edge.from_id.entity_id);
+            let panel_id = Uuid::from(edge.from_id);
+            let type_id = Uuid::from(edge.to_id);
+            self.panel_to_type_index.remove(&panel_id);
+            self.panel_to_edge_id.remove(&panel_id);
 
-            if let Some(panels) = self.type_to_panels.get_mut(&edge.to_id.entity_id) {
-                panels.retain(|panel_id| *panel_id != edge.from_id.entity_id);
+            if let Some(panels) = self.type_to_panels.get_mut(&type_id) {
+                panels.retain(|&pid| pid != panel_id);
                 if panels.is_empty() {
-                    self.type_to_panels.remove(&edge.to_id.entity_id);
+                    self.type_to_panels.remove(&type_id);
                 }
             }
             Ok(())
@@ -147,8 +147,8 @@ impl EdgeStorage<PanelToPanelTypeEdge> for PanelToPanelTypeStorage {
         self.edges_by_id.get(&edge_id)
     }
 
-    fn find_outgoing(&self, from_id: crate::entity::InternalId) -> Vec<&PanelToPanelTypeEdge> {
-        if let Some(edge_id) = self.panel_to_edge_id.get(&from_id.entity_id) {
+    fn find_outgoing(&self, from_uuid: Uuid) -> Vec<&PanelToPanelTypeEdge> {
+        if let Some(edge_id) = self.panel_to_edge_id.get(&from_uuid) {
             if let Some(edge) = self.edges_by_id.get(edge_id) {
                 return vec![edge];
             }
@@ -156,15 +156,15 @@ impl EdgeStorage<PanelToPanelTypeEdge> for PanelToPanelTypeStorage {
         Vec::new()
     }
 
-    fn find_incoming(&self, to_id: crate::entity::InternalId) -> Vec<&PanelToPanelTypeEdge> {
+    fn find_incoming(&self, to_uuid: Uuid) -> Vec<&PanelToPanelTypeEdge> {
         self.type_to_panels
-            .get(&to_id.entity_id)
+            .get(&to_uuid)
             .map(|panel_ids| {
                 panel_ids
                     .iter()
-                    .filter_map(|panel_id| {
+                    .filter_map(|&panel_id| {
                         self.panel_to_edge_id
-                            .get(panel_id)
+                            .get(&panel_id)
                             .and_then(|edge_id| self.edges_by_id.get(edge_id))
                     })
                     .collect()
@@ -172,14 +172,10 @@ impl EdgeStorage<PanelToPanelTypeEdge> for PanelToPanelTypeStorage {
             .unwrap_or_default()
     }
 
-    fn edge_exists(
-        &self,
-        from_id: &crate::entity::InternalId,
-        to_id: &crate::entity::InternalId,
-    ) -> bool {
+    fn edge_exists(&self, from_uuid: Uuid, to_uuid: Uuid) -> bool {
         self.panel_to_type_index
-            .get(&from_id.entity_id)
-            .map(|existing_to_id| *existing_to_id == to_id.entity_id)
+            .get(&from_uuid)
+            .map(|existing_to_id| *existing_to_id == to_uuid)
             .unwrap_or(false)
     }
 
@@ -191,27 +187,58 @@ impl EdgeStorage<PanelToPanelTypeEdge> for PanelToPanelTypeStorage {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::entity::Uuid;
+
+    fn make_panel_id(id: u8) -> PanelId {
+        PanelId::from(Uuid::from_bytes([
+            0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, id,
+        ]))
+    }
+
+    fn make_panel_type_id(id: u8) -> PanelTypeId {
+        PanelTypeId::from(Uuid::from_bytes([
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            id + 100,
+        ]))
+    }
 
     #[test]
     fn test_one_to_many_enforcement() {
         let mut storage = PanelToPanelTypeStorage::new();
-        let panel_id: EntityId = 1;
-        let type_id_1: EntityId = 10;
-        let type_id_2: EntityId = 11;
+        let panel_id = make_panel_id(1);
+        let type_id_1 = make_panel_type_id(10);
+        let type_id_2 = make_panel_type_id(11);
 
         // Add first edge
         let edge1 = PanelToPanelTypeEdge::new(panel_id, type_id_1);
         storage.add_edge(edge1).unwrap();
 
         // Verify panel has type_id_1
-        assert_eq!(storage.get_panel_type(panel_id), Some(type_id_1));
+        let panel_uuid = Uuid::from(panel_id);
+        let type_uuid_1 = Uuid::from(type_id_1);
+        assert_eq!(storage.get_panel_type(panel_uuid), Some(type_uuid_1));
 
         // Add second edge for same panel (should replace)
         let edge2 = PanelToPanelTypeEdge::new(panel_id, type_id_2);
         storage.add_edge(edge2).unwrap();
 
         // Verify panel now has type_id_2
-        assert_eq!(storage.get_panel_type(panel_id), Some(type_id_2));
+        let type_uuid_2 = Uuid::from(type_id_2);
+        assert_eq!(storage.get_panel_type(panel_uuid), Some(type_uuid_2));
 
         // Verify only one edge exists
         assert_eq!(storage.len(), 1);
@@ -220,11 +247,11 @@ mod tests {
     #[test]
     fn test_get_panels_by_type() {
         let mut storage = PanelToPanelTypeStorage::new();
-        let panel_id_1: EntityId = 1;
-        let panel_id_2: EntityId = 2;
-        let panel_id_3: EntityId = 3;
-        let type_id_1: EntityId = 10;
-        let type_id_2: EntityId = 11;
+        let panel_id_1 = make_panel_id(1);
+        let panel_id_2 = make_panel_id(2);
+        let panel_id_3 = make_panel_id(3);
+        let type_id_1 = make_panel_type_id(10);
+        let type_id_2 = make_panel_type_id(11);
 
         storage
             .add_edge(PanelToPanelTypeEdge::new(panel_id_1, type_id_1))
@@ -236,29 +263,36 @@ mod tests {
             .add_edge(PanelToPanelTypeEdge::new(panel_id_3, type_id_2))
             .unwrap();
 
-        let panels_type_1 = storage.get_panels_by_type(type_id_1);
+        let type_uuid_1 = Uuid::from(type_id_1);
+        let panels_type_1 = storage.get_panels_by_type(type_uuid_1);
+        let panel_uuid_1 = Uuid::from(panel_id_1);
+        let panel_uuid_2 = Uuid::from(panel_id_2);
         assert_eq!(panels_type_1.len(), 2);
-        assert!(panels_type_1.contains(&panel_id_1));
-        assert!(panels_type_1.contains(&panel_id_2));
+        assert!(panels_type_1.contains(&panel_uuid_1));
+        assert!(panels_type_1.contains(&panel_uuid_2));
 
-        let panels_type_2 = storage.get_panels_by_type(type_id_2);
+        let type_uuid_2 = Uuid::from(type_id_2);
+        let panels_type_2 = storage.get_panels_by_type(type_uuid_2);
+        let panel_uuid_3 = Uuid::from(panel_id_3);
         assert_eq!(panels_type_2.len(), 1);
-        assert!(panels_type_2.contains(&panel_id_3));
+        assert!(panels_type_2.contains(&panel_uuid_3));
     }
 
     #[test]
     fn test_remove_edge_updates_index() {
         let mut storage = PanelToPanelTypeStorage::new();
-        let panel_id: EntityId = 1;
-        let type_id: EntityId = 10;
+        let panel_id = make_panel_id(1);
+        let type_id = make_panel_type_id(10);
 
         let edge = PanelToPanelTypeEdge::new(panel_id, type_id);
         let edge_id = storage.add_edge(edge).unwrap();
 
-        assert_eq!(storage.get_panel_type(panel_id), Some(type_id));
+        let panel_uuid = Uuid::from(panel_id);
+        let type_uuid = Uuid::from(type_id);
+        assert_eq!(storage.get_panel_type(panel_uuid), Some(type_uuid));
 
         storage.remove_edge(edge_id).unwrap();
 
-        assert_eq!(storage.get_panel_type(panel_id), None);
+        assert_eq!(storage.get_panel_type(panel_uuid), None);
     }
 }
