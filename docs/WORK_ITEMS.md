@@ -1,6 +1,6 @@
 # Cosplay America Schedule - Work Item
 
-Updated on: Fri Apr 10 14:29:20 2026
+Updated on: Fri Apr 10 14:29:21 2026
 
 ## Completed
 
@@ -10,7 +10,7 @@ Updated on: Fri Apr 10 14:29:20 2026
 
 ## Summary of Open Items
 
-**Total open items:** 28
+**Total open items:** 35
 
 * **High Priority**
   * [CLI-013] Port cosam-convert from schedule-core to schedule-data for XLSX-to-JSON conversion.
@@ -25,6 +25,12 @@ Updated on: Fri Apr 10 14:29:20 2026
   * [REFACTOR-004] Implement per-entity mutation families with deterministic side effects for add, update, restore, and find-or-add operations.
   * [REFACTOR-005] Implement command-based edit history with undo/redo stacks and atomic batch operations.
   * [REFACTOR-006] Implement derived scheduling-state propagation and complete the field validation system in schedule-macro.
+  * [REFACTOR-031] Extract timeline entries (SPLIT, BREAK, room hours) into a dedicated TimelineEntry entity following the schedule-core pattern.
+  * [REFACTOR-032] Align Panel entity fields with schedule-core canonical column definitions.
+  * [REFACTOR-033] Align EventRoom entity fields with schedule-core canonical column definitions.
+  * [REFACTOR-034] Align HotelRoom entity field aliases with schedule-core canonical column definitions.
+  * [REFACTOR-035] Align PanelType entity field aliases with schedule-core canonical column definitions.
+  * [REFACTOR-036] Align Presenter entity field aliases with schedule-core canonical column definitions.
   * [TEST-028] Comprehensive integration tests validating schedule-data against schedule-core behavior with real schedule data.
   * [UI-018] Implement comprehensive accessibility for the schedule widget: screen readers, color blindness support, and keyboard navigation.
   * [UI-019] Prevent panel titles from overlapping with the "my schedule" star icon in the schedule widget.
@@ -45,6 +51,7 @@ Updated on: Fri Apr 10 14:29:20 2026
   * [EDITOR-026] Support reading from and writing to Excel files stored in OneDrive.
   * [EDITOR-027] Revisit embedding a webview directly in the editor window once gpui_web is available.
   * [FEATURE-012] Enable reading schedule data directly from Google Sheets API.
+  * [FEATURE-030] Document custom fields in schedule-data that are not present in schedule-core.
 
 ---
 
@@ -52,9 +59,9 @@ Updated on: Fri Apr 10 14:29:20 2026
 
 The following ID numbers are available for new items:
 
-**Available:** 030, 031, 032, 033, 034, 035, 036, 037, 038, 039
+**Available:** 037, 038, 039, 040, 041, 042, 043, 044, 045, 046
 
-**Highest used:** 29
+**Highest used:** 36
 
 ---
 
@@ -258,6 +265,18 @@ The following ID numbers are available for new items:
 
 ---
 
+### [FEATURE-030] Document Schedule-Data Custom Field Extensions
+
+**Status:** Not Started
+
+**Priority:** Low
+
+**Summary:** Document custom fields in schedule-data that are not present in schedule-core.
+
+**Description:** The schedule-data crate includes custom fields that are useful for the editor but are not present in schedule-core's XLSX/JSON processing. These fields should be documented to distinguish them from canonical fields.
+
+---
+
 ## Open REFACTOR Items
 
 ### [REFACTOR-002] Field Alignment with Schedule-Core Canonical Columns
@@ -317,6 +336,78 @@ The following ID numbers are available for new items:
 **Summary:** Implement derived scheduling-state propagation and complete the field validation system in schedule-macro.
 
 **Description:** Implement derived scheduling state (scheduled/unscheduled) based on time_range presence and indirect references (presenter groups). Complete the `#[validate]` attribute in schedule-macro to generate `CheckedField` implementations.
+
+---
+
+### [REFACTOR-031] Separate TimelineEntry Entity from Panel
+
+**Status:** Not Started
+
+**Priority:** High
+
+**Summary:** Extract timeline entries (SPLIT, BREAK, room hours) into a dedicated TimelineEntry entity following the schedule-core pattern.
+
+**Description:** Currently timeline entries (SPLIT, BREAK, room hours) are stored as Panel entities with special flags. Per the schedule-core architecture, these should be in a separate TimelineEntry entity with its own storage. This aligns with how schedule-core handles timeline entries as a distinct `timeline: Vec<TimelineEntry>` field separate from panels.
+
+---
+
+### [REFACTOR-032] Panel Entity Field Alignment
+
+**Status:** Not Started
+
+**Priority:** High
+
+**Summary:** Align Panel entity fields with schedule-core canonical column definitions.
+
+**Description:** Add missing fields to Panel entity and ensure all field aliases include canonical forms from schedule-core for proper field resolution.
+
+---
+
+### [REFACTOR-033] EventRoom Entity Field Alignment
+
+**Status:** Not Started
+
+**Priority:** High
+
+**Summary:** Align EventRoom entity fields with schedule-core canonical column definitions.
+
+**Description:** Add canonical aliases to EventRoom entity fields, including computed fields, for proper field resolution while respecting the edge-based architecture.
+
+---
+
+### [REFACTOR-034] HotelRoom Entity Field Alignment
+
+**Status:** Not Started
+
+**Priority:** High
+
+**Summary:** Align HotelRoom entity field aliases with schedule-core canonical column definitions.
+
+**Description:** Ensure HotelRoom entity field aliases include canonical forms from schedule-core for proper field resolution.
+
+---
+
+### [REFACTOR-035] PanelType Entity Field Alignment
+
+**Status:** Not Started
+
+**Priority:** High
+
+**Summary:** Align PanelType entity field aliases with schedule-core canonical column definitions.
+
+**Description:** Ensure PanelType entity field aliases include canonical forms from schedule-core for proper field resolution, and fix duplicate alias.
+
+---
+
+### [REFACTOR-036] Presenter Entity Field Alignment
+
+**Status:** Not Started
+
+**Priority:** High
+
+**Summary:** Align Presenter entity field aliases with schedule-core canonical column definitions.
+
+**Description:** Ensure Presenter entity field aliases include canonical forms from schedule-core for proper field resolution. Classification and groups/members handling already match schedule-core pattern.
 
 ---
 
@@ -426,6 +517,7 @@ The following ID numbers are available for new items:
 [FEATURE-010]: work-item/high/FEATURE-010.md
 [FEATURE-011]: work-item/medium/FEATURE-011.md
 [FEATURE-012]: work-item/low/FEATURE-012.md
+[FEATURE-030]: work-item/low/FEATURE-030.md
 [REFACTOR-001]: work-item/done/REFACTOR-001.md
 [REFACTOR-002]: work-item/high/REFACTOR-002.md
 [REFACTOR-003]: work-item/high/REFACTOR-003.md
@@ -433,6 +525,12 @@ The following ID numbers are available for new items:
 [REFACTOR-005]: work-item/high/REFACTOR-005.md
 [REFACTOR-006]: work-item/high/REFACTOR-006.md
 [REFACTOR-029]: work-item/medium/REFACTOR-029.md
+[REFACTOR-031]: work-item/high/REFACTOR-031.md
+[REFACTOR-032]: work-item/high/REFACTOR-032.md
+[REFACTOR-033]: work-item/high/REFACTOR-033.md
+[REFACTOR-034]: work-item/high/REFACTOR-034.md
+[REFACTOR-035]: work-item/high/REFACTOR-035.md
+[REFACTOR-036]: work-item/high/REFACTOR-036.md
 [TEST-028]: work-item/high/TEST-028.md
 [UI-018]: work-item/high/UI-018.md
 [UI-019]: work-item/high/UI-019.md
