@@ -6,7 +6,7 @@ Rename `Edge::from_id()` and `Edge::to_id()` to `from_uuid()` and `to_uuid()` re
 
 ## Status
 
-Open
+Completed
 
 ## Priority
 

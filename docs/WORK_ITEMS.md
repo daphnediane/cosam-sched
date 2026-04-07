@@ -1,6 +1,6 @@
 # Cosplay America Schedule - Work Item
 
-Updated on: Fri Apr 10 14:29:26 2026
+Updated on: Fri Apr 10 14:29:27 2026
 
 ## Completed
 
@@ -13,12 +13,13 @@ Updated on: Fri Apr 10 14:29:26 2026
 * [REFACTOR-039] Remove `EntityId = u64` type alias and `InternalId` struct from `entity/mod.rs`; add `EntityKind` and `PublicEntityRef` enums; re-export `uuid::Uuid`.
 * [REFACTOR-040] Replace `FieldValue::EntityId(EntityId)` with `FieldValue::Uuid(Uuid)` and remove `FieldValue::InternalId(InternalId)` from `field/mod.rs`.
 * [REFACTOR-041] Introduce per-entity typed ID newtypes (`PanelId`, `PresenterId`, `EventRoomId`, `HotelRoomId`, `PanelTypeId`) each wrapping `uuid::Uuid`, replacing bare `u64` typed IDs.
+* [REFACTOR-042] Rename `Edge::from_id()` and `Edge::to_id()` to `from_uuid()` and `to_uuid()` returning `Option<uuid::Uuid>`; update `RelationshipStorage` and `RelationshipEdge` trait signatures to use `Uuid`.
 
 ---
 
 ## Summary of Open Items
 
-**Total open items:** 40
+**Total open items:** 39
 
 * **High Priority**
   * [CLI-013] Port cosam-convert from schedule-core to schedule-data for XLSX-to-JSON conversion.
@@ -36,7 +37,6 @@ Updated on: Fri Apr 10 14:29:26 2026
   * [REFACTOR-031] Extract timeline entries (SPLIT, BREAK, room hours) into a dedicated TimelineEntry entity following the schedule-core pattern.
   * [REFACTOR-037] Migrate from internal u64-based entity IDs to standard UUID v4 for entities, schedules, and edges to enable cross-schedule ID sharing and simplify the public API.
   * [REFACTOR-038] Replace the `EdgeId(u64)` type with `EdgeId(uuid::Uuid)` and add an edge UUID registry to `Schedule` for cross-edge lookups.
-  * [REFACTOR-042] Rename `Edge::from_id()` and `Edge::to_id()` to `from_uuid()` and `to_uuid()` returning `Option<uuid::Uuid>`; update `RelationshipStorage` and `RelationshipEdge` trait signatures to use `Uuid`.
   * [REFACTOR-043] Update `schedule-macro/src/lib.rs` to emit `entity_uuid: uuid::Uuid` in generated `*Data` structs, generate a `new()` constructor with `Uuid::new_v4()`, generate a `to_public()` method, and replace `FieldTypeCategory::EntityId`/`InternalId` with `Uuid`.
   * [REFACTOR-044] Replace `HashMap<EntityId, Vec<EdgeId>>` outgoing/incoming indexes in `GenericEdgeStorage` with `HashMap<uuid::Uuid, Vec<EdgeId>>`.
   * [REFACTOR-045] Update all five concrete edge implementation files to use typed `*Id(Uuid)` constructors and implement `from_uuid()`/`to_uuid()` from the `Edge` trait.
@@ -412,30 +412,6 @@ This work is **blocked** on REFACTOR-039 through REFACTOR-049 (entity UUID migra
 
 ---
 
-### [REFACTOR-042] Rename Edge trait methods from_id/to_id to from_uuid/to_uuid
-
-**Status:** Open
-
-**Priority:** High
-
-**Summary:** Rename `Edge::from_id()` and `Edge::to_id()` to `from_uuid()` and `to_uuid()` returning `Option<uuid::Uuid>`; update `RelationshipStorage` and `RelationshipEdge` trait signatures to use `Uuid`.
-
-**Description:** Part of REFACTOR-037. The `Edge` trait in `edge/traits.rs` currently returns `Option<InternalId>` from `from_id()` and `to_id()`. Since `InternalId` is removed in REFACTOR-039, these methods must change to return `Option<uuid::Uuid>` — the raw UUID of the referenced entity.
-
-Note: `EdgeId(u64)` is **not** changed in this phase (that is REFACTOR-038).
-
-Changes to `crates/schedule-data/src/edge/traits.rs`:
-
-* `fn from_id(&self) -> Option<InternalId>` → `fn from_uuid(&self) -> Option<uuid::Uuid>`
-* `fn to_id(&self) -> Option<InternalId>` → `fn to_uuid(&self) -> Option<uuid::Uuid>`
-* `RelationshipStorage` trait methods: replace `EntityId` parameter type with `uuid::Uuid`
-* `RelationshipEdge` trait methods: replace `EntityId` parameter/return types with `uuid::Uuid`
-* Remove `use crate::entity::{EntityId, EntityType, InternalId}` import; add `use uuid::Uuid`
-
-The `EdgeStorage` trait's `find_outgoing` and `find_incoming` signatures also take `InternalId` — replace with `Uuid`.
-
----
-
 ### [REFACTOR-043] Update EntityFields macro for UUID-based entity IDs
 
 **Status:** Open
@@ -772,7 +748,7 @@ New tests to add (can be in `entity_fields_integration.rs` or a new `uuid_regist
 [REFACTOR-039]: work-item/done/REFACTOR-039.md
 [REFACTOR-040]: work-item/done/REFACTOR-040.md
 [REFACTOR-041]: work-item/done/REFACTOR-041.md
-[REFACTOR-042]: work-item/high/REFACTOR-042.md
+[REFACTOR-042]: work-item/done/REFACTOR-042.md
 [REFACTOR-043]: work-item/high/REFACTOR-043.md
 [REFACTOR-044]: work-item/high/REFACTOR-044.md
 [REFACTOR-045]: work-item/high/REFACTOR-045.md
