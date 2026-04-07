@@ -6,7 +6,7 @@ Replace `HashMap<EntityId, Vec<EdgeId>>` outgoing/incoming indexes in `GenericEd
 
 ## Status
 
-Open
+Completed
 
 ## Priority
 

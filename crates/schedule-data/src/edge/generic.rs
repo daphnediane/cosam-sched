@@ -7,16 +7,15 @@
 //! Generic edge storage implementation for simple edges
 
 use crate::edge::{Edge, EdgeError, EdgeId, EdgeStorage};
-use crate::entity::EntityId;
 use std::collections::HashMap;
+use uuid::Uuid;
 
 /// Generic edge storage for simple edges
 #[derive(Debug, Clone)]
 pub struct GenericEdgeStorage<E: Edge> {
     edges: HashMap<EdgeId, E>,
-    outgoing_index: HashMap<EntityId, Vec<EdgeId>>,
-    incoming_index: HashMap<EntityId, Vec<EdgeId>>,
-    next_id: u64,
+    outgoing_index: HashMap<Uuid, Vec<EdgeId>>,
+    incoming_index: HashMap<Uuid, Vec<EdgeId>>,
 }
 
 impl<E: Edge> GenericEdgeStorage<E> {
@@ -25,18 +24,14 @@ impl<E: Edge> GenericEdgeStorage<E> {
             edges: HashMap::new(),
             outgoing_index: HashMap::new(),
             incoming_index: HashMap::new(),
-            next_id: 0,
         }
     }
 
     /// Remove all outgoing edges from an entity.
-    pub fn remove_outgoing_edges(
-        &mut self,
-        from_id: crate::entity::InternalId,
-    ) -> Result<(), EdgeError> {
+    pub fn remove_outgoing_edges(&mut self, from_uuid: Uuid) -> Result<(), EdgeError> {
         let edge_ids = self
             .outgoing_index
-            .get(&from_id.entity_id)
+            .get(&from_uuid)
             .cloned()
             .unwrap_or_default();
         for edge_id in edge_ids {
@@ -45,18 +40,15 @@ impl<E: Edge> GenericEdgeStorage<E> {
         Ok(())
     }
 
-    /// Add an edge to storage
-    pub fn add_edge(&mut self, edge: E) -> Result<EdgeId, EdgeError> {
-        let edge_id = EdgeId(self.next_id);
-        self.next_id += 1;
+    /// Add an edge to storage with a specific edge ID
+    pub fn add_edge_with_id(&mut self, edge_id: EdgeId, edge: E) -> Result<EdgeId, EdgeError> {
+        let from_uuid = edge.from_uuid();
+        let to_uuid = edge.to_uuid();
 
-        let from_id = edge.from_id();
-        let to_id = edge.to_id();
-
-        // Check for duplicates (only for edges with a from_id)
-        if let Some(from) = from_id {
-            if let Some(to) = to_id {
-                if self.edge_exists(&from, &to) {
+        // Check for duplicates (only for edges with a from_uuid)
+        if let Some(from) = from_uuid {
+            if let Some(to) = to_uuid {
+                if self.edge_exists(from, to) {
                     return Err(EdgeError::DuplicateEdge {
                         from_id: from.to_string(),
                         to_id: to.to_string(),
@@ -67,21 +59,15 @@ impl<E: Edge> GenericEdgeStorage<E> {
             // Add to main storage
             self.edges.insert(edge_id, edge);
 
-            // Update indexes using entity_id for efficiency
-            self.outgoing_index
-                .entry(from.entity_id)
-                .or_default()
-                .push(edge_id);
+            // Update indexes using uuid for efficiency
+            self.outgoing_index.entry(from).or_default().push(edge_id);
         } else {
-            // Edge without from_id (group-only edge)
+            // Edge without from_uuid (group-only edge)
             self.edges.insert(edge_id, edge);
         }
 
-        if let Some(to) = to_id {
-            self.incoming_index
-                .entry(to.entity_id)
-                .or_default()
-                .push(edge_id);
+        if let Some(to) = to_uuid {
+            self.incoming_index.entry(to).or_default().push(edge_id);
         }
 
         Ok(edge_id)
@@ -90,25 +76,25 @@ impl<E: Edge> GenericEdgeStorage<E> {
     /// Remove an edge from storage
     pub fn remove_edge(&mut self, edge_id: EdgeId) -> Result<(), EdgeError> {
         if let Some(edge) = self.edges.remove(&edge_id) {
-            let from_id = edge.from_id();
-            let to_id = edge.to_id();
+            let from_uuid = edge.from_uuid();
+            let to_uuid = edge.to_uuid();
 
             // Remove from outgoing index
-            if let Some(from) = from_id {
-                if let Some(edges) = self.outgoing_index.get_mut(&from.entity_id) {
+            if let Some(from) = from_uuid {
+                if let Some(edges) = self.outgoing_index.get_mut(&from) {
                     edges.retain(|&id| id != edge_id);
                     if edges.is_empty() {
-                        self.outgoing_index.remove(&from.entity_id);
+                        self.outgoing_index.remove(&from);
                     }
                 }
             }
 
             // Remove from incoming index
-            if let Some(to) = to_id {
-                if let Some(edges) = self.incoming_index.get_mut(&to.entity_id) {
+            if let Some(to) = to_uuid {
+                if let Some(edges) = self.incoming_index.get_mut(&to) {
                     edges.retain(|&id| id != edge_id);
                     if edges.is_empty() {
-                        self.incoming_index.remove(&to.entity_id);
+                        self.incoming_index.remove(&to);
                     }
                 }
             }
@@ -132,9 +118,9 @@ impl<E: Edge> GenericEdgeStorage<E> {
     }
 
     /// Find outgoing edges from an entity
-    pub fn find_outgoing(&self, from_id: crate::entity::InternalId) -> Vec<&E> {
+    pub fn find_outgoing(&self, from_uuid: Uuid) -> Vec<&E> {
         self.outgoing_index
-            .get(&from_id.entity_id)
+            .get(&from_uuid)
             .map(|edge_ids| {
                 edge_ids
                     .iter()
@@ -145,9 +131,9 @@ impl<E: Edge> GenericEdgeStorage<E> {
     }
 
     /// Find incoming edges to an entity
-    pub fn find_incoming(&self, to_id: crate::entity::InternalId) -> Vec<&E> {
+    pub fn find_incoming(&self, to_uuid: Uuid) -> Vec<&E> {
         self.incoming_index
-            .get(&to_id.entity_id)
+            .get(&to_uuid)
             .map(|edge_ids| {
                 edge_ids
                     .iter()
@@ -158,18 +144,14 @@ impl<E: Edge> GenericEdgeStorage<E> {
     }
 
     /// Check if an edge exists between two entities
-    pub fn edge_exists(
-        &self,
-        from_id: &crate::entity::InternalId,
-        to_id: &crate::entity::InternalId,
-    ) -> bool {
+    pub fn edge_exists(&self, from_uuid: Uuid, to_uuid: Uuid) -> bool {
         self.outgoing_index
-            .get(&from_id.entity_id)
+            .get(&from_uuid)
             .map(|edge_ids| {
                 edge_ids.iter().any(|&edge_id| {
                     self.edges
                         .get(&edge_id)
-                        .map(|edge| edge.to_id() == Some(*to_id))
+                        .map(|edge| edge.to_uuid() == Some(to_uuid))
                         .unwrap_or(false)
                 })
             })
@@ -200,7 +182,11 @@ impl<E: Edge> Default for GenericEdgeStorage<E> {
 
 impl<E: Edge> EdgeStorage<E> for GenericEdgeStorage<E> {
     fn add_edge(&mut self, edge: E) -> Result<EdgeId, EdgeError> {
-        self.add_edge(edge)
+        // EdgeId is allocated by the caller and passed via the edge
+        // For now, we generate a simple EdgeId based on current count
+        // This will be replaced when EdgeId becomes UUID in REFACTOR-038
+        let edge_id = EdgeId(self.edges.len() as u64);
+        self.add_edge_with_id(edge_id, edge)
     }
 
     fn remove_edge(&mut self, edge_id: EdgeId) -> Result<(), EdgeError> {
@@ -211,20 +197,16 @@ impl<E: Edge> EdgeStorage<E> for GenericEdgeStorage<E> {
         self.get_edge(edge_id)
     }
 
-    fn find_outgoing(&self, from_id: crate::entity::InternalId) -> Vec<&E> {
-        self.find_outgoing(from_id)
+    fn find_outgoing(&self, from_uuid: Uuid) -> Vec<&E> {
+        self.find_outgoing(from_uuid)
     }
 
-    fn find_incoming(&self, to_id: crate::entity::InternalId) -> Vec<&E> {
-        self.find_incoming(to_id)
+    fn find_incoming(&self, to_uuid: Uuid) -> Vec<&E> {
+        self.find_incoming(to_uuid)
     }
 
-    fn edge_exists(
-        &self,
-        from_id: &crate::entity::InternalId,
-        to_id: &crate::entity::InternalId,
-    ) -> bool {
-        self.edge_exists(from_id, to_id)
+    fn edge_exists(&self, from_uuid: Uuid, to_uuid: Uuid) -> bool {
+        self.edge_exists(from_uuid, to_uuid)
     }
 
     fn len(&self) -> usize {

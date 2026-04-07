@@ -1,6 +1,6 @@
 # Cosplay America Schedule - Work Item
 
-Updated on: Fri Apr 10 14:29:27 2026
+Updated on: Fri Apr 10 14:29:28 2026
 
 ## Completed
 
@@ -15,12 +15,13 @@ Updated on: Fri Apr 10 14:29:27 2026
 * [REFACTOR-041] Introduce per-entity typed ID newtypes (`PanelId`, `PresenterId`, `EventRoomId`, `HotelRoomId`, `PanelTypeId`) each wrapping `uuid::Uuid`, replacing bare `u64` typed IDs.
 * [REFACTOR-042] Rename `Edge::from_id()` and `Edge::to_id()` to `from_uuid()` and `to_uuid()` returning `Option<uuid::Uuid>`; update `RelationshipStorage` and `RelationshipEdge` trait signatures to use `Uuid`.
 * [REFACTOR-043] Update `schedule-macro/src/lib.rs` to emit `entity_uuid: uuid::Uuid` in generated `*Data` structs, generate a `new()` constructor with `Uuid::now_v7()`, generate a `to_public()` method, and replace `FieldTypeCategory::EntityId`/`InternalId` with `Uuid`.
+* [REFACTOR-044] Replace `HashMap<EntityId, Vec<EdgeId>>` outgoing/incoming indexes in `GenericEdgeStorage` with `HashMap<uuid::Uuid, Vec<EdgeId>>`.
 
 ---
 
 ## Summary of Open Items
 
-**Total open items:** 38
+**Total open items:** 37
 
 * **High Priority**
   * [CLI-013] Port cosam-convert from schedule-core to schedule-data for XLSX-to-JSON conversion.
@@ -38,7 +39,6 @@ Updated on: Fri Apr 10 14:29:27 2026
   * [REFACTOR-031] Extract timeline entries (SPLIT, BREAK, room hours) into a dedicated TimelineEntry entity following the schedule-core pattern.
   * [REFACTOR-037] Migrate from internal u64-based entity IDs to standard UUID v4 for entities, schedules, and edges to enable cross-schedule ID sharing and simplify the public API.
   * [REFACTOR-038] Replace the `EdgeId(u64)` type with `EdgeId(uuid::Uuid)` and add an edge UUID registry to `Schedule` for cross-edge lookups.
-  * [REFACTOR-044] Replace `HashMap<EntityId, Vec<EdgeId>>` outgoing/incoming indexes in `GenericEdgeStorage` with `HashMap<uuid::Uuid, Vec<EdgeId>>`.
   * [REFACTOR-045] Update all five concrete edge implementation files to use typed `*Id(Uuid)` constructors and implement `from_uuid()`/`to_uuid()` from the `Edge` trait.
   * [REFACTOR-046] Replace `HashMap<u64, StoredEntity>` and `u64`-keyed internals in `schedule/storage.rs` with `HashMap<uuid::Uuid, StoredEntity>`.
   * [REFACTOR-047] Remove `IdAllocators` from `Schedule`, add `schedule_id: Uuid` to `ScheduleMetadata`, add a private entity UUID registry, implement `Schedule::fetch_uuid`, and update all typed entity/edge method signatures to use typed ID wrappers.
@@ -412,30 +412,6 @@ This work is **blocked** on REFACTOR-039 through REFACTOR-049 (entity UUID migra
 
 ---
 
-### [REFACTOR-044] Update GenericEdgeStorage to index by Uuid
-
-**Status:** Open
-
-**Priority:** High
-
-**Summary:** Replace `HashMap<EntityId, Vec<EdgeId>>` outgoing/incoming indexes in `GenericEdgeStorage` with `HashMap<uuid::Uuid, Vec<EdgeId>>`.
-
-**Description:** Part of REFACTOR-037. `GenericEdgeStorage<E>` in `edge/generic.rs` maintains two index maps keyed by `EntityId` (u64) for fast edge lookup by entity. After the entity ID migration, these keys become `uuid::Uuid`.
-
-Changes to `crates/schedule-data/src/edge/generic.rs`:
-
-* `outgoing_index: HashMap<EntityId, Vec<EdgeId>>` → `HashMap<uuid::Uuid, Vec<EdgeId>>`
-* `incoming_index: HashMap<EntityId, Vec<EdgeId>>` → `HashMap<uuid::Uuid, Vec<EdgeId>>`
-* Index population: currently calls `edge.from_id().entity_id` → call `edge.from_uuid()` (returning `Option<Uuid>`)
-* `find_outgoing(&self, from_id: InternalId)` → `find_outgoing(&self, from_uuid: uuid::Uuid)`
-* `find_incoming(&self, to_id: InternalId)` → `find_incoming(&self, to_uuid: uuid::Uuid)`
-* Remove any remaining `next_id: u64` counter if present (EdgeId allocation happens at edge construction, not in storage)
-* Remove import of `crate::entity::{EntityId, InternalId}`; add `use uuid::Uuid`
-
-Note: `EdgeId(u64)` itself is **unchanged** in this phase.
-
----
-
 ### [REFACTOR-045] Update edge implementation files to typed UUID IDs
 
 **Status:** Open
@@ -720,7 +696,7 @@ New tests to add (can be in `entity_fields_integration.rs` or a new `uuid_regist
 [REFACTOR-041]: work-item/done/REFACTOR-041.md
 [REFACTOR-042]: work-item/done/REFACTOR-042.md
 [REFACTOR-043]: work-item/done/REFACTOR-043.md
-[REFACTOR-044]: work-item/high/REFACTOR-044.md
+[REFACTOR-044]: work-item/done/REFACTOR-044.md
 [REFACTOR-045]: work-item/high/REFACTOR-045.md
 [REFACTOR-046]: work-item/high/REFACTOR-046.md
 [REFACTOR-047]: work-item/high/REFACTOR-047.md
