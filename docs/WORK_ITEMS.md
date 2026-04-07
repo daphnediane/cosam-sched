@@ -1,6 +1,6 @@
 # Cosplay America Schedule - Work Item
 
-Updated on: Fri Apr 10 14:29:19 2026
+Updated on: Fri Apr 10 14:29:20 2026
 
 ## Summary of Open Items
 
@@ -14,7 +14,7 @@ Updated on: Fri Apr 10 14:29:19 2026
   * [FEATURE-008] Implement display/public JSON export for the schedule widget, equivalent to schedule-core's display_export.
   * [FEATURE-009] Implement XLSX reading and writing against schedule-data entities, replacing schedule-core's xlsx module.
   * [FEATURE-010] Implement room and presenter conflict detection with support for room-wide event exemptions.
-  * [REFACTOR-001] Replace current generic Edge entity with a trait-based edge system with dedicated storage per relationship type.
+  * [REFACTOR-001] Replace Schedule's string-based EdgeStorage with type-safe edge storage system using typed edge structs and dedicated storage per relationship type. Foundation is complete; remaining work is integration into Schedule and implementing relationship-specific behaviors.
   * [REFACTOR-002] Align all entity fields with spreadsheet canonical columns and schedule-core equivalents.
   * [REFACTOR-003] Implement public query families for all entity types with ranked index matching.
   * [REFACTOR-004] Implement per-entity mutation families with deterministic side effects for add, update, restore, and find-or-add operations.
@@ -254,15 +254,15 @@ The following ID numbers are available for new items:
 
 ## Open REFACTOR Items
 
-### [REFACTOR-001] Edge Trait System and Relationship Storage
+### [REFACTOR-001] Edge System Integration and Specialized Storage
 
-**Status:** Not Started
+**Status:** In Progress
 
 **Priority:** High
 
-**Summary:** Replace current generic Edge entity with a trait-based edge system with dedicated storage per relationship type.
+**Summary:** Replace Schedule's string-based EdgeStorage with type-safe edge storage system using typed edge structs and dedicated storage per relationship type. Foundation is complete; remaining work is integration into Schedule and implementing relationship-specific behaviors.
 
-**Description:** The current `Edge` entity is a generic catch-all. Replace it with typed edge structs implementing common edge traits, each with dedicated storage, bidirectional index lookups, and relationship-specific behavior (e.g., transitive closure for presenter groups).
+**Description:** The edge trait system and typed edge structs are implemented, but Schedule still uses the old generic string-based EdgeStorage. Need to integrate the new type-safe edge storage system and implement relationship-specific behaviors like transitive closures, time range caching, and cardinality constraints.
 
 ---
 
