@@ -6,7 +6,7 @@ Migrate from internal u64-based entity IDs to standard UUID v4 for entities, sch
 
 ## Status
 
-Open
+In Progress
 
 ## Priority
 

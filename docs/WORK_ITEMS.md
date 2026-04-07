@@ -1,6 +1,6 @@
 # Cosplay America Schedule - Work Item
 
-Updated on: Fri Apr 10 14:29:24 2026
+Updated on: Fri Apr 10 14:29:25 2026
 
 ## Completed
 
@@ -15,7 +15,7 @@ Updated on: Fri Apr 10 14:29:24 2026
 
 ## Summary of Open Items
 
-**Total open items:** 31
+**Total open items:** 43
 
 * **High Priority**
   * [CLI-013] Port cosam-convert from schedule-core to schedule-data for XLSX-to-JSON conversion.
@@ -32,6 +32,18 @@ Updated on: Fri Apr 10 14:29:24 2026
   * [REFACTOR-006] Implement derived scheduling-state propagation and complete the field validation system in schedule-macro.
   * [REFACTOR-031] Extract timeline entries (SPLIT, BREAK, room hours) into a dedicated TimelineEntry entity following the schedule-core pattern.
   * [REFACTOR-037] Migrate from internal u64-based entity IDs to standard UUID v4 for entities, schedules, and edges to enable cross-schedule ID sharing and simplify the public API.
+  * [REFACTOR-038] Replace the `EdgeId(u64)` type with `EdgeId(uuid::Uuid)` and add an edge UUID registry to `Schedule` for cross-edge lookups.
+  * [REFACTOR-039] Remove `EntityId = u64` type alias and `InternalId` struct from `entity/mod.rs`; add `EntityKind` and `PublicEntityRef` enums; re-export `uuid::Uuid`.
+  * [REFACTOR-040] Replace `FieldValue::EntityId(EntityId)` with `FieldValue::Uuid(Uuid)` and remove `FieldValue::InternalId(InternalId)` from `field/mod.rs`.
+  * [REFACTOR-041] Introduce per-entity typed ID newtypes (`PanelId`, `PresenterId`, `EventRoomId`, `HotelRoomId`, `PanelTypeId`) each wrapping `uuid::Uuid`, replacing bare `u64` typed IDs.
+  * [REFACTOR-042] Rename `Edge::from_id()` and `Edge::to_id()` to `from_uuid()` and `to_uuid()` returning `Option<uuid::Uuid>`; update `RelationshipStorage` and `RelationshipEdge` trait signatures to use `Uuid`.
+  * [REFACTOR-043] Update `schedule-macro/src/lib.rs` to emit `entity_uuid: uuid::Uuid` in generated `*Data` structs, generate a `new()` constructor with `Uuid::new_v4()`, generate a `to_public()` method, and replace `FieldTypeCategory::EntityId`/`InternalId` with `Uuid`.
+  * [REFACTOR-044] Replace `HashMap<EntityId, Vec<EdgeId>>` outgoing/incoming indexes in `GenericEdgeStorage` with `HashMap<uuid::Uuid, Vec<EdgeId>>`.
+  * [REFACTOR-045] Update all five concrete edge implementation files to use typed `*Id(Uuid)` constructors and implement `from_uuid()`/`to_uuid()` from the `Edge` trait.
+  * [REFACTOR-046] Replace `HashMap<u64, StoredEntity>` and `u64`-keyed internals in `schedule/storage.rs` with `HashMap<uuid::Uuid, StoredEntity>`.
+  * [REFACTOR-047] Remove `IdAllocators` from `Schedule`, add `schedule_id: Uuid` to `ScheduleMetadata`, add a private entity UUID registry, implement `Schedule::fetch_uuid`, and update all typed entity/edge method signatures to use typed ID wrappers.
+  * [REFACTOR-048] Expose `Schedule::type_of_uuid` and `Schedule::lookup_uuid` using the private entity registry added in REFACTOR-047, and add `EntityRef<'a>` as the borrowed-data return type for `lookup_uuid`.
+  * [REFACTOR-049] Update the four existing integration test files to use `Uuid` instead of `EntityId`/`InternalId`, and add new tests for `fetch_uuid` and `lookup_uuid`.
   * [TEST-028] Comprehensive integration tests validating schedule-data against schedule-core behavior with real schedule data.
   * [UI-018] Implement comprehensive accessibility for the schedule widget: screen readers, color blindness support, and keyboard navigation.
   * [UI-019] Prevent panel titles from overlapping with the "my schedule" star icon in the schedule widget.
@@ -60,9 +72,9 @@ Updated on: Fri Apr 10 14:29:24 2026
 
 The following ID numbers are available for new items:
 
-**Available:** 038, 039, 040, 041, 042, 043, 044, 045, 046, 047
+**Available:** 050, 051, 052, 053, 054, 055, 056, 057, 058, 059
 
-**Highest used:** 37
+**Highest used:** 49
 
 ---
 
@@ -354,7 +366,7 @@ The following ID numbers are available for new items:
 
 ### [REFACTOR-037] Replace EntityId with uuid::Uuid for all IDs
 
-**Status:** Open
+**Status:** In Progress
 
 **Priority:** High
 
@@ -379,6 +391,330 @@ Since UUIDs are standard and self-describing, they can be made public without an
 * Can be serialized/deserialized reliably
 * Enables cross-schedule entity tracking
 * No need for opaque wrapper
+
+---
+
+### [REFACTOR-038] Migrate EdgeId from u64 to uuid::Uuid
+
+**Status:** Blocked
+
+**Priority:** High
+
+**Summary:** Replace the `EdgeId(u64)` type with `EdgeId(uuid::Uuid)` and add an edge UUID registry to `Schedule` for cross-edge lookups.
+
+**Description:** Currently `EdgeId` is a `(u64)` newtype generated sequentially in each edge storage. This is an internal counter with no cross-storage identity guarantees. Migrating to UUID v4 enables:
+
+* Stable edge references across sessions and serialization round-trips
+* Unified `Schedule::lookup_edge_uuid` registry alongside the entity UUID registry
+* Consistent identity model for all objects in the schedule
+
+This work is **blocked** on REFACTOR-039 through REFACTOR-049 (entity UUID migration) being complete. Once entity UUIDs are in place, edge UUIDs become the natural next step.
+
+---
+
+### [REFACTOR-039] Replace EntityId and InternalId with Uuid in core entity types
+
+**Status:** Open
+
+**Priority:** High
+
+**Summary:** Remove `EntityId = u64` type alias and `InternalId` struct from `entity/mod.rs`; add `EntityKind` and `PublicEntityRef` enums; re-export `uuid::Uuid`.
+
+**Description:** Part of REFACTOR-037. This phase updates the foundation types that the rest of the UUID migration depends on.
+
+Changes to `crates/schedule-data/src/entity/mod.rs`:
+
+* Remove `pub type EntityId = u64`
+* Remove `InternalId` struct (no longer needed once typed wrappers exist)
+* Update `InternalData` trait: `entity_id() -> EntityId` → `uuid() -> uuid::Uuid` and `set_entity_id` → `set_uuid`
+* Add `pub use uuid::Uuid` re-export for crate-wide convenience
+* Add `pub enum EntityKind { Panel, Presenter, EventRoom, HotelRoom, PanelType }` for registry dispatch
+* Add `pub enum PublicEntityRef { Panel(Panel), Presenter(Presenter), EventRoom(EventRoom), HotelRoom(HotelRoom), PanelType(PanelType) }` as the return type for `Schedule::fetch_uuid`
+
+`EntityKind` and `PublicEntityRef` require the concrete entity structs to be in scope, so the enums are defined at the bottom of `entity/mod.rs` after all the `pub use` re-exports.
+
+---
+
+### [REFACTOR-040] Update FieldValue to use Uuid variants
+
+**Status:** Open
+
+**Priority:** High
+
+**Summary:** Replace `FieldValue::EntityId(EntityId)` with `FieldValue::Uuid(Uuid)` and remove `FieldValue::InternalId(InternalId)` from `field/mod.rs`.
+
+**Description:** Part of REFACTOR-037. `FieldValue` is the universal field value enum used by the field system for reading, writing, and displaying entity data. It currently has two variants tied to the old ID types:
+
+* `EntityId(EntityId)` — wraps a `u64` entity ID
+* `InternalId(InternalId)` — wraps an `InternalId` struct (type_name + u64)
+
+Both are being removed as part of the entity ID migration. Replacements:
+
+* `FieldValue::EntityId(EntityId)` → `FieldValue::Uuid(uuid::Uuid)`
+* `FieldValue::InternalId(InternalId)` → removed (no replacement; `InternalId` struct is gone)
+
+Also update `FieldValue::Display` impl for the `Uuid` variant.
+
+The `field/mod.rs` currently imports `use crate::EntityId` and `use crate::InternalId` — remove both imports.
+
+---
+
+### [REFACTOR-041] Add typed UUID ID wrappers for all entity types
+
+**Status:** Open
+
+**Priority:** High
+
+**Summary:** Introduce per-entity typed ID newtypes (`PanelId`, `PresenterId`, `EventRoomId`, `HotelRoomId`, `PanelTypeId`) each wrapping `uuid::Uuid`, replacing bare `u64` typed IDs.
+
+**Description:** Part of REFACTOR-037. Typed ID wrappers provide compile-time safety: calling `get_panel_presenters(presenter_id)` becomes a compile error since `PresenterId` is not `PanelId`. Each wrapper is a simple newtype with standard trait impls.
+
+Files and changes:
+
+* `entity/panel.rs` — change `PanelId(u64)` → `PanelId(Uuid)`; update `Display`; add `From<Uuid>`, `Into<Uuid>` impls; update `Panel.presenters: Vec<EntityId>` → `Vec<PresenterId>`
+* `entity/presenter.rs` — add `PresenterId(Uuid)` with `Display`, `From<Uuid>`, `Into<Uuid>`
+* `entity/event_room.rs` — add `EventRoomId(Uuid)` with same impls
+* `entity/hotel_room.rs` — add `HotelRoomId(Uuid)` with same impls
+* `entity/panel_type.rs` — add `PanelTypeId(Uuid)` with same impls
+
+Each typed ID derives `Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord` and implements `Serialize`/`Deserialize` (transparent UUID string format).
+
+Also update the computed field `#[read]` closures in `panel.rs` that reference `entity.entity_id` to use `entity.entity_uuid`, and update presenter list references from `EntityId` to `PresenterId`.
+
+---
+
+### [REFACTOR-042] Rename Edge trait methods from_id/to_id to from_uuid/to_uuid
+
+**Status:** Open
+
+**Priority:** High
+
+**Summary:** Rename `Edge::from_id()` and `Edge::to_id()` to `from_uuid()` and `to_uuid()` returning `Option<uuid::Uuid>`; update `RelationshipStorage` and `RelationshipEdge` trait signatures to use `Uuid`.
+
+**Description:** Part of REFACTOR-037. The `Edge` trait in `edge/traits.rs` currently returns `Option<InternalId>` from `from_id()` and `to_id()`. Since `InternalId` is removed in REFACTOR-039, these methods must change to return `Option<uuid::Uuid>` — the raw UUID of the referenced entity.
+
+Note: `EdgeId(u64)` is **not** changed in this phase (that is REFACTOR-038).
+
+Changes to `crates/schedule-data/src/edge/traits.rs`:
+
+* `fn from_id(&self) -> Option<InternalId>` → `fn from_uuid(&self) -> Option<uuid::Uuid>`
+* `fn to_id(&self) -> Option<InternalId>` → `fn to_uuid(&self) -> Option<uuid::Uuid>`
+* `RelationshipStorage` trait methods: replace `EntityId` parameter type with `uuid::Uuid`
+* `RelationshipEdge` trait methods: replace `EntityId` parameter/return types with `uuid::Uuid`
+* Remove `use crate::entity::{EntityId, EntityType, InternalId}` import; add `use uuid::Uuid`
+
+The `EdgeStorage` trait's `find_outgoing` and `find_incoming` signatures also take `InternalId` — replace with `Uuid`.
+
+---
+
+### [REFACTOR-043] Update EntityFields macro for UUID-based entity IDs
+
+**Status:** Open
+
+**Priority:** High
+
+**Summary:** Update `schedule-macro/src/lib.rs` to emit `entity_uuid: uuid::Uuid` in generated `*Data` structs, generate a `new()` constructor with `Uuid::new_v4()`, generate a `to_public()` method, and replace `FieldTypeCategory::EntityId`/`InternalId` with `Uuid`.
+
+**Description:** Part of REFACTOR-037. The `#[derive(EntityFields)]` macro generates internal `*Data` structs and trait implementations. This phase updates those generated items for the UUID migration.
+
+Changes to `crates/schedule-macro/src/lib.rs`:
+
+* Generated `*Data` struct field: `entity_id: crate::entity::EntityId` → `entity_uuid: uuid::Uuid`
+* Generated `impl InternalData for *Data`:
+  * `entity_id(&self) -> EntityId` → `uuid(&self) -> uuid::Uuid`
+  * `set_entity_id(&mut self, id: EntityId)` → `set_uuid(&mut self, uuid: uuid::Uuid)`
+* New generated method `pub fn new(...all_stored_fields...) -> Self` that sets `entity_uuid: uuid::Uuid::new_v4()` and the provided field values
+* New generated method `pub fn to_public(&self) -> OriginalStruct` that clones all stored and computed-backing fields from `*Data` into a new instance of the original struct
+* `FieldTypeCategory` enum: remove `EntityId` and `InternalId` variants; add `Uuid`
+* `get_field_type_category`: map `"Uuid"` → `FieldTypeCategory::Uuid`; remove `"EntityId"` and `"InternalId"` branches
+* `is_supported_type`: replace `"EntityId"` and `"InternalId"` with `"Uuid"`
+* `supports_automatic_write`: same replacement
+* Read/write conversion match arms: handle `FieldTypeCategory::Uuid` using `FieldValue::Uuid(entity.#field_name)`
+
+The `new()` constructor generation requires collecting all stored field names and types from the struct definition to emit the function signature.
+
+The `to_public()` generation iterates all fields in `stored_field_names_for_copy` and emits `field: self.field.clone()` for each.
+
+---
+
+### [REFACTOR-044] Update GenericEdgeStorage to index by Uuid
+
+**Status:** Open
+
+**Priority:** High
+
+**Summary:** Replace `HashMap<EntityId, Vec<EdgeId>>` outgoing/incoming indexes in `GenericEdgeStorage` with `HashMap<uuid::Uuid, Vec<EdgeId>>`.
+
+**Description:** Part of REFACTOR-037. `GenericEdgeStorage<E>` in `edge/generic.rs` maintains two index maps keyed by `EntityId` (u64) for fast edge lookup by entity. After the entity ID migration, these keys become `uuid::Uuid`.
+
+Changes to `crates/schedule-data/src/edge/generic.rs`:
+
+* `outgoing_index: HashMap<EntityId, Vec<EdgeId>>` → `HashMap<uuid::Uuid, Vec<EdgeId>>`
+* `incoming_index: HashMap<EntityId, Vec<EdgeId>>` → `HashMap<uuid::Uuid, Vec<EdgeId>>`
+* Index population: currently calls `edge.from_id().entity_id` → call `edge.from_uuid()` (returning `Option<Uuid>`)
+* `find_outgoing(&self, from_id: InternalId)` → `find_outgoing(&self, from_uuid: uuid::Uuid)`
+* `find_incoming(&self, to_id: InternalId)` → `find_incoming(&self, to_uuid: uuid::Uuid)`
+* Remove any remaining `next_id: u64` counter if present (EdgeId allocation happens at edge construction, not in storage)
+* Remove import of `crate::entity::{EntityId, InternalId}`; add `use uuid::Uuid`
+
+Note: `EdgeId(u64)` itself is **unchanged** in this phase.
+
+---
+
+### [REFACTOR-045] Update edge implementation files to typed UUID IDs
+
+**Status:** Open
+
+**Priority:** High
+
+**Summary:** Update all five concrete edge implementation files to use typed `*Id(Uuid)` constructors and implement `from_uuid()`/`to_uuid()` from the `Edge` trait.
+
+**Description:** Part of REFACTOR-037. After the `Edge` trait is updated (REFACTOR-042) and typed ID wrappers exist (REFACTOR-041), the five concrete edge files need their constructors and `Edge` impl updated.
+
+Files to update:
+
+* `edge/panel_to_presenter.rs`
+  * `new(panel_id: EntityId, presenter_id: EntityId)` → `new(panel_id: PanelId, presenter_id: PresenterId)`
+  * `from_id: InternalId` → `from_id: PanelId`, `to_id: InternalId` → `to_id: PresenterId`
+  * `impl Edge`: `from_uuid() -> Option<Uuid> { Some(self.from_id.0) }`, `to_uuid()` same pattern
+
+* `edge/panel_to_panel_type.rs`
+  * `new(panel_id: EntityId, panel_type_id: EntityId)` → `new(panel_id: PanelId, panel_type_id: PanelTypeId)`
+  * Same `from_uuid`/`to_uuid` pattern
+
+* `edge/panel_to_event_room.rs`
+  * `new(panel_id: PanelId, room_id: EventRoomId)`
+  * Same pattern
+
+* `edge/event_room_to_hotel_room.rs`
+  * `new(event_room_id: EventRoomId, hotel_room_id: HotelRoomId)`
+  * Same pattern
+
+* `edge/presenter_to_group.rs`
+  * `PresenterToGroupEdge` enum variants use `PresenterId` instead of `InternalId`/`EntityId`
+  * `PresenterToGroupStorage` inner `HashMap<EntityId, Vec<EntityId>>` maps → `HashMap<Uuid, Vec<Uuid>>`
+  * `member_to_groups`, `group_to_members`, `groups`, `always_grouped` caches all use `Uuid` keys/values
+  * `RelationshipStorage` impl: `get_inclusive_members(group_id: Uuid)`, `get_inclusive_groups(member_id: Uuid)`, `is_group(uuid: Uuid)`
+  * Construction and lookup methods updated throughout
+
+---
+
+### [REFACTOR-046] Update entity storage to use Uuid keys
+
+**Status:** Open
+
+**Priority:** High
+
+**Summary:** Replace `HashMap<u64, StoredEntity>` and `u64`-keyed internals in `schedule/storage.rs` with `HashMap<uuid::Uuid, StoredEntity>`.
+
+**Description:** Part of REFACTOR-037. `EntityStorage` in `schedule/storage.rs` stores entities serialized as JSON strings, keyed by a `u64` internal ID. After the entity ID migration these keys become `uuid::Uuid`.
+
+Changes to `crates/schedule-data/src/schedule/storage.rs`:
+
+* `EntityTypeStorage::by_internal_id: HashMap<u64, ...>` → `HashMap<uuid::Uuid, ...>`
+* `StoredEntity` struct: `internal_id: u64` field → `internal_uuid: uuid::Uuid`
+* `EntityStorage::add_with_id(id: EntityId, ...)` → `add_with_uuid(uuid: Uuid, ...)`
+* `EntityStorage::get(id: EntityId)` → `get(uuid: Uuid)`
+* `EntityStorage::contains_id(id: EntityId)` → `contains_uuid(uuid: Uuid)`
+* Update all internal `HashMap::get`, `HashMap::insert`, `HashMap::contains_key` calls to use `Uuid`
+* Remove import of `EntityId`; add `use uuid::Uuid`
+
+The `deserialize` function stub is kept as-is (it returns `None`); only the key type changes.
+
+---
+
+### [REFACTOR-047] Update Schedule core: remove allocators, add schedule_id and fetch_uuid
+
+**Status:** Open
+
+**Priority:** High
+
+**Summary:** Remove `IdAllocators` from `Schedule`, add `schedule_id: Uuid` to `ScheduleMetadata`, add a private entity UUID registry, implement `Schedule::fetch_uuid`, and update all typed entity/edge method signatures to use typed ID wrappers.
+
+**Description:** Part of REFACTOR-037. This is the main wiring phase that makes the UUID migration visible in the public `Schedule` API.
+
+Changes to `crates/schedule-data/src/schedule/mod.rs`:
+
+* Remove `IdAllocators` struct and all its uses (UUID generation no longer requires counters)
+* Remove `pub type EdgeId = u64` (use `edge::EdgeId` which is unchanged)
+* `ScheduleMetadata`: add `pub schedule_id: uuid::Uuid`; generate it in `ScheduleMetadata::new()` via `uuid::Uuid::new_v4()`
+* `Schedule`: add private `entity_registry: HashMap<uuid::Uuid, crate::entity::EntityKind>`
+* Update `add_entity` to insert `(data.uuid(), EntityKind::Panel)` (etc.) into `entity_registry`
+* Implement `pub fn fetch_uuid(&self, uuid: uuid::Uuid) -> Option<crate::entity::PublicEntityRef>`:
+  * Match `entity_registry.get(&uuid)` → `EntityKind::Panel` → look up in typed storage → call `data.to_public()` → wrap in `PublicEntityRef::Panel(...)`
+  * Repeat for all five entity kinds
+* Update all typed accessor/mutator methods to use typed ID parameters:
+  * `get_panel_presenters(panel_id: PanelId) -> Vec<PresenterId>`
+  * `connect_panel_to_presenter(panel_id: PanelId, presenter_id: PresenterId)`
+  * `get_presenter_panels(presenter_id: PresenterId) -> Vec<PanelId>`
+  * `connect_panel_to_event_room(panel_id: PanelId, room_id: EventRoomId)`
+  * `connect_panel_to_panel_type(panel_id: PanelId, type_id: PanelTypeId)`
+  * `connect_event_room_to_hotel_room(event_room_id: EventRoomId, hotel_room_id: HotelRoomId)`
+  * (all similar methods throughout)
+* `find_related` generic method: return `Vec<uuid::Uuid>` for the untyped path
+
+---
+
+### [REFACTOR-048] Add type_of_uuid, lookup_uuid, and EntityRef to Schedule
+
+**Status:** Open
+
+**Priority:** High
+
+**Summary:** Expose `Schedule::type_of_uuid` and `Schedule::lookup_uuid` using the private entity registry added in REFACTOR-047, and add `EntityRef<'a>` as the borrowed-data return type for `lookup_uuid`.
+
+**Description:** Part of REFACTOR-037. REFACTOR-047 added a private `entity_registry: HashMap<Uuid, EntityKind>` and `fetch_uuid` (which returns owned public data). This phase adds the remaining two registry methods for internal use:
+
+* `pub fn type_of_uuid(&self, uuid: uuid::Uuid) -> Option<crate::entity::EntityKind>`
+  * Simple registry dispatch — returns only the type tag
+  * Useful for callers that already know how to use typed methods once they know the type
+
+* `pub fn lookup_uuid(&self, uuid: uuid::Uuid) -> Option<crate::entity::EntityRef<'_>>`
+  * Returns borrowed internal `*Data` via `EntityRef<'a>`
+  * Useful for internal code that needs to inspect raw entity data without copying
+
+New type `EntityRef<'a>` added to `entity/mod.rs`:
+
+```rust
+pub enum EntityRef<'a> {
+    Panel(&'a PanelData),
+    Presenter(&'a PresenterData),
+    EventRoom(&'a EventRoomData),
+    HotelRoom(&'a HotelRoomData),
+    PanelType(&'a PanelTypeData),
+}
+```
+
+`lookup_uuid` dispatches through the registry (same as `fetch_uuid`) but borrows the `*Data` struct rather than cloning it.
+
+---
+
+### [REFACTOR-049] Update and extend tests for UUID migration
+
+**Status:** Open
+
+**Priority:** High
+
+**Summary:** Update the four existing integration test files to use `Uuid` instead of `EntityId`/`InternalId`, and add new tests for `fetch_uuid` and `lookup_uuid`.
+
+**Description:** Part of REFACTOR-037. After all implementation phases are complete, the test suite needs to be updated to reflect the new UUID-based API and extended to cover the new registry methods.
+
+Files to update in `crates/schedule-data/tests/`:
+
+* `entity_fields_integration.rs` — replace `EntityId` references with `Uuid`; update entity construction to use generated `*Data::new(...)` constructors
+* `direct_indexable_test.rs` — same EntityId → Uuid updates
+* `indexable_fields_test.rs` — same updates
+* `simple_indexable_test.rs` — same updates
+
+New tests to add (can be in `entity_fields_integration.rs` or a new `uuid_registry_test.rs`):
+
+* `test_schedule_metadata_has_uuid` — verify `ScheduleMetadata::new()` generates a non-nil `schedule_id`
+* `test_fetch_uuid_panel` — add a panel to a schedule, call `fetch_uuid(panel.uuid())`, verify returned `PublicEntityRef::Panel` matches
+* `test_fetch_uuid_unknown_returns_none` — call `fetch_uuid` with a random UUID, verify `None`
+* `test_lookup_uuid_returns_borrowed_data` — verify `lookup_uuid` returns `EntityRef::Panel(&PanelData)` for a known panel
+* `test_type_of_uuid` — verify `type_of_uuid` returns `Some(EntityKind::Panel)` for a known panel UUID and `None` for an unknown UUID
+* `test_entity_data_new_generates_unique_uuids` — create two `PanelData::new(...)` instances, verify UUIDs differ
+* `test_to_public_roundtrip` — create `PanelData`, call `to_public()`, verify all stored fields match
 
 ---
 
@@ -503,6 +839,18 @@ Since UUIDs are standard and self-describing, they can be made public without an
 [REFACTOR-035]: work-item/done/REFACTOR-035.md
 [REFACTOR-036]: work-item/done/REFACTOR-036.md
 [REFACTOR-037]: work-item/high/REFACTOR-037.md
+[REFACTOR-038]: work-item/high/REFACTOR-038.md
+[REFACTOR-039]: work-item/high/REFACTOR-039.md
+[REFACTOR-040]: work-item/high/REFACTOR-040.md
+[REFACTOR-041]: work-item/high/REFACTOR-041.md
+[REFACTOR-042]: work-item/high/REFACTOR-042.md
+[REFACTOR-043]: work-item/high/REFACTOR-043.md
+[REFACTOR-044]: work-item/high/REFACTOR-044.md
+[REFACTOR-045]: work-item/high/REFACTOR-045.md
+[REFACTOR-046]: work-item/high/REFACTOR-046.md
+[REFACTOR-047]: work-item/high/REFACTOR-047.md
+[REFACTOR-048]: work-item/high/REFACTOR-048.md
+[REFACTOR-049]: work-item/high/REFACTOR-049.md
 [TEST-028]: work-item/high/TEST-028.md
 [UI-018]: work-item/high/UI-018.md
 [UI-019]: work-item/high/UI-019.md
