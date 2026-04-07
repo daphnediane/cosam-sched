@@ -15,7 +15,7 @@ Updated on: Fri Apr 10 14:29:24 2026
 
 ## Summary of Open Items
 
-**Total open items:** 30
+**Total open items:** 31
 
 * **High Priority**
   * [CLI-013] Port cosam-convert from schedule-core to schedule-data for XLSX-to-JSON conversion.
@@ -31,6 +31,7 @@ Updated on: Fri Apr 10 14:29:24 2026
   * [REFACTOR-005] Implement command-based edit history with undo/redo stacks and atomic batch operations.
   * [REFACTOR-006] Implement derived scheduling-state propagation and complete the field validation system in schedule-macro.
   * [REFACTOR-031] Extract timeline entries (SPLIT, BREAK, room hours) into a dedicated TimelineEntry entity following the schedule-core pattern.
+  * [REFACTOR-037] Migrate from internal u64-based entity IDs to standard UUID v4 for entities, schedules, and edges to enable cross-schedule ID sharing and simplify the public API.
   * [TEST-028] Comprehensive integration tests validating schedule-data against schedule-core behavior with real schedule data.
   * [UI-018] Implement comprehensive accessibility for the schedule widget: screen readers, color blindness support, and keyboard navigation.
   * [UI-019] Prevent panel titles from overlapping with the "my schedule" star icon in the schedule widget.
@@ -59,9 +60,9 @@ Updated on: Fri Apr 10 14:29:24 2026
 
 The following ID numbers are available for new items:
 
-**Available:** 037, 038, 039, 040, 041, 042, 043, 044, 045, 046
+**Available:** 038, 039, 040, 041, 042, 043, 044, 045, 046, 047
 
-**Highest used:** 36
+**Highest used:** 37
 
 ---
 
@@ -351,6 +352,36 @@ The following ID numbers are available for new items:
 
 ---
 
+### [REFACTOR-037] Replace EntityId with uuid::Uuid for all IDs
+
+**Status:** Open
+
+**Priority:** High
+
+**Summary:** Migrate from internal u64-based entity IDs to standard UUID v4 for entities, schedules, and edges to enable cross-schedule ID sharing and simplify the public API.
+
+**Description:** Currently the codebase uses `EntityId` (a crate-private u64 type alias) for internal entity identifiers and `InternalId` as a public wrapper. This design has limitations:
+
+* Entity IDs cannot be shared across different schedules (e.g., a guest reinvited in a future year)
+* Requires opaque wrapper to hide internal implementation
+* Public API exposure of internal types
+
+Replace with standard `uuid::Uuid` v4 for:
+
+* All entity IDs (panels, presenters, rooms, etc.)
+* Schedule IDs
+* Edge IDs (relationships between entities)
+
+Since UUIDs are standard and self-describing, they can be made public without an opaque wrapper. UUIDs are 128-bit (16 bytes) vs 64-bit (8 bytes) for u64, but this tradeoff is acceptable for the benefits:
+
+* Standard RFC 4122 format
+* Built-in collision resistance
+* Can be serialized/deserialized reliably
+* Enables cross-schedule entity tracking
+* No need for opaque wrapper
+
+---
+
 ### [REFACTOR-029] Migrate PanelToEventRoom to Specialized Storage
 
 **Status:** Not Started
@@ -471,6 +502,7 @@ The following ID numbers are available for new items:
 [REFACTOR-034]: work-item/done/REFACTOR-034.md
 [REFACTOR-035]: work-item/done/REFACTOR-035.md
 [REFACTOR-036]: work-item/done/REFACTOR-036.md
+[REFACTOR-037]: work-item/high/REFACTOR-037.md
 [TEST-028]: work-item/high/TEST-028.md
 [UI-018]: work-item/high/UI-018.md
 [UI-019]: work-item/high/UI-019.md
