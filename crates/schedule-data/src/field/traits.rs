@@ -235,7 +235,7 @@ mod tests {
     // Mock entity for testing
     #[derive(Debug, Clone, PartialEq)]
     struct TestEntity {
-        entity_id: crate::entity::EntityId,
+        entity_uuid: uuid::Uuid,
         id: String,
         name: String,
         value: i64,
@@ -254,11 +254,11 @@ mod tests {
     }
 
     impl crate::entity::InternalData for TestEntity {
-        fn entity_id(&self) -> crate::entity::EntityId {
-            self.entity_id
+        fn uuid(&self) -> uuid::Uuid {
+            self.entity_uuid
         }
-        fn set_entity_id(&mut self, id: crate::entity::EntityId) {
-            self.entity_id = id;
+        fn set_uuid(&mut self, uuid: uuid::Uuid) {
+            self.entity_uuid = uuid;
         }
     }
 
@@ -298,7 +298,7 @@ mod tests {
 
     fn create_test_entity() -> TestEntity {
         TestEntity {
-            entity_id: 0,
+            entity_uuid: uuid::Uuid::nil(),
             id: "123".to_string(),
             name: "Test".to_string(),
             value: 42,

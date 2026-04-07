@@ -91,7 +91,7 @@ pub struct EventRoom {
     )]
     #[read(|schedule: &crate::schedule::Schedule, entity: &EventRoomData| {
         let hotel_room_ids = schedule.find_related::<crate::entity::HotelRoomEntityType>(
-            entity.entity_id,
+            entity.entity_uuid,
             crate::edge::EdgeType::EventRoomToHotelRoom,
             crate::schedule::RelationshipDirection::Outgoing
         );

@@ -2,11 +2,11 @@
 
 ## Summary
 
-Update `schedule-macro/src/lib.rs` to emit `entity_uuid: uuid::Uuid` in generated `*Data` structs, generate a `new()` constructor with `Uuid::new_v4()`, generate a `to_public()` method, and replace `FieldTypeCategory::EntityId`/`InternalId` with `Uuid`.
+Update `schedule-macro/src/lib.rs` to emit `entity_uuid: uuid::Uuid` in generated `*Data` structs, generate a `new()` constructor with `Uuid::now_v7()`, generate a `to_public()` method, and replace `FieldTypeCategory::EntityId`/`InternalId` with `Uuid`.
 
 ## Status
 
-Open
+Completed
 
 ## Priority
 
@@ -22,7 +22,7 @@ Changes to `crates/schedule-macro/src/lib.rs`:
 * Generated `impl InternalData for *Data`:
   * `entity_id(&self) -> EntityId` → `uuid(&self) -> uuid::Uuid`
   * `set_entity_id(&mut self, id: EntityId)` → `set_uuid(&mut self, uuid: uuid::Uuid)`
-* New generated method `pub fn new(...all_stored_fields...) -> Self` that sets `entity_uuid: uuid::Uuid::new_v4()` and the provided field values
+* New generated method `pub fn new(...all_stored_fields...) -> Self` that sets `entity_uuid: uuid::Uuid::now_v7()` and the provided field values
 * New generated method `pub fn to_public(&self) -> OriginalStruct` that clones all stored and computed-backing fields from `*Data` into a new instance of the original struct
 * `FieldTypeCategory` enum: remove `EntityId` and `InternalId` variants; add `Uuid`
 * `get_field_type_category`: map `"Uuid"` → `FieldTypeCategory::Uuid`; remove `"EntityId"` and `"InternalId"` branches
@@ -36,13 +36,13 @@ The `to_public()` generation iterates all fields in `stored_field_names_for_copy
 
 ## Acceptance Criteria
 
-* Each entity's `*Data::new(...)` constructor compiles and calls `Uuid::new_v4()`
+* Each entity's `*Data::new(...)` constructor compiles and calls `Uuid::now_v7()`
 * Each entity's `*Data::to_public()` returns the original struct with all fields cloned
 * `FieldTypeCategory::Uuid` handles read/write/index operations
 * `EntityId`/`InternalId` variants completely removed from macro
 
 ## Notes
 
-* The macro emits `uuid::Uuid::new_v4()` as a token stream — no runtime `uuid` dependency needed in `schedule-macro` crate itself
+* The macro emits `uuid::Uuid::now_v7()` as a token stream — no runtime `uuid` dependency needed in `schedule-macro` crate itself
 * The `new()` constructor must exclude computed fields from its parameters; they start as defaults
 * See parent: REFACTOR-037

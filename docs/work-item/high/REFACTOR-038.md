@@ -14,7 +14,7 @@ High
 
 ## Description
 
-Currently `EdgeId` is a `(u64)` newtype generated sequentially in each edge storage. This is an internal counter with no cross-storage identity guarantees. Migrating to UUID v4 enables:
+Currently `EdgeId` is a `(u64)` newtype generated sequentially in each edge storage. This is an internal counter with no cross-storage identity guarantees. Migrating to UUID v7 enables:
 
 * Stable edge references across sessions and serialization round-trips
 * Unified `Schedule::lookup_edge_uuid` registry alongside the entity UUID registry
@@ -25,7 +25,7 @@ This work is **blocked** on REFACTOR-039 through REFACTOR-049 (entity UUID migra
 ## Implementation Details
 
 * `EdgeId(u64)` → `EdgeId(uuid::Uuid)` in `edge/traits.rs`
-* All per-storage `next_id: u64` counters replaced with `uuid::Uuid::new_v4()` at allocation time
+* All per-storage `next_id: u64` counters replaced with `uuid::Uuid::now_v7()` at allocation time
 * `Schedule`: add `edge_registry: HashMap<Uuid, EdgeKind>` where `EdgeKind` is an enum of edge types
 * Add `Schedule::lookup_edge_uuid(uuid: Uuid) -> Option<EdgeRef<'_>>` returning borrowed edge data
 * Update `GenericEdgeStorage` and `PresenterToGroupStorage` to store `EdgeId(Uuid)` keys

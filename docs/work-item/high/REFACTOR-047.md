@@ -20,7 +20,7 @@ Changes to `crates/schedule-data/src/schedule/mod.rs`:
 
 * Remove `IdAllocators` struct and all its uses (UUID generation no longer requires counters)
 * Remove `pub type EdgeId = u64` (use `edge::EdgeId` which is unchanged)
-* `ScheduleMetadata`: add `pub schedule_id: uuid::Uuid`; generate it in `ScheduleMetadata::new()` via `uuid::Uuid::new_v4()`
+* `ScheduleMetadata`: add `pub schedule_id: uuid::Uuid`; generate it in `ScheduleMetadata::new()` via `uuid::Uuid::now_v7()`
 * `Schedule`: add private `entity_registry: HashMap<uuid::Uuid, crate::entity::EntityKind>`
 * Update `add_entity` to insert `(data.uuid(), EntityKind::Panel)` (etc.) into `entity_registry`
 * Implement `pub fn fetch_uuid(&self, uuid: uuid::Uuid) -> Option<crate::entity::PublicEntityRef>`:
