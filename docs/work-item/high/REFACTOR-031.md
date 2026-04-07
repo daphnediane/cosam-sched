@@ -49,7 +49,7 @@ Add timeline entry storage to Schedule:
 
 ### 4. Update Import/Export Logic
 
-**Files: XLSX import/export modules**
+**Files:** XLSX import/export modules
 
 - When importing XLSX, detect panels with `is_timeline` or `is_room_hours` PanelType
 - Convert these to TimelineEntry entities instead of Panel entities

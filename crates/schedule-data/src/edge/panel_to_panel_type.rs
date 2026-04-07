@@ -13,8 +13,8 @@ use std::collections::HashMap;
 /// PanelToPanelType edge implementation
 #[derive(Debug, Clone)]
 pub struct PanelToPanelTypeEdge {
-    pub from_id: EntityId, // Panel
-    pub to_id: EntityId,   // PanelType
+    pub from_id: crate::entity::InternalId, // Panel
+    pub to_id: crate::entity::InternalId,   // PanelType
     pub data: PanelToPanelTypeData,
 }
 
@@ -26,8 +26,10 @@ pub struct PanelToPanelTypeData {
 impl PanelToPanelTypeEdge {
     pub fn new(panel_id: EntityId, panel_type_id: EntityId) -> Self {
         Self {
-            from_id: panel_id,
-            to_id: panel_type_id,
+            from_id: crate::entity::InternalId::new::<crate::entity::PanelEntityType>(panel_id),
+            to_id: crate::entity::InternalId::new::<crate::entity::PanelTypeEntityType>(
+                panel_type_id,
+            ),
             data: PanelToPanelTypeData {},
         }
     }
@@ -38,11 +40,11 @@ impl Edge for PanelToPanelTypeEdge {
     type ToEntity = crate::entity::PanelTypeEntityType;
     type Data = PanelToPanelTypeData;
 
-    fn from_id(&self) -> Option<EntityId> {
+    fn from_id(&self) -> Option<crate::entity::InternalId> {
         Some(self.from_id)
     }
 
-    fn to_id(&self) -> Option<EntityId> {
+    fn to_id(&self) -> Option<crate::entity::InternalId> {
         Some(self.to_id)
     }
 
@@ -102,8 +104,8 @@ impl Default for PanelToPanelTypeStorage {
 
 impl EdgeStorage<PanelToPanelTypeEdge> for PanelToPanelTypeStorage {
     fn add_edge(&mut self, edge: PanelToPanelTypeEdge) -> Result<EdgeId, EdgeError> {
-        let panel_id = edge.from_id;
-        let type_id = edge.to_id;
+        let panel_id = edge.from_id.entity_id;
+        let type_id = edge.to_id.entity_id;
 
         if let Some(existing_edge_id) = self.panel_to_edge_id.get(&panel_id).copied() {
             self.remove_edge(existing_edge_id)?;
@@ -124,13 +126,13 @@ impl EdgeStorage<PanelToPanelTypeEdge> for PanelToPanelTypeStorage {
 
     fn remove_edge(&mut self, edge_id: EdgeId) -> Result<(), EdgeError> {
         if let Some(edge) = self.edges_by_id.remove(&edge_id) {
-            self.panel_to_type_index.remove(&edge.from_id);
-            self.panel_to_edge_id.remove(&edge.from_id);
+            self.panel_to_type_index.remove(&edge.from_id.entity_id);
+            self.panel_to_edge_id.remove(&edge.from_id.entity_id);
 
-            if let Some(panels) = self.type_to_panels.get_mut(&edge.to_id) {
-                panels.retain(|panel_id| *panel_id != edge.from_id);
+            if let Some(panels) = self.type_to_panels.get_mut(&edge.to_id.entity_id) {
+                panels.retain(|panel_id| *panel_id != edge.from_id.entity_id);
                 if panels.is_empty() {
-                    self.type_to_panels.remove(&edge.to_id);
+                    self.type_to_panels.remove(&edge.to_id.entity_id);
                 }
             }
             Ok(())
@@ -145,8 +147,8 @@ impl EdgeStorage<PanelToPanelTypeEdge> for PanelToPanelTypeStorage {
         self.edges_by_id.get(&edge_id)
     }
 
-    fn find_outgoing(&self, from_id: EntityId) -> Vec<&PanelToPanelTypeEdge> {
-        if let Some(edge_id) = self.panel_to_edge_id.get(&from_id) {
+    fn find_outgoing(&self, from_id: crate::entity::InternalId) -> Vec<&PanelToPanelTypeEdge> {
+        if let Some(edge_id) = self.panel_to_edge_id.get(&from_id.entity_id) {
             if let Some(edge) = self.edges_by_id.get(edge_id) {
                 return vec![edge];
             }
@@ -154,9 +156,9 @@ impl EdgeStorage<PanelToPanelTypeEdge> for PanelToPanelTypeStorage {
         Vec::new()
     }
 
-    fn find_incoming(&self, to_id: EntityId) -> Vec<&PanelToPanelTypeEdge> {
+    fn find_incoming(&self, to_id: crate::entity::InternalId) -> Vec<&PanelToPanelTypeEdge> {
         self.type_to_panels
-            .get(&to_id)
+            .get(&to_id.entity_id)
             .map(|panel_ids| {
                 panel_ids
                     .iter()
@@ -170,10 +172,14 @@ impl EdgeStorage<PanelToPanelTypeEdge> for PanelToPanelTypeStorage {
             .unwrap_or_default()
     }
 
-    fn edge_exists(&self, from_id: &EntityId, to_id: &EntityId) -> bool {
+    fn edge_exists(
+        &self,
+        from_id: &crate::entity::InternalId,
+        to_id: &crate::entity::InternalId,
+    ) -> bool {
         self.panel_to_type_index
-            .get(from_id)
-            .map(|existing_to_id| existing_to_id == to_id)
+            .get(&from_id.entity_id)
+            .map(|existing_to_id| *existing_to_id == to_id.entity_id)
             .unwrap_or(false)
     }
 

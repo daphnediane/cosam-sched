@@ -162,49 +162,50 @@ impl Schedule {
         direction: RelationshipDirection,
     ) -> Vec<EntityId> {
         use crate::edge::EdgeType;
+        let internal_id = crate::entity::InternalId::new::<T>(entity_id);
         match edge_type {
             EdgeType::PanelToPresenter => {
                 if direction == RelationshipDirection::Outgoing {
                     self.panel_to_presenter
-                        .find_outgoing(entity_id)
+                        .find_outgoing(internal_id)
                         .iter()
-                        .map(|e| e.to_id)
+                        .filter_map(|e| e.to_id().map(|id| id.entity_id))
                         .collect()
                 } else {
                     self.panel_to_presenter
-                        .find_incoming(entity_id)
+                        .find_incoming(internal_id)
                         .iter()
-                        .filter_map(|e| e.from_id())
+                        .filter_map(|e| e.from_id().map(|id| id.entity_id))
                         .collect()
                 }
             }
             EdgeType::PanelToEventRoom => {
                 if direction == RelationshipDirection::Outgoing {
                     self.panel_to_event_room
-                        .find_outgoing(entity_id)
+                        .find_outgoing(internal_id)
                         .iter()
-                        .map(|e| e.to_id)
+                        .filter_map(|e| e.to_id().map(|id| id.entity_id))
                         .collect()
                 } else {
                     self.panel_to_event_room
-                        .find_incoming(entity_id)
+                        .find_incoming(internal_id)
                         .iter()
-                        .filter_map(|e| e.from_id())
+                        .filter_map(|e| e.from_id().map(|id| id.entity_id))
                         .collect()
                 }
             }
             EdgeType::PanelToPanelType => {
                 if direction == RelationshipDirection::Outgoing {
                     self.panel_to_panel_type
-                        .find_outgoing(entity_id)
+                        .find_outgoing(internal_id)
                         .iter()
-                        .map(|e| e.to_id)
+                        .filter_map(|e| e.to_id().map(|id| id.entity_id))
                         .collect()
                 } else {
                     self.panel_to_panel_type
-                        .find_incoming(entity_id)
+                        .find_incoming(internal_id)
                         .iter()
-                        .filter_map(|e| e.from_id())
+                        .filter_map(|e| e.from_id().map(|id| id.entity_id))
                         .collect()
                 }
             }
@@ -220,15 +221,15 @@ impl Schedule {
             EdgeType::EventRoomToHotelRoom => {
                 if direction == RelationshipDirection::Outgoing {
                     self.event_room_to_hotel_room
-                        .find_outgoing(entity_id)
+                        .find_outgoing(internal_id)
                         .iter()
-                        .map(|e| e.to_id)
+                        .filter_map(|e| e.to_id().map(|id| id.entity_id))
                         .collect()
                 } else {
                     self.event_room_to_hotel_room
-                        .find_incoming(entity_id)
+                        .find_incoming(internal_id)
                         .iter()
-                        .filter_map(|e| e.from_id())
+                        .filter_map(|e| e.from_id().map(|id| id.entity_id))
                         .collect()
                 }
             }
@@ -239,19 +240,24 @@ impl Schedule {
 
     /// Get all presenters for a panel (returns EntityIds)
     pub fn get_panel_presenters(&self, panel_id: EntityId) -> Vec<EntityId> {
+        let internal_id =
+            crate::entity::InternalId::new::<crate::entity::PanelEntityType>(panel_id);
         self.panel_to_presenter
-            .find_outgoing(panel_id)
+            .find_outgoing(internal_id)
             .iter()
-            .map(|e| e.to_id)
+            .filter_map(|e| e.to_id().map(|id| id.entity_id))
             .collect()
     }
 
     /// Get the primary event room for a panel (returns EntityId)
     pub fn get_panel_event_room(&self, panel_id: EntityId) -> Option<EntityId> {
+        let internal_id =
+            crate::entity::InternalId::new::<crate::entity::PanelEntityType>(panel_id);
         self.panel_to_event_room
-            .find_outgoing(panel_id)
+            .find_outgoing(internal_id)
             .first()
-            .map(|e| e.to_id)
+            .map(|e| e.to_id().map(|id| id.entity_id))
+            .flatten()
     }
 
     /// Get the panel type for a panel (returns EntityId)
@@ -275,10 +281,12 @@ impl Schedule {
 
     /// Get all panels a presenter participates in (returns EntityIds)
     pub fn get_presenter_panels(&self, presenter_id: EntityId) -> Vec<EntityId> {
+        let internal_id =
+            crate::entity::InternalId::new::<crate::entity::PresenterEntityType>(presenter_id);
         self.panel_to_presenter
-            .find_incoming(presenter_id)
+            .find_incoming(internal_id)
             .iter()
-            .filter_map(|e| e.from_id())
+            .filter_map(|e| e.from_id().map(|id| id.entity_id))
             .collect()
     }
 
@@ -363,15 +371,19 @@ impl Schedule {
 
     /// Get all presenters for a panel, including those from presenter groups
     pub fn get_panel_inclusive_presenters(&mut self, panel_id: EntityId) -> Vec<EntityId> {
+        let internal_id =
+            crate::entity::InternalId::new::<crate::entity::PanelEntityType>(panel_id);
         self.panel_to_presenter
-            .get_inclusive_presenters(panel_id, &mut self.presenter_to_group)
+            .get_inclusive_presenters(internal_id, &mut self.presenter_to_group)
             .to_vec()
     }
 
     /// Get all panels for a presenter, including those from presenter groups
     pub fn get_presenter_inclusive_panels(&mut self, presenter_id: EntityId) -> Vec<EntityId> {
+        let internal_id =
+            crate::entity::InternalId::new::<crate::entity::PresenterEntityType>(presenter_id);
         self.panel_to_presenter
-            .get_inclusive_panels(presenter_id, &mut self.presenter_to_group)
+            .get_inclusive_panels(internal_id, &mut self.presenter_to_group)
             .to_vec()
     }
 

@@ -30,10 +30,13 @@ impl<E: Edge> GenericEdgeStorage<E> {
     }
 
     /// Remove all outgoing edges from an entity.
-    pub fn remove_outgoing_edges(&mut self, from_id: EntityId) -> Result<(), EdgeError> {
+    pub fn remove_outgoing_edges(
+        &mut self,
+        from_id: crate::entity::InternalId,
+    ) -> Result<(), EdgeError> {
         let edge_ids = self
             .outgoing_index
-            .get(&from_id)
+            .get(&from_id.entity_id)
             .cloned()
             .unwrap_or_default();
         for edge_id in edge_ids {
@@ -64,15 +67,21 @@ impl<E: Edge> GenericEdgeStorage<E> {
             // Add to main storage
             self.edges.insert(edge_id, edge);
 
-            // Update indexes
-            self.outgoing_index.entry(from).or_default().push(edge_id);
+            // Update indexes using entity_id for efficiency
+            self.outgoing_index
+                .entry(from.entity_id)
+                .or_default()
+                .push(edge_id);
         } else {
             // Edge without from_id (group-only edge)
             self.edges.insert(edge_id, edge);
         }
 
         if let Some(to) = to_id {
-            self.incoming_index.entry(to).or_default().push(edge_id);
+            self.incoming_index
+                .entry(to.entity_id)
+                .or_default()
+                .push(edge_id);
         }
 
         Ok(edge_id)
@@ -86,20 +95,20 @@ impl<E: Edge> GenericEdgeStorage<E> {
 
             // Remove from outgoing index
             if let Some(from) = from_id {
-                if let Some(edges) = self.outgoing_index.get_mut(&from) {
+                if let Some(edges) = self.outgoing_index.get_mut(&from.entity_id) {
                     edges.retain(|&id| id != edge_id);
                     if edges.is_empty() {
-                        self.outgoing_index.remove(&from);
+                        self.outgoing_index.remove(&from.entity_id);
                     }
                 }
             }
 
             // Remove from incoming index
             if let Some(to) = to_id {
-                if let Some(edges) = self.incoming_index.get_mut(&to) {
+                if let Some(edges) = self.incoming_index.get_mut(&to.entity_id) {
                     edges.retain(|&id| id != edge_id);
                     if edges.is_empty() {
-                        self.incoming_index.remove(&to);
+                        self.incoming_index.remove(&to.entity_id);
                     }
                 }
             }
@@ -123,9 +132,9 @@ impl<E: Edge> GenericEdgeStorage<E> {
     }
 
     /// Find outgoing edges from an entity
-    pub fn find_outgoing(&self, from_id: EntityId) -> Vec<&E> {
+    pub fn find_outgoing(&self, from_id: crate::entity::InternalId) -> Vec<&E> {
         self.outgoing_index
-            .get(&from_id)
+            .get(&from_id.entity_id)
             .map(|edge_ids| {
                 edge_ids
                     .iter()
@@ -136,9 +145,9 @@ impl<E: Edge> GenericEdgeStorage<E> {
     }
 
     /// Find incoming edges to an entity
-    pub fn find_incoming(&self, to_id: EntityId) -> Vec<&E> {
+    pub fn find_incoming(&self, to_id: crate::entity::InternalId) -> Vec<&E> {
         self.incoming_index
-            .get(&to_id)
+            .get(&to_id.entity_id)
             .map(|edge_ids| {
                 edge_ids
                     .iter()
@@ -149,9 +158,13 @@ impl<E: Edge> GenericEdgeStorage<E> {
     }
 
     /// Check if an edge exists between two entities
-    pub fn edge_exists(&self, from_id: &EntityId, to_id: &EntityId) -> bool {
+    pub fn edge_exists(
+        &self,
+        from_id: &crate::entity::InternalId,
+        to_id: &crate::entity::InternalId,
+    ) -> bool {
         self.outgoing_index
-            .get(from_id)
+            .get(&from_id.entity_id)
             .map(|edge_ids| {
                 edge_ids.iter().any(|&edge_id| {
                     self.edges
@@ -198,15 +211,19 @@ impl<E: Edge> EdgeStorage<E> for GenericEdgeStorage<E> {
         self.get_edge(edge_id)
     }
 
-    fn find_outgoing(&self, from_id: EntityId) -> Vec<&E> {
+    fn find_outgoing(&self, from_id: crate::entity::InternalId) -> Vec<&E> {
         self.find_outgoing(from_id)
     }
 
-    fn find_incoming(&self, to_id: EntityId) -> Vec<&E> {
+    fn find_incoming(&self, to_id: crate::entity::InternalId) -> Vec<&E> {
         self.find_incoming(to_id)
     }
 
-    fn edge_exists(&self, from_id: &EntityId, to_id: &EntityId) -> bool {
+    fn edge_exists(
+        &self,
+        from_id: &crate::entity::InternalId,
+        to_id: &crate::entity::InternalId,
+    ) -> bool {
         self.edge_exists(from_id, to_id)
     }
 

@@ -6,17 +6,17 @@
 
 //! Edge trait hierarchy for schedule-data relationships
 
-use crate::entity::{EntityId, EntityType};
+use crate::entity::{EntityId, EntityType, InternalId};
 use std::fmt::{self, Debug};
 
-/// Base edge trait with common operations
+/// Core trait for all edge relationships
 pub trait Edge: Debug + Clone {
     type FromEntity: EntityType;
     type ToEntity: EntityType;
     type Data: Debug + Clone;
 
-    fn from_id(&self) -> Option<EntityId>;
-    fn to_id(&self) -> Option<EntityId>;
+    fn from_id(&self) -> Option<InternalId>;
+    fn to_id(&self) -> Option<InternalId>;
     fn data(&self) -> &Self::Data;
     fn data_mut(&mut self) -> &mut Self::Data;
     fn edge_type(&self) -> EdgeType;
@@ -102,8 +102,8 @@ pub trait EdgeStorage<E: Edge> {
     fn add_edge(&mut self, edge: E) -> Result<EdgeId, EdgeError>;
     fn remove_edge(&mut self, edge_id: EdgeId) -> Result<(), EdgeError>;
     fn get_edge(&self, edge_id: EdgeId) -> Option<&E>;
-    fn find_outgoing(&self, from_id: EntityId) -> Vec<&E>;
-    fn find_incoming(&self, to_id: EntityId) -> Vec<&E>;
-    fn edge_exists(&self, from_id: &EntityId, to_id: &EntityId) -> bool;
+    fn find_outgoing(&self, from_id: InternalId) -> Vec<&E>;
+    fn find_incoming(&self, to_id: InternalId) -> Vec<&E>;
+    fn edge_exists(&self, from_id: &InternalId, to_id: &InternalId) -> bool;
     fn len(&self) -> usize;
 }

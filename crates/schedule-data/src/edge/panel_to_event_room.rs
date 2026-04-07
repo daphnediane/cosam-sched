@@ -12,8 +12,8 @@ use crate::entity::EntityId;
 /// PanelToEventRoom edge implementation
 #[derive(Debug, Clone)]
 pub struct PanelToEventRoomEdge {
-    pub from_id: EntityId, // Panel
-    pub to_id: EntityId,   // EventRoom
+    pub from_id: crate::entity::InternalId, // Panel
+    pub to_id: crate::entity::InternalId,   // EventRoom
     pub data: PanelToEventRoomData,
 }
 
@@ -25,8 +25,10 @@ pub struct PanelToEventRoomData {
 impl PanelToEventRoomEdge {
     pub fn new(panel_id: EntityId, event_room_id: EntityId) -> Self {
         Self {
-            from_id: panel_id,
-            to_id: event_room_id,
+            from_id: crate::entity::InternalId::new::<crate::entity::PanelEntityType>(panel_id),
+            to_id: crate::entity::InternalId::new::<crate::entity::EventRoomEntityType>(
+                event_room_id,
+            ),
             data: PanelToEventRoomData {},
         }
     }
@@ -37,11 +39,11 @@ impl Edge for PanelToEventRoomEdge {
     type ToEntity = crate::entity::EventRoomEntityType;
     type Data = PanelToEventRoomData;
 
-    fn from_id(&self) -> Option<EntityId> {
+    fn from_id(&self) -> Option<crate::entity::InternalId> {
         Some(self.from_id)
     }
 
-    fn to_id(&self) -> Option<EntityId> {
+    fn to_id(&self) -> Option<crate::entity::InternalId> {
         Some(self.to_id)
     }
 

@@ -13,8 +13,8 @@ use crate::entity::EntityId;
 /// EventRoomToHotelRoom edge implementation (many-to-one relationship)
 #[derive(Debug, Clone)]
 pub struct EventRoomToHotelRoomEdge {
-    pub from_id: EntityId, // EventRoom (many)
-    pub to_id: EntityId,   // HotelRoom (one)
+    pub from_id: crate::entity::InternalId, // EventRoom (many)
+    pub to_id: crate::entity::InternalId,   // HotelRoom (one)
     pub data: EventRoomToHotelRoomData,
 }
 
@@ -26,8 +26,12 @@ pub struct EventRoomToHotelRoomData {
 impl EventRoomToHotelRoomEdge {
     pub fn new(event_room_id: EntityId, hotel_room_id: EntityId) -> Self {
         Self {
-            from_id: event_room_id,
-            to_id: hotel_room_id,
+            from_id: crate::entity::InternalId::new::<crate::entity::EventRoomEntityType>(
+                event_room_id,
+            ),
+            to_id: crate::entity::InternalId::new::<crate::entity::HotelRoomEntityType>(
+                hotel_room_id,
+            ),
             data: EventRoomToHotelRoomData {},
         }
     }
@@ -38,11 +42,11 @@ impl Edge for EventRoomToHotelRoomEdge {
     type ToEntity = crate::entity::HotelRoomEntityType;
     type Data = EventRoomToHotelRoomData;
 
-    fn from_id(&self) -> Option<EntityId> {
+    fn from_id(&self) -> Option<crate::entity::InternalId> {
         Some(self.from_id)
     }
 
-    fn to_id(&self) -> Option<EntityId> {
+    fn to_id(&self) -> Option<crate::entity::InternalId> {
         Some(self.to_id)
     }
 
@@ -145,15 +149,19 @@ impl EdgeStorage<EventRoomToHotelRoomEdge> for EventRoomToHotelRoomStorage {
         self.edges.get_edge(edge_id)
     }
 
-    fn find_outgoing(&self, from_id: EntityId) -> Vec<&EventRoomToHotelRoomEdge> {
+    fn find_outgoing(&self, from_id: crate::entity::InternalId) -> Vec<&EventRoomToHotelRoomEdge> {
         self.edges.find_outgoing(from_id)
     }
 
-    fn find_incoming(&self, to_id: EntityId) -> Vec<&EventRoomToHotelRoomEdge> {
+    fn find_incoming(&self, to_id: crate::entity::InternalId) -> Vec<&EventRoomToHotelRoomEdge> {
         self.edges.find_incoming(to_id)
     }
 
-    fn edge_exists(&self, from_id: &EntityId, to_id: &EntityId) -> bool {
+    fn edge_exists(
+        &self,
+        from_id: &crate::entity::InternalId,
+        to_id: &crate::entity::InternalId,
+    ) -> bool {
         self.edges.edge_exists(from_id, to_id)
     }
 

@@ -94,10 +94,16 @@ pub trait EntityType: 'static + Send + Sync + fmt::Debug {
 }
 
 /// Internal identifier for an entity instance
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub struct InternalId {
     pub type_name: &'static str,
     pub entity_id: EntityId,
+}
+
+impl std::fmt::Display for InternalId {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{}:{}", self.type_name, self.entity_id)
+    }
 }
 
 impl InternalId {
@@ -108,6 +114,9 @@ impl InternalId {
         }
     }
 }
+
+/// Marker trait for entities that can be scheduled (assigned to panel types and event rooms)
+pub trait SchedulableEntity: EntityType {}
 
 /// Entity state for soft delete and status tracking
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]

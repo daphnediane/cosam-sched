@@ -72,13 +72,13 @@ impl RelationshipCache {
 pub enum PresenterToGroupEdge {
     /// A group marker with unknown members (e.g., "G:==Group")
     GroupOnly {
-        group_id: EntityId,
+        group_id: crate::entity::InternalId,
         always_shown_in_group: bool,
     },
     /// A specific member belonging to a group
     MemberToGroup {
-        member_id: EntityId,
-        group_id: EntityId,
+        member_id: crate::entity::InternalId,
+        group_id: crate::entity::InternalId,
         always_grouped: bool,
         always_shown_in_group: bool,
     },
@@ -97,8 +97,12 @@ impl PresenterToGroupEdge {
         }
 
         Self::MemberToGroup {
-            member_id,
-            group_id,
+            member_id: crate::entity::InternalId::new::<crate::entity::PresenterEntityType>(
+                member_id,
+            ),
+            group_id: crate::entity::InternalId::new::<crate::entity::PresenterEntityType>(
+                group_id,
+            ),
             always_grouped,
             always_shown_in_group,
         }
@@ -107,7 +111,9 @@ impl PresenterToGroupEdge {
     /// Create an edge for a group with unknown members (G:==Group syntax)
     pub fn group_only(group_id: EntityId, always_shown_in_group: bool) -> Self {
         Self::GroupOnly {
-            group_id,
+            group_id: crate::entity::InternalId::new::<crate::entity::PresenterEntityType>(
+                group_id,
+            ),
             always_shown_in_group,
         }
     }
@@ -118,7 +124,7 @@ impl PresenterToGroupEdge {
     }
 
     /// Get the member ID if this is a MemberToGroup edge
-    pub fn member_id(&self) -> Option<EntityId> {
+    pub fn member_id(&self) -> Option<crate::entity::InternalId> {
         match self {
             Self::MemberToGroup { member_id, .. } => Some(*member_id),
             Self::GroupOnly { .. } => None,
@@ -126,7 +132,7 @@ impl PresenterToGroupEdge {
     }
 
     /// Get the group ID
-    pub fn group_id(&self) -> EntityId {
+    pub fn group_id(&self) -> crate::entity::InternalId {
         match self {
             Self::MemberToGroup { group_id, .. } => *group_id,
             Self::GroupOnly { group_id, .. } => *group_id,
@@ -161,11 +167,11 @@ impl Edge for PresenterToGroupEdge {
     type ToEntity = crate::entity::PresenterEntityType;
     type Data = Self;
 
-    fn from_id(&self) -> Option<EntityId> {
+    fn from_id(&self) -> Option<crate::entity::InternalId> {
         self.member_id()
     }
 
-    fn to_id(&self) -> Option<EntityId> {
+    fn to_id(&self) -> Option<crate::entity::InternalId> {
         Some(self.group_id())
     }
 
@@ -217,8 +223,10 @@ impl PresenterToGroupStorage {
         if let Some(member_id) = edge.member_id() {
             if member_id == edge.group_id() {
                 // Self-reference like "Group -> Group" becomes group-only
-                edge =
-                    PresenterToGroupEdge::group_only(edge.group_id(), edge.always_shown_in_group());
+                edge = PresenterToGroupEdge::group_only(
+                    edge.group_id().entity_id,
+                    edge.always_shown_in_group(),
+                );
             }
         }
 
@@ -227,25 +235,25 @@ impl PresenterToGroupStorage {
 
         // Remove existing edge for this member-group pair if it exists
         if let Some(member_id) = edge.member_id() {
-            self.remove_edge_internal(&member_id, &edge.group_id());
+            self.remove_edge_internal(&member_id.entity_id, &edge.group_id().entity_id);
         }
 
         // Add the edge
         self.edges.insert(edge.clone());
 
-        // Update indexes
+        // Update indexes using entity_id for efficiency
         if let Some(member_id) = edge.member_id() {
             self.member_to_groups
-                .entry(member_id)
+                .entry(member_id.entity_id)
                 .or_default()
-                .push(edge.group_id());
+                .push(edge.group_id().entity_id);
         }
 
         if let Some(member_id) = edge.member_id() {
             self.group_to_members
-                .entry(edge.group_id())
+                .entry(edge.group_id().entity_id)
                 .or_default()
-                .push(member_id);
+                .push(member_id.entity_id);
         }
 
         // Invalidate cache
@@ -268,10 +276,14 @@ impl PresenterToGroupStorage {
     /// Internal edge removal without cache invalidation
     fn remove_edge_internal(&mut self, member_id: &EntityId, group_id: &EntityId) {
         // Find the actual edge (flags may differ from a default-constructed edge)
+        let member_internal =
+            crate::entity::InternalId::new::<crate::entity::PresenterEntityType>(*member_id);
+        let group_internal =
+            crate::entity::InternalId::new::<crate::entity::PresenterEntityType>(*group_id);
         let found = self
             .edges
             .iter()
-            .find(|e| e.member_id() == Some(*member_id) && e.group_id() == *group_id)
+            .find(|e| e.member_id() == Some(member_internal) && e.group_id() == group_internal)
             .cloned();
 
         if let Some(edge) = found {
@@ -280,19 +292,19 @@ impl PresenterToGroupStorage {
             // Update indexes
             if !edge.is_group_only() {
                 if let Some(member_id) = edge.member_id() {
-                    if let Some(groups) = self.member_to_groups.get_mut(&member_id) {
-                        groups.retain(|&g| g != edge.group_id());
+                    if let Some(groups) = self.member_to_groups.get_mut(&member_id.entity_id) {
+                        groups.retain(|&g| g != edge.group_id().entity_id);
                         if groups.is_empty() {
-                            self.member_to_groups.remove(&member_id);
+                            self.member_to_groups.remove(&member_id.entity_id);
                         }
                     }
                 }
             }
 
-            if let Some(members) = self.group_to_members.get_mut(&edge.group_id()) {
-                members.retain(|&m| edge.member_id() != Some(m));
+            if let Some(members) = self.group_to_members.get_mut(&edge.group_id().entity_id) {
+                members.retain(|&m| edge.member_id().map(|id| id.entity_id) != Some(m));
                 if members.is_empty() {
-                    self.group_to_members.remove(&edge.group_id());
+                    self.group_to_members.remove(&edge.group_id().entity_id);
                 }
             }
         }
@@ -354,25 +366,33 @@ impl PresenterToGroupStorage {
 
     /// Check if a member should always be grouped with a specific group
     pub fn is_always_grouped(&self, member_id: EntityId, group_id: EntityId) -> bool {
+        let member_internal =
+            crate::entity::InternalId::new::<crate::entity::PresenterEntityType>(member_id);
+        let group_internal =
+            crate::entity::InternalId::new::<crate::entity::PresenterEntityType>(group_id);
         self.edges
             .iter()
-            .find(|e| e.member_id() == Some(member_id) && e.group_id() == group_id)
+            .find(|e| e.member_id() == Some(member_internal) && e.group_id() == group_internal)
             .map(|e| e.always_grouped())
             .unwrap_or(false)
     }
 
     /// Check if a member should always be grouped (with any group)
     pub fn is_any_always_grouped(&self, member_id: EntityId) -> bool {
+        let member_internal =
+            crate::entity::InternalId::new::<crate::entity::PresenterEntityType>(member_id);
         self.edges
             .iter()
-            .any(|e| e.member_id() == Some(member_id) && e.always_grouped())
+            .any(|e| e.member_id() == Some(member_internal) && e.always_grouped())
     }
 
     /// Check if a group should always be shown as a group
     pub fn is_always_shown_in_group(&self, group_id: EntityId) -> bool {
+        let group_internal =
+            crate::entity::InternalId::new::<crate::entity::PresenterEntityType>(group_id);
         self.edges
             .iter()
-            .any(|e| e.group_id() == group_id && e.always_shown_in_group())
+            .any(|e| e.group_id() == group_internal && e.always_shown_in_group())
     }
 
     /// Get all edges (for debugging/serialization)
@@ -386,9 +406,13 @@ impl PresenterToGroupStorage {
         member_id: EntityId,
         group_id: EntityId,
     ) -> Option<&PresenterToGroupEdge> {
+        let member_internal =
+            crate::entity::InternalId::new::<crate::entity::PresenterEntityType>(member_id);
+        let group_internal =
+            crate::entity::InternalId::new::<crate::entity::PresenterEntityType>(group_id);
         self.edges
             .iter()
-            .find(|e| e.member_id() == Some(member_id) && e.group_id() == group_id)
+            .find(|e| e.member_id() == Some(member_internal) && e.group_id() == group_internal)
     }
 
     /// Invalidate the cache
@@ -414,18 +438,18 @@ impl PresenterToGroupStorage {
                 if !edge.is_group_only() {
                     self.cache
                         .direct_parent_groups
-                        .entry(member_id)
+                        .entry(member_id.entity_id)
                         .or_default()
-                        .push(edge.group_id());
+                        .push(edge.group_id().entity_id);
                 }
 
                 // Only add non-group-only edges to direct_members
                 if !edge.is_group_only() {
                     self.cache
                         .direct_members
-                        .entry(edge.group_id())
+                        .entry(edge.group_id().entity_id)
                         .or_default()
-                        .push(member_id);
+                        .push(member_id.entity_id);
                 }
             }
         }
@@ -520,41 +544,53 @@ impl EdgeStorage<PresenterToGroupEdge> for PresenterToGroupStorage {
         None
     }
 
-    fn find_outgoing(&self, from_id: EntityId) -> Vec<&PresenterToGroupEdge> {
+    fn find_outgoing(&self, from_id: crate::entity::InternalId) -> Vec<&PresenterToGroupEdge> {
         // Outgoing from a member means finding all groups this member belongs to
+        let from_id_key = from_id.entity_id;
         self.member_to_groups
-            .get(&from_id)
+            .get(&from_id_key)
             .map(|group_ids| {
                 group_ids
                     .iter()
                     .filter_map(|&group_id| {
-                        self.edges
-                            .iter()
-                            .find(|e| e.member_id() == Some(from_id) && e.group_id() == group_id)
+                        let group_internal = crate::entity::InternalId::new::<
+                            crate::entity::PresenterEntityType,
+                        >(group_id);
+                        self.edges.iter().find(|e| {
+                            e.member_id() == Some(from_id) && e.group_id() == group_internal
+                        })
                     })
                     .collect()
             })
             .unwrap_or_default()
     }
 
-    fn find_incoming(&self, to_id: EntityId) -> Vec<&PresenterToGroupEdge> {
+    fn find_incoming(&self, to_id: crate::entity::InternalId) -> Vec<&PresenterToGroupEdge> {
         // Incoming to a group means finding all members of this group
+        let to_id_key = to_id.entity_id;
         self.group_to_members
-            .get(&to_id)
+            .get(&to_id_key)
             .map(|member_ids| {
                 member_ids
                     .iter()
                     .filter_map(|&member_id| {
-                        self.edges
-                            .iter()
-                            .find(|e| e.member_id() == Some(member_id) && e.group_id() == to_id)
+                        let member_internal = crate::entity::InternalId::new::<
+                            crate::entity::PresenterEntityType,
+                        >(member_id);
+                        self.edges.iter().find(|e| {
+                            e.member_id() == Some(member_internal) && e.group_id() == to_id
+                        })
                     })
                     .collect()
             })
             .unwrap_or_default()
     }
 
-    fn edge_exists(&self, from_id: &EntityId, to_id: &EntityId) -> bool {
+    fn edge_exists(
+        &self,
+        from_id: &crate::entity::InternalId,
+        to_id: &crate::entity::InternalId,
+    ) -> bool {
         self.edges
             .iter()
             .any(|e| e.member_id() == Some(*from_id) && e.group_id() == *to_id)
@@ -668,7 +704,7 @@ mod tests {
         let edges: Vec<_> = storage.edges().collect();
         assert_eq!(edges.len(), 1);
         assert!(edges[0].is_group_only());
-        assert_eq!(edges[0].group_id(), group_id);
+        assert_eq!(edges[0].group_id().entity_id, group_id);
     }
 
     #[test]
@@ -767,6 +803,10 @@ mod tests {
         )
         .unwrap();
 
-        assert!(storage.edge_exists(&member_id, &group_id));
+        let member_internal =
+            crate::entity::InternalId::new::<crate::entity::PresenterEntityType>(member_id);
+        let group_internal =
+            crate::entity::InternalId::new::<crate::entity::PresenterEntityType>(group_id);
+        assert!(storage.edge_exists(&member_internal, &group_internal));
     }
 }

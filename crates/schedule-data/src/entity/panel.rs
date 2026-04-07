@@ -224,3 +224,5 @@ pub struct Panel {
     })]
     pub panel_type: Option<String>,
 }
+
+impl crate::entity::SchedulableEntity for PanelEntityType {}

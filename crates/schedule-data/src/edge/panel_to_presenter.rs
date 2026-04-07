@@ -13,8 +13,8 @@ use crate::entity::EntityId;
 /// PanelToPresenter edge implementation
 #[derive(Debug, Clone)]
 pub struct PanelToPresenterEdge {
-    pub from_id: EntityId, // Panel
-    pub to_id: EntityId,   // Presenter
+    pub from_id: crate::entity::InternalId, // Panel
+    pub to_id: crate::entity::InternalId,   // Presenter
     pub data: PanelToPresenterData,
 }
 
@@ -26,8 +26,10 @@ pub struct PanelToPresenterData {
 impl PanelToPresenterEdge {
     pub fn new(panel_id: EntityId, presenter_id: EntityId) -> Self {
         Self {
-            from_id: panel_id,
-            to_id: presenter_id,
+            from_id: crate::entity::InternalId::new::<crate::entity::PanelEntityType>(panel_id),
+            to_id: crate::entity::InternalId::new::<crate::entity::PresenterEntityType>(
+                presenter_id,
+            ),
             data: PanelToPresenterData {},
         }
     }
@@ -38,11 +40,11 @@ impl Edge for PanelToPresenterEdge {
     type ToEntity = crate::entity::PresenterEntityType;
     type Data = PanelToPresenterData;
 
-    fn from_id(&self) -> Option<EntityId> {
+    fn from_id(&self) -> Option<crate::entity::InternalId> {
         Some(self.from_id)
     }
 
-    fn to_id(&self) -> Option<EntityId> {
+    fn to_id(&self) -> Option<crate::entity::InternalId> {
         Some(self.to_id)
     }
 
@@ -87,11 +89,12 @@ impl PanelToPresenterStorage {
     /// Get all presenters for a panel, including those from presenter groups (transitive closure)
     pub fn get_inclusive_presenters(
         &mut self,
-        panel_id: EntityId,
+        panel_id: crate::entity::InternalId,
         group_storage: &mut super::presenter_to_group::PresenterToGroupStorage,
     ) -> &[EntityId] {
-        if self.inclusive_presenters.contains_key(&panel_id) {
-            return self.inclusive_presenters.get(&panel_id).unwrap();
+        let panel_id_key = panel_id.entity_id;
+        if self.inclusive_presenters.contains_key(&panel_id_key) {
+            return self.inclusive_presenters.get(&panel_id_key).unwrap();
         }
 
         let direct_presenters: Vec<EntityId> = self
@@ -99,6 +102,7 @@ impl PanelToPresenterStorage {
             .find_outgoing(panel_id)
             .iter()
             .filter_map(|e| e.to_id())
+            .map(|id| id.entity_id)
             .collect();
 
         let mut inclusive = Vec::new();
@@ -123,37 +127,45 @@ impl PanelToPresenterStorage {
             }
         }
 
-        self.inclusive_presenters.insert(panel_id, inclusive);
-        self.inclusive_presenters.get(&panel_id).unwrap()
+        self.inclusive_presenters.insert(panel_id_key, inclusive);
+        self.inclusive_presenters.get(&panel_id_key).unwrap()
     }
 
     /// Get all panels for a presenter, including those from presenter groups (transitive closure)
     pub fn get_inclusive_panels(
         &mut self,
-        presenter_id: EntityId,
+        presenter_id: crate::entity::InternalId,
         group_storage: &mut super::presenter_to_group::PresenterToGroupStorage,
     ) -> &[EntityId] {
-        if self.inclusive_panels.contains_key(&presenter_id) {
-            return self.inclusive_panels.get(&presenter_id).unwrap();
+        let presenter_id_key = presenter_id.entity_id;
+        if self.inclusive_panels.contains_key(&presenter_id_key) {
+            return self.inclusive_panels.get(&presenter_id_key).unwrap();
         }
 
         let direct_panels: Vec<EntityId> = self
             .edges
             .find_incoming(presenter_id)
             .iter()
-            .map(|e| e.from_id)
+            .map(|e| e.from_id.entity_id)
             .collect();
 
         let mut inclusive = direct_panels;
         let mut visited = std::collections::HashSet::new();
-        let mut to_visit = vec![presenter_id];
+        let mut to_visit = vec![presenter_id.entity_id];
 
         while let Some(current) = to_visit.pop() {
             if !visited.insert(current) {
                 continue;
             }
             // Add panels for the current presenter
-            for panel_id in self.edges.find_incoming(current).iter().map(|e| e.from_id) {
+            let current_internal =
+                crate::entity::InternalId::new::<crate::entity::PresenterEntityType>(current);
+            for panel_id in self
+                .edges
+                .find_incoming(current_internal)
+                .iter()
+                .map(|e| e.from_id.entity_id)
+            {
                 if !inclusive.contains(&panel_id) {
                     inclusive.push(panel_id);
                 }
@@ -168,8 +180,8 @@ impl PanelToPresenterStorage {
             }
         }
 
-        self.inclusive_panels.insert(presenter_id, inclusive);
-        self.inclusive_panels.get(&presenter_id).unwrap()
+        self.inclusive_panels.insert(presenter_id_key, inclusive);
+        self.inclusive_panels.get(&presenter_id_key).unwrap()
     }
 }
 
@@ -196,15 +208,19 @@ impl EdgeStorage<PanelToPresenterEdge> for PanelToPresenterStorage {
         self.edges.get_edge(edge_id)
     }
 
-    fn find_outgoing(&self, from_id: EntityId) -> Vec<&PanelToPresenterEdge> {
+    fn find_outgoing(&self, from_id: crate::entity::InternalId) -> Vec<&PanelToPresenterEdge> {
         self.edges.find_outgoing(from_id)
     }
 
-    fn find_incoming(&self, to_id: EntityId) -> Vec<&PanelToPresenterEdge> {
+    fn find_incoming(&self, to_id: crate::entity::InternalId) -> Vec<&PanelToPresenterEdge> {
         self.edges.find_incoming(to_id)
     }
 
-    fn edge_exists(&self, from_id: &EntityId, to_id: &EntityId) -> bool {
+    fn edge_exists(
+        &self,
+        from_id: &crate::entity::InternalId,
+        to_id: &crate::entity::InternalId,
+    ) -> bool {
         self.edges.edge_exists(from_id, to_id)
     }
 
@@ -258,7 +274,9 @@ mod tests {
             .unwrap();
 
         let mut group_storage = crate::edge::presenter_to_group::PresenterToGroupStorage::new();
-        let presenters = storage.get_inclusive_presenters(panel_id, &mut group_storage);
+        let panel_internal =
+            crate::entity::InternalId::new::<crate::entity::PanelEntityType>(panel_id);
+        let presenters = storage.get_inclusive_presenters(panel_internal, &mut group_storage);
 
         assert_eq!(presenters.len(), 2);
         assert!(presenters.contains(&presenter_id_1));
@@ -292,7 +310,9 @@ mod tests {
             ))
             .unwrap();
 
-        let presenters = storage.get_inclusive_presenters(panel_id, &mut group_storage);
+        let panel_internal =
+            crate::entity::InternalId::new::<crate::entity::PanelEntityType>(panel_id);
+        let presenters = storage.get_inclusive_presenters(panel_internal, &mut group_storage);
 
         assert!(presenters.contains(&presenter_id));
         assert!(presenters.contains(&member_id));
@@ -313,7 +333,9 @@ mod tests {
             .unwrap();
 
         let mut group_storage = crate::edge::presenter_to_group::PresenterToGroupStorage::new();
-        let panels = storage.get_inclusive_panels(presenter_id, &mut group_storage);
+        let presenter_internal =
+            crate::entity::InternalId::new::<crate::entity::PresenterEntityType>(presenter_id);
+        let panels = storage.get_inclusive_panels(presenter_internal, &mut group_storage);
 
         assert_eq!(panels.len(), 2);
         assert!(panels.contains(&panel_id_1));
@@ -331,14 +353,16 @@ mod tests {
             .unwrap();
 
         let mut group_storage = crate::edge::presenter_to_group::PresenterToGroupStorage::new();
+        let panel_internal =
+            crate::entity::InternalId::new::<crate::entity::PanelEntityType>(panel_id);
 
         // First call computes and caches
         let presenters1 = storage
-            .get_inclusive_presenters(panel_id, &mut group_storage)
+            .get_inclusive_presenters(panel_internal, &mut group_storage)
             .to_vec();
         // Second call should use cache
         let presenters2 = storage
-            .get_inclusive_presenters(panel_id, &mut group_storage)
+            .get_inclusive_presenters(panel_internal, &mut group_storage)
             .to_vec();
 
         assert_eq!(presenters1, presenters2);
