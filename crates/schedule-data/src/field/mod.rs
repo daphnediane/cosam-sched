@@ -24,8 +24,7 @@ pub use types::*;
 pub use update_logic::*;
 pub use validation::*;
 
-use crate::EntityId;
-use crate::InternalId;
+use uuid::Uuid;
 
 /// Universal field value type for generic operations
 #[derive(Debug, Clone, PartialEq)]
@@ -44,8 +43,7 @@ pub enum FieldValue {
     OptionalBoolean(Option<bool>),
     OptionalDateTime(Option<chrono::NaiveDateTime>),
     OptionalDuration(Option<chrono::Duration>),
-    EntityId(EntityId),
-    InternalId(InternalId),
+    Uuid(Uuid),
 }
 
 impl fmt::Display for FieldValue {
@@ -101,10 +99,28 @@ impl fmt::Display for FieldValue {
                 Some(d) => write!(f, "{}m", d.num_minutes()),
                 None => write!(f, "null"),
             },
-            FieldValue::EntityId(id) => write!(f, "entity:{}", id),
-            FieldValue::InternalId(internal_id) => {
-                write!(f, "{}:{}", internal_id.type_name, internal_id.entity_id)
-            }
+            FieldValue::Uuid(uuid) => write!(f, "{}", uuid),
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use uuid::Uuid;
+
+    #[test]
+    fn field_value_uuid_display() {
+        let uuid = Uuid::nil();
+        let value = FieldValue::Uuid(uuid);
+        assert_eq!(format!("{}", value), "00000000-0000-0000-0000-000000000000");
+    }
+
+    #[test]
+    fn field_value_uuid_clone_eq() {
+        let uuid = Uuid::nil();
+        let a = FieldValue::Uuid(uuid);
+        let b = a.clone();
+        assert_eq!(a, b);
     }
 }
