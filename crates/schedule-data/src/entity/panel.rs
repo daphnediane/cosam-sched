@@ -73,15 +73,15 @@ pub struct Panel {
     pub panel_type_uid: Option<String>,
 
     #[field(display = "Description", description = "Panel description")]
-    #[alias("description", "desc", "details")]
+    #[alias("description", "Description", "desc", "details")]
     pub description: Option<String>,
 
     #[field(display = "Note", description = "General notes about the panel")]
-    #[alias("note", "notes", "general_notes")]
+    #[alias("note", "Note", "notes", "general_notes")]
     pub note: Option<String>,
 
     #[field(display = "Prerequisites", description = "Panel prerequisites")]
-    #[alias("prereq", "prerequisites", "requirements")]
+    #[alias("prereq", "Prereq", "prerequisites", "requirements")]
     pub prereq: Option<String>,
 
     // TODO: Add computed fields
@@ -89,90 +89,90 @@ pub struct Panel {
 
     // room_uids removed — now handled via Edge relationships
     #[field(display = "Cost", description = "Panel cost")]
-    #[alias("cost", "price", "fee")]
+    #[alias("cost", "Cost", "price", "fee")]
     pub cost: Option<String>,
 
     #[field(display = "Capacity", description = "Panel capacity")]
-    #[alias("capacity", "max_capacity", "seats")]
+    #[alias("capacity", "Capacity", "max_capacity", "seats")]
     pub capacity: Option<String>,
 
     #[field(display = "Pre-reg Max", description = "Maximum pre-registrations")]
-    #[alias("pre_reg_max", "pre_reg", "pre_registration")]
+    #[alias("pre_reg_max", "Prereg_Max", "pre_reg", "pre_registration")]
     pub pre_reg_max: Option<String>,
 
     #[field(display = "Difficulty", description = "Panel difficulty level")]
-    #[alias("difficulty", "level", "skill_level")]
+    #[alias("difficulty", "Difficulty", "level", "skill_level")]
     pub difficulty: Option<String>,
 
     #[field(display = "Ticket URL", description = "URL for ticket purchases")]
-    #[alias("ticket_url", "tickets", "registration_url")]
+    #[alias("ticket_url", "Ticket_URL", "tickets", "registration_url")]
     pub ticket_url: Option<String>,
 
     #[field(
         display = "SimpleTix Event",
         description = "SimpleTix event identifier"
     )]
-    #[alias("simple_tix_event", "simpletix", "event_id")]
+    #[alias("simple_tix_event", "Simple_Tix_Event", "simpletix", "event_id")]
     pub simple_tix_event: Option<String>,
 
     #[field(
         display = "Have Ticket Image",
         description = "Whether ticket image is available"
     )]
-    #[alias("have_ticket_image", "ticket_image", "has_ticket_image")]
+    #[alias("have_ticket_image", "Have_Ticket_Image", "ticket_image", "has_ticket_image")]
     pub have_ticket_image: Option<bool>,
 
     #[field(display = "Is Free", description = "Whether the panel is free")]
-    #[alias("is_free", "free", "no_cost")]
+    #[alias("is_free", "Is_Free", "free", "no_cost")]
     pub is_free: bool,
 
     #[field(display = "Is Kids", description = "Whether this is a kids program")]
-    #[alias("is_kids", "kids", "children")]
+    #[alias("is_kids", "Is_Kids", "kids", "children")]
     pub is_kids: bool,
 
     #[field(display = "Is Full", description = "Whether the panel is at capacity")]
-    #[alias("is_full", "full", "at_capacity")]
+    #[alias("is_full", "Full", "full", "at_capacity")]
     pub is_full: bool,
 
     #[field(
         display = "Hide Panelist",
         description = "Whether to hide panelist names"
     )]
-    #[alias("hide_panelist", "hide_panelists", "anonymous")]
+    #[alias("hide_panelist", "Hide_Panelist", "hide_panelists", "anonymous")]
     pub hide_panelist: bool,
 
     #[field(
         display = "Sewing Machines",
         description = "Whether sewing machines are needed"
     )]
-    #[alias("sewing_machines", "sewing", "equipment")]
+    #[alias("sewing_machines", "Sewing_Machines", "sewing", "equipment")]
     pub sewing_machines: bool,
 
     #[field(
         display = "Alt Panelist",
         description = "Alternative panelist information"
     )]
-    #[alias("alt_panelist", "alternate_panelist", "substitute")]
+    #[alias("alt_panelist", "Alt_Panelist", "alternate_panelist", "substitute")]
     pub alt_panelist: Option<String>,
 
     #[field(display = "Seats Sold", description = "Number of seats sold")]
-    #[alias("seats_sold", "sold", "attendance")]
+    #[alias("seats_sold", "Seats_Sold", "sold", "attendance")]
     pub seats_sold: Option<i64>,
 
     #[field(display = "Notes Non-Printing", description = "Non-printing notes")]
-    #[alias("notes_non_printing", "internal_notes", "admin_notes")]
+    #[alias("notes_non_printing", "Notes_Non_Printing", "internal_notes", "admin_notes")]
     pub notes_non_printing: Option<String>,
 
     #[field(display = "Workshop Notes", description = "Workshop-specific notes")]
-    #[alias("workshop_notes", "workshop", "hands_on_notes")]
+    #[alias("workshop_notes", "Workshop_Notes", "workshop", "hands_on_notes")]
     pub workshop_notes: Option<String>,
 
     #[field(display = "Power Needs", description = "Power requirements")]
-    #[alias("power_needs", "power", "electricity")]
+    #[alias("power_needs", "Power_Needs", "power", "electricity")]
     pub power_needs: Option<String>,
 
     #[field(display = "AV Notes", description = "Audio/visual requirements")]
-    #[alias("av_notes", "av", "audio_visual")]
+    #[alias("av_notes", "AV_Notes", "av", "audio_visual")]
     pub av_notes: Option<String>,
 
     #[computed_field(

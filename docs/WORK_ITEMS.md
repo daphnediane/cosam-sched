@@ -5,12 +5,13 @@ Updated on: Fri Apr 10 14:29:21 2026
 ## Completed
 
 * [REFACTOR-001] Replace Schedule's string-based EdgeStorage with type-safe edge storage system using typed edge structs and dedicated storage per relationship type. Foundation is complete; remaining work is integration into Schedule and implementing relationship-specific behaviors.
+* [REFACTOR-032] Align Panel entity fields with schedule-core canonical column definitions.
 
 ---
 
 ## Summary of Open Items
 
-**Total open items:** 35
+**Total open items:** 34
 
 * **High Priority**
   * [CLI-013] Port cosam-convert from schedule-core to schedule-data for XLSX-to-JSON conversion.
@@ -26,7 +27,6 @@ Updated on: Fri Apr 10 14:29:21 2026
   * [REFACTOR-005] Implement command-based edit history with undo/redo stacks and atomic batch operations.
   * [REFACTOR-006] Implement derived scheduling-state propagation and complete the field validation system in schedule-macro.
   * [REFACTOR-031] Extract timeline entries (SPLIT, BREAK, room hours) into a dedicated TimelineEntry entity following the schedule-core pattern.
-  * [REFACTOR-032] Align Panel entity fields with schedule-core canonical column definitions.
   * [REFACTOR-033] Align EventRoom entity fields with schedule-core canonical column definitions.
   * [REFACTOR-034] Align HotelRoom entity field aliases with schedule-core canonical column definitions.
   * [REFACTOR-035] Align PanelType entity field aliases with schedule-core canonical column definitions.
@@ -351,18 +351,6 @@ The following ID numbers are available for new items:
 
 ---
 
-### [REFACTOR-032] Panel Entity Field Alignment
-
-**Status:** Not Started
-
-**Priority:** High
-
-**Summary:** Align Panel entity fields with schedule-core canonical column definitions.
-
-**Description:** Add missing fields to Panel entity and ensure all field aliases include canonical forms from schedule-core for proper field resolution.
-
----
-
 ### [REFACTOR-033] EventRoom Entity Field Alignment
 
 **Status:** Not Started
@@ -526,7 +514,7 @@ The following ID numbers are available for new items:
 [REFACTOR-006]: work-item/high/REFACTOR-006.md
 [REFACTOR-029]: work-item/medium/REFACTOR-029.md
 [REFACTOR-031]: work-item/high/REFACTOR-031.md
-[REFACTOR-032]: work-item/high/REFACTOR-032.md
+[REFACTOR-032]: work-item/done/REFACTOR-032.md
 [REFACTOR-033]: work-item/high/REFACTOR-033.md
 [REFACTOR-034]: work-item/high/REFACTOR-034.md
 [REFACTOR-035]: work-item/high/REFACTOR-035.md
