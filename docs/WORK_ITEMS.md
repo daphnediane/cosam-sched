@@ -9,12 +9,13 @@ Updated on: Fri Apr 10 14:29:23 2026
 * [REFACTOR-033] Align EventRoom entity fields with schedule-core canonical column definitions.
 * [REFACTOR-034] Align HotelRoom entity field aliases with schedule-core canonical column definitions.
 * [REFACTOR-035] Align PanelType entity field aliases with schedule-core canonical column definitions.
+* [REFACTOR-036] Align Presenter entity field aliases with schedule-core canonical column definitions.
 
 ---
 
 ## Summary of Open Items
 
-**Total open items:** 31
+**Total open items:** 30
 
 * **High Priority**
   * [CLI-013] Port cosam-convert from schedule-core to schedule-data for XLSX-to-JSON conversion.
@@ -30,7 +31,6 @@ Updated on: Fri Apr 10 14:29:23 2026
   * [REFACTOR-005] Implement command-based edit history with undo/redo stacks and atomic batch operations.
   * [REFACTOR-006] Implement derived scheduling-state propagation and complete the field validation system in schedule-macro.
   * [REFACTOR-031] Extract timeline entries (SPLIT, BREAK, room hours) into a dedicated TimelineEntry entity following the schedule-core pattern.
-  * [REFACTOR-036] Align Presenter entity field aliases with schedule-core canonical column definitions.
   * [TEST-028] Comprehensive integration tests validating schedule-data against schedule-core behavior with real schedule data.
   * [UI-018] Implement comprehensive accessibility for the schedule widget: screen readers, color blindness support, and keyboard navigation.
   * [UI-019] Prevent panel titles from overlapping with the "my schedule" star icon in the schedule widget.
@@ -351,18 +351,6 @@ The following ID numbers are available for new items:
 
 ---
 
-### [REFACTOR-036] Presenter Entity Field Alignment
-
-**Status:** Not Started
-
-**Priority:** High
-
-**Summary:** Align Presenter entity field aliases with schedule-core canonical column definitions.
-
-**Description:** Ensure Presenter entity field aliases include canonical forms from schedule-core for proper field resolution. Classification and groups/members handling already match schedule-core pattern.
-
----
-
 ### [REFACTOR-029] Migrate PanelToEventRoom to Specialized Storage
 
 **Status:** Not Started
@@ -482,7 +470,7 @@ The following ID numbers are available for new items:
 [REFACTOR-033]: work-item/done/REFACTOR-033.md
 [REFACTOR-034]: work-item/done/REFACTOR-034.md
 [REFACTOR-035]: work-item/done/REFACTOR-035.md
-[REFACTOR-036]: work-item/high/REFACTOR-036.md
+[REFACTOR-036]: work-item/done/REFACTOR-036.md
 [TEST-028]: work-item/high/TEST-028.md
 [UI-018]: work-item/high/UI-018.md
 [UI-019]: work-item/high/UI-019.md

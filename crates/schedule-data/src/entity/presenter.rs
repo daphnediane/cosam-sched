@@ -87,7 +87,7 @@ impl fmt::Display for PresenterId {
 #[derive(EntityFields, Debug, Clone)]
 pub struct Presenter {
     #[field(display = "Name", description = "Presenter's full name")]
-    #[alias("name", "full_name", "display_name")]
+    #[alias("name", "Name", "full_name", "display_name")]
     #[indexable(priority = 200)]
     #[required]
     pub name: String,
@@ -142,35 +142,28 @@ pub struct Presenter {
     pub sort_rank: Option<PresenterSortRank>,
 
     #[field(display = "Bio", description = "Presenter's biography")]
-    #[alias("bio", "biography", "description")]
+    #[alias("bio", "Bio", "biography", "description")]
     pub bio: Option<String>,
-
-    // Group-related fields for presenter-group relationships
-    #[field(display = "UID", description = "Unique identifier for the presenter")]
-    #[alias("uid", "id")]
-    #[required]
-    #[indexable(priority = 210)]
-    pub uid: String,
 
     #[field(
         display = "Is Group",
         description = "Whether this presenter is a group"
     )]
-    #[alias("is_group", "group", "presenter_group")]
+    #[alias("is_group", "Is_Group", "group", "presenter_group")]
     pub is_group: bool,
 
     #[field(
         display = "Always Grouped",
         description = "Whether this presenter should always appear with their group"
     )]
-    #[alias("always_grouped", "stick_with_group")]
+    #[alias("always_grouped", "Always_Grouped", "stick_with_group")]
     pub always_grouped: bool,
 
     #[field(
         display = "Always Shown in Group",
         description = "Whether this presenter's group should always be shown as a group"
     )]
-    #[alias("always_shown", "show_as_group")]
+    #[alias("always_shown", "Always_Shown_In_Group", "show_as_group")]
     pub always_shown_in_group: bool,
 
     #[computed_field(
