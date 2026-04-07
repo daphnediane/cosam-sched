@@ -6,7 +6,7 @@ Replace Schedule's string-based EdgeStorage with type-safe edge storage system u
 
 ## Status
 
-In Progress
+Completed
 
 ## Priority
 

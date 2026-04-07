@@ -2,6 +2,12 @@
 
 Updated on: Fri Apr 10 14:29:20 2026
 
+## Completed
+
+* [REFACTOR-001] Replace Schedule's string-based EdgeStorage with type-safe edge storage system using typed edge structs and dedicated storage per relationship type. Foundation is complete; remaining work is integration into Schedule and implementing relationship-specific behaviors.
+
+---
+
 ## Summary of Open Items
 
 **Total open items:** 28
@@ -14,7 +20,6 @@ Updated on: Fri Apr 10 14:29:20 2026
   * [FEATURE-008] Implement display/public JSON export for the schedule widget, equivalent to schedule-core's display_export.
   * [FEATURE-009] Implement XLSX reading and writing against schedule-data entities, replacing schedule-core's xlsx module.
   * [FEATURE-010] Implement room and presenter conflict detection with support for room-wide event exemptions.
-  * [REFACTOR-001] Replace Schedule's string-based EdgeStorage with type-safe edge storage system using typed edge structs and dedicated storage per relationship type. Foundation is complete; remaining work is integration into Schedule and implementing relationship-specific behaviors.
   * [REFACTOR-002] Align all entity fields with spreadsheet canonical columns and schedule-core equivalents.
   * [REFACTOR-003] Implement public query families for all entity types with ranked index matching.
   * [REFACTOR-004] Implement per-entity mutation families with deterministic side effects for add, update, restore, and find-or-add operations.
@@ -28,6 +33,7 @@ Updated on: Fri Apr 10 14:29:20 2026
   * [EDITOR-016] Implement inline editing of individual panel properties in the editor.
   * [EDITOR-017] Implement functional settings window with export preferences and application configuration.
   * [FEATURE-011] Support nested group membership where a group's members can include other groups.
+  * [REFACTOR-029] Replace GenericEdgeStorage usage for PanelToEventRoom with a specialized PanelToEventRoomStorage implementation similar to other edge types, adding any relationship-specific behaviors if needed.
   * [UI-020] Add visual indicators to the schedule widget to highlight conflicting panels.
   * [UI-021] Add sticky day/time headers and a separate room hours section to the schedule widget.
   * [UI-022] Add grid view and compact print format options for the schedule widget.
@@ -46,9 +52,9 @@ Updated on: Fri Apr 10 14:29:20 2026
 
 The following ID numbers are available for new items:
 
-**Available:** 029, 030, 031, 032, 033, 034, 035, 036, 037, 038
+**Available:** 030, 031, 032, 033, 034, 035, 036, 037, 038, 039
 
-**Highest used:** 28
+**Highest used:** 29
 
 ---
 
@@ -254,18 +260,6 @@ The following ID numbers are available for new items:
 
 ## Open REFACTOR Items
 
-### [REFACTOR-001] Edge System Integration and Specialized Storage
-
-**Status:** In Progress
-
-**Priority:** High
-
-**Summary:** Replace Schedule's string-based EdgeStorage with type-safe edge storage system using typed edge structs and dedicated storage per relationship type. Foundation is complete; remaining work is integration into Schedule and implementing relationship-specific behaviors.
-
-**Description:** The edge trait system and typed edge structs are implemented, but Schedule still uses the old generic string-based EdgeStorage. Need to integrate the new type-safe edge storage system and implement relationship-specific behaviors like transitive closures, time range caching, and cardinality constraints.
-
----
-
 ### [REFACTOR-002] Field Alignment with Schedule-Core Canonical Columns
 
 **Status:** Not Started
@@ -323,6 +317,18 @@ The following ID numbers are available for new items:
 **Summary:** Implement derived scheduling-state propagation and complete the field validation system in schedule-macro.
 
 **Description:** Implement derived scheduling state (scheduled/unscheduled) based on time_range presence and indirect references (presenter groups). Complete the `#[validate]` attribute in schedule-macro to generate `CheckedField` implementations.
+
+---
+
+### [REFACTOR-029] Migrate PanelToEventRoom to Specialized Storage
+
+**Status:** Not Started
+
+**Priority:** Medium
+
+**Summary:** Replace GenericEdgeStorage usage for PanelToEventRoom with a specialized PanelToEventRoomStorage implementation similar to other edge types, adding any relationship-specific behaviors if needed.
+
+**Description:** PanelToEventRoom currently uses GenericEdgeStorage directly in Schedule. This should be migrated to a dedicated PanelToEventRoomStorage to maintain consistency with the edge system refactoring (REFACTOR-001).
 
 ---
 
@@ -420,12 +426,13 @@ The following ID numbers are available for new items:
 [FEATURE-010]: work-item/high/FEATURE-010.md
 [FEATURE-011]: work-item/medium/FEATURE-011.md
 [FEATURE-012]: work-item/low/FEATURE-012.md
-[REFACTOR-001]: work-item/high/REFACTOR-001.md
+[REFACTOR-001]: work-item/done/REFACTOR-001.md
 [REFACTOR-002]: work-item/high/REFACTOR-002.md
 [REFACTOR-003]: work-item/high/REFACTOR-003.md
 [REFACTOR-004]: work-item/high/REFACTOR-004.md
 [REFACTOR-005]: work-item/high/REFACTOR-005.md
 [REFACTOR-006]: work-item/high/REFACTOR-006.md
+[REFACTOR-029]: work-item/medium/REFACTOR-029.md
 [TEST-028]: work-item/high/TEST-028.md
 [UI-018]: work-item/high/UI-018.md
 [UI-019]: work-item/high/UI-019.md

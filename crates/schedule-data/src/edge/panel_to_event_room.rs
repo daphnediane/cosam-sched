@@ -6,7 +6,7 @@
 
 //! PanelToEventRoom edge implementation
 
-use crate::edge::{Edge, EdgeType, SimpleEdge};
+use crate::edge::{Edge, EdgeType};
 use crate::entity::EntityId;
 
 /// PanelToEventRoom edge implementation
@@ -37,12 +37,12 @@ impl Edge for PanelToEventRoomEdge {
     type ToEntity = crate::entity::EventRoomEntityType;
     type Data = PanelToEventRoomData;
 
-    fn from_id(&self) -> EntityId {
-        self.from_id
+    fn from_id(&self) -> Option<EntityId> {
+        Some(self.from_id)
     }
 
-    fn to_id(&self) -> EntityId {
-        self.to_id
+    fn to_id(&self) -> Option<EntityId> {
+        Some(self.to_id)
     }
 
     fn data(&self) -> &Self::Data {
@@ -55,11 +55,5 @@ impl Edge for PanelToEventRoomEdge {
 
     fn edge_type(&self) -> EdgeType {
         EdgeType::PanelToEventRoom
-    }
-}
-
-impl SimpleEdge for PanelToEventRoomEdge {
-    fn is_bidirectional(&self) -> bool {
-        false
     }
 }

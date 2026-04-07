@@ -7,7 +7,7 @@
 //! Edge trait hierarchy for schedule-data relationships
 
 use crate::entity::{EntityId, EntityType};
-use std::fmt::Debug;
+use std::fmt::{self, Debug};
 
 /// Base edge trait with common operations
 pub trait Edge: Debug + Clone {
@@ -15,8 +15,8 @@ pub trait Edge: Debug + Clone {
     type ToEntity: EntityType;
     type Data: Debug + Clone;
 
-    fn from_id(&self) -> EntityId;
-    fn to_id(&self) -> EntityId;
+    fn from_id(&self) -> Option<EntityId>;
+    fn to_id(&self) -> Option<EntityId>;
     fn data(&self) -> &Self::Data;
     fn data_mut(&mut self) -> &mut Self::Data;
     fn edge_type(&self) -> EdgeType;
@@ -97,4 +97,13 @@ impl fmt::Display for EdgeId {
     }
 }
 
-use std::fmt;
+/// Trait for type-safe edge storage operations
+pub trait EdgeStorage<E: Edge> {
+    fn add_edge(&mut self, edge: E) -> Result<EdgeId, EdgeError>;
+    fn remove_edge(&mut self, edge_id: EdgeId) -> Result<(), EdgeError>;
+    fn get_edge(&self, edge_id: EdgeId) -> Option<&E>;
+    fn find_outgoing(&self, from_id: EntityId) -> Vec<&E>;
+    fn find_incoming(&self, to_id: EntityId) -> Vec<&E>;
+    fn edge_exists(&self, from_id: &EntityId, to_id: &EntityId) -> bool;
+    fn len(&self) -> usize;
+}

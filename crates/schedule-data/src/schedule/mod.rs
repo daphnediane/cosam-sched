@@ -12,7 +12,12 @@ use chrono::NaiveDateTime;
 use std::collections::HashMap;
 use std::fmt;
 
-use crate::edge::EdgeType;
+use crate::edge::{Edge, EdgeStorage as _};
+
+use crate::edge::{
+    EventRoomToHotelRoomStorage, GenericEdgeStorage, PanelToPanelTypeStorage,
+    PanelToPresenterStorage, PresenterToGroupStorage,
+};
 
 /// Relationship direction for edge queries
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -41,12 +46,12 @@ impl IdAllocators {
     pub fn new() -> Self {
         Self {
             next_by_type: HashMap::new(),
-            next_edge_id: 1,
+            next_edge_id: 0,
         }
     }
 
     pub fn allocate_entity_id(&mut self, type_name: &str) -> u64 {
-        let next = self.next_by_type.entry(type_name.to_string()).or_insert(1);
+        let next = self.next_by_type.entry(type_name.to_string()).or_insert(0);
         let allocated = *next;
         *next = allocated.saturating_add(1);
         allocated
@@ -69,7 +74,11 @@ impl Default for IdAllocators {
 #[derive(Debug, Clone)]
 pub struct Schedule {
     pub entities: EntityStorage,
-    pub edges: EdgeStorage,
+    pub presenter_to_group: PresenterToGroupStorage,
+    pub panel_to_presenter: PanelToPresenterStorage,
+    pub panel_to_event_room: GenericEdgeStorage<crate::edge::PanelToEventRoomEdge>,
+    pub event_room_to_hotel_room: EventRoomToHotelRoomStorage,
+    pub panel_to_panel_type: PanelToPanelTypeStorage,
     pub id_allocators: IdAllocators,
     pub metadata: ScheduleMetadata,
 }
@@ -78,7 +87,11 @@ impl Schedule {
     pub fn new() -> Self {
         Self {
             entities: EntityStorage::new(),
-            edges: EdgeStorage::new(),
+            presenter_to_group: PresenterToGroupStorage::new(),
+            panel_to_presenter: PanelToPresenterStorage::new(),
+            panel_to_event_room: GenericEdgeStorage::new(),
+            event_room_to_hotel_room: EventRoomToHotelRoomStorage::new(),
+            panel_to_panel_type: PanelToPanelTypeStorage::new(),
             id_allocators: IdAllocators::new(),
             metadata: ScheduleMetadata::new(),
         }
@@ -141,90 +154,132 @@ impl Schedule {
         self.entities.update::<T>(id, updates)
     }
 
-    /// Find entities related to a given entity
+    /// Find entities related to a given entity (dispatches to appropriate typed storage)
     pub fn find_related<T: EntityType>(
         &self,
         entity_id: EntityId,
-        edge_type: EdgeType,
+        edge_type: crate::edge::EdgeType,
         direction: RelationshipDirection,
     ) -> Vec<EntityId> {
-        self.edges
-            .find_related::<T>(entity_id, edge_type, direction)
-    }
-
-    /// Add relationship between entities
-    pub fn add_edge<From: EntityType, To: EntityType>(
-        &mut self,
-        from_id: EntityId,
-        to_id: EntityId,
-        edge_type: EdgeType,
-    ) -> Result<EdgeId, ScheduleError> {
-        let edge_id = self.id_allocators.allocate_edge_id();
-        self.edges
-            .add_edge_with_id::<From, To>(edge_id, from_id, to_id, edge_type)
-    }
-
-    /// Remove relationship
-    pub fn remove_edge(&mut self, edge_id: EdgeId) -> Result<(), ScheduleError> {
-        self.edges.remove_edge(edge_id)
+        use crate::edge::EdgeType;
+        match edge_type {
+            EdgeType::PanelToPresenter => {
+                if direction == RelationshipDirection::Outgoing {
+                    self.panel_to_presenter
+                        .find_outgoing(entity_id)
+                        .iter()
+                        .map(|e| e.to_id)
+                        .collect()
+                } else {
+                    self.panel_to_presenter
+                        .find_incoming(entity_id)
+                        .iter()
+                        .filter_map(|e| e.from_id())
+                        .collect()
+                }
+            }
+            EdgeType::PanelToEventRoom => {
+                if direction == RelationshipDirection::Outgoing {
+                    self.panel_to_event_room
+                        .find_outgoing(entity_id)
+                        .iter()
+                        .map(|e| e.to_id)
+                        .collect()
+                } else {
+                    self.panel_to_event_room
+                        .find_incoming(entity_id)
+                        .iter()
+                        .filter_map(|e| e.from_id())
+                        .collect()
+                }
+            }
+            EdgeType::PanelToPanelType => {
+                if direction == RelationshipDirection::Outgoing {
+                    self.panel_to_panel_type
+                        .find_outgoing(entity_id)
+                        .iter()
+                        .map(|e| e.to_id)
+                        .collect()
+                } else {
+                    self.panel_to_panel_type
+                        .find_incoming(entity_id)
+                        .iter()
+                        .filter_map(|e| e.from_id())
+                        .collect()
+                }
+            }
+            EdgeType::PresenterToGroup => {
+                if direction == RelationshipDirection::Outgoing {
+                    self.presenter_to_group.direct_groups_of(entity_id).to_vec()
+                } else {
+                    self.presenter_to_group
+                        .direct_members_of(entity_id)
+                        .to_vec()
+                }
+            }
+            EdgeType::EventRoomToHotelRoom => {
+                if direction == RelationshipDirection::Outgoing {
+                    self.event_room_to_hotel_room
+                        .find_outgoing(entity_id)
+                        .iter()
+                        .map(|e| e.to_id)
+                        .collect()
+                } else {
+                    self.event_room_to_hotel_room
+                        .find_incoming(entity_id)
+                        .iter()
+                        .filter_map(|e| e.from_id())
+                        .collect()
+                }
+            }
+        }
     }
 
     // === Entity Relationship Methods ===
 
     /// Get all presenters for a panel (returns EntityIds)
     pub fn get_panel_presenters(&self, panel_id: EntityId) -> Vec<EntityId> {
-        self.find_related::<crate::entity::PresenterEntityType>(
-            panel_id,
-            crate::edge::EdgeType::PanelToPresenter,
-            crate::schedule::RelationshipDirection::Outgoing,
-        )
+        self.panel_to_presenter
+            .find_outgoing(panel_id)
+            .iter()
+            .map(|e| e.to_id)
+            .collect()
     }
 
     /// Get the primary event room for a panel (returns EntityId)
     pub fn get_panel_event_room(&self, panel_id: EntityId) -> Option<EntityId> {
-        let room_ids = self.find_related::<crate::entity::EventRoomEntityType>(
-            panel_id,
-            crate::edge::EdgeType::PanelToEventRoom,
-            crate::schedule::RelationshipDirection::Outgoing,
-        );
-        room_ids.first().copied()
+        self.panel_to_event_room
+            .find_outgoing(panel_id)
+            .first()
+            .map(|e| e.to_id)
     }
 
     /// Get the panel type for a panel (returns EntityId)
     pub fn get_panel_type(&self, panel_id: EntityId) -> Option<EntityId> {
-        let type_ids = self.find_related::<crate::entity::PanelTypeEntityType>(
-            panel_id,
-            crate::edge::EdgeType::PanelToPanelType,
-            crate::schedule::RelationshipDirection::Outgoing,
-        );
-        type_ids.first().copied()
+        self.panel_to_panel_type.get_panel_type(panel_id)
     }
 
     /// Get all groups a presenter belongs to (returns EntityIds)
     pub fn get_presenter_groups(&self, presenter_id: EntityId) -> Vec<EntityId> {
-        self.find_related::<crate::entity::PresenterEntityType>(
-            presenter_id,
-            crate::edge::EdgeType::PresenterToGroup,
-            crate::schedule::RelationshipDirection::Outgoing,
-        )
+        self.presenter_to_group
+            .direct_groups_of(presenter_id)
+            .to_vec()
     }
 
     /// Get all members of a presenter group (returns EntityIds)
     pub fn get_presenter_members(&self, presenter_id: EntityId) -> Vec<EntityId> {
-        self.find_related::<crate::entity::PresenterEntityType>(
-            presenter_id,
-            crate::edge::EdgeType::PresenterToGroup,
-            crate::schedule::RelationshipDirection::Incoming,
-        )
+        self.presenter_to_group
+            .direct_members_of(presenter_id)
+            .to_vec()
     }
 
     /// Get all panels a presenter participates in (returns EntityIds)
     pub fn get_presenter_panels(&self, presenter_id: EntityId) -> Vec<EntityId> {
-        self.find_related::<crate::entity::PanelEntityType>(
-            presenter_id,
-            crate::edge::EdgeType::PanelToPresenter,
-            crate::schedule::RelationshipDirection::Incoming,
-        )
+        self.panel_to_presenter
+            .find_incoming(presenter_id)
+            .iter()
+            .filter_map(|e| e.from_id())
+            .collect()
     }
 
     /// Connect a panel to a presenter
@@ -233,11 +288,13 @@ impl Schedule {
         panel_id: EntityId,
         presenter_id: EntityId,
     ) -> Result<EdgeId, ScheduleError> {
-        self.add_edge::<crate::entity::PanelEntityType, crate::entity::PresenterEntityType>(
-            panel_id,
-            presenter_id,
-            crate::edge::EdgeType::PanelToPresenter,
-        )
+        let edge = crate::edge::PanelToPresenterEdge::new(panel_id, presenter_id);
+        self.panel_to_presenter
+            .add_edge(edge)
+            .map(|id| id.0)
+            .map_err(|e| ScheduleError::StorageError {
+                message: e.to_string(),
+            })
     }
 
     /// Connect a panel to an event room
@@ -246,11 +303,13 @@ impl Schedule {
         panel_id: EntityId,
         room_id: EntityId,
     ) -> Result<EdgeId, ScheduleError> {
-        self.add_edge::<crate::entity::PanelEntityType, crate::entity::EventRoomEntityType>(
-            panel_id,
-            room_id,
-            crate::edge::EdgeType::PanelToEventRoom,
-        )
+        let edge = crate::edge::PanelToEventRoomEdge::new(panel_id, room_id);
+        self.panel_to_event_room
+            .add_edge(edge)
+            .map(|id| id.0)
+            .map_err(|e| ScheduleError::StorageError {
+                message: e.to_string(),
+            })
     }
 
     /// Connect a panel to a panel type
@@ -259,11 +318,13 @@ impl Schedule {
         panel_id: EntityId,
         type_id: EntityId,
     ) -> Result<EdgeId, ScheduleError> {
-        self.add_edge::<crate::entity::PanelEntityType, crate::entity::PanelTypeEntityType>(
-            panel_id,
-            type_id,
-            crate::edge::EdgeType::PanelToPanelType,
-        )
+        let edge = crate::edge::PanelToPanelTypeEdge::new(panel_id, type_id);
+        self.panel_to_panel_type
+            .add_edge(edge)
+            .map(|id| id.0)
+            .map_err(|e| ScheduleError::StorageError {
+                message: e.to_string(),
+            })
     }
 
     /// Connect a presenter to a group
@@ -272,11 +333,46 @@ impl Schedule {
         presenter_id: EntityId,
         group_id: EntityId,
     ) -> Result<EdgeId, ScheduleError> {
-        self.add_edge::<crate::entity::PresenterEntityType, crate::entity::PresenterEntityType>(
+        let edge = crate::edge::presenter_to_group::PresenterToGroupEdge::new(
             presenter_id,
             group_id,
-            crate::edge::EdgeType::PresenterToGroup,
-        )
+            false,
+            false,
+        );
+        self.presenter_to_group
+            .add_edge(edge)
+            .map(|id| id.0)
+            .map_err(|e| ScheduleError::StorageError {
+                message: e.to_string(),
+            })
+    }
+
+    // === Cache Invalidation Methods ===
+
+    /// Invalidate panel-to-presenter cache
+    pub fn invalidate_panel_to_presenter_cache(&mut self) {
+        self.panel_to_presenter.invalidate_cache();
+    }
+
+    /// Invalidate event-room-to-hotel-room cache
+    pub fn invalidate_event_room_to_hotel_room_cache(&mut self) {
+        self.event_room_to_hotel_room.invalidate_cache();
+    }
+
+    // === Transitive Closure Methods ===
+
+    /// Get all presenters for a panel, including those from presenter groups
+    pub fn get_panel_inclusive_presenters(&mut self, panel_id: EntityId) -> Vec<EntityId> {
+        self.panel_to_presenter
+            .get_inclusive_presenters(panel_id, &mut self.presenter_to_group)
+            .to_vec()
+    }
+
+    /// Get all panels for a presenter, including those from presenter groups
+    pub fn get_presenter_inclusive_panels(&mut self, presenter_id: EntityId) -> Vec<EntityId> {
+        self.panel_to_presenter
+            .get_inclusive_panels(presenter_id, &mut self.presenter_to_group)
+            .to_vec()
     }
 
     // === Data Resolution Methods ===

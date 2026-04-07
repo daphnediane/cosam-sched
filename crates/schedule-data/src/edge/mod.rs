@@ -6,7 +6,7 @@
 
 //! Edge system for schedule-data relationships
 
-pub mod storage;
+pub mod generic;
 pub mod traits;
 
 // Edge type modules
@@ -16,12 +16,12 @@ pub mod panel_to_panel_type;
 pub mod panel_to_presenter;
 pub mod presenter_to_group;
 
-pub use storage::*;
-pub use traits::*;
+pub use generic::GenericEdgeStorage;
+pub use traits::{Edge, EdgeError, EdgeId, EdgeStorage, EdgeType};
 
 // Re-export edge types
-pub use event_room_to_hotel_room::EventRoomToHotelRoomEdge;
+pub use event_room_to_hotel_room::{EventRoomToHotelRoomEdge, EventRoomToHotelRoomStorage};
 pub use panel_to_event_room::PanelToEventRoomEdge;
-pub use panel_to_panel_type::PanelToPanelTypeEdge;
-pub use panel_to_presenter::PanelToPresenterEdge;
-pub use presenter_to_group::PresenterToGroupEdge;
+pub use panel_to_panel_type::{PanelToPanelTypeEdge, PanelToPanelTypeStorage};
+pub use panel_to_presenter::{PanelToPresenterEdge, PanelToPresenterStorage};
+pub use presenter_to_group::{PresenterToGroupEdge, PresenterToGroupStorage, RelationshipCache};
