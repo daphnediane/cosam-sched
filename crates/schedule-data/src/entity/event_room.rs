@@ -7,6 +7,32 @@
 //! EventRoom entity implementation
 
 use crate::EntityFields;
+use serde::{Deserialize, Serialize};
+use std::fmt;
+use uuid::Uuid;
+
+/// EventRoom ID type
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord, Serialize, Deserialize)]
+#[serde(transparent)]
+pub struct EventRoomId(Uuid);
+
+impl fmt::Display for EventRoomId {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "event-room-{}", self.0)
+    }
+}
+
+impl From<Uuid> for EventRoomId {
+    fn from(uuid: Uuid) -> Self {
+        Self(uuid)
+    }
+}
+
+impl From<EventRoomId> for Uuid {
+    fn from(id: EventRoomId) -> Uuid {
+        id.0
+    }
+}
 
 /// EventRoom entity for event/convention rooms
 #[derive(EntityFields, Debug, Clone)]
@@ -37,7 +63,7 @@ pub struct EventRoom {
     #[alias("panels", "scheduled_panels")]
     #[read(|schedule: &crate::schedule::Schedule, entity: &EventRoomData| {
         let panel_ids = schedule.find_related::<crate::entity::PanelEntityType>(
-            entity.entity_id,
+            entity.entity_uuid,
             crate::edge::EdgeType::PanelToEventRoom,
             crate::schedule::RelationshipDirection::Incoming
         );
@@ -48,7 +74,7 @@ pub struct EventRoom {
                 .collect()
         ))
     })]
-    pub get_panels: Vec<crate::entity::EntityId>,
+    pub get_panels: Vec<crate::entity::PanelId>,
 
     #[computed_field(
         name = "hotel_room",
@@ -86,7 +112,7 @@ pub struct EventRoom {
     #[alias("sort_key", "Sort_Key", "SortKey", "sort", "order")]
     #[read(|schedule: &crate::schedule::Schedule, entity: &EventRoomData| {
         let hotel_room_ids = schedule.find_related::<crate::entity::HotelRoomEntityType>(
-            entity.entity_id,
+            entity.entity_uuid,
             crate::edge::EdgeType::EventRoomToHotelRoom,
             crate::schedule::RelationshipDirection::Outgoing
         );
@@ -98,4 +124,34 @@ pub struct EventRoom {
         None
     })]
     pub sort_key_computed: Option<i64>,
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn event_room_id_from_uuid() {
+        let uuid = Uuid::nil();
+        let id = EventRoomId::from(uuid);
+        assert_eq!(Uuid::from(id), uuid);
+    }
+
+    #[test]
+    fn event_room_id_display() {
+        let id = EventRoomId::from(Uuid::nil());
+        assert_eq!(
+            id.to_string(),
+            "event-room-00000000-0000-0000-0000-000000000000"
+        );
+    }
+
+    #[test]
+    fn event_room_id_serde_round_trip() {
+        let id = EventRoomId::from(Uuid::nil());
+        let json = serde_json::to_string(&id).unwrap();
+        assert_eq!(json, "\"00000000-0000-0000-0000-000000000000\"");
+        let back: EventRoomId = serde_json::from_str(&json).unwrap();
+        assert_eq!(id, back);
+    }
 }

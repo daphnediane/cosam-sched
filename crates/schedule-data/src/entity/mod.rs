@@ -47,6 +47,13 @@ pub use panel_type::PanelType;
 pub use presenter::Presenter;
 pub use presenter_rank::PresenterRank;
 
+// Re-export typed entity ID wrappers
+pub use event_room::EventRoomId;
+pub use hotel_room::HotelRoomId;
+pub use panel::PanelId;
+pub use panel_type::PanelTypeId;
+pub use presenter::PresenterId;
+
 // Re-export EntityType structs for clean import paths
 pub use event_room::EventRoomEntityType;
 pub use hotel_room::HotelRoomEntityType;

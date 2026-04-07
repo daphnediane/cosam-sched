@@ -7,15 +7,30 @@
 //! Panel entity implementation
 
 use crate::EntityFields;
+use serde::{Deserialize, Serialize};
 use std::fmt;
+use uuid::Uuid;
 
 /// Panel ID type
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
-pub struct PanelId(u64);
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord, Serialize, Deserialize)]
+#[serde(transparent)]
+pub struct PanelId(Uuid);
 
 impl fmt::Display for PanelId {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         write!(f, "panel-{}", self.0)
+    }
+}
+
+impl From<Uuid> for PanelId {
+    fn from(uuid: Uuid) -> Self {
+        Self(uuid)
+    }
+}
+
+impl From<PanelId> for Uuid {
+    fn from(id: PanelId) -> Uuid {
+        id.0
     }
 }
 
@@ -182,7 +197,7 @@ pub struct Panel {
     )]
     #[alias("presenter_list", "panelists")]
     #[read(|schedule: &crate::schedule::Schedule, entity: &PanelData| {
-        let presenter_ids = schedule.get_panel_presenters(entity.entity_id);
+        let presenter_ids = schedule.get_panel_presenters(PanelId(entity.entity_uuid));
         Some(crate::field::FieldValue::List(
             schedule.get_entity_names::<crate::entity::PresenterEntityType>(&presenter_ids)
                 .into_iter()
@@ -190,7 +205,7 @@ pub struct Panel {
                 .collect()
         ))
     })]
-    pub presenters: Vec<crate::entity::EntityId>,
+    pub presenters: Vec<crate::entity::PresenterId>,
 
     #[computed_field(
         name = "event_room",
@@ -199,7 +214,7 @@ pub struct Panel {
     )]
     #[alias("room", "location", "event_room_name")]
     #[read(|schedule: &crate::schedule::Schedule, entity: &PanelData| {
-        if let Some(room_id) = schedule.get_panel_event_room(entity.entity_id) {
+        if let Some(room_id) = schedule.get_panel_event_room(PanelId(entity.entity_uuid)) {
             if let Some(room) = schedule.get_entity::<crate::entity::EventRoomEntityType>(room_id) {
                 return Some(crate::field::FieldValue::String(room.long_name.clone()));
             }
@@ -215,7 +230,7 @@ pub struct Panel {
     )]
     #[alias("type", "category", "panel_category")]
     #[read(|schedule: &crate::schedule::Schedule, entity: &PanelData| {
-        if let Some(type_id) = schedule.get_panel_type(entity.entity_id) {
+        if let Some(type_id) = schedule.get_panel_type(PanelId(entity.entity_uuid)) {
             if let Some(panel_type) = schedule.get_entity::<crate::entity::PanelTypeEntityType>(type_id) {
                 return Some(crate::field::FieldValue::String(panel_type.prefix.clone()));
             }
@@ -226,3 +241,30 @@ pub struct Panel {
 }
 
 impl crate::entity::SchedulableEntity for PanelEntityType {}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn panel_id_from_uuid() {
+        let uuid = Uuid::nil();
+        let id = PanelId::from(uuid);
+        assert_eq!(Uuid::from(id), uuid);
+    }
+
+    #[test]
+    fn panel_id_display() {
+        let id = PanelId::from(Uuid::nil());
+        assert_eq!(id.to_string(), "panel-00000000-0000-0000-0000-000000000000");
+    }
+
+    #[test]
+    fn panel_id_serde_round_trip() {
+        let id = PanelId::from(Uuid::nil());
+        let json = serde_json::to_string(&id).unwrap();
+        assert_eq!(json, "\"00000000-0000-0000-0000-000000000000\"");
+        let back: PanelId = serde_json::from_str(&json).unwrap();
+        assert_eq!(id, back);
+    }
+}

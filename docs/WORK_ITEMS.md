@@ -12,12 +12,13 @@ Updated on: Fri Apr 10 14:29:26 2026
 * [REFACTOR-036] Align Presenter entity field aliases with schedule-core canonical column definitions.
 * [REFACTOR-039] Remove `EntityId = u64` type alias and `InternalId` struct from `entity/mod.rs`; add `EntityKind` and `PublicEntityRef` enums; re-export `uuid::Uuid`.
 * [REFACTOR-040] Replace `FieldValue::EntityId(EntityId)` with `FieldValue::Uuid(Uuid)` and remove `FieldValue::InternalId(InternalId)` from `field/mod.rs`.
+* [REFACTOR-041] Introduce per-entity typed ID newtypes (`PanelId`, `PresenterId`, `EventRoomId`, `HotelRoomId`, `PanelTypeId`) each wrapping `uuid::Uuid`, replacing bare `u64` typed IDs.
 
 ---
 
 ## Summary of Open Items
 
-**Total open items:** 41
+**Total open items:** 40
 
 * **High Priority**
   * [CLI-013] Port cosam-convert from schedule-core to schedule-data for XLSX-to-JSON conversion.
@@ -35,7 +36,6 @@ Updated on: Fri Apr 10 14:29:26 2026
   * [REFACTOR-031] Extract timeline entries (SPLIT, BREAK, room hours) into a dedicated TimelineEntry entity following the schedule-core pattern.
   * [REFACTOR-037] Migrate from internal u64-based entity IDs to standard UUID v4 for entities, schedules, and edges to enable cross-schedule ID sharing and simplify the public API.
   * [REFACTOR-038] Replace the `EdgeId(u64)` type with `EdgeId(uuid::Uuid)` and add an edge UUID registry to `Schedule` for cross-edge lookups.
-  * [REFACTOR-041] Introduce per-entity typed ID newtypes (`PanelId`, `PresenterId`, `EventRoomId`, `HotelRoomId`, `PanelTypeId`) each wrapping `uuid::Uuid`, replacing bare `u64` typed IDs.
   * [REFACTOR-042] Rename `Edge::from_id()` and `Edge::to_id()` to `from_uuid()` and `to_uuid()` returning `Option<uuid::Uuid>`; update `RelationshipStorage` and `RelationshipEdge` trait signatures to use `Uuid`.
   * [REFACTOR-043] Update `schedule-macro/src/lib.rs` to emit `entity_uuid: uuid::Uuid` in generated `*Data` structs, generate a `new()` constructor with `Uuid::new_v4()`, generate a `to_public()` method, and replace `FieldTypeCategory::EntityId`/`InternalId` with `Uuid`.
   * [REFACTOR-044] Replace `HashMap<EntityId, Vec<EdgeId>>` outgoing/incoming indexes in `GenericEdgeStorage` with `HashMap<uuid::Uuid, Vec<EdgeId>>`.
@@ -412,30 +412,6 @@ This work is **blocked** on REFACTOR-039 through REFACTOR-049 (entity UUID migra
 
 ---
 
-### [REFACTOR-041] Add typed UUID ID wrappers for all entity types
-
-**Status:** Open
-
-**Priority:** High
-
-**Summary:** Introduce per-entity typed ID newtypes (`PanelId`, `PresenterId`, `EventRoomId`, `HotelRoomId`, `PanelTypeId`) each wrapping `uuid::Uuid`, replacing bare `u64` typed IDs.
-
-**Description:** Part of REFACTOR-037. Typed ID wrappers provide compile-time safety: calling `get_panel_presenters(presenter_id)` becomes a compile error since `PresenterId` is not `PanelId`. Each wrapper is a simple newtype with standard trait impls.
-
-Files and changes:
-
-* `entity/panel.rs` — change `PanelId(u64)` → `PanelId(Uuid)`; update `Display`; add `From<Uuid>`, `Into<Uuid>` impls; update `Panel.presenters: Vec<EntityId>` → `Vec<PresenterId>`
-* `entity/presenter.rs` — add `PresenterId(Uuid)` with `Display`, `From<Uuid>`, `Into<Uuid>`
-* `entity/event_room.rs` — add `EventRoomId(Uuid)` with same impls
-* `entity/hotel_room.rs` — add `HotelRoomId(Uuid)` with same impls
-* `entity/panel_type.rs` — add `PanelTypeId(Uuid)` with same impls
-
-Each typed ID derives `Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord` and implements `Serialize`/`Deserialize` (transparent UUID string format).
-
-Also update the computed field `#[read]` closures in `panel.rs` that reference `entity.entity_id` to use `entity.entity_uuid`, and update presenter list references from `EntityId` to `PresenterId`.
-
----
-
 ### [REFACTOR-042] Rename Edge trait methods from_id/to_id to from_uuid/to_uuid
 
 **Status:** Open
@@ -795,7 +771,7 @@ New tests to add (can be in `entity_fields_integration.rs` or a new `uuid_regist
 [REFACTOR-038]: work-item/high/REFACTOR-038.md
 [REFACTOR-039]: work-item/done/REFACTOR-039.md
 [REFACTOR-040]: work-item/done/REFACTOR-040.md
-[REFACTOR-041]: work-item/high/REFACTOR-041.md
+[REFACTOR-041]: work-item/done/REFACTOR-041.md
 [REFACTOR-042]: work-item/high/REFACTOR-042.md
 [REFACTOR-043]: work-item/high/REFACTOR-043.md
 [REFACTOR-044]: work-item/high/REFACTOR-044.md

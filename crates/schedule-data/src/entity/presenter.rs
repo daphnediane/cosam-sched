@@ -10,6 +10,7 @@ use crate::entity::presenter_rank::PresenterRank;
 use crate::EntityFields;
 use serde::{Deserialize, Serialize};
 use std::fmt;
+use uuid::Uuid;
 
 /// Ordering key for a presenter, recording where it was first defined.
 /// Matches schedule-core PresenterSortRank structure.
@@ -74,12 +75,25 @@ impl PresenterSortRank {
 }
 
 /// Presenter ID type
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
-pub struct PresenterId(u64);
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord, Serialize, Deserialize)]
+#[serde(transparent)]
+pub struct PresenterId(Uuid);
 
 impl fmt::Display for PresenterId {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         write!(f, "presenter-{}", self.0)
+    }
+}
+
+impl From<Uuid> for PresenterId {
+    fn from(uuid: Uuid) -> Self {
+        Self(uuid)
+    }
+}
+
+impl From<PresenterId> for Uuid {
+    fn from(id: PresenterId) -> Uuid {
+        id.0
     }
 }
 
@@ -172,7 +186,7 @@ pub struct Presenter {
     )]
     #[alias("presenter_groups", "group_list")]
     #[read(|schedule: &crate::schedule::Schedule, entity: &PresenterData| {
-        let group_ids = schedule.get_presenter_groups(entity.entity_id);
+        let group_ids = schedule.get_presenter_groups(PresenterId(entity.entity_uuid));
         Some(crate::field::FieldValue::List(
             schedule.get_entity_names::<crate::entity::PresenterEntityType>(&group_ids)
                 .into_iter()
@@ -180,7 +194,7 @@ pub struct Presenter {
                 .collect()
         ))
     })]
-    pub groups: Vec<crate::entity::EntityId>,
+    pub groups: Vec<PresenterId>,
 
     #[computed_field(
         display = "Members",
@@ -188,7 +202,7 @@ pub struct Presenter {
     )]
     #[alias("presenter_members", "member_list")]
     #[read(|schedule: &crate::schedule::Schedule, entity: &PresenterData| {
-        let member_ids = schedule.get_presenter_members(entity.entity_id);
+        let member_ids = schedule.get_presenter_members(PresenterId(entity.entity_uuid));
         Some(crate::field::FieldValue::List(
             schedule.get_entity_names::<crate::entity::PresenterEntityType>(&member_ids)
                 .into_iter()
@@ -196,7 +210,7 @@ pub struct Presenter {
                 .collect()
         ))
     })]
-    pub members: Vec<crate::entity::EntityId>,
+    pub members: Vec<PresenterId>,
 
     #[computed_field(
         display = "Panels",
@@ -204,7 +218,7 @@ pub struct Presenter {
     )]
     #[alias("presenter_panels", "panel_list")]
     #[read(|schedule: &crate::schedule::Schedule, entity: &PresenterData| {
-        let panel_ids = schedule.get_presenter_panels(entity.entity_id);
+        let panel_ids = schedule.get_presenter_panels(PresenterId(entity.entity_uuid));
         Some(crate::field::FieldValue::List(
             schedule.get_entity_names::<crate::entity::PanelEntityType>(&panel_ids)
                 .into_iter()
@@ -212,7 +226,7 @@ pub struct Presenter {
                 .collect()
         ))
     })]
-    pub panels: Vec<crate::entity::EntityId>,
+    pub panels: Vec<crate::entity::PanelId>,
 
     // @TODO: Not currently in the spreadsheets, Windsurf thought this was a good idea
     // I agree but we currently don't have the data
@@ -225,4 +239,34 @@ pub struct Presenter {
     #[field(display = "Website", description = "Presenter's website")]
     #[alias("website", "url", "web", "site")]
     pub website: Option<String>,
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn presenter_id_from_uuid() {
+        let uuid = Uuid::nil();
+        let id = PresenterId::from(uuid);
+        assert_eq!(Uuid::from(id), uuid);
+    }
+
+    #[test]
+    fn presenter_id_display() {
+        let id = PresenterId::from(Uuid::nil());
+        assert_eq!(
+            id.to_string(),
+            "presenter-00000000-0000-0000-0000-000000000000"
+        );
+    }
+
+    #[test]
+    fn presenter_id_serde_round_trip() {
+        let id = PresenterId::from(Uuid::nil());
+        let json = serde_json::to_string(&id).unwrap();
+        assert_eq!(json, "\"00000000-0000-0000-0000-000000000000\"");
+        let back: PresenterId = serde_json::from_str(&json).unwrap();
+        assert_eq!(id, back);
+    }
 }

@@ -7,15 +7,30 @@
 //! Panel type entity implementation
 
 use crate::EntityFields;
+use serde::{Deserialize, Serialize};
 use std::fmt;
+use uuid::Uuid;
 
 /// Panel type ID type
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
-pub struct PanelTypeId(u64);
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord, Serialize, Deserialize)]
+#[serde(transparent)]
+pub struct PanelTypeId(Uuid);
 
 impl fmt::Display for PanelTypeId {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         write!(f, "panel-type-{}", self.0)
+    }
+}
+
+impl From<Uuid> for PanelTypeId {
+    fn from(uuid: Uuid) -> Self {
+        Self(uuid)
+    }
+}
+
+impl From<PanelTypeId> for Uuid {
+    fn from(id: PanelTypeId) -> Uuid {
+        id.0
     }
 }
 
@@ -95,7 +110,7 @@ pub struct PanelType {
     #[alias("panels_of_type", "panel_list", "typed_panels")]
     #[read(|schedule: &crate::schedule::Schedule, entity: &PanelTypeData| {
         let panel_ids = schedule.find_related::<crate::entity::PanelEntityType>(
-            entity.entity_id,
+            entity.entity_uuid,
             crate::edge::EdgeType::PanelToPanelType,
             crate::schedule::RelationshipDirection::Incoming
         );
@@ -106,5 +121,35 @@ pub struct PanelType {
                 .collect()
         ))
     })]
-    pub panels: Vec<crate::entity::EntityId>,
+    pub panels: Vec<crate::entity::PanelId>,
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn panel_type_id_from_uuid() {
+        let uuid = Uuid::nil();
+        let id = PanelTypeId::from(uuid);
+        assert_eq!(Uuid::from(id), uuid);
+    }
+
+    #[test]
+    fn panel_type_id_display() {
+        let id = PanelTypeId::from(Uuid::nil());
+        assert_eq!(
+            id.to_string(),
+            "panel-type-00000000-0000-0000-0000-000000000000"
+        );
+    }
+
+    #[test]
+    fn panel_type_id_serde_round_trip() {
+        let id = PanelTypeId::from(Uuid::nil());
+        let json = serde_json::to_string(&id).unwrap();
+        assert_eq!(json, "\"00000000-0000-0000-0000-000000000000\"");
+        let back: PanelTypeId = serde_json::from_str(&json).unwrap();
+        assert_eq!(id, back);
+    }
 }

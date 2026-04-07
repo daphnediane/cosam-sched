@@ -6,7 +6,7 @@ Introduce per-entity typed ID newtypes (`PanelId`, `PresenterId`, `EventRoomId`,
 
 ## Status
 
-Open
+Completed
 
 ## Priority
 
