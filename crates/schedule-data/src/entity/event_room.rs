@@ -12,12 +12,12 @@ use crate::EntityFields;
 #[derive(EntityFields, Debug, Clone)]
 pub struct EventRoom {
     #[field(display = "Room Name", description = "Short room name")]
-    #[alias("short", "room_name")]
+    #[alias("short", "Room_Name", "room_name")]
     #[indexable(priority = 180)]
     pub short_name: String,
 
     #[field(display = "Long Name", description = "Long room name")]
-    #[alias("long", "full_name")]
+    #[alias("long", "Long_Name", "full_name")]
     #[indexable(priority = 160)]
     #[required]
     pub long_name: String,
@@ -55,7 +55,14 @@ pub struct EventRoom {
         display = "Hotel Room",
         description = "Hotel room that maps to this event room"
     )]
-    #[alias("hotel", "physical_room")]
+    #[alias(
+        "hotel_room",
+        "Hotel_Room",
+        "HotelRoom",
+        "hotel",
+        "physical_room",
+        "Building"
+    )]
     #[read(|schedule: &crate::schedule::Schedule, entity: &EventRoomData| {
         let hotel_room_ids = schedule.find_related::<crate::entity::HotelRoomEntityType>(
             entity.entity_id,
@@ -76,7 +83,7 @@ pub struct EventRoom {
         display = "Sort Key",
         description = "Sort key from hotel room"
     )]
-    #[alias("sort", "order")]
+    #[alias("sort_key", "Sort_Key", "SortKey", "sort", "order")]
     #[read(|schedule: &crate::schedule::Schedule, entity: &EventRoomData| {
         let hotel_room_ids = schedule.find_related::<crate::entity::HotelRoomEntityType>(
             entity.entity_id,

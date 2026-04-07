@@ -6,7 +6,7 @@ Align EventRoom entity fields with schedule-core canonical column definitions.
 
 ## Status
 
-Not Started
+Completed
 
 ## Priority
 
