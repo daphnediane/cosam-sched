@@ -7,20 +7,20 @@
 //! PresenterToGroup edge implementation
 
 use crate::edge::{Edge, EdgeError, EdgeId, EdgeStorage, EdgeType};
-use crate::entity::{PresenterId, Uuid};
+use crate::entity::{NonNilUuid, PresenterId};
 use std::collections::{BTreeSet, HashMap, HashSet};
 
 /// Cached relationship data for fast queries
 #[derive(Debug, Default, Clone)]
 pub struct RelationshipCache {
     /// Direct parent groups for each member
-    direct_parent_groups: HashMap<Uuid, Vec<Uuid>>,
+    direct_parent_groups: HashMap<NonNilUuid, Vec<NonNilUuid>>,
     /// Direct members for each group
-    direct_members: HashMap<Uuid, Vec<Uuid>>,
+    direct_members: HashMap<NonNilUuid, Vec<NonNilUuid>>,
     /// All members (transitive) for each group
-    inclusive_members: HashMap<Uuid, Vec<Uuid>>,
+    inclusive_members: HashMap<NonNilUuid, Vec<NonNilUuid>>,
     /// All groups (transitive) for each member
-    inclusive_groups: HashMap<Uuid, Vec<Uuid>>,
+    inclusive_groups: HashMap<NonNilUuid, Vec<NonNilUuid>>,
     /// Cache version to detect invalidation
     cache_version: u64,
 }
@@ -35,7 +35,7 @@ impl RelationshipCache {
     }
 
     /// Get direct parent groups for a member
-    pub fn get_direct_groups(&self, member_id: &Uuid) -> &[Uuid] {
+    pub fn get_direct_groups(&self, member_id: &NonNilUuid) -> &[NonNilUuid] {
         self.direct_parent_groups
             .get(member_id)
             .map(|v| v.as_slice())
@@ -43,7 +43,7 @@ impl RelationshipCache {
     }
 
     /// Get direct members for a group
-    pub fn get_direct_members(&self, group_id: &Uuid) -> &[Uuid] {
+    pub fn get_direct_members(&self, group_id: &NonNilUuid) -> &[NonNilUuid] {
         self.direct_members
             .get(group_id)
             .map(|v| v.as_slice())
@@ -51,7 +51,7 @@ impl RelationshipCache {
     }
 
     /// Get all members (transitive) for a group
-    pub fn get_inclusive_members(&self, group_id: &Uuid) -> &[Uuid] {
+    pub fn get_inclusive_members(&self, group_id: &NonNilUuid) -> &[NonNilUuid] {
         self.inclusive_members
             .get(group_id)
             .map(|v| v.as_slice())
@@ -59,7 +59,7 @@ impl RelationshipCache {
     }
 
     /// Get all groups (transitive) for a member
-    pub fn get_inclusive_groups(&self, member_id: &Uuid) -> &[Uuid] {
+    pub fn get_inclusive_groups(&self, member_id: &NonNilUuid) -> &[NonNilUuid] {
         self.inclusive_groups
             .get(member_id)
             .map(|v| v.as_slice())
@@ -161,12 +161,12 @@ impl Edge for PresenterToGroupEdge {
     type ToEntity = crate::entity::PresenterEntityType;
     type Data = Self;
 
-    fn from_uuid(&self) -> Option<Uuid> {
-        self.member_id().map(|id| Uuid::from(id))
+    fn from_uuid(&self) -> Option<NonNilUuid> {
+        self.member_id().map(|id| NonNilUuid::from(id))
     }
 
-    fn to_uuid(&self) -> Option<Uuid> {
-        Some(Uuid::from(self.group_id()))
+    fn to_uuid(&self) -> Option<NonNilUuid> {
+        Some(NonNilUuid::from(self.group_id()))
     }
 
     fn data(&self) -> &Self::Data {
@@ -186,8 +186,8 @@ impl Edge for PresenterToGroupEdge {
 #[derive(Debug, Clone)]
 pub struct PresenterToGroupStorage {
     edges: BTreeSet<PresenterToGroupEdge>,
-    member_to_groups: HashMap<Uuid, Vec<Uuid>>,
-    group_to_members: HashMap<Uuid, Vec<Uuid>>,
+    member_to_groups: HashMap<NonNilUuid, Vec<NonNilUuid>>,
+    group_to_members: HashMap<NonNilUuid, Vec<NonNilUuid>>,
     cache: RelationshipCache,
     cache_invalidation: u64,
     next_id: u64,
@@ -227,18 +227,18 @@ impl PresenterToGroupStorage {
 
         // Remove existing edge for this member-group pair if it exists
         if let Some(member_id) = edge.member_id() {
-            let member_uuid = Uuid::from(member_id);
-            let group_uuid = Uuid::from(edge.group_id());
+            let member_uuid = NonNilUuid::from(member_id);
+            let group_uuid = NonNilUuid::from(edge.group_id());
             self.remove_edge_internal(&member_uuid, &group_uuid);
         }
 
         // Add the edge
         self.edges.insert(edge.clone());
 
-        // Update indexes using Uuid for efficiency
+        // Update indexes using NonNilUuid for efficiency
         if let Some(member_id) = edge.member_id() {
-            let member_uuid = Uuid::from(member_id);
-            let group_uuid = Uuid::from(edge.group_id());
+            let member_uuid = NonNilUuid::from(member_id);
+            let group_uuid = NonNilUuid::from(edge.group_id());
             self.member_to_groups
                 .entry(member_uuid)
                 .or_default()
@@ -246,8 +246,8 @@ impl PresenterToGroupStorage {
         }
 
         if let Some(member_id) = edge.member_id() {
-            let member_uuid = Uuid::from(member_id);
-            let group_uuid = Uuid::from(edge.group_id());
+            let member_uuid = NonNilUuid::from(member_id);
+            let group_uuid = NonNilUuid::from(edge.group_id());
             self.group_to_members
                 .entry(group_uuid)
                 .or_default()
@@ -261,21 +261,25 @@ impl PresenterToGroupStorage {
     }
 
     /// Remove a relationship edge by member/group pair (ignoring flag values)
-    pub fn remove_edge(&mut self, member_id: Uuid, group_id: Uuid) -> Result<(), EdgeError> {
+    pub fn remove_edge(
+        &mut self,
+        member_id: NonNilUuid,
+        group_id: NonNilUuid,
+    ) -> Result<(), EdgeError> {
         self.remove_edge_internal(&member_id, &group_id);
         self.invalidate_cache();
         Ok(())
     }
 
     /// Internal edge removal without cache invalidation
-    fn remove_edge_internal(&mut self, member_id: &Uuid, group_id: &Uuid) {
+    fn remove_edge_internal(&mut self, member_id: &NonNilUuid, group_id: &NonNilUuid) {
         // Find the actual edge (flags may differ from a default-constructed edge)
         let found = self
             .edges
             .iter()
             .find(|e| {
-                e.member_id().map(|m| Uuid::from(m)) == Some(*member_id)
-                    && Uuid::from(e.group_id()) == *group_id
+                e.member_id().map(|m| NonNilUuid::from(m)) == Some(*member_id)
+                    && NonNilUuid::from(e.group_id()) == *group_id
             })
             .cloned();
 
@@ -285,9 +289,9 @@ impl PresenterToGroupStorage {
             // Update indexes
             if !edge.is_group_only() {
                 if let Some(member_id) = edge.member_id() {
-                    let member_uuid = Uuid::from(member_id);
+                    let member_uuid = NonNilUuid::from(member_id);
                     if let Some(groups) = self.member_to_groups.get_mut(&member_uuid) {
-                        let group_uuid = Uuid::from(edge.group_id());
+                        let group_uuid = NonNilUuid::from(edge.group_id());
                         groups.retain(|&g| g != group_uuid);
                         if groups.is_empty() {
                             self.member_to_groups.remove(&member_uuid);
@@ -296,9 +300,9 @@ impl PresenterToGroupStorage {
                 }
             }
 
-            let group_uuid = Uuid::from(edge.group_id());
+            let group_uuid = NonNilUuid::from(edge.group_id());
             if let Some(members) = self.group_to_members.get_mut(&group_uuid) {
-                members.retain(|&m| edge.member_id().map(|id| Uuid::from(id)) != Some(m));
+                members.retain(|&m| edge.member_id().map(|id| NonNilUuid::from(id)) != Some(m));
                 if members.is_empty() {
                     self.group_to_members.remove(&group_uuid);
                 }
@@ -307,9 +311,9 @@ impl PresenterToGroupStorage {
     }
 
     /// Clear all members for a group
-    pub fn clear_group(&mut self, group_id: Uuid) {
+    pub fn clear_group(&mut self, group_id: NonNilUuid) {
         // Collect members to remove
-        let members_to_remove: Vec<Uuid> = self
+        let members_to_remove: Vec<NonNilUuid> = self
             .group_to_members
             .get(&group_id)
             .cloned()
@@ -328,19 +332,19 @@ impl PresenterToGroupStorage {
     }
 
     /// Get all members (transitive) for a group
-    pub fn get_inclusive_members(&mut self, group_id: Uuid) -> &[Uuid] {
+    pub fn get_inclusive_members(&mut self, group_id: NonNilUuid) -> &[NonNilUuid] {
         self.ensure_cache_valid();
         self.cache.get_inclusive_members(&group_id)
     }
 
     /// Get all groups (transitive) for a member
-    pub fn get_inclusive_groups(&mut self, member_id: Uuid) -> &[Uuid] {
+    pub fn get_inclusive_groups(&mut self, member_id: NonNilUuid) -> &[NonNilUuid] {
         self.ensure_cache_valid();
         self.cache.get_inclusive_groups(&member_id)
     }
 
     /// Get direct parent groups for a member (non-caching, borrows `&self`).
-    pub fn direct_groups_of(&self, member_id: Uuid) -> &[Uuid] {
+    pub fn direct_groups_of(&self, member_id: NonNilUuid) -> &[NonNilUuid] {
         self.member_to_groups
             .get(&member_id)
             .map(|v| v.as_slice())
@@ -348,7 +352,7 @@ impl PresenterToGroupStorage {
     }
 
     /// Get direct members for a group (non-caching, borrows `&self`).
-    pub fn direct_members_of(&self, group_id: Uuid) -> &[Uuid] {
+    pub fn direct_members_of(&self, group_id: NonNilUuid) -> &[NonNilUuid] {
         self.group_to_members
             .get(&group_id)
             .map(|v| v.as_slice())
@@ -356,12 +360,12 @@ impl PresenterToGroupStorage {
     }
 
     /// Check if a presenter is a group
-    pub fn is_group(&self, presenter_id: Uuid) -> bool {
+    pub fn is_group(&self, presenter_id: NonNilUuid) -> bool {
         self.group_to_members.contains_key(&presenter_id)
     }
 
     /// Check if a member should always be grouped with a specific group
-    pub fn is_always_grouped(&self, member_id: Uuid, group_id: Uuid) -> bool {
+    pub fn is_always_grouped(&self, member_id: NonNilUuid, group_id: NonNilUuid) -> bool {
         let member_id = PresenterId::from(member_id);
         let group_id = PresenterId::from(group_id);
         self.edges
@@ -372,7 +376,7 @@ impl PresenterToGroupStorage {
     }
 
     /// Check if a member should always be grouped (with any group)
-    pub fn is_any_always_grouped(&self, member_id: Uuid) -> bool {
+    pub fn is_any_always_grouped(&self, member_id: NonNilUuid) -> bool {
         let member_id = PresenterId::from(member_id);
         self.edges
             .iter()
@@ -380,7 +384,7 @@ impl PresenterToGroupStorage {
     }
 
     /// Check if a group should always be shown as a group
-    pub fn is_always_shown_in_group(&self, group_id: Uuid) -> bool {
+    pub fn is_always_shown_in_group(&self, group_id: NonNilUuid) -> bool {
         let group_id = PresenterId::from(group_id);
         self.edges
             .iter()
@@ -393,7 +397,11 @@ impl PresenterToGroupStorage {
     }
 
     /// Find an edge by member/group pair, returning a reference if it exists.
-    pub fn find_edge(&self, member_id: Uuid, group_id: Uuid) -> Option<&PresenterToGroupEdge> {
+    pub fn find_edge(
+        &self,
+        member_id: NonNilUuid,
+        group_id: NonNilUuid,
+    ) -> Option<&PresenterToGroupEdge> {
         let member_id = PresenterId::from(member_id);
         let group_id = PresenterId::from(group_id);
         self.edges
@@ -421,8 +429,8 @@ impl PresenterToGroupStorage {
         // Build direct relationships
         for edge in &self.edges {
             if let Some(member_id) = edge.member_id() {
-                let member_uuid = Uuid::from(member_id);
-                let group_uuid = Uuid::from(edge.group_id());
+                let member_uuid = NonNilUuid::from(member_id);
+                let group_uuid = NonNilUuid::from(edge.group_id());
                 if !edge.is_group_only() {
                     self.cache
                         .direct_parent_groups
@@ -449,7 +457,7 @@ impl PresenterToGroupStorage {
     /// Build transitive closure for relationships
     fn build_transitive_relationships(&mut self) {
         // For inclusive members: find all members that belong to a group, directly or indirectly
-        let all_groups: Vec<Uuid> = self.group_to_members.keys().cloned().collect();
+        let all_groups: Vec<NonNilUuid> = self.group_to_members.keys().cloned().collect();
 
         for group in all_groups {
             let mut inclusive_members = HashSet::new();
@@ -472,13 +480,13 @@ impl PresenterToGroupStorage {
                 }
             }
 
-            let mut members: Vec<Uuid> = inclusive_members.into_iter().collect();
+            let mut members: Vec<NonNilUuid> = inclusive_members.into_iter().collect();
             members.sort();
             self.cache.inclusive_members.insert(group, members);
         }
 
         // For inclusive groups: find all groups a member belongs to, directly or indirectly
-        let all_members: Vec<Uuid> = self.member_to_groups.keys().cloned().collect();
+        let all_members: Vec<NonNilUuid> = self.member_to_groups.keys().cloned().collect();
 
         for member in all_members {
             let mut inclusive_groups = HashSet::new();
@@ -497,7 +505,7 @@ impl PresenterToGroupStorage {
                 }
             }
 
-            let mut groups: Vec<Uuid> = inclusive_groups.into_iter().collect();
+            let mut groups: Vec<NonNilUuid> = inclusive_groups.into_iter().collect();
             groups.sort();
             self.cache.inclusive_groups.insert(member, groups);
         }
@@ -532,7 +540,7 @@ impl EdgeStorage<PresenterToGroupEdge> for PresenterToGroupStorage {
         None
     }
 
-    fn find_outgoing(&self, from_uuid: Uuid) -> Vec<&PresenterToGroupEdge> {
+    fn find_outgoing(&self, from_uuid: NonNilUuid) -> Vec<&PresenterToGroupEdge> {
         // Outgoing from a member means finding all groups this member belongs to
         self.member_to_groups
             .get(&from_uuid)
@@ -551,7 +559,7 @@ impl EdgeStorage<PresenterToGroupEdge> for PresenterToGroupStorage {
             .unwrap_or_default()
     }
 
-    fn find_incoming(&self, to_uuid: Uuid) -> Vec<&PresenterToGroupEdge> {
+    fn find_incoming(&self, to_uuid: NonNilUuid) -> Vec<&PresenterToGroupEdge> {
         // Incoming to a group means finding all members of this group
         self.group_to_members
             .get(&to_uuid)
@@ -570,7 +578,7 @@ impl EdgeStorage<PresenterToGroupEdge> for PresenterToGroupStorage {
             .unwrap_or_default()
     }
 
-    fn edge_exists(&self, from_uuid: Uuid, to_uuid: Uuid) -> bool {
+    fn edge_exists(&self, from_uuid: NonNilUuid, to_uuid: NonNilUuid) -> bool {
         let member_id = PresenterId::from(from_uuid);
         let group_id = PresenterId::from(to_uuid);
         self.edges
@@ -589,8 +597,11 @@ mod tests {
     use crate::edge::EdgeStorage;
 
     fn make_id(id: u8) -> PresenterId {
-        // Create a deterministic UUID from a byte value
-        let uuid = Uuid::from_bytes([0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, id]);
+        let uuid = unsafe {
+            NonNilUuid::new_unchecked(uuid::Uuid::from_bytes([
+                0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, id,
+            ]))
+        };
         PresenterId::from(uuid)
     }
 
@@ -616,9 +627,9 @@ mod tests {
         storage.rebuild_cache();
 
         // Should complete without infinite loop
-        let member_uuid = Uuid::from(member);
-        let group_a_uuid = Uuid::from(group_a);
-        let group_b_uuid = Uuid::from(group_b);
+        let member_uuid = NonNilUuid::from(member);
+        let group_a_uuid = NonNilUuid::from(group_a);
+        let group_b_uuid = NonNilUuid::from(group_b);
         let inclusive_groups = storage.get_inclusive_groups(member_uuid);
         // The member should be in group_a and group_b
         assert!(inclusive_groups.contains(&group_a_uuid));
@@ -642,8 +653,8 @@ mod tests {
         storage.rebuild_cache();
 
         // Should handle self-reference without infinite loop
-        let group_uuid = Uuid::from(group_id);
-        let member_uuid = Uuid::from(member_id);
+        let group_uuid = NonNilUuid::from(group_id);
+        let member_uuid = NonNilUuid::from(member_id);
         let inclusive_members = storage.get_inclusive_members(group_uuid);
         assert!(inclusive_members.contains(&member_uuid));
     }
@@ -677,10 +688,10 @@ mod tests {
         storage.rebuild_cache();
 
         // Should handle complex cycle without infinite loop
-        let member_1_uuid = Uuid::from(member_1);
-        let group_1_uuid = Uuid::from(group_1);
-        let group_2_uuid = Uuid::from(group_2);
-        let group_3_uuid = Uuid::from(group_3);
+        let member_1_uuid = NonNilUuid::from(member_1);
+        let group_1_uuid = NonNilUuid::from(group_1);
+        let group_2_uuid = NonNilUuid::from(group_2);
+        let group_3_uuid = NonNilUuid::from(group_3);
         let inclusive_groups_1 = storage.get_inclusive_groups(member_1_uuid);
         assert!(inclusive_groups_1.contains(&group_1_uuid));
         assert!(inclusive_groups_1.contains(&group_2_uuid));
@@ -726,9 +737,9 @@ mod tests {
         storage.rebuild_cache();
 
         // Should complete without infinite loop
-        let member_uuid = Uuid::from(member);
-        let group_a_uuid = Uuid::from(group_a);
-        let group_b_uuid = Uuid::from(group_b);
+        let member_uuid = NonNilUuid::from(member);
+        let group_a_uuid = NonNilUuid::from(group_a);
+        let group_b_uuid = NonNilUuid::from(group_b);
         let inclusive_groups = storage.get_inclusive_groups(member_uuid);
         // The member should be in group_a and group_b (transitively)
         assert!(inclusive_groups.contains(&group_a_uuid));
@@ -752,8 +763,8 @@ mod tests {
         storage.rebuild_cache();
 
         // Should handle without infinite loop
-        let group_uuid = Uuid::from(group_id);
-        let member_uuid = Uuid::from(member_id);
+        let group_uuid = NonNilUuid::from(group_id);
+        let member_uuid = NonNilUuid::from(member_id);
         let inclusive_members = storage.get_inclusive_members(group_uuid);
         assert!(inclusive_members.contains(&member_uuid));
     }
@@ -787,10 +798,10 @@ mod tests {
         storage.rebuild_cache();
 
         // Should handle complex cycle without infinite loop
-        let member_1_uuid = Uuid::from(member_1);
-        let group_1_uuid = Uuid::from(group_1);
-        let group_2_uuid = Uuid::from(group_2);
-        let group_3_uuid = Uuid::from(group_3);
+        let member_1_uuid = NonNilUuid::from(member_1);
+        let group_1_uuid = NonNilUuid::from(group_1);
+        let group_2_uuid = NonNilUuid::from(group_2);
+        let group_3_uuid = NonNilUuid::from(group_3);
         let inclusive_groups_1 = storage.get_inclusive_groups(member_1_uuid);
         assert!(inclusive_groups_1.contains(&group_1_uuid));
         assert!(inclusive_groups_1.contains(&group_2_uuid));
@@ -809,8 +820,8 @@ mod tests {
         )
         .unwrap();
 
-        let member_uuid = Uuid::from(member_id);
-        let group_uuid = Uuid::from(group_id);
+        let member_uuid = NonNilUuid::from(member_id);
+        let group_uuid = NonNilUuid::from(group_id);
         assert!(storage.edge_exists(member_uuid, group_uuid));
     }
 }

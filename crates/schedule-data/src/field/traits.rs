@@ -76,7 +76,7 @@ pub mod match_priority {
 #[derive(Debug, Clone)]
 pub struct FieldMatchResult {
     /// The matched entity's UUID
-    pub entity_uuid: uuid::Uuid,
+    pub entity_uuid: uuid::NonNilUuid,
     /// The priority of the match (higher = better match, 0 = no match)
     pub priority: MatchPriority,
     /// The field priority (from indexable attribute)
@@ -89,7 +89,7 @@ pub struct FieldMatchResult {
 
 impl FieldMatchResult {
     pub fn new(
-        entity_uuid: uuid::Uuid,
+        entity_uuid: uuid::NonNilUuid,
         priority: MatchPriority,
         field_priority: u8,
         field_name: &'static str,
@@ -235,7 +235,7 @@ mod tests {
     // Mock entity for testing
     #[derive(Debug, Clone, PartialEq)]
     struct TestEntity {
-        entity_uuid: uuid::Uuid,
+        entity_uuid: uuid::NonNilUuid,
         id: String,
         name: String,
         value: i64,
@@ -254,10 +254,10 @@ mod tests {
     }
 
     impl crate::entity::InternalData for TestEntity {
-        fn uuid(&self) -> uuid::Uuid {
+        fn uuid(&self) -> uuid::NonNilUuid {
             self.entity_uuid
         }
-        fn set_uuid(&mut self, uuid: uuid::Uuid) {
+        fn set_uuid(&mut self, uuid: uuid::NonNilUuid) {
             self.entity_uuid = uuid;
         }
     }
@@ -299,7 +299,11 @@ mod tests {
 
     fn create_test_entity() -> TestEntity {
         TestEntity {
-            entity_uuid: uuid::Uuid::nil(),
+            entity_uuid: unsafe {
+                uuid::NonNilUuid::new_unchecked(uuid::Uuid::from_bytes([
+                    0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1,
+                ]))
+            },
             id: "123".to_string(),
             name: "Test".to_string(),
             value: 42,

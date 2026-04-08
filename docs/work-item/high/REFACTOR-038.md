@@ -6,7 +6,7 @@ Replace the `EdgeId(u64)` type with `EdgeId(uuid::Uuid)` and add an edge UUID re
 
 ## Status
 
-Blocked
+Open
 
 ## Priority
 
@@ -20,7 +20,7 @@ Currently `EdgeId` is a `(u64)` newtype generated sequentially in each edge stor
 * Unified `Schedule::lookup_edge_uuid` registry alongside the entity UUID registry
 * Consistent identity model for all objects in the schedule
 
-This work is **blocked** on REFACTOR-039 through REFACTOR-049 (entity UUID migration) being complete. Once entity UUIDs are in place, edge UUIDs become the natural next step.
+Previously blocked on entity UUID migration (REFACTOR-037 phases 1–6). That work is now complete — entity IDs and all storage use `NonNilUuid`. Edge UUIDs are the natural next step.
 
 ## Implementation Details
 

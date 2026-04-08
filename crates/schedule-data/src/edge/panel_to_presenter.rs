@@ -8,7 +8,7 @@
 
 use crate::edge::generic::GenericEdgeStorage;
 use crate::edge::{Edge, EdgeError, EdgeId, EdgeStorage};
-use crate::entity::{PanelId, PresenterId, Uuid};
+use crate::entity::{NonNilUuid, PanelId, PresenterId};
 
 /// PanelToPresenter edge implementation
 #[derive(Debug, Clone)]
@@ -38,12 +38,12 @@ impl Edge for PanelToPresenterEdge {
     type ToEntity = crate::entity::PresenterEntityType;
     type Data = PanelToPresenterData;
 
-    fn from_uuid(&self) -> Option<Uuid> {
-        Some(Uuid::from(self.from_id))
+    fn from_uuid(&self) -> Option<NonNilUuid> {
+        Some(NonNilUuid::from(self.from_id))
     }
 
-    fn to_uuid(&self) -> Option<Uuid> {
-        Some(Uuid::from(self.to_id))
+    fn to_uuid(&self) -> Option<NonNilUuid> {
+        Some(NonNilUuid::from(self.to_id))
     }
 
     fn data(&self) -> &Self::Data {
@@ -63,8 +63,8 @@ impl Edge for PanelToPresenterEdge {
 #[derive(Debug, Clone)]
 pub struct PanelToPresenterStorage {
     edges: GenericEdgeStorage<PanelToPresenterEdge>,
-    inclusive_presenters: std::collections::HashMap<Uuid, Vec<Uuid>>,
-    inclusive_panels: std::collections::HashMap<Uuid, Vec<Uuid>>,
+    inclusive_presenters: std::collections::HashMap<NonNilUuid, Vec<NonNilUuid>>,
+    inclusive_panels: std::collections::HashMap<NonNilUuid, Vec<NonNilUuid>>,
     cache_invalidation: u64,
 }
 
@@ -87,14 +87,14 @@ impl PanelToPresenterStorage {
     /// Get all presenters for a panel, including those from presenter groups (transitive closure)
     pub fn get_inclusive_presenters(
         &mut self,
-        panel_id: Uuid,
+        panel_id: NonNilUuid,
         group_storage: &mut super::presenter_to_group::PresenterToGroupStorage,
-    ) -> &[Uuid] {
+    ) -> &[NonNilUuid] {
         if self.inclusive_presenters.contains_key(&panel_id) {
             return self.inclusive_presenters.get(&panel_id).unwrap();
         }
 
-        let direct_presenters: Vec<Uuid> = self
+        let direct_presenters: Vec<NonNilUuid> = self
             .edges
             .find_outgoing(panel_id)
             .iter()
@@ -111,7 +111,7 @@ impl PanelToPresenterStorage {
             }
             inclusive.push(current);
             // Collect groups first to avoid borrow conflicts
-            let groups: Vec<Uuid> = group_storage.direct_groups_of(current).to_vec();
+            let groups: Vec<NonNilUuid> = group_storage.direct_groups_of(current).to_vec();
             for group_id in groups {
                 for member_id in group_storage
                     .get_inclusive_members(group_id)
@@ -130,14 +130,14 @@ impl PanelToPresenterStorage {
     /// Get all panels for a presenter, including those from presenter groups (transitive closure)
     pub fn get_inclusive_panels(
         &mut self,
-        presenter_id: Uuid,
+        presenter_id: NonNilUuid,
         group_storage: &mut super::presenter_to_group::PresenterToGroupStorage,
-    ) -> &[Uuid] {
+    ) -> &[NonNilUuid] {
         if self.inclusive_panels.contains_key(&presenter_id) {
             return self.inclusive_panels.get(&presenter_id).unwrap();
         }
 
-        let direct_panels: Vec<Uuid> = self
+        let direct_panels: Vec<NonNilUuid> = self
             .edges
             .find_incoming(presenter_id)
             .iter()
@@ -201,15 +201,15 @@ impl EdgeStorage<PanelToPresenterEdge> for PanelToPresenterStorage {
         self.edges.get_edge(edge_id)
     }
 
-    fn find_outgoing(&self, from_uuid: Uuid) -> Vec<&PanelToPresenterEdge> {
+    fn find_outgoing(&self, from_uuid: NonNilUuid) -> Vec<&PanelToPresenterEdge> {
         self.edges.find_outgoing(from_uuid)
     }
 
-    fn find_incoming(&self, to_uuid: Uuid) -> Vec<&PanelToPresenterEdge> {
+    fn find_incoming(&self, to_uuid: NonNilUuid) -> Vec<&PanelToPresenterEdge> {
         self.edges.find_incoming(to_uuid)
     }
 
-    fn edge_exists(&self, from_uuid: Uuid, to_uuid: Uuid) -> bool {
+    fn edge_exists(&self, from_uuid: NonNilUuid, to_uuid: NonNilUuid) -> bool {
         self.edges.edge_exists(from_uuid, to_uuid)
     }
 
@@ -221,39 +221,45 @@ impl EdgeStorage<PanelToPresenterEdge> for PanelToPresenterStorage {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::entity::Uuid;
+    use crate::entity::NonNilUuid;
 
     fn make_panel_id(id: u8) -> PanelId {
-        PanelId::from(Uuid::from_bytes([
-            0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, id,
-        ]))
+        PanelId::from(unsafe {
+            NonNilUuid::new_unchecked(uuid::Uuid::from_bytes([
+                0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, id,
+            ]))
+        })
     }
 
     fn make_presenter_id(id: u8) -> PresenterId {
-        PresenterId::from(Uuid::from_bytes([
-            0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, id,
-        ]))
+        PresenterId::from(unsafe {
+            NonNilUuid::new_unchecked(uuid::Uuid::from_bytes([
+                0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, id,
+            ]))
+        })
     }
 
     fn make_group_id(id: u8) -> PresenterId {
-        PresenterId::from(Uuid::from_bytes([
-            0,
-            0,
-            0,
-            0,
-            0,
-            0,
-            0,
-            0,
-            0,
-            0,
-            0,
-            0,
-            0,
-            0,
-            0,
-            id + 100,
-        ]))
+        PresenterId::from(unsafe {
+            NonNilUuid::new_unchecked(uuid::Uuid::from_bytes([
+                0,
+                0,
+                0,
+                0,
+                0,
+                0,
+                0,
+                0,
+                0,
+                0,
+                0,
+                0,
+                0,
+                0,
+                0,
+                id + 100,
+            ]))
+        })
     }
 
     #[test]
@@ -297,11 +303,11 @@ mod tests {
             .unwrap();
 
         let mut group_storage = crate::edge::presenter_to_group::PresenterToGroupStorage::new();
-        let panel_uuid = Uuid::from(panel_id);
+        let panel_uuid = NonNilUuid::from(panel_id);
         let presenters = storage.get_inclusive_presenters(panel_uuid, &mut group_storage);
 
-        let presenter_uuid_1 = Uuid::from(presenter_id_1);
-        let presenter_uuid_2 = Uuid::from(presenter_id_2);
+        let presenter_uuid_1 = NonNilUuid::from(presenter_id_1);
+        let presenter_uuid_2 = NonNilUuid::from(presenter_id_2);
         assert_eq!(presenters.len(), 2);
         assert!(presenters.contains(&presenter_uuid_1));
         assert!(presenters.contains(&presenter_uuid_2));
@@ -334,11 +340,11 @@ mod tests {
             ))
             .unwrap();
 
-        let panel_uuid = Uuid::from(panel_id);
+        let panel_uuid = NonNilUuid::from(panel_id);
         let presenters = storage.get_inclusive_presenters(panel_uuid, &mut group_storage);
 
-        let presenter_uuid = Uuid::from(presenter_id);
-        let member_uuid = Uuid::from(member_id);
+        let presenter_uuid = NonNilUuid::from(presenter_id);
+        let member_uuid = NonNilUuid::from(member_id);
         assert!(presenters.contains(&presenter_uuid));
         assert!(presenters.contains(&member_uuid));
     }
@@ -358,11 +364,11 @@ mod tests {
             .unwrap();
 
         let mut group_storage = crate::edge::presenter_to_group::PresenterToGroupStorage::new();
-        let presenter_uuid = Uuid::from(presenter_id);
+        let presenter_uuid = NonNilUuid::from(presenter_id);
         let panels = storage.get_inclusive_panels(presenter_uuid, &mut group_storage);
 
-        let panel_uuid_1 = Uuid::from(panel_id_1);
-        let panel_uuid_2 = Uuid::from(panel_id_2);
+        let panel_uuid_1 = NonNilUuid::from(panel_id_1);
+        let panel_uuid_2 = NonNilUuid::from(panel_id_2);
         assert_eq!(panels.len(), 2);
         assert!(panels.contains(&panel_uuid_1));
         assert!(panels.contains(&panel_uuid_2));
@@ -379,7 +385,7 @@ mod tests {
             .unwrap();
 
         let mut group_storage = crate::edge::presenter_to_group::PresenterToGroupStorage::new();
-        let panel_uuid = Uuid::from(panel_id);
+        let panel_uuid = NonNilUuid::from(panel_id);
 
         // First call computes and caches
         let presenters1 = storage

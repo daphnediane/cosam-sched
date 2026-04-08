@@ -193,7 +193,7 @@ impl FieldType for StringFieldType {
             FieldValue::Float(f) => Ok(f.to_string()),
             FieldValue::Boolean(b) => Ok(b.to_string()),
             FieldValue::Duration(d) => Ok(d.num_minutes().to_string()),
-            FieldValue::Uuid(uuid) => Ok(uuid.to_string()),
+            FieldValue::NonNilUuid(uuid) => Ok(uuid.to_string()),
             _ => Err(ConversionError::UnsupportedType),
         }
     }
@@ -533,7 +533,7 @@ impl FieldType for IdFieldType {
 
     fn try_convert(value: &FieldValue) -> Result<Self::Value, ConversionError> {
         match value {
-            FieldValue::Uuid(uuid) => Ok(uuid.to_string()),
+            FieldValue::NonNilUuid(uuid) => Ok(uuid.to_string()),
             FieldValue::String(s) => Ok(s.clone()),
             _ => Err(ConversionError::UnsupportedType),
         }

@@ -9,264 +9,211 @@
 use std::collections::HashMap;
 
 use super::ScheduleError;
-use crate::entity::{EntityState, EntityType};
+use crate::entity::{
+    EntityType, EventRoomData, EventRoomEntityType, HotelRoomData, HotelRoomEntityType, PanelData,
+    PanelEntityType, PanelTypeData, PanelTypeEntityType, PresenterData, PresenterEntityType,
+};
 use crate::field::FieldValue;
 use crate::query::{FieldMatch, QueryOptions};
-use uuid::Uuid;
+use uuid::NonNilUuid;
 
-/// Generic entity storage
-#[derive(Debug, Clone)]
-#[allow(dead_code)]
-pub struct EntityStorage {
-    // Store entities by type name and internal ID
-    entities: HashMap<String, EntityTypeStorage>,
-    // Indexing for efficient queries
-    indexes: HashMap<String, HashMap<String, Vec<String>>>,
-}
-
+/// Concrete typed entity storage — one `HashMap` per entity type.
+/// This avoids type erasure and allows direct `&T::Data` references.
 #[derive(Debug, Clone, Default)]
-struct EntityTypeStorage {
-    by_internal_uuid: HashMap<Uuid, StoredEntity>,
+pub struct EntityStorage {
+    pub panels: HashMap<NonNilUuid, PanelData>,
+    pub presenters: HashMap<NonNilUuid, PresenterData>,
+    pub event_rooms: HashMap<NonNilUuid, EventRoomData>,
+    pub hotel_rooms: HashMap<NonNilUuid, HotelRoomData>,
+    pub panel_types: HashMap<NonNilUuid, PanelTypeData>,
 }
 
-#[derive(Debug, Clone)]
-#[allow(dead_code)]
-struct StoredEntity {
-    internal_uuid: Uuid,
-    data: String, // Serialized JSON data
-    state: EntityState,
-    created_at: chrono::NaiveDateTime,
-    updated_at: chrono::NaiveDateTime,
+/// Provides access to the concrete `HashMap` for an entity type.
+/// Implemented on `EntityType` marker structs.
+pub trait TypedStorage: EntityType {
+    fn typed_map(storage: &EntityStorage) -> &HashMap<NonNilUuid, Self::Data>;
+    fn typed_map_mut(storage: &mut EntityStorage) -> &mut HashMap<NonNilUuid, Self::Data>;
+}
+
+impl TypedStorage for PanelEntityType {
+    fn typed_map(s: &EntityStorage) -> &HashMap<NonNilUuid, PanelData> {
+        &s.panels
+    }
+    fn typed_map_mut(s: &mut EntityStorage) -> &mut HashMap<NonNilUuid, PanelData> {
+        &mut s.panels
+    }
+}
+
+impl TypedStorage for PresenterEntityType {
+    fn typed_map(s: &EntityStorage) -> &HashMap<NonNilUuid, PresenterData> {
+        &s.presenters
+    }
+    fn typed_map_mut(s: &mut EntityStorage) -> &mut HashMap<NonNilUuid, PresenterData> {
+        &mut s.presenters
+    }
+}
+
+impl TypedStorage for EventRoomEntityType {
+    fn typed_map(s: &EntityStorage) -> &HashMap<NonNilUuid, EventRoomData> {
+        &s.event_rooms
+    }
+    fn typed_map_mut(s: &mut EntityStorage) -> &mut HashMap<NonNilUuid, EventRoomData> {
+        &mut s.event_rooms
+    }
+}
+
+impl TypedStorage for HotelRoomEntityType {
+    fn typed_map(s: &EntityStorage) -> &HashMap<NonNilUuid, HotelRoomData> {
+        &s.hotel_rooms
+    }
+    fn typed_map_mut(s: &mut EntityStorage) -> &mut HashMap<NonNilUuid, HotelRoomData> {
+        &mut s.hotel_rooms
+    }
+}
+
+impl TypedStorage for PanelTypeEntityType {
+    fn typed_map(s: &EntityStorage) -> &HashMap<NonNilUuid, PanelTypeData> {
+        &s.panel_types
+    }
+    fn typed_map_mut(s: &mut EntityStorage) -> &mut HashMap<NonNilUuid, PanelTypeData> {
+        &mut s.panel_types
+    }
 }
 
 impl EntityStorage {
     pub fn new() -> Self {
-        Self {
-            entities: HashMap::new(),
-            indexes: HashMap::new(),
-        }
+        Self::default()
     }
 
-    /// Get entity by type and UUID
-    pub fn get<T: EntityType>(&self, uuid: Uuid) -> Option<&T::Data> {
-        let type_name = T::TYPE_NAME;
-        self.entities
-            .get(type_name)
-            .and_then(|type_entities| type_entities.by_internal_uuid.get(&uuid))
-            .and_then(|stored| self.deserialize::<T>(&stored.data))
+    /// Get entity by type and UUID.
+    pub fn get<T: TypedStorage>(&self, uuid: NonNilUuid) -> Option<&T::Data> {
+        T::typed_map(self).get(&uuid)
     }
 
-    /// Get entity by internal UUID
-    pub fn get_by_uuid<T: EntityType>(&self, uuid: Uuid) -> Option<&T::Data> {
-        self.get::<T>(uuid)
+    /// Get entity by internal UUID (alias for `get`).
+    pub fn get_by_uuid<T: TypedStorage>(&self, uuid: NonNilUuid) -> Option<&T::Data> {
+        T::typed_map(self).get(&uuid)
     }
 
     /// Get entities by index query, returning all that tie at the best match strength.
-    pub fn get_by_index<T: EntityType>(&self, query: &str) -> Vec<&T::Data> {
-        let type_name = T::TYPE_NAME;
+    pub fn get_by_index<T: TypedStorage + Sized>(&self, query: &str) -> Vec<&T::Data> {
         let field_set = T::field_set();
+        let map = T::typed_map(self);
 
-        if let Some(type_entities) = self.entities.get(type_name) {
-            let mut matches: Vec<(Uuid, crate::field::traits::FieldMatchResult)> = Vec::new();
-            let mut best_priority = crate::field::traits::match_priority::MIN_MATCH; // Start at minimum match level to skip NO_MATCH (0)
+        let mut best_priority = crate::field::traits::match_priority::MIN_MATCH;
+        let mut matched_uuids: Vec<NonNilUuid> = Vec::new();
 
-            // @TODO: Should consider field priority if match priority is the same
-            for (_internal_uuid, stored) in &type_entities.by_internal_uuid {
-                if let Some(entity) = self.deserialize::<T>(&stored.data) {
-                    if let Some(match_result) = field_set.match_index(query, entity) {
-                        if match_result.priority > best_priority {
-                            best_priority = match_result.priority;
-                            matches.clear();
-                            matches.push((match_result.entity_uuid, match_result));
-                        } else if match_result.priority == best_priority {
-                            matches.push((match_result.entity_uuid, match_result));
-                        }
-                    }
+        // @TODO: Should consider field priority if match priority is the same
+        for entity in map.values() {
+            if let Some(match_result) = field_set.match_index(query, entity) {
+                if match_result.priority > best_priority {
+                    best_priority = match_result.priority;
+                    matched_uuids.clear();
+                    matched_uuids.push(match_result.entity_uuid);
+                } else if match_result.priority == best_priority {
+                    matched_uuids.push(match_result.entity_uuid);
                 }
             }
-
-            matches
-                .into_iter()
-                .filter_map(|(uuid, _)| {
-                    type_entities
-                        .by_internal_uuid
-                        .get(&uuid)
-                        .and_then(|stored| self.deserialize::<T>(&stored.data))
-                })
-                .collect()
-        } else {
-            Vec::new()
         }
+
+        matched_uuids
+            .into_iter()
+            .filter_map(|id| map.get(&id))
+            .collect()
     }
 
-    /// Get multiple entities matching field conditions
-    pub fn get_many<T: EntityType>(
+    /// Get multiple entities matching field conditions.
+    pub fn get_many<T: TypedStorage + Sized>(
         &self,
         matches: &[FieldMatch],
         options: Option<QueryOptions>,
     ) -> Vec<&T::Data> {
         let ids = self.find::<T>(matches, options);
-        ids.into_iter().filter_map(|id| self.get::<T>(id)).collect()
+        ids.into_iter()
+            .filter_map(|id| T::typed_map(self).get(&id))
+            .collect()
     }
 
-    /// Find entity UUIDs matching field conditions
-    pub fn find<T: EntityType>(
+    /// Find entity UUIDs matching field conditions.
+    pub fn find<T: TypedStorage + Sized>(
         &self,
         matches: &[FieldMatch],
         options: Option<QueryOptions>,
-    ) -> Vec<Uuid> {
-        let type_name = T::TYPE_NAME;
+    ) -> Vec<NonNilUuid> {
         let options = options.unwrap_or_default();
+        let map = T::typed_map(self);
 
-        if let Some(type_entities) = self.entities.get(type_name) {
-            let mut results = Vec::new();
-
-            for stored in type_entities.by_internal_uuid.values() {
-                // Apply state filter
-                if let Some(state_filter) = options.state_filter {
-                    if stored.state != state_filter {
-                        continue;
+        let mut results: Vec<NonNilUuid> = map
+            .iter()
+            .filter(|(_uuid, _entity)| {
+                for field_match in matches {
+                    if T::field_set().get_field(&field_match.field_name).is_none() {
+                        return false;
                     }
+                    // TODO: Implement proper field value matching
                 }
+                true
+            })
+            .map(|(uuid, _)| *uuid)
+            .collect();
 
-                // Apply field matches
-                if let Some(_entity) = self.deserialize::<T>(&stored.data) {
-                    let mut matches_all = true;
-
-                    for field_match in matches {
-                        let field = T::field_set().get_field(&field_match.field_name);
-
-                        if let Some(_field) = field {
-                            // TODO: Implement proper field matching using SimpleReadableField
-                            if !self.simple_field_match::<T>(&field_match.matcher) {
-                                matches_all = false;
-                                break;
-                            }
-                        } else {
-                            matches_all = false;
-                            break;
-                        }
-                    }
-
-                    if matches_all {
-                        results.push(stored.internal_uuid);
-                    }
+        // Apply ordering
+        if let Some(_order_by) = options.order_by {
+            results.sort_by(|a, b| {
+                if options.ascending {
+                    a.to_string().cmp(&b.to_string())
+                } else {
+                    b.to_string().cmp(&a.to_string())
                 }
-            }
-
-            // Apply ordering
-            if let Some(_order_by) = options.order_by {
-                results.sort_by(|a, b| {
-                    // Simplified ordering - in practice, you'd extract field values
-                    let a_str = a.to_string();
-                    let b_str = b.to_string();
-                    if options.ascending {
-                        a_str.cmp(&b_str)
-                    } else {
-                        b_str.cmp(&a_str)
-                    }
-                });
-            }
-
-            // Apply limit and offset
-            let start = options.offset.unwrap_or(0);
-            let end = if let Some(limit) = options.limit {
-                (start + limit).min(results.len())
-            } else {
-                results.len()
-            };
-
-            results.into_iter().skip(start).take(end - start).collect()
-        } else {
-            Vec::new()
-        }
-    }
-
-    /// Add entity to storage with pre-allocated UUID
-    pub fn add_with_uuid<T: EntityType>(
-        &mut self,
-        uuid: Uuid,
-        entity: T::Data,
-    ) -> Result<(), ScheduleError> {
-        let type_name = T::TYPE_NAME;
-
-        let type_entities = self.entities.entry(type_name.to_string()).or_default();
-
-        // Check for duplicates
-        if type_entities.by_internal_uuid.contains_key(&uuid) {
-            return Err(ScheduleError::DuplicateEntity {
-                entity_type: type_name.to_string(),
-                id: uuid.to_string(),
             });
         }
 
-        let stored = StoredEntity {
-            internal_uuid: uuid,
-            data: format!("{:?}", entity),
-            state: EntityState::Active,
-            created_at: chrono::Utc::now().naive_utc(),
-            updated_at: chrono::Utc::now().naive_utc(),
-        };
+        // Apply limit and offset
+        let start = options.offset.unwrap_or(0);
+        let end = options
+            .limit
+            .map(|l| (start + l).min(results.len()))
+            .unwrap_or(results.len());
 
-        type_entities.by_internal_uuid.insert(uuid, stored);
+        results.into_iter().skip(start).take(end - start).collect()
+    }
 
+    /// Add entity to storage with pre-allocated UUID.
+    pub fn add_with_uuid<T: TypedStorage>(
+        &mut self,
+        uuid: NonNilUuid,
+        entity: T::Data,
+    ) -> Result<(), ScheduleError> {
+        let map = T::typed_map_mut(self);
+        if map.contains_key(&uuid) {
+            return Err(ScheduleError::DuplicateEntity {
+                entity_type: T::TYPE_NAME.to_string(),
+                id: uuid.to_string(),
+            });
+        }
+        map.insert(uuid, entity);
         Ok(())
     }
 
-    /// Check if entity with given UUID exists
-    pub fn contains_uuid<T: EntityType>(&self, uuid: Uuid) -> bool {
-        let type_name = T::TYPE_NAME;
-        self.entities
-            .get(type_name)
-            .map(|type_entities| type_entities.by_internal_uuid.contains_key(&uuid))
-            .unwrap_or(false)
+    /// Check if entity with given UUID exists.
+    pub fn contains_uuid<T: TypedStorage>(&self, uuid: NonNilUuid) -> bool {
+        T::typed_map(self).contains_key(&uuid)
     }
 
-    /// Update entity fields
-    pub fn update<T: EntityType>(
+    /// Update entity fields.
+    /// TODO: Apply individual field updates once field system supports mutation.
+    pub fn update<T: TypedStorage>(
         &mut self,
-        uuid: Uuid,
+        uuid: NonNilUuid,
         _updates: &[(String, FieldValue)],
     ) -> Result<(), ScheduleError> {
-        let type_name = T::TYPE_NAME;
-
-        if let Some(type_entities) = self.entities.get_mut(type_name) {
-            if let Some(stored) = type_entities.by_internal_uuid.get_mut(&uuid) {
-                // Update timestamp
-                stored.updated_at = chrono::Utc::now().naive_utc();
-
-                // In practice, you'd deserialize, apply updates, and re-serialize
-                // For now, just mark as updated
-                Ok(())
-            } else {
-                Err(ScheduleError::EntityNotFound {
-                    entity_type: type_name.to_string(),
-                    id: uuid.to_string(),
-                })
-            }
+        if T::typed_map(self).contains_key(&uuid) {
+            Ok(())
         } else {
             Err(ScheduleError::EntityNotFound {
-                entity_type: type_name.to_string(),
+                entity_type: T::TYPE_NAME.to_string(),
                 id: uuid.to_string(),
             })
         }
-    }
-
-    // Helper methods
-    fn deserialize<T: EntityType>(&self, _data: &str) -> Option<&T::Data> {
-        // Simplified deserialization - in practice, use serde_json
-        // This is a placeholder that doesn't actually work
-        None
-    }
-
-    fn simple_field_match<T: EntityType>(&self, _matcher: &crate::field::FieldMatcher) -> bool {
-        // Simplified matching - in practice, extract field value and compare
-        true
-    }
-}
-
-impl Default for EntityStorage {
-    fn default() -> Self {
-        Self::new()
     }
 }

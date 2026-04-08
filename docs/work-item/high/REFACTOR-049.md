@@ -6,7 +6,7 @@ Update the four existing integration test files to use `Uuid` instead of `Entity
 
 ## Status
 
-Open
+In Progress
 
 ## Priority
 
@@ -23,6 +23,8 @@ Files to update in `crates/schedule-data/tests/`:
 * `indexable_fields_test.rs` — same updates
 * `simple_indexable_test.rs` — same updates
 
+**All four files above are updated and passing as of the working branch.**
+
 New tests to add (can be in `entity_fields_integration.rs` or a new `uuid_registry_test.rs`):
 
 * `test_schedule_metadata_has_uuid` — verify `ScheduleMetadata::new()` generates a non-nil `schedule_id`
@@ -33,11 +35,13 @@ New tests to add (can be in `entity_fields_integration.rs` or a new `uuid_regist
 * `test_entity_data_new_generates_unique_uuids` — create two `PanelData::new(...)` instances, verify UUIDs differ
 * `test_to_public_roundtrip` — create `PanelData`, call `to_public()`, verify all stored fields match
 
+**None of the seven new tests above are written yet. They are now unblocked** — `EntityStorage` stores real data (no longer a stub), so data round-trip tests will pass. Routing/dispatch tests (`fetch_uuid_routes_through_identify`, `identify_kind_matches_entity_kind`, etc.) exist in `schedule/mod.rs` inline tests.
+
 ## Acceptance Criteria
 
-* All four existing test files updated and passing
-* All seven new tests added and passing
-* `cargo test` at workspace root passes with no failures
+* ✅ All four existing test files updated and passing
+* 🔲 All seven new tests added and passing
+* 🔲 `cargo test` at workspace root passes with no failures after new tests added
 
 ## Notes
 

@@ -8,7 +8,7 @@
 
 use crate::edge::generic::GenericEdgeStorage;
 use crate::edge::{Edge, EdgeError, EdgeId, EdgeStorage};
-use crate::entity::{EventRoomId, HotelRoomId, Uuid};
+use crate::entity::{EventRoomId, HotelRoomId, NonNilUuid};
 
 /// EventRoomToHotelRoom edge implementation (many-to-one relationship)
 #[derive(Debug, Clone)]
@@ -38,12 +38,12 @@ impl Edge for EventRoomToHotelRoomEdge {
     type ToEntity = crate::entity::HotelRoomEntityType;
     type Data = EventRoomToHotelRoomData;
 
-    fn from_uuid(&self) -> Option<Uuid> {
-        Some(Uuid::from(self.from_id))
+    fn from_uuid(&self) -> Option<NonNilUuid> {
+        Some(NonNilUuid::from(self.from_id))
     }
 
-    fn to_uuid(&self) -> Option<Uuid> {
-        Some(Uuid::from(self.to_id))
+    fn to_uuid(&self) -> Option<NonNilUuid> {
+        Some(NonNilUuid::from(self.to_id))
     }
 
     fn data(&self) -> &Self::Data {
@@ -63,9 +63,11 @@ impl Edge for EventRoomToHotelRoomEdge {
 #[derive(Debug, Clone)]
 pub struct EventRoomToHotelRoomStorage {
     edges: GenericEdgeStorage<EventRoomToHotelRoomEdge>,
-    time_range_cache:
-        std::collections::HashMap<Uuid, Vec<(chrono::NaiveDateTime, chrono::NaiveDateTime, Uuid)>>,
-    panel_usage_cache: std::collections::HashMap<Uuid, Vec<Uuid>>,
+    time_range_cache: std::collections::HashMap<
+        NonNilUuid,
+        Vec<(chrono::NaiveDateTime, chrono::NaiveDateTime, NonNilUuid)>,
+    >,
+    panel_usage_cache: std::collections::HashMap<NonNilUuid, Vec<NonNilUuid>>,
     cache_invalidation: u64,
 }
 
@@ -89,9 +91,9 @@ impl EventRoomToHotelRoomStorage {
     /// This will be called by Schedule with access to panel data
     pub fn get_time_ranges(
         &mut self,
-        hotel_room_id: Uuid,
+        hotel_room_id: NonNilUuid,
         _schedule: &super::super::schedule::Schedule,
-    ) -> &[(chrono::NaiveDateTime, chrono::NaiveDateTime, Uuid)] {
+    ) -> &[(chrono::NaiveDateTime, chrono::NaiveDateTime, NonNilUuid)] {
         if self.time_range_cache.contains_key(&hotel_room_id) {
             return self.time_range_cache.get(&hotel_room_id).unwrap();
         }
@@ -106,9 +108,9 @@ impl EventRoomToHotelRoomStorage {
     /// This will be called by Schedule with access to panel data
     pub fn get_panels_using_event_room(
         &mut self,
-        event_room_id: Uuid,
+        event_room_id: NonNilUuid,
         _schedule: &super::super::schedule::Schedule,
-    ) -> &[Uuid] {
+    ) -> &[NonNilUuid] {
         if self.panel_usage_cache.contains_key(&event_room_id) {
             return self.panel_usage_cache.get(&event_room_id).unwrap();
         }
@@ -143,15 +145,15 @@ impl EdgeStorage<EventRoomToHotelRoomEdge> for EventRoomToHotelRoomStorage {
         self.edges.get_edge(edge_id)
     }
 
-    fn find_outgoing(&self, from_uuid: Uuid) -> Vec<&EventRoomToHotelRoomEdge> {
+    fn find_outgoing(&self, from_uuid: NonNilUuid) -> Vec<&EventRoomToHotelRoomEdge> {
         self.edges.find_outgoing(from_uuid)
     }
 
-    fn find_incoming(&self, to_uuid: Uuid) -> Vec<&EventRoomToHotelRoomEdge> {
+    fn find_incoming(&self, to_uuid: NonNilUuid) -> Vec<&EventRoomToHotelRoomEdge> {
         self.edges.find_incoming(to_uuid)
     }
 
-    fn edge_exists(&self, from_uuid: Uuid, to_uuid: Uuid) -> bool {
+    fn edge_exists(&self, from_uuid: NonNilUuid, to_uuid: NonNilUuid) -> bool {
         self.edges.edge_exists(from_uuid, to_uuid)
     }
 
@@ -163,33 +165,38 @@ impl EdgeStorage<EventRoomToHotelRoomEdge> for EventRoomToHotelRoomStorage {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::entity::Uuid;
+    use crate::entity::NonNilUuid;
+    use uuid::Uuid;
 
     fn make_event_room_id(id: u8) -> EventRoomId {
-        EventRoomId::from(Uuid::from_bytes([
-            0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, id,
-        ]))
+        EventRoomId::from(unsafe {
+            NonNilUuid::new_unchecked(Uuid::from_bytes([
+                0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, id,
+            ]))
+        })
     }
 
     fn make_hotel_room_id(id: u8) -> HotelRoomId {
-        HotelRoomId::from(Uuid::from_bytes([
-            0,
-            0,
-            0,
-            0,
-            0,
-            0,
-            0,
-            0,
-            0,
-            0,
-            0,
-            0,
-            0,
-            0,
-            0,
-            id + 100,
-        ]))
+        HotelRoomId::from(unsafe {
+            NonNilUuid::new_unchecked(Uuid::from_bytes([
+                0,
+                0,
+                0,
+                0,
+                0,
+                0,
+                0,
+                0,
+                0,
+                0,
+                0,
+                0,
+                0,
+                0,
+                0,
+                id + 100,
+            ]))
+        })
     }
 
     #[test]

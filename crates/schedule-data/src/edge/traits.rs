@@ -8,7 +8,7 @@
 
 use crate::entity::EntityType;
 use std::fmt::{self, Debug};
-use uuid::Uuid;
+use uuid::NonNilUuid;
 
 /// Core trait for all edge relationships
 pub trait Edge: Debug + Clone {
@@ -16,8 +16,8 @@ pub trait Edge: Debug + Clone {
     type ToEntity: EntityType;
     type Data: Debug + Clone;
 
-    fn from_uuid(&self) -> Option<Uuid>;
-    fn to_uuid(&self) -> Option<Uuid>;
+    fn from_uuid(&self) -> Option<NonNilUuid>;
+    fn to_uuid(&self) -> Option<NonNilUuid>;
     fn data(&self) -> &Self::Data;
     fn data_mut(&mut self) -> &mut Self::Data;
     fn edge_type(&self) -> EdgeType;
@@ -25,10 +25,10 @@ pub trait Edge: Debug + Clone {
 
 /// Relationship edge for presenter-group relationships with transitive closure
 pub trait RelationshipEdge: Edge {
-    fn get_inclusive_members(&self, storage: &dyn RelationshipStorage) -> Vec<Uuid>;
-    fn get_inclusive_groups(&self, storage: &dyn RelationshipStorage) -> Vec<Uuid>;
-    fn add_member(&mut self, member_id: Uuid) -> Result<(), EdgeError>;
-    fn remove_member(&mut self, member_id: Uuid) -> Result<(), EdgeError>;
+    fn get_inclusive_members(&self, storage: &dyn RelationshipStorage) -> Vec<NonNilUuid>;
+    fn get_inclusive_groups(&self, storage: &dyn RelationshipStorage) -> Vec<NonNilUuid>;
+    fn add_member(&mut self, member_id: NonNilUuid) -> Result<(), EdgeError>;
+    fn remove_member(&mut self, member_id: NonNilUuid) -> Result<(), EdgeError>;
     fn make_group(&mut self) -> Result<(), EdgeError>;
 }
 
@@ -39,11 +39,11 @@ pub trait SimpleEdge: Edge {
 
 /// Trait for relationship storage operations
 pub trait RelationshipStorage {
-    fn get_inclusive_members(&self, group_id: Uuid) -> &[Uuid];
-    fn get_inclusive_groups(&self, member_id: Uuid) -> &[Uuid];
-    fn is_group(&self, presenter_id: Uuid) -> bool;
-    fn is_always_grouped(&self, member_id: Uuid, group_id: Uuid) -> bool;
-    fn is_always_shown_in_group(&self, group_id: Uuid) -> bool;
+    fn get_inclusive_members(&self, group_id: NonNilUuid) -> &[NonNilUuid];
+    fn get_inclusive_groups(&self, member_id: NonNilUuid) -> &[NonNilUuid];
+    fn is_group(&self, presenter_id: NonNilUuid) -> bool;
+    fn is_always_grouped(&self, member_id: NonNilUuid, group_id: NonNilUuid) -> bool;
+    fn is_always_shown_in_group(&self, group_id: NonNilUuid) -> bool;
 }
 
 /// Edge types for relationships
@@ -103,9 +103,9 @@ pub trait EdgeStorage<E: Edge> {
     fn add_edge(&mut self, edge: E) -> Result<EdgeId, EdgeError>;
     fn remove_edge(&mut self, edge_id: EdgeId) -> Result<(), EdgeError>;
     fn get_edge(&self, edge_id: EdgeId) -> Option<&E>;
-    fn find_outgoing(&self, from_uuid: Uuid) -> Vec<&E>;
-    fn find_incoming(&self, to_uuid: Uuid) -> Vec<&E>;
-    fn edge_exists(&self, from_uuid: Uuid, to_uuid: Uuid) -> bool;
+    fn find_outgoing(&self, from_uuid: NonNilUuid) -> Vec<&E>;
+    fn find_incoming(&self, to_uuid: NonNilUuid) -> Vec<&E>;
+    fn edge_exists(&self, from_uuid: NonNilUuid, to_uuid: NonNilUuid) -> bool;
     fn len(&self) -> usize;
 }
 

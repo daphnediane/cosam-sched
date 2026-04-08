@@ -7,7 +7,7 @@
 //! PanelToEventRoom edge implementation
 
 use crate::edge::{Edge, EdgeType};
-use crate::entity::{EventRoomId, PanelId, Uuid};
+use crate::entity::{EventRoomId, PanelId, NonNilUuid};
 
 /// PanelToEventRoom edge implementation
 #[derive(Debug, Clone)]
@@ -37,12 +37,12 @@ impl Edge for PanelToEventRoomEdge {
     type ToEntity = crate::entity::EventRoomEntityType;
     type Data = PanelToEventRoomData;
 
-    fn from_uuid(&self) -> Option<Uuid> {
-        Some(Uuid::from(self.from_id))
+    fn from_uuid(&self) -> Option<NonNilUuid> {
+        Some(NonNilUuid::from(self.from_id))
     }
 
-    fn to_uuid(&self) -> Option<Uuid> {
-        Some(Uuid::from(self.to_id))
+    fn to_uuid(&self) -> Option<NonNilUuid> {
+        Some(NonNilUuid::from(self.to_id))
     }
 
     fn data(&self) -> &Self::Data {

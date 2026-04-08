@@ -20,104 +20,77 @@ Currently the codebase uses `EntityId` (a crate-private u64 type alias) for inte
 * Requires opaque wrapper to hide internal implementation
 * Public API exposure of internal types
 
-Replace with standard `uuid::Uuid` v4 for:
+Replace with standard `uuid::NonNilUuid` (wrapping `uuid::Uuid` v7) for:
 
 * All entity IDs (panels, presenters, rooms, etc.)
 * Schedule IDs
 * Edge IDs (relationships between entities)
 
-Since UUIDs are standard and self-describing, they can be made public without an opaque wrapper. UUIDs are 128-bit (16 bytes) vs 64-bit (8 bytes) for u64, but this tradeoff is acceptable for the benefits:
-
-* Standard RFC 4122 format
-* Built-in collision resistance
-* Can be serialized/deserialized reliably
-* Enables cross-schedule entity tracking
-* No need for opaque wrapper
-
-## Open Questions
-
-### Storage Architecture
-
-Should we change how entities/edges are stored?
-
-* **Current:** Separate storage per entity type (EntityStorage, edge-specific storages)
-* **Option A:** Keep current per-type storage with UUID keys
-* **Option B:** Unified storage with UUID lookup that returns type information
-* **Option C:** Hybrid - per-type storage for performance, with central UUID registry for type resolution
-
-### Type Resolution
-
-Should Schedule provide a "what is this UUID?" lookup?
-
-* **Option A:** Add `Schedule::resolve_uuid(uuid: Uuid) -> Option<EntityType>` that returns entity type and data
-* **Option B:** User tracks type knowledge themselves (current pattern)
-* **Option C:** Typed wrappers like `PanelId(Uuid)`, `RoomId(Uuid)` for compile-time type safety
-
-### Panel vs Timeline Semantics
-
-Currently panels and timelines may be treated as same/different types in different contexts. With UUIDs:
-
-* Should they share the same ID namespace or have separate ones?
-* If separate, how do we handle the "same thing in different contexts" use case?
+Since UUIDs are standard and self-describing, they can be made public without an opaque wrapper.
 
 ## Implementation Details
 
-### Phase 1: Update type definitions
+### Phase 1: Update type definitions ✅ Done
 
-* Replace `EntityId` type alias with `uuid::Uuid` in schedule-data
-* Remove `InternalId` struct (no longer needed)
-* Update `InternalData` trait to use `uuid::Uuid`
-* Update `EdgeId` to use `uuid::Uuid`
+* All entity ID structs (`PanelId`, `PresenterId`, `EventRoomId`, `HotelRoomId`, `PanelTypeId`) now wrap `NonNilUuid`
+* `InternalData` trait uses `NonNilUuid` for `uuid()`/`set_uuid()`
+* All `From<Uuid>` → `From<NonNilUuid>` and added `try_from_raw_uuid(Uuid) -> Option<Self>` at boundaries
 
-### Phase 2: Update schedule-macro
+### Phase 2: Update schedule-macro ✅ Done
 
-* Change generated `entity_id` field to `uuid::Uuid`
-* Update `InternalData` implementation
-* Update field value conversions
-* Generate UUID on entity creation
+* Generated `entity_uuid` field is `uuid::NonNilUuid`
+* `InternalData` impl uses `NonNilUuid`
+* UUID generated via `uuid::Uuid::now_v7()` + `NonNilUuid::new_unchecked` on entity creation
 
-### Phase 3: Update storage
+### Phase 3: Update storage ✅ Done
 
-* Change all HashMap keys from u64 to uuid::Uuid
-* Update ID allocators to generate UUIDs instead of sequential u64
-* Update serialization/deserialization
+* `EntityStorage` replaced with concrete typed `HashMap<NonNilUuid, XxxData>` per entity type
+* `TypedStorage` trait on `EntityType` marker structs provides typed map access
+* All edge storages (`GenericEdgeStorage`, `PanelToPanelTypeStorage`, `PanelToPresenterStorage`,
+  `PresenterToGroupStorage`, `EventRoomToHotelRoomStorage`) use `NonNilUuid` keys
 
-### Phase 4: Update public APIs
+### Phase 4: Update public APIs ✅ Done
 
-* Replace all `EntityId` parameters with `uuid::Uuid`
-* Replace all `InternalId` parameters with `uuid::Uuid`
-* Update query APIs
-* Update edge APIs
+* All `Schedule` methods (`get_entity`, `get_entity_by_uuid`, `find_entities`, `get_entities`,
+  `add_entity`, `update_entity`, etc.) typed by `TypedStorage` bound
+* All edge storage `find_outgoing`/`find_incoming`/`edge_exists` use `NonNilUuid`
 
-### Phase 5: Add type resolution (if Option A or C chosen)
+### Phase 5: Add type resolution ✅ Done
 
-* Implement central UUID registry in Schedule
-* Add `resolve_uuid()` method
-* Or add typed ID wrapper structs
+* `TypedId` trait: typed ID wrappers with `EntityType` association and `non_nil_uuid()`
+* `EntityUUID` enum: `NonNilUuid` tagged by entity kind
+* `Schedule::identify(uuid) -> Option<EntityUUID>` using central `entity_registry`
+* `Schedule::fetch_entity(id: impl TypedId)` — zero-dispatch borrow of internal data
+* `Schedule::fetch_typed(id)` / `Schedule::lookup_typed(id)` — owned public / borrowed enum values
+* `Schedule::fetch_uuid(uuid)` / `Schedule::lookup_uuid(uuid)` — via `identify()` dispatch
+* `Finder<T>` and `Updater<T>` now bounded by `TypedStorage` throughout
 
-### Phase 6: Update tests
+### Phase 6: Update tests ✅ Done
 
-* Update all test fixtures to use UUIDs
-* Update test assertions
+* All four integration test files updated to `NonNilUuid`-based construction
+* Unit tests in entity modules updated (`try_from_nil_uuid_returns_none` tests added)
+* Edge storage tests updated to use `NonNilUuid::new_unchecked` helpers
+* See REFACTOR-049 for remaining new test coverage
 
-### Phase 7: Update external formats
+### Phase 7: Update external formats 🔲 Remaining
 
 * Update JSON schema to use UUID strings for IDs
-* Update XLSX import/export to handle UUIDs
-* Update converter CLI
+* Update XLSX import/export to handle `NonNilUuid`-based entity IDs
+* Update converter CLI (`cosam-convert`, `cosam-modify`)
 
 ## Acceptance Criteria
 
-* All entity, schedule, and edge IDs use `uuid::Uuid`
-* No `InternalId` or `EntityId` remain in the codebase
-* Public API uses `uuid::Uuid` directly
-* Tests pass
-* JSON format updated to use UUID strings
-* XLSX import/export handles UUIDs correctly
-* Cross-schedule entity sharing is possible (same UUID can exist in multiple schedules)
+* ✅ All entity and edge storage uses `NonNilUuid`
+* ✅ No `EntityId` / `InternalId` remain in the codebase
+* ✅ Public API uses typed ID wrappers backed by `NonNilUuid`
+* ✅ Tests pass (101 passing)
+* 🔲 JSON format updated to use UUID strings
+* 🔲 XLSX import/export handles `NonNilUuid`-based IDs correctly
+* ✅ Cross-schedule entity sharing is possible (same UUID can exist in multiple schedules)
 
 ## Notes
 
-* UUID v4 is random and collision-resistant for practical purposes
-* If stable IDs are needed (e.g., for external systems), consider UUID v5 (name-based) or assigning UUIDs deterministically from external identifiers
+* **UUID v7 was chosen** — time-ordered (monotonic) UUIDs generated via `uuid::Uuid::now_v7()`, wrapped in `NonNilUuid` to guarantee non-nil invariant
+* UUID v4 (random) was the original plan and remains collision-resistant, but v7 provides better index locality in sorted/range-query scenarios
+* If stable IDs are needed (e.g., for external systems or deterministic re-import), consider UUID v5 (name-based, SHA-1 hash of a namespace + name) to assign UUIDs deterministically from external identifiers
 * Memory impact: 16 bytes per ID vs 8 bytes - acceptable for typical schedule sizes (hundreds to thousands of entities)

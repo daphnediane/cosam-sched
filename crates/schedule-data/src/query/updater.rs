@@ -6,20 +6,19 @@
 
 //! Query updater implementation for modifying entities
 
-use crate::entity::EntityType;
 use crate::field::{
     BatchUpdate, DefaultFieldUpdater, FieldUpdate, FieldUpdater, FieldValue, UpdateResult,
 };
-use crate::schedule::Schedule;
+use crate::schedule::{storage::TypedStorage, Schedule};
 
 /// Generic updater for entities
-pub struct Updater<'a, T: EntityType> {
+pub struct Updater<'a, T: TypedStorage + Sized> {
     schedule: &'a mut Schedule,
     field_updater: DefaultFieldUpdater,
     _phantom: std::marker::PhantomData<T>,
 }
 
-impl<'a, T: EntityType> Updater<'a, T> {
+impl<'a, T: TypedStorage + Sized> Updater<'a, T> {
     pub fn new(schedule: &'a mut Schedule) -> Self {
         Self {
             schedule,
@@ -29,15 +28,18 @@ impl<'a, T: EntityType> Updater<'a, T> {
     }
 
     /// Add a new entity
-    pub fn add(&mut self, entity: T::Data) -> Result<uuid::Uuid, crate::schedule::ScheduleError> {
+    pub fn add(
+        &mut self,
+        entity: T::Data,
+    ) -> Result<uuid::NonNilUuid, crate::schedule::ScheduleError> {
         self.schedule.add_entity::<T>(entity)
     }
 
     /// Restore a soft-deleted entity
     pub fn restore(
         &mut self,
-        id: uuid::Uuid,
-    ) -> Result<uuid::Uuid, crate::schedule::ScheduleError> {
+        id: uuid::NonNilUuid,
+    ) -> Result<uuid::NonNilUuid, crate::schedule::ScheduleError> {
         // This would need to be implemented in the storage layer
         // For now, just return the ID as if restored
         Ok(id)
@@ -48,7 +50,7 @@ impl<'a, T: EntityType> Updater<'a, T> {
         &mut self,
         matches: &[crate::query::FieldMatch],
         default_entity: T::Data,
-    ) -> Result<uuid::Uuid, crate::schedule::ScheduleError> {
+    ) -> Result<uuid::NonNilUuid, crate::schedule::ScheduleError> {
         // Try to find existing entity
         if let Some(id) = self
             .schedule
@@ -67,7 +69,7 @@ impl<'a, T: EntityType> Updater<'a, T> {
     /// Update entity fields
     pub fn update(
         &mut self,
-        id: uuid::Uuid,
+        id: uuid::NonNilUuid,
         updates: &[(String, FieldValue)],
     ) -> Result<(), crate::schedule::ScheduleError> {
         self.schedule.update_entity::<T>(id, updates)
@@ -76,7 +78,7 @@ impl<'a, T: EntityType> Updater<'a, T> {
     /// Update entity with field update objects
     pub fn update_with_field_updates(
         &mut self,
-        id: uuid::Uuid,
+        id: uuid::NonNilUuid,
         updates: &[FieldUpdate],
     ) -> Result<UpdateResult, crate::schedule::ScheduleError> {
         // Get the entity
@@ -118,7 +120,7 @@ impl<'a, T: EntityType> Updater<'a, T> {
     /// Apply batch updates
     pub fn apply_batch(
         &mut self,
-        id: uuid::Uuid,
+        id: uuid::NonNilUuid,
         batch: BatchUpdate,
     ) -> Result<UpdateResult, crate::schedule::ScheduleError> {
         // Get the entity
@@ -154,14 +156,17 @@ impl<'a, T: EntityType> Updater<'a, T> {
     }
 
     /// Soft delete entity
-    pub fn delete(&mut self, _id: uuid::Uuid) -> Result<(), crate::schedule::ScheduleError> {
+    pub fn delete(&mut self, _id: uuid::NonNilUuid) -> Result<(), crate::schedule::ScheduleError> {
         // This would need to be implemented in the storage layer
         // For now, we'll just return success
         Ok(())
     }
 
     /// Hard delete entity
-    pub fn hard_delete(&mut self, _id: uuid::Uuid) -> Result<(), crate::schedule::ScheduleError> {
+    pub fn hard_delete(
+        &mut self,
+        _id: uuid::NonNilUuid,
+    ) -> Result<(), crate::schedule::ScheduleError> {
         // This would need to be implemented in the storage layer
         // For now, we'll just return success
         Ok(())

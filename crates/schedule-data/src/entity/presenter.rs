@@ -10,7 +10,7 @@ use crate::entity::presenter_rank::PresenterRank;
 use crate::EntityFields;
 use serde::{Deserialize, Serialize};
 use std::fmt;
-use uuid::Uuid;
+use uuid::{NonNilUuid, Uuid};
 
 /// Ordering key for a presenter, recording where it was first defined.
 /// Matches schedule-core PresenterSortRank structure.
@@ -77,7 +77,7 @@ impl PresenterSortRank {
 /// Presenter ID type
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord, Serialize, Deserialize)]
 #[serde(transparent)]
-pub struct PresenterId(Uuid);
+pub struct PresenterId(NonNilUuid);
 
 impl fmt::Display for PresenterId {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
@@ -85,27 +85,53 @@ impl fmt::Display for PresenterId {
     }
 }
 
-impl From<Uuid> for PresenterId {
-    fn from(uuid: Uuid) -> Self {
+impl From<NonNilUuid> for PresenterId {
+    fn from(uuid: NonNilUuid) -> Self {
         Self(uuid)
+    }
+}
+
+impl From<PresenterId> for NonNilUuid {
+    fn from(id: PresenterId) -> NonNilUuid {
+        id.0
     }
 }
 
 impl From<PresenterId> for Uuid {
     fn from(id: PresenterId) -> Uuid {
-        id.0
+        id.0.into()
+    }
+}
+
+impl crate::entity::TypedId for PresenterId {
+    type EntityType = PresenterEntityType;
+    fn non_nil_uuid(&self) -> NonNilUuid {
+        self.0
+    }
+    fn from_uuid(uuid: NonNilUuid) -> Self {
+        Self(uuid)
     }
 }
 
 impl PresenterId {
-    /// Get the UUID from this ID
-    pub fn uuid(&self) -> Uuid {
+    /// Get the NonNilUuid from this ID
+    pub fn non_nil_uuid(&self) -> NonNilUuid {
         self.0
     }
 
-    /// Create a PresenterId from a UUID
-    pub fn from_uuid(uuid: Uuid) -> Self {
+    /// Get the raw UUID from this ID
+    pub fn uuid(&self) -> Uuid {
+        self.0.into()
+    }
+
+    /// Create a PresenterId from a NonNilUuid (infallible)
+    pub fn from_uuid(uuid: NonNilUuid) -> Self {
         Self(uuid)
+    }
+
+    /// Try to create a PresenterId from a raw UUID (boundary use only)
+    pub fn try_from_raw_uuid(uuid: Uuid) -> Option<Self> {
+        NonNilUuid::new(uuid).map(Self)
     }
 }
 
@@ -200,7 +226,7 @@ pub struct Presenter {
     #[alias("presenter_groups", "group_list")]
     #[read(|schedule: &crate::schedule::Schedule, entity: &PresenterData| {
         let group_ids = schedule.get_presenter_groups(PresenterId::from_uuid(entity.entity_uuid));
-        let group_uuids: Vec<uuid::Uuid> = group_ids.iter().map(|id| id.uuid()).collect();
+        let group_uuids: Vec<uuid::NonNilUuid> = group_ids.iter().map(|id| id.non_nil_uuid()).collect();
         Some(crate::field::FieldValue::List(
             schedule.get_entity_names::<crate::entity::PresenterEntityType>(&group_uuids)
                 .into_iter()
@@ -217,7 +243,7 @@ pub struct Presenter {
     #[alias("presenter_members", "member_list")]
     #[read(|schedule: &crate::schedule::Schedule, entity: &PresenterData| {
         let member_ids = schedule.get_presenter_members(PresenterId::from_uuid(entity.entity_uuid));
-        let member_uuids: Vec<uuid::Uuid> = member_ids.iter().map(|id| id.uuid()).collect();
+        let member_uuids: Vec<uuid::NonNilUuid> = member_ids.iter().map(|id| id.non_nil_uuid()).collect();
         Some(crate::field::FieldValue::List(
             schedule.get_entity_names::<crate::entity::PresenterEntityType>(&member_uuids)
                 .into_iter()
@@ -234,7 +260,7 @@ pub struct Presenter {
     #[alias("presenter_panels", "panel_list")]
     #[read(|schedule: &crate::schedule::Schedule, entity: &PresenterData| {
         let panel_ids = schedule.get_presenter_panels(PresenterId::from_uuid(entity.entity_uuid));
-        let panel_uuids: Vec<uuid::Uuid> = panel_ids.iter().map(|id| id.uuid()).collect();
+        let panel_uuids: Vec<uuid::NonNilUuid> = panel_ids.iter().map(|id| id.non_nil_uuid()).collect();
         Some(crate::field::FieldValue::List(
             schedule.get_entity_names::<crate::entity::PanelEntityType>(&panel_uuids)
                 .into_iter()
@@ -261,27 +287,40 @@ pub struct Presenter {
 mod tests {
     use super::*;
 
+    fn test_nn() -> NonNilUuid {
+        unsafe {
+            NonNilUuid::new_unchecked(Uuid::from_bytes([
+                0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1,
+            ]))
+        }
+    }
+
     #[test]
     fn presenter_id_from_uuid() {
-        let uuid = Uuid::nil();
-        let id = PresenterId::from(uuid);
-        assert_eq!(Uuid::from(id), uuid);
+        let nn = test_nn();
+        let id = PresenterId::from(nn);
+        assert_eq!(NonNilUuid::from(id), nn);
+    }
+
+    #[test]
+    fn presenter_id_try_from_nil_uuid_returns_none() {
+        assert!(PresenterId::try_from_raw_uuid(Uuid::nil()).is_none());
     }
 
     #[test]
     fn presenter_id_display() {
-        let id = PresenterId::from(Uuid::nil());
+        let id = PresenterId::from(test_nn());
         assert_eq!(
             id.to_string(),
-            "presenter-00000000-0000-0000-0000-000000000000"
+            "presenter-00000000-0000-0000-0000-000000000001"
         );
     }
 
     #[test]
     fn presenter_id_serde_round_trip() {
-        let id = PresenterId::from(Uuid::nil());
+        let id = PresenterId::from(test_nn());
         let json = serde_json::to_string(&id).unwrap();
-        assert_eq!(json, "\"00000000-0000-0000-0000-000000000000\"");
+        assert_eq!(json, "\"00000000-0000-0000-0000-000000000001\"");
         let back: PresenterId = serde_json::from_str(&json).unwrap();
         assert_eq!(id, back);
     }

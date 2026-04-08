@@ -317,14 +317,14 @@ pub fn derive_entity_fields(input: TokenStream) -> TokenStream {
         /// Fields are crate-private; external code should use the field system.
         #[derive(Debug, Clone)]
         pub struct #data_struct_name {
-            pub entity_uuid: uuid::Uuid,
+            pub entity_uuid: uuid::NonNilUuid,
             #(#stored_field_defs)*
         }
 
         impl #data_struct_name {
             pub fn new(#(#new_param_names: #new_param_types,)*) -> Self {
                 Self {
-                    entity_uuid: uuid::Uuid::now_v7(),
+                    entity_uuid: unsafe { uuid::NonNilUuid::new_unchecked(uuid::Uuid::now_v7()) },
                     #(#new_param_names,)*
                     #(#computed_default_names: Default::default(),)*
                 }
@@ -353,11 +353,11 @@ pub fn derive_entity_fields(input: TokenStream) -> TokenStream {
         pub struct #entity_type_struct_name;
 
         impl crate::entity::InternalData for #data_struct_name {
-            fn uuid(&self) -> uuid::Uuid {
+            fn uuid(&self) -> uuid::NonNilUuid {
                 self.entity_uuid
             }
 
-            fn set_uuid(&mut self, uuid: uuid::Uuid) {
+            fn set_uuid(&mut self, uuid: uuid::NonNilUuid) {
                 self.entity_uuid = uuid;
             }
         }
@@ -688,9 +688,9 @@ fn generate_direct_field(
                 entity.#field_name.as_ref().map(|list| crate::field::FieldValue::List(list.iter().map(|x| crate::field::FieldValue::Integer(*x as i64)).collect()))
             }
         }
-        FieldTypeCategory::Uuid => {
+        FieldTypeCategory::NonNilUuid => {
             quote! {
-                Some(crate::field::FieldValue::Uuid(entity.#field_name))
+                Some(crate::field::FieldValue::NonNilUuid(entity.#field_name))
             }
         }
     };
@@ -794,9 +794,9 @@ fn generate_direct_field(
                     }
                 }
             }
-            FieldTypeCategory::Uuid => {
+            FieldTypeCategory::NonNilUuid => {
                 quote! {
-                    if let crate::field::FieldValue::Uuid(v) = value {
+                    if let crate::field::FieldValue::NonNilUuid(v) = value {
                         entity.#field_name = v;
                         Ok(())
                     } else {
@@ -893,7 +893,7 @@ fn generate_direct_field(
                 }
                 FieldTypeCategory::Integer
                 | FieldTypeCategory::OptionalInteger
-                | FieldTypeCategory::Uuid => {
+                | FieldTypeCategory::NonNilUuid => {
                     quote! {
                         if query.is_empty() {
                             None
@@ -906,7 +906,7 @@ fn generate_direct_field(
                                 } else {
                                     None
                                 }
-                            } else if let crate::field::FieldValue::Uuid(id) = field_value {
+                            } else if let crate::field::FieldValue::NonNilUuid(id) = field_value {
                                 if id.to_string() == query {
                                     Some(#scaled_exact)
                                 } else if id.to_string().contains(query) {
@@ -1036,7 +1036,7 @@ fn is_supported_type(ty: &Type) -> bool {
                     | "Option"
                     | "HashMap"
                     | "Vec"
-                    | "Uuid"
+                    | "NonNilUuid"
                     | "PresenterRank"
             )
         } else {
@@ -1055,7 +1055,7 @@ fn supports_automatic_write(ty: &Type) -> bool {
             // Only basic types support automatic writing (maps don't support automatic writing)
             matches!(
                 ident.as_str(),
-                "String" | "i64" | "i32" | "u64" | "u32" | "bool" | "Uuid"
+                "String" | "i64" | "i32" | "u64" | "u32" | "bool" | "NonNilUuid"
             )
         } else {
             false
@@ -1311,7 +1311,7 @@ enum FieldTypeCategory {
     Boolean,
     List,
     Map,
-    Uuid,
+    NonNilUuid,
     OptionalString,
     OptionalInteger,
     OptionalBoolean,
@@ -1375,8 +1375,8 @@ fn get_field_type_category(ty: &Type) -> FieldTypeCategory {
                     }
                 }
                 panic!("HashMap must be HashMap<String, FieldValue>")
-            } else if ident == "Uuid" {
-                FieldTypeCategory::Uuid
+            } else if ident == "NonNilUuid" {
+                FieldTypeCategory::NonNilUuid
             } else if ident == "PresenterRank" {
                 FieldTypeCategory::String // Handle as string for serialization
             } else if ident == "Option" {

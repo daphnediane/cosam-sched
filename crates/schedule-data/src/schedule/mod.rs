@@ -18,8 +18,8 @@ use crate::edge::{
     PanelToPresenterStorage, PresenterToGroupStorage,
 };
 use crate::entity::{
-    EntityKind, EntityType, EventRoomId, HotelRoomId, InternalData, PanelId, PanelTypeId,
-    PresenterId, PublicEntityRef,
+    EntityKind, EntityRef, EntityType, EntityUUID, EventRoomId, HotelRoomId, InternalData, PanelId,
+    PanelTypeId, PresenterId, PublicEntityRef, TypedId,
 };
 use crate::field::validation::ValidationError;
 use crate::field::FieldValue;
@@ -46,7 +46,7 @@ pub struct Schedule {
     pub panel_to_event_room: GenericEdgeStorage<crate::edge::PanelToEventRoomEdge>,
     pub event_room_to_hotel_room: EventRoomToHotelRoomStorage,
     pub panel_to_panel_type: PanelToPanelTypeStorage,
-    entity_registry: HashMap<uuid::Uuid, EntityKind>,
+    entity_registry: HashMap<uuid::NonNilUuid, EntityKind>,
     pub metadata: ScheduleMetadata,
 }
 
@@ -65,26 +65,26 @@ impl Schedule {
     }
 
     /// Get entity by type and UUID
-    pub fn get_entity<T: EntityType>(&self, uuid: uuid::Uuid) -> Option<&T::Data> {
+    pub fn get_entity<T: TypedStorage>(&self, uuid: uuid::NonNilUuid) -> Option<&T::Data> {
         self.entities.get::<T>(uuid)
     }
 
     /// Get entity by internal UUID
-    pub fn get_entity_by_uuid<T: EntityType>(&self, uuid: uuid::Uuid) -> Option<&T::Data> {
+    pub fn get_entity_by_uuid<T: TypedStorage>(&self, uuid: uuid::NonNilUuid) -> Option<&T::Data> {
         self.entities.get_by_uuid::<T>(uuid)
     }
 
     /// Find entities matching field conditions
-    pub fn find_entities<T: EntityType>(
+    pub fn find_entities<T: TypedStorage + Sized>(
         &self,
         matches: &[FieldMatch],
         options: Option<QueryOptions>,
-    ) -> Vec<uuid::Uuid> {
+    ) -> Vec<uuid::NonNilUuid> {
         self.entities.find::<T>(matches, options)
     }
 
     /// Get entities matching field conditions
-    pub fn get_entities<T: EntityType>(
+    pub fn get_entities<T: TypedStorage + Sized>(
         &self,
         matches: &[FieldMatch],
         options: Option<QueryOptions>,
@@ -93,10 +93,10 @@ impl Schedule {
     }
 
     /// Add entity to schedule
-    pub fn add_entity<T: EntityType>(
+    pub fn add_entity<T: TypedStorage>(
         &mut self,
         entity: T::Data,
-    ) -> Result<uuid::Uuid, ScheduleError>
+    ) -> Result<uuid::NonNilUuid, ScheduleError>
     where
         T::Data: InternalData,
     {
@@ -107,10 +107,10 @@ impl Schedule {
     }
 
     /// Add entity and return UUID
-    pub fn add_entity_with_uuid<T: EntityType>(
+    pub fn add_entity_with_uuid<T: TypedStorage>(
         &mut self,
         entity: T::Data,
-    ) -> Result<uuid::Uuid, ScheduleError>
+    ) -> Result<uuid::NonNilUuid, ScheduleError>
     where
         T::Data: InternalData,
     {
@@ -121,17 +121,41 @@ impl Schedule {
     }
 
     /// Update entity fields
-    pub fn update_entity<T: EntityType>(
+    pub fn update_entity<T: TypedStorage>(
         &mut self,
-        uuid: uuid::Uuid,
+        uuid: uuid::NonNilUuid,
         updates: &[(String, FieldValue)],
     ) -> Result<(), ScheduleError> {
         self.entities.update::<T>(uuid, updates)
     }
 
-    /// Fetch entity by UUID and return public reference
-    pub fn fetch_uuid(&self, uuid: uuid::Uuid) -> Option<PublicEntityRef> {
+    /// Identify which entity kind (if any) owns the given UUID.
+    /// Returns an `EntityUUID` tagging the UUID with its entity type.
+    pub fn identify(&self, uuid: uuid::NonNilUuid) -> Option<EntityUUID> {
         match self.entity_registry.get(&uuid)? {
+            EntityKind::Panel => Some(EntityUUID::Panel(PanelId::from_uuid(uuid))),
+            EntityKind::Presenter => Some(EntityUUID::Presenter(PresenterId::from_uuid(uuid))),
+            EntityKind::EventRoom => Some(EntityUUID::EventRoom(EventRoomId::from_uuid(uuid))),
+            EntityKind::HotelRoom => Some(EntityUUID::HotelRoom(HotelRoomId::from_uuid(uuid))),
+            EntityKind::PanelType => Some(EntityUUID::PanelType(PanelTypeId::from_uuid(uuid))),
+        }
+    }
+
+    /// Fetch entity data by typed ID, returning a borrowed reference to the raw internal data.
+    /// Zero runtime dispatch — storage is selected at compile time via `Id::EntityType`.
+    pub fn fetch_entity<Id: TypedId>(&self, id: Id) -> Option<&<Id::EntityType as EntityType>::Data>
+    where
+        Id::EntityType: TypedStorage,
+    {
+        self.entities
+            .get_by_uuid::<Id::EntityType>(id.non_nil_uuid())
+    }
+
+    /// Fetch entity data by typed ID, returning an owned public value.
+    /// Dispatches directly to the correct storage for the entity type.
+    pub fn fetch_typed<Id: TypedId>(&self, id: Id) -> Option<PublicEntityRef> {
+        let uuid = id.non_nil_uuid();
+        match Id::kind() {
             EntityKind::Panel => self
                 .entities
                 .get_by_uuid::<crate::entity::PanelEntityType>(uuid)
@@ -155,44 +179,68 @@ impl Schedule {
         }
     }
 
-    /// Get the entity type (kind) for a given UUID
-    pub fn type_of_uuid(&self, uuid: uuid::Uuid) -> Option<EntityKind> {
-        self.entity_registry.get(&uuid).copied()
-    }
-
-    /// Lookup entity by UUID and return borrowed reference
-    pub fn lookup_uuid(&self, uuid: uuid::Uuid) -> Option<crate::entity::EntityRef<'_>> {
-        match self.entity_registry.get(&uuid)? {
+    /// Lookup entity data by typed ID, returning a borrowed reference.
+    /// Dispatches directly to the correct storage for the entity type.
+    pub fn lookup_typed<Id: TypedId>(&self, id: Id) -> Option<EntityRef<'_>> {
+        let uuid = id.non_nil_uuid();
+        match Id::kind() {
             EntityKind::Panel => self
                 .entities
                 .get_by_uuid::<crate::entity::PanelEntityType>(uuid)
-                .map(crate::entity::EntityRef::Panel),
+                .map(EntityRef::Panel),
             EntityKind::Presenter => self
                 .entities
                 .get_by_uuid::<crate::entity::PresenterEntityType>(uuid)
-                .map(crate::entity::EntityRef::Presenter),
+                .map(EntityRef::Presenter),
             EntityKind::EventRoom => self
                 .entities
                 .get_by_uuid::<crate::entity::EventRoomEntityType>(uuid)
-                .map(crate::entity::EntityRef::EventRoom),
+                .map(EntityRef::EventRoom),
             EntityKind::HotelRoom => self
                 .entities
                 .get_by_uuid::<crate::entity::HotelRoomEntityType>(uuid)
-                .map(crate::entity::EntityRef::HotelRoom),
+                .map(EntityRef::HotelRoom),
             EntityKind::PanelType => self
                 .entities
                 .get_by_uuid::<crate::entity::PanelTypeEntityType>(uuid)
-                .map(crate::entity::EntityRef::PanelType),
+                .map(EntityRef::PanelType),
+        }
+    }
+
+    /// Fetch entity by UUID, identifying entity type then fetching via `fetch_typed`.
+    pub fn fetch_uuid(&self, uuid: uuid::NonNilUuid) -> Option<PublicEntityRef> {
+        match self.identify(uuid)? {
+            EntityUUID::Panel(id) => self.fetch_typed(id),
+            EntityUUID::Presenter(id) => self.fetch_typed(id),
+            EntityUUID::EventRoom(id) => self.fetch_typed(id),
+            EntityUUID::HotelRoom(id) => self.fetch_typed(id),
+            EntityUUID::PanelType(id) => self.fetch_typed(id),
+        }
+    }
+
+    /// Get the entity type (kind) for a given UUID
+    pub fn type_of_uuid(&self, uuid: uuid::NonNilUuid) -> Option<EntityKind> {
+        self.entity_registry.get(&uuid).copied()
+    }
+
+    /// Lookup entity by UUID, identifying entity type then fetching via `lookup_typed`.
+    pub fn lookup_uuid(&self, uuid: uuid::NonNilUuid) -> Option<EntityRef<'_>> {
+        match self.identify(uuid)? {
+            EntityUUID::Panel(id) => self.lookup_typed(id),
+            EntityUUID::Presenter(id) => self.lookup_typed(id),
+            EntityUUID::EventRoom(id) => self.lookup_typed(id),
+            EntityUUID::HotelRoom(id) => self.lookup_typed(id),
+            EntityUUID::PanelType(id) => self.lookup_typed(id),
         }
     }
 
     /// Find entities related to a given entity (dispatches to appropriate typed storage)
     pub fn find_related<T: EntityType>(
         &self,
-        uuid: uuid::Uuid,
+        uuid: uuid::NonNilUuid,
         edge_type: crate::edge::EdgeType,
         direction: RelationshipDirection,
-    ) -> Vec<uuid::Uuid> {
+    ) -> Vec<uuid::NonNilUuid> {
         use crate::edge::EdgeType;
         match edge_type {
             EdgeType::PanelToPresenter => {
@@ -270,7 +318,7 @@ impl Schedule {
     /// Get all presenters for a panel (returns PresenterIds)
     pub fn get_panel_presenters(&self, panel_id: PanelId) -> Vec<PresenterId> {
         self.panel_to_presenter
-            .find_outgoing(panel_id.uuid())
+            .find_outgoing(panel_id.non_nil_uuid())
             .iter()
             .filter_map(|e| e.to_uuid().map(PresenterId::from_uuid))
             .collect()
@@ -279,7 +327,7 @@ impl Schedule {
     /// Get the primary event room for a panel (returns EventRoomId)
     pub fn get_panel_event_room(&self, panel_id: PanelId) -> Option<EventRoomId> {
         self.panel_to_event_room
-            .find_outgoing(panel_id.uuid())
+            .find_outgoing(panel_id.non_nil_uuid())
             .first()
             .and_then(|e| e.to_uuid().map(EventRoomId::from_uuid))
     }
@@ -287,7 +335,7 @@ impl Schedule {
     /// Get the panel type for a panel (returns PanelTypeId)
     pub fn get_panel_type(&self, panel_id: PanelId) -> Option<PanelTypeId> {
         self.panel_to_panel_type
-            .find_outgoing(panel_id.uuid())
+            .find_outgoing(panel_id.non_nil_uuid())
             .first()
             .and_then(|e| e.to_uuid().map(PanelTypeId::from_uuid))
     }
@@ -295,7 +343,7 @@ impl Schedule {
     /// Get all groups a presenter belongs to (returns PresenterIds)
     pub fn get_presenter_groups(&self, presenter_id: PresenterId) -> Vec<PresenterId> {
         self.presenter_to_group
-            .direct_groups_of(presenter_id.uuid())
+            .direct_groups_of(presenter_id.non_nil_uuid())
             .iter()
             .map(|&uuid| PresenterId::from_uuid(uuid))
             .collect()
@@ -304,7 +352,7 @@ impl Schedule {
     /// Get all members of a presenter group (returns PresenterIds)
     pub fn get_presenter_members(&self, presenter_id: PresenterId) -> Vec<PresenterId> {
         self.presenter_to_group
-            .direct_members_of(presenter_id.uuid())
+            .direct_members_of(presenter_id.non_nil_uuid())
             .iter()
             .map(|&uuid| PresenterId::from_uuid(uuid))
             .collect()
@@ -313,7 +361,7 @@ impl Schedule {
     /// Get all panels a presenter participates in (returns PanelIds)
     pub fn get_presenter_panels(&self, presenter_id: PresenterId) -> Vec<PanelId> {
         self.panel_to_presenter
-            .find_incoming(presenter_id.uuid())
+            .find_incoming(presenter_id.non_nil_uuid())
             .iter()
             .filter_map(|e| e.from_uuid().map(PanelId::from_uuid))
             .collect()
@@ -411,7 +459,7 @@ impl Schedule {
     /// Get all presenters for a panel, including those from presenter groups
     pub fn get_panel_inclusive_presenters(&mut self, panel_id: PanelId) -> Vec<PresenterId> {
         self.panel_to_presenter
-            .get_inclusive_presenters(panel_id.uuid(), &mut self.presenter_to_group)
+            .get_inclusive_presenters(panel_id.non_nil_uuid(), &mut self.presenter_to_group)
             .iter()
             .map(|&uuid| PresenterId::from_uuid(uuid))
             .collect()
@@ -420,7 +468,7 @@ impl Schedule {
     /// Get all panels for a presenter, including those from presenter groups
     pub fn get_presenter_inclusive_panels(&mut self, presenter_id: PresenterId) -> Vec<PanelId> {
         self.panel_to_presenter
-            .get_inclusive_panels(presenter_id.uuid(), &mut self.presenter_to_group)
+            .get_inclusive_panels(presenter_id.non_nil_uuid(), &mut self.presenter_to_group)
             .iter()
             .map(|&uuid| PanelId::from_uuid(uuid))
             .collect()
@@ -429,7 +477,10 @@ impl Schedule {
     // === Data Resolution Methods ===
 
     /// Get entity names for a list of UUIDs
-    pub fn get_entity_names<T: EntityType>(&self, uuids: &[uuid::Uuid]) -> Vec<String> {
+    pub fn get_entity_names<T: TypedStorage + Sized>(
+        &self,
+        uuids: &[uuid::NonNilUuid],
+    ) -> Vec<String> {
         uuids
             .iter()
             .filter_map(|&uuid| self.get_entity::<T>(uuid))
@@ -482,7 +533,7 @@ pub struct ScheduleMetadata {
     pub created_at: NaiveDateTime,
     pub updated_at: NaiveDateTime,
     pub generator: String,
-    pub schedule_id: uuid::Uuid,
+    pub schedule_id: uuid::NonNilUuid,
 }
 
 impl ScheduleMetadata {
@@ -493,7 +544,7 @@ impl ScheduleMetadata {
             created_at: now,
             updated_at: now,
             generator: "schedule-data".to_string(),
-            schedule_id: uuid::Uuid::now_v7(),
+            schedule_id: unsafe { uuid::NonNilUuid::new_unchecked(uuid::Uuid::now_v7()) },
         }
     }
 }
@@ -537,3 +588,131 @@ impl fmt::Display for ScheduleError {
 }
 
 impl std::error::Error for ScheduleError {}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::entity::panel::PanelData;
+    use crate::entity::{EntityKind, EntityUUID, PanelEntityType, PanelId};
+    use crate::time::TimeRange;
+
+    fn test_uuid(byte: u8) -> uuid::NonNilUuid {
+        let mut bytes = [0u8; 16];
+        bytes[15] = byte;
+        unsafe { uuid::NonNilUuid::new_unchecked(uuid::Uuid::from_bytes(bytes)) }
+    }
+
+    fn make_panel(uuid: uuid::NonNilUuid, uid: &str, name: &str) -> PanelData {
+        PanelData {
+            entity_uuid: uuid,
+            uid: uid.to_string(),
+            base_uid: None,
+            part_num: None,
+            session_num: None,
+            name: name.to_string(),
+            panel_type_uid: None,
+            description: None,
+            note: None,
+            prereq: None,
+            time_range: TimeRange::default(),
+            cost: None,
+            capacity: None,
+            pre_reg_max: None,
+            difficulty: None,
+            ticket_url: None,
+            simple_tix_event: None,
+            have_ticket_image: None,
+            is_free: false,
+            is_kids: false,
+            is_full: false,
+            hide_panelist: false,
+            sewing_machines: false,
+            alt_panelist: None,
+            seats_sold: None,
+            notes_non_printing: None,
+            workshop_notes: None,
+            power_needs: None,
+            av_notes: None,
+            presenters: Vec::new(),
+            event_room: None,
+            panel_type: None,
+        }
+    }
+
+    #[test]
+    fn identify_returns_correct_kind() {
+        let mut sched = Schedule::new();
+        let uuid = test_uuid(1);
+        sched
+            .add_entity::<PanelEntityType>(make_panel(uuid, "p1", "Panel One"))
+            .unwrap();
+
+        let result = sched.identify(uuid);
+        assert_eq!(result, Some(EntityUUID::Panel(PanelId::from_uuid(uuid))));
+    }
+
+    #[test]
+    fn identify_returns_none_for_unknown_uuid() {
+        let sched = Schedule::new();
+        assert!(sched.identify(test_uuid(1)).is_none());
+    }
+
+    #[test]
+    fn fetch_entity_unknown_uuid_returns_none() {
+        let sched = Schedule::new();
+        let id = PanelId::from_uuid(test_uuid(2));
+        assert!(sched.fetch_entity(id).is_none());
+    }
+
+    #[test]
+    fn fetch_typed_unknown_uuid_returns_none() {
+        let sched = Schedule::new();
+        let id = PanelId::from_uuid(test_uuid(3));
+        assert!(sched.fetch_typed(id).is_none());
+    }
+
+    #[test]
+    fn lookup_typed_unknown_uuid_returns_none() {
+        let sched = Schedule::new();
+        let id = PanelId::from_uuid(test_uuid(4));
+        assert!(sched.lookup_typed(id).is_none());
+    }
+
+    #[test]
+    fn fetch_uuid_returns_none_for_unknown() {
+        let sched = Schedule::new();
+        assert!(sched.fetch_uuid(test_uuid(99)).is_none());
+    }
+
+    #[test]
+    fn lookup_uuid_returns_none_for_unknown() {
+        let sched = Schedule::new();
+        assert!(sched.lookup_uuid(test_uuid(99)).is_none());
+    }
+
+    #[test]
+    fn fetch_uuid_routes_through_identify() {
+        let mut sched = Schedule::new();
+        let uuid = test_uuid(6);
+        sched
+            .add_entity::<PanelEntityType>(make_panel(uuid, "p6", "Panel Six"))
+            .unwrap();
+        // identify succeeds (registry hit), fetch_uuid returns None only due to stub storage
+        assert!(sched.identify(uuid).is_some());
+        // fetch_uuid returns None because storage stub can't deserialize, not because routing failed
+        let _ = sched.fetch_uuid(uuid); // must not panic
+    }
+
+    #[test]
+    fn identify_kind_matches_entity_kind() {
+        let mut sched = Schedule::new();
+        let uuid = test_uuid(8);
+        sched
+            .add_entity::<PanelEntityType>(make_panel(uuid, "p8", "Panel Eight"))
+            .unwrap();
+
+        let identified = sched.identify(uuid).unwrap();
+        assert_eq!(identified.kind(), EntityKind::Panel);
+        assert_eq!(identified.non_nil_uuid(), uuid);
+    }
+}

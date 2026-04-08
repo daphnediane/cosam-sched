@@ -1,6 +1,6 @@
 # Cosplay America Schedule - Work Item
 
-Updated on: Fri Apr 10 14:29:29 2026
+Updated on: Fri Apr 10 14:29:30 2026
 
 ## Completed
 
@@ -20,6 +20,8 @@ Updated on: Fri Apr 10 14:29:29 2026
 * [REFACTOR-046] Replace `HashMap<u64, StoredEntity>` and `u64`-keyed internals in `schedule/storage.rs` with `HashMap<uuid::Uuid, StoredEntity>`.
 * [REFACTOR-047] Remove `IdAllocators` from `Schedule`, add `schedule_id: Uuid` to `ScheduleMetadata`, add a private entity UUID registry, implement `Schedule::fetch_uuid`, and update all typed entity/edge method signatures to use typed ID wrappers.
 * [REFACTOR-048] Expose `Schedule::type_of_uuid` and `Schedule::lookup_uuid` using the private entity registry added in REFACTOR-047, and add `EntityRef<'a>` as the borrowed-data return type for `lookup_uuid`.
+* [REFACTOR-050] Aggressive migration to `NonNilUuid` as the primary UUID type throughout schedule-data,
+with `TypedId`, `EntityUUID`, and `TypedStorage` traits for generic, zero-dispatch entity access.
 
 ---
 
@@ -72,9 +74,9 @@ Updated on: Fri Apr 10 14:29:29 2026
 
 The following ID numbers are available for new items:
 
-**Available:** 050, 051, 052, 053, 054, 055, 056, 057, 058, 059
+**Available:** 051, 052, 053, 054, 055, 056, 057, 058, 059, 060
 
-**Highest used:** 49
+**Highest used:** 50
 
 ---
 
@@ -378,25 +380,19 @@ The following ID numbers are available for new items:
 * Requires opaque wrapper to hide internal implementation
 * Public API exposure of internal types
 
-Replace with standard `uuid::Uuid` v4 for:
+Replace with standard `uuid::NonNilUuid` (wrapping `uuid::Uuid` v7) for:
 
 * All entity IDs (panels, presenters, rooms, etc.)
 * Schedule IDs
 * Edge IDs (relationships between entities)
 
-Since UUIDs are standard and self-describing, they can be made public without an opaque wrapper. UUIDs are 128-bit (16 bytes) vs 64-bit (8 bytes) for u64, but this tradeoff is acceptable for the benefits:
-
-* Standard RFC 4122 format
-* Built-in collision resistance
-* Can be serialized/deserialized reliably
-* Enables cross-schedule entity tracking
-* No need for opaque wrapper
+Since UUIDs are standard and self-describing, they can be made public without an opaque wrapper.
 
 ---
 
 ### [REFACTOR-038] Migrate EdgeId from u64 to uuid::Uuid
 
-**Status:** Blocked
+**Status:** Open
 
 **Priority:** High
 
@@ -408,13 +404,13 @@ Since UUIDs are standard and self-describing, they can be made public without an
 * Unified `Schedule::lookup_edge_uuid` registry alongside the entity UUID registry
 * Consistent identity model for all objects in the schedule
 
-This work is **blocked** on REFACTOR-039 through REFACTOR-049 (entity UUID migration) being complete. Once entity UUIDs are in place, edge UUIDs become the natural next step.
+Previously blocked on entity UUID migration (REFACTOR-037 phases 1–6). That work is now complete — entity IDs and all storage use `NonNilUuid`. Edge UUIDs are the natural next step.
 
 ---
 
 ### [REFACTOR-049] Update and extend tests for UUID migration
 
-**Status:** Open
+**Status:** In Progress
 
 **Priority:** High
 
@@ -429,6 +425,8 @@ Files to update in `crates/schedule-data/tests/`:
 * `indexable_fields_test.rs` — same updates
 * `simple_indexable_test.rs` — same updates
 
+**All four files above are updated and passing as of the working branch.**
+
 New tests to add (can be in `entity_fields_integration.rs` or a new `uuid_registry_test.rs`):
 
 * `test_schedule_metadata_has_uuid` — verify `ScheduleMetadata::new()` generates a non-nil `schedule_id`
@@ -438,6 +436,8 @@ New tests to add (can be in `entity_fields_integration.rs` or a new `uuid_regist
 * `test_type_of_uuid` — verify `type_of_uuid` returns `Some(EntityKind::Panel)` for a known panel UUID and `None` for an unknown UUID
 * `test_entity_data_new_generates_unique_uuids` — create two `PanelData::new(...)` instances, verify UUIDs differ
 * `test_to_public_roundtrip` — create `PanelData`, call `to_public()`, verify all stored fields match
+
+**None of the seven new tests above are written yet. They are now unblocked** — `EntityStorage` stores real data (no longer a stub), so data round-trip tests will pass. Routing/dispatch tests (`fetch_uuid_routes_through_identify`, `identify_kind_matches_entity_kind`, etc.) exist in `schedule/mod.rs` inline tests.
 
 ---
 
@@ -574,6 +574,7 @@ New tests to add (can be in `entity_fields_integration.rs` or a new `uuid_regist
 [REFACTOR-047]: work-item/done/REFACTOR-047.md
 [REFACTOR-048]: work-item/done/REFACTOR-048.md
 [REFACTOR-049]: work-item/high/REFACTOR-049.md
+[REFACTOR-050]: work-item/done/REFACTOR-050.md
 [TEST-028]: work-item/high/TEST-028.md
 [UI-018]: work-item/high/UI-018.md
 [UI-019]: work-item/high/UI-019.md

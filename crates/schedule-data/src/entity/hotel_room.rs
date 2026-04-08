@@ -9,12 +9,12 @@
 use crate::EntityFields;
 use serde::{Deserialize, Serialize};
 use std::fmt;
-use uuid::Uuid;
+use uuid::{NonNilUuid, Uuid};
 
 /// HotelRoom ID type
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord, Serialize, Deserialize)]
 #[serde(transparent)]
-pub struct HotelRoomId(Uuid);
+pub struct HotelRoomId(NonNilUuid);
 
 impl fmt::Display for HotelRoomId {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
@@ -22,27 +22,53 @@ impl fmt::Display for HotelRoomId {
     }
 }
 
-impl From<Uuid> for HotelRoomId {
-    fn from(uuid: Uuid) -> Self {
+impl From<NonNilUuid> for HotelRoomId {
+    fn from(uuid: NonNilUuid) -> Self {
         Self(uuid)
+    }
+}
+
+impl From<HotelRoomId> for NonNilUuid {
+    fn from(id: HotelRoomId) -> NonNilUuid {
+        id.0
     }
 }
 
 impl From<HotelRoomId> for Uuid {
     fn from(id: HotelRoomId) -> Uuid {
-        id.0
+        id.0.into()
+    }
+}
+
+impl crate::entity::TypedId for HotelRoomId {
+    type EntityType = HotelRoomEntityType;
+    fn non_nil_uuid(&self) -> NonNilUuid {
+        self.0
+    }
+    fn from_uuid(uuid: NonNilUuid) -> Self {
+        Self(uuid)
     }
 }
 
 impl HotelRoomId {
-    /// Get the UUID from this ID
-    pub fn uuid(&self) -> Uuid {
+    /// Get the NonNilUuid from this ID
+    pub fn non_nil_uuid(&self) -> NonNilUuid {
         self.0
     }
 
-    /// Create a HotelRoomId from a UUID
-    pub fn from_uuid(uuid: Uuid) -> Self {
+    /// Get the raw UUID from this ID
+    pub fn uuid(&self) -> Uuid {
+        self.0.into()
+    }
+
+    /// Create a HotelRoomId from a NonNilUuid (infallible)
+    pub fn from_uuid(uuid: NonNilUuid) -> Self {
         Self(uuid)
+    }
+
+    /// Try to create a HotelRoomId from a raw UUID (boundary use only)
+    pub fn try_from_raw_uuid(uuid: Uuid) -> Option<Self> {
+        NonNilUuid::new(uuid).map(Self)
     }
 }
 
@@ -84,27 +110,40 @@ pub struct HotelRoom {
 mod tests {
     use super::*;
 
+    fn test_nn() -> NonNilUuid {
+        unsafe {
+            NonNilUuid::new_unchecked(Uuid::from_bytes([
+                0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1,
+            ]))
+        }
+    }
+
     #[test]
     fn hotel_room_id_from_uuid() {
-        let uuid = Uuid::nil();
-        let id = HotelRoomId::from(uuid);
-        assert_eq!(Uuid::from(id), uuid);
+        let nn = test_nn();
+        let id = HotelRoomId::from(nn);
+        assert_eq!(NonNilUuid::from(id), nn);
+    }
+
+    #[test]
+    fn hotel_room_id_try_from_nil_uuid_returns_none() {
+        assert!(HotelRoomId::try_from_raw_uuid(Uuid::nil()).is_none());
     }
 
     #[test]
     fn hotel_room_id_display() {
-        let id = HotelRoomId::from(Uuid::nil());
+        let id = HotelRoomId::from(test_nn());
         assert_eq!(
             id.to_string(),
-            "hotel-room-00000000-0000-0000-0000-000000000000"
+            "hotel-room-00000000-0000-0000-0000-000000000001"
         );
     }
 
     #[test]
     fn hotel_room_id_serde_round_trip() {
-        let id = HotelRoomId::from(Uuid::nil());
+        let id = HotelRoomId::from(test_nn());
         let json = serde_json::to_string(&id).unwrap();
-        assert_eq!(json, "\"00000000-0000-0000-0000-000000000000\"");
+        assert_eq!(json, "\"00000000-0000-0000-0000-000000000001\"");
         let back: HotelRoomId = serde_json::from_str(&json).unwrap();
         assert_eq!(id, back);
     }

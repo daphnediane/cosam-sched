@@ -9,22 +9,32 @@
 use crate::EntityFields;
 use serde::{Deserialize, Serialize};
 use std::fmt;
-use uuid::Uuid;
+use uuid::{NonNilUuid, Uuid};
 
 /// Panel ID type
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord, Serialize, Deserialize)]
 #[serde(transparent)]
-pub struct PanelId(Uuid);
+pub struct PanelId(NonNilUuid);
 
 impl PanelId {
-    /// Get the UUID from this ID
-    pub fn uuid(&self) -> Uuid {
+    /// Get the NonNilUuid from this ID
+    pub fn non_nil_uuid(&self) -> NonNilUuid {
         self.0
     }
 
-    /// Create a PanelId from a UUID
-    pub fn from_uuid(uuid: Uuid) -> Self {
+    /// Get the raw UUID from this ID
+    pub fn uuid(&self) -> Uuid {
+        self.0.into()
+    }
+
+    /// Create a PanelId from a NonNilUuid (infallible)
+    pub fn from_uuid(uuid: NonNilUuid) -> Self {
         Self(uuid)
+    }
+
+    /// Try to create a PanelId from a raw UUID (boundary use only)
+    pub fn try_from_raw_uuid(uuid: Uuid) -> Option<Self> {
+        NonNilUuid::new(uuid).map(Self)
     }
 }
 
@@ -34,16 +44,28 @@ impl fmt::Display for PanelId {
     }
 }
 
-impl From<Uuid> for PanelId {
-    fn from(uuid: Uuid) -> Self {
+impl From<NonNilUuid> for PanelId {
+    fn from(uuid: NonNilUuid) -> Self {
         Self(uuid)
+    }
+}
+
+impl From<PanelId> for NonNilUuid {
+    fn from(id: PanelId) -> NonNilUuid {
+        id.0
     }
 }
 
 impl From<PanelId> for Uuid {
     fn from(id: PanelId) -> Uuid {
-        id.0
+        id.0.into()
     }
+}
+
+impl crate::entity::TypedId for PanelId {
+    type EntityType = PanelEntityType;
+    fn non_nil_uuid(&self) -> NonNilUuid { self.0 }
+    fn from_uuid(uuid: NonNilUuid) -> Self { Self(uuid) }
 }
 
 /// Panel entity with EntityFields derive macro
@@ -211,7 +233,7 @@ pub struct Panel {
     #[alias("presenter_list", "panelists")]
     #[read(|schedule: &crate::schedule::Schedule, entity: &PanelData| {
         let presenter_ids = schedule.get_panel_presenters(PanelId::from_uuid(entity.entity_uuid));
-        let presenter_uuids: Vec<uuid::Uuid> = presenter_ids.iter().map(|id| id.uuid()).collect();
+        let presenter_uuids: Vec<uuid::NonNilUuid> = presenter_ids.iter().map(|id| id.non_nil_uuid()).collect();
         Some(crate::field::FieldValue::List(
             schedule.get_entity_names::<crate::entity::PresenterEntityType>(&presenter_uuids)
                 .into_iter()
@@ -229,7 +251,7 @@ pub struct Panel {
     #[alias("room", "location", "event_room_name")]
     #[read(|schedule: &crate::schedule::Schedule, entity: &PanelData| {
         if let Some(room_id) = schedule.get_panel_event_room(PanelId::from_uuid(entity.entity_uuid)) {
-            if let Some(room) = schedule.get_entity::<crate::entity::EventRoomEntityType>(room_id.uuid()) {
+            if let Some(room) = schedule.get_entity::<crate::entity::EventRoomEntityType>(room_id.non_nil_uuid()) {
                 return Some(crate::field::FieldValue::String(room.long_name.clone()));
             }
         }
@@ -245,7 +267,7 @@ pub struct Panel {
     #[alias("type", "category", "panel_category")]
     #[read(|schedule: &crate::schedule::Schedule, entity: &PanelData| {
         if let Some(type_id) = schedule.get_panel_type(PanelId::from_uuid(entity.entity_uuid)) {
-            if let Some(panel_type) = schedule.get_entity::<crate::entity::PanelTypeEntityType>(type_id.uuid()) {
+            if let Some(panel_type) = schedule.get_entity::<crate::entity::PanelTypeEntityType>(type_id.non_nil_uuid()) {
                 return Some(crate::field::FieldValue::String(panel_type.prefix.clone()));
             }
         }
@@ -260,24 +282,33 @@ impl crate::entity::SchedulableEntity for PanelEntityType {}
 mod tests {
     use super::*;
 
+    fn test_nn() -> NonNilUuid {
+        unsafe { NonNilUuid::new_unchecked(Uuid::from_bytes([0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1])) }
+    }
+
     #[test]
     fn panel_id_from_uuid() {
-        let uuid = Uuid::nil();
-        let id = PanelId::from(uuid);
-        assert_eq!(Uuid::from(id), uuid);
+        let nn = test_nn();
+        let id = PanelId::from(nn);
+        assert_eq!(NonNilUuid::from(id), nn);
+    }
+
+    #[test]
+    fn panel_id_try_from_nil_uuid_returns_none() {
+        assert!(PanelId::try_from_raw_uuid(Uuid::nil()).is_none());
     }
 
     #[test]
     fn panel_id_display() {
-        let id = PanelId::from(Uuid::nil());
-        assert_eq!(id.to_string(), "panel-00000000-0000-0000-0000-000000000000");
+        let id = PanelId::from(test_nn());
+        assert_eq!(id.to_string(), "panel-00000000-0000-0000-0000-000000000001");
     }
 
     #[test]
     fn panel_id_serde_round_trip() {
-        let id = PanelId::from(Uuid::nil());
+        let id = PanelId::from(test_nn());
         let json = serde_json::to_string(&id).unwrap();
-        assert_eq!(json, "\"00000000-0000-0000-0000-000000000000\"");
+        assert_eq!(json, "\"00000000-0000-0000-0000-000000000001\"");
         let back: PanelId = serde_json::from_str(&json).unwrap();
         assert_eq!(id, back);
     }

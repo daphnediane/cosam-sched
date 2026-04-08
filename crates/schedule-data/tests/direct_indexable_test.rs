@@ -8,12 +8,12 @@
 
 use schedule_data::entity::panel::PanelData;
 use schedule_data::field::traits::{match_priority, IndexableField, NamedField};
-use uuid::Uuid;
+use uuid::NonNilUuid;
 
 #[test]
 fn test_direct_panel_uid_indexable() {
     let panel = PanelData {
-        entity_uuid: Uuid::nil(),
+        entity_uuid: unsafe { NonNilUuid::new_unchecked(uuid::Uuid::from_bytes([0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,1])) },
         uid: "panel-123".to_string(),
         base_uid: None,
         part_num: None,
@@ -76,7 +76,7 @@ fn test_direct_panel_uid_indexable() {
 #[test]
 fn test_direct_panel_name_indexable() {
     let panel = PanelData {
-        entity_uuid: Uuid::nil(),
+        entity_uuid: unsafe { NonNilUuid::new_unchecked(uuid::Uuid::from_bytes([0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,1])) },
         uid: "panel-123".to_string(),
         base_uid: None,
         part_num: None,

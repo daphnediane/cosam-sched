@@ -165,17 +165,17 @@ mod tests {
     // Mock entity type for testing
     #[derive(Debug, Clone)]
     struct TestEntity {
-        entity_uuid: uuid::Uuid,
+        entity_uuid: uuid::NonNilUuid,
         id: u32,
         name: String,
         value: i32,
     }
 
     impl crate::entity::InternalData for TestEntity {
-        fn uuid(&self) -> uuid::Uuid {
+        fn uuid(&self) -> uuid::NonNilUuid {
             self.entity_uuid
         }
-        fn set_uuid(&mut self, uuid: uuid::Uuid) {
+        fn set_uuid(&mut self, uuid: uuid::NonNilUuid) {
             self.entity_uuid = uuid;
         }
     }

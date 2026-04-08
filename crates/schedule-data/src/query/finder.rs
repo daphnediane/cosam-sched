@@ -7,16 +7,16 @@
 //! Query finder implementation for searching entities
 
 use super::FieldMatch;
-use crate::entity::{EntityState, EntityType};
-use crate::schedule::Schedule;
+use crate::entity::EntityState;
+use crate::schedule::{storage::TypedStorage, Schedule};
 
 /// Generic finder for entities
-pub struct Finder<'a, T: EntityType> {
+pub struct Finder<'a, T: TypedStorage + Sized> {
     schedule: &'a Schedule,
     _phantom: std::marker::PhantomData<T>,
 }
 
-impl<'a, T: EntityType> Finder<'a, T> {
+impl<'a, T: TypedStorage + Sized> Finder<'a, T> {
     pub fn new(schedule: &'a Schedule) -> Self {
         Self {
             schedule,
@@ -25,12 +25,12 @@ impl<'a, T: EntityType> Finder<'a, T> {
     }
 
     /// Find all entity IDs
-    pub fn list_all(&self) -> Vec<uuid::Uuid> {
+    pub fn list_all(&self) -> Vec<uuid::NonNilUuid> {
         self.schedule.entities.find::<T>(&[], None)
     }
 
     /// Find entity IDs by state
-    pub fn list_by_state(&self, state: EntityState) -> Vec<uuid::Uuid> {
+    pub fn list_by_state(&self, state: EntityState) -> Vec<uuid::NonNilUuid> {
         let options = crate::query::QueryOptions::new().with_state(state);
         self.schedule.entities.find::<T>(&[], Some(options))
     }
@@ -47,7 +47,7 @@ impl<'a, T: EntityType> Finder<'a, T> {
     }
 
     /// Find entities matching field conditions
-    pub fn find(&self, matches: &[FieldMatch]) -> Vec<uuid::Uuid> {
+    pub fn find(&self, matches: &[FieldMatch]) -> Vec<uuid::NonNilUuid> {
         self.schedule.entities.find::<T>(matches, None)
     }
 
@@ -56,7 +56,7 @@ impl<'a, T: EntityType> Finder<'a, T> {
         &self,
         matches: &[FieldMatch],
         options: crate::query::QueryOptions,
-    ) -> Vec<uuid::Uuid> {
+    ) -> Vec<uuid::NonNilUuid> {
         self.schedule.entities.find::<T>(matches, Some(options))
     }
 
@@ -75,7 +75,7 @@ impl<'a, T: EntityType> Finder<'a, T> {
     }
 
     /// Find single entity by field match (returns first match)
-    pub fn find_one(&self, matches: &[FieldMatch]) -> Option<uuid::Uuid> {
+    pub fn find_one(&self, matches: &[FieldMatch]) -> Option<uuid::NonNilUuid> {
         let options = crate::query::QueryOptions::new().with_limit(1);
         self.find_with_options(matches, options).into_iter().next()
     }

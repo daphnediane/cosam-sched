@@ -8,12 +8,12 @@
 
 use schedule_data::entity::panel::PanelData;
 use schedule_data::field::traits::{match_priority, IndexableField};
-use uuid::Uuid;
+use uuid::NonNilUuid;
 
 #[test]
 fn test_panel_uid_exact_match() {
     let panel = PanelData {
-        entity_uuid: Uuid::nil(),
+        entity_uuid: unsafe { NonNilUuid::new_unchecked(uuid::Uuid::from_bytes([0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,1])) },
         uid: "panel-123".to_string(),
         base_uid: None,
         part_num: None,
@@ -71,7 +71,7 @@ fn test_panel_uid_exact_match() {
 #[test]
 fn test_panel_name_match_strengths() {
     let panel = PanelData {
-        entity_uuid: Uuid::nil(),
+        entity_uuid: unsafe { NonNilUuid::new_unchecked(uuid::Uuid::from_bytes([0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,1])) },
         uid: "panel-123".to_string(),
         base_uid: None,
         part_num: None,

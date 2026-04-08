@@ -8,14 +8,14 @@
 
 use crate::edge::{Edge, EdgeError, EdgeId, EdgeStorage};
 use std::collections::HashMap;
-use uuid::Uuid;
+use uuid::NonNilUuid;
 
 /// Generic edge storage for simple edges
 #[derive(Debug, Clone)]
 pub struct GenericEdgeStorage<E: Edge> {
     edges: HashMap<EdgeId, E>,
-    outgoing_index: HashMap<Uuid, Vec<EdgeId>>,
-    incoming_index: HashMap<Uuid, Vec<EdgeId>>,
+    outgoing_index: HashMap<NonNilUuid, Vec<EdgeId>>,
+    incoming_index: HashMap<NonNilUuid, Vec<EdgeId>>,
 }
 
 impl<E: Edge> GenericEdgeStorage<E> {
@@ -28,7 +28,7 @@ impl<E: Edge> GenericEdgeStorage<E> {
     }
 
     /// Remove all outgoing edges from an entity.
-    pub fn remove_outgoing_edges(&mut self, from_uuid: Uuid) -> Result<(), EdgeError> {
+    pub fn remove_outgoing_edges(&mut self, from_uuid: NonNilUuid) -> Result<(), EdgeError> {
         let edge_ids = self
             .outgoing_index
             .get(&from_uuid)
@@ -118,7 +118,7 @@ impl<E: Edge> GenericEdgeStorage<E> {
     }
 
     /// Find outgoing edges from an entity
-    pub fn find_outgoing(&self, from_uuid: Uuid) -> Vec<&E> {
+    pub fn find_outgoing(&self, from_uuid: NonNilUuid) -> Vec<&E> {
         self.outgoing_index
             .get(&from_uuid)
             .map(|edge_ids| {
@@ -131,7 +131,7 @@ impl<E: Edge> GenericEdgeStorage<E> {
     }
 
     /// Find incoming edges to an entity
-    pub fn find_incoming(&self, to_uuid: Uuid) -> Vec<&E> {
+    pub fn find_incoming(&self, to_uuid: NonNilUuid) -> Vec<&E> {
         self.incoming_index
             .get(&to_uuid)
             .map(|edge_ids| {
@@ -144,7 +144,7 @@ impl<E: Edge> GenericEdgeStorage<E> {
     }
 
     /// Check if an edge exists between two entities
-    pub fn edge_exists(&self, from_uuid: Uuid, to_uuid: Uuid) -> bool {
+    pub fn edge_exists(&self, from_uuid: NonNilUuid, to_uuid: NonNilUuid) -> bool {
         self.outgoing_index
             .get(&from_uuid)
             .map(|edge_ids| {
@@ -197,15 +197,15 @@ impl<E: Edge> EdgeStorage<E> for GenericEdgeStorage<E> {
         self.get_edge(edge_id)
     }
 
-    fn find_outgoing(&self, from_uuid: Uuid) -> Vec<&E> {
+    fn find_outgoing(&self, from_uuid: NonNilUuid) -> Vec<&E> {
         self.find_outgoing(from_uuid)
     }
 
-    fn find_incoming(&self, to_uuid: Uuid) -> Vec<&E> {
+    fn find_incoming(&self, to_uuid: NonNilUuid) -> Vec<&E> {
         self.find_incoming(to_uuid)
     }
 
-    fn edge_exists(&self, from_uuid: Uuid, to_uuid: Uuid) -> bool {
+    fn edge_exists(&self, from_uuid: NonNilUuid, to_uuid: NonNilUuid) -> bool {
         self.edge_exists(from_uuid, to_uuid)
     }
 
