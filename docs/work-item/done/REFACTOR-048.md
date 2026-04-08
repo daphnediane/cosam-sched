@@ -6,7 +6,7 @@ Expose `Schedule::type_of_uuid` and `Schedule::lookup_uuid` using the private en
 
 ## Status
 
-Open
+Completed
 
 ## Priority
 

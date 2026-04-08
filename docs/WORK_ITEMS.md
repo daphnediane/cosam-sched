@@ -19,12 +19,13 @@ Updated on: Fri Apr 10 14:29:29 2026
 * [REFACTOR-045] Update all five concrete edge implementation files to use typed `*Id(Uuid)` constructors and implement `from_uuid()`/`to_uuid()` from the `Edge` trait.
 * [REFACTOR-046] Replace `HashMap<u64, StoredEntity>` and `u64`-keyed internals in `schedule/storage.rs` with `HashMap<uuid::Uuid, StoredEntity>`.
 * [REFACTOR-047] Remove `IdAllocators` from `Schedule`, add `schedule_id: Uuid` to `ScheduleMetadata`, add a private entity UUID registry, implement `Schedule::fetch_uuid`, and update all typed entity/edge method signatures to use typed ID wrappers.
+* [REFACTOR-048] Expose `Schedule::type_of_uuid` and `Schedule::lookup_uuid` using the private entity registry added in REFACTOR-047, and add `EntityRef<'a>` as the borrowed-data return type for `lookup_uuid`.
 
 ---
 
 ## Summary of Open Items
 
-**Total open items:** 34
+**Total open items:** 33
 
 * **High Priority**
   * [CLI-013] Port cosam-convert from schedule-core to schedule-data for XLSX-to-JSON conversion.
@@ -42,7 +43,6 @@ Updated on: Fri Apr 10 14:29:29 2026
   * [REFACTOR-031] Extract timeline entries (SPLIT, BREAK, room hours) into a dedicated TimelineEntry entity following the schedule-core pattern.
   * [REFACTOR-037] Migrate from internal u64-based entity IDs to standard UUID v4 for entities, schedules, and edges to enable cross-schedule ID sharing and simplify the public API.
   * [REFACTOR-038] Replace the `EdgeId(u64)` type with `EdgeId(uuid::Uuid)` and add an edge UUID registry to `Schedule` for cross-edge lookups.
-  * [REFACTOR-048] Expose `Schedule::type_of_uuid` and `Schedule::lookup_uuid` using the private entity registry added in REFACTOR-047, and add `EntityRef<'a>` as the borrowed-data return type for `lookup_uuid`.
   * [REFACTOR-049] Update the four existing integration test files to use `Uuid` instead of `EntityId`/`InternalId`, and add new tests for `fetch_uuid` and `lookup_uuid`.
   * [TEST-028] Comprehensive integration tests validating schedule-data against schedule-core behavior with real schedule data.
   * [UI-018] Implement comprehensive accessibility for the schedule widget: screen readers, color blindness support, and keyboard navigation.
@@ -412,40 +412,6 @@ This work is **blocked** on REFACTOR-039 through REFACTOR-049 (entity UUID migra
 
 ---
 
-### [REFACTOR-048] Add type_of_uuid, lookup_uuid, and EntityRef to Schedule
-
-**Status:** Open
-
-**Priority:** High
-
-**Summary:** Expose `Schedule::type_of_uuid` and `Schedule::lookup_uuid` using the private entity registry added in REFACTOR-047, and add `EntityRef<'a>` as the borrowed-data return type for `lookup_uuid`.
-
-**Description:** Part of REFACTOR-037. REFACTOR-047 added a private `entity_registry: HashMap<Uuid, EntityKind>` and `fetch_uuid` (which returns owned public data). This phase adds the remaining two registry methods for internal use:
-
-* `pub fn type_of_uuid(&self, uuid: uuid::Uuid) -> Option<crate::entity::EntityKind>`
-  * Simple registry dispatch — returns only the type tag
-  * Useful for callers that already know how to use typed methods once they know the type
-
-* `pub fn lookup_uuid(&self, uuid: uuid::Uuid) -> Option<crate::entity::EntityRef<'_>>`
-  * Returns borrowed internal `*Data` via `EntityRef<'a>`
-  * Useful for internal code that needs to inspect raw entity data without copying
-
-New type `EntityRef<'a>` added to `entity/mod.rs`:
-
-```rust
-pub enum EntityRef<'a> {
-    Panel(&'a PanelData),
-    Presenter(&'a PresenterData),
-    EventRoom(&'a EventRoomData),
-    HotelRoom(&'a HotelRoomData),
-    PanelType(&'a PanelTypeData),
-}
-```
-
-`lookup_uuid` dispatches through the registry (same as `fetch_uuid`) but borrows the `*Data` struct rather than cloning it.
-
----
-
 ### [REFACTOR-049] Update and extend tests for UUID migration
 
 **Status:** Open
@@ -606,7 +572,7 @@ New tests to add (can be in `entity_fields_integration.rs` or a new `uuid_regist
 [REFACTOR-045]: work-item/done/REFACTOR-045.md
 [REFACTOR-046]: work-item/done/REFACTOR-046.md
 [REFACTOR-047]: work-item/done/REFACTOR-047.md
-[REFACTOR-048]: work-item/high/REFACTOR-048.md
+[REFACTOR-048]: work-item/done/REFACTOR-048.md
 [REFACTOR-049]: work-item/high/REFACTOR-049.md
 [TEST-028]: work-item/high/TEST-028.md
 [UI-018]: work-item/high/UI-018.md

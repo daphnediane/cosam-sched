@@ -155,6 +155,37 @@ impl Schedule {
         }
     }
 
+    /// Get the entity type (kind) for a given UUID
+    pub fn type_of_uuid(&self, uuid: uuid::Uuid) -> Option<EntityKind> {
+        self.entity_registry.get(&uuid).copied()
+    }
+
+    /// Lookup entity by UUID and return borrowed reference
+    pub fn lookup_uuid(&self, uuid: uuid::Uuid) -> Option<crate::entity::EntityRef<'_>> {
+        match self.entity_registry.get(&uuid)? {
+            EntityKind::Panel => self
+                .entities
+                .get_by_uuid::<crate::entity::PanelEntityType>(uuid)
+                .map(crate::entity::EntityRef::Panel),
+            EntityKind::Presenter => self
+                .entities
+                .get_by_uuid::<crate::entity::PresenterEntityType>(uuid)
+                .map(crate::entity::EntityRef::Presenter),
+            EntityKind::EventRoom => self
+                .entities
+                .get_by_uuid::<crate::entity::EventRoomEntityType>(uuid)
+                .map(crate::entity::EntityRef::EventRoom),
+            EntityKind::HotelRoom => self
+                .entities
+                .get_by_uuid::<crate::entity::HotelRoomEntityType>(uuid)
+                .map(crate::entity::EntityRef::HotelRoom),
+            EntityKind::PanelType => self
+                .entities
+                .get_by_uuid::<crate::entity::PanelTypeEntityType>(uuid)
+                .map(crate::entity::EntityRef::PanelType),
+        }
+    }
+
     /// Find entities related to a given entity (dispatches to appropriate typed storage)
     pub fn find_related<T: EntityType>(
         &self,

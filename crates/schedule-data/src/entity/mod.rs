@@ -64,7 +64,10 @@ pub use presenter::PresenterEntityType;
 pub use uuid::Uuid;
 
 // Re-export internal Data structs used elsewhere in the crate
+pub(crate) use event_room::EventRoomData;
+pub(crate) use hotel_room::HotelRoomData;
 pub(crate) use panel::PanelData;
+pub(crate) use panel_type::PanelTypeData;
 pub(crate) use presenter::PresenterData;
 
 use std::fmt;
@@ -142,6 +145,16 @@ pub enum PublicEntityRef {
     EventRoom(EventRoom),
     HotelRoom(HotelRoom),
     PanelType(PanelType),
+}
+
+/// Borrowed entity data reference returned by `Schedule::lookup_uuid`.
+#[derive(Debug, Clone, Copy)]
+pub enum EntityRef<'a> {
+    Panel(&'a PanelData),
+    Presenter(&'a PresenterData),
+    EventRoom(&'a EventRoomData),
+    HotelRoom(&'a HotelRoomData),
+    PanelType(&'a PanelTypeData),
 }
 
 #[cfg(test)]
