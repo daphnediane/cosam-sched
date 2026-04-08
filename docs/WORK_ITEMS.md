@@ -29,7 +29,7 @@ with `TypedId`, `EntityUUID`, and `TypedStorage` traits for generic, zero-dispat
 
 ## Summary of Open Items
 
-**Total open items:** 31
+**Total open items:** 39
 
 * **High Priority**
   * [CLI-013] Port cosam-convert from schedule-core to schedule-data for XLSX-to-JSON conversion.
@@ -46,6 +46,12 @@ with `TypedId`, `EntityUUID`, and `TypedStorage` traits for generic, zero-dispat
   * [REFACTOR-031] Extract timeline entries (SPLIT, BREAK, room hours) into a dedicated TimelineEntry entity following the schedule-core pattern.
   * [REFACTOR-037] Migrate from internal u64-based entity IDs to standard UUID v4 for entities, schedules, and edges to enable cross-schedule ID sharing and simplify the public API.
   * [REFACTOR-038] Replace the `EdgeId(u64)` type with `EdgeId(uuid::Uuid)` and add an edge UUID registry to `Schedule` for cross-edge lookups.
+  * [REFACTOR-051] Parent work item tracking the comprehensive entity system redesign including builders, UUID handling, transactions, CLI access, CRDT integration, and edge-to-entity migration.
+  * [REFACTOR-052] Convert edge types from separate edge storage to first-class entities with NonNilUuid, stored in EntityStorage alongside other entities.
+  * [REFACTOR-053] Extend EntityFields macro to generate `EntityBuilder<T>` for partial entity construction and updates without requiring all fields.
+  * [REFACTOR-054] Implement V5 UUID generation from natural keys with entity-type-specific collision handling for import scenarios.
+  * [REFACTOR-055] Implement command-based transaction system with undo/redo stacks and scope-based bundling for atomic multi-operation changes.
+  * [REFACTOR-058] Final phase closing the entity system redesign effort, consolidating work items and marking REFACTOR-051 complete.
   * [TEST-028] Comprehensive integration tests validating schedule-data against schedule-core behavior with real schedule data.
   * [UI-018] Implement comprehensive accessibility for the schedule widget: screen readers, color blindness support, and keyboard navigation.
   * [UI-019] Prevent panel titles from overlapping with the "my schedule" star icon in the schedule widget.
@@ -55,6 +61,8 @@ with `TypedId`, `EntityUUID`, and `TypedStorage` traits for generic, zero-dispat
   * [EDITOR-017] Implement functional settings window with export preferences and application configuration.
   * [FEATURE-011] Support nested group membership where a group's members can include other groups.
   * [REFACTOR-029] Replace GenericEdgeStorage usage for PanelToEventRoom with a specialized PanelToEventRoomStorage implementation similar to other edge types, adding any relationship-specific behaviors if needed.
+  * [REFACTOR-056] Enable dynamic field access by string name for CLI tools, supporting field updates without compile-time entity knowledge.
+  * [REFACTOR-057] Integrate rust-crdt for operation-based replication, enabling distributed sync and offline editing with automatic conflict resolution.
   * [UI-020] Add visual indicators to the schedule widget to highlight conflicting panels.
   * [UI-021] Add sticky day/time headers and a separate room hours section to the schedule widget.
   * [UI-022] Add grid view and compact print format options for the schedule widget.
@@ -74,9 +82,9 @@ with `TypedId`, `EntityUUID`, and `TypedStorage` traits for generic, zero-dispat
 
 The following ID numbers are available for new items:
 
-**Available:** 051, 052, 053, 054, 055, 056, 057, 058, 059, 060
+**Available:** 059, 060, 061, 062, 063, 064, 065, 066, 067, 068
 
-**Highest used:** 50
+**Highest used:** 58
 
 ---
 
@@ -396,6 +404,78 @@ Previously blocked on entity UUID migration (REFACTOR-037 phases 1–6). That wo
 
 ---
 
+### [REFACTOR-051] Entity System Design Improvements - Meta Tracking
+
+**Status:** In Progress
+
+**Priority:** High
+
+**Summary:** Parent work item tracking the comprehensive entity system redesign including builders, UUID handling, transactions, CLI access, CRDT integration, and edge-to-entity migration.
+
+**Description:** This meta work item coordinates the entity system redesign effort spanning multiple implementation phases. It tracks completion of all sub-phases and manages superseding relationships with existing work items.
+
+---
+
+### [REFACTOR-052] Edge to Edge-Entity Migration
+
+**Status:** Not Started
+
+**Priority:** High
+
+**Summary:** Convert edge types from separate edge storage to first-class entities with NonNilUuid, stored in EntityStorage alongside other entities.
+
+**Description:** Migrate all edge types (PanelToPresenter, PanelToEventRoom, EventRoomToHotelRoom, PanelToPanelType) from GenericEdgeStorage to EntityStorage as first-class entities with UUIDs. This enables edge metadata, simplifies transaction handling, and prepares for CRDT integration.
+
+---
+
+### [REFACTOR-053] Builder & Partial Updates
+
+**Status:** Not Started
+
+**Priority:** High
+
+**Summary:** Extend EntityFields macro to generate `EntityBuilder<T>` for partial entity construction and updates without requiring all fields.
+
+**Description:** Implement builder pattern for all entity types (including edge-entities from REFACTOR-052). This enables partial updates, required field validation, and cleaner entity construction APIs. Replaces the mutation family approach from REFACTOR-004.
+
+---
+
+### [REFACTOR-054] Preferred UUIDs with Context-Dependent Collision
+
+**Status:** Not Started
+
+**Priority:** High
+
+**Summary:** Implement V5 UUID generation from natural keys with entity-type-specific collision handling for import scenarios.
+
+**Description:** Enable providing preferred UUIDs when adding entities, with collision semantics that vary by entity type. Panels get new V7 UUIDs on collision (duplicate spreadsheet entries), while reference data updates existing entities.
+
+---
+
+### [REFACTOR-055] Transaction System with Bundling
+
+**Status:** Not Started
+
+**Priority:** High
+
+**Summary:** Implement command-based transaction system with undo/redo stacks and scope-based bundling for atomic multi-operation changes.
+
+**Description:** Port EditCommand concepts from schedule-core into a unified transaction system. Supports bundling multiple operations into single undo steps, critical for UI actions like "import panel with presenters" or "merge import". Replaces REFACTOR-005.
+
+---
+
+### [REFACTOR-058] Meta Completion - Entity System Redesign
+
+**Status:** Not Started
+
+**Priority:** High
+
+**Summary:** Final phase closing the entity system redesign effort, consolidating work items and marking REFACTOR-051 complete.
+
+**Description:** Final phase of the entity system redesign. Completes REFACTOR-051 meta tracking item, marks superseded work items as complete, and reorganizes work plan files. No new implementation work.
+
+---
+
 ### [REFACTOR-029] Migrate PanelToEventRoom to Specialized Storage
 
 **Status:** Not Started
@@ -405,6 +485,30 @@ Previously blocked on entity UUID migration (REFACTOR-037 phases 1–6). That wo
 **Summary:** Replace GenericEdgeStorage usage for PanelToEventRoom with a specialized PanelToEventRoomStorage implementation similar to other edge types, adding any relationship-specific behaviors if needed.
 
 **Description:** PanelToEventRoom currently uses GenericEdgeStorage directly in Schedule. This should be migrated to a dedicated PanelToEventRoomStorage to maintain consistency with the edge system refactoring (REFACTOR-001).
+
+---
+
+### [REFACTOR-056] CLI Field Access
+
+**Status:** Not Started
+
+**Priority:** Medium
+
+**Summary:** Enable dynamic field access by string name for CLI tools, supporting field updates without compile-time entity knowledge.
+
+**Description:** Implement dynamic field lookup and modification for command-line utilities like cosam-modify. CLI tools can specify entities and fields by name, with values as strings that are parsed to appropriate types.
+
+---
+
+### [REFACTOR-057] CRDT Integration
+
+**Status:** Not Started
+
+**Priority:** Medium
+
+**Summary:** Integrate rust-crdt for operation-based replication, enabling distributed sync and offline editing with automatic conflict resolution.
+
+**Description:** Replace transaction history with CRDT-backed storage using rust-crdt's CmRDT (operation-based) types. Operations from multiple editors merge automatically, supporting offline editing and distributed synchronization.
 
 ---
 
@@ -530,6 +634,14 @@ Previously blocked on entity UUID migration (REFACTOR-037 phases 1–6). That wo
 [REFACTOR-048]: work-item/done/REFACTOR-048.md
 [REFACTOR-049]: work-item/done/REFACTOR-049.md
 [REFACTOR-050]: work-item/done/REFACTOR-050.md
+[REFACTOR-051]: work-item/high/REFACTOR-051.md
+[REFACTOR-052]: work-item/high/REFACTOR-052.md
+[REFACTOR-053]: work-item/high/REFACTOR-053.md
+[REFACTOR-054]: work-item/high/REFACTOR-054.md
+[REFACTOR-055]: work-item/high/REFACTOR-055.md
+[REFACTOR-056]: work-item/medium/REFACTOR-056.md
+[REFACTOR-057]: work-item/medium/REFACTOR-057.md
+[REFACTOR-058]: work-item/high/REFACTOR-058.md
 [TEST-028]: work-item/high/TEST-028.md
 [UI-018]: work-item/high/UI-018.md
 [UI-019]: work-item/high/UI-019.md
