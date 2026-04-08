@@ -75,8 +75,8 @@ pub mod match_priority {
 /// Result of a field-based lookup with match priority
 #[derive(Debug, Clone)]
 pub struct FieldMatchResult {
-    /// The matched entity's internal ID
-    pub entity_id: u64,
+    /// The matched entity's UUID
+    pub entity_uuid: uuid::Uuid,
     /// The priority of the match (higher = better match, 0 = no match)
     pub priority: MatchPriority,
     /// The field priority (from indexable attribute)
@@ -89,13 +89,13 @@ pub struct FieldMatchResult {
 
 impl FieldMatchResult {
     pub fn new(
-        entity_id: u64,
+        entity_uuid: uuid::Uuid,
         priority: MatchPriority,
         field_priority: u8,
         field_name: &'static str,
     ) -> Self {
         Self {
-            entity_id,
+            entity_uuid,
             priority,
             field_priority,
             field_name,

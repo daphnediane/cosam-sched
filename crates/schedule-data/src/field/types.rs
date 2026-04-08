@@ -193,7 +193,7 @@ impl FieldType for StringFieldType {
             FieldValue::Float(f) => Ok(f.to_string()),
             FieldValue::Boolean(b) => Ok(b.to_string()),
             FieldValue::Duration(d) => Ok(d.num_minutes().to_string()),
-            FieldValue::EntityId(id) => Ok(id.to_string()),
+            FieldValue::Uuid(uuid) => Ok(uuid.to_string()),
             _ => Err(ConversionError::UnsupportedType),
         }
     }
@@ -533,81 +533,8 @@ impl FieldType for IdFieldType {
 
     fn try_convert(value: &FieldValue) -> Result<Self::Value, ConversionError> {
         match value {
-            FieldValue::EntityId(id) => Ok(id.to_string()),
-            FieldValue::InternalId(internal_id) => Ok(format!(
-                "{}:{}",
-                internal_id.type_name, internal_id.entity_id
-            )),
+            FieldValue::Uuid(uuid) => Ok(uuid.to_string()),
             FieldValue::String(s) => Ok(s.clone()),
-            _ => Err(ConversionError::UnsupportedType),
-        }
-    }
-}
-
-/// InternalId field type for typed entity references
-#[derive(Debug, Clone, Copy)]
-pub struct InternalIdFieldType;
-
-impl FieldType for InternalIdFieldType {
-    type Value = crate::entity::InternalId;
-    type Storage = crate::entity::InternalId;
-
-    const NAME: &'static str = "internal_id";
-
-    fn to_storage(value: Self::Value) -> Self::Storage {
-        value
-    }
-
-    fn from_storage(storage: Self::Storage) -> Self::Value {
-        storage
-    }
-
-    fn validate(_value: &Self::Value) -> Result<(), ValidationError> {
-        Ok(())
-    }
-
-    fn matches(value: &Self::Value, matcher: &FieldMatcher) -> bool {
-        match matcher {
-            FieldMatcher::Equals(other) => {
-                if let Ok(other_id) = Self::try_convert(other) {
-                    value == &other_id
-                } else {
-                    false
-                }
-            }
-            FieldMatcher::NotEquals(other) => {
-                if let Ok(other_id) = Self::try_convert(other) {
-                    value != &other_id
-                } else {
-                    true
-                }
-            }
-            FieldMatcher::IsNull => false,
-            FieldMatcher::IsNotNull => true,
-            _ => false, // Other matchers don't apply to InternalId
-        }
-    }
-
-    fn try_convert(value: &FieldValue) -> Result<Self::Value, ConversionError> {
-        match value {
-            FieldValue::InternalId(id) => Ok(*id),
-            FieldValue::String(s) => {
-                // Parse "type_name:entity_id" format
-                if let Some((type_name, entity_id_str)) = s.split_once(':') {
-                    let entity_id = entity_id_str
-                        .parse()
-                        .map_err(|_| ConversionError::InvalidFormat)?;
-                    // Convert the slice to a static string - this requires allocation
-                    let type_name_owned = type_name.to_string();
-                    let leaked = Box::leak(type_name_owned.into_boxed_str());
-                    Ok(crate::entity::InternalId {
-                        type_name: leaked,
-                        entity_id,
-                    })
-                } else {
-                    Err(ConversionError::InvalidFormat)
-                }
-            }
             _ => Err(ConversionError::UnsupportedType),
         }
     }

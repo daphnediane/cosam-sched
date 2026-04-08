@@ -8,10 +8,11 @@
 
 use std::collections::HashMap;
 
-use super::{EdgeId, ScheduleError};
-use crate::entity::{EntityId, EntityState, EntityType};
+use super::ScheduleError;
+use crate::entity::{EntityState, EntityType};
 use crate::field::FieldValue;
 use crate::query::{FieldMatch, QueryOptions};
+use uuid::Uuid;
 
 /// Generic entity storage
 #[derive(Debug, Clone)]
@@ -25,13 +26,13 @@ pub struct EntityStorage {
 
 #[derive(Debug, Clone, Default)]
 struct EntityTypeStorage {
-    by_internal_id: HashMap<u64, StoredEntity>,
+    by_internal_uuid: HashMap<Uuid, StoredEntity>,
 }
 
 #[derive(Debug, Clone)]
 #[allow(dead_code)]
 struct StoredEntity {
-    internal_id: u64,
+    internal_uuid: Uuid,
     data: String, // Serialized JSON data
     state: EntityState,
     created_at: chrono::NaiveDateTime,
@@ -46,18 +47,18 @@ impl EntityStorage {
         }
     }
 
-    /// Get entity by type and ID
-    pub fn get<T: EntityType>(&self, id: EntityId) -> Option<&T::Data> {
+    /// Get entity by type and UUID
+    pub fn get<T: EntityType>(&self, uuid: Uuid) -> Option<&T::Data> {
         let type_name = T::TYPE_NAME;
         self.entities
             .get(type_name)
-            .and_then(|type_entities| type_entities.by_internal_id.get(&id))
+            .and_then(|type_entities| type_entities.by_internal_uuid.get(&uuid))
             .and_then(|stored| self.deserialize::<T>(&stored.data))
     }
 
-    /// Get entity by internal monotonic ID (alias for get)
-    pub fn get_by_internal_id<T: EntityType>(&self, internal_id: u64) -> Option<&T::Data> {
-        self.get::<T>(internal_id)
+    /// Get entity by internal UUID
+    pub fn get_by_uuid<T: EntityType>(&self, uuid: Uuid) -> Option<&T::Data> {
+        self.get::<T>(uuid)
     }
 
     /// Get entities by index query, returning all that tie at the best match strength.
@@ -66,19 +67,19 @@ impl EntityStorage {
         let field_set = T::field_set();
 
         if let Some(type_entities) = self.entities.get(type_name) {
-            let mut matches: Vec<(u64, crate::field::traits::FieldMatchResult)> = Vec::new();
+            let mut matches: Vec<(Uuid, crate::field::traits::FieldMatchResult)> = Vec::new();
             let mut best_priority = crate::field::traits::match_priority::MIN_MATCH; // Start at minimum match level to skip NO_MATCH (0)
 
             // @TODO: Should consider field priority if match priority is the same
-            for (internal_id, stored) in &type_entities.by_internal_id {
+            for (_internal_uuid, stored) in &type_entities.by_internal_uuid {
                 if let Some(entity) = self.deserialize::<T>(&stored.data) {
-                    if let Some(match_result) = field_set.match_index(query, *internal_id, entity) {
+                    if let Some(match_result) = field_set.match_index(query, entity) {
                         if match_result.priority > best_priority {
                             best_priority = match_result.priority;
                             matches.clear();
-                            matches.push((*internal_id, match_result));
+                            matches.push((match_result.entity_uuid, match_result));
                         } else if match_result.priority == best_priority {
-                            matches.push((*internal_id, match_result));
+                            matches.push((match_result.entity_uuid, match_result));
                         }
                     }
                 }
@@ -86,10 +87,10 @@ impl EntityStorage {
 
             matches
                 .into_iter()
-                .filter_map(|(id, _)| {
+                .filter_map(|(uuid, _)| {
                     type_entities
-                        .by_internal_id
-                        .get(&id)
+                        .by_internal_uuid
+                        .get(&uuid)
                         .and_then(|stored| self.deserialize::<T>(&stored.data))
                 })
                 .collect()
@@ -108,19 +109,19 @@ impl EntityStorage {
         ids.into_iter().filter_map(|id| self.get::<T>(id)).collect()
     }
 
-    /// Find entity IDs matching field conditions
+    /// Find entity UUIDs matching field conditions
     pub fn find<T: EntityType>(
         &self,
         matches: &[FieldMatch],
         options: Option<QueryOptions>,
-    ) -> Vec<EntityId> {
+    ) -> Vec<Uuid> {
         let type_name = T::TYPE_NAME;
         let options = options.unwrap_or_default();
 
         if let Some(type_entities) = self.entities.get(type_name) {
             let mut results = Vec::new();
 
-            for stored in type_entities.by_internal_id.values() {
+            for stored in type_entities.by_internal_uuid.values() {
                 // Apply state filter
                 if let Some(state_filter) = options.state_filter {
                     if stored.state != state_filter {
@@ -148,7 +149,7 @@ impl EntityStorage {
                     }
 
                     if matches_all {
-                        results.push(stored.internal_id);
+                        results.push(stored.internal_uuid);
                     }
                 }
             }
@@ -181,10 +182,10 @@ impl EntityStorage {
         }
     }
 
-    /// Add entity to storage with pre-allocated internal ID
-    pub fn add_with_id<T: EntityType>(
+    /// Add entity to storage with pre-allocated UUID
+    pub fn add_with_uuid<T: EntityType>(
         &mut self,
-        internal_id: u64,
+        uuid: Uuid,
         entity: T::Data,
     ) -> Result<(), ScheduleError> {
         let type_name = T::TYPE_NAME;
@@ -192,36 +193,45 @@ impl EntityStorage {
         let type_entities = self.entities.entry(type_name.to_string()).or_default();
 
         // Check for duplicates
-        if type_entities.by_internal_id.contains_key(&internal_id) {
+        if type_entities.by_internal_uuid.contains_key(&uuid) {
             return Err(ScheduleError::DuplicateEntity {
                 entity_type: type_name.to_string(),
-                id: internal_id.to_string(),
+                id: uuid.to_string(),
             });
         }
 
         let stored = StoredEntity {
-            internal_id,
+            internal_uuid: uuid,
             data: format!("{:?}", entity),
             state: EntityState::Active,
             created_at: chrono::Utc::now().naive_utc(),
             updated_at: chrono::Utc::now().naive_utc(),
         };
 
-        type_entities.by_internal_id.insert(internal_id, stored);
+        type_entities.by_internal_uuid.insert(uuid, stored);
 
         Ok(())
+    }
+
+    /// Check if entity with given UUID exists
+    pub fn contains_uuid<T: EntityType>(&self, uuid: Uuid) -> bool {
+        let type_name = T::TYPE_NAME;
+        self.entities
+            .get(type_name)
+            .map(|type_entities| type_entities.by_internal_uuid.contains_key(&uuid))
+            .unwrap_or(false)
     }
 
     /// Update entity fields
     pub fn update<T: EntityType>(
         &mut self,
-        id: EntityId,
+        uuid: Uuid,
         _updates: &[(String, FieldValue)],
     ) -> Result<(), ScheduleError> {
         let type_name = T::TYPE_NAME;
 
         if let Some(type_entities) = self.entities.get_mut(type_name) {
-            if let Some(stored) = type_entities.by_internal_id.get_mut(&id) {
+            if let Some(stored) = type_entities.by_internal_uuid.get_mut(&uuid) {
                 // Update timestamp
                 stored.updated_at = chrono::Utc::now().naive_utc();
 
@@ -231,13 +241,13 @@ impl EntityStorage {
             } else {
                 Err(ScheduleError::EntityNotFound {
                     entity_type: type_name.to_string(),
-                    id: id.to_string(),
+                    id: uuid.to_string(),
                 })
             }
         } else {
             Err(ScheduleError::EntityNotFound {
                 entity_type: type_name.to_string(),
-                id: id.to_string(),
+                id: uuid.to_string(),
             })
         }
     }

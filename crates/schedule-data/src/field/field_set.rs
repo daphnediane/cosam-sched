@@ -22,7 +22,7 @@
 //! The macro populates all four slices (`fields`, `name_map`,
 //! `required_fields`, `indexable_fields`) from struct attributes.
 
-use crate::entity::EntityType;
+use crate::entity::{EntityType, InternalData};
 use crate::field::traits::{FieldMatchResult, IndexableField, MatchPriority, NamedField};
 use crate::field::ValidationError;
 
@@ -96,12 +96,10 @@ impl<T: EntityType> FieldSet<T> {
     /// `match_field` on each one, and returns the single best
     /// `FieldMatchResult` (highest strength, then highest priority).
     /// Returns `None` when no indexable field matches.
-    pub fn match_index(
-        &self,
-        query: &str,
-        entity_id: u64,
-        entity: &T::Data,
-    ) -> Option<FieldMatchResult> {
+    pub fn match_index(&self, query: &str, entity: &T::Data) -> Option<FieldMatchResult>
+    where
+        T::Data: InternalData,
+    {
         let mut best: Option<FieldMatchResult> = None;
 
         for idx_field in self.indexable_fields {
@@ -115,7 +113,7 @@ impl<T: EntityType> FieldSet<T> {
                 }
 
                 let candidate = FieldMatchResult {
-                    entity_id,
+                    entity_uuid: entity.uuid(),
                     priority,
                     field_priority: idx_field.index_priority(),
                     field_name: idx_field.name(),

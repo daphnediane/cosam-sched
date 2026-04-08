@@ -17,12 +17,13 @@ Updated on: Fri Apr 10 14:29:28 2026
 * [REFACTOR-043] Update `schedule-macro/src/lib.rs` to emit `entity_uuid: uuid::Uuid` in generated `*Data` structs, generate a `new()` constructor with `Uuid::now_v7()`, generate a `to_public()` method, and replace `FieldTypeCategory::EntityId`/`InternalId` with `Uuid`.
 * [REFACTOR-044] Replace `HashMap<EntityId, Vec<EdgeId>>` outgoing/incoming indexes in `GenericEdgeStorage` with `HashMap<uuid::Uuid, Vec<EdgeId>>`.
 * [REFACTOR-045] Update all five concrete edge implementation files to use typed `*Id(Uuid)` constructors and implement `from_uuid()`/`to_uuid()` from the `Edge` trait.
+* [REFACTOR-046] Replace `HashMap<u64, StoredEntity>` and `u64`-keyed internals in `schedule/storage.rs` with `HashMap<uuid::Uuid, StoredEntity>`.
 
 ---
 
 ## Summary of Open Items
 
-**Total open items:** 36
+**Total open items:** 35
 
 * **High Priority**
   * [CLI-013] Port cosam-convert from schedule-core to schedule-data for XLSX-to-JSON conversion.
@@ -40,7 +41,6 @@ Updated on: Fri Apr 10 14:29:28 2026
   * [REFACTOR-031] Extract timeline entries (SPLIT, BREAK, room hours) into a dedicated TimelineEntry entity following the schedule-core pattern.
   * [REFACTOR-037] Migrate from internal u64-based entity IDs to standard UUID v4 for entities, schedules, and edges to enable cross-schedule ID sharing and simplify the public API.
   * [REFACTOR-038] Replace the `EdgeId(u64)` type with `EdgeId(uuid::Uuid)` and add an edge UUID registry to `Schedule` for cross-edge lookups.
-  * [REFACTOR-046] Replace `HashMap<u64, StoredEntity>` and `u64`-keyed internals in `schedule/storage.rs` with `HashMap<uuid::Uuid, StoredEntity>`.
   * [REFACTOR-047] Remove `IdAllocators` from `Schedule`, add `schedule_id: Uuid` to `ScheduleMetadata`, add a private entity UUID registry, implement `Schedule::fetch_uuid`, and update all typed entity/edge method signatures to use typed ID wrappers.
   * [REFACTOR-048] Expose `Schedule::type_of_uuid` and `Schedule::lookup_uuid` using the private entity registry added in REFACTOR-047, and add `EntityRef<'a>` as the borrowed-data return type for `lookup_uuid`.
   * [REFACTOR-049] Update the four existing integration test files to use `Uuid` instead of `EntityId`/`InternalId`, and add new tests for `fetch_uuid` and `lookup_uuid`.
@@ -412,30 +412,6 @@ This work is **blocked** on REFACTOR-039 through REFACTOR-049 (entity UUID migra
 
 ---
 
-### [REFACTOR-046] Update entity storage to use Uuid keys
-
-**Status:** Open
-
-**Priority:** High
-
-**Summary:** Replace `HashMap<u64, StoredEntity>` and `u64`-keyed internals in `schedule/storage.rs` with `HashMap<uuid::Uuid, StoredEntity>`.
-
-**Description:** Part of REFACTOR-037. `EntityStorage` in `schedule/storage.rs` stores entities serialized as JSON strings, keyed by a `u64` internal ID. After the entity ID migration these keys become `uuid::Uuid`.
-
-Changes to `crates/schedule-data/src/schedule/storage.rs`:
-
-* `EntityTypeStorage::by_internal_id: HashMap<u64, ...>` → `HashMap<uuid::Uuid, ...>`
-* `StoredEntity` struct: `internal_id: u64` field → `internal_uuid: uuid::Uuid`
-* `EntityStorage::add_with_id(id: EntityId, ...)` → `add_with_uuid(uuid: Uuid, ...)`
-* `EntityStorage::get(id: EntityId)` → `get(uuid: Uuid)`
-* `EntityStorage::contains_id(id: EntityId)` → `contains_uuid(uuid: Uuid)`
-* Update all internal `HashMap::get`, `HashMap::insert`, `HashMap::contains_key` calls to use `Uuid`
-* Remove import of `EntityId`; add `use uuid::Uuid`
-
-The `deserialize` function stub is kept as-is (it returns `None`); only the key type changes.
-
----
-
 ### [REFACTOR-047] Update Schedule core: remove allocators, add schedule_id and fetch_uuid
 
 **Status:** Open
@@ -660,7 +636,7 @@ New tests to add (can be in `entity_fields_integration.rs` or a new `uuid_regist
 [REFACTOR-043]: work-item/done/REFACTOR-043.md
 [REFACTOR-044]: work-item/done/REFACTOR-044.md
 [REFACTOR-045]: work-item/done/REFACTOR-045.md
-[REFACTOR-046]: work-item/high/REFACTOR-046.md
+[REFACTOR-046]: work-item/done/REFACTOR-046.md
 [REFACTOR-047]: work-item/high/REFACTOR-047.md
 [REFACTOR-048]: work-item/high/REFACTOR-048.md
 [REFACTOR-049]: work-item/high/REFACTOR-049.md

@@ -6,7 +6,7 @@ Replace `HashMap<u64, StoredEntity>` and `u64`-keyed internals in `schedule/stor
 
 ## Status
 
-Open
+Completed
 
 ## Priority
 
