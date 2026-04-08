@@ -6,7 +6,7 @@ Update the four existing integration test files to use `Uuid` instead of `Entity
 
 ## Status
 
-In Progress
+Completed
 
 ## Priority
 
@@ -40,8 +40,8 @@ New tests to add (can be in `entity_fields_integration.rs` or a new `uuid_regist
 ## Acceptance Criteria
 
 * ✅ All four existing test files updated and passing
-* 🔲 All seven new tests added and passing
-* 🔲 `cargo test` at workspace root passes with no failures after new tests added
+* ✅ All seven new tests added and passing
+* ✅ `cargo test` at workspace root passes with no failures after new tests added
 
 ## Notes
 

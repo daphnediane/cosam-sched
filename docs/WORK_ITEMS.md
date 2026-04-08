@@ -1,6 +1,6 @@
 # Cosplay America Schedule - Work Item
 
-Updated on: Fri Apr 10 14:29:30 2026
+Updated on: Fri Apr 10 14:29:31 2026
 
 ## Completed
 
@@ -20,6 +20,7 @@ Updated on: Fri Apr 10 14:29:30 2026
 * [REFACTOR-046] Replace `HashMap<u64, StoredEntity>` and `u64`-keyed internals in `schedule/storage.rs` with `HashMap<uuid::Uuid, StoredEntity>`.
 * [REFACTOR-047] Remove `IdAllocators` from `Schedule`, add `schedule_id: Uuid` to `ScheduleMetadata`, add a private entity UUID registry, implement `Schedule::fetch_uuid`, and update all typed entity/edge method signatures to use typed ID wrappers.
 * [REFACTOR-048] Expose `Schedule::type_of_uuid` and `Schedule::lookup_uuid` using the private entity registry added in REFACTOR-047, and add `EntityRef<'a>` as the borrowed-data return type for `lookup_uuid`.
+* [REFACTOR-049] Update the four existing integration test files to use `Uuid` instead of `EntityId`/`InternalId`, and add new tests for `fetch_uuid` and `lookup_uuid`.
 * [REFACTOR-050] Aggressive migration to `NonNilUuid` as the primary UUID type throughout schedule-data,
 with `TypedId`, `EntityUUID`, and `TypedStorage` traits for generic, zero-dispatch entity access.
 
@@ -27,7 +28,7 @@ with `TypedId`, `EntityUUID`, and `TypedStorage` traits for generic, zero-dispat
 
 ## Summary of Open Items
 
-**Total open items:** 33
+**Total open items:** 32
 
 * **High Priority**
   * [CLI-013] Port cosam-convert from schedule-core to schedule-data for XLSX-to-JSON conversion.
@@ -45,7 +46,6 @@ with `TypedId`, `EntityUUID`, and `TypedStorage` traits for generic, zero-dispat
   * [REFACTOR-031] Extract timeline entries (SPLIT, BREAK, room hours) into a dedicated TimelineEntry entity following the schedule-core pattern.
   * [REFACTOR-037] Migrate from internal u64-based entity IDs to standard UUID v4 for entities, schedules, and edges to enable cross-schedule ID sharing and simplify the public API.
   * [REFACTOR-038] Replace the `EdgeId(u64)` type with `EdgeId(uuid::Uuid)` and add an edge UUID registry to `Schedule` for cross-edge lookups.
-  * [REFACTOR-049] Update the four existing integration test files to use `Uuid` instead of `EntityId`/`InternalId`, and add new tests for `fetch_uuid` and `lookup_uuid`.
   * [TEST-028] Comprehensive integration tests validating schedule-data against schedule-core behavior with real schedule data.
   * [UI-018] Implement comprehensive accessibility for the schedule widget: screen readers, color blindness support, and keyboard navigation.
   * [UI-019] Prevent panel titles from overlapping with the "my schedule" star icon in the schedule widget.
@@ -408,39 +408,6 @@ Previously blocked on entity UUID migration (REFACTOR-037 phases 1–6). That wo
 
 ---
 
-### [REFACTOR-049] Update and extend tests for UUID migration
-
-**Status:** In Progress
-
-**Priority:** High
-
-**Summary:** Update the four existing integration test files to use `Uuid` instead of `EntityId`/`InternalId`, and add new tests for `fetch_uuid` and `lookup_uuid`.
-
-**Description:** Part of REFACTOR-037. After all implementation phases are complete, the test suite needs to be updated to reflect the new UUID-based API and extended to cover the new registry methods.
-
-Files to update in `crates/schedule-data/tests/`:
-
-* `entity_fields_integration.rs` — replace `EntityId` references with `Uuid`; update entity construction to use generated `*Data::new(...)` constructors
-* `direct_indexable_test.rs` — same EntityId → Uuid updates
-* `indexable_fields_test.rs` — same updates
-* `simple_indexable_test.rs` — same updates
-
-**All four files above are updated and passing as of the working branch.**
-
-New tests to add (can be in `entity_fields_integration.rs` or a new `uuid_registry_test.rs`):
-
-* `test_schedule_metadata_has_uuid` — verify `ScheduleMetadata::new()` generates a non-nil `schedule_id`
-* `test_fetch_uuid_panel` — add a panel to a schedule, call `fetch_uuid(panel.uuid())`, verify returned `PublicEntityRef::Panel` matches
-* `test_fetch_uuid_unknown_returns_none` — call `fetch_uuid` with a random UUID, verify `None`
-* `test_lookup_uuid_returns_borrowed_data` — verify `lookup_uuid` returns `EntityRef::Panel(&PanelData)` for a known panel
-* `test_type_of_uuid` — verify `type_of_uuid` returns `Some(EntityKind::Panel)` for a known panel UUID and `None` for an unknown UUID
-* `test_entity_data_new_generates_unique_uuids` — create two `PanelData::new(...)` instances, verify UUIDs differ
-* `test_to_public_roundtrip` — create `PanelData`, call `to_public()`, verify all stored fields match
-
-**None of the seven new tests above are written yet. They are now unblocked** — `EntityStorage` stores real data (no longer a stub), so data round-trip tests will pass. Routing/dispatch tests (`fetch_uuid_routes_through_identify`, `identify_kind_matches_entity_kind`, etc.) exist in `schedule/mod.rs` inline tests.
-
----
-
 ### [REFACTOR-029] Migrate PanelToEventRoom to Specialized Storage
 
 **Status:** Not Started
@@ -573,7 +540,7 @@ New tests to add (can be in `entity_fields_integration.rs` or a new `uuid_regist
 [REFACTOR-046]: work-item/done/REFACTOR-046.md
 [REFACTOR-047]: work-item/done/REFACTOR-047.md
 [REFACTOR-048]: work-item/done/REFACTOR-048.md
-[REFACTOR-049]: work-item/high/REFACTOR-049.md
+[REFACTOR-049]: work-item/done/REFACTOR-049.md
 [REFACTOR-050]: work-item/done/REFACTOR-050.md
 [TEST-028]: work-item/high/TEST-028.md
 [UI-018]: work-item/high/UI-018.md
