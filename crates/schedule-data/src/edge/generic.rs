@@ -45,30 +45,26 @@ impl<E: Edge> GenericEdgeStorage<E> {
         let from_uuid = edge.from_uuid();
         let to_uuid = edge.to_uuid();
 
-        // Check for duplicates (only for edges with a from_uuid)
-        if let Some(from) = from_uuid {
-            if let Some(to) = to_uuid {
-                if self.edge_exists(from, to) {
-                    return Err(EdgeError::DuplicateEdge {
-                        from_id: from.to_string(),
-                        to_id: to.to_string(),
-                    });
-                }
-            }
-
-            // Add to main storage
-            self.edges.insert(edge_id, edge);
-
-            // Update indexes using uuid for efficiency
-            self.outgoing_index.entry(from).or_default().push(edge_id);
-        } else {
-            // Edge without from_uuid (group-only edge)
-            self.edges.insert(edge_id, edge);
+        // Check for duplicates
+        if self.edge_exists(from_uuid, to_uuid) {
+            return Err(EdgeError::DuplicateEdge {
+                from_id: from_uuid.to_string(),
+                to_id: to_uuid.to_string(),
+            });
         }
 
-        if let Some(to) = to_uuid {
-            self.incoming_index.entry(to).or_default().push(edge_id);
-        }
+        // Add to main storage
+        self.edges.insert(edge_id, edge);
+
+        // Update indexes using uuid for efficiency
+        self.outgoing_index
+            .entry(from_uuid)
+            .or_default()
+            .push(edge_id);
+        self.incoming_index
+            .entry(to_uuid)
+            .or_default()
+            .push(edge_id);
 
         Ok(edge_id)
     }
@@ -80,22 +76,18 @@ impl<E: Edge> GenericEdgeStorage<E> {
             let to_uuid = edge.to_uuid();
 
             // Remove from outgoing index
-            if let Some(from) = from_uuid {
-                if let Some(edges) = self.outgoing_index.get_mut(&from) {
-                    edges.retain(|&id| id != edge_id);
-                    if edges.is_empty() {
-                        self.outgoing_index.remove(&from);
-                    }
+            if let Some(edges) = self.outgoing_index.get_mut(&from_uuid) {
+                edges.retain(|&id| id != edge_id);
+                if edges.is_empty() {
+                    self.outgoing_index.remove(&from_uuid);
                 }
             }
 
             // Remove from incoming index
-            if let Some(to) = to_uuid {
-                if let Some(edges) = self.incoming_index.get_mut(&to) {
-                    edges.retain(|&id| id != edge_id);
-                    if edges.is_empty() {
-                        self.incoming_index.remove(&to);
-                    }
+            if let Some(edges) = self.incoming_index.get_mut(&to_uuid) {
+                edges.retain(|&id| id != edge_id);
+                if edges.is_empty() {
+                    self.incoming_index.remove(&to_uuid);
                 }
             }
 
@@ -151,7 +143,7 @@ impl<E: Edge> GenericEdgeStorage<E> {
                 edge_ids.iter().any(|&edge_id| {
                     self.edges
                         .get(&edge_id)
-                        .map(|edge| edge.to_uuid() == Some(to_uuid))
+                        .map(|edge| edge.to_uuid() == to_uuid)
                         .unwrap_or(false)
                 })
             })

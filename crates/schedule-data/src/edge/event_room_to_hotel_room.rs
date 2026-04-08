@@ -38,12 +38,12 @@ impl Edge for EventRoomToHotelRoomEdge {
     type ToEntity = crate::entity::HotelRoomEntityType;
     type Data = EventRoomToHotelRoomData;
 
-    fn from_uuid(&self) -> Option<NonNilUuid> {
-        Some(NonNilUuid::from(self.from_id))
+    fn from_uuid(&self) -> NonNilUuid {
+        NonNilUuid::from(self.from_id)
     }
 
-    fn to_uuid(&self) -> Option<NonNilUuid> {
-        Some(NonNilUuid::from(self.to_id))
+    fn to_uuid(&self) -> NonNilUuid {
+        NonNilUuid::from(self.to_id)
     }
 
     fn data(&self) -> &Self::Data {

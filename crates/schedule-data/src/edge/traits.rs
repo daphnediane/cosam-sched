@@ -16,11 +16,18 @@ pub trait Edge: Debug + Clone {
     type ToEntity: EntityType;
     type Data: Debug + Clone;
 
-    fn from_uuid(&self) -> Option<NonNilUuid>;
-    fn to_uuid(&self) -> Option<NonNilUuid>;
+    fn from_uuid(&self) -> NonNilUuid;
+    fn to_uuid(&self) -> NonNilUuid;
     fn data(&self) -> &Self::Data;
     fn data_mut(&mut self) -> &mut Self::Data;
     fn edge_type(&self) -> EdgeType;
+
+    /// Returns true if this edge is a self-cycle (from_uuid == to_uuid).
+    /// This is typically used for group markers or other special cases where
+    /// an entity references itself to indicate a distinct state.
+    fn is_self_cycle(&self) -> bool {
+        self.from_uuid() == self.to_uuid()
+    }
 }
 
 /// Relationship edge for presenter-group relationships with transitive closure

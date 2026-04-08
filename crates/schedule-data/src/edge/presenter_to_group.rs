@@ -68,35 +68,25 @@ impl RelationshipCache {
 }
 
 /// Edge representing a group/member relationship (based on GroupEdge from schedule-core)
+/// A self-referencing edge (member_id == group_id) indicates a group marker with unknown members.
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord)]
-pub enum PresenterToGroupEdge {
-    /// A group marker with unknown members (e.g., "G:==Group")
-    GroupOnly {
-        group_id: PresenterId,
-        always_shown_in_group: bool,
-    },
-    /// A specific member belonging to a group
-    MemberToGroup {
-        member_id: PresenterId,
-        group_id: PresenterId,
-        always_grouped: bool,
-        always_shown_in_group: bool,
-    },
+pub struct PresenterToGroupEdge {
+    member_id: PresenterId,
+    group_id: PresenterId,
+    always_grouped: bool,
+    always_shown_in_group: bool,
 }
 
 impl PresenterToGroupEdge {
     /// Create a new presenter-group edge
+    /// If member_id == group_id, this creates a group marker edge.
     pub fn new(
         member_id: PresenterId,
         group_id: PresenterId,
         always_grouped: bool,
         always_shown_in_group: bool,
     ) -> Self {
-        if member_id == group_id {
-            return Self::group_only(group_id, always_shown_in_group);
-        }
-
-        Self::MemberToGroup {
+        Self {
             member_id,
             group_id,
             always_grouped,
@@ -105,54 +95,43 @@ impl PresenterToGroupEdge {
     }
 
     /// Create an edge for a group with unknown members (G:==Group syntax)
+    /// This is a self-referencing edge where member_id == group_id.
     pub fn group_only(group_id: PresenterId, always_shown_in_group: bool) -> Self {
-        Self::GroupOnly {
+        Self {
+            member_id: group_id,
             group_id,
+            always_grouped: false,
             always_shown_in_group,
         }
     }
 
-    /// Check if this edge represents a group with unknown members
-    pub fn is_group_only(&self) -> bool {
-        matches!(self, Self::GroupOnly { .. })
+    /// Check if this edge represents a group marker (self-referencing edge)
+    pub fn is_group_marker(&self) -> bool {
+        self.member_id == self.group_id
     }
 
-    /// Get the member ID if this is a MemberToGroup edge
-    pub fn member_id(&self) -> Option<PresenterId> {
-        match self {
-            Self::MemberToGroup { member_id, .. } => Some(*member_id),
-            Self::GroupOnly { .. } => None,
-        }
+    /// Get the member ID
+    pub fn member_id(&self) -> PresenterId {
+        self.member_id
     }
 
     /// Get the group ID
     pub fn group_id(&self) -> PresenterId {
-        match self {
-            Self::MemberToGroup { group_id, .. } => *group_id,
-            Self::GroupOnly { group_id, .. } => *group_id,
-        }
+        self.group_id
     }
 
-    /// Get the always_grouped flag
+    /// Get the always_grouped flag (always false for group markers)
     pub fn always_grouped(&self) -> bool {
-        match self {
-            Self::MemberToGroup { always_grouped, .. } => *always_grouped,
-            Self::GroupOnly { .. } => false,
+        if self.is_group_marker() {
+            false
+        } else {
+            self.always_grouped
         }
     }
 
     /// Get the always_shown_in_group flag
     pub fn always_shown_in_group(&self) -> bool {
-        match self {
-            Self::MemberToGroup {
-                always_shown_in_group,
-                ..
-            } => *always_shown_in_group,
-            Self::GroupOnly {
-                always_shown_in_group,
-                ..
-            } => *always_shown_in_group,
-        }
+        self.always_shown_in_group
     }
 }
 
@@ -161,12 +140,12 @@ impl Edge for PresenterToGroupEdge {
     type ToEntity = crate::entity::PresenterEntityType;
     type Data = Self;
 
-    fn from_uuid(&self) -> Option<NonNilUuid> {
-        self.member_id().map(|id| NonNilUuid::from(id))
+    fn from_uuid(&self) -> NonNilUuid {
+        NonNilUuid::from(self.member_id)
     }
 
-    fn to_uuid(&self) -> Option<NonNilUuid> {
-        Some(NonNilUuid::from(self.group_id()))
+    fn to_uuid(&self) -> NonNilUuid {
+        NonNilUuid::from(self.group_id)
     }
 
     fn data(&self) -> &Self::Data {
@@ -179,6 +158,11 @@ impl Edge for PresenterToGroupEdge {
 
     fn edge_type(&self) -> EdgeType {
         EdgeType::PresenterToGroup
+    }
+
+    /// Override is_self_cycle to indicate group markers
+    fn is_self_cycle(&self) -> bool {
+        self.is_group_marker()
     }
 }
 
@@ -212,42 +196,29 @@ impl PresenterToGroupStorage {
     }
 
     /// Internal implementation for adding a relationship edge
-    fn add_edge_internal(&mut self, mut edge: PresenterToGroupEdge) -> Result<EdgeId, EdgeError> {
-        // Handle self-references: convert to group-only edge
-        if let Some(member_id) = edge.member_id() {
-            if member_id == edge.group_id() {
-                // Self-reference like "Group -> Group" becomes group-only
-                edge =
-                    PresenterToGroupEdge::group_only(edge.group_id(), edge.always_shown_in_group());
-            }
-        }
-
+    fn add_edge_internal(&mut self, edge: PresenterToGroupEdge) -> Result<EdgeId, EdgeError> {
         let edge_id = EdgeId(self.next_id);
         self.next_id += 1;
 
         // Remove existing edge for this member-group pair if it exists
-        if let Some(member_id) = edge.member_id() {
-            let member_uuid = NonNilUuid::from(member_id);
-            let group_uuid = NonNilUuid::from(edge.group_id());
-            self.remove_edge_internal(&member_uuid, &group_uuid);
-        }
+        let member_uuid = NonNilUuid::from(edge.member_id());
+        let group_uuid = NonNilUuid::from(edge.group_id());
+        self.remove_edge_internal(&member_uuid, &group_uuid);
 
         // Add the edge
         self.edges.insert(edge.clone());
 
         // Update indexes using NonNilUuid for efficiency
-        if let Some(member_id) = edge.member_id() {
-            let member_uuid = NonNilUuid::from(member_id);
-            let group_uuid = NonNilUuid::from(edge.group_id());
+        // Only update member->groups index for non-group-marker edges
+        if !edge.is_group_marker() {
             self.member_to_groups
                 .entry(member_uuid)
                 .or_default()
                 .push(group_uuid);
         }
 
-        if let Some(member_id) = edge.member_id() {
-            let member_uuid = NonNilUuid::from(member_id);
-            let group_uuid = NonNilUuid::from(edge.group_id());
+        // Only update group->members index for non-group-marker edges
+        if !edge.is_group_marker() {
             self.group_to_members
                 .entry(group_uuid)
                 .or_default()
@@ -278,7 +249,7 @@ impl PresenterToGroupStorage {
             .edges
             .iter()
             .find(|e| {
-                e.member_id().map(|m| NonNilUuid::from(m)) == Some(*member_id)
+                NonNilUuid::from(e.member_id()) == *member_id
                     && NonNilUuid::from(e.group_id()) == *group_id
             })
             .cloned();
@@ -287,22 +258,21 @@ impl PresenterToGroupStorage {
             self.edges.remove(&edge);
 
             // Update indexes
-            if !edge.is_group_only() {
-                if let Some(member_id) = edge.member_id() {
-                    let member_uuid = NonNilUuid::from(member_id);
-                    if let Some(groups) = self.member_to_groups.get_mut(&member_uuid) {
-                        let group_uuid = NonNilUuid::from(edge.group_id());
-                        groups.retain(|&g| g != group_uuid);
-                        if groups.is_empty() {
-                            self.member_to_groups.remove(&member_uuid);
-                        }
+            if !edge.is_group_marker() {
+                let member_uuid = NonNilUuid::from(edge.member_id());
+                if let Some(groups) = self.member_to_groups.get_mut(&member_uuid) {
+                    let group_uuid = NonNilUuid::from(edge.group_id());
+                    groups.retain(|&g| g != group_uuid);
+                    if groups.is_empty() {
+                        self.member_to_groups.remove(&member_uuid);
                     }
                 }
             }
 
             let group_uuid = NonNilUuid::from(edge.group_id());
             if let Some(members) = self.group_to_members.get_mut(&group_uuid) {
-                members.retain(|&m| edge.member_id().map(|id| NonNilUuid::from(id)) != Some(m));
+                let member_uuid = NonNilUuid::from(edge.member_id());
+                members.retain(|&m| m != member_uuid);
                 if members.is_empty() {
                     self.group_to_members.remove(&group_uuid);
                 }
@@ -370,7 +340,7 @@ impl PresenterToGroupStorage {
         let group_id = PresenterId::from(group_id);
         self.edges
             .iter()
-            .find(|e| e.member_id() == Some(member_id) && e.group_id() == group_id)
+            .find(|e| e.member_id() == member_id && e.group_id() == group_id)
             .map(|e| e.always_grouped())
             .unwrap_or(false)
     }
@@ -380,7 +350,7 @@ impl PresenterToGroupStorage {
         let member_id = PresenterId::from(member_id);
         self.edges
             .iter()
-            .any(|e| e.member_id() == Some(member_id) && e.always_grouped())
+            .any(|e| e.member_id() == member_id && e.always_grouped())
     }
 
     /// Check if a group should always be shown as a group
@@ -406,7 +376,7 @@ impl PresenterToGroupStorage {
         let group_id = PresenterId::from(group_id);
         self.edges
             .iter()
-            .find(|e| e.member_id() == Some(member_id) && e.group_id() == group_id)
+            .find(|e| e.member_id() == member_id && e.group_id() == group_id)
     }
 
     /// Invalidate the cache
@@ -428,25 +398,22 @@ impl PresenterToGroupStorage {
 
         // Build direct relationships
         for edge in &self.edges {
-            if let Some(member_id) = edge.member_id() {
-                let member_uuid = NonNilUuid::from(member_id);
-                let group_uuid = NonNilUuid::from(edge.group_id());
-                if !edge.is_group_only() {
-                    self.cache
-                        .direct_parent_groups
-                        .entry(member_uuid)
-                        .or_default()
-                        .push(group_uuid);
-                }
+            let member_uuid = NonNilUuid::from(edge.member_id());
+            let group_uuid = NonNilUuid::from(edge.group_id());
 
-                // Only add non-group-only edges to direct_members
-                if !edge.is_group_only() {
-                    self.cache
-                        .direct_members
-                        .entry(group_uuid)
-                        .or_default()
-                        .push(member_uuid);
-                }
+            // Only add non-group-marker edges to relationship indexes
+            if !edge.is_group_marker() {
+                self.cache
+                    .direct_parent_groups
+                    .entry(member_uuid)
+                    .or_default()
+                    .push(group_uuid);
+
+                self.cache
+                    .direct_members
+                    .entry(group_uuid)
+                    .or_default()
+                    .push(member_uuid);
             }
         }
 
@@ -552,7 +519,7 @@ impl EdgeStorage<PresenterToGroupEdge> for PresenterToGroupStorage {
                         let group_id = PresenterId::from(group_id);
                         self.edges
                             .iter()
-                            .find(|e| e.member_id() == Some(member_id) && e.group_id() == group_id)
+                            .find(|e| e.member_id() == member_id && e.group_id() == group_id)
                     })
                     .collect()
             })
@@ -571,7 +538,7 @@ impl EdgeStorage<PresenterToGroupEdge> for PresenterToGroupStorage {
                         let group_id = PresenterId::from(to_uuid);
                         self.edges
                             .iter()
-                            .find(|e| e.member_id() == Some(member_id) && e.group_id() == group_id)
+                            .find(|e| e.member_id() == member_id && e.group_id() == group_id)
                     })
                     .collect()
             })
@@ -583,7 +550,7 @@ impl EdgeStorage<PresenterToGroupEdge> for PresenterToGroupStorage {
         let group_id = PresenterId::from(to_uuid);
         self.edges
             .iter()
-            .any(|e| e.member_id() == Some(member_id) && e.group_id() == group_id)
+            .any(|e| e.member_id() == member_id && e.group_id() == group_id)
     }
 
     fn len(&self) -> usize {
@@ -711,7 +678,7 @@ mod tests {
         // Verify it became a group-only edge
         let edges: Vec<_> = storage.edges().collect();
         assert_eq!(edges.len(), 1);
-        assert!(edges[0].is_group_only());
+        assert!(edges[0].is_group_marker());
         assert_eq!(edges[0].group_id(), group_id);
     }
 

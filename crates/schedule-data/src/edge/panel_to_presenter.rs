@@ -38,12 +38,12 @@ impl Edge for PanelToPresenterEdge {
     type ToEntity = crate::entity::PresenterEntityType;
     type Data = PanelToPresenterData;
 
-    fn from_uuid(&self) -> Option<NonNilUuid> {
-        Some(NonNilUuid::from(self.from_id))
+    fn from_uuid(&self) -> NonNilUuid {
+        NonNilUuid::from(self.from_id)
     }
 
-    fn to_uuid(&self) -> Option<NonNilUuid> {
-        Some(NonNilUuid::from(self.to_id))
+    fn to_uuid(&self) -> NonNilUuid {
+        NonNilUuid::from(self.to_id)
     }
 
     fn data(&self) -> &Self::Data {
@@ -98,7 +98,7 @@ impl PanelToPresenterStorage {
             .edges
             .find_outgoing(panel_id)
             .iter()
-            .filter_map(|e| e.to_uuid())
+            .map(|e| e.to_uuid())
             .collect();
 
         let mut inclusive = Vec::new();
@@ -141,7 +141,7 @@ impl PanelToPresenterStorage {
             .edges
             .find_incoming(presenter_id)
             .iter()
-            .filter_map(|e| e.from_uuid())
+            .map(|e| e.from_uuid())
             .collect();
 
         let mut inclusive = direct_panels;
@@ -157,7 +157,7 @@ impl PanelToPresenterStorage {
                 .edges
                 .find_incoming(current)
                 .iter()
-                .filter_map(|e| e.from_uuid())
+                .map(|e| e.from_uuid())
             {
                 if !inclusive.contains(&panel_id) {
                     inclusive.push(panel_id);

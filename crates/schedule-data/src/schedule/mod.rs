@@ -248,13 +248,13 @@ impl Schedule {
                     self.panel_to_presenter
                         .find_outgoing(uuid)
                         .iter()
-                        .filter_map(|e| e.to_uuid())
+                        .map(|e| e.to_uuid())
                         .collect()
                 } else {
                     self.panel_to_presenter
                         .find_incoming(uuid)
                         .iter()
-                        .filter_map(|e| e.from_uuid())
+                        .map(|e| e.from_uuid())
                         .collect()
                 }
             }
@@ -263,13 +263,13 @@ impl Schedule {
                     self.panel_to_event_room
                         .find_outgoing(uuid)
                         .iter()
-                        .filter_map(|e| e.to_uuid())
+                        .map(|e| e.to_uuid())
                         .collect()
                 } else {
                     self.panel_to_event_room
                         .find_incoming(uuid)
                         .iter()
-                        .filter_map(|e| e.from_uuid())
+                        .map(|e| e.from_uuid())
                         .collect()
                 }
             }
@@ -278,13 +278,13 @@ impl Schedule {
                     self.panel_to_panel_type
                         .find_outgoing(uuid)
                         .iter()
-                        .filter_map(|e| e.to_uuid())
+                        .map(|e| e.to_uuid())
                         .collect()
                 } else {
                     self.panel_to_panel_type
                         .find_incoming(uuid)
                         .iter()
-                        .filter_map(|e| e.from_uuid())
+                        .map(|e| e.from_uuid())
                         .collect()
                 }
             }
@@ -300,13 +300,13 @@ impl Schedule {
                     self.event_room_to_hotel_room
                         .find_outgoing(uuid)
                         .iter()
-                        .filter_map(|e| e.to_uuid())
+                        .map(|e| e.to_uuid())
                         .collect()
                 } else {
                     self.event_room_to_hotel_room
                         .find_incoming(uuid)
                         .iter()
-                        .filter_map(|e| e.from_uuid())
+                        .map(|e| e.from_uuid())
                         .collect()
                 }
             }
@@ -320,7 +320,7 @@ impl Schedule {
         self.panel_to_presenter
             .find_outgoing(panel_id.non_nil_uuid())
             .iter()
-            .filter_map(|e| e.to_uuid().map(PresenterId::from_uuid))
+            .map(|e| PresenterId::from_uuid(e.to_uuid()))
             .collect()
     }
 
@@ -329,7 +329,7 @@ impl Schedule {
         self.panel_to_event_room
             .find_outgoing(panel_id.non_nil_uuid())
             .first()
-            .and_then(|e| e.to_uuid().map(EventRoomId::from_uuid))
+            .map(|e| EventRoomId::from_uuid(e.to_uuid()))
     }
 
     /// Get the panel type for a panel (returns PanelTypeId)
@@ -337,7 +337,7 @@ impl Schedule {
         self.panel_to_panel_type
             .find_outgoing(panel_id.non_nil_uuid())
             .first()
-            .and_then(|e| e.to_uuid().map(PanelTypeId::from_uuid))
+            .map(|e| PanelTypeId::from_uuid(e.to_uuid()))
     }
 
     /// Get all groups a presenter belongs to (returns PresenterIds)
@@ -363,7 +363,7 @@ impl Schedule {
         self.panel_to_presenter
             .find_incoming(presenter_id.non_nil_uuid())
             .iter()
-            .filter_map(|e| e.from_uuid().map(PanelId::from_uuid))
+            .map(|e| PanelId::from_uuid(e.from_uuid()))
             .collect()
     }
 
