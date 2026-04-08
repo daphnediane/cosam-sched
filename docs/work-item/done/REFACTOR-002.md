@@ -6,7 +6,7 @@ Align all entity fields with spreadsheet canonical columns and schedule-core equ
 
 ## Status
 
-Not Started
+Completed
 
 ## Priority
 

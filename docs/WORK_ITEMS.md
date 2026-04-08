@@ -5,6 +5,7 @@ Updated on: Fri Apr 10 14:29:31 2026
 ## Completed
 
 * [REFACTOR-001] Replace Schedule's string-based EdgeStorage with type-safe edge storage system using typed edge structs and dedicated storage per relationship type. Foundation is complete; remaining work is integration into Schedule and implementing relationship-specific behaviors.
+* [REFACTOR-002] Align all entity fields with spreadsheet canonical columns and schedule-core equivalents.
 * [REFACTOR-032] Align Panel entity fields with schedule-core canonical column definitions.
 * [REFACTOR-033] Align EventRoom entity fields with schedule-core canonical column definitions.
 * [REFACTOR-034] Align HotelRoom entity field aliases with schedule-core canonical column definitions.
@@ -28,7 +29,7 @@ with `TypedId`, `EntityUUID`, and `TypedStorage` traits for generic, zero-dispat
 
 ## Summary of Open Items
 
-**Total open items:** 32
+**Total open items:** 31
 
 * **High Priority**
   * [CLI-013] Port cosam-convert from schedule-core to schedule-data for XLSX-to-JSON conversion.
@@ -38,7 +39,6 @@ with `TypedId`, `EntityUUID`, and `TypedStorage` traits for generic, zero-dispat
   * [FEATURE-008] Implement display/public JSON export for the schedule widget, equivalent to schedule-core's display_export.
   * [FEATURE-009] Implement XLSX reading and writing against schedule-data entities, replacing schedule-core's xlsx module.
   * [FEATURE-010] Implement room and presenter conflict detection with support for room-wide event exemptions.
-  * [REFACTOR-002] Align all entity fields with spreadsheet canonical columns and schedule-core equivalents.
   * [REFACTOR-003] Implement public query families for all entity types with ranked index matching.
   * [REFACTOR-004] Implement per-entity mutation families with deterministic side effects for add, update, restore, and find-or-add operations.
   * [REFACTOR-005] Implement command-based edit history with undo/redo stacks and atomic batch operations.
@@ -294,18 +294,6 @@ The following ID numbers are available for new items:
 
 ## Open REFACTOR Items
 
-### [REFACTOR-002] Field Alignment with Schedule-Core Canonical Columns
-
-**Status:** Not Started
-
-**Priority:** High
-
-**Summary:** Align all entity fields with spreadsheet canonical columns and schedule-core equivalents.
-
-**Description:** Review and align entity fields with `crates/schedule-core/src/xlsx/columns.rs` canonical column definitions. Ensure field names and aliases match `docs/spreadsheet-format.md` and JSON format specifications. Add any missing canonical fields.
-
----
-
 ### [REFACTOR-003] Query API Surface
 
 **Status:** Not Started
@@ -516,7 +504,7 @@ Previously blocked on entity UUID migration (REFACTOR-037 phases 1–6). That wo
 [FEATURE-012]: work-item/low/FEATURE-012.md
 [FEATURE-030]: work-item/low/FEATURE-030.md
 [REFACTOR-001]: work-item/done/REFACTOR-001.md
-[REFACTOR-002]: work-item/high/REFACTOR-002.md
+[REFACTOR-002]: work-item/done/REFACTOR-002.md
 [REFACTOR-003]: work-item/high/REFACTOR-003.md
 [REFACTOR-004]: work-item/high/REFACTOR-004.md
 [REFACTOR-005]: work-item/high/REFACTOR-005.md
