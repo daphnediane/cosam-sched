@@ -16,6 +16,18 @@ use uuid::Uuid;
 #[serde(transparent)]
 pub struct PanelId(Uuid);
 
+impl PanelId {
+    /// Get the UUID from this ID
+    pub fn uuid(&self) -> Uuid {
+        self.0
+    }
+
+    /// Create a PanelId from a UUID
+    pub fn from_uuid(uuid: Uuid) -> Self {
+        Self(uuid)
+    }
+}
+
 impl fmt::Display for PanelId {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         write!(f, "panel-{}", self.0)
@@ -36,6 +48,7 @@ impl From<PanelId> for Uuid {
 
 /// Panel entity with EntityFields derive macro
 #[derive(EntityFields, Debug, Clone)]
+#[entity_kind(Panel)]
 pub struct Panel {
     #[field(display = "Uniq UID", description = "Unique identifier for the panel")]
     #[alias("uid", "id")]
@@ -197,9 +210,10 @@ pub struct Panel {
     )]
     #[alias("presenter_list", "panelists")]
     #[read(|schedule: &crate::schedule::Schedule, entity: &PanelData| {
-        let presenter_ids = schedule.get_panel_presenters(PanelId(entity.entity_uuid));
+        let presenter_ids = schedule.get_panel_presenters(PanelId::from_uuid(entity.entity_uuid));
+        let presenter_uuids: Vec<uuid::Uuid> = presenter_ids.iter().map(|id| id.uuid()).collect();
         Some(crate::field::FieldValue::List(
-            schedule.get_entity_names::<crate::entity::PresenterEntityType>(&presenter_ids)
+            schedule.get_entity_names::<crate::entity::PresenterEntityType>(&presenter_uuids)
                 .into_iter()
                 .map(crate::field::FieldValue::String)
                 .collect()
@@ -214,8 +228,8 @@ pub struct Panel {
     )]
     #[alias("room", "location", "event_room_name")]
     #[read(|schedule: &crate::schedule::Schedule, entity: &PanelData| {
-        if let Some(room_id) = schedule.get_panel_event_room(PanelId(entity.entity_uuid)) {
-            if let Some(room) = schedule.get_entity::<crate::entity::EventRoomEntityType>(room_id) {
+        if let Some(room_id) = schedule.get_panel_event_room(PanelId::from_uuid(entity.entity_uuid)) {
+            if let Some(room) = schedule.get_entity::<crate::entity::EventRoomEntityType>(room_id.uuid()) {
                 return Some(crate::field::FieldValue::String(room.long_name.clone()));
             }
         }
@@ -230,8 +244,8 @@ pub struct Panel {
     )]
     #[alias("type", "category", "panel_category")]
     #[read(|schedule: &crate::schedule::Schedule, entity: &PanelData| {
-        if let Some(type_id) = schedule.get_panel_type(PanelId(entity.entity_uuid)) {
-            if let Some(panel_type) = schedule.get_entity::<crate::entity::PanelTypeEntityType>(type_id) {
+        if let Some(type_id) = schedule.get_panel_type(PanelId::from_uuid(entity.entity_uuid)) {
+            if let Some(panel_type) = schedule.get_entity::<crate::entity::PanelTypeEntityType>(type_id.uuid()) {
                 return Some(crate::field::FieldValue::String(panel_type.prefix.clone()));
             }
         }

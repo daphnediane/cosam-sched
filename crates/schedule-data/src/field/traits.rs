@@ -266,6 +266,7 @@ mod tests {
     impl EntityType for TestEntity {
         type Data = TestEntity;
         const TYPE_NAME: &'static str = "TestEntity";
+        const KIND: crate::entity::EntityKind = crate::entity::EntityKind::Panel;
 
         fn validate(_data: &Self::Data) -> Result<(), crate::field::validation::ValidationError> {
             Ok(())

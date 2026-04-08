@@ -85,6 +85,7 @@ pub trait EntityType: 'static + Send + Sync + fmt::Debug {
     // @todo: type PublicData: PublicData;
 
     const TYPE_NAME: &'static str;
+    const KIND: EntityKind;
 
     fn field_set() -> &'static FieldSet<Self>
     where
@@ -96,6 +97,14 @@ pub trait EntityType: 'static + Send + Sync + fmt::Debug {
     /// Get the type name for this entity type (for dyn compatibility)
     fn type_name(&self) -> &'static str {
         Self::TYPE_NAME
+    }
+
+    /// Get the EntityKind for this entity type
+    fn kind() -> EntityKind
+    where
+        Self: Sized,
+    {
+        Self::KIND
     }
 }
 

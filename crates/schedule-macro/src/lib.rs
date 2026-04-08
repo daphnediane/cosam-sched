@@ -73,7 +73,8 @@ use syn::{
         computed_field,
         read,
         write,
-        validate
+        validate,
+        entity_kind
     )
 )]
 pub fn derive_entity_fields(input: TokenStream) -> TokenStream {
@@ -244,6 +245,11 @@ pub fn derive_entity_fields(input: TokenStream) -> TokenStream {
     // Generate TYPE_NAME from struct name (PascalCase → snake_case)
     let type_name_str = pascal_to_snake_case(&struct_name.to_string());
 
+    // Parse entity_kind from struct-level attributes
+    let entity_kind = parse_entity_kind(&input.attrs)
+        .expect("EntityFields requires #[entity_kind(...)] attribute with EntityKind variant");
+    let entity_kind_ident = Ident::new(&entity_kind, proc_macro2::Span::call_site());
+
     // Generate field set construction tokens
     let field_struct_names: Vec<Ident> = field_names
         .iter()
@@ -360,6 +366,7 @@ pub fn derive_entity_fields(input: TokenStream) -> TokenStream {
             type Data = #data_struct_name;
 
             const TYPE_NAME: &'static str = #type_name_str;
+            const KIND: crate::entity::EntityKind = crate::entity::EntityKind::#entity_kind_ident;
 
             #field_set_impl
 
@@ -474,6 +481,19 @@ fn parse_field_aliases(attrs: &[Attribute]) -> Option<Vec<String>> {
     } else {
         Some(aliases)
     }
+}
+
+/// Parse entity_kind attribute from struct attributes
+fn parse_entity_kind(attrs: &[Attribute]) -> Option<String> {
+    for attr in attrs {
+        if attr.path().is_ident("entity_kind") {
+            if let Meta::List(meta_list) = &attr.meta {
+                let tokens_str = meta_list.tokens.to_string();
+                return Some(tokens_str.trim().to_string());
+            }
+        }
+    }
+    None
 }
 
 /// Parse indexable match closure from indexable attribute

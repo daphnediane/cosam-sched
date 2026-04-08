@@ -34,8 +34,21 @@ impl From<EventRoomId> for Uuid {
     }
 }
 
+impl EventRoomId {
+    /// Get the UUID from this ID
+    pub fn uuid(&self) -> Uuid {
+        self.0
+    }
+
+    /// Create an EventRoomId from a UUID
+    pub fn from_uuid(uuid: Uuid) -> Self {
+        Self(uuid)
+    }
+}
+
 /// EventRoom entity for event/convention rooms
 #[derive(EntityFields, Debug, Clone)]
+#[entity_kind(EventRoom)]
 pub struct EventRoom {
     #[field(display = "Room Name", description = "Short room name")]
     #[alias("short", "Room_Name", "room_name")]

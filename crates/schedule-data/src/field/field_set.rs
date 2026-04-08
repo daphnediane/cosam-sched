@@ -183,17 +183,17 @@ mod tests {
     // Mock EntityType implementation
     impl EntityType for TestEntity {
         type Data = TestEntity;
-
         const TYPE_NAME: &'static str = "TestEntity";
+        const KIND: crate::entity::EntityKind = crate::entity::EntityKind::Panel;
+
+        fn validate(_data: &Self::Data) -> Result<(), crate::field::validation::ValidationError> {
+            Ok(())
+        }
 
         fn field_set() -> &'static FieldSet<Self> {
             static FIELD_SET: std::sync::LazyLock<FieldSet<TestEntity>> =
                 std::sync::LazyLock::new(|| FieldSet::new(&[], &[], &[], &[]));
             &FIELD_SET
-        }
-
-        fn validate(_data: &Self::Data) -> Result<(), ValidationError> {
-            Ok(())
         }
     }
 

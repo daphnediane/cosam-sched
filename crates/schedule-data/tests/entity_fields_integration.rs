@@ -16,6 +16,7 @@ use schedule_data::entity::{
     EventRoomEntityType, HotelRoomEntityType, PanelEntityType, PanelTypeEntityType,
     PresenterEntityType,
 };
+use uuid::Uuid;
 
 // ---------------------------------------------------------------------------
 // EntityType impl tests
@@ -116,7 +117,7 @@ fn presenter_field_set_alias_lookup() {
 #[allow(dead_code)]
 fn make_test_event_room() -> EventRoomData {
     EventRoomData {
-        entity_id: 0,
+        entity_uuid: Uuid::nil(),
         short_name: "Main".to_string(),
         long_name: "Main Ballroom".to_string(),
         is_break: false,
@@ -129,7 +130,7 @@ fn make_test_event_room() -> EventRoomData {
 #[allow(dead_code)]
 fn make_test_hotel_room() -> HotelRoomData {
     HotelRoomData {
-        entity_id: 0,
+        entity_uuid: Uuid::nil(),
         hotel_room: "Ballroom A".to_string(),
         sort_key: 10,
         event_rooms: Vec::new(),

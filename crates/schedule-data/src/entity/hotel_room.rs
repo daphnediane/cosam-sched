@@ -34,8 +34,21 @@ impl From<HotelRoomId> for Uuid {
     }
 }
 
+impl HotelRoomId {
+    /// Get the UUID from this ID
+    pub fn uuid(&self) -> Uuid {
+        self.0
+    }
+
+    /// Create a HotelRoomId from a UUID
+    pub fn from_uuid(uuid: Uuid) -> Self {
+        Self(uuid)
+    }
+}
+
 /// HotelRoom entity for physical hotel room information
 #[derive(EntityFields, Debug, Clone)]
+#[entity_kind(HotelRoom)]
 pub struct HotelRoom {
     #[field(display = "Hotel Room", description = "Physical hotel room")]
     #[alias("hotel_room", "Hotel_Room", "hotel", "location")]

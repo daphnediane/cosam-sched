@@ -1,6 +1,6 @@
 # Cosplay America Schedule - Work Item
 
-Updated on: Fri Apr 10 14:29:28 2026
+Updated on: Fri Apr 10 14:29:29 2026
 
 ## Completed
 
@@ -18,12 +18,13 @@ Updated on: Fri Apr 10 14:29:28 2026
 * [REFACTOR-044] Replace `HashMap<EntityId, Vec<EdgeId>>` outgoing/incoming indexes in `GenericEdgeStorage` with `HashMap<uuid::Uuid, Vec<EdgeId>>`.
 * [REFACTOR-045] Update all five concrete edge implementation files to use typed `*Id(Uuid)` constructors and implement `from_uuid()`/`to_uuid()` from the `Edge` trait.
 * [REFACTOR-046] Replace `HashMap<u64, StoredEntity>` and `u64`-keyed internals in `schedule/storage.rs` with `HashMap<uuid::Uuid, StoredEntity>`.
+* [REFACTOR-047] Remove `IdAllocators` from `Schedule`, add `schedule_id: Uuid` to `ScheduleMetadata`, add a private entity UUID registry, implement `Schedule::fetch_uuid`, and update all typed entity/edge method signatures to use typed ID wrappers.
 
 ---
 
 ## Summary of Open Items
 
-**Total open items:** 35
+**Total open items:** 34
 
 * **High Priority**
   * [CLI-013] Port cosam-convert from schedule-core to schedule-data for XLSX-to-JSON conversion.
@@ -41,7 +42,6 @@ Updated on: Fri Apr 10 14:29:28 2026
   * [REFACTOR-031] Extract timeline entries (SPLIT, BREAK, room hours) into a dedicated TimelineEntry entity following the schedule-core pattern.
   * [REFACTOR-037] Migrate from internal u64-based entity IDs to standard UUID v4 for entities, schedules, and edges to enable cross-schedule ID sharing and simplify the public API.
   * [REFACTOR-038] Replace the `EdgeId(u64)` type with `EdgeId(uuid::Uuid)` and add an edge UUID registry to `Schedule` for cross-edge lookups.
-  * [REFACTOR-047] Remove `IdAllocators` from `Schedule`, add `schedule_id: Uuid` to `ScheduleMetadata`, add a private entity UUID registry, implement `Schedule::fetch_uuid`, and update all typed entity/edge method signatures to use typed ID wrappers.
   * [REFACTOR-048] Expose `Schedule::type_of_uuid` and `Schedule::lookup_uuid` using the private entity registry added in REFACTOR-047, and add `EntityRef<'a>` as the borrowed-data return type for `lookup_uuid`.
   * [REFACTOR-049] Update the four existing integration test files to use `Uuid` instead of `EntityId`/`InternalId`, and add new tests for `fetch_uuid` and `lookup_uuid`.
   * [TEST-028] Comprehensive integration tests validating schedule-data against schedule-core behavior with real schedule data.
@@ -412,38 +412,6 @@ This work is **blocked** on REFACTOR-039 through REFACTOR-049 (entity UUID migra
 
 ---
 
-### [REFACTOR-047] Update Schedule core: remove allocators, add schedule_id and fetch_uuid
-
-**Status:** Open
-
-**Priority:** High
-
-**Summary:** Remove `IdAllocators` from `Schedule`, add `schedule_id: Uuid` to `ScheduleMetadata`, add a private entity UUID registry, implement `Schedule::fetch_uuid`, and update all typed entity/edge method signatures to use typed ID wrappers.
-
-**Description:** Part of REFACTOR-037. This is the main wiring phase that makes the UUID migration visible in the public `Schedule` API.
-
-Changes to `crates/schedule-data/src/schedule/mod.rs`:
-
-* Remove `IdAllocators` struct and all its uses (UUID generation no longer requires counters)
-* Remove `pub type EdgeId = u64` (use `edge::EdgeId` which is unchanged)
-* `ScheduleMetadata`: add `pub schedule_id: uuid::Uuid`; generate it in `ScheduleMetadata::new()` via `uuid::Uuid::now_v7()`
-* `Schedule`: add private `entity_registry: HashMap<uuid::Uuid, crate::entity::EntityKind>`
-* Update `add_entity` to insert `(data.uuid(), EntityKind::Panel)` (etc.) into `entity_registry`
-* Implement `pub fn fetch_uuid(&self, uuid: uuid::Uuid) -> Option<crate::entity::PublicEntityRef>`:
-  * Match `entity_registry.get(&uuid)` → `EntityKind::Panel` → look up in typed storage → call `data.to_public()` → wrap in `PublicEntityRef::Panel(...)`
-  * Repeat for all five entity kinds
-* Update all typed accessor/mutator methods to use typed ID parameters:
-  * `get_panel_presenters(panel_id: PanelId) -> Vec<PresenterId>`
-  * `connect_panel_to_presenter(panel_id: PanelId, presenter_id: PresenterId)`
-  * `get_presenter_panels(presenter_id: PresenterId) -> Vec<PanelId>`
-  * `connect_panel_to_event_room(panel_id: PanelId, room_id: EventRoomId)`
-  * `connect_panel_to_panel_type(panel_id: PanelId, type_id: PanelTypeId)`
-  * `connect_event_room_to_hotel_room(event_room_id: EventRoomId, hotel_room_id: HotelRoomId)`
-  * (all similar methods throughout)
-* `find_related` generic method: return `Vec<uuid::Uuid>` for the untyped path
-
----
-
 ### [REFACTOR-048] Add type_of_uuid, lookup_uuid, and EntityRef to Schedule
 
 **Status:** Open
@@ -637,7 +605,7 @@ New tests to add (can be in `entity_fields_integration.rs` or a new `uuid_regist
 [REFACTOR-044]: work-item/done/REFACTOR-044.md
 [REFACTOR-045]: work-item/done/REFACTOR-045.md
 [REFACTOR-046]: work-item/done/REFACTOR-046.md
-[REFACTOR-047]: work-item/high/REFACTOR-047.md
+[REFACTOR-047]: work-item/done/REFACTOR-047.md
 [REFACTOR-048]: work-item/high/REFACTOR-048.md
 [REFACTOR-049]: work-item/high/REFACTOR-049.md
 [TEST-028]: work-item/high/TEST-028.md

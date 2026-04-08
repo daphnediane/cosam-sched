@@ -12,63 +12,30 @@ use chrono::NaiveDateTime;
 use std::collections::HashMap;
 use std::fmt;
 
-use crate::edge::{Edge, EdgeStorage as _};
-
+use crate::edge::{Edge, EdgeId, EdgeStorage as _};
 use crate::edge::{
     EventRoomToHotelRoomStorage, GenericEdgeStorage, PanelToPanelTypeStorage,
     PanelToPresenterStorage, PresenterToGroupStorage,
 };
-
-/// Relationship direction for edge queries
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum RelationshipDirection {
-    Outgoing, // Entity -> Related
-    Incoming, // Related -> Entity
-}
-use crate::entity::{EntityId, EntityType};
+use crate::entity::{
+    EntityKind, EntityType, EventRoomId, HotelRoomId, InternalData, PanelId, PanelTypeId,
+    PresenterId, PublicEntityRef,
+};
 use crate::field::validation::ValidationError;
 use crate::field::FieldValue;
 use crate::query::{FieldMatch, QueryOptions};
 
+/// Direction for relationship queries in find_related
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum RelationshipDirection {
+    /// Outgoing relationships (e.g., panel -> presenter)
+    Outgoing,
+    /// Incoming relationships (e.g., presenter <- panel)
+    Incoming,
+}
+
 // Re-export storage types
 pub use storage::*;
-
-/// Unique identifier for edges
-pub type EdgeId = u64;
-
-#[derive(Debug, Clone)]
-pub struct IdAllocators {
-    next_by_type: HashMap<String, u64>,
-    next_edge_id: u64,
-}
-
-impl IdAllocators {
-    pub fn new() -> Self {
-        Self {
-            next_by_type: HashMap::new(),
-            next_edge_id: 0,
-        }
-    }
-
-    pub fn allocate_entity_id(&mut self, type_name: &str) -> u64 {
-        let next = self.next_by_type.entry(type_name.to_string()).or_insert(0);
-        let allocated = *next;
-        *next = allocated.saturating_add(1);
-        allocated
-    }
-
-    pub fn allocate_edge_id(&mut self) -> u64 {
-        let allocated = self.next_edge_id;
-        self.next_edge_id = allocated.saturating_add(1);
-        allocated
-    }
-}
-
-impl Default for IdAllocators {
-    fn default() -> Self {
-        Self::new()
-    }
-}
 
 /// Schedule container holding all entities and relationships
 #[derive(Debug, Clone)]
@@ -79,7 +46,7 @@ pub struct Schedule {
     pub panel_to_event_room: GenericEdgeStorage<crate::edge::PanelToEventRoomEdge>,
     pub event_room_to_hotel_room: EventRoomToHotelRoomStorage,
     pub panel_to_panel_type: PanelToPanelTypeStorage,
-    pub id_allocators: IdAllocators,
+    entity_registry: HashMap<uuid::Uuid, EntityKind>,
     pub metadata: ScheduleMetadata,
 }
 
@@ -92,19 +59,19 @@ impl Schedule {
             panel_to_event_room: GenericEdgeStorage::new(),
             event_room_to_hotel_room: EventRoomToHotelRoomStorage::new(),
             panel_to_panel_type: PanelToPanelTypeStorage::new(),
-            id_allocators: IdAllocators::new(),
+            entity_registry: HashMap::new(),
             metadata: ScheduleMetadata::new(),
         }
     }
 
-    /// Get entity by type and ID
-    pub fn get_entity<T: EntityType>(&self, id: EntityId) -> Option<&T::Data> {
-        self.entities.get::<T>(id)
+    /// Get entity by type and UUID
+    pub fn get_entity<T: EntityType>(&self, uuid: uuid::Uuid) -> Option<&T::Data> {
+        self.entities.get::<T>(uuid)
     }
 
-    /// Get entity by internal monotonic ID
-    pub fn get_entity_by_internal_id<T: EntityType>(&self, internal_id: u64) -> Option<&T::Data> {
-        self.entities.get_by_internal_id::<T>(internal_id)
+    /// Get entity by internal UUID
+    pub fn get_entity_by_uuid<T: EntityType>(&self, uuid: uuid::Uuid) -> Option<&T::Data> {
+        self.entities.get_by_uuid::<T>(uuid)
     }
 
     /// Find entities matching field conditions
@@ -112,7 +79,7 @@ impl Schedule {
         &self,
         matches: &[FieldMatch],
         options: Option<QueryOptions>,
-    ) -> Vec<EntityId> {
+    ) -> Vec<uuid::Uuid> {
         self.entities.find::<T>(matches, options)
     }
 
@@ -129,107 +96,138 @@ impl Schedule {
     pub fn add_entity<T: EntityType>(
         &mut self,
         entity: T::Data,
-    ) -> Result<EntityId, ScheduleError> {
-        let internal_id = self.id_allocators.allocate_entity_id(T::TYPE_NAME);
-        self.entities.add_with_id::<T>(internal_id, entity)?;
-        Ok(internal_id)
+    ) -> Result<uuid::Uuid, ScheduleError>
+    where
+        T::Data: InternalData,
+    {
+        let uuid = entity.uuid();
+        self.entity_registry.insert(uuid, T::kind());
+        self.entities.add_with_uuid::<T>(uuid, entity)?;
+        Ok(uuid)
     }
 
-    /// Add entity and return both internal and external IDs
-    pub fn add_entity_with_internal_id<T: EntityType>(
+    /// Add entity and return UUID
+    pub fn add_entity_with_uuid<T: EntityType>(
         &mut self,
         entity: T::Data,
-    ) -> Result<u64, ScheduleError> {
-        let internal_id = self.id_allocators.allocate_entity_id(T::TYPE_NAME);
-        self.entities.add_with_id::<T>(internal_id, entity)?;
-        Ok(internal_id)
+    ) -> Result<uuid::Uuid, ScheduleError>
+    where
+        T::Data: InternalData,
+    {
+        let uuid = entity.uuid();
+        self.entity_registry.insert(uuid, T::kind());
+        self.entities.add_with_uuid::<T>(uuid, entity)?;
+        Ok(uuid)
     }
 
     /// Update entity fields
     pub fn update_entity<T: EntityType>(
         &mut self,
-        id: EntityId,
+        uuid: uuid::Uuid,
         updates: &[(String, FieldValue)],
     ) -> Result<(), ScheduleError> {
-        self.entities.update::<T>(id, updates)
+        self.entities.update::<T>(uuid, updates)
+    }
+
+    /// Fetch entity by UUID and return public reference
+    pub fn fetch_uuid(&self, uuid: uuid::Uuid) -> Option<PublicEntityRef> {
+        match self.entity_registry.get(&uuid)? {
+            EntityKind::Panel => self
+                .entities
+                .get_by_uuid::<crate::entity::PanelEntityType>(uuid)
+                .map(|data| PublicEntityRef::Panel(data.to_public())),
+            EntityKind::Presenter => self
+                .entities
+                .get_by_uuid::<crate::entity::PresenterEntityType>(uuid)
+                .map(|data| PublicEntityRef::Presenter(data.to_public())),
+            EntityKind::EventRoom => self
+                .entities
+                .get_by_uuid::<crate::entity::EventRoomEntityType>(uuid)
+                .map(|data| PublicEntityRef::EventRoom(data.to_public())),
+            EntityKind::HotelRoom => self
+                .entities
+                .get_by_uuid::<crate::entity::HotelRoomEntityType>(uuid)
+                .map(|data| PublicEntityRef::HotelRoom(data.to_public())),
+            EntityKind::PanelType => self
+                .entities
+                .get_by_uuid::<crate::entity::PanelTypeEntityType>(uuid)
+                .map(|data| PublicEntityRef::PanelType(data.to_public())),
+        }
     }
 
     /// Find entities related to a given entity (dispatches to appropriate typed storage)
     pub fn find_related<T: EntityType>(
         &self,
-        entity_id: EntityId,
+        uuid: uuid::Uuid,
         edge_type: crate::edge::EdgeType,
         direction: RelationshipDirection,
-    ) -> Vec<EntityId> {
+    ) -> Vec<uuid::Uuid> {
         use crate::edge::EdgeType;
-        let internal_id = crate::entity::InternalId::new::<T>(entity_id);
         match edge_type {
             EdgeType::PanelToPresenter => {
                 if direction == RelationshipDirection::Outgoing {
                     self.panel_to_presenter
-                        .find_outgoing(internal_id)
+                        .find_outgoing(uuid)
                         .iter()
-                        .filter_map(|e| e.to_id().map(|id| id.entity_id))
+                        .filter_map(|e| e.to_uuid())
                         .collect()
                 } else {
                     self.panel_to_presenter
-                        .find_incoming(internal_id)
+                        .find_incoming(uuid)
                         .iter()
-                        .filter_map(|e| e.from_id().map(|id| id.entity_id))
+                        .filter_map(|e| e.from_uuid())
                         .collect()
                 }
             }
             EdgeType::PanelToEventRoom => {
                 if direction == RelationshipDirection::Outgoing {
                     self.panel_to_event_room
-                        .find_outgoing(internal_id)
+                        .find_outgoing(uuid)
                         .iter()
-                        .filter_map(|e| e.to_id().map(|id| id.entity_id))
+                        .filter_map(|e| e.to_uuid())
                         .collect()
                 } else {
                     self.panel_to_event_room
-                        .find_incoming(internal_id)
+                        .find_incoming(uuid)
                         .iter()
-                        .filter_map(|e| e.from_id().map(|id| id.entity_id))
+                        .filter_map(|e| e.from_uuid())
                         .collect()
                 }
             }
             EdgeType::PanelToPanelType => {
                 if direction == RelationshipDirection::Outgoing {
                     self.panel_to_panel_type
-                        .find_outgoing(internal_id)
+                        .find_outgoing(uuid)
                         .iter()
-                        .filter_map(|e| e.to_id().map(|id| id.entity_id))
+                        .filter_map(|e| e.to_uuid())
                         .collect()
                 } else {
                     self.panel_to_panel_type
-                        .find_incoming(internal_id)
+                        .find_incoming(uuid)
                         .iter()
-                        .filter_map(|e| e.from_id().map(|id| id.entity_id))
+                        .filter_map(|e| e.from_uuid())
                         .collect()
                 }
             }
             EdgeType::PresenterToGroup => {
                 if direction == RelationshipDirection::Outgoing {
-                    self.presenter_to_group.direct_groups_of(entity_id).to_vec()
+                    self.presenter_to_group.direct_groups_of(uuid).to_vec()
                 } else {
-                    self.presenter_to_group
-                        .direct_members_of(entity_id)
-                        .to_vec()
+                    self.presenter_to_group.direct_members_of(uuid).to_vec()
                 }
             }
             EdgeType::EventRoomToHotelRoom => {
                 if direction == RelationshipDirection::Outgoing {
                     self.event_room_to_hotel_room
-                        .find_outgoing(internal_id)
+                        .find_outgoing(uuid)
                         .iter()
-                        .filter_map(|e| e.to_id().map(|id| id.entity_id))
+                        .filter_map(|e| e.to_uuid())
                         .collect()
                 } else {
                     self.event_room_to_hotel_room
-                        .find_incoming(internal_id)
+                        .find_incoming(uuid)
                         .iter()
-                        .filter_map(|e| e.from_id().map(|id| id.entity_id))
+                        .filter_map(|e| e.from_uuid())
                         .collect()
                 }
             }
@@ -238,68 +236,67 @@ impl Schedule {
 
     // === Entity Relationship Methods ===
 
-    /// Get all presenters for a panel (returns EntityIds)
-    pub fn get_panel_presenters(&self, panel_id: EntityId) -> Vec<EntityId> {
-        let internal_id =
-            crate::entity::InternalId::new::<crate::entity::PanelEntityType>(panel_id);
+    /// Get all presenters for a panel (returns PresenterIds)
+    pub fn get_panel_presenters(&self, panel_id: PanelId) -> Vec<PresenterId> {
         self.panel_to_presenter
-            .find_outgoing(internal_id)
+            .find_outgoing(panel_id.uuid())
             .iter()
-            .filter_map(|e| e.to_id().map(|id| id.entity_id))
+            .filter_map(|e| e.to_uuid().map(PresenterId::from_uuid))
             .collect()
     }
 
-    /// Get the primary event room for a panel (returns EntityId)
-    pub fn get_panel_event_room(&self, panel_id: EntityId) -> Option<EntityId> {
-        let internal_id =
-            crate::entity::InternalId::new::<crate::entity::PanelEntityType>(panel_id);
+    /// Get the primary event room for a panel (returns EventRoomId)
+    pub fn get_panel_event_room(&self, panel_id: PanelId) -> Option<EventRoomId> {
         self.panel_to_event_room
-            .find_outgoing(internal_id)
+            .find_outgoing(panel_id.uuid())
             .first()
-            .map(|e| e.to_id().map(|id| id.entity_id))
-            .flatten()
+            .and_then(|e| e.to_uuid().map(EventRoomId::from_uuid))
     }
 
-    /// Get the panel type for a panel (returns EntityId)
-    pub fn get_panel_type(&self, panel_id: EntityId) -> Option<EntityId> {
-        self.panel_to_panel_type.get_panel_type(panel_id)
+    /// Get the panel type for a panel (returns PanelTypeId)
+    pub fn get_panel_type(&self, panel_id: PanelId) -> Option<PanelTypeId> {
+        self.panel_to_panel_type
+            .find_outgoing(panel_id.uuid())
+            .first()
+            .and_then(|e| e.to_uuid().map(PanelTypeId::from_uuid))
     }
 
-    /// Get all groups a presenter belongs to (returns EntityIds)
-    pub fn get_presenter_groups(&self, presenter_id: EntityId) -> Vec<EntityId> {
+    /// Get all groups a presenter belongs to (returns PresenterIds)
+    pub fn get_presenter_groups(&self, presenter_id: PresenterId) -> Vec<PresenterId> {
         self.presenter_to_group
-            .direct_groups_of(presenter_id)
-            .to_vec()
-    }
-
-    /// Get all members of a presenter group (returns EntityIds)
-    pub fn get_presenter_members(&self, presenter_id: EntityId) -> Vec<EntityId> {
-        self.presenter_to_group
-            .direct_members_of(presenter_id)
-            .to_vec()
-    }
-
-    /// Get all panels a presenter participates in (returns EntityIds)
-    pub fn get_presenter_panels(&self, presenter_id: EntityId) -> Vec<EntityId> {
-        let internal_id =
-            crate::entity::InternalId::new::<crate::entity::PresenterEntityType>(presenter_id);
-        self.panel_to_presenter
-            .find_incoming(internal_id)
+            .direct_groups_of(presenter_id.uuid())
             .iter()
-            .filter_map(|e| e.from_id().map(|id| id.entity_id))
+            .map(|&uuid| PresenterId::from_uuid(uuid))
+            .collect()
+    }
+
+    /// Get all members of a presenter group (returns PresenterIds)
+    pub fn get_presenter_members(&self, presenter_id: PresenterId) -> Vec<PresenterId> {
+        self.presenter_to_group
+            .direct_members_of(presenter_id.uuid())
+            .iter()
+            .map(|&uuid| PresenterId::from_uuid(uuid))
+            .collect()
+    }
+
+    /// Get all panels a presenter participates in (returns PanelIds)
+    pub fn get_presenter_panels(&self, presenter_id: PresenterId) -> Vec<PanelId> {
+        self.panel_to_presenter
+            .find_incoming(presenter_id.uuid())
+            .iter()
+            .filter_map(|e| e.from_uuid().map(PanelId::from_uuid))
             .collect()
     }
 
     /// Connect a panel to a presenter
     pub fn connect_panel_to_presenter(
         &mut self,
-        panel_id: EntityId,
-        presenter_id: EntityId,
+        panel_id: PanelId,
+        presenter_id: PresenterId,
     ) -> Result<EdgeId, ScheduleError> {
         let edge = crate::edge::PanelToPresenterEdge::new(panel_id, presenter_id);
         self.panel_to_presenter
             .add_edge(edge)
-            .map(|id| id.0)
             .map_err(|e| ScheduleError::StorageError {
                 message: e.to_string(),
             })
@@ -308,13 +305,12 @@ impl Schedule {
     /// Connect a panel to an event room
     pub fn connect_panel_to_event_room(
         &mut self,
-        panel_id: EntityId,
-        room_id: EntityId,
+        panel_id: PanelId,
+        room_id: EventRoomId,
     ) -> Result<EdgeId, ScheduleError> {
         let edge = crate::edge::PanelToEventRoomEdge::new(panel_id, room_id);
         self.panel_to_event_room
             .add_edge(edge)
-            .map(|id| id.0)
             .map_err(|e| ScheduleError::StorageError {
                 message: e.to_string(),
             })
@@ -323,13 +319,12 @@ impl Schedule {
     /// Connect a panel to a panel type
     pub fn connect_panel_to_panel_type(
         &mut self,
-        panel_id: EntityId,
-        type_id: EntityId,
+        panel_id: PanelId,
+        type_id: PanelTypeId,
     ) -> Result<EdgeId, ScheduleError> {
         let edge = crate::edge::PanelToPanelTypeEdge::new(panel_id, type_id);
         self.panel_to_panel_type
             .add_edge(edge)
-            .map(|id| id.0)
             .map_err(|e| ScheduleError::StorageError {
                 message: e.to_string(),
             })
@@ -338,8 +333,8 @@ impl Schedule {
     /// Connect a presenter to a group
     pub fn connect_presenter_to_group(
         &mut self,
-        presenter_id: EntityId,
-        group_id: EntityId,
+        presenter_id: PresenterId,
+        group_id: PresenterId,
     ) -> Result<EdgeId, ScheduleError> {
         let edge = crate::edge::presenter_to_group::PresenterToGroupEdge::new(
             presenter_id,
@@ -349,7 +344,20 @@ impl Schedule {
         );
         self.presenter_to_group
             .add_edge(edge)
-            .map(|id| id.0)
+            .map_err(|e| ScheduleError::StorageError {
+                message: e.to_string(),
+            })
+    }
+
+    /// Connect an event room to a hotel room
+    pub fn connect_event_room_to_hotel_room(
+        &mut self,
+        event_room_id: EventRoomId,
+        hotel_room_id: HotelRoomId,
+    ) -> Result<EdgeId, ScheduleError> {
+        let edge = crate::edge::EventRoomToHotelRoomEdge::new(event_room_id, hotel_room_id);
+        self.event_room_to_hotel_room
+            .add_edge(edge)
             .map_err(|e| ScheduleError::StorageError {
                 message: e.to_string(),
             })
@@ -370,30 +378,30 @@ impl Schedule {
     // === Transitive Closure Methods ===
 
     /// Get all presenters for a panel, including those from presenter groups
-    pub fn get_panel_inclusive_presenters(&mut self, panel_id: EntityId) -> Vec<EntityId> {
-        let internal_id =
-            crate::entity::InternalId::new::<crate::entity::PanelEntityType>(panel_id);
+    pub fn get_panel_inclusive_presenters(&mut self, panel_id: PanelId) -> Vec<PresenterId> {
         self.panel_to_presenter
-            .get_inclusive_presenters(internal_id, &mut self.presenter_to_group)
-            .to_vec()
+            .get_inclusive_presenters(panel_id.uuid(), &mut self.presenter_to_group)
+            .iter()
+            .map(|&uuid| PresenterId::from_uuid(uuid))
+            .collect()
     }
 
     /// Get all panels for a presenter, including those from presenter groups
-    pub fn get_presenter_inclusive_panels(&mut self, presenter_id: EntityId) -> Vec<EntityId> {
-        let internal_id =
-            crate::entity::InternalId::new::<crate::entity::PresenterEntityType>(presenter_id);
+    pub fn get_presenter_inclusive_panels(&mut self, presenter_id: PresenterId) -> Vec<PanelId> {
         self.panel_to_presenter
-            .get_inclusive_panels(internal_id, &mut self.presenter_to_group)
-            .to_vec()
+            .get_inclusive_panels(presenter_id.uuid(), &mut self.presenter_to_group)
+            .iter()
+            .map(|&uuid| PanelId::from_uuid(uuid))
+            .collect()
     }
 
     // === Data Resolution Methods ===
 
-    /// Get entity names for a list of EntityIds
-    pub fn get_entity_names<T: EntityType>(&self, entity_ids: &[EntityId]) -> Vec<String> {
-        entity_ids
+    /// Get entity names for a list of UUIDs
+    pub fn get_entity_names<T: EntityType>(&self, uuids: &[uuid::Uuid]) -> Vec<String> {
+        uuids
             .iter()
-            .filter_map(|&id| self.get_entity::<T>(id))
+            .filter_map(|&uuid| self.get_entity::<T>(uuid))
             .map(|entity| self.get_entity_name::<T>(entity))
             .collect()
     }
@@ -443,6 +451,7 @@ pub struct ScheduleMetadata {
     pub created_at: NaiveDateTime,
     pub updated_at: NaiveDateTime,
     pub generator: String,
+    pub schedule_id: uuid::Uuid,
 }
 
 impl ScheduleMetadata {
@@ -453,6 +462,7 @@ impl ScheduleMetadata {
             created_at: now,
             updated_at: now,
             generator: "schedule-data".to_string(),
+            schedule_id: uuid::Uuid::now_v7(),
         }
     }
 }

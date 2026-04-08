@@ -6,7 +6,7 @@ Remove `IdAllocators` from `Schedule`, add `schedule_id: Uuid` to `ScheduleMetad
 
 ## Status
 
-Open
+Completed
 
 ## Priority
 

@@ -34,8 +34,21 @@ impl From<PanelTypeId> for Uuid {
     }
 }
 
+impl PanelTypeId {
+    /// Get the UUID from this ID
+    pub fn uuid(&self) -> Uuid {
+        self.0
+    }
+
+    /// Create a PanelTypeId from a UUID
+    pub fn from_uuid(uuid: Uuid) -> Self {
+        Self(uuid)
+    }
+}
+
 /// Panel type entity with EntityFields derive macro
 #[derive(EntityFields, Debug, Clone)]
+#[entity_kind(PanelType)]
 pub struct PanelType {
     #[field(display = "Prefix", description = "Prefix for the panel type")]
     #[alias("prefix", "Prefix")]

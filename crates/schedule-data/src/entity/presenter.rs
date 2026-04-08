@@ -97,8 +97,21 @@ impl From<PresenterId> for Uuid {
     }
 }
 
+impl PresenterId {
+    /// Get the UUID from this ID
+    pub fn uuid(&self) -> Uuid {
+        self.0
+    }
+
+    /// Create a PresenterId from a UUID
+    pub fn from_uuid(uuid: Uuid) -> Self {
+        Self(uuid)
+    }
+}
+
 /// Presenter entity with EntityFields derive macro
 #[derive(EntityFields, Debug, Clone)]
+#[entity_kind(Presenter)]
 pub struct Presenter {
     #[field(display = "Name", description = "Presenter's full name")]
     #[alias("name", "Name", "full_name", "display_name")]
@@ -186,9 +199,10 @@ pub struct Presenter {
     )]
     #[alias("presenter_groups", "group_list")]
     #[read(|schedule: &crate::schedule::Schedule, entity: &PresenterData| {
-        let group_ids = schedule.get_presenter_groups(PresenterId(entity.entity_uuid));
+        let group_ids = schedule.get_presenter_groups(PresenterId::from_uuid(entity.entity_uuid));
+        let group_uuids: Vec<uuid::Uuid> = group_ids.iter().map(|id| id.uuid()).collect();
         Some(crate::field::FieldValue::List(
-            schedule.get_entity_names::<crate::entity::PresenterEntityType>(&group_ids)
+            schedule.get_entity_names::<crate::entity::PresenterEntityType>(&group_uuids)
                 .into_iter()
                 .map(crate::field::FieldValue::String)
                 .collect()
@@ -202,9 +216,10 @@ pub struct Presenter {
     )]
     #[alias("presenter_members", "member_list")]
     #[read(|schedule: &crate::schedule::Schedule, entity: &PresenterData| {
-        let member_ids = schedule.get_presenter_members(PresenterId(entity.entity_uuid));
+        let member_ids = schedule.get_presenter_members(PresenterId::from_uuid(entity.entity_uuid));
+        let member_uuids: Vec<uuid::Uuid> = member_ids.iter().map(|id| id.uuid()).collect();
         Some(crate::field::FieldValue::List(
-            schedule.get_entity_names::<crate::entity::PresenterEntityType>(&member_ids)
+            schedule.get_entity_names::<crate::entity::PresenterEntityType>(&member_uuids)
                 .into_iter()
                 .map(crate::field::FieldValue::String)
                 .collect()
@@ -218,9 +233,10 @@ pub struct Presenter {
     )]
     #[alias("presenter_panels", "panel_list")]
     #[read(|schedule: &crate::schedule::Schedule, entity: &PresenterData| {
-        let panel_ids = schedule.get_presenter_panels(PresenterId(entity.entity_uuid));
+        let panel_ids = schedule.get_presenter_panels(PresenterId::from_uuid(entity.entity_uuid));
+        let panel_uuids: Vec<uuid::Uuid> = panel_ids.iter().map(|id| id.uuid()).collect();
         Some(crate::field::FieldValue::List(
-            schedule.get_entity_names::<crate::entity::PanelEntityType>(&panel_ids)
+            schedule.get_entity_names::<crate::entity::PanelEntityType>(&panel_uuids)
                 .into_iter()
                 .map(crate::field::FieldValue::String)
                 .collect()
