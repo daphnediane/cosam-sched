@@ -132,12 +132,27 @@ impl Schedule {
     /// Identify which entity kind (if any) owns the given UUID.
     /// Returns an `EntityUUID` tagging the UUID with its entity type.
     pub fn identify(&self, uuid: uuid::NonNilUuid) -> Option<EntityUUID> {
-        match self.entity_registry.get(&uuid)? {
+        match *self.entity_registry.get(&uuid)? {
             EntityKind::Panel => Some(EntityUUID::Panel(PanelId::from_uuid(uuid))),
             EntityKind::Presenter => Some(EntityUUID::Presenter(PresenterId::from_uuid(uuid))),
             EntityKind::EventRoom => Some(EntityUUID::EventRoom(EventRoomId::from_uuid(uuid))),
             EntityKind::HotelRoom => Some(EntityUUID::HotelRoom(HotelRoomId::from_uuid(uuid))),
             EntityKind::PanelType => Some(EntityUUID::PanelType(PanelTypeId::from_uuid(uuid))),
+            EntityKind::PanelToPresenter => Some(EntityUUID::PanelToPresenter(
+                crate::entity::panel_to_presenter::PanelToPresenterId::from_uuid(uuid),
+            )),
+            EntityKind::PanelToEventRoom => Some(EntityUUID::PanelToEventRoom(
+                crate::entity::panel_to_event_room::PanelToEventRoomId::from_uuid(uuid),
+            )),
+            EntityKind::EventRoomToHotelRoom => Some(EntityUUID::EventRoomToHotelRoom(
+                crate::entity::event_room_to_hotel_room::EventRoomToHotelRoomId::from_uuid(uuid),
+            )),
+            EntityKind::PanelToPanelType => Some(EntityUUID::PanelToPanelType(
+                crate::entity::panel_to_panel_type::PanelToPanelTypeId::from_uuid(uuid),
+            )),
+            EntityKind::PresenterToGroup => Some(EntityUUID::PresenterToGroup(
+                crate::entity::presenter_to_group::PresenterToGroupId::from_uuid(uuid),
+            )),
         }
     }
 
@@ -176,6 +191,11 @@ impl Schedule {
                 .entities
                 .get_by_uuid::<crate::entity::PanelTypeEntityType>(uuid)
                 .map(|data| PublicEntityRef::PanelType(data.to_public())),
+            EntityKind::PanelToPresenter => None, // Edge-entities don't have PublicEntityRef yet
+            EntityKind::PanelToEventRoom => None, // Edge-entities don't have PublicEntityRef yet
+            EntityKind::EventRoomToHotelRoom => None, // Edge-entities don't have PublicEntityRef yet
+            EntityKind::PanelToPanelType => None, // Edge-entities don't have PublicEntityRef yet
+            EntityKind::PresenterToGroup => None, // Edge-entities don't have PublicEntityRef yet
         }
     }
 
@@ -204,6 +224,11 @@ impl Schedule {
                 .entities
                 .get_by_uuid::<crate::entity::PanelTypeEntityType>(uuid)
                 .map(EntityRef::PanelType),
+            EntityKind::PanelToPresenter => None, // Edge-entities don't have EntityRef yet
+            EntityKind::PanelToEventRoom => None, // Edge-entities don't have EntityRef yet
+            EntityKind::EventRoomToHotelRoom => None, // Edge-entities don't have EntityRef yet
+            EntityKind::PanelToPanelType => None, // Edge-entities don't have EntityRef yet
+            EntityKind::PresenterToGroup => None, // Edge-entities don't have EntityRef yet
         }
     }
 
@@ -215,6 +240,11 @@ impl Schedule {
             EntityUUID::EventRoom(id) => self.fetch_typed(id),
             EntityUUID::HotelRoom(id) => self.fetch_typed(id),
             EntityUUID::PanelType(id) => self.fetch_typed(id),
+            EntityUUID::PanelToPresenter(_) => None, // Edge-entities don't have PublicEntityRef yet
+            EntityUUID::PanelToEventRoom(_) => None, // Edge-entities don't have PublicEntityRef yet
+            EntityUUID::EventRoomToHotelRoom(_) => None, // Edge-entities don't have PublicEntityRef yet
+            EntityUUID::PanelToPanelType(_) => None, // Edge-entities don't have PublicEntityRef yet
+            EntityUUID::PresenterToGroup(_) => None, // Edge-entities don't have PublicEntityRef yet
         }
     }
 
@@ -231,6 +261,11 @@ impl Schedule {
             EntityUUID::EventRoom(id) => self.lookup_typed(id),
             EntityUUID::HotelRoom(id) => self.lookup_typed(id),
             EntityUUID::PanelType(id) => self.lookup_typed(id),
+            EntityUUID::PanelToPresenter(_) => None, // Edge-entities don't have EntityRef yet
+            EntityUUID::PanelToEventRoom(_) => None, // Edge-entities don't have EntityRef yet
+            EntityUUID::EventRoomToHotelRoom(_) => None, // Edge-entities don't have EntityRef yet
+            EntityUUID::PanelToPanelType(_) => None, // Edge-entities don't have EntityRef yet
+            EntityUUID::PresenterToGroup(_) => None, // Edge-entities don't have EntityRef yet
         }
     }
 

@@ -151,4 +151,13 @@ pub fn import_operations(&mut self, ops: Vec<ScheduleOp>) -> Result<Vec<MergeCon
 
 This is the foundation for "convention after next" offline editing. The CRDT design ensures operations from different editors can always merge without data loss.
 
+### Secondary Index Considerations
+
+Edge-entity storage uses HashMap<NonNilUuid, EdgeData> with V5 UUIDs. For endpoint-based queries (e.g., "all presenters for a panel"), we may need secondary indexes. CRDT implications:
+
+- **Recompute on merge**: Rebuild indexes after merge (simpler, O(n) per merge)
+- **CRDT indexes**: Make indexes themselves CRDTs (complex, but incremental)
+
+Decision deferred to implementation phase based on performance needs.
+
 When complete, update REFACTOR-051.md to mark REFACTOR-057 as complete.

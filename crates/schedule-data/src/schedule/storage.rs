@@ -10,8 +10,12 @@ use std::collections::HashMap;
 
 use super::ScheduleError;
 use crate::entity::{
-    EntityType, EventRoomData, EventRoomEntityType, HotelRoomData, HotelRoomEntityType, PanelData,
-    PanelEntityType, PanelTypeData, PanelTypeEntityType, PresenterData, PresenterEntityType,
+    EntityType, EventRoomData, EventRoomEntityType, EventRoomToHotelRoomData,
+    EventRoomToHotelRoomEntityType, HotelRoomData, HotelRoomEntityType, PanelData, PanelEntityType,
+    PanelToEventRoomData, PanelToEventRoomEntityType, PanelToPanelTypeData,
+    PanelToPanelTypeEntityType, PanelToPresenterData, PanelToPresenterEntityType, PanelTypeData,
+    PanelTypeEntityType, PresenterData, PresenterEntityType, PresenterToGroupData,
+    PresenterToGroupEntityType,
 };
 use crate::field::FieldValue;
 use crate::query::{FieldMatch, QueryOptions};
@@ -26,6 +30,11 @@ pub struct EntityStorage {
     pub event_rooms: HashMap<NonNilUuid, EventRoomData>,
     pub hotel_rooms: HashMap<NonNilUuid, HotelRoomData>,
     pub panel_types: HashMap<NonNilUuid, PanelTypeData>,
+    pub panel_to_presenters: HashMap<NonNilUuid, PanelToPresenterData>,
+    pub panel_to_event_rooms: HashMap<NonNilUuid, PanelToEventRoomData>,
+    pub event_room_to_hotel_rooms: HashMap<NonNilUuid, EventRoomToHotelRoomData>,
+    pub panel_to_panel_types: HashMap<NonNilUuid, PanelToPanelTypeData>,
+    pub presenter_to_groups: HashMap<NonNilUuid, PresenterToGroupData>,
 }
 
 /// Provides access to the concrete `HashMap` for an entity type.
@@ -77,6 +86,51 @@ impl TypedStorage for PanelTypeEntityType {
     }
     fn typed_map_mut(s: &mut EntityStorage) -> &mut HashMap<NonNilUuid, PanelTypeData> {
         &mut s.panel_types
+    }
+}
+
+impl TypedStorage for PanelToPresenterEntityType {
+    fn typed_map(s: &EntityStorage) -> &HashMap<NonNilUuid, PanelToPresenterData> {
+        &s.panel_to_presenters
+    }
+    fn typed_map_mut(s: &mut EntityStorage) -> &mut HashMap<NonNilUuid, PanelToPresenterData> {
+        &mut s.panel_to_presenters
+    }
+}
+
+impl TypedStorage for PanelToEventRoomEntityType {
+    fn typed_map(s: &EntityStorage) -> &HashMap<NonNilUuid, PanelToEventRoomData> {
+        &s.panel_to_event_rooms
+    }
+    fn typed_map_mut(s: &mut EntityStorage) -> &mut HashMap<NonNilUuid, PanelToEventRoomData> {
+        &mut s.panel_to_event_rooms
+    }
+}
+
+impl TypedStorage for EventRoomToHotelRoomEntityType {
+    fn typed_map(s: &EntityStorage) -> &HashMap<NonNilUuid, EventRoomToHotelRoomData> {
+        &s.event_room_to_hotel_rooms
+    }
+    fn typed_map_mut(s: &mut EntityStorage) -> &mut HashMap<NonNilUuid, EventRoomToHotelRoomData> {
+        &mut s.event_room_to_hotel_rooms
+    }
+}
+
+impl TypedStorage for PanelToPanelTypeEntityType {
+    fn typed_map(s: &EntityStorage) -> &HashMap<NonNilUuid, PanelToPanelTypeData> {
+        &s.panel_to_panel_types
+    }
+    fn typed_map_mut(s: &mut EntityStorage) -> &mut HashMap<NonNilUuid, PanelToPanelTypeData> {
+        &mut s.panel_to_panel_types
+    }
+}
+
+impl TypedStorage for PresenterToGroupEntityType {
+    fn typed_map(s: &EntityStorage) -> &HashMap<NonNilUuid, PresenterToGroupData> {
+        &s.presenter_to_groups
+    }
+    fn typed_map_mut(s: &mut EntityStorage) -> &mut HashMap<NonNilUuid, PresenterToGroupData> {
+        &mut s.presenter_to_groups
     }
 }
 

@@ -32,43 +32,68 @@
 //! `IsBreakField`, etc.
 
 pub mod event_room;
+pub mod event_room_to_hotel_room;
 pub mod hotel_room;
 pub mod panel;
+pub mod panel_to_event_room;
+pub mod panel_to_panel_type;
+pub mod panel_to_presenter;
 pub mod panel_type;
 pub mod presenter;
 pub mod presenter_rank;
+pub mod presenter_to_group;
 
 // Re-export public entity types (explicit to avoid ambiguous glob re-exports
 // from macro-generated field structs like NameField, IsBreakField, etc.)
 pub use event_room::EventRoom;
+pub use event_room_to_hotel_room::EventRoomToHotelRoom;
 pub use hotel_room::HotelRoom;
 pub use panel::Panel;
+pub use panel_to_event_room::PanelToEventRoom;
+pub use panel_to_panel_type::PanelToPanelType;
+pub use panel_to_presenter::PanelToPresenter;
 pub use panel_type::PanelType;
 pub use presenter::Presenter;
 pub use presenter_rank::PresenterRank;
+pub use presenter_to_group::PresenterToGroup;
 
 // Re-export typed entity ID wrappers
 pub use event_room::EventRoomId;
+pub use event_room_to_hotel_room::EventRoomToHotelRoomId;
 pub use hotel_room::HotelRoomId;
 pub use panel::PanelId;
+pub use panel_to_event_room::PanelToEventRoomId;
+pub use panel_to_panel_type::PanelToPanelTypeId;
+pub use panel_to_presenter::PanelToPresenterId;
 pub use panel_type::PanelTypeId;
 pub use presenter::PresenterId;
+pub use presenter_to_group::PresenterToGroupId;
 
 // Re-export EntityType structs for clean import paths
 pub use event_room::EventRoomEntityType;
+pub use event_room_to_hotel_room::EventRoomToHotelRoomEntityType;
 pub use hotel_room::HotelRoomEntityType;
 pub use panel::PanelEntityType;
+pub use panel_to_event_room::PanelToEventRoomEntityType;
+pub use panel_to_panel_type::PanelToPanelTypeEntityType;
+pub use panel_to_presenter::PanelToPresenterEntityType;
 pub use panel_type::PanelTypeEntityType;
 pub use presenter::PresenterEntityType;
+pub use presenter_to_group::PresenterToGroupEntityType;
 
 pub use uuid::NonNilUuid;
 
 // Re-export internal Data structs used elsewhere in the crate
 pub(crate) use event_room::EventRoomData;
+pub(crate) use event_room_to_hotel_room::EventRoomToHotelRoomData;
 pub(crate) use hotel_room::HotelRoomData;
 pub(crate) use panel::PanelData;
+pub(crate) use panel_to_event_room::PanelToEventRoomData;
+pub(crate) use panel_to_panel_type::PanelToPanelTypeData;
+pub(crate) use panel_to_presenter::PanelToPresenterData;
 pub(crate) use panel_type::PanelTypeData;
 pub(crate) use presenter::PresenterData;
+pub(crate) use presenter_to_group::PresenterToGroupData;
 
 use std::fmt;
 
@@ -136,6 +161,11 @@ pub enum EntityKind {
     EventRoom,
     HotelRoom,
     PanelType,
+    PanelToPresenter,
+    PanelToEventRoom,
+    EventRoomToHotelRoom,
+    PanelToPanelType,
+    PresenterToGroup,
 }
 
 /// Trait for typed entity ID wrappers.
@@ -169,6 +199,11 @@ pub enum EntityUUID {
     EventRoom(EventRoomId),
     HotelRoom(HotelRoomId),
     PanelType(PanelTypeId),
+    PanelToPresenter(panel_to_presenter::PanelToPresenterId),
+    PanelToEventRoom(panel_to_event_room::PanelToEventRoomId),
+    EventRoomToHotelRoom(event_room_to_hotel_room::EventRoomToHotelRoomId),
+    PanelToPanelType(panel_to_panel_type::PanelToPanelTypeId),
+    PresenterToGroup(presenter_to_group::PresenterToGroupId),
 }
 
 impl EntityUUID {
@@ -179,6 +214,11 @@ impl EntityUUID {
             EntityUUID::EventRoom(id) => id.non_nil_uuid(),
             EntityUUID::HotelRoom(id) => id.non_nil_uuid(),
             EntityUUID::PanelType(id) => id.non_nil_uuid(),
+            EntityUUID::PanelToPresenter(id) => id.non_nil_uuid(),
+            EntityUUID::PanelToEventRoom(id) => id.non_nil_uuid(),
+            EntityUUID::EventRoomToHotelRoom(id) => id.non_nil_uuid(),
+            EntityUUID::PanelToPanelType(id) => id.non_nil_uuid(),
+            EntityUUID::PresenterToGroup(id) => id.non_nil_uuid(),
         }
     }
 
@@ -193,6 +233,11 @@ impl EntityUUID {
             EntityUUID::EventRoom(_) => EntityKind::EventRoom,
             EntityUUID::HotelRoom(_) => EntityKind::HotelRoom,
             EntityUUID::PanelType(_) => EntityKind::PanelType,
+            EntityUUID::PanelToPresenter(_) => EntityKind::PanelToPresenter,
+            EntityUUID::PanelToEventRoom(_) => EntityKind::PanelToEventRoom,
+            EntityUUID::EventRoomToHotelRoom(_) => EntityKind::EventRoomToHotelRoom,
+            EntityUUID::PanelToPanelType(_) => EntityKind::PanelToPanelType,
+            EntityUUID::PresenterToGroup(_) => EntityKind::PresenterToGroup,
         }
     }
 }

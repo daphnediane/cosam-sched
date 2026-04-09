@@ -1,6 +1,6 @@
 # Cosplay America Schedule - Work Item
 
-Updated on: Fri Apr 10 14:29:32 2026
+Updated on: Fri Apr 10 14:29:33 2026
 
 ## Completed
 
@@ -418,13 +418,15 @@ Previously blocked on entity UUID migration (REFACTOR-037 phases 1–6). That wo
 
 ### [REFACTOR-052] Edge to Edge-Entity Migration
 
-**Status:** Not Started
+**Status:** In Progress - Structure Complete
 
 **Priority:** High
 
 **Summary:** Convert edge types from separate edge storage to first-class entities with NonNilUuid, stored in EntityStorage alongside other entities.
 
-**Description:** Migrate all edge types (PanelToPresenter, PanelToEventRoom, EventRoomToHotelRoom, PanelToPanelType) from GenericEdgeStorage to EntityStorage as first-class entities with UUIDs. This enables edge metadata, simplifies transaction handling, and prepares for CRDT integration.
+**Description:** Migrate all edge types (PanelToPresenter, PanelToEventRoom, EventRoomToHotelRoom, PanelToPanelType, PresenterToGroup) from GenericEdgeStorage to EntityStorage as first-class entities with UUIDs. This enables edge metadata, simplifies transaction handling, and prepares for CRDT integration.
+
+Note: PresenterToGroup is self-referential (connects Presenter to Presenter) with special semantics for group markers and membership.
 
 ---
 

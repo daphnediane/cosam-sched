@@ -22,7 +22,11 @@ pub mod schedule;
 pub mod time;
 
 // Re-export core types for convenience
-pub use edge::*;
+// Note: edge and entity both have panel_to_presenter modules during migration
+pub use edge::{
+    presenter_to_group, EventRoomToHotelRoomStorage, GenericEdgeStorage, PanelToPanelTypeStorage,
+    PanelToPresenterEdge, PanelToPresenterStorage, PresenterToGroupStorage, RelationshipCache,
+};
 pub use entity::*;
 pub use field::*;
 pub use query::*;
