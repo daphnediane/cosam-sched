@@ -67,12 +67,11 @@ High | Medium | Low
 - Update status as work progresses
 - Run combine script to reorganize files
 
-### Combine Scripts
+### Combine Script
 
-**Unix:** `perl scripts/combine-workplans.pl`  
-**Windows:** `.\scripts\combine-workplans.ps1`
+**All platforms:** `perl scripts/combine-workplans.pl`
 
-Scripts automatically:
+The script automatically:
 
 - Move files to subdirectories based on status/priority
 - Generate `docs/WORK_PLAN.md` with reference-style links

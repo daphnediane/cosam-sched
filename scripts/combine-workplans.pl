@@ -4,8 +4,6 @@
 # SPDX-License-Identifier: BSD-2-Clause
 # See LICENSE file for full license text
 
-# Mark sure to also update combine-workplans.ps1 when making changes here
-
 use strict;
 use warnings;
 use File::Find;
@@ -21,6 +19,9 @@ my $root_dir   = "$script_dir/..";
 # Configuration
 my $workplan_dir = "$root_dir/docs/work-plan";
 my $output_file  = "$root_dir/docs/WORK_PLAN.md";
+
+# Track newest modification time for "Updated on" line
+my $newest_mtime = ( stat( $0 ) )[ 9 ];    # Start with script's own mtime
 
 # Subdirectories for organization
 my %status_dirs = (
@@ -57,6 +58,10 @@ find(
     sub {
         return unless -f && /\.md$/;
         return if $File::Find::name =~ /combine-workplans\.pl$/;
+
+        # Track newest modification time
+        my $mtime = ( stat( $File::Find::name ) )[ 9 ];
+        $newest_mtime = $mtime if $mtime > $newest_mtime;
 
         # Determine which subdirectory this file is in
         my $relative_path = $File::Find::name;
@@ -135,23 +140,46 @@ for my $file_info ( sort { $a->{ path } cmp $b->{ path } } @files ) {
 # Reorganize files to correct directories first
 reorganize_files();
 
-# Generate WORK_PLAN.md with updated file paths
-generate_work_plan( @items );
+# Generate WORK_PLAN.md content
+my $new_content = generate_work_plan_content( @items );
 
-# Trim trailing whitespace from the output file
-my $content = do {
-    local $/;
-    open my $fh, '<', $output_file or die "Can't read $output_file: $!";
-    <$fh>;
-};
-$content =~ s/\n\s*$/\n/;
-open my $fh_out, '>', $output_file or die "Can't write $output_file: $!";
-print $fh_out $content;
-close $fh_out;
+# Check if existing file is identical (ignoring "Updated on" timestamp line)
+my $write_needed = 1;
+if ( -f $output_file ) {
+    my $existing_content = do {
+        local $/;
+        open my $fh, '<', $output_file or die "Can't read $output_file: $!";
+        <$fh>;
+    };
 
-print STDERR "Generated $output_file with "
-    . scalar( @items )
-    . " work items\n";
+    # Normalize both contents: remove "Updated on" line and trailing whitespace
+    my $normalized_existing = $existing_content;
+    $normalized_existing =~ s/^Updated on: .*\n\n//m;
+    $normalized_existing =~ s/\n\s*$/\n/;
+
+    my $normalized_new = $new_content;
+    $normalized_new =~ s/^Updated on: .*\n\n//m;
+    $normalized_new =~ s/\n\s*$/\n/;
+
+    if ( $normalized_existing eq $normalized_new ) {
+        $write_needed = 0;
+    }
+} ## end if ( -f $output_file )
+
+if ( $write_needed ) {
+    open my $fh_out, '>', $output_file
+        or die "Can't write $output_file: $!";
+    print $fh_out $new_content;
+    close $fh_out;
+    print STDERR "Updated $output_file with "
+        . scalar( @items )
+        . " work items\n";
+} ## end if ( $write_needed )
+else {
+    print STDERR "$output_file is up to date ("
+        . scalar( @items )
+        . " work items)\n";
+}
 
 sub reorganize_files {
     print STDERR "Reorganizing files to correct directories...\n";
@@ -203,15 +231,14 @@ sub reorganize_files {
     } ## end for my $item ( @items )
 } ## end sub reorganize_files
 
-sub generate_work_plan {
+sub generate_work_plan_content {
     my ( @items ) = @_;
 
-    # Open output file
-    open my $out, '>', $output_file
-        or die "Can't write $output_file: $!";
+    my $content = '';
 
-    print $out "# Cosplay America Schedule - Work Plan\n\n";
-    print $out "Generated on: " . scalar( localtime ) . "\n\n";
+    $content .= "# Cosplay America Schedule - Work Plan\n\n";
+    $content
+        .= "Updated on: " . scalar( localtime( $newest_mtime ) ) . "\n\n";
 
     # Separate completed and open items
     my @completed = grep { $_->{ status } eq 'Completed' } @items;
@@ -243,7 +270,7 @@ sub generate_work_plan {
 
     # Output completed items as a simple list
     if ( @completed ) {
-        print $out "## Completed\n\n";
+        $content .= "## Completed\n\n";
 
         for my $item (
             sort {
@@ -253,17 +280,17 @@ sub generate_work_plan {
         ) {
             my $link_id = "$item->{prefix}-$item->{num}";
             $all_links{ $link_id } = get_relative_path( $item );
-            print $out "* [$link_id] $item->{summary}\n";
+            $content .= "* [$link_id] $item->{summary}\n";
         } ## end for my $item ( sort { $a...})
 
-        print $out "\n---\n\n";
+        $content .= "\n---\n\n";
     } ## end if ( @completed )
 
     # Add summary of todo items as nested list
     if ( @open ) {
-        print $out "## Summary of Open Items\n\n";
+        $content .= "## Summary of Open Items\n\n";
 
-        print $out "**Total open items:** " . scalar( @open ) . "\n\n";
+        $content .= "**Total open items:** " . scalar( @open ) . "\n\n";
 
         # Group open items by priority for summary list
         my %by_priority;
@@ -275,7 +302,7 @@ sub generate_work_plan {
         for my $priority ( qw(High Medium Low) ) {
             next unless exists $by_priority{ $priority };
 
-            print $out "* **$priority Priority**\n";
+            $content .= "* **$priority Priority**\n";
 
             for my $item (
                 sort {
@@ -285,18 +312,18 @@ sub generate_work_plan {
             ) {
                 my $link_id = "$item->{prefix}-$item->{num}";
                 $all_links{ $link_id } = get_relative_path( $item );
-                print $out "  * [$link_id] $item->{summary}\n";
+                $content .= "  * [$link_id] $item->{summary}\n";
             } ## end for my $item ( sort { $a...})
 
-            print $out "\n";
+            $content .= "\n";
         } ## end for my $priority ( qw(High Medium Low))
 
-        print $out "---\n\n";
+        $content .= "---\n\n";
     } ## end if ( @open )
 
     # Add next available IDs section
-    print $out "## Next Available IDs\n\n";
-    print $out "The following ID numbers are available for new items:\n\n";
+    $content .= "## Next Available IDs\n\n";
+    $content .= "The following ID numbers are available for new items:\n\n";
 
     # Find max ID used across all items
     my $max_id = 0;
@@ -325,9 +352,9 @@ sub generate_work_plan {
         $check_id++;
     } ## end while ( @available < $count_to_show)
 
-    print $out "**Available:** " . join( ", ", @available ) . "\n\n";
-    print $out "**Highest used:** $max_id\n\n";
-    print $out "---\n\n";
+    $content .= "**Available:** " . join( ", ", @available ) . "\n\n";
+    $content .= "**Highest used:** $max_id\n\n";
+    $content .= "---\n\n";
 
     # Add numbering conflicts section if any exist
     if ( %conflicts ) {
@@ -363,13 +390,13 @@ sub generate_work_plan {
         } ## end for my $conflict_id ( keys...)
 
         if ( %actual_conflicts ) {
-            print $out "### Numbering Conflicts\n\n";
-            print $out
-                "The following ID numbers are used by multiple items:\n\n";
+            $content .= "### Numbering Conflicts\n\n";
+            $content
+                .= "The following ID numbers are used by multiple items:\n\n";
 
             for my $conflict_id ( sort { $a <=> $b } keys %actual_conflicts )
             {
-                print $out "#### Suffix `"
+                $content .= "#### Suffix `"
                     . sprintf( "%03d", $conflict_id ) . "`\n\n";
                 for my $item ( @{ $actual_conflicts{ $conflict_id } } ) {
                     my $status_icon
@@ -379,12 +406,12 @@ sub generate_work_plan {
                         $item->{ num }
                     );
 
-                    print $out
-                        "* $status_icon [$display_id] $item->{title}\n";
+                    $content
+                        .= "* $status_icon [$display_id] $item->{title}\n";
                 } ## end for my $item ( @{ $actual_conflicts...})
-                print $out "\n";
+                $content .= "\n";
             } ## end for my $conflict_id ( sort...)
-            print $out "---\n\n";
+            $content .= "---\n\n";
         } ## end if ( %actual_conflicts)
     } ## end if ( %conflicts )
 
@@ -396,36 +423,39 @@ sub generate_work_plan {
 
     # Output each prefix section
     for my $prefix ( sort keys %open_by_prefix ) {
-        print $out "## Open $prefix Items\n\n";
+        $content .= "## Open $prefix Items\n\n";
 
         for my $item ( @{ $open_by_prefix{ $prefix } } ) {
             my $link_id = "$item->{prefix}-$item->{num}";
             $all_links{ $link_id } = get_relative_path( $item );
 
-            print $out "### [$link_id] $item->{title}\n\n";
+            $content .= "### [$link_id] $item->{title}\n\n";
 
-            print $out "**Status:** $item->{status}\n\n";
-            print $out "**Priority:** $item->{priority}\n\n";
-            print $out "**Summary:** $item->{summary}\n\n";
-            print $out "**Description:** $item->{description}\n\n";
+            $content .= "**Status:** $item->{status}\n\n";
+            $content .= "**Priority:** $item->{priority}\n\n";
+            $content .= "**Summary:** $item->{summary}\n\n";
+            $content .= "**Description:** $item->{description}\n\n";
 
             # Add separator, but not after the last item in this prefix
             if ( $item != $open_by_prefix{ $prefix }[ -1 ] ) {
-                print $out "---\n\n";
+                $content .= "---\n\n";
             }
         } ## end for my $item ( @{ $open_by_prefix...})
-        print $out "---\n\n";
+        $content .= "---\n\n";
     } ## end for my $prefix ( sort keys...)
 
     # Add link glossary at the end (no header to avoid rendering issues)
-    print $out "---\n\n";
+    $content .= "---\n\n";
 
     for my $link_id ( sort keys %all_links ) {
-        print $out "[$link_id]: $all_links{$link_id}\n";
+        $content .= "[$link_id]: $all_links{$link_id}\n";
     }
 
-    close $out;
-} ## end sub generate_work_plan
+    # Trim trailing whitespace and ensure single trailing newline
+    $content =~ s/\n\s*$/\n/;
+
+    return $content;
+} ## end sub generate_work_plan_content
 
 sub get_relative_path {
     my ( $item ) = @_;
