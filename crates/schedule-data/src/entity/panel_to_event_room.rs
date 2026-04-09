@@ -68,8 +68,12 @@ impl From<PanelToEventRoomId> for Uuid {
 
 impl crate::entity::TypedId for PanelToEventRoomId {
     type EntityType = PanelToEventRoomEntityType;
-    fn non_nil_uuid(&self) -> NonNilUuid { self.0 }
-    fn from_uuid(uuid: NonNilUuid) -> Self { Self(uuid) }
+    fn non_nil_uuid(&self) -> NonNilUuid {
+        self.0
+    }
+    fn from_uuid(uuid: NonNilUuid) -> Self {
+        Self(uuid)
+    }
 }
 
 /// PanelToEventRoom edge-entity with EntityFields derive macro
@@ -85,12 +89,6 @@ pub struct PanelToEventRoom {
     #[field(display = "Event Room UUID", description = "UUID of the event room")]
     #[required]
     pub event_room_uuid: NonNilUuid,
-
-    // @todo - This is an extension not part of our current data
-
-    /// Whether this is the primary room for the panel
-    #[field(display = "Is Primary Room", description = "Whether this is the primary room")]
-    pub is_primary_room: bool,
 }
 
 impl PanelToEventRoomData {
@@ -110,7 +108,11 @@ mod tests {
     use super::*;
 
     fn test_nn() -> NonNilUuid {
-        unsafe { NonNilUuid::new_unchecked(Uuid::from_bytes([0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1])) }
+        unsafe {
+            NonNilUuid::new_unchecked(Uuid::from_bytes([
+                0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1,
+            ]))
+        }
     }
 
     #[test]
@@ -128,19 +130,29 @@ mod tests {
     #[test]
     fn panel_to_event_room_id_display() {
         let id = PanelToEventRoomId::from(test_nn());
-        assert_eq!(id.to_string(), "panel-to-event-room-00000000-0000-0000-0000-000000000001");
+        assert_eq!(
+            id.to_string(),
+            "panel-to-event-room-00000000-0000-0000-0000-000000000001"
+        );
     }
 
     #[test]
     fn panel_to_event_room_data_ids() {
-        let panel_uuid = unsafe { NonNilUuid::new_unchecked(Uuid::from_bytes([0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1])) };
-        let event_room_uuid = unsafe { NonNilUuid::new_unchecked(Uuid::from_bytes([0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 2])) };
+        let panel_uuid = unsafe {
+            NonNilUuid::new_unchecked(Uuid::from_bytes([
+                0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1,
+            ]))
+        };
+        let event_room_uuid = unsafe {
+            NonNilUuid::new_unchecked(Uuid::from_bytes([
+                0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 2,
+            ]))
+        };
 
         let data = PanelToEventRoomData {
             entity_uuid: test_nn(),
             panel_uuid,
             event_room_uuid,
-            is_primary_room: true,
         };
 
         assert_eq!(data.panel_id().non_nil_uuid(), panel_uuid);

@@ -89,19 +89,6 @@ pub struct PanelToPresenter {
     #[field(display = "Presenter UUID", description = "UUID of the presenter")]
     #[required]
     pub presenter_uuid: NonNilUuid,
-
-    // @todo: Document these as extensions
-    
-    /// Whether this is the primary presenter for the panel
-    #[field(
-        display = "Is Primary",
-        description = "Whether this is the primary presenter"
-    )]
-    pub is_primary: bool,
-
-    /// Whether this presenter has confirmed participation
-    #[field(display = "Confirmed", description = "Whether presenter has confirmed")]
-    pub confirmed: bool,
 }
 
 impl PanelToPresenterData {
@@ -166,8 +153,6 @@ mod tests {
             entity_uuid: test_nn(),
             panel_uuid,
             presenter_uuid,
-            is_primary: true,
-            confirmed: false,
         };
 
         assert_eq!(data.panel_id().non_nil_uuid(), panel_uuid);

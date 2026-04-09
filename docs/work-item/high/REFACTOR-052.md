@@ -16,10 +16,8 @@ In Progress - Structure Complete
 - [x] TypedStorage implementations for all edge types
 - [x] EntityStorage fields for all edge types
 - [x] Schedule.identify() handles all edge types
-- [x] V5 UUID generation strategy documented
-- [ ] V5 UUID generation implementation
-- [ ] Query methods for endpoint-based lookups
-- [ ] Tests for edge-entity operations
+- [x] Correct metadata preserved (`always_shown_in_group`, `always_grouped` for PresenterToGroup)
+- [x] Removed metadata documented in FEATURE-030
 
 ## Priority
 

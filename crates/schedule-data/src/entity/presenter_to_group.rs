@@ -79,8 +79,12 @@ impl From<PresenterToGroupId> for Uuid {
 
 impl crate::entity::TypedId for PresenterToGroupId {
     type EntityType = PresenterToGroupEntityType;
-    fn non_nil_uuid(&self) -> NonNilUuid { self.0 }
-    fn from_uuid(uuid: NonNilUuid) -> Self { Self(uuid) }
+    fn non_nil_uuid(&self) -> NonNilUuid {
+        self.0
+    }
+    fn from_uuid(uuid: NonNilUuid) -> Self {
+        Self(uuid)
+    }
 }
 
 /// PresenterToGroup edge-entity with EntityFields derive macro
@@ -97,17 +101,16 @@ pub struct PresenterToGroup {
     #[required]
     pub group_uuid: NonNilUuid,
 
-    /// @todo - these are not needed
+    /// Whether this member should always be shown when the group is displayed
+    #[field(
+        display = "Always Shown in Group",
+        description = "Whether always shown in group"
+    )]
+    pub always_shown_in_group: bool,
 
-    /// Whether this edge marks the member as a group itself
-    #[field(display = "Is Group Marker", description = "Whether this marks a group")]
-    pub is_group_marker: bool,
-
-    /// Whether this edge indicates group membership
-    #[field(display = "Is Group Member", description = "Whether this indicates membership")]
-    pub is_group_member: bool,
-
-    // @todo - Need always shown in group and always grouped
+    /// Whether this presenter should always be grouped with this group
+    #[field(display = "Always Grouped", description = "Whether always grouped")]
+    pub always_grouped: bool,
 }
 
 impl PresenterToGroupData {
@@ -132,7 +135,11 @@ mod tests {
     use super::*;
 
     fn test_nn() -> NonNilUuid {
-        unsafe { NonNilUuid::new_unchecked(Uuid::from_bytes([0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1])) }
+        unsafe {
+            NonNilUuid::new_unchecked(Uuid::from_bytes([
+                0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1,
+            ]))
+        }
     }
 
     #[test]
@@ -150,20 +157,31 @@ mod tests {
     #[test]
     fn presenter_to_group_id_display() {
         let id = PresenterToGroupId::from(test_nn());
-        assert_eq!(id.to_string(), "presenter-to-group-00000000-0000-0000-0000-000000000001");
+        assert_eq!(
+            id.to_string(),
+            "presenter-to-group-00000000-0000-0000-0000-000000000001"
+        );
     }
 
     #[test]
     fn presenter_to_group_data_ids() {
-        let member_uuid = unsafe { NonNilUuid::new_unchecked(Uuid::from_bytes([0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1])) };
-        let group_uuid = unsafe { NonNilUuid::new_unchecked(Uuid::from_bytes([0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 2])) };
+        let member_uuid = unsafe {
+            NonNilUuid::new_unchecked(Uuid::from_bytes([
+                0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1,
+            ]))
+        };
+        let group_uuid = unsafe {
+            NonNilUuid::new_unchecked(Uuid::from_bytes([
+                0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 2,
+            ]))
+        };
 
         let data = PresenterToGroupData {
             entity_uuid: test_nn(),
             member_uuid,
             group_uuid,
-            is_group_marker: false,
-            is_group_member: true,
+            always_shown_in_group: true,
+            always_grouped: false,
         };
 
         assert_eq!(data.member_id().non_nil_uuid(), member_uuid);
@@ -173,14 +191,18 @@ mod tests {
 
     #[test]
     fn presenter_to_group_self_loop_detection() {
-        let uuid = unsafe { NonNilUuid::new_unchecked(Uuid::from_bytes([0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1])) };
+        let uuid = unsafe {
+            NonNilUuid::new_unchecked(Uuid::from_bytes([
+                0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1,
+            ]))
+        };
 
         let data = PresenterToGroupData {
             entity_uuid: test_nn(),
             member_uuid: uuid,
             group_uuid: uuid,
-            is_group_marker: true,
-            is_group_member: false,
+            always_shown_in_group: true,
+            always_grouped: true,
         };
 
         assert!(data.is_self_loop());
