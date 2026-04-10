@@ -15,7 +15,6 @@ pub mod entity;
 pub mod field;
 pub mod schedule;
 pub mod time;
-pub mod uuid_v5;
 
 // Re-export frequently used types at crate root
 pub use entity::{EntityKind, EntityType, InternalData, TypedId};

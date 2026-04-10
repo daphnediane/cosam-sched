@@ -319,10 +319,13 @@ pub fn derive_entity_fields(input: TokenStream) -> TokenStream {
         proc_macro2::Span::call_site(),
     );
     let display_prefix = type_name_str.replace('_', "-");
+    let entity_namespace_str = format!("cosam.{}", type_name_str);
+    let entity_namespace_ident = quote::format_ident!("__UUID_NS_{}", type_name_str.to_uppercase());
     let typed_id_impl = generate_typed_id(
         &typed_id_struct_name,
         &entity_type_struct_name,
         &display_prefix,
+        &entity_namespace_ident,
     );
 
     // Generate the complete implementation
@@ -377,6 +380,11 @@ pub fn derive_entity_fields(input: TokenStream) -> TokenStream {
 
     let expanded = quote! {
         #typed_id_impl
+
+        static #entity_namespace_ident: std::sync::LazyLock<uuid::Uuid> =
+            std::sync::LazyLock::new(|| {
+                uuid::Uuid::new_v5(&uuid::Uuid::NAMESPACE_DNS, #entity_namespace_str.as_bytes())
+            });
 
         /// Generated internal storage struct for #struct_name.
         /// Fields are crate-private; external code should use the field system.
@@ -434,7 +442,7 @@ pub fn derive_entity_fields(input: TokenStream) -> TokenStream {
             /// UUID is resolved via the `uuid_preference` (defaults to a fresh v7 UUID).
             pub fn build(self) -> Result<#data_struct_name, crate::field::validation::ValidationError> {
                 #(#builder_build_extractions)*
-                let entity_uuid = self.uuid_preference.resolve();
+                let entity_uuid = self.uuid_preference.resolve(*#entity_namespace_ident);
                 Ok(#data_struct_name {
                     entity_uuid,
                     #(#new_param_names,)*
@@ -448,7 +456,7 @@ pub fn derive_entity_fields(input: TokenStream) -> TokenStream {
             /// The entity UUID is updated only if explicitly set via `with_entity_uuid`.
             pub fn apply_to(self, data: &mut #data_struct_name) {
                 if !matches!(self.uuid_preference, crate::entity::UuidPreference::GenerateNew) {
-                    data.entity_uuid = self.uuid_preference.resolve();
+                    data.entity_uuid = self.uuid_preference.resolve(*#entity_namespace_ident);
                 }
                 #(
                 if let Some(v) = self.#new_param_names {
@@ -1528,13 +1536,15 @@ fn get_field_type_category(ty: &Type) -> FieldTypeCategory {
 
 /// Generate the typed ID wrapper struct and all standard trait impls for an entity.
 ///
-/// Produces `<Name>Id(uuid::NonNilUuid)` with `Display`, `From` conversions, and
-/// `crate::entity::TypedId` impl.  The display prefix is the kebab-case entity name
-/// (e.g. `"event-room"` for `EventRoom`).
+/// Produces `<Name>Id(uuid::NonNilUuid)` with `Display`, `From` conversions,
+/// `crate::entity::TypedId` impl, and a `from_preference()` constructor that
+/// resolves a [`crate::entity::UuidPreference`] using the entity's namespace.
+/// The display prefix is the kebab-case entity name (e.g. `"event-room"` for `EventRoom`).
 fn generate_typed_id(
     typed_id_struct_name: &Ident,
     entity_type_struct_name: &Ident,
     display_prefix: &str,
+    entity_namespace_ident: &Ident,
 ) -> TokenStream2 {
     quote! {
         #[derive(
@@ -1563,6 +1573,15 @@ fn generate_typed_id(
             /// Try to create from a raw [`uuid::Uuid`]; returns `None` for the nil UUID.
             pub fn try_from_raw_uuid(uuid: uuid::Uuid) -> Option<Self> {
                 uuid::NonNilUuid::new(uuid).map(Self)
+            }
+
+            /// Resolve a [`crate::entity::UuidPreference`] against this entity type's
+            /// namespace and wrap the result as a typed ID.
+            ///
+            /// The namespace is derived from the entity kind and is managed by the
+            /// macro; callers do not need to supply it.
+            pub fn from_preference(pref: crate::entity::UuidPreference) -> Self {
+                Self(pref.resolve(*#entity_namespace_ident))
             }
         }
 
