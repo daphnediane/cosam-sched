@@ -17,10 +17,12 @@ use crate::edge::{
     EventRoomToHotelRoomStorage, GenericEdgeStorage, PanelToPanelTypeStorage,
     PanelToPresenterStorage, PresenterToGroupStorage,
 };
+use crate::edge_entity_query::EdgeEntityQuery;
 use crate::entity::{
     EntityKind, EntityRef, EntityType, EntityUUID, EventRoomId, HotelRoomId, InternalData, PanelId,
     PanelTypeId, PresenterId, PublicEntityRef, TypedId,
 };
+use crate::entity::{PanelToPresenterId, PresenterToGroupId};
 use crate::field::validation::ValidationError;
 use crate::field::FieldValue;
 use crate::query::{FieldMatch, QueryOptions};
@@ -48,12 +50,16 @@ pub struct Schedule {
     pub panel_to_panel_type: PanelToPanelTypeStorage,
     entity_registry: HashMap<uuid::NonNilUuid, EntityKind>,
     pub metadata: ScheduleMetadata,
+    /// Query engine for edge-entities with caching
+    pub edge_query: EdgeEntityQuery,
 }
 
 impl Schedule {
     pub fn new() -> Self {
+        let entities = EntityStorage::new();
+        let edge_query = EdgeEntityQuery::new(&entities);
         Self {
-            entities: EntityStorage::new(),
+            entities,
             presenter_to_group: PresenterToGroupStorage::new(),
             panel_to_presenter: PanelToPresenterStorage::new(),
             panel_to_event_room: GenericEdgeStorage::new(),
@@ -61,6 +67,7 @@ impl Schedule {
             panel_to_panel_type: PanelToPanelTypeStorage::new(),
             entity_registry: HashMap::new(),
             metadata: ScheduleMetadata::new(),
+            edge_query,
         }
     }
 
@@ -477,6 +484,186 @@ impl Schedule {
             })
     }
 
+    /// Create a PanelToPresenter edge-entity
+    ///
+    /// Uses V5 UUID generation for deterministic identity based on the panel
+    /// and presenter UUIDs. This ensures the same relationship always produces
+    /// the same edge UUID, enabling natural collision detection.
+    pub fn create_panel_to_presenter_entity(
+        &mut self,
+        panel_id: PanelId,
+        presenter_id: PresenterId,
+    ) -> Result<PanelToPresenterId, ScheduleError> {
+        // Generate deterministic V5 UUID based on endpoints
+        let edge_uuid = crate::uuid_v5::panel_to_presenter_uuid(
+            panel_id.non_nil_uuid(),
+            presenter_id.non_nil_uuid(),
+        );
+
+        let data = crate::entity::PanelToPresenterData {
+            entity_uuid: edge_uuid,
+            panel_uuid: panel_id.non_nil_uuid(),
+            presenter_uuid: presenter_id.non_nil_uuid(),
+        };
+
+        // Register the entity kind
+        self.entity_registry
+            .insert(edge_uuid, crate::entity::EntityKind::PanelToPresenter);
+
+        // Store the entity (may overwrite if same relationship existed)
+        self.entities.panel_to_presenters.insert(edge_uuid, data);
+
+        // Invalidate edge query cache since we modified edges
+        self.edge_query.invalidate_cache();
+
+        Ok(PanelToPresenterId::from_uuid(edge_uuid))
+    }
+
+    /// Create a PresenterToGroup edge-entity
+    ///
+    /// Uses V5 UUID generation for deterministic identity based on the member
+    /// and group UUIDs. This ensures the same relationship always produces
+    /// the same edge UUID, enabling natural collision detection.
+    pub fn create_presenter_to_group_entity(
+        &mut self,
+        member_id: PresenterId,
+        group_id: PresenterId,
+        always_shown_in_group: bool,
+        always_grouped: bool,
+    ) -> Result<PresenterToGroupId, ScheduleError> {
+        // Generate deterministic V5 UUID based on endpoints
+        let edge_uuid = crate::uuid_v5::presenter_to_group_uuid(
+            member_id.non_nil_uuid(),
+            group_id.non_nil_uuid(),
+        );
+
+        let data = crate::entity::PresenterToGroupData {
+            entity_uuid: edge_uuid,
+            member_uuid: member_id.non_nil_uuid(),
+            group_uuid: group_id.non_nil_uuid(),
+            always_shown_in_group,
+            always_grouped,
+        };
+
+        // Register the entity kind
+        self.entity_registry
+            .insert(edge_uuid, crate::entity::EntityKind::PresenterToGroup);
+
+        // Store the entity
+        self.entities.presenter_to_groups.insert(edge_uuid, data);
+
+        // Invalidate edge query cache
+        self.edge_query.invalidate_cache();
+
+        Ok(PresenterToGroupId::from_uuid(edge_uuid))
+    }
+
+    /// Delete a PanelToPresenter edge-entity by ID
+    pub fn delete_panel_to_presenter_entity(
+        &mut self,
+        edge_id: PanelToPresenterId,
+    ) -> Result<(), ScheduleError> {
+        let uuid = edge_id.non_nil_uuid();
+
+        if self.entities.panel_to_presenters.remove(&uuid).is_none() {
+            return Err(ScheduleError::EdgeNotFound {
+                edge_id: uuid.to_string(),
+            });
+        }
+
+        self.entity_registry.remove(&uuid);
+        self.edge_query.invalidate_cache();
+
+        Ok(())
+    }
+
+    /// Delete a PresenterToGroup edge-entity by ID
+    pub fn delete_presenter_to_group_entity(
+        &mut self,
+        edge_id: PresenterToGroupId,
+    ) -> Result<(), ScheduleError> {
+        let uuid = edge_id.non_nil_uuid();
+
+        if self.entities.presenter_to_groups.remove(&uuid).is_none() {
+            return Err(ScheduleError::EdgeNotFound {
+                edge_id: uuid.to_string(),
+            });
+        }
+
+        self.entity_registry.remove(&uuid);
+        self.edge_query.invalidate_cache();
+
+        Ok(())
+    }
+
+    /// Delete PanelToPresenter edges by endpoints
+    pub fn delete_panel_to_presenter_by_endpoints(
+        &mut self,
+        panel_id: PanelId,
+        presenter_id: PresenterId,
+    ) -> Result<(), ScheduleError> {
+        let panel_uuid = panel_id.non_nil_uuid();
+        let presenter_uuid = presenter_id.non_nil_uuid();
+
+        // Find and remove matching edges
+        let edges_to_remove: Vec<uuid::NonNilUuid> = self
+            .entities
+            .panel_to_presenters
+            .iter()
+            .filter(|(_, data)| {
+                data.panel_uuid == panel_uuid && data.presenter_uuid == presenter_uuid
+            })
+            .map(|(uuid, _)| *uuid)
+            .collect();
+
+        if edges_to_remove.is_empty() {
+            return Err(ScheduleError::EdgeNotFound {
+                edge_id: format!("panel:{:?},presenter:{:?}", panel_uuid, presenter_uuid),
+            });
+        }
+
+        for uuid in edges_to_remove {
+            self.entities.panel_to_presenters.remove(&uuid);
+            self.entity_registry.remove(&uuid);
+        }
+
+        self.edge_query.invalidate_cache();
+        Ok(())
+    }
+
+    /// Delete PresenterToGroup edges by endpoints
+    pub fn delete_presenter_to_group_by_endpoints(
+        &mut self,
+        member_id: PresenterId,
+        group_id: PresenterId,
+    ) -> Result<(), ScheduleError> {
+        let member_uuid = member_id.non_nil_uuid();
+        let group_uuid = group_id.non_nil_uuid();
+
+        // Find and remove matching edges
+        let edges_to_remove: Vec<uuid::NonNilUuid> = self
+            .entities
+            .presenter_to_groups
+            .iter()
+            .filter(|(_, data)| data.member_uuid == member_uuid && data.group_uuid == group_uuid)
+            .map(|(uuid, _)| *uuid)
+            .collect();
+
+        if edges_to_remove.is_empty() {
+            return Err(ScheduleError::EdgeNotFound {
+                edge_id: format!("member:{:?},group:{:?}", member_uuid, group_uuid),
+            });
+        }
+
+        for uuid in edges_to_remove {
+            self.entities.presenter_to_groups.remove(&uuid);
+            self.entity_registry.remove(&uuid);
+        }
+
+        self.edge_query.invalidate_cache();
+        Ok(())
+    }
+
     // === Cache Invalidation Methods ===
 
     /// Invalidate panel-to-presenter cache
@@ -628,7 +815,7 @@ impl std::error::Error for ScheduleError {}
 mod tests {
     use super::*;
     use crate::entity::panel::PanelData;
-    use crate::entity::{EntityKind, EntityUUID, PanelEntityType, PanelId};
+    use crate::entity::{EntityKind, EntityUUID, PanelEntityType, PanelId, PresenterId};
     use crate::time::TimeRange;
 
     fn test_uuid(byte: u8) -> uuid::NonNilUuid {
@@ -749,5 +936,132 @@ mod tests {
         let identified = sched.identify(uuid).unwrap();
         assert_eq!(identified.kind(), EntityKind::Panel);
         assert_eq!(identified.non_nil_uuid(), uuid);
+    }
+
+    #[test]
+    fn create_panel_to_presenter_entity_registered() {
+        let mut sched = Schedule::new();
+        let panel_uuid = test_uuid(10);
+        let presenter_uuid = test_uuid(11);
+
+        let panel_id = PanelId::from_uuid(panel_uuid);
+        let presenter_id = PresenterId::from_uuid(presenter_uuid);
+
+        let edge_id = sched
+            .create_panel_to_presenter_entity(panel_id, presenter_id)
+            .unwrap();
+
+        // Edge should be registered
+        let identified = sched.identify(edge_id.non_nil_uuid());
+        assert!(identified.is_some());
+        assert_eq!(identified.unwrap().kind(), EntityKind::PanelToPresenter);
+
+        // Edge should be in storage
+        assert!(sched
+            .entities
+            .panel_to_presenters
+            .contains_key(&edge_id.non_nil_uuid()));
+    }
+
+    #[test]
+    fn create_panel_to_presenter_entity_idempotent() {
+        let mut sched = Schedule::new();
+        let panel_id = PanelId::from_uuid(test_uuid(10));
+        let presenter_id = PresenterId::from_uuid(test_uuid(11));
+
+        let edge_id1 = sched
+            .create_panel_to_presenter_entity(panel_id, presenter_id)
+            .unwrap();
+        let edge_id2 = sched
+            .create_panel_to_presenter_entity(panel_id, presenter_id)
+            .unwrap();
+
+        // V5 UUID should be the same for the same endpoints
+        assert_eq!(edge_id1, edge_id2);
+        // Storage should have exactly one entry
+        assert_eq!(sched.entities.panel_to_presenters.len(), 1);
+    }
+
+    #[test]
+    fn delete_panel_to_presenter_entity() {
+        let mut sched = Schedule::new();
+        let panel_id = PanelId::from_uuid(test_uuid(10));
+        let presenter_id = PresenterId::from_uuid(test_uuid(11));
+
+        let edge_id = sched
+            .create_panel_to_presenter_entity(panel_id, presenter_id)
+            .unwrap();
+        assert!(sched
+            .entities
+            .panel_to_presenters
+            .contains_key(&edge_id.non_nil_uuid()));
+
+        sched.delete_panel_to_presenter_entity(edge_id).unwrap();
+
+        assert!(!sched
+            .entities
+            .panel_to_presenters
+            .contains_key(&edge_id.non_nil_uuid()));
+        assert!(sched.identify(edge_id.non_nil_uuid()).is_none());
+    }
+
+    #[test]
+    fn create_presenter_to_group_entity_registered() {
+        let mut sched = Schedule::new();
+        let member_id = PresenterId::from_uuid(test_uuid(20));
+        let group_id = PresenterId::from_uuid(test_uuid(21));
+
+        let edge_id = sched
+            .create_presenter_to_group_entity(member_id, group_id, false, false)
+            .unwrap();
+
+        let identified = sched.identify(edge_id.non_nil_uuid());
+        assert!(identified.is_some());
+        assert_eq!(identified.unwrap().kind(), EntityKind::PresenterToGroup);
+    }
+
+    #[test]
+    fn create_presenter_to_group_entity_idempotent() {
+        let mut sched = Schedule::new();
+        let member_id = PresenterId::from_uuid(test_uuid(20));
+        let group_id = PresenterId::from_uuid(test_uuid(21));
+
+        let edge_id1 = sched
+            .create_presenter_to_group_entity(member_id, group_id, false, false)
+            .unwrap();
+        let edge_id2 = sched
+            .create_presenter_to_group_entity(member_id, group_id, true, false)
+            .unwrap();
+
+        // V5 UUID should be the same for the same endpoints
+        assert_eq!(edge_id1, edge_id2);
+        assert_eq!(sched.entities.presenter_to_groups.len(), 1);
+    }
+
+    #[test]
+    fn delete_panel_to_presenter_by_endpoints() {
+        let mut sched = Schedule::new();
+        let panel_id = PanelId::from_uuid(test_uuid(10));
+        let presenter_id = PresenterId::from_uuid(test_uuid(11));
+
+        sched
+            .create_panel_to_presenter_entity(panel_id, presenter_id)
+            .unwrap();
+        assert_eq!(sched.entities.panel_to_presenters.len(), 1);
+
+        sched
+            .delete_panel_to_presenter_by_endpoints(panel_id, presenter_id)
+            .unwrap();
+        assert_eq!(sched.entities.panel_to_presenters.len(), 0);
+    }
+
+    #[test]
+    fn delete_nonexistent_edge_returns_error() {
+        let mut sched = Schedule::new();
+        let panel_id = PanelId::from_uuid(test_uuid(10));
+        let presenter_id = PresenterId::from_uuid(test_uuid(11));
+
+        let result = sched.delete_panel_to_presenter_by_endpoints(panel_id, presenter_id);
+        assert!(matches!(result, Err(ScheduleError::EdgeNotFound { .. })));
     }
 }

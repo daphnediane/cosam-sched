@@ -15,11 +15,13 @@
 pub use schedule_macro::EntityFields;
 
 pub mod edge;
+pub mod edge_entity_query;
 pub mod entity;
 pub mod field;
 pub mod query;
 pub mod schedule;
 pub mod time;
+pub mod uuid_v5;
 
 // Re-export core types for convenience
 // Note: edge and entity both have panel_to_presenter modules during migration
@@ -32,3 +34,4 @@ pub use field::*;
 pub use query::*;
 pub use schedule::*;
 pub use time::*;
+pub use uuid_v5::*;

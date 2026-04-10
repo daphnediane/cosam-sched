@@ -6,18 +6,27 @@ Convert edge types from separate edge storage to first-class entities with NonNi
 
 ## Status
 
-In Progress - Structure Complete
+In Progress - Query Layer Complete
 
 ## Completed
 
 - [x] Entity module files created for all 5 edge types
-- [x] EntityKind variants added for all edge types  
+- [x] EntityKind variants added for all edge types
 - [x] EntityUUID variants added for all edge types
 - [x] TypedStorage implementations for all edge types
 - [x] EntityStorage fields for all edge types
 - [x] Schedule.identify() handles all edge types
 - [x] Correct metadata preserved (`always_shown_in_group`, `always_grouped` for PresenterToGroup)
 - [x] Removed metadata documented in FEATURE-030
+- [x] V5 UUID generation for deterministic edge identities (`uuid_v5` module)
+- [x] `EdgeEntityQuery` module with secondary indexes for endpoint-based lookups
+- [x] `PanelToPresenterIndex` for panel/presenter queries
+- [x] `PresenterToGroupIndex` for member/group queries with group detection
+- [x] Transitive closure caching for inclusive presenter/panel lookups
+- [x] Schedule CRUD: `create_panel_to_presenter_entity`, `create_presenter_to_group_entity`
+- [x] Schedule CRUD: `delete_panel_to_presenter_entity`, `delete_presenter_to_group_entity`
+- [x] Schedule CRUD: `delete_panel_to_presenter_by_endpoints`, `delete_presenter_to_group_by_endpoints`
+- [x] Tests for all new edge-entity CRUD operations
 
 ## Priority
 
