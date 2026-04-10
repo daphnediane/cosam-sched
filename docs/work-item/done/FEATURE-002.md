@@ -6,7 +6,7 @@ Set up the Cargo workspace root and create skeleton crates for all planned compo
 
 ## Status
 
-Open
+Completed
 
 ## Priority
 

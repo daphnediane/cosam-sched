@@ -1,0 +1,15 @@
+[workspace]
+members = [
+    "crates/schedule-data",
+    "crates/schedule-macro",
+    "apps/cosam-convert",
+    "apps/cosam-modify",
+    "apps/cosam-editor",
+]
+resolver = "2"
+
+[workspace.package]
+version = "0.1.0"
+edition = "2021"
+license = "BSD-2-Clause"
+authors = ["Daphne Pfister"]

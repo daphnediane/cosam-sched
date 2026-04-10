@@ -1,14 +1,20 @@
 # Cosplay America Schedule - Work Item
 
-Updated on: Fri Apr 10 15:50:57 2026
+Updated on: Fri Apr 10 15:56:15 2026
+
+## Completed
+
+* [FEATURE-002] Set up the Cargo workspace root and create skeleton crates for all planned components.
+* [META-025] Phase tracker for project foundation and Cargo workspace setup.
+
+---
 
 ## Summary of Open Items
 
-**Total open items:** 31
+**Total open items:** 29
 
 * **Meta / Project-Level**
-  * [META-001] Meta work item tracking the full multi-phase redesign of the schedule system. (Blocked by [META-025], [META-026], [META-027], [META-028], [META-029], [META-030], [META-031])
-  * [META-025] Phase tracker for project foundation and Cargo workspace setup.
+  * [META-001] Meta work item tracking the full multi-phase redesign of the schedule system. (Blocked by [META-026], [META-027], [META-028], [META-029], [META-030], [META-031])
   * [META-026] Phase tracker for the entity/field/macro system and core schedule data model. (Blocked by [META-025])
   * [META-027] Phase tracker for adding CRDT-backed storage underneath the entity/field system. (Blocked by [META-026])
   * [META-028] Phase tracker for internal file format, multi-year archive, widget JSON, and
@@ -18,7 +24,6 @@ XLSX import/export. (Blocked by [META-026], [META-027])
   * [META-031] Phase tracker for peer-to-peer schedule synchronization and conflict resolution. (Blocked by [META-027])
 
 * **High Priority**
-  * [FEATURE-002] ([META-025]) Set up the Cargo workspace root and create skeleton crates for all planned components.
   * [FEATURE-003] ([META-026]) Implement the `#[derive(EntityFields)]` proc-macro in the `schedule-macro` crate.
   * [FEATURE-004] ([META-026]) Implement the field trait hierarchy, universal `FieldValue` enum, `FieldSet` registry,
 and validation infrastructure.
@@ -126,37 +131,6 @@ application structure.
 ---
 
 ## Open FEATURE Items
-
-### [FEATURE-002] Cargo Workspace Setup With Crate Skeletons
-
-**Status:** Open
-
-**Priority:** High
-
-**Summary:** Set up the Cargo workspace root and create skeleton crates for all planned components.
-
-**Part of:** [META-025]
-
-**Description:** Initialize `cosam_sched` as a Cargo workspace with the following layout:
-
-```text
-Cargo.toml              (workspace root)
-crates/
-  schedule-data/        (core data model, entities, fields, storage)
-  schedule-macro/       (proc-macro crate for #[derive(EntityFields)])
-apps/
-  cosam-convert/        (format conversion CLI)
-  cosam-modify/         (CLI editing tool)
-  cosam-editor/         (GUI editor — skeleton only)
-```
-
-Each crate should have:
-
-- `Cargo.toml` with `license = "BSD-2-Clause"` and `authors = ["Daphne Pfister"]`
-- Copyright header in all source files
-- Minimal `lib.rs` or `main.rs` that compiles
-
----
 
 ### [FEATURE-003] EntityFields Derive Macro
 
@@ -473,7 +447,7 @@ these decisions and override them.
 
 **Summary:** Meta work item tracking the full multi-phase redesign of the schedule system.
 
-**Blocked By:** [META-025], [META-026], [META-027], [META-028], [META-029], [META-030], [META-031]
+**Blocked By:** [META-026], [META-027], [META-028], [META-029], [META-030], [META-031]
 
 **Description:** Redesign the cosam-sched schedule system from the ground up with:
 
@@ -496,23 +470,6 @@ these decisions and override them.
 - META-029: Phase 5 — CLI Tools
 - META-030: Phase 6 — GUI Editor
 - META-031: Phase 7 — Sync & Multi-User
-
----
-
-### [META-025] Phase 1 — Foundation
-
-**Status:** Blocked
-
-**Priority:** High
-
-**Summary:** Phase tracker for project foundation and Cargo workspace setup.
-
-**Description:** Establish the Cargo workspace and skeleton crates so all subsequent phases have
-a place to land.
-
-**Work Items:**
-
-- FEATURE-002: Cargo workspace setup with crate skeletons
 
 ---
 
@@ -656,7 +613,7 @@ to exchange CRDT changes and reconcile concurrent edits to the same fields.
 [CLI-020]: work-item/low/CLI-020.md
 [EDITOR-021]: work-item/low/EDITOR-021.md
 [EDITOR-022]: work-item/low/EDITOR-022.md
-[FEATURE-002]: work-item/high/FEATURE-002.md
+[FEATURE-002]: work-item/done/FEATURE-002.md
 [FEATURE-003]: work-item/high/FEATURE-003.md
 [FEATURE-004]: work-item/high/FEATURE-004.md
 [FEATURE-005]: work-item/high/FEATURE-005.md
@@ -676,7 +633,7 @@ to exchange CRDT changes and reconcile concurrent edits to the same fields.
 [FEATURE-023]: work-item/low/FEATURE-023.md
 [FEATURE-024]: work-item/low/FEATURE-024.md
 [META-001]: work-item/meta/META-001.md
-[META-025]: work-item/meta/META-025.md
+[META-025]: work-item/done/META-025.md
 [META-026]: work-item/meta/META-026.md
 [META-027]: work-item/meta/META-027.md
 [META-028]: work-item/meta/META-028.md
