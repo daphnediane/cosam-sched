@@ -30,6 +30,9 @@ my %priority_defaults = (
     'Low'    => 'low',
 );
 
+# Subdirectories for META prefix items (always go to meta/ regardless of priority)
+my %meta_prefixes = map { $_ => 1 } qw(META);
+
 # Subdirectories for organization
 my %status_dirs = (
     'Completed'   => 'done',
@@ -103,6 +106,18 @@ for my $file_info ( sort { $a->{ path } cmp $b->{ path } } @files ) {
     my ( $description ) = $content =~ /## Description\s*\n(.+?)(?=\n##|\z)/s
         or die "No description in $file";
 
+    # Extract optional sections (non-fatal if missing)
+    my ( $blocked_by_raw ) = $content =~ /## Blocked By\s*\n(.+?)(?=\n##|\z)/s;
+    my ( $work_list )      = $content =~ /## Work Items\s*\n(.+?)(?=\n##|\z)/s;
+
+    # Parse Blocked By into list of IDs — only the leading ID on each bullet line
+    my @blocked_by_ids;
+    if ( $blocked_by_raw ) {
+        while ( $blocked_by_raw =~ /^-\s+([A-Z]+-\d+)\b/mg ) {
+            push @blocked_by_ids, $1;
+        }
+    }
+
     # Clean up whitespace
     $summary     =~ s/^\s+|\s+$//g;
     $status      =~ s/^\s+|\s+$//g;
@@ -125,13 +140,20 @@ for my $file_info ( sort { $a->{ path } cmp $b->{ path } } @files ) {
         status         => $status,
         priority       => $priority,
         description    => $description,
+        blocked_by_ids => \@blocked_by_ids,
+        work_list      => $work_list,
         full_content   => $content,
         current_subdir => $file_info->{ subdir },
     };
 } ## end for my $file_info ( sort...)
 
-# Sort by priority, then by prefix and number
+# Sort META items first, then by priority, then by prefix and number
 @items = sort {
+    my $meta_a   = $meta_prefixes{ $a->{ prefix } } ? 0 : 1;
+    my $meta_b   = $meta_prefixes{ $b->{ prefix } } ? 0 : 1;
+    my $meta_cmp = $meta_a <=> $meta_b;
+    return $meta_cmp if $meta_cmp;
+
     my $prio_a   = $priority_order{ $a->{ priority } } || 999;
     my $prio_b   = $priority_order{ $b->{ priority } } || 999;
     my $prio_cmp = $prio_a <=> $prio_b;
@@ -142,6 +164,53 @@ for my $file_info ( sort { $a->{ path } cmp $b->{ path } } @files ) {
         if $a->{ prefix } ne $b->{ prefix };
     return $a->{ num } <=> $b->{ num };
 } @items;
+
+# Build two maps from each open META item's Work Items list:
+#   %meta_parent_of  : child_id => [parent META IDs]
+#                      Used to label non-META items with their phase tracker.
+#   %open_item_ids   : quick lookup of all open item IDs
+my %meta_parent_of;
+my %open_item_ids;
+for my $item ( @items ) {
+    next if is_closed_status( $item->{ status } );
+    my $id = sprintf( "%s-%03d", $item->{ prefix }, $item->{ num } );
+    $open_item_ids{ $id } = $item;
+}
+for my $item ( @items ) {
+    next unless $meta_prefixes{ $item->{ prefix } };
+    next if is_closed_status( $item->{ status } );
+    next unless $item->{ work_list };
+    my $parent_id = sprintf( "%s-%03d", $item->{ prefix }, $item->{ num } );
+    while ( $item->{ work_list } =~ /^-\s+([A-Z]+-\d+)\b/mg ) {
+        my $child_id = $1;
+        push @{ $meta_parent_of{ $child_id } }, $parent_id;
+    }
+}
+
+# Annotate items using the maps:
+# - Non-META items: store their parent META IDs as 'meta_parent_ids' (label only)
+# - META items: open work-list children that are also META block the parent
+#   (e.g. META-001 is blocked by META-025..031); inject into blocked_by_ids.
+for my $item ( @items ) {
+    my $item_id = sprintf( "%s-%03d", $item->{ prefix }, $item->{ num } );
+    if ( !$meta_prefixes{ $item->{ prefix } } ) {
+        # Non-META: label with parent phase tracker(s)
+        my @parents = @{ $meta_parent_of{ $item_id } // [] };
+        $item->{ meta_parent_ids } = \@parents if @parents;
+    } else {
+        # META: inject open META work-list children as Blocked By
+        next unless $item->{ work_list };
+        my %existing = map { $_ => 1 } @{ $item->{ blocked_by_ids } };
+        while ( $item->{ work_list } =~ /^-\s+([A-Z]+-\d+)\b/mg ) {
+            my $child_id = $1;
+            my ( $cpfx ) = $child_id =~ /^([A-Z]+)-/;
+            next unless $meta_prefixes{ $cpfx };          # only META children
+            next unless $open_item_ids{ $child_id };      # only open ones
+            push @{ $item->{ blocked_by_ids } }, $child_id
+                unless $existing{ $child_id }++;
+        }
+    }
+}
 
 # Reorganize files to correct directories first
 reorganize_files();
@@ -191,14 +260,14 @@ sub reorganize_files {
     print STDERR "Reorganizing files to correct directories...\n";
 
     # Ensure target directories exist
-    for my $dir ( qw(done rejected high medium low) ) {
+    for my $dir ( qw(done rejected meta high medium low) ) {
         my $full_dir = "$workitem_dir/$dir";
         unless ( -d $full_dir ) {
             make_path( $full_dir )
                 or die "Cannot create directory $full_dir: $!";
             print STDERR "Created directory: $full_dir\n";
         }
-    } ## end for my $dir ( qw(done rejected high medium low))
+    } ## end for my $dir ( qw(done rejected meta high medium low))
 
     # Process each item and move if needed
     for my $item ( @items ) {
@@ -330,9 +399,37 @@ sub generate_work_item_content {
             push @{ $by_priority{ $item->{ priority } } }, $item;
         }
 
+        # Separate META items for their own section in summary
+        my @meta_open
+            = grep { $meta_prefixes{ $_->{ prefix } } } @open;
+        my @nonmeta_open
+            = grep { !$meta_prefixes{ $_->{ prefix } } } @open;
+
+        # Output META items first
+        if ( @meta_open ) {
+            $content .= "* **Meta / Project-Level**\n";
+            for my $item ( sort { $a->{ num } <=> $b->{ num } } @meta_open ) {
+                my $link_id = "$item->{prefix}-$item->{num}";
+                $all_links{ $link_id } = get_relative_path( $item );
+                my $blocked_suffix = '';
+                if ( @{ $item->{ blocked_by_ids } } ) {
+                    my @refs = map { "[$_]" } @{ $item->{ blocked_by_ids } };
+                    $blocked_suffix = ' (Blocked by ' . join( ', ', @refs ) . ')';
+                }
+                $content .= "  * [$link_id] $item->{summary}$blocked_suffix\n";
+            }
+            $content .= "\n";
+        } ## end if ( @meta_open )
+
+
         # Output summary list by priority as nested list
+        my %nonmeta_by_priority;
+        for my $item ( @nonmeta_open ) {
+            push @{ $nonmeta_by_priority{ $item->{ priority } } }, $item;
+        }
+
         for my $priority ( qw(High Medium Low) ) {
-            next unless exists $by_priority{ $priority };
+            next unless exists $nonmeta_by_priority{ $priority };
 
             $content .= "* **$priority Priority**\n";
 
@@ -340,11 +437,17 @@ sub generate_work_item_content {
                 sort {
                            $a->{ prefix } cmp $b->{ prefix }
                         || $a->{ num } <=> $b->{ num }
-                } @{ $by_priority{ $priority } }
+                } @{ $nonmeta_by_priority{ $priority } }
             ) {
                 my $link_id = "$item->{prefix}-$item->{num}";
                 $all_links{ $link_id } = get_relative_path( $item );
-                $content .= "  * [$link_id] $item->{summary}\n";
+                my $parent_prefix = '';
+                if ( @{ $item->{ meta_parent_ids } // [] } ) {
+                    my @refs = map { "[$_]" } @{ $item->{ meta_parent_ids } };
+                    $parent_prefix = '(' . join( ', ', @refs ) . ') ';
+                }
+                $content
+                    .= "  * [$link_id] $parent_prefix$item->{summary}\n";
             } ## end for my $item ( sort { $a...})
 
             $content .= "\n";
@@ -470,7 +573,20 @@ sub generate_work_item_content {
             $content .= "**Status:** $item->{status}\n\n";
             $content .= "**Priority:** $item->{priority}\n\n";
             $content .= "**Summary:** $item->{summary}\n\n";
+            if ( @{ $item->{ meta_parent_ids } // [] } ) {
+                my @refs = map { "[$_]" } @{ $item->{ meta_parent_ids } };
+                $content .= "**Part of:** "
+                    . join( ', ', @refs ) . "\n\n";
+            } elsif ( @{ $item->{ blocked_by_ids } } ) {
+                my @refs = map { "[$_]" } @{ $item->{ blocked_by_ids } };
+                $content .= "**Blocked By:** "
+                    . join( ', ', @refs ) . "\n\n";
+            }
             $content .= "**Description:** $item->{description}\n\n";
+            if ( $item->{ work_list } ) {
+                ( my $wl = $item->{ work_list } ) =~ s/\s+$//;
+                $content .= "**Work Items:**\n\n$wl\n\n";
+            }
 
             # Add separator, but not after the last item in this prefix
             if ( $item != $open_by_prefix{ $prefix }[ -1 ] ) {
@@ -508,6 +624,13 @@ sub get_relative_path {
 
 sub determine_target_directory {
     my ( $item ) = @_;
+
+    # META-prefix items always go to meta/ (unless closed)
+    if ( $meta_prefixes{ $item->{ prefix } } ) {
+        my $closed_dir = $status_dirs{ $item->{ status } };
+        return $closed_dir if defined $closed_dir && !ref $closed_dir;
+        return 'meta';
+    }
 
     my $target_dir = $status_dirs{ $item->{ status } } // \%priority_defaults;
     $target_dir = $target_dir->{ $item->{ priority } } if ref $target_dir;
