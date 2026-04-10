@@ -14,7 +14,7 @@
 !/.vscode
 /.vscode/perl-lang
 
-# Keep work plan files
+# Keep windsurf rules
 !/.windsurf
 /.windsurf/*
 !/.windsurf/rules

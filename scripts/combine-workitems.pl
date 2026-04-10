@@ -17,8 +17,8 @@ my $script_dir = $FindBin::Bin;
 my $root_dir   = "$script_dir/..";
 
 # Configuration
-my $workplan_dir = "$root_dir/docs/work-plan";
-my $output_file  = "$root_dir/docs/WORK_PLAN.md";
+my $workitem_dir = "$root_dir/docs/work-item";
+my $output_file  = "$root_dir/docs/WORK_ITEMS.md";
 
 # Track newest modification time for "Updated on" line
 my $newest_mtime = ( stat( $0 ) )[ 9 ];    # Start with script's own mtime
@@ -38,12 +38,12 @@ my %priority_defaults = (
     'Low'    => 'low',
 );
 
-# Calculate relative path from output file to workplan directory
-my $relative_workplan_path
-    = File::Spec->abs2rel( $workplan_dir, "$root_dir/docs" );
+# Calculate relative path from output file to workitem directory
+my $relative_workitem_path
+    = File::Spec->abs2rel( $workitem_dir, "$root_dir/docs" );
 
 # Convert forward slashes to forward slashes for markdown consistency
-$relative_workplan_path =~ s/\\/\//g;
+$relative_workitem_path =~ s/\\/\//g;
 
 # Priority order
 my %priority_order = (
@@ -52,12 +52,11 @@ my %priority_order = (
     'Low'    => 3,
 );
 
-# Read all work plan files using recursive search
+# Read all work item files using recursive search
 my @files;
 find(
     sub {
         return unless -f && /\.md$/;
-        return if $File::Find::name =~ /combine-workplans\.pl$/;
 
         # Track newest modification time
         my $mtime = ( stat( $File::Find::name ) )[ 9 ];
@@ -65,7 +64,7 @@ find(
 
         # Determine which subdirectory this file is in
         my $relative_path = $File::Find::name;
-        $relative_path =~ s/^\Q$workplan_dir\E//;
+        $relative_path =~ s/^\Q$workitem_dir\E//;
         my $subdir = '';
         if ( $relative_path =~ m{^[/\\]([^/\\]+)} ) {
             $subdir = $1;
@@ -77,7 +76,7 @@ find(
             subdir => $subdir,
         };
     },
-    $workplan_dir
+    $workitem_dir
 );
 
 # Parse each file
@@ -140,8 +139,8 @@ for my $file_info ( sort { $a->{ path } cmp $b->{ path } } @files ) {
 # Reorganize files to correct directories first
 reorganize_files();
 
-# Generate WORK_PLAN.md content
-my $new_content = generate_work_plan_content( @items );
+# Generate WORK_ITEMS.md content
+my $new_content = generate_work_item_content( @items );
 
 # Check if existing file is identical (ignoring "Updated on" timestamp line)
 my $write_needed = 1;
@@ -186,7 +185,7 @@ sub reorganize_files {
 
     # Ensure target directories exist
     for my $dir ( qw(done high medium low) ) {
-        my $full_dir = "$workplan_dir/$dir";
+        my $full_dir = "$workitem_dir/$dir";
         unless ( -d $full_dir ) {
             make_path( $full_dir )
                 or die "Cannot create directory $full_dir: $!";
@@ -197,7 +196,7 @@ sub reorganize_files {
     # Process each item and move if needed
     for my $item ( @items ) {
         my $target_subdir = determine_target_directory( $item );
-        my $target_dir    = "$workplan_dir/$target_subdir";
+        my $target_dir    = "$workitem_dir/$target_subdir";
 
         # Skip if already in correct location
         if ( $item->{ current_subdir } eq $target_subdir ) {
@@ -231,12 +230,12 @@ sub reorganize_files {
     } ## end for my $item ( @items )
 } ## end sub reorganize_files
 
-sub generate_work_plan_content {
+sub generate_work_item_content {
     my ( @items ) = @_;
 
     my $content = '';
 
-    $content .= "# Cosplay America Schedule - Work Plan\n\n";
+    $content .= "# Cosplay America Schedule - Work Item\n\n";
     $content
         .= "Updated on: " . scalar( localtime( $newest_mtime ) ) . "\n\n";
 
@@ -455,7 +454,7 @@ sub generate_work_plan_content {
     $content =~ s/\n\s*$/\n/;
 
     return $content;
-} ## end sub generate_work_plan_content
+} ## end sub generate_work_item_content
 
 sub get_relative_path {
     my ( $item ) = @_;
@@ -463,10 +462,10 @@ sub get_relative_path {
     # Build relative path based on current subdirectory
     my $filename = "$item->{prefix}-$item->{num}.md";
     if ( $item->{ current_subdir } ) {
-        return "work-plan/$item->{current_subdir}/$filename";
+        return "work-item/$item->{current_subdir}/$filename";
     }
     else {
-        return "work-plan/$filename";
+        return "work-item/$filename";
     }
 } ## end sub get_relative_path
 

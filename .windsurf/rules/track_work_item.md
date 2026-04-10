@@ -1,13 +1,13 @@
 ---
 trigger: model_decision
 description: When implementing new features, or when limitations or bugs are discovered but not in scope
-globs: docs/work-plan/**/*.md,docs/WORK_PLAN.md
+globs: docs/work-item/**/*.md,docs/WORK_ITEMS.md
 ---
-# Work Plan Tracking Rules
+# Work Item Tracking Rules
 
 ## Structure
 
-Work items are in `docs/work-plan/` as `<PREFIX>-<###>.md` files, automatically organized into subdirectories:
+Work items are in `docs/work-item/` as `<PREFIX>-<###>.md` files, automatically organized into subdirectories:
 
 - **done/** - Completed items
 - **high/** - High priority or Blocked items  
@@ -37,7 +37,7 @@ Work items are in `docs/work-plan/` as `<PREFIX>-<###>.md` files, automatically 
 One-line summary
 
 ## Status
-Open | In Progress | Completed | Blocked | Not Started
+Open | In Progress | Completed | Blocked | Not Started | Superseded | Rejected
 
 ## Priority
 High | Medium | Low
@@ -56,7 +56,7 @@ High | Medium | Low
 
 ### Adding Items
 
-1. Create file in `docs/work-plan/` with next available number
+1. Create file in `docs/work-item/` with next available number
 2. Follow template structure
 3. Set status to "Open" and appropriate priority
 4. Run combine script to organize and regenerate
@@ -69,15 +69,15 @@ High | Medium | Low
 
 ### Combine Script
 
-**All platforms:** `perl scripts/combine-workplans.pl`
+**All platforms:** `perl scripts/combine-workitems.pl`
 
 The script automatically:
 
 - Move files to subdirectories based on status/priority
-- Generate `docs/WORK_PLAN.md` with reference-style links
+- Generate `docs/WORK_ITEMS.md` with reference-style links
 - Add headerless link glossary at end
 - Preserve leading zeros and use LF line endings
 
 ## Formatting
 
-All files must follow markdown lint rules. For Cascade agents: suggest user run formatting on `docs/work-plan/` directory if lint errors occur.
+All files must follow markdown lint rules. For Cascade agents: suggest user run formatting on `docs/work-item/` directory if lint errors occur.

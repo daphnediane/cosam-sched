@@ -10,7 +10,7 @@ All commit messages must follow this format:
 
 1. **Tagged short line** (type: brief description)
    - Types: feat, fix, docs, style, refactor, test, chore
-   - Examples: "feat: Add work plan tracking system", "fix: Resolve presenter parsing issue"
+   - Examples: "feat: Add work item tracking system", "fix: Resolve presenter parsing issue"
 
 2. **Brief description** from user point of view
    - One or two sentences explaining what was done
@@ -26,13 +26,13 @@ All commit messages must follow this format:
 ## Example
 
 ```text
-feat: Add work plan tracking system
+feat: Add work item tracking system
 
-Implement a structured work plan system for tracking project tasks and progress.
+Implement a structured work item system for tracking project tasks and progress.
 
-- Create docs/work-plan/ directory with individual markdown files for each work item
-- Add scripts/combine-workplans.pl to generate docs/WORK_PLAN.md from individual files
-- Create Windsurf rules documenting work plan structure and management
+- Create docs/work-item/ directory with individual markdown files for each work item
+- Add scripts/combine-workitems.pl to generate docs/WORK_ITEMS.md from individual files
+- Create Windsurf rules documenting work item structure and management
 - Document completed work from commit history (FEATURE-001, FEATURE-002)
 - Update .gitignore to preserve .windsurf/rules directory
 
