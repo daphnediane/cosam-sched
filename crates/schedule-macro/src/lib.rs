@@ -102,10 +102,14 @@ pub fn derive_entity_fields(input: TokenStream) -> TokenStream {
     let mut computed_field_names_for_public: Vec<SynIdent> = Vec::new();
     let mut computed_field_types_for_public: Vec<Type> = Vec::new();
 
-    // Track field names/types for new() constructor
+    // Track field names/types for builder
     let mut new_param_names: Vec<SynIdent> = Vec::new();
     let mut new_param_types: Vec<Type> = Vec::new();
     let mut computed_default_names: Vec<SynIdent> = Vec::new();
+
+    // Track builder setter names and per-field build() extraction
+    let mut builder_setter_names: Vec<Ident> = Vec::new();
+    let mut builder_build_extractions: Vec<TokenStream2> = Vec::new();
 
     // Generate the internal data struct name (e.g., PanelData)
     let data_struct_name = Ident::new(
@@ -195,6 +199,36 @@ pub fn derive_entity_fields(input: TokenStream) -> TokenStream {
                         }
                     }
 
+                    // Builder: setter method name + build() extraction
+                    builder_setter_names.push(Ident::new(
+                        &format!("with_{}", field_name_str),
+                        proc_macro2::Span::call_site(),
+                    ));
+                    if is_required && is_string_type(&field.ty) {
+                        builder_build_extractions.push(quote! {
+                            let #field_name = match self.#field_name {
+                                Some(v) if !v.is_empty() => v,
+                                _ => return Err(
+                                    crate::field::validation::ValidationError::RequiredFieldMissing {
+                                        field: #field_name_str.to_string(),
+                                    }
+                                ),
+                            };
+                        });
+                    } else if is_required {
+                        builder_build_extractions.push(quote! {
+                            let #field_name = self.#field_name.ok_or_else(|| {
+                                crate::field::validation::ValidationError::RequiredFieldMissing {
+                                    field: #field_name_str.to_string(),
+                                }
+                            })?;
+                        });
+                    } else {
+                        builder_build_extractions.push(quote! {
+                            let #field_name = self.#field_name.unwrap_or_default();
+                        });
+                    }
+
                     // Parse custom indexable match closure if present
                     let custom_match_closure = parse_indexable_match(&field.attrs);
 
@@ -238,6 +272,15 @@ pub fn derive_entity_fields(input: TokenStream) -> TokenStream {
                     stored_field_names_for_copy.push(field_name.clone());
                     new_param_names.push(field_name.clone());
                     new_param_types.push(field.ty.clone());
+
+                    // Builder: setter + default extraction (non-field storage is never required)
+                    builder_setter_names.push(Ident::new(
+                        &format!("with_{}", field_name_str),
+                        proc_macro2::Span::call_site(),
+                    ));
+                    builder_build_extractions.push(quote! {
+                        let #field_name = self.#field_name.unwrap_or_default();
+                    });
                 }
             }
         }
@@ -261,6 +304,25 @@ pub fn derive_entity_fields(input: TokenStream) -> TokenStream {
     let entity_type_struct_name = Ident::new(
         &format!("{}EntityType", struct_name),
         proc_macro2::Span::call_site(),
+    );
+
+    // Generate the builder struct name (e.g., PanelBuilder)
+    let builder_struct_name = Ident::new(
+        &format!("{}Builder", struct_name),
+        proc_macro2::Span::call_site(),
+    );
+
+    // Generate the typed ID struct name and kebab-case display prefix
+    // (e.g., PanelId and "panel" for Panel; EventRoomId and "event-room" for EventRoom)
+    let typed_id_struct_name = Ident::new(
+        &format!("{}Id", struct_name),
+        proc_macro2::Span::call_site(),
+    );
+    let display_prefix = type_name_str.replace('_', "-");
+    let typed_id_impl = generate_typed_id(
+        &typed_id_struct_name,
+        &entity_type_struct_name,
+        &display_prefix,
     );
 
     // Generate the complete implementation
@@ -314,6 +376,8 @@ pub fn derive_entity_fields(input: TokenStream) -> TokenStream {
     };
 
     let expanded = quote! {
+        #typed_id_impl
+
         /// Generated internal storage struct for #struct_name.
         /// Fields are crate-private; external code should use the field system.
         #[derive(Debug, Clone)]
@@ -323,19 +387,74 @@ pub fn derive_entity_fields(input: TokenStream) -> TokenStream {
         }
 
         impl #data_struct_name {
-            pub fn new(#(#new_param_names: #new_param_types,)*) -> Self {
-                Self {
-                    entity_uuid: unsafe { uuid::NonNilUuid::new_unchecked(uuid::Uuid::now_v7()) },
-                    #(#new_param_names,)*
-                    #(#computed_default_names: Default::default(),)*
-                }
-            }
-
             pub fn to_public(&self) -> #struct_name {
                 #struct_name {
                     #(#stored_field_names_for_copy: self.#stored_field_names_for_copy.clone(),)*
                     #(#computed_field_names_for_public: Default::default(),)*
                 }
+            }
+        }
+
+        /// Builder for [`#struct_name`] entities.
+        ///
+        /// Use `with_<field>()` setters to supply values; call `build()` to validate
+        /// required fields and produce a [`#data_struct_name`].  Call `apply_to()` to
+        /// apply a partial update to an existing data struct.
+        #[derive(Debug, Clone, Default)]
+        pub struct #builder_struct_name {
+            /// UUID generation preference; defaults to `UuidPreference::GenerateNew`.
+            pub uuid_preference: crate::entity::UuidPreference,
+            #(pub #new_param_names: Option<#new_param_types>,)*
+        }
+
+        impl #builder_struct_name {
+            /// Create an empty builder with all fields unset.
+            pub fn new() -> Self {
+                Self::default()
+            }
+
+            /// Supply a UUID generation preference (see [`crate::entity::UuidPreference`]).
+            ///
+            /// Defaults to `UuidPreference::GenerateNew`.
+            pub fn with_uuid_preference(mut self, pref: crate::entity::UuidPreference) -> Self {
+                self.uuid_preference = pref;
+                self
+            }
+
+            #(
+            pub fn #builder_setter_names(mut self, v: #new_param_types) -> Self {
+                self.#new_param_names = Some(v);
+                self
+            }
+            )*
+
+            /// Validate required fields and produce a [`#data_struct_name`].
+            ///
+            /// Required fields must be `Some` and, for strings, non-empty.
+            /// UUID is resolved via the `uuid_preference` (defaults to a fresh v7 UUID).
+            pub fn build(self) -> Result<#data_struct_name, crate::field::validation::ValidationError> {
+                #(#builder_build_extractions)*
+                let entity_uuid = self.uuid_preference.resolve();
+                Ok(#data_struct_name {
+                    entity_uuid,
+                    #(#new_param_names,)*
+                    #(#computed_default_names: Default::default(),)*
+                })
+            }
+
+            /// Apply any `Some` fields from this builder to an existing data struct.
+            ///
+            /// Fields that were not set (still `None`) are left unchanged.
+            /// The entity UUID is updated only if explicitly set via `with_entity_uuid`.
+            pub fn apply_to(self, data: &mut #data_struct_name) {
+                if !matches!(self.uuid_preference, crate::entity::UuidPreference::GenerateNew) {
+                    data.entity_uuid = self.uuid_preference.resolve();
+                }
+                #(
+                if let Some(v) = self.#new_param_names {
+                    data.#new_param_names = v;
+                }
+                )*
             }
         }
 
@@ -1130,9 +1249,13 @@ fn generate_computed_field(
             if let Meta::List(meta_list) = &attr.meta {
                 read_closure = Some(meta_list.tokens.clone());
 
-                // Check if the closure takes a schedule parameter by examining the signature
+                // Check if the closure takes a schedule parameter by examining the signature.
+                // Matches |schedule: and |_schedule: (underscore prefix for unused variables).
                 let tokens_str = meta_list.tokens.to_string();
-                if tokens_str.contains("schedule,") || tokens_str.contains("|schedule") {
+                if tokens_str.contains("|schedule")
+                    || tokens_str.contains("|_schedule")
+                    || tokens_str.contains("schedule :: Schedule")
+                {
                     needs_schedule = true;
                 }
             }
@@ -1141,9 +1264,12 @@ fn generate_computed_field(
             if let Meta::List(meta_list) = &attr.meta {
                 write_closure = Some(meta_list.tokens.clone());
 
-                // Check if the closure takes a schedule parameter by examining the signature
+                // Check if the closure takes a schedule parameter by examining the signature.
                 let tokens_str = meta_list.tokens.to_string();
-                if tokens_str.contains("schedule,") || tokens_str.contains("|schedule") {
+                if tokens_str.contains("|schedule")
+                    || tokens_str.contains("|_schedule")
+                    || tokens_str.contains("schedule :: Schedule")
+                {
                     needs_schedule = true;
                 }
             }
@@ -1397,5 +1523,83 @@ fn get_field_type_category(ty: &Type) -> FieldTypeCategory {
         }
     } else {
         panic!("Unsupported field type format")
+    }
+}
+
+/// Generate the typed ID wrapper struct and all standard trait impls for an entity.
+///
+/// Produces `<Name>Id(uuid::NonNilUuid)` with `Display`, `From` conversions, and
+/// `crate::entity::TypedId` impl.  The display prefix is the kebab-case entity name
+/// (e.g. `"event-room"` for `EventRoom`).
+fn generate_typed_id(
+    typed_id_struct_name: &Ident,
+    entity_type_struct_name: &Ident,
+    display_prefix: &str,
+) -> TokenStream2 {
+    quote! {
+        #[derive(
+            Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord,
+            serde::Serialize, serde::Deserialize,
+        )]
+        #[serde(transparent)]
+        pub struct #typed_id_struct_name(uuid::NonNilUuid);
+
+        impl #typed_id_struct_name {
+            /// Return the inner [`uuid::NonNilUuid`].
+            pub fn non_nil_uuid(&self) -> uuid::NonNilUuid {
+                self.0
+            }
+
+            /// Return the underlying [`uuid::Uuid`].
+            pub fn uuid(&self) -> uuid::Uuid {
+                self.0.into()
+            }
+
+            /// Create from a [`uuid::NonNilUuid`] (infallible).
+            pub fn from_uuid(uuid: uuid::NonNilUuid) -> Self {
+                Self(uuid)
+            }
+
+            /// Try to create from a raw [`uuid::Uuid`]; returns `None` for the nil UUID.
+            pub fn try_from_raw_uuid(uuid: uuid::Uuid) -> Option<Self> {
+                uuid::NonNilUuid::new(uuid).map(Self)
+            }
+        }
+
+        impl std::fmt::Display for #typed_id_struct_name {
+            fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+                write!(f, "{}-{}", #display_prefix, self.0)
+            }
+        }
+
+        impl From<uuid::NonNilUuid> for #typed_id_struct_name {
+            fn from(uuid: uuid::NonNilUuid) -> Self {
+                Self(uuid)
+            }
+        }
+
+        impl From<#typed_id_struct_name> for uuid::NonNilUuid {
+            fn from(id: #typed_id_struct_name) -> uuid::NonNilUuid {
+                id.0
+            }
+        }
+
+        impl From<#typed_id_struct_name> for uuid::Uuid {
+            fn from(id: #typed_id_struct_name) -> uuid::Uuid {
+                id.0.into()
+            }
+        }
+
+        impl crate::entity::TypedId for #typed_id_struct_name {
+            type EntityType = #entity_type_struct_name;
+
+            fn non_nil_uuid(&self) -> uuid::NonNilUuid {
+                self.0
+            }
+
+            fn from_uuid(uuid: uuid::NonNilUuid) -> Self {
+                Self(uuid)
+            }
+        }
     }
 }

@@ -9,8 +9,6 @@
 use crate::entity::presenter_rank::PresenterRank;
 use crate::EntityFields;
 use serde::{Deserialize, Serialize};
-use std::fmt;
-use uuid::{NonNilUuid, Uuid};
 
 /// Ordering key for a presenter, recording where it was first defined.
 /// Matches schedule-core PresenterSortRank structure.
@@ -71,67 +69,6 @@ impl PresenterSortRank {
         } else {
             None
         }
-    }
-}
-
-/// Presenter ID type
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord, Serialize, Deserialize)]
-#[serde(transparent)]
-pub struct PresenterId(NonNilUuid);
-
-impl fmt::Display for PresenterId {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(f, "presenter-{}", self.0)
-    }
-}
-
-impl From<NonNilUuid> for PresenterId {
-    fn from(uuid: NonNilUuid) -> Self {
-        Self(uuid)
-    }
-}
-
-impl From<PresenterId> for NonNilUuid {
-    fn from(id: PresenterId) -> NonNilUuid {
-        id.0
-    }
-}
-
-impl From<PresenterId> for Uuid {
-    fn from(id: PresenterId) -> Uuid {
-        id.0.into()
-    }
-}
-
-impl crate::entity::TypedId for PresenterId {
-    type EntityType = PresenterEntityType;
-    fn non_nil_uuid(&self) -> NonNilUuid {
-        self.0
-    }
-    fn from_uuid(uuid: NonNilUuid) -> Self {
-        Self(uuid)
-    }
-}
-
-impl PresenterId {
-    /// Get the NonNilUuid from this ID
-    pub fn non_nil_uuid(&self) -> NonNilUuid {
-        self.0
-    }
-
-    /// Get the raw UUID from this ID
-    pub fn uuid(&self) -> Uuid {
-        self.0.into()
-    }
-
-    /// Create a PresenterId from a NonNilUuid (infallible)
-    pub fn from_uuid(uuid: NonNilUuid) -> Self {
-        Self(uuid)
-    }
-
-    /// Try to create a PresenterId from a raw UUID (boundary use only)
-    pub fn try_from_raw_uuid(uuid: Uuid) -> Option<Self> {
-        NonNilUuid::new(uuid).map(Self)
     }
 }
 
@@ -267,6 +204,7 @@ pub struct Presenter {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use uuid::{NonNilUuid, Uuid};
 
     fn test_nn() -> NonNilUuid {
         unsafe {

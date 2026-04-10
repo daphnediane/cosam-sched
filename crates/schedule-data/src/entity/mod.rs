@@ -31,29 +31,53 @@
 //! collisions from macro-generated field structs like `NameField`,
 //! `IsBreakField`, etc.
 
-// Implemented entities (Phase 2 initial scope: presenter subsystem)
+// Implemented entities
+pub mod event_room;
+pub mod hotel_room;
+pub mod panel;
+pub mod panel_type;
+pub mod panel_uniq_id;
 pub mod presenter;
 pub mod presenter_rank;
 pub mod presenter_to_group;
+pub mod uuid_preference;
 
 // Re-export public entity types (explicit to avoid ambiguous glob re-exports
 // from macro-generated field structs like NameField, IsBreakField, etc.)
+pub use event_room::EventRoom;
+pub use hotel_room::HotelRoom;
+pub use panel::Panel;
+pub use panel_type::PanelType;
 pub use presenter::Presenter;
 pub use presenter_rank::PresenterRank;
 pub use presenter_to_group::PresenterToGroup;
+pub use uuid_preference::UuidPreference;
 
 // Re-export typed entity ID wrappers
+pub use event_room::EventRoomId;
+pub use hotel_room::HotelRoomId;
+pub use panel::PanelId;
+pub use panel_type::PanelTypeId;
+pub use panel_uniq_id::PanelUniqId;
 pub use presenter::PresenterId;
 pub use presenter::PresenterSortRank;
 pub use presenter_to_group::PresenterToGroupId;
 
 // Re-export EntityType structs for clean import paths
+pub use event_room::EventRoomEntityType;
+pub use hotel_room::HotelRoomEntityType;
+pub use panel::PanelEntityType;
+pub use panel_type::PanelTypeEntityType;
 pub use presenter::PresenterEntityType;
 pub use presenter_to_group::PresenterToGroupEntityType;
 
 pub use uuid::NonNilUuid;
 
 // Re-export internal Data structs used elsewhere in the crate
+pub(crate) use event_room::EventRoomData;
+pub(crate) use hotel_room::HotelRoomData;
+pub(crate) use panel::PanelData;
+pub(crate) use panel_type::PanelTypeData;
 pub(crate) use presenter::PresenterData;
 pub(crate) use presenter_to_group::PresenterToGroupData;
 
@@ -152,6 +176,10 @@ pub trait TypedId: Copy + Clone + Send + Sync + fmt::Debug + 'static {
 /// Variants are added as entity types are implemented.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum EntityUUID {
+    EventRoom(EventRoomId),
+    HotelRoom(HotelRoomId),
+    Panel(PanelId),
+    PanelType(PanelTypeId),
     Presenter(PresenterId),
     PresenterToGroup(PresenterToGroupId),
 }
@@ -159,6 +187,10 @@ pub enum EntityUUID {
 impl EntityUUID {
     pub fn non_nil_uuid(&self) -> NonNilUuid {
         match self {
+            EntityUUID::EventRoom(id) => id.non_nil_uuid(),
+            EntityUUID::HotelRoom(id) => id.non_nil_uuid(),
+            EntityUUID::Panel(id) => id.non_nil_uuid(),
+            EntityUUID::PanelType(id) => id.non_nil_uuid(),
             EntityUUID::Presenter(id) => id.non_nil_uuid(),
             EntityUUID::PresenterToGroup(id) => id.non_nil_uuid(),
         }
@@ -170,6 +202,10 @@ impl EntityUUID {
 
     pub fn kind(&self) -> EntityKind {
         match self {
+            EntityUUID::EventRoom(_) => EntityKind::EventRoom,
+            EntityUUID::HotelRoom(_) => EntityKind::HotelRoom,
+            EntityUUID::Panel(_) => EntityKind::Panel,
+            EntityUUID::PanelType(_) => EntityKind::PanelType,
             EntityUUID::Presenter(_) => EntityKind::Presenter,
             EntityUUID::PresenterToGroup(_) => EntityKind::PresenterToGroup,
         }
@@ -179,7 +215,12 @@ impl EntityUUID {
 /// Owned public entity value returned by `Schedule::fetch_uuid`.
 /// Variants are added as entity types are implemented.
 #[derive(Debug, Clone)]
+#[allow(clippy::large_enum_variant)]
 pub enum PublicEntityRef {
+    EventRoom(EventRoom),
+    HotelRoom(HotelRoom),
+    Panel(Panel),
+    PanelType(PanelType),
     Presenter(Presenter),
     PresenterToGroup(PresenterToGroup),
 }
@@ -188,6 +229,10 @@ pub enum PublicEntityRef {
 /// Variants are added as entity types are implemented.
 #[derive(Debug, Clone, Copy)]
 pub enum EntityRef<'a> {
+    EventRoom(&'a EventRoomData),
+    HotelRoom(&'a HotelRoomData),
+    Panel(&'a PanelData),
+    PanelType(&'a PanelTypeData),
     Presenter(&'a PresenterData),
     PresenterToGroup(&'a PresenterToGroupData),
 }

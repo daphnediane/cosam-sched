@@ -22,70 +22,7 @@
 //!   - `is_group_member = true`
 
 use crate::EntityFields;
-use serde::{Deserialize, Serialize};
-use std::fmt;
-use uuid::{NonNilUuid, Uuid};
-
-/// PresenterToGroup edge ID type
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord, Serialize, Deserialize)]
-#[serde(transparent)]
-pub struct PresenterToGroupId(NonNilUuid);
-
-impl PresenterToGroupId {
-    /// Get the NonNilUuid from this ID
-    pub fn non_nil_uuid(&self) -> NonNilUuid {
-        self.0
-    }
-
-    /// Get the raw UUID from this ID
-    pub fn uuid(&self) -> Uuid {
-        self.0.into()
-    }
-
-    /// Create a PresenterToGroupId from a NonNilUuid (infallible)
-    pub fn from_uuid(uuid: NonNilUuid) -> Self {
-        Self(uuid)
-    }
-
-    /// Try to create a PresenterToGroupId from a raw UUID (boundary use only)
-    pub fn try_from_raw_uuid(uuid: Uuid) -> Option<Self> {
-        NonNilUuid::new(uuid).map(Self)
-    }
-}
-
-impl fmt::Display for PresenterToGroupId {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(f, "presenter-to-group-{}", self.0)
-    }
-}
-
-impl From<NonNilUuid> for PresenterToGroupId {
-    fn from(uuid: NonNilUuid) -> Self {
-        Self(uuid)
-    }
-}
-
-impl From<PresenterToGroupId> for NonNilUuid {
-    fn from(id: PresenterToGroupId) -> NonNilUuid {
-        id.0
-    }
-}
-
-impl From<PresenterToGroupId> for Uuid {
-    fn from(id: PresenterToGroupId) -> Uuid {
-        id.0.into()
-    }
-}
-
-impl crate::entity::TypedId for PresenterToGroupId {
-    type EntityType = PresenterToGroupEntityType;
-    fn non_nil_uuid(&self) -> NonNilUuid {
-        self.0
-    }
-    fn from_uuid(uuid: NonNilUuid) -> Self {
-        Self(uuid)
-    }
-}
+use uuid::NonNilUuid;
 
 /// PresenterToGroup edge-entity with EntityFields derive macro
 #[derive(EntityFields, Debug, Clone)]
@@ -133,6 +70,7 @@ impl PresenterToGroupData {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use uuid::{NonNilUuid, Uuid};
 
     fn test_nn() -> NonNilUuid {
         unsafe {

@@ -294,7 +294,7 @@ mod tests {
 
     // Create a mock schedule
     fn create_mock_schedule() -> Schedule {
-        Schedule::default()
+        Schedule
     }
 
     fn create_test_entity() -> TestEntity {
@@ -308,7 +308,7 @@ mod tests {
             name: "Test".to_string(),
             value: 42,
             optional_value: Some(100),
-            float_value: 3.14,
+            float_value: std::f64::consts::PI,
             optional_float: Some(2.71),
             flag: true,
             optional_flag: Some(false),
@@ -384,7 +384,7 @@ mod tests {
     impl SimpleWritableField<TestEntity> for TestValueField {
         fn write(&self, entity: &mut TestEntity, value: FieldValue) -> Result<(), FieldError> {
             if let FieldValue::Integer(v) = value {
-                entity.value = v as i64;
+                entity.value = v;
                 Ok(())
             } else {
                 Err(FieldError::ConversionError(
@@ -699,7 +699,7 @@ mod tests {
             value: FieldValue,
         ) -> Result<(), FieldError> {
             if let FieldValue::Integer(v) = value {
-                entity.optional_value = Some(v as i64);
+                entity.optional_value = Some(v);
                 Ok(())
             } else {
                 Err(FieldError::ConversionError(
@@ -747,7 +747,7 @@ mod tests {
         let result =
             WritableField::write(&field, &schedule, &mut entity, FieldValue::Boolean(false));
         assert!(result.is_ok());
-        assert_eq!(entity.flag, false);
+        assert!(!entity.flag);
     }
 
     // Test field with bool (reuse TestFlagField from above)
@@ -762,7 +762,7 @@ mod tests {
         assert!(value.is_some());
 
         match value.unwrap() {
-            FieldValue::Boolean(b) => assert_eq!(b, true),
+            FieldValue::Boolean(b) => assert!(b),
             _ => panic!("Expected Boolean value"),
         }
     }
@@ -799,7 +799,7 @@ mod tests {
 
     impl ReadableField<TestEntity> for ComputedTestField {
         fn read(&self, _schedule: &Schedule, entity: &TestEntity) -> Option<FieldValue> {
-            Some(FieldValue::Integer(entity.value as i64 * 2))
+            Some(FieldValue::Integer(entity.value * 2))
         }
 
         fn is_read_computed(&self) -> bool {

@@ -53,12 +53,14 @@ mod tests {
 
     #[test]
     fn schedule_stub_default() {
-        let s = Schedule::default();
-        assert!(s.get_presenter_groups(unsafe {
-            use uuid::Uuid;
-            PresenterId::from_uuid(uuid::NonNilUuid::new_unchecked(
-                Uuid::from_bytes([0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1]),
-            ))
-        }).is_empty());
+        let s = Schedule;
+        assert!(s
+            .get_presenter_groups(unsafe {
+                use uuid::Uuid;
+                PresenterId::from_uuid(uuid::NonNilUuid::new_unchecked(Uuid::from_bytes([
+                    0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1,
+                ])))
+            })
+            .is_empty());
     }
 }
