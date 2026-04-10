@@ -6,7 +6,7 @@ Implement the `#[derive(EntityFields)]` proc-macro in the `schedule-macro` crate
 
 ## Status
 
-Open
+Completed
 
 ## Priority
 

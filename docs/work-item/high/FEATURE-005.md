@@ -6,7 +6,7 @@ Define the core domain entity structs using the `EntityFields` derive macro.
 
 ## Status
 
-Open
+In Progress
 
 ## Priority
 

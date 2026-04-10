@@ -1,21 +1,25 @@
 # Cosplay America Schedule - Work Item
 
-Updated on: Fri Apr 10 15:56:15 2026
+Updated on: Fri Apr 10 16:22:56 2026
 
 ## Completed
 
 * [FEATURE-002] Set up the Cargo workspace root and create skeleton crates for all planned components.
+* [FEATURE-003] Implement the `#[derive(EntityFields)]` proc-macro in the `schedule-macro` crate.
+* [FEATURE-004] Implement the field trait hierarchy, universal `FieldValue` enum, `FieldSet` registry,
+and validation infrastructure.
+* [FEATURE-006] Implement UUID-based entity identity with compile-time type-safe ID wrappers.
 * [META-025] Phase tracker for project foundation and Cargo workspace setup.
 
 ---
 
 ## Summary of Open Items
 
-**Total open items:** 29
+**Total open items:** 26
 
 * **Meta / Project-Level**
   * [META-001] Meta work item tracking the full multi-phase redesign of the schedule system. (Blocked by [META-026], [META-027], [META-028], [META-029], [META-030], [META-031])
-  * [META-026] Phase tracker for the entity/field/macro system and core schedule data model. (Blocked by [META-025])
+  * [META-026] Phase tracker for the entity/field/macro system and core schedule data model.
   * [META-027] Phase tracker for adding CRDT-backed storage underneath the entity/field system. (Blocked by [META-026])
   * [META-028] Phase tracker for internal file format, multi-year archive, widget JSON, and
 XLSX import/export. (Blocked by [META-026], [META-027])
@@ -24,11 +28,7 @@ XLSX import/export. (Blocked by [META-026], [META-027])
   * [META-031] Phase tracker for peer-to-peer schedule synchronization and conflict resolution. (Blocked by [META-027])
 
 * **High Priority**
-  * [FEATURE-003] ([META-026]) Implement the `#[derive(EntityFields)]` proc-macro in the `schedule-macro` crate.
-  * [FEATURE-004] ([META-026]) Implement the field trait hierarchy, universal `FieldValue` enum, `FieldSet` registry,
-and validation infrastructure.
   * [FEATURE-005] ([META-026]) Define the core domain entity structs using the `EntityFields` derive macro.
-  * [FEATURE-006] ([META-026]) Implement UUID-based entity identity with compile-time type-safe ID wrappers.
   * [FEATURE-007] ([META-026]) Implement typed edge storage for entity-to-entity relationships.
   * [FEATURE-008] ([META-026]) Implement the `Schedule` struct and `EntityStorage` for managing all entities
 and relationships.
@@ -132,41 +132,9 @@ application structure.
 
 ## Open FEATURE Items
 
-### [FEATURE-003] EntityFields Derive Macro
-
-**Status:** Open
-
-**Priority:** High
-
-**Summary:** Implement the `#[derive(EntityFields)]` proc-macro in the `schedule-macro` crate.
-
-**Part of:** [META-026]
-
-**Description:** Port and refine the `EntityFields` derive macro from the `feature/schedule-data`
-experiment. The macro generates boilerplate for the entity/field system so that
-entity structs remain clean and declarative.
-
----
-
-### [FEATURE-004] Field System: Traits, FieldValue, FieldSet, Validation
-
-**Status:** Open
-
-**Priority:** High
-
-**Summary:** Implement the field trait hierarchy, universal `FieldValue` enum, `FieldSet` registry,
-and validation infrastructure.
-
-**Part of:** [META-026]
-
-**Description:** The field system provides type-safe, generic access to entity fields for editing,
-querying, import/export, and display.
-
----
-
 ### [FEATURE-005] Core Entity Definitions
 
-**Status:** Open
+**Status:** In Progress
 
 **Priority:** High
 
@@ -187,21 +155,6 @@ querying, import/export, and display.
 
 Each entity uses `#[derive(EntityFields)]` with appropriate field annotations
 for display names, aliases, required fields, and indexable fields.
-
----
-
-### [FEATURE-006] UUID-based Identity and Typed ID Wrappers
-
-**Status:** Open
-
-**Priority:** High
-
-**Summary:** Implement UUID-based entity identity with compile-time type-safe ID wrappers.
-
-**Part of:** [META-026]
-
-**Description:** All entities are identified by `uuid::NonNilUuid` (v7 for new entities, v5 for
-deterministic edge identities).
 
 ---
 
@@ -475,13 +428,11 @@ these decisions and override them.
 
 ### [META-026] Phase 2 — Core Data Model
 
-**Status:** Blocked
+**Status:** In Progress
 
 **Priority:** High
 
 **Summary:** Phase tracker for the entity/field/macro system and core schedule data model.
-
-**Blocked By:** [META-025]
 
 **Description:** Port and refine the entity/field/macro system from `feature/schedule-data` into
 the new workspace. This is the largest and most foundational phase.
@@ -614,10 +565,10 @@ to exchange CRDT changes and reconcile concurrent edits to the same fields.
 [EDITOR-021]: work-item/low/EDITOR-021.md
 [EDITOR-022]: work-item/low/EDITOR-022.md
 [FEATURE-002]: work-item/done/FEATURE-002.md
-[FEATURE-003]: work-item/high/FEATURE-003.md
-[FEATURE-004]: work-item/high/FEATURE-004.md
+[FEATURE-003]: work-item/done/FEATURE-003.md
+[FEATURE-004]: work-item/done/FEATURE-004.md
 [FEATURE-005]: work-item/high/FEATURE-005.md
-[FEATURE-006]: work-item/high/FEATURE-006.md
+[FEATURE-006]: work-item/done/FEATURE-006.md
 [FEATURE-007]: work-item/high/FEATURE-007.md
 [FEATURE-008]: work-item/high/FEATURE-008.md
 [FEATURE-009]: work-item/medium/FEATURE-009.md

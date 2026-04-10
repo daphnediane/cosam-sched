@@ -6,15 +6,11 @@ Phase tracker for the entity/field/macro system and core schedule data model.
 
 ## Status
 
-Blocked
+In Progress
 
 ## Priority
 
 High
-
-## Blocked By
-
-- META-025: Phase 1 — Foundation
 
 ## Description
 
