@@ -11,12 +11,14 @@ Work items are in `docs/work-item/` as `<PREFIX>-<###>.md` files, automatically 
 
 - **done/** - Completed items
 - **rejected/** - Superseded or Rejected items
+- **meta/** - Meta/project-level items (META prefix, any priority)
 - **high/** - High priority open items
 - **medium/** - Medium priority open items
 - **low/** - Low priority open items
 
 ### Prefixes
 
+- **META** - Project-level meta items and phase trackers (always in meta/)
 - **FEATURE** - New functionality
 - **BUGFIX** - Fixes for defects
 - **UI** - Interface improvements

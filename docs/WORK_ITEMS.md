@@ -1,13 +1,23 @@
 # Cosplay America Schedule - Work Item
 
-Updated on: Fri Apr 10 14:51:23 2026
+Updated on: Fri Apr 10 15:02:41 2026
 
 ## Summary of Open Items
 
-**Total open items:** 24
+**Total open items:** 31
+
+* **Meta / Project-Level**
+  * [META-001] Meta work item tracking the full multi-phase redesign of the schedule system.
+  * [META-025] Phase tracker for project foundation and Cargo workspace setup.
+  * [META-026] Phase tracker for the entity/field/macro system and core schedule data model.
+  * [META-027] Phase tracker for adding CRDT-backed storage underneath the entity/field system.
+  * [META-028] Phase tracker for internal file format, multi-year archive, widget JSON, and
+XLSX import/export.
+  * [META-029] Phase tracker for the cosam-convert and cosam-modify command-line applications.
+  * [META-030] Phase tracker for the cosam-editor desktop GUI application.
+  * [META-031] Phase tracker for peer-to-peer schedule synchronization and conflict resolution.
 
 * **High Priority**
-  * [FEATURE-001] Meta work item tracking the full multi-phase redesign of the schedule system.
   * [FEATURE-002] Set up the Cargo workspace root and create skeleton crates for all planned components.
   * [FEATURE-003] Implement the `#[derive(EntityFields)]` proc-macro in the `schedule-macro` crate.
   * [FEATURE-004] Implement the field trait hierarchy, universal `FieldValue` enum, `FieldSet` registry,
@@ -46,9 +56,9 @@ display widget.
 
 The following ID numbers are available for new items:
 
-**Available:** 025, 026, 027, 028, 029, 030, 031, 032, 033, 034
+**Available:** 032, 033, 034, 035, 036, 037, 038, 039, 040, 041
 
-**Highest used:** 24
+**Highest used:** 31
 
 ---
 
@@ -108,28 +118,6 @@ application structure.
 ---
 
 ## Open FEATURE Items
-
-### [FEATURE-001] Architecture Redesign: CRDT-backed Schedule System
-
-**Status:** Blocked
-
-**Priority:** High
-
-**Summary:** Meta work item tracking the full multi-phase redesign of the schedule system.
-
-**Description:** Redesign the cosam-sched schedule system from the ground up with:
-
-- **Entity/field system** using a proc-macro (`#[derive(EntityFields)]`) for clean,
-  type-safe data structures (ported from `feature/schedule-data` experiment)
-- **CRDT-backed storage** enabling a handful of users to edit the schedule concurrently
-  without a central database
-- **Multi-year archive** support for jump-starting new conventions from prior years
-- **Import/export** to and from the existing XLSX spreadsheet format
-- **Widget JSON export** for the calendar display widget
-- **Three application targets**: `cosam-convert` (format conversion), `cosam-modify`
-  (CLI editing), `cosam-editor` (GUI editing)
-
----
 
 ### [FEATURE-002] Cargo Workspace Setup With Crate Skeletons
 
@@ -429,13 +417,131 @@ these decisions and override them.
 
 ---
 
+## Open META Items
+
+### [META-001] Architecture Redesign: CRDT-backed Schedule System
+
+**Status:** Blocked
+
+**Priority:** High
+
+**Summary:** Meta work item tracking the full multi-phase redesign of the schedule system.
+
+**Description:** Redesign the cosam-sched schedule system from the ground up with:
+
+- **Entity/field system** using a proc-macro (`#[derive(EntityFields)]`) for clean,
+  type-safe data structures (ported from `feature/schedule-data` experiment)
+- **CRDT-backed storage** enabling a handful of users to edit the schedule concurrently
+  without a central database
+- **Multi-year archive** support for jump-starting new conventions from prior years
+- **Import/export** to and from the existing XLSX spreadsheet format
+- **Widget JSON export** for the calendar display widget
+- **Three application targets**: `cosam-convert` (format conversion), `cosam-modify`
+  (CLI editing), `cosam-editor` (GUI editing)
+
+---
+
+### [META-025] Phase 1 — Foundation
+
+**Status:** Blocked
+
+**Priority:** High
+
+**Summary:** Phase tracker for project foundation and Cargo workspace setup.
+
+**Description:** Establish the Cargo workspace and skeleton crates so all subsequent phases have
+a place to land.
+
+---
+
+### [META-026] Phase 2 — Core Data Model
+
+**Status:** Blocked
+
+**Priority:** High
+
+**Summary:** Phase tracker for the entity/field/macro system and core schedule data model.
+
+**Description:** Port and refine the entity/field/macro system from `feature/schedule-data` into
+the new workspace. This is the largest and most foundational phase.
+
+---
+
+### [META-027] Phase 3 — CRDT Integration
+
+**Status:** Blocked
+
+**Priority:** Medium
+
+**Summary:** Phase tracker for adding CRDT-backed storage underneath the entity/field system.
+
+**Description:** Design and implement the CRDT abstraction layer and replace the direct HashMap
+entity storage with a CRDT-backed equivalent. This enables concurrent offline
+editing and eventual merge without a central server.
+
+---
+
+### [META-028] Phase 4 — File Formats & Import/Export
+
+**Status:** Blocked
+
+**Priority:** Medium
+
+**Summary:** Phase tracker for internal file format, multi-year archive, widget JSON, and
+XLSX import/export.
+
+**Description:** Define and implement all file format support: the internal native format with
+CRDT state, multi-year archive support, widget display JSON export, and
+round-trip XLSX import/export for the convention spreadsheet workflow.
+
+---
+
+### [META-029] Phase 5 — CLI Tools
+
+**Status:** Blocked
+
+**Priority:** Low
+
+**Summary:** Phase tracker for the cosam-convert and cosam-modify command-line applications.
+
+**Description:** Implement the two CLI applications for format conversion and batch editing.
+These applications wrap the `schedule-data` crate's import/export and edit
+command systems.
+
+---
+
+### [META-030] Phase 6 — GUI Editor
+
+**Status:** Blocked
+
+**Priority:** Low
+
+**Summary:** Phase tracker for the cosam-editor desktop GUI application.
+
+**Description:** Select the GUI framework and implement the desktop schedule editor. Requires
+the data model, edit command system, and file format support from earlier phases.
+
+---
+
+### [META-031] Phase 7 — Sync & Multi-User
+
+**Status:** Blocked
+
+**Priority:** Low
+
+**Summary:** Phase tracker for peer-to-peer schedule synchronization and conflict resolution.
+
+**Description:** Implement the sync protocol and conflict resolution UI that allow multiple users
+to exchange CRDT changes and reconcile concurrent edits to the same fields.
+
+---
+
 ---
 
 [CLI-019]: work-item/low/CLI-019.md
 [CLI-020]: work-item/low/CLI-020.md
 [EDITOR-021]: work-item/low/EDITOR-021.md
 [EDITOR-022]: work-item/low/EDITOR-022.md
-[FEATURE-001]: work-item/high/FEATURE-001.md
 [FEATURE-002]: work-item/high/FEATURE-002.md
 [FEATURE-003]: work-item/high/FEATURE-003.md
 [FEATURE-004]: work-item/high/FEATURE-004.md
@@ -455,3 +561,11 @@ these decisions and override them.
 [FEATURE-018]: work-item/medium/FEATURE-018.md
 [FEATURE-023]: work-item/low/FEATURE-023.md
 [FEATURE-024]: work-item/low/FEATURE-024.md
+[META-001]: work-item/meta/META-001.md
+[META-025]: work-item/meta/META-025.md
+[META-026]: work-item/meta/META-026.md
+[META-027]: work-item/meta/META-027.md
+[META-028]: work-item/meta/META-028.md
+[META-029]: work-item/meta/META-029.md
+[META-030]: work-item/meta/META-030.md
+[META-031]: work-item/meta/META-031.md

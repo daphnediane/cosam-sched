@@ -30,6 +30,9 @@ my %priority_defaults = (
     'Low'    => 'low',
 );
 
+# Subdirectories for META prefix items (always go to meta/ regardless of priority)
+my %meta_prefixes = map { $_ => 1 } qw(META);
+
 # Subdirectories for organization
 my %status_dirs = (
     'Completed'   => 'done',
@@ -130,8 +133,13 @@ for my $file_info ( sort { $a->{ path } cmp $b->{ path } } @files ) {
     };
 } ## end for my $file_info ( sort...)
 
-# Sort by priority, then by prefix and number
+# Sort META items first, then by priority, then by prefix and number
 @items = sort {
+    my $meta_a   = $meta_prefixes{ $a->{ prefix } } ? 0 : 1;
+    my $meta_b   = $meta_prefixes{ $b->{ prefix } } ? 0 : 1;
+    my $meta_cmp = $meta_a <=> $meta_b;
+    return $meta_cmp if $meta_cmp;
+
     my $prio_a   = $priority_order{ $a->{ priority } } || 999;
     my $prio_b   = $priority_order{ $b->{ priority } } || 999;
     my $prio_cmp = $prio_a <=> $prio_b;
@@ -191,14 +199,14 @@ sub reorganize_files {
     print STDERR "Reorganizing files to correct directories...\n";
 
     # Ensure target directories exist
-    for my $dir ( qw(done rejected high medium low) ) {
+    for my $dir ( qw(done rejected meta high medium low) ) {
         my $full_dir = "$workitem_dir/$dir";
         unless ( -d $full_dir ) {
             make_path( $full_dir )
                 or die "Cannot create directory $full_dir: $!";
             print STDERR "Created directory: $full_dir\n";
         }
-    } ## end for my $dir ( qw(done rejected high medium low))
+    } ## end for my $dir ( qw(done rejected meta high medium low))
 
     # Process each item and move if needed
     for my $item ( @items ) {
@@ -330,9 +338,31 @@ sub generate_work_item_content {
             push @{ $by_priority{ $item->{ priority } } }, $item;
         }
 
+        # Separate META items for their own section in summary
+        my @meta_open
+            = grep { $meta_prefixes{ $_->{ prefix } } } @open;
+        my @nonmeta_open
+            = grep { !$meta_prefixes{ $_->{ prefix } } } @open;
+
+        # Output META items first
+        if ( @meta_open ) {
+            $content .= "* **Meta / Project-Level**\n";
+            for my $item ( sort { $a->{ num } <=> $b->{ num } } @meta_open ) {
+                my $link_id = "$item->{prefix}-$item->{num}";
+                $all_links{ $link_id } = get_relative_path( $item );
+                $content .= "  * [$link_id] $item->{summary}\n";
+            }
+            $content .= "\n";
+        } ## end if ( @meta_open )
+
         # Output summary list by priority as nested list
+        my %nonmeta_by_priority;
+        for my $item ( @nonmeta_open ) {
+            push @{ $nonmeta_by_priority{ $item->{ priority } } }, $item;
+        }
+
         for my $priority ( qw(High Medium Low) ) {
-            next unless exists $by_priority{ $priority };
+            next unless exists $nonmeta_by_priority{ $priority };
 
             $content .= "* **$priority Priority**\n";
 
@@ -340,7 +370,7 @@ sub generate_work_item_content {
                 sort {
                            $a->{ prefix } cmp $b->{ prefix }
                         || $a->{ num } <=> $b->{ num }
-                } @{ $by_priority{ $priority } }
+                } @{ $nonmeta_by_priority{ $priority } }
             ) {
                 my $link_id = "$item->{prefix}-$item->{num}";
                 $all_links{ $link_id } = get_relative_path( $item );
@@ -508,6 +538,13 @@ sub get_relative_path {
 
 sub determine_target_directory {
     my ( $item ) = @_;
+
+    # META-prefix items always go to meta/ (unless closed)
+    if ( $meta_prefixes{ $item->{ prefix } } ) {
+        my $closed_dir = $status_dirs{ $item->{ status } };
+        return $closed_dir if defined $closed_dir && !ref $closed_dir;
+        return 'meta';
+    }
 
     my $target_dir = $status_dirs{ $item->{ status } } // \%priority_defaults;
     $target_dir = $target_dir->{ $item->{ priority } } if ref $target_dir;
