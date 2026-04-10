@@ -173,8 +173,6 @@ sub reorganize_files {
 
         # Skip if already in correct location
         if ( $item->{ current_subdir } eq $target_subdir ) {
-            print STDERR
-                "Already in correct location: $item->{prefix}-$item->{num}.md\n";
             next;
         }
 

@@ -426,7 +426,6 @@ function Invoke-FileReorganization {
         
         # Skip if already in correct location
         if ($item.CurrentSubdir -eq $targetSubdir) {
-            if ($Verbose) { Write-Host "Already in correct location: $($item.Prefix)-$($item.Number).md" }
             continue
         }
         
