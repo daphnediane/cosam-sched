@@ -1,0 +1,11 @@
+[package]
+name = "cosam-editor"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+authors.workspace = true
+description = "GUI editor for cosam schedules (skeleton)"
+
+[[bin]]
+name = "cosam-editor"
+path = "src/main.rs"
