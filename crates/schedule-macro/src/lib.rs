@@ -74,7 +74,9 @@ use syn::{
         read,
         write,
         validate,
-        entity_kind
+        entity_kind,
+        edge_from,
+        edge_to
     )
 )]
 pub fn derive_entity_fields(input: TokenStream) -> TokenStream {
@@ -111,6 +113,14 @@ pub fn derive_entity_fields(input: TokenStream) -> TokenStream {
     let mut builder_setter_names: Vec<Ident> = Vec::new();
     let mut builder_build_extractions: Vec<TokenStream2> = Vec::new();
 
+    // Track edge endpoint info collected from field-level #[edge_from] / #[edge_to]
+    // Each is (field_ident, entity_name, accessor_override)
+    let mut edge_from_info: Option<(SynIdent, String, Option<String>)> = None;
+    let mut edge_to_info: Option<(SynIdent, String, Option<String>)> = None;
+    // Field names that are edge endpoints — excluded from setters and apply_to
+    let mut edge_endpoint_field_names: std::collections::HashSet<String> =
+        std::collections::HashSet::new();
+
     // Generate the internal data struct name (e.g., PanelData)
     let data_struct_name = Ident::new(
         &format!("{}Data", struct_name),
@@ -125,6 +135,16 @@ pub fn derive_entity_fields(input: TokenStream) -> TokenStream {
             let explicit_field_struct_name = parse_field_struct_name(&field.attrs);
             let field_struct_name = explicit_field_struct_name
                 .unwrap_or_else(|| generate_field_struct_name(struct_name, &field_name_str));
+
+            // Collect field-level edge endpoint annotations before other processing
+            if let Some((entity, accessor)) = parse_field_edge_endpoint(&field.attrs, "edge_from") {
+                edge_from_info = Some((field_name.clone(), entity, accessor));
+                edge_endpoint_field_names.insert(field_name_str.clone());
+            }
+            if let Some((entity, accessor)) = parse_field_edge_endpoint(&field.attrs, "edge_to") {
+                edge_to_info = Some((field_name.clone(), entity, accessor));
+                edge_endpoint_field_names.insert(field_name_str.clone());
+            }
 
             // Check if this is a computed field FIRST
             if is_computed_field(field) {
@@ -200,10 +220,13 @@ pub fn derive_entity_fields(input: TokenStream) -> TokenStream {
                     }
 
                     // Builder: setter method name + build() extraction
-                    builder_setter_names.push(Ident::new(
-                        &format!("with_{}", field_name_str),
-                        proc_macro2::Span::call_site(),
-                    ));
+                    // Edge endpoint fields are constructor-only; skip the setter.
+                    if !edge_endpoint_field_names.contains(&field_name_str) {
+                        builder_setter_names.push(Ident::new(
+                            &format!("with_{}", field_name_str),
+                            proc_macro2::Span::call_site(),
+                        ));
+                    }
                     if is_required && is_string_type(&field.ty) {
                         builder_build_extractions.push(quote! {
                             let #field_name = match self.#field_name {
@@ -286,6 +309,13 @@ pub fn derive_entity_fields(input: TokenStream) -> TokenStream {
         }
     }
 
+    // Build apply_to param list excluding edge endpoint fields (immutable after construction)
+    let apply_to_param_names: Vec<SynIdent> = new_param_names
+        .iter()
+        .filter(|n| !edge_endpoint_field_names.contains(&n.to_string()))
+        .cloned()
+        .collect();
+
     // Generate TYPE_NAME from struct name (PascalCase → snake_case)
     let type_name_str = pascal_to_snake_case(&struct_name.to_string());
 
@@ -293,6 +323,84 @@ pub fn derive_entity_fields(input: TokenStream) -> TokenStream {
     let entity_kind = parse_entity_kind(&input.attrs)
         .expect("EntityFields requires #[entity_kind(...)] attribute with EntityKind variant");
     let entity_kind_ident = Ident::new(&entity_kind, proc_macro2::Span::call_site());
+
+    // Capture edge endpoint field idents for UUID generation in build() before
+    // the match below consumes edge_from_info / edge_to_info.
+    // Always emits `let uuid_preference = ...;` so build() can unconditionally use it.
+    let edge_uuid_upgrade: TokenStream2 = match (&edge_from_info, &edge_to_info) {
+        (Some((from_field, _, _)), Some((to_field, _, _))) => {
+            let ff = from_field.clone();
+            let tf = to_field.clone();
+            quote! {
+                let uuid_preference = match self.uuid_preference {
+                    crate::entity::UuidPreference::GenerateNew => {
+                        crate::entity::UuidPreference::Edge {
+                            from: #ff,
+                            to: #tf,
+                        }
+                    }
+                    other => other,
+                };
+            }
+        }
+        _ => quote! {
+            let uuid_preference = self.uuid_preference;
+        },
+    };
+
+    // Build DirectedEdge impl from field-level #[edge_from] / #[edge_to] annotations.
+    let edge_impl = match (edge_from_info, edge_to_info) {
+        (
+            Some((from_field, from_str, from_accessor_override)),
+            Some((to_field, to_str, to_accessor_override)),
+        ) => {
+            let from_id = Ident::new(&format!("{}Id", from_str), proc_macro2::Span::call_site());
+            let to_id = Ident::new(&format!("{}Id", to_str), proc_macro2::Span::call_site());
+            // Default accessor: strip _uuid suffix and append _id, e.g. panel_uuid -> panel_id
+            let default_from_accessor = from_field
+                .to_string()
+                .strip_suffix("_uuid")
+                .map(|s| format!("{}_id", s))
+                .unwrap_or_else(|| format!("{}_id", from_field));
+            let default_to_accessor = to_field
+                .to_string()
+                .strip_suffix("_uuid")
+                .map(|s| format!("{}_id", s))
+                .unwrap_or_else(|| format!("{}_id", to_field));
+            let from_accessor = Ident::new(
+                &from_accessor_override.unwrap_or(default_from_accessor),
+                proc_macro2::Span::call_site(),
+            );
+            let to_accessor = Ident::new(
+                &to_accessor_override.unwrap_or(default_to_accessor),
+                proc_macro2::Span::call_site(),
+            );
+            Some(quote! {
+                impl #data_struct_name {
+                    pub fn #from_accessor(&self) -> crate::entity::#from_id {
+                        crate::entity::#from_id::from_uuid(self.#from_field)
+                    }
+                    pub fn #to_accessor(&self) -> crate::entity::#to_id {
+                        crate::entity::#to_id::from_uuid(self.#to_field)
+                    }
+                }
+
+                impl crate::entity::DirectedEdge for #data_struct_name {
+                    type FromId = crate::entity::#from_id;
+                    type ToId = crate::entity::#to_id;
+
+                    fn from_id(&self) -> Self::FromId {
+                        self.#from_accessor()
+                    }
+
+                    fn to_id(&self) -> Self::ToId {
+                        self.#to_accessor()
+                    }
+                }
+            })
+        }
+        _ => None,
+    };
 
     // Generate field set construction tokens
     let field_struct_names: Vec<Ident> = field_names
@@ -442,7 +550,8 @@ pub fn derive_entity_fields(input: TokenStream) -> TokenStream {
             /// UUID is resolved via the `uuid_preference` (defaults to a fresh v7 UUID).
             pub fn build(self) -> Result<#data_struct_name, crate::field::validation::ValidationError> {
                 #(#builder_build_extractions)*
-                let entity_uuid = self.uuid_preference.resolve(*#entity_namespace_ident);
+                #edge_uuid_upgrade
+                let entity_uuid = uuid_preference.resolve(*#entity_namespace_ident);
                 Ok(#data_struct_name {
                     entity_uuid,
                     #(#new_param_names,)*
@@ -459,8 +568,8 @@ pub fn derive_entity_fields(input: TokenStream) -> TokenStream {
                     data.entity_uuid = self.uuid_preference.resolve(*#entity_namespace_ident);
                 }
                 #(
-                if let Some(v) = self.#new_param_names {
-                    data.#new_param_names = v;
+                if let Some(v) = self.#apply_to_param_names {
+                    data.#apply_to_param_names = v;
                 }
                 )*
             }
@@ -504,6 +613,8 @@ pub fn derive_entity_fields(input: TokenStream) -> TokenStream {
                 Ok(())
             }
         }
+
+        #edge_impl
     };
 
     TokenStream::from(expanded)
@@ -609,6 +720,43 @@ fn parse_field_aliases(attrs: &[Attribute]) -> Option<Vec<String>> {
     } else {
         Some(aliases)
     }
+}
+
+/// Parse a field-level `#[edge_from(Entity)]` or `#[edge_to(Entity)]` attribute.
+///
+/// The first positional token is the entity name (PascalCase).  Optional:
+/// - `accessor = method_name`  — override the generated accessor method name
+///   (default: field name with `_uuid` replaced by `_id`)
+///
+/// Returns `(entity_name, accessor_override)`.
+fn parse_field_edge_endpoint(
+    attrs: &[Attribute],
+    attr_name: &str,
+) -> Option<(String, Option<String>)> {
+    for attr in attrs {
+        if attr.path().is_ident(attr_name) {
+            if let Meta::List(meta_list) = &attr.meta {
+                let tokens_str = meta_list.tokens.to_string();
+                let entity = tokens_str
+                    .split(',')
+                    .next()
+                    .map(|s| s.trim().to_string())
+                    .filter(|s| !s.contains('='));
+                let accessor = tokens_str.split(',').find_map(|part| {
+                    let part = part.trim();
+                    part.strip_prefix("accessor").and_then(|rest| {
+                        rest.trim_start()
+                            .strip_prefix('=')
+                            .map(|v| v.trim().to_string())
+                    })
+                });
+                if let Some(entity) = entity {
+                    return Some((entity, accessor));
+                }
+            }
+        }
+    }
+    None
 }
 
 /// Parse entity_kind attribute from struct attributes

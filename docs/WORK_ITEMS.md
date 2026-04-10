@@ -1,6 +1,6 @@
 # Cosplay America Schedule - Work Item
 
-Updated on: Fri Apr 10 16:22:56 2026
+Updated on: Fri Apr 10 19:39:28 2026
 
 ## Completed
 
@@ -8,14 +8,16 @@ Updated on: Fri Apr 10 16:22:56 2026
 * [FEATURE-003] Implement the `#[derive(EntityFields)]` proc-macro in the `schedule-macro` crate.
 * [FEATURE-004] Implement the field trait hierarchy, universal `FieldValue` enum, `FieldSet` registry,
 and validation infrastructure.
+* [FEATURE-005] Define the core domain entity structs using the `EntityFields` derive macro.
 * [FEATURE-006] Implement UUID-based entity identity with compile-time type-safe ID wrappers.
+* [FEATURE-007] Implement typed edge storage for entity-to-entity relationships.
 * [META-025] Phase tracker for project foundation and Cargo workspace setup.
 
 ---
 
 ## Summary of Open Items
 
-**Total open items:** 26
+**Total open items:** 24
 
 * **Meta / Project-Level**
   * [META-001] Meta work item tracking the full multi-phase redesign of the schedule system. (Blocked by [META-026], [META-027], [META-028], [META-029], [META-030], [META-031])
@@ -28,8 +30,6 @@ XLSX import/export. (Blocked by [META-026], [META-027])
   * [META-031] Phase tracker for peer-to-peer schedule synchronization and conflict resolution. (Blocked by [META-027])
 
 * **High Priority**
-  * [FEATURE-005] ([META-026]) Define the core domain entity structs using the `EntityFields` derive macro.
-  * [FEATURE-007] ([META-026]) Implement typed edge storage for entity-to-entity relationships.
   * [FEATURE-008] ([META-026]) Implement the `Schedule` struct and `EntityStorage` for managing all entities
 and relationships.
   * [FEATURE-010] ([META-026]) Implement a command-based edit system with full undo/redo support.
@@ -131,54 +131,6 @@ application structure.
 ---
 
 ## Open FEATURE Items
-
-### [FEATURE-005] Core Entity Definitions
-
-**Status:** In Progress
-
-**Priority:** High
-
-**Summary:** Define the core domain entity structs using the `EntityFields` derive macro.
-
-**Part of:** [META-026]
-
-**Description:** Implement entity definitions for the schedule domain model:
-
-- **Panel** — A scheduled event/session with name, description, timing, flags,
-  and computed fields for presenters, room, and panel type
-- **Presenter** — A person or group that presents at events
-- **EventRoom** — A physical or virtual space where events occur
-- **HotelRoom** — A hotel room that may host an event room
-- **PanelType** — A category/type classification for panels (e.g., "Gaming",
-  "Workshop", "Panel")
-- **PresenterRank** — Rank/tier for presenters (Guest, Staff, etc.)
-
-Each entity uses `#[derive(EntityFields)]` with appropriate field annotations
-for display names, aliases, required fields, and indexable fields.
-
----
-
-### [FEATURE-007] Edge/Relationship System
-
-**Status:** Open
-
-**Priority:** High
-
-**Summary:** Implement typed edge storage for entity-to-entity relationships.
-
-**Part of:** [META-026]
-
-**Description:** Relationships between entities are modeled as typed edges with their own storage
-and query capabilities. Edge types include:
-
-- **PanelToPresenter** — which presenters are on which panels
-- **PresenterToGroup** — presenter group membership (with `always_grouped` and
-  `always_shown_in_group` flags)
-- **PanelToEventRoom** — which room a panel is assigned to
-- **PanelToPanelType** — which category a panel belongs to
-- **EventRoomToHotelRoom** — physical room mapping
-
----
 
 ### [FEATURE-008] Schedule Container and EntityStorage
 
@@ -567,9 +519,9 @@ to exchange CRDT changes and reconcile concurrent edits to the same fields.
 [FEATURE-002]: work-item/done/FEATURE-002.md
 [FEATURE-003]: work-item/done/FEATURE-003.md
 [FEATURE-004]: work-item/done/FEATURE-004.md
-[FEATURE-005]: work-item/high/FEATURE-005.md
+[FEATURE-005]: work-item/done/FEATURE-005.md
 [FEATURE-006]: work-item/done/FEATURE-006.md
-[FEATURE-007]: work-item/high/FEATURE-007.md
+[FEATURE-007]: work-item/done/FEATURE-007.md
 [FEATURE-008]: work-item/high/FEATURE-008.md
 [FEATURE-009]: work-item/medium/FEATURE-009.md
 [FEATURE-010]: work-item/high/FEATURE-010.md

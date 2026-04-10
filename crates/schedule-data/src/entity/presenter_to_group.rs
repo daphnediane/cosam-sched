@@ -31,11 +31,13 @@ pub struct PresenterToGroup {
     /// UUID of the member presenter (from side)
     #[field(display = "Member UUID", description = "UUID of the member presenter")]
     #[required]
+    #[edge_from(Presenter, accessor = member_id)]
     pub member_uuid: NonNilUuid,
 
     /// UUID of the group presenter (to side)
     #[field(display = "Group UUID", description = "UUID of the group presenter")]
     #[required]
+    #[edge_to(Presenter, accessor = group_id)]
     pub group_uuid: NonNilUuid,
 
     /// Whether this member should always be shown when the group is displayed
@@ -51,16 +53,6 @@ pub struct PresenterToGroup {
 }
 
 impl PresenterToGroupData {
-    /// Get the member presenter ID from this edge
-    pub fn member_id(&self) -> crate::entity::PresenterId {
-        crate::entity::PresenterId::from_uuid(self.member_uuid)
-    }
-
-    /// Get the group presenter ID from this edge
-    pub fn group_id(&self) -> crate::entity::PresenterId {
-        crate::entity::PresenterId::from_uuid(self.group_uuid)
-    }
-
     /// Check if this is a self-loop (group marker edge)
     pub fn is_self_loop(&self) -> bool {
         self.member_uuid == self.group_uuid
