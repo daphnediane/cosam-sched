@@ -23,19 +23,22 @@ my $output_file  = "$root_dir/docs/WORK_ITEMS.md";
 # Track newest modification time for "Updated on" line
 my $newest_mtime = ( stat( $0 ) )[ 9 ];    # Start with script's own mtime
 
-# Subdirectories for organization
-my %status_dirs = (
-    'Completed'   => 'done',
-    'In Progress' => 'medium',
-    'Blocked'     => 'high',
-    'Not Started' => 'low',
-);
-
 # Default priority mapping for items without explicit status
 my %priority_defaults = (
     'High'   => 'high',
     'Medium' => 'medium',
     'Low'    => 'low',
+);
+
+# Subdirectories for organization
+my %status_dirs = (
+    'Completed'   => 'done',
+    'Superseded'  => 'rejected',
+    'Rejected'    => 'rejected',
+    'In Progress' => \%priority_defaults,
+    'Blocked'     => \%priority_defaults,
+    'Not Started' => \%priority_defaults,
+    'Open'        => \%priority_defaults,
 );
 
 # Calculate relative path from output file to workitem directory
@@ -105,6 +108,10 @@ for my $file_info ( sort { $a->{ path } cmp $b->{ path } } @files ) {
     $status      =~ s/^\s+|\s+$//g;
     $priority    =~ s/^\s+|\s+$//g;
     $description =~ s/^\s+|\s+$//g;
+
+    # Normalize status and priority to canonical values
+    $status   = normalize_status( $status );
+    $priority = normalize_priority( $priority );
 
     # Extract prefix and number from filename
     my ( $prefix, $num ) = $file =~ m{/([^/]+)-(\d+)\.md$};
@@ -184,14 +191,14 @@ sub reorganize_files {
     print STDERR "Reorganizing files to correct directories...\n";
 
     # Ensure target directories exist
-    for my $dir ( qw(done high medium low) ) {
+    for my $dir ( qw(done rejected high medium low) ) {
         my $full_dir = "$workitem_dir/$dir";
         unless ( -d $full_dir ) {
             make_path( $full_dir )
                 or die "Cannot create directory $full_dir: $!";
             print STDERR "Created directory: $full_dir\n";
         }
-    } ## end for my $dir ( qw(done high medium low))
+    } ## end for my $dir ( qw(done rejected high medium low))
 
     # Process each item and move if needed
     for my $item ( @items ) {
@@ -239,9 +246,17 @@ sub generate_work_item_content {
     $content
         .= "Updated on: " . scalar( localtime( $newest_mtime ) ) . "\n\n";
 
-    # Separate completed and open items
+    # Separate completed, superseded/rejected, and open items
     my @completed = grep { $_->{ status } eq 'Completed' } @items;
-    my @open      = grep { $_->{ status } ne 'Completed' } @items;
+    my @rejected  = grep {
+               $_->{ status } eq 'Superseded'
+            || $_->{ status } eq 'Rejected'
+    } @items;
+    my @open = grep {
+               $_->{ status } ne 'Completed'
+            && $_->{ status } ne 'Superseded'
+            && $_->{ status } ne 'Rejected'
+    } @items;
 
     # Collect all links for glossary
     my %all_links;
@@ -284,6 +299,24 @@ sub generate_work_item_content {
 
         $content .= "\n---\n\n";
     } ## end if ( @completed )
+
+    # Output superseded/rejected items as a simple list
+    if ( @rejected ) {
+        $content .= "## Superseded / Rejected\n\n";
+
+        for my $item (
+            sort {
+                       $a->{ prefix } cmp $b->{ prefix }
+                    || $a->{ num } <=> $b->{ num }
+            } @rejected
+        ) {
+            my $link_id = "$item->{prefix}-$item->{num}";
+            $all_links{ $link_id } = get_relative_path( $item );
+            $content .= "* [$link_id] ($item->{status}) $item->{summary}\n";
+        } ## end for my $item ( sort { $a...})
+
+        $content .= "\n---\n\n";
+    } ## end if ( @rejected )
 
     # Add summary of todo items as nested list
     if ( @open ) {
@@ -368,11 +401,13 @@ sub generate_work_item_content {
 
                 # Check if any of the conflicting items are open
                 my $has_open_items = 0;
-                if ( $used_ids{ $conflict_id }->{ status } ne 'Completed' ) {
+                if ( !is_closed_status(
+                    $used_ids{ $conflict_id }->{ status }
+                ) ) {
                     $has_open_items = 1;
                 }
                 for my $item ( @{ $conflicts{ $conflict_id } } ) {
-                    if ( $item->{ status } ne 'Completed' ) {
+                    if ( !is_closed_status( $item->{ status } ) ) {
                         $has_open_items = 1;
                         last;
                     }
@@ -399,7 +434,9 @@ sub generate_work_item_content {
                     . sprintf( "%03d", $conflict_id ) . "`\n\n";
                 for my $item ( @{ $actual_conflicts{ $conflict_id } } ) {
                     my $status_icon
-                        = $item->{ status } eq 'Completed' ? '✓' : '○';
+                        = is_closed_status( $item->{ status } )
+                        ? '✓'
+                        : '○';
                     my $display_id = sprintf(
                         "%s-%03d", $item->{ prefix },
                         $item->{ num }
@@ -472,21 +509,58 @@ sub get_relative_path {
 sub determine_target_directory {
     my ( $item ) = @_;
 
-    # Completed items always go to done directory
-    if ( $item->{ status } eq 'Completed' ) {
-        return 'done';
-    }
-
-    # Use priority mapping for non-completed items
-    if ( exists $priority_defaults{ $item->{ priority } } ) {
-        return $priority_defaults{ $item->{ priority } };
-    }
-
-    # Fall back to status mapping for remaining cases
-    if ( exists $status_dirs{ $item->{ status } } ) {
-        return $status_dirs{ $item->{ status } };
-    }
-
-    # Default to medium for unknown cases
-    return 'medium';
+    my $target_dir = $status_dirs{ $item->{ status } } // \%priority_defaults;
+    $target_dir = $target_dir->{ $item->{ priority } } if ref $target_dir;
+    return $target_dir // 'medium';
 } ## end sub determine_target_directory
+
+sub is_closed_status {
+    my ( $status ) = @_;
+    my $dir = $status_dirs{ $status };
+    return defined $dir && !ref $dir;
+}
+
+{
+    # Case-insensitive normalization maps for status and priority
+    my %status_normalize = map { lc $_ => $_ } (
+        'Completed',   'done',    'finished', 'complete',
+        'In Progress', 'started', 'working',
+        'Not Started', 'open',    'new', 'todo',
+        'Blocked',     'waiting',
+        'Superseded',  'replaced',
+        'Rejected',    'declined', 'wontfix',
+    );
+
+    # Map synonyms to canonical values
+    @status_normalize{ 'done', 'finished', 'complete' } = ( 'Completed' ) x 3;
+    @status_normalize{ 'started', 'working' } = ( 'In Progress' ) x 2;
+    @status_normalize{ 'open', 'new', 'todo' } = ( 'Not Started' ) x 3;
+    @status_normalize{ 'waiting' }  = 'Blocked';
+    @status_normalize{ 'replaced' } = 'Superseded';
+    @status_normalize{ 'declined', 'wontfix' } = ( 'Rejected' ) x 2;
+
+    my %priority_normalize = map { lc $_ => $_ } ( 'High', 'Medium', 'Low' );
+    @priority_normalize{ 'hi', 'critical', 'urgent' } = ( 'High' ) x 3;
+    @priority_normalize{ 'mid', 'med', 'normal' }     = ( 'Medium' ) x 3;
+    @priority_normalize{ 'lo', 'minor' }              = ( 'Low' ) x 2;
+
+    sub normalize_status {
+        my ( $raw ) = @_;
+
+        # Try exact match first, then case-insensitive lookup
+        return $raw if exists $status_dirs{ $raw };
+        my $key = lc $raw;
+
+        # Strip trailing punctuation and " - ..." suffixes for matching
+        ( my $base = $key ) =~ s/\s*[-:].*//;
+        return $status_normalize{ $key } // $status_normalize{ $base }
+            // $raw;
+    } ## end sub normalize_status
+
+    sub normalize_priority {
+        my ( $raw ) = @_;
+        return $raw if exists $priority_order{ $raw };
+        my $key = lc $raw;
+        return $priority_normalize{ $key } // $raw;
+    } ## end sub normalize_priority
+}

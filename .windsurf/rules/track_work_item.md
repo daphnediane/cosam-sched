@@ -10,9 +10,10 @@ globs: docs/work-item/**/*.md,docs/WORK_ITEMS.md
 Work items are in `docs/work-item/` as `<PREFIX>-<###>.md` files, automatically organized into subdirectories:
 
 - **done/** - Completed items
-- **high/** - High priority or Blocked items  
-- **medium/** - Medium priority or In Progress items
-- **low/** - Low priority or Not Started items
+- **rejected/** - Superseded or Rejected items
+- **high/** - High priority open items
+- **medium/** - Medium priority open items
+- **low/** - Low priority open items
 
 ### Prefixes
 
