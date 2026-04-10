@@ -12,6 +12,10 @@ Blocked
 
 Low
 
+## Blocked By
+
+- META-028: Phase 4 — File Formats & Import/Export
+
 ## Description
 
 Implement the two CLI applications for format conversion and batch editing.
@@ -22,7 +26,3 @@ command systems.
 
 - CLI-019: cosam-convert: format conversion tool
 - CLI-020: cosam-modify: CLI editing tool
-
-## Blocked By
-
-- META-028: Phase 4 — File Formats & Import/Export

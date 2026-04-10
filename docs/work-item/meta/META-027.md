@@ -12,6 +12,10 @@ Blocked
 
 Medium
 
+## Blocked By
+
+- META-026: Phase 2 — Core Data Model
+
 ## Description
 
 Design and implement the CRDT abstraction layer and replace the direct HashMap
@@ -23,11 +27,3 @@ editing and eventual merge without a central server.
 - FEATURE-011: CRDT abstraction layer design
 - FEATURE-012: CRDT-backed entity storage
 - FEATURE-013: Change tracking and merge operations
-
-## Blocked By
-
-- META-026: Phase 2 — Core Data Model
-
-## Blocks
-
-- META-031: Phase 7 — Sync & Multi-User

@@ -26,7 +26,7 @@ Redesign the cosam-sched schedule system from the ground up with:
 - **Three application targets**: `cosam-convert` (format conversion), `cosam-modify`
   (CLI editing), `cosam-editor` (GUI editing)
 
-## Phases
+## Work Items
 
 - META-025: Phase 1 — Foundation
 - META-026: Phase 2 — Core Data Model

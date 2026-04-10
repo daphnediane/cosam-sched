@@ -45,8 +45,14 @@ Open | In Progress | Completed | Blocked | Not Started | Superseded | Rejected
 ## Priority
 High | Medium | Low
 
+## Blocked By (optional)
+- PREFIX-###: short description
+
 ## Description
 [Detailed description]
+
+## Work Items (optional, META prefix only)
+- PREFIX-###: short description
 
 ## Additional Sections (optional)
 - Steps to Fix (for bugs)

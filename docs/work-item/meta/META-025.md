@@ -20,11 +20,3 @@ a place to land.
 ## Work Items
 
 - FEATURE-002: Cargo workspace setup with crate skeletons
-
-## Blocked By
-
-- META-001: Architecture Redesign (parent)
-
-## Blocks
-
-- META-026: Phase 2 — Core Data Model

@@ -13,6 +13,11 @@ Blocked
 
 Medium
 
+## Blocked By
+
+- META-026: Phase 2 — Core Data Model
+- META-027: Phase 3 — CRDT Integration (for FEATURE-014)
+
 ## Description
 
 Define and implement all file format support: the internal native format with
@@ -26,13 +31,3 @@ round-trip XLSX import/export for the convention spreadsheet workflow.
 - FEATURE-016: Widget display JSON export
 - FEATURE-017: XLSX spreadsheet import
 - FEATURE-018: XLSX spreadsheet export
-
-## Blocked By
-
-- META-026: Phase 2 — Core Data Model
-- META-027: Phase 3 — CRDT Integration (for FEATURE-014)
-
-## Blocks
-
-- META-029: Phase 5 — CLI Tools
-- META-030: Phase 6 — GUI Editor
