@@ -87,6 +87,20 @@ The script automatically:
 - Add headerless link glossary at end
 - Preserve leading zeros and use LF line endings
 
+## Documentation Updates
+
+When completing work items, update relevant documentation:
+
+| Work Item Type       | Documentation to Update                                       |
+| -------------------- | ------------------------------------------------------------- |
+| Architecture changes | `docs/system-analysis.md` — design decisions, crate structure |
+| Field system changes | `docs/field-system.md` — macro attributes, trait usage        |
+| Entity changes       | Inline rust docs + `docs/system-analysis.md` entity sections  |
+| Edge system changes  | Both `docs/field-system.md` and `docs/system-analysis.md`     |
+| New subsystems       | Create `docs/<subsystem>.md` + reference in system-analysis   |
+
+Always cross-reference between documents when changes affect multiple areas.
+
 ## Formatting
 
 All files must follow markdown lint rules. For Cascade agents: suggest user run formatting on `docs/work-item/` directory if lint errors occur.

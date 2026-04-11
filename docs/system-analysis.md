@@ -8,13 +8,13 @@ the design decisions made so far. Update as each META-026 work item completes.
 
 ## 1. Repository Map
 
-| Repo path                   | Purpose                                                                             | Trust level                                         |
-| --------------------------- | ----------------------------------------------------------------------------------- | --------------------------------------------------- |
-| `cosam_sched/`              | **Active workspace** — Phase 2 of META-001 in progress                              | Canonical                                           |
-| `cosam-data-old/`           | v10 experiment retry: edge system + query engine, full entity definitions           | Reference (partially superseded)                    |
-| `cosam-refactor/`           | v10 development sketch: schedule-core with xlsx import/export and GPUI editor shell | Reference (design ideas only; largely superseded)   |
-| `cosam-preview/`            | Large Rust monorepo with display json file v9 widget integration                    | Reference (mostly out-of-date; but more functional) |
-| `desc_tbl/schedule-to-html` | Perl widget / HTML schedule generator / spreadsheet only no json                    | Spreadsheet format authority                        |
+| Repo path           | Branch                   | Purpose                                                                   | Trust level                                         |
+| ------------------- | ------------------------ | ------------------------------------------------------------------------- | --------------------------------------------------- |
+| `main/`             | feature/rewrite          | **Active workspace** — Phase 2 of META-001 in progress                    | Canonical                                           |
+| `v10-try-2/`        | feature/json-v10-try2    | v10 experiment retry: edge system + query engine, full entity definitions | Reference (partially superseded)                    |
+| `v10-try-1/`        | feature/json-v10-try1    | v10 development sketch: schedule-data along side updated schedule-core    | Reference (design ideas only; largely superseded)   |
+| `v9/`               | release/schedule-core-v9 | schedule-core with xlsx import/export and GPUI editor shell               | Reference (mostly out-of-date; but more functional) |
+| `schedule-to-html/` | (different repo)         | Perl widget / HTML schedule generator / spreadsheet only no json          | Spreadsheet format authority                        |
 
 ---
 
@@ -32,10 +32,10 @@ Sub-items:
 | FEATURE-004 | Field system (traits, FieldValue, FieldSet, validation) | Largely done |
 | FEATURE-005 | Core entity definitions                                 | Largely done |
 | FEATURE-006 | UUID-based identity and typed ID wrappers               | Done         |
-| FEATURE-007 | Edge/relationship system                                | Stub only    |
-| FEATURE-008 | Schedule container and EntityStorage                    | Near done    |
-| FEATURE-009 | Query system                                            | Not started  |
-| FEATURE-010 | Edit command system with undo/redo history              | Open         |
+| FEATURE-007 | Edge/relationship system                                | Largely done |
+| FEATURE-008 | Schedule container and EntityStorage                    | Largely done |
+| FEATURE-009 | Query system                                            | Partial      |
+| FEATURE-010 | Edit command system with undo/redo history              | Not started  |
 
 ---
 
@@ -146,93 +146,51 @@ Edge builders auto-upgrade `GenerateNew` → `Edge` when both endpoints are set.
 
 ## 6. Macro System (`schedule-macro`)
 
-`#[derive(EntityFields)]` on a struct generates:
+`#[derive(EntityFields)]` generates a complete data model from struct definitions:
 
-1. **`<Name>Data`** — internal storage struct with only stored fields plus
-   `entity_uuid: NonNilUuid`. Computed fields appear in `Data` as their backing
-   storage type, default-initialized.
-2. **`<Name>EntityType`** — implements `EntityType` with `TYPE_NAME`,
-   `KIND`, `type Id = <Name>Id`, `field_set()` (lazy static), and `validate()`.
-3. **`<Name>Id`** — newtype ID wrapper with `TypedId` impl.
-4. **`<Name>Builder`** — builder with `with_<field>()` setters,
-   `build(&mut Schedule)` → `Result<Id, BuildError>` (validates, resolves UUID,
-   inserts into schedule), `build_data()` → `Result<Data, ValidationError>`
-   (standalone), and `apply_to()` (partial update).
-5. **Per-field unit structs** — e.g. `NameField`, `UidField` — implementing
-   `NamedField`, `SimpleReadableField`, `SimpleWritableField` (or `ReadableField`/
-   `WritableField` for computed fields).
-6. **`fields` module** — public constants for each field struct.
-7. **`DirectedEdge` impl** — generated when both `#[edge_from]` and `#[edge_to]`
-   are present; adds typed `from_id()` / `to_id()` accessors.
+| Generated Item         | Purpose                                             |
+| ---------------------- | --------------------------------------------------- |
+| `<Name>Data`           | Storage struct (stored fields only)                 |
+| `<Name>EntityType`     | Type metadata, field registry, validation           |
+| `<Name>Id`             | Typed UUID wrapper (`TypedId` impl)                 |
+| `<Name>Builder`        | Construction with validation and schedule insertion |
+| Per-field unit structs | `NamedField` impls for field access                 |
+| `fields` module        | Public constants for all field structs              |
+| `DirectedEdge`         | When `#[edge_from]` + `#[edge_to]` present          |
 
-### Macro Attributes Reference
+**Design rationale**: The macro separates the user-facing struct (with computed
+fields as typed accessors) from the storage struct (`Data`). This allows computed
+fields to access the schedule or other entities while maintaining clean serialization.
 
-**Struct-level:**
-
-- `#[entity_kind(Panel)]` — sets `EntityKind::Panel`, required
-
-**Field-level:**
-
-- `#[field(display = "…", description = "…")]` — stored field with metadata
-- `#[computed_field(display = "…", description = "…")]` — user-supplied closures
-- `#[alias("a", "b", …)]` — extra names in `FieldSet` name map
-- `#[required]` — adds to required list; validated at `build()` time
-- `#[indexable(priority = N)]` — participates in `match_index` lookups
-- `#[edge_from(Entity)]` / `#[edge_to(Entity)]` — marks UUID field as edge
-  endpoint; excluded from builder setters (constructor-only)
-
-**Computed field closures:**
-
-- `#[read(|entity: &PanelData| { … })]` — entity-only read
-- `#[read(|schedule: &Schedule, entity: &PanelData| { … })]` — schedule-aware read
-- `#[write(|entity: &mut PanelData, value: FieldValue| { … })]` — entity-only write
-- `#[write(|schedule: &mut Schedule, entity: &mut PanelData, value: FieldValue| { … })]` — schedule-aware write
-
-Types in closure arguments **must be fully explicit** — the macro cannot infer
-them through associated type projections.
+**See `field-system.md`** for complete macro attribute reference, closure syntax,
+and usage patterns.
 
 ---
 
 ## 7. Field System
 
-### FieldValue
+The field system provides type-safe field access with three key abstractions:
 
-Universal runtime field value enum:
+| Component        | Purpose                    | Key Types                                                   |
+| ---------------- | -------------------------- | ----------------------------------------------------------- |
+| **FieldValue**   | Universal runtime value    | `String`, `Integer(i64)`, `NonNilUuid`, `List`, `Map`, etc. |
+| **FieldSet**     | Per-entity static registry | `get_field()`, `match_index()`, required/indexable tracking |
+| **Field Traits** | Type-safe access patterns  | `ReadableField`, `WritableField`, `IndexableField`          |
 
-```text
-String, Integer(i64), Float(f64), Boolean, DateTime, Duration,
-List(Vec<FieldValue>), Map(HashMap<String, FieldValue>),
-OptionalString, OptionalInteger, OptionalFloat, OptionalBoolean,
-OptionalDateTime, OptionalDuration, NonNilUuid
-```
-
-### Trait Hierarchy
+**Trait hierarchy** (blanket impls auto-promote `Simple*` traits):
 
 ```text
-NamedField                    name(), display_name(), description()
-├── SimpleReadableField<T>    read(&entity) → Option<FieldValue>
-│   └── (blanket) ReadableField<T>
-├── SimpleWritableField<T>    write(&mut entity, FieldValue) → Result
-│   └── (blanket) WritableField<T>
-├── IndexableField<T>         match_field(query, &entity) → Option<MatchStrength>
-├── ReadableField<T>          read(&Schedule, &entity) → Option<FieldValue>  [computed]
-└── WritableField<T>          write(&mut Schedule, &mut entity, FieldValue) → Result  [computed]
+NamedField
+├── SimpleReadableField<T> → ReadableField<T>
+├── SimpleWritableField<T> → WritableField<T>
+├── IndexableField<T>      → match_field() for lookups
 ```
 
-Blanket impls auto-promote `SimpleReadableField` → `ReadableField` (discards
-unused schedule ref).
+Computed fields use schedule-aware variants (`&Schedule` parameter) for edge
+access and mutations. Match priority levels: `EXACT_MATCH=255` down to `NO_MATCH=0`.
 
-### FieldSet
-
-Per-entity static registry built once in a `LazyLock`. Provides:
-
-- `get_field(name)` — name or alias lookup → `&dyn NamedField`
-- `is_required(name)`
-- `match_index(query, entity)` — runs all `IndexableField`s, returns best
-  `FieldMatchResult` ranked by `(match_strength, field_priority)`
-
-Match priority levels: `EXACT_MATCH=255`, `STRONG_MATCH=200`,
-`AVERAGE_MATCH=100`, `WEAK_MATCH=50`, `NO_MATCH=0`.
+**See `field-system.md`** for complete trait documentation, `FieldValue` conversions,
+and field usage patterns.
 
 ---
 
