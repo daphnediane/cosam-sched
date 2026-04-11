@@ -9,7 +9,7 @@ For each work item or phase/entity in a plan artifact:
 1. Mark item/phase/entity as `In Progress`
 2. Implement only that scope (no other phases/entities)
 3. Add/update tests and run `cargo test`
-4. Update documentation
+4. Update documentation (see `docs/doc-index.md` for complete list; also inline rust docs)
 5. Mark item/phase/entity as `Completed`
 6. Per `.windsurf/rules/track_work_item.md`, run `scripts/combine-workitems.pl` to update `docs/WORK_ITEMS.md` and reorganize work-item files
 7. Follow `.windsurf/rules/prepare-comment.md`, create `next_commit.tmp`, if in doubt ask use for AI model.

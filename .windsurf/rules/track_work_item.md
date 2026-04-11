@@ -87,6 +87,12 @@ The script automatically:
 - Add headerless link glossary at end
 - Preserve leading zeros and use LF line endings
 
+## Documentation Updates
+
+When completing work items, update relevant documentation, see docs/doc-index.md for the complete list.
+
+Always cross-reference between documents when changes affect multiple areas.
+
 ## Formatting
 
 All files must follow markdown lint rules. For Cascade agents: suggest user run formatting on `docs/work-item/` directory if lint errors occur.
