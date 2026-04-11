@@ -12,6 +12,7 @@ Work items are in `docs/work-item/` as `<PREFIX>-<###>.md` files, automatically 
 - **done/** - Completed items
 - **rejected/** - Superseded or Rejected items
 - **meta/** - Meta/project-level items (META prefix, any priority)
+- **idea/** - Open design questions and deferred ideas (IDEA prefix)
 - **high/** - High priority open items
 - **medium/** - Medium priority open items
 - **low/** - Low priority open items
@@ -30,6 +31,7 @@ Work items are in `docs/work-item/` as `<PREFIX>-<###>.md` files, automatically 
 - **DOCS** - Documentation
 - **REFACTOR** - Code restructuring
 - **TEST** - Test additions
+- **IDEA** - Open design questions, unexplored alternatives, deferred ideas (always in idea/)
 
 ### File Template
 
@@ -85,7 +87,8 @@ High | Medium | Low
 The script automatically:
 
 - Move files to subdirectories based on status/priority
-- Generate `docs/WORK_ITEMS.md` with reference-style links
+- Generate `docs/WORK_ITEMS.md` with reference-style links (excludes IDEA items)
+- Generate `docs/FUTURE_IDEAS.md` from IDEA-prefix items
 - Add headerless link glossary at end
 - Preserve leading zeros and use LF line endings
 
@@ -99,6 +102,7 @@ When completing work items, update relevant documentation:
 | Field system changes | `docs/field-system.md` — macro attributes, trait usage        |
 | Entity changes       | Inline rust docs + `docs/system-analysis.md` entity sections  |
 | Edge system changes  | Both `docs/field-system.md` and `docs/system-analysis.md`     |
+| Design decisions     | Create `IDEA-###.md` to record the reasoning and alternatives |
 | New subsystems       | Create `docs/<subsystem>.md` + reference in system-analysis   |
 
 Always cross-reference between documents when changes affect multiple areas.

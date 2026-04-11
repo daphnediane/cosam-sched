@@ -6,6 +6,8 @@
 
 use strict;
 use warnings;
+use utf8;
+use open ':std', ':encoding(UTF-8)';
 use File::Find;
 use File::Copy qw(move);
 use FindBin;
@@ -17,8 +19,9 @@ my $script_dir = $FindBin::Bin;
 my $root_dir   = "$script_dir/..";
 
 # Configuration
-my $workitem_dir = "$root_dir/docs/work-item";
-my $output_file  = "$root_dir/docs/WORK_ITEMS.md";
+my $workitem_dir      = "$root_dir/docs/work-item";
+my $output_file       = "$root_dir/docs/WORK_ITEMS.md";
+my $ideas_output_file = "$root_dir/docs/FUTURE_IDEAS.md";
 
 # Track newest modification time for "Updated on" line
 my $newest_mtime = ( stat( $0 ) )[ 9 ];    # Start with script's own mtime
@@ -32,6 +35,9 @@ my %priority_defaults = (
 
 # Subdirectories for META prefix items (always go to meta/ regardless of priority)
 my %meta_prefixes = map { $_ => 1 } qw(META);
+
+# IDEA prefix items always go to idea/ (open design questions, unexplored alternatives)
+my %idea_prefixes = map { $_ => 1 } qw(IDEA);
 
 # Subdirectories for organization
 my %status_dirs = (
@@ -221,8 +227,12 @@ for my $item ( @items ) {
 # Reorganize files to correct directories first
 reorganize_files();
 
-# Generate WORK_ITEMS.md content
-my $new_content = generate_work_item_content( @items );
+# Separate IDEA items from regular work items for separate output
+my @idea_items = grep { $idea_prefixes{ $_->{ prefix } } } @items;
+my @workitems  = grep { !$idea_prefixes{ $_->{ prefix } } } @items;
+
+# Generate WORK_ITEMS.md content (excludes IDEA items)
+my $new_content = generate_work_item_content( @workitems );
 
 # Check if existing file is identical (ignoring "Updated on" timestamp line)
 my $write_needed = 1;
@@ -253,27 +263,65 @@ if ( $write_needed ) {
     print $fh_out $new_content;
     close $fh_out;
     print STDERR "Updated $output_file with "
-        . scalar( @items )
+        . scalar( @workitems )
         . " work items\n";
 } ## end if ( $write_needed )
 else {
     print STDERR "$output_file is up to date ("
-        . scalar( @items )
+        . scalar( @workitems )
         . " work items)\n";
+}
+
+# Generate FUTURE_IDEAS.md content
+my $new_ideas_content = generate_ideas_content( @items );
+
+# Check if existing ideas file is identical
+my $ideas_write_needed = 1;
+if ( -f $ideas_output_file ) {
+    my $existing_ideas = do {
+        local $/;
+        open my $fh, '<', $ideas_output_file
+            or die "Can't read $ideas_output_file: $!";
+        <$fh>;
+    };
+    my $normalized_existing = $existing_ideas;
+    $normalized_existing =~ s/^Updated on: .*\n\n//m;
+    $normalized_existing =~ s/\n\s*$/\n/;
+
+    my $normalized_new = $new_ideas_content;
+    $normalized_new =~ s/^Updated on: .*\n\n//m;
+    $normalized_new =~ s/\n\s*$/\n/;
+
+    $ideas_write_needed = 0 if $normalized_existing eq $normalized_new;
+} ## end if ( -f $ideas_output_file)
+
+if ( $ideas_write_needed ) {
+    open my $fh_out, '>', $ideas_output_file
+        or die "Can't write $ideas_output_file: $!";
+    print $fh_out $new_ideas_content;
+    close $fh_out;
+    print STDERR "Updated $ideas_output_file with "
+        . scalar( @idea_items )
+        . " ideas\n";
+} ## end if ( $ideas_write_needed)
+else {
+    print STDERR "$ideas_output_file is up to date ("
+        . scalar( @idea_items )
+        . " ideas)\n";
 }
 
 sub reorganize_files {
     print STDERR "Reorganizing files to correct directories...\n";
 
     # Ensure target directories exist
-    for my $dir ( qw(done rejected meta high medium low) ) {
+    for my $dir ( qw(done rejected meta idea high medium low) ) {
         my $full_dir = "$workitem_dir/$dir";
         unless ( -d $full_dir ) {
             make_path( $full_dir )
                 or die "Cannot create directory $full_dir: $!";
             print STDERR "Created directory: $full_dir\n";
         }
-    } ## end for my $dir ( qw(done rejected meta high medium low))
+    } ## end for my $dir ( qw(done rejected meta idea high medium low))
 
     # Process each item and move if needed
     for my $item ( @items ) {
@@ -614,6 +662,87 @@ sub generate_work_item_content {
     return $content;
 } ## end sub generate_work_item_content
 
+sub generate_ideas_content {
+    my ( @all_items ) = @_;
+
+    my @ideas = grep { $idea_prefixes{ $_->{ prefix } } } @all_items;
+
+    my $content = '';
+    $content .= "# Future Ideas and Design Notes\n\n";
+    $content
+        .= "Updated on: " . scalar( localtime( $newest_mtime ) ) . "\n\n";
+    $content
+        .= "Open design questions, unexplored alternatives, and deferred ideas.\n";
+    $content
+        .= "An IDEA item can be promoted to a work item by renaming it to another prefix\n";
+    $content
+        .= "(e.g. `IDEA-033.md` \x{2192} `REFACTOR-033.md`) while keeping the same number.\n\n";
+
+    my %idea_links;
+
+    my @open_ideas   = grep { !is_closed_status( $_->{ status } ) } @ideas;
+    my @closed_ideas = grep { is_closed_status( $_->{ status } ) } @ideas;
+
+    if ( @open_ideas ) {
+        $content .= "## Open Ideas\n\n";
+        for my $item ( sort { $a->{ num } <=> $b->{ num } } @open_ideas ) {
+            my $link_id = "$item->{prefix}-$item->{num}";
+            $idea_links{ $link_id } = get_relative_path( $item );
+            $content .= "### [$link_id] $item->{title}\n\n";
+            $content .= "**Summary:** $item->{summary}\n\n";
+            $content .= "**Description:** $item->{description}\n\n";
+            if ( $item != $open_ideas[ -1 ] ) {
+                $content .= "---\n\n";
+            }
+        } ## end for my $item ( sort { $a...})
+        $content .= "---\n\n";
+    } ## end if ( @open_ideas )
+
+    if ( @closed_ideas ) {
+        $content .= "## Closed Ideas\n\n";
+        for my $item ( sort { $a->{ num } <=> $b->{ num } } @closed_ideas ) {
+            my $link_id = "$item->{prefix}-$item->{num}";
+            $idea_links{ $link_id } = get_relative_path( $item );
+            $content .= "* [$link_id] ($item->{status}) $item->{summary}\n";
+        }
+        $content .= "\n---\n\n";
+    } ## end if ( @closed_ideas )
+
+    if ( !@ideas ) {
+        $content .= "*No ideas recorded yet.*\n\n";
+    }
+
+    # Next available IDs — shared pool with work items
+    my %all_used_ids;
+    for my $item ( @all_items ) {
+        $all_used_ids{ int( $item->{ num } ) } = 1;
+    }
+    my $max_id = ( sort { $b <=> $a } keys %all_used_ids )[ 0 ] // 0;
+
+    $content .= "## Next Available IDs\n\n";
+    $content .= "IDs are shared with the main work item pool.\n";
+    $content
+        .= "Rename `IDEA-###.md` to another prefix to promote an idea.\n\n";
+
+    my @available;
+    my $check_id = 1;
+    while ( @available < 10 ) {
+        push @available, sprintf( "%03d", $check_id )
+            unless exists $all_used_ids{ $check_id };
+        $check_id++;
+    }
+    $content .= "**Available:** " . join( ", ", @available ) . "\n\n";
+    $content .= "**Highest used:** $max_id\n\n";
+    $content .= "---\n\n";
+
+    for my $link_id ( sort keys %idea_links ) {
+        $content .= "[$link_id]: $idea_links{$link_id}\n";
+    }
+
+    $content =~ s/\n\s*$/\n/;
+    return $content;
+} ## end sub generate_ideas_content
+
 sub get_relative_path {
     my ( $item ) = @_;
 
@@ -635,6 +764,13 @@ sub determine_target_directory {
         my $closed_dir = $status_dirs{ $item->{ status } };
         return $closed_dir if defined $closed_dir && !ref $closed_dir;
         return 'meta';
+    }
+
+    # IDEA-prefix items always go to idea/ (unless explicitly closed)
+    if ( $idea_prefixes{ $item->{ prefix } } ) {
+        my $closed_dir = $status_dirs{ $item->{ status } };
+        return $closed_dir if defined $closed_dir && !ref $closed_dir;
+        return 'idea';
     }
 
     my $target_dir = $status_dirs{ $item->{ status } } // \%priority_defaults;
