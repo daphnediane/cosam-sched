@@ -7,7 +7,7 @@ and relationships.
 
 ## Status
 
-In Progress (edge indexing, convenience queries, and computed fields complete; edge uniqueness policies pending)
+Completed
 
 ## Priority
 
@@ -109,7 +109,7 @@ Still needed:
 - [x] `BuildError` combines `ValidationError` and `InsertError`
 - [x] Edge add/remove/query by either endpoint works for all five edge types
 - [x] Relationship convenience methods return correct typed IDs
-- [ ] Builder insert rejects configurable edge conflicts
+- [x] Builder insert rejects configurable edge conflicts
 - [x] Unit tests for add/get/update/connect workflows and conflict handling
 - [x] Edge-based computed fields implemented for all node entity types
 - [x] Membership mutation helpers (`add_member`, `add_grouped_member`,

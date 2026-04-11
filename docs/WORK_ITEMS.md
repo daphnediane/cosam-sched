@@ -1,6 +1,6 @@
 # Cosplay America Schedule - Work Item
 
-Updated on: Sat Apr 11 16:55:07 2026
+Updated on: Sat Apr 11 17:35:33 2026
 
 ## Completed
 
@@ -11,6 +11,8 @@ and validation infrastructure.
 * [FEATURE-005] Define the core domain entity structs using the `EntityFields` derive macro.
 * [FEATURE-006] Implement UUID-based entity identity with compile-time type-safe ID wrappers.
 * [FEATURE-007] Implement typed edge storage for entity-to-entity relationships.
+* [FEATURE-008] Implement the `Schedule` struct and `EntityStorage` for managing all entities
+and relationships.
 * [META-025] Phase tracker for project foundation and Cargo workspace setup.
 * [REFACTOR-032] Rename the `from`/`to` endpoint naming on `DirectedEdge` to `left`/`right`
 throughout the codebase.
@@ -19,7 +21,7 @@ throughout the codebase.
 
 ## Summary of Open Items
 
-**Total open items:** 24
+**Total open items:** 23
 
 * **Meta / Project-Level**
   * [META-001] Meta work item tracking the full multi-phase redesign of the schedule system. (Blocked by [META-026], [META-027], [META-028], [META-029], [META-030], [META-031])
@@ -32,8 +34,6 @@ XLSX import/export. (Blocked by [META-026], [META-027])
   * [META-031] Phase tracker for peer-to-peer schedule synchronization and conflict resolution. (Blocked by [META-027])
 
 * **High Priority**
-  * [FEATURE-008] ([META-026]) Implement the `Schedule` struct and `EntityStorage` for managing all entities
-and relationships.
   * [FEATURE-010] ([META-026]) Implement a command-based edit system with full undo/redo support.
 
 * **Medium Priority**
@@ -133,25 +133,6 @@ application structure.
 ---
 
 ## Open FEATURE Items
-
-### [FEATURE-008] Schedule Container and EntityStorage
-
-**Status:** In Progress (edge indexing, convenience queries, and computed fields complete; edge uniqueness policies pending)
-
-**Priority:** High
-
-**Summary:** Implement the `Schedule` struct and `EntityStorage` for managing all entities
-and relationships.
-
-**Part of:** [META-026]
-
-**Description:** The `Schedule` struct is the top-level container holding:
-
-* `EntityStorage` — typed collections for each entity type
-* UUID registry (`HashMap<NonNilUuid, EntityKind>`) for UUID → kind lookup
-* `ScheduleMetadata` — version, timestamps, generator info, schedule ID
-
----
 
 ### [FEATURE-010] Edit Command System With Undo/Redo History
 
@@ -522,7 +503,7 @@ to exchange CRDT changes and reconcile concurrent edits to the same fields.
 [FEATURE-005]: work-item/done/FEATURE-005.md
 [FEATURE-006]: work-item/done/FEATURE-006.md
 [FEATURE-007]: work-item/done/FEATURE-007.md
-[FEATURE-008]: work-item/high/FEATURE-008.md
+[FEATURE-008]: work-item/done/FEATURE-008.md
 [FEATURE-009]: work-item/medium/FEATURE-009.md
 [FEATURE-010]: work-item/high/FEATURE-010.md
 [FEATURE-011]: work-item/medium/FEATURE-011.md

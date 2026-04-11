@@ -209,9 +209,10 @@ impl TypedStorage for PresenterToGroupEntityType {
 ///
 /// UUID collisions (same edge UUID, different endpoints) are always an error
 /// regardless of policy.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub enum EdgePolicy {
     /// Reject the duplicate — return `Err(InsertError::DuplicateEdge)`.
+    #[default]
     Reject,
     /// Silently drop the new edge; keep the existing one unchanged.
     Ignore,

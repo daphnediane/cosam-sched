@@ -491,11 +491,46 @@ pub fn derive_entity_fields(input: TokenStream) -> TokenStream {
         }
     };
 
-    // Edge entities use `add_edge` (maintains EdgeIndex), node entities use `add_entity`.
+    // Edge entities use `add_edge_with_policy` (maintains EdgeIndex), node entities use `add_entity`.
     let build_insert_call: TokenStream2 = if is_edge_entity {
-        quote! { schedule.add_edge::<#entity_type_struct_name>(data)? }
+        quote! { schedule.add_edge_with_policy::<#entity_type_struct_name>(data, edge_policy)? }
     } else {
         quote! { schedule.add_entity::<#entity_type_struct_name>(data)? }
+    };
+
+    // Edge policy capture in build() method (only for edge entities)
+    let builder_edge_policy_capture: TokenStream2 = if is_edge_entity {
+        quote! {
+            // Capture edge_policy before self is consumed
+            let edge_policy = self.edge_policy;
+        }
+    } else {
+        quote! {}
+    };
+
+    // Edge policy field and method (only for edge entities)
+    let builder_edge_policy_field: TokenStream2 = if is_edge_entity {
+        quote! {
+            /// Edge policy for handling duplicate endpoint pairs; defaults to `EdgePolicy::Reject`.
+            pub edge_policy: crate::schedule::EdgePolicy,
+        }
+    } else {
+        quote! {}
+    };
+
+    let builder_edge_policy_method: TokenStream2 = if is_edge_entity {
+        quote! {
+            /// Supply an edge policy for handling duplicate endpoint pairs.
+            ///
+            /// Defaults to `EdgePolicy::Reject`. See [`EdgePolicy`](crate::schedule::EdgePolicy)
+            /// for the available policies: `Reject`, `Ignore`, and `Replace`.
+            pub fn with_edge_policy(mut self, policy: crate::schedule::EdgePolicy) -> Self {
+                self.edge_policy = policy;
+                self
+            }
+        }
+    } else {
+        quote! {}
     };
 
     let expanded = quote! {
@@ -532,6 +567,7 @@ pub fn derive_entity_fields(input: TokenStream) -> TokenStream {
         pub struct #builder_struct_name {
             /// UUID generation preference; defaults to `UuidPreference::GenerateNew`.
             pub uuid_preference: crate::entity::UuidPreference,
+            #builder_edge_policy_field
             #(pub #new_param_names: Option<#new_param_types>,)*
         }
 
@@ -549,6 +585,8 @@ pub fn derive_entity_fields(input: TokenStream) -> TokenStream {
                 self
             }
 
+            #builder_edge_policy_method
+
             #(
             pub fn #builder_setter_names(mut self, v: #new_param_types) -> Self {
                 self.#new_param_names = Some(v);
@@ -563,6 +601,7 @@ pub fn derive_entity_fields(input: TokenStream) -> TokenStream {
             /// UUID is resolved via the `uuid_preference` (defaults to a fresh v7 UUID).
             /// Returns the typed entity ID on success.
             pub fn build(self, schedule: &mut crate::schedule::Schedule) -> Result<#typed_id_struct_name, crate::schedule::BuildError> {
+                #builder_edge_policy_capture
                 let data = self.build_data()?;
                 let id = #build_insert_call;
                 Ok(id)
