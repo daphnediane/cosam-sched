@@ -8,19 +8,19 @@ Metadata structure common to both full and display format variants.
 
 ## Fields
 
-| Field | Type | Public | Description |
-| ----- | ---- | ------ | ----------- |
-| title | String | ✓ | Schedule title (e.g., "Event Schedule 2026") |
-| version | Integer | ✓ | Format version (9) |
-| variant | String | ✓ | Format variant: "full" or "display" |
-| generator | String | ✓ | Generator software and version |
-| generated | String | ✓ | ISO 8601 timestamp when file was generated |
-| creator | String | ✗ | Excel file creator (private format only) |
-| lastModifiedBy | String | ✗ | Excel last modifier (private format only) |
-| modified | String | ✓ | Excel last modified timestamp |
-| startTime | String | ✓ | Schedule start time (ISO 8601) |
-| endTime | String | ✓ | Schedule end time (ISO 8601) |
-| nextPresenterId | Integer | ✗ | Next presenter ID to assign (private format only) |
+| Field           | Type    | Public | Description                                       |
+| --------------- | ------- | ------ | ------------------------------------------------- |
+| title           | String  | ✓      | Schedule title (e.g., "Event Schedule 2026")      |
+| version         | Integer | ✓      | Format version (9)                                |
+| variant         | String  | ✓      | Format variant: "full" or "display"               |
+| generator       | String  | ✓      | Generator software and version                    |
+| generated       | String  | ✓      | ISO 8601 timestamp when file was generated        |
+| creator         | String  | ✗      | Excel file creator (private format only)          |
+| lastModifiedBy  | String  | ✗      | Excel last modifier (private format only)         |
+| modified        | String  | ✓      | Excel last modified timestamp                     |
+| startTime       | String  | ✓      | Schedule start time (ISO 8601)                    |
+| endTime         | String  | ✓      | Schedule end time (ISO 8601)                      |
+| nextPresenterId | Integer | ✗      | Next presenter ID to assign (private format only) |
 
 ## Key Changes from v8
 
