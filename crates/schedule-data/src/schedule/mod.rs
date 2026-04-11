@@ -279,7 +279,11 @@ impl Schedule {
                 }
                 EdgePolicy::Replace => {
                     // Remove the existing edge before inserting the new one.
-                    T::edge_index_mut(&mut self.entities).remove(left_uuid, right_uuid, existing_uuid);
+                    T::edge_index_mut(&mut self.entities).remove(
+                        left_uuid,
+                        right_uuid,
+                        existing_uuid,
+                    );
                     EntityStore::<T>::remove_entity(&mut self.entities, existing_uuid);
                     self.unregister_uuid(existing_uuid);
                 }
@@ -607,6 +611,28 @@ impl Schedule {
     #[must_use = "returns the presenter/group ID; check for errors"]
     pub fn lookup_tagged_presenter(&mut self, input: &str) -> Result<PresenterId, LookupError> {
         PresenterEntityType::lookup_tagged(self, input)
+    }
+
+    /// Add presenters to a panel by parsing tag strings.
+    ///
+    /// Each tag string is resolved via [`lookup_tagged_presenter`](Self::lookup_tagged_presenter),
+    /// which handles UUID references, tagged credit strings with rank/group syntax,
+    /// and bare name lookups. Successfully resolved presenters are connected to the
+    /// panel via `PanelToPresenter` edges.
+    ///
+    /// Returns the number of presenters successfully added. Errors for individual
+    /// tags are silently ignored (the tag is skipped); callers that need error
+    /// details should use `lookup_tagged_presenter` directly.
+    ///
+    /// # Example
+    ///
+    /// ```rust,ignore
+    /// let panel_id = schedule.add_entity::<PanelEntityType>(panel_data)?;
+    /// let count = schedule.add_presenters(panel_id, &["G:Alice", "P:Bob", "G:Carol=TeamA"]);
+    /// ```
+    pub fn add_presenters(&mut self, panel_id: PanelId, tags: &[&str]) -> usize {
+        use crate::entity::PanelEntityType;
+        PanelEntityType::add_presenters_tagged(self, panel_id.non_nil_uuid(), tags)
     }
 
     // -----------------------------------------------------------------------
@@ -1123,5 +1149,72 @@ mod tests {
             EdgePolicy::Ignore,
         );
         assert!(matches!(result, Err(InsertError::UuidCollision { .. })));
+    }
+
+    #[test]
+    fn test_add_presenters_basic() {
+        let mut schedule = Schedule::new();
+        let panel_uuid = nn(1);
+
+        add_panel(&mut schedule, panel_uuid, "P1", "Panel 1");
+
+        let panel_id = PanelId::from(panel_uuid);
+        let count = schedule.add_presenters(panel_id, &["P:Alice", "P:Bob"]);
+
+        assert_eq!(count, 2);
+        assert_eq!(schedule.get_panel_presenters(panel_id).len(), 2);
+    }
+
+    #[test]
+    fn test_add_presenters_with_groups() {
+        let mut schedule = Schedule::new();
+        let panel_uuid = nn(1);
+
+        add_panel(&mut schedule, panel_uuid, "P1", "Panel 1");
+
+        let panel_id = PanelId::from(panel_uuid);
+        // Alice is a member of TeamA
+        let count = schedule.add_presenters(panel_id, &["P:Alice=TeamA"]);
+
+        assert_eq!(count, 1);
+        assert_eq!(schedule.get_panel_presenters(panel_id).len(), 1);
+
+        // Verify the group was created
+        let presenter = schedule.get_panel_presenters(panel_id).pop().unwrap();
+        let groups = schedule.get_presenter_groups(presenter);
+        assert_eq!(groups.len(), 1);
+    }
+
+    #[test]
+    fn test_add_presenters_skips_invalid_tags() {
+        let mut schedule = Schedule::new();
+        let panel_uuid = nn(1);
+
+        add_panel(&mut schedule, panel_uuid, "P1", "Panel 1");
+
+        let panel_id = PanelId::from(panel_uuid);
+        // Mix of valid and invalid tags
+        let count = schedule.add_presenters(panel_id, &["P:Alice", "", "invalid", "P:Bob"]);
+
+        // Should add Alice and Bob, skip empty and bare "invalid" (not a known name)
+        assert_eq!(count, 2);
+    }
+
+    #[test]
+    fn test_add_presenters_duplicate_ignored() {
+        let mut schedule = Schedule::new();
+        let panel_uuid = nn(1);
+
+        add_panel(&mut schedule, panel_uuid, "P1", "Panel 1");
+
+        let panel_id = PanelId::from(panel_uuid);
+        // Add Alice twice
+        let count1 = schedule.add_presenters(panel_id, &["P:Alice"]);
+        let count2 = schedule.add_presenters(panel_id, &["P:Alice"]);
+
+        // First add succeeds, second returns 0 (edge already exists, skipped)
+        assert_eq!(count1, 1);
+        assert_eq!(count2, 0); // Edge already exists, no new edge added
+        assert_eq!(schedule.get_panel_presenters(panel_id).len(), 1);
     }
 }

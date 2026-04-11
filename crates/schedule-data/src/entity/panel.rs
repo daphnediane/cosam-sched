@@ -325,6 +325,98 @@ pub struct Panel {
     })]
     pub presenters: Vec<crate::entity::PresenterId>,
 
+    /// Add individual presenters to this panel without replacing existing ones.
+    /// Write-only computed field that accepts a single UUID/string or list of UUIDs/strings.
+    /// String values are resolved via tagged lookup (e.g., "G:Alice", "presenter-<uuid>").
+    #[computed_field(
+        display = "Add Presenters",
+        description = "Add presenters to this panel (append mode)"
+    )]
+    #[write(|schedule: &mut crate::schedule::Schedule, entity: &mut PanelData, value: crate::field::FieldValue| {
+        use crate::entity::{InternalData, PanelEntityType};
+        let panel_uuid = entity.uuid();
+        let values: Vec<crate::field::FieldValue> = match value {
+            crate::field::FieldValue::List(items) => items,
+            single => vec![single],
+        };
+        PanelEntityType::add_presenters(schedule, panel_uuid, values);
+        Ok(())
+    })]
+    pub add_presenters: Vec<crate::entity::PresenterId>,
+
+    /// Remove individual presenters from this panel.
+    /// Write-only computed field that accepts a single UUID/string or list of UUIDs/strings.
+    /// String values are resolved via tagged lookup (e.g., "presenter-<uuid>").
+    #[computed_field(
+        display = "Remove Presenters",
+        description = "Remove presenters from this panel"
+    )]
+    #[write(|schedule: &mut crate::schedule::Schedule, entity: &mut PanelData, value: crate::field::FieldValue| {
+        use crate::entity::{InternalData, PanelEntityType};
+        let panel_uuid = entity.uuid();
+        let values: Vec<crate::field::FieldValue> = match value {
+            crate::field::FieldValue::List(items) => items,
+            single => vec![single],
+        };
+        PanelEntityType::remove_presenters(schedule, panel_uuid, values);
+        Ok(())
+    })]
+    pub remove_presenters: Vec<crate::entity::PresenterId>,
+
+    /// Transitive closure of all presenters for this panel.
+    ///
+    /// Includes: direct presenters + their groups (upward) + members of groups (downward).
+    /// This is the full set used for conflict checking and credit display.
+    #[computed_field(
+        display = "Inclusive Presenters",
+        description = "Transitive closure: direct presenters + their groups + group members"
+    )]
+    #[alias("inclusive_presenter")]
+    #[read(|schedule: &crate::schedule::Schedule, entity: &PanelData| {
+        use crate::entity::{InternalData, PanelToPresenterEntityType, PresenterToGroupEntityType};
+        use std::collections::HashSet;
+
+        let panel_uuid = entity.uuid();
+        let direct = PanelToPresenterEntityType::presenters_of(&schedule.entities, panel_uuid);
+
+        let mut result = Vec::new();
+        let mut seen = HashSet::new();
+
+        for presenter_id in direct {
+            let presenter_uuid = presenter_id.non_nil_uuid();
+
+            // Add the direct presenter
+            if seen.insert(presenter_uuid) {
+                result.push(crate::field::FieldValue::NonNilUuid(presenter_uuid));
+            }
+
+            // Upward: add all groups this presenter belongs to (transitive)
+            for group_id in PresenterToGroupEntityType::inclusive_groups_of(&schedule.entities, presenter_uuid) {
+                let group_uuid = group_id.non_nil_uuid();
+                if seen.insert(group_uuid) {
+                    result.push(crate::field::FieldValue::NonNilUuid(group_uuid));
+                }
+            }
+
+            // Downward: if this presenter is a group, add its members (transitive)
+            if PresenterToGroupEntityType::is_group(&schedule.entities, presenter_uuid) {
+                for member_id in PresenterToGroupEntityType::inclusive_members_of(&schedule.entities, presenter_uuid) {
+                    let member_uuid = member_id.non_nil_uuid();
+                    if seen.insert(member_uuid) {
+                        result.push(crate::field::FieldValue::NonNilUuid(member_uuid));
+                    }
+                }
+            }
+        }
+
+        if result.is_empty() {
+            None
+        } else {
+            Some(crate::field::FieldValue::List(result))
+        }
+    })]
+    pub inclusive_presenters: Vec<crate::entity::PresenterId>,
+
     #[computed_field(
         display = "Event Room",
         description = "Room where this panel takes place"
@@ -409,6 +501,140 @@ pub struct Panel {
 }
 
 impl crate::entity::SchedulableEntity for PanelEntityType {}
+
+// ---------------------------------------------------------------------------
+// PanelEntityType presenter management methods
+// ---------------------------------------------------------------------------
+
+impl PanelEntityType {
+    /// Resolve a FieldValue to a PanelId.
+    ///
+    /// Supports:
+    /// - `FieldValue::NonNilUuid(u)` -> lookup by UUID
+    pub fn resolve_field_value(
+        schedule: &crate::schedule::Schedule,
+        value: crate::field::FieldValue,
+    ) -> Result<PanelId, crate::schedule::LookupError> {
+        match value {
+            crate::field::FieldValue::NonNilUuid(uuid) => {
+                // Direct UUID lookup
+                if schedule.entities.panels.contains_key(&uuid) {
+                    Ok(PanelId::from_uuid(uuid))
+                } else {
+                    Err(crate::schedule::LookupError::UuidNotFound(uuid.into()))
+                }
+            }
+            _ => Err(crate::schedule::LookupError::Empty),
+        }
+    }
+
+    /// Add presenters to a panel by resolving FieldValues to presenter IDs.
+    ///
+    /// Each FieldValue can be either:
+    /// - A UUID (`NonNilUuid`) for direct presenter reference
+    /// - A string for tagged lookup (e.g., "G:Alice", "presenter-<uuid>")
+    ///
+    /// Returns the number of presenters successfully added. Errors for individual
+    /// values are silently ignored.
+    pub fn add_presenters(
+        schedule: &mut crate::schedule::Schedule,
+        panel_uuid: uuid::NonNilUuid,
+        values: Vec<crate::field::FieldValue>,
+    ) -> usize {
+        use crate::entity::{PanelToPresenterEntityType, PresenterEntityType};
+
+        let mut added = 0;
+        for value in values {
+            match PresenterEntityType::resolve_field_value(schedule, value) {
+                Ok(presenter_id) => {
+                    let count = PanelToPresenterEntityType::add_presenters(
+                        schedule,
+                        panel_uuid,
+                        &[presenter_id],
+                    );
+                    added += count;
+                }
+                Err(_) => {
+                    // Silently skip invalid values
+                    continue;
+                }
+            }
+        }
+        added
+    }
+
+    /// Remove presenters from a panel by resolving FieldValues to presenter IDs.
+    ///
+    /// Each FieldValue can be either:
+    /// - A UUID (`NonNilUuid`) for direct presenter reference
+    /// - A string for tagged lookup (e.g., "presenter-<uuid>")
+    ///
+    /// Returns the number of presenters successfully removed.
+    pub fn remove_presenters(
+        schedule: &mut crate::schedule::Schedule,
+        panel_uuid: uuid::NonNilUuid,
+        values: Vec<crate::field::FieldValue>,
+    ) -> usize {
+        use crate::entity::{PanelToPresenterEntityType, PresenterEntityType};
+
+        let mut removed = 0;
+        for value in values {
+            match PresenterEntityType::resolve_field_value(schedule, value) {
+                Ok(presenter_id) => {
+                    let count = PanelToPresenterEntityType::remove_presenters(
+                        schedule,
+                        panel_uuid,
+                        &[presenter_id],
+                    );
+                    removed += count;
+                }
+                Err(_) => {
+                    // Silently skip invalid values
+                    continue;
+                }
+            }
+        }
+        removed
+    }
+
+    /// Add presenters to a panel by parsing tag strings.
+    ///
+    /// This is a convenience method for spreadsheet import that takes raw tag
+    /// strings (e.g., "G:Alice=TeamA") and resolves them to presenters.
+    ///
+    /// Returns the number of presenters successfully added.
+    pub fn add_presenters_tagged(
+        schedule: &mut crate::schedule::Schedule,
+        panel_uuid: uuid::NonNilUuid,
+        tags: &[&str],
+    ) -> usize {
+        use crate::entity::{PanelToPresenterEntityType, PresenterEntityType};
+
+        let mut added = 0;
+        for tag in tags {
+            let tag = tag.trim();
+            if tag.is_empty() {
+                continue;
+            }
+
+            match PresenterEntityType::lookup_tagged(schedule, tag) {
+                Ok(presenter_id) => {
+                    let count = PanelToPresenterEntityType::add_presenters(
+                        schedule,
+                        panel_uuid,
+                        &[presenter_id],
+                    );
+                    added += count;
+                }
+                Err(_) => {
+                    // Silently skip invalid tags
+                    continue;
+                }
+            }
+        }
+        added
+    }
+}
 
 #[cfg(test)]
 mod tests {

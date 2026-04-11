@@ -273,6 +273,220 @@ pub struct Presenter {
     })]
     pub members: Vec<PresenterId>,
 
+    /// All panels this presenter is directly assigned to (via PanelToPresenter edges).
+    #[computed_field(
+        display = "Panels",
+        description = "All panels this presenter is directly assigned to"
+    )]
+    #[alias("panel")]
+    #[read(|schedule: &crate::schedule::Schedule, entity: &PresenterData| {
+        use crate::entity::{InternalData, PanelToPresenterEntityType};
+        let ids = PanelToPresenterEntityType::panels_of(&schedule.entities, entity.uuid());
+        if ids.is_empty() {
+            None
+        } else {
+            Some(crate::field::FieldValue::List(
+                ids.into_iter()
+                    .map(|id| crate::field::FieldValue::NonNilUuid(id.non_nil_uuid()))
+                    .collect(),
+            ))
+        }
+    })]
+    #[write(|schedule: &mut crate::schedule::Schedule, entity: &mut PresenterData, value: crate::field::FieldValue| {
+        use crate::entity::{InternalData, PanelToPresenterEntityType, PanelToPresenterId};
+        use crate::schedule::TypedEdgeStorage;
+        let presenter_uuid = entity.uuid();
+        let old_edge_uuids: Vec<uuid::NonNilUuid> =
+            PanelToPresenterEntityType::edge_index(&schedule.entities)
+                .incoming(presenter_uuid)
+                .to_vec();
+        for edge_uuid in old_edge_uuids {
+            schedule.remove_edge::<PanelToPresenterEntityType>(PanelToPresenterId::from_uuid(edge_uuid));
+        }
+        let new_panel_uuids: Vec<uuid::NonNilUuid> = match value {
+            crate::field::FieldValue::List(items) => items
+                .into_iter()
+                .filter_map(|v| if let crate::field::FieldValue::NonNilUuid(u) = v { Some(u) } else { None })
+                .collect(),
+            crate::field::FieldValue::NonNilUuid(u) => vec![u],
+            _ => return Err(crate::field::FieldError::ConversionError(
+                crate::field::validation::ConversionError::InvalidFormat,
+            )),
+        };
+        for panel_uuid in new_panel_uuids {
+            let edge = crate::entity::PanelToPresenterData {
+                entity_uuid: unsafe { uuid::NonNilUuid::new_unchecked(uuid::Uuid::now_v7()) },
+                panel_uuid,
+                presenter_uuid,
+            };
+            schedule.add_edge::<PanelToPresenterEntityType>(edge)
+                .map_err(|_| crate::field::FieldError::ConversionError(
+                    crate::field::validation::ConversionError::InvalidFormat,
+                ))?;
+        }
+        Ok(())
+    })]
+    pub panels: Vec<crate::entity::PanelId>,
+
+    /// Add panels to this presenter without replacing existing ones.
+    /// Write-only computed field that accepts a single UUID or list of UUIDs.
+    #[computed_field(
+        display = "Add Panels",
+        description = "Add panels to this presenter (append mode)"
+    )]
+    #[write(|schedule: &mut crate::schedule::Schedule, entity: &mut PresenterData, value: crate::field::FieldValue| {
+        use crate::entity::{InternalData, PanelEntityType};
+        let presenter_uuid = entity.uuid();
+        let values: Vec<crate::field::FieldValue> = match value {
+            crate::field::FieldValue::List(items) => items,
+            single => vec![single],
+        };
+        // Convert FieldValues to PanelIds via PanelEntityType resolution
+        for value in values {
+            if let Ok(panel_id) = PanelEntityType::resolve_field_value(schedule, value) {
+                use crate::entity::PanelToPresenterEntityType;
+                let panel_uuid = panel_id.non_nil_uuid();
+                // Only add if not already connected
+                if !PanelToPresenterEntityType::panels_of(&schedule.entities, presenter_uuid)
+                    .iter()
+                    .any(|id| id.non_nil_uuid() == panel_uuid) {
+                    let edge = crate::entity::PanelToPresenterData {
+                        entity_uuid: unsafe { uuid::NonNilUuid::new_unchecked(uuid::Uuid::now_v7()) },
+                        panel_uuid,
+                        presenter_uuid,
+                    };
+                    let _ = schedule.add_edge::<PanelToPresenterEntityType>(edge);
+                }
+            }
+        }
+        Ok(())
+    })]
+    pub add_panels: Vec<crate::entity::PanelId>,
+
+    /// Remove panels from this presenter.
+    /// Write-only computed field that accepts a single UUID or list of UUIDs.
+    #[computed_field(
+        display = "Remove Panels",
+        description = "Remove panels from this presenter"
+    )]
+    #[write(|schedule: &mut crate::schedule::Schedule, entity: &mut PresenterData, value: crate::field::FieldValue| {
+        use crate::entity::{InternalData, PanelToPresenterEntityType, PanelToPresenterId};
+        use crate::schedule::TypedEdgeStorage;
+        let presenter_uuid = entity.uuid();
+        let panel_uuids: Vec<uuid::NonNilUuid> = match value {
+            crate::field::FieldValue::List(items) => items
+                .into_iter()
+                .filter_map(|v| if let crate::field::FieldValue::NonNilUuid(u) = v { Some(u) } else { None })
+                .collect(),
+            crate::field::FieldValue::NonNilUuid(u) => vec![u],
+            _ => return Err(crate::field::FieldError::ConversionError(
+                crate::field::validation::ConversionError::InvalidFormat,
+            )),
+        };
+        for panel_uuid in panel_uuids {
+            let edge_uuids: Vec<uuid::NonNilUuid> = PanelToPresenterEntityType::edge_index(&schedule.entities)
+                .incoming(presenter_uuid)
+                .iter()
+                .copied()
+                .filter(|&edge_uuid| {
+                    schedule.entities.panel_to_presenters
+                        .get(&edge_uuid)
+                        .is_some_and(|edge| edge.panel_uuid == panel_uuid)
+                })
+                .collect();
+            for edge_uuid in edge_uuids {
+                schedule.remove_edge::<PanelToPresenterEntityType>(PanelToPresenterId::from_uuid(edge_uuid));
+            }
+        }
+        Ok(())
+    })]
+    pub remove_panels: Vec<crate::entity::PanelId>,
+
+    /// Transitive closure: all panels this presenter is on, directly or via group membership.
+    #[computed_field(
+        display = "Inclusive Panels",
+        description = "All panels this presenter is on, directly or via group membership"
+    )]
+    #[alias("inclusive_panel")]
+    #[read(|schedule: &crate::schedule::Schedule, entity: &PresenterData| {
+        use crate::entity::{InternalData, PanelToPresenterEntityType, PresenterToGroupEntityType};
+        use std::collections::HashSet;
+
+        let presenter_uuid = entity.uuid();
+        let direct = PanelToPresenterEntityType::panels_of(&schedule.entities, presenter_uuid);
+
+        let mut result = Vec::new();
+        let mut seen = HashSet::new();
+
+        // Add direct panels
+        for panel_id in &direct {
+            let panel_uuid = panel_id.non_nil_uuid();
+            if seen.insert(panel_uuid) {
+                result.push(crate::field::FieldValue::NonNilUuid(panel_uuid));
+            }
+        }
+
+        // Add panels for all inclusive groups (upward)
+        for group_id in PresenterToGroupEntityType::inclusive_groups_of(&schedule.entities, presenter_uuid) {
+            let group_uuid = group_id.non_nil_uuid();
+            for panel_id in PanelToPresenterEntityType::panels_of(&schedule.entities, group_uuid) {
+                let panel_uuid = panel_id.non_nil_uuid();
+                if seen.insert(panel_uuid) {
+                    result.push(crate::field::FieldValue::NonNilUuid(panel_uuid));
+                }
+            }
+        }
+
+        if result.is_empty() {
+            None
+        } else {
+            Some(crate::field::FieldValue::List(result))
+        }
+    })]
+    pub inclusive_panels: Vec<crate::entity::PanelId>,
+
+    /// Transitive closure: all groups this presenter belongs to (upward).
+    #[computed_field(
+        display = "Inclusive Groups",
+        description = "All groups this presenter belongs to, directly or transitively"
+    )]
+    #[alias("inclusive_group")]
+    #[read(|schedule: &crate::schedule::Schedule, entity: &PresenterData| {
+        use crate::entity::{InternalData, PresenterToGroupEntityType};
+        let ids = PresenterToGroupEntityType::inclusive_groups_of(&schedule.entities, entity.uuid());
+        if ids.is_empty() {
+            None
+        } else {
+            Some(crate::field::FieldValue::List(
+                ids.into_iter()
+                    .map(|id| crate::field::FieldValue::NonNilUuid(id.non_nil_uuid()))
+                    .collect(),
+            ))
+        }
+    })]
+    pub inclusive_groups: Vec<PresenterId>,
+
+    /// Transitive closure: all members if this presenter is a group (downward).
+    #[computed_field(
+        display = "Inclusive Members",
+        description = "All members of this presenter if it is a group, directly or transitively"
+    )]
+    #[alias("inclusive_member")]
+    #[read(|schedule: &crate::schedule::Schedule, entity: &PresenterData| {
+        use crate::entity::{InternalData, PresenterToGroupEntityType};
+        let ids = PresenterToGroupEntityType::inclusive_members_of(&schedule.entities, entity.uuid());
+        if ids.is_empty() {
+            None
+        } else {
+            Some(crate::field::FieldValue::List(
+                ids.into_iter()
+                    .map(|id| crate::field::FieldValue::NonNilUuid(id.non_nil_uuid()))
+                    .collect(),
+            ))
+        }
+    })]
+    pub inclusive_members: Vec<PresenterId>,
+
     // @TODO: Not currently in the spreadsheets, Windsurf thought this was a good idea
     // I agree but we currently don't have the data
     #[field(display = "Pronouns", description = "Presenter's preferred pronouns")]
@@ -374,6 +588,12 @@ impl PresenterEntityType {
             website: None,
             groups: Default::default(),
             members: Default::default(),
+            panels: Default::default(),
+            add_panels: Default::default(),
+            remove_panels: Default::default(),
+            inclusive_panels: Default::default(),
+            inclusive_groups: Default::default(),
+            inclusive_members: Default::default(),
         };
         let _ = schedule.add_entity::<PresenterEntityType>(data);
         PresenterId::from_uuid(uuid)
@@ -498,6 +718,47 @@ impl PresenterEntityType {
         };
 
         Ok(effective)
+    }
+
+    /// Resolve a FieldValue to a PresenterId.
+    ///
+    /// Supports:
+    /// - `FieldValue::NonNilUuid(u)` -> lookup by UUID
+    /// - `FieldValue::String(s)` -> treat as tagged string (e.g., "G:Alice", "presenter-<uuid>")
+    /// - `FieldValue::OptionalString(Some(s))` -> same as String
+    pub fn resolve_field_value(
+        schedule: &mut crate::schedule::Schedule,
+        value: crate::field::FieldValue,
+    ) -> Result<PresenterId, crate::schedule::LookupError> {
+        match value {
+            crate::field::FieldValue::NonNilUuid(uuid) => {
+                // Direct UUID lookup
+                if schedule.entities.presenters.contains_key(&uuid) {
+                    Ok(PresenterId::from_uuid(uuid))
+                } else {
+                    Err(crate::schedule::LookupError::UuidNotFound(uuid.into()))
+                }
+            }
+            crate::field::FieldValue::String(s) => {
+                // Treat as tagged string
+                Self::lookup_tagged(schedule, &s)
+            }
+            crate::field::FieldValue::OptionalString(Some(s)) => Self::lookup_tagged(schedule, &s),
+            _ => Err(crate::schedule::LookupError::Empty),
+        }
+    }
+
+    /// Resolve a list of FieldValues to PresenterIds.
+    ///
+    /// Returns Ok with the list of resolved IDs, or Err if any resolution fails.
+    pub fn resolve_field_values(
+        schedule: &mut crate::schedule::Schedule,
+        values: Vec<crate::field::FieldValue>,
+    ) -> Result<Vec<PresenterId>, crate::schedule::LookupError> {
+        values
+            .into_iter()
+            .map(|v| Self::resolve_field_value(schedule, v))
+            .collect()
     }
 }
 

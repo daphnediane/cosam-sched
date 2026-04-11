@@ -6,7 +6,7 @@ Implement field-based search, matching, and bulk update operations.
 
 ## Status
 
-Open
+In Progress
 
 ## Priority
 
@@ -74,7 +74,7 @@ Tag format:
 Bare-name lookups do **not** auto-create; callers that always need a presenter
 must use a tagged form.
 
-### Presenter Tag-String Import (`add_presenters`)
+### Presenter Tag-String Import (`add_presenters`) (this is not the plan -- fix this to match the design)
 
 `Schedule::add_presenters(panel_id, tags: &[&str])` parses presenter credit
 strings from spreadsheet cells and connects the resulting presenters/groups to a
@@ -87,6 +87,32 @@ Lookup for name-based creation in `lookup_tagged_presenter` currently uses a
 direct case-insensitive name scan. When FEATURE-009 finder is available, it
 should switch to `find::<PresenterEntityType>` with `ExactMatch` on the
 indexable `name` field for consistency and future index acceleration.
+
+### Panel Computed Fields (in progress)
+
+The `Panel` entity needs computed fields for presenter management:
+
+- `presenters` (read/write) — direct presenters via `PanelToPresenter` edges
+- `add_presenters` (write-only) — append presenters without replacing existing
+- `remove_presenters` (write-only) — remove specific presenters
+- `inclusive_presenters` (read-only) — transitive closure: direct presenters + their
+  groups (upward) + members of groups (downward)
+
+Singular aliases: `presenter`, `inclusive_presenter`.
+
+### Presenter Computed Fields (in progress)
+
+The `Presenter` entity needs computed fields for panel and group relationships:
+
+- `panels` (read/write) — direct panels via `PanelToPresenter` edges
+- `add_panels` (write-only) — append panels without replacing existing
+- `remove_panels` (write-only) — remove specific panels
+- `inclusive_panels` (read-only) — all panels this presenter is on, directly or via
+  group membership
+- `inclusive_members` (read-only) — transitive members if this presenter is a group
+- `inclusive_groups` (read-only) — transitive groups this presenter belongs to
+
+Singular aliases: `panel`, `inclusive_panel`, `inclusive_member`, `inclusive_group`.
 
 ### PresenterToGroup Rename
 
@@ -102,7 +128,16 @@ FEATURE-009 is underway to avoid churn while the edge API is still stabilising.
 - Can find entities by text search across indexable fields
 - Match results are ordered by priority
 - Bulk updates apply correctly and validate
-- `add_presenters` parses tag strings and creates/connects presenters correctly
+- [x] `add_presenters` parses tag strings and creates/connects presenters correctly
+- [x] Panel `presenters`, `add_presenters`, `remove_presenters`, `inclusive_presenters` computed fields
+- [x] Presenter `panels`, `add_panels`, `remove_panels`, `inclusive_panels` computed fields
+- [x] Presenter `inclusive_members`, `inclusive_groups` computed fields
+- [x] Singular aliases for all plural computed fields
 - Round-trip: tag strings from real schedule data produce the same presenter/group
   graph as a manual edge-by-edge build
 - Unit tests for find, match, and update paths
+
+## Related
+
+- [FEATURE-025] Schedule method delegation to entity types — establishes the
+  delegation pattern that computed fields use (Schedule -> EntityType -> EdgeType)

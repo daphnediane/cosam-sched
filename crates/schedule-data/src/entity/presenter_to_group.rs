@@ -111,6 +111,79 @@ impl PresenterToGroupEntityType {
             .filter_map(|edge_uuid| map.get(edge_uuid))
             .any(|edge| edge.is_self_loop())
     }
+
+    /// Inclusive groups of a member (transitive closure upward).
+    ///
+    /// Returns all groups this member belongs to, directly or transitively.
+    /// Uses BFS to traverse group-of-group relationships.
+    pub fn inclusive_groups_of(
+        storage: &crate::schedule::EntityStorage,
+        member: NonNilUuid,
+    ) -> Vec<crate::entity::PresenterId> {
+        let mut result = Vec::new();
+        let mut visited = std::collections::HashSet::new();
+        let mut queue = std::collections::VecDeque::new();
+
+        // Start with direct groups
+        for group_id in Self::groups_of(storage, member) {
+            let group_uuid = group_id.non_nil_uuid();
+            if visited.insert(group_uuid) {
+                queue.push_back(group_uuid);
+                result.push(group_id);
+            }
+        }
+
+        // BFS upward through group-of-group relationships
+        while let Some(current) = queue.pop_front() {
+            for group_id in Self::groups_of(storage, current) {
+                let group_uuid = group_id.non_nil_uuid();
+                if visited.insert(group_uuid) {
+                    queue.push_back(group_uuid);
+                    result.push(group_id);
+                }
+            }
+        }
+
+        result
+    }
+
+    /// Inclusive members of a group (transitive closure downward).
+    ///
+    /// Returns all members of this group, directly or transitively.
+    /// If a member is itself a group, its members are also included.
+    pub fn inclusive_members_of(
+        storage: &crate::schedule::EntityStorage,
+        group: NonNilUuid,
+    ) -> Vec<crate::entity::PresenterId> {
+        let mut result = Vec::new();
+        let mut visited = std::collections::HashSet::new();
+        let mut queue = std::collections::VecDeque::new();
+
+        // Start with direct members
+        for member_id in Self::members_of(storage, group) {
+            let member_uuid = member_id.non_nil_uuid();
+            if visited.insert(member_uuid) {
+                queue.push_back(member_uuid);
+                result.push(member_id);
+            }
+        }
+
+        // BFS downward through nested groups
+        while let Some(current) = queue.pop_front() {
+            // If this member is itself a group, include its members
+            if Self::is_group(storage, current) {
+                for member_id in Self::members_of(storage, current) {
+                    let member_uuid = member_id.non_nil_uuid();
+                    if visited.insert(member_uuid) {
+                        queue.push_back(member_uuid);
+                        result.push(member_id);
+                    }
+                }
+            }
+        }
+
+        result
+    }
 }
 
 #[cfg(test)]

@@ -67,6 +67,87 @@ impl PanelToPresenterEntityType {
             .map(|edge| crate::entity::PanelId::from(edge.left_uuid()))
             .collect()
     }
+
+    /// Add presenters to a panel, creating edges for each.
+    ///
+    /// Returns the number of presenters actually added (new edges created).
+    /// Skips presenters that are already connected to the panel.
+    pub fn add_presenters(
+        schedule: &mut crate::schedule::Schedule,
+        panel_uuid: NonNilUuid,
+        presenter_ids: &[crate::entity::PresenterId],
+    ) -> usize {
+        use crate::entity::PanelToPresenterData;
+        use uuid::Uuid;
+
+        let mut added = 0;
+        for presenter_id in presenter_ids {
+            let presenter_uuid = presenter_id.non_nil_uuid();
+
+            // Skip if already connected
+            if Self::presenters_of(&schedule.entities, panel_uuid)
+                .iter()
+                .any(|id| id.non_nil_uuid() == presenter_uuid)
+            {
+                continue;
+            }
+
+            let edge_uuid = unsafe { NonNilUuid::new_unchecked(Uuid::now_v7()) };
+            let edge = PanelToPresenterData {
+                entity_uuid: edge_uuid,
+                panel_uuid,
+                presenter_uuid,
+            };
+
+            // Add edge; ignore errors (e.g., duplicate with Reject policy)
+            if schedule
+                .add_edge::<crate::entity::PanelToPresenterEntityType>(edge)
+                .is_ok()
+            {
+                added += 1;
+            }
+        }
+        added
+    }
+
+    /// Remove presenters from a panel, deleting their edges.
+    ///
+    /// Returns the number of presenters actually removed (edges deleted).
+    pub fn remove_presenters(
+        schedule: &mut crate::schedule::Schedule,
+        panel_uuid: NonNilUuid,
+        presenter_ids: &[crate::entity::PresenterId],
+    ) -> usize {
+        use crate::entity::PanelToPresenterId;
+        use crate::schedule::TypedEdgeStorage;
+
+        let mut removed = 0;
+        for presenter_id in presenter_ids {
+            let presenter_uuid = presenter_id.non_nil_uuid();
+
+            // Find the edge UUID for this presenter
+            let edge_uuids: Vec<NonNilUuid> = Self::edge_index(&schedule.entities)
+                .outgoing(panel_uuid)
+                .iter()
+                .copied()
+                .filter(|&edge_uuid| {
+                    schedule
+                        .entities
+                        .panel_to_presenters
+                        .get(&edge_uuid)
+                        .is_some_and(|edge| edge.presenter_uuid == presenter_uuid)
+                })
+                .collect();
+
+            for edge_uuid in edge_uuids {
+                schedule.remove_edge::<crate::entity::PanelToPresenterEntityType>(
+                    PanelToPresenterId::from_uuid(edge_uuid),
+                );
+                removed += 1;
+            }
+        }
+        removed
+    }
 }
 
 #[cfg(test)]

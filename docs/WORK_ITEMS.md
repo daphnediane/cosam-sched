@@ -1,6 +1,6 @@
 # Cosplay America Schedule - Work Item
 
-Updated on: Sat Apr 11 17:35:33 2026
+Updated on: Sat Apr 11 18:03:09 2026
 
 ## Completed
 
@@ -21,7 +21,7 @@ throughout the codebase.
 
 ## Summary of Open Items
 
-**Total open items:** 23
+**Total open items:** 24
 
 * **Meta / Project-Level**
   * [META-001] Meta work item tracking the full multi-phase redesign of the schedule system. (Blocked by [META-026], [META-027], [META-028], [META-029], [META-030], [META-031])
@@ -48,6 +48,8 @@ reference and jump-starting new conventions.
 display widget.
   * [FEATURE-017] ([META-028]) Import schedule data from the existing XLSX spreadsheet format.
   * [FEATURE-018] ([META-028]) Export schedule data back to the XLSX spreadsheet format.
+  * [FEATURE-025] ([META-026]) Implement proper delegation pattern for `Schedule` convenience methods,
+moving business logic to entity-specific implementations.
 
 * **Low Priority**
   * [CLI-019] ([META-029]) CLI tool for converting between schedule file formats (XLSX, JSON, widget JSON).
@@ -63,9 +65,20 @@ display widget.
 
 The following ID numbers are available for new items:
 
-**Available:** 033, 034, 035, 036, 037, 038, 039, 040, 041, 042
+**Available:** 033, 034, 035, 036, 037, 038, 039, 040, 041, 042, 043
 
 **Highest used:** 32
+
+---
+
+### Numbering Conflicts
+
+The following ID numbers are used by multiple items:
+
+#### Suffix `025`
+
+* ✓ [META-025] Phase 1 — Foundation
+* ○ [FEATURE-025] Implement Schedule method delegation to entity types
 
 ---
 
@@ -151,7 +164,7 @@ changes as reversible operations, enabling undo/redo in both CLI and GUI context
 
 ### [FEATURE-009] Query System
 
-**Status:** Open
+**Status:** In Progress
 
 **Priority:** Medium
 
@@ -292,6 +305,23 @@ column layout, enabling round-trip with the import (FEATURE-017).
 
 ---
 
+### [FEATURE-025] Implement Schedule method delegation to entity types
+
+**Status:** Open
+
+**Priority:** Medium
+
+**Summary:** Implement proper delegation pattern for `Schedule` convenience methods,
+moving business logic to entity-specific implementations.
+
+**Part of:** [META-026]
+
+**Description:** The `Schedule` struct currently contains several methods that implement
+business logic directly instead of delegating to entity types. This was
+written against the planned architecture and needs to be corrected.
+
+---
+
 ### [FEATURE-023] Peer-to-Peer Schedule Sync Protocol
 
 **Status:** Open
@@ -378,6 +408,7 @@ the new workspace. This is the largest and most foundational phase.
 * FEATURE-006: UUID-based identity and typed ID wrappers
 * FEATURE-007: Edge/relationship system
 * FEATURE-008: Schedule container and EntityStorage
+* FEATURE-025: Schedule method delegation to entity types
 * FEATURE-009: Query system
 * FEATURE-010: Edit command system with undo/redo history
 
@@ -516,6 +547,7 @@ to exchange CRDT changes and reconcile concurrent edits to the same fields.
 [FEATURE-018]: work-item/medium/FEATURE-018.md
 [FEATURE-023]: work-item/low/FEATURE-023.md
 [FEATURE-024]: work-item/low/FEATURE-024.md
+[FEATURE-025]: work-item/medium/FEATURE-025.md
 [META-001]: work-item/meta/META-001.md
 [META-025]: work-item/done/META-025.md
 [META-026]: work-item/meta/META-026.md
