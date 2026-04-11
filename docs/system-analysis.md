@@ -58,13 +58,13 @@ cosam_sched/
 
 ### 4.1 Node Entities
 
-| Entity      | Key fields                                                                                                                             | Indexable fields                     |
-| ----------- | -------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------ |
-| `Panel`     | `uid` (Uniq ID), `name`, `time_slot` (TimeRange), cost flags, workshop fields                                                          | `uid` (220), `name` (210)            |
-| `Presenter` | `name`, `rank` (PresenterRank), `sort_rank`, `is_group`, `always_grouped`, `always_shown_in_group`                                     | `name` (200)                         |
-| `EventRoom` | `room_name`, `long_name`, `sort_key`                                                                                                   | `room_name` (220), `long_name` (210) |
-| `HotelRoom` | `room_name`, `long_name`                                                                                                               | (same pattern)                       |
-| `PanelType` | `prefix` (2-letter), `panel_kind`, boolean flags (`is_workshop`, `is_break`, `is_cafe`, `is_private`, `is_timeline`, …), `color`, `bw` | `prefix` (220), `panel_kind` (210)   |
+| Entity      | Key fields                                                                                                                                                | Indexable fields                     |
+| ----------- | --------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------ |
+| `Panel`     | `uid` (Uniq ID), `name`, `time_slot` (TimeRange), cost flags, workshop fields                                                                             | `uid` (220), `name` (210)            |
+| `Presenter` | `name`, `rank` (`PresenterRank`: Guest/Judge/Staff/InvitedGuest/Panelist/FanPanelist), `sort_rank`, `is_group`, `always_grouped`, `always_shown_in_group` | `name` (200)                         |
+| `EventRoom` | `room_name`, `long_name`, `sort_key`                                                                                                                      | `room_name` (220), `long_name` (210) |
+| `HotelRoom` | `room_name`, `long_name`                                                                                                                                  | (same pattern)                       |
+| `PanelType` | `prefix` (2-letter), `panel_kind`, boolean flags (`is_workshop`, `is_break`, `is_cafe`, `is_private`, `is_timeline`, …), `color`, `bw`                    | `prefix` (220), `panel_kind` (210)   |
 
 ### 4.2 Edge-Entities (Relationships)
 
@@ -185,7 +185,8 @@ Edge builders auto-upgrade `GenerateNew` → `Edge` when both endpoints are set.
 
 - `#[read(|entity: &PanelData| { … })]` — entity-only read
 - `#[read(|schedule: &Schedule, entity: &PanelData| { … })]` — schedule-aware read
-- `#[write(|entity: &mut PanelData, value: FieldValue| { … })]` — write
+- `#[write(|entity: &mut PanelData, value: FieldValue| { … })]` — entity-only write
+- `#[write(|schedule: &mut Schedule, entity: &mut PanelData, value: FieldValue| { … })]` — schedule-aware write
 
 Types in closure arguments **must be fully explicit** — the macro cannot infer
 them through associated type projections.
@@ -215,7 +216,7 @@ NamedField                    name(), display_name(), description()
 │   └── (blanket) WritableField<T>
 ├── IndexableField<T>         match_field(query, &entity) → Option<MatchStrength>
 ├── ReadableField<T>          read(&Schedule, &entity) → Option<FieldValue>  [computed]
-└── WritableField<T>          write(&Schedule, &mut entity, FieldValue) → Result  [computed]
+└── WritableField<T>          write(&mut Schedule, &mut entity, FieldValue) → Result  [computed]
 ```
 
 Blanket impls auto-promote `SimpleReadableField` → `ReadableField` (discards
@@ -267,7 +268,7 @@ Ignored (internal): `Old Uniq Id`, `Lstart`, `Lend`
 
 Header syntax `Kind:Name=Group` or `Kind:Other`:
 
-- Kinds: `G` (guest), `J` (judge), `S` (staff), `I` (invited), `P` (fan panelist)
+- Kinds: `G` (guest), `J` (judge), `S` (staff), `I` (invited), `P` (panelist), `F` (fan panelist)
 - `G:Name` — individual; cell is a presence flag
 - `G:Name=Group` — member of group (shown individually or as group)
 - `G:Name==Group` — sets `always_shown` on the *group*
@@ -410,6 +411,32 @@ pub presenters: Vec<PresenterId>,
 
 This ensures computed fields work at the `EntityStorage` level without
 circular dependency on `Schedule` convenience methods.
+
+### Membership Mutation Helpers
+
+`Schedule` provides convenience methods for managing `PresenterToGroup` edges:
+
+| Method                              | Effect                                              |
+| ----------------------------------- | --------------------------------------------------- |
+| `mark_presenter_group(id)`          | Add self-loop group marker                          |
+| `unmark_presenter_group(id)`        | Remove self-loop group marker                       |
+| `add_member(member, group)`         | Add membership edge (no flag changes if exists)     |
+| `add_grouped_member(member, group)` | Add/update edge with `always_grouped = true`        |
+| `add_shown_member(member, group)`   | Add/update edge with `always_shown_in_group = true` |
+| `remove_member(member, group)`      | Remove membership edge                              |
+
+### Presenter Tag-String Lookup
+
+`PresenterEntityType::lookup_tagged(schedule: &mut Schedule, input: &str) -> Result<PresenterId, LookupError>`
+is the implementation in `entity/presenter.rs`.  Also exposed as the thin
+delegate `Schedule::lookup_tagged_presenter(input)`.  Handles UUID references,
+tagged credit strings, and bare name lookups.  Documented fully in FEATURE-009.
+
+`PresenterEntityType::find_or_create_by_name(schedule, name, rank)` is a public
+helper for callers that already know the name and rank directly.
+
+`LookupError`: `Empty`, `UuidNotFound`, `InvalidUuid`, `NameNotFound`,
+`UnknownTag`, `OtherSentinel`.
 
 ### Not Yet Implemented
 

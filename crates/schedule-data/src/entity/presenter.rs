@@ -7,6 +7,7 @@
 //! Presenter entity implementation
 
 use crate::entity::presenter_rank::PresenterRank;
+use crate::schedule::LookupError;
 use crate::EntityFields;
 use serde::{Deserialize, Serialize};
 
@@ -287,6 +288,221 @@ pub struct Presenter {
     #[field(display = "Website", description = "Presenter's website")]
     #[alias("website", "url", "web", "site")]
     pub website: Option<String>,
+}
+
+impl PresenterEntityType {
+    // -----------------------------------------------------------------------
+    // Tag-string lookup / find-or-create
+    // -----------------------------------------------------------------------
+
+    /// Look up a presenter by a tagged credit string, or find-or-create one.
+    ///
+    /// See [`crate::schedule::Schedule::lookup_tagged_presenter`] for the full
+    /// format documentation. This associated function owns the implementation;
+    /// `Schedule::lookup_tagged_presenter` delegates here.
+    #[must_use = "returns the presenter/group ID; check for errors"]
+    pub fn lookup_tagged(
+        schedule: &mut crate::schedule::Schedule,
+        input: &str,
+    ) -> Result<PresenterId, LookupError> {
+        let input = input.trim();
+        if input.is_empty() {
+            return Err(LookupError::Empty);
+        }
+
+        // --- UUID forms: "presenter-<uuid>" or bare UUID string ---------------
+        let uuid_str = if let Some(rest) = input.strip_prefix("presenter-") {
+            Some(rest)
+        } else if Self::looks_like_uuid(input) {
+            Some(input)
+        } else {
+            None
+        };
+
+        if let Some(uuid_str) = uuid_str {
+            let raw = uuid_str
+                .parse::<uuid::Uuid>()
+                .map_err(|_| LookupError::InvalidUuid(uuid_str.to_string()))?;
+            let nn = uuid::NonNilUuid::new(raw)
+                .ok_or_else(|| LookupError::InvalidUuid(uuid_str.to_string()))?;
+            if schedule.entities.presenters.contains_key(&nn) {
+                return Ok(PresenterId::from_uuid(nn));
+            }
+            return Err(LookupError::UuidNotFound(raw));
+        }
+
+        // --- Tag prefix: one or more rank chars followed by ':' ---------------
+        if let Some((rank, rest)) = Self::parse_tag_flags(input) {
+            return Self::process_tagged(schedule, &rest, rank);
+        }
+
+        // --- Bare name: exact case-insensitive lookup, no auto-create ---------
+        if let Some((&uuid, _)) = schedule
+            .entities
+            .presenters
+            .iter()
+            .find(|(_, d)| d.name.eq_ignore_ascii_case(input))
+        {
+            return Ok(PresenterId::from_uuid(uuid));
+        }
+        Err(LookupError::NameNotFound(input.to_string()))
+    }
+
+    /// Find a presenter by exact case-insensitive name, or create a new one
+    /// with the given rank and a fresh UUID.
+    pub fn find_or_create_by_name(
+        schedule: &mut crate::schedule::Schedule,
+        name: &str,
+        rank: PresenterRank,
+    ) -> PresenterId {
+        use uuid::NonNilUuid;
+        if let Some((&uuid, _)) = schedule
+            .entities
+            .presenters
+            .iter()
+            .find(|(_, d)| d.name.eq_ignore_ascii_case(name))
+        {
+            return PresenterId::from_uuid(uuid);
+        }
+        let uuid = unsafe { NonNilUuid::new_unchecked(uuid::Uuid::now_v7()) };
+        let data = PresenterData {
+            entity_uuid: uuid,
+            name: name.to_string(),
+            rank,
+            sort_rank: None,
+            bio: None,
+            is_group: false,
+            always_grouped: false,
+            always_shown_in_group: false,
+            pronouns: None,
+            website: None,
+            groups: Default::default(),
+            members: Default::default(),
+        };
+        let _ = schedule.add_entity::<PresenterEntityType>(data);
+        PresenterId::from_uuid(uuid)
+    }
+
+    /// Returns `true` if `s` looks like a raw UUID (8-4-4-4-12 hex groups).
+    fn looks_like_uuid(s: &str) -> bool {
+        s.len() == 36
+            && s.as_bytes().get(8) == Some(&b'-')
+            && s.as_bytes().get(13) == Some(&b'-')
+            && s.as_bytes().get(18) == Some(&b'-')
+            && s.as_bytes().get(23) == Some(&b'-')
+    }
+
+    /// Parse a flag prefix: one or more rank characters followed by `:`.
+    /// Returns the highest-priority rank and the remainder of the string.
+    fn parse_tag_flags(input: &str) -> Option<(PresenterRank, String)> {
+        let colon_pos = input.find(':')?;
+        let flag_str = &input[..colon_pos];
+        if flag_str.is_empty() {
+            return None;
+        }
+        let mut best: Option<PresenterRank> = None;
+        for c in flag_str.chars() {
+            let rank = PresenterRank::from_prefix_char(c)?;
+            best = Some(match best {
+                None => rank,
+                Some(b) if rank.priority() < b.priority() => rank,
+                Some(b) => b,
+            });
+        }
+        let rest = input[colon_pos + 1..].trim().to_string();
+        Some((best?, rest))
+    }
+
+    /// Process the portion after the tag prefix: handles `<`, `=`, `==`
+    /// syntax and finds-or-creates the presenter and optional group.
+    fn process_tagged(
+        schedule: &mut crate::schedule::Schedule,
+        rest: &str,
+        rank: PresenterRank,
+    ) -> Result<PresenterId, LookupError> {
+        let rest = rest.trim();
+        if rest.is_empty() {
+            return Err(LookupError::Empty);
+        }
+        if rest.eq_ignore_ascii_case("other") {
+            return Err(LookupError::OtherSentinel);
+        }
+
+        let (name_raw, group_raw) = if let Some(eq_pos) = rest.find('=') {
+            let name_part = rest[..eq_pos].trim().to_string();
+            let group_part = rest[eq_pos + 1..].trim().to_string();
+            (
+                name_part,
+                if group_part.is_empty() {
+                    None
+                } else {
+                    Some(group_part)
+                },
+            )
+        } else {
+            (rest.to_string(), None)
+        };
+
+        let (presenter_name, always_grouped) = if let Some(stripped) = name_raw.strip_prefix('<') {
+            (stripped.trim().to_string(), true)
+        } else {
+            (name_raw, false)
+        };
+
+        let (group_name, always_shown) = match group_raw {
+            Some(g) => {
+                if let Some(stripped) = g.strip_prefix('=') {
+                    let gn = stripped.trim().to_string();
+                    (if gn.is_empty() { None } else { Some(gn) }, true)
+                } else {
+                    (Some(g), false)
+                }
+            }
+            None => (None, false),
+        };
+
+        let group_id: Option<PresenterId> = if let Some(ref gname) = group_name {
+            let gid = Self::find_or_create_by_name(schedule, gname, rank.clone());
+            let _ = schedule.mark_presenter_group(gid);
+            if always_shown {
+                use crate::entity::PresenterToGroupEntityType;
+                let gnn = gid.non_nil_uuid();
+                if let Some(edge_uuid) = schedule
+                    .edges_from::<PresenterToGroupEntityType>(gnn)
+                    .into_iter()
+                    .find(|e| e.member_uuid == gnn && e.group_uuid == gnn)
+                    .map(|e| e.entity_uuid)
+                {
+                    if let Some(data) = schedule.entities.presenter_to_groups.get_mut(&edge_uuid) {
+                        data.always_shown_in_group = true;
+                    }
+                }
+            }
+            Some(gid)
+        } else {
+            None
+        };
+
+        let effective = if presenter_name.is_empty()
+            || group_name
+                .as_deref()
+                .is_some_and(|g| g.eq_ignore_ascii_case(&presenter_name))
+        {
+            group_id.ok_or(LookupError::Empty)?
+        } else {
+            let pid = Self::find_or_create_by_name(schedule, &presenter_name, rank);
+            if let Some(gid) = group_id {
+                if always_grouped {
+                    let _ = schedule.add_grouped_member(pid, gid);
+                } else {
+                    let _ = schedule.add_member(pid, gid);
+                }
+            }
+            pid
+        };
+
+        Ok(effective)
+    }
 }
 
 #[cfg(test)]

@@ -20,11 +20,46 @@ use crate::entity::{
     DirectedEdge, EntityKind, EntityType, EntityUUID, EventRoomId, EventRoomToHotelRoomEntityType,
     EventRoomToHotelRoomId, HotelRoomId, InternalData, PanelId, PanelToEventRoomEntityType,
     PanelToEventRoomId, PanelToPanelTypeEntityType, PanelToPanelTypeId, PanelToPresenterEntityType,
-    PanelToPresenterId, PanelTypeId, PresenterId, PresenterToGroupEntityType, PresenterToGroupId,
-    TypedId,
+    PanelToPresenterId, PanelTypeId, PresenterEntityType, PresenterId, PresenterToGroupEntityType,
+    PresenterToGroupId, TypedId,
 };
 use std::collections::HashMap;
 use uuid::NonNilUuid;
+
+/// Error returned by [`Schedule::lookup_tagged_presenter`].
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum LookupError {
+    /// Input string was empty or whitespace.
+    Empty,
+    /// A `presenter-<uuid>` or bare UUID reference was supplied but no
+    /// presenter with that UUID exists in the schedule.
+    UuidNotFound(uuid::Uuid),
+    /// The UUID string was syntactically invalid.
+    InvalidUuid(String),
+    /// The input was a bare name (no tag prefix) and no exact
+    /// case-insensitive match was found. Auto-create is not performed
+    /// at this layer; use a tagged string to create new presenters.
+    NameNotFound(String),
+    /// The tag prefix character was not a recognised rank flag.
+    UnknownTag(char),
+    /// The rest after the tag was "Other", a column-header sentinel.
+    OtherSentinel,
+}
+
+impl std::fmt::Display for LookupError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            LookupError::Empty => write!(f, "presenter string is empty"),
+            LookupError::UuidNotFound(u) => write!(f, "no presenter with UUID {u}"),
+            LookupError::InvalidUuid(s) => write!(f, "invalid UUID string: {s}"),
+            LookupError::NameNotFound(n) => write!(f, "no presenter named {n:?}"),
+            LookupError::UnknownTag(c) => write!(f, "unknown rank tag {c:?}"),
+            LookupError::OtherSentinel => write!(f, "input is the 'Other' column sentinel"),
+        }
+    }
+}
+
+impl std::error::Error for LookupError {}
 
 /// Central schedule container.
 ///
@@ -505,6 +540,19 @@ impl Schedule {
         } else {
             false
         }
+    }
+
+    // -----------------------------------------------------------------------
+    // Presenter tag-string lookup / find-or-create
+    // -----------------------------------------------------------------------
+
+    /// Look up a presenter by a tagged credit string, or find-or-create one.
+    ///
+    /// Delegates to [`PresenterEntityType::lookup_tagged`] which owns the
+    /// implementation. See that method for the full format documentation.
+    #[must_use = "returns the presenter/group ID; check for errors"]
+    pub fn lookup_tagged_presenter(&mut self, input: &str) -> Result<PresenterId, LookupError> {
+        PresenterEntityType::lookup_tagged(self, input)
     }
 
     // -----------------------------------------------------------------------

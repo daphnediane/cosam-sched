@@ -19,10 +19,34 @@ pub enum PresenterRank {
     /// the label string directly (e.g. `"Sponsor"`, `"105th"`).
     InvitedGuest(Option<String>),
     #[default]
+    Panelist,
     FanPanelist,
 }
 
 impl PresenterRank {
+    /// Map a single tag character from the presenter credit string format to a
+    /// `PresenterRank`.  Returns `None` for unknown characters.
+    ///
+    /// | Char | Rank |
+    /// |------|------|
+    /// | `G` / `g` | `Guest` |
+    /// | `J` / `j` | `Judge` |
+    /// | `S` / `s` | `Staff` |
+    /// | `I` / `i` | `InvitedGuest(None)` |
+    /// | `F` / `f` | `FanPanelist` |
+    /// | `P` / `p` | `Panelist` |
+    pub fn from_prefix_char(c: char) -> Option<Self> {
+        match c.to_ascii_uppercase() {
+            'G' => Some(PresenterRank::Guest),
+            'J' => Some(PresenterRank::Judge),
+            'S' => Some(PresenterRank::Staff),
+            'I' => Some(PresenterRank::InvitedGuest(None)),
+            'P' => Some(PresenterRank::Panelist),
+            'F' => Some(PresenterRank::FanPanelist),
+            _ => None,
+        }
+    }
+
     pub fn as_str(&self) -> &str {
         match self {
             PresenterRank::Guest => "guest",
@@ -30,6 +54,7 @@ impl PresenterRank {
             PresenterRank::Staff => "staff",
             PresenterRank::InvitedGuest(None) => "invited_panelist",
             PresenterRank::InvitedGuest(Some(s)) => s.as_str(),
+            PresenterRank::Panelist => "panelist",
             PresenterRank::FanPanelist => "fan_panelist",
         }
     }
@@ -43,7 +68,8 @@ impl PresenterRank {
             PresenterRank::Judge => 1,
             PresenterRank::Staff => 2,
             PresenterRank::InvitedGuest(_) => 3,
-            PresenterRank::FanPanelist => 4,
+            PresenterRank::Panelist => 4,
+            PresenterRank::FanPanelist => 5,
         }
     }
 
@@ -53,6 +79,7 @@ impl PresenterRank {
             "judge" => PresenterRank::Judge,
             "staff" => PresenterRank::Staff,
             "invited_panelist" | "invitedpanelist" => PresenterRank::InvitedGuest(None),
+            "panelist" => PresenterRank::Panelist,
             "fan_panelist" | "fanpanelist" => PresenterRank::FanPanelist,
             _ => PresenterRank::InvitedGuest(Some(s.to_string())),
         }
@@ -66,6 +93,7 @@ impl PresenterRank {
             PresenterRank::Judge,
             PresenterRank::Staff,
             PresenterRank::InvitedGuest(None),
+            PresenterRank::Panelist,
             PresenterRank::FanPanelist,
         ]
     }
