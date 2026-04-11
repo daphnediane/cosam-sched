@@ -96,6 +96,9 @@ for my $file_info ( sort { $a->{ path } cmp $b->{ path } } @files ) {
     };
 
     # Extract metadata
+    # Normalize bullets to asterisks in entire content
+    $content =~ s/^(\s*)[-*](?=\s)/$1\*/gm;
+
     my ( $title )   = $content =~ /^#\s+(.+)$/m or die "No title in $file";
     my ( $summary ) = $content =~ /## Summary\s*\n(.+?)(?=\n##|\z)/s
         or die "No summary in $file";
@@ -107,13 +110,14 @@ for my $file_info ( sort { $a->{ path } cmp $b->{ path } } @files ) {
         or die "No description in $file";
 
     # Extract optional sections (non-fatal if missing)
-    my ( $blocked_by_raw ) = $content =~ /## Blocked By\s*\n(.+?)(?=\n##|\z)/s;
-    my ( $work_list )      = $content =~ /## Work Items\s*\n(.+?)(?=\n##|\z)/s;
+    my ( $blocked_by_raw )
+        = $content =~ /## Blocked By\s*\n(.+?)(?=\n##|\z)/s;
+    my ( $work_list ) = $content =~ /## Work Items\s*\n(.+?)(?=\n##|\z)/s;
 
     # Parse Blocked By into list of IDs — only the leading ID on each bullet line
     my @blocked_by_ids;
     if ( $blocked_by_raw ) {
-        while ( $blocked_by_raw =~ /^-\s+([A-Z]+-\d+)\b/mg ) {
+        while ( $blocked_by_raw =~ /^[-*]\s+([A-Z]+-\d+)\b/mg ) {
             push @blocked_by_ids, $1;
         }
     }
@@ -181,11 +185,11 @@ for my $item ( @items ) {
     next if is_closed_status( $item->{ status } );
     next unless $item->{ work_list };
     my $parent_id = sprintf( "%s-%03d", $item->{ prefix }, $item->{ num } );
-    while ( $item->{ work_list } =~ /^-\s+([A-Z]+-\d+)\b/mg ) {
+    while ( $item->{ work_list } =~ /^[-*]\s+([A-Z]+-\d+)\b/mg ) {
         my $child_id = $1;
         push @{ $meta_parent_of{ $child_id } }, $parent_id;
     }
-}
+} ## end for my $item ( @items )
 
 # Annotate items using the maps:
 # - Non-META items: store their parent META IDs as 'meta_parent_ids' (label only)
@@ -194,23 +198,25 @@ for my $item ( @items ) {
 for my $item ( @items ) {
     my $item_id = sprintf( "%s-%03d", $item->{ prefix }, $item->{ num } );
     if ( !$meta_prefixes{ $item->{ prefix } } ) {
+
         # Non-META: label with parent phase tracker(s)
         my @parents = @{ $meta_parent_of{ $item_id } // [] };
         $item->{ meta_parent_ids } = \@parents if @parents;
-    } else {
+    } ## end if ( !$meta_prefixes{ ...})
+    else {
         # META: inject open META work-list children as Blocked By
         next unless $item->{ work_list };
         my %existing = map { $_ => 1 } @{ $item->{ blocked_by_ids } };
-        while ( $item->{ work_list } =~ /^-\s+([A-Z]+-\d+)\b/mg ) {
+        while ( $item->{ work_list } =~ /^[-*]\s+([A-Z]+-\d+)\b/mg ) {
             my $child_id = $1;
             my ( $cpfx ) = $child_id =~ /^([A-Z]+)-/;
-            next unless $meta_prefixes{ $cpfx };          # only META children
-            next unless $open_item_ids{ $child_id };      # only open ones
+            next unless $meta_prefixes{ $cpfx };        # only META children
+            next unless $open_item_ids{ $child_id };    # only open ones
             push @{ $item->{ blocked_by_ids } }, $child_id
                 unless $existing{ $child_id }++;
-        }
-    }
-}
+        } ## end while ( $item->{ work_list...})
+    } ## end else [ if ( !$meta_prefixes{ ...})]
+} ## end for my $item ( @items )
 
 # Reorganize files to correct directories first
 reorganize_files();
@@ -414,13 +420,14 @@ sub generate_work_item_content {
                 my $blocked_suffix = '';
                 if ( @{ $item->{ blocked_by_ids } } ) {
                     my @refs = map { "[$_]" } @{ $item->{ blocked_by_ids } };
-                    $blocked_suffix = ' (Blocked by ' . join( ', ', @refs ) . ')';
+                    $blocked_suffix
+                        = ' (Blocked by ' . join( ', ', @refs ) . ')';
                 }
-                $content .= "  * [$link_id] $item->{summary}$blocked_suffix\n";
-            }
+                $content
+                    .= "  * [$link_id] $item->{summary}$blocked_suffix\n";
+            } ## end for my $item ( sort { $a...})
             $content .= "\n";
         } ## end if ( @meta_open )
-
 
         # Output summary list by priority as nested list
         my %nonmeta_by_priority;
@@ -446,8 +453,7 @@ sub generate_work_item_content {
                     my @refs = map { "[$_]" } @{ $item->{ meta_parent_ids } };
                     $parent_prefix = '(' . join( ', ', @refs ) . ') ';
                 }
-                $content
-                    .= "  * [$link_id] $parent_prefix$item->{summary}\n";
+                $content .= "  * [$link_id] $parent_prefix$item->{summary}\n";
             } ## end for my $item ( sort { $a...})
 
             $content .= "\n";
@@ -575,12 +581,11 @@ sub generate_work_item_content {
             $content .= "**Summary:** $item->{summary}\n\n";
             if ( @{ $item->{ meta_parent_ids } // [] } ) {
                 my @refs = map { "[$_]" } @{ $item->{ meta_parent_ids } };
-                $content .= "**Part of:** "
-                    . join( ', ', @refs ) . "\n\n";
-            } elsif ( @{ $item->{ blocked_by_ids } } ) {
+                $content .= "**Part of:** " . join( ', ', @refs ) . "\n\n";
+            }
+            elsif ( @{ $item->{ blocked_by_ids } } ) {
                 my @refs = map { "[$_]" } @{ $item->{ blocked_by_ids } };
-                $content .= "**Blocked By:** "
-                    . join( ', ', @refs ) . "\n\n";
+                $content .= "**Blocked By:** " . join( ', ', @refs ) . "\n\n";
             }
             $content .= "**Description:** $item->{description}\n\n";
             if ( $item->{ work_list } ) {
