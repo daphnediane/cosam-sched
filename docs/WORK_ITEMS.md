@@ -1,6 +1,6 @@
 # Cosplay America Schedule - Work Item
 
-Updated on: Fri Apr 10 19:39:28 2026
+Updated on: Fri Apr 10 21:18:05 2026
 
 ## Completed
 
@@ -134,7 +134,7 @@ application structure.
 
 ### [FEATURE-008] Schedule Container and EntityStorage
 
-**Status:** Open
+**Status:** In Progress (entity storage and generic CRUD complete; edge indexes pending)
 
 **Priority:** High
 
@@ -145,11 +145,9 @@ and relationships.
 
 **Description:** The `Schedule` struct is the top-level container holding:
 
-- `EntityStorage` — typed collections for each entity type
-- Edge storages for all relationship types
-- Entity registry (`HashMap<NonNilUuid, EntityKind>`) for UUID → kind lookup
-- `ScheduleMetadata` — version, timestamps, generator info, schedule ID
-- Edge entity query engine with caching
+* `EntityStorage` — typed collections for each entity type
+* UUID registry (`HashMap<NonNilUuid, EntityKind>`) for UUID → kind lookup
+* `ScheduleMetadata` — version, timestamps, generator info, schedule ID
 
 ---
 
@@ -257,10 +255,10 @@ reference and jump-starting new conventions.
 **Description:** A schedule archive contains multiple years of convention data in one file,
 enabling:
 
-- **Jump-start**: Copy entities from a prior year to pre-populate the next
+* **Jump-start**: Copy entities from a prior year to pre-populate the next
   convention (e.g., recurring panels, returning presenters, same rooms)
-- **Historical reference**: View past schedules alongside the current one
-- **Widget display**: Optionally serve multi-year data to the calendar widget
+* **Historical reference**: View past schedules alongside the current one
+* **Widget display**: Optionally serve multi-year data to the calendar widget
 
 ---
 
@@ -356,25 +354,25 @@ these decisions and override them.
 
 **Description:** Redesign the cosam-sched schedule system from the ground up with:
 
-- **Entity/field system** using a proc-macro (`#[derive(EntityFields)]`) for clean,
+* **Entity/field system** using a proc-macro (`#[derive(EntityFields)]`) for clean,
   type-safe data structures (ported from `feature/schedule-data` experiment)
-- **CRDT-backed storage** enabling a handful of users to edit the schedule concurrently
+* **CRDT-backed storage** enabling a handful of users to edit the schedule concurrently
   without a central database
-- **Multi-year archive** support for jump-starting new conventions from prior years
-- **Import/export** to and from the existing XLSX spreadsheet format
-- **Widget JSON export** for the calendar display widget
-- **Three application targets**: `cosam-convert` (format conversion), `cosam-modify`
+* **Multi-year archive** support for jump-starting new conventions from prior years
+* **Import/export** to and from the existing XLSX spreadsheet format
+* **Widget JSON export** for the calendar display widget
+* **Three application targets**: `cosam-convert` (format conversion), `cosam-modify`
   (CLI editing), `cosam-editor` (GUI editing)
 
 **Work Items:**
 
-- META-025: Phase 1 — Foundation
-- META-026: Phase 2 — Core Data Model
-- META-027: Phase 3 — CRDT Integration
-- META-028: Phase 4 — File Formats & Import/Export
-- META-029: Phase 5 — CLI Tools
-- META-030: Phase 6 — GUI Editor
-- META-031: Phase 7 — Sync & Multi-User
+* META-025: Phase 1 — Foundation
+* META-026: Phase 2 — Core Data Model
+* META-027: Phase 3 — CRDT Integration
+* META-028: Phase 4 — File Formats & Import/Export
+* META-029: Phase 5 — CLI Tools
+* META-030: Phase 6 — GUI Editor
+* META-031: Phase 7 — Sync & Multi-User
 
 ---
 
@@ -391,14 +389,14 @@ the new workspace. This is the largest and most foundational phase.
 
 **Work Items:**
 
-- FEATURE-003: EntityFields derive macro (schedule-macro)
-- FEATURE-004: Field system (traits, FieldValue, FieldSet, validation)
-- FEATURE-005: Core entity definitions
-- FEATURE-006: UUID-based identity and typed ID wrappers
-- FEATURE-007: Edge/relationship system
-- FEATURE-008: Schedule container and EntityStorage
-- FEATURE-009: Query system
-- FEATURE-010: Edit command system with undo/redo history
+* FEATURE-003: EntityFields derive macro (schedule-macro)
+* FEATURE-004: Field system (traits, FieldValue, FieldSet, validation)
+* FEATURE-005: Core entity definitions
+* FEATURE-006: UUID-based identity and typed ID wrappers
+* FEATURE-007: Edge/relationship system
+* FEATURE-008: Schedule container and EntityStorage
+* FEATURE-009: Query system
+* FEATURE-010: Edit command system with undo/redo history
 
 ---
 
@@ -418,9 +416,9 @@ editing and eventual merge without a central server.
 
 **Work Items:**
 
-- FEATURE-011: CRDT abstraction layer design
-- FEATURE-012: CRDT-backed entity storage
-- FEATURE-013: Change tracking and merge operations
+* FEATURE-011: CRDT abstraction layer design
+* FEATURE-012: CRDT-backed entity storage
+* FEATURE-013: Change tracking and merge operations
 
 ---
 
@@ -441,11 +439,11 @@ round-trip XLSX import/export for the convention spreadsheet workflow.
 
 **Work Items:**
 
-- FEATURE-014: Internal schedule file format (save/load)
-- FEATURE-015: Multi-year schedule archive support
-- FEATURE-016: Widget display JSON export
-- FEATURE-017: XLSX spreadsheet import
-- FEATURE-018: XLSX spreadsheet export
+* FEATURE-014: Internal schedule file format (save/load)
+* FEATURE-015: Multi-year schedule archive support
+* FEATURE-016: Widget display JSON export
+* FEATURE-017: XLSX spreadsheet import
+* FEATURE-018: XLSX spreadsheet export
 
 ---
 
@@ -465,8 +463,8 @@ command systems.
 
 **Work Items:**
 
-- CLI-019: cosam-convert: format conversion tool
-- CLI-020: cosam-modify: CLI editing tool
+* CLI-019: cosam-convert: format conversion tool
+* CLI-020: cosam-modify: CLI editing tool
 
 ---
 
@@ -485,8 +483,8 @@ the data model, edit command system, and file format support from earlier phases
 
 **Work Items:**
 
-- EDITOR-021: cosam-editor: GUI framework selection and scaffold
-- EDITOR-022: cosam-editor: schedule grid view and entity editing
+* EDITOR-021: cosam-editor: GUI framework selection and scaffold
+* EDITOR-022: cosam-editor: schedule grid view and entity editing
 
 ---
 
@@ -505,8 +503,8 @@ to exchange CRDT changes and reconcile concurrent edits to the same fields.
 
 **Work Items:**
 
-- FEATURE-023: Peer-to-peer schedule sync protocol
-- FEATURE-024: Merge conflict resolution UI
+* FEATURE-023: Peer-to-peer schedule sync protocol
+* FEATURE-024: Merge conflict resolution UI
 
 ---
 
