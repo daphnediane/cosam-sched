@@ -32,6 +32,45 @@ pub struct PanelToPanelType {
     pub panel_type_uuid: NonNilUuid,
 }
 
+// ---------------------------------------------------------------------------
+// Convenience queries on PanelToPanelTypeEntityType
+// ---------------------------------------------------------------------------
+
+impl PanelToPanelTypeEntityType {
+    /// The panel type assigned to a panel (at most one; takes first outgoing).
+    pub fn panel_type_of(
+        storage: &crate::schedule::EntityStorage,
+        panel: NonNilUuid,
+    ) -> Option<crate::entity::PanelTypeId> {
+        use crate::entity::DirectedEdge;
+        use crate::schedule::{TypedEdgeStorage, TypedStorage};
+        let index = Self::edge_index(storage);
+        let map = Self::typed_map(storage);
+        index
+            .outgoing(panel)
+            .first()
+            .and_then(|edge_uuid| map.get(edge_uuid))
+            .map(|edge| crate::entity::PanelTypeId::from(edge.to_uuid()))
+    }
+
+    /// Panels assigned to a panel type (incoming edges).
+    pub fn panels_of_type(
+        storage: &crate::schedule::EntityStorage,
+        panel_type: NonNilUuid,
+    ) -> Vec<crate::entity::PanelId> {
+        use crate::entity::DirectedEdge;
+        use crate::schedule::{TypedEdgeStorage, TypedStorage};
+        let index = Self::edge_index(storage);
+        let map = Self::typed_map(storage);
+        index
+            .incoming(panel_type)
+            .iter()
+            .filter_map(|edge_uuid| map.get(edge_uuid))
+            .map(|edge| crate::entity::PanelId::from(edge.from_uuid()))
+            .collect()
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

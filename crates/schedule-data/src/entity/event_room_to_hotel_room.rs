@@ -32,6 +32,46 @@ pub struct EventRoomToHotelRoom {
     pub hotel_room_uuid: NonNilUuid,
 }
 
+// ---------------------------------------------------------------------------
+// Convenience queries on EventRoomToHotelRoomEntityType
+// ---------------------------------------------------------------------------
+
+impl EventRoomToHotelRoomEntityType {
+    /// Hotel rooms mapped to an event room (outgoing edges).
+    pub fn hotel_rooms_of(
+        storage: &crate::schedule::EntityStorage,
+        event_room: NonNilUuid,
+    ) -> Vec<crate::entity::HotelRoomId> {
+        use crate::entity::DirectedEdge;
+        use crate::schedule::{TypedEdgeStorage, TypedStorage};
+        let index = Self::edge_index(storage);
+        let map = Self::typed_map(storage);
+        index
+            .outgoing(event_room)
+            .iter()
+            .filter_map(|edge_uuid| map.get(edge_uuid))
+            .map(|edge| crate::entity::HotelRoomId::from(edge.to_uuid()))
+            .collect()
+    }
+
+    /// Event rooms that use a hotel room (incoming edges).
+    pub fn event_rooms_in(
+        storage: &crate::schedule::EntityStorage,
+        hotel_room: NonNilUuid,
+    ) -> Vec<crate::entity::EventRoomId> {
+        use crate::entity::DirectedEdge;
+        use crate::schedule::{TypedEdgeStorage, TypedStorage};
+        let index = Self::edge_index(storage);
+        let map = Self::typed_map(storage);
+        index
+            .incoming(hotel_room)
+            .iter()
+            .filter_map(|edge_uuid| map.get(edge_uuid))
+            .map(|edge| crate::entity::EventRoomId::from(edge.from_uuid()))
+            .collect()
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

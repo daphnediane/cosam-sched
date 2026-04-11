@@ -7,7 +7,7 @@ and relationships.
 
 ## Status
 
-In Progress (entity storage and generic CRUD complete; edge indexes pending)
+In Progress (edge indexing, convenience queries, and computed fields complete; edge uniqueness policies pending)
 
 ## Priority
 
@@ -61,17 +61,27 @@ the data struct standalone (for tests or deferred insertion).
 - `Schedule::new()` and `Default` impl
 - `ScheduleMetadata` with auto-generated v7 UUID and timestamps
 
-### Edge Storage (not yet implemented)
+### Edge Storage (done)
 
 Edge-entities are stored in `EntityStorage` as regular entities (they have UUIDs
-via `#[derive(EntityFields)]`). Still needed:
+via `#[derive(EntityFields)]`). Implemented:
 
 - `EdgeIndex` per edge type: two `HashMap<NonNilUuid, Vec<NonNilUuid>>` for
-  from→[to] and to→[from] lookups, kept in sync with entity storage
-- Specialized `PresenterToGroupStorage` with group detection, group-marker
-  self-loops, and transitive closure cache
+  from→[to] and to→[from] lookups, kept in sync via `add_edge`/`remove_edge`
+- `TypedEdgeStorage` trait for compile-time dispatch to correct `EdgeIndex`
+- Convenience query methods on each edge `EntityType` (`presenters_of`,
+  `panels_of`, `event_room_of`, `panels_in`, `panel_type_of`, `panels_of_type`,
+  `hotel_rooms_of`, `event_rooms_in`, `groups_of`, `members_of`, `is_group`)
+- `Schedule` convenience wrappers delegating to edge type methods
+- Panel computed fields (`presenters`, `event_room`, `panel_type`) read via
+  edge type convenience methods on `EntityStorage` (not through `Schedule`)
+- Macro-generated `build()` calls `add_edge` for edge entities
+- 10 comprehensive integration tests for add/remove/query/collision/identify
+
+Still needed:
+
 - Edge uniqueness policies (`Reject`, `Replace`, `Allow`) per edge type
-- Relationship convenience queries (`get_panel_presenters`, etc.) — stubs exist
+- Specialized `PresenterToGroupStorage` with transitive closure cache
 
 ## Acceptance Criteria
 
@@ -83,7 +93,7 @@ via `#[derive(EntityFields)]`). Still needed:
 - [x] `EntityType` trait includes associated `type Id`
 - [x] Builder `build()` takes `&mut Schedule` and returns typed ID
 - [x] `BuildError` combines `ValidationError` and `InsertError`
-- [ ] Edge add/remove/query by either endpoint works for all five edge types
-- [ ] Relationship convenience methods return correct typed IDs
+- [x] Edge add/remove/query by either endpoint works for all five edge types
+- [x] Relationship convenience methods return correct typed IDs
 - [ ] Builder insert rejects configurable edge conflicts
-- [ ] Unit tests for add/get/update/connect workflows and conflict handling
+- [x] Unit tests for add/get/update/connect workflows and conflict handling

@@ -1,6 +1,6 @@
 # Cosplay America Schedule - Work Item
 
-Updated on: Fri Apr 10 21:18:05 2026
+Updated on: Fri Apr 10 22:49:12 2026
 
 ## Completed
 
@@ -134,7 +134,7 @@ application structure.
 
 ### [FEATURE-008] Schedule Container and EntityStorage
 
-**Status:** In Progress (entity storage and generic CRUD complete; edge indexes pending)
+**Status:** In Progress (edge indexing, convenience queries, and computed fields complete; edge uniqueness policies pending)
 
 **Priority:** High
 

@@ -269,15 +269,25 @@ pub struct Panel {
     })]
     pub duration: Option<i64>,
 
-    // --- Computed: schedule-aware (edge-based, stubs until FEATURE-007) -----
+    // --- Computed: schedule-aware (edge-based) --------------------------------
     #[computed_field(
         display = "Presenters",
         description = "All presenters credited for this panel"
     )]
     #[alias("presenters", "panelists")]
-    #[read(|_schedule: &crate::schedule::Schedule, _entity: &PanelData| {
-        // @TODO FEATURE-007: populate via PanelToPresenter edges
-        None
+    #[read(|schedule: &crate::schedule::Schedule, entity: &PanelData| {
+        use crate::entity::{InternalData, PanelToPresenterEntityType};
+        let panel_uuid = entity.uuid();
+        let ids = PanelToPresenterEntityType::presenters_of(&schedule.entities, panel_uuid);
+        if ids.is_empty() {
+            None
+        } else {
+            Some(crate::field::FieldValue::List(
+                ids.into_iter()
+                    .map(|id| crate::field::FieldValue::NonNilUuid(id.non_nil_uuid()))
+                    .collect(),
+            ))
+        }
     })]
     pub presenters: Vec<crate::entity::PresenterId>,
 
@@ -286,9 +296,11 @@ pub struct Panel {
         description = "Room where this panel takes place"
     )]
     #[alias("room", "event_room")]
-    #[read(|_schedule: &crate::schedule::Schedule, _entity: &PanelData| {
-        // @TODO FEATURE-007: populate via PanelToEventRoom edge
-        None
+    #[read(|schedule: &crate::schedule::Schedule, entity: &PanelData| {
+        use crate::entity::{InternalData, PanelToEventRoomEntityType};
+        let panel_uuid = entity.uuid();
+        PanelToEventRoomEntityType::event_room_of(&schedule.entities, panel_uuid)
+            .map(|id| crate::field::FieldValue::NonNilUuid(id.non_nil_uuid()))
     })]
     pub event_room: Option<String>,
 
@@ -297,9 +309,11 @@ pub struct Panel {
         description = "Type / category of this panel (e.g. \"Guest Panel\", \"Workshop\")"
     )]
     #[alias("panel_type", "kind", "type")]
-    #[read(|_schedule: &crate::schedule::Schedule, _entity: &PanelData| {
-        // @TODO FEATURE-007: populate via PanelToPanelType edge
-        None
+    #[read(|schedule: &crate::schedule::Schedule, entity: &PanelData| {
+        use crate::entity::{InternalData, PanelToPanelTypeEntityType};
+        let panel_uuid = entity.uuid();
+        PanelToPanelTypeEntityType::panel_type_of(&schedule.entities, panel_uuid)
+            .map(|id| crate::field::FieldValue::NonNilUuid(id.non_nil_uuid()))
     })]
     pub panel_type: Option<String>,
 }

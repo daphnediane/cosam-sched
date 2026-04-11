@@ -9,7 +9,7 @@
 use std::collections::HashMap;
 
 use crate::entity::{
-    EntityType, EventRoomData, EventRoomEntityType, EventRoomToHotelRoomData,
+    DirectedEdge, EntityType, EventRoomData, EventRoomEntityType, EventRoomToHotelRoomData,
     EventRoomToHotelRoomEntityType, HotelRoomData, HotelRoomEntityType, PanelData, PanelEntityType,
     PanelToEventRoomData, PanelToEventRoomEntityType, PanelToPanelTypeData,
     PanelToPanelTypeEntityType, PanelToPresenterData, PanelToPresenterEntityType, PanelTypeData,
@@ -17,6 +17,8 @@ use crate::entity::{
     PresenterToGroupEntityType,
 };
 use uuid::NonNilUuid;
+
+use super::edge_index::EdgeIndex;
 
 /// Error type for entity insertion conflicts.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -74,16 +76,26 @@ impl std::error::Error for InsertError {}
 /// This avoids type erasure and allows direct `&T::Data` references.
 #[derive(Debug, Clone, Default)]
 pub struct EntityStorage {
+    // Node entities
     pub panels: HashMap<NonNilUuid, PanelData>,
     pub presenters: HashMap<NonNilUuid, PresenterData>,
     pub event_rooms: HashMap<NonNilUuid, EventRoomData>,
     pub hotel_rooms: HashMap<NonNilUuid, HotelRoomData>,
     pub panel_types: HashMap<NonNilUuid, PanelTypeData>,
+
+    // Edge entities
     pub panel_to_presenters: HashMap<NonNilUuid, PanelToPresenterData>,
     pub panel_to_event_rooms: HashMap<NonNilUuid, PanelToEventRoomData>,
     pub event_room_to_hotel_rooms: HashMap<NonNilUuid, EventRoomToHotelRoomData>,
     pub panel_to_panel_types: HashMap<NonNilUuid, PanelToPanelTypeData>,
     pub presenter_to_groups: HashMap<NonNilUuid, PresenterToGroupData>,
+
+    // Edge indexes — kept in sync by Schedule::add_edge / Schedule::remove_edge
+    panel_to_presenter_index: EdgeIndex,
+    panel_to_event_room_index: EdgeIndex,
+    event_room_to_hotel_room_index: EdgeIndex,
+    panel_to_panel_type_index: EdgeIndex,
+    presenter_to_group_index: EdgeIndex,
 }
 
 /// Provides access to the concrete `HashMap` for an entity type.
@@ -180,6 +192,65 @@ impl TypedStorage for PresenterToGroupEntityType {
     }
     fn typed_map_mut(s: &mut EntityStorage) -> &mut HashMap<NonNilUuid, PresenterToGroupData> {
         &mut s.presenter_to_groups
+    }
+}
+
+/// Maps an edge entity type to its [`EdgeIndex`] within [`EntityStorage`].
+///
+/// This is the edge counterpart of [`TypedStorage`]: where `TypedStorage`
+/// routes to the correct `HashMap`, `TypedEdgeStorage` routes to the correct
+/// `EdgeIndex`.  Requires `Self::Data: DirectedEdge` so edge endpoints can
+/// be extracted.
+pub trait TypedEdgeStorage: TypedStorage
+where
+    Self::Data: DirectedEdge,
+{
+    fn edge_index(storage: &EntityStorage) -> &EdgeIndex;
+    fn edge_index_mut(storage: &mut EntityStorage) -> &mut EdgeIndex;
+}
+
+impl TypedEdgeStorage for PanelToPresenterEntityType {
+    fn edge_index(s: &EntityStorage) -> &EdgeIndex {
+        &s.panel_to_presenter_index
+    }
+    fn edge_index_mut(s: &mut EntityStorage) -> &mut EdgeIndex {
+        &mut s.panel_to_presenter_index
+    }
+}
+
+impl TypedEdgeStorage for PanelToEventRoomEntityType {
+    fn edge_index(s: &EntityStorage) -> &EdgeIndex {
+        &s.panel_to_event_room_index
+    }
+    fn edge_index_mut(s: &mut EntityStorage) -> &mut EdgeIndex {
+        &mut s.panel_to_event_room_index
+    }
+}
+
+impl TypedEdgeStorage for EventRoomToHotelRoomEntityType {
+    fn edge_index(s: &EntityStorage) -> &EdgeIndex {
+        &s.event_room_to_hotel_room_index
+    }
+    fn edge_index_mut(s: &mut EntityStorage) -> &mut EdgeIndex {
+        &mut s.event_room_to_hotel_room_index
+    }
+}
+
+impl TypedEdgeStorage for PanelToPanelTypeEntityType {
+    fn edge_index(s: &EntityStorage) -> &EdgeIndex {
+        &s.panel_to_panel_type_index
+    }
+    fn edge_index_mut(s: &mut EntityStorage) -> &mut EdgeIndex {
+        &mut s.panel_to_panel_type_index
+    }
+}
+
+impl TypedEdgeStorage for PresenterToGroupEntityType {
+    fn edge_index(s: &EntityStorage) -> &EdgeIndex {
+        &s.presenter_to_group_index
+    }
+    fn edge_index_mut(s: &mut EntityStorage) -> &mut EdgeIndex {
+        &mut s.presenter_to_group_index
     }
 }
 

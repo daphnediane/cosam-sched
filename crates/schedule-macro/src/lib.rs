@@ -348,6 +348,11 @@ pub fn derive_entity_fields(input: TokenStream) -> TokenStream {
         },
     };
 
+    // True when both #[edge_from] and #[edge_to] are present — determines
+    // whether `build()` calls `add_edge` (with EdgeIndex maintenance) or
+    // `add_entity`.
+    let is_edge_entity = edge_from_info.is_some() && edge_to_info.is_some();
+
     // Build DirectedEdge impl from field-level #[edge_from] / #[edge_to] annotations.
     let edge_impl = match (edge_from_info, edge_to_info) {
         (
@@ -486,6 +491,13 @@ pub fn derive_entity_fields(input: TokenStream) -> TokenStream {
         }
     };
 
+    // Edge entities use `add_edge` (maintains EdgeIndex), node entities use `add_entity`.
+    let build_insert_call: TokenStream2 = if is_edge_entity {
+        quote! { schedule.add_edge::<#entity_type_struct_name>(data)? }
+    } else {
+        quote! { schedule.add_entity::<#entity_type_struct_name>(data)? }
+    };
+
     let expanded = quote! {
         #typed_id_impl
 
@@ -552,7 +564,7 @@ pub fn derive_entity_fields(input: TokenStream) -> TokenStream {
             /// Returns the typed entity ID on success.
             pub fn build(self, schedule: &mut crate::schedule::Schedule) -> Result<#typed_id_struct_name, crate::schedule::BuildError> {
                 let data = self.build_data()?;
-                let id = schedule.add_entity::<#entity_type_struct_name>(data)?;
+                let id = #build_insert_call;
                 Ok(id)
             }
 

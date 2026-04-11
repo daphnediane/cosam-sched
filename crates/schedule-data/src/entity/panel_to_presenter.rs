@@ -29,6 +29,46 @@ pub struct PanelToPresenter {
     pub presenter_uuid: NonNilUuid,
 }
 
+// ---------------------------------------------------------------------------
+// Convenience queries on PanelToPresenterEntityType
+// ---------------------------------------------------------------------------
+
+impl PanelToPresenterEntityType {
+    /// Direct presenters assigned to a panel (outgoing edges).
+    pub fn presenters_of(
+        storage: &crate::schedule::EntityStorage,
+        panel: NonNilUuid,
+    ) -> Vec<crate::entity::PresenterId> {
+        use crate::entity::DirectedEdge;
+        use crate::schedule::{TypedEdgeStorage, TypedStorage};
+        let index = Self::edge_index(storage);
+        let map = Self::typed_map(storage);
+        index
+            .outgoing(panel)
+            .iter()
+            .filter_map(|edge_uuid| map.get(edge_uuid))
+            .map(|edge| crate::entity::PresenterId::from(edge.to_uuid()))
+            .collect()
+    }
+
+    /// Panels that a presenter is assigned to (incoming edges).
+    pub fn panels_of(
+        storage: &crate::schedule::EntityStorage,
+        presenter: NonNilUuid,
+    ) -> Vec<crate::entity::PanelId> {
+        use crate::entity::DirectedEdge;
+        use crate::schedule::{TypedEdgeStorage, TypedStorage};
+        let index = Self::edge_index(storage);
+        let map = Self::typed_map(storage);
+        index
+            .incoming(presenter)
+            .iter()
+            .filter_map(|edge_uuid| map.get(edge_uuid))
+            .map(|edge| crate::entity::PanelId::from(edge.from_uuid()))
+            .collect()
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

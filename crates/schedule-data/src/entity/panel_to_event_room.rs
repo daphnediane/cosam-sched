@@ -29,6 +29,45 @@ pub struct PanelToEventRoom {
     pub event_room_uuid: NonNilUuid,
 }
 
+// ---------------------------------------------------------------------------
+// Convenience queries on PanelToEventRoomEntityType
+// ---------------------------------------------------------------------------
+
+impl PanelToEventRoomEntityType {
+    /// The event room assigned to a panel (at most one; takes first outgoing).
+    pub fn event_room_of(
+        storage: &crate::schedule::EntityStorage,
+        panel: NonNilUuid,
+    ) -> Option<crate::entity::EventRoomId> {
+        use crate::entity::DirectedEdge;
+        use crate::schedule::{TypedEdgeStorage, TypedStorage};
+        let index = Self::edge_index(storage);
+        let map = Self::typed_map(storage);
+        index
+            .outgoing(panel)
+            .first()
+            .and_then(|edge_uuid| map.get(edge_uuid))
+            .map(|edge| crate::entity::EventRoomId::from(edge.to_uuid()))
+    }
+
+    /// Panels assigned to an event room (incoming edges).
+    pub fn panels_in(
+        storage: &crate::schedule::EntityStorage,
+        event_room: NonNilUuid,
+    ) -> Vec<crate::entity::PanelId> {
+        use crate::entity::DirectedEdge;
+        use crate::schedule::{TypedEdgeStorage, TypedStorage};
+        let index = Self::edge_index(storage);
+        let map = Self::typed_map(storage);
+        index
+            .incoming(event_room)
+            .iter()
+            .filter_map(|edge_uuid| map.get(edge_uuid))
+            .map(|edge| crate::entity::PanelId::from(edge.from_uuid()))
+            .collect()
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

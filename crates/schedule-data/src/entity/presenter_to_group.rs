@@ -59,6 +59,60 @@ impl PresenterToGroupData {
     }
 }
 
+// ---------------------------------------------------------------------------
+// Convenience queries on PresenterToGroupEntityType
+// ---------------------------------------------------------------------------
+
+impl PresenterToGroupEntityType {
+    /// Direct groups a presenter belongs to (outgoing edges, excluding self-loops).
+    pub fn groups_of(
+        storage: &crate::schedule::EntityStorage,
+        member: NonNilUuid,
+    ) -> Vec<crate::entity::PresenterId> {
+        use crate::entity::DirectedEdge;
+        use crate::schedule::{TypedEdgeStorage, TypedStorage};
+        let index = Self::edge_index(storage);
+        let map = Self::typed_map(storage);
+        index
+            .outgoing(member)
+            .iter()
+            .filter_map(|edge_uuid| map.get(edge_uuid))
+            .filter(|edge| !edge.is_self_loop())
+            .map(|edge| crate::entity::PresenterId::from(edge.to_uuid()))
+            .collect()
+    }
+
+    /// Direct members of a group (incoming edges, excluding self-loops).
+    pub fn members_of(
+        storage: &crate::schedule::EntityStorage,
+        group: NonNilUuid,
+    ) -> Vec<crate::entity::PresenterId> {
+        use crate::entity::DirectedEdge;
+        use crate::schedule::{TypedEdgeStorage, TypedStorage};
+        let index = Self::edge_index(storage);
+        let map = Self::typed_map(storage);
+        index
+            .incoming(group)
+            .iter()
+            .filter_map(|edge_uuid| map.get(edge_uuid))
+            .filter(|edge| !edge.is_self_loop())
+            .map(|edge| crate::entity::PresenterId::from(edge.from_uuid()))
+            .collect()
+    }
+
+    /// Whether a presenter is marked as a group (has a self-loop edge).
+    pub fn is_group(storage: &crate::schedule::EntityStorage, presenter: NonNilUuid) -> bool {
+        use crate::schedule::{TypedEdgeStorage, TypedStorage};
+        let index = Self::edge_index(storage);
+        let map = Self::typed_map(storage);
+        index
+            .outgoing(presenter)
+            .iter()
+            .filter_map(|edge_uuid| map.get(edge_uuid))
+            .any(|edge| edge.is_self_loop())
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
