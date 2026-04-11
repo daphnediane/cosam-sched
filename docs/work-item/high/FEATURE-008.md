@@ -75,6 +75,16 @@ via `#[derive(EntityFields)]`). Implemented:
 - `Schedule` convenience wrappers delegating to edge type methods
 - Panel computed fields (`presenters`, `event_room`, `panel_type`) read via
   edge type convenience methods on `EntityStorage` (not through `Schedule`)
+- All edge-based computed fields have `#[write]` closures (replace edges on
+  assignment); `Presenter.groups` / `Presenter.members` write closures preserve
+  self-loop group markers
+- `WritableField::write` takes `&mut Schedule` so write closures can mutate edges
+- Membership mutation helpers on `Schedule`:
+  - `mark_presenter_group` / `unmark_presenter_group` — manage the self-loop group marker
+  - `add_member(member, group)` — add membership with default flags (no-op if exists)
+  - `add_grouped_member(member, group)` — add/update with `always_grouped = true`
+  - `add_shown_member(member, group)` — add/update with `always_shown_in_group = true`
+  - `remove_member(member, group)` — remove membership edge
 - Macro-generated `build()` calls `add_edge` for edge entities
 - 10 comprehensive integration tests for add/remove/query/collision/identify
 
@@ -82,6 +92,10 @@ Still needed:
 
 - Edge uniqueness policies (`Reject`, `Replace`, `Allow`) per edge type
 - Specialized `PresenterToGroupStorage` with transitive closure cache
+- Computed fields for all node entities: `Panel` (`presenters`, `event_room`,
+  `panel_type`), `Presenter` (`groups`, `members`), `EventRoom` (`hotel_rooms`,
+  `panels`), `HotelRoom` (`event_rooms`), `PanelType` (`panels`) — all with
+  read + write closures
 
 ## Acceptance Criteria
 
@@ -97,3 +111,7 @@ Still needed:
 - [x] Relationship convenience methods return correct typed IDs
 - [ ] Builder insert rejects configurable edge conflicts
 - [x] Unit tests for add/get/update/connect workflows and conflict handling
+- [x] Edge-based computed fields implemented for all node entity types
+- [x] Membership mutation helpers (`add_member`, `add_grouped_member`,
+  `add_shown_member`, `remove_member`, `mark_presenter_group`,
+  `unmark_presenter_group`) on `Schedule`

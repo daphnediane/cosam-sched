@@ -341,6 +341,172 @@ impl Schedule {
         PresenterToGroupEntityType::members_of(&self.entities, group_id.non_nil_uuid())
     }
 
+    /// Whether a presenter is marked as a group (has a self-loop membership edge).
+    pub fn is_presenter_group(&self, presenter_id: PresenterId) -> bool {
+        PresenterToGroupEntityType::is_group(&self.entities, presenter_id.non_nil_uuid())
+    }
+
+    // -----------------------------------------------------------------------
+    // Presenter-group membership mutation helpers
+    // -----------------------------------------------------------------------
+
+    /// Mark a presenter as a group by adding a self-loop membership edge.
+    ///
+    /// No-op if already marked as a group.
+    pub fn mark_presenter_group(&mut self, presenter_id: PresenterId) -> Result<(), InsertError> {
+        let uuid = presenter_id.non_nil_uuid();
+        if PresenterToGroupEntityType::is_group(&self.entities, uuid) {
+            return Ok(());
+        }
+        let edge_uuid = uuid::Uuid::now_v7();
+        let edge_uuid = unsafe { NonNilUuid::new_unchecked(edge_uuid) };
+        self.add_edge::<PresenterToGroupEntityType>(crate::entity::PresenterToGroupData {
+            entity_uuid: edge_uuid,
+            member_uuid: uuid,
+            group_uuid: uuid,
+            always_shown_in_group: false,
+            always_grouped: false,
+        })?;
+        Ok(())
+    }
+
+    /// Remove the group marker from a presenter (removes the self-loop edge).
+    ///
+    /// Returns `true` if the marker existed and was removed.
+    pub fn unmark_presenter_group(&mut self, presenter_id: PresenterId) -> bool {
+        let uuid = presenter_id.non_nil_uuid();
+        let self_edge = self
+            .edges_from::<PresenterToGroupEntityType>(uuid)
+            .into_iter()
+            .find(|e| e.member_uuid == uuid && e.group_uuid == uuid)
+            .map(|e| e.entity_uuid);
+        if let Some(edge_uuid) = self_edge {
+            self.remove_edge::<PresenterToGroupEntityType>(PresenterToGroupId::from_uuid(
+                edge_uuid,
+            ));
+            true
+        } else {
+            false
+        }
+    }
+
+    /// Find the edge UUID for an existing non-self-loop membership edge.
+    fn find_membership_edge(&self, member: NonNilUuid, group: NonNilUuid) -> Option<NonNilUuid> {
+        self.edges_from::<PresenterToGroupEntityType>(member)
+            .into_iter()
+            .find(|e| e.group_uuid == group && e.member_uuid != e.group_uuid)
+            .map(|e| e.entity_uuid)
+    }
+
+    /// Add `member` to `group` with default flags (`always_shown_in_group = false`,
+    /// `always_grouped = false`).
+    ///
+    /// No-op if the membership edge already exists (flags are not changed).
+    /// Use [`add_grouped_member`](Self::add_grouped_member) or
+    /// [`add_shown_member`](Self::add_shown_member) to set flags.
+    pub fn add_member(
+        &mut self,
+        member: PresenterId,
+        group: PresenterId,
+    ) -> Result<(), InsertError> {
+        if self
+            .find_membership_edge(member.non_nil_uuid(), group.non_nil_uuid())
+            .is_some()
+        {
+            return Ok(());
+        }
+        let edge_uuid = unsafe { NonNilUuid::new_unchecked(uuid::Uuid::now_v7()) };
+        self.add_edge::<PresenterToGroupEntityType>(crate::entity::PresenterToGroupData {
+            entity_uuid: edge_uuid,
+            member_uuid: member.non_nil_uuid(),
+            group_uuid: group.non_nil_uuid(),
+            always_shown_in_group: false,
+            always_grouped: false,
+        })?;
+        Ok(())
+    }
+
+    /// Add `member` to `group` and set `always_grouped = true`.
+    ///
+    /// If the edge already exists, it is replaced with `always_grouped = true`
+    /// (preserving the existing `always_shown_in_group` value).
+    pub fn add_grouped_member(
+        &mut self,
+        member: PresenterId,
+        group: PresenterId,
+    ) -> Result<(), InsertError> {
+        let member_uuid = member.non_nil_uuid();
+        let group_uuid = group.non_nil_uuid();
+        let shown = if let Some(edge_uuid) = self.find_membership_edge(member_uuid, group_uuid) {
+            let shown = self
+                .get_entity_by_uuid::<PresenterToGroupEntityType>(edge_uuid)
+                .map_or(false, |e| e.always_shown_in_group);
+            self.remove_edge::<PresenterToGroupEntityType>(PresenterToGroupId::from_uuid(
+                edge_uuid,
+            ));
+            shown
+        } else {
+            false
+        };
+        let edge_uuid = unsafe { NonNilUuid::new_unchecked(uuid::Uuid::now_v7()) };
+        self.add_edge::<PresenterToGroupEntityType>(crate::entity::PresenterToGroupData {
+            entity_uuid: edge_uuid,
+            member_uuid,
+            group_uuid,
+            always_shown_in_group: shown,
+            always_grouped: true,
+        })?;
+        Ok(())
+    }
+
+    /// Add `member` to `group` and set `always_shown_in_group = true`.
+    ///
+    /// If the edge already exists, it is replaced with `always_shown_in_group = true`
+    /// (preserving the existing `always_grouped` value).
+    pub fn add_shown_member(
+        &mut self,
+        member: PresenterId,
+        group: PresenterId,
+    ) -> Result<(), InsertError> {
+        let member_uuid = member.non_nil_uuid();
+        let group_uuid = group.non_nil_uuid();
+        let grouped = if let Some(edge_uuid) = self.find_membership_edge(member_uuid, group_uuid) {
+            let grouped = self
+                .get_entity_by_uuid::<PresenterToGroupEntityType>(edge_uuid)
+                .map_or(false, |e| e.always_grouped);
+            self.remove_edge::<PresenterToGroupEntityType>(PresenterToGroupId::from_uuid(
+                edge_uuid,
+            ));
+            grouped
+        } else {
+            false
+        };
+        let edge_uuid = unsafe { NonNilUuid::new_unchecked(uuid::Uuid::now_v7()) };
+        self.add_edge::<PresenterToGroupEntityType>(crate::entity::PresenterToGroupData {
+            entity_uuid: edge_uuid,
+            member_uuid,
+            group_uuid,
+            always_shown_in_group: true,
+            always_grouped: grouped,
+        })?;
+        Ok(())
+    }
+
+    /// Remove `member` from `group`.
+    ///
+    /// Returns `true` if a membership edge existed and was removed.
+    pub fn remove_member(&mut self, member: PresenterId, group: PresenterId) -> bool {
+        let edge_uuid = self.find_membership_edge(member.non_nil_uuid(), group.non_nil_uuid());
+        if let Some(edge_uuid) = edge_uuid {
+            self.remove_edge::<PresenterToGroupEntityType>(PresenterToGroupId::from_uuid(
+                edge_uuid,
+            ));
+            true
+        } else {
+            false
+        }
+    }
+
     // -----------------------------------------------------------------------
     // Generic name lookup helper used by computed-field closures
     // -----------------------------------------------------------------------

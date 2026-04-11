@@ -289,6 +289,40 @@ pub struct Panel {
             ))
         }
     })]
+    #[write(|schedule: &mut crate::schedule::Schedule, entity: &mut PanelData, value: crate::field::FieldValue| {
+        use crate::entity::{InternalData, PanelToPresenterEntityType, PanelToPresenterId};
+        use crate::schedule::TypedEdgeStorage;
+        let panel_uuid = entity.uuid();
+        let old_edge_uuids: Vec<uuid::NonNilUuid> =
+            PanelToPresenterEntityType::edge_index(&schedule.entities)
+                .outgoing(panel_uuid)
+                .to_vec();
+        for edge_uuid in old_edge_uuids {
+            schedule.remove_edge::<PanelToPresenterEntityType>(PanelToPresenterId::from_uuid(edge_uuid));
+        }
+        let new_presenter_uuids: Vec<uuid::NonNilUuid> = match value {
+            crate::field::FieldValue::List(items) => items
+                .into_iter()
+                .filter_map(|v| if let crate::field::FieldValue::NonNilUuid(u) = v { Some(u) } else { None })
+                .collect(),
+            crate::field::FieldValue::NonNilUuid(u) => vec![u],
+            _ => return Err(crate::field::FieldError::ConversionError(
+                crate::field::validation::ConversionError::InvalidFormat,
+            )),
+        };
+        for presenter_uuid in new_presenter_uuids {
+            let edge = crate::entity::PanelToPresenterData {
+                entity_uuid: unsafe { uuid::NonNilUuid::new_unchecked(uuid::Uuid::now_v7()) },
+                panel_uuid,
+                presenter_uuid,
+            };
+            schedule.add_edge::<PanelToPresenterEntityType>(edge)
+                .map_err(|_| crate::field::FieldError::ConversionError(
+                    crate::field::validation::ConversionError::InvalidFormat,
+                ))?;
+        }
+        Ok(())
+    })]
     pub presenters: Vec<crate::entity::PresenterId>,
 
     #[computed_field(
@@ -302,6 +336,34 @@ pub struct Panel {
         PanelToEventRoomEntityType::event_room_of(&schedule.entities, panel_uuid)
             .map(|id| crate::field::FieldValue::NonNilUuid(id.non_nil_uuid()))
     })]
+    #[write(|schedule: &mut crate::schedule::Schedule, entity: &mut PanelData, value: crate::field::FieldValue| {
+        use crate::entity::{InternalData, PanelToEventRoomEntityType, PanelToEventRoomId};
+        use crate::schedule::TypedEdgeStorage;
+        let panel_uuid = entity.uuid();
+        let old_edge_uuids: Vec<uuid::NonNilUuid> =
+            PanelToEventRoomEntityType::edge_index(&schedule.entities)
+                .outgoing(panel_uuid)
+                .to_vec();
+        for edge_uuid in old_edge_uuids {
+            schedule.remove_edge::<PanelToEventRoomEntityType>(PanelToEventRoomId::from_uuid(edge_uuid));
+        }
+        let event_room_uuid = match value {
+            crate::field::FieldValue::NonNilUuid(u) => u,
+            _ => return Err(crate::field::FieldError::ConversionError(
+                crate::field::validation::ConversionError::InvalidFormat,
+            )),
+        };
+        let edge = crate::entity::PanelToEventRoomData {
+            entity_uuid: unsafe { uuid::NonNilUuid::new_unchecked(uuid::Uuid::now_v7()) },
+            panel_uuid,
+            event_room_uuid,
+        };
+        schedule.add_edge::<PanelToEventRoomEntityType>(edge)
+            .map(|_| ())
+            .map_err(|_| crate::field::FieldError::ConversionError(
+                crate::field::validation::ConversionError::InvalidFormat,
+            ))
+    })]
     pub event_room: Option<String>,
 
     #[computed_field(
@@ -314,6 +376,34 @@ pub struct Panel {
         let panel_uuid = entity.uuid();
         PanelToPanelTypeEntityType::panel_type_of(&schedule.entities, panel_uuid)
             .map(|id| crate::field::FieldValue::NonNilUuid(id.non_nil_uuid()))
+    })]
+    #[write(|schedule: &mut crate::schedule::Schedule, entity: &mut PanelData, value: crate::field::FieldValue| {
+        use crate::entity::{InternalData, PanelToPanelTypeEntityType, PanelToPanelTypeId};
+        use crate::schedule::TypedEdgeStorage;
+        let panel_uuid = entity.uuid();
+        let old_edge_uuids: Vec<uuid::NonNilUuid> =
+            PanelToPanelTypeEntityType::edge_index(&schedule.entities)
+                .outgoing(panel_uuid)
+                .to_vec();
+        for edge_uuid in old_edge_uuids {
+            schedule.remove_edge::<PanelToPanelTypeEntityType>(PanelToPanelTypeId::from_uuid(edge_uuid));
+        }
+        let panel_type_uuid = match value {
+            crate::field::FieldValue::NonNilUuid(u) => u,
+            _ => return Err(crate::field::FieldError::ConversionError(
+                crate::field::validation::ConversionError::InvalidFormat,
+            )),
+        };
+        let edge = crate::entity::PanelToPanelTypeData {
+            entity_uuid: unsafe { uuid::NonNilUuid::new_unchecked(uuid::Uuid::now_v7()) },
+            panel_uuid,
+            panel_type_uuid,
+        };
+        schedule.add_edge::<PanelToPanelTypeEntityType>(edge)
+            .map(|_| ())
+            .map_err(|_| crate::field::FieldError::ConversionError(
+                crate::field::validation::ConversionError::InvalidFormat,
+            ))
     })]
     pub panel_type: Option<String>,
 }

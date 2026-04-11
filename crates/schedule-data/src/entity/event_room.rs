@@ -48,6 +48,85 @@ pub struct EventRoom {
     )]
     #[alias("sort_key", "sort_order")]
     pub sort_key: Option<i64>,
+
+    // --- Computed: schedule-aware (edge-based) --------------------------------
+    #[computed_field(
+        display = "Hotel Rooms",
+        description = "Physical hotel rooms this event room maps to"
+    )]
+    #[alias("hotel_rooms", "physical_rooms")]
+    #[read(|schedule: &crate::schedule::Schedule, entity: &EventRoomData| {
+        use crate::entity::{InternalData, EventRoomToHotelRoomEntityType};
+        let ids = EventRoomToHotelRoomEntityType::hotel_rooms_of(&schedule.entities, entity.uuid());
+        if ids.is_empty() {
+            None
+        } else {
+            Some(crate::field::FieldValue::List(
+                ids.into_iter()
+                    .map(|id| crate::field::FieldValue::NonNilUuid(id.non_nil_uuid()))
+                    .collect(),
+            ))
+        }
+    })]
+    #[write(|schedule: &mut crate::schedule::Schedule, entity: &mut EventRoomData, value: crate::field::FieldValue| {
+        use crate::entity::{InternalData, EventRoomToHotelRoomEntityType, EventRoomToHotelRoomId};
+        use crate::schedule::TypedEdgeStorage;
+        let event_room_uuid = entity.uuid();
+        let old_edge_uuids: Vec<uuid::NonNilUuid> =
+            EventRoomToHotelRoomEntityType::edge_index(&schedule.entities)
+                .outgoing(event_room_uuid)
+                .to_vec();
+        for edge_uuid in old_edge_uuids {
+            schedule.remove_edge::<EventRoomToHotelRoomEntityType>(EventRoomToHotelRoomId::from_uuid(edge_uuid));
+        }
+        let new_hotel_room_uuids: Vec<uuid::NonNilUuid> = match value {
+            crate::field::FieldValue::List(items) => items
+                .into_iter()
+                .filter_map(|v| if let crate::field::FieldValue::NonNilUuid(u) = v { Some(u) } else { None })
+                .collect(),
+            crate::field::FieldValue::NonNilUuid(u) => vec![u],
+            _ => return Err(crate::field::FieldError::ConversionError(
+                crate::field::validation::ConversionError::InvalidFormat,
+            )),
+        };
+        for hotel_room_uuid in new_hotel_room_uuids {
+            let edge = crate::entity::EventRoomToHotelRoomData {
+                entity_uuid: unsafe { uuid::NonNilUuid::new_unchecked(uuid::Uuid::now_v7()) },
+                event_room_uuid,
+                hotel_room_uuid,
+            };
+            schedule.add_edge::<EventRoomToHotelRoomEntityType>(edge)
+                .map_err(|_| crate::field::FieldError::ConversionError(
+                    crate::field::validation::ConversionError::InvalidFormat,
+                ))?;
+        }
+        Ok(())
+    })]
+    pub hotel_rooms: Vec<crate::entity::HotelRoomId>,
+
+    #[computed_field(
+        display = "Panels",
+        description = "Panels scheduled in this event room"
+    )]
+    #[alias("panels", "scheduled_panels")]
+    #[read(|schedule: &crate::schedule::Schedule, entity: &EventRoomData| {
+        use crate::entity::{InternalData, PanelToEventRoomEntityType};
+        let ids = PanelToEventRoomEntityType::panels_in(&schedule.entities, entity.uuid());
+        if ids.is_empty() {
+            None
+        } else {
+            Some(crate::field::FieldValue::List(
+                ids.into_iter()
+                    .map(|id| crate::field::FieldValue::NonNilUuid(id.non_nil_uuid()))
+                    .collect(),
+            ))
+        }
+    })]
+    #[write(|schedule: &mut crate::schedule::Schedule, _entity: &mut EventRoomData, _value: crate::field::FieldValue| {
+        let _ = schedule;
+        Err(crate::field::FieldError::CannotStoreRelationshipField)
+    })]
+    pub panels: Vec<crate::entity::PanelId>,
 }
 
 #[cfg(test)]

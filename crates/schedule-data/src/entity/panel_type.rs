@@ -89,6 +89,28 @@ pub struct PanelType {
     )]
     #[alias("bw", "mono_color", "monochrome")]
     pub bw: Option<String>,
+
+    // --- Computed: schedule-aware (edge-based) --------------------------------
+    #[computed_field(display = "Panels", description = "Panels assigned to this panel type")]
+    #[alias("panels", "panels_of_type")]
+    #[read(|schedule: &crate::schedule::Schedule, entity: &PanelTypeData| {
+        use crate::entity::{InternalData, PanelToPanelTypeEntityType};
+        let ids = PanelToPanelTypeEntityType::panels_of_type(&schedule.entities, entity.uuid());
+        if ids.is_empty() {
+            None
+        } else {
+            Some(crate::field::FieldValue::List(
+                ids.into_iter()
+                    .map(|id| crate::field::FieldValue::NonNilUuid(id.non_nil_uuid()))
+                    .collect(),
+            ))
+        }
+    })]
+    #[write(|schedule: &mut crate::schedule::Schedule, _entity: &mut PanelTypeData, _value: crate::field::FieldValue| {
+        let _ = schedule;
+        Err(crate::field::FieldError::CannotStoreRelationshipField)
+    })]
+    pub panels: Vec<crate::entity::PanelId>,
 }
 
 #[cfg(test)]

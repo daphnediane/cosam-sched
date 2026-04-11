@@ -34,6 +34,31 @@ pub struct HotelRoom {
     #[required]
     #[indexable(priority = 220)]
     pub hotel_room_name: String,
+
+    // --- Computed: schedule-aware (edge-based) --------------------------------
+    #[computed_field(
+        display = "Event Rooms",
+        description = "Logical event rooms that map to this hotel room"
+    )]
+    #[alias("event_rooms", "logical_rooms")]
+    #[read(|schedule: &crate::schedule::Schedule, entity: &HotelRoomData| {
+        use crate::entity::{InternalData, EventRoomToHotelRoomEntityType};
+        let ids = EventRoomToHotelRoomEntityType::event_rooms_in(&schedule.entities, entity.uuid());
+        if ids.is_empty() {
+            None
+        } else {
+            Some(crate::field::FieldValue::List(
+                ids.into_iter()
+                    .map(|id| crate::field::FieldValue::NonNilUuid(id.non_nil_uuid()))
+                    .collect(),
+            ))
+        }
+    })]
+    #[write(|schedule: &mut crate::schedule::Schedule, _entity: &mut HotelRoomData, _value: crate::field::FieldValue| {
+        let _ = schedule;
+        Err(crate::field::FieldError::CannotStoreRelationshipField)
+    })]
+    pub event_rooms: Vec<crate::entity::EventRoomId>,
 }
 
 #[cfg(test)]

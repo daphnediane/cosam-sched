@@ -180,7 +180,7 @@ pub trait FieldUpdater<T: EntityType> {
         field_name: &str,
         value: FieldValue,
         strategy: UpdateStrategy,
-        schedule: &Schedule,
+        schedule: &mut Schedule,
     ) -> Result<(), FieldError>;
 
     /// Apply batch updates
@@ -188,7 +188,7 @@ pub trait FieldUpdater<T: EntityType> {
         &mut self,
         entity: &mut T::Data,
         batch: BatchUpdate,
-        schedule: &Schedule,
+        schedule: &mut Schedule,
     ) -> UpdateResult;
 
     /// Detect conflicts between updates
@@ -205,7 +205,7 @@ pub trait FieldUpdater<T: EntityType> {
         entity: &mut T::Data,
         conflicts: Vec<UpdateConflict>,
         resolution: ConflictResolution,
-        schedule: &Schedule,
+        schedule: &mut Schedule,
     ) -> Result<(), FieldError>;
 }
 
@@ -226,7 +226,7 @@ impl<T: EntityType> FieldUpdater<T> for DefaultFieldUpdater {
         _field_name: &str,
         _value: FieldValue,
         _strategy: UpdateStrategy,
-        _schedule: &Schedule,
+        _schedule: &mut Schedule,
     ) -> Result<(), FieldError> {
         // TODO: Implement update_field
         unimplemented!()
@@ -236,7 +236,7 @@ impl<T: EntityType> FieldUpdater<T> for DefaultFieldUpdater {
         &mut self,
         _entity: &mut T::Data,
         _batch: BatchUpdate,
-        _schedule: &Schedule,
+        _schedule: &mut Schedule,
     ) -> UpdateResult {
         // TODO: Implement apply_batch_updates
         unimplemented!()
@@ -257,7 +257,7 @@ impl<T: EntityType> FieldUpdater<T> for DefaultFieldUpdater {
         _entity: &mut T::Data,
         _conflicts: Vec<UpdateConflict>,
         _resolution: ConflictResolution,
-        _schedule: &Schedule,
+        _schedule: &mut Schedule,
     ) -> Result<(), FieldError> {
         // TODO: Implement resolve_conflicts
         unimplemented!()

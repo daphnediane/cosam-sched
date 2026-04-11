@@ -25,7 +25,7 @@
 //! │   └── (blanket) CheckedField<T>
 //! ├── IndexableField<T>         match_field(query, &entity) → Option<MatchStrength>
 //! ├── ReadableField<T>          read(&Schedule, &entity) → Option<FieldValue>
-//! ├── WritableField<T>          write(&Schedule, &mut entity, FieldValue) → Result
+//! ├── WritableField<T>          write(&mut Schedule, &mut entity, FieldValue) → Result
 //! └── CheckedField<T>           validate(&Schedule, &mut entity, &FieldValue) → Result
 //! ```
 //!
@@ -167,7 +167,7 @@ pub trait ReadableField<T: EntityType>: NamedField + 'static + Send + Sync {
 pub trait WritableField<T: EntityType>: NamedField + 'static + Send + Sync {
     fn write(
         &self,
-        schedule: &Schedule,
+        schedule: &mut Schedule,
         entity: &mut T::Data,
         value: FieldValue,
     ) -> Result<(), FieldError>;
@@ -202,7 +202,7 @@ impl<T: EntityType, F: SimpleReadableField<T>> ReadableField<T> for F {
 impl<T: EntityType, F: SimpleWritableField<T>> WritableField<T> for F {
     fn write(
         &self,
-        _schedule: &Schedule,
+        _schedule: &mut Schedule,
         entity: &mut T::Data,
         value: FieldValue,
     ) -> Result<(), FieldError> {
@@ -441,11 +441,11 @@ mod tests {
     fn test_writable_field_trait() {
         let field = TestIdField;
         let mut entity = create_test_entity();
-        let schedule = create_mock_schedule();
+        let mut schedule = create_mock_schedule();
 
         let result = WritableField::write(
             &field,
-            &schedule,
+            &mut schedule,
             &mut entity,
             FieldValue::String("456".to_string()),
         );
@@ -459,9 +459,10 @@ mod tests {
     fn test_writable_field_wrong_type() {
         let field = TestIdField;
         let mut entity = create_test_entity();
-        let schedule = create_mock_schedule();
+        let mut schedule = create_mock_schedule();
 
-        let result = WritableField::write(&field, &schedule, &mut entity, FieldValue::Integer(999));
+        let result =
+            WritableField::write(&field, &mut schedule, &mut entity, FieldValue::Integer(999));
         assert!(result.is_err());
         assert_eq!(entity.id, "123"); // Should remain unchanged
     }
@@ -495,7 +496,7 @@ mod tests {
     impl WritableField<TestEntity> for TestNameField {
         fn write(
             &self,
-            _schedule: &Schedule,
+            _schedule: &mut Schedule,
             entity: &mut TestEntity,
             value: FieldValue,
         ) -> Result<(), FieldError> {
@@ -544,9 +545,10 @@ mod tests {
         let field = TestOptionalValueField;
         let mut entity = create_test_entity();
         entity.optional_value = None; // Start with None for this test
-        let schedule = create_mock_schedule();
+        let mut schedule = create_mock_schedule();
 
-        let result = WritableField::write(&field, &schedule, &mut entity, FieldValue::Integer(999));
+        let result =
+            WritableField::write(&field, &mut schedule, &mut entity, FieldValue::Integer(999));
         assert!(result.is_ok());
         assert_eq!(entity.optional_value, Some(999));
     }
@@ -578,7 +580,7 @@ mod tests {
     impl WritableField<TestEntity> for TestFlagField {
         fn write(
             &self,
-            _schedule: &Schedule,
+            _schedule: &mut Schedule,
             entity: &mut TestEntity,
             value: FieldValue,
         ) -> Result<(), FieldError> {
@@ -622,7 +624,7 @@ mod tests {
     impl WritableField<TestEntity> for TestOptionalFlagField {
         fn write(
             &self,
-            _schedule: &Schedule,
+            _schedule: &mut Schedule,
             entity: &mut TestEntity,
             value: FieldValue,
         ) -> Result<(), FieldError> {
@@ -665,7 +667,7 @@ mod tests {
     impl WritableField<TestEntity> for TestOptionalField {
         fn write(
             &self,
-            _schedule: &Schedule,
+            _schedule: &mut Schedule,
             entity: &mut TestEntity,
             value: FieldValue,
         ) -> Result<(), FieldError> {
@@ -708,7 +710,7 @@ mod tests {
     impl WritableField<TestEntity> for TestOptionalValueField {
         fn write(
             &self,
-            _schedule: &Schedule,
+            _schedule: &mut Schedule,
             entity: &mut TestEntity,
             value: FieldValue,
         ) -> Result<(), FieldError> {
@@ -745,9 +747,10 @@ mod tests {
     fn test_integer_field_write() {
         let field = TestValueField;
         let mut entity = create_test_entity();
-        let schedule = create_mock_schedule();
+        let mut schedule = create_mock_schedule();
 
-        let result = WritableField::write(&field, &schedule, &mut entity, FieldValue::Integer(999));
+        let result =
+            WritableField::write(&field, &mut schedule, &mut entity, FieldValue::Integer(999));
         assert!(result.is_ok());
         assert_eq!(entity.value, 999);
     }
@@ -756,10 +759,14 @@ mod tests {
     fn test_bool_field_write() {
         let field = TestFlagField;
         let mut entity = create_test_entity();
-        let schedule = create_mock_schedule();
+        let mut schedule = create_mock_schedule();
 
-        let result =
-            WritableField::write(&field, &schedule, &mut entity, FieldValue::Boolean(false));
+        let result = WritableField::write(
+            &field,
+            &mut schedule,
+            &mut entity,
+            FieldValue::Boolean(false),
+        );
         assert!(result.is_ok());
         assert!(!entity.flag);
     }
@@ -785,10 +792,14 @@ mod tests {
     fn test_boolean_field_write() {
         let field = TestFlagField;
         let mut entity = create_test_entity();
-        let schedule = create_mock_schedule();
+        let mut schedule = create_mock_schedule();
 
-        let result =
-            WritableField::write(&field, &schedule, &mut entity, FieldValue::Boolean(false));
+        let result = WritableField::write(
+            &field,
+            &mut schedule,
+            &mut entity,
+            FieldValue::Boolean(false),
+        );
         assert!(result.is_ok());
         assert!(!entity.flag);
     }
@@ -875,7 +886,7 @@ mod tests {
     impl WritableField<TestEntity> for FullTestField {
         fn write(
             &self,
-            _schedule: &Schedule,
+            _schedule: &mut Schedule,
             _entity: &mut TestEntity,
             value: FieldValue,
         ) -> Result<(), FieldError> {
@@ -894,7 +905,7 @@ mod tests {
     fn test_field_trait_combination() {
         let field = FullTestField;
         let entity = create_test_entity();
-        let schedule = create_mock_schedule();
+        let mut schedule = create_mock_schedule();
 
         // Should work as ReadableField
         let value = ReadableField::read(&field, &schedule, &entity);
@@ -903,7 +914,7 @@ mod tests {
         // Should work as WritableField
         let result = WritableField::write(
             &field,
-            &schedule,
+            &mut schedule,
             &mut entity.clone(),
             FieldValue::String("test".to_string()),
         );
@@ -911,7 +922,7 @@ mod tests {
 
         let result = WritableField::write(
             &field,
-            &schedule,
+            &mut schedule,
             &mut entity.clone(),
             FieldValue::Integer(999),
         );

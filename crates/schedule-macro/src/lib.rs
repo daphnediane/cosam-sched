@@ -32,7 +32,7 @@
 //! |-----------|---------|--------|
 //! | `#[computed_field(display = "…", description = "…")]` | — | Marks field as computed (user provides closures) |
 //! | `#[read(\|schedule: &Schedule, entity: &T\| { … })]` | See `edge.rs` | Read closure; takes schedule and entity (entity_id available via entity.entity_id) |
-//! | `#[write(\|schedule: &Schedule, entity: &mut T, value: FieldValue\| { … })]` | See `edge.rs` | Write closure; takes schedule, entity, and value |
+//! | `#[write(\|schedule: &mut Schedule, entity: &mut T, value: FieldValue\| { … })]` | See `edge.rs` | Write closure; takes mutable schedule, entity, and value |
 //! | `#[validate(\|entity, value\| { … })]` | — | Validation closure (parsed but not yet wired up) |
 //!
 //! **Important**: Closure parameters must have explicit type annotations
@@ -1525,7 +1525,7 @@ fn generate_computed_field(
                 where
                     Self: crate::field::traits::NamedField + 'static + Send + Sync
                 {
-                    fn write(&self, schedule: &crate::schedule::Schedule, entity: &mut <#entity_type_struct_name as crate::entity::EntityType>::Data, value: crate::field::FieldValue) -> Result<(), crate::field::FieldError> {
+                    fn write(&self, schedule: &mut crate::schedule::Schedule, entity: &mut <#entity_type_struct_name as crate::entity::EntityType>::Data, value: crate::field::FieldValue) -> Result<(), crate::field::FieldError> {
                         let entity: &mut #data_struct_name = entity;
                         let value: crate::field::FieldValue = value;
                         (#closure)(schedule, entity, value)

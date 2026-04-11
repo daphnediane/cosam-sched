@@ -160,14 +160,58 @@ pub struct Presenter {
     )]
     #[alias("presenter_groups", "group_list")]
     #[read(|schedule: &crate::schedule::Schedule, entity: &PresenterData| {
-        let group_ids = schedule.get_presenter_groups(PresenterId::from_uuid(entity.entity_uuid));
-        let group_uuids: Vec<uuid::NonNilUuid> = group_ids.iter().map(|id| id.non_nil_uuid()).collect();
-        Some(crate::field::FieldValue::List(
-            schedule.get_entity_names::<crate::entity::PresenterEntityType>(&group_uuids)
+        use crate::entity::{InternalData, PresenterToGroupEntityType};
+        let ids = PresenterToGroupEntityType::groups_of(&schedule.entities, entity.uuid());
+        if ids.is_empty() {
+            None
+        } else {
+            Some(crate::field::FieldValue::List(
+                ids.into_iter()
+                    .map(|id| crate::field::FieldValue::NonNilUuid(id.non_nil_uuid()))
+                    .collect(),
+            ))
+        }
+    })]
+    #[write(|schedule: &mut crate::schedule::Schedule, entity: &mut PresenterData, value: crate::field::FieldValue| {
+        use crate::entity::{InternalData, PresenterToGroupEntityType, PresenterToGroupId};
+        use crate::schedule::TypedEdgeStorage;
+        let member_uuid = entity.uuid();
+        let old_edge_uuids: Vec<uuid::NonNilUuid> = PresenterToGroupEntityType::edge_index(&schedule.entities)
+            .outgoing(member_uuid)
+            .iter()
+            .copied()
+            .collect();
+        for edge_uuid in old_edge_uuids {
+            if let Some(data) = schedule.get_entity_by_uuid::<PresenterToGroupEntityType>(edge_uuid) {
+                if !data.is_self_loop() {
+                    schedule.remove_edge::<PresenterToGroupEntityType>(PresenterToGroupId::from_uuid(edge_uuid));
+                }
+            }
+        }
+        let new_group_uuids: Vec<uuid::NonNilUuid> = match value {
+            crate::field::FieldValue::List(items) => items
                 .into_iter()
-                .map(crate::field::FieldValue::String)
-                .collect()
-        ))
+                .filter_map(|v| if let crate::field::FieldValue::NonNilUuid(u) = v { Some(u) } else { None })
+                .collect(),
+            crate::field::FieldValue::NonNilUuid(u) => vec![u],
+            _ => return Err(crate::field::FieldError::ConversionError(
+                crate::field::validation::ConversionError::InvalidFormat,
+            )),
+        };
+        for group_uuid in new_group_uuids {
+            let edge = crate::entity::PresenterToGroupData {
+                entity_uuid: unsafe { uuid::NonNilUuid::new_unchecked(uuid::Uuid::now_v7()) },
+                member_uuid,
+                group_uuid,
+                always_shown_in_group: false,
+                always_grouped: false,
+            };
+            schedule.add_edge::<PresenterToGroupEntityType>(edge)
+                .map_err(|_| crate::field::FieldError::ConversionError(
+                    crate::field::validation::ConversionError::InvalidFormat,
+                ))?;
+        }
+        Ok(())
     })]
     pub groups: Vec<PresenterId>,
 
@@ -177,14 +221,58 @@ pub struct Presenter {
     )]
     #[alias("presenter_members", "member_list")]
     #[read(|schedule: &crate::schedule::Schedule, entity: &PresenterData| {
-        let member_ids = schedule.get_presenter_members(PresenterId::from_uuid(entity.entity_uuid));
-        let member_uuids: Vec<uuid::NonNilUuid> = member_ids.iter().map(|id| id.non_nil_uuid()).collect();
-        Some(crate::field::FieldValue::List(
-            schedule.get_entity_names::<crate::entity::PresenterEntityType>(&member_uuids)
+        use crate::entity::{InternalData, PresenterToGroupEntityType};
+        let ids = PresenterToGroupEntityType::members_of(&schedule.entities, entity.uuid());
+        if ids.is_empty() {
+            None
+        } else {
+            Some(crate::field::FieldValue::List(
+                ids.into_iter()
+                    .map(|id| crate::field::FieldValue::NonNilUuid(id.non_nil_uuid()))
+                    .collect(),
+            ))
+        }
+    })]
+    #[write(|schedule: &mut crate::schedule::Schedule, entity: &mut PresenterData, value: crate::field::FieldValue| {
+        use crate::entity::{InternalData, PresenterToGroupEntityType, PresenterToGroupId};
+        use crate::schedule::TypedEdgeStorage;
+        let group_uuid = entity.uuid();
+        let old_edge_uuids: Vec<uuid::NonNilUuid> = PresenterToGroupEntityType::edge_index(&schedule.entities)
+            .incoming(group_uuid)
+            .iter()
+            .copied()
+            .collect();
+        for edge_uuid in old_edge_uuids {
+            if let Some(data) = schedule.get_entity_by_uuid::<PresenterToGroupEntityType>(edge_uuid) {
+                if !data.is_self_loop() {
+                    schedule.remove_edge::<PresenterToGroupEntityType>(PresenterToGroupId::from_uuid(edge_uuid));
+                }
+            }
+        }
+        let new_member_uuids: Vec<uuid::NonNilUuid> = match value {
+            crate::field::FieldValue::List(items) => items
                 .into_iter()
-                .map(crate::field::FieldValue::String)
-                .collect()
-        ))
+                .filter_map(|v| if let crate::field::FieldValue::NonNilUuid(u) = v { Some(u) } else { None })
+                .collect(),
+            crate::field::FieldValue::NonNilUuid(u) => vec![u],
+            _ => return Err(crate::field::FieldError::ConversionError(
+                crate::field::validation::ConversionError::InvalidFormat,
+            )),
+        };
+        for member_uuid in new_member_uuids {
+            let edge = crate::entity::PresenterToGroupData {
+                entity_uuid: unsafe { uuid::NonNilUuid::new_unchecked(uuid::Uuid::now_v7()) },
+                member_uuid,
+                group_uuid,
+                always_shown_in_group: false,
+                always_grouped: false,
+            };
+            schedule.add_edge::<PresenterToGroupEntityType>(edge)
+                .map_err(|_| crate::field::FieldError::ConversionError(
+                    crate::field::validation::ConversionError::InvalidFormat,
+                ))?;
+        }
+        Ok(())
     })]
     pub members: Vec<PresenterId>,
 
