@@ -97,6 +97,11 @@ individual. `PresenterToGroupData::is_self_loop()` detects this.
   and a unified API, but entity types own their storage access patterns.
   Computed field closures access `EntityStorage` directly (via
   `TypedEdgeStorage` dispatch), not through `Schedule` convenience methods.
+- **`<Type>EntityType` owns the logic**: All non-trivial implementations that
+  work with entity or edge data belong as methods on the relevant
+  `<Type>EntityType` struct. `Schedule` methods and computed field closures
+  are **thin adapters** — they call the `EntityType` method and return the
+  result, containing no logic of their own. See §10 for examples.
 - **Rooms split**: `EventRoom` (logical schedule room) vs `HotelRoom` (physical
   hotel space). One event room can map to different hotel rooms at different
   times (time-partitioned), modelled by `EventRoomToHotelRoom` edges that will
@@ -348,31 +353,38 @@ the `TypedEdgeStorage` + `TypedStorage` lookups:
 | `PresenterToGroupEntityType`     | `groups_of`, `members_of`, `is_group`             |
 
 These take `&EntityStorage` (not `&Schedule`), reinforcing the principle that
-entity types own their storage access.
+entity types own their storage access. **All logic lives here**; callers
+(including `Schedule` methods and computed field closures) are thin adapters
+that call these methods and pass results through.
 
 `Schedule` has thin wrappers (e.g. `get_panel_presenters`) that delegate to
-these methods.
+these methods — they contain no logic of their own.
 
 ### Edge-Aware Computed Fields
 
 Panel computed fields (`presenters`, `event_room`, `panel_type`) use the
 schedule-aware read closure signature and call edge EntityType convenience
-methods directly on `&schedule.entities`:
+methods directly on `&schedule.entities`. **Closures are thin adapters** —
+they call the `EntityType` method and convert to `FieldValue`; they contain
+no traversal or business logic of their own:
 
 ```rust
 #[read(|schedule: &Schedule, entity: &PanelData| {
     let ids = PanelToPresenterEntityType::presenters_of(&schedule.entities, entity.uuid());
-    // ... convert to FieldValue
+    Some(FieldValue::from(ids))  // thin: call + convert only
 })]
 pub presenters: Vec<PresenterId>,
 ```
 
 This ensures computed fields work at the `EntityStorage` level without
-circular dependency on `Schedule` convenience methods.
+circular dependency on `Schedule` convenience methods. Logic embedded
+directly in a closure cannot be unit-tested without a full `Schedule`.
 
 ### Membership Mutation Helpers
 
-`Schedule` provides convenience methods for managing `PresenterToGroup` edges:
+`Schedule` provides convenience methods for managing `PresenterToGroup` edges.
+These are **thin adapters** — the implementation lives in
+`PresenterToGroupEntityType` methods; `Schedule` delegates and returns:
 
 | Method                              | Effect                                              |
 | ----------------------------------- | --------------------------------------------------- |
@@ -386,9 +398,10 @@ circular dependency on `Schedule` convenience methods.
 ### Presenter Tag-String Lookup
 
 `PresenterEntityType::lookup_tagged(schedule: &mut Schedule, input: &str) -> Result<PresenterId, LookupError>`
-is the implementation in `entity/presenter.rs`.  Also exposed as the thin
-delegate `Schedule::lookup_tagged_presenter(input)`.  Handles UUID references,
-tagged credit strings, and bare name lookups.  Documented fully in FEATURE-009.
+is the **implementation** in `entity/presenter.rs`.  `Schedule::lookup_tagged_presenter(input)`
+is a **thin delegate** that calls it and returns the result — it contains no
+additional logic.  Handles UUID references, tagged credit strings, and bare
+name lookups.  Documented fully in FEATURE-009.
 
 `PresenterEntityType::find_or_create_by_name(schedule, name, rank)` is a public
 helper for callers that already know the name and rank directly.
@@ -651,6 +664,11 @@ partially defined in multiple places. Further investigation during Phase 4
 - Every data module has `#[cfg(test)] mod tests` block with serde round-trips
 - UUID generation: v7 for new entities, v5 (deterministic) for imports/edges
 - `serde` for JSON interchange; `rkyv` under consideration for fast local snapshots
+- **Logic belongs in `<Type>EntityType`**: All non-trivial implementations that
+  work with entity or edge data must be methods on the relevant
+  `<Type>EntityType` struct. Functions in `Schedule` and closures in
+  `#[read(...)]`/`#[write(...)]` attributes are **thin adapters** — they call
+  the `EntityType` method and pass the result through. No logic in adapters.
 - Copyright header required at top of every `.rs` file:
 
   ```text

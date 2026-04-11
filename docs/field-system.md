@@ -505,11 +505,45 @@ let id = schedule.lookup_tagged_presenter("G:Alice")?;
 
 ## Design Principles
 
-1. **Schedule is a proxy, not an owner** — Entity types own their storage; `Schedule` provides UUID registry and unified API
-2. **EntityStorage is the authority** — Computed field closures access `EntityStorage` directly via `TypedStorage`/`TypedEdgeStorage` dispatch
-3. **Edges as entities** — Relationships are first-class entities with UUIDs, not a separate storage layer
-4. **Explicit types in closures** — Macro-generated code requires full type annotations in computed field closures
-5. **No unwrap/expect in production** — Use `?` and proper error handling
+1. **`<Type>EntityType` owns the logic** — All non-trivial implementations that operate on entity or edge data belong as methods on the corresponding `<Type>EntityType` struct (e.g. `PanelToPresenterEntityType::presenters_of`, `PresenterEntityType::lookup_tagged`). This keeps logic testable, co-located with the data it operates on, and independent of the `Schedule` API surface.
+2. **`Schedule` methods are thin adapters** — Convenience methods on `Schedule` (e.g. `get_panel_presenters`, `lookup_tagged_presenter`) must not contain logic. They call the `EntityType` implementation and return the result. A `Schedule` method that does more than one non-trivial call is a smell.
+3. **Computed field closures are thin adapters** — `#[read(...)]` and `#[write(...)]` closures must not contain business logic. They call the appropriate `EntityType` method and convert the return value to/from `FieldValue`. Logic embedded directly in a closure cannot be unit-tested without a full `Schedule`.
+4. **Schedule is a proxy, not an owner** — Entity types own their storage; `Schedule` provides UUID registry and unified API
+5. **EntityStorage is the authority** — Computed field closures access `EntityStorage` directly via `TypedStorage`/`TypedEdgeStorage` dispatch
+6. **Edges as entities** — Relationships are first-class entities with UUIDs, not a separate storage layer
+7. **Explicit types in closures** — Macro-generated code requires full type annotations in computed field closures
+8. **No unwrap/expect in production** — Use `?` and proper error handling
+
+### Adapter Pattern Example
+
+```rust
+// ✅ CORRECT — logic in EntityType, closure is a thin adapter
+impl PanelToPresenterEntityType {
+    pub fn presenters_of(storage: &EntityStorage, panel_uuid: NonNilUuid) -> Vec<PresenterId> {
+        // ... real implementation here
+    }
+}
+
+// In Panel entity definition:
+#[read(|schedule: &Schedule, entity: &PanelData| {
+    let ids = PanelToPresenterEntityType::presenters_of(&schedule.entities, entity.uuid());
+    Some(FieldValue::from(ids))  // thin: call + convert only
+})]
+pub presenters: Vec<PresenterId>,
+
+// In Schedule:
+pub fn get_panel_presenters(&self, panel_id: PanelId) -> Vec<PresenterId> {
+    PanelToPresenterEntityType::presenters_of(&self.entities, panel_id.non_nil_uuid())
+}
+
+// ❌ WRONG — logic embedded in closure or Schedule method
+#[read(|schedule: &Schedule, entity: &PanelData| {
+    // Don't implement traversal logic here — put it in EntityType
+    let index = PanelToPresenterEntityType::edge_index(&schedule.entities);
+    let uuids = index.outgoing.get(&entity.uuid()).cloned().unwrap_or_default();
+    // ... more logic ...
+})]
+```
 
 ---
 
