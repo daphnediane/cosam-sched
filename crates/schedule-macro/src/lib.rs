@@ -544,11 +544,24 @@ pub fn derive_entity_fields(input: TokenStream) -> TokenStream {
             }
             )*
 
-            /// Validate required fields and produce a [`#data_struct_name`].
+            /// Validate required fields, produce a [`#data_struct_name`], and insert
+            /// it into the given schedule.
             ///
             /// Required fields must be `Some` and, for strings, non-empty.
             /// UUID is resolved via the `uuid_preference` (defaults to a fresh v7 UUID).
-            pub fn build(self) -> Result<#data_struct_name, crate::field::validation::ValidationError> {
+            /// Returns the typed entity ID on success.
+            pub fn build(self, schedule: &mut crate::schedule::Schedule) -> Result<#typed_id_struct_name, crate::schedule::BuildError> {
+                let data = self.build_data()?;
+                let id = schedule.add_entity::<#entity_type_struct_name>(data)?;
+                Ok(id)
+            }
+
+            /// Validate required fields and produce a [`#data_struct_name`] without
+            /// inserting into any schedule.
+            ///
+            /// This is useful for tests or when you need the data struct before a
+            /// schedule is available.
+            pub fn build_data(self) -> Result<#data_struct_name, crate::field::validation::ValidationError> {
                 #(#builder_build_extractions)*
                 #edge_uuid_upgrade
                 let entity_uuid = uuid_preference.resolve(*#entity_namespace_ident);
@@ -602,6 +615,7 @@ pub fn derive_entity_fields(input: TokenStream) -> TokenStream {
 
         impl crate::entity::EntityType for #entity_type_struct_name {
             type Data = #data_struct_name;
+            type Id = #typed_id_struct_name;
 
             const TYPE_NAME: &'static str = #type_name_str;
             const KIND: crate::entity::EntityKind = crate::entity::EntityKind::#entity_kind_ident;

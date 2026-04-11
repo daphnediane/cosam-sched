@@ -117,7 +117,7 @@ pub trait InternalData: Clone + Send + Sync + fmt::Debug {
 /// Core trait for all entity types
 pub trait EntityType: 'static + Send + Sync + fmt::Debug {
     type Data: InternalData;
-    // @todo: type PublicData: PublicData;
+    type Id: TypedId<EntityType = Self>;
 
     const TYPE_NAME: &'static str;
     const KIND: EntityKind;

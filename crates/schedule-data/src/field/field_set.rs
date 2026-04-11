@@ -181,9 +181,23 @@ mod tests {
         }
     }
 
+    #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+    struct TestEntityId(uuid::NonNilUuid);
+
+    impl crate::entity::TypedId for TestEntityId {
+        type EntityType = TestEntity;
+        fn non_nil_uuid(&self) -> uuid::NonNilUuid {
+            self.0
+        }
+        fn from_uuid(uuid: uuid::NonNilUuid) -> Self {
+            Self(uuid)
+        }
+    }
+
     // Mock EntityType implementation
     impl EntityType for TestEntity {
         type Data = TestEntity;
+        type Id = TestEntityId;
         const TYPE_NAME: &'static str = "TestEntity";
         const KIND: crate::entity::EntityKind = crate::entity::EntityKind::Panel;
 

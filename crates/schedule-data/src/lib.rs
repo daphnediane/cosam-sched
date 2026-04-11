@@ -23,4 +23,4 @@ pub use entity::{
     Presenter, PresenterId, PresenterRank, PresenterSortRank, PresenterToGroup, PresenterToGroupId,
 };
 pub use field::FieldValue;
-pub use schedule::Schedule;
+pub use schedule::{BuildError, Schedule};

@@ -7,7 +7,7 @@ and relationships.
 
 ## Status
 
-Open
+In Progress
 
 ## Priority
 
