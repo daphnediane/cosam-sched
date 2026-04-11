@@ -52,3 +52,10 @@ and query capabilities. Edge types include:
 - [x] Deterministic V5 UUID generation from endpoint UUIDs
 - [x] Edge endpoint fields immutable after construction
 - Storage, query, and test coverage deferred to FEATURE-008
+
+## Design Revision
+
+The edge-as-entities approach implemented here was superseded by the virtual
+edge design in REFACTOR-036/037/038.  Relationships are now stored as UUID
+fields on the owning entity; `DirectedEdge`, `#[edge_from]`/`#[edge_to]`, and
+`UuidPreference::Edge` are removed.  The five edge entity files are deleted.

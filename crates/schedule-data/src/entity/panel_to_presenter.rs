@@ -73,7 +73,7 @@ impl PanelToPresenterEntityType {
     /// Returns the number of presenters actually added (new edges created).
     /// Skips presenters that are already connected to the panel.
     pub fn add_presenters(
-        schedule: &mut crate::schedule::Schedule,
+        storage: &mut crate::schedule::EntityStorage,
         panel_uuid: NonNilUuid,
         presenter_ids: &[crate::entity::PresenterId],
     ) -> usize {
@@ -85,7 +85,7 @@ impl PanelToPresenterEntityType {
             let presenter_uuid = presenter_id.non_nil_uuid();
 
             // Skip if already connected
-            if Self::presenters_of(&schedule.entities, panel_uuid)
+            if Self::presenters_of(storage, panel_uuid)
                 .iter()
                 .any(|id| id.non_nil_uuid() == presenter_uuid)
             {
@@ -99,11 +99,7 @@ impl PanelToPresenterEntityType {
                 presenter_uuid,
             };
 
-            // Add edge; ignore errors (e.g., duplicate with Reject policy)
-            if schedule
-                .add_edge::<crate::entity::PanelToPresenterEntityType>(edge)
-                .is_ok()
-            {
+            if storage.add_edge::<PanelToPresenterEntityType>(edge).is_ok() {
                 added += 1;
             }
         }
@@ -114,39 +110,118 @@ impl PanelToPresenterEntityType {
     ///
     /// Returns the number of presenters actually removed (edges deleted).
     pub fn remove_presenters(
-        schedule: &mut crate::schedule::Schedule,
+        storage: &mut crate::schedule::EntityStorage,
         panel_uuid: NonNilUuid,
         presenter_ids: &[crate::entity::PresenterId],
     ) -> usize {
         use crate::entity::PanelToPresenterId;
-        use crate::schedule::TypedEdgeStorage;
+        use crate::schedule::{TypedEdgeStorage, TypedStorage};
 
         let mut removed = 0;
         for presenter_id in presenter_ids {
             let presenter_uuid = presenter_id.non_nil_uuid();
 
-            // Find the edge UUID for this presenter
-            let edge_uuids: Vec<NonNilUuid> = Self::edge_index(&schedule.entities)
-                .outgoing(panel_uuid)
-                .iter()
-                .copied()
-                .filter(|&edge_uuid| {
-                    schedule
-                        .entities
-                        .panel_to_presenters
-                        .get(&edge_uuid)
-                        .is_some_and(|edge| edge.presenter_uuid == presenter_uuid)
-                })
-                .collect();
+            let edge_uuids: Vec<NonNilUuid> = {
+                let map = Self::typed_map(storage);
+                Self::edge_index(storage)
+                    .outgoing(panel_uuid)
+                    .iter()
+                    .copied()
+                    .filter(|&edge_uuid| {
+                        map.get(&edge_uuid)
+                            .is_some_and(|e| e.presenter_uuid == presenter_uuid)
+                    })
+                    .collect()
+            };
 
             for edge_uuid in edge_uuids {
-                schedule.remove_edge::<crate::entity::PanelToPresenterEntityType>(
-                    PanelToPresenterId::from_uuid(edge_uuid),
-                );
+                storage
+                    .remove_edge::<PanelToPresenterEntityType>(PanelToPresenterId::from(edge_uuid));
                 removed += 1;
             }
         }
         removed
+    }
+
+    /// Replace all presenters of a panel with the given presenter UUIDs.
+    pub fn set_presenters(
+        storage: &mut crate::schedule::EntityStorage,
+        panel_uuid: NonNilUuid,
+        presenter_uuids: &[NonNilUuid],
+    ) -> Result<(), crate::schedule::InsertError> {
+        use crate::entity::PanelToPresenterId;
+        use crate::schedule::TypedEdgeStorage;
+        let old_edge_uuids: Vec<NonNilUuid> =
+            Self::edge_index(storage).outgoing(panel_uuid).to_vec();
+        for edge_uuid in old_edge_uuids {
+            storage.remove_edge::<Self>(PanelToPresenterId::from(edge_uuid));
+        }
+        for &presenter_uuid in presenter_uuids {
+            let edge_uuid = unsafe { NonNilUuid::new_unchecked(uuid::Uuid::now_v7()) };
+            storage.add_edge_with_policy::<Self>(
+                crate::entity::PanelToPresenterData {
+                    entity_uuid: edge_uuid,
+                    panel_uuid,
+                    presenter_uuid,
+                },
+                crate::schedule::EdgePolicy::Ignore,
+            )?;
+        }
+        Ok(())
+    }
+
+    /// Replace all panels of a presenter with the given panel UUIDs.
+    pub fn set_panels_for_presenter(
+        storage: &mut crate::schedule::EntityStorage,
+        presenter_uuid: NonNilUuid,
+        panel_uuids: &[NonNilUuid],
+    ) -> Result<(), crate::schedule::InsertError> {
+        use crate::entity::PanelToPresenterId;
+        use crate::schedule::TypedEdgeStorage;
+        let old_edge_uuids: Vec<NonNilUuid> =
+            Self::edge_index(storage).incoming(presenter_uuid).to_vec();
+        for edge_uuid in old_edge_uuids {
+            storage.remove_edge::<Self>(PanelToPresenterId::from(edge_uuid));
+        }
+        for &panel_uuid in panel_uuids {
+            let edge_uuid = unsafe { NonNilUuid::new_unchecked(uuid::Uuid::now_v7()) };
+            storage.add_edge_with_policy::<Self>(
+                crate::entity::PanelToPresenterData {
+                    entity_uuid: edge_uuid,
+                    panel_uuid,
+                    presenter_uuid,
+                },
+                crate::schedule::EdgePolicy::Ignore,
+            )?;
+        }
+        Ok(())
+    }
+
+    /// Remove specific panels from a presenter's panel list.
+    pub fn remove_panels_for_presenter(
+        storage: &mut crate::schedule::EntityStorage,
+        presenter_uuid: NonNilUuid,
+        panel_uuids: &[NonNilUuid],
+    ) {
+        use crate::entity::PanelToPresenterId;
+        use crate::schedule::{TypedEdgeStorage, TypedStorage};
+        for &panel_uuid in panel_uuids {
+            let edge_uuids: Vec<NonNilUuid> = {
+                let map = Self::typed_map(storage);
+                Self::edge_index(storage)
+                    .incoming(presenter_uuid)
+                    .iter()
+                    .copied()
+                    .filter(|&edge_uuid| {
+                        map.get(&edge_uuid)
+                            .is_some_and(|e| e.panel_uuid == panel_uuid)
+                    })
+                    .collect()
+            };
+            for edge_uuid in edge_uuids {
+                storage.remove_edge::<Self>(PanelToPresenterId::from(edge_uuid));
+            }
+        }
     }
 }
 

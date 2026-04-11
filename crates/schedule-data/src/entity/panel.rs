@@ -193,6 +193,19 @@ pub struct Panel {
     /// Canonical time-slot storage; exposed through computed fields below.
     pub time_slot: crate::time::TimeRange,
 
+    /// Backing storage for presenter relationships (owned forward side).
+    /// Updated by the `presenters` computed field write closure and
+    /// `PanelEntityType` presenter helpers.
+    pub presenter_ids: Vec<crate::entity::PresenterId>,
+
+    /// Backing storage for the event room relationship (owned forward side).
+    /// Updated by the `event_room` computed field write closure.
+    pub event_room_id: Option<crate::entity::EventRoomId>,
+
+    /// Backing storage for the panel type relationship (owned forward side).
+    /// Updated by the `panel_type` computed field write closure.
+    pub panel_type_id: Option<crate::entity::PanelTypeId>,
+
     // --- Computed: time_slot projections ------------------------------------
     #[computed_field(display = "Start Time", description = "Panel start time (ISO-8601)")]
     #[alias("start_time")]
@@ -275,31 +288,20 @@ pub struct Panel {
         description = "All presenters credited for this panel"
     )]
     #[alias("presenters", "panelists")]
-    #[read(|schedule: &crate::schedule::Schedule, entity: &PanelData| {
-        use crate::entity::{InternalData, PanelToPresenterEntityType};
-        let panel_uuid = entity.uuid();
-        let ids = PanelToPresenterEntityType::presenters_of(&schedule.entities, panel_uuid);
-        if ids.is_empty() {
+    #[read(|_schedule: &crate::schedule::Schedule, entity: &PanelData| {
+        if entity.presenter_ids.is_empty() {
             None
         } else {
             Some(crate::field::FieldValue::List(
-                ids.into_iter()
+                entity.presenter_ids.iter()
                     .map(|id| crate::field::FieldValue::NonNilUuid(id.non_nil_uuid()))
                     .collect(),
             ))
         }
     })]
     #[write(|schedule: &mut crate::schedule::Schedule, entity: &mut PanelData, value: crate::field::FieldValue| {
-        use crate::entity::{InternalData, PanelToPresenterEntityType, PanelToPresenterId};
-        use crate::schedule::TypedEdgeStorage;
+        use crate::entity::{InternalData, PanelToPresenterEntityType, PresenterId};
         let panel_uuid = entity.uuid();
-        let old_edge_uuids: Vec<uuid::NonNilUuid> =
-            PanelToPresenterEntityType::edge_index(&schedule.entities)
-                .outgoing(panel_uuid)
-                .to_vec();
-        for edge_uuid in old_edge_uuids {
-            schedule.remove_edge::<PanelToPresenterEntityType>(PanelToPresenterId::from_uuid(edge_uuid));
-        }
         let new_presenter_uuids: Vec<uuid::NonNilUuid> = match value {
             crate::field::FieldValue::List(items) => items
                 .into_iter()
@@ -310,18 +312,14 @@ pub struct Panel {
                 crate::field::validation::ConversionError::InvalidFormat,
             )),
         };
-        for presenter_uuid in new_presenter_uuids {
-            let edge = crate::entity::PanelToPresenterData {
-                entity_uuid: unsafe { uuid::NonNilUuid::new_unchecked(uuid::Uuid::now_v7()) },
-                panel_uuid,
-                presenter_uuid,
-            };
-            schedule.add_edge::<PanelToPresenterEntityType>(edge)
-                .map_err(|_| crate::field::FieldError::ConversionError(
-                    crate::field::validation::ConversionError::InvalidFormat,
-                ))?;
-        }
-        Ok(())
+        entity.presenter_ids = new_presenter_uuids
+            .iter()
+            .map(|&u| PresenterId::from_uuid(u))
+            .collect();
+        PanelToPresenterEntityType::set_presenters(&mut schedule.entities, panel_uuid, &new_presenter_uuids)
+            .map_err(|_| crate::field::FieldError::ConversionError(
+                crate::field::validation::ConversionError::InvalidFormat,
+            ))
     })]
     pub presenters: Vec<crate::entity::PresenterId>,
 
@@ -333,13 +331,24 @@ pub struct Panel {
         description = "Add presenters to this panel (append mode)"
     )]
     #[write(|schedule: &mut crate::schedule::Schedule, entity: &mut PanelData, value: crate::field::FieldValue| {
-        use crate::entity::{InternalData, PanelEntityType};
+        use crate::entity::{InternalData, PanelToPresenterEntityType, PresenterEntityType};
         let panel_uuid = entity.uuid();
         let values: Vec<crate::field::FieldValue> = match value {
             crate::field::FieldValue::List(items) => items,
             single => vec![single],
         };
-        PanelEntityType::add_presenters(schedule, panel_uuid, values);
+        for v in values {
+            if let Ok(presenter_id) = PresenterEntityType::resolve_field_value(&mut schedule.entities, v) {
+                if !entity.presenter_ids.contains(&presenter_id) {
+                    entity.presenter_ids.push(presenter_id);
+                }
+                PanelToPresenterEntityType::add_presenters(
+                    &mut schedule.entities,
+                    panel_uuid,
+                    &[presenter_id],
+                );
+            }
+        }
         Ok(())
     })]
     pub add_presenters: Vec<crate::entity::PresenterId>,
@@ -352,13 +361,20 @@ pub struct Panel {
         description = "Remove presenters from this panel"
     )]
     #[write(|schedule: &mut crate::schedule::Schedule, entity: &mut PanelData, value: crate::field::FieldValue| {
-        use crate::entity::{InternalData, PanelEntityType};
+        use crate::entity::{InternalData, PanelToPresenterEntityType, PresenterEntityType};
         let panel_uuid = entity.uuid();
         let values: Vec<crate::field::FieldValue> = match value {
             crate::field::FieldValue::List(items) => items,
             single => vec![single],
         };
-        PanelEntityType::remove_presenters(schedule, panel_uuid, values);
+        let mut to_remove = Vec::new();
+        for v in values {
+            if let Ok(presenter_id) = PresenterEntityType::resolve_field_value(&mut schedule.entities, v) {
+                entity.presenter_ids.retain(|id| id != &presenter_id);
+                to_remove.push(presenter_id);
+            }
+        }
+        PanelToPresenterEntityType::remove_presenters(&mut schedule.entities, panel_uuid, &to_remove);
         Ok(())
     })]
     pub remove_presenters: Vec<crate::entity::PresenterId>,
@@ -373,11 +389,10 @@ pub struct Panel {
     )]
     #[alias("inclusive_presenter")]
     #[read(|schedule: &crate::schedule::Schedule, entity: &PanelData| {
-        use crate::entity::{InternalData, PanelToPresenterEntityType, PresenterToGroupEntityType};
+        use crate::entity::{PresenterEntityType, PresenterToGroupEntityType};
         use std::collections::HashSet;
 
-        let panel_uuid = entity.uuid();
-        let direct = PanelToPresenterEntityType::presenters_of(&schedule.entities, panel_uuid);
+        let direct = entity.presenter_ids.clone();
 
         let mut result = Vec::new();
         let mut seen = HashSet::new();
@@ -399,7 +414,7 @@ pub struct Panel {
             }
 
             // Downward: if this presenter is a group, add its members (transitive)
-            if PresenterToGroupEntityType::is_group(&schedule.entities, presenter_uuid) {
+            if PresenterEntityType::is_group(&schedule.entities, presenter_uuid) {
                 for member_id in PresenterToGroupEntityType::inclusive_members_of(&schedule.entities, presenter_uuid) {
                     let member_uuid = member_id.non_nil_uuid();
                     if seen.insert(member_uuid) {
@@ -408,7 +423,6 @@ pub struct Panel {
                 }
             }
         }
-
         if result.is_empty() {
             None
         } else {
@@ -422,36 +436,20 @@ pub struct Panel {
         description = "Room where this panel takes place"
     )]
     #[alias("room", "event_room")]
-    #[read(|schedule: &crate::schedule::Schedule, entity: &PanelData| {
-        use crate::entity::{InternalData, PanelToEventRoomEntityType};
-        let panel_uuid = entity.uuid();
-        PanelToEventRoomEntityType::event_room_of(&schedule.entities, panel_uuid)
-            .map(|id| crate::field::FieldValue::NonNilUuid(id.non_nil_uuid()))
+    #[read(|_schedule: &crate::schedule::Schedule, entity: &PanelData| {
+        entity.event_room_id.map(|id| crate::field::FieldValue::NonNilUuid(id.non_nil_uuid()))
     })]
     #[write(|schedule: &mut crate::schedule::Schedule, entity: &mut PanelData, value: crate::field::FieldValue| {
-        use crate::entity::{InternalData, PanelToEventRoomEntityType, PanelToEventRoomId};
-        use crate::schedule::TypedEdgeStorage;
+        use crate::entity::{EventRoomId, InternalData, PanelToEventRoomEntityType};
         let panel_uuid = entity.uuid();
-        let old_edge_uuids: Vec<uuid::NonNilUuid> =
-            PanelToEventRoomEntityType::edge_index(&schedule.entities)
-                .outgoing(panel_uuid)
-                .to_vec();
-        for edge_uuid in old_edge_uuids {
-            schedule.remove_edge::<PanelToEventRoomEntityType>(PanelToEventRoomId::from_uuid(edge_uuid));
-        }
         let event_room_uuid = match value {
             crate::field::FieldValue::NonNilUuid(u) => u,
             _ => return Err(crate::field::FieldError::ConversionError(
                 crate::field::validation::ConversionError::InvalidFormat,
             )),
         };
-        let edge = crate::entity::PanelToEventRoomData {
-            entity_uuid: unsafe { uuid::NonNilUuid::new_unchecked(uuid::Uuid::now_v7()) },
-            panel_uuid,
-            event_room_uuid,
-        };
-        schedule.add_edge::<PanelToEventRoomEntityType>(edge)
-            .map(|_| ())
+        entity.event_room_id = Some(EventRoomId::from_uuid(event_room_uuid));
+        PanelToEventRoomEntityType::set_event_room(&mut schedule.entities, panel_uuid, event_room_uuid)
             .map_err(|_| crate::field::FieldError::ConversionError(
                 crate::field::validation::ConversionError::InvalidFormat,
             ))
@@ -463,35 +461,20 @@ pub struct Panel {
         description = "Type / category of this panel (e.g. \"Guest Panel\", \"Workshop\")"
     )]
     #[alias("panel_type", "kind", "type")]
-    #[read(|schedule: &crate::schedule::Schedule, entity: &PanelData| {
-        use crate::entity::{InternalData, PanelToPanelTypeEntityType};
-        let panel_uuid = entity.uuid();
-        PanelToPanelTypeEntityType::panel_type_of(&schedule.entities, panel_uuid)
-            .map(|id| crate::field::FieldValue::NonNilUuid(id.non_nil_uuid()))
+    #[read(|_schedule: &crate::schedule::Schedule, entity: &PanelData| {
+        entity.panel_type_id.map(|id| crate::field::FieldValue::NonNilUuid(id.non_nil_uuid()))
     })]
     #[write(|schedule: &mut crate::schedule::Schedule, entity: &mut PanelData, value: crate::field::FieldValue| {
-        use crate::entity::{InternalData, PanelToPanelTypeEntityType, PanelToPanelTypeId};
-        use crate::schedule::TypedEdgeStorage;
+        use crate::entity::{InternalData, PanelToPanelTypeEntityType, PanelTypeId};
         let panel_uuid = entity.uuid();
-        let old_edge_uuids: Vec<uuid::NonNilUuid> =
-            PanelToPanelTypeEntityType::edge_index(&schedule.entities)
-                .outgoing(panel_uuid)
-                .to_vec();
-        for edge_uuid in old_edge_uuids {
-            schedule.remove_edge::<PanelToPanelTypeEntityType>(PanelToPanelTypeId::from_uuid(edge_uuid));
-        }
         let panel_type_uuid = match value {
             crate::field::FieldValue::NonNilUuid(u) => u,
             _ => return Err(crate::field::FieldError::ConversionError(
                 crate::field::validation::ConversionError::InvalidFormat,
             )),
         };
-        let edge = crate::entity::PanelToPanelTypeData {
-            entity_uuid: unsafe { uuid::NonNilUuid::new_unchecked(uuid::Uuid::now_v7()) },
-            panel_uuid,
-            panel_type_uuid,
-        };
-        schedule.add_edge::<PanelToPanelTypeEntityType>(edge)
+        entity.panel_type_id = Some(PanelTypeId::from_uuid(panel_type_uuid));
+        PanelToPanelTypeEntityType::set_panel_type(&mut schedule.entities, panel_uuid, panel_type_uuid)
             .map(|_| ())
             .map_err(|_| crate::field::FieldError::ConversionError(
                 crate::field::validation::ConversionError::InvalidFormat,
@@ -512,13 +495,12 @@ impl PanelEntityType {
     /// Supports:
     /// - `FieldValue::NonNilUuid(u)` -> lookup by UUID
     pub fn resolve_field_value(
-        schedule: &crate::schedule::Schedule,
+        storage: &crate::schedule::EntityStorage,
         value: crate::field::FieldValue,
     ) -> Result<PanelId, crate::schedule::LookupError> {
         match value {
             crate::field::FieldValue::NonNilUuid(uuid) => {
-                // Direct UUID lookup
-                if schedule.entities.panels.contains_key(&uuid) {
+                if storage.panels.contains_key(&uuid) {
                     Ok(PanelId::from_uuid(uuid))
                 } else {
                     Err(crate::schedule::LookupError::UuidNotFound(uuid.into()))
@@ -537,7 +519,7 @@ impl PanelEntityType {
     /// Returns the number of presenters successfully added. Errors for individual
     /// values are silently ignored.
     pub fn add_presenters(
-        schedule: &mut crate::schedule::Schedule,
+        storage: &mut crate::schedule::EntityStorage,
         panel_uuid: uuid::NonNilUuid,
         values: Vec<crate::field::FieldValue>,
     ) -> usize {
@@ -545,17 +527,23 @@ impl PanelEntityType {
 
         let mut added = 0;
         for value in values {
-            match PresenterEntityType::resolve_field_value(schedule, value) {
+            match PresenterEntityType::resolve_field_value(storage, value) {
                 Ok(presenter_id) => {
                     let count = PanelToPresenterEntityType::add_presenters(
-                        schedule,
+                        storage,
                         panel_uuid,
                         &[presenter_id],
                     );
+                    if count > 0 {
+                        if let Some(panel_data) = storage.panels.get_mut(&panel_uuid) {
+                            if !panel_data.presenter_ids.contains(&presenter_id) {
+                                panel_data.presenter_ids.push(presenter_id);
+                            }
+                        }
+                    }
                     added += count;
                 }
                 Err(_) => {
-                    // Silently skip invalid values
                     continue;
                 }
             }
@@ -571,7 +559,7 @@ impl PanelEntityType {
     ///
     /// Returns the number of presenters successfully removed.
     pub fn remove_presenters(
-        schedule: &mut crate::schedule::Schedule,
+        storage: &mut crate::schedule::EntityStorage,
         panel_uuid: uuid::NonNilUuid,
         values: Vec<crate::field::FieldValue>,
     ) -> usize {
@@ -579,17 +567,21 @@ impl PanelEntityType {
 
         let mut removed = 0;
         for value in values {
-            match PresenterEntityType::resolve_field_value(schedule, value) {
+            match PresenterEntityType::resolve_field_value(storage, value) {
                 Ok(presenter_id) => {
                     let count = PanelToPresenterEntityType::remove_presenters(
-                        schedule,
+                        storage,
                         panel_uuid,
                         &[presenter_id],
                     );
+                    if count > 0 {
+                        if let Some(panel_data) = storage.panels.get_mut(&panel_uuid) {
+                            panel_data.presenter_ids.retain(|id| id != &presenter_id);
+                        }
+                    }
                     removed += count;
                 }
                 Err(_) => {
-                    // Silently skip invalid values
                     continue;
                 }
             }
@@ -604,7 +596,7 @@ impl PanelEntityType {
     ///
     /// Returns the number of presenters successfully added.
     pub fn add_presenters_tagged(
-        schedule: &mut crate::schedule::Schedule,
+        storage: &mut crate::schedule::EntityStorage,
         panel_uuid: uuid::NonNilUuid,
         tags: &[&str],
     ) -> usize {
@@ -617,17 +609,23 @@ impl PanelEntityType {
                 continue;
             }
 
-            match PresenterEntityType::lookup_tagged(schedule, tag) {
+            match PresenterEntityType::lookup_tagged(storage, tag) {
                 Ok(presenter_id) => {
                     let count = PanelToPresenterEntityType::add_presenters(
-                        schedule,
+                        storage,
                         panel_uuid,
                         &[presenter_id],
                     );
+                    if count > 0 {
+                        if let Some(panel_data) = storage.panels.get_mut(&panel_uuid) {
+                            if !panel_data.presenter_ids.contains(&presenter_id) {
+                                panel_data.presenter_ids.push(presenter_id);
+                            }
+                        }
+                    }
                     added += count;
                 }
                 Err(_) => {
-                    // Silently skip invalid tags
                     continue;
                 }
             }

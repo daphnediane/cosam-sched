@@ -9,12 +9,12 @@
 use std::collections::HashMap;
 
 use crate::entity::{
-    DirectedEdge, EntityType, EventRoomData, EventRoomEntityType, EventRoomToHotelRoomData,
-    EventRoomToHotelRoomEntityType, HotelRoomData, HotelRoomEntityType, PanelData, PanelEntityType,
-    PanelToEventRoomData, PanelToEventRoomEntityType, PanelToPanelTypeData,
-    PanelToPanelTypeEntityType, PanelToPresenterData, PanelToPresenterEntityType, PanelTypeData,
-    PanelTypeEntityType, PresenterData, PresenterEntityType, PresenterToGroupData,
-    PresenterToGroupEntityType,
+    DirectedEdge, EntityKind, EntityType, EventRoomData, EventRoomEntityType,
+    EventRoomToHotelRoomData, EventRoomToHotelRoomEntityType, HotelRoomData, HotelRoomEntityType,
+    InternalData, PanelData, PanelEntityType, PanelToEventRoomData, PanelToEventRoomEntityType,
+    PanelToPanelTypeData, PanelToPanelTypeEntityType, PanelToPresenterData,
+    PanelToPresenterEntityType, PanelTypeData, PanelTypeEntityType, PresenterData,
+    PresenterEntityType, PresenterToGroupData, PresenterToGroupEntityType, TypedId,
 };
 use uuid::NonNilUuid;
 
@@ -99,12 +99,15 @@ pub struct EntityStorage {
     pub panel_to_panel_types: HashMap<NonNilUuid, PanelToPanelTypeData>,
     pub presenter_to_groups: HashMap<NonNilUuid, PresenterToGroupData>,
 
-    // Edge indexes — kept in sync by Schedule::add_edge / Schedule::remove_edge
+    // Edge indexes — kept in sync by add_edge / remove_edge
     panel_to_presenter_index: EdgeIndex,
     panel_to_event_room_index: EdgeIndex,
     event_room_to_hotel_room_index: EdgeIndex,
     panel_to_panel_type_index: EdgeIndex,
     presenter_to_group_index: EdgeIndex,
+
+    /// UUID registry mapping every known UUID to its entity kind.
+    pub uuid_registry: HashMap<NonNilUuid, EntityKind>,
 }
 
 /// Provides access to the concrete `HashMap` for an entity type.
@@ -309,18 +312,22 @@ impl EntityStorage {
         T::typed_map(self).get(&uuid)
     }
 
-    /// Add entity to storage with pre-allocated UUID.
+    /// Add entity to storage with pre-allocated UUID, registering it in the UUID registry.
     pub fn add_with_uuid<T: TypedStorage>(
         &mut self,
         uuid: NonNilUuid,
         entity: T::Data,
     ) -> Result<(), InsertError> {
-        let map = T::typed_map_mut(self);
-        if map.contains_key(&uuid) {
-            return Err(InsertError::UuidCollision { uuid });
-        }
-        map.insert(uuid, entity);
-        Ok(())
+        EntityStore::<T>::insert_entity(self, uuid, entity)
+    }
+
+    /// Insert a new entity from its data struct, registering it in the UUID registry.
+    ///
+    /// The UUID is taken from `data.uuid()`. Returns the typed ID on success.
+    pub fn add_entity<T: TypedStorage>(&mut self, data: T::Data) -> Result<T::Id, InsertError> {
+        let uuid = data.uuid();
+        EntityStore::<T>::insert_entity(self, uuid, data)?;
+        Ok(T::Id::from_uuid(uuid))
     }
 
     /// Check if entity with given UUID exists.
@@ -333,9 +340,170 @@ impl EntityStorage {
         T::typed_map_mut(self).get_mut(&uuid)
     }
 
-    /// Remove an entity by type and UUID, returning the removed data if it existed.
+    /// Remove an entity by type and UUID, unregistering its UUID.
     pub fn remove<T: TypedStorage>(&mut self, uuid: NonNilUuid) -> Option<T::Data> {
-        T::typed_map_mut(self).remove(&uuid)
+        EntityStore::<T>::remove_entity(self, uuid)
+    }
+
+    // -----------------------------------------------------------------------
+    // Edge entity CRUD (maintains EdgeIndex alongside entity storage)
+    // -----------------------------------------------------------------------
+
+    /// Add an edge entity and update the edge index.
+    ///
+    /// Applies the edge type's [`TypedEdgeStorage::default_edge_policy`] when
+    /// the same endpoint pair already has an edge.  UUID collisions are always
+    /// an error regardless of policy.
+    pub fn add_edge<T>(&mut self, data: T::Data) -> Result<T::Id, InsertError>
+    where
+        T: TypedEdgeStorage,
+        T::Data: DirectedEdge,
+    {
+        self.add_edge_with_policy::<T>(data, T::default_edge_policy())
+    }
+
+    /// Add an edge entity using the specified [`EdgePolicy`] for duplicate
+    /// endpoint handling, overriding the type's default.
+    pub fn add_edge_with_policy<T>(
+        &mut self,
+        data: T::Data,
+        policy: EdgePolicy,
+    ) -> Result<T::Id, InsertError>
+    where
+        T: TypedEdgeStorage,
+        T::Data: DirectedEdge,
+    {
+        let uuid = data.uuid();
+        let left_uuid = data.left_uuid();
+        let right_uuid = data.right_uuid();
+
+        // Early UUID collision check (before any mutations)
+        let existing_kind = self.uuid_registry.get(&uuid).copied();
+        if let Some(kind) = existing_kind {
+            if kind != T::KIND {
+                return Err(InsertError::UuidCollision { uuid });
+            }
+            if T::typed_map(self).contains_key(&uuid) {
+                return Err(InsertError::UuidCollision { uuid });
+            }
+        }
+
+        // Find existing edge with same endpoints
+        let outgoing_uuids: Vec<NonNilUuid> = T::edge_index(self).outgoing(left_uuid).to_vec();
+        let existing_edge_uuid: Option<NonNilUuid> = {
+            let map = T::typed_map(self);
+            outgoing_uuids.iter().copied().find(|&edge_uuid| {
+                map.get(&edge_uuid)
+                    .is_some_and(|d| d.right_uuid() == right_uuid)
+            })
+        };
+
+        if let Some(existing_uuid) = existing_edge_uuid {
+            match policy {
+                EdgePolicy::Reject => {
+                    return Err(InsertError::DuplicateEdge {
+                        left: left_uuid,
+                        right: right_uuid,
+                    });
+                }
+                EdgePolicy::Ignore => {
+                    return Ok(T::Id::from_uuid(existing_uuid));
+                }
+                EdgePolicy::Replace => {
+                    T::edge_index_mut(self).remove(left_uuid, right_uuid, existing_uuid);
+                    EntityStore::<T>::remove_entity(self, existing_uuid);
+                }
+            }
+        }
+
+        EntityStore::<T>::insert_entity(self, uuid, data)?;
+        T::edge_index_mut(self).add(left_uuid, right_uuid, uuid);
+        Ok(T::Id::from_uuid(uuid))
+    }
+
+    /// Remove an edge entity and update the edge index.
+    ///
+    /// Returns the edge data if it existed. Both the UUID registry and the
+    /// [`EdgeIndex`] are cleaned up.
+    pub fn remove_edge<T>(&mut self, id: T::Id) -> Option<T::Data>
+    where
+        T: TypedEdgeStorage,
+        T::Data: DirectedEdge,
+    {
+        let uuid = id.non_nil_uuid();
+        let data = EntityStore::<T>::remove_entity(self, uuid)?;
+        T::edge_index_mut(self).remove(data.left_uuid(), data.right_uuid(), uuid);
+        Some(data)
+    }
+
+    // -----------------------------------------------------------------------
+    // Edge queries
+    // -----------------------------------------------------------------------
+
+    /// Edge entity UUIDs leaving `from` for edge type `T`.
+    pub fn edge_uuids_from<T>(&self, from: NonNilUuid) -> &[NonNilUuid]
+    where
+        T: TypedEdgeStorage,
+        T::Data: DirectedEdge,
+    {
+        T::edge_index(self).outgoing(from)
+    }
+
+    /// Edge entity UUIDs arriving at `to` for edge type `T`.
+    pub fn edge_uuids_to<T>(&self, to: NonNilUuid) -> &[NonNilUuid]
+    where
+        T: TypedEdgeStorage,
+        T::Data: DirectedEdge,
+    {
+        T::edge_index(self).incoming(to)
+    }
+
+    /// Resolved edge data for all edges leaving `from`.
+    pub fn edges_from<T>(&self, from: NonNilUuid) -> Vec<&T::Data>
+    where
+        T: TypedEdgeStorage,
+        T::Data: DirectedEdge,
+    {
+        T::edge_index(self)
+            .outgoing(from)
+            .iter()
+            .filter_map(|&edge_uuid| self.get::<T>(edge_uuid))
+            .collect()
+    }
+
+    /// Resolved edge data for all edges arriving at `to`.
+    pub fn edges_to<T>(&self, to: NonNilUuid) -> Vec<&T::Data>
+    where
+        T: TypedEdgeStorage,
+        T::Data: DirectedEdge,
+    {
+        T::edge_index(self)
+            .incoming(to)
+            .iter()
+            .filter_map(|&edge_uuid| self.get::<T>(edge_uuid))
+            .collect()
+    }
+
+    /// Check whether an edge of type `T` exists between `from` and `to`.
+    pub fn edge_exists<T>(&self, from: NonNilUuid, to: NonNilUuid) -> bool
+    where
+        T: TypedEdgeStorage,
+        T::Data: DirectedEdge,
+    {
+        let map = T::typed_map(self);
+        T::edge_index(self).outgoing(from).iter().any(|&edge_uuid| {
+            map.get(&edge_uuid)
+                .is_some_and(|data| data.right_uuid() == to)
+        })
+    }
+
+    /// Number of edges of type `T` currently stored.
+    pub fn edge_count<T>(&self) -> usize
+    where
+        T: TypedEdgeStorage,
+        T::Data: DirectedEdge,
+    {
+        T::edge_index(self).len()
     }
 }
 
@@ -364,6 +532,9 @@ pub trait EntityStore<T: EntityType> {
 
 /// Blanket implementation: `EntityStorage` is an `EntityStore<T>` for any
 /// entity type that has a [`TypedStorage`] mapping.
+///
+/// UUID registration is handled here: `insert_entity` registers the UUID in
+/// the `uuid_registry`, and `remove_entity` unregisters it.
 impl<T: TypedStorage> EntityStore<T> for EntityStorage {
     fn get_entity(&self, uuid: NonNilUuid) -> Option<&T::Data> {
         T::typed_map(self).get(&uuid)
@@ -374,19 +545,72 @@ impl<T: TypedStorage> EntityStore<T> for EntityStorage {
     }
 
     fn insert_entity(&mut self, uuid: NonNilUuid, data: T::Data) -> Result<(), InsertError> {
-        let map = T::typed_map_mut(self);
-        if map.contains_key(&uuid) {
+        // Check for cross-type UUID collision
+        let existing_kind = self.uuid_registry.get(&uuid).copied();
+        if let Some(kind) = existing_kind {
+            if kind != T::KIND {
+                return Err(InsertError::UuidCollision { uuid });
+            }
+        }
+        // Check for same-type duplicate
+        if T::typed_map(self).contains_key(&uuid) {
             return Err(InsertError::UuidCollision { uuid });
         }
-        map.insert(uuid, data);
+        self.uuid_registry.insert(uuid, T::KIND);
+        T::typed_map_mut(self).insert(uuid, data);
         Ok(())
     }
 
     fn remove_entity(&mut self, uuid: NonNilUuid) -> Option<T::Data> {
-        T::typed_map_mut(self).remove(&uuid)
+        let result = T::typed_map_mut(self).remove(&uuid);
+        if result.is_some() {
+            self.uuid_registry.remove(&uuid);
+        }
+        result
     }
 
     fn contains_entity(&self, uuid: NonNilUuid) -> bool {
         T::typed_map(self).contains_key(&uuid)
     }
 }
+
+/// Trait for edge entity types that manage their own edges within [`EntityStorage`].
+///
+/// Provides default `add_edge`, `add_edge_with_policy`, and `remove_edge` methods
+/// that route through [`EntityStorage`] and maintain both the entity map and the
+/// [`EdgeIndex`]. Implement this as an empty marker impl on each edge entity type.
+pub trait EdgeEntityType: TypedEdgeStorage
+where
+    Self::Data: DirectedEdge,
+{
+    fn add_edge(storage: &mut EntityStorage, data: Self::Data) -> Result<Self::Id, InsertError>
+    where
+        Self: Sized,
+    {
+        storage.add_edge::<Self>(data)
+    }
+
+    fn add_edge_with_policy(
+        storage: &mut EntityStorage,
+        data: Self::Data,
+        policy: EdgePolicy,
+    ) -> Result<Self::Id, InsertError>
+    where
+        Self: Sized,
+    {
+        storage.add_edge_with_policy::<Self>(data, policy)
+    }
+
+    fn remove_edge(storage: &mut EntityStorage, id: Self::Id) -> Option<Self::Data>
+    where
+        Self: Sized,
+    {
+        storage.remove_edge::<Self>(id)
+    }
+}
+
+impl EdgeEntityType for PanelToPresenterEntityType {}
+impl EdgeEntityType for PanelToEventRoomEntityType {}
+impl EdgeEntityType for EventRoomToHotelRoomEntityType {}
+impl EdgeEntityType for PanelToPanelTypeEntityType {}
+impl EdgeEntityType for PresenterToGroupEntityType {}

@@ -66,6 +66,30 @@ impl PanelToEventRoomEntityType {
             .map(|edge| crate::entity::PanelId::from(edge.left_uuid()))
             .collect()
     }
+
+    /// Set (replace) the event room for a panel.
+    ///
+    /// Removes any existing room assignment before adding the new one.
+    pub fn set_event_room(
+        storage: &mut crate::schedule::EntityStorage,
+        panel_uuid: NonNilUuid,
+        event_room_uuid: NonNilUuid,
+    ) -> Result<(), crate::schedule::InsertError> {
+        use crate::schedule::TypedEdgeStorage;
+        let old_edge_uuids: Vec<NonNilUuid> =
+            Self::edge_index(storage).outgoing(panel_uuid).to_vec();
+        for edge_uuid in old_edge_uuids {
+            storage.remove_edge::<Self>(PanelToEventRoomId::from(edge_uuid));
+        }
+        let edge_uuid = unsafe { NonNilUuid::new_unchecked(uuid::Uuid::now_v7()) };
+        storage
+            .add_edge::<Self>(PanelToEventRoomData {
+                entity_uuid: edge_uuid,
+                panel_uuid,
+                event_room_uuid,
+            })
+            .map(|_| ())
+    }
 }
 
 #[cfg(test)]

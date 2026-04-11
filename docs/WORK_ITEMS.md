@@ -1,6 +1,6 @@
 # Cosplay America Schedule - Work Item
 
-Updated on: Sat Apr 11 18:03:09 2026
+Updated on: Sat Apr 11 20:21:37 2026
 
 ## Completed
 
@@ -13,15 +13,27 @@ and validation infrastructure.
 * [FEATURE-007] Implement typed edge storage for entity-to-entity relationships.
 * [FEATURE-008] Implement the `Schedule` struct and `EntityStorage` for managing all entities
 and relationships.
+* [FEATURE-034] Implement proper delegation pattern for `Schedule` convenience methods,
+moving business logic to entity-specific implementations.
 * [META-025] Phase tracker for project foundation and Cargo workspace setup.
+* [META-035] Update system documentation to describe the virtual edge design and create
+work items for implementation phases REFACTOR-036, REFACTOR-037, REFACTOR-038.
 * [REFACTOR-032] Rename the `from`/`to` endpoint naming on `DirectedEdge` to `left`/`right`
 throughout the codebase.
 
 ---
 
+## Superseded / Rejected
+
+* [FEATURE-033] (Superseded) Unify `add_entity` and `add_edge` into a single insertion path, moving
+EdgeIndex (and any per-type cache) maintenance responsibility into each
+`EntityType` implementation.
+
+---
+
 ## Summary of Open Items
 
-**Total open items:** 24
+**Total open items:** 26
 
 * **Meta / Project-Level**
   * [META-001] Meta work item tracking the full multi-phase redesign of the schedule system. (Blocked by [META-026], [META-027], [META-028], [META-029], [META-030], [META-031])
@@ -35,6 +47,13 @@ XLSX import/export. (Blocked by [META-026], [META-027])
 
 * **High Priority**
   * [FEATURE-010] ([META-026]) Implement a command-based edit system with full undo/redo support.
+  * [REFACTOR-036] Add stored relationship fields to Panel, EventRoom, and Presenter; remove
+edge-backed computed field closures.
+  * [REFACTOR-037] Add entity type insertion/removal hooks and per-relationship reverse lookup
+indexes to EntityStorage; remove all edge HashMap and EdgeIndex infrastructure.
+  * [REFACTOR-038] Update Schedule convenience methods to use field access and reverse indexes;
+remove DirectedEdge trait, edge macro attributes, edge EntityKind/EntityUUID
+variants, and delete the five edge entity files.
 
 * **Medium Priority**
   * [FEATURE-009] ([META-026]) Implement field-based search, matching, and bulk update operations.
@@ -48,8 +67,6 @@ reference and jump-starting new conventions.
 display widget.
   * [FEATURE-017] ([META-028]) Import schedule data from the existing XLSX spreadsheet format.
   * [FEATURE-018] ([META-028]) Export schedule data back to the XLSX spreadsheet format.
-  * [FEATURE-025] ([META-026]) Implement proper delegation pattern for `Schedule` convenience methods,
-moving business logic to entity-specific implementations.
 
 * **Low Priority**
   * [CLI-019] ([META-029]) CLI tool for converting between schedule file formats (XLSX, JSON, widget JSON).
@@ -65,20 +82,9 @@ moving business logic to entity-specific implementations.
 
 The following ID numbers are available for new items:
 
-**Available:** 033, 034, 035, 036, 037, 038, 039, 040, 041, 042, 043
+**Available:** 039, 040, 041, 042, 043, 044, 045, 046, 047, 048
 
-**Highest used:** 32
-
----
-
-### Numbering Conflicts
-
-The following ID numbers are used by multiple items:
-
-#### Suffix `025`
-
-* ✓ [META-025] Phase 1 — Foundation
-* ○ [FEATURE-025] Implement Schedule method delegation to entity types
+**Highest used:** 38
 
 ---
 
@@ -305,23 +311,6 @@ column layout, enabling round-trip with the import (FEATURE-017).
 
 ---
 
-### [FEATURE-025] Implement Schedule method delegation to entity types
-
-**Status:** Open
-
-**Priority:** Medium
-
-**Summary:** Implement proper delegation pattern for `Schedule` convenience methods,
-moving business logic to entity-specific implementations.
-
-**Part of:** [META-026]
-
-**Description:** The `Schedule` struct currently contains several methods that implement
-business logic directly instead of delegating to entity types. This was
-written against the planned architecture and needs to be corrected.
-
----
-
 ### [FEATURE-023] Peer-to-Peer Schedule Sync Protocol
 
 **Status:** Open
@@ -408,7 +397,7 @@ the new workspace. This is the largest and most foundational phase.
 * FEATURE-006: UUID-based identity and typed ID wrappers
 * FEATURE-007: Edge/relationship system
 * FEATURE-008: Schedule container and EntityStorage
-* FEATURE-025: Schedule method delegation to entity types
+* FEATURE-034: Schedule method delegation to entity types
 * FEATURE-009: Query system
 * FEATURE-010: Edit command system with undo/redo history
 
@@ -522,6 +511,51 @@ to exchange CRDT changes and reconcile concurrent edits to the same fields.
 
 ---
 
+## Open REFACTOR Items
+
+### [REFACTOR-036] Virtual Edge Refactor — Entity Field Changes
+
+**Status:** Open
+
+**Priority:** High
+
+**Summary:** Add stored relationship fields to Panel, EventRoom, and Presenter; remove
+edge-backed computed field closures.
+
+**Description:** Replace edge-backed computed fields with stored UUID fields on the owning
+entities, following the virtual edge design documented in META-035.
+
+---
+
+### [REFACTOR-037] Virtual Edge Refactor — EntityStorage Reverse Indexes and Hook System
+
+**Status:** Open
+
+**Priority:** High
+
+**Summary:** Add entity type insertion/removal hooks and per-relationship reverse lookup
+indexes to EntityStorage; remove all edge HashMap and EdgeIndex infrastructure.
+
+**Description:** Implements the storage side of the virtual edge design (see META-035).
+Supersedes FEATURE-033 (which proposed a similar hook system for EdgeIndex
+maintenance).
+
+---
+
+### [REFACTOR-038] Virtual Edge Refactor — Schedule Methods, Macro Cleanup, Edge File Deletion
+
+**Status:** Open
+
+**Priority:** High
+
+**Summary:** Update Schedule convenience methods to use field access and reverse indexes;
+remove DirectedEdge trait, edge macro attributes, edge EntityKind/EntityUUID
+variants, and delete the five edge entity files.
+
+**Description:** Final cleanup phase of the virtual edge refactor (see META-035).
+
+---
+
 ---
 
 [CLI-019]: work-item/low/CLI-019.md
@@ -547,7 +581,8 @@ to exchange CRDT changes and reconcile concurrent edits to the same fields.
 [FEATURE-018]: work-item/medium/FEATURE-018.md
 [FEATURE-023]: work-item/low/FEATURE-023.md
 [FEATURE-024]: work-item/low/FEATURE-024.md
-[FEATURE-025]: work-item/medium/FEATURE-025.md
+[FEATURE-033]: work-item/rejected/FEATURE-033.md
+[FEATURE-034]: work-item/done/FEATURE-034.md
 [META-001]: work-item/meta/META-001.md
 [META-025]: work-item/done/META-025.md
 [META-026]: work-item/meta/META-026.md
@@ -556,4 +591,8 @@ to exchange CRDT changes and reconcile concurrent edits to the same fields.
 [META-029]: work-item/meta/META-029.md
 [META-030]: work-item/meta/META-030.md
 [META-031]: work-item/meta/META-031.md
+[META-035]: work-item/done/META-035.md
 [REFACTOR-032]: work-item/done/REFACTOR-032.md
+[REFACTOR-036]: work-item/high/REFACTOR-036.md
+[REFACTOR-037]: work-item/high/REFACTOR-037.md
+[REFACTOR-038]: work-item/high/REFACTOR-038.md

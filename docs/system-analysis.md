@@ -8,13 +8,15 @@ the design decisions made so far. Update as each META-026 work item completes.
 
 ## 1. Repository Map
 
-| Repo path           | Branch                   | Purpose                                                                   | Trust level                                         |
-| ------------------- | ------------------------ | ------------------------------------------------------------------------- | --------------------------------------------------- |
-| `main/`             | feature/rewrite          | **Active workspace** — Phase 2 of META-001 in progress                    | Canonical                                           |
-| `v10-try-2/`        | feature/json-v10-try2    | v10 experiment retry: edge system + query engine, full entity definitions | Reference (partially superseded)                    |
-| `v10-try-1/`        | feature/json-v10-try1    | v10 development sketch: schedule-data along side updated schedule-core    | Reference (design ideas only; largely superseded)   |
-| `v9/`               | release/schedule-core-v9 | schedule-core with xlsx import/export and GPUI editor shell               | Reference (mostly out-of-date; but more functional) |
-| `schedule-to-html/` | (different repo)         | Perl widget / HTML schedule generator / spreadsheet only no json          | Spreadsheet format authority                        |
+| Repo path           | Branch                   | Purpose                                                                                                                                                | Trust level                                         |
+| ------------------- | ------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------ | --------------------------------------------------- |
+| `main/`             | feature/rewrite          | **Active workspace** — Phase 2 of META-001 in progress                                                                                                 | Canonical                                           |
+| `v10-try-2/`        | feature/json-v10-try2    | v10 experiment retry: edge system + query engine, full entity definitions                                                                              | Reference (partially superseded)                    |
+| `v10-try-1/`        | feature/json-v10-try1    | v10 development sketch: schedule-data along side updated schedule-core                                                                                 | Reference (design ideas only; largely superseded)   |
+| `v9/`               | release/schedule-core-v9 | schedule-core with xlsx import/export and GPUI editor shell                                                                                            | Reference (mostly out-of-date; but more functional) |
+| `schedule-to-html/` | (different repo)         | Perl static pipeline: reads spreadsheet → generates HTML/JSON for widget display. **No editing capability** — schedule data lived in spreadsheet only. | Spreadsheet format authority                        |
+
+> **Note on `schedule-to-html`:** This predecessor was intentionally read-only. It consumed a manually-maintained spreadsheet (the authoritative source) and produced static HTML pages and a JavaScript widget JSON blob. There was no concept of an in-app data model, editing, undo, or JSON round-tripping. The current Rust rewrite exists specifically to add those capabilities.
 
 ---
 
@@ -66,46 +68,52 @@ cosam_sched/
 | `HotelRoom` | `room_name`, `long_name`                                                                                                                                  | (same pattern)                       |
 | `PanelType` | `prefix` (2-letter), `panel_kind`, boolean flags (`is_workshop`, `is_break`, `is_cafe`, `is_private`, `is_timeline`, …), `color`, `bw`                    | `prefix` (220), `panel_kind` (210)   |
 
-### 4.2 Edge-Entities (Relationships)
+### 4.2 Relationships (Virtual Edges)
 
-All relationships are stored as **first-class entities** with their own UUID
-(not a separate edge store). They derive `EntityFields` and implement
-`DirectedEdge`.
+Relationships are stored as **UUID fields directly on the owning entity** —
+there are no separate edge entities and no edge UUIDs.  `EntityStorage`
+maintains per-relationship reverse lookup indexes so queries from either side
+remain efficient.
 
-| Edge                   | From                 | To                  | Extra fields                              |
-| ---------------------- | -------------------- | ------------------- | ----------------------------------------- |
-| `PanelToPresenter`     | `Panel`              | `Presenter`         | —                                         |
-| `PanelToEventRoom`     | `Panel`              | `EventRoom`         | —                                         |
-| `PanelToPanelType`     | `Panel`              | `PanelType`         | —                                         |
-| `EventRoomToHotelRoom` | `EventRoom`          | `HotelRoom`         | —                                         |
-| `PresenterToGroup`     | `Presenter` (member) | `Presenter` (group) | `always_shown_in_group`, `always_grouped` |
+| Relationship          | Owning entity | Stored field(s)                   | Reverse index in EntityStorage |
+| --------------------- | ------------- | --------------------------------- | ------------------------------ |
+| Panel → PanelType     | `Panel`       | `panel_type: Option<PanelTypeId>` | `panels_by_panel_type`         |
+| Panel → EventRoom     | `Panel`       | `event_room: Option<EventRoomId>` | `panels_by_event_room`         |
+| Panel → Presenter(s)  | `Panel`       | `presenters: Vec<PresenterId>`    | `panels_by_presenter`          |
+| EventRoom → HotelRoom | `EventRoom`   | `hotel_rooms: Vec<HotelRoomId>`   | `event_rooms_by_hotel_room`    |
+| Presenter → Group(s)  | `Presenter`   | `groups: Vec<PresenterId>`        | `presenters_by_group`          |
 
-**PresenterToGroup self-loop** — when `member_uuid == group_uuid`, the edge is
-a *group marker*: it marks that presenter entity as a group rather than an
-individual. `PresenterToGroupData::is_self_loop()` detects this.
+`Presenter` also carries `is_explicit_group: bool` (set when a presenter is
+explicitly declared a group, as opposed to implicitly acting as one because
+others point to it), `always_grouped: bool`, and `always_shown_in_group: bool`
+(entity-level flags matching old `schedule-to-html` behavior;
+per-membership-edge granularity is deferred — see IDEA-039).
 
 ### 4.3 Key Design Decisions
 
-- **Edges-as-entities**: chosen so edges participate in the UUID registry, can
-  be tracked by the undo system, and can carry metadata without a separate
-  storage layer.
-- **EdgeIndex per edge type**: each edge type has a bidirectional
-  `EdgeIndex` (two `HashMap<NonNilUuid, Vec<NonNilUuid>>` for outgoing and
-  incoming) stored in `EntityStorage`, kept in sync via `Schedule::add_edge`
-  and `Schedule::remove_edge`.
+- **Virtual edges (relationships as owned fields)**: each relationship is a
+  UUID field (or `Vec<TypedId>`) stored directly on the owning entity — no
+  separate edge entities, no edge UUIDs.  Removing a relationship is a field
+  mutation on the owning entity, not an entity deletion.  Entities themselves
+  use soft deletion.
+- **Reverse lookup indexes**: `EntityStorage` maintains one
+  `HashMap<NonNilUuid, Vec<NonNilUuid>>` per relationship for the non-owning
+  side (e.g., `panels_by_presenter`).  These are updated by entity type
+  `on_insert` / `on_remove` / `on_update` hooks, not by a separate `add_edge`
+  call-site.
 - **Schedule is a proxy**: `Schedule` provides UUID registry coordination
   and a unified API, but entity types own their storage access patterns.
-  Computed field closures access `EntityStorage` directly (via
-  `TypedEdgeStorage` dispatch), not through `Schedule` convenience methods.
+  Computed field closures access `EntityStorage` directly, not through
+  `Schedule` convenience methods.
 - **`<Type>EntityType` owns the logic**: All non-trivial implementations that
   work with entity or edge data belong as methods on the relevant
   `<Type>EntityType` struct. `Schedule` methods and computed field closures
   are **thin adapters** — they call the `EntityType` method and return the
   result, containing no logic of their own. See §10 for examples.
 - **Rooms split**: `EventRoom` (logical schedule room) vs `HotelRoom` (physical
-  hotel space). One event room can map to different hotel rooms at different
-  times (time-partitioned), modelled by `EventRoomToHotelRoom` edges that will
-  carry a `TimeRange` when FEATURE-007 is completed.
+  hotel space). One event room can map to multiple hotel rooms; the
+  `hotel_rooms` field on `EventRoom` holds the list.  Time-partitioned mapping
+  (different physical rooms at different times) is deferred.
 
 ---
 
@@ -133,14 +141,11 @@ Generated by the macro. Each wrapper:
 
 Controls UUID assignment in builders:
 
-| Variant             | When to use                                                     |
-| ------------------- | --------------------------------------------------------------- |
-| `GenerateNew`       | New entity with no natural key (default, emits v7)              |
-| `FromV5 { name }`   | Import from spreadsheet — deterministic from natural key string |
-| `Edge { from, to }` | Edge entities — deterministic from endpoint UUIDs               |
-| `Exact(uuid)`       | Restoring from serialized state                                 |
-
-Edge builders auto-upgrade `GenerateNew` → `Edge` when both endpoints are set.
+| Variant           | When to use                                                     |
+| ----------------- | --------------------------------------------------------------- |
+| `GenerateNew`     | New entity with no natural key (default, emits v7)              |
+| `FromV5 { name }` | Import from spreadsheet — deterministic from natural key string |
+| `Exact(uuid)`     | Restoring from serialized state                                 |
 
 ### EntityUUID / EntityKind
 
@@ -161,7 +166,6 @@ Edge builders auto-upgrade `GenerateNew` → `Edge` when both endpoints are set.
 | `<Name>Builder`        | Construction with validation and schedule insertion |
 | Per-field unit structs | `NamedField` impls for field access                 |
 | `fields` module        | Public constants for all field structs              |
-| `DirectedEdge`         | When `#[edge_from]` + `#[edge_to]` present          |
 
 **Design rationale**: The macro separates the user-facing struct (with computed
 fields as typed accessors) from the storage struct (`Data`). This allows computed
@@ -253,9 +257,9 @@ followed by per-name columns without kind prefix.
 
 ---
 
-## 10. Schedule Container (FEATURE-008, in progress)
+## 10. Schedule Container (FEATURE-008, revised by REFACTOR-036/037/038)
 
-### Current Implementation
+### Structure
 
 ```text
 Schedule
@@ -265,11 +269,13 @@ Schedule
 │   ├── event_rooms: HashMap<NonNilUuid, EventRoomData>
 │   ├── hotel_rooms: HashMap<NonNilUuid, HotelRoomData>
 │   ├── panel_types: HashMap<NonNilUuid, PanelTypeData>
-│   ├── panel_to_presenters: HashMap + EdgeIndex
-│   ├── panel_to_event_rooms: HashMap + EdgeIndex
-│   ├── panel_to_panel_types: HashMap + EdgeIndex
-│   ├── event_room_to_hotel_rooms: HashMap + EdgeIndex
-│   └── presenter_to_groups: HashMap + EdgeIndex
+│   │
+│   └── Reverse relationship indexes (maintained by entity type hooks)
+│       ├── panels_by_panel_type:   HashMap<NonNilUuid, Vec<NonNilUuid>>
+│       ├── panels_by_event_room:   HashMap<NonNilUuid, Vec<NonNilUuid>>
+│       ├── panels_by_presenter:    HashMap<NonNilUuid, Vec<NonNilUuid>>
+│       ├── event_rooms_by_hotel_room: HashMap<NonNilUuid, Vec<NonNilUuid>>
+│       └── presenters_by_group:    HashMap<NonNilUuid, Vec<NonNilUuid>>
 ├── uuid_registry: HashMap<NonNilUuid, EntityKind>
 └── metadata: ScheduleMetadata
 ```
@@ -306,11 +312,21 @@ pub trait EntityType: 'static + Send + Sync + Debug {
     const KIND: EntityKind;
     fn field_set() -> &'static FieldSet<Self>;
     fn validate(data: &Self::Data) -> Result<(), ValidationError>;
+    /// Called after entity is inserted into its HashMap.
+    fn on_insert(storage: &mut EntityStorage, data: &Self::Data) {}
+    /// Called before entity is removed from its HashMap.
+    fn on_remove(storage: &mut EntityStorage, data: &Self::Data) {}
+    /// Called when entity data changes in place (field update).
+    fn on_update(storage: &mut EntityStorage, old: &Self::Data, new: &Self::Data) {}
 }
 ```
 
 The `type Id` associated type links each entity type to its typed ID wrapper,
 enabling generic methods like `add_entity` to return the correct ID type.
+
+`PanelEntityType`, `EventRoomEntityType`, and `PresenterEntityType` implement
+`on_insert` / `on_remove` / `on_update` to maintain their respective reverse
+relationship indexes in `EntityStorage`.
 
 ### Builder → Schedule Integration
 
@@ -322,78 +338,31 @@ combines `ValidationError` and `InsertError`.
 `Builder::build_data()` produces the data struct without inserting (useful for
 tests or deferred insertion).
 
-### EdgeIndex and TypedEdgeStorage
+### Relationship Convenience Methods on EntityType
 
-`EdgeIndex` holds two `HashMap<NonNilUuid, Vec<NonNilUuid>>` maps (outgoing
-and incoming). Each edge type has one `EdgeIndex` stored in `EntityStorage`.
+Each owning entity type provides static convenience query methods on
+`EntityStorage` — forward lookups read directly from entity data; reverse
+lookups use the index:
 
-`TypedEdgeStorage` trait (analogous to `TypedStorage` for node entities) maps
-each edge entity type to its `EdgeIndex` field and typed `HashMap`, enabling
-compile-time dispatch:
+| EntityType            | Forward (reads entity field)                      | Reverse (reads index)                                     |
+| --------------------- | ------------------------------------------------- | --------------------------------------------------------- |
+| `PanelEntityType`     | `panel_type_of`, `event_room_of`, `presenters_of` | `panels_of_type`, `panels_in_room`, `panels_of_presenter` |
+| `EventRoomEntityType` | `hotel_rooms_of`                                  | `event_rooms_in_hotel_room`                               |
+| `PresenterEntityType` | `groups_of`, `is_group`                           | `members_of`, `is_explicit_group`                         |
 
-```rust
-pub trait TypedEdgeStorage: EntityType {
-    fn edge_index(storage: &EntityStorage) -> &EdgeIndex;
-    fn edge_index_mut(storage: &mut EntityStorage) -> &mut EdgeIndex;
-    fn typed_map(storage: &EntityStorage) -> &HashMap<NonNilUuid, Self::Data>;
-}
-```
-
-### Edge Convenience Methods
-
-Each edge `EntityType` has static convenience query methods that encapsulate
-the `TypedEdgeStorage` + `TypedStorage` lookups:
-
-| Edge EntityType                  | Methods                                           |
-| -------------------------------- | ------------------------------------------------- |
-| `PanelToPresenterEntityType`     | `presenters_of(storage, uuid)`, `panels_of`       |
-| `PanelToEventRoomEntityType`     | `event_room_of(storage, uuid)`, `panels_in`       |
-| `PanelToPanelTypeEntityType`     | `panel_type_of(storage, uuid)`, `panels_of_type`  |
-| `EventRoomToHotelRoomEntityType` | `hotel_rooms_of(storage, uuid)`, `event_rooms_in` |
-| `PresenterToGroupEntityType`     | `groups_of`, `members_of`, `is_group`             |
-
-These take `&EntityStorage` (not `&Schedule`), reinforcing the principle that
-entity types own their storage access. **All logic lives here**; callers
-(including `Schedule` methods and computed field closures) are thin adapters
-that call these methods and pass results through.
-
-`Schedule` has thin wrappers (e.g. `get_panel_presenters`) that delegate to
-these methods — they contain no logic of their own.
-
-### Edge-Aware Computed Fields
-
-Panel computed fields (`presenters`, `event_room`, `panel_type`) use the
-schedule-aware read closure signature and call edge EntityType convenience
-methods directly on `&schedule.entities`. **Closures are thin adapters** —
-they call the `EntityType` method and convert to `FieldValue`; they contain
-no traversal or business logic of their own:
-
-```rust
-#[read(|schedule: &Schedule, entity: &PanelData| {
-    let ids = PanelToPresenterEntityType::presenters_of(&schedule.entities, entity.uuid());
-    Some(FieldValue::from(ids))  // thin: call + convert only
-})]
-pub presenters: Vec<PresenterId>,
-```
-
-This ensures computed fields work at the `EntityStorage` level without
-circular dependency on `Schedule` convenience methods. Logic embedded
-directly in a closure cannot be unit-tested without a full `Schedule`.
+These take `&EntityStorage` (not `&Schedule`); **all logic lives here**.
+`Schedule` has thin wrapper methods that delegate and add no logic.
 
 ### Membership Mutation Helpers
 
-`Schedule` provides convenience methods for managing `PresenterToGroup` edges.
-These are **thin adapters** — the implementation lives in
-`PresenterToGroupEntityType` methods; `Schedule` delegates and returns:
+`Schedule` provides convenience methods for managing presenter group membership
+via field mutations on `PresenterData`:
 
-| Method                              | Effect                                              |
-| ----------------------------------- | --------------------------------------------------- |
-| `mark_presenter_group(id)`          | Add self-loop group marker                          |
-| `unmark_presenter_group(id)`        | Remove self-loop group marker                       |
-| `add_member(member, group)`         | Add membership edge (no flag changes if exists)     |
-| `add_grouped_member(member, group)` | Add/update edge with `always_grouped = true`        |
-| `add_shown_member(member, group)`   | Add/update edge with `always_shown_in_group = true` |
-| `remove_member(member, group)`      | Remove membership edge                              |
+| Method                          | Effect                                        |
+| ------------------------------- | --------------------------------------------- |
+| `set_presenter_group(id, bool)` | Set `is_explicit_group` flag                  |
+| `add_member(member, group)`     | Push `group` to `member.groups`; update index |
+| `remove_member(member, group)`  | Remove from `member.groups`; update index     |
 
 ### Presenter Tag-String Lookup
 
@@ -411,17 +380,20 @@ helper for callers that already know the name and rank directly.
 
 ### Not Yet Implemented
 
-- **Edge uniqueness** policies (`Reject`, `Replace`, `Allow`)
-- **`PresenterToGroupStorage`** with transitive closure cache
+- **Transitive presenter-to-group closure cache** (BFS over `groups` Vec)
 - **Entity name lookup** (`get_entity_names`) — stub exists
+- **Soft delete** marker on entities
 
 ---
 
 ## 11. Edit System (FEATURE-010, not yet implemented)
 
 Planned `EditCommand` enum wrapping reversible operations:
-`UpdateField`, `AddEntity`, `RemoveEntity`, `AddEdge`, `RemoveEdge`,
-`MovePanel`, `BatchEdit`.
+`UpdateField`, `AddEntity`, `RemoveEntity`, `MovePanel`, `BatchEdit`.
+
+Relationship changes (adding/removing presenters, setting a room, etc.) go
+through `UpdateField` on the owning entity — no separate `AddEdge`/`RemoveEdge`
+commands are needed since relationships are stored as fields.
 
 `EditHistory` — stack-based undo/redo with configurable max depth.
 
@@ -434,18 +406,18 @@ commands can emit CRDT operations for peer broadcast.
 
 ## 12. Presenter Group Semantics
 
-Groups are `Presenter` entities with `is_group = true`. Membership is encoded
-in `PresenterToGroup` edges.
+Groups are `Presenter` entities where either `is_explicit_group = true` (the
+presenter was declared a group in the data) or where other presenters list the
+presenter in their `groups: Vec<PresenterId>` field (implicit group).  There
+is no longer a self-loop edge to mark group status.
 
-| Edge type  | `member_uuid` | `group_uuid` | Meaning                 |
-| ---------- | ------------- | ------------ | ----------------------- |
-| Self-loop  | X             | X            | Marks X as a group      |
-| Membership | member        | group        | member belongs to group |
+Membership is encoded as `groups: Vec<PresenterId>` stored directly on the
+member `Presenter`.  The reverse index `presenters_by_group` in `EntityStorage`
+enables efficient lookup of all members of a given group.
 
-`always_grouped` on the edge — this member always appears under the group name,
-never individually.  
-`always_shown_in_group` on the edge — the group is shown even when not all
-members are present.
+`always_grouped: bool` and `always_shown_in_group: bool` are entity-level
+fields on `Presenter` (apply to all their group memberships).  Per-membership
+granularity is deferred to IDEA-039.
 
 ### Nested Groups and Transitive Membership
 
@@ -475,8 +447,8 @@ supports them and the implementation must handle them correctly.
 
 ### Panel → Presenter Transitive Inclusion
 
-A panel's **direct presenters** are the `Presenter` entities linked via
-`PanelToPresenter` edges. The **transitive presenter set** for a panel is the
+A panel's **direct presenters** are the `Presenter` UUIDs in
+`PanelData.presenters: Vec<PresenterId>`. The **transitive presenter set** for a panel is the
 union of, for each direct presenter P:
 
 1. P itself
@@ -529,7 +501,9 @@ A panel directly hosted by **Alice** and **Carol**:
 
 ### Transitive Closure Cache (planned)
 
-Reference: `cosam-refactor/crates/schedule-core/src/data/relationship.rs`
+BFS over `PresenterData.groups` (and the reverse `presenters_by_group` index)
+replaces the old `PresenterToGroup` edge traversal.  Reference:
+`v10-try-1/crates/schedule-core/src/data/relationship.rs`
 (`RelationshipManager` / `RelationshipCache`).
 
 The old implementation maintains four maps in a lazily-rebuilt cache:
@@ -553,60 +527,51 @@ The old implementation maintains four maps in a lazily-rebuilt cache:
 **Cycle tolerance**: the BFS uses a `visited` set so cycles (A member of B,
 B member of A) terminate without infinite loops.
 
-**Invalidation**: any edge add/remove increments a version counter; the cache
-is rebuilt on next query if stale.
+**Invalidation**: any change to `PresenterData.groups` (via `on_update` hook)
+increments a version counter; the cache is rebuilt on next query if stale.
 
-### Adapting to UUID-Based Edges
+### Implementation Notes
 
-The current `PresenterToGroupEntityType` convenience methods (`groups_of`,
-`members_of`, `is_group`) provide **direct** lookups only. Transitive closure
-will be added as a `RelationshipCache` (or similar) stored alongside the
-`EdgeIndex` in `EntityStorage`, using UUIDs instead of name strings. The
-algorithm and invalidation strategy will follow the same pattern as the old
-`RelationshipManager`.
+`PresenterEntityType` methods (`groups_of`, `members_of`, `is_group`) provide
+**direct** lookups from entity fields and the `presenters_by_group` reverse
+index.  Transitive closure will be added as a `RelationshipCache` (or similar)
+stored in `EntityStorage`, following the same BFS algorithm as the old
+`RelationshipManager` but traversing `PresenterData.groups` Vecs instead of
+edge HashMaps.
 
-The **panel transitive presenter set** computation will use the cache's
-`inclusive_groups` and `inclusive_members` maps, expanding each direct presenter
-both upward and downward as described above.
+The **panel transitive presenter set** reads `PanelData.presenters` as the
+direct set, then expands each via the cache's `inclusive_groups` and
+`inclusive_members` maps.
 
 ### Credit Display Rules
 
-Both `always_grouped` and `always_shown_in_group` are flags on the
-**`PresenterToGroup` edge**, not on the presenter entity. A presenter can have
-different flag values in different group memberships (e.g. `always_grouped`
-with respect to Group A but not Group B).
+`always_grouped` and `always_shown_in_group` are **entity-level** flags on
+`Presenter` (not per-membership).  Per-membership granularity is deferred to
+IDEA-039.
 
 Spreadsheet syntax origins:
 
-- `G:<Name=Group` → sets `always_grouped = true` on the member→group edge
-  (this *member* always appears credited under the group, not individually)
-- `G:Name==Group` → sets `always_shown_in_group = true` on the member→group edge
-  (this *group* should always be shown when this member is present, even if
-  others in the group are absent)
+- `G:<Name=Group` → sets `always_grouped = true` on the member presenter
+- `G:Name==Group` → sets `always_shown_in_group = true` on the member presenter
+  - Double check this, might belong to the group presenter, see what schedule-to-html did
 
 For a given panel, "presenting members of group G" means the direct presenters
 of the panel that are inclusive members of G.
 
 - **All members of G present** → show group name only (no individual names)
-- **Partial group present, at least one presenting member has `always_grouped`
-  on their G-membership edge**:
+- **Partial group present, at least one presenting member has `always_grouped`**:
   - Show `"G (Member1, Member2)"` for two or more `always_grouped` members
   - Show `"Member of G"` for exactly one `always_grouped` member
   - Those `always_grouped` members are **not** listed individually alongside
     the group credit
-  - Members *without* `always_grouped` on this edge are credited individually
-    as usual
+  - Members *without* `always_grouped` are credited individually as usual
 - **Partial group present, no presenting member has `always_grouped`** → show
   each presenting member individually; do not credit the group at all
 - **Individual with no group** → show individual name
-- **`always_shown_in_group` on the edge** — when a member is *directly listed*
-  for the panel (i.e. has their own `PanelToPresenter` edge), they are credited
-  individually even when their group is also shown. `always_shown_in_group`
-  does not apply if the member appears only transitively.
+- **`always_shown_in_group`** — when a member is directly listed for the panel
+  they are credited individually even when their group is also shown.
 - **Group suppression**: if every presenting member of G has `always_shown_in_group`
-  on their G-membership edge and none have `always_grouped`, the group name is
-  **not** shown — those members are credited individually. The group acts purely
-  as an organisational/filtering mechanism with no effect on visible credits.
+  and none have `always_grouped`, the group name is **not** shown.
 - Groups are never double-booked; only *individuals* (leaf presenters) are
   conflict-checked for time overlaps.
 
@@ -639,10 +604,10 @@ partially defined in multiple places. Further investigation during Phase 4
   `crdts` (lower-level). An abstraction layer is planned so the backend can
   be swapped.
 
-  **CRDT note**: Design is still being explored. Edges are only valid if the
-  entities they point to are valid. Last-write-wins on entity fields is a
-  reasonable default, but edge conflict resolution may need special handling
-  to ensure endpoint integrity.
+  **CRDT note**: Design is still being explored. With virtual edges (relationships
+  stored as Vec fields on entities), relationship conflicts resolve via
+  last-write-wins on the owning entity's field — the same as any other field.
+  Referential integrity (dangling UUIDs after soft-delete) is a separate concern.
 - **META-028 (Phase 4)** — File formats & import/export: XLSX round-trip,
   widget JSON v10 export (clean break from v9).
 - **META-029 (Phase 5)** — CLI tools (`cosam-convert`, `cosam-modify`).
@@ -662,7 +627,7 @@ partially defined in multiple places. Further investigation during Phase 4
 - No `unwrap()`/`expect()` outside tests; use `?`
 - One primary type per file; re-export from `mod.rs`
 - Every data module has `#[cfg(test)] mod tests` block with serde round-trips
-- UUID generation: v7 for new entities, v5 (deterministic) for imports/edges
+- UUID generation: v7 for new entities, v5 (deterministic) for natural-key imports
 - `serde` for JSON interchange; `rkyv` under consideration for fast local snapshots
 - **Logic belongs in `<Type>EntityType`**: All non-trivial implementations that
   work with entity or edge data must be methods on the relevant
@@ -679,25 +644,23 @@ partially defined in multiple places. Further investigation during Phase 4
 
 ---
 
-## 16. What cosam-data-old Has That cosam_sched Doesn't Yet
+## 16. What v10-try-2 Has That cosam_sched Doesn't Yet
 
-Consulting `cosam-data-old` for these features (partially superseded design
+Consulting `v10-try-2` for these features (partially superseded design
 but useful reference):
 
-- **Full edge query engine** (`edge_entity_query.rs`, ~24 KB) — complex query
-  patterns over edge-entities; some patterns will carry over to FEATURE-008/009
-- **Query module** (`query/`) — finder/updater patterns
+- **Query module** (`query/`) — finder/updater patterns; some ideas carry to FEATURE-009
 - **`uuid_v5.rs`** — V5 UUID helpers (now absorbed into `UuidPreference::FromV5`)
-- **`PresenterToGroupStorage`** with transitive closure cache — will be
-  incorporated into FEATURE-008's specialized edge storage
-- **Full `PanelToPresenter` edge** with `is_primary_presenter`, `confirmed`
-  flags — the current edge is a stub; these fields may be added
+- **`PresenterToGroupStorage`** with transitive closure cache — BFS algorithm
+  still applies; now traverses `PresenterData.groups` Vecs + reverse index
+- **`PanelToPresenter` flags** (`is_primary_presenter`, `confirmed`) — may be
+  added as fields directly on `PanelData.presenters` item struct in the future
 
 ---
 
-## 17. What cosam-refactor Has That May Be Useful
+## 17. What v10-try-1 Has That May Be Useful
 
-`cosam-refactor/crates/schedule-core/src/` (older, largely superseded):
+`v10-try-1/crates/schedule-core/src/` (older, largely superseded):
 
 - `xlsx/` — XLSX import/export (umya-spreadsheet); useful reference for
   FEATURE-028 (import/export phase)
@@ -708,18 +671,26 @@ but useful reference):
 
 ---
 
-## 18. What schedule-to-html (Perl widget) Clarifies
+## 18. What v9 Has That May Be Useful
+
+`v9/` (last fully functional version of schedule-core):
+
+- `apps` -- contains the main application logic:
+  - `cosam-convert` -- converts between XLSX spreadsheets and JSON v9 formats
+  - `cosam-editor` -- Prototype GUI schedule editor, missing features
+  - `cosam-modify` -- Prototype CLI schedule query and modification tool
+
+---
+
+## 19. What schedule-to-html (Perl widget) Clarifies
 
 The Perl codebase at `desc_tbl/schedule-to-html` is the authoritative consumer
-of the schedule JSON widget export. Key facts:
+of the old spreadsheet format. Key facts:
 
-- Consumes **v9 JSON format** (the widget in `cosam_sched/widget/` is v9-based)
+- Consumes **Spreadsheets** only
 - Panel types identified by 2-letter prefix; type properties drive display
 - Room sort keys drive grid column order; `sort_key ≥ 100` = hidden
 - Presenter credit display logic (groups vs individuals) lives in Perl; the
   Rust export must faithfully represent `always_grouped`, `always_shown_in_group`
   flags so the widget can apply the same rules
 - `SPLIT*` rooms are filtered out; they signal page-break points in the grid
-
-The new export will target **v10 JSON** (clean break from v9); v9 compatibility
-is handled by `cosam-convert` if needed.

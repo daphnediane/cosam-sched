@@ -1,4 +1,4 @@
-# Implement Schedule method delegation to entity types
+# Implement Schedule method delegation to entity types (was FEATURE-034)
 
 ## Summary
 
@@ -7,7 +7,7 @@ moving business logic to entity-specific implementations.
 
 ## Status
 
-Open
+Completed
 
 ## Priority
 
@@ -42,10 +42,10 @@ written against the planned architecture and needs to be corrected.
 
 ## Acceptance Criteria
 
-- [ ] Presenter-group membership methods delegate to `PresenterToGroupEntityType`
-- [ ] Edge mutation methods have corresponding entity type methods
-- [ ] All methods follow the pattern: `Schedule` -> `XxxEntityType` -> `XxxToYyyEntityType`
-- [ ] No logic duplication between Schedule and entity types
+- [x] Presenter-group membership methods delegate to `PresenterToGroupEntityType`
+- [x] Edge mutation methods have corresponding entity type methods
+- [x] All methods follow the pattern: `Schedule` -> `XxxEntityType` -> `XxxToYyyEntityType`
+- [x] No logic duplication between Schedule and entity types
 
 ## Dependencies
 

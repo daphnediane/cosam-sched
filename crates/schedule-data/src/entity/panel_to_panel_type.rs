@@ -69,6 +69,30 @@ impl PanelToPanelTypeEntityType {
             .map(|edge| crate::entity::PanelId::from(edge.left_uuid()))
             .collect()
     }
+
+    /// Set (replace) the panel type for a panel.
+    ///
+    /// Removes any existing type assignment before adding the new one.
+    pub fn set_panel_type(
+        storage: &mut crate::schedule::EntityStorage,
+        panel_uuid: NonNilUuid,
+        panel_type_uuid: NonNilUuid,
+    ) -> Result<(), crate::schedule::InsertError> {
+        use crate::schedule::TypedEdgeStorage;
+        let old_edge_uuids: Vec<NonNilUuid> =
+            Self::edge_index(storage).outgoing(panel_uuid).to_vec();
+        for edge_uuid in old_edge_uuids {
+            storage.remove_edge::<Self>(PanelToPanelTypeId::from(edge_uuid));
+        }
+        let edge_uuid = unsafe { NonNilUuid::new_unchecked(uuid::Uuid::now_v7()) };
+        storage
+            .add_edge::<Self>(PanelToPanelTypeData {
+                entity_uuid: edge_uuid,
+                panel_uuid,
+                panel_type_uuid,
+            })
+            .map(|_| ())
+    }
 }
 
 #[cfg(test)]

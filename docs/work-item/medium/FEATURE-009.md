@@ -45,7 +45,7 @@ is the core single-string presenter resolver, living in `entity/presenter.rs`.
 `Schedule::lookup_tagged_presenter(input)` is a thin delegate to it.
 It handles:
 
-| Input form                   | Behaviour                                               |
+| Input form                   | Behavior                                                |
 | ---------------------------- | ------------------------------------------------------- |
 | `presenter-<uuid>`           | typed-ID lookup; `Err(UuidNotFound)` if missing         |
 | bare UUID string             | raw UUID parse + lookup; `Err(UuidNotFound)` if missing |
@@ -139,5 +139,5 @@ FEATURE-009 is underway to avoid churn while the edge API is still stabilising.
 
 ## Related
 
-- [FEATURE-025] Schedule method delegation to entity types — establishes the
+- [FEATURE-034] Schedule method delegation to entity types — establishes the
   delegation pattern that computed fields use (Schedule -> EntityType -> EdgeType)

@@ -115,3 +115,15 @@ Still needed:
 - [x] Membership mutation helpers (`add_member`, `add_grouped_member`,
   `add_shown_member`, `remove_member`, `mark_presenter_group`,
   `unmark_presenter_group`) on `Schedule`
+
+## Design Revision
+
+The edge HashMap + EdgeIndex storage approach implemented here was superseded
+by the virtual edge design in REFACTOR-036/037/038:
+
+- Edge HashMaps and `EdgeIndex` per edge type removed from `EntityStorage`
+- Replaced with five reverse lookup indexes maintained by entity type hooks
+- `TypedEdgeStorage`, `EdgeEntityType`, `EdgePolicy` traits removed
+- `add_edge` / `remove_edge` removed from `EntityStorage` and `Schedule`
+- Membership mutation helpers simplified to field mutations on `PresenterData`
+- `PresenterToGroup` self-loop group marker replaced by `is_explicit_group: bool`
