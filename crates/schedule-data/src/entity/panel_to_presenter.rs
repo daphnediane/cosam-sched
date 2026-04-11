@@ -16,13 +16,13 @@ use uuid::NonNilUuid;
 #[derive(EntityFields, Debug, Clone)]
 #[entity_kind(PanelToPresenter)]
 pub struct PanelToPresenter {
-    /// UUID of the panel (from side).
+    /// UUID of the panel (left side).
     #[field(display = "Panel UUID", description = "UUID of the panel")]
     #[required]
     #[edge_from(Panel)]
     pub panel_uuid: NonNilUuid,
 
-    /// UUID of the presenter (to side).
+    /// UUID of the presenter (right side).
     #[field(display = "Presenter UUID", description = "UUID of the presenter")]
     #[required]
     #[edge_to(Presenter)]
@@ -47,7 +47,7 @@ impl PanelToPresenterEntityType {
             .outgoing(panel)
             .iter()
             .filter_map(|edge_uuid| map.get(edge_uuid))
-            .map(|edge| crate::entity::PresenterId::from(edge.to_uuid()))
+            .map(|edge| crate::entity::PresenterId::from(edge.right_uuid()))
             .collect()
     }
 
@@ -64,7 +64,7 @@ impl PanelToPresenterEntityType {
             .incoming(presenter)
             .iter()
             .filter_map(|edge_uuid| map.get(edge_uuid))
-            .map(|edge| crate::entity::PanelId::from(edge.from_uuid()))
+            .map(|edge| crate::entity::PanelId::from(edge.left_uuid()))
             .collect()
     }
 }

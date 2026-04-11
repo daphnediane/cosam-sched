@@ -359,8 +359,8 @@ pub fn derive_entity_fields(input: TokenStream) -> TokenStream {
             Some((from_field, from_str, from_accessor_override)),
             Some((to_field, to_str, to_accessor_override)),
         ) => {
-            let from_id = Ident::new(&format!("{}Id", from_str), proc_macro2::Span::call_site());
-            let to_id = Ident::new(&format!("{}Id", to_str), proc_macro2::Span::call_site());
+            let left_id = Ident::new(&format!("{}Id", from_str), proc_macro2::Span::call_site());
+            let right_id = Ident::new(&format!("{}Id", to_str), proc_macro2::Span::call_site());
             // Default accessor: strip _uuid suffix and append _id, e.g. panel_uuid -> panel_id
             let default_from_accessor = from_field
                 .to_string()
@@ -382,23 +382,23 @@ pub fn derive_entity_fields(input: TokenStream) -> TokenStream {
             );
             Some(quote! {
                 impl #data_struct_name {
-                    pub fn #from_accessor(&self) -> crate::entity::#from_id {
-                        crate::entity::#from_id::from_uuid(self.#from_field)
+                    pub fn #from_accessor(&self) -> crate::entity::#left_id {
+                        crate::entity::#left_id::from_uuid(self.#from_field)
                     }
-                    pub fn #to_accessor(&self) -> crate::entity::#to_id {
-                        crate::entity::#to_id::from_uuid(self.#to_field)
+                    pub fn #to_accessor(&self) -> crate::entity::#right_id {
+                        crate::entity::#right_id::from_uuid(self.#to_field)
                     }
                 }
 
                 impl crate::entity::DirectedEdge for #data_struct_name {
-                    type FromId = crate::entity::#from_id;
-                    type ToId = crate::entity::#to_id;
+                    type LeftId = crate::entity::#left_id;
+                    type RightId = crate::entity::#right_id;
 
-                    fn from_id(&self) -> Self::FromId {
+                    fn left_id(&self) -> Self::LeftId {
                         self.#from_accessor()
                     }
 
-                    fn to_id(&self) -> Self::ToId {
+                    fn right_id(&self) -> Self::RightId {
                         self.#to_accessor()
                     }
                 }

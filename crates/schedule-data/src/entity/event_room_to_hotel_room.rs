@@ -19,13 +19,13 @@ use uuid::NonNilUuid;
 #[derive(EntityFields, Debug, Clone)]
 #[entity_kind(EventRoomToHotelRoom)]
 pub struct EventRoomToHotelRoom {
-    /// UUID of the event room (from side).
+    /// UUID of the event room (left side).
     #[field(display = "Event Room UUID", description = "UUID of the event room")]
     #[required]
     #[edge_from(EventRoom)]
     pub event_room_uuid: NonNilUuid,
 
-    /// UUID of the hotel room (to side).
+    /// UUID of the hotel room (right side).
     #[field(display = "Hotel Room UUID", description = "UUID of the hotel room")]
     #[required]
     #[edge_to(HotelRoom)]
@@ -50,7 +50,7 @@ impl EventRoomToHotelRoomEntityType {
             .outgoing(event_room)
             .iter()
             .filter_map(|edge_uuid| map.get(edge_uuid))
-            .map(|edge| crate::entity::HotelRoomId::from(edge.to_uuid()))
+            .map(|edge| crate::entity::HotelRoomId::from(edge.right_uuid()))
             .collect()
     }
 
@@ -67,7 +67,7 @@ impl EventRoomToHotelRoomEntityType {
             .incoming(hotel_room)
             .iter()
             .filter_map(|edge_uuid| map.get(edge_uuid))
-            .map(|edge| crate::entity::EventRoomId::from(edge.from_uuid()))
+            .map(|edge| crate::entity::EventRoomId::from(edge.left_uuid()))
             .collect()
     }
 }

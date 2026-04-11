@@ -19,13 +19,13 @@ use uuid::NonNilUuid;
 #[derive(EntityFields, Debug, Clone)]
 #[entity_kind(PanelToPanelType)]
 pub struct PanelToPanelType {
-    /// UUID of the panel (from side).
+    /// UUID of the panel (left side).
     #[field(display = "Panel UUID", description = "UUID of the panel")]
     #[required]
     #[edge_from(Panel)]
     pub panel_uuid: NonNilUuid,
 
-    /// UUID of the panel type (to side).
+    /// UUID of the panel type (right side).
     #[field(display = "Panel Type UUID", description = "UUID of the panel type")]
     #[required]
     #[edge_to(PanelType)]
@@ -50,7 +50,7 @@ impl PanelToPanelTypeEntityType {
             .outgoing(panel)
             .first()
             .and_then(|edge_uuid| map.get(edge_uuid))
-            .map(|edge| crate::entity::PanelTypeId::from(edge.to_uuid()))
+            .map(|edge| crate::entity::PanelTypeId::from(edge.right_uuid()))
     }
 
     /// Panels assigned to a panel type (incoming edges).
@@ -66,7 +66,7 @@ impl PanelToPanelTypeEntityType {
             .incoming(panel_type)
             .iter()
             .filter_map(|edge_uuid| map.get(edge_uuid))
-            .map(|edge| crate::entity::PanelId::from(edge.from_uuid()))
+            .map(|edge| crate::entity::PanelId::from(edge.left_uuid()))
             .collect()
     }
 }

@@ -28,13 +28,13 @@ use uuid::NonNilUuid;
 #[derive(EntityFields, Debug, Clone)]
 #[entity_kind(PresenterToGroup)]
 pub struct PresenterToGroup {
-    /// UUID of the member presenter (from side)
+    /// UUID of the member presenter (left side)
     #[field(display = "Member UUID", description = "UUID of the member presenter")]
     #[required]
     #[edge_from(Presenter, accessor = member_id)]
     pub member_uuid: NonNilUuid,
 
-    /// UUID of the group presenter (to side)
+    /// UUID of the group presenter (right side)
     #[field(display = "Group UUID", description = "UUID of the group presenter")]
     #[required]
     #[edge_to(Presenter, accessor = group_id)]
@@ -78,7 +78,7 @@ impl PresenterToGroupEntityType {
             .iter()
             .filter_map(|edge_uuid| map.get(edge_uuid))
             .filter(|edge| !edge.is_self_loop())
-            .map(|edge| crate::entity::PresenterId::from(edge.to_uuid()))
+            .map(|edge| crate::entity::PresenterId::from(edge.right_uuid()))
             .collect()
     }
 
@@ -96,7 +96,7 @@ impl PresenterToGroupEntityType {
             .iter()
             .filter_map(|edge_uuid| map.get(edge_uuid))
             .filter(|edge| !edge.is_self_loop())
-            .map(|edge| crate::entity::PresenterId::from(edge.from_uuid()))
+            .map(|edge| crate::entity::PresenterId::from(edge.left_uuid()))
             .collect()
     }
 

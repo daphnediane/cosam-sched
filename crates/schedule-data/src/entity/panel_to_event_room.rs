@@ -16,13 +16,13 @@ use uuid::NonNilUuid;
 #[derive(EntityFields, Debug, Clone)]
 #[entity_kind(PanelToEventRoom)]
 pub struct PanelToEventRoom {
-    /// UUID of the panel (from side).
+    /// UUID of the panel (left side).
     #[field(display = "Panel UUID", description = "UUID of the panel")]
     #[required]
     #[edge_from(Panel)]
     pub panel_uuid: NonNilUuid,
 
-    /// UUID of the event room (to side).
+    /// UUID of the event room (right side).
     #[field(display = "Event Room UUID", description = "UUID of the event room")]
     #[required]
     #[edge_to(EventRoom)]
@@ -47,7 +47,7 @@ impl PanelToEventRoomEntityType {
             .outgoing(panel)
             .first()
             .and_then(|edge_uuid| map.get(edge_uuid))
-            .map(|edge| crate::entity::EventRoomId::from(edge.to_uuid()))
+            .map(|edge| crate::entity::EventRoomId::from(edge.right_uuid()))
     }
 
     /// Panels assigned to an event room (incoming edges).
@@ -63,7 +63,7 @@ impl PanelToEventRoomEntityType {
             .incoming(event_room)
             .iter()
             .filter_map(|edge_uuid| map.get(edge_uuid))
-            .map(|edge| crate::entity::PanelId::from(edge.from_uuid()))
+            .map(|edge| crate::entity::PanelId::from(edge.left_uuid()))
             .collect()
     }
 }

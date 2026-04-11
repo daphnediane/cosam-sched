@@ -65,10 +65,12 @@ High | Medium | Low
 
 ### Adding Items
 
-1. Create file in `docs/work-item/` with next available number
-2. Follow template structure
-3. Set status to "Open" and appropriate priority
-4. Run combine script to organize and regenerate
+1. Check `docs/WORK_ITEMS.md` "Next Available IDs" section for the next free number
+   (the combine script regenerates this list; it lists numbers not yet used by any prefix)
+2. Create file in `docs/work-item/` as `<PREFIX>-<###>.md` using that number
+3. Follow template structure
+4. Set status to "Open" and appropriate priority
+5. Run combine script to organize and regenerate
 
 ### Updating Items
 

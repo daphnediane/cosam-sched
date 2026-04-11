@@ -13,7 +13,7 @@ mod storage;
 pub use edge_index::EdgeIndex;
 pub use metadata::{GeneratorInfo, ScheduleMetadata};
 pub use storage::{
-    BuildError, EntityStorage, EntityStore, InsertError, TypedEdgeStorage, TypedStorage,
+    BuildError, EdgePolicy, EntityStorage, EntityStore, InsertError, TypedEdgeStorage, TypedStorage,
 };
 
 use crate::entity::{
@@ -222,19 +222,73 @@ impl Schedule {
 
     /// Add an edge entity and update the edge index.
     ///
-    /// Registers the edge’s UUID, inserts the entity into storage, and records
-    /// the from→to relationship in the [`EdgeIndex`] for the edge type.
+    /// Applies the edge type's [`TypedEdgeStorage::default_edge_policy`] when
+    /// the same endpoint pair already has an edge.  UUID collisions (same edge
+    /// UUID regardless of endpoints) are always an error.
     pub fn add_edge<T>(&mut self, data: T::Data) -> Result<T::Id, InsertError>
     where
         T: TypedEdgeStorage,
         T::Data: DirectedEdge,
     {
+        self.add_edge_with_policy::<T>(data, T::default_edge_policy())
+    }
+
+    /// Add an edge entity using the specified [`EdgePolicy`] for duplicate
+    /// endpoint handling, overriding the type's default.
+    ///
+    /// - **`Reject`** — returns `Err(InsertError::DuplicateEdge)` if an edge
+    ///   with the same `(from, to)` already exists.
+    /// - **`Ignore`** — silently returns the existing edge's ID unchanged.
+    /// - **`Replace`** — removes the existing edge and inserts the new one.
+    ///
+    /// UUID collisions (same UUID, different endpoints) are always an error.
+    pub fn add_edge_with_policy<T>(
+        &mut self,
+        data: T::Data,
+        policy: EdgePolicy,
+    ) -> Result<T::Id, InsertError>
+    where
+        T: TypedEdgeStorage,
+        T::Data: DirectedEdge,
+    {
         let uuid = data.uuid();
-        let from_uuid = data.from_uuid();
-        let to_uuid = data.to_uuid();
+        let left_uuid = data.left_uuid();
+        let right_uuid = data.right_uuid();
+
+        // Find an existing edge with the same endpoint pair.
+        let existing_edge_uuid: Option<NonNilUuid> = T::edge_index(&self.entities)
+            .outgoing(left_uuid)
+            .iter()
+            .copied()
+            .find(|&edge_uuid| {
+                self.entities
+                    .get::<T>(edge_uuid)
+                    .is_some_and(|d| d.right_uuid() == right_uuid)
+            });
+
+        if let Some(existing_uuid) = existing_edge_uuid {
+            match policy {
+                EdgePolicy::Reject => {
+                    return Err(InsertError::DuplicateEdge {
+                        left: left_uuid,
+                        right: right_uuid,
+                    });
+                }
+                EdgePolicy::Ignore => {
+                    return Ok(T::Id::from_uuid(existing_uuid));
+                }
+                EdgePolicy::Replace => {
+                    // Remove the existing edge before inserting the new one.
+                    T::edge_index_mut(&mut self.entities).remove(left_uuid, right_uuid, existing_uuid);
+                    EntityStore::<T>::remove_entity(&mut self.entities, existing_uuid);
+                    self.unregister_uuid(existing_uuid);
+                }
+            }
+        }
+
         self.register_uuid(uuid, T::KIND)?;
         EntityStore::<T>::insert_entity(&mut self.entities, uuid, data)?;
-        T::edge_index_mut(&mut self.entities).add(from_uuid, to_uuid, uuid);
+        T::edge_index_mut(&mut self.entities).add(left_uuid, right_uuid, uuid);
         Ok(T::Id::from_uuid(uuid))
     }
 
@@ -250,7 +304,7 @@ impl Schedule {
         let uuid = id.non_nil_uuid();
         let data = EntityStore::<T>::remove_entity(&mut self.entities, uuid)?;
         self.unregister_uuid(uuid);
-        T::edge_index_mut(&mut self.entities).remove(data.from_uuid(), data.to_uuid(), uuid);
+        T::edge_index_mut(&mut self.entities).remove(data.left_uuid(), data.right_uuid(), uuid);
         Some(data)
     }
 
@@ -314,7 +368,7 @@ impl Schedule {
             .any(|&edge_uuid| {
                 self.entities
                     .get::<T>(edge_uuid)
-                    .is_some_and(|data| data.to_uuid() == to)
+                    .is_some_and(|data| data.right_uuid() == to)
             })
     }
 
@@ -475,7 +529,7 @@ impl Schedule {
         let shown = if let Some(edge_uuid) = self.find_membership_edge(member_uuid, group_uuid) {
             let shown = self
                 .get_entity_by_uuid::<PresenterToGroupEntityType>(edge_uuid)
-                .map_or(false, |e| e.always_shown_in_group);
+                .is_some_and(|e| e.always_shown_in_group);
             self.remove_edge::<PresenterToGroupEntityType>(PresenterToGroupId::from_uuid(
                 edge_uuid,
             ));
@@ -508,7 +562,7 @@ impl Schedule {
         let grouped = if let Some(edge_uuid) = self.find_membership_edge(member_uuid, group_uuid) {
             let grouped = self
                 .get_entity_by_uuid::<PresenterToGroupEntityType>(edge_uuid)
-                .map_or(false, |e| e.always_grouped);
+                .is_some_and(|e| e.always_grouped);
             self.remove_edge::<PresenterToGroupEntityType>(PresenterToGroupId::from_uuid(
                 edge_uuid,
             ));
@@ -935,5 +989,139 @@ mod tests {
 
         let identified = schedule.identify(edge_uuid);
         assert!(matches!(identified, Some(EntityUUID::PanelToPresenter(_))));
+    }
+
+    #[test]
+    fn test_edge_policy_reject_duplicate_endpoints() {
+        let mut schedule = Schedule::new();
+        let panel_uuid = nn(1);
+        let presenter_uuid = nn(2);
+
+        add_panel(&mut schedule, panel_uuid, "P1", "Panel 1");
+        add_presenter(&mut schedule, presenter_uuid, "Alice");
+
+        schedule
+            .add_edge::<PanelToPresenterEntityType>(PanelToPresenterData {
+                entity_uuid: nn(10),
+                panel_uuid,
+                presenter_uuid,
+            })
+            .unwrap();
+
+        // Same endpoint pair with a different edge UUID — default Reject policy
+        let result = schedule.add_edge::<PanelToPresenterEntityType>(PanelToPresenterData {
+            entity_uuid: nn(11),
+            panel_uuid,
+            presenter_uuid,
+        });
+        assert!(matches!(result, Err(InsertError::DuplicateEdge { .. })));
+
+        // Original edge should still be present
+        assert_eq!(schedule.edge_count::<PanelToPresenterEntityType>(), 1);
+    }
+
+    #[test]
+    fn test_edge_policy_ignore_duplicate_endpoints() {
+        let mut schedule = Schedule::new();
+        let panel_uuid = nn(1);
+        let presenter_uuid = nn(2);
+
+        add_panel(&mut schedule, panel_uuid, "P1", "Panel 1");
+        add_presenter(&mut schedule, presenter_uuid, "Alice");
+
+        let first_id = schedule
+            .add_edge_with_policy::<PanelToPresenterEntityType>(
+                PanelToPresenterData {
+                    entity_uuid: nn(10),
+                    panel_uuid,
+                    presenter_uuid,
+                },
+                EdgePolicy::Ignore,
+            )
+            .unwrap();
+
+        // Duplicate with Ignore — returns the original ID, new edge not added
+        let second_id = schedule
+            .add_edge_with_policy::<PanelToPresenterEntityType>(
+                PanelToPresenterData {
+                    entity_uuid: nn(11),
+                    panel_uuid,
+                    presenter_uuid,
+                },
+                EdgePolicy::Ignore,
+            )
+            .unwrap();
+
+        assert_eq!(first_id, second_id);
+        assert_eq!(schedule.edge_count::<PanelToPresenterEntityType>(), 1);
+    }
+
+    #[test]
+    fn test_edge_policy_replace_duplicate_endpoints() {
+        let mut schedule = Schedule::new();
+        let panel_uuid = nn(1);
+        let presenter_uuid = nn(2);
+
+        add_panel(&mut schedule, panel_uuid, "P1", "Panel 1");
+        add_presenter(&mut schedule, presenter_uuid, "Alice");
+
+        let first_id = schedule
+            .add_edge_with_policy::<PanelToPresenterEntityType>(
+                PanelToPresenterData {
+                    entity_uuid: nn(10),
+                    panel_uuid,
+                    presenter_uuid,
+                },
+                EdgePolicy::Replace,
+            )
+            .unwrap();
+
+        // Replace: old edge removed, new edge inserted
+        let second_id = schedule
+            .add_edge_with_policy::<PanelToPresenterEntityType>(
+                PanelToPresenterData {
+                    entity_uuid: nn(11),
+                    panel_uuid,
+                    presenter_uuid,
+                },
+                EdgePolicy::Replace,
+            )
+            .unwrap();
+
+        assert_ne!(first_id, second_id);
+        assert_eq!(schedule.edge_count::<PanelToPresenterEntityType>(), 1);
+
+        // The old UUID should no longer exist; the new one should
+        assert!(schedule.identify(nn(10)).is_none());
+        assert!(schedule.identify(nn(11)).is_some());
+    }
+
+    #[test]
+    fn test_edge_policy_uuid_collision_always_errors() {
+        let mut schedule = Schedule::new();
+        let panel_uuid = nn(1);
+        let presenter_uuid = nn(2);
+
+        add_panel(&mut schedule, panel_uuid, "P1", "Panel 1");
+        add_presenter(&mut schedule, presenter_uuid, "Alice");
+
+        schedule
+            .add_edge::<PanelToPresenterEntityType>(PanelToPresenterData {
+                entity_uuid: nn(10),
+                panel_uuid,
+                presenter_uuid,
+            })
+            .unwrap();
+
+        // Same UUID (nn(10)) pointing at different endpoints: always an error
+        let result = schedule.add_edge_with_policy::<PanelToPresenterEntityType>(
+            PanelToPresenterData {
+                entity_uuid: nn(10), // UUID collision
+                panel_uuid: nn(3),
+                presenter_uuid: nn(4),
+            },
+            EdgePolicy::Ignore,
+        );
+        assert!(matches!(result, Err(InsertError::UuidCollision { .. })));
     }
 }

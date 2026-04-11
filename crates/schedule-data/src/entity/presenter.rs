@@ -179,9 +179,7 @@ pub struct Presenter {
         let member_uuid = entity.uuid();
         let old_edge_uuids: Vec<uuid::NonNilUuid> = PresenterToGroupEntityType::edge_index(&schedule.entities)
             .outgoing(member_uuid)
-            .iter()
-            .copied()
-            .collect();
+            .to_vec();
         for edge_uuid in old_edge_uuids {
             if let Some(data) = schedule.get_entity_by_uuid::<PresenterToGroupEntityType>(edge_uuid) {
                 if !data.is_self_loop() {
@@ -240,9 +238,7 @@ pub struct Presenter {
         let group_uuid = entity.uuid();
         let old_edge_uuids: Vec<uuid::NonNilUuid> = PresenterToGroupEntityType::edge_index(&schedule.entities)
             .incoming(group_uuid)
-            .iter()
-            .copied()
-            .collect();
+            .to_vec();
         for edge_uuid in old_edge_uuids {
             if let Some(data) = schedule.get_entity_by_uuid::<PresenterToGroupEntityType>(edge_uuid) {
                 if !data.is_self_loop() {

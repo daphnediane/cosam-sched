@@ -149,30 +149,36 @@ pub trait SchedulableEntity: EntityType {}
 /// Trait for edge-entities that connect two other entities.
 ///
 /// Implemented by the macro-generated `*Data` structs for edge types such as
-/// `PanelToPresenterData`.  `From` and `To` are the [`TypedId`] types for the
-/// two endpoint entities, giving callers compile-time access to the correct ID
-/// types without any runtime dispatch.
+/// `PanelToPresenterData`.  `Left` and `Right` are the [`TypedId`] types for
+/// the two endpoint entities, giving callers compile-time access to the correct
+/// ID types without any runtime dispatch.
+///
+/// The names `left`/`right` are positionally neutral: the relationship modelled
+/// by an edge is often symmetric in meaning ("Panel hosted by Presenter" is
+/// equivalent to "Presenter hosts Panel"), so `from`/`to` would imply false
+/// directionality and would conflict with Rust's `From`/`Into` conversion
+/// naming conventions.
 pub trait DirectedEdge {
-    /// Typed ID of the source entity (the "from" side).
-    type FromId: TypedId;
-    /// Typed ID of the destination entity (the "to" side).
-    type ToId: TypedId;
+    /// Typed ID of the left-side entity.
+    type LeftId: TypedId;
+    /// Typed ID of the right-side entity.
+    type RightId: TypedId;
 
-    fn from_id(&self) -> Self::FromId;
-    fn to_id(&self) -> Self::ToId;
+    fn left_id(&self) -> Self::LeftId;
+    fn right_id(&self) -> Self::RightId;
 
-    fn from_uuid(&self) -> NonNilUuid {
-        self.from_id().non_nil_uuid()
+    fn left_uuid(&self) -> NonNilUuid {
+        self.left_id().non_nil_uuid()
     }
 
-    fn to_uuid(&self) -> NonNilUuid {
-        self.to_id().non_nil_uuid()
+    fn right_uuid(&self) -> NonNilUuid {
+        self.right_id().non_nil_uuid()
     }
 
-    /// Returns `true` when `from` and `to` refer to the same UUID (e.g. group
+    /// Returns `true` when both sides refer to the same UUID (e.g. group
     /// marker self-loops in `PresenterToGroup`).
     fn is_self_loop(&self) -> bool {
-        self.from_uuid() == self.to_uuid()
+        self.left_uuid() == self.right_uuid()
     }
 }
 

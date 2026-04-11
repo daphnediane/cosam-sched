@@ -138,11 +138,11 @@ use cosam_sched::field::{edge_from, edge_to, field};
 pub struct PanelToPresenter {
     pub entity_uuid: NonNilUuid,
 
-    // Edge endpoints - immutable after construction, excluded from builder setters
-    #[edge_from(Panel)]
+    // Edge endpoints — left/right sides, immutable after construction, excluded from builder setters
+    #[edge_from(Panel)]       // left side → generates left_id(), left_uuid()
     pub panel_uuid: NonNilUuid,
 
-    #[edge_to(Presenter)]
+    #[edge_to(Presenter)]     // right side → generates right_id(), right_uuid()
     pub presenter_uuid: NonNilUuid,
 
     // Optional edge metadata
@@ -172,12 +172,21 @@ pub struct PanelToPresenter {
 
 ### Field-Level (Edge Endpoints)
 
-| Attribute              | Purpose                                                | Example                 |
-| ---------------------- | ------------------------------------------------------ | ----------------------- |
-| `#[edge_from(Entity)]` | Marks UUID field as edge source, excluded from builder | `#[edge_from(Panel)]`   |
-| `#[edge_to(Entity)]`   | Marks UUID field as edge target, excluded from builder | `#[edge_to(Presenter)]` |
+| Attribute                               | Purpose                                                        | Example                                         |
+| --------------------------------------- | -------------------------------------------------------------- | ----------------------------------------------- |
+| `#[edge_from(Entity)]`                  | Marks UUID field as left-side endpoint, excluded from builder  | `#[edge_from(Panel)]`                           |
+| `#[edge_to(Entity)]`                    | Marks UUID field as right-side endpoint, excluded from builder | `#[edge_to(Presenter)]`                         |
+| `#[edge_from(Entity, accessor = name)]` | Same, but overrides generated accessor method name             | `#[edge_from(Presenter, accessor = member_id)]` |
+| `#[edge_to(Entity, accessor = name)]`   | Same, but overrides generated accessor method name             | `#[edge_to(Presenter, accessor = group_id)]`    |
 
-Both `#[edge_from]` and `#[edge_to]` together generate `DirectedEdge` implementation.
+Both `#[edge_from]` and `#[edge_to]` together generate a `DirectedEdge` implementation with
+`left_id()`, `left_uuid()`, `right_id()`, `right_uuid()` methods.
+
+> **Why `left`/`right` instead of `from`/`to`?**  Edge relationships are often
+> bidirectional in meaning — "Panel hosted by Presenter" is equivalent to
+> "Presenter hosts Panel".  `from`/`to` implies false directionality and conflicts
+> with Rust's `From`/`Into` conversion naming conventions.  `left`/`right` is
+> positionally neutral.
 
 ### Field-Level (Computed Fields)
 
@@ -230,7 +239,8 @@ For each entity, the macro generates:
    - `apply_to(&mut Schedule, id)` — partial update
 5. **Per-field unit structs** — e.g., `NameField`, `UidField` implementing field traits
 6. **`fields` module** — Public constants for each field struct
-7. **`DirectedEdge` impl** — When both `#[edge_from]` and `#[edge_to]` present
+7. **`DirectedEdge` impl** — When both `#[edge_from]` and `#[edge_to]` are present;
+   generates `left_id()`, `left_uuid()`, `right_id()`, `right_uuid()`, `is_self_loop()`
 
 ---
 

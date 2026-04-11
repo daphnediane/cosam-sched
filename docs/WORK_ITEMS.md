@@ -1,6 +1,6 @@
 # Cosplay America Schedule - Work Item
 
-Updated on: Fri Apr 10 22:49:12 2026
+Updated on: Sat Apr 11 16:55:07 2026
 
 ## Completed
 
@@ -12,6 +12,8 @@ and validation infrastructure.
 * [FEATURE-006] Implement UUID-based entity identity with compile-time type-safe ID wrappers.
 * [FEATURE-007] Implement typed edge storage for entity-to-entity relationships.
 * [META-025] Phase tracker for project foundation and Cargo workspace setup.
+* [REFACTOR-032] Rename the `from`/`to` endpoint naming on `DirectedEdge` to `left`/`right`
+throughout the codebase.
 
 ---
 
@@ -61,9 +63,9 @@ display widget.
 
 The following ID numbers are available for new items:
 
-**Available:** 032, 033, 034, 035, 036, 037, 038, 039, 040, 041
+**Available:** 033, 034, 035, 036, 037, 038, 039, 040, 041, 042
 
-**Highest used:** 31
+**Highest used:** 32
 
 ---
 
@@ -541,3 +543,4 @@ to exchange CRDT changes and reconcile concurrent edits to the same fields.
 [META-029]: work-item/meta/META-029.md
 [META-030]: work-item/meta/META-030.md
 [META-031]: work-item/meta/META-031.md
+[REFACTOR-032]: work-item/done/REFACTOR-032.md

@@ -25,6 +25,9 @@ use super::edge_index::EdgeIndex;
 pub enum InsertError {
     /// UUID already exists in storage.
     UuidCollision { uuid: NonNilUuid },
+    /// An edge between the same endpoint pair already exists and the
+    /// applicable [`EdgePolicy`] is [`EdgePolicy::Reject`].
+    DuplicateEdge { left: NonNilUuid, right: NonNilUuid },
 }
 
 /// Error type returned by `Builder::build()` — covers both field validation
@@ -65,6 +68,12 @@ impl std::fmt::Display for InsertError {
         match self {
             InsertError::UuidCollision { uuid } => {
                 write!(f, "UUID collision: {uuid} already exists")
+            }
+            InsertError::DuplicateEdge { left, right } => {
+                write!(
+                    f,
+                    "duplicate edge: an edge from {left} to {right} already exists"
+                )
             }
         }
     }
@@ -195,6 +204,30 @@ impl TypedStorage for PresenterToGroupEntityType {
     }
 }
 
+/// Policy applied when `Schedule::add_edge` encounters an existing edge
+/// between the **same endpoint pair** (same `left_uuid` and `right_uuid`).
+///
+/// UUID collisions (same edge UUID, different endpoints) are always an error
+/// regardless of policy.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum EdgePolicy {
+    /// Reject the duplicate — return `Err(InsertError::DuplicateEdge)`.
+    Reject,
+    /// Silently drop the new edge; keep the existing one unchanged.
+    Ignore,
+    /// Remove the existing edge (by endpoint match) and insert the new one.
+    Replace,
+}
+
+/// Error type for a duplicate endpoint pair when `EdgePolicy::Reject` is active.
+/// Included as a variant of [`InsertError`].
+impl InsertError {
+    /// Convenience constructor for a duplicate-edge error.
+    pub fn duplicate_edge(left: NonNilUuid, right: NonNilUuid) -> Self {
+        InsertError::DuplicateEdge { left, right }
+    }
+}
+
 /// Maps an edge entity type to its [`EdgeIndex`] within [`EntityStorage`].
 ///
 /// This is the edge counterpart of [`TypedStorage`]: where `TypedStorage`
@@ -207,6 +240,12 @@ where
 {
     fn edge_index(storage: &EntityStorage) -> &EdgeIndex;
     fn edge_index_mut(storage: &mut EntityStorage) -> &mut EdgeIndex;
+
+    /// Policy applied when a new edge has the same endpoint pair as an
+    /// existing edge of this type.  Defaults to [`EdgePolicy::Reject`].
+    fn default_edge_policy() -> EdgePolicy {
+        EdgePolicy::Reject
+    }
 }
 
 impl TypedEdgeStorage for PanelToPresenterEntityType {
