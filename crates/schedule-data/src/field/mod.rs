@@ -46,6 +46,7 @@ pub enum FieldValue {
     NonNilUuid(NonNilUuid),
     PanelIdentifier(crate::entity::PanelId),
     EventRoomIdentifier(crate::entity::EventRoomId),
+    HotelRoomIdentifier(crate::entity::HotelRoomId),
 }
 
 impl FieldValue {
@@ -63,6 +64,15 @@ impl FieldValue {
         Self::List(
             ids.into_iter()
                 .map(|id| Self::EventRoomIdentifier(id))
+                .collect(),
+        )
+    }
+
+    /// Create a FieldValue::List of HotelRoomIdentifier from a Vec<HotelRoomId>.
+    pub fn hotel_room_list(ids: Vec<crate::entity::HotelRoomId>) -> Self {
+        Self::List(
+            ids.into_iter()
+                .map(|id| Self::HotelRoomIdentifier(id))
                 .collect(),
         )
     }
@@ -124,6 +134,7 @@ impl fmt::Display for FieldValue {
             FieldValue::NonNilUuid(uuid) => write!(f, "{}", uuid),
             FieldValue::PanelIdentifier(id) => write!(f, "{}", id),
             FieldValue::EventRoomIdentifier(id) => write!(f, "{}", id),
+            FieldValue::HotelRoomIdentifier(id) => write!(f, "{}", id),
         }
     }
 }
