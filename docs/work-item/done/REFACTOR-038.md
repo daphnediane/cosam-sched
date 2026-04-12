@@ -8,7 +8,7 @@ variants, and delete the five edge entity files.
 
 ## Status
 
-Open
+Completed
 
 ## Priority
 
@@ -75,16 +75,30 @@ Rewrite all edge-based tests in `schedule/mod.rs` to use field-based
 relationship manipulation. Update any entity-level tests that reference
 edge types.
 
+## Work completed
+
+- [x] `Schedule` convenience methods updated to use `EdgeMap` reverse indexes
+      and stored fields (no edge entity queries)
+- [x] `add_edge` / `remove_edge` and all related wrappers removed from `Schedule`
+      and `EntityStorage`
+- [x] `#[edge_from]` / `#[edge_to]` attribute parsing removed from `schedule-macro`
+- [x] `DirectedEdge` trait generation removed from `schedule-macro`
+- [x] `UuidPreference::Edge` variant removed from `uuid_preference.rs`
+- [x] `EntityKind` and `EntityUUID` edge variants removed (only five node
+      variants remain)
+- [x] Five edge entity files deleted
+- [x] All tests rewritten; 119 tests pass clean
+
 ## Acceptance Criteria
 
-- [ ] `Schedule` convenience methods use field access + reverse indexes
-- [ ] `add_edge` / `remove_edge` and related methods removed from `Schedule`
-- [ ] `#[edge_from]` / `#[edge_to]` attributes removed from macro
-- [ ] `DirectedEdge` trait removed from entity system
-- [ ] `EntityKind` and `EntityUUID` edge variants removed
-- [ ] `UuidPreference::Edge` variant removed
-- [ ] Five edge entity files deleted
-- [ ] All tests rewritten; `cargo test` passes clean
+- [x] `Schedule` convenience methods use field access + reverse indexes
+- [x] `add_edge` / `remove_edge` and related methods removed from `Schedule`
+- [x] `#[edge_from]` / `#[edge_to]` attributes removed from macro
+- [x] `DirectedEdge` trait removed from entity system
+- [x] `EntityKind` and `EntityUUID` edge variants removed
+- [x] `UuidPreference::Edge` variant removed
+- [x] Five edge entity files deleted
+- [x] All tests rewritten; `cargo test` passes clean
 
 ## Dependencies
 

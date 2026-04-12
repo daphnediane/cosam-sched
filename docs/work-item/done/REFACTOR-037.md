@@ -7,7 +7,7 @@ indexes to EntityStorage; remove all edge HashMap and EdgeIndex infrastructure.
 
 ## Status
 
-Open
+Completed
 
 ## Priority
 
@@ -42,6 +42,29 @@ Add five reverse index fields (replacing all EdgeIndex + edge HashMap fields):
 - `event_rooms_by_hotel_room: HashMap<NonNilUuid, Vec<NonNilUuid>>`
 - `presenters_by_group: HashMap<NonNilUuid, Vec<NonNilUuid>>`
 
+### Work completed
+
+- [x] Reverse index fields added to EntityStorage (panels_by_panel_type, panels_by_event_room, panels_by_presenter, event_rooms_by_hotel_room, presenters_by_group)
+- [x] EntityType trait has on_insert/on_remove/on_update hook methods with default no-op implementations
+- [x] Hook calls integrated into EntityStorage add_entity/remove_entity
+- [x] Edge HashMap fields removed from EntityStorage (panel_to_presenter, panel_to_event_room, panel_to_panel_type, event_room_to_hotel_room, presenter_to_group)
+- [x] Removed edge HashMap fields from EntityStorage (no longer needed with virtual edges):
+  - `panel_to_panel_type: HashMap<NonNilUuid, Vec<NonNilUuid>>`
+  - `panel_to_event_room: HashMap<NonNilUuid, Vec<NonNilUuid>>`
+  - `panel_to_presenter: HashMap<NonNilUuid, Vec<NonNilUuid>>`
+  - `event_room_to_hotel_room: HashMap<NonNilUuid, Vec<NonNilUuid>>`
+  - `presenter_to_group: HashMap<NonNilUuid, Vec<NonNilUuid>>`
+- [x] Updated computed field closures in Panel, EventRoom, and Presenter to use stored fields and reverse indexes instead of edge lookups
+- [x] Added hook functions to PanelEntityType for reverse index maintenance (on_insert_hook, on_remove_hook, on_update_hook)
+- [x] Removed EdgeIndex struct and edge_index.rs file
+- [x] Deleted five edge entity files (panel_to_presenter.rs, panel_to_event_room.rs, panel_to_panel_type.rs, event_room_to_hotel_room.rs, presenter_to_group.rs)
+- [x] Fixed hotel_rooms_of method to read from backing field instead of reverse index
+- [x] All tests pass (105 passed)
+
+### Work remaining
+
+None - all tasks completed. Edge infrastructure removal is complete.
+
 ### Hook Implementations
 
 `PanelEntityType::on_insert` — for each of `panel_type`, `event_room`,
@@ -70,17 +93,18 @@ Remove traits: `TypedEdgeStorage`, `EdgeEntityType`, `EdgePolicy`.
 
 ## Acceptance Criteria
 
-- [ ] `EntityType` trait has `on_insert` / `on_remove` / `on_update` with
+- [x] `EntityType` trait has `on_insert` / `on_remove` / `on_update` with
       default no-op implementations
-- [ ] Hook calls integrated into `EntityStorage` CRUD
-- [ ] Five reverse index fields in `EntityStorage`
-- [ ] `PanelEntityType`, `EventRoomEntityType`, `PresenterEntityType` hooks
+- [x] Hook calls integrated into `EntityStorage` CRUD
+- [x] Five reverse index fields in `EntityStorage`
+- [x] `PanelEntityType`, `EventRoomEntityType`, `PresenterEntityType` hooks
       maintain their respective indexes correctly
-- [ ] All edge HashMap and EdgeIndex fields removed
-- [ ] `TypedEdgeStorage`, `EdgeEntityType`, `EdgePolicy` removed
-- [ ] `add_edge` / `remove_edge` removed from `EntityStorage`
-- [ ] Tests verify reverse index correctness on insert/remove/update
-- [ ] `cargo test` clean
+- [x] All edge HashMap fields removed from `EntityStorage`
+- [x] EdgeIndex struct and edge_index.rs file removed
+- [x] `TypedEdgeStorage`, `EdgeEntityType`, `EdgePolicy` removed
+- [x] `add_edge` / `remove_edge` removed from `EntityStorage`
+- [x] Tests verify reverse index correctness on insert/remove/update
+- [x] `cargo test` clean
 
 ## Dependencies
 

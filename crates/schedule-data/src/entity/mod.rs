@@ -286,7 +286,9 @@ pub enum EntityKind {
 
 /// Trait for typed entity ID wrappers.
 /// Provides a uniform interface for all entity IDs backed by `NonNilUuid`.
-pub trait TypedId: Copy + Clone + Send + Sync + fmt::Debug + 'static {
+pub trait TypedId:
+    Copy + Clone + Send + Sync + fmt::Debug + 'static + std::hash::Hash + Eq
+{
     type EntityType: EntityType;
 
     fn non_nil_uuid(&self) -> NonNilUuid;

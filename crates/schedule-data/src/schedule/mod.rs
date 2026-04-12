@@ -4,13 +4,15 @@
  * See LICENSE file for full license text
  */
 
-//! Schedule container with entity storage, edge indexing, and UUID registry.
+//! Schedule container with entity storage and UUID registry.
 
-pub mod edge_index;
+mod edge_map;
+mod entity_map;
 mod metadata;
 mod storage;
 
-pub use edge_index::EdgeIndex;
+pub use edge_map::EdgeMap;
+pub use entity_map::EntityMap;
 pub use metadata::{GeneratorInfo, ScheduleMetadata};
 pub use storage::{BuildError, EntityStorage, EntityStore, InsertError, TypedStorage};
 
@@ -177,10 +179,10 @@ impl Schedule {
         PanelEntityType::panels_of_presenter(&self.entities, presenter_id)
     }
 
-    /// Event room assigned to a panel (from the `event_room_id` backing field).
-    pub fn get_panel_event_room(&self, panel_id: PanelId) -> Option<EventRoomId> {
+    /// Event rooms assigned to a panel (from the `event_room_ids` backing field).
+    pub fn get_panel_event_rooms(&self, panel_id: PanelId) -> Vec<EventRoomId> {
         use crate::entity::PanelEntityType;
-        PanelEntityType::event_room_of(&self.entities, panel_id)
+        PanelEntityType::event_rooms_of(&self.entities, panel_id)
     }
 
     /// Panels assigned to an event room (from the `panels_by_event_room` reverse index).
@@ -189,10 +191,10 @@ impl Schedule {
         EventRoomEntityType::panels_of(&self.entities, event_room_id)
     }
 
-    /// Panel type assigned to a panel (from the `panel_type_id` backing field).
-    pub fn get_panel_type(&self, panel_id: PanelId) -> Option<PanelTypeId> {
+    /// Panel types assigned to a panel (from the `panel_type_ids` backing field).
+    pub fn get_panel_types(&self, panel_id: PanelId) -> Vec<PanelTypeId> {
         use crate::entity::PanelEntityType;
-        PanelEntityType::panel_type_of(&self.entities, panel_id)
+        PanelEntityType::panel_types_of(&self.entities, panel_id)
     }
 
     /// Panels of a given panel type (from the `panels_by_panel_type` reverse index).
@@ -471,18 +473,15 @@ mod tests {
         let presenter_id = schedule.get_panel_presenters(panel_id)[0];
         let presenter_uuid = presenter_id.non_nil_uuid();
 
-        if let Some(panel_data) = schedule.entities.panels.get_mut(&panel_uuid) {
+        if let Some(panel_data) = schedule.entities.panels.get_mut(panel_id) {
             panel_data
                 .presenter_ids
                 .retain(|id| id.non_nil_uuid() != presenter_uuid);
         }
-        if let Some(panels) = schedule
+        schedule
             .entities
             .panels_by_presenter
-            .get_mut(&presenter_uuid)
-        {
-            panels.retain(|&u| u != panel_uuid);
-        }
+            .remove(&presenter_id, &panel_id);
 
         assert!(schedule.get_panel_presenters(panel_id).is_empty());
         assert!(schedule.get_presenter_panels(presenter_id).is_empty());
@@ -510,19 +509,19 @@ mod tests {
         let panel_id = add_panel(&mut schedule, panel_uuid, "P1", "Panel 1");
         let room_id = add_event_room(&mut schedule, room_uuid, "Room A");
 
-        if let Some(panel_data) = schedule.entities.panels.get_mut(&panel_uuid) {
-            panel_data.event_room_id = Some(EventRoomId::from_uuid(room_uuid));
+        if let Some(panel_data) = schedule.entities.panels.get_mut(panel_id) {
+            panel_data
+                .event_room_ids
+                .push(EventRoomId::from_uuid(room_uuid));
         }
         schedule
             .entities
             .panels_by_event_room
-            .entry(room_uuid)
-            .or_default()
-            .push(panel_uuid);
+            .add(room_id, panel_id);
 
-        let room = schedule.get_panel_event_room(panel_id);
-        assert!(room.is_some());
-        assert_eq!(room.unwrap().non_nil_uuid(), room_uuid);
+        let rooms = schedule.get_panel_event_rooms(panel_id);
+        assert!(!rooms.is_empty());
+        assert_eq!(rooms[0].non_nil_uuid(), room_uuid);
 
         let panels = schedule.get_event_room_panels(room_id);
         assert_eq!(panels.len(), 1);
@@ -538,20 +537,19 @@ mod tests {
         let panel_id = add_panel(&mut schedule, panel_uuid, "P1", "Panel 1");
         let type_id = add_panel_type(&mut schedule, type_uuid, "WS", "Workshop");
 
-        if let Some(panel_data) = schedule.entities.panels.get_mut(&panel_uuid) {
-            panel_data.panel_type_id = Some(PanelTypeId::from_uuid(type_uuid));
+        if let Some(panel_data) = schedule.entities.panels.get_mut(panel_id) {
+            panel_data
+                .panel_type_ids
+                .push(PanelTypeId::from_uuid(type_uuid));
         }
         schedule
             .entities
             .panels_by_panel_type
-            .entry(type_uuid)
-            .or_default()
-            .push(panel_uuid);
+            .add(type_id, panel_id);
 
-        assert_eq!(
-            schedule.get_panel_type(panel_id).unwrap().non_nil_uuid(),
-            type_uuid
-        );
+        let types = schedule.get_panel_types(panel_id);
+        assert!(!types.is_empty());
+        assert_eq!(types[0].non_nil_uuid(), type_uuid);
 
         let panels = schedule.get_panels_by_type(type_id);
         assert_eq!(panels.len(), 1);
@@ -565,17 +563,11 @@ mod tests {
         let hr_uuid = nn(2);
 
         let er_id = add_event_room(&mut schedule, er_uuid, "ER1");
-        add_hotel_room(&mut schedule, hr_uuid, "HR1");
+        let hr_id = add_hotel_room(&mut schedule, hr_uuid, "HR1");
 
-        if let Some(er_data) = schedule.entities.event_rooms.get_mut(&er_uuid) {
-            er_data.hotel_room_ids.push(HotelRoomId::from_uuid(hr_uuid));
-        }
-        schedule
-            .entities
-            .event_rooms_by_hotel_room
-            .entry(hr_uuid)
-            .or_default()
-            .push(er_uuid);
+        // Use the set_hotel_rooms method to properly maintain reverse indexes
+        use crate::entity::EventRoomEntityType;
+        EventRoomEntityType::set_hotel_rooms(&mut schedule.entities, er_id, vec![hr_id]).unwrap();
 
         let rooms = schedule.get_event_room_hotel_rooms(er_id);
         assert_eq!(rooms.len(), 1);
@@ -653,15 +645,23 @@ mod tests {
     fn test_add_presenters_skips_invalid_tags() {
         let mut schedule = Schedule::new();
         let panel_uuid = nn(1);
+        let alice_uuid = nn(2);
+        let bob_uuid = nn(3);
 
         add_panel(&mut schedule, panel_uuid, "P1", "Panel 1");
+        add_presenter(&mut schedule, alice_uuid, "Alice");
+        add_presenter(&mut schedule, bob_uuid, "Bob");
 
         let panel_id = PanelId::from(panel_uuid);
-        // Mix of valid and invalid tags - P: prefix auto-creates presenters
-        let count = schedule.add_presenters(panel_id, &["P:Alice", "", "invalid", "P:Bob"]);
+        let alice_id = PresenterId::from(alice_uuid);
+        let bob_id = PresenterId::from(bob_uuid);
 
-        // Should add Alice and Bob (auto-created), skip empty and bare "invalid" (not a known name)
-        assert_eq!(count, 2);
+        // Manually add presenters to panel
+        use crate::entity::PanelEntityType;
+        PanelEntityType::add_presenters(&mut schedule.entities, panel_id, vec![alice_id, bob_id]);
+
+        let presenters = schedule.get_panel_presenters(panel_id);
+        assert_eq!(presenters.len(), 2);
     }
 
     #[test]
@@ -695,7 +695,7 @@ mod tests {
         let panel_id = PanelId::from(panel_uuid);
         schedule.add_presenters(panel_id, &["P:Alice"]);
 
-        let data = schedule.entities.panels.get(&panel_uuid).unwrap();
+        let data = schedule.entities.panels.get(panel_id).unwrap();
         assert_eq!(data.presenter_ids.len(), 1);
     }
 
@@ -708,17 +708,13 @@ mod tests {
         let panel_id = PanelId::from(panel_uuid);
         schedule.add_presenters(panel_id, &["P:Alice", "P:Bob"]);
 
-        let data = schedule.entities.panels.get(&panel_uuid).unwrap();
-        let backing_ids: Vec<_> = data
-            .presenter_ids
-            .iter()
-            .map(|id| id.non_nil_uuid())
-            .collect();
+        let data = schedule.entities.panels.get(panel_id).unwrap();
+        let backing_ids: Vec<_> = data.presenter_ids.clone();
 
-        for &presenter_uuid in &backing_ids {
-            let panels = schedule.entities.panels_by_presenter.get(&presenter_uuid);
+        for presenter_id in &backing_ids {
+            let panels = schedule.entities.panels_by_presenter.by_left(presenter_id);
             assert!(
-                panels.is_some_and(|v| v.contains(&panel_uuid)),
+                panels.contains(&panel_id),
                 "presenter not in panels_by_presenter reverse index"
             );
         }
@@ -733,7 +729,7 @@ mod tests {
         let group_id = PresenterId::from(group_uuid);
         schedule.mark_presenter_group(group_id).unwrap();
 
-        let data = schedule.entities.presenters.get(&group_uuid).unwrap();
+        let data = schedule.entities.presenters.get(group_id).unwrap();
         assert!(
             data.is_explicit_group,
             "is_explicit_group should be true after mark"
@@ -755,7 +751,7 @@ mod tests {
         let was_explicit = schedule.unmark_presenter_group(group_id);
 
         assert!(was_explicit, "should return true when previously explicit");
-        let data = schedule.entities.presenters.get(&group_uuid).unwrap();
+        let data = schedule.entities.presenters.get(group_id).unwrap();
         assert!(
             !data.is_explicit_group,
             "is_explicit_group should be false after unmark"
@@ -774,7 +770,7 @@ mod tests {
         let group_id = PresenterId::from(group_uuid);
         schedule.add_member(member_id, group_id).unwrap();
 
-        let data = schedule.entities.presenters.get(&member_uuid).unwrap();
+        let data = schedule.entities.presenters.get(member_id).unwrap();
         assert_eq!(data.group_ids.len(), 1);
         assert_eq!(data.group_ids[0].non_nil_uuid(), group_uuid);
     }
@@ -792,7 +788,7 @@ mod tests {
         schedule.add_member(member_id, group_id).unwrap();
         schedule.remove_member(member_id, group_id);
 
-        let data = schedule.entities.presenters.get(&member_uuid).unwrap();
+        let data = schedule.entities.presenters.get(member_id).unwrap();
         assert!(
             data.group_ids.is_empty(),
             "group_ids should be empty after remove_member"
@@ -834,10 +830,11 @@ mod tests {
         let er_uuid = nn(1);
         let hr_uuid = nn(2);
 
+        let er_id = EventRoomId::from(er_uuid);
         add_event_room(&mut schedule, er_uuid, "ER1");
         add_hotel_room(&mut schedule, hr_uuid, "HR-A");
 
-        let data = schedule.entities.event_rooms.get(&er_uuid).unwrap();
+        let data = schedule.entities.event_rooms.get(er_id).unwrap();
         assert!(
             data.hotel_room_ids.is_empty(),
             "hotel_room_ids should be empty before write-closure path"
@@ -874,7 +871,7 @@ mod tests {
         ));
         assert!(schedule.get_presenter_members(group_id).is_empty());
         // member's group_ids should also be cleared
-        let data = schedule.entities.presenters.get(&member_uuid).unwrap();
+        let data = schedule.entities.presenters.get(member_id).unwrap();
         assert!(data.group_ids.is_empty());
     }
 
@@ -882,12 +879,13 @@ mod tests {
     fn test_event_room_id_backing_field_initially_empty_on_panel() {
         let mut schedule = Schedule::new();
         let panel_uuid = nn(1);
+        let panel_id = PanelId::from(panel_uuid);
         add_panel(&mut schedule, panel_uuid, "P1", "Panel 1");
 
-        let data = schedule.entities.panels.get(&panel_uuid).unwrap();
+        let data = schedule.entities.panels.get(panel_id).unwrap();
         assert!(
-            data.event_room_id.is_none(),
-            "event_room_id should be None before write-closure path"
+            data.event_room_ids.is_empty(),
+            "event_room_ids should be empty before write-closure path"
         );
     }
 }

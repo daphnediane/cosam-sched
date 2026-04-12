@@ -14,7 +14,7 @@
 //!
 //! [`TimeRange`]: crate::time::TimeRange
 
-use crate::entity::{EventRoomId, PanelTypeId, PresenterId};
+use crate::entity::PresenterId;
 use crate::EntityFields;
 
 /// A panel (event) on the schedule.
@@ -199,13 +199,13 @@ pub struct Panel {
     /// `PanelEntityType` presenter helpers.
     pub presenter_ids: Vec<crate::entity::PresenterId>,
 
-    /// Backing storage for the event room relationship (owned forward side).
-    /// Updated by the `event_room` computed field write closure.
-    pub event_room_id: Option<crate::entity::EventRoomId>,
+    /// Backing storage for event room relationships (owned forward side).
+    /// Panels can have multiple event rooms (though rare).
+    pub event_room_ids: Vec<crate::entity::EventRoomId>,
 
-    /// Backing storage for the panel type relationship (owned forward side).
-    /// Updated by the `panel_type` computed field write closure.
-    pub panel_type_id: Option<crate::entity::PanelTypeId>,
+    /// Backing storage for panel type relationships (owned forward side).
+    /// Panels can have multiple panel types.
+    pub panel_type_ids: Vec<crate::entity::PanelTypeId>,
 
     // --- Computed: time_slot projections ------------------------------------
     #[computed_field(display = "Start Time", description = "Panel start time (ISO-8601)")]
@@ -312,9 +312,9 @@ pub struct Panel {
     )]
     #[write(|schedule: &mut crate::schedule::Schedule, entity: &mut PanelData, value: crate::field::FieldValue| {
         use crate::entity::InternalData;
-        let panel_uuid = entity.id().non_nil_uuid();
+        let panel_id = entity.id();
         let presenter_ids = PresenterId::from_field_values(value, schedule)?;
-        PanelEntityType::add_presenters(&mut schedule.entities, panel_uuid, presenter_ids);
+        PanelEntityType::add_presenters(&mut schedule.entities, panel_id, presenter_ids);
         Ok(())
     })]
     pub add_presenters: Vec<crate::entity::PresenterId>,
@@ -328,9 +328,9 @@ pub struct Panel {
     )]
     #[write(|schedule: &mut crate::schedule::Schedule, entity: &mut PanelData, value: crate::field::FieldValue| {
         use crate::entity::InternalData;
-        let panel_uuid = entity.id().non_nil_uuid();
+        let panel_id = entity.id();
         let presenter_ids = PresenterId::from_field_values(value, schedule)?;
-        PanelEntityType::remove_presenters(&mut schedule.entities, panel_uuid, presenter_ids);
+        PanelEntityType::remove_presenters(&mut schedule.entities, panel_id, presenter_ids);
         Ok(())
     })]
     pub remove_presenters: Vec<crate::entity::PresenterId>,
@@ -362,7 +362,7 @@ pub struct Panel {
 
             // Upward: add all groups this presenter belongs to (transitive via group_ids)
             let mut up_queue: VecDeque<uuid::NonNilUuid> = VecDeque::new();
-            if let Some(data) = schedule.entities.presenters.get(&presenter_uuid) {
+            if let Some(data) = schedule.entities.presenters.get(PresenterId::from_uuid(presenter_uuid)) {
                 for gid in &data.group_ids {
                     up_queue.push_back(gid.non_nil_uuid());
                 }
@@ -370,7 +370,7 @@ pub struct Panel {
             while let Some(group_uuid) = up_queue.pop_front() {
                 if seen.insert(group_uuid) {
                     result.push(crate::field::FieldValue::NonNilUuid(group_uuid));
-                    if let Some(data) = schedule.entities.presenters.get(&group_uuid) {
+                    if let Some(data) = schedule.entities.presenters.get(PresenterId::from_uuid(group_uuid)) {
                         for gid in &data.group_ids {
                             up_queue.push_back(gid.non_nil_uuid());
                         }
@@ -379,20 +379,22 @@ pub struct Panel {
             }
 
             // Downward: if this presenter is a group, add its members (transitive)
-            let is_group = schedule.entities.presenters.get(&presenter_uuid)
+            let is_group = schedule.entities.presenters.get(PresenterId::from_uuid(presenter_uuid))
                 .is_some_and(|d| d.is_explicit_group)
-                || schedule.entities.presenters_by_group.get(&presenter_uuid)
-                    .is_some_and(|v| !v.is_empty());
+                || !schedule.entities.presenter_group_members
+                    .by_left(&PresenterId::from_uuid(presenter_uuid)).is_empty();
             if is_group {
                 let mut down_queue: VecDeque<uuid::NonNilUuid> = VecDeque::new();
-                if let Some(members) = schedule.entities.presenters_by_group.get(&presenter_uuid) {
-                    for &m in members { down_queue.push_back(m); }
+                for m in schedule.entities.presenter_group_members
+                    .by_left(&PresenterId::from_uuid(presenter_uuid)) {
+                    down_queue.push_back(m.non_nil_uuid());
                 }
                 while let Some(m_uuid) = down_queue.pop_front() {
                     if seen.insert(m_uuid) {
                         result.push(crate::field::FieldValue::NonNilUuid(m_uuid));
-                        if let Some(sub) = schedule.entities.presenters_by_group.get(&m_uuid) {
-                            for &sm in sub { down_queue.push_back(sm); }
+                        for sm in schedule.entities.presenter_group_members
+                            .by_left(&PresenterId::from_uuid(m_uuid)) {
+                            down_queue.push_back(sm.non_nil_uuid());
                         }
                     }
                 }
@@ -407,42 +409,37 @@ pub struct Panel {
     pub inclusive_presenters: Vec<crate::entity::PresenterId>,
 
     #[computed_field(
-        display = "Event Room",
-        description = "Room where this panel takes place"
+        display = "Event Rooms",
+        description = "Rooms where this panel takes place"
     )]
-    #[alias("room", "event_room")]
-    #[read(|schedule: &crate::schedule::Schedule, entity: &PanelData| {
-        use crate::entity::InternalData;
-        let panel_id = entity.id();
-        PanelEntityType::event_room_of(&schedule.entities, panel_id)
-            .map(|id| crate::field::FieldValue::EventRoomIdentifier(id))
+    #[alias("rooms", "event_rooms")]
+    #[read(|_schedule: &crate::schedule::Schedule, entity: &PanelData| {
+        Some(crate::field::FieldValue::event_room_list(entity.event_room_ids.clone()))
     })]
     #[write(|schedule: &mut crate::schedule::Schedule, entity: &mut PanelData, value: crate::field::FieldValue| {
         use crate::entity::InternalData;
         let panel_id = entity.id();
-        let event_room_id = EventRoomId::from_field_value(value, schedule)?;
-        PanelEntityType::set_event_room(&mut schedule.entities, panel_id, Some(event_room_id))
+        let event_room_ids = crate::entity::EventRoomId::from_field_values(value, schedule)?;
+        crate::entity::PanelEntityType::set_event_rooms(&mut schedule.entities, panel_id, event_room_ids)
     })]
-    pub event_room: Option<String>,
+    pub event_rooms: Vec<crate::entity::EventRoomId>,
 
+    // @todo - panels can have only one type!
     #[computed_field(
-        display = "Panel Type",
-        description = "Type / category of this panel (e.g. \"Guest Panel\", \"Workshop\")"
+        display = "Panel Types",
+        description = "Types / categories of this panel (e.g. \"Guest Panel\", \"Workshop\")"
     )]
-    #[alias("panel_type", "kind", "type")]
-    #[read(|schedule: &crate::schedule::Schedule, entity: &PanelData| {
-        use crate::entity::InternalData;
-        let panel_id = entity.id();
-        PanelEntityType::panel_type_of(&schedule.entities, panel_id)
-            .map(|id| crate::field::FieldValue::PanelTypeIdentifier(id))
+    #[alias("panel_types", "kinds", "types")]
+    #[read(|_schedule: &crate::schedule::Schedule, entity: &PanelData| {
+        Some(crate::field::FieldValue::panel_type_list(entity.panel_type_ids.clone()))
     })]
     #[write(|schedule: &mut crate::schedule::Schedule, entity: &mut PanelData, value: crate::field::FieldValue| {
         use crate::entity::InternalData;
         let panel_id = entity.id();
-        let panel_type_id = PanelTypeId::from_field_value(value, schedule)?;
-        PanelEntityType::set_panel_type(&mut schedule.entities, panel_id, Some(panel_type_id))
+        let panel_type_ids = crate::entity::PanelTypeId::from_field_values(value, schedule)?;
+        crate::entity::PanelEntityType::set_panel_types(&mut schedule.entities, panel_id, panel_type_ids)
     })]
-    pub panel_type: Option<String>,
+    pub panel_types: Vec<crate::entity::PanelTypeId>,
 }
 
 impl crate::entity::SchedulableEntity for PanelEntityType {}
@@ -457,10 +454,9 @@ impl PanelEntityType {
         storage: &crate::schedule::EntityStorage,
         panel_id: PanelId,
     ) -> Vec<crate::entity::PresenterId> {
-        let uuid = panel_id.non_nil_uuid();
         storage
             .panels
-            .get(&uuid)
+            .get(panel_id)
             .map(|d| d.presenter_ids.clone())
             .unwrap_or_default()
     }
@@ -473,93 +469,104 @@ impl PanelEntityType {
         panel_id: PanelId,
         presenter_ids: Vec<crate::entity::PresenterId>,
     ) -> Result<(), crate::field::FieldError> {
-        let panel_uuid = panel_id.non_nil_uuid();
-        let entity = storage.panels.get_mut(&panel_uuid).ok_or(
-            crate::field::FieldError::ConversionError(
-                crate::field::validation::ConversionError::InvalidFormat,
-            ),
-        )?;
+        let entity =
+            storage
+                .panels
+                .get_mut(panel_id)
+                .ok_or(crate::field::FieldError::ConversionError(
+                    crate::field::validation::ConversionError::InvalidFormat,
+                ))?;
 
-        let new_presenter_uuids: Vec<uuid::NonNilUuid> =
-            presenter_ids.iter().map(|id| id.non_nil_uuid()).collect();
-
-        // Remove panel from old presenters' reverse index entries
-        for old_id in &entity.presenter_ids {
-            let old_uuid = old_id.non_nil_uuid();
-            if let Some(panels) = storage.panels_by_presenter.get_mut(&old_uuid) {
-                panels.retain(|&u| u != panel_uuid);
-            }
+        // Update reverse index and forward backing field
+        for old_id in &entity.presenter_ids.clone() {
+            storage.panels_by_presenter.remove(old_id, &panel_id);
         }
-
-        // Update forward backing field
+        for new_id in &presenter_ids {
+            storage.panels_by_presenter.add(*new_id, panel_id);
+        }
         entity.presenter_ids = presenter_ids;
 
-        // Add panel to new presenters' reverse index entries
-        for &presenter_uuid in &new_presenter_uuids {
-            storage
-                .panels_by_presenter
-                .entry(presenter_uuid)
-                .or_default()
-                .push(panel_uuid);
-        }
-
         Ok(())
     }
 
-    /// Get the event room for this panel.
-    pub fn event_room_of(
+    /// Get the event rooms for this panel.
+    pub fn event_rooms_of(
         storage: &crate::schedule::EntityStorage,
         panel_id: PanelId,
-    ) -> Option<crate::entity::EventRoomId> {
-        let uuid = panel_id.non_nil_uuid();
-        storage.panels.get(&uuid).and_then(|d| d.event_room_id)
+    ) -> Vec<crate::entity::EventRoomId> {
+        storage
+            .panels
+            .get(panel_id)
+            .map(|d| d.event_room_ids.clone())
+            .unwrap_or_default()
     }
 
-    /// Set the event room for this panel.
+    /// Set the event rooms for this panel.
     ///
     /// Updates both the forward backing field and the reverse index.
-    pub fn set_event_room(
+    pub fn set_event_rooms(
         storage: &mut crate::schedule::EntityStorage,
         panel_id: PanelId,
-        event_room_id: Option<crate::entity::EventRoomId>,
+        event_room_ids: Vec<crate::entity::EventRoomId>,
     ) -> Result<(), crate::field::FieldError> {
-        let panel_uuid = panel_id.non_nil_uuid();
-        let entity = storage.panels.get_mut(&panel_uuid).ok_or(
-            crate::field::FieldError::ConversionError(
-                crate::field::validation::ConversionError::InvalidFormat,
-            ),
-        )?;
-
-        // Remove panel from old event room's reverse index
-        if let Some(old_id) = entity.event_room_id {
-            let old_uuid = old_id.non_nil_uuid();
-            if let Some(panels) = storage.panels_by_event_room.get_mut(&old_uuid) {
-                panels.retain(|&u| u != panel_uuid);
-            }
-        }
-
-        entity.event_room_id = event_room_id;
-
-        // Add panel to new event room's reverse index
-        if let Some(new_id) = event_room_id {
-            let new_uuid = new_id.non_nil_uuid();
+        let entity =
             storage
-                .panels_by_event_room
-                .entry(new_uuid)
-                .or_default()
-                .push(panel_uuid);
+                .panels
+                .get_mut(panel_id)
+                .ok_or(crate::field::FieldError::ConversionError(
+                    crate::field::validation::ConversionError::InvalidFormat,
+                ))?;
+
+        // Update reverse index and forward backing field
+        for old_id in &entity.event_room_ids.clone() {
+            storage.panels_by_event_room.remove(old_id, &panel_id);
         }
+        for new_id in &event_room_ids {
+            storage.panels_by_event_room.add(*new_id, panel_id);
+        }
+        entity.event_room_ids = event_room_ids;
 
         Ok(())
     }
 
-    /// Get the panel type for this panel.
-    pub fn panel_type_of(
+    /// Get the panel types for this panel.
+    pub fn panel_types_of(
         storage: &crate::schedule::EntityStorage,
         panel_id: PanelId,
-    ) -> Option<crate::entity::PanelTypeId> {
-        let uuid = panel_id.non_nil_uuid();
-        storage.panels.get(&uuid).and_then(|d| d.panel_type_id)
+    ) -> Vec<crate::entity::PanelTypeId> {
+        storage
+            .panels
+            .get(panel_id)
+            .map(|d| d.panel_type_ids.clone())
+            .unwrap_or_default()
+    }
+
+    /// Set the panel types for this panel.
+    ///
+    /// Updates both the forward backing field and the reverse index.
+    pub fn set_panel_types(
+        storage: &mut crate::schedule::EntityStorage,
+        panel_id: PanelId,
+        panel_type_ids: Vec<crate::entity::PanelTypeId>,
+    ) -> Result<(), crate::field::FieldError> {
+        let entity =
+            storage
+                .panels
+                .get_mut(panel_id)
+                .ok_or(crate::field::FieldError::ConversionError(
+                    crate::field::validation::ConversionError::InvalidFormat,
+                ))?;
+
+        // Update reverse index and forward backing field
+        for old_id in &entity.panel_type_ids.clone() {
+            storage.panels_by_panel_type.remove(old_id, &panel_id);
+        }
+        for new_id in &panel_type_ids {
+            storage.panels_by_panel_type.add(*new_id, panel_id);
+        }
+        entity.panel_type_ids = panel_type_ids;
+
+        Ok(())
     }
 
     /// Get panels that a presenter is assigned to (reverse lookup).
@@ -567,12 +574,7 @@ impl PanelEntityType {
         storage: &crate::schedule::EntityStorage,
         presenter_id: PresenterId,
     ) -> Vec<PanelId> {
-        let uuid = presenter_id.non_nil_uuid();
-        storage
-            .panels_by_presenter
-            .get(&uuid)
-            .map(|v| v.iter().map(|&u| PanelId::from_uuid(u)).collect())
-            .unwrap_or_default()
+        storage.panels_by_presenter.by_left(&presenter_id).to_vec()
     }
 
     /// Set the panels that a presenter is assigned to.
@@ -583,43 +585,27 @@ impl PanelEntityType {
         presenter_id: PresenterId,
         panel_ids: Vec<PanelId>,
     ) -> Result<(), crate::field::FieldError> {
-        use crate::entity::InternalData;
-        let presenter_uuid = presenter_id.non_nil_uuid();
-        let new_panel_uuids: Vec<uuid::NonNilUuid> =
-            panel_ids.iter().map(|id| id.non_nil_uuid()).collect();
+        // Get old panels and update reverse index
+        let old_panel_ids: Vec<PanelId> =
+            storage.panels_by_presenter.by_left(&presenter_id).to_vec();
 
         // Remove presenter from old panels' presenter_ids
-        for panel in storage.panels.values_mut() {
-            if panel.presenter_ids.contains(&presenter_id)
-                && !new_panel_uuids.contains(&panel.id().non_nil_uuid())
-            {
-                panel.presenter_ids.retain(|id| id != &presenter_id);
-            }
-        }
-
-        // Remove old reverse index entries
-        if let Some(old_panels) = storage.panels_by_presenter.get(&presenter_uuid) {
-            for &panel_uuid in old_panels {
-                if !new_panel_uuids.contains(&panel_uuid) {
-                    if let Some(panel_data) = storage.panels.get_mut(&panel_uuid) {
-                        panel_data.presenter_ids.retain(|id| id != &presenter_id);
-                    }
+        for old_panel_id in &old_panel_ids {
+            if !panel_ids.contains(old_panel_id) {
+                if let Some(panel_data) = storage.panels.get_mut(*old_panel_id) {
+                    panel_data.presenter_ids.retain(|id| *id != presenter_id);
                 }
             }
         }
 
         // Update reverse index
-        if new_panel_uuids.is_empty() {
-            storage.panels_by_presenter.remove(&presenter_uuid);
-        } else {
-            storage
-                .panels_by_presenter
-                .insert(presenter_uuid, new_panel_uuids.clone());
-        }
+        storage
+            .panels_by_presenter
+            .update_by_left(presenter_id, &panel_ids);
 
         // Add presenter to new panels' presenter_ids
-        for panel_uuid in &new_panel_uuids {
-            if let Some(panel_data) = storage.panels.get_mut(panel_uuid) {
+        for new_panel_id in &panel_ids {
+            if let Some(panel_data) = storage.panels.get_mut(*new_panel_id) {
                 if !panel_data.presenter_ids.contains(&presenter_id) {
                     panel_data.presenter_ids.push(presenter_id);
                 }
@@ -637,23 +623,16 @@ impl PanelEntityType {
         presenter_id: PresenterId,
         panel_id: PanelId,
     ) -> usize {
-        let presenter_uuid = presenter_id.non_nil_uuid();
-        let panel_uuid = panel_id.non_nil_uuid();
-
         let already = storage
             .panels
-            .get(&panel_uuid)
+            .get(panel_id)
             .is_some_and(|d| d.presenter_ids.contains(&presenter_id));
 
         if !already {
-            if let Some(panel_data) = storage.panels.get_mut(&panel_uuid) {
+            if let Some(panel_data) = storage.panels.get_mut(panel_id) {
                 panel_data.presenter_ids.push(presenter_id);
             }
-            storage
-                .panels_by_presenter
-                .entry(presenter_uuid)
-                .or_default()
-                .push(panel_uuid);
+            storage.panels_by_presenter.add(presenter_id, panel_id);
             1
         } else {
             0
@@ -668,63 +647,20 @@ impl PanelEntityType {
         presenter_id: PresenterId,
         panel_id: PanelId,
     ) -> usize {
-        let presenter_uuid = presenter_id.non_nil_uuid();
-        let panel_uuid = panel_id.non_nil_uuid();
-
         let had = storage
             .panels
-            .get(&panel_uuid)
+            .get(panel_id)
             .is_some_and(|d| d.presenter_ids.contains(&presenter_id));
 
         if had {
-            if let Some(panel_data) = storage.panels.get_mut(&panel_uuid) {
-                panel_data.presenter_ids.retain(|id| id != &presenter_id);
+            if let Some(panel_data) = storage.panels.get_mut(panel_id) {
+                panel_data.presenter_ids.retain(|id| *id != presenter_id);
             }
-            if let Some(panels) = storage.panels_by_presenter.get_mut(&presenter_uuid) {
-                panels.retain(|&u| u != panel_uuid);
-            }
+            storage.panels_by_presenter.remove(&presenter_id, &panel_id);
             1
         } else {
             0
         }
-    }
-
-    /// Set the panel type for this panel.
-    ///
-    /// Updates both the forward backing field and the reverse index.
-    pub fn set_panel_type(
-        storage: &mut crate::schedule::EntityStorage,
-        panel_id: PanelId,
-        panel_type_id: Option<crate::entity::PanelTypeId>,
-    ) -> Result<(), crate::field::FieldError> {
-        let panel_uuid = panel_id.non_nil_uuid();
-        let entity = storage.panels.get_mut(&panel_uuid).ok_or(
-            crate::field::FieldError::ConversionError(
-                crate::field::validation::ConversionError::InvalidFormat,
-            ),
-        )?;
-
-        // Remove panel from old panel type's reverse index
-        if let Some(old_id) = entity.panel_type_id {
-            let old_uuid = old_id.non_nil_uuid();
-            if let Some(panels) = storage.panels_by_panel_type.get_mut(&old_uuid) {
-                panels.retain(|&u| u != panel_uuid);
-            }
-        }
-
-        entity.panel_type_id = panel_type_id;
-
-        // Add panel to new panel type's reverse index
-        if let Some(new_id) = panel_type_id {
-            let new_uuid = new_id.non_nil_uuid();
-            storage
-                .panels_by_panel_type
-                .entry(new_uuid)
-                .or_default()
-                .push(panel_uuid);
-        }
-
-        Ok(())
     }
 }
 
@@ -743,7 +679,7 @@ impl PanelEntityType {
     ) -> Result<PanelId, crate::schedule::LookupError> {
         match value {
             crate::field::FieldValue::NonNilUuid(uuid) => {
-                if storage.panels.contains_key(&uuid) {
+                if storage.panels.contains_key(PanelId::from_uuid(uuid)) {
                     Ok(PanelId::from_uuid(uuid))
                 } else {
                     Err(crate::schedule::LookupError::UuidNotFound(uuid.into()))
@@ -758,25 +694,20 @@ impl PanelEntityType {
     /// Returns the number of presenters successfully added.
     pub fn add_presenters(
         storage: &mut crate::schedule::EntityStorage,
-        panel_uuid: uuid::NonNilUuid,
+        panel_id: PanelId,
         presenter_ids: Vec<PresenterId>,
     ) -> usize {
         let mut added = 0;
         for presenter_id in presenter_ids {
             let already = storage
                 .panels
-                .get(&panel_uuid)
+                .get(panel_id)
                 .is_some_and(|d| d.presenter_ids.contains(&presenter_id));
             if !already {
-                if let Some(panel_data) = storage.panels.get_mut(&panel_uuid) {
+                if let Some(panel_data) = storage.panels.get_mut(panel_id) {
                     panel_data.presenter_ids.push(presenter_id);
                 }
-                let presenter_uuid = presenter_id.non_nil_uuid();
-                storage
-                    .panels_by_presenter
-                    .entry(presenter_uuid)
-                    .or_default()
-                    .push(panel_uuid);
+                storage.panels_by_presenter.add(presenter_id, panel_id);
                 added += 1;
             }
         }
@@ -788,23 +719,20 @@ impl PanelEntityType {
     /// Returns the number of presenters successfully removed.
     pub fn remove_presenters(
         storage: &mut crate::schedule::EntityStorage,
-        panel_uuid: uuid::NonNilUuid,
+        panel_id: PanelId,
         presenter_ids: Vec<PresenterId>,
     ) -> usize {
         let mut removed = 0;
         for presenter_id in presenter_ids {
             let had = storage
                 .panels
-                .get(&panel_uuid)
+                .get(panel_id)
                 .is_some_and(|d| d.presenter_ids.contains(&presenter_id));
             if had {
-                if let Some(panel_data) = storage.panels.get_mut(&panel_uuid) {
-                    panel_data.presenter_ids.retain(|id| id != &presenter_id);
+                if let Some(panel_data) = storage.panels.get_mut(panel_id) {
+                    panel_data.presenter_ids.retain(|id| *id != presenter_id);
                 }
-                let presenter_uuid = presenter_id.non_nil_uuid();
-                if let Some(panels) = storage.panels_by_presenter.get_mut(&presenter_uuid) {
-                    panels.retain(|&u| u != panel_uuid);
-                }
+                storage.panels_by_presenter.remove(&presenter_id, &panel_id);
                 removed += 1;
             }
         }
@@ -828,12 +756,91 @@ impl PanelEntityType {
             .iter()
             .map(|s| crate::field::FieldValue::String(s.trim().to_string()))
             .collect();
-        // Resolve each tag individually, skipping invalid ones
-        let presenter_ids: Vec<PresenterId> = values
-            .into_iter()
-            .filter_map(|v| PresenterEntityType::resolve_field_value(storage, v).ok())
-            .collect();
-        Self::add_presenters(storage, panel_uuid, presenter_ids)
+        let presenter_ids: Vec<PresenterId> =
+            match PresenterEntityType::resolve_field_values(storage, values) {
+                Ok(ids) => ids,
+                Err(_) => return 0,
+            };
+        Self::add_presenters(storage, PanelId::from_uuid(panel_uuid), presenter_ids)
+    }
+}
+
+impl PanelEntityType {
+    /// Hook called when a panel is inserted into storage.
+    /// Maintains reverse indexes for panel_types, event_rooms, and presenters.
+    pub fn on_insert_hook(storage: &mut crate::schedule::EntityStorage, data: &PanelData) {
+        use crate::entity::InternalData;
+
+        let panel_id = data.id();
+
+        // Update panels_by_panel_type reverse index
+        for panel_type_id in &data.panel_type_ids {
+            storage.panels_by_panel_type.add(*panel_type_id, panel_id);
+        }
+
+        // Update panels_by_event_room edge index
+        for event_room_id in &data.event_room_ids {
+            storage.panels_by_event_room.add(*event_room_id, panel_id);
+        }
+
+        // Update panels_by_presenter edge index
+        for presenter_id in &data.presenter_ids {
+            storage.panels_by_presenter.add(*presenter_id, panel_id);
+        }
+    }
+
+    /// Hook called when a panel is removed from storage.
+    /// Cleans up reverse indexes for panel_types, event_rooms, and presenters.
+    pub fn on_remove_hook(storage: &mut crate::schedule::EntityStorage, data: &PanelData) {
+        use crate::entity::InternalData;
+
+        let panel_id = data.id();
+
+        // Remove from panels_by_panel_type
+        for panel_type_id in &data.panel_type_ids {
+            storage
+                .panels_by_panel_type
+                .remove(panel_type_id, &panel_id);
+        }
+
+        // Remove from panels_by_event_room
+        for event_room_id in &data.event_room_ids {
+            storage
+                .panels_by_event_room
+                .remove(event_room_id, &panel_id);
+        }
+
+        // Remove from panels_by_presenter
+        for presenter_id in &data.presenter_ids {
+            storage.panels_by_presenter.remove(presenter_id, &panel_id);
+        }
+    }
+
+    /// Hook called when panel data is updated.
+    /// Updates reverse indexes for changed relationships.
+    pub fn on_update_hook(
+        storage: &mut crate::schedule::EntityStorage,
+        _old: &PanelData,
+        new: &PanelData,
+    ) {
+        use crate::entity::InternalData;
+
+        let panel_id = new.id();
+
+        // Update panels_by_panel_type edge index (panel is on the right)
+        storage
+            .panels_by_panel_type
+            .update_by_right(panel_id, &new.panel_type_ids);
+
+        // Update panels_by_event_room edge index (panel is on the right)
+        storage
+            .panels_by_event_room
+            .update_by_right(panel_id, &new.event_room_ids);
+
+        // Update panels_by_presenter edge index (panel is on the right)
+        storage
+            .panels_by_presenter
+            .update_by_right(panel_id, &new.presenter_ids);
     }
 }
 

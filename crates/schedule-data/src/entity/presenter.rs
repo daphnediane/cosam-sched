@@ -192,9 +192,9 @@ pub struct Presenter {
     #[alias("is_group", "Is_Group", "group", "presenter_group")]
     #[read(|schedule: &crate::schedule::Schedule, entity: &PresenterData| {
         use crate::entity::InternalData;
-        let uuid = entity.id().non_nil_uuid();
+        let presenter_id = entity.id();
         let is_grp = entity.is_explicit_group
-            || schedule.entities.presenters_by_group.get(&uuid).is_some_and(|v| !v.is_empty());
+            || !schedule.entities.presenter_group_members.by_left(&presenter_id).is_empty();
         Some(crate::field::FieldValue::Boolean(is_grp))
     })]
     #[write(|schedule: &mut crate::schedule::Schedule, entity: &mut PresenterData, value: crate::field::FieldValue| {
@@ -347,12 +347,12 @@ impl PresenterEntityType {
     ) -> bool {
         storage
             .presenters
-            .get(&presenter_uuid)
+            .get(PresenterId::from_uuid(presenter_uuid))
             .is_some_and(|d| d.is_explicit_group)
-            || storage
-                .presenters_by_group
-                .get(&presenter_uuid)
-                .is_some_and(|v| !v.is_empty())
+            || !storage
+                .presenter_group_members
+                .by_left(&PresenterId::from_uuid(presenter_uuid))
+                .is_empty()
     }
 
     /// Set the explicit group flag for a presenter.
@@ -366,7 +366,7 @@ impl PresenterEntityType {
         value: bool,
     ) {
         let uuid = presenter_id.non_nil_uuid();
-        if let Some(data) = storage.presenters.get_mut(&uuid) {
+        if let Some(data) = storage.presenters.get_mut(PresenterId::from_uuid(uuid)) {
             data.is_explicit_group = value;
         }
         if !value {
@@ -384,17 +384,18 @@ impl PresenterEntityType {
         storage: &mut crate::schedule::EntityStorage,
         group_uuid: uuid::NonNilUuid,
     ) {
-        let member_uuids: Vec<uuid::NonNilUuid> = storage
-            .presenters_by_group
-            .get(&group_uuid)
-            .map(|v| v.clone())
-            .unwrap_or_default();
-        for member_uuid in member_uuids {
-            if let Some(data) = storage.presenters.get_mut(&member_uuid) {
+        let member_ids: Vec<PresenterId> = storage
+            .presenter_group_members
+            .by_left(&PresenterId::from_uuid(group_uuid))
+            .to_vec();
+        for member_id in member_ids {
+            if let Some(data) = storage.presenters.get_mut(member_id) {
                 data.group_ids.retain(|id| id.non_nil_uuid() != group_uuid);
             }
         }
-        storage.presenters_by_group.remove(&group_uuid);
+        storage
+            .presenter_group_members
+            .clear_by_left(&PresenterId::from_uuid(group_uuid));
     }
 
     // -----------------------------------------------------------------------
@@ -427,12 +428,12 @@ impl PresenterEntityType {
         }
 
         // --- Bare name: exact case-insensitive lookup, no auto-create ---------
-        if let Some((&uuid, _)) = storage
+        if let Some((uuid, _)) = storage
             .presenters
             .iter()
             .find(|(_, d)| d.name.eq_ignore_ascii_case(input))
         {
-            return Ok(PresenterId::from_uuid(uuid));
+            return Ok(uuid);
         }
         Err(LookupError::NameNotFound(input.to_string()))
     }
@@ -445,12 +446,12 @@ impl PresenterEntityType {
         rank: PresenterRank,
     ) -> PresenterId {
         use uuid::NonNilUuid;
-        if let Some((&uuid, _)) = storage
+        if let Some((uuid, _)) = storage
             .presenters
             .iter()
             .find(|(_, d)| d.name.eq_ignore_ascii_case(name))
         {
-            return PresenterId::from_uuid(uuid);
+            return uuid;
         }
         let uuid = unsafe { NonNilUuid::new_unchecked(uuid::Uuid::now_v7()) };
         let id = PresenterId::from_uuid(uuid);
@@ -553,7 +554,7 @@ impl PresenterEntityType {
             let gid = Self::find_or_create_by_name(storage, gname, rank.clone());
             Self::set_explicit_group(storage, gid, true);
             if always_shown {
-                if let Some(gdata) = storage.presenters.get_mut(&gid.non_nil_uuid()) {
+                if let Some(gdata) = storage.presenters.get_mut(gid) {
                     gdata.always_shown_in_group = true;
                 }
             }
@@ -571,9 +572,7 @@ impl PresenterEntityType {
         } else {
             let pid = Self::find_or_create_by_name(storage, &presenter_name, rank);
             if let Some(gid) = group_id {
-                let pid_uuid = pid.non_nil_uuid();
-                let gid_uuid = gid.non_nil_uuid();
-                if let Some(pdata) = storage.presenters.get_mut(&pid_uuid) {
+                if let Some(pdata) = storage.presenters.get_mut(pid) {
                     if always_grouped {
                         pdata.always_grouped = true;
                     }
@@ -582,11 +581,7 @@ impl PresenterEntityType {
                     }
                 }
                 // Update reverse index: add pid to group's member list
-                storage
-                    .presenters_by_group
-                    .entry(gid_uuid)
-                    .or_default()
-                    .push(pid_uuid);
+                storage.presenter_group_members.add(gid, pid);
             }
             pid
         };
@@ -606,7 +601,10 @@ impl PresenterEntityType {
     ) -> Result<PresenterId, crate::schedule::LookupError> {
         match value {
             crate::field::FieldValue::NonNilUuid(uuid) => {
-                if storage.presenters.contains_key(&uuid) {
+                if storage
+                    .presenters
+                    .contains_key(PresenterId::from_uuid(uuid))
+                {
                     Ok(PresenterId::from_uuid(uuid))
                 } else {
                     Err(crate::schedule::LookupError::UuidNotFound(uuid.into()))
@@ -641,19 +639,11 @@ impl PresenterEntityType {
         member: PresenterId,
         group: PresenterId,
     ) -> Result<(), crate::schedule::InsertError> {
-        let member_uuid = member.non_nil_uuid();
-        let group_uuid = group.non_nil_uuid();
-        if let Some(members) = storage.presenters_by_group.get(&group_uuid) {
-            if members.contains(&member_uuid) {
-                return Ok(());
-            }
+        if storage.presenter_group_members.contains(&group, &member) {
+            return Ok(());
         }
-        storage
-            .presenters_by_group
-            .entry(group_uuid)
-            .or_default()
-            .push(member_uuid);
-        if let Some(data) = storage.presenters.get_mut(&member_uuid) {
+        storage.presenter_group_members.add(group, member);
+        if let Some(data) = storage.presenters.get_mut(member) {
             if !data.group_ids.contains(&group) {
                 data.group_ids.push(group);
             }
@@ -670,13 +660,10 @@ impl PresenterEntityType {
         member: PresenterId,
         group: PresenterId,
     ) -> Result<(), crate::schedule::InsertError> {
-        let member_uuid = member.non_nil_uuid();
-        let group_uuid = group.non_nil_uuid();
-        let members = storage.presenters_by_group.entry(group_uuid).or_default();
-        if !members.contains(&member_uuid) {
-            members.push(member_uuid);
+        if !storage.presenter_group_members.contains(&group, &member) {
+            storage.presenter_group_members.add(group, member);
         }
-        if let Some(data) = storage.presenters.get_mut(&member_uuid) {
+        if let Some(data) = storage.presenters.get_mut(member) {
             data.always_grouped = true;
             if !data.group_ids.contains(&group) {
                 data.group_ids.push(group);
@@ -694,13 +681,10 @@ impl PresenterEntityType {
         member: PresenterId,
         group: PresenterId,
     ) -> Result<(), crate::schedule::InsertError> {
-        let member_uuid = member.non_nil_uuid();
-        let group_uuid = group.non_nil_uuid();
-        let members = storage.presenters_by_group.entry(group_uuid).or_default();
-        if !members.contains(&member_uuid) {
-            members.push(member_uuid);
+        if !storage.presenter_group_members.contains(&group, &member) {
+            storage.presenter_group_members.add(group, member);
         }
-        if let Some(data) = storage.presenters.get_mut(&member_uuid) {
+        if let Some(data) = storage.presenters.get_mut(member) {
             data.always_shown_in_group = true;
             if !data.group_ids.contains(&group) {
                 data.group_ids.push(group);
@@ -718,18 +702,11 @@ impl PresenterEntityType {
         member: PresenterId,
         group: PresenterId,
     ) -> bool {
-        let member_uuid = member.non_nil_uuid();
-        let group_uuid = group.non_nil_uuid();
-        let was_member = storage
-            .presenters_by_group
-            .get(&group_uuid)
-            .is_some_and(|v| v.contains(&member_uuid));
+        let was_member = storage.presenter_group_members.contains(&group, &member);
         if was_member {
-            if let Some(members) = storage.presenters_by_group.get_mut(&group_uuid) {
-                members.retain(|&u| u != member_uuid);
-            }
-            if let Some(data) = storage.presenters.get_mut(&member_uuid) {
-                data.group_ids.retain(|id| id.non_nil_uuid() != group_uuid);
+            storage.presenter_group_members.remove(&group, &member);
+            if let Some(data) = storage.presenters.get_mut(member) {
+                data.group_ids.retain(|id| *id != group);
             }
         }
         was_member
@@ -740,10 +717,9 @@ impl PresenterEntityType {
         storage: &crate::schedule::EntityStorage,
         presenter_id: PresenterId,
     ) -> Vec<PresenterId> {
-        let uuid = presenter_id.non_nil_uuid();
         storage
             .presenters
-            .get(&uuid)
+            .get(presenter_id)
             .map(|d| d.group_ids.clone())
             .unwrap_or_default()
     }
@@ -756,35 +732,25 @@ impl PresenterEntityType {
         presenter_id: PresenterId,
         group_ids: Vec<PresenterId>,
     ) -> Result<(), crate::field::FieldError> {
-        let presenter_uuid = presenter_id.non_nil_uuid();
-        let entity = storage.presenters.get_mut(&presenter_uuid).ok_or(
+        let entity = storage.presenters.get_mut(presenter_id).ok_or(
             crate::field::FieldError::ConversionError(
                 crate::field::validation::ConversionError::InvalidFormat,
             ),
         )?;
 
         let old_group_ids = entity.group_ids.clone();
-        let new_group_uuids: Vec<uuid::NonNilUuid> =
-            group_ids.iter().map(|id| id.non_nil_uuid()).collect();
+        entity.group_ids = group_ids.clone();
 
         // Remove presenter from old groups' reverse indexes
         for old_id in &old_group_ids {
-            let old_uuid = old_id.non_nil_uuid();
-            if let Some(members) = storage.presenters_by_group.get_mut(&old_uuid) {
-                members.retain(|&u| u != presenter_uuid);
-            }
+            storage
+                .presenter_group_members
+                .remove(old_id, &presenter_id);
         }
 
-        // Update forward backing field
-        entity.group_ids = group_ids;
-
         // Add presenter to new groups' reverse indexes
-        for &group_uuid in &new_group_uuids {
-            storage
-                .presenters_by_group
-                .entry(group_uuid)
-                .or_default()
-                .push(presenter_uuid);
+        for new_id in &group_ids {
+            storage.presenter_group_members.add(*new_id, presenter_id);
         }
 
         Ok(())
@@ -795,12 +761,7 @@ impl PresenterEntityType {
         storage: &crate::schedule::EntityStorage,
         group_id: PresenterId,
     ) -> Vec<PresenterId> {
-        let uuid = group_id.non_nil_uuid();
-        storage
-            .presenters_by_group
-            .get(&uuid)
-            .map(|uuids| uuids.iter().map(|&u| PresenterId::from_uuid(u)).collect())
-            .unwrap_or_default()
+        storage.presenter_group_members.by_left(&group_id).to_vec()
     }
 
     /// Set the members of this group.
@@ -811,32 +772,23 @@ impl PresenterEntityType {
         group_id: PresenterId,
         member_ids: Vec<PresenterId>,
     ) -> Result<(), crate::field::FieldError> {
-        let group_uuid = group_id.non_nil_uuid();
-        let new_member_uuids: Vec<uuid::NonNilUuid> =
-            member_ids.iter().map(|id| id.non_nil_uuid()).collect();
-
         // Collect old members from reverse index
-        let old_member_uuids: Vec<uuid::NonNilUuid> = storage
-            .presenters_by_group
-            .get(&group_uuid)
-            .map(|v| v.clone())
-            .unwrap_or_default();
+        let old_member_ids: Vec<PresenterId> =
+            storage.presenter_group_members.by_left(&group_id).to_vec();
 
         // Remove group from departing members' group_ids
-        for &old_uuid in &old_member_uuids {
-            if !new_member_uuids.contains(&old_uuid) {
-                if let Some(member_data) = storage.presenters.get_mut(&old_uuid) {
-                    member_data
-                        .group_ids
-                        .retain(|id| id.non_nil_uuid() != group_uuid);
+        for old_id in &old_member_ids {
+            if !member_ids.contains(old_id) {
+                if let Some(member_data) = storage.presenters.get_mut(*old_id) {
+                    member_data.group_ids.retain(|id| *id != group_id);
                 }
             }
         }
 
         // Add group to new members' group_ids
-        for &new_uuid in &new_member_uuids {
-            if !old_member_uuids.contains(&new_uuid) {
-                if let Some(member_data) = storage.presenters.get_mut(&new_uuid) {
+        for new_id in &member_ids {
+            if !old_member_ids.contains(new_id) {
+                if let Some(member_data) = storage.presenters.get_mut(*new_id) {
                     if !member_data.group_ids.contains(&group_id) {
                         member_data.group_ids.push(group_id);
                     }
@@ -845,13 +797,9 @@ impl PresenterEntityType {
         }
 
         // Replace reverse index entry
-        if new_member_uuids.is_empty() {
-            storage.presenters_by_group.remove(&group_uuid);
-        } else {
-            storage
-                .presenters_by_group
-                .insert(group_uuid, new_member_uuids);
-        }
+        storage
+            .presenter_group_members
+            .update_by_left(group_id, &member_ids);
 
         Ok(())
     }
@@ -866,13 +814,12 @@ impl PresenterEntityType {
         storage: &mut crate::schedule::EntityStorage,
         presenter_id: PresenterId,
     ) -> bool {
-        let uuid = presenter_id.non_nil_uuid();
         let was_explicit = storage
             .presenters
-            .get(&uuid)
+            .get(presenter_id)
             .is_some_and(|d| d.is_explicit_group);
         // Set without clearing members - use internal flag only
-        if let Some(data) = storage.presenters.get_mut(&uuid) {
+        if let Some(data) = storage.presenters.get_mut(presenter_id) {
             data.is_explicit_group = false;
         }
         was_explicit
@@ -888,22 +835,19 @@ impl PresenterEntityType {
     ) -> Vec<crate::entity::PanelId> {
         use std::collections::{HashSet, VecDeque};
 
-        let presenter_uuid = presenter_id.non_nil_uuid();
         let mut result = Vec::new();
         let mut seen = HashSet::new();
 
         // Add direct panels
-        if let Some(panels) = storage.panels_by_presenter.get(&presenter_uuid) {
-            for &panel_uuid in panels {
-                if seen.insert(panel_uuid) {
-                    result.push(crate::entity::PanelId::from_uuid(panel_uuid));
-                }
+        for panel_id in storage.panels_by_presenter.by_left(&presenter_id) {
+            if seen.insert(panel_id.non_nil_uuid()) {
+                result.push(*panel_id);
             }
         }
 
         // Add panels for all inclusive groups (transitive upward via group_ids)
         let mut group_queue: VecDeque<uuid::NonNilUuid> = VecDeque::new();
-        if let Some(data) = storage.presenters.get(&presenter_uuid) {
+        if let Some(data) = storage.presenters.get(presenter_id) {
             for gid in &data.group_ids {
                 group_queue.push_back(gid.non_nil_uuid());
             }
@@ -913,14 +857,15 @@ impl PresenterEntityType {
             if !seen_groups.insert(group_uuid) {
                 continue;
             }
-            if let Some(panels) = storage.panels_by_presenter.get(&group_uuid) {
-                for &panel_uuid in panels {
-                    if seen.insert(panel_uuid) {
-                        result.push(crate::entity::PanelId::from_uuid(panel_uuid));
-                    }
+            for panel_id in storage
+                .panels_by_presenter
+                .by_left(&PresenterId::from_uuid(group_uuid))
+            {
+                if seen.insert(panel_id.non_nil_uuid()) {
+                    result.push(*panel_id);
                 }
             }
-            if let Some(data) = storage.presenters.get(&group_uuid) {
+            if let Some(data) = storage.presenters.get(PresenterId::from_uuid(group_uuid)) {
                 for gid in &data.group_ids {
                     group_queue.push_back(gid.non_nil_uuid());
                 }
@@ -944,7 +889,7 @@ impl PresenterEntityType {
         let mut seen = HashSet::new();
         let mut queue: VecDeque<uuid::NonNilUuid> = VecDeque::new();
 
-        if let Some(data) = storage.presenters.get(&presenter_id.non_nil_uuid()) {
+        if let Some(data) = storage.presenters.get(presenter_id) {
             for gid in &data.group_ids {
                 queue.push_back(gid.non_nil_uuid());
             }
@@ -953,7 +898,7 @@ impl PresenterEntityType {
         while let Some(group_uuid) = queue.pop_front() {
             if seen.insert(group_uuid) {
                 result.push(PresenterId::from_uuid(group_uuid));
-                if let Some(data) = storage.presenters.get(&group_uuid) {
+                if let Some(data) = storage.presenters.get(PresenterId::from_uuid(group_uuid)) {
                     for gid in &data.group_ids {
                         queue.push_back(gid.non_nil_uuid());
                     }
@@ -978,19 +923,18 @@ impl PresenterEntityType {
         let mut seen = HashSet::new();
         let mut queue: VecDeque<uuid::NonNilUuid> = VecDeque::new();
 
-        if let Some(members) = storage.presenters_by_group.get(&group_id.non_nil_uuid()) {
-            for &m in members {
-                queue.push_back(m);
-            }
+        for m_id in storage.presenter_group_members.by_left(&group_id) {
+            queue.push_back(m_id.non_nil_uuid());
         }
 
         while let Some(m_uuid) = queue.pop_front() {
             if seen.insert(m_uuid) {
                 result.push(PresenterId::from_uuid(m_uuid));
-                if let Some(sub) = storage.presenters_by_group.get(&m_uuid) {
-                    for &sm in sub {
-                        queue.push_back(sm);
-                    }
+                for sm_id in storage
+                    .presenter_group_members
+                    .by_left(&PresenterId::from_uuid(m_uuid))
+                {
+                    queue.push_back(sm_id.non_nil_uuid());
                 }
             }
         }

@@ -64,23 +64,52 @@ impl HotelRoomEntityType {
         storage: &crate::schedule::EntityStorage,
         hotel_room_id: HotelRoomId,
     ) -> Vec<EventRoomId> {
-        let uuid = hotel_room_id.non_nil_uuid();
         storage
             .event_rooms_by_hotel_room
-            .get(&uuid)
-            .map(|uuids| uuids.iter().map(|&u| EventRoomId::from_uuid(u)).collect())
-            .unwrap_or_default()
+            .by_left(&hotel_room_id)
+            .to_vec()
     }
 
     /// Set the event rooms assigned to this hotel room.
     ///
-    /// Stub implementation - full relationship management deferred to future.
+    /// Updates both the forward reverse index and event room backing fields.
     pub fn set_event_rooms(
-        _storage: &mut crate::schedule::EntityStorage,
-        _hotel_room_id: HotelRoomId,
-        _event_room_ids: Vec<EventRoomId>,
+        storage: &mut crate::schedule::EntityStorage,
+        hotel_room_id: HotelRoomId,
+        event_room_ids: Vec<EventRoomId>,
     ) -> Result<(), crate::field::FieldError> {
-        unimplemented!()
+        // Collect old event rooms from reverse index
+        let old_event_room_ids: Vec<EventRoomId> = storage
+            .event_rooms_by_hotel_room
+            .by_left(&hotel_room_id)
+            .to_vec();
+
+        // Remove hotel room from departing event rooms' hotel_room_ids backing fields
+        for old_id in &old_event_room_ids {
+            if !event_room_ids.contains(old_id) {
+                if let Some(event_room_data) = storage.event_rooms.get_mut(*old_id) {
+                    event_room_data
+                        .hotel_room_ids
+                        .retain(|id| *id != hotel_room_id);
+                }
+            }
+        }
+
+        // Update reverse index
+        storage
+            .event_rooms_by_hotel_room
+            .update_by_left(hotel_room_id, &event_room_ids);
+
+        // Add hotel room to new event rooms' hotel_room_ids backing fields
+        for event_room_id in &event_room_ids {
+            if let Some(event_room_data) = storage.event_rooms.get_mut(*event_room_id) {
+                if !event_room_data.hotel_room_ids.contains(&hotel_room_id) {
+                    event_room_data.hotel_room_ids.push(hotel_room_id);
+                }
+            }
+        }
+
+        Ok(())
     }
 }
 

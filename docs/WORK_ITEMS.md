@@ -1,6 +1,6 @@
 # Cosplay America Schedule - Work Item
 
-Updated on: Sun Apr 12 20:23:03 2026
+Updated on: Sun Apr 12 21:35:19 2026
 
 ## Completed
 
@@ -20,6 +20,14 @@ moving business logic to entity-specific implementations.
 work items for implementation phases REFACTOR-036, REFACTOR-037, REFACTOR-038.
 * [REFACTOR-032] Rename the `from`/`to` endpoint naming on `DirectedEdge` to `left`/`right`
 throughout the codebase.
+* [REFACTOR-036] Add stored relationship fields to Panel, EventRoom, and Presenter; remove
+edge-backed computed field closures.
+* [REFACTOR-037] Add entity type insertion/removal hooks and per-relationship reverse lookup
+indexes to EntityStorage; remove all edge HashMap and EdgeIndex infrastructure.
+* [REFACTOR-038] Update Schedule convenience methods to use field access and reverse indexes;
+remove DirectedEdge trait, edge macro attributes, edge EntityKind/EntityUUID
+variants, and delete the five edge entity files.
+* [REFACTOR-041] Replace `EdgeReverseMap<L, R>` with a generic bidirectional `EdgeMap<L, R>` and migrate all call sites.
 * [REFACTOR-042] Add a method to entity data structs that returns the typed ID directly, avoiding repeated `XId::from_uuid(entity.uuid())` boilerplate.
 
 ---
@@ -34,7 +42,7 @@ EdgeIndex (and any per-type cache) maintenance responsibility into each
 
 ## Summary of Open Items
 
-**Total open items:** 26
+**Total open items:** 23
 
 * **Meta / Project-Level**
   * [META-001] Meta work item tracking the full multi-phase redesign of the schedule system. (Blocked by [META-026], [META-027], [META-028], [META-029], [META-030], [META-031])
@@ -48,13 +56,6 @@ XLSX import/export. (Blocked by [META-026], [META-027])
 
 * **High Priority**
   * [FEATURE-010] ([META-026]) Implement a command-based edit system with full undo/redo support.
-  * [REFACTOR-036] Add stored relationship fields to Panel, EventRoom, and Presenter; remove
-edge-backed computed field closures.
-  * [REFACTOR-037] Add entity type insertion/removal hooks and per-relationship reverse lookup
-indexes to EntityStorage; remove all edge HashMap and EdgeIndex infrastructure.
-  * [REFACTOR-038] Update Schedule convenience methods to use field access and reverse indexes;
-remove DirectedEdge trait, edge macro attributes, edge EntityKind/EntityUUID
-variants, and delete the five edge entity files.
 
 * **Medium Priority**
   * [FEATURE-009] ([META-026]) Implement field-based search, matching, and bulk update operations.
@@ -83,7 +84,7 @@ display widget.
 
 The following ID numbers are available for new items:
 
-**Available:** 039, 040, 041, 043, 044, 045, 046, 047, 048, 049
+**Available:** 039, 040, 043, 044, 045, 046, 047, 048, 049, 050
 
 **Highest used:** 42
 
@@ -512,51 +513,6 @@ to exchange CRDT changes and reconcile concurrent edits to the same fields.
 
 ---
 
-## Open REFACTOR Items
-
-### [REFACTOR-036] Virtual Edge Refactor — Entity Field Changes
-
-**Status:** Open
-
-**Priority:** High
-
-**Summary:** Add stored relationship fields to Panel, EventRoom, and Presenter; remove
-edge-backed computed field closures.
-
-**Description:** Replace edge-backed computed fields with stored UUID fields on the owning
-entities, following the virtual edge design documented in META-035.
-
----
-
-### [REFACTOR-037] Virtual Edge Refactor — EntityStorage Reverse Indexes and Hook System
-
-**Status:** Open
-
-**Priority:** High
-
-**Summary:** Add entity type insertion/removal hooks and per-relationship reverse lookup
-indexes to EntityStorage; remove all edge HashMap and EdgeIndex infrastructure.
-
-**Description:** Implements the storage side of the virtual edge design (see META-035).
-Supersedes FEATURE-033 (which proposed a similar hook system for EdgeIndex
-maintenance).
-
----
-
-### [REFACTOR-038] Virtual Edge Refactor — Schedule Methods, Macro Cleanup, Edge File Deletion
-
-**Status:** Open
-
-**Priority:** High
-
-**Summary:** Update Schedule convenience methods to use field access and reverse indexes;
-remove DirectedEdge trait, edge macro attributes, edge EntityKind/EntityUUID
-variants, and delete the five edge entity files.
-
-**Description:** Final cleanup phase of the virtual edge refactor (see META-035).
-
----
-
 ---
 
 [CLI-019]: work-item/low/CLI-019.md
@@ -594,7 +550,8 @@ variants, and delete the five edge entity files.
 [META-031]: work-item/meta/META-031.md
 [META-035]: work-item/done/META-035.md
 [REFACTOR-032]: work-item/done/REFACTOR-032.md
-[REFACTOR-036]: work-item/high/REFACTOR-036.md
-[REFACTOR-037]: work-item/high/REFACTOR-037.md
-[REFACTOR-038]: work-item/high/REFACTOR-038.md
+[REFACTOR-036]: work-item/done/REFACTOR-036.md
+[REFACTOR-037]: work-item/done/REFACTOR-037.md
+[REFACTOR-038]: work-item/done/REFACTOR-038.md
+[REFACTOR-041]: work-item/done/REFACTOR-041.md
 [REFACTOR-042]: work-item/done/REFACTOR-042.md

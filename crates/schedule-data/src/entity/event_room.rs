@@ -100,11 +100,10 @@ impl EventRoomEntityType {
         storage: &crate::schedule::EntityStorage,
         event_room_id: EventRoomId,
     ) -> Vec<HotelRoomId> {
-        let uuid = event_room_id.non_nil_uuid();
         storage
-            .event_rooms_by_hotel_room
-            .get(&uuid)
-            .map(|uuids| uuids.iter().map(|&u| HotelRoomId::from_uuid(u)).collect())
+            .event_rooms
+            .get(event_room_id)
+            .map(|d| d.hotel_room_ids.clone())
             .unwrap_or_default()
     }
 
@@ -116,34 +115,25 @@ impl EventRoomEntityType {
         event_room_id: EventRoomId,
         hotel_room_ids: Vec<HotelRoomId>,
     ) -> Result<(), crate::field::FieldError> {
-        let event_room_uuid = event_room_id.non_nil_uuid();
-        let entity = storage.event_rooms.get_mut(&event_room_uuid).ok_or(
+        let entity = storage.event_rooms.get_mut(event_room_id).ok_or(
             crate::field::FieldError::ConversionError(
                 crate::field::validation::ConversionError::InvalidFormat,
             ),
         )?;
 
-        let new_hotel_room_uuids: Vec<uuid::NonNilUuid> =
-            hotel_room_ids.iter().map(|id| id.non_nil_uuid()).collect();
-
         // Remove event room from old hotel room reverse index entries
-        for old_id in &entity.hotel_room_ids {
-            let hr_uuid = old_id.non_nil_uuid();
-            if let Some(rooms) = storage.event_rooms_by_hotel_room.get_mut(&hr_uuid) {
-                rooms.retain(|&u| u != event_room_uuid);
-            }
+        for old_id in &entity.hotel_room_ids.clone() {
+            storage
+                .event_rooms_by_hotel_room
+                .remove(old_id, &event_room_id);
         }
 
         // Update forward backing field
-        entity.hotel_room_ids = hotel_room_ids;
+        entity.hotel_room_ids = hotel_room_ids.clone();
 
         // Add event room to new hotel room reverse index entries
-        for &hr_uuid in &new_hotel_room_uuids {
-            storage
-                .event_rooms_by_hotel_room
-                .entry(hr_uuid)
-                .or_default()
-                .push(event_room_uuid);
+        for hr_id in &hotel_room_ids {
+            storage.event_rooms_by_hotel_room.add(*hr_id, event_room_id);
         }
 
         Ok(())
@@ -154,23 +144,46 @@ impl EventRoomEntityType {
         storage: &crate::schedule::EntityStorage,
         event_room_id: EventRoomId,
     ) -> Vec<PanelId> {
-        let uuid = event_room_id.non_nil_uuid();
         storage
             .panels_by_event_room
-            .get(&uuid)
-            .map(|uuids| uuids.iter().map(|&u| PanelId::from_uuid(u)).collect())
-            .unwrap_or_default()
+            .by_left(&event_room_id)
+            .to_vec()
     }
 
     /// Set the panels scheduled in this event room.
     ///
-    /// Stub implementation - full relationship management deferred to future.
+    /// Updates both the forward reverse index and panel backing fields.
     pub fn set_panels(
-        _storage: &mut crate::schedule::EntityStorage,
-        _event_room_id: EventRoomId,
-        _panel_ids: Vec<PanelId>,
+        storage: &mut crate::schedule::EntityStorage,
+        event_room_id: EventRoomId,
+        panel_ids: Vec<PanelId>,
     ) -> Result<(), crate::field::FieldError> {
-        unimplemented!()
+        // Collect old panels from reverse index
+        let old_panel_ids: Vec<PanelId> = storage
+            .panels_by_event_room
+            .by_left(&event_room_id)
+            .to_vec();
+
+        // Remove event room from departing panels' event_room_ids backing fields
+        for old_panel_id in &old_panel_ids {
+            if let Some(panel_data) = storage.panels.get_mut(*old_panel_id) {
+                panel_data.event_room_ids.retain(|id| *id != event_room_id);
+            }
+        }
+
+        // Update reverse index
+        storage
+            .panels_by_event_room
+            .update_by_left(event_room_id, &panel_ids);
+
+        // Add event room to new panels' event_room_ids backing fields
+        for new_panel_id in &panel_ids {
+            if let Some(panel_data) = storage.panels.get_mut(*new_panel_id) {
+                panel_data.event_room_ids.push(event_room_id);
+            }
+        }
+
+        Ok(())
     }
 }
 

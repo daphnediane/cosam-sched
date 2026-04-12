@@ -115,23 +115,48 @@ impl PanelTypeEntityType {
         storage: &crate::schedule::EntityStorage,
         panel_type_id: PanelTypeId,
     ) -> Vec<PanelId> {
-        let uuid = panel_type_id.non_nil_uuid();
         storage
             .panels_by_panel_type
-            .get(&uuid)
-            .map(|uuids| uuids.iter().map(|&u| PanelId::from_uuid(u)).collect())
-            .unwrap_or_default()
+            .by_left(&panel_type_id)
+            .to_vec()
     }
 
     /// Set the panels assigned to this panel type.
     ///
-    /// Stub implementation - full relationship management deferred to future.
+    /// Updates both the forward reverse index and panel backing fields.
     pub fn set_panels(
-        _storage: &mut crate::schedule::EntityStorage,
-        _panel_type_id: PanelTypeId,
-        _panel_ids: Vec<PanelId>,
+        storage: &mut crate::schedule::EntityStorage,
+        panel_type_id: PanelTypeId,
+        panel_ids: Vec<PanelId>,
     ) -> Result<(), crate::field::FieldError> {
-        unimplemented!()
+        // Collect old panels from reverse index
+        let old_panel_ids: Vec<PanelId> = storage
+            .panels_by_panel_type
+            .by_left(&panel_type_id)
+            .to_vec();
+
+        // Remove panel type from old panels' panel_type_ids backing fields
+        for old_panel_id in &old_panel_ids {
+            if let Some(panel_data) = storage.panels.get_mut(*old_panel_id) {
+                panel_data.panel_type_ids.retain(|id| *id != panel_type_id);
+            }
+        }
+
+        // Update reverse index
+        storage
+            .panels_by_panel_type
+            .update_by_left(panel_type_id, &panel_ids);
+
+        // Add panel type to new panels' panel_type_ids backing fields
+        for new_panel_id in &panel_ids {
+            if !old_panel_ids.contains(new_panel_id) {
+                if let Some(panel_data) = storage.panels.get_mut(*new_panel_id) {
+                    panel_data.panel_type_ids.push(panel_type_id);
+                }
+            }
+        }
+
+        Ok(())
     }
 }
 

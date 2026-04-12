@@ -9,11 +9,13 @@
 use std::collections::HashMap;
 
 use crate::entity::{
-    EntityKind, EntityType, EventRoomData, EventRoomEntityType, HotelRoomData, HotelRoomEntityType,
-    InternalData, PanelData, PanelEntityType, PanelTypeData, PanelTypeEntityType, PresenterData,
-    PresenterEntityType, TypedId,
+    EntityKind, EntityType, EventRoomEntityType, EventRoomId, HotelRoomEntityType, HotelRoomId,
+    InternalData, PanelEntityType, PanelId, PanelTypeEntityType, PanelTypeId, PresenterEntityType,
+    PresenterId, TypedId,
 };
 use uuid::NonNilUuid;
+
+use super::{EdgeMap, EntityMap};
 
 /// Error type for entity insertion conflicts.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -67,76 +69,79 @@ impl std::fmt::Display for InsertError {
 
 impl std::error::Error for InsertError {}
 
-/// Concrete typed entity storage — one `HashMap` per entity type.
-/// This avoids type erasure and allows direct `&T::Data` references.
+/// Concrete typed entity storage using generic type-safe wrappers.
+///
+/// Uses [`EntityMap`] for entity storage and [`EdgeMap`] for bidirectional
+/// reverse lookup indexes, providing type-safe operations with minimal overhead.
 #[derive(Debug, Clone, Default)]
 pub struct EntityStorage {
     // Node entities
-    pub panels: HashMap<NonNilUuid, PanelData>,
-    pub presenters: HashMap<NonNilUuid, PresenterData>,
-    pub event_rooms: HashMap<NonNilUuid, EventRoomData>,
-    pub hotel_rooms: HashMap<NonNilUuid, HotelRoomData>,
-    pub panel_types: HashMap<NonNilUuid, PanelTypeData>,
+    pub panels: EntityMap<PanelEntityType>,
+    pub presenters: EntityMap<PresenterEntityType>,
+    pub event_rooms: EntityMap<EventRoomEntityType>,
+    pub hotel_rooms: EntityMap<HotelRoomEntityType>,
+    pub panel_types: EntityMap<PanelTypeEntityType>,
 
-    // Reverse lookup indexes — maintained by entity type hooks
-    pub panels_by_panel_type: HashMap<NonNilUuid, Vec<NonNilUuid>>,
-    pub panels_by_event_room: HashMap<NonNilUuid, Vec<NonNilUuid>>,
-    pub panels_by_presenter: HashMap<NonNilUuid, Vec<NonNilUuid>>,
-    pub event_rooms_by_hotel_room: HashMap<NonNilUuid, Vec<NonNilUuid>>,
-    pub presenters_by_group: HashMap<NonNilUuid, Vec<NonNilUuid>>,
+    // Bidirectional edge indexes — maintained by entity type hooks
+    pub panels_by_panel_type: EdgeMap<PanelTypeId, PanelId>,
+    pub panels_by_event_room: EdgeMap<EventRoomId, PanelId>,
+    pub panels_by_presenter: EdgeMap<PresenterId, PanelId>,
+    pub event_rooms_by_hotel_room: EdgeMap<HotelRoomId, EventRoomId>,
+    /// Group-member edges: left = group `PresenterId`, right = member `PresenterId`.
+    pub presenter_group_members: EdgeMap<PresenterId, PresenterId>,
 
     /// UUID registry mapping every known UUID to its entity kind.
     pub uuid_registry: HashMap<NonNilUuid, EntityKind>,
 }
 
-/// Provides access to the concrete `HashMap` for an entity type.
+/// Provides access to the concrete [`EntityMap`] for an entity type.
 /// Implemented on `EntityType` marker structs.
-pub trait TypedStorage: EntityType {
-    fn typed_map(storage: &EntityStorage) -> &HashMap<NonNilUuid, Self::Data>;
-    fn typed_map_mut(storage: &mut EntityStorage) -> &mut HashMap<NonNilUuid, Self::Data>;
+pub trait TypedStorage: EntityType + Sized {
+    fn typed_map(storage: &EntityStorage) -> &EntityMap<Self>;
+    fn typed_map_mut(storage: &mut EntityStorage) -> &mut EntityMap<Self>;
 }
 
 impl TypedStorage for PanelEntityType {
-    fn typed_map(s: &EntityStorage) -> &HashMap<NonNilUuid, PanelData> {
+    fn typed_map(s: &EntityStorage) -> &EntityMap<PanelEntityType> {
         &s.panels
     }
-    fn typed_map_mut(s: &mut EntityStorage) -> &mut HashMap<NonNilUuid, PanelData> {
+    fn typed_map_mut(s: &mut EntityStorage) -> &mut EntityMap<PanelEntityType> {
         &mut s.panels
     }
 }
 
 impl TypedStorage for PresenterEntityType {
-    fn typed_map(s: &EntityStorage) -> &HashMap<NonNilUuid, PresenterData> {
+    fn typed_map(s: &EntityStorage) -> &EntityMap<PresenterEntityType> {
         &s.presenters
     }
-    fn typed_map_mut(s: &mut EntityStorage) -> &mut HashMap<NonNilUuid, PresenterData> {
+    fn typed_map_mut(s: &mut EntityStorage) -> &mut EntityMap<PresenterEntityType> {
         &mut s.presenters
     }
 }
 
 impl TypedStorage for EventRoomEntityType {
-    fn typed_map(s: &EntityStorage) -> &HashMap<NonNilUuid, EventRoomData> {
+    fn typed_map(s: &EntityStorage) -> &EntityMap<EventRoomEntityType> {
         &s.event_rooms
     }
-    fn typed_map_mut(s: &mut EntityStorage) -> &mut HashMap<NonNilUuid, EventRoomData> {
+    fn typed_map_mut(s: &mut EntityStorage) -> &mut EntityMap<EventRoomEntityType> {
         &mut s.event_rooms
     }
 }
 
 impl TypedStorage for HotelRoomEntityType {
-    fn typed_map(s: &EntityStorage) -> &HashMap<NonNilUuid, HotelRoomData> {
+    fn typed_map(s: &EntityStorage) -> &EntityMap<HotelRoomEntityType> {
         &s.hotel_rooms
     }
-    fn typed_map_mut(s: &mut EntityStorage) -> &mut HashMap<NonNilUuid, HotelRoomData> {
+    fn typed_map_mut(s: &mut EntityStorage) -> &mut EntityMap<HotelRoomEntityType> {
         &mut s.hotel_rooms
     }
 }
 
 impl TypedStorage for PanelTypeEntityType {
-    fn typed_map(s: &EntityStorage) -> &HashMap<NonNilUuid, PanelTypeData> {
+    fn typed_map(s: &EntityStorage) -> &EntityMap<PanelTypeEntityType> {
         &s.panel_types
     }
-    fn typed_map_mut(s: &mut EntityStorage) -> &mut HashMap<NonNilUuid, PanelTypeData> {
+    fn typed_map_mut(s: &mut EntityStorage) -> &mut EntityMap<PanelTypeEntityType> {
         &mut s.panel_types
     }
 }
@@ -148,12 +153,12 @@ impl EntityStorage {
 
     /// Get entity by type and UUID.
     pub fn get<T: TypedStorage>(&self, uuid: NonNilUuid) -> Option<&T::Data> {
-        T::typed_map(self).get(&uuid)
+        T::typed_map(self).get(T::Id::from_uuid(uuid))
     }
 
     /// Get entity by internal UUID (alias for `get`).
     pub fn get_by_uuid<T: TypedStorage>(&self, uuid: NonNilUuid) -> Option<&T::Data> {
-        T::typed_map(self).get(&uuid)
+        T::typed_map(self).get(T::Id::from_uuid(uuid))
     }
 
     /// Get entities by index query, returning all that tie at the best match strength.
@@ -181,10 +186,7 @@ impl EntityStorage {
             }
         }
 
-        matched_uuids
-            .into_iter()
-            .map(|uuid| T::Id::from_uuid(uuid))
-            .collect()
+        matched_uuids.into_iter().map(T::Id::from_uuid).collect()
     }
 
     /// Look up an entity by an indexable field value.
@@ -229,18 +231,18 @@ impl EntityStorage {
 
     /// Check if entity with given UUID exists.
     pub fn contains_uuid<T: TypedStorage>(&self, uuid: NonNilUuid) -> bool {
-        T::typed_map(self).contains_key(&uuid)
+        T::typed_map(self).contains_key(T::Id::from_uuid(uuid))
     }
 
     /// Get a mutable reference to an entity by type and UUID.
     pub fn get_mut<T: TypedStorage>(&mut self, uuid: NonNilUuid) -> Option<&mut T::Data> {
-        T::typed_map_mut(self).get_mut(&uuid)
+        T::typed_map_mut(self).get_mut(T::Id::from_uuid(uuid))
     }
 
     /// Remove an entity by type and UUID, unregistering its UUID.
     /// Calls the entity type's `on_remove` hook before removal.
     pub fn remove<T: TypedStorage>(&mut self, uuid: NonNilUuid) -> Option<T::Data> {
-        let data = T::typed_map(self).get(&uuid).cloned()?;
+        let data = T::typed_map(self).get(T::Id::from_uuid(uuid)).cloned()?;
         T::on_remove(self, &data);
         EntityStore::<T>::remove_entity(self, uuid)
     }
@@ -276,11 +278,11 @@ pub trait EntityStore<T: EntityType> {
 /// the `uuid_registry`, and `remove_entity` unregisters it.
 impl<T: TypedStorage> EntityStore<T> for EntityStorage {
     fn get_entity(&self, uuid: NonNilUuid) -> Option<&T::Data> {
-        T::typed_map(self).get(&uuid)
+        T::typed_map(self).get(T::Id::from_uuid(uuid))
     }
 
     fn get_entity_mut(&mut self, uuid: NonNilUuid) -> Option<&mut T::Data> {
-        T::typed_map_mut(self).get_mut(&uuid)
+        T::typed_map_mut(self).get_mut(T::Id::from_uuid(uuid))
     }
 
     fn insert_entity(&mut self, uuid: NonNilUuid, data: T::Data) -> Result<(), InsertError> {
@@ -292,16 +294,18 @@ impl<T: TypedStorage> EntityStore<T> for EntityStorage {
             }
         }
         // Check for same-type duplicate
-        if T::typed_map(self).contains_key(&uuid) {
+        let id = T::Id::from_uuid(uuid);
+        if T::typed_map(self).contains_key(id) {
             return Err(InsertError::UuidCollision { uuid });
         }
         self.uuid_registry.insert(uuid, T::KIND);
-        T::typed_map_mut(self).insert(uuid, data);
+        T::typed_map_mut(self).insert(id, data);
         Ok(())
     }
 
     fn remove_entity(&mut self, uuid: NonNilUuid) -> Option<T::Data> {
-        let result = T::typed_map_mut(self).remove(&uuid);
+        let id = T::Id::from_uuid(uuid);
+        let result = T::typed_map_mut(self).remove(id);
         if result.is_some() {
             self.uuid_registry.remove(&uuid);
         }
@@ -309,6 +313,6 @@ impl<T: TypedStorage> EntityStore<T> for EntityStorage {
     }
 
     fn contains_entity(&self, uuid: NonNilUuid) -> bool {
-        T::typed_map(self).contains_key(&uuid)
+        T::typed_map(self).contains_key(T::Id::from_uuid(uuid))
     }
 }

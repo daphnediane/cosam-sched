@@ -13,10 +13,23 @@ Completed
 
 High
 
+## Work Items
+
+- REFACTOR-036: Entity field changes (Panel, EventRoom, Presenter)
+- REFACTOR-037: EntityStorage reverse indexes and hook system
+- REFACTOR-038: Schedule methods, macro cleanup, edge file deletion
+
 ## Description
 
-Phase 1 of the virtual edge refactor (see REFACTOR-036/037/038). No code
-changes; documentation and work item tracking only.
+Meta work item for the virtual edge refactor. This work item tracks the overall
+refactor effort but contains no code changes itself. The actual implementation
+is split into three child work items:
+
+- REFACTOR-036: Add stored relationship fields to entities
+- REFACTOR-037: Implement reverse indexes and hook system
+- REFACTOR-038: Update Schedule methods and delete edge infrastructure
+
+This meta work item will be marked Done when all three child work items are complete.
 
 ### Work completed
 
@@ -39,9 +52,3 @@ changes; documentation and work item tracking only.
 - `FEATURE-033` marked Superseded (subsumed by REFACTOR-037)
 - `REFACTOR-036`, `REFACTOR-037`, `REFACTOR-038` work items created
 - `IDEA-039` created for deferred per-membership flags
-
-## Work Items
-
-- REFACTOR-036: Entity field changes (Panel, EventRoom, Presenter)
-- REFACTOR-037: EntityStorage reverse indexes and hook system
-- REFACTOR-038: Schedule methods, macro cleanup, edge file deletion
