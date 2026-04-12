@@ -96,6 +96,19 @@ impl FieldValue {
                 .collect(),
         )
     }
+
+    /// Convert FieldValue to bool.
+    ///
+    /// - Boolean: returns the value directly
+    /// - String: returns false for "false", "0", or empty string; true otherwise
+    /// - Other: returns false
+    pub fn as_bool(&self) -> bool {
+        match self {
+            FieldValue::Boolean(b) => *b,
+            FieldValue::String(s) => !matches!(s.to_lowercase().as_str(), "false" | "0" | ""),
+            _ => false,
+        }
+    }
 }
 
 impl fmt::Display for FieldValue {

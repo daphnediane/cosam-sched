@@ -562,6 +562,133 @@ impl PanelEntityType {
         storage.panels.get(&uuid).and_then(|d| d.panel_type_id)
     }
 
+    /// Get panels that a presenter is assigned to (reverse lookup).
+    pub fn panels_of_presenter(
+        storage: &crate::schedule::EntityStorage,
+        presenter_id: PresenterId,
+    ) -> Vec<PanelId> {
+        let uuid = presenter_id.non_nil_uuid();
+        storage
+            .panels_by_presenter
+            .get(&uuid)
+            .map(|v| v.iter().map(|&u| PanelId::from_uuid(u)).collect())
+            .unwrap_or_default()
+    }
+
+    /// Set the panels that a presenter is assigned to.
+    ///
+    /// Updates both the forward backing field and the reverse index.
+    pub fn set_panels_of_presenter(
+        storage: &mut crate::schedule::EntityStorage,
+        presenter_id: PresenterId,
+        panel_ids: Vec<PanelId>,
+    ) -> Result<(), crate::field::FieldError> {
+        use crate::entity::InternalData;
+        let presenter_uuid = presenter_id.non_nil_uuid();
+        let new_panel_uuids: Vec<uuid::NonNilUuid> =
+            panel_ids.iter().map(|id| id.non_nil_uuid()).collect();
+
+        // Remove presenter from old panels' presenter_ids
+        for panel in storage.panels.values_mut() {
+            if panel.presenter_ids.contains(&presenter_id)
+                && !new_panel_uuids.contains(&panel.id().non_nil_uuid())
+            {
+                panel.presenter_ids.retain(|id| id != &presenter_id);
+            }
+        }
+
+        // Remove old reverse index entries
+        if let Some(old_panels) = storage.panels_by_presenter.get(&presenter_uuid) {
+            for &panel_uuid in old_panels {
+                if !new_panel_uuids.contains(&panel_uuid) {
+                    if let Some(panel_data) = storage.panels.get_mut(&panel_uuid) {
+                        panel_data.presenter_ids.retain(|id| id != &presenter_id);
+                    }
+                }
+            }
+        }
+
+        // Update reverse index
+        if new_panel_uuids.is_empty() {
+            storage.panels_by_presenter.remove(&presenter_uuid);
+        } else {
+            storage
+                .panels_by_presenter
+                .insert(presenter_uuid, new_panel_uuids.clone());
+        }
+
+        // Add presenter to new panels' presenter_ids
+        for panel_uuid in &new_panel_uuids {
+            if let Some(panel_data) = storage.panels.get_mut(panel_uuid) {
+                if !panel_data.presenter_ids.contains(&presenter_id) {
+                    panel_data.presenter_ids.push(presenter_id);
+                }
+            }
+        }
+
+        Ok(())
+    }
+
+    /// Add a panel to a presenter (append mode, avoiding duplicates).
+    ///
+    /// Returns the number of panels successfully added.
+    pub fn add_panel_to_presenter(
+        storage: &mut crate::schedule::EntityStorage,
+        presenter_id: PresenterId,
+        panel_id: PanelId,
+    ) -> usize {
+        let presenter_uuid = presenter_id.non_nil_uuid();
+        let panel_uuid = panel_id.non_nil_uuid();
+
+        let already = storage
+            .panels
+            .get(&panel_uuid)
+            .is_some_and(|d| d.presenter_ids.contains(&presenter_id));
+
+        if !already {
+            if let Some(panel_data) = storage.panels.get_mut(&panel_uuid) {
+                panel_data.presenter_ids.push(presenter_id);
+            }
+            storage
+                .panels_by_presenter
+                .entry(presenter_uuid)
+                .or_default()
+                .push(panel_uuid);
+            1
+        } else {
+            0
+        }
+    }
+
+    /// Remove a panel from a presenter.
+    ///
+    /// Returns the number of panels successfully removed.
+    pub fn remove_panel_from_presenter(
+        storage: &mut crate::schedule::EntityStorage,
+        presenter_id: PresenterId,
+        panel_id: PanelId,
+    ) -> usize {
+        let presenter_uuid = presenter_id.non_nil_uuid();
+        let panel_uuid = panel_id.non_nil_uuid();
+
+        let had = storage
+            .panels
+            .get(&panel_uuid)
+            .is_some_and(|d| d.presenter_ids.contains(&presenter_id));
+
+        if had {
+            if let Some(panel_data) = storage.panels.get_mut(&panel_uuid) {
+                panel_data.presenter_ids.retain(|id| id != &presenter_id);
+            }
+            if let Some(panels) = storage.panels_by_presenter.get_mut(&presenter_uuid) {
+                panels.retain(|&u| u != panel_uuid);
+            }
+            1
+        } else {
+            0
+        }
+    }
+
     /// Set the panel type for this panel.
     ///
     /// Updates both the forward backing field and the reverse index.

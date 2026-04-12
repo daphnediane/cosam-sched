@@ -167,81 +167,56 @@ impl Schedule {
 
     /// Presenters assigned to a panel (from the `presenter_ids` backing field).
     pub fn get_panel_presenters(&self, panel_id: PanelId) -> Vec<PresenterId> {
-        self.entities
-            .panels
-            .get(&panel_id.non_nil_uuid())
-            .map(|d| d.presenter_ids.clone())
-            .unwrap_or_default()
+        use crate::entity::PanelEntityType;
+        PanelEntityType::presenters_of(&self.entities, panel_id)
     }
 
     /// Panels a presenter is assigned to (from the `panels_by_presenter` reverse index).
     pub fn get_presenter_panels(&self, presenter_id: PresenterId) -> Vec<PanelId> {
-        self.entities
-            .panels_by_presenter
-            .get(&presenter_id.non_nil_uuid())
-            .map(|v| v.iter().map(|&u| PanelId::from_uuid(u)).collect())
-            .unwrap_or_default()
+        use crate::entity::PanelEntityType;
+        PanelEntityType::panels_of_presenter(&self.entities, presenter_id)
     }
 
     /// Event room assigned to a panel (from the `event_room_id` backing field).
     pub fn get_panel_event_room(&self, panel_id: PanelId) -> Option<EventRoomId> {
-        self.entities
-            .panels
-            .get(&panel_id.non_nil_uuid())
-            .and_then(|d| d.event_room_id)
+        use crate::entity::PanelEntityType;
+        PanelEntityType::event_room_of(&self.entities, panel_id)
     }
 
     /// Panels assigned to an event room (from the `panels_by_event_room` reverse index).
     pub fn get_event_room_panels(&self, event_room_id: EventRoomId) -> Vec<PanelId> {
-        self.entities
-            .panels_by_event_room
-            .get(&event_room_id.non_nil_uuid())
-            .map(|v| v.iter().map(|&u| PanelId::from_uuid(u)).collect())
-            .unwrap_or_default()
+        use crate::entity::EventRoomEntityType;
+        EventRoomEntityType::panels_of(&self.entities, event_room_id)
     }
 
     /// Panel type assigned to a panel (from the `panel_type_id` backing field).
     pub fn get_panel_type(&self, panel_id: PanelId) -> Option<PanelTypeId> {
-        self.entities
-            .panels
-            .get(&panel_id.non_nil_uuid())
-            .and_then(|d| d.panel_type_id)
+        use crate::entity::PanelEntityType;
+        PanelEntityType::panel_type_of(&self.entities, panel_id)
     }
 
     /// Panels of a given panel type (from the `panels_by_panel_type` reverse index).
     pub fn get_panels_by_type(&self, panel_type_id: PanelTypeId) -> Vec<PanelId> {
-        self.entities
-            .panels_by_panel_type
-            .get(&panel_type_id.non_nil_uuid())
-            .map(|v| v.iter().map(|&u| PanelId::from_uuid(u)).collect())
-            .unwrap_or_default()
+        use crate::entity::PanelTypeEntityType;
+        PanelTypeEntityType::panels_of(&self.entities, panel_type_id)
     }
 
     /// Hotel rooms mapped to an event room (from the `hotel_room_ids` backing field).
     pub fn get_event_room_hotel_rooms(&self, event_room_id: EventRoomId) -> Vec<HotelRoomId> {
-        self.entities
-            .event_rooms
-            .get(&event_room_id.non_nil_uuid())
-            .map(|d| d.hotel_room_ids.clone())
-            .unwrap_or_default()
+        use crate::entity::EventRoomEntityType;
+        EventRoomEntityType::hotel_rooms_of(&self.entities, event_room_id)
     }
 
     /// Groups a presenter belongs to (from the `group_ids` backing field).
     pub fn get_presenter_groups(&self, presenter_id: PresenterId) -> Vec<PresenterId> {
-        self.entities
-            .presenters
-            .get(&presenter_id.non_nil_uuid())
-            .map(|d| d.group_ids.clone())
-            .unwrap_or_default()
+        use crate::entity::PresenterEntityType;
+        PresenterEntityType::groups_of(&self.entities, presenter_id)
     }
 
     /// Members of a presenter group (from the `presenters_by_group` reverse index).
     pub fn get_presenter_members(&self, group_id: PresenterId) -> Vec<PresenterId> {
-        self.entities
-            .presenters_by_group
-            .get(&group_id.non_nil_uuid())
-            .map(|v| v.iter().map(|&u| PresenterId::from_uuid(u)).collect())
-            .unwrap_or_default()
+        use crate::entity::PresenterEntityType;
+        PresenterEntityType::members_of(&self.entities, group_id)
     }
 
     /// Whether a presenter is a group (has the explicit flag set or has members).
@@ -255,11 +230,7 @@ impl Schedule {
 
     /// Mark a presenter as a group by setting `is_explicit_group = true`.
     pub fn mark_presenter_group(&mut self, presenter_id: PresenterId) -> Result<(), InsertError> {
-        PresenterEntityType::set_explicit_group(
-            &mut self.entities,
-            presenter_id.non_nil_uuid(),
-            true,
-        );
+        PresenterEntityType::set_explicit_group(&mut self.entities, presenter_id, true);
         Ok(())
     }
 
@@ -269,11 +240,8 @@ impl Schedule {
     /// - `false` → clears `is_explicit_group` AND removes all members so the
     ///   computed read stays coherent.
     pub fn set_is_group(&mut self, presenter_id: PresenterId, value: bool) {
-        let uuid = presenter_id.non_nil_uuid();
-        PresenterEntityType::set_explicit_group(&mut self.entities, uuid, value);
-        if !value {
-            PresenterEntityType::clear_members(&mut self.entities, uuid);
-        }
+        use crate::entity::PresenterEntityType;
+        PresenterEntityType::set_explicit_group(&mut self.entities, presenter_id, value);
     }
 
     /// Remove the explicit group marker from a presenter.
@@ -283,14 +251,8 @@ impl Schedule {
     ///
     /// Returns `true` if the entity was previously marked as an explicit group.
     pub fn unmark_presenter_group(&mut self, presenter_id: PresenterId) -> bool {
-        let uuid = presenter_id.non_nil_uuid();
-        let was_explicit = self
-            .entities
-            .presenters
-            .get(&uuid)
-            .is_some_and(|d| d.is_explicit_group);
-        PresenterEntityType::set_explicit_group(&mut self.entities, uuid, false);
-        was_explicit
+        use crate::entity::PresenterEntityType;
+        PresenterEntityType::unmark_explicit_group(&mut self.entities, presenter_id)
     }
 
     /// Add `member` to `group` with default flags (`always_shown_in_group = false`,
@@ -305,24 +267,8 @@ impl Schedule {
         member: PresenterId,
         group: PresenterId,
     ) -> Result<(), InsertError> {
-        let member_uuid = member.non_nil_uuid();
-        let group_uuid = group.non_nil_uuid();
-        if let Some(members) = self.entities.presenters_by_group.get(&group_uuid) {
-            if members.contains(&member_uuid) {
-                return Ok(());
-            }
-        }
-        self.entities
-            .presenters_by_group
-            .entry(group_uuid)
-            .or_default()
-            .push(member_uuid);
-        if let Some(data) = self.entities.presenters.get_mut(&member_uuid) {
-            if !data.group_ids.contains(&group) {
-                data.group_ids.push(group);
-            }
-        }
-        Ok(())
+        use crate::entity::PresenterEntityType;
+        PresenterEntityType::add_member(&mut self.entities, member, group)
     }
 
     /// Add `member` to `group` and set `always_grouped = true`.
@@ -334,23 +280,8 @@ impl Schedule {
         member: PresenterId,
         group: PresenterId,
     ) -> Result<(), InsertError> {
-        let member_uuid = member.non_nil_uuid();
-        let group_uuid = group.non_nil_uuid();
-        let members = self
-            .entities
-            .presenters_by_group
-            .entry(group_uuid)
-            .or_default();
-        if !members.contains(&member_uuid) {
-            members.push(member_uuid);
-        }
-        if let Some(data) = self.entities.presenters.get_mut(&member_uuid) {
-            data.always_grouped = true;
-            if !data.group_ids.contains(&group) {
-                data.group_ids.push(group);
-            }
-        }
-        Ok(())
+        use crate::entity::PresenterEntityType;
+        PresenterEntityType::add_grouped_member(&mut self.entities, member, group)
     }
 
     /// Add `member` to `group` and set `always_shown_in_group = true`.
@@ -362,23 +293,8 @@ impl Schedule {
         member: PresenterId,
         group: PresenterId,
     ) -> Result<(), InsertError> {
-        let member_uuid = member.non_nil_uuid();
-        let group_uuid = group.non_nil_uuid();
-        let members = self
-            .entities
-            .presenters_by_group
-            .entry(group_uuid)
-            .or_default();
-        if !members.contains(&member_uuid) {
-            members.push(member_uuid);
-        }
-        if let Some(data) = self.entities.presenters.get_mut(&member_uuid) {
-            data.always_shown_in_group = true;
-            if !data.group_ids.contains(&group) {
-                data.group_ids.push(group);
-            }
-        }
-        Ok(())
+        use crate::entity::PresenterEntityType;
+        PresenterEntityType::add_shown_member(&mut self.entities, member, group)
     }
 
     /// Remove `member` from `group`.
@@ -386,22 +302,8 @@ impl Schedule {
     /// Updates `presenters_by_group` reverse index and `member.group_ids` backing field.
     /// Returns `true` if the membership existed and was removed.
     pub fn remove_member(&mut self, member: PresenterId, group: PresenterId) -> bool {
-        let member_uuid = member.non_nil_uuid();
-        let group_uuid = group.non_nil_uuid();
-        let was_member = self
-            .entities
-            .presenters_by_group
-            .get(&group_uuid)
-            .is_some_and(|v| v.contains(&member_uuid));
-        if was_member {
-            if let Some(members) = self.entities.presenters_by_group.get_mut(&group_uuid) {
-                members.retain(|&u| u != member_uuid);
-            }
-            if let Some(data) = self.entities.presenters.get_mut(&member_uuid) {
-                data.group_ids.retain(|id| id.non_nil_uuid() != group_uuid);
-            }
-        }
-        was_member
+        use crate::entity::PresenterEntityType;
+        PresenterEntityType::remove_member(&mut self.entities, member, group)
     }
 
     // -----------------------------------------------------------------------
