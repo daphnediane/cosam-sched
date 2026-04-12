@@ -8,10 +8,12 @@
 //!
 //! A single hotel room may host different [`EventRoom`]s at different times of
 //! day (e.g. "Workshop 3" in the morning, "Demo Room 2" in the evening).  The
-//! time-dependent relationship between hotel rooms and event rooms is managed
-//! via edges (FEATURE-007).
+//! relationship is stored as `hotel_room_ids` on each [`EventRoom`] (virtual
+//! edge forward side), with the reverse index `event_rooms_by_hotel_room` on
+//! [`EntityStorage`].
 //!
 //! [`EventRoom`]: crate::entity::EventRoom
+//! [`EntityStorage`]: crate::schedule::EntityStorage
 
 use crate::EntityFields;
 
@@ -19,10 +21,9 @@ use crate::EntityFields;
 ///
 /// Hotel rooms are sourced from the **Hotel Room** column of the Rooms sheet.
 /// One hotel room can serve as multiple event rooms at different times (e.g.
-/// a ballroom split by moveable walls), which is represented by
-/// [`EventRoomToHotelRoom`] edges with time-range attributes.
-///
-/// [`EventRoomToHotelRoom`]: crate::entity::EntityKind::EventRoomToHotelRoom
+/// a ballroom split by moveable walls).  The relationship is stored as
+/// `hotel_room_ids` on each [`EventRoom`](crate::entity::EventRoom) with a
+/// reverse lookup index on [`EntityStorage`](crate::schedule::EntityStorage).
 #[derive(EntityFields, Debug, Clone)]
 #[entity_kind(HotelRoom)]
 pub struct HotelRoom {
@@ -42,8 +43,12 @@ pub struct HotelRoom {
     )]
     #[alias("event_rooms", "logical_rooms")]
     #[read(|schedule: &crate::schedule::Schedule, entity: &HotelRoomData| {
-        use crate::entity::{InternalData, EventRoomToHotelRoomEntityType};
-        let ids = EventRoomToHotelRoomEntityType::event_rooms_in(&schedule.entities, entity.uuid());
+        use crate::entity::{InternalData, EventRoomId};
+        let uuid = entity.uuid();
+        let ids: Vec<EventRoomId> = schedule.entities.event_rooms_by_hotel_room
+            .get(&uuid)
+            .map(|uuids| uuids.iter().map(|&u| EventRoomId::from_uuid(u)).collect())
+            .unwrap_or_default();
         if ids.is_empty() {
             None
         } else {

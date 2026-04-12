@@ -176,7 +176,7 @@ pub struct Presenter {
         }
     })]
     #[write(|schedule: &mut crate::schedule::Schedule, entity: &mut PresenterData, value: crate::field::FieldValue| {
-        use crate::entity::{InternalData, PresenterToGroupEntityType};
+        use crate::entity::InternalData;
         let member_uuid = entity.uuid();
         let new_group_uuids: Vec<uuid::NonNilUuid> = match value {
             crate::field::FieldValue::List(items) => items
@@ -188,14 +188,26 @@ pub struct Presenter {
                 crate::field::validation::ConversionError::InvalidFormat,
             )),
         };
+        // Remove presenter from old groups' reverse index entries
+        for old_id in &entity.group_ids {
+            let old_group_uuid = old_id.non_nil_uuid();
+            if let Some(members) = schedule.entities.presenters_by_group.get_mut(&old_group_uuid) {
+                members.retain(|&u| u != member_uuid);
+            }
+        }
+        // Update forward backing field
         entity.group_ids = new_group_uuids
             .iter()
             .map(|&u| PresenterId::from_uuid(u))
             .collect();
-        PresenterToGroupEntityType::set_groups(&mut schedule.entities, member_uuid, &new_group_uuids)
-            .map_err(|_| crate::field::FieldError::ConversionError(
-                crate::field::validation::ConversionError::InvalidFormat,
-            ))
+        // Add presenter to new groups' reverse index entries
+        for &group_uuid in &new_group_uuids {
+            schedule.entities.presenters_by_group
+                .entry(group_uuid)
+                .or_default()
+                .push(member_uuid);
+        }
+        Ok(())
     })]
     pub groups: Vec<PresenterId>,
 
@@ -211,13 +223,14 @@ pub struct Presenter {
     )]
     #[alias("is_group", "Is_Group", "group", "presenter_group")]
     #[read(|schedule: &crate::schedule::Schedule, entity: &PresenterData| {
-        use crate::entity::{InternalData, PresenterToGroupEntityType};
+        use crate::entity::InternalData;
+        let uuid = entity.uuid();
         let is_grp = entity.is_explicit_group
-            || !PresenterToGroupEntityType::members_of(&schedule.entities, entity.uuid()).is_empty();
+            || schedule.entities.presenters_by_group.get(&uuid).is_some_and(|v| !v.is_empty());
         Some(crate::field::FieldValue::Boolean(is_grp))
     })]
     #[write(|schedule: &mut crate::schedule::Schedule, entity: &mut PresenterData, value: crate::field::FieldValue| {
-        use crate::entity::{InternalData, PresenterEntityType};
+        use crate::entity::InternalData;
         let flag = match value {
             crate::field::FieldValue::Boolean(b) => b,
             crate::field::FieldValue::String(ref s) => !matches!(s.to_lowercase().as_str(), "false" | "0" | ""),
@@ -227,7 +240,18 @@ pub struct Presenter {
         };
         entity.is_explicit_group = flag;
         if !flag {
-            PresenterEntityType::clear_member_edges(&mut schedule.entities, entity.uuid());
+            // Clear all members' group_ids and remove from reverse index
+            let group_uuid = entity.uuid();
+            let member_uuids: Vec<uuid::NonNilUuid> = schedule.entities.presenters_by_group
+                .get(&group_uuid)
+                .map(|v| v.clone())
+                .unwrap_or_default();
+            for member_uuid in &member_uuids {
+                if let Some(data) = schedule.entities.presenters.get_mut(member_uuid) {
+                    data.group_ids.retain(|id| id.non_nil_uuid() != group_uuid);
+                }
+            }
+            schedule.entities.presenters_by_group.remove(&group_uuid);
         }
         Ok(())
     })]
@@ -239,20 +263,24 @@ pub struct Presenter {
     )]
     #[alias("presenter_members", "member_list")]
     #[read(|schedule: &crate::schedule::Schedule, entity: &PresenterData| {
-        use crate::entity::{InternalData, PresenterToGroupEntityType};
-        let ids = PresenterToGroupEntityType::members_of(&schedule.entities, entity.uuid());
-        if ids.is_empty() {
+        use crate::entity::InternalData;
+        let uuid = entity.uuid();
+        let members: Vec<uuid::NonNilUuid> = schedule.entities.presenters_by_group
+            .get(&uuid)
+            .map(|v| v.clone())
+            .unwrap_or_default();
+        if members.is_empty() {
             None
         } else {
             Some(crate::field::FieldValue::List(
-                ids.into_iter()
-                    .map(|id| crate::field::FieldValue::NonNilUuid(id.non_nil_uuid()))
+                members.into_iter()
+                    .map(crate::field::FieldValue::NonNilUuid)
                     .collect(),
             ))
         }
     })]
     #[write(|schedule: &mut crate::schedule::Schedule, entity: &mut PresenterData, value: crate::field::FieldValue| {
-        use crate::entity::{InternalData, PresenterId, PresenterToGroupEntityType};
+        use crate::entity::{InternalData, PresenterId};
         let group_uuid = entity.uuid();
         let group_id = PresenterId::from_uuid(group_uuid);
         let new_member_uuids: Vec<uuid::NonNilUuid> = match value {
@@ -265,11 +293,12 @@ pub struct Presenter {
                 crate::field::validation::ConversionError::InvalidFormat,
             )),
         };
-        let old_member_uuids: Vec<uuid::NonNilUuid> =
-            PresenterToGroupEntityType::members_of(&schedule.entities, group_uuid)
-                .iter()
-                .map(|id| id.non_nil_uuid())
-                .collect();
+        // Collect old members from reverse index
+        let old_member_uuids: Vec<uuid::NonNilUuid> = schedule.entities.presenters_by_group
+            .get(&group_uuid)
+            .map(|v| v.clone())
+            .unwrap_or_default();
+        // Remove group from departing members' group_ids
         for &old_uuid in &old_member_uuids {
             if !new_member_uuids.contains(&old_uuid) {
                 if let Some(member_data) = schedule.entities.presenters.get_mut(&old_uuid) {
@@ -277,6 +306,7 @@ pub struct Presenter {
                 }
             }
         }
+        // Add group to new members' group_ids
         for &new_uuid in &new_member_uuids {
             if !old_member_uuids.contains(&new_uuid) {
                 if let Some(member_data) = schedule.entities.presenters.get_mut(&new_uuid) {
@@ -286,10 +316,13 @@ pub struct Presenter {
                 }
             }
         }
-        PresenterToGroupEntityType::set_members(&mut schedule.entities, group_uuid, &new_member_uuids)
-            .map_err(|_| crate::field::FieldError::ConversionError(
-                crate::field::validation::ConversionError::InvalidFormat,
-            ))
+        // Replace reverse index entry
+        if new_member_uuids.is_empty() {
+            schedule.entities.presenters_by_group.remove(&group_uuid);
+        } else {
+            schedule.entities.presenters_by_group.insert(group_uuid, new_member_uuids);
+        }
+        Ok(())
     })]
     pub members: Vec<PresenterId>,
 
@@ -300,20 +333,24 @@ pub struct Presenter {
     )]
     #[alias("panel")]
     #[read(|schedule: &crate::schedule::Schedule, entity: &PresenterData| {
-        use crate::entity::{InternalData, PanelToPresenterEntityType};
-        let ids = PanelToPresenterEntityType::panels_of(&schedule.entities, entity.uuid());
+        use crate::entity::InternalData;
+        let uuid = entity.uuid();
+        let ids: Vec<uuid::NonNilUuid> = schedule.entities.panels_by_presenter
+            .get(&uuid)
+            .map(|v| v.clone())
+            .unwrap_or_default();
         if ids.is_empty() {
             None
         } else {
             Some(crate::field::FieldValue::List(
                 ids.into_iter()
-                    .map(|id| crate::field::FieldValue::NonNilUuid(id.non_nil_uuid()))
+                    .map(crate::field::FieldValue::NonNilUuid)
                     .collect(),
             ))
         }
     })]
     #[write(|schedule: &mut crate::schedule::Schedule, entity: &mut PresenterData, value: crate::field::FieldValue| {
-        use crate::entity::{InternalData, PanelToPresenterEntityType, PresenterId};
+        use crate::entity::{InternalData, PresenterId};
         let presenter_uuid = entity.uuid();
         let presenter_id = PresenterId::from_uuid(presenter_uuid);
         let new_panel_uuids: Vec<uuid::NonNilUuid> = match value {
@@ -326,11 +363,12 @@ pub struct Presenter {
                 crate::field::validation::ConversionError::InvalidFormat,
             )),
         };
-        let old_panel_uuids: Vec<uuid::NonNilUuid> =
-            PanelToPresenterEntityType::panels_of(&schedule.entities, presenter_uuid)
-                .iter()
-                .map(|id| id.non_nil_uuid())
-                .collect();
+        // Collect old panels from reverse index
+        let old_panel_uuids: Vec<uuid::NonNilUuid> = schedule.entities.panels_by_presenter
+            .get(&presenter_uuid)
+            .map(|v| v.clone())
+            .unwrap_or_default();
+        // Remove presenter from departing panels' presenter_ids
         for &old_uuid in &old_panel_uuids {
             if !new_panel_uuids.contains(&old_uuid) {
                 if let Some(panel_data) = schedule.entities.panels.get_mut(&old_uuid) {
@@ -338,6 +376,7 @@ pub struct Presenter {
                 }
             }
         }
+        // Add presenter to new panels' presenter_ids
         for &new_uuid in &new_panel_uuids {
             if !old_panel_uuids.contains(&new_uuid) {
                 if let Some(panel_data) = schedule.entities.panels.get_mut(&new_uuid) {
@@ -347,10 +386,13 @@ pub struct Presenter {
                 }
             }
         }
-        PanelToPresenterEntityType::set_panels_for_presenter(&mut schedule.entities, presenter_uuid, &new_panel_uuids)
-            .map_err(|_| crate::field::FieldError::ConversionError(
-                crate::field::validation::ConversionError::InvalidFormat,
-            ))
+        // Replace reverse index entry
+        if new_panel_uuids.is_empty() {
+            schedule.entities.panels_by_presenter.remove(&presenter_uuid);
+        } else {
+            schedule.entities.panels_by_presenter.insert(presenter_uuid, new_panel_uuids);
+        }
+        Ok(())
     })]
     pub panels: Vec<crate::entity::PanelId>,
 
@@ -361,7 +403,7 @@ pub struct Presenter {
         description = "Add panels to this presenter (append mode)"
     )]
     #[write(|schedule: &mut crate::schedule::Schedule, entity: &mut PresenterData, value: crate::field::FieldValue| {
-        use crate::entity::{InternalData, PanelEntityType, PanelToPresenterEntityType, PresenterId};
+        use crate::entity::{InternalData, PanelEntityType, PresenterId};
         let presenter_uuid = entity.uuid();
         let presenter_id = PresenterId::from_uuid(presenter_uuid);
         let values: Vec<crate::field::FieldValue> = match value {
@@ -371,21 +413,19 @@ pub struct Presenter {
         for value in values {
             if let Ok(panel_id) = PanelEntityType::resolve_field_value(&schedule.entities, value) {
                 let panel_uuid = panel_id.non_nil_uuid();
-                let already = PanelToPresenterEntityType::panels_of(&schedule.entities, presenter_uuid)
-                    .iter()
-                    .any(|id| id.non_nil_uuid() == panel_uuid);
+                let already = schedule.entities.panels_by_presenter
+                    .get(&presenter_uuid)
+                    .is_some_and(|v| v.contains(&panel_uuid));
                 if !already {
                     if let Some(panel_data) = schedule.entities.panels.get_mut(&panel_uuid) {
                         if !panel_data.presenter_ids.contains(&presenter_id) {
                             panel_data.presenter_ids.push(presenter_id);
                         }
                     }
-                    let edge = crate::entity::PanelToPresenterData {
-                        entity_uuid: unsafe { uuid::NonNilUuid::new_unchecked(uuid::Uuid::now_v7()) },
-                        panel_uuid,
-                        presenter_uuid,
-                    };
-                    let _ = schedule.entities.add_edge::<PanelToPresenterEntityType>(edge);
+                    schedule.entities.panels_by_presenter
+                        .entry(presenter_uuid)
+                        .or_default()
+                        .push(panel_uuid);
                 }
             }
         }
@@ -400,7 +440,7 @@ pub struct Presenter {
         description = "Remove panels from this presenter"
     )]
     #[write(|schedule: &mut crate::schedule::Schedule, entity: &mut PresenterData, value: crate::field::FieldValue| {
-        use crate::entity::{InternalData, PanelToPresenterEntityType};
+        use crate::entity::InternalData;
         let presenter_uuid = entity.uuid();
         let panel_uuids: Vec<uuid::NonNilUuid> = match value {
             crate::field::FieldValue::List(items) => items
@@ -416,8 +456,10 @@ pub struct Presenter {
             if let Some(panel_data) = schedule.entities.panels.get_mut(&panel_uuid) {
                 panel_data.presenter_ids.retain(|id| id.non_nil_uuid() != presenter_uuid);
             }
+            if let Some(panels) = schedule.entities.panels_by_presenter.get_mut(&presenter_uuid) {
+                panels.retain(|&u| u != panel_uuid);
+            }
         }
-        PanelToPresenterEntityType::remove_panels_for_presenter(&mut schedule.entities, presenter_uuid, &panel_uuids);
         Ok(())
     })]
     pub remove_panels: Vec<crate::entity::PanelId>,
@@ -429,39 +471,43 @@ pub struct Presenter {
     )]
     #[alias("inclusive_panel")]
     #[read(|schedule: &crate::schedule::Schedule, entity: &PresenterData| {
-        use crate::entity::{InternalData, PanelToPresenterEntityType, PresenterToGroupEntityType};
-        use std::collections::HashSet;
+        use crate::entity::InternalData;
+        use std::collections::{HashSet, VecDeque};
 
         let presenter_uuid = entity.uuid();
-        let direct = PanelToPresenterEntityType::panels_of(&schedule.entities, presenter_uuid);
-
         let mut result = Vec::new();
         let mut seen = HashSet::new();
 
         // Add direct panels
-        for panel_id in &direct {
-            let panel_uuid = panel_id.non_nil_uuid();
-            if seen.insert(panel_uuid) {
-                result.push(crate::field::FieldValue::NonNilUuid(panel_uuid));
-            }
-        }
-
-        // Add panels for all inclusive groups (upward)
-        for group_id in PresenterToGroupEntityType::inclusive_groups_of(&schedule.entities, presenter_uuid) {
-            let group_uuid = group_id.non_nil_uuid();
-            for panel_id in PanelToPresenterEntityType::panels_of(&schedule.entities, group_uuid) {
-                let panel_uuid = panel_id.non_nil_uuid();
+        if let Some(panels) = schedule.entities.panels_by_presenter.get(&presenter_uuid) {
+            for &panel_uuid in panels {
                 if seen.insert(panel_uuid) {
                     result.push(crate::field::FieldValue::NonNilUuid(panel_uuid));
                 }
             }
         }
 
-        if result.is_empty() {
-            None
-        } else {
-            Some(crate::field::FieldValue::List(result))
+        // Add panels for all inclusive groups (transitive upward via group_ids)
+        let mut group_queue: VecDeque<uuid::NonNilUuid> = VecDeque::new();
+        if let Some(data) = schedule.entities.presenters.get(&presenter_uuid) {
+            for gid in &data.group_ids { group_queue.push_back(gid.non_nil_uuid()); }
         }
+        let mut seen_groups = HashSet::new();
+        while let Some(group_uuid) = group_queue.pop_front() {
+            if !seen_groups.insert(group_uuid) { continue; }
+            if let Some(panels) = schedule.entities.panels_by_presenter.get(&group_uuid) {
+                for &panel_uuid in panels {
+                    if seen.insert(panel_uuid) {
+                        result.push(crate::field::FieldValue::NonNilUuid(panel_uuid));
+                    }
+                }
+            }
+            if let Some(data) = schedule.entities.presenters.get(&group_uuid) {
+                for gid in &data.group_ids { group_queue.push_back(gid.non_nil_uuid()); }
+            }
+        }
+
+        if result.is_empty() { None } else { Some(crate::field::FieldValue::List(result)) }
     })]
     pub inclusive_panels: Vec<crate::entity::PanelId>,
 
@@ -472,17 +518,23 @@ pub struct Presenter {
     )]
     #[alias("inclusive_group")]
     #[read(|schedule: &crate::schedule::Schedule, entity: &PresenterData| {
-        use crate::entity::{InternalData, PresenterToGroupEntityType};
-        let ids = PresenterToGroupEntityType::inclusive_groups_of(&schedule.entities, entity.uuid());
-        if ids.is_empty() {
-            None
-        } else {
-            Some(crate::field::FieldValue::List(
-                ids.into_iter()
-                    .map(|id| crate::field::FieldValue::NonNilUuid(id.non_nil_uuid()))
-                    .collect(),
-            ))
+        use crate::entity::InternalData;
+        use std::collections::{HashSet, VecDeque};
+        let mut result = Vec::new();
+        let mut seen = HashSet::new();
+        let mut queue: VecDeque<uuid::NonNilUuid> = VecDeque::new();
+        if let Some(data) = schedule.entities.presenters.get(&entity.uuid()) {
+            for gid in &data.group_ids { queue.push_back(gid.non_nil_uuid()); }
         }
+        while let Some(group_uuid) = queue.pop_front() {
+            if seen.insert(group_uuid) {
+                result.push(crate::field::FieldValue::NonNilUuid(group_uuid));
+                if let Some(data) = schedule.entities.presenters.get(&group_uuid) {
+                    for gid in &data.group_ids { queue.push_back(gid.non_nil_uuid()); }
+                }
+            }
+        }
+        if result.is_empty() { None } else { Some(crate::field::FieldValue::List(result)) }
     })]
     pub inclusive_groups: Vec<PresenterId>,
 
@@ -493,17 +545,23 @@ pub struct Presenter {
     )]
     #[alias("inclusive_member")]
     #[read(|schedule: &crate::schedule::Schedule, entity: &PresenterData| {
-        use crate::entity::{InternalData, PresenterToGroupEntityType};
-        let ids = PresenterToGroupEntityType::inclusive_members_of(&schedule.entities, entity.uuid());
-        if ids.is_empty() {
-            None
-        } else {
-            Some(crate::field::FieldValue::List(
-                ids.into_iter()
-                    .map(|id| crate::field::FieldValue::NonNilUuid(id.non_nil_uuid()))
-                    .collect(),
-            ))
+        use crate::entity::InternalData;
+        use std::collections::{HashSet, VecDeque};
+        let mut result = Vec::new();
+        let mut seen = HashSet::new();
+        let mut queue: VecDeque<uuid::NonNilUuid> = VecDeque::new();
+        if let Some(members) = schedule.entities.presenters_by_group.get(&entity.uuid()) {
+            for &m in members { queue.push_back(m); }
         }
+        while let Some(m_uuid) = queue.pop_front() {
+            if seen.insert(m_uuid) {
+                result.push(crate::field::FieldValue::NonNilUuid(m_uuid));
+                if let Some(sub) = schedule.entities.presenters_by_group.get(&m_uuid) {
+                    for &sm in sub { queue.push_back(sm); }
+                }
+            }
+        }
+        if result.is_empty() { None } else { Some(crate::field::FieldValue::List(result)) }
     })]
     pub inclusive_members: Vec<PresenterId>,
 
@@ -534,12 +592,14 @@ impl PresenterEntityType {
         storage: &crate::schedule::EntityStorage,
         presenter_uuid: uuid::NonNilUuid,
     ) -> bool {
-        use crate::entity::PresenterToGroupEntityType;
         storage
             .presenters
             .get(&presenter_uuid)
             .is_some_and(|d| d.is_explicit_group)
-            || !PresenterToGroupEntityType::members_of(storage, presenter_uuid).is_empty()
+            || storage
+                .presenters_by_group
+                .get(&presenter_uuid)
+                .is_some_and(|v| !v.is_empty())
     }
 
     /// Set `is_explicit_group` on a presenter entity stored in `EntityStorage`.
@@ -561,22 +621,21 @@ impl PresenterEntityType {
     /// This does **not** touch `group_uuid`'s own `is_explicit_group`; callers
     /// are responsible for clearing that separately (needed because the
     /// entity may be temporarily extracted from storage during field writes).
-    pub fn clear_member_edges(
+    pub fn clear_members(
         storage: &mut crate::schedule::EntityStorage,
         group_uuid: uuid::NonNilUuid,
     ) {
-        use crate::entity::PresenterToGroupEntityType;
-        let member_uuids: Vec<uuid::NonNilUuid> =
-            PresenterToGroupEntityType::members_of(storage, group_uuid)
-                .into_iter()
-                .map(|id| id.non_nil_uuid())
-                .collect();
+        let member_uuids: Vec<uuid::NonNilUuid> = storage
+            .presenters_by_group
+            .get(&group_uuid)
+            .map(|v| v.clone())
+            .unwrap_or_default();
         for member_uuid in member_uuids {
             if let Some(data) = storage.presenters.get_mut(&member_uuid) {
                 data.group_ids.retain(|id| id.non_nil_uuid() != group_uuid);
             }
         }
-        let _ = PresenterToGroupEntityType::set_members(storage, group_uuid, &[]);
+        storage.presenters_by_group.remove(&group_uuid);
     }
 
     // -----------------------------------------------------------------------
@@ -714,7 +773,6 @@ impl PresenterEntityType {
         rest: &str,
         rank: PresenterRank,
     ) -> Result<PresenterId, LookupError> {
-        use crate::entity::PresenterToGroupEntityType;
         let rest = rest.trim();
         if rest.is_empty() {
             return Err(LookupError::Empty);
@@ -759,10 +817,8 @@ impl PresenterEntityType {
         let group_id: Option<PresenterId> = if let Some(ref gname) = group_name {
             let gid = Self::find_or_create_by_name(storage, gname, rank.clone());
             let gid_uuid = gid.non_nil_uuid();
-            let _ = PresenterToGroupEntityType::mark_group(storage, gid_uuid);
             Self::set_explicit_group(storage, gid_uuid, true);
             if always_shown {
-                PresenterToGroupEntityType::set_group_marker_shown(storage, gid_uuid, true);
                 if let Some(gdata) = storage.presenters.get_mut(&gid_uuid) {
                     gdata.always_shown_in_group = true;
                 }
@@ -783,23 +839,20 @@ impl PresenterEntityType {
             if let Some(gid) = group_id {
                 let pid_uuid = pid.non_nil_uuid();
                 let gid_uuid = gid.non_nil_uuid();
-                if always_grouped {
-                    let _ =
-                        PresenterToGroupEntityType::add_grouped_member(storage, pid_uuid, gid_uuid);
-                    if let Some(pdata) = storage.presenters.get_mut(&pid_uuid) {
+                if let Some(pdata) = storage.presenters.get_mut(&pid_uuid) {
+                    if always_grouped {
                         pdata.always_grouped = true;
-                        if !pdata.group_ids.contains(&gid) {
-                            pdata.group_ids.push(gid);
-                        }
                     }
-                } else {
-                    let _ = PresenterToGroupEntityType::add_member(storage, pid_uuid, gid_uuid);
-                    if let Some(pdata) = storage.presenters.get_mut(&pid_uuid) {
-                        if !pdata.group_ids.contains(&gid) {
-                            pdata.group_ids.push(gid);
-                        }
+                    if !pdata.group_ids.contains(&gid) {
+                        pdata.group_ids.push(gid);
                     }
                 }
+                // Update reverse index: add pid to group's member list
+                storage
+                    .presenters_by_group
+                    .entry(gid_uuid)
+                    .or_default()
+                    .push(pid_uuid);
             }
             pid
         };

@@ -94,8 +94,12 @@ pub struct PanelType {
     #[computed_field(display = "Panels", description = "Panels assigned to this panel type")]
     #[alias("panels", "panels_of_type")]
     #[read(|schedule: &crate::schedule::Schedule, entity: &PanelTypeData| {
-        use crate::entity::{InternalData, PanelToPanelTypeEntityType};
-        let ids = PanelToPanelTypeEntityType::panels_of_type(&schedule.entities, entity.uuid());
+        use crate::entity::{InternalData, PanelId};
+        let uuid = entity.uuid();
+        let ids: Vec<PanelId> = schedule.entities.panels_by_panel_type
+            .get(&uuid)
+            .map(|uuids| uuids.iter().map(|&u| PanelId::from_uuid(u)).collect())
+            .unwrap_or_default();
         if ids.is_empty() {
             None
         } else {

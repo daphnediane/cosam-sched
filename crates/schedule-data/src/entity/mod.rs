@@ -33,73 +33,48 @@
 
 // Implemented entities
 pub mod event_room;
-pub mod event_room_to_hotel_room;
 pub mod hotel_room;
 pub mod panel;
-pub mod panel_to_event_room;
-pub mod panel_to_panel_type;
-pub mod panel_to_presenter;
 pub mod panel_type;
 pub mod panel_uniq_id;
 pub mod presenter;
 pub mod presenter_rank;
-pub mod presenter_to_group;
 pub mod uuid_preference;
 
 // Re-export public entity types (explicit to avoid ambiguous glob re-exports
 // from macro-generated field structs like NameField, IsBreakField, etc.)
 pub use event_room::EventRoom;
-pub use event_room_to_hotel_room::EventRoomToHotelRoom;
 pub use hotel_room::HotelRoom;
 pub use panel::Panel;
-pub use panel_to_event_room::PanelToEventRoom;
-pub use panel_to_panel_type::PanelToPanelType;
-pub use panel_to_presenter::PanelToPresenter;
 pub use panel_type::PanelType;
 pub use presenter::Presenter;
 pub use presenter_rank::PresenterRank;
-pub use presenter_to_group::PresenterToGroup;
 pub use uuid_preference::UuidPreference;
 
 // Re-export typed entity ID wrappers
 pub use event_room::EventRoomId;
-pub use event_room_to_hotel_room::EventRoomToHotelRoomId;
 pub use hotel_room::HotelRoomId;
 pub use panel::PanelId;
-pub use panel_to_event_room::PanelToEventRoomId;
-pub use panel_to_panel_type::PanelToPanelTypeId;
-pub use panel_to_presenter::PanelToPresenterId;
 pub use panel_type::PanelTypeId;
 pub use panel_uniq_id::PanelUniqId;
 pub use presenter::PresenterId;
 pub use presenter::PresenterSortRank;
-pub use presenter_to_group::PresenterToGroupId;
 
 // Re-export EntityType structs for clean import paths
 pub use event_room::EventRoomEntityType;
-pub use event_room_to_hotel_room::EventRoomToHotelRoomEntityType;
 pub use hotel_room::HotelRoomEntityType;
 pub use panel::PanelEntityType;
-pub use panel_to_event_room::PanelToEventRoomEntityType;
-pub use panel_to_panel_type::PanelToPanelTypeEntityType;
-pub use panel_to_presenter::PanelToPresenterEntityType;
 pub use panel_type::PanelTypeEntityType;
 pub use presenter::PresenterEntityType;
-pub use presenter_to_group::PresenterToGroupEntityType;
 
 pub use uuid::NonNilUuid;
 
 // Re-export Data structs for use by schedule storage and importers
 pub use event_room::EventRoomData;
-pub use event_room_to_hotel_room::EventRoomToHotelRoomData;
 pub use hotel_room::HotelRoomData;
 pub use panel::PanelData;
-pub use panel_to_event_room::PanelToEventRoomData;
-pub use panel_to_panel_type::PanelToPanelTypeData;
-pub use panel_to_presenter::PanelToPresenterData;
 pub use panel_type::PanelTypeData;
 pub use presenter::PresenterData;
-pub use presenter_to_group::PresenterToGroupData;
 
 use std::fmt;
 
@@ -141,46 +116,40 @@ pub trait EntityType: 'static + Send + Sync + fmt::Debug {
     {
         Self::KIND
     }
+
+    /// Called after an entity is inserted via [`crate::schedule::EntityStorage::add_entity`]
+    /// or [`crate::schedule::EntityStorage::add_with_uuid`].  Default is a no-op;
+    /// override to populate reverse lookup indexes.
+    fn on_insert(_storage: &mut crate::schedule::EntityStorage, _data: &Self::Data)
+    where
+        Self: Sized,
+    {
+    }
+
+    /// Called by [`crate::schedule::EntityStorage::remove`] before the entity
+    /// is removed.  The entity is still present in storage when this runs.
+    /// Default is a no-op; override to clean up reverse lookup indexes.
+    fn on_remove(_storage: &mut crate::schedule::EntityStorage, _data: &Self::Data)
+    where
+        Self: Sized,
+    {
+    }
+
+    /// Called by write closures after in-place mutation of entity data.
+    /// `old` is the state before mutation, `new` is the current state.
+    /// Default is a no-op; override to update reverse lookup indexes.
+    fn on_update(
+        _storage: &mut crate::schedule::EntityStorage,
+        _old: &Self::Data,
+        _new: &Self::Data,
+    ) where
+        Self: Sized,
+    {
+    }
 }
 
 /// Marker trait for entities that can be scheduled (assigned to panel types and event rooms)
 pub trait SchedulableEntity: EntityType {}
-
-/// Trait for edge-entities that connect two other entities.
-///
-/// Implemented by the macro-generated `*Data` structs for edge types such as
-/// `PanelToPresenterData`.  `Left` and `Right` are the [`TypedId`] types for
-/// the two endpoint entities, giving callers compile-time access to the correct
-/// ID types without any runtime dispatch.
-///
-/// The names `left`/`right` are positionally neutral: the relationship modelled
-/// by an edge is often symmetric in meaning ("Panel hosted by Presenter" is
-/// equivalent to "Presenter hosts Panel"), so `from`/`to` would imply false
-/// directionality and would conflict with Rust's `From`/`Into` conversion
-/// naming conventions.
-pub trait DirectedEdge {
-    /// Typed ID of the left-side entity.
-    type LeftId: TypedId;
-    /// Typed ID of the right-side entity.
-    type RightId: TypedId;
-
-    fn left_id(&self) -> Self::LeftId;
-    fn right_id(&self) -> Self::RightId;
-
-    fn left_uuid(&self) -> NonNilUuid {
-        self.left_id().non_nil_uuid()
-    }
-
-    fn right_uuid(&self) -> NonNilUuid {
-        self.right_id().non_nil_uuid()
-    }
-
-    /// Returns `true` when both sides refer to the same UUID (e.g. group
-    /// marker self-loops in `PresenterToGroup`).
-    fn is_self_loop(&self) -> bool {
-        self.left_uuid() == self.right_uuid()
-    }
-}
 
 /// Entity state for soft delete and status tracking
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
@@ -198,11 +167,6 @@ pub enum EntityKind {
     EventRoom,
     HotelRoom,
     PanelType,
-    PanelToPresenter,
-    PanelToEventRoom,
-    EventRoomToHotelRoom,
-    PanelToPanelType,
-    PresenterToGroup,
 }
 
 /// Trait for typed entity ID wrappers.
@@ -232,30 +196,20 @@ pub trait TypedId: Copy + Clone + Send + Sync + fmt::Debug + 'static {
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum EntityUUID {
     EventRoom(EventRoomId),
-    EventRoomToHotelRoom(EventRoomToHotelRoomId),
     HotelRoom(HotelRoomId),
     Panel(PanelId),
-    PanelToEventRoom(PanelToEventRoomId),
-    PanelToPanelType(PanelToPanelTypeId),
-    PanelToPresenter(PanelToPresenterId),
     PanelType(PanelTypeId),
     Presenter(PresenterId),
-    PresenterToGroup(PresenterToGroupId),
 }
 
 impl EntityUUID {
     pub fn non_nil_uuid(&self) -> NonNilUuid {
         match self {
             EntityUUID::EventRoom(id) => id.non_nil_uuid(),
-            EntityUUID::EventRoomToHotelRoom(id) => id.non_nil_uuid(),
             EntityUUID::HotelRoom(id) => id.non_nil_uuid(),
             EntityUUID::Panel(id) => id.non_nil_uuid(),
-            EntityUUID::PanelToEventRoom(id) => id.non_nil_uuid(),
-            EntityUUID::PanelToPanelType(id) => id.non_nil_uuid(),
-            EntityUUID::PanelToPresenter(id) => id.non_nil_uuid(),
             EntityUUID::PanelType(id) => id.non_nil_uuid(),
             EntityUUID::Presenter(id) => id.non_nil_uuid(),
-            EntityUUID::PresenterToGroup(id) => id.non_nil_uuid(),
         }
     }
 
@@ -266,15 +220,10 @@ impl EntityUUID {
     pub fn kind(&self) -> EntityKind {
         match self {
             EntityUUID::EventRoom(_) => EntityKind::EventRoom,
-            EntityUUID::EventRoomToHotelRoom(_) => EntityKind::EventRoomToHotelRoom,
             EntityUUID::HotelRoom(_) => EntityKind::HotelRoom,
             EntityUUID::Panel(_) => EntityKind::Panel,
-            EntityUUID::PanelToEventRoom(_) => EntityKind::PanelToEventRoom,
-            EntityUUID::PanelToPanelType(_) => EntityKind::PanelToPanelType,
-            EntityUUID::PanelToPresenter(_) => EntityKind::PanelToPresenter,
             EntityUUID::PanelType(_) => EntityKind::PanelType,
             EntityUUID::Presenter(_) => EntityKind::Presenter,
-            EntityUUID::PresenterToGroup(_) => EntityKind::PresenterToGroup,
         }
     }
 }
@@ -284,30 +233,20 @@ impl EntityUUID {
 #[allow(clippy::large_enum_variant)]
 pub enum PublicEntityRef {
     EventRoom(EventRoom),
-    EventRoomToHotelRoom(EventRoomToHotelRoom),
     HotelRoom(HotelRoom),
     Panel(Panel),
-    PanelToEventRoom(PanelToEventRoom),
-    PanelToPanelType(PanelToPanelType),
-    PanelToPresenter(PanelToPresenter),
     PanelType(PanelType),
     Presenter(Presenter),
-    PresenterToGroup(PresenterToGroup),
 }
 
 /// Borrowed entity data reference returned by `Schedule::lookup_uuid`.
 #[derive(Debug, Clone, Copy)]
 pub enum EntityRef<'a> {
     EventRoom(&'a EventRoomData),
-    EventRoomToHotelRoom(&'a EventRoomToHotelRoomData),
     HotelRoom(&'a HotelRoomData),
     Panel(&'a PanelData),
-    PanelToEventRoom(&'a PanelToEventRoomData),
-    PanelToPanelType(&'a PanelToPanelTypeData),
-    PanelToPresenter(&'a PanelToPresenterData),
     PanelType(&'a PanelTypeData),
     Presenter(&'a PresenterData),
-    PresenterToGroup(&'a PresenterToGroupData),
 }
 
 #[cfg(test)]

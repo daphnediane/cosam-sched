@@ -8,13 +8,11 @@
 //!
 //! An event room is the name that appears in the **Room** column of the
 //! Schedule sheet and must match the **Room Name** column of the Rooms sheet.
-//! The physical hotel room it maps to (and any time-of-day partitioning) is
-//! represented by [`EventRoomToHotelRoom`] edges with time-range attributes
-//! (FEATURE-007).
+//! The physical hotel rooms it maps to are stored in `hotel_room_ids` directly
+//! on this entity (virtual edge forward side), with the reverse index
+//! `event_rooms_by_hotel_room` on [`EntityStorage`].
 //!
-//! The physical hotel rooms mapping is now stored as `hotel_room_ids` directly on
-//! this entity (virtual edges).  The edge map is kept in sync for backward
-//! compatibility until Phase 4 removes it.
+//! [`EntityStorage`]: crate::schedule::EntityStorage
 
 use crate::EntityFields;
 
@@ -73,8 +71,7 @@ pub struct EventRoom {
         }
     })]
     #[write(|schedule: &mut crate::schedule::Schedule, entity: &mut EventRoomData, value: crate::field::FieldValue| {
-        use crate::entity::{HotelRoomId, InternalData, EventRoomToHotelRoomEntityType, EventRoomToHotelRoomId};
-        use crate::schedule::TypedEdgeStorage;
+        use crate::entity::{HotelRoomId, InternalData};
         let event_room_uuid = entity.uuid();
         let new_hotel_room_uuids: Vec<uuid::NonNilUuid> = match value {
             crate::field::FieldValue::List(items) => items
@@ -86,27 +83,24 @@ pub struct EventRoom {
                 crate::field::validation::ConversionError::InvalidFormat,
             )),
         };
+        // Remove event room from old hotel room reverse index entries
+        for old_id in &entity.hotel_room_ids {
+            let hr_uuid = old_id.non_nil_uuid();
+            if let Some(rooms) = schedule.entities.event_rooms_by_hotel_room.get_mut(&hr_uuid) {
+                rooms.retain(|&u| u != event_room_uuid);
+            }
+        }
+        // Update forward backing field
         entity.hotel_room_ids = new_hotel_room_uuids
             .iter()
             .map(|&u| HotelRoomId::from_uuid(u))
             .collect();
-        let old_edge_uuids: Vec<uuid::NonNilUuid> =
-            EventRoomToHotelRoomEntityType::edge_index(&schedule.entities)
-                .outgoing(event_room_uuid)
-                .to_vec();
-        for edge_uuid in old_edge_uuids {
-            schedule.remove_edge::<EventRoomToHotelRoomEntityType>(EventRoomToHotelRoomId::from_uuid(edge_uuid));
-        }
-        for hotel_room_uuid in new_hotel_room_uuids {
-            let edge = crate::entity::EventRoomToHotelRoomData {
-                entity_uuid: unsafe { uuid::NonNilUuid::new_unchecked(uuid::Uuid::now_v7()) },
-                event_room_uuid,
-                hotel_room_uuid,
-            };
-            schedule.add_edge::<EventRoomToHotelRoomEntityType>(edge)
-                .map_err(|_| crate::field::FieldError::ConversionError(
-                    crate::field::validation::ConversionError::InvalidFormat,
-                ))?;
+        // Add event room to new hotel room reverse index entries
+        for &hr_uuid in &new_hotel_room_uuids {
+            schedule.entities.event_rooms_by_hotel_room
+                .entry(hr_uuid)
+                .or_default()
+                .push(event_room_uuid);
         }
         Ok(())
     })]
@@ -118,8 +112,12 @@ pub struct EventRoom {
     )]
     #[alias("panels", "scheduled_panels")]
     #[read(|schedule: &crate::schedule::Schedule, entity: &EventRoomData| {
-        use crate::entity::{InternalData, PanelToEventRoomEntityType};
-        let ids = PanelToEventRoomEntityType::panels_in(&schedule.entities, entity.uuid());
+        use crate::entity::{InternalData, PanelId};
+        let uuid = entity.uuid();
+        let ids: Vec<PanelId> = schedule.entities.panels_by_event_room
+            .get(&uuid)
+            .map(|uuids| uuids.iter().map(|&u| PanelId::from_uuid(u)).collect())
+            .unwrap_or_default();
         if ids.is_empty() {
             None
         } else {

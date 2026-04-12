@@ -20,7 +20,7 @@ pub mod time;
 pub use entity::{EntityKind, EntityType, InternalData, TypedId};
 pub use entity::{
     EventRoom, EventRoomId, HotelRoom, HotelRoomId, Panel, PanelId, PanelType, PanelTypeId,
-    Presenter, PresenterId, PresenterRank, PresenterSortRank, PresenterToGroup, PresenterToGroupId,
+    Presenter, PresenterId, PresenterRank, PresenterSortRank,
 };
 pub use field::FieldValue;
 pub use schedule::{BuildError, Schedule};

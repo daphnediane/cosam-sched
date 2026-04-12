@@ -38,18 +38,6 @@ pub enum UuidPreference {
         name: String,
     },
 
-    /// Derive a deterministic v5 UUID for an edge entity from its two
-    /// endpoint UUIDs and the entity-type namespace.
-    ///
-    /// The `from`→`to` ordering is significant: swapping them produces a
-    /// different UUID.  The namespace is supplied by the builder.
-    Edge {
-        /// UUID of the "from" endpoint.
-        from: NonNilUuid,
-        /// UUID of the "to" endpoint.
-        to: NonNilUuid,
-    },
-
     /// Use this exact UUID, bypassing all generation logic.
     ///
     /// Useful when restoring entities from serialized state or when the caller
@@ -62,7 +50,6 @@ impl UuidPreference {
     ///
     /// - `GenerateNew` produces a fresh v7 UUID (`namespace` is ignored).
     /// - `FromV5 { name }` produces `UUIDv5(namespace, name)`.
-    /// - `Edge { from, to }` produces `UUIDv5(namespace, "{from}:{to}")`.
     /// - `Exact(uuid)` returns the UUID as-is (`namespace` is ignored).
     pub fn resolve(self, namespace: Uuid) -> NonNilUuid {
         match self {
@@ -72,12 +59,6 @@ impl UuidPreference {
                 unsafe { NonNilUuid::new_unchecked(Uuid::now_v7()) }
             }
             Self::FromV5 { name } => {
-                let raw = Uuid::new_v5(&namespace, name.as_bytes());
-                // SAFETY: v5 UUIDs have version bits 0x5X; never nil.
-                unsafe { NonNilUuid::new_unchecked(raw) }
-            }
-            Self::Edge { from, to } => {
-                let name = format!("{}:{}", from, to);
                 let raw = Uuid::new_v5(&namespace, name.as_bytes());
                 // SAFETY: v5 UUIDs have version bits 0x5X; never nil.
                 unsafe { NonNilUuid::new_unchecked(raw) }
@@ -138,54 +119,6 @@ mod tests {
             name: "GP002".into(),
         }
         .resolve(ns);
-        assert_ne!(a, b);
-    }
-
-    #[test]
-    fn edge_is_deterministic() {
-        let ns = test_ns();
-        let a = UuidPreference::Edge {
-            from: test_nn(1),
-            to: test_nn(2),
-        }
-        .resolve(ns);
-        let b = UuidPreference::Edge {
-            from: test_nn(1),
-            to: test_nn(2),
-        }
-        .resolve(ns);
-        assert_eq!(a, b);
-    }
-
-    #[test]
-    fn edge_order_matters() {
-        let ns = test_ns();
-        let ab = UuidPreference::Edge {
-            from: test_nn(1),
-            to: test_nn(2),
-        }
-        .resolve(ns);
-        let ba = UuidPreference::Edge {
-            from: test_nn(2),
-            to: test_nn(1),
-        }
-        .resolve(ns);
-        assert_ne!(ab, ba);
-    }
-
-    #[test]
-    fn edge_namespace_affects_result() {
-        let ns2 = Uuid::from_bytes([0xca, 0xfe, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0]);
-        let a = UuidPreference::Edge {
-            from: test_nn(1),
-            to: test_nn(2),
-        }
-        .resolve(test_ns());
-        let b = UuidPreference::Edge {
-            from: test_nn(1),
-            to: test_nn(2),
-        }
-        .resolve(ns2);
         assert_ne!(a, b);
     }
 }

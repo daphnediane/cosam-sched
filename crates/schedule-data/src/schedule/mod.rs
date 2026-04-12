@@ -12,17 +12,11 @@ mod storage;
 
 pub use edge_index::EdgeIndex;
 pub use metadata::{GeneratorInfo, ScheduleMetadata};
-pub use storage::{
-    BuildError, EdgeEntityType, EdgePolicy, EntityStorage, EntityStore, InsertError,
-    TypedEdgeStorage, TypedStorage,
-};
+pub use storage::{BuildError, EntityStorage, EntityStore, InsertError, TypedStorage};
 
 use crate::entity::{
-    DirectedEdge, EntityKind, EntityType, EntityUUID, EventRoomId, EventRoomToHotelRoomEntityType,
-    EventRoomToHotelRoomId, HotelRoomId, PanelId, PanelToEventRoomEntityType, PanelToEventRoomId,
-    PanelToPanelTypeEntityType, PanelToPanelTypeId, PanelToPresenterEntityType, PanelToPresenterId,
-    PanelTypeId, PresenterEntityType, PresenterId, PresenterToGroupEntityType, PresenterToGroupId,
-    TypedId,
+    EntityKind, EntityType, EntityUUID, EventRoomId, HotelRoomId, PanelId, PanelTypeId,
+    PresenterEntityType, PresenterId, TypedId,
 };
 use uuid::NonNilUuid;
 
@@ -112,21 +106,6 @@ impl Schedule {
             EntityKind::EventRoom => Some(EntityUUID::EventRoom(EventRoomId::from_uuid(uuid))),
             EntityKind::HotelRoom => Some(EntityUUID::HotelRoom(HotelRoomId::from_uuid(uuid))),
             EntityKind::PanelType => Some(EntityUUID::PanelType(PanelTypeId::from_uuid(uuid))),
-            EntityKind::PanelToPresenter => Some(EntityUUID::PanelToPresenter(
-                PanelToPresenterId::from_uuid(uuid),
-            )),
-            EntityKind::PanelToEventRoom => Some(EntityUUID::PanelToEventRoom(
-                PanelToEventRoomId::from_uuid(uuid),
-            )),
-            EntityKind::EventRoomToHotelRoom => Some(EntityUUID::EventRoomToHotelRoom(
-                EventRoomToHotelRoomId::from_uuid(uuid),
-            )),
-            EntityKind::PanelToPanelType => Some(EntityUUID::PanelToPanelType(
-                PanelToPanelTypeId::from_uuid(uuid),
-            )),
-            EntityKind::PresenterToGroup => Some(EntityUUID::PresenterToGroup(
-                PresenterToGroupId::from_uuid(uuid),
-            )),
         }
     }
 
@@ -135,10 +114,6 @@ impl Schedule {
     // -----------------------------------------------------------------------
 
     /// Add any entity to the schedule, registering its UUID.
-    ///
-    /// For **node** entities (Panel, Presenter, …) this is the primary insertion
-    /// method.  For **edge** entities prefer [`add_edge`](Self::add_edge) which
-    /// additionally maintains the [`EdgeIndex`].
     pub fn add_entity<T>(&mut self, data: T::Data) -> Result<T::Id, InsertError>
     where
         T: EntityType + TypedStorage,
@@ -163,9 +138,6 @@ impl Schedule {
     }
 
     /// Remove an entity by typed ID, returning the data if it existed.
-    ///
-    /// For **edge** entities prefer [`remove_edge`](Self::remove_edge) which
-    /// additionally cleans up the [`EdgeIndex`].
     pub fn remove_entity<T>(&mut self, id: T::Id) -> Option<T::Data>
     where
         T: EntityType + TypedStorage,
@@ -190,204 +162,123 @@ impl Schedule {
     }
 
     // -----------------------------------------------------------------------
-    // Edge entity CRUD (maintains EdgeIndex alongside entity storage)
-    // -----------------------------------------------------------------------
-
-    /// Add an edge entity and update the edge index.
-    ///
-    /// Applies the edge type's [`TypedEdgeStorage::default_edge_policy`] when
-    /// the same endpoint pair already has an edge.  UUID collisions (same edge
-    /// UUID regardless of endpoints) are always an error.
-    pub fn add_edge<T>(&mut self, data: T::Data) -> Result<T::Id, InsertError>
-    where
-        T: TypedEdgeStorage,
-        T::Data: DirectedEdge,
-    {
-        self.entities.add_edge::<T>(data)
-    }
-
-    /// Add an edge entity using the specified [`EdgePolicy`] for duplicate
-    /// endpoint handling, overriding the type's default.
-    ///
-    /// - **`Reject`** — returns `Err(InsertError::DuplicateEdge)` if an edge
-    ///   with the same `(from, to)` already exists.
-    /// - **`Ignore`** — silently returns the existing edge's ID unchanged.
-    /// - **`Replace`** — removes the existing edge and inserts the new one.
-    ///
-    /// UUID collisions (same UUID, different endpoints) are always an error.
-    pub fn add_edge_with_policy<T>(
-        &mut self,
-        data: T::Data,
-        policy: EdgePolicy,
-    ) -> Result<T::Id, InsertError>
-    where
-        T: TypedEdgeStorage,
-        T::Data: DirectedEdge,
-    {
-        self.entities.add_edge_with_policy::<T>(data, policy)
-    }
-
-    /// Remove an edge entity and update the edge index.
-    ///
-    /// Returns the edge data if it existed.  Both the UUID registry and the
-    /// [`EdgeIndex`] are cleaned up.
-    pub fn remove_edge<T>(&mut self, id: T::Id) -> Option<T::Data>
-    where
-        T: TypedEdgeStorage,
-        T::Data: DirectedEdge,
-    {
-        self.entities.remove_edge::<T>(id)
-    }
-
-    // -----------------------------------------------------------------------
-    // Edge queries
-    // -----------------------------------------------------------------------
-
-    /// Edge entity UUIDs leaving `from` for edge type `T`.
-    pub fn edge_uuids_from<T>(&self, from: NonNilUuid) -> &[NonNilUuid]
-    where
-        T: TypedEdgeStorage,
-        T::Data: DirectedEdge,
-    {
-        self.entities.edge_uuids_from::<T>(from)
-    }
-
-    /// Edge entity UUIDs arriving at `to` for edge type `T`.
-    pub fn edge_uuids_to<T>(&self, to: NonNilUuid) -> &[NonNilUuid]
-    where
-        T: TypedEdgeStorage,
-        T::Data: DirectedEdge,
-    {
-        self.entities.edge_uuids_to::<T>(to)
-    }
-
-    /// Resolved edge data for all edges leaving `from`.
-    pub fn edges_from<T>(&self, from: NonNilUuid) -> Vec<&T::Data>
-    where
-        T: TypedEdgeStorage,
-        T::Data: DirectedEdge,
-    {
-        self.entities.edges_from::<T>(from)
-    }
-
-    /// Resolved edge data for all edges arriving at `to`.
-    pub fn edges_to<T>(&self, to: NonNilUuid) -> Vec<&T::Data>
-    where
-        T: TypedEdgeStorage,
-        T::Data: DirectedEdge,
-    {
-        self.entities.edges_to::<T>(to)
-    }
-
-    /// Check whether an edge of type `T` exists between `from` and `to`.
-    pub fn edge_exists<T>(&self, from: NonNilUuid, to: NonNilUuid) -> bool
-    where
-        T: TypedEdgeStorage,
-        T::Data: DirectedEdge,
-    {
-        self.entities.edge_exists::<T>(from, to)
-    }
-
-    /// Number of edges of type `T` currently stored.
-    pub fn edge_count<T>(&self) -> usize
-    where
-        T: TypedEdgeStorage,
-        T::Data: DirectedEdge,
-    {
-        self.entities.edge_count::<T>()
-    }
-
-    // -----------------------------------------------------------------------
     // Relationship convenience methods
     // -----------------------------------------------------------------------
 
-    /// Presenters assigned to a panel.
+    /// Presenters assigned to a panel (from the `presenter_ids` backing field).
     pub fn get_panel_presenters(&self, panel_id: PanelId) -> Vec<PresenterId> {
-        PanelToPresenterEntityType::presenters_of(&self.entities, panel_id.non_nil_uuid())
+        self.entities
+            .panels
+            .get(&panel_id.non_nil_uuid())
+            .map(|d| d.presenter_ids.clone())
+            .unwrap_or_default()
     }
 
-    /// Panels a presenter is assigned to.
+    /// Panels a presenter is assigned to (from the `panels_by_presenter` reverse index).
     pub fn get_presenter_panels(&self, presenter_id: PresenterId) -> Vec<PanelId> {
-        PanelToPresenterEntityType::panels_of(&self.entities, presenter_id.non_nil_uuid())
+        self.entities
+            .panels_by_presenter
+            .get(&presenter_id.non_nil_uuid())
+            .map(|v| v.iter().map(|&u| PanelId::from_uuid(u)).collect())
+            .unwrap_or_default()
     }
 
-    /// Event room assigned to a panel (at most one).
+    /// Event room assigned to a panel (from the `event_room_id` backing field).
     pub fn get_panel_event_room(&self, panel_id: PanelId) -> Option<EventRoomId> {
-        PanelToEventRoomEntityType::event_room_of(&self.entities, panel_id.non_nil_uuid())
+        self.entities
+            .panels
+            .get(&panel_id.non_nil_uuid())
+            .and_then(|d| d.event_room_id)
     }
 
-    /// Panels assigned to an event room.
+    /// Panels assigned to an event room (from the `panels_by_event_room` reverse index).
     pub fn get_event_room_panels(&self, event_room_id: EventRoomId) -> Vec<PanelId> {
-        PanelToEventRoomEntityType::panels_in(&self.entities, event_room_id.non_nil_uuid())
+        self.entities
+            .panels_by_event_room
+            .get(&event_room_id.non_nil_uuid())
+            .map(|v| v.iter().map(|&u| PanelId::from_uuid(u)).collect())
+            .unwrap_or_default()
     }
 
-    /// Panel type assigned to a panel (at most one).
+    /// Panel type assigned to a panel (from the `panel_type_id` backing field).
     pub fn get_panel_type(&self, panel_id: PanelId) -> Option<PanelTypeId> {
-        PanelToPanelTypeEntityType::panel_type_of(&self.entities, panel_id.non_nil_uuid())
+        self.entities
+            .panels
+            .get(&panel_id.non_nil_uuid())
+            .and_then(|d| d.panel_type_id)
     }
 
-    /// Panels of a given panel type.
+    /// Panels of a given panel type (from the `panels_by_panel_type` reverse index).
     pub fn get_panels_by_type(&self, panel_type_id: PanelTypeId) -> Vec<PanelId> {
-        PanelToPanelTypeEntityType::panels_of_type(&self.entities, panel_type_id.non_nil_uuid())
+        self.entities
+            .panels_by_panel_type
+            .get(&panel_type_id.non_nil_uuid())
+            .map(|v| v.iter().map(|&u| PanelId::from_uuid(u)).collect())
+            .unwrap_or_default()
     }
 
-    /// Hotel rooms mapped to an event room.
+    /// Hotel rooms mapped to an event room (from the `hotel_room_ids` backing field).
     pub fn get_event_room_hotel_rooms(&self, event_room_id: EventRoomId) -> Vec<HotelRoomId> {
-        EventRoomToHotelRoomEntityType::hotel_rooms_of(&self.entities, event_room_id.non_nil_uuid())
+        self.entities
+            .event_rooms
+            .get(&event_room_id.non_nil_uuid())
+            .map(|d| d.hotel_room_ids.clone())
+            .unwrap_or_default()
     }
 
-    /// Groups a presenter belongs to (via outgoing PresenterToGroup edges).
+    /// Groups a presenter belongs to (from the `group_ids` backing field).
     pub fn get_presenter_groups(&self, presenter_id: PresenterId) -> Vec<PresenterId> {
-        PresenterToGroupEntityType::groups_of(&self.entities, presenter_id.non_nil_uuid())
+        self.entities
+            .presenters
+            .get(&presenter_id.non_nil_uuid())
+            .map(|d| d.group_ids.clone())
+            .unwrap_or_default()
     }
 
-    /// Members of a presenter group (via incoming PresenterToGroup edges).
+    /// Members of a presenter group (from the `presenters_by_group` reverse index).
     pub fn get_presenter_members(&self, group_id: PresenterId) -> Vec<PresenterId> {
-        PresenterToGroupEntityType::members_of(&self.entities, group_id.non_nil_uuid())
+        self.entities
+            .presenters_by_group
+            .get(&group_id.non_nil_uuid())
+            .map(|v| v.iter().map(|&u| PresenterId::from_uuid(u)).collect())
+            .unwrap_or_default()
     }
 
-    /// Whether a presenter is marked as a group (has a self-loop membership edge).
+    /// Whether a presenter is a group (has the explicit flag set or has members).
     pub fn is_presenter_group(&self, presenter_id: PresenterId) -> bool {
-        PresenterToGroupEntityType::is_group(&self.entities, presenter_id.non_nil_uuid())
+        PresenterEntityType::is_group(&self.entities, presenter_id.non_nil_uuid())
     }
 
     // -----------------------------------------------------------------------
     // Presenter-group membership mutation helpers
     // -----------------------------------------------------------------------
 
-    /// Mark a presenter as a group.
-    ///
-    /// Sets `is_explicit_group = true` on the presenter entity and also adds a
-    /// self-loop edge (kept for backward compatibility until Phase 4).
+    /// Mark a presenter as a group by setting `is_explicit_group = true`.
     pub fn mark_presenter_group(&mut self, presenter_id: PresenterId) -> Result<(), InsertError> {
         PresenterEntityType::set_explicit_group(
             &mut self.entities,
             presenter_id.non_nil_uuid(),
             true,
         );
-        PresenterToGroupEntityType::mark_group(&mut self.entities, presenter_id.non_nil_uuid())
+        Ok(())
     }
 
     /// Set the group status of a presenter to `value`.
     ///
-    /// Equivalent to writing the `is_group` computed field:
-    /// - `true` → marks as explicit group (same as [`mark_presenter_group`](Self::mark_presenter_group)).
+    /// - `true` → sets `is_explicit_group = true`.
     /// - `false` → clears `is_explicit_group` AND removes all members so the
     ///   computed read stays coherent.
     pub fn set_is_group(&mut self, presenter_id: PresenterId, value: bool) {
         let uuid = presenter_id.non_nil_uuid();
         PresenterEntityType::set_explicit_group(&mut self.entities, uuid, value);
-        if value {
-            let _ = PresenterToGroupEntityType::mark_group(&mut self.entities, uuid);
-        } else {
-            PresenterToGroupEntityType::unmark_group(&mut self.entities, uuid);
-            PresenterEntityType::clear_member_edges(&mut self.entities, uuid);
+        if !value {
+            PresenterEntityType::clear_members(&mut self.entities, uuid);
         }
     }
 
     /// Remove the explicit group marker from a presenter.
     ///
-    /// Sets `is_explicit_group = false` and removes the self-loop edge if present.
+    /// Sets `is_explicit_group = false`.
     /// Does **not** remove members — use [`set_is_group`](Self::set_is_group)`(id, false)` for that.
     ///
     /// Returns `true` if the entity was previously marked as an explicit group.
@@ -399,15 +290,14 @@ impl Schedule {
             .get(&uuid)
             .is_some_and(|d| d.is_explicit_group);
         PresenterEntityType::set_explicit_group(&mut self.entities, uuid, false);
-        PresenterToGroupEntityType::unmark_group(&mut self.entities, uuid);
         was_explicit
     }
 
     /// Add `member` to `group` with default flags (`always_shown_in_group = false`,
     /// `always_grouped = false`).
     ///
-    /// No-op if the membership edge already exists (flags are not changed).
-    /// Also updates `member.group_ids` backing field.
+    /// No-op if already a member (flags are not changed).
+    /// Updates `member.group_ids` backing field and `presenters_by_group` reverse index.
     /// Use [`add_grouped_member`](Self::add_grouped_member) or
     /// [`add_shown_member`](Self::add_shown_member) to set flags.
     pub fn add_member(
@@ -417,23 +307,28 @@ impl Schedule {
     ) -> Result<(), InsertError> {
         let member_uuid = member.non_nil_uuid();
         let group_uuid = group.non_nil_uuid();
-        let result =
-            PresenterToGroupEntityType::add_member(&mut self.entities, member_uuid, group_uuid);
-        if result.is_ok() {
-            if let Some(data) = self.entities.presenters.get_mut(&member_uuid) {
-                if !data.group_ids.contains(&group) {
-                    data.group_ids.push(group);
-                }
+        if let Some(members) = self.entities.presenters_by_group.get(&group_uuid) {
+            if members.contains(&member_uuid) {
+                return Ok(());
             }
         }
-        result
+        self.entities
+            .presenters_by_group
+            .entry(group_uuid)
+            .or_default()
+            .push(member_uuid);
+        if let Some(data) = self.entities.presenters.get_mut(&member_uuid) {
+            if !data.group_ids.contains(&group) {
+                data.group_ids.push(group);
+            }
+        }
+        Ok(())
     }
 
     /// Add `member` to `group` and set `always_grouped = true`.
     ///
-    /// If the edge already exists, it is replaced with `always_grouped = true`
-    /// (preserving the existing `always_shown_in_group` value).
-    /// Also updates `member.always_grouped` and `member.group_ids` backing fields.
+    /// If already a member, updates the flag without duplicating the entry.
+    /// Updates `member.always_grouped` and `member.group_ids` backing fields.
     pub fn add_grouped_member(
         &mut self,
         member: PresenterId,
@@ -441,27 +336,27 @@ impl Schedule {
     ) -> Result<(), InsertError> {
         let member_uuid = member.non_nil_uuid();
         let group_uuid = group.non_nil_uuid();
-        let result = PresenterToGroupEntityType::add_grouped_member(
-            &mut self.entities,
-            member_uuid,
-            group_uuid,
-        );
-        if result.is_ok() {
-            if let Some(data) = self.entities.presenters.get_mut(&member_uuid) {
-                data.always_grouped = true;
-                if !data.group_ids.contains(&group) {
-                    data.group_ids.push(group);
-                }
+        let members = self
+            .entities
+            .presenters_by_group
+            .entry(group_uuid)
+            .or_default();
+        if !members.contains(&member_uuid) {
+            members.push(member_uuid);
+        }
+        if let Some(data) = self.entities.presenters.get_mut(&member_uuid) {
+            data.always_grouped = true;
+            if !data.group_ids.contains(&group) {
+                data.group_ids.push(group);
             }
         }
-        result
+        Ok(())
     }
 
     /// Add `member` to `group` and set `always_shown_in_group = true`.
     ///
-    /// If the edge already exists, it is replaced with `always_shown_in_group = true`
-    /// (preserving the existing `always_grouped` value).
-    /// Also updates `member.always_shown_in_group` and `member.group_ids` backing fields.
+    /// If already a member, updates the flag without duplicating the entry.
+    /// Updates `member.always_shown_in_group` and `member.group_ids` backing fields.
     pub fn add_shown_member(
         &mut self,
         member: PresenterId,
@@ -469,37 +364,44 @@ impl Schedule {
     ) -> Result<(), InsertError> {
         let member_uuid = member.non_nil_uuid();
         let group_uuid = group.non_nil_uuid();
-        let result = PresenterToGroupEntityType::add_shown_member(
-            &mut self.entities,
-            member_uuid,
-            group_uuid,
-        );
-        if result.is_ok() {
-            if let Some(data) = self.entities.presenters.get_mut(&member_uuid) {
-                data.always_shown_in_group = true;
-                if !data.group_ids.contains(&group) {
-                    data.group_ids.push(group);
-                }
+        let members = self
+            .entities
+            .presenters_by_group
+            .entry(group_uuid)
+            .or_default();
+        if !members.contains(&member_uuid) {
+            members.push(member_uuid);
+        }
+        if let Some(data) = self.entities.presenters.get_mut(&member_uuid) {
+            data.always_shown_in_group = true;
+            if !data.group_ids.contains(&group) {
+                data.group_ids.push(group);
             }
         }
-        result
+        Ok(())
     }
 
     /// Remove `member` from `group`.
     ///
-    /// Also removes `group` from `member.group_ids` backing field.
-    /// Returns `true` if a membership edge existed and was removed.
+    /// Updates `presenters_by_group` reverse index and `member.group_ids` backing field.
+    /// Returns `true` if the membership existed and was removed.
     pub fn remove_member(&mut self, member: PresenterId, group: PresenterId) -> bool {
         let member_uuid = member.non_nil_uuid();
         let group_uuid = group.non_nil_uuid();
-        let removed =
-            PresenterToGroupEntityType::remove_member(&mut self.entities, member_uuid, group_uuid);
-        if removed {
+        let was_member = self
+            .entities
+            .presenters_by_group
+            .get(&group_uuid)
+            .is_some_and(|v| v.contains(&member_uuid));
+        if was_member {
+            if let Some(members) = self.entities.presenters_by_group.get_mut(&group_uuid) {
+                members.retain(|&u| u != member_uuid);
+            }
             if let Some(data) = self.entities.presenters.get_mut(&member_uuid) {
                 data.group_ids.retain(|id| id.non_nil_uuid() != group_uuid);
             }
         }
-        removed
+        was_member
     }
 
     // -----------------------------------------------------------------------
@@ -574,10 +476,7 @@ impl<T: TypedStorage> EntityStore<T> for Schedule {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::entity::{
-        EventRoomToHotelRoomData, PanelToEventRoomData, PanelToPanelTypeData, PanelToPresenterData,
-        PresenterToGroupData, UuidPreference,
-    };
+    use crate::entity::UuidPreference;
     use uuid::Uuid;
 
     fn nn(b: u8) -> NonNilUuid {
@@ -641,93 +540,63 @@ mod tests {
     }
 
     #[test]
-    fn test_add_edge_panel_to_presenter() {
+    fn test_panel_presenter_relationship() {
         let mut schedule = Schedule::new();
         let panel_uuid = nn(1);
-        let presenter_uuid = nn(2);
-        let edge_uuid = nn(10);
-
         add_panel(&mut schedule, panel_uuid, "P1", "Panel 1");
-        add_presenter(&mut schedule, presenter_uuid, "Alice");
-
-        let edge_id = schedule
-            .add_edge::<PanelToPresenterEntityType>(PanelToPresenterData {
-                entity_uuid: edge_uuid,
-                panel_uuid,
-                presenter_uuid,
-            })
-            .unwrap();
-        assert_eq!(edge_id.non_nil_uuid(), edge_uuid);
-
-        // Query via convenience method
         let panel_id = PanelId::from(panel_uuid);
+
+        let count = schedule.add_presenters(panel_id, &["P:Alice"]);
+        assert_eq!(count, 1);
+
         let presenters = schedule.get_panel_presenters(panel_id);
         assert_eq!(presenters.len(), 1);
-        assert_eq!(presenters[0].non_nil_uuid(), presenter_uuid);
 
-        // Reverse query
-        let presenter_id = PresenterId::from(presenter_uuid);
+        let presenter_id = presenters[0];
         let panels = schedule.get_presenter_panels(presenter_id);
         assert_eq!(panels.len(), 1);
         assert_eq!(panels[0].non_nil_uuid(), panel_uuid);
     }
 
     #[test]
-    fn test_remove_edge_updates_index() {
+    fn test_presenter_removed_from_panel() {
         let mut schedule = Schedule::new();
         let panel_uuid = nn(1);
-        let presenter_uuid = nn(2);
-        let edge_uuid = nn(10);
-
         add_panel(&mut schedule, panel_uuid, "P1", "Panel 1");
-        add_presenter(&mut schedule, presenter_uuid, "Bob");
-
-        let edge_id = schedule
-            .add_edge::<PanelToPresenterEntityType>(PanelToPresenterData {
-                entity_uuid: edge_uuid,
-                panel_uuid,
-                presenter_uuid,
-            })
-            .unwrap();
-
-        let removed = schedule.remove_edge::<PanelToPresenterEntityType>(edge_id);
-        assert!(removed.is_some());
-
         let panel_id = PanelId::from(panel_uuid);
+
+        schedule.add_presenters(panel_id, &["P:Bob"]);
+        let presenter_id = schedule.get_panel_presenters(panel_id)[0];
+        let presenter_uuid = presenter_id.non_nil_uuid();
+
+        if let Some(panel_data) = schedule.entities.panels.get_mut(&panel_uuid) {
+            panel_data
+                .presenter_ids
+                .retain(|id| id.non_nil_uuid() != presenter_uuid);
+        }
+        if let Some(panels) = schedule
+            .entities
+            .panels_by_presenter
+            .get_mut(&presenter_uuid)
+        {
+            panels.retain(|&u| u != panel_uuid);
+        }
+
         assert!(schedule.get_panel_presenters(panel_id).is_empty());
-        assert_eq!(schedule.edge_count::<PanelToPresenterEntityType>(), 0);
+        assert!(schedule.get_presenter_panels(presenter_id).is_empty());
     }
 
     #[test]
     fn test_multiple_presenters_per_panel() {
         let mut schedule = Schedule::new();
         let panel_uuid = nn(1);
-        let p1 = nn(2);
-        let p2 = nn(3);
-
         add_panel(&mut schedule, panel_uuid, "P1", "Panel 1");
-        add_presenter(&mut schedule, p1, "Alice");
-        add_presenter(&mut schedule, p2, "Bob");
-
-        schedule
-            .add_edge::<PanelToPresenterEntityType>(PanelToPresenterData {
-                entity_uuid: nn(10),
-                panel_uuid,
-                presenter_uuid: p1,
-            })
-            .unwrap();
-        schedule
-            .add_edge::<PanelToPresenterEntityType>(PanelToPresenterData {
-                entity_uuid: nn(11),
-                panel_uuid,
-                presenter_uuid: p2,
-            })
-            .unwrap();
-
         let panel_id = PanelId::from(panel_uuid);
+
+        schedule.add_presenters(panel_id, &["P:Alice", "P:Bob"]);
+
         let presenters = schedule.get_panel_presenters(panel_id);
         assert_eq!(presenters.len(), 2);
-        assert_eq!(schedule.edge_count::<PanelToPresenterEntityType>(), 2);
     }
 
     #[test]
@@ -736,21 +605,26 @@ mod tests {
         let panel_uuid = nn(1);
         let room_uuid = nn(2);
 
-        add_panel(&mut schedule, panel_uuid, "P1", "Panel 1");
-        add_event_room(&mut schedule, room_uuid, "Room A");
+        let panel_id = add_panel(&mut schedule, panel_uuid, "P1", "Panel 1");
+        let room_id = add_event_room(&mut schedule, room_uuid, "Room A");
 
+        if let Some(panel_data) = schedule.entities.panels.get_mut(&panel_uuid) {
+            panel_data.event_room_id = Some(EventRoomId::from_uuid(room_uuid));
+        }
         schedule
-            .add_edge::<PanelToEventRoomEntityType>(PanelToEventRoomData {
-                entity_uuid: nn(10),
-                panel_uuid,
-                event_room_uuid: room_uuid,
-            })
-            .unwrap();
+            .entities
+            .panels_by_event_room
+            .entry(room_uuid)
+            .or_default()
+            .push(panel_uuid);
 
-        let panel_id = PanelId::from(panel_uuid);
         let room = schedule.get_panel_event_room(panel_id);
         assert!(room.is_some());
         assert_eq!(room.unwrap().non_nil_uuid(), room_uuid);
+
+        let panels = schedule.get_event_room_panels(room_id);
+        assert_eq!(panels.len(), 1);
+        assert_eq!(panels[0].non_nil_uuid(), panel_uuid);
     }
 
     #[test]
@@ -759,24 +633,24 @@ mod tests {
         let panel_uuid = nn(1);
         let type_uuid = nn(2);
 
-        add_panel(&mut schedule, panel_uuid, "P1", "Panel 1");
-        add_panel_type(&mut schedule, type_uuid, "WS", "Workshop");
+        let panel_id = add_panel(&mut schedule, panel_uuid, "P1", "Panel 1");
+        let type_id = add_panel_type(&mut schedule, type_uuid, "WS", "Workshop");
 
+        if let Some(panel_data) = schedule.entities.panels.get_mut(&panel_uuid) {
+            panel_data.panel_type_id = Some(PanelTypeId::from_uuid(type_uuid));
+        }
         schedule
-            .add_edge::<PanelToPanelTypeEntityType>(PanelToPanelTypeData {
-                entity_uuid: nn(10),
-                panel_uuid,
-                panel_type_uuid: type_uuid,
-            })
-            .unwrap();
+            .entities
+            .panels_by_panel_type
+            .entry(type_uuid)
+            .or_default()
+            .push(panel_uuid);
 
-        let panel_id = PanelId::from(panel_uuid);
         assert_eq!(
             schedule.get_panel_type(panel_id).unwrap().non_nil_uuid(),
             type_uuid
         );
 
-        let type_id = PanelTypeId::from(type_uuid);
         let panels = schedule.get_panels_by_type(type_id);
         assert_eq!(panels.len(), 1);
         assert_eq!(panels[0].non_nil_uuid(), panel_uuid);
@@ -788,18 +662,19 @@ mod tests {
         let er_uuid = nn(1);
         let hr_uuid = nn(2);
 
-        add_event_room(&mut schedule, er_uuid, "ER1");
+        let er_id = add_event_room(&mut schedule, er_uuid, "ER1");
         add_hotel_room(&mut schedule, hr_uuid, "HR1");
 
+        if let Some(er_data) = schedule.entities.event_rooms.get_mut(&er_uuid) {
+            er_data.hotel_room_ids.push(HotelRoomId::from_uuid(hr_uuid));
+        }
         schedule
-            .add_edge::<EventRoomToHotelRoomEntityType>(EventRoomToHotelRoomData {
-                entity_uuid: nn(10),
-                event_room_uuid: er_uuid,
-                hotel_room_uuid: hr_uuid,
-            })
-            .unwrap();
+            .entities
+            .event_rooms_by_hotel_room
+            .entry(hr_uuid)
+            .or_default()
+            .push(er_uuid);
 
-        let er_id = EventRoomId::from(er_uuid);
         let rooms = schedule.get_event_room_hotel_rooms(er_id);
         assert_eq!(rooms.len(), 1);
         assert_eq!(rooms[0].non_nil_uuid(), hr_uuid);
@@ -814,240 +689,28 @@ mod tests {
         add_presenter(&mut schedule, member_uuid, "Alice");
         add_presenter(&mut schedule, group_uuid, "Group A");
 
-        // Group marker (self-loop)
-        schedule
-            .add_edge::<PresenterToGroupEntityType>(PresenterToGroupData {
-                entity_uuid: nn(10),
-                member_uuid: group_uuid,
-                group_uuid,
-                always_shown_in_group: false,
-                always_grouped: false,
-            })
-            .unwrap();
-
-        // Membership edge
-        schedule
-            .add_edge::<PresenterToGroupEntityType>(PresenterToGroupData {
-                entity_uuid: nn(11),
-                member_uuid,
-                group_uuid,
-                always_shown_in_group: true,
-                always_grouped: false,
-            })
-            .unwrap();
-
         let member_id = PresenterId::from(member_uuid);
+        let group_id = PresenterId::from(group_uuid);
+
+        schedule.mark_presenter_group(group_id).unwrap();
+        schedule.add_member(member_id, group_id).unwrap();
+
         let groups = schedule.get_presenter_groups(member_id);
         assert_eq!(groups.len(), 1);
         assert_eq!(groups[0].non_nil_uuid(), group_uuid);
 
-        let group_id = PresenterId::from(group_uuid);
         let members = schedule.get_presenter_members(group_id);
         assert_eq!(members.len(), 1);
         assert_eq!(members[0].non_nil_uuid(), member_uuid);
 
-        // is_group check via entity type
-        assert!(PresenterToGroupEntityType::is_group(
+        assert!(PresenterEntityType::is_group(
             &schedule.entities,
             group_uuid
         ));
-        assert!(!PresenterToGroupEntityType::is_group(
+        assert!(!PresenterEntityType::is_group(
             &schedule.entities,
             member_uuid
         ));
-    }
-
-    #[test]
-    fn test_edge_exists() {
-        let mut schedule = Schedule::new();
-        let panel_uuid = nn(1);
-        let presenter_uuid = nn(2);
-
-        add_panel(&mut schedule, panel_uuid, "P1", "Panel 1");
-        add_presenter(&mut schedule, presenter_uuid, "Alice");
-
-        assert!(!schedule.edge_exists::<PanelToPresenterEntityType>(panel_uuid, presenter_uuid));
-
-        schedule
-            .add_edge::<PanelToPresenterEntityType>(PanelToPresenterData {
-                entity_uuid: nn(10),
-                panel_uuid,
-                presenter_uuid,
-            })
-            .unwrap();
-
-        assert!(schedule.edge_exists::<PanelToPresenterEntityType>(panel_uuid, presenter_uuid));
-    }
-
-    #[test]
-    fn test_edge_uuid_collision_rejected() {
-        let mut schedule = Schedule::new();
-        let edge = PanelToPresenterData {
-            entity_uuid: nn(10),
-            panel_uuid: nn(1),
-            presenter_uuid: nn(2),
-        };
-        schedule
-            .add_edge::<PanelToPresenterEntityType>(edge.clone())
-            .unwrap();
-
-        let edge2 = PanelToPresenterData {
-            entity_uuid: nn(10), // same UUID
-            panel_uuid: nn(3),
-            presenter_uuid: nn(4),
-        };
-        let result = schedule.add_edge::<PanelToPresenterEntityType>(edge2);
-        assert!(result.is_err());
-    }
-
-    #[test]
-    fn test_identify_edge() {
-        let mut schedule = Schedule::new();
-        let edge_uuid = nn(10);
-        schedule
-            .add_edge::<PanelToPresenterEntityType>(PanelToPresenterData {
-                entity_uuid: edge_uuid,
-                panel_uuid: nn(1),
-                presenter_uuid: nn(2),
-            })
-            .unwrap();
-
-        let identified = schedule.identify(edge_uuid);
-        assert!(matches!(identified, Some(EntityUUID::PanelToPresenter(_))));
-    }
-
-    #[test]
-    fn test_edge_policy_reject_duplicate_endpoints() {
-        let mut schedule = Schedule::new();
-        let panel_uuid = nn(1);
-        let presenter_uuid = nn(2);
-
-        add_panel(&mut schedule, panel_uuid, "P1", "Panel 1");
-        add_presenter(&mut schedule, presenter_uuid, "Alice");
-
-        schedule
-            .add_edge::<PanelToPresenterEntityType>(PanelToPresenterData {
-                entity_uuid: nn(10),
-                panel_uuid,
-                presenter_uuid,
-            })
-            .unwrap();
-
-        // Same endpoint pair with a different edge UUID — default Reject policy
-        let result = schedule.add_edge::<PanelToPresenterEntityType>(PanelToPresenterData {
-            entity_uuid: nn(11),
-            panel_uuid,
-            presenter_uuid,
-        });
-        assert!(matches!(result, Err(InsertError::DuplicateEdge { .. })));
-
-        // Original edge should still be present
-        assert_eq!(schedule.edge_count::<PanelToPresenterEntityType>(), 1);
-    }
-
-    #[test]
-    fn test_edge_policy_ignore_duplicate_endpoints() {
-        let mut schedule = Schedule::new();
-        let panel_uuid = nn(1);
-        let presenter_uuid = nn(2);
-
-        add_panel(&mut schedule, panel_uuid, "P1", "Panel 1");
-        add_presenter(&mut schedule, presenter_uuid, "Alice");
-
-        let first_id = schedule
-            .add_edge_with_policy::<PanelToPresenterEntityType>(
-                PanelToPresenterData {
-                    entity_uuid: nn(10),
-                    panel_uuid,
-                    presenter_uuid,
-                },
-                EdgePolicy::Ignore,
-            )
-            .unwrap();
-
-        // Duplicate with Ignore — returns the original ID, new edge not added
-        let second_id = schedule
-            .add_edge_with_policy::<PanelToPresenterEntityType>(
-                PanelToPresenterData {
-                    entity_uuid: nn(11),
-                    panel_uuid,
-                    presenter_uuid,
-                },
-                EdgePolicy::Ignore,
-            )
-            .unwrap();
-
-        assert_eq!(first_id, second_id);
-        assert_eq!(schedule.edge_count::<PanelToPresenterEntityType>(), 1);
-    }
-
-    #[test]
-    fn test_edge_policy_replace_duplicate_endpoints() {
-        let mut schedule = Schedule::new();
-        let panel_uuid = nn(1);
-        let presenter_uuid = nn(2);
-
-        add_panel(&mut schedule, panel_uuid, "P1", "Panel 1");
-        add_presenter(&mut schedule, presenter_uuid, "Alice");
-
-        let first_id = schedule
-            .add_edge_with_policy::<PanelToPresenterEntityType>(
-                PanelToPresenterData {
-                    entity_uuid: nn(10),
-                    panel_uuid,
-                    presenter_uuid,
-                },
-                EdgePolicy::Replace,
-            )
-            .unwrap();
-
-        // Replace: old edge removed, new edge inserted
-        let second_id = schedule
-            .add_edge_with_policy::<PanelToPresenterEntityType>(
-                PanelToPresenterData {
-                    entity_uuid: nn(11),
-                    panel_uuid,
-                    presenter_uuid,
-                },
-                EdgePolicy::Replace,
-            )
-            .unwrap();
-
-        assert_ne!(first_id, second_id);
-        assert_eq!(schedule.edge_count::<PanelToPresenterEntityType>(), 1);
-
-        // The old UUID should no longer exist; the new one should
-        assert!(schedule.identify(nn(10)).is_none());
-        assert!(schedule.identify(nn(11)).is_some());
-    }
-
-    #[test]
-    fn test_edge_policy_uuid_collision_always_errors() {
-        let mut schedule = Schedule::new();
-        let panel_uuid = nn(1);
-        let presenter_uuid = nn(2);
-
-        add_panel(&mut schedule, panel_uuid, "P1", "Panel 1");
-        add_presenter(&mut schedule, presenter_uuid, "Alice");
-
-        schedule
-            .add_edge::<PanelToPresenterEntityType>(PanelToPresenterData {
-                entity_uuid: nn(10),
-                panel_uuid,
-                presenter_uuid,
-            })
-            .unwrap();
-
-        // Same UUID (nn(10)) pointing at different endpoints: always an error
-        let result = schedule.add_edge_with_policy::<PanelToPresenterEntityType>(
-            PanelToPresenterData {
-                entity_uuid: nn(10), // UUID collision
-                panel_uuid: nn(3),
-                presenter_uuid: nn(4),
-            },
-            EdgePolicy::Ignore,
-        );
-        assert!(matches!(result, Err(InsertError::UuidCollision { .. })));
     }
 
     #[test]
@@ -1111,14 +774,14 @@ mod tests {
         let count1 = schedule.add_presenters(panel_id, &["P:Alice"]);
         let count2 = schedule.add_presenters(panel_id, &["P:Alice"]);
 
-        // First add succeeds, second returns 0 (edge already exists, skipped)
+        // First add succeeds, second returns 0 (presenter already assigned, no duplicate)
         assert_eq!(count1, 1);
-        assert_eq!(count2, 0); // Edge already exists, no new edge added
+        assert_eq!(count2, 0);
         assert_eq!(schedule.get_panel_presenters(panel_id).len(), 1);
     }
 
     // ------------------------------------------------------------------
-    // Phase 2: backing-field regression tests
+    // Backing-field and reverse-index regression tests
     // ------------------------------------------------------------------
 
     #[test]
@@ -1135,7 +798,7 @@ mod tests {
     }
 
     #[test]
-    fn test_presenter_ids_backing_field_consistent_with_edge_map() {
+    fn test_presenter_ids_consistent_with_reverse_index() {
         let mut schedule = Schedule::new();
         let panel_uuid = nn(1);
         add_panel(&mut schedule, panel_uuid, "P1", "Panel 1");
@@ -1149,18 +812,13 @@ mod tests {
             .iter()
             .map(|id| id.non_nil_uuid())
             .collect();
-        let edge_ids: Vec<_> = schedule
-            .get_panel_presenters(panel_id)
-            .iter()
-            .map(|id| id.non_nil_uuid())
-            .collect();
-        assert_eq!(
-            backing_ids.len(),
-            edge_ids.len(),
-            "presenter_ids backing field out of sync with edge map"
-        );
-        for uuid in &backing_ids {
-            assert!(edge_ids.contains(uuid), "uuid in backing but not edge map");
+
+        for &presenter_uuid in &backing_ids {
+            let panels = schedule.entities.panels_by_presenter.get(&presenter_uuid);
+            assert!(
+                panels.is_some_and(|v| v.contains(&panel_uuid)),
+                "presenter not in panels_by_presenter reverse index"
+            );
         }
     }
 
@@ -1179,7 +837,7 @@ mod tests {
             "is_explicit_group should be true after mark"
         );
         assert!(
-            PresenterToGroupEntityType::is_group(&schedule.entities, group_uuid),
+            PresenterEntityType::is_group(&schedule.entities, group_uuid),
             "is_group should return true"
         );
     }
@@ -1277,24 +935,11 @@ mod tests {
         add_event_room(&mut schedule, er_uuid, "ER1");
         add_hotel_room(&mut schedule, hr_uuid, "HR-A");
 
-        // Direct edge add does NOT update hotel_room_ids backing field;
-        // only the hotel_rooms write closure does. Confirm initial state.
         let data = schedule.entities.event_rooms.get(&er_uuid).unwrap();
         assert!(
             data.hotel_room_ids.is_empty(),
             "hotel_room_ids should be empty before write-closure path"
         );
-
-        // Edge map is still populated (backwards compat path).
-        schedule
-            .add_edge::<EventRoomToHotelRoomEntityType>(EventRoomToHotelRoomData {
-                entity_uuid: nn(10),
-                event_room_uuid: er_uuid,
-                hotel_room_uuid: hr_uuid,
-            })
-            .unwrap();
-        let er_id = EventRoomId::from(er_uuid);
-        assert_eq!(schedule.get_event_room_hotel_rooms(er_id).len(), 1);
     }
 
     #[test]
