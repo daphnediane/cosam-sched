@@ -7,6 +7,7 @@
 //! Presenter entity implementation
 
 use crate::entity::presenter_rank::PresenterRank;
+use crate::entity::EntityType;
 use crate::schedule::LookupError;
 use crate::EntityFields;
 use serde::{Deserialize, Serialize};
@@ -657,25 +658,9 @@ impl PresenterEntityType {
             return Err(LookupError::Empty);
         }
 
-        // --- UUID forms: "presenter-<uuid>" or bare UUID string ---------------
-        let uuid_str = if let Some(rest) = input.strip_prefix("presenter-") {
-            Some(rest)
-        } else if Self::looks_like_uuid(input) {
-            Some(input)
-        } else {
-            None
-        };
-
-        if let Some(uuid_str) = uuid_str {
-            let raw = uuid_str
-                .parse::<uuid::Uuid>()
-                .map_err(|_| LookupError::InvalidUuid(uuid_str.to_string()))?;
-            let nn = uuid::NonNilUuid::new(raw)
-                .ok_or_else(|| LookupError::InvalidUuid(uuid_str.to_string()))?;
-            if storage.presenters.contains_key(&nn) {
-                return Ok(PresenterId::from_uuid(nn));
-            }
-            return Err(LookupError::UuidNotFound(raw));
+        // --- UUID forms: use trait resolve_uuid_string -----------------------
+        if let Some(id) = Self::resolve_uuid_string(storage, input) {
+            return Ok(id);
         }
 
         // --- Tag prefix: one or more rank chars followed by ':' ---------------
@@ -734,15 +719,6 @@ impl PresenterEntityType {
         };
         let _ = storage.add_entity::<PresenterEntityType>(data);
         PresenterId::from_uuid(uuid)
-    }
-
-    /// Returns `true` if `s` looks like a raw UUID (8-4-4-4-12 hex groups).
-    fn looks_like_uuid(s: &str) -> bool {
-        s.len() == 36
-            && s.as_bytes().get(8) == Some(&b'-')
-            && s.as_bytes().get(13) == Some(&b'-')
-            && s.as_bytes().get(18) == Some(&b'-')
-            && s.as_bytes().get(23) == Some(&b'-')
     }
 
     /// Parse a flag prefix: one or more rank characters followed by `:`.

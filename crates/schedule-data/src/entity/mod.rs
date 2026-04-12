@@ -146,6 +146,116 @@ pub trait EntityType: 'static + Send + Sync + fmt::Debug {
         Self: Sized,
     {
     }
+
+    /// Resolve a FieldValue to an entity ID.
+    ///
+    /// Default implementation handles:
+    /// - `FieldValue::NonNilUuid` -> direct UUID lookup
+    /// - `FieldValue::String` -> delegates to `resolve_string`
+    ///
+    /// Override `resolve_string` for entity-specific resolution logic (e.g., PresenterEntityType::lookup_tagged).
+    fn resolve_field_value(
+        storage: &mut crate::schedule::EntityStorage,
+        value: crate::field::FieldValue,
+    ) -> Result<Self::Id, crate::field::FieldError>
+    where
+        Self: Sized + crate::schedule::TypedStorage,
+    {
+        match value {
+            crate::field::FieldValue::NonNilUuid(uuid) => {
+                if Self::contains_uuid(storage, uuid) {
+                    Ok(Self::Id::from_uuid(uuid))
+                } else {
+                    Err(crate::field::FieldError::ConversionError(
+                        crate::field::validation::ConversionError::InvalidFormat,
+                    ))
+                }
+            }
+            crate::field::FieldValue::String(s) => Self::resolve_string(storage, &s),
+            _ => Err(crate::field::FieldError::ConversionError(
+                crate::field::validation::ConversionError::UnsupportedType,
+            )),
+        }
+    }
+
+    /// Resolve a string to an entity ID.
+    ///
+    /// Default implementation handles:
+    /// - UUID string parsing (with/without prefix) via `resolve_uuid_string`
+    /// - match_index lookup for Uniq IDs
+    ///
+    /// Override for entity-specific string resolution logic (e.g., PresenterEntityType::lookup_tagged).
+    fn resolve_string(
+        storage: &mut crate::schedule::EntityStorage,
+        input: &str,
+    ) -> Result<Self::Id, crate::field::FieldError>
+    where
+        Self: Sized + crate::schedule::TypedStorage,
+    {
+        // Try UUID string parsing first
+        if let Some(id) = Self::resolve_uuid_string(storage, input) {
+            return Ok(id);
+        }
+        // Try match_index lookup
+        if let Some(data) = storage.lookup_by_indexable::<Self>(input) {
+            Ok(Self::Id::from_uuid(data.uuid()))
+        } else {
+            Err(crate::field::FieldError::ConversionError(
+                crate::field::validation::ConversionError::InvalidFormat,
+            ))
+        }
+    }
+
+    /// Resolve a UUID string to an entity ID.
+    ///
+    /// Handles bare UUID strings and prefixed UUID strings (e.g., "presenter-<uuid>").
+    /// This is a helper method for entity types that need custom string resolution logic.
+    fn resolve_uuid_string(
+        storage: &crate::schedule::EntityStorage,
+        input: &str,
+    ) -> Option<Self::Id>
+    where
+        Self: Sized + crate::schedule::TypedStorage,
+    {
+        let uuid_str = if let Some(rest) =
+            input.strip_prefix(&format!("{}-", Self::TYPE_NAME.to_lowercase()))
+        {
+            Some(rest)
+        } else if Self::looks_like_uuid(input) {
+            Some(input)
+        } else {
+            None
+        };
+
+        if let Some(uuid_str) = uuid_str {
+            if let Ok(raw) = uuid_str.parse::<uuid::Uuid>() {
+                if let Some(nn) = uuid::NonNilUuid::new(raw) {
+                    if Self::contains_uuid(storage, nn) {
+                        return Some(Self::Id::from_uuid(nn));
+                    }
+                }
+            }
+        }
+        None
+    }
+
+    /// Check if the entity storage contains the given UUID.
+    /// Default implementation uses the typed storage lookup.
+    fn contains_uuid(storage: &crate::schedule::EntityStorage, uuid: uuid::NonNilUuid) -> bool
+    where
+        Self: Sized + crate::schedule::TypedStorage,
+    {
+        storage.get_by_uuid::<Self>(uuid).is_some()
+    }
+
+    /// Check if a string looks like a raw UUID (8-4-4-4-12 hex groups).
+    fn looks_like_uuid(s: &str) -> bool {
+        s.len() == 36
+            && s.as_bytes().get(8) == Some(&b'-')
+            && s.as_bytes().get(13) == Some(&b'-')
+            && s.as_bytes().get(18) == Some(&b'-')
+            && s.as_bytes().get(23) == Some(&b'-')
+    }
 }
 
 /// Marker trait for entities that can be scheduled (assigned to panel types and event rooms)

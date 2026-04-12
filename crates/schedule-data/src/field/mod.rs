@@ -45,8 +45,10 @@ pub enum FieldValue {
     OptionalDuration(Option<chrono::Duration>),
     NonNilUuid(NonNilUuid),
     PanelIdentifier(crate::entity::PanelId),
+    PanelTypeIdentifier(crate::entity::PanelTypeId),
     EventRoomIdentifier(crate::entity::EventRoomId),
     HotelRoomIdentifier(crate::entity::HotelRoomId),
+    PresenterIdentifier(crate::entity::PresenterId),
 }
 
 impl FieldValue {
@@ -55,6 +57,15 @@ impl FieldValue {
         Self::List(
             ids.into_iter()
                 .map(|id| Self::PanelIdentifier(id))
+                .collect(),
+        )
+    }
+
+    /// Create a FieldValue::List of PanelTypeIdentifier from a Vec<PanelTypeId>.
+    pub fn panel_type_list(ids: Vec<crate::entity::PanelTypeId>) -> Self {
+        Self::List(
+            ids.into_iter()
+                .map(|id| Self::PanelTypeIdentifier(id))
                 .collect(),
         )
     }
@@ -73,6 +84,15 @@ impl FieldValue {
         Self::List(
             ids.into_iter()
                 .map(|id| Self::HotelRoomIdentifier(id))
+                .collect(),
+        )
+    }
+
+    /// Create a FieldValue::List of PresenterIdentifier from a Vec<PresenterId>.
+    pub fn presenter_list(ids: Vec<crate::entity::PresenterId>) -> Self {
+        Self::List(
+            ids.into_iter()
+                .map(|id| Self::PresenterIdentifier(id))
                 .collect(),
         )
     }
@@ -133,8 +153,10 @@ impl fmt::Display for FieldValue {
             },
             FieldValue::NonNilUuid(uuid) => write!(f, "{}", uuid),
             FieldValue::PanelIdentifier(id) => write!(f, "{}", id),
+            FieldValue::PanelTypeIdentifier(id) => write!(f, "{}", id),
             FieldValue::EventRoomIdentifier(id) => write!(f, "{}", id),
             FieldValue::HotelRoomIdentifier(id) => write!(f, "{}", id),
+            FieldValue::PresenterIdentifier(id) => write!(f, "{}", id),
         }
     }
 }

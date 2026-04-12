@@ -1799,48 +1799,12 @@ fn generate_typed_id(
 
             /// Convert a FieldValue to this typed ID.
             ///
-            /// Handles multiple input formats:
-            /// - NonNilUuid (direct conversion)
-            /// - String UUID (with/without prefix like "panel-uuid")
-            /// - Uniq ID string (via match_index lookup)
+            /// Delegates to EntityType::resolve_field_value for resolution logic.
             pub fn from_field_value(
                 value: crate::field::FieldValue,
-                schedule: &crate::schedule::Schedule,
+                schedule: &mut crate::schedule::Schedule,
             ) -> Result<Self, crate::field::FieldError> {
-                use crate::entity::InternalData;
-                match value {
-                    crate::field::FieldValue::NonNilUuid(uuid) => Ok(Self(uuid)),
-                    crate::field::FieldValue::String(s) => {
-                        // Try parsing as UUID
-                        if let Ok(uuid) = uuid::Uuid::parse_str(&s) {
-                            if let Some(non_nil) = uuid::NonNilUuid::new(uuid) {
-                                return Ok(Self(non_nil));
-                            }
-                        }
-
-                        // Try parsing with prefix (e.g., "panel-uuid")
-                        let prefix = #display_prefix;
-                        if let Some(stripped) = s.strip_prefix(&format!("{}-", prefix)) {
-                            if let Ok(uuid) = uuid::Uuid::parse_str(stripped) {
-                                if let Some(non_nil) = uuid::NonNilUuid::new(uuid) {
-                                    return Ok(Self(non_nil));
-                                }
-                            }
-                        }
-
-                        // Fall back to match_index lookup for Uniq ID
-                        if let Some(match_result) = schedule.entities.lookup_by_indexable::<#entity_type_struct_name>(&s) {
-                            Ok(Self::from_uuid(match_result.uuid()))
-                        } else {
-                            Err(crate::field::FieldError::ConversionError(
-                                crate::field::validation::ConversionError::InvalidFormat,
-                            ))
-                        }
-                    }
-                    _ => Err(crate::field::FieldError::ConversionError(
-                        crate::field::validation::ConversionError::InvalidFormat,
-                    )),
-                }
+                <#entity_type_struct_name as crate::entity::EntityType>::resolve_field_value(&mut schedule.entities, value)
             }
 
             /// Convert a FieldValue to a Vec of this typed ID.
@@ -1848,7 +1812,7 @@ fn generate_typed_id(
             /// Handles single values or lists, delegating to from_field_value for each element.
             pub fn from_field_values(
                 value: crate::field::FieldValue,
-                schedule: &crate::schedule::Schedule,
+                schedule: &mut crate::schedule::Schedule,
             ) -> Result<Vec<Self>, crate::field::FieldError> {
                 match value {
                     crate::field::FieldValue::List(items) => items
