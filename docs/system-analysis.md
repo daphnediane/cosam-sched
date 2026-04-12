@@ -634,6 +634,13 @@ partially defined in multiple places. Further investigation during Phase 4
   `<Type>EntityType` struct. Functions in `Schedule` and closures in
   `#[read(...)]`/`#[write(...)]` attributes are **thin adapters** — they call
   the `EntityType` method and pass the result through. No logic in adapters.
+- **Use typed IDs to avoid borrow conflicts**: When an `EntityType` method needs
+  to touch multiple storage maps (e.g., updating both a forward field and a
+  reverse index), take `&mut EntityStorage` and typed IDs (`<Type>Id` or
+  `NonNilUuid`) rather than `&mut EntityData`. This avoids borrow checker
+  conflicts in computed field write closures, which already hold a mutable
+  borrow of one entity while needing to access others. See `field-system.md`
+  principle 9 for examples and rationale.
 - Copyright header required at top of every `.rs` file:
 
   ```text

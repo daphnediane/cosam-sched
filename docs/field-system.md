@@ -513,6 +513,40 @@ let id = schedule.lookup_tagged_presenter("G:Alice")?;
 6. **Edges as entities** — Relationships are first-class entities with UUIDs, not a separate storage layer
 7. **Explicit types in closures** — Macro-generated code requires full type annotations in computed field closures
 8. **No unwrap/expect in production** — Use `?` and proper error handling
+9. **Use typed IDs to avoid borrow conflicts** — When an `EntityType` method needs to touch multiple storage maps (e.g., updating both a forward field and a reverse index), take `&mut EntityStorage` and typed IDs (`<Type>Id` or `NonNilUuid`) rather than `&mut EntityData`. This avoids borrow checker conflicts in computed field write closures, which already hold a mutable borrow of one entity while needing to access others. Example:
+
+   ```rust
+   // ✅ Correct — uses IDs, no borrow conflict
+   impl PresenterEntityType {
+       pub fn add_member(
+           storage: &mut EntityStorage,
+           member_id: PresenterId,
+           group_id: PresenterId,
+       ) -> Result<(), InsertError> {
+           let member_uuid = member_id.non_nil_uuid();
+           let group_uuid = group_id.non_nil_uuid();
+           // Can freely access storage.presenters and storage.presenters_by_group
+           // No borrow conflict because we're not holding &mut to a specific entity
+       }
+   }
+
+   // ❌ Wrong — takes &mut data, causes borrow conflicts in closures
+   impl PresenterEntityType {
+       pub fn add_member_bad(
+           storage: &mut EntityStorage,
+           member: &mut PresenterData,  // Already borrowed from storage.presenters
+           group_uuid: NonNilUuid,
+       ) { ... }  // Can't also borrow storage.presenters_by_group mutably
+   }
+
+   // Computed field closure delegates correctly
+   #[write(|schedule: &mut Schedule, entity: &mut PresenterData, value: FieldValue| {
+       let member_id = PresenterId::from_uuid(entity.uuid());
+       let group_id = /* extract from value */;
+       PresenterEntityType::add_member(&mut schedule.entities, member_id, group_id)?;
+       Ok(())
+   })]
+   ```
 
 ### Adapter Pattern Example
 
