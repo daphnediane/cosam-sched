@@ -6,6 +6,7 @@
 
 //! PanelType entity — maps Uniq ID prefixes to panel kinds.
 
+use crate::entity::PanelId;
 use crate::EntityFields;
 
 /// Panel type entity — maps a two-letter Uniq ID prefix to a kind name and
@@ -94,27 +95,44 @@ pub struct PanelType {
     #[computed_field(display = "Panels", description = "Panels assigned to this panel type")]
     #[alias("panels", "panels_of_type")]
     #[read(|schedule: &crate::schedule::Schedule, entity: &PanelTypeData| {
-        use crate::entity::{InternalData, PanelId};
-        let uuid = entity.uuid();
-        let ids: Vec<PanelId> = schedule.entities.panels_by_panel_type
-            .get(&uuid)
-            .map(|uuids| uuids.iter().map(|&u| PanelId::from_uuid(u)).collect())
-            .unwrap_or_default();
-        if ids.is_empty() {
-            None
-        } else {
-            Some(crate::field::FieldValue::List(
-                ids.into_iter()
-                    .map(|id| crate::field::FieldValue::NonNilUuid(id.non_nil_uuid()))
-                    .collect(),
-            ))
-        }
+        use crate::entity::InternalData;
+        let panel_type_id = PanelTypeId::from_uuid(entity.uuid());
+        let ids = PanelTypeEntityType::panels_of(&schedule.entities, panel_type_id);
+        Some(crate::field::FieldValue::panel_list(ids))
     })]
-    #[write(|schedule: &mut crate::schedule::Schedule, _entity: &mut PanelTypeData, _value: crate::field::FieldValue| {
-        let _ = schedule;
-        Err(crate::field::FieldError::CannotStoreRelationshipField)
+    #[write(|schedule: &mut crate::schedule::Schedule, entity: &mut PanelTypeData, value: crate::field::FieldValue| {
+        use crate::entity::InternalData;
+        let panel_type_id = PanelTypeId::from_uuid(entity.uuid());
+        let panel_ids = PanelId::from_field_values(value, schedule)?;
+        PanelTypeEntityType::set_panels(&mut schedule.entities, panel_type_id, panel_ids)
     })]
     pub panels: Vec<crate::entity::PanelId>,
+}
+
+impl PanelTypeEntityType {
+    /// Get all panels assigned to this panel type.
+    pub fn panels_of(
+        storage: &crate::schedule::EntityStorage,
+        panel_type_id: PanelTypeId,
+    ) -> Vec<PanelId> {
+        let uuid = panel_type_id.non_nil_uuid();
+        storage
+            .panels_by_panel_type
+            .get(&uuid)
+            .map(|uuids| uuids.iter().map(|&u| PanelId::from_uuid(u)).collect())
+            .unwrap_or_default()
+    }
+
+    /// Set the panels assigned to this panel type.
+    ///
+    /// Stub implementation - full relationship management deferred to future.
+    pub fn set_panels(
+        _storage: &mut crate::schedule::EntityStorage,
+        _panel_type_id: PanelTypeId,
+        _panel_ids: Vec<PanelId>,
+    ) -> Result<(), crate::field::FieldError> {
+        Ok(())
+    }
 }
 
 #[cfg(test)]

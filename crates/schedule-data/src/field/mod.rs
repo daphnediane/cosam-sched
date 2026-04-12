@@ -44,6 +44,18 @@ pub enum FieldValue {
     OptionalDateTime(Option<chrono::NaiveDateTime>),
     OptionalDuration(Option<chrono::Duration>),
     NonNilUuid(NonNilUuid),
+    PanelIdentifier(crate::entity::PanelId),
+}
+
+impl FieldValue {
+    /// Create a FieldValue::List of PanelIdentifier from a Vec<PanelId>.
+    pub fn panel_list(ids: Vec<crate::entity::PanelId>) -> Self {
+        Self::List(
+            ids.into_iter()
+                .map(|id| Self::PanelIdentifier(id))
+                .collect(),
+        )
+    }
 }
 
 impl fmt::Display for FieldValue {
@@ -100,6 +112,7 @@ impl fmt::Display for FieldValue {
                 None => write!(f, "null"),
             },
             FieldValue::NonNilUuid(uuid) => write!(f, "{}", uuid),
+            FieldValue::PanelIdentifier(id) => write!(f, "{}", id.non_nil_uuid()),
         }
     }
 }

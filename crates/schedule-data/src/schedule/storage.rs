@@ -156,6 +156,53 @@ impl EntityStorage {
         T::typed_map(self).get(&uuid)
     }
 
+    /// Get entities by index query, returning all that tie at the best match strength.
+    ///
+    /// Returns typed IDs of all entities that match at the best priority level.
+    pub fn get_by_index<T>(&self, query: &str) -> Vec<T::Id>
+    where
+        T: EntityType + TypedStorage,
+    {
+        let field_set = T::field_set();
+        let map = T::typed_map(self);
+
+        let mut best_priority = crate::field::traits::match_priority::MIN_MATCH;
+        let mut matched_uuids: Vec<NonNilUuid> = Vec::new();
+
+        for entity in map.values() {
+            if let Some(match_result) = field_set.match_index(query, entity) {
+                if match_result.priority > best_priority {
+                    best_priority = match_result.priority;
+                    matched_uuids.clear();
+                    matched_uuids.push(match_result.entity_uuid);
+                } else if match_result.priority == best_priority {
+                    matched_uuids.push(match_result.entity_uuid);
+                }
+            }
+        }
+
+        matched_uuids
+            .into_iter()
+            .map(|uuid| T::Id::from_uuid(uuid))
+            .collect()
+    }
+
+    /// Look up an entity by an indexable field value.
+    ///
+    /// Searches all entities of type T by their indexable fields and returns
+    /// the entity if exactly one matches at the best priority level.
+    pub fn lookup_by_indexable<T>(&self, query: &str) -> Option<&T::Data>
+    where
+        T: EntityType + TypedStorage,
+    {
+        let ids = self.get_by_index::<T>(query);
+        if ids.len() == 1 {
+            EntityStore::<T>::get_entity(self, ids[0].non_nil_uuid())
+        } else {
+            None
+        }
+    }
+
     /// Add entity to storage with pre-allocated UUID, registering it in the UUID registry.
     pub fn add_with_uuid<T: TypedStorage>(
         &mut self,
