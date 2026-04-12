@@ -45,6 +45,7 @@ pub enum FieldValue {
     OptionalDuration(Option<chrono::Duration>),
     NonNilUuid(NonNilUuid),
     PanelIdentifier(crate::entity::PanelId),
+    EventRoomIdentifier(crate::entity::EventRoomId),
 }
 
 impl FieldValue {
@@ -53,6 +54,15 @@ impl FieldValue {
         Self::List(
             ids.into_iter()
                 .map(|id| Self::PanelIdentifier(id))
+                .collect(),
+        )
+    }
+
+    /// Create a FieldValue::List of EventRoomIdentifier from a Vec<EventRoomId>.
+    pub fn event_room_list(ids: Vec<crate::entity::EventRoomId>) -> Self {
+        Self::List(
+            ids.into_iter()
+                .map(|id| Self::EventRoomIdentifier(id))
                 .collect(),
         )
     }
@@ -112,7 +122,8 @@ impl fmt::Display for FieldValue {
                 None => write!(f, "null"),
             },
             FieldValue::NonNilUuid(uuid) => write!(f, "{}", uuid),
-            FieldValue::PanelIdentifier(id) => write!(f, "{}", id.non_nil_uuid()),
+            FieldValue::PanelIdentifier(id) => write!(f, "{}", id),
+            FieldValue::EventRoomIdentifier(id) => write!(f, "{}", id),
         }
     }
 }

@@ -15,6 +15,7 @@
 //! [`EventRoom`]: crate::entity::EventRoom
 //! [`EntityStorage`]: crate::schedule::EntityStorage
 
+use crate::entity::EventRoomId;
 use crate::EntityFields;
 
 /// A physical hotel room.
@@ -43,27 +44,44 @@ pub struct HotelRoom {
     )]
     #[alias("event_rooms", "logical_rooms")]
     #[read(|schedule: &crate::schedule::Schedule, entity: &HotelRoomData| {
-        use crate::entity::{InternalData, EventRoomId};
-        let uuid = entity.uuid();
-        let ids: Vec<EventRoomId> = schedule.entities.event_rooms_by_hotel_room
-            .get(&uuid)
-            .map(|uuids| uuids.iter().map(|&u| EventRoomId::from_uuid(u)).collect())
-            .unwrap_or_default();
-        if ids.is_empty() {
-            None
-        } else {
-            Some(crate::field::FieldValue::List(
-                ids.into_iter()
-                    .map(|id| crate::field::FieldValue::NonNilUuid(id.non_nil_uuid()))
-                    .collect(),
-            ))
-        }
+        use crate::entity::InternalData;
+        let hotel_room_id = HotelRoomId::from_uuid(entity.uuid());
+        let ids = HotelRoomEntityType::event_rooms_of(&schedule.entities, hotel_room_id);
+        Some(crate::field::FieldValue::event_room_list(ids))
     })]
-    #[write(|schedule: &mut crate::schedule::Schedule, _entity: &mut HotelRoomData, _value: crate::field::FieldValue| {
-        let _ = schedule;
-        Err(crate::field::FieldError::CannotStoreRelationshipField)
+    #[write(|schedule: &mut crate::schedule::Schedule, entity: &mut HotelRoomData, value: crate::field::FieldValue| {
+        use crate::entity::InternalData;
+        let hotel_room_id = HotelRoomId::from_uuid(entity.uuid());
+        let event_room_ids = EventRoomId::from_field_values(value, schedule)?;
+        HotelRoomEntityType::set_event_rooms(&mut schedule.entities, hotel_room_id, event_room_ids)
     })]
     pub event_rooms: Vec<crate::entity::EventRoomId>,
+}
+
+impl HotelRoomEntityType {
+    /// Get all event rooms assigned to this hotel room.
+    pub fn event_rooms_of(
+        storage: &crate::schedule::EntityStorage,
+        hotel_room_id: HotelRoomId,
+    ) -> Vec<EventRoomId> {
+        let uuid = hotel_room_id.non_nil_uuid();
+        storage
+            .event_rooms_by_hotel_room
+            .get(&uuid)
+            .map(|uuids| uuids.iter().map(|&u| EventRoomId::from_uuid(u)).collect())
+            .unwrap_or_default()
+    }
+
+    /// Set the event rooms assigned to this hotel room.
+    ///
+    /// Stub implementation - full relationship management deferred to future.
+    pub fn set_event_rooms(
+        _storage: &mut crate::schedule::EntityStorage,
+        _hotel_room_id: HotelRoomId,
+        _event_room_ids: Vec<EventRoomId>,
+    ) -> Result<(), crate::field::FieldError> {
+        unimplemented!()
+    }
 }
 
 #[cfg(test)]

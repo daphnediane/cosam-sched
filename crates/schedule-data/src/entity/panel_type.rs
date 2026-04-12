@@ -131,7 +131,7 @@ impl PanelTypeEntityType {
         _panel_type_id: PanelTypeId,
         _panel_ids: Vec<PanelId>,
     ) -> Result<(), crate::field::FieldError> {
-        Ok(())
+        unimplemented!()
     }
 }
 
