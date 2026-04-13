@@ -107,6 +107,15 @@ When completing work items, update relevant documentation:
 
 Always cross-reference between documents when changes affect multiple areas.
 
+## Commit Messages
+
+See `prepare-comment.md` for the full commit message format, template, and process.
+
+When saving progress mid-refactor at logic breakpoints (without requiring
+builds or tests to pass), write to `next_amend.tmp` instead of
+`next_commit.tmp` — this signals a `git commit --amend` checkpoint rather
+than a normal commit.
+
 ## Formatting
 
 All files must follow markdown lint rules. For Cascade agents: suggest user run formatting on `docs/work-item/` directory if lint errors occur.
