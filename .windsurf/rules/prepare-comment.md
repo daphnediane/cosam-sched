@@ -23,7 +23,6 @@ Commit messages go into a file in the repo root. **Always overwrite** the target
   - <Nested details>
 - <More work>
 
-
 Prompt:
 <What I asked windsurf to do, main prompt>
 
@@ -33,8 +32,7 @@ Written with assistance from Windsurf AI
 
 - `<tag/area>` follows conventional commit style: `feat`, `fix`, `refactor`, `docs`, `test`, `chore`, `style`
 - Work item references like `[FEATURE-007]` go inline after the subject line or after relevant bullets
-- The `Prompt:` section captures the main user request that drove the changes; only include what actually landed in the commit — omit redirected or superseded asks
-- If the prompt was summarized across multiple turns or corrected mid-session, note it in parentheses, e.g. `(summarized)` or `(corrected: original asked X)`
+- The `Prompt:` section captures the main user request; only include what actually landed — omit superseded asks; if summarized across turns or corrected, note it: `(summarized)` or `(corrected: originally asked X)`
 - Replace `[model]` with the actual AI model used; ask the user if unknown
 
 ## Example
@@ -42,14 +40,11 @@ Written with assistance from Windsurf AI
 ```text
 feat: Add work item tracking system [FEATURE-001]
 
-Implement a structured work item system for tracking project tasks and progress.
+Implement a structured work item system for tracking tasks.
 
-- Create docs/work-item/ directory with individual markdown files for each work item
-- Add scripts/combine-workitems.pl to generate docs/WORK_ITEMS.md from individual files
-- Create Windsurf rules documenting work item structure and management [META-001]
-- Document completed work from commit history (FEATURE-001, FEATURE-002)
-- Update .gitignore to preserve .windsurf/rules directory
-
+- Add docs/work-item/ with per-item markdown files [META-001]
+- Add scripts/combine-workitems.pl to generate docs/WORK_ITEMS.md
+- Update .gitignore to preserve .windsurf/rules/
 
 Prompt:
 Set up a work item tracking system with individual markdown files and a combine script.
