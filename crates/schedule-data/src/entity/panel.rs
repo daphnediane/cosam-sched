@@ -305,7 +305,7 @@ pub struct Panel {
 
     /// Add individual presenters to this panel without replacing existing ones.
     /// Write-only computed field that accepts a single UUID/string or list of UUIDs/strings.
-    /// String values are resolved via tagged lookup (e.g., "G:Alice", "presenter-<uuid>").
+    /// String values are resolved via tagged lookup (e.g., "G:Alice", "presenter-`<uuid>`").
     #[computed_field(
         display = "Add Presenters",
         description = "Add presenters to this panel (append mode)"
@@ -321,7 +321,7 @@ pub struct Panel {
 
     /// Remove individual presenters from this panel.
     /// Write-only computed field that accepts a single UUID/string or list of UUIDs/strings.
-    /// String values are resolved via tagged lookup (e.g., "presenter-<uuid>").
+    /// String values are resolved via tagged lookup (e.g., "presenter-`<uuid>`").
     #[computed_field(
         display = "Remove Presenters",
         description = "Remove presenters from this panel"
@@ -762,85 +762,6 @@ impl PanelEntityType {
                 Err(_) => return 0,
             };
         Self::add_presenters(storage, PanelId::from_uuid(panel_uuid), presenter_ids)
-    }
-}
-
-impl PanelEntityType {
-    /// Hook called when a panel is inserted into storage.
-    /// Maintains reverse indexes for panel_types, event_rooms, and presenters.
-    pub fn on_insert_hook(storage: &mut crate::schedule::EntityStorage, data: &PanelData) {
-        use crate::entity::InternalData;
-
-        let panel_id = data.id();
-
-        // Update panels_by_panel_type reverse index
-        for panel_type_id in &data.panel_type_ids {
-            storage.panels_by_panel_type.add(*panel_type_id, panel_id);
-        }
-
-        // Update panels_by_event_room edge index
-        for event_room_id in &data.event_room_ids {
-            storage.panels_by_event_room.add(*event_room_id, panel_id);
-        }
-
-        // Update panels_by_presenter edge index
-        for presenter_id in &data.presenter_ids {
-            storage.panels_by_presenter.add(*presenter_id, panel_id);
-        }
-    }
-
-    /// Hook called when a panel is removed from storage.
-    /// Cleans up reverse indexes for panel_types, event_rooms, and presenters.
-    pub fn on_remove_hook(storage: &mut crate::schedule::EntityStorage, data: &PanelData) {
-        use crate::entity::InternalData;
-
-        let panel_id = data.id();
-
-        // Remove from panels_by_panel_type
-        for panel_type_id in &data.panel_type_ids {
-            storage
-                .panels_by_panel_type
-                .remove(panel_type_id, &panel_id);
-        }
-
-        // Remove from panels_by_event_room
-        for event_room_id in &data.event_room_ids {
-            storage
-                .panels_by_event_room
-                .remove(event_room_id, &panel_id);
-        }
-
-        // Remove from panels_by_presenter
-        for presenter_id in &data.presenter_ids {
-            storage.panels_by_presenter.remove(presenter_id, &panel_id);
-        }
-    }
-
-    /// Hook called when panel data is updated.
-    /// Updates reverse indexes for changed relationships.
-    pub fn on_update_hook(
-        storage: &mut crate::schedule::EntityStorage,
-        _old: &PanelData,
-        new: &PanelData,
-    ) {
-        use crate::entity::InternalData;
-
-        let panel_id = new.id();
-
-        // Update panels_by_panel_type edge index (panel is on the right)
-        storage
-            .panels_by_panel_type
-            .update_by_right(panel_id, &new.panel_type_ids);
-
-        // Update panels_by_event_room edge index (panel is on the right)
-        storage
-            .panels_by_event_room
-            .update_by_right(panel_id, &new.event_room_ids);
-
-        // Update panels_by_presenter edge index (panel is on the right)
-        storage
-            .panels_by_presenter
-            .update_by_right(panel_id, &new.presenter_ids);
     }
 }
 

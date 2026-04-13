@@ -231,6 +231,7 @@ For each entity, the macro generates:
    - `type Id = <Name>Id`
    - `field_set()` — lazy static `FieldSet<Self>`
    - `validate()` — checks required fields
+   - `on_soft_delete_cleanup_edges()` — automatically removes edges pointing to this entity from all relevant EdgeMaps when the entity is soft-deleted
 3. **`<Name>Id`** — Newtype wrapper around `NonNilUuid` implementing `TypedId`
 4. **`<Name>Builder`** — Builder pattern with:
    - `with_<field>()` setters for stored fields
@@ -239,8 +240,11 @@ For each entity, the macro generates:
    - `apply_to(&mut Schedule, id)` — partial update
 5. **Per-field unit structs** — e.g., `NameField`, `UidField` implementing field traits
 6. **`fields` module** — Public constants for each field struct
-7. **`DirectedEdge` impl** — When both `#[edge_from]` and `#[edge_to]` are present;
-   generates `left_id()`, `left_uuid()`, `right_id()`, `right_uuid()`, `is_self_loop()`
+7. **`EntityType` impl** — Implements the `EntityType` trait with:
+   - `TYPE_NAME` and `KIND` constants
+   - `field_set()` for field access
+   - `validate()` for required field validation
+   - `on_soft_delete_cleanup_edges()` for automatic edge cleanup
 
 ---
 
@@ -325,66 +329,167 @@ pub trait EntityStore<T: EntityType> {
 
 ## Edge System
 
-### Edge as First-Class Entity
+### Bidirectional EdgeMap Architecture
 
-Edges are stored as entities with their own UUID (not a separate edge store). This enables:
-
-- Participation in UUID registry and undo system
-- Metadata storage on relationships
-- Unified API for all entities
-
-### EdgeIndex
-
-Each edge type has a bidirectional `EdgeIndex`:
+The system uses a generic `EdgeMap<L, R>` for bidirectional relationships, providing O(1) lookup in both directions. Each EdgeMap maintains two HashMap indexes simultaneously:
 
 ```rust
-pub struct EdgeIndex {
-    outgoing: HashMap<NonNilUuid, Vec<NonNilUuid>>,  // from -> [to, to, ...]
-    incoming: HashMap<NonNilUuid, Vec<NonNilUuid>>,  // to -> [from, from, ...]
+pub struct EdgeMap<L, R> {
+    left_to_right: HashMap<L, Vec<R>>,  // left -> [right, right, ...]
+    right_to_left: HashMap<R, Vec<L>>,  // right -> [left, left, ...]
 }
 ```
 
-Kept in sync via `Schedule::add_edge()` and `Schedule::remove_edge()`.
+### EdgeMap Storage in EntityStorage
 
-### Edge UUID Derivation
-
-Edge UUIDs are deterministic from endpoints (V5 UUID):
+All entity relationships are stored directly as `EdgeMap` fields in `EntityStorage`:
 
 ```rust
-// When building, auto-upgrade from GenerateNew to Edge preference
-let edge = PanelToPresenterBuilder::new()
-    .with_panel_uuid(panel_uuid)
-    .with_presenter_uuid(presenter_uuid)
-    .build(schedule)?;  // UUID derived from (panel_uuid, presenter_uuid)
-```
-
-### TypedEdgeStorage
-
-Compile-time dispatch to edge-specific storage:
-
-```rust
-pub trait TypedEdgeStorage: EntityType {
-    fn edge_index(storage: &EntityStorage) -> &EdgeIndex;
-    fn edge_index_mut(storage: &mut EntityStorage) -> &mut EdgeIndex;
-    fn typed_map(storage: &EntityStorage) -> &HashMap<NonNilUuid, Self::Data>;
+pub struct EntityStorage {
+    // Entity maps
+    pub panels: EntityMap<Panel>,
+    pub presenters: EntityMap<Presenter>,
+    pub event_rooms: EntityMap<EventRoom>,
+    pub hotel_rooms: EntityMap<HotelRoom>,
+    pub panel_types: EntityMap<PanelType>,
+    
+    // Bidirectional edge indexes — maintained by entity type hooks
+    pub panels_by_panel_type: EdgeMap<PanelTypeId, PanelId>,
+    pub panels_by_event_room: EdgeMap<EventRoomId, PanelId>,
+    pub panels_by_presenter: EdgeMap<PresenterId, PanelId>,
+    pub event_rooms_by_hotel_room: EdgeMap<HotelRoomId, EventRoomId>,
+    pub presenter_group_members: EdgeMap<PresenterId, PresenterId>,
+    
+    // UUID registry
+    pub uuid_registry: HashMap<NonNilUuid, EntityKind>,
 }
 ```
 
-### Edge Convenience Methods
+### EdgeMap API
 
-Each edge `EntityType` provides static query methods:
+The EdgeMap provides a complete bidirectional relationship API:
 
 ```rust
-// PanelToPresenterEntityType
-pub fn presenters_of(storage: &EntityStorage, panel_uuid: NonNilUuid) -> Vec<PresenterId>;
-pub fn panels_of(storage: &EntityStorage, presenter_uuid: NonNilUuid) -> Vec<PanelId>;
-
-// PanelToEventRoomEntityType  
-pub fn event_room_of(storage: &EntityStorage, panel_uuid: NonNilUuid) -> Option<EventRoomId>;
-pub fn panels_in(storage: &EntityStorage, room_uuid: NonNilUuid) -> Vec<PanelId>;
+impl<L, R> EdgeMap<L, R>
+where
+    L: Copy + Eq + Hash,
+    R: Copy + Eq + Hash,
+{
+    // Lookup methods
+    pub fn by_left(&self, left: &L) -> &[R];
+    pub fn by_right(&self, right: &R) -> &[L];
+    
+    // Mutation methods
+    pub fn add(&mut self, left: L, right: R);
+    pub fn remove(&mut self, left: &L, right: &R);
+    pub fn clear_by_left(&mut self, left: &L);
+    pub fn clear_by_right(&mut self, right: &R);
+    
+    // Bulk update methods
+    pub fn update_by_left(&mut self, left: L, new_rights: &[R]);
+    pub fn update_by_right(&mut self, right: R, new_lefts: &[L]);
+}
 ```
 
-These take `&EntityStorage` (not `&Schedule`), reinforcing that entity types own their storage access.
+### Entity-Owned Relationship Management
+
+Following the thin-adapter principle, each `EntityType` owns the logic for its relationships. The proc-macro generates relationship management methods for each entity type, and the `EntityType` trait lifecycle hooks maintain the EdgeMap indexes:
+
+- `on_insert()` - adds edges to EdgeMaps when entities are created
+- `on_soft_delete()` - removes edges from EdgeMaps when entities are soft deleted
+- `on_update()` - updates edges in EdgeMaps when relationships change
+- `on_soft_delete_cleanup_edges()` - removes edges pointing to soft-deleted entities
+
+#### Relationship Management Principles
+
+Following the thin-adapter principle from commit 4ea6b60, each `EntityType` owns the logic for its relationships. The proc-macro generates relationship management methods, and computed fields delegate to these EntityType methods.
+
+#### Generated Relationship Methods
+
+Each entity type gets static methods for managing its relationships:
+
+```rust
+// PanelEntityType
+impl PanelEntityType {
+    pub fn panels_of_presenter(storage: &EntityStorage, presenter_id: PresenterId) -> Vec<PanelId>;
+    pub fn set_panels_of_presenter(storage: &mut EntityStorage, presenter_id: PresenterId, panel_ids: Vec<PanelId>) -> Result<(), FieldError>;
+    pub fn add_panel_to_presenter(storage: &mut EntityStorage, presenter_id: PresenterId, panel_id: PanelId) -> usize;
+    pub fn remove_panel_from_presenter(storage: &mut EntityStorage, presenter_id: PresenterId, panel_id: PanelId) -> usize;
+    
+    // Similar methods for panel types and event rooms
+}
+
+// PresenterEntityType  
+impl PresenterEntityType {
+    pub fn groups_of(storage: &EntityStorage, presenter_id: PresenterId) -> Vec<PresenterId>;
+    pub fn set_groups(storage: &mut EntityStorage, presenter_id: PresenterId, group_ids: Vec<PresenterId>) -> Result<(), FieldError>;
+    pub fn members_of(storage: &EntityStorage, group_id: PresenterId) -> Vec<PresenterId>;
+    pub fn set_members(storage: &mut EntityStorage, group_id: PresenterId, member_ids: Vec<PresenterId>) -> Result<(), FieldError>;
+    
+    // Transitive closure methods
+    pub fn inclusive_panels_of(storage: &EntityStorage, presenter_id: PresenterId) -> Vec<PanelId>;
+    pub fn inclusive_groups_of(storage: &EntityStorage, presenter_id: PresenterId) -> Vec<PresenterId>;
+    pub fn inclusive_members_of(storage: &EntityStorage, group_id: PresenterId) -> Vec<PresenterId>;
+}
+```
+
+#### Computed Field Delegation
+
+All computed fields now delegate to EntityType methods instead of containing inline logic:
+
+```rust
+// Before (inline logic in computed field)
+#[read(|schedule: &Schedule, entity: &PresenterData| {
+    // Complex inline logic for group membership
+    let groups = schedule.entities.presenters_by_group.get(&uuid)...;
+    // ... more inline code
+})]
+
+// After (delegates to EntityType)
+#[read(|schedule: &Schedule, entity: &PresenterData| {
+    let presenter_id = entity.id();
+    let ids = PresenterEntityType::groups_of(&schedule.entities, presenter_id);
+    Some(FieldValue::presenter_list(ids))
+})]
+```
+
+#### Schedule Method Delegation
+
+Schedule convenience methods also delegate to EntityType methods:
+
+```rust
+// Before (Schedule owns the logic)
+impl Schedule {
+    pub fn panels_of_presenter(&self, presenter_id: PresenterId) -> Vec<PanelId> {
+        // Complex logic here
+    }
+}
+
+// After (Schedule delegates to EntityType)
+impl Schedule {
+    pub fn panels_of_presenter(&self, presenter_id: PresenterId) -> Vec<PanelId> {
+        PanelEntityType::panels_of_presenter(&self.entities, presenter_id)
+    }
+}
+```
+
+### Edge Cleanup on Soft Delete
+
+When an entity is soft-deleted, the `EntityType::on_soft_delete_cleanup_edges()` method is automatically called to remove all edges pointing to the deleted entity. This prevents dangling references in the EdgeMaps.
+
+The proc-macro automatically generates appropriate cleanup code for each entity type:
+
+- **Panel**: Removes from `panels_by_panel_type`, `panels_by_event_room`, and `panels_by_presenter`
+- **Presenter**: Removes from `panels_by_presenter` (as left side) and both sides of `presenter_group_members`
+- **EventRoom**: Removes from `panels_by_event_room` (as left side) and `event_rooms_by_hotel_room` (as right side)
+- **HotelRoom**: Removes from `event_rooms_by_hotel_room` (as left side)
+- **PanelType**: Removes from `panels_by_panel_type` (as left side)
+
+The cleanup uses the appropriate EdgeMap methods:
+
+- `remove(key, &value)` - removes specific edge relationships
+- `clear_by_left(&key)` - removes all edges where the entity is on the left side
+- `clear_by_right(&key)` - removes all edges where the entity is on the right side
 
 ---
 

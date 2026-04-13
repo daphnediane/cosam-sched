@@ -68,20 +68,20 @@ cosam_sched/
 | `HotelRoom` | `room_name`, `long_name`                                                                                                                                  | (same pattern)                       |
 | `PanelType` | `prefix` (2-letter), `panel_kind`, boolean flags (`is_workshop`, `is_break`, `is_cafe`, `is_private`, `is_timeline`, …), `color`, `bw`                    | `prefix` (220), `panel_kind` (210)   |
 
-### 4.2 Relationships (Virtual Edges)
+### 4.2 Relationships (Bidirectional EdgeMaps)
 
 Relationships are stored as **UUID fields directly on the owning entity** —
 there are no separate edge entities and no edge UUIDs.  `EntityStorage`
-maintains per-relationship reverse lookup indexes so queries from either side
-remain efficient.
+maintains bidirectional `EdgeMap<L, R>` indexes so queries from either side
+remain efficient with O(1) lookup.
 
-| Relationship          | Owning entity | Stored field(s)                   | Reverse index in EntityStorage |
-| --------------------- | ------------- | --------------------------------- | ------------------------------ |
-| Panel → PanelType     | `Panel`       | `panel_type: Option<PanelTypeId>` | `panels_by_panel_type`         |
-| Panel → EventRoom     | `Panel`       | `event_room: Option<EventRoomId>` | `panels_by_event_room`         |
-| Panel → Presenter(s)  | `Panel`       | `presenters: Vec<PresenterId>`    | `panels_by_presenter`          |
-| EventRoom → HotelRoom | `EventRoom`   | `hotel_rooms: Vec<HotelRoomId>`   | `event_rooms_by_hotel_room`    |
-| Presenter → Group(s)  | `Presenter`   | `groups: Vec<PresenterId>`        | `presenters_by_group`          |
+| Relationship             | Owning entity | Stored field(s)                    | EdgeMap in EntityStorage                                       |
+| ------------------------ | ------------- | ---------------------------------- | -------------------------------------------------------------- |
+| Panel → PanelType(s)     | `Panel`       | `panel_type_ids: Vec<PanelTypeId>` | `panels_by_panel_type: EdgeMap<PanelTypeId, PanelId>`          |
+| Panel → EventRoom(s)     | `Panel`       | `event_room_ids: Vec<EventRoomId>` | `panels_by_event_room: EdgeMap<EventRoomId, PanelId>`          |
+| Panel → Presenter(s)     | `Panel`       | `presenter_ids: Vec<PresenterId>`  | `panels_by_presenter: EdgeMap<PresenterId, PanelId>`           |
+| EventRoom → HotelRoom(s) | `EventRoom`   | `hotel_room_ids: Vec<HotelRoomId>` | `event_rooms_by_hotel_room: EdgeMap<HotelRoomId, EventRoomId>` |
+| Presenter → Group(s)     | `Presenter`   | `group_ids: Vec<PresenterId>`      | `presenter_group_members: EdgeMap<PresenterId, PresenterId>`   |
 
 `Presenter` also carries `is_explicit_group: bool` (set when a presenter is
 explicitly declared a group, as opposed to implicitly acting as one because
@@ -92,24 +92,21 @@ per-membership-edge granularity is deferred — see IDEA-039).
 ### 4.3 Key Design Decisions
 
 - **Virtual edges (relationships as owned fields)**: each relationship is a
-  UUID field (or `Vec<TypedId>`) stored directly on the owning entity — no
-  separate edge entities, no edge UUIDs.  Removing a relationship is a field
-  mutation on the owning entity, not an entity deletion.  Entities themselves
-  use soft deletion.
-- **Reverse lookup indexes**: `EntityStorage` maintains one
-  `HashMap<NonNilUuid, Vec<NonNilUuid>>` per relationship for the non-owning
-  side (e.g., `panels_by_presenter`).  These are updated by entity type
-  `on_insert` / `on_remove` / `on_update` hooks, not by a separate `add_edge`
-  call-site.
-- **Schedule is a proxy**: `Schedule` provides UUID registry coordination
-  and a unified API, but entity types own their storage access patterns.
-  Computed field closures access `EntityStorage` directly, not through
-  `Schedule` convenience methods.
-- **`<Type>EntityType` owns the logic**: All non-trivial implementations that
-  work with entity or edge data belong as methods on the relevant
-  `<Type>EntityType` struct. `Schedule` methods and computed field closures
-  are **thin adapters** — they call the `EntityType` method and return the
-  result, containing no logic of their own. See §10 for examples.
+  `Vec<TypedId>` stored directly on the owning entity — no separate edge entities,
+  no edge UUIDs.  Removing a relationship is a field mutation on the owning entity,
+  not an entity deletion.  Entities themselves use soft deletion.
+- **Bidirectional EdgeMaps**: `EntityStorage` maintains `EdgeMap<L, R>` per relationship
+  for O(1) lookup in both directions (e.g., `panels_by_presenter: EdgeMap<PresenterId, PanelId>`).
+  These are updated by entity type `on_insert` / `on_soft_delete` / `on_update` hooks.
+- **EntityType-owned relationship logic**: Following the thin-adapter principle (commit 4ea6b60),
+  each `EntityType` owns the logic for its relationships. The proc-macro generates
+  relationship management methods, and computed fields delegate to these EntityType methods.
+- **Schedule as a thin adapter**: `Schedule` provides UUID registry coordination
+  and delegates to EntityType methods. Computed field closures and Schedule convenience
+  methods both delegate to EntityType implementations.
+- **Automatic edge cleanup**: The proc-macro generates `on_soft_delete_cleanup_edges()`
+  implementations that remove edges pointing to soft-deleted entities, preventing
+  dangling references in EdgeMaps.
 - **Rooms split**: `EventRoom` (logical schedule room) vs `HotelRoom` (physical
   hotel space). One event room can map to multiple hotel rooms; the
   `hotel_rooms` field on `EventRoom` holds the list.  Time-partitioned mapping
@@ -158,18 +155,25 @@ Controls UUID assignment in builders:
 
 `#[derive(EntityFields)]` generates a complete data model from struct definitions:
 
-| Generated Item         | Purpose                                             |
-| ---------------------- | --------------------------------------------------- |
-| `<Name>Data`           | Storage struct (stored fields only)                 |
-| `<Name>EntityType`     | Type metadata, field registry, validation           |
-| `<Name>Id`             | Typed UUID wrapper (`TypedId` impl)                 |
-| `<Name>Builder`        | Construction with validation and schedule insertion |
-| Per-field unit structs | `NamedField` impls for field access                 |
-| `fields` module        | Public constants for all field structs              |
+| Generated Item         | Purpose                                                    |
+| ---------------------- | ---------------------------------------------------------- |
+| `<Name>Data`           | Storage struct (stored fields only)                        |
+| `<Name>EntityType`     | Type metadata, field registry, validation, lifecycle hooks |
+| `<Name>Id`             | Typed UUID wrapper (`TypedId` impl)                        |
+| `<Name>Builder`        | Construction with validation and schedule insertion        |
+| Per-field unit structs | `NamedField` impls for field access                        |
+| `fields` module        | Public constants for all field structs                     |
 
 **Design rationale**: The macro separates the user-facing struct (with computed
 fields as typed accessors) from the storage struct (`Data`). This allows computed
 fields to access the schedule or other entities while maintaining clean serialization.
+
+**Lifecycle hooks**: The macro generates implementations for `EntityType` lifecycle hooks:
+
+- `on_insert()` - adds edges to EdgeMaps when entities are created
+- `on_soft_delete()` - removes edges from EdgeMaps when entities are soft deleted  
+- `on_update()` - updates edges in EdgeMaps when relationships change
+- `on_soft_delete_cleanup_edges()` - removes edges pointing to soft-deleted entities (automatically generated based on entity type)
 
 **See `field-system.md`** for complete macro attribute reference, closure syntax,
 and usage patterns.
@@ -211,7 +215,7 @@ and field usage patterns.
 <PREFIX><NUM>[P<part>][S<session>][<suffix>]
 ```
 
-- Prefix normalised to 2 uppercase letters (`SPLIT` → `SP`, `BREAK` → `BR`)
+- Prefix normalized to 2 uppercase letters (`SPLIT` → `SP`, `BREAK` → `BR`)
 - Provides `base_id()` (`"GW097"`), `full_id()`, `part_id()`
 - Stored in `PanelData.parsed_uid: Option<PanelUniqId>`
 
@@ -314,8 +318,10 @@ pub trait EntityType: 'static + Send + Sync + Debug {
     fn validate(data: &Self::Data) -> Result<(), ValidationError>;
     /// Called after entity is inserted into its HashMap.
     fn on_insert(storage: &mut EntityStorage, data: &Self::Data) {}
-    /// Called before entity is removed from its HashMap.
-    fn on_remove(storage: &mut EntityStorage, data: &Self::Data) {}
+    /// Called to remove edges pointing to this entity during soft delete.
+    fn on_soft_delete_cleanup_edges(storage: &mut EntityStorage, data: &Self::Data) {}
+    /// Called when entity is soft deleted (before being marked as deleted).
+    fn on_soft_delete(storage: &mut EntityStorage, data: &Self::Data) {}
     /// Called when entity data changes in place (field update).
     fn on_update(storage: &mut EntityStorage, old: &Self::Data, new: &Self::Data) {}
 }
@@ -325,8 +331,14 @@ The `type Id` associated type links each entity type to its typed ID wrapper,
 enabling generic methods like `add_entity` to return the correct ID type.
 
 `PanelEntityType`, `EventRoomEntityType`, and `PresenterEntityType` implement
-`on_insert` / `on_remove` / `on_update` to maintain their respective reverse
+`on_insert` / `on_soft_delete` / `on_update` to maintain their respective reverse
 relationship indexes in `EntityStorage`.
+
+The `on_soft_delete_cleanup_edges` method is automatically generated by the
+proc-macro and removes all edges pointing to the deleted entity from the relevant
+EdgeMaps. This prevents dangling references when entities are soft-deleted.
+The proc-macro generates entity-specific cleanup code based on the EdgeMap
+relationships for each entity type.
 
 ### Builder → Schedule Integration
 

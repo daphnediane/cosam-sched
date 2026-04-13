@@ -330,6 +330,9 @@ pub fn derive_entity_fields(input: TokenStream) -> TokenStream {
         &entity_namespace_ident,
     );
 
+    // Generate edge cleanup code for this entity type
+    let edge_cleanup_code = generate_edge_cleanup_code(&entity_kind_ident);
+
     // Generate the complete implementation
     let field_set_impl = if field_struct_names.is_empty() {
         quote! {
@@ -524,11 +527,92 @@ pub fn derive_entity_fields(input: TokenStream) -> TokenStream {
                 #(#required_field_validations)*
                 Ok(())
             }
+
+            fn on_soft_delete_cleanup_edges(storage: &mut crate::schedule::EntityStorage, data: &Self::Data) {
+                // Generate cleanup code based on entity type
+                #edge_cleanup_code
+            }
         }
 
     };
 
     TokenStream::from(expanded)
+}
+
+/// Generate edge cleanup code based on entity type
+fn generate_edge_cleanup_code(entity_kind_ident: &Ident) -> TokenStream2 {
+    match entity_kind_ident.to_string().as_str() {
+        "Panel" => {
+            quote! {
+                // Panel is on the right side of all EdgeMaps
+                // Remove from panels_by_panel_type (PanelType -> Panel)
+                for panel_type_id in &data.panel_type_ids {
+                    storage.panels_by_panel_type.remove(panel_type_id, &data.entity_id);
+                }
+
+                // Remove from panels_by_event_room (EventRoom -> Panel)
+                for event_room_id in &data.event_room_ids {
+                    storage.panels_by_event_room.remove(event_room_id, &data.entity_id);
+                }
+
+                // Remove from panels_by_presenter (Presenter -> Panel)
+                for presenter_id in &data.presenter_ids {
+                    storage.panels_by_presenter.remove(presenter_id, &data.entity_id);
+                }
+            }
+        }
+        "Presenter" => {
+            quote! {
+                // Presenter is on the left side of panels_by_presenter (Presenter -> Panel)
+                // and on both sides of presenter_group_members
+
+                // Remove from panels_by_presenter (Presenter -> Panel)
+                // This removes the presenter from all panels they were assigned to
+                storage.panels_by_presenter.clear_by_left(&data.entity_id);
+
+                // Remove from presenter_group_members
+                // First, remove as group (left side) - removes all membership edges from this group
+                storage.presenter_group_members.clear_by_left(&data.entity_id);
+
+                // Then, remove as member (right side) - removes this presenter from all groups they belong to
+                storage.presenter_group_members.clear_by_right(&data.entity_id);
+            }
+        }
+        "EventRoom" => {
+            quote! {
+                // EventRoom is on the left side of panels_by_event_room (EventRoom -> Panel)
+                // and on the right side of event_rooms_by_hotel_room (HotelRoom -> EventRoom)
+
+                // Remove from panels_by_event_room (EventRoom -> Panel)
+                // This removes the event room from all panels that were assigned to it
+                storage.panels_by_event_room.clear_by_left(&data.entity_id);
+
+                // Remove from event_rooms_by_hotel_room (HotelRoom -> EventRoom)
+                for hotel_room_id in &data.hotel_room_ids {
+                    storage.event_rooms_by_hotel_room.remove(hotel_room_id, &data.entity_id);
+                }
+            }
+        }
+        "HotelRoom" => {
+            quote! {
+                // HotelRoom is on the left side of event_rooms_by_hotel_room (HotelRoom -> EventRoom)
+                // This removes the hotel room from all event rooms that were assigned to it
+                storage.event_rooms_by_hotel_room.clear_by_left(&data.entity_id);
+            }
+        }
+        "PanelType" => {
+            quote! {
+                // PanelType is on the left side of panels_by_panel_type (PanelType -> Panel)
+                // This removes the panel type from all panels that were assigned to it
+                storage.panels_by_panel_type.clear_by_left(&data.entity_id);
+            }
+        }
+        _ => {
+            quote! {
+                // No edge cleanup for unknown entity type
+            }
+        }
+    }
 }
 
 /// Check if field has required attribute

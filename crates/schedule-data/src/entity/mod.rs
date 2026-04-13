@@ -16,7 +16,7 @@
 //! - A `<Name>Data` internal storage struct with stored fields plus `entity_uuid: uuid::NonNilUuid`
 //! - A separate [`EntityType`] struct (e.g., `PanelEntityType`) with `impl EntityType for PanelEntityType`
 //!   where `type Data = PanelData`
-//! - A static [`FieldSet`](crate::field::field_set::FieldSet) accessible via
+//! - A static [`FieldSet`] accessible via
 //!   `PanelEntityType::field_set()`
 //!
 //! ## Identifiers
@@ -131,13 +131,34 @@ pub trait EntityType: 'static + Send + Sync + fmt::Debug {
     {
     }
 
+    /// Called during soft delete to remove edges pointing to this entity.
+    ///
+    /// This method is automatically called by `on_soft_delete` to clean up
+    /// all edges that point to the entity being soft-deleted. This prevents
+    /// dangling references in the EdgeMaps.
+    ///
+    /// The proc-macro generates implementations for each entity type that
+    /// remove edges from all relevant EdgeMaps based on the entity's relationships.
+    /// For example, a Panel will remove itself from `panels_by_panel_type`,
+    /// `panels_by_event_room`, and `panels_by_presenter` EdgeMaps.
+    ///
+    /// Default is a no-op; the proc-macro provides entity-specific implementations.
+    fn on_soft_delete_cleanup_edges(
+        _storage: &mut crate::schedule::EntityStorage,
+        _data: &Self::Data,
+    ) where
+        Self: Sized,
+    {
+    }
+
     /// Called by [`crate::schedule::EntityStorage::remove`] before the entity
     /// is removed.  The entity is still present in storage when this runs.
     /// Default is a no-op; override to clean up reverse lookup indexes.
-    fn on_remove(_storage: &mut crate::schedule::EntityStorage, _data: &Self::Data)
+    fn on_soft_delete(_storage: &mut crate::schedule::EntityStorage, _data: &Self::Data)
     where
         Self: Sized,
     {
+        Self::on_soft_delete_cleanup_edges(_storage, _data);
     }
 
     /// Called by write closures after in-place mutation of entity data.
@@ -213,7 +234,7 @@ pub trait EntityType: 'static + Send + Sync + fmt::Debug {
 
     /// Resolve a UUID string to an entity ID.
     ///
-    /// Handles bare UUID strings and prefixed UUID strings (e.g., "presenter-<uuid>").
+    /// Handles bare UUID strings and prefixed UUID strings (e.g., "presenter-`<uuid>`").
     /// This is a helper method for entity types that need custom string resolution logic.
     fn resolve_uuid_string(
         storage: &crate::schedule::EntityStorage,

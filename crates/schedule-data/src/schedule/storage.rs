@@ -74,23 +74,55 @@ impl std::error::Error for InsertError {}
 /// Uses [`EntityMap`] for entity storage and [`EdgeMap`] for bidirectional
 /// reverse lookup indexes, providing type-safe operations with minimal overhead.
 #[derive(Debug, Clone, Default)]
+/// Central storage for all entities and their relationships.
+///
+/// This struct contains all entity data and bidirectional relationship indexes.
+/// It serves as the single source of truth for the schedule data model.
+///
+/// ## Structure
+///
+/// - **Entity maps**: Direct storage for each entity type (`panels`, `presenters`, etc.)
+/// - **EdgeMaps**: Bidirectional indexes for efficient relationship lookup in both directions
+/// - **UUID registry**: Maps all known UUIDs to their entity kind for type-agnostic lookup
+///
+/// ## Relationship Management
+///
+/// All EdgeMaps are automatically maintained by the `EntityType` lifecycle hooks:
+/// - `on_insert()` - adds edges when entities are created
+/// - `on_soft_delete()` - removes edges when entities are soft deleted
+/// - `on_update()` - updates edges when relationships change
+/// - `on_soft_delete_cleanup_edges()` - removes edges pointing to soft-deleted entities
+///
+/// ## Thread Safety
+///
+/// This struct is not thread-safe and should be accessed through a single thread
+/// or protected by appropriate synchronization mechanisms.
 pub struct EntityStorage {
-    // Node entities
+    /// All panel entities in the schedule
     pub panels: EntityMap<PanelEntityType>,
+    /// All presenter entities in the schedule
     pub presenters: EntityMap<PresenterEntityType>,
+    /// All event room entities in the schedule
     pub event_rooms: EntityMap<EventRoomEntityType>,
+    /// All hotel room entities in the schedule
     pub hotel_rooms: EntityMap<HotelRoomEntityType>,
+    /// All panel type entities in the schedule
     pub panel_types: EntityMap<PanelTypeEntityType>,
 
     // Bidirectional edge indexes — maintained by entity type hooks
+    /// Maps panel types to their assigned panels (PanelTypeId -> [PanelId])
     pub panels_by_panel_type: EdgeMap<PanelTypeId, PanelId>,
+    /// Maps event rooms to their assigned panels (EventRoomId -> [PanelId])
     pub panels_by_event_room: EdgeMap<EventRoomId, PanelId>,
+    /// Maps presenters to their assigned panels (PresenterId -> [PanelId])
     pub panels_by_presenter: EdgeMap<PresenterId, PanelId>,
+    /// Maps hotel rooms to their assigned event rooms (HotelRoomId -> [EventRoomId])
     pub event_rooms_by_hotel_room: EdgeMap<HotelRoomId, EventRoomId>,
-    /// Group-member edges: left = group `PresenterId`, right = member `PresenterId`.
+    /// Group-member edges: left = group `PresenterId`, right = member `PresenterId`
     pub presenter_group_members: EdgeMap<PresenterId, PresenterId>,
 
     /// UUID registry mapping every known UUID to its entity kind.
+    /// Used for type-agnostic UUID lookup and validation.
     pub uuid_registry: HashMap<NonNilUuid, EntityKind>,
 }
 
@@ -240,10 +272,10 @@ impl EntityStorage {
     }
 
     /// Remove an entity by type and UUID, unregistering its UUID.
-    /// Calls the entity type's `on_remove` hook before removal.
+    /// Calls the entity type's `on_soft_delete` hook before removal.
     pub fn remove<T: TypedStorage>(&mut self, uuid: NonNilUuid) -> Option<T::Data> {
         let data = T::typed_map(self).get(T::Id::from_uuid(uuid)).cloned()?;
-        T::on_remove(self, &data);
+        T::on_soft_delete(self, &data);
         EntityStore::<T>::remove_entity(self, uuid)
     }
 }

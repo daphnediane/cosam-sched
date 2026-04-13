@@ -52,27 +52,27 @@ pub enum FieldValue {
 }
 
 impl FieldValue {
-    /// Create a FieldValue::List of PanelIdentifier from a Vec<PanelId>.
+    /// Create a FieldValue::List of PanelIdentifier from a `Vec<PanelId>`.
     pub fn panel_list(ids: Vec<crate::entity::PanelId>) -> Self {
         Self::List(ids.into_iter().map(Self::PanelIdentifier).collect())
     }
 
-    /// Create a FieldValue::List of PanelTypeIdentifier from a Vec<PanelTypeId>.
+    /// Create a FieldValue::List of PanelTypeIdentifier from a `Vec<PanelTypeId>`.
     pub fn panel_type_list(ids: Vec<crate::entity::PanelTypeId>) -> Self {
         Self::List(ids.into_iter().map(Self::PanelTypeIdentifier).collect())
     }
 
-    /// Create a FieldValue::List of EventRoomIdentifier from a Vec<EventRoomId>.
+    /// Create a FieldValue::List of EventRoomIdentifier from a `Vec<EventRoomId>`.
     pub fn event_room_list(ids: Vec<crate::entity::EventRoomId>) -> Self {
         Self::List(ids.into_iter().map(Self::EventRoomIdentifier).collect())
     }
 
-    /// Create a FieldValue::List of HotelRoomIdentifier from a Vec<HotelRoomId>.
+    /// Create a FieldValue::List of HotelRoomIdentifier from a `Vec<HotelRoomId>`.
     pub fn hotel_room_list(ids: Vec<crate::entity::HotelRoomId>) -> Self {
         Self::List(ids.into_iter().map(Self::HotelRoomIdentifier).collect())
     }
 
-    /// Create a FieldValue::List of PresenterIdentifier from a Vec<PresenterId>.
+    /// Create a FieldValue::List of PresenterIdentifier from a `Vec<PresenterId>`.
     pub fn presenter_list(ids: Vec<crate::entity::PresenterId>) -> Self {
         Self::List(ids.into_iter().map(Self::PresenterIdentifier).collect())
     }

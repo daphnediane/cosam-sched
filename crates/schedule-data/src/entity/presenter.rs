@@ -593,7 +593,7 @@ impl PresenterEntityType {
     ///
     /// Supports:
     /// - `FieldValue::NonNilUuid(u)` -> lookup by UUID
-    /// - `FieldValue::String(s)` -> treat as tagged string (e.g., "G:Alice", "presenter-<uuid>")
+    /// - `FieldValue::String(s)` -> treat as tagged string (e.g., "G:Alice", "presenter-`<uuid>`")
     /// - `FieldValue::OptionalString(Some(s))` -> same as String
     pub fn resolve_field_value(
         storage: &mut crate::schedule::EntityStorage,
