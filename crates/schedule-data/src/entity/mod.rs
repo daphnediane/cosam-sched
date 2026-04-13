@@ -192,10 +192,9 @@ pub trait EntityType: 'static + Send + Sync + fmt::Debug {
         match value {
             // Container types: return contents as work items, no IDs yet
             FieldValue::List(items) => Ok((Vec::new(), items)),
-            FieldValue::Optional(opt) => {
-                let work = opt.map(|b| vec![*b]).unwrap_or_default();
-                Ok((Vec::new(), work))
-            }
+
+            // Empty/None values: no IDs to resolve
+            FieldValue::None => Ok((Vec::new(), Vec::new())),
 
             // Scalar types: resolve directly
             FieldValue::NonNilUuid(uuid) => {
@@ -502,6 +501,39 @@ pub enum EntityRef<'a> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::entity::{EntityType, PanelEntityType};
+    use crate::field::FieldValue;
+    use crate::schedule::Schedule;
+
+    fn nn(b: u8) -> uuid::NonNilUuid {
+        unsafe {
+            uuid::NonNilUuid::new_unchecked(uuid::Uuid::from_bytes([
+                0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, b,
+            ]))
+        }
+    }
+
+    fn add_panel(
+        schedule: &mut Schedule,
+        uuid: uuid::NonNilUuid,
+        uid: &str,
+        name: &str,
+    ) -> PanelId {
+        crate::entity::panel::PanelBuilder::new()
+            .with_uuid_preference(crate::entity::UuidPreference::Exact(uuid))
+            .with_uid(uid.to_string())
+            .with_name(name.to_string())
+            .build(schedule)
+            .unwrap()
+    }
+
+    fn add_presenter(schedule: &mut Schedule, uuid: uuid::NonNilUuid, name: &str) -> PresenterId {
+        crate::entity::presenter::PresenterBuilder::new()
+            .with_uuid_preference(crate::entity::UuidPreference::Exact(uuid))
+            .with_name(name.to_string())
+            .build(schedule)
+            .unwrap()
+    }
 
     #[test]
     fn entity_kind_copy_and_eq() {
@@ -520,5 +552,202 @@ mod tests {
             EntityKind::PanelType,
         ];
         assert_eq!(variants.len(), 5);
+    }
+
+    // Test EntityUUID::to_typed_id conversion
+    #[test]
+    fn entity_uuid_to_typed_id_matching_kind() {
+        let uuid = nn(1);
+        let euuid = EntityUUID::Panel(PanelId::from_uuid(uuid));
+        let maybe_panel: Option<PanelId> = euuid.to_typed_id();
+        assert!(maybe_panel.is_some());
+        assert_eq!(maybe_panel.unwrap().non_nil_uuid(), uuid);
+    }
+
+    #[test]
+    fn entity_uuid_to_typed_id_mismatched_kind() {
+        let uuid = nn(1);
+        let euuid = EntityUUID::Panel(PanelId::from_uuid(uuid));
+        let maybe_presenter: Option<PresenterId> = euuid.to_typed_id();
+        assert!(maybe_presenter.is_none());
+    }
+
+    // Test FieldValue::None handling
+    #[test]
+    fn resolve_next_field_value_none() {
+        let mut schedule = Schedule::default();
+        let result =
+            PanelEntityType::resolve_next_field_value(&mut schedule.entities, FieldValue::None);
+        assert!(result.is_ok());
+        let (ids, work) = result.unwrap();
+        assert!(ids.is_empty());
+        assert!(work.is_empty());
+    }
+
+    // Test FieldValue::List handling
+    #[test]
+    fn resolve_next_field_value_list() {
+        let mut schedule = Schedule::default();
+        let items = vec![
+            FieldValue::String("test".to_string()),
+            FieldValue::Integer(42),
+        ];
+        let result = PanelEntityType::resolve_next_field_value(
+            &mut schedule.entities,
+            FieldValue::List(items),
+        );
+        assert!(result.is_ok());
+        let (ids, work) = result.unwrap();
+        assert!(ids.is_empty()); // List returns work items, not IDs
+        assert_eq!(work.len(), 2);
+    }
+
+    // Test FieldValue::String comma-splitting
+    #[test]
+    fn resolve_next_field_value_string_comma_split() {
+        let mut schedule = Schedule::default();
+        let result = PanelEntityType::resolve_next_field_value(
+            &mut schedule.entities,
+            FieldValue::String("a, b, c".to_string()),
+        );
+        assert!(result.is_ok());
+        let (ids, work) = result.unwrap();
+        assert!(ids.is_empty()); // Comma-split returns work items
+        assert_eq!(work.len(), 3);
+        // Check the split strings are trimmed
+        if let FieldValue::String(s) = &work[0] {
+            assert_eq!(s, "a");
+        } else {
+            panic!("Expected String variant");
+        }
+    }
+
+    // Test FieldValue::EntityIdentifier with mismatched kind
+    #[test]
+    fn resolve_next_field_value_entity_identifier_mismatched() {
+        use crate::field::validation::ConversionError;
+
+        let mut schedule = Schedule::default();
+        let uuid = nn(1);
+        let presenter_id = add_presenter(&mut schedule, uuid, "Alice");
+        let euuid = EntityUUID::Presenter(presenter_id);
+
+        let result = PanelEntityType::resolve_next_field_value(
+            &mut schedule.entities,
+            FieldValue::EntityIdentifier(euuid),
+        );
+        // Should fail because Presenter doesn't match Panel kind
+        assert!(result.is_err());
+        if let Err(crate::field::FieldError::ConversionError(ConversionError::InvalidFormat)) =
+            result
+        {
+            // Expected
+        } else {
+            panic!("Expected InvalidFormat error, got {:?}", result);
+        }
+    }
+
+    // Test resolve_field_value with single UUID
+    #[test]
+    fn resolve_field_value_single_uuid() {
+        let mut schedule = Schedule::default();
+        let uuid = nn(1);
+        let panel_id = add_panel(&mut schedule, uuid, "P001", "Test Panel");
+
+        let result = PanelEntityType::resolve_field_value(
+            &mut schedule.entities,
+            FieldValue::NonNilUuid(uuid),
+        );
+        assert!(result.is_ok());
+        assert_eq!(result.unwrap(), panel_id);
+    }
+
+    // Test resolve_field_value with EntityIdentifier
+    #[test]
+    fn resolve_field_value_entity_identifier() {
+        let mut schedule = Schedule::default();
+        let uuid = nn(1);
+        let panel_id = add_panel(&mut schedule, uuid, "P001", "Test Panel");
+        let euuid = EntityUUID::Panel(panel_id);
+
+        let result = PanelEntityType::resolve_field_value(
+            &mut schedule.entities,
+            FieldValue::EntityIdentifier(euuid),
+        );
+        assert!(result.is_ok(), "Error: {:?}", result);
+        assert_eq!(result.unwrap(), panel_id);
+    }
+
+    // Test resolve_field_values with List
+    #[test]
+    fn resolve_field_values_list() {
+        let mut schedule = Schedule::default();
+        let uuid1 = nn(1);
+        let uuid2 = nn(2);
+        let panel_id1 = add_panel(&mut schedule, uuid1, "P001", "Panel One");
+        let panel_id2 = add_panel(&mut schedule, uuid2, "P002", "Panel Two");
+
+        let values = vec![FieldValue::NonNilUuid(uuid1), FieldValue::NonNilUuid(uuid2)];
+        let result =
+            PanelEntityType::resolve_field_values(&mut schedule.entities, FieldValue::List(values));
+        assert!(result.is_ok());
+        let ids = result.unwrap();
+        assert_eq!(ids.len(), 2);
+        assert!(ids.contains(&panel_id1));
+        assert!(ids.contains(&panel_id2));
+    }
+
+    // Test resolve_field_value error on multiple values
+    #[test]
+    fn resolve_field_value_multiple_values_error() {
+        let mut schedule = Schedule::default();
+        let uuid1 = nn(1);
+        let uuid2 = nn(2);
+        add_panel(&mut schedule, uuid1, "P001", "Panel One");
+        add_panel(&mut schedule, uuid2, "P002", "Panel Two");
+
+        let values = vec![FieldValue::NonNilUuid(uuid1), FieldValue::NonNilUuid(uuid2)];
+
+        let result =
+            PanelEntityType::resolve_field_value(&mut schedule.entities, FieldValue::List(values));
+        // Should error because list expands to multiple values
+        assert!(result.is_err());
+    }
+
+    // Test resolve_field_value with prefixed UUID string
+    #[test]
+    fn resolve_field_value_prefixed_uuid_string() {
+        let mut schedule = Schedule::default();
+        let uuid = nn(1);
+        let panel_id = add_panel(&mut schedule, uuid, "P001", "Test Panel");
+
+        let prefixed = format!("panel-{}", uuid);
+        let result = PanelEntityType::resolve_field_value(
+            &mut schedule.entities,
+            FieldValue::String(prefixed),
+        );
+        assert!(result.is_ok());
+        assert_eq!(result.unwrap(), panel_id);
+    }
+
+    // Test resolve_field_values with comma-separated UUID strings
+    #[test]
+    fn resolve_field_values_comma_separated_strings() {
+        let mut schedule = Schedule::default();
+        let uuid1 = nn(1);
+        let uuid2 = nn(2);
+        let panel_id1 = add_panel(&mut schedule, uuid1, "P001", "Panel One");
+        let panel_id2 = add_panel(&mut schedule, uuid2, "P002", "Panel Two");
+
+        let comma_string = format!("panel-{}, panel-{}", uuid1, uuid2);
+        let result = PanelEntityType::resolve_field_values(
+            &mut schedule.entities,
+            FieldValue::String(comma_string),
+        );
+        assert!(result.is_ok());
+        let ids = result.unwrap();
+        assert_eq!(ids.len(), 2);
+        assert!(ids.contains(&panel_id1));
+        assert!(ids.contains(&panel_id2));
     }
 }

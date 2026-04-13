@@ -261,14 +261,11 @@ pub enum FieldValue {
     DateTime(DateTime<Utc>),
     Duration(Duration),
     List(Vec<FieldValue>),
-    Map(HashMap<String, FieldValue>),
-    OptionalString(Option<String>),
-    OptionalInteger(Option<i64>),
-    OptionalFloat(Option<f64>),
-    OptionalBoolean(Option<bool>),
-    OptionalDateTime(Option<DateTime<Utc>>),
-    OptionalDuration(Option<Duration>),
     NonNilUuid(NonNilUuid),
+    /// Generic entity identifier for any entity type
+    EntityIdentifier(EntityUUID),
+    /// Explicit null/empty value
+    None,
 }
 ```
 
@@ -286,7 +283,11 @@ let fv = FieldValue::from(presenter_id.non_nil_uuid());
 
 // From collections
 let ids: Vec<PresenterId> = vec![...];
-let fv = FieldValue::from(ids);  // Converts to List of NonNilUuids
+let fv = FieldValue::presenter_list(ids);  // Converts to List of EntityIdentifiers
+
+// From Option types (returns Option<FieldValue>)
+let opt_fv = FieldValue::from_option_string(Some("hello".to_string()));
+let opt_fv = FieldValue::from_option_integer(Some(42i64));
 ```
 
 ---

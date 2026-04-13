@@ -914,7 +914,7 @@ fn generate_direct_field(
                 _ => panic!("Unsupported optional inner type"),
             };
             quote! {
-                entity.#field_name.as_ref().map(|v| crate::field::FieldValue::Optional(Some(Box::new(#inner_quote))))
+                entity.#field_name.as_ref().map(|v| #inner_quote)
             }
         }
         FieldTypeCategory::NonNilUuid => {
@@ -972,44 +972,61 @@ fn generate_direct_field(
                     }
                 }
             }
-            FieldTypeCategory::Optional(inner) => {
-                let (extract, assign) = match inner.as_ref() {
-                    FieldTypeCategory::String => (
-                        quote! { if let crate::field::FieldValue::String(v) = inner.as_ref() { Some(v.clone()) } else { None } },
-                        quote! { entity.#field_name = inner_val; },
-                    ),
-                    FieldTypeCategory::Integer => (
-                        quote! { if let crate::field::FieldValue::Integer(v) = inner.as_ref() { Some(*v) } else { None } },
-                        quote! { entity.#field_name = inner_val; },
-                    ),
-                    FieldTypeCategory::Boolean => (
-                        quote! { if let crate::field::FieldValue::Boolean(v) = inner.as_ref() { Some(*v) } else { None } },
-                        quote! { entity.#field_name = inner_val; },
-                    ),
-                    FieldTypeCategory::NonNilUuid => (
-                        quote! { if let crate::field::FieldValue::NonNilUuid(v) = inner.as_ref() { Some(*v) } else { None } },
-                        quote! { entity.#field_name = inner_val; },
-                    ),
-                    _ => panic!("Unsupported optional inner type for write"),
-                };
-                quote! {
-                    if let crate::field::FieldValue::Optional(opt) = value {
-                        if let Some(inner) = opt {
-                            if let Some(inner_val) = #extract {
-                                #assign
-                                Ok(())
-                            } else {
-                                Err(crate::field::FieldError::ConversionError(crate::field::validation::ConversionError::InvalidFormat))
-                            }
-                        } else {
+            FieldTypeCategory::Optional(inner) => match inner.as_ref() {
+                FieldTypeCategory::String => quote! {
+                    match value {
+                        Some(crate::field::FieldValue::String(v)) => {
+                            entity.#field_name = Some(v);
+                            Ok(())
+                        }
+                        None => {
                             entity.#field_name = None;
                             Ok(())
                         }
-                    } else {
-                        Err(crate::field::FieldError::ConversionError(crate::field::validation::ConversionError::InvalidFormat))
+                        _ => Err(crate::field::FieldError::ConversionError(crate::field::validation::ConversionError::InvalidFormat))
                     }
-                }
-            }
+                },
+                FieldTypeCategory::Integer => quote! {
+                    match value {
+                        Some(crate::field::FieldValue::Integer(v)) => {
+                            entity.#field_name = Some(v);
+                            Ok(())
+                        }
+                        None => {
+                            entity.#field_name = None;
+                            Ok(())
+                        }
+                        _ => Err(crate::field::FieldError::ConversionError(crate::field::validation::ConversionError::InvalidFormat))
+                    }
+                },
+                FieldTypeCategory::Boolean => quote! {
+                    match value {
+                        Some(crate::field::FieldValue::Boolean(v)) => {
+                            entity.#field_name = Some(v);
+                            Ok(())
+                        }
+                        None => {
+                            entity.#field_name = None;
+                            Ok(())
+                        }
+                        _ => Err(crate::field::FieldError::ConversionError(crate::field::validation::ConversionError::InvalidFormat))
+                    }
+                },
+                FieldTypeCategory::NonNilUuid => quote! {
+                    match value {
+                        Some(crate::field::FieldValue::NonNilUuid(v)) => {
+                            entity.#field_name = Some(v);
+                            Ok(())
+                        }
+                        None => {
+                            entity.#field_name = None;
+                            Ok(())
+                        }
+                        _ => Err(crate::field::FieldError::ConversionError(crate::field::validation::ConversionError::InvalidFormat))
+                    }
+                },
+                _ => panic!("Unsupported optional inner type for write"),
+            },
             FieldTypeCategory::NonNilUuid => {
                 quote! {
                     if let crate::field::FieldValue::NonNilUuid(v) = value {

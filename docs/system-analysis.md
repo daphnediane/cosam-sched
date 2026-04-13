@@ -184,11 +184,11 @@ and usage patterns.
 
 The field system provides type-safe field access with three key abstractions:
 
-| Component        | Purpose                    | Key Types                                                   |
-| ---------------- | -------------------------- | ----------------------------------------------------------- |
-| **FieldValue**   | Universal runtime value    | `String`, `Integer(i64)`, `NonNilUuid`, `List`, `Map`, etc. |
-| **FieldSet**     | Per-entity static registry | `get_field()`, `match_index()`, required/indexable tracking |
-| **Field Traits** | Type-safe access patterns  | `ReadableField`, `WritableField`, `IndexableField`          |
+| Component        | Purpose                    | Key Types                                                                  |
+| ---------------- | -------------------------- | -------------------------------------------------------------------------- |
+| **FieldValue**   | Universal runtime value    | `String`, `Integer(i64)`, `NonNilUuid`, `List`, `EntityIdentifier`, `None` |
+| **FieldSet**     | Per-entity static registry | `get_field()`, `match_index()`, required/indexable tracking                |
+| **Field Traits** | Type-safe access patterns  | `ReadableField`, `WritableField`, `IndexableField`                         |
 
 **Trait hierarchy** (blanket impls auto-promote `Simple*` traits):
 
@@ -204,6 +204,49 @@ access and mutations. Match priority levels: `EXACT_MATCH=255` down to `NO_MATCH
 
 **See `field-system.md`** for complete trait documentation, `FieldValue` conversions,
 and field usage patterns.
+
+### FieldValue ID Resolution
+
+The `EntityType` trait provides methods for resolving `FieldValue` to typed entity IDs:
+
+```rust
+/// Resolve a FieldValue to a single entity ID.
+/// Errors if the value expands to multiple IDs.
+fn resolve_field_value(
+    storage: &mut EntityStorage,
+    value: FieldValue,
+) -> Result<Self::Id, FieldError>;
+
+/// Resolve a FieldValue to multiple entity IDs.
+/// Supports Lists, comma-separated strings, and nested structures.
+fn resolve_field_values(
+    storage: &mut EntityStorage,
+    value: FieldValue,
+) -> Result<Vec<Self::Id>, FieldError>;
+```
+
+**Features:**
+
+- **Comma-splitting**: Strings like `"uuid1, uuid2"` are split for spreadsheet-style lists
+- **Nested structures**: Lists and nested Lists are recursively processed
+- **EntityIdentifier**: Generic `EntityUUID` is converted via `to_typed_id()` with kind checking
+- **Iterative processing**: Uses a work queue to avoid recursion depth issues
+
+**Example:**
+
+```rust
+// Single UUID resolution
+let id = PanelEntityType::resolve_field_value(
+    &mut storage,
+    FieldValue::NonNilUuid(uuid),
+)?;
+
+// List resolution with comma-splitting
+let ids = PanelEntityType::resolve_field_values(
+    &mut storage,
+    FieldValue::String("panel-uuid1, panel-uuid2".to_string()),
+)?;
+```
 
 ---
 

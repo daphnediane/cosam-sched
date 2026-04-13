@@ -589,54 +589,21 @@ impl PresenterEntityType {
         Ok(effective)
     }
 
-    /// Resolve a FieldValue to a PresenterId.
+    /// Resolve a string to a PresenterId with tagged lookup support.
     ///
-    /// Supports:
-    /// - `FieldValue::NonNilUuid(u)` -> lookup by UUID
-    /// - `FieldValue::String(s)` -> treat as tagged string (e.g., "G:Alice", "presenter-`<uuid>`")
-    /// - `FieldValue::Optional(Some(String(s)))` -> same as String
-    pub fn resolve_field_value(
+    /// This is a Presenter-specific helper that first tries UUID parsing,
+    /// then falls back to tagged presenter lookup via `lookup_tagged`.
+    /// Unlike the trait's `resolve_string`, this supports tagged syntax like "G:Alice=TeamA".
+    pub fn resolve_string_tagged(
         storage: &mut crate::schedule::EntityStorage,
-        value: crate::field::FieldValue,
+        input: &str,
     ) -> Result<PresenterId, crate::schedule::LookupError> {
-        match value {
-            crate::field::FieldValue::NonNilUuid(uuid) => {
-                if storage
-                    .presenters
-                    .contains_key(PresenterId::from_uuid(uuid))
-                {
-                    Ok(PresenterId::from_uuid(uuid))
-                } else {
-                    Err(crate::schedule::LookupError::UuidNotFound(uuid.into()))
-                }
-            }
-            crate::field::FieldValue::String(s) => Self::lookup_tagged(storage, &s),
-            crate::field::FieldValue::Optional(opt) => {
-                if let Some(inner) = opt {
-                    if let crate::field::FieldValue::String(s) = inner.as_ref() {
-                        Self::lookup_tagged(storage, s)
-                    } else {
-                        Err(crate::schedule::LookupError::Empty)
-                    }
-                } else {
-                    Err(crate::schedule::LookupError::Empty)
-                }
-            }
-            _ => Err(crate::schedule::LookupError::Empty),
+        // Try UUID string parsing first
+        if let Some(id) = Self::resolve_uuid_string(storage, input) {
+            return Ok(id);
         }
-    }
-
-    /// Resolve a list of FieldValues to PresenterIds.
-    ///
-    /// Returns Ok with the list of resolved IDs, or Err if any resolution fails.
-    pub fn resolve_field_values(
-        storage: &mut crate::schedule::EntityStorage,
-        values: Vec<crate::field::FieldValue>,
-    ) -> Result<Vec<PresenterId>, crate::schedule::LookupError> {
-        values
-            .into_iter()
-            .map(|v| Self::resolve_field_value(storage, v))
-            .collect()
+        // Fall back to tagged presenter lookup
+        Self::lookup_tagged(storage, input)
     }
 
     /// Add `member` to `group` with default flags (`always_shown_in_group = false`,

@@ -750,14 +750,15 @@ impl PanelEntityType {
         panel_uuid: uuid::NonNilUuid,
         tags: &[&str],
     ) -> usize {
-        use crate::entity::PresenterEntityType;
+        use crate::entity::{EntityType, PresenterEntityType};
 
         let values: Vec<crate::field::FieldValue> = tags
             .iter()
             .map(|s| crate::field::FieldValue::String(s.trim().to_string()))
             .collect();
+        let field_value = crate::field::FieldValue::List(values);
         let presenter_ids: Vec<PresenterId> =
-            match PresenterEntityType::resolve_field_values(storage, values) {
+            match PresenterEntityType::resolve_field_values(storage, field_value) {
                 Ok(ids) => ids,
                 Err(_) => return 0,
             };
