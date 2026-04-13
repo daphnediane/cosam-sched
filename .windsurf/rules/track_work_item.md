@@ -65,38 +65,16 @@ High | Medium | Low
 
 ## Workflow
 
-### Adding Items
-
-1. Check `docs/WORK_ITEMS.md` "Next Available IDs" section for the next free number
-   (the combine script regenerates this list; it lists numbers not yet used by any prefix)
-2. Create file in `docs/work-item/` as `<PREFIX>-<###>.md` using that number
-3. Follow template structure
-4. Set status to "Open" and appropriate priority
-5. Run combine script to organize and regenerate
-
-### Updating Items
-
-- Edit file directly
-- Update status as work progresses
-- Run combine script to reorganize files
-
-### Combine Script
-
-**All platforms:** `perl scripts/combine-workitems.pl`
-
-The script automatically:
-
-- Move files to subdirectories based on status/priority
-- Generate `docs/WORK_ITEMS.md` with reference-style links (excludes IDEA items)
-- Generate `docs/FUTURE_IDEAS.md` from IDEA-prefix items
-- Add headerless link glossary at end
-- Preserve leading zeros and use LF line endings
+1. Check `docs/WORK_ITEMS.md` "Next Available IDs" for the next free number
+2. Create `docs/work-item/<PREFIX>-<###>.md`; set status "Open" and priority
+3. Edit directly to update status as work progresses
+4. Run `perl scripts/combine-workitems.pl` to reorganize files and regenerate `docs/WORK_ITEMS.md` / `docs/FUTURE_IDEAS.md`
 
 ## Documentation Updates
 
 When completing work items, update relevant documentation, see docs/doc-index.md for the complete list.
 
-Always cross-reference between documents when changes affect multiple areas.
+Cross-reference between documents when changes affect multiple areas.
 
 ## Commit Messages
 
