@@ -6,7 +6,7 @@
 
 ## Status
 
-Open
+Completed
 
 ## Priority
 
@@ -32,12 +32,29 @@ check in `resolve_next_field_value` (for `EntityIdentifier`) and `resolve_uuid_s
 successfully inserted it. Likely root cause is in `PanelEntityType`'s `TypedStorage`
 dispatch or `EntityMap::get` not finding the panel by its UUID-derived ID.
 
-## Steps to Fix
+## Root Cause
 
-1. Add debug logging to `contains_uuid` and `resolve_uuid_string` to trace the
-   exact UUID being looked up vs. what is stored.
-2. Verify `PanelId::from_uuid(uuid)` round-trips correctly with the ID stored by
-   `PanelBuilder::build`.
-3. Check whether `TypedStorage::typed_map` for `PanelEntityType` returns the correct
-   `EntityMap`.
-4. Fix the root cause and ensure both tests pass.
+PanelEntityType had a custom `resolve_field_value` implementation that only handled
+`FieldValue::NonNilUuid` and returned `LookupError::Empty` for all other types,
+including `FieldValue::EntityIdentifier` and `FieldValue::String`. This custom
+implementation was incomplete and out of date compared to the default
+`EntityResolver` implementation.
+
+## Resolution
+
+Removed the custom `PanelEntityType::resolve_field_value` implementation entirely.
+The default `EntityResolver` implementation correctly handles:
+
+- `FieldValue::EntityIdentifier` through `resolve_next_field_value`
+- `FieldValue::String` (both bare and prefixed UUIDs) through `resolve_string` → `resolve_uuid_string`
+- `FieldValue::NonNilUuid` through `contains_uuid`
+
+Both failing tests now pass:
+
+- `resolve_field_value_entity_identifier`
+- `resolve_field_value_prefixed_uuid_string`
+
+## Verification
+
+All entity resolution tests pass, confirming that PanelEntityType now uses the
+standard EntityResolver path and works consistently with other entity types.

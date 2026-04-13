@@ -1,9 +1,10 @@
 # Cosplay America Schedule - Work Item
 
-Updated on: Mon Apr 13 02:51:51 2026
+Updated on: Mon Apr 13 03:07:35 2026
 
 ## Completed
 
+* [BUGFIX-044] `PanelEntityType::resolve_field_value` returns errors for `EntityIdentifier` and prefixed UUID string inputs even when the panel exists in storage.
 * [FEATURE-002] Set up the Cargo workspace root and create skeleton crates for all planned components.
 * [FEATURE-003] Implement the `#[derive(EntityFields)]` proc-macro in the `schedule-macro` crate.
 * [FEATURE-004] Implement the field trait hierarchy, universal `FieldValue` enum, `FieldSet` registry,
@@ -42,7 +43,7 @@ EdgeIndex (and any per-type cache) maintenance responsibility into each
 
 ## Summary of Open Items
 
-**Total open items:** 24
+**Total open items:** 23
 
 * **Meta / Project-Level**
   * [META-001] Meta work item tracking the full multi-phase redesign of the schedule system. (Blocked by [META-026], [META-027], [META-028], [META-029], [META-030], [META-031])
@@ -55,7 +56,6 @@ XLSX import/export. (Blocked by [META-026], [META-027])
   * [META-031] Phase tracker for peer-to-peer schedule synchronization and conflict resolution. (Blocked by [META-027])
 
 * **High Priority**
-  * [BUGFIX-044] `PanelEntityType::resolve_field_value` returns errors for `EntityIdentifier` and prefixed UUID string inputs even when the panel exists in storage.
   * [FEATURE-010] ([META-026]) Implement a command-based edit system with full undo/redo support.
 
 * **Medium Priority**
@@ -88,36 +88,6 @@ The following ID numbers are available for new items:
 **Available:** 045, 046, 047, 048, 049, 050, 051, 052, 053, 054
 
 **Highest used:** 44
-
----
-
-## Open BUGFIX Items
-
-### [BUGFIX-044] Panel EntityResolver fails for EntityIdentifier and prefixed UUID string
-
-**Status:** Open
-
-**Priority:** High
-
-**Summary:** `PanelEntityType::resolve_field_value` returns errors for `EntityIdentifier` and prefixed UUID string inputs even when the panel exists in storage.
-
-**Description:** Two tests in `entity::tests` (mod.rs) fail:
-
-* `resolve_field_value_entity_identifier` — `Err(Empty)` when resolving
-  `FieldValue::EntityIdentifier(EntityUUID::Panel(panel_id))`
-* `resolve_field_value_prefixed_uuid_string` — assertion failure when resolving
-  `FieldValue::String("panel-<uuid>")`
-
-The equivalent presenter tests (`resolve_by_entity_identifier`,
-`resolve_by_prefixed_uuid_string`, `resolve_by_bare_uuid_string`,
-`resolve_by_non_nil_uuid`) all pass because `PresenterEntityType` has a custom
-`resolve_string` that calls `resolve_uuid_string` correctly.
-
-Panel uses the default macro-generated `EntityResolver` impl. The `contains_uuid`
-check in `resolve_next_field_value` (for `EntityIdentifier`) and `resolve_uuid_string`
-(for prefixed strings) fails to find the panel even though `PanelBuilder::build`
-successfully inserted it. Likely root cause is in `PanelEntityType`'s `TypedStorage`
-dispatch or `EntityMap::get` not finding the panel by its UUID-derived ID.
 
 ---
 
@@ -546,7 +516,7 @@ to exchange CRDT changes and reconcile concurrent edits to the same fields.
 
 ---
 
-[BUGFIX-044]: work-item/high/BUGFIX-044.md
+[BUGFIX-044]: work-item/done/BUGFIX-044.md
 [CLI-019]: work-item/low/CLI-019.md
 [CLI-020]: work-item/low/CLI-020.md
 [EDITOR-021]: work-item/low/EDITOR-021.md

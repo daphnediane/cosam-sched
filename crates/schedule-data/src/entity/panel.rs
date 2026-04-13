@@ -670,26 +670,6 @@ impl PanelEntityType {
 // ---------------------------------------------------------------------------
 
 impl PanelEntityType {
-    /// Resolve a FieldValue to a PanelId.
-    ///
-    /// Supports:
-    /// - `FieldValue::NonNilUuid(u)` -> lookup by UUID
-    pub fn resolve_field_value(
-        storage: &crate::schedule::EntityStorage,
-        value: crate::field::FieldValue,
-    ) -> Result<PanelId, crate::schedule::LookupError> {
-        match value {
-            crate::field::FieldValue::NonNilUuid(uuid) => {
-                if storage.panels.contains_key(PanelId::from_uuid(uuid)) {
-                    Ok(PanelId::from_uuid(uuid))
-                } else {
-                    Err(crate::schedule::LookupError::UuidNotFound(uuid.into()))
-                }
-            }
-            _ => Err(crate::schedule::LookupError::Empty),
-        }
-    }
-
     /// Add presenters to a panel (append mode, avoiding duplicates).
     ///
     /// Returns the number of presenters successfully added.
