@@ -13,7 +13,6 @@ pub mod types;
 pub mod update_logic;
 pub mod validation;
 
-use std::collections::HashMap;
 use std::fmt;
 
 // Re-export core field types
@@ -26,6 +25,8 @@ pub use validation::*;
 
 use uuid::NonNilUuid;
 
+use crate::entity::EntityUUID;
+
 /// Universal field value type for generic operations
 #[derive(Debug, Clone, PartialEq)]
 pub enum FieldValue {
@@ -36,45 +37,74 @@ pub enum FieldValue {
     DateTime(chrono::NaiveDateTime),
     Duration(chrono::Duration),
     List(Vec<FieldValue>),
-    Map(HashMap<String, FieldValue>),
-    OptionalString(Option<String>),
-    OptionalInteger(Option<i64>),
-    OptionalFloat(Option<f64>),
-    OptionalBoolean(Option<bool>),
-    OptionalDateTime(Option<chrono::NaiveDateTime>),
-    OptionalDuration(Option<chrono::Duration>),
+    /// Generic optional wrapper - allows nesting (e.g., Optional(Some(String("foo"))))
+    Optional(Option<Box<FieldValue>>),
     NonNilUuid(NonNilUuid),
-    PanelIdentifier(crate::entity::PanelId),
-    PanelTypeIdentifier(crate::entity::PanelTypeId),
-    EventRoomIdentifier(crate::entity::EventRoomId),
-    HotelRoomIdentifier(crate::entity::HotelRoomId),
-    PresenterIdentifier(crate::entity::PresenterId),
+    /// Generic entity identifier for any entity type.
+    /// Use `EntityUUID::to_typed_id()` to extract a specific typed ID.
+    EntityIdentifier(EntityUUID),
+}
+
+impl From<Option<String>> for FieldValue {
+    fn from(opt: Option<String>) -> Self {
+        Self::Optional(opt.map(|s| Box::new(Self::String(s))))
+    }
+}
+
+impl From<Option<i64>> for FieldValue {
+    fn from(opt: Option<i64>) -> Self {
+        Self::Optional(opt.map(|i| Box::new(Self::Integer(i))))
+    }
+}
+
+impl From<Option<f64>> for FieldValue {
+    fn from(opt: Option<f64>) -> Self {
+        Self::Optional(opt.map(|f| Box::new(Self::Float(f))))
+    }
+}
+
+impl From<Option<bool>> for FieldValue {
+    fn from(opt: Option<bool>) -> Self {
+        Self::Optional(opt.map(|b| Box::new(Self::Boolean(b))))
+    }
+}
+
+impl From<Option<chrono::NaiveDateTime>> for FieldValue {
+    fn from(opt: Option<chrono::NaiveDateTime>) -> Self {
+        Self::Optional(opt.map(|dt| Box::new(Self::DateTime(dt))))
+    }
+}
+
+impl From<Option<chrono::Duration>> for FieldValue {
+    fn from(opt: Option<chrono::Duration>) -> Self {
+        Self::Optional(opt.map(|d| Box::new(Self::Duration(d))))
+    }
 }
 
 impl FieldValue {
-    /// Create a FieldValue::List of PanelIdentifier from a `Vec<PanelId>`.
+    /// Create a FieldValue::List of EntityIdentifier from a `Vec<PanelId>`.
     pub fn panel_list(ids: Vec<crate::entity::PanelId>) -> Self {
-        Self::List(ids.into_iter().map(Self::PanelIdentifier).collect())
+        Self::List(ids.into_iter().map(|id| Self::EntityIdentifier(EntityUUID::Panel(id))).collect())
     }
 
-    /// Create a FieldValue::List of PanelTypeIdentifier from a `Vec<PanelTypeId>`.
+    /// Create a FieldValue::List of EntityIdentifier from a `Vec<PanelTypeId>`.
     pub fn panel_type_list(ids: Vec<crate::entity::PanelTypeId>) -> Self {
-        Self::List(ids.into_iter().map(Self::PanelTypeIdentifier).collect())
+        Self::List(ids.into_iter().map(|id| Self::EntityIdentifier(EntityUUID::PanelType(id))).collect())
     }
 
-    /// Create a FieldValue::List of EventRoomIdentifier from a `Vec<EventRoomId>`.
+    /// Create a FieldValue::List of EntityIdentifier from a `Vec<EventRoomId>`.
     pub fn event_room_list(ids: Vec<crate::entity::EventRoomId>) -> Self {
-        Self::List(ids.into_iter().map(Self::EventRoomIdentifier).collect())
+        Self::List(ids.into_iter().map(|id| Self::EntityIdentifier(EntityUUID::EventRoom(id))).collect())
     }
 
-    /// Create a FieldValue::List of HotelRoomIdentifier from a `Vec<HotelRoomId>`.
+    /// Create a FieldValue::List of EntityIdentifier from a `Vec<HotelRoomId>`.
     pub fn hotel_room_list(ids: Vec<crate::entity::HotelRoomId>) -> Self {
-        Self::List(ids.into_iter().map(Self::HotelRoomIdentifier).collect())
+        Self::List(ids.into_iter().map(|id| Self::EntityIdentifier(EntityUUID::HotelRoom(id))).collect())
     }
 
-    /// Create a FieldValue::List of PresenterIdentifier from a `Vec<PresenterId>`.
+    /// Create a FieldValue::List of EntityIdentifier from a `Vec<PresenterId>`.
     pub fn presenter_list(ids: Vec<crate::entity::PresenterId>) -> Self {
-        Self::List(ids.into_iter().map(Self::PresenterIdentifier).collect())
+        Self::List(ids.into_iter().map(|id| Self::EntityIdentifier(EntityUUID::Presenter(id))).collect())
     }
 
     /// Convert FieldValue to bool.
@@ -110,46 +140,12 @@ impl fmt::Display for FieldValue {
                 }
                 write!(f, "]")
             }
-            FieldValue::Map(map) => {
-                write!(f, "{{")?;
-                for (i, (key, value)) in map.iter().enumerate() {
-                    if i > 0 {
-                        write!(f, ", ")?;
-                    }
-                    write!(f, "{}: {}", key, value)?;
-                }
-                write!(f, "}}")
-            }
-            FieldValue::OptionalString(opt_s) => match opt_s {
-                Some(s) => write!(f, "{}", s),
-                None => write!(f, "null"),
-            },
-            FieldValue::OptionalInteger(opt_i) => match opt_i {
-                Some(i) => write!(f, "{}", i),
-                None => write!(f, "null"),
-            },
-            FieldValue::OptionalFloat(opt_f) => match opt_f {
-                Some(fl) => write!(f, "{}", fl),
-                None => write!(f, "null"),
-            },
-            FieldValue::OptionalBoolean(opt_b) => match opt_b {
-                Some(b) => write!(f, "{}", b),
-                None => write!(f, "null"),
-            },
-            FieldValue::OptionalDateTime(opt_dt) => match opt_dt {
-                Some(dt) => write!(f, "{}", dt),
-                None => write!(f, "null"),
-            },
-            FieldValue::OptionalDuration(opt_d) => match opt_d {
-                Some(d) => write!(f, "{}m", d.num_minutes()),
+            FieldValue::Optional(opt) => match opt {
+                Some(inner) => write!(f, "{}", inner),
                 None => write!(f, "null"),
             },
             FieldValue::NonNilUuid(uuid) => write!(f, "{}", uuid),
-            FieldValue::PanelIdentifier(id) => write!(f, "{}", id),
-            FieldValue::PanelTypeIdentifier(id) => write!(f, "{}", id),
-            FieldValue::EventRoomIdentifier(id) => write!(f, "{}", id),
-            FieldValue::HotelRoomIdentifier(id) => write!(f, "{}", id),
-            FieldValue::PresenterIdentifier(id) => write!(f, "{}", id),
+            FieldValue::EntityIdentifier(euuid) => write!(f, "{:?}", euuid),
         }
     }
 }

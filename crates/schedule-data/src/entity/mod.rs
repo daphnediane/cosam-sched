@@ -173,13 +173,73 @@ pub trait EntityType: 'static + Send + Sync + fmt::Debug {
     {
     }
 
-    /// Resolve a FieldValue to an entity ID.
+    /// Process a single FieldValue, returning resolved IDs and additional work items.
     ///
-    /// Default implementation handles:
-    /// - `FieldValue::NonNilUuid` -> direct UUID lookup
-    /// - `FieldValue::String` -> delegates to `resolve_string`
+    /// For container types (List, Optional), returns empty IDs and the contents for processing.
+    /// For scalar types (String, NonNilUuid, EntityIdentifier), resolves to IDs.
     ///
-    /// Override `resolve_string` for entity-specific resolution logic (e.g., PresenterEntityType::lookup_tagged).
+    /// Supports comma-splitting in strings for spreadsheet-style list values.
+    fn resolve_next_field_value(
+        storage: &mut crate::schedule::EntityStorage,
+        value: crate::field::FieldValue,
+    ) -> Result<(Vec<Self::Id>, Vec<crate::field::FieldValue>), crate::field::FieldError>
+    where
+        Self: Sized + crate::schedule::TypedStorage,
+    {
+        use crate::field::validation::ConversionError;
+        use crate::field::FieldValue;
+
+        match value {
+            // Container types: return contents as work items, no IDs yet
+            FieldValue::List(items) => Ok((Vec::new(), items)),
+            FieldValue::Optional(opt) => {
+                let work = opt.map(|b| vec![*b]).unwrap_or_default();
+                Ok((Vec::new(), work))
+            }
+
+            // Scalar types: resolve directly
+            FieldValue::NonNilUuid(uuid) => {
+                if Self::contains_uuid(storage, uuid) {
+                    Ok((vec![Self::Id::from_uuid(uuid)], Vec::new()))
+                } else {
+                    Err(crate::field::FieldError::ConversionError(
+                        ConversionError::InvalidFormat,
+                    ))
+                }
+            }
+            FieldValue::String(s) => {
+                // Check for comma-separated values (spreadsheet-style)
+                if s.contains(',') {
+                    let items: Vec<FieldValue> = s
+                        .split(',')
+                        .map(|part| FieldValue::String(part.trim().to_string()))
+                        .collect();
+                    Ok((Vec::new(), items))
+                } else {
+                    let id = Self::resolve_string(storage, &s)?;
+                    Ok((vec![id], Vec::new()))
+                }
+            }
+            FieldValue::EntityIdentifier(euuid) => {
+                let id = euuid
+                    .to_typed_id::<Self::Id>()
+                    .filter(|id| Self::contains_uuid(storage, id.non_nil_uuid()))
+                    .ok_or_else(|| {
+                        crate::field::FieldError::ConversionError(ConversionError::InvalidFormat)
+                    })?;
+                Ok((vec![id], Vec::new()))
+            }
+
+            // Unsupported types
+            _ => Err(crate::field::FieldError::ConversionError(
+                ConversionError::UnsupportedType,
+            )),
+        }
+    }
+
+    /// Resolve a FieldValue to a single entity ID.
+    ///
+    /// Errors if the value expands to multiple IDs (e.g., a List or comma-separated string).
     fn resolve_field_value(
         storage: &mut crate::schedule::EntityStorage,
         value: crate::field::FieldValue,
@@ -187,21 +247,51 @@ pub trait EntityType: 'static + Send + Sync + fmt::Debug {
     where
         Self: Sized + crate::schedule::TypedStorage,
     {
-        match value {
-            crate::field::FieldValue::NonNilUuid(uuid) => {
-                if Self::contains_uuid(storage, uuid) {
-                    Ok(Self::Id::from_uuid(uuid))
-                } else {
-                    Err(crate::field::FieldError::ConversionError(
-                        crate::field::validation::ConversionError::InvalidFormat,
-                    ))
+        use crate::field::validation::ConversionError;
+
+        let mut work_queue = vec![value];
+        let mut result: Option<Self::Id> = None;
+
+        while let Some(item) = work_queue.pop() {
+            let (ids, new_work) = Self::resolve_next_field_value(storage, item)?;
+            work_queue.extend(new_work);
+
+            for id in ids {
+                if result.is_some() {
+                    return Err(crate::field::FieldError::ConversionError(
+                        ConversionError::InvalidFormat,
+                    ));
                 }
+                result = Some(id);
             }
-            crate::field::FieldValue::String(s) => Self::resolve_string(storage, &s),
-            _ => Err(crate::field::FieldError::ConversionError(
-                crate::field::validation::ConversionError::UnsupportedType,
-            )),
         }
+
+        result.ok_or_else(|| {
+            crate::field::FieldError::ConversionError(ConversionError::InvalidFormat)
+        })
+    }
+
+    /// Resolve a FieldValue to multiple entity IDs.
+    ///
+    /// Iteratively processes the value, collecting all resolved IDs.
+    /// Supports nested Lists, Optionals, and comma-separated strings.
+    fn resolve_field_values(
+        storage: &mut crate::schedule::EntityStorage,
+        value: crate::field::FieldValue,
+    ) -> Result<Vec<Self::Id>, crate::field::FieldError>
+    where
+        Self: Sized + crate::schedule::TypedStorage,
+    {
+        let mut work_queue = vec![value];
+        let mut results = Vec::new();
+
+        while let Some(item) = work_queue.pop() {
+            let (ids, new_work) = Self::resolve_next_field_value(storage, item)?;
+            work_queue.extend(new_work);
+            results.extend(ids);
+        }
+
+        Ok(results)
     }
 
     /// Resolve a string to an entity ID.
@@ -362,6 +452,28 @@ impl EntityUUID {
             EntityUUID::Panel(_) => EntityKind::Panel,
             EntityUUID::PanelType(_) => EntityKind::PanelType,
             EntityUUID::Presenter(_) => EntityKind::Presenter,
+        }
+    }
+
+    /// Convert to a typed ID if the entity kind matches.
+    ///
+    /// Returns `Some(id)` if `T`'s entity kind matches this `EntityUUID`'s kind,
+    /// otherwise returns `None`.
+    ///
+    /// # Example
+    /// ```
+    /// let euuid = EntityUUID::Panel(panel_id);
+    /// let maybe_panel: Option<PanelId> = euuid.to_typed_id();
+    /// assert!(maybe_panel.is_some());
+    ///
+    /// let maybe_presenter: Option<PresenterId> = euuid.to_typed_id();
+    /// assert!(maybe_presenter.is_none());
+    /// ```
+    pub fn to_typed_id<T: TypedId>(&self) -> Option<T> {
+        if self.kind() == T::kind() {
+            Some(T::from_uuid(self.non_nil_uuid()))
+        } else {
+            None
         }
     }
 }

@@ -897,29 +897,24 @@ fn generate_direct_field(
                 Some(crate::field::FieldValue::List(entity.#field_name.iter().map(|x| crate::field::FieldValue::Integer(*x as i64)).collect()))
             }
         }
-        FieldTypeCategory::Map => {
+        FieldTypeCategory::Optional(inner) => {
+            let inner_quote = match inner.as_ref() {
+                FieldTypeCategory::String => quote! {
+                    crate::field::FieldValue::String(v.clone())
+                },
+                FieldTypeCategory::Integer => quote! {
+                    crate::field::FieldValue::Integer(*v)
+                },
+                FieldTypeCategory::Boolean => quote! {
+                    crate::field::FieldValue::Boolean(*v)
+                },
+                FieldTypeCategory::NonNilUuid => quote! {
+                    crate::field::FieldValue::NonNilUuid(*v)
+                },
+                _ => panic!("Unsupported optional inner type"),
+            };
             quote! {
-                Some(crate::field::FieldValue::Map(entity.#field_name.clone()))
-            }
-        }
-        FieldTypeCategory::OptionalString => {
-            quote! {
-                Some(crate::field::FieldValue::OptionalString(entity.#field_name.clone()))
-            }
-        }
-        FieldTypeCategory::OptionalInteger => {
-            quote! {
-                Some(crate::field::FieldValue::OptionalInteger(entity.#field_name))
-            }
-        }
-        FieldTypeCategory::OptionalBoolean => {
-            quote! {
-                Some(crate::field::FieldValue::OptionalBoolean(entity.#field_name))
-            }
-        }
-        FieldTypeCategory::OptionalList => {
-            quote! {
-                entity.#field_name.as_ref().map(|list| crate::field::FieldValue::List(list.iter().map(|x| crate::field::FieldValue::Integer(*x as i64)).collect()))
+                entity.#field_name.as_ref().map(|v| crate::field::FieldValue::Optional(Some(Box::new(#inner_quote))))
             }
         }
         FieldTypeCategory::NonNilUuid => {
@@ -977,52 +972,39 @@ fn generate_direct_field(
                     }
                 }
             }
-            FieldTypeCategory::OptionalString => {
+            FieldTypeCategory::Optional(inner) => {
+                let (extract, assign) = match inner.as_ref() {
+                    FieldTypeCategory::String => (
+                        quote! { if let crate::field::FieldValue::String(v) = inner.as_ref() { Some(v.clone()) } else { None } },
+                        quote! { entity.#field_name = inner_val; },
+                    ),
+                    FieldTypeCategory::Integer => (
+                        quote! { if let crate::field::FieldValue::Integer(v) = inner.as_ref() { Some(*v) } else { None } },
+                        quote! { entity.#field_name = inner_val; },
+                    ),
+                    FieldTypeCategory::Boolean => (
+                        quote! { if let crate::field::FieldValue::Boolean(v) = inner.as_ref() { Some(*v) } else { None } },
+                        quote! { entity.#field_name = inner_val; },
+                    ),
+                    FieldTypeCategory::NonNilUuid => (
+                        quote! { if let crate::field::FieldValue::NonNilUuid(v) = inner.as_ref() { Some(*v) } else { None } },
+                        quote! { entity.#field_name = inner_val; },
+                    ),
+                    _ => panic!("Unsupported optional inner type for write"),
+                };
                 quote! {
-                    if let crate::field::FieldValue::OptionalString(v) = value {
-                        entity.#field_name = v;
-                        Ok(())
-                    } else {
-                        Err(crate::field::FieldError::ConversionError(crate::field::validation::ConversionError::InvalidFormat))
-                    }
-                }
-            }
-            FieldTypeCategory::OptionalInteger => {
-                quote! {
-                    if let crate::field::FieldValue::OptionalInteger(v) = value {
-                        entity.#field_name = v;
-                        Ok(())
-                    } else {
-                        Err(crate::field::FieldError::ConversionError(crate::field::validation::ConversionError::InvalidFormat))
-                    }
-                }
-            }
-            FieldTypeCategory::Map => {
-                quote! {
-                    Err(crate::field::FieldError::ConversionError(crate::field::validation::ConversionError::InvalidFormat))
-                }
-            }
-            FieldTypeCategory::OptionalBoolean => {
-                quote! {
-                    if let crate::field::FieldValue::OptionalBoolean(v) = value {
-                        entity.#field_name = v;
-                        Ok(())
-                    } else {
-                        Err(crate::field::FieldError::ConversionError(crate::field::validation::ConversionError::InvalidFormat))
-                    }
-                }
-            }
-            FieldTypeCategory::OptionalList => {
-                quote! {
-                    if let crate::field::FieldValue::List(v) = value {
-                        entity.#field_name = Some(v.iter().filter_map(|x| {
-                            if let crate::field::FieldValue::Integer(i) = x {
-                                Some(*i as u64)
+                    if let crate::field::FieldValue::Optional(opt) = value {
+                        if let Some(inner) = opt {
+                            if let Some(inner_val) = #extract {
+                                #assign
+                                Ok(())
                             } else {
-                                None
+                                Err(crate::field::FieldError::ConversionError(crate::field::validation::ConversionError::InvalidFormat))
                             }
-                        }).collect());
-                        Ok(())
+                        } else {
+                            entity.#field_name = None;
+                            Ok(())
+                        }
                     } else {
                         Err(crate::field::FieldError::ConversionError(crate::field::validation::ConversionError::InvalidFormat))
                     }
@@ -1091,7 +1073,7 @@ fn generate_direct_field(
         } else {
             // Generate default matching logic based on field type
             match get_field_type_category(field_type) {
-                FieldTypeCategory::String | FieldTypeCategory::OptionalString => {
+                FieldTypeCategory::String => {
                     quote! {
                         if query.is_empty() {
                             None
@@ -1125,9 +1107,7 @@ fn generate_direct_field(
                         }
                     }
                 }
-                FieldTypeCategory::Integer
-                | FieldTypeCategory::OptionalInteger
-                | FieldTypeCategory::NonNilUuid => {
+                FieldTypeCategory::Integer | FieldTypeCategory::NonNilUuid => {
                     quote! {
                         if query.is_empty() {
                             None
@@ -1156,7 +1136,7 @@ fn generate_direct_field(
                         }
                     }
                 }
-                FieldTypeCategory::Boolean | FieldTypeCategory::OptionalBoolean => {
+                FieldTypeCategory::Boolean => {
                     quote! {
                         if query.is_empty() {
                             None
@@ -1175,19 +1155,9 @@ fn generate_direct_field(
                         }
                     }
                 }
-                FieldTypeCategory::List => {
+                FieldTypeCategory::List | FieldTypeCategory::Optional(_) => {
                     quote! {
-                        None // List fields are not indexable
-                    }
-                }
-                FieldTypeCategory::OptionalList => {
-                    quote! {
-                        None // OptionalList fields are not indexable
-                    }
-                }
-                FieldTypeCategory::Map => {
-                    quote! {
-                        None // Map fields are not indexable
+                        None // List and Optional fields are not directly indexable
                     }
                 }
             }
@@ -1551,12 +1521,9 @@ enum FieldTypeCategory {
     Integer,
     Boolean,
     List,
-    Map,
     NonNilUuid,
-    OptionalString,
-    OptionalInteger,
-    OptionalBoolean,
-    OptionalList,
+    /// Generic optional wrapping any inner type category
+    Optional(Box<FieldTypeCategory>),
 }
 
 fn get_field_type_category(ty: &Type) -> FieldTypeCategory {
@@ -1586,29 +1553,6 @@ fn get_field_type_category(ty: &Type) -> FieldTypeCategory {
                 } else {
                     panic!("Vec without angle bracketed arguments")
                 }
-            } else if ident == "HashMap" {
-                // Check if it's HashMap<String, FieldValue>
-                if let PathArguments::AngleBracketed(angle_bracketed) = &segment.arguments {
-                    if angle_bracketed.args.len() == 2 {
-                        if let (
-                            Some(GenericArgument::Type(Type::Path(key_path))),
-                            Some(GenericArgument::Type(Type::Path(value_path))),
-                        ) = (
-                            angle_bracketed.args.first(),
-                            angle_bracketed.args.iter().nth(1),
-                        ) {
-                            if let (Some(key_seg), Some(val_seg)) = (
-                                key_path.path.segments.last(),
-                                value_path.path.segments.last(),
-                            ) {
-                                if key_seg.ident == "String" && val_seg.ident == "FieldValue" {
-                                    return FieldTypeCategory::Map;
-                                }
-                            }
-                        }
-                    }
-                }
-                panic!("HashMap must be HashMap<String, FieldValue>")
             } else if ident == "NonNilUuid" {
                 FieldTypeCategory::NonNilUuid
             } else if ident == "PresenterRank" {
@@ -1616,12 +1560,13 @@ fn get_field_type_category(ty: &Type) -> FieldTypeCategory {
             } else if ident == "Option" {
                 if let PathArguments::AngleBracketed(angle_bracketed) = &segment.arguments {
                     if let Some(GenericArgument::Type(inner_type)) = angle_bracketed.args.first() {
-                        match get_field_type_category(inner_type) {
-                            FieldTypeCategory::String => FieldTypeCategory::OptionalString,
-                            FieldTypeCategory::Integer => FieldTypeCategory::OptionalInteger,
-                            FieldTypeCategory::Boolean => FieldTypeCategory::OptionalBoolean,
-                            FieldTypeCategory::List => FieldTypeCategory::OptionalList,
-                            _ => panic!("Unsupported optional field type"),
+                        let inner = get_field_type_category(inner_type);
+                        // Only allow Option<String>, Option<i64>, etc. - scalar types
+                        match inner {
+                            FieldTypeCategory::String | FieldTypeCategory::Integer | FieldTypeCategory::Boolean | FieldTypeCategory::NonNilUuid => {
+                                FieldTypeCategory::Optional(Box::new(inner))
+                            }
+                            _ => panic!("Unsupported optional field type: only scalar types allowed in Option"),
                         }
                     } else {
                         panic!("Option without inner type")
@@ -1702,18 +1647,13 @@ fn generate_typed_id(
 
             /// Convert a FieldValue to a Vec of this typed ID.
             ///
-            /// Handles single values or lists, delegating to from_field_value for each element.
+            /// Iteratively processes the value, supporting nested Lists,
+            /// Optionals, and comma-separated strings.
             pub fn from_field_values(
                 value: crate::field::FieldValue,
                 schedule: &mut crate::schedule::Schedule,
             ) -> Result<Vec<Self>, crate::field::FieldError> {
-                match value {
-                    crate::field::FieldValue::List(items) => items
-                        .into_iter()
-                        .map(|item| Self::from_field_value(item, schedule))
-                        .collect(),
-                    single => Ok(vec![Self::from_field_value(single, schedule)?]),
-                }
+                <#entity_type_struct_name as crate::entity::EntityType>::resolve_field_values(&mut schedule.entities, value)
             }
         }
 

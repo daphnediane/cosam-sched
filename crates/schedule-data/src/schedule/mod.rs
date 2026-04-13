@@ -36,7 +36,7 @@ pub enum LookupError {
     /// case-insensitive match was found. Auto-create is not performed
     /// at this layer; use a tagged string to create new presenters.
     NameNotFound(String),
-    /// The tag prefix character was not a recognised rank flag.
+    /// The tag prefix character was not a recognized rank flag.
     UnknownTag(char),
     /// The rest after the tag was "Other", a column-header sentinel.
     OtherSentinel,

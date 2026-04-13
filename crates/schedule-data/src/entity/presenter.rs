@@ -594,7 +594,7 @@ impl PresenterEntityType {
     /// Supports:
     /// - `FieldValue::NonNilUuid(u)` -> lookup by UUID
     /// - `FieldValue::String(s)` -> treat as tagged string (e.g., "G:Alice", "presenter-`<uuid>`")
-    /// - `FieldValue::OptionalString(Some(s))` -> same as String
+    /// - `FieldValue::Optional(Some(String(s)))` -> same as String
     pub fn resolve_field_value(
         storage: &mut crate::schedule::EntityStorage,
         value: crate::field::FieldValue,
@@ -611,7 +611,17 @@ impl PresenterEntityType {
                 }
             }
             crate::field::FieldValue::String(s) => Self::lookup_tagged(storage, &s),
-            crate::field::FieldValue::OptionalString(Some(s)) => Self::lookup_tagged(storage, &s),
+            crate::field::FieldValue::Optional(opt) => {
+                if let Some(inner) = opt {
+                    if let crate::field::FieldValue::String(s) = inner.as_ref() {
+                        Self::lookup_tagged(storage, s)
+                    } else {
+                        Err(crate::schedule::LookupError::Empty)
+                    }
+                } else {
+                    Err(crate::schedule::LookupError::Empty)
+                }
+            }
             _ => Err(crate::schedule::LookupError::Empty),
         }
     }
