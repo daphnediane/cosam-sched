@@ -27,4 +27,3 @@ the new workspace. This is the largest and most foundational phase.
 - FEATURE-008: Schedule container and EntityStorage
 - FEATURE-034: Schedule method delegation to entity types
 - FEATURE-009: Query system
-- FEATURE-010: Edit command system with undo/redo history

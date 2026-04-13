@@ -24,6 +24,7 @@ editing and eventual merge without a central server.
 
 ## Work Items
 
+- FEATURE-010: Edit command system with undo/redo history
 - FEATURE-011: CRDT abstraction layer design
 - FEATURE-012: CRDT-backed entity storage
 - FEATURE-013: Change tracking and merge operations

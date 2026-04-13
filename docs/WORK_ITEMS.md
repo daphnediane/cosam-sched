@@ -56,7 +56,7 @@ XLSX import/export. (Blocked by [META-026], [META-027])
   * [META-031] Phase tracker for peer-to-peer schedule synchronization and conflict resolution. (Blocked by [META-027])
 
 * **High Priority**
-  * [FEATURE-010] ([META-026]) Implement a command-based edit system with full undo/redo support.
+  * [FEATURE-010] ([META-027]) Implement a command-based edit system with full undo/redo support.
 
 * **Medium Priority**
   * [FEATURE-009] ([META-026]) Implement field-based search, matching, and bulk update operations.
@@ -164,7 +164,7 @@ application structure.
 
 **Summary:** Implement a command-based edit system with full undo/redo support.
 
-**Part of:** [META-026]
+**Part of:** [META-027]
 
 **Description:** All mutations to the schedule go through an edit command system that captures
 changes as reversible operations, enabling undo/redo in both CLI and GUI contexts.
@@ -402,7 +402,6 @@ the new workspace. This is the largest and most foundational phase.
 * FEATURE-008: Schedule container and EntityStorage
 * FEATURE-034: Schedule method delegation to entity types
 * FEATURE-009: Query system
-* FEATURE-010: Edit command system with undo/redo history
 
 ---
 
@@ -422,6 +421,7 @@ editing and eventual merge without a central server.
 
 **Work Items:**
 
+* FEATURE-010: Edit command system with undo/redo history
 * FEATURE-011: CRDT abstraction layer design
 * FEATURE-012: CRDT-backed entity storage
 * FEATURE-013: Change tracking and merge operations
