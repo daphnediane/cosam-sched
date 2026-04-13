@@ -9,6 +9,7 @@ globs: docs/work-item/**/*.md,docs/WORK_ITEMS.md
 
 Work items are in `docs/work-item/` as `<PREFIX>-<###>.md` files, automatically organized into subdirectories:
 
+- **new/** - Placeholder stubs not yet ready to work (auto-created by `--create`)
 - **done/** - Completed items
 - **rejected/** - Superseded or Rejected items
 - **meta/** - Meta/project-level items (META prefix, any priority)
@@ -33,42 +34,39 @@ Work items are in `docs/work-item/` as `<PREFIX>-<###>.md` files, automatically 
 - **TEST** - Test additions
 - **IDEA** - Open design questions, unexplored alternatives, deferred ideas (always in idea/)
 
-### File Template
+### Statuses
 
-```markdown
-# Brief title
+- **Placeholder** - Newly created stub in `new/`; fill in and promote to Open
+- **Open** - Ready to be worked
+- **Not Started** - Acknowledged but not yet scheduled
+- **In Progress** - Actively being worked
+- **Blocked** - Waiting on another item (list in Blocked By section)
+- **Completed** - Done; moved to `done/`
+- **Superseded** - Replaced by another item; moved to `rejected/`
+- **Rejected** - Will not be done; moved to `rejected/`
 
-## Summary
-One-line summary
+### Templates
 
-## Status
-Open | In Progress | Completed | Blocked | Not Started | Superseded | Rejected
+Per-prefix templates are in `docs/work-item/template/`:
 
-## Priority
-High | Medium | Low
-
-## Blocked By (optional)
-- PREFIX-###: short description
-
-## Description
-[Detailed description]
-
-## Work Items (optional, META prefix only)
-- PREFIX-###: short description
-
-## Additional Sections (optional)
-- Steps to Fix (for bugs)
-- Implementation Details (for features)
-- Acceptance Criteria
-- Notes
-```
+- **`default-template.md`** - Used for any prefix without a specific template
+- **`BUGFIX-template.md`** - Adds How Found, Reproduction, Steps to Fix, Testing sections
+- **`META-template.md`** - Adds Work Items section; defaults to High priority
+- **`IDEA-template.md`** - Minimal; starts as Placeholder/Low
 
 ## Workflow
 
-1. Check `docs/WORK_ITEMS.md` "Next Available IDs" for the next free number
-2. Create `docs/work-item/<PREFIX>-<###>.md`; set status "Open" and priority
-3. Edit directly to update status as work progresses
-4. Run `perl scripts/combine-workitems.pl` to reorganize files and regenerate `docs/WORK_ITEMS.md` / `docs/FUTURE_IDEAS.md`
+1. Run `perl scripts/work-item-update.pl --create <PREFIX>` to create a properly
+   numbered placeholder file and print its path; edit the file to fill in details
+   and change status from `Placeholder` to `Open`
+   - Multiple tags: `--create FEATURE --create BUGFIX` or `--create FEATURE,BUGFIX`
+2. Edit the file directly to update status as work progresses
+3. Run `perl scripts/work-item-update.pl` to reorganize files and regenerate
+   `docs/WORK_ITEMS.md` / `docs/FUTURE_IDEAS.md`
+
+`Placeholder` status is for newly created stubs not yet ready to be worked; they
+live in `new/` until status is changed, then the tool moves them automatically
+the next time it is run.
 
 ## Documentation Updates
 

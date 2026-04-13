@@ -43,7 +43,7 @@ feat: Add work item tracking system [FEATURE-001]
 Implement a structured work item system for tracking tasks.
 
 - Add docs/work-item/ with per-item markdown files [META-001]
-- Add scripts/combine-workitems.pl to generate docs/WORK_ITEMS.md
+- Add scripts/work-item-update.pl to generate docs/WORK_ITEMS.md
 - Update .gitignore to preserve .windsurf/rules/
 
 Prompt:
