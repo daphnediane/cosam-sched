@@ -11,7 +11,7 @@ For each work item or phase/entity in a plan artifact:
 3. Add/update tests and run `cargo test`
 4. Update documentation (`docs/system-analysis.md`, `docs/field-system.md`, or subsystem docs as appropriate; also inline rust docs)
 5. Mark item/phase/entity as `Completed`
-6. Per `.windsurf/rules/track_work_item.md`, run `scripts/combine-workitems.pl` to update `docs/WORK_ITEMS.md` and reorganize work-item files
+6. Per `.windsurf/rules/track_work_item.md`, run `scripts/work-item-update.pl` to update `docs/WORK_ITEMS.md` and reorganize work-item files
 7. Follow `.windsurf/rules/prepare-comment.md`, create `next_commit.tmp`, if in doubt ask user for AI model.
 8. Run `git commit -F ./next_commit.tmp`
 9. State next step and wait for approval

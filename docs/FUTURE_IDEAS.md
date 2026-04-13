@@ -1,6 +1,6 @@
 # Future Ideas and Design Notes
 
-Updated on: Mon Apr 13 02:51:51 2026
+Updated on: Mon Apr 13 11:26:25 2026
 
 Open design questions, unexplored alternatives, and deferred ideas.
 An IDEA item can be promoted to a work item by renaming it to another prefix
@@ -103,14 +103,21 @@ The compiler enforces the distinction naturally — no boolean flag needed.
 
 ---
 
-## Next Available IDs
+## Closed Ideas
 
-IDs are shared with the main work item pool.
+* [IDEA-058] (Placeholder) One-line summary
+
+---
+
+## Placeholders
+
 Rename `IDEA-###.md` to another prefix to promote an idea.
 
-**Available:** 045, 046, 047, 048, 049, 050, 051, 052, 053, 054
+Stub ideas in `docs/work-item/new/` awaiting details:
 
-**Highest used:** 44
+* [IDEA-058] One-line summary
+
+Use `perl scripts/work-item-update.pl --create IDEA` to add new stubs.
 
 ---
 
@@ -118,3 +125,4 @@ Rename `IDEA-###.md` to another prefix to promote an idea.
 [IDEA-039]: work-item/idea/IDEA-039.md
 [IDEA-040]: work-item/idea/IDEA-040.md
 [IDEA-043]: work-item/idea/IDEA-043.md
+[IDEA-058]: work-item/new/IDEA-058.md

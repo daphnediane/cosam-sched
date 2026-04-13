@@ -13,6 +13,7 @@ use File::Copy qw(move);
 use FindBin;
 use File::Spec;
 use File::Path qw(make_path);
+use Getopt::Long qw(GetOptions);
 
 # Get script directory and project root
 my $script_dir = $FindBin::Bin;
@@ -22,6 +23,31 @@ my $root_dir   = "$script_dir/..";
 my $workitem_dir      = "$root_dir/docs/work-item";
 my $output_file       = "$root_dir/docs/WORK_ITEMS.md";
 my $ideas_output_file = "$root_dir/docs/FUTURE_IDEAS.md";
+
+# Parse command-line options
+my @create_tags;
+GetOptions( 'create=s' => \@create_tags )
+    or die "Usage: $0 [--create PREFIX] [--create PREFIX] ...\n";
+
+# Expand comma-separated tags (--create FEATURE,BUGFIX is also allowed)
+@create_tags = map { split /,/, $_ } @create_tags;
+
+# All known valid prefixes for --create validation
+my %known_prefixes = map { $_ => 1 } qw(
+    META FEATURE BUGFIX UI EDITOR CLI DEPLOY CLEANUP
+    PERFORMANCE DOCS REFACTOR TEST IDEA
+);
+
+# Validate tags before doing anything else
+if ( @create_tags ) {
+    my @unknown = grep { !$known_prefixes{ uc $_ } } @create_tags;
+    if ( @unknown ) {
+        my @sorted = sort keys %known_prefixes;
+        print STDERR "Unknown prefix(es): " . join( ', ', map { uc $_ } @unknown ) . "\n";
+        print STDERR "Supported prefixes: " . join( ', ', @sorted ) . "\n";
+        exit 1;
+    }
+}
 
 # Track newest modification time for "Updated on" line
 my $newest_mtime = ( stat( $0 ) )[ 9 ];    # Start with script's own mtime
@@ -44,6 +70,7 @@ my %status_dirs = (
     'Completed'   => 'done',
     'Superseded'  => 'rejected',
     'Rejected'    => 'rejected',
+    'Placeholder' => 'new',
     'In Progress' => \%priority_defaults,
     'Blocked'     => \%priority_defaults,
     'Not Started' => \%priority_defaults,
@@ -64,10 +91,18 @@ my %priority_order = (
     'Low'    => 3,
 );
 
+# Create placeholder work item files if --create was requested
+create_placeholders( @create_tags ) if @create_tags;
+
 # Read all work item files using recursive search
 my @files;
 find(
     sub {
+        # Skip the template directory entirely
+        if ( -d && $_ eq 'template' ) {
+            $File::Find::prune = 1;
+            return;
+        }
         return unless -f && /\.md$/;
 
         # Track newest modification time
@@ -311,18 +346,123 @@ else {
         . " ideas)\n";
 }
 
+sub create_placeholders {
+    my ( @tags ) = @_;
+
+    # Read all existing items to find the next available ID
+    my %used_ids;
+    find(
+        sub {
+            # Skip the template directory
+            if ( -d && $_ eq 'template' ) {
+                $File::Find::prune = 1;
+                return;
+            }
+            return unless -f && /\.md$/;
+            if ( /([A-Z]+)-0*(\d+)\.md$/ ) {
+                $used_ids{ int( $2 ) } = 1;
+            }
+        },
+        $workitem_dir
+    );
+
+    # Ensure the workitem directory exists
+    make_path( $workitem_dir ) unless -d $workitem_dir;
+
+    # Ensure subdirs exist
+    for my $dir ( qw(done rejected meta idea new high medium low) ) {
+        my $full_dir = "$workitem_dir/$dir";
+        make_path( $full_dir ) unless -d $full_dir;
+    }
+
+    my @created;
+    for my $tag ( @tags ) {
+        $tag = uc $tag;
+
+        # Find next available ID
+        my $next_id = 1;
+        $next_id++ while exists $used_ids{ $next_id };
+        $used_ids{ $next_id } = 1;    # Reserve it for subsequent tags
+
+        my $num_str  = sprintf( "%03d", $next_id );
+        my $filename = "$tag-$num_str.md";
+
+        # All placeholders start in new/ regardless of prefix
+        my $subdir = 'new';
+        my $target_path = "$workitem_dir/$subdir/$filename";
+
+        if ( -f $target_path ) {
+            print STDERR "WARNING: $target_path already exists, skipping\n";
+            next;
+        }
+
+        # Load template: prefer PREFIX-template.md, fall back to default-template.md
+        my $template_dir  = "$workitem_dir/template";
+        my $prefix_tmpl   = "$template_dir/$tag-template.md";
+        my $default_tmpl  = "$template_dir/default-template.md";
+        my $tmpl_file
+            = -f $prefix_tmpl  ? $prefix_tmpl
+            : -f $default_tmpl ? $default_tmpl
+            :                    undef;
+
+        my $content;
+        if ( $tmpl_file ) {
+            $content = do {
+                local $/;
+                open my $tfh, '<', $tmpl_file
+                    or die "Can't read template $tmpl_file: $!";
+                <$tfh>;
+            };
+            # Replace placeholder PREFIX-### in title line with actual ID
+            $content =~ s{^# [A-Z]+-###:}{# $tag-$num_str:}m;
+        }
+        else {
+            $content = <<"END_TEMPLATE";
+# $tag-$num_str: Brief title
+
+## Summary
+
+One-line summary
+
+## Status
+
+Placeholder
+
+## Priority
+
+Medium
+
+## Description
+
+[Detailed description]
+END_TEMPLATE
+        }
+
+        open my $fh, '>', $target_path
+            or die "Can't create $target_path: $!";
+        print $fh $content;
+        close $fh;
+
+        push @created, $target_path;
+        print STDERR "Created: $target_path\n";
+    } ## end for my $tag ( @tags )
+
+    # Print created filenames to STDOUT for easy capture
+    print "$_\n" for @created;
+} ## end sub create_placeholders
+
 sub reorganize_files {
     print STDERR "Reorganizing files to correct directories...\n";
 
     # Ensure target directories exist
-    for my $dir ( qw(done rejected meta idea high medium low) ) {
+    for my $dir ( qw(done rejected meta idea new high medium low) ) {
         my $full_dir = "$workitem_dir/$dir";
         unless ( -d $full_dir ) {
             make_path( $full_dir )
                 or die "Cannot create directory $full_dir: $!";
             print STDERR "Created directory: $full_dir\n";
         }
-    } ## end for my $dir ( qw(done rejected meta idea high medium low))
+    } ## end for my $dir ( qw(done rejected meta idea new high medium low))
 
     # Process each item and move if needed
     for my $item ( @items ) {
@@ -380,6 +520,7 @@ sub generate_work_item_content {
                $_->{ status } ne 'Completed'
             && $_->{ status } ne 'Superseded'
             && $_->{ status } ne 'Rejected'
+            && $_->{ status } ne 'Placeholder'
     } @items;
 
     # Collect all links for glossary
@@ -511,39 +652,28 @@ sub generate_work_item_content {
         $content .= "---\n\n";
     } ## end if ( @open )
 
-    # Add next available IDs section
-    $content .= "## Next Available IDs\n\n";
-    $content .= "The following ID numbers are available for new items:\n\n";
-
-    # Find max ID used across all items (including IDEA items — shared ID pool)
-    my $max_id = 0;
-    my %all_used_ids;
-    for my $item ( @$all_items_ref ) {
-        my $id = $item->{ num };
-
-        # Convert to integer for proper comparison
-        my $int_id = int( $id );
-        $all_used_ids{ $int_id } = 1;
-        $max_id = $int_id if $int_id > $max_id;
-    } ## end for my $item ( @items )
-
-    # Calculate how many IDs to show (at least 10 more than number of conflicts)
-    my $conflict_count = scalar( keys %conflicts );
-    my $min_count      = $conflict_count + 10;
-    my $count_to_show  = $min_count > 10 ? $min_count : 10;
-
-    # Find available IDs with zero padding
-    my @available;
-    my $check_id = 1;
-    while ( @available < $count_to_show ) {
-        if ( !exists $all_used_ids{ $check_id } ) {
-            push @available, sprintf( "%03d", $check_id );
+    # Add placeholder items section
+    my @placeholders = grep { $_->{ status } eq 'Placeholder' } @$all_items_ref;
+    @placeholders = grep { !$idea_prefixes{ $_->{ prefix } } } @placeholders;
+    $content .= "## Placeholders\n\n";
+    if ( @placeholders ) {
+        $content .= "Stub items in `docs/work-item/new/` awaiting details:\n\n";
+        for my $item (
+            sort {
+                       $a->{ prefix } cmp $b->{ prefix }
+                    || $a->{ num } <=> $b->{ num }
+            } @placeholders
+        ) {
+            my $link_id = "$item->{prefix}-$item->{num}";
+            $all_links{ $link_id } = get_relative_path( $item );
+            $content .= "* [$link_id] $item->{summary}\n";
         }
-        $check_id++;
-    } ## end while ( @available < $count_to_show)
-
-    $content .= "**Available:** " . join( ", ", @available ) . "\n\n";
-    $content .= "**Highest used:** $max_id\n\n";
+        $content .= "\n";
+    }
+    else {
+        $content .= "*No placeholders — all stubs have been promoted.*\n\n";
+    }
+    $content .= "Use `perl scripts/work-item-update.pl --create <PREFIX>` to add new stubs.\n\n";
     $content .= "---\n\n";
 
     # Add numbering conflicts section if any exist
@@ -681,7 +811,7 @@ sub generate_ideas_content {
 
     my %idea_links;
 
-    my @open_ideas   = grep { !is_closed_status( $_->{ status } ) } @ideas;
+    my @open_ideas   = grep { !is_closed_status( $_->{ status } ) && $_->{ status } ne 'Placeholder' } @ideas;
     my @closed_ideas = grep { is_closed_status( $_->{ status } ) } @ideas;
 
     if ( @open_ideas ) {
@@ -713,27 +843,28 @@ sub generate_ideas_content {
         $content .= "*No ideas recorded yet.*\n\n";
     }
 
-    # Next available IDs — shared pool with work items
-    my %all_used_ids;
-    for my $item ( @all_items ) {
-        $all_used_ids{ int( $item->{ num } ) } = 1;
-    }
-    my $max_id = ( sort { $b <=> $a } keys %all_used_ids )[ 0 ] // 0;
-
-    $content .= "## Next Available IDs\n\n";
-    $content .= "IDs are shared with the main work item pool.\n";
+    # Add IDEA placeholder items section
+    my @idea_placeholders
+        = grep { $_->{ status } eq 'Placeholder' } @ideas;
+    $content .= "## Placeholders\n\n";
     $content
         .= "Rename `IDEA-###.md` to another prefix to promote an idea.\n\n";
-
-    my @available;
-    my $check_id = 1;
-    while ( @available < 10 ) {
-        push @available, sprintf( "%03d", $check_id )
-            unless exists $all_used_ids{ $check_id };
-        $check_id++;
+    if ( @idea_placeholders ) {
+        $content .= "Stub ideas in `docs/work-item/new/` awaiting details:\n\n";
+        for my $item (
+            sort { $a->{ num } <=> $b->{ num } } @idea_placeholders
+        ) {
+            my $link_id = "$item->{prefix}-$item->{num}";
+            $idea_links{ $link_id } = get_relative_path( $item );
+            $content .= "* [$link_id] $item->{summary}\n";
+        }
+        $content .= "\n";
     }
-    $content .= "**Available:** " . join( ", ", @available ) . "\n\n";
-    $content .= "**Highest used:** $max_id\n\n";
+    else {
+        $content .= "*No IDEA placeholders.*\n\n";
+    }
+    $content
+        .= "Use `perl scripts/work-item-update.pl --create IDEA` to add new stubs.\n\n";
     $content .= "---\n\n";
 
     for my $link_id ( sort keys %idea_links ) {
@@ -767,8 +898,9 @@ sub determine_target_directory {
         return 'meta';
     }
 
-    # IDEA-prefix items always go to idea/ (unless explicitly closed)
+    # IDEA-prefix items always go to idea/ (unless closed or placeholder)
     if ( $idea_prefixes{ $item->{ prefix } } ) {
+        return 'new' if $item->{ status } eq 'Placeholder';
         my $closed_dir = $status_dirs{ $item->{ status } };
         return $closed_dir if defined $closed_dir && !ref $closed_dir;
         return 'idea';
@@ -788,18 +920,20 @@ sub is_closed_status {
 {
     # Case-insensitive normalization maps for status and priority
     my %status_normalize = map { lc $_ => $_ } (
-        'Completed',   'done',    'finished', 'complete',
-        'In Progress', 'started', 'working',
-        'Not Started', 'open',    'new', 'todo',
+        'Completed',   'done',        'finished', 'complete',
+        'Placeholder', 'stub',        'template',
+        'In Progress', 'started',     'working',
+        'Not Started', 'open',        'new',      'todo',
         'Blocked',     'waiting',
         'Superseded',  'replaced',
-        'Rejected',    'declined', 'wontfix',
+        'Rejected',    'declined',    'wontfix',
     );
 
     # Map synonyms to canonical values
     @status_normalize{ 'done', 'finished', 'complete' } = ( 'Completed' ) x 3;
     @status_normalize{ 'started', 'working' } = ( 'In Progress' ) x 2;
     @status_normalize{ 'open', 'new', 'todo' } = ( 'Not Started' ) x 3;
+    @status_normalize{ 'placeholder', 'stub', 'template' } = ( 'Placeholder' ) x 3;
     @status_normalize{ 'waiting' }  = 'Blocked';
     @status_normalize{ 'replaced' } = 'Superseded';
     @status_normalize{ 'declined', 'wontfix' } = ( 'Rejected' ) x 2;
