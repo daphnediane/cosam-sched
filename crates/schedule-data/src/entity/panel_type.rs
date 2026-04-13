@@ -96,13 +96,13 @@ pub struct PanelType {
     #[alias("panels", "panels_of_type")]
     #[read(|schedule: &crate::schedule::Schedule, entity: &PanelTypeData| {
         use crate::entity::InternalData;
-        let panel_type_id = PanelTypeId::from_uuid(entity.uuid());
+        let panel_type_id = entity.id();
         let ids = PanelTypeEntityType::panels_of(&schedule.entities, panel_type_id);
         Some(crate::field::FieldValue::panel_list(ids))
     })]
     #[write(|schedule: &mut crate::schedule::Schedule, entity: &mut PanelTypeData, value: crate::field::FieldValue| {
         use crate::entity::InternalData;
-        let panel_type_id = PanelTypeId::from_uuid(entity.uuid());
+        let panel_type_id = entity.id();
         let panel_ids = PanelId::from_field_values(value, schedule)?;
         PanelTypeEntityType::set_panels(&mut schedule.entities, panel_type_id, panel_ids)
     })]

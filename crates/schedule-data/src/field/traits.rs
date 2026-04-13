@@ -235,7 +235,7 @@ mod tests {
     // Mock entity for testing
     #[derive(Debug, Clone, PartialEq)]
     struct TestEntity {
-        entity_uuid: uuid::NonNilUuid,
+        entity_id: TestEntityId,
         id: String,
         name: String,
         value: i64,
@@ -253,15 +253,6 @@ mod tests {
         entity_id_str: String, // For Id field type
     }
 
-    impl crate::entity::InternalData for TestEntity {
-        fn uuid(&self) -> uuid::NonNilUuid {
-            self.entity_uuid
-        }
-        fn set_uuid(&mut self, uuid: uuid::NonNilUuid) {
-            self.entity_uuid = uuid;
-        }
-    }
-
     #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
     struct TestEntityId(uuid::NonNilUuid);
 
@@ -272,6 +263,17 @@ mod tests {
         }
         fn from_uuid(uuid: uuid::NonNilUuid) -> Self {
             Self(uuid)
+        }
+    }
+
+    impl crate::entity::InternalData for TestEntity {
+        type Id = TestEntityId;
+
+        fn id(&self) -> Self::Id {
+            self.entity_id
+        }
+        fn set_id(&mut self, id: Self::Id) {
+            self.entity_id = id;
         }
     }
 
@@ -313,11 +315,11 @@ mod tests {
 
     fn create_test_entity() -> TestEntity {
         TestEntity {
-            entity_uuid: unsafe {
+            entity_id: TestEntityId(unsafe {
                 uuid::NonNilUuid::new_unchecked(uuid::Uuid::from_bytes([
                     0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1,
                 ]))
-            },
+            }),
             id: "123".to_string(),
             name: "Test".to_string(),
             value: 42,

@@ -755,10 +755,10 @@ mod tests {
         add_panel(&mut schedule, panel_uuid, "P1", "Panel 1");
 
         let panel_id = PanelId::from(panel_uuid);
-        // Mix of valid and invalid tags
+        // Mix of valid and invalid tags - P: prefix auto-creates presenters
         let count = schedule.add_presenters(panel_id, &["P:Alice", "", "invalid", "P:Bob"]);
 
-        // Should add Alice and Bob, skip empty and bare "invalid" (not a known name)
+        // Should add Alice and Bob (auto-created), skip empty and bare "invalid" (not a known name)
         assert_eq!(count, 2);
     }
 

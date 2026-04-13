@@ -22,7 +22,7 @@
 //! The macro populates all four slices (`fields`, `name_map`,
 //! `required_fields`, `indexable_fields`) from struct attributes.
 
-use crate::entity::{EntityType, InternalData};
+use crate::entity::{EntityType, InternalData, TypedId};
 use crate::field::traits::{FieldMatchResult, IndexableField, NamedField};
 use crate::field::ValidationError;
 
@@ -113,7 +113,7 @@ impl<T: EntityType> FieldSet<T> {
                 }
 
                 let candidate = FieldMatchResult {
-                    entity_uuid: entity.uuid(),
+                    entity_uuid: entity.id().non_nil_uuid(),
                     priority,
                     field_priority: idx_field.index_priority(),
                     field_name: idx_field.name(),
@@ -166,18 +166,20 @@ mod tests {
     #[derive(Debug, Clone)]
     #[allow(dead_code)]
     struct TestEntity {
-        entity_uuid: uuid::NonNilUuid,
+        entity_id: TestEntityId,
         id: u32,
         name: String,
         value: i32,
     }
 
     impl crate::entity::InternalData for TestEntity {
-        fn uuid(&self) -> uuid::NonNilUuid {
-            self.entity_uuid
+        type Id = TestEntityId;
+
+        fn id(&self) -> Self::Id {
+            self.entity_id
         }
-        fn set_uuid(&mut self, uuid: uuid::NonNilUuid) {
-            self.entity_uuid = uuid;
+        fn set_id(&mut self, id: Self::Id) {
+            self.entity_id = id;
         }
     }
 

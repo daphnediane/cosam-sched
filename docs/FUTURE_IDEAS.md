@@ -1,6 +1,6 @@
 # Future Ideas and Design Notes
 
-Updated on: Sun Apr 12 00:03:42 2026
+Updated on: Sun Apr 12 19:51:10 2026
 
 Open design questions, unexplored alternatives, and deferred ideas.
 An IDEA item can be promoted to a work item by renaming it to another prefix
@@ -88,9 +88,9 @@ pub fn add_shown_member(&mut self, member: PresenterId, group: PresenterId) -> R
 IDs are shared with the main work item pool.
 Rename `IDEA-###.md` to another prefix to promote an idea.
 
-**Available:** 041, 042, 043, 044, 045, 046, 047, 048, 049, 050
+**Available:** 041, 043, 044, 045, 046, 047, 048, 049, 050, 051
 
-**Highest used:** 40
+**Highest used:** 42
 
 ---
 

@@ -62,13 +62,13 @@ pub struct EventRoom {
     #[alias("hotel_rooms", "physical_rooms")]
     #[read(|schedule: &crate::schedule::Schedule, entity: &EventRoomData| {
         use crate::entity::InternalData;
-        let event_room_id = EventRoomId::from_uuid(entity.uuid());
+        let event_room_id = entity.id();
         let ids = EventRoomEntityType::hotel_rooms_of(&schedule.entities, event_room_id);
         Some(crate::field::FieldValue::hotel_room_list(ids))
     })]
     #[write(|schedule: &mut crate::schedule::Schedule, entity: &mut EventRoomData, value: crate::field::FieldValue| {
         use crate::entity::InternalData;
-        let event_room_id = EventRoomId::from_uuid(entity.uuid());
+        let event_room_id = entity.id();
         let hotel_room_ids = HotelRoomId::from_field_values(value, schedule)?;
         EventRoomEntityType::set_hotel_rooms(&mut schedule.entities, event_room_id, hotel_room_ids)
     })]
@@ -81,13 +81,13 @@ pub struct EventRoom {
     #[alias("panels", "scheduled_panels")]
     #[read(|schedule: &crate::schedule::Schedule, entity: &EventRoomData| {
         use crate::entity::InternalData;
-        let event_room_id = EventRoomId::from_uuid(entity.uuid());
+        let event_room_id = entity.id();
         let ids = EventRoomEntityType::panels_of(&schedule.entities, event_room_id);
         Some(crate::field::FieldValue::panel_list(ids))
     })]
     #[write(|schedule: &mut crate::schedule::Schedule, entity: &mut EventRoomData, value: crate::field::FieldValue| {
         use crate::entity::InternalData;
-        let event_room_id = EventRoomId::from_uuid(entity.uuid());
+        let event_room_id = entity.id();
         let panel_ids = PanelId::from_field_values(value, schedule)?;
         EventRoomEntityType::set_panels(&mut schedule.entities, event_room_id, panel_ids)
     })]

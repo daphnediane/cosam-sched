@@ -178,7 +178,7 @@ pub struct Presenter {
     })]
     #[write(|schedule: &mut crate::schedule::Schedule, entity: &mut PresenterData, value: crate::field::FieldValue| {
         use crate::entity::InternalData;
-        let member_uuid = entity.uuid();
+        let member_uuid = entity.id().non_nil_uuid();
         let new_group_uuids: Vec<uuid::NonNilUuid> = match value {
             crate::field::FieldValue::List(items) => items
                 .into_iter()
@@ -225,7 +225,7 @@ pub struct Presenter {
     #[alias("is_group", "Is_Group", "group", "presenter_group")]
     #[read(|schedule: &crate::schedule::Schedule, entity: &PresenterData| {
         use crate::entity::InternalData;
-        let uuid = entity.uuid();
+        let uuid = entity.id().non_nil_uuid();
         let is_grp = entity.is_explicit_group
             || schedule.entities.presenters_by_group.get(&uuid).is_some_and(|v| !v.is_empty());
         Some(crate::field::FieldValue::Boolean(is_grp))
@@ -242,7 +242,7 @@ pub struct Presenter {
         entity.is_explicit_group = flag;
         if !flag {
             // Clear all members' group_ids and remove from reverse index
-            let group_uuid = entity.uuid();
+            let group_uuid = entity.id().non_nil_uuid();
             let member_uuids: Vec<uuid::NonNilUuid> = schedule.entities.presenters_by_group
                 .get(&group_uuid)
                 .map(|v| v.clone())
@@ -265,7 +265,7 @@ pub struct Presenter {
     #[alias("presenter_members", "member_list")]
     #[read(|schedule: &crate::schedule::Schedule, entity: &PresenterData| {
         use crate::entity::InternalData;
-        let uuid = entity.uuid();
+        let uuid = entity.id().non_nil_uuid();
         let members: Vec<uuid::NonNilUuid> = schedule.entities.presenters_by_group
             .get(&uuid)
             .map(|v| v.clone())
@@ -282,7 +282,7 @@ pub struct Presenter {
     })]
     #[write(|schedule: &mut crate::schedule::Schedule, entity: &mut PresenterData, value: crate::field::FieldValue| {
         use crate::entity::{InternalData, PresenterId};
-        let group_uuid = entity.uuid();
+        let group_uuid = entity.id().non_nil_uuid();
         let group_id = PresenterId::from_uuid(group_uuid);
         let new_member_uuids: Vec<uuid::NonNilUuid> = match value {
             crate::field::FieldValue::List(items) => items
@@ -335,7 +335,7 @@ pub struct Presenter {
     #[alias("panel")]
     #[read(|schedule: &crate::schedule::Schedule, entity: &PresenterData| {
         use crate::entity::InternalData;
-        let uuid = entity.uuid();
+        let uuid = entity.id().non_nil_uuid();
         let ids: Vec<uuid::NonNilUuid> = schedule.entities.panels_by_presenter
             .get(&uuid)
             .map(|v| v.clone())
@@ -352,7 +352,7 @@ pub struct Presenter {
     })]
     #[write(|schedule: &mut crate::schedule::Schedule, entity: &mut PresenterData, value: crate::field::FieldValue| {
         use crate::entity::{InternalData, PresenterId};
-        let presenter_uuid = entity.uuid();
+        let presenter_uuid = entity.id().non_nil_uuid();
         let presenter_id = PresenterId::from_uuid(presenter_uuid);
         let new_panel_uuids: Vec<uuid::NonNilUuid> = match value {
             crate::field::FieldValue::List(items) => items
@@ -405,7 +405,7 @@ pub struct Presenter {
     )]
     #[write(|schedule: &mut crate::schedule::Schedule, entity: &mut PresenterData, value: crate::field::FieldValue| {
         use crate::entity::{InternalData, PanelEntityType, PresenterId};
-        let presenter_uuid = entity.uuid();
+        let presenter_uuid = entity.id().non_nil_uuid();
         let presenter_id = PresenterId::from_uuid(presenter_uuid);
         let values: Vec<crate::field::FieldValue> = match value {
             crate::field::FieldValue::List(items) => items,
@@ -442,7 +442,7 @@ pub struct Presenter {
     )]
     #[write(|schedule: &mut crate::schedule::Schedule, entity: &mut PresenterData, value: crate::field::FieldValue| {
         use crate::entity::InternalData;
-        let presenter_uuid = entity.uuid();
+        let presenter_uuid = entity.id().non_nil_uuid();
         let panel_uuids: Vec<uuid::NonNilUuid> = match value {
             crate::field::FieldValue::List(items) => items
                 .into_iter()
@@ -475,7 +475,7 @@ pub struct Presenter {
         use crate::entity::InternalData;
         use std::collections::{HashSet, VecDeque};
 
-        let presenter_uuid = entity.uuid();
+        let presenter_uuid = entity.id().non_nil_uuid();
         let mut result = Vec::new();
         let mut seen = HashSet::new();
 
@@ -524,7 +524,7 @@ pub struct Presenter {
         let mut result = Vec::new();
         let mut seen = HashSet::new();
         let mut queue: VecDeque<uuid::NonNilUuid> = VecDeque::new();
-        if let Some(data) = schedule.entities.presenters.get(&entity.uuid()) {
+        if let Some(data) = schedule.entities.presenters.get(&entity.id().non_nil_uuid()) {
             for gid in &data.group_ids { queue.push_back(gid.non_nil_uuid()); }
         }
         while let Some(group_uuid) = queue.pop_front() {
@@ -551,7 +551,7 @@ pub struct Presenter {
         let mut result = Vec::new();
         let mut seen = HashSet::new();
         let mut queue: VecDeque<uuid::NonNilUuid> = VecDeque::new();
-        if let Some(members) = schedule.entities.presenters_by_group.get(&entity.uuid()) {
+        if let Some(members) = schedule.entities.presenters_by_group.get(&entity.id().non_nil_uuid()) {
             for &m in members { queue.push_back(m); }
         }
         while let Some(m_uuid) = queue.pop_front() {
@@ -695,8 +695,9 @@ impl PresenterEntityType {
             return PresenterId::from_uuid(uuid);
         }
         let uuid = unsafe { NonNilUuid::new_unchecked(uuid::Uuid::now_v7()) };
+        let id = PresenterId::from_uuid(uuid);
         let data = PresenterData {
-            entity_uuid: uuid,
+            entity_id: id,
             name: name.to_string(),
             rank,
             sort_rank: None,

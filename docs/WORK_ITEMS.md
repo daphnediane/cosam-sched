@@ -1,6 +1,6 @@
 # Cosplay America Schedule - Work Item
 
-Updated on: Sat Apr 11 23:45:17 2026
+Updated on: Sun Apr 12 20:23:03 2026
 
 ## Completed
 
@@ -20,6 +20,7 @@ moving business logic to entity-specific implementations.
 work items for implementation phases REFACTOR-036, REFACTOR-037, REFACTOR-038.
 * [REFACTOR-032] Rename the `from`/`to` endpoint naming on `DirectedEdge` to `left`/`right`
 throughout the codebase.
+* [REFACTOR-042] Add a method to entity data structs that returns the typed ID directly, avoiding repeated `XId::from_uuid(entity.uuid())` boilerplate.
 
 ---
 
@@ -82,9 +83,9 @@ display widget.
 
 The following ID numbers are available for new items:
 
-**Available:** 039, 040, 041, 042, 043, 044, 045, 046, 047, 048
+**Available:** 039, 040, 041, 043, 044, 045, 046, 047, 048, 049
 
-**Highest used:** 38
+**Highest used:** 42
 
 ---
 
@@ -596,3 +597,4 @@ variants, and delete the five edge entity files.
 [REFACTOR-036]: work-item/high/REFACTOR-036.md
 [REFACTOR-037]: work-item/high/REFACTOR-037.md
 [REFACTOR-038]: work-item/high/REFACTOR-038.md
+[REFACTOR-042]: work-item/done/REFACTOR-042.md

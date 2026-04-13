@@ -217,13 +217,14 @@ impl EntityStorage {
 
     /// Insert a new entity from its data struct, registering it in the UUID registry.
     ///
-    /// The UUID is taken from `data.uuid()`. Returns the typed ID on success.
+    /// The UUID is taken from `data.id().non_nil_uuid()`. Returns the typed ID on success.
     pub fn add_entity<T: TypedStorage>(&mut self, data: T::Data) -> Result<T::Id, InsertError> {
-        let uuid = data.uuid();
+        let uuid = data.id().non_nil_uuid();
+        let id = T::Id::from_uuid(uuid);
         let data_for_hook = data.clone();
         EntityStore::<T>::insert_entity(self, uuid, data)?;
         T::on_insert(self, &data_for_hook);
-        Ok(T::Id::from_uuid(uuid))
+        Ok(id)
     }
 
     /// Check if entity with given UUID exists.

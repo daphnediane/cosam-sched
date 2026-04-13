@@ -45,13 +45,13 @@ pub struct HotelRoom {
     #[alias("event_rooms", "logical_rooms")]
     #[read(|schedule: &crate::schedule::Schedule, entity: &HotelRoomData| {
         use crate::entity::InternalData;
-        let hotel_room_id = HotelRoomId::from_uuid(entity.uuid());
+        let hotel_room_id = entity.id();
         let ids = HotelRoomEntityType::event_rooms_of(&schedule.entities, hotel_room_id);
         Some(crate::field::FieldValue::event_room_list(ids))
     })]
     #[write(|schedule: &mut crate::schedule::Schedule, entity: &mut HotelRoomData, value: crate::field::FieldValue| {
         use crate::entity::InternalData;
-        let hotel_room_id = HotelRoomId::from_uuid(entity.uuid());
+        let hotel_room_id = entity.id();
         let event_room_ids = EventRoomId::from_field_values(value, schedule)?;
         HotelRoomEntityType::set_event_rooms(&mut schedule.entities, hotel_room_id, event_room_ids)
     })]

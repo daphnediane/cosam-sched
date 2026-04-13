@@ -332,7 +332,7 @@ pub fn derive_entity_fields(input: TokenStream) -> TokenStream {
             let ff = from_field.clone();
             let tf = to_field.clone();
             quote! {
-                let uuid_preference = match self.uuid_preference {
+                let uuid_preference = match self.uuid_preference.clone() {
                     crate::entity::UuidPreference::GenerateNew => {
                         crate::entity::UuidPreference::Edge {
                             from: #ff,
@@ -344,7 +344,7 @@ pub fn derive_entity_fields(input: TokenStream) -> TokenStream {
             }
         }
         _ => quote! {
-            let uuid_preference = self.uuid_preference;
+            let uuid_preference = self.uuid_preference.clone();
         },
     };
 
@@ -545,7 +545,7 @@ pub fn derive_entity_fields(input: TokenStream) -> TokenStream {
         /// Fields are crate-private; external code should use the field system.
         #[derive(Debug, Clone)]
         pub struct #data_struct_name {
-            pub entity_uuid: uuid::NonNilUuid,
+            pub entity_id: #typed_id_struct_name,
             #(#stored_field_defs)*
         }
 
@@ -615,9 +615,9 @@ pub fn derive_entity_fields(input: TokenStream) -> TokenStream {
             pub fn build_data(self) -> Result<#data_struct_name, crate::field::validation::ValidationError> {
                 #(#builder_build_extractions)*
                 #edge_uuid_upgrade
-                let entity_uuid = uuid_preference.resolve(*#entity_namespace_ident);
+                let entity_id = #typed_id_struct_name::from_uuid(self.uuid_preference.resolve(*#entity_namespace_ident));
                 Ok(#data_struct_name {
-                    entity_uuid,
+                    entity_id,
                     #(#new_param_names,)*
                     #(#computed_default_names: Default::default(),)*
                 })
@@ -626,10 +626,10 @@ pub fn derive_entity_fields(input: TokenStream) -> TokenStream {
             /// Apply any `Some` fields from this builder to an existing data struct.
             ///
             /// Fields that were not set (still `None`) are left unchanged.
-            /// The entity UUID is updated only if explicitly set via `with_entity_uuid`.
+            /// The entity ID is updated only if explicitly set via `with_entity_id`.
             pub fn apply_to(self, data: &mut #data_struct_name) {
                 if !matches!(self.uuid_preference, crate::entity::UuidPreference::GenerateNew) {
-                    data.entity_uuid = self.uuid_preference.resolve(*#entity_namespace_ident);
+                    data.entity_id = #typed_id_struct_name::from_uuid(self.uuid_preference.resolve(*#entity_namespace_ident));
                 }
                 #(
                 if let Some(v) = self.#apply_to_param_names {
@@ -655,12 +655,14 @@ pub fn derive_entity_fields(input: TokenStream) -> TokenStream {
         pub struct #entity_type_struct_name;
 
         impl crate::entity::InternalData for #data_struct_name {
-            fn uuid(&self) -> uuid::NonNilUuid {
-                self.entity_uuid
+            type Id = #typed_id_struct_name;
+
+            fn id(&self) -> Self::Id {
+                self.entity_id
             }
 
-            fn set_uuid(&mut self, uuid: uuid::NonNilUuid) {
-                self.entity_uuid = uuid;
+            fn set_id(&mut self, id: Self::Id) {
+                self.entity_id = id;
             }
         }
 

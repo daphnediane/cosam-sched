@@ -291,13 +291,13 @@ pub struct Panel {
     #[alias("presenters", "panelists")]
     #[read(|schedule: &crate::schedule::Schedule, entity: &PanelData| {
         use crate::entity::InternalData;
-        let panel_id = PanelId::from_uuid(entity.uuid());
+        let panel_id = entity.id();
         let ids = PanelEntityType::presenters_of(&schedule.entities, panel_id);
         Some(crate::field::FieldValue::presenter_list(ids))
     })]
     #[write(|schedule: &mut crate::schedule::Schedule, entity: &mut PanelData, value: crate::field::FieldValue| {
         use crate::entity::InternalData;
-        let panel_id = PanelId::from_uuid(entity.uuid());
+        let panel_id = entity.id();
         let presenter_ids = PresenterId::from_field_values(value, schedule)?;
         PanelEntityType::set_presenters(&mut schedule.entities, panel_id, presenter_ids)
     })]
@@ -312,7 +312,7 @@ pub struct Panel {
     )]
     #[write(|schedule: &mut crate::schedule::Schedule, entity: &mut PanelData, value: crate::field::FieldValue| {
         use crate::entity::InternalData;
-        let panel_uuid = entity.uuid();
+        let panel_uuid = entity.id().non_nil_uuid();
         let presenter_ids = PresenterId::from_field_values(value, schedule)?;
         PanelEntityType::add_presenters(&mut schedule.entities, panel_uuid, presenter_ids);
         Ok(())
@@ -328,7 +328,7 @@ pub struct Panel {
     )]
     #[write(|schedule: &mut crate::schedule::Schedule, entity: &mut PanelData, value: crate::field::FieldValue| {
         use crate::entity::InternalData;
-        let panel_uuid = entity.uuid();
+        let panel_uuid = entity.id().non_nil_uuid();
         let presenter_ids = PresenterId::from_field_values(value, schedule)?;
         PanelEntityType::remove_presenters(&mut schedule.entities, panel_uuid, presenter_ids);
         Ok(())
@@ -413,13 +413,13 @@ pub struct Panel {
     #[alias("room", "event_room")]
     #[read(|schedule: &crate::schedule::Schedule, entity: &PanelData| {
         use crate::entity::InternalData;
-        let panel_id = PanelId::from_uuid(entity.uuid());
+        let panel_id = entity.id();
         PanelEntityType::event_room_of(&schedule.entities, panel_id)
             .map(|id| crate::field::FieldValue::EventRoomIdentifier(id))
     })]
     #[write(|schedule: &mut crate::schedule::Schedule, entity: &mut PanelData, value: crate::field::FieldValue| {
         use crate::entity::InternalData;
-        let panel_id = PanelId::from_uuid(entity.uuid());
+        let panel_id = entity.id();
         let event_room_id = EventRoomId::from_field_value(value, schedule)?;
         PanelEntityType::set_event_room(&mut schedule.entities, panel_id, Some(event_room_id))
     })]
@@ -432,13 +432,13 @@ pub struct Panel {
     #[alias("panel_type", "kind", "type")]
     #[read(|schedule: &crate::schedule::Schedule, entity: &PanelData| {
         use crate::entity::InternalData;
-        let panel_id = PanelId::from_uuid(entity.uuid());
+        let panel_id = entity.id();
         PanelEntityType::panel_type_of(&schedule.entities, panel_id)
             .map(|id| crate::field::FieldValue::PanelTypeIdentifier(id))
     })]
     #[write(|schedule: &mut crate::schedule::Schedule, entity: &mut PanelData, value: crate::field::FieldValue| {
         use crate::entity::InternalData;
-        let panel_id = PanelId::from_uuid(entity.uuid());
+        let panel_id = entity.id();
         let panel_type_id = PanelTypeId::from_field_value(value, schedule)?;
         PanelEntityType::set_panel_type(&mut schedule.entities, panel_id, Some(panel_type_id))
     })]
@@ -701,11 +701,11 @@ impl PanelEntityType {
             .iter()
             .map(|s| crate::field::FieldValue::String(s.trim().to_string()))
             .collect();
-        let presenter_ids: Vec<PresenterId> =
-            match PresenterEntityType::resolve_field_values(storage, values) {
-                Ok(ids) => ids,
-                Err(_) => return 0,
-            };
+        // Resolve each tag individually, skipping invalid ones
+        let presenter_ids: Vec<PresenterId> = values
+            .into_iter()
+            .filter_map(|v| PresenterEntityType::resolve_field_value(storage, v).ok())
+            .collect();
         Self::add_presenters(storage, panel_uuid, presenter_ids)
     }
 }
