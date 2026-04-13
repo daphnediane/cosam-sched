@@ -140,7 +140,8 @@ This is the format used by actual Cosplay America spreadsheets, with support for
 | `J:Name`, `J:Other` | Same as above for **judges**.                                                      |
 | `S:Name`, `S:Other` | Same as above for **staff**.                                                       |
 | `I:Name`, `I:Other` | Same as above for **invited panelists**.                                           |
-| `P:Name`, `P:Other` | Same as above for **fan panelists**.                                               |
+| `P:Name`, `P:Other` | Same as above for **panelists**.                                                   |
+| `F:Name`, `F:Other` | Same as above for **fan panelists**.                                               |
 
 **Group Handling:**
 
@@ -165,7 +166,8 @@ Kind prefixes and their rank labels:
 | `J`    | `judge`         |
 | `S`    | `staff`         |
 | `I`    | `invited_guest` |
-| `P`    | `fan_panelist`  |
+| `P`    | `panelist`      |
+| `F`    | `fan_panelist`  |
 
 For `Kind:Name` columns the cell value is just a flag (`Yes`, `*`, etc.).
 For `Kind:Other` columns the cell value is a comma-separated list of names.

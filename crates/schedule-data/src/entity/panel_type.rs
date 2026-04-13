@@ -15,6 +15,7 @@ use crate::EntityFields;
 /// Sourced from the **PanelTypes** sheet of the schedule spreadsheet.
 #[derive(EntityFields, Debug, Clone)]
 #[entity_kind(PanelType)]
+#[default_resolver]
 pub struct PanelType {
     #[field(
         display = "Prefix",

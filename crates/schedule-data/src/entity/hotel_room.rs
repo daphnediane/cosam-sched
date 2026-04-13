@@ -27,6 +27,7 @@ use crate::EntityFields;
 /// reverse lookup index on [`EntityStorage`](crate::schedule::EntityStorage).
 #[derive(EntityFields, Debug, Clone)]
 #[entity_kind(HotelRoom)]
+#[default_resolver]
 pub struct HotelRoom {
     #[field(
         display = "Hotel Room Name",

@@ -74,7 +74,8 @@ use syn::{
         read,
         write,
         validate,
-        entity_kind
+        entity_kind,
+        default_resolver
     )
 )]
 pub fn derive_entity_fields(input: TokenStream) -> TokenStream {
@@ -292,6 +293,7 @@ pub fn derive_entity_fields(input: TokenStream) -> TokenStream {
     let type_name_str = pascal_to_snake_case(&struct_name.to_string());
 
     // Parse entity_kind from struct-level attributes
+    let has_default_resolver = parse_has_flag(&input.attrs, "default_resolver");
     let entity_kind = parse_entity_kind(&input.attrs)
         .expect("EntityFields requires #[entity_kind(...)] attribute with EntityKind variant");
     let entity_kind_ident = Ident::new(&entity_kind, proc_macro2::Span::call_site());
@@ -332,6 +334,14 @@ pub fn derive_entity_fields(input: TokenStream) -> TokenStream {
 
     // Generate edge cleanup code for this entity type
     let edge_cleanup_code = generate_edge_cleanup_code(&entity_kind_ident);
+
+    let default_resolver_impl = if has_default_resolver {
+        quote! {
+            impl crate::entity::EntityResolver for #entity_type_struct_name {}
+        }
+    } else {
+        quote! {}
+    };
 
     // Generate the complete implementation
     let field_set_impl = if field_struct_names.is_empty() {
@@ -513,6 +523,9 @@ pub fn derive_entity_fields(input: TokenStream) -> TokenStream {
                 self.entity_id = id;
             }
         }
+
+        #[allow(unused_qualifications)]
+        #default_resolver_impl
 
         impl crate::entity::EntityType for #entity_type_struct_name {
             type Data = #data_struct_name;
@@ -715,6 +728,11 @@ fn parse_field_aliases(attrs: &[Attribute]) -> Option<Vec<String>> {
     } else {
         Some(aliases)
     }
+}
+
+/// Check if a flag attribute (e.g., `#[default_resolver]`) is present on the struct.
+fn parse_has_flag(attrs: &[Attribute], flag: &str) -> bool {
+    attrs.iter().any(|attr| attr.path().is_ident(flag))
 }
 
 /// Parse entity_kind attribute from struct attributes
@@ -1654,12 +1672,12 @@ fn generate_typed_id(
 
             /// Convert a FieldValue to this typed ID.
             ///
-            /// Delegates to EntityType::resolve_field_value for resolution logic.
+            /// Delegates to EntityResolver::resolve_field_value for resolution logic.
             pub fn from_field_value(
                 value: crate::field::FieldValue,
                 schedule: &mut crate::schedule::Schedule,
             ) -> Result<Self, crate::field::FieldError> {
-                <#entity_type_struct_name as crate::entity::EntityType>::resolve_field_value(&mut schedule.entities, value)
+                <#entity_type_struct_name as crate::entity::EntityResolver>::resolve_field_value(&mut schedule.entities, value)
             }
 
             /// Convert a FieldValue to a Vec of this typed ID.
@@ -1670,7 +1688,7 @@ fn generate_typed_id(
                 value: crate::field::FieldValue,
                 schedule: &mut crate::schedule::Schedule,
             ) -> Result<Vec<Self>, crate::field::FieldError> {
-                <#entity_type_struct_name as crate::entity::EntityType>::resolve_field_values(&mut schedule.entities, value)
+                <#entity_type_struct_name as crate::entity::EntityResolver>::resolve_field_values(&mut schedule.entities, value)
             }
         }
 

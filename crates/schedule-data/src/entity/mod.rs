@@ -94,6 +94,132 @@ pub trait InternalData: Clone + Send + Sync + fmt::Debug {
     fn set_id(&mut self, id: Self::Id);
 }
 
+/// Trait for string-to-ID resolution, allowing custom lookup logic per entity type.
+///
+/// This trait is separate from `EntityType` to allow entity types to override
+/// the default resolution behavior without conflicting with macro-generated code.
+/// For example, `PresenterEntityType` implements custom resolution with tagged
+/// auto-creation (e.g., "G:Alice" creates a group presenter).
+pub trait EntityResolver: EntityType + crate::schedule::TypedStorage + Sized {
+    /// Resolve a string to a single entity ID.
+    ///
+    /// Default: UUID parsing then match_index lookup.
+    /// Override for custom resolution (e.g., tagged presenter auto-creation).
+    fn resolve_string(
+        storage: &mut crate::schedule::EntityStorage,
+        input: &str,
+    ) -> Result<Self::Id, crate::field::FieldError> {
+        // Try UUID string parsing first
+        if let Some(id) = Self::resolve_uuid_string(storage, input) {
+            return Ok(id);
+        }
+        // Try match_index lookup
+        if let Some(data) = storage.lookup_by_indexable::<Self>(input) {
+            Ok(Self::Id::from_uuid(data.id().non_nil_uuid()))
+        } else {
+            Err(crate::field::FieldError::ConversionError(
+                crate::field::validation::ConversionError::InvalidFormat,
+            ))
+        }
+    }
+
+    /// Process a single FieldValue, returning resolved IDs and additional work items.
+    ///
+    /// Supports comma-splitting in strings for spreadsheet-style list values.
+    fn resolve_next_field_value(
+        storage: &mut crate::schedule::EntityStorage,
+        value: crate::field::FieldValue,
+    ) -> Result<(Vec<Self::Id>, Vec<crate::field::FieldValue>), crate::field::FieldError> {
+        use crate::field::validation::ConversionError;
+        use crate::field::FieldValue;
+
+        match value {
+            FieldValue::List(items) => Ok((Vec::new(), items)),
+            FieldValue::None => Ok((Vec::new(), Vec::new())),
+            FieldValue::NonNilUuid(uuid) => {
+                if Self::contains_uuid(storage, uuid) {
+                    Ok((vec![Self::Id::from_uuid(uuid)], Vec::new()))
+                } else {
+                    Err(crate::field::FieldError::ConversionError(
+                        ConversionError::InvalidFormat,
+                    ))
+                }
+            }
+            FieldValue::String(s) => {
+                if s.contains(',') {
+                    let items: Vec<FieldValue> = s
+                        .split(',')
+                        .map(|part| FieldValue::String(part.trim().to_string()))
+                        .collect();
+                    Ok((Vec::new(), items))
+                } else {
+                    let id = Self::resolve_string(storage, &s)?;
+                    Ok((vec![id], Vec::new()))
+                }
+            }
+            FieldValue::EntityIdentifier(euuid) => {
+                let id = euuid
+                    .to_typed_id::<Self::Id>()
+                    .filter(|id| Self::contains_uuid(storage, id.non_nil_uuid()))
+                    .ok_or(crate::field::FieldError::ConversionError(
+                        ConversionError::InvalidFormat,
+                    ))?;
+                Ok((vec![id], Vec::new()))
+            }
+            _ => Err(crate::field::FieldError::ConversionError(
+                ConversionError::UnsupportedType,
+            )),
+        }
+    }
+
+    /// Resolve a FieldValue to exactly one entity ID.
+    ///
+    /// Errors if the value resolves to zero or multiple IDs.
+    fn resolve_field_value(
+        storage: &mut crate::schedule::EntityStorage,
+        value: crate::field::FieldValue,
+    ) -> Result<Self::Id, crate::field::FieldError> {
+        use crate::field::validation::ConversionError;
+
+        let mut work_queue = vec![value];
+        let mut result: Option<Self::Id> = None;
+
+        while let Some(item) = work_queue.pop() {
+            let (ids, new_work) = Self::resolve_next_field_value(storage, item)?;
+            work_queue.extend(new_work);
+            for id in ids {
+                if result.is_some() {
+                    return Err(crate::field::FieldError::ConversionError(
+                        ConversionError::InvalidFormat,
+                    ));
+                }
+                result = Some(id);
+            }
+        }
+
+        result.ok_or(crate::field::FieldError::ConversionError(
+            ConversionError::InvalidFormat,
+        ))
+    }
+
+    /// Resolve a FieldValue to zero or more entity IDs.
+    fn resolve_field_values(
+        storage: &mut crate::schedule::EntityStorage,
+        value: crate::field::FieldValue,
+    ) -> Result<Vec<Self::Id>, crate::field::FieldError> {
+        let mut work_queue = vec![value];
+        let mut results = Vec::new();
+
+        while let Some(item) = work_queue.pop() {
+            let (ids, new_work) = Self::resolve_next_field_value(storage, item)?;
+            work_queue.extend(new_work);
+            results.extend(ids);
+        }
+
+        Ok(results)
+    }
+}
+
 /// Core trait for all entity types
 pub trait EntityType: 'static + Send + Sync + fmt::Debug {
     type Data: InternalData;
@@ -173,158 +299,9 @@ pub trait EntityType: 'static + Send + Sync + fmt::Debug {
     {
     }
 
-    /// Process a single FieldValue, returning resolved IDs and additional work items.
-    ///
-    /// For container types (List, Optional), returns empty IDs and the contents for processing.
-    /// For scalar types (String, NonNilUuid, EntityIdentifier), resolves to IDs.
-    ///
-    /// Supports comma-splitting in strings for spreadsheet-style list values.
-    fn resolve_next_field_value(
-        storage: &mut crate::schedule::EntityStorage,
-        value: crate::field::FieldValue,
-    ) -> Result<(Vec<Self::Id>, Vec<crate::field::FieldValue>), crate::field::FieldError>
-    where
-        Self: Sized + crate::schedule::TypedStorage,
-    {
-        use crate::field::validation::ConversionError;
-        use crate::field::FieldValue;
-
-        match value {
-            // Container types: return contents as work items, no IDs yet
-            FieldValue::List(items) => Ok((Vec::new(), items)),
-
-            // Empty/None values: no IDs to resolve
-            FieldValue::None => Ok((Vec::new(), Vec::new())),
-
-            // Scalar types: resolve directly
-            FieldValue::NonNilUuid(uuid) => {
-                if Self::contains_uuid(storage, uuid) {
-                    Ok((vec![Self::Id::from_uuid(uuid)], Vec::new()))
-                } else {
-                    Err(crate::field::FieldError::ConversionError(
-                        ConversionError::InvalidFormat,
-                    ))
-                }
-            }
-            FieldValue::String(s) => {
-                // Check for comma-separated values (spreadsheet-style)
-                if s.contains(',') {
-                    let items: Vec<FieldValue> = s
-                        .split(',')
-                        .map(|part| FieldValue::String(part.trim().to_string()))
-                        .collect();
-                    Ok((Vec::new(), items))
-                } else {
-                    let id = Self::resolve_string(storage, &s)?;
-                    Ok((vec![id], Vec::new()))
-                }
-            }
-            FieldValue::EntityIdentifier(euuid) => {
-                let id = euuid
-                    .to_typed_id::<Self::Id>()
-                    .filter(|id| Self::contains_uuid(storage, id.non_nil_uuid()))
-                    .ok_or_else(|| {
-                        crate::field::FieldError::ConversionError(ConversionError::InvalidFormat)
-                    })?;
-                Ok((vec![id], Vec::new()))
-            }
-
-            // Unsupported types
-            _ => Err(crate::field::FieldError::ConversionError(
-                ConversionError::UnsupportedType,
-            )),
-        }
-    }
-
-    /// Resolve a FieldValue to a single entity ID.
-    ///
-    /// Errors if the value expands to multiple IDs (e.g., a List or comma-separated string).
-    fn resolve_field_value(
-        storage: &mut crate::schedule::EntityStorage,
-        value: crate::field::FieldValue,
-    ) -> Result<Self::Id, crate::field::FieldError>
-    where
-        Self: Sized + crate::schedule::TypedStorage,
-    {
-        use crate::field::validation::ConversionError;
-
-        let mut work_queue = vec![value];
-        let mut result: Option<Self::Id> = None;
-
-        while let Some(item) = work_queue.pop() {
-            let (ids, new_work) = Self::resolve_next_field_value(storage, item)?;
-            work_queue.extend(new_work);
-
-            for id in ids {
-                if result.is_some() {
-                    return Err(crate::field::FieldError::ConversionError(
-                        ConversionError::InvalidFormat,
-                    ));
-                }
-                result = Some(id);
-            }
-        }
-
-        result.ok_or_else(|| {
-            crate::field::FieldError::ConversionError(ConversionError::InvalidFormat)
-        })
-    }
-
-    /// Resolve a FieldValue to multiple entity IDs.
-    ///
-    /// Iteratively processes the value, collecting all resolved IDs.
-    /// Supports nested Lists, Optionals, and comma-separated strings.
-    fn resolve_field_values(
-        storage: &mut crate::schedule::EntityStorage,
-        value: crate::field::FieldValue,
-    ) -> Result<Vec<Self::Id>, crate::field::FieldError>
-    where
-        Self: Sized + crate::schedule::TypedStorage,
-    {
-        let mut work_queue = vec![value];
-        let mut results = Vec::new();
-
-        while let Some(item) = work_queue.pop() {
-            let (ids, new_work) = Self::resolve_next_field_value(storage, item)?;
-            work_queue.extend(new_work);
-            results.extend(ids);
-        }
-
-        Ok(results)
-    }
-
-    /// Resolve a string to an entity ID.
-    ///
-    /// Default implementation handles:
-    /// - UUID string parsing (with/without prefix) via `resolve_uuid_string`
-    /// - match_index lookup for Uniq IDs
-    ///
-    /// Override for entity-specific string resolution logic (e.g., PresenterEntityType::lookup_tagged).
-    fn resolve_string(
-        storage: &mut crate::schedule::EntityStorage,
-        input: &str,
-    ) -> Result<Self::Id, crate::field::FieldError>
-    where
-        Self: Sized + crate::schedule::TypedStorage,
-    {
-        // Try UUID string parsing first
-        if let Some(id) = Self::resolve_uuid_string(storage, input) {
-            return Ok(id);
-        }
-        // Try match_index lookup
-        if let Some(data) = storage.lookup_by_indexable::<Self>(input) {
-            Ok(Self::Id::from_uuid(data.id().non_nil_uuid()))
-        } else {
-            Err(crate::field::FieldError::ConversionError(
-                crate::field::validation::ConversionError::InvalidFormat,
-            ))
-        }
-    }
-
     /// Resolve a UUID string to an entity ID.
     ///
-    /// Handles bare UUID strings and prefixed UUID strings (e.g., "presenter-`<uuid>`").
-    /// This is a helper method for entity types that need custom string resolution logic.
+    /// Handles bare UUIDs and prefixed strings (e.g., "panel-<uuid>").
     fn resolve_uuid_string(
         storage: &crate::schedule::EntityStorage,
         input: &str,
@@ -501,7 +478,7 @@ pub enum EntityRef<'a> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::entity::{EntityType, PanelEntityType};
+    use crate::entity::{EntityResolver, PanelEntityType};
     use crate::field::FieldValue;
     use crate::schedule::Schedule;
 

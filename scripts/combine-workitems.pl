@@ -215,8 +215,8 @@ for my $item ( @items ) {
         my %existing = map { $_ => 1 } @{ $item->{ blocked_by_ids } };
         while ( $item->{ work_list } =~ /^[-*]\s+([A-Z]+-\d+)\b/mg ) {
             my $child_id = $1;
-            my ( $cpfx ) = $child_id =~ /^([A-Z]+)-/;
-            next unless $meta_prefixes{ $cpfx };        # only META children
+            my ( $child_prefix ) = $child_id =~ /^([A-Z]+)-/;
+            next unless $meta_prefixes{ $child_prefix };        # only META children
             next unless $open_item_ids{ $child_id };    # only open ones
             push @{ $item->{ blocked_by_ids } }, $child_id
                 unless $existing{ $child_id }++;
@@ -231,8 +231,9 @@ reorganize_files();
 my @idea_items = grep { $idea_prefixes{ $_->{ prefix } } } @items;
 my @workitems  = grep { !$idea_prefixes{ $_->{ prefix } } } @items;
 
-# Generate WORK_ITEMS.md content (excludes IDEA items)
-my $new_content = generate_work_item_content( @workitems );
+# Generate WORK_ITEMS.md content (excludes IDEA items from display,
+# but uses all items for ID pool tracking)
+my $new_content = generate_work_item_content( \@items, @workitems );
 
 # Check if existing file is identical (ignoring "Updated on" timestamp line)
 my $write_needed = 1;
@@ -361,7 +362,7 @@ sub reorganize_files {
 } ## end sub reorganize_files
 
 sub generate_work_item_content {
-    my ( @items ) = @_;
+    my ( $all_items_ref, @items ) = @_;
 
     my $content = '';
 
@@ -456,7 +457,7 @@ sub generate_work_item_content {
         # Separate META items for their own section in summary
         my @meta_open
             = grep { $meta_prefixes{ $_->{ prefix } } } @open;
-        my @nonmeta_open
+        my @non_meta_open
             = grep { !$meta_prefixes{ $_->{ prefix } } } @open;
 
         # Output META items first
@@ -478,13 +479,13 @@ sub generate_work_item_content {
         } ## end if ( @meta_open )
 
         # Output summary list by priority as nested list
-        my %nonmeta_by_priority;
-        for my $item ( @nonmeta_open ) {
-            push @{ $nonmeta_by_priority{ $item->{ priority } } }, $item;
+        my %non_meta_by_priority;
+        for my $item ( @non_meta_open ) {
+            push @{ $non_meta_by_priority{ $item->{ priority } } }, $item;
         }
 
         for my $priority ( qw(High Medium Low) ) {
-            next unless exists $nonmeta_by_priority{ $priority };
+            next unless exists $non_meta_by_priority{ $priority };
 
             $content .= "* **$priority Priority**\n";
 
@@ -492,7 +493,7 @@ sub generate_work_item_content {
                 sort {
                            $a->{ prefix } cmp $b->{ prefix }
                         || $a->{ num } <=> $b->{ num }
-                } @{ $nonmeta_by_priority{ $priority } }
+                } @{ $non_meta_by_priority{ $priority } }
             ) {
                 my $link_id = "$item->{prefix}-$item->{num}";
                 $all_links{ $link_id } = get_relative_path( $item );
@@ -514,10 +515,10 @@ sub generate_work_item_content {
     $content .= "## Next Available IDs\n\n";
     $content .= "The following ID numbers are available for new items:\n\n";
 
-    # Find max ID used across all items
+    # Find max ID used across all items (including IDEA items — shared ID pool)
     my $max_id = 0;
     my %all_used_ids;
-    for my $item ( @items ) {
+    for my $item ( @$all_items_ref ) {
         my $id = $item->{ num };
 
         # Convert to integer for proper comparison

@@ -1,6 +1,6 @@
 # Future Ideas and Design Notes
 
-Updated on: Sun Apr 12 20:40:53 2026
+Updated on: Mon Apr 13 02:51:51 2026
 
 Open design questions, unexplored alternatives, and deferred ideas.
 An IDEA item can be promoted to a work item by renaming it to another prefix
@@ -83,17 +83,38 @@ pub fn add_shown_member(&mut self, member: PresenterId, group: PresenterId) -> R
 
 ---
 
+### [IDEA-043] Read-only entity resolution (lookup without creation)
+
+**Summary:** Add read-only `lookup_*` variants to `EntityResolver` that take `&EntityStorage` instead of `&mut EntityStorage`.
+
+**Description:** Currently `EntityResolver::resolve_string` and the `resolve_field_value`/`resolve_field_values`
+methods all take `&mut EntityStorage` because `PresenterEntityType` may auto-create presenters
+during resolution. However, some callers only need lookup (validation passes, UI display,
+read-only queries) and should not require mutable access.
+
+The v10-try1 codebase handled this with an `always_create: bool` parameter on
+`update_or_create_presenter`. A cleaner Rust-idiomatic approach is to split by mutability:
+
+* `lookup_string(&EntityStorage, &str) -> Option<Self::Id>` — read-only, no creation
+* `resolve_string(&mut EntityStorage, &str) -> Result<Self::Id, FieldError>` — find-or-create
+
+The `lookup_*` family would mirror the `resolve_*` family but take shared references.
+The compiler enforces the distinction naturally — no boolean flag needed.
+
+---
+
 ## Next Available IDs
 
 IDs are shared with the main work item pool.
 Rename `IDEA-###.md` to another prefix to promote an idea.
 
-**Available:** 043, 044, 045, 046, 047, 048, 049, 050, 051, 052
+**Available:** 045, 046, 047, 048, 049, 050, 051, 052, 053, 054
 
-**Highest used:** 42
+**Highest used:** 44
 
 ---
 
 [IDEA-033]: work-item/idea/IDEA-033.md
 [IDEA-039]: work-item/idea/IDEA-039.md
 [IDEA-040]: work-item/idea/IDEA-040.md
+[IDEA-043]: work-item/idea/IDEA-043.md

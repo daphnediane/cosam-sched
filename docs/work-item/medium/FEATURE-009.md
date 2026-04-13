@@ -38,19 +38,25 @@ criteria rather than direct UUID access.
 - Validation before applying updates
 - Integration with edit command system (FEATURE-010) for undo support
 
-### `lookup_tagged_presenter` (implemented)
+### `find_or_create_tagged_presenter` (implemented)
 
-`PresenterEntityType::lookup_tagged(schedule: &mut Schedule, input: &str) -> Result<PresenterId, LookupError>`
+`PresenterEntityType::find_or_create_tagged(storage, input) -> Result<PresenterId, LookupError>`
 is the core single-string presenter resolver, living in `entity/presenter.rs`.
-`Schedule::lookup_tagged_presenter(input)` is a thin delegate to it.
+`Schedule::find_or_create_tagged_presenter(input)` is a thin delegate to it.
+
+Also exposed through `EntityResolver`: `PresenterEntityType` provides a custom
+`impl EntityResolver` whose `resolve_string` delegates to
+`find_or_create_tagged` after UUID parsing.
+
 It handles:
 
-| Input form                   | Behavior                                                |
-| ---------------------------- | ------------------------------------------------------- |
-| `presenter-<uuid>`           | typed-ID lookup; `Err(UuidNotFound)` if missing         |
-| bare UUID string             | raw UUID parse + lookup; `Err(UuidNotFound)` if missing |
-| `<flags>:[<]NAME[=(=)GROUP]` | find-or-create presenter and optional group             |
-| bare name (no tag, no UUID)  | exact case-insensitive lookup only; `Err(NameNotFound)` |
+| Input form                    | Behavior                                                      |
+| ----------------------------- | ------------------------------------------------------------- |
+| `presenter-<uuid>`            | typed-ID lookup; `Err(UuidNotFound)` if missing               |
+| bare UUID string              | raw UUID parse + lookup; `Err(UuidNotFound)` if missing       |
+| `<flags>:[<]NAME[=(=)GROUP]`  | find-or-create with explicit rank from tag                    |
+| `[<]NAME[=(=)GROUP]` (no tag) | find-or-create via `process_tagged` with no rank (no upgrade) |
+| bare name (no tag, no syntax) | find-or-create with Panelist default; no rank upgrade         |
 
 Tag format:
 
@@ -62,31 +68,38 @@ Tag format:
   - `G` — `Guest`, `J` — `Judge`, `S` — `Staff`, `I` — `InvitedGuest`,
     `P` — `Panelist` (default), `F` — `FanPanelist`
   - Multiple flags allowed; highest-priority rank wins
-- **`<`** (before NAME): `always_grouped = true` on the membership edge
+- **`<`** (before NAME): `always_grouped = true` on the member
 - **`==GROUP`**: add membership edge with `always_shown_in_group = true`
 - **`=GROUP`**: add membership edge with default flags
-- Group-only form (`G:==MyGroup` where NAME is absent or equals GROUP): returns
-  the group's `PresenterId`
+- Group-only form (`==MyGroup` or `G:==MyGroup` where NAME is absent or equals
+  GROUP): returns the group's `PresenterId`
 
-`LookupError` variants: `Empty`, `UuidNotFound`, `InvalidUuid`, `NameNotFound`,
-`UnknownTag`, `OtherSentinel`.
+Rank handling:
 
-Bare-name lookups do **not** auto-create; callers that always need a presenter
-must use a tagged form.
+- **Tagged** (`Some(rank)`): upgrades existing presenters when the tag rank
+  has higher priority (lower number) than current rank.
+- **Untagged / bare** (`None`): creates new presenters with `Panelist` rank
+  but never upgrades existing presenters. This preserves ranks like
+  `FanPanelist` set by earlier tagged imports.
 
-### Presenter Tag-String Import (`add_presenters`) (this is not the plan -- fix this to match the design)
+`LookupError` variants: `Empty`, `UuidNotFound`, `InvalidUuid`, `NameNotFound`
+(reserved for IDEA-043 read-only lookup), `UnknownTag`, `OtherSentinel`.
+
+See IDEA-043 for future read-only lookup variants.
+
+### Presenter Tag-String Import (`add_presenters`)
 
 `Schedule::add_presenters(panel_id, tags: &[&str])` parses presenter credit
 strings from spreadsheet cells and connects the resulting presenters/groups to a
 panel via `PanelToPresenter` edges.
 
-Each tag string is passed through `lookup_tagged_presenter` to resolve or
-create the presenter, then a `PanelToPresenter` edge is added.
+Each tag string is passed through `find_or_create_tagged_presenter` to resolve
+or create the presenter, then a `PanelToPresenter` edge is added.
 
-Lookup for name-based creation in `lookup_tagged_presenter` currently uses a
-direct case-insensitive name scan. When FEATURE-009 finder is available, it
-should switch to `find::<PresenterEntityType>` with `ExactMatch` on the
-indexable `name` field for consistency and future index acceleration.
+Name-based creation currently uses a direct case-insensitive name scan. When
+FEATURE-009 finder is available, it should switch to
+`find::<PresenterEntityType>` with `ExactMatch` on the indexable `name` field
+for consistency and future index acceleration.
 
 ### Panel Computed Fields (in progress)
 
@@ -120,7 +133,7 @@ The internal edge type `PresenterToGroup` (and generated names
 `PresenterToGroupData`, `PresenterToGroupEntityType`, `PresenterToGroupId`,
 etc.) should be renamed to `PresenterMembership` (or similar) to better reflect
 its role.  This is a pure refactor with no semantic change; defer until
-FEATURE-009 is underway to avoid churn while the edge API is still stabilising.
+FEATURE-009 is underway to avoid churn while the edge API is still stabilizing.
 
 ## Acceptance Criteria
 

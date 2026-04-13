@@ -7,7 +7,6 @@
 //! Presenter entity implementation
 
 use crate::entity::presenter_rank::PresenterRank;
-use crate::entity::EntityType;
 use crate::schedule::LookupError;
 use crate::EntityFields;
 use serde::{Deserialize, Serialize};
@@ -402,13 +401,16 @@ impl PresenterEntityType {
     // Tag-string lookup / find-or-create
     // -----------------------------------------------------------------------
 
-    /// Look up a presenter by a tagged credit string, or find-or-create one.
+    /// Find or create a presenter from a tagged credit string.
     ///
-    /// See [`crate::schedule::Schedule::lookup_tagged_presenter`] for the full
-    /// format documentation. This associated function owns the implementation;
-    /// `Schedule::lookup_tagged_presenter` delegates here.
+    /// See [`crate::schedule::Schedule::find_or_create_tagged_presenter`] for
+    /// the full format documentation. This associated function owns the
+    /// implementation; the `Schedule` method delegates here.
+    ///
+    /// Bare names (no tag prefix) auto-create with `Panelist` rank if not
+    /// already present.
     #[must_use = "returns the presenter/group ID; check for errors"]
-    pub fn lookup_tagged(
+    pub fn find_or_create_tagged(
         storage: &mut crate::schedule::EntityStorage,
         input: &str,
     ) -> Result<PresenterId, LookupError> {
@@ -418,47 +420,62 @@ impl PresenterEntityType {
         }
 
         // --- UUID forms: use trait resolve_uuid_string -----------------------
+        use crate::entity::EntityType;
         if let Some(id) = Self::resolve_uuid_string(storage, input) {
             return Ok(id);
         }
 
         // --- Tag prefix: one or more rank chars followed by ':' ---------------
         if let Some((rank, rest)) = Self::parse_tag_flags(input) {
-            return Self::process_tagged(storage, &rest, rank);
+            return Self::process_tagged(storage, &rest, Some(rank));
         }
 
-        // --- Bare name: exact case-insensitive lookup, no auto-create ---------
-        if let Some((uuid, _)) = storage
-            .presenters
-            .iter()
-            .find(|(_, d)| d.name.eq_ignore_ascii_case(input))
-        {
-            return Ok(uuid);
+        // --- No tag prefix but contains group/flag syntax (=, <) --------------
+        if input.contains('=') || input.starts_with('<') {
+            return Self::process_tagged(storage, input, None);
         }
-        Err(LookupError::NameNotFound(input.to_string()))
+
+        // --- Plain bare name: find existing or create with default Panelist rank
+        //     No explicit rank → won't upgrade an existing presenter's rank.
+        Ok(Self::find_or_create_by_name(storage, input, None))
     }
 
-    /// Find a presenter by exact case-insensitive name, or create a new one
-    /// with the given rank and a fresh UUID.
+    /// Find a presenter by exact case-insensitive name, or create a new one.
+    ///
+    /// `rank` controls both creation default and upgrade behavior:
+    /// - `Some(r)`: new presenters get rank `r`; existing presenters are
+    ///   upgraded when `r` has higher priority (lower number) than current.
+    /// - `None`: new presenters get `Panelist`; existing presenters keep
+    ///   their current rank unchanged (used for untagged bare-name lookups).
     pub fn find_or_create_by_name(
         storage: &mut crate::schedule::EntityStorage,
         name: &str,
-        rank: PresenterRank,
+        rank: Option<PresenterRank>,
     ) -> PresenterId {
         use uuid::NonNilUuid;
-        if let Some((uuid, _)) = storage
+        let existing = storage
             .presenters
             .iter()
             .find(|(_, d)| d.name.eq_ignore_ascii_case(name))
-        {
-            return uuid;
+            .map(|(id, _)| id);
+        if let Some(id) = existing {
+            // Upgrade rank only when an explicit rank was supplied
+            if let Some(ref new_rank) = rank {
+                if let Some(data) = storage.presenters.get_mut(id) {
+                    if new_rank.priority() < data.rank.priority() {
+                        data.rank = new_rank.clone();
+                    }
+                }
+            }
+            return id;
         }
+        let effective_rank = rank.unwrap_or(PresenterRank::Panelist);
         let uuid = unsafe { NonNilUuid::new_unchecked(uuid::Uuid::now_v7()) };
         let id = PresenterId::from_uuid(uuid);
         let data = PresenterData {
             entity_id: id,
             name: name.to_string(),
-            rank,
+            rank: effective_rank,
             sort_rank: None,
             bio: None,
             is_explicit_group: false,
@@ -507,7 +524,7 @@ impl PresenterEntityType {
     fn process_tagged(
         storage: &mut crate::schedule::EntityStorage,
         rest: &str,
-        rank: PresenterRank,
+        rank: Option<PresenterRank>,
     ) -> Result<PresenterId, LookupError> {
         let rest = rest.trim();
         if rest.is_empty() {
@@ -587,23 +604,6 @@ impl PresenterEntityType {
         };
 
         Ok(effective)
-    }
-
-    /// Resolve a string to a PresenterId with tagged lookup support.
-    ///
-    /// This is a Presenter-specific helper that first tries UUID parsing,
-    /// then falls back to tagged presenter lookup via `lookup_tagged`.
-    /// Unlike the trait's `resolve_string`, this supports tagged syntax like "G:Alice=TeamA".
-    pub fn resolve_string_tagged(
-        storage: &mut crate::schedule::EntityStorage,
-        input: &str,
-    ) -> Result<PresenterId, crate::schedule::LookupError> {
-        // Try UUID string parsing first
-        if let Some(id) = Self::resolve_uuid_string(storage, input) {
-            return Ok(id);
-        }
-        // Fall back to tagged presenter lookup
-        Self::lookup_tagged(storage, input)
     }
 
     /// Add `member` to `group` with default flags (`always_shown_in_group = false`,
@@ -920,6 +920,36 @@ impl PresenterEntityType {
     }
 }
 
+/// Custom EntityResolver implementation for PresenterEntityType.
+///
+/// This overrides the default resolution to support tagged presenter auto-creation.
+/// Tags like "P:Name", "G:Name=Team" automatically create presenters with appropriate
+/// ranks and group memberships.
+impl crate::entity::EntityResolver for PresenterEntityType {
+    /// Overrides default resolution to support tagged auto-creation.
+    ///
+    /// First tries UUID string parsing, then falls back to
+    /// `find_or_create_tagged` which handles tags like "P:Name",
+    /// "G:Name=Team", "I:Name", and bare names, creating new presenters
+    /// with appropriate rank and group membership.
+    fn resolve_string(
+        storage: &mut crate::schedule::EntityStorage,
+        input: &str,
+    ) -> Result<Self::Id, crate::field::FieldError> {
+        use crate::entity::EntityType;
+        // Try UUID string parsing first
+        if let Some(id) = Self::resolve_uuid_string(storage, input) {
+            return Ok(id);
+        }
+        // Fall back to tagged presenter lookup with auto-creation
+        Self::find_or_create_tagged(storage, input).map_err(|_| {
+            crate::field::FieldError::ConversionError(
+                crate::field::validation::ConversionError::InvalidFormat,
+            )
+        })
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -961,5 +991,516 @@ mod tests {
         assert_eq!(json, "\"00000000-0000-0000-0000-000000000001\"");
         let back: PresenterId = serde_json::from_str(&json).unwrap();
         assert_eq!(id, back);
+    }
+
+    use crate::entity::EntityResolver;
+    use crate::field::FieldValue;
+
+    fn fv(s: &str) -> FieldValue {
+        FieldValue::String(s.to_string())
+    }
+
+    // --- Bare-name behavior (no tag prefix) ---
+
+    // Bare name auto-creates with default Panelist rank
+    #[test]
+    fn resolve_bare_name_creates_panelist() {
+        let mut storage = crate::schedule::EntityStorage::default();
+        let id = PresenterEntityType::resolve_field_value(&mut storage, fv("Jane Doe")).unwrap();
+        let data = storage.presenters.get(id).unwrap();
+        assert_eq!(data.name, "Jane Doe");
+        assert_eq!(data.rank, PresenterRank::Panelist);
+        assert!(!data.is_explicit_group);
+    }
+
+    // Bare name finds existing (created via tag) without creating a duplicate
+    #[test]
+    fn resolve_bare_name_finds_existing() {
+        let mut storage = crate::schedule::EntityStorage::default();
+        let id1 = PresenterEntityType::resolve_field_value(&mut storage, fv("G:Jane")).unwrap();
+        let id2 = PresenterEntityType::resolve_field_value(&mut storage, fv("Jane")).unwrap();
+        assert_eq!(id1, id2);
+        assert_eq!(storage.presenters.len(), 1);
+    }
+
+    // --- Tag prefix and rank ---
+
+    // P: creates Panelist
+    #[test]
+    fn resolve_tagged_panelist() {
+        let mut storage = crate::schedule::EntityStorage::default();
+        let id = PresenterEntityType::resolve_field_value(&mut storage, fv("P:Alice")).unwrap();
+        assert_eq!(
+            storage.presenters.get(id).unwrap().rank,
+            PresenterRank::Panelist
+        );
+    }
+
+    // G: is Guest rank, not a group flag
+    #[test]
+    fn resolve_guest_tag_creates_guest_rank() {
+        let mut storage = crate::schedule::EntityStorage::default();
+        let id = PresenterEntityType::resolve_field_value(&mut storage, fv("G:Alice")).unwrap();
+        let data = storage.presenters.get(id).unwrap();
+        assert_eq!(data.rank, PresenterRank::Guest);
+        assert!(!data.is_explicit_group);
+    }
+
+    // --- Rank upgrade / no-downgrade ---
+
+    // Bare name (Panelist) then I: tag upgrades to InvitedGuest
+    #[test]
+    fn resolve_rank_upgrade_bare_then_tagged() {
+        let mut storage = crate::schedule::EntityStorage::default();
+        let id1 = PresenterEntityType::resolve_field_value(&mut storage, fv("Jane Doe")).unwrap();
+        assert_eq!(
+            storage.presenters.get(id1).unwrap().rank,
+            PresenterRank::Panelist
+        );
+
+        let id2 = PresenterEntityType::resolve_field_value(&mut storage, fv("I:Jane Doe")).unwrap();
+        assert_eq!(id1, id2);
+        assert_eq!(
+            storage.presenters.get(id2).unwrap().rank,
+            PresenterRank::InvitedGuest(None)
+        );
+    }
+
+    // P: then G: upgrades Panelist → Guest (lower priority number wins)
+    #[test]
+    fn resolve_rank_upgrade_panelist_to_guest() {
+        let mut storage = crate::schedule::EntityStorage::default();
+        let id = PresenterEntityType::resolve_field_value(&mut storage, fv("P:Alice")).unwrap();
+        assert_eq!(
+            storage.presenters.get(id).unwrap().rank,
+            PresenterRank::Panelist
+        );
+
+        PresenterEntityType::resolve_field_value(&mut storage, fv("G:Alice")).unwrap();
+        assert_eq!(
+            storage.presenters.get(id).unwrap().rank,
+            PresenterRank::Guest
+        );
+    }
+
+    // I: then F: does not downgrade; bare name also does not downgrade
+    #[test]
+    fn resolve_rank_no_downgrade_mixed() {
+        let mut storage = crate::schedule::EntityStorage::default();
+        let id = PresenterEntityType::resolve_field_value(&mut storage, fv("I:Jane Doe")).unwrap();
+        assert_eq!(
+            storage.presenters.get(id).unwrap().rank,
+            PresenterRank::InvitedGuest(None)
+        );
+
+        // Lower-rank tag
+        PresenterEntityType::resolve_field_value(&mut storage, fv("F:Jane Doe")).unwrap();
+        assert_eq!(
+            storage.presenters.get(id).unwrap().rank,
+            PresenterRank::InvitedGuest(None)
+        );
+
+        // Bare name also does not change rank (no implicit rank)
+        PresenterEntityType::resolve_field_value(&mut storage, fv("Jane Doe")).unwrap();
+        assert_eq!(
+            storage.presenters.get(id).unwrap().rank,
+            PresenterRank::InvitedGuest(None)
+        );
+    }
+
+    // Bare name does not upgrade FanPanelist to Panelist
+    #[test]
+    fn resolve_bare_name_does_not_upgrade_fan_panelist() {
+        let mut storage = crate::schedule::EntityStorage::default();
+        let id = PresenterEntityType::resolve_field_value(&mut storage, fv("F:Alice")).unwrap();
+        assert_eq!(
+            storage.presenters.get(id).unwrap().rank,
+            PresenterRank::FanPanelist
+        );
+
+        // Bare name has no implicit rank — must not promote FanPanelist
+        PresenterEntityType::resolve_field_value(&mut storage, fv("Alice")).unwrap();
+        assert_eq!(
+            storage.presenters.get(id).unwrap().rank,
+            PresenterRank::FanPanelist,
+            "bare name must not upgrade FanPanelist to Panelist"
+        );
+    }
+
+    // --- Idempotent / UUID resolution ---
+
+    // Same tag twice returns same presenter
+    #[test]
+    fn resolve_idempotent_tagged() {
+        let mut storage = crate::schedule::EntityStorage::default();
+        let id1 = PresenterEntityType::resolve_field_value(&mut storage, fv("G:Troupe")).unwrap();
+        let id2 = PresenterEntityType::resolve_field_value(&mut storage, fv("G:Troupe")).unwrap();
+        assert_eq!(id1, id2);
+        assert_eq!(storage.presenters.len(), 1);
+    }
+
+    // Same bare name twice returns same presenter
+    #[test]
+    fn resolve_idempotent_bare() {
+        let mut storage = crate::schedule::EntityStorage::default();
+        let id1 = PresenterEntityType::resolve_field_value(&mut storage, fv("Troupe")).unwrap();
+        let id2 = PresenterEntityType::resolve_field_value(&mut storage, fv("Troupe")).unwrap();
+        assert_eq!(id1, id2);
+        assert_eq!(storage.presenters.len(), 1);
+    }
+
+    // Prefixed UUID string ("presenter-<uuid>") resolves to the same presenter
+    #[test]
+    fn resolve_by_prefixed_uuid_string() {
+        let mut storage = crate::schedule::EntityStorage::default();
+        let id = PresenterEntityType::resolve_field_value(&mut storage, fv("P:Alice")).unwrap();
+        let uuid_str = format!("presenter-{}", id.non_nil_uuid());
+        let id2 = PresenterEntityType::resolve_field_value(&mut storage, fv(&uuid_str)).unwrap();
+        assert_eq!(id, id2);
+    }
+
+    // Bare UUID string (no prefix) resolves to the same presenter
+    #[test]
+    fn resolve_by_bare_uuid_string() {
+        let mut storage = crate::schedule::EntityStorage::default();
+        let id = PresenterEntityType::resolve_field_value(&mut storage, fv("P:Alice")).unwrap();
+        let uuid_str = id.non_nil_uuid().to_string();
+        let id2 = PresenterEntityType::resolve_field_value(&mut storage, fv(&uuid_str)).unwrap();
+        assert_eq!(id, id2);
+    }
+
+    // FieldValue::NonNilUuid resolves to the same presenter
+    #[test]
+    fn resolve_by_non_nil_uuid() {
+        let mut storage = crate::schedule::EntityStorage::default();
+        let id = PresenterEntityType::resolve_field_value(&mut storage, fv("P:Alice")).unwrap();
+        let id2 = PresenterEntityType::resolve_field_value(
+            &mut storage,
+            FieldValue::NonNilUuid(id.non_nil_uuid()),
+        )
+        .unwrap();
+        assert_eq!(id, id2);
+    }
+
+    // FieldValue::EntityIdentifier resolves to the same presenter
+    #[test]
+    fn resolve_by_entity_identifier() {
+        let mut storage = crate::schedule::EntityStorage::default();
+        let id = PresenterEntityType::resolve_field_value(&mut storage, fv("P:Alice")).unwrap();
+        let euuid = crate::entity::EntityUUID::Presenter(id);
+        let id2 = PresenterEntityType::resolve_field_value(
+            &mut storage,
+            FieldValue::EntityIdentifier(euuid),
+        )
+        .unwrap();
+        assert_eq!(id, id2);
+    }
+
+    // --- Comma-separated values with mixed tags ---
+
+    #[test]
+    fn resolve_field_values_comma_mixed() {
+        let mut storage = crate::schedule::EntityStorage::default();
+        // Pre-create Bob via bare name so it exists for bare lookup
+        PresenterEntityType::resolve_field_value(&mut storage, fv("S:Bob")).unwrap();
+        let ids =
+            PresenterEntityType::resolve_field_values(&mut storage, fv("P:Alice, Bob, G:Carol"))
+                .unwrap();
+        assert_eq!(ids.len(), 3);
+        assert_eq!(storage.presenters.len(), 3);
+    }
+
+    // --- Group membership: single = ---
+
+    // Kind:Name=Group links member to an explicit group
+    #[test]
+    fn resolve_single_equals_creates_group() {
+        let mut storage = crate::schedule::EntityStorage::default();
+        let alice_id =
+            PresenterEntityType::resolve_field_value(&mut storage, fv("P:Alice=BandName")).unwrap();
+        let alice = storage.presenters.get(alice_id).unwrap();
+        assert_eq!(alice.name, "Alice");
+        assert_eq!(alice.rank, PresenterRank::Panelist);
+        assert!(!alice.is_explicit_group);
+        assert!(!alice.always_grouped);
+        let group_id = alice.group_ids.first().copied().unwrap();
+        let group = storage.presenters.get(group_id).unwrap();
+        assert!(group.is_explicit_group);
+        assert!(!group.always_shown_in_group);
+        assert_eq!(group.name, "BandName");
+    }
+
+    // --- Double == sets always_shown_in_group ---
+
+    #[test]
+    fn resolve_double_equals_sets_always_shown() {
+        let mut storage = crate::schedule::EntityStorage::default();
+        let alice_id =
+            PresenterEntityType::resolve_field_value(&mut storage, fv("P:Alice==BandName"))
+                .unwrap();
+        let alice = storage.presenters.get(alice_id).unwrap();
+        assert!(!alice.always_grouped);
+        let group_id = alice.group_ids.first().copied().unwrap();
+        let group = storage.presenters.get(group_id).unwrap();
+        assert!(group.is_explicit_group);
+        assert!(group.always_shown_in_group);
+    }
+
+    // Without tag prefix: I-tagged == also works
+    #[test]
+    fn resolve_double_equals_with_invited_tag() {
+        let mut storage = crate::schedule::EntityStorage::default();
+        let id = PresenterEntityType::resolve_field_value(&mut storage, fv("I:Bob==Crew")).unwrap();
+        let bob = storage.presenters.get(id).unwrap();
+        assert_eq!(bob.rank, PresenterRank::InvitedGuest(None));
+        let group_id = bob.group_ids.first().copied().unwrap();
+        assert!(
+            storage
+                .presenters
+                .get(group_id)
+                .unwrap()
+                .always_shown_in_group
+        );
+    }
+
+    // --- < prefix sets always_grouped ---
+
+    #[test]
+    fn resolve_less_than_prefix_sets_always_grouped() {
+        let mut storage = crate::schedule::EntityStorage::default();
+        let alice_id =
+            PresenterEntityType::resolve_field_value(&mut storage, fv("P:<Alice=BandName"))
+                .unwrap();
+        let alice = storage.presenters.get(alice_id).unwrap();
+        assert!(alice.always_grouped);
+        assert_eq!(alice.name, "Alice");
+        let group_id = alice.group_ids.first().copied().unwrap();
+        assert!(storage.presenters.get(group_id).unwrap().is_explicit_group);
+    }
+
+    // < with G: tag
+    #[test]
+    fn resolve_less_than_with_guest_tag() {
+        let mut storage = crate::schedule::EntityStorage::default();
+        let id =
+            PresenterEntityType::resolve_field_value(&mut storage, fv("G:<Carol=Troupe")).unwrap();
+        let carol = storage.presenters.get(id).unwrap();
+        assert_eq!(carol.rank, PresenterRank::Guest);
+        assert!(carol.always_grouped);
+    }
+
+    // --- Combined < and == ---
+
+    #[test]
+    fn resolve_less_than_double_equals_sets_both_flags() {
+        let mut storage = crate::schedule::EntityStorage::default();
+        let alice_id =
+            PresenterEntityType::resolve_field_value(&mut storage, fv("P:<Alice==BandName"))
+                .unwrap();
+        let alice = storage.presenters.get(alice_id).unwrap();
+        assert!(alice.always_grouped);
+        let group_id = alice.group_ids.first().copied().unwrap();
+        let group = storage.presenters.get(group_id).unwrap();
+        assert!(group.is_explicit_group);
+        assert!(group.always_shown_in_group);
+    }
+
+    // --- Group-only definition via == with empty member name ---
+
+    // P:==GroupName creates explicit always-shown group, returns the group itself
+    #[test]
+    fn resolve_double_equals_group_only() {
+        let mut storage = crate::schedule::EntityStorage::default();
+        let gid =
+            PresenterEntityType::resolve_field_value(&mut storage, fv("P:==BandName")).unwrap();
+        let group = storage.presenters.get(gid).unwrap();
+        assert_eq!(group.name, "BandName");
+        assert!(group.is_explicit_group);
+        assert!(group.always_shown_in_group);
+        assert!(storage.presenter_group_members.by_left(&gid).is_empty());
+    }
+
+    // ==GroupName (no tag prefix) creates explicit always-shown group with Panelist rank
+    #[test]
+    fn resolve_untagged_double_equals_group_only() {
+        let mut storage = crate::schedule::EntityStorage::default();
+        let gid = PresenterEntityType::resolve_field_value(&mut storage, fv("==Troupe")).unwrap();
+        let group = storage.presenters.get(gid).unwrap();
+        assert_eq!(group.name, "Troupe");
+        assert!(group.is_explicit_group);
+        assert!(group.always_shown_in_group);
+        assert_eq!(group.rank, PresenterRank::Panelist);
+    }
+
+    // <Name=Group (no tag prefix) sets always_grouped with default Panelist rank
+    #[test]
+    fn resolve_untagged_less_than_equals() {
+        let mut storage = crate::schedule::EntityStorage::default();
+        let alice_id =
+            PresenterEntityType::resolve_field_value(&mut storage, fv("<Alice=BandName")).unwrap();
+        let alice = storage.presenters.get(alice_id).unwrap();
+        assert_eq!(alice.name, "Alice");
+        assert!(alice.always_grouped);
+        assert_eq!(alice.rank, PresenterRank::Panelist);
+        let group_id = alice.group_ids.first().copied().unwrap();
+        assert!(storage.presenters.get(group_id).unwrap().is_explicit_group);
+    }
+
+    // Name=Group (no tag, no <) creates membership with default rank, no flags
+    #[test]
+    fn resolve_untagged_single_equals() {
+        let mut storage = crate::schedule::EntityStorage::default();
+        let alice_id =
+            PresenterEntityType::resolve_field_value(&mut storage, fv("Alice=BandName")).unwrap();
+        let alice = storage.presenters.get(alice_id).unwrap();
+        assert_eq!(alice.name, "Alice");
+        assert!(!alice.always_grouped);
+        assert_eq!(alice.rank, PresenterRank::Panelist);
+        let group_id = alice.group_ids.first().copied().unwrap();
+        let group = storage.presenters.get(group_id).unwrap();
+        assert!(group.is_explicit_group);
+        assert!(!group.always_shown_in_group);
+    }
+
+    // <Name==Group (no tag prefix) sets both always_grouped and always_shown_in_group
+    #[test]
+    fn resolve_untagged_less_than_double_equals() {
+        let mut storage = crate::schedule::EntityStorage::default();
+        let alice_id =
+            PresenterEntityType::resolve_field_value(&mut storage, fv("<Alice==BandName")).unwrap();
+        let alice = storage.presenters.get(alice_id).unwrap();
+        assert!(alice.always_grouped);
+        let group_id = alice.group_ids.first().copied().unwrap();
+        let group = storage.presenters.get(group_id).unwrap();
+        assert!(group.is_explicit_group);
+        assert!(group.always_shown_in_group);
+    }
+
+    // Untagged Name=Group does not upgrade rank on existing FanPanelist
+    #[test]
+    fn resolve_untagged_equals_does_not_upgrade_rank() {
+        let mut storage = crate::schedule::EntityStorage::default();
+        let id = PresenterEntityType::resolve_field_value(&mut storage, fv("F:Alice")).unwrap();
+        assert_eq!(
+            storage.presenters.get(id).unwrap().rank,
+            PresenterRank::FanPanelist
+        );
+
+        // Untagged group syntax — should not upgrade rank
+        PresenterEntityType::resolve_field_value(&mut storage, fv("Alice=BandName")).unwrap();
+        assert_eq!(
+            storage.presenters.get(id).unwrap().rank,
+            PresenterRank::FanPanelist,
+            "untagged group syntax must not upgrade FanPanelist rank"
+        );
+        // But group membership should still be established
+        assert!(!storage.presenters.get(id).unwrap().group_ids.is_empty());
+    }
+
+    // --- Flag persistence: once set, later resolves without flag don't clear it ---
+
+    // always_grouped persists when re-resolved without < (with tag)
+    #[test]
+    fn flag_always_grouped_persists_via_tag() {
+        let mut storage = crate::schedule::EntityStorage::default();
+        let id = PresenterEntityType::resolve_field_value(&mut storage, fv("P:<Alice=BandName"))
+            .unwrap();
+        assert!(storage.presenters.get(id).unwrap().always_grouped);
+
+        // Re-resolve with tag but without <
+        let id2 =
+            PresenterEntityType::resolve_field_value(&mut storage, fv("P:Alice=BandName")).unwrap();
+        assert_eq!(id, id2);
+        assert!(
+            storage.presenters.get(id2).unwrap().always_grouped,
+            "always_grouped must not be cleared by re-resolve without <"
+        );
+    }
+
+    // always_grouped persists when re-resolved bare (no tag at all)
+    #[test]
+    fn flag_always_grouped_persists_via_bare() {
+        let mut storage = crate::schedule::EntityStorage::default();
+        let id = PresenterEntityType::resolve_field_value(&mut storage, fv("P:<Alice=BandName"))
+            .unwrap();
+        assert!(storage.presenters.get(id).unwrap().always_grouped);
+
+        // Re-resolve bare
+        let id2 = PresenterEntityType::resolve_field_value(&mut storage, fv("Alice")).unwrap();
+        assert_eq!(id, id2);
+        assert!(
+            storage.presenters.get(id2).unwrap().always_grouped,
+            "always_grouped must not be cleared by bare-name re-resolve"
+        );
+    }
+
+    // always_shown_in_group on group persists when re-resolved with single =
+    #[test]
+    fn flag_always_shown_persists_via_single_equals() {
+        let mut storage = crate::schedule::EntityStorage::default();
+        let id = PresenterEntityType::resolve_field_value(&mut storage, fv("P:Alice==BandName"))
+            .unwrap();
+        let group_id = storage
+            .presenters
+            .get(id)
+            .unwrap()
+            .group_ids
+            .first()
+            .copied()
+            .unwrap();
+        assert!(
+            storage
+                .presenters
+                .get(group_id)
+                .unwrap()
+                .always_shown_in_group
+        );
+
+        // Re-resolve with single =
+        PresenterEntityType::resolve_field_value(&mut storage, fv("P:Alice=BandName")).unwrap();
+        assert!(
+            storage
+                .presenters
+                .get(group_id)
+                .unwrap()
+                .always_shown_in_group,
+            "always_shown_in_group must not be cleared by single ="
+        );
+    }
+
+    // is_explicit_group persists when re-resolved bare
+    #[test]
+    fn flag_is_explicit_group_persists_via_bare() {
+        let mut storage = crate::schedule::EntityStorage::default();
+        let gid =
+            PresenterEntityType::resolve_field_value(&mut storage, fv("P:==MyGroup")).unwrap();
+        assert!(storage.presenters.get(gid).unwrap().is_explicit_group);
+
+        // Re-resolve as bare name
+        let gid2 = PresenterEntityType::resolve_field_value(&mut storage, fv("MyGroup")).unwrap();
+        assert_eq!(gid, gid2);
+        assert!(
+            storage.presenters.get(gid2).unwrap().is_explicit_group,
+            "is_explicit_group must not be cleared by bare-name re-resolve"
+        );
+    }
+
+    // Rank persists through bare name re-resolve
+    #[test]
+    fn flag_rank_persists_via_bare() {
+        let mut storage = crate::schedule::EntityStorage::default();
+        let id = PresenterEntityType::resolve_field_value(&mut storage, fv("G:Alice")).unwrap();
+        assert_eq!(
+            storage.presenters.get(id).unwrap().rank,
+            PresenterRank::Guest
+        );
+
+        // Bare name re-resolve (default Panelist) must not downgrade Guest
+        PresenterEntityType::resolve_field_value(&mut storage, fv("Alice")).unwrap();
+        assert_eq!(
+            storage.presenters.get(id).unwrap().rank,
+            PresenterRank::Guest,
+            "rank must not be downgraded by bare-name re-resolve"
+        );
     }
 }

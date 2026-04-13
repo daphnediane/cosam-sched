@@ -245,6 +245,17 @@ For each entity, the macro generates:
    - `field_set()` for field access
    - `validate()` for required field validation
    - `on_soft_delete_cleanup_edges()` for automatic edge cleanup
+8. **`EntityResolver` impl** (when `#[default_resolver]` attribute is present) —
+   Default implementation providing:
+   - `resolve_string()` — UUID parsing then `match_index` lookup
+   - `resolve_next_field_value()` — handles `String`, `NonNilUuid`,
+     `EntityIdentifier`, `List`, comma-splitting
+   - `resolve_field_value()` — resolves to exactly one ID
+   - `resolve_field_values()` — resolves to zero or more IDs
+
+   Entities that need custom resolution (e.g., `Presenter` with tagged
+   auto-creation) omit `#[default_resolver]` and provide their own
+   `impl EntityResolver`.
 
 ---
 
@@ -603,16 +614,23 @@ Edge builders auto-upgrade `GenerateNew` → `Edge` when both endpoints are set.
 // Via EntityType
 let presenters: Vec<&PresenterData> = storage.get_by_index::<PresenterEntityType>("Alice");
 
-// Via Schedule helper
-let id = schedule.lookup_tagged_presenter("G:Alice")?;
+// Via Schedule helper (find-or-create with tagged format)
+let id = schedule.find_or_create_tagged_presenter("G:Alice")?;
+
+// Bare name also works — auto-creates with Panelist rank if new,
+// does not upgrade rank on existing presenters
+let id = schedule.find_or_create_tagged_presenter("Alice")?;
+
+// Untagged group syntax works too (=, ==, <)
+let id = schedule.find_or_create_tagged_presenter("Alice=BandName")?;
 ```
 
 ---
 
 ## Design Principles
 
-1. **`<Type>EntityType` owns the logic** — All non-trivial implementations that operate on entity or edge data belong as methods on the corresponding `<Type>EntityType` struct (e.g. `PanelToPresenterEntityType::presenters_of`, `PresenterEntityType::lookup_tagged`). This keeps logic testable, co-located with the data it operates on, and independent of the `Schedule` API surface.
-2. **`Schedule` methods are thin adapters** — Convenience methods on `Schedule` (e.g. `get_panel_presenters`, `lookup_tagged_presenter`) must not contain logic. They call the `EntityType` implementation and return the result. A `Schedule` method that does more than one non-trivial call is a smell.
+1. **`<Type>EntityType` owns the logic** — All non-trivial implementations that operate on entity or edge data belong as methods on the corresponding `<Type>EntityType` struct (e.g. `PanelToPresenterEntityType::presenters_of`, `PresenterEntityType::find_or_create_tagged`). This keeps logic testable, co-located with the data it operates on, and independent of the `Schedule` API surface.
+2. **`Schedule` methods are thin adapters** — Convenience methods on `Schedule` (e.g. `get_panel_presenters`, `find_or_create_tagged_presenter`) must not contain logic. They call the `EntityType` implementation and return the result. A `Schedule` method that does more than one non-trivial call is a smell.
 3. **Computed field closures are thin adapters** — `#[read(...)]` and `#[write(...)]` closures must not contain business logic. They call the appropriate `EntityType` method and convert the return value to/from `FieldValue`. Logic embedded directly in a closure cannot be unit-tested without a full `Schedule`.
 4. **Schedule is a proxy, not an owner** — Entity types own their storage; `Schedule` provides UUID registry and unified API
 5. **EntityStorage is the authority** — Computed field closures access `EntityStorage` directly via `TypedStorage`/`TypedEdgeStorage` dispatch

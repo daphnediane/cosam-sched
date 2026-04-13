@@ -22,7 +22,7 @@ use crate::entity::{
 };
 use uuid::NonNilUuid;
 
-/// Error returned by [`Schedule::lookup_tagged_presenter`].
+/// Error returned by [`Schedule::find_or_create_tagged_presenter`].
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum LookupError {
     /// Input string was empty or whitespace.
@@ -32,9 +32,11 @@ pub enum LookupError {
     UuidNotFound(uuid::Uuid),
     /// The UUID string was syntactically invalid.
     InvalidUuid(String),
-    /// The input was a bare name (no tag prefix) and no exact
-    /// case-insensitive match was found. Auto-create is not performed
-    /// at this layer; use a tagged string to create new presenters.
+    /// No presenter with this name was found.
+    ///
+    /// Not currently produced by `find_or_create_tagged` (which auto-creates
+    /// bare names with `Panelist` rank). Reserved for future read-only lookup
+    /// (see IDEA-043).
     NameNotFound(String),
     /// The tag prefix character was not a recognized rank flag.
     UnknownTag(char),
@@ -312,25 +314,29 @@ impl Schedule {
     // Presenter tag-string lookup / find-or-create
     // -----------------------------------------------------------------------
 
-    /// Look up a presenter by a tagged credit string, or find-or-create one.
+    /// Find or create a presenter from a tagged credit string.
     ///
-    /// Delegates to [`PresenterEntityType::lookup_tagged`] which owns the
-    /// implementation. See that method for the full format documentation.
+    /// Delegates to [`PresenterEntityType::find_or_create_tagged`] which owns
+    /// the implementation. See that method for the full format documentation.
     #[must_use = "returns the presenter/group ID; check for errors"]
-    pub fn lookup_tagged_presenter(&mut self, input: &str) -> Result<PresenterId, LookupError> {
-        PresenterEntityType::lookup_tagged(&mut self.entities, input)
+    pub fn find_or_create_tagged_presenter(
+        &mut self,
+        input: &str,
+    ) -> Result<PresenterId, LookupError> {
+        PresenterEntityType::find_or_create_tagged(&mut self.entities, input)
     }
 
     /// Add presenters to a panel by parsing tag strings.
     ///
-    /// Each tag string is resolved via [`lookup_tagged_presenter`](Self::lookup_tagged_presenter),
+    /// Each tag string is resolved via
+    /// [`find_or_create_tagged_presenter`](Self::find_or_create_tagged_presenter),
     /// which handles UUID references, tagged credit strings with rank/group syntax,
-    /// and bare name lookups. Successfully resolved presenters are connected to the
-    /// panel via `PanelToPresenter` edges.
+    /// and bare name auto-creation. Successfully resolved presenters are connected
+    /// to the panel via `PanelToPresenter` edges.
     ///
     /// Returns the number of presenters successfully added. Errors for individual
     /// tags are silently ignored (the tag is skipped); callers that need error
-    /// details should use `lookup_tagged_presenter` directly.
+    /// details should use `find_or_create_tagged_presenter` directly.
     ///
     /// # Example
     ///

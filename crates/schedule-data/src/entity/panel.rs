@@ -35,6 +35,7 @@ use crate::EntityFields;
 /// [`TimeRange`]: crate::time::TimeRange
 #[derive(EntityFields, Debug, Clone)]
 #[entity_kind(Panel)]
+#[default_resolver]
 pub struct Panel {
     // --- Raw spreadsheet columns -------------------------------------------
     #[field(
@@ -750,7 +751,7 @@ impl PanelEntityType {
         panel_uuid: uuid::NonNilUuid,
         tags: &[&str],
     ) -> usize {
-        use crate::entity::{EntityType, PresenterEntityType};
+        use crate::entity::{EntityResolver, PresenterEntityType};
 
         let values: Vec<crate::field::FieldValue> = tags
             .iter()

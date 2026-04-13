@@ -25,6 +25,7 @@ use crate::EntityFields;
 /// schedule widget.
 #[derive(EntityFields, Debug, Clone)]
 #[entity_kind(EventRoom)]
+#[default_resolver]
 pub struct EventRoom {
     #[field(
         display = "Room Name",
