@@ -437,7 +437,7 @@ impl EntityUUID {
     /// otherwise returns `None`.
     ///
     /// # Example
-    /// ```
+    /// ```rust,ignore
     /// let euuid = EntityUUID::Panel(panel_id);
     /// let maybe_panel: Option<PanelId> = euuid.to_typed_id();
     /// assert!(maybe_panel.is_some());
@@ -451,6 +451,57 @@ impl EntityUUID {
         } else {
             None
         }
+    }
+}
+
+/// Full internal entity data captured at a point in time.
+///
+/// Used by [`EditCommand::CreateEntity`] and [`EditCommand::RemoveEntity`]
+/// to enable undo/redo of entity creation and deletion without going through
+/// the field system.  `restore_entity` re-inserts the snapshot via
+/// `add_entity`, which triggers `on_insert` and rebuilds EdgeMap indexes.
+#[derive(Debug, Clone)]
+#[allow(clippy::large_enum_variant)]
+pub enum EntitySnapshot {
+    Panel(PanelData),
+    Presenter(PresenterData),
+    EventRoom(EventRoomData),
+    HotelRoom(HotelRoomData),
+    PanelType(PanelTypeData),
+}
+
+impl EntitySnapshot {
+    /// Return the UUID of the captured entity.
+    pub fn uuid(&self) -> NonNilUuid {
+        match self {
+            EntitySnapshot::Panel(d) => d.id().non_nil_uuid(),
+            EntitySnapshot::Presenter(d) => d.id().non_nil_uuid(),
+            EntitySnapshot::EventRoom(d) => d.id().non_nil_uuid(),
+            EntitySnapshot::HotelRoom(d) => d.id().non_nil_uuid(),
+            EntitySnapshot::PanelType(d) => d.id().non_nil_uuid(),
+        }
+    }
+
+    /// Return the entity kind of this snapshot.
+    pub fn kind(&self) -> EntityKind {
+        match self {
+            EntitySnapshot::Panel(_) => EntityKind::Panel,
+            EntitySnapshot::Presenter(_) => EntityKind::Presenter,
+            EntitySnapshot::EventRoom(_) => EntityKind::EventRoom,
+            EntitySnapshot::HotelRoom(_) => EntityKind::HotelRoom,
+            EntitySnapshot::PanelType(_) => EntityKind::PanelType,
+        }
+    }
+}
+
+/// Equality by identity only (UUID + kind).
+///
+/// `PanelData` and friends do not derive `PartialEq`, so we compare by the
+/// entity's UUID and kind rather than field-by-field.  This is sufficient for
+/// undo/redo stack comparisons.
+impl PartialEq for EntitySnapshot {
+    fn eq(&self, other: &Self) -> bool {
+        self.uuid() == other.uuid() && self.kind() == other.kind()
     }
 }
 

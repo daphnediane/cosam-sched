@@ -510,6 +510,124 @@ impl Schedule {
             }
         }
     }
+
+    // -----------------------------------------------------------------------
+    // Snapshot-based entity create / remove (for undo/redo)
+    // -----------------------------------------------------------------------
+
+    /// Capture the full internal data for an entity as an [`EntitySnapshot`].
+    ///
+    /// Returns `None` if the entity does not exist in the schedule.
+    pub fn snapshot_entity(
+        &self,
+        kind: EntityKind,
+        uuid: NonNilUuid,
+    ) -> Option<crate::entity::EntitySnapshot> {
+        use crate::entity::EntitySnapshot;
+        match kind {
+            EntityKind::Panel => self
+                .entities
+                .panels
+                .get(PanelId::from_uuid(uuid))
+                .cloned()
+                .map(EntitySnapshot::Panel),
+            EntityKind::Presenter => self
+                .entities
+                .presenters
+                .get(PresenterId::from_uuid(uuid))
+                .cloned()
+                .map(EntitySnapshot::Presenter),
+            EntityKind::EventRoom => self
+                .entities
+                .event_rooms
+                .get(EventRoomId::from_uuid(uuid))
+                .cloned()
+                .map(EntitySnapshot::EventRoom),
+            EntityKind::HotelRoom => self
+                .entities
+                .hotel_rooms
+                .get(HotelRoomId::from_uuid(uuid))
+                .cloned()
+                .map(crate::entity::EntitySnapshot::HotelRoom),
+            EntityKind::PanelType => self
+                .entities
+                .panel_types
+                .get(PanelTypeId::from_uuid(uuid))
+                .cloned()
+                .map(EntitySnapshot::PanelType),
+        }
+    }
+
+    /// Re-insert a previously captured [`EntitySnapshot`] into the schedule.
+    ///
+    /// Calls `add_entity` which triggers the entity type's `on_insert` hook so
+    /// EdgeMap indexes are rebuilt correctly.  Returns `Err` if the UUID is
+    /// already in use.
+    pub fn restore_entity(
+        &mut self,
+        snapshot: crate::entity::EntitySnapshot,
+    ) -> Result<(), InsertError> {
+        use crate::entity::{
+            EntitySnapshot, EventRoomEntityType, HotelRoomEntityType, PanelEntityType,
+            PanelTypeEntityType, PresenterEntityType,
+        };
+        match snapshot {
+            EntitySnapshot::Panel(data) => {
+                self.entities.add_entity::<PanelEntityType>(data)?;
+            }
+            EntitySnapshot::Presenter(data) => {
+                self.entities.add_entity::<PresenterEntityType>(data)?;
+            }
+            EntitySnapshot::EventRoom(data) => {
+                self.entities.add_entity::<EventRoomEntityType>(data)?;
+            }
+            EntitySnapshot::HotelRoom(data) => {
+                self.entities.add_entity::<HotelRoomEntityType>(data)?;
+            }
+            EntitySnapshot::PanelType(data) => {
+                self.entities.add_entity::<PanelTypeEntityType>(data)?;
+            }
+        }
+        Ok(())
+    }
+
+    /// Remove an entity by kind and UUID, returning a snapshot of the removed
+    /// entity (or `None` if it did not exist).
+    ///
+    /// Calls `EntityStorage::remove` which triggers `on_soft_delete` to clean
+    /// up EdgeMap indexes before the entity is dropped.
+    pub fn remove_entity_at(
+        &mut self,
+        kind: EntityKind,
+        uuid: NonNilUuid,
+    ) -> Option<crate::entity::EntitySnapshot> {
+        use crate::entity::{
+            EntitySnapshot, EventRoomEntityType, HotelRoomEntityType, PanelEntityType,
+            PanelTypeEntityType, PresenterEntityType,
+        };
+        match kind {
+            EntityKind::Panel => self
+                .entities
+                .remove::<PanelEntityType>(uuid)
+                .map(EntitySnapshot::Panel),
+            EntityKind::Presenter => self
+                .entities
+                .remove::<PresenterEntityType>(uuid)
+                .map(EntitySnapshot::Presenter),
+            EntityKind::EventRoom => self
+                .entities
+                .remove::<EventRoomEntityType>(uuid)
+                .map(EntitySnapshot::EventRoom),
+            EntityKind::HotelRoom => self
+                .entities
+                .remove::<HotelRoomEntityType>(uuid)
+                .map(EntitySnapshot::HotelRoom),
+            EntityKind::PanelType => self
+                .entities
+                .remove::<PanelTypeEntityType>(uuid)
+                .map(EntitySnapshot::PanelType),
+        }
+    }
 }
 
 /// `Schedule` delegates `EntityStore<T>` to its inner `EntityStorage`.

@@ -6,7 +6,7 @@ Implement a command-based edit system with full undo/redo support.
 
 ## Status
 
-Open
+Completed
 
 ## Priority
 

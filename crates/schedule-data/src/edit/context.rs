@@ -21,10 +21,14 @@ use crate::schedule::Schedule;
 /// pushes the command onto the undo stack.  When `None`, commands are
 /// applied but not recorded (fire-and-forget mode, useful for batch
 /// imports).
+///
+/// `dirty` is set to `true` on any successful [`execute`] and cleared by
+/// [`mark_clean`](Self::mark_clean).  Use it to drive save prompts.
 #[derive(Debug)]
 pub struct EditContext {
     schedule: Schedule,
     history: Option<EditHistory>,
+    dirty: bool,
 }
 
 impl EditContext {
@@ -33,6 +37,7 @@ impl EditContext {
         Self {
             schedule,
             history: Some(EditHistory::new()),
+            dirty: false,
         }
     }
 
@@ -41,6 +46,7 @@ impl EditContext {
         Self {
             schedule,
             history: None,
+            dirty: false,
         }
     }
 
@@ -66,9 +72,24 @@ impl EditContext {
     // Command execution
     // ------------------------------------------------------------------
 
+    /// Whether the schedule has unsaved changes.
+    ///
+    /// Set to `true` on every successful [`execute`](Self::execute); cleared
+    /// by [`mark_clean`](Self::mark_clean).
+    #[must_use]
+    pub fn is_dirty(&self) -> bool {
+        self.dirty
+    }
+
+    /// Mark the context as clean (e.g., after a successful save).
+    pub fn mark_clean(&mut self) {
+        self.dirty = false;
+    }
+
     /// Apply a single command, recording it in history if enabled.
     pub fn execute(&mut self, command: EditCommand) -> Result<(), FieldError> {
         command.apply(&mut self.schedule)?;
+        self.dirty = true;
         if let Some(ref mut history) = self.history {
             history.push(command);
         }

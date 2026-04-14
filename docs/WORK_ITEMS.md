@@ -1,6 +1,6 @@
 # Cosplay America Schedule - Work Item
 
-Updated on: Mon Apr 13 21:40:32 2026
+Updated on: Mon Apr 13 22:16:37 2026
 
 ## Completed
 
@@ -14,6 +14,7 @@ and validation infrastructure.
 * [FEATURE-007] Implement typed edge storage for entity-to-entity relationships.
 * [FEATURE-008] Implement the `Schedule` struct and `EntityStorage` for managing all entities
 and relationships.
+* [FEATURE-010] Implement a command-based edit system with full undo/redo support.
 * [FEATURE-034] Implement proper delegation pattern for `Schedule` convenience methods,
 moving business logic to entity-specific implementations.
 * [FEATURE-045] Rename combine-workitems.pl to work-item-update.pl and add a --create flag
@@ -45,7 +46,7 @@ EdgeIndex (and any per-type cache) maintenance responsibility into each
 
 ## Summary of Open Items
 
-**Total open items:** 23
+**Total open items:** 22
 
 * **Meta / Project-Level**
   * [META-001] Meta work item tracking the full multi-phase redesign of the schedule system. (Blocked by [META-026], [META-027], [META-028], [META-029], [META-030], [META-031])
@@ -56,9 +57,6 @@ XLSX import/export. (Blocked by [META-026], [META-027])
   * [META-029] Phase tracker for the cosam-convert and cosam-modify command-line applications. (Blocked by [META-028])
   * [META-030] Phase tracker for the cosam-editor desktop GUI application. (Blocked by [META-028])
   * [META-031] Phase tracker for peer-to-peer schedule synchronization and conflict resolution. (Blocked by [META-027])
-
-* **High Priority**
-  * [FEATURE-010] ([META-027]) Implement a command-based edit system with full undo/redo support.
 
 * **Medium Priority**
   * [FEATURE-009] ([META-026]) Implement field-based search, matching, and bulk update operations.
@@ -155,21 +153,6 @@ application structure.
 ---
 
 ## Open FEATURE Items
-
-### [FEATURE-010] Edit Command System With Undo/Redo History
-
-**Status:** Open
-
-**Priority:** High
-
-**Summary:** Implement a command-based edit system with full undo/redo support.
-
-**Part of:** [META-027]
-
-**Description:** All mutations to the schedule go through an edit command system that captures
-changes as reversible operations, enabling undo/redo in both CLI and GUI contexts.
-
----
 
 ### [FEATURE-009] Query System
 
@@ -527,7 +510,7 @@ to exchange CRDT changes and reconcile concurrent edits to the same fields.
 [FEATURE-007]: work-item/done/FEATURE-007.md
 [FEATURE-008]: work-item/done/FEATURE-008.md
 [FEATURE-009]: work-item/medium/FEATURE-009.md
-[FEATURE-010]: work-item/high/FEATURE-010.md
+[FEATURE-010]: work-item/done/FEATURE-010.md
 [FEATURE-011]: work-item/medium/FEATURE-011.md
 [FEATURE-012]: work-item/medium/FEATURE-012.md
 [FEATURE-013]: work-item/medium/FEATURE-013.md
