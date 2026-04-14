@@ -117,17 +117,30 @@ pub struct Panel {
     #[required]
     pub name: String,
 
-    // Computed field - reads from edge relationships
+    // Computed field - reads from backing field via EntityType method
     #[computed_field(display = "Presenters", description = "Panel presenters")]
     #[read(|schedule: &Schedule, entity: &PanelData| {
-        let ids = PanelToPresenterEntityType::presenters_of(&schedule.entities, entity.uuid());
+        let ids = PanelEntityType::presenters_of(&schedule.entities, entity.id());
         Some(FieldValue::from(ids))
     })]
     pub presenters: Vec<PresenterId>,
+
+    // Relationship backing field — Vec<TypedId> stored on the owning entity
+    // EdgeMap reverse indexes are maintained by EntityType lifecycle hooks
+    #[field(display = "Presenter IDs", description = "Backing field for presenter relationship")]
+    pub presenter_ids: Vec<PresenterId>,
 }
 ```
 
-### Edge Entity (Relationship)
+### Edge Entity (Relationship) — Historical
+
+> **Note:** The macro supports edge entity definitions with `#[edge_from]` /
+> `#[edge_to]` attributes, but the current codebase uses **virtual edges**
+> instead: relationships are stored as `Vec<TypedId>` backing fields on the
+> owning node entity, with bidirectional `EdgeMap` indexes maintained by
+> `EntityType` lifecycle hooks (`on_insert`, `on_update`, `on_soft_delete`).
+> The edge entity pattern below is preserved for reference and for any future
+> use cases requiring per-edge metadata.
 
 ```rust
 use cosam_sched::entity::EntityFields;
@@ -597,16 +610,18 @@ Edge builders auto-upgrade `GenerateNew` → `Edge` when both endpoints are set.
 3. For computed types: use `#[computed_field(...)]` with `#[read(...)]`/`#[write(...)]`
 4. Run `cargo check`
 
-### Creating an Edge Relationship
+### Creating a Relationship (Virtual Edge)
 
-1. Define edge entity with `#[edge_from(Source)]` and `#[edge_to(Target)]`
-2. Access via computed fields using `TypedEdgeStorage` methods:
+1. Add a `Vec<TypedId>` backing field on the owning entity (e.g., `presenter_ids: Vec<PresenterId>` on `PanelData`)
+2. Add a corresponding `EdgeMap` to `EntityStorage` for the reverse index
+3. Maintain the `EdgeMap` via `EntityType` lifecycle hooks (`on_insert`, `on_update`, `on_soft_delete`)
+4. Access via computed fields using `EntityType` methods:
 
    ```rust
-   PanelToPresenterEntityType::presenters_of(&schedule.entities, panel_uuid)
+   PanelEntityType::presenters_of(&schedule.entities, panel_id)
    ```
 
-3. Modify via schedule-aware write closures
+5. Modify via schedule-aware write closures that call `EntityType` methods
 
 ### Looking Up Entities by Name
 
@@ -629,12 +644,12 @@ let id = schedule.find_or_create_tagged_presenter("Alice=BandName")?;
 
 ## Design Principles
 
-1. **`<Type>EntityType` owns the logic** — All non-trivial implementations that operate on entity or edge data belong as methods on the corresponding `<Type>EntityType` struct (e.g. `PanelToPresenterEntityType::presenters_of`, `PresenterEntityType::find_or_create_tagged`). This keeps logic testable, co-located with the data it operates on, and independent of the `Schedule` API surface.
+1. **`<Type>EntityType` owns the logic** — All non-trivial implementations that operate on entity data belong as methods on the corresponding `<Type>EntityType` struct (e.g. `PanelEntityType::presenters_of`, `PresenterEntityType::find_or_create_tagged`). This keeps logic testable, co-located with the data it operates on, and independent of the `Schedule` API surface.
 2. **`Schedule` methods are thin adapters** — Convenience methods on `Schedule` (e.g. `get_panel_presenters`, `find_or_create_tagged_presenter`) must not contain logic. They call the `EntityType` implementation and return the result. A `Schedule` method that does more than one non-trivial call is a smell.
 3. **Computed field closures are thin adapters** — `#[read(...)]` and `#[write(...)]` closures must not contain business logic. They call the appropriate `EntityType` method and convert the return value to/from `FieldValue`. Logic embedded directly in a closure cannot be unit-tested without a full `Schedule`.
 4. **Schedule is a proxy, not an owner** — Entity types own their storage; `Schedule` provides UUID registry and unified API
-5. **EntityStorage is the authority** — Computed field closures access `EntityStorage` directly via `TypedStorage`/`TypedEdgeStorage` dispatch
-6. **Edges as entities** — Relationships are first-class entities with UUIDs, not a separate storage layer
+5. **EntityStorage is the authority** — Computed field closures access `EntityStorage` directly via `TypedStorage` dispatch
+6. **Edges as fields** — Relationships are `Vec<TypedId>` backing fields on owning entities with bidirectional `EdgeMap` reverse indexes maintained by `EntityType` lifecycle hooks
 7. **Explicit types in closures** — Macro-generated code requires full type annotations in computed field closures
 8. **No unwrap/expect in production** — Use `?` and proper error handling
 9. **Use typed IDs to avoid borrow conflicts** — When an `EntityType` method needs to touch multiple storage maps (e.g., updating both a forward field and a reverse index), take `&mut EntityStorage` and typed IDs (`<Type>Id` or `NonNilUuid`) rather than `&mut EntityData`. This avoids borrow checker conflicts in computed field write closures, which already hold a mutable borrow of one entity while needing to access others. Example:
@@ -676,29 +691,28 @@ let id = schedule.find_or_create_tagged_presenter("Alice=BandName")?;
 
 ```rust
 // ✅ CORRECT — logic in EntityType, closure is a thin adapter
-impl PanelToPresenterEntityType {
-    pub fn presenters_of(storage: &EntityStorage, panel_uuid: NonNilUuid) -> Vec<PresenterId> {
+impl PanelEntityType {
+    pub fn presenters_of(storage: &EntityStorage, panel_id: PanelId) -> Vec<PresenterId> {
         // ... real implementation here
     }
 }
 
 // In Panel entity definition:
 #[read(|schedule: &Schedule, entity: &PanelData| {
-    let ids = PanelToPresenterEntityType::presenters_of(&schedule.entities, entity.uuid());
+    let ids = PanelEntityType::presenters_of(&schedule.entities, entity.id());
     Some(FieldValue::from(ids))  // thin: call + convert only
 })]
 pub presenters: Vec<PresenterId>,
 
 // In Schedule:
 pub fn get_panel_presenters(&self, panel_id: PanelId) -> Vec<PresenterId> {
-    PanelToPresenterEntityType::presenters_of(&self.entities, panel_id.non_nil_uuid())
+    PanelEntityType::presenters_of(&self.entities, panel_id)
 }
 
 // ❌ WRONG — logic embedded in closure or Schedule method
 #[read(|schedule: &Schedule, entity: &PanelData| {
     // Don't implement traversal logic here — put it in EntityType
-    let index = PanelToPresenterEntityType::edge_index(&schedule.entities);
-    let uuids = index.outgoing.get(&entity.uuid()).cloned().unwrap_or_default();
+    let ids = entity.presenter_ids.clone();  // Don't access backing fields directly
     // ... more logic ...
 })]
 ```

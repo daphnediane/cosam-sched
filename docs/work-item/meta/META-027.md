@@ -6,15 +6,11 @@ Phase tracker for adding CRDT-backed storage underneath the entity/field system.
 
 ## Status
 
-Blocked
+In Progress
 
 ## Priority
 
 Medium
-
-## Blocked By
-
-- META-026: Phase 2 — Core Data Model
 
 ## Description
 

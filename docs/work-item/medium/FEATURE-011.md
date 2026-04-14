@@ -26,11 +26,21 @@ the entity system doesn't depend directly on CRDT internals.
 
 ### Key Abstractions
 
-- **CrdtDocument** — top-level container wrapping the CRDT state
-- **CrdtFieldOp** — a field-level operation (set, delete, increment)
-- **CrdtMerge** — merge two documents, producing a combined state
-- **CrdtDiff** — compute changes between two document states
+- **CrdtBackend** — trait wrapping create, apply-op, merge, serialize/deserialize
+- **CrdtOp** — field-level operation (set register, add to set, remove from set)
 - **ActorId** — unique identifier for each editing peer
+
+### Field Type → CRDT Type Mapping
+
+- Scalar fields (`String`, `Integer`, `Float`, `Boolean`, `DateTime`,
+  `Duration`) → LWW-Register
+- Relationship fields (`Vec<TypedId>`, e.g., `presenter_ids`, `group_ids`) →
+  OR-Set. Concurrent add+remove → add wins. The typed ID of the target entity
+  is the element identity within the set. No separate edge UUIDs needed.
+- `None` → tombstone / deletion marker
+
+EdgeMaps (bidirectional reverse indexes) are not CRDT-backed — they are rebuilt
+from primary CRDT state on load and maintained incrementally via entity hooks.
 
 ### Candidate Libraries
 
@@ -38,6 +48,7 @@ the entity system doesn't depend directly on CRDT internals.
   entity+field data. Built-in conflict tracking and history.
 - **crdts** (rust-crdt): Lower-level primitives (LWW registers, OR-sets).
   More control but more scaffolding needed.
+- **Custom**: Hand-rolled for perfect fit and maximum learning value; more work.
 
 ### Evaluation Criteria
 

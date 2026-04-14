@@ -31,7 +31,9 @@ Build on the CRDT storage (FEATURE-012) to provide:
 ### Merge Operations
 
 - Merge two divergent document states into a consistent result
-- Surface conflicts where the same field was edited by different peers
+- Surface conflicts where the same scalar field was edited by different peers
+- Relationship fields (`Vec<TypedId>`) merge via OR-Set union — concurrent
+  modifications to the same relationship field are automatically resolved
 - Automatic resolution for non-conflicting concurrent edits
 - Conflict metadata available for UI display (FEATURE-024)
 

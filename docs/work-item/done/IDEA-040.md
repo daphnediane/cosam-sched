@@ -8,7 +8,7 @@ violates the thin-adapter principle from `docs/field-system.md`.
 
 ## Status
 
-Open
+Completed
 
 ## Priority
 
@@ -102,3 +102,18 @@ technical blocker.
 Deferred from REFACTOR-036/037/038.  Address as part of a future tidy-up pass
 once higher-priority items (FEATURE-010 edit command system, FEATURE-009 query
 system) are underway.
+
+### Completion Note
+
+The core delegation was completed during REFACTOR-036/037/038 itself — all
+Schedule membership methods (`add_member`, `add_grouped_member`,
+`add_shown_member`, `remove_member`, etc.) now delegate to
+`PresenterEntityType` methods taking `&mut EntityStorage` and typed IDs.
+
+The approach evolved from the original proposal: instead of moving logic in a
+separate pass, the `EntityType` methods were written directly during the
+virtual-edge migration. The design principle this idea inspired (field-system.md
+§9: "Use typed IDs to avoid borrow conflicts") is established and working.
+
+Remaining typed-ID signature cleanup (`is_group`, `clear_members`,
+`add_presenters_tagged`) was completed as Step 0b of META-027 housekeeping.

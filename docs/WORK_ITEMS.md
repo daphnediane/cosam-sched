@@ -1,6 +1,6 @@
 # Cosplay America Schedule - Work Item
 
-Updated on: Mon Apr 13 21:37:20 2026
+Updated on: Mon Apr 13 21:40:32 2026
 
 ## Completed
 
@@ -50,7 +50,7 @@ EdgeIndex (and any per-type cache) maintenance responsibility into each
 * **Meta / Project-Level**
   * [META-001] Meta work item tracking the full multi-phase redesign of the schedule system. (Blocked by [META-026], [META-027], [META-028], [META-029], [META-030], [META-031])
   * [META-026] Phase tracker for the entity/field/macro system and core schedule data model.
-  * [META-027] Phase tracker for adding CRDT-backed storage underneath the entity/field system. (Blocked by [META-026])
+  * [META-027] Phase tracker for adding CRDT-backed storage underneath the entity/field system.
   * [META-028] Phase tracker for internal file format, multi-year archive, widget JSON, and
 XLSX import/export. (Blocked by [META-026], [META-027])
   * [META-029] Phase tracker for the cosam-convert and cosam-modify command-line applications. (Blocked by [META-028])
@@ -407,13 +407,11 @@ the new workspace. This is the largest and most foundational phase.
 
 ### [META-027] Phase 3 — CRDT Integration
 
-**Status:** Blocked
+**Status:** In Progress
 
 **Priority:** Medium
 
 **Summary:** Phase tracker for adding CRDT-backed storage underneath the entity/field system.
-
-**Blocked By:** [META-026]
 
 **Description:** Design and implement the CRDT abstraction layer and replace the direct HashMap
 entity storage with a CRDT-backed equivalent. This enables concurrent offline
