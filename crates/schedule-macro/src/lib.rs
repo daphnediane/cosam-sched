@@ -818,6 +818,7 @@ fn parse_field_attributes(attrs: &[Attribute]) -> Option<FieldAttributes> {
     let mut display = None;
     let mut description = None;
     let mut indexable = None;
+    let mut prose = false;
 
     for attr in attrs {
         if attr.path().is_ident("field") {
@@ -856,6 +857,13 @@ fn parse_field_attributes(attrs: &[Attribute]) -> Option<FieldAttributes> {
                         }
                     }
                 }
+
+                if tokens_str.contains("prose") {
+                    // prose = true is a bare flag; also accept prose = false
+                    if tokens_str.contains("prose = true") || tokens_str.contains("prose=true") {
+                        prose = true;
+                    }
+                }
             }
         } else if attr.path().is_ident("indexable") {
             // Parse indexable attribute with optional priority and/or closure
@@ -890,6 +898,7 @@ fn parse_field_attributes(attrs: &[Attribute]) -> Option<FieldAttributes> {
             display,
             description,
             indexable,
+            prose,
         }),
         _ => None,
     }
@@ -932,10 +941,17 @@ fn generate_direct_field(
     let supports_write = supports_automatic_write(field_type);
 
     // Generate field value conversion based on type
+    let is_prose = attrs.prose;
     let read_conversion = match get_field_type_category(field_type) {
         FieldTypeCategory::String => {
-            quote! {
-                Some(crate::field::FieldValue::String(entity.#field_name.clone()))
+            if is_prose {
+                quote! {
+                    Some(crate::field::FieldValue::Text(entity.#field_name.clone()))
+                }
+            } else {
+                quote! {
+                    Some(crate::field::FieldValue::String(entity.#field_name.clone()))
+                }
             }
         }
         FieldTypeCategory::Integer => {
@@ -955,9 +971,13 @@ fn generate_direct_field(
         }
         FieldTypeCategory::Optional(inner) => {
             let inner_quote = match inner.as_ref() {
-                FieldTypeCategory::String => quote! {
-                    crate::field::FieldValue::String(v.clone())
-                },
+                FieldTypeCategory::String => {
+                    if is_prose {
+                        quote! { crate::field::FieldValue::Text(v.clone()) }
+                    } else {
+                        quote! { crate::field::FieldValue::String(v.clone()) }
+                    }
+                }
                 FieldTypeCategory::Integer => quote! {
                     crate::field::FieldValue::Integer(*v)
                 },
@@ -983,12 +1003,28 @@ fn generate_direct_field(
     let write_conversion = if supports_write {
         match get_field_type_category(field_type) {
             FieldTypeCategory::String => {
-                quote! {
-                    if let crate::field::FieldValue::String(v) = value {
-                        entity.#field_name = v;
-                        Ok(())
-                    } else {
-                        Err(crate::field::FieldError::ConversionError(crate::field::validation::ConversionError::InvalidFormat))
+                if is_prose {
+                    // Prose fields accept Text (native) or String (import).
+                    quote! {
+                        match value {
+                            crate::field::FieldValue::Text(v)
+                            | crate::field::FieldValue::String(v) => {
+                                entity.#field_name = v;
+                                Ok(())
+                            }
+                            _ => Err(crate::field::FieldError::ConversionError(
+                                crate::field::validation::ConversionError::InvalidFormat,
+                            ))
+                        }
+                    }
+                } else {
+                    quote! {
+                        if let crate::field::FieldValue::String(v) = value {
+                            entity.#field_name = v;
+                            Ok(())
+                        } else {
+                            Err(crate::field::FieldError::ConversionError(crate::field::validation::ConversionError::InvalidFormat))
+                        }
                     }
                 }
             }
@@ -1029,19 +1065,40 @@ fn generate_direct_field(
                 }
             }
             FieldTypeCategory::Optional(inner) => match inner.as_ref() {
-                FieldTypeCategory::String => quote! {
-                    match value {
-                        Some(crate::field::FieldValue::String(v)) => {
-                            entity.#field_name = Some(v);
-                            Ok(())
+                FieldTypeCategory::String => {
+                    if is_prose {
+                        quote! {
+                            match value {
+                                Some(crate::field::FieldValue::Text(v))
+                                | Some(crate::field::FieldValue::String(v)) => {
+                                    entity.#field_name = Some(v);
+                                    Ok(())
+                                }
+                                None => {
+                                    entity.#field_name = None;
+                                    Ok(())
+                                }
+                                _ => Err(crate::field::FieldError::ConversionError(
+                                    crate::field::validation::ConversionError::InvalidFormat,
+                                ))
+                            }
                         }
-                        None => {
-                            entity.#field_name = None;
-                            Ok(())
+                    } else {
+                        quote! {
+                            match value {
+                                Some(crate::field::FieldValue::String(v)) => {
+                                    entity.#field_name = Some(v);
+                                    Ok(())
+                                }
+                                None => {
+                                    entity.#field_name = None;
+                                    Ok(())
+                                }
+                                _ => Err(crate::field::FieldError::ConversionError(crate::field::validation::ConversionError::InvalidFormat))
+                            }
                         }
-                        _ => Err(crate::field::FieldError::ConversionError(crate::field::validation::ConversionError::InvalidFormat))
                     }
-                },
+                }
                 FieldTypeCategory::Integer => quote! {
                     match value {
                         Some(crate::field::FieldValue::Integer(v)) => {
@@ -1151,7 +1208,7 @@ fn generate_direct_field(
                         if query.is_empty() {
                             None
                         } else if let Some(field_value) = crate::field::traits::SimpleReadableField::<#entity_type_struct_name>::read(self, entity) {
-                            if let crate::field::FieldValue::String(s) = field_value {
+                            if let crate::field::FieldValue::String(s) | crate::field::FieldValue::Text(s) = field_value {
                                 let query_lower = query.to_lowercase();
                                 let s_lower = s.to_lowercase();
 
@@ -1580,6 +1637,11 @@ struct FieldAttributes {
     display: String,
     description: String,
     indexable: Option<IndexableAttributes>,
+    /// True when the field is a long prose field (description, note, *_notes,
+    /// bio, etc.). Causes the read path to emit `FieldValue::Text` instead of
+    /// `FieldValue::String`, signalling to the CRDT layer to use RGA
+    /// `splice_text` rather than LWW `put()`.
+    prose: bool,
 }
 
 #[derive(Debug)]

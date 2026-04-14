@@ -30,7 +30,13 @@ use crate::entity::EntityUUID;
 /// Universal field value type for generic operations
 #[derive(Debug, Clone, PartialEq)]
 pub enum FieldValue {
+    /// Short string scalar — LWW on merge. Use for names, ranks, IDs, etc.
     String(String),
+    /// Long prose string — character-level RGA on merge. Use for description,
+    /// note, and other free-text fields where concurrent offline edits must
+    /// both survive. Reads as a plain `String`; the CRDT layer routes writes
+    /// through `splice_text` rather than `put()`.
+    Text(String),
     Integer(i64),
     Float(f64),
     Boolean(bool),
@@ -49,6 +55,11 @@ impl FieldValue {
     /// Convert Option<String> to Option<FieldValue>.
     pub fn from_option_string(opt: Option<String>) -> Option<Self> {
         opt.map(Self::String)
+    }
+
+    /// Convert Option<String> to Option<FieldValue::Text> (prose fields).
+    pub fn from_option_text(opt: Option<String>) -> Option<Self> {
+        opt.map(Self::Text)
     }
 
     /// Convert Option<i64> to Option<FieldValue>.
@@ -129,7 +140,9 @@ impl FieldValue {
     pub fn as_bool(&self) -> bool {
         match self {
             FieldValue::Boolean(b) => *b,
-            FieldValue::String(s) => !matches!(s.to_lowercase().as_str(), "false" | "0" | ""),
+            FieldValue::String(s) | FieldValue::Text(s) => {
+                !matches!(s.to_lowercase().as_str(), "false" | "0" | "")
+            }
             _ => false,
         }
     }
@@ -138,7 +151,7 @@ impl FieldValue {
 impl fmt::Display for FieldValue {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
-            FieldValue::String(s) => write!(f, "{}", s),
+            FieldValue::String(s) | FieldValue::Text(s) => write!(f, "{}", s),
             FieldValue::Integer(i) => write!(f, "{}", i),
             FieldValue::Float(fl) => write!(f, "{}", fl),
             FieldValue::Boolean(b) => write!(f, "{}", b),

@@ -30,8 +30,8 @@
 //! overlapping character ranges are both preserved; simultaneous inserts at the
 //! same position are given a deterministic total order.
 
-use automerge::{AutoCommit, ObjId, ObjType, ReadDoc, ROOT};
 use automerge::transaction::Transactable;
+use automerge::{AutoCommit, ObjId, ObjType, ReadDoc, ROOT};
 
 // ---------------------------------------------------------------------------
 // Helper
@@ -43,7 +43,9 @@ use automerge::transaction::Transactable;
 fn panel_with_description(initial_text: &str) -> (AutoCommit, ObjId) {
     let mut doc = AutoCommit::new();
     let panel = doc.put_object(ROOT, "panel", ObjType::Map).unwrap();
-    let desc  = doc.put_object(&panel, "description", ObjType::Text).unwrap();
+    let desc = doc
+        .put_object(&panel, "description", ObjType::Text)
+        .unwrap();
     doc.splice_text(&desc, 0, 0, initial_text).unwrap();
     (doc, desc)
 }
@@ -68,7 +70,9 @@ fn p1_edits_at_different_positions_both_survive() {
     // Actor B appends a note at the end of the original string
     // (after the period, length of "Alice presents: Introduction to Cosplay.")
     let original_len = initial.chars().count();
-    doc_b.splice_text(&desc_b, original_len, 0, " Registration required.").unwrap();
+    doc_b
+        .splice_text(&desc_b, original_len, 0, " Registration required.")
+        .unwrap();
 
     // Merge B into A
     doc_a.merge(&mut doc_b).unwrap();
@@ -76,12 +80,18 @@ fn p1_edits_at_different_positions_both_survive() {
     let merged = doc_a.text(&desc_a).unwrap();
 
     // Both edits must be present somewhere in the merged text
-    assert!(merged.contains("[Morning]"),
-        "A's prefix tag must survive merge; got: {merged:?}");
-    assert!(merged.contains("Registration required"),
-        "B's appended note must survive merge; got: {merged:?}");
-    assert!(merged.contains("Alice presents"),
-        "Original text must still be present; got: {merged:?}");
+    assert!(
+        merged.contains("[Morning]"),
+        "A's prefix tag must survive merge; got: {merged:?}"
+    );
+    assert!(
+        merged.contains("Registration required"),
+        "B's appended note must survive merge; got: {merged:?}"
+    );
+    assert!(
+        merged.contains("Alice presents"),
+        "Original text must still be present; got: {merged:?}"
+    );
 }
 
 // ---------------------------------------------------------------------------
@@ -109,7 +119,9 @@ fn p2_find_replace_and_concurrent_edit_both_survive() {
     // (delete 11 chars "Cosplay Ant", insert "Cosplay Aunt")
     let old_name = "Cosplay Ant";
     let new_name = "Cosplay Aunt";
-    doc_a.splice_text(&desc_a, 0, old_name.chars().count() as isize, new_name).unwrap();
+    doc_a
+        .splice_text(&desc_a, 0, old_name.chars().count() as isize, new_name)
+        .unwrap();
 
     // Actor B: removes the trailing boilerplate " Tickets available at the door."
     // Original: "...gold thread embroidery. Tickets available at the door."
@@ -117,8 +129,9 @@ fn p2_find_replace_and_concurrent_edit_both_survive() {
     let boilerplate = " Tickets available at the door.";
     let b_text = doc_b.text(&desc_b).unwrap();
     let keep_len = b_text.chars().count() - boilerplate.chars().count();
-    doc_b.splice_text(&desc_b, keep_len,
-        boilerplate.chars().count() as isize, "").unwrap();
+    doc_b
+        .splice_text(&desc_b, keep_len, boilerplate.chars().count() as isize, "")
+        .unwrap();
 
     // Merge: A incorporates B's edit
     doc_a.merge(&mut doc_b).unwrap();
@@ -126,20 +139,28 @@ fn p2_find_replace_and_concurrent_edit_both_survive() {
     let merged = doc_a.text(&desc_a).unwrap();
 
     // The corrected name must be present (A's find-replace survived)
-    assert!(merged.contains("Cosplay Aunt"),
-        "Find-replace (Cosplay Aunt) must survive merge; got: {merged:?}");
+    assert!(
+        merged.contains("Cosplay Aunt"),
+        "Find-replace (Cosplay Aunt) must survive merge; got: {merged:?}"
+    );
 
     // The old name must no longer appear as a standalone word
-    assert!(!merged.contains("Cosplay Ant "),
-        "Old misspelling must be gone; got: {merged:?}");
+    assert!(
+        !merged.contains("Cosplay Ant "),
+        "Old misspelling must be gone; got: {merged:?}"
+    );
 
     // The boilerplate must be gone (B's removal survived)
-    assert!(!merged.contains("Tickets available at the door"),
-        "B's removed boilerplate must be gone; got: {merged:?}");
+    assert!(
+        !merged.contains("Tickets available at the door"),
+        "B's removed boilerplate must be gone; got: {merged:?}"
+    );
 
     // Core description text must remain
-    assert!(merged.contains("gold thread embroidery"),
-        "Core description text must be preserved; got: {merged:?}");
+    assert!(
+        merged.contains("gold thread embroidery"),
+        "Core description text must be preserved; got: {merged:?}"
+    );
 }
 
 // ---------------------------------------------------------------------------
@@ -172,14 +193,20 @@ fn p3_concurrent_inserts_at_same_position_both_preserved() {
     let text_from_b = doc_b2.text(&desc_b).unwrap();
 
     // Both replicas must converge to the same string
-    assert_eq!(text_from_a, text_from_b,
-        "Concurrent inserts at same position must converge");
+    assert_eq!(
+        text_from_a, text_from_b,
+        "Concurrent inserts at same position must converge"
+    );
 
     // Both tags must be present
-    assert!(text_from_a.contains("[TAG-A]"),
-        "A's insert must survive; got: {text_from_a:?}");
-    assert!(text_from_a.contains("[TAG-B]"),
-        "B's insert must survive; got: {text_from_a:?}");
+    assert!(
+        text_from_a.contains("[TAG-A]"),
+        "A's insert must survive; got: {text_from_a:?}"
+    );
+    assert!(
+        text_from_a.contains("[TAG-B]"),
+        "B's insert must survive; got: {text_from_a:?}"
+    );
 }
 
 // ---------------------------------------------------------------------------
@@ -197,8 +224,10 @@ fn p4_idempotent_merge() {
     doc.merge(&mut clone).unwrap();
 
     let merged = doc.text(&desc).unwrap();
-    assert_eq!(merged, initial,
-        "Idempotent merge must not alter or duplicate text; got: {merged:?}");
+    assert_eq!(
+        merged, initial,
+        "Idempotent merge must not alter or duplicate text; got: {merged:?}"
+    );
 }
 
 // ---------------------------------------------------------------------------
@@ -212,8 +241,7 @@ fn p4_idempotent_merge() {
 /// Both edits must survive so that neither change silently disappears.
 #[test]
 fn p5_trim_stale_computed_data_and_concurrent_name_fix() {
-    let initial =
-        "Cosplay Ant teaches sewing. Sat 10:00am, Room 101.";
+    let initial = "Cosplay Ant teaches sewing. Sat 10:00am, Room 101.";
 
     let (mut doc_a, desc_a) = panel_with_description(initial);
     let mut doc_b = doc_a.fork();
@@ -222,22 +250,32 @@ fn p5_trim_stale_computed_data_and_concurrent_name_fix() {
     // Actor A: fix the presenter name ("Cosplay Ant" → "Cosplay Aunt", pos 0)
     let old = "Cosplay Ant";
     let new = "Cosplay Aunt";
-    doc_a.splice_text(&desc_a, 0, old.chars().count() as isize, new).unwrap();
+    doc_a
+        .splice_text(&desc_a, 0, old.chars().count() as isize, new)
+        .unwrap();
 
     // Actor B: remove the stale computed suffix " Sat 10:00am, Room 101."
     let b_text = doc_b.text(&desc_b).unwrap();
-    let stale  = " Sat 10:00am, Room 101.";
-    let keep   = b_text.chars().count() - stale.chars().count();
-    doc_b.splice_text(&desc_b, keep, stale.chars().count() as isize, "").unwrap();
+    let stale = " Sat 10:00am, Room 101.";
+    let keep = b_text.chars().count() - stale.chars().count();
+    doc_b
+        .splice_text(&desc_b, keep, stale.chars().count() as isize, "")
+        .unwrap();
 
     // Merge
     doc_a.merge(&mut doc_b).unwrap();
     let merged = doc_a.text(&desc_a).unwrap();
 
-    assert!(merged.contains("Cosplay Aunt"),
-        "Name correction must survive; got: {merged:?}");
-    assert!(!merged.contains("Sat 10:00am"),
-        "Stale computed data must be removed; got: {merged:?}");
-    assert!(merged.contains("teaches sewing"),
-        "Core description text must remain; got: {merged:?}");
+    assert!(
+        merged.contains("Cosplay Aunt"),
+        "Name correction must survive; got: {merged:?}"
+    );
+    assert!(
+        !merged.contains("Sat 10:00am"),
+        "Stale computed data must be removed; got: {merged:?}"
+    );
+    assert!(
+        merged.contains("teaches sewing"),
+        "Core description text must remain; got: {merged:?}"
+    );
 }

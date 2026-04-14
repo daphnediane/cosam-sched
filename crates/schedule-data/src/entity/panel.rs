@@ -55,23 +55,33 @@ pub struct Panel {
 
     #[field(
         display = "Description",
-        description = "Event description shown to attendees"
+        description = "Event description shown to attendees",
+        prose = true
     )]
     #[alias("description", "desc")]
     pub description: Option<String>,
 
-    #[field(display = "Note", description = "Extra note displayed verbatim")]
+    #[field(
+        display = "Note",
+        description = "Extra note displayed verbatim",
+        prose = true
+    )]
     #[alias("note")]
     pub note: Option<String>,
 
     #[field(
         display = "Notes (Non Printing)",
-        description = "Internal notes not shown to the public"
+        description = "Internal notes not shown to the public",
+        prose = true
     )]
     #[alias("notes_non_printing", "internal_notes")]
     pub notes_non_printing: Option<String>,
 
-    #[field(display = "Workshop Notes", description = "Notes for workshop staff")]
+    #[field(
+        display = "Workshop Notes",
+        description = "Notes for workshop staff",
+        prose = true
+    )]
     #[alias("workshop_notes")]
     pub workshop_notes: Option<String>,
 
@@ -89,7 +99,11 @@ pub struct Panel {
     #[alias("sewing_machines", "sewing")]
     pub sewing_machines: bool,
 
-    #[field(display = "AV Notes", description = "Audio/visual setup notes")]
+    #[field(
+        display = "AV Notes",
+        description = "Audio/visual setup notes",
+        prose = true
+    )]
     #[alias("av_notes", "av")]
     pub av_notes: Option<String>,
 

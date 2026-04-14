@@ -194,6 +194,52 @@ impl FieldType for StringFieldType {
             FieldValue::Boolean(b) => Ok(b.to_string()),
             FieldValue::Duration(d) => Ok(d.num_minutes().to_string()),
             FieldValue::NonNilUuid(uuid) => Ok(uuid.to_string()),
+            // Text converts to string for display/search. Writing a Text value
+            // to a String field is unintended (prose fields use TextFieldType)
+            // but tolerated so generic conversion code still works.
+            FieldValue::Text(s) => Ok(s.clone()),
+            _ => Err(ConversionError::UnsupportedType),
+        }
+    }
+}
+
+/// Text field type for long prose fields (description, note, *_notes, bio).
+///
+/// Identical matching behavior to `StringFieldType` but without the 1000-char
+/// length limit, and produces `FieldValue::Text` on reads so the CRDT layer
+/// routes writes through character-level RGA (`splice_text`) rather than LWW
+/// scalar `put()`.
+#[derive(Debug, Clone, Copy)]
+pub struct TextFieldType;
+
+impl FieldType for TextFieldType {
+    type Value = String;
+    type Storage = String;
+
+    const NAME: &'static str = "text";
+
+    fn to_storage(value: Self::Value) -> Self::Storage {
+        value
+    }
+
+    fn from_storage(storage: Self::Storage) -> Self::Value {
+        storage
+    }
+
+    fn validate(_value: &Self::Value) -> Result<(), ValidationError> {
+        // No length limit for prose fields
+        Ok(())
+    }
+
+    fn matches(value: &Self::Value, matcher: &FieldMatcher) -> bool {
+        // Same matching logic as StringFieldType
+        StringFieldType::matches(value, matcher)
+    }
+
+    fn try_convert(value: &FieldValue) -> Result<Self::Value, ConversionError> {
+        match value {
+            // Accept both Text (native) and String (e.g. from JSON import)
+            FieldValue::Text(s) | FieldValue::String(s) => Ok(s.clone()),
             _ => Err(ConversionError::UnsupportedType),
         }
     }

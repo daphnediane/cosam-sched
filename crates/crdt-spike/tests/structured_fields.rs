@@ -35,8 +35,8 @@
 //! ```
 
 use crdts::{CmRDT, CvRDT, LWWReg, Orswot};
-use uuid::Uuid;
 use std::collections::HashMap;
+use uuid::Uuid;
 
 // ---------------------------------------------------------------------------
 // Minimal actor model
@@ -68,7 +68,7 @@ type ScalarMarker = (u64, ActorId);
 const MARKER_ZERO: ScalarMarker = (0, 0);
 
 type ScalarField = LWWReg<ScalarVal, ScalarMarker>;
-type SetField    = Orswot<Uuid, ActorId>;
+type SetField = Orswot<Uuid, ActorId>;
 
 /// A sentinel ScalarVal used only when initialising a new register slot.
 /// It will be immediately overwritten by the first real `write_scalar` call.
@@ -80,7 +80,7 @@ fn sentinel() -> ScalarVal {
 #[derive(Clone, Default)]
 struct CrdtEntity {
     scalars: HashMap<String, ScalarField>,
-    sets:    HashMap<String, SetField>,
+    sets: HashMap<String, SetField>,
 }
 
 impl CrdtEntity {
@@ -89,9 +89,13 @@ impl CrdtEntity {
     /// `marker` is a `(logical_time, actor_id)` pair that must be monotonically
     /// increasing across all writes to this field on this replica.
     fn write_scalar(&mut self, field: &str, val: ScalarVal, marker: ScalarMarker) {
-        let reg = self.scalars
+        let reg = self
+            .scalars
             .entry(field.to_string())
-            .or_insert_with(|| LWWReg { val: sentinel(), marker: MARKER_ZERO });
+            .or_insert_with(|| LWWReg {
+                val: sentinel(),
+                marker: MARKER_ZERO,
+            });
         reg.update(val, marker);
     }
 
@@ -118,9 +122,11 @@ impl CrdtEntity {
     fn merge(&mut self, other: &CrdtEntity) {
         // Merge scalar fields (LWWReg CvRDT merge)
         for (name, other_reg) in &other.scalars {
-            let reg: &mut ScalarField = self.scalars
-                .entry(name.clone())
-                .or_insert_with(|| LWWReg { val: sentinel(), marker: MARKER_ZERO });
+            let reg: &mut ScalarField =
+                self.scalars.entry(name.clone()).or_insert_with(|| LWWReg {
+                    val: sentinel(),
+                    marker: MARKER_ZERO,
+                });
             reg.merge(other_reg.clone());
         }
         // Merge set fields (Orswot CvRDT merge)
@@ -147,7 +153,7 @@ impl CrdtEntity {
 #[derive(Clone, Default)]
 struct CrdtStore {
     present: Orswot<Uuid, ActorId>,
-    data:    HashMap<Uuid, CrdtEntity>,
+    data: HashMap<Uuid, CrdtEntity>,
 }
 
 impl CrdtStore {
@@ -207,8 +213,14 @@ fn scenario_1_both_creates_survive_merge() {
     // Merge A ← B and verify both entities exist
     store_a.merge(&store_b);
 
-    assert!(store_a.entity_exists(uuid_e1), "E1 created by A should survive");
-    assert!(store_a.entity_exists(uuid_e2), "E2 created by B should survive");
+    assert!(
+        store_a.entity_exists(uuid_e1),
+        "E1 created by A should survive"
+    );
+    assert!(
+        store_a.entity_exists(uuid_e2),
+        "E2 created by B should survive"
+    );
 }
 
 // ---------------------------------------------------------------------------
@@ -227,16 +239,25 @@ fn scenario_2_different_fields_both_preserved() {
     let mut store_b = store_a.clone();
 
     // A edits `name`, B edits `rank` — each at logical time 1 for their actor
-    store_a.entity_mut(uuid).unwrap()
-        .write_scalar("name", ScalarVal::Str("Alice".into()), (1, ACTOR_A));
-    store_b.entity_mut(uuid).unwrap()
-        .write_scalar("rank", ScalarVal::Str("Panelist".into()), (1, ACTOR_B));
+    store_a.entity_mut(uuid).unwrap().write_scalar(
+        "name",
+        ScalarVal::Str("Alice".into()),
+        (1, ACTOR_A),
+    );
+    store_b.entity_mut(uuid).unwrap().write_scalar(
+        "rank",
+        ScalarVal::Str("Panelist".into()),
+        (1, ACTOR_B),
+    );
 
     store_a.merge(&store_b);
 
     let e = store_a.data.get(&uuid).unwrap();
     assert_eq!(e.read_scalar("name"), Some(&ScalarVal::Str("Alice".into())));
-    assert_eq!(e.read_scalar("rank"), Some(&ScalarVal::Str("Panelist".into())));
+    assert_eq!(
+        e.read_scalar("rank"),
+        Some(&ScalarVal::Str("Panelist".into()))
+    );
 }
 
 // ---------------------------------------------------------------------------
@@ -256,10 +277,16 @@ fn scenario_3_same_scalar_field_lww_resolution() {
     let mut store_b = store_a.clone();
 
     // Concurrent writes at the same logical time → actor ID is tiebreaker
-    store_a.entity_mut(uuid).unwrap()
-        .write_scalar("name", ScalarVal::Str("Alice A".into()), (1, ACTOR_A));
-    store_b.entity_mut(uuid).unwrap()
-        .write_scalar("name", ScalarVal::Str("Alice B".into()), (1, ACTOR_B));
+    store_a.entity_mut(uuid).unwrap().write_scalar(
+        "name",
+        ScalarVal::Str("Alice A".into()),
+        (1, ACTOR_A),
+    );
+    store_b.entity_mut(uuid).unwrap().write_scalar(
+        "name",
+        ScalarVal::Str("Alice B".into()),
+        (1, ACTOR_B),
+    );
 
     // Merge both directions
     let mut merged_a = store_a.clone();
@@ -288,7 +315,7 @@ fn scenario_3_same_scalar_field_lww_resolution() {
 /// Both adds must survive merge (set-union / OR-Set semantics).
 #[test]
 fn scenario_4_concurrent_adds_both_survive() {
-    let panel_uuid  = Uuid::new_v4();
+    let panel_uuid = Uuid::new_v4();
     let presenter_1 = Uuid::new_v4();
     let presenter_2 = Uuid::new_v4();
 
@@ -297,16 +324,26 @@ fn scenario_4_concurrent_adds_both_survive() {
 
     let mut store_b = store_a.clone();
 
-    store_a.entity_mut(panel_uuid).unwrap()
+    store_a
+        .entity_mut(panel_uuid)
+        .unwrap()
         .add_to_set("presenter_ids", presenter_1, ACTOR_A);
-    store_b.entity_mut(panel_uuid).unwrap()
+    store_b
+        .entity_mut(panel_uuid)
+        .unwrap()
         .add_to_set("presenter_ids", presenter_2, ACTOR_B);
 
     store_a.merge(&store_b);
 
     let ids = store_a.data[&panel_uuid].read_set("presenter_ids");
-    assert!(ids.contains(&presenter_1), "Presenter 1 (added by A) must survive");
-    assert!(ids.contains(&presenter_2), "Presenter 2 (added by B) must survive");
+    assert!(
+        ids.contains(&presenter_1),
+        "Presenter 1 (added by A) must survive"
+    );
+    assert!(
+        ids.contains(&presenter_2),
+        "Presenter 2 (added by B) must survive"
+    );
 }
 
 // ---------------------------------------------------------------------------
@@ -318,7 +355,7 @@ fn scenario_4_concurrent_adds_both_survive() {
 /// (add wins over concurrent unobserved remove).
 #[test]
 fn scenario_5_add_wins_over_unobserved_concurrent_remove() {
-    let panel_uuid  = Uuid::new_v4();
+    let panel_uuid = Uuid::new_v4();
     let presenter_x = Uuid::new_v4();
 
     // Both actors start from the same empty state
@@ -327,13 +364,17 @@ fn scenario_5_add_wins_over_unobserved_concurrent_remove() {
     let mut store_b = store_a.clone(); // B has not observed any adds yet
 
     // A adds presenter X
-    store_a.entity_mut(panel_uuid).unwrap()
+    store_a
+        .entity_mut(panel_uuid)
+        .unwrap()
         .add_to_set("presenter_ids", presenter_x, ACTOR_A);
 
     // B (from its own view where X was never added) attempts to remove X.
     // Because B's set is empty, this remove has no observed tokens to cancel
     // — it is effectively a no-op against A's add.
-    store_b.entity_mut(panel_uuid).unwrap()
+    store_b
+        .entity_mut(panel_uuid)
+        .unwrap()
         .remove_from_set("presenter_ids", presenter_x);
 
     // Merge A ← B
@@ -356,15 +397,19 @@ fn scenario_5_add_wins_over_unobserved_concurrent_remove() {
 /// does not enable — tested separately if needed.)
 #[test]
 fn scenario_6_merge_identity_convergence() {
-    let panel_uuid  = Uuid::new_v4();
+    let panel_uuid = Uuid::new_v4();
     let presenter_1 = Uuid::new_v4();
     let presenter_2 = Uuid::new_v4();
 
     let mut store = CrdtStore::default();
     store.create_entity(panel_uuid, ACTOR_A);
-    store.entity_mut(panel_uuid).unwrap()
+    store
+        .entity_mut(panel_uuid)
+        .unwrap()
         .add_to_set("presenter_ids", presenter_1, ACTOR_A);
-    store.entity_mut(panel_uuid).unwrap()
+    store
+        .entity_mut(panel_uuid)
+        .unwrap()
         .add_to_set("presenter_ids", presenter_2, ACTOR_A);
 
     // Merging a clone into itself must be idempotent (X ∪ X = X)
@@ -398,8 +443,11 @@ fn bonus_remove_vs_concurrent_edit() {
     assert!(!store_a.entity_exists(uuid));
 
     // B edits a field on the entity (B still thinks it exists)
-    store_b.entity_mut(uuid).unwrap()
-        .write_scalar("name", ScalarVal::Str("Still Here".into()), (1, ACTOR_B));
+    store_b.entity_mut(uuid).unwrap().write_scalar(
+        "name",
+        ScalarVal::Str("Still Here".into()),
+        (1, ACTOR_B),
+    );
 
     // After merge: OR-Set semantics mean A's remove cancels only the tokens
     // it observed (the original create).  B did not add a new token, so

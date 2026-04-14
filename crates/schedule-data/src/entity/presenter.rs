@@ -130,7 +130,7 @@ pub struct Presenter {
     })]
     pub sort_rank: Option<PresenterSortRank>,
 
-    #[field(display = "Bio", description = "Presenter's biography")]
+    #[field(display = "Bio", description = "Presenter's biography", prose = true)]
     #[alias("bio", "Bio", "biography", "description")]
     pub bio: Option<String>,
 
