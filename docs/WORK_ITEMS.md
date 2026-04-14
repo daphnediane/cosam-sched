@@ -1,6 +1,6 @@
 # Cosplay America Schedule - Work Item
 
-Updated on: Mon Apr 13 11:26:25 2026
+Updated on: Mon Apr 13 21:37:20 2026
 
 ## Completed
 
@@ -85,20 +85,7 @@ display widget.
 
 ## Placeholders
 
-Stub items in `docs/work-item/new/` awaiting details:
-
-* [BUGFIX-048] One-line summary of the bug and fix.
-* [CLEANUP-053] One-line summary
-* [CLI-051] One-line summary
-* [DEPLOY-052] One-line summary
-* [DOCS-055] One-line summary
-* [EDITOR-050] One-line summary
-* [FEATURE-047] One-line summary
-* [META-046] One-line summary
-* [PERFORMANCE-054] One-line summary
-* [REFACTOR-056] One-line summary
-* [TEST-057] One-line summary
-* [UI-049] One-line summary
+*No placeholders — all stubs have been promoted.*
 
 Use `perl scripts/work-item-update.pl --create <PREFIX>` to add new stubs.
 
@@ -530,16 +517,10 @@ to exchange CRDT changes and reconcile concurrent edits to the same fields.
 ---
 
 [BUGFIX-044]: work-item/done/BUGFIX-044.md
-[BUGFIX-048]: work-item/new/BUGFIX-048.md
-[CLEANUP-053]: work-item/new/CLEANUP-053.md
 [CLI-019]: work-item/low/CLI-019.md
 [CLI-020]: work-item/low/CLI-020.md
-[CLI-051]: work-item/new/CLI-051.md
-[DEPLOY-052]: work-item/new/DEPLOY-052.md
-[DOCS-055]: work-item/new/DOCS-055.md
 [EDITOR-021]: work-item/low/EDITOR-021.md
 [EDITOR-022]: work-item/low/EDITOR-022.md
-[EDITOR-050]: work-item/new/EDITOR-050.md
 [FEATURE-002]: work-item/done/FEATURE-002.md
 [FEATURE-003]: work-item/done/FEATURE-003.md
 [FEATURE-004]: work-item/done/FEATURE-004.md
@@ -562,7 +543,6 @@ to exchange CRDT changes and reconcile concurrent edits to the same fields.
 [FEATURE-033]: work-item/rejected/FEATURE-033.md
 [FEATURE-034]: work-item/done/FEATURE-034.md
 [FEATURE-045]: work-item/done/FEATURE-045.md
-[FEATURE-047]: work-item/new/FEATURE-047.md
 [META-001]: work-item/meta/META-001.md
 [META-025]: work-item/done/META-025.md
 [META-026]: work-item/meta/META-026.md
@@ -572,14 +552,9 @@ to exchange CRDT changes and reconcile concurrent edits to the same fields.
 [META-030]: work-item/meta/META-030.md
 [META-031]: work-item/meta/META-031.md
 [META-035]: work-item/done/META-035.md
-[META-046]: work-item/new/META-046.md
-[PERFORMANCE-054]: work-item/new/PERFORMANCE-054.md
 [REFACTOR-032]: work-item/done/REFACTOR-032.md
 [REFACTOR-036]: work-item/done/REFACTOR-036.md
 [REFACTOR-037]: work-item/done/REFACTOR-037.md
 [REFACTOR-038]: work-item/done/REFACTOR-038.md
 [REFACTOR-041]: work-item/done/REFACTOR-041.md
 [REFACTOR-042]: work-item/done/REFACTOR-042.md
-[REFACTOR-056]: work-item/new/REFACTOR-056.md
-[TEST-057]: work-item/new/TEST-057.md
-[UI-049]: work-item/new/UI-049.md

@@ -1,6 +1,6 @@
 # Future Ideas and Design Notes
 
-Updated on: Mon Apr 13 11:26:25 2026
+Updated on: Mon Apr 13 21:37:20 2026
 
 Open design questions, unexplored alternatives, and deferred ideas.
 An IDEA item can be promoted to a work item by renaming it to another prefix
@@ -103,9 +103,17 @@ The compiler enforces the distinction naturally — no boolean flag needed.
 
 ---
 
-## Closed Ideas
+### [IDEA-046] IDEA-046: Generic FieldValue to FieldValue conversion system
 
-* [IDEA-058] (Placeholder) One-line summary
+**Summary:** Add generic support for arbitrary FieldValue to FieldValue conversions with customizable conversion strategies, including lookup-only and create-capable variants
+
+**Description:** Currently the `resolve_field_value` and `resolve_field_values` methods on `EntityResolver` only handle converting a `FieldValue` to `Option<EntityType::Id>` or `Vec<EntityType::Id>`. This is limiting for cases where we need to convert between different `FieldValue` kinds before final entity resolution.
+
+A more flexible system would support generic `FieldValue` to `FieldValue` conversions with customizable strategies. This would enable:
+
+* **Tagged presenter support**: Conversions like `"P:Name"` → `Presenter` entity with rank, or `"G:Group=Member"` → group membership relationships
+* **Custom conversion pipelines**: Chain multiple conversions (e.g., string → tagged string → entity reference)
+* **Type-specific conversion logic**: Each entity type can define its own conversion rules
 
 ---
 
@@ -113,9 +121,7 @@ The compiler enforces the distinction naturally — no boolean flag needed.
 
 Rename `IDEA-###.md` to another prefix to promote an idea.
 
-Stub ideas in `docs/work-item/new/` awaiting details:
-
-* [IDEA-058] One-line summary
+*No IDEA placeholders.*
 
 Use `perl scripts/work-item-update.pl --create IDEA` to add new stubs.
 
@@ -125,4 +131,4 @@ Use `perl scripts/work-item-update.pl --create IDEA` to add new stubs.
 [IDEA-039]: work-item/idea/IDEA-039.md
 [IDEA-040]: work-item/idea/IDEA-040.md
 [IDEA-043]: work-item/idea/IDEA-043.md
-[IDEA-058]: work-item/new/IDEA-058.md
+[IDEA-046]: work-item/idea/IDEA-046.md
