@@ -11,6 +11,7 @@
 
 pub use schedule_macro::EntityFields;
 
+pub mod crdt;
 pub mod edit;
 pub mod entity;
 pub mod field;
@@ -18,6 +19,7 @@ pub mod schedule;
 pub mod time;
 
 // Re-export frequently used types at crate root
+pub use crdt::{ActorId, AutomergeDocument, CrdtDocument, CrdtOp, CrdtScalar, DeviceConfig};
 pub use edit::{EditCommand, EditContext, EditHistory};
 pub use entity::{EntityKind, EntityType, InternalData, TypedId};
 pub use entity::{

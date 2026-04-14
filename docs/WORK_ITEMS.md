@@ -1,6 +1,6 @@
 # Cosplay America Schedule - Work Item
 
-Updated on: Tue Apr 14 08:03:56 2026
+Updated on: Tue Apr 14 18:55:54 2026
 
 ## Completed
 
@@ -15,6 +15,7 @@ and validation infrastructure.
 * [FEATURE-008] Implement the `Schedule` struct and `EntityStorage` for managing all entities
 and relationships.
 * [FEATURE-010] Implement a command-based edit system with full undo/redo support.
+* [FEATURE-011] Design the abstraction layer between the entity/field system and the CRDT backend.
 * [FEATURE-034] Implement proper delegation pattern for `Schedule` convenience methods,
 moving business logic to entity-specific implementations.
 * [FEATURE-045] Rename combine-workitems.pl to work-item-update.pl and add a --create flag
@@ -46,7 +47,7 @@ EdgeIndex (and any per-type cache) maintenance responsibility into each
 
 ## Summary of Open Items
 
-**Total open items:** 22
+**Total open items:** 21
 
 * **Meta / Project-Level**
   * [META-001] Meta work item tracking the full multi-phase redesign of the schedule system. (Blocked by [META-026], [META-027], [META-028], [META-029], [META-030], [META-031])
@@ -60,7 +61,6 @@ XLSX import/export. (Blocked by [META-026], [META-027])
 
 * **Medium Priority**
   * [FEATURE-009] ([META-026]) Implement field-based search, matching, and bulk update operations.
-  * [FEATURE-011] ([META-027]) Design the abstraction layer between the entity/field system and the CRDT backend.
   * [FEATURE-012] ([META-027]) Replace direct `HashMap` entity storage with CRDT-backed storage.
   * [FEATURE-013] ([META-027]) Implement change tracking, diff computation, and merge for CRDT documents.
   * [FEATURE-014] ([META-028]) Define and implement the native save/load format for schedule documents.
@@ -166,21 +166,6 @@ application structure.
 
 **Description:** The query system enables finding and updating entities using field-based
 criteria rather than direct UUID access.
-
----
-
-### [FEATURE-011] CRDT Abstraction Layer Design
-
-**Status:** In Progress
-
-**Priority:** Medium
-
-**Summary:** Design the abstraction layer between the entity/field system and the CRDT backend.
-
-**Part of:** [META-027]
-
-**Description:** Before integrating a specific CRDT library, define the abstraction boundary so
-the entity system doesn't depend directly on CRDT internals.
 
 ---
 
@@ -511,7 +496,7 @@ to exchange CRDT changes and reconcile concurrent edits to the same fields.
 [FEATURE-008]: work-item/done/FEATURE-008.md
 [FEATURE-009]: work-item/medium/FEATURE-009.md
 [FEATURE-010]: work-item/done/FEATURE-010.md
-[FEATURE-011]: work-item/medium/FEATURE-011.md
+[FEATURE-011]: work-item/done/FEATURE-011.md
 [FEATURE-012]: work-item/medium/FEATURE-012.md
 [FEATURE-013]: work-item/medium/FEATURE-013.md
 [FEATURE-014]: work-item/medium/FEATURE-014.md

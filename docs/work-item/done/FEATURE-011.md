@@ -6,7 +6,7 @@ Design the abstraction layer between the entity/field system and the CRDT backen
 
 ## Status
 
-In Progress
+Completed
 
 ## Priority
 
