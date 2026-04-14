@@ -149,28 +149,52 @@ per-field) but sufficient for scheduling use cases.
 
 ---
 
-## Open Questions
+## Remaining Open Questions
 
-### Document structure
+### Sync wire format details
 
-One automerge document per schedule (all entity types in one document) vs one
-document per entity. For a schedule with hundreds of entities, a single
-document is almost certainly fine and far simpler. Confirm during FEATURE-011
-proof-of-concept.
+Full-state merge (`save()` / `load()` / `merge()`) is the starting point.
+Automerge's built-in sync protocol (`sync::SyncState`,
+`generate_sync_message`, `receive_sync_message`) is available for future
+peer-to-peer use. Decide transport and discovery in FEATURE-013. See IDEA-047
+for the local-network / event-floor sync design questions.
 
-### Sync wire format
+---
 
-Full-state merge (`save()` / `load()` / `merge()`) is the simple starting
-point. Op-log streaming (automerge's sync protocol) is available for future
-optimisation. Decide in FEATURE-013 when the sync transport is designed.
+## Settled: Document Structure and Sync Model
 
-### Prose field read path in the field system
+### One automerge document per schedule
 
-`FieldValue` currently has no `Text` variant. Options:
+All entity types (panels, presenters, event rooms, panel types) live in one
+automerge document. At the scale of a convention schedule (hundreds of
+entities) this is correct — simpler sync, single merge call, causal
+consistency across entity types.
 
-- Add `FieldValue::Text(String)` — prose fields surface as plain `String` to
-  the field system; the CRDT layer handles Text object identity transparently
-- Keep `FieldValue::Str(String)` and treat Text as a specialised Str — simpler
-  but loses the distinction between LWW string and RGA text at the type level
+### Per-device file sync via shared folder
 
-Decide during FEATURE-011 trait design.
+Initial sync mechanism: each device saves its own file to a shared folder
+(OneDrive, iCloud Drive, Dropbox, etc.) named by its actor UUID:
+
+```
+schedule-{actor_uuid}.cosam
+```
+
+On open, the app loads its own file then merges any other device files that
+have changed since last sync (`doc.merge(other_doc)`). Automerge merge is
+idempotent — re-merging a file already seen is safe. After a full sync cycle
+all files converge to the same content.
+
+This avoids cloud-level file conflicts entirely: each device only writes its
+own file; OneDrive never sees two writers on the same file.
+
+### `FieldValue::Text(String)` as a distinct variant
+
+Prose fields (`description`, `note`, `notes_non_printing`, `workshop_notes`,
+`av_notes`) use a `FieldValue::Text(String)` variant distinct from
+`FieldValue::Str(String)`. The read path returns a plain `String` in both
+cases. The distinct variant lets:
+
+- The CRDT layer route writes through `splice_text` (RGA) rather than `put()`
+  (LWW scalar) without consulting field metadata on every write
+- The GUI editor identify prose fields for larger text areas, future rich-text
+  formatting, or diff/conflict display

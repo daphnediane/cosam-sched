@@ -91,18 +91,17 @@ Design findings written to `docs/crdt-design.md`.
 - **Actor priority**: future option via actor ID ordering for role-based LWW
   tiebreaking
 
-**Remaining open questions** (decide during implementation):
+**All design questions settled** — see `docs/crdt-design.md`:
 
-1. Document structure: one automerge document per schedule vs per entity
-   (single document is almost certainly correct at this scale)
-2. Sync wire format: full-state merge to start; op-log streaming later
-   (FEATURE-013)
-3. `FieldValue::Text(String)` vs reuse `FieldValue::Str` for prose fields
+- Document structure: one automerge document per schedule
+- Sync: per-device file in shared folder; local-network P2P deferred (IDEA-047)
+- `FieldValue::Text(String)` as a distinct variant from `FieldValue::Str`
 
 ### Next steps
 
-- Decide document structure (one doc per schedule)
-- Define `CrdtBackend` trait and `CrdtOp` enum with automerge implementation
+- Add `FieldValue::Text(String)` variant to the field system
+- Add `automerge` and `directories` to relevant crate dependencies
+- Define `CrdtBackend` trait and `CrdtOp` enum
 - Proof-of-concept: entity read/write through the abstraction
 
 ## Acceptance Criteria

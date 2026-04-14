@@ -1,6 +1,6 @@
 # Future Ideas and Design Notes
 
-Updated on: Mon Apr 13 21:40:32 2026
+Updated on: Tue Apr 14 09:04:42 2026
 
 Open design questions, unexplored alternatives, and deferred ideas.
 An IDEA item can be promoted to a work item by renaming it to another prefix
@@ -68,6 +68,22 @@ A more flexible system would support generic `FieldValue` to `FieldValue` conver
 
 ---
 
+### [IDEA-047] IDEA-047: Real-time peer-to-peer sync at convention events
+
+**Summary:** Design and decide on local-network peer-to-peer sync for on-site use at events.
+
+**Description:** The baseline sync mechanism is per-device automerge files in a shared folder
+(OneDrive/iCloud Drive/etc.), which works well between sessions. At the
+convention itself, internet access may be unreliable, and operators may want
+real-time collaboration without waiting for cloud sync.
+
+Automerge provides a built-in sync protocol (`sync::SyncState`,
+`generate_sync_message`, `receive_sync_message`) that efficiently exchanges
+only missing changes over any transport. This opens the door to local-network
+peer-to-peer sync, but several design questions need answering first.
+
+---
+
 ## Closed Ideas
 
 * [IDEA-040] (Completed) The presenter-group mutation helpers in `schedule/mod.rs` still embed business
@@ -91,3 +107,4 @@ Use `perl scripts/work-item-update.pl --create IDEA` to add new stubs.
 [IDEA-040]: work-item/done/IDEA-040.md
 [IDEA-043]: work-item/idea/IDEA-043.md
 [IDEA-046]: work-item/idea/IDEA-046.md
+[IDEA-047]: work-item/idea/IDEA-047.md
