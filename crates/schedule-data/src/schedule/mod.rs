@@ -225,7 +225,7 @@ impl Schedule {
 
     /// Whether a presenter is a group (has the explicit flag set or has members).
     pub fn is_presenter_group(&self, presenter_id: PresenterId) -> bool {
-        PresenterEntityType::is_group(&self.entities, presenter_id.non_nil_uuid())
+        PresenterEntityType::is_group(&self.entities, presenter_id)
     }
 
     // -----------------------------------------------------------------------
@@ -346,7 +346,7 @@ impl Schedule {
     /// ```
     pub fn add_presenters(&mut self, panel_id: PanelId, tags: &[&str]) -> usize {
         use crate::entity::PanelEntityType;
-        PanelEntityType::add_presenters_tagged(&mut self.entities, panel_id.non_nil_uuid(), tags)
+        PanelEntityType::add_presenters_tagged(&mut self.entities, panel_id, tags)
     }
 
     // -----------------------------------------------------------------------
@@ -603,13 +603,10 @@ mod tests {
         assert_eq!(members.len(), 1);
         assert_eq!(members[0].non_nil_uuid(), member_uuid);
 
-        assert!(PresenterEntityType::is_group(
-            &schedule.entities,
-            group_uuid
-        ));
+        assert!(PresenterEntityType::is_group(&schedule.entities, group_id));
         assert!(!PresenterEntityType::is_group(
             &schedule.entities,
-            member_uuid
+            member_id
         ));
     }
 
@@ -741,7 +738,7 @@ mod tests {
             "is_explicit_group should be true after mark"
         );
         assert!(
-            PresenterEntityType::is_group(&schedule.entities, group_uuid),
+            PresenterEntityType::is_group(&schedule.entities, group_id),
             "is_group should return true"
         );
     }
@@ -813,20 +810,14 @@ mod tests {
         let group_id = PresenterId::from(group_uuid);
 
         // Before adding any member: group_uuid is not a group
-        assert!(!PresenterEntityType::is_group(
-            &schedule.entities,
-            group_uuid
-        ));
+        assert!(!PresenterEntityType::is_group(&schedule.entities, group_id));
 
         // After adding a member: group_uuid becomes a group (has members)
         schedule.add_member(member_id, group_id).unwrap();
-        assert!(PresenterEntityType::is_group(
-            &schedule.entities,
-            group_uuid
-        ));
+        assert!(PresenterEntityType::is_group(&schedule.entities, group_id));
         assert!(!PresenterEntityType::is_group(
             &schedule.entities,
-            member_uuid
+            member_id
         ));
     }
 
@@ -862,19 +853,13 @@ mod tests {
         schedule.add_member(member_id, group_id).unwrap();
 
         // Confirm group state
-        assert!(PresenterEntityType::is_group(
-            &schedule.entities,
-            group_uuid
-        ));
+        assert!(PresenterEntityType::is_group(&schedule.entities, group_id));
         assert_eq!(schedule.get_presenter_members(group_id).len(), 1);
 
         // Writing is_group=false must clear both is_explicit_group AND all members
         schedule.set_is_group(group_id, false);
 
-        assert!(!PresenterEntityType::is_group(
-            &schedule.entities,
-            group_uuid
-        ));
+        assert!(!PresenterEntityType::is_group(&schedule.entities, group_id));
         assert!(schedule.get_presenter_members(group_id).is_empty());
         // member's group_ids should also be cleared
         let data = schedule.entities.presenters.get(member_id).unwrap();

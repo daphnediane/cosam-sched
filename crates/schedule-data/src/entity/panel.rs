@@ -728,7 +728,7 @@ impl PanelEntityType {
     /// Returns the number of presenters successfully added.
     pub fn add_presenters_tagged(
         storage: &mut crate::schedule::EntityStorage,
-        panel_uuid: uuid::NonNilUuid,
+        panel_id: PanelId,
         tags: &[&str],
     ) -> usize {
         use crate::entity::{EntityResolver, PresenterEntityType};
@@ -743,7 +743,7 @@ impl PanelEntityType {
                 Ok(ids) => ids,
                 Err(_) => return 0,
             };
-        Self::add_presenters(storage, PanelId::from_uuid(panel_uuid), presenter_ids)
+        Self::add_presenters(storage, panel_id, presenter_ids)
     }
 }
 

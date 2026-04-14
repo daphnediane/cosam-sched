@@ -340,17 +340,14 @@ impl PresenterEntityType {
     /// Returns `true` when `is_explicit_group` is set, or when at least one other
     /// presenter lists this one in their `groups` (i.e., it has members via the
     /// edge map, which is kept in sync until Phase 4).
-    pub fn is_group(
-        storage: &crate::schedule::EntityStorage,
-        presenter_uuid: uuid::NonNilUuid,
-    ) -> bool {
+    pub fn is_group(storage: &crate::schedule::EntityStorage, presenter_id: PresenterId) -> bool {
         storage
             .presenters
-            .get(PresenterId::from_uuid(presenter_uuid))
+            .get(presenter_id)
             .is_some_and(|d| d.is_explicit_group)
             || !storage
                 .presenter_group_members
-                .by_left(&PresenterId::from_uuid(presenter_uuid))
+                .by_left(&presenter_id)
                 .is_empty()
     }
 
@@ -364,37 +361,29 @@ impl PresenterEntityType {
         presenter_id: PresenterId,
         value: bool,
     ) {
-        let uuid = presenter_id.non_nil_uuid();
-        if let Some(data) = storage.presenters.get_mut(PresenterId::from_uuid(uuid)) {
+        if let Some(data) = storage.presenters.get_mut(presenter_id) {
             data.is_explicit_group = value;
         }
         if !value {
-            Self::clear_members(storage, uuid);
+            Self::clear_members(storage, presenter_id);
         }
     }
 
-    /// Remove all membership edges from `group_uuid` and clear the matching
+    /// Remove all membership edges from `group_id` and clear the matching
     /// entry from each member's `group_ids` backing field.
     ///
-    /// This does **not** touch `group_uuid`'s own `is_explicit_group`; callers
+    /// This does **not** touch `group_id`'s own `is_explicit_group`; callers
     /// are responsible for clearing that separately (needed because the
     /// entity may be temporarily extracted from storage during field writes).
-    pub fn clear_members(
-        storage: &mut crate::schedule::EntityStorage,
-        group_uuid: uuid::NonNilUuid,
-    ) {
-        let member_ids: Vec<PresenterId> = storage
-            .presenter_group_members
-            .by_left(&PresenterId::from_uuid(group_uuid))
-            .to_vec();
+    pub fn clear_members(storage: &mut crate::schedule::EntityStorage, group_id: PresenterId) {
+        let member_ids: Vec<PresenterId> =
+            storage.presenter_group_members.by_left(&group_id).to_vec();
         for member_id in member_ids {
             if let Some(data) = storage.presenters.get_mut(member_id) {
-                data.group_ids.retain(|id| id.non_nil_uuid() != group_uuid);
+                data.group_ids.retain(|id| *id != group_id);
             }
         }
-        storage
-            .presenter_group_members
-            .clear_by_left(&PresenterId::from_uuid(group_uuid));
+        storage.presenter_group_members.clear_by_left(&group_id);
     }
 
     // -----------------------------------------------------------------------
