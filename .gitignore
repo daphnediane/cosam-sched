@@ -14,6 +14,12 @@
 !/.vscode
 /.vscode/perl-lang
 
+# Keep claude rules and shared settings
+!/.claude
+/.claude/*
+!/.claude/rules
+!/.claude/settings.json
+
 # Keep windsurf rules
 !/.windsurf
 /.windsurf/*
