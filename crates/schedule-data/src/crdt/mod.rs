@@ -33,6 +33,8 @@ mod backend;
 mod ops;
 
 pub use actor::{ActorConfigError, ActorId, DeviceConfig};
+// Note: no DEFAULT_APP_NAME — callers pass their own app binary name
+// (e.g. "cosam-editor" or "cosam-modify") to DeviceConfig::load_or_create.
 pub use automerge_backend::{AutomergeDocError, AutomergeDocument};
 pub use backend::CrdtDocument;
 pub use ops::{CrdtOp, CrdtScalar};

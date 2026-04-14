@@ -4,29 +4,53 @@
  * See LICENSE file for full license text
  */
 
-//! Actor identity for CRDT operations.
+//! Actor identity and device configuration for CRDT operations.
 //!
-//! Each device generates a UUID v4 on first launch and persists it to the
-//! OS-conventional config directory.  The actor ID is embedded in every
-//! automerge operation so that concurrent writes can be attributed and ordered.
+//! ## File layout
 //!
-//! ## Config paths
+//! All cosam apps share one config directory.  Within it, shared user identity
+//! is in `identity.toml` and each app binary gets its own actor UUID file:
 //!
-//! | Platform | Path |
+//! ```text
+//! ~/Library/Application Support/com.CosplayAmerica.cosam_sched/   (macOS)
+//! ├── identity.toml            ← display_name; shared across all apps
+//! ├── actor-cosam-editor.toml  ← actor UUID for the GUI editor
+//! └── actor-cosam-modify.toml  ← actor UUID for the CLI tool
+//! ```
+//!
+//! Per-app actor UUIDs let the CRDT layer distinguish which app made which
+//! change.  The shared `display_name` means all apps attribute changes to the
+//! same human name ("Daphne").
+//!
+//! ## OS config directory
+//!
+//! | Platform | Config directory |
 //! |---|---|
-//! | macOS | `~/Library/Application Support/com.CosplayAmerica.cosam-sched/device.toml` |
-//! | Windows | `C:\Users\<user>\AppData\Roaming\CosplayAmerica\cosam-sched\device.toml` |
-//! | Linux | `~/.config/cosam-sched/device.toml` |
+//! | macOS   | `~/Library/Application Support/com.CosplayAmerica.cosam_sched/` |
+//! | Windows | `C:\Users\<user>\AppData\Roaming\CosplayAmerica\cosam_sched\` |
+//! | Linux   | `~/.config/cosam_sched/` |
+//!
+//! ## Usage (app startup)
+//!
+//! ```rust,ignore
+//! let config = DeviceConfig::load_or_create("cosam-editor", "Daphne")?;
+//! let doc = AutomergeDocument::new(&config.actor_id())?;
+//! ```
 
 use std::path::PathBuf;
 
 use serde::{Deserialize, Serialize};
 use thiserror::Error;
 
-/// Unique identifier for an editing peer (device / installation).
+// ---------------------------------------------------------------------------
+// ActorId
+// ---------------------------------------------------------------------------
+
+/// Unique identifier for an editing peer (one per app per device).
 ///
-/// Wraps a UUID v4.  Used by the automerge backend to tag every operation so
-/// that causal ordering and LWW tiebreaking work correctly across replicas.
+/// Wraps a UUID v4.  The automerge backend embeds this in every operation so
+/// that causal ordering and LWW tiebreaking work correctly when merging with
+/// other replicas.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub struct ActorId(pub uuid::Uuid);
 
@@ -59,82 +83,135 @@ impl std::fmt::Display for ActorId {
     }
 }
 
-/// Errors from actor config loading and saving.
+// ---------------------------------------------------------------------------
+// Error type
+// ---------------------------------------------------------------------------
+
+/// Errors from config loading and saving.
 #[derive(Debug, Error)]
 pub enum ActorConfigError {
-    /// Could not determine the OS config directory (unusual; means no home dir).
+    /// Could not determine the OS config directory (no home dir).
     #[error("could not determine OS config directory")]
     NoDirs,
     /// Filesystem I/O error.
     #[error("I/O error: {0}")]
     Io(#[from] std::io::Error),
-    /// TOML parse error when reading device.toml.
+    /// TOML deserialize error.
     #[error("TOML parse error: {0}")]
     Toml(#[from] toml::de::Error),
-    /// TOML serialization error when writing device.toml.
+    /// TOML serialize error.
     #[error("TOML serialization error: {0}")]
     TomlSer(#[from] toml::ser::Error),
 }
 
-/// Device configuration persisted to the OS config directory.
+// ---------------------------------------------------------------------------
+// On-disk file formats (private)
+// ---------------------------------------------------------------------------
+
+/// identity.toml — shared across all apps.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+struct IdentityFile {
+    display_name: String,
+}
+
+/// actor-<app>.toml — one per app binary.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+struct ActorFile {
+    actor_id: uuid::Uuid,
+}
+
+// ---------------------------------------------------------------------------
+// DeviceConfig — the combined public type
+// ---------------------------------------------------------------------------
+
+/// Combined device configuration for CRDT use.
 ///
-/// The `actor_id` is a UUID v4 generated once per device/installation.  The
-/// `display_name` is written into the automerge document's `actors/` map on
-/// first merge and propagated to all replicas, so any device can resolve an
-/// actor UUID to a human name for change attribution.
+/// Assembled at startup from two files in the shared config directory:
 ///
-/// ## File format (TOML)
+/// - `identity.toml` — the user's display name (shared across all apps)
+/// - `actor-<app>.toml` — the actor UUID for this specific app binary
 ///
+/// Use [`load_or_create`][Self::load_or_create] at startup, passing the app
+/// binary name (e.g. `"cosam-editor"` or `"cosam-modify"`).  Both files are
+/// created on first launch if absent.
+///
+/// ## TOML file formats
+///
+/// `identity.toml`:
+/// ```toml
+/// # Shared user identity — edit display_name in app preferences.
+/// display_name = "Daphne"
+/// ```
+///
+/// `actor-cosam-editor.toml`:
 /// ```toml
 /// # Generated on first launch. Do not edit manually.
 /// actor_id = "550e8400-e29b-41d4-a716-446655440000"
-/// display_name = "Daphne"
 /// ```
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone)]
 pub struct DeviceConfig {
-    /// UUID v4 identifying this device/installation.
+    /// Actor UUID for this app on this device.  Distinct per app binary so the
+    /// CRDT layer can attribute changes to "cosam-editor" vs "cosam-modify".
     pub actor_id: uuid::Uuid,
-    /// Human-readable name for this device (set in app preferences).
+    /// Human-readable name shown in change attribution (from `identity.toml`).
     pub display_name: String,
 }
 
 impl DeviceConfig {
-    /// Load device config from the OS config path, creating a new one if absent.
+    /// Load or create device config for the given app binary name.
     ///
-    /// On first call, generates a fresh UUID v4 and saves it to disk.
-    /// `display_name` is used only when creating a new config; existing files
-    /// are read as-is.
-    pub fn load_or_create(display_name: impl Into<String>) -> Result<Self, ActorConfigError> {
-        let path = Self::config_path()?;
-        if path.exists() {
-            Self::load_from_path(&path)
-        } else {
-            let config = DeviceConfig {
-                actor_id: uuid::Uuid::new_v4(),
-                display_name: display_name.into(),
-            };
-            config.save_to_path(&path)?;
-            Ok(config)
-        }
+    /// - `app` — the binary name used to select the actor file, e.g.
+    ///   `"cosam-editor"` or `"cosam-modify"`.
+    /// - `display_name` — used only when creating `identity.toml` for the
+    ///   first time; existing files are read as-is.
+    ///
+    /// Creates the config directory and any absent files on first call.
+    pub fn load_or_create(
+        app: &str,
+        display_name: impl Into<String>,
+    ) -> Result<Self, ActorConfigError> {
+        let dir = Self::config_dir()?;
+        std::fs::create_dir_all(&dir)?;
+
+        let identity = load_or_create_identity(&dir.join("identity.toml"), display_name)?;
+        let actor = load_or_create_actor(&dir.join(actor_filename(app)))?;
+
+        Ok(Self {
+            actor_id: actor.actor_id,
+            display_name: identity.display_name,
+        })
     }
 
-    /// Load device config from the OS config path.
+    /// Load device config for the given app binary name.
     ///
-    /// Returns `None` if the config file does not yet exist (i.e., first launch
-    /// before `load_or_create` has run).
-    pub fn load() -> Result<Option<Self>, ActorConfigError> {
-        let path = Self::config_path()?;
-        if path.exists() {
-            Ok(Some(Self::load_from_path(&path)?))
-        } else {
-            Ok(None)
+    /// Returns `None` if either config file does not yet exist.
+    pub fn load(app: &str) -> Result<Option<Self>, ActorConfigError> {
+        let dir = Self::config_dir()?;
+        let identity_path = dir.join("identity.toml");
+        let actor_path = dir.join(actor_filename(app));
+
+        if !identity_path.exists() || !actor_path.exists() {
+            return Ok(None);
         }
+
+        let identity: IdentityFile = read_toml(&identity_path)?;
+        let actor: ActorFile = read_toml(&actor_path)?;
+
+        Ok(Some(Self {
+            actor_id: actor.actor_id,
+            display_name: identity.display_name,
+        }))
     }
 
-    /// Save this config to the OS config path.
-    pub fn save(&self) -> Result<(), ActorConfigError> {
-        let path = Self::config_path()?;
-        self.save_to_path(&path)
+    /// Save the display name back to `identity.toml`.
+    ///
+    /// Call this when the user changes their display name in preferences.
+    /// The actor UUID file is never updated after creation.
+    pub fn save_identity(&self) -> Result<(), ActorConfigError> {
+        let path = Self::config_dir()?.join("identity.toml");
+        write_toml(&path, &IdentityFile {
+            display_name: self.display_name.clone(),
+        })
     }
 
     /// Return the [`ActorId`] for use with CRDT operations.
@@ -142,27 +219,77 @@ impl DeviceConfig {
         ActorId(self.actor_id)
     }
 
-    /// Return the OS-conventional config file path.
-    pub fn config_path() -> Result<PathBuf, ActorConfigError> {
-        let dirs = directories::ProjectDirs::from("com", "CosplayAmerica", "cosam-sched")
-            .ok_or(ActorConfigError::NoDirs)?;
-        Ok(dirs.config_dir().join("device.toml"))
+    /// Return the shared config directory path.
+    ///
+    /// All actor and identity files live here.
+    pub fn config_dir() -> Result<PathBuf, ActorConfigError> {
+        let dirs =
+            directories::ProjectDirs::from("com", "CosplayAmerica", "cosam_sched")
+                .ok_or(ActorConfigError::NoDirs)?;
+        Ok(dirs.config_dir().to_path_buf())
     }
 
-    fn load_from_path(path: &PathBuf) -> Result<Self, ActorConfigError> {
-        let content = std::fs::read_to_string(path)?;
-        Ok(toml::from_str(&content)?)
+    /// Return the path to `identity.toml`.
+    pub fn identity_path() -> Result<PathBuf, ActorConfigError> {
+        Ok(Self::config_dir()?.join("identity.toml"))
     }
 
-    fn save_to_path(&self, path: &PathBuf) -> Result<(), ActorConfigError> {
-        if let Some(parent) = path.parent() {
-            std::fs::create_dir_all(parent)?;
-        }
-        let content = toml::to_string(self)?;
-        std::fs::write(path, content)?;
-        Ok(())
+    /// Return the path to `actor-<app>.toml` for the given app binary name.
+    pub fn actor_path(app: &str) -> Result<PathBuf, ActorConfigError> {
+        Ok(Self::config_dir()?.join(actor_filename(app)))
     }
 }
+
+// ---------------------------------------------------------------------------
+// Helpers
+// ---------------------------------------------------------------------------
+
+/// Build the actor filename from the app name: `actor-<app>.toml`.
+fn actor_filename(app: &str) -> String {
+    format!("actor-{app}.toml")
+}
+
+fn read_toml<T: serde::de::DeserializeOwned>(path: &PathBuf) -> Result<T, ActorConfigError> {
+    let content = std::fs::read_to_string(path)?;
+    Ok(toml::from_str(&content)?)
+}
+
+fn write_toml<T: Serialize>(path: &PathBuf, value: &T) -> Result<(), ActorConfigError> {
+    let content = toml::to_string(value)?;
+    std::fs::write(path, content)?;
+    Ok(())
+}
+
+fn load_or_create_identity(
+    path: &PathBuf,
+    display_name: impl Into<String>,
+) -> Result<IdentityFile, ActorConfigError> {
+    if path.exists() {
+        read_toml(path)
+    } else {
+        let identity = IdentityFile {
+            display_name: display_name.into(),
+        };
+        write_toml(path, &identity)?;
+        Ok(identity)
+    }
+}
+
+fn load_or_create_actor(path: &PathBuf) -> Result<ActorFile, ActorConfigError> {
+    if path.exists() {
+        read_toml(path)
+    } else {
+        let actor = ActorFile {
+            actor_id: uuid::Uuid::new_v4(),
+        };
+        write_toml(path, &actor)?;
+        Ok(actor)
+    }
+}
+
+// ---------------------------------------------------------------------------
+// Tests
+// ---------------------------------------------------------------------------
 
 #[cfg(test)]
 mod tests {
@@ -187,24 +314,45 @@ mod tests {
     }
 
     #[test]
-    fn device_config_serde_roundtrip() {
-        let config = DeviceConfig {
-            actor_id: uuid::Uuid::new_v4(),
-            display_name: "TestDevice".to_string(),
+    fn actor_filename_format() {
+        assert_eq!(actor_filename("cosam-editor"), "actor-cosam-editor.toml");
+        assert_eq!(actor_filename("cosam-modify"), "actor-cosam-modify.toml");
+    }
+
+    #[test]
+    fn identity_file_serde_roundtrip() {
+        let identity = IdentityFile {
+            display_name: "Daphne".to_string(),
         };
-        let toml_str = toml::to_string(&config).expect("serialize");
-        let restored: DeviceConfig = toml::from_str(&toml_str).expect("deserialize");
-        assert_eq!(config.actor_id, restored.actor_id);
-        assert_eq!(config.display_name, restored.display_name);
+        let toml_str = toml::to_string(&identity).expect("serialize");
+        let restored: IdentityFile = toml::from_str(&toml_str).expect("deserialize");
+        assert_eq!(identity.display_name, restored.display_name);
+    }
+
+    #[test]
+    fn actor_file_serde_roundtrip() {
+        let actor = ActorFile {
+            actor_id: uuid::Uuid::new_v4(),
+        };
+        let toml_str = toml::to_string(&actor).expect("serialize");
+        let restored: ActorFile = toml::from_str(&toml_str).expect("deserialize");
+        assert_eq!(actor.actor_id, restored.actor_id);
     }
 
     #[test]
     fn device_config_actor_id_roundtrip() {
-        let original = ActorId::new();
+        let uuid = uuid::Uuid::new_v4();
         let config = DeviceConfig {
-            actor_id: original.uuid(),
+            actor_id: uuid,
             display_name: "Test".to_string(),
         };
-        assert_eq!(config.actor_id(), original);
+        assert_eq!(config.actor_id(), ActorId::from_uuid(uuid));
+    }
+
+    #[test]
+    fn two_apps_get_distinct_filenames() {
+        let editor = actor_filename("cosam-editor");
+        let modify = actor_filename("cosam-modify");
+        assert_ne!(editor, modify);
     }
 }

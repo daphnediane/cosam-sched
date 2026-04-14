@@ -1,6 +1,6 @@
 # Future Ideas and Design Notes
 
-Updated on: Tue Apr 14 09:04:42 2026
+Updated on: Tue Apr 14 19:53:00 2026
 
 Open design questions, unexplored alternatives, and deferred ideas.
 An IDEA item can be promoted to a work item by renaming it to another prefix
@@ -84,6 +84,17 @@ peer-to-peer sync, but several design questions need answering first.
 
 ---
 
+### [IDEA-048] IDEA-048: Extended config file handling
+
+**Summary:** Extend the current `DeviceConfig` / `identity.toml` system with richer
+identity fields, per-app metadata, and optional named profiles.
+
+**Description:** The basic config system is already implemented in
+`crates/schedule-data/src/crdt/actor.rs` (`DeviceConfig`).  This idea
+records the extensions that were deferred from that initial implementation.
+
+---
+
 ## Closed Ideas
 
 * [IDEA-040] (Completed) The presenter-group mutation helpers in `schedule/mod.rs` still embed business
@@ -108,3 +119,4 @@ Use `perl scripts/work-item-update.pl --create IDEA` to add new stubs.
 [IDEA-043]: work-item/idea/IDEA-043.md
 [IDEA-046]: work-item/idea/IDEA-046.md
 [IDEA-047]: work-item/idea/IDEA-047.md
+[IDEA-048]: work-item/idea/IDEA-048.md
