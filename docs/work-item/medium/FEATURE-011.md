@@ -42,20 +42,12 @@ the entity system doesn't depend directly on CRDT internals.
 EdgeMaps (bidirectional reverse indexes) are not CRDT-backed — they are rebuilt
 from primary CRDT state on load and maintained incrementally via entity hooks.
 
-### Candidate Libraries
+### Library Decision
 
-- **automerge-rs**: Document-oriented CRDT with map/list model. Good fit for
-  entity+field data. Built-in conflict tracking and history.
-- **crdts** (rust-crdt): Lower-level primitives (LWW registers, OR-sets).
-  More control but more scaffolding needed.
-- **Custom**: Hand-rolled for perfect fit and maximum learning value; more work.
-
-### Evaluation Criteria
-
-- How well does the data model map to entities with typed fields?
-- What is the merge granularity (per-field, per-entity, per-document)?
-- How are conflicts surfaced to the user?
-- Binary size and dependency weight for desktop apps
+**automerge** for all field types. Spike evaluated a two-library split
+(`crdts` + `automerge`) but settled on single-library for simpler sync,
+one serialisation format, and OR-Set-equivalent semantics from automerge's
+List type. See `docs/crdt-design.md` for full rationale.
 
 ## Progress
 
@@ -80,21 +72,38 @@ Design findings written to `docs/crdt-design.md`.
 **Library decision:** two-library approach —
 `crdts` for structured/set fields, `automerge` for prose.
 
-**Open questions to resolve before trait design:**
+**Design decisions settled** (see `docs/crdt-design.md` for full detail):
 
-1. Actor identity scheme (per-device UUID vs per-user)
-2. Logical clock management (`(u64, ActorId)` vs hybrid logical clock)
-3. Sync wire format (full state vs op log)
-4. `FieldValue::Text` variant vs opaque CRDT handle for prose
-5. Whether `MVReg` (multi-value register) is preferable to LWW for
-   high-stakes fields like `start_time` (surface conflicts to user)
-6. `crdts::Map` vs flat `HashMap` for entity field storage
+- **Library**: `automerge` for everything (single-library approach)
+- **Entity presence**: no OR-Set needed; soft-delete only, entities are never
+  hard-deleted from the document; deleted state derived from field values
+- **Scalars**: `put()` LWW — acceptable given soft-delete recoverability and
+  rare true concurrency on scheduling fields
+- **Relationship sets** (`presenter_ids` etc.): automerge `List` (RGA);
+  OR-Set-equivalent add-wins semantics; deduplicate UUIDs on read
+- **Prose fields**: automerge `Text` (RGA); character-level concurrent edits
+- **Working format**: automerge binary; JSON is export-only (widgets, archive)
+- **Actor identity**: per-device persistent UUID; no central server needed;
+  stored via `directories` crate at OS-conventional config path
+  (`com.CosplayAmerica.cosam-sched`); display name written into document's
+  `actors/` map and propagated via normal merge
+- **Logical clock**: managed internally by automerge; no manual clock needed
+- **Actor priority**: future option via actor ID ordering for role-based LWW
+  tiebreaking
+
+**Remaining open questions** (decide during implementation):
+
+1. Document structure: one automerge document per schedule vs per entity
+   (single document is almost certainly correct at this scale)
+2. Sync wire format: full-state merge to start; op-log streaming later
+   (FEATURE-013)
+3. `FieldValue::Text(String)` vs reuse `FieldValue::Str` for prose fields
 
 ### Next steps
 
-- Resolve open questions above
-- Define `CrdtBackend` trait and `CrdtOp` enum
-- Proof-of-concept: route field writes through the trait into `crdts` backend
+- Decide document structure (one doc per schedule)
+- Define `CrdtBackend` trait and `CrdtOp` enum with automerge implementation
+- Proof-of-concept: entity read/write through the abstraction
 
 ## Acceptance Criteria
 
