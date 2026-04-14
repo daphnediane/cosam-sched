@@ -1,0 +1,18 @@
+[package]
+name = "crdt-spike"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+authors.workspace = true
+description = "Experimental CRDT evaluation spike — not for production use"
+publish = false
+
+# This crate is a temporary spike crate. It will be removed once the CRDT
+# design (FEATURE-011) is settled. All dependencies here are exploratory.
+
+[dev-dependencies]
+automerge = "0.5"
+crdts = "7"
+serde_json = "1"
+uuid = { version = "1", features = ["v4"] }
+schedule-data = { path = "../schedule-data" }

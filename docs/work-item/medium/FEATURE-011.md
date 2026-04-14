@@ -6,7 +6,7 @@ Design the abstraction layer between the entity/field system and the CRDT backen
 
 ## Status
 
-Open
+In Progress
 
 ## Priority
 
@@ -56,6 +56,45 @@ from primary CRDT state on load and maintained incrementally via entity hooks.
 - What is the merge granularity (per-field, per-entity, per-document)?
 - How are conflicts surfaced to the user?
 - Binary size and dependency weight for desktop apps
+
+## Progress
+
+### Spike complete (META-027 Step 2)
+
+Library evaluation done in `crates/crdt-spike` (12 tests passing).
+Design findings written to `docs/crdt-design.md`.
+
+**Field type → CRDT type mapping confirmed:**
+
+- Structured scalars (String, Integer, Boolean, UUID, DateTime, Duration) →
+  `crdts::LWWReg<V, (u64, ActorId)>`. Marker is `(logical_time, actor_id)`;
+  actor ID breaks ties deterministically for concurrent writes.
+- Relationship sets (`presenter_ids`, `event_room_ids`, etc.) →
+  `crdts::Orswot<Uuid, ActorId>`. Add-wins over unobserved-concurrent-remove.
+- Prose fields (`description`, `note`, `notes_non_printing`, `workshop_notes`,
+  `av_notes`) → `automerge::Text` (RGA). LWW is insufficient: a concurrent
+  global find-replace + independent paragraph edit at a different position
+  would silently discard one writer's entire change under LWW; RGA preserves
+  both at character granularity.
+
+**Library decision:** two-library approach —
+`crdts` for structured/set fields, `automerge` for prose.
+
+**Open questions to resolve before trait design:**
+
+1. Actor identity scheme (per-device UUID vs per-user)
+2. Logical clock management (`(u64, ActorId)` vs hybrid logical clock)
+3. Sync wire format (full state vs op log)
+4. `FieldValue::Text` variant vs opaque CRDT handle for prose
+5. Whether `MVReg` (multi-value register) is preferable to LWW for
+   high-stakes fields like `start_time` (surface conflicts to user)
+6. `crdts::Map` vs flat `HashMap` for entity field storage
+
+### Next steps
+
+- Resolve open questions above
+- Define `CrdtBackend` trait and `CrdtOp` enum
+- Proof-of-concept: route field writes through the trait into `crdts` backend
 
 ## Acceptance Criteria
 
