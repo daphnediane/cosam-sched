@@ -108,11 +108,7 @@ impl EditCommand {
     /// Create a `RemoveEntity` command by capturing the entity's current state.
     ///
     /// Returns `None` if no entity with the given kind and UUID exists.
-    pub fn remove_entity(
-        schedule: &Schedule,
-        kind: EntityKind,
-        uuid: NonNilUuid,
-    ) -> Option<Self> {
+    pub fn remove_entity(schedule: &Schedule, kind: EntityKind, uuid: NonNilUuid) -> Option<Self> {
         schedule
             .snapshot_entity(kind, uuid)
             .map(|snapshot| EditCommand::RemoveEntity { snapshot })

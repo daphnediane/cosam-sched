@@ -339,15 +339,11 @@ mod tests {
 
         // Apply: panel should now exist
         cmd.apply(&mut schedule2).expect("apply create");
-        assert!(schedule2
-            .snapshot_entity(EntityKind::Panel, uuid)
-            .is_some());
+        assert!(schedule2.snapshot_entity(EntityKind::Panel, uuid).is_some());
 
         // Undo: panel should be gone again
         cmd.undo(&mut schedule2).expect("undo create");
-        assert!(schedule2
-            .snapshot_entity(EntityKind::Panel, uuid)
-            .is_none());
+        assert!(schedule2.snapshot_entity(EntityKind::Panel, uuid).is_none());
     }
 
     #[test]
