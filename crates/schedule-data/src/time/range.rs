@@ -32,17 +32,24 @@ impl TimeRange {
             },
             TimeRange::UnspecifiedWithEnd(e) => {
                 if start_time < *e {
-                    TimeRange::ScheduledWithEnd { start_time, end_time: *e }
+                    TimeRange::ScheduledWithEnd {
+                        start_time,
+                        end_time: *e,
+                    }
                 } else {
                     TimeRange::UnspecifiedWithStart(start_time)
                 }
             }
-            TimeRange::ScheduledWithDuration { duration, .. } => {
-                TimeRange::ScheduledWithDuration { start_time, duration: *duration }
-            }
+            TimeRange::ScheduledWithDuration { duration, .. } => TimeRange::ScheduledWithDuration {
+                start_time,
+                duration: *duration,
+            },
             TimeRange::ScheduledWithEnd { end_time, .. } => {
                 if start_time < *end_time {
-                    TimeRange::ScheduledWithEnd { start_time, end_time: *end_time }
+                    TimeRange::ScheduledWithEnd {
+                        start_time,
+                        end_time: *end_time,
+                    }
                 } else {
                     TimeRange::UnspecifiedWithStart(start_time)
                 }
@@ -62,7 +69,10 @@ impl TimeRange {
             | TimeRange::UnspecifiedWithEnd(_) => TimeRange::UnspecifiedWithEnd(end_time),
             TimeRange::UnspecifiedWithStart(s) => {
                 if end_time > *s {
-                    TimeRange::ScheduledWithEnd { start_time: *s, end_time }
+                    TimeRange::ScheduledWithEnd {
+                        start_time: *s,
+                        end_time,
+                    }
                 } else {
                     TimeRange::UnspecifiedWithEnd(end_time)
                 }
@@ -70,7 +80,10 @@ impl TimeRange {
             TimeRange::ScheduledWithDuration { start_time, .. }
             | TimeRange::ScheduledWithEnd { start_time, .. } => {
                 if end_time > *start_time {
-                    TimeRange::ScheduledWithEnd { start_time: *start_time, end_time }
+                    TimeRange::ScheduledWithEnd {
+                        start_time: *start_time,
+                        end_time,
+                    }
                 } else {
                     TimeRange::UnspecifiedWithEnd(end_time)
                 }
@@ -87,13 +100,15 @@ impl TimeRange {
             TimeRange::Unspecified
             | TimeRange::UnspecifiedWithDuration(_)
             | TimeRange::UnspecifiedWithEnd(_) => TimeRange::UnspecifiedWithDuration(duration),
-            TimeRange::UnspecifiedWithStart(s) => {
-                TimeRange::ScheduledWithDuration { start_time: *s, duration }
-            }
+            TimeRange::UnspecifiedWithStart(s) => TimeRange::ScheduledWithDuration {
+                start_time: *s,
+                duration,
+            },
             TimeRange::ScheduledWithDuration { start_time, .. }
-            | TimeRange::ScheduledWithEnd { start_time, .. } => {
-                TimeRange::ScheduledWithDuration { start_time: *start_time, duration }
-            }
+            | TimeRange::ScheduledWithEnd { start_time, .. } => TimeRange::ScheduledWithDuration {
+                start_time: *start_time,
+                duration,
+            },
         };
     }
 
@@ -169,7 +184,10 @@ mod tests {
     fn add_start_to_unspecified() {
         let mut tr = TimeRange::Unspecified;
         tr.add_start_time(dt("2026-06-26T14:00:00"));
-        assert_eq!(tr, TimeRange::UnspecifiedWithStart(dt("2026-06-26T14:00:00")));
+        assert_eq!(
+            tr,
+            TimeRange::UnspecifiedWithStart(dt("2026-06-26T14:00:00"))
+        );
     }
 
     #[test]
@@ -202,7 +220,10 @@ mod tests {
     fn add_start_to_unspecified_with_end_invalid_drops_end() {
         let mut tr = TimeRange::UnspecifiedWithEnd(dt("2026-06-26T13:00:00"));
         tr.add_start_time(dt("2026-06-26T14:00:00"));
-        assert_eq!(tr, TimeRange::UnspecifiedWithStart(dt("2026-06-26T14:00:00")));
+        assert_eq!(
+            tr,
+            TimeRange::UnspecifiedWithStart(dt("2026-06-26T14:00:00"))
+        );
     }
 
     #[test]
@@ -244,7 +265,10 @@ mod tests {
             end_time: dt("2026-06-26T15:00:00"),
         };
         tr.add_start_time(dt("2026-06-26T16:00:00"));
-        assert_eq!(tr, TimeRange::UnspecifiedWithStart(dt("2026-06-26T16:00:00")));
+        assert_eq!(
+            tr,
+            TimeRange::UnspecifiedWithStart(dt("2026-06-26T16:00:00"))
+        );
     }
 
     // --- add_end_time -------------------------------------------------------
@@ -292,7 +316,10 @@ mod tests {
             duration: Duration::minutes(60),
         };
         tr.remove_start_time();
-        assert_eq!(tr, TimeRange::UnspecifiedWithDuration(Duration::minutes(60)));
+        assert_eq!(
+            tr,
+            TimeRange::UnspecifiedWithDuration(Duration::minutes(60))
+        );
     }
 
     #[test]
@@ -312,7 +339,10 @@ mod tests {
             end_time: dt("2026-06-26T15:00:00"),
         };
         tr.remove_end_time();
-        assert_eq!(tr, TimeRange::UnspecifiedWithStart(dt("2026-06-26T14:00:00")));
+        assert_eq!(
+            tr,
+            TimeRange::UnspecifiedWithStart(dt("2026-06-26T14:00:00"))
+        );
     }
 
     #[test]
@@ -322,6 +352,9 @@ mod tests {
             duration: Duration::minutes(60),
         };
         tr.remove_duration();
-        assert_eq!(tr, TimeRange::UnspecifiedWithStart(dt("2026-06-26T14:00:00")));
+        assert_eq!(
+            tr,
+            TimeRange::UnspecifiedWithStart(dt("2026-06-26T14:00:00"))
+        );
     }
 }

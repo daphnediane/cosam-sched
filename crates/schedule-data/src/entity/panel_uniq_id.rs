@@ -94,7 +94,13 @@ impl PanelUniqId {
             return None;
         };
 
-        Some(PanelUniqId { prefix, prefix_num, part_num, session_num, suffix })
+        Some(PanelUniqId {
+            prefix,
+            prefix_num,
+            part_num,
+            session_num,
+            suffix,
+        })
     }
 
     /// Canonical base ID: normalised prefix + zero-padded 3-digit number.

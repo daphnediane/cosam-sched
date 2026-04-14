@@ -302,6 +302,8 @@ mod tests {
                     &FIELD_MAP,
                     &["id"], // only id is required
                     &[],     // no indexable fields for this test
+                    &[],     // no readable fields for this test
+                    &[],     // no writable fields for this test
                 )
             });
             &TEST_FIELD_SET

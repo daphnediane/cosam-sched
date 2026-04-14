@@ -11,12 +11,14 @@
 
 pub use schedule_macro::EntityFields;
 
+pub mod edit;
 pub mod entity;
 pub mod field;
 pub mod schedule;
 pub mod time;
 
 // Re-export frequently used types at crate root
+pub use edit::{EditCommand, EditContext, EditHistory};
 pub use entity::{EntityKind, EntityType, InternalData, TypedId};
 pub use entity::{
     EventRoom, EventRoomId, HotelRoom, HotelRoomId, Panel, PanelId, PanelType, PanelTypeId,

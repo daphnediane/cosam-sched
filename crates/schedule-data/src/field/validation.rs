@@ -80,6 +80,8 @@ pub enum FieldError {
     CannotStoreRelationshipField,
     ConversionError(ConversionError),
     ValidationError(ValidationError),
+    FieldNotFound(String),
+    EntityNotFound,
 }
 
 impl fmt::Display for FieldError {
@@ -93,6 +95,8 @@ impl fmt::Display for FieldError {
             }
             FieldError::ConversionError(e) => write!(f, "Conversion error: {}", e),
             FieldError::ValidationError(e) => write!(f, "Validation error: {}", e),
+            FieldError::FieldNotFound(name) => write!(f, "Field not found: {}", name),
+            FieldError::EntityNotFound => write!(f, "Entity not found"),
         }
     }
 }

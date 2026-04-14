@@ -23,8 +23,11 @@
 //! `required_fields`, `indexable_fields`) from struct attributes.
 
 use crate::entity::{EntityType, InternalData, TypedId};
-use crate::field::traits::{FieldMatchResult, IndexableField, NamedField};
-use crate::field::ValidationError;
+use crate::field::traits::{
+    FieldMatchResult, IndexableField, NamedField, ReadableField, WritableField,
+};
+use crate::field::{FieldError, FieldValue, ValidationError};
+use crate::schedule::Schedule;
 
 /// Field set for managing entity fields with aliases and validation
 #[derive(Debug)]
@@ -37,6 +40,10 @@ pub struct FieldSet<T: EntityType> {
     pub required_fields: &'static [&'static str],
     /// Indexable fields
     pub indexable_fields: &'static [&'static dyn IndexableField<T>],
+    /// Readable fields by canonical name
+    pub readable_fields: &'static [(&'static str, &'static dyn ReadableField<T>)],
+    /// Writable fields by canonical name
+    pub writable_fields: &'static [(&'static str, &'static dyn WritableField<T>)],
 }
 
 impl<T: EntityType> FieldSet<T> {
@@ -46,12 +53,16 @@ impl<T: EntityType> FieldSet<T> {
         name_map: &'static [(&'static str, &'static dyn NamedField)],
         required_fields: &'static [&'static str],
         indexable_fields: &'static [&'static dyn IndexableField<T>],
+        readable_fields: &'static [(&'static str, &'static dyn ReadableField<T>)],
+        writable_fields: &'static [(&'static str, &'static dyn WritableField<T>)],
     ) -> Self {
         Self {
             fields,
             name_map,
             required_fields,
             indexable_fields,
+            readable_fields,
+            writable_fields,
         }
     }
 
@@ -76,6 +87,65 @@ impl<T: EntityType> FieldSet<T> {
     /// Get indexable fields
     pub fn get_indexable_fields(&self) -> &'static [&'static dyn IndexableField<T>] {
         self.indexable_fields
+    }
+
+    /// Resolve a name (which may be an alias) to the canonical field name.
+    ///
+    /// Returns `None` if the name is not found in the name map.
+    pub fn resolve_canonical_name(&self, name: &str) -> Option<&'static str> {
+        self.name_map
+            .iter()
+            .find(|(field_name, _)| *field_name == name)
+            .map(|(_, field)| field.name())
+    }
+
+    /// Get a readable field by canonical name
+    pub fn get_readable_field(&self, name: &str) -> Option<&'static dyn ReadableField<T>> {
+        self.readable_fields
+            .iter()
+            .find(|(field_name, _)| *field_name == name)
+            .map(|(_, field)| *field)
+    }
+
+    /// Get a writable field by canonical name
+    pub fn get_writable_field(&self, name: &str) -> Option<&'static dyn WritableField<T>> {
+        self.writable_fields
+            .iter()
+            .find(|(field_name, _)| *field_name == name)
+            .map(|(_, field)| *field)
+    }
+
+    /// Read a field value by name (or alias) from an entity.
+    pub fn read_field_value(
+        &self,
+        schedule: &Schedule,
+        entity: &T::Data,
+        name: &str,
+    ) -> Result<Option<FieldValue>, FieldError> {
+        let canonical = self
+            .resolve_canonical_name(name)
+            .ok_or_else(|| FieldError::FieldNotFound(name.to_string()))?;
+        let field = self
+            .get_readable_field(canonical)
+            .ok_or_else(|| FieldError::FieldNotFound(name.to_string()))?;
+        Ok(field.read(schedule, entity))
+    }
+
+    /// Write a field value by name (or alias) to an entity.
+    pub fn write_field_value(
+        &self,
+        schedule: &mut Schedule,
+        entity: &mut T::Data,
+        name: &str,
+        value: FieldValue,
+    ) -> Result<(), FieldError> {
+        let canonical = self
+            .resolve_canonical_name(name)
+            .ok_or_else(|| FieldError::FieldNotFound(name.to_string()))?;
+        let field = self
+            .get_writable_field(canonical)
+            .ok_or_else(|| FieldError::FieldNotFound(name.to_string()))?;
+        field.write(schedule, entity, value)
     }
 
     /// Validate an entity's data against required fields
@@ -209,7 +279,7 @@ mod tests {
 
         fn field_set() -> &'static FieldSet<Self> {
             static FIELD_SET: std::sync::LazyLock<FieldSet<TestEntity>> =
-                std::sync::LazyLock::new(|| FieldSet::new(&[], &[], &[], &[]));
+                std::sync::LazyLock::new(|| FieldSet::new(&[], &[], &[], &[], &[], &[]));
             &FIELD_SET
         }
     }
@@ -257,8 +327,14 @@ mod tests {
 
     #[test]
     fn test_field_set_creation() {
-        let field_set: FieldSet<TestEntity> =
-            FieldSet::new(&[&ID_FIELD, &NAME_FIELD, &VALUE_FIELD], &[], &["id"], &[]);
+        let field_set: FieldSet<TestEntity> = FieldSet::new(
+            &[&ID_FIELD, &NAME_FIELD, &VALUE_FIELD],
+            &[],
+            &["id"],
+            &[],
+            &[],
+            &[],
+        );
 
         assert_eq!(field_set.fields.len(), 3);
         assert!(field_set.is_required("id"));
@@ -276,6 +352,8 @@ mod tests {
                 ("value", &VALUE_FIELD),
             ],
             &["id"],
+            &[],
+            &[],
             &[],
         );
 

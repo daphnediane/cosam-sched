@@ -95,6 +95,8 @@ pub fn derive_entity_fields(input: TokenStream) -> TokenStream {
     let mut required_field_validations: Vec<TokenStream2> = Vec::new();
     let mut alias_mappings: Vec<TokenStream2> = Vec::new();
     let mut indexable_field_names: Vec<Ident> = Vec::new();
+    let mut readable_field_struct_names: Vec<Ident> = Vec::new();
+    let mut writable_field_struct_names: Vec<Ident> = Vec::new();
 
     // Track stored fields for internal Data struct generation
     let mut stored_field_defs: Vec<TokenStream2> = Vec::new();
@@ -135,6 +137,16 @@ pub fn derive_entity_fields(input: TokenStream) -> TokenStream {
                 // Add computed field to field set tracking so it appears in
                 // the name_map and fields list
                 field_names.push(field_name_str.clone());
+
+                // Track readable/writable based on #[read]/#[write] presence
+                let has_read = field.attrs.iter().any(|a| a.path().is_ident("read"));
+                let has_write = field.attrs.iter().any(|a| a.path().is_ident("write"));
+                if has_read {
+                    readable_field_struct_names.push(field_struct_name.clone());
+                }
+                if has_write {
+                    writable_field_struct_names.push(field_struct_name.clone());
+                }
 
                 // Track for public struct generation
                 computed_field_names_for_public.push(field_name.clone());
@@ -249,6 +261,13 @@ pub fn derive_entity_fields(input: TokenStream) -> TokenStream {
                         indexable_field_names.push(field_struct_name.clone());
                     }
 
+                    // All stored #[field] fields are readable; writable only
+                    // when the type supports automatic write conversion
+                    readable_field_struct_names.push(field_struct_name.clone());
+                    if supports_automatic_write(&field.ty) {
+                        writable_field_struct_names.push(field_struct_name.clone());
+                    }
+
                     // Generate field constant
                     let explicit_constant_name = parse_field_const_name(&field.attrs);
                     let field_constant =
@@ -357,7 +376,9 @@ pub fn derive_entity_fields(input: TokenStream) -> TokenStream {
 
                         let indexable_fields: &[&dyn crate::field::traits::IndexableField<#entity_type_struct_name>] = &[];
                         let required: &[&str] = &[];
-                        let fs = crate::field::field_set::FieldSet::new(field_slice, name_map, required, indexable_fields);
+                        let readable_fields: &[(&str, &dyn crate::field::traits::ReadableField<#entity_type_struct_name>)] = &[];
+                        let writable_fields: &[(&str, &dyn crate::field::traits::WritableField<#entity_type_struct_name>)] = &[];
+                        let fs = crate::field::field_set::FieldSet::new(field_slice, name_map, required, indexable_fields, readable_fields, writable_fields);
                         Box::leak(Box::new(fs))
                     });
                 *FIELD_SET
@@ -385,7 +406,24 @@ pub fn derive_entity_fields(input: TokenStream) -> TokenStream {
                         let indexable_fields: &[&dyn crate::field::traits::IndexableField<#entity_type_struct_name>] = &[#(&#indexable_field_names,)*];
                         let required_vec: Vec<&str> = vec![#(#required_field_names,)*];
                         let required = required_vec.leak() as &[&str];
-                        let fs = crate::field::field_set::FieldSet::new(field_slice, name_map, required, indexable_fields);
+
+                        let readable_entries: Vec<(&str, &dyn crate::field::traits::ReadableField<#entity_type_struct_name>)> = vec![
+                            #(
+                                (crate::field::traits::NamedField::name(&#readable_field_struct_names),
+                                 &#readable_field_struct_names as &dyn crate::field::traits::ReadableField<#entity_type_struct_name>),
+                            )*
+                        ];
+                        let readable_fields = readable_entries.leak() as &[_];
+
+                        let writable_entries: Vec<(&str, &dyn crate::field::traits::WritableField<#entity_type_struct_name>)> = vec![
+                            #(
+                                (crate::field::traits::NamedField::name(&#writable_field_struct_names),
+                                 &#writable_field_struct_names as &dyn crate::field::traits::WritableField<#entity_type_struct_name>),
+                            )*
+                        ];
+                        let writable_fields = writable_entries.leak() as &[_];
+
+                        let fs = crate::field::field_set::FieldSet::new(field_slice, name_map, required, indexable_fields, readable_fields, writable_fields);
                         Box::leak(Box::new(fs))
                     });
                 *FIELD_SET

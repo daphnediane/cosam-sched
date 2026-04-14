@@ -20,6 +20,7 @@ use crate::entity::{
     EntityKind, EntityType, EntityUUID, EventRoomId, HotelRoomId, PanelId, PanelTypeId,
     PresenterEntityType, PresenterId, TypedId,
 };
+use crate::field::{FieldError, FieldValue};
 use uuid::NonNilUuid;
 
 /// Error returned by [`Schedule::find_or_create_tagged_presenter`].
@@ -357,6 +358,157 @@ impl Schedule {
     /// TODO: Implement field-based name lookup when field system is fully integrated.
     pub fn get_entity_names<T: EntityType>(&self, _uuids: &[NonNilUuid]) -> Vec<String> {
         vec![]
+    }
+
+    // -----------------------------------------------------------------------
+    // Dynamic field access (used by the edit command system)
+    // -----------------------------------------------------------------------
+
+    /// Read a field value by entity kind, UUID, and canonical field name.
+    ///
+    /// Dispatches to the appropriate entity type's [`FieldSet`] to perform a
+    /// generic read. Returns `Ok(None)` when the field exists but has no
+    /// value, or `Err` when the entity or field is not found.
+    pub fn read_field_value(
+        &self,
+        kind: EntityKind,
+        uuid: NonNilUuid,
+        field_name: &str,
+    ) -> Result<Option<FieldValue>, FieldError> {
+        use crate::entity::{
+            EventRoomEntityType, HotelRoomEntityType, PanelEntityType, PanelTypeEntityType,
+            PresenterEntityType,
+        };
+
+        match kind {
+            EntityKind::Panel => {
+                let id = PanelId::from_uuid(uuid);
+                let data = self
+                    .entities
+                    .panels
+                    .get(id)
+                    .ok_or(FieldError::EntityNotFound)?;
+                PanelEntityType::field_set().read_field_value(self, data, field_name)
+            }
+            EntityKind::Presenter => {
+                let id = PresenterId::from_uuid(uuid);
+                let data = self
+                    .entities
+                    .presenters
+                    .get(id)
+                    .ok_or(FieldError::EntityNotFound)?;
+                PresenterEntityType::field_set().read_field_value(self, data, field_name)
+            }
+            EntityKind::EventRoom => {
+                let id = EventRoomId::from_uuid(uuid);
+                let data = self
+                    .entities
+                    .event_rooms
+                    .get(id)
+                    .ok_or(FieldError::EntityNotFound)?;
+                EventRoomEntityType::field_set().read_field_value(self, data, field_name)
+            }
+            EntityKind::HotelRoom => {
+                let id = HotelRoomId::from_uuid(uuid);
+                let data = self
+                    .entities
+                    .hotel_rooms
+                    .get(id)
+                    .ok_or(FieldError::EntityNotFound)?;
+                HotelRoomEntityType::field_set().read_field_value(self, data, field_name)
+            }
+            EntityKind::PanelType => {
+                let id = PanelTypeId::from_uuid(uuid);
+                let data = self
+                    .entities
+                    .panel_types
+                    .get(id)
+                    .ok_or(FieldError::EntityNotFound)?;
+                PanelTypeEntityType::field_set().read_field_value(self, data, field_name)
+            }
+        }
+    }
+
+    /// Write a field value by entity kind, UUID, and canonical field name.
+    ///
+    /// Dispatches to the appropriate entity type's [`FieldSet`] to perform a
+    /// generic write. The entity is temporarily extracted from storage so that
+    /// `&mut self` can be passed to the [`WritableField`] (which may need
+    /// schedule-level access for computed field side effects).
+    pub fn write_field_value(
+        &mut self,
+        kind: EntityKind,
+        uuid: NonNilUuid,
+        field_name: &str,
+        value: FieldValue,
+    ) -> Result<(), FieldError> {
+        use crate::entity::{
+            EventRoomEntityType, HotelRoomEntityType, PanelEntityType, PanelTypeEntityType,
+            PresenterEntityType,
+        };
+
+        match kind {
+            EntityKind::Panel => {
+                let id = PanelId::from_uuid(uuid);
+                let mut data = self
+                    .entities
+                    .panels
+                    .remove(id)
+                    .ok_or(FieldError::EntityNotFound)?;
+                let result = PanelEntityType::field_set()
+                    .write_field_value(self, &mut data, field_name, value);
+                self.entities.panels.insert(id, data);
+                result
+            }
+            EntityKind::Presenter => {
+                let id = PresenterId::from_uuid(uuid);
+                let mut data = self
+                    .entities
+                    .presenters
+                    .remove(id)
+                    .ok_or(FieldError::EntityNotFound)?;
+                let result = PresenterEntityType::field_set()
+                    .write_field_value(self, &mut data, field_name, value);
+                self.entities.presenters.insert(id, data);
+                result
+            }
+            EntityKind::EventRoom => {
+                let id = EventRoomId::from_uuid(uuid);
+                let mut data = self
+                    .entities
+                    .event_rooms
+                    .remove(id)
+                    .ok_or(FieldError::EntityNotFound)?;
+                let result = EventRoomEntityType::field_set()
+                    .write_field_value(self, &mut data, field_name, value);
+                self.entities.event_rooms.insert(id, data);
+                result
+            }
+            EntityKind::HotelRoom => {
+                let id = HotelRoomId::from_uuid(uuid);
+                let mut data = self
+                    .entities
+                    .hotel_rooms
+                    .remove(id)
+                    .ok_or(FieldError::EntityNotFound)?;
+                let result = HotelRoomEntityType::field_set()
+                    .write_field_value(self, &mut data, field_name, value);
+                self.entities.hotel_rooms.insert(id, data);
+                result
+            }
+            EntityKind::PanelType => {
+                let id = PanelTypeId::from_uuid(uuid);
+                let mut data = self
+                    .entities
+                    .panel_types
+                    .remove(id)
+                    .ok_or(FieldError::EntityNotFound)?;
+                let result = PanelTypeEntityType::field_set()
+                    .write_field_value(self, &mut data, field_name, value);
+                self.entities.panel_types.insert(id, data);
+                result
+            }
+        }
     }
 }
 

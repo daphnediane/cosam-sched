@@ -50,7 +50,10 @@ pub fn parse_datetime(text: &str) -> Option<NaiveDateTime> {
         let year: i32 = caps[3].parse().ok()?;
         let mut hour: u32 = caps[4].parse().ok()?;
         let minute: u32 = caps[5].parse().ok()?;
-        let second: u32 = caps.get(6).and_then(|m| m.as_str().parse().ok()).unwrap_or(0);
+        let second: u32 = caps
+            .get(6)
+            .and_then(|m| m.as_str().parse().ok())
+            .unwrap_or(0);
         if let Some(ampm) = caps.get(7) {
             match ampm.as_str() {
                 "PM" if hour < 12 => hour += 12,
@@ -128,12 +131,18 @@ impl From<TimeRange> for TimeRangeHelper {
                 start_time: Some(format_storage(s)),
                 ..Default::default()
             },
-            TimeRange::ScheduledWithDuration { start_time, duration } => Self {
+            TimeRange::ScheduledWithDuration {
+                start_time,
+                duration,
+            } => Self {
                 start_time: Some(format_storage(start_time)),
                 duration: Some(duration.num_minutes()),
                 ..Default::default()
             },
-            TimeRange::ScheduledWithEnd { start_time, end_time } => Self {
+            TimeRange::ScheduledWithEnd {
+                start_time,
+                end_time,
+            } => Self {
                 start_time: Some(format_storage(start_time)),
                 end_time: Some(format_storage(end_time)),
                 ..Default::default()
@@ -152,10 +161,14 @@ impl From<TimeRangeHelper> for TimeRange {
             (None, None, Some(d)) => TimeRange::UnspecifiedWithDuration(d),
             (None, Some(e), _) => TimeRange::UnspecifiedWithEnd(e),
             (Some(s), None, None) => TimeRange::UnspecifiedWithStart(s),
-            (Some(s), None, Some(d)) => {
-                TimeRange::ScheduledWithDuration { start_time: s, duration: d }
-            }
-            (Some(s), Some(e), _) => TimeRange::ScheduledWithEnd { start_time: s, end_time: e },
+            (Some(s), None, Some(d)) => TimeRange::ScheduledWithDuration {
+                start_time: s,
+                duration: d,
+            },
+            (Some(s), Some(e), _) => TimeRange::ScheduledWithEnd {
+                start_time: s,
+                end_time: e,
+            },
         }
     }
 }
@@ -214,10 +227,21 @@ impl fmt::Display for TimeRange {
             TimeRange::UnspecifiedWithStart(s) => {
                 write!(f, "Unspecified (starts {})", s.format("%Y-%m-%d %H:%M"))
             }
-            TimeRange::ScheduledWithDuration { start_time, duration } => {
-                write!(f, "{} ({} min)", start_time.format("%Y-%m-%d %H:%M"), duration.num_minutes())
+            TimeRange::ScheduledWithDuration {
+                start_time,
+                duration,
+            } => {
+                write!(
+                    f,
+                    "{} ({} min)",
+                    start_time.format("%Y-%m-%d %H:%M"),
+                    duration.num_minutes()
+                )
             }
-            TimeRange::ScheduledWithEnd { start_time, end_time } => {
+            TimeRange::ScheduledWithEnd {
+                start_time,
+                end_time,
+            } => {
                 write!(
                     f,
                     "{} to {}",
@@ -262,9 +286,10 @@ impl TimeRange {
         match self {
             TimeRange::UnspecifiedWithEnd(e) => Some(*e),
             TimeRange::ScheduledWithEnd { end_time, .. } => Some(*end_time),
-            TimeRange::ScheduledWithDuration { start_time, duration } => {
-                Some(*start_time + *duration)
-            }
+            TimeRange::ScheduledWithDuration {
+                start_time,
+                duration,
+            } => Some(*start_time + *duration),
             _ => None,
         }
     }
@@ -279,7 +304,10 @@ impl TimeRange {
         match self {
             TimeRange::UnspecifiedWithDuration(d) => Some(*d),
             TimeRange::ScheduledWithDuration { duration, .. } => Some(*duration),
-            TimeRange::ScheduledWithEnd { start_time, end_time } => Some(*end_time - *start_time),
+            TimeRange::ScheduledWithEnd {
+                start_time,
+                end_time,
+            } => Some(*end_time - *start_time),
             _ => None,
         }
     }
@@ -325,7 +353,11 @@ impl TimeRange {
     /// Returns `Err` with a description when the supplied `end_time` disagrees
     /// with the value computed from this range's start + duration.
     pub fn validate_against_end_time(&self, end_time: NaiveDateTime) -> Result<(), String> {
-        if let TimeRange::ScheduledWithDuration { start_time, duration } = self {
+        if let TimeRange::ScheduledWithDuration {
+            start_time,
+            duration,
+        } = self
+        {
             let computed_end = *start_time + *duration;
             if computed_end != end_time {
                 return Err(format!(
@@ -352,7 +384,9 @@ mod tests {
     #[test]
     fn parse_datetime_iso() {
         assert_eq!(
-            dt("2026-06-26T14:00:00").format("%Y-%m-%d %H:%M").to_string(),
+            dt("2026-06-26T14:00:00")
+                .format("%Y-%m-%d %H:%M")
+                .to_string(),
             "2026-06-26 14:00"
         );
     }
@@ -396,7 +430,10 @@ mod tests {
     fn time_range_accessors_scheduled_with_duration() {
         let s = dt("2026-06-26T14:00:00");
         let d = Duration::minutes(60);
-        let tr = TimeRange::ScheduledWithDuration { start_time: s, duration: d };
+        let tr = TimeRange::ScheduledWithDuration {
+            start_time: s,
+            duration: d,
+        };
         assert!(tr.is_scheduled());
         assert_eq!(tr.start_time(), Some(s));
         assert_eq!(tr.duration(), Some(d));
@@ -407,7 +444,10 @@ mod tests {
     fn time_range_accessors_scheduled_with_end() {
         let s = dt("2026-06-26T14:00:00");
         let e = dt("2026-06-26T15:30:00");
-        let tr = TimeRange::ScheduledWithEnd { start_time: s, end_time: e };
+        let tr = TimeRange::ScheduledWithEnd {
+            start_time: s,
+            end_time: e,
+        };
         assert!(tr.is_scheduled());
         assert_eq!(tr.start_time(), Some(s));
         assert_eq!(tr.end_time(), Some(e));
@@ -462,7 +502,11 @@ mod tests {
             start_time: dt("2026-06-26T14:00:00"),
             duration: Duration::minutes(60),
         };
-        assert!(tr.validate_against_end_time(dt("2026-06-26T15:00:00")).is_ok());
-        assert!(tr.validate_against_end_time(dt("2026-06-26T15:15:00")).is_err());
+        assert!(tr
+            .validate_against_end_time(dt("2026-06-26T15:00:00"))
+            .is_ok());
+        assert!(tr
+            .validate_against_end_time(dt("2026-06-26T15:15:00"))
+            .is_err());
     }
 }
