@@ -51,21 +51,35 @@ Core trait for all entity types:
 
 ```rust
 pub trait EntityType {
-    type InternalData: Clone + Send + Sync + fmt::Debug;
-    type Data: Clone + Serialize + Deserialize<'_>;
-    type Id: TypedId;
+    type InternalData: Clone + Send + Sync + fmt::Debug + 'static;
+    type Data: Clone;
 
     const TYPE_NAME: &'static str;
     fn field_set() -> &'static FieldSet<Self>;
-    fn export(internal: &Self::InternalData, schedule: &Schedule) -> Self::Data;
+    fn export(internal: &Self::InternalData) -> Self::Data;
     fn validate(data: &Self::InternalData) -> Vec<ValidationError>;
 }
 ```
 
+No `type Id` associated type — use `EntityId<E>` directly everywhere a
+compile-time typed ID is needed. `RuntimeEntityId(EntityKind, Uuid)` covers
+the untyped/dynamic case.
+
 ### EntityId
 
-`EntityId<E>` — generic typed wrapper around `NonNilUuid` with `PhantomData<E>`.
-Provides compile-time type safety for entity references.
+`EntityId<E>` — generic `Copy` newtype wrapping a private `Uuid` field with
+`PhantomData<fn() -> E>`. The non-nil invariant is enforced by the constructor:
+
+```rust
+impl<E: EntityType> EntityId<E> {
+    pub fn new(uuid: Uuid) -> Option<Self>;  // None if nil
+    // fn non_nil_uuid(&self) -> NonNilUuid  — added in FEATURE-012
+    //   safe: internally unsafe { NonNilUuid::new_unchecked(self.uuid) }
+}
+```
+
+`Clone` and `Copy` are implemented manually (not derived) to avoid the
+spurious `E: Clone`/`E: Copy` bounds that derive macros would add.
 
 ### EntityKind
 
@@ -76,11 +90,6 @@ EventRoom, HotelRoom, PanelType.
 
 For dynamic identification when the entity type isn't known at compile time.
 Pairs a `NonNilUuid` with an `EntityKind`.
-
-### TypedId trait
-
-Uniform interface for all entity IDs backed by `NonNilUuid`. Provides
-`uuid()`, `from_uuid()`, Display, serde support.
 
 ### UuidPreference
 

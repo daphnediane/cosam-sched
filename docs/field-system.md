@@ -34,16 +34,18 @@ Each entity type is expressed as three hand-written structs:
 
 ```rust
 pub trait EntityType {
-    type InternalData: Clone + Send + Sync + fmt::Debug;
-    type Data: Clone + Serialize + Deserialize<'_>;
-    type Id: TypedId;
+    type InternalData: Clone + Send + Sync + fmt::Debug + 'static;
+    type Data: Clone;
 
     const TYPE_NAME: &'static str;
     fn field_set() -> &'static FieldSet<Self>;
-    fn export(internal: &Self::InternalData, schedule: &Schedule) -> Self::Data;
+    fn export(internal: &Self::InternalData) -> Self::Data;
     fn validate(data: &Self::InternalData) -> Vec<ValidationError>;
 }
 ```
+
+No `type Id` — use `EntityId<E>` directly everywhere a compile-time typed ID
+is needed. `RuntimeEntityId(EntityKind, Uuid)` covers the untyped/dynamic case.
 
 Entity types: `PanelTypeEntityType`, `PanelEntityType`, `PresenterEntityType`,
 `EventRoomEntityType`, `HotelRoomEntityType`.
@@ -81,21 +83,49 @@ storage (Phase 4):
 ## Field Trait Hierarchy
 
 ```text
-NamedField                        name(), display_name(), description(), aliases()
-├── SimpleReadableField<E>        read(&InternalData) → Option<FieldValue>
-│   └── (blanket) ReadableField<E>  read(&InternalData, &Schedule) → Option<FieldValue>
-├── SimpleWritableField<E>        write(&mut InternalData, FieldValue) → Result
-│   └── (blanket) WritableField<E>  write(&mut InternalData, &mut Schedule, FieldValue)
-└── IndexableField<E>             match_field(query, &InternalData) → Option<MatchPriority>
+NamedField          name(), display_name(), description(), aliases()
+ReadableField<E>    read(EntityId<E>, &Schedule) → Option<FieldValue>
+WritableField<E>    write(EntityId<E>, &mut Schedule, FieldValue) → Result<(), FieldError>
+IndexableField<E>   match_field(&str, &InternalData) → Option<MatchPriority>
 ```
 
-Blanket impls promote `Simple*` variants (data-only) to full variants that also
-accept a `&Schedule` / `&mut Schedule` context parameter for edge-aware computed
-fields.
+All four traits are flat — no `Simple*` or `Schedule*` sub-traits. The
+caller-facing API is always `(EntityId<E>, &[mut] Schedule)`.
+
+`FieldDescriptor<E>` implements all four directly. Dispatch between
+data-only and schedule-aware paths is handled internally by matching on
+`ReadFn<E>` and `WriteFn<E>` (see below).
+
+## ReadFn / WriteFn enums
+
+Each `FieldDescriptor` carries enum-valued fn pointers that select the
+correct calling convention. This avoids any double-`&mut` borrow problem:
+the `Schedule` variant never exposes `&mut InternalData` to the caller.
+
+```rust
+pub enum ReadFn<E: EntityType> {
+    /// Data-only read — no schedule needed.
+    Bare(fn(&E::InternalData) -> Option<FieldValue>),
+    /// Schedule-aware read — fn looks up entity internally.
+    Schedule(fn(&Schedule, EntityId<E>) -> Option<FieldValue>),
+}
+
+pub enum WriteFn<E: EntityType> {
+    /// Data-only write — no schedule needed.
+    Bare(fn(&mut E::InternalData, FieldValue) -> Result<(), FieldError>),
+    /// Schedule-aware write — used for edge mutations (add_presenters, etc.).
+    /// Fn receives (&mut Schedule, EntityId<E>) with no &mut InternalData;
+    /// it handles its own lookup/release internally.
+    Schedule(fn(&mut Schedule, EntityId<E>, FieldValue) -> Result<(), FieldError>),
+}
+
+pub type IndexFn<E> = fn(&str, &<E as EntityType>::InternalData) -> Option<MatchPriority>;
+```
 
 ## FieldDescriptor
 
-Generic struct with fn pointers — one static value per field:
+Generic struct — one `static` value per field. Non-capturing closures coerce
+to fn pointers automatically.
 
 ```rust
 pub struct FieldDescriptor<E: EntityType> {
@@ -105,14 +135,22 @@ pub struct FieldDescriptor<E: EntityType> {
     pub aliases: &'static [&'static str],
     pub required: bool,
     pub crdt_type: CrdtFieldType,
-    pub read_fn:  fn(&E::InternalData) -> Option<FieldValue>,
-    pub write_fn: Option<fn(&mut E::InternalData, FieldValue) -> Result<(), FieldError>>,
+    pub read_fn: Option<ReadFn<E>>,    // None → write-only
+    pub write_fn: Option<WriteFn<E>>,   // None → read-only
+    pub index_fn: Option<IndexFn<E>>,   // None → not indexable
 }
 ```
 
-Non-capturing closures coerce to fn pointers. Closures access `internal.data.*`
-for `CommonData` fields and `internal.code` / `internal.time_slot` for
-internal-only fields.
+`FieldDescriptor` implements `NamedField`, `ReadableField<E>`,
+`WritableField<E>`, and `IndexableField<E>` directly:
+
+- `read()` matches `read_fn`: `None` → `FieldError::WriteOnly`;
+  `Bare` fetches `InternalData` from the schedule then calls the fn;
+  `Schedule` delegates directly.
+- `write()` matches `write_fn`: `None` → `FieldError::ReadOnly`;
+  `Bare` fetches `&mut InternalData` then calls the fn;
+  `Schedule` delegates directly (no double `&mut`).
+- `match_field()` calls `index_fn` if present.
 
 Declared as `static` values, e.g.:
 
@@ -120,10 +158,25 @@ Declared as `static` values, e.g.:
 static FIELD_PANEL_NAME: FieldDescriptor<PanelEntityType> = FieldDescriptor {
     name: "name",
     display: "Panel Name",
+    description: "The title of the panel.",
+    aliases: &[],
+    required: true,
     crdt_type: CrdtFieldType::Scalar,
-    read_fn: |internal| Some(FieldValue::String(internal.data.name.clone())),
-    write_fn: Some(|internal, v| { internal.data.name = v.into_string()?; Ok(()) }),
-    ..
+    read_fn: Some(ReadFn::Bare(|d| Some(FieldValue::String(d.data.name.clone())))),
+    write_fn: Some(WriteFn::Bare(|d, v| { d.data.name = v.into_string()?; Ok(()) })),
+    index_fn: None,
+};
+
+static FIELD_PANEL_PRESENTERS: FieldDescriptor<PanelEntityType> = FieldDescriptor {
+    name: "presenters",
+    display: "Presenters",
+    description: "Presenters assigned to this panel.",
+    aliases: &["presenter"],
+    required: false,
+    crdt_type: CrdtFieldType::Derived,
+    read_fn: Some(ReadFn::Schedule(|schedule, id| { /* query edge index */ todo!() })),
+    write_fn: Some(WriteFn::Schedule(|schedule, id, v| { /* mutate edge index */ todo!() })),
+    index_fn: None,
 };
 ```
 

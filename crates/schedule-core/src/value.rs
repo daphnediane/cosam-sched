@@ -228,9 +228,15 @@ pub enum FieldError {
     /// Field value failed validation.
     #[error("validation error: {0}")]
     Validation(#[from] ValidationError),
-    /// Field is read-only.
+    /// Field is read-only (no write_fn).
     #[error("field '{name}' is read-only")]
     ReadOnly { name: &'static str },
+    /// Field is write-only (no read_fn).
+    #[error("field '{name}' is write-only")]
+    WriteOnly { name: &'static str },
+    /// Entity not found in the schedule.
+    #[error("field '{name}': entity not found")]
+    NotFound { name: &'static str },
 }
 
 /// Type conversion failure — wrong `FieldValue` variant or parse error.
