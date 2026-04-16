@@ -1,15 +1,728 @@
 # Cosplay America Schedule - Work Item
 
-Updated on: Fri Apr 10 12:07:45 2026
+Updated on: Wed Apr 15 23:40:58 2026
 
-## Next Available IDs
+## Completed
 
-The following ID numbers are available for new items:
+* [FEATURE-009] Set up the Cargo workspace root and create skeleton application crates.
+* [META-002] Phase tracker for project foundation and Cargo workspace setup.
 
-**Available:** 001, 002, 003, 004, 005, 006, 007, 008, 009, 010
+---
 
-**Highest used:** 0
+## Summary of Open Items
+
+**Total open items:** 33
+
+* **Meta / Project-Level**
+  * [META-001] Meta work item tracking the full multi-phase redesign of the schedule system. (Blocked by [META-003], [META-004], [META-005], [META-006], [META-007], [META-008])
+  * [META-003] Phase tracker for the entity/field system and core schedule data model in schedule-core. (Blocked by [META-002])
+  * [META-004] Phase tracker for adding CRDT-backed storage underneath the entity/field system. (Blocked by [META-003])
+  * [META-005] Phase tracker for internal file format, multi-year archive, widget JSON, and
+XLSX import/export. (Blocked by [META-003], [META-004])
+  * [META-006] Phase tracker for the cosam-convert and cosam-modify command-line applications. (Blocked by [META-005])
+  * [META-007] Phase tracker for the cosam-editor desktop GUI application. (Blocked by [META-005])
+  * [META-008] Phase tracker for peer-to-peer schedule synchronization and conflict resolution. (Blocked by [META-004])
+
+* **High Priority**
+  * [FEATURE-010] ([META-003]) Implement the universal `FieldValue` enum, error types, and CRDT field type annotation.
+  * [FEATURE-011] ([META-003]) Implement the field trait hierarchy and generic `FieldDescriptor` type that replaces the proc-macro's per-field unit structs.
+  * [FEATURE-012] ([META-003]) Implement UUID-based entity identity with compile-time type-safe ID wrappers.
+  * [FEATURE-013] ([META-003]) Implement the static `FieldSet` registry for per-entity-type field metadata lookup.
+  * [FEATURE-014] ([META-003]) Implement the PanelType entity as the first proof of concept for the no-proc-macro field system.
+  * [FEATURE-015] ([META-003]) Port `TimeRange` and implement the Panel entity with stored and computed time fields.
+  * [FEATURE-016] ([META-003]) Implement the remaining core entity data structs and field descriptors.
+  * [FEATURE-018] ([META-003]) Implement typed relationship storage for entity-to-entity relationships.
+  * [FEATURE-019] ([META-003]) Implement the `Schedule` struct and `EntityStorage` for managing all entities and relationships.
+  * [FEATURE-021] ([META-003]) Implement a command-based edit system with full undo/redo support.
+
+* **Medium Priority**
+  * [FEATURE-017] ([META-003]) Implement entity builders for constructing entity data with UUID assignment.
+  * [FEATURE-020] ([META-003]) Implement field-based search, matching, and bulk update operations.
+  * [FEATURE-022] ([META-004]) Design the abstraction layer between the entity/field system and the CRDT backend.
+  * [FEATURE-023] ([META-004]) Replace direct `HashMap` entity storage with CRDT-backed storage using automerge.
+  * [FEATURE-024] ([META-004]) Implement change tracking, diff computation, and merge for CRDT documents.
+  * [FEATURE-025] ([META-005]) Define and implement the native save/load format for schedule documents.
+  * [FEATURE-026] ([META-005]) Support multiple convention years in a single schedule file for historical
+reference and jump-starting new conventions.
+  * [FEATURE-027] ([META-005]) Implement export of schedule data to the JSON format consumed by the calendar display widget.
+  * [FEATURE-028] ([META-005]) Import schedule data from the existing XLSX spreadsheet format.
+  * [FEATURE-029] ([META-005]) Export schedule data back to the XLSX spreadsheet format.
+
+* **Low Priority**
+  * [CLI-030] ([META-006]) CLI tool for converting between schedule file formats (XLSX, JSON, widget JSON).
+  * [CLI-031] ([META-006]) CLI tool for making batch edits to schedule data from the command line.
+  * [EDITOR-032] ([META-007]) Select the GUI framework for cosam-editor and create the application scaffold.
+  * [EDITOR-033] ([META-007]) Implement the main schedule grid view and entity editing UI in cosam-editor.
+  * [FEATURE-034] ([META-008]) Define and implement the protocol for synchronizing schedule data between peers.
+  * [FEATURE-035] ([META-008]) Provide UI for reviewing and resolving merge conflicts after sync.
+
+---
+
+## Placeholders
+
+*No placeholders — all stubs have been promoted.*
+
+Use `perl scripts/work-item-update.pl --create <PREFIX>` to add new stubs.
+
+---
+
+## Open CLI Items
+
+### [CLI-030] cosam-convert: Format Conversion Tool
+
+**Status:** Open
+
+**Priority:** Low
+
+**Summary:** CLI tool for converting between schedule file formats (XLSX, JSON, widget JSON).
+
+**Part of:** [META-006]
+
+**Description:** `cosam-convert` is a command-line application for importing and exporting
+schedule data between supported formats.
+
+---
+
+### [CLI-031] cosam-modify: CLI Editing Tool
+
+**Status:** Open
+
+**Priority:** Low
+
+**Summary:** CLI tool for making batch edits to schedule data from the command line.
+
+**Part of:** [META-006]
+
+**Description:** `cosam-modify` provides command-line access to the edit system for scripted
+or batch modifications to schedule data.
+
+---
+
+## Open EDITOR Items
+
+### [EDITOR-032] cosam-editor: GUI Framework Selection and Scaffold
+
+**Status:** Open
+
+**Priority:** Low
+
+**Summary:** Select the GUI framework for cosam-editor and create the application scaffold.
+
+**Part of:** [META-007]
+
+**Description:** Evaluate and select between GUI framework candidates, then create the initial
+application structure.
+
+---
+
+### [EDITOR-033] cosam-editor: Schedule Grid View and Entity Editing
+
+**Status:** Open
+
+**Priority:** Low
+
+**Summary:** Implement the main schedule grid view and entity editing UI in cosam-editor.
+
+**Part of:** [META-007]
+
+**Description:** The core editing experience for the GUI application: a grid view showing
+panels arranged by time and room, with inline editing of entity fields.
+
+---
+
+## Open FEATURE Items
+
+### [FEATURE-010] FieldValue, Error Types, CrdtFieldType
+
+**Status:** Open
+
+**Priority:** High
+
+**Summary:** Implement the universal `FieldValue` enum, error types, and CRDT field type annotation.
+
+**Part of:** [META-003]
+
+**Description:** Core value and error types for the field system in `schedule-core`.
+
+---
+
+### [FEATURE-011] Field Traits + FieldDescriptor
+
+**Status:** Open
+
+**Priority:** High
+
+**Summary:** Implement the field trait hierarchy and generic `FieldDescriptor` type that replaces the proc-macro's per-field unit structs.
+
+**Part of:** [META-003]
+
+**Description:** ### Trait hierarchy
+
+```text
+NamedField                    name(), display_name(), description()
+├── SimpleReadableField<E>    read(&data) → Option<FieldValue>
+│   └── (blanket) ReadableField<E>
+├── SimpleWritableField<E>    write(&mut data, FieldValue) → Result
+│   └── (blanket) WritableField<E>
+└── IndexableField<E>         match_field(query, &data) → Option<MatchPriority>
+```
+
+Blanket impls promote Simple variants to Full variants (which also accept a
+database/schedule context parameter).
+
+---
+
+### [FEATURE-012] EntityType, EntityId, EntityKind
+
+**Status:** Open
+
+**Priority:** High
+
+**Summary:** Implement UUID-based entity identity with compile-time type-safe ID wrappers.
+
+**Part of:** [META-003]
+
+**Description:** All entities are identified by `uuid::NonNilUuid` (v7 for new entities, v5 for
+deterministic identities like edges).
+
+---
+
+### [FEATURE-013] FieldSet Registry
+
+**Status:** Open
+
+**Priority:** High
+
+**Summary:** Implement the static `FieldSet` registry for per-entity-type field metadata lookup.
+
+**Part of:** [META-003]
+
+**Description:** `FieldSet<E>` is a static registry holding all field descriptors for an entity type,
+built once in a `LazyLock` and returned by `EntityType::field_set()`.
+
+---
+
+### [FEATURE-014] PanelType Entity (Proof of Concept)
+
+**Status:** Open
+
+**Priority:** High
+
+**Summary:** Implement the PanelType entity as the first proof of concept for the no-proc-macro field system.
+
+**Part of:** [META-003]
+
+**Description:** PanelType is the simplest entity (~10 stored fields, 1 computed) and serves as
+the proof of concept for the FieldDescriptor approach.
+
+---
+
+### [FEATURE-015] TimeRange + Panel Entity
+
+**Status:** Open
+
+**Priority:** High
+
+**Summary:** Port `TimeRange` and implement the Panel entity with stored and computed time fields.
+
+**Part of:** [META-003]
+
+**Description:** Panel is the most complex entity with ~30 stored fields plus computed time
+projections from `TimeRange`.
+
+---
+
+### [FEATURE-016] Presenter + EventRoom + HotelRoom Entities
+
+**Status:** Open
+
+**Priority:** High
+
+**Summary:** Implement the remaining core entity data structs and field descriptors.
+
+**Part of:** [META-003]
+
+**Description:** ### Presenter
+
+* `PresenterData` with name, rank, badge_number, group membership backing
+  (`group_ids: Vec<EntityId<PresenterEntityType>>`), boolean flags
+  (`is_explicit_group`, `always_grouped`, `always_shown_in_group`)
+* `PresenterRank` enum: Guest, InvitedGuest, Judge, Staff, Panelist, FanPanelist
+* Computed fields: `panels`, `groups`, `inclusive_panels`, `inclusive_members`,
+  `inclusive_groups` (stubs until FEATURE-018)
+
+---
+
+### [FEATURE-018] Relationship Storage (EdgeMap / Reverse Indexes)
+
+**Status:** Open
+
+**Priority:** High
+
+**Summary:** Implement typed relationship storage for entity-to-entity relationships.
+
+**Part of:** [META-003]
+
+**Description:** Relationships between entities are stored as typed `Vec<EntityId>` fields on the
+owning entity (virtual edges, not edge entities). Reverse indexes maintain
+bidirectional lookup.
+
+---
+
+### [FEATURE-019] Schedule Container + EntityStorage
+
+**Status:** Open
+
+**Priority:** High
+
+**Summary:** Implement the `Schedule` struct and `EntityStorage` for managing all entities and relationships.
+
+**Part of:** [META-003]
+
+**Description:** The `Schedule` struct is the top-level container holding:
+
+* `EntityStorage` — typed collections for each entity type
+* EdgeMap instances for all relationship types
+* Entity registry (`HashMap<NonNilUuid, EntityKind>`) for UUID → kind lookup
+* `ScheduleMetadata` — version, timestamps, generator info, schedule ID
+
+Schedule is a **proxy, not an owner** — entity types own their storage; Schedule
+provides UUID-keyed coordination.
+
+---
+
+### [FEATURE-021] Edit Command System With Undo/Redo History
+
+**Status:** Open
+
+**Priority:** High
+
+**Summary:** Implement a command-based edit system with full undo/redo support.
+
+**Part of:** [META-003]
+
+**Description:** All mutations to the schedule go through an edit command system that captures
+changes as reversible operations, enabling undo/redo in both CLI and GUI contexts.
+
+---
+
+### [FEATURE-017] Builder Pattern
+
+**Status:** Open
+
+**Priority:** Medium
+
+**Summary:** Implement entity builders for constructing entity data with UUID assignment.
+
+**Part of:** [META-003]
+
+**Description:** The old proc-macro generated per-entity builders with `with_*` setters and
+`build()` methods. Without the macro, builders need explicit implementation.
+
+---
+
+### [FEATURE-020] Query System
+
+**Status:** Open
+
+**Priority:** Medium
+
+**Summary:** Implement field-based search, matching, and bulk update operations.
+
+**Part of:** [META-003]
+
+**Description:** The query system enables finding and updating entities using field-based
+criteria rather than direct UUID access.
+
+---
+
+### [FEATURE-022] CRDT Abstraction Layer Design
+
+**Status:** Open
+
+**Priority:** Medium
+
+**Summary:** Design the abstraction layer between the entity/field system and the CRDT backend.
+
+**Part of:** [META-004]
+
+**Description:** Before integrating a specific CRDT library, define the abstraction boundary so
+the entity system doesn't depend directly on CRDT internals.
+
+Uses the `CrdtFieldType` annotations (Scalar, Text, List, Derived) on field
+descriptors to drive write-through and materialization without per-entity tables.
+
+See `docs/crdt-design.md` for the settled design decisions.
+
+---
+
+### [FEATURE-023] CRDT-backed Entity Storage
+
+**Status:** Open
+
+**Priority:** Medium
+
+**Summary:** Replace direct `HashMap` entity storage with CRDT-backed storage using automerge.
+
+**Part of:** [META-004]
+
+**Description:** Implement the CRDT abstraction layer (FEATURE-022) with automerge as the
+concrete backend, replacing in-memory `HashMap<NonNilUuid, Data>` collections
+with CRDT-backed equivalents.
+
+Write-through: field writes propagate to automerge document based on
+`CrdtFieldType`. Materialization: on load, entities are reconstructed from
+CRDT state using `crdt_fields` metadata on each `FieldSet`.
+
+---
+
+### [FEATURE-024] Change Tracking and Merge Operations
+
+**Status:** Open
+
+**Priority:** Medium
+
+**Summary:** Implement change tracking, diff computation, and merge for CRDT documents.
+
+**Part of:** [META-004]
+
+**Description:** Build on the CRDT storage (FEATURE-023) to provide:
+
+* Change tracking between document states
+* Diff computation showing what changed between two versions
+* Merge operations for combining concurrent changes from multiple actors
+* Conflict surfacing for concurrent scalar edits (LWW with visibility)
+
+---
+
+### [FEATURE-025] Internal Schedule File Format
+
+**Status:** Open
+
+**Priority:** Medium
+
+**Summary:** Define and implement the native save/load format for schedule documents.
+
+**Part of:** [META-005]
+
+**Description:** The internal format is used for saving and loading schedule state, including
+CRDT history for sync support.
+
+---
+
+### [FEATURE-026] Multi-Year Schedule Archive Support
+
+**Status:** Open
+
+**Priority:** Medium
+
+**Summary:** Support multiple convention years in a single schedule file for historical
+reference and jump-starting new conventions.
+
+**Part of:** [META-005]
+
+**Description:** A schedule archive contains multiple years of convention data in one file,
+enabling:
+
+* **Jump-start**: Copy entities from a prior year to pre-populate the next
+  convention (recurring panels, returning presenters, same rooms)
+* **Historical reference**: View past schedules alongside the current one
+
+---
+
+### [FEATURE-027] Widget Display JSON Export
+
+**Status:** Open
+
+**Priority:** Medium
+
+**Summary:** Implement export of schedule data to the JSON format consumed by the calendar display widget.
+
+**Part of:** [META-005]
+
+**Description:** The calendar widget renders schedule data from a JSON file. This work item
+defines and implements the export format (clean break from v9/v10 format).
+
+---
+
+### [FEATURE-028] XLSX Spreadsheet Import
+
+**Status:** Open
+
+**Priority:** Medium
+
+**Summary:** Import schedule data from the existing XLSX spreadsheet format.
+
+**Part of:** [META-005]
+
+**Description:** The primary data source is an Excel spreadsheet maintained by the convention
+organizers. Import must handle the existing column layout.
+
+---
+
+### [FEATURE-029] XLSX Spreadsheet Export
+
+**Status:** Open
+
+**Priority:** Medium
+
+**Summary:** Export schedule data back to the XLSX spreadsheet format.
+
+**Part of:** [META-005]
+
+**Description:** Export the schedule to an Excel spreadsheet matching the convention's expected
+column layout, enabling round-trip with the import (FEATURE-028).
+
+---
+
+### [FEATURE-034] Peer-to-Peer Schedule Sync Protocol
+
+**Status:** Open
+
+**Priority:** Low
+
+**Summary:** Define and implement the protocol for synchronizing schedule data between peers.
+
+**Part of:** [META-008]
+
+**Description:** Enable multiple users to edit the schedule concurrently and sync their changes
+without a central server. Uses automerge's built-in sync protocol.
+
+---
+
+### [FEATURE-035] Merge Conflict Resolution UI
+
+**Status:** Open
+
+**Priority:** Low
+
+**Summary:** Provide UI for reviewing and resolving merge conflicts after sync.
+
+**Part of:** [META-008]
+
+**Description:** When two peers edit the same field concurrently, the CRDT automatically picks
+a winner (LWW), but the user should be able to review these decisions and
+override them.
+
+---
+
+## Open META Items
+
+### [META-001] Architecture Redesign: CRDT-backed Schedule System
+
+**Status:** Open
+
+**Priority:** High
+
+**Summary:** Meta work item tracking the full multi-phase redesign of the schedule system.
+
+**Blocked By:** [META-003], [META-004], [META-005], [META-006], [META-007], [META-008]
+
+**Description:** Redesign the cosam-sched schedule system from the ground up with:
+
+* **Entity/field system** using generic field descriptors (`FieldDescriptor<E>`)
+  for clean, type-safe data structures — no proc-macro; data structs are
+  hand-written and visible
+* **CRDT-backed storage** (automerge) enabling concurrent offline editing
+  without a central database
+* **Multi-year archive** support for jump-starting new conventions from prior years
+* **Import/export** to and from the existing XLSX spreadsheet format
+* **Widget JSON export** for the calendar display widget
+* **Three application targets**: `cosam-convert` (format conversion),
+  `cosam-modify` (CLI editing), `cosam-editor` (GUI editing)
+
+All entity field infrastructure lives in a single `schedule-core` crate,
+replacing the old `schedule-field`, `schedule-data`, and `schedule-macro` crates.
+
+**Work Items:**
+
+* META-002: Phase 1 — Foundation
+* META-003: Phase 2 — Core Data Model (schedule-core)
+* META-004: Phase 3 — CRDT Integration
+* META-005: Phase 4 — File Formats & Import/Export
+* META-006: Phase 5 — CLI Tools
+* META-007: Phase 6 — GUI Editor
+* META-008: Phase 7 — Sync & Multi-User
+
+---
+
+### [META-003] Phase 2 — Core Data Model (schedule-core)
+
+**Status:** Open
+
+**Priority:** High
+
+**Summary:** Phase tracker for the entity/field system and core schedule data model in schedule-core.
+
+**Blocked By:** [META-002]
+
+**Description:** Build the `schedule-core` crate containing the complete entity/field system.
+Uses generic `FieldDescriptor<E>` types with fn pointers instead of a proc-macro.
+Data structs are hand-written and visible. CRDT type annotations (`CrdtFieldType`)
+are baked in from the start.
+
+**Work Items:**
+
+* FEATURE-010: FieldValue, error types, CrdtFieldType
+* FEATURE-011: Field traits + FieldDescriptor
+* FEATURE-012: EntityType, EntityId, EntityKind
+* FEATURE-013: FieldSet registry
+* FEATURE-014: PanelType entity (proof of concept)
+* FEATURE-015: TimeRange + Panel entity
+* FEATURE-016: Presenter + EventRoom + HotelRoom entities
+* FEATURE-017: Builder pattern
+* FEATURE-018: Relationship storage (EdgeMap / reverse indexes)
+* FEATURE-019: Schedule container + EntityStorage
+* FEATURE-020: Query system
+* FEATURE-021: Edit command system with undo/redo
+
+---
+
+### [META-004] Phase 3 — CRDT Integration
+
+**Status:** Blocked
+
+**Priority:** Medium
+
+**Summary:** Phase tracker for adding CRDT-backed storage underneath the entity/field system.
+
+**Blocked By:** [META-003]
+
+**Description:** Design and implement the CRDT abstraction layer and replace the direct HashMap
+entity storage with a CRDT-backed equivalent. This enables concurrent offline
+editing and eventual merge without a central server.
+
+The integration leverages field-level CRDT semantics (`CrdtFieldType` on each
+field descriptor) to avoid per-entity boilerplate. Write-through and materialize
+patterns iterate the field metadata — no per-entity-kind tables needed.
+
+**Work Items:**
+
+* FEATURE-022: CRDT abstraction layer design
+* FEATURE-023: CRDT-backed entity storage
+* FEATURE-024: Change tracking and merge operations
+
+---
+
+### [META-005] Phase 4 — File Formats & Import/Export
+
+**Status:** Blocked
+
+**Priority:** Medium
+
+**Summary:** Phase tracker for internal file format, multi-year archive, widget JSON, and
+XLSX import/export.
+
+**Blocked By:** [META-003], [META-004]
+
+**Description:** Define and implement all file format support: the internal native format with
+CRDT state, multi-year archive support, widget display JSON export, and
+round-trip XLSX import/export for the convention spreadsheet workflow.
+
+**Work Items:**
+
+* FEATURE-025: Internal schedule file format (save/load)
+* FEATURE-026: Multi-year schedule archive support
+* FEATURE-027: Widget display JSON export
+* FEATURE-028: XLSX spreadsheet import
+* FEATURE-029: XLSX spreadsheet export
+
+---
+
+### [META-006] Phase 5 — CLI Tools
+
+**Status:** Blocked
+
+**Priority:** Low
+
+**Summary:** Phase tracker for the cosam-convert and cosam-modify command-line applications.
+
+**Blocked By:** [META-005]
+
+**Description:** Implement the two CLI applications for format conversion and batch editing.
+These applications wrap `schedule-core`'s import/export and edit command systems.
+
+**Work Items:**
+
+* CLI-030: cosam-convert: format conversion tool
+* CLI-031: cosam-modify: CLI editing tool
+
+---
+
+### [META-007] Phase 6 — GUI Editor
+
+**Status:** Blocked
+
+**Priority:** Low
+
+**Summary:** Phase tracker for the cosam-editor desktop GUI application.
+
+**Blocked By:** [META-005]
+
+**Description:** Select the GUI framework and implement the desktop schedule editor. Requires
+the data model, edit command system, and file format support from earlier phases.
+
+**Work Items:**
+
+* EDITOR-032: cosam-editor: GUI framework selection and scaffold
+* EDITOR-033: cosam-editor: schedule grid view and entity editing
+
+---
+
+### [META-008] Phase 7 — Sync & Multi-User
+
+**Status:** Blocked
+
+**Priority:** Low
+
+**Summary:** Phase tracker for peer-to-peer schedule synchronization and conflict resolution.
+
+**Blocked By:** [META-004]
+
+**Description:** Implement the sync protocol and conflict resolution UI that allow multiple users
+to exchange CRDT changes and reconcile concurrent edits to the same fields.
+
+**Work Items:**
+
+* FEATURE-034: Peer-to-peer schedule sync protocol
+* FEATURE-035: Merge conflict resolution UI
 
 ---
 
 ---
+
+[CLI-030]: work-item/low/CLI-030.md
+[CLI-031]: work-item/low/CLI-031.md
+[EDITOR-032]: work-item/low/EDITOR-032.md
+[EDITOR-033]: work-item/low/EDITOR-033.md
+[FEATURE-009]: work-item/done/FEATURE-009.md
+[FEATURE-010]: work-item/high/FEATURE-010.md
+[FEATURE-011]: work-item/high/FEATURE-011.md
+[FEATURE-012]: work-item/high/FEATURE-012.md
+[FEATURE-013]: work-item/high/FEATURE-013.md
+[FEATURE-014]: work-item/high/FEATURE-014.md
+[FEATURE-015]: work-item/high/FEATURE-015.md
+[FEATURE-016]: work-item/high/FEATURE-016.md
+[FEATURE-017]: work-item/medium/FEATURE-017.md
+[FEATURE-018]: work-item/high/FEATURE-018.md
+[FEATURE-019]: work-item/high/FEATURE-019.md
+[FEATURE-020]: work-item/medium/FEATURE-020.md
+[FEATURE-021]: work-item/high/FEATURE-021.md
+[FEATURE-022]: work-item/medium/FEATURE-022.md
+[FEATURE-023]: work-item/medium/FEATURE-023.md
+[FEATURE-024]: work-item/medium/FEATURE-024.md
+[FEATURE-025]: work-item/medium/FEATURE-025.md
+[FEATURE-026]: work-item/medium/FEATURE-026.md
+[FEATURE-027]: work-item/medium/FEATURE-027.md
+[FEATURE-028]: work-item/medium/FEATURE-028.md
+[FEATURE-029]: work-item/medium/FEATURE-029.md
+[FEATURE-034]: work-item/low/FEATURE-034.md
+[FEATURE-035]: work-item/low/FEATURE-035.md
+[META-001]: work-item/meta/META-001.md
+[META-002]: work-item/done/META-002.md
+[META-003]: work-item/meta/META-003.md
+[META-004]: work-item/meta/META-004.md
+[META-005]: work-item/meta/META-005.md
+[META-006]: work-item/meta/META-006.md
+[META-007]: work-item/meta/META-007.md
+[META-008]: work-item/meta/META-008.md
