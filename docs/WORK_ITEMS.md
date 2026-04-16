@@ -1,6 +1,6 @@
 # Cosplay America Schedule - Work Item
 
-Updated on: Wed Apr 15 23:40:58 2026
+Updated on: Thu Apr 16 00:19:16 2026
 
 ## Completed
 
@@ -25,7 +25,7 @@ XLSX import/export. (Blocked by [META-003], [META-004])
 
 * **High Priority**
   * [FEATURE-010] ([META-003]) Implement the universal `FieldValue` enum, error types, and CRDT field type annotation.
-  * [FEATURE-011] ([META-003]) Implement the field trait hierarchy and generic `FieldDescriptor` type that replaces the proc-macro's per-field unit structs.
+  * [FEATURE-011] ([META-003]) Implement the field trait hierarchy and generic `FieldDescriptor` type that replaces the old proc-macro's generated per-field unit structs.
   * [FEATURE-012] ([META-003]) Implement UUID-based entity identity with compile-time type-safe ID wrappers.
   * [FEATURE-013] ([META-003]) Implement the static `FieldSet` registry for per-entity-type field metadata lookup.
   * [FEATURE-014] ([META-003]) Implement the PanelType entity as the first proof of concept for the no-proc-macro field system.
@@ -152,7 +152,7 @@ panels arranged by time and room, with inline editing of entity fields.
 
 **Priority:** High
 
-**Summary:** Implement the field trait hierarchy and generic `FieldDescriptor` type that replaces the proc-macro's per-field unit structs.
+**Summary:** Implement the field trait hierarchy and generic `FieldDescriptor` type that replaces the old proc-macro's generated per-field unit structs.
 
 **Part of:** [META-003]
 
@@ -212,7 +212,7 @@ built once in a `LazyLock` and returned by `EntityType::field_set()`.
 
 **Part of:** [META-003]
 
-**Description:** PanelType is the simplest entity (~10 stored fields, 1 computed) and serves as
+**Description:** PanelType is the simplest entity (~13 stored fields, 1 edge computed) and serves as
 the proof of concept for the FieldDescriptor approach.
 
 ---
@@ -227,8 +227,8 @@ the proof of concept for the FieldDescriptor approach.
 
 **Part of:** [META-003]
 
-**Description:** Panel is the most complex entity with ~30 stored fields plus computed time
-projections from `TimeRange`.
+**Description:** Panel is the most complex entity with ~25 stored fields plus computed time
+projections from `TimeRange` and edge-backed relationship fields.
 
 ---
 
@@ -244,12 +244,34 @@ projections from `TimeRange`.
 
 **Description:** ### Presenter
 
-* `PresenterData` with name, rank, badge_number, group membership backing
-  (`group_ids: Vec<EntityId<PresenterEntityType>>`), boolean flags
-  (`is_explicit_group`, `always_grouped`, `always_shown_in_group`)
-* `PresenterRank` enum: Guest, InvitedGuest, Judge, Staff, Panelist, FanPanelist
-* Computed fields: `panels`, `groups`, `inclusive_panels`, `inclusive_members`,
-  `inclusive_groups` (stubs until FEATURE-018)
+**`PresenterCommonData`** (`pub`):
+
+* `name: String` — full display name (required, indexed)
+* `rank: PresenterRank` — `Guest`, `Judge`, `Staff`, `InvitedGuest(Option<String>)`, `Panelist`, `FanPanelist`
+* `bio: Option<String>`
+* `is_explicit_group: bool`
+* `always_grouped: bool` — always shown under group name, never individually
+* `always_shown_in_group: bool` — group name always shown even with partial attendance
+* `sort_rank: Option<PresenterSortRank>` — import ordering key (column, row, member index)
+
+Future fields (no spreadsheet source yet): `pronouns: Option<String>`, `website: Option<String>`
+
+**`PresenterInternalData`** (`pub(crate)`) — `EntityType::InternalData`:
+
+* `data: PresenterCommonData`
+* `code: PresenterId`
+
+**`PresenterData`** (`pub`) — export/API view:
+
+* `data: PresenterCommonData`
+* `code: String`
+* `group_ids: Vec<PresenterId>` — groups this presenter belongs to (from edge maps)
+* `panels: Vec<PanelId>` — panels this presenter is on (from edge maps)
+
+Computed edge-backed fields (stubs until FEATURE-018):
+
+* `groups`, `is_group`, `members`, `inclusive_groups`, `inclusive_members`
+* `panels`, `add_panels`, `remove_panels`, `inclusive_panels`
 
 ---
 
@@ -521,8 +543,10 @@ override them.
 **Description:** Redesign the cosam-sched schedule system from the ground up with:
 
 * **Entity/field system** using generic field descriptors (`FieldDescriptor<E>`)
-  for clean, type-safe data structures — no proc-macro; data structs are
-  hand-written and visible
+  for clean, type-safe data structures — entity `Data` struct declarations are
+  hand-written and visible; proc-macros may be used for boilerplate (trait
+  impls, field accessor singletons, builders) as long as they do not hide the
+  struct definitions
 * **CRDT-backed storage** (automerge) enabling concurrent offline editing
   without a central database
 * **Multi-year archive** support for jump-starting new conventions from prior years
@@ -557,9 +581,10 @@ replacing the old `schedule-field`, `schedule-data`, and `schedule-macro` crates
 **Blocked By:** [META-002]
 
 **Description:** Build the `schedule-core` crate containing the complete entity/field system.
-Uses generic `FieldDescriptor<E>` types with fn pointers instead of a proc-macro.
-Data structs are hand-written and visible. CRDT type annotations (`CrdtFieldType`)
-are baked in from the start.
+Entity `Data` struct declarations are hand-written and visible — macros must not
+obscure them. Proc-macros and `macro_rules!` may be used for boilerplate (trait
+impls, field accessor singletons, builders). `CrdtFieldType` annotations are
+baked in from the start.
 
 **Work Items:**
 

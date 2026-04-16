@@ -2,7 +2,7 @@
 
 ## Summary
 
-Implement the field trait hierarchy and generic `FieldDescriptor` type that replaces the proc-macro's per-field unit structs.
+Implement the field trait hierarchy and generic `FieldDescriptor` type that replaces the old proc-macro's generated per-field unit structs.
 
 ## Status
 
@@ -52,7 +52,9 @@ pub struct FieldDescriptor<E: EntityType> {
 Declared as `static` values. Non-capturing closures coerce to fn pointers.
 Implements `NamedField`, `SimpleReadableField<E>`, `SimpleWritableField<E>`.
 
-Optional `macro_rules!` helpers may reduce boilerplate for common field patterns.
+Optional `macro_rules!` or proc-macro helpers may reduce boilerplate for common
+field patterns, provided entity `Data` struct declarations remain hand-written
+and visible (not hidden inside a macro invocation).
 
 ## Acceptance Criteria
 

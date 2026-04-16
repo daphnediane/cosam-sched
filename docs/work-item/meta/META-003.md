@@ -19,9 +19,10 @@ High
 ## Description
 
 Build the `schedule-core` crate containing the complete entity/field system.
-Uses generic `FieldDescriptor<E>` types with fn pointers instead of a proc-macro.
-Data structs are hand-written and visible. CRDT type annotations (`CrdtFieldType`)
-are baked in from the start.
+Entity `Data` struct declarations are hand-written and visible — macros must not
+obscure them. Proc-macros and `macro_rules!` may be used for boilerplate (trait
+impls, field accessor singletons, builders). `CrdtFieldType` annotations are
+baked in from the start.
 
 ## Work Items
 

@@ -21,14 +21,46 @@ High
 All entities are identified by `uuid::NonNilUuid` (v7 for new entities, v5 for
 deterministic identities like edges).
 
+### Three-struct entity pattern
+
+Each entity type has three hand-written, visible struct declarations:
+
+```text
+<Entity>CommonData  (pub)          — user-facing serializable fields only
+<Entity>InternalData (pub(crate))  — CommonData + typed UUID + runtime backing
+                                     (e.g. time_slot for Panel)
+<Entity>Data        (pub)          — export / API view: CommonData + string code
+                                     + projected fields + relationship IDs from
+                                     edge maps
+```
+
+`EntityType` carries **two** associated types:
+
+- `type InternalData` — the `pub(crate)` runtime storage struct; the field
+  system operates on this
+- `type Data` — the `pub` export/API struct; produced by `export()`
+
+The concrete types are `pub(crate)`, but the associated type slots in the
+`pub` trait are also `pub` — external code can use them via the trait alias
+(`E::InternalData`, `E::Data`) even though it cannot construct `PanelInternalData`
+directly.
+
 ### EntityType trait
 
-Core trait for all entity types, defining:
+Core trait for all entity types:
 
-- `type Data` — the internal data struct
-- `TYPE_NAME: &'static str`
-- `field_set() -> &'static FieldSet<Self>`
-- `validate(&Data) -> Vec<ValidationError>`
+```rust
+pub trait EntityType {
+    type InternalData: Clone + Send + Sync + fmt::Debug;
+    type Data: Clone + Serialize + Deserialize<'_>;
+    type Id: TypedId;
+
+    const TYPE_NAME: &'static str;
+    fn field_set() -> &'static FieldSet<Self>;
+    fn export(internal: &Self::InternalData, schedule: &Schedule) -> Self::Data;
+    fn validate(data: &Self::InternalData) -> Vec<ValidationError>;
+}
+```
 
 ### EntityId
 

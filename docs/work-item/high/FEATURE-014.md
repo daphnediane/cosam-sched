@@ -18,29 +18,43 @@ High
 
 ## Description
 
-PanelType is the simplest entity (~10 stored fields, 1 computed) and serves as
+PanelType is the simplest entity (~13 stored fields, 1 edge computed) and serves as
 the proof of concept for the FieldDescriptor approach.
 
-### Data struct
+### Three structs
 
-`PanelTypeData` — hand-written, visible, with serde:
+**`PanelTypeCommonData`** (`pub`) — hand-written, serializable, user-facing fields
+from the **PanelTypes** sheet:
 
-- `entity_id: EntityId<PanelTypeEntityType>`
-- `prefix: Option<String>`
-- `panel_kind: Option<String>`
+- `prefix: String` — two-letter Uniq ID prefix (required, indexed)
+- `panel_kind: String` — human-readable kind name (required, indexed)
 - `hidden: bool`
 - `is_workshop: bool`
-- `is_talk: bool`
-- `is_gaming: bool`
-- `is_video: bool`
-- `is_performance: bool`
-- `is_photoshoot: bool`
-- Additional fields as needed
+- `is_break: bool`
+- `is_cafe: bool`
+- `is_room_hours: bool`
+- `is_timeline: bool`
+- `is_private: bool`
+- `color: Option<String>` — CSS color (e.g. `"#db2777"`)
+- `bw: Option<String>` — alternate monochrome color
+
+**`PanelTypeInternalData`** (`pub(crate)`) — `EntityType::InternalData`; the field system operates on this:
+
+- `data: PanelTypeCommonData`
+- `code: PanelTypeId`
+
+**`PanelTypeData`** (`pub`) — export/API view, produced by `export(&Schedule)`:
+
+- `data: PanelTypeCommonData`
+- `code: String` — stringified `PanelTypeId`
+- `panels: Vec<PanelId>` — assembled from edge maps
 
 ### Field descriptors
 
-~12 static `FieldDescriptor<PanelTypeEntityType>` values, one per field.
-Computed field `display_name` derives from `panel_kind` / `prefix`.
+~13 static `FieldDescriptor<PanelTypeEntityType>` values; closures access
+`internal.data.*` for `CommonData` fields and `internal.code` for the ID.
+One edge-backed computed field `panels` (read/write, deferred to FEATURE-018).
+Computed field `display_name` derives from `data.panel_kind` / `data.prefix`.
 
 ### FieldSet
 

@@ -17,8 +17,10 @@ High
 Redesign the cosam-sched schedule system from the ground up with:
 
 - **Entity/field system** using generic field descriptors (`FieldDescriptor<E>`)
-  for clean, type-safe data structures — no proc-macro; data structs are
-  hand-written and visible
+  for clean, type-safe data structures — entity `Data` struct declarations are
+  hand-written and visible; proc-macros may be used for boilerplate (trait
+  impls, field accessor singletons, builders) as long as they do not hide the
+  struct definitions
 - **CRDT-backed storage** (automerge) enabling concurrent offline editing
   without a central database
 - **Multi-year archive** support for jump-starting new conventions from prior years
