@@ -6,7 +6,7 @@ Implement UUID-based entity identity with compile-time type-safe ID wrappers.
 
 ## Status
 
-Open
+Completed
 
 ## Priority
 

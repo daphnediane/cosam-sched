@@ -1,19 +1,20 @@
 # Cosplay America Schedule - Work Item
 
-Updated on: Thu Apr 16 02:14:03 2026
+Updated on: Thu Apr 16 02:28:08 2026
 
 ## Completed
 
 * [FEATURE-009] Set up the Cargo workspace root and create skeleton application crates.
 * [FEATURE-010] Implement the universal `FieldValue` enum, error types, and CRDT field type annotation.
 * [FEATURE-011] Implement the field trait hierarchy and generic `FieldDescriptor` type that replaces the old proc-macro's generated per-field unit structs.
+* [FEATURE-012] Implement UUID-based entity identity with compile-time type-safe ID wrappers.
 * [META-002] Phase tracker for project foundation and Cargo workspace setup.
 
 ---
 
 ## Summary of Open Items
 
-**Total open items:** 31
+**Total open items:** 30
 
 * **Meta / Project-Level**
   * [META-001] Meta work item tracking the full multi-phase redesign of the schedule system. (Blocked by [META-003], [META-004], [META-005], [META-006], [META-007], [META-008])
@@ -26,7 +27,6 @@ XLSX import/export. (Blocked by [META-003], [META-004])
   * [META-008] Phase tracker for peer-to-peer schedule synchronization and conflict resolution. (Blocked by [META-004])
 
 * **High Priority**
-  * [FEATURE-012] ([META-003]) Implement UUID-based entity identity with compile-time type-safe ID wrappers.
   * [FEATURE-013] ([META-003]) Implement the static `FieldSet` registry for per-entity-type field metadata lookup.
   * [FEATURE-014] ([META-003]) Implement the PanelType entity as the first proof of concept for the no-proc-macro field system.
   * [FEATURE-015] ([META-003]) Port `TimeRange` and implement the Panel entity with stored and computed time fields.
@@ -131,21 +131,6 @@ panels arranged by time and room, with inline editing of entity fields.
 ---
 
 ## Open FEATURE Items
-
-### [FEATURE-012] EntityType, EntityId, EntityKind
-
-**Status:** Open
-
-**Priority:** High
-
-**Summary:** Implement UUID-based entity identity with compile-time type-safe ID wrappers.
-
-**Part of:** [META-003]
-
-**Description:** All entities are identified by `uuid::NonNilUuid` (v7 for new entities, v5 for
-deterministic identities like edges and spreadsheet imports).
-
----
 
 ### [FEATURE-013] FieldSet Registry
 
@@ -683,7 +668,7 @@ to exchange CRDT changes and reconcile concurrent edits to the same fields.
 [FEATURE-009]: work-item/done/FEATURE-009.md
 [FEATURE-010]: work-item/done/FEATURE-010.md
 [FEATURE-011]: work-item/done/FEATURE-011.md
-[FEATURE-012]: work-item/high/FEATURE-012.md
+[FEATURE-012]: work-item/done/FEATURE-012.md
 [FEATURE-013]: work-item/high/FEATURE-013.md
 [FEATURE-014]: work-item/high/FEATURE-014.md
 [FEATURE-015]: work-item/high/FEATURE-015.md

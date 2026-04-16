@@ -45,10 +45,59 @@ pub trait EntityType {
 ```
 
 No `type Id` — use `EntityId<E>` directly everywhere a compile-time typed ID
-is needed. `RuntimeEntityId(EntityKind, Uuid)` covers the untyped/dynamic case.
+is needed. `RuntimeEntityId` covers the untyped/dynamic case.
 
 Entity types: `PanelTypeEntityType`, `PanelEntityType`, `PresenterEntityType`,
 `EventRoomEntityType`, `HotelRoomEntityType`.
+
+## Entity Identity
+
+### EntityId\<E\>
+
+`EntityId<E>` is a `Copy + Clone + Hash + Eq` newtype wrapping a `Uuid` with
+`PhantomData<fn() -> E>`. The nil check in `EntityId::new` upholds a non-nil
+invariant. `Clone`/`Copy` are manual to avoid spurious `E: Clone`/`E: Copy` bounds.
+
+```rust
+pub fn new(uuid: Uuid) -> Option<Self>;       // None if nil
+pub fn uuid(&self) -> Uuid;
+pub fn non_nil_uuid(&self) -> NonNilUuid;     // safe: new() rejects nil
+```
+
+Implements `Serialize`/`Deserialize` (rejects nil on deserialization).
+
+### NonNilUuid
+
+`uuid::NonNilUuid` from the `uuid` crate — no custom wrapper needed.
+Constructors: `NonNilUuid::new(uuid) -> Option<Self>` and
+`unsafe NonNilUuid::new_unchecked(uuid)`.
+
+### EntityKind
+
+Enum identifying which entity type a UUID belongs to:
+`Panel`, `Presenter`, `EventRoom`, `HotelRoom`, `PanelType`.
+
+Each variant exposes `uuid_namespace() -> Uuid` — a fixed v4 namespace UUID
+used for v5 deterministic key derivation. Implements `Serialize`/`Deserialize`
+with `camelCase` tag names.
+
+### RuntimeEntityId
+
+`RuntimeEntityId { kind: EntityKind, id: NonNilUuid }` — untyped pair for
+dynamic contexts (change-log entries, mixed-kind search). Implements
+`Copy + Clone + Hash + Eq + Serialize + Deserialize + Display` (`"Kind:uuid"`).
+
+### UuidPreference
+
+Builder-level control over UUID assignment:
+
+| Variant                   | Behavior                                                         |
+| ------------------------- | ---------------------------------------------------------------- |
+| `GenerateNew` *(default)* | Fresh v7 UUID via `unsafe new_unchecked(Uuid::now_v7())`         |
+| `FromV5 { name }`         | Deterministic v5 UUID from `EntityKind::uuid_namespace()` + name |
+| `Exact(NonNilUuid)`       | Round-trip exact UUID                                            |
+
+`UuidPreference::resolve(self, kind: EntityKind) -> NonNilUuid` performs the resolution.
 
 ## FieldValue
 
