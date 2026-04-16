@@ -31,8 +31,12 @@ The old proc-macro generated per-entity builders with `with_*` setters and
 
 ### UUID assignment
 
-- UUID v7 for new entities (time-ordered)
-- UUID v5 for deterministic IDs (e.g., edges keyed by endpoint pair)
+Builders accept a `UuidPreference` parameter (see FEATURE-012):
+
+- `GenerateNew` *(default)* — v7 UUID; for new entities
+- `FromV5 { name }` — v5 from natural key; for spreadsheet imports so the
+  same source row always maps to the same UUID across re-imports
+- `Exact(uuid)` — for round-tripping serialized data
 
 ### Evaluate after FEATURE-014
 

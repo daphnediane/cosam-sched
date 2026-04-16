@@ -1,6 +1,6 @@
 # Cosplay America Schedule - Work Item
 
-Updated on: Thu Apr 16 00:19:16 2026
+Updated on: Thu Apr 16 00:38:52 2026
 
 ## Completed
 
@@ -183,7 +183,7 @@ database/schedule context parameter).
 **Part of:** [META-003]
 
 **Description:** All entities are identified by `uuid::NonNilUuid` (v7 for new entities, v5 for
-deterministic identities like edges).
+deterministic identities like edges and spreadsheet imports).
 
 ---
 

@@ -19,7 +19,7 @@ High
 ## Description
 
 All entities are identified by `uuid::NonNilUuid` (v7 for new entities, v5 for
-deterministic identities like edges).
+deterministic identities like edges and spreadsheet imports).
 
 ### Three-struct entity pattern
 
@@ -81,6 +81,22 @@ Pairs a `NonNilUuid` with an `EntityKind`.
 
 Uniform interface for all entity IDs backed by `NonNilUuid`. Provides
 `uuid()`, `from_uuid()`, Display, serde support.
+
+### UuidPreference
+
+Enum passed to entity builders to control UUID assignment:
+
+- `GenerateNew` *(default)* — generate a v7 UUID; use for new entities with
+  no external natural key
+- `FromV5 { name: String }` — derive a deterministic v5 UUID from an
+  entity-type namespace (supplied by the builder) and a natural-key string
+  (e.g. `"GP001"`, presenter name, room name); re-importing the same
+  spreadsheet produces the same UUIDs
+- `Exact(NonNilUuid)` — use a specific UUID directly; for round-tripping
+  serialized entities
+
+Most business logic should not name `UuidPreference` directly — it is
+primarily a builder concern.
 
 ## Acceptance Criteria
 

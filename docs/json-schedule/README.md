@@ -4,16 +4,17 @@ This directory contains comprehensive documentation for the JSON file format use
 
 ## Version History
 
-The JSON format has evolved through several major versions:
+Documentation is retained for v9 and v10 only. Earlier versions (v4–v8) have
+been removed. Brief historical notes:
 
-- **v1-v3**: Legacy formats (see historical notes in v4 documentation)
-- **v4**: Current stable format with flat events array and timeline support
-- **v5**: Hierarchical panels structure (private/public variants)
+- **v1–v3**: Legacy formats (undocumented)
+- **v4**: Flat events array with timeline support
+- **v5**: Hierarchical panels, private/public variants
 - **v6**: Excel metadata integration
-- **v7**: Latest format with panelTypes hashmap, named color sets, merged timeTypes, stable presenter IDs, baked-in breaks (full/display variants)
-- **v8**: Full format with persistent edit history via changeLog field
-- **v9**: PresenterSortRank struct replaces column_rank/index_rank, DisplayPresenter with flat sort_key in public format
-- **v10**: Flat presenter relationship fields (`isGroup`, `members`, `groups`, `alwaysGrouped`, `alwaysShown`) replace enum-based `isMember`/`isGrouped`; internally managed by RelationshipManager
+- **v7**: `panelTypes` hashmap, named color sets, merged timeTypes, baked-in breaks
+- **v8**: Persistent edit history via `changeLog`
+- **v9** *(documented)*: `PresenterSortRank` replaces column_rank/index_rank; `DisplayPresenter` in display format
+- **v10** *(documented, current)*: Flat presenter relationship fields (`isGroup`, `members`, `groups`, `alwaysGrouped`, `alwaysShown`) replace enum-based `isMember`/`isGrouped`
 
 ## Format Variants
 
