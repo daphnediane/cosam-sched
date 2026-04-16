@@ -6,7 +6,7 @@ Implement the universal `FieldValue` enum, error types, and CRDT field type anno
 
 ## Status
 
-Open
+Completed
 
 ## Priority
 
