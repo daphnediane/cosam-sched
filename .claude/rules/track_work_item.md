@@ -70,13 +70,7 @@ the next time it is run.
 
 ## Documentation Updates
 
-When completing work items, update relevant docs:
-
-- **Architecture/entity changes** — `docs/system-analysis.md` + inline rust docs
-- **Field system changes** — `docs/field-system.md`
-- **Edge system changes** — both `docs/field-system.md` and `docs/system-analysis.md`
-- **Design decisions** — create `IDEA-###.md` to record reasoning and alternatives
-- **New subsystems** — create `docs/<subsystem>.md` + reference in `system-analysis.md`
+When completing work items, update relevant documentation, see docs/doc-index.md for the complete list.
 
 Cross-reference between documents when changes affect multiple areas.
 

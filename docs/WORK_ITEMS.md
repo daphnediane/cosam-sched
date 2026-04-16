@@ -1,6 +1,6 @@
 # Cosplay America Schedule - Work Item
 
-Updated on: Thu Apr 16 02:46:35 2026
+Updated on: Thu Apr 16 09:50:37 2026
 
 ## Completed
 
@@ -9,13 +9,14 @@ Updated on: Thu Apr 16 02:46:35 2026
 * [FEATURE-011] Implement the field trait hierarchy and generic `FieldDescriptor` type that replaces the old proc-macro's generated per-field unit structs.
 * [FEATURE-012] Implement UUID-based entity identity with compile-time type-safe ID wrappers.
 * [FEATURE-013] Implement the static `FieldSet` registry for per-entity-type field metadata lookup.
+* [FEATURE-014] Implement the PanelType entity as the first proof of concept for the no-proc-macro field system.
 * [META-002] Phase tracker for project foundation and Cargo workspace setup.
 
 ---
 
 ## Summary of Open Items
 
-**Total open items:** 29
+**Total open items:** 28
 
 * **Meta / Project-Level**
   * [META-001] Meta work item tracking the full multi-phase redesign of the schedule system. (Blocked by [META-003], [META-004], [META-005], [META-006], [META-007], [META-008])
@@ -28,7 +29,6 @@ XLSX import/export. (Blocked by [META-003], [META-004])
   * [META-008] Phase tracker for peer-to-peer schedule synchronization and conflict resolution. (Blocked by [META-004])
 
 * **High Priority**
-  * [FEATURE-014] ([META-003]) Implement the PanelType entity as the first proof of concept for the no-proc-macro field system.
   * [FEATURE-015] ([META-003]) Port `TimeRange` and implement the Panel entity with stored and computed time fields.
   * [FEATURE-016] ([META-003]) Implement the remaining core entity data structs and field descriptors.
   * [FEATURE-018] ([META-003]) Implement typed relationship storage for entity-to-entity relationships.
@@ -131,21 +131,6 @@ panels arranged by time and room, with inline editing of entity fields.
 ---
 
 ## Open FEATURE Items
-
-### [FEATURE-014] PanelType Entity (Proof of Concept)
-
-**Status:** Open
-
-**Priority:** High
-
-**Summary:** Implement the PanelType entity as the first proof of concept for the no-proc-macro field system.
-
-**Part of:** [META-003]
-
-**Description:** PanelType is the simplest entity (~13 stored fields, 1 edge computed) and serves as
-the proof of concept for the FieldDescriptor approach.
-
----
 
 ### [FEATURE-015] TimeRange + Panel Entity
 
@@ -655,7 +640,7 @@ to exchange CRDT changes and reconcile concurrent edits to the same fields.
 [FEATURE-011]: work-item/done/FEATURE-011.md
 [FEATURE-012]: work-item/done/FEATURE-012.md
 [FEATURE-013]: work-item/done/FEATURE-013.md
-[FEATURE-014]: work-item/high/FEATURE-014.md
+[FEATURE-014]: work-item/done/FEATURE-014.md
 [FEATURE-015]: work-item/high/FEATURE-015.md
 [FEATURE-016]: work-item/high/FEATURE-016.md
 [FEATURE-017]: work-item/medium/FEATURE-017.md

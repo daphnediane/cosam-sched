@@ -6,7 +6,7 @@ Implement the PanelType entity as the first proof of concept for the no-proc-mac
 
 ## Status
 
-Open
+Completed
 
 ## Priority
 
@@ -62,8 +62,9 @@ Assembled manually in `LazyLock`, returned by `PanelTypeEntityType::field_set()`
 
 ### Evaluation point
 
-After implementing, evaluate whether a `macro_rules!` helper for field
-descriptor declarations would reduce boilerplate enough to warrant adding.
+After implementing, evaluate whether a `macro_rules!` helper or proc-macro
+for field descriptor declarations would reduce boilerplate enough to warrant
+adding.
 
 ## Acceptance Criteria
 

@@ -7,5 +7,6 @@
 pub mod entity;
 pub mod field;
 pub mod field_set;
+pub mod panel_type;
 pub mod schedule;
 pub mod value;
