@@ -235,9 +235,29 @@ static FIELD_PANEL_PRESENTERS: FieldDescriptor<PanelEntityType> = FieldDescripto
 values for one entity type. Assembled manually in a `LazyLock` and returned by
 `EntityType::field_set()`. Supports:
 
-- Lookup by canonical name
-- Lookup by alias
-- Iteration in declaration order
+- Lookup by canonical name or alias (`get_by_name`) — **exact match, no normalization**
+- Iteration in declaration order (`fields()`)
+- Partitioned iterators: `required_fields()`, `indexable_fields()`, `readable_fields()`, `writable_fields()`
+- CRDT field list: `crdt_fields()` — `(name, CrdtFieldType)` for non-`Derived` fields
+- Dispatch helpers: `read_field_value(name, id, schedule)`, `write_field_value(name, id, schedule, value)`
+- Index matching: `match_index(query, data)` — best `MatchPriority` across all indexable fields
+
+### Alias registration for XLSX import
+
+`get_by_name` performs exact matching only. The XLSX import layer normalizes
+raw column headers before lookup using these steps:
+
+1. Split camelCase lower→upper boundaries (`PanelKind` → `Panel Kind`)
+2. Split uppercase-run/UpperCamelCase boundaries (`AVNotes` → `AV Notes`)
+3. Collapse whitespace, underscores, and punctuation to `_` and trim
+
+Examples: `"PanelKind"` → `"Panel_Kind"`, `"AVNotes"` → `"AV_Notes"`,
+`"Room Name"` → `"Room_Name"`.
+
+**Field authors must register the normalized form as an alias** on any
+`FieldDescriptor` that is importable from a spreadsheet. For example, a field
+with canonical name `"kind"` whose spreadsheet header is `"PanelKind"` should
+include `"Panel_Kind"` in `aliases`.
 
 ## Error Types
 

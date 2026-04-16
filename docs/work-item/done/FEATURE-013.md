@@ -6,7 +6,7 @@ Implement the static `FieldSet` registry for per-entity-type field metadata look
 
 ## Status
 
-Open
+Completed
 
 ## Priority
 

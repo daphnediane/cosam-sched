@@ -140,15 +140,10 @@ impl UuidPreference {
     }
 }
 
-// ── FieldSet (forward declaration) ───────────────────────────────────────────
+// ── FieldSet ─────────────────────────────────────────────────────────────────
 
-/// Opaque handle to the per-entity-type field registry.
-///
-/// Full implementation (name lookup, required/indexable iterators, etc.)
-/// is in FEATURE-013. Forward-declared here so [`EntityType`] can reference it.
-pub struct FieldSet<E: EntityType> {
-    _marker: PhantomData<E>,
-}
+/// Re-export so callers can use `entity::FieldSet<E>` without importing `field_set`.
+pub use crate::field_set::FieldSet;
 
 // ── EntityType trait ──────────────────────────────────────────────────────────
 
