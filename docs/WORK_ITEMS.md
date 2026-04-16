@@ -1,6 +1,6 @@
 # Cosplay America Schedule - Work Item
 
-Updated on: Thu Apr 16 09:50:37 2026
+Updated on: Thu Apr 16 10:04:14 2026
 
 ## Completed
 
@@ -60,7 +60,9 @@ reference and jump-starting new conventions.
 
 ## Placeholders
 
-*No placeholders — all stubs have been promoted.*
+Stub items in `docs/work-item/new/` awaiting details:
+
+* [REFACTOR-041] One-line summary
 
 Use `perl scripts/work-item-update.pl --create <PREFIX>` to add new stubs.
 
@@ -666,3 +668,4 @@ to exchange CRDT changes and reconcile concurrent edits to the same fields.
 [META-006]: work-item/meta/META-006.md
 [META-007]: work-item/meta/META-007.md
 [META-008]: work-item/meta/META-008.md
+[REFACTOR-041]: work-item/new/REFACTOR-041.md

@@ -4,8 +4,8 @@
  * See LICENSE file for full license text
  */
 
-//! Entity type system — [`EntityType`] trait, [`EntityId`], [`EntityKind`],
-//! [`RuntimeEntityId`], and [`UuidPreference`].
+//! Entity type system — [`EntityType`] trait, [`EntityId`], [`RuntimeEntityId`],
+//! and [`UuidPreference`].
 //!
 //! Non-nil UUID identity uses [`uuid::NonNilUuid`] from the `uuid` crate
 //! directly.
@@ -16,79 +16,73 @@ use std::fmt;
 use std::marker::PhantomData;
 use uuid::{NonNilUuid, Uuid};
 
-// ── EntityKind ────────────────────────────────────────────────────────────────
-
-/// Identifies which concrete entity type a UUID belongs to.
-///
-/// Used by [`RuntimeEntityId`] and by v5 UUID namespace selection in
-/// [`UuidPreference`].
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub enum EntityKind {
-    Panel,
-    Presenter,
-    EventRoom,
-    HotelRoom,
-    PanelType,
-}
-
-impl EntityKind {
-    /// The v5 UUID namespace for this entity kind.
-    ///
-    /// Each kind has a dedicated, fixed namespace so that deterministic IDs
-    /// derived from natural keys (e.g. `"GP001"`) are unique across kinds.
-    ///
-    /// Namespaces were generated as v4 UUIDs and are stable for the lifetime
-    /// of the project.
-    #[must_use]
-    pub fn uuid_namespace(self) -> Uuid {
-        match self {
-            Self::Panel => Uuid::parse_str("a1b2c3d4-e5f6-7890-abcd-ef1234567890").unwrap(),
-            Self::Presenter => Uuid::parse_str("b2c3d4e5-f6a7-8901-bcde-f12345678901").unwrap(),
-            Self::EventRoom => Uuid::parse_str("c3d4e5f6-a7b8-9012-cdef-123456789012").unwrap(),
-            Self::HotelRoom => Uuid::parse_str("d4e5f6a7-b8c9-0123-defa-234567890123").unwrap(),
-            Self::PanelType => Uuid::parse_str("e5f6a7b8-c9d0-1234-efab-345678901234").unwrap(),
-        }
-    }
-}
-
-impl fmt::Display for EntityKind {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        let s = match self {
-            Self::Panel => "Panel",
-            Self::Presenter => "Presenter",
-            Self::EventRoom => "EventRoom",
-            Self::HotelRoom => "HotelRoom",
-            Self::PanelType => "PanelType",
-        };
-        write!(f, "{s}")
-    }
-}
-
 // ── RuntimeEntityId ───────────────────────────────────────────────────────────
 
-/// Dynamic (untyped) entity identifier — a non-nil UUID paired with its kind.
+/// Dynamic (untyped) entity identifier — a non-nil UUID paired with its type name.
 ///
 /// Use this when the entity type is not known at compile time, e.g. in
 /// serialized change-log entries or mixed-kind search results.
 /// For compile-time type safety use [`EntityId<E>`] instead.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub struct RuntimeEntityId {
-    pub kind: EntityKind,
-    pub id: NonNilUuid,
+    pub uuid: NonNilUuid,
+    pub type_name: String,
 }
 
 impl RuntimeEntityId {
-    /// Construct from a kind and a non-nil UUID.
+    /// Create a RuntimeEntityId from a UUID and type name.
+    ///
+    /// # Safety
+    ///
+    /// The caller must ensure that `uuid` actually identifies an entity of
+    /// type `type_name`. Code that has a UUID→type registry (e.g. `Schedule`) can
+    /// call this safely after verifying the type.
     #[must_use]
-    pub fn new(kind: EntityKind, id: NonNilUuid) -> Self {
-        Self { kind, id }
+    pub unsafe fn from_uuid(uuid: NonNilUuid, type_name: impl Into<String>) -> Self {
+        Self {
+            uuid,
+            type_name: type_name.into(),
+        }
+    }
+
+    /// Get the UUID.
+    #[must_use]
+    pub fn uuid(&self) -> NonNilUuid {
+        self.uuid
+    }
+
+    /// Get the type name.
+    #[must_use]
+    pub fn type_name(&self) -> &str {
+        &self.type_name
+    }
+
+    /// Convert from a typed EntityId.
+    #[must_use]
+    pub fn from_typed<E: EntityType>(id: EntityId<E>) -> Self {
+        Self {
+            uuid: id.non_nil_uuid(),
+            type_name: E::TYPE_NAME.to_string(),
+        }
+    }
+
+    /// Try to convert to a typed EntityId.
+    ///
+    /// Returns None if the type names don't match.
+    #[must_use]
+    pub fn try_as_typed<E: EntityType>(&self) -> Option<EntityId<E>> {
+        if self.type_name == E::TYPE_NAME {
+            // SAFETY: type_name match confirms the UUID belongs to entity type E.
+            Some(unsafe { EntityId::from_uuid(self.uuid) })
+        } else {
+            None
+        }
     }
 }
 
 impl fmt::Display for RuntimeEntityId {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(f, "{}:{}", self.kind, self.id)
+        write!(f, "{}:{}", self.type_name, self.uuid)
     }
 }
 
@@ -118,28 +112,6 @@ pub enum UuidPreference {
     Exact(NonNilUuid),
 }
 
-impl UuidPreference {
-    /// Resolve this preference into a concrete [`NonNilUuid`] given the
-    /// `EntityKind` that owns the namespace for v5 derivation.
-    #[must_use]
-    pub fn resolve(self, kind: EntityKind) -> NonNilUuid {
-        match self {
-            Self::GenerateNew => {
-                // SAFETY: Uuid::now_v7() sets version bits to 7; result is
-                // never the nil UUID.
-                unsafe { NonNilUuid::new_unchecked(Uuid::now_v7()) }
-            }
-            Self::FromV5 { name } => {
-                let ns = kind.uuid_namespace();
-                let uuid = Uuid::new_v5(&ns, name.as_bytes());
-                // v5 UUIDs are never nil
-                unsafe { NonNilUuid::new_unchecked(uuid) }
-            }
-            Self::Exact(id) => id,
-        }
-    }
-}
-
 // ── FieldSet ─────────────────────────────────────────────────────────────────
 
 /// Re-export so callers can use `entity::FieldSet<E>` without importing `field_set`.
@@ -158,6 +130,17 @@ pub trait EntityType: 'static + Sized {
     /// Short, stable name for this entity type (e.g. `"panel_type"`).
     const TYPE_NAME: &'static str;
 
+    /// The v5 UUID namespace for this entity type.
+    ///
+    /// This namespace is used for deterministic v5 UUID generation from
+    /// natural keys (e.g., `"GP001"`). Each entity type has a unique,
+    /// fixed namespace to ensure IDs derived from the same name are
+    /// unique across types.
+    ///
+    /// Implementations should use a `static LazyLock<Uuid>` internally
+    /// to compute the namespace once and return a reference.
+    fn uuid_namespace() -> &'static Uuid;
+
     /// Return the static field registry for this entity type.
     fn field_set() -> &'static FieldSet<Self>;
 
@@ -173,13 +156,22 @@ pub trait EntityType: 'static + Sized {
 /// Compile-time type-safe entity identifier.
 ///
 /// Wraps a [`Uuid`] with a `PhantomData<fn() -> E>` so the type system
-/// prevents mixing IDs from different entity types. The nil check in [`new`]
-/// upholds the non-nil invariant that [`non_nil_uuid`] relies on.
+/// prevents mixing IDs from different entity types.
+///
+/// Constructors:
+/// - [`from_preference`] — primary constructor for new entities; resolves a
+///   [`UuidPreference`] using `E::uuid_namespace()`.
+/// - [`new`] — validates a bare `Uuid` (rejects nil); for deserialization.
+/// - [`from_uuid`] — `unsafe`; caller must ensure the UUID belongs to type `E`.
+///
+/// All constructors uphold the non-nil invariant that [`non_nil_uuid`] relies on.
 ///
 /// `Clone` and `Copy` are implemented manually to avoid spurious
 /// `E: Clone`/`E: Copy` bounds that derive macros would add.
 ///
+/// [`from_preference`]: EntityId::from_preference
 /// [`new`]: EntityId::new
+/// [`from_uuid`]: EntityId::from_uuid
 /// [`non_nil_uuid`]: EntityId::non_nil_uuid
 #[derive(PartialEq, Eq, Hash)]
 pub struct EntityId<E: EntityType> {
@@ -197,8 +189,9 @@ impl<E: EntityType> Copy for EntityId<E> {}
 impl<E: EntityType> EntityId<E> {
     /// Construct a typed entity ID, returning `None` if `uuid` is nil.
     ///
-    /// This is the only public safe constructor — the nil check upholds the
-    /// non-nil invariant that [`non_nil_uuid`](Self::non_nil_uuid) relies on.
+    /// Prefer [`from_preference`](Self::from_preference) for new entities.
+    /// This constructor exists for deserialization and other cases where a
+    /// bare `Uuid` must be validated.
     #[must_use]
     pub fn new(uuid: Uuid) -> Option<Self> {
         if uuid.is_nil() {
@@ -211,6 +204,38 @@ impl<E: EntityType> EntityId<E> {
         }
     }
 
+    /// Create a typed entity ID by resolving a [`UuidPreference`].
+    ///
+    /// Uses [`E::uuid_namespace()`](EntityType::uuid_namespace) for deterministic
+    /// v5 UUID generation, so the caller does not need to supply a namespace.
+    #[must_use]
+    pub fn from_preference(preference: UuidPreference) -> Self {
+        let uuid: Uuid = match preference {
+            UuidPreference::GenerateNew => Uuid::now_v7(),
+            UuidPreference::FromV5 { name } => Uuid::new_v5(E::uuid_namespace(), name.as_bytes()),
+            UuidPreference::Exact(id) => id.into(),
+        };
+        Self {
+            uuid,
+            _marker: PhantomData,
+        }
+    }
+
+    /// Create an EntityId from a [`NonNilUuid`].
+    ///
+    /// # Safety
+    ///
+    /// The caller must ensure that `uuid` actually identifies an entity of
+    /// type `E`. Code that has a UUID→type registry (e.g. `Schedule`) can
+    /// call this safely after verifying the type.
+    #[must_use]
+    pub unsafe fn from_uuid(uuid: NonNilUuid) -> Self {
+        Self {
+            uuid: uuid.into(),
+            _marker: PhantomData,
+        }
+    }
+
     /// Return the underlying [`Uuid`].
     #[must_use]
     pub fn uuid(&self) -> Uuid {
@@ -219,11 +244,13 @@ impl<E: EntityType> EntityId<E> {
 
     /// Return the UUID as a [`NonNilUuid`].
     ///
-    /// Safe because [`EntityId::new`] rejects nil UUIDs, so `self.uuid` is
-    /// guaranteed non-nil here.
+    /// Safe because all constructors uphold the non-nil invariant:
+    /// [`new`](Self::new) rejects nil, [`from_preference`](Self::from_preference)
+    /// produces v5/v7 UUIDs (never nil), and [`from_uuid`](Self::from_uuid)
+    /// takes a `NonNilUuid`.
     #[must_use]
     pub fn non_nil_uuid(&self) -> NonNilUuid {
-        // SAFETY: EntityId::new rejects nil, so self.uuid is never nil.
+        // SAFETY: all constructors guarantee self.uuid is never nil.
         unsafe { NonNilUuid::new_unchecked(self.uuid) }
     }
 }
@@ -272,6 +299,12 @@ mod tests {
         type Data = MockData;
 
         const TYPE_NAME: &'static str = "mock";
+
+        fn uuid_namespace() -> &'static Uuid {
+            static NS: std::sync::LazyLock<Uuid> =
+                std::sync::LazyLock::new(|| Uuid::new_v5(&Uuid::NAMESPACE_OID, b"mock"));
+            &NS
+        }
 
         fn field_set() -> &'static FieldSet<Self> {
             unimplemented!()
@@ -333,6 +366,7 @@ mod tests {
     }
 
     #[test]
+    #[allow(clippy::clone_on_copy)]
     fn test_non_nil_uuid_copy_clone() {
         let nnu = make_non_nil_uuid();
         let copy = nnu;
@@ -341,59 +375,52 @@ mod tests {
         assert_eq!(nnu, clone);
     }
 
-    // ── EntityKind ──
-
-    #[test]
-    fn test_entity_kind_display() {
-        assert_eq!(EntityKind::Panel.to_string(), "Panel");
-        assert_eq!(EntityKind::Presenter.to_string(), "Presenter");
-        assert_eq!(EntityKind::EventRoom.to_string(), "EventRoom");
-        assert_eq!(EntityKind::HotelRoom.to_string(), "HotelRoom");
-        assert_eq!(EntityKind::PanelType.to_string(), "PanelType");
-    }
-
-    #[test]
-    fn test_entity_kind_serde_roundtrip() {
-        let kinds = [
-            EntityKind::Panel,
-            EntityKind::Presenter,
-            EntityKind::EventRoom,
-            EntityKind::HotelRoom,
-            EntityKind::PanelType,
-        ];
-        for kind in kinds {
-            let json = serde_json::to_string(&kind).unwrap();
-            let back: EntityKind = serde_json::from_str(&json).unwrap();
-            assert_eq!(kind, back);
-        }
-    }
-
-    #[test]
-    fn test_entity_kind_namespaces_are_distinct() {
-        let ns: Vec<Uuid> = [
-            EntityKind::Panel,
-            EntityKind::Presenter,
-            EntityKind::EventRoom,
-            EntityKind::HotelRoom,
-            EntityKind::PanelType,
-        ]
-        .iter()
-        .map(|k| k.uuid_namespace())
-        .collect();
-        // All five namespaces must be distinct.
-        for i in 0..ns.len() {
-            for j in (i + 1)..ns.len() {
-                assert_ne!(ns[i], ns[j], "namespaces {i} and {j} collide");
-            }
-        }
-    }
-
     // ── RuntimeEntityId ──
+
+    #[test]
+    fn test_runtime_entity_id_from_uuid() {
+        let nnu = make_non_nil_uuid();
+        // SAFETY: test-only; no real registry to verify against.
+        let rid = unsafe { RuntimeEntityId::from_uuid(nnu, "TestEntity") };
+        assert_eq!(rid.uuid(), nnu);
+        assert_eq!(rid.type_name(), "TestEntity");
+    }
+
+    #[test]
+    fn test_runtime_entity_id_from_typed() {
+        let nnu = make_non_nil_uuid();
+        // SAFETY: test controls the type; nnu is for MockEntity.
+        let typed_id = unsafe { EntityId::<MockEntity>::from_uuid(nnu) };
+        let rid = RuntimeEntityId::from_typed(typed_id);
+        assert_eq!(rid.uuid(), nnu);
+        assert_eq!(rid.type_name(), "mock");
+    }
+
+    #[test]
+    fn test_runtime_entity_id_try_as_typed_matching() {
+        let nnu = make_non_nil_uuid();
+        // SAFETY: test controls the type; nnu is for MockEntity.
+        let typed_id = unsafe { EntityId::<MockEntity>::from_uuid(nnu) };
+        let rid = RuntimeEntityId::from_typed(typed_id);
+        let back: Option<EntityId<MockEntity>> = rid.try_as_typed();
+        assert!(back.is_some());
+        assert_eq!(back.unwrap().non_nil_uuid(), nnu);
+    }
+
+    #[test]
+    fn test_runtime_entity_id_try_as_typed_non_matching() {
+        let nnu = make_non_nil_uuid();
+        // SAFETY: test-only; deliberately mismatched type name.
+        let rid = unsafe { RuntimeEntityId::from_uuid(nnu, "OtherEntity") };
+        let back: Option<EntityId<MockEntity>> = rid.try_as_typed();
+        assert!(back.is_none());
+    }
 
     #[test]
     fn test_runtime_entity_id_display() {
         let nnu = make_non_nil_uuid();
-        let rid = RuntimeEntityId::new(EntityKind::Panel, nnu);
+        // SAFETY: test-only; no real registry to verify against.
+        let rid = unsafe { RuntimeEntityId::from_uuid(nnu, "Panel") };
         let s = rid.to_string();
         assert!(s.starts_with("Panel:"));
         assert!(s.contains(&nnu.to_string()));
@@ -401,60 +428,56 @@ mod tests {
 
     #[test]
     fn test_runtime_entity_id_serde_roundtrip() {
-        let rid = RuntimeEntityId::new(EntityKind::Presenter, make_non_nil_uuid());
-        let json = serde_json::to_string(&rid).unwrap();
-        let back: RuntimeEntityId = serde_json::from_str(&json).unwrap();
+        // SAFETY: test-only; no real registry to verify against.
+        let rid = unsafe { RuntimeEntityId::from_uuid(make_non_nil_uuid(), "Presenter") };
+        let json_string = serde_json::to_string(&rid).unwrap();
+        let back: RuntimeEntityId = serde_json::from_str(&json_string).unwrap();
         assert_eq!(rid, back);
     }
 
     #[test]
-    fn test_runtime_entity_id_copy_clone() {
-        let rid = RuntimeEntityId::new(EntityKind::EventRoom, make_non_nil_uuid());
-        let copy = rid;
+    fn test_runtime_entity_id_clone() {
+        // SAFETY: test-only; no real registry to verify against.
+        let rid = unsafe { RuntimeEntityId::from_uuid(make_non_nil_uuid(), "EventRoom") };
         let clone = rid.clone();
-        assert_eq!(rid, copy);
         assert_eq!(rid, clone);
     }
 
-    // ── UuidPreference ──
+    // ── EntityId::from_preference ──
 
     #[test]
-    fn test_uuid_preference_generate_new_is_non_nil() {
-        let id = UuidPreference::GenerateNew.resolve(EntityKind::Panel);
-        assert!(!id.get().is_nil());
+    fn test_from_preference_generate_new_is_non_nil() {
+        let id = EntityId::<MockEntity>::from_preference(UuidPreference::GenerateNew);
+        assert!(!id.uuid().is_nil());
     }
 
     #[test]
-    fn test_uuid_preference_from_v5_is_deterministic() {
-        let pref1 = UuidPreference::FromV5 {
+    fn test_from_preference_from_v5_is_deterministic() {
+        let id1 = EntityId::<MockEntity>::from_preference(UuidPreference::FromV5 {
             name: "GP001".into(),
-        };
-        let pref2 = UuidPreference::FromV5 {
+        });
+        let id2 = EntityId::<MockEntity>::from_preference(UuidPreference::FromV5 {
             name: "GP001".into(),
-        };
-        let id1 = pref1.resolve(EntityKind::Panel);
-        let id2 = pref2.resolve(EntityKind::Panel);
+        });
         assert_eq!(id1, id2);
     }
 
     #[test]
-    fn test_uuid_preference_from_v5_differs_by_kind() {
-        let pref1 = UuidPreference::FromV5 {
-            name: "same-name".into(),
-        };
-        let pref2 = UuidPreference::FromV5 {
-            name: "same-name".into(),
-        };
-        let id_panel = pref1.resolve(EntityKind::Panel);
-        let id_presenter = pref2.resolve(EntityKind::Presenter);
-        assert_ne!(id_panel, id_presenter);
+    fn test_from_preference_from_v5_differs_by_name() {
+        let id1 = EntityId::<MockEntity>::from_preference(UuidPreference::FromV5 {
+            name: "GP001".into(),
+        });
+        let id2 = EntityId::<MockEntity>::from_preference(UuidPreference::FromV5 {
+            name: "GP002".into(),
+        });
+        assert_ne!(id1, id2);
     }
 
     #[test]
-    fn test_uuid_preference_exact_preserves_id() {
+    fn test_from_preference_exact_preserves_id() {
         let nnu = make_non_nil_uuid();
-        let id = UuidPreference::Exact(nnu).resolve(EntityKind::Panel);
-        assert_eq!(id, nnu);
+        let id = EntityId::<MockEntity>::from_preference(UuidPreference::Exact(nnu));
+        assert_eq!(id.non_nil_uuid(), nnu);
     }
 
     // ── EntityId ──
@@ -484,6 +507,7 @@ mod tests {
     }
 
     #[test]
+    #[allow(clippy::clone_on_copy)]
     fn test_entity_id_copy_clone() {
         let id = EntityId::<MockEntity>::new(Uuid::new_v4()).unwrap();
         let copy = id;

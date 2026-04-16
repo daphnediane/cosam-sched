@@ -113,3 +113,38 @@ primarily a builder concern.
 - EntityKind correctly identifies all entity types
 - RuntimeEntityId can round-trip through serialization
 - Unit tests for EntityId creation, comparison, and display
+
+## Post Completion
+
+### REFACTOR-041: EntityId constructor and safety improvements
+
+The following changes were made after initial completion:
+
+**EntityKind removed** — `RuntimeEntityId` now uses `type_name: String` (from
+`EntityType::TYPE_NAME`) instead of the `EntityKind` enum.
+
+**EntityId constructors refactored:**
+
+- `from_preference(UuidPreference) -> Self` — new primary constructor; resolves
+  `UuidPreference` using `E::UUID_NAMESPACE` so callers don't supply a namespace
+- `new(Uuid) -> Option<Self>` — unchanged; validates bare UUID for deserialization
+- `from_uuid(NonNilUuid) -> Self` — now **`unsafe`**; caller must ensure the UUID
+  belongs to entity type `E`
+
+**UuidPreference simplified:**
+
+- `resolve()` method removed — resolution logic moved into
+  `EntityId::from_preference()`
+
+**RuntimeEntityId safety:**
+
+- `from_uuid(NonNilUuid, type_name)` — now **`unsafe`**; caller must ensure
+  UUID/type_name correspondence
+- `try_as_typed<E>()` verifies `type_name == E::TYPE_NAME` before calling
+  `unsafe { EntityId::from_uuid() }`
+
+**EntityType trait expanded:**
+
+- Added `fn uuid_namespace() -> &'static Uuid` — per-type v5 namespace derived
+  from `TYPE_NAME` (via internal `LazyLock`), used by `from_preference` for
+  deterministic UUID generation

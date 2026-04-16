@@ -132,6 +132,12 @@ impl EntityType for PanelTypeEntityType {
 
     const TYPE_NAME: &'static str = "panel_type";
 
+    fn uuid_namespace() -> &'static uuid::Uuid {
+        static NS: LazyLock<uuid::Uuid> =
+            LazyLock::new(|| uuid::Uuid::new_v5(&uuid::Uuid::NAMESPACE_OID, b"panel_type"));
+        &NS
+    }
+
     fn field_set() -> &'static FieldSet<Self> {
         &PANEL_TYPE_FIELD_SET
     }
@@ -158,6 +164,11 @@ impl EntityType for PanelEntityType {
     type InternalData = ();
     type Data = ();
     const TYPE_NAME: &'static str = "panel";
+    fn uuid_namespace() -> &'static uuid::Uuid {
+        static NS: LazyLock<uuid::Uuid> =
+            LazyLock::new(|| uuid::Uuid::new_v5(&uuid::Uuid::NAMESPACE_OID, b"panel"));
+        &NS
+    }
     fn field_set() -> &'static FieldSet<Self> {
         unimplemented!("Panel entity type stub for PanelType.edges")
     }

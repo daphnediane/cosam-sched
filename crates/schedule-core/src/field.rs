@@ -200,7 +200,7 @@ impl<E: EntityType> ReadableField<E> for FieldDescriptor<E> {
     fn read(&self, id: EntityId<E>, schedule: &Schedule) -> Result<Option<FieldValue>, FieldError> {
         match &self.read_fn {
             None => Err(FieldError::WriteOnly { name: self.name }),
-            Some(ReadFn::Bare(f)) => Ok(schedule.get_internal::<E>(id).and_then(|d| f(d))),
+            Some(ReadFn::Bare(f)) => Ok(schedule.get_internal::<E>(id).and_then(f)),
             Some(ReadFn::Schedule(f)) => Ok(f(schedule, id)),
         }
     }
@@ -255,6 +255,13 @@ mod tests {
         type Data = MockData;
 
         const TYPE_NAME: &'static str = "mock";
+
+        fn uuid_namespace() -> &'static uuid::Uuid {
+            static NS: std::sync::LazyLock<uuid::Uuid> = std::sync::LazyLock::new(|| {
+                uuid::Uuid::new_v5(&uuid::Uuid::NAMESPACE_OID, b"mock")
+            });
+            &NS
+        }
 
         fn field_set() -> &'static crate::entity::FieldSet<Self> {
             unimplemented!("not needed for field trait tests")

@@ -33,11 +33,12 @@ Each entity type is expressed as three hand-written structs:
 ## EntityType Trait
 
 ```rust
-pub trait EntityType {
+pub trait EntityType: 'static + Sized {
     type InternalData: Clone + Send + Sync + fmt::Debug + 'static;
     type Data: Clone;
 
     const TYPE_NAME: &'static str;
+    fn uuid_namespace() -> &'static Uuid;  // v5 namespace derived from TYPE_NAME
     fn field_set() -> &'static FieldSet<Self>;
     fn export(internal: &Self::InternalData) -> Self::Data;
     fn validate(data: &Self::InternalData) -> Vec<ValidationError>;
@@ -55,13 +56,17 @@ Entity types: `PanelTypeEntityType`, `PanelEntityType`, `PresenterEntityType`,
 ### EntityId\<E\>
 
 `EntityId<E>` is a `Copy + Clone + Hash + Eq` newtype wrapping a `Uuid` with
-`PhantomData<fn() -> E>`. The nil check in `EntityId::new` upholds a non-nil
-invariant. `Clone`/`Copy` are manual to avoid spurious `E: Clone`/`E: Copy` bounds.
+`PhantomData<fn() -> E>`. `Clone`/`Copy` are manual to avoid spurious
+`E: Clone`/`E: Copy` bounds.
+
+Constructors:
 
 ```rust
-pub fn new(uuid: Uuid) -> Option<Self>;       // None if nil
+pub fn from_preference(pref: UuidPreference) -> Self;  // primary; resolves via E::UUID_NAMESPACE
+pub fn new(uuid: Uuid) -> Option<Self>;                 // None if nil; for deserialization
+pub unsafe fn from_uuid(uuid: NonNilUuid) -> Self;      // caller must verify type
 pub fn uuid(&self) -> Uuid;
-pub fn non_nil_uuid(&self) -> NonNilUuid;     // safe: new() rejects nil
+pub fn non_nil_uuid(&self) -> NonNilUuid;               // safe: all constructors uphold non-nil
 ```
 
 Implements `Serialize`/`Deserialize` (rejects nil on deserialization).
@@ -72,32 +77,28 @@ Implements `Serialize`/`Deserialize` (rejects nil on deserialization).
 Constructors: `NonNilUuid::new(uuid) -> Option<Self>` and
 `unsafe NonNilUuid::new_unchecked(uuid)`.
 
-### EntityKind
-
-Enum identifying which entity type a UUID belongs to:
-`Panel`, `Presenter`, `EventRoom`, `HotelRoom`, `PanelType`.
-
-Each variant exposes `uuid_namespace() -> Uuid` — a fixed v4 namespace UUID
-used for v5 deterministic key derivation. Implements `Serialize`/`Deserialize`
-with `camelCase` tag names.
-
 ### RuntimeEntityId
 
-`RuntimeEntityId { kind: EntityKind, id: NonNilUuid }` — untyped pair for
+`RuntimeEntityId { uuid: NonNilUuid, type_name: String }` — untyped pair for
 dynamic contexts (change-log entries, mixed-kind search). Implements
-`Copy + Clone + Hash + Eq + Serialize + Deserialize + Display` (`"Kind:uuid"`).
+`Clone + Hash + Eq + Serialize + Deserialize + Display` (`"TypeName:uuid"`).
+
+- `from_typed<E>(EntityId<E>)` — safe constructor from a typed ID
+- `unsafe from_uuid(NonNilUuid, type_name)` — caller must ensure correspondence
+- `try_as_typed<E>()` — returns `Some(EntityId<E>)` if type names match
 
 ### UuidPreference
 
 Builder-level control over UUID assignment:
 
-| Variant                   | Behavior                                                         |
-| ------------------------- | ---------------------------------------------------------------- |
-| `GenerateNew` *(default)* | Fresh v7 UUID via `unsafe new_unchecked(Uuid::now_v7())`         |
-| `FromV5 { name }`         | Deterministic v5 UUID from `EntityKind::uuid_namespace()` + name |
-| `Exact(NonNilUuid)`       | Round-trip exact UUID                                            |
+| Variant                   | Behavior                                                |
+| ------------------------- | ------------------------------------------------------- |
+| `GenerateNew` *(default)* | Fresh v7 UUID                                           |
+| `FromV5 { name }`         | Deterministic v5 UUID from `E::uuid_namespace()` + name |
+| `Exact(NonNilUuid)`       | Round-trip exact UUID                                   |
 
-`UuidPreference::resolve(self, kind: EntityKind) -> NonNilUuid` performs the resolution.
+Resolution is performed by `EntityId::from_preference(UuidPreference) -> Self`
+which uses the entity type's `uuid_namespace()` for v5 generation.
 
 ## FieldValue
 

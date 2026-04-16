@@ -53,7 +53,7 @@ external APIs.
 
 `Schedule` is a **coordination proxy**, not a data owner. It provides:
 
-- UUID registry mapping `NonNilUuid` → `EntityKind`
+- UUID registry mapping `NonNilUuid` → type name string
 - `EntityStorage` — a struct of typed `HashMap<Id, InternalData>` maps, one per entity type
 - Edge index maps (e.g. `panel_to_presenters`, `event_room_to_hotel_room`)
 - Unified `add_entity()` / `add_edge()` / `export_entity()` API
@@ -83,7 +83,7 @@ should never touch `Uuid` or `NonNilUuid` directly — prefer the typed wrappers
 
 - **`EntityId<E>`** — typed wrapper for a specific entity type; use in all
   APIs where the entity type is known at compile time
-- **`RuntimeEntityId`** — `NonNilUuid` + `EntityKind`; use for dynamic
+- **`RuntimeEntityId`** — `NonNilUuid` + type name string; use for dynamic
   dispatch (e.g. generic commands, serialized references)
 
 ### UUID version policy
@@ -92,9 +92,13 @@ should never touch `Uuid` or `NonNilUuid` directly — prefer the typed wrappers
 - **v5** — deterministic identities derived from stable inputs:
   - Edge entities (endpoints are immutable, UUID derived from endpoint pair)
   - Spreadsheet imports: entities that arrive without a UUID use
-    `UuidPreference` to derive a stable v5 UUID from the entity's natural
-    key (e.g. presenter name, room name, panel Uniq ID), so re-importing the
-    same spreadsheet produces the same UUIDs
+    `UuidPreference` to derive a stable v5 UUID from the entity type's
+    `UUID_NAMESPACE` and a natural key (e.g. presenter name, room name,
+    panel Uniq ID), so re-importing the same spreadsheet produces the same UUIDs
+
+`EntityId::from_preference(UuidPreference)` is the primary constructor for new
+entities. `EntityId::from_uuid(NonNilUuid)` is `unsafe` — only code with a
+UUID→type registry (e.g. `Schedule`) should call it after verifying the type.
 
 ### Avoid bare Uuid / NonNilUuid in APIs
 

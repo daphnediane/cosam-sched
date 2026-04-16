@@ -238,6 +238,11 @@ mod tests {
         type InternalData = MockData;
         type Data = MockExport;
         const TYPE_NAME: &'static str = "mock";
+        fn uuid_namespace() -> &'static Uuid {
+            static NS: std::sync::LazyLock<Uuid> =
+                std::sync::LazyLock::new(|| Uuid::new_v5(&Uuid::NAMESPACE_OID, b"mock"));
+            &NS
+        }
         fn field_set() -> &'static FieldSet<Self> {
             unimplemented!()
         }

@@ -301,6 +301,7 @@ mod tests {
     }
 
     #[test]
+    #[allow(clippy::approx_constant)]
     fn test_field_value_display_float() {
         assert_eq!(FieldValue::Float(3.14).to_string(), "3.14");
     }
