@@ -1,6 +1,6 @@
 # Cosplay America Schedule - Work Item
 
-Updated on: Thu Apr 16 10:04:14 2026
+Updated on: Thu Apr 16 20:53:46 2026
 
 ## Completed
 
@@ -10,13 +10,14 @@ Updated on: Thu Apr 16 10:04:14 2026
 * [FEATURE-012] Implement UUID-based entity identity with compile-time type-safe ID wrappers.
 * [FEATURE-013] Implement the static `FieldSet` registry for per-entity-type field metadata lookup.
 * [FEATURE-014] Implement the PanelType entity as the first proof of concept for the no-proc-macro field system.
+* [FEATURE-043] Add a `verify` callback to `FieldDescriptor` for cross-field consistency checks after batch writes to computed fields.
 * [META-002] Phase tracker for project foundation and Cargo workspace setup.
 
 ---
 
 ## Summary of Open Items
 
-**Total open items:** 28
+**Total open items:** 31
 
 * **Meta / Project-Level**
   * [META-001] Meta work item tracking the full multi-phase redesign of the schedule system. (Blocked by [META-003], [META-004], [META-005], [META-006], [META-007], [META-008])
@@ -34,8 +35,12 @@ XLSX import/export. (Blocked by [META-003], [META-004])
   * [FEATURE-018] ([META-003]) Implement typed relationship storage for entity-to-entity relationships.
   * [FEATURE-019] ([META-003]) Implement the `Schedule` struct and `EntityStorage` for managing all entities and relationships.
   * [FEATURE-021] ([META-003]) Implement a command-based edit system with full undo/redo support.
+  * [REFACTOR-041] Replace the `EntityKind` enum with direct use of `EntityType::TYPE_NAME` strings,
+following the v10-try3 design. This eliminates the central enum that required
+modification for every new entity type.
 
 * **Medium Priority**
+  * [BUGFIX-045] In `scratch/field_update_logic.rs`, duration values are incorrectly stored as `FieldValue::Integer(minutes)` instead of `FieldValue::Duration(Duration)`.
   * [FEATURE-017] ([META-003]) Implement entity builders for constructing entity data with UUID assignment.
   * [FEATURE-020] ([META-003]) Implement field-based search, matching, and bulk update operations.
   * [FEATURE-022] ([META-004]) Design the abstraction layer between the entity/field system and the CRDT backend.
@@ -47,6 +52,7 @@ reference and jump-starting new conventions.
   * [FEATURE-027] ([META-005]) Implement export of schedule data to the JSON format consumed by the calendar display widget.
   * [FEATURE-028] ([META-005]) Import schedule data from the existing XLSX spreadsheet format.
   * [FEATURE-029] ([META-005]) Export schedule data back to the XLSX spreadsheet format.
+  * [FEATURE-046] ([META-003]) Add `FieldSet::write_multiple()` for atomic batch field updates with verification support.
 
 * **Low Priority**
   * [CLI-030] ([META-006]) CLI tool for converting between schedule file formats (XLSX, JSON, widget JSON).
@@ -60,11 +66,29 @@ reference and jump-starting new conventions.
 
 ## Placeholders
 
-Stub items in `docs/work-item/new/` awaiting details:
-
-* [REFACTOR-041] One-line summary
+*No placeholders — all stubs have been promoted.*
 
 Use `perl scripts/work-item-update.pl --create <PREFIX>` to add new stubs.
+
+---
+
+## Open BUGFIX Items
+
+### [BUGFIX-045] BUGFIX-045: Duration stored as Integer instead of Duration in field_update_logic.rs
+
+**Status:** Open
+
+**Priority:** Medium
+
+**Summary:** In `scratch/field_update_logic.rs`, duration values are incorrectly stored as `FieldValue::Integer(minutes)` instead of `FieldValue::Duration(Duration)`.
+
+**Description:** The `FieldValue` enum has a dedicated `Duration(Duration)` variant for representing time durations. However, in `scratch/field_update_logic.rs`, duration values are being pushed as `FieldValue::Integer(new_duration_minutes)` instead of using the proper `FieldValue::Duration` variant with a `chrono::Duration`.
+
+This is a type safety issue — durations should be typed as `Duration`, not raw integers, to ensure:
+
+* Type-safe operations (can't accidentally add minutes to a count field)
+* Proper serialization (duration format vs raw number)
+* Clear semantic meaning in the type system
 
 ---
 
@@ -414,6 +438,20 @@ column layout, enabling round-trip with the import (FEATURE-028).
 
 ---
 
+### [FEATURE-046] FEATURE-046: Bulk Field Updates (FieldSet::write_multiple)
+
+**Status:** Open
+
+**Priority:** Medium
+
+**Summary:** Add `FieldSet::write_multiple()` for atomic batch field updates with verification support.
+
+**Part of:** [META-003]
+
+**Description:** Atomic batch update method for setting multiple fields on a single entity. Essential for interdependent computed fields (e.g., `start_time`, `end_time`, `duration`) where multiple fields must be written and then verified together.
+
+---
+
 ### [FEATURE-034] Peer-to-Peer Schedule Sync Protocol
 
 **Status:** Open
@@ -516,6 +554,8 @@ baked in from the start.
 * FEATURE-018: Relationship storage (EdgeMap / reverse indexes)
 * FEATURE-019: Schedule container + EntityStorage
 * FEATURE-020: Query system
+* FEATURE-043: Field verification callbacks (verify_fn)
+* FEATURE-046: Bulk field updates (write_multiple)
 * FEATURE-021: Edit command system with undo/redo
 
 ---
@@ -631,8 +671,34 @@ to exchange CRDT changes and reconcile concurrent edits to the same fields.
 
 ---
 
+## Open REFACTOR Items
+
+### [REFACTOR-041] REFACTOR-041: Remove EntityKind enum, use type strings directly
+
+**Status:** Done
+
+**Priority:** High
+
+**Summary:** Replace the `EntityKind` enum with direct use of `EntityType::TYPE_NAME` strings,
+following the v10-try3 design. This eliminates the central enum that required
+modification for every new entity type.
+
+**Description:** The `EntityKind` enum in `entity.rs` served two purposes:
+
+1. Tagging `RuntimeEntityId` with the entity type for dynamic dispatch
+2. Providing v5 UUID namespaces for deterministic ID generation
+
+Both are now handled without a central enum:
+
+* `RuntimeEntityId` uses `type_name: String` (from `EntityType::TYPE_NAME`)
+* `EntityType::uuid_namespace()` provides per-type v5 namespaces directly
+  on the trait (returns `&'static Uuid` via internal `LazyLock`)
+
 ---
 
+---
+
+[BUGFIX-045]: work-item/medium/BUGFIX-045.md
 [CLI-030]: work-item/low/CLI-030.md
 [CLI-031]: work-item/low/CLI-031.md
 [EDITOR-032]: work-item/low/EDITOR-032.md
@@ -660,6 +726,8 @@ to exchange CRDT changes and reconcile concurrent edits to the same fields.
 [FEATURE-029]: work-item/medium/FEATURE-029.md
 [FEATURE-034]: work-item/low/FEATURE-034.md
 [FEATURE-035]: work-item/low/FEATURE-035.md
+[FEATURE-043]: work-item/done/FEATURE-043.md
+[FEATURE-046]: work-item/medium/FEATURE-046.md
 [META-001]: work-item/meta/META-001.md
 [META-002]: work-item/done/META-002.md
 [META-003]: work-item/meta/META-003.md
@@ -668,4 +736,4 @@ to exchange CRDT changes and reconcile concurrent edits to the same fields.
 [META-006]: work-item/meta/META-006.md
 [META-007]: work-item/meta/META-007.md
 [META-008]: work-item/meta/META-008.md
-[REFACTOR-041]: work-item/new/REFACTOR-041.md
+[REFACTOR-041]: work-item/high/REFACTOR-041.md

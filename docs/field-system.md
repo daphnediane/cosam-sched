@@ -137,14 +137,15 @@ NamedField          name(), display_name(), description(), aliases()
 ReadableField<E>    read(EntityId<E>, &Schedule) → Option<FieldValue>
 WritableField<E>    write(EntityId<E>, &mut Schedule, FieldValue) → Result<(), FieldError>
 IndexableField<E>   match_field(&str, &InternalData) → Option<MatchPriority>
+VerifiableField<E>  verify(EntityId<E>, &Schedule, &FieldValue) → Result<(), VerificationError>
 ```
 
-All four traits are flat — no `Simple*` or `Schedule*` sub-traits. The
+All five traits are flat — no `Simple*` or `Schedule*` sub-traits. The
 caller-facing API is always `(EntityId<E>, &[mut] Schedule)`.
 
-`FieldDescriptor<E>` implements all four directly. Dispatch between
+`FieldDescriptor<E>` implements all five directly. Dispatch between
 data-only and schedule-aware paths is handled internally by matching on
-`ReadFn<E>` and `WriteFn<E>` (see below).
+`ReadFn<E>`, `WriteFn<E>`, and `VerifyFn<E>` (see below).
 
 ## ReadFn / WriteFn enums
 
@@ -170,6 +171,18 @@ pub enum WriteFn<E: EntityType> {
 }
 
 pub type IndexFn<E> = fn(&str, &<E as EntityType>::InternalData) -> Option<MatchPriority>;
+
+/// How a field verifies its value after a batch write: directly from
+/// [`EntityType::InternalData`], via a [`Schedule`] lookup, or by re-reading.
+pub enum VerifyFn<E: EntityType> {
+    /// Data-only verification — no schedule access needed.
+    Bare(fn(&E::InternalData, &FieldValue) -> Result<(), VerificationError>),
+    /// Schedule-aware verification — fn receives `(&Schedule, EntityId<E>)`.
+    Schedule(fn(&Schedule, EntityId<E>, &FieldValue) -> Result<(), VerificationError>),
+    /// Re-read verification — read the field back and compare to attempted value.
+    /// Uses `read_fn` internally; fails verification if field is write-only.
+    ReRead,
+}
 ```
 
 ## FieldDescriptor
@@ -185,14 +198,15 @@ pub struct FieldDescriptor<E: EntityType> {
     pub aliases: &'static [&'static str],
     pub required: bool,
     pub crdt_type: CrdtFieldType,
-    pub read_fn: Option<ReadFn<E>>,    // None → write-only
+    pub read_fn: Option<ReadFn<E>>,     // None → write-only
     pub write_fn: Option<WriteFn<E>>,   // None → read-only
     pub index_fn: Option<IndexFn<E>>,   // None → not indexable
+    pub verify_fn: Option<VerifyFn<E>>, // None → no verification requested
 }
 ```
 
 `FieldDescriptor` implements `NamedField`, `ReadableField<E>`,
-`WritableField<E>`, and `IndexableField<E>` directly:
+`WritableField<E>`, `IndexableField<E>`, and `VerifiableField<E>` directly:
 
 - `read()` matches `read_fn`: `None` → `FieldError::WriteOnly`;
   `Bare` fetches `InternalData` from the schedule then calls the fn;
@@ -201,6 +215,15 @@ pub struct FieldDescriptor<E: EntityType> {
   `Bare` fetches `&mut InternalData` then calls the fn;
   `Schedule` delegates directly (no double `&mut`).
 - `match_field()` calls `index_fn` if present.
+- `verify()` checks value stability after batch writes (opt-in):
+  - If `verify_fn` is `None`, returns `Ok(())` — no verification requested
+  - If `verify_fn` is `Some(Bare(f))`, calls the custom data-only verification function
+  - If `verify_fn` is `Some(Schedule(f))`, calls the custom schedule-aware function
+  - If `verify_fn` is `Some(ReRead)`, reads the field back via `read()` and compares
+    to the attempted value; returns `VerificationError::NotVerifiable` if the field
+    is write-only (no `read_fn`)
+  - Returns `VerificationError::ValueChanged` if the verified value differs from
+    the attempted value
 
 Declared as `static` values, e.g.:
 
@@ -215,6 +238,7 @@ static FIELD_PANEL_NAME: FieldDescriptor<PanelEntityType> = FieldDescriptor {
     read_fn: Some(ReadFn::Bare(|d| Some(FieldValue::String(d.data.name.clone())))),
     write_fn: Some(WriteFn::Bare(|d, v| { d.data.name = v.into_string()?; Ok(()) })),
     index_fn: None,
+    verify_fn: None,
 };
 
 static FIELD_PANEL_PRESENTERS: FieldDescriptor<PanelEntityType> = FieldDescriptor {
@@ -227,6 +251,7 @@ static FIELD_PANEL_PRESENTERS: FieldDescriptor<PanelEntityType> = FieldDescripto
     read_fn: Some(ReadFn::Schedule(|schedule, id| { /* query edge index */ todo!() })),
     write_fn: Some(WriteFn::Schedule(|schedule, id, v| { /* mutate edge index */ todo!() })),
     index_fn: None,
+    verify_fn: None,
 };
 ```
 
@@ -259,6 +284,41 @@ Examples: `"PanelKind"` → `"Panel_Kind"`, `"AVNotes"` → `"AV_Notes"`,
 `FieldDescriptor` that is importable from a spreadsheet. For example, a field
 with canonical name `"kind"` whose spreadsheet header is `"PanelKind"` should
 include `"Panel_Kind"` in `aliases`.
+
+## FieldRef (Pending, See FEATURE-046)
+
+`FieldRef<E>` is an enum for flexibly referencing fields in batch operations
+(see FEATURE-046: Bulk Field Updates). It allows API consumers to use either
+field name strings (runtime lookup) or direct descriptor references (zero-cost):
+
+```rust
+pub enum FieldRef<E: EntityType> {
+    /// Field name string (requires lookup in FieldSet).
+    Name(&'static str),
+    /// Direct field descriptor reference (zero-cost, compile-time checked).
+    Descriptor(&'static FieldDescriptor<E>),
+}
+```
+
+Used by `FieldSet::write_multiple()` to accept mixed field references:
+
+```rust
+// Using field names (ergonomic, runtime lookup)
+field_set.write_multiple(id, schedule, &[
+    ("start_time", start.into()),
+    ("end_time", end.into()),
+])?;
+
+// Using field descriptors (zero-cost, compile-time checked)
+field_set.write_multiple(id, schedule, &[
+    (&FIELD_START_TIME, start.into()),
+    (&FIELD_END_TIME, end.into()),
+])?;
+```
+
+The `From` impls allow ergonomic `.into()` at call sites.
+
+**Status**: Design complete, implementation pending FEATURE-046.
 
 ## Error Types
 

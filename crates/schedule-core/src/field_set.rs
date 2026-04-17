@@ -283,6 +283,7 @@ mod tests {
                 None
             }
         }),
+        verify_fn: None,
     };
 
     static COUNT_FIELD: FieldDescriptor<MockEntity> = FieldDescriptor {
@@ -300,6 +301,7 @@ mod tests {
             Ok(())
         })),
         index_fn: None,
+        verify_fn: None,
     };
 
     static DERIVED_FIELD: FieldDescriptor<MockEntity> = FieldDescriptor {
@@ -312,6 +314,7 @@ mod tests {
         read_fn: Some(ReadFn::Bare(|_: &MockData| Some(FieldValue::Integer(42)))),
         write_fn: None,
         index_fn: None,
+        verify_fn: None,
     };
 
     fn make_field_set() -> FieldSet<MockEntity> {

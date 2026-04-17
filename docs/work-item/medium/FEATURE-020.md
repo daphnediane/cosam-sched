@@ -39,16 +39,13 @@ criteria rather than direct UUID access.
 `find_or_create_tagged_presenter(storage, input)` — parses presenter credit
 strings from spreadsheet cells. Handles tagged forms like `G:Name`, `P:Name=Group`.
 
-### Updater
+### Related
 
-- Bulk field updates via field name + FieldValue pairs
-- Validation before applying
-- Integration with edit command system (FEATURE-021)
+- Bulk field updates: see FEATURE-046
 
 ## Acceptance Criteria
 
 - Can find entities by exact field match
 - Can find entities by text search across indexable fields
 - Match results ordered by priority
-- Bulk updates apply correctly and validate
-- Unit tests for find, match, and update paths
+- Unit tests for find and match paths

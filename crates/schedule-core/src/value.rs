@@ -228,6 +228,9 @@ pub enum FieldError {
     /// Field value failed validation.
     #[error("validation error: {0}")]
     Validation(#[from] ValidationError),
+    /// Field value failed verification after batch write.
+    #[error("verification error: {0}")]
+    Verification(#[from] VerificationError),
     /// Field is read-only (no write_fn).
     #[error("field '{name}' is read-only")]
     ReadOnly { name: &'static str },
@@ -271,6 +274,21 @@ pub enum ValidationError {
         field: &'static str,
         message: std::string::String,
     },
+}
+
+/// Verification failure — field value changed during batch write.
+#[derive(Debug, Error)]
+pub enum VerificationError {
+    /// The field value was changed by another write in the same batch.
+    #[error("field '{field}': value changed during batch write — requested {requested:?}, actual {actual:?}")]
+    ValueChanged {
+        field: &'static str,
+        requested: FieldValue,
+        actual: FieldValue,
+    },
+    /// The field cannot be verified (e.g., `ReRead` requested but field is write-only).
+    #[error("field '{field}': cannot be verified — read not available for re-read verification")]
+    NotVerifiable { field: &'static str },
 }
 
 #[cfg(test)]

@@ -1,6 +1,6 @@
 # Future Ideas and Design Notes
 
-Updated on: Wed Apr 15 23:40:58 2026
+Updated on: Thu Apr 16 19:14:52 2026
 
 Open design questions, unexplored alternatives, and deferred ideas.
 An IDEA item can be promoted to a work item by renaming it to another prefix
@@ -74,6 +74,28 @@ records extensions deferred from the initial implementation:
 
 ---
 
+### [IDEA-042] Investigate EntityId type-safety holes in `new` and `Exact`
+
+**Summary:** `EntityId::new(Uuid)` and `UuidPreference::Exact(NonNilUuid)` both accept a
+UUID without verifying it belongs to entity type `E`. Investigate whether these
+can be tightened so that `unsafe` search covers all type-membership trust points.
+
+**Description:** After REFACTOR-041, `EntityId::from_uuid(NonNilUuid)` is `unsafe` because the
+caller must guarantee the UUID identifies an entity of type `E`. However, two
+safe constructors have the same implicit trust:
+
+---
+
+### [IDEA-044] IDEA-044: Reconsider `required` flag on FieldDescriptor
+
+**Summary:** The `required: bool` field on `FieldDescriptor` may conflict with design goals around soft deletion and flexible data structures.
+
+**Description:** ### Current State
+
+`FieldDescriptor` has a `required: bool` field, and `FieldSet` tracks `required_fields()` — fields that must have values. Current tests enforce that `PanelType` fields like `prefix` and `panel_kind` are required.
+
+---
+
 ## Placeholders
 
 Rename `IDEA-###.md` to another prefix to promote an idea.
@@ -89,3 +111,5 @@ Use `perl scripts/work-item-update.pl --create IDEA` to add new stubs.
 [IDEA-038]: work-item/idea/IDEA-038.md
 [IDEA-039]: work-item/idea/IDEA-039.md
 [IDEA-040]: work-item/idea/IDEA-040.md
+[IDEA-042]: work-item/idea/IDEA-042.md
+[IDEA-044]: work-item/idea/IDEA-044.md

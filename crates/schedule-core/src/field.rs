@@ -24,7 +24,7 @@
 
 use crate::entity::{EntityId, EntityType};
 use crate::schedule::Schedule;
-use crate::value::{CrdtFieldType, FieldError, FieldValue};
+use crate::value::{CrdtFieldType, FieldError, FieldValue, VerificationError};
 
 /// Priority returned by [`IndexableField::match_field`] indicating how well a
 /// query string matched a field value.
@@ -59,6 +59,22 @@ pub enum WriteFn<E: EntityType> {
     Bare(fn(&mut E::InternalData, FieldValue) -> Result<(), FieldError>),
     /// Schedule-aware write — used for edge mutations (e.g. `add_presenters`).
     Schedule(fn(&mut Schedule, EntityId<E>, FieldValue) -> Result<(), FieldError>),
+}
+
+/// How a field verifies its value after a batch write: directly from
+/// [`EntityType::InternalData`], via a [`Schedule`] lookup, or by re-reading.
+///
+/// Verification checks that the field still has the value that was requested
+/// after all writes in a batch have completed. This catches conflicts where
+/// one computed field's write modified another field's backing data.
+pub enum VerifyFn<E: EntityType> {
+    /// Data-only verification — no schedule access needed.
+    Bare(fn(&E::InternalData, &FieldValue) -> Result<(), VerificationError>),
+    /// Schedule-aware verification — fn receives `(&Schedule, EntityId<E>)`.
+    Schedule(fn(&Schedule, EntityId<E>, &FieldValue) -> Result<(), VerificationError>),
+    /// Re-read verification — read the field back and compare to attempted value.
+    /// Uses `read_fn` internally; fails verification if field is write-only.
+    ReRead,
 }
 
 /// Fn-pointer type for matching a query string against a field value.
@@ -121,6 +137,28 @@ pub trait IndexableField<E: EntityType>: NamedField {
     fn match_field(&self, query: &str, data: &E::InternalData) -> Option<MatchPriority>;
 }
 
+/// Field that can be verified after a batch write.
+///
+/// Verification checks that the field still has the value that was requested
+/// after all writes in a batch have completed. This is essential for computed
+/// fields that may have their backing data modified by other field writes.
+pub trait VerifiableField<E: EntityType>: NamedField {
+    /// Verify that the field has the expected value after batch writes.
+    ///
+    /// Called after all writes in a batch are complete. The `attempted` parameter
+    /// is the value that was originally passed to `write()` for this field.
+    ///
+    /// Returns `Ok(())` if verification passes, or `Err(VerificationError)` if:
+    /// - The field value changed during the batch (another write modified it)
+    /// - The field cannot be verified (no `verify_fn` or `read_fn`)
+    fn verify(
+        &self,
+        id: EntityId<E>,
+        schedule: &Schedule,
+        attempted: &FieldValue,
+    ) -> Result<(), VerificationError>;
+}
+
 /// Generic field descriptor — one `static` value per field on an entity type.
 ///
 /// Uses enum fn pointers so it can be stored as a `static` value.
@@ -129,6 +167,7 @@ pub trait IndexableField<E: EntityType>: NamedField {
 /// - `read_fn: None` — field is write-only; `read()` returns `FieldError::WriteOnly`.
 /// - `write_fn: None` — field is read-only; `write()` returns `FieldError::ReadOnly`.
 /// - `index_fn: None` — field is not indexable; `match_field()` returns `None`.
+/// - `verify_fn: None` — field uses automatic read-back verification if `read_fn` is present.
 ///
 /// # Example
 ///
@@ -176,6 +215,8 @@ pub struct FieldDescriptor<E: EntityType> {
     pub write_fn: Option<WriteFn<E>>,
     /// Index/match implementation. `None` means not indexable.
     pub index_fn: Option<IndexFn<E>>,
+    /// Verification implementation. `None` means use automatic read-back if `read_fn` is present.
+    pub verify_fn: Option<VerifyFn<E>>,
 }
 
 impl<E: EntityType> NamedField for FieldDescriptor<E> {
@@ -229,6 +270,44 @@ impl<E: EntityType> WritableField<E> for FieldDescriptor<E> {
 impl<E: EntityType> IndexableField<E> for FieldDescriptor<E> {
     fn match_field(&self, query: &str, data: &E::InternalData) -> Option<MatchPriority> {
         (self.index_fn?)(query, data)
+    }
+}
+
+impl<E: EntityType> VerifiableField<E> for FieldDescriptor<E> {
+    fn verify(
+        &self,
+        id: EntityId<E>,
+        schedule: &Schedule,
+        attempted: &FieldValue,
+    ) -> Result<(), VerificationError> {
+        match &self.verify_fn {
+            // Custom verification functions
+            Some(VerifyFn::Bare(f)) => {
+                let data = schedule
+                    .get_internal::<E>(id)
+                    .ok_or(VerificationError::NotVerifiable { field: self.name })?;
+                f(data, attempted)
+            }
+            Some(VerifyFn::Schedule(f)) => f(schedule, id, attempted),
+            // Explicit opt-in to read-back verification
+            Some(VerifyFn::ReRead) => {
+                let actual = self
+                    .read(id, schedule)
+                    .map_err(|_| VerificationError::NotVerifiable { field: self.name })?
+                    .ok_or(VerificationError::NotVerifiable { field: self.name })?;
+                if actual == *attempted {
+                    Ok(())
+                } else {
+                    Err(VerificationError::ValueChanged {
+                        field: self.name,
+                        requested: attempted.clone(),
+                        actual,
+                    })
+                }
+            }
+            // No verification requested - success by default
+            None => Ok(()),
+        }
     }
 }
 
@@ -307,6 +386,7 @@ mod tests {
                 None
             }
         }),
+        verify_fn: None,
     };
 
     static COUNT_FIELD: FieldDescriptor<MockEntity> = FieldDescriptor {
@@ -324,6 +404,7 @@ mod tests {
             Ok(())
         })),
         index_fn: None,
+        verify_fn: None,
     };
 
     static READONLY_FIELD: FieldDescriptor<MockEntity> = FieldDescriptor {
@@ -338,6 +419,7 @@ mod tests {
         })),
         write_fn: None,
         index_fn: None,
+        verify_fn: None,
     };
 
     static WRITEONLY_FIELD: FieldDescriptor<MockEntity> = FieldDescriptor {
@@ -353,6 +435,7 @@ mod tests {
             Ok(())
         })),
         index_fn: None,
+        verify_fn: None,
     };
 
     fn make_data() -> MockInternalData {

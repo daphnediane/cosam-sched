@@ -209,6 +209,7 @@ static FIELD_PREFIX: FieldDescriptor<PanelTypeEntityType> = FieldDescriptor {
             None
         }
     }),
+    verify_fn: None,
 };
 
 /// Human-readable kind name (required, indexed).
@@ -239,6 +240,7 @@ static FIELD_PANEL_KIND: FieldDescriptor<PanelTypeEntityType> = FieldDescriptor 
             None
         }
     }),
+    verify_fn: None,
 };
 
 /// Hidden flag — not shown in UI.
@@ -257,6 +259,7 @@ static FIELD_HIDDEN: FieldDescriptor<PanelTypeEntityType> = FieldDescriptor {
         Ok(())
     })),
     index_fn: None,
+    verify_fn: None,
 };
 
 /// Is a workshop panel.
@@ -275,6 +278,7 @@ static FIELD_IS_WORKSHOP: FieldDescriptor<PanelTypeEntityType> = FieldDescriptor
         Ok(())
     })),
     index_fn: None,
+    verify_fn: None,
 };
 
 /// Is a break period.
@@ -293,6 +297,7 @@ static FIELD_IS_BREAK: FieldDescriptor<PanelTypeEntityType> = FieldDescriptor {
         Ok(())
     })),
     index_fn: None,
+    verify_fn: None,
 };
 
 /// Is a cafe event.
@@ -311,6 +316,7 @@ static FIELD_IS_CAFE: FieldDescriptor<PanelTypeEntityType> = FieldDescriptor {
         Ok(())
     })),
     index_fn: None,
+    verify_fn: None,
 };
 
 /// Is room hours scheduling.
@@ -329,6 +335,7 @@ static FIELD_IS_ROOM_HOURS: FieldDescriptor<PanelTypeEntityType> = FieldDescript
         Ok(())
     })),
     index_fn: None,
+    verify_fn: None,
 };
 
 /// Is timeline event.
@@ -347,6 +354,7 @@ static FIELD_IS_TIMELINE: FieldDescriptor<PanelTypeEntityType> = FieldDescriptor
         Ok(())
     })),
     index_fn: None,
+    verify_fn: None,
 };
 
 /// Is private event.
@@ -365,6 +373,7 @@ static FIELD_IS_PRIVATE: FieldDescriptor<PanelTypeEntityType> = FieldDescriptor 
         Ok(())
     })),
     index_fn: None,
+    verify_fn: None,
 };
 
 /// CSS color (e.g. `"#db2777"`).
@@ -390,6 +399,7 @@ static FIELD_COLOR: FieldDescriptor<PanelTypeEntityType> = FieldDescriptor {
         Ok(())
     })),
     index_fn: None,
+    verify_fn: None,
 };
 
 /// Alternate monochrome color.
@@ -415,6 +425,7 @@ static FIELD_BW: FieldDescriptor<PanelTypeEntityType> = FieldDescriptor {
         Ok(())
     })),
     index_fn: None,
+    verify_fn: None,
 };
 
 /// Computed display name — derived from `panel_kind` and `prefix`.
@@ -454,6 +465,7 @@ static FIELD_DISPLAY_NAME: FieldDescriptor<PanelTypeEntityType> = FieldDescripto
             None
         }
     }),
+    verify_fn: None,
 };
 
 /// Panels of this type — edge-backed computed field (deferred to FEATURE-018).
@@ -473,6 +485,7 @@ static FIELD_PANELS: FieldDescriptor<PanelTypeEntityType> = FieldDescriptor {
     })),
     write_fn: None, // Read-only edge-backed field
     index_fn: None,
+    verify_fn: None,
 };
 
 // ── FieldSet ────────────────────────────────────────────────────────────────────

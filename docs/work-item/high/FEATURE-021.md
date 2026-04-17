@@ -15,6 +15,7 @@ High
 ## Blocked By
 
 - FEATURE-019: Schedule container + EntityStorage
+- FEATURE-046: Bulk Field Updates (BatchEdit command uses write_multiple)
 
 ## Description
 
