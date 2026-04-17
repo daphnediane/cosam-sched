@@ -7,7 +7,7 @@ wrappers) to `value.rs` as `Copy` type-level mirrors of `FieldValueItem`/`FieldV
 
 ## Status
 
-Open
+Completed
 
 ## Priority
 
@@ -57,3 +57,12 @@ pub enum FieldType {
 - Both enums are `Copy` (verified by compiler)
 - All Display, predicate, and `of` methods covered by tests
 - No changes to any file outside `value.rs`
+
+### Implementation Notes
+
+- Used `EntityIdentifier(&'static str)` in `FieldTypeItem` (not `EntityId`) for naming
+  consistency with `FieldValueItem::EntityIdentifier`
+- `FieldType::Optional` retained (per design intent) even though `FieldValue` has no
+  `Optional` variant; absence at the value level is `Option<FieldValue>` returning `None`
+- `FieldType::of` returns `None` for `EntityIdentifier` values (type name not in value)
+  and for empty lists (element type unknown)

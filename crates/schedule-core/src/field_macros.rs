@@ -81,6 +81,7 @@ macro_rules! req_string_field {
         name: $name:literal, display: $display:literal, desc: $desc:literal,
         aliases: $aliases:expr, example: $example:literal
     ) => {
+        inventory::submit! { $crate::static_intern::KnownStaticStr($name) }
         static $static_name: $crate::field::FieldDescriptor<$entity> =
             $crate::field::FieldDescriptor {
                 name: $name,
@@ -114,6 +115,7 @@ macro_rules! opt_string_field {
         name: $name:literal, display: $display:literal, desc: $desc:literal,
         aliases: $aliases:expr, example: $example:literal
     ) => {
+        inventory::submit! { $crate::static_intern::KnownStaticStr($name) }
         static $static_name: $crate::field::FieldDescriptor<$entity> =
             $crate::field::FieldDescriptor {
                 name: $name,
@@ -163,6 +165,7 @@ macro_rules! opt_text_field {
         name: $name:literal, display: $display:literal, desc: $desc:literal,
         aliases: $aliases:expr, example: $example:literal
     ) => {
+        inventory::submit! { $crate::static_intern::KnownStaticStr($name) }
         static $static_name: $crate::field::FieldDescriptor<$entity> =
             $crate::field::FieldDescriptor {
                 name: $name,
@@ -211,6 +214,7 @@ macro_rules! bool_field {
         name: $name:literal, display: $display:literal, desc: $desc:literal,
         aliases: $aliases:expr, example: $example:literal
     ) => {
+        inventory::submit! { $crate::static_intern::KnownStaticStr($name) }
         static $static_name: $crate::field::FieldDescriptor<$entity> =
             $crate::field::FieldDescriptor {
                 name: $name,
@@ -242,6 +246,7 @@ macro_rules! opt_i64_field {
         name: $name:literal, display: $display:literal, desc: $desc:literal,
         aliases: $aliases:expr, example: $example:literal
     ) => {
+        inventory::submit! { $crate::static_intern::KnownStaticStr($name) }
         static $static_name: $crate::field::FieldDescriptor<$entity> =
             $crate::field::FieldDescriptor {
                 name: $name,
@@ -293,6 +298,7 @@ macro_rules! edge_list_field {
         name: $name:literal, display: $display:literal, desc: $desc:literal,
         aliases: $aliases:expr, example: $example:literal
     ) => {
+        inventory::submit! { $crate::static_intern::KnownStaticStr($name) }
         static $static_name: $crate::field::FieldDescriptor<$entity> =
             $crate::field::FieldDescriptor {
                 name: $name,
@@ -320,6 +326,7 @@ macro_rules! edge_list_field_rw {
         name: $name:literal, display: $display:literal, desc: $desc:literal,
         aliases: $aliases:expr, example: $example:literal
     ) => {
+        inventory::submit! { $crate::static_intern::KnownStaticStr($name) }
         static $static_name: $crate::field::FieldDescriptor<$entity> =
             $crate::field::FieldDescriptor {
                 name: $name,
@@ -350,6 +357,7 @@ macro_rules! edge_none_field_rw {
         name: $name:literal, display: $display:literal, desc: $desc:literal,
         aliases: $aliases:expr, example: $example:literal
     ) => {
+        inventory::submit! { $crate::static_intern::KnownStaticStr($name) }
         static $static_name: $crate::field::FieldDescriptor<$entity> =
             $crate::field::FieldDescriptor {
                 name: $name,
@@ -379,6 +387,7 @@ macro_rules! edge_mutator_field {
         name: $name:literal, display: $display:literal, desc: $desc:literal,
         aliases: $aliases:expr, example: $example:literal
     ) => {
+        inventory::submit! { $crate::static_intern::KnownStaticStr($name) }
         static $static_name: $crate::field::FieldDescriptor<$entity> =
             $crate::field::FieldDescriptor {
                 name: $name,

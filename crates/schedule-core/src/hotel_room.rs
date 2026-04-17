@@ -107,6 +107,8 @@ impl EntityType for HotelRoomEntityType {
     }
 }
 
+inventory::submit! { crate::static_intern::KnownStaticStr(HotelRoomEntityType::TYPE_NAME) }
+
 // ── Field descriptors ─────────────────────────────────────────────────────────
 
 req_string_field!(FIELD_HOTEL_ROOM_NAME, HotelRoomEntityType, HotelRoomInternalData, hotel_room_name,

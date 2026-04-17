@@ -300,6 +300,8 @@ impl EntityType for PresenterEntityType {
     }
 }
 
+inventory::submit! { crate::static_intern::KnownStaticStr(PresenterEntityType::TYPE_NAME) }
+
 // ── Stored field descriptors ──────────────────────────────────────────────────
 
 req_string_field!(FIELD_NAME, PresenterEntityType, PresenterInternalData, name,

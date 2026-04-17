@@ -45,7 +45,6 @@ pub enum FieldValue {
     List(Vec<FieldValueItem>),
 }
 
-
 impl fmt::Display for FieldValueItem {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
@@ -259,6 +258,105 @@ impl FieldValue {
     /// Consume `self` and return an EntityIdentifier value.
     pub fn into_entity_identifier(self) -> Result<crate::entity::RuntimeEntityId, ConversionError> {
         self.into_single()?.into_entity_identifier()
+    }
+}
+
+/// Scalar field type tags — the `Copy` type-level mirror of [`FieldValueItem`].
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub enum FieldTypeItem {
+    String,
+    Text,
+    Integer,
+    Float,
+    Boolean,
+    DateTime,
+    Duration,
+    /// Typed entity reference. The `&'static str` is the entity's `TYPE_NAME`.
+    EntityIdentifier(&'static str),
+}
+
+/// Field type with cardinality — the `Copy` type-level mirror of [`FieldValue`].
+///
+/// `FieldType` retains an `Optional` variant because type declarations need to
+/// distinguish "required scalar" from "optional scalar". At the value level,
+/// absence is expressed as `Option<FieldValue>` returning `None`.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub enum FieldType {
+    Single(FieldTypeItem),
+    Optional(FieldTypeItem),
+    List(FieldTypeItem),
+}
+
+impl fmt::Display for FieldTypeItem {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            Self::String => write!(f, "String"),
+            Self::Text => write!(f, "Text"),
+            Self::Integer => write!(f, "Integer"),
+            Self::Float => write!(f, "Float"),
+            Self::Boolean => write!(f, "Boolean"),
+            Self::DateTime => write!(f, "DateTime"),
+            Self::Duration => write!(f, "Duration"),
+            Self::EntityIdentifier(name) => write!(f, "EntityIdentifier({name})"),
+        }
+    }
+}
+
+impl fmt::Display for FieldType {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            Self::Single(t) => write!(f, "{t}"),
+            Self::Optional(t) => write!(f, "{t}?"),
+            Self::List(t) => write!(f, "List<{t}>"),
+        }
+    }
+}
+
+fn value_item_to_type_item(item: &FieldValueItem) -> FieldTypeItem {
+    match item {
+        FieldValueItem::String(_) => FieldTypeItem::String,
+        FieldValueItem::Text(_) => FieldTypeItem::Text,
+        FieldValueItem::Integer(_) => FieldTypeItem::Integer,
+        FieldValueItem::Float(_) => FieldTypeItem::Float,
+        FieldValueItem::Boolean(_) => FieldTypeItem::Boolean,
+        FieldValueItem::DateTime(_) => FieldTypeItem::DateTime,
+        FieldValueItem::Duration(_) => FieldTypeItem::Duration,
+        FieldValueItem::EntityIdentifier(id) => FieldTypeItem::EntityIdentifier(id.type_name()),
+    }
+}
+
+impl FieldType {
+    /// Return the scalar item type, discarding cardinality.
+    #[must_use]
+    pub fn item_type(self) -> FieldTypeItem {
+        match self {
+            Self::Single(t) | Self::Optional(t) | Self::List(t) => t,
+        }
+    }
+
+    #[must_use]
+    pub fn is_single(self) -> bool {
+        matches!(self, Self::Single(_))
+    }
+
+    #[must_use]
+    pub fn is_optional(self) -> bool {
+        matches!(self, Self::Optional(_))
+    }
+
+    #[must_use]
+    pub fn is_list(self) -> bool {
+        matches!(self, Self::List(_))
+    }
+
+    /// Infer a `FieldType::Single` or `FieldType::List` from a `FieldValue`.
+    ///
+    /// Returns `None` only for empty lists (element type unknown).
+    pub fn of(value: &FieldValue) -> Option<Self> {
+        match value {
+            FieldValue::Single(item) => Some(Self::Single(value_item_to_type_item(item))),
+            FieldValue::List(items) => Some(Self::List(value_item_to_type_item(items.first()?))),
+        }
     }
 }
 
@@ -480,5 +578,123 @@ mod tests {
     fn test_field_value_clone_and_partial_eq() {
         let v = FieldValueItem::String("clone_me".into());
         assert_eq!(v.clone(), v);
+    }
+
+    // FieldTypeItem / FieldType tests
+
+    #[test]
+    fn test_field_type_item_display() {
+        assert_eq!(FieldTypeItem::String.to_string(), "String");
+        assert_eq!(FieldTypeItem::Text.to_string(), "Text");
+        assert_eq!(FieldTypeItem::Integer.to_string(), "Integer");
+        assert_eq!(FieldTypeItem::Float.to_string(), "Float");
+        assert_eq!(FieldTypeItem::Boolean.to_string(), "Boolean");
+        assert_eq!(FieldTypeItem::DateTime.to_string(), "DateTime");
+        assert_eq!(FieldTypeItem::Duration.to_string(), "Duration");
+        assert_eq!(
+            FieldTypeItem::EntityIdentifier("presenter").to_string(),
+            "EntityIdentifier(presenter)"
+        );
+    }
+
+    #[test]
+    fn test_field_type_display() {
+        assert_eq!(
+            FieldType::Single(FieldTypeItem::Integer).to_string(),
+            "Integer"
+        );
+        assert_eq!(
+            FieldType::Optional(FieldTypeItem::String).to_string(),
+            "String?"
+        );
+        assert_eq!(
+            FieldType::List(FieldTypeItem::Boolean).to_string(),
+            "List<Boolean>"
+        );
+        assert_eq!(
+            FieldType::List(FieldTypeItem::EntityIdentifier("panel")).to_string(),
+            "List<EntityIdentifier(panel)>"
+        );
+    }
+
+    #[test]
+    fn test_field_type_item_type() {
+        assert_eq!(
+            FieldType::Single(FieldTypeItem::Float).item_type(),
+            FieldTypeItem::Float
+        );
+        assert_eq!(
+            FieldType::Optional(FieldTypeItem::Text).item_type(),
+            FieldTypeItem::Text
+        );
+        assert_eq!(
+            FieldType::List(FieldTypeItem::Integer).item_type(),
+            FieldTypeItem::Integer
+        );
+    }
+
+    #[test]
+    fn test_field_type_predicates() {
+        assert!(FieldType::Single(FieldTypeItem::Boolean).is_single());
+        assert!(!FieldType::Single(FieldTypeItem::Boolean).is_optional());
+        assert!(!FieldType::Single(FieldTypeItem::Boolean).is_list());
+
+        assert!(FieldType::Optional(FieldTypeItem::Integer).is_optional());
+        assert!(!FieldType::Optional(FieldTypeItem::Integer).is_single());
+        assert!(!FieldType::Optional(FieldTypeItem::Integer).is_list());
+
+        assert!(FieldType::List(FieldTypeItem::String).is_list());
+        assert!(!FieldType::List(FieldTypeItem::String).is_single());
+        assert!(!FieldType::List(FieldTypeItem::String).is_optional());
+    }
+
+    #[test]
+    fn test_field_type_of_single() {
+        assert_eq!(
+            FieldType::of(&FieldValue::Single(FieldValueItem::Integer(5))),
+            Some(FieldType::Single(FieldTypeItem::Integer))
+        );
+        assert_eq!(
+            FieldType::of(&FieldValue::Single(FieldValueItem::Boolean(true))),
+            Some(FieldType::Single(FieldTypeItem::Boolean))
+        );
+    }
+
+    #[test]
+    fn test_field_type_of_list() {
+        let v = FieldValue::List(vec![
+            FieldValueItem::String("a".into()),
+            FieldValueItem::String("b".into()),
+        ]);
+        assert_eq!(
+            FieldType::of(&v),
+            Some(FieldType::List(FieldTypeItem::String))
+        );
+    }
+
+    #[test]
+    fn test_field_type_of_empty_list_is_none() {
+        assert_eq!(FieldType::of(&FieldValue::List(vec![])), None);
+    }
+
+    #[test]
+    fn test_field_type_of_entity_identifier() {
+        use crate::entity::{EntityId, RuntimeEntityId};
+        use crate::panel::PanelEntityType;
+        use uuid::Uuid;
+        let uuid = Uuid::parse_str("550e8400-e29b-41d4-a716-446655440000").unwrap();
+        let typed: EntityId<PanelEntityType> = EntityId::new(uuid).unwrap();
+        let rid = RuntimeEntityId::from_typed(typed);
+        assert_eq!(
+            FieldType::of(&FieldValue::Single(FieldValueItem::EntityIdentifier(rid))),
+            Some(FieldType::Single(FieldTypeItem::EntityIdentifier("panel")))
+        );
+    }
+
+    #[test]
+    fn test_field_type_copy() {
+        let t = FieldType::Single(FieldTypeItem::Integer);
+        let _copy = t;
+        let _ = t; // still usable after copy
     }
 }

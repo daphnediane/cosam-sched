@@ -9,6 +9,7 @@ description = "Entity/field system and core schedule data model for cosam-sched"
 [dependencies]
 uuid = { version = "1.13", features = ["v4", "v5", "v7", "serde"] }
 chrono = { version = "0.4", features = ["serde"] }
+inventory = "0.3"
 regex = "1"
 serde = { version = "1", features = ["derive"] }
 thiserror = "2"

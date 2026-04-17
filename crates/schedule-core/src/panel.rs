@@ -184,6 +184,8 @@ impl EntityType for PanelEntityType {
     }
 }
 
+inventory::submit! { crate::static_intern::KnownStaticStr(PanelEntityType::TYPE_NAME) }
+
 // ── Stored field descriptors ──────────────────────────────────────────────────
 
 /// Panel `code` (Uniq ID) — stored as the parsed [`PanelUniqId`] on

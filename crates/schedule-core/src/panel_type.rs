@@ -148,6 +148,8 @@ impl EntityType for PanelTypeEntityType {
     }
 }
 
+inventory::submit! { crate::static_intern::KnownStaticStr(PanelTypeEntityType::TYPE_NAME) }
+
 // ── Field Descriptors ──────────────────────────────────────────────────────────
 
 req_string_field!(FIELD_PREFIX, PanelTypeEntityType, PanelTypeInternalData, prefix,

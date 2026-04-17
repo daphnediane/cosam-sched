@@ -18,19 +18,22 @@ use uuid::{NonNilUuid, Uuid};
 
 // ── RuntimeEntityId ───────────────────────────────────────────────────────────
 
-/// Dynamic (untyped) entity identifier — a non-nil UUID paired with its type name.
+/// Dynamic (untyped) entity identifier — a non-nil UUID paired with its entity type name.
 ///
 /// Use this when the entity type is not known at compile time, e.g. in
 /// serialized change-log entries or mixed-kind search results.
 /// For compile-time type safety use [`EntityId<E>`] instead.
-#[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
+///
+/// Serializes as the string `"<type_name>:<uuid>"`, matching the `Display` format
+/// and [`EntityId<E>`]'s serialized form so both are human-readable and consistent.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub struct RuntimeEntityId {
     pub uuid: NonNilUuid,
-    pub type_name: String,
+    pub type_name: &'static str,
 }
 
 impl RuntimeEntityId {
-    /// Create a RuntimeEntityId from a UUID and type name.
+    /// Create a `RuntimeEntityId` from a non-nil UUID and a static entity type name.
     ///
     /// # Safety
     ///
@@ -38,11 +41,8 @@ impl RuntimeEntityId {
     /// type `type_name`. Code that has a UUID→type registry (e.g. `Schedule`) can
     /// call this safely after verifying the type.
     #[must_use]
-    pub unsafe fn from_uuid(uuid: NonNilUuid, type_name: impl Into<String>) -> Self {
-        Self {
-            uuid,
-            type_name: type_name.into(),
-        }
+    pub unsafe fn from_uuid(uuid: NonNilUuid, type_name: &'static str) -> Self {
+        Self { uuid, type_name }
     }
 
     /// Get the UUID.
@@ -51,24 +51,24 @@ impl RuntimeEntityId {
         self.uuid
     }
 
-    /// Get the type name.
+    /// Get the static entity type name (e.g. `"panel"`, `"presenter"`).
     #[must_use]
-    pub fn type_name(&self) -> &str {
-        &self.type_name
+    pub fn type_name(&self) -> &'static str {
+        self.type_name
     }
 
-    /// Convert from a typed EntityId.
+    /// Convert from a typed `EntityId`.
     #[must_use]
     pub fn from_typed<E: EntityType>(id: EntityId<E>) -> Self {
         Self {
             uuid: id.non_nil_uuid(),
-            type_name: E::TYPE_NAME.to_string(),
+            type_name: E::TYPE_NAME,
         }
     }
 
-    /// Try to convert to a typed EntityId.
+    /// Try to convert to a typed `EntityId`.
     ///
-    /// Returns None if the type names don't match.
+    /// Returns `None` if the stored type name does not match `E::TYPE_NAME`.
     #[must_use]
     pub fn try_as_typed<E: EntityType>(&self) -> Option<EntityId<E>> {
         if self.type_name == E::TYPE_NAME {
@@ -83,6 +83,30 @@ impl RuntimeEntityId {
 impl fmt::Display for RuntimeEntityId {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         write!(f, "{}:{}", self.type_name, self.uuid)
+    }
+}
+
+impl Serialize for RuntimeEntityId {
+    fn serialize<S: Serializer>(&self, s: S) -> Result<S::Ok, S::Error> {
+        s.serialize_str(&format!("{}:{}", self.type_name, self.uuid))
+    }
+}
+
+impl<'de> Deserialize<'de> for RuntimeEntityId {
+    fn deserialize<D: Deserializer<'de>>(d: D) -> Result<Self, D::Error> {
+        let raw = std::string::String::deserialize(d)?;
+        let (type_name_str, uuid_str) = raw
+            .split_once(':')
+            .ok_or_else(|| serde::de::Error::custom("expected \"<type>:<uuid>\""))?;
+        let uuid = Uuid::parse_str(uuid_str)
+            .map_err(|e| serde::de::Error::custom(format!("invalid UUID: {e}")))?;
+        let nnu = NonNilUuid::new(uuid)
+            .ok_or_else(|| serde::de::Error::custom("entity UUID must not be nil"))?;
+        let type_name = crate::static_intern::intern_static_str(type_name_str);
+        Ok(RuntimeEntityId {
+            uuid: nnu,
+            type_name,
+        })
     }
 }
 
@@ -269,13 +293,24 @@ impl<E: EntityType> fmt::Display for EntityId<E> {
 
 impl<E: EntityType> Serialize for EntityId<E> {
     fn serialize<S: Serializer>(&self, s: S) -> Result<S::Ok, S::Error> {
-        self.uuid.serialize(s)
+        s.serialize_str(&format!("{}:{}", E::TYPE_NAME, self.uuid))
     }
 }
 
 impl<'de, E: EntityType> Deserialize<'de> for EntityId<E> {
     fn deserialize<D: Deserializer<'de>>(d: D) -> Result<Self, D::Error> {
-        let uuid = Uuid::deserialize(d)?;
+        let raw = std::string::String::deserialize(d)?;
+        let (type_name, uuid_str) = raw
+            .split_once(':')
+            .ok_or_else(|| serde::de::Error::custom("expected \"<type>:<uuid>\""))?;
+        if type_name != E::TYPE_NAME {
+            return Err(serde::de::Error::custom(format!(
+                "expected type \"{}\", got \"{type_name}\"",
+                E::TYPE_NAME
+            )));
+        }
+        let uuid = Uuid::parse_str(uuid_str)
+            .map_err(|e| serde::de::Error::custom(format!("invalid UUID: {e}")))?;
         EntityId::new(uuid).ok_or_else(|| serde::de::Error::custom("EntityId UUID must not be nil"))
     }
 }
@@ -559,8 +594,32 @@ mod tests {
 
     #[test]
     fn test_entity_id_deserialize_nil_is_error() {
-        let nil_json = format!("\"{}\"", Uuid::nil());
+        let nil_json = format!("\"mock:{}\"", Uuid::nil());
         let result: Result<EntityId<MockEntity>, _> = serde_json::from_str(&nil_json);
         assert!(result.is_err());
+    }
+
+    #[test]
+    fn test_entity_id_deserialize_wrong_type_is_error() {
+        let raw = Uuid::new_v4();
+        let json = format!("\"other:{raw}\"");
+        let result: Result<EntityId<MockEntity>, _> = serde_json::from_str(&json);
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn test_entity_id_serde_format() {
+        let raw = Uuid::new_v4();
+        let id = EntityId::<MockEntity>::new(raw).unwrap();
+        let json = serde_json::to_string(&id).unwrap();
+        assert_eq!(json, format!("\"mock:{raw}\""));
+    }
+
+    #[test]
+    fn test_runtime_entity_id_serde_format() {
+        let nnu = make_non_nil_uuid();
+        let rid = unsafe { RuntimeEntityId::from_uuid(nnu, "panel") };
+        let json = serde_json::to_string(&rid).unwrap();
+        assert_eq!(json, format!("\"panel:{}\"", nnu.get()));
     }
 }

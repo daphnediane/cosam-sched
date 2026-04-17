@@ -119,6 +119,8 @@ impl EntityType for EventRoomEntityType {
     }
 }
 
+inventory::submit! { crate::static_intern::KnownStaticStr(EventRoomEntityType::TYPE_NAME) }
+
 // ── Stored field descriptors ──────────────────────────────────────────────────
 
 req_string_field!(FIELD_ROOM_NAME, EventRoomEntityType, EventRoomInternalData, room_name,
