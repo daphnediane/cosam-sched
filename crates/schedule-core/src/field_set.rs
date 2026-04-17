@@ -263,6 +263,7 @@ mod tests {
         aliases: &["tag", "name"],
         required: true,
         crdt_type: CrdtFieldType::Scalar,
+        example: "Hello World",
         read_fn: Some(ReadFn::Bare(|d: &MockData| {
             Some(FieldValue::String(d.label.clone()))
         })),
@@ -293,6 +294,7 @@ mod tests {
         aliases: &[],
         required: false,
         crdt_type: CrdtFieldType::Scalar,
+        example: "7",
         read_fn: Some(ReadFn::Bare(|d: &MockData| {
             Some(FieldValue::Integer(d.count))
         })),
@@ -311,6 +313,7 @@ mod tests {
         aliases: &[],
         required: false,
         crdt_type: CrdtFieldType::Derived,
+        example: "42",
         read_fn: Some(ReadFn::Bare(|_: &MockData| Some(FieldValue::Integer(42)))),
         write_fn: None,
         index_fn: None,

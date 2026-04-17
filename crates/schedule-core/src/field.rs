@@ -209,6 +209,8 @@ pub struct FieldDescriptor<E: EntityType> {
     pub required: bool,
     /// CRDT storage type annotation for Phase 4.
     pub crdt_type: CrdtFieldType,
+    /// Example value for documentation and UI hints.
+    pub example: &'static str,
     /// Read implementation. `None` means write-only.
     pub read_fn: Option<ReadFn<E>>,
     /// Write implementation. `None` means read-only.
@@ -366,6 +368,7 @@ mod tests {
         aliases: &["tag", "name"],
         required: true,
         crdt_type: CrdtFieldType::Scalar,
+        example: "Hello World",
         read_fn: Some(ReadFn::Bare(|d: &MockInternalData| {
             Some(FieldValue::String(d.label.clone()))
         })),
@@ -396,6 +399,7 @@ mod tests {
         aliases: &[],
         required: false,
         crdt_type: CrdtFieldType::Scalar,
+        example: "7",
         read_fn: Some(ReadFn::Bare(|d: &MockInternalData| {
             Some(FieldValue::Integer(d.count))
         })),
@@ -414,6 +418,7 @@ mod tests {
         aliases: &[],
         required: false,
         crdt_type: CrdtFieldType::Derived,
+        example: "42",
         read_fn: Some(ReadFn::Bare(|_: &MockInternalData| {
             Some(FieldValue::Integer(42))
         })),
@@ -429,6 +434,7 @@ mod tests {
         aliases: &[],
         required: false,
         crdt_type: CrdtFieldType::Derived,
+        example: "Hello World",
         read_fn: None,
         write_fn: Some(WriteFn::Bare(|d: &mut MockInternalData, v| {
             d.label = v.into_string()?;

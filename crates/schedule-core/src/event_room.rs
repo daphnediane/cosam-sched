@@ -123,7 +123,8 @@ impl EntityType for EventRoomEntityType {
 req_string_field!(FIELD_ROOM_NAME, EventRoomEntityType, EventRoomInternalData, room_name,
     name: "room_name", display: "Room Name",
     desc: "Room code as it appears in the Schedule sheet's Room column.",
-    aliases: &["room", "name"]);
+    aliases: &["room", "name"],
+    example: "Panel 1");
 
 /// Optional display name, indexed so name-based searches still find the room.
 /// Hand-written because the uniform `opt_string_field!` macro does not install
@@ -135,6 +136,7 @@ static FIELD_LONG_NAME: FieldDescriptor<EventRoomEntityType> = FieldDescriptor {
     aliases: &["display_name", "long"],
     required: false,
     crdt_type: CrdtFieldType::Scalar,
+    example: "Grand Ballroom A",
     read_fn: Some(ReadFn::Bare(|d: &EventRoomInternalData| {
         Some(match &d.data.long_name {
             Some(s) => FieldValue::String(s.clone()),
@@ -169,19 +171,22 @@ static FIELD_LONG_NAME: FieldDescriptor<EventRoomEntityType> = FieldDescriptor {
 opt_i64_field!(FIELD_SORT_KEY, EventRoomEntityType, EventRoomInternalData, sort_key,
     name: "sort_key", display: "Sort Key",
     desc: "Ordering key; values >= 100 are hidden from the public schedule.",
-    aliases: &["sort"]);
+    aliases: &["sort"],
+    example: "10");
 
 // ── Edge-backed computed field stubs (full wiring in FEATURE-018) ─────────────
 
 edge_list_field_rw!(FIELD_HOTEL_ROOMS, EventRoomEntityType, EventRoomInternalData,
     name: "hotel_rooms", display: "Hotel Rooms",
     desc: "Hotel rooms that contain this event room.",
-    aliases: &["hotel_room"]);
+    aliases: &["hotel_room"],
+    example: "[]");
 
 edge_list_field_rw!(FIELD_PANELS, EventRoomEntityType, EventRoomInternalData,
     name: "panels", display: "Panels",
     desc: "Panels scheduled in this event room.",
-    aliases: &["panel"]);
+    aliases: &["panel"],
+    example: "[]");
 
 // ── FieldSet ──────────────────────────────────────────────────────────────────
 

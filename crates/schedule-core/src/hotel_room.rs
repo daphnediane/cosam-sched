@@ -112,12 +112,14 @@ impl EntityType for HotelRoomEntityType {
 req_string_field!(FIELD_HOTEL_ROOM_NAME, HotelRoomEntityType, HotelRoomInternalData, hotel_room_name,
     name: "hotel_room_name", display: "Hotel Room Name",
     desc: "Physical hotel room name / identifier.",
-    aliases: &["name", "room_name"]);
+    aliases: &["name", "room_name"],
+    example: "Ballroom East");
 
 edge_list_field!(FIELD_EVENT_ROOMS, HotelRoomEntityType, HotelRoomInternalData,
     name: "event_rooms", display: "Event Rooms",
     desc: "Event rooms contained within this hotel room.",
-    aliases: &["event_room"]);
+    aliases: &["event_room"],
+    example: "[]");
 
 // ── FieldSet ──────────────────────────────────────────────────────────────────
 

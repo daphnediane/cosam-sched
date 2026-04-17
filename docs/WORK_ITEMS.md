@@ -1,6 +1,6 @@
 # Cosplay America Schedule - Work Item
 
-Updated on: Thu Apr 16 22:46:16 2026
+Updated on: Fri Apr 17 00:34:16 2026
 
 ## Completed
 
@@ -11,6 +11,7 @@ Updated on: Thu Apr 16 22:46:16 2026
 * [FEATURE-013] Implement the static `FieldSet` registry for per-entity-type field metadata lookup.
 * [FEATURE-014] Implement the PanelType entity as the first proof of concept for the no-proc-macro field system.
 * [FEATURE-015] Port `TimeRange` and implement the Panel entity with stored and computed time fields.
+* [FEATURE-016] Implement the remaining core entity data structs and field descriptors.
 * [FEATURE-043] Add a `verify` callback to `FieldDescriptor` for cross-field consistency checks after batch writes to computed fields.
 * [META-002] Phase tracker for project foundation and Cargo workspace setup.
 * [REFACTOR-047] Extract the `macro_rules!` helpers from `panel.rs` into a shared `field_macros.rs`
@@ -20,7 +21,7 @@ and adopt them in `panel_type.rs` to eliminate per-entity boilerplate.
 
 ## Summary of Open Items
 
-**Total open items:** 30
+**Total open items:** 29
 
 * **Meta / Project-Level**
   * [META-001] Meta work item tracking the full multi-phase redesign of the schedule system. (Blocked by [META-003], [META-004], [META-005], [META-006], [META-007], [META-008])
@@ -33,7 +34,6 @@ XLSX import/export. (Blocked by [META-003], [META-004])
   * [META-008] Phase tracker for peer-to-peer schedule synchronization and conflict resolution. (Blocked by [META-004])
 
 * **High Priority**
-  * [FEATURE-016] ([META-003]) Implement the remaining core entity data structs and field descriptors.
   * [FEATURE-018] ([META-003]) Implement typed relationship storage for entity-to-entity relationships.
   * [FEATURE-019] ([META-003]) Implement the `Schedule` struct and `EntityStorage` for managing all entities and relationships.
   * [FEATURE-021] ([META-003]) Implement a command-based edit system with full undo/redo support.
@@ -159,49 +159,6 @@ panels arranged by time and room, with inline editing of entity fields.
 ---
 
 ## Open FEATURE Items
-
-### [FEATURE-016] Presenter + EventRoom + HotelRoom Entities
-
-**Status:** Open
-
-**Priority:** High
-
-**Summary:** Implement the remaining core entity data structs and field descriptors.
-
-**Part of:** [META-003]
-
-**Description:** ### Presenter
-
-**`PresenterCommonData`** (`pub`):
-
-* `name: String` — full display name (required, indexed)
-* `rank: PresenterRank` — `Guest`, `Judge`, `Staff`, `InvitedGuest(Option<String>)`, `Panelist`, `FanPanelist`
-* `bio: Option<String>`
-* `is_explicit_group: bool`
-* `always_grouped: bool` — always shown under group name, never individually
-* `always_shown_in_group: bool` — group name always shown even with partial attendance
-* `sort_rank: Option<PresenterSortRank>` — import ordering key (column, row, member index)
-
-Future fields (no spreadsheet source yet): `pronouns: Option<String>`, `website: Option<String>`
-
-**`PresenterInternalData`** (`pub(crate)`) — `EntityType::InternalData`:
-
-* `data: PresenterCommonData`
-* `code: PresenterId`
-
-**`PresenterData`** (`pub`) — export/API view:
-
-* `data: PresenterCommonData`
-* `code: String`
-* `group_ids: Vec<PresenterId>` — groups this presenter belongs to (from edge maps)
-* `panels: Vec<PanelId>` — panels this presenter is on (from edge maps)
-
-Computed edge-backed fields (stubs until FEATURE-018):
-
-* `groups`, `is_group`, `members`, `inclusive_groups`, `inclusive_members`
-* `panels`, `add_panels`, `remove_panels`, `inclusive_panels`
-
----
 
 ### [FEATURE-018] Relationship Storage (EdgeMap / Reverse Indexes)
 
@@ -697,7 +654,7 @@ Both are now handled without a central enum:
 [FEATURE-013]: work-item/done/FEATURE-013.md
 [FEATURE-014]: work-item/done/FEATURE-014.md
 [FEATURE-015]: work-item/done/FEATURE-015.md
-[FEATURE-016]: work-item/high/FEATURE-016.md
+[FEATURE-016]: work-item/done/FEATURE-016.md
 [FEATURE-017]: work-item/medium/FEATURE-017.md
 [FEATURE-018]: work-item/high/FEATURE-018.md
 [FEATURE-019]: work-item/high/FEATURE-019.md

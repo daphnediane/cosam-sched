@@ -6,7 +6,7 @@ Implement the remaining core entity data structs and field descriptors.
 
 ## Status
 
-Open
+Completed
 
 ## Priority
 

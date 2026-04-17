@@ -152,57 +152,68 @@ impl EntityType for PanelTypeEntityType {
 req_string_field!(FIELD_PREFIX, PanelTypeEntityType, PanelTypeInternalData, prefix,
     name: "prefix", display: "Prefix",
     desc: "Two-letter Uniq ID prefix for panels of this type.",
-    aliases: &["uniq_id_prefix"]);
+    aliases: &["uniq_id_prefix"],
+    example: "GP");
 
 req_string_field!(FIELD_PANEL_KIND, PanelTypeEntityType, PanelTypeInternalData, panel_kind,
     name: "panel_kind", display: "Panel Kind",
     desc: "Human-readable kind name for this panel type.",
-    aliases: &["kind", "type_name"]);
+    aliases: &["kind", "type_name"],
+    example: "Guest Panel");
 
 bool_field!(FIELD_HIDDEN, PanelTypeEntityType, PanelTypeInternalData, hidden,
     name: "hidden", display: "Hidden",
     desc: "Whether this panel type is hidden from UI.",
-    aliases: &[]);
+    aliases: &[],
+    example: "false");
 
 bool_field!(FIELD_IS_WORKSHOP, PanelTypeEntityType, PanelTypeInternalData, is_workshop,
     name: "is_workshop", display: "Is Workshop",
     desc: "Whether panels of this type are workshops.",
-    aliases: &["workshop"]);
+    aliases: &["workshop"],
+    example: "false");
 
 bool_field!(FIELD_IS_BREAK, PanelTypeEntityType, PanelTypeInternalData, is_break,
     name: "is_break", display: "Is Break",
     desc: "Whether panels of this type are break periods.",
-    aliases: &["break"]);
+    aliases: &["break"],
+    example: "false");
 
 bool_field!(FIELD_IS_CAFE, PanelTypeEntityType, PanelTypeInternalData, is_cafe,
     name: "is_cafe", display: "Is Cafe",
     desc: "Whether panels of this type are cafe events.",
-    aliases: &["cafe"]);
+    aliases: &["cafe"],
+    example: "false");
 
 bool_field!(FIELD_IS_ROOM_HOURS, PanelTypeEntityType, PanelTypeInternalData, is_room_hours,
     name: "is_room_hours", display: "Is Room Hours",
     desc: "Whether panels of this type are room hours.",
-    aliases: &["room_hours"]);
+    aliases: &["room_hours"],
+    example: "false");
 
 bool_field!(FIELD_IS_TIMELINE, PanelTypeEntityType, PanelTypeInternalData, is_timeline,
     name: "is_timeline", display: "Is Timeline",
     desc: "Whether panels of this type are timeline events.",
-    aliases: &["timeline"]);
+    aliases: &["timeline"],
+    example: "false");
 
 bool_field!(FIELD_IS_PRIVATE, PanelTypeEntityType, PanelTypeInternalData, is_private,
     name: "is_private", display: "Is Private",
     desc: "Whether panels of this type are private events.",
-    aliases: &["private"]);
+    aliases: &["private"],
+    example: "false");
 
 opt_string_field!(FIELD_COLOR, PanelTypeEntityType, PanelTypeInternalData, color,
     name: "color", display: "Color",
     desc: "CSS color for panels of this type.",
-    aliases: &[]);
+    aliases: &[],
+    example: "#db2777");
 
 opt_string_field!(FIELD_BW, PanelTypeEntityType, PanelTypeInternalData, bw,
     name: "bw", display: "BW Color",
     desc: "Alternate monochrome color for panels of this type.",
-    aliases: &["bw_color", "monochrome"]);
+    aliases: &["bw_color", "monochrome"],
+    example: "#666666");
 
 /// Computed display name — derived from `panel_kind` and `prefix`.
 ///
@@ -214,6 +225,7 @@ static FIELD_DISPLAY_NAME: FieldDescriptor<PanelTypeEntityType> = FieldDescripto
     aliases: &["name"],
     required: false,
     crdt_type: CrdtFieldType::Derived,
+    example: "Guest Panel (GP)",
     read_fn: Some(ReadFn::Bare(|d: &PanelTypeInternalData| {
         let name = if d.data.prefix.is_empty() {
             d.data.panel_kind.clone()
@@ -249,7 +261,8 @@ static FIELD_DISPLAY_NAME: FieldDescriptor<PanelTypeEntityType> = FieldDescripto
 edge_list_field!(FIELD_PANELS, PanelTypeEntityType, PanelTypeInternalData,
     name: "panels", display: "Panels",
     desc: "Panels of this type.",
-    aliases: &[]);
+    aliases: &[],
+    example: "[]");
 
 // ── FieldSet ────────────────────────────────────────────────────────────────────
 

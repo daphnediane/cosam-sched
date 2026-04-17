@@ -79,7 +79,7 @@ macro_rules! req_string_field {
     (
         $static_name:ident, $entity:ty, $internal:ty, $field:ident,
         name: $name:literal, display: $display:literal, desc: $desc:literal,
-        aliases: $aliases:expr
+        aliases: $aliases:expr, example: $example:literal
     ) => {
         static $static_name: $crate::field::FieldDescriptor<$entity> =
             $crate::field::FieldDescriptor {
@@ -89,6 +89,7 @@ macro_rules! req_string_field {
                 aliases: $aliases,
                 required: true,
                 crdt_type: $crate::value::CrdtFieldType::Scalar,
+                example: $example,
                 read_fn: Some($crate::field::ReadFn::Bare(|d: &$internal| {
                     Some($crate::value::FieldValue::String(d.data.$field.clone()))
                 })),
@@ -111,7 +112,7 @@ macro_rules! opt_string_field {
     (
         $static_name:ident, $entity:ty, $internal:ty, $field:ident,
         name: $name:literal, display: $display:literal, desc: $desc:literal,
-        aliases: $aliases:expr
+        aliases: $aliases:expr, example: $example:literal
     ) => {
         static $static_name: $crate::field::FieldDescriptor<$entity> =
             $crate::field::FieldDescriptor {
@@ -121,6 +122,7 @@ macro_rules! opt_string_field {
                 aliases: $aliases,
                 required: false,
                 crdt_type: $crate::value::CrdtFieldType::Scalar,
+                example: $example,
                 read_fn: Some($crate::field::ReadFn::Bare(|d: &$internal| {
                     Some(match &d.data.$field {
                         Some(s) => $crate::value::FieldValue::String(s.clone()),
@@ -148,7 +150,7 @@ macro_rules! opt_text_field {
     (
         $static_name:ident, $entity:ty, $internal:ty, $field:ident,
         name: $name:literal, display: $display:literal, desc: $desc:literal,
-        aliases: $aliases:expr
+        aliases: $aliases:expr, example: $example:literal
     ) => {
         static $static_name: $crate::field::FieldDescriptor<$entity> =
             $crate::field::FieldDescriptor {
@@ -158,6 +160,7 @@ macro_rules! opt_text_field {
                 aliases: $aliases,
                 required: false,
                 crdt_type: $crate::value::CrdtFieldType::Text,
+                example: $example,
                 read_fn: Some($crate::field::ReadFn::Bare(|d: &$internal| {
                     Some(match &d.data.$field {
                         Some(s) => $crate::value::FieldValue::Text(s.clone()),
@@ -184,7 +187,7 @@ macro_rules! bool_field {
     (
         $static_name:ident, $entity:ty, $internal:ty, $field:ident,
         name: $name:literal, display: $display:literal, desc: $desc:literal,
-        aliases: $aliases:expr
+        aliases: $aliases:expr, example: $example:literal
     ) => {
         static $static_name: $crate::field::FieldDescriptor<$entity> =
             $crate::field::FieldDescriptor {
@@ -194,6 +197,7 @@ macro_rules! bool_field {
                 aliases: $aliases,
                 required: false,
                 crdt_type: $crate::value::CrdtFieldType::Scalar,
+                example: $example,
                 read_fn: Some($crate::field::ReadFn::Bare(|d: &$internal| {
                     Some($crate::value::FieldValue::Boolean(d.data.$field))
                 })),
@@ -214,7 +218,7 @@ macro_rules! opt_i64_field {
     (
         $static_name:ident, $entity:ty, $internal:ty, $field:ident,
         name: $name:literal, display: $display:literal, desc: $desc:literal,
-        aliases: $aliases:expr
+        aliases: $aliases:expr, example: $example:literal
     ) => {
         static $static_name: $crate::field::FieldDescriptor<$entity> =
             $crate::field::FieldDescriptor {
@@ -224,6 +228,7 @@ macro_rules! opt_i64_field {
                 aliases: $aliases,
                 required: false,
                 crdt_type: $crate::value::CrdtFieldType::Scalar,
+                example: $example,
                 read_fn: Some($crate::field::ReadFn::Bare(|d: &$internal| {
                     Some(match d.data.$field {
                         Some(n) => $crate::value::FieldValue::Integer(n),
@@ -256,7 +261,7 @@ macro_rules! edge_list_field {
     (
         $static_name:ident, $entity:ty, $internal:ty,
         name: $name:literal, display: $display:literal, desc: $desc:literal,
-        aliases: $aliases:expr
+        aliases: $aliases:expr, example: $example:literal
     ) => {
         static $static_name: $crate::field::FieldDescriptor<$entity> =
             $crate::field::FieldDescriptor {
@@ -266,6 +271,7 @@ macro_rules! edge_list_field {
                 aliases: $aliases,
                 required: false,
                 crdt_type: $crate::value::CrdtFieldType::Derived,
+                example: $example,
                 read_fn: Some($crate::field::ReadFn::Bare(|_d: &$internal| {
                     Some($crate::value::FieldValue::List(::std::vec::Vec::new()))
                 })),
@@ -282,7 +288,7 @@ macro_rules! edge_list_field_rw {
     (
         $static_name:ident, $entity:ty, $internal:ty,
         name: $name:literal, display: $display:literal, desc: $desc:literal,
-        aliases: $aliases:expr
+        aliases: $aliases:expr, example: $example:literal
     ) => {
         static $static_name: $crate::field::FieldDescriptor<$entity> =
             $crate::field::FieldDescriptor {
@@ -292,6 +298,7 @@ macro_rules! edge_list_field_rw {
                 aliases: $aliases,
                 required: false,
                 crdt_type: $crate::value::CrdtFieldType::Derived,
+                example: $example,
                 read_fn: Some($crate::field::ReadFn::Bare(|_d: &$internal| {
                     Some($crate::value::FieldValue::List(::std::vec::Vec::new()))
                 })),
@@ -311,7 +318,7 @@ macro_rules! edge_none_field_rw {
     (
         $static_name:ident, $entity:ty, $internal:ty,
         name: $name:literal, display: $display:literal, desc: $desc:literal,
-        aliases: $aliases:expr
+        aliases: $aliases:expr, example: $example:literal
     ) => {
         static $static_name: $crate::field::FieldDescriptor<$entity> =
             $crate::field::FieldDescriptor {
@@ -321,6 +328,7 @@ macro_rules! edge_none_field_rw {
                 aliases: $aliases,
                 required: false,
                 crdt_type: $crate::value::CrdtFieldType::Derived,
+                example: $example,
                 read_fn: Some($crate::field::ReadFn::Bare(|_d: &$internal| {
                     Some($crate::value::FieldValue::None)
                 })),
@@ -339,7 +347,7 @@ macro_rules! edge_mutator_field {
     (
         $static_name:ident, $entity:ty, $internal:ty,
         name: $name:literal, display: $display:literal, desc: $desc:literal,
-        aliases: $aliases:expr
+        aliases: $aliases:expr, example: $example:literal
     ) => {
         static $static_name: $crate::field::FieldDescriptor<$entity> =
             $crate::field::FieldDescriptor {
@@ -349,6 +357,7 @@ macro_rules! edge_mutator_field {
                 aliases: $aliases,
                 required: false,
                 crdt_type: $crate::value::CrdtFieldType::Derived,
+                example: $example,
                 read_fn: None,
                 write_fn: Some($crate::field::WriteFn::Bare(
                     |_d: &mut $internal, _v| Ok(()),

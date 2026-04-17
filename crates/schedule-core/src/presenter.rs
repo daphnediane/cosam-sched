@@ -304,7 +304,8 @@ impl EntityType for PresenterEntityType {
 req_string_field!(FIELD_NAME, PresenterEntityType, PresenterInternalData, name,
     name: "name", display: "Name",
     desc: "Presenter or group display name.",
-    aliases: &["presenter_name", "display_name"]);
+    aliases: &["presenter_name", "display_name"],
+    example: "Alice Example");
 
 /// Presenter rank — stored as `PresenterRank`, exposed as `FieldValue::String`
 /// using the canonical tag (`guest`, `judge`, `staff`, `invited_panelist`,
@@ -316,6 +317,7 @@ static FIELD_RANK: FieldDescriptor<PresenterEntityType> = FieldDescriptor {
     aliases: &["classification"],
     required: false,
     crdt_type: CrdtFieldType::Scalar,
+    example: "guest",
     read_fn: Some(ReadFn::Bare(|d: &PresenterInternalData| {
         Some(FieldValue::String(d.data.rank.as_str().to_string()))
     })),
@@ -330,22 +332,26 @@ static FIELD_RANK: FieldDescriptor<PresenterEntityType> = FieldDescriptor {
 opt_text_field!(FIELD_BIO, PresenterEntityType, PresenterInternalData, bio,
     name: "bio", display: "Bio",
     desc: "Biography or description.",
-    aliases: &["biography", "description"]);
+    aliases: &["biography", "description"],
+    example: "Long-time guest.");
 
 bool_field!(FIELD_IS_EXPLICIT_GROUP, PresenterEntityType, PresenterInternalData, is_explicit_group,
     name: "is_explicit_group", display: "Is Explicit Group",
     desc: "Marks this presenter entity as an explicit group.",
-    aliases: &["explicit_group"]);
+    aliases: &["explicit_group"],
+    example: "false");
 
 bool_field!(FIELD_ALWAYS_GROUPED, PresenterEntityType, PresenterInternalData, always_grouped,
     name: "always_grouped", display: "Always Grouped",
     desc: "Always display this member under its group name.",
-    aliases: &[]);
+    aliases: &[],
+    example: "false");
 
 bool_field!(FIELD_ALWAYS_SHOWN_IN_GROUP, PresenterEntityType, PresenterInternalData, always_shown_in_group,
     name: "always_shown_in_group", display: "Always Shown In Group",
     desc: "Always show group name even with partial member attendance.",
-    aliases: &["always_shown"]);
+    aliases: &["always_shown"],
+    example: "false");
 
 // ── Computed / edge-backed field stubs (full wiring in FEATURE-018) ───────────
 
@@ -359,6 +365,7 @@ static FIELD_IS_GROUP: FieldDescriptor<PresenterEntityType> = FieldDescriptor {
     aliases: &["group"],
     required: false,
     crdt_type: CrdtFieldType::Derived,
+    example: "false",
     read_fn: Some(ReadFn::Bare(|d: &PresenterInternalData| {
         Some(FieldValue::Boolean(d.data.is_explicit_group))
     })),
@@ -370,42 +377,50 @@ static FIELD_IS_GROUP: FieldDescriptor<PresenterEntityType> = FieldDescriptor {
 edge_list_field_rw!(FIELD_GROUPS, PresenterEntityType, PresenterInternalData,
     name: "groups", display: "Groups",
     desc: "Groups this presenter belongs to.",
-    aliases: &["group_memberships"]);
+    aliases: &["group_memberships"],
+    example: "[]");
 
 edge_list_field_rw!(FIELD_MEMBERS, PresenterEntityType, PresenterInternalData,
     name: "members", display: "Members",
     desc: "Members of this group (empty for individuals).",
-    aliases: &["group_members"]);
+    aliases: &["group_members"],
+    example: "[]");
 
 edge_list_field!(FIELD_INCLUSIVE_GROUPS, PresenterEntityType, PresenterInternalData,
     name: "inclusive_groups", display: "Inclusive Groups",
     desc: "Transitive closure of groups this presenter appears in.",
-    aliases: &[]);
+    aliases: &[],
+    example: "[]");
 
 edge_list_field!(FIELD_INCLUSIVE_MEMBERS, PresenterEntityType, PresenterInternalData,
     name: "inclusive_members", display: "Inclusive Members",
     desc: "Transitive closure of members for this group.",
-    aliases: &[]);
+    aliases: &[],
+    example: "[]");
 
 edge_list_field_rw!(FIELD_PANELS, PresenterEntityType, PresenterInternalData,
     name: "panels", display: "Panels",
     desc: "Panels this presenter is scheduled on.",
-    aliases: &["panel"]);
+    aliases: &["panel"],
+    example: "[]");
 
 edge_mutator_field!(FIELD_ADD_PANELS, PresenterEntityType, PresenterInternalData,
     name: "add_panels", display: "Add Panels",
     desc: "Append panels to this presenter.",
-    aliases: &["add_panel"]);
+    aliases: &["add_panel"],
+    example: "[panel_id]");
 
 edge_mutator_field!(FIELD_REMOVE_PANELS, PresenterEntityType, PresenterInternalData,
     name: "remove_panels", display: "Remove Panels",
     desc: "Remove panels from this presenter.",
-    aliases: &["remove_panel"]);
+    aliases: &["remove_panel"],
+    example: "[panel_id]");
 
 edge_list_field!(FIELD_INCLUSIVE_PANELS, PresenterEntityType, PresenterInternalData,
     name: "inclusive_panels", display: "Inclusive Panels",
     desc: "Transitive closure: panels of this presenter and of its groups.",
-    aliases: &[]);
+    aliases: &[],
+    example: "[]");
 
 // ── FieldSet ──────────────────────────────────────────────────────────────────
 
