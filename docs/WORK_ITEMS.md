@@ -1,6 +1,6 @@
 # Cosplay America Schedule - Work Item
 
-Updated on: Thu Apr 16 21:38:56 2026
+Updated on: Thu Apr 16 22:46:16 2026
 
 ## Completed
 
@@ -13,6 +13,8 @@ Updated on: Thu Apr 16 21:38:56 2026
 * [FEATURE-015] Port `TimeRange` and implement the Panel entity with stored and computed time fields.
 * [FEATURE-043] Add a `verify` callback to `FieldDescriptor` for cross-field consistency checks after batch writes to computed fields.
 * [META-002] Phase tracker for project foundation and Cargo workspace setup.
+* [REFACTOR-047] Extract the `macro_rules!` helpers from `panel.rs` into a shared `field_macros.rs`
+and adopt them in `panel_type.rs` to eliminate per-entity boilerplate.
 
 ---
 
@@ -722,3 +724,4 @@ Both are now handled without a central enum:
 [META-007]: work-item/meta/META-007.md
 [META-008]: work-item/meta/META-008.md
 [REFACTOR-041]: work-item/high/REFACTOR-041.md
+[REFACTOR-047]: work-item/done/REFACTOR-047.md

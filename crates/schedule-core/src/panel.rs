@@ -19,7 +19,11 @@
 //! fully wired up in FEATURE-018.
 
 use crate::entity::{EntityId, EntityType, FieldSet};
-use crate::field::{FieldDescriptor, MatchPriority, ReadFn, WriteFn};
+use crate::field::{FieldDescriptor, ReadFn, WriteFn};
+use crate::field_macros::{
+    bool_field, edge_list_field, edge_list_field_rw, edge_mutator_field, edge_none_field_rw,
+    opt_i64_field, opt_string_field, opt_text_field, req_string_field,
+};
 use crate::panel_type::PanelTypeId;
 use crate::panel_uniq_id::PanelUniqId;
 use crate::time::{parse_datetime, parse_duration, TimeRange};
@@ -194,297 +198,124 @@ impl EntityType for PanelEntityType {
     }
 }
 
-// ── Field-descriptor helpers ──────────────────────────────────────────────────
-
-fn substring_match(query: &str, value: &str) -> Option<MatchPriority> {
-    let q = query.to_lowercase();
-    let v = value.to_lowercase();
-    if v == q {
-        Some(MatchPriority::Exact)
-    } else if v.starts_with(&q) {
-        Some(MatchPriority::Prefix)
-    } else if v.contains(&q) {
-        Some(MatchPriority::Contains)
-    } else {
-        None
-    }
-}
-
-// Required indexed String field.
-macro_rules! req_string_field {
-    (
-        $static_name:ident, $field:ident,
-        name: $name:literal, display: $display:literal, desc: $desc:literal,
-        aliases: $aliases:expr
-    ) => {
-        static $static_name: FieldDescriptor<PanelEntityType> = FieldDescriptor {
-            name: $name,
-            display: $display,
-            description: $desc,
-            aliases: $aliases,
-            required: true,
-            crdt_type: CrdtFieldType::Scalar,
-            read_fn: Some(ReadFn::Bare(|d: &PanelInternalData| {
-                Some(FieldValue::String(d.data.$field.clone()))
-            })),
-            write_fn: Some(WriteFn::Bare(|d: &mut PanelInternalData, v| {
-                d.data.$field = v.into_string()?;
-                Ok(())
-            })),
-            index_fn: Some(|query, d: &PanelInternalData| substring_match(query, &d.data.$field)),
-            verify_fn: None,
-        };
-    };
-}
-
-// Optional short String field (CRDT::Scalar). `FieldValue::String` variant.
-macro_rules! opt_string_field {
-    (
-        $static_name:ident, $field:ident,
-        name: $name:literal, display: $display:literal, desc: $desc:literal,
-        aliases: $aliases:expr
-    ) => {
-        static $static_name: FieldDescriptor<PanelEntityType> = FieldDescriptor {
-            name: $name,
-            display: $display,
-            description: $desc,
-            aliases: $aliases,
-            required: false,
-            crdt_type: CrdtFieldType::Scalar,
-            read_fn: Some(ReadFn::Bare(|d: &PanelInternalData| {
-                Some(match &d.data.$field {
-                    Some(s) => FieldValue::String(s.clone()),
-                    None => FieldValue::None,
-                })
-            })),
-            write_fn: Some(WriteFn::Bare(|d: &mut PanelInternalData, v| {
-                if v.is_none() {
-                    d.data.$field = None;
-                } else {
-                    d.data.$field = Some(v.into_string()?);
-                }
-                Ok(())
-            })),
-            index_fn: None,
-            verify_fn: None,
-        };
-    };
-}
-
-// Optional prose field stored as `Option<String>` but CRDT::Text; read/write
-// via `FieldValue::Text` variant.
-macro_rules! opt_text_field {
-    (
-        $static_name:ident, $field:ident,
-        name: $name:literal, display: $display:literal, desc: $desc:literal,
-        aliases: $aliases:expr
-    ) => {
-        static $static_name: FieldDescriptor<PanelEntityType> = FieldDescriptor {
-            name: $name,
-            display: $display,
-            description: $desc,
-            aliases: $aliases,
-            required: false,
-            crdt_type: CrdtFieldType::Text,
-            read_fn: Some(ReadFn::Bare(|d: &PanelInternalData| {
-                Some(match &d.data.$field {
-                    Some(s) => FieldValue::Text(s.clone()),
-                    None => FieldValue::None,
-                })
-            })),
-            write_fn: Some(WriteFn::Bare(|d: &mut PanelInternalData, v| {
-                if v.is_none() {
-                    d.data.$field = None;
-                } else {
-                    d.data.$field = Some(v.into_text()?);
-                }
-                Ok(())
-            })),
-            index_fn: None,
-            verify_fn: None,
-        };
-    };
-}
-
-// Boolean field.
-macro_rules! bool_field {
-    (
-        $static_name:ident, $field:ident,
-        name: $name:literal, display: $display:literal, desc: $desc:literal,
-        aliases: $aliases:expr
-    ) => {
-        static $static_name: FieldDescriptor<PanelEntityType> = FieldDescriptor {
-            name: $name,
-            display: $display,
-            description: $desc,
-            aliases: $aliases,
-            required: false,
-            crdt_type: CrdtFieldType::Scalar,
-            read_fn: Some(ReadFn::Bare(|d: &PanelInternalData| {
-                Some(FieldValue::Boolean(d.data.$field))
-            })),
-            write_fn: Some(WriteFn::Bare(|d: &mut PanelInternalData, v| {
-                d.data.$field = v.into_bool()?;
-                Ok(())
-            })),
-            index_fn: None,
-            verify_fn: None,
-        };
-    };
-}
-
-// Optional `i64` field.
-macro_rules! opt_i64_field {
-    (
-        $static_name:ident, $field:ident,
-        name: $name:literal, display: $display:literal, desc: $desc:literal,
-        aliases: $aliases:expr
-    ) => {
-        static $static_name: FieldDescriptor<PanelEntityType> = FieldDescriptor {
-            name: $name,
-            display: $display,
-            description: $desc,
-            aliases: $aliases,
-            required: false,
-            crdt_type: CrdtFieldType::Scalar,
-            read_fn: Some(ReadFn::Bare(|d: &PanelInternalData| {
-                Some(match d.data.$field {
-                    Some(n) => FieldValue::Integer(n),
-                    None => FieldValue::None,
-                })
-            })),
-            write_fn: Some(WriteFn::Bare(|d: &mut PanelInternalData, v| {
-                if v.is_none() {
-                    d.data.$field = None;
-                } else {
-                    d.data.$field = Some(v.into_integer()?);
-                }
-                Ok(())
-            })),
-            index_fn: None,
-            verify_fn: None,
-        };
-    };
-}
-
 // ── Stored field descriptors ──────────────────────────────────────────────────
 
-req_string_field!(FIELD_UID, uid,
+req_string_field!(FIELD_UID, PanelEntityType, PanelInternalData, uid,
     name: "uid", display: "Uniq ID",
     desc: "Panel identifier from the spreadsheet.",
     aliases: &["id", "uniq_id"]);
 
-req_string_field!(FIELD_NAME, name,
+req_string_field!(FIELD_NAME, PanelEntityType, PanelInternalData, name,
     name: "name", display: "Name",
     desc: "Panel name / title.",
     aliases: &["title", "panel_name"]);
 
-opt_text_field!(FIELD_DESCRIPTION, description,
+opt_text_field!(FIELD_DESCRIPTION, PanelEntityType, PanelInternalData, description,
     name: "description", display: "Description",
     desc: "Event description shown to attendees.",
     aliases: &["desc"]);
 
-opt_text_field!(FIELD_NOTE, note,
+opt_text_field!(FIELD_NOTE, PanelEntityType, PanelInternalData, note,
     name: "note", display: "Note",
     desc: "Extra note displayed verbatim.",
     aliases: &[]);
 
-opt_text_field!(FIELD_NOTES_NON_PRINTING, notes_non_printing,
+opt_text_field!(FIELD_NOTES_NON_PRINTING, PanelEntityType, PanelInternalData, notes_non_printing,
     name: "notes_non_printing", display: "Notes (Non Printing)",
     desc: "Internal notes not shown to the public.",
     aliases: &["internal_notes"]);
 
-opt_text_field!(FIELD_WORKSHOP_NOTES, workshop_notes,
+opt_text_field!(FIELD_WORKSHOP_NOTES, PanelEntityType, PanelInternalData, workshop_notes,
     name: "workshop_notes", display: "Workshop Notes",
     desc: "Notes for workshop staff.",
     aliases: &[]);
 
-opt_string_field!(FIELD_POWER_NEEDS, power_needs,
+opt_string_field!(FIELD_POWER_NEEDS, PanelEntityType, PanelInternalData, power_needs,
     name: "power_needs", display: "Power Needs",
     desc: "Power / electrical requirements.",
     aliases: &["power"]);
 
-bool_field!(FIELD_SEWING_MACHINES, sewing_machines,
+bool_field!(FIELD_SEWING_MACHINES, PanelEntityType, PanelInternalData, sewing_machines,
     name: "sewing_machines", display: "Sewing Machines",
     desc: "Whether sewing machines are required.",
     aliases: &["sewing"]);
 
-opt_text_field!(FIELD_AV_NOTES, av_notes,
+opt_text_field!(FIELD_AV_NOTES, PanelEntityType, PanelInternalData, av_notes,
     name: "av_notes", display: "AV Notes",
     desc: "Audio/visual setup notes.",
     aliases: &["av"]);
 
-opt_string_field!(FIELD_DIFFICULTY, difficulty,
+opt_string_field!(FIELD_DIFFICULTY, PanelEntityType, PanelInternalData, difficulty,
     name: "difficulty", display: "Difficulty",
     desc: "Skill-level indicator (free text).",
     aliases: &[]);
 
-opt_string_field!(FIELD_PREREQ, prereq,
+opt_string_field!(FIELD_PREREQ, PanelEntityType, PanelInternalData, prereq,
     name: "prereq", display: "Prerequisites",
     desc: "Comma-separated prerequisite Uniq IDs.",
     aliases: &["prerequisites"]);
 
-opt_string_field!(FIELD_COST, cost,
+opt_string_field!(FIELD_COST, PanelEntityType, PanelInternalData, cost,
     name: "cost", display: "Cost",
     desc: "Raw cost cell value (e.g. \"$35\", \"Free\", \"Kids\").",
     aliases: &[]);
 
-bool_field!(FIELD_IS_FREE, is_free,
+bool_field!(FIELD_IS_FREE, PanelEntityType, PanelInternalData, is_free,
     name: "is_free", display: "Is Free",
     desc: "Parsed during import: cost is blank, \"Free\", \"$0\", or \"N/A\".",
     aliases: &["free"]);
 
-bool_field!(FIELD_IS_KIDS, is_kids,
+bool_field!(FIELD_IS_KIDS, PanelEntityType, PanelInternalData, is_kids,
     name: "is_kids", display: "Is Kids",
     desc: "Parsed during import: cost indicates kids-only pricing.",
     aliases: &["kids"]);
 
-bool_field!(FIELD_IS_FULL, is_full,
+bool_field!(FIELD_IS_FULL, PanelEntityType, PanelInternalData, is_full,
     name: "is_full", display: "Full",
     desc: "Event is at capacity.",
     aliases: &["full"]);
 
-opt_i64_field!(FIELD_CAPACITY, capacity,
+opt_i64_field!(FIELD_CAPACITY, PanelEntityType, PanelInternalData, capacity,
     name: "capacity", display: "Capacity",
     desc: "Total seats available.",
     aliases: &[]);
 
-opt_i64_field!(FIELD_SEATS_SOLD, seats_sold,
+opt_i64_field!(FIELD_SEATS_SOLD, PanelEntityType, PanelInternalData, seats_sold,
     name: "seats_sold", display: "Seats Sold",
     desc: "Number of seats pre-sold or reserved via ticketing.",
     aliases: &[]);
 
-opt_i64_field!(FIELD_PRE_REG_MAX, pre_reg_max,
+opt_i64_field!(FIELD_PRE_REG_MAX, PanelEntityType, PanelInternalData, pre_reg_max,
     name: "pre_reg_max", display: "Pre-reg Max",
     desc: "Maximum seats available for pre-registration.",
     aliases: &["prereg_max"]);
 
-opt_string_field!(FIELD_TICKET_URL, ticket_url,
+opt_string_field!(FIELD_TICKET_URL, PanelEntityType, PanelInternalData, ticket_url,
     name: "ticket_url", display: "Ticket URL",
     desc: "URL for purchasing tickets.",
     aliases: &["ticket_sale"]);
 
-bool_field!(FIELD_HAVE_TICKET_IMAGE, have_ticket_image,
+bool_field!(FIELD_HAVE_TICKET_IMAGE, PanelEntityType, PanelInternalData, have_ticket_image,
     name: "have_ticket_image", display: "Have Ticket Image",
     desc: "Whether a ticket / flyer image has been received.",
     aliases: &[]);
 
-opt_string_field!(FIELD_SIMPLETIX_EVENT, simpletix_event,
+opt_string_field!(FIELD_SIMPLETIX_EVENT, PanelEntityType, PanelInternalData, simpletix_event,
     name: "simpletix_event", display: "SimpleTix Event",
     desc: "Internal admin URL for SimpleTix event configuration.",
     aliases: &["simpletix"]);
 
-opt_string_field!(FIELD_SIMPLETIX_LINK, simpletix_link,
+opt_string_field!(FIELD_SIMPLETIX_LINK, PanelEntityType, PanelInternalData, simpletix_link,
     name: "simpletix_link", display: "SimpleTix Link",
     desc: "Public-facing direct ticket purchase link.",
     aliases: &[]);
 
-bool_field!(FIELD_HIDE_PANELIST, hide_panelist,
+bool_field!(FIELD_HIDE_PANELIST, PanelEntityType, PanelInternalData, hide_panelist,
     name: "hide_panelist", display: "Hide Panelist",
     desc: "Suppress presenter credits for this panel.",
     aliases: &[]);
 
-opt_string_field!(FIELD_ALT_PANELIST, alt_panelist,
+opt_string_field!(FIELD_ALT_PANELIST, PanelEntityType, PanelInternalData, alt_panelist,
     name: "alt_panelist", display: "Alt Panelist",
     desc: "Override text for the presenter credits line.",
     aliases: &[]);
@@ -622,128 +453,49 @@ static FIELD_DURATION: FieldDescriptor<PanelEntityType> = FieldDescriptor {
 
 // ── Edge-backed computed field stubs (full wiring in FEATURE-018) ─────────────
 //
-// Reads return `FieldValue::List(Vec::new())` (or `FieldValue::None` for the
-// singular `panel_type` field) until edge storage lands. Writes accept any
-// value and are no-ops so the field-set exposes a consistent read/write API.
+// Reads return empty lists (or `None` for the singular `panel_type` field)
+// and writes are no-ops until edge storage lands. All stubs are declared via
+// the shared edge-stub macros in `crate::field_macros`.
 
-fn edge_read_empty_list(_d: &PanelInternalData) -> Option<FieldValue> {
-    Some(FieldValue::List(Vec::new()))
-}
+edge_list_field_rw!(FIELD_PRESENTERS, PanelEntityType, PanelInternalData,
+    name: "presenters", display: "Presenters",
+    desc: "All presenters credited for this panel.",
+    aliases: &["panelists", "presenter"]);
 
-fn edge_read_none(_d: &PanelInternalData) -> Option<FieldValue> {
-    Some(FieldValue::None)
-}
+edge_mutator_field!(FIELD_ADD_PRESENTERS, PanelEntityType, PanelInternalData,
+    name: "add_presenters", display: "Add Presenters",
+    desc: "Append presenters to this panel.",
+    aliases: &["add_presenter"]);
 
-fn edge_write_noop(
-    _d: &mut PanelInternalData,
-    _v: FieldValue,
-) -> Result<(), crate::value::FieldError> {
-    Ok(())
-}
+edge_mutator_field!(FIELD_REMOVE_PRESENTERS, PanelEntityType, PanelInternalData,
+    name: "remove_presenters", display: "Remove Presenters",
+    desc: "Remove presenters from this panel.",
+    aliases: &["remove_presenter"]);
 
-static FIELD_PRESENTERS: FieldDescriptor<PanelEntityType> = FieldDescriptor {
-    name: "presenters",
-    display: "Presenters",
-    description: "All presenters credited for this panel.",
-    aliases: &["panelists", "presenter"],
-    required: false,
-    crdt_type: CrdtFieldType::Derived,
-    read_fn: Some(ReadFn::Bare(edge_read_empty_list)),
-    write_fn: Some(WriteFn::Bare(edge_write_noop)),
-    index_fn: None,
-    verify_fn: None,
-};
+edge_list_field!(FIELD_INCLUSIVE_PRESENTERS, PanelEntityType, PanelInternalData,
+    name: "inclusive_presenters", display: "Inclusive Presenters",
+    desc: "Transitive closure: direct presenters + their groups + group members.",
+    aliases: &["inclusive_presenter"]);
 
-static FIELD_ADD_PRESENTERS: FieldDescriptor<PanelEntityType> = FieldDescriptor {
-    name: "add_presenters",
-    display: "Add Presenters",
-    description: "Append presenters to this panel.",
-    aliases: &["add_presenter"],
-    required: false,
-    crdt_type: CrdtFieldType::Derived,
-    read_fn: None,
-    write_fn: Some(WriteFn::Bare(edge_write_noop)),
-    index_fn: None,
-    verify_fn: None,
-};
+edge_list_field_rw!(FIELD_EVENT_ROOMS, PanelEntityType, PanelInternalData,
+    name: "event_rooms", display: "Event Rooms",
+    desc: "Rooms where this panel takes place.",
+    aliases: &["rooms", "room", "event_room"]);
 
-static FIELD_REMOVE_PRESENTERS: FieldDescriptor<PanelEntityType> = FieldDescriptor {
-    name: "remove_presenters",
-    display: "Remove Presenters",
-    description: "Remove presenters from this panel.",
-    aliases: &["remove_presenter"],
-    required: false,
-    crdt_type: CrdtFieldType::Derived,
-    read_fn: None,
-    write_fn: Some(WriteFn::Bare(edge_write_noop)),
-    index_fn: None,
-    verify_fn: None,
-};
+edge_mutator_field!(FIELD_ADD_ROOMS, PanelEntityType, PanelInternalData,
+    name: "add_rooms", display: "Add Rooms",
+    desc: "Append event rooms to this panel.",
+    aliases: &["add_room"]);
 
-static FIELD_INCLUSIVE_PRESENTERS: FieldDescriptor<PanelEntityType> = FieldDescriptor {
-    name: "inclusive_presenters",
-    display: "Inclusive Presenters",
-    description: "Transitive closure: direct presenters + their groups + group members.",
-    aliases: &["inclusive_presenter"],
-    required: false,
-    crdt_type: CrdtFieldType::Derived,
-    read_fn: Some(ReadFn::Bare(edge_read_empty_list)),
-    write_fn: None,
-    index_fn: None,
-    verify_fn: None,
-};
+edge_mutator_field!(FIELD_REMOVE_ROOMS, PanelEntityType, PanelInternalData,
+    name: "remove_rooms", display: "Remove Rooms",
+    desc: "Remove event rooms from this panel.",
+    aliases: &["remove_room"]);
 
-static FIELD_EVENT_ROOMS: FieldDescriptor<PanelEntityType> = FieldDescriptor {
-    name: "event_rooms",
-    display: "Event Rooms",
-    description: "Rooms where this panel takes place.",
-    aliases: &["rooms", "room", "event_room"],
-    required: false,
-    crdt_type: CrdtFieldType::Derived,
-    read_fn: Some(ReadFn::Bare(edge_read_empty_list)),
-    write_fn: Some(WriteFn::Bare(edge_write_noop)),
-    index_fn: None,
-    verify_fn: None,
-};
-
-static FIELD_ADD_ROOMS: FieldDescriptor<PanelEntityType> = FieldDescriptor {
-    name: "add_rooms",
-    display: "Add Rooms",
-    description: "Append event rooms to this panel.",
-    aliases: &["add_room"],
-    required: false,
-    crdt_type: CrdtFieldType::Derived,
-    read_fn: None,
-    write_fn: Some(WriteFn::Bare(edge_write_noop)),
-    index_fn: None,
-    verify_fn: None,
-};
-
-static FIELD_REMOVE_ROOMS: FieldDescriptor<PanelEntityType> = FieldDescriptor {
-    name: "remove_rooms",
-    display: "Remove Rooms",
-    description: "Remove event rooms from this panel.",
-    aliases: &["remove_room"],
-    required: false,
-    crdt_type: CrdtFieldType::Derived,
-    read_fn: None,
-    write_fn: Some(WriteFn::Bare(edge_write_noop)),
-    index_fn: None,
-    verify_fn: None,
-};
-
-static FIELD_PANEL_TYPE: FieldDescriptor<PanelEntityType> = FieldDescriptor {
-    name: "panel_type",
-    display: "Panel Type",
-    description: "Panel type / kind.",
-    aliases: &["kind", "type"],
-    required: false,
-    crdt_type: CrdtFieldType::Derived,
-    read_fn: Some(ReadFn::Bare(edge_read_none)),
-    write_fn: Some(WriteFn::Bare(edge_write_noop)),
-    index_fn: None,
-    verify_fn: None,
-};
+edge_none_field_rw!(FIELD_PANEL_TYPE, PanelEntityType, PanelInternalData,
+    name: "panel_type", display: "Panel Type",
+    desc: "Panel type / kind.",
+    aliases: &["kind", "type"]);
 
 // ── FieldSet ──────────────────────────────────────────────────────────────────
 

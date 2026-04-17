@@ -15,7 +15,8 @@
 //! Field descriptors are static values assembled into a [`FieldSet`] inside a [`LazyLock`].
 
 use crate::entity::{EntityId, EntityType, FieldSet};
-use crate::field::{FieldDescriptor, MatchPriority, ReadFn, WriteFn};
+use crate::field::{FieldDescriptor, MatchPriority, ReadFn};
+use crate::field_macros::{bool_field, edge_list_field, opt_string_field, req_string_field};
 use crate::panel::PanelId;
 use crate::value::{CrdtFieldType, FieldValue, ValidationError};
 use serde::{Deserialize, Serialize};
@@ -153,254 +154,62 @@ impl EntityType for PanelTypeEntityType {
     }
 }
 
-// ── Field Descriptors ───────────────────────────────────────────────────────────
+// ── Field Descriptors ──────────────────────────────────────────────────────────
 
-/// Two-letter Uniq ID prefix (required, indexed).
-static FIELD_PREFIX: FieldDescriptor<PanelTypeEntityType> = FieldDescriptor {
-    name: "prefix",
-    display: "Prefix",
-    description: "Two-letter Uniq ID prefix for panels of this type.",
-    aliases: &["uniq_id_prefix"],
-    required: true,
-    crdt_type: CrdtFieldType::Scalar,
-    read_fn: Some(ReadFn::Bare(|d: &PanelTypeInternalData| {
-        Some(FieldValue::String(d.data.prefix.clone()))
-    })),
-    write_fn: Some(WriteFn::Bare(|d: &mut PanelTypeInternalData, v| {
-        d.data.prefix = v.into_string()?;
-        Ok(())
-    })),
-    index_fn: Some(|query, d: &PanelTypeInternalData| {
-        let q = query.to_lowercase();
-        let p = d.data.prefix.to_lowercase();
-        if p == q {
-            Some(MatchPriority::Exact)
-        } else if p.starts_with(&q) {
-            Some(MatchPriority::Prefix)
-        } else if p.contains(&q) {
-            Some(MatchPriority::Contains)
-        } else {
-            None
-        }
-    }),
-    verify_fn: None,
-};
+req_string_field!(FIELD_PREFIX, PanelTypeEntityType, PanelTypeInternalData, prefix,
+    name: "prefix", display: "Prefix",
+    desc: "Two-letter Uniq ID prefix for panels of this type.",
+    aliases: &["uniq_id_prefix"]);
 
-/// Human-readable kind name (required, indexed).
-static FIELD_PANEL_KIND: FieldDescriptor<PanelTypeEntityType> = FieldDescriptor {
-    name: "panel_kind",
-    display: "Panel Kind",
-    description: "Human-readable kind name for this panel type.",
-    aliases: &["kind", "type_name"],
-    required: true,
-    crdt_type: CrdtFieldType::Scalar,
-    read_fn: Some(ReadFn::Bare(|d: &PanelTypeInternalData| {
-        Some(FieldValue::String(d.data.panel_kind.clone()))
-    })),
-    write_fn: Some(WriteFn::Bare(|d: &mut PanelTypeInternalData, v| {
-        d.data.panel_kind = v.into_string()?;
-        Ok(())
-    })),
-    index_fn: Some(|query, d: &PanelTypeInternalData| {
-        let q = query.to_lowercase();
-        let k = d.data.panel_kind.to_lowercase();
-        if k == q {
-            Some(MatchPriority::Exact)
-        } else if k.starts_with(&q) {
-            Some(MatchPriority::Prefix)
-        } else if k.contains(&q) {
-            Some(MatchPriority::Contains)
-        } else {
-            None
-        }
-    }),
-    verify_fn: None,
-};
+req_string_field!(FIELD_PANEL_KIND, PanelTypeEntityType, PanelTypeInternalData, panel_kind,
+    name: "panel_kind", display: "Panel Kind",
+    desc: "Human-readable kind name for this panel type.",
+    aliases: &["kind", "type_name"]);
 
-/// Hidden flag — not shown in UI.
-static FIELD_HIDDEN: FieldDescriptor<PanelTypeEntityType> = FieldDescriptor {
-    name: "hidden",
-    display: "Hidden",
-    description: "Whether this panel type is hidden from UI.",
-    aliases: &[],
-    required: false,
-    crdt_type: CrdtFieldType::Scalar,
-    read_fn: Some(ReadFn::Bare(|d: &PanelTypeInternalData| {
-        Some(FieldValue::Boolean(d.data.hidden))
-    })),
-    write_fn: Some(WriteFn::Bare(|d: &mut PanelTypeInternalData, v| {
-        d.data.hidden = v.into_bool()?;
-        Ok(())
-    })),
-    index_fn: None,
-    verify_fn: None,
-};
+bool_field!(FIELD_HIDDEN, PanelTypeEntityType, PanelTypeInternalData, hidden,
+    name: "hidden", display: "Hidden",
+    desc: "Whether this panel type is hidden from UI.",
+    aliases: &[]);
 
-/// Is a workshop panel.
-static FIELD_IS_WORKSHOP: FieldDescriptor<PanelTypeEntityType> = FieldDescriptor {
-    name: "is_workshop",
-    display: "Is Workshop",
-    description: "Whether panels of this type are workshops.",
-    aliases: &["workshop"],
-    required: false,
-    crdt_type: CrdtFieldType::Scalar,
-    read_fn: Some(ReadFn::Bare(|d: &PanelTypeInternalData| {
-        Some(FieldValue::Boolean(d.data.is_workshop))
-    })),
-    write_fn: Some(WriteFn::Bare(|d: &mut PanelTypeInternalData, v| {
-        d.data.is_workshop = v.into_bool()?;
-        Ok(())
-    })),
-    index_fn: None,
-    verify_fn: None,
-};
+bool_field!(FIELD_IS_WORKSHOP, PanelTypeEntityType, PanelTypeInternalData, is_workshop,
+    name: "is_workshop", display: "Is Workshop",
+    desc: "Whether panels of this type are workshops.",
+    aliases: &["workshop"]);
 
-/// Is a break period.
-static FIELD_IS_BREAK: FieldDescriptor<PanelTypeEntityType> = FieldDescriptor {
-    name: "is_break",
-    display: "Is Break",
-    description: "Whether panels of this type are break periods.",
-    aliases: &["break"],
-    required: false,
-    crdt_type: CrdtFieldType::Scalar,
-    read_fn: Some(ReadFn::Bare(|d: &PanelTypeInternalData| {
-        Some(FieldValue::Boolean(d.data.is_break))
-    })),
-    write_fn: Some(WriteFn::Bare(|d: &mut PanelTypeInternalData, v| {
-        d.data.is_break = v.into_bool()?;
-        Ok(())
-    })),
-    index_fn: None,
-    verify_fn: None,
-};
+bool_field!(FIELD_IS_BREAK, PanelTypeEntityType, PanelTypeInternalData, is_break,
+    name: "is_break", display: "Is Break",
+    desc: "Whether panels of this type are break periods.",
+    aliases: &["break"]);
 
-/// Is a cafe event.
-static FIELD_IS_CAFE: FieldDescriptor<PanelTypeEntityType> = FieldDescriptor {
-    name: "is_cafe",
-    display: "Is Cafe",
-    description: "Whether panels of this type are cafe events.",
-    aliases: &["cafe"],
-    required: false,
-    crdt_type: CrdtFieldType::Scalar,
-    read_fn: Some(ReadFn::Bare(|d: &PanelTypeInternalData| {
-        Some(FieldValue::Boolean(d.data.is_cafe))
-    })),
-    write_fn: Some(WriteFn::Bare(|d: &mut PanelTypeInternalData, v| {
-        d.data.is_cafe = v.into_bool()?;
-        Ok(())
-    })),
-    index_fn: None,
-    verify_fn: None,
-};
+bool_field!(FIELD_IS_CAFE, PanelTypeEntityType, PanelTypeInternalData, is_cafe,
+    name: "is_cafe", display: "Is Cafe",
+    desc: "Whether panels of this type are cafe events.",
+    aliases: &["cafe"]);
 
-/// Is room hours scheduling.
-static FIELD_IS_ROOM_HOURS: FieldDescriptor<PanelTypeEntityType> = FieldDescriptor {
-    name: "is_room_hours",
-    display: "Is Room Hours",
-    description: "Whether panels of this type are room hours.",
-    aliases: &["room_hours"],
-    required: false,
-    crdt_type: CrdtFieldType::Scalar,
-    read_fn: Some(ReadFn::Bare(|d: &PanelTypeInternalData| {
-        Some(FieldValue::Boolean(d.data.is_room_hours))
-    })),
-    write_fn: Some(WriteFn::Bare(|d: &mut PanelTypeInternalData, v| {
-        d.data.is_room_hours = v.into_bool()?;
-        Ok(())
-    })),
-    index_fn: None,
-    verify_fn: None,
-};
+bool_field!(FIELD_IS_ROOM_HOURS, PanelTypeEntityType, PanelTypeInternalData, is_room_hours,
+    name: "is_room_hours", display: "Is Room Hours",
+    desc: "Whether panels of this type are room hours.",
+    aliases: &["room_hours"]);
 
-/// Is timeline event.
-static FIELD_IS_TIMELINE: FieldDescriptor<PanelTypeEntityType> = FieldDescriptor {
-    name: "is_timeline",
-    display: "Is Timeline",
-    description: "Whether panels of this type are timeline events.",
-    aliases: &["timeline"],
-    required: false,
-    crdt_type: CrdtFieldType::Scalar,
-    read_fn: Some(ReadFn::Bare(|d: &PanelTypeInternalData| {
-        Some(FieldValue::Boolean(d.data.is_timeline))
-    })),
-    write_fn: Some(WriteFn::Bare(|d: &mut PanelTypeInternalData, v| {
-        d.data.is_timeline = v.into_bool()?;
-        Ok(())
-    })),
-    index_fn: None,
-    verify_fn: None,
-};
+bool_field!(FIELD_IS_TIMELINE, PanelTypeEntityType, PanelTypeInternalData, is_timeline,
+    name: "is_timeline", display: "Is Timeline",
+    desc: "Whether panels of this type are timeline events.",
+    aliases: &["timeline"]);
 
-/// Is private event.
-static FIELD_IS_PRIVATE: FieldDescriptor<PanelTypeEntityType> = FieldDescriptor {
-    name: "is_private",
-    display: "Is Private",
-    description: "Whether panels of this type are private events.",
-    aliases: &["private"],
-    required: false,
-    crdt_type: CrdtFieldType::Scalar,
-    read_fn: Some(ReadFn::Bare(|d: &PanelTypeInternalData| {
-        Some(FieldValue::Boolean(d.data.is_private))
-    })),
-    write_fn: Some(WriteFn::Bare(|d: &mut PanelTypeInternalData, v| {
-        d.data.is_private = v.into_bool()?;
-        Ok(())
-    })),
-    index_fn: None,
-    verify_fn: None,
-};
+bool_field!(FIELD_IS_PRIVATE, PanelTypeEntityType, PanelTypeInternalData, is_private,
+    name: "is_private", display: "Is Private",
+    desc: "Whether panels of this type are private events.",
+    aliases: &["private"]);
 
-/// CSS color (e.g. `"#db2777"`).
-static FIELD_COLOR: FieldDescriptor<PanelTypeEntityType> = FieldDescriptor {
-    name: "color",
-    display: "Color",
-    description: "CSS color for panels of this type.",
-    aliases: &[],
-    required: false,
-    crdt_type: CrdtFieldType::Scalar,
-    read_fn: Some(ReadFn::Bare(|d: &PanelTypeInternalData| {
-        Some(match &d.data.color {
-            Some(c) => FieldValue::String(c.clone()),
-            None => FieldValue::None,
-        })
-    })),
-    write_fn: Some(WriteFn::Bare(|d: &mut PanelTypeInternalData, v| {
-        if v.is_none() {
-            d.data.color = None;
-        } else {
-            d.data.color = Some(v.into_string()?);
-        }
-        Ok(())
-    })),
-    index_fn: None,
-    verify_fn: None,
-};
+opt_string_field!(FIELD_COLOR, PanelTypeEntityType, PanelTypeInternalData, color,
+    name: "color", display: "Color",
+    desc: "CSS color for panels of this type.",
+    aliases: &[]);
 
-/// Alternate monochrome color.
-static FIELD_BW: FieldDescriptor<PanelTypeEntityType> = FieldDescriptor {
-    name: "bw",
-    display: "BW Color",
-    description: "Alternate monochrome color for panels of this type.",
-    aliases: &["bw_color", "monochrome"],
-    required: false,
-    crdt_type: CrdtFieldType::Scalar,
-    read_fn: Some(ReadFn::Bare(|d: &PanelTypeInternalData| {
-        Some(match &d.data.bw {
-            Some(c) => FieldValue::String(c.clone()),
-            None => FieldValue::None,
-        })
-    })),
-    write_fn: Some(WriteFn::Bare(|d: &mut PanelTypeInternalData, v| {
-        if v.is_none() {
-            d.data.bw = None;
-        } else {
-            d.data.bw = Some(v.into_string()?);
-        }
-        Ok(())
-    })),
-    index_fn: None,
-    verify_fn: None,
-};
+opt_string_field!(FIELD_BW, PanelTypeEntityType, PanelTypeInternalData, bw,
+    name: "bw", display: "BW Color",
+    desc: "Alternate monochrome color for panels of this type.",
+    aliases: &["bw_color", "monochrome"]);
 
 /// Computed display name — derived from `panel_kind` and `prefix`.
 ///
@@ -442,25 +251,12 @@ static FIELD_DISPLAY_NAME: FieldDescriptor<PanelTypeEntityType> = FieldDescripto
     verify_fn: None,
 };
 
-/// Panels of this type — edge-backed computed field (deferred to FEATURE-018).
-///
-/// This field will be populated from edge maps when relationship storage
-/// is implemented in FEATURE-018.
-static FIELD_PANELS: FieldDescriptor<PanelTypeEntityType> = FieldDescriptor {
-    name: "panels",
-    display: "Panels",
-    description: "Panels of this type.",
-    aliases: &[],
-    required: false,
-    crdt_type: CrdtFieldType::Derived,
-    read_fn: Some(ReadFn::Bare(|_d: &PanelTypeInternalData| {
-        // Edge-backed; will query edge maps in FEATURE-018
-        Some(FieldValue::List(Vec::new()))
-    })),
-    write_fn: None, // Read-only edge-backed field
-    index_fn: None,
-    verify_fn: None,
-};
+// Panels of this type — edge-backed computed field (deferred to FEATURE-018).
+// Populated from edge maps when relationship storage is implemented.
+edge_list_field!(FIELD_PANELS, PanelTypeEntityType, PanelTypeInternalData,
+    name: "panels", display: "Panels",
+    desc: "Panels of this type.",
+    aliases: &[]);
 
 // ── FieldSet ────────────────────────────────────────────────────────────────────
 

@@ -255,6 +255,18 @@ static FIELD_PANEL_PRESENTERS: FieldDescriptor<PanelEntityType> = FieldDescripto
 };
 ```
 
+### Shared declaration macros
+
+Uniformly-shaped descriptors (required/optional strings, booleans, optional
+integers, plain-text fields, edge-backed stubs) are declared via shared
+`macro_rules!` helpers in `crates/schedule-core/src/field_macros.rs`:
+`req_string_field!`, `opt_string_field!`, `opt_text_field!`, `bool_field!`,
+`opt_i64_field!`, `edge_list_field!`, `edge_list_field_rw!`,
+`edge_none_field_rw!`, `edge_mutator_field!`. Each macro takes the entity type
+and `InternalData` type explicitly, and assumes the `data: CommonData`
+convention. Bespoke descriptors (computed projections, fields with custom
+parse logic) stay as hand-written struct literals.
+
 ## FieldSet
 
 `FieldSet<E>` is an ordered, name-indexed collection of `&'static FieldDescriptor<E>`

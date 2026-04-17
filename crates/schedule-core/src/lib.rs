@@ -6,6 +6,7 @@
 
 pub mod entity;
 pub mod field;
+pub(crate) mod field_macros;
 pub mod field_set;
 pub mod panel;
 pub mod panel_type;

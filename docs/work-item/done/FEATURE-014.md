@@ -66,6 +66,12 @@ After implementing, evaluate whether a `macro_rules!` helper or proc-macro
 for field descriptor declarations would reduce boilerplate enough to warrant
 adding.
 
+**Outcome:** Adopted `macro_rules!` — see REFACTOR-047. Proc-macros were
+rejected (obscure the hand-written `CommonData` struct); `const fn` builders
+and `FieldDescriptorConfig` were rejected (cannot abstract the per-field
+accessor closure while keeping `static` construction). Shared macros live in
+`crates/schedule-core/src/field_macros.rs`.
+
 ## Acceptance Criteria
 
 - PanelTypeData compiles with serde serialization
