@@ -18,12 +18,17 @@ High
 
 The current `FieldValue` enum conflates scalar values, lists, and absence into a
 single flat enum. This overhaul splits it into `FieldValueItem` (scalars) and
-`FieldValue` (`Single`/`Optional`/`List` wrappers), adds a matching `FieldTypeItem` /
+`FieldValue` (`Single`/`List` wrappers), adds a matching `FieldTypeItem` /
 `FieldType` pair for type-level declarations, wires `FieldType` into field descriptors,
 and finally adds the type-safe `FieldValueConverter` system for import pipelines.
 
 The `EntityIdentifier` ad-hoc enum is also removed; entity references are unified
-under `FieldValueItem::EntityId(RuntimeEntityId)`.
+under `FieldValueItem::EntityIdentifier(RuntimeEntityId)`.
+
+**Note**: REFACTOR-049 completed the FieldValue restructuring. The actual implementation
+uses `Single`/`List` wrappers (without an `Optional` variant) and `EntityIdentifier`
+as the variant name (not `EntityId`). Absent optional fields return `None` from
+read functions; empty lists return `FieldValue::List(vec![])`.
 
 ## Work Items
 

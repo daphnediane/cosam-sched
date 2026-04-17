@@ -102,21 +102,29 @@ which uses the entity type's `uuid_namespace()` for v5 generation.
 
 ## FieldValue
 
-Universal value enum used for all field read/write operations:
+Universal value enum used for all field read/write operations. The system uses a two-level structure:
 
-| Variant                 | Use                                                |
-| ----------------------- | -------------------------------------------------- |
-| `String`                | Short text, codes, URLs                            |
-| `Text`                  | Long prose — distinct variant for CRDT RGA routing |
-| `Integer`               | Counts, durations in minutes, sort keys            |
-| `Float`                 | Fractional values                                  |
-| `Boolean`               | Flags                                              |
-| `DateTime`              | ISO-8601 timestamps                                |
-| `Duration`              | Chrono durations                                   |
-| `NonNilUuid`            | Single entity reference                            |
-| `List(Vec<FieldValue>)` | Multi-value fields and relationship lists          |
-| `EntityIdentifier`      | UUID or string tag for entity lookup               |
-| `None`                  | Absent / unset                                     |
+**`FieldValueItem`** - Scalar value types:
+
+| Variant            | Use                                                |
+| ------------------ | -------------------------------------------------- |
+| `String`           | Short text, codes, URLs                            |
+| `Text`             | Long prose — distinct variant for CRDT RGA routing |
+| `Integer`          | Counts, durations in minutes, sort keys            |
+| `Float`            | Fractional values                                  |
+| `Boolean`          | Flags                                              |
+| `DateTime`         | ISO-8601 timestamps                                |
+| `Duration`         | Chrono durations                                   |
+| `EntityIdentifier` | Entity reference (RuntimeEntityId)                 |
+
+**`FieldValue`** - Cardinality wrapper:
+
+| Variant                     | Use                                       |
+| --------------------------- | ----------------------------------------- |
+| `Single(FieldValueItem)`    | Single value fields                       |
+| `List(Vec<FieldValueItem>)` | Multi-value fields and relationship lists |
+
+Absent optional fields return `None` from read functions; empty lists return `FieldValue::List(vec![])`.
 
 ## CrdtFieldType
 

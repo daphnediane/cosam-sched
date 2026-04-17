@@ -1,6 +1,6 @@
 # Cosplay America Schedule - Work Item
 
-Updated on: Fri Apr 17 09:19:22 2026
+Updated on: Fri Apr 17 13:58:07 2026
 
 ## Completed
 
@@ -16,12 +16,15 @@ Updated on: Fri Apr 17 09:19:22 2026
 * [META-002] Phase tracker for project foundation and Cargo workspace setup.
 * [REFACTOR-047] Extract the `macro_rules!` helpers from `panel.rs` into a shared `field_macros.rs`
 and adopt them in `panel_type.rs` to eliminate per-entity boilerplate.
+* [REFACTOR-049] Split the flat `FieldValue` enum into `FieldValueItem` (scalars only) and
+`FieldValue` (`Single`/`List` wrappers), removing `None`,
+`NonNilUuid`, and `EntityIdentifier` variants.
 
 ---
 
 ## Summary of Open Items
 
-**Total open items:** 34
+**Total open items:** 33
 
 * **Meta / Project-Level**
   * [META-001] Meta work item tracking the full multi-phase redesign of the schedule system. (Blocked by [META-003], [META-004], [META-005], [META-006], [META-007], [META-008])
@@ -49,9 +52,6 @@ existing static field descriptors across every entity file.
   * [REFACTOR-041] Replace the `EntityKind` enum with direct use of `EntityType::TYPE_NAME` strings,
 following the v10-try3 design. This eliminates the central enum that required
 modification for every new entity type.
-  * [REFACTOR-049] ([META-048]) Split the flat `FieldValue` enum into `FieldValueItem` (scalars only) and
-`FieldValue` (`Single`/`Optional`/`List` wrappers), removing `None`,
-`NonNilUuid`, and `EntityIdentifier` variants.
 
 * **Medium Priority**
   * [BUGFIX-045] In `scratch/field_update_logic.rs`, duration values are incorrectly stored as `FieldValue::Integer(minutes)` instead of `FieldValue::Duration(Duration)`.
@@ -580,12 +580,17 @@ enums, wire `FieldType` into `FieldDescriptor`, and implement the generic
 
 **Description:** The current `FieldValue` enum conflates scalar values, lists, and absence into a
 single flat enum. This overhaul splits it into `FieldValueItem` (scalars) and
-`FieldValue` (`Single`/`Optional`/`List` wrappers), adds a matching `FieldTypeItem` /
+`FieldValue` (`Single`/`List` wrappers), adds a matching `FieldTypeItem` /
 `FieldType` pair for type-level declarations, wires `FieldType` into field descriptors,
 and finally adds the type-safe `FieldValueConverter` system for import pipelines.
 
 The `EntityIdentifier` ad-hoc enum is also removed; entity references are unified
-under `FieldValueItem::EntityId(RuntimeEntityId)`.
+under `FieldValueItem::EntityIdentifier(RuntimeEntityId)`.
+
+**Note**: REFACTOR-049 completed the FieldValue restructuring. The actual implementation
+uses `Single`/`List` wrappers (without an `Optional` variant) and `EntityIdentifier`
+as the variant name (not `EntityId`). Absent optional fields return `None` from
+read functions; empty lists return `FieldValue::List(vec![])`.
 
 **Work Items:**
 
@@ -732,24 +737,6 @@ Both are now handled without a central enum:
 
 ---
 
-### [REFACTOR-049] REFACTOR-049: Restructure FieldValue → FieldValueItem + cardinality
-
-**Status:** Open
-
-**Priority:** High
-
-**Summary:** Split the flat `FieldValue` enum into `FieldValueItem` (scalars only) and
-`FieldValue` (`Single`/`Optional`/`List` wrappers), removing `None`,
-`NonNilUuid`, and `EntityIdentifier` variants.
-
-**Part of:** [META-048]
-
-**Description:** The current `FieldValue` enum mixes scalar data, list cardinality, and absence
-into a single flat structure. This makes it hard to reason about field types and
-requires special-casing `None` everywhere.
-
----
-
 ---
 
 [BUGFIX-045]: work-item/medium/BUGFIX-045.md
@@ -796,4 +783,4 @@ requires special-casing `None` everywhere.
 [META-048]: work-item/meta/META-048.md
 [REFACTOR-041]: work-item/high/REFACTOR-041.md
 [REFACTOR-047]: work-item/done/REFACTOR-047.md
-[REFACTOR-049]: work-item/high/REFACTOR-049.md
+[REFACTOR-049]: work-item/done/REFACTOR-049.md

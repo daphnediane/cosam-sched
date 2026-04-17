@@ -18,9 +18,10 @@
 use crate::entity::{EntityId, EntityType, FieldSet};
 use crate::field::{FieldDescriptor, MatchPriority, ReadFn, WriteFn};
 use crate::field_macros::{edge_list_field_rw, opt_i64_field, req_string_field};
+use crate::field_string;
 use crate::hotel_room::HotelRoomId;
 use crate::panel::PanelId;
-use crate::value::{CrdtFieldType, FieldValue, ValidationError};
+use crate::value::{CrdtFieldType, ValidationError};
 use serde::{Deserialize, Serialize};
 use std::sync::LazyLock;
 
@@ -138,13 +139,10 @@ static FIELD_LONG_NAME: FieldDescriptor<EventRoomEntityType> = FieldDescriptor {
     crdt_type: CrdtFieldType::Scalar,
     example: "Grand Ballroom A",
     read_fn: Some(ReadFn::Bare(|d: &EventRoomInternalData| {
-        Some(match &d.data.long_name {
-            Some(s) => FieldValue::String(s.clone()),
-            None => FieldValue::None,
-        })
+        d.data.long_name.as_ref().map(|s| field_string!(s.clone()))
     })),
     write_fn: Some(WriteFn::Bare(|d: &mut EventRoomInternalData, v| {
-        if v.is_none() {
+        if v.is_empty() {
             d.data.long_name = None;
         } else {
             d.data.long_name = Some(v.into_string()?);
@@ -206,6 +204,7 @@ static EVENT_ROOM_FIELD_SET: LazyLock<FieldSet<EventRoomEntityType>> = LazyLock:
 mod tests {
     use super::*;
     use crate::schedule::Schedule;
+    use crate::{field_integer, field_value};
     use uuid::Uuid;
 
     fn make_id() -> EventRoomId {
@@ -253,15 +252,15 @@ mod tests {
         let fs = EventRoomEntityType::field_set();
         assert_eq!(
             fs.read_field_value("room_name", id, &sched).unwrap(),
-            Some(FieldValue::String("Panel 1".into()))
+            Some(field_string!("Panel 1"))
         );
         assert_eq!(
             fs.read_field_value("long_name", id, &sched).unwrap(),
-            Some(FieldValue::String("Grand Ballroom A".into()))
+            Some(field_string!("Grand Ballroom A"))
         );
         assert_eq!(
             fs.read_field_value("sort_key", id, &sched).unwrap(),
-            Some(FieldValue::Integer(10))
+            Some(field_integer!(10))
         );
     }
 
@@ -270,10 +269,10 @@ mod tests {
         let id = make_id();
         let mut sched = schedule_with(id, make_internal());
         let fs = EventRoomEntityType::field_set();
-        fs.write_field_value("long_name", id, &mut sched, FieldValue::None)
+        fs.write_field_value("long_name", id, &mut sched, field_value!(empty_list))
             .unwrap();
         let value = fs.read_field_value("long_name", id, &sched).unwrap();
-        assert_eq!(value, Some(FieldValue::None));
+        assert_eq!(value, None);
     }
 
     #[test]
@@ -320,11 +319,11 @@ mod tests {
         let fs = EventRoomEntityType::field_set();
         assert_eq!(
             fs.read_field_value("hotel_rooms", id, &sched).unwrap(),
-            Some(FieldValue::List(Vec::new()))
+            Some(field_value!(empty_list))
         );
         assert_eq!(
             fs.read_field_value("panels", id, &sched).unwrap(),
-            Some(FieldValue::List(Vec::new()))
+            Some(field_value!(empty_list))
         );
     }
 }

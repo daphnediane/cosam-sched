@@ -217,7 +217,8 @@ mod tests {
     use super::*;
     use crate::entity::{EntityId, EntityType};
     use crate::field::{ReadFn, WriteFn};
-    use crate::value::{CrdtFieldType, FieldError, FieldValue, ValidationError};
+    use crate::value::{CrdtFieldType, FieldError, ValidationError};
+    use crate::{field_integer, field_string};
     use uuid::Uuid;
 
     // ── Mock entity ──────────────────────────────────────────────────────────
@@ -265,7 +266,7 @@ mod tests {
         crdt_type: CrdtFieldType::Scalar,
         example: "Hello World",
         read_fn: Some(ReadFn::Bare(|d: &MockData| {
-            Some(FieldValue::String(d.label.clone()))
+            Some(field_string!(d.label.clone()))
         })),
         write_fn: Some(WriteFn::Bare(|d: &mut MockData, v| {
             d.label = v.into_string()?;
@@ -295,9 +296,7 @@ mod tests {
         required: false,
         crdt_type: CrdtFieldType::Scalar,
         example: "7",
-        read_fn: Some(ReadFn::Bare(|d: &MockData| {
-            Some(FieldValue::Integer(d.count))
-        })),
+        read_fn: Some(ReadFn::Bare(|d: &MockData| Some(field_integer!(d.count)))),
         write_fn: Some(WriteFn::Bare(|d: &mut MockData, v| {
             d.count = v.into_integer()?;
             Ok(())
@@ -314,7 +313,7 @@ mod tests {
         required: false,
         crdt_type: CrdtFieldType::Derived,
         example: "42",
-        read_fn: Some(ReadFn::Bare(|_: &MockData| Some(FieldValue::Integer(42)))),
+        read_fn: Some(ReadFn::Bare(|_: &MockData| Some(field_integer!(42)))),
         write_fn: None,
         index_fn: None,
         verify_fn: None,
@@ -442,7 +441,7 @@ mod tests {
             },
         );
         let v = fs.read_field_value("label", id, &sched).unwrap();
-        assert_eq!(v, Some(FieldValue::String("Hello".into())));
+        assert_eq!(v, Some(field_string!("Hello")));
     }
 
     #[test]
@@ -457,7 +456,7 @@ mod tests {
             },
         );
         let v = fs.read_field_value("tag", id, &sched).unwrap();
-        assert_eq!(v, Some(FieldValue::String("World".into())));
+        assert_eq!(v, Some(field_string!("World")));
     }
 
     #[test]
@@ -488,7 +487,7 @@ mod tests {
                 count: 0,
             },
         );
-        fs.write_field_value("label", id, &mut sched, FieldValue::String("new".into()))
+        fs.write_field_value("label", id, &mut sched, field_string!("new"))
             .unwrap();
         assert_eq!(sched.get_internal::<MockEntity>(id).unwrap().label, "new");
     }
@@ -504,13 +503,8 @@ mod tests {
                 count: 0,
             },
         );
-        fs.write_field_value(
-            "name",
-            id,
-            &mut sched,
-            FieldValue::String("alias-written".into()),
-        )
-        .unwrap();
+        fs.write_field_value("name", id, &mut sched, field_string!("alias-written"))
+            .unwrap();
         assert_eq!(
             sched.get_internal::<MockEntity>(id).unwrap().label,
             "alias-written"
@@ -529,7 +523,7 @@ mod tests {
             },
         );
         assert!(matches!(
-            fs.write_field_value("nofield", id, &mut sched, FieldValue::Integer(1)),
+            fs.write_field_value("nofield", id, &mut sched, field_integer!(1)),
             Err(FieldError::NotFound { .. })
         ));
     }

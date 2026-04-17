@@ -7,14 +7,15 @@
 use chrono::{Duration, NaiveDateTime};
 use std::fmt;
 use thiserror::Error;
-use uuid::Uuid;
 
-/// Universal value enum used for all field read/write operations.
+use crate::entity::RuntimeEntityId;
+
+/// Base value types for fields.
 ///
 /// `String` and `Text` are distinct variants so the CRDT layer can route
 /// short scalars vs. long prose to the appropriate automerge operation type.
 #[derive(Debug, Clone, PartialEq)]
-pub enum FieldValue {
+pub enum FieldValueItem {
     /// Short text: codes, names, URLs, enum tags.
     String(std::string::String),
     /// Long prose: descriptions, bios, notes — routed to CRDT RGA storage.
@@ -29,36 +30,23 @@ pub enum FieldValue {
     DateTime(NaiveDateTime),
     /// Chrono duration.
     Duration(Duration),
-    /// Single entity UUID reference (non-nil).
-    NonNilUuid(Uuid),
-    /// UUID or string tag for entity lookup — used by callers that may supply
-    /// either a UUID or a natural-key string.
-    EntityIdentifier(EntityIdentifier),
-    /// Multi-value list.
-    List(Vec<FieldValue>),
-    /// Absent / unset.
-    None,
+    /// Identifier for an entity
+    EntityIdentifier(RuntimeEntityId),
 }
 
-/// A reference to an entity by either its UUID or a natural-key string.
+/// Universal value enum used for all field read/write operations.
+///
+/// This is a wrapper around `FieldValueItem` that allows for single values or lists of values.
 #[derive(Debug, Clone, PartialEq)]
-pub enum EntityIdentifier {
-    /// Exact UUID reference.
-    Id(Uuid),
-    /// Natural-key string (name, code, etc.).
-    Name(std::string::String),
+pub enum FieldValue {
+    /// FieldValue
+    Single(FieldValueItem),
+    /// Multi-value list.
+    List(Vec<FieldValueItem>),
 }
 
-impl fmt::Display for EntityIdentifier {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        match self {
-            Self::Id(uuid) => write!(f, "{uuid}"),
-            Self::Name(name) => write!(f, "{name}"),
-        }
-    }
-}
 
-impl fmt::Display for FieldValue {
+impl fmt::Display for FieldValueItem {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
             Self::String(s) | Self::Text(s) => write!(f, "{s}"),
@@ -67,18 +55,25 @@ impl fmt::Display for FieldValue {
             Self::Boolean(b) => write!(f, "{b}"),
             Self::DateTime(dt) => write!(f, "{dt}"),
             Self::Duration(d) => write!(f, "{}m", d.num_minutes()),
-            Self::NonNilUuid(uuid) => write!(f, "{uuid}"),
             Self::EntityIdentifier(ei) => write!(f, "{ei}"),
-            Self::List(items) => {
-                let parts: Vec<_> = items.iter().map(|v| v.to_string()).collect();
-                write!(f, "[{}]", parts.join(", "))
-            }
-            Self::None => write!(f, ""),
         }
     }
 }
 
-impl FieldValue {
+impl fmt::Display for FieldValue {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            Self::Single(item) => write!(f, "{item}"),
+            Self::List(items) => {
+                let parts: Vec<_> = items.iter().map(|v| v.to_string()).collect();
+                write!(f, "[{}]", parts.join(", "))
+            }
+        }
+    }
+}
+
+// @TOD: These will be superseded by FEATURE-038.md
+impl FieldValueItem {
     /// Consume `self` and return the inner `String` value, or a
     /// [`ConversionError`] if the variant is not `String`.
     pub fn into_string(self) -> Result<std::string::String, ConversionError> {
@@ -158,32 +153,15 @@ impl FieldValue {
         }
     }
 
-    /// Consume `self` and return the inner `NonNilUuid` value.
-    pub fn into_non_nil_uuid(self) -> Result<Uuid, ConversionError> {
+    /// Consume `self` and return a `RuntimeEntityId` value.
+    pub fn into_entity_identifier(self) -> Result<RuntimeEntityId, ConversionError> {
         match self {
-            Self::NonNilUuid(uuid) => Ok(uuid),
+            Self::EntityIdentifier(id) => Ok(id),
             other => Err(ConversionError::WrongVariant {
-                expected: "NonNilUuid",
+                expected: "EntityIdentifier",
                 got: other.variant_name(),
             }),
         }
-    }
-
-    /// Consume `self` and return the inner `List` value.
-    pub fn into_list(self) -> Result<Vec<FieldValue>, ConversionError> {
-        match self {
-            Self::List(items) => Ok(items),
-            other => Err(ConversionError::WrongVariant {
-                expected: "List",
-                got: other.variant_name(),
-            }),
-        }
-    }
-
-    /// Returns `true` if this value is `None`.
-    #[must_use]
-    pub fn is_none(&self) -> bool {
-        matches!(self, Self::None)
     }
 
     fn variant_name(&self) -> &'static str {
@@ -195,11 +173,92 @@ impl FieldValue {
             Self::Boolean(_) => "Boolean",
             Self::DateTime(_) => "DateTime",
             Self::Duration(_) => "Duration",
-            Self::NonNilUuid(_) => "NonNilUuid",
             Self::EntityIdentifier(_) => "EntityIdentifier",
-            Self::List(_) => "List",
-            Self::None => "None",
         }
+    }
+}
+
+impl FieldValue {
+    /// Returns `true` if this value is empty (no items).
+    #[must_use]
+    pub fn is_empty(&self) -> bool {
+        match self {
+            Self::Single(_) => false,
+            Self::List(items) => items.is_empty(),
+        }
+    }
+
+    /// Returns `true` if this value is a single item.
+    #[must_use]
+    pub fn is_single(&self) -> bool {
+        match self {
+            Self::Single(_) => true,
+            Self::List(items) => items.len() == 1,
+        }
+    }
+
+    /// Consume `self` and return the inner `List` value.
+    pub fn into_list(self) -> Result<Vec<FieldValueItem>, ConversionError> {
+        match self {
+            Self::Single(item) => Ok(vec![item]),
+            Self::List(items) => Ok(items),
+        }
+    }
+
+    /// Consume `self` and return a single value.
+    pub fn into_single(self) -> Result<FieldValueItem, ConversionError> {
+        match self {
+            Self::Single(item) => Ok(item),
+            Self::List(items) => {
+                if items.len() != 1 {
+                    return Err(ConversionError::WrongVariant {
+                        expected: "Single",
+                        got: "List that is not exactly one item",
+                    });
+                }
+                Ok(items[0].clone())
+            }
+        }
+    }
+
+    /// Consume `self` and return a String value.
+    pub fn into_string(self) -> Result<String, ConversionError> {
+        self.into_single()?.into_string()
+    }
+
+    /// Consume `self` and return a Text value.
+    pub fn into_text(self) -> Result<String, ConversionError> {
+        self.into_single()?.into_text()
+    }
+
+    /// Consume `self` and return an Integer value.
+    pub fn into_integer(self) -> Result<i64, ConversionError> {
+        self.into_single()?.into_integer()
+    }
+
+    /// Consume `self` and return a Float value.
+    pub fn into_float(self) -> Result<f64, ConversionError> {
+        self.into_single()?.into_float()
+    }
+
+    /// Consume `self` and return a Boolean value.
+    pub fn into_bool(self) -> Result<bool, ConversionError> {
+        self.into_single()?.into_bool()
+    }
+
+    /// Consume `self` and return a DateTime value.
+    pub fn into_datetime(self) -> Result<chrono::NaiveDateTime, ConversionError> {
+        self.into_single()?.into_datetime()
+    }
+
+    /// Consume `self` and return a Duration value.
+    pub fn into_duration(self) -> Result<chrono::Duration, ConversionError> {
+        self.into_single()?.into_duration()
+    }
+
+    /// Consume `self` and return an EntityIdentifier value.
+    pub fn into_entity_identifier(self) -> Result<crate::entity::RuntimeEntityId, ConversionError> {
+        self.into_single()?.into_entity_identifier()
     }
 }
 
@@ -305,88 +364,92 @@ mod tests {
 
     #[test]
     fn test_field_value_display_string() {
-        assert_eq!(FieldValue::String("hello".into()).to_string(), "hello");
+        assert_eq!(FieldValueItem::String("hello".into()).to_string(), "hello");
     }
 
     #[test]
     fn test_field_value_display_text() {
-        assert_eq!(FieldValue::Text("bio".into()).to_string(), "bio");
+        assert_eq!(FieldValueItem::Text("bio".into()).to_string(), "bio");
     }
 
     #[test]
     fn test_field_value_display_integer() {
-        assert_eq!(FieldValue::Integer(42).to_string(), "42");
+        assert_eq!(FieldValueItem::Integer(42).to_string(), "42");
     }
 
     #[test]
     #[allow(clippy::approx_constant)]
     fn test_field_value_display_float() {
-        assert_eq!(FieldValue::Float(3.14).to_string(), "3.14");
+        assert_eq!(FieldValueItem::Float(3.14).to_string(), "3.14");
     }
 
     #[test]
     fn test_field_value_display_boolean() {
-        assert_eq!(FieldValue::Boolean(true).to_string(), "true");
-        assert_eq!(FieldValue::Boolean(false).to_string(), "false");
+        assert_eq!(FieldValueItem::Boolean(true).to_string(), "true");
+        assert_eq!(FieldValueItem::Boolean(false).to_string(), "false");
     }
 
     #[test]
     fn test_field_value_display_datetime() {
-        let v = FieldValue::DateTime(sample_datetime());
+        let v = FieldValueItem::DateTime(sample_datetime());
         assert!(v.to_string().contains("2026"));
     }
 
     #[test]
     fn test_field_value_display_duration() {
         let d = Duration::try_minutes(90).unwrap();
-        assert_eq!(FieldValue::Duration(d).to_string(), "90m");
-    }
-
-    #[test]
-    fn test_field_value_display_none() {
-        assert_eq!(FieldValue::None.to_string(), "");
+        assert_eq!(FieldValueItem::Duration(d).to_string(), "90m");
     }
 
     #[test]
     fn test_field_value_display_list() {
         let v = FieldValue::List(vec![
-            FieldValue::String("a".into()),
-            FieldValue::String("b".into()),
+            FieldValueItem::String("a".into()),
+            FieldValueItem::String("b".into()),
         ]);
         assert_eq!(v.to_string(), "[a, b]");
     }
 
     #[test]
     fn test_into_string_ok() {
-        let v = FieldValue::String("test".into());
+        let v = FieldValueItem::String("test".into());
         assert_eq!(v.into_string().unwrap(), "test");
     }
 
     #[test]
     fn test_into_string_wrong_variant() {
-        let v = FieldValue::Integer(1);
+        let v = FieldValueItem::Integer(1);
         assert!(v.into_string().is_err());
     }
 
     #[test]
     fn test_into_integer_ok() {
-        assert_eq!(FieldValue::Integer(7).into_integer().unwrap(), 7);
+        assert_eq!(FieldValueItem::Integer(7).into_integer().unwrap(), 7);
     }
 
     #[test]
     fn test_into_bool_ok() {
-        assert!(FieldValue::Boolean(true).into_bool().unwrap());
+        assert!(FieldValueItem::Boolean(true).into_bool().unwrap());
     }
 
     #[test]
-    fn test_is_none() {
-        assert!(FieldValue::None.is_none());
-        assert!(!FieldValue::Integer(0).is_none());
+    fn test_is_empty() {
+        assert!(FieldValue::List(vec![]).is_empty());
+        assert!(!FieldValue::Single(FieldValueItem::Integer(0)).is_empty());
+    }
+
+    #[test]
+    fn test_is_single() {
+        assert!(FieldValue::Single(FieldValueItem::Integer(0)).is_single());
+        assert!(
+            !FieldValue::List(vec![FieldValueItem::Integer(0), FieldValueItem::Integer(1)])
+                .is_single()
+        );
     }
 
     #[test]
     fn test_into_list_ok() {
-        let v = FieldValue::List(vec![FieldValue::Integer(1)]);
+        let v = FieldValue::List(vec![FieldValueItem::Integer(1)]);
         assert_eq!(v.into_list().unwrap().len(), 1);
     }
 
@@ -415,7 +478,7 @@ mod tests {
 
     #[test]
     fn test_field_value_clone_and_partial_eq() {
-        let v = FieldValue::String("clone_me".into());
+        let v = FieldValueItem::String("clone_me".into());
         assert_eq!(v.clone(), v);
     }
 }

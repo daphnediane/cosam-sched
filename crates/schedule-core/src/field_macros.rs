@@ -39,7 +39,7 @@
 //!
 //! - [`edge_list_field!`] — read-only `FieldValue::List(Vec::new())`.
 //! - [`edge_list_field_rw!`] — read empty list + no-op write.
-//! - [`edge_none_field_rw!`] — read `FieldValue::None` + no-op write (singular edge).
+//! - [`edge_none_field_rw!`] — read empty list + no-op write (singular edge).
 //! - [`edge_mutator_field!`] — write-only no-op (for `add_*`/`remove_*`).
 //!
 //! ## When to hand-write instead
@@ -91,7 +91,7 @@ macro_rules! req_string_field {
                 crdt_type: $crate::value::CrdtFieldType::Scalar,
                 example: $example,
                 read_fn: Some($crate::field::ReadFn::Bare(|d: &$internal| {
-                    Some($crate::value::FieldValue::String(d.data.$field.clone()))
+                    Some($crate::field_string!(d.data.$field.clone()))
                 })),
                 write_fn: Some($crate::field::WriteFn::Bare(|d: &mut $internal, v| {
                     d.data.$field = v.into_string()?;
@@ -124,16 +124,27 @@ macro_rules! opt_string_field {
                 crdt_type: $crate::value::CrdtFieldType::Scalar,
                 example: $example,
                 read_fn: Some($crate::field::ReadFn::Bare(|d: &$internal| {
-                    Some(match &d.data.$field {
-                        Some(s) => $crate::value::FieldValue::String(s.clone()),
-                        None => $crate::value::FieldValue::None,
-                    })
+                    d.data
+                        .$field
+                        .as_ref()
+                        .map(|s| $crate::field_string!(s.clone()))
                 })),
                 write_fn: Some($crate::field::WriteFn::Bare(|d: &mut $internal, v| {
-                    if v.is_none() {
-                        d.data.$field = None;
-                    } else {
-                        d.data.$field = Some(v.into_string()?);
+                    match v {
+                        $crate::value::FieldValue::List(_)
+                        | $crate::value::FieldValue::Single($crate::value::FieldValueItem::Text(
+                            _,
+                        )) => d.data.$field = None,
+                        $crate::value::FieldValue::Single(
+                            $crate::value::FieldValueItem::String(s),
+                        ) => d.data.$field = Some(s),
+                        _ => {
+                            return Err($crate::value::ConversionError::WrongVariant {
+                                expected: "String",
+                                got: "other",
+                            }
+                            .into())
+                        }
                     }
                     Ok(())
                 })),
@@ -162,16 +173,27 @@ macro_rules! opt_text_field {
                 crdt_type: $crate::value::CrdtFieldType::Text,
                 example: $example,
                 read_fn: Some($crate::field::ReadFn::Bare(|d: &$internal| {
-                    Some(match &d.data.$field {
-                        Some(s) => $crate::value::FieldValue::Text(s.clone()),
-                        None => $crate::value::FieldValue::None,
-                    })
+                    d.data
+                        .$field
+                        .as_ref()
+                        .map(|s| $crate::field_text!(s.clone()))
                 })),
                 write_fn: Some($crate::field::WriteFn::Bare(|d: &mut $internal, v| {
-                    if v.is_none() {
-                        d.data.$field = None;
-                    } else {
-                        d.data.$field = Some(v.into_text()?);
+                    match v {
+                        $crate::value::FieldValue::List(_) => d.data.$field = None,
+                        $crate::value::FieldValue::Single($crate::value::FieldValueItem::Text(
+                            s,
+                        )) => d.data.$field = Some(s),
+                        $crate::value::FieldValue::Single(
+                            $crate::value::FieldValueItem::String(s),
+                        ) => d.data.$field = Some(s),
+                        _ => {
+                            return Err($crate::value::ConversionError::WrongVariant {
+                                expected: "Text",
+                                got: "other",
+                            }
+                            .into())
+                        }
                     }
                     Ok(())
                 })),
@@ -199,7 +221,7 @@ macro_rules! bool_field {
                 crdt_type: $crate::value::CrdtFieldType::Scalar,
                 example: $example,
                 read_fn: Some($crate::field::ReadFn::Bare(|d: &$internal| {
-                    Some($crate::value::FieldValue::Boolean(d.data.$field))
+                    Some($crate::field_boolean!(d.data.$field))
                 })),
                 write_fn: Some($crate::field::WriteFn::Bare(|d: &mut $internal, v| {
                     d.data.$field = v.into_bool()?;
@@ -230,16 +252,24 @@ macro_rules! opt_i64_field {
                 crdt_type: $crate::value::CrdtFieldType::Scalar,
                 example: $example,
                 read_fn: Some($crate::field::ReadFn::Bare(|d: &$internal| {
-                    Some(match d.data.$field {
-                        Some(n) => $crate::value::FieldValue::Integer(n),
-                        None => $crate::value::FieldValue::None,
-                    })
+                    d.data.$field.map(|n| $crate::field_integer!(n))
                 })),
                 write_fn: Some($crate::field::WriteFn::Bare(|d: &mut $internal, v| {
-                    if v.is_none() {
-                        d.data.$field = None;
-                    } else {
-                        d.data.$field = Some(v.into_integer()?);
+                    match v {
+                        $crate::value::FieldValue::List(_)
+                        | $crate::value::FieldValue::Single($crate::value::FieldValueItem::Text(
+                            _,
+                        )) => d.data.$field = None,
+                        $crate::value::FieldValue::Single(
+                            $crate::value::FieldValueItem::Integer(n),
+                        ) => d.data.$field = Some(n),
+                        _ => {
+                            return Err($crate::value::ConversionError::WrongVariant {
+                                expected: "Integer",
+                                got: "other",
+                            }
+                            .into())
+                        }
                     }
                     Ok(())
                 })),
@@ -253,8 +283,8 @@ pub(crate) use opt_i64_field;
 // ── Edge-stub macros ──────────────────────────────────────────────────────────
 //
 // These produce `Derived` descriptors that stand in for edge-backed fields
-// until FEATURE-018 wires real edge storage. Reads return an empty list (or
-// `None` for singular edges); writes are accepted silently.
+// until FEATURE-018 wires real edge storage. Reads return an empty list
+// (Some(field_value!(empty_list))); writes are accepted silently.
 
 /// Edge-stub list field that is read-only (e.g. `inclusive_presenters`).
 macro_rules! edge_list_field {
@@ -273,7 +303,7 @@ macro_rules! edge_list_field {
                 crdt_type: $crate::value::CrdtFieldType::Derived,
                 example: $example,
                 read_fn: Some($crate::field::ReadFn::Bare(|_d: &$internal| {
-                    Some($crate::value::FieldValue::List(::std::vec::Vec::new()))
+                    Some($crate::field_empty_list!())
                 })),
                 write_fn: None,
                 index_fn: None,
@@ -300,7 +330,7 @@ macro_rules! edge_list_field_rw {
                 crdt_type: $crate::value::CrdtFieldType::Derived,
                 example: $example,
                 read_fn: Some($crate::field::ReadFn::Bare(|_d: &$internal| {
-                    Some($crate::value::FieldValue::List(::std::vec::Vec::new()))
+                    Some($crate::field_empty_list!())
                 })),
                 write_fn: Some($crate::field::WriteFn::Bare(
                     |_d: &mut $internal, _v| Ok(()),
@@ -312,7 +342,7 @@ macro_rules! edge_list_field_rw {
 }
 pub(crate) use edge_list_field_rw;
 
-/// Edge-stub singular field: read returns `FieldValue::None`, write is a no-op.
+/// Edge-stub singular field: read returns empty list, write is a no-op.
 /// Used for singular edge relations such as `panel_type`.
 macro_rules! edge_none_field_rw {
     (
@@ -330,7 +360,7 @@ macro_rules! edge_none_field_rw {
                 crdt_type: $crate::value::CrdtFieldType::Derived,
                 example: $example,
                 read_fn: Some($crate::field::ReadFn::Bare(|_d: &$internal| {
-                    Some($crate::value::FieldValue::None)
+                    Some($crate::field_empty_list!())
                 })),
                 write_fn: Some($crate::field::WriteFn::Bare(
                     |_d: &mut $internal, _v| Ok(()),

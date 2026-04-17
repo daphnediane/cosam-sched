@@ -23,7 +23,8 @@ use crate::field_macros::{
     req_string_field,
 };
 use crate::panel::PanelId;
-use crate::value::{CrdtFieldType, FieldValue, ValidationError};
+use crate::value::{CrdtFieldType, ValidationError};
+use crate::{field_boolean, field_string};
 use serde::{Deserialize, Deserializer, Serialize, Serializer};
 use std::sync::LazyLock;
 
@@ -319,7 +320,7 @@ static FIELD_RANK: FieldDescriptor<PresenterEntityType> = FieldDescriptor {
     crdt_type: CrdtFieldType::Scalar,
     example: "guest",
     read_fn: Some(ReadFn::Bare(|d: &PresenterInternalData| {
-        Some(FieldValue::String(d.data.rank.as_str().to_string()))
+        Some(field_string!(d.data.rank.as_str()))
     })),
     write_fn: Some(WriteFn::Bare(|d: &mut PresenterInternalData, v| {
         d.data.rank = PresenterRank::parse(&v.into_string()?);
@@ -367,7 +368,7 @@ static FIELD_IS_GROUP: FieldDescriptor<PresenterEntityType> = FieldDescriptor {
     crdt_type: CrdtFieldType::Derived,
     example: "false",
     read_fn: Some(ReadFn::Bare(|d: &PresenterInternalData| {
-        Some(FieldValue::Boolean(d.data.is_explicit_group))
+        Some(field_boolean!(d.data.is_explicit_group))
     })),
     write_fn: None,
     index_fn: None,
@@ -452,6 +453,7 @@ mod tests {
     use crate::field::MatchPriority;
     use crate::schedule::Schedule;
     use crate::value::FieldError;
+    use crate::{field_boolean, field_string, field_value};
     use uuid::Uuid;
 
     fn make_id() -> PresenterId {
@@ -550,11 +552,11 @@ mod tests {
         let fs = PresenterEntityType::field_set();
         assert_eq!(
             fs.read_field_value("name", id, &sched).unwrap(),
-            Some(FieldValue::String("Alice Example".into()))
+            Some(field_string!("Alice Example"))
         );
         assert_eq!(
             fs.read_field_value("rank", id, &sched).unwrap(),
-            Some(FieldValue::String("guest".into()))
+            Some(field_string!("guest"))
         );
     }
 
@@ -563,10 +565,10 @@ mod tests {
         let id = make_id();
         let mut sched = schedule_with(id, make_internal());
         let fs = PresenterEntityType::field_set();
-        fs.write_field_value("rank", id, &mut sched, FieldValue::String("Sponsor".into()))
+        fs.write_field_value("rank", id, &mut sched, field_string!("Sponsor"))
             .unwrap();
         let value = fs.read_field_value("rank", id, &sched).unwrap();
-        assert_eq!(value, Some(FieldValue::String("Sponsor".into())));
+        assert_eq!(value, Some(field_string!("Sponsor")));
     }
 
     #[test]
@@ -578,7 +580,7 @@ mod tests {
         let fs = PresenterEntityType::field_set();
         assert_eq!(
             fs.read_field_value("is_group", id, &sched).unwrap(),
-            Some(FieldValue::Boolean(true))
+            Some(field_boolean!(true))
         );
     }
 
@@ -587,7 +589,7 @@ mod tests {
         let id = make_id();
         let mut sched = schedule_with(id, make_internal());
         let fs = PresenterEntityType::field_set();
-        let result = fs.write_field_value("is_group", id, &mut sched, FieldValue::Boolean(true));
+        let result = fs.write_field_value("is_group", id, &mut sched, field_boolean!(true));
         assert!(matches!(result, Err(FieldError::ReadOnly { .. })));
     }
 
@@ -599,7 +601,7 @@ mod tests {
         for name in ["groups", "members", "inclusive_groups", "panels"] {
             assert_eq!(
                 fs.read_field_value(name, id, &sched).unwrap(),
-                Some(FieldValue::List(Vec::new()))
+                Some(field_value!(empty_list))
             );
         }
     }

@@ -133,7 +133,7 @@ mod tests {
     use super::*;
     use crate::field::MatchPriority;
     use crate::schedule::Schedule;
-    use crate::value::FieldValue;
+    use crate::{field_string, field_value};
     use uuid::Uuid;
 
     fn make_id() -> HotelRoomId {
@@ -174,19 +174,19 @@ mod tests {
         let fs = HotelRoomEntityType::field_set();
         assert_eq!(
             fs.read_field_value("hotel_room_name", id, &sched).unwrap(),
-            Some(FieldValue::String("Ballroom East".into()))
+            Some(field_string!("Ballroom East"))
         );
 
         fs.write_field_value(
             "hotel_room_name",
             id,
             &mut sched,
-            FieldValue::String("Ballroom West".into()),
+            field_string!("Ballroom West"),
         )
         .unwrap();
         assert_eq!(
             fs.read_field_value("hotel_room_name", id, &sched).unwrap(),
-            Some(FieldValue::String("Ballroom West".into()))
+            Some(field_string!("Ballroom West"))
         );
     }
 
@@ -230,7 +230,7 @@ mod tests {
         let fs = HotelRoomEntityType::field_set();
         assert_eq!(
             fs.read_field_value("event_rooms", id, &sched).unwrap(),
-            Some(FieldValue::List(Vec::new()))
+            Some(field_value!(empty_list))
         );
     }
 }
