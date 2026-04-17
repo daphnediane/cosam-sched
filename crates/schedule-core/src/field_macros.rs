@@ -15,8 +15,8 @@
 //!
 //! ```ignore
 //! pub struct FooInternalData {
+//!     pub id: FooId,
 //!     pub data: FooCommonData,
-//!     pub code: FooId,
 //!     // ...other runtime-only fields...
 //! }
 //! ```

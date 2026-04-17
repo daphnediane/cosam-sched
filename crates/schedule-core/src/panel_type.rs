@@ -77,11 +77,6 @@ impl PanelTypeCommonData {
         if self.prefix.is_empty() {
             errors.push(ValidationError::Required { field: "prefix" });
         }
-        if self.panel_kind.is_empty() {
-            errors.push(ValidationError::Required {
-                field: "panel_kind",
-            });
-        }
 
         errors
     }
@@ -96,8 +91,8 @@ impl PanelTypeCommonData {
 /// than by modifying this struct directly.
 #[derive(Debug, Clone)]
 pub struct PanelTypeInternalData {
+    pub id: PanelTypeId,
     pub data: PanelTypeCommonData,
-    pub code: PanelTypeId,
 }
 
 // ── PanelTypeData ───────────────────────────────────────────────────────────────
@@ -110,7 +105,6 @@ pub struct PanelTypeInternalData {
 pub struct PanelTypeData {
     #[serde(flatten)]
     pub data: PanelTypeCommonData,
-    pub code: String,
     /// Panels of this type — assembled from edge maps (deferred to FEATURE-018).
     #[serde(skip_serializing_if = "Vec::is_empty", default)]
     pub panels: Vec<PanelId>,
@@ -144,7 +138,6 @@ impl EntityType for PanelTypeEntityType {
     fn export(internal: &Self::InternalData) -> Self::Data {
         PanelTypeData {
             data: internal.data.clone(),
-            code: internal.code.to_string(),
             panels: Vec::new(), // Edge-backed; populated in FEATURE-018
         }
     }
@@ -309,7 +302,7 @@ mod tests {
                 color: Some("#db2777".into()),
                 bw: Some("#666666".into()),
             },
-            code: make_panel_type_id(),
+            id: make_panel_type_id(),
         }
     }
 
@@ -610,7 +603,7 @@ mod tests {
                 color: Some("#db2777".into()),
                 bw: Some("#666666".into()),
             },
-            code: id,
+            id,
         };
 
         let data = PanelTypeEntityType::export(&internal);
@@ -618,7 +611,6 @@ mod tests {
         let back: PanelTypeData = serde_json::from_str(&json).unwrap();
 
         assert_eq!(data, back);
-        assert_eq!(back.code, id.to_string());
     }
 
     #[test]
@@ -633,15 +625,16 @@ mod tests {
 
     #[test]
     fn test_common_data_validate_empty() {
-        let data = PanelTypeCommonData::default();
+        let data = PanelTypeCommonData {
+            prefix: String::new(),
+            panel_kind: String::new(),
+            ..Default::default()
+        };
         let errors = data.validate();
-        assert_eq!(errors.len(), 2);
+        assert_eq!(errors.len(), 1);
         assert!(errors
             .iter()
             .any(|e| matches!(e, ValidationError::Required { field } if *field == "prefix")));
-        assert!(errors
-            .iter()
-            .any(|e| matches!(e, ValidationError::Required { field } if *field == "panel_kind")));
     }
 
     #[test]
@@ -665,7 +658,7 @@ mod tests {
                 panel_kind: "Guest Panel".into(),
                 ..Default::default()
             },
-            code: make_panel_type_id(),
+            id: make_panel_type_id(),
         };
 
         let fs = PanelTypeEntityType::field_set();
@@ -681,7 +674,7 @@ mod tests {
                 panel_kind: "Guest Panel".into(),
                 ..Default::default()
             },
-            code: make_panel_type_id(),
+            id: make_panel_type_id(),
         };
 
         let fs = PanelTypeEntityType::field_set();
@@ -697,7 +690,7 @@ mod tests {
                 panel_kind: "Guest Panel".into(),
                 ..Default::default()
             },
-            code: make_panel_type_id(),
+            id: make_panel_type_id(),
         };
 
         let fs = PanelTypeEntityType::field_set();

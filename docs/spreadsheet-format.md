@@ -23,8 +23,8 @@ treated as a header; every subsequent row is one event.
 
 | Column Name          | Required?        | Description                                                                                             | Example                           |
 | -------------------- | ---------------- | ------------------------------------------------------------------------------------------------------- | --------------------------------- |
-| Uniq ID              | Yes              | Panel type prefix + number + optional suffix. Prefix maps to PanelTypes sheet.                          | `GP032`, `FW001`, `GW019A`        |
-| Name                 | Yes              | Display name of the event.                                                                              | `Cosplay Foam Armor 101`          |
+| Uniq ID              | Yes if scheduled | Panel type prefix + number + optional suffix. Prefix maps to PanelTypes sheet.                          | `GP032`, `FW001`, `GW019A`        |
+| Name                 | Yes if scheduled | Display name of the event.                                                                              | `Cosplay Foam Armor 101`          |
 | Room                 | If scheduled     | Room name, must match the Rooms sheet. Multiple rooms separated by commas.                              | `Panel Room 1`                    |
 | Start Time           | If scheduled     | Start date/time. Leave blank to "unschedule" a panel.                                                   | `6/25/2023 7:00 PM`               |
 | End Time             |                  | End date/time. Computed from Start Time + Duration if omitted.                                          | `6/25/2023 8:00 PM`               |
@@ -50,6 +50,9 @@ treated as a header; every subsequent row is one event.
 | SimpleTix Event      |                  | Link to the SimpleTix admin portal for this event, for quick access when updating details or images.    | `https://admin.simpletix.com/…`   |
 | Hide Panelist        |                  | Non-blank to suppress presenter credits.                                                                | `Yes`                             |
 | Alt Panelist         |                  | Override text for presenter line.                                                                       | `Mystery Guest`                   |
+
+Uniq ID should be auto assigned if not supplied, with an unused prefix and random number. Once we fully switch to the new system, we can remove the Uniq Id and Old Uniq Id columns and
+replace them with Uuids.
 
 ### Internal-Use Columns
 

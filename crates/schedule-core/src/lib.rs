@@ -5,12 +5,15 @@
  */
 
 pub mod entity;
+pub mod event_room;
 pub mod field;
 pub(crate) mod field_macros;
 pub mod field_set;
+pub mod hotel_room;
 pub mod panel;
 pub mod panel_type;
 pub mod panel_uniq_id;
+pub mod presenter;
 pub mod schedule;
 pub mod time;
 pub mod value;

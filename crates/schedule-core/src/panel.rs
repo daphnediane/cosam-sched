@@ -19,13 +19,15 @@
 //! fully wired up in FEATURE-018.
 
 use crate::entity::{EntityId, EntityType, FieldSet};
-use crate::field::{FieldDescriptor, ReadFn, WriteFn};
+use crate::event_room::EventRoomId;
+use crate::field::{FieldDescriptor, ReadFn, VerifyFn, WriteFn};
 use crate::field_macros::{
     bool_field, edge_list_field, edge_list_field_rw, edge_mutator_field, edge_none_field_rw,
     opt_i64_field, opt_string_field, opt_text_field, req_string_field,
 };
 use crate::panel_type::PanelTypeId;
 use crate::panel_uniq_id::PanelUniqId;
+use crate::presenter::PresenterId;
 use crate::time::{parse_datetime, parse_duration, TimeRange};
 use crate::value::{CrdtFieldType, FieldValue, ValidationError};
 use chrono::Duration;
@@ -37,25 +39,12 @@ use std::sync::LazyLock;
 /// Type-safe identifier for Panel entities.
 pub type PanelId = EntityId<PanelEntityType>;
 
-// Placeholder edge target ID types — full implementations land with their
-// owning entities in FEATURE-016. Declared here as zero-sized placeholders so
-// [`PanelData`] has stable field types for serialization round-trip tests.
-
-/// Placeholder PresenterId until FEATURE-016 introduces the Presenter entity.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Default, Serialize, Deserialize)]
-pub struct PresenterIdPlaceholder;
-
-/// Placeholder EventRoomId until FEATURE-016 introduces the EventRoom entity.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Default, Serialize, Deserialize)]
-pub struct EventRoomIdPlaceholder;
-
 // ── PanelCommonData ───────────────────────────────────────────────────────────
 
 /// User-facing fields from the Schedule sheet.
 #[derive(Debug, Clone, PartialEq, Eq, Default, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct PanelCommonData {
-    pub uid: String,
     pub name: String,
     pub description: Option<String>,
     pub note: Option<String>,
@@ -83,14 +72,7 @@ pub struct PanelCommonData {
 
 impl PanelCommonData {
     fn validate(&self) -> Vec<ValidationError> {
-        let mut errors = Vec::new();
-        if self.uid.is_empty() {
-            errors.push(ValidationError::Required { field: "uid" });
-        }
-        if self.name.is_empty() {
-            errors.push(ValidationError::Required { field: "name" });
-        }
-        errors
+        Vec::new()
     }
 }
 
@@ -99,10 +81,12 @@ impl PanelCommonData {
 /// Runtime storage struct; the field system operates on this.
 #[derive(Debug, Clone)]
 pub struct PanelInternalData {
+    pub id: PanelId,
     pub data: PanelCommonData,
-    pub code: PanelId,
+    /// Parsed Uniq ID (e.g. `GP032`). Structurally valid by construction;
+    /// callers parse via [`PanelUniqId::parse`] before building this struct.
+    pub code: PanelUniqId,
     pub time_slot: TimeRange,
-    pub parsed_uid: Option<PanelUniqId>,
 }
 
 // ── PanelData ─────────────────────────────────────────────────────────────────
@@ -111,9 +95,10 @@ pub struct PanelInternalData {
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct PanelData {
+    /// Canonical Uniq ID string (e.g. `"GP032"`), from `code.full_id()`.
+    pub code: String,
     #[serde(flatten)]
     pub data: PanelCommonData,
-    pub code: String,
     #[serde(skip_serializing_if = "Option::is_none", default)]
     pub start_time: Option<chrono::NaiveDateTime>,
     #[serde(skip_serializing_if = "Option::is_none", default)]
@@ -127,9 +112,9 @@ pub struct PanelData {
     )]
     pub duration: Option<Duration>,
     #[serde(skip_serializing_if = "Vec::is_empty", default)]
-    pub presenter_ids: Vec<PresenterIdPlaceholder>,
+    pub presenter_ids: Vec<PresenterId>,
     #[serde(skip_serializing_if = "Vec::is_empty", default)]
-    pub event_room_ids: Vec<EventRoomIdPlaceholder>,
+    pub event_room_ids: Vec<EventRoomId>,
     #[serde(skip_serializing_if = "Option::is_none", default)]
     pub panel_type_id: Option<PanelTypeId>,
 }
@@ -175,8 +160,8 @@ impl EntityType for PanelEntityType {
 
     fn export(internal: &Self::InternalData) -> Self::Data {
         PanelData {
+            code: internal.code.full_id(),
             data: internal.data.clone(),
-            code: internal.code.to_string(),
             start_time: internal.time_slot.start_time(),
             end_time: internal.time_slot.end_time(),
             duration: internal.time_slot.duration(),
@@ -200,11 +185,65 @@ impl EntityType for PanelEntityType {
 
 // ── Stored field descriptors ──────────────────────────────────────────────────
 
-req_string_field!(FIELD_UID, PanelEntityType, PanelInternalData, uid,
-    name: "uid", display: "Uniq ID",
-    desc: "Panel identifier from the spreadsheet.",
-    aliases: &["id", "uniq_id"]);
+/// Panel `code` (Uniq ID) — stored as the parsed [`PanelUniqId`] on
+/// [`PanelInternalData`], exposed to the field system as a string.
+///
+/// Hand-written because the storage type is not a plain `String` and because
+/// a future edge-recomputation pass will need to react to code changes:
+/// panel ↔ panel-type linkage is keyed off the two-letter prefix, and changing
+/// a panel's code may reassign it to a different `PanelType`. The write path
+/// here performs the parse and mutation only; edge refresh is deferred to
+/// FEATURE-018.
+static FIELD_CODE: FieldDescriptor<PanelEntityType> = FieldDescriptor {
+    name: "code",
+    display: "Uniq ID",
+    description: "Panel Uniq ID (e.g. \"GP032\"), parsed from the Schedule sheet.",
+    aliases: &["uid", "uniq_id", "id"],
+    required: true,
+    crdt_type: CrdtFieldType::Scalar,
+    read_fn: Some(ReadFn::Bare(|d: &PanelInternalData| {
+        Some(FieldValue::String(d.code.full_id()))
+    })),
+    write_fn: Some(WriteFn::Bare(|d: &mut PanelInternalData, v| {
+        let s = v.into_string()?;
+        // TODO(FEATURE-018): refresh edges keyed by prefix/code when
+        // edge storage lands (panel ↔ panel_type linkage depends on this).
+        match PanelUniqId::parse(&s) {
+            Some(parsed) => {
+                d.code = parsed;
+                Ok(())
+            }
+            None => Err(crate::value::ConversionError::ParseError {
+                message: format!("could not parse panel Uniq ID {s:?}"),
+            }
+            .into()),
+        }
+    })),
+    index_fn: Some(|query, d: &PanelInternalData| {
+        let q = query.to_lowercase();
+        let full = d.code.full_id().to_lowercase();
+        if full == q {
+            return Some(crate::field::MatchPriority::Exact);
+        }
+        let base = d.code.base_id().to_lowercase();
+        if base == q {
+            return Some(crate::field::MatchPriority::Exact);
+        }
+        if full.starts_with(&q) || base.starts_with(&q) {
+            return Some(crate::field::MatchPriority::Prefix);
+        }
+        if d.code.prefix.to_lowercase() == q {
+            return Some(crate::field::MatchPriority::Prefix);
+        }
+        if full.contains(&q) {
+            return Some(crate::field::MatchPriority::Contains);
+        }
+        None
+    }),
+    verify_fn: None,
+};
 
+// @todo: Name can be empty, should be optional
 req_string_field!(FIELD_NAME, PanelEntityType, PanelInternalData, name,
     name: "name", display: "Name",
     desc: "Panel name / title.",
@@ -365,7 +404,7 @@ static FIELD_START_TIME: FieldDescriptor<PanelEntityType> = FieldDescriptor {
         Ok(())
     })),
     index_fn: None,
-    verify_fn: None,
+    verify_fn: Some(VerifyFn::ReRead),
 };
 
 /// End time — projected from `time_slot`.
@@ -406,7 +445,7 @@ static FIELD_END_TIME: FieldDescriptor<PanelEntityType> = FieldDescriptor {
         Ok(())
     })),
     index_fn: None,
-    verify_fn: None,
+    verify_fn: Some(VerifyFn::ReRead),
 };
 
 /// Duration — projected from `time_slot`.
@@ -448,7 +487,7 @@ static FIELD_DURATION: FieldDescriptor<PanelEntityType> = FieldDescriptor {
         Ok(())
     })),
     index_fn: None,
-    verify_fn: None,
+    verify_fn: Some(VerifyFn::ReRead),
 };
 
 // ── Edge-backed computed field stubs (full wiring in FEATURE-018) ─────────────
@@ -502,7 +541,7 @@ edge_none_field_rw!(FIELD_PANEL_TYPE, PanelEntityType, PanelInternalData,
 static PANEL_FIELD_SET: LazyLock<FieldSet<PanelEntityType>> = LazyLock::new(|| {
     FieldSet::new(&[
         // stored
-        &FIELD_UID,
+        &FIELD_CODE,
         &FIELD_NAME,
         &FIELD_DESCRIPTION,
         &FIELD_NOTE,
@@ -558,7 +597,6 @@ mod tests {
 
     fn sample_common() -> PanelCommonData {
         PanelCommonData {
-            uid: "GP001".into(),
             name: "Panel Name".into(),
             description: Some("A description".into()),
             note: None,
@@ -587,8 +625,8 @@ mod tests {
 
     fn sample_internal(id: PanelId) -> PanelInternalData {
         PanelInternalData {
+            id,
             data: sample_common(),
-            code: id,
             time_slot: TimeRange::ScheduledWithDuration {
                 start_time: NaiveDate::from_ymd_opt(2026, 6, 26)
                     .unwrap()
@@ -596,7 +634,7 @@ mod tests {
                     .unwrap(),
                 duration: Duration::minutes(60),
             },
-            parsed_uid: PanelUniqId::parse("GP001"),
+            code: PanelUniqId::parse("GP001").expect("GP001 is a valid Uniq ID"),
         }
     }
 
@@ -625,19 +663,24 @@ mod tests {
     }
 
     #[test]
-    fn required_fields_are_uid_and_name() {
+    fn required_fields_are_code_and_name() {
         let fs = PanelEntityType::field_set();
         let names: Vec<_> = fs.required_fields().map(|d| d.name).collect();
-        assert_eq!(names, vec!["uid", "name"]);
+        assert_eq!(names, vec!["code", "name"]);
     }
 
     // ── Stored field read/write ──────────────────────────────────────────
 
     #[test]
-    fn read_uid_and_name() {
+    fn read_code_and_name() {
         let id = new_panel_id();
         let s = sched_with(id, sample_internal(id));
         let fs = PanelEntityType::field_set();
+        assert_eq!(
+            fs.read_field_value("code", id, &s).unwrap(),
+            Some(FieldValue::String("GP001".into()))
+        );
+        // `"uid"` alias still resolves.
         assert_eq!(
             fs.read_field_value("uid", id, &s).unwrap(),
             Some(FieldValue::String("GP001".into()))
@@ -649,16 +692,25 @@ mod tests {
     }
 
     #[test]
-    fn write_uid() {
+    fn write_code_parses_uniq_id() {
         let id = new_panel_id();
         let mut s = sched_with(id, sample_internal(id));
         let fs = PanelEntityType::field_set();
-        fs.write_field_value("uid", id, &mut s, FieldValue::String("GW007".into()))
+        fs.write_field_value("code", id, &mut s, FieldValue::String("GW007".into()))
             .unwrap();
         assert_eq!(
-            fs.read_field_value("uid", id, &s).unwrap(),
+            fs.read_field_value("code", id, &s).unwrap(),
             Some(FieldValue::String("GW007".into()))
         );
+    }
+
+    #[test]
+    fn write_code_rejects_unparseable_string() {
+        let id = new_panel_id();
+        let mut s = sched_with(id, sample_internal(id));
+        let fs = PanelEntityType::field_set();
+        let r = fs.write_field_value("code", id, &mut s, FieldValue::String("".into()));
+        assert!(matches!(r, Err(FieldError::Conversion(_))));
     }
 
     #[test]
@@ -716,7 +768,7 @@ mod tests {
         let id = new_panel_id();
         let mut s = sched_with(id, sample_internal(id));
         let fs = PanelEntityType::field_set();
-        let r = fs.write_field_value("uid", id, &mut s, FieldValue::Integer(1));
+        let r = fs.write_field_value("code", id, &mut s, FieldValue::Integer(1));
         assert!(matches!(r, Err(FieldError::Conversion(_))));
     }
 
@@ -872,21 +924,16 @@ mod tests {
     // ── Validation ───────────────────────────────────────────────────────
 
     #[test]
-    fn validate_detects_missing_uid_and_name() {
+    fn validate_passes_with_empty_name() {
         let id = new_panel_id();
         let internal = PanelInternalData {
+            id,
             data: PanelCommonData::default(),
-            code: id,
+            code: PanelUniqId::parse("GP001").expect("valid"),
             time_slot: TimeRange::Unspecified,
-            parsed_uid: None,
         };
         let errors = PanelEntityType::validate(&internal);
-        assert!(errors
-            .iter()
-            .any(|e| matches!(e, ValidationError::Required { field } if *field == "uid")));
-        assert!(errors
-            .iter()
-            .any(|e| matches!(e, ValidationError::Required { field } if *field == "name")));
+        assert!(errors.is_empty());
     }
 
     #[test]
