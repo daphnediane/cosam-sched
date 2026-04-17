@@ -1,6 +1,6 @@
 # Future Ideas and Design Notes
 
-Updated on: Thu Apr 16 19:14:52 2026
+Updated on: Fri Apr 17 09:12:30 2026
 
 Open design questions, unexplored alternatives, and deferred ideas.
 An IDEA item can be promoted to a work item by renaming it to another prefix
@@ -33,20 +33,6 @@ instead of `&mut EntityStorage`.
 `&mut EntityStorage` because they may auto-create entities during resolution.
 Some callers only need lookup (validation, display, read-only queries) and
 should not require mutable access.
-
----
-
-### [IDEA-038] Generic FieldValue Conversion System
-
-**Summary:** Add generic support for arbitrary FieldValue-to-FieldValue conversions with
-customizable conversion strategies, including lookup-only and create-capable variants.
-
-**Description:** Currently `resolve_field_value` only handles converting a `FieldValue` to entity
-IDs. A more flexible system would support generic conversions, enabling:
-
-* **Tagged presenter support**: `"P:Name"` → Presenter with rank
-* **Custom conversion pipelines**: Chain multiple conversions
-* **Type-specific logic**: Each entity type defines its own rules
 
 ---
 
@@ -108,7 +94,6 @@ Use `perl scripts/work-item-update.pl --create IDEA` to add new stubs.
 
 [IDEA-036]: work-item/idea/IDEA-036.md
 [IDEA-037]: work-item/idea/IDEA-037.md
-[IDEA-038]: work-item/idea/IDEA-038.md
 [IDEA-039]: work-item/idea/IDEA-039.md
 [IDEA-040]: work-item/idea/IDEA-040.md
 [IDEA-042]: work-item/idea/IDEA-042.md

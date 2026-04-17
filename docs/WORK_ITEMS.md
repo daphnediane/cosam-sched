@@ -1,6 +1,6 @@
 # Cosplay America Schedule - Work Item
 
-Updated on: Fri Apr 17 00:34:16 2026
+Updated on: Fri Apr 17 09:19:22 2026
 
 ## Completed
 
@@ -21,7 +21,7 @@ and adopt them in `panel_type.rs` to eliminate per-entity boilerplate.
 
 ## Summary of Open Items
 
-**Total open items:** 29
+**Total open items:** 34
 
 * **Meta / Project-Level**
   * [META-001] Meta work item tracking the full multi-phase redesign of the schedule system. (Blocked by [META-003], [META-004], [META-005], [META-006], [META-007], [META-008])
@@ -32,14 +32,26 @@ XLSX import/export. (Blocked by [META-003], [META-004])
   * [META-006] Phase tracker for the cosam-convert and cosam-modify command-line applications. (Blocked by [META-005])
   * [META-007] Phase tracker for the cosam-editor desktop GUI application. (Blocked by [META-005])
   * [META-008] Phase tracker for peer-to-peer schedule synchronization and conflict resolution. (Blocked by [META-004])
+  * [META-048] Restructure `FieldValue` with proper cardinality, add `FieldTypeItem`/`FieldType`
+enums, wire `FieldType` into `FieldDescriptor`, and implement the generic
+`FieldValueConverter` system from IDEA-038.
 
 * **High Priority**
   * [FEATURE-018] ([META-003]) Implement typed relationship storage for entity-to-entity relationships.
   * [FEATURE-019] ([META-003]) Implement the `Schedule` struct and `EntityStorage` for managing all entities and relationships.
   * [FEATURE-021] ([META-003]) Implement a command-based edit system with full undo/redo support.
+  * [FEATURE-038] ([META-048]) Add a type-safe `FieldValueConverter<M>` trait and driver functions for converting
+`FieldValue` inputs to typed Rust outputs via a work-queue iteration pattern.
+  * [FEATURE-050] ([META-048]) Add `FieldTypeItem` (scalar type tags) and `FieldType` (`Single`/`Optional`/`List`
+wrappers) to `value.rs` as `Copy` type-level mirrors of `FieldValueItem`/`FieldValue`.
+  * [FEATURE-051] ([META-048]) Add a `field_type: FieldType` field to `FieldDescriptor` and populate it in all
+existing static field descriptors across every entity file.
   * [REFACTOR-041] Replace the `EntityKind` enum with direct use of `EntityType::TYPE_NAME` strings,
 following the v10-try3 design. This eliminates the central enum that required
 modification for every new entity type.
+  * [REFACTOR-049] ([META-048]) Split the flat `FieldValue` enum into `FieldValueItem` (scalars only) and
+`FieldValue` (`Single`/`Optional`/`List` wrappers), removing `None`,
+`NonNilUuid`, and `EntityIdentifier` variants.
 
 * **Medium Priority**
   * [BUGFIX-045] In `scratch/field_update_logic.rs`, duration values are incorrectly stored as `FieldValue::Integer(minutes)` instead of `FieldValue::Duration(Duration)`.
@@ -210,6 +222,58 @@ provides UUID-keyed coordination.
 
 **Description:** All mutations to the schedule go through an edit command system that captures
 changes as reversible operations, enabling undo/redo in both CLI and GUI contexts.
+
+---
+
+### [FEATURE-038] FEATURE-038: FieldValueConverter System
+
+**Status:** Open
+
+**Priority:** High
+
+**Summary:** Add a type-safe `FieldValueConverter<M>` trait and driver functions for converting
+`FieldValue` inputs to typed Rust outputs via a work-queue iteration pattern.
+
+**Part of:** [META-048]
+
+**Description:** Promoted from IDEA-038. Implements the generic conversion system needed by the import
+pipeline (e.g., tagged presenter `"P:Name"` → `EntityId<PresenterEntityType>` with
+rank assignment).
+
+---
+
+### [FEATURE-050] FEATURE-050: Add FieldTypeItem and FieldType enums
+
+**Status:** Open
+
+**Priority:** High
+
+**Summary:** Add `FieldTypeItem` (scalar type tags) and `FieldType` (`Single`/`Optional`/`List`
+wrappers) to `value.rs` as `Copy` type-level mirrors of `FieldValueItem`/`FieldValue`.
+
+**Part of:** [META-048]
+
+**Description:** Ports and improves the `FieldType` enum from v10-try3 (`schedule-field/src/type_kind.rs`).
+The v10-try3 version has a bare `List` variant; this version uses `List(FieldTypeItem)`
+to carry the element type, avoiding `Box` and preventing `List<List<_>>`.
+
+---
+
+### [FEATURE-051] FEATURE-051: Add field_type to FieldDescriptor
+
+**Status:** Open
+
+**Priority:** High
+
+**Summary:** Add a `field_type: FieldType` field to `FieldDescriptor` and populate it in all
+existing static field descriptors across every entity file.
+
+**Part of:** [META-048]
+
+**Description:** `FieldDescriptor` currently has `crdt_type: CrdtFieldType` to declare CRDT routing,
+but no field for the value's logical type. Adding `field_type: FieldType` allows
+callers (converters, importers, UI) to know what type a field expects without
+calling read/write.
 
 ---
 
@@ -504,6 +568,34 @@ baked in from the start.
 
 ---
 
+### [META-048] META-048: FieldValue / FieldType / Converter Overhaul
+
+**Status:** Open
+
+**Priority:** High
+
+**Summary:** Restructure `FieldValue` with proper cardinality, add `FieldTypeItem`/`FieldType`
+enums, wire `FieldType` into `FieldDescriptor`, and implement the generic
+`FieldValueConverter` system from IDEA-038.
+
+**Description:** The current `FieldValue` enum conflates scalar values, lists, and absence into a
+single flat enum. This overhaul splits it into `FieldValueItem` (scalars) and
+`FieldValue` (`Single`/`Optional`/`List` wrappers), adds a matching `FieldTypeItem` /
+`FieldType` pair for type-level declarations, wires `FieldType` into field descriptors,
+and finally adds the type-safe `FieldValueConverter` system for import pipelines.
+
+The `EntityIdentifier` ad-hoc enum is also removed; entity references are unified
+under `FieldValueItem::EntityId(RuntimeEntityId)`.
+
+**Work Items:**
+
+* REFACTOR-049: Restructure FieldValue → FieldValueItem + cardinality
+* FEATURE-050: Add FieldTypeItem and FieldType enums
+* FEATURE-051: Add field\_type to FieldDescriptor
+* FEATURE-038: FieldValueConverter system
+
+---
+
 ### [META-004] Phase 3 — CRDT Integration
 
 **Status:** Blocked
@@ -640,6 +732,24 @@ Both are now handled without a central enum:
 
 ---
 
+### [REFACTOR-049] REFACTOR-049: Restructure FieldValue → FieldValueItem + cardinality
+
+**Status:** Open
+
+**Priority:** High
+
+**Summary:** Split the flat `FieldValue` enum into `FieldValueItem` (scalars only) and
+`FieldValue` (`Single`/`Optional`/`List` wrappers), removing `None`,
+`NonNilUuid`, and `EntityIdentifier` variants.
+
+**Part of:** [META-048]
+
+**Description:** The current `FieldValue` enum mixes scalar data, list cardinality, and absence
+into a single flat structure. This makes it hard to reason about field types and
+requires special-casing `None` everywhere.
+
+---
+
 ---
 
 [BUGFIX-045]: work-item/medium/BUGFIX-045.md
@@ -670,8 +780,11 @@ Both are now handled without a central enum:
 [FEATURE-029]: work-item/medium/FEATURE-029.md
 [FEATURE-034]: work-item/low/FEATURE-034.md
 [FEATURE-035]: work-item/low/FEATURE-035.md
+[FEATURE-038]: work-item/high/FEATURE-038.md
 [FEATURE-043]: work-item/done/FEATURE-043.md
 [FEATURE-046]: work-item/medium/FEATURE-046.md
+[FEATURE-050]: work-item/high/FEATURE-050.md
+[FEATURE-051]: work-item/high/FEATURE-051.md
 [META-001]: work-item/meta/META-001.md
 [META-002]: work-item/done/META-002.md
 [META-003]: work-item/meta/META-003.md
@@ -680,5 +793,7 @@ Both are now handled without a central enum:
 [META-006]: work-item/meta/META-006.md
 [META-007]: work-item/meta/META-007.md
 [META-008]: work-item/meta/META-008.md
+[META-048]: work-item/meta/META-048.md
 [REFACTOR-041]: work-item/high/REFACTOR-041.md
 [REFACTOR-047]: work-item/done/REFACTOR-047.md
+[REFACTOR-049]: work-item/high/REFACTOR-049.md
