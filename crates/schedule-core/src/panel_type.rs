@@ -16,6 +16,7 @@
 
 use crate::entity::{EntityId, EntityType, FieldSet};
 use crate::field::{FieldDescriptor, MatchPriority, ReadFn, WriteFn};
+use crate::panel::PanelId;
 use crate::value::{CrdtFieldType, FieldValue, ValidationError};
 use serde::{Deserialize, Serialize};
 use std::sync::LazyLock;
@@ -24,9 +25,6 @@ use std::sync::LazyLock;
 
 /// Type-safe identifier for PanelType entities.
 pub type PanelTypeId = EntityId<PanelTypeEntityType>;
-
-/// Type-safe identifier for Panel entities (used in computed fields).
-pub type PanelId = EntityId<PanelEntityType>;
 
 // ── PanelTypeCommonData ───────────────────────────────────────────────────────
 
@@ -152,30 +150,6 @@ impl EntityType for PanelTypeEntityType {
 
     fn validate(internal: &Self::InternalData) -> Vec<ValidationError> {
         internal.data.validate()
-    }
-}
-
-// Placeholder for Panel entity type (used in edge fields).
-// Full implementation in FEATURE-015.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
-pub struct PanelEntityType;
-
-impl EntityType for PanelEntityType {
-    type InternalData = ();
-    type Data = ();
-    const TYPE_NAME: &'static str = "panel";
-    fn uuid_namespace() -> &'static uuid::Uuid {
-        static NS: LazyLock<uuid::Uuid> =
-            LazyLock::new(|| uuid::Uuid::new_v5(&uuid::Uuid::NAMESPACE_OID, b"panel"));
-        &NS
-    }
-    fn field_set() -> &'static FieldSet<Self> {
-        unimplemented!("Panel entity type stub for PanelType.edges")
-    }
-    #[allow(clippy::unused_unit)]
-    fn export(_: &Self::InternalData) -> Self::Data {}
-    fn validate(_: &Self::InternalData) -> Vec<ValidationError> {
-        vec![]
     }
 }
 

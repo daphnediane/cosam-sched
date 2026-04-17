@@ -1,6 +1,6 @@
 # Cosplay America Schedule - Work Item
 
-Updated on: Thu Apr 16 20:53:46 2026
+Updated on: Thu Apr 16 21:38:56 2026
 
 ## Completed
 
@@ -10,6 +10,7 @@ Updated on: Thu Apr 16 20:53:46 2026
 * [FEATURE-012] Implement UUID-based entity identity with compile-time type-safe ID wrappers.
 * [FEATURE-013] Implement the static `FieldSet` registry for per-entity-type field metadata lookup.
 * [FEATURE-014] Implement the PanelType entity as the first proof of concept for the no-proc-macro field system.
+* [FEATURE-015] Port `TimeRange` and implement the Panel entity with stored and computed time fields.
 * [FEATURE-043] Add a `verify` callback to `FieldDescriptor` for cross-field consistency checks after batch writes to computed fields.
 * [META-002] Phase tracker for project foundation and Cargo workspace setup.
 
@@ -17,7 +18,7 @@ Updated on: Thu Apr 16 20:53:46 2026
 
 ## Summary of Open Items
 
-**Total open items:** 31
+**Total open items:** 30
 
 * **Meta / Project-Level**
   * [META-001] Meta work item tracking the full multi-phase redesign of the schedule system. (Blocked by [META-003], [META-004], [META-005], [META-006], [META-007], [META-008])
@@ -30,7 +31,6 @@ XLSX import/export. (Blocked by [META-003], [META-004])
   * [META-008] Phase tracker for peer-to-peer schedule synchronization and conflict resolution. (Blocked by [META-004])
 
 * **High Priority**
-  * [FEATURE-015] ([META-003]) Port `TimeRange` and implement the Panel entity with stored and computed time fields.
   * [FEATURE-016] ([META-003]) Implement the remaining core entity data structs and field descriptors.
   * [FEATURE-018] ([META-003]) Implement typed relationship storage for entity-to-entity relationships.
   * [FEATURE-019] ([META-003]) Implement the `Schedule` struct and `EntityStorage` for managing all entities and relationships.
@@ -157,21 +157,6 @@ panels arranged by time and room, with inline editing of entity fields.
 ---
 
 ## Open FEATURE Items
-
-### [FEATURE-015] TimeRange + Panel Entity
-
-**Status:** Open
-
-**Priority:** High
-
-**Summary:** Port `TimeRange` and implement the Panel entity with stored and computed time fields.
-
-**Part of:** [META-003]
-
-**Description:** Panel is the most complex entity with ~25 stored fields plus computed time
-projections from `TimeRange` and edge-backed relationship fields.
-
----
 
 ### [FEATURE-016] Presenter + EventRoom + HotelRoom Entities
 
@@ -709,7 +694,7 @@ Both are now handled without a central enum:
 [FEATURE-012]: work-item/done/FEATURE-012.md
 [FEATURE-013]: work-item/done/FEATURE-013.md
 [FEATURE-014]: work-item/done/FEATURE-014.md
-[FEATURE-015]: work-item/high/FEATURE-015.md
+[FEATURE-015]: work-item/done/FEATURE-015.md
 [FEATURE-016]: work-item/high/FEATURE-016.md
 [FEATURE-017]: work-item/medium/FEATURE-017.md
 [FEATURE-018]: work-item/high/FEATURE-018.md

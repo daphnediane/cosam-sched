@@ -6,7 +6,7 @@ Port `TimeRange` and implement the Panel entity with stored and computed time fi
 
 ## Status
 
-Open
+Completed
 
 ## Priority
 
@@ -31,7 +31,7 @@ order behaves correctly — the canonical pair is always preserved:
 - `UnspecifiedWithEnd(NaiveDateTime)` — end known, no start
 - `UnspecifiedWithStart(NaiveDateTime)` — start known, no duration or end
 - `ScheduledWithDuration { start_time, duration }` — start + duration canonical; end computed
-- `ScheduledWithEnd { start_time, end_time }` — start + end canonical; duration computed
+- `ScheduledWithEnd { start_time, end_time_minus_start_time: Duration }` — start + end canonical; the delta is stored internally (not `end_time` directly) so the variant cannot represent an inverted range. Consumers still treat `end_time` as canonical: mutations that change `start_time` adjust the duration to keep the same end.
 
 ### Three structs
 
