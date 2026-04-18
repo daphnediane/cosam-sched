@@ -310,13 +310,17 @@ macro_rules! opt_i64_field {
 }
 pub(crate) use opt_i64_field;
 
-// ── Edge-stub macros ──────────────────────────────────────────────────────────
+// ── Edge macros ───────────────────────────────────────────────────────────────
 //
-// These produce `Derived` descriptors that stand in for edge-backed fields
-// until FEATURE-018 wires real edge storage. Reads return an empty list
-// (Some(field_value!(empty_list))); writes are accepted silently.
+// These produce `Derived` descriptors for edge-backed fields backed by
+// `Schedule::edges_from` / `edge_set` / `edge_add` / `edge_remove`.
+// All use `ReadFn::Schedule` or `WriteFn::Schedule` so the field descriptor
+// can call the generic edge methods without needing `InternalData` access.
 
-/// Edge-stub list field that is read-only (e.g. `inclusive_presenters`).
+/// Read-only edge list field — reads via `Schedule::edges_from::<L, R>`.
+///
+/// Used for reverse/computed edges such as `inclusive_presenters`, `event_rooms`
+/// on `HotelRoom`, and `panels` on `EventRoom` and `PanelType`.
 macro_rules! edge_list_field {
     (
         $static_name:ident, $entity:ty, $internal:ty, target: $target_entity:ty,
@@ -334,14 +338,17 @@ macro_rules! edge_list_field {
                 crdt_type: $crate::value::CrdtFieldType::Derived,
                 field_type: $crate::value::FieldType::List(
                     $crate::value::FieldTypeItem::EntityIdentifier(
-                        <$target_entity as crate::entity::EntityType>::TYPE_NAME,
+                        <$target_entity as $crate::entity::EntityType>::TYPE_NAME,
                     ),
                 ),
                 example: $example,
                 order: $order,
-                read_fn: Some($crate::field::ReadFn::Bare(|_d: &$internal| {
-                    Some($crate::field_empty_list!())
-                })),
+                read_fn: Some($crate::field::ReadFn::Schedule(
+                    |sched: &$crate::schedule::Schedule, id: $crate::entity::EntityId<$entity>| {
+                        let ids = sched.edges_from::<$entity, $target_entity>(id);
+                        Some($crate::schedule::entity_ids_to_field_value(ids))
+                    },
+                )),
                 write_fn: None,
                 index_fn: None,
                 verify_fn: None,
@@ -351,7 +358,10 @@ macro_rules! edge_list_field {
 }
 pub(crate) use edge_list_field;
 
-/// Edge-stub list field with a no-op write (e.g. `presenters`, `event_rooms`).
+/// Read-write edge list field.
+///
+/// Read: `edges_from::<L, R>` — forward neighbors.
+/// Write: `edge_set::<L, R>` — replace all R-type neighbors.
 macro_rules! edge_list_field_rw {
     (
         $static_name:ident, $entity:ty, $internal:ty, target: $target_entity:ty,
@@ -369,16 +379,26 @@ macro_rules! edge_list_field_rw {
                 crdt_type: $crate::value::CrdtFieldType::Derived,
                 field_type: $crate::value::FieldType::List(
                     $crate::value::FieldTypeItem::EntityIdentifier(
-                        <$target_entity as crate::entity::EntityType>::TYPE_NAME,
+                        <$target_entity as $crate::entity::EntityType>::TYPE_NAME,
                     ),
                 ),
                 example: $example,
                 order: $order,
-                read_fn: Some($crate::field::ReadFn::Bare(|_d: &$internal| {
-                    Some($crate::field_empty_list!())
-                })),
-                write_fn: Some($crate::field::WriteFn::Bare(
-                    |_d: &mut $internal, _v| Ok(()),
+                read_fn: Some($crate::field::ReadFn::Schedule(
+                    |sched: &$crate::schedule::Schedule, id: $crate::entity::EntityId<$entity>| {
+                        let ids = sched.edges_from::<$entity, $target_entity>(id);
+                        Some($crate::schedule::entity_ids_to_field_value(ids))
+                    },
+                )),
+                write_fn: Some($crate::field::WriteFn::Schedule(
+                    |sched: &mut $crate::schedule::Schedule,
+                     id: $crate::entity::EntityId<$entity>,
+                     val: $crate::value::FieldValue| {
+                        let ids =
+                            $crate::schedule::field_value_to_entity_ids::<$target_entity>(val)?;
+                        sched.edge_set::<$entity, $target_entity>(id, ids);
+                        Ok(())
+                    },
                 )),
                 index_fn: None,
                 verify_fn: None,
@@ -388,8 +408,155 @@ macro_rules! edge_list_field_rw {
 }
 pub(crate) use edge_list_field_rw;
 
-/// Edge-stub singular field: read returns empty list, write is a no-op.
-/// Used for singular edge relations such as `panel_type`.
+/// Read-write edge list field for the reverse (to) direction.
+///
+/// Read: `edges_to::<L, R>` — sources pointing to this entity.
+/// Write: `edge_set_to::<L, R>` — replace all L-type sources.
+///
+/// Used for `members` on `Presenter` (groups list the members that have a
+/// forward edge TO them).
+macro_rules! edge_list_field_to_rw {
+    (
+        $static_name:ident, $entity:ty, $internal:ty, source: $source_entity:ty,
+        name: $name:literal, display: $display:literal, desc: $desc:literal,
+        aliases: $aliases:expr, example: $example:literal,
+        order: $order:expr
+    ) => {
+        static $static_name: $crate::field::FieldDescriptor<$entity> =
+            $crate::field::FieldDescriptor {
+                name: $name,
+                display: $display,
+                description: $desc,
+                aliases: $aliases,
+                required: false,
+                crdt_type: $crate::value::CrdtFieldType::Derived,
+                field_type: $crate::value::FieldType::List(
+                    $crate::value::FieldTypeItem::EntityIdentifier(
+                        <$source_entity as $crate::entity::EntityType>::TYPE_NAME,
+                    ),
+                ),
+                example: $example,
+                order: $order,
+                read_fn: Some($crate::field::ReadFn::Schedule(
+                    |sched: &$crate::schedule::Schedule, id: $crate::entity::EntityId<$entity>| {
+                        let ids = sched.edges_to::<$source_entity, $entity>(id);
+                        Some($crate::schedule::entity_ids_to_field_value(ids))
+                    },
+                )),
+                write_fn: Some($crate::field::WriteFn::Schedule(
+                    |sched: &mut $crate::schedule::Schedule,
+                     id: $crate::entity::EntityId<$entity>,
+                     val: $crate::value::FieldValue| {
+                        let ids =
+                            $crate::schedule::field_value_to_entity_ids::<$source_entity>(val)?;
+                        sched.edge_set_to::<$source_entity, $entity>(id, ids);
+                        Ok(())
+                    },
+                )),
+                index_fn: None,
+                verify_fn: None,
+            };
+        inventory::submit! { $crate::entity::CollectedField::<$entity>(&$static_name) }
+    };
+}
+pub(crate) use edge_list_field_to_rw;
+
+/// Write-only edge-add mutator field (for `add_*` fields).
+///
+/// Each item in the written `FieldValue::List` is added as a new edge.
+macro_rules! edge_add_field {
+    (
+        $static_name:ident, $entity:ty, $internal:ty, target: $target_entity:ty,
+        name: $name:literal, display: $display:literal, desc: $desc:literal,
+        aliases: $aliases:expr, example: $example:literal,
+        order: $order:expr
+    ) => {
+        static $static_name: $crate::field::FieldDescriptor<$entity> =
+            $crate::field::FieldDescriptor {
+                name: $name,
+                display: $display,
+                description: $desc,
+                aliases: $aliases,
+                required: false,
+                crdt_type: $crate::value::CrdtFieldType::Derived,
+                field_type: $crate::value::FieldType::List(
+                    $crate::value::FieldTypeItem::EntityIdentifier(
+                        <$target_entity as $crate::entity::EntityType>::TYPE_NAME,
+                    ),
+                ),
+                example: $example,
+                order: $order,
+                read_fn: None,
+                write_fn: Some($crate::field::WriteFn::Schedule(
+                    |sched: &mut $crate::schedule::Schedule,
+                     id: $crate::entity::EntityId<$entity>,
+                     val: $crate::value::FieldValue| {
+                        let ids =
+                            $crate::schedule::field_value_to_entity_ids::<$target_entity>(val)?;
+                        for r in ids {
+                            sched.edge_add::<$entity, $target_entity>(id, r);
+                        }
+                        Ok(())
+                    },
+                )),
+                index_fn: None,
+                verify_fn: None,
+            };
+        inventory::submit! { $crate::entity::CollectedField::<$entity>(&$static_name) }
+    };
+}
+pub(crate) use edge_add_field;
+
+/// Write-only edge-remove mutator field (for `remove_*` fields).
+///
+/// Each item in the written `FieldValue::List` is removed as an edge.
+macro_rules! edge_remove_field {
+    (
+        $static_name:ident, $entity:ty, $internal:ty, target: $target_entity:ty,
+        name: $name:literal, display: $display:literal, desc: $desc:literal,
+        aliases: $aliases:expr, example: $example:literal,
+        order: $order:expr
+    ) => {
+        static $static_name: $crate::field::FieldDescriptor<$entity> =
+            $crate::field::FieldDescriptor {
+                name: $name,
+                display: $display,
+                description: $desc,
+                aliases: $aliases,
+                required: false,
+                crdt_type: $crate::value::CrdtFieldType::Derived,
+                field_type: $crate::value::FieldType::List(
+                    $crate::value::FieldTypeItem::EntityIdentifier(
+                        <$target_entity as $crate::entity::EntityType>::TYPE_NAME,
+                    ),
+                ),
+                example: $example,
+                order: $order,
+                read_fn: None,
+                write_fn: Some($crate::field::WriteFn::Schedule(
+                    |sched: &mut $crate::schedule::Schedule,
+                     id: $crate::entity::EntityId<$entity>,
+                     val: $crate::value::FieldValue| {
+                        let ids =
+                            $crate::schedule::field_value_to_entity_ids::<$target_entity>(val)?;
+                        for r in ids {
+                            sched.edge_remove::<$entity, $target_entity>(id, r);
+                        }
+                        Ok(())
+                    },
+                )),
+                index_fn: None,
+                verify_fn: None,
+            };
+        inventory::submit! { $crate::entity::CollectedField::<$entity>(&$static_name) }
+    };
+}
+pub(crate) use edge_remove_field;
+
+/// Alias for `edge_list_field_rw!` — used for singular (0-or-1) edge fields.
+///
+/// Structurally identical to `edge_list_field_rw!`; the 0-or-1 constraint is
+/// semantic, not enforced at the macro level.
 macro_rules! edge_none_field_rw {
     (
         $static_name:ident, $entity:ty, $internal:ty, target: $target_entity:ty,
@@ -407,16 +574,26 @@ macro_rules! edge_none_field_rw {
                 crdt_type: $crate::value::CrdtFieldType::Derived,
                 field_type: $crate::value::FieldType::List(
                     $crate::value::FieldTypeItem::EntityIdentifier(
-                        <$target_entity as crate::entity::EntityType>::TYPE_NAME,
+                        <$target_entity as $crate::entity::EntityType>::TYPE_NAME,
                     ),
                 ),
                 example: $example,
                 order: $order,
-                read_fn: Some($crate::field::ReadFn::Bare(|_d: &$internal| {
-                    Some($crate::field_empty_list!())
-                })),
-                write_fn: Some($crate::field::WriteFn::Bare(
-                    |_d: &mut $internal, _v| Ok(()),
+                read_fn: Some($crate::field::ReadFn::Schedule(
+                    |sched: &$crate::schedule::Schedule, id: $crate::entity::EntityId<$entity>| {
+                        let ids = sched.edges_from::<$entity, $target_entity>(id);
+                        Some($crate::schedule::entity_ids_to_field_value(ids))
+                    },
+                )),
+                write_fn: Some($crate::field::WriteFn::Schedule(
+                    |sched: &mut $crate::schedule::Schedule,
+                     id: $crate::entity::EntityId<$entity>,
+                     val: $crate::value::FieldValue| {
+                        let ids =
+                            $crate::schedule::field_value_to_entity_ids::<$target_entity>(val)?;
+                        sched.edge_set::<$entity, $target_entity>(id, ids);
+                        Ok(())
+                    },
                 )),
                 index_fn: None,
                 verify_fn: None,
@@ -425,41 +602,6 @@ macro_rules! edge_none_field_rw {
     };
 }
 pub(crate) use edge_none_field_rw;
-
-/// Edge-stub mutator: write-only no-op (used for `add_*` / `remove_*` fields).
-macro_rules! edge_mutator_field {
-    (
-        $static_name:ident, $entity:ty, $internal:ty, target: $target_entity:ty,
-        name: $name:literal, display: $display:literal, desc: $desc:literal,
-        aliases: $aliases:expr, example: $example:literal,
-        order: $order:expr
-    ) => {
-        static $static_name: $crate::field::FieldDescriptor<$entity> =
-            $crate::field::FieldDescriptor {
-                name: $name,
-                display: $display,
-                description: $desc,
-                aliases: $aliases,
-                required: false,
-                crdt_type: $crate::value::CrdtFieldType::Derived,
-                field_type: $crate::value::FieldType::List(
-                    $crate::value::FieldTypeItem::EntityIdentifier(
-                        <$target_entity as crate::entity::EntityType>::TYPE_NAME,
-                    ),
-                ),
-                example: $example,
-                order: $order,
-                read_fn: None,
-                write_fn: Some($crate::field::WriteFn::Bare(
-                    |_d: &mut $internal, _v| Ok(()),
-                )),
-                index_fn: None,
-                verify_fn: None,
-            };
-        inventory::submit! { $crate::entity::CollectedField::<$entity>(&$static_name) }
-    };
-}
-pub(crate) use edge_mutator_field;
 
 // ── Hand-written descriptor registration ─────────────────────────────────────
 

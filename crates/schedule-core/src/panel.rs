@@ -23,8 +23,8 @@ use crate::entity::{EntityId, EntityType, FieldSet};
 use crate::event_room::{EventRoomEntityType, EventRoomId};
 use crate::field::{FieldDescriptor, ReadFn, VerifyFn, WriteFn};
 use crate::field_macros::{
-    bool_field, define_field, edge_list_field, edge_list_field_rw, edge_mutator_field,
-    edge_none_field_rw, opt_i64_field, opt_string_field, opt_text_field, req_string_field,
+    bool_field, define_field, edge_add_field, edge_list_field_rw, edge_none_field_rw,
+    edge_remove_field, opt_i64_field, opt_string_field, opt_text_field, req_string_field,
 };
 use crate::field_value;
 use crate::panel_type::{PanelTypeEntityType, PanelTypeId};
@@ -189,6 +189,7 @@ inventory::submit! {
     crate::entity::RegisteredEntityType {
         type_name: PanelEntityType::TYPE_NAME,
         uuid_namespace: PanelEntityType::uuid_namespace,
+        type_id: || std::any::TypeId::of::<PanelInternalData>(),
     }
 }
 inventory::collect!(crate::entity::CollectedField<PanelEntityType>);
@@ -599,26 +600,62 @@ edge_list_field_rw!(FIELD_PRESENTERS, PanelEntityType, PanelInternalData, target
     example: "[]",
     order: 2700);
 
-edge_mutator_field!(FIELD_ADD_PRESENTERS, PanelEntityType, PanelInternalData, target: PresenterEntityType,
+edge_add_field!(FIELD_ADD_PRESENTERS, PanelEntityType, PanelInternalData, target: PresenterEntityType,
     name: "add_presenters", display: "Add Presenters",
     desc: "Append presenters to this panel.",
     aliases: &["add_presenter"],
     example: "[presenter_id]",
     order: 2800);
 
-edge_mutator_field!(FIELD_REMOVE_PRESENTERS, PanelEntityType, PanelInternalData, target: PresenterEntityType,
+edge_remove_field!(FIELD_REMOVE_PRESENTERS, PanelEntityType, PanelInternalData, target: PresenterEntityType,
     name: "remove_presenters", display: "Remove Presenters",
     desc: "Remove presenters from this panel.",
     aliases: &["remove_presenter"],
     example: "[presenter_id]",
     order: 2900);
 
-edge_list_field!(FIELD_INCLUSIVE_PRESENTERS, PanelEntityType, PanelInternalData, target: PresenterEntityType,
-    name: "inclusive_presenters", display: "Inclusive Presenters",
-    desc: "Transitive closure: direct presenters + their groups + group members.",
-    aliases: &["inclusive_presenter"],
-    example: "[]",
-    order: 3000);
+define_field!(
+    /// Inclusive presenters — BFS over direct presenters + their groups/members.
+    static FIELD_INCLUSIVE_PRESENTERS: FieldDescriptor<PanelEntityType> = FieldDescriptor {
+        name: "inclusive_presenters",
+        display: "Inclusive Presenters",
+        description: "Transitive closure: direct presenters + their groups + group members.",
+        aliases: &["inclusive_presenter"],
+        required: false,
+        crdt_type: CrdtFieldType::Derived,
+        field_type: FieldType::List(FieldTypeItem::EntityIdentifier(
+            PresenterEntityType::TYPE_NAME,
+        )),
+        example: "[]",
+        order: 3000,
+        read_fn: Some(ReadFn::Schedule(|sched, panel_id| {
+            use std::collections::HashSet;
+            let mut visited: HashSet<PresenterId> = HashSet::new();
+            let mut queue: Vec<PresenterId> = sched
+                .edges_from::<PanelEntityType, PresenterEntityType>(panel_id);
+            while let Some(pres_id) = queue.pop() {
+                if visited.insert(pres_id) {
+                    // BFS upward (groups) and downward (members)
+                    for g in sched.edges_from::<PresenterEntityType, PresenterEntityType>(pres_id) {
+                        if !visited.contains(&g) {
+                            queue.push(g);
+                        }
+                    }
+                    for m in sched.edges_to::<PresenterEntityType, PresenterEntityType>(pres_id) {
+                        if !visited.contains(&m) {
+                            queue.push(m);
+                        }
+                    }
+                }
+            }
+            let ids: Vec<PresenterId> = visited.into_iter().collect();
+            Some(crate::schedule::entity_ids_to_field_value(ids))
+        })),
+        write_fn: None,
+        index_fn: None,
+        verify_fn: None,
+    }
+);
 
 edge_list_field_rw!(FIELD_EVENT_ROOMS, PanelEntityType, PanelInternalData, target: EventRoomEntityType,
     name: "event_rooms", display: "Event Rooms",
@@ -627,14 +664,14 @@ edge_list_field_rw!(FIELD_EVENT_ROOMS, PanelEntityType, PanelInternalData, targe
     example: "[]",
     order: 3100);
 
-edge_mutator_field!(FIELD_ADD_ROOMS, PanelEntityType, PanelInternalData, target: EventRoomEntityType,
+edge_add_field!(FIELD_ADD_ROOMS, PanelEntityType, PanelInternalData, target: EventRoomEntityType,
     name: "add_rooms", display: "Add Rooms",
     desc: "Append event rooms to this panel.",
     aliases: &["add_room"],
     example: "[room_id]",
     order: 3200);
 
-edge_mutator_field!(FIELD_REMOVE_ROOMS, PanelEntityType, PanelInternalData, target: EventRoomEntityType,
+edge_remove_field!(FIELD_REMOVE_ROOMS, PanelEntityType, PanelInternalData, target: EventRoomEntityType,
     name: "remove_rooms", display: "Remove Rooms",
     desc: "Remove event rooms from this panel.",
     aliases: &["remove_room"],
@@ -910,10 +947,10 @@ mod tests {
         );
     }
 
-    // ── Edge-backed stubs ────────────────────────────────────────────────
+    // ── Edge-backed fields ───────────────────────────────────────────────
 
     #[test]
-    fn read_edge_stubs_are_empty() {
+    fn read_edge_fields_empty_without_edges() {
         let id = new_panel_id();
         let s = sched_with(id, sample_internal(id));
         let fs = PanelEntityType::field_set();
@@ -929,14 +966,17 @@ mod tests {
             fs.read_field_value("panel_type", id, &s).unwrap(),
             Some(field_value!(empty_list))
         );
+        assert_eq!(
+            fs.read_field_value("inclusive_presenters", id, &s).unwrap(),
+            Some(field_value!(empty_list))
+        );
     }
 
     #[test]
-    fn write_edge_stub_is_noop() {
+    fn write_add_presenters_is_no_error_for_empty_list() {
         let id = new_panel_id();
         let mut s = sched_with(id, sample_internal(id));
         let fs = PanelEntityType::field_set();
-        // Should not error even though backing storage is not wired up.
         fs.write_field_value("add_presenters", id, &mut s, field_value!(empty_list))
             .unwrap();
     }

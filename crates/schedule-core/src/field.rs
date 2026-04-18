@@ -473,7 +473,7 @@ mod tests {
     fn make_schedule_with_data() -> (EntityId<MockEntity>, crate::schedule::Schedule) {
         let id = make_id();
         let mut sched = crate::schedule::Schedule::default();
-        sched.insert_mock(id, make_data());
+        sched.insert(id, make_data());
         (id, sched)
     }
 

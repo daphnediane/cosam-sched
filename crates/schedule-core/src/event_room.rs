@@ -125,6 +125,7 @@ inventory::submit! {
     crate::entity::RegisteredEntityType {
         type_name: EventRoomEntityType::TYPE_NAME,
         uuid_namespace: EventRoomEntityType::uuid_namespace,
+        type_id: || std::any::TypeId::of::<EventRoomInternalData>(),
     }
 }
 inventory::collect!(crate::entity::CollectedField<EventRoomEntityType>);
@@ -383,14 +384,10 @@ mod tests {
     #[test]
     fn test_lookup_or_create_string_returns_existing() {
         use crate::converter::EntityStringResolver;
-        // Note: This test is skipped because match_index is stubbed (returns None)
-        // Once FEATURE-019 implements match_index lookup, this test should pass
         let id = make_id();
         let mut sched = schedule_with(id, make_internal());
         let found_id = EventRoomEntityType::lookup_or_create_string(&mut sched, "Panel 1").unwrap();
-        // For now, this will create a new entity since match_index is stubbed
-        // assert_eq!(found_id, id);
-        assert_ne!(found_id, id); // Temporary assertion
+        assert_eq!(found_id, id);
     }
 
     #[test]

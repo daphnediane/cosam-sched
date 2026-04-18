@@ -113,6 +113,7 @@ inventory::submit! {
     crate::entity::RegisteredEntityType {
         type_name: HotelRoomEntityType::TYPE_NAME,
         uuid_namespace: HotelRoomEntityType::uuid_namespace,
+        type_id: || std::any::TypeId::of::<HotelRoomInternalData>(),
     }
 }
 inventory::collect!(crate::entity::CollectedField<HotelRoomEntityType>);
@@ -314,15 +315,11 @@ mod tests {
     #[test]
     fn test_lookup_or_create_string_returns_existing() {
         use crate::converter::EntityStringResolver;
-        // Note: This test is skipped because match_index is stubbed (returns None)
-        // Once FEATURE-019 implements match_index lookup, this test should pass
         let id = make_id();
         let mut sched = Schedule::default();
         sched.insert(id, make_internal());
         let found_id =
             HotelRoomEntityType::lookup_or_create_string(&mut sched, "Ballroom East").unwrap();
-        // For now, this will create a new entity since match_index is stubbed
-        // assert_eq!(found_id, id);
-        assert_ne!(found_id, id); // Temporary assertion
+        assert_eq!(found_id, id);
     }
 }

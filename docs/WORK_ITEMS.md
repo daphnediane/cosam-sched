@@ -1,6 +1,6 @@
 # Cosplay America Schedule - Work Item
 
-Updated on: Sat Apr 18 16:18:38 2026
+Updated on: Sat Apr 18 19:57:54 2026
 
 ## Completed
 
@@ -13,6 +13,7 @@ Updated on: Sat Apr 18 16:18:38 2026
 * [FEATURE-015] Port `TimeRange` and implement the Panel entity with stored and computed time fields.
 * [FEATURE-016] Implement the remaining core entity data structs and field descriptors.
 * [FEATURE-018] Implement typed relationship storage for entity-to-entity relationships.
+* [FEATURE-019] Implement the `Schedule` struct and `EntityStorage` for managing all entities and relationships.
 * [FEATURE-038] Add a type-safe `FieldValueConverter<M>` trait and driver functions for converting
 `FieldValue` inputs to typed Rust outputs via a work-queue iteration pattern.
 * [FEATURE-043] Add a `verify` callback to `FieldDescriptor` for cross-field consistency checks after batch writes to computed fields.
@@ -46,7 +47,7 @@ collection, and expose a `registered_entity_types()` accessor.
 
 ## Summary of Open Items
 
-**Total open items:** 27
+**Total open items:** 26
 
 * **Meta / Project-Level**
   * [META-001] Meta work item tracking the full multi-phase redesign of the schedule system. (Blocked by [META-003], [META-004], [META-005], [META-006], [META-007], [META-008])
@@ -59,7 +60,6 @@ XLSX import/export. (Blocked by [META-003], [META-004])
   * [META-008] Phase tracker for peer-to-peer schedule synchronization and conflict resolution. (Blocked by [META-004])
 
 * **High Priority**
-  * [FEATURE-019] ([META-003]) Implement the `Schedule` struct and `EntityStorage` for managing all entities and relationships.
   * [FEATURE-021] ([META-003]) Implement a command-based edit system with full undo/redo support.
 
 * **Medium Priority**
@@ -180,28 +180,6 @@ panels arranged by time and room, with inline editing of entity fields.
 ---
 
 ## Open FEATURE Items
-
-### [FEATURE-019] Schedule Container + EntityStorage
-
-**Status:** Open
-
-**Priority:** High
-
-**Summary:** Implement the `Schedule` struct and `EntityStorage` for managing all entities and relationships.
-
-**Part of:** [META-003]
-
-**Description:** The `Schedule` struct is the top-level container holding:
-
-* `EntityStorage` — typed collections for each entity type
-* EdgeMap instances for all relationship types
-* Entity registry (`HashMap<NonNilUuid, EntityKind>`) for UUID → kind lookup
-* `ScheduleMetadata` — version, timestamps, generator info, schedule ID
-
-Schedule is a **proxy, not an owner** — entity types own their storage; Schedule
-provides UUID-keyed coordination.
-
----
 
 ### [FEATURE-021] Edit Command System With Undo/Redo History
 
@@ -637,7 +615,7 @@ to exchange CRDT changes and reconcile concurrent edits to the same fields.
 [FEATURE-016]: work-item/done/FEATURE-016.md
 [FEATURE-017]: work-item/medium/FEATURE-017.md
 [FEATURE-018]: work-item/done/FEATURE-018.md
-[FEATURE-019]: work-item/high/FEATURE-019.md
+[FEATURE-019]: work-item/done/FEATURE-019.md
 [FEATURE-020]: work-item/medium/FEATURE-020.md
 [FEATURE-021]: work-item/high/FEATURE-021.md
 [FEATURE-022]: work-item/medium/FEATURE-022.md

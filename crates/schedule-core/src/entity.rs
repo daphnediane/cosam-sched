@@ -176,13 +176,11 @@ pub trait EntityType: 'static + Sized {
     /// Lookup an entity by match_index query across indexable fields.
     ///
     /// This is used by EntityStringResolver for string-to-entity resolution.
-    /// Stub implementation - to be filled in when Schedule has lookup_by_indexable (FEATURE-019).
     fn lookup_by_match_index(
-        _schedule: &crate::schedule::Schedule,
-        _query: &str,
+        schedule: &crate::schedule::Schedule,
+        query: &str,
     ) -> Option<EntityId<Self>> {
-        // TODO: Implement when Schedule has lookup_by_indexable method (FEATURE-019)
-        None
+        schedule.find_first::<Self>(query)
     }
 
     /// Produce the public export view from internal storage data.
@@ -211,6 +209,9 @@ pub struct RegisteredEntityType {
     pub type_name: &'static str,
     /// Returns the UUID namespace used for deterministic v5 ID generation.
     pub uuid_namespace: fn() -> &'static Uuid,
+    /// Returns the `TypeId` of this entity type's `InternalData` associated type.
+    /// Used by `Schedule::identify` to map a bare UUID to its entity type.
+    pub type_id: fn() -> std::any::TypeId,
 }
 inventory::collect!(RegisteredEntityType);
 

@@ -20,8 +20,8 @@ use crate::converter::EntityStringResolver;
 use crate::entity::{EntityId, EntityType, FieldSet};
 use crate::field::{FieldDescriptor, ReadFn, WriteFn};
 use crate::field_macros::{
-    bool_field, define_field, edge_list_field, edge_list_field_rw, edge_mutator_field,
-    opt_text_field, req_string_field,
+    bool_field, define_field, edge_add_field, edge_list_field_rw, edge_list_field_to_rw,
+    edge_remove_field, opt_text_field, req_string_field,
 };
 use crate::field_value;
 use crate::panel::PanelEntityType;
@@ -307,6 +307,7 @@ inventory::submit! {
     crate::entity::RegisteredEntityType {
         type_name: PresenterEntityType::TYPE_NAME,
         uuid_namespace: PresenterEntityType::uuid_namespace,
+        type_id: || std::any::TypeId::of::<PresenterInternalData>(),
     }
 }
 inventory::collect!(crate::entity::CollectedField<PresenterEntityType>);
@@ -438,21 +439,26 @@ bool_field!(FIELD_ALWAYS_SHOWN_IN_GROUP, PresenterEntityType, PresenterInternalD
 // ── Computed / edge-backed field stubs (full wiring in FEATURE-018) ───────────
 
 define_field!(
-    /// `is_group` — `Derived` bool that currently mirrors `is_explicit_group`; once
-    /// FEATURE-018 adds edge-backed membership, this also returns `true` when edge
-    /// storage records any members.
+    /// `is_group` — `true` if `is_explicit_group` is set OR this presenter has
+    /// any members (edge-based membership).
     static FIELD_IS_GROUP: FieldDescriptor<PresenterEntityType> = FieldDescriptor {
         name: "is_group",
         display: "Is Group",
-        description: "Whether this entity represents a group (explicit or by membership).",
+        description: "Whether this entity represents a group (explicit flag or has members).",
         aliases: &["group"],
         required: false,
         crdt_type: CrdtFieldType::Derived,
         field_type: FieldType::Single(FieldTypeItem::Boolean),
         example: "false",
         order: 600,
-        read_fn: Some(ReadFn::Bare(|d: &PresenterInternalData| {
-            Some(field_value!(d.data.is_explicit_group))
+        read_fn: Some(ReadFn::Schedule(|sched, id| {
+            let explicit = sched
+                .get_internal::<PresenterEntityType>(id)
+                .is_some_and(|d| d.data.is_explicit_group);
+            let has_members = !sched
+                .edges_to::<PresenterEntityType, PresenterEntityType>(id)
+                .is_empty();
+            Some(field_value!(explicit || has_members))
         })),
         write_fn: None,
         index_fn: None,
@@ -467,26 +473,80 @@ edge_list_field_rw!(FIELD_GROUPS, PresenterEntityType, PresenterInternalData, ta
     example: "[]",
     order: 700);
 
-edge_list_field_rw!(FIELD_MEMBERS, PresenterEntityType, PresenterInternalData, target: PresenterEntityType,
+edge_list_field_to_rw!(FIELD_MEMBERS, PresenterEntityType, PresenterInternalData, source: PresenterEntityType,
     name: "members", display: "Members",
     desc: "Members of this group (empty for individuals).",
     aliases: &["group_members"],
     example: "[]",
     order: 800);
 
-edge_list_field!(FIELD_INCLUSIVE_GROUPS, PresenterEntityType, PresenterInternalData, target: PresenterEntityType,
-    name: "inclusive_groups", display: "Inclusive Groups",
-    desc: "Transitive closure of groups this presenter appears in.",
-    aliases: &[],
-    example: "[]",
-    order: 900);
+define_field!(
+    /// Inclusive groups — BFS upward via homo forward edges (member → group).
+    static FIELD_INCLUSIVE_GROUPS: FieldDescriptor<PresenterEntityType> = FieldDescriptor {
+        name: "inclusive_groups",
+        display: "Inclusive Groups",
+        description: "Transitive closure of groups this presenter appears in.",
+        aliases: &[],
+        required: false,
+        crdt_type: CrdtFieldType::Derived,
+        field_type: FieldType::List(FieldTypeItem::EntityIdentifier(
+            PresenterEntityType::TYPE_NAME,
+        )),
+        example: "[]",
+        order: 900,
+        read_fn: Some(ReadFn::Schedule(|sched, id| {
+            use std::collections::HashSet;
+            let mut visited: HashSet<PresenterId> = HashSet::new();
+            let mut queue = vec![id];
+            while let Some(curr) = queue.pop() {
+                for g in sched.edges_from::<PresenterEntityType, PresenterEntityType>(curr) {
+                    if visited.insert(g) {
+                        queue.push(g);
+                    }
+                }
+            }
+            let ids: Vec<PresenterId> = visited.into_iter().collect();
+            Some(crate::schedule::entity_ids_to_field_value(ids))
+        })),
+        write_fn: None,
+        index_fn: None,
+        verify_fn: None,
+    }
+);
 
-edge_list_field!(FIELD_INCLUSIVE_MEMBERS, PresenterEntityType, PresenterInternalData, target: PresenterEntityType,
-    name: "inclusive_members", display: "Inclusive Members",
-    desc: "Transitive closure of members for this group.",
-    aliases: &[],
-    example: "[]",
-    order: 1000);
+define_field!(
+    /// Inclusive members — BFS downward via homo reverse edges (group → member).
+    static FIELD_INCLUSIVE_MEMBERS: FieldDescriptor<PresenterEntityType> = FieldDescriptor {
+        name: "inclusive_members",
+        display: "Inclusive Members",
+        description: "Transitive closure of members for this group.",
+        aliases: &[],
+        required: false,
+        crdt_type: CrdtFieldType::Derived,
+        field_type: FieldType::List(FieldTypeItem::EntityIdentifier(
+            PresenterEntityType::TYPE_NAME,
+        )),
+        example: "[]",
+        order: 1000,
+        read_fn: Some(ReadFn::Schedule(|sched, id| {
+            use std::collections::HashSet;
+            let mut visited: HashSet<PresenterId> = HashSet::new();
+            let mut queue = vec![id];
+            while let Some(curr) = queue.pop() {
+                for m in sched.edges_to::<PresenterEntityType, PresenterEntityType>(curr) {
+                    if visited.insert(m) {
+                        queue.push(m);
+                    }
+                }
+            }
+            let ids: Vec<PresenterId> = visited.into_iter().collect();
+            Some(crate::schedule::entity_ids_to_field_value(ids))
+        })),
+        write_fn: None,
+        index_fn: None,
+        verify_fn: None,
+    }
+);
 
 edge_list_field_rw!(FIELD_PANELS, PresenterEntityType, PresenterInternalData, target: PanelEntityType,
     name: "panels", display: "Panels",
@@ -495,26 +555,62 @@ edge_list_field_rw!(FIELD_PANELS, PresenterEntityType, PresenterInternalData, ta
     example: "[]",
     order: 1100);
 
-edge_mutator_field!(FIELD_ADD_PANELS, PresenterEntityType, PresenterInternalData, target: PanelEntityType,
+edge_add_field!(FIELD_ADD_PANELS, PresenterEntityType, PresenterInternalData, target: PanelEntityType,
     name: "add_panels", display: "Add Panels",
     desc: "Append panels to this presenter.",
     aliases: &["add_panel"],
     example: "[panel_id]",
     order: 1200);
 
-edge_mutator_field!(FIELD_REMOVE_PANELS, PresenterEntityType, PresenterInternalData, target: PanelEntityType,
+edge_remove_field!(FIELD_REMOVE_PANELS, PresenterEntityType, PresenterInternalData, target: PanelEntityType,
     name: "remove_panels", display: "Remove Panels",
     desc: "Remove panels from this presenter.",
     aliases: &["remove_panel"],
     example: "[panel_id]",
     order: 1300);
 
-edge_list_field!(FIELD_INCLUSIVE_PANELS, PresenterEntityType, PresenterInternalData, target: PanelEntityType,
-    name: "inclusive_panels", display: "Inclusive Panels",
-    desc: "Transitive closure: panels of this presenter and of its groups.",
-    aliases: &[],
-    example: "[]",
-    order: 1400);
+define_field!(
+    /// Inclusive panels — direct panels + panels of all inclusive groups.
+    static FIELD_INCLUSIVE_PANELS: FieldDescriptor<PresenterEntityType> = FieldDescriptor {
+        name: "inclusive_panels",
+        display: "Inclusive Panels",
+        description: "Transitive closure: panels of this presenter and of its groups.",
+        aliases: &[],
+        required: false,
+        crdt_type: CrdtFieldType::Derived,
+        field_type: FieldType::List(FieldTypeItem::EntityIdentifier(PanelEntityType::TYPE_NAME)),
+        example: "[]",
+        order: 1400,
+        read_fn: Some(ReadFn::Schedule(|sched, id| {
+            use std::collections::HashSet;
+            // Collect inclusive groups (BFS upward)
+            let mut group_visited: HashSet<PresenterId> = HashSet::new();
+            let mut queue = vec![id];
+            while let Some(curr) = queue.pop() {
+                for g in sched.edges_from::<PresenterEntityType, PresenterEntityType>(curr) {
+                    if group_visited.insert(g) {
+                        queue.push(g);
+                    }
+                }
+            }
+            // Union of direct panels + panels of each inclusive group
+            let mut panel_set: HashSet<PanelId> = HashSet::new();
+            for p in sched.edges_from::<PresenterEntityType, PanelEntityType>(id) {
+                panel_set.insert(p);
+            }
+            for g in &group_visited {
+                for p in sched.edges_from::<PresenterEntityType, PanelEntityType>(*g) {
+                    panel_set.insert(p);
+                }
+            }
+            let ids: Vec<PanelId> = panel_set.into_iter().collect();
+            Some(crate::schedule::entity_ids_to_field_value(ids))
+        })),
+        write_fn: None,
+        index_fn: None,
+        verify_fn: None,
+    }
+);
 
 // ── FieldSet ──────────────────────────────────────────────────────────────────
 
@@ -670,14 +766,22 @@ mod tests {
     }
 
     #[test]
-    fn test_edge_stubs_return_empty_list() {
+    fn test_edge_fields_empty_without_edges() {
         let id = make_id();
         let sched = schedule_with(id, make_internal());
         let fs = PresenterEntityType::field_set();
-        for name in ["groups", "members", "inclusive_groups", "panels"] {
+        for name in [
+            "groups",
+            "members",
+            "inclusive_groups",
+            "inclusive_members",
+            "panels",
+            "inclusive_panels",
+        ] {
             assert_eq!(
                 fs.read_field_value(name, id, &sched).unwrap(),
-                Some(field_value!(empty_list))
+                Some(field_value!(empty_list)),
+                "field {name} should be empty without edges"
             );
         }
     }

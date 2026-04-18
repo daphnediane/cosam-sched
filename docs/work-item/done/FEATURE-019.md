@@ -6,7 +6,7 @@ Implement the `Schedule` struct and `EntityStorage` for managing all entities an
 
 ## Status
 
-Open
+Completed
 
 ## Priority
 
