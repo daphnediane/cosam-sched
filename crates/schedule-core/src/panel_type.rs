@@ -19,7 +19,7 @@ use crate::field::{FieldDescriptor, MatchPriority, ReadFn};
 use crate::field_macros::{
     bool_field, define_field, edge_list_field, opt_string_field, req_string_field,
 };
-use crate::field_string;
+use crate::field_value;
 use crate::panel::PanelId;
 use crate::value::{CrdtFieldType, ValidationError};
 use serde::{Deserialize, Serialize};
@@ -258,7 +258,7 @@ define_field!(
             } else {
                 format!("{} ({})", d.data.panel_kind, d.data.prefix)
             };
-            Some(field_string!(name))
+            Some(field_value!(name))
         })),
         write_fn: None, // Read-only computed field
         index_fn: Some(|query, d: &PanelTypeInternalData| {
@@ -299,9 +299,9 @@ static PANEL_TYPE_FIELD_SET: LazyLock<FieldSet<PanelTypeEntityType>> =
 mod tests {
     use super::*;
     use crate::field::MatchPriority;
+    use crate::field_value;
     use crate::schedule::Schedule;
     use crate::value::FieldError;
-    use crate::{field_boolean, field_integer, field_value};
     use uuid::Uuid;
 
     fn make_panel_type_id() -> PanelTypeId {
@@ -391,7 +391,7 @@ mod tests {
 
         let fs = PanelTypeEntityType::field_set();
         let value = fs.read_field_value("prefix", id, &sched).unwrap();
-        assert_eq!(value, Some(field_string!("GP")));
+        assert_eq!(value, Some(field_value!("GP")));
     }
 
     #[test]
@@ -402,7 +402,7 @@ mod tests {
 
         let fs = PanelTypeEntityType::field_set();
         let value = fs.read_field_value("panel_kind", id, &sched).unwrap();
-        assert_eq!(value, Some(field_string!("Guest Panel")));
+        assert_eq!(value, Some(field_value!("Guest Panel")));
     }
 
     #[test]
@@ -413,7 +413,7 @@ mod tests {
 
         let fs = PanelTypeEntityType::field_set();
         let value = fs.read_field_value("hidden", id, &sched).unwrap();
-        assert_eq!(value, Some(field_boolean!(false)));
+        assert_eq!(value, Some(field_value!(false)));
     }
 
     #[test]
@@ -424,7 +424,7 @@ mod tests {
 
         let fs = PanelTypeEntityType::field_set();
         let value = fs.read_field_value("color", id, &sched).unwrap();
-        assert_eq!(value, Some(field_string!("#db2777")));
+        assert_eq!(value, Some(field_value!("#db2777")));
     }
 
     #[test]
@@ -435,7 +435,7 @@ mod tests {
 
         let fs = PanelTypeEntityType::field_set();
         let value = fs.read_field_value("display_name", id, &sched).unwrap();
-        assert_eq!(value, Some(field_string!("Guest Panel (GP)")));
+        assert_eq!(value, Some(field_value!("Guest Panel (GP)")));
     }
 
     #[test]
@@ -446,7 +446,7 @@ mod tests {
 
         let fs = PanelTypeEntityType::field_set();
         let value = fs.read_field_value("name", id, &sched).unwrap(); // alias
-        assert_eq!(value, Some(field_string!("Guest Panel (GP)")));
+        assert_eq!(value, Some(field_value!("Guest Panel (GP)")));
     }
 
     #[test]
@@ -469,11 +469,11 @@ mod tests {
         let mut sched = make_schedule_with_panel_type(id, data);
 
         let fs = PanelTypeEntityType::field_set();
-        fs.write_field_value("prefix", id, &mut sched, field_string!("SP"))
+        fs.write_field_value("prefix", id, &mut sched, field_value!("SP"))
             .unwrap();
 
         let value = fs.read_field_value("prefix", id, &sched).unwrap();
-        assert_eq!(value, Some(field_string!("SP")));
+        assert_eq!(value, Some(field_value!("SP")));
     }
 
     #[test]
@@ -483,11 +483,11 @@ mod tests {
         let mut sched = make_schedule_with_panel_type(id, data);
 
         let fs = PanelTypeEntityType::field_set();
-        fs.write_field_value("panel_kind", id, &mut sched, field_string!("Special Panel"))
+        fs.write_field_value("panel_kind", id, &mut sched, field_value!("Special Panel"))
             .unwrap();
 
         let value = fs.read_field_value("panel_kind", id, &sched).unwrap();
-        assert_eq!(value, Some(field_string!("Special Panel")));
+        assert_eq!(value, Some(field_value!("Special Panel")));
     }
 
     #[test]
@@ -497,11 +497,11 @@ mod tests {
         let mut sched = make_schedule_with_panel_type(id, data);
 
         let fs = PanelTypeEntityType::field_set();
-        fs.write_field_value("hidden", id, &mut sched, field_boolean!(true))
+        fs.write_field_value("hidden", id, &mut sched, field_value!(true))
             .unwrap();
 
         let value = fs.read_field_value("hidden", id, &sched).unwrap();
-        assert_eq!(value, Some(field_boolean!(true)));
+        assert_eq!(value, Some(field_value!(true)));
     }
 
     #[test]
@@ -511,11 +511,11 @@ mod tests {
         let mut sched = make_schedule_with_panel_type(id, data);
 
         let fs = PanelTypeEntityType::field_set();
-        fs.write_field_value("is_workshop", id, &mut sched, field_boolean!(true))
+        fs.write_field_value("is_workshop", id, &mut sched, field_value!(true))
             .unwrap();
 
         let value = fs.read_field_value("is_workshop", id, &sched).unwrap();
-        assert_eq!(value, Some(field_boolean!(true)));
+        assert_eq!(value, Some(field_value!(true)));
     }
 
     #[test]
@@ -542,7 +542,7 @@ mod tests {
         let mut sched = make_schedule_with_panel_type(id, data);
 
         let fs = PanelTypeEntityType::field_set();
-        let result = fs.write_field_value("display_name", id, &mut sched, field_string!("X"));
+        let result = fs.write_field_value("display_name", id, &mut sched, field_value!("X"));
         assert!(matches!(result, Err(FieldError::ReadOnly { .. })));
     }
 
@@ -553,7 +553,7 @@ mod tests {
         let mut sched = make_schedule_with_panel_type(id, data);
 
         let fs = PanelTypeEntityType::field_set();
-        let result = fs.write_field_value("prefix", id, &mut sched, field_integer!(42));
+        let result = fs.write_field_value("prefix", id, &mut sched, field_value!(42));
         assert!(matches!(result, Err(FieldError::Conversion(_))));
     }
 

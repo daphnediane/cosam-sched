@@ -320,8 +320,8 @@ impl<E: EntityType> VerifiableField<E> for FieldDescriptor<E> {
 mod tests {
     use super::*;
     use crate::entity::{EntityId, EntityType};
+    use crate::field_value;
     use crate::value::{CrdtFieldType, FieldError, ValidationError};
-    use crate::{field_integer, field_string};
 
     /// Minimal mock entity for testing field traits without real entity types.
     struct MockEntity;
@@ -375,7 +375,7 @@ mod tests {
         example: "Hello World",
         order: 0,
         read_fn: Some(ReadFn::Bare(|d: &MockInternalData| {
-            Some(field_string!(d.label.clone()))
+            Some(field_value!(d.label.clone()))
         })),
         write_fn: Some(WriteFn::Bare(|d: &mut MockInternalData, v| {
             d.label = v.into_string()?;
@@ -407,7 +407,7 @@ mod tests {
         example: "7",
         order: 100,
         read_fn: Some(ReadFn::Bare(|d: &MockInternalData| {
-            Some(field_integer!(d.count))
+            Some(field_value!(d.count))
         })),
         write_fn: Some(WriteFn::Bare(|d: &mut MockInternalData, v| {
             d.count = v.into_integer()?;
@@ -426,9 +426,7 @@ mod tests {
         crdt_type: CrdtFieldType::Derived,
         example: "42",
         order: 200,
-        read_fn: Some(ReadFn::Bare(|_: &MockInternalData| {
-            Some(field_integer!(42))
-        })),
+        read_fn: Some(ReadFn::Bare(|_: &MockInternalData| Some(field_value!(42)))),
         write_fn: None,
         index_fn: None,
         verify_fn: None,
@@ -517,17 +515,14 @@ mod tests {
         let (id, sched) = make_schedule_with_data();
         assert_eq!(
             LABEL_FIELD.read(id, &sched).unwrap(),
-            Some(field_string!("Hello World"))
+            Some(field_value!("Hello World"))
         );
     }
 
     #[test]
     fn test_read_integer_field() {
         let (id, sched) = make_schedule_with_data();
-        assert_eq!(
-            COUNT_FIELD.read(id, &sched).unwrap(),
-            Some(field_integer!(7))
-        );
+        assert_eq!(COUNT_FIELD.read(id, &sched).unwrap(), Some(field_value!(7)));
     }
 
     #[test]
@@ -535,7 +530,7 @@ mod tests {
         let (id, sched) = make_schedule_with_data();
         assert_eq!(
             READONLY_FIELD.read(id, &sched).unwrap(),
-            Some(field_integer!(42))
+            Some(field_value!(42))
         );
     }
 
@@ -561,7 +556,7 @@ mod tests {
     fn test_write_string_field() {
         let (id, mut sched) = make_schedule_with_data();
         LABEL_FIELD
-            .write(id, &mut sched, field_string!("Updated"))
+            .write(id, &mut sched, field_value!("Updated"))
             .unwrap();
         assert_eq!(
             sched.get_internal::<MockEntity>(id).unwrap().label,
@@ -572,23 +567,21 @@ mod tests {
     #[test]
     fn test_write_integer_field() {
         let (id, mut sched) = make_schedule_with_data();
-        COUNT_FIELD
-            .write(id, &mut sched, field_integer!(99))
-            .unwrap();
+        COUNT_FIELD.write(id, &mut sched, field_value!(99)).unwrap();
         assert_eq!(sched.get_internal::<MockEntity>(id).unwrap().count, 99);
     }
 
     #[test]
     fn test_write_wrong_variant_returns_error() {
         let (id, mut sched) = make_schedule_with_data();
-        let result = LABEL_FIELD.write(id, &mut sched, field_integer!(1));
+        let result = LABEL_FIELD.write(id, &mut sched, field_value!(1));
         assert!(matches!(result, Err(FieldError::Conversion(_))));
     }
 
     #[test]
     fn test_write_readonly_returns_error() {
         let (id, mut sched) = make_schedule_with_data();
-        let result = READONLY_FIELD.write(id, &mut sched, field_integer!(1));
+        let result = READONLY_FIELD.write(id, &mut sched, field_value!(1));
         assert!(matches!(result, Err(FieldError::ReadOnly { .. })));
     }
 
@@ -596,7 +589,7 @@ mod tests {
     fn test_write_missing_entity_returns_error() {
         let id = make_id();
         let mut sched = crate::schedule::Schedule::default();
-        let result = LABEL_FIELD.write(id, &mut sched, field_string!("x"));
+        let result = LABEL_FIELD.write(id, &mut sched, field_value!("x"));
         assert!(matches!(result, Err(FieldError::NotFound { .. })));
     }
 
@@ -604,7 +597,7 @@ mod tests {
     fn test_write_writeonly_field() {
         let (id, mut sched) = make_schedule_with_data();
         WRITEONLY_FIELD
-            .write(id, &mut sched, field_string!("via writeonly"))
+            .write(id, &mut sched, field_value!("via writeonly"))
             .unwrap();
         assert_eq!(
             sched.get_internal::<MockEntity>(id).unwrap().label,

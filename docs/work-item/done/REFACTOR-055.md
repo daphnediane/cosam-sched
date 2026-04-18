@@ -8,7 +8,7 @@ Add `define_field!` macro to bundle hand-written `FieldDescriptor` statics with
 
 ## Status
 
-In Progress
+Completed
 
 ## Priority
 

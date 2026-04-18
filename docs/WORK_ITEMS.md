@@ -1,6 +1,6 @@
 # Cosplay America Schedule - Work Item
 
-Updated on: Fri Apr 17 20:35:20 2026
+Updated on: Fri Apr 17 20:49:10 2026
 
 ## Completed
 
@@ -27,12 +27,15 @@ and adopt them in `panel_type.rs` to eliminate per-entity boilerplate.
 `FieldSet::from_inventory()`, letting fields self-register via `inventory::submit!`.
 * [REFACTOR-054] Register all entity types via `inventory::submit!` into a central `RegisteredEntityType`
 collection, and expose a `registered_entity_types()` accessor.
+* [REFACTOR-055] Add `define_field!` macro to bundle hand-written `FieldDescriptor` statics with
+`inventory::submit!`, and add `IntoFieldValue` trait hierarchy for type-deduced
+`field_value!(expr)` construction.
 
 ---
 
 ## Summary of Open Items
 
-**Total open items:** 33
+**Total open items:** 32
 
 * **Meta / Project-Level**
   * [META-001] Meta work item tracking the full multi-phase redesign of the schedule system. (Blocked by [META-003], [META-004], [META-005], [META-006], [META-007], [META-008])
@@ -73,9 +76,6 @@ reference and jump-starting new conventions.
   * [FEATURE-028] ([META-005]) Import schedule data from the existing XLSX spreadsheet format.
   * [FEATURE-029] ([META-005]) Export schedule data back to the XLSX spreadsheet format.
   * [FEATURE-046] ([META-003]) Add `FieldSet::write_multiple()` for atomic batch field updates with verification support.
-  * [REFACTOR-055] Add `define_field!` macro to bundle hand-written `FieldDescriptor` statics with
-`inventory::submit!`, and add `IntoFieldValue` trait hierarchy for type-deduced
-`field_value!(expr)` construction.
 
 * **Low Priority**
   * [CLI-030] ([META-006]) CLI tool for converting between schedule file formats (XLSX, JSON, widget JSON).
@@ -729,37 +729,6 @@ Both are now handled without a central enum:
 
 ---
 
-### [REFACTOR-055] REFACTOR-055: Unify field registration via `define_field!` and add `IntoFieldValue` trait
-
-**Status:** In Progress
-
-**Priority:** Medium
-
-**Summary:** Add `define_field!` macro to bundle hand-written `FieldDescriptor` statics with
-`inventory::submit!`, and add `IntoFieldValue` trait hierarchy for type-deduced
-`field_value!(expr)` construction.
-
-**Description:** Two related improvements to reduce boilerplate and prevent silent omission of fields from
-the registry:
-
-1. **`define_field!` macro** — hand-written `FieldDescriptor` statics currently require a
-   separate `inventory::submit!` call after each one. Forgetting it silently omits the
-   field from the registry with no compiler error. The new `define_field!` macro wraps
-   both into a single declaration. Affects 8 hand-written statics across `panel.rs`,
-   `presenter.rs`, `event_room.rs`, and `panel_type.rs`.
-
-2. **`IntoFieldValue` trait hierarchy** — constructing `FieldValue` values currently
-   requires naming the type variant explicitly (`field_string!`, `field_datetime!`, etc.)
-   because `macro_rules!` cannot dispatch on types. Adding `IntoFieldValueItem` +
-   `IntoFieldValue` traits with blanket `impl`s for all scalar types, `Option<T>`, and
-   `Vec<T>` allows a single `field_value!(expr)` macro arm to select the right variant
-   via Rust's trait dispatch.
-
-No proc macros — both improvements use `macro_rules!` + traits, preserving full
-visibility of `FieldDescriptor` literal bodies.
-
----
-
 ---
 
 [BUGFIX-045]: work-item/medium/BUGFIX-045.md
@@ -810,4 +779,4 @@ visibility of `FieldDescriptor` literal bodies.
 [REFACTOR-052]: work-item/done/REFACTOR-052.md
 [REFACTOR-053]: work-item/done/REFACTOR-053.md
 [REFACTOR-054]: work-item/done/REFACTOR-054.md
-[REFACTOR-055]: work-item/medium/REFACTOR-055.md
+[REFACTOR-055]: work-item/done/REFACTOR-055.md

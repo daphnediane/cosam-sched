@@ -142,8 +142,8 @@ static HOTEL_ROOM_FIELD_SET: LazyLock<FieldSet<HotelRoomEntityType>> =
 mod tests {
     use super::*;
     use crate::field::MatchPriority;
+    use crate::field_value;
     use crate::schedule::Schedule;
-    use crate::{field_string, field_value};
     use uuid::Uuid;
 
     fn make_id() -> HotelRoomId {
@@ -184,19 +184,19 @@ mod tests {
         let fs = HotelRoomEntityType::field_set();
         assert_eq!(
             fs.read_field_value("hotel_room_name", id, &sched).unwrap(),
-            Some(field_string!("Ballroom East"))
+            Some(field_value!("Ballroom East"))
         );
 
         fs.write_field_value(
             "hotel_room_name",
             id,
             &mut sched,
-            field_string!("Ballroom West"),
+            field_value!("Ballroom West"),
         )
         .unwrap();
         assert_eq!(
             fs.read_field_value("hotel_room_name", id, &sched).unwrap(),
-            Some(field_string!("Ballroom West"))
+            Some(field_value!("Ballroom West"))
         );
     }
 

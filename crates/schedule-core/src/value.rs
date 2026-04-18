@@ -261,6 +261,100 @@ impl FieldValue {
     }
 }
 
+// ── Type-inferred FieldValue construction ────────────────────────────────────
+
+/// Convert a value into a [`FieldValueItem`] variant based on its Rust type.
+///
+/// Implement this for any type you want to pass to [`field_value!`] without
+/// naming the variant explicitly. [`IntoFieldValue`] is implemented
+/// automatically via the blanket `impl<T: IntoFieldValueItem> IntoFieldValue for T`.
+///
+/// **`Text` is intentionally excluded.** The `String` vs `Text` distinction is
+/// a storage-layer semantic (LWW vs RGA CRDT), not derivable from a Rust type.
+/// Use [`FieldValueItem::Text`] or [`field_text!`] explicitly for prose fields.
+pub trait IntoFieldValueItem {
+    fn into_field_value_item(self) -> FieldValueItem;
+}
+
+/// Convert a value into a [`FieldValue`] (single, optional, or list).
+///
+/// A blanket impl covers any `T: IntoFieldValueItem` → `Single(T)`.
+/// `Option<T>` maps `None` to `List([])` (the "clear" sentinel), and
+/// `Vec<T>` maps to `List([...])`.
+pub trait IntoFieldValue {
+    fn into_field_value(self) -> FieldValue;
+}
+
+impl IntoFieldValueItem for std::string::String {
+    fn into_field_value_item(self) -> FieldValueItem {
+        FieldValueItem::String(self)
+    }
+}
+impl IntoFieldValueItem for &str {
+    fn into_field_value_item(self) -> FieldValueItem {
+        FieldValueItem::String(self.to_owned())
+    }
+}
+impl IntoFieldValueItem for i64 {
+    fn into_field_value_item(self) -> FieldValueItem {
+        FieldValueItem::Integer(self)
+    }
+}
+impl IntoFieldValueItem for i32 {
+    fn into_field_value_item(self) -> FieldValueItem {
+        FieldValueItem::Integer(self.into())
+    }
+}
+impl IntoFieldValueItem for f64 {
+    fn into_field_value_item(self) -> FieldValueItem {
+        FieldValueItem::Float(self)
+    }
+}
+impl IntoFieldValueItem for bool {
+    fn into_field_value_item(self) -> FieldValueItem {
+        FieldValueItem::Boolean(self)
+    }
+}
+impl IntoFieldValueItem for NaiveDateTime {
+    fn into_field_value_item(self) -> FieldValueItem {
+        FieldValueItem::DateTime(self)
+    }
+}
+impl IntoFieldValueItem for Duration {
+    fn into_field_value_item(self) -> FieldValueItem {
+        FieldValueItem::Duration(self)
+    }
+}
+impl IntoFieldValueItem for crate::entity::RuntimeEntityId {
+    fn into_field_value_item(self) -> FieldValueItem {
+        FieldValueItem::EntityIdentifier(self)
+    }
+}
+
+impl<T: IntoFieldValueItem> IntoFieldValue for T {
+    fn into_field_value(self) -> FieldValue {
+        FieldValue::Single(self.into_field_value_item())
+    }
+}
+impl<T: IntoFieldValueItem> IntoFieldValue for Option<T> {
+    fn into_field_value(self) -> FieldValue {
+        match self {
+            Some(v) => FieldValue::Single(v.into_field_value_item()),
+            // None maps to List([]) — the conventional "clear this field" sentinel
+            None => FieldValue::List(vec![]),
+        }
+    }
+}
+impl<T: IntoFieldValueItem> IntoFieldValue for Vec<T> {
+    fn into_field_value(self) -> FieldValue {
+        FieldValue::List(
+            self.into_iter()
+                .map(|v| v.into_field_value_item())
+                .collect(),
+        )
+    }
+}
+
 /// Scalar field type tags — the `Copy` type-level mirror of [`FieldValueItem`].
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum FieldTypeItem {
@@ -451,6 +545,7 @@ pub enum VerificationError {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::field_value;
     use chrono::NaiveDate;
 
     fn sample_datetime() -> NaiveDateTime {
@@ -696,5 +791,85 @@ mod tests {
         let t = FieldType::Single(FieldTypeItem::Integer);
         let _copy = t;
         let _ = t; // still usable after copy
+    }
+
+    #[test]
+    fn test_into_field_value_item_string() {
+        assert_eq!(
+            String::from("hello").into_field_value_item(),
+            FieldValueItem::String("hello".to_owned())
+        );
+        assert_eq!(
+            "hello".into_field_value_item(),
+            FieldValueItem::String("hello".to_owned())
+        );
+    }
+
+    #[test]
+    fn test_into_field_value_item_scalars() {
+        assert_eq!(42i64.into_field_value_item(), FieldValueItem::Integer(42));
+        assert_eq!(7i32.into_field_value_item(), FieldValueItem::Integer(7));
+        assert_eq!(3.14f64.into_field_value_item(), FieldValueItem::Float(3.14));
+        assert_eq!(true.into_field_value_item(), FieldValueItem::Boolean(true));
+    }
+
+    #[test]
+    fn test_into_field_value_single() {
+        assert_eq!(
+            "hello".into_field_value(),
+            FieldValue::Single(FieldValueItem::String("hello".to_owned()))
+        );
+        assert_eq!(
+            42i64.into_field_value(),
+            FieldValue::Single(FieldValueItem::Integer(42))
+        );
+        assert_eq!(
+            true.into_field_value(),
+            FieldValue::Single(FieldValueItem::Boolean(true))
+        );
+    }
+
+    #[test]
+    fn test_into_field_value_option_some() {
+        assert_eq!(
+            Some("x").into_field_value(),
+            FieldValue::Single(FieldValueItem::String("x".to_owned()))
+        );
+    }
+
+    #[test]
+    fn test_into_field_value_option_none_is_clear_sentinel() {
+        assert_eq!(
+            Option::<&str>::None.into_field_value(),
+            FieldValue::List(vec![])
+        );
+    }
+
+    #[test]
+    fn test_into_field_value_vec() {
+        assert_eq!(
+            vec![1i64, 2, 3].into_field_value(),
+            FieldValue::List(vec![
+                FieldValueItem::Integer(1),
+                FieldValueItem::Integer(2),
+                FieldValueItem::Integer(3),
+            ])
+        );
+    }
+
+    #[test]
+    fn test_field_value_macro_type_deduced() {
+        assert_eq!(
+            field_value!("hello"),
+            FieldValue::Single(FieldValueItem::String("hello".to_owned()))
+        );
+        assert_eq!(
+            field_value!(42i64),
+            FieldValue::Single(FieldValueItem::Integer(42))
+        );
+        assert_eq!(
+            field_value!(true),
+            FieldValue::Single(FieldValueItem::Boolean(true))
+        );
     }
 }

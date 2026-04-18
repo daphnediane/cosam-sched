@@ -25,12 +25,12 @@ use crate::field_macros::{
     bool_field, define_field, edge_list_field, edge_list_field_rw, edge_mutator_field,
     edge_none_field_rw, opt_i64_field, opt_string_field, opt_text_field, req_string_field,
 };
+use crate::field_value;
 use crate::panel_type::PanelTypeId;
 use crate::panel_uniq_id::PanelUniqId;
 use crate::presenter::PresenterId;
 use crate::time::{parse_datetime, parse_duration, TimeRange};
 use crate::value::{CrdtFieldType, ValidationError};
-use crate::{field_datetime, field_duration, field_string};
 use chrono::Duration;
 use serde::{Deserialize, Serialize};
 use std::sync::LazyLock;
@@ -214,7 +214,7 @@ define_field!(
         example: "GP032",
         order: 0,
         read_fn: Some(ReadFn::Bare(|d: &PanelInternalData| {
-            Some(field_string!(d.code.full_id()))
+            Some(field_value!(d.code.full_id()))
         })),
         write_fn: Some(WriteFn::Bare(|d: &mut PanelInternalData, v| {
             let s = v.into_string()?;
@@ -432,7 +432,7 @@ define_field!(
         example: "2023-06-25T19:00:00",
         order: 2400,
         read_fn: Some(ReadFn::Bare(|d: &PanelInternalData| {
-            d.time_slot.start_time().map(|dt| field_datetime!(dt))
+            d.time_slot.start_time().map(|dt| field_value!(dt))
         })),
         write_fn: Some(WriteFn::Bare(|d: &mut PanelInternalData, v| {
             match v {
@@ -481,7 +481,7 @@ define_field!(
         example: "2023-06-25T20:30:00",
         order: 2500,
         read_fn: Some(ReadFn::Bare(|d: &PanelInternalData| {
-            d.time_slot.end_time().map(|dt| field_datetime!(dt))
+            d.time_slot.end_time().map(|dt| field_value!(dt))
         })),
         write_fn: Some(WriteFn::Bare(|d: &mut PanelInternalData, v| {
             match v {
@@ -530,7 +530,7 @@ define_field!(
         example: "90",
         order: 2600,
         read_fn: Some(ReadFn::Bare(|d: &PanelInternalData| {
-            d.time_slot.duration().map(|dur| field_duration!(dur))
+            d.time_slot.duration().map(|dur| field_value!(dur))
         })),
         write_fn: Some(WriteFn::Bare(|d: &mut PanelInternalData, v| {
             match v {
@@ -644,10 +644,7 @@ mod tests {
     use super::*;
     use crate::schedule::Schedule;
     use crate::value::FieldError;
-    use crate::{
-        field_boolean, field_datetime, field_duration, field_integer, field_string, field_text,
-        field_value,
-    };
+    use crate::{field_text, field_value};
     use chrono::NaiveDate;
     use uuid::Uuid;
 
@@ -738,16 +735,16 @@ mod tests {
         let fs = PanelEntityType::field_set();
         assert_eq!(
             fs.read_field_value("code", id, &s).unwrap(),
-            Some(field_string!("GP001"))
+            Some(field_value!("GP001"))
         );
         // `"uid"` alias still resolves.
         assert_eq!(
             fs.read_field_value("uid", id, &s).unwrap(),
-            Some(field_string!("GP001"))
+            Some(field_value!("GP001"))
         );
         assert_eq!(
             fs.read_field_value("title", id, &s).unwrap(),
-            Some(field_string!("Panel Name"))
+            Some(field_value!("Panel Name"))
         );
     }
 
@@ -756,11 +753,11 @@ mod tests {
         let id = new_panel_id();
         let mut s = sched_with(id, sample_internal(id));
         let fs = PanelEntityType::field_set();
-        fs.write_field_value("code", id, &mut s, field_string!("GW007"))
+        fs.write_field_value("code", id, &mut s, field_value!("GW007"))
             .unwrap();
         assert_eq!(
             fs.read_field_value("code", id, &s).unwrap(),
-            Some(field_string!("GW007"))
+            Some(field_value!("GW007"))
         );
     }
 
@@ -769,7 +766,7 @@ mod tests {
         let id = new_panel_id();
         let mut s = sched_with(id, sample_internal(id));
         let fs = PanelEntityType::field_set();
-        let r = fs.write_field_value("code", id, &mut s, field_string!(""));
+        let r = fs.write_field_value("code", id, &mut s, field_value!(""));
         assert!(matches!(r, Err(FieldError::Conversion(_))));
     }
 
@@ -801,17 +798,17 @@ mod tests {
         let id = new_panel_id();
         let mut s = sched_with(id, sample_internal(id));
         let fs = PanelEntityType::field_set();
-        fs.write_field_value("is_free", id, &mut s, field_boolean!(true))
+        fs.write_field_value("is_free", id, &mut s, field_value!(true))
             .unwrap();
-        fs.write_field_value("capacity", id, &mut s, field_integer!(99))
+        fs.write_field_value("capacity", id, &mut s, field_value!(99))
             .unwrap();
         assert_eq!(
             fs.read_field_value("is_free", id, &s).unwrap(),
-            Some(field_boolean!(true))
+            Some(field_value!(true))
         );
         assert_eq!(
             fs.read_field_value("capacity", id, &s).unwrap(),
-            Some(field_integer!(99))
+            Some(field_value!(99))
         );
     }
 
@@ -820,7 +817,7 @@ mod tests {
         let id = new_panel_id();
         let mut s = sched_with(id, sample_internal(id));
         let fs = PanelEntityType::field_set();
-        let r = fs.write_field_value("code", id, &mut s, field_integer!(1));
+        let r = fs.write_field_value("code", id, &mut s, field_value!(1));
         assert!(matches!(r, Err(FieldError::Conversion(_))));
     }
 
@@ -845,7 +842,7 @@ mod tests {
         ));
         assert_eq!(
             fs.read_field_value("duration", id, &s).unwrap(),
-            Some(field_duration!(Duration::minutes(60)))
+            Some(field_value!(Duration::minutes(60)))
         );
     }
 
@@ -854,16 +851,11 @@ mod tests {
         let id = new_panel_id();
         let mut s = sched_with(id, sample_internal(id));
         let fs = PanelEntityType::field_set();
-        fs.write_field_value(
-            "duration",
-            id,
-            &mut s,
-            field_duration!(Duration::minutes(90)),
-        )
-        .unwrap();
+        fs.write_field_value("duration", id, &mut s, field_value!(Duration::minutes(90)))
+            .unwrap();
         assert_eq!(
             fs.read_field_value("duration", id, &s).unwrap(),
-            Some(field_duration!(Duration::minutes(90)))
+            Some(field_value!(Duration::minutes(90)))
         );
     }
 
@@ -876,7 +868,7 @@ mod tests {
             "start_time",
             id,
             &mut s,
-            field_string!("2026-06-26T15:00:00"),
+            field_value!("2026-06-26T15:00:00"),
         )
         .unwrap();
         let expected = NaiveDate::from_ymd_opt(2026, 6, 26)
@@ -885,7 +877,7 @@ mod tests {
             .unwrap();
         assert_eq!(
             fs.read_field_value("start_time", id, &s).unwrap(),
-            Some(field_datetime!(expected))
+            Some(field_value!(expected))
         );
     }
 
@@ -894,11 +886,11 @@ mod tests {
         let id = new_panel_id();
         let mut s = sched_with(id, sample_internal(id));
         let fs = PanelEntityType::field_set();
-        fs.write_field_value("duration", id, &mut s, field_integer!(120))
+        fs.write_field_value("duration", id, &mut s, field_value!(120))
             .unwrap();
         assert_eq!(
             fs.read_field_value("duration", id, &s).unwrap(),
-            Some(field_duration!(Duration::minutes(120)))
+            Some(field_value!(Duration::minutes(120)))
         );
     }
 

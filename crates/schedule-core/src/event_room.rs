@@ -18,7 +18,7 @@
 use crate::entity::{EntityId, EntityType, FieldSet};
 use crate::field::{FieldDescriptor, MatchPriority, ReadFn, WriteFn};
 use crate::field_macros::{define_field, edge_list_field_rw, opt_i64_field, req_string_field};
-use crate::field_string;
+use crate::field_value;
 use crate::hotel_room::HotelRoomId;
 use crate::panel::PanelId;
 use crate::value::{CrdtFieldType, ValidationError};
@@ -150,7 +150,7 @@ define_field!(
         example: "Grand Ballroom A",
         order: 100,
         read_fn: Some(ReadFn::Bare(|d: &EventRoomInternalData| {
-            d.data.long_name.as_ref().map(|s| field_string!(s.clone()))
+            d.data.long_name.as_ref().map(|s| field_value!(s.clone()))
         })),
         write_fn: Some(WriteFn::Bare(|d: &mut EventRoomInternalData, v| {
             if v.is_empty() {
@@ -211,8 +211,8 @@ static EVENT_ROOM_FIELD_SET: LazyLock<FieldSet<EventRoomEntityType>> =
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::field_value;
     use crate::schedule::Schedule;
-    use crate::{field_integer, field_value};
     use uuid::Uuid;
 
     fn make_id() -> EventRoomId {
@@ -260,15 +260,15 @@ mod tests {
         let fs = EventRoomEntityType::field_set();
         assert_eq!(
             fs.read_field_value("room_name", id, &sched).unwrap(),
-            Some(field_string!("Panel 1"))
+            Some(field_value!("Panel 1"))
         );
         assert_eq!(
             fs.read_field_value("long_name", id, &sched).unwrap(),
-            Some(field_string!("Grand Ballroom A"))
+            Some(field_value!("Grand Ballroom A"))
         );
         assert_eq!(
             fs.read_field_value("sort_key", id, &sched).unwrap(),
-            Some(field_integer!(10))
+            Some(field_value!(10))
         );
     }
 

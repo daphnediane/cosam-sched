@@ -99,7 +99,7 @@ macro_rules! req_string_field {
                 example: $example,
                 order: $order,
                 read_fn: Some($crate::field::ReadFn::Bare(|d: &$internal| {
-                    Some($crate::field_string!(d.data.$field.clone()))
+                    Some($crate::field_value!(d.data.$field.clone()))
                 })),
                 write_fn: Some($crate::field::WriteFn::Bare(|d: &mut $internal, v| {
                     d.data.$field = v.into_string()?;
@@ -138,7 +138,7 @@ macro_rules! opt_string_field {
                     d.data
                         .$field
                         .as_ref()
-                        .map(|s| $crate::field_string!(s.clone()))
+                        .map(|s| $crate::field_value!(s.clone()))
                 })),
                 write_fn: Some($crate::field::WriteFn::Bare(|d: &mut $internal, v| {
                     match v {
@@ -238,7 +238,7 @@ macro_rules! bool_field {
                 example: $example,
                 order: $order,
                 read_fn: Some($crate::field::ReadFn::Bare(|d: &$internal| {
-                    Some($crate::field_boolean!(d.data.$field))
+                    Some($crate::field_value!(d.data.$field))
                 })),
                 write_fn: Some($crate::field::WriteFn::Bare(|d: &mut $internal, v| {
                     d.data.$field = v.into_bool()?;
@@ -272,7 +272,7 @@ macro_rules! opt_i64_field {
                 example: $example,
                 order: $order,
                 read_fn: Some($crate::field::ReadFn::Bare(|d: &$internal| {
-                    d.data.$field.map(|n| $crate::field_integer!(n))
+                    d.data.$field.map(|n| $crate::field_value!(n))
                 })),
                 write_fn: Some($crate::field::WriteFn::Bare(|d: &mut $internal, v| {
                     match v {

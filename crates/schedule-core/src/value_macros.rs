@@ -4,37 +4,36 @@
  * See LICENSE file for full license text
  */
 
-//! Shared `macro_rules!` helpers for creating `FieldValue` instances.
+//! Shared `macro_rules!` helpers for creating [`FieldValue`](crate::value::FieldValue)
+//! instances.
 //!
-//! Use the `field_value!` macro with a variant identifier, or use the explicit
-//! variant macros for direct access. All macros support automatic type conversions
-//! via `Into` traits.
+//! Three macros cover all normal cases:
+//!
+//! - [`field_value!`] — type-deduced single value, `Option`, or `Vec` (via
+//!   [`IntoFieldValue`](crate::value::IntoFieldValue)); also accepts `empty_list`.
+//! - [`field_text!`] — explicitly creates a `Text` variant (needed because `String`
+//!   and `Text` share the same Rust type but have different CRDT semantics).
+//! - [`field_empty_list!`] — shorthand for `FieldValue::List(vec![])`.
 //!
 //! # Examples
 //!
 //! ```ignore
-//! // Using field_value! with variant identifier
-//! field_value!(string, "hello")
-//! field_value!(text, "long description")
-//! field_value!(integer, 42)
-//! field_value!(float, 3.14)
-//! field_value!(boolean, true)
-//! field_value!(datetime, naive_datetime)
-//! field_value!(duration, duration)
-//! field_value!(entity_identifier, id)
+//! // Type-deduced (IntoFieldValue dispatch)
+//! field_value!("hello")               // Single(String("hello"))
+//! field_value!(42i64)                 // Single(Integer(42))
+//! field_value!(true)                  // Single(Boolean(true))
+//! field_value!(dt)                    // Single(DateTime(dt))
+//! field_value!(dur)                   // Single(Duration(dur))
+//! field_value!(Some("x"))             // Single(String("x"))
+//! field_value!(Option::<&str>::None)  // List([])   — clear sentinel
+//! field_value!(vec![1i64, 2, 3])      // List([Integer(1), Integer(2), Integer(3)])
+//! field_value!(empty_list)            // List([])
 //!
-//! // Empty list
-//! field_value!(empty_list)
-//! field_empty_list!()
+//! // Text variant (must name explicitly — same Rust type as String)
+//! field_text!("long description")     // Single(Text("long description"))
 //!
-//! // Multiple values → List
-//! field_value!(string, "a", "b", "c")
-//! field_value!(integer, 1, 2, 3)
-//!
-//! // Or use explicit variant macros
-//! field_string!("hello")
-//! field_text!(long_description)
-//! field_integer!(42)
+//! // Empty list shorthand
+//! field_empty_list!()                 // List([])
 //! ```
 
 #[macro_export]
@@ -44,43 +43,9 @@ macro_rules! field_value {
         $crate::value::FieldValue::List(vec![])
     };
 
-    // Single value with variant identifier
-    ($variant:ident, $value:expr) => {
-        $crate::field_value_dispatch!($variant, $value)
-    };
-
-    // Multiple values with variant identifier → List
-    ($variant:ident, $($value:expr),+ $(,)?) => {
-        $crate::value::FieldValue::List(vec![$($crate::field_value_dispatch!($variant, $value)),+])
-    };
-}
-
-/// Internal dispatch macro for variant-identified values.
-#[macro_export(local_inner_macros)]
-macro_rules! field_value_dispatch {
-    (string, $value:expr) => {
-        $crate::value::FieldValueItem::String(Into::<String>::into($value))
-    };
-    (text, $value:expr) => {
-        $crate::value::FieldValueItem::Text(Into::<String>::into($value))
-    };
-    (integer, $value:expr) => {
-        $crate::value::FieldValueItem::Integer($value.into())
-    };
-    (float, $value:expr) => {
-        $crate::value::FieldValueItem::Float($value.into())
-    };
-    (boolean, $value:expr) => {
-        $crate::value::FieldValueItem::Boolean($value)
-    };
-    (datetime, $value:expr) => {
-        $crate::value::FieldValueItem::DateTime($value)
-    };
-    (duration, $value:expr) => {
-        $crate::value::FieldValueItem::Duration($value)
-    };
-    (entity_identifier, $value:expr) => {
-        $crate::value::FieldValueItem::EntityIdentifier($value)
+    // Type-deduced — must be last so the `empty_list` arm matches first
+    ($e:expr) => {
+        $crate::value::IntoFieldValue::into_field_value($e)
     };
 }
 
@@ -91,82 +56,16 @@ macro_rules! field_empty_list {
     };
 }
 
-#[macro_export]
-macro_rules! field_string {
-    ($value:expr) => {
-        $crate::value::FieldValue::Single($crate::value::FieldValueItem::String(Into::<String>::into($value)))
-    };
-    ($($value:expr),+ $(,)?) => {
-        $crate::value::FieldValue::List(vec![$($crate::value::FieldValueItem::String(Into::<String>::into($value))),+])
-    };
-}
-
+/// Creates a `FieldValue::Single(FieldValueItem::Text(...))`.
+///
+/// Use this instead of `field_value!` when the field uses `CrdtFieldType::Text`
+/// (long prose routed to RGA CRDT storage). The Rust type `String` alone is
+/// insufficient to distinguish `String` from `Text`.
 #[macro_export]
 macro_rules! field_text {
     ($value:expr) => {
-        $crate::value::FieldValue::Single($crate::value::FieldValueItem::Text(Into::<String>::into($value)))
-    };
-    ($($value:expr),+ $(,)?) => {
-        $crate::value::FieldValue::List(vec![$($crate::value::FieldValueItem::Text(Into::<String>::into($value))),+])
-    };
-}
-
-#[macro_export]
-macro_rules! field_integer {
-    ($value:expr) => {
-        $crate::value::FieldValue::Single($crate::value::FieldValueItem::Integer($value.into()))
-    };
-    ($($value:expr),+ $(,)?) => {
-        $crate::value::FieldValue::List(vec![$($crate::value::FieldValueItem::Integer($value.into())),+])
-    };
-}
-
-#[macro_export]
-macro_rules! field_float {
-    ($value:expr) => {
-        $crate::value::FieldValue::Single($crate::value::FieldValueItem::Float($value.into()))
-    };
-    ($($value:expr),+ $(,)?) => {
-        $crate::value::FieldValue::List(vec![$($crate::value::FieldValueItem::Float($value.into())),+])
-    };
-}
-
-#[macro_export]
-macro_rules! field_boolean {
-    ($value:expr) => {
-        $crate::value::FieldValue::Single($crate::value::FieldValueItem::Boolean($value))
-    };
-    ($($value:expr),+ $(,)?) => {
-        $crate::value::FieldValue::List(vec![$($crate::value::FieldValueItem::Boolean($value)),+])
-    };
-}
-
-#[macro_export]
-macro_rules! field_datetime {
-    ($value:expr) => {
-        $crate::value::FieldValue::Single($crate::value::FieldValueItem::DateTime($value))
-    };
-    ($($value:expr),+ $(,)?) => {
-        $crate::value::FieldValue::List(vec![$($crate::value::FieldValueItem::DateTime($value)),+])
-    };
-}
-
-#[macro_export]
-macro_rules! field_duration {
-    ($value:expr) => {
-        $crate::value::FieldValue::Single($crate::value::FieldValueItem::Duration($value))
-    };
-    ($($value:expr),+ $(,)?) => {
-        $crate::value::FieldValue::List(vec![$($crate::value::FieldValueItem::Duration($value)),+])
-    };
-}
-
-#[macro_export]
-macro_rules! field_entity_identifier {
-    ($value:expr) => {
-        $crate::value::FieldValue::Single($crate::value::FieldValueItem::EntityIdentifier($value))
-    };
-    ($($value:expr),+ $(,)?) => {
-        $crate::value::FieldValue::List(vec![$($crate::value::FieldValueItem::EntityIdentifier($value)),+])
+        $crate::value::FieldValue::Single($crate::value::FieldValueItem::Text(
+            Into::<String>::into($value),
+        ))
     };
 }
