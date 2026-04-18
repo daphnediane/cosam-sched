@@ -23,8 +23,9 @@ use crate::field_macros::{
     opt_text_field, req_string_field,
 };
 use crate::field_value;
+use crate::panel::PanelEntityType;
 use crate::panel::PanelId;
-use crate::value::{CrdtFieldType, ValidationError};
+use crate::value::{CrdtFieldType, FieldType, FieldTypeItem, ValidationError};
 use serde::{Deserialize, Deserializer, Serialize, Serializer};
 use std::sync::LazyLock;
 
@@ -328,6 +329,7 @@ define_field!(
         aliases: &["classification"],
         required: false,
         crdt_type: CrdtFieldType::Scalar,
+        field_type: FieldType::Optional(FieldTypeItem::String),
         example: "guest",
         order: 100,
         read_fn: Some(ReadFn::Bare(|d: &PresenterInternalData| {
@@ -383,6 +385,7 @@ define_field!(
         aliases: &["group"],
         required: false,
         crdt_type: CrdtFieldType::Derived,
+        field_type: FieldType::Single(FieldTypeItem::Boolean),
         example: "false",
         order: 600,
         read_fn: Some(ReadFn::Bare(|d: &PresenterInternalData| {
@@ -394,56 +397,56 @@ define_field!(
     }
 );
 
-edge_list_field_rw!(FIELD_GROUPS, PresenterEntityType, PresenterInternalData,
+edge_list_field_rw!(FIELD_GROUPS, PresenterEntityType, PresenterInternalData, target: PresenterEntityType,
     name: "groups", display: "Groups",
     desc: "Groups this presenter belongs to.",
     aliases: &["group_memberships"],
     example: "[]",
     order: 700);
 
-edge_list_field_rw!(FIELD_MEMBERS, PresenterEntityType, PresenterInternalData,
+edge_list_field_rw!(FIELD_MEMBERS, PresenterEntityType, PresenterInternalData, target: PresenterEntityType,
     name: "members", display: "Members",
     desc: "Members of this group (empty for individuals).",
     aliases: &["group_members"],
     example: "[]",
     order: 800);
 
-edge_list_field!(FIELD_INCLUSIVE_GROUPS, PresenterEntityType, PresenterInternalData,
+edge_list_field!(FIELD_INCLUSIVE_GROUPS, PresenterEntityType, PresenterInternalData, target: PresenterEntityType,
     name: "inclusive_groups", display: "Inclusive Groups",
     desc: "Transitive closure of groups this presenter appears in.",
     aliases: &[],
     example: "[]",
     order: 900);
 
-edge_list_field!(FIELD_INCLUSIVE_MEMBERS, PresenterEntityType, PresenterInternalData,
+edge_list_field!(FIELD_INCLUSIVE_MEMBERS, PresenterEntityType, PresenterInternalData, target: PresenterEntityType,
     name: "inclusive_members", display: "Inclusive Members",
     desc: "Transitive closure of members for this group.",
     aliases: &[],
     example: "[]",
     order: 1000);
 
-edge_list_field_rw!(FIELD_PANELS, PresenterEntityType, PresenterInternalData,
+edge_list_field_rw!(FIELD_PANELS, PresenterEntityType, PresenterInternalData, target: PanelEntityType,
     name: "panels", display: "Panels",
     desc: "Panels this presenter is scheduled on.",
     aliases: &["panel"],
     example: "[]",
     order: 1100);
 
-edge_mutator_field!(FIELD_ADD_PANELS, PresenterEntityType, PresenterInternalData,
+edge_mutator_field!(FIELD_ADD_PANELS, PresenterEntityType, PresenterInternalData, target: PanelEntityType,
     name: "add_panels", display: "Add Panels",
     desc: "Append panels to this presenter.",
     aliases: &["add_panel"],
     example: "[panel_id]",
     order: 1200);
 
-edge_mutator_field!(FIELD_REMOVE_PANELS, PresenterEntityType, PresenterInternalData,
+edge_mutator_field!(FIELD_REMOVE_PANELS, PresenterEntityType, PresenterInternalData, target: PanelEntityType,
     name: "remove_panels", display: "Remove Panels",
     desc: "Remove panels from this presenter.",
     aliases: &["remove_panel"],
     example: "[panel_id]",
     order: 1300);
 
-edge_list_field!(FIELD_INCLUSIVE_PANELS, PresenterEntityType, PresenterInternalData,
+edge_list_field!(FIELD_INCLUSIVE_PANELS, PresenterEntityType, PresenterInternalData, target: PanelEntityType,
     name: "inclusive_panels", display: "Inclusive Panels",
     desc: "Transitive closure: panels of this presenter and of its groups.",
     aliases: &[],

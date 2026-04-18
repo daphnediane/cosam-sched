@@ -19,9 +19,9 @@ use crate::entity::{EntityId, EntityType, FieldSet};
 use crate::field::{FieldDescriptor, MatchPriority, ReadFn, WriteFn};
 use crate::field_macros::{define_field, edge_list_field_rw, opt_i64_field, req_string_field};
 use crate::field_value;
-use crate::hotel_room::HotelRoomId;
-use crate::panel::PanelId;
-use crate::value::{CrdtFieldType, ValidationError};
+use crate::hotel_room::{HotelRoomEntityType, HotelRoomId};
+use crate::panel::{PanelEntityType, PanelId};
+use crate::value::{CrdtFieldType, FieldType, FieldTypeItem, ValidationError};
 use serde::{Deserialize, Serialize};
 use std::sync::LazyLock;
 
@@ -147,6 +147,7 @@ define_field!(
         aliases: &["display_name", "long"],
         required: false,
         crdt_type: CrdtFieldType::Scalar,
+        field_type: FieldType::Optional(FieldTypeItem::String),
         example: "Grand Ballroom A",
         order: 100,
         read_fn: Some(ReadFn::Bare(|d: &EventRoomInternalData| {
@@ -187,14 +188,14 @@ opt_i64_field!(FIELD_SORT_KEY, EventRoomEntityType, EventRoomInternalData, sort_
 
 // ── Edge-backed computed field stubs (full wiring in FEATURE-018) ─────────────
 
-edge_list_field_rw!(FIELD_HOTEL_ROOMS, EventRoomEntityType, EventRoomInternalData,
+edge_list_field_rw!(FIELD_HOTEL_ROOMS, EventRoomEntityType, EventRoomInternalData, target: HotelRoomEntityType,
     name: "hotel_rooms", display: "Hotel Rooms",
     desc: "Hotel rooms that contain this event room.",
     aliases: &["hotel_room"],
     example: "[]",
     order: 300);
 
-edge_list_field_rw!(FIELD_PANELS, EventRoomEntityType, EventRoomInternalData,
+edge_list_field_rw!(FIELD_PANELS, EventRoomEntityType, EventRoomInternalData, target: PanelEntityType,
     name: "panels", display: "Panels",
     desc: "Panels scheduled in this event room.",
     aliases: &["panel"],

@@ -1,6 +1,6 @@
 # Cosplay America Schedule - Work Item
 
-Updated on: Fri Apr 17 20:49:10 2026
+Updated on: Fri Apr 17 21:58:59 2026
 
 ## Completed
 
@@ -15,6 +15,8 @@ Updated on: Fri Apr 17 20:49:10 2026
 * [FEATURE-043] Add a `verify` callback to `FieldDescriptor` for cross-field consistency checks after batch writes to computed fields.
 * [FEATURE-050] Add `FieldTypeItem` (scalar type tags) and `FieldType` (`Single`/`Optional`/`List`
 wrappers) to `value.rs` as `Copy` type-level mirrors of `FieldValueItem`/`FieldValue`.
+* [FEATURE-051] Add a `field_type: FieldType` field to `FieldDescriptor` and populate it in all
+existing static field descriptors across every entity file.
 * [META-002] Phase tracker for project foundation and Cargo workspace setup.
 * [REFACTOR-047] Extract the `macro_rules!` helpers from `panel.rs` into a shared `field_macros.rs`
 and adopt them in `panel_type.rs` to eliminate per-entity boilerplate.
@@ -35,7 +37,7 @@ collection, and expose a `registered_entity_types()` accessor.
 
 ## Summary of Open Items
 
-**Total open items:** 32
+**Total open items:** 31
 
 * **Meta / Project-Level**
   * [META-001] Meta work item tracking the full multi-phase redesign of the schedule system. (Blocked by [META-003], [META-004], [META-005], [META-006], [META-007], [META-008])
@@ -56,8 +58,6 @@ enums, wire `FieldType` into `FieldDescriptor`, and implement the generic
   * [FEATURE-021] ([META-003]) Implement a command-based edit system with full undo/redo support.
   * [FEATURE-038] ([META-048]) Add a type-safe `FieldValueConverter<M>` trait and driver functions for converting
 `FieldValue` inputs to typed Rust outputs via a work-queue iteration pattern.
-  * [FEATURE-051] ([META-048]) Add a `field_type: FieldType` field to `FieldDescriptor` and populate it in all
-existing static field descriptors across every entity file.
   * [REFACTOR-041] Replace the `EntityKind` enum with direct use of `EntityType::TYPE_NAME` strings,
 following the v10-try3 design. This eliminates the central enum that required
 modification for every new entity type.
@@ -248,24 +248,6 @@ changes as reversible operations, enabling undo/redo in both CLI and GUI context
 **Description:** Promoted from IDEA-038. Implements the generic conversion system needed by the import
 pipeline (e.g., tagged presenter `"P:Name"` → `EntityId<PresenterEntityType>` with
 rank assignment).
-
----
-
-### [FEATURE-051] FEATURE-051: Add field_type to FieldDescriptor
-
-**Status:** Open
-
-**Priority:** High
-
-**Summary:** Add a `field_type: FieldType` field to `FieldDescriptor` and populate it in all
-existing static field descriptors across every entity file.
-
-**Part of:** [META-048]
-
-**Description:** `FieldDescriptor` currently has `crdt_type: CrdtFieldType` to declare CRDT routing,
-but no field for the value's logical type. Adding `field_type: FieldType` allows
-callers (converters, importers, UI) to know what type a field expects without
-calling read/write.
 
 ---
 
@@ -584,6 +566,10 @@ uses `Single`/`List` wrappers (without an `Optional` variant) and `EntityIdentif
 as the variant name (not `EntityId`). Absent optional fields return `None` from
 read functions; empty lists return `FieldValue::List(vec![])`.
 
+**Note**: FEATURE-050 added the `FieldTypeItem` and `FieldType` enums. REFACTOR-055 added
+the `IntoFieldValue` trait hierarchy and type-deduced `field_value!` macro for ergonomic
+value construction.
+
 **Work Items:**
 
 * REFACTOR-049: Restructure FieldValue → FieldValueItem + cardinality
@@ -763,7 +749,7 @@ Both are now handled without a central enum:
 [FEATURE-043]: work-item/done/FEATURE-043.md
 [FEATURE-046]: work-item/medium/FEATURE-046.md
 [FEATURE-050]: work-item/done/FEATURE-050.md
-[FEATURE-051]: work-item/high/FEATURE-051.md
+[FEATURE-051]: work-item/done/FEATURE-051.md
 [META-001]: work-item/meta/META-001.md
 [META-002]: work-item/done/META-002.md
 [META-003]: work-item/meta/META-003.md

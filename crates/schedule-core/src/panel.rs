@@ -19,18 +19,18 @@
 //! fully wired up in FEATURE-018.
 
 use crate::entity::{EntityId, EntityType, FieldSet};
-use crate::event_room::EventRoomId;
+use crate::event_room::{EventRoomEntityType, EventRoomId};
 use crate::field::{FieldDescriptor, ReadFn, VerifyFn, WriteFn};
 use crate::field_macros::{
     bool_field, define_field, edge_list_field, edge_list_field_rw, edge_mutator_field,
     edge_none_field_rw, opt_i64_field, opt_string_field, opt_text_field, req_string_field,
 };
 use crate::field_value;
-use crate::panel_type::PanelTypeId;
+use crate::panel_type::{PanelTypeEntityType, PanelTypeId};
 use crate::panel_uniq_id::PanelUniqId;
-use crate::presenter::PresenterId;
+use crate::presenter::{PresenterEntityType, PresenterId};
 use crate::time::{parse_datetime, parse_duration, TimeRange};
-use crate::value::{CrdtFieldType, ValidationError};
+use crate::value::{CrdtFieldType, FieldType, FieldTypeItem, ValidationError};
 use chrono::Duration;
 use serde::{Deserialize, Serialize};
 use std::sync::LazyLock;
@@ -211,6 +211,7 @@ define_field!(
         aliases: &["uid", "uniq_id", "id"],
         required: true,
         crdt_type: CrdtFieldType::Scalar,
+        field_type: FieldType::Single(FieldTypeItem::String),
         example: "GP032",
         order: 0,
         read_fn: Some(ReadFn::Bare(|d: &PanelInternalData| {
@@ -429,6 +430,7 @@ define_field!(
         aliases: &["start"],
         required: false,
         crdt_type: CrdtFieldType::Derived,
+        field_type: FieldType::Optional(FieldTypeItem::DateTime),
         example: "2023-06-25T19:00:00",
         order: 2400,
         read_fn: Some(ReadFn::Bare(|d: &PanelInternalData| {
@@ -478,6 +480,7 @@ define_field!(
         aliases: &["end"],
         required: false,
         crdt_type: CrdtFieldType::Derived,
+        field_type: FieldType::Optional(FieldTypeItem::DateTime),
         example: "2023-06-25T20:30:00",
         order: 2500,
         read_fn: Some(ReadFn::Bare(|d: &PanelInternalData| {
@@ -527,6 +530,7 @@ define_field!(
         aliases: &[],
         required: false,
         crdt_type: CrdtFieldType::Derived,
+        field_type: FieldType::Optional(FieldTypeItem::Duration),
         example: "90",
         order: 2600,
         read_fn: Some(ReadFn::Bare(|d: &PanelInternalData| {
@@ -576,56 +580,56 @@ define_field!(
 // and writes are no-ops until edge storage lands. All stubs are declared via
 // the shared edge-stub macros in `crate::field_macros`.
 
-edge_list_field_rw!(FIELD_PRESENTERS, PanelEntityType, PanelInternalData,
+edge_list_field_rw!(FIELD_PRESENTERS, PanelEntityType, PanelInternalData, target: PresenterEntityType,
     name: "presenters", display: "Presenters",
     desc: "All presenters credited for this panel.",
     aliases: &["panelists", "presenter"],
     example: "[]",
     order: 2700);
 
-edge_mutator_field!(FIELD_ADD_PRESENTERS, PanelEntityType, PanelInternalData,
+edge_mutator_field!(FIELD_ADD_PRESENTERS, PanelEntityType, PanelInternalData, target: PresenterEntityType,
     name: "add_presenters", display: "Add Presenters",
     desc: "Append presenters to this panel.",
     aliases: &["add_presenter"],
     example: "[presenter_id]",
     order: 2800);
 
-edge_mutator_field!(FIELD_REMOVE_PRESENTERS, PanelEntityType, PanelInternalData,
+edge_mutator_field!(FIELD_REMOVE_PRESENTERS, PanelEntityType, PanelInternalData, target: PresenterEntityType,
     name: "remove_presenters", display: "Remove Presenters",
     desc: "Remove presenters from this panel.",
     aliases: &["remove_presenter"],
     example: "[presenter_id]",
     order: 2900);
 
-edge_list_field!(FIELD_INCLUSIVE_PRESENTERS, PanelEntityType, PanelInternalData,
+edge_list_field!(FIELD_INCLUSIVE_PRESENTERS, PanelEntityType, PanelInternalData, target: PresenterEntityType,
     name: "inclusive_presenters", display: "Inclusive Presenters",
     desc: "Transitive closure: direct presenters + their groups + group members.",
     aliases: &["inclusive_presenter"],
     example: "[]",
     order: 3000);
 
-edge_list_field_rw!(FIELD_EVENT_ROOMS, PanelEntityType, PanelInternalData,
+edge_list_field_rw!(FIELD_EVENT_ROOMS, PanelEntityType, PanelInternalData, target: EventRoomEntityType,
     name: "event_rooms", display: "Event Rooms",
     desc: "Rooms where this panel takes place.",
     aliases: &["rooms", "room", "event_room"],
     example: "[]",
     order: 3100);
 
-edge_mutator_field!(FIELD_ADD_ROOMS, PanelEntityType, PanelInternalData,
+edge_mutator_field!(FIELD_ADD_ROOMS, PanelEntityType, PanelInternalData, target: EventRoomEntityType,
     name: "add_rooms", display: "Add Rooms",
     desc: "Append event rooms to this panel.",
     aliases: &["add_room"],
     example: "[room_id]",
     order: 3200);
 
-edge_mutator_field!(FIELD_REMOVE_ROOMS, PanelEntityType, PanelInternalData,
+edge_mutator_field!(FIELD_REMOVE_ROOMS, PanelEntityType, PanelInternalData, target: EventRoomEntityType,
     name: "remove_rooms", display: "Remove Rooms",
     desc: "Remove event rooms from this panel.",
     aliases: &["remove_room"],
     example: "[room_id]",
     order: 3300);
 
-edge_none_field_rw!(FIELD_PANEL_TYPE, PanelEntityType, PanelInternalData,
+edge_none_field_rw!(FIELD_PANEL_TYPE, PanelEntityType, PanelInternalData, target: PanelTypeEntityType,
     name: "panel_type", display: "Panel Type",
     desc: "Panel type / kind.",
     aliases: &["kind", "type"],

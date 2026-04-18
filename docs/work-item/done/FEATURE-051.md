@@ -7,7 +7,7 @@ existing static field descriptors across every entity file.
 
 ## Status
 
-Open
+Completed
 
 ## Priority
 

@@ -245,6 +245,7 @@ pub struct FieldDescriptor<E: EntityType> {
     pub aliases: &'static [&'static str],
     pub required: bool,
     pub crdt_type: CrdtFieldType,
+    pub field_type: FieldType,          // Logical field type (value type and cardinality)
     pub example: &'static str,
     pub order: u32,                     // Stable iteration order for inventory collection
     pub read_fn: Option<ReadFn<E>>,     // None → write-only
@@ -288,6 +289,9 @@ static FIELD_PANEL_NAME: FieldDescriptor<PanelEntityType> = FieldDescriptor {
     aliases: &[],
     required: true,
     crdt_type: CrdtFieldType::Scalar,
+    field_type: FieldType::Single(FieldTypeItem::String),
+    example: "Introduction to Cosplay",
+    order: 0,
     read_fn: Some(ReadFn::Bare(|d| Some(FieldValue::String(d.data.name.clone())))),
     write_fn: Some(WriteFn::Bare(|d, v| { d.data.name = v.into_string()?; Ok(()) })),
     index_fn: None,
@@ -301,6 +305,9 @@ static FIELD_PANEL_PRESENTERS: FieldDescriptor<PanelEntityType> = FieldDescripto
     aliases: &["presenter"],
     required: false,
     crdt_type: CrdtFieldType::Derived,
+    field_type: FieldType::List(FieldTypeItem::EntityIdentifier("presenter")),
+    example: "[]",
+    order: 2700,
     read_fn: Some(ReadFn::Schedule(|schedule, id| { /* query edge index */ todo!() })),
     write_fn: Some(WriteFn::Schedule(|schedule, id, v| { /* mutate edge index */ todo!() })),
     index_fn: None,
@@ -317,8 +324,10 @@ integers, plain-text fields, edge-backed stubs) are declared via shared
 `opt_i64_field!`, `edge_list_field!`, `edge_list_field_rw!`,
 `edge_none_field_rw!`, `edge_mutator_field!`. Each macro takes the entity type
 and `InternalData` type explicitly, and assumes the `data: CommonData`
-convention. Bespoke descriptors (computed projections, fields with custom
-parse logic) stay as hand-written struct literals.
+convention. Edge macros additionally take a `target: EntityType` parameter
+and derive the entity type name from `EntityType::TYPE_NAME`. Bespoke
+descriptors (computed projections, fields with custom parse logic) stay as
+hand-written struct literals.
 
 ### Inventory-based field registration
 

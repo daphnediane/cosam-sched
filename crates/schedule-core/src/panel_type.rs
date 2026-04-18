@@ -20,8 +20,8 @@ use crate::field_macros::{
     bool_field, define_field, edge_list_field, opt_string_field, req_string_field,
 };
 use crate::field_value;
-use crate::panel::PanelId;
-use crate::value::{CrdtFieldType, ValidationError};
+use crate::panel::{PanelEntityType, PanelId};
+use crate::value::{CrdtFieldType, FieldType, FieldTypeItem, ValidationError};
 use serde::{Deserialize, Serialize};
 use std::sync::LazyLock;
 
@@ -248,6 +248,7 @@ define_field!(
         aliases: &["name"],
         required: false,
         crdt_type: CrdtFieldType::Derived,
+        field_type: FieldType::Single(FieldTypeItem::String),
         example: "Guest Panel (GP)",
         order: 1100,
         read_fn: Some(ReadFn::Bare(|d: &PanelTypeInternalData| {
@@ -281,7 +282,7 @@ define_field!(
 
 // Panels of this type — edge-backed computed field (deferred to FEATURE-018).
 // Populated from edge maps when relationship storage is implemented.
-edge_list_field!(FIELD_PANELS, PanelTypeEntityType, PanelTypeInternalData,
+edge_list_field!(FIELD_PANELS, PanelTypeEntityType, PanelTypeInternalData, target: PanelEntityType,
     name: "panels", display: "Panels",
     desc: "Panels of this type.",
     aliases: &[],

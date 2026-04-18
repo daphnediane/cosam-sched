@@ -24,7 +24,7 @@
 
 use crate::entity::{EntityId, EntityType};
 use crate::schedule::Schedule;
-use crate::value::{CrdtFieldType, FieldError, FieldValue, VerificationError};
+use crate::value::{CrdtFieldType, FieldError, FieldType, FieldValue, VerificationError};
 
 /// Priority returned by [`IndexableField::match_field`] indicating how well a
 /// query string matched a field value.
@@ -179,6 +179,7 @@ pub trait VerifiableField<E: EntityType>: NamedField {
 ///     aliases: &[],
 ///     required: true,
 ///     crdt_type: CrdtFieldType::Scalar,
+///     field_type: FieldType::Single(FieldTypeItem::String),
 ///     read_fn: Some(ReadFn::Bare(|d| Some(FieldValue::String(d.data.name.clone())))),
 ///     write_fn: Some(WriteFn::Bare(|d, v| { d.data.name = v.into_string()?; Ok(()) })),
 ///     index_fn: None,
@@ -191,6 +192,7 @@ pub trait VerifiableField<E: EntityType>: NamedField {
 ///     aliases: &[],
 ///     required: false,
 ///     crdt_type: CrdtFieldType::Derived,
+///     field_type: FieldType::List(FieldTypeItem::EntityIdentifier("presenter")),
 ///     read_fn: None,
 ///     write_fn: Some(WriteFn::Schedule(|schedule, id, v| { todo!() })),
 ///     index_fn: None,
@@ -209,6 +211,8 @@ pub struct FieldDescriptor<E: EntityType> {
     pub required: bool,
     /// CRDT storage type annotation for Phase 4.
     pub crdt_type: CrdtFieldType,
+    /// Logical field type (value type and cardinality).
+    pub field_type: FieldType,
     /// Example value for documentation and UI hints.
     pub example: &'static str,
     /// Display/iteration order (lower values first). Used by `FieldSet::from_inventory`
@@ -322,6 +326,7 @@ mod tests {
     use crate::entity::{EntityId, EntityType};
     use crate::field_value;
     use crate::value::{CrdtFieldType, FieldError, ValidationError};
+    use crate::value::{FieldType, FieldTypeItem};
 
     /// Minimal mock entity for testing field traits without real entity types.
     struct MockEntity;
@@ -372,6 +377,7 @@ mod tests {
         aliases: &["tag", "name"],
         required: true,
         crdt_type: CrdtFieldType::Scalar,
+        field_type: FieldType::Single(FieldTypeItem::String),
         example: "Hello World",
         order: 0,
         read_fn: Some(ReadFn::Bare(|d: &MockInternalData| {
@@ -404,6 +410,7 @@ mod tests {
         aliases: &[],
         required: false,
         crdt_type: CrdtFieldType::Scalar,
+        field_type: FieldType::Single(FieldTypeItem::Integer),
         example: "7",
         order: 100,
         read_fn: Some(ReadFn::Bare(|d: &MockInternalData| {
@@ -424,6 +431,7 @@ mod tests {
         aliases: &[],
         required: false,
         crdt_type: CrdtFieldType::Derived,
+        field_type: FieldType::Single(FieldTypeItem::Integer),
         example: "42",
         order: 200,
         read_fn: Some(ReadFn::Bare(|_: &MockInternalData| Some(field_value!(42)))),
@@ -439,6 +447,7 @@ mod tests {
         aliases: &[],
         required: false,
         crdt_type: CrdtFieldType::Derived,
+        field_type: FieldType::Single(FieldTypeItem::String),
         example: "Hello World",
         order: 300,
         read_fn: None,

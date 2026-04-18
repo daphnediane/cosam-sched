@@ -17,7 +17,7 @@
 //! fully wired in FEATURE-018.
 
 use crate::entity::{EntityId, EntityType, FieldSet};
-use crate::event_room::EventRoomId;
+use crate::event_room::{EventRoomEntityType, EventRoomId};
 use crate::field_macros::{edge_list_field, req_string_field};
 use crate::value::ValidationError;
 use serde::{Deserialize, Serialize};
@@ -124,7 +124,7 @@ req_string_field!(FIELD_HOTEL_ROOM_NAME, HotelRoomEntityType, HotelRoomInternalD
     example: "Ballroom East",
     order: 0);
 
-edge_list_field!(FIELD_EVENT_ROOMS, HotelRoomEntityType, HotelRoomInternalData,
+edge_list_field!(FIELD_EVENT_ROOMS, HotelRoomEntityType, HotelRoomInternalData, target: EventRoomEntityType,
     name: "event_rooms", display: "Event Rooms",
     desc: "Event rooms contained within this hotel room.",
     aliases: &["event_room"],

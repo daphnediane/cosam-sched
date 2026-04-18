@@ -247,6 +247,7 @@ mod tests {
     use crate::field::{ReadFn, WriteFn};
     use crate::field_value;
     use crate::value::{CrdtFieldType, FieldError, ValidationError};
+    use crate::value::{FieldType, FieldTypeItem};
     use uuid::Uuid;
 
     // ── Mock entity ──────────────────────────────────────────────────────────
@@ -292,6 +293,7 @@ mod tests {
         aliases: &["tag", "name"],
         required: true,
         crdt_type: CrdtFieldType::Scalar,
+        field_type: FieldType::Single(FieldTypeItem::String),
         example: "Hello World",
         order: 0,
         read_fn: Some(ReadFn::Bare(|d: &MockData| {
@@ -324,6 +326,7 @@ mod tests {
         aliases: &[],
         required: false,
         crdt_type: CrdtFieldType::Scalar,
+        field_type: FieldType::Single(FieldTypeItem::Integer),
         example: "7",
         order: 100,
         read_fn: Some(ReadFn::Bare(|d: &MockData| Some(field_value!(d.count)))),
@@ -342,6 +345,7 @@ mod tests {
         aliases: &[],
         required: false,
         crdt_type: CrdtFieldType::Derived,
+        field_type: FieldType::Single(FieldTypeItem::Integer),
         example: "42",
         order: 200,
         read_fn: Some(ReadFn::Bare(|_: &MockData| Some(field_value!(42)))),

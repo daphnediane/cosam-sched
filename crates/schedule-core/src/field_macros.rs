@@ -96,6 +96,7 @@ macro_rules! req_string_field {
                 aliases: $aliases,
                 required: true,
                 crdt_type: $crate::value::CrdtFieldType::Scalar,
+                field_type: $crate::value::FieldType::Single($crate::value::FieldTypeItem::String),
                 example: $example,
                 order: $order,
                 read_fn: Some($crate::field::ReadFn::Bare(|d: &$internal| {
@@ -132,6 +133,9 @@ macro_rules! opt_string_field {
                 aliases: $aliases,
                 required: false,
                 crdt_type: $crate::value::CrdtFieldType::Scalar,
+                field_type: $crate::value::FieldType::Optional(
+                    $crate::value::FieldTypeItem::String,
+                ),
                 example: $example,
                 order: $order,
                 read_fn: Some($crate::field::ReadFn::Bare(|d: &$internal| {
@@ -184,6 +188,7 @@ macro_rules! opt_text_field {
                 aliases: $aliases,
                 required: false,
                 crdt_type: $crate::value::CrdtFieldType::Text,
+                field_type: $crate::value::FieldType::Optional($crate::value::FieldTypeItem::Text),
                 example: $example,
                 order: $order,
                 read_fn: Some($crate::field::ReadFn::Bare(|d: &$internal| {
@@ -235,6 +240,7 @@ macro_rules! bool_field {
                 aliases: $aliases,
                 required: false,
                 crdt_type: $crate::value::CrdtFieldType::Scalar,
+                field_type: $crate::value::FieldType::Single($crate::value::FieldTypeItem::Boolean),
                 example: $example,
                 order: $order,
                 read_fn: Some($crate::field::ReadFn::Bare(|d: &$internal| {
@@ -269,6 +275,9 @@ macro_rules! opt_i64_field {
                 aliases: $aliases,
                 required: false,
                 crdt_type: $crate::value::CrdtFieldType::Scalar,
+                field_type: $crate::value::FieldType::Optional(
+                    $crate::value::FieldTypeItem::Integer,
+                ),
                 example: $example,
                 order: $order,
                 read_fn: Some($crate::field::ReadFn::Bare(|d: &$internal| {
@@ -310,7 +319,7 @@ pub(crate) use opt_i64_field;
 /// Edge-stub list field that is read-only (e.g. `inclusive_presenters`).
 macro_rules! edge_list_field {
     (
-        $static_name:ident, $entity:ty, $internal:ty,
+        $static_name:ident, $entity:ty, $internal:ty, target: $target_entity:ty,
         name: $name:literal, display: $display:literal, desc: $desc:literal,
         aliases: $aliases:expr, example: $example:literal,
         order: $order:expr
@@ -323,6 +332,11 @@ macro_rules! edge_list_field {
                 aliases: $aliases,
                 required: false,
                 crdt_type: $crate::value::CrdtFieldType::Derived,
+                field_type: $crate::value::FieldType::List(
+                    $crate::value::FieldTypeItem::EntityIdentifier(
+                        <$target_entity as crate::entity::EntityType>::TYPE_NAME,
+                    ),
+                ),
                 example: $example,
                 order: $order,
                 read_fn: Some($crate::field::ReadFn::Bare(|_d: &$internal| {
@@ -340,7 +354,7 @@ pub(crate) use edge_list_field;
 /// Edge-stub list field with a no-op write (e.g. `presenters`, `event_rooms`).
 macro_rules! edge_list_field_rw {
     (
-        $static_name:ident, $entity:ty, $internal:ty,
+        $static_name:ident, $entity:ty, $internal:ty, target: $target_entity:ty,
         name: $name:literal, display: $display:literal, desc: $desc:literal,
         aliases: $aliases:expr, example: $example:literal,
         order: $order:expr
@@ -353,6 +367,11 @@ macro_rules! edge_list_field_rw {
                 aliases: $aliases,
                 required: false,
                 crdt_type: $crate::value::CrdtFieldType::Derived,
+                field_type: $crate::value::FieldType::List(
+                    $crate::value::FieldTypeItem::EntityIdentifier(
+                        <$target_entity as crate::entity::EntityType>::TYPE_NAME,
+                    ),
+                ),
                 example: $example,
                 order: $order,
                 read_fn: Some($crate::field::ReadFn::Bare(|_d: &$internal| {
@@ -373,7 +392,7 @@ pub(crate) use edge_list_field_rw;
 /// Used for singular edge relations such as `panel_type`.
 macro_rules! edge_none_field_rw {
     (
-        $static_name:ident, $entity:ty, $internal:ty,
+        $static_name:ident, $entity:ty, $internal:ty, target: $target_entity:ty,
         name: $name:literal, display: $display:literal, desc: $desc:literal,
         aliases: $aliases:expr, example: $example:literal,
         order: $order:expr
@@ -386,6 +405,11 @@ macro_rules! edge_none_field_rw {
                 aliases: $aliases,
                 required: false,
                 crdt_type: $crate::value::CrdtFieldType::Derived,
+                field_type: $crate::value::FieldType::List(
+                    $crate::value::FieldTypeItem::EntityIdentifier(
+                        <$target_entity as crate::entity::EntityType>::TYPE_NAME,
+                    ),
+                ),
                 example: $example,
                 order: $order,
                 read_fn: Some($crate::field::ReadFn::Bare(|_d: &$internal| {
@@ -405,7 +429,7 @@ pub(crate) use edge_none_field_rw;
 /// Edge-stub mutator: write-only no-op (used for `add_*` / `remove_*` fields).
 macro_rules! edge_mutator_field {
     (
-        $static_name:ident, $entity:ty, $internal:ty,
+        $static_name:ident, $entity:ty, $internal:ty, target: $target_entity:ty,
         name: $name:literal, display: $display:literal, desc: $desc:literal,
         aliases: $aliases:expr, example: $example:literal,
         order: $order:expr
@@ -418,6 +442,11 @@ macro_rules! edge_mutator_field {
                 aliases: $aliases,
                 required: false,
                 crdt_type: $crate::value::CrdtFieldType::Derived,
+                field_type: $crate::value::FieldType::List(
+                    $crate::value::FieldTypeItem::EntityIdentifier(
+                        <$target_entity as crate::entity::EntityType>::TYPE_NAME,
+                    ),
+                ),
                 example: $example,
                 order: $order,
                 read_fn: None,
