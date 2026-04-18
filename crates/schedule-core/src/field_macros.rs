@@ -47,7 +47,13 @@
 //! Bespoke descriptors — computed fields with custom read/write logic, fields
 //! with non-uniform type conversion (e.g. `TimeRange` projections), and real
 //! edge mutators once FEATURE-018 lands — stay as plain
-//! `FieldDescriptor { ... }` literals at the call site.
+//! `FieldDescriptor { ... }` literals wrapped in [`define_field!`].
+//!
+//! ## Hand-written descriptor registration
+//!
+//! Use [`define_field!`] to declare any hand-written `FieldDescriptor` static;
+//! it bundles the `static` declaration with the required `inventory::submit!`
+//! call so the field is never accidentally omitted from the registry.
 
 use crate::field::MatchPriority;
 
@@ -425,3 +431,37 @@ macro_rules! edge_mutator_field {
     };
 }
 pub(crate) use edge_mutator_field;
+
+// ── Hand-written descriptor registration ─────────────────────────────────────
+
+/// Declare a hand-written [`FieldDescriptor`](crate::field::FieldDescriptor)
+/// static and register it with the `inventory` registry in one step.
+///
+/// Wrap any bespoke `FieldDescriptor { ... }` literal that doesn't fit the
+/// stored-field macros. The entity type `E` is inferred from the static's
+/// declared type — no second type argument is needed at the call site.
+///
+/// # Example
+///
+/// ```ignore
+/// define_field!(
+///     /// Optional long name, indexed for name-based search.
+///     static FIELD_LONG_NAME: FieldDescriptor<EventRoomEntityType> = FieldDescriptor {
+///         name: "long_name",
+///         // ...
+///     }
+/// );
+/// ```
+macro_rules! define_field {
+    (
+        $(#[$attr:meta])*
+        $vis:vis static $static_name:ident : $ty:ty = $init:expr
+    ) => {
+        $(#[$attr])*
+        $vis static $static_name: $ty = $init;
+        inventory::submit! {
+            $crate::entity::CollectedField::<_>(&$static_name)
+        }
+    };
+}
+pub(crate) use define_field;

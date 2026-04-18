@@ -19,8 +19,8 @@
 use crate::entity::{EntityId, EntityType, FieldSet};
 use crate::field::{FieldDescriptor, ReadFn, WriteFn};
 use crate::field_macros::{
-    bool_field, edge_list_field, edge_list_field_rw, edge_mutator_field, opt_text_field,
-    req_string_field,
+    bool_field, define_field, edge_list_field, edge_list_field_rw, edge_mutator_field,
+    opt_text_field, req_string_field,
 };
 use crate::panel::PanelId;
 use crate::value::{CrdtFieldType, ValidationError};
@@ -317,29 +317,30 @@ req_string_field!(FIELD_NAME, PresenterEntityType, PresenterInternalData, name,
     example: "Alice Example",
     order: 0);
 
-/// Presenter rank — stored as `PresenterRank`, exposed as `FieldValue::String`
-/// using the canonical tag (`guest`, `judge`, `staff`, `invited_panelist`,
-/// `fan_panelist`, or a custom invited-guest label).
-static FIELD_RANK: FieldDescriptor<PresenterEntityType> = FieldDescriptor {
-    name: "rank",
-    display: "Rank",
-    description: "Presenter classification tier.",
-    aliases: &["classification"],
-    required: false,
-    crdt_type: CrdtFieldType::Scalar,
-    example: "guest",
-    order: 100,
-    read_fn: Some(ReadFn::Bare(|d: &PresenterInternalData| {
-        Some(field_string!(d.data.rank.as_str()))
-    })),
-    write_fn: Some(WriteFn::Bare(|d: &mut PresenterInternalData, v| {
-        d.data.rank = PresenterRank::parse(&v.into_string()?);
-        Ok(())
-    })),
-    index_fn: None,
-    verify_fn: None,
-};
-inventory::submit! { crate::entity::CollectedField::<PresenterEntityType>(&FIELD_RANK) }
+define_field!(
+    /// Presenter rank — stored as `PresenterRank`, exposed as `FieldValue::String`
+    /// using the canonical tag (`guest`, `judge`, `staff`, `invited_panelist`,
+    /// `fan_panelist`, or a custom invited-guest label).
+    static FIELD_RANK: FieldDescriptor<PresenterEntityType> = FieldDescriptor {
+        name: "rank",
+        display: "Rank",
+        description: "Presenter classification tier.",
+        aliases: &["classification"],
+        required: false,
+        crdt_type: CrdtFieldType::Scalar,
+        example: "guest",
+        order: 100,
+        read_fn: Some(ReadFn::Bare(|d: &PresenterInternalData| {
+            Some(field_string!(d.data.rank.as_str()))
+        })),
+        write_fn: Some(WriteFn::Bare(|d: &mut PresenterInternalData, v| {
+            d.data.rank = PresenterRank::parse(&v.into_string()?);
+            Ok(())
+        })),
+        index_fn: None,
+        verify_fn: None,
+    }
+);
 
 opt_text_field!(FIELD_BIO, PresenterEntityType, PresenterInternalData, bio,
     name: "bio", display: "Bio",
@@ -371,26 +372,27 @@ bool_field!(FIELD_ALWAYS_SHOWN_IN_GROUP, PresenterEntityType, PresenterInternalD
 
 // ── Computed / edge-backed field stubs (full wiring in FEATURE-018) ───────────
 
-/// `is_group` — `Derived` bool that currently mirrors `is_explicit_group`; once
-/// FEATURE-018 adds edge-backed membership, this also returns `true` when edge
-/// storage records any members.
-static FIELD_IS_GROUP: FieldDescriptor<PresenterEntityType> = FieldDescriptor {
-    name: "is_group",
-    display: "Is Group",
-    description: "Whether this entity represents a group (explicit or by membership).",
-    aliases: &["group"],
-    required: false,
-    crdt_type: CrdtFieldType::Derived,
-    example: "false",
-    order: 600,
-    read_fn: Some(ReadFn::Bare(|d: &PresenterInternalData| {
-        Some(field_boolean!(d.data.is_explicit_group))
-    })),
-    write_fn: None,
-    index_fn: None,
-    verify_fn: None,
-};
-inventory::submit! { crate::entity::CollectedField::<PresenterEntityType>(&FIELD_IS_GROUP) }
+define_field!(
+    /// `is_group` — `Derived` bool that currently mirrors `is_explicit_group`; once
+    /// FEATURE-018 adds edge-backed membership, this also returns `true` when edge
+    /// storage records any members.
+    static FIELD_IS_GROUP: FieldDescriptor<PresenterEntityType> = FieldDescriptor {
+        name: "is_group",
+        display: "Is Group",
+        description: "Whether this entity represents a group (explicit or by membership).",
+        aliases: &["group"],
+        required: false,
+        crdt_type: CrdtFieldType::Derived,
+        example: "false",
+        order: 600,
+        read_fn: Some(ReadFn::Bare(|d: &PresenterInternalData| {
+            Some(field_boolean!(d.data.is_explicit_group))
+        })),
+        write_fn: None,
+        index_fn: None,
+        verify_fn: None,
+    }
+);
 
 edge_list_field_rw!(FIELD_GROUPS, PresenterEntityType, PresenterInternalData,
     name: "groups", display: "Groups",

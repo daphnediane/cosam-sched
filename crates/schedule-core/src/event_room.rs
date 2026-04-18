@@ -17,7 +17,7 @@
 
 use crate::entity::{EntityId, EntityType, FieldSet};
 use crate::field::{FieldDescriptor, MatchPriority, ReadFn, WriteFn};
-use crate::field_macros::{edge_list_field_rw, opt_i64_field, req_string_field};
+use crate::field_macros::{define_field, edge_list_field_rw, opt_i64_field, req_string_field};
 use crate::field_string;
 use crate::hotel_room::HotelRoomId;
 use crate::panel::PanelId;
@@ -136,46 +136,47 @@ req_string_field!(FIELD_ROOM_NAME, EventRoomEntityType, EventRoomInternalData, r
     example: "Panel 1",
     order: 0);
 
-/// Optional display name, indexed so name-based searches still find the room.
-/// Hand-written because the uniform `opt_string_field!` macro does not install
-/// an `index_fn`.
-static FIELD_LONG_NAME: FieldDescriptor<EventRoomEntityType> = FieldDescriptor {
-    name: "long_name",
-    display: "Long Name",
-    description: "Display name shown in the widget / public schedule.",
-    aliases: &["display_name", "long"],
-    required: false,
-    crdt_type: CrdtFieldType::Scalar,
-    example: "Grand Ballroom A",
-    order: 100,
-    read_fn: Some(ReadFn::Bare(|d: &EventRoomInternalData| {
-        d.data.long_name.as_ref().map(|s| field_string!(s.clone()))
-    })),
-    write_fn: Some(WriteFn::Bare(|d: &mut EventRoomInternalData, v| {
-        if v.is_empty() {
-            d.data.long_name = None;
-        } else {
-            d.data.long_name = Some(v.into_string()?);
-        }
-        Ok(())
-    })),
-    index_fn: Some(|query, d: &EventRoomInternalData| {
-        let long = d.data.long_name.as_deref()?;
-        let q = query.to_lowercase();
-        let v = long.to_lowercase();
-        if v == q {
-            Some(MatchPriority::Exact)
-        } else if v.starts_with(&q) {
-            Some(MatchPriority::Prefix)
-        } else if v.contains(&q) {
-            Some(MatchPriority::Contains)
-        } else {
-            None
-        }
-    }),
-    verify_fn: None,
-};
-inventory::submit! { crate::entity::CollectedField::<EventRoomEntityType>(&FIELD_LONG_NAME) }
+define_field!(
+    /// Optional display name, indexed so name-based searches still find the room.
+    /// Hand-written because the uniform `opt_string_field!` macro does not install
+    /// an `index_fn`.
+    static FIELD_LONG_NAME: FieldDescriptor<EventRoomEntityType> = FieldDescriptor {
+        name: "long_name",
+        display: "Long Name",
+        description: "Display name shown in the widget / public schedule.",
+        aliases: &["display_name", "long"],
+        required: false,
+        crdt_type: CrdtFieldType::Scalar,
+        example: "Grand Ballroom A",
+        order: 100,
+        read_fn: Some(ReadFn::Bare(|d: &EventRoomInternalData| {
+            d.data.long_name.as_ref().map(|s| field_string!(s.clone()))
+        })),
+        write_fn: Some(WriteFn::Bare(|d: &mut EventRoomInternalData, v| {
+            if v.is_empty() {
+                d.data.long_name = None;
+            } else {
+                d.data.long_name = Some(v.into_string()?);
+            }
+            Ok(())
+        })),
+        index_fn: Some(|query, d: &EventRoomInternalData| {
+            let long = d.data.long_name.as_deref()?;
+            let q = query.to_lowercase();
+            let v = long.to_lowercase();
+            if v == q {
+                Some(MatchPriority::Exact)
+            } else if v.starts_with(&q) {
+                Some(MatchPriority::Prefix)
+            } else if v.contains(&q) {
+                Some(MatchPriority::Contains)
+            } else {
+                None
+            }
+        }),
+        verify_fn: None,
+    }
+);
 
 opt_i64_field!(FIELD_SORT_KEY, EventRoomEntityType, EventRoomInternalData, sort_key,
     name: "sort_key", display: "Sort Key",

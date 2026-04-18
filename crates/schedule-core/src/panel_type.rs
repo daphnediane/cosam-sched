@@ -16,7 +16,9 @@
 
 use crate::entity::{EntityId, EntityType, FieldSet};
 use crate::field::{FieldDescriptor, MatchPriority, ReadFn};
-use crate::field_macros::{bool_field, edge_list_field, opt_string_field, req_string_field};
+use crate::field_macros::{
+    bool_field, define_field, edge_list_field, opt_string_field, req_string_field,
+};
 use crate::field_string;
 use crate::panel::PanelId;
 use crate::value::{CrdtFieldType, ValidationError};
@@ -235,48 +237,47 @@ opt_string_field!(FIELD_BW, PanelTypeEntityType, PanelTypeInternalData, bw,
     example: "#666666",
     order: 1000);
 
-/// Computed display name — derived from `panel_kind` and `prefix`.
-///
-/// Read-only computed field that produces a human-readable identifier.
-static FIELD_DISPLAY_NAME: FieldDescriptor<PanelTypeEntityType> = FieldDescriptor {
-    name: "display_name",
-    display: "Display Name",
-    description: "Human-readable display name combining kind and prefix.",
-    aliases: &["name"],
-    required: false,
-    crdt_type: CrdtFieldType::Derived,
-    example: "Guest Panel (GP)",
-    order: 1100,
-    read_fn: Some(ReadFn::Bare(|d: &PanelTypeInternalData| {
-        let name = if d.data.prefix.is_empty() {
-            d.data.panel_kind.clone()
-        } else if d.data.panel_kind.is_empty() {
-            d.data.prefix.clone()
-        } else {
-            format!("{} ({})", d.data.panel_kind, d.data.prefix)
-        };
-        Some(field_string!(name))
-    })),
-    write_fn: None, // Read-only computed field
-    index_fn: Some(|query, d: &PanelTypeInternalData| {
-        let q = query.to_lowercase();
-        // Can match against prefix or panel_kind
-        let p = d.data.prefix.to_lowercase();
-        let k = d.data.panel_kind.to_lowercase();
-
-        if p == q || k == q {
-            Some(MatchPriority::Exact)
-        } else if p.starts_with(&q) || k.starts_with(&q) {
-            Some(MatchPriority::Prefix)
-        } else if p.contains(&q) || k.contains(&q) {
-            Some(MatchPriority::Contains)
-        } else {
-            None
-        }
-    }),
-    verify_fn: None,
-};
-inventory::submit! { crate::entity::CollectedField::<PanelTypeEntityType>(&FIELD_DISPLAY_NAME) }
+define_field!(
+    /// Computed display name — derived from `panel_kind` and `prefix`.
+    ///
+    /// Read-only computed field that produces a human-readable identifier.
+    static FIELD_DISPLAY_NAME: FieldDescriptor<PanelTypeEntityType> = FieldDescriptor {
+        name: "display_name",
+        display: "Display Name",
+        description: "Human-readable display name combining kind and prefix.",
+        aliases: &["name"],
+        required: false,
+        crdt_type: CrdtFieldType::Derived,
+        example: "Guest Panel (GP)",
+        order: 1100,
+        read_fn: Some(ReadFn::Bare(|d: &PanelTypeInternalData| {
+            let name = if d.data.prefix.is_empty() {
+                d.data.panel_kind.clone()
+            } else if d.data.panel_kind.is_empty() {
+                d.data.prefix.clone()
+            } else {
+                format!("{} ({})", d.data.panel_kind, d.data.prefix)
+            };
+            Some(field_string!(name))
+        })),
+        write_fn: None, // Read-only computed field
+        index_fn: Some(|query, d: &PanelTypeInternalData| {
+            let q = query.to_lowercase();
+            let p = d.data.prefix.to_lowercase();
+            let k = d.data.panel_kind.to_lowercase();
+            if p == q || k == q {
+                Some(MatchPriority::Exact)
+            } else if p.starts_with(&q) || k.starts_with(&q) {
+                Some(MatchPriority::Prefix)
+            } else if p.contains(&q) || k.contains(&q) {
+                Some(MatchPriority::Contains)
+            } else {
+                None
+            }
+        }),
+        verify_fn: None,
+    }
+);
 
 // Panels of this type — edge-backed computed field (deferred to FEATURE-018).
 // Populated from edge maps when relationship storage is implemented.
