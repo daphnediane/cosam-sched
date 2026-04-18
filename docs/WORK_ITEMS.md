@@ -1,6 +1,6 @@
 # Cosplay America Schedule - Work Item
 
-Updated on: Fri Apr 17 21:58:59 2026
+Updated on: Sat Apr 18 01:24:43 2026
 
 ## Completed
 
@@ -18,6 +18,9 @@ wrappers) to `value.rs` as `Copy` type-level mirrors of `FieldValueItem`/`FieldV
 * [FEATURE-051] Add a `field_type: FieldType` field to `FieldDescriptor` and populate it in all
 existing static field descriptors across every entity file.
 * [META-002] Phase tracker for project foundation and Cargo workspace setup.
+* [REFACTOR-041] Replace the `EntityKind` enum with direct use of `EntityType::TYPE_NAME` strings,
+following the v10-try3 design. This eliminates the central enum that required
+modification for every new entity type.
 * [REFACTOR-047] Extract the `macro_rules!` helpers from `panel.rs` into a shared `field_macros.rs`
 and adopt them in `panel_type.rs` to eliminate per-entity boilerplate.
 * [REFACTOR-049] Split the flat `FieldValue` enum into `FieldValueItem` (scalars only) and
@@ -37,7 +40,7 @@ collection, and expose a `registered_entity_types()` accessor.
 
 ## Summary of Open Items
 
-**Total open items:** 31
+**Total open items:** 30
 
 * **Meta / Project-Level**
   * [META-001] Meta work item tracking the full multi-phase redesign of the schedule system. (Blocked by [META-003], [META-004], [META-005], [META-006], [META-007], [META-008])
@@ -58,9 +61,6 @@ enums, wire `FieldType` into `FieldDescriptor`, and implement the generic
   * [FEATURE-021] ([META-003]) Implement a command-based edit system with full undo/redo support.
   * [FEATURE-038] ([META-048]) Add a type-safe `FieldValueConverter<M>` trait and driver functions for converting
 `FieldValue` inputs to typed Rust outputs via a work-queue iteration pattern.
-  * [REFACTOR-041] Replace the `EntityKind` enum with direct use of `EntityType::TYPE_NAME` strings,
-following the v10-try3 design. This eliminates the central enum that required
-modification for every new entity type.
 
 * **Medium Priority**
   * [BUGFIX-045] In `scratch/field_update_logic.rs`, duration values are incorrectly stored as `FieldValue::Integer(minutes)` instead of `FieldValue::Duration(Duration)`.
@@ -690,31 +690,6 @@ to exchange CRDT changes and reconcile concurrent edits to the same fields.
 
 ---
 
-## Open REFACTOR Items
-
-### [REFACTOR-041] REFACTOR-041: Remove EntityKind enum, use type strings directly
-
-**Status:** Done
-
-**Priority:** High
-
-**Summary:** Replace the `EntityKind` enum with direct use of `EntityType::TYPE_NAME` strings,
-following the v10-try3 design. This eliminates the central enum that required
-modification for every new entity type.
-
-**Description:** The `EntityKind` enum in `entity.rs` served two purposes:
-
-1. Tagging `RuntimeEntityId` with the entity type for dynamic dispatch
-2. Providing v5 UUID namespaces for deterministic ID generation
-
-Both are now handled without a central enum:
-
-* `RuntimeEntityId` uses `type_name: String` (from `EntityType::TYPE_NAME`)
-* `EntityType::uuid_namespace()` provides per-type v5 namespaces directly
-  on the trait (returns `&'static Uuid` via internal `LazyLock`)
-
----
-
 ---
 
 [BUGFIX-045]: work-item/medium/BUGFIX-045.md
@@ -759,7 +734,7 @@ Both are now handled without a central enum:
 [META-007]: work-item/meta/META-007.md
 [META-008]: work-item/meta/META-008.md
 [META-048]: work-item/meta/META-048.md
-[REFACTOR-041]: work-item/high/REFACTOR-041.md
+[REFACTOR-041]: work-item/done/REFACTOR-041.md
 [REFACTOR-047]: work-item/done/REFACTOR-047.md
 [REFACTOR-049]: work-item/done/REFACTOR-049.md
 [REFACTOR-052]: work-item/done/REFACTOR-052.md

@@ -1,6 +1,15 @@
 {
     "version": "0.2",
     "language": "en",
+    "languageSettings": [
+        {
+            "languageId": "perl",
+            "words": [
+                "catdir",
+                "updir"
+            ]
+        }
+    ],
     "words": [
         "3rdparty",
         "acumin",
