@@ -5,6 +5,7 @@
  */
 
 pub mod converter;
+pub mod edge_map;
 pub mod entity;
 pub mod event_room;
 pub mod field;

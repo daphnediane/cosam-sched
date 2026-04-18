@@ -6,7 +6,7 @@ Implement typed relationship storage for entity-to-entity relationships.
 
 ## Status
 
-Open
+Completed
 
 ## Priority
 

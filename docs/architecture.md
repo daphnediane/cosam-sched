@@ -75,30 +75,47 @@ determine what type a field expects without calling read/write.
 
 ## Schedule Container
 
-`Schedule` is a **coordination proxy**, not a data owner. It provides:
+`Schedule` is the top-level data container. It provides:
 
-- UUID registry mapping `NonNilUuid` → type name string
-- `EntityStorage` — a struct of typed `HashMap<Id, InternalData>` maps, one per entity type
-- Edge index maps (e.g. `panel_to_presenters`, `event_room_to_hotel_room`)
-- Unified `add_entity()` / `add_edge()` / `export_entity()` API
+- **Two-level type-erased entity store**: `HashMap<TypeId, HashMap<NonNilUuid, Box<dyn Any + Send + Sync>>>` — one inner map per entity type. This is the single source of truth; there is no separate UUID registry. `identify(uuid)` queries all inner maps via inventory-registered `TypeId` values.
+- **`RawEdgeMap`** — a single unified edge store for all relationships (see below).
+- **`ScheduleMetadata`** — schedule UUID, timestamps, generator info.
 
-Entity types own their storage conceptually. `Schedule` dispatches to the
-right storage map via `TypedStorage` / `TypedEdgeStorage` traits.
+There is no separate `EntityStorage` struct; storage lives directly on `Schedule`.
+`get_internal<E>` / `get_internal_mut<E>` / `insert<E>` dispatch via `TypeId`
+using the `EntityType::InternalData` associated type.
 
 ### Edge Relationships
 
-Relationships between entities are stored as edge maps in `EntityStorage`,
-not as redundant fields on the entity data. Relationship IDs appear in
-`<E>Data` (the export struct) assembled during `export()`, not in
-`<E>InternalData` (with the exception of forward-side backing vecs where
-needed for computed field writes).
+All entity relationships are stored in a single `RawEdgeMap` on `Schedule`.
 
-Primary relationship fields exposed via computed fields on node entities:
+`RawEdgeMap` has two fields:
 
-- **Panel**: `presenters` / `add_presenters` / `remove_presenters`, `event_rooms`, `panel_type`
-- **Presenter**: `groups`, `members`, `panels`
-- **EventRoom**: `hotel_rooms`, `panels`
+- **`edges`** — `HashMap<NonNilUuid, Vec<RuntimeEntityId>>`: for *heterogeneous* edges
+  (different entity types, e.g. Panel → Presenter), both endpoints store each other
+  here, making the relationship undirected at the storage level. For *homogeneous*
+  edges (same entity type, e.g. Presenter → Presenter groups), forward edges are
+  also stored here.
+- **`homogeneous_reverse`** — `HashMap<NonNilUuid, Vec<RuntimeEntityId>>`: reverse
+  side of homogeneous edges only. Needed to avoid ambiguity: a Presenter UUID in
+  `edges` might be both a het back-link (panel) and a homo forward-link (group).
+
+`Schedule` exposes typed generic methods that wrap/unwrap `RuntimeEntityId` ↔
+`EntityId<E>`:
+
+- `edges_from::<L, R>(id)` — R entities reachable from `id` via L→R edge
+- `edges_to::<L, R>(id)` — L entities pointing to `id`
+- `edge_add` / `edge_remove` / `edge_set` — mutators
+
+Het vs homo is determined at runtime by `TypeId::of::<L::InternalData>() == TypeId::of::<R::InternalData>()`.
+
+Relationship fields exposed via computed fields on node entities:
+
+- **Panel**: `presenters` / `add_presenters` / `remove_presenters`, `event_room`, `panel_type`
+- **Presenter**: `groups`, `members`, `inclusive_groups`, `inclusive_members`, `panels`
+- **EventRoom**: `hotel_room`, `panels`
 - **HotelRoom**: `event_rooms`
+- **PanelType**: `panels`
 
 ## UUID Identity
 

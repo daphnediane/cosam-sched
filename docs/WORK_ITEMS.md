@@ -1,6 +1,6 @@
 # Cosplay America Schedule - Work Item
 
-Updated on: Sat Apr 18 01:33:19 2026
+Updated on: Sat Apr 18 16:18:38 2026
 
 ## Completed
 
@@ -12,6 +12,7 @@ Updated on: Sat Apr 18 01:33:19 2026
 * [FEATURE-014] Implement the PanelType entity as the first proof of concept for the no-proc-macro field system.
 * [FEATURE-015] Port `TimeRange` and implement the Panel entity with stored and computed time fields.
 * [FEATURE-016] Implement the remaining core entity data structs and field descriptors.
+* [FEATURE-018] Implement typed relationship storage for entity-to-entity relationships.
 * [FEATURE-038] Add a type-safe `FieldValueConverter<M>` trait and driver functions for converting
 `FieldValue` inputs to typed Rust outputs via a work-queue iteration pattern.
 * [FEATURE-043] Add a `verify` callback to `FieldDescriptor` for cross-field consistency checks after batch writes to computed fields.
@@ -45,7 +46,7 @@ collection, and expose a `registered_entity_types()` accessor.
 
 ## Summary of Open Items
 
-**Total open items:** 28
+**Total open items:** 27
 
 * **Meta / Project-Level**
   * [META-001] Meta work item tracking the full multi-phase redesign of the schedule system. (Blocked by [META-003], [META-004], [META-005], [META-006], [META-007], [META-008])
@@ -58,7 +59,6 @@ XLSX import/export. (Blocked by [META-003], [META-004])
   * [META-008] Phase tracker for peer-to-peer schedule synchronization and conflict resolution. (Blocked by [META-004])
 
 * **High Priority**
-  * [FEATURE-018] ([META-003]) Implement typed relationship storage for entity-to-entity relationships.
   * [FEATURE-019] ([META-003]) Implement the `Schedule` struct and `EntityStorage` for managing all entities and relationships.
   * [FEATURE-021] ([META-003]) Implement a command-based edit system with full undo/redo support.
 
@@ -180,22 +180,6 @@ panels arranged by time and room, with inline editing of entity fields.
 ---
 
 ## Open FEATURE Items
-
-### [FEATURE-018] Relationship Storage (EdgeMap / Reverse Indexes)
-
-**Status:** Open
-
-**Priority:** High
-
-**Summary:** Implement typed relationship storage for entity-to-entity relationships.
-
-**Part of:** [META-003]
-
-**Description:** Relationships between entities are stored as typed `Vec<EntityId>` fields on the
-owning entity (virtual edges, not edge entities). Reverse indexes maintain
-bidirectional lookup.
-
----
 
 ### [FEATURE-019] Schedule Container + EntityStorage
 
@@ -513,13 +497,13 @@ baked in from the start.
 * FEATURE-012: EntityType, EntityId, EntityKind
 * FEATURE-013: FieldSet registry
 * FEATURE-014: PanelType entity (proof of concept)
+* FEATURE-043: Field verification callbacks (verify_fn)
 * FEATURE-015: TimeRange + Panel entity
 * FEATURE-016: Presenter + EventRoom + HotelRoom entities
-* FEATURE-017: Builder pattern
 * FEATURE-018: Relationship storage (EdgeMap / reverse indexes)
 * FEATURE-019: Schedule container + EntityStorage
 * FEATURE-020: Query system
-* FEATURE-043: Field verification callbacks (verify_fn)
+* FEATURE-017: Builder pattern
 * FEATURE-046: Bulk field updates (write_multiple)
 * FEATURE-021: Edit command system with undo/redo
 
@@ -652,7 +636,7 @@ to exchange CRDT changes and reconcile concurrent edits to the same fields.
 [FEATURE-015]: work-item/done/FEATURE-015.md
 [FEATURE-016]: work-item/done/FEATURE-016.md
 [FEATURE-017]: work-item/medium/FEATURE-017.md
-[FEATURE-018]: work-item/high/FEATURE-018.md
+[FEATURE-018]: work-item/done/FEATURE-018.md
 [FEATURE-019]: work-item/high/FEATURE-019.md
 [FEATURE-020]: work-item/medium/FEATURE-020.md
 [FEATURE-021]: work-item/high/FEATURE-021.md
