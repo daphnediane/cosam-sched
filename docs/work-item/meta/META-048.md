@@ -30,6 +30,10 @@ uses `Single`/`List` wrappers (without an `Optional` variant) and `EntityIdentif
 as the variant name (not `EntityId`). Absent optional fields return `None` from
 read functions; empty lists return `FieldValue::List(vec![])`.
 
+**Note**: FEATURE-050 added the `FieldTypeItem` and `FieldType` enums. REFACTOR-055 added
+the `IntoFieldValue` trait hierarchy and type-deduced `field_value!` macro for ergonomic
+value construction.
+
 ## Work Items
 
 - REFACTOR-049: Restructure FieldValue → FieldValueItem + cardinality

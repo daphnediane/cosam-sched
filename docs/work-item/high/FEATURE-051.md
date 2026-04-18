@@ -15,7 +15,6 @@ High
 
 ## Blocked By
 
-- FEATURE-050: Add FieldTypeItem and FieldType enums
 - META-048: FieldValue / FieldType / Converter Overhaul (parent)
 
 ## Description
@@ -35,14 +34,14 @@ calling read/write.
 
 ### Field type mapping
 
-| Macro / pattern | FieldType |
-|---|---|
-| `req_string_field!` | `FieldType::Single(FieldTypeItem::String)` |
-| `opt_string_field!` | `FieldType::Optional(FieldTypeItem::String)` |
-| `opt_text_field!` | `FieldType::Optional(FieldTypeItem::Text)` |
-| `bool_field!` | `FieldType::Single(FieldTypeItem::Boolean)` |
-| `opt_i64_field!` | `FieldType::Optional(FieldTypeItem::Integer)` |
-| `edge_list_field!` | `FieldType::List(FieldTypeItem::EntityId("..."))` |
+| Macro / pattern     | FieldType                                         |
+| ------------------- | ------------------------------------------------- |
+| `req_string_field!` | `FieldType::Single(FieldTypeItem::String)`        |
+| `opt_string_field!` | `FieldType::Optional(FieldTypeItem::String)`      |
+| `opt_text_field!`   | `FieldType::Optional(FieldTypeItem::Text)`        |
+| `bool_field!`       | `FieldType::Single(FieldTypeItem::Boolean)`       |
+| `opt_i64_field!`    | `FieldType::Optional(FieldTypeItem::Integer)`     |
+| `edge_list_field!`  | `FieldType::List(FieldTypeItem::EntityId("..."))` |
 
 ### Acceptance Criteria
 

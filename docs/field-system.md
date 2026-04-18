@@ -126,6 +126,45 @@ Universal value enum used for all field read/write operations. The system uses a
 
 Absent optional fields return `None` from read functions; empty lists return `FieldValue::List(vec![])`.
 
+## FieldTypeItem and FieldType
+
+Type-level mirrors of `FieldValueItem` and `FieldValue` for compile-time type declarations.
+
+**`FieldTypeItem`** - Scalar type tags (Copy):
+
+| Variant            | Meaning                           |
+| ------------------ | --------------------------------- |
+| `String`           | Short text, codes, URLs           |
+| `Text`             | Long prose (CRDT RGA routing)     |
+| `Integer`          | Counts, durations in minutes      |
+| `Float`            | Fractional values                 |
+| `Boolean`          | Flags                             |
+| `DateTime`         | ISO-8601 timestamps               |
+| `Duration`         | Chrono durations                  |
+| `EntityIdentifier` | Entity reference (with type name) |
+
+**`FieldType`** - Cardinality wrappers (Copy):
+
+| Variant                   | Use                                            |
+| ------------------------- | ---------------------------------------------- |
+| `Single(FieldTypeItem)`   | Required single-value fields                   |
+| `Optional(FieldTypeItem)` | Optional single-value fields (type-level only) |
+| `List(FieldTypeItem)`     | Multi-value fields and relationship lists      |
+
+`FieldType` retains an `Optional` variant because type declarations need to distinguish
+"required scalar" from "optional scalar". At the value level, absence is expressed as
+`Option<FieldValue>` returning `None` (or `FieldValue::List(vec![])` for the clear sentinel).
+
+These enums enable compile-time type reflection without requiring runtime values.
+They are used by converters, importers, and UI code to determine what type a field expects
+without calling read/write.
+
+### FieldType methods
+
+- `FieldType::of(&FieldValue) -> Option<Self>` - infer type from a value (returns `None` for empty lists)
+- `FieldType::item_type() -> FieldTypeItem` - extract the scalar item type, discarding cardinality
+- `FieldType::is_single()`, `is_optional()`, `is_list()` - cardinality predicates
+
 ## CrdtFieldType
 
 Annotation on every `FieldDescriptor` controlling how the field maps to CRDT
@@ -206,12 +245,18 @@ pub struct FieldDescriptor<E: EntityType> {
     pub aliases: &'static [&'static str],
     pub required: bool,
     pub crdt_type: CrdtFieldType,
+    pub example: &'static str,
+    pub order: u32,                     // Stable iteration order for inventory collection
     pub read_fn: Option<ReadFn<E>>,     // None → write-only
     pub write_fn: Option<WriteFn<E>>,   // None → read-only
     pub index_fn: Option<IndexFn<E>>,   // None → not indexable
     pub verify_fn: Option<VerifyFn<E>>, // None → no verification requested
 }
 ```
+
+The `order: u32` field enables stable field ordering when fields self-register via
+inventory. Fields are sorted by this value (ascending) when `FieldSet::from_inventory()`
+collects them. Use multiples of 100 (0, 100, 200, ...) to leave room for future insertions.
 
 `FieldDescriptor` implements `NamedField`, `ReadableField<E>`,
 `WritableField<E>`, `IndexableField<E>`, and `VerifiableField<E>` directly:
@@ -275,10 +320,54 @@ and `InternalData` type explicitly, and assumes the `data: CommonData`
 convention. Bespoke descriptors (computed projections, fields with custom
 parse logic) stay as hand-written struct literals.
 
+### Inventory-based field registration
+
+Field descriptors self-register globally via the `inventory` crate. This eliminates
+manual `FieldSet::new(&[...])` lists and prevents accidentally omitting fields from
+the registry.
+
+**CollectedField\<E\>** - Inventory wrapper for field descriptors:
+
+```rust
+pub struct CollectedField<E: EntityType>(pub &'static FieldDescriptor<E>);
+```
+
+Each entity type module declares `inventory::collect!(CollectedField<XxxEntityType>)`.
+Field macros and hand-written descriptors submit via:
+
+```rust
+inventory::submit! { CollectedField::<XxxEntityType>(&FIELD_NAME) }
+```
+
+**define_field! macro** - Bundles hand-written descriptors with inventory submission:
+
+```rust
+define_field!(
+    FIELD_CODE, PanelEntityType, PanelInternalData,
+    FieldDescriptor {
+        name: "code",
+        display: "Code",
+        description: "Unique panel identifier.",
+        aliases: &["uniq_id"],
+        required: true,
+        crdt_type: CrdtFieldType::Scalar,
+        example: "P001",
+        order: 100,
+        read_fn: Some(ReadFn::Bare(|d| Some(field_value!(d.data.code.clone())))),
+        write_fn: Some(WriteFn::Bare(|d, v| { d.data.code = v.into_string()?; Ok(()) })),
+        index_fn: None,
+        verify_fn: None,
+    }
+);
+```
+
+The macro expands to the `static` declaration plus the required `inventory::submit!`
+call, ensuring the field is never accidentally omitted from the registry.
+
 ## FieldSet
 
 `FieldSet<E>` is an ordered, name-indexed collection of `&'static FieldDescriptor<E>`
-values for one entity type. Assembled manually in a `LazyLock` and returned by
+values for one entity type. Assembled in a `LazyLock` and returned by
 `EntityType::field_set()`. Supports:
 
 - Lookup by canonical name or alias (`get_by_name`) — **exact match, no normalization**
@@ -287,6 +376,20 @@ values for one entity type. Assembled manually in a `LazyLock` and returned by
 - CRDT field list: `crdt_fields()` — `(name, CrdtFieldType)` for non-`Derived` fields
 - Dispatch helpers: `read_field_value(name, id, schedule)`, `write_field_value(name, id, schedule, value)`
 - Index matching: `match_index(query, data)` — best `MatchPriority` across all indexable fields
+
+### Construction via inventory
+
+Production entity types use `FieldSet::from_inventory()` to collect all fields
+submitted via `inventory::submit! { CollectedField::<E>(&FIELD_NAME) }`. Fields are
+sorted by the `order: u32` field for stable iteration order.
+
+```rust
+static FIELD_SET: LazyLock<FieldSet<PanelEntityType>> =
+    LazyLock::new(|| FieldSet::from_inventory());
+```
+
+`FieldSet::new(&[...])` is kept for test-only mock entities that don't use
+inventory collections.
 
 ### Alias registration for XLSX import
 
@@ -339,6 +442,75 @@ field_set.write_multiple(id, schedule, &[
 The `From` impls allow ergonomic `.into()` at call sites.
 
 **Status**: Design complete, implementation pending FEATURE-046.
+
+## IntoFieldValue Trait Hierarchy
+
+Type-deduced `FieldValue` construction via Rust's trait system.
+
+**IntoFieldValueItem** - Convert Rust types to `FieldValueItem`:
+
+```rust
+pub trait IntoFieldValueItem {
+    fn into_field_value_item(self) -> FieldValueItem;
+}
+```
+
+Implemented for: `String`, `&str`, `i64`, `i32`, `f64`, `bool`, `NaiveDateTime`, `Duration`, `RuntimeEntityId`.
+
+**Note**: `Text` is intentionally excluded. The `String` vs `Text` distinction is a storage-layer semantic (LWW vs RGA CRDT), not derivable from a Rust type. Use `FieldValueItem::Text` or `field_text!` explicitly for prose fields.
+
+**IntoFieldValue** - Convert Rust types to `FieldValue` (with cardinality):
+
+```rust
+pub trait IntoFieldValue {
+    fn into_field_value(self) -> FieldValue;
+}
+```
+
+Blanket impls:
+
+- `T: IntoFieldValueItem` → `Single(T)`
+- `Option<T: IntoFieldValueItem>` → `Single(T)` if `Some`, `List([])` if `None` (clear sentinel)
+- `Vec<T: IntoFieldValueItem>` → `List([...])`
+
+### Field value construction macros
+
+Three macros cover all normal cases for creating `FieldValue` instances:
+
+**`field_value!`** - Type-deduced construction via `IntoFieldValue`:
+
+```rust
+// Type-deduced single values
+field_value!("hello")               // → FieldValue::Single(String("hello"))
+field_value!(42i64)                 // → FieldValue::Single(Integer(42))
+field_value!(true)                  // → FieldValue::Single(Boolean(true))
+field_value!(dt)                    // → FieldValue::Single(DateTime(dt))
+field_value!(dur)                   // → FieldValue::Single(Duration(dur))
+
+// Option handling
+field_value!(Some("x"))             // → FieldValue::Single(String("x"))
+field_value!(Option::<&str>::None)  // → FieldValue::List([]) (clear sentinel)
+
+// Vec handling
+field_value!(vec![1i64, 2, 3])      // → FieldValue::List([Integer(1), Integer(2), Integer(3)])
+
+// Empty list
+field_value!(empty_list)            // → FieldValue::List([])
+```
+
+**`field_text!`** - Explicit `Text` variant for long prose:
+
+```rust
+field_text!("long description")     // → FieldValue::Single(Text("long description"))
+```
+
+Use `field_text!` when the field uses `CrdtFieldType::Text` (long prose routed to RGA CRDT storage). The Rust type `String` alone is insufficient to distinguish `String` from `Text` since they share the same type but have different CRDT semantics.
+
+**`field_empty_list!`** - Shorthand for empty list:
+
+```rust
+field_empty_list!()                 // → FieldValue::List([])
+```
 
 ## Error Types
 

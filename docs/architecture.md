@@ -41,6 +41,30 @@ Each entity type has three hand-written, visible struct declarations:
 `EntityType::Data` is produced by `export(&Schedule)` for serialization and
 external APIs.
 
+### Inventory-based field registration
+
+Field descriptors self-register globally via the `inventory` crate. Each field
+macro and hand-written descriptor submits a `CollectedField<E>` entry containing
+a reference to the static `FieldDescriptor<E>`. The `FieldSet::from_inventory()`
+constructor collects all submitted fields for an entity type, sorts them by the
+`order: u32` field for stable iteration order, and builds the lookup maps.
+
+This eliminates manual `FieldSet::new(&[...])` lists and prevents accidentally
+omitting fields from the registry. Hand-written descriptors use the
+`define_field!` macro to bundle the `static` declaration with the required
+`inventory::submit!` call.
+
+### Type-level field enums
+
+The system includes type-level mirrors of the runtime value enums:
+
+- `FieldTypeItem` — scalar type tags (String, Text, Integer, Float, Boolean, DateTime, Duration, EntityIdentifier)
+- `FieldType` — cardinality wrappers (Single, Optional, List)
+
+These `Copy` enums enable compile-time type declarations and reflection without
+requiring runtime values. They are used by converters, importers, and UI code to
+determine what type a field expects without calling read/write.
+
 ### Entity Types
 
 - **PanelType** — category/kind of panel (prefix, boolean flags, colors)
@@ -83,7 +107,7 @@ should never touch `Uuid` or `NonNilUuid` directly — prefer the typed wrappers
 
 - **`EntityId<E>`** — typed wrapper for a specific entity type; use in all
   APIs where the entity type is known at compile time
-- **`RuntimeEntityId`** — `NonNilUuid` + type name string; use for dynamic
+- **`RuntimeEntityId`** — `NonNilUuid` + `&'static str` type name; use for dynamic
   dispatch (e.g. generic commands, serialized references)
 
 ### UUID version policy
@@ -93,12 +117,30 @@ should never touch `Uuid` or `NonNilUuid` directly — prefer the typed wrappers
   - Edge entities (endpoints are immutable, UUID derived from endpoint pair)
   - Spreadsheet imports: entities that arrive without a UUID use
     `UuidPreference` to derive a stable v5 UUID from the entity type's
-    `UUID_NAMESPACE` and a natural key (e.g. presenter name, room name,
+    `uuid_namespace()` and a natural key (e.g. presenter name, room name,
     panel Uniq ID), so re-importing the same spreadsheet produces the same UUIDs
 
 `EntityId::from_preference(UuidPreference)` is the primary constructor for new
 entities. `EntityId::from_uuid(NonNilUuid)` is `unsafe` — only code with a
 UUID→type registry (e.g. `Schedule`) should call it after verifying the type.
+
+### Entity type registry
+
+Entity types self-register globally via the `inventory` crate. Each entity type
+submits a `RegisteredEntityType` entry containing its `TYPE_NAME` and UUID namespace
+function. The `registered_entity_types()` function iterates all registered types
+at runtime, enabling dynamic type lookup without a central enum.
+
+This registry is used by `RuntimeEntityId` deserialization to validate that a
+deserialized type name corresponds to a known entity type, rejecting unknown types
+as errors.
+
+### Unified ID serialization format
+
+Both `EntityId<E>` and `RuntimeEntityId` serialize to the human-readable string
+format `"<type_name>:<uuid>"` (e.g. `"panel:550e8400-e29b-41d4-a716-446655440000"`).
+This format is self-describing and consistent between compile-time typed IDs and
+runtime dynamic IDs, simplifying debugging and log inspection.
 
 ### Avoid bare Uuid / NonNilUuid in APIs
 
