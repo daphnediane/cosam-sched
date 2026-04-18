@@ -36,12 +36,24 @@ criteria rather than direct UUID access.
 
 ### Presenter tag-string import
 
+Note that `Kind:` is optional, and if not provided, the rank of an existing
+presenter matching name or group will not be changed. But if creating a presenter
+without `Kind:` it should default to `P` (Presenter) even though that isn't the
+lowest rank.
+
+`find_tagged_presenter(storage, input)` — parses presenter credit
+strings from spreadsheet cells. Handles tagged forms like `G:Name`, `P:Name=Group`.
+Returns error if can not found or if found but lower rank for presenter or group.
+For group only stuff like `=Group`, `==Group` or `I:==Group` returns the PresenterId of the group, otherwise return the PresenterId of the member or name given.
+
 `find_or_create_tagged_presenter(storage, input)` — parses presenter credit
 strings from spreadsheet cells. Handles tagged forms like `G:Name`, `P:Name=Group`.
+Creates presenter / group if not found and updates ranks / relationship.
 
 ### Related
 
 - Bulk field updates: see FEATURE-046
+- Tagged format: `Kind:Name=Group` in spreadsheet format docs
 
 ## Acceptance Criteria
 

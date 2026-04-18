@@ -477,8 +477,8 @@ pub trait EntityStringResolver: EntityType {
     }
 }
 
-// Blanket impl for all EntityTypes - types can override if they want custom resolution
-impl<E: EntityType> EntityStringResolver for E {}
+// Note: EntityStringResolver is implemented per-entity-type in each entity module
+// to allow custom string resolution behavior (e.g., room_name for EventRoom)
 
 /// Marker type for converting to `EntityId<E>` with entity type validation.
 pub struct AsEntityId<E: EntityType>(std::marker::PhantomData<E>);

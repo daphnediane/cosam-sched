@@ -18,6 +18,7 @@
 //! via edge-backed computed fields; the fields are declared here as stubs and
 //! fully wired up in FEATURE-018.
 
+use crate::converter::EntityStringResolver;
 use crate::entity::{EntityId, EntityType, FieldSet};
 use crate::event_room::{EventRoomEntityType, EventRoomId};
 use crate::field::{FieldDescriptor, ReadFn, VerifyFn, WriteFn};
@@ -191,6 +192,17 @@ inventory::submit! {
     }
 }
 inventory::collect!(crate::entity::CollectedField<PanelEntityType>);
+
+// ── EntityStringResolver implementation ─────────────────────────────────────────
+
+impl EntityStringResolver for PanelEntityType {
+    fn entity_to_string(schedule: &crate::schedule::Schedule, id: EntityId<Self>) -> String {
+        schedule
+            .get_internal(id)
+            .map(|data| format!("{}: {}", data.code.full_id(), data.data.name))
+            .unwrap_or_else(|| id.to_string())
+    }
+}
 
 // ── Stored field descriptors ──────────────────────────────────────────────────
 
@@ -1001,5 +1013,24 @@ mod tests {
         assert!(errors.iter().any(
             |e| matches!(e, ValidationError::Constraint { field, .. } if *field == "time_slot")
         ));
+    }
+
+    #[test]
+    fn test_entity_to_string_returns_code_name_format() {
+        use crate::converter::EntityStringResolver;
+        let id = new_panel_id();
+        let mut sched = Schedule::default();
+        sched.insert(id, sample_internal(id));
+        let s = PanelEntityType::entity_to_string(&sched, id);
+        assert_eq!(s, "GP001: Panel Name");
+    }
+
+    #[test]
+    fn test_entity_to_string_fallback_to_uuid() {
+        use crate::converter::EntityStringResolver;
+        let id = new_panel_id();
+        let sched = Schedule::default();
+        let s = PanelEntityType::entity_to_string(&sched, id);
+        assert_eq!(s, id.to_string());
     }
 }

@@ -16,6 +16,7 @@
 //! edge-backed computed fields (`groups`, `members`, `inclusive_*`, `panels`)
 //! are stubs here and fully wired in FEATURE-018.
 
+use crate::converter::EntityStringResolver;
 use crate::entity::{EntityId, EntityType, FieldSet};
 use crate::field::{FieldDescriptor, ReadFn, WriteFn};
 use crate::field_macros::{
@@ -25,6 +26,7 @@ use crate::field_macros::{
 use crate::field_value;
 use crate::panel::PanelEntityType;
 use crate::panel::PanelId;
+use crate::value::ConversionError;
 use crate::value::{CrdtFieldType, FieldType, FieldTypeItem, ValidationError};
 use serde::{Deserialize, Deserializer, Serialize, Serializer};
 use std::sync::LazyLock;
@@ -308,6 +310,67 @@ inventory::submit! {
     }
 }
 inventory::collect!(crate::entity::CollectedField<PresenterEntityType>);
+
+// ── Tagged presenter lookup functions (FEATURE-020) ───────────────────────────
+
+/// Find a presenter by tagged form (e.g., "G:Name" for group, "P:Name=Group" for presenter with group).
+///
+/// This is a placeholder implementation to be filled in during FEATURE-020.
+/// For now, it returns None.
+pub fn find_tagged_presenter(
+    _schedule: &crate::schedule::Schedule,
+    _tagged: &str,
+) -> Option<PresenterId> {
+    // TODO: Implement tagged presenter lookup in FEATURE-020
+    None
+}
+
+/// Find or create a presenter by tagged form (e.g., "G:Name" for group, "P:Name=Group" for presenter with group).
+///
+/// This is a placeholder implementation to be filled in during FEATURE-020.
+/// For now, it returns an error.
+pub fn find_or_create_tagged_presenter(
+    _schedule: &mut crate::schedule::Schedule,
+    _tagged: &str,
+) -> Result<PresenterId, ConversionError> {
+    // TODO: Implement tagged presenter lookup-or-create in FEATURE-020
+    Err(ConversionError::ParseError {
+        message: "find_or_create_tagged_presenter not implemented yet (FEATURE-020)".to_string(),
+    })
+}
+
+// ── EntityStringResolver implementation ─────────────────────────────────────────
+
+impl EntityStringResolver for PresenterEntityType {
+    fn entity_to_string(schedule: &crate::schedule::Schedule, id: EntityId<Self>) -> String {
+        schedule
+            .get_internal(id)
+            .map(|data| data.data.name.clone())
+            .unwrap_or_else(|| id.to_string())
+    }
+
+    fn lookup_string(schedule: &crate::schedule::Schedule, s: &str) -> Option<EntityId<Self>> {
+        // Placeholder for find_tagged_presenter - to be implemented in FEATURE-020
+        // For now, fall back to default behavior (UUID parsing, then match_index)
+        Self::lookup_by_uuid_string(schedule, s)
+            .or_else(|| Self::lookup_by_match_index(schedule, s))
+    }
+
+    fn lookup_or_create_string(
+        schedule: &mut crate::schedule::Schedule,
+        s: &str,
+    ) -> Result<EntityId<Self>, ConversionError> {
+        // Placeholder for find_or_create_tagged_presenter - to be implemented in FEATURE-020
+        // For now, fall back to default behavior (no creation)
+        Self::lookup_string(schedule, s).ok_or_else(|| ConversionError::ParseError {
+            message: format!(
+                "Entity '{}' not found and creation not implemented for {} (FEATURE-020)",
+                s,
+                Self::TYPE_NAME
+            ),
+        })
+    }
+}
 
 // ── Stored field descriptors ──────────────────────────────────────────────────
 
@@ -672,5 +735,23 @@ mod tests {
         };
         let json2 = serde_json::to_string(&sr2).unwrap();
         assert!(json2.contains("memberIndex"));
+    }
+
+    #[test]
+    fn test_entity_to_string_returns_name() {
+        use crate::converter::EntityStringResolver;
+        let id = make_id();
+        let sched = schedule_with(id, make_internal());
+        let s = PresenterEntityType::entity_to_string(&sched, id);
+        assert_eq!(s, "Alice Example");
+    }
+
+    #[test]
+    fn test_entity_to_string_fallback_to_uuid() {
+        use crate::converter::EntityStringResolver;
+        let id = make_id();
+        let sched = Schedule::default();
+        let s = PresenterEntityType::entity_to_string(&sched, id);
+        assert_eq!(s, id.to_string());
     }
 }
