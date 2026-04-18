@@ -27,7 +27,7 @@ crates depend on it and add their own I/O, UI, and format-specific logic.
 
 ## Entity / Field System
 
-See `field-system.md` for the full design.
+See `field-system.md` for the full design. See `conversion-and-lookup.md` for the type-safe conversion system including entity resolution support.
 
 Each entity type has three hand-written, visible struct declarations:
 

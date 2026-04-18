@@ -4,6 +4,7 @@
  * See LICENSE file for full license text
  */
 
+pub mod converter;
 pub mod entity;
 pub mod event_room;
 pub mod field;

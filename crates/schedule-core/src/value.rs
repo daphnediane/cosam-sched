@@ -8,6 +8,7 @@ use chrono::{Duration, NaiveDateTime};
 use std::fmt;
 use thiserror::Error;
 
+use crate::converter::FieldTypeMapping;
 use crate::entity::RuntimeEntityId;
 
 /// Base value types for fields.
@@ -71,108 +72,81 @@ impl fmt::Display for FieldValue {
     }
 }
 
-// @TOD: These will be superseded by FEATURE-038.md
+// @TOD: EntityIdentifier conversions require schedule context - use FieldValueForSchedule
 impl FieldValueItem {
     /// Consume `self` and return the inner `String` value, or a
     /// [`ConversionError`] if the variant is not `String`.
+    ///
+    /// Supports cross-type conversions from Integer, Float, Boolean, DateTime,
+    /// Duration, and EntityIdentifier via the FieldTypeMapping system.
+    ///
+    /// Note: For entity-specific string formatting (e.g., panel code:name),
+    /// use `FieldValueForSchedule` with `EntityStringResolver` instead.
     pub fn into_string(self) -> Result<std::string::String, ConversionError> {
-        match self {
-            Self::String(s) => Ok(s),
-            other => Err(ConversionError::WrongVariant {
-                expected: "String",
-                got: other.variant_name(),
-            }),
-        }
+        crate::converter::AsString::from_field_value_item(self)
     }
 
     /// Consume `self` and return the inner `Text` value, or a
     /// [`ConversionError`] if the variant is not `Text`.
+    ///
+    /// Supports cross-type conversions from Integer, Float, Boolean, DateTime,
+    /// Duration, and EntityIdentifier via the FieldTypeMapping system.
+    ///
+    /// Note: For entity-specific string formatting (e.g., panel code:name),
+    /// use `FieldValueForSchedule` with `EntityStringResolver` instead.
     pub fn into_text(self) -> Result<std::string::String, ConversionError> {
-        match self {
-            Self::Text(s) => Ok(s),
-            other => Err(ConversionError::WrongVariant {
-                expected: "Text",
-                got: other.variant_name(),
-            }),
-        }
+        crate::converter::AsText::from_field_value_item(self)
     }
 
     /// Consume `self` and return the inner `Integer` value.
+    ///
+    /// Supports cross-type conversions from String (parsing), Float (whole numbers),
+    /// and Duration (minutes) via the FieldTypeMapping system.
     pub fn into_integer(self) -> Result<i64, ConversionError> {
-        match self {
-            Self::Integer(n) => Ok(n),
-            other => Err(ConversionError::WrongVariant {
-                expected: "Integer",
-                got: other.variant_name(),
-            }),
-        }
+        crate::converter::AsInteger::from_field_value_item(self)
     }
 
     /// Consume `self` and return the inner `Float` value.
+    ///
+    /// Supports cross-type conversions from String (parsing), Integer, and
+    /// Duration (minutes) via the FieldTypeMapping system.
     pub fn into_float(self) -> Result<f64, ConversionError> {
-        match self {
-            Self::Float(v) => Ok(v),
-            other => Err(ConversionError::WrongVariant {
-                expected: "Float",
-                got: other.variant_name(),
-            }),
-        }
+        crate::converter::AsFloat::from_field_value_item(self)
     }
 
     /// Consume `self` and return the inner `Boolean` value.
+    ///
+    /// Supports cross-type conversions from String (parsing "true"/"false"),
+    /// Integer (non-zero = true), and Float (non-zero = true) via the FieldTypeMapping system.
     pub fn into_bool(self) -> Result<bool, ConversionError> {
-        match self {
-            Self::Boolean(b) => Ok(b),
-            other => Err(ConversionError::WrongVariant {
-                expected: "Boolean",
-                got: other.variant_name(),
-            }),
-        }
+        crate::converter::AsBoolean::from_field_value_item(self)
     }
 
     /// Consume `self` and return the inner `DateTime` value.
+    ///
+    /// Supports cross-type conversions from String (parsing) via the FieldTypeMapping system.
     pub fn into_datetime(self) -> Result<NaiveDateTime, ConversionError> {
-        match self {
-            Self::DateTime(dt) => Ok(dt),
-            other => Err(ConversionError::WrongVariant {
-                expected: "DateTime",
-                got: other.variant_name(),
-            }),
-        }
+        crate::converter::AsDateTime::from_field_value_item(self)
     }
 
     /// Consume `self` and return the inner `Duration` value.
+    ///
+    /// Supports cross-type conversions from String (parsing "HH:MM" or minutes),
+    /// Integer (minutes), and Float (minutes) via the FieldTypeMapping system.
     pub fn into_duration(self) -> Result<Duration, ConversionError> {
-        match self {
-            Self::Duration(d) => Ok(d),
-            other => Err(ConversionError::WrongVariant {
-                expected: "Duration",
-                got: other.variant_name(),
-            }),
-        }
+        crate::converter::AsDuration::from_field_value_item(self)
     }
 
     /// Consume `self` and return a `RuntimeEntityId` value.
+    ///
+    /// Note: String to EntityId conversion requires schedule context via
+    /// FieldValueForSchedule with EntityStringResolver.
     pub fn into_entity_identifier(self) -> Result<RuntimeEntityId, ConversionError> {
         match self {
             Self::EntityIdentifier(id) => Ok(id),
-            other => Err(ConversionError::WrongVariant {
-                expected: "EntityIdentifier",
-                got: other.variant_name(),
+            _ => Err(ConversionError::ParseError {
+                message: "Cannot convert to EntityIdentifier from this type".to_string(),
             }),
-        }
-    }
-
-    fn variant_name(&self) -> &'static str {
-        match self {
-            Self::String(_) => "String",
-            Self::Text(_) => "Text",
-            Self::Integer(_) => "Integer",
-            Self::Float(_) => "Float",
-            Self::Boolean(_) => "Boolean",
-            Self::DateTime(_) => "DateTime",
-            Self::Duration(_) => "Duration",
-            Self::EntityIdentifier(_) => "EntityIdentifier",
         }
     }
 }
@@ -212,20 +186,26 @@ impl FieldValue {
                 if items.len() != 1 {
                     return Err(ConversionError::WrongVariant {
                         expected: "Single",
-                        got: "List that is not exactly one item",
+                        got: "List",
                     });
                 }
-                Ok(items[0].clone())
+                Ok(items.into_iter().next().unwrap())
             }
         }
     }
 
     /// Consume `self` and return a String value.
+    ///
+    /// Note: For entity-specific string formatting (e.g., panel code:name),
+    /// use `FieldValueForSchedule` with `EntityStringResolver` instead.
     pub fn into_string(self) -> Result<String, ConversionError> {
         self.into_single()?.into_string()
     }
 
     /// Consume `self` and return a Text value.
+    ///
+    /// Note: For entity-specific string formatting (e.g., panel code:name),
+    /// use `FieldValueForSchedule` with `EntityStringResolver` instead.
     pub fn into_text(self) -> Result<String, ConversionError> {
         self.into_single()?.into_text()
     }
@@ -256,6 +236,9 @@ impl FieldValue {
     }
 
     /// Consume `self` and return an EntityIdentifier value.
+    ///
+    /// Note: String to EntityId conversion requires schedule context via
+    /// FieldValueForSchedule with EntityStringResolver.
     pub fn into_entity_identifier(self) -> Result<crate::entity::RuntimeEntityId, ConversionError> {
         self.into_single()?.into_entity_identifier()
     }
@@ -610,9 +593,9 @@ mod tests {
     }
 
     #[test]
-    fn test_into_string_wrong_variant() {
+    fn test_into_string_converts_integer() {
         let v = FieldValueItem::Integer(1);
-        assert!(v.into_string().is_err());
+        assert_eq!(v.into_string().unwrap(), "1");
     }
 
     #[test]

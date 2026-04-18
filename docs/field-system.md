@@ -102,7 +102,7 @@ which uses the entity type's `uuid_namespace()` for v5 generation.
 
 ## FieldValue
 
-Universal value enum used for all field read/write operations. The system uses a two-level structure:
+Universal value enum used for all field read/write operations. The system uses a two-level structure. See `conversion-and-lookup.md` for the type-safe conversion system including entity resolution support with `FieldValueForSchedule`.
 
 **`FieldValueItem`** - Scalar value types:
 

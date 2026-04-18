@@ -581,10 +581,11 @@ mod tests {
     }
 
     #[test]
-    fn test_write_wrong_variant_returns_error() {
+    fn test_write_wrong_variant_converts_with_cross_type_support() {
         let (id, mut sched) = make_schedule_with_data();
-        let result = LABEL_FIELD.write(id, &mut sched, field_value!(1));
-        assert!(matches!(result, Err(FieldError::Conversion(_))));
+        // Integer now converts to String via cross-type conversion
+        LABEL_FIELD.write(id, &mut sched, field_value!(1)).unwrap();
+        assert_eq!(sched.get_internal::<MockEntity>(id).unwrap().label, "1");
     }
 
     #[test]

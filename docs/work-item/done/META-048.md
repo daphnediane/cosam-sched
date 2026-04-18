@@ -8,7 +8,7 @@ enums, wire `FieldType` into `FieldDescriptor`, and implement the generic
 
 ## Status
 
-Open
+Completed
 
 ## Priority
 
@@ -36,10 +36,10 @@ value construction.
 
 ## Work Items
 
-- REFACTOR-049: Restructure FieldValue → FieldValueItem + cardinality
-- FEATURE-050: Add FieldTypeItem and FieldType enums
-- FEATURE-051: Add field\_type to FieldDescriptor
-- FEATURE-038: FieldValueConverter system
+- REFACTOR-049: Restructure FieldValue → FieldValueItem + cardinality (Completed)
+- FEATURE-050: Add FieldTypeItem and FieldType enums (Completed)
+- FEATURE-051: Add field\_type to FieldDescriptor (Completed)
+- FEATURE-038: FieldValueConverter system (Completed)
 
 ## Notes
 

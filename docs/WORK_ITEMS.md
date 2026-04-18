@@ -1,6 +1,6 @@
 # Cosplay America Schedule - Work Item
 
-Updated on: Sat Apr 18 01:24:43 2026
+Updated on: Sat Apr 18 01:33:19 2026
 
 ## Completed
 
@@ -12,12 +12,17 @@ Updated on: Sat Apr 18 01:24:43 2026
 * [FEATURE-014] Implement the PanelType entity as the first proof of concept for the no-proc-macro field system.
 * [FEATURE-015] Port `TimeRange` and implement the Panel entity with stored and computed time fields.
 * [FEATURE-016] Implement the remaining core entity data structs and field descriptors.
+* [FEATURE-038] Add a type-safe `FieldValueConverter<M>` trait and driver functions for converting
+`FieldValue` inputs to typed Rust outputs via a work-queue iteration pattern.
 * [FEATURE-043] Add a `verify` callback to `FieldDescriptor` for cross-field consistency checks after batch writes to computed fields.
 * [FEATURE-050] Add `FieldTypeItem` (scalar type tags) and `FieldType` (`Single`/`Optional`/`List`
 wrappers) to `value.rs` as `Copy` type-level mirrors of `FieldValueItem`/`FieldValue`.
 * [FEATURE-051] Add a `field_type: FieldType` field to `FieldDescriptor` and populate it in all
 existing static field descriptors across every entity file.
 * [META-002] Phase tracker for project foundation and Cargo workspace setup.
+* [META-048] Restructure `FieldValue` with proper cardinality, add `FieldTypeItem`/`FieldType`
+enums, wire `FieldType` into `FieldDescriptor`, and implement the generic
+`FieldValueConverter` system from IDEA-038.
 * [REFACTOR-041] Replace the `EntityKind` enum with direct use of `EntityType::TYPE_NAME` strings,
 following the v10-try3 design. This eliminates the central enum that required
 modification for every new entity type.
@@ -40,7 +45,7 @@ collection, and expose a `registered_entity_types()` accessor.
 
 ## Summary of Open Items
 
-**Total open items:** 30
+**Total open items:** 28
 
 * **Meta / Project-Level**
   * [META-001] Meta work item tracking the full multi-phase redesign of the schedule system. (Blocked by [META-003], [META-004], [META-005], [META-006], [META-007], [META-008])
@@ -51,16 +56,11 @@ XLSX import/export. (Blocked by [META-003], [META-004])
   * [META-006] Phase tracker for the cosam-convert and cosam-modify command-line applications. (Blocked by [META-005])
   * [META-007] Phase tracker for the cosam-editor desktop GUI application. (Blocked by [META-005])
   * [META-008] Phase tracker for peer-to-peer schedule synchronization and conflict resolution. (Blocked by [META-004])
-  * [META-048] Restructure `FieldValue` with proper cardinality, add `FieldTypeItem`/`FieldType`
-enums, wire `FieldType` into `FieldDescriptor`, and implement the generic
-`FieldValueConverter` system from IDEA-038.
 
 * **High Priority**
   * [FEATURE-018] ([META-003]) Implement typed relationship storage for entity-to-entity relationships.
   * [FEATURE-019] ([META-003]) Implement the `Schedule` struct and `EntityStorage` for managing all entities and relationships.
   * [FEATURE-021] ([META-003]) Implement a command-based edit system with full undo/redo support.
-  * [FEATURE-038] ([META-048]) Add a type-safe `FieldValueConverter<M>` trait and driver functions for converting
-`FieldValue` inputs to typed Rust outputs via a work-queue iteration pattern.
 
 * **Medium Priority**
   * [BUGFIX-045] In `scratch/field_update_logic.rs`, duration values are incorrectly stored as `FieldValue::Integer(minutes)` instead of `FieldValue::Duration(Duration)`.
@@ -231,23 +231,6 @@ provides UUID-keyed coordination.
 
 **Description:** All mutations to the schedule go through an edit command system that captures
 changes as reversible operations, enabling undo/redo in both CLI and GUI contexts.
-
----
-
-### [FEATURE-038] FEATURE-038: FieldValueConverter System
-
-**Status:** Open
-
-**Priority:** High
-
-**Summary:** Add a type-safe `FieldValueConverter<M>` trait and driver functions for converting
-`FieldValue` inputs to typed Rust outputs via a work-queue iteration pattern.
-
-**Part of:** [META-048]
-
-**Description:** Promoted from IDEA-038. Implements the generic conversion system needed by the import
-pipeline (e.g., tagged presenter `"P:Name"` → `EntityId<PresenterEntityType>` with
-rank assignment).
 
 ---
 
@@ -542,43 +525,6 @@ baked in from the start.
 
 ---
 
-### [META-048] META-048: FieldValue / FieldType / Converter Overhaul
-
-**Status:** Open
-
-**Priority:** High
-
-**Summary:** Restructure `FieldValue` with proper cardinality, add `FieldTypeItem`/`FieldType`
-enums, wire `FieldType` into `FieldDescriptor`, and implement the generic
-`FieldValueConverter` system from IDEA-038.
-
-**Description:** The current `FieldValue` enum conflates scalar values, lists, and absence into a
-single flat enum. This overhaul splits it into `FieldValueItem` (scalars) and
-`FieldValue` (`Single`/`List` wrappers), adds a matching `FieldTypeItem` /
-`FieldType` pair for type-level declarations, wires `FieldType` into field descriptors,
-and finally adds the type-safe `FieldValueConverter` system for import pipelines.
-
-The `EntityIdentifier` ad-hoc enum is also removed; entity references are unified
-under `FieldValueItem::EntityIdentifier(RuntimeEntityId)`.
-
-**Note**: REFACTOR-049 completed the FieldValue restructuring. The actual implementation
-uses `Single`/`List` wrappers (without an `Optional` variant) and `EntityIdentifier`
-as the variant name (not `EntityId`). Absent optional fields return `None` from
-read functions; empty lists return `FieldValue::List(vec![])`.
-
-**Note**: FEATURE-050 added the `FieldTypeItem` and `FieldType` enums. REFACTOR-055 added
-the `IntoFieldValue` trait hierarchy and type-deduced `field_value!` macro for ergonomic
-value construction.
-
-**Work Items:**
-
-* REFACTOR-049: Restructure FieldValue → FieldValueItem + cardinality
-* FEATURE-050: Add FieldTypeItem and FieldType enums
-* FEATURE-051: Add field\_type to FieldDescriptor
-* FEATURE-038: FieldValueConverter system
-
----
-
 ### [META-004] Phase 3 — CRDT Integration
 
 **Status:** Blocked
@@ -720,7 +666,7 @@ to exchange CRDT changes and reconcile concurrent edits to the same fields.
 [FEATURE-029]: work-item/medium/FEATURE-029.md
 [FEATURE-034]: work-item/low/FEATURE-034.md
 [FEATURE-035]: work-item/low/FEATURE-035.md
-[FEATURE-038]: work-item/high/FEATURE-038.md
+[FEATURE-038]: work-item/done/FEATURE-038.md
 [FEATURE-043]: work-item/done/FEATURE-043.md
 [FEATURE-046]: work-item/medium/FEATURE-046.md
 [FEATURE-050]: work-item/done/FEATURE-050.md
@@ -733,7 +679,7 @@ to exchange CRDT changes and reconcile concurrent edits to the same fields.
 [META-006]: work-item/meta/META-006.md
 [META-007]: work-item/meta/META-007.md
 [META-008]: work-item/meta/META-008.md
-[META-048]: work-item/meta/META-048.md
+[META-048]: work-item/done/META-048.md
 [REFACTOR-041]: work-item/done/REFACTOR-041.md
 [REFACTOR-047]: work-item/done/REFACTOR-047.md
 [REFACTOR-049]: work-item/done/REFACTOR-049.md

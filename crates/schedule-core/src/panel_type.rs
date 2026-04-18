@@ -548,14 +548,23 @@ mod tests {
     }
 
     #[test]
-    fn test_write_wrong_type_returns_error() {
+    fn test_write_wrong_type_converts_with_cross_type_support() {
         let id = make_panel_type_id();
         let data = make_test_internal_data();
         let mut sched = make_schedule_with_panel_type(id, data);
 
         let fs = PanelTypeEntityType::field_set();
+        // Integer now converts to String via cross-type conversion
         let result = fs.write_field_value("prefix", id, &mut sched, field_value!(42));
-        assert!(matches!(result, Err(FieldError::Conversion(_))));
+        assert!(result.is_ok());
+        assert_eq!(
+            sched
+                .get_internal::<PanelTypeEntityType>(id)
+                .unwrap()
+                .data
+                .prefix,
+            "42"
+        );
     }
 
     // ── Serialization ───────────────────────────────────────────────────────────
