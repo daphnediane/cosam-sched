@@ -148,7 +148,13 @@ impl EntityType for PanelTypeEntityType {
     }
 }
 
-inventory::submit! { crate::static_intern::KnownStaticStr(PanelTypeEntityType::TYPE_NAME) }
+inventory::submit! {
+    crate::entity::RegisteredEntityType {
+        type_name: PanelTypeEntityType::TYPE_NAME,
+        uuid_namespace: PanelTypeEntityType::uuid_namespace,
+    }
+}
+inventory::collect!(crate::entity::CollectedField<PanelTypeEntityType>);
 
 // ── Field Descriptors ──────────────────────────────────────────────────────────
 
@@ -156,67 +162,78 @@ req_string_field!(FIELD_PREFIX, PanelTypeEntityType, PanelTypeInternalData, pref
     name: "prefix", display: "Prefix",
     desc: "Two-letter Uniq ID prefix for panels of this type.",
     aliases: &["uniq_id_prefix"],
-    example: "GP");
+    example: "GP",
+    order: 0);
 
 req_string_field!(FIELD_PANEL_KIND, PanelTypeEntityType, PanelTypeInternalData, panel_kind,
     name: "panel_kind", display: "Panel Kind",
     desc: "Human-readable kind name for this panel type.",
     aliases: &["kind", "type_name"],
-    example: "Guest Panel");
+    example: "Guest Panel",
+    order: 100);
 
 bool_field!(FIELD_HIDDEN, PanelTypeEntityType, PanelTypeInternalData, hidden,
     name: "hidden", display: "Hidden",
     desc: "Whether this panel type is hidden from UI.",
     aliases: &[],
-    example: "false");
+    example: "false",
+    order: 200);
 
 bool_field!(FIELD_IS_WORKSHOP, PanelTypeEntityType, PanelTypeInternalData, is_workshop,
     name: "is_workshop", display: "Is Workshop",
     desc: "Whether panels of this type are workshops.",
     aliases: &["workshop"],
-    example: "false");
+    example: "false",
+    order: 300);
 
 bool_field!(FIELD_IS_BREAK, PanelTypeEntityType, PanelTypeInternalData, is_break,
     name: "is_break", display: "Is Break",
     desc: "Whether panels of this type are break periods.",
     aliases: &["break"],
-    example: "false");
+    example: "false",
+    order: 400);
 
 bool_field!(FIELD_IS_CAFE, PanelTypeEntityType, PanelTypeInternalData, is_cafe,
     name: "is_cafe", display: "Is Cafe",
     desc: "Whether panels of this type are cafe events.",
     aliases: &["cafe"],
-    example: "false");
+    example: "false",
+    order: 500);
 
 bool_field!(FIELD_IS_ROOM_HOURS, PanelTypeEntityType, PanelTypeInternalData, is_room_hours,
     name: "is_room_hours", display: "Is Room Hours",
     desc: "Whether panels of this type are room hours.",
     aliases: &["room_hours"],
-    example: "false");
+    example: "false",
+    order: 600);
 
 bool_field!(FIELD_IS_TIMELINE, PanelTypeEntityType, PanelTypeInternalData, is_timeline,
     name: "is_timeline", display: "Is Timeline",
     desc: "Whether panels of this type are timeline events.",
     aliases: &["timeline"],
-    example: "false");
+    example: "false",
+    order: 700);
 
 bool_field!(FIELD_IS_PRIVATE, PanelTypeEntityType, PanelTypeInternalData, is_private,
     name: "is_private", display: "Is Private",
     desc: "Whether panels of this type are private events.",
     aliases: &["private"],
-    example: "false");
+    example: "false",
+    order: 800);
 
 opt_string_field!(FIELD_COLOR, PanelTypeEntityType, PanelTypeInternalData, color,
     name: "color", display: "Color",
     desc: "CSS color for panels of this type.",
     aliases: &[],
-    example: "#db2777");
+    example: "#db2777",
+    order: 900);
 
 opt_string_field!(FIELD_BW, PanelTypeEntityType, PanelTypeInternalData, bw,
     name: "bw", display: "BW Color",
     desc: "Alternate monochrome color for panels of this type.",
     aliases: &["bw_color", "monochrome"],
-    example: "#666666");
+    example: "#666666",
+    order: 1000);
 
 /// Computed display name — derived from `panel_kind` and `prefix`.
 ///
@@ -229,6 +246,7 @@ static FIELD_DISPLAY_NAME: FieldDescriptor<PanelTypeEntityType> = FieldDescripto
     required: false,
     crdt_type: CrdtFieldType::Derived,
     example: "Guest Panel (GP)",
+    order: 1100,
     read_fn: Some(ReadFn::Bare(|d: &PanelTypeInternalData| {
         let name = if d.data.prefix.is_empty() {
             d.data.panel_kind.clone()
@@ -258,6 +276,7 @@ static FIELD_DISPLAY_NAME: FieldDescriptor<PanelTypeEntityType> = FieldDescripto
     }),
     verify_fn: None,
 };
+inventory::submit! { crate::entity::CollectedField::<PanelTypeEntityType>(&FIELD_DISPLAY_NAME) }
 
 // Panels of this type — edge-backed computed field (deferred to FEATURE-018).
 // Populated from edge maps when relationship storage is implemented.
@@ -265,30 +284,13 @@ edge_list_field!(FIELD_PANELS, PanelTypeEntityType, PanelTypeInternalData,
     name: "panels", display: "Panels",
     desc: "Panels of this type.",
     aliases: &[],
-    example: "[]");
+    example: "[]",
+    order: 1200);
 
 // ── FieldSet ────────────────────────────────────────────────────────────────────
 
-/// Static field registry for PanelType entities.
-///
-/// Assembled manually in a `LazyLock` as specified by the work item.
-static PANEL_TYPE_FIELD_SET: LazyLock<FieldSet<PanelTypeEntityType>> = LazyLock::new(|| {
-    FieldSet::new(&[
-        &FIELD_PREFIX,
-        &FIELD_PANEL_KIND,
-        &FIELD_HIDDEN,
-        &FIELD_IS_WORKSHOP,
-        &FIELD_IS_BREAK,
-        &FIELD_IS_CAFE,
-        &FIELD_IS_ROOM_HOURS,
-        &FIELD_IS_TIMELINE,
-        &FIELD_IS_PRIVATE,
-        &FIELD_COLOR,
-        &FIELD_BW,
-        &FIELD_DISPLAY_NAME,
-        &FIELD_PANELS,
-    ])
-});
+static PANEL_TYPE_FIELD_SET: LazyLock<FieldSet<PanelTypeEntityType>> =
+    LazyLock::new(FieldSet::from_inventory);
 
 // ── Tests ───────────────────────────────────────────────────────────────────────
 

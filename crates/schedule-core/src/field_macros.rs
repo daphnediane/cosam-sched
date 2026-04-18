@@ -79,9 +79,9 @@ macro_rules! req_string_field {
     (
         $static_name:ident, $entity:ty, $internal:ty, $field:ident,
         name: $name:literal, display: $display:literal, desc: $desc:literal,
-        aliases: $aliases:expr, example: $example:literal
+        aliases: $aliases:expr, example: $example:literal,
+        order: $order:expr
     ) => {
-        inventory::submit! { $crate::static_intern::KnownStaticStr($name) }
         static $static_name: $crate::field::FieldDescriptor<$entity> =
             $crate::field::FieldDescriptor {
                 name: $name,
@@ -91,6 +91,7 @@ macro_rules! req_string_field {
                 required: true,
                 crdt_type: $crate::value::CrdtFieldType::Scalar,
                 example: $example,
+                order: $order,
                 read_fn: Some($crate::field::ReadFn::Bare(|d: &$internal| {
                     Some($crate::field_string!(d.data.$field.clone()))
                 })),
@@ -103,6 +104,7 @@ macro_rules! req_string_field {
                 }),
                 verify_fn: None,
             };
+        inventory::submit! { $crate::entity::CollectedField::<$entity>(&$static_name) }
     };
 }
 pub(crate) use req_string_field;
@@ -113,9 +115,9 @@ macro_rules! opt_string_field {
     (
         $static_name:ident, $entity:ty, $internal:ty, $field:ident,
         name: $name:literal, display: $display:literal, desc: $desc:literal,
-        aliases: $aliases:expr, example: $example:literal
+        aliases: $aliases:expr, example: $example:literal,
+        order: $order:expr
     ) => {
-        inventory::submit! { $crate::static_intern::KnownStaticStr($name) }
         static $static_name: $crate::field::FieldDescriptor<$entity> =
             $crate::field::FieldDescriptor {
                 name: $name,
@@ -125,6 +127,7 @@ macro_rules! opt_string_field {
                 required: false,
                 crdt_type: $crate::value::CrdtFieldType::Scalar,
                 example: $example,
+                order: $order,
                 read_fn: Some($crate::field::ReadFn::Bare(|d: &$internal| {
                     d.data
                         .$field
@@ -153,6 +156,7 @@ macro_rules! opt_string_field {
                 index_fn: None,
                 verify_fn: None,
             };
+        inventory::submit! { $crate::entity::CollectedField::<$entity>(&$static_name) }
     };
 }
 pub(crate) use opt_string_field;
@@ -163,9 +167,9 @@ macro_rules! opt_text_field {
     (
         $static_name:ident, $entity:ty, $internal:ty, $field:ident,
         name: $name:literal, display: $display:literal, desc: $desc:literal,
-        aliases: $aliases:expr, example: $example:literal
+        aliases: $aliases:expr, example: $example:literal,
+        order: $order:expr
     ) => {
-        inventory::submit! { $crate::static_intern::KnownStaticStr($name) }
         static $static_name: $crate::field::FieldDescriptor<$entity> =
             $crate::field::FieldDescriptor {
                 name: $name,
@@ -175,6 +179,7 @@ macro_rules! opt_text_field {
                 required: false,
                 crdt_type: $crate::value::CrdtFieldType::Text,
                 example: $example,
+                order: $order,
                 read_fn: Some($crate::field::ReadFn::Bare(|d: &$internal| {
                     d.data
                         .$field
@@ -203,6 +208,7 @@ macro_rules! opt_text_field {
                 index_fn: None,
                 verify_fn: None,
             };
+        inventory::submit! { $crate::entity::CollectedField::<$entity>(&$static_name) }
     };
 }
 pub(crate) use opt_text_field;
@@ -212,9 +218,9 @@ macro_rules! bool_field {
     (
         $static_name:ident, $entity:ty, $internal:ty, $field:ident,
         name: $name:literal, display: $display:literal, desc: $desc:literal,
-        aliases: $aliases:expr, example: $example:literal
+        aliases: $aliases:expr, example: $example:literal,
+        order: $order:expr
     ) => {
-        inventory::submit! { $crate::static_intern::KnownStaticStr($name) }
         static $static_name: $crate::field::FieldDescriptor<$entity> =
             $crate::field::FieldDescriptor {
                 name: $name,
@@ -224,6 +230,7 @@ macro_rules! bool_field {
                 required: false,
                 crdt_type: $crate::value::CrdtFieldType::Scalar,
                 example: $example,
+                order: $order,
                 read_fn: Some($crate::field::ReadFn::Bare(|d: &$internal| {
                     Some($crate::field_boolean!(d.data.$field))
                 })),
@@ -234,6 +241,7 @@ macro_rules! bool_field {
                 index_fn: None,
                 verify_fn: None,
             };
+        inventory::submit! { $crate::entity::CollectedField::<$entity>(&$static_name) }
     };
 }
 pub(crate) use bool_field;
@@ -244,9 +252,9 @@ macro_rules! opt_i64_field {
     (
         $static_name:ident, $entity:ty, $internal:ty, $field:ident,
         name: $name:literal, display: $display:literal, desc: $desc:literal,
-        aliases: $aliases:expr, example: $example:literal
+        aliases: $aliases:expr, example: $example:literal,
+        order: $order:expr
     ) => {
-        inventory::submit! { $crate::static_intern::KnownStaticStr($name) }
         static $static_name: $crate::field::FieldDescriptor<$entity> =
             $crate::field::FieldDescriptor {
                 name: $name,
@@ -256,6 +264,7 @@ macro_rules! opt_i64_field {
                 required: false,
                 crdt_type: $crate::value::CrdtFieldType::Scalar,
                 example: $example,
+                order: $order,
                 read_fn: Some($crate::field::ReadFn::Bare(|d: &$internal| {
                     d.data.$field.map(|n| $crate::field_integer!(n))
                 })),
@@ -281,6 +290,7 @@ macro_rules! opt_i64_field {
                 index_fn: None,
                 verify_fn: None,
             };
+        inventory::submit! { $crate::entity::CollectedField::<$entity>(&$static_name) }
     };
 }
 pub(crate) use opt_i64_field;
@@ -296,9 +306,9 @@ macro_rules! edge_list_field {
     (
         $static_name:ident, $entity:ty, $internal:ty,
         name: $name:literal, display: $display:literal, desc: $desc:literal,
-        aliases: $aliases:expr, example: $example:literal
+        aliases: $aliases:expr, example: $example:literal,
+        order: $order:expr
     ) => {
-        inventory::submit! { $crate::static_intern::KnownStaticStr($name) }
         static $static_name: $crate::field::FieldDescriptor<$entity> =
             $crate::field::FieldDescriptor {
                 name: $name,
@@ -308,6 +318,7 @@ macro_rules! edge_list_field {
                 required: false,
                 crdt_type: $crate::value::CrdtFieldType::Derived,
                 example: $example,
+                order: $order,
                 read_fn: Some($crate::field::ReadFn::Bare(|_d: &$internal| {
                     Some($crate::field_empty_list!())
                 })),
@@ -315,6 +326,7 @@ macro_rules! edge_list_field {
                 index_fn: None,
                 verify_fn: None,
             };
+        inventory::submit! { $crate::entity::CollectedField::<$entity>(&$static_name) }
     };
 }
 pub(crate) use edge_list_field;
@@ -324,9 +336,9 @@ macro_rules! edge_list_field_rw {
     (
         $static_name:ident, $entity:ty, $internal:ty,
         name: $name:literal, display: $display:literal, desc: $desc:literal,
-        aliases: $aliases:expr, example: $example:literal
+        aliases: $aliases:expr, example: $example:literal,
+        order: $order:expr
     ) => {
-        inventory::submit! { $crate::static_intern::KnownStaticStr($name) }
         static $static_name: $crate::field::FieldDescriptor<$entity> =
             $crate::field::FieldDescriptor {
                 name: $name,
@@ -336,6 +348,7 @@ macro_rules! edge_list_field_rw {
                 required: false,
                 crdt_type: $crate::value::CrdtFieldType::Derived,
                 example: $example,
+                order: $order,
                 read_fn: Some($crate::field::ReadFn::Bare(|_d: &$internal| {
                     Some($crate::field_empty_list!())
                 })),
@@ -345,6 +358,7 @@ macro_rules! edge_list_field_rw {
                 index_fn: None,
                 verify_fn: None,
             };
+        inventory::submit! { $crate::entity::CollectedField::<$entity>(&$static_name) }
     };
 }
 pub(crate) use edge_list_field_rw;
@@ -355,9 +369,9 @@ macro_rules! edge_none_field_rw {
     (
         $static_name:ident, $entity:ty, $internal:ty,
         name: $name:literal, display: $display:literal, desc: $desc:literal,
-        aliases: $aliases:expr, example: $example:literal
+        aliases: $aliases:expr, example: $example:literal,
+        order: $order:expr
     ) => {
-        inventory::submit! { $crate::static_intern::KnownStaticStr($name) }
         static $static_name: $crate::field::FieldDescriptor<$entity> =
             $crate::field::FieldDescriptor {
                 name: $name,
@@ -367,6 +381,7 @@ macro_rules! edge_none_field_rw {
                 required: false,
                 crdt_type: $crate::value::CrdtFieldType::Derived,
                 example: $example,
+                order: $order,
                 read_fn: Some($crate::field::ReadFn::Bare(|_d: &$internal| {
                     Some($crate::field_empty_list!())
                 })),
@@ -376,6 +391,7 @@ macro_rules! edge_none_field_rw {
                 index_fn: None,
                 verify_fn: None,
             };
+        inventory::submit! { $crate::entity::CollectedField::<$entity>(&$static_name) }
     };
 }
 pub(crate) use edge_none_field_rw;
@@ -385,9 +401,9 @@ macro_rules! edge_mutator_field {
     (
         $static_name:ident, $entity:ty, $internal:ty,
         name: $name:literal, display: $display:literal, desc: $desc:literal,
-        aliases: $aliases:expr, example: $example:literal
+        aliases: $aliases:expr, example: $example:literal,
+        order: $order:expr
     ) => {
-        inventory::submit! { $crate::static_intern::KnownStaticStr($name) }
         static $static_name: $crate::field::FieldDescriptor<$entity> =
             $crate::field::FieldDescriptor {
                 name: $name,
@@ -397,6 +413,7 @@ macro_rules! edge_mutator_field {
                 required: false,
                 crdt_type: $crate::value::CrdtFieldType::Derived,
                 example: $example,
+                order: $order,
                 read_fn: None,
                 write_fn: Some($crate::field::WriteFn::Bare(
                     |_d: &mut $internal, _v| Ok(()),
@@ -404,6 +421,7 @@ macro_rules! edge_mutator_field {
                 index_fn: None,
                 verify_fn: None,
             };
+        inventory::submit! { $crate::entity::CollectedField::<$entity>(&$static_name) }
     };
 }
 pub(crate) use edge_mutator_field;

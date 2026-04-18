@@ -1,6 +1,6 @@
 # Cosplay America Schedule - Work Item
 
-Updated on: Fri Apr 17 14:39:54 2026
+Updated on: Fri Apr 17 19:58:57 2026
 
 ## Completed
 
@@ -21,6 +21,12 @@ and adopt them in `panel_type.rs` to eliminate per-entity boilerplate.
 * [REFACTOR-049] Split the flat `FieldValue` enum into `FieldValueItem` (scalars only) and
 `FieldValue` (`Single`/`List` wrappers), removing `None`,
 `NonNilUuid`, and `EntityIdentifier` variants.
+* [REFACTOR-052] Add `CollectedField<E>`, `RegisteredEntityType`, `order` field on `FieldDescriptor`,
+`FieldSet::from_inventory`, and update field macros to self-submit via inventory.
+* [REFACTOR-053] Replace the manual `FieldSet::new(&[...])` list in each entity type module with
+`FieldSet::from_inventory()`, letting fields self-register via `inventory::submit!`.
+* [REFACTOR-054] Register all entity types via `inventory::submit!` into a central `RegisteredEntityType`
+collection, and expose a `registered_entity_types()` accessor.
 
 ---
 
@@ -767,3 +773,6 @@ Both are now handled without a central enum:
 [REFACTOR-041]: work-item/high/REFACTOR-041.md
 [REFACTOR-047]: work-item/done/REFACTOR-047.md
 [REFACTOR-049]: work-item/done/REFACTOR-049.md
+[REFACTOR-052]: work-item/done/REFACTOR-052.md
+[REFACTOR-053]: work-item/done/REFACTOR-053.md
+[REFACTOR-054]: work-item/done/REFACTOR-054.md

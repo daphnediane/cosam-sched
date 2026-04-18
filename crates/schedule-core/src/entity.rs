@@ -102,7 +102,12 @@ impl<'de> Deserialize<'de> for RuntimeEntityId {
             .map_err(|e| serde::de::Error::custom(format!("invalid UUID: {e}")))?;
         let nnu = NonNilUuid::new(uuid)
             .ok_or_else(|| serde::de::Error::custom("entity UUID must not be nil"))?;
-        let type_name = crate::static_intern::intern_static_str(type_name_str);
+        let type_name = registered_entity_types()
+            .find(|r| r.type_name == type_name_str)
+            .map(|r| r.type_name)
+            .ok_or_else(|| {
+                serde::de::Error::custom(format!("unknown entity type {type_name_str:?}"))
+            })?;
         Ok(RuntimeEntityId {
             uuid: nnu,
             type_name,
@@ -173,6 +178,33 @@ pub trait EntityType: 'static + Sized {
 
     /// Validate internal data and return any constraint violations.
     fn validate(data: &Self::InternalData) -> Vec<ValidationError>;
+}
+
+// ── Inventory registration types ──────────────────────────────────────────────
+
+/// Inventory collection wrapper for per-entity-type field descriptor registration.
+///
+/// Each entity type module declares `inventory::collect!(CollectedField<XxxEntityType>)`.
+/// Field macros (and hand-written descriptors) submit via
+/// `inventory::submit! { CollectedField::<XxxEntityType>(&FIELD_NAME) }`.
+/// [`FieldSet::from_inventory`] iterates the resulting collection.
+pub struct CollectedField<E: EntityType>(pub &'static crate::field::FieldDescriptor<E>);
+
+/// Type-erased entity type descriptor, registered globally via `inventory`.
+///
+/// Each concrete entity type impl block submits one of these. Use
+/// [`registered_entity_types`] to iterate all registered types at runtime.
+pub struct RegisteredEntityType {
+    /// Stable snake_case type name (e.g. `"panel"`, `"presenter"`).
+    pub type_name: &'static str,
+    /// Returns the UUID namespace used for deterministic v5 ID generation.
+    pub uuid_namespace: fn() -> &'static Uuid,
+}
+inventory::collect!(RegisteredEntityType);
+
+/// Iterate over all entity types registered via `inventory::submit!`.
+pub fn registered_entity_types() -> impl Iterator<Item = &'static RegisteredEntityType> {
+    inventory::iter::<RegisteredEntityType>()
 }
 
 // ── EntityId ──────────────────────────────────────────────────────────────────
@@ -463,17 +495,32 @@ mod tests {
 
     #[test]
     fn test_runtime_entity_id_serde_roundtrip() {
-        // SAFETY: test-only; no real registry to verify against.
-        let rid = unsafe { RuntimeEntityId::from_uuid(make_non_nil_uuid(), "Presenter") };
+        let rid = unsafe {
+            RuntimeEntityId::from_uuid(
+                make_non_nil_uuid(),
+                crate::presenter::PresenterEntityType::TYPE_NAME,
+            )
+        };
         let json_string = serde_json::to_string(&rid).unwrap();
         let back: RuntimeEntityId = serde_json::from_str(&json_string).unwrap();
         assert_eq!(rid, back);
     }
 
     #[test]
+    fn test_runtime_entity_id_deserialize_unknown_type_is_error() {
+        let json = format!("\"unknown_type:{}\"", make_non_nil_uuid());
+        let result: Result<RuntimeEntityId, _> = serde_json::from_str(&json);
+        assert!(result.is_err());
+    }
+
+    #[test]
     fn test_runtime_entity_id_clone() {
-        // SAFETY: test-only; no real registry to verify against.
-        let rid = unsafe { RuntimeEntityId::from_uuid(make_non_nil_uuid(), "EventRoom") };
+        let rid = unsafe {
+            RuntimeEntityId::from_uuid(
+                make_non_nil_uuid(),
+                crate::event_room::EventRoomEntityType::TYPE_NAME,
+            )
+        };
         let clone = rid.clone();
         assert_eq!(rid, clone);
     }
@@ -621,5 +668,23 @@ mod tests {
         let rid = unsafe { RuntimeEntityId::from_uuid(nnu, "panel") };
         let json = serde_json::to_string(&rid).unwrap();
         assert_eq!(json, format!("\"panel:{}\"", nnu.get()));
+    }
+
+    #[test]
+    fn test_registered_entity_types_contains_all_five() {
+        let names: Vec<&'static str> = registered_entity_types().map(|r| r.type_name).collect();
+        for expected in &[
+            "panel",
+            "presenter",
+            "event_room",
+            "hotel_room",
+            "panel_type",
+        ] {
+            assert!(
+                names.contains(expected),
+                "registered_entity_types() missing \"{expected}\"; got {names:?}"
+            );
+        }
+        assert_eq!(names.len(), 5, "expected exactly 5 registered entity types");
     }
 }

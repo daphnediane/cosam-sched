@@ -300,7 +300,13 @@ impl EntityType for PresenterEntityType {
     }
 }
 
-inventory::submit! { crate::static_intern::KnownStaticStr(PresenterEntityType::TYPE_NAME) }
+inventory::submit! {
+    crate::entity::RegisteredEntityType {
+        type_name: PresenterEntityType::TYPE_NAME,
+        uuid_namespace: PresenterEntityType::uuid_namespace,
+    }
+}
+inventory::collect!(crate::entity::CollectedField<PresenterEntityType>);
 
 // ── Stored field descriptors ──────────────────────────────────────────────────
 
@@ -308,7 +314,8 @@ req_string_field!(FIELD_NAME, PresenterEntityType, PresenterInternalData, name,
     name: "name", display: "Name",
     desc: "Presenter or group display name.",
     aliases: &["presenter_name", "display_name"],
-    example: "Alice Example");
+    example: "Alice Example",
+    order: 0);
 
 /// Presenter rank — stored as `PresenterRank`, exposed as `FieldValue::String`
 /// using the canonical tag (`guest`, `judge`, `staff`, `invited_panelist`,
@@ -321,6 +328,7 @@ static FIELD_RANK: FieldDescriptor<PresenterEntityType> = FieldDescriptor {
     required: false,
     crdt_type: CrdtFieldType::Scalar,
     example: "guest",
+    order: 100,
     read_fn: Some(ReadFn::Bare(|d: &PresenterInternalData| {
         Some(field_string!(d.data.rank.as_str()))
     })),
@@ -331,30 +339,35 @@ static FIELD_RANK: FieldDescriptor<PresenterEntityType> = FieldDescriptor {
     index_fn: None,
     verify_fn: None,
 };
+inventory::submit! { crate::entity::CollectedField::<PresenterEntityType>(&FIELD_RANK) }
 
 opt_text_field!(FIELD_BIO, PresenterEntityType, PresenterInternalData, bio,
     name: "bio", display: "Bio",
     desc: "Biography or description.",
     aliases: &["biography", "description"],
-    example: "Long-time guest.");
+    example: "Long-time guest.",
+    order: 200);
 
 bool_field!(FIELD_IS_EXPLICIT_GROUP, PresenterEntityType, PresenterInternalData, is_explicit_group,
     name: "is_explicit_group", display: "Is Explicit Group",
     desc: "Marks this presenter entity as an explicit group.",
     aliases: &["explicit_group"],
-    example: "false");
+    example: "false",
+    order: 300);
 
 bool_field!(FIELD_ALWAYS_GROUPED, PresenterEntityType, PresenterInternalData, always_grouped,
     name: "always_grouped", display: "Always Grouped",
     desc: "Always display this member under its group name.",
     aliases: &[],
-    example: "false");
+    example: "false",
+    order: 400);
 
 bool_field!(FIELD_ALWAYS_SHOWN_IN_GROUP, PresenterEntityType, PresenterInternalData, always_shown_in_group,
     name: "always_shown_in_group", display: "Always Shown In Group",
     desc: "Always show group name even with partial member attendance.",
     aliases: &["always_shown"],
-    example: "false");
+    example: "false",
+    order: 500);
 
 // ── Computed / edge-backed field stubs (full wiring in FEATURE-018) ───────────
 
@@ -369,6 +382,7 @@ static FIELD_IS_GROUP: FieldDescriptor<PresenterEntityType> = FieldDescriptor {
     required: false,
     crdt_type: CrdtFieldType::Derived,
     example: "false",
+    order: 600,
     read_fn: Some(ReadFn::Bare(|d: &PresenterInternalData| {
         Some(field_boolean!(d.data.is_explicit_group))
     })),
@@ -376,76 +390,68 @@ static FIELD_IS_GROUP: FieldDescriptor<PresenterEntityType> = FieldDescriptor {
     index_fn: None,
     verify_fn: None,
 };
+inventory::submit! { crate::entity::CollectedField::<PresenterEntityType>(&FIELD_IS_GROUP) }
 
 edge_list_field_rw!(FIELD_GROUPS, PresenterEntityType, PresenterInternalData,
     name: "groups", display: "Groups",
     desc: "Groups this presenter belongs to.",
     aliases: &["group_memberships"],
-    example: "[]");
+    example: "[]",
+    order: 700);
 
 edge_list_field_rw!(FIELD_MEMBERS, PresenterEntityType, PresenterInternalData,
     name: "members", display: "Members",
     desc: "Members of this group (empty for individuals).",
     aliases: &["group_members"],
-    example: "[]");
+    example: "[]",
+    order: 800);
 
 edge_list_field!(FIELD_INCLUSIVE_GROUPS, PresenterEntityType, PresenterInternalData,
     name: "inclusive_groups", display: "Inclusive Groups",
     desc: "Transitive closure of groups this presenter appears in.",
     aliases: &[],
-    example: "[]");
+    example: "[]",
+    order: 900);
 
 edge_list_field!(FIELD_INCLUSIVE_MEMBERS, PresenterEntityType, PresenterInternalData,
     name: "inclusive_members", display: "Inclusive Members",
     desc: "Transitive closure of members for this group.",
     aliases: &[],
-    example: "[]");
+    example: "[]",
+    order: 1000);
 
 edge_list_field_rw!(FIELD_PANELS, PresenterEntityType, PresenterInternalData,
     name: "panels", display: "Panels",
     desc: "Panels this presenter is scheduled on.",
     aliases: &["panel"],
-    example: "[]");
+    example: "[]",
+    order: 1100);
 
 edge_mutator_field!(FIELD_ADD_PANELS, PresenterEntityType, PresenterInternalData,
     name: "add_panels", display: "Add Panels",
     desc: "Append panels to this presenter.",
     aliases: &["add_panel"],
-    example: "[panel_id]");
+    example: "[panel_id]",
+    order: 1200);
 
 edge_mutator_field!(FIELD_REMOVE_PANELS, PresenterEntityType, PresenterInternalData,
     name: "remove_panels", display: "Remove Panels",
     desc: "Remove panels from this presenter.",
     aliases: &["remove_panel"],
-    example: "[panel_id]");
+    example: "[panel_id]",
+    order: 1300);
 
 edge_list_field!(FIELD_INCLUSIVE_PANELS, PresenterEntityType, PresenterInternalData,
     name: "inclusive_panels", display: "Inclusive Panels",
     desc: "Transitive closure: panels of this presenter and of its groups.",
     aliases: &[],
-    example: "[]");
+    example: "[]",
+    order: 1400);
 
 // ── FieldSet ──────────────────────────────────────────────────────────────────
 
-static PRESENTER_FIELD_SET: LazyLock<FieldSet<PresenterEntityType>> = LazyLock::new(|| {
-    FieldSet::new(&[
-        &FIELD_NAME,
-        &FIELD_RANK,
-        &FIELD_BIO,
-        &FIELD_IS_EXPLICIT_GROUP,
-        &FIELD_ALWAYS_GROUPED,
-        &FIELD_ALWAYS_SHOWN_IN_GROUP,
-        &FIELD_IS_GROUP,
-        &FIELD_GROUPS,
-        &FIELD_MEMBERS,
-        &FIELD_INCLUSIVE_GROUPS,
-        &FIELD_INCLUSIVE_MEMBERS,
-        &FIELD_PANELS,
-        &FIELD_ADD_PANELS,
-        &FIELD_REMOVE_PANELS,
-        &FIELD_INCLUSIVE_PANELS,
-    ])
-});
+static PRESENTER_FIELD_SET: LazyLock<FieldSet<PresenterEntityType>> =
+    LazyLock::new(FieldSet::from_inventory);
 
 // ── Tests ─────────────────────────────────────────────────────────────────────
 

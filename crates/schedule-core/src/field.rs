@@ -211,6 +211,9 @@ pub struct FieldDescriptor<E: EntityType> {
     pub crdt_type: CrdtFieldType,
     /// Example value for documentation and UI hints.
     pub example: &'static str,
+    /// Display/iteration order (lower values first). Used by `FieldSet::from_inventory`
+    /// to produce a stable field ordering when fields self-register via inventory.
+    pub order: u32,
     /// Read implementation. `None` means write-only.
     pub read_fn: Option<ReadFn<E>>,
     /// Write implementation. `None` means read-only.
@@ -370,6 +373,7 @@ mod tests {
         required: true,
         crdt_type: CrdtFieldType::Scalar,
         example: "Hello World",
+        order: 0,
         read_fn: Some(ReadFn::Bare(|d: &MockInternalData| {
             Some(field_string!(d.label.clone()))
         })),
@@ -401,6 +405,7 @@ mod tests {
         required: false,
         crdt_type: CrdtFieldType::Scalar,
         example: "7",
+        order: 100,
         read_fn: Some(ReadFn::Bare(|d: &MockInternalData| {
             Some(field_integer!(d.count))
         })),
@@ -420,6 +425,7 @@ mod tests {
         required: false,
         crdt_type: CrdtFieldType::Derived,
         example: "42",
+        order: 200,
         read_fn: Some(ReadFn::Bare(|_: &MockInternalData| {
             Some(field_integer!(42))
         })),
@@ -436,6 +442,7 @@ mod tests {
         required: false,
         crdt_type: CrdtFieldType::Derived,
         example: "Hello World",
+        order: 300,
         read_fn: None,
         write_fn: Some(WriteFn::Bare(|d: &mut MockInternalData, v| {
             d.label = v.into_string()?;

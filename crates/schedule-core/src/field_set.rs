@@ -34,7 +34,7 @@
 //! field with canonical name `"kind"` whose spreadsheet header is `"PanelKind"`
 //! should include `"Panel_Kind"` in its `aliases` list.
 
-use crate::entity::EntityType;
+use crate::entity::{CollectedField, EntityType};
 use crate::field::{FieldDescriptor, IndexableField, MatchPriority, ReadableField, WritableField};
 use crate::schedule::Schedule;
 use crate::value::{CrdtFieldType, FieldError, FieldValue};
@@ -70,13 +70,41 @@ pub struct FieldSet<E: EntityType> {
 }
 
 impl<E: EntityType> FieldSet<E> {
+    /// Build a `FieldSet` from all [`CollectedField<E>`] entries submitted via
+    /// `inventory::submit!`.  Fields are sorted by [`FieldDescriptor::order`]
+    /// (ascending) before the lookup map is built.
+    ///
+    /// Each entity type module must declare `inventory::collect!(CollectedField<E>)`,
+    /// and every field for that type must emit
+    /// `inventory::submit! { CollectedField::<E>(&STATIC_FIELD) }`.
+    #[must_use]
+    pub fn from_inventory() -> Self
+    where
+        CollectedField<E>: inventory::Collect,
+    {
+        let mut descriptors: Vec<&'static FieldDescriptor<E>> =
+            inventory::iter::<CollectedField<E>>()
+                .map(|cf| cf.0)
+                .collect();
+        descriptors.sort_by_key(|d| d.order);
+        Self::from_slice(&descriptors)
+    }
+
     /// Build a `FieldSet` from a slice of static field descriptor references.
     ///
     /// Registers each descriptor's canonical name and all its aliases into the
     /// internal lookup map.  Later entries with colliding names silently
     /// overwrite earlier ones (prefer no collisions).
+    ///
+    /// Prefer [`FieldSet::from_inventory`] for production entity types.
+    /// This constructor is kept for tests that use mock entities without
+    /// an inventory collection.
     #[must_use]
     pub fn new(descriptors: &[&'static FieldDescriptor<E>]) -> Self {
+        Self::from_slice(descriptors)
+    }
+
+    fn from_slice(descriptors: &[&'static FieldDescriptor<E>]) -> Self {
         let fields: Vec<&'static FieldDescriptor<E>> = descriptors.to_vec();
         let mut name_map: HashMap<String, usize> = HashMap::new();
         let mut required = Vec::new();
@@ -265,6 +293,7 @@ mod tests {
         required: true,
         crdt_type: CrdtFieldType::Scalar,
         example: "Hello World",
+        order: 0,
         read_fn: Some(ReadFn::Bare(|d: &MockData| {
             Some(field_string!(d.label.clone()))
         })),
@@ -296,6 +325,7 @@ mod tests {
         required: false,
         crdt_type: CrdtFieldType::Scalar,
         example: "7",
+        order: 100,
         read_fn: Some(ReadFn::Bare(|d: &MockData| Some(field_integer!(d.count)))),
         write_fn: Some(WriteFn::Bare(|d: &mut MockData, v| {
             d.count = v.into_integer()?;
@@ -313,6 +343,7 @@ mod tests {
         required: false,
         crdt_type: CrdtFieldType::Derived,
         example: "42",
+        order: 200,
         read_fn: Some(ReadFn::Bare(|_: &MockData| Some(field_integer!(42)))),
         write_fn: None,
         index_fn: None,

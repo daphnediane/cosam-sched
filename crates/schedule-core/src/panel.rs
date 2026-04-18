@@ -184,7 +184,13 @@ impl EntityType for PanelEntityType {
     }
 }
 
-inventory::submit! { crate::static_intern::KnownStaticStr(PanelEntityType::TYPE_NAME) }
+inventory::submit! {
+    crate::entity::RegisteredEntityType {
+        type_name: PanelEntityType::TYPE_NAME,
+        uuid_namespace: PanelEntityType::uuid_namespace,
+    }
+}
+inventory::collect!(crate::entity::CollectedField<PanelEntityType>);
 
 // ── Stored field descriptors ──────────────────────────────────────────────────
 
@@ -205,6 +211,7 @@ static FIELD_CODE: FieldDescriptor<PanelEntityType> = FieldDescriptor {
     required: true,
     crdt_type: CrdtFieldType::Scalar,
     example: "GP032",
+    order: 0,
     read_fn: Some(ReadFn::Bare(|d: &PanelInternalData| {
         Some(field_string!(d.code.full_id()))
     })),
@@ -246,145 +253,169 @@ static FIELD_CODE: FieldDescriptor<PanelEntityType> = FieldDescriptor {
     }),
     verify_fn: None,
 };
+inventory::submit! { crate::entity::CollectedField::<PanelEntityType>(&FIELD_CODE) }
 
 // @todo: Name can be empty, should be optional
 req_string_field!(FIELD_NAME, PanelEntityType, PanelInternalData, name,
     name: "name", display: "Name",
     desc: "Panel name / title.",
     aliases: &["title", "panel_name"],
-    example: "Cosplay Foam Armor 101");
+    example: "Cosplay Foam Armor 101",
+    order: 100);
 
 opt_text_field!(FIELD_DESCRIPTION, PanelEntityType, PanelInternalData, description,
     name: "description", display: "Description",
     desc: "Event description shown to attendees.",
     aliases: &["desc"],
-    example: "Learn the basics of foam armor construction");
+    example: "Learn the basics of foam armor construction",
+    order: 200);
 
 opt_text_field!(FIELD_NOTE, PanelEntityType, PanelInternalData, note,
     name: "note", display: "Note",
     desc: "Extra note displayed verbatim.",
     aliases: &[],
-    example: "Bring your own materials");
+    example: "Bring your own materials",
+    order: 300);
 
 opt_text_field!(FIELD_NOTES_NON_PRINTING, PanelEntityType, PanelInternalData, notes_non_printing,
     name: "notes_non_printing", display: "Notes (Non Printing)",
     desc: "Internal notes not shown to the public.",
     aliases: &["internal_notes"],
-    example: "Internal note for staff");
+    example: "Internal note for staff",
+    order: 400);
 
 opt_text_field!(FIELD_WORKSHOP_NOTES, PanelEntityType, PanelInternalData, workshop_notes,
     name: "workshop_notes", display: "Workshop Notes",
     desc: "Notes for workshop staff.",
     aliases: &[],
-    example: "Staff notes for workshop");
+    example: "Staff notes for workshop",
+    order: 500);
 
 opt_string_field!(FIELD_POWER_NEEDS, PanelEntityType, PanelInternalData, power_needs,
     name: "power_needs", display: "Power Needs",
     desc: "Power / electrical requirements.",
     aliases: &["power"],
-    example: "2 outlets");
+    example: "2 outlets",
+    order: 600);
 
 bool_field!(FIELD_SEWING_MACHINES, PanelEntityType, PanelInternalData, sewing_machines,
     name: "sewing_machines", display: "Sewing Machines",
     desc: "Whether sewing machines are required.",
     aliases: &["sewing"],
-    example: "false");
+    example: "false",
+    order: 700);
 
 opt_text_field!(FIELD_AV_NOTES, PanelEntityType, PanelInternalData, av_notes,
     name: "av_notes", display: "AV Notes",
     desc: "Audio/visual setup notes.",
     aliases: &["av"],
-    example: "Projector needed");
+    example: "Projector needed",
+    order: 800);
 
 opt_string_field!(FIELD_DIFFICULTY, PanelEntityType, PanelInternalData, difficulty,
     name: "difficulty", display: "Difficulty",
     desc: "Skill-level indicator (free text).",
     aliases: &[],
-    example: "Beginner");
+    example: "Beginner",
+    order: 900);
 
 opt_string_field!(FIELD_PREREQ, PanelEntityType, PanelInternalData, prereq,
     name: "prereq", display: "Prerequisites",
     desc: "Comma-separated prerequisite Uniq IDs.",
     aliases: &["prerequisites"],
-    example: "GP001");
+    example: "GP001",
+    order: 1000);
 
 opt_string_field!(FIELD_COST, PanelEntityType, PanelInternalData, cost,
     name: "cost", display: "Cost",
     desc: "Raw cost cell value (e.g. \"$35\", \"Free\", \"Kids\").",
     aliases: &[],
-    example: "$35");
+    example: "$35",
+    order: 1100);
 
 bool_field!(FIELD_IS_FREE, PanelEntityType, PanelInternalData, is_free,
     name: "is_free", display: "Is Free",
     desc: "Parsed during import: cost is blank, \"Free\", \"$0\", or \"N/A\".",
     aliases: &["free"],
-    example: "false");
+    example: "false",
+    order: 1200);
 
 bool_field!(FIELD_IS_KIDS, PanelEntityType, PanelInternalData, is_kids,
     name: "is_kids", display: "Is Kids",
     desc: "Parsed during import: cost indicates kids-only pricing.",
     aliases: &["kids"],
-    example: "false");
+    example: "false",
+    order: 1300);
 
 bool_field!(FIELD_IS_FULL, PanelEntityType, PanelInternalData, is_full,
     name: "is_full", display: "Full",
     desc: "Event is at capacity.",
     aliases: &["full"],
-    example: "false");
+    example: "false",
+    order: 1400);
 
 opt_i64_field!(FIELD_CAPACITY, PanelEntityType, PanelInternalData, capacity,
     name: "capacity", display: "Capacity",
     desc: "Total seats available.",
     aliases: &[],
-    example: "50");
+    example: "50",
+    order: 1500);
 
 opt_i64_field!(FIELD_SEATS_SOLD, PanelEntityType, PanelInternalData, seats_sold,
     name: "seats_sold", display: "Seats Sold",
     desc: "Number of seats pre-sold or reserved via ticketing.",
     aliases: &[],
-    example: "25");
+    example: "25",
+    order: 1600);
 
 opt_i64_field!(FIELD_PRE_REG_MAX, PanelEntityType, PanelInternalData, pre_reg_max,
     name: "pre_reg_max", display: "Pre-reg Max",
     desc: "Maximum seats available for pre-registration.",
     aliases: &["prereg_max"],
-    example: "40");
+    example: "40",
+    order: 1700);
 
 opt_string_field!(FIELD_TICKET_URL, PanelEntityType, PanelInternalData, ticket_url,
     name: "ticket_url", display: "Ticket URL",
     desc: "URL for purchasing tickets.",
     aliases: &["ticket_sale"],
-    example: "https://example.com/ticket");
+    example: "https://example.com/ticket",
+    order: 1800);
 
 bool_field!(FIELD_HAVE_TICKET_IMAGE, PanelEntityType, PanelInternalData, have_ticket_image,
     name: "have_ticket_image", display: "Have Ticket Image",
     desc: "Whether a ticket / flyer image has been received.",
     aliases: &[],
-    example: "false");
+    example: "false",
+    order: 1900);
 
 opt_string_field!(FIELD_SIMPLETIX_EVENT, PanelEntityType, PanelInternalData, simpletix_event,
     name: "simpletix_event", display: "SimpleTix Event",
     desc: "Internal admin URL for SimpleTix event configuration.",
     aliases: &["simpletix"],
-    example: "https://admin.simpletix.com/event/123");
+    example: "https://admin.simpletix.com/event/123",
+    order: 2000);
 
 opt_string_field!(FIELD_SIMPLETIX_LINK, PanelEntityType, PanelInternalData, simpletix_link,
     name: "simpletix_link", display: "SimpleTix Link",
     desc: "Public-facing direct ticket purchase link.",
     aliases: &[],
-    example: "https://simpletix.com/event/123");
+    example: "https://simpletix.com/event/123",
+    order: 2100);
 
 bool_field!(FIELD_HIDE_PANELIST, PanelEntityType, PanelInternalData, hide_panelist,
     name: "hide_panelist", display: "Hide Panelist",
     desc: "Suppress presenter credits for this panel.",
     aliases: &[],
-    example: "false");
+    example: "false",
+    order: 2200);
 
 opt_string_field!(FIELD_ALT_PANELIST, PanelEntityType, PanelInternalData, alt_panelist,
     name: "alt_panelist", display: "Alt Panelist",
     desc: "Override text for the presenter credits line.",
     aliases: &[],
-    example: "Special Guest");
+    example: "Special Guest",
+    order: 2300);
 
 // ── Computed time projections ─────────────────────────────────────────────────
 
@@ -397,6 +428,7 @@ static FIELD_START_TIME: FieldDescriptor<PanelEntityType> = FieldDescriptor {
     required: false,
     crdt_type: CrdtFieldType::Derived,
     example: "2023-06-25T19:00:00",
+    order: 2400,
     read_fn: Some(ReadFn::Bare(|d: &PanelInternalData| {
         d.time_slot.start_time().map(|dt| field_datetime!(dt))
     })),
@@ -433,6 +465,7 @@ static FIELD_START_TIME: FieldDescriptor<PanelEntityType> = FieldDescriptor {
     index_fn: None,
     verify_fn: Some(VerifyFn::ReRead),
 };
+inventory::submit! { crate::entity::CollectedField::<PanelEntityType>(&FIELD_START_TIME) }
 
 /// End time — projected from `time_slot`.
 static FIELD_END_TIME: FieldDescriptor<PanelEntityType> = FieldDescriptor {
@@ -443,6 +476,7 @@ static FIELD_END_TIME: FieldDescriptor<PanelEntityType> = FieldDescriptor {
     required: false,
     crdt_type: CrdtFieldType::Derived,
     example: "2023-06-25T20:30:00",
+    order: 2500,
     read_fn: Some(ReadFn::Bare(|d: &PanelInternalData| {
         d.time_slot.end_time().map(|dt| field_datetime!(dt))
     })),
@@ -479,6 +513,7 @@ static FIELD_END_TIME: FieldDescriptor<PanelEntityType> = FieldDescriptor {
     index_fn: None,
     verify_fn: Some(VerifyFn::ReRead),
 };
+inventory::submit! { crate::entity::CollectedField::<PanelEntityType>(&FIELD_END_TIME) }
 
 /// Duration — projected from `time_slot`.
 static FIELD_DURATION: FieldDescriptor<PanelEntityType> = FieldDescriptor {
@@ -489,6 +524,7 @@ static FIELD_DURATION: FieldDescriptor<PanelEntityType> = FieldDescriptor {
     required: false,
     crdt_type: CrdtFieldType::Derived,
     example: "90",
+    order: 2600,
     read_fn: Some(ReadFn::Bare(|d: &PanelInternalData| {
         d.time_slot.duration().map(|dur| field_duration!(dur))
     })),
@@ -528,6 +564,7 @@ static FIELD_DURATION: FieldDescriptor<PanelEntityType> = FieldDescriptor {
     index_fn: None,
     verify_fn: Some(VerifyFn::ReRead),
 };
+inventory::submit! { crate::entity::CollectedField::<PanelEntityType>(&FIELD_DURATION) }
 
 // ── Edge-backed computed field stubs (full wiring in FEATURE-018) ─────────────
 //
@@ -539,94 +576,62 @@ edge_list_field_rw!(FIELD_PRESENTERS, PanelEntityType, PanelInternalData,
     name: "presenters", display: "Presenters",
     desc: "All presenters credited for this panel.",
     aliases: &["panelists", "presenter"],
-    example: "[]");
+    example: "[]",
+    order: 2700);
 
 edge_mutator_field!(FIELD_ADD_PRESENTERS, PanelEntityType, PanelInternalData,
     name: "add_presenters", display: "Add Presenters",
     desc: "Append presenters to this panel.",
     aliases: &["add_presenter"],
-    example: "[presenter_id]");
+    example: "[presenter_id]",
+    order: 2800);
 
 edge_mutator_field!(FIELD_REMOVE_PRESENTERS, PanelEntityType, PanelInternalData,
     name: "remove_presenters", display: "Remove Presenters",
     desc: "Remove presenters from this panel.",
     aliases: &["remove_presenter"],
-    example: "[presenter_id]");
+    example: "[presenter_id]",
+    order: 2900);
 
 edge_list_field!(FIELD_INCLUSIVE_PRESENTERS, PanelEntityType, PanelInternalData,
     name: "inclusive_presenters", display: "Inclusive Presenters",
     desc: "Transitive closure: direct presenters + their groups + group members.",
     aliases: &["inclusive_presenter"],
-    example: "[]");
+    example: "[]",
+    order: 3000);
 
 edge_list_field_rw!(FIELD_EVENT_ROOMS, PanelEntityType, PanelInternalData,
     name: "event_rooms", display: "Event Rooms",
     desc: "Rooms where this panel takes place.",
     aliases: &["rooms", "room", "event_room"],
-    example: "[]");
+    example: "[]",
+    order: 3100);
 
 edge_mutator_field!(FIELD_ADD_ROOMS, PanelEntityType, PanelInternalData,
     name: "add_rooms", display: "Add Rooms",
     desc: "Append event rooms to this panel.",
     aliases: &["add_room"],
-    example: "[room_id]");
+    example: "[room_id]",
+    order: 3200);
 
 edge_mutator_field!(FIELD_REMOVE_ROOMS, PanelEntityType, PanelInternalData,
     name: "remove_rooms", display: "Remove Rooms",
     desc: "Remove event rooms from this panel.",
     aliases: &["remove_room"],
-    example: "[room_id]");
+    example: "[room_id]",
+    order: 3300);
 
 edge_none_field_rw!(FIELD_PANEL_TYPE, PanelEntityType, PanelInternalData,
     name: "panel_type", display: "Panel Type",
     desc: "Panel type / kind.",
     aliases: &["kind", "type"],
-    example: "null");
+    example: "null",
+    order: 3400);
 
 // ── FieldSet ──────────────────────────────────────────────────────────────────
 
-static PANEL_FIELD_SET: LazyLock<FieldSet<PanelEntityType>> = LazyLock::new(|| {
-    FieldSet::new(&[
-        // stored
-        &FIELD_CODE,
-        &FIELD_NAME,
-        &FIELD_DESCRIPTION,
-        &FIELD_NOTE,
-        &FIELD_NOTES_NON_PRINTING,
-        &FIELD_WORKSHOP_NOTES,
-        &FIELD_POWER_NEEDS,
-        &FIELD_SEWING_MACHINES,
-        &FIELD_AV_NOTES,
-        &FIELD_DIFFICULTY,
-        &FIELD_PREREQ,
-        &FIELD_COST,
-        &FIELD_IS_FREE,
-        &FIELD_IS_KIDS,
-        &FIELD_IS_FULL,
-        &FIELD_CAPACITY,
-        &FIELD_SEATS_SOLD,
-        &FIELD_PRE_REG_MAX,
-        &FIELD_TICKET_URL,
-        &FIELD_HAVE_TICKET_IMAGE,
-        &FIELD_SIMPLETIX_EVENT,
-        &FIELD_SIMPLETIX_LINK,
-        &FIELD_HIDE_PANELIST,
-        &FIELD_ALT_PANELIST,
-        // time projections
-        &FIELD_START_TIME,
-        &FIELD_END_TIME,
-        &FIELD_DURATION,
-        // edge stubs
-        &FIELD_PRESENTERS,
-        &FIELD_ADD_PRESENTERS,
-        &FIELD_REMOVE_PRESENTERS,
-        &FIELD_INCLUSIVE_PRESENTERS,
-        &FIELD_EVENT_ROOMS,
-        &FIELD_ADD_ROOMS,
-        &FIELD_REMOVE_ROOMS,
-        &FIELD_PANEL_TYPE,
-    ])
-});
+static PANEL_FIELD_SET: LazyLock<FieldSet<PanelEntityType>> =
+    LazyLock::new(FieldSet::from_inventory);
 
 // ── Tests ─────────────────────────────────────────────────────────────────────
 

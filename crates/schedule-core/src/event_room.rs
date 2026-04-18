@@ -119,7 +119,13 @@ impl EntityType for EventRoomEntityType {
     }
 }
 
-inventory::submit! { crate::static_intern::KnownStaticStr(EventRoomEntityType::TYPE_NAME) }
+inventory::submit! {
+    crate::entity::RegisteredEntityType {
+        type_name: EventRoomEntityType::TYPE_NAME,
+        uuid_namespace: EventRoomEntityType::uuid_namespace,
+    }
+}
+inventory::collect!(crate::entity::CollectedField<EventRoomEntityType>);
 
 // ── Stored field descriptors ──────────────────────────────────────────────────
 
@@ -127,7 +133,8 @@ req_string_field!(FIELD_ROOM_NAME, EventRoomEntityType, EventRoomInternalData, r
     name: "room_name", display: "Room Name",
     desc: "Room code as it appears in the Schedule sheet's Room column.",
     aliases: &["room", "name"],
-    example: "Panel 1");
+    example: "Panel 1",
+    order: 0);
 
 /// Optional display name, indexed so name-based searches still find the room.
 /// Hand-written because the uniform `opt_string_field!` macro does not install
@@ -140,6 +147,7 @@ static FIELD_LONG_NAME: FieldDescriptor<EventRoomEntityType> = FieldDescriptor {
     required: false,
     crdt_type: CrdtFieldType::Scalar,
     example: "Grand Ballroom A",
+    order: 100,
     read_fn: Some(ReadFn::Bare(|d: &EventRoomInternalData| {
         d.data.long_name.as_ref().map(|s| field_string!(s.clone()))
     })),
@@ -167,12 +175,14 @@ static FIELD_LONG_NAME: FieldDescriptor<EventRoomEntityType> = FieldDescriptor {
     }),
     verify_fn: None,
 };
+inventory::submit! { crate::entity::CollectedField::<EventRoomEntityType>(&FIELD_LONG_NAME) }
 
 opt_i64_field!(FIELD_SORT_KEY, EventRoomEntityType, EventRoomInternalData, sort_key,
     name: "sort_key", display: "Sort Key",
     desc: "Ordering key; values >= 100 are hidden from the public schedule.",
     aliases: &["sort"],
-    example: "10");
+    example: "10",
+    order: 200);
 
 // ── Edge-backed computed field stubs (full wiring in FEATURE-018) ─────────────
 
@@ -180,25 +190,20 @@ edge_list_field_rw!(FIELD_HOTEL_ROOMS, EventRoomEntityType, EventRoomInternalDat
     name: "hotel_rooms", display: "Hotel Rooms",
     desc: "Hotel rooms that contain this event room.",
     aliases: &["hotel_room"],
-    example: "[]");
+    example: "[]",
+    order: 300);
 
 edge_list_field_rw!(FIELD_PANELS, EventRoomEntityType, EventRoomInternalData,
     name: "panels", display: "Panels",
     desc: "Panels scheduled in this event room.",
     aliases: &["panel"],
-    example: "[]");
+    example: "[]",
+    order: 400);
 
 // ── FieldSet ──────────────────────────────────────────────────────────────────
 
-static EVENT_ROOM_FIELD_SET: LazyLock<FieldSet<EventRoomEntityType>> = LazyLock::new(|| {
-    FieldSet::new(&[
-        &FIELD_ROOM_NAME,
-        &FIELD_LONG_NAME,
-        &FIELD_SORT_KEY,
-        &FIELD_HOTEL_ROOMS,
-        &FIELD_PANELS,
-    ])
-});
+static EVENT_ROOM_FIELD_SET: LazyLock<FieldSet<EventRoomEntityType>> =
+    LazyLock::new(FieldSet::from_inventory);
 
 // ── Tests ─────────────────────────────────────────────────────────────────────
 

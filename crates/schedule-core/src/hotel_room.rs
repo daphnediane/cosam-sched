@@ -107,7 +107,13 @@ impl EntityType for HotelRoomEntityType {
     }
 }
 
-inventory::submit! { crate::static_intern::KnownStaticStr(HotelRoomEntityType::TYPE_NAME) }
+inventory::submit! {
+    crate::entity::RegisteredEntityType {
+        type_name: HotelRoomEntityType::TYPE_NAME,
+        uuid_namespace: HotelRoomEntityType::uuid_namespace,
+    }
+}
+inventory::collect!(crate::entity::CollectedField<HotelRoomEntityType>);
 
 // ── Field descriptors ─────────────────────────────────────────────────────────
 
@@ -115,18 +121,20 @@ req_string_field!(FIELD_HOTEL_ROOM_NAME, HotelRoomEntityType, HotelRoomInternalD
     name: "hotel_room_name", display: "Hotel Room Name",
     desc: "Physical hotel room name / identifier.",
     aliases: &["name", "room_name"],
-    example: "Ballroom East");
+    example: "Ballroom East",
+    order: 0);
 
 edge_list_field!(FIELD_EVENT_ROOMS, HotelRoomEntityType, HotelRoomInternalData,
     name: "event_rooms", display: "Event Rooms",
     desc: "Event rooms contained within this hotel room.",
     aliases: &["event_room"],
-    example: "[]");
+    example: "[]",
+    order: 100);
 
 // ── FieldSet ──────────────────────────────────────────────────────────────────
 
 static HOTEL_ROOM_FIELD_SET: LazyLock<FieldSet<HotelRoomEntityType>> =
-    LazyLock::new(|| FieldSet::new(&[&FIELD_HOTEL_ROOM_NAME, &FIELD_EVENT_ROOMS]));
+    LazyLock::new(FieldSet::from_inventory);
 
 // ── Tests ─────────────────────────────────────────────────────────────────────
 
