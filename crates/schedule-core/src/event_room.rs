@@ -17,13 +17,13 @@
 //! `Schedule::edges_to`.
 
 use crate::converter::EntityStringResolver;
-use crate::entity::{EntityId, EntityType, FieldSet, UuidPreference};
+use crate::entity::{EntityId, EntityType, UuidPreference};
 use crate::field::{FieldDescriptor, ReadFn, WriteFn};
 use crate::field_macros::{define_field, edge_list_field_rw, opt_i64_field, req_string_field};
+use crate::field_set::FieldSet;
 use crate::field_value;
 use crate::hotel_room::{HotelRoomEntityType, HotelRoomId};
 use crate::panel::{PanelEntityType, PanelId};
-use crate::value::ConversionError;
 use crate::value::{CrdtFieldType, FieldCardinality, FieldType, FieldTypeItem, ValidationError};
 use serde::{Deserialize, Serialize};
 use std::sync::LazyLock;
@@ -139,33 +139,6 @@ impl EntityStringResolver for EventRoomEntityType {
             .get_internal(id)
             .map(|data| data.data.room_name.clone())
             .unwrap_or_else(|| id.to_string())
-    }
-
-    fn lookup_or_create_string(
-        schedule: &mut crate::schedule::Schedule,
-        s: &str,
-    ) -> Result<EntityId<Self>, ConversionError> {
-        // Try default lookup first (UUID parsing, then match_index)
-        if let Some(id) = Self::lookup_string(schedule, s) {
-            return Ok(id);
-        }
-
-        // If not found, create a new EventRoom with the room_name
-        let id = EntityId::from_preference(UuidPreference::FromV5 {
-            name: s.to_string(),
-        });
-
-        let internal_data = EventRoomInternalData {
-            id,
-            data: EventRoomCommonData {
-                room_name: s.to_string(),
-                long_name: Some(s.to_string()),
-                sort_key: None,
-            },
-        };
-
-        schedule.insert(id, internal_data);
-        Ok(id)
     }
 }
 
@@ -417,20 +390,21 @@ mod tests {
     }
 
     #[test]
-    fn test_lookup_or_create_string_creates_new_entity() {
-        use crate::converter::EntityStringResolver;
+    fn test_lookup_or_create_single_creates_new_entity() {
+        use crate::lookup::lookup_or_create_single;
         let mut sched = Schedule::default();
-        let id = EventRoomEntityType::lookup_or_create_string(&mut sched, "New Room").unwrap();
+        let id = lookup_or_create_single::<EventRoomEntityType>(&mut sched, "New Room").unwrap();
         let data = sched.get_internal(id).unwrap();
         assert_eq!(data.data.room_name, "New Room");
     }
 
     #[test]
-    fn test_lookup_or_create_string_returns_existing() {
-        use crate::converter::EntityStringResolver;
+    fn test_lookup_or_create_single_returns_existing() {
+        use crate::lookup::lookup_or_create_single;
         let id = make_id();
         let mut sched = schedule_with(id, make_internal());
-        let found_id = EventRoomEntityType::lookup_or_create_string(&mut sched, "Panel 1").unwrap();
+        let found_id =
+            lookup_or_create_single::<EventRoomEntityType>(&mut sched, "Panel 1").unwrap();
         assert_eq!(found_id, id);
     }
 

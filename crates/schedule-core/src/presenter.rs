@@ -602,20 +602,6 @@ impl EntityStringResolver for PresenterEntityType {
             .map(|data| data.data.name.clone())
             .unwrap_or_else(|| id.to_string())
     }
-
-    fn lookup_string(schedule: &crate::schedule::Schedule, s: &str) -> Option<EntityId<Self>> {
-        Self::lookup_by_uuid_string(schedule, s).or_else(|| find_tagged_presenter(schedule, s))
-    }
-
-    fn lookup_or_create_string(
-        schedule: &mut crate::schedule::Schedule,
-        s: &str,
-    ) -> Result<EntityId<Self>, ConversionError> {
-        if let Some(id) = Self::lookup_by_uuid_string(schedule, s) {
-            return Ok(id);
-        }
-        find_or_create_tagged_presenter(schedule, s)
-    }
 }
 
 // ── Stored field descriptors ──────────────────────────────────────────────────
@@ -1463,19 +1449,19 @@ mod tests {
     }
 
     #[test]
-    fn test_lookup_string_finds_by_tagged() {
-        use crate::converter::EntityStringResolver;
+    fn test_lookup_single_finds_by_tagged() {
+        use crate::lookup::lookup_single;
         let mut sched = Schedule::default();
         let id = find_or_create_tagged_presenter(&mut sched, "G:Alice").unwrap();
-        let found = PresenterEntityType::lookup_string(&sched, "Alice");
-        assert_eq!(found, Some(id));
+        let found = lookup_single::<PresenterEntityType>(&sched, "Alice").unwrap();
+        assert_eq!(found, id);
     }
 
     #[test]
-    fn test_lookup_or_create_string_creates() {
-        use crate::converter::EntityStringResolver;
+    fn test_lookup_or_create_single_creates() {
+        use crate::lookup::lookup_or_create_single;
         let mut sched = Schedule::default();
-        let id = PresenterEntityType::lookup_or_create_string(&mut sched, "P:Bob=Crew").unwrap();
+        let id = lookup_or_create_single::<PresenterEntityType>(&mut sched, "P:Bob=Crew").unwrap();
         assert_eq!(sched.entity_count::<PresenterEntityType>(), 2);
         let d = sched.get_internal::<PresenterEntityType>(id).unwrap();
         assert_eq!(d.data.name, "Bob");

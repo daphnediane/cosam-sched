@@ -245,16 +245,39 @@ All marker types support cross-type conversions:
 **`AsEntityId<E>`** converts from:
 
 - `EntityIdentifier` → validates type match
-- `String` → requires schedule context (use FieldValueConverter)
+- `String` → uses lookup module functions (see below)
 
 ## EntityStringResolver
 
-Trait for entity types to provide custom string resolution:
+Trait for entity types to provide custom EntityId => String formatting:
 
 ```rust
-pub trait EntityStringResolver: EntityType {
+pub trait EntityStringResolver: EntityMatcher {
+    /// Convert an EntityId to a string with entity-specific formatting.
+    ///
+    /// Examples:
+    /// - Panels: `<code>: <name>` (e.g., "GP: Cosplay Foam Armor 101")
+    /// - Presenters: name (e.g., "John Smith")
+    /// - Event rooms and hotel rooms: room name (e.g., "Ballroom East")
+    ///
+    /// Default implementation returns the UUID string.
+    fn entity_to_string(_schedule: &Schedule, id: EntityId<Self>) -> String {
+        id.to_string()
+    }
+
+    /// Convert multiple EntityIds to a comma-separated string with entity-specific formatting.
+    ///
+    /// Default implementation joins entity_to_string results with ", ".
+    fn entity_to_string_many(schedule: &Schedule, ids: Vec<EntityId<Self>>) -> String {
+        ids.iter()
+            .map(|id| Self::entity_to_string(schedule, *id))
+            .collect::<Vec<_>>()
+            .join(", ")
+    }
 }
 ```
+
+**Note:** EntityStringResolver is only for EntityId => String conversion. String => EntityId conversion uses the lookup module functions (see below).
 
 ### FieldValueConverter
 
@@ -262,30 +285,13 @@ Converts individual `FieldValueItem` values with optional entity resolution.
 
 ```rust
 pub trait FieldValueConverter<M: FieldTypeMapping> {
-    fn lookup_next(&self, schedule: &Schedule, input: FieldValueItem) 
+    fn lookup_next(&self, schedule: &Schedule, input: FieldValueItem)
         -> Option<Result<M::Output, ConversionError>>;
-    
-    fn lookup_or_create_next(&self, schedule: &mut Schedule, input: FieldValueItem) 
+
+    fn lookup_or_create_next(&self, schedule: &mut Schedule, input: FieldValueItem)
         -> Option<Result<M::Output, ConversionError>>;
-    
+
     fn select_one(&self, outputs: Vec<M::Output>) -> Result<Option<M::Output>, ConversionError>;
-}
-```
-
-### EntityStringResolver Trait
-
-Entity types implement this trait to provide custom string resolution and formatting:
-
-```rust
-pub trait EntityStringResolver: EntityType {
-    // String -> EntityId (lookup)
-    fn lookup_string(schedule: &Schedule, s: &str) -> Option<EntityId<Self>>;
-    fn lookup_or_create_string(schedule: &mut Schedule, s: &str) -> Result<EntityId<Self>, ConversionError>;
-    fn lookup_string_many(schedule: &Schedule, s: &str) -> Vec<EntityId<Self>>;
-    
-    // EntityId -> String (formatting)
-    fn entity_to_string(schedule: &Schedule, id: EntityId<Self>) -> String;
-    fn entity_to_string_many(schedule: &Schedule, ids: Vec<EntityId<Self>>) -> String;
 }
 ```
 
@@ -332,21 +338,38 @@ Note: This is simple string-to-string conversion. For entity-specific formatting
 
 ### Entity Resolution (Requires Schedule Context)
 
-Use `FieldValueForSchedule` for entity resolution:
+String => EntityId conversion uses the lookup module functions:
 
 ```rust
+use crate::lookup::{lookup_single, lookup_or_create_single};
+
 // Read-only lookup
-let id: EntityId<<Presenter> = FieldValueForSchedule::Lookup(&schedule, field_value!("P:John Smith"))
-    .into(&converter)?;
+let id: EntityId<PresenterEntityType> = lookup_single(&schedule, "P:John Smith")?;
 
 // Create-or-resolve
-let id: EntityId<<Presenter> = FieldValueForSchedule::LookupOrCreate(&mut schedule, field_value!("P:NewPresenter"))
-    .into(&converter)?;
+let id: EntityId<PresenterEntityType> = lookup_or_create_single(&mut schedule, "P:NewPresenter")?;
+
+// Multi-value lookup
+let ids: Vec<EntityId<PresenterEntityType>> = lookup_list(&schedule, "P:John Smith, P:Jane Doe")?;
+let ids: Vec<EntityId<PresenterEntityType>> = lookup_or_create_list(&mut schedule, "P:New1, P:New2")?;
 ```
+
+The lookup module provides:
+
+- `lookup<E: EntityScannable>` - find existing entities
+- `lookup_or_create<E: EntityCreatable>` - find or create entities
+- Convenience helpers: `lookup_single`, `lookup_list`, `lookup_or_create_single`, `lookup_or_create_list`
+
+These functions handle:
+
+- UUID fast-path (bare UUIDs and `"type_name:uuid"` tagged UUIDs)
+- Multi-token parsing (comma/semicolon separated)
+- Entity scanning with match priority
+- Cardinality enforcement (Single, Optional, List)
 
 ### Entity-Specific String Formatting
 
-Use `EntityStringResolver::entity_to_string` for EntityId -> String conversion with entity-specific formatting:
+Use `EntityStringResolver::entity_to_string` for EntityId => String conversion with entity-specific formatting:
 
 ```rust
 // Panels: "<code>: <name>" (e.g., "GP: Cosplay Foam Armor 101")
@@ -387,7 +410,7 @@ Six driver functions expand `FieldValue::List` as a work queue:
 
 ### Entity Types
 
-- `AsEntityId<E>` - EntityId conversion with `EntityStringResolver` support
+- `AsEntityId<E>` - EntityId conversion (uses lookup module for String => EntityId, EntityStringResolver for EntityId => String)
 
 ## Cross-Type Conversion Rules
 
@@ -485,7 +508,7 @@ human-readable name). Types that support find-or-create also override
 `PresenterEntityType` overrides both `lookup_string` and `lookup_or_create_string`
 to support the full tagged credit-string format:
 
-```
+```text
 [Kind:][ < ]Name[ = [ = ]Group]
 ```
 

@@ -15,14 +15,14 @@
 //! Field descriptors are static values assembled into a [`FieldSet`] inside a [`LazyLock`].
 
 use crate::converter::EntityStringResolver;
-use crate::entity::{EntityId, EntityType, FieldSet, UuidPreference};
+use crate::entity::{EntityId, EntityType, UuidPreference};
 use crate::field::{FieldDescriptor, ReadFn};
 use crate::field_macros::{
     bool_field, define_field, edge_list_field, opt_string_field, req_string_field,
 };
+use crate::field_set::FieldSet;
 use crate::field_value;
 use crate::panel::{PanelEntityType, PanelId};
-use crate::value::ConversionError;
 use crate::value::{CrdtFieldType, FieldCardinality, FieldType, FieldTypeItem, ValidationError};
 use serde::{Deserialize, Serialize};
 use std::sync::LazyLock;
@@ -169,41 +169,6 @@ impl EntityStringResolver for PanelTypeEntityType {
             .get_internal(id)
             .map(|data| data.data.panel_kind.clone())
             .unwrap_or_else(|| id.to_string())
-    }
-
-    fn lookup_or_create_string(
-        schedule: &mut crate::schedule::Schedule,
-        s: &str,
-    ) -> Result<EntityId<Self>, ConversionError> {
-        // Try default lookup first (UUID parsing, then match_index)
-        if let Some(id) = Self::lookup_string(schedule, s) {
-            return Ok(id);
-        }
-
-        // If not found, create a new PanelType with the panel_kind
-        let id = EntityId::from_preference(UuidPreference::FromV5 {
-            name: s.to_string(),
-        });
-
-        let internal_data = PanelTypeInternalData {
-            id,
-            data: PanelTypeCommonData {
-                prefix: s.chars().take(2).collect::<String>(), // Default prefix from panel_kind
-                panel_kind: s.to_string(),
-                hidden: false,
-                is_workshop: false,
-                is_break: false,
-                is_cafe: false,
-                is_room_hours: false,
-                is_timeline: false,
-                is_private: false,
-                color: None,
-                bw: None,
-            },
-        };
-
-        schedule.insert(id, internal_data);
-        Ok(id)
     }
 }
 
@@ -767,23 +732,23 @@ mod tests {
     }
 
     #[test]
-    fn test_lookup_or_create_string_creates_new_entity() {
-        use crate::converter::EntityStringResolver;
+    fn test_lookup_or_create_single_creates_new_entity() {
+        use crate::lookup::lookup_or_create_single;
         let mut sched = Schedule::default();
         let id =
-            PanelTypeEntityType::lookup_or_create_string(&mut sched, "New Panel Type").unwrap();
+            lookup_or_create_single::<PanelTypeEntityType>(&mut sched, "New Panel Type").unwrap();
         let data = sched.get_internal(id).unwrap();
         assert_eq!(data.data.panel_kind, "New Panel Type");
     }
 
     #[test]
-    fn test_lookup_or_create_string_returns_existing() {
-        use crate::converter::EntityStringResolver;
+    fn test_lookup_or_create_single_returns_existing() {
+        use crate::lookup::lookup_or_create_single;
         let id = make_panel_type_id();
         let data = make_test_internal_data();
         let mut sched = make_schedule_with_panel_type(id, data);
         let found_id =
-            PanelTypeEntityType::lookup_or_create_string(&mut sched, "Guest Panel").unwrap();
+            lookup_or_create_single::<PanelTypeEntityType>(&mut sched, "Guest Panel").unwrap();
         assert_eq!(found_id, id);
     }
 

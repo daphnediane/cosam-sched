@@ -23,7 +23,7 @@
 //! - Mutable: [`resolve_one`], [`resolve_optional`], [`resolve_many`]
 
 use crate::entity::{EntityId, EntityType, RuntimeEntityId};
-use crate::lookup::EntityMatcher;
+use crate::lookup::{lookup_single, EntityMatcher, EntityScannable};
 use crate::schedule::Schedule;
 use crate::value::{ConversionError, FieldValue, FieldValueItem};
 
@@ -389,37 +389,10 @@ impl FieldTypeMapping for AsDuration {
 /// Entity types can implement this to provide custom logic for converting
 /// string references (e.g., "P:Name" for presenters, panel codes) to EntityIds,
 /// and for entity-specific string formatting (e.g., panel code:name).
+///
+/// Note: The lookup methods have been moved to the lookup module. Use
+/// `lookup::lookup_single` and `lookup::lookup_or_create_single` instead.
 pub trait EntityStringResolver: EntityMatcher {
-    /// Lookup a string reference to an EntityId without creation.
-    ///
-    /// Returns `None` if the string cannot be resolved (e.g., entity not found).
-    /// Default implementation tries UUID parsing, then entity matcher lookup.
-    fn lookup_string(schedule: &Schedule, s: &str) -> Option<EntityId<Self>> {
-        // Try UUID string parsing first
-        if let Some(id) = Self::lookup_by_uuid_string(schedule, s) {
-            return Some(id);
-        }
-        // Fall back to entity matcher scan
-        schedule.find_first::<Self>(s)
-    }
-
-    /// Lookup or create a string reference to an EntityId.
-    ///
-    /// Returns `Err` if the string cannot be resolved and creation is not implemented.
-    /// Default implementation just calls lookup_string (no creation).
-    fn lookup_or_create_string(
-        schedule: &mut Schedule,
-        s: &str,
-    ) -> Result<EntityId<Self>, ConversionError> {
-        Self::lookup_string(schedule, s).ok_or_else(|| ConversionError::ParseError {
-            message: format!(
-                "Entity '{}' not found and creation not implemented for {}",
-                s,
-                Self::TYPE_NAME
-            ),
-        })
-    }
-
     /// Convert an EntityId to a string with entity-specific formatting.
     ///
     /// Examples:
@@ -440,30 +413,6 @@ pub trait EntityStringResolver: EntityMatcher {
             .map(|id| Self::entity_to_string(schedule, *id))
             .collect::<Vec<_>>()
             .join(", ")
-    }
-
-    /// Lookup comma-separated string references to multiple EntityIds.
-    ///
-    /// This is the domain of custom converters - splits by comma and resolves each.
-    /// Default implementation splits by comma and calls lookup_string for each.
-    fn lookup_string_many(schedule: &Schedule, s: &str) -> Vec<EntityId<Self>> {
-        s.split(',')
-            .map(|name| name.trim())
-            .filter_map(|name| Self::lookup_string(schedule, name))
-            .collect()
-    }
-
-    /// Lookup or create comma-separated string references to multiple EntityIds.
-    ///
-    /// Default implementation splits by comma and calls lookup_or_create_string for each.
-    fn lookup_or_create_string_many(
-        schedule: &mut Schedule,
-        s: &str,
-    ) -> Result<Vec<EntityId<Self>>, ConversionError> {
-        s.split(',')
-            .map(|name| name.trim())
-            .map(|name| Self::lookup_or_create_string(schedule, name))
-            .collect()
     }
 
     /// Lookup by UUID string (bare UUID or `type_name-<uuid>` prefixed form).
@@ -738,10 +687,10 @@ mod tests {
         }
     }
 
-    // Custom converter that does entity name lookups using EntityStringResolver
+    // Custom converter that does entity name lookups using lookup module
     struct EntityNameLookup;
 
-    impl<E: EntityType + EntityStringResolver> FieldValueConverter<AsEntityId<E>> for EntityNameLookup {
+    impl<E: EntityType + EntityScannable> FieldValueConverter<AsEntityId<E>> for EntityNameLookup {
         fn lookup_next(
             &self,
             schedule: &Schedule,
@@ -761,34 +710,12 @@ mod tests {
                     })
                 }
                 FieldValueItem::String(name) => {
-                    // Name lookup via EntityStringResolver trait (read-only)
-                    E::lookup_string(schedule, &name).map(Ok)
-                }
-                _ => Some(AsEntityId::<E>::from_field_value_item(input)),
-            }
-        }
-
-        fn lookup_or_create_next(
-            &self,
-            schedule: &mut Schedule,
-            input: FieldValueItem,
-        ) -> Option<Result<EntityId<E>, ConversionError>> {
-            match input {
-                FieldValueItem::EntityIdentifier(rid) => {
-                    // Direct entity ID - validate type
-                    rid.try_as_typed::<E>().map(Ok).or_else(|| {
-                        Some(Err(ConversionError::ParseError {
-                            message: format!(
-                                "Entity type mismatch: expected {}, got {}",
-                                E::TYPE_NAME,
-                                rid.type_name()
-                            ),
-                        }))
-                    })
-                }
-                FieldValueItem::String(name) => {
-                    // Name lookup or create via EntityStringResolver trait (can create)
-                    Some(E::lookup_or_create_string(schedule, &name))
+                    // Name lookup via lookup module (read-only)
+                    Some(lookup_single::<E>(schedule, &name).map_err(|e| {
+                        ConversionError::ParseError {
+                            message: e.to_string(),
+                        }
+                    }))
                 }
                 _ => Some(AsEntityId::<E>::from_field_value_item(input)),
             }
@@ -1183,16 +1110,15 @@ mod tests {
     }
 
     #[test]
-    fn test_entity_name_lookup_string_returns_none_not_found() {
+    fn test_entity_name_lookup_string_returns_error_not_found() {
         let converter = EntityNameLookup;
         let schedule = Schedule::default();
         let input = field_value!("SomePresenter");
 
-        // Name lookup returns None for not found (would query schedule in real implementation)
+        // Name lookup returns error for not found (new lookup module returns Result)
         let result = lookup_one::<AsEntityId<crate::presenter::PresenterEntityType>, _>(
             &converter, &schedule, input,
-        )
-        .unwrap();
-        assert_eq!(result, None);
+        );
+        assert!(result.is_err());
     }
 }
