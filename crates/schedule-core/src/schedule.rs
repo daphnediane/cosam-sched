@@ -12,7 +12,6 @@
 
 use crate::edge_map::RawEdgeMap;
 use crate::entity::{registered_entity_types, EntityId, EntityType, RuntimeEntityId};
-use crate::lookup::{EntityMatcher, MatchPriority};
 use crate::value::FieldValue;
 use std::any::{Any, TypeId};
 use std::collections::HashMap;
@@ -276,41 +275,6 @@ impl Schedule {
     }
 
     // ── Query ─────────────────────────────────────────────────────────────────
-
-    /// Find the best-matching entity of type `E` for a query string.
-    ///
-    /// Uses `E::match_entity()` against each stored entity.
-    /// Returns the entity with the highest [`MatchPriority`], or `None` if
-    /// no entity matches.
-    #[must_use]
-    pub fn find_first<E: EntityMatcher>(&self, query: &str) -> Option<EntityId<E>> {
-        let mut best: Option<(EntityId<E>, MatchPriority)> = None;
-        for (id, data) in self.iter_entities::<E>() {
-            if let Some(priority) = E::match_entity(query, data) {
-                let is_better = match &best {
-                    None => true,
-                    Some((_, best_p)) => priority > *best_p,
-                };
-                if is_better {
-                    best = Some((id, priority));
-                }
-            }
-        }
-        best.map(|(id, _)| id)
-    }
-
-    /// Find all entities of type `E` matching a query, with their priorities.
-    #[must_use]
-    pub fn find<E: EntityMatcher>(&self, query: &str) -> Vec<(EntityId<E>, MatchPriority)> {
-        let mut results = Vec::new();
-        for (id, data) in self.iter_entities::<E>() {
-            if let Some(priority) = E::match_entity(query, data) {
-                results.push((id, priority));
-            }
-        }
-        results.sort_by(|a: &(EntityId<E>, MatchPriority), b| b.1.cmp(&a.1));
-        results
-    }
 }
 
 // ── Helper: convert Vec<EntityId<E>> to FieldValue ───────────────────────────
@@ -770,36 +734,6 @@ mod tests {
         assert!(sched
             .edges_to::<PresenterEntityType, PresenterEntityType>(group_id)
             .is_empty());
-    }
-
-    // ── find_first ────────────────────────────────────────────────────────────
-
-    #[test]
-    fn find_first_matches_by_name() {
-        let mut sched = Schedule::new();
-        let (id, data) = make_presenter("Alice Example");
-        sched.insert(id, data);
-        let found = sched.find_first::<PresenterEntityType>("alice");
-        assert_eq!(found, Some(id));
-    }
-
-    #[test]
-    fn find_first_returns_none_for_no_match() {
-        let mut sched = Schedule::new();
-        let (id, data) = make_presenter("Alice");
-        sched.insert(id, data);
-        assert!(sched.find_first::<PresenterEntityType>("bob").is_none());
-    }
-
-    #[test]
-    fn find_first_prefers_exact_over_prefix() {
-        let mut sched = Schedule::new();
-        let (prefix_id, prefix_data) = make_presenter("Ali");
-        let (exact_id, exact_data) = make_presenter("alice");
-        sched.insert(prefix_id, prefix_data);
-        sched.insert(exact_id, exact_data);
-        let found = sched.find_first::<PresenterEntityType>("alice");
-        assert_eq!(found, Some(exact_id));
     }
 
     // ── entity_ids_to_field_value / field_value_to_entity_ids ─────────────────

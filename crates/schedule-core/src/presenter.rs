@@ -25,6 +25,7 @@ use crate::field_macros::{
     edge_remove_field, opt_text_field, req_string_field,
 };
 use crate::field_value;
+use crate::lookup::{EntityMatcher, MatchPriority};
 use crate::panel::PanelEntityType;
 use crate::panel::PanelId;
 use crate::value::ConversionError;
@@ -304,6 +305,44 @@ impl EntityType for PresenterEntityType {
     }
 }
 
+impl PresenterEntityType {
+    /// Find the best-matching presenter by name.
+    ///
+    /// Uses `match_entity` against all stored presenters.
+    /// Returns the presenter with the highest `MatchPriority`, or `None` if
+    /// no presenter matches.
+    pub fn find_by_name(schedule: &crate::schedule::Schedule, name: &str) -> Option<PresenterId> {
+        let mut best: Option<(PresenterId, MatchPriority)> = None;
+        for (id, data) in schedule.iter_entities::<Self>() {
+            if let Some(priority) = Self::match_entity(name, data) {
+                let is_better = match &best {
+                    None => true,
+                    Some((_, best_p)) => priority > *best_p,
+                };
+                if is_better {
+                    best = Some((id, priority));
+                }
+            }
+        }
+        best.map(|(id, _)| id)
+    }
+
+    /// Find all presenters matching a name, with their priorities.
+    pub fn find_all_by_name(
+        schedule: &crate::schedule::Schedule,
+        name: &str,
+    ) -> Vec<(PresenterId, MatchPriority)> {
+        let mut results = Vec::new();
+        for (id, data) in schedule.iter_entities::<Self>() {
+            if let Some(priority) = Self::match_entity(name, data) {
+                results.push((id, priority));
+            }
+        }
+        results.sort_by(|a, b| b.1.cmp(&a.1));
+        results
+    }
+}
+
 inventory::submit! {
     crate::entity::RegisteredEntityType {
         type_name: PresenterEntityType::TYPE_NAME,
@@ -423,8 +462,7 @@ fn is_group_entity(schedule: &crate::schedule::Schedule, id: PresenterId) -> boo
 
 /// Find a group presenter matching `name`, using `is_group_entity` as the filter.
 fn find_group_by_name(schedule: &crate::schedule::Schedule, name: &str) -> Option<PresenterId> {
-    schedule
-        .find::<PresenterEntityType>(name)
+    PresenterEntityType::find_all_by_name(schedule, name)
         .into_iter()
         .find_map(|(id, _)| is_group_entity(schedule, id).then_some(id))
 }
@@ -457,7 +495,7 @@ pub fn find_tagged_presenter(
             .or((!parsed.name.is_empty()).then_some(parsed.name))?;
         find_group_by_name(schedule, group_name)?
     } else {
-        let id = schedule.find_first::<PresenterEntityType>(parsed.name)?;
+        let id = PresenterEntityType::find_by_name(schedule, parsed.name)?;
         // Verify group membership if a group suffix is given
         if let Some(group_name) = parsed.group_name {
             let in_group = schedule
