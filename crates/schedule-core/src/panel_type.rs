@@ -350,6 +350,42 @@ impl crate::lookup::EntityMatcher for PanelTypeEntityType {
     }
 }
 
+// ── EntityCreatable ───────────────────────────────────────────────────────────
+
+impl crate::lookup::EntityCreatable for PanelTypeEntityType {
+    fn can_create(full: &str, partial: &str) -> crate::lookup::CanCreate {
+        if partial.is_empty() {
+            crate::lookup::CanCreate::No
+        } else if full == partial {
+            crate::lookup::CanCreate::FromFull
+        } else {
+            crate::lookup::CanCreate::FromPartial
+        }
+    }
+
+    fn create_from_string(
+        schedule: &mut crate::schedule::Schedule,
+        s: &str,
+    ) -> Result<EntityId<Self>, crate::lookup::LookupError> {
+        let prefix: String = s.chars().take(2).collect();
+        let id = EntityId::from_preference(UuidPreference::FromV5 {
+            name: s.to_string(),
+        });
+        schedule.insert(
+            id,
+            PanelTypeInternalData {
+                id,
+                data: PanelTypeCommonData {
+                    prefix,
+                    panel_kind: s.to_string(),
+                    ..Default::default()
+                },
+            },
+        );
+        Ok(id)
+    }
+}
+
 // ── Tests ───────────────────────────────────────────────────────────────────────
 
 #[cfg(test)]
@@ -770,5 +806,45 @@ mod tests {
         let data = make_test_internal_data();
         let priority = PanelTypeEntityType::match_entity("xyz", &data);
         assert_eq!(priority, None);
+    }
+
+    // ── EntityCreatable ──────────────────────────────────────────────────────
+
+    #[test]
+    fn test_create_from_string_uses_first_two_chars_as_prefix() {
+        use crate::lookup::EntityCreatable;
+        let mut sched = Schedule::default();
+        let id = PanelTypeEntityType::create_from_string(&mut sched, "Guest Panel").unwrap();
+        let data = sched.get_internal(id).unwrap();
+        assert_eq!(data.data.prefix, "Gu");
+        assert_eq!(data.data.panel_kind, "Guest Panel");
+    }
+
+    #[test]
+    fn test_create_from_string_is_deterministic() {
+        use crate::lookup::EntityCreatable;
+        let mut sched1 = Schedule::default();
+        let mut sched2 = Schedule::default();
+        let id1 = PanelTypeEntityType::create_from_string(&mut sched1, "Guest Panel").unwrap();
+        let id2 = PanelTypeEntityType::create_from_string(&mut sched2, "Guest Panel").unwrap();
+        assert_eq!(id1, id2);
+    }
+
+    #[test]
+    fn test_can_create_no_separator() {
+        use crate::lookup::{CanCreate, EntityCreatable};
+        assert!(matches!(
+            PanelTypeEntityType::can_create("Guest Panel", "Guest Panel"),
+            CanCreate::FromFull
+        ));
+    }
+
+    #[test]
+    fn test_can_create_with_separator() {
+        use crate::lookup::{CanCreate, EntityCreatable};
+        assert!(matches!(
+            PanelTypeEntityType::can_create("Guest Panel, Staff", "Guest Panel"),
+            CanCreate::FromPartial
+        ));
     }
 }

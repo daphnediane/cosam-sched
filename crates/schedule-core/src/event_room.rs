@@ -256,6 +256,41 @@ impl crate::lookup::EntityMatcher for EventRoomEntityType {
     }
 }
 
+// ── EntityCreatable ───────────────────────────────────────────────────────────
+
+impl crate::lookup::EntityCreatable for EventRoomEntityType {
+    fn can_create(full: &str, partial: &str) -> crate::lookup::CanCreate {
+        if partial.is_empty() {
+            crate::lookup::CanCreate::No
+        } else if full == partial {
+            crate::lookup::CanCreate::FromFull
+        } else {
+            crate::lookup::CanCreate::FromPartial
+        }
+    }
+
+    fn create_from_string(
+        schedule: &mut crate::schedule::Schedule,
+        s: &str,
+    ) -> Result<EntityId<Self>, crate::lookup::LookupError> {
+        let id = EntityId::from_preference(UuidPreference::FromV5 {
+            name: s.to_string(),
+        });
+        schedule.insert(
+            id,
+            EventRoomInternalData {
+                id,
+                data: EventRoomCommonData {
+                    room_name: s.to_string(),
+                    long_name: Some(s.to_string()),
+                    sort_key: None,
+                },
+            },
+        );
+        Ok(id)
+    }
+}
+
 // ── Tests ─────────────────────────────────────────────────────────────────────
 
 #[cfg(test)]
@@ -418,5 +453,54 @@ mod tests {
             fs.read_field_value("panels", id, &sched).unwrap(),
             Some(field_value!(empty_list))
         );
+    }
+
+    // ── EntityCreatable ──────────────────────────────────────────────────────
+
+    #[test]
+    fn test_can_create_no_separator() {
+        use crate::lookup::{CanCreate, EntityCreatable};
+        assert!(matches!(
+            EventRoomEntityType::can_create("Panel 1", "Panel 1"),
+            CanCreate::FromFull
+        ));
+    }
+
+    #[test]
+    fn test_can_create_with_separator() {
+        use crate::lookup::{CanCreate, EntityCreatable};
+        assert!(matches!(
+            EventRoomEntityType::can_create("Panel 1, Panel 2", "Panel 1"),
+            CanCreate::FromPartial
+        ));
+    }
+
+    #[test]
+    fn test_can_create_empty_partial_returns_no() {
+        use crate::lookup::{CanCreate, EntityCreatable};
+        assert!(matches!(
+            EventRoomEntityType::can_create("Panel 1", ""),
+            CanCreate::No
+        ));
+    }
+
+    #[test]
+    fn test_create_from_string_inserts_entity() {
+        use crate::lookup::EntityCreatable;
+        let mut sched = Schedule::default();
+        let id = EventRoomEntityType::create_from_string(&mut sched, "Main Hall").unwrap();
+        let data = sched.get_internal(id).unwrap();
+        assert_eq!(data.data.room_name, "Main Hall");
+        assert_eq!(data.data.long_name.as_deref(), Some("Main Hall"));
+    }
+
+    #[test]
+    fn test_create_from_string_is_deterministic() {
+        use crate::lookup::EntityCreatable;
+        let mut sched1 = Schedule::default();
+        let mut sched2 = Schedule::default();
+        let id1 = EventRoomEntityType::create_from_string(&mut sched1, "Main Hall").unwrap();
+        let id2 = EventRoomEntityType::create_from_string(&mut sched2, "Main Hall").unwrap();
+        assert_eq!(id1, id2);
     }
 }

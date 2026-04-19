@@ -185,6 +185,39 @@ impl crate::lookup::EntityMatcher for HotelRoomEntityType {
     }
 }
 
+// ── EntityCreatable ───────────────────────────────────────────────────────────
+
+impl crate::lookup::EntityCreatable for HotelRoomEntityType {
+    fn can_create(full: &str, partial: &str) -> crate::lookup::CanCreate {
+        if partial.is_empty() {
+            crate::lookup::CanCreate::No
+        } else if full == partial {
+            crate::lookup::CanCreate::FromFull
+        } else {
+            crate::lookup::CanCreate::FromPartial
+        }
+    }
+
+    fn create_from_string(
+        schedule: &mut crate::schedule::Schedule,
+        s: &str,
+    ) -> Result<EntityId<Self>, crate::lookup::LookupError> {
+        let id = EntityId::from_preference(UuidPreference::FromV5 {
+            name: s.to_string(),
+        });
+        schedule.insert(
+            id,
+            HotelRoomInternalData {
+                id,
+                data: HotelRoomCommonData {
+                    hotel_room_name: s.to_string(),
+                },
+            },
+        );
+        Ok(id)
+    }
+}
+
 // ── Tests ─────────────────────────────────────────────────────────────────────
 
 #[cfg(test)]
@@ -333,5 +366,53 @@ mod tests {
         let found_id =
             HotelRoomEntityType::lookup_or_create_string(&mut sched, "Ballroom East").unwrap();
         assert_eq!(found_id, id);
+    }
+
+    // ── EntityCreatable ──────────────────────────────────────────────────────
+
+    #[test]
+    fn test_can_create_no_separator() {
+        use crate::lookup::{CanCreate, EntityCreatable};
+        assert!(matches!(
+            HotelRoomEntityType::can_create("Grand Ballroom", "Grand Ballroom"),
+            CanCreate::FromFull
+        ));
+    }
+
+    #[test]
+    fn test_can_create_with_separator() {
+        use crate::lookup::{CanCreate, EntityCreatable};
+        assert!(matches!(
+            HotelRoomEntityType::can_create("Grand Ballroom, East Wing", "Grand Ballroom"),
+            CanCreate::FromPartial
+        ));
+    }
+
+    #[test]
+    fn test_can_create_empty_partial_returns_no() {
+        use crate::lookup::{CanCreate, EntityCreatable};
+        assert!(matches!(
+            HotelRoomEntityType::can_create("Grand Ballroom", ""),
+            CanCreate::No
+        ));
+    }
+
+    #[test]
+    fn test_create_from_string_inserts_entity() {
+        use crate::lookup::EntityCreatable;
+        let mut sched = Schedule::default();
+        let id = HotelRoomEntityType::create_from_string(&mut sched, "East Wing").unwrap();
+        let data = sched.get_internal(id).unwrap();
+        assert_eq!(data.data.hotel_room_name, "East Wing");
+    }
+
+    #[test]
+    fn test_create_from_string_is_deterministic() {
+        use crate::lookup::EntityCreatable;
+        let mut sched1 = Schedule::default();
+        let mut sched2 = Schedule::default();
+        let id1 = HotelRoomEntityType::create_from_string(&mut sched1, "East Wing").unwrap();
+        let id2 = HotelRoomEntityType::create_from_string(&mut sched2, "East Wing").unwrap();
+        assert_eq!(id1, id2);
     }
 }

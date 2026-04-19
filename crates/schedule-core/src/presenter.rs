@@ -908,6 +908,31 @@ impl crate::lookup::EntityMatcher for PresenterEntityType {
     }
 }
 
+// ── EntityCreatable ───────────────────────────────────────────────────────────
+
+impl crate::lookup::EntityCreatable for PresenterEntityType {
+    fn can_create(full: &str, partial: &str) -> crate::lookup::CanCreate {
+        if partial.is_empty() {
+            crate::lookup::CanCreate::No
+        } else if full == partial {
+            crate::lookup::CanCreate::FromFull
+        } else {
+            crate::lookup::CanCreate::FromPartial
+        }
+    }
+
+    fn create_from_string(
+        schedule: &mut crate::schedule::Schedule,
+        s: &str,
+    ) -> Result<EntityId<Self>, crate::lookup::LookupError> {
+        find_or_create_tagged_presenter(schedule, s).map_err(|e| {
+            crate::lookup::LookupError::CreateFailed {
+                message: e.to_string(),
+            }
+        })
+    }
+}
+
 // ── Tests ─────────────────────────────────────────────────────────────────────
 
 #[cfg(test)]
@@ -1423,5 +1448,54 @@ mod tests {
         assert!(is_group_entity(&sched, group_id));
         // And find_tagged for group-only should find it
         assert_eq!(find_tagged_presenter(&sched, "=MyBand"), Some(group_id));
+    }
+
+    // ── EntityCreatable ──────────────────────────────────────────────────────
+
+    #[test]
+    fn test_can_create_no_separator_returns_from_full() {
+        use crate::lookup::{CanCreate, EntityCreatable};
+        assert!(matches!(
+            PresenterEntityType::can_create("G:Alice", "G:Alice"),
+            CanCreate::FromFull
+        ));
+    }
+
+    #[test]
+    fn test_can_create_with_separator_returns_from_partial() {
+        use crate::lookup::{CanCreate, EntityCreatable};
+        assert!(matches!(
+            PresenterEntityType::can_create("G:Alice, P:Bob", "G:Alice"),
+            CanCreate::FromPartial
+        ));
+    }
+
+    #[test]
+    fn test_can_create_empty_partial_returns_no() {
+        use crate::lookup::{CanCreate, EntityCreatable};
+        assert!(matches!(
+            PresenterEntityType::can_create("G:Alice", ""),
+            CanCreate::No
+        ));
+    }
+
+    #[test]
+    fn test_create_from_string_creates_presenter() {
+        use crate::lookup::EntityCreatable;
+        let mut sched = Schedule::default();
+        let id = PresenterEntityType::create_from_string(&mut sched, "G:Alice").unwrap();
+        let data = sched.get_internal(id).unwrap();
+        assert_eq!(data.data.name, "Alice");
+        assert_eq!(data.data.rank, PresenterRank::Guest);
+    }
+
+    #[test]
+    fn test_create_from_string_tagged_with_group() {
+        use crate::lookup::EntityCreatable;
+        let mut sched = Schedule::default();
+        let id = PresenterEntityType::create_from_string(&mut sched, "P:Bob=Crew").unwrap();
+        let data = sched.get_internal(id).unwrap();
+        assert_eq!(data.data.name, "Bob");
+        assert_eq!(sched.entity_count::<PresenterEntityType>(), 2);
     }
 }
