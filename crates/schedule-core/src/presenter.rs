@@ -648,7 +648,6 @@ define_field!(
             d.data.rank = PresenterRank::parse(&v.into_string()?);
             Ok(())
         })),
-        index_fn: None,
         verify_fn: None,
     }
 );
@@ -706,7 +705,6 @@ define_field!(
             Some(field_value!(explicit || has_members))
         })),
         write_fn: None,
-        index_fn: None,
         verify_fn: None,
     }
 );
@@ -754,7 +752,6 @@ define_field!(
             Some(crate::schedule::entity_ids_to_field_value(ids))
         })),
         write_fn: None,
-        index_fn: None,
         verify_fn: None,
     }
 );
@@ -788,7 +785,6 @@ define_field!(
             Some(crate::schedule::entity_ids_to_field_value(ids))
         })),
         write_fn: None,
-        index_fn: None,
         verify_fn: None,
     }
 );
@@ -852,7 +848,6 @@ define_field!(
             Some(crate::schedule::entity_ids_to_field_value(ids))
         })),
         write_fn: None,
-        index_fn: None,
         verify_fn: None,
     }
 );
@@ -862,13 +857,64 @@ define_field!(
 static PRESENTER_FIELD_SET: LazyLock<FieldSet<PresenterEntityType>> =
     LazyLock::new(FieldSet::from_inventory);
 
+// ── EntityMatcher ─────────────────────────────────────────────────────────────
+
+/// Extract the bare presenter name from a potentially tagged credit string.
+///
+/// Strips the optional rank prefix (`"G:"`, `"P:"`, `"GOH:"`, etc.), the
+/// always-grouped marker (`"<"`), and the group suffix (`"=Group"`).
+/// For the group-only form (`"=TeamA"` / `"==TeamA"`), returns the group name.
+fn extract_presenter_match_name(query: &str) -> &str {
+    let s = query.trim();
+    // Strip optional rank prefix: alphabetic chars before ':'
+    let s = if let Some(colon) = s.find(':') {
+        let prefix = &s[..colon];
+        if !prefix.is_empty() && prefix.chars().all(|c| c.is_alphabetic()) {
+            s[colon + 1..].trim()
+        } else {
+            s
+        }
+    } else {
+        s
+    };
+    // Strip always-grouped marker '<'
+    let s = s.strip_prefix('<').map(str::trim).unwrap_or(s);
+    // Handle group suffix "=…": "Name=Group" → "Name"; "=Group" → "Group"
+    match s.find('=') {
+        Some(eq) => {
+            let before = s[..eq].trim();
+            if before.is_empty() {
+                // Group-only form: "=TeamA" or "==TeamA"
+                s[eq + 1..]
+                    .trim()
+                    .strip_prefix('=')
+                    .map(str::trim)
+                    .unwrap_or(s[eq + 1..].trim())
+            } else {
+                before
+            }
+        }
+        None => s,
+    }
+}
+
+impl crate::lookup::EntityMatcher for PresenterEntityType {
+    fn match_entity(
+        query: &str,
+        data: &PresenterInternalData,
+    ) -> Option<crate::lookup::MatchPriority> {
+        let name = extract_presenter_match_name(query);
+        crate::lookup::string_match_priority(name, &data.data.name)
+    }
+}
+
 // ── Tests ─────────────────────────────────────────────────────────────────────
 
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::field::MatchPriority;
     use crate::field_value;
+    use crate::lookup::{match_priority, EntityMatcher};
     use crate::schedule::Schedule;
     use crate::value::FieldError;
     use uuid::Uuid;
@@ -1032,11 +1078,10 @@ mod tests {
     }
 
     #[test]
-    fn test_match_name_prefix() {
-        let fs = PresenterEntityType::field_set();
+    fn test_match_name_starts_with() {
         let data = make_internal();
-        let priority = fs.match_index("alice", &data);
-        assert_eq!(priority, Some(MatchPriority::Prefix));
+        let priority = PresenterEntityType::match_entity("alice", &data);
+        assert_eq!(priority, Some(match_priority::STRONG_MATCH));
     }
 
     #[test]

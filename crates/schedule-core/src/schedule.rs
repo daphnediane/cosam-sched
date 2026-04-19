@@ -12,7 +12,7 @@
 
 use crate::edge_map::RawEdgeMap;
 use crate::entity::{registered_entity_types, EntityId, EntityType, RuntimeEntityId};
-use crate::field::MatchPriority;
+use crate::lookup::{EntityMatcher, MatchPriority};
 use crate::value::FieldValue;
 use std::any::{Any, TypeId};
 use std::collections::HashMap;
@@ -279,15 +279,14 @@ impl Schedule {
 
     /// Find the best-matching entity of type `E` for a query string.
     ///
-    /// Uses `E::field_set().match_index()` against each stored entity.
+    /// Uses `E::match_entity()` against each stored entity.
     /// Returns the entity with the highest [`MatchPriority`], or `None` if
     /// no entity matches.
     #[must_use]
-    pub fn find_first<E: EntityType>(&self, query: &str) -> Option<EntityId<E>> {
-        let field_set = E::field_set();
+    pub fn find_first<E: EntityMatcher>(&self, query: &str) -> Option<EntityId<E>> {
         let mut best: Option<(EntityId<E>, MatchPriority)> = None;
         for (id, data) in self.iter_entities::<E>() {
-            if let Some(priority) = field_set.match_index(query, data) {
+            if let Some(priority) = E::match_entity(query, data) {
                 let is_better = match &best {
                     None => true,
                     Some((_, best_p)) => priority > *best_p,
@@ -302,15 +301,14 @@ impl Schedule {
 
     /// Find all entities of type `E` matching a query, with their priorities.
     #[must_use]
-    pub fn find<E: EntityType>(&self, query: &str) -> Vec<(EntityId<E>, MatchPriority)> {
-        let field_set = E::field_set();
+    pub fn find<E: EntityMatcher>(&self, query: &str) -> Vec<(EntityId<E>, MatchPriority)> {
         let mut results = Vec::new();
         for (id, data) in self.iter_entities::<E>() {
-            if let Some(priority) = field_set.match_index(query, data) {
+            if let Some(priority) = E::match_entity(query, data) {
                 results.push((id, priority));
             }
         }
-        results.sort_by(|a, b| b.1.cmp(&a.1));
+        results.sort_by(|a: &(EntityId<E>, MatchPriority), b| b.1.cmp(&a.1));
         results
     }
 }

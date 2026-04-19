@@ -23,6 +23,7 @@
 //! - Mutable: [`resolve_one`], [`resolve_optional`], [`resolve_many`]
 
 use crate::entity::{EntityId, EntityType, RuntimeEntityId};
+use crate::lookup::EntityMatcher;
 use crate::schedule::Schedule;
 use crate::value::{ConversionError, FieldValue, FieldValueItem};
 
@@ -388,18 +389,18 @@ impl FieldTypeMapping for AsDuration {
 /// Entity types can implement this to provide custom logic for converting
 /// string references (e.g., "P:Name" for presenters, panel codes) to EntityIds,
 /// and for entity-specific string formatting (e.g., panel code:name).
-pub trait EntityStringResolver: EntityType {
+pub trait EntityStringResolver: EntityMatcher {
     /// Lookup a string reference to an EntityId without creation.
     ///
     /// Returns `None` if the string cannot be resolved (e.g., entity not found).
-    /// Default implementation tries UUID parsing, then match_index lookup.
+    /// Default implementation tries UUID parsing, then entity matcher lookup.
     fn lookup_string(schedule: &Schedule, s: &str) -> Option<EntityId<Self>> {
         // Try UUID string parsing first
         if let Some(id) = Self::lookup_by_uuid_string(schedule, s) {
             return Some(id);
         }
-        // Fall back to EntityType's match_index lookup
-        Self::lookup_by_match_index(schedule, s)
+        // Fall back to entity matcher scan
+        schedule.find_first::<Self>(s)
     }
 
     /// Lookup or create a string reference to an EntityId.

@@ -173,16 +173,6 @@ pub trait EntityType: 'static + Sized {
     /// Return the static field registry for this entity type.
     fn field_set() -> &'static FieldSet<Self>;
 
-    /// Lookup an entity by match_index query across indexable fields.
-    ///
-    /// This is used by EntityStringResolver for string-to-entity resolution.
-    fn lookup_by_match_index(
-        schedule: &crate::schedule::Schedule,
-        query: &str,
-    ) -> Option<EntityId<Self>> {
-        schedule.find_first::<Self>(query)
-    }
-
     /// Produce the public export view from internal storage data.
     fn export(internal: &Self::InternalData) -> Self::Data;
 

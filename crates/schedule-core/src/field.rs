@@ -12,11 +12,12 @@
 //! NamedField          name(), display_name(), description(), aliases()
 //! ReadableField<E>    read(EntityId<E>, &Schedule) → Option<FieldValue>
 //! WritableField<E>    write(EntityId<E>, &mut Schedule, FieldValue) → Result<(), FieldError>
-//! IndexableField<E>   match_field(&str, &InternalData) → Option<MatchPriority>
+//! VerifiableField<E>  verify(EntityId<E>, &Schedule, &FieldValue) → Result<(), VerificationError>
 //! ```
 //!
-//! All four traits are flat — no `Simple*` or `Schedule*` sub-traits.
+//! All traits are flat — no `Simple*` or `Schedule*` sub-traits.
 //! The caller-facing API is always `(EntityId<E>, &[mut] Schedule)`.
+//! Entity-level matching is handled via [`crate::lookup::EntityMatcher`].
 //!
 //! [`FieldDescriptor`] holds [`ReadFn<E>`] and [`WriteFn<E>`] enums that
 //! select the correct calling convention internally, avoiding the double-`&mut`
@@ -25,18 +26,6 @@
 use crate::entity::{EntityId, EntityType};
 use crate::schedule::Schedule;
 use crate::value::{CrdtFieldType, FieldError, FieldType, FieldValue, VerificationError};
-
-/// Priority returned by [`IndexableField::match_field`] indicating how well a
-/// query string matched a field value.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
-pub enum MatchPriority {
-    /// Exact string equality (case-insensitive).
-    Exact = 3,
-    /// The field value starts with the query string.
-    Prefix = 2,
-    /// The field value contains the query string.
-    Contains = 1,
-}
 
 /// How a field reads its value: directly from [`EntityType::InternalData`], or
 /// via a [`Schedule`] lookup by [`EntityId`].
@@ -76,9 +65,6 @@ pub enum VerifyFn<E: EntityType> {
     /// Uses `read_fn` internally; fails verification if field is write-only.
     ReRead,
 }
-
-/// Fn-pointer type for matching a query string against a field value.
-pub type IndexFn<E> = fn(&str, &<E as EntityType>::InternalData) -> Option<MatchPriority>;
 
 /// Base trait: every field has a canonical name, display name, description,
 /// and optional aliases.
@@ -128,15 +114,6 @@ pub trait WritableField<E: EntityType>: NamedField {
     ) -> Result<(), FieldError>;
 }
 
-/// Field that supports prefix/substring matching for search and import lookup.
-pub trait IndexableField<E: EntityType>: NamedField {
-    /// Test whether `query` matches this field's value in the given entity data.
-    ///
-    /// Returns `None` if there is no match, or `Some(priority)` indicating
-    /// the quality of the match.
-    fn match_field(&self, query: &str, data: &E::InternalData) -> Option<MatchPriority>;
-}
-
 /// Field that can be verified after a batch write.
 ///
 /// Verification checks that the field still has the value that was requested
@@ -166,7 +143,6 @@ pub trait VerifiableField<E: EntityType>: NamedField {
 ///
 /// - `read_fn: None` — field is write-only; `read()` returns `FieldError::WriteOnly`.
 /// - `write_fn: None` — field is read-only; `write()` returns `FieldError::ReadOnly`.
-/// - `index_fn: None` — field is not indexable; `match_field()` returns `None`.
 /// - `verify_fn: None` — field uses automatic read-back verification if `read_fn` is present.
 ///
 /// # Example
@@ -182,7 +158,6 @@ pub trait VerifiableField<E: EntityType>: NamedField {
 ///     field_type: FieldType::Single(FieldTypeItem::String),
 ///     read_fn: Some(ReadFn::Bare(|d| Some(FieldValue::String(d.data.name.clone())))),
 ///     write_fn: Some(WriteFn::Bare(|d, v| { d.data.name = v.into_string()?; Ok(()) })),
-///     index_fn: None,
 /// };
 ///
 /// static FIELD_ADD_PRESENTERS: FieldDescriptor<PanelEntityType> = FieldDescriptor {
@@ -195,7 +170,6 @@ pub trait VerifiableField<E: EntityType>: NamedField {
 ///     field_type: FieldType::List(FieldTypeItem::EntityIdentifier("presenter")),
 ///     read_fn: None,
 ///     write_fn: Some(WriteFn::Schedule(|schedule, id, v| { todo!() })),
-///     index_fn: None,
 /// };
 /// ```
 pub struct FieldDescriptor<E: EntityType> {
@@ -222,8 +196,6 @@ pub struct FieldDescriptor<E: EntityType> {
     pub read_fn: Option<ReadFn<E>>,
     /// Write implementation. `None` means read-only.
     pub write_fn: Option<WriteFn<E>>,
-    /// Index/match implementation. `None` means not indexable.
-    pub index_fn: Option<IndexFn<E>>,
     /// Verification implementation. `None` means use automatic read-back if `read_fn` is present.
     pub verify_fn: Option<VerifyFn<E>>,
 }
@@ -273,12 +245,6 @@ impl<E: EntityType> WritableField<E> for FieldDescriptor<E> {
             }
             Some(WriteFn::Schedule(f)) => f(schedule, id, value),
         }
-    }
-}
-
-impl<E: EntityType> IndexableField<E> for FieldDescriptor<E> {
-    fn match_field(&self, query: &str, data: &E::InternalData) -> Option<MatchPriority> {
-        (self.index_fn?)(query, data)
     }
 }
 
@@ -387,19 +353,6 @@ mod tests {
             d.label = v.into_string()?;
             Ok(())
         })),
-        index_fn: Some(|query, d: &MockInternalData| {
-            let q = query.to_lowercase();
-            let l = d.label.to_lowercase();
-            if l == q {
-                Some(MatchPriority::Exact)
-            } else if l.starts_with(&q) {
-                Some(MatchPriority::Prefix)
-            } else if l.contains(&q) {
-                Some(MatchPriority::Contains)
-            } else {
-                None
-            }
-        }),
         verify_fn: None,
     };
 
@@ -420,7 +373,6 @@ mod tests {
             d.count = v.into_integer()?;
             Ok(())
         })),
-        index_fn: None,
         verify_fn: None,
     };
 
@@ -436,7 +388,6 @@ mod tests {
         order: 200,
         read_fn: Some(ReadFn::Bare(|_: &MockInternalData| Some(field_value!(42)))),
         write_fn: None,
-        index_fn: None,
         verify_fn: None,
     };
 
@@ -455,7 +406,6 @@ mod tests {
             d.label = v.into_string()?;
             Ok(())
         })),
-        index_fn: None,
         verify_fn: None,
     };
 
@@ -613,54 +563,5 @@ mod tests {
             sched.get_internal::<MockEntity>(id).unwrap().label,
             "via writeonly"
         );
-    }
-
-    // --- IndexableField ---
-
-    #[test]
-    fn test_match_exact() {
-        let d = make_data();
-        assert_eq!(
-            LABEL_FIELD.match_field("hello world", &d),
-            Some(MatchPriority::Exact)
-        );
-    }
-
-    #[test]
-    fn test_match_prefix() {
-        let d = make_data();
-        assert_eq!(
-            LABEL_FIELD.match_field("hello", &d),
-            Some(MatchPriority::Prefix)
-        );
-    }
-
-    #[test]
-    fn test_match_contains() {
-        let d = make_data();
-        assert_eq!(
-            LABEL_FIELD.match_field("world", &d),
-            Some(MatchPriority::Contains)
-        );
-    }
-
-    #[test]
-    fn test_match_no_match() {
-        let d = make_data();
-        assert_eq!(LABEL_FIELD.match_field("zzz", &d), None);
-    }
-
-    #[test]
-    fn test_non_indexable_field_returns_none() {
-        let d = make_data();
-        assert_eq!(COUNT_FIELD.match_field("7", &d), None);
-    }
-
-    // --- MatchPriority ordering ---
-
-    #[test]
-    fn test_match_priority_ordering() {
-        assert!(MatchPriority::Exact > MatchPriority::Prefix);
-        assert!(MatchPriority::Prefix > MatchPriority::Contains);
     }
 }

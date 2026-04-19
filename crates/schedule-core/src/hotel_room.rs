@@ -174,13 +174,24 @@ edge_list_field!(FIELD_EVENT_ROOMS, HotelRoomEntityType, HotelRoomInternalData, 
 static HOTEL_ROOM_FIELD_SET: LazyLock<FieldSet<HotelRoomEntityType>> =
     LazyLock::new(FieldSet::from_inventory);
 
+// ── EntityMatcher ─────────────────────────────────────────────────────────────
+
+impl crate::lookup::EntityMatcher for HotelRoomEntityType {
+    fn match_entity(
+        query: &str,
+        data: &HotelRoomInternalData,
+    ) -> Option<crate::lookup::MatchPriority> {
+        crate::lookup::string_match_priority(query, &data.data.hotel_room_name)
+    }
+}
+
 // ── Tests ─────────────────────────────────────────────────────────────────────
 
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::field::MatchPriority;
     use crate::field_value;
+    use crate::lookup::{match_priority, EntityMatcher};
     use crate::schedule::Schedule;
     use uuid::Uuid;
 
@@ -239,15 +250,17 @@ mod tests {
     }
 
     #[test]
-    fn test_match_index() {
+    fn test_match_entity() {
         let data = make_internal();
-        let fs = HotelRoomEntityType::field_set();
         assert_eq!(
-            fs.match_index("ballroom east", &data),
-            Some(MatchPriority::Exact)
+            HotelRoomEntityType::match_entity("ballroom east", &data),
+            Some(match_priority::EXACT_MATCH)
         );
-        assert_eq!(fs.match_index("ball", &data), Some(MatchPriority::Prefix));
-        assert_eq!(fs.match_index("nope", &data), None);
+        assert_eq!(
+            HotelRoomEntityType::match_entity("ball", &data),
+            Some(match_priority::STRONG_MATCH)
+        );
+        assert_eq!(HotelRoomEntityType::match_entity("nope", &data), None);
     }
 
     #[test]

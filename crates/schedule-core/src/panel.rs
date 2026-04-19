@@ -242,27 +242,6 @@ define_field!(
                 .into()),
             }
         })),
-        index_fn: Some(|query, d: &PanelInternalData| {
-            let q = query.to_lowercase();
-            let full = d.code.full_id().to_lowercase();
-            if full == q {
-                return Some(crate::field::MatchPriority::Exact);
-            }
-            let base = d.code.base_id().to_lowercase();
-            if base == q {
-                return Some(crate::field::MatchPriority::Exact);
-            }
-            if full.starts_with(&q) || base.starts_with(&q) {
-                return Some(crate::field::MatchPriority::Prefix);
-            }
-            if d.code.prefix.to_lowercase() == q {
-                return Some(crate::field::MatchPriority::Prefix);
-            }
-            if full.contains(&q) {
-                return Some(crate::field::MatchPriority::Contains);
-            }
-            None
-        }),
         verify_fn: None,
     }
 );
@@ -476,7 +455,6 @@ define_field!(
             }
             Ok(())
         })),
-        index_fn: None,
         verify_fn: Some(VerifyFn::ReRead),
     }
 );
@@ -526,7 +504,6 @@ define_field!(
             }
             Ok(())
         })),
-        index_fn: None,
         verify_fn: Some(VerifyFn::ReRead),
     }
 );
@@ -579,7 +556,6 @@ define_field!(
             }
             Ok(())
         })),
-        index_fn: None,
         verify_fn: Some(VerifyFn::ReRead),
     }
 );
@@ -645,7 +621,6 @@ define_field!(
             Some(crate::schedule::entity_ids_to_field_value(ids))
         })),
         write_fn: None,
-        index_fn: None,
         verify_fn: None,
     }
 );
@@ -682,6 +657,23 @@ edge_none_field_rw!(FIELD_PANEL_TYPE, PanelEntityType, PanelInternalData, target
 
 static PANEL_FIELD_SET: LazyLock<FieldSet<PanelEntityType>> =
     LazyLock::new(FieldSet::from_inventory);
+
+// ── EntityMatcher ─────────────────────────────────────────────────────────────
+
+impl crate::lookup::EntityMatcher for PanelEntityType {
+    fn match_entity(query: &str, data: &PanelInternalData) -> Option<crate::lookup::MatchPriority> {
+        use crate::lookup::string_match_priority;
+        // Match on code (full_id e.g. "GP001P2", base_id e.g. "GP001") and name.
+        [
+            string_match_priority(query, &data.code.full_id()),
+            string_match_priority(query, &data.code.base_id()),
+            string_match_priority(query, &data.data.name),
+        ]
+        .into_iter()
+        .flatten()
+        .max()
+    }
+}
 
 // ── Tests ─────────────────────────────────────────────────────────────────────
 

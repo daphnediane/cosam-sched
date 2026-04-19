@@ -16,7 +16,7 @@
 
 use crate::converter::EntityStringResolver;
 use crate::entity::{EntityId, EntityType, FieldSet, UuidPreference};
-use crate::field::{FieldDescriptor, MatchPriority, ReadFn};
+use crate::field::{FieldDescriptor, ReadFn};
 use crate::field_macros::{
     bool_field, define_field, edge_list_field, opt_string_field, req_string_field,
 };
@@ -310,21 +310,7 @@ define_field!(
             };
             Some(field_value!(name))
         })),
-        write_fn: None, // Read-only computed field
-        index_fn: Some(|query, d: &PanelTypeInternalData| {
-            let q = query.to_lowercase();
-            let p = d.data.prefix.to_lowercase();
-            let k = d.data.panel_kind.to_lowercase();
-            if p == q || k == q {
-                Some(MatchPriority::Exact)
-            } else if p.starts_with(&q) || k.starts_with(&q) {
-                Some(MatchPriority::Prefix)
-            } else if p.contains(&q) || k.contains(&q) {
-                Some(MatchPriority::Contains)
-            } else {
-                None
-            }
-        }),
+        write_fn: None,
         verify_fn: None,
     }
 );
@@ -342,13 +328,35 @@ edge_list_field!(FIELD_PANELS, PanelTypeEntityType, PanelTypeInternalData, targe
 static PANEL_TYPE_FIELD_SET: LazyLock<FieldSet<PanelTypeEntityType>> =
     LazyLock::new(FieldSet::from_inventory);
 
+// ── EntityMatcher ────────────────────────────────────────────────────────────────
+
+impl crate::lookup::EntityMatcher for PanelTypeEntityType {
+    fn match_entity(
+        query: &str,
+        data: &PanelTypeInternalData,
+    ) -> Option<crate::lookup::MatchPriority> {
+        use crate::lookup::string_match_priority;
+        // Match on prefix (e.g. "GP"), kind (e.g. "General Programming"),
+        // and the combined display form (e.g. "GP General Programming").
+        let display = format!("{} {}", data.data.prefix, data.data.panel_kind);
+        [
+            string_match_priority(query, &data.data.prefix),
+            string_match_priority(query, &data.data.panel_kind),
+            string_match_priority(query, &display),
+        ]
+        .into_iter()
+        .flatten()
+        .max()
+    }
+}
+
 // ── Tests ───────────────────────────────────────────────────────────────────────
 
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::field::MatchPriority;
     use crate::field_value;
+    use crate::lookup::{match_priority, EntityMatcher};
     use crate::schedule::Schedule;
     use crate::value::FieldError;
     use uuid::Uuid;
@@ -745,49 +753,22 @@ mod tests {
 
     #[test]
     fn test_match_prefix_exact() {
-        let data = PanelTypeInternalData {
-            data: PanelTypeCommonData {
-                prefix: "GP".into(),
-                panel_kind: "Guest Panel".into(),
-                ..Default::default()
-            },
-            id: make_panel_type_id(),
-        };
-
-        let fs = PanelTypeEntityType::field_set();
-        let priority = fs.match_index("gp", &data);
-        assert_eq!(priority, Some(MatchPriority::Exact));
+        let data = make_test_internal_data();
+        let priority = PanelTypeEntityType::match_entity("gp", &data);
+        assert_eq!(priority, Some(match_priority::EXACT_MATCH));
     }
 
     #[test]
-    fn test_match_panel_kind_prefix() {
-        let data = PanelTypeInternalData {
-            data: PanelTypeCommonData {
-                prefix: "GP".into(),
-                panel_kind: "Guest Panel".into(),
-                ..Default::default()
-            },
-            id: make_panel_type_id(),
-        };
-
-        let fs = PanelTypeEntityType::field_set();
-        let priority = fs.match_index("guest", &data);
-        assert_eq!(priority, Some(MatchPriority::Prefix));
+    fn test_match_panel_kind_starts_with() {
+        let data = make_test_internal_data();
+        let priority = PanelTypeEntityType::match_entity("guest", &data);
+        assert_eq!(priority, Some(match_priority::STRONG_MATCH));
     }
 
     #[test]
-    fn test_match_display_name_no_match() {
-        let data = PanelTypeInternalData {
-            data: PanelTypeCommonData {
-                prefix: "GP".into(),
-                panel_kind: "Guest Panel".into(),
-                ..Default::default()
-            },
-            id: make_panel_type_id(),
-        };
-
-        let fs = PanelTypeEntityType::field_set();
-        let priority = fs.match_index("xyz", &data);
+    fn test_match_no_match() {
+        let data = make_test_internal_data();
+        let priority = PanelTypeEntityType::match_entity("xyz", &data);
         assert_eq!(priority, None);
     }
 }

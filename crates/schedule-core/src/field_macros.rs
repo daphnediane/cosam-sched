@@ -57,28 +57,6 @@
 //! it bundles the `static` declaration with the required `inventory::submit!`
 //! call so the field is never accidentally omitted from the registry.
 
-use crate::field::MatchPriority;
-
-/// Case-insensitive substring match used by indexed string fields.
-///
-/// Returns the best matching priority for `query` against `value`:
-/// [`MatchPriority::Exact`] for equality, [`MatchPriority::Prefix`] when
-/// `value` starts with `query`, [`MatchPriority::Contains`] for substring,
-/// or `None` otherwise.
-pub(crate) fn substring_match(query: &str, value: &str) -> Option<MatchPriority> {
-    let q = query.to_lowercase();
-    let v = value.to_lowercase();
-    if v == q {
-        Some(MatchPriority::Exact)
-    } else if v.starts_with(&q) {
-        Some(MatchPriority::Prefix)
-    } else if v.contains(&q) {
-        Some(MatchPriority::Contains)
-    } else {
-        None
-    }
-}
-
 // ── Stored-field macros ───────────────────────────────────────────────────────
 
 /// Declare a required indexed `String` field descriptor
@@ -108,9 +86,6 @@ macro_rules! req_string_field {
                     d.data.$field = v.into_string()?;
                     Ok(())
                 })),
-                index_fn: Some(|query, d: &$internal| {
-                    $crate::field_macros::substring_match(query, &d.data.$field)
-                }),
                 verify_fn: None,
             };
         inventory::submit! { $crate::entity::CollectedField::<$entity>(&$static_name) }
@@ -165,7 +140,6 @@ macro_rules! opt_string_field {
                     }
                     Ok(())
                 })),
-                index_fn: None,
                 verify_fn: None,
             };
         inventory::submit! { $crate::entity::CollectedField::<$entity>(&$static_name) }
@@ -218,7 +192,6 @@ macro_rules! opt_text_field {
                     }
                     Ok(())
                 })),
-                index_fn: None,
                 verify_fn: None,
             };
         inventory::submit! { $crate::entity::CollectedField::<$entity>(&$static_name) }
@@ -252,7 +225,6 @@ macro_rules! bool_field {
                     d.data.$field = v.into_bool()?;
                     Ok(())
                 })),
-                index_fn: None,
                 verify_fn: None,
             };
         inventory::submit! { $crate::entity::CollectedField::<$entity>(&$static_name) }
@@ -304,7 +276,6 @@ macro_rules! opt_i64_field {
                     }
                     Ok(())
                 })),
-                index_fn: None,
                 verify_fn: None,
             };
         inventory::submit! { $crate::entity::CollectedField::<$entity>(&$static_name) }
@@ -352,7 +323,6 @@ macro_rules! edge_list_field {
                     },
                 )),
                 write_fn: None,
-                index_fn: None,
                 verify_fn: None,
             };
         inventory::submit! { $crate::entity::CollectedField::<$entity>(&$static_name) }
@@ -402,7 +372,6 @@ macro_rules! edge_list_field_rw {
                         Ok(())
                     },
                 )),
-                index_fn: None,
                 verify_fn: None,
             };
         inventory::submit! { $crate::entity::CollectedField::<$entity>(&$static_name) }
@@ -455,7 +424,6 @@ macro_rules! edge_list_field_to_rw {
                         Ok(())
                     },
                 )),
-                index_fn: None,
                 verify_fn: None,
             };
         inventory::submit! { $crate::entity::CollectedField::<$entity>(&$static_name) }
@@ -501,7 +469,6 @@ macro_rules! edge_add_field {
                         Ok(())
                     },
                 )),
-                index_fn: None,
                 verify_fn: None,
             };
         inventory::submit! { $crate::entity::CollectedField::<$entity>(&$static_name) }
@@ -547,7 +514,6 @@ macro_rules! edge_remove_field {
                         Ok(())
                     },
                 )),
-                index_fn: None,
                 verify_fn: None,
             };
         inventory::submit! { $crate::entity::CollectedField::<$entity>(&$static_name) }
@@ -597,7 +563,6 @@ macro_rules! edge_none_field_rw {
                         Ok(())
                     },
                 )),
-                index_fn: None,
                 verify_fn: None,
             };
         inventory::submit! { $crate::entity::CollectedField::<$entity>(&$static_name) }

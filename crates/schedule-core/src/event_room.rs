@@ -18,7 +18,7 @@
 
 use crate::converter::EntityStringResolver;
 use crate::entity::{EntityId, EntityType, FieldSet, UuidPreference};
-use crate::field::{FieldDescriptor, MatchPriority, ReadFn, WriteFn};
+use crate::field::{FieldDescriptor, ReadFn, WriteFn};
 use crate::field_macros::{define_field, edge_list_field_rw, opt_i64_field, req_string_field};
 use crate::field_value;
 use crate::hotel_room::{HotelRoomEntityType, HotelRoomId};
@@ -179,9 +179,7 @@ req_string_field!(FIELD_ROOM_NAME, EventRoomEntityType, EventRoomInternalData, r
     order: 0);
 
 define_field!(
-    /// Optional display name, indexed so name-based searches still find the room.
-    /// Hand-written because the uniform `opt_string_field!` macro does not install
-    /// an `index_fn`.
+    /// Optional display name shown in the widget / public schedule.
     static FIELD_LONG_NAME: FieldDescriptor<EventRoomEntityType> = FieldDescriptor {
         name: "long_name",
         display: "Long Name",
@@ -203,20 +201,6 @@ define_field!(
             }
             Ok(())
         })),
-        index_fn: Some(|query, d: &EventRoomInternalData| {
-            let long = d.data.long_name.as_deref()?;
-            let q = query.to_lowercase();
-            let v = long.to_lowercase();
-            if v == q {
-                Some(MatchPriority::Exact)
-            } else if v.starts_with(&q) {
-                Some(MatchPriority::Prefix)
-            } else if v.contains(&q) {
-                Some(MatchPriority::Contains)
-            } else {
-                None
-            }
-        }),
         verify_fn: None,
     }
 );
@@ -249,12 +233,36 @@ edge_list_field_rw!(FIELD_PANELS, EventRoomEntityType, EventRoomInternalData, ta
 static EVENT_ROOM_FIELD_SET: LazyLock<FieldSet<EventRoomEntityType>> =
     LazyLock::new(FieldSet::from_inventory);
 
+// ── EntityMatcher ─────────────────────────────────────────────────────────────
+
+impl crate::lookup::EntityMatcher for EventRoomEntityType {
+    fn match_entity(
+        query: &str,
+        data: &EventRoomInternalData,
+    ) -> Option<crate::lookup::MatchPriority> {
+        use crate::lookup::string_match_priority;
+        let long = data.data.long_name.as_deref().unwrap_or("");
+        [
+            string_match_priority(query, &data.data.room_name),
+            if long.is_empty() {
+                None
+            } else {
+                string_match_priority(query, long)
+            },
+        ]
+        .into_iter()
+        .flatten()
+        .max()
+    }
+}
+
 // ── Tests ─────────────────────────────────────────────────────────────────────
 
 #[cfg(test)]
 mod tests {
     use super::*;
     use crate::field_value;
+    use crate::lookup::{match_priority, EntityMatcher};
     use crate::schedule::Schedule;
     use uuid::Uuid;
 
@@ -329,18 +337,16 @@ mod tests {
     #[test]
     fn test_match_long_name_exact() {
         let data = make_internal();
-        let fs = EventRoomEntityType::field_set();
-        let priority = fs.match_index("grand ballroom a", &data);
-        assert_eq!(priority, Some(MatchPriority::Exact));
+        let priority = EventRoomEntityType::match_entity("grand ballroom a", &data);
+        assert_eq!(priority, Some(match_priority::EXACT_MATCH));
     }
 
     #[test]
     fn test_match_long_name_absent_falls_through_to_room_name() {
         let mut internal = make_internal();
         internal.data.long_name = None;
-        let fs = EventRoomEntityType::field_set();
-        let priority = fs.match_index("panel", &internal);
-        assert_eq!(priority, Some(MatchPriority::Prefix));
+        let priority = EventRoomEntityType::match_entity("panel", &internal);
+        assert_eq!(priority, Some(match_priority::STRONG_MATCH));
     }
 
     #[test]

@@ -35,7 +35,7 @@
 //! should include `"Panel_Kind"` in its `aliases` list.
 
 use crate::entity::{CollectedField, EntityType};
-use crate::field::{FieldDescriptor, IndexableField, MatchPriority, ReadableField, WritableField};
+use crate::field::{FieldDescriptor, ReadableField, WritableField};
 use crate::schedule::Schedule;
 use crate::value::{CrdtFieldType, FieldError, FieldValue};
 use std::collections::HashMap;
@@ -61,8 +61,6 @@ pub struct FieldSet<E: EntityType> {
     name_map: HashMap<String, usize>,
     /// Indices of fields where `required == true`.
     required: Vec<usize>,
-    /// Indices of fields that have an `index_fn`.
-    indexable: Vec<usize>,
     /// Indices of fields that have a `read_fn`.
     readable: Vec<usize>,
     /// Indices of fields that have a `write_fn`.
@@ -108,7 +106,6 @@ impl<E: EntityType> FieldSet<E> {
         let fields: Vec<&'static FieldDescriptor<E>> = descriptors.to_vec();
         let mut name_map: HashMap<String, usize> = HashMap::new();
         let mut required = Vec::new();
-        let mut indexable = Vec::new();
         let mut readable = Vec::new();
         let mut writable = Vec::new();
 
@@ -119,9 +116,6 @@ impl<E: EntityType> FieldSet<E> {
             }
             if desc.required {
                 required.push(idx);
-            }
-            if desc.index_fn.is_some() {
-                indexable.push(idx);
             }
             if desc.read_fn.is_some() {
                 readable.push(idx);
@@ -135,7 +129,6 @@ impl<E: EntityType> FieldSet<E> {
             fields,
             name_map,
             required,
-            indexable,
             readable,
             writable,
         }
@@ -161,11 +154,6 @@ impl<E: EntityType> FieldSet<E> {
     /// Descriptors where `required == true`.
     pub fn required_fields(&self) -> impl Iterator<Item = &'static FieldDescriptor<E>> + '_ {
         self.required.iter().map(|&i| self.fields[i])
-    }
-
-    /// Descriptors that have an `index_fn` (support [`IndexableField::match_field`]).
-    pub fn indexable_fields(&self) -> impl Iterator<Item = &'static FieldDescriptor<E>> + '_ {
-        self.indexable.iter().map(|&i| self.fields[i])
     }
 
     /// Descriptors that have a `read_fn`.
@@ -226,15 +214,6 @@ impl<E: EntityType> FieldSet<E> {
             .get_by_name(name)
             .ok_or(FieldError::NotFound { name: "field" })?;
         desc.write(id, schedule, value)
-    }
-
-    /// Run `match_field` on every indexable field and return the best
-    /// [`MatchPriority`] found, or `None` if nothing matched.
-    #[must_use]
-    pub fn match_index(&self, query: &str, data: &E::InternalData) -> Option<MatchPriority> {
-        self.indexable_fields()
-            .filter_map(|d| d.match_field(query, data))
-            .max()
     }
 }
 
@@ -303,19 +282,6 @@ mod tests {
             d.label = v.into_string()?;
             Ok(())
         })),
-        index_fn: Some(|query, d: &MockData| {
-            let q = query.to_lowercase();
-            let l = d.label.to_lowercase();
-            if l == q {
-                Some(MatchPriority::Exact)
-            } else if l.starts_with(&q) {
-                Some(MatchPriority::Prefix)
-            } else if l.contains(&q) {
-                Some(MatchPriority::Contains)
-            } else {
-                None
-            }
-        }),
         verify_fn: None,
     };
 
@@ -334,7 +300,6 @@ mod tests {
             d.count = v.into_integer()?;
             Ok(())
         })),
-        index_fn: None,
         verify_fn: None,
     };
 
@@ -350,7 +315,6 @@ mod tests {
         order: 200,
         read_fn: Some(ReadFn::Bare(|_: &MockData| Some(field_value!(42)))),
         write_fn: None,
-        index_fn: None,
         verify_fn: None,
     };
 
@@ -401,13 +365,6 @@ mod tests {
     fn test_required_fields() {
         let fs = make_field_set();
         let names: Vec<_> = fs.required_fields().map(|d| d.name).collect();
-        assert_eq!(names, vec!["label"]);
-    }
-
-    #[test]
-    fn test_indexable_fields() {
-        let fs = make_field_set();
-        let names: Vec<_> = fs.indexable_fields().map(|d| d.name).collect();
         assert_eq!(names, vec!["label"]);
     }
 
@@ -563,52 +520,6 @@ mod tests {
         ));
     }
 
-    // ── match_index ──────────────────────────────────────────────────────────
-
-    #[test]
-    fn test_match_index_exact() {
-        let fs = make_field_set();
-        let data = MockData {
-            label: "hello world".into(),
-            count: 0,
-        };
-        assert_eq!(
-            fs.match_index("hello world", &data),
-            Some(MatchPriority::Exact)
-        );
-    }
-
-    #[test]
-    fn test_match_index_prefix() {
-        let fs = make_field_set();
-        let data = MockData {
-            label: "hello world".into(),
-            count: 0,
-        };
-        assert_eq!(fs.match_index("hello", &data), Some(MatchPriority::Prefix));
-    }
-
-    #[test]
-    fn test_match_index_no_match() {
-        let fs = make_field_set();
-        let data = MockData {
-            label: "hello world".into(),
-            count: 0,
-        };
-        assert_eq!(fs.match_index("zzz", &data), None);
-    }
-
-    #[test]
-    fn test_match_index_non_indexable_field_ignored() {
-        // count has no index_fn — querying a number should return None
-        let fs = make_field_set();
-        let data = MockData {
-            label: "".into(),
-            count: 42,
-        };
-        assert_eq!(fs.match_index("42", &data), None);
-    }
-
     // ── empty FieldSet ───────────────────────────────────────────────────────
 
     #[test]
@@ -617,7 +528,6 @@ mod tests {
         assert!(fs.get_by_name("anything").is_none());
         assert_eq!(fs.fields().count(), 0);
         assert_eq!(fs.required_fields().count(), 0);
-        assert_eq!(fs.indexable_fields().count(), 0);
         assert_eq!(fs.crdt_fields().count(), 0);
     }
 }
