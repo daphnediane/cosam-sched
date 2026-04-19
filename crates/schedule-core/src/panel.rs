@@ -194,6 +194,19 @@ inventory::submit! {
 }
 inventory::collect!(crate::entity::CollectedField<PanelEntityType>);
 
+// ── EntityBuildable ─────────────────────────────────────────────────────────────
+
+impl crate::builder::EntityBuildable for PanelEntityType {
+    fn default_data(id: EntityId<Self>) -> Self::InternalData {
+        PanelInternalData {
+            id,
+            data: PanelCommonData::default(),
+            code: PanelUniqId::default(),
+            time_slot: TimeRange::default(),
+        }
+    }
+}
+
 // ── EntityStringResolver implementation ─────────────────────────────────────────
 
 impl EntityStringResolver for PanelEntityType {

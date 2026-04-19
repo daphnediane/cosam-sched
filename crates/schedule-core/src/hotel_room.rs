@@ -117,6 +117,17 @@ inventory::submit! {
 }
 inventory::collect!(crate::entity::CollectedField<HotelRoomEntityType>);
 
+// ── EntityBuildable ─────────────────────────────────────────────────────────────
+
+impl crate::builder::EntityBuildable for HotelRoomEntityType {
+    fn default_data(id: EntityId<Self>) -> Self::InternalData {
+        HotelRoomInternalData {
+            id,
+            data: HotelRoomCommonData::default(),
+        }
+    }
+}
+
 // ── EntityStringResolver implementation ─────────────────────────────────────────
 
 impl EntityStringResolver for HotelRoomEntityType {

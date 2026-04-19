@@ -131,6 +131,17 @@ inventory::submit! {
 }
 inventory::collect!(crate::entity::CollectedField<EventRoomEntityType>);
 
+// ── EntityBuildable ─────────────────────────────────────────────────────────────
+
+impl crate::builder::EntityBuildable for EventRoomEntityType {
+    fn default_data(id: EntityId<Self>) -> Self::InternalData {
+        EventRoomInternalData {
+            id,
+            data: EventRoomCommonData::default(),
+        }
+    }
+}
+
 // ── EntityStringResolver implementation ─────────────────────────────────────────
 
 impl EntityStringResolver for EventRoomEntityType {

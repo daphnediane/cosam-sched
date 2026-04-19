@@ -28,7 +28,7 @@ use serde::{Deserialize, Serialize};
 /// - `S<n>` — optional session number (repeat / re-run).
 /// - `<suffix>` — optional trailing alpha characters after any P/S tags
 ///   (e.g. the `"AB"` from `"GW093P1AS4B"`).
-#[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[derive(Debug, Clone, Default, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub struct PanelUniqId {
     /// Normalized 2-letter uppercase prefix (e.g. `"GP"`, `"SP"`, `"BR"`).
     pub prefix: String,

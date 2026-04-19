@@ -4,6 +4,7 @@
  * See LICENSE file for full license text
  */
 
+pub mod builder;
 pub mod converter;
 pub mod edge_map;
 pub mod entity;

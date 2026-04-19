@@ -352,6 +352,17 @@ inventory::submit! {
 }
 inventory::collect!(crate::entity::CollectedField<PresenterEntityType>);
 
+// ── EntityBuildable ─────────────────────────────────────────────────────────────
+
+impl crate::builder::EntityBuildable for PresenterEntityType {
+    fn default_data(id: EntityId<Self>) -> Self::InternalData {
+        PresenterInternalData {
+            id,
+            data: PresenterCommonData::default(),
+        }
+    }
+}
+
 // ── Tagged presenter lookup functions ─────────────────────────────────────────
 
 /// Parsed representation of a tagged presenter credit string.
