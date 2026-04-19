@@ -17,16 +17,23 @@
 //!
 //! [`lookup`] and [`lookup_or_create`] split the query at commas/semicolons,
 //! try each token as a UUID fast-path or entity scan, and accumulate results.
-//! Cardinality constraints (`Single` / `Optional` / `List`) are enforced
-//! throughout the loop and again after any deferred creation.
+//! Cardinality constraints ([`FieldCardinality::Single`] / [`FieldCardinality::Optional`]
+//! / [`FieldCardinality::List`]) are enforced throughout the loop and again
+//! after any deferred creation.
 //!
-//! The caller expresses cardinality via [`FieldType`]: the variant
-//! (`Single` / `Optional` / `List`) carries the cardinality, and the inner
-//! [`FieldTypeItem::EntityIdentifier`] carries the expected entity type name.
+//! Both functions return `Result<Vec<EntityId<E>>, LookupError>`:
+//!
+//! - `Single`   → exactly one element in the returned vec
+//! - `Optional` → zero or one element
+//! - `List`     → zero or more elements
+//!
+//! Convenience helpers [`lookup_single`], [`lookup_list`],
+//! [`lookup_or_create_single`], and [`lookup_or_create_list`] specialize the
+//! return type for the common cardinalities.
 
-use crate::entity::{EntityId, EntityType, RuntimeEntityId};
+use crate::entity::{EntityId, EntityType};
 use crate::schedule::Schedule;
-use crate::value::{FieldCardinality, FieldType, FieldTypeItem, FieldValue, FieldValueItem};
+use crate::value::FieldCardinality;
 
 // ── MatchPriority ─────────────────────────────────────────────────────────────
 
@@ -181,10 +188,6 @@ pub enum LookupError {
     #[error("invalid UUID: '{s}'")]
     InvalidUuid { s: String },
 
-    /// The [`FieldType`] passed to [`lookup`] is not an `EntityIdentifier` variant.
-    #[error("field type is not an EntityIdentifier variant")]
-    WrongFieldType,
-
     /// Entity creation failed.
     #[error("create failed: {message}")]
     CreateFailed { message: String },
@@ -285,19 +288,10 @@ fn filter_to_best<E: EntityType>(hits: Vec<(EntityId<E>, MatchPriority)>) -> Vec
         .collect()
 }
 
-/// Extract the `&'static str` entity type name from an `EntityIdentifier`
-/// [`FieldType`].  Returns [`LookupError::WrongFieldType`] for any other variant.
-fn extract_entity_type_name(field_type: FieldType) -> Result<&'static str, LookupError> {
-    match field_type.1 {
-        FieldTypeItem::EntityIdentifier(n) => Ok(n),
-        _ => Err(LookupError::WrongFieldType),
-    }
-}
-
-/// Returns `true` for `Single` and `Optional` (both limit result count).
-fn is_limited(field_type: FieldType) -> bool {
+/// Returns `true` for `Single` and `Optional` (both limit result count to 1).
+fn is_limited(cardinality: FieldCardinality) -> bool {
     matches!(
-        field_type.0,
+        cardinality,
         FieldCardinality::Single | FieldCardinality::Optional
     )
 }
@@ -313,7 +307,7 @@ fn is_limited(field_type: FieldType) -> bool {
 fn run_lookup_loop<E: EntityMatcher>(
     schedule: &Schedule,
     query: &str,
-    field_type: FieldType,
+    cardinality: FieldCardinality,
     results: &mut Vec<EntityId<E>>,
     create_queue: &mut Vec<String>,
     allow_create: bool,
@@ -323,7 +317,7 @@ fn run_lookup_loop<E: EntityMatcher>(
 
     loop {
         // ── Early cardinality checks ──────────────────────────────────────────
-        if results.len() > 1 && is_limited(field_type) {
+        if results.len() > 1 && is_limited(cardinality) {
             return Err(LookupError::TooMany {
                 found: results.len(),
             });
@@ -338,7 +332,7 @@ fn run_lookup_loop<E: EntityMatcher>(
 
         // After detecting there is more input: if we already have 1 result
         // and cardinality is limited, adding more would exceed the limit.
-        if results.len() == 1 && is_limited(field_type) {
+        if results.len() == 1 && is_limited(cardinality) {
             return Err(LookupError::TooMany {
                 found: results.len() + create_queue.len() + 1,
             });
@@ -412,18 +406,17 @@ fn run_lookup_loop<E: EntityMatcher>(
 
 // ── Result packing ────────────────────────────────────────────────────────────
 
-/// Combine found and newly-created IDs, enforce final cardinality, and pack
-/// into a [`FieldValue`].
-fn check_and_pack<E: EntityType>(
+/// Combine found and newly-created IDs and enforce final cardinality.
+fn check_final_cardinality<E: EntityType>(
     mut results: Vec<EntityId<E>>,
     create_results: Vec<EntityId<E>>,
-    field_type: FieldType,
+    cardinality: FieldCardinality,
     original_query: &str,
-) -> Result<FieldValue, LookupError> {
+) -> Result<Vec<EntityId<E>>, LookupError> {
     results.extend(create_results);
     let total = results.len();
 
-    match field_type.0 {
+    match cardinality {
         FieldCardinality::Single => {
             if total == 0 {
                 return Err(LookupError::NotFound {
@@ -433,42 +426,25 @@ fn check_and_pack<E: EntityType>(
             if total > 1 {
                 return Err(LookupError::TooMany { found: total });
             }
-            Ok(FieldValue::Single(FieldValueItem::EntityIdentifier(
-                RuntimeEntityId::from_typed(results[0]),
-            )))
         }
         FieldCardinality::Optional => {
             if total > 1 {
                 return Err(LookupError::TooMany { found: total });
             }
-            if total == 0 {
-                Ok(FieldValue::List(vec![]))
-            } else {
-                Ok(FieldValue::Single(FieldValueItem::EntityIdentifier(
-                    RuntimeEntityId::from_typed(results[0]),
-                )))
-            }
         }
-        FieldCardinality::List => Ok(FieldValue::List(
-            results
-                .into_iter()
-                .map(|id| FieldValueItem::EntityIdentifier(RuntimeEntityId::from_typed(id)))
-                .collect(),
-        )),
+        FieldCardinality::List => {}
     }
+    Ok(results)
 }
 
 // ── Public API ────────────────────────────────────────────────────────────────
 
 /// Find one or more existing entities matching `query`.
 ///
-/// `field_type` must be one of:
-/// - `FieldType::Single(FieldTypeItem::EntityIdentifier(E::TYPE_NAME))`
-/// - `FieldType::Optional(FieldTypeItem::EntityIdentifier(E::TYPE_NAME))`
-/// - `FieldType::List(FieldTypeItem::EntityIdentifier(E::TYPE_NAME))`
-///
-/// The variant controls cardinality; `Single` and `Optional` error when more
-/// than one match is found.
+/// `cardinality` controls the allowed result count:
+/// - [`FieldCardinality::Single`]   — exactly one match required
+/// - [`FieldCardinality::Optional`] — zero or one match
+/// - [`FieldCardinality::List`]     — any number of matches
 ///
 /// `query` may contain comma- or semicolon-separated tokens; each is resolved
 /// independently.  Bare UUIDs and `"type_name:uuid"` tagged UUIDs bypass the
@@ -480,27 +456,18 @@ fn check_and_pack<E: EntityType>(
 /// - No entity matches (`NotFound`)
 /// - Multiple entities match at the same priority (`AmbiguousMatch`)
 /// - More results than the cardinality allows (`TooMany`)
-/// - The `field_type` is not an `EntityIdentifier` (`WrongFieldType`)
 pub fn lookup<E: EntityMatcher>(
     schedule: &Schedule,
     query: &str,
-    field_type: FieldType,
-) -> Result<FieldValue, LookupError> {
-    let type_name = extract_entity_type_name(field_type)?;
-    if type_name != E::TYPE_NAME {
-        return Err(LookupError::WrongEntityType {
-            expected: E::TYPE_NAME,
-            got: type_name.to_string(),
-        });
-    }
-
+    cardinality: FieldCardinality,
+) -> Result<Vec<EntityId<E>>, LookupError> {
     let mut results: Vec<EntityId<E>> = Vec::new();
     let mut create_queue: Vec<String> = Vec::new();
 
     run_lookup_loop::<E>(
         schedule,
         query,
-        field_type,
+        cardinality,
         &mut results,
         &mut create_queue,
         false,
@@ -512,7 +479,7 @@ pub fn lookup<E: EntityMatcher>(
         "find-only should never enqueue creates"
     );
 
-    check_and_pack(results, vec![], field_type, query)
+    check_final_cardinality(results, vec![], cardinality, query)
 }
 
 /// Find or create one or more entities matching `query`.
@@ -523,8 +490,6 @@ pub fn lookup<E: EntityMatcher>(
 /// applied in order via [`EntityCreatable::create_from_string`] after the
 /// final cardinality check.
 ///
-/// `field_type` must be an `EntityIdentifier` variant matching `E::TYPE_NAME`.
-///
 /// # Errors
 ///
 /// All [`lookup`] errors plus:
@@ -533,25 +498,15 @@ pub fn lookup<E: EntityMatcher>(
 pub fn lookup_or_create<E: EntityCreatable>(
     schedule: &mut Schedule,
     query: &str,
-    field_type: FieldType,
-) -> Result<FieldValue, LookupError> {
-    let type_name = extract_entity_type_name(field_type)?;
-    if type_name != E::TYPE_NAME {
-        return Err(LookupError::WrongEntityType {
-            expected: E::TYPE_NAME,
-            got: type_name.to_string(),
-        });
-    }
-
+    cardinality: FieldCardinality,
+) -> Result<Vec<EntityId<E>>, LookupError> {
     let mut results: Vec<EntityId<E>> = Vec::new();
     let mut create_queue: Vec<String> = Vec::new();
 
-    // The loop only reads from the schedule; the &mut Schedule is temporarily
-    // reborrowed as &Schedule for the duration of the call.
     run_lookup_loop::<E>(
         schedule,
         query,
-        field_type,
+        cardinality,
         &mut results,
         &mut create_queue,
         true,
@@ -560,7 +515,7 @@ pub fn lookup_or_create<E: EntityCreatable>(
 
     // Post-loop cardinality check before committing to deferred creates.
     let pre_create_total = results.len() + create_queue.len();
-    match field_type.0 {
+    match cardinality {
         FieldCardinality::Single if pre_create_total == 0 => {
             return Err(LookupError::NotFound {
                 query: query.to_string(),
@@ -586,7 +541,80 @@ pub fn lookup_or_create<E: EntityCreatable>(
         create_results.push(id);
     }
 
-    check_and_pack(results, create_results, field_type, query)
+    check_final_cardinality(results, create_results, cardinality, query)
+}
+
+// ── Convenience helpers ───────────────────────────────────────────────────────
+
+/// Find exactly one entity matching `query`.
+///
+/// Shorthand for [`lookup`] with [`FieldCardinality::Single`] that returns the
+/// single [`EntityId<E>`] directly instead of a one-element vec.
+///
+/// # Errors
+///
+/// Returns [`LookupError::NotFound`] when no match is found and
+/// [`LookupError::TooMany`] when more than one entity matches.
+pub fn lookup_single<E: EntityMatcher>(
+    schedule: &Schedule,
+    query: &str,
+) -> Result<EntityId<E>, LookupError> {
+    let mut v = lookup::<E>(schedule, query, FieldCardinality::Single)?;
+    debug_assert_eq!(
+        v.len(),
+        1,
+        "Single cardinality must yield exactly one result"
+    );
+    Ok(v.remove(0))
+}
+
+/// Find zero or more entities matching `query`.
+///
+/// Shorthand for [`lookup`] with [`FieldCardinality::List`].
+///
+/// # Errors
+///
+/// See [`lookup`].  `TooMany` cannot occur for `List` cardinality.
+pub fn lookup_list<E: EntityMatcher>(
+    schedule: &Schedule,
+    query: &str,
+) -> Result<Vec<EntityId<E>>, LookupError> {
+    lookup::<E>(schedule, query, FieldCardinality::List)
+}
+
+/// Find or create exactly one entity matching `query`.
+///
+/// Shorthand for [`lookup_or_create`] with [`FieldCardinality::Single`] that
+/// returns the single [`EntityId<E>`] directly instead of a one-element vec.
+///
+/// # Errors
+///
+/// See [`lookup_or_create`].
+pub fn lookup_or_create_single<E: EntityCreatable>(
+    schedule: &mut Schedule,
+    query: &str,
+) -> Result<EntityId<E>, LookupError> {
+    let mut v = lookup_or_create::<E>(schedule, query, FieldCardinality::Single)?;
+    debug_assert_eq!(
+        v.len(),
+        1,
+        "Single cardinality must yield exactly one result"
+    );
+    Ok(v.remove(0))
+}
+
+/// Find or create zero or more entities matching `query`.
+///
+/// Shorthand for [`lookup_or_create`] with [`FieldCardinality::List`].
+///
+/// # Errors
+///
+/// See [`lookup_or_create`].  `TooMany` cannot occur for `List` cardinality.
+pub fn lookup_or_create_list<E: EntityCreatable>(
+    schedule: &mut Schedule,
+    query: &str,
+) -> Result<Vec<EntityId<E>>, LookupError> {
+    lookup_or_create::<E>(schedule, query, FieldCardinality::List)
 }
 
 // ── Tests ─────────────────────────────────────────────────────────────────────

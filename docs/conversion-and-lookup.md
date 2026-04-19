@@ -2,11 +2,139 @@
 
 ## Overview
 
-The conversion system provides type-safe conversion between `FieldValue` inputs and typed Rust outputs. It consists of three layers:
+Two cooperating systems:
 
-1. **FieldTypeMapping** - Type-safe conversions without schedule context
-2. **EntityStringResolver** - Entity string resolution with schedule context
-3. **FieldValueConverter** - Custom conversion logic with schedule context
+- **Lookup** (`schedule-core::lookup`) — query strings → `EntityId<E>` via
+  entity-owned match logic, with multi-token splitting, UUID fast-paths,
+  cardinality enforcement, and optional find-or-create.
+- **Conversion** — type-safe conversion between `FieldValue` inputs and
+  typed Rust outputs, layered as:
+  1. **FieldTypeMapping** — type-safe conversions without schedule context
+  2. **EntityStringResolver** — entity string resolution with schedule context
+     (currently built on top of the lookup system; pending refactor)
+  3. **FieldValueConverter** — custom conversion logic with schedule context
+
+## Lookup System
+
+Entity-level text matching. Replaces the earlier per-field
+`IndexableField<E>` / `index_fn` / `FieldSet::match_index()` machinery.
+
+### MatchPriority
+
+`MatchPriority` is a `u8` score (`0` = no match, `255` = exact). Use the
+named constants in `match_priority`:
+
+| Constant        | Value | Meaning                               |
+| --------------- | ----- | ------------------------------------- |
+| `NO_MATCH`      | 0     | No match (equivalent to `None`)       |
+| `MIN_MATCH`     | 1     | Minimum acceptable match level        |
+| `WEAK_MATCH`    | 50    | Substring anywhere inside value       |
+| `AVERAGE_MATCH` | 100   | Match at a word boundary              |
+| `STRONG_MATCH`  | 200   | Value starts with query               |
+| `EXACT_MATCH`   | 255   | Value equals query (case-insensitive) |
+
+The helper `string_match_priority(query, value) -> Option<MatchPriority>`
+implements the standard tiered match and is the normal building block for
+`EntityMatcher::match_entity` implementations.
+
+### EntityMatcher
+
+```rust
+pub trait EntityMatcher: EntityType {
+    fn match_entity(query: &str, data: &Self::InternalData) -> Option<MatchPriority>;
+}
+```
+
+Each entity type owns its full matching logic, combining any fields it
+chooses (e.g. `PanelEntityType` matches on both `code` and `name`;
+`EventRoomEntityType` on `room_name` and `long_name`). This replaces the
+old per-field indexing where each `FieldDescriptor` carried an `index_fn`.
+
+### EntityCreatable
+
+```rust
+pub enum CanCreate { No, FromFull, FromPartial }
+
+pub trait EntityCreatable: EntityMatcher {
+    fn can_create(full: &str, partial: &str) -> CanCreate;
+    fn create_from_string(schedule: &mut Schedule, s: &str)
+        -> Result<EntityId<Self>, LookupError>;
+}
+```
+
+Implemented by `PresenterEntityType`, `EventRoomEntityType`,
+`HotelRoomEntityType`, and `PanelTypeEntityType`. Not implemented by
+`PanelEntityType` (panels are never auto-created by lookup).
+
+### Lookup API
+
+All functions are free functions in `schedule-core::lookup`. Cardinality is
+expressed via [`FieldCardinality`] (`Single` / `Optional` / `List`).
+Results are returned as `Vec<EntityId<E>>`; `Single` yields exactly one,
+`Optional` yields zero or one, `List` yields any number.
+
+```rust
+pub fn lookup<E: EntityMatcher>(
+    schedule: &Schedule,
+    query: &str,
+    cardinality: FieldCardinality,
+) -> Result<Vec<EntityId<E>>, LookupError>;
+
+pub fn lookup_or_create<E: EntityCreatable>(
+    schedule: &mut Schedule,
+    query: &str,
+    cardinality: FieldCardinality,
+) -> Result<Vec<EntityId<E>>, LookupError>;
+
+// Convenience helpers that specialize the common cardinalities:
+pub fn lookup_single<E: EntityMatcher>(schedule: &Schedule, query: &str)
+    -> Result<EntityId<E>, LookupError>;
+pub fn lookup_list<E: EntityMatcher>(schedule: &Schedule, query: &str)
+    -> Result<Vec<EntityId<E>>, LookupError>;
+pub fn lookup_or_create_single<E: EntityCreatable>(
+    schedule: &mut Schedule, query: &str,
+) -> Result<EntityId<E>, LookupError>;
+pub fn lookup_or_create_list<E: EntityCreatable>(
+    schedule: &mut Schedule, query: &str,
+) -> Result<Vec<EntityId<E>>, LookupError>;
+```
+
+Optional cardinality is available via the non-`_single`/`_list` functions
+with `FieldCardinality::Optional`.
+
+### Algorithm sketch
+
+- Trim query, then loop:
+  1. If more than one result has been accumulated and cardinality is
+     limited (`Single`/`Optional`) → `TooMany`.
+  2. Split remaining query at first `,` or `;` into `(partial, rest)`.
+  3. If the partial token looks like a bare UUID or `"type_name:<uuid>"`
+     tagged UUID, fast-path via `parse_typed_uuid::<E>()` (validates entity
+     type and existence) and continue with `rest`.
+  4. Otherwise scan all entities of type `E` against the full remaining
+     query and against the partial token, keeping matches at the best
+     priority. Ties prefer the full-string match.
+  5. Zero matches → `NotFound`, or for `lookup_or_create` consult
+     `E::can_create(full, partial)` and push onto a deferred create queue.
+  6. Exactly one match → record it; advance by rest or clear (depending
+     on which variant matched).
+  7. More than one at the best priority → `AmbiguousMatch`.
+- After the loop, check cardinality once more on `results + create_queue`
+  before running deferred creates, then run them in order and return.
+
+### LookupError
+
+```rust
+pub enum LookupError {
+    AmbiguousMatch  { query: String },
+    NotFound        { query: String },
+    WrongEntityType { expected: &'static str, got: String },
+    TooMany         { found: usize },
+    CannotCreate    { query: String },
+    InvalidUuid     { s: String },
+    CreateFailed    { message: String },
+}
+```
 
 ## FieldTypeMapping
 
@@ -309,16 +437,16 @@ to support the full tagged credit-string format:
 [Kind:][ < ]Name[ = [ = ]Group]
 ```
 
-| Form | Meaning |
-|------|---------|
-| `P:Alice` | Alice with Panelist rank |
-| `G:Alice` | Alice with Guest rank |
-| `Alice=MyBand` | Alice in group MyBand |
-| `P:Alice==MyBand` | Alice in MyBand; group sets `always_shown_in_group` |
-| `P:<Alice=MyBand` | Alice (always_grouped) in MyBand |
-| `==MyBand` | Group-only: create/find MyBand as explicit group (always_shown) |
-| `=MyBand` | Group-only: find group named MyBand |
-| `P:==MyBand` | Create MyBand as explicit always-shown group with Panelist rank |
+| Form              | Meaning                                                         |
+| ----------------- | --------------------------------------------------------------- |
+| `P:Alice`         | Alice with Panelist rank                                        |
+| `G:Alice`         | Alice with Guest rank                                           |
+| `Alice=MyBand`    | Alice in group MyBand                                           |
+| `P:Alice==MyBand` | Alice in MyBand; group sets `always_shown_in_group`             |
+| `P:<Alice=MyBand` | Alice (always_grouped) in MyBand                                |
+| `==MyBand`        | Group-only: create/find MyBand as explicit group (always_shown) |
+| `=MyBand`         | Group-only: find group named MyBand                             |
+| `P:==MyBand`      | Create MyBand as explicit always-shown group with Panelist rank |
 
 - **Kind prefix**: one or more chars from `G/J/S/I/P/F`; highest-priority (lowest
   number) rank among them is applied.
@@ -353,4 +481,6 @@ impl EntityStringResolver for PresenterEntityType {
 v5 UUID derived from the name.
 
 `PanelEntityType` and `PanelTypeEntityType` use the default implementation
-(UUID lookup then `match_index` name search; no auto-creation).
+(UUID lookup then `EntityMatcher::match_entity` scan; `PanelType` additionally
+implements `EntityCreatable` for find-or-create, while `Panel` is never
+auto-created).

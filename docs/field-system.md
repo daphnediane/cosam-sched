@@ -183,16 +183,20 @@ storage (Phase 4):
 NamedField          name(), display_name(), description(), aliases()
 ReadableField<E>    read(EntityId<E>, &Schedule) → Option<FieldValue>
 WritableField<E>    write(EntityId<E>, &mut Schedule, FieldValue) → Result<(), FieldError>
-IndexableField<E>   match_field(&str, &InternalData) → Option<MatchPriority>
 VerifiableField<E>  verify(EntityId<E>, &Schedule, &FieldValue) → Result<(), VerificationError>
 ```
 
-All five traits are flat — no `Simple*` or `Schedule*` sub-traits. The
+All four traits are flat — no `Simple*` or `Schedule*` sub-traits. The
 caller-facing API is always `(EntityId<E>, &[mut] Schedule)`.
 
-`FieldDescriptor<E>` implements all five directly. Dispatch between
+`FieldDescriptor<E>` implements all four directly. Dispatch between
 data-only and schedule-aware paths is handled internally by matching on
 `ReadFn<E>`, `WriteFn<E>`, and `VerifyFn<E>` (see below).
+
+Entity-level text matching (previously `IndexableField<E>` / `match_index`)
+is now handled by the `EntityMatcher` trait in `crate::lookup`; see
+`conversion-and-lookup.md`. Individual field descriptors no longer carry
+an `index_fn` — each entity type owns its holistic `match_entity` logic.
 
 ## ReadFn / WriteFn enums
 
@@ -216,8 +220,6 @@ pub enum WriteFn<E: EntityType> {
     /// it handles its own lookup/release internally.
     Schedule(fn(&mut Schedule, EntityId<E>, FieldValue) -> Result<(), FieldError>),
 }
-
-pub type IndexFn<E> = fn(&str, &<E as EntityType>::InternalData) -> Option<MatchPriority>;
 
 /// How a field verifies its value after a batch write: directly from
 /// [`EntityType::InternalData`], via a [`Schedule`] lookup, or by re-reading.
@@ -250,7 +252,6 @@ pub struct FieldDescriptor<E: EntityType> {
     pub order: u32,                     // Stable iteration order for inventory collection
     pub read_fn: Option<ReadFn<E>>,     // None → write-only
     pub write_fn: Option<WriteFn<E>>,   // None → read-only
-    pub index_fn: Option<IndexFn<E>>,   // None → not indexable
     pub verify_fn: Option<VerifyFn<E>>, // None → no verification requested
 }
 ```
@@ -260,7 +261,7 @@ inventory. Fields are sorted by this value (ascending) when `FieldSet::from_inve
 collects them. Use multiples of 100 (0, 100, 200, ...) to leave room for future insertions.
 
 `FieldDescriptor` implements `NamedField`, `ReadableField<E>`,
-`WritableField<E>`, `IndexableField<E>`, and `VerifiableField<E>` directly:
+`WritableField<E>`, and `VerifiableField<E>` directly:
 
 - `read()` matches `read_fn`: `None` → `FieldError::WriteOnly`;
   `Bare` fetches `InternalData` from the schedule then calls the fn;
@@ -268,7 +269,6 @@ collects them. Use multiples of 100 (0, 100, 200, ...) to leave room for future 
 - `write()` matches `write_fn`: `None` → `FieldError::ReadOnly`;
   `Bare` fetches `&mut InternalData` then calls the fn;
   `Schedule` delegates directly (no double `&mut`).
-- `match_field()` calls `index_fn` if present.
 - `verify()` checks value stability after batch writes (opt-in):
   - If `verify_fn` is `None`, returns `Ok(())` — no verification requested
   - If `verify_fn` is `Some(Bare(f))`, calls the custom data-only verification function
@@ -294,7 +294,6 @@ static FIELD_PANEL_NAME: FieldDescriptor<PanelEntityType> = FieldDescriptor {
     order: 0,
     read_fn: Some(ReadFn::Bare(|d| Some(FieldValue::String(d.data.name.clone())))),
     write_fn: Some(WriteFn::Bare(|d, v| { d.data.name = v.into_string()?; Ok(()) })),
-    index_fn: None,
     verify_fn: None,
 };
 
@@ -357,7 +356,6 @@ define_field!(
         order: 100,
         read_fn: Some(ReadFn::Bare(|d| Some(field_value!(d.data.code.clone())))),
         write_fn: Some(WriteFn::Bare(|d, v| { d.data.code = v.into_string()?; Ok(()) })),
-        index_fn: None,
         verify_fn: None,
     }
 );
@@ -374,10 +372,13 @@ values for one entity type. Assembled in a `LazyLock` and returned by
 
 - Lookup by canonical name or alias (`get_by_name`) — **exact match, no normalization**
 - Iteration in declaration order (`fields()`)
-- Partitioned iterators: `required_fields()`, `indexable_fields()`, `readable_fields()`, `writable_fields()`
+- Partitioned iterators: `required_fields()`, `readable_fields()`, `writable_fields()`
 - CRDT field list: `crdt_fields()` — `(name, CrdtFieldType)` for non-`Derived` fields
 - Dispatch helpers: `read_field_value(name, id, schedule)`, `write_field_value(name, id, schedule, value)`
-- Index matching: `match_index(query, data)` — best `MatchPriority` across all indexable fields
+
+Entity-level text matching is no longer part of the `FieldSet` API — it is
+provided by the `EntityMatcher` trait on the entity type; see
+`conversion-and-lookup.md`.
 
 ### Construction via inventory
 

@@ -112,19 +112,47 @@ Het vs homo is determined at runtime by `TypeId::of::<L::InternalData>() == Type
 
 ### Query system
 
+Entity lookup is provided by free functions in `schedule-core::lookup`:
+
 ```rust
-pub fn find<E: EntityType>(&self, query: &str) -> Vec<(EntityId<E>, MatchPriority)>;
-pub fn find_first<E: EntityType>(&self, query: &str) -> Option<EntityId<E>>;
+pub fn lookup<E: EntityMatcher>(
+    schedule: &Schedule,
+    query: &str,
+    cardinality: FieldCardinality,
+) -> Result<Vec<EntityId<E>>, LookupError>;
+
+pub fn lookup_or_create<E: EntityCreatable>(
+    schedule: &mut Schedule,
+    query: &str,
+    cardinality: FieldCardinality,
+) -> Result<Vec<EntityId<E>>, LookupError>;
+
+// Convenience helpers:
+pub fn lookup_single<E: EntityMatcher>(schedule: &Schedule, query: &str)
+    -> Result<EntityId<E>, LookupError>;
+pub fn lookup_list<E: EntityMatcher>(schedule: &Schedule, query: &str)
+    -> Result<Vec<EntityId<E>>, LookupError>;
+pub fn lookup_or_create_single<E: EntityCreatable>(...)
+    -> Result<EntityId<E>, LookupError>;
+pub fn lookup_or_create_list<E: EntityCreatable>(...)
+    -> Result<Vec<EntityId<E>>, LookupError>;
 ```
 
-Both methods call `E::field_set().match_index(query, data)` for each entity of
-type `E`, returning results in `MatchPriority` order. This enables `O(n)`
-text search without a separate index. `find_first` is wired as the default
-implementation of `EntityType::lookup_by_match_index`.
+Entity types implement [`EntityMatcher::match_entity`] to own their holistic
+match logic (combining any fields they choose), returning a `u8`
+[`MatchPriority`] score (`NO_MATCH` = 0 … `EXACT_MATCH` = 255). Types that
+support find-or-create additionally implement [`EntityCreatable`]. This
+replaced the previous per-field `IndexableField<E>` / `index_fn` approach.
 
-Tagged presenter lookup (`find_tagged_presenter` / `find_or_create_tagged_presenter`
-in `presenter.rs`) uses `find` / `find_first` internally. See
-`conversion-and-lookup.md` for the full tagged credit-string format.
+The lookup algorithm splits queries at `,` / `;`, fast-paths bare and
+tagged UUIDs (`"type_name:<uuid>"`), prefers full-string matches over
+partial-token matches on ties, enforces cardinality throughout, and defers
+creation until after the pre-create cardinality check.
+
+Tagged presenter lookup (`find_tagged_presenter` /
+`find_or_create_tagged_presenter` in `presenter.rs`) composes on top of
+these primitives. See `conversion-and-lookup.md` for the full tagged
+credit-string format.
 
 Relationship fields exposed via computed fields on node entities:
 
