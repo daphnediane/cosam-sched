@@ -23,7 +23,7 @@
 //! - Mutable: [`resolve_one`], [`resolve_optional`], [`resolve_many`]
 
 use crate::entity::{EntityId, EntityType, RuntimeEntityId};
-use crate::lookup::{lookup_single, EntityMatcher, EntityScannable};
+use crate::lookup::EntityMatcher;
 use crate::schedule::Schedule;
 use crate::value::{ConversionError, FieldValue, FieldValueItem};
 
@@ -647,6 +647,7 @@ pub fn resolve_many<M: FieldTypeMapping, C: FieldValueConverter<M>>(
 mod tests {
     use super::*;
     use crate::field_value;
+    use crate::lookup::{lookup_single, EntityScannable};
     use crate::value::FieldTypeItem;
 
     // Simple converter that uses default implementations
@@ -765,6 +766,7 @@ mod tests {
     }
 
     #[test]
+    #[allow(clippy::approx_constant)] // 3.14 is a sample float, not π
     fn test_as_string_from_field_value_item_converts_float() {
         let item = FieldValueItem::Float(3.14);
         assert_eq!(AsString::from_field_value_item(item).unwrap(), "3.14");

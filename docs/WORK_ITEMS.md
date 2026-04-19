@@ -1,6 +1,6 @@
 # Cosplay America Schedule - Work Item
 
-Updated on: Sat Apr 18 20:07:32 2026
+Updated on: Sun Apr 19 18:01:10 2026
 
 ## Completed
 
@@ -18,6 +18,7 @@ Updated on: Sat Apr 18 20:07:32 2026
 * [FEATURE-038] Add a type-safe `FieldValueConverter<M>` trait and driver functions for converting
 `FieldValue` inputs to typed Rust outputs via a work-queue iteration pattern.
 * [FEATURE-043] Add a `verify` callback to `FieldDescriptor` for cross-field consistency checks after batch writes to computed fields.
+* [FEATURE-046] Add `FieldSet::write_multiple()` for atomic batch field updates with verification support.
 * [FEATURE-050] Add `FieldTypeItem` (scalar type tags) and `FieldType` (`Single`/`Optional`/`List`
 wrappers) to `value.rs` as `Copy` type-level mirrors of `FieldValueItem`/`FieldValue`.
 * [FEATURE-051] Add a `field_type: FieldType` field to `FieldDescriptor` and populate it in all
@@ -48,7 +49,7 @@ collection, and expose a `registered_entity_types()` accessor.
 
 ## Summary of Open Items
 
-**Total open items:** 25
+**Total open items:** 24
 
 * **Meta / Project-Level**
   * [META-001] Meta work item tracking the full multi-phase redesign of the schedule system. (Blocked by [META-003], [META-004], [META-005], [META-006], [META-007], [META-008])
@@ -75,7 +76,6 @@ reference and jump-starting new conventions.
   * [FEATURE-027] ([META-005]) Implement export of schedule data to the JSON format consumed by the calendar display widget.
   * [FEATURE-028] ([META-005]) Import schedule data from the existing XLSX spreadsheet format.
   * [FEATURE-029] ([META-005]) Export schedule data back to the XLSX spreadsheet format.
-  * [FEATURE-046] ([META-003]) Add `FieldSet::write_multiple()` for atomic batch field updates with verification support.
 
 * **Low Priority**
   * [CLI-030] ([META-006]) CLI tool for converting between schedule file formats (XLSX, JSON, widget JSON).
@@ -350,20 +350,6 @@ column layout, enabling round-trip with the import (FEATURE-028).
 
 ---
 
-### [FEATURE-046] FEATURE-046: Bulk Field Updates (FieldSet::write_multiple)
-
-**Status:** Open
-
-**Priority:** Medium
-
-**Summary:** Add `FieldSet::write_multiple()` for atomic batch field updates with verification support.
-
-**Part of:** [META-003]
-
-**Description:** Atomic batch update method for setting multiple fields on a single entity. Essential for interdependent computed fields (e.g., `start_time`, `end_time`, `duration`) where multiple fields must be written and then verified together.
-
----
-
 ### [FEATURE-034] Peer-to-Peer Schedule Sync Protocol
 
 **Status:** Open
@@ -615,7 +601,7 @@ to exchange CRDT changes and reconcile concurrent edits to the same fields.
 [FEATURE-035]: work-item/low/FEATURE-035.md
 [FEATURE-038]: work-item/done/FEATURE-038.md
 [FEATURE-043]: work-item/done/FEATURE-043.md
-[FEATURE-046]: work-item/medium/FEATURE-046.md
+[FEATURE-046]: work-item/done/FEATURE-046.md
 [FEATURE-050]: work-item/done/FEATURE-050.md
 [FEATURE-051]: work-item/done/FEATURE-051.md
 [META-001]: work-item/meta/META-001.md

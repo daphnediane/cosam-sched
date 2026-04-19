@@ -857,6 +857,7 @@ mod tests {
     }
 
     #[test]
+    #[allow(clippy::approx_constant)] // 3.14 is a sample float, not π
     fn test_into_field_value_item_scalars() {
         assert_eq!(42i64.into_field_value_item(), FieldValueItem::Integer(42));
         assert_eq!(7i32.into_field_value_item(), FieldValueItem::Integer(7));

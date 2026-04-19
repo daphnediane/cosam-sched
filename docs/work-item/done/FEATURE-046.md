@@ -6,7 +6,7 @@ Add `FieldSet::write_multiple()` for atomic batch field updates with verificatio
 
 ## Status
 
-Open
+Completed
 
 ## Priority
 
@@ -14,7 +14,12 @@ Medium
 
 ## Blocked By
 
-- FEATURE-020: Query System (provides field matching infrastructure)
+- FEATURE-020: Query System (provides field matching infrastructure) — completed
+
+## Related
+
+- FEATURE-017: Builder pattern (will use `write_multiple` internally)
+- FEATURE-043: Cross-field verification (provides the `verify_fn` infrastructure consumed here)
 
 ## Description
 
@@ -75,20 +80,25 @@ This method is what calls the `verify()` callbacks after batch writes. Single-fi
 
 ## Acceptance Criteria
 
-- [ ] `FieldRef<E>` enum with `Name` and `Descriptor` variants
-- [ ] `FieldSet::write_multiple()` method implemented
-- [ ] `FieldSetError` type with all variants
-- [ ] Unknown field detection for `FieldRef::Name`
-- [ ] Duplicate field handling
-- [ ] Verification phase runs after writes
-- [ ] Unit tests for batch updates
-- [ ] Unit tests for verification integration
-- [ ] Unit tests for `VerifyFn::Bare` custom verification
-- [ ] Unit tests for `VerifyFn::Schedule` custom verification
-- [ ] Unit tests for `VerifyFn::ReRead` read-back verification
+- [x] `FieldRef<E>` enum with `Name` and `Descriptor` variants (+ `From` conversions)
+- [x] `FieldSet::write_multiple()` method implemented
+- [x] `FieldSetError` type with all variants (`UnknownField`, `DuplicateField`, `WriteError`, `VerificationError`)
+- [x] Unknown field detection for `FieldRef::Name`
+- [x] Duplicate field handling (by pointer identity; catches name+descriptor and canonical+alias)
+- [x] Verification phase runs after writes
+- [x] Unit tests for batch updates (`Name`, `Descriptor`, mixed)
+- [x] Unit tests for verification integration
+- [x] Unit tests for `VerifyFn::Bare` custom verification
+- [x] Unit tests for `VerifyFn::Schedule` custom verification
+- [x] Unit tests for `VerifyFn::ReRead` read-back verification
+
+## Additional deliverables
+
+- `FieldSet::write_many` — ergonomic wrapper accepting any `IntoFieldValue`-typed value, used by the `define_entity_builder!` macro in FEATURE-017.
 
 ## Notes
 
-- Split out from FEATURE-020 to allow separate prioritization
-- Uses FEATURE-043 verification callbacks (verify infrastructure is complete)
-- Consider `repeatable` field flag for fields that can be set multiple times
+- Split out from FEATURE-020 to allow separate prioritization.
+- Consumes FEATURE-043's verification callbacks.
+- No rollback in `write_multiple` — first error aborts and earlier writes remain applied. Entity-level rollback is the builder's responsibility (FEATURE-017).
+- `repeatable` field flag deferred; not needed for the current call sites.

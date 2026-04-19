@@ -517,6 +517,7 @@ mod tests {
     }
 
     #[test]
+    #[allow(clippy::clone_on_copy)] // explicitly exercising the Clone impl
     fn test_runtime_entity_id_clone() {
         let rid = unsafe {
             RuntimeEntityId::from_uuid(
