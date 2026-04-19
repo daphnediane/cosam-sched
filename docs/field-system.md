@@ -298,36 +298,29 @@ static FIELD_PANEL_NAME: FieldDescriptor<PanelEntityType> = FieldDescriptor {
     verify_fn: None,
 };
 
-static FIELD_PANEL_PRESENTERS: FieldDescriptor<PanelEntityType> = FieldDescriptor {
-    name: "presenters",
-    display: "Presenters",
-    description: "Presenters assigned to this panel.",
+// Edge-backed fields use macros that call Schedule::edges_from / edge_set:
+edge_list_field_rw!(FIELD_PRESENTERS, PanelEntityType, PanelInternalData,
+    target: PresenterEntityType,
+    name: "presenters", display: "Presenters",
+    desc: "All presenters credited for this panel.",
     aliases: &["presenter"],
-    required: false,
-    crdt_type: CrdtFieldType::Derived,
-    field_type: FieldType::List(FieldTypeItem::EntityIdentifier("presenter")),
     example: "[]",
-    order: 2700,
-    read_fn: Some(ReadFn::Schedule(|schedule, id| { /* query edge index */ todo!() })),
-    write_fn: Some(WriteFn::Schedule(|schedule, id, v| { /* mutate edge index */ todo!() })),
-    index_fn: None,
-    verify_fn: None,
-};
+    order: 2700);
 ```
 
 ### Shared declaration macros
 
 Uniformly-shaped descriptors (required/optional strings, booleans, optional
-integers, plain-text fields, edge-backed stubs) are declared via shared
+integers, plain-text fields, edge-backed fields) are declared via shared
 `macro_rules!` helpers in `crates/schedule-core/src/field_macros.rs`:
 `req_string_field!`, `opt_string_field!`, `opt_text_field!`, `bool_field!`,
 `opt_i64_field!`, `edge_list_field!`, `edge_list_field_rw!`,
-`edge_none_field_rw!`, `edge_mutator_field!`. Each macro takes the entity type
-and `InternalData` type explicitly, and assumes the `data: CommonData`
-convention. Edge macros additionally take a `target: EntityType` parameter
-and derive the entity type name from `EntityType::TYPE_NAME`. Bespoke
-descriptors (computed projections, fields with custom parse logic) stay as
-hand-written struct literals.
+`edge_list_field_to_rw!`, `edge_none_field_rw!`, `edge_add_field!`,
+`edge_remove_field!`. Each macro takes the entity type and `InternalData` type
+explicitly and assumes the `data: CommonData` convention. Edge macros take a
+`target: EntityType` (or `source: EntityType`) parameter. Bespoke descriptors
+(BFS transitive-closure fields, fields with custom parse logic) stay as
+hand-written struct literals wrapped in `define_field!`.
 
 ### Inventory-based field registration
 

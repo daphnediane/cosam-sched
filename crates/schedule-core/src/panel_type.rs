@@ -110,7 +110,7 @@ pub struct PanelTypeInternalData {
 pub struct PanelTypeData {
     #[serde(flatten)]
     pub data: PanelTypeCommonData,
-    /// Panels of this type — assembled from edge maps (deferred to FEATURE-018).
+    /// Panels of this type — assembled from edge maps.
     #[serde(skip_serializing_if = "Vec::is_empty", default)]
     pub panels: Vec<PanelId>,
 }
@@ -143,7 +143,7 @@ impl EntityType for PanelTypeEntityType {
     fn export(internal: &Self::InternalData) -> Self::Data {
         PanelTypeData {
             data: internal.data.clone(),
-            panels: Vec::new(), // Edge-backed; populated in FEATURE-018
+            panels: Vec::new(), // Edge-backed; read via field system
         }
     }
 
@@ -329,8 +329,7 @@ define_field!(
     }
 );
 
-// Panels of this type — edge-backed computed field (deferred to FEATURE-018).
-// Populated from edge maps when relationship storage is implemented.
+// Panels of this type — reverse het edge from Panel → PanelType.
 edge_list_field!(FIELD_PANELS, PanelTypeEntityType, PanelTypeInternalData, target: PanelEntityType,
     name: "panels", display: "Panels",
     desc: "Panels of this type.",

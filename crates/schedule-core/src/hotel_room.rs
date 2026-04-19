@@ -13,8 +13,8 @@
 //! - [`HotelRoomInternalData`] — `EntityType::InternalData`
 //! - [`HotelRoomData`] — export/API view including flattened edge relationships
 //!
-//! The reverse `event_rooms` lookup is an edge-backed computed stub here and
-//! fully wired in FEATURE-018.
+//! The reverse `event_rooms` lookup is an edge-backed computed field wired
+//! through `Schedule::edges_from`.
 
 use crate::converter::EntityStringResolver;
 use crate::entity::{EntityId, EntityType, FieldSet, UuidPreference};
@@ -69,8 +69,7 @@ pub struct HotelRoomInternalData {
 pub struct HotelRoomData {
     #[serde(flatten)]
     pub data: HotelRoomCommonData,
-    /// Event rooms contained within this hotel room — from edge maps
-    /// (deferred to FEATURE-018).
+    /// Event rooms contained within this hotel room — from edge maps.
     #[serde(skip_serializing_if = "Vec::is_empty", default)]
     pub event_rooms: Vec<EventRoomId>,
 }

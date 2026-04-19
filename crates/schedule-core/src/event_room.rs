@@ -13,7 +13,8 @@
 //! - [`EventRoomData`] — export/API view including flattened edge relationships
 //!
 //! Room hierarchy (event rooms inside hotel rooms) and scheduling links are
-//! edge-backed computed stubs here, fully wired in FEATURE-018.
+//! edge-backed computed fields wired through `Schedule::edges_from` /
+//! `Schedule::edges_to`.
 
 use crate::converter::EntityStringResolver;
 use crate::entity::{EntityId, EntityType, FieldSet, UuidPreference};
@@ -227,7 +228,7 @@ opt_i64_field!(FIELD_SORT_KEY, EventRoomEntityType, EventRoomInternalData, sort_
     example: "10",
     order: 200);
 
-// ── Edge-backed computed field stubs (full wiring in FEATURE-018) ─────────────
+// ── Edge-backed computed fields ───────────────────────────────────────────────
 
 edge_list_field_rw!(FIELD_HOTEL_ROOMS, EventRoomEntityType, EventRoomInternalData, target: HotelRoomEntityType,
     name: "hotel_rooms", display: "Hotel Rooms",

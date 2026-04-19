@@ -35,19 +35,21 @@
 //! - [`bool_field!`] — plain `bool` (Scalar CRDT).
 //! - [`opt_i64_field!`] — `Option<i64>` (Scalar CRDT).
 //!
-//! Edge-stub macros (placeholders until FEATURE-018 wires real edge storage):
+//! Edge-backed field macros (use `Schedule::edges_from` / `edges_to`):
 //!
-//! - [`edge_list_field!`] — read-only `FieldValue::List(Vec::new())`.
-//! - [`edge_list_field_rw!`] — read empty list + no-op write.
-//! - [`edge_none_field_rw!`] — read empty list + no-op write (singular edge).
-//! - [`edge_mutator_field!`] — write-only no-op (for `add_*`/`remove_*`).
+//! - [`edge_list_field!`] — read-only list of neighbors via `edges_from`.
+//! - [`edge_list_field_rw!`] — read + write (forward direction, `edge_set`).
+//! - [`edge_list_field_to_rw!`] — read + write (reverse direction, `edge_set_to`).
+//! - [`edge_none_field_rw!`] — read + write (forward, `edge_set`; singular edge).
+//! - [`edge_add_field!`] — write-only, `edge_add` for each item.
+//! - [`edge_remove_field!`] — write-only, `edge_remove` for each item.
 //!
 //! ## When to hand-write instead
 //!
 //! Bespoke descriptors — computed fields with custom read/write logic, fields
-//! with non-uniform type conversion (e.g. `TimeRange` projections), and real
-//! edge mutators once FEATURE-018 lands — stay as plain
-//! `FieldDescriptor { ... }` literals wrapped in [`define_field!`].
+//! with non-uniform type conversion (e.g. `TimeRange` projections), BFS
+//! transitive-closure fields (inclusive_groups, inclusive_panels, etc.) — stay
+//! as plain `FieldDescriptor { ... }` literals wrapped in [`define_field!`].
 //!
 //! ## Hand-written descriptor registration
 //!

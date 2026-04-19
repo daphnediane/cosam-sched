@@ -12,9 +12,10 @@
 //! - [`PresenterInternalData`] — `EntityType::InternalData`
 //! - [`PresenterData`] — export/API view including flattened edge relationships
 //!
-//! Groups and group membership are modeled as edges between presenters; the
-//! edge-backed computed fields (`groups`, `members`, `inclusive_*`, `panels`)
-//! are stubs here and fully wired in FEATURE-018.
+//! Groups and group membership are modeled as edges between presenters,
+//! accessed through `Schedule::edges_from` / `Schedule::edges_to`.
+//! Tagged credit-string resolution (`[Kind:]Name[=Group]`) is implemented
+//! by `find_tagged_presenter` and `find_or_create_tagged_presenter`.
 
 use crate::converter::EntityStringResolver;
 use crate::entity::{EntityId, EntityType, FieldSet, UuidPreference};
@@ -215,8 +216,8 @@ pub struct PresenterCommonData {
     pub bio: Option<String>,
 
     /// Marks this entity as an explicit group (vs. an individual presenter).
-    /// The computed `is_group` field may also reflect edge-backed membership
-    /// once FEATURE-018 lands.
+    /// The computed `is_group` field also returns `true` when the presenter has
+    /// members via edge-backed membership (checked via `edges_to`).
     #[serde(default)]
     pub is_explicit_group: bool,
 
@@ -260,10 +261,10 @@ pub struct PresenterInternalData {
 pub struct PresenterData {
     #[serde(flatten)]
     pub data: PresenterCommonData,
-    /// Groups this presenter belongs to — from edge maps (FEATURE-018).
+    /// Groups this presenter belongs to — from edge maps.
     #[serde(skip_serializing_if = "Vec::is_empty", default)]
     pub group_ids: Vec<PresenterId>,
-    /// Panels this presenter is on — from edge maps (FEATURE-018).
+    /// Panels this presenter is on — from edge maps.
     #[serde(skip_serializing_if = "Vec::is_empty", default)]
     pub panels: Vec<PanelId>,
 }
@@ -312,7 +313,7 @@ inventory::submit! {
 }
 inventory::collect!(crate::entity::CollectedField<PresenterEntityType>);
 
-// ── Tagged presenter lookup functions (FEATURE-020) ───────────────────────────
+// ── Tagged presenter lookup functions ─────────────────────────────────────────
 
 /// Parsed representation of a tagged presenter credit string.
 ///
@@ -680,7 +681,7 @@ bool_field!(FIELD_ALWAYS_SHOWN_IN_GROUP, PresenterEntityType, PresenterInternalD
     example: "false",
     order: 500);
 
-// ── Computed / edge-backed field stubs (full wiring in FEATURE-018) ───────────
+// ── Computed / edge-backed fields ─────────────────────────────────────────────
 
 define_field!(
     /// `is_group` — `true` if `is_explicit_group` is set OR this presenter has

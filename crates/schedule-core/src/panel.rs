@@ -15,8 +15,8 @@
 //! Time information is held in a [`TimeRange`] backing field (`time_slot`)
 //! and exposed through computed `start_time`, `end_time`, and `duration`
 //! fields. Relationship data (presenters, event rooms, panel type) is modeled
-//! via edge-backed computed fields; the fields are declared here as stubs and
-//! fully wired up in FEATURE-018.
+//! via edge-backed computed fields wired through `Schedule::edges_from` /
+//! `Schedule::edges_to` using `ReadFn::Schedule` / `WriteFn::Schedule`.
 
 use crate::converter::EntityStringResolver;
 use crate::entity::{EntityId, EntityType, FieldSet};
@@ -211,12 +211,10 @@ define_field!(
     /// Panel `code` (Uniq ID) — stored as the parsed [`PanelUniqId`] on
     /// [`PanelInternalData`], exposed to the field system as a string.
     ///
-    /// Hand-written because the storage type is not a plain `String` and because
-    /// a future edge-recomputation pass will need to react to code changes:
-    /// panel ↔ panel-type linkage is keyed off the two-letter prefix, and changing
-    /// a panel's code may reassign it to a different `PanelType`. The write path
-    /// here performs the parse and mutation only; edge refresh is deferred to
-    /// FEATURE-018.
+    /// Hand-written because the storage type is not a plain `String`.
+    /// Note: changing a panel's code prefix may reassign it to a different
+    /// `PanelType`; the write path parses and mutates only — callers that change
+    /// the prefix should also update the `panel_type` edge accordingly.
     static FIELD_CODE: FieldDescriptor<PanelEntityType> = FieldDescriptor {
         name: "code",
         display: "Uniq ID",
@@ -232,8 +230,7 @@ define_field!(
         })),
         write_fn: Some(WriteFn::Bare(|d: &mut PanelInternalData, v| {
             let s = v.into_string()?;
-            // TODO(FEATURE-018): refresh edges keyed by prefix/code when
-            // edge storage lands (panel ↔ panel_type linkage depends on this).
+            // Callers that change the prefix should update the panel_type edge.
             match PanelUniqId::parse(&s) {
                 Some(parsed) => {
                     d.code = parsed;
@@ -587,11 +584,7 @@ define_field!(
     }
 );
 
-// ── Edge-backed computed field stubs (full wiring in FEATURE-018) ─────────────
-//
-// Reads return empty lists (or `None` for the singular `panel_type` field)
-// and writes are no-ops until edge storage lands. All stubs are declared via
-// the shared edge-stub macros in `crate::field_macros`.
+// ── Edge-backed computed fields ───────────────────────────────────────────────
 
 edge_list_field_rw!(FIELD_PRESENTERS, PanelEntityType, PanelInternalData, target: PresenterEntityType,
     name: "presenters", display: "Presenters",

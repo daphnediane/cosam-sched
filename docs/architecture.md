@@ -106,8 +106,25 @@ All entity relationships are stored in a single `RawEdgeMap` on `Schedule`.
 - `edges_from::<L, R>(id)` — R entities reachable from `id` via L→R edge
 - `edges_to::<L, R>(id)` — L entities pointing to `id`
 - `edge_add` / `edge_remove` / `edge_set` — mutators
+- `edge_set_to` — reverse-direction bulk set (used for homo reverse fields like `members`)
 
 Het vs homo is determined at runtime by `TypeId::of::<L::InternalData>() == TypeId::of::<R::InternalData>()`.
+
+### Query system
+
+```rust
+pub fn find<E: EntityType>(&self, query: &str) -> Vec<(EntityId<E>, MatchPriority)>;
+pub fn find_first<E: EntityType>(&self, query: &str) -> Option<EntityId<E>>;
+```
+
+Both methods call `E::field_set().match_index(query, data)` for each entity of
+type `E`, returning results in `MatchPriority` order. This enables `O(n)`
+text search without a separate index. `find_first` is wired as the default
+implementation of `EntityType::lookup_by_match_index`.
+
+Tagged presenter lookup (`find_tagged_presenter` / `find_or_create_tagged_presenter`
+in `presenter.rs`) uses `find` / `find_first` internally. See
+`conversion-and-lookup.md` for the full tagged credit-string format.
 
 Relationship fields exposed via computed fields on node entities:
 

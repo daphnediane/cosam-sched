@@ -292,23 +292,65 @@ This allows consistent display formatting across the application while maintaini
 
 ## EntityType Integration
 
-Entity types implement `EntityStringResolver` for custom resolution:
+Entity types implement `EntityStringResolver` for custom resolution. The trait
+provides a default `lookup_by_uuid_string` that handles both bare UUID strings
+and `type_name-<uuid>` prefixed strings, checking entity existence in the schedule.
+
+All five entity types implement at minimum `entity_to_string` (returns the
+human-readable name). Types that support find-or-create also override
+`lookup_string` and `lookup_or_create_string`.
+
+### Presenter tagged credit strings
+
+`PresenterEntityType` overrides both `lookup_string` and `lookup_or_create_string`
+to support the full tagged credit-string format:
+
+```
+[Kind:][ < ]Name[ = [ = ]Group]
+```
+
+| Form | Meaning |
+|------|---------|
+| `P:Alice` | Alice with Panelist rank |
+| `G:Alice` | Alice with Guest rank |
+| `Alice=MyBand` | Alice in group MyBand |
+| `P:Alice==MyBand` | Alice in MyBand; group sets `always_shown_in_group` |
+| `P:<Alice=MyBand` | Alice (always_grouped) in MyBand |
+| `==MyBand` | Group-only: create/find MyBand as explicit group (always_shown) |
+| `=MyBand` | Group-only: find group named MyBand |
+| `P:==MyBand` | Create MyBand as explicit always-shown group with Panelist rank |
+
+- **Kind prefix**: one or more chars from `G/J/S/I/P/F`; highest-priority (lowest
+  number) rank among them is applied.
+- **Rank upgrade**: existing presenters are upgraded when the requested rank is
+  higher (lower priority number); ranks are never downgraded; bare names (no `Kind:`)
+  never change an existing presenter's rank.
+- **Group detection** (`=Group` and group-only forms): a presenter is treated as
+  a group if `is_explicit_group` is set **or** it has at least one member edge.
 
 ```rust
 impl EntityStringResolver for PresenterEntityType {
     fn lookup_string(schedule: &Schedule, s: &str) -> Option<EntityId<Self>> {
-        // Try UUID parsing first
-        if let Some(id) = Self::lookup_by_uuid_string(schedule, s) {
-            return Some(id);
-        }
-        // Custom tagged presenter resolution
-        Self::find_or_create_tagged(schedule, s)
+        Self::lookup_by_uuid_string(schedule, s)
+            .or_else(|| find_tagged_presenter(schedule, s))
     }
-    
-    fn lookup_or_create_string(schedule: &mut Schedule, s: &str) -> Result<EntityId<Self>, ConversionError> {
-        // Auto-create presenters for tags like "P:Name", "G:Name=Team"
-        Self::find_or_create_tagged(schedule, s)
-            .map_err(|_| ConversionError::ParseError { message: "Failed to create presenter".to_string() })
+
+    fn lookup_or_create_string(schedule: &mut Schedule, s: &str)
+        -> Result<EntityId<Self>, ConversionError>
+    {
+        if let Some(id) = Self::lookup_by_uuid_string(schedule, s) {
+            return Ok(id);
+        }
+        find_or_create_tagged_presenter(schedule, s)
     }
 }
 ```
+
+### Other entity types
+
+`HotelRoomEntityType` and `EventRoomEntityType` also override
+`lookup_or_create_string` to find-or-create by room name using a deterministic
+v5 UUID derived from the name.
+
+`PanelEntityType` and `PanelTypeEntityType` use the default implementation
+(UUID lookup then `match_index` name search; no auto-creation).
