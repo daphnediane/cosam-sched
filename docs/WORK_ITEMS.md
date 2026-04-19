@@ -1,6 +1,6 @@
 # Cosplay America Schedule - Work Item
 
-Updated on: Sat Apr 18 19:57:54 2026
+Updated on: Sat Apr 18 20:07:32 2026
 
 ## Completed
 
@@ -14,6 +14,7 @@ Updated on: Sat Apr 18 19:57:54 2026
 * [FEATURE-016] Implement the remaining core entity data structs and field descriptors.
 * [FEATURE-018] Implement typed relationship storage for entity-to-entity relationships.
 * [FEATURE-019] Implement the `Schedule` struct and `EntityStorage` for managing all entities and relationships.
+* [FEATURE-020] Implement field-based search, matching, and bulk update operations.
 * [FEATURE-038] Add a type-safe `FieldValueConverter<M>` trait and driver functions for converting
 `FieldValue` inputs to typed Rust outputs via a work-queue iteration pattern.
 * [FEATURE-043] Add a `verify` callback to `FieldDescriptor` for cross-field consistency checks after batch writes to computed fields.
@@ -47,7 +48,7 @@ collection, and expose a `registered_entity_types()` accessor.
 
 ## Summary of Open Items
 
-**Total open items:** 26
+**Total open items:** 25
 
 * **Meta / Project-Level**
   * [META-001] Meta work item tracking the full multi-phase redesign of the schedule system. (Blocked by [META-003], [META-004], [META-005], [META-006], [META-007], [META-008])
@@ -65,7 +66,6 @@ XLSX import/export. (Blocked by [META-003], [META-004])
 * **Medium Priority**
   * [BUGFIX-045] In `scratch/field_update_logic.rs`, duration values are incorrectly stored as `FieldValue::Integer(minutes)` instead of `FieldValue::Duration(Duration)`.
   * [FEATURE-017] ([META-003]) Implement entity builders for constructing entity data with UUID assignment.
-  * [FEATURE-020] ([META-003]) Implement field-based search, matching, and bulk update operations.
   * [FEATURE-022] ([META-004]) Design the abstraction layer between the entity/field system and the CRDT backend.
   * [FEATURE-023] ([META-004]) Replace direct `HashMap` entity storage with CRDT-backed storage using automerge.
   * [FEATURE-024] ([META-004]) Implement change tracking, diff computation, and merge for CRDT documents.
@@ -208,21 +208,6 @@ changes as reversible operations, enabling undo/redo in both CLI and GUI context
 
 **Description:** The old proc-macro generated per-entity builders with `with_*` setters and
 `build()` methods. Without the macro, builders need explicit implementation.
-
----
-
-### [FEATURE-020] Query System
-
-**Status:** Open
-
-**Priority:** Medium
-
-**Summary:** Implement field-based search, matching, and bulk update operations.
-
-**Part of:** [META-003]
-
-**Description:** The query system enables finding and updating entities using field-based
-criteria rather than direct UUID access.
 
 ---
 
@@ -616,7 +601,7 @@ to exchange CRDT changes and reconcile concurrent edits to the same fields.
 [FEATURE-017]: work-item/medium/FEATURE-017.md
 [FEATURE-018]: work-item/done/FEATURE-018.md
 [FEATURE-019]: work-item/done/FEATURE-019.md
-[FEATURE-020]: work-item/medium/FEATURE-020.md
+[FEATURE-020]: work-item/done/FEATURE-020.md
 [FEATURE-021]: work-item/high/FEATURE-021.md
 [FEATURE-022]: work-item/medium/FEATURE-022.md
 [FEATURE-023]: work-item/medium/FEATURE-023.md

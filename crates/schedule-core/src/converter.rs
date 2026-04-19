@@ -465,15 +465,18 @@ pub trait EntityStringResolver: EntityType {
             .collect()
     }
 
-    /// Lookup by UUID string (common implementation).
+    /// Lookup by UUID string (bare UUID or `type_name-<uuid>` prefixed form).
     ///
-    /// Default implementation parses UUID and looks up the entity.
-    /// Stub implementation - to be filled in when Schedule has get_entity_by_uuid.
-    fn lookup_by_uuid_string(_schedule: &Schedule, s: &str) -> Option<EntityId<Self>> {
-        // TODO: Implement when Schedule has get_entity_by_uuid method (FEATURE-019)
-        // For now, just parse the UUID and return None (entity lookup not available)
-        uuid::Uuid::parse_str(s).ok()?;
-        None
+    /// Returns `Some(id)` only when the UUID is present in the schedule for this
+    /// entity type; returns `None` when the string is not a UUID, the UUID is nil,
+    /// or the entity is not found.
+    fn lookup_by_uuid_string(schedule: &Schedule, s: &str) -> Option<EntityId<Self>> {
+        let bare = s
+            .strip_prefix(&format!("{}-", Self::TYPE_NAME))
+            .unwrap_or(s);
+        let uuid = uuid::Uuid::parse_str(bare).ok()?;
+        let id = EntityId::<Self>::new(uuid)?;
+        schedule.get_internal::<Self>(id).is_some().then_some(id)
     }
 }
 

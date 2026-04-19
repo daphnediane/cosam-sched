@@ -17,7 +17,7 @@
 //! are stubs here and fully wired in FEATURE-018.
 
 use crate::converter::EntityStringResolver;
-use crate::entity::{EntityId, EntityType, FieldSet};
+use crate::entity::{EntityId, EntityType, FieldSet, UuidPreference};
 use crate::field::{FieldDescriptor, ReadFn, WriteFn};
 use crate::field_macros::{
     bool_field, define_field, edge_add_field, edge_list_field_rw, edge_list_field_to_rw,
@@ -314,33 +314,285 @@ inventory::collect!(crate::entity::CollectedField<PresenterEntityType>);
 
 // ── Tagged presenter lookup functions (FEATURE-020) ───────────────────────────
 
-/// Find a presenter by tagged form (e.g., "G:Name" for group, "P:Name=Group" for presenter with group).
+/// Parsed representation of a tagged presenter credit string.
 ///
-/// This is a placeholder implementation to be filled in during FEATURE-020.
-/// For now, it returns None.
+/// Format: `[Kind:][ < ]Name[ = [ = ]Group]`
+///
+/// - `Kind:` — one or more rank prefix chars (`G`/`J`/`S`/`I`/`P`/`F`);
+///   highest-priority rank among them is used.
+/// - `<Name` — sets `always_grouped = true` on the member.
+/// - `=Group` — links member to a group; group becomes `is_explicit_group`.
+/// - `==Group` — same, and also sets `always_shown_in_group = true` on the group.
+/// - Empty name or name == group (case-insensitive) → group-only form; returns
+///   the group's `PresenterId` rather than a member.
+struct ParsedTag<'a> {
+    required_rank: Option<PresenterRank>,
+    name: &'a str,
+    group_name: Option<&'a str>,
+    always_grouped: bool,
+    always_shown: bool,
+}
+
+impl<'a> ParsedTag<'a> {
+    fn is_group_only(&self) -> bool {
+        self.name.is_empty()
+            || self
+                .group_name
+                .is_some_and(|g| g.eq_ignore_ascii_case(self.name))
+    }
+}
+
+fn parse_tag(input: &str) -> ParsedTag<'_> {
+    // Parse optional Kind: prefix (one or more alpha chars followed by ':')
+    let (required_rank, rest) = match input.find(':') {
+        Some(colon) if colon > 0 && input[..colon].chars().all(|c| c.is_alphabetic()) => {
+            let flag_str = &input[..colon];
+            let mut best: Option<PresenterRank> = None;
+            let mut valid = true;
+            for c in flag_str.chars() {
+                match PresenterRank::from_prefix_char(c) {
+                    Some(rank) => {
+                        best = Some(match best {
+                            None => rank,
+                            Some(b) if rank.priority() < b.priority() => rank,
+                            Some(b) => b,
+                        });
+                    }
+                    None => {
+                        valid = false;
+                        break;
+                    }
+                }
+            }
+            if valid {
+                (best, input[colon + 1..].trim())
+            } else {
+                (None, input)
+            }
+        }
+        _ => (None, input),
+    };
+
+    // Split on first '=' to get name_raw and group_part
+    let (name_raw, group_part) = match rest.find('=') {
+        Some(eq) => (&rest[..eq], Some(&rest[eq + 1..])),
+        None => (rest, None),
+    };
+
+    // Strip '<' from name → always_grouped
+    let (name, always_grouped) = match name_raw.trim().strip_prefix('<') {
+        Some(stripped) => (stripped.trim(), true),
+        None => (name_raw.trim(), false),
+    };
+
+    // Strip leading '=' from group_part → always_shown
+    let (group_name, always_shown) = match group_part {
+        None => (None, false),
+        Some(g) => match g.strip_prefix('=') {
+            Some(stripped) => {
+                let gn = stripped.trim();
+                ((!gn.is_empty()).then_some(gn), true)
+            }
+            None => {
+                let gn = g.trim();
+                ((!gn.is_empty()).then_some(gn), false)
+            }
+        },
+    };
+
+    ParsedTag {
+        required_rank,
+        name,
+        group_name,
+        always_grouped,
+        always_shown,
+    }
+}
+
+/// Return `true` if `id` acts as a group: either `is_explicit_group` flag is set
+/// or the presenter has at least one member via the homo edge map.
+fn is_group_entity(schedule: &crate::schedule::Schedule, id: PresenterId) -> bool {
+    schedule
+        .get_internal::<PresenterEntityType>(id)
+        .is_some_and(|d| d.data.is_explicit_group)
+        || !schedule
+            .edges_to::<PresenterEntityType, PresenterEntityType>(id)
+            .is_empty()
+}
+
+/// Find a group presenter matching `name`, using `is_group_entity` as the filter.
+fn find_group_by_name(schedule: &crate::schedule::Schedule, name: &str) -> Option<PresenterId> {
+    schedule
+        .find::<PresenterEntityType>(name)
+        .into_iter()
+        .find_map(|(id, _)| is_group_entity(schedule, id).then_some(id))
+}
+
+/// Find a presenter by tagged credit string; does not create entities.
+///
+/// Does not handle UUID strings — callers should resolve UUIDs before calling
+/// (see [`EntityStringResolver::lookup_string`]).
+///
+/// Returns `None` when:
+/// - The tagged string is empty.
+/// - No matching presenter / group is found.
+/// - The found presenter's rank is strictly lower (higher priority number) than
+///   the required `Kind:` prefix rank.
+/// - A `=Group` suffix is given but the found presenter is not a member.
 pub fn find_tagged_presenter(
-    _schedule: &crate::schedule::Schedule,
-    _tagged: &str,
+    schedule: &crate::schedule::Schedule,
+    tagged: &str,
 ) -> Option<PresenterId> {
-    // TODO: Implement tagged presenter lookup in FEATURE-020
-    None
+    let tagged = tagged.trim();
+    if tagged.is_empty() {
+        return None;
+    }
+
+    let parsed = parse_tag(tagged);
+
+    let found_id = if parsed.is_group_only() {
+        let group_name = parsed
+            .group_name
+            .or((!parsed.name.is_empty()).then_some(parsed.name))?;
+        find_group_by_name(schedule, group_name)?
+    } else {
+        let id = schedule.find_first::<PresenterEntityType>(parsed.name)?;
+        // Verify group membership if a group suffix is given
+        if let Some(group_name) = parsed.group_name {
+            let in_group = schedule
+                .edges_from::<PresenterEntityType, PresenterEntityType>(id)
+                .into_iter()
+                .any(|gid| {
+                    schedule
+                        .get_internal::<PresenterEntityType>(gid)
+                        .is_some_and(|d| d.data.name.eq_ignore_ascii_case(group_name))
+                });
+            if !in_group {
+                return None;
+            }
+        }
+        id
+    };
+
+    // Rank gate: found rank must be at least as high as required (lower priority number)
+    if let Some(ref req) = parsed.required_rank {
+        let found_priority = schedule
+            .get_internal::<PresenterEntityType>(found_id)
+            .map_or(u8::MAX, |d| d.data.rank.priority());
+        if found_priority > req.priority() {
+            return None;
+        }
+    }
+
+    Some(found_id)
 }
 
-/// Find or create a presenter by tagged form (e.g., "G:Name" for group, "P:Name=Group" for presenter with group).
+/// Find or create a presenter by tagged credit string.
 ///
-/// This is a placeholder implementation to be filled in during FEATURE-020.
-/// For now, it returns an error.
+/// Creates entities as needed. Existing presenter ranks are upgraded when the
+/// `Kind:` prefix specifies a higher rank (lower priority number); they are
+/// never downgraded, and bare-name (no `Kind:`) calls never change rank.
+///
+/// Does not handle UUID strings — callers should resolve UUIDs before calling
+/// (see [`EntityStringResolver::lookup_or_create_string`]).
 pub fn find_or_create_tagged_presenter(
-    _schedule: &mut crate::schedule::Schedule,
-    _tagged: &str,
+    schedule: &mut crate::schedule::Schedule,
+    tagged: &str,
 ) -> Result<PresenterId, ConversionError> {
-    // TODO: Implement tagged presenter lookup-or-create in FEATURE-020
-    Err(ConversionError::ParseError {
-        message: "find_or_create_tagged_presenter not implemented yet (FEATURE-020)".to_string(),
-    })
+    let tagged = tagged.trim();
+    if tagged.is_empty() {
+        return Err(ConversionError::ParseError {
+            message: "empty presenter string".to_string(),
+        });
+    }
+
+    let parsed = parse_tag(tagged);
+
+    if parsed.is_group_only() {
+        let group_name = parsed
+            .group_name
+            .or((!parsed.name.is_empty()).then_some(parsed.name))
+            .ok_or_else(|| ConversionError::ParseError {
+                message: "empty group name".to_string(),
+            })?;
+        let gid =
+            find_or_create_presenter_by_name(schedule, group_name, parsed.required_rank.as_ref());
+        if let Some(d) = schedule.get_internal_mut::<PresenterEntityType>(gid) {
+            d.data.is_explicit_group = true;
+            if parsed.always_shown {
+                d.data.always_shown_in_group = true;
+            }
+        }
+        return Ok(gid);
+    }
+
+    let pres_id =
+        find_or_create_presenter_by_name(schedule, parsed.name, parsed.required_rank.as_ref());
+    if parsed.always_grouped {
+        if let Some(d) = schedule.get_internal_mut::<PresenterEntityType>(pres_id) {
+            d.data.always_grouped = true;
+        }
+    }
+
+    if let Some(group_name) = parsed.group_name {
+        let gid =
+            find_or_create_presenter_by_name(schedule, group_name, parsed.required_rank.as_ref());
+        if let Some(gd) = schedule.get_internal_mut::<PresenterEntityType>(gid) {
+            gd.data.is_explicit_group = true;
+            if parsed.always_shown {
+                gd.data.always_shown_in_group = true;
+            }
+        }
+        let already_in_group = schedule
+            .edges_from::<PresenterEntityType, PresenterEntityType>(pres_id)
+            .contains(&gid);
+        if !already_in_group {
+            schedule.edge_add::<PresenterEntityType, PresenterEntityType>(pres_id, gid);
+        }
+    }
+
+    Ok(pres_id)
 }
 
-// ── EntityStringResolver implementation ─────────────────────────────────────────
+/// Case-insensitive exact name lookup; creates with `effective_rank` if not found.
+/// Upgrades rank only when `rank` is `Some` and is higher (lower priority number).
+fn find_or_create_presenter_by_name(
+    schedule: &mut crate::schedule::Schedule,
+    name: &str,
+    rank: Option<&PresenterRank>,
+) -> PresenterId {
+    let existing = schedule
+        .iter_entities::<PresenterEntityType>()
+        .find_map(|(id, d)| d.data.name.eq_ignore_ascii_case(name).then_some(id));
+
+    if let Some(id) = existing {
+        if let Some(new_rank) = rank {
+            if let Some(d) = schedule.get_internal_mut::<PresenterEntityType>(id) {
+                if new_rank.priority() < d.data.rank.priority() {
+                    d.data.rank = new_rank.clone();
+                }
+            }
+        }
+        return id;
+    }
+
+    let effective_rank = rank.cloned().unwrap_or(PresenterRank::Panelist);
+    let id = EntityId::from_preference(UuidPreference::GenerateNew);
+    schedule.insert(
+        id,
+        PresenterInternalData {
+            id,
+            data: PresenterCommonData {
+                name: name.to_string(),
+                rank: effective_rank,
+                ..Default::default()
+            },
+        },
+    );
+    id
+}
+
+// ── EntityStringResolver implementation ──────────────────────────────────────
 
 impl EntityStringResolver for PresenterEntityType {
     fn entity_to_string(schedule: &crate::schedule::Schedule, id: EntityId<Self>) -> String {
@@ -351,25 +603,17 @@ impl EntityStringResolver for PresenterEntityType {
     }
 
     fn lookup_string(schedule: &crate::schedule::Schedule, s: &str) -> Option<EntityId<Self>> {
-        // Placeholder for find_tagged_presenter - to be implemented in FEATURE-020
-        // For now, fall back to default behavior (UUID parsing, then match_index)
-        Self::lookup_by_uuid_string(schedule, s)
-            .or_else(|| Self::lookup_by_match_index(schedule, s))
+        Self::lookup_by_uuid_string(schedule, s).or_else(|| find_tagged_presenter(schedule, s))
     }
 
     fn lookup_or_create_string(
         schedule: &mut crate::schedule::Schedule,
         s: &str,
     ) -> Result<EntityId<Self>, ConversionError> {
-        // Placeholder for find_or_create_tagged_presenter - to be implemented in FEATURE-020
-        // For now, fall back to default behavior (no creation)
-        Self::lookup_string(schedule, s).ok_or_else(|| ConversionError::ParseError {
-            message: format!(
-                "Entity '{}' not found and creation not implemented for {} (FEATURE-020)",
-                s,
-                Self::TYPE_NAME
-            ),
-        })
+        if let Some(id) = Self::lookup_by_uuid_string(schedule, s) {
+            return Ok(id);
+        }
+        find_or_create_tagged_presenter(schedule, s)
     }
 }
 
@@ -857,5 +1101,281 @@ mod tests {
         let sched = Schedule::default();
         let s = PresenterEntityType::entity_to_string(&sched, id);
         assert_eq!(s, id.to_string());
+    }
+
+    // ── Tagged presenter tests ─────────────────────────────────────────────────
+
+    fn make_presenter(name: &str, rank: PresenterRank) -> PresenterInternalData {
+        let id = make_id();
+        PresenterInternalData {
+            id,
+            data: PresenterCommonData {
+                name: name.to_string(),
+                rank,
+                ..Default::default()
+            },
+        }
+    }
+
+    #[test]
+    fn test_find_tagged_bare_name() {
+        let id = make_id();
+        let sched = schedule_with(id, make_internal());
+        assert_eq!(find_tagged_presenter(&sched, "Alice Example"), Some(id));
+    }
+
+    #[test]
+    fn test_find_tagged_empty_returns_none() {
+        let sched = Schedule::default();
+        assert_eq!(find_tagged_presenter(&sched, ""), None);
+        assert_eq!(find_tagged_presenter(&sched, "  "), None);
+    }
+
+    #[test]
+    fn test_find_tagged_kind_prefix_match() {
+        let id = make_id();
+        let mut internal = make_internal();
+        internal.data.rank = PresenterRank::Guest;
+        let sched = schedule_with(id, internal);
+        // G: = Guest rank required; Alice is Guest → match
+        assert_eq!(find_tagged_presenter(&sched, "G:Alice Example"), Some(id));
+    }
+
+    #[test]
+    fn test_find_tagged_rank_gate_rejects_lower_rank() {
+        let id = make_id();
+        // Alice is Panelist (priority 4); G: requires Guest (priority 0) → reject
+        let sched = schedule_with(id, make_internal()); // rank = Guest
+                                                        // make_internal has rank=Guest, so G: passes
+        assert_eq!(find_tagged_presenter(&sched, "G:Alice Example"), Some(id));
+        // F: requires FanPanelist (priority 5); Guest (0) < 5 → passes (Guest is higher rank)
+        assert_eq!(find_tagged_presenter(&sched, "F:Alice Example"), Some(id));
+
+        // Create a FanPanelist — requesting G: (priority 0) should fail
+        let mut sched2 = Schedule::default();
+        let id2 = make_id();
+        let mut fan = make_presenter("Bob", PresenterRank::FanPanelist);
+        fan.id = id2;
+        sched2.insert(id2, fan);
+        assert_eq!(find_tagged_presenter(&sched2, "G:Bob"), None);
+    }
+
+    #[test]
+    fn test_find_tagged_group_only_form() {
+        let mut sched = Schedule::default();
+        let group_id = make_id();
+        let mut group = make_presenter("MyBand", PresenterRank::Panelist);
+        group.id = group_id;
+        group.data.is_explicit_group = true;
+        sched.insert(group_id, group);
+
+        assert_eq!(find_tagged_presenter(&sched, "=MyBand"), Some(group_id));
+        assert_eq!(find_tagged_presenter(&sched, "==MyBand"), Some(group_id));
+    }
+
+    #[test]
+    fn test_find_tagged_group_only_rejects_non_group() {
+        let id = make_id();
+        let sched = schedule_with(id, make_internal()); // is_explicit_group = false, no members
+        assert_eq!(find_tagged_presenter(&sched, "=Alice Example"), None);
+    }
+
+    #[test]
+    fn test_find_tagged_group_suffix_verifies_membership() {
+        let mut sched = Schedule::default();
+        let alice_id = make_id();
+        let group_id = make_id();
+        let mut alice = make_presenter("Alice", PresenterRank::Panelist);
+        alice.id = alice_id;
+        let mut group = make_presenter("MyBand", PresenterRank::Panelist);
+        group.id = group_id;
+        group.data.is_explicit_group = true;
+        sched.insert(alice_id, alice);
+        sched.insert(group_id, group);
+        sched.edge_add::<PresenterEntityType, PresenterEntityType>(alice_id, group_id);
+
+        assert_eq!(
+            find_tagged_presenter(&sched, "Alice=MyBand"),
+            Some(alice_id)
+        );
+        assert_eq!(find_tagged_presenter(&sched, "Alice=OtherGroup"), None);
+    }
+
+    #[test]
+    fn test_find_or_create_bare_name_creates_panelist() {
+        let mut sched = Schedule::default();
+        let id = find_or_create_tagged_presenter(&mut sched, "Jane Doe").unwrap();
+        let d = sched.get_internal::<PresenterEntityType>(id).unwrap();
+        assert_eq!(d.data.name, "Jane Doe");
+        assert_eq!(d.data.rank, PresenterRank::Panelist);
+        assert!(!d.data.is_explicit_group);
+    }
+
+    #[test]
+    fn test_find_or_create_idempotent() {
+        let mut sched = Schedule::default();
+        let id1 = find_or_create_tagged_presenter(&mut sched, "Alice").unwrap();
+        let id2 = find_or_create_tagged_presenter(&mut sched, "Alice").unwrap();
+        assert_eq!(id1, id2);
+        assert_eq!(sched.entity_count::<PresenterEntityType>(), 1);
+    }
+
+    #[test]
+    fn test_find_or_create_rank_upgrade() {
+        let mut sched = Schedule::default();
+        let id = find_or_create_tagged_presenter(&mut sched, "P:Alice").unwrap();
+        assert_eq!(
+            sched
+                .get_internal::<PresenterEntityType>(id)
+                .unwrap()
+                .data
+                .rank,
+            PresenterRank::Panelist
+        );
+        // G: = Guest (priority 0 < 4) → upgrade
+        find_or_create_tagged_presenter(&mut sched, "G:Alice").unwrap();
+        assert_eq!(
+            sched
+                .get_internal::<PresenterEntityType>(id)
+                .unwrap()
+                .data
+                .rank,
+            PresenterRank::Guest
+        );
+    }
+
+    #[test]
+    fn test_find_or_create_no_downgrade() {
+        let mut sched = Schedule::default();
+        let id = find_or_create_tagged_presenter(&mut sched, "G:Alice").unwrap();
+        // F: = FanPanelist (priority 5 > 0) → no downgrade
+        find_or_create_tagged_presenter(&mut sched, "F:Alice").unwrap();
+        assert_eq!(
+            sched
+                .get_internal::<PresenterEntityType>(id)
+                .unwrap()
+                .data
+                .rank,
+            PresenterRank::Guest
+        );
+        // Bare name also must not downgrade
+        find_or_create_tagged_presenter(&mut sched, "Alice").unwrap();
+        assert_eq!(
+            sched
+                .get_internal::<PresenterEntityType>(id)
+                .unwrap()
+                .data
+                .rank,
+            PresenterRank::Guest
+        );
+    }
+
+    #[test]
+    fn test_find_or_create_group_membership() {
+        let mut sched = Schedule::default();
+        let alice_id = find_or_create_tagged_presenter(&mut sched, "P:Alice=MyBand").unwrap();
+        let alice = sched.get_internal::<PresenterEntityType>(alice_id).unwrap();
+        assert_eq!(alice.data.name, "Alice");
+        assert!(!alice.data.is_explicit_group);
+
+        let groups = sched.edges_from::<PresenterEntityType, PresenterEntityType>(alice_id);
+        assert_eq!(groups.len(), 1);
+        let group = sched
+            .get_internal::<PresenterEntityType>(groups[0])
+            .unwrap();
+        assert_eq!(group.data.name, "MyBand");
+        assert!(group.data.is_explicit_group);
+        assert!(!group.data.always_shown_in_group);
+    }
+
+    #[test]
+    fn test_find_or_create_double_equals_always_shown() {
+        let mut sched = Schedule::default();
+        let alice_id = find_or_create_tagged_presenter(&mut sched, "P:Alice==MyBand").unwrap();
+        let groups = sched.edges_from::<PresenterEntityType, PresenterEntityType>(alice_id);
+        let group = sched
+            .get_internal::<PresenterEntityType>(groups[0])
+            .unwrap();
+        assert!(group.data.always_shown_in_group);
+    }
+
+    #[test]
+    fn test_find_or_create_less_than_always_grouped() {
+        let mut sched = Schedule::default();
+        let alice_id = find_or_create_tagged_presenter(&mut sched, "P:<Alice=MyBand").unwrap();
+        let alice = sched.get_internal::<PresenterEntityType>(alice_id).unwrap();
+        assert!(alice.data.always_grouped);
+    }
+
+    #[test]
+    fn test_find_or_create_group_only_form() {
+        let mut sched = Schedule::default();
+        let gid = find_or_create_tagged_presenter(&mut sched, "P:==MyBand").unwrap();
+        let group = sched.get_internal::<PresenterEntityType>(gid).unwrap();
+        assert_eq!(group.data.name, "MyBand");
+        assert!(group.data.is_explicit_group);
+        assert!(group.data.always_shown_in_group);
+        assert_eq!(sched.entity_count::<PresenterEntityType>(), 1);
+    }
+
+    #[test]
+    fn test_find_or_create_untagged_double_equals_group_only() {
+        let mut sched = Schedule::default();
+        let gid = find_or_create_tagged_presenter(&mut sched, "==Troupe").unwrap();
+        let g = sched.get_internal::<PresenterEntityType>(gid).unwrap();
+        assert_eq!(g.data.name, "Troupe");
+        assert!(g.data.is_explicit_group);
+        assert!(g.data.always_shown_in_group);
+    }
+
+    #[test]
+    fn test_find_or_create_name_equals_group_is_group_only() {
+        let mut sched = Schedule::default();
+        // "Alice=Alice" — name == group → group-only, creates group
+        let gid = find_or_create_tagged_presenter(&mut sched, "Alice=Alice").unwrap();
+        let g = sched.get_internal::<PresenterEntityType>(gid).unwrap();
+        assert!(
+            g.data.is_explicit_group,
+            "should be marked as explicit group"
+        );
+        assert_eq!(sched.entity_count::<PresenterEntityType>(), 1);
+    }
+
+    #[test]
+    fn test_find_or_create_empty_returns_error() {
+        let mut sched = Schedule::default();
+        assert!(find_or_create_tagged_presenter(&mut sched, "").is_err());
+    }
+
+    #[test]
+    fn test_lookup_string_finds_by_tagged() {
+        use crate::converter::EntityStringResolver;
+        let mut sched = Schedule::default();
+        let id = find_or_create_tagged_presenter(&mut sched, "G:Alice").unwrap();
+        let found = PresenterEntityType::lookup_string(&sched, "Alice");
+        assert_eq!(found, Some(id));
+    }
+
+    #[test]
+    fn test_lookup_or_create_string_creates() {
+        use crate::converter::EntityStringResolver;
+        let mut sched = Schedule::default();
+        let id = PresenterEntityType::lookup_or_create_string(&mut sched, "P:Bob=Crew").unwrap();
+        assert_eq!(sched.entity_count::<PresenterEntityType>(), 2);
+        let d = sched.get_internal::<PresenterEntityType>(id).unwrap();
+        assert_eq!(d.data.name, "Bob");
+    }
+
+    #[test]
+    fn test_is_group_implicit_via_members_edge() {
+        let mut sched = Schedule::default();
+        let group_id = find_or_create_tagged_presenter(&mut sched, "MyBand").unwrap();
+        let member_id = find_or_create_tagged_presenter(&mut sched, "Alice").unwrap();
+        // Manually add member → group edge (group is NOT is_explicit_group yet)
+        sched.edge_add::<PresenterEntityType, PresenterEntityType>(member_id, group_id);
+        // Now is_group_entity should return true via edges_to check
+        assert!(is_group_entity(&sched, group_id));
+        // And find_tagged for group-only should find it
+        assert_eq!(find_tagged_presenter(&sched, "=MyBand"), Some(group_id));
     }
 }
