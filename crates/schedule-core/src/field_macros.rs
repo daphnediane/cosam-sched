@@ -76,7 +76,10 @@ macro_rules! req_string_field {
                 aliases: $aliases,
                 required: true,
                 crdt_type: $crate::value::CrdtFieldType::Scalar,
-                field_type: $crate::value::FieldType::Single($crate::value::FieldTypeItem::String),
+                field_type: $crate::value::FieldType(
+                    $crate::value::FieldCardinality::Single,
+                    $crate::value::FieldTypeItem::String,
+                ),
                 example: $example,
                 order: $order,
                 read_fn: Some($crate::field::ReadFn::Bare(|d: &$internal| {
@@ -110,7 +113,8 @@ macro_rules! opt_string_field {
                 aliases: $aliases,
                 required: false,
                 crdt_type: $crate::value::CrdtFieldType::Scalar,
-                field_type: $crate::value::FieldType::Optional(
+                field_type: $crate::value::FieldType(
+                    $crate::value::FieldCardinality::Optional,
                     $crate::value::FieldTypeItem::String,
                 ),
                 example: $example,
@@ -164,7 +168,10 @@ macro_rules! opt_text_field {
                 aliases: $aliases,
                 required: false,
                 crdt_type: $crate::value::CrdtFieldType::Text,
-                field_type: $crate::value::FieldType::Optional($crate::value::FieldTypeItem::Text),
+                field_type: $crate::value::FieldType(
+                    $crate::value::FieldCardinality::Optional,
+                    $crate::value::FieldTypeItem::Text,
+                ),
                 example: $example,
                 order: $order,
                 read_fn: Some($crate::field::ReadFn::Bare(|d: &$internal| {
@@ -215,7 +222,10 @@ macro_rules! bool_field {
                 aliases: $aliases,
                 required: false,
                 crdt_type: $crate::value::CrdtFieldType::Scalar,
-                field_type: $crate::value::FieldType::Single($crate::value::FieldTypeItem::Boolean),
+                field_type: $crate::value::FieldType(
+                    $crate::value::FieldCardinality::Single,
+                    $crate::value::FieldTypeItem::Boolean,
+                ),
                 example: $example,
                 order: $order,
                 read_fn: Some($crate::field::ReadFn::Bare(|d: &$internal| {
@@ -249,7 +259,8 @@ macro_rules! opt_i64_field {
                 aliases: $aliases,
                 required: false,
                 crdt_type: $crate::value::CrdtFieldType::Scalar,
-                field_type: $crate::value::FieldType::Optional(
+                field_type: $crate::value::FieldType(
+                    $crate::value::FieldCardinality::Optional,
                     $crate::value::FieldTypeItem::Integer,
                 ),
                 example: $example,
@@ -309,7 +320,8 @@ macro_rules! edge_list_field {
                 aliases: $aliases,
                 required: false,
                 crdt_type: $crate::value::CrdtFieldType::Derived,
-                field_type: $crate::value::FieldType::List(
+                field_type: $crate::value::FieldType(
+                    $crate::value::FieldCardinality::List,
                     $crate::value::FieldTypeItem::EntityIdentifier(
                         <$target_entity as $crate::entity::EntityType>::TYPE_NAME,
                     ),
@@ -349,7 +361,8 @@ macro_rules! edge_list_field_rw {
                 aliases: $aliases,
                 required: false,
                 crdt_type: $crate::value::CrdtFieldType::Derived,
-                field_type: $crate::value::FieldType::List(
+                field_type: $crate::value::FieldType(
+                    $crate::value::FieldCardinality::List,
                     $crate::value::FieldTypeItem::EntityIdentifier(
                         <$target_entity as $crate::entity::EntityType>::TYPE_NAME,
                     ),
@@ -401,7 +414,8 @@ macro_rules! edge_list_field_to_rw {
                 aliases: $aliases,
                 required: false,
                 crdt_type: $crate::value::CrdtFieldType::Derived,
-                field_type: $crate::value::FieldType::List(
+                field_type: $crate::value::FieldType(
+                    $crate::value::FieldCardinality::List,
                     $crate::value::FieldTypeItem::EntityIdentifier(
                         <$source_entity as $crate::entity::EntityType>::TYPE_NAME,
                     ),
@@ -449,7 +463,8 @@ macro_rules! edge_add_field {
                 aliases: $aliases,
                 required: false,
                 crdt_type: $crate::value::CrdtFieldType::Derived,
-                field_type: $crate::value::FieldType::List(
+                field_type: $crate::value::FieldType(
+                    $crate::value::FieldCardinality::List,
                     $crate::value::FieldTypeItem::EntityIdentifier(
                         <$target_entity as $crate::entity::EntityType>::TYPE_NAME,
                     ),
@@ -494,7 +509,8 @@ macro_rules! edge_remove_field {
                 aliases: $aliases,
                 required: false,
                 crdt_type: $crate::value::CrdtFieldType::Derived,
-                field_type: $crate::value::FieldType::List(
+                field_type: $crate::value::FieldType(
+                    $crate::value::FieldCardinality::List,
                     $crate::value::FieldTypeItem::EntityIdentifier(
                         <$target_entity as $crate::entity::EntityType>::TYPE_NAME,
                     ),
@@ -540,7 +556,8 @@ macro_rules! edge_none_field_rw {
                 aliases: $aliases,
                 required: false,
                 crdt_type: $crate::value::CrdtFieldType::Derived,
-                field_type: $crate::value::FieldType::List(
+                field_type: $crate::value::FieldType(
+                    $crate::value::FieldCardinality::List,
                     $crate::value::FieldTypeItem::EntityIdentifier(
                         <$target_entity as $crate::entity::EntityType>::TYPE_NAME,
                     ),

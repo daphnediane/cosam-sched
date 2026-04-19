@@ -26,7 +26,7 @@
 
 use crate::entity::{EntityId, EntityType, RuntimeEntityId};
 use crate::schedule::Schedule;
-use crate::value::{FieldType, FieldTypeItem, FieldValue, FieldValueItem};
+use crate::value::{FieldCardinality, FieldType, FieldTypeItem, FieldValue, FieldValueItem};
 
 // ── MatchPriority ─────────────────────────────────────────────────────────────
 
@@ -288,17 +288,18 @@ fn filter_to_best<E: EntityType>(hits: Vec<(EntityId<E>, MatchPriority)>) -> Vec
 /// Extract the `&'static str` entity type name from an `EntityIdentifier`
 /// [`FieldType`].  Returns [`LookupError::WrongFieldType`] for any other variant.
 fn extract_entity_type_name(field_type: FieldType) -> Result<&'static str, LookupError> {
-    match field_type {
-        FieldType::Single(FieldTypeItem::EntityIdentifier(n))
-        | FieldType::Optional(FieldTypeItem::EntityIdentifier(n))
-        | FieldType::List(FieldTypeItem::EntityIdentifier(n)) => Ok(n),
+    match field_type.1 {
+        FieldTypeItem::EntityIdentifier(n) => Ok(n),
         _ => Err(LookupError::WrongFieldType),
     }
 }
 
 /// Returns `true` for `Single` and `Optional` (both limit result count).
 fn is_limited(field_type: FieldType) -> bool {
-    matches!(field_type, FieldType::Single(_) | FieldType::Optional(_))
+    matches!(
+        field_type.0,
+        FieldCardinality::Single | FieldCardinality::Optional
+    )
 }
 
 // ── Core loop ─────────────────────────────────────────────────────────────────
@@ -422,8 +423,8 @@ fn check_and_pack<E: EntityType>(
     results.extend(create_results);
     let total = results.len();
 
-    match field_type {
-        FieldType::Single(_) => {
+    match field_type.0 {
+        FieldCardinality::Single => {
             if total == 0 {
                 return Err(LookupError::NotFound {
                     query: original_query.to_string(),
@@ -436,7 +437,7 @@ fn check_and_pack<E: EntityType>(
                 RuntimeEntityId::from_typed(results[0]),
             )))
         }
-        FieldType::Optional(_) => {
+        FieldCardinality::Optional => {
             if total > 1 {
                 return Err(LookupError::TooMany { found: total });
             }
@@ -448,7 +449,7 @@ fn check_and_pack<E: EntityType>(
                 )))
             }
         }
-        FieldType::List(_) => Ok(FieldValue::List(
+        FieldCardinality::List => Ok(FieldValue::List(
             results
                 .into_iter()
                 .map(|id| FieldValueItem::EntityIdentifier(RuntimeEntityId::from_typed(id)))
@@ -559,18 +560,18 @@ pub fn lookup_or_create<E: EntityCreatable>(
 
     // Post-loop cardinality check before committing to deferred creates.
     let pre_create_total = results.len() + create_queue.len();
-    match field_type {
-        FieldType::Single(_) if pre_create_total == 0 => {
+    match field_type.0 {
+        FieldCardinality::Single if pre_create_total == 0 => {
             return Err(LookupError::NotFound {
                 query: query.to_string(),
             });
         }
-        FieldType::Single(_) if pre_create_total > 1 => {
+        FieldCardinality::Single if pre_create_total > 1 => {
             return Err(LookupError::TooMany {
                 found: pre_create_total,
             });
         }
-        FieldType::Optional(_) if pre_create_total > 1 => {
+        FieldCardinality::Optional if pre_create_total > 1 => {
             return Err(LookupError::TooMany {
                 found: pre_create_total,
             });

@@ -167,7 +167,7 @@ pub trait VerifiableField<E: EntityType>: NamedField {
 ///     aliases: &[],
 ///     required: false,
 ///     crdt_type: CrdtFieldType::Derived,
-///     field_type: FieldType::List(FieldTypeItem::EntityIdentifier("presenter")),
+///     field_type: FieldType(FieldCardinality::List, FieldTypeItem::EntityIdentifier("presenter")),
 ///     read_fn: None,
 ///     write_fn: Some(WriteFn::Schedule(|schedule, id, v| { todo!() })),
 /// };
@@ -292,7 +292,7 @@ mod tests {
     use crate::entity::{EntityId, EntityType};
     use crate::field_value;
     use crate::value::{CrdtFieldType, FieldError, ValidationError};
-    use crate::value::{FieldType, FieldTypeItem};
+    use crate::value::{FieldCardinality, FieldType, FieldTypeItem};
 
     /// Minimal mock entity for testing field traits without real entity types.
     struct MockEntity;
@@ -343,7 +343,7 @@ mod tests {
         aliases: &["tag", "name"],
         required: true,
         crdt_type: CrdtFieldType::Scalar,
-        field_type: FieldType::Single(FieldTypeItem::String),
+        field_type: FieldType(FieldCardinality::Single, FieldTypeItem::String),
         example: "Hello World",
         order: 0,
         read_fn: Some(ReadFn::Bare(|d: &MockInternalData| {
@@ -363,7 +363,7 @@ mod tests {
         aliases: &[],
         required: false,
         crdt_type: CrdtFieldType::Scalar,
-        field_type: FieldType::Single(FieldTypeItem::Integer),
+        field_type: FieldType(FieldCardinality::Single, FieldTypeItem::Integer),
         example: "7",
         order: 100,
         read_fn: Some(ReadFn::Bare(|d: &MockInternalData| {
@@ -383,7 +383,7 @@ mod tests {
         aliases: &[],
         required: false,
         crdt_type: CrdtFieldType::Derived,
-        field_type: FieldType::Single(FieldTypeItem::Integer),
+        field_type: FieldType(FieldCardinality::Single, FieldTypeItem::Integer),
         example: "42",
         order: 200,
         read_fn: Some(ReadFn::Bare(|_: &MockInternalData| Some(field_value!(42)))),
@@ -398,7 +398,7 @@ mod tests {
         aliases: &[],
         required: false,
         crdt_type: CrdtFieldType::Derived,
-        field_type: FieldType::Single(FieldTypeItem::String),
+        field_type: FieldType(FieldCardinality::Single, FieldTypeItem::String),
         example: "Hello World",
         order: 300,
         read_fn: None,

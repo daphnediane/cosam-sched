@@ -23,7 +23,7 @@ use crate::field_macros::{
 use crate::field_value;
 use crate::panel::{PanelEntityType, PanelId};
 use crate::value::ConversionError;
-use crate::value::{CrdtFieldType, FieldType, FieldTypeItem, ValidationError};
+use crate::value::{CrdtFieldType, FieldCardinality, FieldType, FieldTypeItem, ValidationError};
 use serde::{Deserialize, Serialize};
 use std::sync::LazyLock;
 
@@ -297,7 +297,7 @@ define_field!(
         aliases: &["name"],
         required: false,
         crdt_type: CrdtFieldType::Derived,
-        field_type: FieldType::Single(FieldTypeItem::String),
+        field_type: FieldType(FieldCardinality::Single, FieldTypeItem::String),
         example: "Guest Panel (GP)",
         order: 1100,
         read_fn: Some(ReadFn::Bare(|d: &PanelTypeInternalData| {

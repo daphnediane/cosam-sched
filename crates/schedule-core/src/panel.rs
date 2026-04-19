@@ -31,7 +31,7 @@ use crate::panel_type::{PanelTypeEntityType, PanelTypeId};
 use crate::panel_uniq_id::PanelUniqId;
 use crate::presenter::{PresenterEntityType, PresenterId};
 use crate::time::{parse_datetime, parse_duration, TimeRange};
-use crate::value::{CrdtFieldType, FieldType, FieldTypeItem, ValidationError};
+use crate::value::{CrdtFieldType, FieldCardinality, FieldType, FieldTypeItem, ValidationError};
 use chrono::Duration;
 use serde::{Deserialize, Serialize};
 use std::sync::LazyLock;
@@ -222,7 +222,7 @@ define_field!(
         aliases: &["uid", "uniq_id", "id"],
         required: true,
         crdt_type: CrdtFieldType::Scalar,
-        field_type: FieldType::Single(FieldTypeItem::String),
+        field_type: FieldType(FieldCardinality::Single, FieldTypeItem::String),
         example: "GP032",
         order: 0,
         read_fn: Some(ReadFn::Bare(|d: &PanelInternalData| {
@@ -419,7 +419,7 @@ define_field!(
         aliases: &["start"],
         required: false,
         crdt_type: CrdtFieldType::Derived,
-        field_type: FieldType::Optional(FieldTypeItem::DateTime),
+        field_type: FieldType(FieldCardinality::Optional, FieldTypeItem::DateTime),
         example: "2023-06-25T19:00:00",
         order: 2400,
         read_fn: Some(ReadFn::Bare(|d: &PanelInternalData| {
@@ -468,7 +468,7 @@ define_field!(
         aliases: &["end"],
         required: false,
         crdt_type: CrdtFieldType::Derived,
-        field_type: FieldType::Optional(FieldTypeItem::DateTime),
+        field_type: FieldType(FieldCardinality::Optional, FieldTypeItem::DateTime),
         example: "2023-06-25T20:30:00",
         order: 2500,
         read_fn: Some(ReadFn::Bare(|d: &PanelInternalData| {
@@ -517,7 +517,7 @@ define_field!(
         aliases: &[],
         required: false,
         crdt_type: CrdtFieldType::Derived,
-        field_type: FieldType::Optional(FieldTypeItem::Duration),
+        field_type: FieldType(FieldCardinality::Optional, FieldTypeItem::Duration),
         example: "90",
         order: 2600,
         read_fn: Some(ReadFn::Bare(|d: &PanelInternalData| {
@@ -592,7 +592,7 @@ define_field!(
         aliases: &["inclusive_presenter"],
         required: false,
         crdt_type: CrdtFieldType::Derived,
-        field_type: FieldType::List(FieldTypeItem::EntityIdentifier(
+        field_type: FieldType(FieldCardinality::List, FieldTypeItem::EntityIdentifier(
             PresenterEntityType::TYPE_NAME,
         )),
         example: "[]",

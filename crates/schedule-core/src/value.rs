@@ -11,6 +11,18 @@ use thiserror::Error;
 use crate::converter::FieldTypeMapping;
 use crate::entity::RuntimeEntityId;
 
+/// Field cardinality — whether a field holds exactly one value, zero or one value,
+/// or zero or more values.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub enum FieldCardinality {
+    /// Exactly one value (required).
+    Single,
+    /// Zero or one value (optional).
+    Optional,
+    /// Zero or more values (list).
+    List,
+}
+
 /// Base value types for fields.
 ///
 /// `String` and `Text` are distinct variants so the CRDT layer can route
@@ -68,6 +80,22 @@ impl fmt::Display for FieldValue {
                 let parts: Vec<_> = items.iter().map(|v| v.to_string()).collect();
                 write!(f, "[{}]", parts.join(", "))
             }
+        }
+    }
+}
+
+impl FieldValue {
+    /// Return the cardinality of this value: `Single` for `FieldValue::Single`,
+    /// `List` for `FieldValue::List`.
+    ///
+    /// Note: `Optional` is not representable at the value level — absence is
+    /// expressed as `Option<FieldValue>` being `None`. This method only returns
+    /// `Single` or `List`.
+    #[must_use]
+    pub fn cardinality(&self) -> FieldCardinality {
+        match self {
+            Self::Single(_) => FieldCardinality::Single,
+            Self::List(_) => FieldCardinality::List,
         }
     }
 }
@@ -354,15 +382,11 @@ pub enum FieldTypeItem {
 
 /// Field type with cardinality — the `Copy` type-level mirror of [`FieldValue`].
 ///
-/// `FieldType` retains an `Optional` variant because type declarations need to
-/// distinguish "required scalar" from "optional scalar". At the value level,
-/// absence is expressed as `Option<FieldValue>` returning `None`.
+/// `FieldType` is a tuple of `(FieldCardinality, FieldTypeItem)` because type
+/// declarations need to distinguish "required scalar" from "optional scalar".
+/// At the value level, absence is expressed as `Option<FieldValue>` returning `None`.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
-pub enum FieldType {
-    Single(FieldTypeItem),
-    Optional(FieldTypeItem),
-    List(FieldTypeItem),
-}
+pub struct FieldType(pub FieldCardinality, pub FieldTypeItem);
 
 impl fmt::Display for FieldTypeItem {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
@@ -379,12 +403,21 @@ impl fmt::Display for FieldTypeItem {
     }
 }
 
-impl fmt::Display for FieldType {
+impl fmt::Display for FieldCardinality {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
-            Self::Single(t) => write!(f, "{t}"),
-            Self::Optional(t) => write!(f, "{t}?"),
-            Self::List(t) => write!(f, "List<{t}>"),
+            Self::Single => write!(f, ""),
+            Self::Optional => write!(f, "?"),
+            Self::List => write!(f, "List<"),
+        }
+    }
+}
+
+impl fmt::Display for FieldType {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self.0 {
+            FieldCardinality::List => write!(f, "List<{}>", self.1),
+            _ => write!(f, "{}{}", self.1, self.0),
         }
     }
 }
@@ -406,33 +439,42 @@ impl FieldType {
     /// Return the scalar item type, discarding cardinality.
     #[must_use]
     pub fn item_type(self) -> FieldTypeItem {
-        match self {
-            Self::Single(t) | Self::Optional(t) | Self::List(t) => t,
-        }
+        self.1
+    }
+
+    #[must_use]
+    pub fn cardinality(self) -> FieldCardinality {
+        self.0
     }
 
     #[must_use]
     pub fn is_single(self) -> bool {
-        matches!(self, Self::Single(_))
+        matches!(self.0, FieldCardinality::Single)
     }
 
     #[must_use]
     pub fn is_optional(self) -> bool {
-        matches!(self, Self::Optional(_))
+        matches!(self.0, FieldCardinality::Optional)
     }
 
     #[must_use]
     pub fn is_list(self) -> bool {
-        matches!(self, Self::List(_))
+        matches!(self.0, FieldCardinality::List)
     }
 
-    /// Infer a `FieldType::Single` or `FieldType::List` from a `FieldValue`.
+    /// Infer a `FieldType` from a `FieldValue`.
     ///
     /// Returns `None` only for empty lists (element type unknown).
     pub fn of(value: &FieldValue) -> Option<Self> {
         match value {
-            FieldValue::Single(item) => Some(Self::Single(value_item_to_type_item(item))),
-            FieldValue::List(items) => Some(Self::List(value_item_to_type_item(items.first()?))),
+            FieldValue::Single(item) => Some(Self(
+                FieldCardinality::Single,
+                value_item_to_type_item(item),
+            )),
+            FieldValue::List(items) => Some(Self(
+                FieldCardinality::List,
+                value_item_to_type_item(items.first()?),
+            )),
         }
     }
 }
@@ -678,19 +720,23 @@ mod tests {
     #[test]
     fn test_field_type_display() {
         assert_eq!(
-            FieldType::Single(FieldTypeItem::Integer).to_string(),
+            FieldType(FieldCardinality::Single, FieldTypeItem::Integer).to_string(),
             "Integer"
         );
         assert_eq!(
-            FieldType::Optional(FieldTypeItem::String).to_string(),
+            FieldType(FieldCardinality::Optional, FieldTypeItem::String).to_string(),
             "String?"
         );
         assert_eq!(
-            FieldType::List(FieldTypeItem::Boolean).to_string(),
+            FieldType(FieldCardinality::List, FieldTypeItem::Boolean).to_string(),
             "List<Boolean>"
         );
         assert_eq!(
-            FieldType::List(FieldTypeItem::EntityIdentifier("panel")).to_string(),
+            FieldType(
+                FieldCardinality::List,
+                FieldTypeItem::EntityIdentifier("panel")
+            )
+            .to_string(),
             "List<EntityIdentifier(panel)>"
         );
     }
@@ -698,61 +744,68 @@ mod tests {
     #[test]
     fn test_field_type_item_type() {
         assert_eq!(
-            FieldType::Single(FieldTypeItem::Float).item_type(),
+            FieldType(FieldCardinality::Single, FieldTypeItem::Float).item_type(),
             FieldTypeItem::Float
         );
         assert_eq!(
-            FieldType::Optional(FieldTypeItem::Text).item_type(),
+            FieldType(FieldCardinality::Optional, FieldTypeItem::Text).item_type(),
             FieldTypeItem::Text
         );
         assert_eq!(
-            FieldType::List(FieldTypeItem::Integer).item_type(),
-            FieldTypeItem::Integer
+            FieldType(FieldCardinality::List, FieldTypeItem::DateTime).item_type(),
+            FieldTypeItem::DateTime
         );
     }
 
     #[test]
-    fn test_field_type_predicates() {
-        assert!(FieldType::Single(FieldTypeItem::Boolean).is_single());
-        assert!(!FieldType::Single(FieldTypeItem::Boolean).is_optional());
-        assert!(!FieldType::Single(FieldTypeItem::Boolean).is_list());
+    fn test_field_type_is_single() {
+        assert!(FieldType(FieldCardinality::Single, FieldTypeItem::String).is_single());
+        assert!(!FieldType(FieldCardinality::Optional, FieldTypeItem::String).is_single());
+        assert!(!FieldType(FieldCardinality::List, FieldTypeItem::String).is_single());
+    }
 
-        assert!(FieldType::Optional(FieldTypeItem::Integer).is_optional());
-        assert!(!FieldType::Optional(FieldTypeItem::Integer).is_single());
-        assert!(!FieldType::Optional(FieldTypeItem::Integer).is_list());
+    #[test]
+    fn test_field_type_is_optional() {
+        assert!(!FieldType(FieldCardinality::Single, FieldTypeItem::String).is_optional());
+        assert!(FieldType(FieldCardinality::Optional, FieldTypeItem::String).is_optional());
+        assert!(!FieldType(FieldCardinality::List, FieldTypeItem::String).is_optional());
+    }
 
-        assert!(FieldType::List(FieldTypeItem::String).is_list());
-        assert!(!FieldType::List(FieldTypeItem::String).is_single());
-        assert!(!FieldType::List(FieldTypeItem::String).is_optional());
+    #[test]
+    fn test_field_type_is_list() {
+        assert!(!FieldType(FieldCardinality::Single, FieldTypeItem::String).is_list());
+        assert!(!FieldType(FieldCardinality::Optional, FieldTypeItem::String).is_list());
+        assert!(FieldType(FieldCardinality::List, FieldTypeItem::String).is_list());
     }
 
     #[test]
     fn test_field_type_of_single() {
         assert_eq!(
             FieldType::of(&FieldValue::Single(FieldValueItem::Integer(5))),
-            Some(FieldType::Single(FieldTypeItem::Integer))
+            Some(FieldType(FieldCardinality::Single, FieldTypeItem::Integer))
         );
         assert_eq!(
             FieldType::of(&FieldValue::Single(FieldValueItem::Boolean(true))),
-            Some(FieldType::Single(FieldTypeItem::Boolean))
+            Some(FieldType(FieldCardinality::Single, FieldTypeItem::Boolean))
         );
     }
 
     #[test]
-    fn test_field_type_of_list() {
-        let v = FieldValue::List(vec![
-            FieldValueItem::String("a".into()),
-            FieldValueItem::String("b".into()),
-        ]);
+    fn test_field_type_of() {
+        let single = FieldValue::Single(FieldValueItem::String("test".to_string()));
         assert_eq!(
-            FieldType::of(&v),
-            Some(FieldType::List(FieldTypeItem::String))
+            FieldType::of(&single),
+            Some(FieldType(FieldCardinality::Single, FieldTypeItem::String))
         );
-    }
 
-    #[test]
-    fn test_field_type_of_empty_list_is_none() {
-        assert_eq!(FieldType::of(&FieldValue::List(vec![])), None);
+        let list = FieldValue::List(vec![FieldValueItem::Integer(42)]);
+        assert_eq!(
+            FieldType::of(&list),
+            Some(FieldType(FieldCardinality::List, FieldTypeItem::Integer))
+        );
+
+        let empty = FieldValue::List(vec![]);
+        assert_eq!(FieldType::of(&empty), None);
     }
 
     #[test]
@@ -765,15 +818,30 @@ mod tests {
         let rid = RuntimeEntityId::from_typed(typed);
         assert_eq!(
             FieldType::of(&FieldValue::Single(FieldValueItem::EntityIdentifier(rid))),
-            Some(FieldType::Single(FieldTypeItem::EntityIdentifier("panel")))
+            Some(FieldType(
+                FieldCardinality::Single,
+                FieldTypeItem::EntityIdentifier("panel")
+            ))
         );
     }
 
     #[test]
     fn test_field_type_copy() {
-        let t = FieldType::Single(FieldTypeItem::Integer);
+        let t = FieldType(FieldCardinality::Single, FieldTypeItem::Integer);
         let _copy = t;
         let _ = t; // still usable after copy
+    }
+
+    #[test]
+    fn test_field_value_cardinality() {
+        assert_eq!(
+            FieldValue::Single(FieldValueItem::String("test".to_string())).cardinality(),
+            FieldCardinality::Single
+        );
+        assert_eq!(
+            FieldValue::List(vec![FieldValueItem::Integer(42)]).cardinality(),
+            FieldCardinality::List
+        );
     }
 
     #[test]

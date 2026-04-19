@@ -24,7 +24,7 @@ use crate::field_value;
 use crate::hotel_room::{HotelRoomEntityType, HotelRoomId};
 use crate::panel::{PanelEntityType, PanelId};
 use crate::value::ConversionError;
-use crate::value::{CrdtFieldType, FieldType, FieldTypeItem, ValidationError};
+use crate::value::{CrdtFieldType, FieldCardinality, FieldType, FieldTypeItem, ValidationError};
 use serde::{Deserialize, Serialize};
 use std::sync::LazyLock;
 
@@ -187,7 +187,7 @@ define_field!(
         aliases: &["display_name", "long"],
         required: false,
         crdt_type: CrdtFieldType::Scalar,
-        field_type: FieldType::Optional(FieldTypeItem::String),
+        field_type: FieldType(FieldCardinality::Optional, FieldTypeItem::String),
         example: "Grand Ballroom A",
         order: 100,
         read_fn: Some(ReadFn::Bare(|d: &EventRoomInternalData| {

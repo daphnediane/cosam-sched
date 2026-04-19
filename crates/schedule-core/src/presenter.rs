@@ -28,7 +28,7 @@ use crate::field_value;
 use crate::panel::PanelEntityType;
 use crate::panel::PanelId;
 use crate::value::ConversionError;
-use crate::value::{CrdtFieldType, FieldType, FieldTypeItem, ValidationError};
+use crate::value::{CrdtFieldType, FieldCardinality, FieldType, FieldTypeItem, ValidationError};
 use serde::{Deserialize, Deserializer, Serialize, Serializer};
 use std::sync::LazyLock;
 
@@ -638,7 +638,7 @@ define_field!(
         aliases: &["classification"],
         required: false,
         crdt_type: CrdtFieldType::Scalar,
-        field_type: FieldType::Optional(FieldTypeItem::String),
+        field_type: FieldType(FieldCardinality::Optional, FieldTypeItem::String),
         example: "guest",
         order: 100,
         read_fn: Some(ReadFn::Bare(|d: &PresenterInternalData| {
@@ -692,7 +692,7 @@ define_field!(
         aliases: &["group"],
         required: false,
         crdt_type: CrdtFieldType::Derived,
-        field_type: FieldType::Single(FieldTypeItem::Boolean),
+        field_type: FieldType(FieldCardinality::Single, FieldTypeItem::Boolean),
         example: "false",
         order: 600,
         read_fn: Some(ReadFn::Schedule(|sched, id| {
@@ -732,7 +732,7 @@ define_field!(
         aliases: &[],
         required: false,
         crdt_type: CrdtFieldType::Derived,
-        field_type: FieldType::List(FieldTypeItem::EntityIdentifier(
+        field_type: FieldType(FieldCardinality::List, FieldTypeItem::EntityIdentifier(
             PresenterEntityType::TYPE_NAME,
         )),
         example: "[]",
@@ -765,7 +765,7 @@ define_field!(
         aliases: &[],
         required: false,
         crdt_type: CrdtFieldType::Derived,
-        field_type: FieldType::List(FieldTypeItem::EntityIdentifier(
+        field_type: FieldType(FieldCardinality::List, FieldTypeItem::EntityIdentifier(
             PresenterEntityType::TYPE_NAME,
         )),
         example: "[]",
@@ -819,7 +819,7 @@ define_field!(
         aliases: &[],
         required: false,
         crdt_type: CrdtFieldType::Derived,
-        field_type: FieldType::List(FieldTypeItem::EntityIdentifier(PanelEntityType::TYPE_NAME)),
+        field_type: FieldType(FieldCardinality::List, FieldTypeItem::EntityIdentifier(PanelEntityType::TYPE_NAME)),
         example: "[]",
         order: 1400,
         read_fn: Some(ReadFn::Schedule(|sched, id| {
