@@ -92,8 +92,8 @@ disambiguation. Overrides are authoritative — the loop never re-consults
 `can_create` after `scan_entity` returns.
 
 Implemented by all entity types that participate in lookup; four use the
-default impl, and `PresenterEntityType` (planned override for tagged
-tokens) is set up for a custom scan.
+default impl, and `PresenterEntityType` overrides to use
+`find_tagged_presenter` for tagged credit syntax (`"Kind:Name=Group"`).
 
 ### EntityCreatable
 

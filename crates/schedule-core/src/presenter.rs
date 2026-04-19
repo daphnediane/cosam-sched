@@ -898,7 +898,49 @@ fn extract_presenter_match_name(query: &str) -> &str {
     }
 }
 
-impl crate::lookup::EntityScannable for PresenterEntityType {}
+impl crate::lookup::EntityScannable for PresenterEntityType {
+    /// Tagged-presenter-aware scan.
+    ///
+    /// The tagged credit syntax (`"Kind:Name=Group"`) is always per-token —
+    /// it never spans a `,` / `;` separator — so we only consult the
+    /// `partial` slice.  `find_tagged_presenter` handles prefix rank gates,
+    /// group-only forms (`"=Band"` / `"==Band"`), and `=Group` membership
+    /// verification, so we use it directly instead of the default
+    /// linear-scan + `extract_presenter_match_name` path.
+    ///
+    /// On miss we defer to [`PresenterEntityType::can_create`]; its
+    /// `CanCreate::Yes` hint drives whether the loop queues the whole
+    /// remaining query or just the current token.  Actual creation runs
+    /// through [`create_from_string`], which in turn calls
+    /// [`find_or_create_tagged_presenter`] — so group membership and rank
+    /// promotion are honoured on the create path too.
+    fn scan_entity(
+        full: &str,
+        partial: &str,
+        schedule: &crate::schedule::Schedule,
+    ) -> Result<crate::lookup::ScanResult<Self>, crate::lookup::LookupError> {
+        use crate::lookup::{
+            CanCreate, EntityMatcher, LookupError, MatchConsumed, ScanFound, ScanResult,
+        };
+
+        let consumed = if full == partial {
+            MatchConsumed::Full
+        } else {
+            MatchConsumed::Partial
+        };
+
+        if let Some(id) = find_tagged_presenter(schedule, partial) {
+            return Ok(ScanResult(consumed, ScanFound::Entity(id)));
+        }
+
+        match Self::can_create(full, partial) {
+            CanCreate::No => Err(LookupError::NotFound {
+                query: full.to_string(),
+            }),
+            CanCreate::Yes(c) => Ok(ScanResult(c, ScanFound::CanCreate)),
+        }
+    }
+}
 
 impl crate::lookup::EntityMatcher for PresenterEntityType {
     fn can_create(full: &str, partial: &str) -> crate::lookup::CanCreate {
