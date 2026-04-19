@@ -40,8 +40,14 @@ implements the standard tiered match and is the normal building block for
 ### EntityMatcher
 
 ```rust
+pub enum MatchConsumed { Full, Partial }
+pub enum CanCreate { No, Yes(MatchConsumed) }
+
 pub trait EntityMatcher: EntityType {
     fn match_entity(query: &str, data: &Self::InternalData) -> Option<MatchPriority>;
+
+    // Default: CanCreate::No — override on types that support find-or-create.
+    fn can_create(full: &str, partial: &str) -> CanCreate { CanCreate::No }
 }
 ```
 
@@ -50,13 +56,49 @@ chooses (e.g. `PanelEntityType` matches on both `code` and `name`;
 `EventRoomEntityType` on `room_name` and `long_name`). This replaces the
 old per-field indexing where each `FieldDescriptor` carried an `index_fn`.
 
+`can_create` decides whether a missing entity can be synthesized from
+either the full remaining query or just the partial token (up to the
+first `,` / `;`). The default refuses creation; find-or-create types
+override it.
+
+### EntityScannable
+
+```rust
+pub enum ScanFound<E: EntityType> {
+    Entity(EntityId<E>),
+    CanCreate,
+}
+pub struct ScanResult<E: EntityType>(pub MatchConsumed, pub ScanFound<E>);
+
+pub trait EntityScannable: EntityMatcher {
+    fn scan_entity(
+        full: &str,
+        partial: &str,
+        schedule: &Schedule,
+    ) -> Result<ScanResult<Self>, LookupError> { /* default: linear scan */ }
+}
+```
+
+The lookup loop dispatches through `EntityScannable::scan_entity`. The
+default implementation performs a linear scan using `match_entity`,
+disambiguates between the full remaining query and the partial token
+(ties prefer the full match), and — on zero matches — consults
+`can_create` to decide whether to return `ScanFound::CanCreate` (with the
+appropriate `MatchConsumed`) or bubble up `LookupError::NotFound`.
+
+Override `scan_entity` to plug in index-backed lookups, custom token
+syntaxes (e.g., `pres:alice`, tagged presenters), or domain-specific
+disambiguation. Overrides are authoritative — the loop never re-consults
+`can_create` after `scan_entity` returns.
+
+Implemented by all entity types that participate in lookup; four use the
+default impl, and `PresenterEntityType` (planned override for tagged
+tokens) is set up for a custom scan.
+
 ### EntityCreatable
 
 ```rust
-pub enum CanCreate { No, FromFull, FromPartial }
-
-pub trait EntityCreatable: EntityMatcher {
-    fn can_create(full: &str, partial: &str) -> CanCreate;
+pub trait EntityCreatable: EntityScannable {
     fn create_from_string(schedule: &mut Schedule, s: &str)
         -> Result<EntityId<Self>, LookupError>;
 }
@@ -64,7 +106,9 @@ pub trait EntityCreatable: EntityMatcher {
 
 Implemented by `PresenterEntityType`, `EventRoomEntityType`,
 `HotelRoomEntityType`, and `PanelTypeEntityType`. Not implemented by
-`PanelEntityType` (panels are never auto-created by lookup).
+`PanelEntityType` (panels are never auto-created by lookup). Creation
+gating lives on `EntityMatcher::can_create`; `EntityCreatable` now only
+supplies the actual construction step.
 
 ### Lookup API
 
@@ -74,7 +118,7 @@ Results are returned as `Vec<EntityId<E>>`; `Single` yields exactly one,
 `Optional` yields zero or one, `List` yields any number.
 
 ```rust
-pub fn lookup<E: EntityMatcher>(
+pub fn lookup<E: EntityScannable>(
     schedule: &Schedule,
     query: &str,
     cardinality: FieldCardinality,
@@ -87,9 +131,9 @@ pub fn lookup_or_create<E: EntityCreatable>(
 ) -> Result<Vec<EntityId<E>>, LookupError>;
 
 // Convenience helpers that specialize the common cardinalities:
-pub fn lookup_single<E: EntityMatcher>(schedule: &Schedule, query: &str)
+pub fn lookup_single<E: EntityScannable>(schedule: &Schedule, query: &str)
     -> Result<EntityId<E>, LookupError>;
-pub fn lookup_list<E: EntityMatcher>(schedule: &Schedule, query: &str)
+pub fn lookup_list<E: EntityScannable>(schedule: &Schedule, query: &str)
     -> Result<Vec<EntityId<E>>, LookupError>;
 pub fn lookup_or_create_single<E: EntityCreatable>(
     schedule: &mut Schedule, query: &str,
@@ -111,14 +155,18 @@ with `FieldCardinality::Optional`.
   3. If the partial token looks like a bare UUID or `"type_name:<uuid>"`
      tagged UUID, fast-path via `parse_typed_uuid::<E>()` (validates entity
      type and existence) and continue with `rest`.
-  4. Otherwise scan all entities of type `E` against the full remaining
-     query and against the partial token, keeping matches at the best
-     priority. Ties prefer the full-string match.
-  5. Zero matches → `NotFound`, or for `lookup_or_create` consult
-     `E::can_create(full, partial)` and push onto a deferred create queue.
-  6. Exactly one match → record it; advance by rest or clear (depending
-     on which variant matched).
-  7. More than one at the best priority → `AmbiguousMatch`.
+  4. Otherwise call `E::scan_entity(full, partial, schedule)`. The default
+     impl scans all entities against both the full remaining query and
+     the partial token, keeps matches at the best priority, and (on zero
+     matches) consults `can_create` to decide between
+     `ScanFound::CanCreate` and `LookupError::NotFound`. Ties prefer the
+     full-string match.
+  5. `ScanFound::Entity(id)` → record it; advance by clearing or by
+     `rest` depending on the returned `MatchConsumed`.
+  6. `ScanFound::CanCreate` with `allow_create` → push the indicated
+     portion onto a deferred create queue. Without create mode →
+     `NotFound`.
+  7. More than one match at the best priority → `AmbiguousMatch`.
 - After the loop, check cardinality once more on `results + create_queue`
   before running deferred creates, then run them in order and return.
 
@@ -130,11 +178,15 @@ pub enum LookupError {
     NotFound        { query: String },
     WrongEntityType { expected: &'static str, got: String },
     TooMany         { found: usize },
-    CannotCreate    { query: String },
     InvalidUuid     { s: String },
     CreateFailed    { message: String },
 }
 ```
+
+Creation refusals surface as `NotFound` (scan authoritative): when an
+entity type's `can_create` returns `No`, the scan returns `NotFound`
+directly, and the lookup loop propagates it unchanged. A separate
+"cannot create" variant is not distinguished at this layer.
 
 ## FieldTypeMapping
 

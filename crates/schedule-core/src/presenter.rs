@@ -898,7 +898,19 @@ fn extract_presenter_match_name(query: &str) -> &str {
     }
 }
 
+impl crate::lookup::EntityScannable for PresenterEntityType {}
+
 impl crate::lookup::EntityMatcher for PresenterEntityType {
+    fn can_create(full: &str, partial: &str) -> crate::lookup::CanCreate {
+        if partial.is_empty() {
+            crate::lookup::CanCreate::No
+        } else if full == partial {
+            crate::lookup::CanCreate::Yes(crate::lookup::MatchConsumed::Full)
+        } else {
+            crate::lookup::CanCreate::Yes(crate::lookup::MatchConsumed::Partial)
+        }
+    }
+
     fn match_entity(
         query: &str,
         data: &PresenterInternalData,
@@ -911,16 +923,6 @@ impl crate::lookup::EntityMatcher for PresenterEntityType {
 // ── EntityCreatable ───────────────────────────────────────────────────────────
 
 impl crate::lookup::EntityCreatable for PresenterEntityType {
-    fn can_create(full: &str, partial: &str) -> crate::lookup::CanCreate {
-        if partial.is_empty() {
-            crate::lookup::CanCreate::No
-        } else if full == partial {
-            crate::lookup::CanCreate::FromFull
-        } else {
-            crate::lookup::CanCreate::FromPartial
-        }
-    }
-
     fn create_from_string(
         schedule: &mut crate::schedule::Schedule,
         s: &str,
@@ -1454,25 +1456,25 @@ mod tests {
 
     #[test]
     fn test_can_create_no_separator_returns_from_full() {
-        use crate::lookup::{CanCreate, EntityCreatable};
+        use crate::lookup::{CanCreate, EntityMatcher};
         assert!(matches!(
             PresenterEntityType::can_create("G:Alice", "G:Alice"),
-            CanCreate::FromFull
+            CanCreate::Yes(crate::lookup::MatchConsumed::Full)
         ));
     }
 
     #[test]
     fn test_can_create_with_separator_returns_from_partial() {
-        use crate::lookup::{CanCreate, EntityCreatable};
+        use crate::lookup::{CanCreate, EntityMatcher};
         assert!(matches!(
             PresenterEntityType::can_create("G:Alice, P:Bob", "G:Alice"),
-            CanCreate::FromPartial
+            CanCreate::Yes(crate::lookup::MatchConsumed::Partial)
         ));
     }
 
     #[test]
     fn test_can_create_empty_partial_returns_no() {
-        use crate::lookup::{CanCreate, EntityCreatable};
+        use crate::lookup::{CanCreate, EntityMatcher};
         assert!(matches!(
             PresenterEntityType::can_create("G:Alice", ""),
             CanCreate::No

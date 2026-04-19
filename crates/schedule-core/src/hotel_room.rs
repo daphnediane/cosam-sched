@@ -176,7 +176,19 @@ static HOTEL_ROOM_FIELD_SET: LazyLock<FieldSet<HotelRoomEntityType>> =
 
 // ── EntityMatcher ─────────────────────────────────────────────────────────────
 
+impl crate::lookup::EntityScannable for HotelRoomEntityType {}
+
 impl crate::lookup::EntityMatcher for HotelRoomEntityType {
+    fn can_create(full: &str, partial: &str) -> crate::lookup::CanCreate {
+        if partial.is_empty() {
+            crate::lookup::CanCreate::No
+        } else if full == partial {
+            crate::lookup::CanCreate::Yes(crate::lookup::MatchConsumed::Full)
+        } else {
+            crate::lookup::CanCreate::Yes(crate::lookup::MatchConsumed::Partial)
+        }
+    }
+
     fn match_entity(
         query: &str,
         data: &HotelRoomInternalData,
@@ -188,16 +200,6 @@ impl crate::lookup::EntityMatcher for HotelRoomEntityType {
 // ── EntityCreatable ───────────────────────────────────────────────────────────
 
 impl crate::lookup::EntityCreatable for HotelRoomEntityType {
-    fn can_create(full: &str, partial: &str) -> crate::lookup::CanCreate {
-        if partial.is_empty() {
-            crate::lookup::CanCreate::No
-        } else if full == partial {
-            crate::lookup::CanCreate::FromFull
-        } else {
-            crate::lookup::CanCreate::FromPartial
-        }
-    }
-
     fn create_from_string(
         schedule: &mut crate::schedule::Schedule,
         s: &str,
@@ -372,25 +374,25 @@ mod tests {
 
     #[test]
     fn test_can_create_no_separator() {
-        use crate::lookup::{CanCreate, EntityCreatable};
+        use crate::lookup::{CanCreate, EntityMatcher};
         assert!(matches!(
             HotelRoomEntityType::can_create("Grand Ballroom", "Grand Ballroom"),
-            CanCreate::FromFull
+            CanCreate::Yes(crate::lookup::MatchConsumed::Full)
         ));
     }
 
     #[test]
     fn test_can_create_with_separator() {
-        use crate::lookup::{CanCreate, EntityCreatable};
+        use crate::lookup::{CanCreate, EntityMatcher};
         assert!(matches!(
             HotelRoomEntityType::can_create("Grand Ballroom, East Wing", "Grand Ballroom"),
-            CanCreate::FromPartial
+            CanCreate::Yes(crate::lookup::MatchConsumed::Partial)
         ));
     }
 
     #[test]
     fn test_can_create_empty_partial_returns_no() {
-        use crate::lookup::{CanCreate, EntityCreatable};
+        use crate::lookup::{CanCreate, EntityMatcher};
         assert!(matches!(
             HotelRoomEntityType::can_create("Grand Ballroom", ""),
             CanCreate::No

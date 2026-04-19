@@ -117,40 +117,145 @@ fn word_boundary_match(haystack: &str, needle: &str) -> bool {
 
 // ── EntityMatcher ─────────────────────────────────────────────────────────────
 
-/// Entity types implement this to define their own holistic match logic.
-///
-/// Unlike the old per-field `IndexableField` approach, the entity type
-/// controls how all its fields are weighted and combined.  Use
-/// [`string_match_priority`] as a building block for individual fields.
-pub trait EntityMatcher: EntityType {
-    /// Return the match quality for `query` against `data`, or `None` if there
-    /// is no match.  Values ≥ [`match_priority::MIN_MATCH`] are considered a
-    /// match; `None` and `0` are equivalent non-matches.
-    fn match_entity(query: &str, data: &Self::InternalData) -> Option<MatchPriority>;
+/// Which portion of the query a scan consumed.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum MatchConsumed {
+    /// The full remaining string (including separators) was used; the loop
+    /// stops consuming further tokens.
+    Full,
+    /// Only the partial token (before the first separator) was used; the
+    /// loop continues with whatever follows the separator.
+    Partial,
 }
-
-// ── EntityCreatable ───────────────────────────────────────────────────────────
 
 /// Whether and how a string can be used to create a new entity.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum CanCreate {
     /// The string cannot be used to create this entity.
     No,
-    /// The full remaining query string (before any separator) can create the entity.
-    FromFull,
-    /// Only the partial token (before the first separator) can create the entity.
-    FromPartial,
+    /// The string can be used to create the entity; the [`MatchConsumed`]
+    /// value says whether to consume the full remaining query or just the
+    /// partial token (before the first separator).
+    Yes(MatchConsumed),
 }
 
-/// Entity types that support find-or-create implement this on top of
-/// [`EntityMatcher`].
-pub trait EntityCreatable: EntityMatcher {
+/// Entity types implement this to define their own holistic match logic.
+///
+/// Unlike the old per-field `IndexableField` approach, the entity type
+/// controls how all its fields are weighted and combined.  Use
+/// [`string_match_priority`] as a building block for individual fields.
+pub trait EntityMatcher: EntityType {
     /// Decide whether `full` (the complete remaining query) or `partial` (the
     /// token before the first separator) can be used to create a new entity.
     ///
     /// `partial == full` when there is no separator in the remaining query.
-    fn can_create(full: &str, partial: &str) -> CanCreate;
+    /// The default refuses creation ([`CanCreate::No`]).
+    fn can_create(_full: &str, _partial: &str) -> CanCreate {
+        CanCreate::No
+    }
 
+    /// Return the match quality for `query` against `data`, or `None` if there
+    /// is no match.  Values ≥ [`match_priority::MIN_MATCH`] are considered a
+    /// match; `None` and `0` are equivalent non-matches.
+    fn match_entity(query: &str, data: &Self::InternalData) -> Option<MatchPriority>;
+}
+
+// ── EntityScannable ───────────────────────────────────────────────────────────
+
+/// Per-token verdict of [`EntityScannable::scan_entity`].
+///
+/// The scan is authoritative; the lookup loop never consults
+/// [`EntityMatcher::can_create`] after `scan_entity` returns.  When the
+/// scan decides creation is refused, it returns
+/// [`Err(LookupError::NotFound)`] directly rather than producing a
+/// variant here.
+#[derive(Debug)]
+pub enum ScanFound<E: EntityType> {
+    /// Matched an existing entity.
+    Entity(EntityId<E>),
+    /// No match; creation is allowed.  For find-or-create lookups the loop
+    /// queues the consumed portion of the query for
+    /// [`EntityCreatable::create_from_string`].  Non-create lookups treat
+    /// this as a terminal `NotFound`.
+    CanCreate,
+}
+
+/// Outcome of [`EntityScannable::scan_entity`].
+///
+/// The first field records how much of the query the scan consumed and
+/// controls how the loop advances for both variants of [`ScanFound`].
+#[derive(Debug)]
+pub struct ScanResult<E: EntityType>(pub MatchConsumed, pub ScanFound<E>);
+
+/// Entity types implement this to plug into the lookup loop's entity scan
+/// step.  The default implementation performs a linear scan using
+/// [`EntityMatcher::match_entity`] and disambiguates between the full
+/// remaining string and the partial token the same way the built-in loop
+/// always has.  Override for custom matching (e.g., index-backed lookup,
+/// `"Group: Alice"` tokens, or entities that produce a creation hint on
+/// miss).
+///
+/// The built-in UUID fast-path still runs before `scan_entity`.
+pub trait EntityScannable: EntityMatcher {
+    /// Resolve `full` / `partial` against the schedule.
+    ///
+    /// `full` is the entire remaining query (may contain separators),
+    /// `partial` is the substring up to the first `,` / `;`.  When the query
+    /// has no separator `partial == full`.
+    ///
+    /// # Errors
+    ///
+    /// Implementations typically return [`LookupError::AmbiguousMatch`] when
+    /// multiple entities tie at the same match priority, but any
+    /// [`LookupError`] is allowed and propagates out of the lookup loop.
+    fn scan_entity(
+        full: &str,
+        partial: &str,
+        schedule: &Schedule,
+    ) -> Result<ScanResult<Self>, LookupError> {
+        let full_hits = scan_entities::<Self>(schedule, full);
+        let partial_hits: Vec<(EntityId<Self>, MatchPriority)> = if partial != full {
+            scan_entities::<Self>(schedule, partial)
+        } else {
+            vec![]
+        };
+
+        let full_best = best_priority(&full_hits);
+        let partial_best = best_priority(&partial_hits);
+
+        // Prefer full on ties (>=).
+        let (best_set, consumed) = if full_best >= partial_best {
+            (filter_to_best(full_hits), MatchConsumed::Full)
+        } else {
+            (filter_to_best(partial_hits), MatchConsumed::Partial)
+        };
+
+        match best_set.len() {
+            0 => match Self::can_create(full, partial) {
+                CanCreate::No => Err(LookupError::NotFound {
+                    query: full.to_string(),
+                }),
+                CanCreate::Yes(c) => Ok(ScanResult(c, ScanFound::CanCreate)),
+            },
+            1 => Ok(ScanResult(consumed, ScanFound::Entity(best_set[0]))),
+            _ => {
+                let q = match consumed {
+                    MatchConsumed::Full => full,
+                    MatchConsumed::Partial => partial,
+                };
+                Err(LookupError::AmbiguousMatch {
+                    query: q.to_string(),
+                })
+            }
+        }
+    }
+}
+
+// ── EntityCreatable ───────────────────────────────────────────────────────────
+
+/// Entity types that support find-or-create implement this on top of
+/// [`EntityScannable`].
+pub trait EntityCreatable: EntityScannable {
     /// Create a new entity from `s` and return its ID.
     ///
     /// `s` is whichever string [`can_create`] indicated was creatable.
@@ -179,10 +284,6 @@ pub enum LookupError {
     /// More matches were found than the cardinality allows.
     #[error("too many results: found {found}")]
     TooMany { found: usize },
-
-    /// Find-or-create was attempted but the entity type refuses creation.
-    #[error("cannot create entity from '{query}'")]
-    CannotCreate { query: String },
 
     /// The UUID string is syntactically invalid or refers to a nil UUID.
     #[error("invalid UUID: '{s}'")]
@@ -301,17 +402,16 @@ fn is_limited(cardinality: FieldCardinality) -> bool {
 /// Run the multi-token lookup loop.
 ///
 /// - `results` accumulates matched entity IDs.
-/// - `create_queue` accumulates strings to be passed to `EntityCreatable::create_from_string`
-///   after the loop.  Always empty when `allow_create` is `false`.
-/// - `try_create` is called when no match is found and `allow_create` is `true`.
-fn run_lookup_loop<E: EntityMatcher>(
+/// - `create_queue` accumulates strings to be passed to
+///   [`EntityCreatable::create_from_string`] after the loop.  Always empty
+///   when `allow_create` is `false`.
+fn run_lookup_loop<E: EntityScannable>(
     schedule: &Schedule,
     query: &str,
     cardinality: FieldCardinality,
     results: &mut Vec<EntityId<E>>,
     create_queue: &mut Vec<String>,
     allow_create: bool,
-    try_create: &dyn Fn(&str, &str) -> CanCreate,
 ) -> Result<(), LookupError> {
     let mut match_string = query.trim();
 
@@ -347,56 +447,36 @@ fn run_lookup_loop<E: EntityMatcher>(
         }
 
         // ── Entity scan ───────────────────────────────────────────────────────
-        // Try the full remaining string and the partial token (if different).
-        // Prefer the full string for ties (>= comparison).
-        let full_hits = scan_entities::<E>(schedule, match_string);
-        let partial_hits: Vec<(EntityId<E>, MatchPriority)> = if partial != match_string {
-            scan_entities::<E>(schedule, partial)
-        } else {
-            vec![]
-        };
+        // Dispatch to [`EntityScannable::scan_entity`]; the default handles
+        // the linear-scan + full/partial disambiguation, overrides may do
+        // something smarter (e.g., index lookups, tagged tokens that return
+        // MustCreate with their own `Consumed` hint).
+        let ScanResult(consumed, found) = E::scan_entity(match_string, partial, schedule)?;
 
-        let full_best = best_priority(&full_hits);
-        let partial_best = best_priority(&partial_hits);
-
-        let (best_set, from_full) = if full_best >= partial_best {
-            (filter_to_best(full_hits), true)
-        } else {
-            (filter_to_best(partial_hits), false)
-        };
-
-        match best_set.len() {
-            0 => {
+        match found {
+            ScanFound::Entity(id) => {
+                results.push(id);
+                match_string = match consumed {
+                    MatchConsumed::Full => "",
+                    MatchConsumed::Partial => rest,
+                };
+            }
+            ScanFound::CanCreate => {
                 if !allow_create {
                     return Err(LookupError::NotFound {
                         query: match_string.to_string(),
                     });
                 }
-                match try_create(match_string, partial) {
-                    CanCreate::No => {
-                        return Err(LookupError::CannotCreate {
-                            query: match_string.to_string(),
-                        });
-                    }
-                    CanCreate::FromFull => {
+                match consumed {
+                    MatchConsumed::Full => {
                         create_queue.push(match_string.to_string());
                         match_string = "";
                     }
-                    CanCreate::FromPartial => {
+                    MatchConsumed::Partial => {
                         create_queue.push(partial.to_string());
                         match_string = rest;
                     }
                 }
-            }
-            1 => {
-                results.push(best_set[0]);
-                match_string = if from_full { "" } else { rest };
-            }
-            _ => {
-                let q = if from_full { match_string } else { partial };
-                return Err(LookupError::AmbiguousMatch {
-                    query: q.to_string(),
-                });
             }
         }
     }
@@ -456,7 +536,7 @@ fn check_final_cardinality<E: EntityType>(
 /// - No entity matches (`NotFound`)
 /// - Multiple entities match at the same priority (`AmbiguousMatch`)
 /// - More results than the cardinality allows (`TooMany`)
-pub fn lookup<E: EntityMatcher>(
+pub fn lookup<E: EntityScannable>(
     schedule: &Schedule,
     query: &str,
     cardinality: FieldCardinality,
@@ -471,7 +551,6 @@ pub fn lookup<E: EntityMatcher>(
         &mut results,
         &mut create_queue,
         false,
-        &|_, _| CanCreate::No,
     )?;
 
     debug_assert!(
@@ -493,8 +572,11 @@ pub fn lookup<E: EntityMatcher>(
 /// # Errors
 ///
 /// All [`lookup`] errors plus:
-/// - [`LookupError::CannotCreate`] when the entity type refuses creation
 /// - [`LookupError::CreateFailed`] when creation itself fails
+///
+/// When an entity type refuses creation for a token the lookup produces
+/// [`LookupError::NotFound`] (same as a true no-match); the two cases are
+/// not distinguished at this layer.
 pub fn lookup_or_create<E: EntityCreatable>(
     schedule: &mut Schedule,
     query: &str,
@@ -510,7 +592,6 @@ pub fn lookup_or_create<E: EntityCreatable>(
         &mut results,
         &mut create_queue,
         true,
-        &|full, partial| E::can_create(full, partial),
     )?;
 
     // Post-loop cardinality check before committing to deferred creates.
@@ -555,7 +636,7 @@ pub fn lookup_or_create<E: EntityCreatable>(
 ///
 /// Returns [`LookupError::NotFound`] when no match is found and
 /// [`LookupError::TooMany`] when more than one entity matches.
-pub fn lookup_single<E: EntityMatcher>(
+pub fn lookup_single<E: EntityScannable>(
     schedule: &Schedule,
     query: &str,
 ) -> Result<EntityId<E>, LookupError> {
@@ -575,7 +656,7 @@ pub fn lookup_single<E: EntityMatcher>(
 /// # Errors
 ///
 /// See [`lookup`].  `TooMany` cannot occur for `List` cardinality.
-pub fn lookup_list<E: EntityMatcher>(
+pub fn lookup_list<E: EntityScannable>(
     schedule: &Schedule,
     query: &str,
 ) -> Result<Vec<EntityId<E>>, LookupError> {

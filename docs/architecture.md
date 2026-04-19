@@ -115,7 +115,7 @@ Het vs homo is determined at runtime by `TypeId::of::<L::InternalData>() == Type
 Entity lookup is provided by free functions in `schedule-core::lookup`:
 
 ```rust
-pub fn lookup<E: EntityMatcher>(
+pub fn lookup<E: EntityScannable>(
     schedule: &Schedule,
     query: &str,
     cardinality: FieldCardinality,
@@ -128,9 +128,9 @@ pub fn lookup_or_create<E: EntityCreatable>(
 ) -> Result<Vec<EntityId<E>>, LookupError>;
 
 // Convenience helpers:
-pub fn lookup_single<E: EntityMatcher>(schedule: &Schedule, query: &str)
+pub fn lookup_single<E: EntityScannable>(schedule: &Schedule, query: &str)
     -> Result<EntityId<E>, LookupError>;
-pub fn lookup_list<E: EntityMatcher>(schedule: &Schedule, query: &str)
+pub fn lookup_list<E: EntityScannable>(schedule: &Schedule, query: &str)
     -> Result<Vec<EntityId<E>>, LookupError>;
 pub fn lookup_or_create_single<E: EntityCreatable>(...)
     -> Result<EntityId<E>, LookupError>;
@@ -140,9 +140,15 @@ pub fn lookup_or_create_list<E: EntityCreatable>(...)
 
 Entity types implement [`EntityMatcher::match_entity`] to own their holistic
 match logic (combining any fields they choose), returning a `u8`
-[`MatchPriority`] score (`NO_MATCH` = 0 … `EXACT_MATCH` = 255). Types that
-support find-or-create additionally implement [`EntityCreatable`]. This
-replaced the previous per-field `IndexableField<E>` / `index_fn` approach.
+[`MatchPriority`] score (`NO_MATCH` = 0 … `EXACT_MATCH` = 255).
+[`EntityScannable`] extends `EntityMatcher` with a `scan_entity` hook that
+the lookup loop dispatches through — the default implementation performs
+the linear scan plus full/partial disambiguation, and entity types can
+override it for index-backed lookups or custom token syntax. Types that
+support find-or-create additionally implement [`EntityCreatable`] (which
+supplies `create_from_string`) and override
+[`EntityMatcher::can_create`] to gate creation. This replaced the
+previous per-field `IndexableField<E>` / `index_fn` approach.
 
 The lookup algorithm splits queries at `,` / `;`, fast-paths bare and
 tagged UUIDs (`"type_name:<uuid>"`), prefers full-string matches over

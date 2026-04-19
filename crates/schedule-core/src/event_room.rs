@@ -235,6 +235,8 @@ static EVENT_ROOM_FIELD_SET: LazyLock<FieldSet<EventRoomEntityType>> =
 
 // ── EntityMatcher ─────────────────────────────────────────────────────────────
 
+impl crate::lookup::EntityScannable for EventRoomEntityType {}
+
 impl crate::lookup::EntityMatcher for EventRoomEntityType {
     fn match_entity(
         query: &str,
@@ -254,21 +256,21 @@ impl crate::lookup::EntityMatcher for EventRoomEntityType {
         .flatten()
         .max()
     }
+
+    fn can_create(full: &str, partial: &str) -> crate::lookup::CanCreate {
+        if partial.is_empty() {
+            crate::lookup::CanCreate::No
+        } else if full == partial {
+            crate::lookup::CanCreate::Yes(crate::lookup::MatchConsumed::Full)
+        } else {
+            crate::lookup::CanCreate::Yes(crate::lookup::MatchConsumed::Partial)
+        }
+    }
 }
 
 // ── EntityCreatable ───────────────────────────────────────────────────────────
 
 impl crate::lookup::EntityCreatable for EventRoomEntityType {
-    fn can_create(full: &str, partial: &str) -> crate::lookup::CanCreate {
-        if partial.is_empty() {
-            crate::lookup::CanCreate::No
-        } else if full == partial {
-            crate::lookup::CanCreate::FromFull
-        } else {
-            crate::lookup::CanCreate::FromPartial
-        }
-    }
-
     fn create_from_string(
         schedule: &mut crate::schedule::Schedule,
         s: &str,
@@ -459,25 +461,25 @@ mod tests {
 
     #[test]
     fn test_can_create_no_separator() {
-        use crate::lookup::{CanCreate, EntityCreatable};
+        use crate::lookup::{CanCreate, EntityMatcher};
         assert!(matches!(
             EventRoomEntityType::can_create("Panel 1", "Panel 1"),
-            CanCreate::FromFull
+            CanCreate::Yes(crate::lookup::MatchConsumed::Full)
         ));
     }
 
     #[test]
     fn test_can_create_with_separator() {
-        use crate::lookup::{CanCreate, EntityCreatable};
+        use crate::lookup::{CanCreate, EntityMatcher};
         assert!(matches!(
             EventRoomEntityType::can_create("Panel 1, Panel 2", "Panel 1"),
-            CanCreate::FromPartial
+            CanCreate::Yes(crate::lookup::MatchConsumed::Partial)
         ));
     }
 
     #[test]
     fn test_can_create_empty_partial_returns_no() {
-        use crate::lookup::{CanCreate, EntityCreatable};
+        use crate::lookup::{CanCreate, EntityMatcher};
         assert!(matches!(
             EventRoomEntityType::can_create("Panel 1", ""),
             CanCreate::No

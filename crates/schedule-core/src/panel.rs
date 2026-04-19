@@ -660,6 +660,8 @@ static PANEL_FIELD_SET: LazyLock<FieldSet<PanelEntityType>> =
 
 // ── EntityMatcher ─────────────────────────────────────────────────────────────
 
+impl crate::lookup::EntityScannable for PanelEntityType {}
+
 impl crate::lookup::EntityMatcher for PanelEntityType {
     fn match_entity(query: &str, data: &PanelInternalData) -> Option<crate::lookup::MatchPriority> {
         use crate::lookup::string_match_priority;
