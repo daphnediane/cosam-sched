@@ -620,3 +620,165 @@ macro_rules! define_field {
     };
 }
 pub(crate) use define_field;
+
+// ── Entity builder ───────────────────────────────────────────────────────────
+
+/// Generate a typed builder struct for an entity on top of
+/// [`FieldSet::write_multiple`] (FEATURE-046) and
+/// [`build_entity`](crate::builder::build_entity) (FEATURE-017).
+///
+/// The call site lists one `with_<setter> => &FIELD_STATIC` entry per field
+/// that should be settable through the builder.  Each setter takes any
+/// [`IntoFieldValue`](crate::value::IntoFieldValue)-typed value, so callers
+/// pass native Rust types (`&str`, `bool`, `Option<T>`, `Vec<T>`, etc.)
+/// without constructing `FieldValue` by hand.
+///
+/// Must be invoked in the same module as the `FIELD_*` statics it references,
+/// since those statics are module-private.
+///
+/// # Generated API
+///
+/// ```ignore
+/// pub struct FooBuilder { .. }
+///
+/// impl FooBuilder {
+///     pub fn new() -> Self;
+///     pub fn with_uuid_preference(self, p: UuidPreference) -> Self;
+///     // one setter per listed field:
+///     pub fn with_<setter>(self, v: impl IntoFieldValue) -> Self;
+///     // terminal operations:
+///     pub fn build(self, schedule: &mut Schedule) -> Result<EntityId<Foo>, BuildError>;
+///     pub fn apply_to(self, id: EntityId<Foo>, schedule: &mut Schedule)
+///         -> Result<(), FieldSetError>;
+/// }
+///
+/// impl Default for FooBuilder { fn default() -> Self { Self::new() } }
+/// ```
+///
+/// `build` creates a new entity by seeding via
+/// [`EntityBuildable::default_data`](crate::builder::EntityBuildable::default_data)
+/// and applying the queued writes through `write_multiple`, with rollback on
+/// any failure.  `apply_to` reuses the same queue against an existing
+/// entity without insertion or rollback.
+///
+/// Each entry is a setter identifier and a **path** to a `FieldDescriptor`
+/// static.  The macro inserts the `&` when resolving the descriptor, so do
+/// not write one.  Caller-supplied `///` doc comments on each entry are
+/// forwarded onto the generated setter; the macro appends a line pointing
+/// back at the underlying `FIELD_*` static.
+///
+/// # Example
+///
+/// ```ignore
+/// define_entity_builder! {
+///     /// Typed builder for `PanelType` entities.
+///     PanelTypeBuilder for PanelTypeEntityType {
+///         /// Set the two-letter Uniq ID prefix (e.g. `"GP"`).
+///         with_prefix      => FIELD_PREFIX,
+///         /// Set the human-readable kind name.
+///         with_panel_kind  => FIELD_PANEL_KIND,
+///         /// Set the CSS color for color-mode rendering.
+///         with_color       => FIELD_COLOR,
+///     }
+/// }
+/// ```
+macro_rules! define_entity_builder {
+    (
+        $(#[$attr:meta])*
+        $builder:ident for $entity:ty {
+            $(
+                $(#[$setter_attr:meta])*
+                $setter:ident => $field:path
+            ),* $(,)?
+        }
+    ) => {
+        $(#[$attr])*
+        pub struct $builder {
+            uuid: $crate::entity::UuidPreference,
+            updates: ::std::vec::Vec<(
+                $crate::field_set::FieldRef<$entity>,
+                $crate::value::FieldValue,
+            )>,
+        }
+
+        impl $builder {
+            /// Start a fresh builder.  The default UUID preference is
+            /// [`UuidPreference::GenerateNew`](crate::entity::UuidPreference::GenerateNew).
+            #[must_use]
+            pub fn new() -> Self {
+                Self {
+                    uuid: $crate::entity::UuidPreference::GenerateNew,
+                    updates: ::std::vec::Vec::new(),
+                }
+            }
+
+            /// Override the UUID preference used at [`Self::build`] time.
+            #[must_use]
+            pub fn with_uuid_preference(
+                mut self,
+                preference: $crate::entity::UuidPreference,
+            ) -> Self {
+                self.uuid = preference;
+                self
+            }
+
+            $(
+                $(#[$setter_attr])*
+                #[doc = ""]
+                #[doc = concat!(
+                    "Writes to the `",
+                    stringify!($field),
+                    "` field descriptor.  Accepts any \
+                     [`IntoFieldValue`](crate::value::IntoFieldValue) type; \
+                     conversion or validation errors surface at \
+                     [`Self::build`] / [`Self::apply_to`] time."
+                )]
+                #[must_use]
+                pub fn $setter(
+                    mut self,
+                    value: impl $crate::value::IntoFieldValue,
+                ) -> Self {
+                    self.updates.push((
+                        $crate::field_set::FieldRef::Descriptor(&$field),
+                        $crate::value::IntoFieldValue::into_field_value(value),
+                    ));
+                    self
+                }
+            )*
+
+            /// Create a new entity in `schedule`, seeding it via
+            /// [`EntityBuildable::default_data`](crate::builder::EntityBuildable::default_data),
+            /// applying all queued writes, and running
+            /// [`EntityType::validate`](crate::entity::EntityType::validate).
+            /// Rolls back on any error.
+            pub fn build(
+                self,
+                schedule: &mut $crate::schedule::Schedule,
+            ) -> ::core::result::Result<
+                $crate::entity::EntityId<$entity>,
+                $crate::builder::BuildError,
+            > {
+                $crate::builder::build_entity::<$entity>(schedule, self.uuid, self.updates)
+            }
+
+            /// Apply the queued writes to an existing entity.  Does not seed
+            /// a new entity and does not roll back on error.  The UUID
+            /// preference stored on the builder is ignored.
+            pub fn apply_to(
+                self,
+                id: $crate::entity::EntityId<$entity>,
+                schedule: &mut $crate::schedule::Schedule,
+            ) -> ::core::result::Result<(), $crate::field_set::FieldSetError> {
+                <$entity as $crate::entity::EntityType>::field_set()
+                    .write_multiple(id, schedule, &self.updates)
+            }
+        }
+
+        impl ::core::default::Default for $builder {
+            fn default() -> Self {
+                Self::new()
+            }
+        }
+    };
+}
+pub(crate) use define_entity_builder;
