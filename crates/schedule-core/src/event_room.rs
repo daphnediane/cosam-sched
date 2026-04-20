@@ -217,6 +217,25 @@ edge_list_field_rw!(FIELD_PANELS, EventRoomEntityType, EventRoomInternalData, ta
 static EVENT_ROOM_FIELD_SET: LazyLock<FieldSet<EventRoomEntityType>> =
     LazyLock::new(FieldSet::from_inventory);
 
+// ── Builder ───────────────────────────────────────────────────────────────────
+
+crate::field_macros::define_entity_builder! {
+    /// Typed builder for [`EventRoomEntityType`] entities (FEATURE-017).
+    EventRoomBuilder for EventRoomEntityType {
+        /// Set the room code as it appears in the Schedule sheet (e.g. `"Panel 1"`).
+        /// Required.
+        with_room_name   => FIELD_ROOM_NAME,
+        /// Set the optional display name shown in the widget / public schedule.
+        with_long_name   => FIELD_LONG_NAME,
+        /// Set the sort key; values `>= 100` hide the room from the public schedule.
+        with_sort_key    => FIELD_SORT_KEY,
+        /// Replace the set of hotel rooms that contain this event room.
+        with_hotel_rooms => FIELD_HOTEL_ROOMS,
+        /// Replace the set of panels scheduled in this event room.
+        with_panels      => FIELD_PANELS,
+    }
+}
+
 // ── EntityMatcher ─────────────────────────────────────────────────────────────
 
 impl crate::lookup::EntityScannable for EventRoomEntityType {}

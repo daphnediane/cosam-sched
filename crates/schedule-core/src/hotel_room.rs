@@ -160,6 +160,16 @@ edge_list_field!(FIELD_EVENT_ROOMS, HotelRoomEntityType, HotelRoomInternalData, 
 static HOTEL_ROOM_FIELD_SET: LazyLock<FieldSet<HotelRoomEntityType>> =
     LazyLock::new(FieldSet::from_inventory);
 
+// ── Builder ───────────────────────────────────────────────────────────────────
+
+crate::field_macros::define_entity_builder! {
+    /// Typed builder for [`HotelRoomEntityType`] entities (FEATURE-017).
+    HotelRoomBuilder for HotelRoomEntityType {
+        /// Set the physical hotel room name (e.g. `"Ballroom East"`).  Required.
+        with_hotel_room_name => FIELD_HOTEL_ROOM_NAME,
+    }
+}
+
 // ── EntityMatcher ─────────────────────────────────────────────────────────────
 
 impl crate::lookup::EntityScannable for HotelRoomEntityType {}

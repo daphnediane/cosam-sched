@@ -1,6 +1,6 @@
 # Cosplay America Schedule - Work Item
 
-Updated on: Sun Apr 19 18:01:10 2026
+Updated on: Sun Apr 19 21:33:21 2026
 
 ## Completed
 
@@ -12,6 +12,7 @@ Updated on: Sun Apr 19 18:01:10 2026
 * [FEATURE-014] Implement the PanelType entity as the first proof of concept for the no-proc-macro field system.
 * [FEATURE-015] Port `TimeRange` and implement the Panel entity with stored and computed time fields.
 * [FEATURE-016] Implement the remaining core entity data structs and field descriptors.
+* [FEATURE-017] Implement entity builders for constructing entity data with UUID assignment.
 * [FEATURE-018] Implement typed relationship storage for entity-to-entity relationships.
 * [FEATURE-019] Implement the `Schedule` struct and `EntityStorage` for managing all entities and relationships.
 * [FEATURE-020] Implement field-based search, matching, and bulk update operations.
@@ -49,7 +50,7 @@ collection, and expose a `registered_entity_types()` accessor.
 
 ## Summary of Open Items
 
-**Total open items:** 24
+**Total open items:** 23
 
 * **Meta / Project-Level**
   * [META-001] Meta work item tracking the full multi-phase redesign of the schedule system. (Blocked by [META-003], [META-004], [META-005], [META-006], [META-007], [META-008])
@@ -66,7 +67,6 @@ XLSX import/export. (Blocked by [META-003], [META-004])
 
 * **Medium Priority**
   * [BUGFIX-045] In `scratch/field_update_logic.rs`, duration values are incorrectly stored as `FieldValue::Integer(minutes)` instead of `FieldValue::Duration(Duration)`.
-  * [FEATURE-017] ([META-003]) Implement entity builders for constructing entity data with UUID assignment.
   * [FEATURE-022] ([META-004]) Design the abstraction layer between the entity/field system and the CRDT backend.
   * [FEATURE-023] ([META-004]) Replace direct `HashMap` entity storage with CRDT-backed storage using automerge.
   * [FEATURE-024] ([META-004]) Implement change tracking, diff computation, and merge for CRDT documents.
@@ -193,21 +193,6 @@ panels arranged by time and room, with inline editing of entity fields.
 
 **Description:** All mutations to the schedule go through an edit command system that captures
 changes as reversible operations, enabling undo/redo in both CLI and GUI contexts.
-
----
-
-### [FEATURE-017] Builder Pattern
-
-**Status:** Open
-
-**Priority:** Medium
-
-**Summary:** Implement entity builders for constructing entity data with UUID assignment.
-
-**Part of:** [META-003]
-
-**Description:** The old proc-macro generated per-entity builders with `with_*` setters and
-`build()` methods. Without the macro, builders need explicit implementation.
 
 ---
 
@@ -584,7 +569,7 @@ to exchange CRDT changes and reconcile concurrent edits to the same fields.
 [FEATURE-014]: work-item/done/FEATURE-014.md
 [FEATURE-015]: work-item/done/FEATURE-015.md
 [FEATURE-016]: work-item/done/FEATURE-016.md
-[FEATURE-017]: work-item/medium/FEATURE-017.md
+[FEATURE-017]: work-item/done/FEATURE-017.md
 [FEATURE-018]: work-item/done/FEATURE-018.md
 [FEATURE-019]: work-item/done/FEATURE-019.md
 [FEATURE-020]: work-item/done/FEATURE-020.md

@@ -892,6 +892,33 @@ define_field!(
 static PRESENTER_FIELD_SET: LazyLock<FieldSet<PresenterEntityType>> =
     LazyLock::new(FieldSet::from_inventory);
 
+// ── Builder ───────────────────────────────────────────────────────────────────
+
+crate::field_macros::define_entity_builder! {
+    /// Typed builder for [`PresenterEntityType`] entities (FEATURE-017).
+    PresenterBuilder for PresenterEntityType {
+        /// Set the presenter or group display name.  Required.
+        with_name                  => FIELD_NAME,
+        /// Set the presenter rank (canonical tag: `guest`, `judge`, `staff`,
+        /// `invited_panelist`, `fan_panelist`, or a custom invited-guest label).
+        with_rank                  => FIELD_RANK,
+        /// Set the biography or description.
+        with_bio                   => FIELD_BIO,
+        /// Mark this entity as an explicit group (vs. an individual).
+        with_is_explicit_group     => FIELD_IS_EXPLICIT_GROUP,
+        /// Always display this member under its group name.
+        with_always_grouped        => FIELD_ALWAYS_GROUPED,
+        /// Always show the group name, even with partial member attendance.
+        with_always_shown_in_group => FIELD_ALWAYS_SHOWN_IN_GROUP,
+        /// Replace the set of groups this presenter belongs to.
+        with_groups                => FIELD_GROUPS,
+        /// Replace the set of members of this group (ignored for individuals).
+        with_members               => FIELD_MEMBERS,
+        /// Replace the set of panels this presenter is scheduled on.
+        with_panels                => FIELD_PANELS,
+    }
+}
+
 // ── EntityMatcher ─────────────────────────────────────────────────────────────
 
 /// Extract the bare presenter name from a potentially tagged credit string.

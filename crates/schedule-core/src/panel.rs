@@ -671,6 +671,76 @@ edge_none_field_rw!(FIELD_PANEL_TYPE, PanelEntityType, PanelInternalData, target
 static PANEL_FIELD_SET: LazyLock<FieldSet<PanelEntityType>> =
     LazyLock::new(FieldSet::from_inventory);
 
+// ── Builder ───────────────────────────────────────────────────────────────────
+
+crate::field_macros::define_entity_builder! {
+    /// Typed builder for [`PanelEntityType`] entities (FEATURE-017).
+    PanelBuilder for PanelEntityType {
+        /// Set the Uniq ID code (e.g. `"GP032"`).  Required.  The write path
+        /// parses the string; the `panel_type` edge is *not* updated
+        /// automatically — callers changing the prefix should set it too.
+        with_code                => FIELD_CODE,
+        /// Set the panel name / title.  Required.
+        with_name                => FIELD_NAME,
+        /// Set the attendee-facing description.
+        with_description         => FIELD_DESCRIPTION,
+        /// Set the verbatim note displayed to attendees.
+        with_note                => FIELD_NOTE,
+        /// Set the internal (non-printing) note for staff.
+        with_notes_non_printing  => FIELD_NOTES_NON_PRINTING,
+        /// Set the workshop-staff notes.
+        with_workshop_notes      => FIELD_WORKSHOP_NOTES,
+        /// Set the free-text power / electrical requirements.
+        with_power_needs         => FIELD_POWER_NEEDS,
+        /// Mark whether sewing machines are required.
+        with_sewing_machines     => FIELD_SEWING_MACHINES,
+        /// Set the A/V setup notes.
+        with_av_notes            => FIELD_AV_NOTES,
+        /// Set the free-text skill-level indicator.
+        with_difficulty          => FIELD_DIFFICULTY,
+        /// Set the comma-separated prerequisite Uniq IDs.
+        with_prereq              => FIELD_PREREQ,
+        /// Set the raw cost cell value (e.g. `"$35"`, `"Free"`, `"Kids"`).
+        with_cost                => FIELD_COST,
+        /// Mark the panel as free (parsed from `cost` during import).
+        with_is_free             => FIELD_IS_FREE,
+        /// Mark the panel as kids-only (parsed from `cost` during import).
+        with_is_kids             => FIELD_IS_KIDS,
+        /// Mark the panel as at capacity.
+        with_is_full             => FIELD_IS_FULL,
+        /// Set the total seat capacity.
+        with_capacity            => FIELD_CAPACITY,
+        /// Set the number of seats already sold / reserved.
+        with_seats_sold          => FIELD_SEATS_SOLD,
+        /// Set the maximum pre-registration seat count.
+        with_pre_reg_max         => FIELD_PRE_REG_MAX,
+        /// Set the public ticket-purchase URL.
+        with_ticket_url          => FIELD_TICKET_URL,
+        /// Mark whether a ticket / flyer image has been received.
+        with_have_ticket_image   => FIELD_HAVE_TICKET_IMAGE,
+        /// Set the internal SimpleTix admin URL.
+        with_simpletix_event     => FIELD_SIMPLETIX_EVENT,
+        /// Set the public-facing SimpleTix purchase link.
+        with_simpletix_link      => FIELD_SIMPLETIX_LINK,
+        /// Suppress presenter credits for this panel.
+        with_hide_panelist       => FIELD_HIDE_PANELIST,
+        /// Override text for the presenter credits line.
+        with_alt_panelist        => FIELD_ALT_PANELIST,
+        /// Set the start time (projected onto `time_slot`).
+        with_start_time          => FIELD_START_TIME,
+        /// Set the end time (projected onto `time_slot`).
+        with_end_time            => FIELD_END_TIME,
+        /// Set the duration (projected onto `time_slot`).
+        with_duration            => FIELD_DURATION,
+        /// Replace the set of presenters credited for this panel.
+        with_presenters          => FIELD_PRESENTERS,
+        /// Replace the set of event rooms where this panel takes place.
+        with_event_rooms         => FIELD_EVENT_ROOMS,
+        /// Set the panel-type / kind edge.
+        with_panel_type          => FIELD_PANEL_TYPE,
+    }
+}
+
 // ── EntityMatcher ─────────────────────────────────────────────────────────────
 
 impl crate::lookup::EntityScannable for PanelEntityType {}

@@ -6,7 +6,11 @@ Implement entity builders for constructing entity data with UUID assignment.
 
 ## Status
 
-Open
+Completed
+
+## Related Work Items
+
+- FEATURE-046: `FieldSet::write_multiple` — underlying batch-write primitive
 
 ## Priority
 
@@ -44,7 +48,26 @@ Decide which builder approach to use after seeing the PanelType proof of concept
 
 ## Acceptance Criteria
 
-- Can construct any entity data struct through the builder
-- Builder validates required fields before build
-- UUID assignment follows v7/v5 rules
-- Unit tests for builder construction and validation
+- [x] Can construct any entity data struct through the builder
+- [x] Builder validates required fields before build
+- [x] UUID assignment follows v7/v5 rules
+- [x] Unit tests for builder construction and validation
+
+## Resolution
+
+Chose the **macro-assisted** approach (option 3). `define_entity_builder!` in
+`field_macros.rs` generates a typed builder with `with_*` setters per field,
+delegating to `build_entity` (in `builder.rs`) which seeds default data,
+applies batched writes via `FieldSet::write_multiple`, runs verification, and
+rolls back on failure.
+
+Builders instantiated:
+
+- `PanelTypeBuilder` (with comprehensive unit tests)
+- `PanelBuilder`
+- `PresenterBuilder`
+- `EventRoomBuilder`
+- `HotelRoomBuilder`
+
+Follow-up: improve rustdoc for generated `with_*` setters so the rendered docs
+show details about the underlying field (deferred; tracked separately).
