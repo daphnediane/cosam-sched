@@ -16,10 +16,10 @@
 //! edge-backed computed fields wired through `Schedule::edges_from` /
 //! `Schedule::edges_to`.
 
-use crate::converter::EntityStringResolver;
+use crate::converter::{AsInteger, AsString, EntityStringResolver};
 use crate::entity::{EntityId, EntityType, UuidPreference};
 use crate::field::{FieldDescriptor, ReadFn, WriteFn};
-use crate::field_macros::{define_field, edge_list_field_rw, opt_i64_field, req_string_field};
+use crate::field_macros::{define_field, edge_field, stored_field};
 use crate::field_set::FieldSet;
 use crate::field_value;
 use crate::hotel_room::{HotelRoomEntityType, HotelRoomId};
@@ -155,7 +155,7 @@ impl EntityStringResolver for EventRoomEntityType {
 
 // ── Stored field descriptors ──────────────────────────────────────────────────
 
-req_string_field!(FIELD_ROOM_NAME, EventRoomEntityType, EventRoomInternalData, room_name,
+stored_field!(FIELD_ROOM_NAME, EventRoomEntityType, room_name, required, as: AsString,
     name: "room_name", display: "Room Name",
     desc: "Room code as it appears in the Schedule sheet's Room column.",
     aliases: &["room", "name"],
@@ -189,7 +189,7 @@ define_field!(
     }
 );
 
-opt_i64_field!(FIELD_SORT_KEY, EventRoomEntityType, EventRoomInternalData, sort_key,
+stored_field!(FIELD_SORT_KEY, EventRoomEntityType, sort_key, optional, as: AsInteger,
     name: "sort_key", display: "Sort Key",
     desc: "Ordering key; values >= 100 are hidden from the public schedule.",
     aliases: &["sort"],
@@ -198,14 +198,14 @@ opt_i64_field!(FIELD_SORT_KEY, EventRoomEntityType, EventRoomInternalData, sort_
 
 // ── Edge-backed computed fields ───────────────────────────────────────────────
 
-edge_list_field_rw!(FIELD_HOTEL_ROOMS, EventRoomEntityType, EventRoomInternalData, target: HotelRoomEntityType,
+edge_field!(FIELD_HOTEL_ROOMS, EventRoomEntityType, mode: rw, target: HotelRoomEntityType,
     name: "hotel_rooms", display: "Hotel Rooms",
     desc: "Hotel rooms that contain this event room.",
     aliases: &["hotel_room"],
     example: "[]",
     order: 300);
 
-edge_list_field_rw!(FIELD_PANELS, EventRoomEntityType, EventRoomInternalData, target: PanelEntityType,
+edge_field!(FIELD_PANELS, EventRoomEntityType, mode: rw, target: PanelEntityType,
     name: "panels", display: "Panels",
     desc: "Panels scheduled in this event room.",
     aliases: &["panel"],

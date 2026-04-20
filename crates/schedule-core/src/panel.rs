@@ -18,14 +18,11 @@
 //! via edge-backed computed fields wired through `Schedule::edges_from` /
 //! `Schedule::edges_to` using `ReadFn::Schedule` / `WriteFn::Schedule`.
 
-use crate::converter::EntityStringResolver;
+use crate::converter::{AsBoolean, AsInteger, AsString, AsText, EntityStringResolver};
 use crate::entity::{EntityId, EntityType, FieldSet};
 use crate::event_room::{EventRoomEntityType, EventRoomId};
 use crate::field::{FieldDescriptor, ReadFn, VerifyFn, WriteFn};
-use crate::field_macros::{
-    bool_field, define_field, edge_add_field, edge_list_field_rw, edge_none_field_rw,
-    edge_remove_field, opt_i64_field, opt_string_field, opt_text_field, req_string_field,
-};
+use crate::field_macros::{define_field, edge_field, stored_field};
 use crate::field_value;
 use crate::panel_type::{PanelTypeEntityType, PanelTypeId};
 use crate::panel_uniq_id::PanelUniqId;
@@ -260,161 +257,161 @@ define_field!(
 );
 
 // @todo: Name can be empty, should be optional
-req_string_field!(FIELD_NAME, PanelEntityType, PanelInternalData, name,
+stored_field!(FIELD_NAME, PanelEntityType, name, required, as: AsString,
     name: "name", display: "Name",
     desc: "Panel name / title.",
     aliases: &["title", "panel_name"],
     example: "Cosplay Foam Armor 101",
     order: 100);
 
-opt_text_field!(FIELD_DESCRIPTION, PanelEntityType, PanelInternalData, description,
+stored_field!(FIELD_DESCRIPTION, PanelEntityType, description, optional, as: AsText,
     name: "description", display: "Description",
     desc: "Event description shown to attendees.",
     aliases: &["desc"],
     example: "Learn the basics of foam armor construction",
     order: 200);
 
-opt_text_field!(FIELD_NOTE, PanelEntityType, PanelInternalData, note,
+stored_field!(FIELD_NOTE, PanelEntityType, note, optional, as: AsText,
     name: "note", display: "Note",
     desc: "Extra note displayed verbatim.",
     aliases: &[],
     example: "Bring your own materials",
     order: 300);
 
-opt_text_field!(FIELD_NOTES_NON_PRINTING, PanelEntityType, PanelInternalData, notes_non_printing,
+stored_field!(FIELD_NOTES_NON_PRINTING, PanelEntityType, notes_non_printing, optional, as: AsText,
     name: "notes_non_printing", display: "Notes (Non Printing)",
     desc: "Internal notes not shown to the public.",
     aliases: &["internal_notes"],
     example: "Internal note for staff",
     order: 400);
 
-opt_text_field!(FIELD_WORKSHOP_NOTES, PanelEntityType, PanelInternalData, workshop_notes,
+stored_field!(FIELD_WORKSHOP_NOTES, PanelEntityType, workshop_notes, optional, as: AsText,
     name: "workshop_notes", display: "Workshop Notes",
     desc: "Notes for workshop staff.",
     aliases: &[],
     example: "Staff notes for workshop",
     order: 500);
 
-opt_string_field!(FIELD_POWER_NEEDS, PanelEntityType, PanelInternalData, power_needs,
+stored_field!(FIELD_POWER_NEEDS, PanelEntityType, power_needs, optional, as: AsString,
     name: "power_needs", display: "Power Needs",
     desc: "Power / electrical requirements.",
     aliases: &["power"],
     example: "2 outlets",
     order: 600);
 
-bool_field!(FIELD_SEWING_MACHINES, PanelEntityType, PanelInternalData, sewing_machines,
+stored_field!(FIELD_SEWING_MACHINES, PanelEntityType, sewing_machines, with_default, as: AsBoolean,
     name: "sewing_machines", display: "Sewing Machines",
     desc: "Whether sewing machines are required.",
     aliases: &["sewing"],
     example: "false",
     order: 700);
 
-opt_text_field!(FIELD_AV_NOTES, PanelEntityType, PanelInternalData, av_notes,
+stored_field!(FIELD_AV_NOTES, PanelEntityType, av_notes, optional, as: AsText,
     name: "av_notes", display: "AV Notes",
     desc: "Audio/visual setup notes.",
     aliases: &["av"],
     example: "Projector needed",
     order: 800);
 
-opt_string_field!(FIELD_DIFFICULTY, PanelEntityType, PanelInternalData, difficulty,
+stored_field!(FIELD_DIFFICULTY, PanelEntityType, difficulty, optional, as: AsString,
     name: "difficulty", display: "Difficulty",
     desc: "Skill-level indicator (free text).",
     aliases: &[],
     example: "Beginner",
     order: 900);
 
-opt_string_field!(FIELD_PREREQ, PanelEntityType, PanelInternalData, prereq,
+stored_field!(FIELD_PREREQ, PanelEntityType, prereq, optional, as: AsString,
     name: "prereq", display: "Prerequisites",
     desc: "Comma-separated prerequisite Uniq IDs.",
     aliases: &["prerequisites"],
     example: "GP001",
     order: 1000);
 
-opt_string_field!(FIELD_COST, PanelEntityType, PanelInternalData, cost,
+stored_field!(FIELD_COST, PanelEntityType, cost, optional, as: AsString,
     name: "cost", display: "Cost",
     desc: "Raw cost cell value (e.g. \"$35\", \"Free\", \"Kids\").",
     aliases: &[],
     example: "$35",
     order: 1100);
 
-bool_field!(FIELD_IS_FREE, PanelEntityType, PanelInternalData, is_free,
+stored_field!(FIELD_IS_FREE, PanelEntityType, is_free, with_default, as: AsBoolean,
     name: "is_free", display: "Is Free",
     desc: "Parsed during import: cost is blank, \"Free\", \"$0\", or \"N/A\".",
     aliases: &["free"],
     example: "false",
     order: 1200);
 
-bool_field!(FIELD_IS_KIDS, PanelEntityType, PanelInternalData, is_kids,
+stored_field!(FIELD_IS_KIDS, PanelEntityType, is_kids, with_default, as: AsBoolean,
     name: "is_kids", display: "Is Kids",
     desc: "Parsed during import: cost indicates kids-only pricing.",
     aliases: &["kids"],
     example: "false",
     order: 1300);
 
-bool_field!(FIELD_IS_FULL, PanelEntityType, PanelInternalData, is_full,
+stored_field!(FIELD_IS_FULL, PanelEntityType, is_full, with_default, as: AsBoolean,
     name: "is_full", display: "Full",
     desc: "Event is at capacity.",
     aliases: &["full"],
     example: "false",
     order: 1400);
 
-opt_i64_field!(FIELD_CAPACITY, PanelEntityType, PanelInternalData, capacity,
+stored_field!(FIELD_CAPACITY, PanelEntityType, capacity, optional, as: AsInteger,
     name: "capacity", display: "Capacity",
     desc: "Total seats available.",
     aliases: &[],
     example: "50",
     order: 1500);
 
-opt_i64_field!(FIELD_SEATS_SOLD, PanelEntityType, PanelInternalData, seats_sold,
+stored_field!(FIELD_SEATS_SOLD, PanelEntityType, seats_sold, optional, as: AsInteger,
     name: "seats_sold", display: "Seats Sold",
     desc: "Number of seats pre-sold or reserved via ticketing.",
     aliases: &[],
     example: "25",
     order: 1600);
 
-opt_i64_field!(FIELD_PRE_REG_MAX, PanelEntityType, PanelInternalData, pre_reg_max,
+stored_field!(FIELD_PRE_REG_MAX, PanelEntityType, pre_reg_max, optional, as: AsInteger,
     name: "pre_reg_max", display: "Pre-reg Max",
     desc: "Maximum seats available for pre-registration.",
     aliases: &["prereg_max"],
     example: "40",
     order: 1700);
 
-opt_string_field!(FIELD_TICKET_URL, PanelEntityType, PanelInternalData, ticket_url,
+stored_field!(FIELD_TICKET_URL, PanelEntityType, ticket_url, optional, as: AsString,
     name: "ticket_url", display: "Ticket URL",
     desc: "URL for purchasing tickets.",
     aliases: &["ticket_sale"],
     example: "https://example.com/ticket",
     order: 1800);
 
-bool_field!(FIELD_HAVE_TICKET_IMAGE, PanelEntityType, PanelInternalData, have_ticket_image,
+stored_field!(FIELD_HAVE_TICKET_IMAGE, PanelEntityType, have_ticket_image, with_default, as: AsBoolean,
     name: "have_ticket_image", display: "Have Ticket Image",
     desc: "Whether a ticket / flyer image has been received.",
     aliases: &[],
     example: "false",
     order: 1900);
 
-opt_string_field!(FIELD_SIMPLETIX_EVENT, PanelEntityType, PanelInternalData, simpletix_event,
+stored_field!(FIELD_SIMPLETIX_EVENT, PanelEntityType, simpletix_event, optional, as: AsString,
     name: "simpletix_event", display: "SimpleTix Event",
     desc: "Internal admin URL for SimpleTix event configuration.",
     aliases: &["simpletix"],
     example: "https://admin.simpletix.com/event/123",
     order: 2000);
 
-opt_string_field!(FIELD_SIMPLETIX_LINK, PanelEntityType, PanelInternalData, simpletix_link,
+stored_field!(FIELD_SIMPLETIX_LINK, PanelEntityType, simpletix_link, optional, as: AsString,
     name: "simpletix_link", display: "SimpleTix Link",
     desc: "Public-facing direct ticket purchase link.",
     aliases: &[],
     example: "https://simpletix.com/event/123",
     order: 2100);
 
-bool_field!(FIELD_HIDE_PANELIST, PanelEntityType, PanelInternalData, hide_panelist,
+stored_field!(FIELD_HIDE_PANELIST, PanelEntityType, hide_panelist, with_default, as: AsBoolean,
     name: "hide_panelist", display: "Hide Panelist",
     desc: "Suppress presenter credits for this panel.",
     aliases: &[],
     example: "false",
     order: 2200);
 
-opt_string_field!(FIELD_ALT_PANELIST, PanelEntityType, PanelInternalData, alt_panelist,
+stored_field!(FIELD_ALT_PANELIST, PanelEntityType, alt_panelist, optional, as: AsString,
     name: "alt_panelist", display: "Alt Panelist",
     desc: "Override text for the presenter credits line.",
     aliases: &[],
@@ -575,21 +572,21 @@ define_field!(
 
 // ── Edge-backed computed fields ───────────────────────────────────────────────
 
-edge_list_field_rw!(FIELD_PRESENTERS, PanelEntityType, PanelInternalData, target: PresenterEntityType,
+edge_field!(FIELD_PRESENTERS, PanelEntityType, mode: rw, target: PresenterEntityType,
     name: "presenters", display: "Presenters",
     desc: "All presenters credited for this panel.",
     aliases: &["panelists", "presenter"],
     example: "[]",
     order: 2700);
 
-edge_add_field!(FIELD_ADD_PRESENTERS, PanelEntityType, PanelInternalData, target: PresenterEntityType,
+edge_field!(FIELD_ADD_PRESENTERS, PanelEntityType, mode: add, target: PresenterEntityType,
     name: "add_presenters", display: "Add Presenters",
     desc: "Append presenters to this panel.",
     aliases: &["add_presenter"],
     example: "[presenter_id]",
     order: 2800);
 
-edge_remove_field!(FIELD_REMOVE_PRESENTERS, PanelEntityType, PanelInternalData, target: PresenterEntityType,
+edge_field!(FIELD_REMOVE_PRESENTERS, PanelEntityType, mode: remove, target: PresenterEntityType,
     name: "remove_presenters", display: "Remove Presenters",
     desc: "Remove presenters from this panel.",
     aliases: &["remove_presenter"],
@@ -638,28 +635,28 @@ define_field!(
     }
 );
 
-edge_list_field_rw!(FIELD_EVENT_ROOMS, PanelEntityType, PanelInternalData, target: EventRoomEntityType,
+edge_field!(FIELD_EVENT_ROOMS, PanelEntityType, mode: rw, target: EventRoomEntityType,
     name: "event_rooms", display: "Event Rooms",
     desc: "Rooms where this panel takes place.",
     aliases: &["rooms", "room", "event_room"],
     example: "[]",
     order: 3100);
 
-edge_add_field!(FIELD_ADD_ROOMS, PanelEntityType, PanelInternalData, target: EventRoomEntityType,
+edge_field!(FIELD_ADD_ROOMS, PanelEntityType, mode: add, target: EventRoomEntityType,
     name: "add_rooms", display: "Add Rooms",
     desc: "Append event rooms to this panel.",
     aliases: &["add_room"],
     example: "[room_id]",
     order: 3200);
 
-edge_remove_field!(FIELD_REMOVE_ROOMS, PanelEntityType, PanelInternalData, target: EventRoomEntityType,
+edge_field!(FIELD_REMOVE_ROOMS, PanelEntityType, mode: remove, target: EventRoomEntityType,
     name: "remove_rooms", display: "Remove Rooms",
     desc: "Remove event rooms from this panel.",
     aliases: &["remove_room"],
     example: "[room_id]",
     order: 3300);
 
-edge_none_field_rw!(FIELD_PANEL_TYPE, PanelEntityType, PanelInternalData, target: PanelTypeEntityType,
+edge_field!(FIELD_PANEL_TYPE, PanelEntityType, mode: one, target: PanelTypeEntityType,
     name: "panel_type", display: "Panel Type",
     desc: "Panel type / kind.",
     aliases: &["kind", "type"],

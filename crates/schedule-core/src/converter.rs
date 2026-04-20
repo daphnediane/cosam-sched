@@ -96,8 +96,20 @@ pub trait FieldTypeMapping: 'static {
     /// The Rust output type after conversion.
     type Output;
 
+    /// The `FieldTypeItem` variant this mapping produces (available in const
+    /// contexts so it can be baked into `FieldDescriptor` statics).
+    const FIELD_TYPE_ITEM: crate::value::FieldTypeItem;
+
+    /// CRDT annotation for fields backed by this mapping. Defaults to
+    /// [`CrdtFieldType::Scalar`]; `AsText` overrides to
+    /// [`CrdtFieldType::Text`].
+    const CRDT_TYPE: crate::value::CrdtFieldType = crate::value::CrdtFieldType::Scalar;
+
     /// Returns the `FieldTypeItem` that this mapping expects.
-    fn field_type_item() -> crate::value::FieldTypeItem;
+    #[must_use]
+    fn field_type_item() -> crate::value::FieldTypeItem {
+        Self::FIELD_TYPE_ITEM
+    }
 
     /// Convert a `FieldValueItem` into the output type.
     ///
@@ -115,10 +127,7 @@ pub struct AsString;
 
 impl FieldTypeMapping for AsString {
     type Output = String;
-
-    fn field_type_item() -> crate::value::FieldTypeItem {
-        crate::value::FieldTypeItem::String
-    }
+    const FIELD_TYPE_ITEM: crate::value::FieldTypeItem = crate::value::FieldTypeItem::String;
 
     fn from_field_value_item(item: FieldValueItem) -> Result<Self::Output, ConversionError> {
         match item {
@@ -152,10 +161,8 @@ pub struct AsText;
 
 impl FieldTypeMapping for AsText {
     type Output = String;
-
-    fn field_type_item() -> crate::value::FieldTypeItem {
-        crate::value::FieldTypeItem::Text
-    }
+    const FIELD_TYPE_ITEM: crate::value::FieldTypeItem = crate::value::FieldTypeItem::Text;
+    const CRDT_TYPE: crate::value::CrdtFieldType = crate::value::CrdtFieldType::Text;
 
     fn from_field_value_item(item: FieldValueItem) -> Result<Self::Output, ConversionError> {
         // Same conversions as AsString, but Text stays as Text variant
@@ -190,10 +197,7 @@ pub struct AsInteger;
 
 impl FieldTypeMapping for AsInteger {
     type Output = i64;
-
-    fn field_type_item() -> crate::value::FieldTypeItem {
-        crate::value::FieldTypeItem::Integer
-    }
+    const FIELD_TYPE_ITEM: crate::value::FieldTypeItem = crate::value::FieldTypeItem::Integer;
 
     fn from_field_value_item(item: FieldValueItem) -> Result<Self::Output, ConversionError> {
         match item {
@@ -227,10 +231,7 @@ pub struct AsFloat;
 
 impl FieldTypeMapping for AsFloat {
     type Output = f64;
-
-    fn field_type_item() -> crate::value::FieldTypeItem {
-        crate::value::FieldTypeItem::Float
-    }
+    const FIELD_TYPE_ITEM: crate::value::FieldTypeItem = crate::value::FieldTypeItem::Float;
 
     fn from_field_value_item(item: FieldValueItem) -> Result<Self::Output, ConversionError> {
         match item {
@@ -256,10 +257,7 @@ pub struct AsBoolean;
 
 impl FieldTypeMapping for AsBoolean {
     type Output = bool;
-
-    fn field_type_item() -> crate::value::FieldTypeItem {
-        crate::value::FieldTypeItem::Boolean
-    }
+    const FIELD_TYPE_ITEM: crate::value::FieldTypeItem = crate::value::FieldTypeItem::Boolean;
 
     fn from_field_value_item(item: FieldValueItem) -> Result<Self::Output, ConversionError> {
         match item {
@@ -295,10 +293,7 @@ pub struct AsDateTime;
 
 impl FieldTypeMapping for AsDateTime {
     type Output = chrono::NaiveDateTime;
-
-    fn field_type_item() -> crate::value::FieldTypeItem {
-        crate::value::FieldTypeItem::DateTime
-    }
+    const FIELD_TYPE_ITEM: crate::value::FieldTypeItem = crate::value::FieldTypeItem::DateTime;
 
     fn from_field_value_item(item: FieldValueItem) -> Result<Self::Output, ConversionError> {
         match item {
@@ -327,10 +322,7 @@ pub struct AsDuration;
 
 impl FieldTypeMapping for AsDuration {
     type Output = chrono::Duration;
-
-    fn field_type_item() -> crate::value::FieldTypeItem {
-        crate::value::FieldTypeItem::Duration
-    }
+    const FIELD_TYPE_ITEM: crate::value::FieldTypeItem = crate::value::FieldTypeItem::Duration;
 
     fn from_field_value_item(item: FieldValueItem) -> Result<Self::Output, ConversionError> {
         match item {
@@ -452,10 +444,8 @@ impl<E: EntityType> Default for AsEntityId<E> {
 
 impl<E: EntityType> FieldTypeMapping for AsEntityId<E> {
     type Output = EntityId<E>;
-
-    fn field_type_item() -> crate::value::FieldTypeItem {
-        crate::value::FieldTypeItem::EntityIdentifier(E::TYPE_NAME)
-    }
+    const FIELD_TYPE_ITEM: crate::value::FieldTypeItem =
+        crate::value::FieldTypeItem::EntityIdentifier(E::TYPE_NAME);
 
     fn from_field_value_item(item: FieldValueItem) -> Result<Self::Output, ConversionError> {
         match item {
@@ -523,6 +513,45 @@ pub trait FieldValueConverter<M: FieldTypeMapping> {
     /// custom selection logic (e.g., highest rank, most recent, etc.).
     fn select_one(&self, outputs: Vec<M::Output>) -> Result<Option<M::Output>, ConversionError> {
         Ok(outputs.into_iter().next())
+    }
+}
+
+// ── Scalar write helpers ─────────────────────────────────────────────────────
+//
+// These are thin wrappers around `FieldTypeMapping::from_field_value_item` used
+// by the `stored_field!` macro to implement `WriteFn::Bare` closures without
+// duplicating per-type match arms.
+
+/// Convert a scalar `FieldValue` into a required typed value.
+///
+/// Accepts `FieldValue::Single(item)` or a one-item `FieldValue::List`.
+/// Returns an error if the value is empty or contains more than one item.
+pub fn convert_required<M: FieldTypeMapping>(v: FieldValue) -> Result<M::Output, ConversionError> {
+    let items = v.into_list()?;
+    let mut iter = items.into_iter();
+    let first = iter.next().ok_or(ConversionError::ParseError {
+        message: format!(
+            "Required field is empty (expected {:?})",
+            M::FIELD_TYPE_ITEM
+        ),
+    })?;
+    M::from_field_value_item(first)
+}
+
+/// Convert a scalar `FieldValue` into an optional typed value.
+///
+/// Empty input or a list whose only item is the empty string/text yields `None`.
+/// A single present item is converted via `M::from_field_value_item`.
+pub fn convert_optional<M: FieldTypeMapping>(
+    v: FieldValue,
+) -> Result<Option<M::Output>, ConversionError> {
+    if v.is_empty() {
+        return Ok(None);
+    }
+    let items = v.into_list()?;
+    match items.into_iter().next() {
+        None => Ok(None),
+        Some(item) => M::from_field_value_item(item).map(Some),
     }
 }
 

@@ -14,13 +14,10 @@
 //!
 //! Field descriptors are static values assembled into a [`FieldSet`] inside a [`LazyLock`].
 
-use crate::converter::EntityStringResolver;
+use crate::converter::{AsBoolean, AsString, EntityStringResolver};
 use crate::entity::{EntityId, EntityType, UuidPreference};
 use crate::field::{FieldDescriptor, ReadFn};
-use crate::field_macros::{
-    bool_field, define_entity_builder, define_field, edge_list_field, opt_string_field,
-    req_string_field,
-};
+use crate::field_macros::{define_entity_builder, define_field, edge_field, stored_field};
 use crate::field_set::FieldSet;
 use crate::field_value;
 use crate::panel::{PanelEntityType, PanelId};
@@ -186,77 +183,77 @@ impl EntityStringResolver for PanelTypeEntityType {
 
 // ── Field Descriptors ──────────────────────────────────────────────────────────
 
-req_string_field!(FIELD_PREFIX, PanelTypeEntityType, PanelTypeInternalData, prefix,
+stored_field!(FIELD_PREFIX, PanelTypeEntityType, prefix, required, as: AsString,
     name: "prefix", display: "Prefix",
     desc: "Two-letter Uniq ID prefix for panels of this type.",
     aliases: &["uniq_id_prefix"],
     example: "GP",
     order: 0);
 
-req_string_field!(FIELD_PANEL_KIND, PanelTypeEntityType, PanelTypeInternalData, panel_kind,
+stored_field!(FIELD_PANEL_KIND, PanelTypeEntityType, panel_kind, required, as: AsString,
     name: "panel_kind", display: "Panel Kind",
     desc: "Human-readable kind name for this panel type.",
     aliases: &["kind", "type_name"],
     example: "Guest Panel",
     order: 100);
 
-bool_field!(FIELD_HIDDEN, PanelTypeEntityType, PanelTypeInternalData, hidden,
+stored_field!(FIELD_HIDDEN, PanelTypeEntityType, hidden, with_default, as: AsBoolean,
     name: "hidden", display: "Hidden",
     desc: "Whether this panel type is hidden from UI.",
     aliases: &[],
     example: "false",
     order: 200);
 
-bool_field!(FIELD_IS_WORKSHOP, PanelTypeEntityType, PanelTypeInternalData, is_workshop,
+stored_field!(FIELD_IS_WORKSHOP, PanelTypeEntityType, is_workshop, with_default, as: AsBoolean,
     name: "is_workshop", display: "Is Workshop",
     desc: "Whether panels of this type are workshops.",
     aliases: &["workshop"],
     example: "false",
     order: 300);
 
-bool_field!(FIELD_IS_BREAK, PanelTypeEntityType, PanelTypeInternalData, is_break,
+stored_field!(FIELD_IS_BREAK, PanelTypeEntityType, is_break, with_default, as: AsBoolean,
     name: "is_break", display: "Is Break",
     desc: "Whether panels of this type are break periods.",
     aliases: &["break"],
     example: "false",
     order: 400);
 
-bool_field!(FIELD_IS_CAFE, PanelTypeEntityType, PanelTypeInternalData, is_cafe,
+stored_field!(FIELD_IS_CAFE, PanelTypeEntityType, is_cafe, with_default, as: AsBoolean,
     name: "is_cafe", display: "Is Cafe",
     desc: "Whether panels of this type are cafe events.",
     aliases: &["cafe"],
     example: "false",
     order: 500);
 
-bool_field!(FIELD_IS_ROOM_HOURS, PanelTypeEntityType, PanelTypeInternalData, is_room_hours,
+stored_field!(FIELD_IS_ROOM_HOURS, PanelTypeEntityType, is_room_hours, with_default, as: AsBoolean,
     name: "is_room_hours", display: "Is Room Hours",
     desc: "Whether panels of this type are room hours.",
     aliases: &["room_hours"],
     example: "false",
     order: 600);
 
-bool_field!(FIELD_IS_TIMELINE, PanelTypeEntityType, PanelTypeInternalData, is_timeline,
+stored_field!(FIELD_IS_TIMELINE, PanelTypeEntityType, is_timeline, with_default, as: AsBoolean,
     name: "is_timeline", display: "Is Timeline",
     desc: "Whether panels of this type are timeline events.",
     aliases: &["timeline"],
     example: "false",
     order: 700);
 
-bool_field!(FIELD_IS_PRIVATE, PanelTypeEntityType, PanelTypeInternalData, is_private,
+stored_field!(FIELD_IS_PRIVATE, PanelTypeEntityType, is_private, with_default, as: AsBoolean,
     name: "is_private", display: "Is Private",
     desc: "Whether panels of this type are private events.",
     aliases: &["private"],
     example: "false",
     order: 800);
 
-opt_string_field!(FIELD_COLOR, PanelTypeEntityType, PanelTypeInternalData, color,
+stored_field!(FIELD_COLOR, PanelTypeEntityType, color, optional, as: AsString,
     name: "color", display: "Color",
     desc: "CSS color for panels of this type.",
     aliases: &[],
     example: "#db2777",
     order: 900);
 
-opt_string_field!(FIELD_BW, PanelTypeEntityType, PanelTypeInternalData, bw,
+stored_field!(FIELD_BW, PanelTypeEntityType, bw, optional, as: AsString,
     name: "bw", display: "BW Color",
     desc: "Alternate monochrome color for panels of this type.",
     aliases: &["bw_color", "monochrome"],
@@ -293,7 +290,7 @@ define_field!(
 );
 
 // Panels of this type — reverse het edge from Panel → PanelType.
-edge_list_field!(FIELD_PANELS, PanelTypeEntityType, PanelTypeInternalData, target: PanelEntityType,
+edge_field!(FIELD_PANELS, PanelTypeEntityType, mode: ro, target: PanelEntityType,
     name: "panels", display: "Panels",
     desc: "Panels of this type.",
     aliases: &[],

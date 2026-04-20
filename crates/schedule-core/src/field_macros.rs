@@ -27,22 +27,24 @@
 //!
 //! ## What's covered
 //!
-//! Stored-field macros (uniform read/write against a single `CommonData` field):
+//! Two consolidated macros cover the uniform cases:
 //!
-//! - [`req_string_field!`] — required, indexed `String` (Scalar CRDT).
-//! - [`opt_string_field!`] — `Option<String>` (Scalar CRDT).
-//! - [`opt_text_field!`] — `Option<String>` stored, `Text` CRDT + `FieldValue::Text`.
-//! - [`bool_field!`] — plain `bool` (Scalar CRDT).
-//! - [`opt_i64_field!`] — `Option<i64>` (Scalar CRDT).
+//! - [`stored_field!`] — scalar field backed by a `CommonData` slot.
+//!   Two arms: `required` (stored as `T`) and `optional` (stored as `Option<T>`).
+//!   The value type is chosen by passing an [`AsString`](crate::converter::AsString) /
+//!   [`AsBoolean`](crate::converter::AsBoolean) /
+//!   [`AsInteger`](crate::converter::AsInteger) /
+//!   [`AsText`](crate::converter::AsText) (etc.) marker via `as:`.  The marker
+//!   supplies both the [`FieldTypeItem`](crate::value::FieldTypeItem) tag
+//!   (`FIELD_TYPE_ITEM`) and the CRDT annotation (`CRDT_TYPE`); conversion in
+//!   both directions is delegated to the marker so the macro itself stays free
+//!   of per-type logic.
 //!
-//! Edge-backed field macros (use `Schedule::edges_from` / `edges_to`):
-//!
-//! - [`edge_list_field!`] — read-only list of neighbors via `edges_from`.
-//! - [`edge_list_field_rw!`] — read + write (forward direction, `edge_set`).
-//! - [`edge_list_field_to_rw!`] — read + write (reverse direction, `edge_set_to`).
-//! - [`edge_none_field_rw!`] — read + write (forward, `edge_set`; singular edge).
-//! - [`edge_add_field!`] — write-only, `edge_add` for each item.
-//! - [`edge_remove_field!`] — write-only, `edge_remove` for each item.
+//! - [`edge_field!`] — edge-backed field using `Schedule::edges_from` / `edges_to`.
+//!   Variants selected via `mode:`: `ro` (read-only), `rw` (read/write forward),
+//!   `one` (read/write 0-or-1 forward), `rw_to` (read/write reverse — uses
+//!   `source:` instead of `target:`), `add` (write-only per-item add), `remove`
+//!   (write-only per-item remove).
 //!
 //! ## When to hand-write instead
 //!
@@ -57,17 +59,58 @@
 //! it bundles the `static` declaration with the required `inventory::submit!`
 //! call so the field is never accidentally omitted from the registry.
 
-// ── Stored-field macros ───────────────────────────────────────────────────────
+// ── Stored-field macro ───────────────────────────────────────────────────────
 
-/// Declare a required indexed `String` field descriptor
-/// (`CrdtFieldType::Scalar`, indexed via [`substring_match`]).
-macro_rules! req_string_field {
+/// Declare a stored-field [`FieldDescriptor`](crate::field::FieldDescriptor)
+/// backed by a plain `CommonData` field (read/write go through `d.data.$field`).
+///
+/// Conversion between [`FieldValue`](crate::value::FieldValue) and the Rust
+/// storage type is delegated to a [`FieldTypeMapping`](crate::converter::FieldTypeMapping)
+/// marker (e.g. [`AsString`](crate::converter::AsString),
+/// [`AsBoolean`](crate::converter::AsBoolean),
+/// [`AsInteger`](crate::converter::AsInteger),
+/// [`AsText`](crate::converter::AsText)).  The marker supplies both the
+/// [`FieldTypeItem`](crate::value::FieldTypeItem) tag (via
+/// `FIELD_TYPE_ITEM`) and the CRDT annotation (via `CRDT_TYPE`), and its
+/// `from_field_value_item` / `to_field_value_item` methods drive the generated
+/// read/write closures via [`convert_required`](crate::converter::convert_required)
+/// and [`convert_optional`](crate::converter::convert_optional).
+///
+/// Three arms cover the common storage/required combinations:
+///
+/// | keyword        | storage     | `required` flag | typical use |
+/// |----------------|-------------|-----------------|-------------|
+/// | `required`     | `T`         | `true`          | mandatory scalar (e.g. name) |
+/// | `optional`     | `Option<T>` | `false`         | optional scalar |
+/// | `with_default` | `T`         | `false`         | scalar with implicit default (e.g. `bool`) |
+///
+/// Example:
+///
+/// ```ignore
+/// stored_field!(FIELD_PREFIX, PanelTypeEntityType, prefix,
+///     required, as: AsString,
+///     name: "prefix", display: "Prefix",
+///     desc: "Two-letter Uniq ID prefix for panels of this type.",
+///     aliases: &["uniq_id_prefix"], example: "GP", order: 0);
+///
+/// stored_field!(FIELD_BW, PanelTypeEntityType, bw,
+///     optional, as: AsString,
+///     name: "bw", display: "BW",
+///     desc: "Black & white variant of the color.",
+///     aliases: &[], example: "#000", order: 110);
+/// ```
+macro_rules! stored_field {
+    // ── required: stored as T ─────────────────────────────────────────
     (
-        $static_name:ident, $entity:ty, $internal:ty, $field:ident,
+        $static_name:ident, $entity:ty, $field:ident,
+        required, as: $marker:ty,
         name: $name:literal, display: $display:literal, desc: $desc:literal,
         aliases: $aliases:expr, example: $example:literal,
-        order: $order:expr
+        order: $order:expr $(,)?
     ) => {
+        #[doc = concat!("**", $display, "** \u{2014} ", $desc)]
+        #[doc = ""]
+        #[doc = concat!("Required scalar field. Example: `", $example, "`.")]
         pub static $static_name: $crate::field::FieldDescriptor<$entity> =
             $crate::field::FieldDescriptor {
                 name: $name,
@@ -75,36 +118,46 @@ macro_rules! req_string_field {
                 description: $desc,
                 aliases: $aliases,
                 required: true,
-                crdt_type: $crate::value::CrdtFieldType::Scalar,
+                crdt_type: <$marker as $crate::converter::FieldTypeMapping>::CRDT_TYPE,
                 field_type: $crate::value::FieldType(
                     $crate::value::FieldCardinality::Single,
-                    $crate::value::FieldTypeItem::String,
+                    <$marker as $crate::converter::FieldTypeMapping>::FIELD_TYPE_ITEM,
                 ),
                 example: $example,
                 order: $order,
-                read_fn: Some($crate::field::ReadFn::Bare(|d: &$internal| {
-                    Some($crate::field_value!(d.data.$field.clone()))
-                })),
-                write_fn: Some($crate::field::WriteFn::Bare(|d: &mut $internal, v| {
-                    d.data.$field = v.into_string()?;
-                    Ok(())
-                })),
+                read_fn: Some($crate::field::ReadFn::Bare(
+                    |d: &<$entity as $crate::entity::EntityType>::InternalData| {
+                        Some($crate::value::FieldValue::Single(
+                            <$marker as $crate::converter::FieldTypeMapping>::to_field_value_item(
+                                d.data.$field.clone(),
+                            ),
+                        ))
+                    },
+                )),
+                write_fn: Some($crate::field::WriteFn::Bare(
+                    |d: &mut <$entity as $crate::entity::EntityType>::InternalData,
+                     v: $crate::value::FieldValue| {
+                        d.data.$field = $crate::converter::convert_required::<$marker>(v)?;
+                        Ok(())
+                    },
+                )),
                 verify_fn: None,
             };
         inventory::submit! { $crate::entity::CollectedField::<$entity>(&$static_name) }
     };
-}
-pub(crate) use req_string_field;
 
-/// Declare an optional `String` field descriptor (`CrdtFieldType::Scalar`,
-/// `FieldValue::String` variant, not indexed).
-macro_rules! opt_string_field {
+    // ── with_default: stored as T, but not flagged as required ───────
+    // (for fields that always have a value but default naturally, e.g. bool)
     (
-        $static_name:ident, $entity:ty, $internal:ty, $field:ident,
+        $static_name:ident, $entity:ty, $field:ident,
+        with_default, as: $marker:ty,
         name: $name:literal, display: $display:literal, desc: $desc:literal,
         aliases: $aliases:expr, example: $example:literal,
-        order: $order:expr
+        order: $order:expr $(,)?
     ) => {
+        #[doc = concat!("**", $display, "** \u{2014} ", $desc)]
+        #[doc = ""]
+        #[doc = concat!("Scalar field with implicit default. Example: `", $example, "`.")]
         pub static $static_name: $crate::field::FieldDescriptor<$entity> =
             $crate::field::FieldDescriptor {
                 name: $name,
@@ -112,145 +165,45 @@ macro_rules! opt_string_field {
                 description: $desc,
                 aliases: $aliases,
                 required: false,
-                crdt_type: $crate::value::CrdtFieldType::Scalar,
-                field_type: $crate::value::FieldType(
-                    $crate::value::FieldCardinality::Optional,
-                    $crate::value::FieldTypeItem::String,
-                ),
-                example: $example,
-                order: $order,
-                read_fn: Some($crate::field::ReadFn::Bare(|d: &$internal| {
-                    d.data
-                        .$field
-                        .as_ref()
-                        .map(|s| $crate::field_value!(s.clone()))
-                })),
-                write_fn: Some($crate::field::WriteFn::Bare(|d: &mut $internal, v| {
-                    match v {
-                        $crate::value::FieldValue::List(_)
-                        | $crate::value::FieldValue::Single($crate::value::FieldValueItem::Text(
-                            _,
-                        )) => d.data.$field = None,
-                        $crate::value::FieldValue::Single(
-                            $crate::value::FieldValueItem::String(s),
-                        ) => d.data.$field = Some(s),
-                        _ => {
-                            return Err($crate::value::ConversionError::WrongVariant {
-                                expected: "String",
-                                got: "other",
-                            }
-                            .into())
-                        }
-                    }
-                    Ok(())
-                })),
-                verify_fn: None,
-            };
-        inventory::submit! { $crate::entity::CollectedField::<$entity>(&$static_name) }
-    };
-}
-pub(crate) use opt_string_field;
-
-/// Declare an optional prose field stored as `Option<String>` but tagged
-/// `CrdtFieldType::Text`; read/write go through `FieldValue::Text`.
-macro_rules! opt_text_field {
-    (
-        $static_name:ident, $entity:ty, $internal:ty, $field:ident,
-        name: $name:literal, display: $display:literal, desc: $desc:literal,
-        aliases: $aliases:expr, example: $example:literal,
-        order: $order:expr
-    ) => {
-        pub static $static_name: $crate::field::FieldDescriptor<$entity> =
-            $crate::field::FieldDescriptor {
-                name: $name,
-                display: $display,
-                description: $desc,
-                aliases: $aliases,
-                required: false,
-                crdt_type: $crate::value::CrdtFieldType::Text,
-                field_type: $crate::value::FieldType(
-                    $crate::value::FieldCardinality::Optional,
-                    $crate::value::FieldTypeItem::Text,
-                ),
-                example: $example,
-                order: $order,
-                read_fn: Some($crate::field::ReadFn::Bare(|d: &$internal| {
-                    d.data
-                        .$field
-                        .as_ref()
-                        .map(|s| $crate::field_text!(s.clone()))
-                })),
-                write_fn: Some($crate::field::WriteFn::Bare(|d: &mut $internal, v| {
-                    match v {
-                        $crate::value::FieldValue::List(_) => d.data.$field = None,
-                        $crate::value::FieldValue::Single($crate::value::FieldValueItem::Text(
-                            s,
-                        )) => d.data.$field = Some(s),
-                        $crate::value::FieldValue::Single(
-                            $crate::value::FieldValueItem::String(s),
-                        ) => d.data.$field = Some(s),
-                        _ => {
-                            return Err($crate::value::ConversionError::WrongVariant {
-                                expected: "Text",
-                                got: "other",
-                            }
-                            .into())
-                        }
-                    }
-                    Ok(())
-                })),
-                verify_fn: None,
-            };
-        inventory::submit! { $crate::entity::CollectedField::<$entity>(&$static_name) }
-    };
-}
-pub(crate) use opt_text_field;
-
-/// Declare a plain `bool` field descriptor (`CrdtFieldType::Scalar`).
-macro_rules! bool_field {
-    (
-        $static_name:ident, $entity:ty, $internal:ty, $field:ident,
-        name: $name:literal, display: $display:literal, desc: $desc:literal,
-        aliases: $aliases:expr, example: $example:literal,
-        order: $order:expr
-    ) => {
-        pub static $static_name: $crate::field::FieldDescriptor<$entity> =
-            $crate::field::FieldDescriptor {
-                name: $name,
-                display: $display,
-                description: $desc,
-                aliases: $aliases,
-                required: false,
-                crdt_type: $crate::value::CrdtFieldType::Scalar,
+                crdt_type: <$marker as $crate::converter::FieldTypeMapping>::CRDT_TYPE,
                 field_type: $crate::value::FieldType(
                     $crate::value::FieldCardinality::Single,
-                    $crate::value::FieldTypeItem::Boolean,
+                    <$marker as $crate::converter::FieldTypeMapping>::FIELD_TYPE_ITEM,
                 ),
                 example: $example,
                 order: $order,
-                read_fn: Some($crate::field::ReadFn::Bare(|d: &$internal| {
-                    Some($crate::field_value!(d.data.$field))
-                })),
-                write_fn: Some($crate::field::WriteFn::Bare(|d: &mut $internal, v| {
-                    d.data.$field = v.into_bool()?;
-                    Ok(())
-                })),
+                read_fn: Some($crate::field::ReadFn::Bare(
+                    |d: &<$entity as $crate::entity::EntityType>::InternalData| {
+                        Some($crate::value::FieldValue::Single(
+                            <$marker as $crate::converter::FieldTypeMapping>::to_field_value_item(
+                                d.data.$field.clone(),
+                            ),
+                        ))
+                    },
+                )),
+                write_fn: Some($crate::field::WriteFn::Bare(
+                    |d: &mut <$entity as $crate::entity::EntityType>::InternalData,
+                     v: $crate::value::FieldValue| {
+                        d.data.$field = $crate::converter::convert_required::<$marker>(v)?;
+                        Ok(())
+                    },
+                )),
                 verify_fn: None,
             };
         inventory::submit! { $crate::entity::CollectedField::<$entity>(&$static_name) }
     };
-}
-pub(crate) use bool_field;
 
-/// Declare an optional `i64` field descriptor (`CrdtFieldType::Scalar`,
-/// `FieldValue::Integer` variant).
-macro_rules! opt_i64_field {
+    // ── optional: stored as Option<T> ────────────────────────────────
     (
-        $static_name:ident, $entity:ty, $internal:ty, $field:ident,
+        $static_name:ident, $entity:ty, $field:ident,
+        optional, as: $marker:ty,
         name: $name:literal, display: $display:literal, desc: $desc:literal,
         aliases: $aliases:expr, example: $example:literal,
-        order: $order:expr
+        order: $order:expr $(,)?
     ) => {
+        #[doc = concat!("**", $display, "** \u{2014} ", $desc)]
+        #[doc = ""]
+        #[doc = concat!("Optional scalar field. Example: `", $example, "`.")]
         pub static $static_name: $crate::field::FieldDescriptor<$entity> =
             $crate::field::FieldDescriptor {
                 name: $name,
@@ -258,60 +211,77 @@ macro_rules! opt_i64_field {
                 description: $desc,
                 aliases: $aliases,
                 required: false,
-                crdt_type: $crate::value::CrdtFieldType::Scalar,
+                crdt_type: <$marker as $crate::converter::FieldTypeMapping>::CRDT_TYPE,
                 field_type: $crate::value::FieldType(
                     $crate::value::FieldCardinality::Optional,
-                    $crate::value::FieldTypeItem::Integer,
+                    <$marker as $crate::converter::FieldTypeMapping>::FIELD_TYPE_ITEM,
                 ),
                 example: $example,
                 order: $order,
-                read_fn: Some($crate::field::ReadFn::Bare(|d: &$internal| {
-                    d.data.$field.map(|n| $crate::field_value!(n))
-                })),
-                write_fn: Some($crate::field::WriteFn::Bare(|d: &mut $internal, v| {
-                    match v {
-                        $crate::value::FieldValue::List(_)
-                        | $crate::value::FieldValue::Single($crate::value::FieldValueItem::Text(
-                            _,
-                        )) => d.data.$field = None,
-                        $crate::value::FieldValue::Single(
-                            $crate::value::FieldValueItem::Integer(n),
-                        ) => d.data.$field = Some(n),
-                        _ => {
-                            return Err($crate::value::ConversionError::WrongVariant {
-                                expected: "Integer",
-                                got: "other",
-                            }
-                            .into())
-                        }
-                    }
-                    Ok(())
-                })),
+                read_fn: Some($crate::field::ReadFn::Bare(
+                    |d: &<$entity as $crate::entity::EntityType>::InternalData| {
+                        d.data.$field.as_ref().map(|x| {
+                            $crate::value::FieldValue::Single(
+                                <$marker as $crate::converter::FieldTypeMapping>::to_field_value_item(
+                                    x.clone(),
+                                ),
+                            )
+                        })
+                    },
+                )),
+                write_fn: Some($crate::field::WriteFn::Bare(
+                    |d: &mut <$entity as $crate::entity::EntityType>::InternalData,
+                     v: $crate::value::FieldValue| {
+                        d.data.$field = $crate::converter::convert_optional::<$marker>(v)?;
+                        Ok(())
+                    },
+                )),
                 verify_fn: None,
             };
         inventory::submit! { $crate::entity::CollectedField::<$entity>(&$static_name) }
     };
 }
-pub(crate) use opt_i64_field;
+pub(crate) use stored_field;
 
-// ── Edge macros ───────────────────────────────────────────────────────────────
+// ── Edge-field macro ──────────────────────────────────────────────────────────
 //
-// These produce `Derived` descriptors for edge-backed fields backed by
+// Produces `Derived` descriptors for edge-backed fields using
 // `Schedule::edges_from` / `edge_set` / `edge_add` / `edge_remove`.
-// All use `ReadFn::Schedule` or `WriteFn::Schedule` so the field descriptor
-// can call the generic edge methods without needing `InternalData` access.
+// All use `ReadFn::Schedule` or `WriteFn::Schedule` so the descriptor does not
+// need `InternalData` access.
 
-/// Read-only edge list field — reads via `Schedule::edges_from::<L, R>`.
+/// Declare an edge-backed [`FieldDescriptor`](crate::field::FieldDescriptor).
 ///
-/// Used for reverse/computed edges such as `inclusive_presenters`, `event_rooms`
-/// on `HotelRoom`, and `panels` on `EventRoom` and `PanelType`.
-macro_rules! edge_list_field {
+/// The `mode:` token selects read/write semantics and direction:
+///
+/// | `mode:` | Neighbor kw | Direction | Read | Write |
+/// |---------|-------------|-----------|------|-------|
+/// | `ro`    | `target:`   | forward   | `edges_from`   | — |
+/// | `rw`    | `target:`   | forward   | `edges_from`   | `edge_set` (replace) |
+/// | `one`   | `target:`   | forward   | `edges_from`   | `edge_set` (0-or-1) |
+/// | `rw_to` | `source:`   | reverse   | `edges_to`     | `edge_set_to` |
+/// | `add`   | `target:`   | forward   | —              | `edge_add` (per item) |
+/// | `remove`| `target:`   | forward   | —              | `edge_remove` (per item) |
+///
+/// # Example
+///
+/// ```ignore
+/// edge_field!(FIELD_PRESENTERS, PanelEntityType, mode: rw, target: PresenterEntityType,
+///     name: "presenters", display: "Presenters",
+///     desc: "Presenters for this panel.",
+///     aliases: &["presenter"], example: "[]", order: 2700);
+/// ```
+macro_rules! edge_field {
+    // ── mode: ro ──────────────────────────────────────────────────────
     (
-        $static_name:ident, $entity:ty, $internal:ty, target: $target_entity:ty,
+        $static_name:ident, $entity:ty, mode: ro, target: $target_entity:ty,
         name: $name:literal, display: $display:literal, desc: $desc:literal,
         aliases: $aliases:expr, example: $example:literal,
-        order: $order:expr
+        order: $order:expr $(,)?
     ) => {
+        #[doc = concat!("**", $display, "** \u{2014} ", $desc)]
+        #[doc = ""]
+        #[doc = concat!("Type: read-only `List<EntityId<", stringify!($target_entity), ">>` (edge-backed).")]
         pub static $static_name: $crate::field::FieldDescriptor<$entity> =
             $crate::field::FieldDescriptor {
                 name: $name,
@@ -339,20 +309,17 @@ macro_rules! edge_list_field {
             };
         inventory::submit! { $crate::entity::CollectedField::<$entity>(&$static_name) }
     };
-}
-pub(crate) use edge_list_field;
 
-/// Read-write edge list field.
-///
-/// Read: `edges_from::<L, R>` — forward neighbors.
-/// Write: `edge_set::<L, R>` — replace all R-type neighbors.
-macro_rules! edge_list_field_rw {
+    // ── mode: rw ──────────────────────────────────────────────────────
     (
-        $static_name:ident, $entity:ty, $internal:ty, target: $target_entity:ty,
+        $static_name:ident, $entity:ty, mode: rw, target: $target_entity:ty,
         name: $name:literal, display: $display:literal, desc: $desc:literal,
         aliases: $aliases:expr, example: $example:literal,
-        order: $order:expr
+        order: $order:expr $(,)?
     ) => {
+        #[doc = concat!("**", $display, "** \u{2014} ", $desc)]
+        #[doc = ""]
+        #[doc = concat!("Type: read/write `List<EntityId<", stringify!($target_entity), ">>` (edge-backed, replaces on write).")]
         pub static $static_name: $crate::field::FieldDescriptor<$entity> =
             $crate::field::FieldDescriptor {
                 name: $name,
@@ -389,23 +356,65 @@ macro_rules! edge_list_field_rw {
             };
         inventory::submit! { $crate::entity::CollectedField::<$entity>(&$static_name) }
     };
-}
-pub(crate) use edge_list_field_rw;
 
-/// Read-write edge list field for the reverse (to) direction.
-///
-/// Read: `edges_to::<L, R>` — sources pointing to this entity.
-/// Write: `edge_set_to::<L, R>` — replace all L-type sources.
-///
-/// Used for `members` on `Presenter` (groups list the members that have a
-/// forward edge TO them).
-macro_rules! edge_list_field_to_rw {
+    // ── mode: one ─────────────────────────────────────────────────────
+    // Structurally identical to `rw`; the 0-or-1 constraint is semantic.
     (
-        $static_name:ident, $entity:ty, $internal:ty, source: $source_entity:ty,
+        $static_name:ident, $entity:ty, mode: one, target: $target_entity:ty,
         name: $name:literal, display: $display:literal, desc: $desc:literal,
         aliases: $aliases:expr, example: $example:literal,
-        order: $order:expr
+        order: $order:expr $(,)?
     ) => {
+        #[doc = concat!("**", $display, "** \u{2014} ", $desc)]
+        #[doc = ""]
+        #[doc = concat!("Type: read/write `Option<EntityId<", stringify!($target_entity), ">>` (0-or-1 edge).")]
+        pub static $static_name: $crate::field::FieldDescriptor<$entity> =
+            $crate::field::FieldDescriptor {
+                name: $name,
+                display: $display,
+                description: $desc,
+                aliases: $aliases,
+                required: false,
+                crdt_type: $crate::value::CrdtFieldType::Derived,
+                field_type: $crate::value::FieldType(
+                    $crate::value::FieldCardinality::List,
+                    $crate::value::FieldTypeItem::EntityIdentifier(
+                        <$target_entity as $crate::entity::EntityType>::TYPE_NAME,
+                    ),
+                ),
+                example: $example,
+                order: $order,
+                read_fn: Some($crate::field::ReadFn::Schedule(
+                    |sched: &$crate::schedule::Schedule, id: $crate::entity::EntityId<$entity>| {
+                        let ids = sched.edges_from::<$entity, $target_entity>(id);
+                        Some($crate::schedule::entity_ids_to_field_value(ids))
+                    },
+                )),
+                write_fn: Some($crate::field::WriteFn::Schedule(
+                    |sched: &mut $crate::schedule::Schedule,
+                     id: $crate::entity::EntityId<$entity>,
+                     val: $crate::value::FieldValue| {
+                        let ids =
+                            $crate::schedule::field_value_to_entity_ids::<$target_entity>(val)?;
+                        sched.edge_set::<$entity, $target_entity>(id, ids);
+                        Ok(())
+                    },
+                )),
+                verify_fn: None,
+            };
+        inventory::submit! { $crate::entity::CollectedField::<$entity>(&$static_name) }
+    };
+
+    // ── mode: rw_to ───────────────────────────────────────────────────
+    (
+        $static_name:ident, $entity:ty, mode: rw_to, source: $source_entity:ty,
+        name: $name:literal, display: $display:literal, desc: $desc:literal,
+        aliases: $aliases:expr, example: $example:literal,
+        order: $order:expr $(,)?
+    ) => {
+        #[doc = concat!("**", $display, "** \u{2014} ", $desc)]
+        #[doc = ""]
+        #[doc = concat!("Type: read/write `List<EntityId<", stringify!($source_entity), ">>` (reverse edges; sources pointing at this entity).")]
         pub static $static_name: $crate::field::FieldDescriptor<$entity> =
             $crate::field::FieldDescriptor {
                 name: $name,
@@ -442,19 +451,17 @@ macro_rules! edge_list_field_to_rw {
             };
         inventory::submit! { $crate::entity::CollectedField::<$entity>(&$static_name) }
     };
-}
-pub(crate) use edge_list_field_to_rw;
 
-/// Write-only edge-add mutator field (for `add_*` fields).
-///
-/// Each item in the written `FieldValue::List` is added as a new edge.
-macro_rules! edge_add_field {
+    // ── mode: add ─────────────────────────────────────────────────────
     (
-        $static_name:ident, $entity:ty, $internal:ty, target: $target_entity:ty,
+        $static_name:ident, $entity:ty, mode: add, target: $target_entity:ty,
         name: $name:literal, display: $display:literal, desc: $desc:literal,
         aliases: $aliases:expr, example: $example:literal,
-        order: $order:expr
+        order: $order:expr $(,)?
     ) => {
+        #[doc = concat!("**", $display, "** \u{2014} ", $desc)]
+        #[doc = ""]
+        #[doc = concat!("Type: write-only `List<EntityId<", stringify!($target_entity), ">>` (each item is added as a new edge).")]
         pub static $static_name: $crate::field::FieldDescriptor<$entity> =
             $crate::field::FieldDescriptor {
                 name: $name,
@@ -488,19 +495,17 @@ macro_rules! edge_add_field {
             };
         inventory::submit! { $crate::entity::CollectedField::<$entity>(&$static_name) }
     };
-}
-pub(crate) use edge_add_field;
 
-/// Write-only edge-remove mutator field (for `remove_*` fields).
-///
-/// Each item in the written `FieldValue::List` is removed as an edge.
-macro_rules! edge_remove_field {
+    // ── mode: remove ──────────────────────────────────────────────────
     (
-        $static_name:ident, $entity:ty, $internal:ty, target: $target_entity:ty,
+        $static_name:ident, $entity:ty, mode: remove, target: $target_entity:ty,
         name: $name:literal, display: $display:literal, desc: $desc:literal,
         aliases: $aliases:expr, example: $example:literal,
-        order: $order:expr
+        order: $order:expr $(,)?
     ) => {
+        #[doc = concat!("**", $display, "** \u{2014} ", $desc)]
+        #[doc = ""]
+        #[doc = concat!("Type: write-only `List<EntityId<", stringify!($target_entity), ">>` (each item is removed as an edge).")]
         pub static $static_name: $crate::field::FieldDescriptor<$entity> =
             $crate::field::FieldDescriptor {
                 name: $name,
@@ -535,57 +540,7 @@ macro_rules! edge_remove_field {
         inventory::submit! { $crate::entity::CollectedField::<$entity>(&$static_name) }
     };
 }
-pub(crate) use edge_remove_field;
-
-/// Alias for `edge_list_field_rw!` — used for singular (0-or-1) edge fields.
-///
-/// Structurally identical to `edge_list_field_rw!`; the 0-or-1 constraint is
-/// semantic, not enforced at the macro level.
-macro_rules! edge_none_field_rw {
-    (
-        $static_name:ident, $entity:ty, $internal:ty, target: $target_entity:ty,
-        name: $name:literal, display: $display:literal, desc: $desc:literal,
-        aliases: $aliases:expr, example: $example:literal,
-        order: $order:expr
-    ) => {
-        pub static $static_name: $crate::field::FieldDescriptor<$entity> =
-            $crate::field::FieldDescriptor {
-                name: $name,
-                display: $display,
-                description: $desc,
-                aliases: $aliases,
-                required: false,
-                crdt_type: $crate::value::CrdtFieldType::Derived,
-                field_type: $crate::value::FieldType(
-                    $crate::value::FieldCardinality::List,
-                    $crate::value::FieldTypeItem::EntityIdentifier(
-                        <$target_entity as $crate::entity::EntityType>::TYPE_NAME,
-                    ),
-                ),
-                example: $example,
-                order: $order,
-                read_fn: Some($crate::field::ReadFn::Schedule(
-                    |sched: &$crate::schedule::Schedule, id: $crate::entity::EntityId<$entity>| {
-                        let ids = sched.edges_from::<$entity, $target_entity>(id);
-                        Some($crate::schedule::entity_ids_to_field_value(ids))
-                    },
-                )),
-                write_fn: Some($crate::field::WriteFn::Schedule(
-                    |sched: &mut $crate::schedule::Schedule,
-                     id: $crate::entity::EntityId<$entity>,
-                     val: $crate::value::FieldValue| {
-                        let ids =
-                            $crate::schedule::field_value_to_entity_ids::<$target_entity>(val)?;
-                        sched.edge_set::<$entity, $target_entity>(id, ids);
-                        Ok(())
-                    },
-                )),
-                verify_fn: None,
-            };
-        inventory::submit! { $crate::entity::CollectedField::<$entity>(&$static_name) }
-    };
-}
-pub(crate) use edge_none_field_rw;
+pub(crate) use edge_field;
 
 // ── Hand-written descriptor registration ─────────────────────────────────────
 
@@ -730,7 +685,6 @@ macro_rules! define_entity_builder {
             $(
                 $(#[$setter_attr])*
                 #[doc = concat!("Writes to [`", stringify!($field), "`].")]
-                #[doc = concat!("See [`", stringify!($field), "`] for field details.")]
                 #[must_use]
                 pub fn $setter(
                     mut self,

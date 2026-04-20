@@ -17,13 +17,10 @@
 //! Tagged credit-string resolution (`[Kind:]Name[=Group]`) is implemented
 //! by `find_tagged_presenter` and `find_or_create_tagged_presenter`.
 
-use crate::converter::EntityStringResolver;
+use crate::converter::{AsBoolean, AsString, AsText, EntityStringResolver};
 use crate::entity::{EntityId, EntityType, FieldSet, UuidPreference};
 use crate::field::{FieldDescriptor, ReadFn, WriteFn};
-use crate::field_macros::{
-    bool_field, define_field, edge_add_field, edge_list_field_rw, edge_list_field_to_rw,
-    edge_remove_field, opt_text_field, req_string_field,
-};
+use crate::field_macros::{define_field, edge_field, stored_field};
 use crate::field_value;
 use crate::lookup::{EntityMatcher, MatchPriority};
 use crate::panel::PanelEntityType;
@@ -655,7 +652,7 @@ impl EntityStringResolver for PresenterEntityType {
 
 // ── Stored field descriptors ──────────────────────────────────────────────────
 
-req_string_field!(FIELD_NAME, PresenterEntityType, PresenterInternalData, name,
+stored_field!(FIELD_NAME, PresenterEntityType, name, required, as: AsString,
     name: "name", display: "Name",
     desc: "Presenter or group display name.",
     aliases: &["presenter_name", "display_name"],
@@ -687,28 +684,28 @@ define_field!(
     }
 );
 
-opt_text_field!(FIELD_BIO, PresenterEntityType, PresenterInternalData, bio,
+stored_field!(FIELD_BIO, PresenterEntityType, bio, optional, as: AsText,
     name: "bio", display: "Bio",
     desc: "Biography or description.",
     aliases: &["biography", "description"],
     example: "Long-time guest.",
     order: 200);
 
-bool_field!(FIELD_IS_EXPLICIT_GROUP, PresenterEntityType, PresenterInternalData, is_explicit_group,
+stored_field!(FIELD_IS_EXPLICIT_GROUP, PresenterEntityType, is_explicit_group, with_default, as: AsBoolean,
     name: "is_explicit_group", display: "Is Explicit Group",
     desc: "Marks this presenter entity as an explicit group.",
     aliases: &["explicit_group"],
     example: "false",
     order: 300);
 
-bool_field!(FIELD_ALWAYS_GROUPED, PresenterEntityType, PresenterInternalData, always_grouped,
+stored_field!(FIELD_ALWAYS_GROUPED, PresenterEntityType, always_grouped, with_default, as: AsBoolean,
     name: "always_grouped", display: "Always Grouped",
     desc: "Always display this member under its group name.",
     aliases: &[],
     example: "false",
     order: 400);
 
-bool_field!(FIELD_ALWAYS_SHOWN_IN_GROUP, PresenterEntityType, PresenterInternalData, always_shown_in_group,
+stored_field!(FIELD_ALWAYS_SHOWN_IN_GROUP, PresenterEntityType, always_shown_in_group, with_default, as: AsBoolean,
     name: "always_shown_in_group", display: "Always Shown In Group",
     desc: "Always show group name even with partial member attendance.",
     aliases: &["always_shown"],
@@ -744,14 +741,14 @@ define_field!(
     }
 );
 
-edge_list_field_rw!(FIELD_GROUPS, PresenterEntityType, PresenterInternalData, target: PresenterEntityType,
+edge_field!(FIELD_GROUPS, PresenterEntityType, mode: rw, target: PresenterEntityType,
     name: "groups", display: "Groups",
     desc: "Groups this presenter belongs to.",
     aliases: &["group_memberships"],
     example: "[]",
     order: 700);
 
-edge_list_field_to_rw!(FIELD_MEMBERS, PresenterEntityType, PresenterInternalData, source: PresenterEntityType,
+edge_field!(FIELD_MEMBERS, PresenterEntityType, mode: rw_to, source: PresenterEntityType,
     name: "members", display: "Members",
     desc: "Members of this group (empty for individuals).",
     aliases: &["group_members"],
@@ -824,21 +821,21 @@ define_field!(
     }
 );
 
-edge_list_field_rw!(FIELD_PANELS, PresenterEntityType, PresenterInternalData, target: PanelEntityType,
+edge_field!(FIELD_PANELS, PresenterEntityType, mode: rw, target: PanelEntityType,
     name: "panels", display: "Panels",
     desc: "Panels this presenter is scheduled on.",
     aliases: &["panel"],
     example: "[]",
     order: 1100);
 
-edge_add_field!(FIELD_ADD_PANELS, PresenterEntityType, PresenterInternalData, target: PanelEntityType,
+edge_field!(FIELD_ADD_PANELS, PresenterEntityType, mode: add, target: PanelEntityType,
     name: "add_panels", display: "Add Panels",
     desc: "Append panels to this presenter.",
     aliases: &["add_panel"],
     example: "[panel_id]",
     order: 1200);
 
-edge_remove_field!(FIELD_REMOVE_PANELS, PresenterEntityType, PresenterInternalData, target: PanelEntityType,
+edge_field!(FIELD_REMOVE_PANELS, PresenterEntityType, mode: remove, target: PanelEntityType,
     name: "remove_panels", display: "Remove Panels",
     desc: "Remove panels from this presenter.",
     aliases: &["remove_panel"],

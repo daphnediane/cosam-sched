@@ -16,10 +16,10 @@
 //! The reverse `event_rooms` lookup is an edge-backed computed field wired
 //! through `Schedule::edges_from`.
 
-use crate::converter::EntityStringResolver;
+use crate::converter::{AsString, EntityStringResolver};
 use crate::entity::{EntityId, EntityType, UuidPreference};
 use crate::event_room::{EventRoomEntityType, EventRoomId};
-use crate::field_macros::{edge_list_field, req_string_field};
+use crate::field_macros::{edge_field, stored_field};
 use crate::field_set::FieldSet;
 use crate::value::ValidationError;
 use serde::{Deserialize, Serialize};
@@ -141,14 +141,14 @@ impl EntityStringResolver for HotelRoomEntityType {
 
 // ── Field descriptors ─────────────────────────────────────────────────────────
 
-req_string_field!(FIELD_HOTEL_ROOM_NAME, HotelRoomEntityType, HotelRoomInternalData, hotel_room_name,
+stored_field!(FIELD_HOTEL_ROOM_NAME, HotelRoomEntityType, hotel_room_name, required, as: AsString,
     name: "hotel_room_name", display: "Hotel Room Name",
     desc: "Physical hotel room name / identifier.",
     aliases: &["name", "room_name"],
     example: "Ballroom East",
     order: 0);
 
-edge_list_field!(FIELD_EVENT_ROOMS, HotelRoomEntityType, HotelRoomInternalData, target: EventRoomEntityType,
+edge_field!(FIELD_EVENT_ROOMS, HotelRoomEntityType, mode: ro, target: EventRoomEntityType,
     name: "event_rooms", display: "Event Rooms",
     desc: "Event rooms contained within this hotel room.",
     aliases: &["event_room"],
