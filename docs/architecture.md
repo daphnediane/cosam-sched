@@ -234,6 +234,76 @@ kind context and bypass compile-time type checking. `NonNilUuid` appears in
 internal storage and serialization layers but should not leak into business
 logic.
 
+## Edit Command System
+
+`schedule-core::edit` provides a command-based mutation API with full undo/redo
+support (FEATURE-021). All mutations to the schedule must go through this module.
+
+### `EditCommand`
+
+A `Clone`-able, data-only enum with five variants:
+
+| Variant        | Apply                        | Undo                      |
+| -------------- | ---------------------------- | ------------------------- |
+| `UpdateField`  | Write new value              | Write stored old value    |
+| `AddEntity`    | Build entity from field list | Remove entity             |
+| `RemoveEntity` | Remove entity                | Rebuild from snapshot     |
+| `MovePanel`    | Wraps a `BatchEdit`          | Inverse `BatchEdit`       |
+| `BatchEdit`    | Apply all inner commands     | Apply inverses in reverse |
+
+All variants store only `RuntimeEntityId`, `&'static str` field names, and
+`FieldValue` — no closures or `Box<dyn Any>`. This makes `EditCommand: Clone`
+and enables serialization for logging and Phase 4 CRDT broadcast.
+
+### Field selection for `AddEntity` / `RemoveEntity`
+
+Only **read+write fields** (`read_fn.is_some() && write_fn.is_some()`) are
+included in entity snapshots. This correctly excludes:
+
+- **Read-only** fields (computed queries like `inclusive_panels`) — no `write_fn`.
+- **Write-only** modifier fields (`add_presenters`, `remove_presenters`) — no
+  `read_fn`. The canonical `presenters` field is read+write and captures the full
+  edge state.
+
+### `RegisteredEntityType` fn pointers
+
+Five new function pointers were added to `RegisteredEntityType` for dynamic
+dispatch in the edit system:
+
+| Field            | Purpose                                             |
+| ---------------- | --------------------------------------------------- |
+| `read_field_fn`  | Read a single field by name (captures old value)    |
+| `write_field_fn` | Write a single field by name (apply / undo)         |
+| `build_fn`       | Build entity from `(name, value)` pairs (redo/undo) |
+| `snapshot_fn`    | Snapshot all read+write fields before removal       |
+| `remove_fn`      | Remove entity and clear its edges                   |
+
+### `EditHistory`
+
+Two `VecDeque<EditCommand>` stacks (undo / redo) with a configurable
+`max_depth` (default 100). `apply` drops the oldest entry when at capacity.
+`undo` / `redo` move the top entry between stacks.
+
+### `EditContext`
+
+`EditContext` owns a `Schedule` and an `EditHistory`. It is the sole public
+entry point for all schedule mutations:
+
+```rust
+ctx.apply(cmd)           // execute + push inverse to undo stack
+ctx.undo()               // reverse most recent change
+ctx.redo()               // re-apply most recently undone change
+ctx.is_dirty() / ctx.mark_clean()  // dirty-state tracking for save prompts
+```
+
+Convenience constructors (`update_field_cmd`, `remove_entity_cmd`,
+`move_panel_cmd`) capture old values automatically.
+
+### CRDT integration point
+
+`EditContext::apply` is the natural hook for Phase 4: every executed command
+can generate CRDT operations to broadcast to peers.
+
 ## CRDT Storage (Phase 4)
 
 See `crdt-design.md` for the full design.

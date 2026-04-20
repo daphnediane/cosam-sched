@@ -1,6 +1,6 @@
 # Cosplay America Schedule - Work Item
 
-Updated on: Sun Apr 19 21:33:21 2026
+Updated on: Mon Apr 20 18:16:45 2026
 
 ## Completed
 
@@ -16,6 +16,7 @@ Updated on: Sun Apr 19 21:33:21 2026
 * [FEATURE-018] Implement typed relationship storage for entity-to-entity relationships.
 * [FEATURE-019] Implement the `Schedule` struct and `EntityStorage` for managing all entities and relationships.
 * [FEATURE-020] Implement field-based search, matching, and bulk update operations.
+* [FEATURE-021] Implement a command-based edit system with full undo/redo support.
 * [FEATURE-038] Add a type-safe `FieldValueConverter<M>` trait and driver functions for converting
 `FieldValue` inputs to typed Rust outputs via a work-queue iteration pattern.
 * [FEATURE-043] Add a `verify` callback to `FieldDescriptor` for cross-field consistency checks after batch writes to computed fields.
@@ -25,6 +26,7 @@ wrappers) to `value.rs` as `Copy` type-level mirrors of `FieldValueItem`/`FieldV
 * [FEATURE-051] Add a `field_type: FieldType` field to `FieldDescriptor` and populate it in all
 existing static field descriptors across every entity file.
 * [META-002] Phase tracker for project foundation and Cargo workspace setup.
+* [META-003] Phase tracker for the entity/field system and core schedule data model in schedule-core.
 * [META-048] Restructure `FieldValue` with proper cardinality, add `FieldTypeItem`/`FieldType`
 enums, wire `FieldType` into `FieldDescriptor`, and implement the generic
 `FieldValueConverter` system from IDEA-038.
@@ -50,20 +52,16 @@ collection, and expose a `registered_entity_types()` accessor.
 
 ## Summary of Open Items
 
-**Total open items:** 23
+**Total open items:** 21
 
 * **Meta / Project-Level**
-  * [META-001] Meta work item tracking the full multi-phase redesign of the schedule system. (Blocked by [META-003], [META-004], [META-005], [META-006], [META-007], [META-008])
-  * [META-003] Phase tracker for the entity/field system and core schedule data model in schedule-core. (Blocked by [META-002])
+  * [META-001] Meta work item tracking the full multi-phase redesign of the schedule system. (Blocked by [META-004], [META-005], [META-006], [META-007], [META-008])
   * [META-004] Phase tracker for adding CRDT-backed storage underneath the entity/field system. (Blocked by [META-003])
   * [META-005] Phase tracker for internal file format, multi-year archive, widget JSON, and
 XLSX import/export. (Blocked by [META-003], [META-004])
   * [META-006] Phase tracker for the cosam-convert and cosam-modify command-line applications. (Blocked by [META-005])
   * [META-007] Phase tracker for the cosam-editor desktop GUI application. (Blocked by [META-005])
   * [META-008] Phase tracker for peer-to-peer schedule synchronization and conflict resolution. (Blocked by [META-004])
-
-* **High Priority**
-  * [FEATURE-021] ([META-003]) Implement a command-based edit system with full undo/redo support.
 
 * **Medium Priority**
   * [BUGFIX-045] In `scratch/field_update_logic.rs`, duration values are incorrectly stored as `FieldValue::Integer(minutes)` instead of `FieldValue::Duration(Duration)`.
@@ -180,21 +178,6 @@ panels arranged by time and room, with inline editing of entity fields.
 ---
 
 ## Open FEATURE Items
-
-### [FEATURE-021] Edit Command System With Undo/Redo History
-
-**Status:** Open
-
-**Priority:** High
-
-**Summary:** Implement a command-based edit system with full undo/redo support.
-
-**Part of:** [META-003]
-
-**Description:** All mutations to the schedule go through an edit command system that captures
-changes as reversible operations, enabling undo/redo in both CLI and GUI contexts.
-
----
 
 ### [FEATURE-022] CRDT Abstraction Layer Design
 
@@ -376,7 +359,7 @@ override them.
 
 **Summary:** Meta work item tracking the full multi-phase redesign of the schedule system.
 
-**Blocked By:** [META-003], [META-004], [META-005], [META-006], [META-007], [META-008]
+**Blocked By:** [META-004], [META-005], [META-006], [META-007], [META-008]
 
 **Description:** Redesign the cosam-sched schedule system from the ground up with:
 
@@ -405,41 +388,6 @@ replacing the old `schedule-field`, `schedule-data`, and `schedule-macro` crates
 * META-006: Phase 5 — CLI Tools
 * META-007: Phase 6 — GUI Editor
 * META-008: Phase 7 — Sync & Multi-User
-
----
-
-### [META-003] Phase 2 — Core Data Model (schedule-core)
-
-**Status:** Open
-
-**Priority:** High
-
-**Summary:** Phase tracker for the entity/field system and core schedule data model in schedule-core.
-
-**Blocked By:** [META-002]
-
-**Description:** Build the `schedule-core` crate containing the complete entity/field system.
-Entity `Data` struct declarations are hand-written and visible — macros must not
-obscure them. Proc-macros and `macro_rules!` may be used for boilerplate (trait
-impls, field accessor singletons, builders). `CrdtFieldType` annotations are
-baked in from the start.
-
-**Work Items:**
-
-* FEATURE-010: FieldValue, error types, CrdtFieldType
-* FEATURE-011: Field traits + FieldDescriptor
-* FEATURE-012: EntityType, EntityId, EntityKind
-* FEATURE-013: FieldSet registry
-* FEATURE-014: PanelType entity (proof of concept)
-* FEATURE-043: Field verification callbacks (verify_fn)
-* FEATURE-015: TimeRange + Panel entity
-* FEATURE-016: Presenter + EventRoom + HotelRoom entities
-* FEATURE-018: Relationship storage (EdgeMap / reverse indexes)
-* FEATURE-019: Schedule container + EntityStorage
-* FEATURE-020: Query system
-* FEATURE-017: Builder pattern
-* FEATURE-046: Bulk field updates (write_multiple)
-* FEATURE-021: Edit command system with undo/redo
 
 ---
 
@@ -573,7 +521,7 @@ to exchange CRDT changes and reconcile concurrent edits to the same fields.
 [FEATURE-018]: work-item/done/FEATURE-018.md
 [FEATURE-019]: work-item/done/FEATURE-019.md
 [FEATURE-020]: work-item/done/FEATURE-020.md
-[FEATURE-021]: work-item/high/FEATURE-021.md
+[FEATURE-021]: work-item/done/FEATURE-021.md
 [FEATURE-022]: work-item/medium/FEATURE-022.md
 [FEATURE-023]: work-item/medium/FEATURE-023.md
 [FEATURE-024]: work-item/medium/FEATURE-024.md
@@ -591,7 +539,7 @@ to exchange CRDT changes and reconcile concurrent edits to the same fields.
 [FEATURE-051]: work-item/done/FEATURE-051.md
 [META-001]: work-item/meta/META-001.md
 [META-002]: work-item/done/META-002.md
-[META-003]: work-item/meta/META-003.md
+[META-003]: work-item/done/META-003.md
 [META-004]: work-item/meta/META-004.md
 [META-005]: work-item/meta/META-005.md
 [META-006]: work-item/meta/META-006.md

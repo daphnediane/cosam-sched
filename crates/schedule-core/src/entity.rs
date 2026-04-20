@@ -202,6 +202,64 @@ pub struct RegisteredEntityType {
     /// Returns the `TypeId` of this entity type's `InternalData` associated type.
     /// Used by `Schedule::identify` to map a bare UUID to its entity type.
     pub type_id: fn() -> std::any::TypeId,
+    /// Build an entity with the given exact UUID and field name+value pairs.
+    ///
+    /// Used by the edit command system to replay `AddEntity` / undo `RemoveEntity`.
+    /// The UUID is always used as-is (`UuidPreference::Exact`), guaranteeing
+    /// that redo recreates the same identity.  Field names are canonical names
+    /// or aliases registered in the entity's [`FieldSet`].
+    ///
+    /// Returns the resulting [`NonNilUuid`] on success, or a [`BuildError`] if
+    /// any write or validation step fails.
+    ///
+    /// [`FieldSet`]: crate::field_set::FieldSet
+    /// [`BuildError`]: crate::builder::BuildError
+    pub build_fn: fn(
+        &mut crate::schedule::Schedule,
+        NonNilUuid,
+        &[(&'static str, crate::value::FieldValue)],
+    ) -> Result<NonNilUuid, crate::builder::BuildError>,
+
+    /// Read a single field value from an existing entity by field name.
+    ///
+    /// Used by the edit command system to capture `old_value` before applying
+    /// an `UpdateField` command.  Returns `None` if the field returns no value
+    /// (unset optional), or `Err` if the field is write-only or the entity is
+    /// absent.
+    pub read_field_fn: fn(
+        &crate::schedule::Schedule,
+        NonNilUuid,
+        &'static str,
+    )
+        -> Result<Option<crate::value::FieldValue>, crate::value::FieldError>,
+
+    /// Write a single field value into an existing entity by field name.
+    ///
+    /// Used by the edit command system to apply and undo `UpdateField` commands.
+    /// Returns `Err` if the field is read-only, the entity is absent, or the
+    /// value conversion fails.
+    pub write_field_fn: fn(
+        &mut crate::schedule::Schedule,
+        NonNilUuid,
+        &'static str,
+        crate::value::FieldValue,
+    ) -> Result<(), crate::value::FieldError>,
+
+    /// Snapshot all read+write fields of an existing entity into a
+    /// `Vec<(&'static str, FieldValue)>`.
+    ///
+    /// Used by the edit command system to capture state before `RemoveEntity`,
+    /// enabling undo to restore the entity via [`Self::build_fn`].
+    /// Only fields that have both `read_fn` and `write_fn` are included;
+    /// read-only computed fields and write-only modifier fields are skipped.
+    /// Fields whose read returns `None` (unset optional fields) are also skipped.
+    pub snapshot_fn:
+        fn(&crate::schedule::Schedule, NonNilUuid) -> Vec<(&'static str, crate::value::FieldValue)>,
+
+    /// Remove the entity with the given UUID from the schedule, clearing all edges.
+    ///
+    /// Used by the edit command system to apply `RemoveEntity` and undo `AddEntity`.
+    pub remove_fn: fn(&mut crate::schedule::Schedule, NonNilUuid),
 }
 inventory::collect!(RegisteredEntityType);
 

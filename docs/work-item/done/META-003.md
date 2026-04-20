@@ -6,7 +6,7 @@ Phase tracker for the entity/field system and core schedule data model in schedu
 
 ## Status
 
-Open
+Completed
 
 ## Priority
 

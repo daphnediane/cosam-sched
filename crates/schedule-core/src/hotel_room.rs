@@ -113,6 +113,44 @@ inventory::submit! {
         type_name: HotelRoomEntityType::TYPE_NAME,
         uuid_namespace: HotelRoomEntityType::uuid_namespace,
         type_id: || std::any::TypeId::of::<HotelRoomInternalData>(),
+        read_field_fn: |schedule, uuid, field_name| {
+            // SAFETY: uuid came from an existing HotelRoomEntityType entity.
+            let id = unsafe { crate::entity::EntityId::<HotelRoomEntityType>::from_uuid(uuid) };
+            HotelRoomEntityType::field_set().read_field_value(field_name, id, schedule)
+        },
+        write_field_fn: |schedule, uuid, field_name, value| {
+            // SAFETY: uuid came from an existing HotelRoomEntityType entity.
+            let id = unsafe { crate::entity::EntityId::<HotelRoomEntityType>::from_uuid(uuid) };
+            HotelRoomEntityType::field_set().write_field_value(field_name, id, schedule, value)
+        },
+        build_fn: |schedule, uuid, fields| {
+            crate::builder::build_entity::<HotelRoomEntityType>(
+                schedule,
+                crate::entity::UuidPreference::Exact(uuid),
+                fields
+                    .iter()
+                    .map(|(n, v)| (crate::field_set::FieldRef::Name(n), v.clone()))
+                    .collect(),
+            )
+            .map(|id| id.non_nil_uuid())
+        },
+        snapshot_fn: |schedule, uuid| {
+            use crate::field::ReadableField;
+            // SAFETY: uuid came from an existing HotelRoomEntityType entity.
+            let id = unsafe { crate::entity::EntityId::<HotelRoomEntityType>::from_uuid(uuid) };
+            HotelRoomEntityType::field_set()
+                .fields()
+                .filter(|d| d.read_fn.is_some() && d.write_fn.is_some())
+                .filter_map(|d| {
+                    d.read(id, schedule).ok().flatten().map(|v| (d.name, v))
+                })
+                .collect()
+        },
+        remove_fn: |schedule, uuid| {
+            // SAFETY: uuid came from an existing HotelRoomEntityType entity.
+            let id = unsafe { crate::entity::EntityId::<HotelRoomEntityType>::from_uuid(uuid) };
+            schedule.remove_entity::<HotelRoomEntityType>(id);
+        },
     }
 }
 inventory::collect!(crate::entity::CollectedField<HotelRoomEntityType>);

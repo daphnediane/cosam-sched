@@ -127,6 +127,44 @@ inventory::submit! {
         type_name: EventRoomEntityType::TYPE_NAME,
         uuid_namespace: EventRoomEntityType::uuid_namespace,
         type_id: || std::any::TypeId::of::<EventRoomInternalData>(),
+        read_field_fn: |schedule, uuid, field_name| {
+            // SAFETY: uuid came from an existing EventRoomEntityType entity.
+            let id = unsafe { crate::entity::EntityId::<EventRoomEntityType>::from_uuid(uuid) };
+            EventRoomEntityType::field_set().read_field_value(field_name, id, schedule)
+        },
+        write_field_fn: |schedule, uuid, field_name, value| {
+            // SAFETY: uuid came from an existing EventRoomEntityType entity.
+            let id = unsafe { crate::entity::EntityId::<EventRoomEntityType>::from_uuid(uuid) };
+            EventRoomEntityType::field_set().write_field_value(field_name, id, schedule, value)
+        },
+        build_fn: |schedule, uuid, fields| {
+            crate::builder::build_entity::<EventRoomEntityType>(
+                schedule,
+                crate::entity::UuidPreference::Exact(uuid),
+                fields
+                    .iter()
+                    .map(|(n, v)| (crate::field_set::FieldRef::Name(n), v.clone()))
+                    .collect(),
+            )
+            .map(|id| id.non_nil_uuid())
+        },
+        snapshot_fn: |schedule, uuid| {
+            use crate::field::ReadableField;
+            // SAFETY: uuid came from an existing EventRoomEntityType entity.
+            let id = unsafe { crate::entity::EntityId::<EventRoomEntityType>::from_uuid(uuid) };
+            EventRoomEntityType::field_set()
+                .fields()
+                .filter(|d| d.read_fn.is_some() && d.write_fn.is_some())
+                .filter_map(|d| {
+                    d.read(id, schedule).ok().flatten().map(|v| (d.name, v))
+                })
+                .collect()
+        },
+        remove_fn: |schedule, uuid| {
+            // SAFETY: uuid came from an existing EventRoomEntityType entity.
+            let id = unsafe { crate::entity::EntityId::<EventRoomEntityType>::from_uuid(uuid) };
+            schedule.remove_entity::<EventRoomEntityType>(id);
+        },
     }
 }
 inventory::collect!(crate::entity::CollectedField<EventRoomEntityType>);
