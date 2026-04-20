@@ -53,7 +53,7 @@ pub enum EditError {
         entity: RuntimeEntityId,
         field: &'static str,
         #[source]
-        source: FieldError,
+        source: Box<FieldError>,
     },
 
     /// A field write failed.
@@ -62,7 +62,7 @@ pub enum EditError {
         entity: RuntimeEntityId,
         field: &'static str,
         #[source]
-        source: FieldError,
+        source: Box<FieldError>,
     },
 
     /// An `AddEntity` or `RemoveEntity` rebuild failed.
@@ -70,7 +70,7 @@ pub enum EditError {
     Build {
         entity: RuntimeEntityId,
         #[source]
-        source: BuildError,
+        source: Box<BuildError>,
     },
 
     /// Undo stack is empty.
@@ -150,7 +150,7 @@ impl EditCommand {
                     |source| EditError::FieldWrite {
                         entity,
                         field,
-                        source,
+                        source: Box::new(source),
                     },
                 )?;
                 Ok(EditCommand::UpdateField {
@@ -163,8 +163,12 @@ impl EditCommand {
 
             EditCommand::AddEntity { entity, ref fields } => {
                 let reg = find_registration(entity)?;
-                (reg.build_fn)(schedule, entity.uuid, fields)
-                    .map_err(|source| EditError::Build { entity, source })?;
+                (reg.build_fn)(schedule, entity.uuid, fields).map_err(|source| {
+                    EditError::Build {
+                        entity,
+                        source: Box::new(source),
+                    }
+                })?;
                 let fields_snapshot = fields.clone();
                 Ok(EditCommand::RemoveEntity {
                     entity,
@@ -395,7 +399,7 @@ impl EditContext {
             .map_err(|source| EditError::FieldRead {
                 entity,
                 field,
-                source,
+                source: Box::new(source),
             })?
             .ok_or(EditError::EntityNotFound(entity))?;
         Ok(EditCommand::UpdateField {

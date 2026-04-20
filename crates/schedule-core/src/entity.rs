@@ -182,6 +182,16 @@ pub trait EntityType: 'static + Sized {
 
 // ── Inventory registration types ──────────────────────────────────────────────
 
+/// Type alias for the entity build function used in edit commands.
+///
+/// Builds an entity with the given exact UUID and field name+value pairs.
+/// Used by the edit command system to replay `AddEntity` / undo `RemoveEntity`.
+pub type EntityBuildFn = fn(
+    &mut crate::schedule::Schedule,
+    NonNilUuid,
+    &[(&'static str, crate::value::FieldValue)],
+) -> Result<NonNilUuid, crate::builder::BuildError>;
+
 /// Inventory collection wrapper for per-entity-type field descriptor registration.
 ///
 /// Each entity type module declares `inventory::collect!(CollectedField<XxxEntityType>)`.
@@ -214,11 +224,7 @@ pub struct RegisteredEntityType {
     ///
     /// [`FieldSet`]: crate::field_set::FieldSet
     /// [`BuildError`]: crate::builder::BuildError
-    pub build_fn: fn(
-        &mut crate::schedule::Schedule,
-        NonNilUuid,
-        &[(&'static str, crate::value::FieldValue)],
-    ) -> Result<NonNilUuid, crate::builder::BuildError>,
+    pub build_fn: EntityBuildFn,
 
     /// Read a single field value from an existing entity by field name.
     ///
