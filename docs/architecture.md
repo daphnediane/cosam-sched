@@ -41,6 +41,22 @@ Each entity type has three hand-written, visible struct declarations:
 `EntityType::Data` is produced by `export(&Schedule)` for serialization and
 external APIs.
 
+### Builder API
+
+Entity builders provide ergonomic construction with typed setters, UUID assignment,
+validation, and rollback semantics (FEATURE-017). The builder system layers on
+top of `FieldSet::write_multiple` (FEATURE-046) for atomic batch field updates.
+
+Key components:
+
+- `EntityBuildable` trait — subtrait of `EntityType` for buildable entities
+- `build_entity` driver — seeds, populates, validates, and rolls back on failure
+- `define_entity_builder!` macro — generates typed builders with `with_*` setters
+- Five instantiated builders: `PanelTypeBuilder`, `PanelBuilder`, `PresenterBuilder`,
+  `EventRoomBuilder`, `HotelRoomBuilder`
+
+See `field-system.md#builder-system` for details.
+
 ### Inventory-based field registration
 
 Field descriptors self-register globally via the `inventory` crate. Each field

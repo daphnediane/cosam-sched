@@ -411,10 +411,10 @@ Examples: `"PanelKind"` → `"Panel_Kind"`, `"AVNotes"` → `"AV_Notes"`,
 with canonical name `"kind"` whose spreadsheet header is `"PanelKind"` should
 include `"Panel_Kind"` in `aliases`.
 
-## FieldRef (Pending, See FEATURE-046)
+## FieldRef
 
 `FieldRef<E>` is an enum for flexibly referencing fields in batch operations
-(see FEATURE-046: Bulk Field Updates). It allows API consumers to use either
+(FEATURE-046: Bulk Field Updates). It allows API consumers to use either
 field name strings (runtime lookup) or direct descriptor references (zero-cost):
 
 ```rust
@@ -443,8 +443,6 @@ field_set.write_multiple(id, schedule, &[
 ```
 
 The `From` impls allow ergonomic `.into()` at call sites.
-
-**Status**: Design complete, implementation pending FEATURE-046.
 
 ## IntoFieldValue Trait Hierarchy
 
@@ -520,5 +518,112 @@ field_empty_list!()                 // → FieldValue::List([])
 - `FieldError` — top-level error for field operations (wraps sub-errors)
 - `ConversionError` — type conversion failures (wrong variant, parse failure)
 - `ValidationError` — value fails field constraints
+- `FieldSetError` — batch write errors (duplicates, unknown fields, write failures, verification failures)
 
 All use `thiserror`.
+
+## Builder System
+
+The builder pattern provides ergonomic entity construction with typed setters,
+UUID assignment, validation, and rollback semantics (FEATURE-017). It layers on
+top of `FieldSet::write_multiple` for atomic batch field updates.
+
+### EntityBuildable trait
+
+Subtrait of `EntityType` that entity types implement to support building:
+
+```rust
+pub trait EntityBuildable: EntityType {
+    /// Produce an empty `InternalData` stamped with the given ID.
+    fn default_data(id: EntityId<Self>) -> Self::InternalData;
+}
+```
+
+All fields in the returned `InternalData` are initialized to sensible defaults
+(typically via `Default::default()` on the inner `FooCommonData`). Required
+fields will intentionally fail `EntityType::validate` until the builder's batch
+writes run — this is the mechanism that enforces the "you must set required
+fields" contract.
+
+Implemented by all production entity types: `PanelTypeEntityType`,
+`PanelEntityType`, `PresenterEntityType`, `EventRoomEntityType`,
+`HotelRoomEntityType`.
+
+### build_entity driver
+
+Core function that seeds, populates, and validates a new entity:
+
+```rust
+pub fn build_entity<E: EntityBuildable>(
+    schedule: &mut Schedule,
+    uuid_pref: UuidPreference,
+    updates: Vec<(FieldRef<E>, FieldValue)>,
+) -> Result<EntityId<E>, BuildError>;
+```
+
+**Steps:**
+
+1. Resolve `uuid_pref` to a typed `EntityId<E>` (v7, v5, or exact)
+2. Insert `EntityBuildable::default_data` into `schedule`
+3. Call `FieldSet::write_multiple` with `updates`
+4. Run `EntityType::validate` on the final internal data
+
+On any failure (batch write error or validation error), the placeholder entity
+is removed via `Schedule::remove_entity` (which also clears edges), ensuring
+rollback semantics.
+
+### define_entity_builder! macro
+
+`macro_rules!` macro in `field_macros.rs` that generates a typed builder with
+`with_*` setters per field. The generated builder:
+
+- Collects field updates in a `Vec<(FieldRef<E>, FieldValue)>`
+- Delegates to `build_entity` for seed, write, validate, and rollback
+- Accepts a `UuidPreference` parameter for UUID assignment control
+- Provides typed setters accepting native Rust types via `IntoFieldValue`
+
+**Usage pattern:**
+
+```rust
+define_entity_builder!(
+    PanelTypeBuilder,
+    PanelEntityType,
+    PanelTypeInternalData,
+    [
+        (FIELD_PREFIX, with_prefix),
+        (FIELD_HAS_TRACKING, with_has_tracking),
+        // ... more fields
+    ]
+);
+```
+
+Each field tuple specifies the field descriptor static and the setter method
+name. The macro generates:
+
+- A `new(uuid_pref: UuidPreference)` constructor
+- A `with_<field_name>(value)` setter for each field (accepts `impl IntoFieldValue`)
+- A `build(schedule: &mut Schedule) -> Result<EntityId<E>, BuildError>` method
+
+### Instantiated builders
+
+Five production entity builders are instantiated:
+
+- `PanelTypeBuilder` — comprehensive unit tests in `panel_type.rs`
+- `PanelBuilder` — scalar fields (duration) and edge fields (presenters, event rooms, panel type)
+- `PresenterBuilder` — name, rank, bio, status flags, and edge fields (groups, members, panels)
+- `EventRoomBuilder` — name, long_name, sort_key, hotel_rooms, panels
+- `HotelRoomBuilder` — name, event_rooms
+
+### BuildError
+
+Error enum returned by `build_entity` (and therefore by every generated builder):
+
+```rust
+pub enum BuildError {
+    FieldSet(#[from] FieldSetError),      // batch write or verification failed
+    Validation(Vec<ValidationError>),    // entity validation failed
+}
+```
+
+Both variants trigger rollback via `Schedule::remove_entity` before the error
+is returned.
