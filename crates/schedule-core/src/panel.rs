@@ -228,7 +228,7 @@ define_field!(
     /// Note: changing a panel's code prefix may reassign it to a different
     /// `PanelType`; the write path parses and mutates only — callers that change
     /// the prefix should also update the `panel_type` edge accordingly.
-    static FIELD_CODE: FieldDescriptor<PanelEntityType> = FieldDescriptor {
+    pub static FIELD_CODE: FieldDescriptor<PanelEntityType> = FieldDescriptor {
         name: "code",
         display: "Uniq ID",
         description: "Panel Uniq ID (e.g. \"GP032\"), parsed from the Schedule sheet.",
@@ -425,7 +425,7 @@ opt_string_field!(FIELD_ALT_PANELIST, PanelEntityType, PanelInternalData, alt_pa
 
 define_field!(
     /// Start time — projected from `time_slot`.
-    static FIELD_START_TIME: FieldDescriptor<PanelEntityType> = FieldDescriptor {
+    pub static FIELD_START_TIME: FieldDescriptor<PanelEntityType> = FieldDescriptor {
         name: "start_time",
         display: "Start Time",
         description: "Panel start time.",
@@ -474,7 +474,7 @@ define_field!(
 
 define_field!(
     /// End time — projected from `time_slot`.
-    static FIELD_END_TIME: FieldDescriptor<PanelEntityType> = FieldDescriptor {
+    pub static FIELD_END_TIME: FieldDescriptor<PanelEntityType> = FieldDescriptor {
         name: "end_time",
         display: "End Time",
         description: "Panel end time.",
@@ -523,7 +523,7 @@ define_field!(
 
 define_field!(
     /// Duration — projected from `time_slot`.
-    static FIELD_DURATION: FieldDescriptor<PanelEntityType> = FieldDescriptor {
+    pub static FIELD_DURATION: FieldDescriptor<PanelEntityType> = FieldDescriptor {
         name: "duration",
         display: "Duration",
         description: "Panel duration.",
@@ -598,7 +598,7 @@ edge_remove_field!(FIELD_REMOVE_PRESENTERS, PanelEntityType, PanelInternalData, 
 
 define_field!(
     /// Inclusive presenters — BFS over direct presenters + their groups/members.
-    static FIELD_INCLUSIVE_PRESENTERS: FieldDescriptor<PanelEntityType> = FieldDescriptor {
+    pub static FIELD_INCLUSIVE_PRESENTERS: FieldDescriptor<PanelEntityType> = FieldDescriptor {
         name: "inclusive_presenters",
         display: "Inclusive Presenters",
         description: "Transitive closure: direct presenters + their groups + group members.",
@@ -674,7 +674,7 @@ static PANEL_FIELD_SET: LazyLock<FieldSet<PanelEntityType>> =
 // ── Builder ───────────────────────────────────────────────────────────────────
 
 crate::field_macros::define_entity_builder! {
-    /// Typed builder for [`PanelEntityType`] entities (FEATURE-017).
+    /// Typed builder for [`PanelEntityType`] entities.
     PanelBuilder for PanelEntityType {
         /// Set the Uniq ID code (e.g. `"GP032"`).  Required.  The write path
         /// parses the string; the `panel_type` edge is *not* updated

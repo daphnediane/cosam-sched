@@ -319,7 +319,7 @@ impl<E: EntityType> FieldSet<E> {
     /// Writes are applied in the order supplied by the caller.  The first
     /// write failure aborts the batch and returns
     /// [`FieldSetError::WriteError`].  **No rollback** is performed; prior
-    /// writes remain applied.  Higher-level builders (see FEATURE-017) are
+    /// writes remain applied.  Higher-level builders (see `builder.rs`) are
     /// responsible for rolling back at the entity level if required.
     ///
     /// # Verify phase
@@ -328,7 +328,7 @@ impl<E: EntityType> FieldSet<E> {
     /// is `Some(_)` has its [`VerifiableField::verify`] called with the
     /// originally-attempted value.  The first verification failure returns
     /// [`FieldSetError::VerificationError`].  Descriptors with `verify_fn:
-    /// None` are not verified here (cross-reference FEATURE-043).
+    /// None` are not verified here.
     pub fn write_multiple(
         &self,
         id: crate::entity::EntityId<E>,

@@ -68,7 +68,7 @@ macro_rules! req_string_field {
         aliases: $aliases:expr, example: $example:literal,
         order: $order:expr
     ) => {
-        static $static_name: $crate::field::FieldDescriptor<$entity> =
+        pub static $static_name: $crate::field::FieldDescriptor<$entity> =
             $crate::field::FieldDescriptor {
                 name: $name,
                 display: $display,
@@ -105,7 +105,7 @@ macro_rules! opt_string_field {
         aliases: $aliases:expr, example: $example:literal,
         order: $order:expr
     ) => {
-        static $static_name: $crate::field::FieldDescriptor<$entity> =
+        pub static $static_name: $crate::field::FieldDescriptor<$entity> =
             $crate::field::FieldDescriptor {
                 name: $name,
                 display: $display,
@@ -160,7 +160,7 @@ macro_rules! opt_text_field {
         aliases: $aliases:expr, example: $example:literal,
         order: $order:expr
     ) => {
-        static $static_name: $crate::field::FieldDescriptor<$entity> =
+        pub static $static_name: $crate::field::FieldDescriptor<$entity> =
             $crate::field::FieldDescriptor {
                 name: $name,
                 display: $display,
@@ -214,7 +214,7 @@ macro_rules! bool_field {
         aliases: $aliases:expr, example: $example:literal,
         order: $order:expr
     ) => {
-        static $static_name: $crate::field::FieldDescriptor<$entity> =
+        pub static $static_name: $crate::field::FieldDescriptor<$entity> =
             $crate::field::FieldDescriptor {
                 name: $name,
                 display: $display,
@@ -251,7 +251,7 @@ macro_rules! opt_i64_field {
         aliases: $aliases:expr, example: $example:literal,
         order: $order:expr
     ) => {
-        static $static_name: $crate::field::FieldDescriptor<$entity> =
+        pub static $static_name: $crate::field::FieldDescriptor<$entity> =
             $crate::field::FieldDescriptor {
                 name: $name,
                 display: $display,
@@ -312,7 +312,7 @@ macro_rules! edge_list_field {
         aliases: $aliases:expr, example: $example:literal,
         order: $order:expr
     ) => {
-        static $static_name: $crate::field::FieldDescriptor<$entity> =
+        pub static $static_name: $crate::field::FieldDescriptor<$entity> =
             $crate::field::FieldDescriptor {
                 name: $name,
                 display: $display,
@@ -353,7 +353,7 @@ macro_rules! edge_list_field_rw {
         aliases: $aliases:expr, example: $example:literal,
         order: $order:expr
     ) => {
-        static $static_name: $crate::field::FieldDescriptor<$entity> =
+        pub static $static_name: $crate::field::FieldDescriptor<$entity> =
             $crate::field::FieldDescriptor {
                 name: $name,
                 display: $display,
@@ -406,7 +406,7 @@ macro_rules! edge_list_field_to_rw {
         aliases: $aliases:expr, example: $example:literal,
         order: $order:expr
     ) => {
-        static $static_name: $crate::field::FieldDescriptor<$entity> =
+        pub static $static_name: $crate::field::FieldDescriptor<$entity> =
             $crate::field::FieldDescriptor {
                 name: $name,
                 display: $display,
@@ -455,7 +455,7 @@ macro_rules! edge_add_field {
         aliases: $aliases:expr, example: $example:literal,
         order: $order:expr
     ) => {
-        static $static_name: $crate::field::FieldDescriptor<$entity> =
+        pub static $static_name: $crate::field::FieldDescriptor<$entity> =
             $crate::field::FieldDescriptor {
                 name: $name,
                 display: $display,
@@ -501,7 +501,7 @@ macro_rules! edge_remove_field {
         aliases: $aliases:expr, example: $example:literal,
         order: $order:expr
     ) => {
-        static $static_name: $crate::field::FieldDescriptor<$entity> =
+        pub static $static_name: $crate::field::FieldDescriptor<$entity> =
             $crate::field::FieldDescriptor {
                 name: $name,
                 display: $display,
@@ -548,7 +548,7 @@ macro_rules! edge_none_field_rw {
         aliases: $aliases:expr, example: $example:literal,
         order: $order:expr
     ) => {
-        static $static_name: $crate::field::FieldDescriptor<$entity> =
+        pub static $static_name: $crate::field::FieldDescriptor<$entity> =
             $crate::field::FieldDescriptor {
                 name: $name,
                 display: $display,
@@ -624,8 +624,8 @@ pub(crate) use define_field;
 // ── Entity builder ───────────────────────────────────────────────────────────
 
 /// Generate a typed builder struct for an entity on top of
-/// [`FieldSet::write_multiple`] (FEATURE-046) and
-/// [`build_entity`](crate::builder::build_entity) (FEATURE-017).
+/// [`FieldSet::write_multiple`] and
+/// [`build_entity`](crate::builder::build_entity).
 ///
 /// The call site lists one `with_<setter> => &FIELD_STATIC` entry per field
 /// that should be settable through the builder.  Each setter takes any
@@ -633,8 +633,8 @@ pub(crate) use define_field;
 /// pass native Rust types (`&str`, `bool`, `Option<T>`, `Vec<T>`, etc.)
 /// without constructing `FieldValue` by hand.
 ///
-/// Must be invoked in the same module as the `FIELD_*` statics it references,
-/// since those statics are module-private.
+/// The field descriptor statics must be in scope (they are now `pub`, so they
+/// can be re-exported if needed).
 ///
 /// # Generated API
 ///
@@ -702,6 +702,11 @@ macro_rules! define_entity_builder {
         }
 
         impl $builder {
+            /// All setters accept any [`IntoFieldValue`](crate::value::IntoFieldValue) type.
+            ///
+            /// Conversion or validation errors surface at [`Self::build`] or
+            /// [`Self::apply_to`] time.
+            ///
             /// Start a fresh builder.  The default UUID preference is
             /// [`UuidPreference::GenerateNew`](crate::entity::UuidPreference::GenerateNew).
             #[must_use]
@@ -724,15 +729,8 @@ macro_rules! define_entity_builder {
 
             $(
                 $(#[$setter_attr])*
-                #[doc = ""]
-                #[doc = concat!(
-                    "Writes to the `",
-                    stringify!($field),
-                    "` field descriptor.  Accepts any \
-                     [`IntoFieldValue`](crate::value::IntoFieldValue) type; \
-                     conversion or validation errors surface at \
-                     [`Self::build`] / [`Self::apply_to`] time."
-                )]
+                #[doc = concat!("Writes to [`", stringify!($field), "`].")]
+                #[doc = concat!("See [`", stringify!($field), "`] for field details.")]
                 #[must_use]
                 pub fn $setter(
                     mut self,

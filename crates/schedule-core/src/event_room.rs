@@ -164,7 +164,7 @@ req_string_field!(FIELD_ROOM_NAME, EventRoomEntityType, EventRoomInternalData, r
 
 define_field!(
     /// Optional display name shown in the widget / public schedule.
-    static FIELD_LONG_NAME: FieldDescriptor<EventRoomEntityType> = FieldDescriptor {
+    pub static FIELD_LONG_NAME: FieldDescriptor<EventRoomEntityType> = FieldDescriptor {
         name: "long_name",
         display: "Long Name",
         description: "Display name shown in the widget / public schedule.",
@@ -220,7 +220,7 @@ static EVENT_ROOM_FIELD_SET: LazyLock<FieldSet<EventRoomEntityType>> =
 // ── Builder ───────────────────────────────────────────────────────────────────
 
 crate::field_macros::define_entity_builder! {
-    /// Typed builder for [`EventRoomEntityType`] entities (FEATURE-017).
+    /// Typed builder for [`EventRoomEntityType`] entities.
     EventRoomBuilder for EventRoomEntityType {
         /// Set the room code as it appears in the Schedule sheet (e.g. `"Panel 1"`).
         /// Required.

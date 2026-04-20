@@ -666,7 +666,7 @@ define_field!(
     /// Presenter rank — stored as `PresenterRank`, exposed as `FieldValue::String`
     /// using the canonical tag (`guest`, `judge`, `staff`, `invited_panelist`,
     /// `fan_panelist`, or a custom invited-guest label).
-    static FIELD_RANK: FieldDescriptor<PresenterEntityType> = FieldDescriptor {
+    pub static FIELD_RANK: FieldDescriptor<PresenterEntityType> = FieldDescriptor {
         name: "rank",
         display: "Rank",
         description: "Presenter classification tier.",
@@ -720,7 +720,7 @@ bool_field!(FIELD_ALWAYS_SHOWN_IN_GROUP, PresenterEntityType, PresenterInternalD
 define_field!(
     /// `is_group` — `true` if `is_explicit_group` is set OR this presenter has
     /// any members (edge-based membership).
-    static FIELD_IS_GROUP: FieldDescriptor<PresenterEntityType> = FieldDescriptor {
+    pub static FIELD_IS_GROUP: FieldDescriptor<PresenterEntityType> = FieldDescriptor {
         name: "is_group",
         display: "Is Group",
         description: "Whether this entity represents a group (explicit flag or has members).",
@@ -760,7 +760,7 @@ edge_list_field_to_rw!(FIELD_MEMBERS, PresenterEntityType, PresenterInternalData
 
 define_field!(
     /// Inclusive groups — BFS upward via homo forward edges (member → group).
-    static FIELD_INCLUSIVE_GROUPS: FieldDescriptor<PresenterEntityType> = FieldDescriptor {
+    pub static FIELD_INCLUSIVE_GROUPS: FieldDescriptor<PresenterEntityType> = FieldDescriptor {
         name: "inclusive_groups",
         display: "Inclusive Groups",
         description: "Transitive closure of groups this presenter appears in.",
@@ -895,7 +895,7 @@ static PRESENTER_FIELD_SET: LazyLock<FieldSet<PresenterEntityType>> =
 // ── Builder ───────────────────────────────────────────────────────────────────
 
 crate::field_macros::define_entity_builder! {
-    /// Typed builder for [`PresenterEntityType`] entities (FEATURE-017).
+    /// Typed builder for [`PresenterEntityType`] entities.
     PresenterBuilder for PresenterEntityType {
         /// Set the presenter or group display name.  Required.
         with_name                  => FIELD_NAME,

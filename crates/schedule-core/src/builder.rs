@@ -5,10 +5,10 @@
  */
 
 //! Entity builders — [`EntityBuildable`] trait and the [`build_entity`] driver
-//! that underpins the `define_entity_builder!` macro (FEATURE-017).
+//! that underpins the `define_entity_builder!` macro.
 //!
-//! The builder pattern layers on top of [`crate::field_set::FieldSet::write_multiple`]
-//! (FEATURE-046): each builder collects a `Vec<(FieldRef<E>, FieldValue)>`
+//! The builder pattern layers on top of [`crate::field_set::FieldSet::write_multiple`]:
+//! each builder collects a `Vec<(FieldRef<E>, FieldValue)>`
 //! via typed `with_*` setters, then [`build_entity`] seeds a fresh entity
 //! with [`EntityBuildable::default_data`], applies the batch, runs
 //! [`EntityType::validate`], and rolls back via [`Schedule::remove_entity`]
@@ -24,8 +24,7 @@ use crate::schedule::Schedule;
 use crate::value::{FieldValue, ValidationError};
 use thiserror::Error;
 
-/// Entity types that support building via the `define_entity_builder!` macro
-/// (FEATURE-017).
+/// Entity types that support building via the `define_entity_builder!` macro.
 ///
 /// Implementers provide a [`default_data`](Self::default_data) hook that
 /// produces an empty [`EntityType::InternalData`] stamped with the caller-
