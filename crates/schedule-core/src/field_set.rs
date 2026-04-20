@@ -132,7 +132,7 @@ pub enum FieldSetError {
 /// # Lookup
 ///
 /// All lookups accept both canonical names and aliases (case-sensitive matching
-/// on the stored key; aliases are lowercased by [`NamedField::aliases`]).
+/// on the stored key; aliases are lowercased by [`crate::field::NamedField::aliases`]).
 pub struct FieldSet<E: EntityType> {
     /// All descriptors in declaration order.
     fields: Vec<&'static FieldDescriptor<E>>,

@@ -167,7 +167,7 @@ pub trait EntityMatcher: EntityType {
 /// The scan is authoritative; the lookup loop never consults
 /// [`EntityMatcher::can_create`] after `scan_entity` returns.  When the
 /// scan decides creation is refused, it returns
-/// [`Err(LookupError::NotFound)`] directly rather than producing a
+/// `Err(LookupError::NotFound)` directly rather than producing a
 /// variant here.
 #[derive(Debug)]
 pub enum ScanFound<E: EntityType> {
@@ -260,7 +260,7 @@ pub trait EntityCreatable: EntityScannable {
     ///
     /// `s` is whichever string [`can_create`] indicated was creatable.
     ///
-    /// [`can_create`]: EntityCreatable::can_create
+    /// [`can_create`]: EntityMatcher::can_create
     fn create_from_string(schedule: &mut Schedule, s: &str) -> Result<EntityId<Self>, LookupError>;
 }
 
@@ -564,7 +564,7 @@ pub fn lookup<E: EntityScannable>(
 /// Find or create one or more entities matching `query`.
 ///
 /// Same as [`lookup`] but when no match is found,
-/// [`EntityCreatable::can_create`] is consulted and, if creation is possible,
+/// [`EntityMatcher::can_create`] is consulted and, if creation is possible,
 /// the string is deferred until after the loop.  All deferred creates are
 /// applied in order via [`EntityCreatable::create_from_string`] after the
 /// final cardinality check.

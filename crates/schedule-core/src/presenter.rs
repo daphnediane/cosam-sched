@@ -481,7 +481,7 @@ fn find_group_by_name(schedule: &crate::schedule::Schedule, name: &str) -> Optio
 /// Find a presenter by tagged credit string; does not create entities.
 ///
 /// Does not handle UUID strings — callers should resolve UUIDs before calling
-/// (see [`EntityStringResolver::lookup_string`]).
+/// (see `lookup` in the `lookup` module).
 ///
 /// Returns `None` when:
 /// - The tagged string is empty.
@@ -544,7 +544,7 @@ pub fn find_tagged_presenter(
 /// never downgraded, and bare-name (no `Kind:`) calls never change rank.
 ///
 /// Does not handle UUID strings — callers should resolve UUIDs before calling
-/// (see [`EntityStringResolver::lookup_or_create_string`]).
+/// (see `lookup_or_create` in the `lookup` module).
 pub fn find_or_create_tagged_presenter(
     schedule: &mut crate::schedule::Schedule,
     tagged: &str,
@@ -973,7 +973,7 @@ impl crate::lookup::EntityScannable for PresenterEntityType {
     /// On miss we defer to [`PresenterEntityType::can_create`]; its
     /// `CanCreate::Yes` hint drives whether the loop queues the whole
     /// remaining query or just the current token.  Actual creation runs
-    /// through [`create_from_string`], which in turn calls
+    /// through [`crate::lookup::EntityCreatable::create_from_string`], which in turn calls
     /// [`find_or_create_tagged_presenter`] — so group membership and rank
     /// promotion are honoured on the create path too.
     fn scan_entity(

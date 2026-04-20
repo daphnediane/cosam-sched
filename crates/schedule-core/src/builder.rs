@@ -7,7 +7,7 @@
 //! Entity builders — [`EntityBuildable`] trait and the [`build_entity`] driver
 //! that underpins the `define_entity_builder!` macro (FEATURE-017).
 //!
-//! The builder pattern layers on top of [`FieldSet::write_multiple`]
+//! The builder pattern layers on top of [`crate::field_set::FieldSet::write_multiple`]
 //! (FEATURE-046): each builder collects a `Vec<(FieldRef<E>, FieldValue)>`
 //! via typed `with_*` setters, then [`build_entity`] seeds a fresh entity
 //! with [`EntityBuildable::default_data`], applies the batch, runs

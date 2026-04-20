@@ -276,13 +276,13 @@ impl FieldValue {
 
 /// Convert a value into a [`FieldValueItem`] variant based on its Rust type.
 ///
-/// Implement this for any type you want to pass to [`field_value!`] without
+/// Implement this for any type you want to pass to `field_value!` without
 /// naming the variant explicitly. [`IntoFieldValue`] is implemented
 /// automatically via the blanket `impl<T: IntoFieldValueItem> IntoFieldValue for T`.
 ///
 /// **`Text` is intentionally excluded.** The `String` vs `Text` distinction is
 /// a storage-layer semantic (LWW vs RGA CRDT), not derivable from a Rust type.
-/// Use [`FieldValueItem::Text`] or [`field_text!`] explicitly for prose fields.
+/// Use [`FieldValueItem::Text`] or `field_text!` explicitly for prose fields.
 pub trait IntoFieldValueItem {
     fn into_field_value_item(self) -> FieldValueItem;
 }
