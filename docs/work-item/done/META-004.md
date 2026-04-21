@@ -7,7 +7,7 @@ underneath `Schedule`.
 
 ## Status
 
-Open
+Completed
 
 ## Priority
 

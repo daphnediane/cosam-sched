@@ -1,6 +1,6 @@
 # Cosplay America Schedule - Work Item
 
-Updated on: Mon Apr 20 23:45:11 2026
+Updated on: Mon Apr 20 23:48:09 2026
 
 ## Completed
 
@@ -33,6 +33,8 @@ wrappers) to `value.rs` as `Copy` type-level mirrors of `FieldValueItem`/`FieldV
 existing static field descriptors across every entity file.
 * [META-002] Phase tracker for project foundation and Cargo workspace setup.
 * [META-003] Phase tracker for the entity/field system and core schedule data model in schedule-core.
+* [META-004] Phase tracker for making an automerge CRDT document the authoritative storage
+underneath `Schedule`.
 * [META-048] Restructure `FieldValue` with proper cardinality, add `FieldTypeItem`/`FieldType`
 enums, wire `FieldType` into `FieldDescriptor`, and implement the generic
 `FieldValueConverter` system from IDEA-038.
@@ -58,12 +60,10 @@ collection, and expose a `registered_entity_types()` accessor.
 
 ## Summary of Open Items
 
-**Total open items:** 18
+**Total open items:** 17
 
 * **Meta / Project-Level**
-  * [META-001] Meta work item tracking the full multi-phase redesign of the schedule system. (Blocked by [META-004], [META-005], [META-006], [META-007], [META-008])
-  * [META-004] Phase tracker for making an automerge CRDT document the authoritative storage
-underneath `Schedule`.
+  * [META-001] Meta work item tracking the full multi-phase redesign of the schedule system. (Blocked by [META-005], [META-006], [META-007], [META-008])
   * [META-005] Phase tracker for internal file format, multi-year archive, widget JSON, and
 XLSX import/export. (Blocked by [META-004])
   * [META-006] Phase tracker for the cosam-convert and cosam-modify command-line applications. (Blocked by [META-005])
@@ -304,7 +304,7 @@ override them.
 
 **Summary:** Meta work item tracking the full multi-phase redesign of the schedule system.
 
-**Blocked By:** [META-004], [META-005], [META-006], [META-007], [META-008]
+**Blocked By:** [META-005], [META-006], [META-007], [META-008]
 
 **Description:** Redesign the cosam-sched schedule system from the ground up with:
 
@@ -333,44 +333,6 @@ replacing the old `schedule-field`, `schedule-data`, and `schedule-macro` crates
 * META-006: Phase 5 — CLI Tools
 * META-007: Phase 6 — GUI Editor
 * META-008: Phase 7 — Sync & Multi-User
-
----
-
-### [META-004] Phase 3 — CRDT Integration
-
-**Status:** Open
-
-**Priority:** Medium
-
-**Summary:** Phase tracker for making an automerge CRDT document the authoritative storage
-underneath `Schedule`.
-
-**Description:** Make the automerge CRDT document the single source of truth for all entity
-and edge data in `Schedule`. The in-memory `HashMap` entity store and
-`RawEdgeMap` become pure derived caches that are rebuilt from the document
-on load/merge and kept in sync on every write.
-
-CRDT support is **not optional** — there is no feature flag, no
-`Option<Box<dyn CrdtStorage>>` sidecar. Every `Schedule` owns an
-`automerge::AutoCommit` directly, and every field write flows through it.
-
-Edges are stored as relationship-list fields on a canonical owner entity,
-following a panels-outward ownership rule:
-
-* Panel owns `presenter_ids`, `event_room_ids`, `panel_type_id`
-* EventRoom owns `hotel_room_ids`
-* Presenter (member) owns `group_ids`
-
-This gives automerge-native OR-set-ish add-wins semantics on concurrent
-relationship edits without a separate edge-entity layer.
-
-See `docs/crdt-design.md` for the settled design and path layout.
-
-**Work Items:**
-
-* FEATURE-022: Automerge-backed Schedule storage (single source of truth)
-* FEATURE-023: CRDT-backed edges via relationship lists
-* FEATURE-024: Change tracking, merge, and conflict surfacing
 
 ---
 
@@ -497,7 +459,7 @@ to exchange CRDT changes and reconcile concurrent edits to the same fields.
 [META-001]: work-item/meta/META-001.md
 [META-002]: work-item/done/META-002.md
 [META-003]: work-item/done/META-003.md
-[META-004]: work-item/meta/META-004.md
+[META-004]: work-item/done/META-004.md
 [META-005]: work-item/meta/META-005.md
 [META-006]: work-item/meta/META-006.md
 [META-007]: work-item/meta/META-007.md
