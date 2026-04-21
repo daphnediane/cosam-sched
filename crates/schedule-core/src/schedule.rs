@@ -16,14 +16,21 @@ use crate::entity::{registered_entity_types, EntityId, EntityType, RuntimeEntity
 use crate::field::ReadableField;
 use crate::value::{CrdtFieldType, FieldError, FieldValue};
 use automerge::AutoCommit;
+use serde::{Deserialize, Serialize};
 use std::any::{Any, TypeId};
 use std::collections::HashMap;
 use thiserror::Error;
 use uuid::NonNilUuid;
 
-/// Errors returned by [`Schedule::load`].
+/// Errors returned by [`Schedule::load`] and [`Schedule::load_from_file`].
 #[derive(Debug, Error)]
 pub enum LoadError {
+    /// The file header is missing, corrupted, or an unsupported format version.
+    ///
+    /// Only returned by [`Schedule::load_from_file`].
+    #[error("invalid file format: {0}")]
+    Format(String),
+
     /// The automerge byte blob could not be decoded.
     #[error("failed to decode automerge document: {0}")]
     Codec(String),
@@ -38,10 +45,18 @@ pub enum LoadError {
     },
 }
 
+// ── File format constants ─────────────────────────────────────────────────────
+
+/// Magic bytes at the start of every native schedule file.
+const FILE_MAGIC: &[u8; 6] = b"COSAM\x00";
+
+/// Current native file format version.
+const FILE_FORMAT_VERSION: u16 = 1;
+
 // ── ScheduleMetadata ──────────────────────────────────────────────────────────
 
 /// Top-level schedule identity and provenance.
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ScheduleMetadata {
     /// Globally unique schedule identity (v7, generated at [`Schedule::new`]).
     pub schedule_id: NonNilUuid,
@@ -169,6 +184,93 @@ impl Schedule {
         let doc = AutoCommit::load(bytes).map_err(|e| LoadError::Codec(e.to_string()))?;
         let mut sched = Self::new();
         sched.doc = doc;
+        sched.rebuild_cache_from_doc()?;
+        Ok(sched)
+    }
+
+    /// Serialize this schedule to the versioned native file format.
+    ///
+    /// The format is a binary envelope:
+    ///
+    /// | Offset   | Width  | Description                              |
+    /// |----------|--------|------------------------------------------|
+    /// | 0        | 6      | Magic: `COSAM\x00`                       |
+    /// | 6        | 2      | Format version: `u16` LE (currently `1`) |
+    /// | 8        | 4      | Metadata JSON length: `u32` LE           |
+    /// | 12       | N      | Metadata: JSON-encoded [`ScheduleMetadata`] |
+    /// | 12+N     | …      | Automerge binary document                |
+    ///
+    /// Metadata (schedule UUID, creation timestamp, generator, edit version)
+    /// is embedded in the envelope so that [`Self::load_from_file`] can
+    /// restore it exactly; this is the primary difference from the raw
+    /// [`Self::save`] / [`Self::load`] pair used for CRDT sync.
+    ///
+    /// # Panics
+    /// Panics if `ScheduleMetadata` cannot be serialized to JSON (this cannot
+    /// happen in practice — all field types are always serializable).
+    pub fn save_to_file(&mut self) -> Vec<u8> {
+        let meta_json = serde_json::to_vec(&self.metadata)
+            .expect("ScheduleMetadata serialization is infallible");
+        let automerge_bytes = self.doc.save();
+
+        let meta_len = u32::try_from(meta_json.len()).expect("metadata JSON exceeds 4 GiB");
+        let mut out =
+            Vec::with_capacity(FILE_MAGIC.len() + 2 + 4 + meta_json.len() + automerge_bytes.len());
+        out.extend_from_slice(FILE_MAGIC);
+        out.extend_from_slice(&FILE_FORMAT_VERSION.to_le_bytes());
+        out.extend_from_slice(&meta_len.to_le_bytes());
+        out.extend_from_slice(&meta_json);
+        out.extend_from_slice(&automerge_bytes);
+        out
+    }
+
+    /// Decode a schedule from the native file format, restoring both entity
+    /// data (including CRDT history) and schedule metadata.
+    ///
+    /// This is the counterpart to [`Self::save_to_file`].  Use
+    /// [`Self::load`] instead when you have raw automerge bytes from a
+    /// sync operation (no metadata envelope).
+    ///
+    /// # Errors
+    /// - [`LoadError::Format`] — bad magic, unsupported version, or
+    ///   truncated / invalid metadata JSON.
+    /// - [`LoadError::Codec`] — the embedded automerge document cannot be
+    ///   decoded.
+    /// - [`LoadError::Rehydrate`] — an entity failed to rebuild from the
+    ///   document (typically a missing required field after migration).
+    pub fn load_from_file(bytes: &[u8]) -> Result<Self, LoadError> {
+        const HEADER_SIZE: usize = 6 + 2 + 4; // magic + version + meta_len
+
+        if bytes.len() < HEADER_SIZE {
+            return Err(LoadError::Format(
+                "file too short to contain a valid header".into(),
+            ));
+        }
+        if &bytes[..6] != FILE_MAGIC {
+            return Err(LoadError::Format(
+                "unrecognised file magic — not a cosam schedule file".into(),
+            ));
+        }
+        let version = u16::from_le_bytes([bytes[6], bytes[7]]);
+        if version != FILE_FORMAT_VERSION {
+            return Err(LoadError::Format(format!(
+                "unsupported format version {version} (this build supports version {FILE_FORMAT_VERSION})"
+            )));
+        }
+        let meta_len = u32::from_le_bytes([bytes[8], bytes[9], bytes[10], bytes[11]]) as usize;
+        let meta_end = HEADER_SIZE + meta_len;
+        if bytes.len() < meta_end {
+            return Err(LoadError::Format("metadata section is truncated".into()));
+        }
+        let metadata: ScheduleMetadata = serde_json::from_slice(&bytes[HEADER_SIZE..meta_end])
+            .map_err(|e| LoadError::Format(format!("invalid metadata JSON: {e}")))?;
+
+        let doc =
+            AutoCommit::load(&bytes[meta_end..]).map_err(|e| LoadError::Codec(e.to_string()))?;
+
+        let mut sched = Self::new();
+        sched.doc = doc;
+        sched.metadata = metadata;
         sched.rebuild_cache_from_doc()?;
         Ok(sched)
     }
@@ -1570,6 +1672,101 @@ mod tests {
     fn load_rejects_garbage_bytes() {
         let err = Schedule::load(b"this is not an automerge doc").expect_err("must error");
         assert!(matches!(err, LoadError::Codec(_)));
+    }
+
+    // ── Native file format (FEATURE-025) ──────────────────────────────────────
+
+    #[test]
+    fn save_to_file_load_from_file_roundtrips_entity_data() {
+        let mut sched = Schedule::new();
+        let (pt_id, pt_data) = make_panel_type();
+        let (pr_id, pr_data) = make_presenter("Alice");
+        sched.insert(pt_id, pt_data);
+        sched.insert(pr_id, pr_data);
+
+        let bytes = sched.save_to_file();
+        let loaded = Schedule::load_from_file(&bytes).expect("load_from_file");
+
+        assert_eq!(loaded.entity_count::<PanelTypeEntityType>(), 1);
+        assert_eq!(loaded.entity_count::<PresenterEntityType>(), 1);
+        assert_eq!(
+            loaded
+                .get_internal::<PresenterEntityType>(pr_id)
+                .unwrap()
+                .data
+                .name,
+            "Alice"
+        );
+    }
+
+    #[test]
+    fn save_to_file_load_from_file_preserves_metadata() {
+        let mut sched = Schedule::new();
+        sched.metadata.generator = "cosam-convert 0.1".into();
+        sched.metadata.version = 42;
+        let saved_id = sched.metadata.schedule_id;
+        let saved_at = sched.metadata.created_at;
+
+        let bytes = sched.save_to_file();
+        let loaded = Schedule::load_from_file(&bytes).expect("load_from_file");
+
+        assert_eq!(loaded.metadata.schedule_id, saved_id);
+        assert_eq!(loaded.metadata.created_at, saved_at);
+        assert_eq!(loaded.metadata.generator, "cosam-convert 0.1");
+        assert_eq!(loaded.metadata.version, 42);
+    }
+
+    #[test]
+    fn save_to_file_load_from_file_preserves_edges() {
+        let mut sched = Schedule::new();
+        let (panel_id, panel_data) = make_panel();
+        let (pres_id, pres_data) = make_presenter("Alice");
+        sched.insert(panel_id, panel_data);
+        sched.insert(pres_id, pres_data);
+        sched.edge_add::<PanelEntityType, PresenterEntityType>(panel_id, pres_id);
+
+        let bytes = sched.save_to_file();
+        let loaded = Schedule::load_from_file(&bytes).expect("load_from_file");
+
+        let forwards: Vec<PresenterId> =
+            loaded.edges_from::<PanelEntityType, PresenterEntityType>(panel_id);
+        assert_eq!(forwards, vec![pres_id]);
+    }
+
+    #[test]
+    fn load_from_file_rejects_too_short() {
+        let err = Schedule::load_from_file(b"short").expect_err("must error");
+        assert!(matches!(err, LoadError::Format(_)));
+    }
+
+    #[test]
+    fn load_from_file_rejects_wrong_magic() {
+        let mut bad = b"WRONG\x00\x01\x00\x00\x00\x00\x00".to_vec();
+        bad.extend_from_slice(&automerge::AutoCommit::new().save());
+        let err = Schedule::load_from_file(&bad).expect_err("must error");
+        assert!(matches!(err, LoadError::Format(_)));
+    }
+
+    #[test]
+    fn load_from_file_rejects_unsupported_version() {
+        // Write a valid magic + version 99 header.
+        let version: u16 = 99;
+        let meta_json = b"{}";
+        let meta_len = meta_json.len() as u32;
+        let mut buf = Vec::new();
+        buf.extend_from_slice(b"COSAM\x00");
+        buf.extend_from_slice(&version.to_le_bytes());
+        buf.extend_from_slice(&meta_len.to_le_bytes());
+        buf.extend_from_slice(meta_json);
+        buf.extend_from_slice(&automerge::AutoCommit::new().save());
+        let err = Schedule::load_from_file(&buf).expect_err("must error");
+        assert!(matches!(err, LoadError::Format(_)));
+    }
+
+    #[test]
+    fn load_from_file_rejects_garbage_bytes() {
+        let err = Schedule::load_from_file(b"this is not a cosam file").expect_err("must error");
+        assert!(matches!(err, LoadError::Format(_)));
     }
 
     // ── Edge CRDT round-trip (FEATURE-023) ────────────────────────────────────

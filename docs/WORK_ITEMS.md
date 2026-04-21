@@ -1,6 +1,6 @@
 # Cosplay America Schedule - Work Item
 
-Updated on: Mon Apr 20 23:48:09 2026
+Updated on: Tue Apr 21 00:02:06 2026
 
 ## Completed
 
@@ -23,6 +23,7 @@ Updated on: Mon Apr 20 23:48:09 2026
 `RawEdgeMap` becomes a derived index rebuilt from these lists.
 * [FEATURE-024] Expose automerge change tracking and merge through `Schedule`, and surface
 concurrent scalar conflicts to the caller.
+* [FEATURE-025] Define and implement the native save/load format for schedule documents.
 * [FEATURE-038] Add a type-safe `FieldValueConverter<M>` trait and driver functions for converting
 `FieldValue` inputs to typed Rust outputs via a work-queue iteration pattern.
 * [FEATURE-043] Add a `verify` callback to `FieldDescriptor` for cross-field consistency checks after batch writes to computed fields.
@@ -60,7 +61,7 @@ collection, and expose a `registered_entity_types()` accessor.
 
 ## Summary of Open Items
 
-**Total open items:** 17
+**Total open items:** 16
 
 * **Meta / Project-Level**
   * [META-001] Meta work item tracking the full multi-phase redesign of the schedule system. (Blocked by [META-005], [META-006], [META-007], [META-008])
@@ -72,7 +73,6 @@ XLSX import/export. (Blocked by [META-004])
 
 * **Medium Priority**
   * [BUGFIX-045] In `scratch/field_update_logic.rs`, duration values are incorrectly stored as `FieldValue::Integer(minutes)` instead of `FieldValue::Duration(Duration)`.
-  * [FEATURE-025] ([META-005]) Define and implement the native save/load format for schedule documents.
   * [FEATURE-026] ([META-005]) Support multiple convention years in a single schedule file for historical
 reference and jump-starting new conventions.
   * [FEATURE-027] ([META-005]) Implement export of schedule data to the JSON format consumed by the calendar display widget.
@@ -182,21 +182,6 @@ panels arranged by time and room, with inline editing of entity fields.
 ---
 
 ## Open FEATURE Items
-
-### [FEATURE-025] Internal Schedule File Format
-
-**Status:** Open
-
-**Priority:** Medium
-
-**Summary:** Define and implement the native save/load format for schedule documents.
-
-**Part of:** [META-005]
-
-**Description:** The internal format is used for saving and loading schedule state, including
-CRDT history for sync support.
-
----
 
 ### [FEATURE-026] Multi-Year Schedule Archive Support
 
@@ -444,7 +429,7 @@ to exchange CRDT changes and reconcile concurrent edits to the same fields.
 [FEATURE-022]: work-item/done/FEATURE-022.md
 [FEATURE-023]: work-item/done/FEATURE-023.md
 [FEATURE-024]: work-item/done/FEATURE-024.md
-[FEATURE-025]: work-item/medium/FEATURE-025.md
+[FEATURE-025]: work-item/done/FEATURE-025.md
 [FEATURE-026]: work-item/medium/FEATURE-026.md
 [FEATURE-027]: work-item/medium/FEATURE-027.md
 [FEATURE-028]: work-item/medium/FEATURE-028.md
