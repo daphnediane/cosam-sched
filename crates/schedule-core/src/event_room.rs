@@ -165,6 +165,9 @@ inventory::submit! {
             let id = unsafe { crate::entity::EntityId::<EventRoomEntityType>::from_uuid(uuid) };
             schedule.remove_entity::<EventRoomEntityType>(id);
         },
+        rehydrate_fn: |schedule, uuid| {
+            crate::crdt::rehydrate_entity::<EventRoomEntityType>(schedule, uuid)
+        },
     }
 }
 inventory::collect!(crate::entity::CollectedField<EventRoomEntityType>);

@@ -266,6 +266,23 @@ pub struct RegisteredEntityType {
     ///
     /// Used by the edit command system to apply `RemoveEntity` and undo `AddEntity`.
     pub remove_fn: fn(&mut crate::schedule::Schedule, NonNilUuid),
+
+    /// Rehydrate an entity from the authoritative CRDT document into the
+    /// in-memory cache.
+    ///
+    /// Reads every non-derived writable field for this entity type out of
+    /// `schedule.doc()` via [`crate::crdt::read_field`], collects them into
+    /// a `(field_name, FieldValue)` batch, and invokes
+    /// [`crate::builder::build_entity`] with `UuidPreference::Exact(uuid)`.
+    ///
+    /// The caller is responsible for disabling the CRDT mirror
+    /// ([`crate::schedule::Schedule::with_mirror_disabled`]) before calling
+    /// this so rehydrated writes don't re-emit change records against the
+    /// doc they were just read from.
+    pub rehydrate_fn: fn(
+        &mut crate::schedule::Schedule,
+        NonNilUuid,
+    ) -> Result<NonNilUuid, crate::builder::BuildError>,
 }
 inventory::collect!(RegisteredEntityType);
 

@@ -18,7 +18,25 @@ use crate::value::{CrdtFieldType, FieldError, FieldValue};
 use automerge::AutoCommit;
 use std::any::{Any, TypeId};
 use std::collections::HashMap;
+use thiserror::Error;
 use uuid::NonNilUuid;
+
+/// Errors returned by [`Schedule::load`].
+#[derive(Debug, Error)]
+pub enum LoadError {
+    /// The automerge byte blob could not be decoded.
+    #[error("failed to decode automerge document: {0}")]
+    Codec(String),
+
+    /// Rebuilding a specific entity from the document failed — most commonly
+    /// because a required field is missing after a schema migration.
+    #[error("failed to rehydrate {type_name}:{uuid}: {detail}")]
+    Rehydrate {
+        type_name: &'static str,
+        uuid: NonNilUuid,
+        detail: String,
+    },
+}
 
 // ── ScheduleMetadata ──────────────────────────────────────────────────────────
 
@@ -121,6 +139,78 @@ impl Schedule {
         }
     }
 
+    // ── CRDT save/load ────────────────────────────────────────────────────────
+
+    /// Serialize the entire authoritative CRDT document to a compact byte
+    /// blob suitable for on-disk persistence or transport.
+    ///
+    /// This is a pure pass-through to [`AutoCommit::save`]; the in-memory
+    /// cache contributes nothing — it can be fully rebuilt from the bytes
+    /// via [`Self::load`].
+    pub fn save(&mut self) -> Vec<u8> {
+        self.doc.save()
+    }
+
+    /// Decode an automerge document from `bytes` and rebuild a `Schedule`
+    /// from it: the HashMap cache is rehydrated by replaying every
+    /// non-deleted entity through its registered
+    /// [`crate::entity::RegisteredEntityType::rehydrate_fn`].
+    ///
+    /// Metadata (`schedule_id`, `created_at`, etc.) is re-initialised for
+    /// the loading process; only entity field data is round-tripped.
+    /// Edge state (`RawEdgeMap`) is *not* rehydrated from the doc in this
+    /// phase — see FEATURE-023 for owner-list edge storage.
+    ///
+    /// # Errors
+    /// Returns [`LoadError::Codec`] if the bytes do not parse, or
+    /// [`LoadError::Rehydrate`] if any entity fails to rebuild (typically
+    /// a missing required field after a migration).
+    pub fn load(bytes: &[u8]) -> Result<Self, LoadError> {
+        let doc = AutoCommit::load(bytes).map_err(|e| LoadError::Codec(e.to_string()))?;
+        let mut sched = Self::new();
+        sched.doc = doc;
+
+        // Snapshot (type_name, rehydrate_fn, uuids) under an immutable
+        // borrow of the doc, then apply each rehydrate with the mirror
+        // disabled.  Collecting up-front avoids reborrowing the inventory
+        // iterator while we mutate `sched`.
+        struct RehydrateWork {
+            type_name: &'static str,
+            rehydrate_fn:
+                fn(&mut Schedule, NonNilUuid) -> Result<NonNilUuid, crate::builder::BuildError>,
+            uuids: Vec<NonNilUuid>,
+        }
+        let mut work: Vec<RehydrateWork> = Vec::new();
+        for reg in registered_entity_types() {
+            let uuids: Vec<NonNilUuid> = crdt::list_all_uuids(&sched.doc, reg.type_name)
+                .into_iter()
+                .filter(|u| !crdt::is_deleted(&sched.doc, reg.type_name, *u))
+                .collect();
+            if !uuids.is_empty() {
+                work.push(RehydrateWork {
+                    type_name: reg.type_name,
+                    rehydrate_fn: reg.rehydrate_fn,
+                    uuids,
+                });
+            }
+        }
+
+        let result: Result<(), LoadError> = sched.with_mirror_disabled(|s| {
+            for item in work {
+                for uuid in item.uuids {
+                    (item.rehydrate_fn)(s, uuid).map_err(|e| LoadError::Rehydrate {
+                        type_name: item.type_name,
+                        uuid,
+                        detail: e.to_string(),
+                    })?;
+                }
+            }
+            Ok(())
+        });
+        result?;
+        Ok(sched)
+    }
+
     // ── CRDT access ───────────────────────────────────────────────────────────
 
     /// Borrow the underlying CRDT document (for change-tracking / save).
@@ -144,7 +234,6 @@ impl Schedule {
 
     /// Run `f` with the CRDT mirror temporarily disabled. Used by the load
     /// path to rehydrate the cache without re-emitting CRDT operations.
-    #[allow(dead_code)] // wired in FEATURE-022 part 2 (load path)
     pub(crate) fn with_mirror_disabled<R>(&mut self, f: impl FnOnce(&mut Self) -> R) -> R {
         let prev = self.mirror_enabled;
         self.mirror_enabled = false;
@@ -996,5 +1085,95 @@ mod tests {
             "panel_type",
             id.non_nil_uuid()
         ));
+    }
+
+    // ── Save / Load round-trip ────────────────────────────────────────────────
+
+    #[test]
+    fn save_load_roundtrips_panel_type() {
+        let mut sched = Schedule::new();
+        let (id, data) = make_panel_type();
+        sched.insert(id, data);
+
+        let bytes = sched.save();
+        let loaded = Schedule::load(&bytes).expect("load");
+
+        assert_eq!(loaded.entity_count::<PanelTypeEntityType>(), 1);
+        let got = loaded.get_internal::<PanelTypeEntityType>(id).unwrap();
+        assert_eq!(got.data.prefix, "GP");
+        assert_eq!(got.data.panel_kind, "Guest Panel");
+    }
+
+    #[test]
+    fn save_load_roundtrips_multiple_entity_types() {
+        let mut sched = Schedule::new();
+        let (pt_id, pt_data) = make_panel_type();
+        let (pr_id, pr_data) = make_presenter("Alice");
+        let (er_id, er_data) = make_event_room("Panel 1");
+        let (hr_id, hr_data) = make_hotel_room("Suite A");
+        sched.insert(pt_id, pt_data);
+        sched.insert(pr_id, pr_data);
+        sched.insert(er_id, er_data);
+        sched.insert(hr_id, hr_data);
+
+        let bytes = sched.save();
+        let loaded = Schedule::load(&bytes).expect("load");
+
+        assert_eq!(loaded.entity_count::<PanelTypeEntityType>(), 1);
+        assert_eq!(loaded.entity_count::<PresenterEntityType>(), 1);
+        assert_eq!(loaded.entity_count::<EventRoomEntityType>(), 1);
+        assert_eq!(loaded.entity_count::<HotelRoomEntityType>(), 1);
+
+        assert_eq!(
+            loaded
+                .get_internal::<PresenterEntityType>(pr_id)
+                .unwrap()
+                .data
+                .name,
+            "Alice"
+        );
+        assert_eq!(
+            loaded
+                .get_internal::<EventRoomEntityType>(er_id)
+                .unwrap()
+                .data
+                .room_name,
+            "Panel 1"
+        );
+        assert_eq!(
+            loaded
+                .get_internal::<HotelRoomEntityType>(hr_id)
+                .unwrap()
+                .data
+                .hotel_room_name,
+            "Suite A"
+        );
+    }
+
+    #[test]
+    fn save_load_respects_soft_delete() {
+        let mut sched = Schedule::new();
+        let (kept_id, kept_data) = make_panel_type();
+        let (gone_id, gone_data) = make_panel_type();
+        sched.insert(kept_id, kept_data);
+        sched.insert(gone_id, gone_data);
+        sched.remove_entity::<PanelTypeEntityType>(gone_id);
+
+        let bytes = sched.save();
+        let loaded = Schedule::load(&bytes).expect("load");
+
+        assert_eq!(loaded.entity_count::<PanelTypeEntityType>(), 1);
+        assert!(loaded
+            .get_internal::<PanelTypeEntityType>(kept_id)
+            .is_some());
+        assert!(loaded
+            .get_internal::<PanelTypeEntityType>(gone_id)
+            .is_none());
+    }
+
+    #[test]
+    fn load_rejects_garbage_bytes() {
+        let err = Schedule::load(b"this is not an automerge doc").expect_err("must error");
+        assert!(matches!(err, LoadError::Codec(_)));
     }
 }

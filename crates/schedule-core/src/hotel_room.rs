@@ -151,6 +151,9 @@ inventory::submit! {
             let id = unsafe { crate::entity::EntityId::<HotelRoomEntityType>::from_uuid(uuid) };
             schedule.remove_entity::<HotelRoomEntityType>(id);
         },
+        rehydrate_fn: |schedule, uuid| {
+            crate::crdt::rehydrate_entity::<HotelRoomEntityType>(schedule, uuid)
+        },
     }
 }
 inventory::collect!(crate::entity::CollectedField<HotelRoomEntityType>);

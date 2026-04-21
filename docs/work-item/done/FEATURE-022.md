@@ -7,7 +7,7 @@ Make an `automerge::AutoCommit` document the authoritative storage inside
 
 ## Status
 
-In Progress
+Done
 
 ## Priority
 

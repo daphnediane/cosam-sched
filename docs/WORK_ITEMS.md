@@ -1,6 +1,6 @@
 # Cosplay America Schedule - Work Item
 
-Updated on: Mon Apr 20 22:08:11 2026
+Updated on: Mon Apr 20 23:09:41 2026
 
 ## Completed
 
@@ -17,6 +17,8 @@ Updated on: Mon Apr 20 22:08:11 2026
 * [FEATURE-019] Implement the `Schedule` struct and `EntityStorage` for managing all entities and relationships.
 * [FEATURE-020] Implement field-based search, matching, and bulk update operations.
 * [FEATURE-021] Implement a command-based edit system with full undo/redo support.
+* [FEATURE-022] Make an `automerge::AutoCommit` document the authoritative storage inside
+`Schedule`; the in-memory `HashMap` entity store becomes a derived cache.
 * [FEATURE-038] Add a type-safe `FieldValueConverter<M>` trait and driver functions for converting
 `FieldValue` inputs to typed Rust outputs via a work-queue iteration pattern.
 * [FEATURE-043] Add a `verify` callback to `FieldDescriptor` for cross-field consistency checks after batch writes to computed fields.
@@ -52,7 +54,7 @@ collection, and expose a `registered_entity_types()` accessor.
 
 ## Summary of Open Items
 
-**Total open items:** 21
+**Total open items:** 20
 
 * **Meta / Project-Level**
   * [META-001] Meta work item tracking the full multi-phase redesign of the schedule system. (Blocked by [META-004], [META-005], [META-006], [META-007], [META-008])
@@ -66,8 +68,6 @@ XLSX import/export. (Blocked by [META-004])
 
 * **Medium Priority**
   * [BUGFIX-045] In `scratch/field_update_logic.rs`, duration values are incorrectly stored as `FieldValue::Integer(minutes)` instead of `FieldValue::Duration(Duration)`.
-  * [FEATURE-022] ([META-004]) Make an `automerge::AutoCommit` document the authoritative storage inside
-`Schedule`; the in-memory `HashMap` entity store becomes a derived cache.
   * [FEATURE-023] ([META-004]) Store relationships as automerge list fields on a canonical owner entity;
 `RawEdgeMap` becomes a derived index rebuilt from these lists.
   * [FEATURE-024] ([META-004]) Expose automerge change tracking and merge through `Schedule`, and surface
@@ -182,50 +182,6 @@ panels arranged by time and room, with inline editing of entity fields.
 ---
 
 ## Open FEATURE Items
-
-### [FEATURE-022] Automerge-backed Schedule Storage
-
-**Status:** Open
-
-**Priority:** Medium
-
-**Summary:** Make an `automerge::AutoCommit` document the authoritative storage inside
-`Schedule`; the in-memory `HashMap` entity store becomes a derived cache.
-
-**Part of:** [META-004]
-
-**Description:** Replace the current in-memory `HashMap<TypeId, HashMap<Uuid, …>>` as the
-source of truth with an automerge document. The HashMap stays, but only as a
-cache that mirrors the document state after every write and is rebuilt in
-full on load.
-
-CRDT is **not optional** — there is no `crdt` feature flag, no
-`Option<Box<dyn CrdtStorage>>`. `automerge` is a plain workspace dependency
-and `Schedule` owns an `AutoCommit` directly.
-
-Document layout:
-
-```text
-/meta/schedule_id, /meta/created_at, /meta/generator, /meta/version
-/entities/{type_name}/{uuid}/{field_name}     (per CrdtFieldType)
-/entities/{type_name}/{uuid}/__deleted        (soft delete)
-```
-
-Field routing by `CrdtFieldType`:
-
-| CrdtFieldType | automerge op             |
-| ------------- | ------------------------ |
-| `Scalar`      | `put` / `get` (LWW)      |
-| `Text`        | `splice_text` / `text`   |
-| `List`        | `insert` / `delete`      |
-| `Derived`     | not stored               |
-
-A small internal helper module (`crdt/`) exposes typed `read_field` /
-`write_field` / `list_entities` / `put_deleted` helpers that take a
-`FieldDescriptor` and a `FieldValue` so no entity-specific CRDT code is
-written.
-
----
 
 ### [FEATURE-023] CRDT-backed Edges via Relationship Lists
 
@@ -594,7 +550,7 @@ to exchange CRDT changes and reconcile concurrent edits to the same fields.
 [FEATURE-019]: work-item/done/FEATURE-019.md
 [FEATURE-020]: work-item/done/FEATURE-020.md
 [FEATURE-021]: work-item/done/FEATURE-021.md
-[FEATURE-022]: work-item/medium/FEATURE-022.md
+[FEATURE-022]: work-item/done/FEATURE-022.md
 [FEATURE-023]: work-item/medium/FEATURE-023.md
 [FEATURE-024]: work-item/medium/FEATURE-024.md
 [FEATURE-025]: work-item/medium/FEATURE-025.md

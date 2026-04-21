@@ -45,7 +45,10 @@ use chrono::{DateTime, Duration, TimeZone, Utc};
 use thiserror::Error;
 use uuid::{NonNilUuid, Uuid};
 
-use crate::entity::RuntimeEntityId;
+use crate::builder::{build_entity, BuildError, EntityBuildable};
+use crate::entity::{RuntimeEntityId, UuidPreference};
+use crate::field_set::FieldRef;
+use crate::schedule::Schedule;
 use crate::value::{CrdtFieldType, FieldTypeItem, FieldValue, FieldValueItem};
 
 /// Top-level key for the entities sub-map in the document.
@@ -421,4 +424,57 @@ fn write_list(
         doc.insert(&id, i, item_to_scalar(it)?)?;
     }
     Ok(())
+}
+
+// ── Rehydration (load path) ────────────────────────────────────────────────
+
+/// Rebuild a single entity from the CRDT document into the cache.
+///
+/// This is the generic body shared by every entity type's
+/// [`RegisteredEntityType::rehydrate_fn`].  It reads every non-derived
+/// writable field for `E` out of `schedule.doc()` and hands the resulting
+/// `(field_name, value)` batch to [`build_entity`] with
+/// [`UuidPreference::Exact`], which in turn runs validation and registers
+/// the entity in `schedule.entities`.
+///
+/// The CRDT mirror should be disabled around the call (see
+/// [`Schedule::with_mirror_disabled`](crate::schedule::Schedule::with_mirror_disabled))
+/// so we don't re-emit change records against the doc we just read from.
+///
+/// # Errors
+/// Forwards [`BuildError`] from the underlying builder — typically
+/// `BuildError::Validation` if a required field was missing from the doc.
+pub fn rehydrate_entity<E: EntityBuildable>(
+    schedule: &mut Schedule,
+    uuid: NonNilUuid,
+) -> Result<NonNilUuid, BuildError> {
+    // Collect (name, value) pairs while holding `&schedule.doc()`; apply
+    // them through the builder after the borrow is released.
+    let mut updates: Vec<(FieldRef<E>, FieldValue)> = Vec::new();
+    for desc in E::field_set().fields() {
+        if matches!(desc.crdt_type, CrdtFieldType::Derived) {
+            continue;
+        }
+        if desc.write_fn.is_none() {
+            continue;
+        }
+        let item_type = desc.field_type.item_type();
+        match read_field(
+            schedule.doc(),
+            E::TYPE_NAME,
+            uuid,
+            desc.name,
+            item_type,
+            desc.crdt_type,
+        ) {
+            Ok(Some(v)) => updates.push((FieldRef::Name(desc.name), v)),
+            Ok(None) => {}
+            // Treat a per-field shape mismatch as "field not present" during
+            // rehydration — the builder's validation will catch any missing
+            // required field.  This makes migrations across a schema change
+            // forgiving instead of catastrophic.
+            Err(_) => {}
+        }
+    }
+    build_entity::<E>(schedule, UuidPreference::Exact(uuid), updates).map(|id| id.non_nil_uuid())
 }
