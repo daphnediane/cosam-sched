@@ -1,6 +1,6 @@
 # Cosplay America Schedule - Work Item
 
-Updated on: Sat Apr 25 13:03:48 2026
+Updated on: Tue Apr 21 22:49:39 2026
 
 ## Completed
 
@@ -68,7 +68,7 @@ from credits without hiding all credits for the panel.
 
 ## Summary of Open Items
 
-**Total open items:** 17
+**Total open items:** 18
 
 * **Meta / Project-Level**
   * [META-001] Meta work item tracking the full multi-phase redesign of the schedule system. (Blocked by [META-005], [META-006], [META-007], [META-008])
@@ -86,6 +86,8 @@ reference and jump-starting new conventions.
   * [FEATURE-028] ([META-005]) Import schedule data from the existing XLSX spreadsheet format.
   * [FEATURE-029] ([META-005]) Export schedule data back to the XLSX spreadsheet format.
   * [FEATURE-056] Add computed/synthesized fields to public data structures to support widget JSON export.
+  * [REFACTOR-058] Update `FIELD_CREDITS` to use the per-edge `credited` flag introduced by
+REFACTOR-060, so individual presenters can be excluded from credit display.
 
 * **Low Priority**
   * [CLI-030] ([META-006]) CLI tool for converting between schedule file formats (XLSX, JSON, widget JSON).
@@ -284,7 +286,7 @@ Specific synthesized fields needed:
 
 **PanelData:**
 
-* `credited_presenters`: Formatted credit strings for display (hidePanelist, altPanelist, group resolution)
+* `credits`: Formatted credit strings for display (hidePanelist, altPanelist, group resolution)
 * `hotel_rooms`: Computed field that traverses event_rooms => hotel room edges (similar to inclusive_presenters traversal)
 
 **Existing fields (no changes needed):**
@@ -457,6 +459,29 @@ to exchange CRDT changes and reconcile concurrent edits to the same fields.
 
 ---
 
+## Open REFACTOR Items
+
+### [REFACTOR-058] REFACTOR-058: Credited vs Uncredited Presenter Handling
+
+**Status:** Open
+
+**Priority:** Medium
+
+**Summary:** Update `FIELD_CREDITS` to use the per-edge `credited` flag introduced by
+REFACTOR-060, so individual presenters can be excluded from credit display.
+
+**Description:** The `credits` computed field (`FIELD_CREDITS`) currently treats all presenters
+attached to a panel as credited. The v9 system distinguished between credited
+and uncredited presenters (e.g., moderators, tech staff, guests who requested
+anonymity) using separate `credited_presenters` vs `all_presenters` lists.
+
+REFACTOR-060 added `credited: bool` per-edge metadata and the
+`credited_presenters` / `uncredited_presenters` / `add_credited_presenters` /
+`add_uncredited_presenters` field API. `FIELD_CREDITS` now filters by the flag.
+This item covers any remaining integration work and documentation.
+
+---
+
 ---
 
 [BUGFIX-045]: work-item/medium/BUGFIX-045.md
@@ -510,5 +535,6 @@ to exchange CRDT changes and reconcile concurrent edits to the same fields.
 [REFACTOR-053]: work-item/done/REFACTOR-053.md
 [REFACTOR-054]: work-item/done/REFACTOR-054.md
 [REFACTOR-055]: work-item/done/REFACTOR-055.md
+[REFACTOR-058]: work-item/medium/REFACTOR-058.md
 [REFACTOR-059]: work-item/done/REFACTOR-059.md
 [REFACTOR-060]: work-item/done/REFACTOR-060.md

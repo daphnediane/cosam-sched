@@ -231,9 +231,9 @@ credit-string format.
 
 Relationship fields exposed via computed fields on node entities:
 
-- **Panel**: `presenters` (ro, all attached), `credited_presenters` / `uncredited_presenters` (rw, partition by flag), `add_credited_presenters` / `add_uncredited_presenters` / `remove_presenters`, `event_rooms` / `add_rooms` / `remove_rooms`, `panel_type`
+- **Panel**: `presenters` (ro, all attached), `credited_presenters` / `uncredited_presenters` (rw, partition by flag), `add_credited_presenters` / `add_uncredited_presenters` / `remove_presenters`, `event_rooms` / `add_rooms` / `remove_rooms`, `panel_type`, `credits` (formatted credit strings filtered by `credited` flag), `hotel_rooms` (traverses event_rooms to hotel rooms)
 - **Presenter**: `groups`, `members`, `inclusive_groups`, `inclusive_members`, `panels`
-- **EventRoom**: `hotel_room`, `panels`
+- **EventRoom**: `hotel_rooms`, `panels`
 - **HotelRoom**: `event_rooms`
 - **PanelType**: `panels`
 

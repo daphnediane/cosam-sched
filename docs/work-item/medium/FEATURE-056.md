@@ -27,7 +27,7 @@ Specific synthesized fields needed:
 
 **PanelData:**
 
-- `credited_presenters`: Formatted credit strings for display (hidePanelist, altPanelist, group resolution)
+- `credits`: Formatted credit strings for display (hidePanelist, altPanelist, group resolution)
 - `hotel_rooms`: Computed field that traverses event_rooms => hotel room edges (similar to inclusive_presenters traversal)
 
 **Existing fields (no changes needed):**
@@ -42,7 +42,7 @@ Specific synthesized fields needed:
 
 ## Acceptance Criteria
 
-- PanelData has computed field for credited_presenters with proper formatting
+- PanelData has computed field for credits with proper formatting
 - PanelData has computed field for hotel_rooms that traverses event_rooms => hotel room edges
 - Credit formatting implements hidePanelist, altPanelist, and group resolution logic
 - Computed fields are calculated from existing internal data
@@ -51,7 +51,7 @@ Specific synthesized fields needed:
 
 ## Implementation Details
 
-- Add credited_presenters as a computed field using the field system's computed field mechanism
+- Add credits as a computed field using the field system's computed field mechanism
 - Add hotel_rooms as a computed field that traverses event_rooms edges to hotel room edges
   - Similar to inclusive_presenters traversal pattern
   - For each event_room in event_rooms, follow edges to hotel rooms

@@ -373,23 +373,24 @@ entities, use `ReadFn::Schedule` with a closure that receives `(&Schedule, Entit
 
 ```rust
 define_field!(
-    pub static FIELD_INCLUSIVE_GROUPS: FieldDescriptor<PresenterEntityType> = FieldDescriptor {
-        name: "inclusive_groups",
-        display: "Inclusive Groups",
-        description: "Transitive closure of groups this presenter appears in.",
-        aliases: &[],
+    static FIELD_CREDITS: FieldDescriptor<PanelEntityType> = FieldDescriptor {
+        name: "credits",
+        display: "Credits",
+        description: "Formatted presenter credit strings for display.",
+        aliases: &["credit"],
         required: false,
         crdt_type: CrdtFieldType::Derived,
-        field_type: FieldType(FieldCardinality::List, FieldTypeItem::EntityIdentifier(
-            PresenterEntityType::TYPE_NAME,
+        field_type: FieldType(FieldCardinality::List, FieldTypeItem::String),
+        example: "[\"John Doe\", \"Group Name (Alice, Bob)\"]",
+        order: 3600,
+        read_fn: Some(ReadFn::Schedule(
+            |sched: &Schedule, id: PanelId| {
+                // Access schedule to traverse edges, look up entities, etc.
+                let presenter_ids = sched.edges_from::<PanelEntityType, PresenterEntityType>(id);
+                // ... compute and return FieldValue
+            },
         )),
-        example: "[]",
-        order: 900,
-        read_fn: Some(ReadFn::Schedule(|sched, id| {
-            let ids = sched.inclusive_edges_from::<PresenterEntityType, PresenterEntityType>(id);
-            Some(crate::schedule::entity_ids_to_field_value(ids))
-        })),
-        write_fn: None,
+        write_fn: None,  // Read-only
         verify_fn: None,
     }
 );
@@ -397,8 +398,10 @@ define_field!(
 
 This pattern is used for:
 
-- **Panel**: `credited_presenters` / `uncredited_presenters` (read the
-  credited/uncredited partitions by checking `edge_get_bool`)
+- **Panel**: `credits` (formats credited presenter strings with group resolution; filtered
+  by per-edge `credited` flag), `credited_presenters` / `uncredited_presenters` (read
+  the credited/uncredited partitions by checking `edge_get_bool`), `hotel_rooms`
+  (traverses event_rooms to hotel rooms)
 - **Presenter**: `inclusive_groups`, `inclusive_members` (transitive closure via
   `inclusive_edges_from`/`inclusive_edges_to`)
 

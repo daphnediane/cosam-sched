@@ -24,13 +24,18 @@ use crate::event_room::{EventRoomEntityType, EventRoomId};
 use crate::field::{FieldDescriptor, ReadFn, VerifyFn, WriteFn};
 use crate::field_macros::{define_field, edge_field, stored_field};
 use crate::field_value;
+use crate::hotel_room::{HotelRoomEntityType, HotelRoomId};
 use crate::panel_type::{PanelTypeEntityType, PanelTypeId};
 use crate::panel_uniq_id::PanelUniqId;
-use crate::presenter::{PresenterEntityType, PresenterId};
+use crate::presenter::{PresenterCommonData, PresenterEntityType, PresenterId};
 use crate::time::{parse_datetime, parse_duration, TimeRange};
-use crate::value::{CrdtFieldType, FieldCardinality, FieldType, FieldTypeItem, ValidationError};
+use crate::value::{
+    CrdtFieldType, FieldCardinality, FieldType, FieldTypeItem, FieldValue, FieldValueItem,
+    ValidationError,
+};
 use chrono::Duration;
 use serde::{Deserialize, Serialize};
+use std::collections::{HashMap, HashSet};
 use std::sync::LazyLock;
 
 // ── Type aliases ──────────────────────────────────────────────────────────────
@@ -116,6 +121,12 @@ pub struct PanelData {
     pub event_room_ids: Vec<EventRoomId>,
     #[serde(skip_serializing_if = "Option::is_none", default)]
     pub panel_type_id: Option<PanelTypeId>,
+    /// Formatted credit strings for display (hidePanelist, altPanelist, group resolution).
+    #[serde(skip_serializing_if = "Vec::is_empty", default)]
+    pub credits: Vec<String>,
+    /// Hotel rooms for this panel (traverses event_rooms => hotel room edges).
+    #[serde(skip_serializing_if = "Vec::is_empty", default)]
+    pub hotel_room_ids: Vec<HotelRoomId>,
 }
 
 fn serialize_opt_duration_minutes<S: serde::Serializer>(
@@ -158,6 +169,8 @@ impl EntityType for PanelEntityType {
     }
 
     fn export(internal: &Self::InternalData) -> Self::Data {
+        // Note: credits and hotel_room_ids are computed fields that require
+        // Schedule access. They are populated by the Schedule::export_panel method.
         PanelData {
             code: internal.code.full_id(),
             data: internal.data.clone(),
@@ -167,6 +180,8 @@ impl EntityType for PanelEntityType {
             presenter_ids: Vec::new(),
             event_room_ids: Vec::new(),
             panel_type_id: None,
+            credits: Vec::new(),
+            hotel_room_ids: Vec::new(),
         }
     }
 
@@ -910,14 +925,263 @@ edge_field!(FIELD_PANEL_TYPE, PanelEntityType, mode: one, target: PanelTypeEntit
     name: "panel_type", display: "Panel Type",
     desc: "Panel type / kind.",
     aliases: &["kind", "type"],
-    example: "null",
+    example: "{}",
     order: 3400);
+
+// ── Read-only computed fields ─────────────────────────────────────────────────────
+
+define_field!(
+    /// Hotel rooms for this panel (traverses event_rooms => hotel room edges).
+    static FIELD_HOTEL_ROOMS: FieldDescriptor<PanelEntityType> = FieldDescriptor {
+        name: "hotel_rooms",
+        display: "Hotel Rooms",
+        description: "Hotel rooms where this panel takes place (traverses event rooms).",
+        aliases: &["hotel_room"],
+        required: false,
+        crdt_type: CrdtFieldType::Derived,
+        field_type: FieldType(
+            FieldCardinality::List,
+            FieldTypeItem::EntityIdentifier(HotelRoomEntityType::TYPE_NAME),
+        ),
+        example: "[]",
+        order: 3500,
+        read_fn: Some(ReadFn::Schedule(
+            |sched: &crate::schedule::Schedule, id: PanelId| {
+                let event_room_ids = sched.edges_from::<PanelEntityType, EventRoomEntityType>(id);
+                let mut hotel_room_ids: HashSet<HotelRoomId> = HashSet::new();
+                for event_room_id in event_room_ids {
+                    let rooms = sched.edges_from::<EventRoomEntityType, HotelRoomEntityType>(event_room_id);
+                    hotel_room_ids.extend(rooms);
+                }
+                let hotel_room_ids: Vec<HotelRoomId> = hotel_room_ids.into_iter().collect();
+                Some(crate::schedule::entity_ids_to_field_value(hotel_room_ids))
+            },
+        )),
+        write_fn: None,
+        verify_fn: None,
+    }
+);
+
+// ── Credits computation ───────────────────────────────────────────────────────
+
+/// Compute the formatted presenter credit strings for `panel_id`.
+///
+/// Applies `hide_panelist` / `alt_panelist` overrides, then filters to
+/// credited presenters (per the per-edge `credited` bool), then formats each
+/// credit entry accounting for groups, `always_shown_in_group`, and
+/// `always_grouped` members.
+///
+/// The presenter lookup is built from **all** presenters in the schedule so
+/// that group entities that are not themselves panel edges can still be
+/// resolved for name formatting.
+pub(crate) fn compute_credits(
+    sched: &crate::schedule::Schedule,
+    panel_id: PanelId,
+) -> Vec<String> {
+    let panel_internal = match sched.get_internal::<PanelEntityType>(panel_id) {
+        Some(p) => p,
+        None => return Vec::new(),
+    };
+    if panel_internal.data.hide_panelist {
+        return Vec::new();
+    }
+    if let Some(ref alt) = panel_internal.data.alt_panelist {
+        return vec![alt.clone()];
+    }
+
+    let all_presenter_ids =
+        sched.edges_from::<PanelEntityType, PresenterEntityType>(panel_id);
+    if all_presenter_ids.is_empty() {
+        return Vec::new();
+    }
+    let credited_ids: Vec<PresenterId> = all_presenter_ids
+        .into_iter()
+        .filter(|&p| {
+            sched.edge_get_bool::<PanelEntityType, PresenterEntityType>(panel_id, p, "credited")
+        })
+        .collect();
+    if credited_ids.is_empty() {
+        return Vec::new();
+    }
+
+    // Build a schedule-wide lookup so group entities not directly on this
+    // panel (e.g. referenced only via always_grouped membership) can be found.
+    let presenter_lookup: HashMap<PresenterId, &PresenterCommonData> = sched
+        .iter_entities::<PresenterEntityType>()
+        .map(|(id, internal)| (id, &internal.data))
+        .collect();
+
+    let mut credits: Vec<String> = Vec::new();
+    let mut used_as_member: HashSet<PresenterId> = HashSet::new();
+    let mut used_groups: HashSet<PresenterId> = HashSet::new();
+
+    // First pass: handle explicit groups and always_grouped members.
+    for &presenter_id in &credited_ids {
+        if used_as_member.contains(&presenter_id) {
+            continue;
+        }
+        let Some(&presenter_data) = presenter_lookup.get(&presenter_id) else {
+            continue;
+        };
+        if presenter_data.is_explicit_group {
+            let member_ids =
+                sched.edges_from::<PresenterEntityType, PresenterEntityType>(presenter_id);
+            let all_members: HashSet<PresenterId> = member_ids.iter().cloned().collect();
+            let credited_members: Vec<PresenterId> = all_members
+                .iter()
+                .filter(|m| credited_ids.contains(m))
+                .cloned()
+                .collect();
+
+            if used_groups.contains(&presenter_id) {
+                continue;
+            }
+            if presenter_data.always_shown_in_group {
+                // Partial attendance → "Member of Group" / "Group (M1, M2)"; full → group name.
+                if credited_members.len() < all_members.len() {
+                    match credited_members.len() {
+                        0 => credits.push(presenter_data.name.clone()),
+                        1 => {
+                            if let Some(m) = presenter_lookup.get(&credited_members[0]) {
+                                credits.push(format!("{} of {}", m.name, presenter_data.name));
+                            }
+                        }
+                        _ => {
+                            let names: Vec<String> = credited_members
+                                .iter()
+                                .filter_map(|mid| presenter_lookup.get(mid).map(|d| d.name.clone()))
+                                .collect();
+                            credits.push(format!(
+                                "{} ({})",
+                                presenter_data.name,
+                                names.join(", ")
+                            ));
+                        }
+                    }
+                    for m in &credited_members {
+                        used_as_member.insert(*m);
+                    }
+                } else {
+                    credits.push(presenter_data.name.clone());
+                    for m in all_members {
+                        used_as_member.insert(m);
+                    }
+                }
+            } else {
+                // Regular group: show name if all members present, else individuals.
+                let show_as_group = member_ids.iter().all(|m| credited_ids.contains(m));
+                if show_as_group {
+                    credits.push(presenter_data.name.clone());
+                    for m in member_ids {
+                        used_as_member.insert(m);
+                    }
+                } else {
+                    for m in member_ids {
+                        if credited_ids.contains(&m) && !used_as_member.contains(&m) {
+                            if let Some(md) = presenter_lookup.get(&m) {
+                                credits.push(md.name.clone());
+                                used_as_member.insert(m);
+                            }
+                        }
+                    }
+                }
+            }
+            used_groups.insert(presenter_id);
+        } else if presenter_data.always_grouped {
+            // This member always appears under their group's name.
+            let group_ids =
+                sched.edges_to::<PresenterEntityType, PresenterEntityType>(presenter_id);
+            for group_id in group_ids {
+                let Some(&group_data) = presenter_lookup.get(&group_id) else {
+                    continue;
+                };
+                let group_member_ids =
+                    sched.edges_from::<PresenterEntityType, PresenterEntityType>(group_id);
+                let show_as_group = group_data.always_shown_in_group
+                    || group_member_ids.iter().all(|m| credited_ids.contains(m));
+
+                if used_groups.contains(&group_id) || !show_as_group {
+                    continue;
+                }
+                if group_data.always_shown_in_group {
+                    let credited_members: Vec<PresenterId> = group_member_ids
+                        .iter()
+                        .filter(|m| credited_ids.contains(m))
+                        .cloned()
+                        .collect();
+                    if credited_members.len() < group_member_ids.len() {
+                        for m in &credited_members {
+                            if let Some(md) = presenter_lookup.get(m) {
+                                credits.push(format!("{} of {}", md.name, group_data.name));
+                                used_as_member.insert(*m);
+                            }
+                        }
+                    } else {
+                        credits.push(group_data.name.clone());
+                        for m in group_member_ids {
+                            used_as_member.insert(m);
+                        }
+                    }
+                } else {
+                    credits.push(group_data.name.clone());
+                    for m in group_member_ids {
+                        used_as_member.insert(m);
+                    }
+                }
+                used_groups.insert(group_id);
+            }
+        }
+    }
+
+    // Second pass: remaining individuals not consumed by a group.
+    for &presenter_id in &credited_ids {
+        if used_as_member.contains(&presenter_id) {
+            continue;
+        }
+        if let Some(&pd) = presenter_lookup.get(&presenter_id) {
+            if !pd.is_explicit_group && !pd.always_grouped {
+                credits.push(pd.name.clone());
+            }
+        }
+    }
+
+    credits
+}
+
+define_field!(
+    /// Formatted credit strings for display (hidePanelist, altPanelist, group resolution).
+    static FIELD_CREDITS: FieldDescriptor<PanelEntityType> = FieldDescriptor {
+        name: "credits",
+        display: "Credits",
+        description: "Formatted presenter credit strings for display, accounting for hidePanelist, altPanelist, group resolution, always_shown, and always_grouped flags.",
+        aliases: &["credit"],
+        required: false,
+        crdt_type: CrdtFieldType::Derived,
+        field_type: FieldType(
+            FieldCardinality::List,
+            FieldTypeItem::String,
+        ),
+        example: "[\"John Doe\", \"Group Name (Alice, Bob)\"]",
+        order: 3600,
+        read_fn: Some(ReadFn::Schedule(
+            |sched: &crate::schedule::Schedule, id: PanelId| {
+                let strings = compute_credits(sched, id);
+                Some(FieldValue::List(
+                    strings.into_iter().map(FieldValueItem::String).collect(),
+                ))
+            },
+        )),
+        write_fn: None,
+        verify_fn: None,
+    }
+);
 
 // ── FieldSet ──────────────────────────────────────────────────────────────────
 
 static PANEL_FIELD_SET: LazyLock<FieldSet<PanelEntityType>> =
     LazyLock::new(FieldSet::from_inventory);
 
+// ... (rest of the code remains the same)
 // ── Builder ───────────────────────────────────────────────────────────────────
 
 crate::field_macros::define_entity_builder! {
@@ -1117,7 +1381,7 @@ mod tests {
     fn field_set_contains_all_declared_fields() {
         let fs = PanelEntityType::field_set();
         let count = fs.fields().count();
-        assert_eq!(count, 38);
+        assert_eq!(count, 40);
     }
 
     #[test]
@@ -1462,6 +1726,34 @@ mod tests {
         };
         sched.insert(pres_id, data);
         pres_id
+    }
+
+    #[test]
+    fn field_credits_excludes_uncredited_presenter() {
+        let panel_id = new_panel_id();
+        let mut sched = sched_with(panel_id, sample_internal(panel_id));
+
+        let alice = make_presenter_for_panel(&mut sched, "Alice");
+        let bob = make_presenter_for_panel(&mut sched, "Bob");
+
+        sched.edge_add::<PanelEntityType, PresenterEntityType>(panel_id, alice);
+        sched.edge_add::<PanelEntityType, PresenterEntityType>(panel_id, bob);
+        // Mark Bob as uncredited.
+        sched.edge_set_bool::<PanelEntityType, PresenterEntityType>(
+            panel_id, bob, "credited", false,
+        );
+
+        let fs = PanelEntityType::field_set();
+        let credits = fs.read_field_value("credits", panel_id, &sched).unwrap();
+        let credits_str = format!("{credits:?}");
+        assert!(
+            credits_str.contains("Alice"),
+            "Alice should appear in credits"
+        );
+        assert!(
+            !credits_str.contains("Bob"),
+            "Bob should be excluded from credits"
+        );
     }
 
     #[test]
