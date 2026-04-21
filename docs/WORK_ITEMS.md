@@ -1,6 +1,6 @@
 # Cosplay America Schedule - Work Item
 
-Updated on: Mon Apr 20 23:09:41 2026
+Updated on: Mon Apr 20 23:35:01 2026
 
 ## Completed
 
@@ -19,6 +19,8 @@ Updated on: Mon Apr 20 23:09:41 2026
 * [FEATURE-021] Implement a command-based edit system with full undo/redo support.
 * [FEATURE-022] Make an `automerge::AutoCommit` document the authoritative storage inside
 `Schedule`; the in-memory `HashMap` entity store becomes a derived cache.
+* [FEATURE-023] Store relationships as automerge list fields on a canonical owner entity;
+`RawEdgeMap` becomes a derived index rebuilt from these lists.
 * [FEATURE-038] Add a type-safe `FieldValueConverter<M>` trait and driver functions for converting
 `FieldValue` inputs to typed Rust outputs via a work-queue iteration pattern.
 * [FEATURE-043] Add a `verify` callback to `FieldDescriptor` for cross-field consistency checks after batch writes to computed fields.
@@ -54,7 +56,7 @@ collection, and expose a `registered_entity_types()` accessor.
 
 ## Summary of Open Items
 
-**Total open items:** 20
+**Total open items:** 19
 
 * **Meta / Project-Level**
   * [META-001] Meta work item tracking the full multi-phase redesign of the schedule system. (Blocked by [META-004], [META-005], [META-006], [META-007], [META-008])
@@ -68,8 +70,6 @@ XLSX import/export. (Blocked by [META-004])
 
 * **Medium Priority**
   * [BUGFIX-045] In `scratch/field_update_logic.rs`, duration values are incorrectly stored as `FieldValue::Integer(minutes)` instead of `FieldValue::Duration(Duration)`.
-  * [FEATURE-023] ([META-004]) Store relationships as automerge list fields on a canonical owner entity;
-`RawEdgeMap` becomes a derived index rebuilt from these lists.
   * [FEATURE-024] ([META-004]) Expose automerge change tracking and merge through `Schedule`, and surface
 concurrent scalar conflicts to the caller.
   * [FEATURE-025] ([META-005]) Define and implement the native save/load format for schedule documents.
@@ -182,44 +182,6 @@ panels arranged by time and room, with inline editing of entity fields.
 ---
 
 ## Open FEATURE Items
-
-### [FEATURE-023] CRDT-backed Edges via Relationship Lists
-
-**Status:** Open
-
-**Priority:** Medium
-
-**Summary:** Store relationships as automerge list fields on a canonical owner entity;
-`RawEdgeMap` becomes a derived index rebuilt from these lists.
-
-**Part of:** [META-004]
-
-**Description:** Move relationship data into the CRDT document by adding a relationship-list
-field (`CrdtFieldType::List`) to the canonical owner entity for each
-relation. Ownership follows a **panels-outward** rule: panels own outgoing
-edges, and entities further from panels own edges that do not point back
-toward a panel.
-
-Canonical owners:
-
-| Relation                     | Owner          | Field on owner    |
-| ---------------------------- | -------------- | ----------------- |
-| Panel ↔ Presenter            | Panel          | `presenter_ids`   |
-| Panel ↔ EventRoom            | Panel          | `event_room_ids`  |
-| Panel → PanelType            | Panel          | `panel_type_id`   |
-| EventRoom ↔ HotelRoom        | EventRoom      | `hotel_room_ids`  |
-| Presenter → Presenter group  | Presenter (member) | `group_ids`   |
-
-The public edge API on `Schedule` (`edge_add`, `edge_remove`, `edge_set`,
-`edges_from`, `edges_to`) keeps its signature but dispatches to the
-canonical owner's relationship list. `RawEdgeMap` stays as a fast in-memory
-bidirectional index, rebuilt on `Schedule::load` by scanning all owners'
-relationship lists, and maintained incrementally on every edge mutation.
-
-Automerge list semantics give add-wins resolution for concurrent
-add/remove on the same relationship, matching `docs/crdt-design.md`.
-
----
 
 ### [FEATURE-024] Change Tracking, Merge, and Conflict Surfacing
 
@@ -551,7 +513,7 @@ to exchange CRDT changes and reconcile concurrent edits to the same fields.
 [FEATURE-020]: work-item/done/FEATURE-020.md
 [FEATURE-021]: work-item/done/FEATURE-021.md
 [FEATURE-022]: work-item/done/FEATURE-022.md
-[FEATURE-023]: work-item/medium/FEATURE-023.md
+[FEATURE-023]: work-item/done/FEATURE-023.md
 [FEATURE-024]: work-item/medium/FEATURE-024.md
 [FEATURE-025]: work-item/medium/FEATURE-025.md
 [FEATURE-026]: work-item/medium/FEATURE-026.md

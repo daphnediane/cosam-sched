@@ -7,7 +7,7 @@ Store relationships as automerge list fields on a canonical owner entity;
 
 ## Status
 
-Open
+Completed
 
 ## Priority
 
@@ -27,13 +27,13 @@ toward a panel.
 
 Canonical owners:
 
-| Relation                     | Owner          | Field on owner    |
-| ---------------------------- | -------------- | ----------------- |
-| Panel ↔ Presenter            | Panel          | `presenter_ids`   |
-| Panel ↔ EventRoom            | Panel          | `event_room_ids`  |
-| Panel → PanelType            | Panel          | `panel_type_id`   |
-| EventRoom ↔ HotelRoom        | EventRoom      | `hotel_room_ids`  |
-| Presenter → Presenter group  | Presenter (member) | `group_ids`   |
+| Relation                    | Owner              | Field on owner   |
+| --------------------------- | ------------------ | ---------------- |
+| Panel ↔ Presenter           | Panel              | `presenter_ids`  |
+| Panel ↔ EventRoom           | Panel              | `event_room_ids` |
+| Panel → PanelType           | Panel              | `panel_type_id`  |
+| EventRoom ↔ HotelRoom       | EventRoom          | `hotel_room_ids` |
+| Presenter → Presenter group | Presenter (member) | `group_ids`      |
 
 The public edge API on `Schedule` (`edge_add`, `edge_remove`, `edge_set`,
 `edges_from`, `edges_to`) keeps its signature but dispatches to the

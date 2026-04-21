@@ -205,10 +205,83 @@ impl Schedule {
                     })?;
                 }
             }
+            // Rebuild the in-memory edge index from the owner-list fields
+            // stored on each canonical owner (FEATURE-023).  Done inside the
+            // mirror-disabled guard so the replayed `edge_add` calls don't
+            // re-write the doc.
+            s.rebuild_edges_from_doc();
             Ok(())
         });
         result?;
         Ok(sched)
+    }
+
+    /// Replay every canonical owner's relationship-list field into the
+    /// in-memory [`RawEdgeMap`].
+    ///
+    /// For every `(owner_type, field_name, target_type, is_homo)` tuple in
+    /// [`crate::edge_crdt::OWNER_EDGE_FIELDS`], iterate every live owner
+    /// uuid in the doc, read the list, and `add_het`/`add_homo` each
+    /// endpoint into the cache.  The caller is responsible for running this
+    /// under [`Self::with_mirror_disabled`] — otherwise each replayed edge
+    /// would re-write the same list back into the doc.
+    fn rebuild_edges_from_doc(&mut self) {
+        use crate::value::FieldTypeItem;
+
+        // Snapshot the `(owner_uuid, target_uuids)` pairs while borrowing
+        // `&self.doc`, then apply them under `&mut self`.
+        struct EdgeBatch {
+            owner_type: &'static str,
+            target_type: &'static str,
+            is_homo: bool,
+            pairs: Vec<(NonNilUuid, Vec<NonNilUuid>)>,
+        }
+        let mut batches: Vec<EdgeBatch> = Vec::new();
+        for &(owner_type, field_name, target_type, is_homo) in crate::edge_crdt::OWNER_EDGE_FIELDS {
+            let owner_uuids = crdt::list_all_uuids(&self.doc, owner_type);
+            let mut pairs: Vec<(NonNilUuid, Vec<NonNilUuid>)> = Vec::new();
+            for owner_uuid in owner_uuids {
+                if crdt::is_deleted(&self.doc, owner_type, owner_uuid) {
+                    continue;
+                }
+                let targets = crate::edge_crdt::read_owner_list(
+                    &self.doc,
+                    owner_type,
+                    owner_uuid,
+                    field_name,
+                    FieldTypeItem::EntityIdentifier(target_type),
+                );
+                if !targets.is_empty() {
+                    pairs.push((owner_uuid, targets));
+                }
+            }
+            if !pairs.is_empty() {
+                batches.push(EdgeBatch {
+                    owner_type,
+                    target_type,
+                    is_homo,
+                    pairs,
+                });
+            }
+        }
+        for batch in batches {
+            for (owner_uuid, targets) in batch.pairs {
+                // SAFETY: the uuid/type pair was just read out of the
+                // authoritative doc under the same owner entity map.
+                let owner_rid = unsafe { RuntimeEntityId::from_uuid(owner_uuid, batch.owner_type) };
+                for target_uuid in targets {
+                    // SAFETY: same justification — the list was stored as
+                    // EntityIdentifier scalars tagged with `batch.target_type`.
+                    let target_rid =
+                        unsafe { RuntimeEntityId::from_uuid(target_uuid, batch.target_type) };
+                    if batch.is_homo {
+                        self.edges.add_homo(owner_rid, target_rid);
+                    } else {
+                        self.edges.add_het(owner_rid, target_rid);
+                    }
+                }
+            }
+        }
     }
 
     // ── CRDT access ───────────────────────────────────────────────────────────
@@ -272,6 +345,11 @@ impl Schedule {
         }
         // Ensure the entity is not marked deleted (idempotent on re-insert).
         crdt::put_deleted(&mut self.doc, type_name, uuid, false)?;
+        // Pre-create every canonical owner-list field on this entity so
+        // concurrent replicas share the same list `ObjId` and
+        // `edge_add`/`edge_remove` can converge via incremental
+        // `insert`/`delete` (FEATURE-023).
+        crate::edge_crdt::ensure_all_owner_lists_for_type(&mut self.doc, type_name, uuid)?;
         Ok(())
     }
 
@@ -449,6 +527,12 @@ impl Schedule {
     }
 
     /// Add an edge from `l` to `r`, using the correct het/homo storage strategy.
+    ///
+    /// After updating the cache, if the mirror is enabled the new endpoint
+    /// is incrementally `insert`ed into the canonical owner's list field
+    /// (via [`crate::edge_crdt::list_append_unique`]) — **not** rewritten in
+    /// full — so concurrent add/add from two replicas converges to the
+    /// union rather than LWW on the list object.
     pub fn edge_add<L: EntityType, R: EntityType>(&mut self, l: EntityId<L>, r: EntityId<R>) {
         let is_homo = TypeId::of::<L::InternalData>() == TypeId::of::<R::InternalData>();
         let l_rid = RuntimeEntityId::from_typed(l);
@@ -458,9 +542,13 @@ impl Schedule {
         } else {
             self.edges.add_het(l_rid, r_rid);
         }
+        self.mirror_edge_add::<L, R>(l.non_nil_uuid(), r.non_nil_uuid());
     }
 
     /// Remove the edge from `l` to `r`.
+    ///
+    /// The CRDT mirror uses an incremental delete on observed indices so
+    /// concurrent add-vs-unobserved-remove resolves add-wins.
     pub fn edge_remove<L: EntityType, R: EntityType>(&mut self, l: EntityId<L>, r: EntityId<R>) {
         let is_homo = TypeId::of::<L::InternalData>() == TypeId::of::<R::InternalData>();
         if is_homo {
@@ -468,6 +556,7 @@ impl Schedule {
         } else {
             self.edges.remove_het(l.non_nil_uuid(), r.non_nil_uuid());
         }
+        self.mirror_edge_remove::<L, R>(l.non_nil_uuid(), r.non_nil_uuid());
     }
 
     /// Replace all R-type neighbors of `l` with `rights`.
@@ -487,6 +576,10 @@ impl Schedule {
             .collect();
         self.edges
             .set_neighbors(l_rid, &new_targets, R::TYPE_NAME, is_homo);
+        // Mirror only the owner side — if `l` is the canonical owner for
+        // (L,R), we rewrite l's list; otherwise we rewrite each r's list in
+        // turn to reflect the flipped set of l-endpoints.
+        self.mirror_edge_set::<L, R>(l.non_nil_uuid(), &rights);
     }
 
     /// Replace all L-type sources pointing to `r` with `lefts`.
@@ -502,7 +595,7 @@ impl Schedule {
         let is_homo = TypeId::of::<L::InternalData>() == TypeId::of::<R::InternalData>();
         let old_lefts = self.edges_to::<L, R>(r);
         let r_rid = RuntimeEntityId::from_typed(r);
-        for l in old_lefts {
+        for l in old_lefts.iter().copied() {
             let l_rid = RuntimeEntityId::from_typed(l);
             if is_homo {
                 self.edges.remove_homo(l_rid.uuid(), r_rid.uuid());
@@ -510,12 +603,182 @@ impl Schedule {
                 self.edges.remove_het(l_rid.uuid(), r_rid.uuid());
             }
         }
-        for l in lefts {
+        for l in lefts.iter().copied() {
             let l_rid = RuntimeEntityId::from_typed(l);
             if is_homo {
                 self.edges.add_homo(l_rid, r_rid);
             } else {
                 self.edges.add_het(l_rid, r_rid);
+            }
+        }
+        // Mirror: treat as a set-difference against `lefts`. Each previously
+        // connected `l` not in the new set is `edge_remove`d from the owner
+        // list; each new `l` not previously connected is `edge_add`ed.
+        let new_uuids: Vec<NonNilUuid> = lefts.iter().map(|l| l.non_nil_uuid()).collect();
+        let old_uuids: Vec<NonNilUuid> = old_lefts.iter().map(|l| l.non_nil_uuid()).collect();
+        for l_uuid in &old_uuids {
+            if !new_uuids.contains(l_uuid) {
+                self.mirror_edge_remove::<L, R>(*l_uuid, r.non_nil_uuid());
+            }
+        }
+        for l_uuid in &new_uuids {
+            if !old_uuids.contains(l_uuid) {
+                self.mirror_edge_add::<L, R>(*l_uuid, r.non_nil_uuid());
+            }
+        }
+    }
+
+    /// After `edge_add`, incrementally append the new endpoint into the
+    /// canonical owner's list field. Concurrent add/add converges to the
+    /// union because both replicas insert into the same shared list
+    /// [`ObjId`](automerge::ObjId) created up-front by
+    /// [`crate::edge_crdt::ensure_all_owner_lists_for_type`].
+    fn mirror_edge_add<L: EntityType, R: EntityType>(
+        &mut self,
+        l_uuid: NonNilUuid,
+        r_uuid: NonNilUuid,
+    ) {
+        if !self.mirror_enabled {
+            return;
+        }
+        let Some(canon) = crate::edge_crdt::canonical_owner(L::TYPE_NAME, R::TYPE_NAME) else {
+            return;
+        };
+        let (owner_uuid, target_uuid) = if canon.owner_is_left {
+            (l_uuid, r_uuid)
+        } else {
+            (r_uuid, l_uuid)
+        };
+        if let Err(e) = crate::edge_crdt::list_append_unique(
+            &mut self.doc,
+            canon.owner_type,
+            owner_uuid,
+            canon.target_type,
+            canon.field_name,
+            target_uuid,
+        ) {
+            debug_assert!(false, "CRDT edge_add mirror failed: {e}");
+            let _ = e;
+        }
+    }
+
+    /// After `edge_remove`, incrementally delete every occurrence of the
+    /// endpoint from the canonical owner's list.  Concurrent add-vs-
+    /// unobserved-remove resolves add-wins: the remove only targets
+    /// indices this actor observed, so an insert recorded on a parallel
+    /// branch survives the merge.
+    fn mirror_edge_remove<L: EntityType, R: EntityType>(
+        &mut self,
+        l_uuid: NonNilUuid,
+        r_uuid: NonNilUuid,
+    ) {
+        if !self.mirror_enabled {
+            return;
+        }
+        let Some(canon) = crate::edge_crdt::canonical_owner(L::TYPE_NAME, R::TYPE_NAME) else {
+            return;
+        };
+        let (owner_uuid, target_uuid) = if canon.owner_is_left {
+            (l_uuid, r_uuid)
+        } else {
+            (r_uuid, l_uuid)
+        };
+        if let Err(e) = crate::edge_crdt::list_remove_uuid(
+            &mut self.doc,
+            canon.owner_type,
+            owner_uuid,
+            canon.target_type,
+            canon.field_name,
+            target_uuid,
+        ) {
+            debug_assert!(false, "CRDT edge_remove mirror failed: {e}");
+            let _ = e;
+        }
+    }
+
+    /// Edge-set variant of [`Self::mirror_edge_change`] — bulk version.
+    ///
+    /// When `L` is the canonical owner, a single list write on `l` suffices.
+    /// When `R` owns, every `r` in `rights` and every previous r that just
+    /// lost `l` needs its list re-synced; the simplest correct strategy is
+    /// to re-derive from the cache for every currently-in-range `r`.
+    fn mirror_edge_set<L: EntityType, R: EntityType>(
+        &mut self,
+        l_uuid: NonNilUuid,
+        rights: &[EntityId<R>],
+    ) {
+        if !self.mirror_enabled {
+            return;
+        }
+        let Some(canon) = crate::edge_crdt::canonical_owner(L::TYPE_NAME, R::TYPE_NAME) else {
+            return;
+        };
+        if canon.owner_is_left {
+            // Single write on l's list.
+            let targets: Vec<NonNilUuid> = self
+                .edges
+                .neighbors(l_uuid)
+                .iter()
+                .filter(|e| e.type_name() == R::TYPE_NAME)
+                .map(|e| e.uuid())
+                .collect();
+            if let Err(e) = crate::edge_crdt::write_owner_list(
+                &mut self.doc,
+                canon.owner_type,
+                l_uuid,
+                canon.target_type,
+                canon.field_name,
+                &targets,
+            ) {
+                debug_assert!(false, "CRDT edge mirror failed: {e}");
+                let _ = e;
+            }
+            return;
+        }
+        // R is owner — rewrite every currently-connected r's list, plus each
+        // r in `rights` that may have just gained l.  Walk every r whose
+        // cache list presently contains l OR that is in `rights`.
+        let mut owners: Vec<NonNilUuid> = rights.iter().map(|r| r.non_nil_uuid()).collect();
+        // Find previously-connected r's by scanning the cache's l→r adjacency.
+        // After `set_neighbors`, l's neighbor list no longer includes removed
+        // r's, so we can't learn removed-r uuids from l alone; a reverse scan
+        // of all owner entities is the cheapest correct option.
+        let doc_uuids = crdt::list_all_uuids(&self.doc, canon.owner_type);
+        for r_uuid in doc_uuids {
+            if owners.contains(&r_uuid) {
+                continue;
+            }
+            // Was r previously linked to l?  If its doc list contains l_uuid,
+            // we must rewrite it now that the cache no longer does.
+            let prev = crate::edge_crdt::read_owner_list(
+                &self.doc,
+                canon.owner_type,
+                r_uuid,
+                canon.field_name,
+                crate::value::FieldTypeItem::EntityIdentifier(L::TYPE_NAME),
+            );
+            if prev.contains(&l_uuid) {
+                owners.push(r_uuid);
+            }
+        }
+        for owner_uuid in owners {
+            let targets: Vec<NonNilUuid> = self
+                .edges
+                .neighbors(owner_uuid)
+                .iter()
+                .filter(|e| e.type_name() == L::TYPE_NAME)
+                .map(|e| e.uuid())
+                .collect();
+            if let Err(e) = crate::edge_crdt::write_owner_list(
+                &mut self.doc,
+                canon.owner_type,
+                owner_uuid,
+                canon.target_type,
+                canon.field_name,
+                &targets,
+            ) {
+                debug_assert!(false, "CRDT edge mirror failed: {e}");
+                let _ = e;
             }
         }
     }
@@ -588,7 +851,9 @@ mod tests {
     use crate::panel::{PanelCommonData, PanelEntityType, PanelId, PanelInternalData};
     use crate::panel_type::{PanelTypeCommonData, PanelTypeEntityType, PanelTypeInternalData};
     use crate::panel_uniq_id::PanelUniqId;
-    use crate::presenter::{PresenterCommonData, PresenterEntityType, PresenterInternalData};
+    use crate::presenter::{
+        PresenterCommonData, PresenterEntityType, PresenterId, PresenterInternalData,
+    };
     use crate::time::TimeRange;
 
     fn make_panel_type() -> (EntityId<PanelTypeEntityType>, PanelTypeInternalData) {
@@ -1175,5 +1440,180 @@ mod tests {
     fn load_rejects_garbage_bytes() {
         let err = Schedule::load(b"this is not an automerge doc").expect_err("must error");
         assert!(matches!(err, LoadError::Codec(_)));
+    }
+
+    // ── Edge CRDT round-trip (FEATURE-023) ────────────────────────────────────
+
+    #[test]
+    fn save_load_roundtrips_panel_presenter_edge() {
+        let mut sched = Schedule::new();
+        let (panel_id, panel_data) = make_panel();
+        let (pres_id, pres_data) = make_presenter("Alice");
+        sched.insert(panel_id, panel_data);
+        sched.insert(pres_id, pres_data);
+        sched.edge_add::<PanelEntityType, PresenterEntityType>(panel_id, pres_id);
+
+        let bytes = sched.save();
+        let loaded = Schedule::load(&bytes).expect("load");
+
+        // Forward edge (panel → presenter)
+        let forwards: Vec<PresenterId> =
+            loaded.edges_from::<PanelEntityType, PresenterEntityType>(panel_id);
+        assert_eq!(forwards, vec![pres_id]);
+        // Reverse edge (presenter → panel) also rebuilt from the single
+        // owner list on the panel side.
+        let reverses: Vec<PanelId> =
+            loaded.edges_from::<PresenterEntityType, PanelEntityType>(pres_id);
+        assert_eq!(reverses, vec![panel_id]);
+    }
+
+    #[test]
+    fn save_load_roundtrips_event_room_hotel_room_edge() {
+        let mut sched = Schedule::new();
+        let (er_id, er_data) = make_event_room("Panel 1");
+        let (hr_id, hr_data) = make_hotel_room("Suite A");
+        sched.insert(er_id, er_data);
+        sched.insert(hr_id, hr_data);
+        sched.edge_add::<EventRoomEntityType, HotelRoomEntityType>(er_id, hr_id);
+
+        let bytes = sched.save();
+        let loaded = Schedule::load(&bytes).expect("load");
+
+        let hotel_rooms: Vec<EntityId<HotelRoomEntityType>> =
+            loaded.edges_from::<EventRoomEntityType, HotelRoomEntityType>(er_id);
+        assert_eq!(hotel_rooms, vec![hr_id]);
+        let event_rooms: Vec<EntityId<EventRoomEntityType>> =
+            loaded.edges_from::<HotelRoomEntityType, EventRoomEntityType>(hr_id);
+        assert_eq!(event_rooms, vec![er_id]);
+    }
+
+    #[test]
+    fn save_load_roundtrips_presenter_group_edge() {
+        let mut sched = Schedule::new();
+        let (alice_id, alice) = make_presenter("Alice");
+        let (group_id, group) = make_presenter("Speakers");
+        sched.insert(alice_id, alice);
+        sched.insert(group_id, group);
+        // alice is a member of the Speakers group
+        sched.edge_add::<PresenterEntityType, PresenterEntityType>(alice_id, group_id);
+
+        let bytes = sched.save();
+        let loaded = Schedule::load(&bytes).expect("load");
+
+        let groups: Vec<PresenterId> =
+            loaded.edges_from::<PresenterEntityType, PresenterEntityType>(alice_id);
+        assert_eq!(groups, vec![group_id]);
+        let members: Vec<PresenterId> =
+            loaded.edges_to::<PresenterEntityType, PresenterEntityType>(group_id);
+        assert_eq!(members, vec![alice_id]);
+    }
+
+    #[test]
+    fn edge_remove_roundtrips_through_save_load() {
+        let mut sched = Schedule::new();
+        let (panel_id, panel_data) = make_panel();
+        let (pres_id, pres_data) = make_presenter("Alice");
+        sched.insert(panel_id, panel_data);
+        sched.insert(pres_id, pres_data);
+        sched.edge_add::<PanelEntityType, PresenterEntityType>(panel_id, pres_id);
+        sched.edge_remove::<PanelEntityType, PresenterEntityType>(panel_id, pres_id);
+
+        let bytes = sched.save();
+        let loaded = Schedule::load(&bytes).expect("load");
+
+        let forwards: Vec<PresenterId> =
+            loaded.edges_from::<PanelEntityType, PresenterEntityType>(panel_id);
+        assert!(forwards.is_empty());
+    }
+
+    #[test]
+    fn edge_set_replaces_through_save_load() {
+        let mut sched = Schedule::new();
+        let (panel_id, panel_data) = make_panel();
+        let (alice_id, alice_data) = make_presenter("Alice");
+        let (bob_id, bob_data) = make_presenter("Bob");
+        sched.insert(panel_id, panel_data);
+        sched.insert(alice_id, alice_data);
+        sched.insert(bob_id, bob_data);
+        sched.edge_add::<PanelEntityType, PresenterEntityType>(panel_id, alice_id);
+        sched.edge_set::<PanelEntityType, PresenterEntityType>(panel_id, vec![bob_id]);
+
+        let bytes = sched.save();
+        let loaded = Schedule::load(&bytes).expect("load");
+
+        let forwards: Vec<PresenterId> =
+            loaded.edges_from::<PanelEntityType, PresenterEntityType>(panel_id);
+        assert_eq!(forwards, vec![bob_id]);
+    }
+
+    /// Concurrent add/add from two replicas converges to the union.
+    #[test]
+    fn concurrent_edge_adds_merge_to_union() {
+        use automerge::AutoCommit;
+
+        // Base replica holds a panel + two presenters, no edges yet.
+        let mut base = Schedule::new();
+        let (panel_id, panel_data) = make_panel();
+        let (alice_id, alice_data) = make_presenter("Alice");
+        let (bob_id, bob_data) = make_presenter("Bob");
+        base.insert(panel_id, panel_data);
+        base.insert(alice_id, alice_data);
+        base.insert(bob_id, bob_data);
+        let base_bytes = base.save();
+
+        // Replica A adds Alice.
+        let mut replica_a = Schedule::load(&base_bytes).expect("load A");
+        replica_a.edge_add::<PanelEntityType, PresenterEntityType>(panel_id, alice_id);
+
+        // Replica B (independent) adds Bob.
+        let mut replica_b = Schedule::load(&base_bytes).expect("load B");
+        replica_b.edge_add::<PanelEntityType, PresenterEntityType>(panel_id, bob_id);
+
+        // Merge A ← B at the automerge layer, then rebuild via load().
+        let mut doc_a = AutoCommit::load(&replica_a.save()).unwrap();
+        let mut doc_b = AutoCommit::load(&replica_b.save()).unwrap();
+        doc_a.merge(&mut doc_b).unwrap();
+        let merged = Schedule::load(&doc_a.save()).expect("load merged");
+
+        let mut forwards: Vec<PresenterId> =
+            merged.edges_from::<PanelEntityType, PresenterEntityType>(panel_id);
+        forwards.sort_by_key(|id| id.non_nil_uuid());
+        let mut expected = vec![alice_id, bob_id];
+        expected.sort_by_key(|id| id.non_nil_uuid());
+        assert_eq!(forwards, expected);
+    }
+
+    /// Concurrent add vs. unobserved remove resolves add-wins under
+    /// automerge's list semantics.
+    #[test]
+    fn concurrent_add_beats_unobserved_remove() {
+        use automerge::AutoCommit;
+
+        let mut base = Schedule::new();
+        let (panel_id, panel_data) = make_panel();
+        let (alice_id, alice_data) = make_presenter("Alice");
+        base.insert(panel_id, panel_data);
+        base.insert(alice_id, alice_data);
+        let base_bytes = base.save();
+
+        // A adds Alice without knowing about any remove on B's side.
+        let mut replica_a = Schedule::load(&base_bytes).expect("load A");
+        replica_a.edge_add::<PanelEntityType, PresenterEntityType>(panel_id, alice_id);
+
+        // B starts from the same base (no edge), removes Alice (no-op on its
+        // own state but records a causally-unordered change); this simulates
+        // B having never observed A's add.
+        let mut replica_b = Schedule::load(&base_bytes).expect("load B");
+        replica_b.edge_remove::<PanelEntityType, PresenterEntityType>(panel_id, alice_id);
+
+        let mut doc_a = AutoCommit::load(&replica_a.save()).unwrap();
+        let mut doc_b = AutoCommit::load(&replica_b.save()).unwrap();
+        doc_a.merge(&mut doc_b).unwrap();
+        let merged = Schedule::load(&doc_a.save()).expect("load merged");
+
+        // Add wins: Alice is still in the list.
+        let forwards: Vec<PresenterId> =
+            merged.edges_from::<PanelEntityType, PresenterEntityType>(panel_id);
+        assert_eq!(forwards, vec![alice_id]);
     }
 }

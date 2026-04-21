@@ -307,7 +307,7 @@ pub fn read_field(
 
 // ── ScalarValue conversions ────────────────────────────────────────────────
 
-fn item_to_scalar(item: &FieldValueItem) -> CrdtResult<ScalarValue> {
+pub(crate) fn item_to_scalar(item: &FieldValueItem) -> CrdtResult<ScalarValue> {
     Ok(match item {
         FieldValueItem::String(s) | FieldValueItem::Text(s) => ScalarValue::Str(s.clone().into()),
         FieldValueItem::Integer(n) => ScalarValue::Int(*n),

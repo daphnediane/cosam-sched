@@ -7,6 +7,7 @@
 pub mod builder;
 pub mod converter;
 pub mod crdt;
+pub mod edge_crdt;
 pub mod edge_map;
 pub mod edit;
 pub mod entity;
