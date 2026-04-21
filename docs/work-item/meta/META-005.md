@@ -15,8 +15,7 @@ Medium
 
 ## Blocked By
 
-- META-003: Phase 2 — Core Data Model
-- META-004: Phase 3 — CRDT Integration (for FEATURE-025)
+- META-004: Phase 3 — CRDT Integration (FEATURE-025 wraps `Schedule::save`/`load`)
 
 ## Description
 

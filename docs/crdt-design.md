@@ -1,8 +1,31 @@
 # CRDT Design
 
-CRDT-backed storage design for offline collaborative editing. The actual
-automerge integration is Phase 4 work; this document records the design
-decisions that are baked in from Phase 2 onward.
+CRDT-backed storage design for offline collaborative editing. The automerge
+document is the **single source of truth** inside every `Schedule`; the
+in-memory `HashMap` entity store and `RawEdgeMap` are derived caches rebuilt
+from the document on load/merge and kept in sync on every write. There is no
+"CRDT-off" mode and no optional feature flag.
+
+## Storage Model
+
+```text
+Schedule
+├── doc: automerge::AutoCommit          ← source of truth
+├── entities: HashMap<TypeId, HashMap<Uuid, Box<InternalData>>>  ← cache
+└── edges: RawEdgeMap                   ← cache, rebuilt from relationship lists
+```
+
+Document path layout:
+
+```text
+/meta/schedule_id, /meta/created_at, /meta/generator, /meta/version
+/entities/{type_name}/{uuid}/{field_name}     (per CrdtFieldType)
+/entities/{type_name}/{uuid}/__deleted        (soft delete marker)
+```
+
+Every field write flows `FieldValue → automerge op → doc`, then the cache is
+refreshed from the new doc state. Every read is from the cache; a merge /
+`apply_changes` triggers a full cache rebuild.
 
 ## Library Choice
 
@@ -91,11 +114,23 @@ automerge's RGA algorithm merges concurrent text edits character-by-character.
 Concurrent insertions at the same position are ordered deterministically.
 Applications see the merged result without manual intervention.
 
-### Relationships (edge maps)
+### Relationships (edges as owner list fields)
 
-Edge maps are OR-Set semantics: concurrent adds and removes are merged such
-that an add and a remove of the same edge, if concurrent, resolve to the add
-(add wins). This matches the expected behavior for presenter/room assignments.
+Edges live as `CrdtFieldType::List` fields on a canonical owner entity,
+following a **panels-outward** ownership rule:
+
+| Relation                    | Owner              | Field on owner   |
+| --------------------------- | ------------------ | ---------------- |
+| Panel ↔ Presenter           | Panel              | `presenter_ids`  |
+| Panel ↔ EventRoom           | Panel              | `event_room_ids` |
+| Panel → PanelType           | Panel              | `panel_type_id`  |
+| EventRoom ↔ HotelRoom       | EventRoom          | `hotel_room_ids` |
+| Presenter → Presenter group | Presenter (member) | `group_ids`      |
+
+Automerge list operations give add-wins resolution for concurrent edge
+mutations: an add and a concurrent remove of the same target UUID resolve to
+the add. `RawEdgeMap` is a fast bidirectional in-memory index rebuilt from
+these owner lists on load and maintained incrementally on every write.
 
 ### Entity identity
 
@@ -111,15 +146,16 @@ scalar field (CrdtFieldType::Scalar) marks an entity as removed. Queries and
 export filter out deleted entities by default. This preserves causal history and
 avoids tombstone conflicts.
 
-Implementation of soft deletes is deferred to Phase 4 alongside the full
-automerge integration.
+Soft deletes are implemented alongside the full automerge integration in
+Phase 3; no hard-delete code path exists.
 
 ## Phase Plan
 
-- **Phase 2** (current): `CrdtFieldType` annotations on all field descriptors;
-  no automerge code yet
-- **Phase 3**: CRDT spike / proof of concept with a single entity type
-  (see `crates/crdt-spike/` in v10-try3 for prior exploration)
-- **Phase 4**: Full automerge integration in `schedule-core`; replace in-memory
-  `HashMap` storage with automerge document storage
-- **Phase 8** (future): Multi-device sync, conflict UI, causal history browser
+- **Phase 2** (complete): `CrdtFieldType` annotations on all field descriptors.
+- **Phase 3** (current): Authoritative automerge doc under `Schedule`.
+  - FEATURE-022 — Automerge-backed Schedule storage (cache mirrors doc).
+  - FEATURE-023 — CRDT-backed edges via relationship lists on canonical owners.
+  - FEATURE-024 — Change tracking, merge, and conflict surfacing.
+- **Phase 4**: File formats (save/load, multi-year archive, XLSX, widget JSON)
+  built on top of `Schedule::save` / `load`.
+- **Phase 8** (future): Multi-device sync, conflict UI, causal history browser.

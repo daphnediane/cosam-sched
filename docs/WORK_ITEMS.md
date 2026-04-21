@@ -1,6 +1,6 @@
 # Cosplay America Schedule - Work Item
 
-Updated on: Mon Apr 20 18:16:45 2026
+Updated on: Mon Apr 20 22:08:11 2026
 
 ## Completed
 
@@ -56,18 +56,22 @@ collection, and expose a `registered_entity_types()` accessor.
 
 * **Meta / Project-Level**
   * [META-001] Meta work item tracking the full multi-phase redesign of the schedule system. (Blocked by [META-004], [META-005], [META-006], [META-007], [META-008])
-  * [META-004] Phase tracker for adding CRDT-backed storage underneath the entity/field system. (Blocked by [META-003])
+  * [META-004] Phase tracker for making an automerge CRDT document the authoritative storage
+underneath `Schedule`.
   * [META-005] Phase tracker for internal file format, multi-year archive, widget JSON, and
-XLSX import/export. (Blocked by [META-003], [META-004])
+XLSX import/export. (Blocked by [META-004])
   * [META-006] Phase tracker for the cosam-convert and cosam-modify command-line applications. (Blocked by [META-005])
   * [META-007] Phase tracker for the cosam-editor desktop GUI application. (Blocked by [META-005])
   * [META-008] Phase tracker for peer-to-peer schedule synchronization and conflict resolution. (Blocked by [META-004])
 
 * **Medium Priority**
   * [BUGFIX-045] In `scratch/field_update_logic.rs`, duration values are incorrectly stored as `FieldValue::Integer(minutes)` instead of `FieldValue::Duration(Duration)`.
-  * [FEATURE-022] ([META-004]) Design the abstraction layer between the entity/field system and the CRDT backend.
-  * [FEATURE-023] ([META-004]) Replace direct `HashMap` entity storage with CRDT-backed storage using automerge.
-  * [FEATURE-024] ([META-004]) Implement change tracking, diff computation, and merge for CRDT documents.
+  * [FEATURE-022] ([META-004]) Make an `automerge::AutoCommit` document the authoritative storage inside
+`Schedule`; the in-memory `HashMap` entity store becomes a derived cache.
+  * [FEATURE-023] ([META-004]) Store relationships as automerge list fields on a canonical owner entity;
+`RawEdgeMap` becomes a derived index rebuilt from these lists.
+  * [FEATURE-024] ([META-004]) Expose automerge change tracking and merge through `Schedule`, and surface
+concurrent scalar conflicts to the caller.
   * [FEATURE-025] ([META-005]) Define and implement the native save/load format for schedule documents.
   * [FEATURE-026] ([META-005]) Support multiple convention years in a single schedule file for historical
 reference and jump-starting new conventions.
@@ -179,62 +183,118 @@ panels arranged by time and room, with inline editing of entity fields.
 
 ## Open FEATURE Items
 
-### [FEATURE-022] CRDT Abstraction Layer Design
+### [FEATURE-022] Automerge-backed Schedule Storage
 
 **Status:** Open
 
 **Priority:** Medium
 
-**Summary:** Design the abstraction layer between the entity/field system and the CRDT backend.
+**Summary:** Make an `automerge::AutoCommit` document the authoritative storage inside
+`Schedule`; the in-memory `HashMap` entity store becomes a derived cache.
 
 **Part of:** [META-004]
 
-**Description:** Before integrating a specific CRDT library, define the abstraction boundary so
-the entity system doesn't depend directly on CRDT internals.
+**Description:** Replace the current in-memory `HashMap<TypeId, HashMap<Uuid, …>>` as the
+source of truth with an automerge document. The HashMap stays, but only as a
+cache that mirrors the document state after every write and is rebuilt in
+full on load.
 
-Uses the `CrdtFieldType` annotations (Scalar, Text, List, Derived) on field
-descriptors to drive write-through and materialization without per-entity tables.
+CRDT is **not optional** — there is no `crdt` feature flag, no
+`Option<Box<dyn CrdtStorage>>`. `automerge` is a plain workspace dependency
+and `Schedule` owns an `AutoCommit` directly.
 
-See `docs/crdt-design.md` for the settled design decisions.
+Document layout:
+
+```text
+/meta/schedule_id, /meta/created_at, /meta/generator, /meta/version
+/entities/{type_name}/{uuid}/{field_name}     (per CrdtFieldType)
+/entities/{type_name}/{uuid}/__deleted        (soft delete)
+```
+
+Field routing by `CrdtFieldType`:
+
+| CrdtFieldType | automerge op             |
+| ------------- | ------------------------ |
+| `Scalar`      | `put` / `get` (LWW)      |
+| `Text`        | `splice_text` / `text`   |
+| `List`        | `insert` / `delete`      |
+| `Derived`     | not stored               |
+
+A small internal helper module (`crdt/`) exposes typed `read_field` /
+`write_field` / `list_entities` / `put_deleted` helpers that take a
+`FieldDescriptor` and a `FieldValue` so no entity-specific CRDT code is
+written.
 
 ---
 
-### [FEATURE-023] CRDT-backed Entity Storage
+### [FEATURE-023] CRDT-backed Edges via Relationship Lists
 
 **Status:** Open
 
 **Priority:** Medium
 
-**Summary:** Replace direct `HashMap` entity storage with CRDT-backed storage using automerge.
+**Summary:** Store relationships as automerge list fields on a canonical owner entity;
+`RawEdgeMap` becomes a derived index rebuilt from these lists.
 
 **Part of:** [META-004]
 
-**Description:** Implement the CRDT abstraction layer (FEATURE-022) with automerge as the
-concrete backend, replacing in-memory `HashMap<NonNilUuid, Data>` collections
-with CRDT-backed equivalents.
+**Description:** Move relationship data into the CRDT document by adding a relationship-list
+field (`CrdtFieldType::List`) to the canonical owner entity for each
+relation. Ownership follows a **panels-outward** rule: panels own outgoing
+edges, and entities further from panels own edges that do not point back
+toward a panel.
 
-Write-through: field writes propagate to automerge document based on
-`CrdtFieldType`. Materialization: on load, entities are reconstructed from
-CRDT state using `crdt_fields` metadata on each `FieldSet`.
+Canonical owners:
+
+| Relation                     | Owner          | Field on owner    |
+| ---------------------------- | -------------- | ----------------- |
+| Panel ↔ Presenter            | Panel          | `presenter_ids`   |
+| Panel ↔ EventRoom            | Panel          | `event_room_ids`  |
+| Panel → PanelType            | Panel          | `panel_type_id`   |
+| EventRoom ↔ HotelRoom        | EventRoom      | `hotel_room_ids`  |
+| Presenter → Presenter group  | Presenter (member) | `group_ids`   |
+
+The public edge API on `Schedule` (`edge_add`, `edge_remove`, `edge_set`,
+`edges_from`, `edges_to`) keeps its signature but dispatches to the
+canonical owner's relationship list. `RawEdgeMap` stays as a fast in-memory
+bidirectional index, rebuilt on `Schedule::load` by scanning all owners'
+relationship lists, and maintained incrementally on every edge mutation.
+
+Automerge list semantics give add-wins resolution for concurrent
+add/remove on the same relationship, matching `docs/crdt-design.md`.
 
 ---
 
-### [FEATURE-024] Change Tracking and Merge Operations
+### [FEATURE-024] Change Tracking, Merge, and Conflict Surfacing
 
 **Status:** Open
 
 **Priority:** Medium
 
-**Summary:** Implement change tracking, diff computation, and merge for CRDT documents.
+**Summary:** Expose automerge change tracking and merge through `Schedule`, and surface
+concurrent scalar conflicts to the caller.
 
 **Part of:** [META-004]
 
-**Description:** Build on the CRDT storage (FEATURE-023) to provide:
+**Description:** Build on the authoritative automerge document (FEATURE-022) and CRDT edges
+(FEATURE-023) to expose sync / merge primitives on `Schedule`:
 
-* Change tracking between document states
-* Diff computation showing what changed between two versions
-* Merge operations for combining concurrent changes from multiple actors
-* Conflict surfacing for concurrent scalar edits (LWW with visibility)
+* `Schedule::save() -> Vec<u8>` — already added in FEATURE-022; confirmed here.
+* `Schedule::load(&[u8]) -> Schedule` — already added in FEATURE-022.
+* `Schedule::get_changes() -> Vec<Vec<u8>>` — all encoded changes since doc
+  creation.
+* `Schedule::get_changes_since(&[ChangeHash]) -> Vec<Vec<u8>>` — delta from
+  a known state.
+* `Schedule::apply_changes(&[Vec<u8>])` — apply remote changes, then rebuild
+  the cache in full.
+* `Schedule::merge(&mut other: Schedule)` — convenience wrapper.
+* `Schedule::conflicts_for(entity_id, field_name) -> Vec<FieldValue>` —
+  returns all concurrent values for a scalar field (empty or singleton when
+  no conflict; multiple entries under concurrent writes). Primary read
+  still returns one deterministic value (automerge-selected LWW winner).
+
+After any `apply_changes` / `merge`, the cache is rebuilt in full (simple,
+correct; incremental rebuild is a later optimization).
 
 ---
 
@@ -393,27 +453,39 @@ replacing the old `schedule-field`, `schedule-data`, and `schedule-macro` crates
 
 ### [META-004] Phase 3 — CRDT Integration
 
-**Status:** Blocked
+**Status:** Open
 
 **Priority:** Medium
 
-**Summary:** Phase tracker for adding CRDT-backed storage underneath the entity/field system.
+**Summary:** Phase tracker for making an automerge CRDT document the authoritative storage
+underneath `Schedule`.
 
-**Blocked By:** [META-003]
+**Description:** Make the automerge CRDT document the single source of truth for all entity
+and edge data in `Schedule`. The in-memory `HashMap` entity store and
+`RawEdgeMap` become pure derived caches that are rebuilt from the document
+on load/merge and kept in sync on every write.
 
-**Description:** Design and implement the CRDT abstraction layer and replace the direct HashMap
-entity storage with a CRDT-backed equivalent. This enables concurrent offline
-editing and eventual merge without a central server.
+CRDT support is **not optional** — there is no feature flag, no
+`Option<Box<dyn CrdtStorage>>` sidecar. Every `Schedule` owns an
+`automerge::AutoCommit` directly, and every field write flows through it.
 
-The integration leverages field-level CRDT semantics (`CrdtFieldType` on each
-field descriptor) to avoid per-entity boilerplate. Write-through and materialize
-patterns iterate the field metadata — no per-entity-kind tables needed.
+Edges are stored as relationship-list fields on a canonical owner entity,
+following a panels-outward ownership rule:
+
+* Panel owns `presenter_ids`, `event_room_ids`, `panel_type_id`
+* EventRoom owns `hotel_room_ids`
+* Presenter (member) owns `group_ids`
+
+This gives automerge-native OR-set-ish add-wins semantics on concurrent
+relationship edits without a separate edge-entity layer.
+
+See `docs/crdt-design.md` for the settled design and path layout.
 
 **Work Items:**
 
-* FEATURE-022: CRDT abstraction layer design
-* FEATURE-023: CRDT-backed entity storage
-* FEATURE-024: Change tracking and merge operations
+* FEATURE-022: Automerge-backed Schedule storage (single source of truth)
+* FEATURE-023: CRDT-backed edges via relationship lists
+* FEATURE-024: Change tracking, merge, and conflict surfacing
 
 ---
 
@@ -426,7 +498,7 @@ patterns iterate the field metadata — no per-entity-kind tables needed.
 **Summary:** Phase tracker for internal file format, multi-year archive, widget JSON, and
 XLSX import/export.
 
-**Blocked By:** [META-003], [META-004]
+**Blocked By:** [META-004]
 
 **Description:** Define and implement all file format support: the internal native format with
 CRDT state, multi-year archive support, widget display JSON export, and

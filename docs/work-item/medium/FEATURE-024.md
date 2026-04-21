@@ -1,8 +1,9 @@
-# Change Tracking and Merge Operations
+# Change Tracking, Merge, and Conflict Surfacing
 
 ## Summary
 
-Implement change tracking, diff computation, and merge for CRDT documents.
+Expose automerge change tracking and merge through `Schedule`, and surface
+concurrent scalar conflicts to the caller.
 
 ## Status
 
@@ -14,20 +15,37 @@ Medium
 
 ## Blocked By
 
-- FEATURE-023: CRDT-backed entity storage
+- FEATURE-023: CRDT-backed edges via relationship lists
 
 ## Description
 
-Build on the CRDT storage (FEATURE-023) to provide:
+Build on the authoritative automerge document (FEATURE-022) and CRDT edges
+(FEATURE-023) to expose sync / merge primitives on `Schedule`:
 
-- Change tracking between document states
-- Diff computation showing what changed between two versions
-- Merge operations for combining concurrent changes from multiple actors
-- Conflict surfacing for concurrent scalar edits (LWW with visibility)
+- `Schedule::save() -> Vec<u8>` — already added in FEATURE-022; confirmed here.
+- `Schedule::load(&[u8]) -> Schedule` — already added in FEATURE-022.
+- `Schedule::get_changes() -> Vec<Vec<u8>>` — all encoded changes since doc
+  creation.
+- `Schedule::get_changes_since(&[ChangeHash]) -> Vec<Vec<u8>>` — delta from
+  a known state.
+- `Schedule::apply_changes(&[Vec<u8>])` — apply remote changes, then rebuild
+  the cache in full.
+- `Schedule::merge(&mut other: Schedule)` — convenience wrapper.
+- `Schedule::conflicts_for(entity_id, field_name) -> Vec<FieldValue>` —
+  returns all concurrent values for a scalar field (empty or singleton when
+  no conflict; multiple entries under concurrent writes). Primary read
+  still returns one deterministic value (automerge-selected LWW winner).
+
+After any `apply_changes` / `merge`, the cache is rebuilt in full (simple,
+correct; incremental rebuild is a later optimization).
 
 ## Acceptance Criteria
 
-- Can compute diff between two document versions
-- Merge of concurrent non-conflicting changes succeeds
-- Scalar conflicts are surfaced to the user
-- Unit tests for merge scenarios from docs/crdt-design.md
+- `get_changes` / `apply_changes` / `merge` work on real `Schedule`
+  instances with entities and edges.
+- Concurrent-edit tests from `docs/crdt-design.md` § Merge Semantics pass:
+  - Different scalars on same entity → both preserved.
+  - Same scalar → LWW winner, alternative visible via `conflicts_for`.
+  - Concurrent text edits on a `Text` field merge without loss.
+  - Concurrent relationship-list add/remove → add wins.
+- `save` → `load` after merge reproduces the merged state.
