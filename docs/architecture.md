@@ -126,6 +126,42 @@ All entity relationships are stored in a single `RawEdgeMap` on `Schedule`.
 
 Het vs homo is determined at runtime by `TypeId::of::<L::InternalData>() == TypeId::of::<R::InternalData>()`.
 
+### Transitive Edge Cache
+
+`HomoEdgeCache` (`edge_cache.rs`) caches transitive closures of homogeneous edges
+(same entity type on both ends). Heterogeneous-edge transitive queries are not cached
+here; they are composed in entity modules from direct `inclusive_edges_from` /
+`inclusive_edges_to` calls.
+
+`Schedule` holds the cache as `RefCell<Option<HomoEdgeCache>>`. Interior mutability
+lets `inclusive_edges_from` / `inclusive_edges_to` update the cache through a `&self`
+reference. Setting the field to `None` invalidates the entire cache; it is rebuilt
+lazily per-entry on the next query.
+
+```text
+homo_edge_cache: RefCell<Option<HomoEdgeCache>>
+  inclusive_forward: HashMap<NonNilUuid, Box<[NonNilUuid]>>
+  inclusive_reverse: HashMap<NonNilUuid, Box<[NonNilUuid]>>
+```
+
+The cache key is `NonNilUuid` alone (no type tag) because UUIDs are globally unique
+across all entity types — a given UUID belongs to exactly one type, so keying on UUID
+alone is sufficient.
+
+**Invalidation:** `homo_edge_cache` is set to `None` inside `edge_add`, `edge_remove`,
+`edge_set`, `edge_set_to`, and `remove_entity` whenever the edge is homogeneous.
+Heterogeneous-edge mutations do not touch the cache.
+
+**`Schedule` methods:**
+
+- `inclusive_edges_from<L, R>(id)` — all `R` entities transitively reachable from `id`
+  via forward homo edges; falls back to direct `edges_from` for het edges.
+- `inclusive_edges_to<L, R>(id)` — all `L` entities that transitively point to `id`
+  via reverse homo edges; falls back to direct `edges_to` for het edges.
+
+These are the methods used by entity-level computed fields such as `inclusive_groups`
+and `inclusive_members` on `Presenter`.
+
 ### Query system
 
 Entity lookup is provided by free functions in `schedule-core::lookup`:

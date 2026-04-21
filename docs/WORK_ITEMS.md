@@ -1,6 +1,6 @@
 # Cosplay America Schedule - Work Item
 
-Updated on: Sat Apr 25 13:33:19 2026
+Updated on: Tue Apr 21 10:51:45 2026
 
 ## Completed
 
@@ -32,6 +32,7 @@ concurrent scalar conflicts to the caller.
 wrappers) to `value.rs` as `Copy` type-level mirrors of `FieldValueItem`/`FieldValue`.
 * [FEATURE-051] Add a `field_type: FieldType` field to `FieldDescriptor` and populate it in all
 existing static field descriptors across every entity file.
+* [FEATURE-057] Implement a transitive edge relationship cache to efficiently compute inclusive members, groups, panels, and other hierarchical relationships.
 * [META-002] Phase tracker for project foundation and Cargo workspace setup.
 * [META-003] Phase tracker for the entity/field system and core schedule data model in schedule-core.
 * [META-004] Phase tracker for making an automerge CRDT document the authoritative storage
@@ -486,6 +487,7 @@ to exchange CRDT changes and reconcile concurrent edits to the same fields.
 [FEATURE-050]: work-item/done/FEATURE-050.md
 [FEATURE-051]: work-item/done/FEATURE-051.md
 [FEATURE-056]: work-item/medium/FEATURE-056.md
+[FEATURE-057]: work-item/done/FEATURE-057.md
 [META-001]: work-item/meta/META-001.md
 [META-002]: work-item/done/META-002.md
 [META-003]: work-item/done/META-003.md

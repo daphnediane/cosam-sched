@@ -635,11 +635,24 @@ edge_field!(FIELD_REMOVE_PRESENTERS, PanelEntityType, mode: remove, target: Pres
     order: 2900);
 
 define_field!(
-    /// Inclusive presenters — BFS over direct presenters + their groups/members.
+    /// Inclusive presenters for a panel.
+    ///
+    /// For each direct presenter `P` of this panel, the inclusive set contains:
+    /// - `P` itself
+    /// - All transitive groups of `P` (following forward homogeneous edges upward:
+    ///   `P → Group → ParentGroup → …`)
+    /// - All transitive members of `P` (following reverse homogeneous edges downward:
+    ///   `P ← Member ← SubMember ← …`)
+    ///
+    /// Crucially, the expansion does **not** cross boundaries: groups of members
+    /// and members of groups are not included. For example, if a panel lists
+    /// Team A, the result includes Team A, its parent groups (Division C, Corp D)
+    /// and its members (Alice, Bob) — but not Team B (a sibling in Division C),
+    /// and not Club E (a group of Alice's that has nothing to do with Team A).
     pub static FIELD_INCLUSIVE_PRESENTERS: FieldDescriptor<PanelEntityType> = FieldDescriptor {
         name: "inclusive_presenters",
         display: "Inclusive Presenters",
-        description: "Transitive closure: direct presenters + their groups + group members.",
+        description: "Direct presenters + their transitive groups + their transitive members.",
         aliases: &["inclusive_presenter"],
         required: false,
         crdt_type: CrdtFieldType::Derived,
@@ -650,25 +663,20 @@ define_field!(
         order: 3000,
         read_fn: Some(ReadFn::Schedule(|sched, panel_id| {
             use std::collections::HashSet;
-            let mut visited: HashSet<PresenterId> = HashSet::new();
-            let mut queue: Vec<PresenterId> = sched
-                .edges_from::<PanelEntityType, PresenterEntityType>(panel_id);
-            while let Some(pres_id) = queue.pop() {
-                if visited.insert(pres_id) {
-                    // BFS upward (groups) and downward (members)
-                    for g in sched.edges_from::<PresenterEntityType, PresenterEntityType>(pres_id) {
-                        if !visited.contains(&g) {
-                            queue.push(g);
-                        }
-                    }
-                    for m in sched.edges_to::<PresenterEntityType, PresenterEntityType>(pres_id) {
-                        if !visited.contains(&m) {
-                            queue.push(m);
-                        }
-                    }
+            let direct = sched.edges_from::<PanelEntityType, PresenterEntityType>(panel_id);
+            let mut result: HashSet<PresenterId> = HashSet::new();
+            for p in direct {
+                result.insert(p);
+                // Inclusive groups of p: all groups reachable going up (forward homogeneous edges)
+                for g in sched.inclusive_edges_from::<PresenterEntityType, PresenterEntityType>(p) {
+                    result.insert(g);
+                }
+                // Inclusive members of p: all members reachable going down (reverse homogeneous edges)
+                for m in sched.inclusive_edges_to::<PresenterEntityType, PresenterEntityType>(p) {
+                    result.insert(m);
                 }
             }
-            let ids: Vec<PresenterId> = visited.into_iter().collect();
+            let ids: Vec<PresenterId> = result.into_iter().collect();
             Some(crate::schedule::entity_ids_to_field_value(ids))
         })),
         write_fn: None,

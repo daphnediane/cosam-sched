@@ -20,8 +20,8 @@
 //! Forward edges are stored in `edges` (source → targets). Reverse edges are
 //! stored in `homogeneous_reverse` (target → sources). This separation avoids
 //! direction ambiguity: without it, a Presenter UUID in `edges` could be both a
-//! het reverse-entry (panel back-link) and a homo forward-entry (group), with no
-//! way to distinguish them if both appeared in the same list.
+//! heterogeneous reverse-entry (panel back-link) and a homogeneous forward-entry
+//! (group), with no way to distinguish them if both appeared in the same list.
 
 use crate::entity::RuntimeEntityId;
 use std::collections::HashMap;
@@ -34,11 +34,11 @@ use uuid::NonNilUuid;
 /// `edges_from` / `edges_to` / `edge_add` / `edge_remove` / `edge_set` methods.
 #[derive(Debug, Default, Clone)]
 pub struct RawEdgeMap {
-    /// For het edges: undirected — each endpoint stores the other (with type).
-    /// For homo forward edges: source stores its targets.
+    /// For heterogeneous edges: undirected — each endpoint stores the other (with type).
+    /// For homogeneous forward edges: source stores its targets.
     edges: HashMap<NonNilUuid, Vec<RuntimeEntityId>>,
 
-    /// Reverse side of homo edges only. Keyed by the right-side (target) UUID;
+    /// Reverse side of homogeneous edges only. Keyed by the right-side (target) UUID;
     /// value is the list of left-side (source) entities.
     homogeneous_reverse: HashMap<NonNilUuid, Vec<RuntimeEntityId>>,
 }
@@ -165,13 +165,13 @@ impl RawEdgeMap {
 
     // ── Read ──────────────────────────────────────────────────────────────────
 
-    /// All neighbors of `uuid` in `edges` (het + homo forward).
+    /// All neighbors of `uuid` in `edges` (heterogeneous + homogeneous forward).
     pub fn neighbors(&self, uuid: NonNilUuid) -> &[RuntimeEntityId] {
         self.edges.get(&uuid).map_or(&[], Vec::as_slice)
     }
 
-    /// All homo reverse neighbors of `uuid` (sources whose homo-forward edge
-    /// points to `uuid`).
+    /// All homogeneous reverse neighbors of `uuid` (sources whose homogeneous
+    /// forward edge points to `uuid`).
     pub fn homo_reverse(&self, uuid: NonNilUuid) -> &[RuntimeEntityId] {
         self.homogeneous_reverse
             .get(&uuid)
@@ -183,25 +183,25 @@ impl RawEdgeMap {
     /// Remove all edges involving `uuid`, maintaining consistency in both maps.
     ///
     /// For each entry in `edges[uuid]`:
-    /// - If neighbor type == `type_name` (homo forward edge): remove `uuid` from
-    ///   `homogeneous_reverse[neighbor]`.
-    /// - Otherwise (het edge): remove `uuid` from `edges[neighbor]`.
+    /// - If neighbor type == `type_name` (homogeneous forward edge): remove `uuid`
+    ///   from `homogeneous_reverse[neighbor]`.
+    /// - Otherwise (heterogeneous edge): remove `uuid` from `edges[neighbor]`.
     ///
     /// For each entry in `homogeneous_reverse[uuid]`:
-    /// - Remove `uuid` from `edges[source]` (homo reverse cleanup).
+    /// - Remove `uuid` from `edges[source]` (homogeneous reverse cleanup).
     ///
     /// Then removes `uuid` from both maps.
     pub fn clear_all(&mut self, uuid: NonNilUuid, type_name: &'static str) {
-        // Process edges[uuid] — het reverse cleanup + homo reverse-map cleanup.
+        // Process edges[uuid] — heterogeneous reverse cleanup + homogeneous reverse-map cleanup.
         if let Some(neighbors) = self.edges.remove(&uuid) {
             for neighbor in neighbors {
                 if neighbor.type_name() == type_name {
-                    // Homo forward edge: remove uuid from homogeneous_reverse[neighbor]
+                    // Homogeneous forward edge: remove uuid from homogeneous_reverse[neighbor]
                     if let Some(v) = self.homogeneous_reverse.get_mut(&neighbor.uuid()) {
                         v.retain(|e| e.uuid() != uuid);
                     }
                 } else {
-                    // Het edge: remove uuid from edges[neighbor]
+                    // Heterogeneous edge: remove uuid from edges[neighbor]
                     if let Some(v) = self.edges.get_mut(&neighbor.uuid()) {
                         v.retain(|e| e.uuid() != uuid);
                     }
@@ -209,7 +209,7 @@ impl RawEdgeMap {
             }
         }
 
-        // Process homogeneous_reverse[uuid] — homo forward (edges[source]) cleanup.
+        // Process homogeneous_reverse[uuid] — homogeneous forward (edges[source]) cleanup.
         if let Some(sources) = self.homogeneous_reverse.remove(&uuid) {
             for source in sources {
                 if let Some(v) = self.edges.get_mut(&source.uuid()) {
@@ -361,7 +361,7 @@ mod tests {
         assert_eq!(map.neighbors(member.uuid()), &[group]);
         // Reverse: group's members in homogeneous_reverse
         assert_eq!(map.homo_reverse(group.uuid()), &[member]);
-        // group is NOT in edges (het side) pointing to member
+        // group is NOT in edges (heterogeneous side) pointing to member
         assert!(map.neighbors(group.uuid()).is_empty());
     }
 
@@ -395,7 +395,7 @@ mod tests {
         map.remove_homo(nnu(10), nnu(20)); // should not panic
     }
 
-    // ── Coexistence: het + homo on same entity ───────────────────────────────
+    // ── Coexistence: heterogeneous + homogeneous on same entity ──────────────
 
     #[test]
     fn test_het_and_homo_coexist_on_same_uuid() {
@@ -404,8 +404,8 @@ mod tests {
         let panel = rid_b(2);
         let group = rid_a(3);
 
-        map.add_het(presenter, panel); // het: presenter ↔ panel
-        map.add_homo(presenter, group); // homo: presenter → group
+        map.add_het(presenter, panel); // heterogeneous: presenter ↔ panel
+        map.add_homo(presenter, group); // homogeneous: presenter → group
 
         let neighbors = map.neighbors(presenter.uuid());
         assert_eq!(neighbors.len(), 2);
@@ -457,7 +457,7 @@ mod tests {
         let b = rid_b(10);
         let a2 = rid_a(2); // same type as a
         map.add_het(a, b);
-        map.add_het(a, a2); // het edge to another TypeA
+        map.add_het(a, a2); // heterogeneous edge to another TypeA
 
         // Replace only TypeB neighbors
         map.set_neighbors(a, &[], TypeB::TYPE_NAME, false);

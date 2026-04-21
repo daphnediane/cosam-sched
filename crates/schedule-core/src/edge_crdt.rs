@@ -117,7 +117,7 @@ pub fn canonical_owner(l_type: &str, r_type: &str) -> Option<CanonicalOwner> {
     })
 }
 
-/// Every owner-side (type, field, target_type, is_homo) tuple.  Used by the
+/// Every owner-side (type, field, target_type, is_homogeneous) tuple.  Used by the
 /// load path to rebuild `RawEdgeMap` from the authoritative doc.
 pub const OWNER_EDGE_FIELDS: &[(&str, &str, &str, bool)] = &[
     ("panel", "presenters", "presenter", false),

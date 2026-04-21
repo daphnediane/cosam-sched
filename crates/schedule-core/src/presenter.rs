@@ -499,7 +499,7 @@ fn parse_tag(input: &str) -> ParsedTag<'_> {
 }
 
 /// Return `true` if `id` acts as a group: either `is_explicit_group` flag is set
-/// or the presenter has at least one member via the homo edge map.
+/// or the presenter has at least one member via the homogeneous edge map.
 fn is_group_entity(schedule: &crate::schedule::Schedule, id: PresenterId) -> bool {
     schedule
         .get_internal::<PresenterEntityType>(id)
@@ -797,7 +797,10 @@ edge_field!(FIELD_MEMBERS, PresenterEntityType, mode: rw_to, source: PresenterEn
     order: 800);
 
 define_field!(
-    /// Inclusive groups — BFS upward via homo forward edges (member → group).
+    /// Inclusive groups — all groups this presenter belongs to, transitively.
+    ///
+    /// Follows forward homogeneous edges upward: `presenter → group → parent_group → …`.
+    /// Does not include the presenter itself.
     pub static FIELD_INCLUSIVE_GROUPS: FieldDescriptor<PresenterEntityType> = FieldDescriptor {
         name: "inclusive_groups",
         display: "Inclusive Groups",
@@ -811,17 +814,7 @@ define_field!(
         example: "[]",
         order: 900,
         read_fn: Some(ReadFn::Schedule(|sched, id| {
-            use std::collections::HashSet;
-            let mut visited: HashSet<PresenterId> = HashSet::new();
-            let mut queue = vec![id];
-            while let Some(curr) = queue.pop() {
-                for g in sched.edges_from::<PresenterEntityType, PresenterEntityType>(curr) {
-                    if visited.insert(g) {
-                        queue.push(g);
-                    }
-                }
-            }
-            let ids: Vec<PresenterId> = visited.into_iter().collect();
+            let ids = sched.inclusive_edges_from::<PresenterEntityType, PresenterEntityType>(id);
             Some(crate::schedule::entity_ids_to_field_value(ids))
         })),
         write_fn: None,
@@ -830,7 +823,10 @@ define_field!(
 );
 
 define_field!(
-    /// Inclusive members — BFS downward via homo reverse edges (group → member).
+    /// Inclusive members — all members of this group, transitively.
+    ///
+    /// Follows reverse homogeneous edges downward: `group ← member ← sub_member ← …`.
+    /// Does not include the group itself.
     static FIELD_INCLUSIVE_MEMBERS: FieldDescriptor<PresenterEntityType> = FieldDescriptor {
         name: "inclusive_members",
         display: "Inclusive Members",
@@ -844,17 +840,7 @@ define_field!(
         example: "[]",
         order: 1000,
         read_fn: Some(ReadFn::Schedule(|sched, id| {
-            use std::collections::HashSet;
-            let mut visited: HashSet<PresenterId> = HashSet::new();
-            let mut queue = vec![id];
-            while let Some(curr) = queue.pop() {
-                for m in sched.edges_to::<PresenterEntityType, PresenterEntityType>(curr) {
-                    if visited.insert(m) {
-                        queue.push(m);
-                    }
-                }
-            }
-            let ids: Vec<PresenterId> = visited.into_iter().collect();
+            let ids = sched.inclusive_edges_to::<PresenterEntityType, PresenterEntityType>(id);
             Some(crate::schedule::entity_ids_to_field_value(ids))
         })),
         write_fn: None,
@@ -884,11 +870,20 @@ edge_field!(FIELD_REMOVE_PANELS, PresenterEntityType, mode: remove, target: Pane
     order: 1300);
 
 define_field!(
-    /// Inclusive panels — direct panels + panels of all inclusive groups.
+    /// Inclusive panels for a presenter.
+    ///
+    /// Union of:
+    /// - Direct panels of this presenter.
+    /// - Panels of all transitive groups (following forward homogeneous edges upward).
+    /// - Panels of all transitive members (following reverse homogeneous edges downward).
+    ///
+    /// This is symmetric with `FIELD_INCLUSIVE_PRESENTERS` on panels: if a panel
+    /// lists Team A, then all of Team A's inclusive presenters see that panel in
+    /// their inclusive panels.
     static FIELD_INCLUSIVE_PANELS: FieldDescriptor<PresenterEntityType> = FieldDescriptor {
         name: "inclusive_panels",
         display: "Inclusive Panels",
-        description: "Transitive closure: panels of this presenter and of its groups.",
+        description: "Panels of this presenter plus panels of its transitive groups and members.",
         aliases: &[],
         required: false,
         crdt_type: CrdtFieldType::Derived,
@@ -897,23 +892,20 @@ define_field!(
         order: 1400,
         read_fn: Some(ReadFn::Schedule(|sched, id| {
             use std::collections::HashSet;
-            // Collect inclusive groups (BFS upward)
-            let mut group_visited: HashSet<PresenterId> = HashSet::new();
-            let mut queue = vec![id];
-            while let Some(curr) = queue.pop() {
-                for g in sched.edges_from::<PresenterEntityType, PresenterEntityType>(curr) {
-                    if group_visited.insert(g) {
-                        queue.push(g);
-                    }
-                }
-            }
-            // Union of direct panels + panels of each inclusive group
             let mut panel_set: HashSet<PanelId> = HashSet::new();
+            // Direct panels of this presenter
             for p in sched.edges_from::<PresenterEntityType, PanelEntityType>(id) {
                 panel_set.insert(p);
             }
-            for g in &group_visited {
-                for p in sched.edges_from::<PresenterEntityType, PanelEntityType>(*g) {
+            // Panels of all transitive groups (upward)
+            for g in sched.inclusive_edges_from::<PresenterEntityType, PresenterEntityType>(id) {
+                for p in sched.edges_from::<PresenterEntityType, PanelEntityType>(g) {
+                    panel_set.insert(p);
+                }
+            }
+            // Panels of all transitive members (downward)
+            for m in sched.inclusive_edges_to::<PresenterEntityType, PresenterEntityType>(id) {
+                for p in sched.edges_from::<PresenterEntityType, PanelEntityType>(m) {
                     panel_set.insert(p);
                 }
             }

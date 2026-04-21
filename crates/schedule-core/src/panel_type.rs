@@ -330,7 +330,7 @@ define_field!(
     }
 );
 
-// Panels of this type — reverse het edge from Panel → PanelType.
+// Panels of this type — reverse heterogeneous edge from Panel → PanelType.
 edge_field!(FIELD_PANELS, PanelTypeEntityType, mode: ro, target: PanelEntityType,
     name: "panels", display: "Panels",
     desc: "Panels of this type.",

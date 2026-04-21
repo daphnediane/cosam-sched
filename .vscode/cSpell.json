@@ -124,6 +124,7 @@
         "Subclassing",
         "subpanel",
         "subpanels",
+        "subtrait",
         "SUMPRODUCT",
         "termcolor",
         "test_circular_group_relationships_dont_cause_infinite_loop",

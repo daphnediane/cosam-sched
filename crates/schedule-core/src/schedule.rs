@@ -11,6 +11,7 @@
 //! entity modules.
 
 use crate::crdt::{self, CrdtError};
+use crate::edge_cache::HomoEdgeCache;
 use crate::edge_map::RawEdgeMap;
 use crate::entity::{registered_entity_types, EntityId, EntityType, RuntimeEntityId};
 use crate::field::ReadableField;
@@ -18,6 +19,7 @@ use crate::value::{CrdtFieldType, FieldError, FieldValue};
 use automerge::AutoCommit;
 use serde::{Deserialize, Serialize};
 use std::any::{Any, TypeId};
+use std::cell::RefCell;
 use std::collections::HashMap;
 use thiserror::Error;
 use uuid::NonNilUuid;
@@ -103,6 +105,11 @@ pub struct Schedule {
     /// Single unified edge store for all entity relationships.
     edges: RawEdgeMap,
 
+    /// Cache for transitive homogeneous-edge relationships (inclusive groups, members, etc.).
+    /// Set to `None` whenever a homogeneous edge is modified; rebuilt lazily per-entry on query.
+    /// Heterogeneous-edge mutations do not touch this field since the cache contains no heterogeneous data.
+    homo_edge_cache: RefCell<Option<HomoEdgeCache>>,
+
     /// Schedule identity and provenance.
     pub metadata: ScheduleMetadata,
 
@@ -121,6 +128,7 @@ impl std::fmt::Debug for Schedule {
         f.debug_struct("Schedule")
             .field("entities", &self.entities)
             .field("edges", &self.edges)
+            .field("homo_edge_cache", &self.homo_edge_cache)
             .field("metadata", &self.metadata)
             .field("mirror_enabled", &self.mirror_enabled)
             .finish()
@@ -143,6 +151,7 @@ impl Schedule {
         Self {
             entities: HashMap::new(),
             edges: RawEdgeMap::default(),
+            homo_edge_cache: RefCell::new(None),
             metadata: ScheduleMetadata {
                 schedule_id,
                 created_at: chrono::Utc::now(),
@@ -451,7 +460,7 @@ impl Schedule {
     /// Replay every canonical owner's relationship-list field into the
     /// in-memory [`RawEdgeMap`].
     ///
-    /// For every `(owner_type, field_name, target_type, is_homo)` tuple in
+    /// For every `(owner_type, field_name, target_type, is_homogeneous)` tuple in
     /// [`crate::edge_crdt::OWNER_EDGE_FIELDS`], iterate every live owner
     /// uuid in the doc, read the list, and `add_het`/`add_homo` each
     /// endpoint into the cache.  The caller is responsible for running this
@@ -682,6 +691,7 @@ impl Schedule {
             map.remove(&uuid);
         }
         self.edges.clear_all(uuid, E::TYPE_NAME);
+        *self.homo_edge_cache.borrow_mut() = None;
     }
 
     /// Iterate all entities of type `E`, yielding `(EntityId<E>, &E::InternalData)` pairs.
@@ -729,8 +739,8 @@ impl Schedule {
 
     /// All `R` entities reachable from `id` following the L→R direction.
     ///
-    /// For het edges: reads `edges[id]` filtered by `R::TYPE_NAME`.
-    /// For homo edges (L==R): same — forward edges are stored in `edges`.
+    /// For heterogeneous edges: reads `edges[id]` filtered by `R::TYPE_NAME`.
+    /// For homogeneous edges (L==R): same — forward edges are stored in `edges`.
     #[must_use]
     pub fn edges_from<L: EntityType, R: EntityType>(&self, id: EntityId<L>) -> Vec<EntityId<R>> {
         self.edges
@@ -742,8 +752,8 @@ impl Schedule {
 
     /// All `L` entities that have an edge pointing to `id`.
     ///
-    /// For het edges: reads `edges[id]` filtered by `L::TYPE_NAME`.
-    /// For homo edges (L==R): reads `homogeneous_reverse[id]` filtered by `L::TYPE_NAME`.
+    /// For heterogeneous edges: reads `edges[id]` filtered by `L::TYPE_NAME`.
+    /// For homogeneous edges (L==R): reads `homogeneous_reverse[id]` filtered by `L::TYPE_NAME`.
     #[must_use]
     pub fn edges_to<L: EntityType, R: EntityType>(&self, id: EntityId<R>) -> Vec<EntityId<L>> {
         let is_homo = TypeId::of::<L::InternalData>() == TypeId::of::<R::InternalData>();
@@ -758,7 +768,67 @@ impl Schedule {
             .collect()
     }
 
-    /// Add an edge from `l` to `r`, using the correct het/homo storage strategy.
+    /// All `R` entities transitively reachable from `id` via homogeneous forward edges.
+    ///
+    /// For homogeneous edges (L==R): follows forward edges transitively
+    /// (e.g. `inclusive_edges_from<Presenter, Presenter>(alice)` returns all groups
+    /// alice belongs to, transitively — not alice herself).
+    /// For heterogeneous edges (L≠R): falls back to direct `edges_from` (single hop only).
+    ///
+    /// Takes `&self`; the edge cache is updated through interior mutability.
+    #[must_use]
+    pub fn inclusive_edges_from<L: EntityType, R: EntityType>(
+        &self,
+        id: EntityId<L>,
+    ) -> Vec<EntityId<R>> {
+        let is_homo = TypeId::of::<L::InternalData>() == TypeId::of::<R::InternalData>();
+        if is_homo {
+            let uuids = {
+                let mut cache_opt = self.homo_edge_cache.borrow_mut();
+                let cache = cache_opt.get_or_insert_with(HomoEdgeCache::default);
+                cache.get_or_compute_forward(&self.edges, id.non_nil_uuid(), R::TYPE_NAME)
+            };
+            uuids
+                .into_iter()
+                // SAFETY: uuid came from the edge map which only stores valid entity IDs of type R.
+                .map(|uuid| unsafe { EntityId::from_uuid(uuid) })
+                .collect()
+        } else {
+            self.edges_from::<L, R>(id)
+        }
+    }
+
+    /// All `L` entities that transitively point to `id` via homogeneous reverse edges.
+    ///
+    /// For homogeneous edges (L==R): follows reverse edges transitively
+    /// (e.g. `inclusive_edges_to<Presenter, Presenter>(team_a)` returns all members
+    /// of team_a transitively — not team_a itself).
+    /// For heterogeneous edges (L≠R): falls back to direct `edges_to` (single hop only).
+    ///
+    /// Takes `&self`; the edge cache is updated through interior mutability.
+    #[must_use]
+    pub fn inclusive_edges_to<L: EntityType, R: EntityType>(
+        &self,
+        id: EntityId<R>,
+    ) -> Vec<EntityId<L>> {
+        let is_homo = TypeId::of::<L::InternalData>() == TypeId::of::<R::InternalData>();
+        if is_homo {
+            let uuids = {
+                let mut cache_opt = self.homo_edge_cache.borrow_mut();
+                let cache = cache_opt.get_or_insert_with(HomoEdgeCache::default);
+                cache.get_or_compute_reverse(&self.edges, id.non_nil_uuid(), L::TYPE_NAME)
+            };
+            uuids
+                .into_iter()
+                // SAFETY: uuid came from the edge map which only stores valid entity IDs of type L.
+                .map(|uuid| unsafe { EntityId::from_uuid(uuid) })
+                .collect()
+        } else {
+            self.edges_to::<L, R>(id)
+        }
+    }
+
+    /// Add an edge from `l` to `r`, using the correct heterogeneous/homogeneous storage strategy.
     ///
     /// After updating the cache, if the mirror is enabled the new endpoint
     /// is incrementally `insert`ed into the canonical owner's list field
@@ -771,6 +841,7 @@ impl Schedule {
         let r_rid = RuntimeEntityId::from_typed(r);
         if is_homo {
             self.edges.add_homo(l_rid, r_rid);
+            *self.homo_edge_cache.borrow_mut() = None;
         } else {
             self.edges.add_het(l_rid, r_rid);
         }
@@ -785,6 +856,7 @@ impl Schedule {
         let is_homo = TypeId::of::<L::InternalData>() == TypeId::of::<R::InternalData>();
         if is_homo {
             self.edges.remove_homo(l.non_nil_uuid(), r.non_nil_uuid());
+            *self.homo_edge_cache.borrow_mut() = None;
         } else {
             self.edges.remove_het(l.non_nil_uuid(), r.non_nil_uuid());
         }
@@ -808,6 +880,9 @@ impl Schedule {
             .collect();
         self.edges
             .set_neighbors(l_rid, &new_targets, R::TYPE_NAME, is_homo);
+        if is_homo {
+            *self.homo_edge_cache.borrow_mut() = None;
+        }
         // Mirror only the owner side — if `l` is the canonical owner for
         // (L,R), we rewrite l's list; otherwise we rewrite each r's list in
         // turn to reflect the flipped set of l-endpoints.
@@ -842,6 +917,9 @@ impl Schedule {
             } else {
                 self.edges.add_het(l_rid, r_rid);
             }
+        }
+        if is_homo {
+            *self.homo_edge_cache.borrow_mut() = None;
         }
         // Mirror: treat as a set-difference against `lefts`. Each previously
         // connected `l` not in the new set is `edge_remove`d from the owner
@@ -1335,7 +1413,7 @@ mod tests {
             .is_empty());
     }
 
-    // ── EventRoom / HotelRoom het edges ───────────────────────────────────────
+    // ── EventRoom / HotelRoom heterogeneous edges ─────────────────────────────
 
     #[test]
     fn event_room_hotel_room_het_edge() {
@@ -1365,7 +1443,7 @@ mod tests {
         sched.insert(member_id, member_data);
         sched.insert(group_id, group_data);
 
-        // member → group (forward homo edge: member is in group)
+        // member → group (forward homogeneous edge: member is in group)
         sched.edge_add::<PresenterEntityType, PresenterEntityType>(member_id, group_id);
 
         // groups of member: edges_from(member)
@@ -2103,5 +2181,215 @@ mod tests {
         let forwards: Vec<PresenterId> =
             merged.edges_from::<PanelEntityType, PresenterEntityType>(panel_id);
         assert_eq!(forwards, vec![alice_id]);
+    }
+
+    // ── Edge cache tests ───────────────────────────────────────────────────────
+
+    #[test]
+    fn inclusive_edges_from_transitive_closure() {
+        use crate::entity::EntityType;
+        use crate::field_set::FieldSet;
+        use crate::value::ValidationError;
+        use uuid::{NonNilUuid, Uuid};
+
+        // Mock entity type for testing
+        #[derive(PartialEq, Eq)]
+        struct TestType;
+        #[derive(Clone, Debug)]
+        struct TestData;
+        impl EntityType for TestType {
+            type InternalData = TestData;
+            type Data = TestData;
+            const TYPE_NAME: &'static str = "test_type";
+            fn uuid_namespace() -> &'static Uuid {
+                static NS: std::sync::LazyLock<Uuid> =
+                    std::sync::LazyLock::new(|| Uuid::new_v5(&Uuid::NAMESPACE_OID, b"test"));
+                &NS
+            }
+            fn field_set() -> &'static FieldSet<Self> {
+                unimplemented!()
+            }
+            fn export(_: &TestData) -> TestData {
+                TestData
+            }
+            fn validate(_: &TestData) -> Vec<ValidationError> {
+                vec![]
+            }
+        }
+
+        fn nnu(n: u128) -> NonNilUuid {
+            NonNilUuid::new(Uuid::from_u128(n)).expect("test UUID must not be nil")
+        }
+
+        fn id(n: u128) -> EntityId<TestType> {
+            unsafe { EntityId::from_uuid(nnu(n)) }
+        }
+
+        let mut sched = Schedule::new();
+
+        // Create chain: 1 -> 2 -> 3
+        sched.edge_add(id(1), id(2));
+        sched.edge_add(id(2), id(3));
+
+        // Query from 1 should reach both 2 and 3 transitively
+        let result = sched.inclusive_edges_from::<TestType, TestType>(id(1));
+        assert_eq!(result.len(), 2);
+        assert!(result.contains(&id(2)));
+        assert!(result.contains(&id(3)));
+    }
+
+    #[test]
+    fn inclusive_edges_to_transitive_closure() {
+        use crate::entity::EntityType;
+        use crate::field_set::FieldSet;
+        use crate::value::ValidationError;
+        use uuid::{NonNilUuid, Uuid};
+
+        #[derive(PartialEq, Eq)]
+        struct TestType;
+        #[derive(Clone, Debug)]
+        struct TestData;
+        impl EntityType for TestType {
+            type InternalData = TestData;
+            type Data = TestData;
+            const TYPE_NAME: &'static str = "test_type";
+            fn uuid_namespace() -> &'static Uuid {
+                static NS: std::sync::LazyLock<Uuid> =
+                    std::sync::LazyLock::new(|| Uuid::new_v5(&Uuid::NAMESPACE_OID, b"test"));
+                &NS
+            }
+            fn field_set() -> &'static FieldSet<Self> {
+                unimplemented!()
+            }
+            fn export(_: &TestData) -> TestData {
+                TestData
+            }
+            fn validate(_: &TestData) -> Vec<ValidationError> {
+                vec![]
+            }
+        }
+
+        fn nnu(n: u128) -> NonNilUuid {
+            NonNilUuid::new(Uuid::from_u128(n)).expect("test UUID must not be nil")
+        }
+
+        fn id(n: u128) -> EntityId<TestType> {
+            unsafe { EntityId::from_uuid(nnu(n)) }
+        }
+
+        let mut sched = Schedule::new();
+
+        // Create chain: 1 -> 2 -> 3
+        sched.edge_add(id(1), id(2));
+        sched.edge_add(id(2), id(3));
+
+        // Query to 3 should find both 1 and 2 transitively
+        let result = sched.inclusive_edges_to::<TestType, TestType>(id(3));
+        assert_eq!(result.len(), 2);
+        assert!(result.contains(&id(1)));
+        assert!(result.contains(&id(2)));
+    }
+
+    #[test]
+    fn inclusive_edges_cycle_handling() {
+        use crate::entity::EntityType;
+        use crate::field_set::FieldSet;
+        use crate::value::ValidationError;
+        use uuid::{NonNilUuid, Uuid};
+
+        #[derive(PartialEq, Eq)]
+        struct TestType;
+        #[derive(Clone, Debug)]
+        struct TestData;
+        impl EntityType for TestType {
+            type InternalData = TestData;
+            type Data = TestData;
+            const TYPE_NAME: &'static str = "test_type";
+            fn uuid_namespace() -> &'static Uuid {
+                static NS: std::sync::LazyLock<Uuid> =
+                    std::sync::LazyLock::new(|| Uuid::new_v5(&Uuid::NAMESPACE_OID, b"test"));
+                &NS
+            }
+            fn field_set() -> &'static FieldSet<Self> {
+                unimplemented!()
+            }
+            fn export(_: &TestData) -> TestData {
+                TestData
+            }
+            fn validate(_: &TestData) -> Vec<ValidationError> {
+                vec![]
+            }
+        }
+
+        fn nnu(n: u128) -> NonNilUuid {
+            NonNilUuid::new(Uuid::from_u128(n)).expect("test UUID must not be nil")
+        }
+
+        fn id(n: u128) -> EntityId<TestType> {
+            unsafe { EntityId::from_uuid(nnu(n)) }
+        }
+
+        let mut sched = Schedule::new();
+
+        // Create cycle: 1 -> 2, 2 -> 1
+        sched.edge_add(id(1), id(2));
+        sched.edge_add(id(2), id(1));
+
+        // Should not infinite loop
+        let result = sched.inclusive_edges_from::<TestType, TestType>(id(1));
+        assert!(result.contains(&id(2)));
+    }
+
+    #[test]
+    fn inclusive_edges_cache_invalidation() {
+        use crate::entity::EntityType;
+        use crate::field_set::FieldSet;
+        use crate::value::ValidationError;
+        use uuid::{NonNilUuid, Uuid};
+
+        #[derive(PartialEq, Eq)]
+        struct TestType;
+        #[derive(Clone, Debug)]
+        struct TestData;
+        impl EntityType for TestType {
+            type InternalData = TestData;
+            type Data = TestData;
+            const TYPE_NAME: &'static str = "test_type";
+            fn uuid_namespace() -> &'static Uuid {
+                static NS: std::sync::LazyLock<Uuid> =
+                    std::sync::LazyLock::new(|| Uuid::new_v5(&Uuid::NAMESPACE_OID, b"test"));
+                &NS
+            }
+            fn field_set() -> &'static FieldSet<Self> {
+                unimplemented!()
+            }
+            fn export(_: &TestData) -> TestData {
+                TestData
+            }
+            fn validate(_: &TestData) -> Vec<ValidationError> {
+                vec![]
+            }
+        }
+
+        fn nnu(n: u128) -> NonNilUuid {
+            NonNilUuid::new(Uuid::from_u128(n)).expect("test UUID must not be nil")
+        }
+
+        fn id(n: u128) -> EntityId<TestType> {
+            unsafe { EntityId::from_uuid(nnu(n)) }
+        }
+
+        let mut sched = Schedule::new();
+
+        // Add initial edge
+        sched.edge_add(id(1), id(2));
+        let result1 = sched.inclusive_edges_from::<TestType, TestType>(id(1));
+        assert_eq!(result1.len(), 1);
+
+        // Add another edge - cache should invalidate
+        sched.edge_add(id(2), id(3));
+        let result2 = sched.inclusive_edges_from::<TestType, TestType>(id(1));
+        assert!(result2.contains(&id(2)));
+        assert!(result2.contains(&id(3)));
     }
 }
