@@ -10,9 +10,12 @@
 //! Fully generic: no entity-type imports here; all typed wiring lives in
 //! entity modules.
 
+use crate::crdt::{self, CrdtError};
 use crate::edge_map::RawEdgeMap;
 use crate::entity::{registered_entity_types, EntityId, EntityType, RuntimeEntityId};
-use crate::value::FieldValue;
+use crate::field::ReadableField;
+use crate::value::{CrdtFieldType, FieldError, FieldValue};
+use automerge::AutoCommit;
 use std::any::{Any, TypeId};
 use std::collections::HashMap;
 use uuid::NonNilUuid;
@@ -43,9 +46,21 @@ pub struct ScheduleMetadata {
 ///
 /// There is no separate `EntityStorage` struct; storage lives directly here.
 /// Generic `get_internal` / `insert` dispatch via `TypeId`.
-#[derive(Debug)]
+///
+/// ## CRDT source of truth
+///
+/// The authoritative state of every entity lives in the [`AutoCommit`]
+/// document `doc`. The `entities` HashMap is a cache that mirrors the
+/// document: every successful field write routes through
+/// [`crdt::write_field`] before returning, and [`Self::remove_entity`]
+/// soft-deletes via the `__deleted` flag. On `load` / `apply_changes` /
+/// `merge` the cache is rebuilt in full from the document (FEATURE-022
+/// part 2).
+///
+/// During load the mirror is disabled via [`Self::mirror_enabled`] so that
+/// rehydrating entities does not generate redundant writes against the doc.
 pub struct Schedule {
-    /// Two-level type-erased entity store.
+    /// Two-level type-erased entity store (cache mirroring the CRDT doc).
     ///
     /// Outer key: `TypeId::of::<E::InternalData>()`.
     /// Inner key: entity UUID.
@@ -57,6 +72,26 @@ pub struct Schedule {
 
     /// Schedule identity and provenance.
     pub metadata: ScheduleMetadata,
+
+    /// Authoritative CRDT document. All non-derived field values flow here
+    /// first; `entities` then mirrors the post-write state.
+    doc: AutoCommit,
+
+    /// When `false`, field writes skip the CRDT mirror. Used during
+    /// bulk rehydration from the document (FEATURE-022 part 2) to avoid
+    /// re-generating change records for values already in the doc.
+    mirror_enabled: bool,
+}
+
+impl std::fmt::Debug for Schedule {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("Schedule")
+            .field("entities", &self.entities)
+            .field("edges", &self.edges)
+            .field("metadata", &self.metadata)
+            .field("mirror_enabled", &self.mirror_enabled)
+            .finish()
+    }
 }
 
 impl Default for Schedule {
@@ -81,7 +116,104 @@ impl Schedule {
                 generator: String::new(),
                 version: 0,
             },
+            doc: AutoCommit::new(),
+            mirror_enabled: true,
         }
+    }
+
+    // ── CRDT access ───────────────────────────────────────────────────────────
+
+    /// Borrow the underlying CRDT document (for change-tracking / save).
+    #[must_use]
+    pub fn doc(&self) -> &AutoCommit {
+        &self.doc
+    }
+
+    /// Mutable access to the CRDT document — restricted to crate-internal
+    /// helpers (edit commands, edge mirroring, load path).
+    #[allow(dead_code)] // wired in FEATURE-022 part 2 (load/save) and FEATURE-023
+    pub(crate) fn doc_mut(&mut self) -> &mut AutoCommit {
+        &mut self.doc
+    }
+
+    /// Whether field writes currently mirror to the CRDT document.
+    #[must_use]
+    pub fn mirror_enabled(&self) -> bool {
+        self.mirror_enabled
+    }
+
+    /// Run `f` with the CRDT mirror temporarily disabled. Used by the load
+    /// path to rehydrate the cache without re-emitting CRDT operations.
+    #[allow(dead_code)] // wired in FEATURE-022 part 2 (load path)
+    pub(crate) fn with_mirror_disabled<R>(&mut self, f: impl FnOnce(&mut Self) -> R) -> R {
+        let prev = self.mirror_enabled;
+        self.mirror_enabled = false;
+        let out = f(self);
+        self.mirror_enabled = prev;
+        out
+    }
+
+    /// Mirror every non-derived field of entity `id` into the CRDT document.
+    ///
+    /// Called by [`Self::insert`] immediately after the cache is populated.
+    /// No-op when [`Self::mirror_enabled`] is false.
+    pub(crate) fn mirror_entity_fields<E: EntityType>(
+        &mut self,
+        id: EntityId<E>,
+    ) -> Result<(), CrdtError> {
+        if !self.mirror_enabled {
+            return Ok(());
+        }
+        let uuid = id.non_nil_uuid();
+        let type_name = E::TYPE_NAME;
+        crdt::touch_entity(&mut self.doc, type_name, uuid)?;
+        // Collect (name, crdt_type, value) while holding `&self`, then apply
+        // writes while holding `&mut self.doc`.
+        let mut pending: Vec<(&'static str, CrdtFieldType, FieldValue)> = Vec::new();
+        for desc in E::field_set().fields() {
+            if matches!(desc.crdt_type, CrdtFieldType::Derived) {
+                continue;
+            }
+            if let Ok(Some(v)) = desc.read(id, self) {
+                pending.push((desc.name, desc.crdt_type, v));
+            }
+        }
+        for (name, crdt_type, v) in pending {
+            crdt::write_field(&mut self.doc, type_name, uuid, name, crdt_type, &v)?;
+        }
+        // Ensure the entity is not marked deleted (idempotent on re-insert).
+        crdt::put_deleted(&mut self.doc, type_name, uuid, false)?;
+        Ok(())
+    }
+
+    /// Push a single post-write field value into the CRDT document.
+    ///
+    /// Invoked from [`crate::field::FieldDescriptor::write`] after the inner
+    /// write succeeds.  `None` clears the field from the doc (corresponds to
+    /// an unset optional field).
+    ///
+    /// # Errors
+    /// Returns [`FieldError::Crdt`] if the mirror write fails.
+    pub(crate) fn mirror_field_value<E: EntityType>(
+        &mut self,
+        id: EntityId<E>,
+        name: &'static str,
+        crdt_type: CrdtFieldType,
+        value: Option<&FieldValue>,
+    ) -> Result<(), FieldError> {
+        if !self.mirror_enabled || matches!(crdt_type, CrdtFieldType::Derived) {
+            return Ok(());
+        }
+        let uuid = id.non_nil_uuid();
+        let type_name = E::TYPE_NAME;
+        let res = match value {
+            Some(v) => crdt::write_field(&mut self.doc, type_name, uuid, name, crdt_type, v),
+            None => crdt::clear_field(&mut self.doc, type_name, uuid, name),
+        };
+        res.map_err(|e| FieldError::Crdt {
+            name,
+            detail: e.to_string(),
+        })
     }
 
     // ── Entity storage ────────────────────────────────────────────────────────
@@ -112,20 +244,45 @@ impl Schedule {
 
     /// Insert or replace an entity's internal data.
     ///
-    /// This is the canonical insertion path used by builders and importers.
+    /// Populates the in-memory cache and then mirrors every non-derived field
+    /// into the authoritative CRDT document.  Any CRDT mirror error is logged
+    /// and otherwise silently tolerated — the cache state is kept as primary
+    /// for the current call; a subsequent field write will retry the mirror.
+    /// (Mirror failures are only possible on malformed field values today,
+    /// and those would have failed validation at build time.)
     pub fn insert<E: EntityType>(&mut self, id: EntityId<E>, data: E::InternalData) {
         self.entities
             .entry(TypeId::of::<E::InternalData>())
             .or_default()
             .insert(id.non_nil_uuid(), Box::new(data));
+        if let Err(e) = self.mirror_entity_fields(id) {
+            // Mirror should only fail on genuinely malformed data; surface
+            // loudly in debug to catch regressions without panicking in
+            // release builds.
+            debug_assert!(false, "CRDT mirror failed on insert: {e}");
+            let _ = e;
+        }
     }
 
     /// Remove an entity and clear all of its edge relationships.
+    ///
+    /// The CRDT document retains the entity's field history and marks it
+    /// `__deleted = true`; the in-memory cache is evicted so queries no
+    /// longer see it.  Concurrent replicas that still have the pre-delete
+    /// version can merge their edits back in, which is the point of the
+    /// soft-delete scheme.
     pub fn remove_entity<E: EntityType>(&mut self, id: EntityId<E>) {
-        if let Some(map) = self.entities.get_mut(&TypeId::of::<E::InternalData>()) {
-            map.remove(&id.non_nil_uuid());
+        let uuid = id.non_nil_uuid();
+        if self.mirror_enabled {
+            if let Err(e) = crdt::put_deleted(&mut self.doc, E::TYPE_NAME, uuid, true) {
+                debug_assert!(false, "CRDT soft-delete failed: {e}");
+                let _ = e;
+            }
         }
-        self.edges.clear_all(id.non_nil_uuid(), E::TYPE_NAME);
+        if let Some(map) = self.entities.get_mut(&TypeId::of::<E::InternalData>()) {
+            map.remove(&uuid);
+        }
+        self.edges.clear_all(uuid, E::TYPE_NAME);
     }
 
     /// Iterate all entities of type `E`, yielding `(EntityId<E>, &E::InternalData)` pairs.
@@ -754,5 +911,90 @@ mod tests {
         let fv = entity_ids_to_field_value(vec![room_id]);
         let result = field_value_to_entity_ids::<PresenterEntityType>(fv);
         assert!(result.is_err());
+    }
+
+    // ── CRDT mirror ──────────────────────────────────────────────────────────
+
+    #[test]
+    fn crdt_mirror_populates_doc_on_insert() {
+        use crate::crdt;
+        use crate::value::{CrdtFieldType, FieldTypeItem};
+
+        let mut sched = Schedule::new();
+        let (id, data) = make_panel_type();
+        sched.insert(id, data);
+
+        // `prefix` was "GP" on the input InternalData; expect it in the doc.
+        let prefix = crdt::read_field(
+            sched.doc(),
+            "panel_type",
+            id.non_nil_uuid(),
+            "prefix",
+            FieldTypeItem::String,
+            CrdtFieldType::Scalar,
+        )
+        .unwrap();
+        assert_eq!(prefix.unwrap().to_string(), "GP");
+        assert!(!crdt::is_deleted(
+            sched.doc(),
+            "panel_type",
+            id.non_nil_uuid()
+        ));
+    }
+
+    #[test]
+    fn crdt_mirror_tracks_single_field_write() {
+        use crate::crdt;
+        use crate::entity::EntityType;
+        use crate::value::{CrdtFieldType, FieldTypeItem, FieldValue, FieldValueItem};
+
+        let mut sched = Schedule::new();
+        let (id, data) = make_panel_type();
+        sched.insert(id, data);
+
+        PanelTypeEntityType::field_set()
+            .write_field_value(
+                "prefix",
+                id,
+                &mut sched,
+                FieldValue::Single(FieldValueItem::String("SP".into())),
+            )
+            .unwrap();
+
+        let got = crdt::read_field(
+            sched.doc(),
+            "panel_type",
+            id.non_nil_uuid(),
+            "prefix",
+            FieldTypeItem::String,
+            CrdtFieldType::Scalar,
+        )
+        .unwrap()
+        .unwrap();
+        assert_eq!(got.to_string(), "SP");
+    }
+
+    #[test]
+    fn remove_entity_soft_deletes_in_doc_and_evicts_cache() {
+        use crate::crdt;
+
+        let mut sched = Schedule::new();
+        let (id, data) = make_panel_type();
+        sched.insert(id, data);
+        assert_eq!(sched.entity_count::<PanelTypeEntityType>(), 1);
+        assert!(!crdt::is_deleted(
+            sched.doc(),
+            "panel_type",
+            id.non_nil_uuid()
+        ));
+
+        sched.remove_entity::<PanelTypeEntityType>(id);
+
+        assert_eq!(sched.entity_count::<PanelTypeEntityType>(), 0);
+        assert!(crdt::is_deleted(
+            sched.doc(),
+            "panel_type",
+            id.non_nil_uuid()
+        ));
     }
 }

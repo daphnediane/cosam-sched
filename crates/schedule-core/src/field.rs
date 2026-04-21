@@ -236,15 +236,32 @@ impl<E: EntityType> WritableField<E> for FieldDescriptor<E> {
         value: FieldValue,
     ) -> Result<(), FieldError> {
         match &self.write_fn {
-            None => Err(FieldError::ReadOnly { name: self.name }),
+            None => return Err(FieldError::ReadOnly { name: self.name }),
             Some(WriteFn::Bare(f)) => {
                 let data = schedule
                     .get_internal_mut::<E>(id)
                     .ok_or(FieldError::NotFound { name: self.name })?;
-                f(data, value)
+                f(data, value)?;
             }
-            Some(WriteFn::Schedule(f)) => f(schedule, id, value),
+            Some(WriteFn::Schedule(f)) => f(schedule, id, value)?,
         }
+
+        // CRDT mirror: after the inner write succeeds, read the post-write
+        // value back through the descriptor's own read_fn and push it into
+        // the authoritative automerge document.
+        if !schedule.mirror_enabled()
+            || matches!(self.crdt_type, crate::value::CrdtFieldType::Derived)
+        {
+            return Ok(());
+        }
+        let value_opt = match self.read(id, schedule) {
+            Ok(v) => v,
+            // Write-only fields are not mirrored back — edge commands mirror
+            // their target-list fields themselves in FEATURE-023.
+            Err(FieldError::WriteOnly { .. }) => return Ok(()),
+            Err(e) => return Err(e),
+        };
+        schedule.mirror_field_value::<E>(id, self.name, self.crdt_type, value_opt.as_ref())
     }
 }
 
@@ -320,7 +337,19 @@ mod tests {
         }
 
         fn field_set() -> &'static crate::entity::FieldSet<Self> {
-            unimplemented!("not needed for field trait tests")
+            // Minimal static FieldSet so tests can use `Schedule::insert`
+            // (which now mirrors every non-derived field into the CRDT doc
+            // via `FieldSet::fields()`).
+            static FS: std::sync::OnceLock<crate::entity::FieldSet<MockEntity>> =
+                std::sync::OnceLock::new();
+            FS.get_or_init(|| {
+                crate::entity::FieldSet::new(&[
+                    &LABEL_FIELD,
+                    &COUNT_FIELD,
+                    &READONLY_FIELD,
+                    &WRITEONLY_FIELD,
+                ])
+            })
         }
 
         fn export(_: &Self::InternalData) -> Self::Data {

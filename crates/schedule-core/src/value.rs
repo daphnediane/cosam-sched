@@ -516,6 +516,12 @@ pub enum FieldError {
     /// Entity not found in the schedule.
     #[error("field '{name}': entity not found")]
     NotFound { name: &'static str },
+    /// Mirroring the write to the authoritative CRDT document failed.
+    #[error("field '{name}': CRDT mirror failed: {detail}")]
+    Crdt {
+        name: &'static str,
+        detail: std::string::String,
+    },
 }
 
 /// Type conversion failure — wrong `FieldValue` variant or parse error.

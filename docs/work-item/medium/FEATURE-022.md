@@ -7,15 +7,11 @@ Make an `automerge::AutoCommit` document the authoritative storage inside
 
 ## Status
 
-Open
+In Progress
 
 ## Priority
 
 Medium
-
-## Blocked By
-
-- FEATURE-021: Edit command system with undo/redo
 
 ## Description
 
@@ -38,12 +34,12 @@ Document layout:
 
 Field routing by `CrdtFieldType`:
 
-| CrdtFieldType | automerge op             |
-| ------------- | ------------------------ |
-| `Scalar`      | `put` / `get` (LWW)      |
-| `Text`        | `splice_text` / `text`   |
-| `List`        | `insert` / `delete`      |
-| `Derived`     | not stored               |
+| CrdtFieldType | automerge op           |
+| ------------- | ---------------------- |
+| `Scalar`      | `put` / `get` (LWW)    |
+| `Text`        | `splice_text` / `text` |
+| `List`        | `insert` / `delete`    |
+| `Derived`     | not stored             |
 
 A small internal helper module (`crdt/`) exposes typed `read_field` /
 `write_field` / `list_entities` / `put_deleted` helpers that take a

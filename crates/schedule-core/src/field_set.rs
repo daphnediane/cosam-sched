@@ -446,7 +446,10 @@ mod tests {
             &NS
         }
         fn field_set() -> &'static FieldSet<Self> {
-            unimplemented!()
+            // Minimal static FieldSet so `Schedule::insert` can mirror mock
+            // entity fields into the CRDT doc during tests.
+            static FS: std::sync::OnceLock<FieldSet<MockEntity>> = std::sync::OnceLock::new();
+            FS.get_or_init(|| FieldSet::new(&[&LABEL_FIELD, &COUNT_FIELD, &DERIVED_FIELD]))
         }
         fn export(_: &Self::InternalData) -> Self::Data {
             MockExport
