@@ -169,11 +169,147 @@ impl Schedule {
         let doc = AutoCommit::load(bytes).map_err(|e| LoadError::Codec(e.to_string()))?;
         let mut sched = Self::new();
         sched.doc = doc;
+        sched.rebuild_cache_from_doc()?;
+        Ok(sched)
+    }
+
+    /// Apply a batch of encoded automerge changes, then rebuild the
+    /// in-memory cache in full so it reflects the post-merge state.
+    ///
+    /// Typical usage is receiving sync bytes from a peer's
+    /// [`Self::get_changes_since`] and calling `apply_changes` to integrate
+    /// them into the local replica.
+    ///
+    /// # Errors
+    /// Returns [`LoadError::Codec`] if any byte slice fails to decode as an
+    /// automerge `Change`, or [`LoadError::Rehydrate`] if the post-merge
+    /// cache rebuild cannot recover an entity (e.g. a required field went
+    /// missing under concurrent deletes).
+    pub fn apply_changes(&mut self, changes: &[Vec<u8>]) -> Result<(), LoadError> {
+        let mut decoded: Vec<automerge::Change> = Vec::with_capacity(changes.len());
+        for bytes in changes {
+            decoded.push(
+                automerge::Change::try_from(bytes.as_slice())
+                    .map_err(|e| LoadError::Codec(e.to_string()))?,
+            );
+        }
+        self.doc
+            .apply_changes(decoded)
+            .map_err(|e| LoadError::Codec(e.to_string()))?;
+        self.rebuild_cache_from_doc()
+    }
+
+    /// The set of change hashes identifying the current head(s) of the CRDT
+    /// document.
+    ///
+    /// Takes `&mut self` because [`AutoCommit`] flushes pending ops before
+    /// reporting heads.  Callers pass the returned slice back later to
+    /// [`Self::get_changes_since`] to ask "what have you observed since
+    /// this snapshot?" for delta sync.
+    pub fn get_heads(&mut self) -> Vec<automerge::ChangeHash> {
+        self.doc.get_heads()
+    }
+
+    /// Encode every change in the doc's history as bytes.  Useful for a
+    /// fresh replica bootstrap (equivalent to `save()`, but without the
+    /// compressed document-level framing).
+    pub fn get_changes(&mut self) -> Vec<Vec<u8>> {
+        self.doc
+            .get_changes(&[])
+            .into_iter()
+            .map(|c| c.raw_bytes().to_vec())
+            .collect()
+    }
+
+    /// Encode every change the doc has observed that is *not* reachable
+    /// from `have_deps`.  Used by sync-pull: the requester sends its
+    /// [`Self::get_heads`] and the responder returns the delta.
+    pub fn get_changes_since(&mut self, have_deps: &[automerge::ChangeHash]) -> Vec<Vec<u8>> {
+        self.doc
+            .get_changes(have_deps)
+            .into_iter()
+            .map(|c| c.raw_bytes().to_vec())
+            .collect()
+    }
+
+    /// Surface every concurrent value for a scalar field on `id`.
+    ///
+    /// - Returns an empty vec when the field is unset.
+    /// - Returns a single-element vec when there is no conflict — the same
+    ///   value as `read_field_value` would observe.
+    /// - Returns **all** concurrent writers' values when two or more
+    ///   replicas wrote different scalars without either observing the
+    ///   other; the primary read (via `field_set`) continues to return
+    ///   automerge's deterministically-selected LWW winner.
+    ///
+    /// Only scalar fields are supported; derived, text, and list fields
+    /// yield an empty vec (they have their own per-character or
+    /// per-item conflict semantics).
+    #[must_use]
+    pub fn conflicts_for<E: EntityType>(
+        &self,
+        id: EntityId<E>,
+        field_name: &'static str,
+    ) -> Vec<FieldValue> {
+        use automerge::{ReadDoc, Value};
+
+        let Some(desc) = E::field_set().get_by_name(field_name) else {
+            return Vec::new();
+        };
+        if !matches!(desc.crdt_type, CrdtFieldType::Scalar) {
+            return Vec::new();
+        }
+        let Some(entity_map) = crdt::get_entity_map(&self.doc, E::TYPE_NAME, id.non_nil_uuid())
+        else {
+            return Vec::new();
+        };
+        let Ok(values) = self.doc.get_all(&entity_map, desc.name) else {
+            return Vec::new();
+        };
+        let item_type = desc.field_type.item_type();
+        values
+            .into_iter()
+            .filter_map(|(value, _obj_id)| match value {
+                Value::Scalar(sv) => crdt::scalar_to_item(&sv, item_type)
+                    .ok()
+                    .map(FieldValue::Single),
+                _ => None,
+            })
+            .collect()
+    }
+
+    /// Merge `other`'s automerge document into this one and rebuild the
+    /// cache to the unified state.  Both replicas remain usable — this is
+    /// a symmetric join, not a move.
+    ///
+    /// # Errors
+    /// Returns [`LoadError::Codec`] from automerge merge, or
+    /// [`LoadError::Rehydrate`] from the post-merge cache rebuild.
+    pub fn merge(&mut self, other: &mut Self) -> Result<(), LoadError> {
+        self.doc
+            .merge(&mut other.doc)
+            .map_err(|e| LoadError::Codec(e.to_string()))?;
+        self.rebuild_cache_from_doc()
+    }
+
+    /// Discard the in-memory cache and fully reconstitute it from the
+    /// current CRDT document.  Used by `load` / `apply_changes` / `merge`.
+    ///
+    /// Runs under [`Self::with_mirror_disabled`] so replayed entity and
+    /// edge writes don't emit redundant changes against the doc we just
+    /// read from.
+    fn rebuild_cache_from_doc(&mut self) -> Result<(), LoadError> {
+        // Wipe the cache — merge can resurrect soft-deleted uuids (add-wins
+        // against a delete), retarget edges, and generally change which
+        // entities exist.  Rebuilding from scratch is simpler and cheaper
+        // than reconciling entry-by-entry.
+        self.entities.clear();
+        self.edges = RawEdgeMap::default();
 
         // Snapshot (type_name, rehydrate_fn, uuids) under an immutable
         // borrow of the doc, then apply each rehydrate with the mirror
         // disabled.  Collecting up-front avoids reborrowing the inventory
-        // iterator while we mutate `sched`.
+        // iterator while we mutate `self`.
         struct RehydrateWork {
             type_name: &'static str,
             rehydrate_fn:
@@ -182,9 +318,9 @@ impl Schedule {
         }
         let mut work: Vec<RehydrateWork> = Vec::new();
         for reg in registered_entity_types() {
-            let uuids: Vec<NonNilUuid> = crdt::list_all_uuids(&sched.doc, reg.type_name)
+            let uuids: Vec<NonNilUuid> = crdt::list_all_uuids(&self.doc, reg.type_name)
                 .into_iter()
-                .filter(|u| !crdt::is_deleted(&sched.doc, reg.type_name, *u))
+                .filter(|u| !crdt::is_deleted(&self.doc, reg.type_name, *u))
                 .collect();
             if !uuids.is_empty() {
                 work.push(RehydrateWork {
@@ -195,7 +331,7 @@ impl Schedule {
             }
         }
 
-        let result: Result<(), LoadError> = sched.with_mirror_disabled(|s| {
+        self.with_mirror_disabled(|s| {
             for item in work {
                 for uuid in item.uuids {
                     (item.rehydrate_fn)(s, uuid).map_err(|e| LoadError::Rehydrate {
@@ -205,15 +341,9 @@ impl Schedule {
                     })?;
                 }
             }
-            // Rebuild the in-memory edge index from the owner-list fields
-            // stored on each canonical owner (FEATURE-023).  Done inside the
-            // mirror-disabled guard so the replayed `edge_add` calls don't
-            // re-write the doc.
             s.rebuild_edges_from_doc();
             Ok(())
-        });
-        result?;
-        Ok(sched)
+        })
     }
 
     /// Replay every canonical owner's relationship-list field into the
@@ -1581,6 +1711,167 @@ mod tests {
         let mut expected = vec![alice_id, bob_id];
         expected.sort_by_key(|id| id.non_nil_uuid());
         assert_eq!(forwards, expected);
+    }
+
+    // ── Change tracking / merge / conflicts (FEATURE-024) ────────────────────
+
+    #[test]
+    fn merge_two_schedules_combines_entities() {
+        let mut a = Schedule::new();
+        let (pt_id, pt_data) = make_panel_type();
+        a.insert(pt_id, pt_data);
+
+        // B starts from the shared base state and adds a presenter.
+        let mut b = Schedule::load(&a.save()).expect("load base");
+        let (pr_id, pr_data) = make_presenter("Alice");
+        b.insert(pr_id, pr_data);
+
+        a.merge(&mut b).expect("merge");
+
+        assert_eq!(a.entity_count::<PanelTypeEntityType>(), 1);
+        assert_eq!(a.entity_count::<PresenterEntityType>(), 1);
+        assert!(a.get_internal::<PresenterEntityType>(pr_id).is_some());
+    }
+
+    #[test]
+    fn merge_preserves_edges_from_both_sides() {
+        use crate::entity::EntityType;
+
+        let mut base = Schedule::new();
+        let (panel_id, panel_data) = make_panel();
+        let (alice_id, alice_data) = make_presenter("Alice");
+        let (bob_id, bob_data) = make_presenter("Bob");
+        base.insert(panel_id, panel_data);
+        base.insert(alice_id, alice_data);
+        base.insert(bob_id, bob_data);
+
+        let mut a = Schedule::load(&base.save()).expect("load A");
+        let mut b = Schedule::load(&base.save()).expect("load B");
+        a.edge_add::<PanelEntityType, PresenterEntityType>(panel_id, alice_id);
+        b.edge_add::<PanelEntityType, PresenterEntityType>(panel_id, bob_id);
+
+        a.merge(&mut b).expect("merge");
+
+        let mut ids: Vec<_> = a
+            .edges_from::<PanelEntityType, PresenterEntityType>(panel_id)
+            .iter()
+            .map(|id| id.non_nil_uuid())
+            .collect();
+        ids.sort();
+        let mut expected = vec![alice_id.non_nil_uuid(), bob_id.non_nil_uuid()];
+        expected.sort();
+        assert_eq!(ids, expected);
+        let _ = PanelEntityType::TYPE_NAME; // suppress unused-trait-import warning
+    }
+
+    #[test]
+    fn apply_changes_delta_sync_roundtrip() {
+        // A creates a panel_type, captures heads.  B diverges: loads A's
+        // state, adds a presenter, sends back only the changes A hasn't
+        // observed.  A applies them and should see the new presenter.
+        let mut a = Schedule::new();
+        let (pt_id, pt_data) = make_panel_type();
+        a.insert(pt_id, pt_data);
+        let heads_a = a.get_heads();
+
+        let mut b = Schedule::load(&a.save()).expect("load");
+        let (pr_id, pr_data) = make_presenter("Alice");
+        b.insert(pr_id, pr_data);
+
+        let delta = b.get_changes_since(&heads_a);
+        assert!(!delta.is_empty(), "expected at least one new change");
+
+        a.apply_changes(&delta).expect("apply");
+
+        assert!(a.get_internal::<PresenterEntityType>(pr_id).is_some());
+        assert_eq!(a.entity_count::<PanelTypeEntityType>(), 1);
+    }
+
+    #[test]
+    fn get_changes_returns_full_history() {
+        let mut a = Schedule::new();
+        let (pt_id, pt_data) = make_panel_type();
+        a.insert(pt_id, pt_data);
+
+        let changes = a.get_changes();
+        assert!(!changes.is_empty());
+
+        // Replay the changes into a fresh schedule and verify the entity
+        // is reconstructed.
+        let mut b = Schedule::new();
+        b.apply_changes(&changes).expect("apply");
+        assert!(b.get_internal::<PanelTypeEntityType>(pt_id).is_some());
+    }
+
+    #[test]
+    fn conflicts_for_reports_concurrent_scalar_writes() {
+        // Two replicas concurrently write different `prefix` values to the
+        // same panel_type; after merge, `conflicts_for` surfaces both.
+        use crate::entity::EntityType;
+        use crate::value::{FieldValue, FieldValueItem};
+
+        let mut base = Schedule::new();
+        let (pt_id, pt_data) = make_panel_type();
+        base.insert(pt_id, pt_data);
+
+        let mut a = Schedule::load(&base.save()).expect("load A");
+        let mut b = Schedule::load(&base.save()).expect("load B");
+
+        PanelTypeEntityType::field_set()
+            .write_field_value(
+                "prefix",
+                pt_id,
+                &mut a,
+                FieldValue::Single(FieldValueItem::String("A-PREFIX".into())),
+            )
+            .unwrap();
+        PanelTypeEntityType::field_set()
+            .write_field_value(
+                "prefix",
+                pt_id,
+                &mut b,
+                FieldValue::Single(FieldValueItem::String("B-PREFIX".into())),
+            )
+            .unwrap();
+
+        a.merge(&mut b).expect("merge");
+
+        let conflicts = a.conflicts_for::<PanelTypeEntityType>(pt_id, "prefix");
+        let strs: Vec<String> = conflicts
+            .into_iter()
+            .filter_map(|fv| match fv {
+                FieldValue::Single(FieldValueItem::String(s)) => Some(s),
+                _ => None,
+            })
+            .collect();
+        assert_eq!(strs.len(), 2, "expected both concurrent values: {strs:?}");
+        assert!(strs.contains(&"A-PREFIX".to_string()));
+        assert!(strs.contains(&"B-PREFIX".to_string()));
+    }
+
+    #[test]
+    fn conflicts_for_returns_single_when_no_conflict() {
+        use crate::entity::EntityType;
+        use crate::value::{FieldValue, FieldValueItem};
+
+        let mut sched = Schedule::new();
+        let (pt_id, pt_data) = make_panel_type();
+        sched.insert(pt_id, pt_data);
+        PanelTypeEntityType::field_set()
+            .write_field_value(
+                "prefix",
+                pt_id,
+                &mut sched,
+                FieldValue::Single(FieldValueItem::String("solo".into())),
+            )
+            .unwrap();
+
+        let conflicts = sched.conflicts_for::<PanelTypeEntityType>(pt_id, "prefix");
+        assert_eq!(conflicts.len(), 1);
+        match &conflicts[0] {
+            FieldValue::Single(FieldValueItem::String(s)) => assert_eq!(s, "solo"),
+            other => panic!("unexpected conflict value: {other:?}"),
+        }
     }
 
     /// Concurrent add vs. unobserved remove resolves add-wins under

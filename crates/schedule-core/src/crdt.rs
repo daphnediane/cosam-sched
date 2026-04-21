@@ -324,7 +324,10 @@ pub(crate) fn item_to_scalar(item: &FieldValueItem) -> CrdtResult<ScalarValue> {
     })
 }
 
-fn scalar_to_item(sv: &ScalarValue, expected: FieldTypeItem) -> CrdtResult<FieldValueItem> {
+pub(crate) fn scalar_to_item(
+    sv: &ScalarValue,
+    expected: FieldTypeItem,
+) -> CrdtResult<FieldValueItem> {
     match (sv, expected) {
         (ScalarValue::Str(s), FieldTypeItem::String) => Ok(FieldValueItem::String(s.to_string())),
         (ScalarValue::Str(s), FieldTypeItem::Text) => Ok(FieldValueItem::Text(s.to_string())),

@@ -1,6 +1,6 @@
 # Cosplay America Schedule - Work Item
 
-Updated on: Mon Apr 20 23:35:01 2026
+Updated on: Mon Apr 20 23:45:11 2026
 
 ## Completed
 
@@ -21,6 +21,8 @@ Updated on: Mon Apr 20 23:35:01 2026
 `Schedule`; the in-memory `HashMap` entity store becomes a derived cache.
 * [FEATURE-023] Store relationships as automerge list fields on a canonical owner entity;
 `RawEdgeMap` becomes a derived index rebuilt from these lists.
+* [FEATURE-024] Expose automerge change tracking and merge through `Schedule`, and surface
+concurrent scalar conflicts to the caller.
 * [FEATURE-038] Add a type-safe `FieldValueConverter<M>` trait and driver functions for converting
 `FieldValue` inputs to typed Rust outputs via a work-queue iteration pattern.
 * [FEATURE-043] Add a `verify` callback to `FieldDescriptor` for cross-field consistency checks after batch writes to computed fields.
@@ -56,7 +58,7 @@ collection, and expose a `registered_entity_types()` accessor.
 
 ## Summary of Open Items
 
-**Total open items:** 19
+**Total open items:** 18
 
 * **Meta / Project-Level**
   * [META-001] Meta work item tracking the full multi-phase redesign of the schedule system. (Blocked by [META-004], [META-005], [META-006], [META-007], [META-008])
@@ -70,8 +72,6 @@ XLSX import/export. (Blocked by [META-004])
 
 * **Medium Priority**
   * [BUGFIX-045] In `scratch/field_update_logic.rs`, duration values are incorrectly stored as `FieldValue::Integer(minutes)` instead of `FieldValue::Duration(Duration)`.
-  * [FEATURE-024] ([META-004]) Expose automerge change tracking and merge through `Schedule`, and surface
-concurrent scalar conflicts to the caller.
   * [FEATURE-025] ([META-005]) Define and implement the native save/load format for schedule documents.
   * [FEATURE-026] ([META-005]) Support multiple convention years in a single schedule file for historical
 reference and jump-starting new conventions.
@@ -182,39 +182,6 @@ panels arranged by time and room, with inline editing of entity fields.
 ---
 
 ## Open FEATURE Items
-
-### [FEATURE-024] Change Tracking, Merge, and Conflict Surfacing
-
-**Status:** Open
-
-**Priority:** Medium
-
-**Summary:** Expose automerge change tracking and merge through `Schedule`, and surface
-concurrent scalar conflicts to the caller.
-
-**Part of:** [META-004]
-
-**Description:** Build on the authoritative automerge document (FEATURE-022) and CRDT edges
-(FEATURE-023) to expose sync / merge primitives on `Schedule`:
-
-* `Schedule::save() -> Vec<u8>` — already added in FEATURE-022; confirmed here.
-* `Schedule::load(&[u8]) -> Schedule` — already added in FEATURE-022.
-* `Schedule::get_changes() -> Vec<Vec<u8>>` — all encoded changes since doc
-  creation.
-* `Schedule::get_changes_since(&[ChangeHash]) -> Vec<Vec<u8>>` — delta from
-  a known state.
-* `Schedule::apply_changes(&[Vec<u8>])` — apply remote changes, then rebuild
-  the cache in full.
-* `Schedule::merge(&mut other: Schedule)` — convenience wrapper.
-* `Schedule::conflicts_for(entity_id, field_name) -> Vec<FieldValue>` —
-  returns all concurrent values for a scalar field (empty or singleton when
-  no conflict; multiple entries under concurrent writes). Primary read
-  still returns one deterministic value (automerge-selected LWW winner).
-
-After any `apply_changes` / `merge`, the cache is rebuilt in full (simple,
-correct; incremental rebuild is a later optimization).
-
----
 
 ### [FEATURE-025] Internal Schedule File Format
 
@@ -514,7 +481,7 @@ to exchange CRDT changes and reconcile concurrent edits to the same fields.
 [FEATURE-021]: work-item/done/FEATURE-021.md
 [FEATURE-022]: work-item/done/FEATURE-022.md
 [FEATURE-023]: work-item/done/FEATURE-023.md
-[FEATURE-024]: work-item/medium/FEATURE-024.md
+[FEATURE-024]: work-item/done/FEATURE-024.md
 [FEATURE-025]: work-item/medium/FEATURE-025.md
 [FEATURE-026]: work-item/medium/FEATURE-026.md
 [FEATURE-027]: work-item/medium/FEATURE-027.md
