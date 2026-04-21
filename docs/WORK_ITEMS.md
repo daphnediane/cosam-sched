@@ -215,7 +215,7 @@ enabling:
 
 ### [FEATURE-027] Widget Display JSON Export
 
-**Status:** Open
+**Status:** In progress
 
 **Priority:** Medium
 

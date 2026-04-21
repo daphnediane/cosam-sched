@@ -6,7 +6,7 @@ Implement export of schedule data to the JSON format consumed by the calendar di
 
 ## Status
 
-Open
+In Progress
 
 ## Priority
 
@@ -42,3 +42,25 @@ to both hotel and event rooms as separate records.
 - All items use Uuid for identification
 - Break synthesis generates Uuid v5 for synthesized panels
 - Panels have references to both hotel and event rooms
+
+## Progress
+
+**Completed:**
+
+- Created `crates/schedule-core/src/export.rs` module with widget JSON structures
+- Added `export_to_widget_json` function with stub implementations for all sub-exports
+- Export module compiles and tests pass
+- Export function structure added to schedule-core
+
+**Pending:**
+
+- Implement panel export using public PanelData with credit formatting logic (hidePanelist, altPanelist, group resolution)
+- Use the `credits` computed field from PanelData for presenter credits
+- Implement break synthesis (%IB and %NB panels) with Uuid v5 generation for time gaps
+- Implement room export using public EventRoomData and HotelRoomData to WidgetRoom
+- Implement panel type export using public PanelTypeData to WidgetPanelType
+- Implement timeline export
+- Implement presenter export using public PresenterData with bidirectional group membership logic
+- Ensure all items use Uuid for identification
+- Ensure panels have references to both hotel and event rooms (use `hotel_rooms` computed field from PanelData)
+- Add comprehensive tests for export functionality

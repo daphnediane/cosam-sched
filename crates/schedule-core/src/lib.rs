@@ -14,6 +14,7 @@ pub mod edge_map;
 pub mod edit;
 pub mod entity;
 pub mod event_room;
+pub mod export;
 pub mod field;
 pub(crate) mod field_macros;
 pub mod field_set;
