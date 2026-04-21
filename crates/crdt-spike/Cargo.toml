@@ -1,0 +1,21 @@
+[package]
+name = "crdt-spike"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+authors.workspace = true
+description = "Experimental CRDT mapping spike — not for production use"
+publish = false
+
+# This crate is a temporary spike for Phase 3 (META-004 / FEATURE-022).
+# It proves the FieldValue ↔ automerge mapping end-to-end on the PanelType
+# entity before the real integration lands in `schedule-core`. It will be
+# removed once FEATURE-022 is complete.
+
+[dependencies]
+automerge = "0.6"
+chrono = { version = "0.4", features = ["serde"] }
+schedule-core = { path = "../schedule-core" }
+uuid = { version = "1.13", features = ["v4", "v7"] }
+
+[dev-dependencies]
