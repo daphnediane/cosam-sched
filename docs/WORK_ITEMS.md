@@ -1,6 +1,6 @@
 # Cosplay America Schedule - Work Item
 
-Updated on: Tue Apr 21 00:02:06 2026
+Updated on: Sat Apr 25 13:33:19 2026
 
 ## Completed
 
@@ -61,7 +61,7 @@ collection, and expose a `registered_entity_types()` accessor.
 
 ## Summary of Open Items
 
-**Total open items:** 16
+**Total open items:** 17
 
 * **Meta / Project-Level**
   * [META-001] Meta work item tracking the full multi-phase redesign of the schedule system. (Blocked by [META-005], [META-006], [META-007], [META-008])
@@ -78,6 +78,7 @@ reference and jump-starting new conventions.
   * [FEATURE-027] ([META-005]) Implement export of schedule data to the JSON format consumed by the calendar display widget.
   * [FEATURE-028] ([META-005]) Import schedule data from the existing XLSX spreadsheet format.
   * [FEATURE-029] ([META-005]) Export schedule data back to the XLSX spreadsheet format.
+  * [FEATURE-056] Add computed/synthesized fields to public data structures to support widget JSON export.
 
 * **Low Priority**
   * [CLI-030] ([META-006]) CLI tool for converting between schedule file formats (XLSX, JSON, widget JSON).
@@ -214,7 +215,16 @@ enabling:
 **Part of:** [META-005]
 
 **Description:** The calendar widget renders schedule data from a JSON file. This work item
-defines and implements the export format (clean break from v9/v10 format).
+implements the export functionality that converts from the internal CRDT/field-system
+format to the widget JSON display format (documented in `docs/widget-json-format.md`).
+
+The export should use the public data structures (PanelTypeData, HotelRoomData, EventRoomData, etc.)
+rather than InternalData, as these already contain synthesized fields like `inclusive_presenters`.
+If public versions don't have data in the required format, computed fields should be added to the public data structure.
+
+All items should use Uuid for identification. For break synthesis, Uuid v5 should be generated.
+References between items should use Uuid instead of names or other IDs. Panels should have references
+to both hotel and event rooms as separate records.
 
 ---
 
@@ -245,6 +255,40 @@ organizers. Import must handle the existing column layout.
 
 **Description:** Export the schedule to an Excel spreadsheet matching the convention's expected
 column layout, enabling round-trip with the import (FEATURE-028).
+
+---
+
+### [FEATURE-056] Synthesized Data Fields for Export
+
+**Status:** Open
+
+**Priority:** Medium
+
+**Summary:** Add computed/synthesized fields to public data structures to support widget JSON export.
+
+**Blocked By:** [FEATURE-019]
+
+**Description:** The widget JSON export requires certain data that is not directly stored in the internal
+entity structures but can be computed from existing fields. This work item adds computed
+fields to the public data structures (PanelData, HotelRoomData, EventRoomData, etc.) to
+make this data available for export.
+
+Specific synthesized fields needed:
+
+**PanelData:**
+
+* `credited_presenters`: Formatted credit strings for display (hidePanelist, altPanelist, group resolution)
+* `hotel_rooms`: Computed field that traverses event_rooms => hotel room edges (similar to inclusive_presenters traversal)
+
+**Existing fields (no changes needed):**
+
+* `inclusive_presenters`: Already exists as computed field (BFS over direct presenters + groups/members)
+* `event_rooms`: Already exists as edge field to EventRoomEntityType
+
+**PresenterData:**
+
+* Verify existing fields meet export needs
+* May need additional computed fields for bidirectional group membership
 
 ---
 
@@ -441,6 +485,7 @@ to exchange CRDT changes and reconcile concurrent edits to the same fields.
 [FEATURE-046]: work-item/done/FEATURE-046.md
 [FEATURE-050]: work-item/done/FEATURE-050.md
 [FEATURE-051]: work-item/done/FEATURE-051.md
+[FEATURE-056]: work-item/medium/FEATURE-056.md
 [META-001]: work-item/meta/META-001.md
 [META-002]: work-item/done/META-002.md
 [META-003]: work-item/done/META-003.md
