@@ -24,12 +24,33 @@
 //! That is the only change required.  The CRDT mirror, load path, and
 //! `canonical_owner` lookup all derive from this registry automatically.
 
+/// Default value for a per-edge field.
+///
+/// Used when no explicit value has been written for an edge's metadata entry.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub enum EdgeFieldDefault {
+    /// A boolean default (e.g. `credited = true` means credited by default).
+    Boolean(bool),
+}
+
+/// Specification for a single per-edge data field.
+///
+/// Declared in the `fields` slice of an [`EdgeDescriptor`] for relationships
+/// that carry additional per-edge attributes beyond membership.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct EdgeFieldSpec {
+    /// Name of this per-edge property (e.g. `"credited"`).
+    pub name: &'static str,
+    /// Value used when no explicit entry has been written for this edge.
+    pub default: EdgeFieldDefault,
+}
+
 /// Describes one entity relationship: CRDT ownership, target type, and CRDT
 /// field name on the owner.
 ///
 /// Instantiate as a `pub const` on the canonical owner entity type and register
 /// it in [`ALL_EDGE_DESCRIPTORS`].
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq)]
 pub struct EdgeDescriptor {
     /// Unique human-readable name for this relationship
     /// (e.g. `"panel_presenters"`).
@@ -51,6 +72,13 @@ pub struct EdgeDescriptor {
 
     /// Name of the CRDT list field on the owner entity (e.g. `"presenters"`).
     pub field_name: &'static str,
+
+    /// Per-edge data fields carried by this relationship.
+    ///
+    /// Empty for pure membership edges. When non-empty, each entry describes
+    /// one per-edge attribute stored in the parallel `{field_name}_meta` map
+    /// in the CRDT document.
+    pub fields: &'static [EdgeFieldSpec],
 }
 
 // ── Registry ──────────────────────────────────────────────────────────────────
@@ -59,7 +87,7 @@ use crate::event_room::EventRoomEntityType;
 use crate::panel::PanelEntityType;
 use crate::presenter::PresenterEntityType;
 
-/// All recognised edge relationships, in canonical load order.
+/// All recognized edge relationships, in canonical load order.
 ///
 /// This is the single source of truth that replaces both
 /// `canonical_owner()` and `OWNER_EDGE_FIELDS` in [`crate::edge_crdt`].

@@ -180,7 +180,7 @@ impl Schedule {
     /// non-deleted entity through its registered
     /// [`crate::entity::RegisteredEntityType::rehydrate_fn`].
     ///
-    /// Metadata (`schedule_id`, `created_at`, etc.) is re-initialised for
+    /// Metadata (`schedule_id`, `created_at`, etc.) is re-initialized for
     /// the loading process; only entity field data is round-tripped.
     /// Edge state (`RawEdgeMap`) is *not* rehydrated from the doc in this
     /// phase — see FEATURE-023 for owner-list edge storage.
@@ -257,7 +257,7 @@ impl Schedule {
         }
         if &bytes[..6] != FILE_MAGIC {
             return Err(LoadError::Format(
-                "unrecognised file magic — not a cosam schedule file".into(),
+                "unrecognized file magic — not a cosam schedule file".into(),
             ));
         }
         let version = u16::from_le_bytes([bytes[6], bytes[7]]);
@@ -941,6 +941,91 @@ impl Schedule {
             if !old_uuids.contains(l_uuid) {
                 self.mirror_edge_add::<L, R>(*l_uuid, r.non_nil_uuid());
             }
+        }
+    }
+
+    /// Read a boolean per-edge property for the `(l, r)` edge.
+    ///
+    /// Resolves the canonical owner for `(L, R)`, looks up the `EdgeDescriptor`
+    /// to find the named field's declared default, then reads the value from the
+    /// `{field_name}_meta` CRDT map.  Returns the declared default when no
+    /// explicit value has been written.
+    ///
+    /// # Panics
+    /// Panics in debug builds if `prop` is not declared in the descriptor's
+    /// `fields` slice.
+    #[must_use]
+    pub fn edge_get_bool<L: EntityType, R: EntityType>(
+        &self,
+        l_id: EntityId<L>,
+        r_id: EntityId<R>,
+        prop: &str,
+    ) -> bool {
+        use crate::edge_descriptor::EdgeFieldDefault;
+        use crate::edge_descriptor::ALL_EDGE_DESCRIPTORS;
+        let Some(canon) = crate::edge_crdt::canonical_owner(L::TYPE_NAME, R::TYPE_NAME) else {
+            return true;
+        };
+        let (owner_uuid, target_uuid) = if canon.owner_is_left {
+            (l_id.non_nil_uuid(), r_id.non_nil_uuid())
+        } else {
+            (r_id.non_nil_uuid(), l_id.non_nil_uuid())
+        };
+        let default = ALL_EDGE_DESCRIPTORS
+            .iter()
+            .find(|d| d.owner_type == canon.owner_type && d.field_name == canon.field_name)
+            .and_then(|d| d.fields.iter().find(|f| f.name == prop))
+            .map(|spec| match spec.default {
+                EdgeFieldDefault::Boolean(b) => b,
+            });
+        debug_assert!(
+            default.is_some(),
+            "edge_get_bool: prop {prop:?} not declared in EdgeDescriptor for {}",
+            canon.field_name
+        );
+        let default = default.unwrap_or(true);
+        crate::edge_crdt::read_edge_meta_bool(
+            &self.doc,
+            canon.owner_type,
+            owner_uuid,
+            canon.field_name,
+            target_uuid,
+            prop,
+            default,
+        )
+    }
+
+    /// Write a boolean per-edge property for the `(l, r)` edge (LWW).
+    ///
+    /// Resolves the canonical owner for `(L, R)` and writes the value into
+    /// the `{field_name}_meta` CRDT map.  Silently no-ops if the pair is not
+    /// a recognized relationship.
+    pub fn edge_set_bool<L: EntityType, R: EntityType>(
+        &mut self,
+        l_id: EntityId<L>,
+        r_id: EntityId<R>,
+        prop: &str,
+        value: bool,
+    ) {
+        let Some(canon) = crate::edge_crdt::canonical_owner(L::TYPE_NAME, R::TYPE_NAME) else {
+            return;
+        };
+        let (owner_uuid, target_uuid) = if canon.owner_is_left {
+            (l_id.non_nil_uuid(), r_id.non_nil_uuid())
+        } else {
+            (r_id.non_nil_uuid(), l_id.non_nil_uuid())
+        };
+        if let Err(e) = crate::edge_crdt::write_edge_meta_bool(
+            &mut self.doc,
+            canon.owner_type,
+            owner_uuid,
+            canon.field_name,
+            target_uuid,
+            prop,
+            value,
+        ) {
+            debug_assert!(false, "CRDT edge_set_bool failed: {e}");
+            let _ = e;
         }
     }
 
@@ -2397,5 +2482,77 @@ mod tests {
         let result2 = sched.inclusive_edges_from::<TestType, TestType>(id(1));
         assert!(result2.contains(&id(2)));
         assert!(result2.contains(&id(3)));
+    }
+
+    // ── Edge bool metadata ────────────────────────────────────────────────
+
+    #[test]
+    fn edge_get_bool_returns_default_when_not_set() {
+        let mut sched = Schedule::new();
+        let (panel_id, panel_data) = make_panel();
+        let (pres_id, pres_data) = make_presenter("Alice");
+        sched.insert(panel_id, panel_data);
+        sched.insert(pres_id, pres_data);
+        sched.edge_add::<PanelEntityType, PresenterEntityType>(panel_id, pres_id);
+
+        // Default for "credited" is true; no explicit write yet.
+        assert!(
+            sched.edge_get_bool::<PanelEntityType, PresenterEntityType>(
+                panel_id, pres_id, "credited"
+            ),
+            "credited should default to true"
+        );
+    }
+
+    #[test]
+    fn edge_set_bool_round_trip() {
+        let mut sched = Schedule::new();
+        let (panel_id, panel_data) = make_panel();
+        let (pres_id, pres_data) = make_presenter("Alice");
+        sched.insert(panel_id, panel_data);
+        sched.insert(pres_id, pres_data);
+        sched.edge_add::<PanelEntityType, PresenterEntityType>(panel_id, pres_id);
+
+        sched.edge_set_bool::<PanelEntityType, PresenterEntityType>(
+            panel_id, pres_id, "credited", false,
+        );
+        assert!(
+            !sched.edge_get_bool::<PanelEntityType, PresenterEntityType>(
+                panel_id, pres_id, "credited"
+            ),
+            "credited should be false after set"
+        );
+
+        sched.edge_set_bool::<PanelEntityType, PresenterEntityType>(
+            panel_id, pres_id, "credited", true,
+        );
+        assert!(
+            sched.edge_get_bool::<PanelEntityType, PresenterEntityType>(
+                panel_id, pres_id, "credited"
+            ),
+            "credited should be true after re-set"
+        );
+    }
+
+    #[test]
+    fn edge_meta_save_load_round_trip() {
+        let mut sched = Schedule::new();
+        let (panel_id, panel_data) = make_panel();
+        let (pres_id, pres_data) = make_presenter("Alice");
+        sched.insert(panel_id, panel_data);
+        sched.insert(pres_id, pres_data);
+        sched.edge_add::<PanelEntityType, PresenterEntityType>(panel_id, pres_id);
+        sched.edge_set_bool::<PanelEntityType, PresenterEntityType>(
+            panel_id, pres_id, "credited", false,
+        );
+
+        let bytes = sched.save();
+        let loaded = Schedule::load(&bytes).expect("load");
+        assert!(
+            !loaded.edge_get_bool::<PanelEntityType, PresenterEntityType>(
+                panel_id, pres_id, "credited"
+            ),
+            "credited=false must survive save/load"
+        );
     }
 }

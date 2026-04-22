@@ -123,8 +123,25 @@ All entity relationships are stored in a single `RawEdgeMap` on `Schedule`.
 - `edges_to::<L, R>(id)` — L entities pointing to `id`
 - `edge_add` / `edge_remove` / `edge_set` — mutators
 - `edge_set_to` — reverse-direction bulk set (used for homo reverse fields like `members`)
+- `edge_get_bool::<L, R>(l, r, field)` — read a per-edge boolean flag (defaults to `true` if unset)
+- `edge_set_bool::<L, R>(l, r, field, value)` — write a per-edge boolean flag
 
 Het vs homo is determined at runtime by `TypeId::of::<L::InternalData>() == TypeId::of::<R::InternalData>()`.
+
+### Per-Edge Metadata
+
+Some edges carry additional scalar data alongside the membership list. The
+`EdgeDescriptor` struct has a `fields: &'static [EdgeFieldSpec]` slot listing the
+per-edge fields and their defaults. Storage uses a parallel `{field_name}_meta`
+automerge map keyed by target UUID string, with each value being a nested map of
+scalars. A missing entry means the field is at its default value — no data
+migration is needed when new edge fields are added.
+
+Currently only the Panel ↔ Presenter edge carries metadata:
+
+| Edge              | Field      | Type | Default | Meaning                                                    |
+| ----------------- | ---------- | ---- | ------- | ---------------------------------------------------------- |
+| Panel ↔ Presenter | `credited` | bool | `true`  | Whether the presenter appears in the panel's credit output |
 
 ### Transitive Edge Cache
 
@@ -214,7 +231,7 @@ credit-string format.
 
 Relationship fields exposed via computed fields on node entities:
 
-- **Panel**: `presenters` / `add_presenters` / `remove_presenters`, `event_room`, `panel_type`
+- **Panel**: `presenters` (ro, all attached), `credited_presenters` / `uncredited_presenters` (rw, partition by flag), `add_credited_presenters` / `add_uncredited_presenters` / `remove_presenters`, `event_rooms` / `add_rooms` / `remove_rooms`, `panel_type`
 - **Presenter**: `groups`, `members`, `inclusive_groups`, `inclusive_members`, `panels`
 - **EventRoom**: `hotel_room`, `panels`
 - **HotelRoom**: `event_rooms`

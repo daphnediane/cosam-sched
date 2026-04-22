@@ -21,7 +21,13 @@ Document path layout:
 /meta/schedule_id, /meta/created_at, /meta/generator, /meta/version
 /entities/{type_name}/{uuid}/{field_name}     (per CrdtFieldType)
 /entities/{type_name}/{uuid}/__deleted        (soft delete marker)
+/entities/{type_name}/{uuid}/{edge_field}_meta/{target_uuid}/{meta_field}  (per-edge metadata)
 ```
+
+The `{edge_field}_meta` maps are written only when a per-edge field deviates from
+its default. A missing entry is equivalent to the default value. For example, the
+Panel ↔ Presenter `credited` flag is absent when `true` (the default) and present
+only when explicitly set to `false`.
 
 Every field write flows `FieldValue → automerge op → doc`, then the cache is
 refreshed from the new doc state. Every read is from the cache; a merge /
@@ -64,16 +70,17 @@ the field maps to automerge storage:
 
 ### Panel
 
-| Field                                                                                             | CrdtFieldType                |
-| ------------------------------------------------------------------------------------------------- | ---------------------------- |
-| `uid`, `name`                                                                                     | `Scalar`                     |
-| `description`                                                                                     | `Text`                       |
-| `note`, `notes_non_printing`, `workshop_notes`, `power_needs`, `av_notes`                         | `Text`                       |
-| `difficulty`, `prereq`, `cost`, `ticket_url`, `simpletix_event`, `simpletix_link`, `alt_panelist` | `Scalar`                     |
-| `sewing_machines`, `is_free`, `is_kids`, `is_full`, `have_ticket_image`, `hide_panelist`          | `Scalar`                     |
-| `capacity`, `seats_sold`, `pre_reg_max`                                                           | `Scalar`                     |
-| `time_slot` (start, duration)                                                                     | `Scalar` (two scalar fields) |
-| `presenters`, `event_rooms`, `panel_type` (computed)                                              | `Derived`                    |
+| Field                                                                                                | CrdtFieldType                |
+| ---------------------------------------------------------------------------------------------------- | ---------------------------- |
+| `uid`, `name`                                                                                        | `Scalar`                     |
+| `description`                                                                                        | `Text`                       |
+| `note`, `notes_non_printing`, `workshop_notes`, `power_needs`, `av_notes`                            | `Text`                       |
+| `difficulty`, `prereq`, `cost`, `ticket_url`, `simpletix_event`, `simpletix_link`, `alt_panelist`    | `Scalar`                     |
+| `sewing_machines`, `is_free`, `is_kids`, `is_full`, `have_ticket_image`, `hide_panelist`             | `Scalar`                     |
+| `capacity`, `seats_sold`, `pre_reg_max`                                                              | `Scalar`                     |
+| `time_slot` (start, duration)                                                                        | `Scalar` (two scalar fields) |
+| `presenters`, `event_rooms`, `panel_type`, `credited_presenters`, `uncredited_presenters` (computed) | `Derived`                    |
+| `presenters_meta` (per-edge metadata map)                                                            | see Per-Edge Metadata below  |
 
 ### Presenter
 
@@ -131,6 +138,36 @@ Automerge list operations give add-wins resolution for concurrent edge
 mutations: an add and a concurrent remove of the same target UUID resolve to
 the add. `RawEdgeMap` is a fast bidirectional in-memory index rebuilt from
 these owner lists on load and maintained incrementally on every write.
+
+### Per-Edge Metadata
+
+Some edges carry additional scalar data beyond membership. These are stored in a
+parallel `{edge_field}_meta` automerge `ObjType::Map` on the owning entity, keyed
+by target UUID string. Each value is a nested `ObjType::Map` of per-edge scalars
+(LWW semantics). A missing entry means the field is at its declared default.
+
+```text
+entities/panel/{uuid}/
+  presenters              ObjType::List   ← membership list
+  presenters_meta         ObjType::Map    ← per-edge data
+    "{presenter_uuid}":   ObjType::Map
+      "credited": bool    ← LWW scalar; absent ≡ default (true)
+```
+
+Removing a presenter leaves the meta entry as a harmless tombstone. The
+`EdgeDescriptor.fields` slot declares each per-edge field and its default,
+enabling readers to apply the correct default without scanning the doc.
+
+**API:** `Schedule::edge_get_bool<L,R>(l, r, field)` and
+`Schedule::edge_set_bool<L,R>(l, r, field, value)` are the typed access points.
+The underlying CRDT helpers are `edge_crdt::read_edge_meta_bool` /
+`edge_crdt::write_edge_meta_bool`.
+
+**Currently implemented per-edge fields:**
+
+| Edge              | Field      | Default | Meaning                                          |
+| ----------------- | ---------- | ------- | ------------------------------------------------ |
+| Panel ↔ Presenter | `credited` | `true`  | Whether the presenter appears in `FIELD_CREDITS` |
 
 ### Entity identity
 

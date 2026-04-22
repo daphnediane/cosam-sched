@@ -55,7 +55,7 @@ pub struct CanonicalOwner {
 /// whose `(owner_type, target_type)` or `(target_type, owner_type)` pair matches
 /// `(l_type, r_type)`.
 ///
-/// Returns `None` if the pair is not a recognised relationship.
+/// Returns `None` if the pair is not a recognized relationship.
 #[must_use]
 pub fn canonical_owner(l_type: &str, r_type: &str) -> Option<CanonicalOwner> {
     use crate::edge_descriptor::ALL_EDGE_DESCRIPTORS;
@@ -156,7 +156,7 @@ pub fn list_append_unique(
     };
     // Check for duplicate entries under this actor's history; automerge's
     // merge will still admit parallel inserts of the same uuid by
-    // concurrent actors, which we dedupe on read.
+    // concurrent actors, which we dedup on read.
     let len = doc.length(&list_id);
     let target_rid_str = format!("{}:{}", target_type, target_uuid);
     for i in 0..len {
@@ -251,6 +251,85 @@ pub fn write_owner_list(
         CrdtFieldType::List,
         &value,
     )
+}
+
+// ── Per-edge metadata ──────────────────────────────────────────────────────────
+
+/// Derive the CRDT map key for per-edge metadata from the membership list field
+/// name (e.g. `"presenters"` → `"presenters_meta"`).
+#[must_use]
+pub fn meta_field_name(field_name: &str) -> String {
+    format!("{field_name}_meta")
+}
+
+/// Read a boolean per-edge property from the `{field_name}_meta` map.
+///
+/// Path: `entities/{owner_type}/{owner_uuid}/{meta_field}/{target_uuid}/{prop_name}`
+///
+/// Returns `default` when any level of the path is absent (no explicit value written).
+#[must_use]
+pub fn read_edge_meta_bool(
+    doc: &AutoCommit,
+    owner_type: &str,
+    owner_uuid: NonNilUuid,
+    field_name: &str,
+    target_uuid: NonNilUuid,
+    prop_name: &str,
+    default: bool,
+) -> bool {
+    let meta_key = meta_field_name(field_name);
+    let target_key = target_uuid.to_string();
+    // Walk the path read-only; return default at any missing level.
+    let Some(entity_map) = crdt::get_entity_map(doc, owner_type, owner_uuid) else {
+        return default;
+    };
+    let Some((Value::Object(ObjType::Map), meta_map_id)) =
+        doc.get(&entity_map, meta_key.as_str()).ok().flatten()
+    else {
+        return default;
+    };
+    let Some((Value::Object(ObjType::Map), target_map_id)) =
+        doc.get(&meta_map_id, target_key.as_str()).ok().flatten()
+    else {
+        return default;
+    };
+    match doc.get(&target_map_id, prop_name).ok().flatten() {
+        Some((Value::Scalar(s), _)) => match s.as_ref() {
+            automerge::ScalarValue::Boolean(b) => *b,
+            _ => default,
+        },
+        _ => default,
+    }
+}
+
+/// Write a boolean per-edge property into the `{field_name}_meta` map (LWW).
+///
+/// Path: `entities/{owner_type}/{owner_uuid}/{meta_field}/{target_uuid}/{prop_name}`
+///
+/// Intermediate maps are created if absent.
+///
+/// # Errors
+/// Propagates [`crdt::CrdtError`] from the underlying automerge operations.
+pub fn write_edge_meta_bool(
+    doc: &mut AutoCommit,
+    owner_type: &str,
+    owner_uuid: NonNilUuid,
+    field_name: &str,
+    target_uuid: NonNilUuid,
+    prop_name: &str,
+    value: bool,
+) -> Result<(), crdt::CrdtError> {
+    let meta_key = meta_field_name(field_name);
+    let target_key = target_uuid.to_string();
+    let entity_map = crdt::ensure_entity_map(doc, owner_type, owner_uuid)?;
+    let meta_map_id = crdt::ensure_map(doc, &entity_map, meta_key.as_str())?;
+    let target_map_id = crdt::ensure_map(doc, &meta_map_id, target_key.as_str())?;
+    doc.put(
+        &target_map_id,
+        prop_name,
+        automerge::ScalarValue::Boolean(value),
+    )?;
+    Ok(())
 }
 
 /// Read `owner`'s `field_name` list from the CRDT document, returning the

@@ -288,6 +288,7 @@ impl EventRoomEntityType {
             target_type: HotelRoomEntityType::TYPE_NAME,
             is_homogeneous: false,
             field_name: "hotel_rooms",
+            fields: &[],
         };
 }
 

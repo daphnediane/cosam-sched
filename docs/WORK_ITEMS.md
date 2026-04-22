@@ -1,6 +1,6 @@
 # Cosplay America Schedule - Work Item
 
-Updated on: Sat Apr 25 12:58:05 2026
+Updated on: Sat Apr 25 13:03:48 2026
 
 ## Completed
 
@@ -60,6 +60,9 @@ collection, and expose a `registered_entity_types()` accessor.
 * [REFACTOR-059] Introduce `EdgeDescriptor` as a first-class type that colocates edge definition,
 CRDT ownership, and relationship semantics on the canonical owner entity type,
 replacing the split `canonical_owner()` match table and `OWNER_EDGE_FIELDS` constant.
+* [REFACTOR-060] Add per-edge data infrastructure to `EdgeDescriptor` and implement `credited: bool`
+on the Panel ↔ Presenter relationship so individual presenters can be excluded
+from credits without hiding all credits for the panel.
 
 ---
 
@@ -508,3 +511,4 @@ to exchange CRDT changes and reconcile concurrent edits to the same fields.
 [REFACTOR-054]: work-item/done/REFACTOR-054.md
 [REFACTOR-055]: work-item/done/REFACTOR-055.md
 [REFACTOR-059]: work-item/done/REFACTOR-059.md
+[REFACTOR-060]: work-item/done/REFACTOR-060.md

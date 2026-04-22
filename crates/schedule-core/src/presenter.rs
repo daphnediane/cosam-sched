@@ -314,6 +314,7 @@ impl PresenterEntityType {
             target_type: Self::TYPE_NAME,
             is_homogeneous: true,
             field_name: "groups",
+            fields: &[],
         };
 
     /// Find the best-matching presenter by name.

@@ -297,12 +297,11 @@ static FIELD_PANEL_NAME: FieldDescriptor<PanelEntityType> = FieldDescriptor {
     verify_fn: None,
 };
 
-// Edge-backed fields use macros that call Schedule::edges_from / edge_set:
-edge_list_field_rw!(FIELD_PRESENTERS, PanelEntityType, PanelInternalData,
-    target: PresenterEntityType,
+// Read-only edge field (all attached presenters):
+edge_field!(FIELD_PRESENTERS, PanelEntityType, mode: ro, target: PresenterEntityType,
     name: "presenters", display: "Presenters",
-    desc: "All presenters credited for this panel.",
-    aliases: &["presenter"],
+    desc: "All presenters attached to this panel (credited and uncredited).",
+    aliases: &["panelists", "presenter"],
     example: "[]",
     order: 2700);
 ```
@@ -312,14 +311,96 @@ edge_list_field_rw!(FIELD_PRESENTERS, PanelEntityType, PanelInternalData,
 Uniformly-shaped descriptors (required/optional strings, booleans, optional
 integers, plain-text fields, edge-backed fields) are declared via shared
 `macro_rules!` helpers in `crates/schedule-core/src/field_macros.rs`:
-`req_string_field!`, `opt_string_field!`, `opt_text_field!`, `bool_field!`,
-`opt_i64_field!`, `edge_list_field!`, `edge_list_field_rw!`,
-`edge_list_field_to_rw!`, `edge_none_field_rw!`, `edge_add_field!`,
-`edge_remove_field!`. Each macro takes the entity type and `InternalData` type
-explicitly and assumes the `data: CommonData` convention. Edge macros take a
-`target: EntityType` (or `source: EntityType`) parameter. Bespoke descriptors
-(BFS transitive-closure fields, fields with custom parse logic) stay as
-hand-written struct literals wrapped in `define_field!`.
+`stored_field!`, `edge_field!`. Each macro takes the entity type and assumes the
+`data: CommonData` convention. Edge macros take a `target: EntityType` (or
+`source: EntityType`) parameter and a `mode` (`ro`, `rw`, `one`, `add`, `remove`,
+`rw_to`). Bespoke descriptors (BFS transitive-closure fields, fields with custom
+parse logic, read-only computed fields with Schedule access, per-edge-metadata
+fields) stay as hand-written struct literals wrapped in `define_field!`.
+
+### EdgeDescriptor and per-edge fields
+
+`EdgeDescriptor` (in `edge_descriptor.rs`) describes a relationship between two
+entity types. It now carries a `fields: &'static [EdgeFieldSpec]` slot listing
+per-edge scalar fields and their defaults:
+
+```rust
+pub struct EdgeDescriptor {
+    pub name: &'static str,
+    pub owner_type: &'static str,
+    pub target_type: &'static str,
+    pub is_homogeneous: bool,
+    pub field_name: &'static str,
+    pub fields: &'static [EdgeFieldSpec],  // per-edge metadata fields
+}
+
+pub struct EdgeFieldSpec {
+    pub name: &'static str,
+    pub default: EdgeFieldDefault,
+}
+
+pub enum EdgeFieldDefault {
+    Boolean(bool),
+}
+```
+
+Edge fields are read/written via `Schedule::edge_get_bool` / `edge_set_bool`.
+Storage is in a parallel `{field_name}_meta` automerge map; see `crdt-design.md`
+for the document path layout.
+
+**Presenter partition fields on Panel** use `define_field!` with `WriteFn::Schedule`
+and call `field_value_to_entity_ids` (the standard edge-parsing helper) for input
+normalization, then `edge_get_bool` / `edge_set_bool` / `edge_add` / `edge_remove`:
+
+| Field                       | Mode       | Semantics                                                                       |
+| --------------------------- | ---------- | ------------------------------------------------------------------------------- |
+| `presenters`                | read-only  | All attached presenters (both partitions)                                       |
+| `credited_presenters`       | read/write | Read: credited subset. Write: replace credited partition (absent → removed)     |
+| `uncredited_presenters`     | read/write | Read: uncredited subset. Write: replace uncredited partition (absent → removed) |
+| `add_credited_presenters`   | write-only | Add presenters and set `credited = true`                                        |
+| `add_uncredited_presenters` | write-only | Add presenters and set `credited = false`                                       |
+| `remove_presenters`         | write-only | Remove presenters from the panel entirely                                       |
+
+The two partitions are **independent**: writing `credited_presenters` does not
+affect presenters in the uncredited partition and vice versa. Moving a presenter
+between partitions (by writing them into the other field) sets the flag; their
+edge is retained.
+
+### Read-only computed fields with Schedule access
+
+For computed fields that require Schedule access to traverse edges or access other
+entities, use `ReadFn::Schedule` with a closure that receives `(&Schedule, EntityId<E>)`:
+
+```rust
+define_field!(
+    pub static FIELD_INCLUSIVE_GROUPS: FieldDescriptor<PresenterEntityType> = FieldDescriptor {
+        name: "inclusive_groups",
+        display: "Inclusive Groups",
+        description: "Transitive closure of groups this presenter appears in.",
+        aliases: &[],
+        required: false,
+        crdt_type: CrdtFieldType::Derived,
+        field_type: FieldType(FieldCardinality::List, FieldTypeItem::EntityIdentifier(
+            PresenterEntityType::TYPE_NAME,
+        )),
+        example: "[]",
+        order: 900,
+        read_fn: Some(ReadFn::Schedule(|sched, id| {
+            let ids = sched.inclusive_edges_from::<PresenterEntityType, PresenterEntityType>(id);
+            Some(crate::schedule::entity_ids_to_field_value(ids))
+        })),
+        write_fn: None,
+        verify_fn: None,
+    }
+);
+```
+
+This pattern is used for:
+
+- **Panel**: `credited_presenters` / `uncredited_presenters` (read the
+  credited/uncredited partitions by checking `edge_get_bool`)
+- **Presenter**: `inclusive_groups`, `inclusive_members` (transitive closure via
+  `inclusive_edges_from`/`inclusive_edges_to`)
 
 ### Inventory-based field registration
 

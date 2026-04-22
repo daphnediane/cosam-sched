@@ -613,19 +613,220 @@ define_field!(
 
 // ── Edge-backed computed fields ───────────────────────────────────────────────
 
-edge_field!(FIELD_PRESENTERS, PanelEntityType, mode: rw, target: PresenterEntityType,
+edge_field!(FIELD_PRESENTERS, PanelEntityType, mode: ro, target: PresenterEntityType,
     name: "presenters", display: "Presenters",
-    desc: "All presenters credited for this panel.",
+    desc: "All presenters attached to this panel (credited and uncredited).",
     aliases: &["panelists", "presenter"],
     example: "[]",
     order: 2700);
 
-edge_field!(FIELD_ADD_PRESENTERS, PanelEntityType, mode: add, target: PresenterEntityType,
-    name: "add_presenters", display: "Add Presenters",
-    desc: "Append presenters to this panel.",
-    aliases: &["add_presenter"],
-    example: "[presenter_id]",
-    order: 2800);
+define_field!(
+    /// Credited presenters for this panel.
+    ///
+    /// **Read:** Returns the `EntityId`s of all presenters whose per-edge
+    /// `credited` flag is `true` (the default when no flag has been set).
+    ///
+    /// **Write:** Sets the exact list of credited presenters.  Any presenter
+    /// currently credited but absent from the new list is removed from the
+    /// panel entirely; every presenter in the list is added to the panel (if
+    /// not already attached) and has their `credited` flag set to `true`.
+    /// Presenters in the uncredited partition are not affected.
+    pub static FIELD_CREDITED_PRESENTERS: FieldDescriptor<PanelEntityType> = FieldDescriptor {
+        name: "credited_presenters",
+        display: "Credited Presenters",
+        description: "Presenters credited on this panel. Read returns credited subset; write replaces it.",
+        aliases: &["credited_panelists", "credited_presenter"],
+        required: false,
+        crdt_type: CrdtFieldType::Derived,
+        field_type: FieldType(
+            FieldCardinality::List,
+            FieldTypeItem::EntityIdentifier(PresenterEntityType::TYPE_NAME),
+        ),
+        example: "[presenter_id]",
+        order: 2710,
+        read_fn: Some(ReadFn::Schedule(
+            |sched: &crate::schedule::Schedule, id: PanelId| {
+                let ids: Vec<PresenterId> = sched
+                    .edges_from::<PanelEntityType, PresenterEntityType>(id)
+                    .into_iter()
+                    .filter(|&p| {
+                        sched.edge_get_bool::<PanelEntityType, PresenterEntityType>(
+                            id, p, "credited",
+                        )
+                    })
+                    .collect();
+                Some(crate::schedule::entity_ids_to_field_value(ids))
+            },
+        )),
+        write_fn: Some(WriteFn::Schedule(|sched, panel_id, val| {
+            let new_ids =
+                crate::schedule::field_value_to_entity_ids::<PresenterEntityType>(val)?;
+            // Credited presenters absent from the new list are removed entirely.
+            let current_credited: Vec<PresenterId> = sched
+                .edges_from::<PanelEntityType, PresenterEntityType>(panel_id)
+                .into_iter()
+                .filter(|&p| {
+                    sched.edge_get_bool::<PanelEntityType, PresenterEntityType>(
+                        panel_id, p, "credited",
+                    )
+                })
+                .collect();
+            for p in &current_credited {
+                if !new_ids.contains(p) {
+                    sched.edge_remove::<PanelEntityType, PresenterEntityType>(panel_id, *p);
+                }
+            }
+            // Each presenter in the new list → add edge if needed, then mark credited.
+            // If a presenter was previously uncredited, they are now credited.
+            for p in &new_ids {
+                sched.edge_add::<PanelEntityType, PresenterEntityType>(panel_id, *p);
+                sched.edge_set_bool::<PanelEntityType, PresenterEntityType>(
+                    panel_id, *p, "credited", true,
+                );
+            }
+            Ok(())
+        })),
+        verify_fn: None,
+    }
+);
+
+define_field!(
+    /// Uncredited presenters for this panel.
+    ///
+    /// **Read:** Returns the `EntityId`s of all presenters whose per-edge
+    /// `credited` flag is `false`.
+    ///
+    /// **Write:** Sets the exact list of uncredited presenters.  Any presenter
+    /// currently uncredited but absent from the new list is removed from the
+    /// panel entirely; every presenter in the list is added to the panel (if
+    /// not already attached) and has their `credited` flag set to `false`.
+    /// Presenters in the credited partition are not affected.
+    pub static FIELD_UNCREDITED_PRESENTERS: FieldDescriptor<PanelEntityType> = FieldDescriptor {
+        name: "uncredited_presenters",
+        display: "Uncredited Presenters",
+        description: "Presenters attached but not credited on this panel. Read returns uncredited subset; write replaces it.",
+        aliases: &["uncredited_panelists", "uncredited_presenter"],
+        required: false,
+        crdt_type: CrdtFieldType::Derived,
+        field_type: FieldType(
+            FieldCardinality::List,
+            FieldTypeItem::EntityIdentifier(PresenterEntityType::TYPE_NAME),
+        ),
+        example: "[presenter_id]",
+        order: 2720,
+        read_fn: Some(ReadFn::Schedule(
+            |sched: &crate::schedule::Schedule, id: PanelId| {
+                let ids: Vec<PresenterId> = sched
+                    .edges_from::<PanelEntityType, PresenterEntityType>(id)
+                    .into_iter()
+                    .filter(|&p| {
+                        !sched.edge_get_bool::<PanelEntityType, PresenterEntityType>(
+                            id, p, "credited",
+                        )
+                    })
+                    .collect();
+                Some(crate::schedule::entity_ids_to_field_value(ids))
+            },
+        )),
+        write_fn: Some(WriteFn::Schedule(|sched, panel_id, val| {
+            let new_ids =
+                crate::schedule::field_value_to_entity_ids::<PresenterEntityType>(val)?;
+            // Uncredited presenters absent from the new list are removed entirely.
+            let current_uncredited: Vec<PresenterId> = sched
+                .edges_from::<PanelEntityType, PresenterEntityType>(panel_id)
+                .into_iter()
+                .filter(|&p| {
+                    !sched.edge_get_bool::<PanelEntityType, PresenterEntityType>(
+                        panel_id, p, "credited",
+                    )
+                })
+                .collect();
+            for p in &current_uncredited {
+                if !new_ids.contains(p) {
+                    sched.edge_remove::<PanelEntityType, PresenterEntityType>(panel_id, *p);
+                }
+            }
+            // Each presenter in the new list → add edge if needed, then mark uncredited.
+            // If a presenter was previously credited, they are now uncredited.
+            for p in &new_ids {
+                sched.edge_add::<PanelEntityType, PresenterEntityType>(panel_id, *p);
+                sched.edge_set_bool::<PanelEntityType, PresenterEntityType>(
+                    panel_id, *p, "credited", false,
+                );
+            }
+            Ok(())
+        })),
+        verify_fn: None,
+    }
+);
+
+define_field!(
+    /// Add presenters to this panel and mark them as credited.
+    ///
+    /// Write-only.  Each presenter in the list is added to the panel (if not
+    /// already attached) and has their `credited` flag set to `true`.
+    pub static FIELD_ADD_CREDITED_PRESENTERS: FieldDescriptor<PanelEntityType> = FieldDescriptor {
+        name: "add_credited_presenters",
+        display: "Add Credited Presenters",
+        description: "Add presenters to this panel and mark them as credited.",
+        aliases: &["add_credited_presenter"],
+        required: false,
+        crdt_type: CrdtFieldType::Derived,
+        field_type: FieldType(
+            FieldCardinality::List,
+            FieldTypeItem::EntityIdentifier(PresenterEntityType::TYPE_NAME),
+        ),
+        example: "[presenter_id]",
+        order: 2730,
+        read_fn: None,
+        write_fn: Some(WriteFn::Schedule(|sched, panel_id, val| {
+            let ids =
+                crate::schedule::field_value_to_entity_ids::<PresenterEntityType>(val)?;
+            for p in ids {
+                sched.edge_add::<PanelEntityType, PresenterEntityType>(panel_id, p);
+                sched.edge_set_bool::<PanelEntityType, PresenterEntityType>(
+                    panel_id, p, "credited", true,
+                );
+            }
+            Ok(())
+        })),
+        verify_fn: None,
+    }
+);
+
+define_field!(
+    /// Add presenters to this panel and mark them as uncredited.
+    ///
+    /// Write-only.  Each presenter in the list is added to the panel (if not
+    /// already attached) and has their `credited` flag set to `false`.
+    pub static FIELD_ADD_UNCREDITED_PRESENTERS: FieldDescriptor<PanelEntityType> = FieldDescriptor {
+        name: "add_uncredited_presenters",
+        display: "Add Uncredited Presenters",
+        description: "Add presenters to this panel and mark them as uncredited.",
+        aliases: &["add_uncredited_presenter"],
+        required: false,
+        crdt_type: CrdtFieldType::Derived,
+        field_type: FieldType(
+            FieldCardinality::List,
+            FieldTypeItem::EntityIdentifier(PresenterEntityType::TYPE_NAME),
+        ),
+        example: "[presenter_id]",
+        order: 2740,
+        read_fn: None,
+        write_fn: Some(WriteFn::Schedule(|sched, panel_id, val| {
+            let ids =
+                crate::schedule::field_value_to_entity_ids::<PresenterEntityType>(val)?;
+            for p in ids {
+                sched.edge_add::<PanelEntityType, PresenterEntityType>(panel_id, p);
+                sched.edge_set_bool::<PanelEntityType, PresenterEntityType>(
+                    panel_id, p, "credited", false,
+                );
+            }
+            Ok(())
+        })),
+        verify_fn: None,
+    }
+);
 
 edge_field!(FIELD_REMOVE_PRESENTERS, PanelEntityType, mode: remove, target: PresenterEntityType,
     name: "remove_presenters", display: "Remove Presenters",
@@ -798,6 +999,10 @@ impl PanelEntityType {
             target_type: PresenterEntityType::TYPE_NAME,
             is_homogeneous: false,
             field_name: "presenters",
+            fields: &[crate::edge_descriptor::EdgeFieldSpec {
+                name: "credited",
+                default: crate::edge_descriptor::EdgeFieldDefault::Boolean(true),
+            }],
         };
 
     /// Panel ↔ EventRoom relationship.  Panel is the canonical CRDT owner.
@@ -808,6 +1013,7 @@ impl PanelEntityType {
             target_type: EventRoomEntityType::TYPE_NAME,
             is_homogeneous: false,
             field_name: "event_rooms",
+            fields: &[],
         };
 
     /// Panel → PanelType relationship.  Panel is the canonical CRDT owner.
@@ -818,6 +1024,7 @@ impl PanelEntityType {
             target_type: PanelTypeEntityType::TYPE_NAME,
             is_homogeneous: false,
             field_name: "panel_type",
+            fields: &[],
         };
 }
 
@@ -910,7 +1117,7 @@ mod tests {
     fn field_set_contains_all_declared_fields() {
         let fs = PanelEntityType::field_set();
         let count = fs.fields().count();
-        assert_eq!(count, 35);
+        assert_eq!(count, 38);
     }
 
     #[test]
@@ -1127,8 +1334,20 @@ mod tests {
         let id = new_panel_id();
         let mut s = sched_with(id, sample_internal(id));
         let fs = PanelEntityType::field_set();
-        fs.write_field_value("add_presenters", id, &mut s, field_value!(empty_list))
-            .unwrap();
+        fs.write_field_value(
+            "add_credited_presenters",
+            id,
+            &mut s,
+            field_value!(empty_list),
+        )
+        .unwrap();
+        fs.write_field_value(
+            "add_uncredited_presenters",
+            id,
+            &mut s,
+            field_value!(empty_list),
+        )
+        .unwrap();
     }
 
     #[test]
@@ -1222,5 +1441,105 @@ mod tests {
         let sched = Schedule::default();
         let s = PanelEntityType::entity_to_string(&sched, id);
         assert_eq!(s, id.to_string());
+    }
+
+    // ── credited flag ─────────────────────────────────────────────────────
+
+    fn make_presenter_for_panel(
+        sched: &mut Schedule,
+        name: &str,
+    ) -> crate::entity::EntityId<PresenterEntityType> {
+        use crate::entity::UuidPreference;
+        let pres_id = crate::entity::EntityId::<PresenterEntityType>::from_preference(
+            UuidPreference::GenerateNew,
+        );
+        let data = crate::presenter::PresenterInternalData {
+            id: pres_id,
+            data: crate::presenter::PresenterCommonData {
+                name: name.into(),
+                ..Default::default()
+            },
+        };
+        sched.insert(pres_id, data);
+        pres_id
+    }
+
+    #[test]
+    fn credited_presenters_read_returns_only_credited() {
+        let panel_id = new_panel_id();
+        let mut sched = sched_with(panel_id, sample_internal(panel_id));
+
+        let alice = make_presenter_for_panel(&mut sched, "Alice");
+        let bob = make_presenter_for_panel(&mut sched, "Bob");
+
+        sched.edge_add::<PanelEntityType, PresenterEntityType>(panel_id, alice);
+        sched.edge_add::<PanelEntityType, PresenterEntityType>(panel_id, bob);
+        sched.edge_set_bool::<PanelEntityType, PresenterEntityType>(
+            panel_id, bob, "credited", false,
+        );
+
+        let fs = PanelEntityType::field_set();
+        let val = fs
+            .read_field_value("credited_presenters", panel_id, &sched)
+            .unwrap();
+        let credited = match val.unwrap() {
+            crate::value::FieldValue::List(items) => items,
+            other => panic!("expected List, got {other:?}"),
+        };
+        assert_eq!(credited.len(), 1);
+        let rid = match &credited[0] {
+            crate::value::FieldValueItem::EntityIdentifier(r) => *r,
+            other => panic!("expected EntityIdentifier, got {other:?}"),
+        };
+        assert_eq!(rid.uuid(), alice.non_nil_uuid());
+    }
+
+    #[test]
+    fn credited_presenters_write_removes_absent_and_leaves_uncredited_partition() {
+        let panel_id = new_panel_id();
+        let mut sched = sched_with(panel_id, sample_internal(panel_id));
+
+        let alice = make_presenter_for_panel(&mut sched, "Alice"); // credited
+        let bob = make_presenter_for_panel(&mut sched, "Bob"); // credited, will be dropped
+        let carol = make_presenter_for_panel(&mut sched, "Carol"); // uncredited — must be untouched
+
+        sched.edge_add::<PanelEntityType, PresenterEntityType>(panel_id, alice);
+        sched.edge_add::<PanelEntityType, PresenterEntityType>(panel_id, bob);
+        sched.edge_add::<PanelEntityType, PresenterEntityType>(panel_id, carol);
+        sched.edge_set_bool::<PanelEntityType, PresenterEntityType>(
+            panel_id, carol, "credited", false,
+        );
+
+        // Write credited_presenters = [alice] — bob should be removed, carol untouched.
+        let fs = PanelEntityType::field_set();
+        let new_val =
+            crate::value::FieldValue::List(vec![crate::value::FieldValueItem::EntityIdentifier(
+                crate::entity::RuntimeEntityId::from_typed(alice),
+            )]);
+        fs.write_field_value("credited_presenters", panel_id, &mut sched, new_val)
+            .unwrap();
+
+        // Bob's edge should be gone.
+        let all = sched.edges_from::<PanelEntityType, PresenterEntityType>(panel_id);
+        assert!(!all.contains(&bob), "Bob should have been removed");
+
+        // Alice still present and credited.
+        assert!(all.contains(&alice), "Alice should still be present");
+        assert!(
+            sched
+                .edge_get_bool::<PanelEntityType, PresenterEntityType>(panel_id, alice, "credited"),
+            "Alice should be credited"
+        );
+
+        // Carol still present and uncredited.
+        assert!(
+            all.contains(&carol),
+            "Carol (uncredited) should be untouched"
+        );
+        assert!(
+            !sched
+                .edge_get_bool::<PanelEntityType, PresenterEntityType>(panel_id, carol, "credited"),
+            "Carol should remain uncredited"
+        );
     }
 }
