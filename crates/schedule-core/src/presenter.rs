@@ -303,6 +303,19 @@ impl EntityType for PresenterEntityType {
 }
 
 impl PresenterEntityType {
+    /// Presenter → Group (homogeneous) relationship.
+    ///
+    /// The source presenter (left side / member) is the canonical CRDT owner:
+    /// `member.groups` lists the groups the member belongs to.
+    pub const EDGE_GROUPS: crate::edge_descriptor::EdgeDescriptor =
+        crate::edge_descriptor::EdgeDescriptor {
+            name: "presenter_groups",
+            owner_type: Self::TYPE_NAME,
+            target_type: Self::TYPE_NAME,
+            is_homogeneous: true,
+            field_name: "groups",
+        };
+
     /// Find the best-matching presenter by name.
     ///
     /// Uses `match_entity` against all stored presenters.

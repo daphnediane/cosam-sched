@@ -1,6 +1,6 @@
 # Cosplay America Schedule - Work Item
 
-Updated on: Tue Apr 21 10:51:45 2026
+Updated on: Sat Apr 25 12:58:05 2026
 
 ## Completed
 
@@ -57,6 +57,9 @@ collection, and expose a `registered_entity_types()` accessor.
 * [REFACTOR-055] Add `define_field!` macro to bundle hand-written `FieldDescriptor` statics with
 `inventory::submit!`, and add `IntoFieldValue` trait hierarchy for type-deduced
 `field_value!(expr)` construction.
+* [REFACTOR-059] Introduce `EdgeDescriptor` as a first-class type that colocates edge definition,
+CRDT ownership, and relationship semantics on the canonical owner entity type,
+replacing the split `canonical_owner()` match table and `OWNER_EDGE_FIELDS` constant.
 
 ---
 
@@ -504,3 +507,4 @@ to exchange CRDT changes and reconcile concurrent edits to the same fields.
 [REFACTOR-053]: work-item/done/REFACTOR-053.md
 [REFACTOR-054]: work-item/done/REFACTOR-054.md
 [REFACTOR-055]: work-item/done/REFACTOR-055.md
+[REFACTOR-059]: work-item/done/REFACTOR-059.md

@@ -51,81 +51,37 @@ pub struct CanonicalOwner {
 
 /// Resolve the canonical owner for edges between `l_type` and `r_type`.
 ///
+/// Searches [`crate::edge_descriptor::ALL_EDGE_DESCRIPTORS`] for a descriptor
+/// whose `(owner_type, target_type)` or `(target_type, owner_type)` pair matches
+/// `(l_type, r_type)`.
+///
 /// Returns `None` if the pair is not a recognised relationship.
 #[must_use]
 pub fn canonical_owner(l_type: &str, r_type: &str) -> Option<CanonicalOwner> {
-    // Match on tuple; each arm returns `CanonicalOwner` with static strings.
-    // The order is driven by the FEATURE-023 ownership table.
-    Some(match (l_type, r_type) {
-        ("panel", "presenter") => CanonicalOwner {
-            owner_is_left: true,
-            owner_type: "panel",
-            target_type: "presenter",
-            field_name: "presenters",
-        },
-        ("presenter", "panel") => CanonicalOwner {
-            owner_is_left: false,
-            owner_type: "panel",
-            target_type: "presenter",
-            field_name: "presenters",
-        },
-        ("panel", "event_room") => CanonicalOwner {
-            owner_is_left: true,
-            owner_type: "panel",
-            target_type: "event_room",
-            field_name: "event_rooms",
-        },
-        ("event_room", "panel") => CanonicalOwner {
-            owner_is_left: false,
-            owner_type: "panel",
-            target_type: "event_room",
-            field_name: "event_rooms",
-        },
-        ("panel", "panel_type") => CanonicalOwner {
-            owner_is_left: true,
-            owner_type: "panel",
-            target_type: "panel_type",
-            field_name: "panel_type",
-        },
-        ("panel_type", "panel") => CanonicalOwner {
-            owner_is_left: false,
-            owner_type: "panel",
-            target_type: "panel_type",
-            field_name: "panel_type",
-        },
-        ("event_room", "hotel_room") => CanonicalOwner {
-            owner_is_left: true,
-            owner_type: "event_room",
-            target_type: "hotel_room",
-            field_name: "hotel_rooms",
-        },
-        ("hotel_room", "event_room") => CanonicalOwner {
-            owner_is_left: false,
-            owner_type: "event_room",
-            target_type: "hotel_room",
-            field_name: "hotel_rooms",
-        },
-        // Homo presenter↔presenter: source (left) owns the `groups` list.
-        // `edge_add::<Presenter,Presenter>(member, group)` means member.groups += [group].
-        ("presenter", "presenter") => CanonicalOwner {
-            owner_is_left: true,
-            owner_type: "presenter",
-            target_type: "presenter",
-            field_name: "groups",
-        },
-        _ => return None,
-    })
+    use crate::edge_descriptor::ALL_EDGE_DESCRIPTORS;
+    for desc in ALL_EDGE_DESCRIPTORS {
+        if desc.owner_type == l_type && desc.target_type == r_type {
+            // L is the owner side.
+            return Some(CanonicalOwner {
+                owner_is_left: true,
+                owner_type: desc.owner_type,
+                target_type: desc.target_type,
+                field_name: desc.field_name,
+            });
+        }
+        if !desc.is_homogeneous && desc.target_type == l_type && desc.owner_type == r_type {
+            // R is the owner side (heterogeneous only — homo edges don't have a
+            // separate reverse direction; the left side always owns).
+            return Some(CanonicalOwner {
+                owner_is_left: false,
+                owner_type: desc.owner_type,
+                target_type: desc.target_type,
+                field_name: desc.field_name,
+            });
+        }
+    }
+    None
 }
-
-/// Every owner-side (type, field, target_type, is_homogeneous) tuple.  Used by the
-/// load path to rebuild `RawEdgeMap` from the authoritative doc.
-pub const OWNER_EDGE_FIELDS: &[(&str, &str, &str, bool)] = &[
-    ("panel", "presenters", "presenter", false),
-    ("panel", "event_rooms", "event_room", false),
-    ("panel", "panel_type", "panel_type", false),
-    ("event_room", "hotel_rooms", "hotel_room", false),
-    ("presenter", "groups", "presenter", true),
-];
 
 /// Ensure that the empty list object exists at `owner.field_name` so that
 /// concurrent replicas both inherit the same `ObjId` when they later add
@@ -169,9 +125,10 @@ pub fn ensure_all_owner_lists_for_type(
     owner_type: &str,
     owner_uuid: NonNilUuid,
 ) -> Result<(), crdt::CrdtError> {
-    for &(typ, field_name, _target, _is_homo) in OWNER_EDGE_FIELDS {
-        if typ == owner_type {
-            ensure_owner_list(doc, owner_type, owner_uuid, field_name)?;
+    use crate::edge_descriptor::ALL_EDGE_DESCRIPTORS;
+    for desc in ALL_EDGE_DESCRIPTORS {
+        if desc.owner_type == owner_type {
+            ensure_owner_list(doc, owner_type, owner_uuid, desc.field_name)?;
         }
     }
     Ok(())

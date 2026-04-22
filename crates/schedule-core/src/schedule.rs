@@ -460,8 +460,8 @@ impl Schedule {
     /// Replay every canonical owner's relationship-list field into the
     /// in-memory [`RawEdgeMap`].
     ///
-    /// For every `(owner_type, field_name, target_type, is_homogeneous)` tuple in
-    /// [`crate::edge_crdt::OWNER_EDGE_FIELDS`], iterate every live owner
+    /// For every [`crate::edge_descriptor::EdgeDescriptor`] in
+    /// [`crate::edge_descriptor::ALL_EDGE_DESCRIPTORS`], iterate every live owner
     /// uuid in the doc, read the list, and `add_het`/`add_homo` each
     /// endpoint into the cache.  The caller is responsible for running this
     /// under [`Self::with_mirror_disabled`] — otherwise each replayed edge
@@ -474,11 +474,17 @@ impl Schedule {
         struct EdgeBatch {
             owner_type: &'static str,
             target_type: &'static str,
-            is_homo: bool,
+            is_homogeneous: bool,
             pairs: Vec<(NonNilUuid, Vec<NonNilUuid>)>,
         }
         let mut batches: Vec<EdgeBatch> = Vec::new();
-        for &(owner_type, field_name, target_type, is_homo) in crate::edge_crdt::OWNER_EDGE_FIELDS {
+        for desc in crate::edge_descriptor::ALL_EDGE_DESCRIPTORS {
+            let (owner_type, field_name, target_type, is_homogeneous) = (
+                desc.owner_type,
+                desc.field_name,
+                desc.target_type,
+                desc.is_homogeneous,
+            );
             let owner_uuids = crdt::list_all_uuids(&self.doc, owner_type);
             let mut pairs: Vec<(NonNilUuid, Vec<NonNilUuid>)> = Vec::new();
             for owner_uuid in owner_uuids {
@@ -500,7 +506,7 @@ impl Schedule {
                 batches.push(EdgeBatch {
                     owner_type,
                     target_type,
-                    is_homo,
+                    is_homogeneous,
                     pairs,
                 });
             }
@@ -515,7 +521,7 @@ impl Schedule {
                     // EntityIdentifier scalars tagged with `batch.target_type`.
                     let target_rid =
                         unsafe { RuntimeEntityId::from_uuid(target_uuid, batch.target_type) };
-                    if batch.is_homo {
+                    if batch.is_homogeneous {
                         self.edges.add_homo(owner_rid, target_rid);
                     } else {
                         self.edges.add_het(owner_rid, target_rid);
@@ -756,8 +762,8 @@ impl Schedule {
     /// For homogeneous edges (L==R): reads `homogeneous_reverse[id]` filtered by `L::TYPE_NAME`.
     #[must_use]
     pub fn edges_to<L: EntityType, R: EntityType>(&self, id: EntityId<R>) -> Vec<EntityId<L>> {
-        let is_homo = TypeId::of::<L::InternalData>() == TypeId::of::<R::InternalData>();
-        let source = if is_homo {
+        let is_homogeneous = TypeId::of::<L::InternalData>() == TypeId::of::<R::InternalData>();
+        let source = if is_homogeneous {
             self.edges.homo_reverse(id.non_nil_uuid())
         } else {
             self.edges.neighbors(id.non_nil_uuid())
@@ -781,8 +787,8 @@ impl Schedule {
         &self,
         id: EntityId<L>,
     ) -> Vec<EntityId<R>> {
-        let is_homo = TypeId::of::<L::InternalData>() == TypeId::of::<R::InternalData>();
-        if is_homo {
+        let is_homogeneous = TypeId::of::<L::InternalData>() == TypeId::of::<R::InternalData>();
+        if is_homogeneous {
             let uuids = {
                 let mut cache_opt = self.homo_edge_cache.borrow_mut();
                 let cache = cache_opt.get_or_insert_with(HomoEdgeCache::default);
@@ -811,8 +817,8 @@ impl Schedule {
         &self,
         id: EntityId<R>,
     ) -> Vec<EntityId<L>> {
-        let is_homo = TypeId::of::<L::InternalData>() == TypeId::of::<R::InternalData>();
-        if is_homo {
+        let is_homogeneous = TypeId::of::<L::InternalData>() == TypeId::of::<R::InternalData>();
+        if is_homogeneous {
             let uuids = {
                 let mut cache_opt = self.homo_edge_cache.borrow_mut();
                 let cache = cache_opt.get_or_insert_with(HomoEdgeCache::default);
@@ -836,10 +842,10 @@ impl Schedule {
     /// full — so concurrent add/add from two replicas converges to the
     /// union rather than LWW on the list object.
     pub fn edge_add<L: EntityType, R: EntityType>(&mut self, l: EntityId<L>, r: EntityId<R>) {
-        let is_homo = TypeId::of::<L::InternalData>() == TypeId::of::<R::InternalData>();
+        let is_homogeneous = TypeId::of::<L::InternalData>() == TypeId::of::<R::InternalData>();
         let l_rid = RuntimeEntityId::from_typed(l);
         let r_rid = RuntimeEntityId::from_typed(r);
-        if is_homo {
+        if is_homogeneous {
             self.edges.add_homo(l_rid, r_rid);
             *self.homo_edge_cache.borrow_mut() = None;
         } else {
@@ -853,8 +859,8 @@ impl Schedule {
     /// The CRDT mirror uses an incremental delete on observed indices so
     /// concurrent add-vs-unobserved-remove resolves add-wins.
     pub fn edge_remove<L: EntityType, R: EntityType>(&mut self, l: EntityId<L>, r: EntityId<R>) {
-        let is_homo = TypeId::of::<L::InternalData>() == TypeId::of::<R::InternalData>();
-        if is_homo {
+        let is_homogeneous = TypeId::of::<L::InternalData>() == TypeId::of::<R::InternalData>();
+        if is_homogeneous {
             self.edges.remove_homo(l.non_nil_uuid(), r.non_nil_uuid());
             *self.homo_edge_cache.borrow_mut() = None;
         } else {
@@ -872,15 +878,15 @@ impl Schedule {
         l: EntityId<L>,
         rights: Vec<EntityId<R>>,
     ) {
-        let is_homo = TypeId::of::<L::InternalData>() == TypeId::of::<R::InternalData>();
+        let is_homogeneous = TypeId::of::<L::InternalData>() == TypeId::of::<R::InternalData>();
         let l_rid = RuntimeEntityId::from_typed(l);
         let new_targets: Vec<RuntimeEntityId> = rights
             .iter()
             .map(|r| RuntimeEntityId::from_typed(*r))
             .collect();
         self.edges
-            .set_neighbors(l_rid, &new_targets, R::TYPE_NAME, is_homo);
-        if is_homo {
+            .set_neighbors(l_rid, &new_targets, R::TYPE_NAME, is_homogeneous);
+        if is_homogeneous {
             *self.homo_edge_cache.borrow_mut() = None;
         }
         // Mirror only the owner side — if `l` is the canonical owner for
@@ -899,12 +905,12 @@ impl Schedule {
         r: EntityId<R>,
         lefts: Vec<EntityId<L>>,
     ) {
-        let is_homo = TypeId::of::<L::InternalData>() == TypeId::of::<R::InternalData>();
+        let is_homogeneous = TypeId::of::<L::InternalData>() == TypeId::of::<R::InternalData>();
         let old_lefts = self.edges_to::<L, R>(r);
         let r_rid = RuntimeEntityId::from_typed(r);
         for l in old_lefts.iter().copied() {
             let l_rid = RuntimeEntityId::from_typed(l);
-            if is_homo {
+            if is_homogeneous {
                 self.edges.remove_homo(l_rid.uuid(), r_rid.uuid());
             } else {
                 self.edges.remove_het(l_rid.uuid(), r_rid.uuid());
@@ -912,13 +918,13 @@ impl Schedule {
         }
         for l in lefts.iter().copied() {
             let l_rid = RuntimeEntityId::from_typed(l);
-            if is_homo {
+            if is_homogeneous {
                 self.edges.add_homo(l_rid, r_rid);
             } else {
                 self.edges.add_het(l_rid, r_rid);
             }
         }
-        if is_homo {
+        if is_homogeneous {
             *self.homo_edge_cache.borrow_mut() = None;
         }
         // Mirror: treat as a set-difference against `lefts`. Each previously

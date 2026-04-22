@@ -126,13 +126,13 @@ impl RawEdgeMap {
     /// Removes any existing edges from `from` to entries of `target_type`, then
     /// adds edges for each entry in `new_targets`.
     ///
-    /// - `is_homo`: `true` if `from` and targets are the same entity type.
+    /// - `is_homogeneous`: `true` if `from` and targets are the same entity type.
     pub fn set_neighbors(
         &mut self,
         from: RuntimeEntityId,
         new_targets: &[RuntimeEntityId],
         target_type: &'static str,
-        is_homo: bool,
+        is_homogeneous: bool,
     ) {
         // Collect UUIDs of existing neighbors of the given type.
         let old_uuids: Vec<NonNilUuid> = self
@@ -146,7 +146,7 @@ impl RawEdgeMap {
 
         // Remove old edges.
         for old_uuid in old_uuids {
-            if is_homo {
+            if is_homogeneous {
                 self.remove_homo(from.uuid(), old_uuid);
             } else {
                 self.remove_het(from.uuid(), old_uuid);
@@ -155,7 +155,7 @@ impl RawEdgeMap {
 
         // Add new edges.
         for &target in new_targets {
-            if is_homo {
+            if is_homogeneous {
                 self.add_homo(from, target);
             } else {
                 self.add_het(from, target);

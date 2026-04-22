@@ -787,6 +787,40 @@ crate::field_macros::define_entity_builder! {
     }
 }
 
+// ── Edge descriptors ──────────────────────────────────────────────────────────
+
+impl PanelEntityType {
+    /// Panel ↔ Presenter relationship.  Panel is the canonical CRDT owner.
+    pub const EDGE_PRESENTERS: crate::edge_descriptor::EdgeDescriptor =
+        crate::edge_descriptor::EdgeDescriptor {
+            name: "panel_presenters",
+            owner_type: Self::TYPE_NAME,
+            target_type: PresenterEntityType::TYPE_NAME,
+            is_homogeneous: false,
+            field_name: "presenters",
+        };
+
+    /// Panel ↔ EventRoom relationship.  Panel is the canonical CRDT owner.
+    pub const EDGE_EVENT_ROOMS: crate::edge_descriptor::EdgeDescriptor =
+        crate::edge_descriptor::EdgeDescriptor {
+            name: "panel_event_rooms",
+            owner_type: Self::TYPE_NAME,
+            target_type: EventRoomEntityType::TYPE_NAME,
+            is_homogeneous: false,
+            field_name: "event_rooms",
+        };
+
+    /// Panel → PanelType relationship.  Panel is the canonical CRDT owner.
+    pub const EDGE_PANEL_TYPE: crate::edge_descriptor::EdgeDescriptor =
+        crate::edge_descriptor::EdgeDescriptor {
+            name: "panel_panel_type",
+            owner_type: Self::TYPE_NAME,
+            target_type: PanelTypeEntityType::TYPE_NAME,
+            is_homogeneous: false,
+            field_name: "panel_type",
+        };
+}
+
 // ── EntityMatcher ─────────────────────────────────────────────────────────────
 
 impl crate::lookup::EntityScannable for PanelEntityType {}
