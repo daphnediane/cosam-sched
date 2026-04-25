@@ -1,6 +1,6 @@
 # Cosplay America Schedule - Work Item
 
-Updated on: Tue Apr 21 22:49:39 2026
+Updated on: Sat Apr 25 15:53:27 2026
 
 ## Completed
 
@@ -63,12 +63,14 @@ replacing the split `canonical_owner()` match table and `OWNER_EDGE_FIELDS` cons
 * [REFACTOR-060] Add per-edge data infrastructure to `EdgeDescriptor` and implement `credited: bool`
 on the Panel ↔ Presenter relationship so individual presenters can be excluded
 from credits without hiding all credits for the panel.
+* [REFACTOR-061] Add type-erased field identity (`FieldId`) and field-based edge endpoint (`FieldNodeId`) types as
+the foundation for the FieldNodeId-based edge system.
 
 ---
 
 ## Summary of Open Items
 
-**Total open items:** 18
+**Total open items:** 22
 
 * **Meta / Project-Level**
   * [META-001] Meta work item tracking the full multi-phase redesign of the schedule system. (Blocked by [META-005], [META-006], [META-007], [META-008])
@@ -77,6 +79,17 @@ XLSX import/export. (Blocked by [META-004])
   * [META-006] Phase tracker for the cosam-convert and cosam-modify command-line applications. (Blocked by [META-005])
   * [META-007] Phase tracker for the cosam-editor desktop GUI application. (Blocked by [META-005])
   * [META-008] Phase tracker for peer-to-peer schedule synchronization and conflict resolution. (Blocked by [META-004])
+
+* **High Priority**
+  * [FEATURE-065] Convert `credited_presenters` and `uncredited_presenters` on Panel from computed/derived fields
+into actual edge storage fields, eliminating the `credited` per-edge boolean and its CRDT
+`presenters_meta` map.
+  * [REFACTOR-062] Replace string-based `EdgeDescriptor` fields with `&'static dyn FieldDescriptorAny` references
+and move EdgeDescriptor registration to `inventory`.
+  * [REFACTOR-063] Replace the two-map `RawEdgeMap` with a nested `HashMap<NonNilUuid, HashMap<FieldId, Vec<FieldNodeId>>>`,
+eliminating the `homogeneous_reverse` special case.
+  * [REFACTOR-064] Adapt `schedule.rs`, `edge_crdt.rs`, and `edge_cache.rs` to use the new FieldNodeId-based
+`RawEdgeMap`, replacing type-parameter-based edge lookups with field-based lookups.
 
 * **Medium Priority**
   * [BUGFIX-045] In `scratch/field_update_logic.rs`, duration values are incorrectly stored as `FieldValue::Integer(minutes)` instead of `FieldValue::Duration(Duration)`.
@@ -192,6 +205,39 @@ panels arranged by time and room, with inline editing of entity fields.
 ---
 
 ## Open FEATURE Items
+
+### [FEATURE-065] FEATURE-065: Split credited_presenters into separate CRDT edge fields
+
+**Status:** Open
+
+**Priority:** High
+
+**Summary:** Convert `credited_presenters` and `uncredited_presenters` on Panel from computed/derived fields
+into actual edge storage fields, eliminating the `credited` per-edge boolean and its CRDT
+`presenters_meta` map.
+
+**Blocked By:** [REFACTOR-064]
+
+**Description:** This is Phase 5 of the FieldNodeId edge system refactor.
+
+Currently Panel stores one CRDT list (`presenters`) plus a parallel `presenters_meta` map with a
+`credited` boolean per entry. `credited_presenters` and `uncredited_presenters` are computed
+fields that filter by that boolean.
+
+With FieldNodeId edges, both can be first-class CRDT lists:
+
+* `FIELD_CREDITED_PRESENTERS` on Panel → edge storage; target `FIELD_PANELS` on Presenter.
+* `FIELD_UNCREDITED_PRESENTERS` on Panel → edge storage; target `FIELD_PANELS` on Presenter.
+* `FIELD_PANELS` on Presenter aggregates entries from both (union via field map accumulation).
+* Remove `FIELD_PRESENTERS` (old undivided list) and `EDGE_PRESENTERS`.
+* Remove `EdgeFieldSpec`, `EdgeFieldDefault` (no per-edge metadata needed).
+* CRDT schema change: replace `presenters` + `presenters_meta` with `credited_presenters` and
+  `uncredited_presenters` lists (pre-alpha breaking change is acceptable).
+* `FIELD_PANELS` on Presenter becomes read-only; `FIELD_ADD_PANELS` / `FIELD_REMOVE_PANELS`
+  default to `credited_presenters`.
+* Update all tests referencing `credited` per-edge metadata.
+
+---
 
 ### [FEATURE-026] Multi-Year Schedule Archive Support
 
@@ -461,6 +507,98 @@ to exchange CRDT changes and reconcile concurrent edits to the same fields.
 
 ## Open REFACTOR Items
 
+### [REFACTOR-062] REFACTOR-062: Redesign EdgeDescriptor with FieldDescriptorAny and inventory
+
+**Status:** Open
+
+**Priority:** High
+
+**Summary:** Replace string-based `EdgeDescriptor` fields with `&'static dyn FieldDescriptorAny` references
+and move EdgeDescriptor registration to `inventory`.
+
+**Blocked By:** [REFACTOR-061]
+
+**Description:** This is Phase 2 of the FieldNodeId edge system refactor. Changes to `EdgeDescriptor`:
+
+* Remove: `owner_type`, `target_type`, `is_homogeneous`, `field_name`, `fields: &[EdgeFieldSpec]`
+* Remove: `EdgeFieldSpec`, `EdgeFieldDefault` types
+* Add: `owner_field: &'static dyn FieldDescriptorAny`, `target_field: &'static dyn FieldDescriptorAny`
+* Add: `is_transitive: bool` (replaces `is_homogeneous` for HomoEdgeCache purposes)
+* CRDT field name derived from `owner_field.name()`; owner/target type from trait methods
+
+Replace `ALL_EDGE_DESCRIPTORS` static slice with inventory:
+
+* `CollectedEdge(&'static EdgeDescriptor)` wrapper
+* `inventory::collect!(CollectedEdge)` on each owner entity module
+* `all_edge_descriptors()` helper returning `impl Iterator<Item = &'static EdgeDescriptor>`
+
+Update all `const EDGE_*` declarations in `panel.rs`, `presenter.rs`, `event_room.rs`.
+Split `EDGE_PRESENTERS` into `EDGE_CREDITED_PRESENTERS` + `EDGE_UNCREDITED_PRESENTERS`
+(both with `target_field = &PresenterEntityType::FIELD_PANELS`).
+
+---
+
+### [REFACTOR-063] REFACTOR-063: Redesign RawEdgeMap with FieldNodeId storage
+
+**Status:** Open
+
+**Priority:** High
+
+**Summary:** Replace the two-map `RawEdgeMap` with a nested `HashMap<NonNilUuid, HashMap<FieldId, Vec<FieldNodeId>>>`,
+eliminating the `homogeneous_reverse` special case.
+
+**Blocked By:** [REFACTOR-061], [REFACTOR-062]
+
+**Description:** This is Phase 3 of the FieldNodeId edge system refactor.
+
+New `RawEdgeMap` structure:
+
+```text
+HashMap<NonNilUuid, HashMap<FieldId, Vec<FieldNodeId>>>
+```
+
+* Outer key: entity UUID
+* Inner key: FieldId (which field on that entity)
+* Values: `FieldNodeId` pairs for the other side of each edge
+
+Both directions of every edge are stored symmetrically. Homogeneous and heterogeneous edges are
+treated identically — no `homogeneous_reverse` needed.
+
+New public API: `add_edge`, `remove_edge`, `set_field_neighbors`, `neighbors_for_field`,
+`clear_all`. Remove: `add_het`, `remove_het`, `add_homo`, `remove_homo`, `set_neighbors`,
+`neighbors`, `homo_reverse`.
+
+Full test suite rewrite for all operations and `clear_all` consistency.
+
+---
+
+### [REFACTOR-064] REFACTOR-064: Update Schedule edge APIs for FieldNodeId
+
+**Status:** Open
+
+**Priority:** High
+
+**Summary:** Adapt `schedule.rs`, `edge_crdt.rs`, and `edge_cache.rs` to use the new FieldNodeId-based
+`RawEdgeMap`, replacing type-parameter-based edge lookups with field-based lookups.
+
+**Blocked By:** [REFACTOR-063]
+
+**Description:** This is Phase 4 of the FieldNodeId edge system refactor.
+
+* Replace `edges_from::<L, R>` / `edges_to::<L, R>` with field-aware variants:
+  `edges_for_field(uuid, field_id)` and typed wrapper
+  `edges_from_field::<E, R>(id, &FIELD_X) -> Vec<EntityId<R>>`.
+* Update `edge_add`, `edge_remove`, `edge_set`, `edge_set_to` to dispatch via EdgeDescriptor
+  `owner_field` / `target_field`.
+* Remove `edge_get_bool`, `edge_set_bool` (no more per-edge metadata).
+* Update CRDT mirror ops in `edge_crdt.rs`: use `owner_field.name()` for CRDT field name;
+  iterate via `all_edge_descriptors()` instead of `ALL_EDGE_DESCRIPTORS`.
+* Update `HomoEdgeCache` (`edge_cache.rs`): key by `(FieldId, NonNilUuid)`; trigger rebuild on
+  mutations to `is_transitive` edge fields.
+* Remove all homo-specific branches from schedule traversal methods.
+
+---
+
 ### [REFACTOR-058] REFACTOR-058: Credited vs Uncredited Presenter Handling
 
 **Status:** Open
@@ -519,6 +657,7 @@ This item covers any remaining integration work and documentation.
 [FEATURE-051]: work-item/done/FEATURE-051.md
 [FEATURE-056]: work-item/medium/FEATURE-056.md
 [FEATURE-057]: work-item/done/FEATURE-057.md
+[FEATURE-065]: work-item/high/FEATURE-065.md
 [META-001]: work-item/meta/META-001.md
 [META-002]: work-item/done/META-002.md
 [META-003]: work-item/done/META-003.md
@@ -538,3 +677,7 @@ This item covers any remaining integration work and documentation.
 [REFACTOR-058]: work-item/medium/REFACTOR-058.md
 [REFACTOR-059]: work-item/done/REFACTOR-059.md
 [REFACTOR-060]: work-item/done/REFACTOR-060.md
+[REFACTOR-061]: work-item/done/REFACTOR-061.md
+[REFACTOR-062]: work-item/high/REFACTOR-062.md
+[REFACTOR-063]: work-item/high/REFACTOR-063.md
+[REFACTOR-064]: work-item/high/REFACTOR-064.md

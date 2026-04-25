@@ -17,6 +17,7 @@ pub mod event_room;
 pub mod export;
 pub mod field;
 pub(crate) mod field_macros;
+pub mod field_node_id;
 pub mod field_set;
 pub mod hotel_room;
 pub mod lookup;

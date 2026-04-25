@@ -24,6 +24,7 @@
 //! borrow problem for edge-mutating fields (e.g. `add_presenters`).
 
 use crate::entity::{EntityId, EntityType};
+use crate::field_node_id::FieldId;
 use crate::schedule::Schedule;
 use crate::value::{CrdtFieldType, FieldError, FieldType, FieldValue, VerificationError};
 
@@ -302,6 +303,43 @@ impl<E: EntityType> VerifiableField<E> for FieldDescriptor<E> {
         }
     }
 }
+
+// ── FieldDescriptorAny ────────────────────────────────────────────────────────
+
+/// Object-safe view of a [`FieldDescriptor<E>`] with its entity-type erased.
+///
+/// Implemented for all `FieldDescriptor<E>` so that [`crate::edge_descriptor::EdgeDescriptor`]
+/// can reference field descriptors as `&'static dyn FieldDescriptorAny` without
+/// carrying a type parameter.
+///
+/// Extends [`NamedField`], so callers with `&dyn FieldDescriptorAny` have access to
+/// `name()`, `display_name()`, `description()`, `aliases()`, and `matches_name()`.
+///
+/// # Invariant
+///
+/// `field_id()` is derived from `self`'s address.  It is only meaningful when
+/// called on a `'static` field descriptor (i.e. the statics declared in each
+/// entity module).  Calling it on a stack-allocated value produces a
+/// meaningless address that must not be stored or compared.
+pub trait FieldDescriptorAny: 'static + Send + Sync + NamedField {
+    /// Type-erased identity — the address of the `'static` descriptor singleton.
+    fn field_id(&self) -> FieldId;
+
+    /// [`crate::entity::EntityType::TYPE_NAME`] for the entity this field belongs to.
+    fn entity_type_name(&self) -> &'static str;
+}
+
+impl<E: EntityType> FieldDescriptorAny for FieldDescriptor<E> {
+    fn field_id(&self) -> FieldId {
+        FieldId::from_raw(self as *const FieldDescriptor<E> as *const () as usize)
+    }
+
+    fn entity_type_name(&self) -> &'static str {
+        E::TYPE_NAME
+    }
+}
+
+// ── Tests ─────────────────────────────────────────────────────────────────────
 
 #[cfg(test)]
 mod tests {
