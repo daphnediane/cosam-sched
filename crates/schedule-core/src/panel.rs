@@ -974,10 +974,7 @@ define_field!(
 /// The presenter lookup is built from **all** presenters in the schedule so
 /// that group entities that are not themselves panel edges can still be
 /// resolved for name formatting.
-pub(crate) fn compute_credits(
-    sched: &crate::schedule::Schedule,
-    panel_id: PanelId,
-) -> Vec<String> {
+pub(crate) fn compute_credits(sched: &crate::schedule::Schedule, panel_id: PanelId) -> Vec<String> {
     let panel_internal = match sched.get_internal::<PanelEntityType>(panel_id) {
         Some(p) => p,
         None => return Vec::new(),
@@ -989,8 +986,7 @@ pub(crate) fn compute_credits(
         return vec![alt.clone()];
     }
 
-    let all_presenter_ids =
-        sched.edges_from::<PanelEntityType, PresenterEntityType>(panel_id);
+    let all_presenter_ids = sched.edges_from::<PanelEntityType, PresenterEntityType>(panel_id);
     if all_presenter_ids.is_empty() {
         return Vec::new();
     }
@@ -1051,11 +1047,7 @@ pub(crate) fn compute_credits(
                                 .iter()
                                 .filter_map(|mid| presenter_lookup.get(mid).map(|d| d.name.clone()))
                                 .collect();
-                            credits.push(format!(
-                                "{} ({})",
-                                presenter_data.name,
-                                names.join(", ")
-                            ));
+                            credits.push(format!("{} ({})", presenter_data.name, names.join(", ")));
                         }
                     }
                     for m in &credited_members {
