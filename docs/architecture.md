@@ -133,7 +133,7 @@ Both directions of every edge are stored symmetrically in the same map.  Homogen
 Field IDs for a given `(L::TYPE_NAME, R::TYPE_NAME)` pair are resolved at call time
 via `edge_descriptor::resolve_edge_fields`, which searches the inventory-registered
 `EdgeDescriptor`s.  Transitive (formerly homogeneous) edge mutations also invalidate
-the `HomoEdgeCache`.
+the `TransitiveEdgeCache`.
 
 ### Per-Edge Metadata
 
@@ -152,18 +152,18 @@ Currently only the Panel ↔ Presenter edge carries metadata:
 
 ### Transitive Edge Cache
 
-`HomoEdgeCache` (`edge_cache.rs`) caches transitive closures of homogeneous edges
+`TransitiveEdgeCache` (`edge_cache.rs`) caches transitive closures of homogeneous edges
 (same entity type on both ends). Heterogeneous-edge transitive queries are not cached
 here; they are composed in entity modules from direct `inclusive_edges_from` /
 `inclusive_edges_to` calls.
 
-`Schedule` holds the cache as `RefCell<Option<HomoEdgeCache>>`. Interior mutability
+`Schedule` holds the cache as `RefCell<Option<TransitiveEdgeCache>>`. Interior mutability
 lets `inclusive_edges_from` / `inclusive_edges_to` update the cache through a `&self`
 reference. Setting the field to `None` invalidates the entire cache; it is rebuilt
 lazily per-entry on the next query.
 
 ```text
-homo_edge_cache: RefCell<Option<HomoEdgeCache>>
+homo_edge_cache: RefCell<Option<TransitiveEdgeCache>>
   inclusive_forward: HashMap<NonNilUuid, Box<[NonNilUuid]>>
   inclusive_reverse: HashMap<NonNilUuid, Box<[NonNilUuid]>>
 ```

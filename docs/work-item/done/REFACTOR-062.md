@@ -24,7 +24,7 @@ This is Phase 2 of the FieldNodeId edge system refactor. Changes to `EdgeDescrip
 - Remove: `owner_type`, `target_type`, `is_homogeneous`, `field_name`, `fields: &[EdgeFieldSpec]`
 - Remove: `EdgeFieldSpec`, `EdgeFieldDefault` types
 - Add: `owner_field: &'static dyn FieldDescriptorAny`, `target_field: &'static dyn FieldDescriptorAny`
-- Add: `is_transitive: bool` (replaces `is_homogeneous` for HomoEdgeCache purposes)
+- Add: `is_transitive: bool` (replaces `is_homogeneous` for TransitiveEdgeCache purposes)
 - CRDT field name derived from `owner_field.name()`; owner/target type from trait methods
 
 Replace `ALL_EDGE_DESCRIPTORS` static slice with inventory:

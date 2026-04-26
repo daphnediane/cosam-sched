@@ -65,7 +65,7 @@ Write value is a two-item `FieldValue::List`:
 
 ## Notes
 
-- `RawEdgeMap`, `HomoEdgeCache`, and the generic `edge_add`/`edge_remove`/`edge_set`
+- `RawEdgeMap`, `TransitiveEdgeCache`, and the generic `edge_add`/`edge_remove`/`edge_set`
   API are unchanged (Option A from edge-descriptors-orig.md).
 - `FIELD_SET_PRESENTER_CREDITED` (two-item list encoding) was replaced by the
   cleaner `credited_presenters` / `uncredited_presenters` partition model.

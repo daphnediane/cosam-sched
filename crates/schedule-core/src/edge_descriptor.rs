@@ -88,7 +88,7 @@ pub struct EdgeDescriptor {
     pub target_field: &'static dyn FieldDescriptorAny,
 
     /// `true` for transitive (hierarchical) relationships whose reachability
-    /// is computed by [`crate::edge_cache::HomoEdgeCache`].
+    /// is computed by [`crate::edge_cache::TransitiveEdgeCache`].
     ///
     /// Replaces `is_homogeneous` as the flag that drives transitive-closure
     /// queries.  `is_homogeneous()` now derives from the entity type names.

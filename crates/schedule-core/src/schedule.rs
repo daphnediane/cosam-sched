@@ -11,7 +11,7 @@
 //! entity modules.
 
 use crate::crdt::{self, CrdtError};
-use crate::edge_cache::HomoEdgeCache;
+use crate::edge_cache::TransitiveEdgeCache;
 use crate::edge_map::RawEdgeMap;
 use crate::entity::{registered_entity_types, EntityId, EntityType, RuntimeEntityId};
 use crate::field::ReadableField;
@@ -108,7 +108,7 @@ pub struct Schedule {
     /// Cache for transitive homogeneous-edge relationships (inclusive groups, members, etc.).
     /// Set to `None` whenever a homogeneous edge is modified; rebuilt lazily per-entry on query.
     /// Heterogeneous-edge mutations do not touch this field since the cache contains no heterogeneous data.
-    homo_edge_cache: RefCell<Option<HomoEdgeCache>>,
+    transitive_edge_cache: RefCell<Option<TransitiveEdgeCache>>,
 
     /// Schedule identity and provenance.
     pub metadata: ScheduleMetadata,
@@ -128,7 +128,7 @@ impl std::fmt::Debug for Schedule {
         f.debug_struct("Schedule")
             .field("entities", &self.entities)
             .field("edges", &self.edges)
-            .field("homo_edge_cache", &self.homo_edge_cache)
+            .field("transitive_edge_cache", &self.transitive_edge_cache)
             .field("metadata", &self.metadata)
             .field("mirror_enabled", &self.mirror_enabled)
             .finish()
@@ -151,7 +151,7 @@ impl Schedule {
         Self {
             entities: HashMap::new(),
             edges: RawEdgeMap::default(),
-            homo_edge_cache: RefCell::new(None),
+            transitive_edge_cache: RefCell::new(None),
             metadata: ScheduleMetadata {
                 schedule_id,
                 created_at: chrono::Utc::now(),
@@ -685,7 +685,7 @@ impl Schedule {
             map.remove(&uuid);
         }
         self.edges.clear_all(uuid);
-        *self.homo_edge_cache.borrow_mut() = None;
+        *self.transitive_edge_cache.borrow_mut() = None;
     }
 
     /// Iterate all entities of type `E`, yielding `(EntityId<E>, &E::InternalData)` pairs.
@@ -731,43 +731,116 @@ impl Schedule {
 
     // ── Edge API ──────────────────────────────────────────────────────────────
 
-    /// All `R` entities reachable from `id` following the L→R direction.
+    /// All neighbor entity UUIDs reachable via the given `field_id` from `uuid`.
     ///
-    /// Uses [`crate::edge_descriptor::resolve_edge_fields`] to find the
-    /// appropriate [`crate::field_node_id::FieldId`] for the L side, then
-    /// returns all [`crate::field_node_id::FieldNodeId`] neighbors under that field.
+    /// Lowest-level field-based query; suitable for entity-module read functions
+    /// that have a concrete [`crate::field_node_id::FieldId`] in hand.
+    /// Use [`Self::edges_from_field`] for the typed wrapper.
     #[must_use]
-    pub fn edges_from<L: EntityType, R: EntityType>(&self, id: EntityId<L>) -> Vec<EntityId<R>> {
-        let Some(res) = crate::edge_descriptor::resolve_edge_fields(L::TYPE_NAME, R::TYPE_NAME)
-        else {
-            return Vec::new();
-        };
+    pub fn edges_for_field(
+        &self,
+        uuid: NonNilUuid,
+        field_id: crate::field_node_id::FieldId,
+    ) -> Vec<NonNilUuid> {
         self.edges
-            .neighbors_for_field(id.non_nil_uuid(), res.l_field_id)
+            .neighbors_for_field(uuid, field_id)
             .iter()
-            // SAFETY: the edge map only stores UUIDs that were inserted as
-            // EntityId<R> targets; the FieldId guarantees the correct type.
+            .map(|fn_id| fn_id.entity)
+            .collect()
+    }
+
+    /// All `R` entities reachable from `id` via the given typed field descriptor.
+    ///
+    /// The field descriptor pinpoints which field stores the relationship, making
+    /// this unambiguous even when an entity type has multiple relationships to the
+    /// same target type (e.g. `FIELD_CREDITED_PRESENTERS` vs
+    /// `FIELD_UNCREDITED_PRESENTERS` after Phase 5).
+    #[must_use]
+    pub fn edges_from_field<E: EntityType, R: EntityType>(
+        &self,
+        id: EntityId<E>,
+        field: &'static crate::field::FieldDescriptor<E>,
+    ) -> Vec<EntityId<R>> {
+        use crate::field_node_id::FieldId;
+        self.edges
+            .neighbors_for_field(id.non_nil_uuid(), FieldId::of(field))
+            .iter()
+            // SAFETY: field descriptor + edge setup guarantee neighbors are EntityId<R>.
             .map(|fn_id| unsafe { EntityId::from_uuid(fn_id.entity) })
             .collect()
     }
 
+    /// All `R` entities reachable from `id` following any L→R edge descriptor.
+    ///
+    /// Aggregates across **all** registered [`crate::edge_descriptor::EdgeDescriptor`]s
+    /// whose `(owner_type, target_type)` or reversed pair matches
+    /// `(L::TYPE_NAME, R::TYPE_NAME)`, unioning results across fields.
+    ///
+    /// When there is exactly one L→R descriptor this is equivalent to a direct
+    /// single-field lookup.  When there are multiple (e.g. after Phase 5 splits
+    /// `FIELD_PRESENTERS` into `FIELD_CREDITED_PRESENTERS` and
+    /// `FIELD_UNCREDITED_PRESENTERS`), results from all matching fields are unioned.
+    #[must_use]
+    pub fn edges_from<L: EntityType, R: EntityType>(&self, id: EntityId<L>) -> Vec<EntityId<R>> {
+        use crate::field_node_id::FieldId;
+        use std::collections::HashSet;
+        use uuid::NonNilUuid;
+        let mut seen: HashSet<NonNilUuid> = HashSet::new();
+        let mut result: Vec<EntityId<R>> = Vec::new();
+        for desc in crate::edge_descriptor::all_edge_descriptors() {
+            let l_fid: FieldId;
+            if desc.owner_type() == L::TYPE_NAME && desc.target_type() == R::TYPE_NAME {
+                l_fid = desc.owner_field.field_id();
+            } else if !desc.is_homogeneous()
+                && desc.target_type() == L::TYPE_NAME
+                && desc.owner_type() == R::TYPE_NAME
+            {
+                l_fid = desc.target_field.field_id();
+            } else {
+                continue;
+            }
+            for fn_id in self.edges.neighbors_for_field(id.non_nil_uuid(), l_fid) {
+                if seen.insert(fn_id.entity) {
+                    // SAFETY: field descriptor guarantees these UUIDs are EntityId<R>.
+                    result.push(unsafe { EntityId::<R>::from_uuid(fn_id.entity) });
+                }
+            }
+        }
+        result
+    }
+
     /// All `L` entities that have an edge pointing to `id`.
     ///
-    /// Uses the R-side field to look up reverse neighbors, which are stored
-    /// symmetrically in the same [`crate::edge_map::RawEdgeMap`] — no separate
-    /// `homogeneous_reverse` map is needed.
+    /// Aggregates across all registered descriptors matching `(L, R)`, returning
+    /// the union of reverse neighbors.  Symmetric with [`Self::edges_from`]:
+    /// deduplication is applied when multiple descriptors contribute the same UUID.
     #[must_use]
     pub fn edges_to<L: EntityType, R: EntityType>(&self, id: EntityId<R>) -> Vec<EntityId<L>> {
-        let Some(res) = crate::edge_descriptor::resolve_edge_fields(L::TYPE_NAME, R::TYPE_NAME)
-        else {
-            return Vec::new();
-        };
-        self.edges
-            .neighbors_for_field(id.non_nil_uuid(), res.r_field_id)
-            .iter()
-            // SAFETY: symmetric storage guarantees these UUIDs belong to type L.
-            .map(|fn_id| unsafe { EntityId::from_uuid(fn_id.entity) })
-            .collect()
+        use crate::field_node_id::FieldId;
+        use std::collections::HashSet;
+        use uuid::NonNilUuid;
+        let mut seen: HashSet<NonNilUuid> = HashSet::new();
+        let mut result: Vec<EntityId<L>> = Vec::new();
+        for desc in crate::edge_descriptor::all_edge_descriptors() {
+            let r_fid: FieldId;
+            if desc.owner_type() == L::TYPE_NAME && desc.target_type() == R::TYPE_NAME {
+                r_fid = desc.target_field.field_id();
+            } else if !desc.is_homogeneous()
+                && desc.target_type() == L::TYPE_NAME
+                && desc.owner_type() == R::TYPE_NAME
+            {
+                r_fid = desc.owner_field.field_id();
+            } else {
+                continue;
+            }
+            for fn_id in self.edges.neighbors_for_field(id.non_nil_uuid(), r_fid) {
+                if seen.insert(fn_id.entity) {
+                    // SAFETY: symmetric storage guarantees these UUIDs belong to type L.
+                    result.push(unsafe { EntityId::<L>::from_uuid(fn_id.entity) });
+                }
+            }
+        }
+        result
     }
 
     /// All `R` entities transitively reachable from `id` via forward edges.
@@ -789,9 +862,9 @@ impl Schedule {
         };
         if res.is_transitive {
             let uuids = {
-                let mut cache_opt = self.homo_edge_cache.borrow_mut();
-                let cache = cache_opt.get_or_insert_with(HomoEdgeCache::default);
-                cache.get_or_compute_forward(&self.edges, id.non_nil_uuid(), res.l_field_id)
+                let mut cache_opt = self.transitive_edge_cache.borrow_mut();
+                let cache = cache_opt.get_or_insert_with(TransitiveEdgeCache::default);
+                cache.get_or_compute(&self.edges, id.non_nil_uuid(), res.l_field_id)
             };
             uuids
                 .into_iter()
@@ -822,9 +895,9 @@ impl Schedule {
         };
         if res.is_transitive {
             let uuids = {
-                let mut cache_opt = self.homo_edge_cache.borrow_mut();
-                let cache = cache_opt.get_or_insert_with(HomoEdgeCache::default);
-                cache.get_or_compute_reverse(&self.edges, id.non_nil_uuid(), res.r_field_id)
+                let mut cache_opt = self.transitive_edge_cache.borrow_mut();
+                let cache = cache_opt.get_or_insert_with(TransitiveEdgeCache::default);
+                cache.get_or_compute(&self.edges, id.non_nil_uuid(), res.r_field_id)
             };
             uuids
                 .into_iter()
@@ -840,7 +913,7 @@ impl Schedule {
     ///
     /// Resolves the field IDs for the `(L, R)` pair and calls
     /// [`crate::edge_map::RawEdgeMap::add_edge`].  When the edge is transitive,
-    /// also invalidates the [`HomoEdgeCache`].
+    /// also invalidates the [`TransitiveEdgeCache`].
     ///
     /// After updating the cache, if the mirror is enabled the new endpoint
     /// is incrementally `insert`ed into the canonical owner's list field
@@ -857,7 +930,7 @@ impl Schedule {
         let to = FieldNodeId::new(res.r_field_id, r.non_nil_uuid());
         self.edges.add_edge(from, to);
         if res.is_transitive {
-            *self.homo_edge_cache.borrow_mut() = None;
+            *self.transitive_edge_cache.borrow_mut() = None;
         }
         self.mirror_edge_add::<L, R>(l.non_nil_uuid(), r.non_nil_uuid());
     }
@@ -876,7 +949,7 @@ impl Schedule {
         let to = FieldNodeId::new(res.r_field_id, r.non_nil_uuid());
         self.edges.remove_edge(from, to);
         if res.is_transitive {
-            *self.homo_edge_cache.borrow_mut() = None;
+            *self.transitive_edge_cache.borrow_mut() = None;
         }
         self.mirror_edge_remove::<L, R>(l.non_nil_uuid(), r.non_nil_uuid());
     }
@@ -902,7 +975,7 @@ impl Schedule {
             .collect();
         self.edges.set_field_neighbors(from, new_targets);
         if res.is_transitive {
-            *self.homo_edge_cache.borrow_mut() = None;
+            *self.transitive_edge_cache.borrow_mut() = None;
         }
         // Mirror only the owner side — if `l` is the canonical owner for
         // (L,R), we rewrite l's list; otherwise we rewrite each r's list in
@@ -936,7 +1009,7 @@ impl Schedule {
             self.edges.add_edge(l_node, r_node);
         }
         if res.is_transitive {
-            *self.homo_edge_cache.borrow_mut() = None;
+            *self.transitive_edge_cache.borrow_mut() = None;
         }
         // Mirror: treat as a set-difference against `lefts`. Each previously
         // connected `l` not in the new set is `edge_remove`d from the owner
@@ -2291,7 +2364,7 @@ mod tests {
     //
     // These tests use `PresenterEntityType` which has the `EDGE_MEMBER_GROUPS`
     // descriptor with `is_transitive: true`.  `edge_add<Presenter, Presenter>`
-    // therefore triggers `HomoEdgeCache` invalidation and
+    // therefore triggers `TransitiveEdgeCache` invalidation and
     // `inclusive_edges_from/to` follows the transitive closure.
 
     #[test]

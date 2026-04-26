@@ -37,7 +37,7 @@ is_homo flag, CRDT field name, and (future) edge-specific fields. A single
 - Add `EDGE_GROUPS` const to `PresenterEntityType`
 - Replace `canonical_owner()` with lookup over `ALL_EDGE_DESCRIPTORS`
 - Replace `OWNER_EDGE_FIELDS` with iteration over `ALL_EDGE_DESCRIPTORS`
-- Keep `RawEdgeMap`, `HomoEdgeCache`, and `Schedule` generic edge API unchanged
+- Keep `RawEdgeMap`, `TransitiveEdgeCache`, and `Schedule` generic edge API unchanged
 
 ## Acceptance Criteria
 

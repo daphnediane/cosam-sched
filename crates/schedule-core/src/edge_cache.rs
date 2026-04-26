@@ -4,13 +4,13 @@
  * See LICENSE file for full license text
  */
 
-//! [`HomoEdgeCache`] — transitive homogeneous-edge relationship cache.
+//! [`TransitiveEdgeCache`] — transitive-edge relationship cache.
 //!
-//! Caches transitive closures of homogeneous-edge relationships (same entity
-//! type on both ends) to enable efficient queries like "all groups a presenter
+//! Caches transitive closures of edges flagged `is_transitive` (e.g. presenter
+//! group membership) to enable efficient queries like "all groups a presenter
 //! belongs to" or "all members of a group including nested groups".
 //!
-//! The cache is stored as `Option<HomoEdgeCache>` on [`crate::schedule::Schedule`]
+//! The cache is stored as `Option<TransitiveEdgeCache>` on [`crate::schedule::Schedule`]
 //! via a `RefCell`. Setting it to `None` invalidates the cache; it is rebuilt
 //! lazily per-entry on the next query.
 //!
@@ -26,68 +26,44 @@ use crate::field_node_id::FieldId;
 use std::collections::{HashMap, HashSet};
 use uuid::NonNilUuid;
 
-// ── HomoEdgeCache ─────────────────────────────────────────────────────────────────
+// ── TransitiveEdgeCache ───────────────────────────────────────────────────────────
 
-/// Cached transitive homogeneous-edge relationships.
+/// Cached transitive-edge relationships.
 ///
 /// Only the computed transitive maps are stored here; direct edges are always
 /// queried live from [`RawEdgeMap`]. Entries are populated lazily and remain
 /// valid until the cache is set to `None` (invalidated) by any transitive-edge
 /// mutation.
 ///
-/// Two traversal directions are cached independently:
-///
-/// - **`inclusive_forward`** — following outgoing edges via the owner field
-///   (e.g. member→group direction for `Presenter`, keyed by `FIELD_GROUPS_id`).
-/// - **`inclusive_reverse`** — following incoming edges via the target field
-///   (e.g. group→member direction for `Presenter`, keyed by `FIELD_MEMBERS_id`).
-///
-/// Each entry is a `Box<[NonNilUuid]>` (immutable after insertion) keyed by
-/// `start_uuid`. The field ID identifies which direction is being cached.
+/// Entries are keyed by `(FieldId, NonNilUuid)` — the field encodes traversal
+/// direction (forward and reverse use different `FieldId`s), while the UUID is
+/// the starting node.  Multiple independent transitive-edge relationships can
+/// share one cache without key collision.
 #[derive(Debug, Default)]
-pub struct HomoEdgeCache {
-    /// source_uuid → all UUIDs transitively reachable via the forward field.
-    inclusive_forward: HashMap<NonNilUuid, Box<[NonNilUuid]>>,
-    /// target_uuid → all UUIDs transitively reachable via the reverse field.
-    inclusive_reverse: HashMap<NonNilUuid, Box<[NonNilUuid]>>,
+pub struct TransitiveEdgeCache {
+    /// `(field_id, start_uuid)` → all UUIDs transitively reachable by following
+    /// edges stored under `field_id` from `start_uuid`.
+    cache: HashMap<(FieldId, NonNilUuid), Box<[NonNilUuid]>>,
 }
 
-impl HomoEdgeCache {
-    /// Return all UUIDs transitively reachable from `start` by following
-    /// outgoing edges under `forward_field` (e.g. member→group direction).
+impl TransitiveEdgeCache {
+    /// Return all UUIDs transitively reachable from `start` by following edges
+    /// stored under `field_id`.
     ///
-    /// The `start` node itself is **not** included in the result.
-    /// Computed and cached on first call; subsequent calls clone the cached slice.
-    pub fn get_or_compute_forward(
+    /// Pass the appropriate field for the desired direction: the field on the
+    /// *from* side for forward traversal, or the field on the *to* side for
+    /// reverse traversal.  The `start` node itself is **not** included in the
+    /// result.  Computed and cached on first call; subsequent calls clone the
+    /// cached slice.
+    pub fn get_or_compute(
         &mut self,
         edge_map: &RawEdgeMap,
         start: NonNilUuid,
-        forward_field: FieldId,
+        field_id: FieldId,
     ) -> Vec<NonNilUuid> {
-        self.inclusive_forward
-            .entry(start)
-            .or_insert_with(|| {
-                transitive_neighbors(edge_map, start, forward_field).into_boxed_slice()
-            })
-            .to_vec()
-    }
-
-    /// Return all UUIDs transitively reachable from `start` by following
-    /// incoming edges under `reverse_field` (e.g. group→member direction).
-    ///
-    /// The `start` node itself is **not** included in the result.
-    /// Computed and cached on first call; subsequent calls clone the cached slice.
-    pub fn get_or_compute_reverse(
-        &mut self,
-        edge_map: &RawEdgeMap,
-        start: NonNilUuid,
-        reverse_field: FieldId,
-    ) -> Vec<NonNilUuid> {
-        self.inclusive_reverse
-            .entry(start)
-            .or_insert_with(|| {
-                transitive_neighbors(edge_map, start, reverse_field).into_boxed_slice()
-            })
+        self.cache
+            .entry((field_id, start))
+            .or_insert_with(|| transitive_neighbors(edge_map, start, field_id).into_boxed_slice())
             .to_vec()
     }
 }
@@ -210,31 +186,31 @@ mod tests {
 
     #[test]
     fn test_cache_invalidation_via_option() {
-        let mut cache = HomoEdgeCache::default();
+        let mut cache = TransitiveEdgeCache::default();
         let mut edge_map = RawEdgeMap::default();
 
         add_member_group(&mut edge_map, 1, 2);
-        let result = cache.get_or_compute_forward(&edge_map, nnu(1), fwd());
+        let result = cache.get_or_compute(&edge_map, nnu(1), fwd());
         assert_eq!(result, vec![nnu(2)]);
 
         // Simulate invalidation: drop cache and rebuild
-        cache = HomoEdgeCache::default();
+        cache = TransitiveEdgeCache::default();
         add_member_group(&mut edge_map, 2, 3);
-        let result = cache.get_or_compute_forward(&edge_map, nnu(1), fwd());
+        let result = cache.get_or_compute(&edge_map, nnu(1), fwd());
         assert!(result.contains(&nnu(2)));
         assert!(result.contains(&nnu(3)));
     }
 
     #[test]
     fn test_transitive_closure_forward() {
-        let mut cache = HomoEdgeCache::default();
+        let mut cache = TransitiveEdgeCache::default();
         let mut edge_map = RawEdgeMap::default();
 
         // Chain: 1 → 2 → 3 (forward via fwd() field)
         add_member_group(&mut edge_map, 1, 2);
         add_member_group(&mut edge_map, 2, 3);
 
-        let result = cache.get_or_compute_forward(&edge_map, nnu(1), fwd());
+        let result = cache.get_or_compute(&edge_map, nnu(1), fwd());
         assert!(result.contains(&nnu(2)), "should reach direct neighbor 2");
         assert!(
             result.contains(&nnu(3)),
@@ -245,14 +221,14 @@ mod tests {
 
     #[test]
     fn test_transitive_closure_reverse() {
-        let mut cache = HomoEdgeCache::default();
+        let mut cache = TransitiveEdgeCache::default();
         let mut edge_map = RawEdgeMap::default();
 
         // Chain: 3 → 2 → 1 (forward); reverse from 1 via rev() reaches 2 and 3
         add_member_group(&mut edge_map, 3, 2);
         add_member_group(&mut edge_map, 2, 1);
 
-        let result = cache.get_or_compute_reverse(&edge_map, nnu(1), rev());
+        let result = cache.get_or_compute(&edge_map, nnu(1), rev());
         assert!(result.contains(&nnu(2)));
         assert!(result.contains(&nnu(3)));
         assert!(!result.contains(&nnu(1)), "start node not included");
@@ -260,14 +236,14 @@ mod tests {
 
     #[test]
     fn test_cycle_handling() {
-        let mut cache = HomoEdgeCache::default();
+        let mut cache = TransitiveEdgeCache::default();
         let mut edge_map = RawEdgeMap::default();
 
         // Cycle: 1 → 2, 2 → 1 (via fwd field)
         add_member_group(&mut edge_map, 1, 2);
         add_member_group(&mut edge_map, 2, 1);
 
-        let result = cache.get_or_compute_forward(&edge_map, nnu(1), fwd());
+        let result = cache.get_or_compute(&edge_map, nnu(1), fwd());
         assert!(result.contains(&nnu(2)));
         assert!(
             !result.contains(&nnu(1)),
@@ -277,23 +253,23 @@ mod tests {
 
     #[test]
     fn test_empty_result() {
-        let mut cache = HomoEdgeCache::default();
+        let mut cache = TransitiveEdgeCache::default();
         let edge_map = RawEdgeMap::default();
 
-        let result = cache.get_or_compute_forward(&edge_map, nnu(1), fwd());
+        let result = cache.get_or_compute(&edge_map, nnu(1), fwd());
         assert!(result.is_empty());
     }
 
     #[test]
     fn test_cached_result_reused() {
-        let mut cache = HomoEdgeCache::default();
+        let mut cache = TransitiveEdgeCache::default();
         let mut edge_map = RawEdgeMap::default();
         add_member_group(&mut edge_map, 1, 2);
 
-        let r1 = cache.get_or_compute_forward(&edge_map, nnu(1), fwd());
+        let r1 = cache.get_or_compute(&edge_map, nnu(1), fwd());
         // Mutate edge_map WITHOUT invalidating cache — cached result should stay
         add_member_group(&mut edge_map, 2, 3);
-        let r2 = cache.get_or_compute_forward(&edge_map, nnu(1), fwd());
+        let r2 = cache.get_or_compute(&edge_map, nnu(1), fwd());
         assert_eq!(r1, r2, "stale cache should be returned unchanged");
     }
 
@@ -304,7 +280,7 @@ mod tests {
         // Division C (4) is a member of Corp D (5).
         // Alice (1) is also a member of Club E (6).
         // Team B (7) is a member of Division C (4) — should NOT appear in Team A's members.
-        let mut cache = HomoEdgeCache::default();
+        let mut cache = TransitiveEdgeCache::default();
         let mut edge_map = RawEdgeMap::default();
 
         // member → group direction (forward via fwd field, reverse via rev field)
@@ -316,14 +292,14 @@ mod tests {
         add_member_group(&mut edge_map, 7, 4); // Team B → Division C
 
         // Inclusive groups of Team A (forward from 3 via fwd field): Division C, Corp D
-        let groups_of_team_a = cache.get_or_compute_forward(&edge_map, nnu(3), fwd());
+        let groups_of_team_a = cache.get_or_compute(&edge_map, nnu(3), fwd());
         assert!(groups_of_team_a.contains(&nnu(4)), "Division C");
         assert!(groups_of_team_a.contains(&nnu(5)), "Corp D");
         assert!(!groups_of_team_a.contains(&nnu(1)), "not Alice");
         assert!(!groups_of_team_a.contains(&nnu(7)), "not Team B");
 
         // Inclusive members of Team A (reverse from 3 via rev field): Alice, Bob only
-        let members_of_team_a = cache.get_or_compute_reverse(&edge_map, nnu(3), rev());
+        let members_of_team_a = cache.get_or_compute(&edge_map, nnu(3), rev());
         assert!(members_of_team_a.contains(&nnu(1)), "Alice");
         assert!(members_of_team_a.contains(&nnu(2)), "Bob");
         assert!(
@@ -333,7 +309,7 @@ mod tests {
         assert!(!members_of_team_a.contains(&nnu(6)), "Club E not a member");
 
         // Inclusive groups of Alice (forward from 1 via fwd field): Team A, Club E, Division C, Corp D
-        let groups_of_alice = cache.get_or_compute_forward(&edge_map, nnu(1), fwd());
+        let groups_of_alice = cache.get_or_compute(&edge_map, nnu(1), fwd());
         assert!(groups_of_alice.contains(&nnu(3)), "Team A");
         assert!(groups_of_alice.contains(&nnu(6)), "Club E");
         assert!(groups_of_alice.contains(&nnu(4)), "Division C (via Team A)");
