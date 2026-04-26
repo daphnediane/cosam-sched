@@ -21,10 +21,10 @@ use crate::converter::{AsBoolean, AsString, AsText, EntityStringResolver};
 use crate::entity::{EntityId, EntityType, FieldSet, UuidPreference};
 use crate::field::{FieldDescriptor, ReadFn, WriteFn};
 use crate::field_macros::{define_field, edge_field, stored_field};
+use crate::field_node_id::FieldNodeId;
 use crate::field_value;
 use crate::lookup::{EntityMatcher, MatchPriority};
-use crate::panel::PanelEntityType;
-use crate::panel::PanelId;
+use crate::panel::{PanelEntityType, PanelId, FIELD_PRESENTERS};
 use crate::value::ConversionError;
 use crate::value::{CrdtFieldType, FieldCardinality, FieldType, FieldTypeItem, ValidationError};
 use serde::{Deserialize, Deserializer, Serialize, Serializer};
@@ -519,9 +519,14 @@ fn is_group_entity(schedule: &crate::schedule::Schedule, id: PresenterId) -> boo
     schedule
         .get_internal::<PresenterEntityType>(id)
         .is_some_and(|d| d.data.is_explicit_group)
-        || !schedule
-            .edges_to::<PresenterEntityType, PresenterEntityType>(id)
-            .is_empty()
+        || {
+            // Check if this presenter has any members (edges pointing to it via FIELD_GROUPS)
+            let node = crate::field_node_id::FieldNodeId::from_descriptor(
+                &FIELD_GROUPS,
+                id.non_nil_uuid(),
+            );
+            !schedule.connected_field_nodes(node.to_runtime()).is_empty()
+        }
 }
 
 /// Find a group presenter matching `name`, using `is_group_entity` as the filter.
@@ -562,8 +567,12 @@ pub fn find_tagged_presenter(
         let id = PresenterEntityType::find_by_name(schedule, parsed.name)?;
         // Verify group membership if a group suffix is given
         if let Some(group_name) = parsed.group_name {
+            let node = crate::field_node_id::FieldNodeId::from_descriptor(
+                &FIELD_MEMBERS,
+                id.non_nil_uuid(),
+            );
             let in_group = schedule
-                .edges_from::<PresenterEntityType, PresenterEntityType>(id)
+                .connected_entities::<PresenterEntityType, PresenterEntityType>(node)
                 .into_iter()
                 .any(|gid| {
                     schedule
@@ -646,11 +655,20 @@ pub fn find_or_create_tagged_presenter(
                 gd.data.always_shown_in_group = true;
             }
         }
-        let already_in_group = schedule
-            .edges_from::<PresenterEntityType, PresenterEntityType>(pres_id)
-            .contains(&gid);
+        let already_in_group = {
+            let node = crate::field_node_id::FieldNodeId::from_descriptor(
+                &FIELD_MEMBERS,
+                pres_id.non_nil_uuid(),
+            );
+            schedule
+                .connected_entities::<PresenterEntityType, PresenterEntityType>(node)
+                .contains(&gid)
+        };
         if !already_in_group {
-            schedule.edge_add::<PresenterEntityType, PresenterEntityType>(pres_id, gid);
+            schedule.edge_add::<PresenterEntityType, PresenterEntityType>(
+                FieldNodeId::from_descriptor(&FIELD_MEMBERS, pres_id.non_nil_uuid()),
+                FieldNodeId::from_descriptor(&FIELD_GROUPS, gid.non_nil_uuid()),
+            );
         }
     }
 
@@ -787,8 +805,9 @@ define_field!(
             let explicit = sched
                 .get_internal::<PresenterEntityType>(id)
                 .is_some_and(|d| d.data.is_explicit_group);
+            let node = crate::field_node_id::FieldNodeId::from_descriptor(&FIELD_MEMBERS, id.non_nil_uuid());
             let has_members = !sched
-                .edges_to::<PresenterEntityType, PresenterEntityType>(id)
+                .connected_field_nodes(node.to_runtime())
                 .is_empty();
             Some(field_value!(explicit || has_members))
         })),
@@ -870,7 +889,7 @@ edge_field!(FIELD_PANELS, PresenterEntityType, mode: rw, target: PanelEntityType
     example: "[]",
     order: 1100);
 
-edge_field!(FIELD_ADD_PANELS, PresenterEntityType, mode: add, target: PanelEntityType,
+edge_field!(FIELD_ADD_PANELS, PresenterEntityType, mode: add, target: PanelEntityType, target_field: FIELD_PRESENTERS,
     name: "add_panels", display: "Add Panels",
     desc: "Append panels to this presenter.",
     aliases: &["add_panel"],
@@ -909,18 +928,21 @@ define_field!(
             use std::collections::HashSet;
             let mut panel_set: HashSet<PanelId> = HashSet::new();
             // Direct panels of this presenter
-            for p in sched.edges_from::<PresenterEntityType, PanelEntityType>(id) {
+            let node = crate::field_node_id::FieldNodeId::from_descriptor(&FIELD_PANELS, id.non_nil_uuid());
+            for p in sched.connected_entities::<PresenterEntityType, PanelEntityType>(node) {
                 panel_set.insert(p);
             }
             // Panels of all transitive groups (upward)
             for g in sched.inclusive_edges_from::<PresenterEntityType, PresenterEntityType>(id) {
-                for p in sched.edges_from::<PresenterEntityType, PanelEntityType>(g) {
+                let node = crate::field_node_id::FieldNodeId::from_descriptor(&FIELD_PANELS, g.non_nil_uuid());
+                for p in sched.connected_entities::<PresenterEntityType, PanelEntityType>(node) {
                     panel_set.insert(p);
                 }
             }
             // Panels of all transitive members (downward)
             for m in sched.inclusive_edges_to::<PresenterEntityType, PresenterEntityType>(id) {
-                for p in sched.edges_from::<PresenterEntityType, PanelEntityType>(m) {
+                let node = crate::field_node_id::FieldNodeId::from_descriptor(&FIELD_PANELS, m.non_nil_uuid());
+                for p in sched.connected_entities::<PresenterEntityType, PanelEntityType>(node) {
                     panel_set.insert(p);
                 }
             }
@@ -1087,6 +1109,7 @@ impl crate::lookup::EntityCreatable for PresenterEntityType {
 // ── Tests ─────────────────────────────────────────────────────────────────────
 
 #[cfg(test)]
+#[allow(deprecated)]
 mod tests {
     use super::*;
     use crate::field_value;
@@ -1414,7 +1437,10 @@ mod tests {
         group.data.is_explicit_group = true;
         sched.insert(alice_id, alice);
         sched.insert(group_id, group);
-        sched.edge_add::<PresenterEntityType, PresenterEntityType>(alice_id, group_id);
+        sched.edge_add::<PresenterEntityType, PresenterEntityType>(
+            FieldNodeId::from_descriptor(&FIELD_MEMBERS, alice_id.non_nil_uuid()),
+            FieldNodeId::from_descriptor(&FIELD_GROUPS, group_id.non_nil_uuid()),
+        );
 
         assert_eq!(
             find_tagged_presenter(&sched, "Alice=MyBand"),
@@ -1500,7 +1526,10 @@ mod tests {
         assert_eq!(alice.data.name, "Alice");
         assert!(!alice.data.is_explicit_group);
 
-        let groups = sched.edges_from::<PresenterEntityType, PresenterEntityType>(alice_id);
+        let groups = sched.connected_entities(FieldNodeId::from_descriptor(
+            &FIELD_GROUPS,
+            alice_id.non_nil_uuid(),
+        ));
         assert_eq!(groups.len(), 1);
         let group = sched
             .get_internal::<PresenterEntityType>(groups[0])
@@ -1514,7 +1543,10 @@ mod tests {
     fn test_find_or_create_double_equals_always_shown() {
         let mut sched = Schedule::default();
         let alice_id = find_or_create_tagged_presenter(&mut sched, "P:Alice==MyBand").unwrap();
-        let groups = sched.edges_from::<PresenterEntityType, PresenterEntityType>(alice_id);
+        let groups = sched.connected_entities(FieldNodeId::from_descriptor(
+            &FIELD_GROUPS,
+            alice_id.non_nil_uuid(),
+        ));
         let group = sched
             .get_internal::<PresenterEntityType>(groups[0])
             .unwrap();
@@ -1594,7 +1626,46 @@ mod tests {
         let group_id = find_or_create_tagged_presenter(&mut sched, "MyBand").unwrap();
         let member_id = find_or_create_tagged_presenter(&mut sched, "Alice").unwrap();
         // Manually add member → group edge (group is NOT is_explicit_group yet)
-        sched.edge_add::<PresenterEntityType, PresenterEntityType>(member_id, group_id);
+        let member_node = crate::field_node_id::FieldNodeId::from_descriptor(
+            &FIELD_MEMBERS,
+            member_id.non_nil_uuid(),
+        );
+        let group_node = crate::field_node_id::FieldNodeId::from_descriptor(
+            &FIELD_GROUPS,
+            group_id.non_nil_uuid(),
+        );
+        sched.edge_add(member_node, group_node);
+
+        // Debug: check what's in the edge map
+        let members_node = crate::field_node_id::FieldNodeId::from_descriptor(
+            &FIELD_MEMBERS,
+            group_id.non_nil_uuid(),
+        );
+        let groups_node = crate::field_node_id::FieldNodeId::from_descriptor(
+            &FIELD_GROUPS,
+            group_id.non_nil_uuid(),
+        );
+        eprintln!(
+            "FIELD_MEMBERS on group: {:?}",
+            sched.connected_field_nodes(members_node.to_runtime()).len()
+        );
+        eprintln!(
+            "FIELD_GROUPS on group: {:?}",
+            sched.connected_field_nodes(groups_node.to_runtime()).len()
+        );
+        eprintln!(
+            "FIELD_MEMBERS on member: {:?}",
+            sched
+                .connected_field_nodes(
+                    crate::field_node_id::FieldNodeId::from_descriptor(
+                        &FIELD_MEMBERS,
+                        member_id.non_nil_uuid()
+                    )
+                    .to_runtime()
+                )
+                .len()
+        );
+
         // Now is_group_entity should return true via edges_to check
         assert!(is_group_entity(&sched, group_id));
         // And find_tagged for group-only should find it

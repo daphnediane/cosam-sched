@@ -40,7 +40,7 @@ This refactor consolidates field registration infrastructure and simplifies type
 - Changed `FieldId::of()` from `&'static FieldDescriptor<E>` to `&'static dyn NamedField`
 - Added `FieldId::as_named_field()` for round-trip conversion via global registry lookup
 - Added `FieldId::try_as_descriptor<E>()` for type-safe conversion using `downcast_ref`
-- Added `std::any::Any` supertrait to `NamedField` to enable safe downcasting
+- Added `std::any::Any` super-trait to `NamedField` to enable safe downcasting
 
 This eliminates duplicate registries, reduces trait hierarchy complexity, and uses standard library
 type-safe downcasting instead of manual pointer casts.

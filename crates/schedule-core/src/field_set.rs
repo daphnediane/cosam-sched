@@ -1014,7 +1014,7 @@ mod tests {
     #[test]
     fn test_write_multiple_write_error_short_circuits() {
         // Second write supplies the wrong FieldValue variant → ConversionError.
-        // The first write must remain applied (documented no-rollback behaviour).
+        // The first write must remain applied (documented no-rollback behavior).
         let fs = make_field_set();
         let id = make_id();
         let mut sched = make_schedule_with(id, initial_data());

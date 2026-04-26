@@ -353,7 +353,7 @@ pub fn read_owner_list(
     items
         .into_iter()
         .filter_map(|it| match it {
-            FieldValueItem::EntityIdentifier(rid) => Some(rid.uuid()),
+            FieldValueItem::EntityIdentifier(rid) => Some(rid.non_nil_uuid()),
             _ => None,
         })
         .collect()

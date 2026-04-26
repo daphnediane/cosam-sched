@@ -33,7 +33,7 @@
 //! canonical-owner lookup all derive from `all_edge_descriptors()` automatically.
 
 use crate::field::NamedField;
-use crate::field_node_id::FieldId;
+use crate::field_node_id::FieldRef;
 use std::fmt;
 
 // ── Per-edge field metadata (kept until FEATURE-065 removes credited) ─────────
@@ -165,16 +165,16 @@ pub fn all_edge_descriptors() -> impl Iterator<Item = &'static EdgeDescriptor> {
 
 // ── Edge field resolution ─────────────────────────────────────────────────────
 
-/// Resolved field IDs and transitive flag for an `(l_type, r_type)` edge pair.
+/// Resolved field references and transitive flag for an `(l_type, r_type)` edge pair.
 ///
 /// Returned by [`resolve_edge_fields`] for use in [`crate::edge_map::RawEdgeMap`]
 /// operations that need typed field addresses rather than entity type names.
 #[derive(Debug, Clone, Copy)]
 pub struct EdgeFieldResolution {
-    /// [`FieldId`] of the field on the `l_type` entity for this relationship.
-    pub l_field_id: FieldId,
-    /// [`FieldId`] of the field on the `r_type` entity for this relationship.
-    pub r_field_id: FieldId,
+    /// [`FieldRef`] of the field on the `l_type` entity for this relationship.
+    pub l_field_id: FieldRef,
+    /// [`FieldRef`] of the field on the `r_type` entity for this relationship.
+    pub r_field_id: FieldRef,
     /// `true` when the relationship supports transitive-closure queries
     /// (see [`EdgeDescriptor::is_transitive`]).
     pub is_transitive: bool,

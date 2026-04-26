@@ -1,6 +1,6 @@
 # Cosplay America Schedule - Work Item
 
-Updated on: Sat Apr 25 21:34:48 2026
+Updated on: Sun Apr 26 03:11:24 2026
 
 ## Completed
 
@@ -57,7 +57,7 @@ collection, and expose a `registered_entity_types()` accessor.
 * [REFACTOR-055] Add `define_field!` macro to bundle hand-written `FieldDescriptor` statics with
 `inventory::submit!`, and add `IntoFieldValue` trait hierarchy for type-deduced
 `field_value!(expr)` construction.
-* [REFACTOR-059] Introduce `EdgeDescriptor` as a first-class type that colocates edge definition,
+* [REFACTOR-059] Introduce `EdgeDescriptor` as a first-class type that co-locates edge definition,
 CRDT ownership, and relationship semantics on the canonical owner entity type,
 replacing the split `canonical_owner()` match table and `OWNER_EDGE_FIELDS` constant.
 * [REFACTOR-060] Add per-edge data infrastructure to `EdgeDescriptor` and implement `credited: bool`
@@ -71,6 +71,9 @@ and move EdgeDescriptor registration to `inventory`.
 eliminating the `homogeneous_reverse` special case.
 * [REFACTOR-064] Adapt `schedule.rs`, `edge_crdt.rs`, and `edge_cache.rs` to use the new FieldNodeId-based
 `RawEdgeMap`, replacing type-parameter-based edge lookups with field-based lookups.
+* [REFACTOR-066] Eliminate per-entity-type `CollectedField<E>` registries, merge `FieldDescriptorAny` into `NamedField`,
+and improve `FieldId` conversions with a global registry and type-safe downcasting.
+* [REFACTOR-067] Add compile-time typed `FieldNodeId<E>` type similar to `EntityId<E>`, and rename existing `FieldNodeId` to `RuntimeFieldNodeId` for consistency with the entity ID pattern.
 
 ---
 
@@ -591,3 +594,5 @@ This item covers any remaining integration work and documentation.
 [REFACTOR-062]: work-item/done/REFACTOR-062.md
 [REFACTOR-063]: work-item/done/REFACTOR-063.md
 [REFACTOR-064]: work-item/done/REFACTOR-064.md
+[REFACTOR-066]: work-item/done/REFACTOR-066.md
+[REFACTOR-067]: work-item/done/REFACTOR-067.md

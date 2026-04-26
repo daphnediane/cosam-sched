@@ -2,7 +2,7 @@
 
 ## Summary
 
-Introduce `EdgeDescriptor` as a first-class type that colocates edge definition,
+Introduce `EdgeDescriptor` as a first-class type that co-locates edge definition,
 CRDT ownership, and relationship semantics on the canonical owner entity type,
 replacing the split `canonical_owner()` match table and `OWNER_EDGE_FIELDS` constant.
 

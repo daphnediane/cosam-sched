@@ -319,7 +319,7 @@ pub(crate) fn item_to_scalar(item: &FieldValueItem) -> CrdtResult<ScalarValue> {
         }
         FieldValueItem::Duration(d) => ScalarValue::Int(d.num_milliseconds()),
         FieldValueItem::EntityIdentifier(rid) => {
-            ScalarValue::Str(format!("{}:{}", rid.type_name(), rid.uuid()).into())
+            ScalarValue::Str(format!("{}:{}", rid.type_name(), rid.non_nil_uuid()).into())
         }
     })
 }

@@ -22,7 +22,7 @@
 //! `inclusive_edges_from` / `inclusive_edges_to` calls on the schedule.
 
 use crate::edge_map::RawEdgeMap;
-use crate::field_node_id::FieldId;
+use crate::field_node_id::FieldRef;
 use std::collections::{HashMap, HashSet};
 use uuid::NonNilUuid;
 
@@ -35,20 +35,20 @@ use uuid::NonNilUuid;
 /// valid until the cache is set to `None` (invalidated) by any transitive-edge
 /// mutation.
 ///
-/// Entries are keyed by `(FieldId, NonNilUuid)` — the field encodes traversal
-/// direction (forward and reverse use different `FieldId`s), while the UUID is
+/// Entries are keyed by `(FieldRef, NonNilUuid)` — the field encodes traversal
+/// direction (forward and reverse use different `FieldRef`s), while the UUID is
 /// the starting node.  Multiple independent transitive-edge relationships can
 /// share one cache without key collision.
 #[derive(Debug, Default)]
 pub struct TransitiveEdgeCache {
-    /// `(field_id, start_uuid)` → all UUIDs transitively reachable by following
-    /// edges stored under `field_id` from `start_uuid`.
-    cache: HashMap<(FieldId, NonNilUuid), Box<[NonNilUuid]>>,
+    /// `(field_ref, start_uuid)` → all UUIDs transitively reachable by following
+    /// edges stored under `field_ref`.
+    cache: HashMap<(FieldRef, NonNilUuid), Box<[NonNilUuid]>>,
 }
 
 impl TransitiveEdgeCache {
     /// Return all UUIDs transitively reachable from `start` by following edges
-    /// stored under `field_id`.
+    /// stored under `field_ref`.
     ///
     /// Pass the appropriate field for the desired direction: the field on the
     /// *from* side for forward traversal, or the field on the *to* side for
@@ -59,11 +59,11 @@ impl TransitiveEdgeCache {
         &mut self,
         edge_map: &RawEdgeMap,
         start: NonNilUuid,
-        field_id: FieldId,
+        field_ref: FieldRef,
     ) -> Vec<NonNilUuid> {
         self.cache
-            .entry((field_id, start))
-            .or_insert_with(|| transitive_neighbors(edge_map, start, field_id).into_boxed_slice())
+            .entry((field_ref, start))
+            .or_insert_with(|| transitive_neighbors(edge_map, start, field_ref).into_boxed_slice())
             .to_vec()
     }
 }
@@ -76,7 +76,7 @@ impl TransitiveEdgeCache {
 fn transitive_neighbors(
     edge_map: &RawEdgeMap,
     start: NonNilUuid,
-    field_id: FieldId,
+    field_ref: FieldRef,
 ) -> Vec<NonNilUuid> {
     let mut visited: HashSet<NonNilUuid> = HashSet::new();
     visited.insert(start); // prevent re-queuing start or looping back through it
@@ -84,8 +84,8 @@ fn transitive_neighbors(
     let mut result = Vec::new();
 
     while let Some(curr) = queue.pop() {
-        for node in edge_map.neighbors_for_field(curr, field_id) {
-            let uuid = node.entity;
+        for node in edge_map.neighbors_for_field(curr, field_ref) {
+            let uuid = node.uuid;
             if visited.insert(uuid) {
                 result.push(uuid);
                 queue.push(uuid);
@@ -103,7 +103,7 @@ mod tests {
     use super::*;
     use crate::entity::EntityType;
     use crate::field::FieldDescriptor;
-    use crate::field_node_id::FieldNodeId;
+    use crate::field_node_id::RuntimeFieldNodeId;
     use crate::field_set::FieldSet;
     use crate::value::{
         CrdtFieldType, FieldCardinality, FieldType, FieldTypeItem, ValidationError,
@@ -165,11 +165,11 @@ mod tests {
         verify_fn: None,
     };
 
-    fn fwd() -> FieldId {
-        FieldId::of(&FIELD_FWD)
+    fn fwd() -> FieldRef {
+        FieldRef(&FIELD_FWD as &dyn crate::field::NamedField)
     }
-    fn rev() -> FieldId {
-        FieldId::of(&FIELD_REV)
+    fn rev() -> FieldRef {
+        FieldRef(&FIELD_REV as &dyn crate::field::NamedField)
     }
 
     fn nnu(n: u128) -> NonNilUuid {
@@ -178,9 +178,10 @@ mod tests {
 
     /// Build a bidirectional edge: member's `fwd()` ↔ group's `rev()`.
     fn add_member_group(map: &mut RawEdgeMap, member: u128, group: u128) {
+        // SAFETY: Test fixtures use matching entity types for their fields.
         map.add_edge(
-            FieldNodeId::new(fwd(), nnu(member)),
-            FieldNodeId::new(rev(), nnu(group)),
+            unsafe { RuntimeFieldNodeId::from_uuid(nnu(member), fwd().0) },
+            unsafe { RuntimeFieldNodeId::from_uuid(nnu(group), rev().0) },
         );
     }
 

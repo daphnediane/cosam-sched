@@ -16,6 +16,7 @@ use crate::edge_map::RawEdgeMap;
 use crate::entity::{registered_entity_types, EntityId, EntityType, RuntimeEntityId};
 use crate::field::ReadableField;
 use crate::value::{CrdtFieldType, FieldError, FieldValue};
+use crate::FieldNodeId;
 use automerge::AutoCommit;
 use serde::{Deserialize, Serialize};
 use std::any::{Any, TypeId};
@@ -466,14 +467,14 @@ impl Schedule {
     /// for running this under [`Self::with_mirror_disabled`] — otherwise each
     /// replayed edge would re-write the same list back into the doc.
     fn rebuild_edges_from_doc(&mut self) {
-        use crate::field_node_id::FieldNodeId;
+        use crate::field_node_id::RuntimeFieldNodeId;
         use crate::value::FieldTypeItem;
 
         // Snapshot the `(owner_uuid, target_uuids)` pairs while borrowing
         // `&self.doc`, then apply them under `&mut self`.
         struct EdgeBatch {
-            owner_field_id: crate::field_node_id::FieldId,
-            target_field_id: crate::field_node_id::FieldId,
+            owner_field: crate::field_node_id::FieldRef,
+            target_field: crate::field_node_id::FieldRef,
             pairs: Vec<(NonNilUuid, Vec<NonNilUuid>)>,
         }
         let mut batches: Vec<EdgeBatch> = Vec::new();
@@ -481,8 +482,8 @@ impl Schedule {
             let owner_type = desc.owner_type();
             let field_name = desc.field_name();
             let target_type = desc.target_type();
-            let owner_field_id = desc.owner_field.field_id();
-            let target_field_id = desc.target_field.field_id();
+            let owner_field = desc.owner_field.field_id();
+            let target_field = desc.target_field.field_id();
             let owner_uuids = crdt::list_all_uuids(&self.doc, owner_type);
             let mut pairs: Vec<(NonNilUuid, Vec<NonNilUuid>)> = Vec::new();
             for owner_uuid in owner_uuids {
@@ -502,17 +503,21 @@ impl Schedule {
             }
             if !pairs.is_empty() {
                 batches.push(EdgeBatch {
-                    owner_field_id,
-                    target_field_id,
+                    owner_field,
+                    target_field,
                     pairs,
                 });
             }
         }
         for batch in batches {
             for (owner_uuid, targets) in batch.pairs {
-                let from = FieldNodeId::new(batch.owner_field_id, owner_uuid);
+                // SAFETY: owner_uuid and target_uuid come from edge descriptors which
+                // guarantee type compatibility with their respective fields.
+                let from =
+                    unsafe { RuntimeFieldNodeId::from_uuid(owner_uuid, batch.owner_field.0) };
                 for target_uuid in targets {
-                    let to = FieldNodeId::new(batch.target_field_id, target_uuid);
+                    let to =
+                        unsafe { RuntimeFieldNodeId::from_uuid(target_uuid, batch.target_field.0) };
                     self.edges.add_edge(from, to);
                 }
             }
@@ -731,116 +736,55 @@ impl Schedule {
 
     // ── Edge API ──────────────────────────────────────────────────────────────
 
-    /// All neighbor entity UUIDs reachable via the given `field_id` from `uuid`.
+    /// All neighbor field node IDs reachable via the given field node.
     ///
     /// Lowest-level field-based query; suitable for entity-module read functions
-    /// that have a concrete [`crate::field_node_id::FieldId`] in hand.
-    /// Use [`Self::edges_from_field`] for the typed wrapper.
+    /// that have a concrete [`crate::field_node_id::FieldRef`] in hand.
+    /// Returns the full [`RuntimeFieldNodeId`] of each neighbor (including both
+    /// the entity UUID and the field ID of the reverse edge).
+    /// Use [`Self::connected_entities`] for the typed wrapper that returns `EntityId<R>`.
     #[must_use]
-    pub fn edges_for_field(
+    pub fn connected_field_nodes(
         &self,
-        uuid: NonNilUuid,
-        field_id: crate::field_node_id::FieldId,
-    ) -> Vec<NonNilUuid> {
+        node: crate::field_node_id::RuntimeFieldNodeId,
+    ) -> &[crate::field_node_id::RuntimeFieldNodeId] {
         self.edges
-            .neighbors_for_field(uuid, field_id)
+            .neighbors_for_field(node.uuid, crate::field_node_id::FieldRef(node.field))
+    }
+
+    /// All neighbor field node IDs reachable via the given field node, filtered by far-side field.
+    ///
+    /// Similar to [`Self::connected_field_nodes`] but only returns connections where the
+    /// far-side field matches `far_field`.
+    #[must_use]
+    pub fn connected_field_nodes_with_field(
+        &self,
+        node: crate::field_node_id::RuntimeFieldNodeId,
+        far_field: crate::field_node_id::FieldRef,
+    ) -> Vec<crate::field_node_id::RuntimeFieldNodeId> {
+        self.connected_field_nodes(node)
             .iter()
-            .map(|fn_id| fn_id.entity)
+            .filter(|fn_id| crate::field_node_id::FieldRef(fn_id.field) == far_field)
+            .copied()
             .collect()
     }
 
-    /// All `R` entities reachable from `id` via the given typed field descriptor.
+    /// Returns all entities of type `R` connected to `node` via the given field.
     ///
-    /// The field descriptor pinpoints which field stores the relationship, making
-    /// this unambiguous even when an entity type has multiple relationships to the
-    /// same target type (e.g. `FIELD_CREDITED_PRESENTERS` vs
-    /// `FIELD_UNCREDITED_PRESENTERS` after Phase 5).
+    /// The field node ID specifies which field on the entity stores the relationship,
+    /// useful when an entity has multiple fields relating to the same target type.
     #[must_use]
-    pub fn edges_from_field<E: EntityType, R: EntityType>(
+    pub fn connected_entities<E: EntityType, R: EntityType>(
         &self,
-        id: EntityId<E>,
-        field: &'static crate::field::FieldDescriptor<E>,
+        node: crate::field_node_id::FieldNodeId<E>,
     ) -> Vec<EntityId<R>> {
-        use crate::field_node_id::FieldId;
-        self.edges
-            .neighbors_for_field(id.non_nil_uuid(), FieldId::of(field))
+        let runtime = node.to_runtime();
+        self.connected_field_nodes(runtime)
             .iter()
-            // SAFETY: field descriptor + edge setup guarantee neighbors are EntityId<R>.
-            .map(|fn_id| unsafe { EntityId::from_uuid(fn_id.entity) })
+            .filter(|fn_id| fn_id.type_name() == R::TYPE_NAME)
+            // SAFETY: filter above ensures the UUID belongs to entity type R.
+            .map(|fn_id| unsafe { EntityId::from_uuid(fn_id.uuid) })
             .collect()
-    }
-
-    /// All `R` entities reachable from `id` following any L→R edge descriptor.
-    ///
-    /// Aggregates across **all** registered [`crate::edge_descriptor::EdgeDescriptor`]s
-    /// whose `(owner_type, target_type)` or reversed pair matches
-    /// `(L::TYPE_NAME, R::TYPE_NAME)`, unioning results across fields.
-    ///
-    /// When there is exactly one L→R descriptor this is equivalent to a direct
-    /// single-field lookup.  When there are multiple (e.g. after Phase 5 splits
-    /// `FIELD_PRESENTERS` into `FIELD_CREDITED_PRESENTERS` and
-    /// `FIELD_UNCREDITED_PRESENTERS`), results from all matching fields are unioned.
-    #[must_use]
-    pub fn edges_from<L: EntityType, R: EntityType>(&self, id: EntityId<L>) -> Vec<EntityId<R>> {
-        use crate::field_node_id::FieldId;
-        use std::collections::HashSet;
-        use uuid::NonNilUuid;
-        let mut seen: HashSet<NonNilUuid> = HashSet::new();
-        let mut result: Vec<EntityId<R>> = Vec::new();
-        for desc in crate::edge_descriptor::all_edge_descriptors() {
-            let l_fid: FieldId;
-            if desc.owner_type() == L::TYPE_NAME && desc.target_type() == R::TYPE_NAME {
-                l_fid = desc.owner_field.field_id();
-            } else if !desc.is_homogeneous()
-                && desc.target_type() == L::TYPE_NAME
-                && desc.owner_type() == R::TYPE_NAME
-            {
-                l_fid = desc.target_field.field_id();
-            } else {
-                continue;
-            }
-            for fn_id in self.edges.neighbors_for_field(id.non_nil_uuid(), l_fid) {
-                if seen.insert(fn_id.entity) {
-                    // SAFETY: field descriptor guarantees these UUIDs are EntityId<R>.
-                    result.push(unsafe { EntityId::<R>::from_uuid(fn_id.entity) });
-                }
-            }
-        }
-        result
-    }
-
-    /// All `L` entities that have an edge pointing to `id`.
-    ///
-    /// Aggregates across all registered descriptors matching `(L, R)`, returning
-    /// the union of reverse neighbors.  Symmetric with [`Self::edges_from`]:
-    /// deduplication is applied when multiple descriptors contribute the same UUID.
-    #[must_use]
-    pub fn edges_to<L: EntityType, R: EntityType>(&self, id: EntityId<R>) -> Vec<EntityId<L>> {
-        use crate::field_node_id::FieldId;
-        use std::collections::HashSet;
-        use uuid::NonNilUuid;
-        let mut seen: HashSet<NonNilUuid> = HashSet::new();
-        let mut result: Vec<EntityId<L>> = Vec::new();
-        for desc in crate::edge_descriptor::all_edge_descriptors() {
-            let r_fid: FieldId;
-            if desc.owner_type() == L::TYPE_NAME && desc.target_type() == R::TYPE_NAME {
-                r_fid = desc.target_field.field_id();
-            } else if !desc.is_homogeneous()
-                && desc.target_type() == L::TYPE_NAME
-                && desc.owner_type() == R::TYPE_NAME
-            {
-                r_fid = desc.owner_field.field_id();
-            } else {
-                continue;
-            }
-            for fn_id in self.edges.neighbors_for_field(id.non_nil_uuid(), r_fid) {
-                if seen.insert(fn_id.entity) {
-                    // SAFETY: symmetric storage guarantees these UUIDs belong to type L.
-                    result.push(unsafe { EntityId::<L>::from_uuid(fn_id.entity) });
-                }
-            }
-        }
-        result
     }
 
     /// All `R` entities transitively reachable from `id` via forward edges.
@@ -848,7 +792,7 @@ impl Schedule {
     /// When the `(L, R)` edge is `is_transitive`, follows edges transitively
     /// via the L-side field (e.g. `inclusive_edges_from<Presenter, Presenter>(alice)`
     /// returns all groups alice belongs to, transitively — not alice herself).
-    /// For non-transitive edges: falls back to direct `edges_from` (single hop only).
+    /// For non-transitive edges: uses field-aware single-hop lookup.
     ///
     /// Takes `&self`; the edge cache is updated through interior mutability.
     #[must_use]
@@ -872,12 +816,18 @@ impl Schedule {
                 .map(|uuid| unsafe { EntityId::from_uuid(uuid) })
                 .collect()
         } else {
-            self.edges_from::<L, R>(id)
+            use crate::field_node_id::RuntimeFieldNodeId;
+            // SAFETY: id is of type L, and res.l_field_id.0 is the correct field for L.
+            let node =
+                unsafe { RuntimeFieldNodeId::from_uuid(id.non_nil_uuid(), res.l_field_id.0) };
+            self.connected_field_nodes(node)
+                .iter()
+                .filter(|fn_id| fn_id.type_name() == R::TYPE_NAME)
+                // SAFETY: filter above ensures the UUID belongs to entity type R.
+                .map(|fn_id| unsafe { EntityId::<R>::from_uuid(fn_id.uuid) })
+                .collect()
         }
     }
-
-    /// All `L` entities that transitively point to `id` via reverse edges.
-    ///
     /// When the `(L, R)` edge is `is_transitive`, follows reverse edges transitively
     /// via the R-side field (e.g. `inclusive_edges_to<Presenter, Presenter>(team_a)`
     /// returns all members of team_a transitively — not team_a itself).
@@ -905,7 +855,16 @@ impl Schedule {
                 .map(|uuid| unsafe { EntityId::from_uuid(uuid) })
                 .collect()
         } else {
-            self.edges_to::<L, R>(id)
+            use crate::field_node_id::RuntimeFieldNodeId;
+            // SAFETY: id is of type R, and res.r_field_id.0 is the correct field for R.
+            let node =
+                unsafe { RuntimeFieldNodeId::from_uuid(id.non_nil_uuid(), res.r_field_id.0) };
+            self.connected_field_nodes(node)
+                .iter()
+                .filter(|fn_id| fn_id.type_name() == L::TYPE_NAME)
+                // SAFETY: filter above ensures the UUID belongs to entity type L.
+                .map(|fn_id| unsafe { EntityId::<L>::from_uuid(fn_id.uuid) })
+                .collect()
         }
     }
 
@@ -920,19 +879,22 @@ impl Schedule {
     /// (via [`crate::edge_crdt::list_append_unique`]) — **not** rewritten in
     /// full — so concurrent add/add from two replicas converges to the
     /// union rather than LWW on the list object.
-    pub fn edge_add<L: EntityType, R: EntityType>(&mut self, l: EntityId<L>, r: EntityId<R>) {
-        use crate::field_node_id::FieldNodeId;
-        let Some(res) = crate::edge_descriptor::resolve_edge_fields(L::TYPE_NAME, R::TYPE_NAME)
-        else {
-            return;
-        };
-        let from = FieldNodeId::new(res.l_field_id, l.non_nil_uuid());
-        let to = FieldNodeId::new(res.r_field_id, r.non_nil_uuid());
-        self.edges.add_edge(from, to);
-        if res.is_transitive {
+    pub fn edge_add<L: EntityType, R: EntityType>(&mut self, l: FieldNodeId<L>, r: FieldNodeId<R>) {
+        let l_runtime = l.to_runtime();
+        let r_runtime = r.to_runtime();
+
+        self.edges.add_edge(l_runtime, r_runtime);
+
+        // Check if transitive and invalidate cache
+        let is_transitive = crate::edge_descriptor::resolve_edge_fields(L::TYPE_NAME, R::TYPE_NAME)
+            .map(|res| res.is_transitive)
+            .unwrap_or(false);
+        if is_transitive {
             *self.transitive_edge_cache.borrow_mut() = None;
         }
-        self.mirror_edge_add::<L, R>(l.non_nil_uuid(), r.non_nil_uuid());
+
+        // CRDT mirror
+        self.mirror_edge_add::<L, R>(l_runtime.uuid, r_runtime.uuid);
     }
 
     /// Remove the edge from `l` to `r`.
@@ -945,8 +907,8 @@ impl Schedule {
         else {
             return;
         };
-        let from = FieldNodeId::new(res.l_field_id, l.non_nil_uuid());
-        let to = FieldNodeId::new(res.r_field_id, r.non_nil_uuid());
+        let from = unsafe { FieldNodeId::from_entity_id(res.l_field_id.0, l) }.to_runtime();
+        let to = unsafe { FieldNodeId::from_entity_id(res.r_field_id.0, r) }.to_runtime();
         self.edges.remove_edge(from, to);
         if res.is_transitive {
             *self.transitive_edge_cache.borrow_mut() = None;
@@ -968,10 +930,11 @@ impl Schedule {
         else {
             return;
         };
-        let from = FieldNodeId::new(res.l_field_id, l.non_nil_uuid());
-        let new_targets: Vec<FieldNodeId> = rights
+        let from = unsafe { FieldNodeId::from_entity_id(res.l_field_id.0, l) }.to_runtime();
+        let new_targets: Vec<crate::field_node_id::RuntimeFieldNodeId> = rights
             .iter()
-            .map(|r| FieldNodeId::new(res.r_field_id, r.non_nil_uuid()))
+            .copied()
+            .map(|r| unsafe { FieldNodeId::from_entity_id(res.r_field_id.0, r) }.to_runtime())
             .collect();
         self.edges.set_field_neighbors(from, new_targets);
         if res.is_transitive {
@@ -998,14 +961,26 @@ impl Schedule {
         else {
             return;
         };
-        let old_lefts = self.edges_to::<L, R>(r);
-        let r_node = FieldNodeId::new(res.r_field_id, r.non_nil_uuid());
-        for l in old_lefts.iter() {
-            let l_node = FieldNodeId::new(res.l_field_id, l.non_nil_uuid());
+        let old_lefts: Vec<EntityId<L>> = {
+            use crate::field_node_id::RuntimeFieldNodeId;
+            // SAFETY: r is of type R, and res.r_field_id.0 is the correct field for R.
+            let node = unsafe { RuntimeFieldNodeId::from_uuid(r.non_nil_uuid(), res.r_field_id.0) };
+            self.connected_field_nodes(node)
+                .iter()
+                .filter(|fn_id| fn_id.type_name() == L::TYPE_NAME)
+                // SAFETY: filter above ensures the UUID belongs to entity type L.
+                .map(|fn_id| unsafe { EntityId::<L>::from_uuid(fn_id.uuid) })
+                .collect()
+        };
+        let r_node = unsafe { FieldNodeId::<R>::from_entity_id(res.r_field_id.0, r) }.to_runtime();
+        for l in old_lefts.iter().copied() {
+            let l_node =
+                unsafe { FieldNodeId::<L>::from_entity_id(res.l_field_id.0, l) }.to_runtime();
             self.edges.remove_edge(l_node, r_node);
         }
-        for l in lefts.iter() {
-            let l_node = FieldNodeId::new(res.l_field_id, l.non_nil_uuid());
+        for l in lefts.iter().copied() {
+            let l_node =
+                unsafe { FieldNodeId::<L>::from_entity_id(res.l_field_id.0, l) }.to_runtime();
             self.edges.add_edge(l_node, r_node);
         }
         if res.is_transitive {
@@ -1207,7 +1182,7 @@ impl Schedule {
                 .edges
                 .neighbors_for_field(l_uuid, res.l_field_id)
                 .iter()
-                .map(|fn_id| fn_id.entity)
+                .map(|fn_id| fn_id.uuid)
                 .collect();
             if let Err(e) = crate::edge_crdt::write_owner_list(
                 &mut self.doc,
@@ -1254,7 +1229,7 @@ impl Schedule {
                 .edges
                 .neighbors_for_field(owner_uuid, res.r_field_id)
                 .iter()
-                .map(|fn_id| fn_id.entity)
+                .map(|fn_id| fn_id.uuid)
                 .collect();
             if let Err(e) = crate::edge_crdt::write_owner_list(
                 &mut self.doc,
@@ -1330,16 +1305,25 @@ pub fn field_value_to_entity_ids<E: EntityType>(
 // ── Tests ─────────────────────────────────────────────────────────────────────
 
 #[cfg(test)]
+#[allow(deprecated)]
 mod tests {
     use super::*;
     use crate::entity::{EntityId, UuidPreference};
-    use crate::event_room::{EventRoomCommonData, EventRoomEntityType, EventRoomInternalData};
-    use crate::hotel_room::{HotelRoomCommonData, HotelRoomEntityType, HotelRoomInternalData};
-    use crate::panel::{PanelCommonData, PanelEntityType, PanelId, PanelInternalData};
+    use crate::event_room::{
+        EventRoomCommonData, EventRoomEntityType, EventRoomInternalData, FIELD_HOTEL_ROOMS,
+    };
+    use crate::field_node_id::FieldNodeId;
+    use crate::hotel_room::{
+        HotelRoomCommonData, HotelRoomEntityType, HotelRoomInternalData, FIELD_EVENT_ROOMS,
+    };
+    use crate::panel::{
+        PanelCommonData, PanelEntityType, PanelId, PanelInternalData, FIELD_PRESENTERS,
+    };
     use crate::panel_type::{PanelTypeCommonData, PanelTypeEntityType, PanelTypeInternalData};
     use crate::panel_uniq_id::PanelUniqId;
     use crate::presenter::{
-        PresenterCommonData, PresenterEntityType, PresenterId, PresenterInternalData,
+        PresenterCommonData, PresenterEntityType, PresenterId, PresenterInternalData, FIELD_GROUPS,
+        FIELD_MEMBERS, FIELD_PANELS,
     };
     use crate::time::TimeRange;
 
@@ -1479,7 +1463,7 @@ mod tests {
         sched.insert(id, data);
         let rid = sched.identify(id.non_nil_uuid()).unwrap();
         assert_eq!(rid.type_name(), "panel_type");
-        assert_eq!(rid.uuid(), id.non_nil_uuid());
+        assert_eq!(rid.non_nil_uuid(), id.non_nil_uuid());
     }
 
     #[test]
@@ -1512,12 +1496,21 @@ mod tests {
         sched.insert(panel_id, panel_data);
         sched.insert(pres_id, pres_data);
 
-        sched.edge_add::<PanelEntityType, PresenterEntityType>(panel_id, pres_id);
+        sched.edge_add::<PanelEntityType, PresenterEntityType>(
+            FieldNodeId::from_descriptor(&FIELD_PRESENTERS, panel_id.non_nil_uuid()),
+            FieldNodeId::from_descriptor(&FIELD_PANELS, pres_id.non_nil_uuid()),
+        );
 
-        let presenters = sched.edges_from::<PanelEntityType, PresenterEntityType>(panel_id);
+        let presenters = sched.connected_entities(FieldNodeId::from_descriptor(
+            &FIELD_PRESENTERS,
+            panel_id.non_nil_uuid(),
+        ));
         assert_eq!(presenters, vec![pres_id]);
 
-        let panels = sched.edges_from::<PresenterEntityType, PanelEntityType>(pres_id);
+        let panels = sched.connected_entities(FieldNodeId::from_descriptor(
+            &FIELD_PANELS,
+            pres_id.non_nil_uuid(),
+        ));
         assert_eq!(panels, vec![panel_id]);
     }
 
@@ -1529,14 +1522,21 @@ mod tests {
         sched.insert(panel_id, panel_data);
         sched.insert(pres_id, pres_data);
 
-        sched.edge_add::<PanelEntityType, PresenterEntityType>(panel_id, pres_id);
+        sched.edge_add::<PanelEntityType, PresenterEntityType>(
+            FieldNodeId::from_descriptor(&FIELD_PRESENTERS, panel_id.non_nil_uuid()),
+            FieldNodeId::from_descriptor(&FIELD_PANELS, pres_id.non_nil_uuid()),
+        );
         sched.edge_remove::<PanelEntityType, PresenterEntityType>(panel_id, pres_id);
 
         assert!(sched
-            .edges_from::<PanelEntityType, PresenterEntityType>(panel_id)
+            .connected_entities::<PanelEntityType, PresenterEntityType>(
+                FieldNodeId::from_descriptor(&FIELD_PRESENTERS, panel_id.non_nil_uuid())
+            )
             .is_empty());
         assert!(sched
-            .edges_from::<PresenterEntityType, PanelEntityType>(pres_id)
+            .connected_entities::<PresenterEntityType, PanelEntityType>(
+                FieldNodeId::from_descriptor(&FIELD_PANELS, pres_id.non_nil_uuid())
+            )
             .is_empty());
     }
 
@@ -1553,7 +1553,9 @@ mod tests {
         sched.insert(p3_id, p3_data);
 
         sched.edge_set::<PanelEntityType, PresenterEntityType>(panel_id, vec![p1_id, p2_id]);
-        let mut presenters = sched.edges_from::<PanelEntityType, PresenterEntityType>(panel_id);
+        let mut presenters = sched.connected_entities::<PanelEntityType, PresenterEntityType>(
+            FieldNodeId::from_descriptor(&FIELD_PRESENTERS, panel_id.non_nil_uuid()),
+        );
         presenters.sort_by_key(|id| id.uuid());
         let mut expected = vec![p1_id, p2_id];
         expected.sort_by_key(|id| id.uuid());
@@ -1561,15 +1563,21 @@ mod tests {
 
         sched.edge_set::<PanelEntityType, PresenterEntityType>(panel_id, vec![p3_id]);
         assert_eq!(
-            sched.edges_from::<PanelEntityType, PresenterEntityType>(panel_id),
+            sched.connected_entities::<PanelEntityType, PresenterEntityType>(
+                FieldNodeId::from_descriptor(&FIELD_PRESENTERS, panel_id.non_nil_uuid())
+            ),
             vec![p3_id]
         );
         // p1 and p2 no longer link back to panel
         assert!(sched
-            .edges_from::<PresenterEntityType, PanelEntityType>(p1_id)
+            .connected_entities::<PresenterEntityType, PanelEntityType>(
+                FieldNodeId::from_descriptor(&FIELD_PANELS, p1_id.non_nil_uuid())
+            )
             .is_empty());
         assert!(sched
-            .edges_from::<PresenterEntityType, PanelEntityType>(p2_id)
+            .connected_entities::<PresenterEntityType, PanelEntityType>(
+                FieldNodeId::from_descriptor(&FIELD_PANELS, p2_id.non_nil_uuid())
+            )
             .is_empty());
     }
 
@@ -1580,13 +1588,18 @@ mod tests {
         let (pres_id, pres_data) = make_presenter("Alice");
         sched.insert(panel_id, panel_data);
         sched.insert(pres_id, pres_data);
-        sched.edge_add::<PanelEntityType, PresenterEntityType>(panel_id, pres_id);
+        sched.edge_add::<PanelEntityType, PresenterEntityType>(
+            FieldNodeId::from_descriptor(&FIELD_PRESENTERS, panel_id.non_nil_uuid()),
+            FieldNodeId::from_descriptor(&FIELD_PANELS, pres_id.non_nil_uuid()),
+        );
 
         sched.remove_entity::<PanelEntityType>(panel_id);
 
         // Edge from presenter side should be gone too
         assert!(sched
-            .edges_from::<PresenterEntityType, PanelEntityType>(pres_id)
+            .connected_entities::<PresenterEntityType, PanelEntityType>(
+                FieldNodeId::from_descriptor(&FIELD_PANELS, pres_id.non_nil_uuid())
+            )
             .is_empty());
     }
 
@@ -1600,13 +1613,20 @@ mod tests {
         sched.insert(room_id, room_data);
         sched.insert(hotel_id, hotel_data);
 
-        sched.edge_add::<EventRoomEntityType, HotelRoomEntityType>(room_id, hotel_id);
+        sched.edge_add::<EventRoomEntityType, HotelRoomEntityType>(
+            FieldNodeId::from_descriptor(&FIELD_HOTEL_ROOMS, room_id.non_nil_uuid()),
+            FieldNodeId::from_descriptor(&FIELD_EVENT_ROOMS, hotel_id.non_nil_uuid()),
+        );
 
-        let hotels = sched.edges_from::<EventRoomEntityType, HotelRoomEntityType>(room_id);
+        let hotels = sched.connected_entities::<EventRoomEntityType, HotelRoomEntityType>(
+            FieldNodeId::from_descriptor(&FIELD_HOTEL_ROOMS, room_id.non_nil_uuid()),
+        );
         assert_eq!(hotels, vec![hotel_id]);
 
-        // Reverse: hotel_room.event_rooms via edges_from::<HotelRoom, EventRoom>
-        let rooms = sched.edges_from::<HotelRoomEntityType, EventRoomEntityType>(hotel_id);
+        // Reverse: hotel_room.event_rooms via connected_entities with FIELD_EVENT_ROOMS
+        let rooms = sched.connected_entities::<HotelRoomEntityType, EventRoomEntityType>(
+            FieldNodeId::from_descriptor(&FIELD_EVENT_ROOMS, hotel_id.non_nil_uuid()),
+        );
         assert_eq!(rooms, vec![room_id]);
     }
 
@@ -1621,14 +1641,21 @@ mod tests {
         sched.insert(group_id, group_data);
 
         // member → group (forward homogeneous edge: member is in group)
-        sched.edge_add::<PresenterEntityType, PresenterEntityType>(member_id, group_id);
+        sched.edge_add::<PresenterEntityType, PresenterEntityType>(
+            FieldNodeId::from_descriptor(&FIELD_MEMBERS, member_id.non_nil_uuid()),
+            FieldNodeId::from_descriptor(&FIELD_GROUPS, group_id.non_nil_uuid()),
+        );
 
-        // groups of member: edges_from(member)
-        let groups = sched.edges_from::<PresenterEntityType, PresenterEntityType>(member_id);
+        // groups of member: connected_entities with FIELD_GROUPS
+        let groups = sched.connected_entities::<PresenterEntityType, PresenterEntityType>(
+            FieldNodeId::from_descriptor(&FIELD_GROUPS, member_id.non_nil_uuid()),
+        );
         assert_eq!(groups, vec![group_id]);
 
-        // members of group: edges_to(group)
-        let members = sched.edges_to::<PresenterEntityType, PresenterEntityType>(group_id);
+        // members of group: connected_entities with FIELD_MEMBERS
+        let members = sched.connected_entities::<PresenterEntityType, PresenterEntityType>(
+            FieldNodeId::from_descriptor(&FIELD_MEMBERS, group_id.non_nil_uuid()),
+        );
         assert_eq!(members, vec![member_id]);
     }
 
@@ -1640,14 +1667,21 @@ mod tests {
         sched.insert(member_id, member_data);
         sched.insert(group_id, group_data);
 
-        sched.edge_add::<PresenterEntityType, PresenterEntityType>(member_id, group_id);
+        sched.edge_add::<PresenterEntityType, PresenterEntityType>(
+            FieldNodeId::from_descriptor(&FIELD_MEMBERS, member_id.non_nil_uuid()),
+            FieldNodeId::from_descriptor(&FIELD_GROUPS, group_id.non_nil_uuid()),
+        );
         sched.edge_remove::<PresenterEntityType, PresenterEntityType>(member_id, group_id);
 
         assert!(sched
-            .edges_from::<PresenterEntityType, PresenterEntityType>(member_id)
+            .connected_entities::<PresenterEntityType, PresenterEntityType>(
+                FieldNodeId::from_descriptor(&FIELD_GROUPS, member_id.non_nil_uuid())
+            )
             .is_empty());
         assert!(sched
-            .edges_to::<PresenterEntityType, PresenterEntityType>(group_id)
+            .connected_entities::<PresenterEntityType, PresenterEntityType>(
+                FieldNodeId::from_descriptor(&FIELD_MEMBERS, group_id.non_nil_uuid())
+            )
             .is_empty());
     }
 
@@ -1663,17 +1697,23 @@ mod tests {
 
         sched.edge_set::<PresenterEntityType, PresenterEntityType>(member_id, vec![g1_id]);
         assert_eq!(
-            sched.edges_from::<PresenterEntityType, PresenterEntityType>(member_id),
+            sched.connected_entities::<PresenterEntityType, PresenterEntityType>(
+                FieldNodeId::from_descriptor(&FIELD_GROUPS, member_id.non_nil_uuid())
+            ),
             vec![g1_id]
         );
 
         sched.edge_set::<PresenterEntityType, PresenterEntityType>(member_id, vec![g2_id]);
         assert_eq!(
-            sched.edges_from::<PresenterEntityType, PresenterEntityType>(member_id),
+            sched.connected_entities::<PresenterEntityType, PresenterEntityType>(
+                FieldNodeId::from_descriptor(&FIELD_GROUPS, member_id.non_nil_uuid())
+            ),
             vec![g2_id]
         );
         assert!(sched
-            .edges_to::<PresenterEntityType, PresenterEntityType>(g1_id)
+            .connected_entities::<PresenterEntityType, PresenterEntityType>(
+                FieldNodeId::from_descriptor(&FIELD_MEMBERS, g1_id.non_nil_uuid())
+            )
             .is_empty());
     }
 
@@ -1690,7 +1730,9 @@ mod tests {
         // Set members of group to [m1, m2]
         sched.edge_set_to::<PresenterEntityType, PresenterEntityType>(g_id, vec![m1_id, m2_id]);
 
-        let mut members = sched.edges_to::<PresenterEntityType, PresenterEntityType>(g_id);
+        let mut members = sched.connected_entities::<PresenterEntityType, PresenterEntityType>(
+            FieldNodeId::from_descriptor(&FIELD_MEMBERS, g_id.non_nil_uuid()),
+        );
         members.sort_by_key(|id| id.uuid());
         let mut expected = vec![m1_id, m2_id];
         expected.sort_by_key(|id| id.uuid());
@@ -1698,22 +1740,30 @@ mod tests {
 
         // m1 and m2 should have group in their groups list
         assert_eq!(
-            sched.edges_from::<PresenterEntityType, PresenterEntityType>(m1_id),
+            sched.connected_entities::<PresenterEntityType, PresenterEntityType>(
+                FieldNodeId::from_descriptor(&FIELD_GROUPS, m1_id.non_nil_uuid())
+            ),
             vec![g_id]
         );
         assert_eq!(
-            sched.edges_from::<PresenterEntityType, PresenterEntityType>(m2_id),
+            sched.connected_entities::<PresenterEntityType, PresenterEntityType>(
+                FieldNodeId::from_descriptor(&FIELD_GROUPS, m2_id.non_nil_uuid())
+            ),
             vec![g_id]
         );
 
         // Replace with just m1
         sched.edge_set_to::<PresenterEntityType, PresenterEntityType>(g_id, vec![m1_id]);
         assert_eq!(
-            sched.edges_to::<PresenterEntityType, PresenterEntityType>(g_id),
+            sched.connected_entities::<PresenterEntityType, PresenterEntityType>(
+                FieldNodeId::from_descriptor(&FIELD_MEMBERS, g_id.non_nil_uuid())
+            ),
             vec![m1_id]
         );
         assert!(sched
-            .edges_from::<PresenterEntityType, PresenterEntityType>(m2_id)
+            .connected_entities::<PresenterEntityType, PresenterEntityType>(
+                FieldNodeId::from_descriptor(&FIELD_GROUPS, m2_id.non_nil_uuid())
+            )
             .is_empty());
     }
 
@@ -1724,13 +1774,18 @@ mod tests {
         let (group_id, group_data) = make_presenter("The Group");
         sched.insert(member_id, member_data);
         sched.insert(group_id, group_data);
-        sched.edge_add::<PresenterEntityType, PresenterEntityType>(member_id, group_id);
+        sched.edge_add::<PresenterEntityType, PresenterEntityType>(
+            FieldNodeId::from_descriptor(&FIELD_MEMBERS, member_id.non_nil_uuid()),
+            FieldNodeId::from_descriptor(&FIELD_GROUPS, group_id.non_nil_uuid()),
+        );
 
         sched.remove_entity::<PresenterEntityType>(member_id);
 
         // group should no longer see member
         assert!(sched
-            .edges_to::<PresenterEntityType, PresenterEntityType>(group_id)
+            .connected_entities::<PresenterEntityType, PresenterEntityType>(
+                FieldNodeId::from_descriptor(&FIELD_MEMBERS, group_id.non_nil_uuid())
+            )
             .is_empty());
     }
 
@@ -1978,13 +2033,18 @@ mod tests {
         let (pres_id, pres_data) = make_presenter("Alice");
         sched.insert(panel_id, panel_data);
         sched.insert(pres_id, pres_data);
-        sched.edge_add::<PanelEntityType, PresenterEntityType>(panel_id, pres_id);
+        sched.edge_add::<PanelEntityType, PresenterEntityType>(
+            FieldNodeId::from_descriptor(&FIELD_PRESENTERS, panel_id.non_nil_uuid()),
+            FieldNodeId::from_descriptor(&FIELD_PANELS, pres_id.non_nil_uuid()),
+        );
 
         let bytes = sched.save_to_file();
         let loaded = Schedule::load_from_file(&bytes).expect("load_from_file");
 
-        let forwards: Vec<PresenterId> =
-            loaded.edges_from::<PanelEntityType, PresenterEntityType>(panel_id);
+        let forwards: Vec<PresenterId> = loaded
+            .connected_entities::<PanelEntityType, PresenterEntityType>(
+                FieldNodeId::from_descriptor(&FIELD_PRESENTERS, panel_id.non_nil_uuid()),
+            );
         assert_eq!(forwards, vec![pres_id]);
     }
 
@@ -2033,19 +2093,26 @@ mod tests {
         let (pres_id, pres_data) = make_presenter("Alice");
         sched.insert(panel_id, panel_data);
         sched.insert(pres_id, pres_data);
-        sched.edge_add::<PanelEntityType, PresenterEntityType>(panel_id, pres_id);
+        sched.edge_add::<PanelEntityType, PresenterEntityType>(
+            FieldNodeId::from_descriptor(&FIELD_PRESENTERS, panel_id.non_nil_uuid()),
+            FieldNodeId::from_descriptor(&FIELD_PANELS, pres_id.non_nil_uuid()),
+        );
 
         let bytes = sched.save();
         let loaded = Schedule::load(&bytes).expect("load");
 
         // Forward edge (panel → presenter)
-        let forwards: Vec<PresenterId> =
-            loaded.edges_from::<PanelEntityType, PresenterEntityType>(panel_id);
+        let forwards: Vec<PresenterId> = loaded
+            .connected_entities::<PanelEntityType, PresenterEntityType>(
+                FieldNodeId::from_descriptor(&FIELD_PRESENTERS, panel_id.non_nil_uuid()),
+            );
         assert_eq!(forwards, vec![pres_id]);
         // Reverse edge (presenter → panel) also rebuilt from the single
         // owner list on the panel side.
-        let reverses: Vec<PanelId> =
-            loaded.edges_from::<PresenterEntityType, PanelEntityType>(pres_id);
+        let reverses: Vec<PanelId> = loaded
+            .connected_entities::<PresenterEntityType, PanelEntityType>(
+                FieldNodeId::from_descriptor(&FIELD_PANELS, pres_id.non_nil_uuid()),
+            );
         assert_eq!(reverses, vec![panel_id]);
     }
 
@@ -2056,16 +2123,23 @@ mod tests {
         let (hr_id, hr_data) = make_hotel_room("Suite A");
         sched.insert(er_id, er_data);
         sched.insert(hr_id, hr_data);
-        sched.edge_add::<EventRoomEntityType, HotelRoomEntityType>(er_id, hr_id);
+        sched.edge_add::<EventRoomEntityType, HotelRoomEntityType>(
+            FieldNodeId::from_descriptor(&FIELD_HOTEL_ROOMS, er_id.non_nil_uuid()),
+            FieldNodeId::from_descriptor(&FIELD_EVENT_ROOMS, hr_id.non_nil_uuid()),
+        );
 
         let bytes = sched.save();
         let loaded = Schedule::load(&bytes).expect("load");
 
-        let hotel_rooms: Vec<EntityId<HotelRoomEntityType>> =
-            loaded.edges_from::<EventRoomEntityType, HotelRoomEntityType>(er_id);
+        let hotel_rooms: Vec<EntityId<HotelRoomEntityType>> = loaded
+            .connected_entities::<EventRoomEntityType, HotelRoomEntityType>(
+                FieldNodeId::from_descriptor(&FIELD_HOTEL_ROOMS, er_id.non_nil_uuid()),
+            );
         assert_eq!(hotel_rooms, vec![hr_id]);
-        let event_rooms: Vec<EntityId<EventRoomEntityType>> =
-            loaded.edges_from::<HotelRoomEntityType, EventRoomEntityType>(hr_id);
+        let event_rooms: Vec<EntityId<EventRoomEntityType>> = loaded
+            .connected_entities::<HotelRoomEntityType, EventRoomEntityType>(
+                FieldNodeId::from_descriptor(&FIELD_EVENT_ROOMS, hr_id.non_nil_uuid()),
+            );
         assert_eq!(event_rooms, vec![er_id]);
     }
 
@@ -2077,16 +2151,23 @@ mod tests {
         sched.insert(alice_id, alice);
         sched.insert(group_id, group);
         // alice is a member of the Speakers group
-        sched.edge_add::<PresenterEntityType, PresenterEntityType>(alice_id, group_id);
+        sched.edge_add::<PresenterEntityType, PresenterEntityType>(
+            FieldNodeId::from_descriptor(&FIELD_MEMBERS, alice_id.non_nil_uuid()),
+            FieldNodeId::from_descriptor(&FIELD_GROUPS, group_id.non_nil_uuid()),
+        );
 
         let bytes = sched.save();
         let loaded = Schedule::load(&bytes).expect("load");
 
-        let groups: Vec<PresenterId> =
-            loaded.edges_from::<PresenterEntityType, PresenterEntityType>(alice_id);
+        let groups: Vec<PresenterId> = loaded
+            .connected_entities::<PresenterEntityType, PresenterEntityType>(
+                FieldNodeId::from_descriptor(&FIELD_GROUPS, alice_id.non_nil_uuid()),
+            );
         assert_eq!(groups, vec![group_id]);
-        let members: Vec<PresenterId> =
-            loaded.edges_to::<PresenterEntityType, PresenterEntityType>(group_id);
+        let members: Vec<PresenterId> = loaded
+            .connected_entities::<PresenterEntityType, PresenterEntityType>(
+                FieldNodeId::from_descriptor(&FIELD_MEMBERS, group_id.non_nil_uuid()),
+            );
         assert_eq!(members, vec![alice_id]);
     }
 
@@ -2097,14 +2178,19 @@ mod tests {
         let (pres_id, pres_data) = make_presenter("Alice");
         sched.insert(panel_id, panel_data);
         sched.insert(pres_id, pres_data);
-        sched.edge_add::<PanelEntityType, PresenterEntityType>(panel_id, pres_id);
+        sched.edge_add::<PanelEntityType, PresenterEntityType>(
+            FieldNodeId::from_descriptor(&FIELD_PRESENTERS, panel_id.non_nil_uuid()),
+            FieldNodeId::from_descriptor(&FIELD_PANELS, pres_id.non_nil_uuid()),
+        );
         sched.edge_remove::<PanelEntityType, PresenterEntityType>(panel_id, pres_id);
 
         let bytes = sched.save();
         let loaded = Schedule::load(&bytes).expect("load");
 
-        let forwards: Vec<PresenterId> =
-            loaded.edges_from::<PanelEntityType, PresenterEntityType>(panel_id);
+        let forwards: Vec<PresenterId> = loaded
+            .connected_entities::<PanelEntityType, PresenterEntityType>(
+                FieldNodeId::from_descriptor(&FIELD_PRESENTERS, panel_id.non_nil_uuid()),
+            );
         assert!(forwards.is_empty());
     }
 
@@ -2117,14 +2203,19 @@ mod tests {
         sched.insert(panel_id, panel_data);
         sched.insert(alice_id, alice_data);
         sched.insert(bob_id, bob_data);
-        sched.edge_add::<PanelEntityType, PresenterEntityType>(panel_id, alice_id);
+        sched.edge_add::<PanelEntityType, PresenterEntityType>(
+            FieldNodeId::from_descriptor(&FIELD_PRESENTERS, panel_id.non_nil_uuid()),
+            FieldNodeId::from_descriptor(&FIELD_PANELS, alice_id.non_nil_uuid()),
+        );
         sched.edge_set::<PanelEntityType, PresenterEntityType>(panel_id, vec![bob_id]);
 
         let bytes = sched.save();
         let loaded = Schedule::load(&bytes).expect("load");
 
-        let forwards: Vec<PresenterId> =
-            loaded.edges_from::<PanelEntityType, PresenterEntityType>(panel_id);
+        let forwards: Vec<PresenterId> = loaded
+            .connected_entities::<PanelEntityType, PresenterEntityType>(
+                FieldNodeId::from_descriptor(&FIELD_PRESENTERS, panel_id.non_nil_uuid()),
+            );
         assert_eq!(forwards, vec![bob_id]);
     }
 
@@ -2145,11 +2236,17 @@ mod tests {
 
         // Replica A adds Alice.
         let mut replica_a = Schedule::load(&base_bytes).expect("load A");
-        replica_a.edge_add::<PanelEntityType, PresenterEntityType>(panel_id, alice_id);
+        replica_a.edge_add::<PanelEntityType, PresenterEntityType>(
+            FieldNodeId::from_descriptor(&FIELD_PRESENTERS, panel_id.non_nil_uuid()),
+            FieldNodeId::from_descriptor(&FIELD_PANELS, alice_id.non_nil_uuid()),
+        );
 
         // Replica B (independent) adds Bob.
         let mut replica_b = Schedule::load(&base_bytes).expect("load B");
-        replica_b.edge_add::<PanelEntityType, PresenterEntityType>(panel_id, bob_id);
+        replica_b.edge_add::<PanelEntityType, PresenterEntityType>(
+            FieldNodeId::from_descriptor(&FIELD_PRESENTERS, panel_id.non_nil_uuid()),
+            FieldNodeId::from_descriptor(&FIELD_PANELS, bob_id.non_nil_uuid()),
+        );
 
         // Merge A ← B at the automerge layer, then rebuild via load().
         let mut doc_a = AutoCommit::load(&replica_a.save()).unwrap();
@@ -2157,8 +2254,10 @@ mod tests {
         doc_a.merge(&mut doc_b).unwrap();
         let merged = Schedule::load(&doc_a.save()).expect("load merged");
 
-        let mut forwards: Vec<PresenterId> =
-            merged.edges_from::<PanelEntityType, PresenterEntityType>(panel_id);
+        let mut forwards: Vec<PresenterId> = merged
+            .connected_entities::<PanelEntityType, PresenterEntityType>(
+                FieldNodeId::from_descriptor(&FIELD_PRESENTERS, panel_id.non_nil_uuid()),
+            );
         forwards.sort_by_key(|id| id.non_nil_uuid());
         let mut expected = vec![alice_id, bob_id];
         expected.sort_by_key(|id| id.non_nil_uuid());
@@ -2199,13 +2298,21 @@ mod tests {
 
         let mut a = Schedule::load(&base.save()).expect("load A");
         let mut b = Schedule::load(&base.save()).expect("load B");
-        a.edge_add::<PanelEntityType, PresenterEntityType>(panel_id, alice_id);
-        b.edge_add::<PanelEntityType, PresenterEntityType>(panel_id, bob_id);
+        a.edge_add::<PanelEntityType, PresenterEntityType>(
+            FieldNodeId::from_descriptor(&FIELD_PRESENTERS, panel_id.non_nil_uuid()),
+            FieldNodeId::from_descriptor(&FIELD_PANELS, alice_id.non_nil_uuid()),
+        );
+        b.edge_add::<PanelEntityType, PresenterEntityType>(
+            FieldNodeId::from_descriptor(&FIELD_PRESENTERS, panel_id.non_nil_uuid()),
+            FieldNodeId::from_descriptor(&FIELD_PANELS, bob_id.non_nil_uuid()),
+        );
 
         a.merge(&mut b).expect("merge");
 
         let mut ids: Vec<_> = a
-            .edges_from::<PanelEntityType, PresenterEntityType>(panel_id)
+            .connected_entities::<PanelEntityType, PresenterEntityType>(
+                FieldNodeId::from_descriptor(&FIELD_PRESENTERS, panel_id.non_nil_uuid()),
+            )
             .iter()
             .map(|id| id.non_nil_uuid())
             .collect();
@@ -2341,7 +2448,10 @@ mod tests {
 
         // A adds Alice without knowing about any remove on B's side.
         let mut replica_a = Schedule::load(&base_bytes).expect("load A");
-        replica_a.edge_add::<PanelEntityType, PresenterEntityType>(panel_id, alice_id);
+        replica_a.edge_add::<PanelEntityType, PresenterEntityType>(
+            FieldNodeId::from_descriptor(&FIELD_PRESENTERS, panel_id.non_nil_uuid()),
+            FieldNodeId::from_descriptor(&FIELD_PANELS, alice_id.non_nil_uuid()),
+        );
 
         // B starts from the same base (no edge), removes Alice (no-op on its
         // own state but records a causally-unordered change); this simulates
@@ -2355,8 +2465,10 @@ mod tests {
         let merged = Schedule::load(&doc_a.save()).expect("load merged");
 
         // Add wins: Alice is still in the list.
-        let forwards: Vec<PresenterId> =
-            merged.edges_from::<PanelEntityType, PresenterEntityType>(panel_id);
+        let forwards: Vec<PresenterId> = merged.connected_entities(FieldNodeId::from_descriptor(
+            &FIELD_PRESENTERS,
+            panel_id.non_nil_uuid(),
+        ));
         assert_eq!(forwards, vec![alice_id]);
     }
 
@@ -2378,8 +2490,14 @@ mod tests {
         sched.insert(p3_id, p3_data);
 
         // Chain: p1 → p2 → p3 (member-of-group direction)
-        sched.edge_add::<PresenterEntityType, PresenterEntityType>(p1_id, p2_id);
-        sched.edge_add::<PresenterEntityType, PresenterEntityType>(p2_id, p3_id);
+        sched.edge_add::<PresenterEntityType, PresenterEntityType>(
+            FieldNodeId::from_descriptor(&FIELD_MEMBERS, p1_id.non_nil_uuid()),
+            FieldNodeId::from_descriptor(&FIELD_GROUPS, p2_id.non_nil_uuid()),
+        );
+        sched.edge_add::<PresenterEntityType, PresenterEntityType>(
+            FieldNodeId::from_descriptor(&FIELD_MEMBERS, p2_id.non_nil_uuid()),
+            FieldNodeId::from_descriptor(&FIELD_GROUPS, p3_id.non_nil_uuid()),
+        );
 
         // Inclusive groups from p1 should reach both p2 and p3 transitively.
         let result = sched.inclusive_edges_from::<PresenterEntityType, PresenterEntityType>(p1_id);
@@ -2399,8 +2517,14 @@ mod tests {
         sched.insert(p3_id, p3_data);
 
         // Chain: p1 → p2 → p3
-        sched.edge_add::<PresenterEntityType, PresenterEntityType>(p1_id, p2_id);
-        sched.edge_add::<PresenterEntityType, PresenterEntityType>(p2_id, p3_id);
+        sched.edge_add::<PresenterEntityType, PresenterEntityType>(
+            FieldNodeId::from_descriptor(&FIELD_MEMBERS, p1_id.non_nil_uuid()),
+            FieldNodeId::from_descriptor(&FIELD_GROUPS, p2_id.non_nil_uuid()),
+        );
+        sched.edge_add::<PresenterEntityType, PresenterEntityType>(
+            FieldNodeId::from_descriptor(&FIELD_MEMBERS, p2_id.non_nil_uuid()),
+            FieldNodeId::from_descriptor(&FIELD_GROUPS, p3_id.non_nil_uuid()),
+        );
 
         // Inclusive members of p3 should include both p1 and p2 transitively.
         let result = sched.inclusive_edges_to::<PresenterEntityType, PresenterEntityType>(p3_id);
@@ -2418,8 +2542,14 @@ mod tests {
         sched.insert(p2_id, p2_data);
 
         // Cycle: p1 → p2, p2 → p1
-        sched.edge_add::<PresenterEntityType, PresenterEntityType>(p1_id, p2_id);
-        sched.edge_add::<PresenterEntityType, PresenterEntityType>(p2_id, p1_id);
+        sched.edge_add::<PresenterEntityType, PresenterEntityType>(
+            FieldNodeId::from_descriptor(&FIELD_MEMBERS, p1_id.non_nil_uuid()),
+            FieldNodeId::from_descriptor(&FIELD_GROUPS, p2_id.non_nil_uuid()),
+        );
+        sched.edge_add::<PresenterEntityType, PresenterEntityType>(
+            FieldNodeId::from_descriptor(&FIELD_MEMBERS, p2_id.non_nil_uuid()),
+            FieldNodeId::from_descriptor(&FIELD_GROUPS, p1_id.non_nil_uuid()),
+        );
 
         // Should not infinite loop; p2 is reachable from p1.
         let result = sched.inclusive_edges_from::<PresenterEntityType, PresenterEntityType>(p1_id);
@@ -2437,12 +2567,18 @@ mod tests {
         sched.insert(p3_id, p3_data);
 
         // Add initial edge p1 → p2.
-        sched.edge_add::<PresenterEntityType, PresenterEntityType>(p1_id, p2_id);
+        sched.edge_add::<PresenterEntityType, PresenterEntityType>(
+            FieldNodeId::from_descriptor(&FIELD_MEMBERS, p1_id.non_nil_uuid()),
+            FieldNodeId::from_descriptor(&FIELD_GROUPS, p2_id.non_nil_uuid()),
+        );
         let result1 = sched.inclusive_edges_from::<PresenterEntityType, PresenterEntityType>(p1_id);
         assert_eq!(result1.len(), 1);
 
         // Add p2 → p3; cache should invalidate and now p3 is reachable from p1.
-        sched.edge_add::<PresenterEntityType, PresenterEntityType>(p2_id, p3_id);
+        sched.edge_add::<PresenterEntityType, PresenterEntityType>(
+            FieldNodeId::from_descriptor(&FIELD_MEMBERS, p2_id.non_nil_uuid()),
+            FieldNodeId::from_descriptor(&FIELD_GROUPS, p3_id.non_nil_uuid()),
+        );
         let result2 = sched.inclusive_edges_from::<PresenterEntityType, PresenterEntityType>(p1_id);
         assert!(result2.contains(&p2_id));
         assert!(result2.contains(&p3_id));
@@ -2457,7 +2593,10 @@ mod tests {
         let (pres_id, pres_data) = make_presenter("Alice");
         sched.insert(panel_id, panel_data);
         sched.insert(pres_id, pres_data);
-        sched.edge_add::<PanelEntityType, PresenterEntityType>(panel_id, pres_id);
+        sched.edge_add::<PanelEntityType, PresenterEntityType>(
+            FieldNodeId::from_descriptor(&FIELD_PRESENTERS, panel_id.non_nil_uuid()),
+            FieldNodeId::from_descriptor(&FIELD_PANELS, pres_id.non_nil_uuid()),
+        );
 
         // Default for "credited" is true; no explicit write yet.
         assert!(
@@ -2475,7 +2614,10 @@ mod tests {
         let (pres_id, pres_data) = make_presenter("Alice");
         sched.insert(panel_id, panel_data);
         sched.insert(pres_id, pres_data);
-        sched.edge_add::<PanelEntityType, PresenterEntityType>(panel_id, pres_id);
+        sched.edge_add::<PanelEntityType, PresenterEntityType>(
+            FieldNodeId::from_descriptor(&FIELD_PRESENTERS, panel_id.non_nil_uuid()),
+            FieldNodeId::from_descriptor(&FIELD_PANELS, pres_id.non_nil_uuid()),
+        );
 
         sched.edge_set_bool::<PanelEntityType, PresenterEntityType>(
             panel_id, pres_id, "credited", false,
@@ -2505,7 +2647,10 @@ mod tests {
         let (pres_id, pres_data) = make_presenter("Alice");
         sched.insert(panel_id, panel_data);
         sched.insert(pres_id, pres_data);
-        sched.edge_add::<PanelEntityType, PresenterEntityType>(panel_id, pres_id);
+        sched.edge_add::<PanelEntityType, PresenterEntityType>(
+            FieldNodeId::from_descriptor(&FIELD_PRESENTERS, panel_id.non_nil_uuid()),
+            FieldNodeId::from_descriptor(&FIELD_PANELS, pres_id.non_nil_uuid()),
+        );
         sched.edge_set_bool::<PanelEntityType, PresenterEntityType>(
             panel_id, pres_id, "credited", false,
         );

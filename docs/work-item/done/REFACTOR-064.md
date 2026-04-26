@@ -22,8 +22,8 @@ High
 This is Phase 4 of the FieldNodeId edge system refactor.
 
 - Replace `edges_from::<L, R>` / `edges_to::<L, R>` with field-aware variants:
-  `edges_for_field(uuid, field_id)` and typed wrapper
-  `edges_from_field::<E, R>(id, &FIELD_X) -> Vec<EntityId<R>>`.
+  `connected_field_nodes(uuid, field_id)` and typed wrapper
+  `connected_entities::<E, R>(id, &FIELD_X) -> Vec<EntityId<R>>`.
 - Update `edge_add`, `edge_remove`, `edge_set`, `edge_set_to` to dispatch via EdgeDescriptor
   `owner_field` / `target_field`.
 - Update CRDT mirror ops in `edge_crdt.rs`: use `owner_field.name()` for CRDT field name;

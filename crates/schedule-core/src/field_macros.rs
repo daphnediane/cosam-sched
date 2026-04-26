@@ -300,7 +300,8 @@ macro_rules! edge_field {
                 order: $order,
                 read_fn: Some($crate::field::ReadFn::Schedule(
                     |sched: &$crate::schedule::Schedule, id: $crate::entity::EntityId<$entity>| {
-                        let ids = sched.edges_from::<$entity, $target_entity>(id);
+                        let node = $crate::field_node_id::FieldNodeId::from_descriptor(&$static_name, id.non_nil_uuid());
+                        let ids = sched.connected_entities::<$entity, $target_entity>(node);
                         Some($crate::schedule::entity_ids_to_field_value(ids))
                     },
                 )),
@@ -338,7 +339,8 @@ macro_rules! edge_field {
                 order: $order,
                 read_fn: Some($crate::field::ReadFn::Schedule(
                     |sched: &$crate::schedule::Schedule, id: $crate::entity::EntityId<$entity>| {
-                        let ids = sched.edges_from::<$entity, $target_entity>(id);
+                        let node = $crate::field_node_id::FieldNodeId::from_descriptor(&$static_name, id.non_nil_uuid());
+                        let ids = sched.connected_entities::<$entity, $target_entity>(node);
                         Some($crate::schedule::entity_ids_to_field_value(ids))
                     },
                 )),
@@ -386,7 +388,8 @@ macro_rules! edge_field {
                 order: $order,
                 read_fn: Some($crate::field::ReadFn::Schedule(
                     |sched: &$crate::schedule::Schedule, id: $crate::entity::EntityId<$entity>| {
-                        let ids = sched.edges_from::<$entity, $target_entity>(id);
+                        let node = $crate::field_node_id::FieldNodeId::from_descriptor(&$static_name, id.non_nil_uuid());
+                        let ids = sched.connected_entities::<$entity, $target_entity>(node);
                         Some($crate::schedule::entity_ids_to_field_value(ids))
                     },
                 )),
@@ -433,7 +436,8 @@ macro_rules! edge_field {
                 order: $order,
                 read_fn: Some($crate::field::ReadFn::Schedule(
                     |sched: &$crate::schedule::Schedule, id: $crate::entity::EntityId<$entity>| {
-                        let ids = sched.edges_to::<$source_entity, $entity>(id);
+                        let node = $crate::field_node_id::FieldNodeId::from_descriptor(&$static_name, id.non_nil_uuid());
+                        let ids = sched.connected_entities::<$entity, $source_entity>(node);
                         Some($crate::schedule::entity_ids_to_field_value(ids))
                     },
                 )),
@@ -454,7 +458,7 @@ macro_rules! edge_field {
 
     // ── mode: add ─────────────────────────────────────────────────────
     (
-        $static_name:ident, $entity:ty, mode: add, target: $target_entity:ty,
+        $static_name:ident, $entity:ty, mode: add, target: $target_entity:ty, target_field: $target_field:expr,
         name: $name:literal, display: $display:literal, desc: $desc:literal,
         aliases: $aliases:expr, example: $example:literal,
         order: $order:expr $(,)?
@@ -486,7 +490,10 @@ macro_rules! edge_field {
                         let ids =
                             $crate::schedule::field_value_to_entity_ids::<$target_entity>(val)?;
                         for r in ids {
-                            sched.edge_add::<$entity, $target_entity>(id, r);
+                            sched.edge_add::<$entity, $target_entity>(
+                                $crate::field_node_id::FieldNodeId::from_descriptor(&$static_name, id.non_nil_uuid()),
+                                $crate::field_node_id::FieldNodeId::from_descriptor(&$target_field, r.non_nil_uuid()),
+                            );
                         }
                         Ok(())
                     },

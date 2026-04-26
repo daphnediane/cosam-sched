@@ -12,14 +12,14 @@
 //! ## Structure
 //!
 //! ```text
-//! HashMap<NonNilUuid,          // outer key: entity UUID
-//!     HashMap<FieldId,         // inner key: which field on that entity
-//!         Vec<FieldNodeId>>>   // values: (field, uuid) of the other side
+//! HashMap<NonNilUuid,                  // outer key: entity UUID
+//!     HashMap<FieldRef,         // inner key: which field on that entity
+//!         Vec<RuntimeFieldNodeId>>>   // values: (field, uuid) of the other side
 //! ```
 //!
 //! Both directions of every edge are stored symmetrically.  Homogeneous and
 //! heterogeneous edges are treated identically — no separate `homogeneous_reverse`
-//! map is needed because each endpoint's [`FieldId`] makes the relationship
+//! map is needed because each endpoint's field reference makes the relationship
 //! self-describing.
 //!
 //! ## Example
@@ -28,30 +28,30 @@
 //! `FIELD_PANELS` on Presenter:
 //!
 //! ```text
-//! map[panel_uuid][FIELD_PRESENTERS_id] = [(FIELD_PANELS_id, presenter_uuid), ...]
-//! map[presenter_uuid][FIELD_PANELS_id] = [(FIELD_PRESENTERS_id, panel_uuid), ...]
+//! map[panel_uuid][FIELD_PRESENTERS] = [(FIELD_PANELS, presenter_uuid), ...]
+//! map[presenter_uuid][FIELD_PANELS] = [(FIELD_PRESENTERS, panel_uuid), ...]
 //! ```
 //!
 //! For a Presenter → Groups homogeneous edge with `FIELD_GROUPS` on member and
 //! `FIELD_MEMBERS` on group:
 //!
 //! ```text
-//! map[member_uuid][FIELD_GROUPS_id]  = [(FIELD_MEMBERS_id, group_uuid), ...]
-//! map[group_uuid][FIELD_MEMBERS_id]  = [(FIELD_GROUPS_id,  member_uuid), ...]
+//! map[member_uuid][FIELD_GROUPS]  = [(FIELD_MEMBERS, group_uuid), ...]
+//! map[group_uuid][FIELD_MEMBERS]  = [(FIELD_GROUPS,  member_uuid), ...]
 //! ```
 
-use crate::field_node_id::{FieldId, FieldNodeId};
+use crate::field_node_id::{FieldRef, RuntimeFieldNodeId};
 use std::collections::HashMap;
 use uuid::NonNilUuid;
 
 /// Unified bidirectional edge store used by [`crate::schedule::Schedule`].
 ///
-/// `Schedule` wraps/unwraps the raw [`FieldNodeId`] values into typed
+/// `Schedule` wraps/unwraps the raw [`RuntimeFieldNodeId`] values into typed
 /// [`crate::entity::EntityId`]s via its generic
 /// `edges_from` / `edges_to` / `edge_add` / `edge_remove` / `edge_set` methods.
 #[derive(Debug, Default, Clone)]
 pub struct RawEdgeMap {
-    map: HashMap<NonNilUuid, HashMap<FieldId, Vec<FieldNodeId>>>,
+    map: HashMap<NonNilUuid, HashMap<FieldRef, Vec<RuntimeFieldNodeId>>>,
 }
 
 impl RawEdgeMap {
@@ -61,21 +61,23 @@ impl RawEdgeMap {
     ///
     /// Both endpoints store the other.  Idempotent — does nothing if the edge
     /// already exists in either direction.
-    pub fn add_edge(&mut self, from: FieldNodeId, to: FieldNodeId) {
+    pub fn add_edge(&mut self, from: RuntimeFieldNodeId, to: RuntimeFieldNodeId) {
+        let from_field = FieldRef(from.field);
+        let to_field = FieldRef(to.field);
         let from_vec = self
             .map
-            .entry(from.entity)
+            .entry(from.uuid)
             .or_default()
-            .entry(from.field)
+            .entry(from_field)
             .or_default();
         if !from_vec.contains(&to) {
             from_vec.push(to);
         }
         let to_vec = self
             .map
-            .entry(to.entity)
+            .entry(to.uuid)
             .or_default()
-            .entry(to.field)
+            .entry(to_field)
             .or_default();
         if !to_vec.contains(&from) {
             to_vec.push(from);
@@ -85,14 +87,16 @@ impl RawEdgeMap {
     /// Remove the bidirectional edge between `from` and `to`.
     ///
     /// No-op if the edge does not exist.
-    pub fn remove_edge(&mut self, from: FieldNodeId, to: FieldNodeId) {
-        if let Some(inner) = self.map.get_mut(&from.entity) {
-            if let Some(v) = inner.get_mut(&from.field) {
+    pub fn remove_edge(&mut self, from: RuntimeFieldNodeId, to: RuntimeFieldNodeId) {
+        let from_field = FieldRef(from.field);
+        let to_field = FieldRef(to.field);
+        if let Some(inner) = self.map.get_mut(&from.uuid) {
+            if let Some(v) = inner.get_mut(&from_field) {
                 v.retain(|n| *n != to);
             }
         }
-        if let Some(inner) = self.map.get_mut(&to.entity) {
-            if let Some(v) = inner.get_mut(&to.field) {
+        if let Some(inner) = self.map.get_mut(&to.uuid) {
+            if let Some(v) = inner.get_mut(&to_field) {
                 v.retain(|n| *n != from);
             }
         }
@@ -103,19 +107,25 @@ impl RawEdgeMap {
     /// 1. Removes `from` as a reverse entry from every current target.
     /// 2. Overwrites `from`'s field list with `new_targets`.
     /// 3. Inserts `from` as a reverse entry on every new target (idempotent).
-    pub fn set_field_neighbors(&mut self, from: FieldNodeId, new_targets: Vec<FieldNodeId>) {
+    pub fn set_field_neighbors(
+        &mut self,
+        from: RuntimeFieldNodeId,
+        new_targets: Vec<RuntimeFieldNodeId>,
+    ) {
+        let from_field = FieldRef(from.field);
         // Collect old targets so we can patch their reverse entries.
-        let old_targets: Vec<FieldNodeId> = self
+        let old_targets: Vec<RuntimeFieldNodeId> = self
             .map
-            .get(&from.entity)
-            .and_then(|inner| inner.get(&from.field))
+            .get(&from.uuid)
+            .and_then(|inner| inner.get(&from_field))
             .cloned()
             .unwrap_or_default();
 
         // Remove `from` from each old target's reverse list.
         for old in &old_targets {
-            if let Some(inner) = self.map.get_mut(&old.entity) {
-                if let Some(v) = inner.get_mut(&old.field) {
+            let old_field = FieldRef(old.field);
+            if let Some(inner) = self.map.get_mut(&old.uuid) {
+                if let Some(v) = inner.get_mut(&old_field) {
                     v.retain(|n| *n != from);
                 }
             }
@@ -123,17 +133,18 @@ impl RawEdgeMap {
 
         // Overwrite the from-side field list.
         self.map
-            .entry(from.entity)
+            .entry(from.uuid)
             .or_default()
-            .insert(from.field, new_targets.clone());
+            .insert(from_field, new_targets.clone());
 
         // Insert `from` as a reverse entry on each new target (idempotent).
         for target in &new_targets {
+            let target_field = FieldRef(target.field);
             let v = self
                 .map
-                .entry(target.entity)
+                .entry(target.uuid)
                 .or_default()
-                .entry(target.field)
+                .entry(target_field)
                 .or_default();
             if !v.contains(&from) {
                 v.push(from);
@@ -151,9 +162,10 @@ impl RawEdgeMap {
         };
         for (_, neighbors) in inner {
             for neighbor in neighbors {
-                if let Some(neighbor_inner) = self.map.get_mut(&neighbor.entity) {
-                    if let Some(v) = neighbor_inner.get_mut(&neighbor.field) {
-                        v.retain(|n| n.entity != uuid);
+                let neighbor_field = FieldRef(neighbor.field);
+                if let Some(neighbor_inner) = self.map.get_mut(&neighbor.uuid) {
+                    if let Some(v) = neighbor_inner.get_mut(&neighbor_field) {
+                        v.retain(|n| n.uuid != uuid);
                     }
                 }
             }
@@ -166,7 +178,7 @@ impl RawEdgeMap {
     ///
     /// Returns an empty slice when no edges exist for this `(uuid, field)` pair.
     #[must_use]
-    pub fn neighbors_for_field(&self, uuid: NonNilUuid, field: FieldId) -> &[FieldNodeId] {
+    pub fn neighbors_for_field(&self, uuid: NonNilUuid, field: FieldRef) -> &[RuntimeFieldNodeId] {
         self.map
             .get(&uuid)
             .and_then(|inner| inner.get(&field))
@@ -282,24 +294,27 @@ mod tests {
         verify_fn: None,
     };
 
-    fn fid_a1() -> FieldId {
-        FieldId::of(&FIELD_A1)
+    fn fr_a1() -> FieldRef {
+        FieldRef(&FIELD_A1)
     }
-    fn fid_a2() -> FieldId {
-        FieldId::of(&FIELD_A2)
+    fn fr_a2() -> FieldRef {
+        FieldRef(&FIELD_A2)
     }
-    fn fid_b1() -> FieldId {
-        FieldId::of(&FIELD_B1)
+    fn fr_b1() -> FieldRef {
+        FieldRef(&FIELD_B1)
     }
 
-    fn fn_a1(n: u128) -> FieldNodeId {
-        FieldNodeId::new(fid_a1(), nnu(n))
+    fn fn_a1(n: u128) -> RuntimeFieldNodeId {
+        // SAFETY: Test fixtures use matching entity types for their fields.
+        unsafe { RuntimeFieldNodeId::from_uuid(nnu(n), &FIELD_A1) }
     }
-    fn fn_a2(n: u128) -> FieldNodeId {
-        FieldNodeId::new(fid_a2(), nnu(n))
+    fn fn_a2(n: u128) -> RuntimeFieldNodeId {
+        // SAFETY: Test fixtures use matching entity types for their fields.
+        unsafe { RuntimeFieldNodeId::from_uuid(nnu(n), &FIELD_A2) }
     }
-    fn fn_b1(n: u128) -> FieldNodeId {
-        FieldNodeId::new(fid_b1(), nnu(n))
+    fn fn_b1(n: u128) -> RuntimeFieldNodeId {
+        // SAFETY: Test fixtures use matching entity types for their fields.
+        unsafe { RuntimeFieldNodeId::from_uuid(nnu(n), &FIELD_B1) }
     }
 
     fn nnu(n: u128) -> NonNilUuid {
@@ -314,8 +329,8 @@ mod tests {
         // Heterogeneous: TypeA.FIELD_A1 ↔ TypeB.FIELD_B1
         map.add_edge(fn_a1(1), fn_b1(2));
 
-        assert_eq!(map.neighbors_for_field(nnu(1), fid_a1()), &[fn_b1(2)]);
-        assert_eq!(map.neighbors_for_field(nnu(2), fid_b1()), &[fn_a1(1)]);
+        assert_eq!(map.neighbors_for_field(nnu(1), fr_a1()), &[fn_b1(2)]);
+        assert_eq!(map.neighbors_for_field(nnu(2), fr_b1()), &[fn_a1(1)]);
     }
 
     #[test]
@@ -324,8 +339,8 @@ mod tests {
         map.add_edge(fn_a1(1), fn_b1(2));
         map.add_edge(fn_a1(1), fn_b1(2));
 
-        assert_eq!(map.neighbors_for_field(nnu(1), fid_a1()).len(), 1);
-        assert_eq!(map.neighbors_for_field(nnu(2), fid_b1()).len(), 1);
+        assert_eq!(map.neighbors_for_field(nnu(1), fr_a1()).len(), 1);
+        assert_eq!(map.neighbors_for_field(nnu(2), fr_b1()).len(), 1);
     }
 
     #[test]
@@ -334,7 +349,7 @@ mod tests {
         map.add_edge(fn_a1(1), fn_b1(10));
         map.add_edge(fn_a1(1), fn_b1(11));
 
-        let neighbors = map.neighbors_for_field(nnu(1), fid_a1());
+        let neighbors = map.neighbors_for_field(nnu(1), fr_a1());
         assert_eq!(neighbors.len(), 2);
         assert!(neighbors.contains(&fn_b1(10)));
         assert!(neighbors.contains(&fn_b1(11)));
@@ -349,13 +364,13 @@ mod tests {
         map.add_edge(fn_a1(10), fn_a2(20));
 
         // Forward: member's FIELD_A1 contains group reference
-        assert_eq!(map.neighbors_for_field(nnu(10), fid_a1()), &[fn_a2(20)]);
+        assert_eq!(map.neighbors_for_field(nnu(10), fr_a1()), &[fn_a2(20)]);
         // Reverse: group's FIELD_A2 contains member reference
-        assert_eq!(map.neighbors_for_field(nnu(20), fid_a2()), &[fn_a1(10)]);
+        assert_eq!(map.neighbors_for_field(nnu(20), fr_a2()), &[fn_a1(10)]);
         // FIELD_A2 on member is empty (not involved in this edge)
-        assert!(map.neighbors_for_field(nnu(10), fid_a2()).is_empty());
+        assert!(map.neighbors_for_field(nnu(10), fr_a2()).is_empty());
         // FIELD_A1 on group is empty (not involved in this edge)
-        assert!(map.neighbors_for_field(nnu(20), fid_a1()).is_empty());
+        assert!(map.neighbors_for_field(nnu(20), fr_a1()).is_empty());
     }
 
     #[test]
@@ -365,7 +380,7 @@ mod tests {
         map.add_edge(fn_a1(2), fn_a2(100));
 
         // Group's reverse list contains both members
-        let members = map.neighbors_for_field(nnu(100), fid_a2());
+        let members = map.neighbors_for_field(nnu(100), fr_a2());
         assert_eq!(members.len(), 2);
         assert!(members.contains(&fn_a1(1)));
         assert!(members.contains(&fn_a1(2)));
@@ -382,13 +397,13 @@ mod tests {
         map.add_edge(fn_a2(1), fn_a2(3));
 
         // entity 1's FIELD_A1 has the panel
-        assert_eq!(map.neighbors_for_field(nnu(1), fid_a1()), &[fn_b1(2)]);
+        assert_eq!(map.neighbors_for_field(nnu(1), fr_a1()), &[fn_b1(2)]);
         // entity 1's FIELD_A2 has the group
-        assert_eq!(map.neighbors_for_field(nnu(1), fid_a2()), &[fn_a2(3)]);
+        assert_eq!(map.neighbors_for_field(nnu(1), fr_a2()), &[fn_a2(3)]);
         // panel's FIELD_B1 has the presenter back-link
-        assert_eq!(map.neighbors_for_field(nnu(2), fid_b1()), &[fn_a1(1)]);
+        assert_eq!(map.neighbors_for_field(nnu(2), fr_b1()), &[fn_a1(1)]);
         // group's FIELD_A2 has the presenter back-link
-        assert_eq!(map.neighbors_for_field(nnu(3), fid_a2()), &[fn_a2(1)]);
+        assert_eq!(map.neighbors_for_field(nnu(3), fr_a2()), &[fn_a2(1)]);
     }
 
     // ── remove_edge ──────────────────────────────────────────────────────────
@@ -399,8 +414,8 @@ mod tests {
         map.add_edge(fn_a1(1), fn_b1(2));
         map.remove_edge(fn_a1(1), fn_b1(2));
 
-        assert!(map.neighbors_for_field(nnu(1), fid_a1()).is_empty());
-        assert!(map.neighbors_for_field(nnu(2), fid_b1()).is_empty());
+        assert!(map.neighbors_for_field(nnu(1), fr_a1()).is_empty());
+        assert!(map.neighbors_for_field(nnu(2), fr_b1()).is_empty());
     }
 
     #[test]
@@ -416,11 +431,11 @@ mod tests {
         map.add_edge(fn_a1(1), fn_b1(11));
         map.remove_edge(fn_a1(1), fn_b1(10));
 
-        let neighbors = map.neighbors_for_field(nnu(1), fid_a1());
+        let neighbors = map.neighbors_for_field(nnu(1), fr_a1());
         assert_eq!(neighbors.len(), 1);
         assert!(neighbors.contains(&fn_b1(11)));
-        assert!(map.neighbors_for_field(nnu(10), fid_b1()).is_empty());
-        assert_eq!(map.neighbors_for_field(nnu(11), fid_b1()), &[fn_a1(1)]);
+        assert!(map.neighbors_for_field(nnu(10), fr_b1()).is_empty());
+        assert_eq!(map.neighbors_for_field(nnu(11), fr_b1()), &[fn_a1(1)]);
     }
 
     // ── set_field_neighbors ──────────────────────────────────────────────────
@@ -433,14 +448,14 @@ mod tests {
 
         map.set_field_neighbors(fn_a1(1), vec![fn_b1(12)]);
 
-        let neighbors = map.neighbors_for_field(nnu(1), fid_a1());
+        let neighbors = map.neighbors_for_field(nnu(1), fr_a1());
         assert_eq!(neighbors.len(), 1);
         assert!(neighbors.contains(&fn_b1(12)));
         // old targets no longer point back
-        assert!(map.neighbors_for_field(nnu(10), fid_b1()).is_empty());
-        assert!(map.neighbors_for_field(nnu(11), fid_b1()).is_empty());
+        assert!(map.neighbors_for_field(nnu(10), fr_b1()).is_empty());
+        assert!(map.neighbors_for_field(nnu(11), fr_b1()).is_empty());
         // new target points back
-        assert_eq!(map.neighbors_for_field(nnu(12), fid_b1()), &[fn_a1(1)]);
+        assert_eq!(map.neighbors_for_field(nnu(12), fr_b1()), &[fn_a1(1)]);
     }
 
     #[test]
@@ -449,8 +464,8 @@ mod tests {
         map.add_edge(fn_a1(1), fn_b1(10));
         map.set_field_neighbors(fn_a1(1), vec![]);
 
-        assert!(map.neighbors_for_field(nnu(1), fid_a1()).is_empty());
-        assert!(map.neighbors_for_field(nnu(10), fid_b1()).is_empty());
+        assert!(map.neighbors_for_field(nnu(1), fr_a1()).is_empty());
+        assert!(map.neighbors_for_field(nnu(10), fr_b1()).is_empty());
     }
 
     #[test]
@@ -463,9 +478,9 @@ mod tests {
         // Only replace the FIELD_A1 neighbors
         map.set_field_neighbors(fn_a1(1), vec![fn_b1(11)]);
 
-        assert_eq!(map.neighbors_for_field(nnu(1), fid_a1()), &[fn_b1(11)]);
+        assert_eq!(map.neighbors_for_field(nnu(1), fr_a1()), &[fn_b1(11)]);
         // FIELD_A2 neighbors unchanged
-        assert_eq!(map.neighbors_for_field(nnu(1), fid_a2()), &[fn_a2(20)]);
+        assert_eq!(map.neighbors_for_field(nnu(1), fr_a2()), &[fn_a2(20)]);
     }
 
     // ── clear_all ────────────────────────────────────────────────────────────
@@ -476,8 +491,8 @@ mod tests {
         map.add_edge(fn_a1(1), fn_b1(2));
         map.clear_all(nnu(1));
 
-        assert!(map.neighbors_for_field(nnu(1), fid_a1()).is_empty());
-        assert!(map.neighbors_for_field(nnu(2), fid_b1()).is_empty());
+        assert!(map.neighbors_for_field(nnu(1), fr_a1()).is_empty());
+        assert!(map.neighbors_for_field(nnu(2), fr_b1()).is_empty());
     }
 
     #[test]
@@ -487,9 +502,9 @@ mod tests {
         map.add_edge(fn_a1(10), fn_a2(20));
         map.clear_all(nnu(10));
 
-        assert!(map.neighbors_for_field(nnu(10), fid_a1()).is_empty());
+        assert!(map.neighbors_for_field(nnu(10), fr_a1()).is_empty());
         // group's reverse entry cleaned up
-        assert!(map.neighbors_for_field(nnu(20), fid_a2()).is_empty());
+        assert!(map.neighbors_for_field(nnu(20), fr_a2()).is_empty());
     }
 
     #[test]
@@ -498,9 +513,9 @@ mod tests {
         map.add_edge(fn_a1(10), fn_a2(20));
         map.clear_all(nnu(20));
 
-        assert!(map.neighbors_for_field(nnu(20), fid_a2()).is_empty());
+        assert!(map.neighbors_for_field(nnu(20), fr_a2()).is_empty());
         // member's forward entry cleaned up
-        assert!(map.neighbors_for_field(nnu(10), fid_a1()).is_empty());
+        assert!(map.neighbors_for_field(nnu(10), fr_a1()).is_empty());
     }
 
     #[test]
@@ -510,10 +525,10 @@ mod tests {
         map.add_edge(fn_a2(1), fn_a2(3));
         map.clear_all(nnu(1));
 
-        assert!(map.neighbors_for_field(nnu(1), fid_a1()).is_empty());
-        assert!(map.neighbors_for_field(nnu(1), fid_a2()).is_empty());
-        assert!(map.neighbors_for_field(nnu(2), fid_b1()).is_empty());
-        assert!(map.neighbors_for_field(nnu(3), fid_a2()).is_empty());
+        assert!(map.neighbors_for_field(nnu(1), fr_a1()).is_empty());
+        assert!(map.neighbors_for_field(nnu(1), fr_a2()).is_empty());
+        assert!(map.neighbors_for_field(nnu(2), fr_b1()).is_empty());
+        assert!(map.neighbors_for_field(nnu(3), fr_a2()).is_empty());
     }
 
     #[test]
@@ -527,7 +542,7 @@ mod tests {
     #[test]
     fn test_neighbors_for_field_unknown_uuid() {
         let map = RawEdgeMap::default();
-        assert!(map.neighbors_for_field(nnu(1), fid_a1()).is_empty());
+        assert!(map.neighbors_for_field(nnu(1), fr_a1()).is_empty());
     }
 
     #[test]
@@ -535,7 +550,7 @@ mod tests {
         let mut map = RawEdgeMap::default();
         map.add_edge(fn_a1(1), fn_b1(2));
         // Query FIELD_A2 on entity 1, which has only FIELD_A1 edges
-        assert!(map.neighbors_for_field(nnu(1), fid_a2()).is_empty());
+        assert!(map.neighbors_for_field(nnu(1), fr_a2()).is_empty());
     }
 
     // ── Reverse-index consistency ────────────────────────────────────────────
@@ -547,7 +562,7 @@ mod tests {
         map.add_edge(fn_a1(2), fn_a2(100));
         map.add_edge(fn_a1(3), fn_a2(100));
 
-        let members = map.neighbors_for_field(nnu(100), fid_a2());
+        let members = map.neighbors_for_field(nnu(100), fr_a2());
         assert_eq!(members.len(), 3);
         assert!(members.contains(&fn_a1(1)));
         assert!(members.contains(&fn_a1(2)));
@@ -562,6 +577,6 @@ mod tests {
         map.remove_edge(fn_a1(1), fn_a2(100));
         map.remove_edge(fn_a1(2), fn_a2(100));
 
-        assert!(map.neighbors_for_field(nnu(100), fid_a2()).is_empty());
+        assert!(map.neighbors_for_field(nnu(100), fr_a2()).is_empty());
     }
 }

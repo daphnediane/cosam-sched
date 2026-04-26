@@ -24,7 +24,7 @@
 //! borrow problem for edge-mutating fields (e.g. `add_presenters`).
 
 use crate::entity::{EntityId, EntityType};
-use crate::field_node_id::FieldId;
+use crate::field_node_id::FieldRef;
 use crate::schedule::Schedule;
 use crate::value::{CrdtFieldType, FieldError, FieldType, FieldValue, VerificationError};
 
@@ -103,10 +103,9 @@ pub trait NamedField: 'static + Send + Sync + std::any::Any {
     /// Type-erased identity — the address of the `'static` descriptor singleton.
     ///
     /// Only meaningful when called on a `'static` field descriptor (i.e. one of the
-    /// statics declared in each entity module). Calling this on a non-static
-    /// reference (e.g. a stack-allocated value) produces a meaningless address
-    /// that must not be stored or compared.
-    fn field_id(&self) -> FieldId;
+    /// statics declared in each entity module). Returns a [`FieldRef`] wrapper
+    /// that can be used as a HashMap key.
+    fn field_id(&self) -> FieldRef;
 
     /// [`crate::entity::EntityType::TYPE_NAME`] for the entity this field belongs to.
     fn entity_type_name(&self) -> &'static str;
@@ -235,10 +234,13 @@ impl<E: EntityType> NamedField for FieldDescriptor<E> {
         self.aliases
     }
 
-    fn field_id(&self) -> FieldId {
+    fn field_id(&self) -> FieldRef {
         // SAFETY: self is a &'static FieldDescriptor<E> (field descriptors are static singletons),
-        // so its address is stable for the life of the process and valid to use as a FieldId.
-        unsafe { FieldId::from_raw(self as *const FieldDescriptor<E> as *const () as usize) }
+        // so its address is stable for the life of the process. We extend the lifetime to 'static.
+        unsafe {
+            let static_ref: &'static dyn NamedField = std::mem::transmute(self as &dyn NamedField);
+            FieldRef(static_ref)
+        }
     }
 
     fn entity_type_name(&self) -> &'static str {

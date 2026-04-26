@@ -47,7 +47,7 @@ impl RuntimeEntityId {
 
     /// Get the UUID.
     #[must_use]
-    pub fn uuid(&self) -> NonNilUuid {
+    pub fn non_nil_uuid(&self) -> NonNilUuid {
         self.uuid
     }
 
@@ -525,7 +525,7 @@ mod tests {
         let nnu = make_non_nil_uuid();
         // SAFETY: test-only; no real registry to verify against.
         let rid = unsafe { RuntimeEntityId::from_uuid(nnu, "TestEntity") };
-        assert_eq!(rid.uuid(), nnu);
+        assert_eq!(rid.non_nil_uuid(), nnu);
         assert_eq!(rid.type_name(), "TestEntity");
     }
 
@@ -535,7 +535,7 @@ mod tests {
         // SAFETY: test controls the type; nnu is for MockEntity.
         let typed_id = unsafe { EntityId::<MockEntity>::from_uuid(nnu) };
         let rid = RuntimeEntityId::from_typed(typed_id);
-        assert_eq!(rid.uuid(), nnu);
+        assert_eq!(rid.non_nil_uuid(), nnu);
         assert_eq!(rid.type_name(), "mock");
     }
 

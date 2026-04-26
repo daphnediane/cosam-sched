@@ -29,3 +29,6 @@ pub mod schedule;
 pub mod time;
 pub mod value;
 pub(crate) mod value_macros;
+
+// Re-exports from field_node_id
+pub use field_node_id::{FieldNodeId, FieldRef, RuntimeFieldNodeId};
