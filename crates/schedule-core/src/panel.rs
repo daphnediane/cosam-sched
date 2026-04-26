@@ -1246,43 +1246,46 @@ crate::field_macros::define_entity_builder! {
 
 // ── Edge descriptors ──────────────────────────────────────────────────────────
 
-impl PanelEntityType {
-    /// Panel ↔ Presenter relationship.  Panel is the canonical CRDT owner.
-    pub const EDGE_PRESENTERS: crate::edge_descriptor::EdgeDescriptor =
-        crate::edge_descriptor::EdgeDescriptor {
-            name: "panel_presenters",
-            owner_type: Self::TYPE_NAME,
-            target_type: PresenterEntityType::TYPE_NAME,
-            is_homogeneous: false,
-            field_name: "presenters",
-            fields: &[crate::edge_descriptor::EdgeFieldSpec {
-                name: "credited",
-                default: crate::edge_descriptor::EdgeFieldDefault::Boolean(true),
-            }],
-        };
+// ── Edge descriptors ──────────────────────────────────────────────────────────
 
-    /// Panel ↔ EventRoom relationship.  Panel is the canonical CRDT owner.
-    pub const EDGE_EVENT_ROOMS: crate::edge_descriptor::EdgeDescriptor =
-        crate::edge_descriptor::EdgeDescriptor {
-            name: "panel_event_rooms",
-            owner_type: Self::TYPE_NAME,
-            target_type: EventRoomEntityType::TYPE_NAME,
-            is_homogeneous: false,
-            field_name: "event_rooms",
-            fields: &[],
-        };
+/// Panel ↔ Presenter relationship.  Panel is the canonical CRDT owner.
+///
+/// The `credited` per-edge field is removed in FEATURE-065 when the single
+/// `presenters` list splits into `credited_presenters` / `uncredited_presenters`.
+pub(crate) static EDGE_PANEL_PRESENTERS: crate::edge_descriptor::EdgeDescriptor =
+    crate::edge_descriptor::EdgeDescriptor {
+        name: "panel_presenters",
+        owner_field: &FIELD_PRESENTERS,
+        target_field: &crate::presenter::FIELD_PANELS,
+        is_transitive: false,
+        fields: &[crate::edge_descriptor::EdgeFieldSpec {
+            name: "credited",
+            default: crate::edge_descriptor::EdgeFieldDefault::Boolean(true),
+        }],
+    };
+inventory::submit! { crate::edge_descriptor::CollectedEdge(&EDGE_PANEL_PRESENTERS) }
 
-    /// Panel → PanelType relationship.  Panel is the canonical CRDT owner.
-    pub const EDGE_PANEL_TYPE: crate::edge_descriptor::EdgeDescriptor =
-        crate::edge_descriptor::EdgeDescriptor {
-            name: "panel_panel_type",
-            owner_type: Self::TYPE_NAME,
-            target_type: PanelTypeEntityType::TYPE_NAME,
-            is_homogeneous: false,
-            field_name: "panel_type",
-            fields: &[],
-        };
-}
+/// Panel ↔ EventRoom relationship.  Panel is the canonical CRDT owner.
+pub(crate) static EDGE_PANEL_EVENT_ROOMS: crate::edge_descriptor::EdgeDescriptor =
+    crate::edge_descriptor::EdgeDescriptor {
+        name: "panel_event_rooms",
+        owner_field: &FIELD_EVENT_ROOMS,
+        target_field: &crate::event_room::FIELD_PANELS,
+        is_transitive: false,
+        fields: &[],
+    };
+inventory::submit! { crate::edge_descriptor::CollectedEdge(&EDGE_PANEL_EVENT_ROOMS) }
+
+/// Panel → PanelType relationship.  Panel is the canonical CRDT owner.
+pub(crate) static EDGE_PANEL_PANEL_TYPE: crate::edge_descriptor::EdgeDescriptor =
+    crate::edge_descriptor::EdgeDescriptor {
+        name: "panel_panel_type",
+        owner_field: &FIELD_PANEL_TYPE,
+        target_field: &crate::panel_type::FIELD_PANELS,
+        is_transitive: false,
+        fields: &[],
+    };
+inventory::submit! { crate::edge_descriptor::CollectedEdge(&EDGE_PANEL_PANEL_TYPE) }
 
 // ── EntityMatcher ─────────────────────────────────────────────────────────────
 

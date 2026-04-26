@@ -478,12 +478,12 @@ impl Schedule {
             pairs: Vec<(NonNilUuid, Vec<NonNilUuid>)>,
         }
         let mut batches: Vec<EdgeBatch> = Vec::new();
-        for desc in crate::edge_descriptor::ALL_EDGE_DESCRIPTORS {
+        for desc in crate::edge_descriptor::all_edge_descriptors() {
             let (owner_type, field_name, target_type, is_homogeneous) = (
-                desc.owner_type,
-                desc.field_name,
-                desc.target_type,
-                desc.is_homogeneous,
+                desc.owner_type(),
+                desc.field_name(),
+                desc.target_type(),
+                desc.is_homogeneous(),
             );
             let owner_uuids = crdt::list_all_uuids(&self.doc, owner_type);
             let mut pairs: Vec<(NonNilUuid, Vec<NonNilUuid>)> = Vec::new();
@@ -962,7 +962,6 @@ impl Schedule {
         prop: &str,
     ) -> bool {
         use crate::edge_descriptor::EdgeFieldDefault;
-        use crate::edge_descriptor::ALL_EDGE_DESCRIPTORS;
         let Some(canon) = crate::edge_crdt::canonical_owner(L::TYPE_NAME, R::TYPE_NAME) else {
             return true;
         };
@@ -971,9 +970,8 @@ impl Schedule {
         } else {
             (r_id.non_nil_uuid(), l_id.non_nil_uuid())
         };
-        let default = ALL_EDGE_DESCRIPTORS
-            .iter()
-            .find(|d| d.owner_type == canon.owner_type && d.field_name == canon.field_name)
+        let default = crate::edge_descriptor::all_edge_descriptors()
+            .find(|d| d.owner_type() == canon.owner_type && d.field_name() == canon.field_name)
             .and_then(|d| d.fields.iter().find(|f| f.name == prop))
             .map(|spec| match spec.default {
                 EdgeFieldDefault::Boolean(b) => b,

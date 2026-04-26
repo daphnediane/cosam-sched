@@ -58,25 +58,24 @@ pub struct CanonicalOwner {
 /// Returns `None` if the pair is not a recognized relationship.
 #[must_use]
 pub fn canonical_owner(l_type: &str, r_type: &str) -> Option<CanonicalOwner> {
-    use crate::edge_descriptor::ALL_EDGE_DESCRIPTORS;
-    for desc in ALL_EDGE_DESCRIPTORS {
-        if desc.owner_type == l_type && desc.target_type == r_type {
+    for desc in crate::edge_descriptor::all_edge_descriptors() {
+        if desc.owner_type() == l_type && desc.target_type() == r_type {
             // L is the owner side.
             return Some(CanonicalOwner {
                 owner_is_left: true,
-                owner_type: desc.owner_type,
-                target_type: desc.target_type,
-                field_name: desc.field_name,
+                owner_type: desc.owner_type(),
+                target_type: desc.target_type(),
+                field_name: desc.field_name(),
             });
         }
-        if !desc.is_homogeneous && desc.target_type == l_type && desc.owner_type == r_type {
+        if !desc.is_homogeneous() && desc.target_type() == l_type && desc.owner_type() == r_type {
             // R is the owner side (heterogeneous only — homo edges don't have a
             // separate reverse direction; the left side always owns).
             return Some(CanonicalOwner {
                 owner_is_left: false,
-                owner_type: desc.owner_type,
-                target_type: desc.target_type,
-                field_name: desc.field_name,
+                owner_type: desc.owner_type(),
+                target_type: desc.target_type(),
+                field_name: desc.field_name(),
             });
         }
     }
@@ -125,10 +124,9 @@ pub fn ensure_all_owner_lists_for_type(
     owner_type: &str,
     owner_uuid: NonNilUuid,
 ) -> Result<(), crdt::CrdtError> {
-    use crate::edge_descriptor::ALL_EDGE_DESCRIPTORS;
-    for desc in ALL_EDGE_DESCRIPTORS {
-        if desc.owner_type == owner_type {
-            ensure_owner_list(doc, owner_type, owner_uuid, desc.field_name)?;
+    for desc in crate::edge_descriptor::all_edge_descriptors() {
+        if desc.owner_type() == owner_type {
+            ensure_owner_list(doc, owner_type, owner_uuid, desc.field_name())?;
         }
     }
     Ok(())

@@ -302,21 +302,23 @@ impl EntityType for PresenterEntityType {
     }
 }
 
-impl PresenterEntityType {
-    /// Presenter → Group (homogeneous) relationship.
-    ///
-    /// The source presenter (left side / member) is the canonical CRDT owner:
-    /// `member.groups` lists the groups the member belongs to.
-    pub const EDGE_GROUPS: crate::edge_descriptor::EdgeDescriptor =
-        crate::edge_descriptor::EdgeDescriptor {
-            name: "presenter_groups",
-            owner_type: Self::TYPE_NAME,
-            target_type: Self::TYPE_NAME,
-            is_homogeneous: true,
-            field_name: "groups",
-            fields: &[],
-        };
+// ── Edge descriptor ───────────────────────────────────────────────────────────
 
+/// Member → Groups (homogeneous, transitive).  The member side owns the CRDT list.
+///
+/// `member.groups` lists the groups a presenter belongs to;
+/// `group.members` is the inverse view (read from the edge map, not the CRDT).
+pub(crate) static EDGE_MEMBER_GROUPS: crate::edge_descriptor::EdgeDescriptor =
+    crate::edge_descriptor::EdgeDescriptor {
+        name: "presenter_groups",
+        owner_field: &FIELD_MEMBERS,
+        target_field: &FIELD_GROUPS,
+        is_transitive: true,
+        fields: &[],
+    };
+inventory::submit! { crate::edge_descriptor::CollectedEdge(&EDGE_MEMBER_GROUPS) }
+
+impl PresenterEntityType {
     /// Find the best-matching presenter by name.
     ///
     /// Uses `match_entity` against all stored presenters.
@@ -349,7 +351,7 @@ impl PresenterEntityType {
                 results.push((id, priority));
             }
         }
-        results.sort_by(|a, b| b.1.cmp(&a.1));
+        results.sort_by_key(|b| std::cmp::Reverse(b.1));
         results
     }
 }

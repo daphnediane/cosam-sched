@@ -277,20 +277,18 @@ crate::field_macros::define_entity_builder! {
     }
 }
 
-// ── Edge descriptors ──────────────────────────────────────────────────────────
+// ── Edge descriptor ───────────────────────────────────────────────────────────
 
-impl EventRoomEntityType {
-    /// EventRoom ↔ HotelRoom relationship.  EventRoom is the canonical CRDT owner.
-    pub const EDGE_HOTEL_ROOMS: crate::edge_descriptor::EdgeDescriptor =
-        crate::edge_descriptor::EdgeDescriptor {
-            name: "event_room_hotel_rooms",
-            owner_type: Self::TYPE_NAME,
-            target_type: HotelRoomEntityType::TYPE_NAME,
-            is_homogeneous: false,
-            field_name: "hotel_rooms",
-            fields: &[],
-        };
-}
+/// EventRoom ↔ HotelRoom relationship.  EventRoom is the canonical CRDT owner.
+pub(crate) static EDGE_EVENT_ROOM_HOTEL_ROOMS: crate::edge_descriptor::EdgeDescriptor =
+    crate::edge_descriptor::EdgeDescriptor {
+        name: "event_room_hotel_rooms",
+        owner_field: &FIELD_HOTEL_ROOMS,
+        target_field: &crate::hotel_room::FIELD_EVENT_ROOMS,
+        is_transitive: false,
+        fields: &[],
+    };
+inventory::submit! { crate::edge_descriptor::CollectedEdge(&EDGE_EVENT_ROOM_HOTEL_ROOMS) }
 
 // ── EntityMatcher ─────────────────────────────────────────────────────────────
 

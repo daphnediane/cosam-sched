@@ -6,27 +6,41 @@
 
 //! [`EdgeDescriptor`] — first-class description of entity relationships.
 //!
-//! Each edge relationship is declared as a `const` on its canonical CRDT
-//! owner entity type (the "panels-outward" rule from FEATURE-023), mirroring
-//! how [`crate::field::FieldDescriptor`] is declared per field.
+//! Each edge relationship is declared as a `pub(crate) static` in its canonical
+//! CRDT owner entity module (the "panels-outward" rule from FEATURE-023), and
+//! self-registers via `inventory::submit!` so no manual registry slice is needed.
 //!
-//! [`ALL_EDGE_DESCRIPTORS`] is the single authoritative registry.  All code
-//! that previously iterated [`crate::edge_crdt::OWNER_EDGE_FIELDS`] or
-//! matched on [`crate::edge_crdt::canonical_owner`] now derives from this
-//! slice instead.
+//! [`all_edge_descriptors()`] is the single authoritative iterator over all
+//! registered relationships.
+//!
+//! ## Relationship between fields and edges
+//!
+//! Every edge has two [`crate::field::FieldDescriptorAny`] endpoints:
+//!
+//! - `owner_field`: the field on the CRDT-canonical owner entity (e.g.
+//!   `Panel::FIELD_PRESENTERS`).  `owner_field.name()` is the CRDT list field
+//!   name; `owner_field.entity_type_name()` is the owner entity type.
+//! - `target_field`: the corresponding field on the non-owner endpoint (e.g.
+//!   `Presenter::FIELD_PANELS`).  Its name is the inverse/lookup field name.
 //!
 //! ## Adding a new edge relationship
 //!
-//! 1. Declare `pub const EDGE_<NAME>: EdgeDescriptor = EdgeDescriptor { … }` on the
-//!    canonical owner entity type.
-//! 2. Add `&OwnerType::EDGE_<NAME>` to [`ALL_EDGE_DESCRIPTORS`] here.
+//! 1. Declare `pub(crate) static EDGE_<NAME>: EdgeDescriptor = EdgeDescriptor { … }` in the
+//!    canonical owner entity module.
+//! 2. Add `inventory::submit! { CollectedEdge(&EDGE_<NAME>) }` immediately below.
 //!
 //! That is the only change required.  The CRDT mirror, load path, and
-//! `canonical_owner` lookup all derive from this registry automatically.
+//! canonical-owner lookup all derive from `all_edge_descriptors()` automatically.
+
+use crate::field::FieldDescriptorAny;
+use std::fmt;
+
+// ── Per-edge field metadata (kept until FEATURE-065 removes credited) ─────────
 
 /// Default value for a per-edge field.
 ///
 /// Used when no explicit value has been written for an edge's metadata entry.
+/// Removed in FEATURE-065 when the `credited` split replaces per-edge metadata.
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub enum EdgeFieldDefault {
     /// A boolean default (e.g. `credited = true` means credited by default).
@@ -37,6 +51,7 @@ pub enum EdgeFieldDefault {
 ///
 /// Declared in the `fields` slice of an [`EdgeDescriptor`] for relationships
 /// that carry additional per-edge attributes beyond membership.
+/// Removed in FEATURE-065.
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct EdgeFieldSpec {
     /// Name of this per-edge property (e.g. `"credited"`).
@@ -45,58 +60,104 @@ pub struct EdgeFieldSpec {
     pub default: EdgeFieldDefault,
 }
 
-/// Describes one entity relationship: CRDT ownership, target type, and CRDT
-/// field name on the owner.
+// ── EdgeDescriptor ────────────────────────────────────────────────────────────
+
+/// Describes one entity relationship: its two field endpoints and CRDT semantics.
 ///
-/// Instantiate as a `pub const` on the canonical owner entity type and register
-/// it in [`ALL_EDGE_DESCRIPTORS`].
-#[derive(Debug, Clone, Copy, PartialEq)]
+/// Instantiate as a `pub(crate) static` in the canonical owner entity module and
+/// register with `inventory::submit! { CollectedEdge(&EDGE_NAME) }`.
+///
+/// Field-derived accessors (`owner_type()`, `target_type()`, `field_name()`,
+/// `is_homogeneous()`) provide backward-compatible access to information that is
+/// now embedded in the field descriptors.
 pub struct EdgeDescriptor {
-    /// Unique human-readable name for this relationship
-    /// (e.g. `"panel_presenters"`).
+    /// Unique human-readable name for this relationship (e.g. `"panel_presenters"`).
     pub name: &'static str,
 
-    /// [`crate::entity::EntityType::TYPE_NAME`] of the CRDT canonical owner.
+    /// Field on the CRDT canonical owner side.
     ///
-    /// Follows the panels-outward rule: `Panel` owns most relationships;
-    /// `EventRoom` owns hotel-room relationships; the source `Presenter` owns
-    /// the groups edge.
-    pub owner_type: &'static str,
+    /// - `owner_field.name()` — CRDT list field name (e.g. `"presenters"`)
+    /// - `owner_field.entity_type_name()` — canonical owner entity type name
+    pub owner_field: &'static dyn FieldDescriptorAny,
 
-    /// [`crate::entity::EntityType::TYPE_NAME`] of the non-owner endpoint.
-    pub target_type: &'static str,
+    /// Field on the inverse (non-owner) side.
+    ///
+    /// - `target_field.name()` — inverse field name (e.g. `"panels"`)
+    /// - `target_field.entity_type_name()` — target entity type name
+    pub target_field: &'static dyn FieldDescriptorAny,
 
-    /// `true` when both sides share the same `TYPE_NAME` (homogeneous edge,
-    /// e.g. `Presenter ↔ Presenter` groups).
-    pub is_homogeneous: bool,
-
-    /// Name of the CRDT list field on the owner entity (e.g. `"presenters"`).
-    pub field_name: &'static str,
+    /// `true` for transitive (hierarchical) relationships whose reachability
+    /// is computed by [`crate::edge_cache::HomoEdgeCache`].
+    ///
+    /// Replaces `is_homogeneous` as the flag that drives transitive-closure
+    /// queries.  `is_homogeneous()` now derives from the entity type names.
+    pub is_transitive: bool,
 
     /// Per-edge data fields carried by this relationship.
     ///
-    /// Empty for pure membership edges. When non-empty, each entry describes
-    /// one per-edge attribute stored in the parallel `{field_name}_meta` map
-    /// in the CRDT document.
+    /// Empty for pure membership edges.  Non-empty only for `EDGE_PANEL_PRESENTERS`
+    /// (`credited` boolean) until FEATURE-065 splits it into separate edge fields.
     pub fields: &'static [EdgeFieldSpec],
 }
 
-// ── Registry ──────────────────────────────────────────────────────────────────
+impl EdgeDescriptor {
+    /// [`crate::entity::EntityType::TYPE_NAME`] of the CRDT canonical owner.
+    #[inline]
+    pub fn owner_type(&self) -> &'static str {
+        self.owner_field.entity_type_name()
+    }
 
-use crate::event_room::EventRoomEntityType;
-use crate::panel::PanelEntityType;
-use crate::presenter::PresenterEntityType;
+    /// [`crate::entity::EntityType::TYPE_NAME`] of the non-owner endpoint.
+    #[inline]
+    pub fn target_type(&self) -> &'static str {
+        self.target_field.entity_type_name()
+    }
 
-/// All recognized edge relationships, in canonical load order.
+    /// Name of the CRDT list field on the owner entity.
+    #[inline]
+    pub fn field_name(&self) -> &'static str {
+        self.owner_field.name()
+    }
+
+    /// `true` when both sides share the same entity type name.
+    ///
+    /// Derived from the field descriptor entity type names.  Equivalent to
+    /// the removed `is_homogeneous` struct field.
+    #[inline]
+    pub fn is_homogeneous(&self) -> bool {
+        self.owner_field.entity_type_name() == self.target_field.entity_type_name()
+    }
+}
+
+impl fmt::Debug for EdgeDescriptor {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("EdgeDescriptor")
+            .field("name", &self.name)
+            .field("owner_field", &self.owner_field.name())
+            .field("owner_type", &self.owner_field.entity_type_name())
+            .field("target_field", &self.target_field.name())
+            .field("target_type", &self.target_field.entity_type_name())
+            .field("is_transitive", &self.is_transitive)
+            .finish()
+    }
+}
+
+// ── Inventory ─────────────────────────────────────────────────────────────────
+
+/// Inventory wrapper for [`EdgeDescriptor`] self-registration.
 ///
-/// This is the single source of truth that replaces both
-/// `canonical_owner()` and `OWNER_EDGE_FIELDS` in [`crate::edge_crdt`].
-/// Add a new relationship here *and* declare its [`EdgeDescriptor`] const on
-/// the canonical owner type — those are the only two edits required.
-pub const ALL_EDGE_DESCRIPTORS: &[&EdgeDescriptor] = &[
-    &PanelEntityType::EDGE_PRESENTERS,
-    &PanelEntityType::EDGE_EVENT_ROOMS,
-    &PanelEntityType::EDGE_PANEL_TYPE,
-    &EventRoomEntityType::EDGE_HOTEL_ROOMS,
-    &PresenterEntityType::EDGE_GROUPS,
-];
+/// Each canonical owner entity module emits:
+/// ```text
+/// inventory::submit! { CollectedEdge(&EDGE_MY_RELATIONSHIP) }
+/// ```
+/// to register its edges without requiring a central list.
+pub struct CollectedEdge(pub &'static EdgeDescriptor);
+
+inventory::collect!(CollectedEdge);
+
+/// Iterate over all registered [`EdgeDescriptor`]s.
+///
+/// Replaces the removed `ALL_EDGE_DESCRIPTORS` static slice.
+pub fn all_edge_descriptors() -> impl Iterator<Item = &'static EdgeDescriptor> {
+    inventory::iter::<CollectedEdge>().map(|ce| ce.0)
+}

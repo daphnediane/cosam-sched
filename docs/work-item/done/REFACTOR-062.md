@@ -7,7 +7,7 @@ and move EdgeDescriptor registration to `inventory`.
 
 ## Status
 
-Open
+Completed
 
 ## Priority
 
