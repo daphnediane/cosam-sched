@@ -9,214 +9,168 @@
 //! All entity UUIDs are globally unique, so a single map covers every
 //! relationship regardless of entity type.
 //!
-//! ## Heterogeneous edges (different entity types, e.g. Panel → Presenter)
+//! ## Structure
 //!
-//! Both endpoints store the other in `edges`. The relationship is effectively
-//! undirected at the storage level; the caller determines direction by which
-//! UUID it looks up and what type it filters for.
+//! ```text
+//! HashMap<NonNilUuid,          // outer key: entity UUID
+//!     HashMap<FieldId,         // inner key: which field on that entity
+//!         Vec<FieldNodeId>>>   // values: (field, uuid) of the other side
+//! ```
 //!
-//! ## Homogeneous edges (same entity type, e.g. Presenter → Presenter groups)
+//! Both directions of every edge are stored symmetrically.  Homogeneous and
+//! heterogeneous edges are treated identically — no separate `homogeneous_reverse`
+//! map is needed because each endpoint's [`FieldId`] makes the relationship
+//! self-describing.
 //!
-//! Forward edges are stored in `edges` (source → targets). Reverse edges are
-//! stored in `homogeneous_reverse` (target → sources). This separation avoids
-//! direction ambiguity: without it, a Presenter UUID in `edges` could be both a
-//! heterogeneous reverse-entry (panel back-link) and a homogeneous forward-entry
-//! (group), with no way to distinguish them if both appeared in the same list.
+//! ## Example
+//!
+//! For a Panel ↔ Presenter edge with `FIELD_PRESENTERS` on Panel and
+//! `FIELD_PANELS` on Presenter:
+//!
+//! ```text
+//! map[panel_uuid][FIELD_PRESENTERS_id] = [(FIELD_PANELS_id, presenter_uuid), ...]
+//! map[presenter_uuid][FIELD_PANELS_id] = [(FIELD_PRESENTERS_id, panel_uuid), ...]
+//! ```
+//!
+//! For a Presenter → Groups homogeneous edge with `FIELD_GROUPS` on member and
+//! `FIELD_MEMBERS` on group:
+//!
+//! ```text
+//! map[member_uuid][FIELD_GROUPS_id]  = [(FIELD_MEMBERS_id, group_uuid), ...]
+//! map[group_uuid][FIELD_MEMBERS_id]  = [(FIELD_GROUPS_id,  member_uuid), ...]
+//! ```
 
-use crate::entity::RuntimeEntityId;
+use crate::field_node_id::{FieldId, FieldNodeId};
 use std::collections::HashMap;
 use uuid::NonNilUuid;
 
 /// Unified bidirectional edge store used by [`crate::schedule::Schedule`].
 ///
-/// `Schedule` wraps/unwraps the raw `NonNilUuid` / `RuntimeEntityId` values
-/// into typed [`crate::entity::EntityId`]s via its generic
+/// `Schedule` wraps/unwraps the raw [`FieldNodeId`] values into typed
+/// [`crate::entity::EntityId`]s via its generic
 /// `edges_from` / `edges_to` / `edge_add` / `edge_remove` / `edge_set` methods.
 #[derive(Debug, Default, Clone)]
 pub struct RawEdgeMap {
-    /// For heterogeneous edges: undirected — each endpoint stores the other (with type).
-    /// For homogeneous forward edges: source stores its targets.
-    edges: HashMap<NonNilUuid, Vec<RuntimeEntityId>>,
-
-    /// Reverse side of homogeneous edges only. Keyed by the right-side (target) UUID;
-    /// value is the list of left-side (source) entities.
-    homogeneous_reverse: HashMap<NonNilUuid, Vec<RuntimeEntityId>>,
+    map: HashMap<NonNilUuid, HashMap<FieldId, Vec<FieldNodeId>>>,
 }
 
 impl RawEdgeMap {
-    // ── Het edge operations ───────────────────────────────────────────────────
+    // ── Mutations ─────────────────────────────────────────────────────────────
 
-    /// Add a heterogeneous (different-type) edge between `a` and `b`.
+    /// Add a bidirectional edge between `from` and `to`.
     ///
-    /// Both endpoints store the other. Idempotent — does nothing if the edge
-    /// already exists.
-    pub fn add_het(&mut self, a: RuntimeEntityId, b: RuntimeEntityId) {
-        if !self
-            .edges
-            .get(&a.uuid())
-            .is_some_and(|v| v.iter().any(|e| e.uuid() == b.uuid()))
-        {
-            self.edges.entry(a.uuid()).or_default().push(b);
+    /// Both endpoints store the other.  Idempotent — does nothing if the edge
+    /// already exists in either direction.
+    pub fn add_edge(&mut self, from: FieldNodeId, to: FieldNodeId) {
+        let from_vec = self
+            .map
+            .entry(from.entity)
+            .or_default()
+            .entry(from.field)
+            .or_default();
+        if !from_vec.contains(&to) {
+            from_vec.push(to);
         }
-        if !self
-            .edges
-            .get(&b.uuid())
-            .is_some_and(|v| v.iter().any(|e| e.uuid() == a.uuid()))
-        {
-            self.edges.entry(b.uuid()).or_default().push(a);
+        let to_vec = self
+            .map
+            .entry(to.entity)
+            .or_default()
+            .entry(to.field)
+            .or_default();
+        if !to_vec.contains(&from) {
+            to_vec.push(from);
         }
     }
 
-    /// Remove a heterogeneous edge between `a_uuid` and `b_uuid`.
+    /// Remove the bidirectional edge between `from` and `to`.
     ///
     /// No-op if the edge does not exist.
-    pub fn remove_het(&mut self, a_uuid: NonNilUuid, b_uuid: NonNilUuid) {
-        if let Some(v) = self.edges.get_mut(&a_uuid) {
-            v.retain(|e| e.uuid() != b_uuid);
+    pub fn remove_edge(&mut self, from: FieldNodeId, to: FieldNodeId) {
+        if let Some(inner) = self.map.get_mut(&from.entity) {
+            if let Some(v) = inner.get_mut(&from.field) {
+                v.retain(|n| *n != to);
+            }
         }
-        if let Some(v) = self.edges.get_mut(&b_uuid) {
-            v.retain(|e| e.uuid() != a_uuid);
-        }
-    }
-
-    // ── Homo edge operations ──────────────────────────────────────────────────
-
-    /// Add a homogeneous (same-type) directed edge: `forward` → `reverse`.
-    ///
-    /// - `forward`: the source entity (stored in `edges`)
-    /// - `reverse`: the target entity (stored in `homogeneous_reverse`)
-    ///
-    /// Idempotent — does nothing if the edge already exists.
-    pub fn add_homo(&mut self, forward: RuntimeEntityId, reverse: RuntimeEntityId) {
-        if !self
-            .edges
-            .get(&forward.uuid())
-            .is_some_and(|v| v.iter().any(|e| e.uuid() == reverse.uuid()))
-        {
-            self.edges.entry(forward.uuid()).or_default().push(reverse);
-        }
-        if !self
-            .homogeneous_reverse
-            .get(&reverse.uuid())
-            .is_some_and(|v| v.iter().any(|e| e.uuid() == forward.uuid()))
-        {
-            self.homogeneous_reverse
-                .entry(reverse.uuid())
-                .or_default()
-                .push(forward);
+        if let Some(inner) = self.map.get_mut(&to.entity) {
+            if let Some(v) = inner.get_mut(&to.field) {
+                v.retain(|n| *n != from);
+            }
         }
     }
 
-    /// Remove a homogeneous directed edge: `forward_uuid` → `reverse_uuid`.
+    /// Replace all neighbors in `from`'s field with `new_targets` (bulk set).
     ///
-    /// No-op if the edge does not exist.
-    pub fn remove_homo(&mut self, forward_uuid: NonNilUuid, reverse_uuid: NonNilUuid) {
-        if let Some(v) = self.edges.get_mut(&forward_uuid) {
-            v.retain(|e| e.uuid() != reverse_uuid);
-        }
-        if let Some(v) = self.homogeneous_reverse.get_mut(&reverse_uuid) {
-            v.retain(|e| e.uuid() != forward_uuid);
-        }
-    }
+    /// 1. Removes `from` as a reverse entry from every current target.
+    /// 2. Overwrites `from`'s field list with `new_targets`.
+    /// 3. Inserts `from` as a reverse entry on every new target (idempotent).
+    pub fn set_field_neighbors(&mut self, from: FieldNodeId, new_targets: Vec<FieldNodeId>) {
+        // Collect old targets so we can patch their reverse entries.
+        let old_targets: Vec<FieldNodeId> = self
+            .map
+            .get(&from.entity)
+            .and_then(|inner| inner.get(&from.field))
+            .cloned()
+            .unwrap_or_default();
 
-    // ── Bulk set ──────────────────────────────────────────────────────────────
-
-    /// Replace all neighbors of `from` that match `target_type` with `new_targets`.
-    ///
-    /// Removes any existing edges from `from` to entries of `target_type`, then
-    /// adds edges for each entry in `new_targets`.
-    ///
-    /// - `is_homogeneous`: `true` if `from` and targets are the same entity type.
-    pub fn set_neighbors(
-        &mut self,
-        from: RuntimeEntityId,
-        new_targets: &[RuntimeEntityId],
-        target_type: &'static str,
-        is_homogeneous: bool,
-    ) {
-        // Collect UUIDs of existing neighbors of the given type.
-        let old_uuids: Vec<NonNilUuid> = self
-            .edges
-            .get(&from.uuid())
-            .into_iter()
-            .flatten()
-            .filter(|e| e.type_name() == target_type)
-            .map(|e| e.uuid())
-            .collect();
-
-        // Remove old edges.
-        for old_uuid in old_uuids {
-            if is_homogeneous {
-                self.remove_homo(from.uuid(), old_uuid);
-            } else {
-                self.remove_het(from.uuid(), old_uuid);
+        // Remove `from` from each old target's reverse list.
+        for old in &old_targets {
+            if let Some(inner) = self.map.get_mut(&old.entity) {
+                if let Some(v) = inner.get_mut(&old.field) {
+                    v.retain(|n| *n != from);
+                }
             }
         }
 
-        // Add new edges.
-        for &target in new_targets {
-            if is_homogeneous {
-                self.add_homo(from, target);
-            } else {
-                self.add_het(from, target);
+        // Overwrite the from-side field list.
+        self.map
+            .entry(from.entity)
+            .or_default()
+            .insert(from.field, new_targets.clone());
+
+        // Insert `from` as a reverse entry on each new target (idempotent).
+        for target in &new_targets {
+            let v = self
+                .map
+                .entry(target.entity)
+                .or_default()
+                .entry(target.field)
+                .or_default();
+            if !v.contains(&from) {
+                v.push(from);
+            }
+        }
+    }
+
+    /// Remove all edges involving `uuid`, maintaining bidirectional consistency.
+    ///
+    /// For each neighbor of `uuid` in any field, removes `uuid` from that
+    /// neighbor's reverse entry.  Then drops `uuid`'s outer map entry.
+    pub fn clear_all(&mut self, uuid: NonNilUuid) {
+        let Some(inner) = self.map.remove(&uuid) else {
+            return;
+        };
+        for (_, neighbors) in inner {
+            for neighbor in neighbors {
+                if let Some(neighbor_inner) = self.map.get_mut(&neighbor.entity) {
+                    if let Some(v) = neighbor_inner.get_mut(&neighbor.field) {
+                        v.retain(|n| n.entity != uuid);
+                    }
+                }
             }
         }
     }
 
     // ── Read ──────────────────────────────────────────────────────────────────
 
-    /// All neighbors of `uuid` in `edges` (heterogeneous + homogeneous forward).
-    pub fn neighbors(&self, uuid: NonNilUuid) -> &[RuntimeEntityId] {
-        self.edges.get(&uuid).map_or(&[], Vec::as_slice)
-    }
-
-    /// All homogeneous reverse neighbors of `uuid` (sources whose homogeneous
-    /// forward edge points to `uuid`).
-    pub fn homo_reverse(&self, uuid: NonNilUuid) -> &[RuntimeEntityId] {
-        self.homogeneous_reverse
+    /// All neighbors of `uuid` reachable via the given `field`.
+    ///
+    /// Returns an empty slice when no edges exist for this `(uuid, field)` pair.
+    #[must_use]
+    pub fn neighbors_for_field(&self, uuid: NonNilUuid, field: FieldId) -> &[FieldNodeId] {
+        self.map
             .get(&uuid)
+            .and_then(|inner| inner.get(&field))
             .map_or(&[], Vec::as_slice)
-    }
-
-    // ── Cleanup ───────────────────────────────────────────────────────────────
-
-    /// Remove all edges involving `uuid`, maintaining consistency in both maps.
-    ///
-    /// For each entry in `edges[uuid]`:
-    /// - If neighbor type == `type_name` (homogeneous forward edge): remove `uuid`
-    ///   from `homogeneous_reverse[neighbor]`.
-    /// - Otherwise (heterogeneous edge): remove `uuid` from `edges[neighbor]`.
-    ///
-    /// For each entry in `homogeneous_reverse[uuid]`:
-    /// - Remove `uuid` from `edges[source]` (homogeneous reverse cleanup).
-    ///
-    /// Then removes `uuid` from both maps.
-    pub fn clear_all(&mut self, uuid: NonNilUuid, type_name: &'static str) {
-        // Process edges[uuid] — heterogeneous reverse cleanup + homogeneous reverse-map cleanup.
-        if let Some(neighbors) = self.edges.remove(&uuid) {
-            for neighbor in neighbors {
-                if neighbor.type_name() == type_name {
-                    // Homogeneous forward edge: remove uuid from homogeneous_reverse[neighbor]
-                    if let Some(v) = self.homogeneous_reverse.get_mut(&neighbor.uuid()) {
-                        v.retain(|e| e.uuid() != uuid);
-                    }
-                } else {
-                    // Heterogeneous edge: remove uuid from edges[neighbor]
-                    if let Some(v) = self.edges.get_mut(&neighbor.uuid()) {
-                        v.retain(|e| e.uuid() != uuid);
-                    }
-                }
-            }
-        }
-
-        // Process homogeneous_reverse[uuid] — homogeneous forward (edges[source]) cleanup.
-        if let Some(sources) = self.homogeneous_reverse.remove(&uuid) {
-            for source in sources {
-                if let Some(v) = self.edges.get_mut(&source.uuid()) {
-                    v.retain(|e| e.uuid() != uuid);
-                }
-            }
-        }
     }
 }
 
@@ -226,8 +180,11 @@ impl RawEdgeMap {
 mod tests {
     use super::*;
     use crate::entity::EntityType;
+    use crate::field::{FieldDescriptor, FieldDescriptorAny};
     use crate::field_set::FieldSet;
-    use crate::value::ValidationError;
+    use crate::value::{
+        CrdtFieldType, FieldCardinality, FieldType, FieldTypeItem, ValidationError,
+    };
     use uuid::{NonNilUuid, Uuid};
 
     // ── Minimal mock entity types ────────────────────────────────────────────
@@ -278,303 +235,333 @@ mod tests {
         }
     }
 
+    // ── Static field descriptors for two TypeA fields and one TypeB field ────
+
+    static FIELD_A1: FieldDescriptor<TypeA> = FieldDescriptor {
+        name: "a1",
+        display: "A1",
+        description: "Test field A1",
+        aliases: &[],
+        required: false,
+        crdt_type: CrdtFieldType::Derived,
+        field_type: FieldType(FieldCardinality::Optional, FieldTypeItem::Text),
+        example: "",
+        order: 0,
+        read_fn: None,
+        write_fn: None,
+        verify_fn: None,
+    };
+
+    static FIELD_A2: FieldDescriptor<TypeA> = FieldDescriptor {
+        name: "a2",
+        display: "A2",
+        description: "Test field A2",
+        aliases: &[],
+        required: false,
+        crdt_type: CrdtFieldType::Derived,
+        field_type: FieldType(FieldCardinality::Optional, FieldTypeItem::Text),
+        example: "",
+        order: 1,
+        read_fn: None,
+        write_fn: None,
+        verify_fn: None,
+    };
+
+    static FIELD_B1: FieldDescriptor<TypeB> = FieldDescriptor {
+        name: "b1",
+        display: "B1",
+        description: "Test field B1",
+        aliases: &[],
+        required: false,
+        crdt_type: CrdtFieldType::Derived,
+        field_type: FieldType(FieldCardinality::Optional, FieldTypeItem::Text),
+        example: "",
+        order: 0,
+        read_fn: None,
+        write_fn: None,
+        verify_fn: None,
+    };
+
+    fn fid_a1() -> FieldId {
+        FieldId::of::<TypeA>(&FIELD_A1)
+    }
+    fn fid_a2() -> FieldId {
+        FieldId::of::<TypeA>(&FIELD_A2)
+    }
+    fn fid_b1() -> FieldId {
+        FieldId::of::<TypeB>(&FIELD_B1)
+    }
+
+    fn fn_a1(n: u128) -> FieldNodeId {
+        FieldNodeId::new(fid_a1(), nnu(n))
+    }
+    fn fn_a2(n: u128) -> FieldNodeId {
+        FieldNodeId::new(fid_a2(), nnu(n))
+    }
+    fn fn_b1(n: u128) -> FieldNodeId {
+        FieldNodeId::new(fid_b1(), nnu(n))
+    }
+
     fn nnu(n: u128) -> NonNilUuid {
         NonNilUuid::new(Uuid::from_u128(n)).expect("test UUID must not be nil")
     }
 
-    fn rid_a(n: u128) -> RuntimeEntityId {
-        unsafe { RuntimeEntityId::from_uuid(nnu(n), TypeA::TYPE_NAME) }
-    }
-
-    fn rid_b(n: u128) -> RuntimeEntityId {
-        unsafe { RuntimeEntityId::from_uuid(nnu(n), TypeB::TYPE_NAME) }
-    }
-
-    // ── Het edge tests ───────────────────────────────────────────────────────
+    // ── add_edge / neighbors_for_field ───────────────────────────────────────
 
     #[test]
-    fn test_het_add_stores_both_directions() {
+    fn test_add_edge_stores_both_directions() {
         let mut map = RawEdgeMap::default();
-        let a = rid_a(1);
-        let b = rid_b(2);
-        map.add_het(a, b);
+        // Heterogeneous: TypeA.FIELD_A1 ↔ TypeB.FIELD_B1
+        map.add_edge(fn_a1(1), fn_b1(2));
 
-        assert_eq!(map.neighbors(a.uuid()), &[b]);
-        assert_eq!(map.neighbors(b.uuid()), &[a]);
+        assert_eq!(map.neighbors_for_field(nnu(1), fid_a1()), &[fn_b1(2)]);
+        assert_eq!(map.neighbors_for_field(nnu(2), fid_b1()), &[fn_a1(1)]);
     }
 
     #[test]
-    fn test_het_add_is_idempotent() {
+    fn test_add_edge_is_idempotent() {
         let mut map = RawEdgeMap::default();
-        let a = rid_a(1);
-        let b = rid_b(2);
-        map.add_het(a, b);
-        map.add_het(a, b);
+        map.add_edge(fn_a1(1), fn_b1(2));
+        map.add_edge(fn_a1(1), fn_b1(2));
 
-        assert_eq!(map.neighbors(a.uuid()).len(), 1);
-        assert_eq!(map.neighbors(b.uuid()).len(), 1);
+        assert_eq!(map.neighbors_for_field(nnu(1), fid_a1()).len(), 1);
+        assert_eq!(map.neighbors_for_field(nnu(2), fid_b1()).len(), 1);
     }
 
     #[test]
-    fn test_het_remove_clears_both_directions() {
+    fn test_add_edge_multiple_neighbors() {
         let mut map = RawEdgeMap::default();
-        let a = rid_a(1);
-        let b = rid_b(2);
-        map.add_het(a, b);
-        map.remove_het(a.uuid(), b.uuid());
+        map.add_edge(fn_a1(1), fn_b1(10));
+        map.add_edge(fn_a1(1), fn_b1(11));
 
-        assert!(map.neighbors(a.uuid()).is_empty());
-        assert!(map.neighbors(b.uuid()).is_empty());
-    }
-
-    #[test]
-    fn test_het_remove_noop_when_absent() {
-        let mut map = RawEdgeMap::default();
-        map.remove_het(nnu(1), nnu(2)); // should not panic
-    }
-
-    #[test]
-    fn test_het_multiple_neighbors() {
-        let mut map = RawEdgeMap::default();
-        let a = rid_a(1);
-        let b1 = rid_b(2);
-        let b2 = rid_b(3);
-        map.add_het(a, b1);
-        map.add_het(a, b2);
-
-        let neighbors = map.neighbors(a.uuid());
+        let neighbors = map.neighbors_for_field(nnu(1), fid_a1());
         assert_eq!(neighbors.len(), 2);
-        assert!(neighbors.iter().any(|r| r.uuid() == b1.uuid()));
-        assert!(neighbors.iter().any(|r| r.uuid() == b2.uuid()));
+        assert!(neighbors.contains(&fn_b1(10)));
+        assert!(neighbors.contains(&fn_b1(11)));
     }
 
-    // ── Homo edge tests ──────────────────────────────────────────────────────
+    // ── Homogeneous edges — same entity type, two different fields ───────────
 
     #[test]
-    fn test_homo_add_forward_in_edges_reverse_in_homo_reverse() {
+    fn test_homo_edge_both_directions_in_same_map() {
         let mut map = RawEdgeMap::default();
-        let member = rid_a(10);
-        let group = rid_a(20);
-        map.add_homo(member, group);
+        // member (FIELD_A1) → group (FIELD_A2): member's a1 points at group's a2
+        map.add_edge(fn_a1(10), fn_a2(20));
 
-        // Forward: member → group in edges
-        assert_eq!(map.neighbors(member.uuid()), &[group]);
-        // Reverse: group's members in homogeneous_reverse
-        assert_eq!(map.homo_reverse(group.uuid()), &[member]);
-        // group is NOT in edges (heterogeneous side) pointing to member
-        assert!(map.neighbors(group.uuid()).is_empty());
-    }
-
-    #[test]
-    fn test_homo_add_is_idempotent() {
-        let mut map = RawEdgeMap::default();
-        let member = rid_a(10);
-        let group = rid_a(20);
-        map.add_homo(member, group);
-        map.add_homo(member, group);
-
-        assert_eq!(map.neighbors(member.uuid()).len(), 1);
-        assert_eq!(map.homo_reverse(group.uuid()).len(), 1);
+        // Forward: member's FIELD_A1 contains group reference
+        assert_eq!(map.neighbors_for_field(nnu(10), fid_a1()), &[fn_a2(20)]);
+        // Reverse: group's FIELD_A2 contains member reference
+        assert_eq!(map.neighbors_for_field(nnu(20), fid_a2()), &[fn_a1(10)]);
+        // FIELD_A2 on member is empty (not involved in this edge)
+        assert!(map.neighbors_for_field(nnu(10), fid_a2()).is_empty());
+        // FIELD_A1 on group is empty (not involved in this edge)
+        assert!(map.neighbors_for_field(nnu(20), fid_a1()).is_empty());
     }
 
     #[test]
-    fn test_homo_remove_clears_both_sides() {
+    fn test_homo_edge_multiple_members_same_group() {
         let mut map = RawEdgeMap::default();
-        let member = rid_a(10);
-        let group = rid_a(20);
-        map.add_homo(member, group);
-        map.remove_homo(member.uuid(), group.uuid());
+        map.add_edge(fn_a1(1), fn_a2(100));
+        map.add_edge(fn_a1(2), fn_a2(100));
 
-        assert!(map.neighbors(member.uuid()).is_empty());
-        assert!(map.homo_reverse(group.uuid()).is_empty());
+        // Group's reverse list contains both members
+        let members = map.neighbors_for_field(nnu(100), fid_a2());
+        assert_eq!(members.len(), 2);
+        assert!(members.contains(&fn_a1(1)));
+        assert!(members.contains(&fn_a1(2)));
     }
 
-    #[test]
-    fn test_homo_remove_noop_when_absent() {
-        let mut map = RawEdgeMap::default();
-        map.remove_homo(nnu(10), nnu(20)); // should not panic
-    }
-
-    // ── Coexistence: heterogeneous + homogeneous on same entity ──────────────
+    // ── Coexistence: het + homo on same entity UUID ──────────────────────────
 
     #[test]
     fn test_het_and_homo_coexist_on_same_uuid() {
         let mut map = RawEdgeMap::default();
-        let presenter = rid_a(1);
-        let panel = rid_b(2);
-        let group = rid_a(3);
+        // Presenter (FIELD_A1) ↔ Panel (FIELD_B1) — heterogeneous
+        map.add_edge(fn_a1(1), fn_b1(2));
+        // Presenter (FIELD_A2) → Group (FIELD_A2 on group) — homogeneous
+        map.add_edge(fn_a2(1), fn_a2(3));
 
-        map.add_het(presenter, panel); // heterogeneous: presenter ↔ panel
-        map.add_homo(presenter, group); // homogeneous: presenter → group
-
-        let neighbors = map.neighbors(presenter.uuid());
-        assert_eq!(neighbors.len(), 2);
-        // Filter by type_name to distinguish
-        let panels: Vec<_> = neighbors
-            .iter()
-            .filter(|r| r.type_name() == TypeB::TYPE_NAME)
-            .collect();
-        let groups: Vec<_> = neighbors
-            .iter()
-            .filter(|r| r.type_name() == TypeA::TYPE_NAME)
-            .collect();
-        assert_eq!(panels.len(), 1);
-        assert_eq!(groups.len(), 1);
-        // group appears in homo_reverse
-        assert_eq!(map.homo_reverse(group.uuid()), &[presenter]);
+        // entity 1's FIELD_A1 has the panel
+        assert_eq!(map.neighbors_for_field(nnu(1), fid_a1()), &[fn_b1(2)]);
+        // entity 1's FIELD_A2 has the group
+        assert_eq!(map.neighbors_for_field(nnu(1), fid_a2()), &[fn_a2(3)]);
+        // panel's FIELD_B1 has the presenter back-link
+        assert_eq!(map.neighbors_for_field(nnu(2), fid_b1()), &[fn_a1(1)]);
+        // group's FIELD_A2 has the presenter back-link
+        assert_eq!(map.neighbors_for_field(nnu(3), fid_a2()), &[fn_a2(1)]);
     }
 
-    // ── set_neighbors tests ──────────────────────────────────────────────────
+    // ── remove_edge ──────────────────────────────────────────────────────────
 
     #[test]
-    fn test_set_neighbors_het_replaces_matching_type() {
+    fn test_remove_edge_clears_both_directions() {
         let mut map = RawEdgeMap::default();
-        let a = rid_a(1);
-        let b1 = rid_b(10);
-        let b2 = rid_b(11);
-        let b3 = rid_b(12);
-        map.add_het(a, b1);
-        map.add_het(a, b2);
+        map.add_edge(fn_a1(1), fn_b1(2));
+        map.remove_edge(fn_a1(1), fn_b1(2));
 
-        map.set_neighbors(a, &[b3], TypeB::TYPE_NAME, false);
+        assert!(map.neighbors_for_field(nnu(1), fid_a1()).is_empty());
+        assert!(map.neighbors_for_field(nnu(2), fid_b1()).is_empty());
+    }
 
-        let neighbors = map.neighbors(a.uuid());
+    #[test]
+    fn test_remove_edge_noop_when_absent() {
+        let mut map = RawEdgeMap::default();
+        map.remove_edge(fn_a1(1), fn_b1(2)); // must not panic
+    }
+
+    #[test]
+    fn test_remove_edge_leaves_other_edges_intact() {
+        let mut map = RawEdgeMap::default();
+        map.add_edge(fn_a1(1), fn_b1(10));
+        map.add_edge(fn_a1(1), fn_b1(11));
+        map.remove_edge(fn_a1(1), fn_b1(10));
+
+        let neighbors = map.neighbors_for_field(nnu(1), fid_a1());
         assert_eq!(neighbors.len(), 1);
-        assert_eq!(neighbors[0].uuid(), b3.uuid());
-        // Old neighbors no longer point back
-        assert!(map.neighbors(b1.uuid()).is_empty());
-        assert!(map.neighbors(b2.uuid()).is_empty());
-        assert!(map
-            .neighbors(b3.uuid())
-            .iter()
-            .any(|r| r.uuid() == a.uuid()));
+        assert!(neighbors.contains(&fn_b1(11)));
+        assert!(map.neighbors_for_field(nnu(10), fid_b1()).is_empty());
+        assert_eq!(map.neighbors_for_field(nnu(11), fid_b1()), &[fn_a1(1)]);
     }
 
+    // ── set_field_neighbors ──────────────────────────────────────────────────
+
     #[test]
-    fn test_set_neighbors_het_preserves_other_types() {
+    fn test_set_field_neighbors_replaces_and_patches_reverse() {
         let mut map = RawEdgeMap::default();
-        let a = rid_a(1);
-        let b = rid_b(10);
-        let a2 = rid_a(2); // same type as a
-        map.add_het(a, b);
-        map.add_het(a, a2); // heterogeneous edge to another TypeA
+        map.add_edge(fn_a1(1), fn_b1(10));
+        map.add_edge(fn_a1(1), fn_b1(11));
 
-        // Replace only TypeB neighbors
-        map.set_neighbors(a, &[], TypeB::TYPE_NAME, false);
+        map.set_field_neighbors(fn_a1(1), vec![fn_b1(12)]);
 
-        let neighbors = map.neighbors(a.uuid());
+        let neighbors = map.neighbors_for_field(nnu(1), fid_a1());
         assert_eq!(neighbors.len(), 1);
-        assert_eq!(neighbors[0].uuid(), a2.uuid());
+        assert!(neighbors.contains(&fn_b1(12)));
+        // old targets no longer point back
+        assert!(map.neighbors_for_field(nnu(10), fid_b1()).is_empty());
+        assert!(map.neighbors_for_field(nnu(11), fid_b1()).is_empty());
+        // new target points back
+        assert_eq!(map.neighbors_for_field(nnu(12), fid_b1()), &[fn_a1(1)]);
     }
 
     #[test]
-    fn test_set_neighbors_homo_replaces_matching_type() {
+    fn test_set_field_neighbors_to_empty_clears_all() {
         let mut map = RawEdgeMap::default();
-        let member = rid_a(1);
-        let g1 = rid_a(10);
-        let g2 = rid_a(11);
-        map.add_homo(member, g1);
+        map.add_edge(fn_a1(1), fn_b1(10));
+        map.set_field_neighbors(fn_a1(1), vec![]);
 
-        map.set_neighbors(member, &[g2], TypeA::TYPE_NAME, true);
-
-        assert_eq!(map.neighbors(member.uuid()).len(), 1);
-        assert_eq!(map.neighbors(member.uuid())[0].uuid(), g2.uuid());
-        assert!(map.homo_reverse(g1.uuid()).is_empty());
-        assert_eq!(map.homo_reverse(g2.uuid()), &[member]);
+        assert!(map.neighbors_for_field(nnu(1), fid_a1()).is_empty());
+        assert!(map.neighbors_for_field(nnu(10), fid_b1()).is_empty());
     }
 
-    // ── clear_all tests ──────────────────────────────────────────────────────
+    #[test]
+    fn test_set_field_neighbors_preserves_other_fields() {
+        let mut map = RawEdgeMap::default();
+        // entity 1 has FIELD_A1 edge to b1(10) and FIELD_A2 edge to a2(20)
+        map.add_edge(fn_a1(1), fn_b1(10));
+        map.add_edge(fn_a2(1), fn_a2(20));
+
+        // Only replace the FIELD_A1 neighbors
+        map.set_field_neighbors(fn_a1(1), vec![fn_b1(11)]);
+
+        assert_eq!(map.neighbors_for_field(nnu(1), fid_a1()), &[fn_b1(11)]);
+        // FIELD_A2 neighbors unchanged
+        assert_eq!(map.neighbors_for_field(nnu(1), fid_a2()), &[fn_a2(20)]);
+    }
+
+    // ── clear_all ────────────────────────────────────────────────────────────
 
     #[test]
     fn test_clear_all_removes_het_edges_from_neighbors() {
         let mut map = RawEdgeMap::default();
-        let a = rid_a(1);
-        let b = rid_b(2);
-        map.add_het(a, b);
+        map.add_edge(fn_a1(1), fn_b1(2));
+        map.clear_all(nnu(1));
 
-        map.clear_all(a.uuid(), TypeA::TYPE_NAME);
-
-        assert!(map.neighbors(a.uuid()).is_empty());
-        assert!(map.neighbors(b.uuid()).is_empty());
+        assert!(map.neighbors_for_field(nnu(1), fid_a1()).is_empty());
+        assert!(map.neighbors_for_field(nnu(2), fid_b1()).is_empty());
     }
 
     #[test]
-    fn test_clear_all_removes_homo_forward_from_homo_reverse() {
+    fn test_clear_all_removes_homo_edges_from_both_directions() {
         let mut map = RawEdgeMap::default();
-        let member = rid_a(1);
-        let group = rid_a(2);
-        map.add_homo(member, group);
+        // member → group
+        map.add_edge(fn_a1(10), fn_a2(20));
+        map.clear_all(nnu(10));
 
-        map.clear_all(member.uuid(), TypeA::TYPE_NAME);
-
-        assert!(map.neighbors(member.uuid()).is_empty());
-        assert!(map.homo_reverse(group.uuid()).is_empty());
+        assert!(map.neighbors_for_field(nnu(10), fid_a1()).is_empty());
+        // group's reverse entry cleaned up
+        assert!(map.neighbors_for_field(nnu(20), fid_a2()).is_empty());
     }
 
     #[test]
-    fn test_clear_all_removes_homo_reverse_from_edges() {
+    fn test_clear_all_target_side_cleans_up_source() {
         let mut map = RawEdgeMap::default();
-        let member = rid_a(1);
-        let group = rid_a(2);
-        map.add_homo(member, group);
+        map.add_edge(fn_a1(10), fn_a2(20));
+        map.clear_all(nnu(20));
 
-        map.clear_all(group.uuid(), TypeA::TYPE_NAME);
-
-        assert!(map.homo_reverse(group.uuid()).is_empty());
-        assert!(map.neighbors(member.uuid()).is_empty());
+        assert!(map.neighbors_for_field(nnu(20), fid_a2()).is_empty());
+        // member's forward entry cleaned up
+        assert!(map.neighbors_for_field(nnu(10), fid_a1()).is_empty());
     }
 
     #[test]
-    fn test_clear_all_mixed_het_and_homo() {
+    fn test_clear_all_mixed_fields() {
         let mut map = RawEdgeMap::default();
-        let presenter = rid_a(1);
-        let panel = rid_b(2);
-        let group = rid_a(3);
-        map.add_het(presenter, panel);
-        map.add_homo(presenter, group);
+        map.add_edge(fn_a1(1), fn_b1(2));
+        map.add_edge(fn_a2(1), fn_a2(3));
+        map.clear_all(nnu(1));
 
-        map.clear_all(presenter.uuid(), TypeA::TYPE_NAME);
-
-        assert!(map.neighbors(presenter.uuid()).is_empty());
-        assert!(map.homo_reverse(presenter.uuid()).is_empty());
-        assert!(map.neighbors(panel.uuid()).is_empty());
-        assert!(map.homo_reverse(group.uuid()).is_empty());
+        assert!(map.neighbors_for_field(nnu(1), fid_a1()).is_empty());
+        assert!(map.neighbors_for_field(nnu(1), fid_a2()).is_empty());
+        assert!(map.neighbors_for_field(nnu(2), fid_b1()).is_empty());
+        assert!(map.neighbors_for_field(nnu(3), fid_a2()).is_empty());
     }
 
     #[test]
     fn test_clear_all_noop_when_absent() {
         let mut map = RawEdgeMap::default();
-        map.clear_all(nnu(99), "type_a"); // should not panic
+        map.clear_all(nnu(99)); // must not panic
+    }
+
+    // ── neighbors_for_field returns empty for unknown uuid/field ─────────────
+
+    #[test]
+    fn test_neighbors_for_field_unknown_uuid() {
+        let map = RawEdgeMap::default();
+        assert!(map.neighbors_for_field(nnu(1), fid_a1()).is_empty());
+    }
+
+    #[test]
+    fn test_neighbors_for_field_wrong_field_on_known_uuid() {
+        let mut map = RawEdgeMap::default();
+        map.add_edge(fn_a1(1), fn_b1(2));
+        // Query FIELD_A2 on entity 1, which has only FIELD_A1 edges
+        assert!(map.neighbors_for_field(nnu(1), fid_a2()).is_empty());
     }
 
     // ── Reverse-index consistency ────────────────────────────────────────────
 
     #[test]
-    fn test_homo_reverse_is_consistent_after_multiple_adds() {
+    fn test_reverse_consistent_after_multiple_adds() {
         let mut map = RawEdgeMap::default();
-        let m1 = rid_a(1);
-        let m2 = rid_a(2);
-        let g = rid_a(10);
-        map.add_homo(m1, g);
-        map.add_homo(m2, g);
+        map.add_edge(fn_a1(1), fn_a2(100));
+        map.add_edge(fn_a1(2), fn_a2(100));
+        map.add_edge(fn_a1(3), fn_a2(100));
 
-        let members = map.homo_reverse(g.uuid());
-        assert_eq!(members.len(), 2);
-        assert!(members.iter().any(|r| r.uuid() == m1.uuid()));
-        assert!(members.iter().any(|r| r.uuid() == m2.uuid()));
+        let members = map.neighbors_for_field(nnu(100), fid_a2());
+        assert_eq!(members.len(), 3);
+        assert!(members.contains(&fn_a1(1)));
+        assert!(members.contains(&fn_a1(2)));
+        assert!(members.contains(&fn_a1(3)));
     }
 
     #[test]
-    fn test_homo_reverse_empty_after_all_members_removed() {
+    fn test_reverse_empty_after_all_members_removed() {
         let mut map = RawEdgeMap::default();
-        let m1 = rid_a(1);
-        let m2 = rid_a(2);
-        let g = rid_a(10);
-        map.add_homo(m1, g);
-        map.add_homo(m2, g);
-        map.remove_homo(m1.uuid(), g.uuid());
-        map.remove_homo(m2.uuid(), g.uuid());
+        map.add_edge(fn_a1(1), fn_a2(100));
+        map.add_edge(fn_a1(2), fn_a2(100));
+        map.remove_edge(fn_a1(1), fn_a2(100));
+        map.remove_edge(fn_a1(2), fn_a2(100));
 
-        assert!(map.homo_reverse(g.uuid()).is_empty());
+        assert!(map.neighbors_for_field(nnu(100), fid_a2()).is_empty());
     }
 }

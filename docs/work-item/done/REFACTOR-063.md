@@ -7,7 +7,7 @@ eliminating the `homogeneous_reverse` special case.
 
 ## Status
 
-Open
+Completed
 
 ## Priority
 

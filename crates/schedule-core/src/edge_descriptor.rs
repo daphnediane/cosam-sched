@@ -33,6 +33,7 @@
 //! canonical-owner lookup all derive from `all_edge_descriptors()` automatically.
 
 use crate::field::FieldDescriptorAny;
+use crate::field_node_id::FieldId;
 use std::fmt;
 
 // ── Per-edge field metadata (kept until FEATURE-065 removes credited) ─────────
@@ -160,4 +161,52 @@ inventory::collect!(CollectedEdge);
 /// Replaces the removed `ALL_EDGE_DESCRIPTORS` static slice.
 pub fn all_edge_descriptors() -> impl Iterator<Item = &'static EdgeDescriptor> {
     inventory::iter::<CollectedEdge>().map(|ce| ce.0)
+}
+
+// ── Edge field resolution ─────────────────────────────────────────────────────
+
+/// Resolved field IDs and transitive flag for an `(l_type, r_type)` edge pair.
+///
+/// Returned by [`resolve_edge_fields`] for use in [`crate::edge_map::RawEdgeMap`]
+/// operations that need typed field addresses rather than entity type names.
+#[derive(Debug, Clone, Copy)]
+pub struct EdgeFieldResolution {
+    /// [`FieldId`] of the field on the `l_type` entity for this relationship.
+    pub l_field_id: FieldId,
+    /// [`FieldId`] of the field on the `r_type` entity for this relationship.
+    pub r_field_id: FieldId,
+    /// `true` when the relationship supports transitive-closure queries
+    /// (see [`EdgeDescriptor::is_transitive`]).
+    pub is_transitive: bool,
+}
+
+/// Resolve field IDs and transitive flag for the edge between `l_type` and `r_type`.
+///
+/// Searches [`all_edge_descriptors`] for a descriptor whose endpoints match the
+/// given pair in either direction.  Returns `None` if no matching edge exists.
+///
+/// When `l_type == r_type` (homogeneous edge), the `owner` side of the descriptor
+/// becomes the L-field and the `target` side becomes the R-field (i.e. the first
+/// matching descriptor in iteration order is used — there must be exactly one).
+#[must_use]
+pub fn resolve_edge_fields(l_type: &str, r_type: &str) -> Option<EdgeFieldResolution> {
+    for desc in all_edge_descriptors() {
+        if desc.owner_type() == l_type && desc.target_type() == r_type {
+            return Some(EdgeFieldResolution {
+                l_field_id: desc.owner_field.field_id(),
+                r_field_id: desc.target_field.field_id(),
+                is_transitive: desc.is_transitive,
+            });
+        }
+        // For heterogeneous edges only: also match the reversed direction.
+        // Homogeneous edges (same type on both sides) only match the first branch.
+        if !desc.is_homogeneous() && desc.target_type() == l_type && desc.owner_type() == r_type {
+            return Some(EdgeFieldResolution {
+                l_field_id: desc.target_field.field_id(),
+                r_field_id: desc.owner_field.field_id(),
+                is_transitive: desc.is_transitive,
+            });
+        }
+    }
+    None
 }

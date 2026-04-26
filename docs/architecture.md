@@ -105,28 +105,35 @@ using the `EntityType::InternalData` associated type.
 
 All entity relationships are stored in a single `RawEdgeMap` on `Schedule`.
 
-`RawEdgeMap` has two fields:
+`RawEdgeMap` uses a nested structure:
 
-- **`edges`** — `HashMap<NonNilUuid, Vec<RuntimeEntityId>>`: for *heterogeneous* edges
-  (different entity types, e.g. Panel → Presenter), both endpoints store each other
-  here, making the relationship undirected at the storage level. For *homogeneous*
-  edges (same entity type, e.g. Presenter → Presenter groups), forward edges are
-  also stored here.
-- **`homogeneous_reverse`** — `HashMap<NonNilUuid, Vec<RuntimeEntityId>>`: reverse
-  side of homogeneous edges only. Needed to avoid ambiguity: a Presenter UUID in
-  `edges` might be both a het back-link (panel) and a homo forward-link (group).
+```text
+HashMap<NonNilUuid,          // outer key: entity UUID
+    HashMap<FieldId,         // inner key: which field on that entity
+        Vec<FieldNodeId>>>   // values: (field, uuid) of the other side
+```
 
-`Schedule` exposes typed generic methods that wrap/unwrap `RuntimeEntityId` ↔
-`EntityId<E>`:
+A `FieldId` is derived from the address of the `&'static FieldDescriptor<E>` singleton for
+a given field, making it globally unique and stable.  A `FieldNodeId` pairs a `FieldId` with
+a `NonNilUuid` to represent "entity X's field Y" as an edge endpoint.
+
+Both directions of every edge are stored symmetrically in the same map.  Homogeneous
+(same-type) and heterogeneous (different-type) edges are treated identically — no separate
+`homogeneous_reverse` map is needed because each endpoint's field is self-describing.
+
+`Schedule` exposes typed generic methods:
 
 - `edges_from::<L, R>(id)` — R entities reachable from `id` via L→R edge
 - `edges_to::<L, R>(id)` — L entities pointing to `id`
 - `edge_add` / `edge_remove` / `edge_set` — mutators
-- `edge_set_to` — reverse-direction bulk set (used for homo reverse fields like `members`)
+- `edge_set_to` — reverse-direction bulk set (used for transitive-edge reverse fields like `members`)
 - `edge_get_bool::<L, R>(l, r, field)` — read a per-edge boolean flag (defaults to `true` if unset)
 - `edge_set_bool::<L, R>(l, r, field, value)` — write a per-edge boolean flag
 
-Het vs homo is determined at runtime by `TypeId::of::<L::InternalData>() == TypeId::of::<R::InternalData>()`.
+Field IDs for a given `(L::TYPE_NAME, R::TYPE_NAME)` pair are resolved at call time
+via `edge_descriptor::resolve_edge_fields`, which searches the inventory-registered
+`EdgeDescriptor`s.  Transitive (formerly homogeneous) edge mutations also invalidate
+the `HomoEdgeCache`.
 
 ### Per-Edge Metadata
 

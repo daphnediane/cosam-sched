@@ -1,6 +1,6 @@
 # Cosplay America Schedule - Work Item
 
-Updated on: Sat Apr 25 20:10:25 2026
+Updated on: Sat Apr 25 20:40:27 2026
 
 ## Completed
 
@@ -67,12 +67,14 @@ from credits without hiding all credits for the panel.
 the foundation for the FieldNodeId-based edge system.
 * [REFACTOR-062] Replace string-based `EdgeDescriptor` fields with `&'static dyn FieldDescriptorAny` references
 and move EdgeDescriptor registration to `inventory`.
+* [REFACTOR-063] Replace the two-map `RawEdgeMap` with a nested `HashMap<NonNilUuid, HashMap<FieldId, Vec<FieldNodeId>>>`,
+eliminating the `homogeneous_reverse` special case.
 
 ---
 
 ## Summary of Open Items
 
-**Total open items:** 21
+**Total open items:** 20
 
 * **Meta / Project-Level**
   * [META-001] Meta work item tracking the full multi-phase redesign of the schedule system. (Blocked by [META-005], [META-006], [META-007], [META-008])
@@ -86,8 +88,6 @@ XLSX import/export. (Blocked by [META-004])
   * [FEATURE-065] Convert `credited_presenters` and `uncredited_presenters` on Panel from computed/derived fields
 into actual edge storage fields, eliminating the `credited` per-edge boolean and its CRDT
 `presenters_meta` map.
-  * [REFACTOR-063] Replace the two-map `RawEdgeMap` with a nested `HashMap<NonNilUuid, HashMap<FieldId, Vec<FieldNodeId>>>`,
-eliminating the `homogeneous_reverse` special case.
   * [REFACTOR-064] Adapt `schedule.rs`, `edge_crdt.rs`, and `edge_cache.rs` to use the new FieldNodeId-based
 `RawEdgeMap`, replacing type-parameter-based edge lookups with field-based lookups.
 
@@ -509,40 +509,6 @@ to exchange CRDT changes and reconcile concurrent edits to the same fields.
 
 ## Open REFACTOR Items
 
-### [REFACTOR-063] REFACTOR-063: Redesign RawEdgeMap with FieldNodeId storage
-
-**Status:** Open
-
-**Priority:** High
-
-**Summary:** Replace the two-map `RawEdgeMap` with a nested `HashMap<NonNilUuid, HashMap<FieldId, Vec<FieldNodeId>>>`,
-eliminating the `homogeneous_reverse` special case.
-
-**Blocked By:** [REFACTOR-061], [REFACTOR-062]
-
-**Description:** This is Phase 3 of the FieldNodeId edge system refactor.
-
-New `RawEdgeMap` structure:
-
-```text
-HashMap<NonNilUuid, HashMap<FieldId, Vec<FieldNodeId>>>
-```
-
-* Outer key: entity UUID
-* Inner key: FieldId (which field on that entity)
-* Values: `FieldNodeId` pairs for the other side of each edge
-
-Both directions of every edge are stored symmetrically. Homogeneous and heterogeneous edges are
-treated identically — no `homogeneous_reverse` needed.
-
-New public API: `add_edge`, `remove_edge`, `set_field_neighbors`, `neighbors_for_field`,
-`clear_all`. Remove: `add_het`, `remove_het`, `add_homo`, `remove_homo`, `set_neighbors`,
-`neighbors`, `homo_reverse`.
-
-Full test suite rewrite for all operations and `clear_all` consistency.
-
----
-
 ### [REFACTOR-064] REFACTOR-064: Update Schedule edge APIs for FieldNodeId
 
 **Status:** Open
@@ -650,5 +616,5 @@ This item covers any remaining integration work and documentation.
 [REFACTOR-060]: work-item/done/REFACTOR-060.md
 [REFACTOR-061]: work-item/done/REFACTOR-061.md
 [REFACTOR-062]: work-item/done/REFACTOR-062.md
-[REFACTOR-063]: work-item/high/REFACTOR-063.md
+[REFACTOR-063]: work-item/done/REFACTOR-063.md
 [REFACTOR-064]: work-item/high/REFACTOR-064.md
