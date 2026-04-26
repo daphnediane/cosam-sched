@@ -36,3 +36,9 @@ Replace `ALL_EDGE_DESCRIPTORS` static slice with inventory:
 Update all `const EDGE_*` declarations in `panel.rs`, `presenter.rs`, `event_room.rs`.
 Split `EDGE_PRESENTERS` into `EDGE_CREDITED_PRESENTERS` + `EDGE_UNCREDITED_PRESENTERS`
 (both with `target_field = &PresenterEntityType::FIELD_PANELS`).
+
+## Follow-up
+
+In REFACTOR-066, `FieldDescriptorAny` was merged into `NamedField`. `EdgeDescriptor` now uses
+`&'static dyn NamedField` instead of `&'static dyn FieldDescriptorAny`, eliminating the
+redundant trait layer.

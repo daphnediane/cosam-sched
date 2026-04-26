@@ -1000,11 +1000,11 @@ impl Schedule {
         };
         let old_lefts = self.edges_to::<L, R>(r);
         let r_node = FieldNodeId::new(res.r_field_id, r.non_nil_uuid());
-        for l in old_lefts.iter().copied() {
+        for l in old_lefts.iter() {
             let l_node = FieldNodeId::new(res.l_field_id, l.non_nil_uuid());
             self.edges.remove_edge(l_node, r_node);
         }
-        for l in lefts.iter().copied() {
+        for l in lefts.iter() {
             let l_node = FieldNodeId::new(res.l_field_id, l.non_nil_uuid());
             self.edges.add_edge(l_node, r_node);
         }

@@ -192,14 +192,6 @@ pub type EntityBuildFn = fn(
     &[(&'static str, crate::value::FieldValue)],
 ) -> Result<NonNilUuid, crate::builder::BuildError>;
 
-/// Inventory collection wrapper for per-entity-type field descriptor registration.
-///
-/// Each entity type module declares `inventory::collect!(CollectedField<XxxEntityType>)`.
-/// Field macros (and hand-written descriptors) submit via
-/// `inventory::submit! { CollectedField::<XxxEntityType>(&FIELD_NAME) }`.
-/// [`FieldSet::from_inventory`] iterates the resulting collection.
-pub struct CollectedField<E: EntityType>(pub &'static crate::field::FieldDescriptor<E>);
-
 /// Type-erased entity type descriptor, registered globally via `inventory`.
 ///
 /// Each concrete entity type impl block submits one of these. Use

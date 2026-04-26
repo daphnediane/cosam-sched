@@ -60,10 +60,12 @@ See `field-system.md#builder-system` for details.
 ### Inventory-based field registration
 
 Field descriptors self-register globally via the `inventory` crate. Each field
-macro and hand-written descriptor submits a `CollectedField<E>` entry containing
-a reference to the static `FieldDescriptor<E>`. The `FieldSet::from_inventory()`
-constructor collects all submitted fields for an entity type, sorts them by the
-`order: u32` field for stable iteration order, and builds the lookup maps.
+macro and hand-written descriptor submits a `CollectedNamedField` entry containing
+a `&'static dyn NamedField` reference to the static `FieldDescriptor<E>`. The
+`FieldSet::from_inventory()` constructor filters the global registry by entity type
+name, downcasts each match to the concrete `FieldDescriptor<E>` type via
+`std::any::Any::downcast_ref`, sorts them by the `order: u32` field for stable
+iteration order, and builds the lookup maps.
 
 This eliminates manual `FieldSet::new(&[...])` lists and prevents accidentally
 omitting fields from the registry. Hand-written descriptors use the
@@ -113,7 +115,7 @@ HashMap<NonNilUuid,          // outer key: entity UUID
         Vec<FieldNodeId>>>   // values: (field, uuid) of the other side
 ```
 
-A `FieldId` is derived from the address of the `&'static FieldDescriptor<E>` singleton for
+A `FieldId` is derived from the address of the `&'static dyn NamedField` singleton for
 a given field, making it globally unique and stable.  A `FieldNodeId` pairs a `FieldId` with
 a `NonNilUuid` to represent "entity X's field Y" as an edge endpoint.
 

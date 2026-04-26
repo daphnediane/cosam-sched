@@ -30,3 +30,11 @@ This is Phase 1 of the FieldNodeId edge system refactor. Introduces:
 - Create `field_node_id.rs` with `FieldId`, `FieldNodeId`, and helper `FieldNodeId::of::<E>()`.
 - Re-export from `lib.rs`.
 - Full `#[cfg(test)]` coverage: round-trip equality, hash consistency, `FieldId::of` identity.
+
+## Follow-up
+
+In REFACTOR-066, `FieldDescriptorAny` was merged into `NamedField` (the `field_id()` and
+`entity_type_name()` methods were moved to `NamedField`, eliminating the redundant trait layer).
+`FieldId::of()` was also changed from `&'static FieldDescriptor<E>` to `&'static dyn NamedField`,
+and `FieldId::as_named_field()` and `FieldId::try_as_descriptor<E>()` were added for
+safe round-trip conversions.

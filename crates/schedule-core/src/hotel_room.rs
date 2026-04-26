@@ -156,7 +156,6 @@ inventory::submit! {
         },
     }
 }
-inventory::collect!(crate::entity::CollectedField<HotelRoomEntityType>);
 
 // ── EntityBuildable ─────────────────────────────────────────────────────────────
 

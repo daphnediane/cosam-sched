@@ -404,7 +404,6 @@ inventory::submit! {
         },
     }
 }
-inventory::collect!(crate::entity::CollectedField<PresenterEntityType>);
 
 // ── EntityBuildable ─────────────────────────────────────────────────────────────
 

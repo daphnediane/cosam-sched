@@ -28,3 +28,11 @@ manual `FieldSet::new(&[...])` lists to inventory-based self-registration.
   `inventory::submit! { CollectedField::<$entity>(&$static_name) }`
 - Update `field_set.rs` test mock fields to include `order:` values
 - Keep `FieldSet::new()` public for tests
+
+## Follow-up
+
+In REFACTOR-066 (FieldId conversions refactor), `CollectedField<E>` was removed
+and replaced with a single global `CollectedNamedField` registry. Field descriptors
+now submit `&'static dyn NamedField` to the global registry, and `FieldSet::from_inventory`
+filters by entity type name and uses `std::any::Any::downcast_ref` for type-safe
+conversion to `&'static FieldDescriptor<E>`.

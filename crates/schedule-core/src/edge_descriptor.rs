@@ -15,7 +15,7 @@
 //!
 //! ## Relationship between fields and edges
 //!
-//! Every edge has two [`crate::field::FieldDescriptorAny`] endpoints:
+//! Every edge has two [`crate::field::NamedField`] endpoints:
 //!
 //! - `owner_field`: the field on the CRDT-canonical owner entity (e.g.
 //!   `Panel::FIELD_PRESENTERS`).  `owner_field.name()` is the CRDT list field
@@ -32,7 +32,7 @@
 //! That is the only change required.  The CRDT mirror, load path, and
 //! canonical-owner lookup all derive from `all_edge_descriptors()` automatically.
 
-use crate::field::FieldDescriptorAny;
+use crate::field::NamedField;
 use crate::field_node_id::FieldId;
 use std::fmt;
 
@@ -79,13 +79,13 @@ pub struct EdgeDescriptor {
     ///
     /// - `owner_field.name()` — CRDT list field name (e.g. `"presenters"`)
     /// - `owner_field.entity_type_name()` — canonical owner entity type name
-    pub owner_field: &'static dyn FieldDescriptorAny,
+    pub owner_field: &'static dyn NamedField,
 
     /// Field on the inverse (non-owner) side.
     ///
     /// - `target_field.name()` — inverse field name (e.g. `"panels"`)
     /// - `target_field.entity_type_name()` — target entity type name
-    pub target_field: &'static dyn FieldDescriptorAny,
+    pub target_field: &'static dyn NamedField,
 
     /// `true` for transitive (hierarchical) relationships whose reachability
     /// is computed by [`crate::edge_cache::TransitiveEdgeCache`].

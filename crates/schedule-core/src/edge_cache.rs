@@ -102,7 +102,7 @@ fn transitive_neighbors(
 mod tests {
     use super::*;
     use crate::entity::EntityType;
-    use crate::field::{FieldDescriptor, FieldDescriptorAny};
+    use crate::field::FieldDescriptor;
     use crate::field_node_id::FieldNodeId;
     use crate::field_set::FieldSet;
     use crate::value::{
@@ -166,10 +166,10 @@ mod tests {
     };
 
     fn fwd() -> FieldId {
-        FieldId::of::<TypeA>(&FIELD_FWD)
+        FieldId::of(&FIELD_FWD)
     }
     fn rev() -> FieldId {
-        FieldId::of::<TypeA>(&FIELD_REV)
+        FieldId::of(&FIELD_REV)
     }
 
     fn nnu(n: u128) -> NonNilUuid {

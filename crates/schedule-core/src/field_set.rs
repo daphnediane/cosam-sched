@@ -34,7 +34,7 @@
 //! field with canonical name `"kind"` whose spreadsheet header is `"PanelKind"`
 //! should include `"Panel_Kind"` in its `aliases` list.
 
-use crate::entity::{CollectedField, EntityType};
+use crate::entity::EntityType;
 use crate::field::{FieldDescriptor, ReadableField, VerifiableField, WritableField};
 use crate::schedule::Schedule;
 use crate::value::{CrdtFieldType, FieldError, FieldValue, IntoFieldValue, VerificationError};
@@ -147,22 +147,23 @@ pub struct FieldSet<E: EntityType> {
 }
 
 impl<E: EntityType> FieldSet<E> {
-    /// Build a `FieldSet` from all [`CollectedField<E>`] entries submitted via
-    /// `inventory::submit!`.  Fields are sorted by [`FieldDescriptor::order`]
-    /// (ascending) before the lookup map is built.
+    /// Build a `FieldSet` from all field descriptors submitted via the global
+    /// [`crate::field::CollectedNamedField`] registry. Fields are sorted by
+    /// [`FieldDescriptor::order`] (ascending) before the lookup map is built.
     ///
-    /// Each entity type module must declare `inventory::collect!(CollectedField<E>)`,
-    /// and every field for that type must emit
-    /// `inventory::submit! { CollectedField::<E>(&STATIC_FIELD) }`.
+    /// Filters the global registry for fields where `entity_type_name() == E::TYPE_NAME`,
+    /// then downcasts each match to the concrete type via [`std::any::Any::downcast_ref`].
+    /// This is called in a `LazyLock`, so the O(n) scan and type-checked conversions
+    /// only happen once per entity type.
     #[must_use]
-    pub fn from_inventory() -> Self
-    where
-        CollectedField<E>: inventory::Collect,
-    {
-        let mut descriptors: Vec<&'static FieldDescriptor<E>> =
-            inventory::iter::<CollectedField<E>>()
-                .map(|cf| cf.0)
-                .collect();
+    pub fn from_inventory() -> Self {
+        use crate::field::all_named_fields;
+        use std::any::Any;
+
+        let mut descriptors: Vec<&'static FieldDescriptor<E>> = all_named_fields()
+            .filter(|f| f.0.entity_type_name() == E::TYPE_NAME)
+            .filter_map(|f| (f.0 as &dyn Any).downcast_ref::<FieldDescriptor<E>>())
+            .collect();
         descriptors.sort_by_key(|d| d.order);
         Self::from_slice(&descriptors)
     }

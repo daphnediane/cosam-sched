@@ -180,7 +180,7 @@ impl RawEdgeMap {
 mod tests {
     use super::*;
     use crate::entity::EntityType;
-    use crate::field::{FieldDescriptor, FieldDescriptorAny};
+    use crate::field::FieldDescriptor;
     use crate::field_set::FieldSet;
     use crate::value::{
         CrdtFieldType, FieldCardinality, FieldType, FieldTypeItem, ValidationError,
@@ -283,13 +283,13 @@ mod tests {
     };
 
     fn fid_a1() -> FieldId {
-        FieldId::of::<TypeA>(&FIELD_A1)
+        FieldId::of(&FIELD_A1)
     }
     fn fid_a2() -> FieldId {
-        FieldId::of::<TypeA>(&FIELD_A2)
+        FieldId::of(&FIELD_A2)
     }
     fn fid_b1() -> FieldId {
-        FieldId::of::<TypeB>(&FIELD_B1)
+        FieldId::of(&FIELD_B1)
     }
 
     fn fn_a1(n: u128) -> FieldNodeId {

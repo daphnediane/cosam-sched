@@ -411,18 +411,37 @@ Field descriptors self-register globally via the `inventory` crate. This elimina
 manual `FieldSet::new(&[...])` lists and prevents accidentally omitting fields from
 the registry.
 
-**CollectedField\<E\>** - Inventory wrapper for field descriptors:
+**CollectedNamedField** - Global inventory wrapper for field descriptors:
 
 ```rust
-pub struct CollectedField<E: EntityType>(pub &'static FieldDescriptor<E>);
+pub struct CollectedNamedField(pub &'static dyn NamedField);
 ```
 
-Each entity type module declares `inventory::collect!(CollectedField<XxxEntityType>)`.
-Field macros and hand-written descriptors submit via:
+Field macros and hand-written descriptors submit to the global registry via:
 
 ```rust
-inventory::submit! { CollectedField::<XxxEntityType>(&FIELD_NAME) }
+inventory::submit! { CollectedNamedField(&FIELD_NAME) }
 ```
+
+The global registry enables type-safe downcasting via `std::any::Any::downcast_ref`,
+eliminating the need for per-entity-type registries.
+
+**NamedField trait** - Base trait providing field metadata:
+
+```rust
+pub trait NamedField: 'static + Send + Sync + std::any::Any {
+    fn name(&self) -> &'static str;
+    fn display_name(&self) -> &'static str;
+    fn description(&self) -> &'static str;
+    fn aliases(&self) -> &'static [&'static str];
+    fn field_id(&self) -> FieldId;
+    fn entity_type_name(&self) -> &'static str;
+}
+```
+
+The `field_id()` and `entity_type_name()` methods enable type-erased field identity
+and entity type identification. The `std::any::Any` super-trait enables safe downcasting
+via `downcast_ref`.
 
 **define_field! macro** - Bundles hand-written descriptors with inventory submission:
 
@@ -467,8 +486,10 @@ provided by the `EntityMatcher` trait on the entity type; see
 ### Construction via inventory
 
 Production entity types use `FieldSet::from_inventory()` to collect all fields
-submitted via `inventory::submit! { CollectedField::<E>(&FIELD_NAME) }`. Fields are
-sorted by the `order: u32` field for stable iteration order.
+submitted via the global `inventory::submit! { CollectedNamedField(&FIELD_NAME) }`
+registry. Fields are filtered by entity type name, downcast to the concrete
+`FieldDescriptor<E>` type via `std::any::Any::downcast_ref`, and sorted by the
+`order: u32` field for stable iteration order.
 
 ```rust
 static FIELD_SET: LazyLock<FieldSet<PanelEntityType>> =

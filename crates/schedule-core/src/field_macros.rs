@@ -143,7 +143,7 @@ macro_rules! stored_field {
                 )),
                 verify_fn: None,
             };
-        inventory::submit! { $crate::entity::CollectedField::<$entity>(&$static_name) }
+        inventory::submit! { $crate::field::CollectedNamedField(&$static_name) }
     };
 
     // ── with_default: stored as T, but not flagged as required ───────
@@ -190,7 +190,7 @@ macro_rules! stored_field {
                 )),
                 verify_fn: None,
             };
-        inventory::submit! { $crate::entity::CollectedField::<$entity>(&$static_name) }
+        inventory::submit! { $crate::field::CollectedNamedField(&$static_name) }
     };
 
     // ── optional: stored as Option<T> ────────────────────────────────
@@ -238,7 +238,7 @@ macro_rules! stored_field {
                 )),
                 verify_fn: None,
             };
-        inventory::submit! { $crate::entity::CollectedField::<$entity>(&$static_name) }
+        inventory::submit! { $crate::field::CollectedNamedField(&$static_name) }
     };
 }
 pub(crate) use stored_field;
@@ -307,7 +307,7 @@ macro_rules! edge_field {
                 write_fn: None,
                 verify_fn: None,
             };
-        inventory::submit! { $crate::entity::CollectedField::<$entity>(&$static_name) }
+        inventory::submit! { $crate::field::CollectedNamedField(&$static_name) }
     };
 
     // ── mode: rw ──────────────────────────────────────────────────────
@@ -354,7 +354,7 @@ macro_rules! edge_field {
                 )),
                 verify_fn: None,
             };
-        inventory::submit! { $crate::entity::CollectedField::<$entity>(&$static_name) }
+        inventory::submit! { $crate::field::CollectedNamedField(&$static_name) }
     };
 
     // ── mode: one ─────────────────────────────────────────────────────
@@ -402,7 +402,7 @@ macro_rules! edge_field {
                 )),
                 verify_fn: None,
             };
-        inventory::submit! { $crate::entity::CollectedField::<$entity>(&$static_name) }
+        inventory::submit! { $crate::field::CollectedNamedField(&$static_name) }
     };
 
     // ── mode: rw_to ───────────────────────────────────────────────────
@@ -449,7 +449,7 @@ macro_rules! edge_field {
                 )),
                 verify_fn: None,
             };
-        inventory::submit! { $crate::entity::CollectedField::<$entity>(&$static_name) }
+        inventory::submit! { $crate::field::CollectedNamedField(&$static_name) }
     };
 
     // ── mode: add ─────────────────────────────────────────────────────
@@ -493,7 +493,7 @@ macro_rules! edge_field {
                 )),
                 verify_fn: None,
             };
-        inventory::submit! { $crate::entity::CollectedField::<$entity>(&$static_name) }
+        inventory::submit! { $crate::field::CollectedNamedField(&$static_name) }
     };
 
     // ── mode: remove ──────────────────────────────────────────────────
@@ -537,7 +537,7 @@ macro_rules! edge_field {
                 )),
                 verify_fn: None,
             };
-        inventory::submit! { $crate::entity::CollectedField::<$entity>(&$static_name) }
+        inventory::submit! { $crate::field::CollectedNamedField(&$static_name) }
     };
 }
 pub(crate) use edge_field;
@@ -570,7 +570,7 @@ macro_rules! define_field {
         $(#[$attr])*
         $vis static $static_name: $ty = $init;
         inventory::submit! {
-            $crate::entity::CollectedField::<_>(&$static_name)
+            $crate::field::CollectedNamedField(&$static_name)
         }
     };
 }

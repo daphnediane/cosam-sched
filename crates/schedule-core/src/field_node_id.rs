@@ -25,7 +25,7 @@
 //! [`FieldDescriptor<E>`]: crate::field::FieldDescriptor
 
 use crate::entity::EntityType;
-use crate::field::FieldDescriptor;
+use crate::field::{FieldDescriptor, NamedField};
 use uuid::NonNilUuid;
 
 // ── FieldId ───────────────────────────────────────────────────────────────────
@@ -50,16 +50,48 @@ impl FieldId {
     ///
     /// The address is stable for the life of the process because all field
     /// descriptors are declared as `static` items.
-    pub fn of<E: EntityType>(field: &'static FieldDescriptor<E>) -> Self {
-        FieldId(field as *const FieldDescriptor<E> as *const () as usize)
+    pub fn of(field: &'static dyn NamedField) -> Self {
+        // Extract the data pointer from the fat trait object pointer.
+        // We lose the vtable here - conversion back to trait object would require
+        // storing it separately or using a registry.
+        FieldId(field as *const dyn NamedField as *const () as usize)
     }
 
     /// Create a `FieldId` directly from a raw address.
     ///
-    /// Only intended for use inside [`crate::field::FieldDescriptorAny`]
-    /// implementations, which perform the same cast internally.
-    pub(crate) fn from_raw(addr: usize) -> Self {
+    /// # Safety
+    ///
+    /// Caller must ensure `addr` is the address of a `'static` field descriptor.
+    /// Creating a `FieldId` from a stack-allocated value produces a meaningless
+    /// address that will compare unequal to anything and must not be stored.
+    ///
+    /// Only intended for use inside [`crate::field::NamedField`] implementations.
+    pub(crate) unsafe fn from_raw(addr: usize) -> Self {
         FieldId(addr)
+    }
+
+    /// Convert back to a `&'static dyn NamedField` reference.
+    ///
+    /// Looks up the field descriptor in the global registry by address.
+    /// Returns `None` if no field with this address is registered.
+    #[must_use]
+    pub fn as_named_field(&self) -> Option<&'static dyn NamedField> {
+        use crate::field::all_named_fields;
+
+        all_named_fields()
+            .find(|f| Self::of(f.0) == *self)
+            .map(|f| f.0)
+    }
+
+    /// Try to convert to a concrete `&'static FieldDescriptor<E>` reference.
+    ///
+    /// Returns `None` if the entity type name does not match `E::TYPE_NAME`.
+    #[must_use]
+    pub fn try_as_descriptor<E: EntityType>(&self) -> Option<&'static FieldDescriptor<E>> {
+        use std::any::Any;
+
+        self.as_named_field()
+            .and_then(|named| (named as &dyn Any).downcast_ref::<FieldDescriptor<E>>())
     }
 }
 
@@ -182,26 +214,26 @@ mod tests {
 
     #[test]
     fn test_field_id_same_static_is_equal() {
-        let id1 = FieldId::of::<MockEntity>(&FIELD_A);
-        let id2 = FieldId::of::<MockEntity>(&FIELD_A);
+        let id1 = FieldId::of(&FIELD_A);
+        let id2 = FieldId::of(&FIELD_A);
         assert_eq!(id1, id2);
     }
 
     #[test]
     fn test_field_id_different_statics_differ() {
-        let id_a = FieldId::of::<MockEntity>(&FIELD_A);
-        let id_b = FieldId::of::<MockEntity>(&FIELD_B);
+        let id_a = FieldId::of(&FIELD_A);
+        let id_b = FieldId::of(&FIELD_B);
         assert_ne!(id_a, id_b);
     }
 
     #[test]
     fn test_field_id_hash_consistent() {
         use std::collections::HashSet;
-        let id = FieldId::of::<MockEntity>(&FIELD_A);
+        let id = FieldId::of(&FIELD_A);
         let mut set = HashSet::new();
         set.insert(id);
-        assert!(set.contains(&FieldId::of::<MockEntity>(&FIELD_A)));
-        assert!(!set.contains(&FieldId::of::<MockEntity>(&FIELD_B)));
+        assert!(set.contains(&FieldId::of(&FIELD_A)));
+        assert!(!set.contains(&FieldId::of(&FIELD_B)));
     }
 
     // ── FieldNodeId tests ────────────────────────────────────────────────────
@@ -210,7 +242,7 @@ mod tests {
     fn test_field_node_id_of_equals_new() {
         let uuid = nnu(1);
         let via_of = FieldNodeId::of::<MockEntity>(&FIELD_A, uuid);
-        let via_new = FieldNodeId::new(FieldId::of::<MockEntity>(&FIELD_A), uuid);
+        let via_new = FieldNodeId::new(FieldId::of(&FIELD_A), uuid);
         assert_eq!(via_of, via_new);
     }
 

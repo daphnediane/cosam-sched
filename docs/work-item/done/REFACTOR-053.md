@@ -35,3 +35,10 @@ For each entity type (Panel, Presenter, EventRoom, HotelRoom, PanelType):
 
 Order values: assign multiples of 100 based on current `FieldSet::new` list position,
 leaving gaps for future fields.
+
+## Follow-up
+
+In REFACTOR-066 (FieldId conversions refactor), the per-entity-type `CollectedField<E>`
+registries were removed and replaced with a single global `CollectedNamedField` registry.
+Entity type modules no longer declare `inventory::collect!(CollectedField<E>)`, and field
+macros submit only to the global registry.

@@ -198,7 +198,6 @@ inventory::submit! {
         },
     }
 }
-inventory::collect!(crate::entity::CollectedField<PanelTypeEntityType>);
 
 // ── EntityBuildable ─────────────────────────────────────────────────────────────
 

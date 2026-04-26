@@ -67,9 +67,15 @@ pub enum VerifyFn<E: EntityType> {
     ReRead,
 }
 
-/// Base trait: every field has a canonical name, display name, description,
-/// and optional aliases.
-pub trait NamedField {
+/// Metadata common to all field descriptors.
+///
+/// Provides naming and description information, plus type-erased identity
+/// via [`Self::field_id`] and entity type identification via
+/// [`Self::entity_type_name`].
+///
+/// Implemented by [`FieldDescriptor`] and exposed as a trait object for
+/// type-erased field lookup (e.g. in [`crate::edge_descriptor::EdgeDescriptor`]).
+pub trait NamedField: 'static + Send + Sync + std::any::Any {
     /// Canonical field name used in programmatic access (snake_case).
     fn name(&self) -> &'static str;
 
@@ -93,6 +99,17 @@ pub trait NamedField {
         }
         self.aliases().iter().any(|a| a.to_lowercase() == q)
     }
+
+    /// Type-erased identity — the address of the `'static` descriptor singleton.
+    ///
+    /// Only meaningful when called on a `'static` field descriptor (i.e. one of the
+    /// statics declared in each entity module). Calling this on a non-static
+    /// reference (e.g. a stack-allocated value) produces a meaningless address
+    /// that must not be stored or compared.
+    fn field_id(&self) -> FieldId;
+
+    /// [`crate::entity::EntityType::TYPE_NAME`] for the entity this field belongs to.
+    fn entity_type_name(&self) -> &'static str;
 }
 
 /// Field that can produce a [`FieldValue`] given an entity ID and schedule.
@@ -217,6 +234,16 @@ impl<E: EntityType> NamedField for FieldDescriptor<E> {
     fn aliases(&self) -> &'static [&'static str] {
         self.aliases
     }
+
+    fn field_id(&self) -> FieldId {
+        // SAFETY: self is a &'static FieldDescriptor<E> (field descriptors are static singletons),
+        // so its address is stable for the life of the process and valid to use as a FieldId.
+        unsafe { FieldId::from_raw(self as *const FieldDescriptor<E> as *const () as usize) }
+    }
+
+    fn entity_type_name(&self) -> &'static str {
+        E::TYPE_NAME
+    }
 }
 
 impl<E: EntityType> ReadableField<E> for FieldDescriptor<E> {
@@ -304,39 +331,22 @@ impl<E: EntityType> VerifiableField<E> for FieldDescriptor<E> {
     }
 }
 
-// ── FieldDescriptorAny ────────────────────────────────────────────────────────
+// ── Global field registry ─────────────────────────────────────────────────────
 
-/// Object-safe view of a [`FieldDescriptor<E>`] with its entity-type erased.
+/// Wrapper for globally registering a field descriptor via `inventory`.
 ///
-/// Implemented for all `FieldDescriptor<E>` so that [`crate::edge_descriptor::EdgeDescriptor`]
-/// can reference field descriptors as `&'static dyn FieldDescriptorAny` without
-/// carrying a type parameter.
-///
-/// Extends [`NamedField`], so callers with `&dyn FieldDescriptorAny` have access to
-/// `name()`, `display_name()`, `description()`, `aliases()`, and `matches_name()`.
-///
-/// # Invariant
-///
-/// `field_id()` is derived from `self`'s address.  It is only meaningful when
-/// called on a `'static` field descriptor (i.e. the statics declared in each
-/// entity module).  Calling it on a stack-allocated value produces a
-/// meaningless address that must not be stored or compared.
-pub trait FieldDescriptorAny: 'static + Send + Sync + NamedField {
-    /// Type-erased identity — the address of the `'static` descriptor singleton.
-    fn field_id(&self) -> FieldId;
+/// All field descriptors (both macro-generated and hand-written) should submit
+/// via `inventory::submit! { CollectedNamedField(&FIELD_NAME) }` to enable
+/// `FieldId` round-trip conversions.
+pub struct CollectedNamedField(pub &'static dyn NamedField);
 
-    /// [`crate::entity::EntityType::TYPE_NAME`] for the entity this field belongs to.
-    fn entity_type_name(&self) -> &'static str;
-}
+inventory::collect!(CollectedNamedField);
 
-impl<E: EntityType> FieldDescriptorAny for FieldDescriptor<E> {
-    fn field_id(&self) -> FieldId {
-        FieldId::from_raw(self as *const FieldDescriptor<E> as *const () as usize)
-    }
-
-    fn entity_type_name(&self) -> &'static str {
-        E::TYPE_NAME
-    }
+/// Iterate over all field descriptors registered via `inventory::submit!`.
+///
+/// Enables `FieldId` to convert back to trait object references by address lookup.
+pub fn all_named_fields() -> impl Iterator<Item = &'static CollectedNamedField> {
+    inventory::iter::<CollectedNamedField>()
 }
 
 // ── Tests ─────────────────────────────────────────────────────────────────────

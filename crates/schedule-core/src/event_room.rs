@@ -170,7 +170,6 @@ inventory::submit! {
         },
     }
 }
-inventory::collect!(crate::entity::CollectedField<EventRoomEntityType>);
 
 // ── EntityBuildable ─────────────────────────────────────────────────────────────
 
