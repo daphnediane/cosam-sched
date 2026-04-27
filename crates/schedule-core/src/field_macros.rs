@@ -537,7 +537,10 @@ macro_rules! edge_field {
                         let ids =
                             $crate::schedule::field_value_to_entity_ids::<$target_entity>(val)?;
                         for r in ids {
-                            sched.edge_remove::<$entity, $target_entity>(id, r);
+                            sched.edge_remove::<$entity, $target_entity>(
+                                $crate::field_node_id::FieldNodeId::new(id, &$static_name),
+                                $crate::field_node_id::FieldNodeId::new(r, &$target_field),
+                            );
                         }
                         Ok(())
                     },

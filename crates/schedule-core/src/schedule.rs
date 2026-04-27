@@ -896,25 +896,25 @@ impl Schedule {
     ///
     /// The CRDT mirror uses an incremental delete on observed indices so
     /// concurrent add-vs-unobserved-remove resolves add-wins.
-    pub fn edge_remove<L: EntityType, R: EntityType>(&mut self, l: EntityId<L>, r: EntityId<R>) {
-        use crate::field_node_id::FieldNodeId;
-        let Some(res) = crate::edge_descriptor::resolve_edge_fields(L::TYPE_NAME, R::TYPE_NAME)
-        else {
-            return;
-        };
-        let l_field = (res.l_field_id.0 as &dyn std::any::Any)
-            .downcast_ref::<crate::field::FieldDescriptor<L>>()
-            .unwrap();
-        let r_field = (res.r_field_id.0 as &dyn std::any::Any)
-            .downcast_ref::<crate::field::FieldDescriptor<R>>()
-            .unwrap();
-        let from = FieldNodeId::new(l, l_field);
-        let to = FieldNodeId::new(r, r_field);
-        self.edges.remove_edge(from, to);
-        if res.is_transitive {
+    pub fn edge_remove<L: EntityType, R: EntityType>(
+        &mut self,
+        l: impl TypedFieldNodeId<L>,
+        r: impl TypedFieldNodeId<R>,
+    ) {
+        let l_uuid = l.entity_uuid();
+        let r_uuid = r.entity_uuid();
+        self.edges.remove_edge(l, r);
+
+        // Check if transitive and invalidate cache
+        let is_transitive = crate::edge_descriptor::resolve_edge_fields(L::TYPE_NAME, R::TYPE_NAME)
+            .map(|res| res.is_transitive)
+            .unwrap_or(false);
+        if is_transitive {
             *self.transitive_edge_cache.borrow_mut() = None;
         }
-        self.mirror_edge_remove::<L, R>(l.entity_uuid(), r.entity_uuid());
+
+        // CRDT mirror
+        self.mirror_edge_remove::<L, R>(l_uuid, r_uuid);
     }
 
     /// Replace all R-type neighbors of `l` with `rights`.
@@ -1555,7 +1555,10 @@ mod tests {
             FieldNodeId::new(panel_id, &FIELD_PRESENTERS),
             FieldNodeId::new(pres_id, &FIELD_PANELS),
         );
-        sched.edge_remove::<PanelEntityType, PresenterEntityType>(panel_id, pres_id);
+        sched.edge_remove::<PanelEntityType, PresenterEntityType>(
+            FieldNodeId::new(panel_id, &FIELD_PRESENTERS),
+            FieldNodeId::new(pres_id, &FIELD_PANELS),
+        );
 
         assert!(sched
             .connected_entities::<PanelEntityType, PresenterEntityType>(
@@ -1711,7 +1714,10 @@ mod tests {
             FieldNodeId::new(member_id, &FIELD_MEMBERS),
             FieldNodeId::new(group_id, &FIELD_GROUPS),
         );
-        sched.edge_remove::<PresenterEntityType, PresenterEntityType>(member_id, group_id);
+        sched.edge_remove::<PresenterEntityType, PresenterEntityType>(
+            FieldNodeId::new(member_id, &FIELD_MEMBERS),
+            FieldNodeId::new(group_id, &FIELD_GROUPS),
+        );
 
         assert!(sched
             .connected_entities::<PresenterEntityType, PresenterEntityType>(
@@ -2240,7 +2246,10 @@ mod tests {
             FieldNodeId::new(panel_id, &FIELD_PRESENTERS),
             FieldNodeId::new(pres_id, &FIELD_PANELS),
         );
-        sched.edge_remove::<PanelEntityType, PresenterEntityType>(panel_id, pres_id);
+        sched.edge_remove::<PanelEntityType, PresenterEntityType>(
+            FieldNodeId::new(panel_id, &FIELD_PRESENTERS),
+            FieldNodeId::new(pres_id, &FIELD_PANELS),
+        );
 
         let bytes = sched.save();
         let loaded = Schedule::load(&bytes).expect("load");
@@ -2519,7 +2528,10 @@ mod tests {
         // own state but records a causally-unordered change); this simulates
         // B having never observed A's add.
         let mut replica_b = Schedule::load(&base_bytes).expect("load B");
-        replica_b.edge_remove::<PanelEntityType, PresenterEntityType>(panel_id, alice_id);
+        replica_b.edge_remove::<PanelEntityType, PresenterEntityType>(
+            FieldNodeId::new(panel_id, &FIELD_PRESENTERS),
+            FieldNodeId::new(alice_id, &FIELD_PANELS),
+        );
 
         let mut doc_a = AutoCommit::load(&replica_a.save()).unwrap();
         let mut doc_b = AutoCommit::load(&replica_b.save()).unwrap();

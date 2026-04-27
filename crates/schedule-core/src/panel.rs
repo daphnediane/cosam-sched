@@ -692,7 +692,10 @@ define_field!(
                 .collect();
             for p in &current_credited {
                 if !new_ids.contains(p) {
-                    sched.edge_remove::<PanelEntityType, PresenterEntityType>(panel_id, *p);
+                    sched.edge_remove::<PanelEntityType, PresenterEntityType>(
+                        FieldNodeId::new(panel_id, &FIELD_PRESENTERS),
+                        FieldNodeId::new(*p, &FIELD_PANELS),
+                    );
                 }
             }
             // Each presenter in the new list → add edge if needed, then mark credited.
@@ -767,7 +770,10 @@ define_field!(
                 .collect();
             for p in &current_uncredited {
                 if !new_ids.contains(p) {
-                    sched.edge_remove::<PanelEntityType, PresenterEntityType>(panel_id, *p);
+                    sched.edge_remove::<PanelEntityType, PresenterEntityType>(
+                        FieldNodeId::new(panel_id, &FIELD_PRESENTERS),
+                        FieldNodeId::new(*p, &FIELD_PANELS),
+                    );
                 }
             }
             // Each presenter in the new list → add edge if needed, then mark uncredited.
