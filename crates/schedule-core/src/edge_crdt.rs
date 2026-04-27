@@ -34,64 +34,106 @@ use automerge::transaction::Transactable;
 use automerge::{AutoCommit, ObjType, ReadDoc, Value};
 use uuid::NonNilUuid;
 
-/// Resolved CRDT ownership for an edge, looked up by field descriptor.
-#[derive(Debug, Clone, Copy)]
+/// Resolved CRDT ownership for an edge, looked up from the field inventory.
+#[derive(Clone, Copy)]
 pub struct CanonicalOwner {
     /// `true` when the near (queried) field is the CRDT owner side.
     pub near_is_owner: bool,
-    /// The entity type that owns the CRDT list.
-    pub owner_type: &'static str,
-    /// The entity type stored in the list — the non-owner side.
-    pub target_type: &'static str,
-    /// Name of the list field on the owner entity.
-    pub field_name: &'static str,
-    /// The [`EdgeDescriptor`](crate::edge_descriptor::EdgeDescriptor) that matched.
-    pub descriptor: &'static crate::edge_descriptor::EdgeDescriptor,
+    /// The owner-side field (carries `EdgeOwner { target_field: … }`).
+    pub owner_field: &'static dyn crate::field::NamedField,
+    /// The target-side field (the inverse/lookup field).
+    pub target_field: &'static dyn crate::field::NamedField,
+}
+
+impl CanonicalOwner {
+    /// Owner entity type name.
+    #[must_use]
+    pub fn owner_type(&self) -> &'static str {
+        self.owner_field.entity_type_name()
+    }
+
+    /// Target entity type name.
+    #[must_use]
+    pub fn target_type(&self) -> &'static str {
+        self.target_field.entity_type_name()
+    }
+
+    /// Owner-side field name (the CRDT list key).
+    #[must_use]
+    pub fn field_name(&self) -> &'static str {
+        self.owner_field.name()
+    }
+}
+
+impl std::fmt::Debug for CanonicalOwner {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("CanonicalOwner")
+            .field("near_is_owner", &self.near_is_owner)
+            .field("owner_type", &self.owner_type())
+            .field("target_type", &self.target_type())
+            .field("field_name", &self.field_name())
+            .finish()
+    }
+}
+
+/// Iterate every registered field whose `crdt_type` is `EdgeOwner`, yielding
+/// `(owner_field, target_field)` pairs.
+fn iter_owner_fields() -> impl Iterator<
+    Item = (
+        &'static dyn crate::field::NamedField,
+        &'static dyn crate::field::NamedField,
+    ),
+> {
+    crate::field::all_named_fields().filter_map(|c| {
+        let owner = c.0;
+        match owner.crdt_type() {
+            crate::value::CrdtFieldType::EdgeOwner { target_field } => Some((owner, target_field)),
+            _ => None,
+        }
+    })
 }
 
 /// Resolve CRDT ownership for an edge given both field descriptors.
 ///
-/// Searches all [`EdgeDescriptor`](crate::edge_descriptor::EdgeDescriptor)s for one
-/// whose `owner_field`/`target_field` pair matches `near_field`/`far_field`
-/// (in either order).  Returns `near_is_owner = true` when `near_field` is
-/// the descriptor's owner field.
+/// Each field knows its own [`crate::value::CrdtFieldType`], so resolution
+/// is a constant-time check on the two supplied fields:
+///
+/// - If `near_field` is `EdgeOwner { target_field }` and `target_field`
+///   identifies `far_field`, `near` is the owner.
+/// - Else if `far_field` is `EdgeOwner { target_field }` and `target_field`
+///   identifies `near_field`, `far` is the owner.
+/// - Otherwise the pair is not a recognized edge.
 ///
 /// Taking both fields makes the lookup unambiguous even when multiple edge
 /// types exist between the same pair of entity types (e.g. FEATURE-065:
 /// `credited_presenters` and `uncredited_presenters` both target
 /// `FIELD_PANELS`).
-///
-/// Returns `None` if no matching descriptor is found.
 #[must_use]
 pub fn canonical_owner(
     near_field: &'static dyn crate::field::NamedField,
     far_field: &'static dyn crate::field::NamedField,
 ) -> Option<CanonicalOwner> {
-    for desc in crate::edge_descriptor::all_edge_descriptors() {
-        let owner_matches_near = desc.owner_field.name() == near_field.name()
-            && desc.owner_field.entity_type_name() == near_field.entity_type_name();
-        let target_matches_far = desc.target_field.name() == far_field.name()
-            && desc.target_field.entity_type_name() == far_field.entity_type_name();
-        if owner_matches_near && target_matches_far {
+    fn same(
+        a: &'static dyn crate::field::NamedField,
+        b: &'static dyn crate::field::NamedField,
+    ) -> bool {
+        a.name() == b.name() && a.entity_type_name() == b.entity_type_name()
+    }
+    if let crate::value::CrdtFieldType::EdgeOwner { target_field } = near_field.crdt_type() {
+        if same(target_field, far_field) {
             return Some(CanonicalOwner {
                 near_is_owner: true,
-                owner_type: desc.owning_type(),
-                target_type: desc.target_type(),
-                field_name: desc.owning_field(),
-                descriptor: desc,
+                owner_field: near_field,
+                target_field,
             });
         }
-        let target_matches_near = desc.target_field.name() == near_field.name()
-            && desc.target_field.entity_type_name() == near_field.entity_type_name();
-        let owner_matches_far = desc.owner_field.name() == far_field.name()
-            && desc.owner_field.entity_type_name() == far_field.entity_type_name();
-        if target_matches_near && owner_matches_far {
+    }
+    if let crate::value::CrdtFieldType::EdgeOwner { target_field } = far_field.crdt_type() {
+        if same(target_field, near_field) {
             return Some(CanonicalOwner {
                 near_is_owner: false,
-                owner_type: desc.owning_type(),
-                target_type: desc.target_type(),
-                field_name: desc.owning_field(),
-                descriptor: desc,
+                owner_field: far_field,
+                target_field,
             });
         }
     }
@@ -105,23 +147,21 @@ pub fn canonical_owner(
 /// types.  Callers should migrate to field-based [`canonical_owner`].
 #[must_use]
 pub fn canonical_owner_by_types(l_type: &str, r_type: &str) -> Option<CanonicalOwner> {
-    for desc in crate::edge_descriptor::all_edge_descriptors() {
-        if desc.owning_type() == l_type && desc.target_type() == r_type {
+    for (owner_nf, target_nf) in iter_owner_fields() {
+        let owner_type = owner_nf.entity_type_name();
+        let target_type = target_nf.entity_type_name();
+        if owner_type == l_type && target_type == r_type {
             return Some(CanonicalOwner {
                 near_is_owner: true,
-                owner_type: desc.owning_type(),
-                target_type: desc.target_type(),
-                field_name: desc.owning_field(),
-                descriptor: desc,
+                owner_field: owner_nf,
+                target_field: target_nf,
             });
         }
-        if !desc.is_homogeneous() && desc.target_type() == l_type && desc.owning_type() == r_type {
+        if owner_type != target_type && target_type == l_type && owner_type == r_type {
             return Some(CanonicalOwner {
                 near_is_owner: false,
-                owner_type: desc.owning_type(),
-                target_type: desc.target_type(),
-                field_name: desc.owning_field(),
-                descriptor: desc,
+                owner_field: owner_nf,
+                target_field: target_nf,
             });
         }
     }

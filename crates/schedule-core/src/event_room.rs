@@ -239,7 +239,7 @@ stored_field!(FIELD_SORT_KEY, EventRoomEntityType, sort_key, optional, as: AsInt
 // ── Edge-backed computed fields ───────────────────────────────────────────────
 
 edge_field!(FIELD_HOTEL_ROOMS, EventRoomEntityType, mode: rw, target: HotelRoomEntityType, target_field: &crate::hotel_room::FIELD_EVENT_ROOMS,
-    edge: &EDGE_EVENT_ROOM_HOTEL_ROOMS,
+    owner,
     name: "hotel_rooms", display: "Hotel Rooms",
     desc: "Hotel rooms that contain this event room.",
     aliases: &["hotel_room"],
@@ -276,18 +276,6 @@ crate::field_macros::define_entity_builder! {
         with_panels      => FIELD_PANELS,
     }
 }
-
-// ── Edge descriptor ───────────────────────────────────────────────────────────
-
-/// EventRoom ↔ HotelRoom relationship.  EventRoom is the canonical CRDT owner.
-pub(crate) static EDGE_EVENT_ROOM_HOTEL_ROOMS: crate::edge_descriptor::EdgeDescriptor =
-    crate::edge_descriptor::EdgeDescriptor {
-        name: "event_room_hotel_rooms",
-        owner_field: &FIELD_HOTEL_ROOMS,
-        target_field: &crate::hotel_room::FIELD_EVENT_ROOMS,
-        fields: &[],
-    };
-inventory::submit! { crate::edge_descriptor::CollectedEdge(&EDGE_EVENT_ROOM_HOTEL_ROOMS) }
 
 // ── EntityMatcher ─────────────────────────────────────────────────────────────
 

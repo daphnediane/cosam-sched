@@ -50,24 +50,30 @@ will be updated with an alternative.
 Every `FieldDescriptor` carries a `CrdtFieldType` annotation that controls how
 the field maps to automerge storage:
 
-| Variant      | automerge operation          | When to use                                               |
-| ------------ | ---------------------------- | --------------------------------------------------------- |
-| `Scalar`     | `put` / `get` (LWW)          | Short strings, numbers, booleans, enums, UUIDs            |
-| `Text`       | `splice_text` / `text` (RGA) | Long prose: `description`, `bio`, `notes`                 |
-| `List`       | `insert` / `delete` (list)   | Ordered multi-value fields                                |
-| `Derived`    | not stored                   | Computed from relationships; lives only in RAM            |
-| `EdgeOwner`  | not stored here              | CRDT-canonical owner side of an edge relationship;        |
-|              |                              | carries `&'static EdgeDescriptor`; `mirror_entity_fields` |
-|              |                              | pre-creates the list `ObjId` via `ensure_owner_list`      |
-| `EdgeTarget` | not stored here              | Non-owner (inverse/lookup) side; no CRDT storage;         |
-|              |                              | a single field may be the target of multiple edges        |
+| Variant                      | automerge operation          | When to use                                               |
+| ---------------------------- | ---------------------------- | --------------------------------------------------------- |
+| `Scalar`                     | `put` / `get` (LWW)          | Short strings, numbers, booleans, enums, UUIDs            |
+| `Text`                       | `splice_text` / `text` (RGA) | Long prose: `description`, `bio`, `notes`                 |
+| `List`                       | `insert` / `delete` (list)   | Ordered multi-value fields                                |
+| `Derived`                    | not stored                   | Computed from relationships; lives only in RAM            |
+| `EdgeOwner { target_field }` | not stored here              | CRDT-canonical owner side of an edge relationship;        |
+|                              |                              | carries the inverse/lookup field on the target entity as  |
+|                              |                              | `&'static dyn NamedField`; `mirror_entity_fields`         |
+|                              |                              | pre-creates the list `ObjId` via `ensure_owner_list`      |
+| `EdgeTarget`                 | not stored here              | Non-owner (inverse/lookup) side; no CRDT storage;         |
+|                              |                              | a single field may be the target of multiple owner fields |
 
 Both `EdgeOwner` and `EdgeTarget` are treated like `Derived` by `crdt::write_field` /
 `crdt::read_field`. Edge list storage is managed exclusively by the `edge_crdt` layer
-(`list_append_unique`, `list_remove`, `read_list_as_uuids`).  The `EdgeOwner` variant
-replaces the former `ensure_all_owner_lists_for_type` global scan: `mirror_entity_fields`
-now iterates each entity type's own field descriptors and calls `ensure_owner_list`
-only for `EdgeOwner` fields, making the scan O(fields-per-entity) and self-contained.
+(`list_append_unique`, `list_remove`, `read_list_as_uuids`).
+
+The `EdgeOwner` variant carries the target field directly, eliminating the
+separate `EdgeDescriptor` struct (FEATURE-070): the owner field _is_ the edge
+descriptor.  `mirror_entity_fields` iterates each entity type's own field
+descriptors and calls `ensure_owner_list` only for `EdgeOwner { .. }` fields,
+making the scan O(fields-per-entity) and self-contained.
+`canonical_owner(near, far)` is a constant-time check on the two supplied
+fields' `crdt_type()` — no inventory traversal required.
 
 ## Field-to-CRDT Mapping by Entity
 
@@ -91,9 +97,9 @@ only for `EdgeOwner` fields, making the scan O(fields-per-entity) and self-conta
 | `sewing_machines`, `is_free`, `is_kids`, `is_full`, `have_ticket_image`, `hide_panelist`          | `Scalar`                     |
 | `capacity`, `seats_sold`, `pre_reg_max`                                                           | `Scalar`                     |
 | `time_slot` (start, duration)                                                                     | `Scalar` (two scalar fields) |
-| `presenters` (CRDT owner, `EdgeDescriptor` embedded)                                              | `EdgeOwner`                  |
-| `event_rooms` (CRDT owner, `EdgeDescriptor` embedded)                                             | `EdgeOwner`                  |
-| `panel_type` (CRDT owner, `EdgeDescriptor` embedded)                                              | `EdgeOwner`                  |
+| `presenters` (CRDT owner, target = `Presenter::FIELD_PANELS`)                                     | `EdgeOwner`                  |
+| `event_rooms` (CRDT owner, target = `EventRoom::FIELD_PANELS`)                                    | `EdgeOwner`                  |
+| `panel_type` (CRDT owner, target = `PanelType::FIELD_PANELS`)                                     | `EdgeOwner`                  |
 | `credited_presenters`, `uncredited_presenters` (computed, no direct CRDT storage)                 | `Derived`                    |
 | `presenters_meta` (per-edge metadata map)                                                         | see Per-Edge Metadata below  |
 
@@ -105,17 +111,17 @@ only for `EdgeOwner` fields, making the scan O(fields-per-entity) and self-conta
 | `bio`                                                          | `Text`        |
 | `rank`, `sort_rank`                                            | `Scalar`      |
 | `is_explicit_group`, `always_grouped`, `always_shown_in_group` | `Scalar`      |
-| `members` (CRDT owner, `EdgeDescriptor` embedded)              | `EdgeOwner`   |
+| `members` (CRDT owner, target = `FIELD_GROUPS`)                | `EdgeOwner`   |
 | `groups`, `panels` (computed, non-owner lookup side)           | `EdgeTarget`  |
 
 ### EventRoom
 
-| Field                                                 | CrdtFieldType |
-| ----------------------------------------------------- | ------------- |
-| `room_name`, `long_name`                              | `Scalar`      |
-| `sort_key`                                            | `Scalar`      |
-| `hotel_rooms` (CRDT owner, `EdgeDescriptor` embedded) | `EdgeOwner`   |
-| `panels` (computed, non-owner lookup side)            | `EdgeTarget`  |
+| Field                                                               | CrdtFieldType |
+| ------------------------------------------------------------------- | ------------- |
+| `room_name`, `long_name`                                            | `Scalar`      |
+| `sort_key`                                                          | `Scalar`      |
+| `hotel_rooms` (CRDT owner, target = `HotelRoom::FIELD_EVENT_ROOMS`) | `EdgeOwner`   |
+| `panels` (computed, non-owner lookup side)                          | `EdgeTarget`  |
 
 ### HotelRoom
 
@@ -142,9 +148,10 @@ Applications see the merged result without manual intervention.
 
 Edges are stored in automerge as `ObjType::List` objects on a canonical owner entity,
 following a **panels-outward** ownership rule. The CRDT owner field carries
-`CrdtFieldType::EdgeOwner(&EDGE_X)` and the inverse lookup side carries
-`CrdtFieldType::EdgeTarget`. The embedded `&EdgeDescriptor` tells `mirror_entity_fields`
-exactly which list to pre-create via `ensure_owner_list` at entity-insertion time,
+`CrdtFieldType::EdgeOwner { target_field: &TARGET_FIELD }` and the inverse
+lookup side carries `CrdtFieldType::EdgeTarget`. The owner field's own name and
+entity type combined with `target_field` is enough for `mirror_entity_fields`
+to pre-create the right list via `ensure_owner_list` at entity-insertion time,
 replacing the former `ensure_all_owner_lists_for_type` global scan.
 
 | Relation                    | Owner              | Field on owner   |
@@ -175,16 +182,20 @@ entities/panel/{uuid}/
       "credited": bool    ← LWW scalar; absent ≡ default (true)
 ```
 
-Removing a presenter leaves the meta entry as a harmless tombstone. The
-`EdgeDescriptor.fields` slot declares each per-edge field and its default,
-enabling readers to apply the correct default without scanning the doc.
+Removing a presenter leaves the meta entry as a harmless tombstone.  The
+per-edge metadata schema (`EdgeFieldSpec` / `EdgeFieldDefault`) was removed
+with `EdgeDescriptor` in FEATURE-070; the only remaining caller (`credited`)
+hardcodes `true` as its default until FEATURE-065 retires the entire `_meta`
+map pattern by splitting `presenters` into `credited_presenters` and
+`uncredited_presenters` first-class CRDT lists.
 
 **API:** `Schedule::edge_get_bool<L,R>(l, r, field)` and
 `Schedule::edge_set_bool<L,R>(l, r, field, value)` are the typed access points.
 The underlying CRDT helpers are `edge_crdt::read_edge_meta_bool` /
-`edge_crdt::write_edge_meta_bool`.
+`edge_crdt::write_edge_meta_bool`.  Both functions and their CRDT helpers will
+be deleted by FEATURE-065.
 
-**Currently implemented per-edge fields:**
+**Currently implemented per-edge fields (legacy, scheduled for removal):**
 
 | Edge              | Field      | Default | Meaning                                          |
 | ----------------- | ---------- | ------- | ------------------------------------------------ |

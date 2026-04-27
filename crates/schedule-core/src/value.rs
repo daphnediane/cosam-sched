@@ -491,17 +491,19 @@ impl FieldType {
 /// separate `ensure_all_owner_lists_for_type` pass:
 ///
 /// - [`EdgeOwner`](CrdtFieldType::EdgeOwner) — this field is the CRDT-canonical
-///   owner of the edge relationship.  The embedded `&EdgeDescriptor` is
-///   self-describing: it names the owner field, the target field, and any
-///   per-edge metadata.
+///   owner of the edge relationship.  The payload names the inverse/lookup
+///   field on the target entity.  The owner field's own name and entity type
+///   are available directly from the enclosing `FieldDescriptor`, so no
+///   separate `EdgeDescriptor` is needed.
 /// - [`EdgeTarget`](CrdtFieldType::EdgeTarget) — this field is the non-owner
 ///   (inverse/lookup) side.  No payload: a single field may be the target of
-///   multiple edges (e.g. `FIELD_PANELS` on `Presenter` after FEATURE-065).
+///   multiple owner fields (e.g. `FIELD_PANELS` on `Presenter` is the target
+///   of both credited and uncredited presenter lists under FEATURE-065).
 ///
 /// Both edge variants are treated like `Derived` by `crdt::write_field` /
 /// `crdt::read_field` — edge list storage is managed exclusively by the
 /// `edge_crdt` functions.
-#[derive(Debug, Clone, Copy)]
+#[derive(Clone, Copy)]
 pub enum CrdtFieldType {
     /// Last-write-wins scalar via `put` / `get` (automerge LWW).
     Scalar,
@@ -513,16 +515,18 @@ pub enum CrdtFieldType {
     Derived,
     /// CRDT-canonical owner side of an edge relationship.
     ///
-    /// The embedded descriptor provides the owning field name (used as the CRDT
-    /// list key), the target field, and any per-edge metadata.  During entity
-    /// insertion, `mirror_entity_fields` creates the empty owner list so that
-    /// concurrent replicas share the same `ObjId`.
-    EdgeOwner(&'static crate::edge_descriptor::EdgeDescriptor),
+    /// `target_field` points at the inverse/lookup field on the target entity.
+    /// During entity insertion, `mirror_entity_fields` creates the empty owner
+    /// list so that concurrent replicas share the same `ObjId`.
+    EdgeOwner {
+        /// Inverse/lookup field on the target entity.
+        target_field: &'static dyn crate::field::NamedField,
+    },
     /// Non-owner (inverse/lookup) side of an edge relationship.
     ///
-    /// No payload — a field may be the target of multiple distinct edge
-    /// descriptors.  Treated identically to `Derived` by all CRDT read/write
-    /// paths; the owner side manages the storage.
+    /// No payload — a field may be the target of multiple owner fields.
+    /// Treated identically to `Derived` by all CRDT read/write paths; the
+    /// owner side manages the storage.
     EdgeTarget,
 }
 
@@ -534,8 +538,8 @@ impl PartialEq for CrdtFieldType {
             | (Self::List, Self::List)
             | (Self::Derived, Self::Derived)
             | (Self::EdgeTarget, Self::EdgeTarget) => true,
-            (Self::EdgeOwner(a), Self::EdgeOwner(b)) => {
-                std::ptr::eq(*a as *const _, *b as *const _)
+            (Self::EdgeOwner { target_field: a }, Self::EdgeOwner { target_field: b }) => {
+                a.field_id() == b.field_id()
             }
             _ => false,
         }
@@ -543,6 +547,23 @@ impl PartialEq for CrdtFieldType {
 }
 
 impl Eq for CrdtFieldType {}
+
+impl std::fmt::Debug for CrdtFieldType {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::Scalar => f.write_str("Scalar"),
+            Self::Text => f.write_str("Text"),
+            Self::List => f.write_str("List"),
+            Self::Derived => f.write_str("Derived"),
+            Self::EdgeOwner { target_field } => f
+                .debug_struct("EdgeOwner")
+                .field("target_entity", &target_field.entity_type_name())
+                .field("target_field", &target_field.name())
+                .finish(),
+            Self::EdgeTarget => f.write_str("EdgeTarget"),
+        }
+    }
+}
 
 /// Top-level error for field operations.
 #[derive(Debug, Error)]

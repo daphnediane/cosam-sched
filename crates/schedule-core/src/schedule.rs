@@ -462,11 +462,12 @@ impl Schedule {
     /// Replay every canonical owner's relationship-list field into the
     /// in-memory [`RawEdgeMap`].
     ///
-    /// For every [`crate::edge_descriptor::EdgeDescriptor`] registered via
-    /// inventory, iterate every live owner uuid in the doc, read the list, and
-    /// `add_edge` each endpoint pair into the cache.  The caller is responsible
-    /// for running this under [`Self::with_mirror_disabled`] — otherwise each
-    /// replayed edge would re-write the same list back into the doc.
+    /// Iterates every field in the inventory whose `crdt_type` is
+    /// [`CrdtFieldType::EdgeOwner`], iterates every live owner uuid in the
+    /// doc, reads the list, and `add_edge`s each endpoint pair into the cache.
+    /// The caller is responsible for running this under
+    /// [`Self::with_mirror_disabled`] — otherwise each replayed edge would
+    /// re-write the same list back into the doc.
     fn rebuild_edges_from_doc(&mut self) {
         use crate::field_node_id::RuntimeFieldNodeId;
         use crate::value::FieldTypeItem;
@@ -479,12 +480,19 @@ impl Schedule {
             pairs: Vec<(NonNilUuid, Vec<NonNilUuid>)>,
         }
         let mut batches: Vec<EdgeBatch> = Vec::new();
-        for desc in crate::edge_descriptor::all_edge_descriptors() {
-            let owner_type = desc.owning_type();
-            let field_name = desc.owning_field();
-            let target_type = desc.target_type();
-            let owner_field = desc.owner_field.field_id();
-            let target_field = desc.target_field.field_id();
+        for collected in crate::field::all_named_fields() {
+            let owner_nf = collected.0;
+            let CrdtFieldType::EdgeOwner {
+                target_field: target_nf,
+            } = owner_nf.crdt_type()
+            else {
+                continue;
+            };
+            let owner_type = owner_nf.entity_type_name();
+            let field_name = owner_nf.name();
+            let target_type = target_nf.entity_type_name();
+            let owner_field = owner_nf.field_id();
+            let target_field = target_nf.field_id();
             let owner_uuids = crdt::list_all_uuids(&self.doc, owner_type);
             let mut pairs: Vec<(NonNilUuid, Vec<NonNilUuid>)> = Vec::new();
             for owner_uuid in owner_uuids {
@@ -598,13 +606,8 @@ impl Schedule {
         // We derive which fields own edges directly from the `EdgeOwner`
         // variant in each field descriptor, avoiding a global descriptor scan.
         for desc in E::field_set().fields() {
-            if let CrdtFieldType::EdgeOwner(edge_desc) = desc.crdt_type {
-                crate::edge_crdt::ensure_owner_list(
-                    &mut self.doc,
-                    type_name,
-                    uuid,
-                    edge_desc.owning_field(),
-                )?;
+            if matches!(desc.crdt_type, CrdtFieldType::EdgeOwner { .. }) {
+                crate::edge_crdt::ensure_owner_list(&mut self.doc, type_name, uuid, desc.name)?;
             }
         }
         Ok(())
@@ -628,7 +631,9 @@ impl Schedule {
         if !self.mirror_enabled
             || matches!(
                 crdt_type,
-                CrdtFieldType::Derived | CrdtFieldType::EdgeOwner(_) | CrdtFieldType::EdgeTarget
+                CrdtFieldType::Derived
+                    | CrdtFieldType::EdgeOwner { .. }
+                    | CrdtFieldType::EdgeTarget
             )
         {
             return Ok(());
@@ -914,14 +919,12 @@ impl Schedule {
 
     /// Read a boolean per-edge property for the `(l, r)` edge.
     ///
-    /// Resolves the canonical owner for `(L, R)`, looks up the `EdgeDescriptor`
-    /// to find the named field's declared default, then reads the value from the
-    /// `{field_name}_meta` CRDT map.  Returns the declared default when no
-    /// explicit value has been written.
+    /// Resolves the canonical owner for `(L, R)` and reads the value from the
+    /// `{field_name}_meta` CRDT map.  Returns `true` (the only currently-used
+    /// per-edge boolean default — `credited`) when no explicit value has been
+    /// written.
     ///
-    /// # Panics
-    /// Panics in debug builds if `prop` is not declared in the descriptor's
-    /// `fields` slice.
+    /// FEATURE-065 will remove this function entirely along with its callers.
     #[must_use]
     pub fn edge_get_bool<L: EntityType, R: EntityType>(
         &self,
@@ -929,7 +932,6 @@ impl Schedule {
         r_id: EntityId<R>,
         prop: &str,
     ) -> bool {
-        use crate::edge_descriptor::EdgeFieldDefault;
         let Some(canon) = crate::edge_crdt::canonical_owner_by_types(L::TYPE_NAME, R::TYPE_NAME)
         else {
             return true;
@@ -939,26 +941,16 @@ impl Schedule {
         } else {
             (r_id.entity_uuid(), l_id.entity_uuid())
         };
-        let default =
-            canon
-                .descriptor
-                .fields
-                .iter()
-                .find(|f| f.name == prop)
-                .map(|spec| match spec.default {
-                    EdgeFieldDefault::Boolean(b) => b,
-                });
-        debug_assert!(
-            default.is_some(),
-            "edge_get_bool: prop {prop:?} not declared in EdgeDescriptor for {}",
-            canon.field_name
-        );
-        let default = default.unwrap_or(true);
+        // Per-edge metadata schema (`EdgeFieldSpec`/`EdgeFieldDefault`) was
+        // removed with `EdgeDescriptor` in FEATURE-070.  The only existing
+        // caller writes `credited` (defaulting to true), so we hardcode that
+        // until FEATURE-065 retires this function.
+        let default = true;
         crate::edge_crdt::read_edge_meta_bool(
             &self.doc,
-            canon.owner_type,
+            canon.owner_type(),
             owner_uuid,
-            canon.field_name,
+            canon.field_name(),
             target_uuid,
             prop,
             default,
@@ -988,9 +980,9 @@ impl Schedule {
         };
         if let Err(e) = crate::edge_crdt::write_edge_meta_bool(
             &mut self.doc,
-            canon.owner_type,
+            canon.owner_type(),
             owner_uuid,
-            canon.field_name,
+            canon.field_name(),
             target_uuid,
             prop,
             value,
@@ -1022,10 +1014,10 @@ impl Schedule {
         };
         if let Err(e) = crate::edge_crdt::list_append_unique(
             &mut self.doc,
-            canon.owner_type,
+            canon.owner_type(),
             owner_uuid,
-            canon.target_type,
-            canon.field_name,
+            canon.target_type(),
+            canon.field_name(),
             target_uuid,
         ) {
             debug_assert!(false, "CRDT edge_add mirror failed: {e}");
@@ -1059,10 +1051,10 @@ impl Schedule {
         };
         if let Err(e) = crate::edge_crdt::list_remove_uuid(
             &mut self.doc,
-            canon.owner_type,
+            canon.owner_type(),
             owner_uuid,
-            canon.target_type,
-            canon.field_name,
+            canon.target_type(),
+            canon.field_name(),
             target_uuid,
         ) {
             debug_assert!(false, "CRDT edge_remove mirror failed: {e}");
@@ -1077,8 +1069,8 @@ impl Schedule {
     /// needs its list re-synced; the simplest correct strategy is to
     /// re-derive from the edge map for every currently-in-range far entity.
     ///
-    /// Field refs are derived from the matched [`EdgeDescriptor`](crate::edge_descriptor::EdgeDescriptor)
-    /// via [`crate::edge_crdt::canonical_owner`].
+    /// Field refs are derived directly from the [`crate::edge_crdt::CanonicalOwner`]
+    /// returned by [`crate::edge_crdt::canonical_owner`].
     fn mirror_edge_set(
         &mut self,
         near: &impl DynamicFieldNodeId,
@@ -1092,9 +1084,8 @@ impl Schedule {
             return;
         };
         let near_uuid = near.entity_uuid();
-        // Derive field refs from the descriptor.
-        let owner_field_ref = canon.descriptor.owner_field.field_id();
-        let target_field_ref = canon.descriptor.target_field.field_id();
+        let owner_field_ref = canon.owner_field.field_id();
+        let target_field_ref = canon.target_field.field_id();
         if canon.near_is_owner {
             // Single write on near's list — query current neighbors via edge map.
             let targets: Vec<NonNilUuid> = self
@@ -1113,10 +1104,10 @@ impl Schedule {
                 .collect();
             if let Err(e) = crate::edge_crdt::write_owner_list(
                 &mut self.doc,
-                canon.owner_type,
+                canon.owner_type(),
                 near_uuid,
-                canon.target_type,
-                canon.field_name,
+                canon.target_type(),
+                canon.field_name(),
                 &targets,
             ) {
                 debug_assert!(false, "CRDT edge mirror failed: {e}");
@@ -1129,16 +1120,16 @@ impl Schedule {
         let mut owners: Vec<NonNilUuid> = far_targets.iter().map(|t| t.entity_uuid()).collect();
         // Scan all owner entities in the doc for any that previously contained
         // near_uuid (they may have been removed from the edge map).
-        let doc_uuids = crdt::list_all_uuids(&self.doc, canon.owner_type);
+        let doc_uuids = crdt::list_all_uuids(&self.doc, canon.owner_type());
         for far_uuid in doc_uuids {
             if owners.contains(&far_uuid) {
                 continue;
             }
             let prev = crate::edge_crdt::read_owner_list(
                 &self.doc,
-                canon.owner_type,
+                canon.owner_type(),
                 far_uuid,
-                canon.field_name,
+                canon.field_name(),
                 crate::value::FieldTypeItem::EntityIdentifier(near.field().entity_type_name()),
             );
             if prev.contains(&near_uuid) {
@@ -1163,10 +1154,10 @@ impl Schedule {
                 .collect();
             if let Err(e) = crate::edge_crdt::write_owner_list(
                 &mut self.doc,
-                canon.owner_type,
+                canon.owner_type(),
                 owner_uuid,
-                canon.target_type,
-                canon.field_name,
+                canon.target_type(),
+                canon.field_name(),
                 &targets,
             ) {
                 debug_assert!(false, "CRDT edge mirror failed: {e}");

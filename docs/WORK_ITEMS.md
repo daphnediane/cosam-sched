@@ -1,6 +1,6 @@
 # Cosplay America Schedule - Work Item
 
-Updated on: Mon Apr 27 10:11:14 2026
+Updated on: Mon Apr 27 11:30:09 2026
 
 ## Completed
 
@@ -83,7 +83,7 @@ and improve `FieldId` conversions with a global registry and type-safe downcasti
 
 ## Summary of Open Items
 
-**Total open items:** 19
+**Total open items:** 20
 
 * **Meta / Project-Level**
   * [META-001] Meta work item tracking the full multi-phase redesign of the schedule system. (Blocked by [META-005], [META-006], [META-007], [META-008])
@@ -97,6 +97,7 @@ XLSX import/export. (Blocked by [META-004])
   * [FEATURE-065] Convert `credited_presenters` and `uncredited_presenters` on Panel from computed/derived fields
 into actual edge storage fields, eliminating the `credited` per-edge boolean and its CRDT
 `presenters_meta` map.
+  * [FEATURE-070] Remove the separate `EdgeDescriptor` struct and inventory; encode CRDT-edge ownership and target field directly inside `CrdtFieldType::EdgeOwner` on the owner field.
 
 * **Medium Priority**
   * [BUGFIX-045] In `scratch/field_update_logic.rs`, duration values are incorrectly stored as `FieldValue::Integer(minutes)` instead of `FieldValue::Duration(Duration)`.
@@ -223,28 +224,35 @@ panels arranged by time and room, with inline editing of entity fields.
 into actual edge storage fields, eliminating the `credited` per-edge boolean and its CRDT
 `presenters_meta` map.
 
-**Blocked By:** [REFACTOR-064]
+**Blocked By:** [REFACTOR-064], [FEATURE-070]
 
-**Description:** This is Phase 5 of the FieldNodeId edge system refactor.
+**Description:** Currently Panel stores one CRDT list (`presenters`) plus a parallel `presenters_meta` map with a
+`credited` boolean per entry.  `credited_presenters` and `uncredited_presenters` are computed
+fields that filter by that boolean, and `add_credited_presenters` / `add_uncredited_presenters`
+are write-only helpers that toggle it.
 
-Currently Panel stores one CRDT list (`presenters`) plus a parallel `presenters_meta` map with a
-`credited` boolean per entry. `credited_presenters` and `uncredited_presenters` are computed
-fields that filter by that boolean.
+After FEATURE-070, `CrdtFieldType::EdgeOwner` carries `target_field` directly, so adding new
+owner-side edge fields is straightforward.  The `EdgeFieldSpec` / `EdgeFieldDefault` schema for
+per-edge metadata was already removed by FEATURE-070; only the runtime helpers remain.
 
-With FieldNodeId edges, both can be first-class CRDT lists:
+The remaining work is to turn the partition into two first-class CRDT lists.
 
-* `FIELD_CREDITED_PRESENTERS` on Panel → edge storage; target `FIELD_PANELS` on Presenter.
-* `FIELD_UNCREDITED_PRESENTERS` on Panel → edge storage; target `FIELD_PANELS` on Presenter.
-* `FIELD_PANELS` on Presenter aggregates entries from both (union via field map accumulation).
-* Remove `FIELD_PRESENTERS` (old undivided list) and `EDGE_PRESENTERS`.
-* Remove `EdgeFieldSpec`, `EdgeFieldDefault` (no per-edge metadata needed).
-* CRDT schema change: replace `presenters` + `presenters_meta` with `credited_presenters` and
-  `uncredited_presenters` lists (pre-alpha breaking change is acceptable).
-* `FIELD_PANELS` on Presenter becomes read-only
-  * `FIELD_ADD_CREDITED_PANELS` -- adds to `credited_presenters`, removes from `uncredited_presenters`
-  * `FIELD_ADD_UNCREDITED_PANELS` -- adds to `uncredited_presenters`, removes from `credited_presenters`
-  * `FIELD_REMOVE_PANELS` -- removes from `credited_presenters` and `uncredited_presenters`
-* Update all tests referencing `credited` per-edge metadata.
+---
+
+### [FEATURE-070] FEATURE-070: Eliminate EdgeDescriptor; fold target_field into FieldDescriptor
+
+**Status:** In progress
+
+**Priority:** High
+
+**Summary:** Remove the separate `EdgeDescriptor` struct and inventory; encode CRDT-edge ownership and target field directly inside `CrdtFieldType::EdgeOwner` on the owner field.
+
+**Description:** Each edge relationship was described in two places:
+
+1. The owner field's `CrdtFieldType::EdgeOwner(&'static EdgeDescriptor)`.
+2. A separate `pub(crate) static EDGE_<NAME>: EdgeDescriptor = …;` plus its own `inventory::submit!` registration.
+
+`EdgeDescriptor` carried `name` (debug only), `owner_field` (self-reference, redundant), `target_field` (the only piece not already on the owner), and `fields: &[EdgeFieldSpec]` (per-edge metadata, slated for removal by FEATURE-065). Collapsing the two leaves a simpler model where the owner field is the edge descriptor.
 
 ---
 
@@ -577,6 +585,7 @@ This item covers any remaining integration work and documentation.
 [FEATURE-065]: work-item/high/FEATURE-065.md
 [FEATURE-068]: work-item/done/FEATURE-068.md
 [FEATURE-069]: work-item/done/FEATURE-069.md
+[FEATURE-070]: work-item/high/FEATURE-070.md
 [META-001]: work-item/meta/META-001.md
 [META-002]: work-item/done/META-002.md
 [META-003]: work-item/done/META-003.md

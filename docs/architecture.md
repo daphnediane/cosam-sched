@@ -132,21 +132,24 @@ Both directions of every edge are stored symmetrically in the same map.  Homogen
 - `edge_get_bool::<L, R>(l, r, field)` — read a per-edge boolean flag (defaults to `true` if unset)
 - `edge_set_bool::<L, R>(l, r, field, value)` — write a per-edge boolean flag
 
-Field IDs for a given `(L::TYPE_NAME, R::TYPE_NAME)` pair are resolved at call time
-via `edge_descriptor::resolve_edge_fields`, which searches the inventory-registered
-`EdgeDescriptor`s.  Transitive (formerly homogeneous) edge mutations also invalidate
-the `TransitiveEdgeCache`.
+CRDT ownership for any `(near_field, far_field)` pair is resolved by
+`edge_crdt::canonical_owner`, which inspects each side's `crdt_type()`:
+whichever side carries `CrdtFieldType::EdgeOwner { target_field }` pointing at
+the other is the owner.  No inventory traversal is required — the owner field
+is self-describing (FEATURE-070 collapsed the former `EdgeDescriptor` struct
+and inventory into the field descriptor itself).  Transitive (formerly
+homogeneous) edge mutations also invalidate the `TransitiveEdgeCache`.
 
-### Per-Edge Metadata
+### Per-Edge Metadata (legacy, scheduled for removal)
 
-Some edges carry additional scalar data alongside the membership list. The
-`EdgeDescriptor` struct has a `fields: &'static [EdgeFieldSpec]` slot listing the
-per-edge fields and their defaults. Storage uses a parallel `{field_name}_meta`
-automerge map keyed by target UUID string, with each value being a nested map of
-scalars. A missing entry means the field is at its default value — no data
-migration is needed when new edge fields are added.
+The Panel ↔ Presenter edge currently carries a `credited` boolean per entry,
+stored in a parallel `{field_name}_meta` automerge map keyed by target UUID
+string.  A missing entry defaults to `true`.
 
-Currently only the Panel ↔ Presenter edge carries metadata:
+The per-edge metadata schema (`EdgeFieldSpec` / `EdgeFieldDefault`) was removed
+alongside `EdgeDescriptor` in FEATURE-070; FEATURE-065 will then retire the
+`_meta` map pattern entirely by splitting the single `presenters` list into
+`credited_presenters` and `uncredited_presenters` first-class CRDT lists.
 
 | Edge              | Field      | Type | Default | Meaning                                                    |
 | ----------------- | ---------- | ---- | ------- | ---------------------------------------------------------- |

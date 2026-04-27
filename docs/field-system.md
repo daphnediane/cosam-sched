@@ -324,7 +324,7 @@ static FIELD_PANEL_NAME: FieldDescriptor<PanelEntityType> = FieldDescriptor {
 
 // Read-only edge field (CRDT owner, no direct write fn — write via add/remove helpers):
 edge_field!(FIELD_PRESENTERS, PanelEntityType, mode: ro, target: PresenterEntityType,
-    target_field: &crate::presenter::FIELD_PANELS, edge: &EDGE_PANEL_PRESENTERS,
+    target_field: &crate::presenter::FIELD_PANELS, owner,
     name: "presenters", display: "Presenters",
     desc: "All presenters attached to this panel (credited and uncredited).",
     aliases: &["panelists", "presenter"],
@@ -338,45 +338,46 @@ Uniformly-shaped descriptors (required/optional strings, booleans, optional
 integers, plain-text fields, edge-backed fields) are declared via shared
 `macro_rules!` helpers in `crates/schedule-core/src/field_macros.rs`:
 `stored_field!`, `edge_field!`. Each macro takes the entity type and assumes the
-`data: CommonData` convention. Edge macros take a `target: EntityType` parameter, a `mode` (`ro`, `rw`, `one`, `add`,
-`remove`), and an optional `edge: &EDGE_X` parameter. The `edge:` parameter encodes CRDT
-ownership: present → `EdgeOwner(&EDGE_X)`; absent → `EdgeTarget`. Bespoke descriptors (BFS transitive-closure fields, fields with custom
-parse logic, read-only computed fields with Schedule access, per-edge-metadata
+`data: CommonData` convention. Edge macros take a `target: EntityType` parameter,
+a `target_field:` reference to the inverse field on the target entity, a `mode`
+(`ro`, `rw`, `one`, `add`, `remove`), and an optional bare `owner,` flag.
+The `owner,` flag encodes CRDT ownership: present → the field's `crdt_type` is
+`EdgeOwner { target_field: <target_field arg> }`; absent → `EdgeTarget`.
+Bespoke descriptors (BFS transitive-closure fields, fields with custom parse
+logic, read-only computed fields with Schedule access, per-edge-metadata
 fields) stay as hand-written struct literals wrapped in `define_field!`.
 
-### EdgeDescriptor and per-edge fields
+### Edge ownership in `CrdtFieldType` (FEATURE-070)
 
-`EdgeDescriptor` (in `edge_descriptor.rs`) describes a relationship between two
-entity types. It carries a `fields: &'static [EdgeFieldSpec]` slot listing
-per-edge scalar fields and their defaults:
+There is no separate `EdgeDescriptor` struct.  CRDT-edge information lives
+directly inside the owner field's `CrdtFieldType`:
 
 ```rust
-pub struct EdgeDescriptor {
-    pub name: &'static str,
-    pub owner_field: &'static dyn NamedField,   // owning side field descriptor
-    pub target_field: &'static dyn NamedField,  // target side field descriptor
-    pub is_homogeneous: bool,
-    pub fields: &'static [EdgeFieldSpec],  // per-edge metadata fields
-}
-
-pub struct EdgeFieldSpec {
-    pub name: &'static str,
-    pub default: EdgeFieldDefault,
-}
-
-pub enum EdgeFieldDefault {
-    Boolean(bool),
+pub enum CrdtFieldType {
+    Scalar,
+    Text,
+    List,
+    Derived,
+    /// CRDT-canonical owner side of an edge relationship.
+    EdgeOwner {
+        /// Inverse/lookup field on the target entity.
+        target_field: &'static dyn NamedField,
+    },
+    /// Non-owner (inverse/lookup) side; no payload.
+    EdgeTarget,
 }
 ```
 
-Methods: `owning_type()` — entity type name of the owner side; `owning_field()` — canonical
-field name of the owner side; `target_type()` — entity type name of the target side;
-`far_field(&dyn NamedField) -> Option<&dyn NamedField>` — given a near-side field,
-returns the opposite endpoint's field descriptor.
+Resolution: `edge_crdt::canonical_owner(near, far)` checks each side's
+`crdt_type()` — whichever side is `EdgeOwner { target_field }` pointing at the
+other is the owner.  Constant time, no inventory traversal.
 
-Edge fields are read/written via `Schedule::edge_get_bool` / `edge_set_bool`.
-Storage is in a parallel `{field_name}_meta` automerge map; see `crdt-design.md`
-for the document path layout.
+Per-edge metadata schema (`EdgeFieldSpec` / `EdgeFieldDefault`) was removed in
+FEATURE-070.  The `_meta` map storage and `Schedule::edge_get_bool` /
+`edge_set_bool` access points still exist for the legacy `credited` flag
+(default `true`); FEATURE-065 will retire them entirely by splitting
+`presenters` into `credited_presenters` / `uncredited_presenters` first-class
+CRDT lists. See `crdt-design.md` for the document path layout.
 
 **Presenter partition fields on Panel** use `define_field!` with `WriteFn::Schedule`
 and call `field_value_to_entity_ids` (the standard edge-parsing helper) for input

@@ -199,7 +199,7 @@ pub fn write_field(
 ) -> CrdtResult<()> {
     if matches!(
         crdt_type,
-        CrdtFieldType::Derived | CrdtFieldType::EdgeOwner(_) | CrdtFieldType::EdgeTarget
+        CrdtFieldType::Derived | CrdtFieldType::EdgeOwner { .. } | CrdtFieldType::EdgeTarget
     ) {
         return Ok(());
     }
@@ -224,7 +224,10 @@ pub fn write_field(
         (CrdtFieldType::List, FieldValue::Single(_)) => Err(CrdtError::Unsupported(format!(
             "field `{field_name}`: List CrdtFieldType requires FieldValue::List"
         ))),
-        (CrdtFieldType::Derived | CrdtFieldType::EdgeOwner(_) | CrdtFieldType::EdgeTarget, _) => {
+        (
+            CrdtFieldType::Derived | CrdtFieldType::EdgeOwner { .. } | CrdtFieldType::EdgeTarget,
+            _,
+        ) => {
             unreachable!("handled above")
         }
     }
@@ -265,7 +268,7 @@ pub fn read_field(
         return Ok(None);
     };
     match crdt_type {
-        CrdtFieldType::Derived | CrdtFieldType::EdgeOwner(_) | CrdtFieldType::EdgeTarget => {
+        CrdtFieldType::Derived | CrdtFieldType::EdgeOwner { .. } | CrdtFieldType::EdgeTarget => {
             Ok(None)
         }
         CrdtFieldType::Scalar => match doc.get(&entity, field_name)? {

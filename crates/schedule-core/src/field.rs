@@ -74,7 +74,7 @@ pub enum VerifyFn<E: EntityType> {
 /// [`Self::entity_type_name`].
 ///
 /// Implemented by [`FieldDescriptor`] and exposed as a trait object for
-/// type-erased field lookup (e.g. in [`crate::edge_descriptor::EdgeDescriptor`]).
+/// type-erased field lookup.
 pub trait NamedField: 'static + Send + Sync + std::any::Any {
     /// Canonical field name used in programmatic access (snake_case).
     fn name(&self) -> &'static str;
@@ -109,6 +109,12 @@ pub trait NamedField: 'static + Send + Sync + std::any::Any {
 
     /// [`crate::entity::EntityType::TYPE_NAME`] for the entity this field belongs to.
     fn entity_type_name(&self) -> &'static str;
+
+    /// CRDT storage type annotation.
+    ///
+    /// Used to filter fields by role (e.g. `EdgeOwner { .. }` for edge-owning
+    /// fields) without requiring a separate inventory.
+    fn crdt_type(&self) -> crate::value::CrdtFieldType;
 }
 
 /// Field that can produce a [`FieldValue`] given an entity ID and schedule.
@@ -246,6 +252,10 @@ impl<E: EntityType> NamedField for FieldDescriptor<E> {
     fn entity_type_name(&self) -> &'static str {
         E::TYPE_NAME
     }
+
+    fn crdt_type(&self) -> crate::value::CrdtFieldType {
+        self.crdt_type
+    }
 }
 
 impl<E: EntityType> ReadableField<E> for FieldDescriptor<E> {
@@ -283,7 +293,7 @@ impl<E: EntityType> WritableField<E> for FieldDescriptor<E> {
             || matches!(
                 self.crdt_type,
                 crate::value::CrdtFieldType::Derived
-                    | crate::value::CrdtFieldType::EdgeOwner(_)
+                    | crate::value::CrdtFieldType::EdgeOwner { .. }
                     | crate::value::CrdtFieldType::EdgeTarget
             )
         {

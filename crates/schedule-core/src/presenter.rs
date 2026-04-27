@@ -302,21 +302,6 @@ impl EntityType for PresenterEntityType {
     }
 }
 
-// ── Edge descriptor ───────────────────────────────────────────────────────────
-
-/// Member → Groups (homogeneous, transitive).  The member side owns the CRDT list.
-///
-/// `member.groups` lists the groups a presenter belongs to;
-/// `group.members` is the inverse view (read from the edge map, not the CRDT).
-pub(crate) static EDGE_MEMBER_GROUPS: crate::edge_descriptor::EdgeDescriptor =
-    crate::edge_descriptor::EdgeDescriptor {
-        name: "presenter_groups",
-        owner_field: &FIELD_MEMBERS,
-        target_field: &FIELD_GROUPS,
-        fields: &[],
-    };
-inventory::submit! { crate::edge_descriptor::CollectedEdge(&EDGE_MEMBER_GROUPS) }
-
 impl PresenterEntityType {
     /// Find the best-matching presenter by name.
     ///
@@ -816,7 +801,7 @@ edge_field!(FIELD_GROUPS, PresenterEntityType, mode: rw, target: PresenterEntity
     order: 700);
 
 edge_field!(FIELD_MEMBERS, PresenterEntityType, mode: rw, target: PresenterEntityType, target_field: &FIELD_GROUPS,
-    edge: &EDGE_MEMBER_GROUPS,
+    owner,
     name: "members", display: "Members",
     desc: "Members of this group (empty for individuals).",
     aliases: &["group_members"],

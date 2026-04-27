@@ -251,9 +251,9 @@ pub(crate) use stored_field;
 // need `InternalData` access.
 //
 // CRDT ownership is encoded directly in the field descriptor via the optional
-// `edge:` parameter:
-//   - `edge: &EDGE_X` present → `crdt_type: EdgeOwner(&EDGE_X)` (owner side)
-//   - `edge:` absent          → `crdt_type: EdgeTarget`          (non-owner side)
+// `owner,` flag:
+//   - `owner,` present → `crdt_type: EdgeOwner { target_field: <target_field arg> }`
+//   - `owner,` absent  → `crdt_type: EdgeTarget`
 // `add`/`remove` modes always use `Derived` (write-only helpers).
 
 /// Declare an edge-backed [`FieldDescriptor`](crate::field::FieldDescriptor).
@@ -268,24 +268,24 @@ pub(crate) use stored_field;
 /// | `add`   | `target:`   | —                   | `edge_add` (per item) |
 /// | `remove`| `target:`   | —                   | `edge_remove` (per item) |
 ///
-/// The optional `edge: &EDGE_X` parameter encodes CRDT ownership:
-/// - Present: `crdt_type` is `EdgeOwner(&EDGE_X)` — this field is the CRDT owner.
+/// The optional bare `owner,` flag encodes CRDT ownership:
+/// - Present: `crdt_type` is `EdgeOwner { target_field: … }` — this field is the CRDT owner.
 /// - Absent: `crdt_type` is `EdgeTarget` — this field is the non-owner lookup side.
 ///
 /// # Example
 ///
 /// ```ignore
 /// edge_field!(FIELD_PRESENTERS, PanelEntityType, mode: ro, target: PresenterEntityType,
-///     target_field: &crate::presenter::FIELD_PANELS, edge: &EDGE_PANEL_PRESENTERS,
+///     target_field: &crate::presenter::FIELD_PANELS, owner,
 ///     name: "presenters", display: "Presenters",
 ///     desc: "Presenters for this panel.",
 ///     aliases: &["presenter"], example: "[]", order: 2700);
 /// ```
 macro_rules! edge_field {
-    // ── mode: ro, edge: (EdgeOwner, read-only) ────────────────────────
+    // ── mode: ro, owner (EdgeOwner, read-only) ────────────────────────
     (
         $static_name:ident, $entity:ty, mode: ro, target: $target_entity:ty, target_field: $target_field:expr,
-        edge: $edge_desc:expr,
+        owner,
         name: $name:literal, display: $display:literal, desc: $desc:literal,
         aliases: $aliases:expr, example: $example:literal,
         order: $order:expr $(,)?
@@ -300,7 +300,7 @@ macro_rules! edge_field {
                 description: $desc,
                 aliases: $aliases,
                 required: false,
-                crdt_type: $crate::value::CrdtFieldType::EdgeOwner($edge_desc),
+                crdt_type: $crate::value::CrdtFieldType::EdgeOwner { target_field: $target_field },
                 field_type: $crate::value::FieldType(
                     $crate::value::FieldCardinality::List,
                     $crate::value::FieldTypeItem::EntityIdentifier(
@@ -361,10 +361,10 @@ macro_rules! edge_field {
         inventory::submit! { $crate::field::CollectedNamedField(&$static_name) }
     };
 
-    // ── mode: rw, edge: (EdgeOwner) ───────────────────────────────────
+    // ── mode: rw, owner (EdgeOwner) ───────────────────────────────────
     (
         $static_name:ident, $entity:ty, mode: rw, target: $target_entity:ty, target_field: $target_field:expr,
-        edge: $edge_desc:expr,
+        owner,
         name: $name:literal, display: $display:literal, desc: $desc:literal,
         aliases: $aliases:expr, example: $example:literal,
         order: $order:expr $(,)?
@@ -379,7 +379,7 @@ macro_rules! edge_field {
                 description: $desc,
                 aliases: $aliases,
                 required: false,
-                crdt_type: $crate::value::CrdtFieldType::EdgeOwner($edge_desc),
+                crdt_type: $crate::value::CrdtFieldType::EdgeOwner { target_field: $target_field },
                 field_type: $crate::value::FieldType(
                     $crate::value::FieldCardinality::List,
                     $crate::value::FieldTypeItem::EntityIdentifier(
@@ -466,11 +466,11 @@ macro_rules! edge_field {
         inventory::submit! { $crate::field::CollectedNamedField(&$static_name) }
     };
 
-    // ── mode: one, edge: (EdgeOwner) ──────────────────────────────────
+    // ── mode: one, owner (EdgeOwner) ──────────────────────────────────
     // Structurally identical to `rw`; the 0-or-1 constraint is semantic.
     (
         $static_name:ident, $entity:ty, mode: one, target: $target_entity:ty, target_field: $target_field:expr,
-        edge: $edge_desc:expr,
+        owner,
         name: $name:literal, display: $display:literal, desc: $desc:literal,
         aliases: $aliases:expr, example: $example:literal,
         order: $order:expr $(,)?
@@ -485,7 +485,7 @@ macro_rules! edge_field {
                 description: $desc,
                 aliases: $aliases,
                 required: false,
-                crdt_type: $crate::value::CrdtFieldType::EdgeOwner($edge_desc),
+                crdt_type: $crate::value::CrdtFieldType::EdgeOwner { target_field: $target_field },
                 field_type: $crate::value::FieldType(
                     $crate::value::FieldCardinality::List,
                     $crate::value::FieldTypeItem::EntityIdentifier(
