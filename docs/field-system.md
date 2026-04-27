@@ -322,8 +322,9 @@ static FIELD_PANEL_NAME: FieldDescriptor<PanelEntityType> = FieldDescriptor {
     verify_fn: None,
 };
 
-// Read-only edge field (all attached presenters):
+// Read-only edge field (CRDT owner, no direct write fn — write via add/remove helpers):
 edge_field!(FIELD_PRESENTERS, PanelEntityType, mode: ro, target: PresenterEntityType,
+    target_field: &crate::presenter::FIELD_PANELS, edge: &EDGE_PANEL_PRESENTERS,
     name: "presenters", display: "Presenters",
     desc: "All presenters attached to this panel (credited and uncredited).",
     aliases: &["panelists", "presenter"],
@@ -337,9 +338,9 @@ Uniformly-shaped descriptors (required/optional strings, booleans, optional
 integers, plain-text fields, edge-backed fields) are declared via shared
 `macro_rules!` helpers in `crates/schedule-core/src/field_macros.rs`:
 `stored_field!`, `edge_field!`. Each macro takes the entity type and assumes the
-`data: CommonData` convention. Edge macros take a `target: EntityType` (or
-`source: EntityType`) parameter and a `mode` (`ro`, `rw`, `one`, `add`, `remove`,
-`rw_to`). Bespoke descriptors (BFS transitive-closure fields, fields with custom
+`data: CommonData` convention. Edge macros take a `target: EntityType` parameter, a `mode` (`ro`, `rw`, `one`, `add`,
+`remove`), and an optional `edge: &EDGE_X` parameter. The `edge:` parameter encodes CRDT
+ownership: present → `EdgeOwner(&EDGE_X)`; absent → `EdgeTarget`. Bespoke descriptors (BFS transitive-closure fields, fields with custom
 parse logic, read-only computed fields with Schedule access, per-edge-metadata
 fields) stay as hand-written struct literals wrapped in `define_field!`.
 

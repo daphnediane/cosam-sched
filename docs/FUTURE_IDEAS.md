@@ -82,27 +82,6 @@ safe constructors have the same implicit trust:
 
 ---
 
-### [IDEA-069] IDEA-069: Add EdgeOwner/EdgeTarget variants to CrdtFieldType
-
-**Summary:** Encode CRDT edge ownership direction directly in `CrdtFieldType` instead of
-relying solely on `EdgeDescriptor` and `canonical_owner()`.
-
-**Description:** Currently all edge-field descriptors use `CrdtFieldType::Derived`, which the
-CRDT mirror layer skips entirely during `mirror_entity_fields`.  Ownership
-direction lives only in `EdgeDescriptor`, and mirror functions must call
-`canonical_owner()` to resolve it at runtime.
-
-Adding `EdgeOwner` / `EdgeTarget` variants to `CrdtFieldType` would:
-
-* Encode CRDT ownership direction directly in the field descriptor
-* Enable mirror functions to derive canonical ownership from field descriptors
-  without the `canonical_owner()` lookup
-* Potentially allow `mirror_entity_fields` to handle edge list mirroring
-  automatically during hydration, eliminating the separate
-  `ensure_all_owner_lists_for_type` setup pass
-
----
-
 ## Placeholders
 
 Rename `IDEA-###.md` to another prefix to promote an idea.
@@ -119,4 +98,3 @@ Use `perl scripts/work-item-update.pl --create IDEA` to add new stubs.
 [IDEA-040]: work-item/idea/IDEA-040.md
 [IDEA-042]: work-item/idea/IDEA-042.md
 [IDEA-044]: work-item/idea/IDEA-044.md
-[IDEA-069]: work-item/idea/IDEA-069.md

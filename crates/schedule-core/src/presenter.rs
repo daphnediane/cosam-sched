@@ -815,7 +815,8 @@ edge_field!(FIELD_GROUPS, PresenterEntityType, mode: rw, target: PresenterEntity
     example: "[]",
     order: 700);
 
-edge_field!(FIELD_MEMBERS, PresenterEntityType, mode: rw_to, source: PresenterEntityType, source_field: &FIELD_GROUPS,
+edge_field!(FIELD_MEMBERS, PresenterEntityType, mode: rw, target: PresenterEntityType, target_field: &FIELD_GROUPS,
+    edge: &EDGE_MEMBER_GROUPS,
     name: "members", display: "Members",
     desc: "Members of this group (empty for individuals).",
     aliases: &["group_members"],

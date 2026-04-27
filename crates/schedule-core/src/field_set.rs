@@ -249,13 +249,19 @@ impl<E: EntityType> FieldSet<E> {
     // ── CRDT fields ───────────────────────────────────────────────────────────
 
     /// Returns `(name, CrdtFieldType)` pairs for every field whose
-    /// `crdt_type` is not [`CrdtFieldType::Derived`].
+    /// `crdt_type` has automerge backing (`Scalar`, `Text`, or `List`).
+    ///
+    /// `Derived`, `EdgeOwner`, and `EdgeTarget` fields are excluded — edge
+    /// list storage is managed by the `edge_crdt` layer, not `write_field`.
     ///
     /// Used by the Phase 4 CRDT materialization layer to know which fields
     /// need automerge backing.
     pub fn crdt_fields(&self) -> impl Iterator<Item = (&'static str, CrdtFieldType)> + '_ {
         self.fields.iter().filter_map(|d| {
-            if d.crdt_type != CrdtFieldType::Derived {
+            if matches!(
+                d.crdt_type,
+                CrdtFieldType::Scalar | CrdtFieldType::Text | CrdtFieldType::List
+            ) {
                 Some((d.name, d.crdt_type))
             } else {
                 None
@@ -610,10 +616,12 @@ mod tests {
         let fs = make_field_set();
         let crdt: Vec<_> = fs.crdt_fields().collect();
         for (name, ct) in &crdt {
-            assert_ne!(
-                *ct,
-                CrdtFieldType::Derived,
-                "field {name} should not be Derived"
+            assert!(
+                matches!(
+                    ct,
+                    CrdtFieldType::Scalar | CrdtFieldType::Text | CrdtFieldType::List
+                ),
+                "field {name} should only be Scalar, Text, or List; got {ct:?}"
             );
         }
     }

@@ -245,43 +245,54 @@ pub(crate) use stored_field;
 
 // ── Edge-field macro ──────────────────────────────────────────────────────────
 //
-// Produces `Derived` descriptors for edge-backed fields using
-// `Schedule::edges_from` / `edge_set` / `edge_add` / `edge_remove`.
+// Produces edge-backed field descriptors using `Schedule::connected_entities` /
+// `edge_set` / `edge_add` / `edge_remove`.
 // All use `ReadFn::Schedule` or `WriteFn::Schedule` so the descriptor does not
 // need `InternalData` access.
+//
+// CRDT ownership is encoded directly in the field descriptor via the optional
+// `edge:` parameter:
+//   - `edge: &EDGE_X` present → `crdt_type: EdgeOwner(&EDGE_X)` (owner side)
+//   - `edge:` absent          → `crdt_type: EdgeTarget`          (non-owner side)
+// `add`/`remove` modes always use `Derived` (write-only helpers).
 
 /// Declare an edge-backed [`FieldDescriptor`](crate::field::FieldDescriptor).
 ///
-/// The `mode:` token selects read/write semantics and direction:
+/// The `mode:` token selects read/write semantics:
 ///
-/// | `mode:` | Neighbor kw | Direction | Read | Write |
-/// |---------|-------------|-----------|------|-------|
-/// | `ro`    | `target:`   | forward   | `edges_from`   | — |
-/// | `rw`    | `target:`   | forward   | `edges_from`   | `edge_set` (replace) |
-/// | `one`   | `target:`   | forward   | `edges_from`   | `edge_set` (0-or-1) |
-/// | `rw_to` | `source:`   | reverse   | `edges_to`     | `edge_set_to` |
-/// | `add`   | `target:`   | forward   | —              | `edge_add` (per item) |
-/// | `remove`| `target:`   | forward   | —              | `edge_remove` (per item) |
+/// | `mode:` | Neighbor kw | Read | Write |
+/// |---------|-------------|------|-------|
+/// | `ro`    | `target:`   | `connected_entities` | — |
+/// | `rw`    | `target:`   | `connected_entities` | `edge_set` (replace) |
+/// | `one`   | `target:`   | `connected_entities` | `edge_set` (0-or-1) |
+/// | `add`   | `target:`   | —                   | `edge_add` (per item) |
+/// | `remove`| `target:`   | —                   | `edge_remove` (per item) |
+///
+/// The optional `edge: &EDGE_X` parameter encodes CRDT ownership:
+/// - Present: `crdt_type` is `EdgeOwner(&EDGE_X)` — this field is the CRDT owner.
+/// - Absent: `crdt_type` is `EdgeTarget` — this field is the non-owner lookup side.
 ///
 /// # Example
 ///
 /// ```ignore
-/// edge_field!(FIELD_PRESENTERS, PanelEntityType, mode: rw, target: PresenterEntityType,
+/// edge_field!(FIELD_PRESENTERS, PanelEntityType, mode: ro, target: PresenterEntityType,
+///     target_field: &crate::presenter::FIELD_PANELS, edge: &EDGE_PANEL_PRESENTERS,
 ///     name: "presenters", display: "Presenters",
 ///     desc: "Presenters for this panel.",
 ///     aliases: &["presenter"], example: "[]", order: 2700);
 /// ```
 macro_rules! edge_field {
-    // ── mode: ro ──────────────────────────────────────────────────────
+    // ── mode: ro, edge: (EdgeOwner, read-only) ────────────────────────
     (
         $static_name:ident, $entity:ty, mode: ro, target: $target_entity:ty, target_field: $target_field:expr,
+        edge: $edge_desc:expr,
         name: $name:literal, display: $display:literal, desc: $desc:literal,
         aliases: $aliases:expr, example: $example:literal,
         order: $order:expr $(,)?
     ) => {
         #[doc = concat!("**", $display, "** \u{2014} ", $desc)]
         #[doc = ""]
-        #[doc = concat!("Type: read-only `List<EntityId<", stringify!($target_entity), ">>` (edge-backed).")]
+        #[doc = concat!("Type: read-only `List<EntityId<", stringify!($target_entity), ">>` (edge-backed, CRDT owner, no direct write fn).")]
         pub static $static_name: $crate::field::FieldDescriptor<$entity> =
             $crate::field::FieldDescriptor {
                 name: $name,
@@ -289,7 +300,7 @@ macro_rules! edge_field {
                 description: $desc,
                 aliases: $aliases,
                 required: false,
-                crdt_type: $crate::value::CrdtFieldType::Derived,
+                crdt_type: $crate::value::CrdtFieldType::EdgeOwner($edge_desc),
                 field_type: $crate::value::FieldType(
                     $crate::value::FieldCardinality::List,
                     $crate::value::FieldTypeItem::EntityIdentifier(
@@ -311,16 +322,16 @@ macro_rules! edge_field {
         inventory::submit! { $crate::field::CollectedNamedField(&$static_name) }
     };
 
-    // ── mode: rw ──────────────────────────────────────────────────────
+    // ── mode: ro (EdgeTarget) ─────────────────────────────────────────
     (
-        $static_name:ident, $entity:ty, mode: rw, target: $target_entity:ty, target_field: $target_field:expr,
+        $static_name:ident, $entity:ty, mode: ro, target: $target_entity:ty, target_field: $target_field:expr,
         name: $name:literal, display: $display:literal, desc: $desc:literal,
         aliases: $aliases:expr, example: $example:literal,
         order: $order:expr $(,)?
     ) => {
         #[doc = concat!("**", $display, "** \u{2014} ", $desc)]
         #[doc = ""]
-        #[doc = concat!("Type: read/write `List<EntityId<", stringify!($target_entity), ">>` (edge-backed, replaces on write).")]
+        #[doc = concat!("Type: read-only `List<EntityId<", stringify!($target_entity), ">>` (edge-backed, non-owner side).")]
         pub static $static_name: $crate::field::FieldDescriptor<$entity> =
             $crate::field::FieldDescriptor {
                 name: $name,
@@ -328,7 +339,47 @@ macro_rules! edge_field {
                 description: $desc,
                 aliases: $aliases,
                 required: false,
-                crdt_type: $crate::value::CrdtFieldType::Derived,
+                crdt_type: $crate::value::CrdtFieldType::EdgeTarget,
+                field_type: $crate::value::FieldType(
+                    $crate::value::FieldCardinality::List,
+                    $crate::value::FieldTypeItem::EntityIdentifier(
+                        <$target_entity as $crate::entity::EntityType>::TYPE_NAME,
+                    ),
+                ),
+                example: $example,
+                order: $order,
+                read_fn: Some($crate::field::ReadFn::Schedule(
+                    |sched: &$crate::schedule::Schedule, id: $crate::entity::EntityId<$entity>| {
+                        let node = $crate::field_node_id::FieldNodeId::new(id, &$static_name);
+                        let ids = sched.connected_entities::<$entity, $target_entity>(node, $target_field);
+                        Some($crate::schedule::entity_ids_to_field_value(ids))
+                    },
+                )),
+                write_fn: None,
+                verify_fn: None,
+            };
+        inventory::submit! { $crate::field::CollectedNamedField(&$static_name) }
+    };
+
+    // ── mode: rw, edge: (EdgeOwner) ───────────────────────────────────
+    (
+        $static_name:ident, $entity:ty, mode: rw, target: $target_entity:ty, target_field: $target_field:expr,
+        edge: $edge_desc:expr,
+        name: $name:literal, display: $display:literal, desc: $desc:literal,
+        aliases: $aliases:expr, example: $example:literal,
+        order: $order:expr $(,)?
+    ) => {
+        #[doc = concat!("**", $display, "** \u{2014} ", $desc)]
+        #[doc = ""]
+        #[doc = concat!("Type: read/write `List<EntityId<", stringify!($target_entity), ">>` (edge-backed, CRDT owner, replaces on write).")]
+        pub static $static_name: $crate::field::FieldDescriptor<$entity> =
+            $crate::field::FieldDescriptor {
+                name: $name,
+                display: $display,
+                description: $desc,
+                aliases: $aliases,
+                required: false,
+                crdt_type: $crate::value::CrdtFieldType::EdgeOwner($edge_desc),
                 field_type: $crate::value::FieldType(
                     $crate::value::FieldCardinality::List,
                     $crate::value::FieldTypeItem::EntityIdentifier(
@@ -363,7 +414,113 @@ macro_rules! edge_field {
         inventory::submit! { $crate::field::CollectedNamedField(&$static_name) }
     };
 
-    // ── mode: one ─────────────────────────────────────────────────────
+    // ── mode: rw (EdgeTarget) ─────────────────────────────────────────
+    (
+        $static_name:ident, $entity:ty, mode: rw, target: $target_entity:ty, target_field: $target_field:expr,
+        name: $name:literal, display: $display:literal, desc: $desc:literal,
+        aliases: $aliases:expr, example: $example:literal,
+        order: $order:expr $(,)?
+    ) => {
+        #[doc = concat!("**", $display, "** \u{2014} ", $desc)]
+        #[doc = ""]
+        #[doc = concat!("Type: read/write `List<EntityId<", stringify!($target_entity), ">>` (edge-backed, non-owner side, replaces on write).")]
+        pub static $static_name: $crate::field::FieldDescriptor<$entity> =
+            $crate::field::FieldDescriptor {
+                name: $name,
+                display: $display,
+                description: $desc,
+                aliases: $aliases,
+                required: false,
+                crdt_type: $crate::value::CrdtFieldType::EdgeTarget,
+                field_type: $crate::value::FieldType(
+                    $crate::value::FieldCardinality::List,
+                    $crate::value::FieldTypeItem::EntityIdentifier(
+                        <$target_entity as $crate::entity::EntityType>::TYPE_NAME,
+                    ),
+                ),
+                example: $example,
+                order: $order,
+                read_fn: Some($crate::field::ReadFn::Schedule(
+                    |sched: &$crate::schedule::Schedule, id: $crate::entity::EntityId<$entity>| {
+                        let node = $crate::field_node_id::FieldNodeId::new(id, &$static_name);
+                        let ids = sched.connected_entities::<$entity, $target_entity>(node, $target_field);
+                        Some($crate::schedule::entity_ids_to_field_value(ids))
+                    },
+                )),
+                write_fn: Some($crate::field::WriteFn::Schedule(
+                    |sched: &mut $crate::schedule::Schedule,
+                     id: $crate::entity::EntityId<$entity>,
+                     val: $crate::value::FieldValue| {
+                        let ids =
+                            $crate::schedule::field_value_to_entity_ids::<$target_entity>(val)?;
+                        sched.edge_set::<$entity, $target_entity>(
+                            $crate::field_node_id::FieldNodeId::new(id, &$static_name),
+                            $target_field,
+                            ids,
+                        );
+                        Ok(())
+                    },
+                )),
+                verify_fn: None,
+            };
+        inventory::submit! { $crate::field::CollectedNamedField(&$static_name) }
+    };
+
+    // ── mode: one, edge: (EdgeOwner) ──────────────────────────────────
+    // Structurally identical to `rw`; the 0-or-1 constraint is semantic.
+    (
+        $static_name:ident, $entity:ty, mode: one, target: $target_entity:ty, target_field: $target_field:expr,
+        edge: $edge_desc:expr,
+        name: $name:literal, display: $display:literal, desc: $desc:literal,
+        aliases: $aliases:expr, example: $example:literal,
+        order: $order:expr $(,)?
+    ) => {
+        #[doc = concat!("**", $display, "** \u{2014} ", $desc)]
+        #[doc = ""]
+        #[doc = concat!("Type: read/write `Option<EntityId<", stringify!($target_entity), ">>` (0-or-1 edge, CRDT owner).")]
+        pub static $static_name: $crate::field::FieldDescriptor<$entity> =
+            $crate::field::FieldDescriptor {
+                name: $name,
+                display: $display,
+                description: $desc,
+                aliases: $aliases,
+                required: false,
+                crdt_type: $crate::value::CrdtFieldType::EdgeOwner($edge_desc),
+                field_type: $crate::value::FieldType(
+                    $crate::value::FieldCardinality::List,
+                    $crate::value::FieldTypeItem::EntityIdentifier(
+                        <$target_entity as $crate::entity::EntityType>::TYPE_NAME,
+                    ),
+                ),
+                example: $example,
+                order: $order,
+                read_fn: Some($crate::field::ReadFn::Schedule(
+                    |sched: &$crate::schedule::Schedule, id: $crate::entity::EntityId<$entity>| {
+                        let node = $crate::field_node_id::FieldNodeId::new(id, &$static_name);
+                        let ids = sched.connected_entities::<$entity, $target_entity>(node, $target_field);
+                        Some($crate::schedule::entity_ids_to_field_value(ids))
+                    },
+                )),
+                write_fn: Some($crate::field::WriteFn::Schedule(
+                    |sched: &mut $crate::schedule::Schedule,
+                     id: $crate::entity::EntityId<$entity>,
+                     val: $crate::value::FieldValue| {
+                        let ids =
+                            $crate::schedule::field_value_to_entity_ids::<$target_entity>(val)?;
+                        sched.edge_set::<$entity, $target_entity>(
+                            $crate::field_node_id::FieldNodeId::new(id, &$static_name),
+                            $target_field,
+                            ids,
+                        );
+                        Ok(())
+                    },
+                )),
+                verify_fn: None,
+            };
+        inventory::submit! { $crate::field::CollectedNamedField(&$static_name) }
+    };
+
+    // ── mode: one (EdgeTarget) ────────────────────────────────────────
     // Structurally identical to `rw`; the 0-or-1 constraint is semantic.
     (
         $static_name:ident, $entity:ty, mode: one, target: $target_entity:ty, target_field: $target_field:expr,
@@ -373,7 +530,7 @@ macro_rules! edge_field {
     ) => {
         #[doc = concat!("**", $display, "** \u{2014} ", $desc)]
         #[doc = ""]
-        #[doc = concat!("Type: read/write `Option<EntityId<", stringify!($target_entity), ">>` (0-or-1 edge).")]
+        #[doc = concat!("Type: read/write `Option<EntityId<", stringify!($target_entity), ">>` (0-or-1 edge, non-owner side).")]
         pub static $static_name: $crate::field::FieldDescriptor<$entity> =
             $crate::field::FieldDescriptor {
                 name: $name,
@@ -381,7 +538,7 @@ macro_rules! edge_field {
                 description: $desc,
                 aliases: $aliases,
                 required: false,
-                crdt_type: $crate::value::CrdtFieldType::Derived,
+                crdt_type: $crate::value::CrdtFieldType::EdgeTarget,
                 field_type: $crate::value::FieldType(
                     $crate::value::FieldCardinality::List,
                     $crate::value::FieldTypeItem::EntityIdentifier(
@@ -406,58 +563,6 @@ macro_rules! edge_field {
                         sched.edge_set::<$entity, $target_entity>(
                             $crate::field_node_id::FieldNodeId::new(id, &$static_name),
                             $target_field,
-                            ids,
-                        );
-                        Ok(())
-                    },
-                )),
-                verify_fn: None,
-            };
-        inventory::submit! { $crate::field::CollectedNamedField(&$static_name) }
-    };
-
-    // ── mode: rw_to ───────────────────────────────────────────────────
-    (
-        $static_name:ident, $entity:ty, mode: rw_to, source: $source_entity:ty, source_field: $source_field:expr,
-        name: $name:literal, display: $display:literal, desc: $desc:literal,
-        aliases: $aliases:expr, example: $example:literal,
-        order: $order:expr $(,)?
-    ) => {
-        #[doc = concat!("**", $display, "** \u{2014} ", $desc)]
-        #[doc = ""]
-        #[doc = concat!("Type: read/write `List<EntityId<", stringify!($source_entity), ">>` (reverse edges; sources pointing at this entity).")]
-        pub static $static_name: $crate::field::FieldDescriptor<$entity> =
-            $crate::field::FieldDescriptor {
-                name: $name,
-                display: $display,
-                description: $desc,
-                aliases: $aliases,
-                required: false,
-                crdt_type: $crate::value::CrdtFieldType::Derived,
-                field_type: $crate::value::FieldType(
-                    $crate::value::FieldCardinality::List,
-                    $crate::value::FieldTypeItem::EntityIdentifier(
-                        <$source_entity as $crate::entity::EntityType>::TYPE_NAME,
-                    ),
-                ),
-                example: $example,
-                order: $order,
-                read_fn: Some($crate::field::ReadFn::Schedule(
-                    |sched: &$crate::schedule::Schedule, id: $crate::entity::EntityId<$entity>| {
-                        let node = $crate::field_node_id::FieldNodeId::new(id, &$static_name);
-                        let ids = sched.connected_entities::<$entity, $source_entity>(node, $source_field);
-                        Some($crate::schedule::entity_ids_to_field_value(ids))
-                    },
-                )),
-                write_fn: Some($crate::field::WriteFn::Schedule(
-                    |sched: &mut $crate::schedule::Schedule,
-                     id: $crate::entity::EntityId<$entity>,
-                     val: $crate::value::FieldValue| {
-                        let ids =
-                            $crate::schedule::field_value_to_entity_ids::<$source_entity>(val)?;
-                        sched.edge_set::<$entity, $source_entity>(
-                            $crate::field_node_id::FieldNodeId::new(id, &$static_name),
-                            $source_field,
                             ids,
                         );
                         Ok(())

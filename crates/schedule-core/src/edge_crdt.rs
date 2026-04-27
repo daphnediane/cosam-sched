@@ -156,28 +156,6 @@ pub fn ensure_owner_list(
     }
 }
 
-/// Ensure every canonical owner-list field on the given entity type exists
-/// on `owner_uuid`'s entity map.
-///
-/// Called from `Schedule::insert` (via `mirror_entity_fields`) so that edge
-/// mutations made on forks of this doc converge via `insert` / `delete`
-/// against a shared list object.
-///
-/// # Errors
-/// Propagates [`crdt::CrdtError`] from the first failing `ensure_owner_list`.
-pub fn ensure_all_owner_lists_for_type(
-    doc: &mut AutoCommit,
-    owner_type: &str,
-    owner_uuid: NonNilUuid,
-) -> Result<(), crdt::CrdtError> {
-    for desc in crate::edge_descriptor::all_edge_descriptors() {
-        if desc.owning_type() == owner_type {
-            ensure_owner_list(doc, owner_type, owner_uuid, desc.owning_field())?;
-        }
-    }
-    Ok(())
-}
-
 /// Incrementally append `target_uuid` to `owner.field_name` if not already
 /// present.  Used by the `Schedule::edge_add` mirror path so concurrent
 /// adds from two replicas converge to the union rather than LWW.

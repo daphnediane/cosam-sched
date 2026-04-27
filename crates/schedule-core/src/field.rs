@@ -280,7 +280,12 @@ impl<E: EntityType> WritableField<E> for FieldDescriptor<E> {
         // value back through the descriptor's own read_fn and push it into
         // the authoritative automerge document.
         if !schedule.mirror_enabled()
-            || matches!(self.crdt_type, crate::value::CrdtFieldType::Derived)
+            || matches!(
+                self.crdt_type,
+                crate::value::CrdtFieldType::Derived
+                    | crate::value::CrdtFieldType::EdgeOwner(_)
+                    | crate::value::CrdtFieldType::EdgeTarget
+            )
         {
             return Ok(());
         }

@@ -1,6 +1,6 @@
 # Cosplay America Schedule - Work Item
 
-Updated on: Mon Apr 27 02:28:40 2026
+Updated on: Mon Apr 27 10:11:14 2026
 
 ## Completed
 
@@ -35,6 +35,8 @@ existing static field descriptors across every entity file.
 * [FEATURE-057] Implement a transitive edge relationship cache to efficiently compute inclusive members, groups, panels, and other hierarchical relationships.
 * [FEATURE-068] Add `Copy` as a super-trait of `DynamicEntityId` so that by-value usage of id
 parameters is ergonomic without ownership gymnastics.
+* [FEATURE-069] Encode CRDT edge ownership direction directly in `CrdtFieldType` instead of
+relying solely on `EdgeDescriptor` and `canonical_owner()`.
 * [META-002] Phase tracker for project foundation and Cargo workspace setup.
 * [META-003] Phase tracker for the entity/field system and core schedule data model in schedule-core.
 * [META-004] Phase tracker for making an automerge CRDT document the authoritative storage
@@ -574,6 +576,7 @@ This item covers any remaining integration work and documentation.
 [FEATURE-057]: work-item/done/FEATURE-057.md
 [FEATURE-065]: work-item/high/FEATURE-065.md
 [FEATURE-068]: work-item/done/FEATURE-068.md
+[FEATURE-069]: work-item/done/FEATURE-069.md
 [META-001]: work-item/meta/META-001.md
 [META-002]: work-item/done/META-002.md
 [META-003]: work-item/done/META-003.md

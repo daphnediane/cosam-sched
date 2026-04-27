@@ -575,7 +575,10 @@ impl Schedule {
         // writes while holding `&mut self.doc`.
         let mut pending: Vec<(&'static str, CrdtFieldType, FieldValue)> = Vec::new();
         for desc in E::field_set().fields() {
-            if matches!(desc.crdt_type, CrdtFieldType::Derived) {
+            if !matches!(
+                desc.crdt_type,
+                CrdtFieldType::Scalar | CrdtFieldType::Text | CrdtFieldType::List
+            ) {
                 continue;
             }
             if let Ok(Some(v)) = desc.read(id, self) {
@@ -591,7 +594,19 @@ impl Schedule {
         // concurrent replicas share the same list `ObjId` and
         // `edge_add`/`edge_remove` can converge via incremental
         // `insert`/`delete` (FEATURE-023).
-        crate::edge_crdt::ensure_all_owner_lists_for_type(&mut self.doc, type_name, uuid)?;
+        //
+        // We derive which fields own edges directly from the `EdgeOwner`
+        // variant in each field descriptor, avoiding a global descriptor scan.
+        for desc in E::field_set().fields() {
+            if let CrdtFieldType::EdgeOwner(edge_desc) = desc.crdt_type {
+                crate::edge_crdt::ensure_owner_list(
+                    &mut self.doc,
+                    type_name,
+                    uuid,
+                    edge_desc.owning_field(),
+                )?;
+            }
+        }
         Ok(())
     }
 
@@ -610,7 +625,12 @@ impl Schedule {
         crdt_type: CrdtFieldType,
         value: Option<&FieldValue>,
     ) -> Result<(), FieldError> {
-        if !self.mirror_enabled || matches!(crdt_type, CrdtFieldType::Derived) {
+        if !self.mirror_enabled
+            || matches!(
+                crdt_type,
+                CrdtFieldType::Derived | CrdtFieldType::EdgeOwner(_) | CrdtFieldType::EdgeTarget
+            )
+        {
             return Ok(());
         }
         let uuid = id.entity_uuid();
@@ -984,7 +1004,7 @@ impl Schedule {
     /// canonical owner's list field. Concurrent add/add converges to the
     /// union because both replicas insert into the same shared list
     /// [`ObjId`](automerge::ObjId) created up-front by
-    /// [`crate::edge_crdt::ensure_all_owner_lists_for_type`].
+    /// `mirror_entity_fields` (via `ensure_owner_list` on each `EdgeOwner` field).
     ///
     /// Ownership is resolved from the field descriptors embedded in `near`
     /// and `far` via [`crate::edge_crdt::canonical_owner`].

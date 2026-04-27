@@ -1,4 +1,4 @@
-# IDEA-069: Add EdgeOwner/EdgeTarget variants to CrdtFieldType
+# FEATURE-069: Add EdgeOwner/EdgeTarget variants to CrdtFieldType
 
 ## Summary
 
@@ -7,11 +7,11 @@ relying solely on `EdgeDescriptor` and `canonical_owner()`.
 
 ## Status
 
-Open
+Completed
 
 ## Priority
 
-Low
+High
 
 ## Description
 
@@ -29,17 +29,12 @@ Adding `EdgeOwner` / `EdgeTarget` variants to `CrdtFieldType` would:
   automatically during hydration, eliminating the separate
   `ensure_all_owner_lists_for_type` setup pass
 
-### Fields that would change
+### Design decisions
 
-- `rw` / `rw_to` / `ro` mode fields (e.g. `FIELD_PRESENTERS` would become
-  `EdgeOwner`, `FIELD_PANELS` would become `EdgeTarget`)
-- Write-only and computed fields (`add_panels`, `remove_panels`,
-  `inclusive_groups`) stay `Derived`
-
-### Open questions
-
-- Should `EdgeOwner` carry a reference to the target field (or vice versa)
-  to make the pair self-describing?
-- Does this overlap with or subsume the `EdgeDescriptor` registry entirely?
-- Impact on the field macro — would `rw` / `rw_to` modes auto-select the
-  variant, or should it be explicit?
+- `EdgeOwner(&'static EdgeDescriptor)` — the owner field carries the full descriptor
+- `EdgeTarget` — plain variant, no payload (a field may be the target of multiple edges)
+- `add`/`remove`/write-only fields stay `Derived`
+- Optional `edge: &EDGE_X` parameter in `edge_field!` macro selects `EdgeOwner` vs `EdgeTarget`
+- `rw_to` mode merged into `rw` (generated code was identical; `source:`/`source_field:` was cosmetic)
+- `mirror_entity_fields` iterates `EdgeOwner` fields to call `ensure_owner_list`,
+  eliminating the separate `ensure_all_owner_lists_for_type` setup pass

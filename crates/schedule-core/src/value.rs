@@ -485,7 +485,23 @@ impl FieldType {
 ///
 /// Annotations are baked in from Phase 2 so no entity structs need changing
 /// when automerge integration lands.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+///
+/// The two edge variants encode CRDT ownership direction directly in the field
+/// descriptor so that `mirror_entity_fields` can set up owner lists without a
+/// separate `ensure_all_owner_lists_for_type` pass:
+///
+/// - [`EdgeOwner`](CrdtFieldType::EdgeOwner) — this field is the CRDT-canonical
+///   owner of the edge relationship.  The embedded `&EdgeDescriptor` is
+///   self-describing: it names the owner field, the target field, and any
+///   per-edge metadata.
+/// - [`EdgeTarget`](CrdtFieldType::EdgeTarget) — this field is the non-owner
+///   (inverse/lookup) side.  No payload: a single field may be the target of
+///   multiple edges (e.g. `FIELD_PANELS` on `Presenter` after FEATURE-065).
+///
+/// Both edge variants are treated like `Derived` by `crdt::write_field` /
+/// `crdt::read_field` — edge list storage is managed exclusively by the
+/// `edge_crdt` functions.
+#[derive(Debug, Clone, Copy)]
 pub enum CrdtFieldType {
     /// Last-write-wins scalar via `put` / `get` (automerge LWW).
     Scalar,
@@ -495,7 +511,38 @@ pub enum CrdtFieldType {
     List,
     /// Computed from relationships; not stored in CRDT — lives only in RAM.
     Derived,
+    /// CRDT-canonical owner side of an edge relationship.
+    ///
+    /// The embedded descriptor provides the owning field name (used as the CRDT
+    /// list key), the target field, and any per-edge metadata.  During entity
+    /// insertion, `mirror_entity_fields` creates the empty owner list so that
+    /// concurrent replicas share the same `ObjId`.
+    EdgeOwner(&'static crate::edge_descriptor::EdgeDescriptor),
+    /// Non-owner (inverse/lookup) side of an edge relationship.
+    ///
+    /// No payload — a field may be the target of multiple distinct edge
+    /// descriptors.  Treated identically to `Derived` by all CRDT read/write
+    /// paths; the owner side manages the storage.
+    EdgeTarget,
 }
+
+impl PartialEq for CrdtFieldType {
+    fn eq(&self, other: &Self) -> bool {
+        match (self, other) {
+            (Self::Scalar, Self::Scalar)
+            | (Self::Text, Self::Text)
+            | (Self::List, Self::List)
+            | (Self::Derived, Self::Derived)
+            | (Self::EdgeTarget, Self::EdgeTarget) => true,
+            (Self::EdgeOwner(a), Self::EdgeOwner(b)) => {
+                std::ptr::eq(*a as *const _, *b as *const _)
+            }
+            _ => false,
+        }
+    }
+}
+
+impl Eq for CrdtFieldType {}
 
 /// Top-level error for field operations.
 #[derive(Debug, Error)]
@@ -681,13 +728,14 @@ mod tests {
 
     #[test]
     fn test_crdt_field_type_variants() {
-        let variants = [
+        let non_edge = [
             CrdtFieldType::Scalar,
             CrdtFieldType::Text,
             CrdtFieldType::List,
             CrdtFieldType::Derived,
         ];
-        assert_eq!(variants.len(), 4);
+        assert_eq!(non_edge.len(), 4);
+        assert_eq!(CrdtFieldType::EdgeTarget, CrdtFieldType::EdgeTarget);
     }
 
     #[test]

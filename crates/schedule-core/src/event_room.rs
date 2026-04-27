@@ -239,6 +239,7 @@ stored_field!(FIELD_SORT_KEY, EventRoomEntityType, sort_key, optional, as: AsInt
 // ── Edge-backed computed fields ───────────────────────────────────────────────
 
 edge_field!(FIELD_HOTEL_ROOMS, EventRoomEntityType, mode: rw, target: HotelRoomEntityType, target_field: &crate::hotel_room::FIELD_EVENT_ROOMS,
+    edge: &EDGE_EVENT_ROOM_HOTEL_ROOMS,
     name: "hotel_rooms", display: "Hotel Rooms",
     desc: "Hotel rooms that contain this event room.",
     aliases: &["hotel_room"],

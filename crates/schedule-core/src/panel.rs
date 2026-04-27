@@ -631,6 +631,7 @@ define_field!(
 // ── Edge-backed computed fields ───────────────────────────────────────────────
 
 edge_field!(FIELD_PRESENTERS, PanelEntityType, mode: ro, target: PresenterEntityType, target_field: &crate::presenter::FIELD_PANELS,
+    edge: &EDGE_PANEL_PRESENTERS,
     name: "presenters", display: "Presenters",
     desc: "All presenters attached to this panel (credited and uncredited).",
     aliases: &["panelists", "presenter"],
@@ -932,6 +933,7 @@ define_field!(
 );
 
 edge_field!(FIELD_EVENT_ROOMS, PanelEntityType, mode: rw, target: EventRoomEntityType, target_field: &crate::event_room::FIELD_PANELS,
+    edge: &EDGE_PANEL_EVENT_ROOMS,
     name: "event_rooms", display: "Event Rooms",
     desc: "Rooms where this panel takes place.",
     aliases: &["rooms", "room", "event_room"],
@@ -953,6 +955,7 @@ edge_field!(FIELD_REMOVE_ROOMS, PanelEntityType, mode: remove, target: EventRoom
     order: 3300);
 
 edge_field!(FIELD_PANEL_TYPE, PanelEntityType, mode: one, target: PanelTypeEntityType, target_field: &crate::panel_type::FIELD_PANELS,
+    edge: &EDGE_PANEL_PANEL_TYPE,
     name: "panel_type", display: "Panel Type",
     desc: "Panel type / kind.",
     aliases: &["kind", "type"],
