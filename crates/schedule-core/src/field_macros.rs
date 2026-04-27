@@ -350,7 +350,11 @@ macro_rules! edge_field {
                      val: $crate::value::FieldValue| {
                         let ids =
                             $crate::schedule::field_value_to_entity_ids::<$target_entity>(val)?;
-                        sched.edge_set::<$entity, $target_entity>(id, ids);
+                        sched.edge_set::<$entity, $target_entity>(
+                            $crate::field_node_id::FieldNodeId::new(id, &$static_name),
+                            $target_field,
+                            ids,
+                        );
                         Ok(())
                     },
                 )),
@@ -399,7 +403,11 @@ macro_rules! edge_field {
                      val: $crate::value::FieldValue| {
                         let ids =
                             $crate::schedule::field_value_to_entity_ids::<$target_entity>(val)?;
-                        sched.edge_set::<$entity, $target_entity>(id, ids);
+                        sched.edge_set::<$entity, $target_entity>(
+                            $crate::field_node_id::FieldNodeId::new(id, &$static_name),
+                            $target_field,
+                            ids,
+                        );
                         Ok(())
                     },
                 )),
@@ -447,7 +455,11 @@ macro_rules! edge_field {
                      val: $crate::value::FieldValue| {
                         let ids =
                             $crate::schedule::field_value_to_entity_ids::<$source_entity>(val)?;
-                        sched.edge_set_to::<$source_entity, $entity>(id, ids);
+                        sched.edge_set::<$entity, $source_entity>(
+                            $crate::field_node_id::FieldNodeId::new(id, &$static_name),
+                            $source_field,
+                            ids,
+                        );
                         Ok(())
                     },
                 )),

@@ -313,7 +313,6 @@ pub(crate) static EDGE_MEMBER_GROUPS: crate::edge_descriptor::EdgeDescriptor =
         name: "presenter_groups",
         owner_field: &FIELD_MEMBERS,
         target_field: &FIELD_GROUPS,
-        is_transitive: true,
         fields: &[],
     };
 inventory::submit! { crate::edge_descriptor::CollectedEdge(&EDGE_MEMBER_GROUPS) }

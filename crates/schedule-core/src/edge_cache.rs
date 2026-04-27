@@ -6,7 +6,7 @@
 
 //! [`TransitiveEdgeCache`] — transitive-edge relationship cache.
 //!
-//! Caches transitive closures of edges flagged `is_transitive` (e.g. presenter
+//! Caches transitive closures of edges between the same entity type (e.g. presenter
 //! group membership) to enable efficient queries like "all groups a presenter
 //! belongs to" or "all members of a group including nested groups".
 //!

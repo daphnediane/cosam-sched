@@ -87,13 +87,6 @@ pub struct EdgeDescriptor {
     /// - `target_field.entity_type_name()` — target entity type name
     pub target_field: &'static dyn NamedField,
 
-    /// `true` for transitive (hierarchical) relationships whose reachability
-    /// is computed by [`crate::edge_cache::TransitiveEdgeCache`].
-    ///
-    /// Replaces `is_homogeneous` as the flag that drives transitive-closure
-    /// queries.  `is_homogeneous()` now derives from the entity type names.
-    pub is_transitive: bool,
-
     /// Per-edge data fields carried by this relationship.
     ///
     /// Empty for pure membership edges.  Non-empty only for `EDGE_PANEL_PRESENTERS`
@@ -160,7 +153,6 @@ impl fmt::Debug for EdgeDescriptor {
             .field("owner_type", &self.owner_field.entity_type_name())
             .field("target_field", &self.target_field.name())
             .field("target_type", &self.target_field.entity_type_name())
-            .field("is_transitive", &self.is_transitive)
             .finish()
     }
 }
@@ -197,9 +189,6 @@ pub struct EdgeFieldResolution {
     pub l_field_id: FieldRef,
     /// [`FieldRef`] of the field on the `r_type` entity for this relationship.
     pub r_field_id: FieldRef,
-    /// `true` when the relationship supports transitive-closure queries
-    /// (see [`EdgeDescriptor::is_transitive`]).
-    pub is_transitive: bool,
 }
 
 /// Resolve field IDs and transitive flag for the edge between `l_type` and `r_type`.
@@ -217,7 +206,6 @@ pub fn resolve_edge_fields(l_type: &str, r_type: &str) -> Option<EdgeFieldResolu
             return Some(EdgeFieldResolution {
                 l_field_id: desc.owner_field.field_id(),
                 r_field_id: desc.target_field.field_id(),
-                is_transitive: desc.is_transitive,
             });
         }
         // For heterogeneous edges only: also match the reversed direction.
@@ -226,7 +214,6 @@ pub fn resolve_edge_fields(l_type: &str, r_type: &str) -> Option<EdgeFieldResolu
             return Some(EdgeFieldResolution {
                 l_field_id: desc.target_field.field_id(),
                 r_field_id: desc.owner_field.field_id(),
-                is_transitive: desc.is_transitive,
             });
         }
     }

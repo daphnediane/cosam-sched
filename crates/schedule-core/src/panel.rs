@@ -1305,7 +1305,6 @@ pub(crate) static EDGE_PANEL_PRESENTERS: crate::edge_descriptor::EdgeDescriptor 
         name: "panel_presenters",
         owner_field: &FIELD_PRESENTERS,
         target_field: &crate::presenter::FIELD_PANELS,
-        is_transitive: false,
         fields: &[crate::edge_descriptor::EdgeFieldSpec {
             name: "credited",
             default: crate::edge_descriptor::EdgeFieldDefault::Boolean(true),
@@ -1319,7 +1318,6 @@ pub(crate) static EDGE_PANEL_EVENT_ROOMS: crate::edge_descriptor::EdgeDescriptor
         name: "panel_event_rooms",
         owner_field: &FIELD_EVENT_ROOMS,
         target_field: &crate::event_room::FIELD_PANELS,
-        is_transitive: false,
         fields: &[],
     };
 inventory::submit! { crate::edge_descriptor::CollectedEdge(&EDGE_PANEL_EVENT_ROOMS) }
@@ -1330,7 +1328,6 @@ pub(crate) static EDGE_PANEL_PANEL_TYPE: crate::edge_descriptor::EdgeDescriptor 
         name: "panel_panel_type",
         owner_field: &FIELD_PANEL_TYPE,
         target_field: &crate::panel_type::FIELD_PANELS,
-        is_transitive: false,
         fields: &[],
     };
 inventory::submit! { crate::edge_descriptor::CollectedEdge(&EDGE_PANEL_PANEL_TYPE) }

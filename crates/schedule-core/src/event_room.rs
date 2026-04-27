@@ -284,7 +284,6 @@ pub(crate) static EDGE_EVENT_ROOM_HOTEL_ROOMS: crate::edge_descriptor::EdgeDescr
         name: "event_room_hotel_rooms",
         owner_field: &FIELD_HOTEL_ROOMS,
         target_field: &crate::hotel_room::FIELD_EVENT_ROOMS,
-        is_transitive: false,
         fields: &[],
     };
 inventory::submit! { crate::edge_descriptor::CollectedEdge(&EDGE_EVENT_ROOM_HOTEL_ROOMS) }
