@@ -109,6 +109,7 @@ pub fn build_entity<E: EntityBuildable>(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::entity::EntityUuid;
     use crate::field_value;
     use crate::panel_type::PanelTypeEntityType;
 
@@ -152,7 +153,7 @@ mod tests {
         )
         .unwrap();
 
-        assert_eq!(id1.uuid(), id2.uuid());
+        assert_eq!(id1.entity_uuid(), id2.entity_uuid());
     }
 
     #[test]

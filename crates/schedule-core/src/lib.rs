@@ -13,6 +13,7 @@ pub mod edge_descriptor;
 pub mod edge_map;
 pub mod edit;
 pub mod entity;
+pub mod entity_id;
 pub mod event_room;
 pub mod export;
 pub mod field;
@@ -30,5 +31,10 @@ pub mod time;
 pub mod value;
 pub(crate) mod value_macros;
 
+// Re-exports from entity_id
+pub use entity_id::{DynamicEntityId, EntityId, EntityTyped, EntityUuid, RuntimeEntityId};
+
 // Re-exports from field_node_id
-pub use field_node_id::{FieldNodeId, FieldRef, RuntimeFieldNodeId};
+pub use field_node_id::{
+    DynamicFieldNodeId, FieldNodeId, FieldRef, RuntimeFieldNodeId, TypedFieldNodeId,
+};

@@ -28,7 +28,7 @@
 //! union-of-inserts for concurrent adds — see `docs/crdt-design.md`).
 
 use crate::crdt;
-use crate::entity::RuntimeEntityId;
+use crate::entity::{EntityUuid, RuntimeEntityId};
 use crate::value::{CrdtFieldType, FieldTypeItem, FieldValue, FieldValueItem};
 use automerge::transaction::Transactable;
 use automerge::{AutoCommit, ObjType, ReadDoc, Value};
@@ -59,23 +59,23 @@ pub struct CanonicalOwner {
 #[must_use]
 pub fn canonical_owner(l_type: &str, r_type: &str) -> Option<CanonicalOwner> {
     for desc in crate::edge_descriptor::all_edge_descriptors() {
-        if desc.owner_type() == l_type && desc.target_type() == r_type {
+        if desc.owning_type() == l_type && desc.target_type() == r_type {
             // L is the owner side.
             return Some(CanonicalOwner {
                 owner_is_left: true,
-                owner_type: desc.owner_type(),
+                owner_type: desc.owning_type(),
                 target_type: desc.target_type(),
-                field_name: desc.field_name(),
+                field_name: desc.owning_field(),
             });
         }
-        if !desc.is_homogeneous() && desc.target_type() == l_type && desc.owner_type() == r_type {
+        if !desc.is_homogeneous() && desc.target_type() == l_type && desc.owning_type() == r_type {
             // R is the owner side (heterogeneous only — homo edges don't have a
             // separate reverse direction; the left side always owns).
             return Some(CanonicalOwner {
                 owner_is_left: false,
-                owner_type: desc.owner_type(),
+                owner_type: desc.owning_type(),
                 target_type: desc.target_type(),
-                field_name: desc.field_name(),
+                field_name: desc.owning_field(),
             });
         }
     }
@@ -125,8 +125,8 @@ pub fn ensure_all_owner_lists_for_type(
     owner_uuid: NonNilUuid,
 ) -> Result<(), crdt::CrdtError> {
     for desc in crate::edge_descriptor::all_edge_descriptors() {
-        if desc.owner_type() == owner_type {
-            ensure_owner_list(doc, owner_type, owner_uuid, desc.field_name())?;
+        if desc.owning_type() == owner_type {
+            ensure_owner_list(doc, owner_type, owner_uuid, desc.owning_field())?;
         }
     }
     Ok(())
@@ -169,7 +169,7 @@ pub fn list_append_unique(
     // SAFETY: target_type/target_uuid are carried together throughout the
     // edge API; this tags the scalar string consistently with how
     // `write_owner_list` does.
-    let rid = unsafe { RuntimeEntityId::from_uuid(target_uuid, target_type) };
+    let rid = unsafe { RuntimeEntityId::new_unchecked(target_uuid, target_type) };
     let scalar = crdt::item_to_scalar(&FieldValueItem::EntityIdentifier(rid))?;
     doc.insert(&list_id, len, scalar)?;
     Ok(())
@@ -236,7 +236,7 @@ pub fn write_owner_list(
             // SAFETY: `u` came from the in-memory edge index which already
             // tracks the entity's type; we are merely tagging it for the
             // CRDT write.
-            let rid = unsafe { RuntimeEntityId::from_uuid(*u, target_type) };
+            let rid = unsafe { RuntimeEntityId::new_unchecked(*u, target_type) };
             FieldValueItem::EntityIdentifier(rid)
         })
         .collect();
@@ -353,7 +353,7 @@ pub fn read_owner_list(
     items
         .into_iter()
         .filter_map(|it| match it {
-            FieldValueItem::EntityIdentifier(rid) => Some(rid.non_nil_uuid()),
+            FieldValueItem::EntityIdentifier(rid) => Some(rid.entity_uuid()),
             _ => None,
         })
         .collect()

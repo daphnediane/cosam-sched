@@ -46,7 +46,7 @@ use thiserror::Error;
 use uuid::{NonNilUuid, Uuid};
 
 use crate::builder::{build_entity, BuildError, EntityBuildable};
-use crate::entity::{RuntimeEntityId, UuidPreference};
+use crate::entity::{EntityTyped, EntityUuid, RuntimeEntityId, UuidPreference};
 use crate::field_set::FieldRef;
 use crate::schedule::Schedule;
 use crate::value::{CrdtFieldType, FieldTypeItem, FieldValue, FieldValueItem};
@@ -319,7 +319,7 @@ pub(crate) fn item_to_scalar(item: &FieldValueItem) -> CrdtResult<ScalarValue> {
         }
         FieldValueItem::Duration(d) => ScalarValue::Int(d.num_milliseconds()),
         FieldValueItem::EntityIdentifier(rid) => {
-            ScalarValue::Str(format!("{}:{}", rid.type_name(), rid.non_nil_uuid()).into())
+            ScalarValue::Str(format!("{}:{}", rid.entity_type_name(), rid.entity_uuid()).into())
         }
     })
 }
@@ -365,7 +365,7 @@ pub(crate) fn scalar_to_item(
                 .ok_or_else(|| CrdtError::TypeMismatch("entity id is nil UUID".into()))?;
             // SAFETY: type_name comes from the field descriptor's declared
             // target type and the UUID was just validated as non-nil.
-            let rid = unsafe { RuntimeEntityId::from_uuid(nn, type_name) };
+            let rid = unsafe { RuntimeEntityId::new_unchecked(nn, type_name) };
             Ok(FieldValueItem::EntityIdentifier(rid))
         }
         (sv, item) => Err(CrdtError::TypeMismatch(format!(
@@ -479,5 +479,5 @@ pub fn rehydrate_entity<E: EntityBuildable>(
             Err(_) => {}
         }
     }
-    build_entity::<E>(schedule, UuidPreference::Exact(uuid), updates).map(|id| id.non_nil_uuid())
+    build_entity::<E>(schedule, UuidPreference::Exact(uuid), updates).map(|id| id.entity_uuid())
 }

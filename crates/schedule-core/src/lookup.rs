@@ -341,8 +341,9 @@ fn parse_typed_uuid<E: EntityType>(
 
     let uuid = uuid::Uuid::parse_str(uuid_str)
         .map_err(|_| LookupError::InvalidUuid { s: s.to_string() })?;
-    let id =
-        EntityId::<E>::new(uuid).ok_or_else(|| LookupError::InvalidUuid { s: s.to_string() })?;
+    let non_nil_uuid =
+        uuid::NonNilUuid::new(uuid).ok_or_else(|| LookupError::InvalidUuid { s: s.to_string() })?;
+    let id = unsafe { EntityId::<E>::new_unchecked(non_nil_uuid) };
 
     if schedule.get_internal::<E>(id).is_none() {
         return Err(LookupError::NotFound {

@@ -8,7 +8,7 @@
 //!
 //! All mutations to the schedule go through this module.  Each change is
 //! captured as a reversible [`EditCommand`], enabling undo/redo via
-//! [`EditHistory`].  [`EditContext`] is the top-level façade that owns both a
+//! [`EditHistory`].  [`EditContext`] is the top-level facade that owns both a
 //! [`Schedule`] and an [`EditHistory`] and provides the public mutation API.
 //!
 //! ## Key design properties
@@ -28,7 +28,9 @@
 //!   in Phase 4.
 
 use crate::builder::BuildError;
-use crate::entity::{registered_entity_types, RuntimeEntityId};
+use crate::entity::{
+    registered_entity_types, DynamicEntityId, EntityTyped, EntityUuid, RuntimeEntityId,
+};
 use crate::schedule::Schedule;
 use crate::value::{FieldError, FieldValue};
 use std::collections::VecDeque;
@@ -88,7 +90,7 @@ pub enum EditError {
 ///
 /// All variants store only data (IDs, field names, values); no closures or
 /// type-erased heap allocations.  This makes `EditCommand: Clone` and means
-/// commands can be serialised for logging or CRDT broadcast.
+/// commands can be serialized for logging or CRDT broadcast.
 ///
 /// Construct commands via [`EditContext`] helper methods rather than directly,
 /// so that old values are captured automatically.
@@ -146,13 +148,12 @@ impl EditCommand {
                 new_value,
             } => {
                 let reg = find_registration(entity)?;
-                (reg.write_field_fn)(schedule, entity.uuid, field, new_value.clone()).map_err(
-                    |source| EditError::FieldWrite {
+                (reg.write_field_fn)(schedule, entity.entity_uuid(), field, new_value.clone())
+                    .map_err(|source| EditError::FieldWrite {
                         entity,
                         field,
                         source: Box::new(source),
-                    },
-                )?;
+                    })?;
                 Ok(EditCommand::UpdateField {
                     entity,
                     field,
@@ -163,7 +164,7 @@ impl EditCommand {
 
             EditCommand::AddEntity { entity, ref fields } => {
                 let reg = find_registration(entity)?;
-                (reg.build_fn)(schedule, entity.uuid, fields).map_err(|source| {
+                (reg.build_fn)(schedule, entity.entity_uuid(), fields).map_err(|source| {
                     EditError::Build {
                         entity,
                         source: Box::new(source),
@@ -179,7 +180,7 @@ impl EditCommand {
             EditCommand::RemoveEntity { entity, ref fields } => {
                 let reg = find_registration(entity)?;
                 let fields_snapshot = fields.clone();
-                (reg.remove_fn)(schedule, entity.uuid);
+                (reg.remove_fn)(schedule, entity.entity_uuid());
                 Ok(EditCommand::AddEntity {
                     entity,
                     fields: fields_snapshot,
@@ -210,8 +211,8 @@ fn find_registration(
     entity: RuntimeEntityId,
 ) -> Result<&'static crate::entity::RegisteredEntityType, EditError> {
     registered_entity_types()
-        .find(|r| r.type_name == entity.type_name)
-        .ok_or(EditError::UnknownEntityType(entity.type_name))
+        .find(|r| r.type_name == entity.entity_type_name())
+        .ok_or(EditError::UnknownEntityType(entity.entity_type_name()))
 }
 
 // ── EditHistory ───────────────────────────────────────────────────────────────
@@ -290,7 +291,7 @@ impl Default for EditHistory {
 
 // ── EditContext ───────────────────────────────────────────────────────────────
 
-/// Top-level façade that owns a [`Schedule`] and its [`EditHistory`].
+/// Top-level facade that owns a [`Schedule`] and its [`EditHistory`].
 ///
 /// All mutations to the schedule must go through this type so that every
 /// change is tracked and reversible.
@@ -395,7 +396,7 @@ impl EditContext {
         new_value: FieldValue,
     ) -> Result<EditCommand, EditError> {
         let reg = find_registration(entity)?;
-        let old_value = (reg.read_field_fn)(&self.schedule, entity.uuid, field)
+        let old_value = (reg.read_field_fn)(&self.schedule, entity.entity_uuid(), field)
             .map_err(|source| EditError::FieldRead {
                 entity,
                 field,
@@ -414,10 +415,17 @@ impl EditContext {
     /// fields before removal.
     ///
     /// Returns `Err` if the entity type is not registered.
-    pub fn remove_entity_cmd(&self, entity: RuntimeEntityId) -> Result<EditCommand, EditError> {
-        let reg = find_registration(entity)?;
-        let fields = (reg.snapshot_fn)(&self.schedule, entity.uuid);
-        Ok(EditCommand::RemoveEntity { entity, fields })
+    pub fn remove_entity_cmd(
+        &self,
+        entity: impl DynamicEntityId,
+    ) -> Result<EditCommand, EditError> {
+        let runtime_id = RuntimeEntityId::from_dynamic(entity);
+        let reg = find_registration(runtime_id)?;
+        let fields = (reg.snapshot_fn)(&self.schedule, runtime_id.entity_uuid());
+        Ok(EditCommand::RemoveEntity {
+            entity: runtime_id,
+            fields,
+        })
     }
 
     /// Build a `MovePanel` command (a `BatchEdit` of two `UpdateField`s).
@@ -426,14 +434,15 @@ impl EditContext {
     /// panel's start time and room respectively.
     pub fn move_panel_cmd(
         &self,
-        panel: RuntimeEntityId,
+        panel: impl DynamicEntityId,
         time_field: &'static str,
         new_time: FieldValue,
         room_field: &'static str,
         new_room: FieldValue,
     ) -> Result<EditCommand, EditError> {
-        let time_cmd = self.update_field_cmd(panel, time_field, new_time)?;
-        let room_cmd = self.update_field_cmd(panel, room_field, new_room)?;
+        let runtime_id = RuntimeEntityId::from_dynamic(panel);
+        let time_cmd = self.update_field_cmd(runtime_id, time_field, new_time)?;
+        let room_cmd = self.update_field_cmd(runtime_id, room_field, new_room)?;
         Ok(EditCommand::MovePanel(Box::new(EditCommand::BatchEdit(
             vec![time_cmd, room_cmd],
         ))))
@@ -448,10 +457,11 @@ impl EditContext {
 /// produce the `fields` vector for an [`EditCommand::AddEntity`].
 pub fn snapshot_entity(
     schedule: &Schedule,
-    entity: RuntimeEntityId,
+    entity: impl DynamicEntityId,
 ) -> Result<Vec<(&'static str, FieldValue)>, EditError> {
-    let reg = find_registration(entity)?;
-    Ok((reg.snapshot_fn)(schedule, entity.uuid))
+    let runtime_id = RuntimeEntityId::from_dynamic(entity);
+    let reg = find_registration(runtime_id)?;
+    Ok((reg.snapshot_fn)(schedule, runtime_id.entity_uuid()))
 }
 
 /// Build an [`EditCommand::AddEntity`] for an entity that has already been
@@ -461,10 +471,14 @@ pub fn snapshot_entity(
 /// remove it and redo can recreate it with the same UUID.
 pub fn add_entity_cmd(
     schedule: &Schedule,
-    entity: RuntimeEntityId,
+    entity: impl DynamicEntityId,
 ) -> Result<EditCommand, EditError> {
-    let fields = snapshot_entity(schedule, entity)?;
-    Ok(EditCommand::AddEntity { entity, fields })
+    let runtime_id = RuntimeEntityId::from_dynamic(entity);
+    let fields = snapshot_entity(schedule, runtime_id)?;
+    Ok(EditCommand::AddEntity {
+        entity: runtime_id,
+        fields,
+    })
 }
 
 // ── Tests ─────────────────────────────────────────────────────────────────────
@@ -490,7 +504,7 @@ mod tests {
             ],
         )
         .expect("build_entity succeeded");
-        let rid = RuntimeEntityId::from_typed(id);
+        let rid = id.into();
         let ctx = EditContext::new(sched);
         (ctx, rid)
     }
@@ -508,11 +522,7 @@ mod tests {
 
         let prefix = ctx
             .schedule()
-            .get_internal::<PanelTypeEntityType>(
-                entity
-                    .try_as_typed::<PanelTypeEntityType>()
-                    .expect("typed id"),
-            )
+            .get_internal::<PanelTypeEntityType>(entity.try_into().expect("typed id"))
             .expect("entity present")
             .data
             .prefix
@@ -523,11 +533,7 @@ mod tests {
 
         let prefix_after_undo = ctx
             .schedule()
-            .get_internal::<PanelTypeEntityType>(
-                entity
-                    .try_as_typed::<PanelTypeEntityType>()
-                    .expect("typed id"),
-            )
+            .get_internal::<PanelTypeEntityType>(entity.try_into().expect("typed id"))
             .expect("entity present")
             .data
             .prefix
@@ -548,11 +554,7 @@ mod tests {
 
         let prefix = ctx
             .schedule()
-            .get_internal::<PanelTypeEntityType>(
-                entity
-                    .try_as_typed::<PanelTypeEntityType>()
-                    .expect("typed id"),
-            )
+            .get_internal::<PanelTypeEntityType>(entity.try_into().expect("typed id"))
             .expect("entity present")
             .data
             .prefix
@@ -596,7 +598,7 @@ mod tests {
             ],
         )
         .expect("build_entity");
-        let rid = RuntimeEntityId::from_typed(id);
+        let rid: RuntimeEntityId = id.into();
         let add_cmd = add_entity_cmd(&sched, rid).expect("add_entity_cmd");
 
         let mut ctx = EditContext::new(sched);
@@ -619,7 +621,7 @@ mod tests {
             ],
         )
         .expect("build_entity");
-        let rid = RuntimeEntityId::from_typed(id);
+        let rid: RuntimeEntityId = id.into();
         let add_cmd = add_entity_cmd(&sched, rid).expect("add_entity_cmd");
 
         let mut ctx = EditContext::new(sched);
@@ -628,7 +630,7 @@ mod tests {
         ctx.redo().expect("redo");
 
         assert_eq!(ctx.schedule().entity_count::<PanelTypeEntityType>(), 1);
-        let typed = rid.try_as_typed::<PanelTypeEntityType>().expect("typed id");
+        let typed = rid.try_into().expect("typed id");
         let data = ctx.schedule().get_internal::<PanelTypeEntityType>(typed);
         assert!(data.is_some(), "entity restored with same UUID");
     }
@@ -644,9 +646,7 @@ mod tests {
         ctx.undo().expect("undo remove");
         assert_eq!(ctx.schedule().entity_count::<PanelTypeEntityType>(), 1);
 
-        let typed = entity
-            .try_as_typed::<PanelTypeEntityType>()
-            .expect("typed id");
+        let typed = entity.try_into().expect("typed id");
         let data = ctx
             .schedule()
             .get_internal::<PanelTypeEntityType>(typed)
@@ -671,9 +671,7 @@ mod tests {
 
         let data = ctx
             .schedule()
-            .get_internal::<PanelTypeEntityType>(
-                entity.try_as_typed::<PanelTypeEntityType>().unwrap(),
-            )
+            .get_internal::<PanelTypeEntityType>(entity.try_into().unwrap())
             .unwrap();
         assert_eq!(data.data.prefix, "B1");
         assert_eq!(data.data.panel_kind, "Workshop");
@@ -682,9 +680,7 @@ mod tests {
 
         let data_after = ctx
             .schedule()
-            .get_internal::<PanelTypeEntityType>(
-                entity.try_as_typed::<PanelTypeEntityType>().unwrap(),
-            )
+            .get_internal::<PanelTypeEntityType>(entity.try_into().unwrap())
             .unwrap();
         assert_eq!(data_after.data.prefix, "GP");
         assert_eq!(data_after.data.panel_kind, "Guest Panel");
@@ -706,9 +702,7 @@ mod tests {
 
         let data = ctx
             .schedule()
-            .get_internal::<PanelTypeEntityType>(
-                entity.try_as_typed::<PanelTypeEntityType>().unwrap(),
-            )
+            .get_internal::<PanelTypeEntityType>(entity.try_into().unwrap())
             .unwrap();
         assert_eq!(data.data.prefix, "C1");
         assert_eq!(data.data.panel_kind, "Concert");
@@ -752,7 +746,7 @@ mod tests {
                 ],
             )
             .expect("build");
-            let rid = RuntimeEntityId::from_typed(id);
+            let rid: RuntimeEntityId = id.into();
             let add_cmd = add_entity_cmd(&sched2, rid).expect("add cmd");
             let _ = ctx.apply(add_cmd);
         }

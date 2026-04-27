@@ -22,7 +22,7 @@
 //! - Read-only: [`lookup_one`], [`lookup_optional`], [`lookup_many`]
 //! - Mutable: [`resolve_one`], [`resolve_optional`], [`resolve_many`]
 
-use crate::entity::{EntityId, EntityType, RuntimeEntityId};
+use crate::entity::{EntityId, EntityType, EntityTyped};
 use crate::lookup::EntityMatcher;
 use crate::schedule::Schedule;
 use crate::value::{ConversionError, FieldValue, FieldValueItem};
@@ -417,7 +417,8 @@ pub trait EntityStringResolver: EntityMatcher {
             .strip_prefix(&format!("{}-", Self::TYPE_NAME))
             .unwrap_or(s);
         let uuid = uuid::Uuid::parse_str(bare).ok()?;
-        let id = EntityId::<Self>::new(uuid)?;
+        let non_nil_uuid = uuid::NonNilUuid::new(uuid)?;
+        let id = unsafe { EntityId::<Self>::new_unchecked(non_nil_uuid) };
         schedule.get_internal::<Self>(id).is_some().then_some(id)
     }
 }
@@ -450,12 +451,12 @@ impl<E: EntityType> FieldTypeMapping for AsEntityId<E> {
     fn from_field_value_item(item: FieldValueItem) -> Result<Self::Output, ConversionError> {
         match item {
             FieldValueItem::EntityIdentifier(rid) => {
-                rid.try_as_typed::<E>()
-                    .ok_or(ConversionError::ParseError {
+                rid.try_into()
+                    .map_err(|_| ConversionError::ParseError {
                         message: format!(
                             "Entity type mismatch: expected {}, got {}",
                             E::TYPE_NAME,
-                            rid.type_name()
+                            rid.entity_type_name()
                         ),
                     })
             }
@@ -469,7 +470,7 @@ impl<E: EntityType> FieldTypeMapping for AsEntityId<E> {
     }
 
     fn to_field_value_item(output: Self::Output) -> FieldValueItem {
-        FieldValueItem::EntityIdentifier(RuntimeEntityId::from_typed(output))
+        FieldValueItem::EntityIdentifier(output.into())
     }
 }
 
@@ -729,15 +730,16 @@ mod tests {
             match input {
                 FieldValueItem::EntityIdentifier(rid) => {
                     // Direct entity ID - validate type
-                    rid.try_as_typed::<E>().map(Ok).or_else(|| {
-                        Some(Err(ConversionError::ParseError {
+                    match EntityId::<E>::try_from(rid) {
+                        Ok(id) => Some(Ok(id)),
+                        Err(_) => Some(Err(ConversionError::ParseError {
                             message: format!(
                                 "Entity type mismatch: expected {}, got {}",
                                 E::TYPE_NAME,
-                                rid.type_name()
+                                rid.entity_type_name()
                             ),
-                        }))
-                    })
+                        })),
+                    }
                 }
                 FieldValueItem::String(name) => {
                     // Name lookup via lookup module (read-only)
@@ -1107,12 +1109,13 @@ mod tests {
         let schedule = Schedule::default();
 
         // Create a RuntimeEntityId for a Panel
-        use crate::entity::EntityId;
+        use crate::entity::{EntityId, RuntimeEntityId};
         use crate::panel::PanelEntityType;
         use uuid::Uuid;
         let uuid = Uuid::new_v4();
-        let panel_id = EntityId::<PanelEntityType>::new(uuid).unwrap();
-        let rid = RuntimeEntityId::from_typed(panel_id);
+        let non_nil_uuid = unsafe { uuid::NonNilUuid::new_unchecked(uuid) };
+        let panel_id = unsafe { EntityId::<PanelEntityType>::new_unchecked(non_nil_uuid) };
+        let rid: RuntimeEntityId = panel_id.into();
 
         let input = FieldValue::Single(FieldValueItem::EntityIdentifier(rid));
         let result =
@@ -1126,12 +1129,13 @@ mod tests {
         let schedule = Schedule::default();
 
         // Create a RuntimeEntityId for a Presenter but try to convert as Panel
-        use crate::entity::EntityId;
+        use crate::entity::{EntityId, RuntimeEntityId};
         use crate::presenter::PresenterEntityType;
         use uuid::Uuid;
         let uuid = Uuid::new_v4();
-        let presenter_id = EntityId::<PresenterEntityType>::new(uuid).unwrap();
-        let rid = RuntimeEntityId::from_typed(presenter_id);
+        let non_nil_uuid = unsafe { uuid::NonNilUuid::new_unchecked(uuid) };
+        let presenter_id = unsafe { EntityId::<PresenterEntityType>::new_unchecked(non_nil_uuid) };
+        let rid: RuntimeEntityId = presenter_id.into();
 
         let input = FieldValue::Single(FieldValueItem::EntityIdentifier(rid));
         let result = lookup_one::<AsEntityId<crate::panel::PanelEntityType>, _>(

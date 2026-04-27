@@ -17,7 +17,7 @@
 //! through `Schedule::edges_from`.
 
 use crate::converter::{AsString, EntityStringResolver};
-use crate::entity::{EntityId, EntityType, UuidPreference};
+use crate::entity::{EntityId, EntityType, EntityUuid, UuidPreference};
 use crate::event_room::{EventRoomEntityType, EventRoomId};
 use crate::field_macros::{edge_field, stored_field};
 use crate::field_set::FieldSet;
@@ -115,12 +115,12 @@ inventory::submit! {
         type_id: || std::any::TypeId::of::<HotelRoomInternalData>(),
         read_field_fn: |schedule, uuid, field_name| {
             // SAFETY: uuid came from an existing HotelRoomEntityType entity.
-            let id = unsafe { crate::entity::EntityId::<HotelRoomEntityType>::from_uuid(uuid) };
+            let id = unsafe { crate::entity::EntityId::<HotelRoomEntityType>::new_unchecked(uuid) };
             HotelRoomEntityType::field_set().read_field_value(field_name, id, schedule)
         },
         write_field_fn: |schedule, uuid, field_name, value| {
             // SAFETY: uuid came from an existing HotelRoomEntityType entity.
-            let id = unsafe { crate::entity::EntityId::<HotelRoomEntityType>::from_uuid(uuid) };
+            let id = unsafe { crate::entity::EntityId::<HotelRoomEntityType>::new_unchecked(uuid) };
             HotelRoomEntityType::field_set().write_field_value(field_name, id, schedule, value)
         },
         build_fn: |schedule, uuid, fields| {
@@ -132,12 +132,12 @@ inventory::submit! {
                     .map(|(n, v)| (crate::field_set::FieldRef::Name(n), v.clone()))
                     .collect(),
             )
-            .map(|id| id.non_nil_uuid())
+            .map(|id| id.entity_uuid())
         },
         snapshot_fn: |schedule, uuid| {
             use crate::field::ReadableField;
             // SAFETY: uuid came from an existing HotelRoomEntityType entity.
-            let id = unsafe { crate::entity::EntityId::<HotelRoomEntityType>::from_uuid(uuid) };
+            let id = unsafe { crate::entity::EntityId::<HotelRoomEntityType>::new_unchecked(uuid) };
             HotelRoomEntityType::field_set()
                 .fields()
                 .filter(|d| d.read_fn.is_some() && d.write_fn.is_some())
@@ -148,7 +148,7 @@ inventory::submit! {
         },
         remove_fn: |schedule, uuid| {
             // SAFETY: uuid came from an existing HotelRoomEntityType entity.
-            let id = unsafe { crate::entity::EntityId::<HotelRoomEntityType>::from_uuid(uuid) };
+            let id = unsafe { crate::entity::EntityId::<HotelRoomEntityType>::new_unchecked(uuid) };
             schedule.remove_entity::<HotelRoomEntityType>(id);
         },
         rehydrate_fn: |schedule, uuid| {
@@ -188,7 +188,7 @@ stored_field!(FIELD_HOTEL_ROOM_NAME, HotelRoomEntityType, hotel_room_name, requi
     example: "Ballroom East",
     order: 0);
 
-edge_field!(FIELD_EVENT_ROOMS, HotelRoomEntityType, mode: ro, target: EventRoomEntityType,
+edge_field!(FIELD_EVENT_ROOMS, HotelRoomEntityType, mode: ro, target: EventRoomEntityType, target_field: &crate::event_room::FIELD_HOTEL_ROOMS,
     name: "event_rooms", display: "Event Rooms",
     desc: "Event rooms contained within this hotel room.",
     aliases: &["event_room"],
@@ -267,7 +267,9 @@ mod tests {
     use uuid::Uuid;
 
     fn make_id() -> HotelRoomId {
-        HotelRoomId::new(Uuid::new_v4()).expect("v4 is never nil")
+        let uuid = Uuid::new_v4();
+        let non_nil_uuid = unsafe { uuid::NonNilUuid::new_unchecked(uuid) };
+        unsafe { HotelRoomId::new_unchecked(non_nil_uuid) }
     }
 
     fn make_internal() -> HotelRoomInternalData {

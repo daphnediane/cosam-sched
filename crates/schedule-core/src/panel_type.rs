@@ -15,7 +15,7 @@
 //! Field descriptors are static values assembled into a [`FieldSet`] inside a [`LazyLock`].
 
 use crate::converter::{AsBoolean, AsString, EntityStringResolver};
-use crate::entity::{EntityId, EntityType, UuidPreference};
+use crate::entity::{EntityId, EntityType, EntityUuid, UuidPreference};
 use crate::field::{FieldDescriptor, ReadFn};
 use crate::field_macros::{define_entity_builder, define_field, edge_field, stored_field};
 use crate::field_set::FieldSet;
@@ -157,12 +157,12 @@ inventory::submit! {
         type_id: || std::any::TypeId::of::<PanelTypeInternalData>(),
         read_field_fn: |schedule, uuid, field_name| {
             // SAFETY: uuid came from an existing PanelTypeEntityType entity.
-            let id = unsafe { crate::entity::EntityId::<PanelTypeEntityType>::from_uuid(uuid) };
+            let id = unsafe { crate::entity::EntityId::<PanelTypeEntityType>::new_unchecked(uuid) };
             PanelTypeEntityType::field_set().read_field_value(field_name, id, schedule)
         },
         write_field_fn: |schedule, uuid, field_name, value| {
             // SAFETY: uuid came from an existing PanelTypeEntityType entity.
-            let id = unsafe { crate::entity::EntityId::<PanelTypeEntityType>::from_uuid(uuid) };
+            let id = unsafe { crate::entity::EntityId::<PanelTypeEntityType>::new_unchecked(uuid) };
             PanelTypeEntityType::field_set().write_field_value(field_name, id, schedule, value)
         },
         build_fn: |schedule, uuid, fields| {
@@ -174,12 +174,12 @@ inventory::submit! {
                     .map(|(n, v)| (crate::field_set::FieldRef::Name(n), v.clone()))
                     .collect(),
             )
-            .map(|id| id.non_nil_uuid())
+            .map(|id| id.entity_uuid())
         },
         snapshot_fn: |schedule, uuid| {
             use crate::field::ReadableField;
             // SAFETY: uuid came from an existing PanelTypeEntityType entity.
-            let id = unsafe { crate::entity::EntityId::<PanelTypeEntityType>::from_uuid(uuid) };
+            let id = unsafe { crate::entity::EntityId::<PanelTypeEntityType>::new_unchecked(uuid) };
             PanelTypeEntityType::field_set()
                 .fields()
                 .filter(|d| d.read_fn.is_some() && d.write_fn.is_some())
@@ -190,7 +190,7 @@ inventory::submit! {
         },
         remove_fn: |schedule, uuid| {
             // SAFETY: uuid came from an existing PanelTypeEntityType entity.
-            let id = unsafe { crate::entity::EntityId::<PanelTypeEntityType>::from_uuid(uuid) };
+            let id = unsafe { crate::entity::EntityId::<PanelTypeEntityType>::new_unchecked(uuid) };
             schedule.remove_entity::<PanelTypeEntityType>(id);
         },
         rehydrate_fn: |schedule, uuid| {
@@ -330,7 +330,7 @@ define_field!(
 );
 
 // Panels of this type — reverse heterogeneous edge from Panel → PanelType.
-edge_field!(FIELD_PANELS, PanelTypeEntityType, mode: ro, target: PanelEntityType,
+edge_field!(FIELD_PANELS, PanelTypeEntityType, mode: ro, target: PanelEntityType, target_field: &crate::panel::FIELD_PANEL_TYPE,
     name: "panels", display: "Panels",
     desc: "Panels of this type.",
     aliases: &[],
@@ -446,7 +446,9 @@ mod tests {
     use uuid::Uuid;
 
     fn make_panel_type_id() -> PanelTypeId {
-        PanelTypeId::new(Uuid::new_v4()).expect("v4 is never nil")
+        let uuid = Uuid::new_v4();
+        let non_nil_uuid = unsafe { uuid::NonNilUuid::new_unchecked(uuid) };
+        unsafe { PanelTypeId::new_unchecked(non_nil_uuid) }
     }
 
     fn make_test_internal_data() -> PanelTypeInternalData {
@@ -945,7 +947,7 @@ mod tests {
             .build(&mut sched2)
             .unwrap();
 
-        assert_eq!(id1.uuid(), id2.uuid());
+        assert_eq!(id1.entity_uuid(), id2.entity_uuid());
     }
 
     #[test]

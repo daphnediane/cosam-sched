@@ -274,7 +274,7 @@ pub(crate) use stored_field;
 macro_rules! edge_field {
     // ── mode: ro ──────────────────────────────────────────────────────
     (
-        $static_name:ident, $entity:ty, mode: ro, target: $target_entity:ty,
+        $static_name:ident, $entity:ty, mode: ro, target: $target_entity:ty, target_field: $target_field:expr,
         name: $name:literal, display: $display:literal, desc: $desc:literal,
         aliases: $aliases:expr, example: $example:literal,
         order: $order:expr $(,)?
@@ -300,8 +300,8 @@ macro_rules! edge_field {
                 order: $order,
                 read_fn: Some($crate::field::ReadFn::Schedule(
                     |sched: &$crate::schedule::Schedule, id: $crate::entity::EntityId<$entity>| {
-                        let node = $crate::field_node_id::FieldNodeId::from_descriptor(&$static_name, id.non_nil_uuid());
-                        let ids = sched.connected_entities::<$entity, $target_entity>(node);
+                        let node = $crate::field_node_id::FieldNodeId::new(id, &$static_name);
+                        let ids = sched.connected_entities::<$entity, $target_entity>(node, $target_field);
                         Some($crate::schedule::entity_ids_to_field_value(ids))
                     },
                 )),
@@ -313,7 +313,7 @@ macro_rules! edge_field {
 
     // ── mode: rw ──────────────────────────────────────────────────────
     (
-        $static_name:ident, $entity:ty, mode: rw, target: $target_entity:ty,
+        $static_name:ident, $entity:ty, mode: rw, target: $target_entity:ty, target_field: $target_field:expr,
         name: $name:literal, display: $display:literal, desc: $desc:literal,
         aliases: $aliases:expr, example: $example:literal,
         order: $order:expr $(,)?
@@ -339,8 +339,8 @@ macro_rules! edge_field {
                 order: $order,
                 read_fn: Some($crate::field::ReadFn::Schedule(
                     |sched: &$crate::schedule::Schedule, id: $crate::entity::EntityId<$entity>| {
-                        let node = $crate::field_node_id::FieldNodeId::from_descriptor(&$static_name, id.non_nil_uuid());
-                        let ids = sched.connected_entities::<$entity, $target_entity>(node);
+                        let node = $crate::field_node_id::FieldNodeId::new(id, &$static_name);
+                        let ids = sched.connected_entities::<$entity, $target_entity>(node, $target_field);
                         Some($crate::schedule::entity_ids_to_field_value(ids))
                     },
                 )),
@@ -362,7 +362,7 @@ macro_rules! edge_field {
     // ── mode: one ─────────────────────────────────────────────────────
     // Structurally identical to `rw`; the 0-or-1 constraint is semantic.
     (
-        $static_name:ident, $entity:ty, mode: one, target: $target_entity:ty,
+        $static_name:ident, $entity:ty, mode: one, target: $target_entity:ty, target_field: $target_field:expr,
         name: $name:literal, display: $display:literal, desc: $desc:literal,
         aliases: $aliases:expr, example: $example:literal,
         order: $order:expr $(,)?
@@ -388,8 +388,8 @@ macro_rules! edge_field {
                 order: $order,
                 read_fn: Some($crate::field::ReadFn::Schedule(
                     |sched: &$crate::schedule::Schedule, id: $crate::entity::EntityId<$entity>| {
-                        let node = $crate::field_node_id::FieldNodeId::from_descriptor(&$static_name, id.non_nil_uuid());
-                        let ids = sched.connected_entities::<$entity, $target_entity>(node);
+                        let node = $crate::field_node_id::FieldNodeId::new(id, &$static_name);
+                        let ids = sched.connected_entities::<$entity, $target_entity>(node, $target_field);
                         Some($crate::schedule::entity_ids_to_field_value(ids))
                     },
                 )),
@@ -410,7 +410,7 @@ macro_rules! edge_field {
 
     // ── mode: rw_to ───────────────────────────────────────────────────
     (
-        $static_name:ident, $entity:ty, mode: rw_to, source: $source_entity:ty,
+        $static_name:ident, $entity:ty, mode: rw_to, source: $source_entity:ty, source_field: $source_field:expr,
         name: $name:literal, display: $display:literal, desc: $desc:literal,
         aliases: $aliases:expr, example: $example:literal,
         order: $order:expr $(,)?
@@ -436,8 +436,8 @@ macro_rules! edge_field {
                 order: $order,
                 read_fn: Some($crate::field::ReadFn::Schedule(
                     |sched: &$crate::schedule::Schedule, id: $crate::entity::EntityId<$entity>| {
-                        let node = $crate::field_node_id::FieldNodeId::from_descriptor(&$static_name, id.non_nil_uuid());
-                        let ids = sched.connected_entities::<$entity, $source_entity>(node);
+                        let node = $crate::field_node_id::FieldNodeId::new(id, &$static_name);
+                        let ids = sched.connected_entities::<$entity, $source_entity>(node, $source_field);
                         Some($crate::schedule::entity_ids_to_field_value(ids))
                     },
                 )),
@@ -491,8 +491,8 @@ macro_rules! edge_field {
                             $crate::schedule::field_value_to_entity_ids::<$target_entity>(val)?;
                         for r in ids {
                             sched.edge_add::<$entity, $target_entity>(
-                                $crate::field_node_id::FieldNodeId::from_descriptor(&$static_name, id.non_nil_uuid()),
-                                $crate::field_node_id::FieldNodeId::from_descriptor(&$target_field, r.non_nil_uuid()),
+                                $crate::field_node_id::FieldNodeId::new(id, &$static_name),
+                                $crate::field_node_id::FieldNodeId::new(r, &$target_field),
                             );
                         }
                         Ok(())
@@ -505,7 +505,7 @@ macro_rules! edge_field {
 
     // ── mode: remove ──────────────────────────────────────────────────
     (
-        $static_name:ident, $entity:ty, mode: remove, target: $target_entity:ty,
+        $static_name:ident, $entity:ty, mode: remove, target: $target_entity:ty, target_field: $target_field:expr,
         name: $name:literal, display: $display:literal, desc: $desc:literal,
         aliases: $aliases:expr, example: $example:literal,
         order: $order:expr $(,)?

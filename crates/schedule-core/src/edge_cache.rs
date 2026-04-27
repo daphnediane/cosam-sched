@@ -22,7 +22,8 @@
 //! `inclusive_edges_from` / `inclusive_edges_to` calls on the schedule.
 
 use crate::edge_map::RawEdgeMap;
-use crate::field_node_id::FieldRef;
+use crate::entity::EntityUuid;
+use crate::field_node_id::{FieldRef, RuntimeFieldNodeId};
 use std::collections::{HashMap, HashSet};
 use uuid::NonNilUuid;
 
@@ -35,48 +36,51 @@ use uuid::NonNilUuid;
 /// valid until the cache is set to `None` (invalidated) by any transitive-edge
 /// mutation.
 ///
-/// Entries are keyed by `(FieldRef, NonNilUuid)` — the field encodes traversal
-/// direction (forward and reverse use different `FieldRef`s), while the UUID is
-/// the starting node.  Multiple independent transitive-edge relationships can
-/// share one cache without key collision.
+/// Entries are keyed by `(FieldRef, FieldRef, NonNilUuid)` — the near and far
+/// fields encode traversal direction (forward and reverse use different
+/// `FieldRef`s), while the UUID is the starting node.  Multiple independent
+/// transitive-edge relationships can share one cache without key collision.
 #[derive(Debug, Default)]
 pub struct TransitiveEdgeCache {
-    /// `(field_ref, start_uuid)` → all UUIDs transitively reachable by following
-    /// edges stored under `field_ref`.
-    cache: HashMap<(FieldRef, NonNilUuid), Box<[NonNilUuid]>>,
+    /// `(near_field_ref, far_field_ref, start_uuid)` → all UUIDs transitively
+    /// reachable by following edges from `near_field_ref` to `far_field_ref`.
+    cache: HashMap<(FieldRef, FieldRef, NonNilUuid), Box<[NonNilUuid]>>,
 }
 
 impl TransitiveEdgeCache {
     /// Return all UUIDs transitively reachable from `start` by following edges
-    /// stored under `field_ref`.
+    /// from `near_field_ref` to `far_field_ref`.
     ///
-    /// Pass the appropriate field for the desired direction: the field on the
-    /// *from* side for forward traversal, or the field on the *to* side for
-    /// reverse traversal.  The `start` node itself is **not** included in the
-    /// result.  Computed and cached on first call; subsequent calls clone the
-    /// cached slice.
+    /// The `start` node itself is **not** included in the result.  Computed and
+    /// cached on first call; subsequent calls clone the cached slice.
     pub fn get_or_compute(
         &mut self,
         edge_map: &RawEdgeMap,
         start: NonNilUuid,
-        field_ref: FieldRef,
+        near_field_ref: FieldRef,
+        far_field_ref: FieldRef,
     ) -> Vec<NonNilUuid> {
         self.cache
-            .entry((field_ref, start))
-            .or_insert_with(|| transitive_neighbors(edge_map, start, field_ref).into_boxed_slice())
+            .entry((near_field_ref, far_field_ref, start))
+            .or_insert_with(|| {
+                transitive_neighbors(edge_map, start, near_field_ref, far_field_ref)
+                    .into_boxed_slice()
+            })
             .to_vec()
     }
 }
 
 // ── Internal traversal ────────────────────────────────────────────────────────
 
-/// BFS transitive closure starting from `start`, following all edges stored
-/// under `field_id` at each visited node.  Returns all reachable entity UUIDs
-/// excluding `start` itself.  Handles cycles via a visited set.
+/// BFS transitive closure starting from `start`, following edges from
+/// `near_field_ref` to `far_field_ref` at each visited node. Returns all
+/// reachable entity UUIDs excluding `start` itself. Handles cycles via a
+/// visited set.
 fn transitive_neighbors(
     edge_map: &RawEdgeMap,
     start: NonNilUuid,
-    field_ref: FieldRef,
+    near_field_ref: FieldRef,
+    far_field_ref: FieldRef,
 ) -> Vec<NonNilUuid> {
     let mut visited: HashSet<NonNilUuid> = HashSet::new();
     visited.insert(start); // prevent re-queuing start or looping back through it
@@ -84,8 +88,11 @@ fn transitive_neighbors(
     let mut result = Vec::new();
 
     while let Some(curr) = queue.pop() {
-        for node in edge_map.neighbors_for_field(curr, field_ref) {
-            let uuid = node.uuid;
+        for node in edge_map.neighbors(
+            unsafe { RuntimeFieldNodeId::new_unchecked(curr, near_field_ref.0) },
+            far_field_ref,
+        ) {
+            let uuid = node.entity_uuid();
             if visited.insert(uuid) {
                 result.push(uuid);
                 queue.push(uuid);
@@ -180,8 +187,8 @@ mod tests {
     fn add_member_group(map: &mut RawEdgeMap, member: u128, group: u128) {
         // SAFETY: Test fixtures use matching entity types for their fields.
         map.add_edge(
-            unsafe { RuntimeFieldNodeId::from_uuid(nnu(member), fwd().0) },
-            unsafe { RuntimeFieldNodeId::from_uuid(nnu(group), rev().0) },
+            unsafe { RuntimeFieldNodeId::new_unchecked(nnu(member), fwd().0) },
+            unsafe { RuntimeFieldNodeId::new_unchecked(nnu(group), rev().0) },
         );
     }
 
@@ -191,13 +198,13 @@ mod tests {
         let mut edge_map = RawEdgeMap::default();
 
         add_member_group(&mut edge_map, 1, 2);
-        let result = cache.get_or_compute(&edge_map, nnu(1), fwd());
+        let result = cache.get_or_compute(&edge_map, nnu(1), fwd(), rev());
         assert_eq!(result, vec![nnu(2)]);
 
         // Simulate invalidation: drop cache and rebuild
         cache = TransitiveEdgeCache::default();
         add_member_group(&mut edge_map, 2, 3);
-        let result = cache.get_or_compute(&edge_map, nnu(1), fwd());
+        let result = cache.get_or_compute(&edge_map, nnu(1), fwd(), rev());
         assert!(result.contains(&nnu(2)));
         assert!(result.contains(&nnu(3)));
     }
@@ -211,7 +218,7 @@ mod tests {
         add_member_group(&mut edge_map, 1, 2);
         add_member_group(&mut edge_map, 2, 3);
 
-        let result = cache.get_or_compute(&edge_map, nnu(1), fwd());
+        let result = cache.get_or_compute(&edge_map, nnu(1), fwd(), rev());
         assert!(result.contains(&nnu(2)), "should reach direct neighbor 2");
         assert!(
             result.contains(&nnu(3)),
@@ -229,7 +236,7 @@ mod tests {
         add_member_group(&mut edge_map, 3, 2);
         add_member_group(&mut edge_map, 2, 1);
 
-        let result = cache.get_or_compute(&edge_map, nnu(1), rev());
+        let result = cache.get_or_compute(&edge_map, nnu(1), rev(), fwd());
         assert!(result.contains(&nnu(2)));
         assert!(result.contains(&nnu(3)));
         assert!(!result.contains(&nnu(1)), "start node not included");
@@ -244,7 +251,7 @@ mod tests {
         add_member_group(&mut edge_map, 1, 2);
         add_member_group(&mut edge_map, 2, 1);
 
-        let result = cache.get_or_compute(&edge_map, nnu(1), fwd());
+        let result = cache.get_or_compute(&edge_map, nnu(1), fwd(), rev());
         assert!(result.contains(&nnu(2)));
         assert!(
             !result.contains(&nnu(1)),
@@ -257,7 +264,7 @@ mod tests {
         let mut cache = TransitiveEdgeCache::default();
         let edge_map = RawEdgeMap::default();
 
-        let result = cache.get_or_compute(&edge_map, nnu(1), fwd());
+        let result = cache.get_or_compute(&edge_map, nnu(1), fwd(), rev());
         assert!(result.is_empty());
     }
 
@@ -267,10 +274,10 @@ mod tests {
         let mut edge_map = RawEdgeMap::default();
         add_member_group(&mut edge_map, 1, 2);
 
-        let r1 = cache.get_or_compute(&edge_map, nnu(1), fwd());
+        let r1 = cache.get_or_compute(&edge_map, nnu(1), fwd(), rev());
         // Mutate edge_map WITHOUT invalidating cache — cached result should stay
         add_member_group(&mut edge_map, 2, 3);
-        let r2 = cache.get_or_compute(&edge_map, nnu(1), fwd());
+        let r2 = cache.get_or_compute(&edge_map, nnu(1), fwd(), rev());
         assert_eq!(r1, r2, "stale cache should be returned unchanged");
     }
 
@@ -293,14 +300,14 @@ mod tests {
         add_member_group(&mut edge_map, 7, 4); // Team B → Division C
 
         // Inclusive groups of Team A (forward from 3 via fwd field): Division C, Corp D
-        let groups_of_team_a = cache.get_or_compute(&edge_map, nnu(3), fwd());
+        let groups_of_team_a = cache.get_or_compute(&edge_map, nnu(3), fwd(), rev());
         assert!(groups_of_team_a.contains(&nnu(4)), "Division C");
         assert!(groups_of_team_a.contains(&nnu(5)), "Corp D");
         assert!(!groups_of_team_a.contains(&nnu(1)), "not Alice");
         assert!(!groups_of_team_a.contains(&nnu(7)), "not Team B");
 
         // Inclusive members of Team A (reverse from 3 via rev field): Alice, Bob only
-        let members_of_team_a = cache.get_or_compute(&edge_map, nnu(3), rev());
+        let members_of_team_a = cache.get_or_compute(&edge_map, nnu(3), rev(), fwd());
         assert!(members_of_team_a.contains(&nnu(1)), "Alice");
         assert!(members_of_team_a.contains(&nnu(2)), "Bob");
         assert!(
@@ -310,7 +317,7 @@ mod tests {
         assert!(!members_of_team_a.contains(&nnu(6)), "Club E not a member");
 
         // Inclusive groups of Alice (forward from 1 via fwd field): Team A, Club E, Division C, Corp D
-        let groups_of_alice = cache.get_or_compute(&edge_map, nnu(1), fwd());
+        let groups_of_alice = cache.get_or_compute(&edge_map, nnu(1), fwd(), rev());
         assert!(groups_of_alice.contains(&nnu(3)), "Team A");
         assert!(groups_of_alice.contains(&nnu(6)), "Club E");
         assert!(groups_of_alice.contains(&nnu(4)), "Division C (via Team A)");

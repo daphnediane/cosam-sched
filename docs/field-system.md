@@ -53,23 +53,44 @@ Entity types: `PanelTypeEntityType`, `PanelEntityType`, `PresenterEntityType`,
 
 ## Entity Identity
 
+### ID Trait Hierarchy
+
+All ID types implement a common trait hierarchy defined in `entity_id.rs` and
+`field_node_id.rs`, enabling APIs to accept any ID type uniformly:
+
+```text
+EntityUuid            entity_uuid() -> NonNilUuid
+EntityTyped           entity_type_name() -> &'static str
+DynamicEntityId       blanket impl for EntityUuid + EntityTyped  (for any entity or field node ID)
+TypedEntityId<E>      marker for compile-time typed IDs (EntityId<E>, FieldNodeId<E>)
+
+DynamicFieldNodeId    extends DynamicEntityId; adds field() and try_as_typed_field<E>()
+TypedFieldNodeId<E>   extends DynamicFieldNodeId + TypedEntityId<E>; adds typed_field()
+```
+
+This lets functions accept `impl DynamicEntityId`, `impl TypedEntityId<E>`, or
+`impl DynamicFieldNodeId` instead of concrete types, eliminating redundant overloads.
+
 ### EntityId\<E\>
 
-`EntityId<E>` is a `Copy + Clone + Hash + Eq` newtype wrapping a `Uuid` with
+`EntityId<E>` is a `Copy + Clone + Hash + Eq` newtype wrapping a `NonNilUuid` with
 `PhantomData<fn() -> E>`. `Clone`/`Copy` are manual to avoid spurious
-`E: Clone`/`E: Copy` bounds.
+`E: Clone`/`E: Copy` bounds. Implements `EntityUuid`, `EntityTyped`, and
+`TypedEntityId<E>`.
 
 Constructors:
 
 ```rust
-pub fn from_preference(pref: UuidPreference) -> Self;  // primary; resolves via E::UUID_NAMESPACE
-pub fn new(uuid: Uuid) -> Option<Self>;                 // None if nil; for deserialization
-pub unsafe fn from_uuid(uuid: NonNilUuid) -> Self;      // caller must verify type
-pub fn uuid(&self) -> Uuid;
-pub fn non_nil_uuid(&self) -> NonNilUuid;               // safe: all constructors uphold non-nil
+pub fn from_preference(pref: UuidPreference) -> Self;    // primary; resolves via E::uuid_namespace()
+pub unsafe fn new_unchecked(uuid: NonNilUuid) -> Self;   // caller must verify type belongs to E
+pub fn try_from_dynamic(id: impl DynamicEntityId) -> Option<Self>;  // type-checked conversion
+pub fn from_typed<T: TypedEntityId<E>>(id: T) -> Self;  // infallible from typed ID
 ```
 
-Implements `Serialize`/`Deserialize` (rejects nil on deserialization).
+Access: `.entity_uuid() -> NonNilUuid` (via `EntityUuid` trait).
+
+Implements `Serialize`/`Deserialize` (format: `"type_name:uuid"`; rejects nil and wrong type).
+Implements `From<EntityId<E>> for RuntimeEntityId` and `TryFrom<RuntimeEntityId> for EntityId<E>`.
 
 ### NonNilUuid
 
@@ -79,13 +100,17 @@ Constructors: `NonNilUuid::new(uuid) -> Option<Self>` and
 
 ### RuntimeEntityId
 
-`RuntimeEntityId { uuid: NonNilUuid, type_name: String }` — untyped pair for
-dynamic contexts (change-log entries, mixed-kind search). Implements
-`Clone + Hash + Eq + Serialize + Deserialize + Display` (`"TypeName:uuid"`).
+`RuntimeEntityId` — untyped pair `(NonNilUuid, &'static str type_name)` for
+dynamic contexts (change-log entries, mixed-kind search). Fields are private;
+access via the `EntityUuid` and `EntityTyped` traits. Implements
+`Copy + Clone + Hash + Eq + Serialize + Deserialize + Display` (`"type_name:uuid"`).
 
-- `from_typed<E>(EntityId<E>)` — safe constructor from a typed ID
-- `unsafe from_uuid(NonNilUuid, type_name)` — caller must ensure correspondence
-- `try_as_typed<E>()` — returns `Some(EntityId<E>)` if type names match
+Constructors:
+
+- `unsafe RuntimeEntityId::new_unchecked(uuid, type_name)` — caller must ensure correspondence
+- `RuntimeEntityId::from_dynamic(impl DynamicEntityId)` — safe; converts any ID type
+- `From<EntityId<E>>` — safe infallible conversion
+- `TryFrom<RuntimeEntityId> for EntityId<E>` — returns `Err(ConversionError)` if type names differ
 
 ### UuidPreference
 
@@ -321,16 +346,15 @@ fields) stay as hand-written struct literals wrapped in `define_field!`.
 ### EdgeDescriptor and per-edge fields
 
 `EdgeDescriptor` (in `edge_descriptor.rs`) describes a relationship between two
-entity types. It now carries a `fields: &'static [EdgeFieldSpec]` slot listing
+entity types. It carries a `fields: &'static [EdgeFieldSpec]` slot listing
 per-edge scalar fields and their defaults:
 
 ```rust
 pub struct EdgeDescriptor {
     pub name: &'static str,
-    pub owner_type: &'static str,
-    pub target_type: &'static str,
+    pub owner_field: &'static dyn NamedField,   // owning side field descriptor
+    pub target_field: &'static dyn NamedField,  // target side field descriptor
     pub is_homogeneous: bool,
-    pub field_name: &'static str,
     pub fields: &'static [EdgeFieldSpec],  // per-edge metadata fields
 }
 
@@ -343,6 +367,11 @@ pub enum EdgeFieldDefault {
     Boolean(bool),
 }
 ```
+
+Methods: `owning_type()` — entity type name of the owner side; `owning_field()` — canonical
+field name of the owner side; `target_type()` — entity type name of the target side;
+`far_field(&dyn NamedField) -> Option<&dyn NamedField>` — given a near-side field,
+returns the opposite endpoint's field descriptor.
 
 Edge fields are read/written via `Schedule::edge_get_bool` / `edge_set_bool`.
 Storage is in a parallel `{field_name}_meta` automerge map; see `crdt-design.md`
@@ -386,7 +415,8 @@ define_field!(
         read_fn: Some(ReadFn::Schedule(
             |sched: &Schedule, id: PanelId| {
                 // Access schedule to traverse edges, look up entities, etc.
-                let presenter_ids = sched.edges_from::<PanelEntityType, PresenterEntityType>(id);
+                let node = FieldNodeId::new(id, &FIELD_PRESENTERS);
+                let presenter_ids = sched.connected_entities::<PanelEntityType, PresenterEntityType>(node, &FIELD_PANELS);
                 // ... compute and return FieldValue
             },
         )),

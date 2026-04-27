@@ -9,7 +9,7 @@ use std::fmt;
 use thiserror::Error;
 
 use crate::converter::FieldTypeMapping;
-use crate::entity::RuntimeEntityId;
+use crate::entity::{EntityTyped, RuntimeEntityId};
 
 /// Field cardinality — whether a field holds exactly one value, zero or one value,
 /// or zero or more values.
@@ -431,7 +431,9 @@ fn value_item_to_type_item(item: &FieldValueItem) -> FieldTypeItem {
         FieldValueItem::Boolean(_) => FieldTypeItem::Boolean,
         FieldValueItem::DateTime(_) => FieldTypeItem::DateTime,
         FieldValueItem::Duration(_) => FieldTypeItem::Duration,
-        FieldValueItem::EntityIdentifier(id) => FieldTypeItem::EntityIdentifier(id.type_name()),
+        FieldValueItem::EntityIdentifier(id) => {
+            FieldTypeItem::EntityIdentifier(id.entity_type_name())
+        }
     }
 }
 
@@ -818,10 +820,11 @@ mod tests {
     fn test_field_type_of_entity_identifier() {
         use crate::entity::{EntityId, RuntimeEntityId};
         use crate::panel::PanelEntityType;
-        use uuid::Uuid;
+        use uuid::{NonNilUuid, Uuid};
         let uuid = Uuid::parse_str("550e8400-e29b-41d4-a716-446655440000").unwrap();
-        let typed: EntityId<PanelEntityType> = EntityId::new(uuid).unwrap();
-        let rid = RuntimeEntityId::from_typed(typed);
+        let non_nil_uuid = NonNilUuid::new(uuid).unwrap();
+        let typed: EntityId<PanelEntityType> = unsafe { EntityId::new_unchecked(non_nil_uuid) };
+        let rid = RuntimeEntityId::from_dynamic(typed);
         assert_eq!(
             FieldType::of(&FieldValue::Single(FieldValueItem::EntityIdentifier(rid))),
             Some(FieldType(

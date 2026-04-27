@@ -520,7 +520,9 @@ mod tests {
     }
 
     fn make_id() -> EntityId<MockEntity> {
-        EntityId::new(Uuid::new_v4()).expect("v4 is never nil")
+        let uuid = Uuid::new_v4();
+        let non_nil_uuid = unsafe { uuid::NonNilUuid::new_unchecked(uuid) };
+        unsafe { EntityId::new_unchecked(non_nil_uuid) }
     }
 
     fn make_schedule_with(id: EntityId<MockEntity>, data: MockData) -> crate::schedule::Schedule {

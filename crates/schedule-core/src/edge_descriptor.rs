@@ -104,7 +104,7 @@ pub struct EdgeDescriptor {
 impl EdgeDescriptor {
     /// [`crate::entity::EntityType::TYPE_NAME`] of the CRDT canonical owner.
     #[inline]
-    pub fn owner_type(&self) -> &'static str {
+    pub fn owning_type(&self) -> &'static str {
         self.owner_field.entity_type_name()
     }
 
@@ -116,7 +116,7 @@ impl EdgeDescriptor {
 
     /// Name of the CRDT list field on the owner entity.
     #[inline]
-    pub fn field_name(&self) -> &'static str {
+    pub fn owning_field(&self) -> &'static str {
         self.owner_field.name()
     }
 
@@ -127,6 +127,28 @@ impl EdgeDescriptor {
     #[inline]
     pub fn is_homogeneous(&self) -> bool {
         self.owner_field.entity_type_name() == self.target_field.entity_type_name()
+    }
+
+    /// Returns the far field given a near field.
+    ///
+    /// If `near` matches `owner_field`, returns `Some(target_field)`.
+    /// If `near` matches `target_field`, returns `Some(owner_field)`.
+    /// Otherwise returns `None`.
+    ///
+    /// Fields are compared by their name and entity type name.
+    #[inline]
+    pub fn far_field(&self, near: &'static dyn NamedField) -> Option<&'static dyn NamedField> {
+        if near.name() == self.owner_field.name()
+            && near.entity_type_name() == self.owner_field.entity_type_name()
+        {
+            Some(self.target_field)
+        } else if near.name() == self.target_field.name()
+            && near.entity_type_name() == self.target_field.entity_type_name()
+        {
+            Some(self.owner_field)
+        } else {
+            None
+        }
     }
 }
 
@@ -191,7 +213,7 @@ pub struct EdgeFieldResolution {
 #[must_use]
 pub fn resolve_edge_fields(l_type: &str, r_type: &str) -> Option<EdgeFieldResolution> {
     for desc in all_edge_descriptors() {
-        if desc.owner_type() == l_type && desc.target_type() == r_type {
+        if desc.owning_type() == l_type && desc.target_type() == r_type {
             return Some(EdgeFieldResolution {
                 l_field_id: desc.owner_field.field_id(),
                 r_field_id: desc.target_field.field_id(),
@@ -200,7 +222,7 @@ pub fn resolve_edge_fields(l_type: &str, r_type: &str) -> Option<EdgeFieldResolu
         }
         // For heterogeneous edges only: also match the reversed direction.
         // Homogeneous edges (same type on both sides) only match the first branch.
-        if !desc.is_homogeneous() && desc.target_type() == l_type && desc.owner_type() == r_type {
+        if !desc.is_homogeneous() && desc.target_type() == l_type && desc.owning_type() == r_type {
             return Some(EdgeFieldResolution {
                 l_field_id: desc.target_field.field_id(),
                 r_field_id: desc.owner_field.field_id(),

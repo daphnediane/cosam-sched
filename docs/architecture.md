@@ -125,9 +125,9 @@ Both directions of every edge are stored symmetrically in the same map.  Homogen
 
 `Schedule` exposes typed generic methods:
 
-- `edges_from::<L, R>(id)` — R entities reachable from `id` via L→R edge
-- `edges_to::<L, R>(id)` — L entities pointing to `id`
-- `edge_add` / `edge_remove` / `edge_set` — mutators
+- `connected_entities::<L, R>(near_node, far_field)` — R entities connected to `near_node` whose far-side field matches `far_field`
+- `connected_field_nodes(near_node, far_field_ref)` — `RuntimeFieldNodeId` neighbors filtered by far-side `FieldRef`
+- `edge_add` / `edge_remove` / `edge_set` — mutators; accept `impl DynamicFieldNodeId`
 - `edge_set_to` — reverse-direction bulk set (used for transitive-edge reverse fields like `members`)
 - `edge_get_bool::<L, R>(l, r, field)` — read a per-edge boolean flag (defaults to `true` if unset)
 - `edge_set_bool::<L, R>(l, r, field, value)` — write a per-edge boolean flag
@@ -256,6 +256,13 @@ should never touch `Uuid` or `NonNilUuid` directly — prefer the typed wrappers
 - **`RuntimeEntityId`** — `NonNilUuid` + `&'static str` type name; use for dynamic
   dispatch (e.g. generic commands, serialized references)
 
+All four ID types (`EntityId<E>`, `RuntimeEntityId`, `FieldNodeId<E>`, `RuntimeFieldNodeId`)
+implement a shared trait hierarchy — `EntityUuid` (`.entity_uuid()`), `EntityTyped`
+(`.entity_type_name()`), and the blanket `DynamicEntityId`. Field node types additionally
+implement `DynamicFieldNodeId` (`.field()`, `.try_as_typed_field<E>()`). This enables APIs
+to be generic over any ID type via `impl DynamicEntityId` or `impl DynamicFieldNodeId`.
+See `field-system.md#id-trait-hierarchy` for the full hierarchy.
+
 ### UUID version policy
 
 - **v7** — new entities created at runtime (time-ordered, globally unique)
@@ -267,8 +274,10 @@ should never touch `Uuid` or `NonNilUuid` directly — prefer the typed wrappers
     panel Uniq ID), so re-importing the same spreadsheet produces the same UUIDs
 
 `EntityId::from_preference(UuidPreference)` is the primary constructor for new
-entities. `EntityId::from_uuid(NonNilUuid)` is `unsafe` — only code with a
+entities. `EntityId::new_unchecked(NonNilUuid)` is `unsafe` — only code with a
 UUID→type registry (e.g. `Schedule`) should call it after verifying the type.
+`EntityId::try_from_dynamic(impl DynamicEntityId)` provides a safe type-checked
+conversion from any dynamic ID.
 
 ### Entity type registry
 
