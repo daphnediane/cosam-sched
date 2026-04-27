@@ -840,7 +840,10 @@ define_field!(
         example: "[]",
         order: 900,
         read_fn: Some(ReadFn::Schedule(|sched, id| {
-            let ids = sched.inclusive_edges_from::<PresenterEntityType, PresenterEntityType>(id);
+            let ids = sched.inclusive_edges::<PresenterEntityType, PresenterEntityType>(
+                crate::field_node_id::FieldNodeId::new(id, &FIELD_MEMBERS),
+                &FIELD_GROUPS,
+            );
             Some(crate::schedule::entity_ids_to_field_value(ids))
         })),
         write_fn: None,
@@ -866,7 +869,10 @@ define_field!(
         example: "[]",
         order: 1000,
         read_fn: Some(ReadFn::Schedule(|sched, id| {
-            let ids = sched.inclusive_edges_to::<PresenterEntityType, PresenterEntityType>(id);
+            let ids = sched.inclusive_edges::<PresenterEntityType, PresenterEntityType>(
+                crate::field_node_id::FieldNodeId::new(id, &FIELD_GROUPS),
+                &FIELD_MEMBERS,
+            );
             Some(crate::schedule::entity_ids_to_field_value(ids))
         })),
         write_fn: None,
@@ -925,14 +931,20 @@ define_field!(
                 panel_set.insert(p);
             }
             // Panels of all transitive groups (upward)
-            for g in sched.inclusive_edges_from::<PresenterEntityType, PresenterEntityType>(id) {
+            for g in sched.inclusive_edges::<PresenterEntityType, PresenterEntityType>(
+                crate::field_node_id::FieldNodeId::new(id, &FIELD_MEMBERS),
+                &FIELD_GROUPS,
+            ) {
                 let node = crate::field_node_id::FieldNodeId::new(g, &FIELD_PANELS);
                 for p in sched.connected_entities::<PresenterEntityType, PanelEntityType>(node, &crate::panel::FIELD_PRESENTERS) {
                     panel_set.insert(p);
                 }
             }
             // Panels of all transitive members (downward)
-            for m in sched.inclusive_edges_to::<PresenterEntityType, PresenterEntityType>(id) {
+            for m in sched.inclusive_edges::<PresenterEntityType, PresenterEntityType>(
+                crate::field_node_id::FieldNodeId::new(id, &FIELD_GROUPS),
+                &FIELD_MEMBERS,
+            ) {
                 let node = crate::field_node_id::FieldNodeId::new(m, &FIELD_PANELS);
                 for p in sched.connected_entities::<PresenterEntityType, PanelEntityType>(node, &crate::panel::FIELD_PRESENTERS) {
                     panel_set.insert(p);

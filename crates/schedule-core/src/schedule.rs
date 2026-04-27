@@ -773,89 +773,45 @@ impl Schedule {
             .collect()
     }
 
-    /// All `R` entities transitively reachable from `id` via forward edges.
+    /// All `Far` entities reachable from `near` via edges.
     ///
-    /// When the `(L, R)` edge is `is_transitive`, follows edges transitively
-    /// via the L-side field (e.g. `inclusive_edges_from<Presenter, Presenter>(alice)`
-    /// returns all groups alice belongs to, transitively — not alice herself).
-    /// For non-transitive edges: uses field-aware single-hop lookup.
+    /// When `Near` and `Far` are the same entity type (homogeneous edge),
+    /// follows edges transitively via the cache (e.g.
+    /// `inclusive_edges(alice_members, &FIELD_GROUPS)` returns all groups
+    /// alice belongs to, transitively — not alice herself).
+    /// For heterogeneous edges: single-hop lookup via `connected_field_nodes`.
     ///
     /// Takes `&self`; the edge cache is updated through interior mutability.
     #[must_use]
-    pub fn inclusive_edges_from<L: EntityType, R: EntityType>(
+    pub fn inclusive_edges<Near: EntityType, Far: EntityType>(
         &self,
-        id: EntityId<L>,
-    ) -> Vec<EntityId<R>> {
-        let Some(res) = crate::edge_descriptor::resolve_edge_fields(L::TYPE_NAME, R::TYPE_NAME)
-        else {
-            return Vec::new();
-        };
-        if L::TYPE_NAME == R::TYPE_NAME {
+        near: impl TypedFieldNodeId<Near>,
+        far_field: &'static crate::field::FieldDescriptor<Far>,
+    ) -> Vec<EntityId<Far>> {
+        if Near::TYPE_NAME == Far::TYPE_NAME {
+            let near_field_ref = crate::field_node_id::FieldRef(near.field());
+            let far_field_ref = crate::field_node_id::FieldRef(far_field);
             let uuids = {
                 let mut cache_opt = self.transitive_edge_cache.borrow_mut();
                 let cache = cache_opt.get_or_insert_with(TransitiveEdgeCache::default);
                 cache.get_or_compute(
                     &self.edges,
-                    id.entity_uuid(),
-                    res.l_field_id,
-                    res.r_field_id,
+                    near.entity_uuid(),
+                    near_field_ref,
+                    far_field_ref,
                 )
             };
             uuids
                 .into_iter()
-                // SAFETY: uuid came from the edge map which only stores valid entity IDs of type R.
+                // SAFETY: uuid came from the edge map which only stores valid entity IDs of type Far.
                 .map(|uuid| unsafe { EntityId::new_unchecked(uuid) })
                 .collect()
         } else {
-            use crate::field_node_id::RuntimeFieldNodeId;
-            // SAFETY: id is of type L, and res.l_field_id.0 is the correct field for L.
-            let node = RuntimeFieldNodeId::from_dynamic(id, res.l_field_id.0);
-            self.connected_field_nodes(node, res.r_field_id)
+            let far_field_ref = crate::field_node_id::FieldRef(far_field);
+            self.connected_field_nodes(near, far_field_ref)
                 .into_iter()
-                // SAFETY: The field descriptor ensures the UUID belongs to entity type R.
-                .map(|fn_id| unsafe { EntityId::<R>::new_unchecked(fn_id.entity_uuid()) })
-                .collect()
-        }
-    }
-    /// When the `(L, R)` edge is `is_transitive`, follows reverse edges transitively
-    /// via the R-side field (e.g. `inclusive_edges_to<Presenter, Presenter>(team_a)`
-    /// returns all members of team_a transitively — not team_a itself).
-    /// For non-transitive edges: falls back to direct `edges_to` (single hop only).
-    ///
-    /// Takes `&self`; the edge cache is updated through interior mutability.
-    #[must_use]
-    pub fn inclusive_edges_to<L: EntityType, R: EntityType>(
-        &self,
-        id: EntityId<R>,
-    ) -> Vec<EntityId<L>> {
-        let Some(res) = crate::edge_descriptor::resolve_edge_fields(L::TYPE_NAME, R::TYPE_NAME)
-        else {
-            return Vec::new();
-        };
-        if L::TYPE_NAME == R::TYPE_NAME {
-            let uuids = {
-                let mut cache_opt = self.transitive_edge_cache.borrow_mut();
-                let cache = cache_opt.get_or_insert_with(TransitiveEdgeCache::default);
-                cache.get_or_compute(
-                    &self.edges,
-                    id.entity_uuid(),
-                    res.r_field_id,
-                    res.l_field_id,
-                )
-            };
-            uuids
-                .into_iter()
-                // SAFETY: uuid came from the edge map which only stores valid entity IDs of type L.
-                .map(|uuid| unsafe { EntityId::new_unchecked(uuid) })
-                .collect()
-        } else {
-            use crate::field_node_id::RuntimeFieldNodeId;
-            // SAFETY: id is of type R, and res.r_field_id.0 is the correct field for R.
-            let node = RuntimeFieldNodeId::from_dynamic(id, res.r_field_id.0);
-            self.connected_field_nodes(node, res.l_field_id)
-                .into_iter()
-                // SAFETY: The field descriptor ensures the UUID belongs to entity type L.
-                .map(|fn_id| unsafe { EntityId::<L>::new_unchecked(fn_id.entity_uuid()) })
+                // SAFETY: The field descriptor ensures the UUID belongs to entity type Far.
+                .map(|fn_id| unsafe { EntityId::<Far>::new_unchecked(fn_id.entity_uuid()) })
                 .collect()
         }
     }
@@ -2527,7 +2483,10 @@ mod tests {
         );
 
         // Inclusive groups from p1 should reach both p2 and p3 transitively.
-        let result = sched.inclusive_edges_from::<PresenterEntityType, PresenterEntityType>(p1_id);
+        let result = sched.inclusive_edges::<PresenterEntityType, PresenterEntityType>(
+            FieldNodeId::new(p1_id, &FIELD_MEMBERS),
+            &FIELD_GROUPS,
+        );
         assert_eq!(result.len(), 2);
         assert!(result.contains(&p2_id));
         assert!(result.contains(&p3_id));
@@ -2554,7 +2513,10 @@ mod tests {
         );
 
         // Inclusive members of p3 should include both p1 and p2 transitively.
-        let result = sched.inclusive_edges_to::<PresenterEntityType, PresenterEntityType>(p3_id);
+        let result = sched.inclusive_edges::<PresenterEntityType, PresenterEntityType>(
+            FieldNodeId::new(p3_id, &FIELD_GROUPS),
+            &FIELD_MEMBERS,
+        );
         assert_eq!(result.len(), 2);
         assert!(result.contains(&p1_id));
         assert!(result.contains(&p2_id));
@@ -2579,7 +2541,10 @@ mod tests {
         );
 
         // Should not infinite loop; p2 is reachable from p1.
-        let result = sched.inclusive_edges_from::<PresenterEntityType, PresenterEntityType>(p1_id);
+        let result = sched.inclusive_edges::<PresenterEntityType, PresenterEntityType>(
+            FieldNodeId::new(p1_id, &FIELD_MEMBERS),
+            &FIELD_GROUPS,
+        );
         assert!(result.contains(&p2_id));
     }
 
@@ -2598,7 +2563,10 @@ mod tests {
             FieldNodeId::new(p1_id, &FIELD_MEMBERS),
             FieldNodeId::new(p2_id, &FIELD_GROUPS),
         );
-        let result1 = sched.inclusive_edges_from::<PresenterEntityType, PresenterEntityType>(p1_id);
+        let result1 = sched.inclusive_edges::<PresenterEntityType, PresenterEntityType>(
+            FieldNodeId::new(p1_id, &FIELD_MEMBERS),
+            &FIELD_GROUPS,
+        );
         assert_eq!(result1.len(), 1);
 
         // Add p2 → p3; cache should invalidate and now p3 is reachable from p1.
@@ -2606,7 +2574,10 @@ mod tests {
             FieldNodeId::new(p2_id, &FIELD_MEMBERS),
             FieldNodeId::new(p3_id, &FIELD_GROUPS),
         );
-        let result2 = sched.inclusive_edges_from::<PresenterEntityType, PresenterEntityType>(p1_id);
+        let result2 = sched.inclusive_edges::<PresenterEntityType, PresenterEntityType>(
+            FieldNodeId::new(p1_id, &FIELD_MEMBERS),
+            &FIELD_GROUPS,
+        );
         assert!(result2.contains(&p2_id));
         assert!(result2.contains(&p3_id));
     }

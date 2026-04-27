@@ -909,11 +909,17 @@ define_field!(
             for p in direct {
                 result.insert(p);
                 // Inclusive groups of p: all groups reachable going up (forward homogeneous edges)
-                for g in sched.inclusive_edges_from::<PresenterEntityType, PresenterEntityType>(p) {
+                for g in sched.inclusive_edges::<PresenterEntityType, PresenterEntityType>(
+                    crate::field_node_id::FieldNodeId::new(p, &crate::presenter::FIELD_MEMBERS),
+                    &crate::presenter::FIELD_GROUPS,
+                ) {
                     result.insert(g);
                 }
                 // Inclusive members of p: all members reachable going down (reverse homogeneous edges)
-                for m in sched.inclusive_edges_to::<PresenterEntityType, PresenterEntityType>(p) {
+                for m in sched.inclusive_edges::<PresenterEntityType, PresenterEntityType>(
+                    crate::field_node_id::FieldNodeId::new(p, &crate::presenter::FIELD_GROUPS),
+                    &crate::presenter::FIELD_MEMBERS,
+                ) {
                     result.insert(m);
                 }
             }
