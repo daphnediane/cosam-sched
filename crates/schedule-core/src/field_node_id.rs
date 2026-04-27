@@ -103,12 +103,6 @@ pub trait DynamicFieldNodeId: DynamicEntityId {
     fn try_as_typed_field<E: EntityType>(&self) -> Option<&'static FieldDescriptor<E>>;
 }
 
-// Marker trait for compile-time typed field node IDs
-pub trait TypedFieldNodeId<E: EntityType>: DynamicFieldNodeId + TypedEntityId<E> {
-    /// Get the field descriptor as a trait object.
-    fn typed_field(&self) -> &'static FieldDescriptor<E>;
-}
-
 // ── RuntimeFieldNodeId ───────────────────────────────────────────────────────────
 
 /// Runtime (untyped) edge endpoint identified by "entity X's field Y".
@@ -323,12 +317,6 @@ impl<E: EntityType> DynamicFieldNodeId for FieldNodeId<E> {
     }
 }
 
-impl<E: EntityType> TypedFieldNodeId<E> for FieldNodeId<E> {
-    fn typed_field(&self) -> &'static FieldDescriptor<E> {
-        self.field
-    }
-}
-
 impl<E: EntityType> FieldNodeId<E> {
     /// Create a field node ID without validation.
     ///
@@ -387,9 +375,9 @@ impl<E: EntityType> FieldNodeId<E> {
         Self::try_new(id, field)
     }
 
-    pub fn from_typed<T: TypedFieldNodeId<E>>(id: T) -> Self {
-        let field = id.typed_field();
-        Self::new(id, field)
+    /// Get the field descriptor as a trait object.
+    pub fn typed_field(&self) -> &'static FieldDescriptor<E> {
+        self.field
     }
 }
 

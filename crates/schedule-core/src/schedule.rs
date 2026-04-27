@@ -17,7 +17,7 @@ use crate::entity::{registered_entity_types, EntityType};
 use crate::field::ReadableField;
 use crate::field_node_id::{DynamicFieldNodeId, FieldNodeId};
 use crate::value::{CrdtFieldType, FieldError, FieldValue};
-use crate::{EntityId, EntityTyped, EntityUuid, RuntimeEntityId, TypedFieldNodeId};
+use crate::{EntityId, EntityTyped, EntityUuid, RuntimeEntityId};
 use automerge::AutoCommit;
 use serde::{Deserialize, Serialize};
 use std::any::{Any, TypeId};
@@ -762,7 +762,7 @@ impl Schedule {
     #[must_use]
     pub fn connected_entities<E: EntityType, R: EntityType>(
         &self,
-        node: impl TypedFieldNodeId<E>,
+        node: FieldNodeId<E>,
         far_field: &'static crate::field::FieldDescriptor<R>,
     ) -> Vec<EntityId<R>> {
         let far_field_ref = crate::field_node_id::FieldRef(far_field);
@@ -786,7 +786,7 @@ impl Schedule {
     #[must_use]
     pub fn inclusive_edges<Near: EntityType, Far: EntityType>(
         &self,
-        near: impl TypedFieldNodeId<Near>,
+        near: FieldNodeId<Near>,
         far_field: &'static crate::field::FieldDescriptor<Far>,
     ) -> Vec<EntityId<Far>> {
         if Near::TYPE_NAME == Far::TYPE_NAME {
