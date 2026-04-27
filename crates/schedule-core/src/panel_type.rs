@@ -15,13 +15,14 @@
 //! Field descriptors are static values assembled into a [`FieldSet`] inside a [`LazyLock`].
 
 use crate::converter::{AsBoolean, AsString, EntityStringResolver};
+use crate::define_field;
 use crate::entity::{EntityId, EntityType, EntityUuid, UuidPreference};
-use crate::field::{FieldDescriptor, ReadFn};
-use crate::field_macros::{define_entity_builder, define_field, edge_field, stored_field};
+use crate::field::FieldDescriptor;
+use crate::field_macros::define_entity_builder;
 use crate::field_set::FieldSet;
 use crate::field_value;
 use crate::panel::{PanelEntityType, PanelId};
-use crate::value::{CrdtFieldType, FieldCardinality, FieldType, FieldTypeItem, ValidationError};
+use crate::value::{FieldTypeItem, ValidationError};
 use serde::{Deserialize, Serialize};
 use std::sync::LazyLock;
 
@@ -223,119 +224,149 @@ impl EntityStringResolver for PanelTypeEntityType {
 
 // ── Field Descriptors ──────────────────────────────────────────────────────────
 
-stored_field!(FIELD_PREFIX, PanelTypeEntityType, prefix, required, as: AsString,
+define_field! {
+    static FIELD_PREFIX: FieldDescriptor<PanelTypeEntityType>,
+    accessor: prefix, required, as: AsString,
     name: "prefix", display: "Prefix",
     desc: "Two-letter Uniq ID prefix for panels of this type.",
     aliases: &["uniq_id_prefix"],
     example: "GP",
-    order: 0);
+    order: 0
+}
 
-stored_field!(FIELD_PANEL_KIND, PanelTypeEntityType, panel_kind, required, as: AsString,
+define_field! {
+    static FIELD_PANEL_KIND: FieldDescriptor<PanelTypeEntityType>,
+    accessor: panel_kind, required, as: AsString,
     name: "panel_kind", display: "Panel Kind",
     desc: "Human-readable kind name for this panel type.",
     aliases: &["kind", "type_name"],
     example: "Guest Panel",
-    order: 100);
+    order: 100
+}
 
-stored_field!(FIELD_HIDDEN, PanelTypeEntityType, hidden, with_default, as: AsBoolean,
+define_field! {
+    static FIELD_HIDDEN: FieldDescriptor<PanelTypeEntityType>,
+    accessor: hidden, with_default, as: AsBoolean,
     name: "hidden", display: "Hidden",
     desc: "Whether this panel type is hidden from UI.",
     aliases: &[],
     example: "false",
-    order: 200);
+    order: 200
+}
 
-stored_field!(FIELD_IS_WORKSHOP, PanelTypeEntityType, is_workshop, with_default, as: AsBoolean,
+define_field! {
+    static FIELD_IS_WORKSHOP: FieldDescriptor<PanelTypeEntityType>,
+    accessor: is_workshop, with_default, as: AsBoolean,
     name: "is_workshop", display: "Is Workshop",
     desc: "Whether panels of this type are workshops.",
     aliases: &["workshop"],
     example: "false",
-    order: 300);
+    order: 300
+}
 
-stored_field!(FIELD_IS_BREAK, PanelTypeEntityType, is_break, with_default, as: AsBoolean,
+define_field! {
+    static FIELD_IS_BREAK: FieldDescriptor<PanelTypeEntityType>,
+    accessor: is_break, with_default, as: AsBoolean,
     name: "is_break", display: "Is Break",
     desc: "Whether panels of this type are break periods.",
     aliases: &["break"],
     example: "false",
-    order: 400);
+    order: 400
+}
 
-stored_field!(FIELD_IS_CAFE, PanelTypeEntityType, is_cafe, with_default, as: AsBoolean,
+define_field! {
+    static FIELD_IS_CAFE: FieldDescriptor<PanelTypeEntityType>,
+    accessor: is_cafe, with_default, as: AsBoolean,
     name: "is_cafe", display: "Is Cafe",
     desc: "Whether panels of this type are cafe events.",
     aliases: &["cafe"],
     example: "false",
-    order: 500);
+    order: 500
+}
 
-stored_field!(FIELD_IS_ROOM_HOURS, PanelTypeEntityType, is_room_hours, with_default, as: AsBoolean,
+define_field! {
+    static FIELD_IS_ROOM_HOURS: FieldDescriptor<PanelTypeEntityType>,
+    accessor: is_room_hours, with_default, as: AsBoolean,
     name: "is_room_hours", display: "Is Room Hours",
     desc: "Whether panels of this type are room hours.",
     aliases: &["room_hours"],
     example: "false",
-    order: 600);
+    order: 600
+}
 
-stored_field!(FIELD_IS_TIMELINE, PanelTypeEntityType, is_timeline, with_default, as: AsBoolean,
+define_field! {
+    static FIELD_IS_TIMELINE: FieldDescriptor<PanelTypeEntityType>,
+    accessor: is_timeline, with_default, as: AsBoolean,
     name: "is_timeline", display: "Is Timeline",
     desc: "Whether panels of this type are timeline events.",
     aliases: &["timeline"],
     example: "false",
-    order: 700);
+    order: 700
+}
 
-stored_field!(FIELD_IS_PRIVATE, PanelTypeEntityType, is_private, with_default, as: AsBoolean,
+define_field! {
+    static FIELD_IS_PRIVATE: FieldDescriptor<PanelTypeEntityType>,
+    accessor: is_private, with_default, as: AsBoolean,
     name: "is_private", display: "Is Private",
     desc: "Whether panels of this type are private events.",
     aliases: &["private"],
     example: "false",
-    order: 800);
+    order: 800
+}
 
-stored_field!(FIELD_COLOR, PanelTypeEntityType, color, optional, as: AsString,
+define_field! {
+    static FIELD_COLOR: FieldDescriptor<PanelTypeEntityType>,
+    accessor: color, optional, as: AsString,
     name: "color", display: "Color",
     desc: "CSS color for panels of this type.",
     aliases: &[],
     example: "#db2777",
-    order: 900);
+    order: 900
+}
 
-stored_field!(FIELD_BW, PanelTypeEntityType, bw, optional, as: AsString,
+define_field! {
+    static FIELD_BW: FieldDescriptor<PanelTypeEntityType>,
+    accessor: bw, optional, as: AsString,
     name: "bw", display: "BW Color",
     desc: "Alternate monochrome color for panels of this type.",
     aliases: &["bw_color", "monochrome"],
     example: "#666666",
-    order: 1000);
+    order: 1000
+}
 
-define_field!(
+define_field! {
     /// Computed display name — derived from `panel_kind` and `prefix`.
     ///
     /// Read-only computed field that produces a human-readable identifier.
-    static FIELD_DISPLAY_NAME: FieldDescriptor<PanelTypeEntityType> = FieldDescriptor {
-        name: "display_name",
-        display: "Display Name",
-        description: "Human-readable display name combining kind and prefix.",
-        aliases: &["name"],
-        required: false,
-        crdt_type: CrdtFieldType::Derived,
-        field_type: FieldType(FieldCardinality::Single, FieldTypeItem::String),
-        example: "Guest Panel (GP)",
-        order: 1100,
-        read_fn: Some(ReadFn::Bare(|d: &PanelTypeInternalData| {
-            let name = if d.data.prefix.is_empty() {
-                d.data.panel_kind.clone()
-            } else if d.data.panel_kind.is_empty() {
-                d.data.prefix.clone()
-            } else {
-                format!("{} ({})", d.data.panel_kind, d.data.prefix)
-            };
-            Some(field_value!(name))
-        })),
-        write_fn: None,
-        verify_fn: None,
+    static FIELD_DISPLAY_NAME: FieldDescriptor<PanelTypeEntityType>,
+    name: "display_name", display: "Display Name",
+    desc: "Human-readable display name combining kind and prefix.",
+    aliases: &["name"],
+    example: "Guest Panel (GP)",
+    order: 1100,
+    crdt: Derived, cardinality: single, item: FieldTypeItem::String,
+    read: |d: &PanelTypeInternalData| {
+        let name = if d.data.prefix.is_empty() {
+            d.data.panel_kind.clone()
+        } else if d.data.panel_kind.is_empty() {
+            d.data.prefix.clone()
+        } else {
+            format!("{} ({})", d.data.panel_kind, d.data.prefix)
+        };
+        Some(field_value!(name))
     }
-);
+}
 
 // Panels of this type — reverse heterogeneous edge from Panel → PanelType.
-edge_field!(FIELD_PANELS, PanelTypeEntityType, mode: ro, target: PanelEntityType, target_field: &crate::panel::FIELD_PANEL_TYPE,
+define_field! {
+    static FIELD_PANELS: FieldDescriptor<PanelTypeEntityType>,
+    edge: ro, target: PanelEntityType, target_field: &crate::panel::FIELD_PANEL_TYPE,
     name: "panels", display: "Panels",
     desc: "Panels of this type.",
     aliases: &[],
     example: "[]",
-    order: 1200);
+    order: 1200
+}
 
 // ── FieldSet ────────────────────────────────────────────────────────────────────
 

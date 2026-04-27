@@ -15,7 +15,7 @@ multi-user offline collaborative editing via CRDT-backed storage.
 ```text
 crates/
   schedule-core/   — Entity/field system, data model, schedule container
-                     (replaces old schedule-field, schedule-data, schedule-macro)
+  schedule-macro/  — Unified field-declaration proc-macro (define_field!)
 apps/
   cosam-convert/   — Format conversion (XLSX → JSON, JSON → JSON, etc.)
   cosam-modify/    — CLI schedule editing tool
@@ -24,6 +24,10 @@ apps/
 
 `schedule-core` is the single library crate for all data model code. Application
 crates depend on it and add their own I/O, UI, and format-specific logic.
+
+`schedule-macro` provides a unified `define_field!` function-like proc-macro that
+generates `FieldDescriptor` statics for all field types (stored, edge, and custom).
+See `field-system.md` for the field declaration syntax.
 
 ## Entity / Field System
 
@@ -400,9 +404,9 @@ GUI framework (`iced` vs `GPUI`) decision is deferred to Phase 6.
 ## Design Decisions
 
 - **No proc-macro for data structs**: `<E>CommonData` and `<E>InternalData`
-  declarations are hand-written and visible. Proc-macros and `macro_rules!`
-  may be used for boilerplate (trait impls, field accessor singletons, builders)
-  but must not obscure the struct definitions.
+  declarations are hand-written and visible. The `schedule-macro` crate provides
+  a `define_field!` function-like proc-macro for generating `FieldDescriptor`
+  statics, but it does not generate struct definitions.
 - **Single library crate**: `schedule-core` replaces the three-crate split
   (`schedule-field` + `schedule-data` + `schedule-macro`) to eliminate the
   layer violations that plagued v10-try3.

@@ -1,6 +1,6 @@
 # Cosplay America Schedule - Work Item
 
-Updated on: Mon Apr 27 11:41:27 2026
+Updated on: Mon Apr 27 22:24:30 2026
 
 ## Completed
 
@@ -37,6 +37,10 @@ existing static field descriptors across every entity file.
 parameters is ergonomic without ownership gymnastics.
 * [FEATURE-069] Encode CRDT edge ownership direction directly in `CrdtFieldType` instead of
 relying solely on `EdgeDescriptor` and `canonical_owner()`.
+* [FEATURE-071] Replace the declarative `macro_rules!` field-declaration helpers (`stored_field!`,
+`edge_field!`, `define_field!`) with attribute-style proc-macros in a new
+`schedule-macro` crate; add an `exclusive_with:` clause to express
+cross-partition edge exclusivity declaratively.
 * [META-002] Phase tracker for project foundation and Cargo workspace setup.
 * [META-003] Phase tracker for the entity/field system and core schedule data model in schedule-core.
 * [META-004] Phase tracker for making an automerge CRDT document the authoritative storage
@@ -83,7 +87,7 @@ and improve `FieldId` conversions with a global registry and type-safe downcasti
 
 ## Summary of Open Items
 
-**Total open items:** 21
+**Total open items:** 22
 
 * **Meta / Project-Level**
   * [META-001] Meta work item tracking the full multi-phase redesign of the schedule system. (Blocked by [META-005], [META-006], [META-007], [META-008])
@@ -94,17 +98,20 @@ XLSX import/export. (Blocked by [META-004])
   * [META-008] Phase tracker for peer-to-peer schedule synchronization and conflict resolution. (Blocked by [META-004])
 
 * **High Priority**
+  * [BUGFIX-073] `PanelInternalData::time_slot` has no CRDT backing field, so panel start /
+end / duration are not mirrored to the Automerge document and are lost
+through any save → load (or merge) round trip.
   * [FEATURE-065] Convert `credited_presenters` and `uncredited_presenters` on Panel from computed/derived fields
 into actual edge storage fields, eliminating the `credited` per-edge boolean and its CRDT
 `presenters_meta` map.
   * [FEATURE-070] Remove the separate `EdgeDescriptor` struct and inventory; encode CRDT-edge ownership and target field directly inside `CrdtFieldType::EdgeOwner` on the owner field.
-  * [FEATURE-071] Replace the declarative `macro_rules!` field-declaration helpers (`stored_field!`,
-`edge_field!`, `define_field!`) with attribute-style proc-macros in a new
-`schedule-macro` crate; add an `exclusive_with:` clause to express
-cross-partition edge exclusivity declaratively.
 
 * **Medium Priority**
   * [BUGFIX-045] In `scratch/field_update_logic.rs`, duration values are incorrectly stored as `FieldValue::Integer(minutes)` instead of `FieldValue::Duration(Duration)`.
+  * [BUGFIX-072] Several homogeneous-edge queries on the presenter member/group relationship
+use the near/far field pair swapped from what their docs and field names
+advertise. Introduce `FIELD_*_NEAR` / `FIELD_*_FAR` aliases to make the
+intent explicit at each call site and fix the inverted queries.
   * [FEATURE-026] ([META-005]) Support multiple convention years in a single schedule file for historical
 reference and jump-starting new conventions.
   * [FEATURE-027] ([META-005]) Implement export of schedule data to the JSON format consumed by the calendar display widget.
@@ -134,6 +141,59 @@ Use `perl scripts/work-item-update.pl --create <PREFIX>` to add new stubs.
 
 ## Open BUGFIX Items
 
+### [BUGFIX-073] BUGFIX-073: Panel `time_slot` is silently dropped on save/load
+
+**Status:** Open
+
+**Priority:** High
+
+**Summary:** `PanelInternalData::time_slot` has no CRDT backing field, so panel start /
+end / duration are not mirrored to the Automerge document and are lost
+through any save → load (or merge) round trip.
+
+**Description:** `PanelInternalData` carries the temporal state of a panel in a single
+`time_slot: TimeRange` field (`@../../../crates/schedule-core/src/panel.rs:88-93`).
+The field system exposes three projections onto that struct:
+
+* `FIELD_START_TIME`
+* `FIELD_END_TIME`
+* `FIELD_DURATION`
+
+All three are declared `crdt: Derived` (panel.rs lines around 542, 584,
+626). There is no `FIELD_TIME_SLOT`, so `time_slot` itself is never
+seen by the field-set / CRDT plumbing.
+
+The write path mutates the in-memory cache and then deliberately skips
+the Automerge mirror for `Derived` fields:
+
+```text
+crates/schedule-core/src/field.rs:289-310
+if !schedule.mirror_enabled()
+    || matches!(self.crdt_type,
+        CrdtFieldType::Derived | CrdtFieldType::EdgeOwner { .. } |
+        CrdtFieldType::EdgeTarget) {
+    return Ok(());
+}
+```
+
+`crdt::put_field` and the rehydrate path do the same:
+
+```text
+crates/schedule-core/src/crdt.rs:30-37     # "| Derived | not stored |"
+crates/schedule-core/src/crdt.rs:469-473   # rehydrate skips Derived
+```
+
+Net effect:
+
+* `with_start_time(…)` updates `d.time_slot` only in the cache; nothing
+  is written to the Automerge document.
+* On load, `rehydrate_entity` walks `field_set.fields()` and skips every
+  `Derived` descriptor, so the rehydrated `PanelInternalData` falls back
+  to the builder's `TimeRange::default()` → `TimeRange::Unspecified`.
+* A merge of two replicas similarly carries no temporal information.
+
+---
+
 ### [BUGFIX-045] BUGFIX-045: Duration stored as Integer instead of Duration in field_update_logic.rs
 
 **Status:** Open
@@ -149,6 +209,40 @@ This is a type safety issue — durations should be typed as `Duration`, not raw
 * Type-safe operations (can't accidentally add minutes to a count field)
 * Proper serialization (duration format vs raw number)
 * Clear semantic meaning in the type system
+
+---
+
+### [BUGFIX-072] BUGFIX-072: FIELD_MEMBERS / FIELD_GROUPS near/far confusion in presenter.rs and panel.rs
+
+**Status:** Open
+
+**Priority:** Medium
+
+**Summary:** Several homogeneous-edge queries on the presenter member/group relationship
+use the near/far field pair swapped from what their docs and field names
+advertise. Introduce `FIELD_*_NEAR` / `FIELD_*_FAR` aliases to make the
+intent explicit at each call site and fix the inverted queries.
+
+**Description:** The edge storage convention is **"field name = far side of the edge"**, as
+documented in `crates/schedule-core/src/edge_map.rs:35-40`:
+
+```text
+map[member_uuid][FIELD_GROUPS]  = [(FIELD_MEMBERS, group_uuid), ...]
+map[group_uuid][FIELD_MEMBERS]  = [(FIELD_GROUPS,  member_uuid), ...]
+```
+
+So under this convention:
+
+* `connected_entities((id, FIELD_MEMBERS), &FIELD_GROUPS)` returns the
+  **members** of `id` (`id` acting as a group).
+* `connected_entities((id, FIELD_GROUPS), &FIELD_MEMBERS)` returns the
+  **groups** that `id` belongs to (`id` acting as a member).
+
+Because the two fields look symmetric and their roles depend on which
+side is the near node, several sites in the codebase use the swapped
+pair and therefore compute the wrong set. The bugs are latent because
+most call sites *union* both directions and come out with a consistent
+(if mis-labelled) result, but a few sites rely on the specific direction.
 
 ---
 
@@ -257,47 +351,6 @@ The remaining work is to turn the partition into two first-class CRDT lists.
 2. A separate `pub(crate) static EDGE_<NAME>: EdgeDescriptor = …;` plus its own `inventory::submit!` registration.
 
 `EdgeDescriptor` carried `name` (debug only), `owner_field` (self-reference, redundant), `target_field` (the only piece not already on the owner), and `fields: &[EdgeFieldSpec]` (per-edge metadata, slated for removal by FEATURE-065). Collapsing the two leaves a simpler model where the owner field is the edge descriptor.
-
----
-
-### [FEATURE-071] FEATURE-071: Introduce schedule-macro proc-macro crate
-
-**Status:** Open
-
-**Priority:** High
-
-**Summary:** Replace the declarative `macro_rules!` field-declaration helpers (`stored_field!`,
-`edge_field!`, `define_field!`) with attribute-style proc-macros in a new
-`schedule-macro` crate; add an `exclusive_with:` clause to express
-cross-partition edge exclusivity declaratively.
-
-**Description:** The current declarative `macro_rules!` helpers in
-`crates/schedule-core/src/field_macros.rs` cover 90% of field declarations
-cleanly, but they have two pain points worth resolving before the next round
-of edge-field work:
-
-1. **Closures can't be passed as macro arguments cleanly.**  Most non-trivial
-   fields with custom read/write logic must drop down to `define_field!` and
-   inline a `WriteFn::Schedule(|sched, id, val| …)` block by hand, even when
-   the field is otherwise edge-shaped.  This is verbose and easy to get wrong.
-
-2. **Cross-partition edge exclusivity has no declarative form.**  FEATURE-065's
-   credited/uncredited presenter split needs each partition's write closure to
-   first remove the same target from the sibling partition.  Today this can
-   only be expressed by hand-writing four `define_field!` blocks; with
-   proc-macros we can add an `exclusive_with: &SIBLING_FIELD` clause that
-   generates the prelude.
-
-Note: a previous proc-macro experiment (`v10-try3/crates/schedule-macro`,
-~1600 lines) handled both field declarations *and* type conversion logic.
-Conversion has since been factored out into a separate system (see
-`docs/conversion-and-lookup.md`), so the new proc-macros should be
-significantly smaller — they only need to emit `FieldDescriptor` + closures.
-
-After FEATURE-070, `EdgeDescriptor` is gone; the proc-macros only need to set
-`crdt_type: EdgeOwner { target_field: <target_field> }` directly when the
-`owner` flag is present, with no separate descriptor static or inventory
-submission to coordinate.
 
 ---
 
@@ -593,6 +646,8 @@ This item covers any remaining integration work and documentation.
 ---
 
 [BUGFIX-045]: work-item/medium/BUGFIX-045.md
+[BUGFIX-072]: work-item/medium/BUGFIX-072.md
+[BUGFIX-073]: work-item/high/BUGFIX-073.md
 [CLI-030]: work-item/low/CLI-030.md
 [CLI-031]: work-item/low/CLI-031.md
 [EDITOR-032]: work-item/low/EDITOR-032.md
@@ -631,7 +686,7 @@ This item covers any remaining integration work and documentation.
 [FEATURE-068]: work-item/done/FEATURE-068.md
 [FEATURE-069]: work-item/done/FEATURE-069.md
 [FEATURE-070]: work-item/high/FEATURE-070.md
-[FEATURE-071]: work-item/high/FEATURE-071.md
+[FEATURE-071]: work-item/done/FEATURE-071.md
 [META-001]: work-item/meta/META-001.md
 [META-002]: work-item/done/META-002.md
 [META-003]: work-item/done/META-003.md

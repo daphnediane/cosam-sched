@@ -18,15 +18,15 @@
 //! by `find_tagged_presenter` and `find_or_create_tagged_presenter`.
 
 use crate::converter::{AsBoolean, AsString, AsText, EntityStringResolver};
+use crate::define_field;
 use crate::entity::{EntityId, EntityType, EntityUuid, FieldSet, UuidPreference};
-use crate::field::{FieldDescriptor, ReadFn, WriteFn};
-use crate::field_macros::{define_field, edge_field, stored_field};
+use crate::field::FieldDescriptor;
 use crate::field_node_id::FieldNodeId;
 use crate::field_value;
 use crate::lookup::{EntityMatcher, MatchPriority};
-use crate::panel::{PanelEntityType, PanelId, FIELD_PRESENTERS};
-use crate::value::ConversionError;
-use crate::value::{CrdtFieldType, FieldCardinality, FieldType, FieldTypeItem, ValidationError};
+use crate::panel::{PanelEntityType, PanelId};
+use crate::schedule::Schedule;
+use crate::value::{ConversionError, FieldTypeItem, FieldValue, ValidationError};
 use serde::{Deserialize, Deserializer, Serialize, Serializer};
 use std::sync::LazyLock;
 
@@ -703,191 +703,199 @@ impl EntityStringResolver for PresenterEntityType {
 
 // ── Stored field descriptors ──────────────────────────────────────────────────
 
-stored_field!(FIELD_NAME, PresenterEntityType, name, required, as: AsString,
+define_field! {
+    static FIELD_NAME: FieldDescriptor<PresenterEntityType>,
+    accessor: name, required, as: AsString,
     name: "name", display: "Name",
     desc: "Presenter or group display name.",
     aliases: &["presenter_name", "display_name"],
     example: "Alice Example",
-    order: 0);
+    order: 0
+}
 
-define_field!(
+define_field! {
     /// Presenter rank — stored as `PresenterRank`, exposed as `FieldValue::String`
     /// using the canonical tag (`guest`, `judge`, `staff`, `invited_panelist`,
     /// `fan_panelist`, or a custom invited-guest label).
-    pub static FIELD_RANK: FieldDescriptor<PresenterEntityType> = FieldDescriptor {
-        name: "rank",
-        display: "Rank",
-        description: "Presenter classification tier.",
-        aliases: &["classification"],
-        required: false,
-        crdt_type: CrdtFieldType::Scalar,
-        field_type: FieldType(FieldCardinality::Optional, FieldTypeItem::String),
-        example: "guest",
-        order: 100,
-        read_fn: Some(ReadFn::Bare(|d: &PresenterInternalData| {
-            Some(field_value!(d.data.rank.as_str()))
-        })),
-        write_fn: Some(WriteFn::Bare(|d: &mut PresenterInternalData, v| {
-            d.data.rank = PresenterRank::parse(&v.into_string()?);
-            Ok(())
-        })),
-        verify_fn: None,
+    static FIELD_RANK: FieldDescriptor<PresenterEntityType>,
+    name: "rank", display: "Rank",
+    desc: "Presenter classification tier.",
+    aliases: &["classification"],
+    example: "guest",
+    order: 100,
+    crdt: Scalar, cardinality: optional, item: FieldTypeItem::String,
+    read: |d: &PresenterInternalData| {
+        Some(field_value!(d.data.rank.as_str()))
+    },
+    write: |d: &mut PresenterInternalData, v: FieldValue| {
+        d.data.rank = PresenterRank::parse(&v.into_string()?);
+        Ok(())
     }
-);
+}
 
-stored_field!(FIELD_BIO, PresenterEntityType, bio, optional, as: AsText,
+define_field! {
+    static FIELD_BIO: FieldDescriptor<PresenterEntityType>,
+    accessor: bio, optional, as: AsText,
     name: "bio", display: "Bio",
     desc: "Biography or description.",
     aliases: &["biography", "description"],
     example: "Long-time guest.",
-    order: 200);
+    order: 200
+}
 
-stored_field!(FIELD_IS_EXPLICIT_GROUP, PresenterEntityType, is_explicit_group, with_default, as: AsBoolean,
+define_field! {
+    static FIELD_IS_EXPLICIT_GROUP: FieldDescriptor<PresenterEntityType>,
+    accessor: is_explicit_group, with_default, as: AsBoolean,
     name: "is_explicit_group", display: "Is Explicit Group",
     desc: "Marks this presenter entity as an explicit group.",
     aliases: &["explicit_group"],
     example: "false",
-    order: 300);
+    order: 300
+}
 
-stored_field!(FIELD_ALWAYS_GROUPED, PresenterEntityType, always_grouped, with_default, as: AsBoolean,
+define_field! {
+    static FIELD_ALWAYS_GROUPED: FieldDescriptor<PresenterEntityType>,
+    accessor: always_grouped, with_default, as: AsBoolean,
     name: "always_grouped", display: "Always Grouped",
     desc: "Always display this member under its group name.",
     aliases: &[],
     example: "false",
-    order: 400);
+    order: 400
+}
 
-stored_field!(FIELD_ALWAYS_SHOWN_IN_GROUP, PresenterEntityType, always_shown_in_group, with_default, as: AsBoolean,
+define_field! {
+    static FIELD_ALWAYS_SHOWN_IN_GROUP: FieldDescriptor<PresenterEntityType>,
+    accessor: always_shown_in_group, with_default, as: AsBoolean,
     name: "always_shown_in_group", display: "Always Shown In Group",
     desc: "Always show group name even with partial member attendance.",
     aliases: &["always_shown"],
     example: "false",
-    order: 500);
+    order: 500
+}
 
 // ── Computed / edge-backed fields ─────────────────────────────────────────────
 
-define_field!(
+define_field! {
     /// `is_group` — `true` if `is_explicit_group` is set OR this presenter has
     /// any members (edge-based membership).
-    pub static FIELD_IS_GROUP: FieldDescriptor<PresenterEntityType> = FieldDescriptor {
-        name: "is_group",
-        display: "Is Group",
-        description: "Whether this entity represents a group (explicit flag or has members).",
-        aliases: &["group"],
-        required: false,
-        crdt_type: CrdtFieldType::Derived,
-        field_type: FieldType(FieldCardinality::Single, FieldTypeItem::Boolean),
-        example: "false",
-        order: 600,
-        read_fn: Some(ReadFn::Schedule(|sched, id| {
-            let explicit = sched
-                .get_internal::<PresenterEntityType>(id)
-                .is_some_and(|d| d.data.is_explicit_group);
-            let node = crate::field_node_id::FieldNodeId::new(id, &FIELD_MEMBERS);
-            let has_members = !sched
-                .connected_field_nodes(node, crate::field_node_id::FieldRef(&FIELD_GROUPS))
-                .is_empty();
-            Some(field_value!(explicit || has_members))
-        })),
-        write_fn: None,
-        verify_fn: None,
+    static FIELD_IS_GROUP: FieldDescriptor<PresenterEntityType>,
+    name: "is_group", display: "Is Group",
+    desc: "Whether this entity represents a group (explicit flag or has members).",
+    aliases: &["group"],
+    example: "false",
+    order: 600,
+    crdt: Derived, cardinality: single, item: FieldTypeItem::Boolean,
+    read: |sched: &Schedule, id: EntityId<PresenterEntityType>| {
+        let explicit = sched
+            .get_internal::<PresenterEntityType>(id)
+            .is_some_and(|d| d.data.is_explicit_group);
+        // Edge convention: a field name points at the far side of the edge.
+        // `FIELD_MEMBERS` on `id` therefore points at id's members
+        // (id playing the group role); querying it toward far-side
+        // `FIELD_GROUPS` returns those member entities.
+        let node = crate::field_node_id::FieldNodeId::new(id, &FIELD_MEMBERS);
+        let has_members = !sched
+            .connected_field_nodes(node, crate::field_node_id::FieldRef(&FIELD_GROUPS))
+            .is_empty();
+        Some(field_value!(explicit || has_members))
     }
-);
+}
 
-edge_field!(FIELD_GROUPS, PresenterEntityType, mode: rw, target: PresenterEntityType, target_field: &FIELD_MEMBERS,
+define_field! {
+    static FIELD_GROUPS: FieldDescriptor<PresenterEntityType>,
+    edge: rw, target: PresenterEntityType, target_field: &FIELD_MEMBERS,
     name: "groups", display: "Groups",
     desc: "Groups this presenter belongs to.",
     aliases: &["group_memberships"],
     example: "[]",
-    order: 700);
+    order: 700
+}
 
-edge_field!(FIELD_MEMBERS, PresenterEntityType, mode: rw, target: PresenterEntityType, target_field: &FIELD_GROUPS,
-    owner,
+define_field! {
+    static FIELD_MEMBERS: FieldDescriptor<PresenterEntityType>,
+    edge: rw, target: PresenterEntityType, target_field: &FIELD_GROUPS, owner,
     name: "members", display: "Members",
     desc: "Members of this group (empty for individuals).",
     aliases: &["group_members"],
     example: "[]",
-    order: 800);
+    order: 800
+}
 
-define_field!(
+define_field! {
     /// Inclusive groups — all groups this presenter belongs to, transitively.
     ///
     /// Follows forward homogeneous edges upward: `presenter → group → parent_group → …`.
     /// Does not include the presenter itself.
-    pub static FIELD_INCLUSIVE_GROUPS: FieldDescriptor<PresenterEntityType> = FieldDescriptor {
-        name: "inclusive_groups",
-        display: "Inclusive Groups",
-        description: "Transitive closure of groups this presenter appears in.",
-        aliases: &[],
-        required: false,
-        crdt_type: CrdtFieldType::Derived,
-        field_type: FieldType(FieldCardinality::List, FieldTypeItem::EntityIdentifier(
-            PresenterEntityType::TYPE_NAME,
-        )),
-        example: "[]",
-        order: 900,
-        read_fn: Some(ReadFn::Schedule(|sched, id| {
-            let ids = sched.inclusive_edges::<PresenterEntityType, PresenterEntityType>(
-                crate::field_node_id::FieldNodeId::new(id, &FIELD_MEMBERS),
-                &FIELD_GROUPS,
-            );
-            Some(crate::schedule::entity_ids_to_field_value(ids))
-        })),
-        write_fn: None,
-        verify_fn: None,
+    static FIELD_INCLUSIVE_GROUPS: FieldDescriptor<PresenterEntityType>,
+    name: "inclusive_groups", display: "Inclusive Groups",
+    desc: "Transitive closure of groups this presenter appears in.",
+    aliases: &[],
+    example: "[]",
+    order: 900,
+    crdt: Derived, cardinality: list,
+    item: FieldTypeItem::EntityIdentifier(PresenterEntityType::TYPE_NAME),
+    read: |sched: &Schedule, id: EntityId<PresenterEntityType>| {
+        let ids = sched.inclusive_edges::<PresenterEntityType, PresenterEntityType>(
+            crate::field_node_id::FieldNodeId::new(id, &FIELD_MEMBERS),
+            &FIELD_GROUPS,
+        );
+        Some(crate::schedule::entity_ids_to_field_value(ids))
     }
-);
+}
 
-define_field!(
+define_field! {
     /// Inclusive members — all members of this group, transitively.
     ///
     /// Follows reverse homogeneous edges downward: `group ← member ← sub_member ← …`.
     /// Does not include the group itself.
-    static FIELD_INCLUSIVE_MEMBERS: FieldDescriptor<PresenterEntityType> = FieldDescriptor {
-        name: "inclusive_members",
-        display: "Inclusive Members",
-        description: "Transitive closure of members for this group.",
-        aliases: &[],
-        required: false,
-        crdt_type: CrdtFieldType::Derived,
-        field_type: FieldType(FieldCardinality::List, FieldTypeItem::EntityIdentifier(
-            PresenterEntityType::TYPE_NAME,
-        )),
-        example: "[]",
-        order: 1000,
-        read_fn: Some(ReadFn::Schedule(|sched, id| {
-            let ids = sched.inclusive_edges::<PresenterEntityType, PresenterEntityType>(
-                crate::field_node_id::FieldNodeId::new(id, &FIELD_GROUPS),
-                &FIELD_MEMBERS,
-            );
-            Some(crate::schedule::entity_ids_to_field_value(ids))
-        })),
-        write_fn: None,
-        verify_fn: None,
+    static FIELD_INCLUSIVE_MEMBERS: FieldDescriptor<PresenterEntityType>,
+    name: "inclusive_members", display: "Inclusive Members",
+    desc: "Transitive closure of members for this group.",
+    aliases: &[],
+    example: "[]",
+    order: 1000,
+    crdt: Derived, cardinality: list,
+    item: FieldTypeItem::EntityIdentifier(PresenterEntityType::TYPE_NAME),
+    read: |sched: &Schedule, id: EntityId<PresenterEntityType>| {
+        let ids = sched.inclusive_edges::<PresenterEntityType, PresenterEntityType>(
+            crate::field_node_id::FieldNodeId::new(id, &FIELD_GROUPS),
+            &FIELD_MEMBERS,
+        );
+        Some(crate::schedule::entity_ids_to_field_value(ids))
     }
-);
+}
 
-edge_field!(FIELD_PANELS, PresenterEntityType, mode: rw, target: PanelEntityType, target_field: &crate::panel::FIELD_PRESENTERS,
+define_field! {
+    static FIELD_PANELS: FieldDescriptor<PresenterEntityType>,
+    edge: rw, target: PanelEntityType, target_field: &crate::panel::FIELD_PRESENTERS,
     name: "panels", display: "Panels",
     desc: "Panels this presenter is scheduled on.",
     aliases: &["panel"],
     example: "[]",
-    order: 1100);
+    order: 1100
+}
 
-edge_field!(FIELD_ADD_PANELS, PresenterEntityType, mode: add, target: PanelEntityType, target_field: FIELD_PRESENTERS,
+define_field! {
+    static FIELD_ADD_PANELS: FieldDescriptor<PresenterEntityType>,
+    edge: add, target: PanelEntityType, target_field: &crate::panel::FIELD_PRESENTERS,
     name: "add_panels", display: "Add Panels",
     desc: "Append panels to this presenter.",
     aliases: &["add_panel"],
     example: "[panel_id]",
-    order: 1200);
+    order: 1200
+}
 
-edge_field!(FIELD_REMOVE_PANELS, PresenterEntityType, mode: remove, target: PanelEntityType, target_field: &crate::panel::FIELD_PRESENTERS,
+define_field! {
+    static FIELD_REMOVE_PANELS: FieldDescriptor<PresenterEntityType>,
+    edge: remove, target: PanelEntityType, target_field: &crate::panel::FIELD_PRESENTERS,
     name: "remove_panels", display: "Remove Panels",
     desc: "Remove panels from this presenter.",
     aliases: &["remove_panel"],
     example: "[panel_id]",
-    order: 1300);
+    order: 1300
+}
 
-define_field!(
+define_field! {
     /// Inclusive panels for a presenter.
     ///
     /// Union of:
@@ -898,51 +906,46 @@ define_field!(
     /// This is symmetric with `FIELD_INCLUSIVE_PRESENTERS` on panels: if a panel
     /// lists Team A, then all of Team A's inclusive presenters see that panel in
     /// their inclusive panels.
-    static FIELD_INCLUSIVE_PANELS: FieldDescriptor<PresenterEntityType> = FieldDescriptor {
-        name: "inclusive_panels",
-        display: "Inclusive Panels",
-        description: "Panels of this presenter plus panels of its transitive groups and members.",
-        aliases: &[],
-        required: false,
-        crdt_type: CrdtFieldType::Derived,
-        field_type: FieldType(FieldCardinality::List, FieldTypeItem::EntityIdentifier(PanelEntityType::TYPE_NAME)),
-        example: "[]",
-        order: 1400,
-        read_fn: Some(ReadFn::Schedule(|sched, id| {
-            use std::collections::HashSet;
-            let mut panel_set: HashSet<PanelId> = HashSet::new();
-            // Direct panels of this presenter
-            let node = crate::field_node_id::FieldNodeId::new(id, &FIELD_PANELS);
+    static FIELD_INCLUSIVE_PANELS: FieldDescriptor<PresenterEntityType>,
+    name: "inclusive_panels", display: "Inclusive Panels",
+    desc: "Panels of this presenter plus panels of its transitive groups and members.",
+    aliases: &[],
+    example: "[]",
+    order: 1400,
+    crdt: Derived, cardinality: list,
+    item: FieldTypeItem::EntityIdentifier(PanelEntityType::TYPE_NAME),
+    read: |sched: &Schedule, id: EntityId<PresenterEntityType>| {
+        use std::collections::HashSet;
+        let mut panel_set: HashSet<PanelId> = HashSet::new();
+        // Direct panels of this presenter
+        let node = crate::field_node_id::FieldNodeId::new(id, &FIELD_PANELS);
+        for p in sched.connected_entities::<PresenterEntityType, PanelEntityType>(node, &crate::panel::FIELD_PRESENTERS) {
+            panel_set.insert(p);
+        }
+        // Panels of all transitive groups (upward)
+        for g in sched.inclusive_edges::<PresenterEntityType, PresenterEntityType>(
+            crate::field_node_id::FieldNodeId::new(id, &FIELD_MEMBERS),
+            &FIELD_GROUPS,
+        ) {
+            let node = crate::field_node_id::FieldNodeId::new(g, &FIELD_PANELS);
             for p in sched.connected_entities::<PresenterEntityType, PanelEntityType>(node, &crate::panel::FIELD_PRESENTERS) {
                 panel_set.insert(p);
             }
-            // Panels of all transitive groups (upward)
-            for g in sched.inclusive_edges::<PresenterEntityType, PresenterEntityType>(
-                crate::field_node_id::FieldNodeId::new(id, &FIELD_MEMBERS),
-                &FIELD_GROUPS,
-            ) {
-                let node = crate::field_node_id::FieldNodeId::new(g, &FIELD_PANELS);
-                for p in sched.connected_entities::<PresenterEntityType, PanelEntityType>(node, &crate::panel::FIELD_PRESENTERS) {
-                    panel_set.insert(p);
-                }
+        }
+        // Panels of all transitive members (downward)
+        for m in sched.inclusive_edges::<PresenterEntityType, PresenterEntityType>(
+            crate::field_node_id::FieldNodeId::new(id, &FIELD_GROUPS),
+            &FIELD_MEMBERS,
+        ) {
+            let node = crate::field_node_id::FieldNodeId::new(m, &FIELD_PANELS);
+            for p in sched.connected_entities::<PresenterEntityType, PanelEntityType>(node, &crate::panel::FIELD_PRESENTERS) {
+                panel_set.insert(p);
             }
-            // Panels of all transitive members (downward)
-            for m in sched.inclusive_edges::<PresenterEntityType, PresenterEntityType>(
-                crate::field_node_id::FieldNodeId::new(id, &FIELD_GROUPS),
-                &FIELD_MEMBERS,
-            ) {
-                let node = crate::field_node_id::FieldNodeId::new(m, &FIELD_PANELS);
-                for p in sched.connected_entities::<PresenterEntityType, PanelEntityType>(node, &crate::panel::FIELD_PRESENTERS) {
-                    panel_set.insert(p);
-                }
-            }
-            let ids: Vec<PanelId> = panel_set.into_iter().collect();
-            Some(crate::schedule::entity_ids_to_field_value(ids))
-        })),
-        write_fn: None,
-        verify_fn: None,
+        }
+        let ids: Vec<PanelId> = panel_set.into_iter().collect();
+        Some(crate::schedule::entity_ids_to_field_value(ids))
     }
-);
+}
 
 // ── FieldSet ──────────────────────────────────────────────────────────────────
 
@@ -1234,6 +1237,61 @@ mod tests {
         assert_eq!(
             fs.read_field_value("is_group", id, &sched).unwrap(),
             Some(field_value!(true))
+        );
+    }
+
+    #[test]
+    fn test_is_group_false_without_explicit_or_members() {
+        // Plain individual presenter with the explicit flag clear and no
+        // edges should report `is_group: false`.
+        let id = make_id();
+        let sched = schedule_with(id, make_internal());
+        let fs = PresenterEntityType::field_set();
+        assert_eq!(
+            fs.read_field_value("is_group", id, &sched).unwrap(),
+            Some(field_value!(false))
+        );
+    }
+
+    #[test]
+    fn test_is_group_implicit_via_member_edge() {
+        // `is_group` should become true when a presenter has a member, even
+        // if `is_explicit_group` is false. Edge convention: each field name
+        // points at the far side of the edge, so the group-side half-edge
+        // sits on `FIELD_MEMBERS` (it points at members) and the member-side
+        // sits on `FIELD_GROUPS` (it points at groups).
+        let group_id = make_id();
+        let member_id = make_id();
+        let mut sched = Schedule::default();
+        sched.insert(group_id, {
+            let mut d = make_internal();
+            d.id = group_id;
+            d.data.name = "MyBand".into();
+            d
+        });
+        sched.insert(member_id, {
+            let mut d = make_internal();
+            d.id = member_id;
+            d.data.name = "Alice".into();
+            d
+        });
+
+        // Add the membership edge: group's MEMBERS pointer ↔ member's GROUPS pointer.
+        sched.edge_add::<PresenterEntityType, PresenterEntityType>(
+            crate::field_node_id::FieldNodeId::new(group_id, &FIELD_MEMBERS),
+            crate::field_node_id::FieldNodeId::new(member_id, &FIELD_GROUPS),
+        );
+
+        let fs = PresenterEntityType::field_set();
+        // The group reports is_group: true via the member edge.
+        assert_eq!(
+            fs.read_field_value("is_group", group_id, &sched).unwrap(),
+            Some(field_value!(true))
+        );
+        // The member is not itself a group.
+        assert_eq!(
+            fs.read_field_value("is_group", member_id, &sched).unwrap(),
+            Some(field_value!(false))
         );
     }
 

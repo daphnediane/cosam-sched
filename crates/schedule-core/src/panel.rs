@@ -19,23 +19,19 @@
 //! `Schedule::edges_to` using `crate::field::ReadFn::Schedule` / `crate::field::WriteFn::Schedule`.
 
 use crate::converter::{AsBoolean, AsInteger, AsString, AsText, EntityStringResolver};
+use crate::define_field;
 use crate::entity::{EntityId, EntityType, EntityUuid, FieldSet};
-use crate::event_room::{
-    EventRoomEntityType, EventRoomId, FIELD_PANELS as EVENT_ROOM_FIELD_PANELS,
-};
-use crate::field::{FieldDescriptor, ReadFn, VerifyFn, WriteFn};
-use crate::field_macros::{define_field, edge_field, stored_field};
+use crate::event_room::{EventRoomEntityType, EventRoomId};
+use crate::field::FieldDescriptor;
 use crate::field_node_id::FieldNodeId;
 use crate::field_value;
 use crate::hotel_room::{HotelRoomEntityType, HotelRoomId};
 use crate::panel_type::{PanelTypeEntityType, PanelTypeId};
 use crate::panel_uniq_id::PanelUniqId;
 use crate::presenter::{PresenterCommonData, PresenterEntityType, PresenterId, FIELD_PANELS};
+use crate::schedule::Schedule;
 use crate::time::{parse_datetime, parse_duration, TimeRange};
-use crate::value::{
-    CrdtFieldType, FieldCardinality, FieldType, FieldTypeItem, FieldValue, FieldValueItem,
-    ValidationError,
-};
+use crate::value::{FieldTypeItem, FieldValue, FieldValueItem, ValidationError};
 use chrono::Duration;
 use serde::{Deserialize, Serialize};
 use std::collections::{HashMap, HashSet};
@@ -275,7 +271,7 @@ impl EntityStringResolver for PanelEntityType {
 
 // ── Stored field descriptors ──────────────────────────────────────────────────
 
-define_field!(
+define_field! {
     /// Panel `code` (Uniq ID) — stored as the parsed [`PanelUniqId`] on
     /// [`PanelInternalData`], exposed to the field system as a string.
     ///
@@ -283,362 +279,408 @@ define_field!(
     /// Note: changing a panel's code prefix may reassign it to a different
     /// `PanelType`; the write path parses and mutates only — callers that change
     /// the prefix should also update the `panel_type` edge accordingly.
-    pub static FIELD_CODE: FieldDescriptor<PanelEntityType> = FieldDescriptor {
-        name: "code",
-        display: "Uniq ID",
-        description: "Panel Uniq ID (e.g. \"GP032\"), parsed from the Schedule sheet.",
-        aliases: &["uid", "uniq_id", "id"],
-        required: true,
-        crdt_type: CrdtFieldType::Scalar,
-        field_type: FieldType(FieldCardinality::Single, FieldTypeItem::String),
-        example: "GP032",
-        order: 0,
-        read_fn: Some(ReadFn::Bare(|d: &PanelInternalData| {
-            Some(field_value!(d.code.full_id()))
-        })),
-        write_fn: Some(WriteFn::Bare(|d: &mut PanelInternalData, v| {
-            let s = v.into_string()?;
-            // Callers that change the prefix should update the panel_type edge.
-            match PanelUniqId::parse(&s) {
-                Some(parsed) => {
-                    d.code = parsed;
-                    Ok(())
-                }
-                None => Err(crate::value::ConversionError::ParseError {
-                    message: format!("could not parse panel Uniq ID {s:?}"),
-                }
-                .into()),
+    static FIELD_CODE: FieldDescriptor<PanelEntityType>,
+    name: "code", display: "Uniq ID",
+    desc: "Panel Uniq ID (e.g. \"GP032\"), parsed from the Schedule sheet.",
+    aliases: &["uid", "uniq_id", "id"],
+    required,
+    example: "GP032",
+    order: 0,
+    crdt: Scalar, cardinality: single, item: FieldTypeItem::String,
+    read: |d: &PanelInternalData| {
+        Some(field_value!(d.code.full_id()))
+    },
+    write: |d: &mut PanelInternalData, v: FieldValue| {
+        let s = v.into_string()?;
+        // Callers that change the prefix should update the panel_type edge.
+        match PanelUniqId::parse(&s) {
+            Some(parsed) => {
+                d.code = parsed;
+                Ok(())
             }
-        })),
-        verify_fn: None,
+            None => Err(crate::value::ConversionError::ParseError {
+                message: format!("could not parse panel Uniq ID {s:?}"),
+            }
+            .into()),
+        }
     }
-);
+}
 
 // @todo: Name can be empty, should be optional
-stored_field!(FIELD_NAME, PanelEntityType, name, required, as: AsString,
+define_field! {
+    static FIELD_NAME: FieldDescriptor<PanelEntityType>,
+    accessor: name, required, as: AsString,
     name: "name", display: "Name",
     desc: "Panel name / title.",
     aliases: &["title", "panel_name"],
     example: "Cosplay Foam Armor 101",
-    order: 100);
+    order: 100
+}
 
-stored_field!(FIELD_DESCRIPTION, PanelEntityType, description, optional, as: AsText,
+define_field! {
+    static FIELD_DESCRIPTION: FieldDescriptor<PanelEntityType>,
+    accessor: description, optional, as: AsText,
     name: "description", display: "Description",
     desc: "Event description shown to attendees.",
     aliases: &["desc"],
     example: "Learn the basics of foam armor construction",
-    order: 200);
+    order: 200
+}
 
-stored_field!(FIELD_NOTE, PanelEntityType, note, optional, as: AsText,
+define_field! {
+    static FIELD_NOTE: FieldDescriptor<PanelEntityType>,
+    accessor: note, optional, as: AsText,
     name: "note", display: "Note",
     desc: "Extra note displayed verbatim.",
     aliases: &[],
     example: "Bring your own materials",
-    order: 300);
+    order: 300
+}
 
-stored_field!(FIELD_NOTES_NON_PRINTING, PanelEntityType, notes_non_printing, optional, as: AsText,
+define_field! {
+    static FIELD_NOTES_NON_PRINTING: FieldDescriptor<PanelEntityType>,
+    accessor: notes_non_printing, optional, as: AsText,
     name: "notes_non_printing", display: "Notes (Non Printing)",
     desc: "Internal notes not shown to the public.",
     aliases: &["internal_notes"],
     example: "Internal note for staff",
-    order: 400);
+    order: 400
+}
 
-stored_field!(FIELD_WORKSHOP_NOTES, PanelEntityType, workshop_notes, optional, as: AsText,
+define_field! {
+    static FIELD_WORKSHOP_NOTES: FieldDescriptor<PanelEntityType>,
+    accessor: workshop_notes, optional, as: AsText,
     name: "workshop_notes", display: "Workshop Notes",
     desc: "Notes for workshop staff.",
     aliases: &[],
     example: "Staff notes for workshop",
-    order: 500);
+    order: 500
+}
 
-stored_field!(FIELD_POWER_NEEDS, PanelEntityType, power_needs, optional, as: AsString,
+define_field! {
+    static FIELD_POWER_NEEDS: FieldDescriptor<PanelEntityType>,
+    accessor: power_needs, optional, as: AsString,
     name: "power_needs", display: "Power Needs",
     desc: "Power / electrical requirements.",
     aliases: &["power"],
     example: "2 outlets",
-    order: 600);
+    order: 600
+}
 
-stored_field!(FIELD_SEWING_MACHINES, PanelEntityType, sewing_machines, with_default, as: AsBoolean,
+define_field! {
+    static FIELD_SEWING_MACHINES: FieldDescriptor<PanelEntityType>,
+    accessor: sewing_machines, with_default, as: AsBoolean,
     name: "sewing_machines", display: "Sewing Machines",
     desc: "Whether sewing machines are required.",
     aliases: &["sewing"],
     example: "false",
-    order: 700);
+    order: 700
+}
 
-stored_field!(FIELD_AV_NOTES, PanelEntityType, av_notes, optional, as: AsText,
+define_field! {
+    static FIELD_AV_NOTES: FieldDescriptor<PanelEntityType>,
+    accessor: av_notes, optional, as: AsText,
     name: "av_notes", display: "AV Notes",
     desc: "Audio/visual setup notes.",
     aliases: &["av"],
     example: "Projector needed",
-    order: 800);
+    order: 800
+}
 
-stored_field!(FIELD_DIFFICULTY, PanelEntityType, difficulty, optional, as: AsString,
+define_field! {
+    static FIELD_DIFFICULTY: FieldDescriptor<PanelEntityType>,
+    accessor: difficulty, optional, as: AsString,
     name: "difficulty", display: "Difficulty",
     desc: "Skill-level indicator (free text).",
     aliases: &[],
     example: "Beginner",
-    order: 900);
+    order: 900
+}
 
-stored_field!(FIELD_PREREQ, PanelEntityType, prereq, optional, as: AsString,
+define_field! {
+    static FIELD_PREREQ: FieldDescriptor<PanelEntityType>,
+    accessor: prereq, optional, as: AsString,
     name: "prereq", display: "Prerequisites",
     desc: "Comma-separated prerequisite Uniq IDs.",
     aliases: &["prerequisites"],
     example: "GP001",
-    order: 1000);
+    order: 1000
+}
 
-stored_field!(FIELD_COST, PanelEntityType, cost, optional, as: AsString,
+define_field! {
+    static FIELD_COST: FieldDescriptor<PanelEntityType>,
+    accessor: cost, optional, as: AsString,
     name: "cost", display: "Cost",
     desc: "Raw cost cell value (e.g. \"$35\", \"Free\", \"Kids\").",
     aliases: &[],
     example: "$35",
-    order: 1100);
+    order: 1100
+}
 
-stored_field!(FIELD_IS_FREE, PanelEntityType, is_free, with_default, as: AsBoolean,
+define_field! {
+    static FIELD_IS_FREE: FieldDescriptor<PanelEntityType>,
+    accessor: is_free, with_default, as: AsBoolean,
     name: "is_free", display: "Is Free",
     desc: "Parsed during import: cost is blank, \"Free\", \"$0\", or \"N/A\".",
     aliases: &["free"],
     example: "false",
-    order: 1200);
+    order: 1200
+}
 
-stored_field!(FIELD_IS_KIDS, PanelEntityType, is_kids, with_default, as: AsBoolean,
+define_field! {
+    static FIELD_IS_KIDS: FieldDescriptor<PanelEntityType>,
+    accessor: is_kids, with_default, as: AsBoolean,
     name: "is_kids", display: "Is Kids",
     desc: "Parsed during import: cost indicates kids-only pricing.",
     aliases: &["kids"],
     example: "false",
-    order: 1300);
+    order: 1300
+}
 
-stored_field!(FIELD_IS_FULL, PanelEntityType, is_full, with_default, as: AsBoolean,
+define_field! {
+    static FIELD_IS_FULL: FieldDescriptor<PanelEntityType>,
+    accessor: is_full, with_default, as: AsBoolean,
     name: "is_full", display: "Full",
     desc: "Event is at capacity.",
     aliases: &["full"],
     example: "false",
-    order: 1400);
+    order: 1400
+}
 
-stored_field!(FIELD_CAPACITY, PanelEntityType, capacity, optional, as: AsInteger,
+define_field! {
+    static FIELD_CAPACITY: FieldDescriptor<PanelEntityType>,
+    accessor: capacity, optional, as: AsInteger,
     name: "capacity", display: "Capacity",
     desc: "Total seats available.",
     aliases: &[],
     example: "50",
-    order: 1500);
+    order: 1500
+}
 
-stored_field!(FIELD_SEATS_SOLD, PanelEntityType, seats_sold, optional, as: AsInteger,
+define_field! {
+    static FIELD_SEATS_SOLD: FieldDescriptor<PanelEntityType>,
+    accessor: seats_sold, optional, as: AsInteger,
     name: "seats_sold", display: "Seats Sold",
     desc: "Number of seats pre-sold or reserved via ticketing.",
     aliases: &[],
     example: "25",
-    order: 1600);
+    order: 1600
+}
 
-stored_field!(FIELD_PRE_REG_MAX, PanelEntityType, pre_reg_max, optional, as: AsInteger,
+define_field! {
+    static FIELD_PRE_REG_MAX: FieldDescriptor<PanelEntityType>,
+    accessor: pre_reg_max, optional, as: AsInteger,
     name: "pre_reg_max", display: "Pre-reg Max",
     desc: "Maximum seats available for pre-registration.",
     aliases: &["prereg_max"],
     example: "40",
-    order: 1700);
+    order: 1700
+}
 
-stored_field!(FIELD_TICKET_URL, PanelEntityType, ticket_url, optional, as: AsString,
+define_field! {
+    static FIELD_TICKET_URL: FieldDescriptor<PanelEntityType>,
+    accessor: ticket_url, optional, as: AsString,
     name: "ticket_url", display: "Ticket URL",
     desc: "URL for purchasing tickets.",
     aliases: &["ticket_sale"],
     example: "https://example.com/ticket",
-    order: 1800);
+    order: 1800
+}
 
-stored_field!(FIELD_HAVE_TICKET_IMAGE, PanelEntityType, have_ticket_image, with_default, as: AsBoolean,
+define_field! {
+    static FIELD_HAVE_TICKET_IMAGE: FieldDescriptor<PanelEntityType>,
+    accessor: have_ticket_image, with_default, as: AsBoolean,
     name: "have_ticket_image", display: "Have Ticket Image",
     desc: "Whether a ticket / flyer image has been received.",
     aliases: &[],
     example: "false",
-    order: 1900);
+    order: 1900
+}
 
-stored_field!(FIELD_SIMPLETIX_EVENT, PanelEntityType, simpletix_event, optional, as: AsString,
+define_field! {
+    static FIELD_SIMPLETIX_EVENT: FieldDescriptor<PanelEntityType>,
+    accessor: simpletix_event, optional, as: AsString,
     name: "simpletix_event", display: "SimpleTix Event",
     desc: "Internal admin URL for SimpleTix event configuration.",
     aliases: &["simpletix"],
     example: "https://admin.simpletix.com/event/123",
-    order: 2000);
+    order: 2000
+}
 
-stored_field!(FIELD_SIMPLETIX_LINK, PanelEntityType, simpletix_link, optional, as: AsString,
+define_field! {
+    static FIELD_SIMPLETIX_LINK: FieldDescriptor<PanelEntityType>,
+    accessor: simpletix_link, optional, as: AsString,
     name: "simpletix_link", display: "SimpleTix Link",
     desc: "Public-facing direct ticket purchase link.",
     aliases: &[],
     example: "https://simpletix.com/event/123",
-    order: 2100);
+    order: 2100
+}
 
-stored_field!(FIELD_HIDE_PANELIST, PanelEntityType, hide_panelist, with_default, as: AsBoolean,
+define_field! {
+    static FIELD_HIDE_PANELIST: FieldDescriptor<PanelEntityType>,
+    accessor: hide_panelist, with_default, as: AsBoolean,
     name: "hide_panelist", display: "Hide Panelist",
     desc: "Suppress presenter credits for this panel.",
     aliases: &[],
     example: "false",
-    order: 2200);
+    order: 2200
+}
 
-stored_field!(FIELD_ALT_PANELIST, PanelEntityType, alt_panelist, optional, as: AsString,
+define_field! {
+    static FIELD_ALT_PANELIST: FieldDescriptor<PanelEntityType>,
+    accessor: alt_panelist, optional, as: AsString,
     name: "alt_panelist", display: "Alt Panelist",
     desc: "Override text for the presenter credits line.",
     aliases: &[],
     example: "Special Guest",
-    order: 2300);
+    order: 2300
+}
 
 // ── Computed time projections ─────────────────────────────────────────────────
 
-define_field!(
+define_field! {
     /// Start time — projected from `time_slot`.
-    pub static FIELD_START_TIME: FieldDescriptor<PanelEntityType> = FieldDescriptor {
-        name: "start_time",
-        display: "Start Time",
-        description: "Panel start time.",
-        aliases: &["start"],
-        required: false,
-        crdt_type: CrdtFieldType::Derived,
-        field_type: FieldType(FieldCardinality::Optional, FieldTypeItem::DateTime),
-        example: "2023-06-25T19:00:00",
-        order: 2400,
-        read_fn: Some(ReadFn::Bare(|d: &PanelInternalData| {
-            d.time_slot.start_time().map(|dt| field_value!(dt))
-        })),
-        write_fn: Some(WriteFn::Bare(|d: &mut PanelInternalData, v| {
-            match v {
-                crate::value::FieldValue::List(_)
-                | crate::value::FieldValue::Single(crate::value::FieldValueItem::Text(_)) => {
-                    d.time_slot.remove_start_time()
-                }
-                crate::value::FieldValue::Single(crate::value::FieldValueItem::DateTime(dt)) => {
-                    d.time_slot.add_start_time(dt)
-                }
-                crate::value::FieldValue::Single(crate::value::FieldValueItem::String(s)) => {
-                    match parse_datetime(&s) {
-                        Some(dt) => d.time_slot.add_start_time(dt),
-                        None => {
-                            return Err(crate::value::ConversionError::ParseError {
-                                message: format!("could not parse datetime {s:?}"),
-                            }
-                            .into())
-                        }
-                    }
-                }
-                _ => {
-                    return Err(crate::value::ConversionError::WrongVariant {
-                        expected: "DateTime or String",
-                        got: "other",
-                    }
-                    .into());
-                }
+    static FIELD_START_TIME: FieldDescriptor<PanelEntityType>,
+    name: "start_time", display: "Start Time",
+    desc: "Panel start time.",
+    aliases: &["start"],
+    example: "2023-06-25T19:00:00",
+    order: 2400,
+    crdt: Derived, cardinality: optional, item: FieldTypeItem::DateTime,
+    read: |d: &PanelInternalData| {
+        d.time_slot.start_time().map(|dt| field_value!(dt))
+    },
+    write: |d: &mut PanelInternalData, v: FieldValue| {
+        match v {
+            FieldValue::List(_) | FieldValue::Single(FieldValueItem::Text(_)) => {
+                d.time_slot.remove_start_time()
             }
-            Ok(())
-        })),
-        verify_fn: Some(VerifyFn::ReRead),
-    }
-);
+            FieldValue::Single(FieldValueItem::DateTime(dt)) => {
+                d.time_slot.add_start_time(dt)
+            }
+            FieldValue::Single(FieldValueItem::String(s)) => match parse_datetime(&s) {
+                Some(dt) => d.time_slot.add_start_time(dt),
+                None => {
+                    return Err(crate::value::ConversionError::ParseError {
+                        message: format!("could not parse datetime {s:?}"),
+                    }
+                    .into())
+                }
+            },
+            _ => {
+                return Err(crate::value::ConversionError::WrongVariant {
+                    expected: "DateTime or String",
+                    got: "other",
+                }
+                .into());
+            }
+        }
+        Ok(())
+    },
+    verify: ReRead
+}
 
-define_field!(
+define_field! {
     /// End time — projected from `time_slot`.
-    pub static FIELD_END_TIME: FieldDescriptor<PanelEntityType> = FieldDescriptor {
-        name: "end_time",
-        display: "End Time",
-        description: "Panel end time.",
-        aliases: &["end"],
-        required: false,
-        crdt_type: CrdtFieldType::Derived,
-        field_type: FieldType(FieldCardinality::Optional, FieldTypeItem::DateTime),
-        example: "2023-06-25T20:30:00",
-        order: 2500,
-        read_fn: Some(ReadFn::Bare(|d: &PanelInternalData| {
-            d.time_slot.end_time().map(|dt| field_value!(dt))
-        })),
-        write_fn: Some(WriteFn::Bare(|d: &mut PanelInternalData, v| {
-            match v {
-                crate::value::FieldValue::List(_)
-                | crate::value::FieldValue::Single(crate::value::FieldValueItem::Text(_)) => {
-                    d.time_slot.remove_end_time()
-                }
-                crate::value::FieldValue::Single(crate::value::FieldValueItem::DateTime(dt)) => {
-                    d.time_slot.add_end_time(dt)
-                }
-                crate::value::FieldValue::Single(crate::value::FieldValueItem::String(s)) => {
-                    match parse_datetime(&s) {
-                        Some(dt) => d.time_slot.add_end_time(dt),
-                        None => {
-                            return Err(crate::value::ConversionError::ParseError {
-                                message: format!("could not parse datetime {s:?}"),
-                            }
-                            .into())
-                        }
-                    }
-                }
-                _ => {
-                    return Err(crate::value::ConversionError::WrongVariant {
-                        expected: "DateTime or String",
-                        got: "other",
-                    }
-                    .into());
-                }
+    static FIELD_END_TIME: FieldDescriptor<PanelEntityType>,
+    name: "end_time", display: "End Time",
+    desc: "Panel end time.",
+    aliases: &["end"],
+    example: "2023-06-25T20:30:00",
+    order: 2500,
+    crdt: Derived, cardinality: optional, item: FieldTypeItem::DateTime,
+    read: |d: &PanelInternalData| {
+        d.time_slot.end_time().map(|dt| field_value!(dt))
+    },
+    write: |d: &mut PanelInternalData, v: FieldValue| {
+        match v {
+            FieldValue::List(_) | FieldValue::Single(FieldValueItem::Text(_)) => {
+                d.time_slot.remove_end_time()
             }
-            Ok(())
-        })),
-        verify_fn: Some(VerifyFn::ReRead),
-    }
-);
+            FieldValue::Single(FieldValueItem::DateTime(dt)) => {
+                d.time_slot.add_end_time(dt)
+            }
+            FieldValue::Single(FieldValueItem::String(s)) => match parse_datetime(&s) {
+                Some(dt) => d.time_slot.add_end_time(dt),
+                None => {
+                    return Err(crate::value::ConversionError::ParseError {
+                        message: format!("could not parse datetime {s:?}"),
+                    }
+                    .into())
+                }
+            },
+            _ => {
+                return Err(crate::value::ConversionError::WrongVariant {
+                    expected: "DateTime or String",
+                    got: "other",
+                }
+                .into());
+            }
+        }
+        Ok(())
+    },
+    verify: ReRead
+}
 
-define_field!(
+define_field! {
     /// Duration — projected from `time_slot`.
-    pub static FIELD_DURATION: FieldDescriptor<PanelEntityType> = FieldDescriptor {
-        name: "duration",
-        display: "Duration",
-        description: "Panel duration.",
-        aliases: &[],
-        required: false,
-        crdt_type: CrdtFieldType::Derived,
-        field_type: FieldType(FieldCardinality::Optional, FieldTypeItem::Duration),
-        example: "90",
-        order: 2600,
-        read_fn: Some(ReadFn::Bare(|d: &PanelInternalData| {
-            d.time_slot.duration().map(|dur| field_value!(dur))
-        })),
-        write_fn: Some(WriteFn::Bare(|d: &mut PanelInternalData, v| {
-            match v {
-                crate::value::FieldValue::List(_)
-                | crate::value::FieldValue::Single(crate::value::FieldValueItem::Text(_)) => {
-                    d.time_slot.remove_duration()
-                }
-                crate::value::FieldValue::Single(crate::value::FieldValueItem::Duration(dur)) => {
-                    d.time_slot.add_duration(dur)
-                }
-                crate::value::FieldValue::Single(crate::value::FieldValueItem::Integer(m)) => {
-                    d.time_slot.add_duration(Duration::minutes(m))
-                }
-                crate::value::FieldValue::Single(crate::value::FieldValueItem::String(s)) => {
-                    match parse_duration(&s) {
-                        Some(dur) => d.time_slot.add_duration(dur),
-                        None => {
-                            return Err(crate::value::ConversionError::ParseError {
-                                message: format!("could not parse duration {s:?}"),
-                            }
-                            .into())
-                        }
-                    }
-                }
-                _ => {
-                    return Err(crate::value::ConversionError::WrongVariant {
-                        expected: "Duration, Integer, or String",
-                        got: "other",
-                    }
-                    .into());
-                }
+    static FIELD_DURATION: FieldDescriptor<PanelEntityType>,
+    name: "duration", display: "Duration",
+    desc: "Panel duration.",
+    aliases: &[],
+    example: "90",
+    order: 2600,
+    crdt: Derived, cardinality: optional, item: FieldTypeItem::Duration,
+    read: |d: &PanelInternalData| {
+        d.time_slot.duration().map(|dur| field_value!(dur))
+    },
+    write: |d: &mut PanelInternalData, v: FieldValue| {
+        match v {
+            FieldValue::List(_) | FieldValue::Single(FieldValueItem::Text(_)) => {
+                d.time_slot.remove_duration()
             }
-            Ok(())
-        })),
-        verify_fn: Some(VerifyFn::ReRead),
-    }
-);
+            FieldValue::Single(FieldValueItem::Duration(dur)) => {
+                d.time_slot.add_duration(dur)
+            }
+            FieldValue::Single(FieldValueItem::Integer(m)) => {
+                d.time_slot.add_duration(Duration::minutes(m))
+            }
+            FieldValue::Single(FieldValueItem::String(s)) => match parse_duration(&s) {
+                Some(dur) => d.time_slot.add_duration(dur),
+                None => {
+                    return Err(crate::value::ConversionError::ParseError {
+                        message: format!("could not parse duration {s:?}"),
+                    }
+                    .into())
+                }
+            },
+            _ => {
+                return Err(crate::value::ConversionError::WrongVariant {
+                    expected: "Duration, Integer, or String",
+                    got: "other",
+                }
+                .into());
+            }
+        }
+        Ok(())
+    },
+    verify: ReRead
+}
 
 // ── Edge-backed computed fields ───────────────────────────────────────────────
 
-edge_field!(FIELD_PRESENTERS, PanelEntityType, mode: ro, target: PresenterEntityType, target_field: &crate::presenter::FIELD_PANELS,
-    owner,
+define_field! {
+    static FIELD_PRESENTERS: FieldDescriptor<PanelEntityType>,
+    edge: ro, target: PresenterEntityType, target_field: &crate::presenter::FIELD_PANELS, owner,
     name: "presenters", display: "Presenters",
     desc: "All presenters attached to this panel (credited and uncredited).",
     aliases: &["panelists", "presenter"],
     example: "[]",
-    order: 2700);
+    order: 2700
+}
 
-define_field!(
+define_field! {
     /// Credited presenters for this panel.
     ///
     /// **Read:** Returns the `EntityId`s of all presenters whose per-edge
@@ -649,74 +691,59 @@ define_field!(
     /// panel entirely; every presenter in the list is added to the panel (if
     /// not already attached) and has their `credited` flag set to `true`.
     /// Presenters in the uncredited partition are not affected.
-    pub static FIELD_CREDITED_PRESENTERS: FieldDescriptor<PanelEntityType> = FieldDescriptor {
-        name: "credited_presenters",
-        display: "Credited Presenters",
-        description: "Presenters credited on this panel. Read returns credited subset; write replaces it.",
-        aliases: &["credited_panelists", "credited_presenter"],
-        required: false,
-        crdt_type: CrdtFieldType::Derived,
-        field_type: FieldType(
-            FieldCardinality::List,
-            FieldTypeItem::EntityIdentifier(PresenterEntityType::TYPE_NAME),
-        ),
-        example: "[presenter_id]",
-        order: 2710,
-        read_fn: Some(ReadFn::Schedule(
-            |sched: &crate::schedule::Schedule, id: PanelId| {
-                let node = crate::field_node_id::FieldNodeId::new(id, &FIELD_PRESENTERS);
-                let ids: Vec<PresenterId> = sched
-                    .connected_entities::<PanelEntityType, PresenterEntityType>(node, &FIELD_PANELS)
-                    .into_iter()
-                    .filter(|&p| {
-                        sched.edge_get_bool::<PanelEntityType, PresenterEntityType>(
-                            id, p, "credited",
-                        )
-                    })
-                    .collect();
-                Some(crate::schedule::entity_ids_to_field_value(ids))
-            },
-        )),
-        write_fn: Some(WriteFn::Schedule(|sched, panel_id, val| {
-            let new_ids =
-                crate::schedule::field_value_to_entity_ids::<PresenterEntityType>(val)?;
-            // Credited presenters absent from the new list are removed entirely.
-            let node = crate::field_node_id::FieldNodeId::new(panel_id, &FIELD_PRESENTERS);
-            let current_credited: Vec<PresenterId> = sched
-                .connected_entities::<PanelEntityType, PresenterEntityType>(node, &FIELD_PANELS)
-                .into_iter()
-                .filter(|&p| {
-                    sched.edge_get_bool::<PanelEntityType, PresenterEntityType>(
-                        panel_id, p, "credited",
-                    )
-                })
-                .collect();
-            for p in &current_credited {
-                if !new_ids.contains(p) {
-                    sched.edge_remove::<PanelEntityType, PresenterEntityType>(
-                        FieldNodeId::new(panel_id, &FIELD_PRESENTERS),
-                        FieldNodeId::new(*p, &FIELD_PANELS),
-                    );
-                }
-            }
-            // Each presenter in the new list → add edge if needed, then mark credited.
-            // If a presenter was previously uncredited, they are now credited.
-            for p in &new_ids {
-                sched.edge_add::<PanelEntityType, PresenterEntityType>(
+    static FIELD_CREDITED_PRESENTERS: FieldDescriptor<PanelEntityType>,
+    name: "credited_presenters", display: "Credited Presenters",
+    desc: "Presenters credited on this panel. Read returns credited subset; write replaces it.",
+    aliases: &["credited_panelists", "credited_presenter"],
+    example: "[presenter_id]",
+    order: 2710,
+    crdt: Derived, cardinality: list,
+    item: FieldTypeItem::EntityIdentifier(PresenterEntityType::TYPE_NAME),
+    read: |sched: &Schedule, id: PanelId| {
+        let node = FieldNodeId::new(id, &FIELD_PRESENTERS);
+        let ids: Vec<PresenterId> = sched
+            .connected_entities::<PanelEntityType, PresenterEntityType>(node, &FIELD_PANELS)
+            .into_iter()
+            .filter(|&p| {
+                sched.edge_get_bool::<PanelEntityType, PresenterEntityType>(id, p, "credited")
+            })
+            .collect();
+        Some(crate::schedule::entity_ids_to_field_value(ids))
+    },
+    write: |sched: &mut Schedule, panel_id: PanelId, val: FieldValue| {
+        let new_ids = crate::schedule::field_value_to_entity_ids::<PresenterEntityType>(val)?;
+        // Credited presenters absent from the new list are removed entirely.
+        let node = FieldNodeId::new(panel_id, &FIELD_PRESENTERS);
+        let current_credited: Vec<PresenterId> = sched
+            .connected_entities::<PanelEntityType, PresenterEntityType>(node, &FIELD_PANELS)
+            .into_iter()
+            .filter(|&p| {
+                sched.edge_get_bool::<PanelEntityType, PresenterEntityType>(panel_id, p, "credited")
+            })
+            .collect();
+        for p in &current_credited {
+            if !new_ids.contains(p) {
+                sched.edge_remove::<PanelEntityType, PresenterEntityType>(
                     FieldNodeId::new(panel_id, &FIELD_PRESENTERS),
                     FieldNodeId::new(*p, &FIELD_PANELS),
                 );
-                sched.edge_set_bool::<PanelEntityType, PresenterEntityType>(
-                    panel_id, *p, "credited", true,
-                );
             }
-            Ok(())
-        })),
-        verify_fn: None,
+        }
+        // Each presenter in the new list → add edge if needed, then mark credited.
+        for p in &new_ids {
+            sched.edge_add::<PanelEntityType, PresenterEntityType>(
+                FieldNodeId::new(panel_id, &FIELD_PRESENTERS),
+                FieldNodeId::new(*p, &FIELD_PANELS),
+            );
+            sched.edge_set_bool::<PanelEntityType, PresenterEntityType>(
+                panel_id, *p, "credited", true,
+            );
+        }
+        Ok(())
     }
-);
+}
 
-define_field!(
+define_field! {
     /// Uncredited presenters for this panel.
     ///
     /// **Read:** Returns the `EntityId`s of all presenters whose per-edge
@@ -727,155 +754,124 @@ define_field!(
     /// panel entirely; every presenter in the list is added to the panel (if
     /// not already attached) and has their `credited` flag set to `false`.
     /// Presenters in the credited partition are not affected.
-    pub static FIELD_UNCREDITED_PRESENTERS: FieldDescriptor<PanelEntityType> = FieldDescriptor {
-        name: "uncredited_presenters",
-        display: "Uncredited Presenters",
-        description: "Presenters attached but not credited on this panel. Read returns uncredited subset; write replaces it.",
-        aliases: &["uncredited_panelists", "uncredited_presenter"],
-        required: false,
-        crdt_type: CrdtFieldType::Derived,
-        field_type: FieldType(
-            FieldCardinality::List,
-            FieldTypeItem::EntityIdentifier(PresenterEntityType::TYPE_NAME),
-        ),
-        example: "[presenter_id]",
-        order: 2720,
-        read_fn: Some(ReadFn::Schedule(
-            |sched: &crate::schedule::Schedule, id: PanelId| {
-                let node = crate::field_node_id::FieldNodeId::new(id, &FIELD_PRESENTERS);
-                let ids: Vec<PresenterId> = sched
-                    .connected_entities::<PanelEntityType, PresenterEntityType>(node, &FIELD_PANELS)
-                    .into_iter()
-                    .filter(|&p| {
-                        !sched.edge_get_bool::<PanelEntityType, PresenterEntityType>(
-                            id, p, "credited",
-                        )
-                    })
-                    .collect();
-                Some(crate::schedule::entity_ids_to_field_value(ids))
-            },
-        )),
-        write_fn: Some(WriteFn::Schedule(|sched, panel_id, val| {
-            let new_ids =
-                crate::schedule::field_value_to_entity_ids::<PresenterEntityType>(val)?;
-            // Uncredited presenters absent from the new list are removed entirely.
-            let node = crate::field_node_id::FieldNodeId::new(panel_id, &FIELD_PRESENTERS);
-            let current_uncredited: Vec<PresenterId> = sched
-                .connected_entities::<PanelEntityType, PresenterEntityType>(node, &FIELD_PANELS)
-                .into_iter()
-                .filter(|&p| {
-                    !sched.edge_get_bool::<PanelEntityType, PresenterEntityType>(
-                        panel_id, p, "credited",
-                    )
-                })
-                .collect();
-            for p in &current_uncredited {
-                if !new_ids.contains(p) {
-                    sched.edge_remove::<PanelEntityType, PresenterEntityType>(
-                        FieldNodeId::new(panel_id, &FIELD_PRESENTERS),
-                        FieldNodeId::new(*p, &FIELD_PANELS),
-                    );
-                }
-            }
-            // Each presenter in the new list → add edge if needed, then mark uncredited.
-            // If a presenter was previously credited, they are now uncredited.
-            for p in &new_ids {
-                sched.edge_add::<PanelEntityType, PresenterEntityType>(
+    static FIELD_UNCREDITED_PRESENTERS: FieldDescriptor<PanelEntityType>,
+    name: "uncredited_presenters", display: "Uncredited Presenters",
+    desc: "Presenters attached but not credited on this panel. Read returns uncredited subset; write replaces it.",
+    aliases: &["uncredited_panelists", "uncredited_presenter"],
+    example: "[presenter_id]",
+    order: 2720,
+    crdt: Derived, cardinality: list,
+    item: FieldTypeItem::EntityIdentifier(PresenterEntityType::TYPE_NAME),
+    read: |sched: &Schedule, id: PanelId| {
+        let node = FieldNodeId::new(id, &FIELD_PRESENTERS);
+        let ids: Vec<PresenterId> = sched
+            .connected_entities::<PanelEntityType, PresenterEntityType>(node, &FIELD_PANELS)
+            .into_iter()
+            .filter(|&p| {
+                !sched.edge_get_bool::<PanelEntityType, PresenterEntityType>(id, p, "credited")
+            })
+            .collect();
+        Some(crate::schedule::entity_ids_to_field_value(ids))
+    },
+    write: |sched: &mut Schedule, panel_id: PanelId, val: FieldValue| {
+        let new_ids = crate::schedule::field_value_to_entity_ids::<PresenterEntityType>(val)?;
+        // Uncredited presenters absent from the new list are removed entirely.
+        let node = FieldNodeId::new(panel_id, &FIELD_PRESENTERS);
+        let current_uncredited: Vec<PresenterId> = sched
+            .connected_entities::<PanelEntityType, PresenterEntityType>(node, &FIELD_PANELS)
+            .into_iter()
+            .filter(|&p| {
+                !sched.edge_get_bool::<PanelEntityType, PresenterEntityType>(panel_id, p, "credited")
+            })
+            .collect();
+        for p in &current_uncredited {
+            if !new_ids.contains(p) {
+                sched.edge_remove::<PanelEntityType, PresenterEntityType>(
                     FieldNodeId::new(panel_id, &FIELD_PRESENTERS),
                     FieldNodeId::new(*p, &FIELD_PANELS),
                 );
-                sched.edge_set_bool::<PanelEntityType, PresenterEntityType>(
-                    panel_id, *p, "credited", false,
-                );
             }
-            Ok(())
-        })),
-        verify_fn: None,
+        }
+        for p in &new_ids {
+            sched.edge_add::<PanelEntityType, PresenterEntityType>(
+                FieldNodeId::new(panel_id, &FIELD_PRESENTERS),
+                FieldNodeId::new(*p, &FIELD_PANELS),
+            );
+            sched.edge_set_bool::<PanelEntityType, PresenterEntityType>(
+                panel_id, *p, "credited", false,
+            );
+        }
+        Ok(())
     }
-);
+}
 
-define_field!(
+define_field! {
     /// Add presenters to this panel and mark them as credited.
     ///
     /// Write-only.  Each presenter in the list is added to the panel (if not
     /// already attached) and has their `credited` flag set to `true`.
-    pub static FIELD_ADD_CREDITED_PRESENTERS: FieldDescriptor<PanelEntityType> = FieldDescriptor {
-        name: "add_credited_presenters",
-        display: "Add Credited Presenters",
-        description: "Add presenters to this panel and mark them as credited.",
-        aliases: &["add_credited_presenter"],
-        required: false,
-        crdt_type: CrdtFieldType::Derived,
-        field_type: FieldType(
-            FieldCardinality::List,
-            FieldTypeItem::EntityIdentifier(PresenterEntityType::TYPE_NAME),
-        ),
-        example: "[presenter_id]",
-        order: 2730,
-        read_fn: None,
-        write_fn: Some(WriteFn::Schedule(|sched, panel_id, val| {
-            let ids =
-                crate::schedule::field_value_to_entity_ids::<PresenterEntityType>(val)?;
-            for p in ids {
-                sched.edge_add::<PanelEntityType, PresenterEntityType>(
-                    FieldNodeId::new(panel_id, &FIELD_PRESENTERS),
-                    FieldNodeId::new(p, &FIELD_PANELS),
-                );
-                sched.edge_set_bool::<PanelEntityType, PresenterEntityType>(
-                    panel_id, p, "credited", true,
-                );
-            }
-            Ok(())
-        })),
-        verify_fn: None,
+    static FIELD_ADD_CREDITED_PRESENTERS: FieldDescriptor<PanelEntityType>,
+    name: "add_credited_presenters", display: "Add Credited Presenters",
+    desc: "Add presenters to this panel and mark them as credited.",
+    aliases: &["add_credited_presenter"],
+    example: "[presenter_id]",
+    order: 2730,
+    crdt: Derived, cardinality: list,
+    item: FieldTypeItem::EntityIdentifier(PresenterEntityType::TYPE_NAME),
+    write: |sched: &mut Schedule, panel_id: PanelId, val: FieldValue| {
+        let ids = crate::schedule::field_value_to_entity_ids::<PresenterEntityType>(val)?;
+        for p in ids {
+            sched.edge_add::<PanelEntityType, PresenterEntityType>(
+                FieldNodeId::new(panel_id, &FIELD_PRESENTERS),
+                FieldNodeId::new(p, &FIELD_PANELS),
+            );
+            sched.edge_set_bool::<PanelEntityType, PresenterEntityType>(
+                panel_id, p, "credited", true,
+            );
+        }
+        Ok(())
     }
-);
+}
 
-define_field!(
+define_field! {
     /// Add presenters to this panel and mark them as uncredited.
     ///
     /// Write-only.  Each presenter in the list is added to the panel (if not
     /// already attached) and has their `credited` flag set to `false`.
-    pub static FIELD_ADD_UNCREDITED_PRESENTERS: FieldDescriptor<PanelEntityType> = FieldDescriptor {
-        name: "add_uncredited_presenters",
-        display: "Add Uncredited Presenters",
-        description: "Add presenters to this panel and mark them as uncredited.",
-        aliases: &["add_uncredited_presenter"],
-        required: false,
-        crdt_type: CrdtFieldType::Derived,
-        field_type: FieldType(
-            FieldCardinality::List,
-            FieldTypeItem::EntityIdentifier(PresenterEntityType::TYPE_NAME),
-        ),
-        example: "[presenter_id]",
-        order: 2740,
-        read_fn: None,
-        write_fn: Some(WriteFn::Schedule(|sched, panel_id, val| {
-            let ids =
-                crate::schedule::field_value_to_entity_ids::<PresenterEntityType>(val)?;
-            for p in ids {
-                sched.edge_add::<PanelEntityType, PresenterEntityType>(
-                    FieldNodeId::new(panel_id, &FIELD_PRESENTERS),
-                    FieldNodeId::new(p, &FIELD_PANELS),
-                );
-                sched.edge_set_bool::<PanelEntityType, PresenterEntityType>(
-                    panel_id, p, "credited", false,
-                );
-            }
-            Ok(())
-        })),
-        verify_fn: None,
+    static FIELD_ADD_UNCREDITED_PRESENTERS: FieldDescriptor<PanelEntityType>,
+    name: "add_uncredited_presenters", display: "Add Uncredited Presenters",
+    desc: "Add presenters to this panel and mark them as uncredited.",
+    aliases: &["add_uncredited_presenter"],
+    example: "[presenter_id]",
+    order: 2740,
+    crdt: Derived, cardinality: list,
+    item: FieldTypeItem::EntityIdentifier(PresenterEntityType::TYPE_NAME),
+    write: |sched: &mut Schedule, panel_id: PanelId, val: FieldValue| {
+        let ids = crate::schedule::field_value_to_entity_ids::<PresenterEntityType>(val)?;
+        for p in ids {
+            sched.edge_add::<PanelEntityType, PresenterEntityType>(
+                FieldNodeId::new(panel_id, &FIELD_PRESENTERS),
+                FieldNodeId::new(p, &FIELD_PANELS),
+            );
+            sched.edge_set_bool::<PanelEntityType, PresenterEntityType>(
+                panel_id, p, "credited", false,
+            );
+        }
+        Ok(())
     }
-);
+}
 
-edge_field!(FIELD_REMOVE_PRESENTERS, PanelEntityType, mode: remove, target: PresenterEntityType, target_field: &crate::presenter::FIELD_PANELS,
+define_field! {
+    static FIELD_REMOVE_PRESENTERS: FieldDescriptor<PanelEntityType>,
+    edge: remove, target: PresenterEntityType, target_field: &crate::presenter::FIELD_PANELS,
     name: "remove_presenters", display: "Remove Presenters",
     desc: "Remove presenters from this panel.",
     aliases: &["remove_presenter"],
     example: "[presenter_id]",
-    order: 2900);
+    order: 2900
+}
 
-define_field!(
+define_field! {
     /// Inclusive presenters for a panel.
     ///
     /// For each direct presenter `P` of this panel, the inclusive set contains:
@@ -890,113 +886,113 @@ define_field!(
     /// Team A, the result includes Team A, its parent groups (Division C, Corp D)
     /// and its members (Alice, Bob) — but not Team B (a sibling in Division C),
     /// and not Club E (a group of Alice's that has nothing to do with Team A).
-    pub static FIELD_INCLUSIVE_PRESENTERS: FieldDescriptor<PanelEntityType> = FieldDescriptor {
-        name: "inclusive_presenters",
-        display: "Inclusive Presenters",
-        description: "Direct presenters + their transitive groups + their transitive members.",
-        aliases: &["inclusive_presenter"],
-        required: false,
-        crdt_type: CrdtFieldType::Derived,
-        field_type: FieldType(FieldCardinality::List, FieldTypeItem::EntityIdentifier(
-            PresenterEntityType::TYPE_NAME,
-        )),
-        example: "[]",
-        order: 3000,
-        read_fn: Some(ReadFn::Schedule(|sched, panel_id| {
-            use std::collections::HashSet;
-            let node = crate::field_node_id::FieldNodeId::new(panel_id, &FIELD_PRESENTERS);
-            let direct = sched.connected_entities::<PanelEntityType, PresenterEntityType>(node, &FIELD_PANELS);
-            let mut result: HashSet<PresenterId> = HashSet::new();
-            for p in direct {
-                result.insert(p);
-                // Inclusive groups of p: all groups reachable going up (forward homogeneous edges)
-                for g in sched.inclusive_edges::<PresenterEntityType, PresenterEntityType>(
-                    crate::field_node_id::FieldNodeId::new(p, &crate::presenter::FIELD_MEMBERS),
-                    &crate::presenter::FIELD_GROUPS,
-                ) {
-                    result.insert(g);
-                }
-                // Inclusive members of p: all members reachable going down (reverse homogeneous edges)
-                for m in sched.inclusive_edges::<PresenterEntityType, PresenterEntityType>(
-                    crate::field_node_id::FieldNodeId::new(p, &crate::presenter::FIELD_GROUPS),
-                    &crate::presenter::FIELD_MEMBERS,
-                ) {
-                    result.insert(m);
-                }
+    static FIELD_INCLUSIVE_PRESENTERS: FieldDescriptor<PanelEntityType>,
+    name: "inclusive_presenters", display: "Inclusive Presenters",
+    desc: "Direct presenters + their transitive groups + their transitive members.",
+    aliases: &["inclusive_presenter"],
+    example: "[]",
+    order: 3000,
+    crdt: Derived, cardinality: list,
+    item: FieldTypeItem::EntityIdentifier(PresenterEntityType::TYPE_NAME),
+    read: |sched: &Schedule, panel_id: PanelId| {
+        let node = FieldNodeId::new(panel_id, &FIELD_PRESENTERS);
+        let direct = sched.connected_entities::<PanelEntityType, PresenterEntityType>(node, &FIELD_PANELS);
+        let mut result: HashSet<PresenterId> = HashSet::new();
+        for p in direct {
+            result.insert(p);
+            // Inclusive groups of p: all groups reachable going up (forward homogeneous edges)
+            for g in sched.inclusive_edges::<PresenterEntityType, PresenterEntityType>(
+                FieldNodeId::new(p, &crate::presenter::FIELD_MEMBERS),
+                &crate::presenter::FIELD_GROUPS,
+            ) {
+                result.insert(g);
             }
-            let ids: Vec<PresenterId> = result.into_iter().collect();
-            Some(crate::schedule::entity_ids_to_field_value(ids))
-        })),
-        write_fn: None,
-        verify_fn: None,
+            // Inclusive members of p: all members reachable going down (reverse homogeneous edges)
+            for m in sched.inclusive_edges::<PresenterEntityType, PresenterEntityType>(
+                FieldNodeId::new(p, &crate::presenter::FIELD_GROUPS),
+                &crate::presenter::FIELD_MEMBERS,
+            ) {
+                result.insert(m);
+            }
+        }
+        let ids: Vec<PresenterId> = result.into_iter().collect();
+        Some(crate::schedule::entity_ids_to_field_value(ids))
     }
-);
+}
 
-edge_field!(FIELD_EVENT_ROOMS, PanelEntityType, mode: rw, target: EventRoomEntityType, target_field: &crate::event_room::FIELD_PANELS,
-    owner,
+define_field! {
+    static FIELD_EVENT_ROOMS: FieldDescriptor<PanelEntityType>,
+    edge: rw, target: EventRoomEntityType, target_field: &crate::event_room::FIELD_PANELS, owner,
     name: "event_rooms", display: "Event Rooms",
     desc: "Rooms where this panel takes place.",
     aliases: &["rooms", "room", "event_room"],
     example: "[]",
-    order: 3100);
+    order: 3100
+}
 
-edge_field!(FIELD_ADD_ROOMS, PanelEntityType, mode: add, target: EventRoomEntityType, target_field: EVENT_ROOM_FIELD_PANELS,
+define_field! {
+    static FIELD_ADD_ROOMS: FieldDescriptor<PanelEntityType>,
+    edge: add, target: EventRoomEntityType, target_field: &crate::event_room::FIELD_PANELS,
     name: "add_rooms", display: "Add Rooms",
     desc: "Append event rooms to this panel.",
     aliases: &["add_room"],
     example: "[room_id]",
-    order: 3200);
+    order: 3200
+}
 
-edge_field!(FIELD_REMOVE_ROOMS, PanelEntityType, mode: remove, target: EventRoomEntityType, target_field: &crate::event_room::FIELD_PANELS,
+define_field! {
+    static FIELD_REMOVE_ROOMS: FieldDescriptor<PanelEntityType>,
+    edge: remove, target: EventRoomEntityType, target_field: &crate::event_room::FIELD_PANELS,
     name: "remove_rooms", display: "Remove Rooms",
     desc: "Remove event rooms from this panel.",
     aliases: &["remove_room"],
     example: "[room_id]",
-    order: 3300);
+    order: 3300
+}
 
-edge_field!(FIELD_PANEL_TYPE, PanelEntityType, mode: one, target: PanelTypeEntityType, target_field: &crate::panel_type::FIELD_PANELS,
-    owner,
+define_field! {
+    static FIELD_PANEL_TYPE: FieldDescriptor<PanelEntityType>,
+    edge: one, target: PanelTypeEntityType, target_field: &crate::panel_type::FIELD_PANELS, owner,
     name: "panel_type", display: "Panel Type",
     desc: "Panel type / kind.",
     aliases: &["kind", "type"],
     example: "{}",
-    order: 3400);
+    order: 3400
+}
 
 // ── Read-only computed fields ─────────────────────────────────────────────────────
 
-define_field!(
+define_field! {
     /// Hotel rooms for this panel (traverses event_rooms => hotel room edges).
-    static FIELD_HOTEL_ROOMS: FieldDescriptor<PanelEntityType> = FieldDescriptor {
-        name: "hotel_rooms",
-        display: "Hotel Rooms",
-        description: "Hotel rooms where this panel takes place (traverses event rooms).",
-        aliases: &["hotel_room"],
-        required: false,
-        crdt_type: CrdtFieldType::Derived,
-        field_type: FieldType(
-            FieldCardinality::List,
-            FieldTypeItem::EntityIdentifier(HotelRoomEntityType::TYPE_NAME),
-        ),
-        example: "[]",
-        order: 3500,
-        read_fn: Some(ReadFn::Schedule(
-            |sched: &crate::schedule::Schedule, id: PanelId| {
-                let node = crate::field_node_id::FieldNodeId::new(id, &FIELD_EVENT_ROOMS);
-                let event_room_ids = sched.connected_entities::<PanelEntityType, EventRoomEntityType>(node, &EVENT_ROOM_FIELD_PANELS);
-                let mut hotel_room_ids: HashSet<HotelRoomId> = HashSet::new();
-                for event_room_id in event_room_ids {
-                    let node = crate::field_node_id::FieldNodeId::new(event_room_id, &crate::event_room::FIELD_HOTEL_ROOMS);
-                    let rooms = sched.connected_entities::<EventRoomEntityType, HotelRoomEntityType>(node, &crate::hotel_room::FIELD_EVENT_ROOMS);
-                    hotel_room_ids.extend(rooms);
-                }
-                let hotel_room_ids: Vec<HotelRoomId> = hotel_room_ids.into_iter().collect();
-                Some(crate::schedule::entity_ids_to_field_value(hotel_room_ids))
-            },
-        )),
-        write_fn: None,
-        verify_fn: None,
+    static FIELD_HOTEL_ROOMS: FieldDescriptor<PanelEntityType>,
+    name: "hotel_rooms", display: "Hotel Rooms",
+    desc: "Hotel rooms where this panel takes place (traverses event rooms).",
+    aliases: &["hotel_room"],
+    example: "[]",
+    order: 3500,
+    crdt: Derived, cardinality: list,
+    item: FieldTypeItem::EntityIdentifier(HotelRoomEntityType::TYPE_NAME),
+    read: |sched: &Schedule, id: PanelId| {
+        let node = FieldNodeId::new(id, &FIELD_EVENT_ROOMS);
+        let event_room_ids = sched
+            .connected_entities::<PanelEntityType, EventRoomEntityType>(
+                node,
+                &crate::event_room::FIELD_PANELS,
+            );
+        let mut hotel_room_ids: HashSet<HotelRoomId> = HashSet::new();
+        for event_room_id in event_room_ids {
+            let node = FieldNodeId::new(event_room_id, &crate::event_room::FIELD_HOTEL_ROOMS);
+            let rooms = sched
+                .connected_entities::<EventRoomEntityType, HotelRoomEntityType>(
+                    node,
+                    &crate::hotel_room::FIELD_EVENT_ROOMS,
+                );
+            hotel_room_ids.extend(rooms);
+        }
+        let hotel_room_ids: Vec<HotelRoomId> = hotel_room_ids.into_iter().collect();
+        Some(crate::schedule::entity_ids_to_field_value(hotel_room_ids))
     }
-);
+}
 
 // ── Credits computation ───────────────────────────────────────────────────────
 
@@ -1197,33 +1193,22 @@ pub(crate) fn compute_credits(sched: &crate::schedule::Schedule, panel_id: Panel
     credits
 }
 
-define_field!(
+define_field! {
     /// Formatted credit strings for display (hidePanelist, altPanelist, group resolution).
-    static FIELD_CREDITS: FieldDescriptor<PanelEntityType> = FieldDescriptor {
-        name: "credits",
-        display: "Credits",
-        description: "Formatted presenter credit strings for display, accounting for hidePanelist, altPanelist, group resolution, always_shown, and always_grouped flags.",
-        aliases: &["credit"],
-        required: false,
-        crdt_type: CrdtFieldType::Derived,
-        field_type: FieldType(
-            FieldCardinality::List,
-            FieldTypeItem::String,
-        ),
-        example: "[\"John Doe\", \"Group Name (Alice, Bob)\"]",
-        order: 3600,
-        read_fn: Some(ReadFn::Schedule(
-            |sched: &crate::schedule::Schedule, id: PanelId| {
-                let strings = compute_credits(sched, id);
-                Some(FieldValue::List(
-                    strings.into_iter().map(FieldValueItem::String).collect(),
-                ))
-            },
-        )),
-        write_fn: None,
-        verify_fn: None,
+    static FIELD_CREDITS: FieldDescriptor<PanelEntityType>,
+    name: "credits", display: "Credits",
+    desc: "Formatted presenter credit strings for display, accounting for hidePanelist, altPanelist, group resolution, always_shown, and always_grouped flags.",
+    aliases: &["credit"],
+    example: "[\"John Doe\", \"Group Name (Alice, Bob)\"]",
+    order: 3600,
+    crdt: Derived, cardinality: list, item: FieldTypeItem::String,
+    read: |sched: &Schedule, id: PanelId| {
+        let strings = compute_credits(sched, id);
+        Some(FieldValue::List(
+            strings.into_iter().map(FieldValueItem::String).collect(),
+        ))
     }
-);
+}
 
 // ── FieldSet ──────────────────────────────────────────────────────────────────
 

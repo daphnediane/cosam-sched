@@ -4,6 +4,10 @@
  * See LICENSE file for full license text
  */
 
+// Allow proc-macro generated `::schedule_core::...` paths to resolve from
+// within this crate itself.
+extern crate self as schedule_core;
+
 pub mod builder;
 pub mod converter;
 pub mod crdt;
@@ -29,6 +33,8 @@ pub mod schedule;
 pub mod time;
 pub mod value;
 pub(crate) mod value_macros;
+
+pub use schedule_macro::define_field;
 
 // Re-exports from entity_id
 pub use entity_id::{DynamicEntityId, EntityId, EntityTyped, EntityUuid, RuntimeEntityId};

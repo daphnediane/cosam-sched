@@ -17,9 +17,9 @@
 //! through `Schedule::edges_from`.
 
 use crate::converter::{AsString, EntityStringResolver};
+use crate::define_field;
 use crate::entity::{EntityId, EntityType, EntityUuid, UuidPreference};
 use crate::event_room::{EventRoomEntityType, EventRoomId};
-use crate::field_macros::{edge_field, stored_field};
 use crate::field_set::FieldSet;
 use crate::value::ValidationError;
 use serde::{Deserialize, Serialize};
@@ -181,19 +181,25 @@ impl EntityStringResolver for HotelRoomEntityType {
 
 // ── Field descriptors ─────────────────────────────────────────────────────────
 
-stored_field!(FIELD_HOTEL_ROOM_NAME, HotelRoomEntityType, hotel_room_name, required, as: AsString,
+define_field! {
+    static FIELD_HOTEL_ROOM_NAME: crate::field::FieldDescriptor<HotelRoomEntityType>,
+    accessor: hotel_room_name, required, as: AsString,
     name: "hotel_room_name", display: "Hotel Room Name",
     desc: "Physical hotel room name / identifier.",
     aliases: &["name", "room_name"],
     example: "Ballroom East",
-    order: 0);
+    order: 0
+}
 
-edge_field!(FIELD_EVENT_ROOMS, HotelRoomEntityType, mode: ro, target: EventRoomEntityType, target_field: &crate::event_room::FIELD_HOTEL_ROOMS,
+define_field! {
+    static FIELD_EVENT_ROOMS: crate::field::FieldDescriptor<HotelRoomEntityType>,
+    edge: ro, target: EventRoomEntityType, target_field: &crate::event_room::FIELD_HOTEL_ROOMS,
     name: "event_rooms", display: "Event Rooms",
     desc: "Event rooms contained within this hotel room.",
     aliases: &["event_room"],
     example: "[]",
-    order: 100);
+    order: 100
+}
 
 // ── FieldSet ──────────────────────────────────────────────────────────────────
 

@@ -9,7 +9,29 @@ cross-partition edge exclusivity declaratively.
 
 ## Status
 
-Open
+Completed
+
+## Resolution
+
+- New `crates/schedule-macro/` crate added with a function-like
+  `define_field!` proc-macro covering stored, edge, and custom modes
+  (read / write / verify closures supported, `exclusive_with:` clause
+  implemented).
+- All entity files migrated: `panel_type.rs`, `hotel_room.rs`,
+  `event_room.rs`, `presenter.rs`, `panel.rs`.
+- Legacy `stored_field!`, `edge_field!`, and old `macro_rules!
+  define_field!` removed from `crates/schedule-core/src/field_macros.rs`;
+  only `define_entity_builder!` remains in that file.
+- `cargo build`, `cargo test --workspace`, and
+  `cargo clippy --workspace --all-targets -- -D warnings` all clean.
+
+Follow-ups tracked separately:
+
+- **BUGFIX-072** — FIELD_MEMBERS / FIELD_GROUPS near/far audit and
+  alias proposal surfaced during the presenter migration.
+- **BUGFIX-073** — Panel `time_slot` is silently dropped on save/load
+  (start/end/duration are `Derived` with no stored backing field);
+  surfaced while migrating the `panel.rs` time projections.
 
 ## Priority
 

@@ -519,10 +519,20 @@ dependencies = [
  "chrono",
  "inventory",
  "regex",
+ "schedule-macro",
  "serde",
  "serde_json",
  "thiserror 2.0.18",
  "uuid",
+]
+
+[[package]]
+name = "schedule-macro"
+version = "0.1.0"
+dependencies = [
+ "proc-macro2",
+ "quote",
+ "syn",
 ]
 
 [[package]]

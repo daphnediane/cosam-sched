@@ -17,14 +17,13 @@
 //! `Schedule::edges_to`.
 
 use crate::converter::{AsInteger, AsString, EntityStringResolver};
+use crate::define_field;
 use crate::entity::{EntityId, EntityType, EntityUuid, UuidPreference};
-use crate::field::{FieldDescriptor, ReadFn, WriteFn};
-use crate::field_macros::{define_field, edge_field, stored_field};
+use crate::field::FieldDescriptor;
 use crate::field_set::FieldSet;
-use crate::field_value;
 use crate::hotel_room::{HotelRoomEntityType, HotelRoomId};
 use crate::panel::{PanelEntityType, PanelId};
-use crate::value::{CrdtFieldType, FieldCardinality, FieldType, FieldTypeItem, ValidationError};
+use crate::value::ValidationError;
 use serde::{Deserialize, Serialize};
 use std::sync::LazyLock;
 
@@ -195,63 +194,59 @@ impl EntityStringResolver for EventRoomEntityType {
 
 // ── Stored field descriptors ──────────────────────────────────────────────────
 
-stored_field!(FIELD_ROOM_NAME, EventRoomEntityType, room_name, required, as: AsString,
+define_field! {
+    static FIELD_ROOM_NAME: FieldDescriptor<EventRoomEntityType>,
+    accessor: room_name, required, as: AsString,
     name: "room_name", display: "Room Name",
     desc: "Room code as it appears in the Schedule sheet's Room column.",
     aliases: &["room", "name"],
     example: "Panel 1",
-    order: 0);
+    order: 0
+}
 
-define_field!(
+define_field! {
     /// Optional display name shown in the widget / public schedule.
-    pub static FIELD_LONG_NAME: FieldDescriptor<EventRoomEntityType> = FieldDescriptor {
-        name: "long_name",
-        display: "Long Name",
-        description: "Display name shown in the widget / public schedule.",
-        aliases: &["display_name", "long"],
-        required: false,
-        crdt_type: CrdtFieldType::Scalar,
-        field_type: FieldType(FieldCardinality::Optional, FieldTypeItem::String),
-        example: "Grand Ballroom A",
-        order: 100,
-        read_fn: Some(ReadFn::Bare(|d: &EventRoomInternalData| {
-            d.data.long_name.as_ref().map(|s| field_value!(s.clone()))
-        })),
-        write_fn: Some(WriteFn::Bare(|d: &mut EventRoomInternalData, v| {
-            if v.is_empty() {
-                d.data.long_name = None;
-            } else {
-                d.data.long_name = Some(v.into_string()?);
-            }
-            Ok(())
-        })),
-        verify_fn: None,
-    }
-);
+    static FIELD_LONG_NAME: FieldDescriptor<EventRoomEntityType>,
+    accessor: long_name, optional, as: AsString,
+    name: "long_name", display: "Long Name",
+    desc: "Display name shown in the widget / public schedule.",
+    aliases: &["display_name", "long"],
+    example: "Grand Ballroom A",
+    order: 100
+}
 
-stored_field!(FIELD_SORT_KEY, EventRoomEntityType, sort_key, optional, as: AsInteger,
+define_field! {
+    static FIELD_SORT_KEY: FieldDescriptor<EventRoomEntityType>,
+    accessor: sort_key, optional, as: AsInteger,
     name: "sort_key", display: "Sort Key",
     desc: "Ordering key; values >= 100 are hidden from the public schedule.",
     aliases: &["sort"],
     example: "10",
-    order: 200);
+    order: 200
+}
 
-// ── Edge-backed computed fields ───────────────────────────────────────────────
+// ── Edge-backed computed fields ─────────────────────────────────────
 
-edge_field!(FIELD_HOTEL_ROOMS, EventRoomEntityType, mode: rw, target: HotelRoomEntityType, target_field: &crate::hotel_room::FIELD_EVENT_ROOMS,
+define_field! {
+    static FIELD_HOTEL_ROOMS: FieldDescriptor<EventRoomEntityType>,
+    edge: rw, target: HotelRoomEntityType, target_field: &crate::hotel_room::FIELD_EVENT_ROOMS,
     owner,
     name: "hotel_rooms", display: "Hotel Rooms",
     desc: "Hotel rooms that contain this event room.",
     aliases: &["hotel_room"],
     example: "[]",
-    order: 300);
+    order: 300
+}
 
-edge_field!(FIELD_PANELS, EventRoomEntityType, mode: rw, target: PanelEntityType, target_field: &crate::panel::FIELD_EVENT_ROOMS,
+define_field! {
+    static FIELD_PANELS: FieldDescriptor<EventRoomEntityType>,
+    edge: rw, target: PanelEntityType, target_field: &crate::panel::FIELD_EVENT_ROOMS,
     name: "panels", display: "Panels",
     desc: "Panels scheduled in this event room.",
     aliases: &["panel"],
     example: "[]",
-    order: 400);
+    order: 400
+}
 
 // ── FieldSet ──────────────────────────────────────────────────────────────────
 

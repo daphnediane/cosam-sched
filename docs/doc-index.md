@@ -11,7 +11,7 @@ Complete index of cosam-sched documentation, including current documents and pla
 
 ### Architecture and Design
 
-* **architecture.md** - Overall system architecture, crate layout, entity/field system overview, Schedule container design, UUID identity, and design decisions.
+* **architecture.md** - Overall system architecture, crate layout (schedule-core, schedule-macro), entity/field system overview, Schedule container design, UUID identity, and design decisions.
 
 ### Data Model
 

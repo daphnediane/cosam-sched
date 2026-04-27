@@ -322,30 +322,80 @@ static FIELD_PANEL_NAME: FieldDescriptor<PanelEntityType> = FieldDescriptor {
     verify_fn: None,
 };
 
-// Read-only edge field (CRDT owner, no direct write fn — write via add/remove helpers):
-edge_field!(FIELD_PRESENTERS, PanelEntityType, mode: ro, target: PresenterEntityType,
-    target_field: &crate::presenter::FIELD_PANELS, owner,
+// Edge field (CRDT owner, no direct write fn — write via add/remove helpers):
+define_field! {
+    static FIELD_PRESENTERS: FieldDescriptor<PanelEntityType>,
+    edge: ro, target: PresenterEntityType, target_field: &crate::presenter::FIELD_PANELS, owner,
     name: "presenters", display: "Presenters",
     desc: "All presenters attached to this panel (credited and uncredited).",
     aliases: &["panelists", "presenter"],
     example: "[]",
-    order: 2700);
+    order: 2700
+}
 ```
 
-### Shared declaration macros
+### Field declaration via `define_field!` proc-macro
 
-Uniformly-shaped descriptors (required/optional strings, booleans, optional
-integers, plain-text fields, edge-backed fields) are declared via shared
-`macro_rules!` helpers in `crates/schedule-core/src/field_macros.rs`:
-`stored_field!`, `edge_field!`. Each macro takes the entity type and assumes the
-`data: CommonData` convention. Edge macros take a `target: EntityType` parameter,
-a `target_field:` reference to the inverse field on the target entity, a `mode`
-(`ro`, `rw`, `one`, `add`, `remove`), and an optional bare `owner,` flag.
-The `owner,` flag encodes CRDT ownership: present → the field's `crdt_type` is
-`EdgeOwner { target_field: <target_field arg> }`; absent → `EdgeTarget`.
-Bespoke descriptors (BFS transitive-closure fields, fields with custom parse
-logic, read-only computed fields with Schedule access, per-edge-metadata
-fields) stay as hand-written struct literals wrapped in `define_field!`.
+All field descriptors are declared using the unified `define_field!` function-like
+proc-macro from the `schedule-macro` crate (re-exported as `schedule_core::define_field`).
+The macro supports three declaration modes:
+
+**Stored fields** (scalar fields backed by `CommonData` slots):
+
+```rust
+define_field! {
+    static FIELD_NAME: FieldDescriptor<PresenterEntityType>,
+    accessor: name, required, as: AsString,
+    name: "name", display: "Name",
+    desc: "Presenter or group display name.",
+    aliases: &["presenter_name", "display_name"],
+    example: "Alice Example",
+    order: 0
+}
+```
+
+**Edge fields** (relationship fields):
+
+```rust
+define_field! {
+    static FIELD_MEMBERS: FieldDescriptor<PresenterEntityType>,
+    edge: rw, target: PresenterEntityType, target_field: &FIELD_GROUPS, owner,
+    name: "members", display: "Members",
+    desc: "Members of this group (empty for individuals).",
+    aliases: &["group_members"],
+    example: "[]",
+    order: 800
+}
+```
+
+**Custom fields** (computed fields with explicit read/write closures):
+
+```rust
+define_field! {
+    static FIELD_RANK: FieldDescriptor<PresenterEntityType>,
+    name: "rank", display: "Rank",
+    desc: "Presenter classification tier.",
+    aliases: &["classification"],
+    example: "guest",
+    order: 100,
+    crdt: Scalar, cardinality: optional, item: FieldTypeItem::String,
+    read: |d: &PresenterInternalData| {
+        Some(field_value!(d.data.rank.as_str()))
+    },
+    write: |d: &mut PresenterInternalData, v: FieldValue| {
+        d.data.rank = PresenterRank::parse(&v.into_string()?);
+        Ok(())
+    }
+}
+```
+
+The `accessor:` syntax for stored fields derives the field type and read/write
+functions automatically from the `as:` marker trait (`AsString`, `AsBoolean`,
+`AsInteger`, `AsText`). The `edge:` syntax generates the appropriate edge-backed
+read/write closures. Custom fields explicitly provide their own closures.
+
+See `schedule-macro` crate documentation for the full grammar and all supported
+options.
 
 ### Edge ownership in `CrdtFieldType` (FEATURE-070)
 
@@ -440,16 +490,14 @@ This pattern is used for:
 ### Inventory-based field registration
 
 Field descriptors self-register globally via the `inventory` crate. This eliminates
-manual `FieldSet::new(&[...])` lists and prevents accidentally omitting fields from
-the registry.
-
-**CollectedNamedField** - Global inventory wrapper for field descriptors:
+manual `FieldSet::new(&[...])` lists and prevents accidentally
+omitting fields from the registry.
 
 ```rust
 pub struct CollectedNamedField(pub &'static dyn NamedField);
 ```
 
-Field macros and hand-written descriptors submit to the global registry via:
+The `define_field!` proc-macro automatically generates the `inventory::submit!` call for each field descriptor:
 
 ```rust
 inventory::submit! { CollectedNamedField(&FIELD_NAME) }
@@ -475,29 +523,9 @@ The `field_id()` and `entity_type_name()` methods enable type-erased field ident
 and entity type identification. The `std::any::Any` super-trait enables safe downcasting
 via `downcast_ref`.
 
-**define_field! macro** - Bundles hand-written descriptors with inventory submission:
-
-```rust
-define_field!(
-    FIELD_CODE, PanelEntityType, PanelInternalData,
-    FieldDescriptor {
-        name: "code",
-        display: "Code",
-        description: "Unique panel identifier.",
-        aliases: &["uniq_id"],
-        required: true,
-        crdt_type: CrdtFieldType::Scalar,
-        example: "P001",
-        order: 100,
-        read_fn: Some(ReadFn::Bare(|d| Some(field_value!(d.data.code.clone())))),
-        write_fn: Some(WriteFn::Bare(|d, v| { d.data.code = v.into_string()?; Ok(()) })),
-        verify_fn: None,
-    }
-);
-```
-
-The macro expands to the `static` declaration plus the required `inventory::submit!`
-call, ensuring the field is never accidentally omitted from the registry.
+**Inventory registration** - The `define_field!` proc-macro automatically generates
+the required `inventory::submit!` call, ensuring every field descriptor is registered
+in the global `CollectedNamedField` registry.
 
 ## FieldSet
 
@@ -712,7 +740,8 @@ rollback semantics.
 ### define_entity_builder! macro
 
 `macro_rules!` macro in `field_macros.rs` that generates a typed builder with
-`with_*` setters per field. The generated builder:
+`with_*` setters per field. This is the only remaining `macro_rules!` macro in
+`field_macros.rs` after the migration to the `define_field!` proc-macro. The generated builder:
 
 - Collects field updates in a `Vec<(FieldRef<E>, FieldValue)>`
 - Delegates to `build_entity` for seed, write, validate, and rollback
