@@ -18,6 +18,7 @@ High
 
 - REFACTOR-064: Updated Schedule edge APIs
 - FEATURE-070: Eliminate EdgeDescriptor; fold target_field into FieldDescriptor *(done)*
+- FEATURE-071: Introduce schedule-macro proc-macro crate (provides `exclusive_with:` clause)
 
 ## Description
 

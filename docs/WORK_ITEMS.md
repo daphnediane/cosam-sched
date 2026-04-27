@@ -1,6 +1,6 @@
 # Cosplay America Schedule - Work Item
 
-Updated on: Mon Apr 27 11:30:09 2026
+Updated on: Mon Apr 27 11:41:27 2026
 
 ## Completed
 
@@ -83,7 +83,7 @@ and improve `FieldId` conversions with a global registry and type-safe downcasti
 
 ## Summary of Open Items
 
-**Total open items:** 20
+**Total open items:** 21
 
 * **Meta / Project-Level**
   * [META-001] Meta work item tracking the full multi-phase redesign of the schedule system. (Blocked by [META-005], [META-006], [META-007], [META-008])
@@ -98,6 +98,10 @@ XLSX import/export. (Blocked by [META-004])
 into actual edge storage fields, eliminating the `credited` per-edge boolean and its CRDT
 `presenters_meta` map.
   * [FEATURE-070] Remove the separate `EdgeDescriptor` struct and inventory; encode CRDT-edge ownership and target field directly inside `CrdtFieldType::EdgeOwner` on the owner field.
+  * [FEATURE-071] Replace the declarative `macro_rules!` field-declaration helpers (`stored_field!`,
+`edge_field!`, `define_field!`) with attribute-style proc-macros in a new
+`schedule-macro` crate; add an `exclusive_with:` clause to express
+cross-partition edge exclusivity declaratively.
 
 * **Medium Priority**
   * [BUGFIX-045] In `scratch/field_update_logic.rs`, duration values are incorrectly stored as `FieldValue::Integer(minutes)` instead of `FieldValue::Duration(Duration)`.
@@ -224,7 +228,7 @@ panels arranged by time and room, with inline editing of entity fields.
 into actual edge storage fields, eliminating the `credited` per-edge boolean and its CRDT
 `presenters_meta` map.
 
-**Blocked By:** [REFACTOR-064], [FEATURE-070]
+**Blocked By:** [REFACTOR-064], [FEATURE-070], [FEATURE-071]
 
 **Description:** Currently Panel stores one CRDT list (`presenters`) plus a parallel `presenters_meta` map with a
 `credited` boolean per entry.  `credited_presenters` and `uncredited_presenters` are computed
@@ -253,6 +257,47 @@ The remaining work is to turn the partition into two first-class CRDT lists.
 2. A separate `pub(crate) static EDGE_<NAME>: EdgeDescriptor = …;` plus its own `inventory::submit!` registration.
 
 `EdgeDescriptor` carried `name` (debug only), `owner_field` (self-reference, redundant), `target_field` (the only piece not already on the owner), and `fields: &[EdgeFieldSpec]` (per-edge metadata, slated for removal by FEATURE-065). Collapsing the two leaves a simpler model where the owner field is the edge descriptor.
+
+---
+
+### [FEATURE-071] FEATURE-071: Introduce schedule-macro proc-macro crate
+
+**Status:** Open
+
+**Priority:** High
+
+**Summary:** Replace the declarative `macro_rules!` field-declaration helpers (`stored_field!`,
+`edge_field!`, `define_field!`) with attribute-style proc-macros in a new
+`schedule-macro` crate; add an `exclusive_with:` clause to express
+cross-partition edge exclusivity declaratively.
+
+**Description:** The current declarative `macro_rules!` helpers in
+`crates/schedule-core/src/field_macros.rs` cover 90% of field declarations
+cleanly, but they have two pain points worth resolving before the next round
+of edge-field work:
+
+1. **Closures can't be passed as macro arguments cleanly.**  Most non-trivial
+   fields with custom read/write logic must drop down to `define_field!` and
+   inline a `WriteFn::Schedule(|sched, id, val| …)` block by hand, even when
+   the field is otherwise edge-shaped.  This is verbose and easy to get wrong.
+
+2. **Cross-partition edge exclusivity has no declarative form.**  FEATURE-065's
+   credited/uncredited presenter split needs each partition's write closure to
+   first remove the same target from the sibling partition.  Today this can
+   only be expressed by hand-writing four `define_field!` blocks; with
+   proc-macros we can add an `exclusive_with: &SIBLING_FIELD` clause that
+   generates the prelude.
+
+Note: a previous proc-macro experiment (`v10-try3/crates/schedule-macro`,
+~1600 lines) handled both field declarations *and* type conversion logic.
+Conversion has since been factored out into a separate system (see
+`docs/conversion-and-lookup.md`), so the new proc-macros should be
+significantly smaller — they only need to emit `FieldDescriptor` + closures.
+
+After FEATURE-070, `EdgeDescriptor` is gone; the proc-macros only need to set
+`crdt_type: EdgeOwner { target_field: <target_field> }` directly when the
+`owner` flag is present, with no separate descriptor static or inventory
+submission to coordinate.
 
 ---
 
@@ -586,6 +631,7 @@ This item covers any remaining integration work and documentation.
 [FEATURE-068]: work-item/done/FEATURE-068.md
 [FEATURE-069]: work-item/done/FEATURE-069.md
 [FEATURE-070]: work-item/high/FEATURE-070.md
+[FEATURE-071]: work-item/high/FEATURE-071.md
 [META-001]: work-item/meta/META-001.md
 [META-002]: work-item/done/META-002.md
 [META-003]: work-item/done/META-003.md
