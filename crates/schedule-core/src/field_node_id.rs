@@ -73,9 +73,9 @@ impl std::fmt::Debug for FieldRef {
 
 /// Common interface for accessing field node properties across different ID types.
 ///
-/// This trait extends [`DynamicEntityId`] to add field descriptor access.
-/// It provides a uniform way to extract the field descriptor from both
-/// compile-time typed IDs (`FieldNodeId<E>`) and runtime dynamic IDs
+/// This trait extends [`DynamicEntityId`] (which includes [`Copy`]) to add field
+/// descriptor access. It provides a uniform way to extract the field descriptor
+/// from both compile-time typed IDs (`FieldNodeId<E>`) and runtime dynamic IDs
 /// (`RuntimeFieldNodeId`).
 ///
 /// # Implementors
@@ -371,8 +371,7 @@ impl<E: EntityType> FieldNodeId<E> {
     }
 
     pub fn try_from_dynamic(id: impl DynamicFieldNodeId) -> Option<Self> {
-        let field = id.field();
-        Self::try_new(id, field)
+        Self::try_new(id, id.field())
     }
 
     /// Get the field descriptor as a trait object.

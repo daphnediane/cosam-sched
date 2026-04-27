@@ -62,9 +62,10 @@ pub trait EntityTyped {
 /// (`RuntimeEntityId`, `RuntimeFieldNodeId`). It enables APIs to accept any ID type
 /// through `impl DynamicEntityId` without needing to know the concrete type.
 ///
-/// This trait is a combination of [`EntityUuid`] (for UUID access) and [`EntityTyped`]
-/// (for type name access). A blanket implementation is provided for any type that
-/// implements both constituent traits.
+/// This trait is a combination of [`EntityUuid`] (for UUID access), [`EntityTyped`]
+/// (for type name access), and [`Copy`] (required so id parameters can be used by
+/// value multiple times without ownership gymnastics). A blanket implementation is
+/// provided for any type that implements all three constituent traits.
 ///
 /// # Implementors
 ///
@@ -81,9 +82,9 @@ pub trait EntityTyped {
 ///     println!("Type: {}", id.entity_type_name());
 /// }
 /// ```
-pub trait DynamicEntityId: EntityUuid + EntityTyped {}
+pub trait DynamicEntityId: EntityUuid + EntityTyped + Copy {}
 
-impl<T> DynamicEntityId for T where T: EntityUuid + EntityTyped {}
+impl<T> DynamicEntityId for T where T: EntityUuid + EntityTyped + Copy {}
 
 /// Marker trait for compile-time typed entity IDs.
 ///

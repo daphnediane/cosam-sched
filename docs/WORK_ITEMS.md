@@ -1,6 +1,6 @@
 # Cosplay America Schedule - Work Item
 
-Updated on: Sun Apr 26 03:11:24 2026
+Updated on: Mon Apr 27 02:28:40 2026
 
 ## Completed
 
@@ -33,6 +33,8 @@ wrappers) to `value.rs` as `Copy` type-level mirrors of `FieldValueItem`/`FieldV
 * [FEATURE-051] Add a `field_type: FieldType` field to `FieldDescriptor` and populate it in all
 existing static field descriptors across every entity file.
 * [FEATURE-057] Implement a transitive edge relationship cache to efficiently compute inclusive members, groups, panels, and other hierarchical relationships.
+* [FEATURE-068] Add `Copy` as a super-trait of `DynamicEntityId` so that by-value usage of id
+parameters is ergonomic without ownership gymnastics.
 * [META-002] Phase tracker for project foundation and Cargo workspace setup.
 * [META-003] Phase tracker for the entity/field system and core schedule data model in schedule-core.
 * [META-004] Phase tracker for making an automerge CRDT document the authoritative storage
@@ -571,6 +573,7 @@ This item covers any remaining integration work and documentation.
 [FEATURE-056]: work-item/medium/FEATURE-056.md
 [FEATURE-057]: work-item/done/FEATURE-057.md
 [FEATURE-065]: work-item/high/FEATURE-065.md
+[FEATURE-068]: work-item/done/FEATURE-068.md
 [META-001]: work-item/meta/META-001.md
 [META-002]: work-item/done/META-002.md
 [META-003]: work-item/done/META-003.md

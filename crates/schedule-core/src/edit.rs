@@ -391,10 +391,11 @@ impl EditContext {
     /// Returns `Err` if the entity is not found or the field is write-only.
     pub fn update_field_cmd(
         &self,
-        entity: RuntimeEntityId,
+        entity: impl DynamicEntityId,
         field: &'static str,
         new_value: FieldValue,
     ) -> Result<EditCommand, EditError> {
+        let entity = RuntimeEntityId::from_dynamic(entity);
         let reg = find_registration(entity)?;
         let old_value = (reg.read_field_fn)(&self.schedule, entity.entity_uuid(), field)
             .map_err(|source| EditError::FieldRead {
@@ -440,9 +441,8 @@ impl EditContext {
         room_field: &'static str,
         new_room: FieldValue,
     ) -> Result<EditCommand, EditError> {
-        let runtime_id = RuntimeEntityId::from_dynamic(panel);
-        let time_cmd = self.update_field_cmd(runtime_id, time_field, new_time)?;
-        let room_cmd = self.update_field_cmd(runtime_id, room_field, new_room)?;
+        let time_cmd = self.update_field_cmd(panel, time_field, new_time)?;
+        let room_cmd = self.update_field_cmd(panel, room_field, new_room)?;
         Ok(EditCommand::MovePanel(Box::new(EditCommand::BatchEdit(
             vec![time_cmd, room_cmd],
         ))))
