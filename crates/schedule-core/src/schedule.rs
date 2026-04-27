@@ -15,6 +15,7 @@ use crate::edge_cache::TransitiveEdgeCache;
 use crate::edge_map::RawEdgeMap;
 use crate::entity::{registered_entity_types, EntityType};
 use crate::field::ReadableField;
+use crate::field_node_id::{DynamicFieldNodeId, FieldNodeId};
 use crate::value::{CrdtFieldType, FieldError, FieldValue};
 use crate::{EntityId, EntityTyped, EntityUuid, RuntimeEntityId, TypedFieldNodeId};
 use automerge::AutoCommit;
@@ -827,13 +828,7 @@ impl Schedule {
     /// (via [`crate::edge_crdt::list_append_unique`]) — **not** rewritten in
     /// full — so concurrent add/add from two replicas converges to the
     /// union rather than LWW on the list object.
-    pub fn edge_add<L: EntityType, R: EntityType>(
-        &mut self,
-        l: impl TypedFieldNodeId<L>,
-        r: impl TypedFieldNodeId<R>,
-    ) {
-        let l_uuid = l.entity_uuid();
-        let r_uuid = r.entity_uuid();
+    pub fn edge_add<L: EntityType, R: EntityType>(&mut self, l: FieldNodeId<L>, r: FieldNodeId<R>) {
         self.edges.add_edge(l, r);
 
         // Invalidate transitive cache when L and R share the same entity type.
@@ -842,7 +837,7 @@ impl Schedule {
         }
 
         // CRDT mirror
-        self.mirror_edge_add::<L, R>(l_uuid, r_uuid);
+        self.mirror_edge_add(&l, &r);
     }
 
     /// Remove the edge from `l` to `r`.
@@ -851,11 +846,9 @@ impl Schedule {
     /// concurrent add-vs-unobserved-remove resolves add-wins.
     pub fn edge_remove<L: EntityType, R: EntityType>(
         &mut self,
-        l: impl TypedFieldNodeId<L>,
-        r: impl TypedFieldNodeId<R>,
+        l: FieldNodeId<L>,
+        r: FieldNodeId<R>,
     ) {
-        let l_uuid = l.entity_uuid();
-        let r_uuid = r.entity_uuid();
         self.edges.remove_edge(l, r);
 
         // Invalidate transitive cache when L and R share the same entity type.
@@ -864,7 +857,7 @@ impl Schedule {
         }
 
         // CRDT mirror
-        self.mirror_edge_remove::<L, R>(l_uuid, r_uuid);
+        self.mirror_edge_remove(&l, &r);
     }
 
     /// Replace all far-side neighbors of `near` with `targets`.
@@ -877,12 +870,11 @@ impl Schedule {
     /// the transitive edge cache is invalidated.
     pub fn edge_set<Near: EntityType, Far: EntityType>(
         &mut self,
-        near: impl TypedFieldNodeId<Near>,
+        near: FieldNodeId<Near>,
         far_field: &'static crate::field::FieldDescriptor<Far>,
         targets: Vec<EntityId<Far>>,
     ) {
-        use crate::field_node_id::{FieldNodeId, FieldRef, RuntimeFieldNodeId};
-        let near_uuid = near.entity_uuid();
+        use crate::field_node_id::{FieldRef, RuntimeFieldNodeId};
         let far_field_ref = FieldRef(far_field);
         let new_targets: Vec<RuntimeFieldNodeId> = targets
             .iter()
@@ -896,8 +888,8 @@ impl Schedule {
             *self.transitive_edge_cache.borrow_mut() = None;
         }
 
-        // CRDT mirror — pass Near/Far type names so canonical_owner can resolve.
-        self.mirror_edge_set::<Near, Far>(near_uuid, &targets);
+        // CRDT mirror — field-based canonical_owner resolves ownership.
+        self.mirror_edge_set(&near, far_field, &targets);
     }
 
     /// Read a boolean per-edge property for the `(l, r)` edge.
@@ -918,20 +910,24 @@ impl Schedule {
         prop: &str,
     ) -> bool {
         use crate::edge_descriptor::EdgeFieldDefault;
-        let Some(canon) = crate::edge_crdt::canonical_owner(L::TYPE_NAME, R::TYPE_NAME) else {
+        let Some(canon) = crate::edge_crdt::canonical_owner_by_types(L::TYPE_NAME, R::TYPE_NAME)
+        else {
             return true;
         };
-        let (owner_uuid, target_uuid) = if canon.owner_is_left {
+        let (owner_uuid, target_uuid) = if canon.near_is_owner {
             (l_id.entity_uuid(), r_id.entity_uuid())
         } else {
             (r_id.entity_uuid(), l_id.entity_uuid())
         };
-        let default = crate::edge_descriptor::all_edge_descriptors()
-            .find(|d| d.owning_type() == canon.owner_type && d.owning_field() == canon.field_name)
-            .and_then(|d| d.fields.iter().find(|f| f.name == prop))
-            .map(|spec| match spec.default {
-                EdgeFieldDefault::Boolean(b) => b,
-            });
+        let default =
+            canon
+                .descriptor
+                .fields
+                .iter()
+                .find(|f| f.name == prop)
+                .map(|spec| match spec.default {
+                    EdgeFieldDefault::Boolean(b) => b,
+                });
         debug_assert!(
             default.is_some(),
             "edge_get_bool: prop {prop:?} not declared in EdgeDescriptor for {}",
@@ -961,10 +957,11 @@ impl Schedule {
         prop: &str,
         value: bool,
     ) {
-        let Some(canon) = crate::edge_crdt::canonical_owner(L::TYPE_NAME, R::TYPE_NAME) else {
+        let Some(canon) = crate::edge_crdt::canonical_owner_by_types(L::TYPE_NAME, R::TYPE_NAME)
+        else {
             return;
         };
-        let (owner_uuid, target_uuid) = if canon.owner_is_left {
+        let (owner_uuid, target_uuid) = if canon.near_is_owner {
             (l_id.entity_uuid(), r_id.entity_uuid())
         } else {
             (r_id.entity_uuid(), l_id.entity_uuid())
@@ -988,21 +985,20 @@ impl Schedule {
     /// union because both replicas insert into the same shared list
     /// [`ObjId`](automerge::ObjId) created up-front by
     /// [`crate::edge_crdt::ensure_all_owner_lists_for_type`].
-    fn mirror_edge_add<L: EntityType, R: EntityType>(
-        &mut self,
-        l_uuid: NonNilUuid,
-        r_uuid: NonNilUuid,
-    ) {
+    ///
+    /// Ownership is resolved from the field descriptors embedded in `near`
+    /// and `far` via [`crate::edge_crdt::canonical_owner`].
+    fn mirror_edge_add(&mut self, near: &impl DynamicFieldNodeId, far: &impl DynamicFieldNodeId) {
         if !self.mirror_enabled {
             return;
         }
-        let Some(canon) = crate::edge_crdt::canonical_owner(L::TYPE_NAME, R::TYPE_NAME) else {
+        let Some(canon) = crate::edge_crdt::canonical_owner(near.field(), far.field()) else {
             return;
         };
-        let (owner_uuid, target_uuid) = if canon.owner_is_left {
-            (l_uuid, r_uuid)
+        let (owner_uuid, target_uuid) = if canon.near_is_owner {
+            (near.entity_uuid(), far.entity_uuid())
         } else {
-            (r_uuid, l_uuid)
+            (far.entity_uuid(), near.entity_uuid())
         };
         if let Err(e) = crate::edge_crdt::list_append_unique(
             &mut self.doc,
@@ -1022,21 +1018,24 @@ impl Schedule {
     /// unobserved-remove resolves add-wins: the remove only targets
     /// indices this actor observed, so an insert recorded on a parallel
     /// branch survives the merge.
-    fn mirror_edge_remove<L: EntityType, R: EntityType>(
+    ///
+    /// Ownership is resolved from the field descriptors embedded in `near`
+    /// and `far` via [`crate::edge_crdt::canonical_owner`].
+    fn mirror_edge_remove(
         &mut self,
-        l_uuid: NonNilUuid,
-        r_uuid: NonNilUuid,
+        near: &impl DynamicFieldNodeId,
+        far: &impl DynamicFieldNodeId,
     ) {
         if !self.mirror_enabled {
             return;
         }
-        let Some(canon) = crate::edge_crdt::canonical_owner(L::TYPE_NAME, R::TYPE_NAME) else {
+        let Some(canon) = crate::edge_crdt::canonical_owner(near.field(), far.field()) else {
             return;
         };
-        let (owner_uuid, target_uuid) = if canon.owner_is_left {
-            (l_uuid, r_uuid)
+        let (owner_uuid, target_uuid) = if canon.near_is_owner {
+            (near.entity_uuid(), far.entity_uuid())
         } else {
-            (r_uuid, l_uuid)
+            (far.entity_uuid(), near.entity_uuid())
         };
         if let Err(e) = crate::edge_crdt::list_remove_uuid(
             &mut self.doc,
@@ -1051,40 +1050,43 @@ impl Schedule {
         }
     }
 
-    /// Edge-set variant of [`Self::mirror_edge_change`] — bulk version.
+    /// Edge-set mirror — bulk version.
     ///
-    /// When `L` is the canonical owner, a single list write on `l` suffices.
-    /// When `R` owns, every `r` in `rights` and every previous r that just
-    /// lost `l` needs its list re-synced; the simplest correct strategy is
-    /// to re-derive from the cache for every currently-in-range `r`.
-    fn mirror_edge_set<L: EntityType, R: EntityType>(
+    /// When near is the canonical owner, a single list write on `near` suffices.
+    /// When far owns, every far entity that may have gained or lost `near`
+    /// needs its list re-synced; the simplest correct strategy is to
+    /// re-derive from the edge map for every currently-in-range far entity.
+    ///
+    /// Field refs are derived from the matched [`EdgeDescriptor`](crate::edge_descriptor::EdgeDescriptor)
+    /// via [`crate::edge_crdt::canonical_owner`].
+    fn mirror_edge_set(
         &mut self,
-        l_uuid: NonNilUuid,
-        rights: &[EntityId<R>],
+        near: &impl DynamicFieldNodeId,
+        far_field: &'static dyn crate::field::NamedField,
+        far_targets: &[impl crate::entity::DynamicEntityId],
     ) {
         if !self.mirror_enabled {
             return;
         }
-        let Some(canon) = crate::edge_crdt::canonical_owner(L::TYPE_NAME, R::TYPE_NAME) else {
+        let Some(canon) = crate::edge_crdt::canonical_owner(near.field(), far_field) else {
             return;
         };
-        // Resolve field IDs for the (L, R) pair.
-        let Some(res) = crate::edge_descriptor::resolve_edge_fields(L::TYPE_NAME, R::TYPE_NAME)
-        else {
-            return;
-        };
-        if canon.owner_is_left {
-            // Single write on l's list — use the L-side field to query current neighbors.
+        let near_uuid = near.entity_uuid();
+        // Derive field refs from the descriptor.
+        let owner_field_ref = canon.descriptor.owner_field.field_id();
+        let target_field_ref = canon.descriptor.target_field.field_id();
+        if canon.near_is_owner {
+            // Single write on near's list — query current neighbors via edge map.
             let targets: Vec<NonNilUuid> = self
                 .edges
                 .neighbors(
                     unsafe {
                         crate::field_node_id::RuntimeFieldNodeId::new_unchecked(
-                            l_uuid,
-                            res.l_field_id.0,
+                            near_uuid,
+                            owner_field_ref.0,
                         )
                     },
-                    res.r_field_id,
+                    target_field_ref,
                 )
                 .iter()
                 .map(|fn_id| fn_id.entity_uuid())
@@ -1092,7 +1094,7 @@ impl Schedule {
             if let Err(e) = crate::edge_crdt::write_owner_list(
                 &mut self.doc,
                 canon.owner_type,
-                l_uuid,
+                near_uuid,
                 canon.target_type,
                 canon.field_name,
                 &targets,
@@ -1102,44 +1104,39 @@ impl Schedule {
             }
             return;
         }
-        // R is owner — rewrite every currently-connected r's list, plus each
-        // r in `rights` that may have just gained l.  Walk every r whose
-        // cache list presently contains l OR that is in `rights`.
-        let mut owners: Vec<NonNilUuid> = rights.iter().map(|r| r.entity_uuid()).collect();
-        // Find previously-connected r's by scanning the cache's l→r adjacency.
-        // After `set_field_neighbors`, l's neighbor list no longer includes removed
-        // r's, so we can't learn removed-r uuids from l alone; a reverse scan
-        // of all owner entities is the cheapest correct option.
+        // Far is owner — rewrite every currently-connected far entity's list,
+        // plus each far in `far_targets` that may have just gained near.
+        let mut owners: Vec<NonNilUuid> = far_targets.iter().map(|t| t.entity_uuid()).collect();
+        // Scan all owner entities in the doc for any that previously contained
+        // near_uuid (they may have been removed from the edge map).
         let doc_uuids = crdt::list_all_uuids(&self.doc, canon.owner_type);
-        for r_uuid in doc_uuids {
-            if owners.contains(&r_uuid) {
+        for far_uuid in doc_uuids {
+            if owners.contains(&far_uuid) {
                 continue;
             }
-            // Was r previously linked to l?  If its doc list contains l_uuid,
-            // we must rewrite it now that the cache no longer does.
             let prev = crate::edge_crdt::read_owner_list(
                 &self.doc,
                 canon.owner_type,
-                r_uuid,
+                far_uuid,
                 canon.field_name,
-                crate::value::FieldTypeItem::EntityIdentifier(L::TYPE_NAME),
+                crate::value::FieldTypeItem::EntityIdentifier(near.field().entity_type_name()),
             );
-            if prev.contains(&l_uuid) {
-                owners.push(r_uuid);
+            if prev.contains(&near_uuid) {
+                owners.push(far_uuid);
             }
         }
         for owner_uuid in owners {
-            // R is the owner; use the R-side field to find the L-entity neighbors.
+            // Far is the owner; query its neighbors toward the near side.
             let targets: Vec<NonNilUuid> = self
                 .edges
                 .neighbors(
                     unsafe {
                         crate::field_node_id::RuntimeFieldNodeId::new_unchecked(
                             owner_uuid,
-                            res.r_field_id.0,
+                            owner_field_ref.0,
                         )
                     },
-                    res.l_field_id,
+                    target_field_ref,
                 )
                 .iter()
                 .map(|fn_id| fn_id.entity_uuid())

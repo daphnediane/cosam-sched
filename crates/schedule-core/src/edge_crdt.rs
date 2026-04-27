@@ -34,48 +34,94 @@ use automerge::transaction::Transactable;
 use automerge::{AutoCommit, ObjType, ReadDoc, Value};
 use uuid::NonNilUuid;
 
-/// Which side of the `(L, R)` edge owns the CRDT list, plus the field name.
+/// Resolved CRDT ownership for an edge, looked up by field descriptor.
 #[derive(Debug, Clone, Copy)]
 pub struct CanonicalOwner {
-    /// `true` when the left entity owns the field; `false` when the right
-    /// does (lookup from the reverse-side call site).
-    pub owner_is_left: bool,
-    /// The entity type that owns the field — always equal to `L::TYPE_NAME`
-    /// if `owner_is_left`, otherwise `R::TYPE_NAME`.
+    /// `true` when the near (queried) field is the CRDT owner side.
+    pub near_is_owner: bool,
+    /// The entity type that owns the CRDT list.
     pub owner_type: &'static str,
-    /// The entity type stored in the list — i.e. the non-owner side.
+    /// The entity type stored in the list — the non-owner side.
     pub target_type: &'static str,
-    /// Name of the list field on the owner.
+    /// Name of the list field on the owner entity.
     pub field_name: &'static str,
+    /// The [`EdgeDescriptor`](crate::edge_descriptor::EdgeDescriptor) that matched.
+    pub descriptor: &'static crate::edge_descriptor::EdgeDescriptor,
 }
 
-/// Resolve the canonical owner for edges between `l_type` and `r_type`.
+/// Resolve CRDT ownership for an edge given both field descriptors.
 ///
-/// Searches [`crate::edge_descriptor::ALL_EDGE_DESCRIPTORS`] for a descriptor
-/// whose `(owner_type, target_type)` or `(target_type, owner_type)` pair matches
-/// `(l_type, r_type)`.
+/// Searches all [`EdgeDescriptor`](crate::edge_descriptor::EdgeDescriptor)s for one
+/// whose `owner_field`/`target_field` pair matches `near_field`/`far_field`
+/// (in either order).  Returns `near_is_owner = true` when `near_field` is
+/// the descriptor's owner field.
 ///
-/// Returns `None` if the pair is not a recognized relationship.
+/// Taking both fields makes the lookup unambiguous even when multiple edge
+/// types exist between the same pair of entity types (e.g. FEATURE-065:
+/// `credited_presenters` and `uncredited_presenters` both target
+/// `FIELD_PANELS`).
+///
+/// Returns `None` if no matching descriptor is found.
 #[must_use]
-pub fn canonical_owner(l_type: &str, r_type: &str) -> Option<CanonicalOwner> {
+pub fn canonical_owner(
+    near_field: &'static dyn crate::field::NamedField,
+    far_field: &'static dyn crate::field::NamedField,
+) -> Option<CanonicalOwner> {
     for desc in crate::edge_descriptor::all_edge_descriptors() {
-        if desc.owning_type() == l_type && desc.target_type() == r_type {
-            // L is the owner side.
+        let owner_matches_near = desc.owner_field.name() == near_field.name()
+            && desc.owner_field.entity_type_name() == near_field.entity_type_name();
+        let target_matches_far = desc.target_field.name() == far_field.name()
+            && desc.target_field.entity_type_name() == far_field.entity_type_name();
+        if owner_matches_near && target_matches_far {
             return Some(CanonicalOwner {
-                owner_is_left: true,
+                near_is_owner: true,
                 owner_type: desc.owning_type(),
                 target_type: desc.target_type(),
                 field_name: desc.owning_field(),
+                descriptor: desc,
+            });
+        }
+        let target_matches_near = desc.target_field.name() == near_field.name()
+            && desc.target_field.entity_type_name() == near_field.entity_type_name();
+        let owner_matches_far = desc.owner_field.name() == far_field.name()
+            && desc.owner_field.entity_type_name() == far_field.entity_type_name();
+        if target_matches_near && owner_matches_far {
+            return Some(CanonicalOwner {
+                near_is_owner: false,
+                owner_type: desc.owning_type(),
+                target_type: desc.target_type(),
+                field_name: desc.owning_field(),
+                descriptor: desc,
+            });
+        }
+    }
+    None
+}
+
+/// Legacy type-name-based lookup — used by `edge_get_bool` / `edge_set_bool`
+/// which don't yet carry field descriptors.
+///
+/// **Will break** once multiple edge types exist between the same pair of entity
+/// types.  Callers should migrate to field-based [`canonical_owner`].
+#[must_use]
+pub fn canonical_owner_by_types(l_type: &str, r_type: &str) -> Option<CanonicalOwner> {
+    for desc in crate::edge_descriptor::all_edge_descriptors() {
+        if desc.owning_type() == l_type && desc.target_type() == r_type {
+            return Some(CanonicalOwner {
+                near_is_owner: true,
+                owner_type: desc.owning_type(),
+                target_type: desc.target_type(),
+                field_name: desc.owning_field(),
+                descriptor: desc,
             });
         }
         if !desc.is_homogeneous() && desc.target_type() == l_type && desc.owning_type() == r_type {
-            // R is the owner side (heterogeneous only — homo edges don't have a
-            // separate reverse direction; the left side always owns).
             return Some(CanonicalOwner {
-                owner_is_left: false,
+                near_is_owner: false,
                 owner_type: desc.owning_type(),
                 target_type: desc.target_type(),
                 field_name: desc.owning_field(),
+                descriptor: desc,
             });
         }
     }
