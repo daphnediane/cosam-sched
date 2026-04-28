@@ -131,10 +131,8 @@ Both directions of every edge are stored symmetrically in the same map.  Homogen
 
 - `connected_entities::<L, R>(near_node, far_field)` — R entities connected to `near_node` whose far-side field matches `far_field`
 - `connected_field_nodes(near_node, far_field_ref)` — `RuntimeFieldNodeId` neighbors filtered by far-side `FieldRef`
-- `edge_add` / `edge_remove` / `edge_set` — mutators; accept `impl DynamicFieldNodeId`
-- `edge_set_to` — reverse-direction bulk set (used for transitive-edge reverse fields like `members`)
-- `edge_get_bool::<L, R>(l, r, field)` — read a per-edge boolean flag (defaults to `true` if unset)
-- `edge_set_bool::<L, R>(l, r, field, value)` — write a per-edge boolean flag
+- `edge_add` / `edge_remove` — mutators; accept `impl DynamicFieldNodeId`
+- `edge_set<Near, Far>(near, far_field, targets)` — bulk replace neighbors; returns `(added, removed)` diff used for incremental CRDT mirroring
 
 CRDT ownership for any `(near_field, far_field)` pair is resolved by
 `edge_crdt::canonical_owner`, which inspects each side's `crdt_type()`:
@@ -144,20 +142,22 @@ is self-describing (FEATURE-070 collapsed the former `EdgeDescriptor` struct
 and inventory into the field descriptor itself).  Transitive (formerly
 homogeneous) edge mutations also invalidate the `TransitiveEdgeCache`.
 
-### Per-Edge Metadata (legacy, scheduled for removal)
+### Panel ↔ Presenter Edge Partitions
 
-The Panel ↔ Presenter edge currently carries a `credited` boolean per entry,
-stored in a parallel `{field_name}_meta` automerge map keyed by target UUID
-string.  A missing entry defaults to `true`.
+The Panel ↔ Presenter relationship is split into two independent `EdgeOwner`
+lists on Panel: `credited_presenters` and `uncredited_presenters`. Each carries
+`CrdtFieldType::EdgeOwner { target_field: &FIELD_PANELS }` with an `exclusive_with`
+sibling so the macro enforces mutual exclusivity on write. The legacy single
+`presenters` list and the `_meta` boolean per-edge map have been removed.
 
-The per-edge metadata schema (`EdgeFieldSpec` / `EdgeFieldDefault`) was removed
-alongside `EdgeDescriptor` in FEATURE-070; FEATURE-065 will then retire the
-`_meta` map pattern entirely by splitting the single `presenters` list into
-`credited_presenters` and `uncredited_presenters` first-class CRDT lists.
-
-| Edge              | Field      | Type | Default | Meaning                                                    |
-| ----------------- | ---------- | ---- | ------- | ---------------------------------------------------------- |
-| Panel ↔ Presenter | `credited` | bool | `true`  | Whether the presenter appears in the panel's credit output |
+| Panel field                 | Mode       | Semantics                                             |
+| --------------------------- | ---------- | ----------------------------------------------------- |
+| `credited_presenters`       | read/write | First-class CRDT edge list; owner side                |
+| `uncredited_presenters`     | read/write | First-class CRDT edge list; owner side                |
+| `presenters`                | read-only  | Derived union of both lists                           |
+| `add_credited_presenters`   | write-only | Add to credited; remove from uncredited (exclusivity) |
+| `add_uncredited_presenters` | write-only | Add to uncredited; remove from credited (exclusivity) |
+| `remove_presenters`         | write-only | Remove from both lists                                |
 
 ### Transitive Edge Cache
 
@@ -182,7 +182,7 @@ across all entity types — a given UUID belongs to exactly one type, so keying 
 alone is sufficient.
 
 **Invalidation:** `homo_edge_cache` is set to `None` inside `edge_add`, `edge_remove`,
-`edge_set`, `edge_set_to`, and `remove_entity` whenever the edge is homogeneous.
+`edge_set`, and `remove_entity` whenever the edge is homogeneous.
 Heterogeneous-edge mutations do not touch the cache.
 
 **`Schedule` methods:**
@@ -247,8 +247,8 @@ credit-string format.
 
 Relationship fields exposed via computed fields on node entities:
 
-- **Panel**: `presenters` (ro, all attached), `credited_presenters` / `uncredited_presenters` (rw, partition by flag), `add_credited_presenters` / `add_uncredited_presenters` / `remove_presenters`, `event_rooms` / `add_rooms` / `remove_rooms`, `panel_type`, `credits` (formatted credit strings filtered by `credited` flag), `hotel_rooms` (traverses event_rooms to hotel rooms)
-- **Presenter**: `groups`, `members`, `inclusive_groups`, `inclusive_members`, `panels`
+- **Panel**: `credited_presenters` / `uncredited_presenters` (rw, independent edge lists), `presenters` (ro, derived union), `add_credited_presenters` / `add_uncredited_presenters` / `remove_presenters`, `event_rooms` / `add_rooms` / `remove_rooms`, `panel_type`, `credits` (formatted credit strings from `credited_presenters`), `hotel_rooms` (traverses event_rooms to hotel rooms)
+- **Presenter**: `groups`, `members`, `inclusive_groups`, `inclusive_members`, `panels` (derived union of credited/uncredited panels), `add_credited_panels` / `add_uncredited_panels` / `remove_panels`
 - **EventRoom**: `hotel_rooms`, `panels`
 - **HotelRoom**: `event_rooms`
 - **PanelType**: `panels`

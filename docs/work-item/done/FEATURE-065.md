@@ -8,7 +8,7 @@ into actual edge storage fields, eliminating the `credited` per-edge boolean and
 
 ## Status
 
-Open
+Completed
 
 ## Priority
 

@@ -642,7 +642,7 @@ pub fn find_or_create_tagged_presenter(
                 .contains(&gid)
         };
         if !already_in_group {
-            schedule.edge_add::<PresenterEntityType, PresenterEntityType>(
+            schedule.edge_add(
                 FieldNodeId::new(pres_id, &FIELD_MEMBERS),
                 FieldNodeId::new(gid, &FIELD_GROUPS),
             );
@@ -866,33 +866,128 @@ define_field! {
 }
 
 define_field! {
+    /// All panels this presenter is scheduled on (credited and uncredited).
+    ///
+    /// Read-only union of panels where this presenter is credited or uncredited.
     static FIELD_PANELS: FieldDescriptor<PresenterEntityType>,
-    edge: rw, target: PanelEntityType, target_field: &crate::panel::FIELD_PRESENTERS,
     name: "panels", display: "Panels",
-    desc: "Panels this presenter is scheduled on.",
+    desc: "Panels this presenter is scheduled on (credited and uncredited).",
     aliases: &["panel"],
     example: "[]",
-    order: 1100
+    order: 1100,
+    crdt: EdgeTarget, cardinality: list,
+    item: FieldTypeItem::EntityIdentifier(PanelEntityType::TYPE_NAME),
+    read: |sched: &Schedule, id: PresenterId| {
+        // Query panels where this presenter is credited
+        let credited_node = FieldNodeId::new(id, &FIELD_PANELS);
+        let mut ids: Vec<PanelId> = sched
+            .connected_entities::<PresenterEntityType, PanelEntityType>(
+                credited_node,
+                &crate::panel::FIELD_CREDITED_PRESENTERS,
+            );
+        // Query panels where this presenter is uncredited
+        ids.extend(
+            sched.connected_entities::<PresenterEntityType, PanelEntityType>(
+                credited_node,
+                &crate::panel::FIELD_UNCREDITED_PRESENTERS,
+            ),
+        );
+        ids.sort_by_key(|p| p.entity_uuid());
+        ids.dedup();
+        Some(crate::schedule::entity_ids_to_field_value(ids))
+    }
 }
 
 define_field! {
-    static FIELD_ADD_PANELS: FieldDescriptor<PresenterEntityType>,
-    edge: add, target: PanelEntityType, target_field: &crate::panel::FIELD_PRESENTERS,
-    name: "add_panels", display: "Add Panels",
-    desc: "Append panels to this presenter.",
-    aliases: &["add_panel"],
+    /// Add panels to this presenter and mark the presenter as credited on them.
+    ///
+    /// Write-only. Each panel in the list is added with this presenter in the credited list
+    /// and removed from the uncredited list (if present).
+    static FIELD_ADD_CREDITED_PANELS: FieldDescriptor<PresenterEntityType>,
+    name: "add_credited_panels", display: "Add Credited Panels",
+    desc: "Add panels to this presenter and mark the presenter as credited on them.",
+    aliases: &["add_credited_panel"],
     example: "[panel_id]",
-    order: 1200
+    order: 1200,
+    crdt: Derived, cardinality: list,
+    item: FieldTypeItem::EntityIdentifier(PanelEntityType::TYPE_NAME),
+    write: |sched: &mut Schedule, presenter_id: PresenterId, val: FieldValue| {
+        let ids = crate::schedule::field_value_to_entity_ids::<PanelEntityType>(val)?;
+        for p in ids {
+            // Remove from uncredited first (exclusivity)
+            sched.edge_remove(
+                FieldNodeId::new(p, &crate::panel::FIELD_UNCREDITED_PRESENTERS),
+                FieldNodeId::new(presenter_id, &FIELD_PANELS),
+            );
+            // Add to credited
+            sched.edge_add(
+                FieldNodeId::new(p, &crate::panel::FIELD_CREDITED_PRESENTERS),
+                FieldNodeId::new(presenter_id, &FIELD_PANELS),
+            );
+        }
+        Ok(())
+    }
 }
 
 define_field! {
+    /// Add panels to this presenter and mark the presenter as uncredited on them.
+    ///
+    /// Write-only. Each panel in the list is added with this presenter in the uncredited list
+    /// and removed from the credited list (if present).
+    static FIELD_ADD_UNCREDITED_PANELS: FieldDescriptor<PresenterEntityType>,
+    name: "add_uncredited_panels", display: "Add Uncredited Panels",
+    desc: "Add panels to this presenter and mark the presenter as uncredited on them.",
+    aliases: &["add_uncredited_panel"],
+    example: "[panel_id]",
+    order: 1210,
+    crdt: Derived, cardinality: list,
+    item: FieldTypeItem::EntityIdentifier(PanelEntityType::TYPE_NAME),
+    write: |sched: &mut Schedule, presenter_id: PresenterId, val: FieldValue| {
+        let ids = crate::schedule::field_value_to_entity_ids::<PanelEntityType>(val)?;
+        for p in ids {
+            // Remove from credited first (exclusivity)
+            sched.edge_remove(
+                FieldNodeId::new(p, &crate::panel::FIELD_CREDITED_PRESENTERS),
+                FieldNodeId::new(presenter_id, &FIELD_PANELS),
+            );
+            // Add to uncredited
+            sched.edge_add(
+                FieldNodeId::new(p, &crate::panel::FIELD_UNCREDITED_PRESENTERS),
+                FieldNodeId::new(presenter_id, &FIELD_PANELS),
+            );
+        }
+        Ok(())
+    }
+}
+
+define_field! {
+    /// Remove panels from this presenter.
+    ///
+    /// Removes each panel from both credited and uncredited lists.
     static FIELD_REMOVE_PANELS: FieldDescriptor<PresenterEntityType>,
-    edge: remove, target: PanelEntityType, target_field: &crate::panel::FIELD_PRESENTERS,
     name: "remove_panels", display: "Remove Panels",
-    desc: "Remove panels from this presenter.",
+    desc: "Remove panels from this presenter (both credited and uncredited).",
     aliases: &["remove_panel"],
     example: "[panel_id]",
-    order: 1300
+    order: 1300,
+    crdt: Derived, cardinality: list,
+    item: FieldTypeItem::EntityIdentifier(PanelEntityType::TYPE_NAME),
+    write: |sched: &mut Schedule, presenter_id: PresenterId, val: FieldValue| {
+        let ids = crate::schedule::field_value_to_entity_ids::<PanelEntityType>(val)?;
+        for p in ids {
+            // Remove from credited
+            sched.edge_remove(
+                FieldNodeId::new(p, &crate::panel::FIELD_CREDITED_PRESENTERS),
+                FieldNodeId::new(presenter_id, &FIELD_PANELS),
+            );
+            // Remove from uncredited
+            sched.edge_remove(
+                FieldNodeId::new(p, &crate::panel::FIELD_UNCREDITED_PRESENTERS),
+                FieldNodeId::new(presenter_id, &FIELD_PANELS),
+            );
+        }
+        Ok(())
+    }
 }
 
 define_field! {
@@ -1188,7 +1283,7 @@ mod tests {
     #[test]
     fn test_field_set_count_and_required() {
         let fs = PresenterEntityType::field_set();
-        assert_eq!(fs.fields().count(), 15);
+        assert_eq!(fs.fields().count(), 16);
         let required: Vec<_> = fs.required_fields().map(|d| d.name).collect();
         assert_eq!(required, vec!["name"]);
     }
@@ -1277,7 +1372,7 @@ mod tests {
         });
 
         // Add the membership edge: group's MEMBERS pointer ↔ member's GROUPS pointer.
-        sched.edge_add::<PresenterEntityType, PresenterEntityType>(
+        sched.edge_add(
             crate::field_node_id::FieldNodeId::new(group_id, &FIELD_MEMBERS),
             crate::field_node_id::FieldNodeId::new(member_id, &FIELD_GROUPS),
         );
@@ -1486,7 +1581,7 @@ mod tests {
         group.data.is_explicit_group = true;
         sched.insert(alice_id, alice);
         sched.insert(group_id, group);
-        sched.edge_add::<PresenterEntityType, PresenterEntityType>(
+        sched.edge_add(
             FieldNodeId::new(alice_id, &FIELD_MEMBERS),
             FieldNodeId::new(group_id, &FIELD_GROUPS),
         );

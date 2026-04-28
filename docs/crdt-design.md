@@ -21,13 +21,7 @@ Document path layout:
 /meta/schedule_id, /meta/created_at, /meta/generator, /meta/version
 /entities/{type_name}/{uuid}/{field_name}     (per CrdtFieldType)
 /entities/{type_name}/{uuid}/__deleted        (soft delete marker)
-/entities/{type_name}/{uuid}/{edge_field}_meta/{target_uuid}/{meta_field}  (per-edge metadata)
 ```
-
-The `{edge_field}_meta` maps are written only when a per-edge field deviates from
-its default. A missing entry is equivalent to the default value. For example, the
-Panel ↔ Presenter `credited` flag is absent when `true` (the default) and present
-only when explicitly set to `false`.
 
 Every field write flows `FieldValue → automerge op → doc`, then the cache is
 refreshed from the new doc state. Every read is from the cache; a merge /
@@ -88,31 +82,32 @@ fields' `crdt_type()` — no inventory traversal required.
 
 ### Panel
 
-| Field                                                                                             | CrdtFieldType                |
-| ------------------------------------------------------------------------------------------------- | ---------------------------- |
-| `uid`, `name`                                                                                     | `Scalar`                     |
-| `description`                                                                                     | `Text`                       |
-| `note`, `notes_non_printing`, `workshop_notes`, `power_needs`, `av_notes`                         | `Text`                       |
-| `difficulty`, `prereq`, `cost`, `ticket_url`, `simpletix_event`, `simpletix_link`, `alt_panelist` | `Scalar`                     |
-| `sewing_machines`, `is_free`, `is_kids`, `is_full`, `have_ticket_image`, `hide_panelist`          | `Scalar`                     |
-| `capacity`, `seats_sold`, `pre_reg_max`                                                           | `Scalar`                     |
-| `time_slot` (start, duration)                                                                     | `Scalar` (two scalar fields) |
-| `presenters` (CRDT owner, target = `Presenter::FIELD_PANELS`)                                     | `EdgeOwner`                  |
-| `event_rooms` (CRDT owner, target = `EventRoom::FIELD_PANELS`)                                    | `EdgeOwner`                  |
-| `panel_type` (CRDT owner, target = `PanelType::FIELD_PANELS`)                                     | `EdgeOwner`                  |
-| `credited_presenters`, `uncredited_presenters` (computed, no direct CRDT storage)                 | `Derived`                    |
-| `presenters_meta` (per-edge metadata map)                                                         | see Per-Edge Metadata below  |
+| Field                                                                                                      | CrdtFieldType                |
+| ---------------------------------------------------------------------------------------------------------- | ---------------------------- |
+| `uid`, `name`                                                                                              | `Scalar`                     |
+| `description`                                                                                              | `Text`                       |
+| `note`, `notes_non_printing`, `workshop_notes`, `power_needs`, `av_notes`                                  | `Text`                       |
+| `difficulty`, `prereq`, `cost`, `ticket_url`, `simpletix_event`, `simpletix_link`, `alt_panelist`          | `Scalar`                     |
+| `sewing_machines`, `is_free`, `is_kids`, `is_full`, `have_ticket_image`, `hide_panelist`                   | `Scalar`                     |
+| `capacity`, `seats_sold`, `pre_reg_max`                                                                    | `Scalar`                     |
+| `time_slot` (start, duration)                                                                              | `Scalar` (two scalar fields) |
+| `credited_presenters` (CRDT owner, target = `Presenter::FIELD_PANELS`, exclusive: `uncredited_presenters`) | `EdgeOwner`                  |
+| `uncredited_presenters` (CRDT owner, target = `Presenter::FIELD_PANELS`, exclusive: `credited_presenters`) | `EdgeOwner`                  |
+| `presenters` (derived union of both presenter lists)                                                       | `Derived`                    |
+| `event_rooms` (CRDT owner, target = `EventRoom::FIELD_PANELS`)                                             | `EdgeOwner`                  |
+| `panel_type` (CRDT owner, target = `PanelType::FIELD_PANELS`)                                              | `EdgeOwner`                  |
 
 ### Presenter
 
-| Field                                                          | CrdtFieldType |
-| -------------------------------------------------------------- | ------------- |
-| `name`                                                         | `Scalar`      |
-| `bio`                                                          | `Text`        |
-| `rank`, `sort_rank`                                            | `Scalar`      |
-| `is_explicit_group`, `always_grouped`, `always_shown_in_group` | `Scalar`      |
-| `members` (CRDT owner, target = `FIELD_GROUPS`)                | `EdgeOwner`   |
-| `groups`, `panels` (computed, non-owner lookup side)           | `EdgeTarget`  |
+| Field                                                                         | CrdtFieldType |
+| ----------------------------------------------------------------------------- | ------------- |
+| `name`                                                                        | `Scalar`      |
+| `bio`                                                                         | `Text`        |
+| `rank`, `sort_rank`                                                           | `Scalar`      |
+| `is_explicit_group`, `always_grouped`, `always_shown_in_group`                | `Scalar`      |
+| `members` (CRDT owner, target = `FIELD_GROUPS`)                               | `EdgeOwner`   |
+| `groups` (non-owner lookup side)                                              | `EdgeTarget`  |
+| `panels` (derived union of credited/uncredited panels, non-owner lookup side) | `EdgeTarget`  |
 
 ### EventRoom
 
@@ -154,52 +149,26 @@ entity type combined with `target_field` is enough for `mirror_entity_fields`
 to pre-create the right list via `ensure_owner_list` at entity-insertion time,
 replacing the former `ensure_all_owner_lists_for_type` global scan.
 
-| Relation                    | Owner              | Field on owner   |
-| --------------------------- | ------------------ | ---------------- |
-| Panel ↔ Presenter           | Panel              | `presenter_ids`  |
-| Panel ↔ EventRoom           | Panel              | `event_room_ids` |
-| Panel → PanelType           | Panel              | `panel_type_id`  |
-| EventRoom ↔ HotelRoom       | EventRoom          | `hotel_room_ids` |
-| Presenter → Presenter group | Presenter (member) | `group_ids`      |
+| Relation                       | Owner              | Field on owner          |
+| ------------------------------ | ------------------ | ----------------------- |
+| Panel ↔ Presenter (credited)   | Panel              | `credited_presenters`   |
+| Panel ↔ Presenter (uncredited) | Panel              | `uncredited_presenters` |
+| Panel ↔ EventRoom              | Panel              | `event_room_ids`        |
+| Panel → PanelType              | Panel              | `panel_type_id`         |
+| EventRoom ↔ HotelRoom          | EventRoom          | `hotel_room_ids`        |
+| Presenter → Presenter group    | Presenter (member) | `group_ids`             |
 
 Automerge list operations give add-wins resolution for concurrent edge
 mutations: an add and a concurrent remove of the same target UUID resolve to
 the add. `RawEdgeMap` is a fast bidirectional in-memory index rebuilt from
 these owner lists on load and maintained incrementally on every write.
 
-### Per-Edge Metadata
+### `edge_set` incremental mirroring
 
-Some edges carry additional scalar data beyond membership. These are stored in a
-parallel `{edge_field}_meta` automerge `ObjType::Map` on the owning entity, keyed
-by target UUID string. Each value is a nested `ObjType::Map` of per-edge scalars
-(LWW semantics). A missing entry means the field is at its declared default.
-
-```text
-entities/panel/{uuid}/
-  presenters              ObjType::List   ← membership list
-  presenters_meta         ObjType::Map    ← per-edge data
-    "{presenter_uuid}":   ObjType::Map
-      "credited": bool    ← LWW scalar; absent ≡ default (true)
-```
-
-Removing a presenter leaves the meta entry as a harmless tombstone.  The
-per-edge metadata schema (`EdgeFieldSpec` / `EdgeFieldDefault`) was removed
-with `EdgeDescriptor` in FEATURE-070; the only remaining caller (`credited`)
-hardcodes `true` as its default until FEATURE-065 retires the entire `_meta`
-map pattern by splitting `presenters` into `credited_presenters` and
-`uncredited_presenters` first-class CRDT lists.
-
-**API:** `Schedule::edge_get_bool<L,R>(l, r, field)` and
-`Schedule::edge_set_bool<L,R>(l, r, field, value)` are the typed access points.
-The underlying CRDT helpers are `edge_crdt::read_edge_meta_bool` /
-`edge_crdt::write_edge_meta_bool`.  Both functions and their CRDT helpers will
-be deleted by FEATURE-065.
-
-**Currently implemented per-edge fields (legacy, scheduled for removal):**
-
-| Edge              | Field      | Default | Meaning                                          |
-| ----------------- | ---------- | ------- | ------------------------------------------------ |
-| Panel ↔ Presenter | `credited` | `true`  | Whether the presenter appears in `FIELD_CREDITS` |
+`Schedule::edge_set` calls `RawEdgeMap::set_neighbors`, which returns
+`(added, removed)` UUID diffs. `mirror_edge_set` applies these as incremental
+`list_append_unique` / `list_remove_uuid` operations rather than full list
+rewrites, preserving concurrent adds from other replicas (add-wins semantics).
 
 ### Entity identity
 

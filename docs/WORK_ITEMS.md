@@ -1,6 +1,6 @@
 # Cosplay America Schedule - Work Item
 
-Updated on: Mon Apr 27 22:24:30 2026
+Updated on: Tue Apr 28 12:54:28 2026
 
 ## Completed
 
@@ -33,10 +33,14 @@ wrappers) to `value.rs` as `Copy` type-level mirrors of `FieldValueItem`/`FieldV
 * [FEATURE-051] Add a `field_type: FieldType` field to `FieldDescriptor` and populate it in all
 existing static field descriptors across every entity file.
 * [FEATURE-057] Implement a transitive edge relationship cache to efficiently compute inclusive members, groups, panels, and other hierarchical relationships.
+* [FEATURE-065] Convert `credited_presenters` and `uncredited_presenters` on Panel from computed/derived fields
+into actual edge storage fields, eliminating the `credited` per-edge boolean and its CRDT
+`presenters_meta` map.
 * [FEATURE-068] Add `Copy` as a super-trait of `DynamicEntityId` so that by-value usage of id
 parameters is ergonomic without ownership gymnastics.
 * [FEATURE-069] Encode CRDT edge ownership direction directly in `CrdtFieldType` instead of
 relying solely on `EdgeDescriptor` and `canonical_owner()`.
+* [FEATURE-070] Remove the separate `EdgeDescriptor` struct and inventory; encode CRDT-edge ownership and target field directly inside `CrdtFieldType::EdgeOwner` on the owner field.
 * [FEATURE-071] Replace the declarative `macro_rules!` field-declaration helpers (`stored_field!`,
 `edge_field!`, `define_field!`) with attribute-style proc-macros in a new
 `schedule-macro` crate; add an `exclusive_with:` clause to express
@@ -87,7 +91,7 @@ and improve `FieldId` conversions with a global registry and type-safe downcasti
 
 ## Summary of Open Items
 
-**Total open items:** 22
+**Total open items:** 20
 
 * **Meta / Project-Level**
   * [META-001] Meta work item tracking the full multi-phase redesign of the schedule system. (Blocked by [META-005], [META-006], [META-007], [META-008])
@@ -101,10 +105,6 @@ XLSX import/export. (Blocked by [META-004])
   * [BUGFIX-073] `PanelInternalData::time_slot` has no CRDT backing field, so panel start /
 end / duration are not mirrored to the Automerge document and are lost
 through any save → load (or merge) round trip.
-  * [FEATURE-065] Convert `credited_presenters` and `uncredited_presenters` on Panel from computed/derived fields
-into actual edge storage fields, eliminating the `credited` per-edge boolean and its CRDT
-`presenters_meta` map.
-  * [FEATURE-070] Remove the separate `EdgeDescriptor` struct and inventory; encode CRDT-edge ownership and target field directly inside `CrdtFieldType::EdgeOwner` on the owner field.
 
 * **Medium Priority**
   * [BUGFIX-045] In `scratch/field_update_logic.rs`, duration values are incorrectly stored as `FieldValue::Integer(minutes)` instead of `FieldValue::Duration(Duration)`.
@@ -311,48 +311,6 @@ panels arranged by time and room, with inline editing of entity fields.
 ---
 
 ## Open FEATURE Items
-
-### [FEATURE-065] FEATURE-065: Split credited_presenters into separate CRDT edge fields
-
-**Status:** Open
-
-**Priority:** High
-
-**Summary:** Convert `credited_presenters` and `uncredited_presenters` on Panel from computed/derived fields
-into actual edge storage fields, eliminating the `credited` per-edge boolean and its CRDT
-`presenters_meta` map.
-
-**Blocked By:** [REFACTOR-064], [FEATURE-070], [FEATURE-071]
-
-**Description:** Currently Panel stores one CRDT list (`presenters`) plus a parallel `presenters_meta` map with a
-`credited` boolean per entry.  `credited_presenters` and `uncredited_presenters` are computed
-fields that filter by that boolean, and `add_credited_presenters` / `add_uncredited_presenters`
-are write-only helpers that toggle it.
-
-After FEATURE-070, `CrdtFieldType::EdgeOwner` carries `target_field` directly, so adding new
-owner-side edge fields is straightforward.  The `EdgeFieldSpec` / `EdgeFieldDefault` schema for
-per-edge metadata was already removed by FEATURE-070; only the runtime helpers remain.
-
-The remaining work is to turn the partition into two first-class CRDT lists.
-
----
-
-### [FEATURE-070] FEATURE-070: Eliminate EdgeDescriptor; fold target_field into FieldDescriptor
-
-**Status:** In progress
-
-**Priority:** High
-
-**Summary:** Remove the separate `EdgeDescriptor` struct and inventory; encode CRDT-edge ownership and target field directly inside `CrdtFieldType::EdgeOwner` on the owner field.
-
-**Description:** Each edge relationship was described in two places:
-
-1. The owner field's `CrdtFieldType::EdgeOwner(&'static EdgeDescriptor)`.
-2. A separate `pub(crate) static EDGE_<NAME>: EdgeDescriptor = …;` plus its own `inventory::submit!` registration.
-
-`EdgeDescriptor` carried `name` (debug only), `owner_field` (self-reference, redundant), `target_field` (the only piece not already on the owner), and `fields: &[EdgeFieldSpec]` (per-edge metadata, slated for removal by FEATURE-065). Collapsing the two leaves a simpler model where the owner field is the edge descriptor.
-
----
 
 ### [FEATURE-026] Multi-Year Schedule Archive Support
 
@@ -682,10 +640,10 @@ This item covers any remaining integration work and documentation.
 [FEATURE-051]: work-item/done/FEATURE-051.md
 [FEATURE-056]: work-item/medium/FEATURE-056.md
 [FEATURE-057]: work-item/done/FEATURE-057.md
-[FEATURE-065]: work-item/high/FEATURE-065.md
+[FEATURE-065]: work-item/done/FEATURE-065.md
 [FEATURE-068]: work-item/done/FEATURE-068.md
 [FEATURE-069]: work-item/done/FEATURE-069.md
-[FEATURE-070]: work-item/high/FEATURE-070.md
+[FEATURE-070]: work-item/done/FEATURE-070.md
 [FEATURE-071]: work-item/done/FEATURE-071.md
 [META-001]: work-item/meta/META-001.md
 [META-002]: work-item/done/META-002.md

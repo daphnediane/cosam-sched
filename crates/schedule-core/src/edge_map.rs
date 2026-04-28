@@ -117,12 +117,16 @@ impl RawEdgeMap {
     /// 1. Removes `from` as a reverse entry from every current target of this edge.
     /// 2. Overwrites the edge list for `(from_field, far_field)` with `new_targets`.
     /// 3. Inserts `from` as a reverse entry on each new target (idempotent).
+    ///
+    /// Returns `(added, removed)` UUIDs reflecting the diff vs the previous
+    /// neighbor set. Callers can use this to apply incremental CRDT mirror
+    /// updates rather than full list rewrites.
     pub fn set_neighbors(
         &mut self,
         from: impl DynamicFieldNodeId,
         far: FieldRef,
         new_targets: Vec<RuntimeFieldNodeId>,
-    ) {
+    ) -> (Vec<NonNilUuid>, Vec<NonNilUuid>) {
         let from_field = FieldRef(from.field());
         let from_uuid = from.entity_uuid();
         let edge_key = (from_field, far);
@@ -136,30 +140,42 @@ impl RawEdgeMap {
             .cloned()
             .unwrap_or_default();
 
-        // Remove `from` from each old target's reverse list.
-        for old_uuid in old_uuids {
-            if let Some(inner) = self.map.get_mut(&old_uuid) {
-                if let Some(v) = inner.get_mut(&reverse_key) {
-                    v.retain(|uuid| *uuid != from_uuid);
-                }
-            }
-        }
-
         // Build new neighbor UUIDs
         let new_neighbor_uuids: Vec<NonNilUuid> = new_targets
             .iter()
             .map(|target| target.entity_uuid())
             .collect();
 
+        // Compute diffs.
+        let added: Vec<NonNilUuid> = new_neighbor_uuids
+            .iter()
+            .filter(|u| !old_uuids.contains(u))
+            .copied()
+            .collect();
+        let removed: Vec<NonNilUuid> = old_uuids
+            .iter()
+            .filter(|u| !new_neighbor_uuids.contains(u))
+            .copied()
+            .collect();
+
+        // Remove `from` from each removed target's reverse list.
+        for old_uuid in &removed {
+            if let Some(inner) = self.map.get_mut(old_uuid) {
+                if let Some(v) = inner.get_mut(&reverse_key) {
+                    v.retain(|uuid| *uuid != from_uuid);
+                }
+            }
+        }
+
         // Overwrite the edge list.
         let from_inner = self.map.entry(from_uuid).or_default();
-        from_inner.insert(edge_key, new_neighbor_uuids.clone());
+        from_inner.insert(edge_key, new_neighbor_uuids);
 
-        // Insert `from` as a reverse entry on each new target (idempotent).
-        for target_uuid in new_neighbor_uuids {
+        // Insert `from` as a reverse entry on each added target (idempotent).
+        for target_uuid in &added {
             let v = self
                 .map
-                .entry(target_uuid)
+                .entry(*target_uuid)
                 .or_default()
                 .entry(reverse_key)
                 .or_default();
@@ -167,6 +183,8 @@ impl RawEdgeMap {
                 v.push(from_uuid);
             }
         }
+
+        (added, removed)
     }
 
     /// Remove all edges involving `uuid`, maintaining bidirectional consistency.

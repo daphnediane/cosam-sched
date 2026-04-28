@@ -15,17 +15,18 @@
 //!
 //! | Relation                     | Owner     | Field          | Homo? |
 //! |------------------------------|-----------|----------------|-------|
-//! | Panel ↔ Presenter            | Panel     | `presenters`   | no    |
-//! | Panel ↔ EventRoom            | Panel     | `event_rooms`  | no    |
-//! | Panel → PanelType            | Panel     | `panel_type`   | no    |
-//! | EventRoom ↔ HotelRoom        | EventRoom | `hotel_rooms`  | no    |
-//! | Presenter → Group            | Presenter | `groups`       | yes   |
+//! | Panel ↔ Presenter (credited)   | Panel     | `credited_presenters`   | no    |
+//! | Panel ↔ Presenter (uncredited) | Panel     | `uncredited_presenters` | no    |
+//! | Panel ↔ EventRoom              | Panel     | `event_rooms`           | no    |
+//! | Panel → PanelType              | Panel     | `panel_type`            | no    |
+//! | EventRoom ↔ HotelRoom          | EventRoom | `hotel_rooms`           | no    |
+//! | Presenter → Group              | Presenter | `groups`                | yes   |
 //!
-//! Every `Schedule::edge_add` / `edge_remove` / `edge_set` / `edge_set_to`
-//! call resolves the canonical owner for its `(L, R)` pair and writes the
-//! post-mutation list to the doc so that concurrent replicas converge under
-//! automerge's list semantics (add-wins for concurrent add/remove,
-//! union-of-inserts for concurrent adds — see `docs/crdt-design.md`).
+//! Every `Schedule::edge_add` / `edge_remove` / `edge_set`
+//! call resolves the canonical owner for its `(near_field, far_field)` pair
+//! and writes incremental list operations to the doc so that concurrent
+//! replicas converge under automerge's list semantics (add-wins for
+//! concurrent add/remove — see `docs/crdt-design.md`).
 
 use crate::crdt;
 use crate::entity::{EntityUuid, RuntimeEntityId};
@@ -76,23 +77,6 @@ impl std::fmt::Debug for CanonicalOwner {
     }
 }
 
-/// Iterate every registered field whose `crdt_type` is `EdgeOwner`, yielding
-/// `(owner_field, target_field)` pairs.
-fn iter_owner_fields() -> impl Iterator<
-    Item = (
-        &'static dyn crate::field::NamedField,
-        &'static dyn crate::field::NamedField,
-    ),
-> {
-    crate::field::all_named_fields().filter_map(|c| {
-        let owner = c.0;
-        match owner.crdt_type() {
-            crate::value::CrdtFieldType::EdgeOwner { target_field } => Some((owner, target_field)),
-            _ => None,
-        }
-    })
-}
-
 /// Resolve CRDT ownership for an edge given both field descriptors.
 ///
 /// Each field knows its own [`crate::value::CrdtFieldType`], so resolution
@@ -134,34 +118,6 @@ pub fn canonical_owner(
                 near_is_owner: false,
                 owner_field: far_field,
                 target_field,
-            });
-        }
-    }
-    None
-}
-
-/// Legacy type-name-based lookup — used by `edge_get_bool` / `edge_set_bool`
-/// which don't yet carry field descriptors.
-///
-/// **Will break** once multiple edge types exist between the same pair of entity
-/// types.  Callers should migrate to field-based [`canonical_owner`].
-#[must_use]
-pub fn canonical_owner_by_types(l_type: &str, r_type: &str) -> Option<CanonicalOwner> {
-    for (owner_nf, target_nf) in iter_owner_fields() {
-        let owner_type = owner_nf.entity_type_name();
-        let target_type = target_nf.entity_type_name();
-        if owner_type == l_type && target_type == r_type {
-            return Some(CanonicalOwner {
-                near_is_owner: true,
-                owner_field: owner_nf,
-                target_field: target_nf,
-            });
-        }
-        if owner_type != target_type && target_type == l_type && owner_type == r_type {
-            return Some(CanonicalOwner {
-                near_is_owner: false,
-                owner_field: owner_nf,
-                target_field: target_nf,
             });
         }
     }
@@ -276,10 +232,10 @@ pub fn list_remove_uuid(
     Ok(())
 }
 
-/// Replace-style full-list rewrite for `owner.field_name`.  Used by
-/// `Schedule::edge_set` / `edge_set_to` when the caller explicitly wants
-/// LWW-on-the-whole-list semantics (reasonable for user-driven bulk
-/// "replace" actions, documented as such in `docs/crdt-design.md`).
+/// Replace-style full-list rewrite for `owner.field_name`.  Used only
+/// internally when the caller explicitly wants LWW-on-the-whole-list
+/// semantics (reasonable for user-driven bulk "replace" actions,
+/// documented as such in `docs/crdt-design.md`).
 ///
 /// Reuses the existing list object when present so that follow-up
 /// incremental operations from a divergent replica can still merge.

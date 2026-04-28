@@ -323,8 +323,21 @@ fn generate_rw_write(
     target_field: &Expr,
     exclusive_with: Option<&Expr>,
 ) -> TokenStream {
-    let exclusivity_prelude =
-        exclusivity_prelude(entity, target, exclusive_with, /*per_id=*/ true);
+    let exclusivity_prelude = if let Some(exclusive_with) = exclusive_with {
+        // For rw fields with exclusive_with, we need to remove from the sibling field
+        // before setting this field. The sibling field is on the same entity.
+        quote! {
+            let __near = unsafe{ ::schedule_core::field_node_id::RuntimeFieldNodeId::new_unchecked(id.entity_uuid(), #exclusive_with) };
+            for __r in &ids {
+                sched.edge_remove(
+                    __near,
+                    ::schedule_core::field_node_id::FieldNodeId::new(*__r, #target_field),
+                );
+            }
+        }
+    } else {
+        quote!()
+    };
     quote! {
         Some(::schedule_core::field::WriteFn::Schedule(
             |sched: &mut ::schedule_core::schedule::Schedule,
@@ -351,8 +364,18 @@ fn generate_add_write(
     target_field: &Expr,
     exclusive_with: Option<&Expr>,
 ) -> TokenStream {
-    let exclusivity_prelude =
-        exclusivity_prelude(entity, target, exclusive_with, /*per_id=*/ false);
+    let exclusivity_prelude = if let Some(sibling) = exclusive_with {
+        // For add fields with exclusive_with, we need to remove from the sibling field
+        // before adding to this field. The sibling field is on the same entity.
+        quote! {
+            sched.edge_remove(
+                    unsafe{ ::schedule_core::field_node_id::RuntimeFieldNodeId::new_unchecked(id.entity_uuid(), #sibling) },
+                    ::schedule_core::field_node_id::FieldNodeId::new(r, #target_field),
+            );
+        }
+    } else {
+        quote!()
+    };
     quote! {
         Some(::schedule_core::field::WriteFn::Schedule(
             |sched: &mut ::schedule_core::schedule::Schedule,
@@ -362,7 +385,7 @@ fn generate_add_write(
                     ::schedule_core::schedule::field_value_to_entity_ids::<#target>(val)?;
                 for r in ids {
                     #exclusivity_prelude
-                    sched.edge_add::<#entity, #target>(
+                    sched.edge_add(
                         ::schedule_core::field_node_id::FieldNodeId::new(id, &#static_name),
                         ::schedule_core::field_node_id::FieldNodeId::new(r, #target_field),
                     );
@@ -387,7 +410,7 @@ fn generate_remove_write(
                 let ids =
                     ::schedule_core::schedule::field_value_to_entity_ids::<#target>(val)?;
                 for r in ids {
-                    sched.edge_remove::<#entity, #target>(
+                    sched.edge_remove(
                         ::schedule_core::field_node_id::FieldNodeId::new(id, &#static_name),
                         ::schedule_core::field_node_id::FieldNodeId::new(r, #target_field),
                     );
@@ -395,55 +418,6 @@ fn generate_remove_write(
                 Ok(())
             },
         ))
-    }
-}
-
-/// Generate the `exclusive_with` prelude.
-///
-/// - For `mode: rw` (`per_id = true`): emit a per-id loop over the new value
-///   that calls `edge_remove` against the sibling field.  Runs **before** the
-///   `edge_set`, so cross-partition entries are evicted from the sibling
-///   before the new list takes effect.
-/// - For `mode: add` (`per_id = false`): emit inside the existing per-id
-///   loop, removing the current id from the sibling.
-fn exclusivity_prelude(
-    entity: &Type,
-    target: &Type,
-    exclusive_with: Option<&Expr>,
-    per_id: bool,
-) -> TokenStream {
-    let Some(sibling) = exclusive_with else {
-        return quote!();
-    };
-    if per_id {
-        quote! {
-            for __r in &ids {
-                sched.edge_remove::<#entity, #target>(
-                    ::schedule_core::field_node_id::FieldNodeId::new(id, #sibling),
-                    ::schedule_core::field_node_id::FieldNodeId::new(*__r,
-                        // Same target_field as the sibling owner field's edge.
-                        // We rely on the caller passing a sibling that uses the
-                        // same target_field.
-                        match (#sibling).crdt_type() {
-                            ::schedule_core::value::CrdtFieldType::EdgeOwner { target_field } => target_field,
-                            _ => panic!("exclusive_with sibling must be EdgeOwner"),
-                        },
-                    ),
-                );
-            }
-        }
-    } else {
-        quote! {
-            sched.edge_remove::<#entity, #target>(
-                ::schedule_core::field_node_id::FieldNodeId::new(id, #sibling),
-                ::schedule_core::field_node_id::FieldNodeId::new(r,
-                    match (#sibling).crdt_type() {
-                        ::schedule_core::value::CrdtFieldType::EdgeOwner { target_field } => target_field,
-                        _ => panic!("exclusive_with sibling must be EdgeOwner"),
-                    },
-                ),
-            );
-        }
     }
 }
 

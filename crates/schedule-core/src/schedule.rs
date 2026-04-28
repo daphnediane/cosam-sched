@@ -853,15 +853,22 @@ impl Schedule {
     /// (via [`crate::edge_crdt::list_append_unique`]) — **not** rewritten in
     /// full — so concurrent add/add from two replicas converges to the
     /// union rather than LWW on the list object.
-    pub fn edge_add<L: EntityType, R: EntityType>(&mut self, l: FieldNodeId<L>, r: FieldNodeId<R>) {
-        self.edges.add_edge(l, r);
+    pub fn edge_add(&mut self, l: impl DynamicFieldNodeId, r: impl DynamicFieldNodeId) {
+        let l_type = l.entity_type_name();
+        let r_type = r.entity_type_name();
 
-        // Invalidate transitive cache when L and R share the same entity type.
-        if L::TYPE_NAME == R::TYPE_NAME {
+        // Copy values since DynamicFieldNodeId includes Copy
+        let l_copy = l;
+        let r_copy = r;
+
+        self.edges.add_edge(l_copy, r_copy);
+
+        // Invalidate transitive cache when the two endpoints share the same entity type.
+        if l_type == r_type {
             *self.transitive_edge_cache.borrow_mut() = None;
         }
 
-        // CRDT mirror
+        // CRDT mirror - use the original values (which were copied above)
         self.mirror_edge_add(&l, &r);
     }
 
@@ -869,19 +876,22 @@ impl Schedule {
     ///
     /// The CRDT mirror uses an incremental delete on observed indices so
     /// concurrent add-vs-unobserved-remove resolves add-wins.
-    pub fn edge_remove<L: EntityType, R: EntityType>(
-        &mut self,
-        l: FieldNodeId<L>,
-        r: FieldNodeId<R>,
-    ) {
-        self.edges.remove_edge(l, r);
+    pub fn edge_remove(&mut self, l: impl DynamicFieldNodeId, r: impl DynamicFieldNodeId) {
+        let l_type = l.entity_type_name();
+        let r_type = r.entity_type_name();
 
-        // Invalidate transitive cache when L and R share the same entity type.
-        if L::TYPE_NAME == R::TYPE_NAME {
+        // Copy values since DynamicFieldNodeId includes Copy
+        let l_copy = l;
+        let r_copy = r;
+
+        self.edges.remove_edge(l_copy, r_copy);
+
+        // Invalidate transitive cache when the two endpoints share the same entity type.
+        if l_type == r_type {
             *self.transitive_edge_cache.borrow_mut() = None;
         }
 
-        // CRDT mirror
+        // CRDT mirror - use the original values (which were copied above)
         self.mirror_edge_remove(&l, &r);
     }
 
@@ -906,7 +916,7 @@ impl Schedule {
             .copied()
             .map(|t| RuntimeFieldNodeId::from(FieldNodeId::new(t, far_field)))
             .collect();
-        self.edges.set_neighbors(near, far_field_ref, new_targets);
+        let (added, removed) = self.edges.set_neighbors(near, far_field_ref, new_targets);
 
         // Invalidate transitive cache when near and far share the same entity type.
         if Near::TYPE_NAME == Far::TYPE_NAME {
@@ -914,82 +924,7 @@ impl Schedule {
         }
 
         // CRDT mirror — field-based canonical_owner resolves ownership.
-        self.mirror_edge_set(&near, far_field, &targets);
-    }
-
-    /// Read a boolean per-edge property for the `(l, r)` edge.
-    ///
-    /// Resolves the canonical owner for `(L, R)` and reads the value from the
-    /// `{field_name}_meta` CRDT map.  Returns `true` (the only currently-used
-    /// per-edge boolean default — `credited`) when no explicit value has been
-    /// written.
-    ///
-    /// FEATURE-065 will remove this function entirely along with its callers.
-    #[must_use]
-    pub fn edge_get_bool<L: EntityType, R: EntityType>(
-        &self,
-        l_id: EntityId<L>,
-        r_id: EntityId<R>,
-        prop: &str,
-    ) -> bool {
-        let Some(canon) = crate::edge_crdt::canonical_owner_by_types(L::TYPE_NAME, R::TYPE_NAME)
-        else {
-            return true;
-        };
-        let (owner_uuid, target_uuid) = if canon.near_is_owner {
-            (l_id.entity_uuid(), r_id.entity_uuid())
-        } else {
-            (r_id.entity_uuid(), l_id.entity_uuid())
-        };
-        // Per-edge metadata schema (`EdgeFieldSpec`/`EdgeFieldDefault`) was
-        // removed with `EdgeDescriptor` in FEATURE-070.  The only existing
-        // caller writes `credited` (defaulting to true), so we hardcode that
-        // until FEATURE-065 retires this function.
-        let default = true;
-        crate::edge_crdt::read_edge_meta_bool(
-            &self.doc,
-            canon.owner_type(),
-            owner_uuid,
-            canon.field_name(),
-            target_uuid,
-            prop,
-            default,
-        )
-    }
-
-    /// Write a boolean per-edge property for the `(l, r)` edge (LWW).
-    ///
-    /// Resolves the canonical owner for `(L, R)` and writes the value into
-    /// the `{field_name}_meta` CRDT map.  Silently no-ops if the pair is not
-    /// a recognized relationship.
-    pub fn edge_set_bool<L: EntityType, R: EntityType>(
-        &mut self,
-        l_id: EntityId<L>,
-        r_id: EntityId<R>,
-        prop: &str,
-        value: bool,
-    ) {
-        let Some(canon) = crate::edge_crdt::canonical_owner_by_types(L::TYPE_NAME, R::TYPE_NAME)
-        else {
-            return;
-        };
-        let (owner_uuid, target_uuid) = if canon.near_is_owner {
-            (l_id.entity_uuid(), r_id.entity_uuid())
-        } else {
-            (r_id.entity_uuid(), l_id.entity_uuid())
-        };
-        if let Err(e) = crate::edge_crdt::write_edge_meta_bool(
-            &mut self.doc,
-            canon.owner_type(),
-            owner_uuid,
-            canon.field_name(),
-            target_uuid,
-            prop,
-            value,
-        ) {
-            debug_assert!(false, "CRDT edge_set_bool failed: {e}");
-            let _ = e;
-        }
+        self.mirror_edge_set(&near, far_field, &added, &removed);
     }
 
     /// After `edge_add`, incrementally append the new endpoint into the
@@ -1062,12 +997,16 @@ impl Schedule {
         }
     }
 
-    /// Edge-set mirror — bulk version.
+    /// Edge-set mirror — incremental version.
     ///
-    /// When near is the canonical owner, a single list write on `near` suffices.
-    /// When far owns, every far entity that may have gained or lost `near`
-    /// needs its list re-synced; the simplest correct strategy is to
-    /// re-derive from the edge map for every currently-in-range far entity.
+    /// Applies the `(added, removed)` diff produced by [`EdgeMap::set_neighbors`]
+    /// as a series of per-edge incremental CRDT operations (`list_append_unique`
+    /// / `list_remove_uuid`) so that concurrent edits on other replicas are
+    /// preserved rather than clobbered by a full list rewrite.
+    ///
+    /// When near is the canonical owner, all writes target near's list.
+    /// When far is the canonical owner, each added/removed far entity's list
+    /// is updated to add/remove near.
     ///
     /// Field refs are derived directly from the [`crate::edge_crdt::CanonicalOwner`]
     /// returned by [`crate::edge_crdt::canonical_owner`].
@@ -1075,7 +1014,8 @@ impl Schedule {
         &mut self,
         near: &impl DynamicFieldNodeId,
         far_field: &'static dyn crate::field::NamedField,
-        far_targets: &[impl crate::entity::DynamicEntityId],
+        added: &[NonNilUuid],
+        removed: &[NonNilUuid],
     ) {
         if !self.mirror_enabled {
             return;
@@ -1084,83 +1024,61 @@ impl Schedule {
             return;
         };
         let near_uuid = near.entity_uuid();
-        let owner_field_ref = canon.owner_field.field_id();
-        let target_field_ref = canon.target_field.field_id();
         if canon.near_is_owner {
-            // Single write on near's list — query current neighbors via edge map.
-            let targets: Vec<NonNilUuid> = self
-                .edges
-                .neighbors(
-                    unsafe {
-                        crate::field_node_id::RuntimeFieldNodeId::new_unchecked(
-                            near_uuid,
-                            owner_field_ref.0,
-                        )
-                    },
-                    target_field_ref,
-                )
-                .iter()
-                .map(|fn_id| fn_id.entity_uuid())
-                .collect();
-            if let Err(e) = crate::edge_crdt::write_owner_list(
-                &mut self.doc,
-                canon.owner_type(),
-                near_uuid,
-                canon.target_type(),
-                canon.field_name(),
-                &targets,
-            ) {
-                debug_assert!(false, "CRDT edge mirror failed: {e}");
-                let _ = e;
+            // Apply diffs to near's owner list.
+            for target_uuid in added {
+                if let Err(e) = crate::edge_crdt::list_append_unique(
+                    &mut self.doc,
+                    canon.owner_type(),
+                    near_uuid,
+                    canon.target_type(),
+                    canon.field_name(),
+                    *target_uuid,
+                ) {
+                    debug_assert!(false, "CRDT edge_set mirror (append) failed: {e}");
+                    let _ = e;
+                }
+            }
+            for target_uuid in removed {
+                if let Err(e) = crate::edge_crdt::list_remove_uuid(
+                    &mut self.doc,
+                    canon.owner_type(),
+                    near_uuid,
+                    canon.target_type(),
+                    canon.field_name(),
+                    *target_uuid,
+                ) {
+                    debug_assert!(false, "CRDT edge_set mirror (remove) failed: {e}");
+                    let _ = e;
+                }
             }
             return;
         }
-        // Far is owner — rewrite every currently-connected far entity's list,
-        // plus each far in `far_targets` that may have just gained near.
-        let mut owners: Vec<NonNilUuid> = far_targets.iter().map(|t| t.entity_uuid()).collect();
-        // Scan all owner entities in the doc for any that previously contained
-        // near_uuid (they may have been removed from the edge map).
-        let doc_uuids = crdt::list_all_uuids(&self.doc, canon.owner_type());
-        for far_uuid in doc_uuids {
-            if owners.contains(&far_uuid) {
-                continue;
-            }
-            let prev = crate::edge_crdt::read_owner_list(
-                &self.doc,
-                canon.owner_type(),
-                far_uuid,
-                canon.field_name(),
-                crate::value::FieldTypeItem::EntityIdentifier(near.field().entity_type_name()),
-            );
-            if prev.contains(&near_uuid) {
-                owners.push(far_uuid);
-            }
-        }
-        for owner_uuid in owners {
-            // Far is the owner; query its neighbors toward the near side.
-            let targets: Vec<NonNilUuid> = self
-                .edges
-                .neighbors(
-                    unsafe {
-                        crate::field_node_id::RuntimeFieldNodeId::new_unchecked(
-                            owner_uuid,
-                            owner_field_ref.0,
-                        )
-                    },
-                    target_field_ref,
-                )
-                .iter()
-                .map(|fn_id| fn_id.entity_uuid())
-                .collect();
-            if let Err(e) = crate::edge_crdt::write_owner_list(
+        // Far is owner — for each added far, append near to that far's list.
+        // For each removed far, remove near from that far's list.
+        for far_uuid in added {
+            if let Err(e) = crate::edge_crdt::list_append_unique(
                 &mut self.doc,
                 canon.owner_type(),
-                owner_uuid,
+                *far_uuid,
                 canon.target_type(),
                 canon.field_name(),
-                &targets,
+                near_uuid,
             ) {
-                debug_assert!(false, "CRDT edge mirror failed: {e}");
+                debug_assert!(false, "CRDT edge_set mirror (append) failed: {e}");
+                let _ = e;
+            }
+        }
+        for far_uuid in removed {
+            if let Err(e) = crate::edge_crdt::list_remove_uuid(
+                &mut self.doc,
+                canon.owner_type(),
+                *far_uuid,
+                canon.target_type(),
+                canon.field_name(),
+                near_uuid,
+            ) {
+                debug_assert!(false, "CRDT edge_set mirror (remove) failed: {e}");
                 let _ = e;
             }
         }
@@ -1233,9 +1151,7 @@ mod tests {
     use crate::hotel_room::{
         HotelRoomCommonData, HotelRoomEntityType, HotelRoomInternalData, FIELD_EVENT_ROOMS,
     };
-    use crate::panel::{
-        PanelCommonData, PanelEntityType, PanelId, PanelInternalData, FIELD_PRESENTERS,
-    };
+    use crate::panel::{PanelCommonData, PanelEntityType, PanelId, PanelInternalData};
     use crate::panel_type::{PanelTypeCommonData, PanelTypeEntityType, PanelTypeInternalData};
     use crate::panel_uniq_id::PanelUniqId;
     use crate::presenter::{
@@ -1413,20 +1329,20 @@ mod tests {
         sched.insert(panel_id, panel_data);
         sched.insert(pres_id, pres_data);
 
-        sched.edge_add::<PanelEntityType, PresenterEntityType>(
-            FieldNodeId::new(panel_id, &FIELD_PRESENTERS),
+        sched.edge_add(
+            FieldNodeId::new(panel_id, &crate::panel::FIELD_CREDITED_PRESENTERS),
             FieldNodeId::new(pres_id, &FIELD_PANELS),
         );
 
         let presenters = sched.connected_entities::<PanelEntityType, PresenterEntityType>(
-            FieldNodeId::new(panel_id, &FIELD_PRESENTERS),
+            FieldNodeId::new(panel_id, &crate::panel::FIELD_CREDITED_PRESENTERS),
             &crate::presenter::FIELD_PANELS,
         );
         assert_eq!(presenters, vec![pres_id]);
 
         let panels = sched.connected_entities::<PresenterEntityType, PanelEntityType>(
             FieldNodeId::new(pres_id, &FIELD_PANELS),
-            &FIELD_PRESENTERS,
+            &crate::panel::FIELD_CREDITED_PRESENTERS,
         );
         assert_eq!(panels, vec![panel_id]);
     }
@@ -1439,25 +1355,25 @@ mod tests {
         sched.insert(panel_id, panel_data);
         sched.insert(pres_id, pres_data);
 
-        sched.edge_add::<PanelEntityType, PresenterEntityType>(
-            FieldNodeId::new(panel_id, &FIELD_PRESENTERS),
+        sched.edge_add(
+            FieldNodeId::new(panel_id, &crate::panel::FIELD_CREDITED_PRESENTERS),
             FieldNodeId::new(pres_id, &FIELD_PANELS),
         );
-        sched.edge_remove::<PanelEntityType, PresenterEntityType>(
-            FieldNodeId::new(panel_id, &FIELD_PRESENTERS),
+        sched.edge_remove(
+            FieldNodeId::new(panel_id, &crate::panel::FIELD_CREDITED_PRESENTERS),
             FieldNodeId::new(pres_id, &FIELD_PANELS),
         );
 
         assert!(sched
             .connected_entities::<PanelEntityType, PresenterEntityType>(
-                FieldNodeId::new(panel_id, &FIELD_PRESENTERS),
+                FieldNodeId::new(panel_id, &crate::panel::FIELD_CREDITED_PRESENTERS),
                 &crate::presenter::FIELD_PANELS,
             )
             .is_empty());
         assert!(sched
             .connected_entities::<PresenterEntityType, PanelEntityType>(
                 FieldNodeId::new(pres_id, &FIELD_PANELS),
-                &FIELD_PRESENTERS,
+                &crate::panel::FIELD_CREDITED_PRESENTERS,
             )
             .is_empty());
     }
@@ -1475,12 +1391,12 @@ mod tests {
         sched.insert(p3_id, p3_data);
 
         sched.edge_set::<PanelEntityType, PresenterEntityType>(
-            FieldNodeId::new(panel_id, &FIELD_PRESENTERS),
+            FieldNodeId::new(panel_id, &crate::panel::FIELD_CREDITED_PRESENTERS),
             &crate::presenter::FIELD_PANELS,
             vec![p1_id, p2_id],
         );
         let mut presenters = sched.connected_entities::<PanelEntityType, PresenterEntityType>(
-            FieldNodeId::new(panel_id, &FIELD_PRESENTERS),
+            FieldNodeId::new(panel_id, &crate::panel::FIELD_CREDITED_PRESENTERS),
             &crate::presenter::FIELD_PANELS,
         );
         presenters.sort_by_key(|id| id.entity_uuid());
@@ -1489,13 +1405,13 @@ mod tests {
         assert_eq!(presenters, expected);
 
         sched.edge_set::<PanelEntityType, PresenterEntityType>(
-            FieldNodeId::new(panel_id, &FIELD_PRESENTERS),
+            FieldNodeId::new(panel_id, &crate::panel::FIELD_CREDITED_PRESENTERS),
             &crate::presenter::FIELD_PANELS,
             vec![p3_id],
         );
         assert_eq!(
             sched.connected_entities::<PanelEntityType, PresenterEntityType>(
-                FieldNodeId::new(panel_id, &FIELD_PRESENTERS),
+                FieldNodeId::new(panel_id, &crate::panel::FIELD_CREDITED_PRESENTERS),
                 &crate::presenter::FIELD_PANELS,
             ),
             vec![p3_id]
@@ -1504,13 +1420,13 @@ mod tests {
         assert!(sched
             .connected_entities::<PresenterEntityType, PanelEntityType>(
                 FieldNodeId::new(p1_id, &FIELD_PANELS),
-                &FIELD_PRESENTERS,
+                &crate::panel::FIELD_CREDITED_PRESENTERS,
             )
             .is_empty());
         assert!(sched
             .connected_entities::<PresenterEntityType, PanelEntityType>(
                 FieldNodeId::new(p2_id, &FIELD_PANELS),
-                &FIELD_PRESENTERS,
+                &crate::panel::FIELD_CREDITED_PRESENTERS,
             )
             .is_empty());
     }
@@ -1522,8 +1438,8 @@ mod tests {
         let (pres_id, pres_data) = make_presenter("Alice");
         sched.insert(panel_id, panel_data);
         sched.insert(pres_id, pres_data);
-        sched.edge_add::<PanelEntityType, PresenterEntityType>(
-            FieldNodeId::new(panel_id, &FIELD_PRESENTERS),
+        sched.edge_add(
+            FieldNodeId::new(panel_id, &crate::panel::FIELD_CREDITED_PRESENTERS),
             FieldNodeId::new(pres_id, &FIELD_PANELS),
         );
 
@@ -1533,7 +1449,7 @@ mod tests {
         assert!(sched
             .connected_entities::<PresenterEntityType, PanelEntityType>(
                 FieldNodeId::new(pres_id, &FIELD_PANELS),
-                &FIELD_PRESENTERS,
+                &crate::panel::FIELD_CREDITED_PRESENTERS,
             )
             .is_empty());
     }
@@ -1548,7 +1464,7 @@ mod tests {
         sched.insert(room_id, room_data);
         sched.insert(hotel_id, hotel_data);
 
-        sched.edge_add::<EventRoomEntityType, HotelRoomEntityType>(
+        sched.edge_add(
             FieldNodeId::new(room_id, &FIELD_HOTEL_ROOMS),
             FieldNodeId::new(hotel_id, &FIELD_EVENT_ROOMS),
         );
@@ -1578,7 +1494,7 @@ mod tests {
         sched.insert(group_id, group_data);
 
         // member → group (forward homogeneous edge: member is in group)
-        sched.edge_add::<PresenterEntityType, PresenterEntityType>(
+        sched.edge_add(
             FieldNodeId::new(member_id, &FIELD_MEMBERS),
             FieldNodeId::new(group_id, &FIELD_GROUPS),
         );
@@ -1606,11 +1522,11 @@ mod tests {
         sched.insert(member_id, member_data);
         sched.insert(group_id, group_data);
 
-        sched.edge_add::<PresenterEntityType, PresenterEntityType>(
+        sched.edge_add(
             FieldNodeId::new(member_id, &FIELD_MEMBERS),
             FieldNodeId::new(group_id, &FIELD_GROUPS),
         );
-        sched.edge_remove::<PresenterEntityType, PresenterEntityType>(
+        sched.edge_remove(
             FieldNodeId::new(member_id, &FIELD_MEMBERS),
             FieldNodeId::new(group_id, &FIELD_GROUPS),
         );
@@ -1742,7 +1658,7 @@ mod tests {
         let (group_id, group_data) = make_presenter("The Group");
         sched.insert(member_id, member_data);
         sched.insert(group_id, group_data);
-        sched.edge_add::<PresenterEntityType, PresenterEntityType>(
+        sched.edge_add(
             FieldNodeId::new(member_id, &FIELD_MEMBERS),
             FieldNodeId::new(group_id, &FIELD_GROUPS),
         );
@@ -2002,8 +1918,8 @@ mod tests {
         let (pres_id, pres_data) = make_presenter("Alice");
         sched.insert(panel_id, panel_data);
         sched.insert(pres_id, pres_data);
-        sched.edge_add::<PanelEntityType, PresenterEntityType>(
-            FieldNodeId::new(panel_id, &FIELD_PRESENTERS),
+        sched.edge_add(
+            FieldNodeId::new(panel_id, &crate::panel::FIELD_CREDITED_PRESENTERS),
             FieldNodeId::new(pres_id, &FIELD_PANELS),
         );
 
@@ -2012,7 +1928,7 @@ mod tests {
 
         let forwards: Vec<PresenterId> = loaded
             .connected_entities::<PanelEntityType, PresenterEntityType>(
-                FieldNodeId::new(panel_id, &FIELD_PRESENTERS),
+                FieldNodeId::new(panel_id, &crate::panel::FIELD_CREDITED_PRESENTERS),
                 &crate::presenter::FIELD_PANELS,
             );
         assert_eq!(forwards, vec![pres_id]);
@@ -2063,8 +1979,8 @@ mod tests {
         let (pres_id, pres_data) = make_presenter("Alice");
         sched.insert(panel_id, panel_data);
         sched.insert(pres_id, pres_data);
-        sched.edge_add::<PanelEntityType, PresenterEntityType>(
-            FieldNodeId::new(panel_id, &FIELD_PRESENTERS),
+        sched.edge_add(
+            FieldNodeId::new(panel_id, &crate::panel::FIELD_CREDITED_PRESENTERS),
             FieldNodeId::new(pres_id, &FIELD_PANELS),
         );
 
@@ -2074,7 +1990,7 @@ mod tests {
         // Forward edge (panel → presenter)
         let forwards: Vec<PresenterId> = loaded
             .connected_entities::<PanelEntityType, PresenterEntityType>(
-                FieldNodeId::new(panel_id, &FIELD_PRESENTERS),
+                FieldNodeId::new(panel_id, &crate::panel::FIELD_CREDITED_PRESENTERS),
                 &crate::presenter::FIELD_PANELS,
             );
         assert_eq!(forwards, vec![pres_id]);
@@ -2083,7 +1999,7 @@ mod tests {
         let reverses: Vec<PanelId> = loaded
             .connected_entities::<PresenterEntityType, PanelEntityType>(
                 FieldNodeId::new(pres_id, &FIELD_PANELS),
-                &FIELD_PRESENTERS,
+                &crate::panel::FIELD_CREDITED_PRESENTERS,
             );
         assert_eq!(reverses, vec![panel_id]);
     }
@@ -2095,7 +2011,7 @@ mod tests {
         let (hr_id, hr_data) = make_hotel_room("Suite A");
         sched.insert(er_id, er_data);
         sched.insert(hr_id, hr_data);
-        sched.edge_add::<EventRoomEntityType, HotelRoomEntityType>(
+        sched.edge_add(
             FieldNodeId::new(er_id, &FIELD_HOTEL_ROOMS),
             FieldNodeId::new(hr_id, &FIELD_EVENT_ROOMS),
         );
@@ -2125,7 +2041,7 @@ mod tests {
         sched.insert(alice_id, alice);
         sched.insert(group_id, group);
         // alice is a member of the Speakers group
-        sched.edge_add::<PresenterEntityType, PresenterEntityType>(
+        sched.edge_add(
             FieldNodeId::new(alice_id, &FIELD_MEMBERS),
             FieldNodeId::new(group_id, &FIELD_GROUPS),
         );
@@ -2154,12 +2070,12 @@ mod tests {
         let (pres_id, pres_data) = make_presenter("Alice");
         sched.insert(panel_id, panel_data);
         sched.insert(pres_id, pres_data);
-        sched.edge_add::<PanelEntityType, PresenterEntityType>(
-            FieldNodeId::new(panel_id, &FIELD_PRESENTERS),
+        sched.edge_add(
+            FieldNodeId::new(panel_id, &crate::panel::FIELD_CREDITED_PRESENTERS),
             FieldNodeId::new(pres_id, &FIELD_PANELS),
         );
-        sched.edge_remove::<PanelEntityType, PresenterEntityType>(
-            FieldNodeId::new(panel_id, &FIELD_PRESENTERS),
+        sched.edge_remove(
+            FieldNodeId::new(panel_id, &crate::panel::FIELD_CREDITED_PRESENTERS),
             FieldNodeId::new(pres_id, &FIELD_PANELS),
         );
 
@@ -2168,7 +2084,7 @@ mod tests {
 
         let forwards: Vec<PresenterId> = loaded
             .connected_entities::<PanelEntityType, PresenterEntityType>(
-                FieldNodeId::new(panel_id, &FIELD_PRESENTERS),
+                FieldNodeId::new(panel_id, &crate::panel::FIELD_CREDITED_PRESENTERS),
                 &crate::presenter::FIELD_PANELS,
             );
         assert!(forwards.is_empty());
@@ -2183,12 +2099,12 @@ mod tests {
         sched.insert(panel_id, panel_data);
         sched.insert(alice_id, alice_data);
         sched.insert(bob_id, bob_data);
-        sched.edge_add::<PanelEntityType, PresenterEntityType>(
-            FieldNodeId::new(panel_id, &FIELD_PRESENTERS),
+        sched.edge_add(
+            FieldNodeId::new(panel_id, &crate::panel::FIELD_CREDITED_PRESENTERS),
             FieldNodeId::new(alice_id, &FIELD_PANELS),
         );
         sched.edge_set::<PanelEntityType, PresenterEntityType>(
-            FieldNodeId::new(panel_id, &FIELD_PRESENTERS),
+            FieldNodeId::new(panel_id, &crate::panel::FIELD_CREDITED_PRESENTERS),
             &crate::presenter::FIELD_PANELS,
             vec![bob_id],
         );
@@ -2198,7 +2114,7 @@ mod tests {
 
         let forwards: Vec<PresenterId> = loaded
             .connected_entities::<PanelEntityType, PresenterEntityType>(
-                FieldNodeId::new(panel_id, &FIELD_PRESENTERS),
+                FieldNodeId::new(panel_id, &crate::panel::FIELD_CREDITED_PRESENTERS),
                 &crate::presenter::FIELD_PANELS,
             );
         assert_eq!(forwards, vec![bob_id]);
@@ -2221,15 +2137,15 @@ mod tests {
 
         // Replica A adds Alice.
         let mut replica_a = Schedule::load(&base_bytes).expect("load A");
-        replica_a.edge_add::<PanelEntityType, PresenterEntityType>(
-            FieldNodeId::new(panel_id, &FIELD_PRESENTERS),
+        replica_a.edge_add(
+            FieldNodeId::new(panel_id, &crate::panel::FIELD_CREDITED_PRESENTERS),
             FieldNodeId::new(alice_id, &FIELD_PANELS),
         );
 
         // Replica B (independent) adds Bob.
         let mut replica_b = Schedule::load(&base_bytes).expect("load B");
-        replica_b.edge_add::<PanelEntityType, PresenterEntityType>(
-            FieldNodeId::new(panel_id, &FIELD_PRESENTERS),
+        replica_b.edge_add(
+            FieldNodeId::new(panel_id, &crate::panel::FIELD_CREDITED_PRESENTERS),
             FieldNodeId::new(bob_id, &FIELD_PANELS),
         );
 
@@ -2241,7 +2157,7 @@ mod tests {
 
         let mut forwards: Vec<PresenterId> = merged
             .connected_entities::<PanelEntityType, PresenterEntityType>(
-                FieldNodeId::new(panel_id, &FIELD_PRESENTERS),
+                FieldNodeId::new(panel_id, &crate::panel::FIELD_CREDITED_PRESENTERS),
                 &crate::presenter::FIELD_PANELS,
             );
         forwards.sort_by_key(|id| id.entity_uuid());
@@ -2284,12 +2200,12 @@ mod tests {
 
         let mut a = Schedule::load(&base.save()).expect("load A");
         let mut b = Schedule::load(&base.save()).expect("load B");
-        a.edge_add::<PanelEntityType, PresenterEntityType>(
-            FieldNodeId::new(panel_id, &FIELD_PRESENTERS),
+        a.edge_add(
+            FieldNodeId::new(panel_id, &crate::panel::FIELD_CREDITED_PRESENTERS),
             FieldNodeId::new(alice_id, &FIELD_PANELS),
         );
-        b.edge_add::<PanelEntityType, PresenterEntityType>(
-            FieldNodeId::new(panel_id, &FIELD_PRESENTERS),
+        b.edge_add(
+            FieldNodeId::new(panel_id, &crate::panel::FIELD_CREDITED_PRESENTERS),
             FieldNodeId::new(bob_id, &FIELD_PANELS),
         );
 
@@ -2297,7 +2213,7 @@ mod tests {
 
         let mut ids: Vec<_> = a
             .connected_entities::<PanelEntityType, PresenterEntityType>(
-                FieldNodeId::new(panel_id, &FIELD_PRESENTERS),
+                FieldNodeId::new(panel_id, &crate::panel::FIELD_CREDITED_PRESENTERS),
                 &crate::presenter::FIELD_PANELS,
             )
             .iter()
@@ -2435,8 +2351,8 @@ mod tests {
 
         // A adds Alice without knowing about any remove on B's side.
         let mut replica_a = Schedule::load(&base_bytes).expect("load A");
-        replica_a.edge_add::<PanelEntityType, PresenterEntityType>(
-            FieldNodeId::new(panel_id, &FIELD_PRESENTERS),
+        replica_a.edge_add(
+            FieldNodeId::new(panel_id, &crate::panel::FIELD_CREDITED_PRESENTERS),
             FieldNodeId::new(alice_id, &FIELD_PANELS),
         );
 
@@ -2444,8 +2360,8 @@ mod tests {
         // own state but records a causally-unordered change); this simulates
         // B having never observed A's add.
         let mut replica_b = Schedule::load(&base_bytes).expect("load B");
-        replica_b.edge_remove::<PanelEntityType, PresenterEntityType>(
-            FieldNodeId::new(panel_id, &FIELD_PRESENTERS),
+        replica_b.edge_remove(
+            FieldNodeId::new(panel_id, &crate::panel::FIELD_CREDITED_PRESENTERS),
             FieldNodeId::new(alice_id, &FIELD_PANELS),
         );
 
@@ -2457,7 +2373,7 @@ mod tests {
         // Add wins: Alice is still in the list.
         let forwards: Vec<PresenterId> = merged
             .connected_entities::<PanelEntityType, PresenterEntityType>(
-                FieldNodeId::new(panel_id, &FIELD_PRESENTERS),
+                FieldNodeId::new(panel_id, &crate::panel::FIELD_CREDITED_PRESENTERS),
                 &crate::presenter::FIELD_PANELS,
             );
         assert_eq!(forwards, vec![alice_id]);
@@ -2481,11 +2397,11 @@ mod tests {
         sched.insert(p3_id, p3_data);
 
         // Chain: p1 → p2 → p3 (member-of-group direction)
-        sched.edge_add::<PresenterEntityType, PresenterEntityType>(
+        sched.edge_add(
             FieldNodeId::new(p1_id, &FIELD_MEMBERS),
             FieldNodeId::new(p2_id, &FIELD_GROUPS),
         );
-        sched.edge_add::<PresenterEntityType, PresenterEntityType>(
+        sched.edge_add(
             FieldNodeId::new(p2_id, &FIELD_MEMBERS),
             FieldNodeId::new(p3_id, &FIELD_GROUPS),
         );
@@ -2511,11 +2427,11 @@ mod tests {
         sched.insert(p3_id, p3_data);
 
         // Chain: p1 → p2 → p3
-        sched.edge_add::<PresenterEntityType, PresenterEntityType>(
+        sched.edge_add(
             FieldNodeId::new(p1_id, &FIELD_MEMBERS),
             FieldNodeId::new(p2_id, &FIELD_GROUPS),
         );
-        sched.edge_add::<PresenterEntityType, PresenterEntityType>(
+        sched.edge_add(
             FieldNodeId::new(p2_id, &FIELD_MEMBERS),
             FieldNodeId::new(p3_id, &FIELD_GROUPS),
         );
@@ -2539,11 +2455,11 @@ mod tests {
         sched.insert(p2_id, p2_data);
 
         // Cycle: p1 → p2, p2 → p1
-        sched.edge_add::<PresenterEntityType, PresenterEntityType>(
+        sched.edge_add(
             FieldNodeId::new(p1_id, &FIELD_MEMBERS),
             FieldNodeId::new(p2_id, &FIELD_GROUPS),
         );
-        sched.edge_add::<PresenterEntityType, PresenterEntityType>(
+        sched.edge_add(
             FieldNodeId::new(p2_id, &FIELD_MEMBERS),
             FieldNodeId::new(p1_id, &FIELD_GROUPS),
         );
@@ -2567,7 +2483,7 @@ mod tests {
         sched.insert(p3_id, p3_data);
 
         // Add initial edge p1 → p2.
-        sched.edge_add::<PresenterEntityType, PresenterEntityType>(
+        sched.edge_add(
             FieldNodeId::new(p1_id, &FIELD_MEMBERS),
             FieldNodeId::new(p2_id, &FIELD_GROUPS),
         );
@@ -2578,7 +2494,7 @@ mod tests {
         assert_eq!(result1.len(), 1);
 
         // Add p2 → p3; cache should invalidate and now p3 is reachable from p1.
-        sched.edge_add::<PresenterEntityType, PresenterEntityType>(
+        sched.edge_add(
             FieldNodeId::new(p2_id, &FIELD_MEMBERS),
             FieldNodeId::new(p3_id, &FIELD_GROUPS),
         );
@@ -2591,83 +2507,4 @@ mod tests {
     }
 
     // ── Edge bool metadata ────────────────────────────────────────────────
-
-    #[test]
-    fn edge_get_bool_returns_default_when_not_set() {
-        let mut sched = Schedule::new();
-        let (panel_id, panel_data) = make_panel();
-        let (pres_id, pres_data) = make_presenter("Alice");
-        sched.insert(panel_id, panel_data);
-        sched.insert(pres_id, pres_data);
-        sched.edge_add::<PanelEntityType, PresenterEntityType>(
-            FieldNodeId::new(panel_id, &FIELD_PRESENTERS),
-            FieldNodeId::new(pres_id, &FIELD_PANELS),
-        );
-
-        // Default for "credited" is true; no explicit write yet.
-        assert!(
-            sched.edge_get_bool::<PanelEntityType, PresenterEntityType>(
-                panel_id, pres_id, "credited"
-            ),
-            "credited should default to true"
-        );
-    }
-
-    #[test]
-    fn edge_set_bool_round_trip() {
-        let mut sched = Schedule::new();
-        let (panel_id, panel_data) = make_panel();
-        let (pres_id, pres_data) = make_presenter("Alice");
-        sched.insert(panel_id, panel_data);
-        sched.insert(pres_id, pres_data);
-        sched.edge_add::<PanelEntityType, PresenterEntityType>(
-            FieldNodeId::new(panel_id, &FIELD_PRESENTERS),
-            FieldNodeId::new(pres_id, &FIELD_PANELS),
-        );
-
-        sched.edge_set_bool::<PanelEntityType, PresenterEntityType>(
-            panel_id, pres_id, "credited", false,
-        );
-        assert!(
-            !sched.edge_get_bool::<PanelEntityType, PresenterEntityType>(
-                panel_id, pres_id, "credited"
-            ),
-            "credited should be false after set"
-        );
-
-        sched.edge_set_bool::<PanelEntityType, PresenterEntityType>(
-            panel_id, pres_id, "credited", true,
-        );
-        assert!(
-            sched.edge_get_bool::<PanelEntityType, PresenterEntityType>(
-                panel_id, pres_id, "credited"
-            ),
-            "credited should be true after re-set"
-        );
-    }
-
-    #[test]
-    fn edge_meta_save_load_round_trip() {
-        let mut sched = Schedule::new();
-        let (panel_id, panel_data) = make_panel();
-        let (pres_id, pres_data) = make_presenter("Alice");
-        sched.insert(panel_id, panel_data);
-        sched.insert(pres_id, pres_data);
-        sched.edge_add::<PanelEntityType, PresenterEntityType>(
-            FieldNodeId::new(panel_id, &FIELD_PRESENTERS),
-            FieldNodeId::new(pres_id, &FIELD_PANELS),
-        );
-        sched.edge_set_bool::<PanelEntityType, PresenterEntityType>(
-            panel_id, pres_id, "credited", false,
-        );
-
-        let bytes = sched.save();
-        let loaded = Schedule::load(&bytes).expect("load");
-        assert!(
-            !loaded.edge_get_bool::<PanelEntityType, PresenterEntityType>(
-                panel_id, pres_id, "credited"
-            ),
-            "credited=false must survive save/load"
-        );
-    }
 }

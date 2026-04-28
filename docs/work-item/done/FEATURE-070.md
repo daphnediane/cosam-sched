@@ -6,7 +6,7 @@ Remove the separate `EdgeDescriptor` struct and inventory; encode CRDT-edge owne
 
 ## Status
 
-In Progress
+Completed
 
 ## Priority
 
