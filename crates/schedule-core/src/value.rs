@@ -481,6 +481,111 @@ impl FieldType {
     }
 }
 
+/// Ownership and relationship info for an edge half-edge field.
+///
+/// Stored in [`EdgeDescriptor::edge_kind`](crate::field::EdgeDescriptor) and
+/// exposed through [`HalfEdge::edge_kind`](crate::field::HalfEdge::edge_kind).
+/// Replaces the `target_field` payload that was previously embedded directly
+/// in [`CrdtFieldType::EdgeOwner`].
+#[derive(Clone, Copy)]
+pub enum EdgeKind {
+    /// Non-owner (lookup/inverse) side of an edge relationship.
+    ///
+    /// `source_fields` lists all owner-side fields whose `target_field` points
+    /// at this field.  A single target field may be reached by multiple owners
+    /// (e.g. `FIELD_PANELS` on `Presenter` is targeted by both
+    /// `FIELD_CREDITED_PRESENTERS` and `FIELD_UNCREDITED_PRESENTERS` on
+    /// `Panel`).
+    ///
+    /// Use `&[]` when no sources are known at static-initializer time.
+    /// Because all edge fields live in the same crate, cross-module static
+    /// references compile without circular-dependency issues.
+    Target {
+        /// Owner-side fields whose `target_field` is this field.
+        source_fields: &'static [&'static dyn crate::field::HalfEdge],
+    },
+    /// CRDT-canonical owner side of an edge relationship.
+    ///
+    /// `exclusive_with` names a sibling field on the *same* entity whose
+    /// entries must be removed before adding to this field.  Previously this
+    /// logic was embedded in macro-generated closures; storing it here makes
+    /// the descriptor self-describing.
+    Owner {
+        /// Inverse/lookup field on the target entity.
+        target_field: &'static dyn crate::field::HalfEdge,
+        /// Sibling field on the same entity that is mutually exclusive with
+        /// this one (e.g. credited vs uncredited presenter lists).
+        exclusive_with: Option<&'static dyn crate::field::HalfEdge>,
+    },
+}
+
+impl EdgeKind {
+    /// Returns `true` if this is the owning side of an edge.
+    #[must_use]
+    pub fn is_owner(&self) -> bool {
+        matches!(self, Self::Owner { .. })
+    }
+
+    /// Returns the target field if this is an owner, or `None` for targets.
+    #[must_use]
+    pub fn target_field(&self) -> Option<&'static dyn crate::field::HalfEdge> {
+        match self {
+            Self::Owner { target_field, .. } => Some(*target_field),
+            Self::Target { .. } => None,
+        }
+    }
+
+    /// Returns the source fields if this is a target, or `None` for owners.
+    #[must_use]
+    pub fn source_fields(&self) -> Option<&'static [&'static dyn crate::field::HalfEdge]> {
+        match self {
+            Self::Target { source_fields } => Some(source_fields),
+            Self::Owner { .. } => None,
+        }
+    }
+}
+
+impl PartialEq for EdgeKind {
+    fn eq(&self, other: &Self) -> bool {
+        match (self, other) {
+            (Self::Target { .. }, Self::Target { .. }) => true,
+            (
+                Self::Owner {
+                    target_field: a, ..
+                },
+                Self::Owner {
+                    target_field: b, ..
+                },
+            ) => std::ptr::eq(
+                *a as *const dyn crate::field::HalfEdge as *const (),
+                *b as *const dyn crate::field::HalfEdge as *const (),
+            ),
+            _ => false,
+        }
+    }
+}
+
+impl Eq for EdgeKind {}
+
+impl std::fmt::Debug for EdgeKind {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::Target { source_fields } => f
+                .debug_struct("Target")
+                .field("source_count", &source_fields.len())
+                .finish(),
+            Self::Owner {
+                target_field,
+                exclusive_with,
+            } => f
+                .debug_struct("Owner")
+                .field("target_field", &target_field.name())
+                .field("exclusive_with", &exclusive_with.map(|e| e.name()))
+                .finish(),
+        }
+    }
+}
+
 /// How a field maps to CRDT storage in Phase 4.
 ///
 /// Annotations are baked in from Phase 2 so no entity structs need changing
@@ -488,13 +593,11 @@ impl FieldType {
 ///
 /// The two edge variants encode CRDT ownership direction directly in the field
 /// descriptor so that `mirror_entity_fields` can set up owner lists without a
-/// separate `ensure_all_owner_lists_for_type` pass:
+/// separate scan:
 ///
 /// - [`EdgeOwner`](CrdtFieldType::EdgeOwner) — this field is the CRDT-canonical
-///   owner of the edge relationship.  The payload names the inverse/lookup
-///   field on the target entity.  The owner field's own name and entity type
-///   are available directly from the enclosing `FieldDescriptor`, so no
-///   separate `EdgeDescriptor` is needed.
+///   owner of the edge relationship.  Full edge details (target field,
+///   exclusivity) are in [`EdgeDescriptor::edge_kind`](crate::field::EdgeDescriptor).
 /// - [`EdgeTarget`](CrdtFieldType::EdgeTarget) — this field is the non-owner
 ///   (inverse/lookup) side.  No payload: a single field may be the target of
 ///   multiple owner fields (e.g. `FIELD_PANELS` on `Presenter` is the target

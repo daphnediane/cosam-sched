@@ -159,6 +159,238 @@ pub trait VerifiableField<E: EntityType>: NamedField {
     ) -> Result<(), VerificationError>;
 }
 
+// ── TypedField<E> ─────────────────────────────────────────────────────────────
+
+/// Entity-typed field: combines read, write, and verify capabilities.
+///
+/// A blanket implementation covers any type that implements all three of
+/// [`ReadableField<E>`], [`WritableField<E>`], and [`VerifiableField<E>`].
+///
+/// This trait is used as `dyn TypedField<E>` in [`crate::field_set::FieldSet`]
+/// so that all descriptor types — both [`FieldDescriptor<E>`] (non-edge) and
+/// [`EdgeDescriptor<E>`] (edge) — can be stored in a single collection.
+pub trait TypedField<E: EntityType>:
+    ReadableField<E> + WritableField<E> + VerifiableField<E>
+{
+}
+
+impl<E: EntityType, T: ReadableField<E> + WritableField<E> + VerifiableField<E>> TypedField<E>
+    for T
+{
+}
+
+// ── HalfEdge ─────────────────────────────────────────────────────────────────
+
+/// Marker trait for any field that is one endpoint of a directed edge.
+///
+/// Only [`EdgeDescriptor<E>`] implements this trait. [`FieldDescriptor<E>`]
+/// (scalar, text, list, derived fields) intentionally does **not** implement
+/// it, ensuring that non-edge fields cannot be used as [`FieldNodeId`] endpoints.
+///
+/// [`FieldNodeId`]: crate::field_node_id::FieldNodeId
+pub trait HalfEdge: NamedField {
+    /// Returns the edge-kind (owner or target) and associated metadata.
+    fn edge_kind(&self) -> &crate::value::EdgeKind;
+
+    /// Upcast `self` to `&'static dyn NamedField`.
+    ///
+    /// Stable Rust does not support automatic trait-object upcasting, so this
+    /// explicit method is required.  Implementors transmute `self as &dyn
+    /// NamedField` to extend the lifetime to `'static`.
+    ///
+    /// # Safety (for implementors)
+    ///
+    /// This is safe only when `self` was originally a `'static` reference (i.e.
+    /// one of the `static` field descriptor singletons declared in each entity
+    /// module).
+    fn as_named_field_static(&self) -> &'static dyn NamedField;
+}
+
+// ── TypedHalfEdge<E> ─────────────────────────────────────────────────────────
+
+/// Entity-typed edge half-edge: combines [`HalfEdge`] with [`TypedField<E>`].
+///
+/// A blanket implementation covers any type that is both a [`HalfEdge`] and a
+/// [`TypedField<E>`].  Used as `dyn TypedHalfEdge<E>` in [`FieldNodeId<E>`]
+/// to ensure only edge fields can appear as field node ID endpoints.
+///
+/// [`FieldNodeId<E>`]: crate::field_node_id::FieldNodeId
+pub trait TypedHalfEdge<E: EntityType>: HalfEdge + TypedField<E> {}
+
+impl<E: EntityType, T: HalfEdge + TypedField<E>> TypedHalfEdge<E> for T {}
+
+// ── EdgeDescriptor<E> ────────────────────────────────────────────────────────
+
+/// Edge field descriptor — one `static` value per edge field on an entity type.
+///
+/// Replaces [`FieldDescriptor<E>`] for edge fields (owner and target sides).
+/// The [`edge_kind`](Self::edge_kind) field distinguishes ownership and carries
+/// the target/source field references and exclusivity information.
+///
+/// # Example
+///
+/// ```ignore
+/// static FIELD_CREDITED_PRESENTERS: EdgeDescriptor<PanelEntityType> = EdgeDescriptor {
+///     name: "credited_presenters",
+///     display: "Credited Presenters",
+///     description: "Presenters credited on this panel.",
+///     aliases: &[],
+///     field_type: FieldType(FieldCardinality::List, FieldTypeItem::EntityIdentifier("presenter")),
+///     example: "",
+///     order: 40,
+///     edge_kind: EdgeKind::Owner {
+///         target_field: &crate::presenter::FIELD_PANELS,
+///         exclusive_with: Some(&FIELD_UNCREDITED_PRESENTERS),
+///     },
+///     read_fn: Some(ReadFn::Schedule(|sched, id| { … })),
+///     write_fn: Some(WriteFn::Schedule(|sched, id, val| { … })),
+///     verify_fn: None,
+/// };
+/// ```
+pub struct EdgeDescriptor<E: EntityType> {
+    /// Canonical field name (snake_case).
+    pub name: &'static str,
+    /// Human-readable display name.
+    pub display: &'static str,
+    /// Short description of the field's purpose.
+    pub description: &'static str,
+    /// Alternative names accepted during lookup.
+    pub aliases: &'static [&'static str],
+    /// Logical field type (value type and cardinality).
+    pub field_type: crate::value::FieldType,
+    /// Example value for documentation and UI hints.
+    pub example: &'static str,
+    /// Display/iteration order (lower values first).
+    pub order: u32,
+    /// Edge ownership and relationship metadata.
+    pub edge_kind: crate::value::EdgeKind,
+    /// Read implementation. `None` means write-only.
+    pub read_fn: Option<ReadFn<E>>,
+    /// Write implementation. `None` means read-only.
+    pub write_fn: Option<WriteFn<E>>,
+    /// Verification implementation. `None` means skip verification.
+    pub verify_fn: Option<VerifyFn<E>>,
+}
+
+impl<E: EntityType> NamedField for EdgeDescriptor<E> {
+    fn name(&self) -> &'static str {
+        self.name
+    }
+
+    fn display_name(&self) -> &'static str {
+        self.display
+    }
+
+    fn description(&self) -> &'static str {
+        self.description
+    }
+
+    fn aliases(&self) -> &'static [&'static str] {
+        self.aliases
+    }
+
+    fn field_id(&self) -> FieldRef {
+        // SAFETY: self is a &'static EdgeDescriptor<E> (edge descriptors are static singletons).
+        unsafe {
+            let static_ref: &'static dyn NamedField = std::mem::transmute(self as &dyn NamedField);
+            FieldRef(static_ref)
+        }
+    }
+
+    fn entity_type_name(&self) -> &'static str {
+        E::TYPE_NAME
+    }
+
+    fn crdt_type(&self) -> crate::value::CrdtFieldType {
+        match &self.edge_kind {
+            crate::value::EdgeKind::Owner { target_field, .. } => {
+                crate::value::CrdtFieldType::EdgeOwner {
+                    target_field: target_field.as_named_field_static(),
+                }
+            }
+            crate::value::EdgeKind::Target { .. } => crate::value::CrdtFieldType::EdgeTarget,
+        }
+    }
+}
+
+impl<E: EntityType> HalfEdge for EdgeDescriptor<E> {
+    fn edge_kind(&self) -> &crate::value::EdgeKind {
+        &self.edge_kind
+    }
+
+    fn as_named_field_static(&self) -> &'static dyn NamedField {
+        // SAFETY: EdgeDescriptor instances are 'static singletons.
+        unsafe { std::mem::transmute(self as &dyn NamedField) }
+    }
+}
+
+impl<E: EntityType> ReadableField<E> for EdgeDescriptor<E> {
+    fn read(&self, id: EntityId<E>, schedule: &Schedule) -> Result<Option<FieldValue>, FieldError> {
+        match &self.read_fn {
+            None => Err(FieldError::WriteOnly { name: self.name }),
+            Some(ReadFn::Bare(f)) => Ok(schedule.get_internal::<E>(id).and_then(f)),
+            Some(ReadFn::Schedule(f)) => Ok(f(schedule, id)),
+        }
+    }
+}
+
+impl<E: EntityType> WritableField<E> for EdgeDescriptor<E> {
+    fn write(
+        &self,
+        id: EntityId<E>,
+        schedule: &mut Schedule,
+        value: FieldValue,
+    ) -> Result<(), FieldError> {
+        match &self.write_fn {
+            None => return Err(FieldError::ReadOnly { name: self.name }),
+            Some(WriteFn::Bare(f)) => {
+                let data = schedule
+                    .get_internal_mut::<E>(id)
+                    .ok_or(FieldError::NotFound { name: self.name })?;
+                f(data, value)?;
+            }
+            Some(WriteFn::Schedule(f)) => f(schedule, id, value)?,
+        }
+        // Edge fields manage their own CRDT mirroring; no scalar mirror needed.
+        Ok(())
+    }
+}
+
+impl<E: EntityType> VerifiableField<E> for EdgeDescriptor<E> {
+    fn verify(
+        &self,
+        id: EntityId<E>,
+        schedule: &Schedule,
+        attempted: &FieldValue,
+    ) -> Result<(), VerificationError> {
+        match &self.verify_fn {
+            Some(VerifyFn::Bare(f)) => {
+                let data = schedule
+                    .get_internal::<E>(id)
+                    .ok_or(VerificationError::NotVerifiable { field: self.name })?;
+                f(data, attempted)
+            }
+            Some(VerifyFn::Schedule(f)) => f(schedule, id, attempted),
+            Some(VerifyFn::ReRead) => {
+                let actual = self
+                    .read(id, schedule)
+                    .map_err(|_| VerificationError::NotVerifiable { field: self.name })?
+                    .ok_or(VerificationError::NotVerifiable { field: self.name })?;
+                if actual == *attempted {
+                    Ok(())
+                } else {
+                    Err(VerificationError::ValueChanged {
+                        field: self.name,
+                        requested: attempted.clone(),
+                        actual,
+                    })
+                }
+            }
+            None => Ok(()),
+        }
+    }
+}
+
 /// Generic field descriptor — one `static` value per field on an entity type.
 ///
 /// Uses enum fn pointers so it can be stored as a `static` value.

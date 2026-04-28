@@ -1,6 +1,6 @@
 # Cosplay America Schedule - Work Item
 
-Updated on: Tue Apr 28 12:54:28 2026
+Updated on: Tue Apr 28 13:59:03 2026
 
 ## Completed
 
@@ -91,7 +91,7 @@ and improve `FieldId` conversions with a global registry and type-safe downcasti
 
 ## Summary of Open Items
 
-**Total open items:** 20
+**Total open items:** 21
 
 * **Meta / Project-Level**
   * [META-001] Meta work item tracking the full multi-phase redesign of the schedule system. (Blocked by [META-005], [META-006], [META-007], [META-008])
@@ -120,6 +120,9 @@ reference and jump-starting new conventions.
   * [FEATURE-056] Add computed/synthesized fields to public data structures to support widget JSON export.
   * [REFACTOR-058] Update `FIELD_CREDITS` to use the per-edge `credited` flag introduced by
 REFACTOR-060, so individual presenters can be excluded from credit display.
+  * [REFACTOR-074] Split edge fields out of `FieldDescriptor<E>` into a new `EdgeDescriptor<E>` struct; add
+`HalfEdge`, `TypedField<E>`, and `TypedHalfEdge<E>` traits so that `FieldNodeId` can only be
+constructed from edge fields.
 
 * **Low Priority**
   * [CLI-030] ([META-006]) CLI tool for converting between schedule file formats (XLSX, JSON, widget JSON).
@@ -601,6 +604,33 @@ This item covers any remaining integration work and documentation.
 
 ---
 
+### [REFACTOR-074] REFACTOR-074: Introduce EdgeDescriptor and HalfEdge trait hierarchy
+
+**Status:** In progress
+
+**Priority:** Medium
+
+**Summary:** Split edge fields out of `FieldDescriptor<E>` into a new `EdgeDescriptor<E>` struct; add
+`HalfEdge`, `TypedField<E>`, and `TypedHalfEdge<E>` traits so that `FieldNodeId` can only be
+constructed from edge fields.
+
+**Description:** Currently `FieldNodeId<E>` holds `&'static FieldDescriptor<E>`, which allows any field (scalar,
+text, derived, etc.) to be used as a field node ID. This refactor enforces that only half-edge
+fields can appear in `FieldNodeId` by:
+
+* Adding `HalfEdge : NamedField` trait with `field_id()` and `edge_kind() -> &EdgeKind`
+* Adding `EdgeKind` enum with `Target { source_fields }` and `Owner { target_field, exclusive_with }`
+* Adding `EdgeDescriptor<E>` — a unified struct for all edge fields (owner and target)
+* Adding `TypedField<E>` blanket supertrait over `ReadableField + WritableField + VerifiableField`
+* Adding `TypedHalfEdge<E>` blanket over `HalfEdge + TypedField<E>`; stored in `FieldNodeId<E>`
+* Changing `FieldRef` to hold `&'static dyn HalfEdge` (was `&'static dyn NamedField`)
+* Removing `target_field` payload from `CrdtFieldType::EdgeOwner` (now in `EdgeKind`)
+* Moving `exclusive_with` from macro closures into `EdgeKind::Owner`
+* Updating `FieldSet<E>` to hold `dyn TypedField<E>`
+* Updating the `define_field!` macro to emit `EdgeDescriptor` for edge fields
+
+---
+
 ---
 
 [BUGFIX-045]: work-item/medium/BUGFIX-045.md
@@ -670,3 +700,4 @@ This item covers any remaining integration work and documentation.
 [REFACTOR-064]: work-item/done/REFACTOR-064.md
 [REFACTOR-066]: work-item/done/REFACTOR-066.md
 [REFACTOR-067]: work-item/done/REFACTOR-067.md
+[REFACTOR-074]: work-item/medium/REFACTOR-074.md
