@@ -7,7 +7,7 @@
 //! Entity builders — [`EntityBuildable`] trait and the [`build_entity`] driver
 //! that underpins the `define_entity_builder!` macro.
 //!
-//! The builder pattern layers on top of [`crate::field_set::FieldSet::write_multiple`]:
+//! The builder pattern layers on top of [`crate::field::set::FieldSet::write_multiple`]:
 //! each builder collects a `Vec<(FieldRef<E>, FieldValue)>`
 //! via typed `with_*` setters, then [`build_entity`] seeds a fresh entity
 //! with [`EntityBuildable::default_data`], applies the batch, runs
@@ -19,7 +19,7 @@
 //! implement it.
 
 use crate::entity::{EntityId, EntityType, UuidPreference};
-use crate::field_set::{FieldRef, FieldSetError};
+use crate::field::set::{FieldRef, FieldSetError};
 use crate::schedule::Schedule;
 use crate::value::{FieldValue, ValidationError};
 use thiserror::Error;
@@ -34,7 +34,7 @@ use thiserror::Error;
 /// [`EntityType::validate`] until the writes run — that is the mechanism by
 /// which the builder's "you must set required fields" contract is enforced.
 ///
-/// [`FieldSet::write_multiple`]: crate::field_set::FieldSet::write_multiple
+/// [`FieldSet::write_multiple`]: crate::field::set::FieldSet::write_multiple
 pub trait EntityBuildable: EntityType {
     /// Produce an empty `InternalData` stamped with the given ID.
     ///
@@ -79,7 +79,7 @@ pub enum BuildError {
 /// fully inserted into the schedule, indistinguishable from one created by
 /// any other path.
 ///
-/// [`FieldSet::write_multiple`]: crate::field_set::FieldSet::write_multiple
+/// [`FieldSet::write_multiple`]: crate::field::set::FieldSet::write_multiple
 pub fn build_entity<E: EntityBuildable>(
     schedule: &mut Schedule,
     uuid_pref: UuidPreference,
@@ -111,7 +111,7 @@ mod tests {
     use super::*;
     use crate::entity::EntityUuid;
     use crate::field_value;
-    use crate::panel_type::PanelTypeEntityType;
+    use crate::tables::panel_type::PanelTypeEntityType;
 
     fn valid_panel_type_updates() -> Vec<(FieldRef<PanelTypeEntityType>, FieldValue)> {
         vec![

@@ -18,12 +18,12 @@
 //!
 //! Heterogeneous-edge transitive queries (e.g. Panel → Inclusive Presenters)
 //! require multi-type traversal and are implemented as field read functions in
-//! the entity modules ([`crate::panel`], [`crate::presenter`]), composed from
+//! the entity modules ([`crate::tables::panel`], [`crate::tables::presenter`]), composed from
 //! `inclusive_edges_from` / `inclusive_edges_to` calls on the schedule.
 
-use crate::edge_map::RawEdgeMap;
+use crate::edge::id::{EdgeRef, RuntimeFieldNodeId};
+use crate::edge::map::RawEdgeMap;
 use crate::entity::EntityUuid;
-use crate::field_node_id::{EdgeRef, RuntimeFieldNodeId};
 use std::collections::{HashMap, HashSet};
 use uuid::NonNilUuid;
 
@@ -108,13 +108,14 @@ fn transitive_neighbors(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::crdt::CrdtFieldType;
+    use crate::edge::id::RuntimeFieldNodeId;
+    use crate::edge::EdgeKind;
+    use crate::edge::HalfEdge;
     use crate::entity::EntityType;
-    use crate::field::{CommonFieldData, FieldDescriptor, HalfEdge};
-    use crate::field_node_id::RuntimeFieldNodeId;
-    use crate::field_set::FieldSet;
-    use crate::value::{
-        CrdtFieldType, EdgeKind, FieldCardinality, FieldType, FieldTypeItem, ValidationError,
-    };
+    use crate::field::set::FieldSet;
+    use crate::field::{CommonFieldData, FieldDescriptor};
+    use crate::value::{FieldCardinality, FieldType, FieldTypeItem, ValidationError};
     use uuid::{NonNilUuid, Uuid};
 
     struct TypeA;

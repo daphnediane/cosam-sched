@@ -6,24 +6,30 @@
 
 //! Entity type system — [`EntityType`] trait, [`UuidPreference`], and related types.
 //!
-//! Entity and field node identifiers are defined in [`crate::entity_id`]:
-//! - [`crate::entity_id::EntityId`] — compile-time type-safe entity identifier
-//! - [`crate::entity_id::RuntimeEntityId`] — dynamic (untyped) entity identifier
-//! - [`crate::entity_id::FieldNodeId`] — compile-time type-safe field node identifier
-//! - [`crate::entity_id::RuntimeFieldNodeId`] — dynamic (untyped) field node identifier
+//! Entity identifiers are defined in [`crate::entity::id`]:
+//! - [`crate::entity::id::EntityId`] — compile-time type-safe entity identifier
+//! - [`crate::entity::id::RuntimeEntityId`] — dynamic (untyped) entity identifier
+//! - [`crate::entity::id::DynamicEntityId`] — dynamic entity identifier trait
+//! - [`crate::entity::id::EntityUuid`] — entity UUID wrapper
+//! - [`crate::entity::id::EntityTyped`] — entity UUID with type marker
+//! - [`crate::entity::id::TypedEntityId`] — typed entity ID alias
+//!
+//! Field node identifiers are defined in [`crate::edge`]:
+//! - [`crate::edge::FieldNodeId`] — compile-time type-safe field node identifier
+//! - [`crate::edge::RuntimeFieldNodeId`] — dynamic (untyped) field node identifier
 //!
 //! Non-nil UUID identity uses [`uuid::NonNilUuid`] from the `uuid` crate
 //! directly.
+
+pub mod id;
 
 use crate::value::ValidationError;
 use std::fmt;
 use uuid::{NonNilUuid, Uuid};
 
-// ── Re-exports from entity_id ─────────────────────────────────────────────────────
+// ── Re-exports from id ─────────────────────────────────────────────────────────
 
-pub use crate::entity_id::{
-    DynamicEntityId, EntityId, EntityTyped, EntityUuid, RuntimeEntityId, TypedEntityId,
-};
+pub use id::{DynamicEntityId, EntityId, EntityTyped, EntityUuid, RuntimeEntityId, TypedEntityId};
 
 // ── UuidPreference ────────────────────────────────────────────────────────────
 
@@ -54,7 +60,7 @@ pub enum UuidPreference {
 // ── FieldSet ─────────────────────────────────────────────────────────────────
 
 /// Re-export so callers can use `entity::FieldSet<E>` without importing `field_set`.
-pub use crate::field_set::FieldSet;
+pub use crate::field::set::FieldSet;
 
 // ── EntityType trait ──────────────────────────────────────────────────────────
 
@@ -100,7 +106,7 @@ pub type EntityBuildFn = fn(
     &mut crate::schedule::Schedule,
     NonNilUuid,
     &[(&'static str, crate::value::FieldValue)],
-) -> Result<NonNilUuid, crate::builder::BuildError>;
+) -> Result<NonNilUuid, crate::edit::builder::BuildError>;
 
 /// Type-erased entity type descriptor, registered globally via `inventory`.
 ///
@@ -124,8 +130,8 @@ pub struct RegisteredEntityType {
     /// Returns the resulting [`NonNilUuid`] on success, or a [`BuildError`] if
     /// any write or validation step fails.
     ///
-    /// [`FieldSet`]: crate::field_set::FieldSet
-    /// [`BuildError`]: crate::builder::BuildError
+    /// [`FieldSet`]: crate::field::set::FieldSet
+    /// [`BuildError`]: crate::edit::builder::BuildError
     pub build_fn: EntityBuildFn,
 
     /// Read a single field value from an existing entity by field name.
@@ -175,7 +181,7 @@ pub struct RegisteredEntityType {
     /// Reads every non-derived writable field for this entity type out of
     /// `schedule.doc()` via [`crate::crdt::read_field`], collects them into
     /// a `(field_name, FieldValue)` batch, and invokes
-    /// [`crate::builder::build_entity`] with `UuidPreference::Exact(uuid)`.
+    /// [`crate::edit::builder::build_entity`] with `UuidPreference::Exact(uuid)`.
     ///
     /// The caller is responsible for disabling the CRDT mirror
     /// ([`crate::schedule::Schedule::with_mirror_disabled`]) before calling
@@ -184,7 +190,7 @@ pub struct RegisteredEntityType {
     pub rehydrate_fn: fn(
         &mut crate::schedule::Schedule,
         NonNilUuid,
-    ) -> Result<NonNilUuid, crate::builder::BuildError>,
+    ) -> Result<NonNilUuid, crate::edit::builder::BuildError>,
 }
 inventory::collect!(RegisteredEntityType);
 

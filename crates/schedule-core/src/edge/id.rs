@@ -15,7 +15,7 @@
 //!
 //! A [`RuntimeFieldNodeId`] combines a `'static` field descriptor reference with a
 //! [`NonNilUuid`] to represent "entity X's field Y" in a type-erased way. This is the
-//! unit used as both map keys and neighbor values in [`crate::edge_map::RawEdgeMap`].
+//! unit used as both map keys and neighbor values in [`crate::edge::map::RawEdgeMap`].
 //!
 //! A [`FieldNodeId<E>`] provides compile-time type safety via a `PhantomData<E>`
 //! marker, similar to how [`crate::entity::EntityId`] works for entities.
@@ -25,10 +25,11 @@
 //!
 //! [`FieldDescriptor<E>`]: crate::field::FieldDescriptor
 
+use crate::edge::HalfEdge;
 use crate::entity::{
     DynamicEntityId, EntityId, EntityType, EntityTyped, EntityUuid, TypedEntityId,
 };
-use crate::field::{FieldDescriptor, HalfEdge, NamedField};
+use crate::field::{FieldDescriptor, NamedField};
 use crate::value::ConversionError;
 use std::marker::PhantomData;
 use uuid::NonNilUuid;
@@ -207,12 +208,9 @@ impl RuntimeFieldNodeId {
     }
 }
 
-impl From<RuntimeFieldNodeId> for crate::entity_id::RuntimeEntityId {
+impl From<RuntimeFieldNodeId> for crate::entity::RuntimeEntityId {
     fn from(node: RuntimeFieldNodeId) -> Self {
-        // SAFETY: RuntimeFieldNodeId's type_name() always returns a valid entity type name
-        unsafe {
-            crate::entity_id::RuntimeEntityId::new_unchecked(node.uuid, node.entity_type_name())
-        }
+        unsafe { crate::entity::RuntimeEntityId::new_unchecked(node.uuid, node.entity_type_name()) }
     }
 }
 
@@ -380,19 +378,17 @@ impl<E: EntityType> FieldNodeId<E> {
     }
 }
 
-impl<E: EntityType> From<FieldNodeId<E>> for crate::entity_id::RuntimeEntityId {
+impl<E: EntityType> From<FieldNodeId<E>> for crate::entity::RuntimeEntityId {
     fn from(node: FieldNodeId<E>) -> Self {
         // SAFETY: FieldNodeId<E>'s type_name() always returns E::TYPE_NAME
-        unsafe {
-            crate::entity_id::RuntimeEntityId::new_unchecked(node.uuid, node.entity_type_name())
-        }
+        unsafe { crate::entity::RuntimeEntityId::new_unchecked(node.uuid, node.entity_type_name()) }
     }
 }
 
-impl<E: EntityType> From<FieldNodeId<E>> for crate::entity_id::EntityId<E> {
+impl<E: EntityType> From<FieldNodeId<E>> for crate::entity::EntityId<E> {
     fn from(node: FieldNodeId<E>) -> Self {
         // SAFETY: FieldNodeId<E>'s type_name() always returns E::TYPE_NAME
-        unsafe { crate::entity_id::EntityId::new_unchecked(node.uuid) }
+        unsafe { crate::entity::EntityId::new_unchecked(node.uuid) }
     }
 }
 
@@ -444,12 +440,12 @@ impl<E: EntityType> Copy for FieldNodeId<E> {}
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::crdt::CrdtFieldType;
+    use crate::edge::EdgeKind;
     use crate::entity::EntityType;
+    use crate::field::set::FieldSet;
     use crate::field::CommonFieldData;
-    use crate::field_set::FieldSet;
-    use crate::value::{
-        CrdtFieldType, EdgeKind, FieldCardinality, FieldType, FieldTypeItem, ValidationError,
-    };
+    use crate::value::{FieldCardinality, FieldType, FieldTypeItem, ValidationError};
     use uuid::Uuid;
 
     // ── Minimal mock entity + two static field descriptors ───────────────────

@@ -27,7 +27,9 @@
 //!   which is the natural integration point for generating CRDT operations
 //!   in Phase 4.
 
-use crate::builder::BuildError;
+pub mod builder;
+
+use crate::edit::builder::BuildError;
 use crate::entity::{
     registered_entity_types, DynamicEntityId, EntityTyped, EntityUuid, RuntimeEntityId,
 };
@@ -486,12 +488,12 @@ pub fn add_entity_cmd(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::builder::build_entity;
+    use crate::edit::builder::build_entity;
     use crate::entity::UuidPreference;
-    use crate::field_set::FieldRef;
+    use crate::field::set::FieldRef;
     use crate::field_value;
-    use crate::panel_type::PanelTypeEntityType;
     use crate::schedule::Schedule;
+    use crate::tables::panel_type::PanelTypeEntityType;
 
     fn make_panel_type_in_context() -> (EditContext, RuntimeEntityId) {
         let mut sched = Schedule::default();

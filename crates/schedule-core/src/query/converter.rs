@@ -23,7 +23,7 @@
 //! - Mutable: [`resolve_one`], [`resolve_optional`], [`resolve_many`]
 
 use crate::entity::{EntityId, EntityType, EntityTyped};
-use crate::lookup::EntityMatcher;
+use crate::query::lookup::EntityMatcher;
 use crate::schedule::Schedule;
 use crate::value::{ConversionError, FieldValue, FieldValueItem};
 
@@ -77,7 +77,7 @@ impl<'a> FieldValueForSchedule<'a> {
     }
 
     /// Convert to EntityId using EntityNameLookup converter.
-    pub fn into_entity_id<E: EntityType + crate::converter::EntityStringResolver>(
+    pub fn into_entity_id<E: EntityType + crate::query::converter::EntityStringResolver>(
         self,
     ) -> Result<EntityId<E>, ConversionError> {
         // EntityNameLookup is defined in tests, so we need to provide it as a parameter
@@ -103,7 +103,7 @@ pub trait FieldTypeMapping: 'static {
     /// CRDT annotation for fields backed by this mapping. Defaults to
     /// [`CrdtFieldType::Scalar`]; `AsText` overrides to
     /// [`CrdtFieldType::Text`].
-    const CRDT_TYPE: crate::value::CrdtFieldType = crate::value::CrdtFieldType::Scalar;
+    const CRDT_TYPE: crate::crdt::CrdtFieldType = crate::crdt::CrdtFieldType::Scalar;
 
     /// Returns the `FieldTypeItem` that this mapping expects.
     #[must_use]
@@ -162,7 +162,7 @@ pub struct AsText;
 impl FieldTypeMapping for AsText {
     type Output = String;
     const FIELD_TYPE_ITEM: crate::value::FieldTypeItem = crate::value::FieldTypeItem::Text;
-    const CRDT_TYPE: crate::value::CrdtFieldType = crate::value::CrdtFieldType::Text;
+    const CRDT_TYPE: crate::crdt::CrdtFieldType = crate::crdt::CrdtFieldType::Text;
 
     fn from_field_value_item(item: FieldValueItem) -> Result<Self::Output, ConversionError> {
         // Same conversions as AsString, but Text stays as Text variant
@@ -677,7 +677,7 @@ pub fn resolve_many<M: FieldTypeMapping, C: FieldValueConverter<M>>(
 mod tests {
     use super::*;
     use crate::field_value;
-    use crate::lookup::{lookup_single, EntityScannable};
+    use crate::query::lookup::{lookup_single, EntityScannable};
     use crate::value::FieldTypeItem;
 
     // Simple converter that uses default implementations
@@ -1110,7 +1110,7 @@ mod tests {
 
         // Create a RuntimeEntityId for a Panel
         use crate::entity::{EntityId, RuntimeEntityId};
-        use crate::panel::PanelEntityType;
+        use crate::tables::panel::PanelEntityType;
         use uuid::Uuid;
         let uuid = Uuid::new_v4();
         let non_nil_uuid = unsafe { uuid::NonNilUuid::new_unchecked(uuid) };
@@ -1130,7 +1130,7 @@ mod tests {
 
         // Create a RuntimeEntityId for a Presenter but try to convert as Panel
         use crate::entity::{EntityId, RuntimeEntityId};
-        use crate::presenter::PresenterEntityType;
+        use crate::tables::presenter::PresenterEntityType;
         use uuid::Uuid;
         let uuid = Uuid::new_v4();
         let non_nil_uuid = unsafe { uuid::NonNilUuid::new_unchecked(uuid) };
@@ -1138,7 +1138,7 @@ mod tests {
         let rid: RuntimeEntityId = presenter_id.into();
 
         let input = FieldValue::Single(FieldValueItem::EntityIdentifier(rid));
-        let result = lookup_one::<AsEntityId<crate::panel::PanelEntityType>, _>(
+        let result = lookup_one::<AsEntityId<crate::tables::panel::PanelEntityType>, _>(
             &converter, &schedule, input,
         );
         assert!(result.is_err());
@@ -1151,7 +1151,7 @@ mod tests {
         let input = field_value!("SomePresenter");
 
         // Name lookup returns error for not found (new lookup module returns Result)
-        let result = lookup_one::<AsEntityId<crate::presenter::PresenterEntityType>, _>(
+        let result = lookup_one::<AsEntityId<crate::tables::presenter::PresenterEntityType>, _>(
             &converter, &schedule, input,
         );
         assert!(result.is_err());

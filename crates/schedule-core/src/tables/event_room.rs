@@ -16,13 +16,13 @@
 //! edge-backed computed fields wired through `Schedule::edges_from` /
 //! `Schedule::edges_to`.
 
-use crate::converter::{AsInteger, AsString, EntityStringResolver};
 use crate::define_field;
 use crate::entity::{EntityId, EntityType, EntityUuid, UuidPreference};
+use crate::field::set::FieldSet;
 use crate::field::{FieldDescriptor, NamedField};
-use crate::field_set::FieldSet;
-use crate::hotel_room::{HotelRoomEntityType, HotelRoomId};
-use crate::panel::{PanelEntityType, PanelId};
+use crate::query::converter::{AsInteger, AsString, EntityStringResolver};
+use crate::tables::hotel_room::{HotelRoomEntityType, HotelRoomId};
+use crate::tables::panel::{PanelEntityType, PanelId};
 use crate::value::ValidationError;
 use serde::{Deserialize, Serialize};
 use std::sync::LazyLock;
@@ -137,12 +137,12 @@ inventory::submit! {
             EventRoomEntityType::field_set().write_field_value(field_name, id, schedule, value)
         },
         build_fn: |schedule, uuid, fields| {
-            crate::builder::build_entity::<EventRoomEntityType>(
+            crate::edit::builder::build_entity::<EventRoomEntityType>(
                 schedule,
                 crate::entity::UuidPreference::Exact(uuid),
                 fields
                     .iter()
-                    .map(|(n, v)| (crate::field_set::FieldRef::Name(n), v.clone()))
+                    .map(|(n, v)| (crate::field::set::FieldRef::Name(n), v.clone()))
                     .collect(),
             )
             .map(|id| id.entity_uuid())
@@ -172,7 +172,7 @@ inventory::submit! {
 
 // ── EntityBuildable ─────────────────────────────────────────────────────────────
 
-impl crate::builder::EntityBuildable for EventRoomEntityType {
+impl crate::edit::builder::EntityBuildable for EventRoomEntityType {
     fn default_data(id: EntityId<Self>) -> Self::InternalData {
         EventRoomInternalData {
             id,
@@ -229,7 +229,7 @@ define_field! {
 
 define_field! {
     static FIELD_HOTEL_ROOMS: FieldDescriptor<EventRoomEntityType>,
-    edge: rw, target: HotelRoomEntityType, target_field: &crate::hotel_room::FIELD_EVENT_ROOMS,
+    edge: rw, target: HotelRoomEntityType, target_field: &crate::tables::hotel_room::FIELD_EVENT_ROOMS,
     owner,
     name: "hotel_rooms", display: "Hotel Rooms",
     desc: "Hotel rooms that contain this event room.",
@@ -240,7 +240,7 @@ define_field! {
 
 define_field! {
     static FIELD_PANELS: FieldDescriptor<EventRoomEntityType>,
-    edge: rw, target: PanelEntityType, target_field: &crate::panel::FIELD_EVENT_ROOMS,
+    edge: rw, target: PanelEntityType, target_field: &crate::tables::panel::FIELD_EVENT_ROOMS,
     name: "panels", display: "Panels",
     desc: "Panels scheduled in this event room.",
     aliases: &["panel"],
@@ -255,7 +255,7 @@ static EVENT_ROOM_FIELD_SET: LazyLock<FieldSet<EventRoomEntityType>> =
 
 // ── Builder ───────────────────────────────────────────────────────────────────
 
-crate::field_macros::define_entity_builder! {
+crate::field::macros::define_entity_builder! {
     /// Typed builder for [`EventRoomEntityType`] entities.
     EventRoomBuilder for EventRoomEntityType {
         /// Set the room code as it appears in the Schedule sheet (e.g. `"Panel 1"`).
@@ -274,14 +274,14 @@ crate::field_macros::define_entity_builder! {
 
 // ── EntityMatcher ─────────────────────────────────────────────────────────────
 
-impl crate::lookup::EntityScannable for EventRoomEntityType {}
+impl crate::query::lookup::EntityScannable for EventRoomEntityType {}
 
-impl crate::lookup::EntityMatcher for EventRoomEntityType {
+impl crate::query::lookup::EntityMatcher for EventRoomEntityType {
     fn match_entity(
         query: &str,
         data: &EventRoomInternalData,
-    ) -> Option<crate::lookup::MatchPriority> {
-        use crate::lookup::string_match_priority;
+    ) -> Option<crate::query::lookup::MatchPriority> {
+        use crate::query::lookup::string_match_priority;
         let long = data.data.long_name.as_deref().unwrap_or("");
         [
             string_match_priority(query, &data.data.room_name),
@@ -296,24 +296,24 @@ impl crate::lookup::EntityMatcher for EventRoomEntityType {
         .max()
     }
 
-    fn can_create(full: &str, partial: &str) -> crate::lookup::CanCreate {
+    fn can_create(full: &str, partial: &str) -> crate::query::lookup::CanCreate {
         if partial.is_empty() {
-            crate::lookup::CanCreate::No
+            crate::query::lookup::CanCreate::No
         } else if full == partial {
-            crate::lookup::CanCreate::Yes(crate::lookup::MatchConsumed::Full)
+            crate::query::lookup::CanCreate::Yes(crate::query::lookup::MatchConsumed::Full)
         } else {
-            crate::lookup::CanCreate::Yes(crate::lookup::MatchConsumed::Partial)
+            crate::query::lookup::CanCreate::Yes(crate::query::lookup::MatchConsumed::Partial)
         }
     }
 }
 
 // ── EntityCreatable ───────────────────────────────────────────────────────────
 
-impl crate::lookup::EntityCreatable for EventRoomEntityType {
+impl crate::query::lookup::EntityCreatable for EventRoomEntityType {
     fn create_from_string(
         schedule: &mut crate::schedule::Schedule,
         s: &str,
-    ) -> Result<EntityId<Self>, crate::lookup::LookupError> {
+    ) -> Result<EntityId<Self>, crate::query::lookup::LookupError> {
         let id = EntityId::from_preference(UuidPreference::FromV5 {
             name: s.to_string(),
         });
@@ -338,7 +338,7 @@ impl crate::lookup::EntityCreatable for EventRoomEntityType {
 mod tests {
     use super::*;
     use crate::field_value;
-    use crate::lookup::{match_priority, EntityMatcher};
+    use crate::query::lookup::{match_priority, EntityMatcher};
     use crate::schedule::Schedule;
     use uuid::Uuid;
 
@@ -406,7 +406,7 @@ mod tests {
         let id = make_id();
         let mut sched = schedule_with(id, make_internal());
         let fs = EventRoomEntityType::field_set();
-        fs.write_field_value("long_name", id, &mut sched, field_value!(empty_list))
+        fs.write_field_value("long_name", id, &mut sched, crate::field_empty_list!())
             .unwrap();
         let value = fs.read_field_value("long_name", id, &sched).unwrap();
         assert_eq!(value, None);
@@ -441,7 +441,7 @@ mod tests {
 
     #[test]
     fn test_entity_to_string_returns_room_name() {
-        use crate::converter::EntityStringResolver;
+        use crate::query::converter::EntityStringResolver;
         let id = make_id();
         let sched = schedule_with(id, make_internal());
         let s = EventRoomEntityType::entity_to_string(&sched, id);
@@ -450,7 +450,7 @@ mod tests {
 
     #[test]
     fn test_entity_to_string_fallback_to_uuid() {
-        use crate::converter::EntityStringResolver;
+        use crate::query::converter::EntityStringResolver;
         let id = make_id();
         let sched = Schedule::default();
         let s = EventRoomEntityType::entity_to_string(&sched, id);
@@ -459,7 +459,7 @@ mod tests {
 
     #[test]
     fn test_lookup_or_create_single_creates_new_entity() {
-        use crate::lookup::lookup_or_create_single;
+        use crate::query::lookup::lookup_or_create_single;
         let mut sched = Schedule::default();
         let id = lookup_or_create_single::<EventRoomEntityType>(&mut sched, "New Room").unwrap();
         let data = sched.get_internal(id).unwrap();
@@ -468,7 +468,7 @@ mod tests {
 
     #[test]
     fn test_lookup_or_create_single_returns_existing() {
-        use crate::lookup::lookup_or_create_single;
+        use crate::query::lookup::lookup_or_create_single;
         let id = make_id();
         let mut sched = schedule_with(id, make_internal());
         let found_id =
@@ -491,11 +491,11 @@ mod tests {
         let fs = EventRoomEntityType::field_set();
         assert_eq!(
             fs.read_field_value("hotel_rooms", id, &sched).unwrap(),
-            Some(field_value!(empty_list))
+            Some(crate::field_empty_list!())
         );
         assert_eq!(
             fs.read_field_value("panels", id, &sched).unwrap(),
-            Some(field_value!(empty_list))
+            Some(crate::field_empty_list!())
         );
     }
 
@@ -503,25 +503,25 @@ mod tests {
 
     #[test]
     fn test_can_create_no_separator() {
-        use crate::lookup::{CanCreate, EntityMatcher};
+        use crate::query::lookup::{CanCreate, EntityMatcher};
         assert!(matches!(
             EventRoomEntityType::can_create("Panel 1", "Panel 1"),
-            CanCreate::Yes(crate::lookup::MatchConsumed::Full)
+            CanCreate::Yes(crate::query::lookup::MatchConsumed::Full)
         ));
     }
 
     #[test]
     fn test_can_create_with_separator() {
-        use crate::lookup::{CanCreate, EntityMatcher};
+        use crate::query::lookup::{CanCreate, EntityMatcher};
         assert!(matches!(
             EventRoomEntityType::can_create("Panel 1, Panel 2", "Panel 1"),
-            CanCreate::Yes(crate::lookup::MatchConsumed::Partial)
+            CanCreate::Yes(crate::query::lookup::MatchConsumed::Partial)
         ));
     }
 
     #[test]
     fn test_can_create_empty_partial_returns_no() {
-        use crate::lookup::{CanCreate, EntityMatcher};
+        use crate::query::lookup::{CanCreate, EntityMatcher};
         assert!(matches!(
             EventRoomEntityType::can_create("Panel 1", ""),
             CanCreate::No
@@ -530,7 +530,7 @@ mod tests {
 
     #[test]
     fn test_create_from_string_inserts_entity() {
-        use crate::lookup::EntityCreatable;
+        use crate::query::lookup::EntityCreatable;
         let mut sched = Schedule::default();
         let id = EventRoomEntityType::create_from_string(&mut sched, "Main Hall").unwrap();
         let data = sched.get_internal(id).unwrap();
@@ -540,7 +540,7 @@ mod tests {
 
     #[test]
     fn test_create_from_string_is_deterministic() {
-        use crate::lookup::EntityCreatable;
+        use crate::query::lookup::EntityCreatable;
         let mut sched1 = Schedule::default();
         let mut sched2 = Schedule::default();
         let id1 = EventRoomEntityType::create_from_string(&mut sched1, "Main Hall").unwrap();

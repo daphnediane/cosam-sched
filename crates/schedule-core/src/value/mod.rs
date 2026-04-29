@@ -4,12 +4,17 @@
  * See LICENSE file for full license text
  */
 
+#[macro_use]
+pub mod macros;
+pub mod time;
+pub mod uniq_id;
+
 use chrono::{Duration, NaiveDateTime};
 use std::fmt;
 use thiserror::Error;
 
-use crate::converter::FieldTypeMapping;
 use crate::entity::{EntityTyped, RuntimeEntityId};
+use crate::query::converter::FieldTypeMapping;
 
 /// Field cardinality — whether a field holds exactly one value, zero or one value,
 /// or zero or more values.
@@ -111,7 +116,7 @@ impl FieldValueItem {
     /// Note: For entity-specific string formatting (e.g., panel code:name),
     /// use `FieldValueForSchedule` with `EntityStringResolver` instead.
     pub fn into_string(self) -> Result<std::string::String, ConversionError> {
-        crate::converter::AsString::from_field_value_item(self)
+        crate::query::converter::AsString::from_field_value_item(self)
     }
 
     /// Consume `self` and return the inner `Text` value, or a
@@ -123,7 +128,7 @@ impl FieldValueItem {
     /// Note: For entity-specific string formatting (e.g., panel code:name),
     /// use `FieldValueForSchedule` with `EntityStringResolver` instead.
     pub fn into_text(self) -> Result<std::string::String, ConversionError> {
-        crate::converter::AsText::from_field_value_item(self)
+        crate::query::converter::AsText::from_field_value_item(self)
     }
 
     /// Consume `self` and return the inner `Integer` value.
@@ -131,7 +136,7 @@ impl FieldValueItem {
     /// Supports cross-type conversions from String (parsing), Float (whole numbers),
     /// and Duration (minutes) via the FieldTypeMapping system.
     pub fn into_integer(self) -> Result<i64, ConversionError> {
-        crate::converter::AsInteger::from_field_value_item(self)
+        crate::query::converter::AsInteger::from_field_value_item(self)
     }
 
     /// Consume `self` and return the inner `Float` value.
@@ -139,7 +144,7 @@ impl FieldValueItem {
     /// Supports cross-type conversions from String (parsing), Integer, and
     /// Duration (minutes) via the FieldTypeMapping system.
     pub fn into_float(self) -> Result<f64, ConversionError> {
-        crate::converter::AsFloat::from_field_value_item(self)
+        crate::query::converter::AsFloat::from_field_value_item(self)
     }
 
     /// Consume `self` and return the inner `Boolean` value.
@@ -147,14 +152,14 @@ impl FieldValueItem {
     /// Supports cross-type conversions from String (parsing "true"/"false"),
     /// Integer (non-zero = true), and Float (non-zero = true) via the FieldTypeMapping system.
     pub fn into_bool(self) -> Result<bool, ConversionError> {
-        crate::converter::AsBoolean::from_field_value_item(self)
+        crate::query::converter::AsBoolean::from_field_value_item(self)
     }
 
     /// Consume `self` and return the inner `DateTime` value.
     ///
     /// Supports cross-type conversions from String (parsing) via the FieldTypeMapping system.
     pub fn into_datetime(self) -> Result<NaiveDateTime, ConversionError> {
-        crate::converter::AsDateTime::from_field_value_item(self)
+        crate::query::converter::AsDateTime::from_field_value_item(self)
     }
 
     /// Consume `self` and return the inner `Duration` value.
@@ -162,7 +167,7 @@ impl FieldValueItem {
     /// Supports cross-type conversions from String (parsing "HH:MM" or minutes),
     /// Integer (minutes), and Float (minutes) via the FieldTypeMapping system.
     pub fn into_duration(self) -> Result<Duration, ConversionError> {
-        crate::converter::AsDuration::from_field_value_item(self)
+        crate::query::converter::AsDuration::from_field_value_item(self)
     }
 
     /// Consume `self` and return a `RuntimeEntityId` value.
@@ -276,7 +281,7 @@ impl FieldValue {
 
 /// Convert a value into a [`FieldValueItem`] variant based on its Rust type.
 ///
-/// Implement this for any type you want to pass to `field_value!` without
+/// Implement this for any type you want to pass to `crate::field_value!` without
 /// naming the variant explicitly. [`IntoFieldValue`] is implemented
 /// automatically via the blanket `impl<T: IntoFieldValueItem> IntoFieldValue for T`.
 ///
@@ -466,7 +471,7 @@ impl FieldType {
 
     /// Infer a `FieldType` from a `FieldValue`.
     ///
-    /// Returns `None` only for empty lists (element type unknown).
+    /// Returns `None` only for crate::field_empty_list!s (element type unknown).
     pub fn of(value: &FieldValue) -> Option<Self> {
         match value {
             FieldValue::Single(item) => Some(Self(
@@ -479,133 +484,6 @@ impl FieldType {
             )),
         }
     }
-}
-
-/// Ownership and relationship info for an edge half-edge field.
-///
-/// Stored in [`EdgeDescriptor::edge_kind`](crate::field::EdgeDescriptor) and
-/// exposed through [`HalfEdge::edge_kind`](crate::field::HalfEdge::edge_kind).
-/// Replaces the `target_field` payload that was previously embedded directly
-/// in [`CrdtFieldType::EdgeOwner`].
-#[derive(Clone, Copy)]
-pub enum EdgeKind {
-    /// Non-owner (lookup/inverse) side of an edge relationship.
-    ///
-    /// `source_fields` lists all owner-side fields whose `target_field` points
-    /// at this field.  A single target field may be reached by multiple owners
-    /// (e.g. `FIELD_PANELS` on `Presenter` is targeted by both
-    /// `FIELD_CREDITED_PRESENTERS` and `FIELD_UNCREDITED_PRESENTERS` on
-    /// `Panel`).
-    ///
-    /// Use `&[]` when no sources are known at static-initializer time.
-    /// Because all edge fields live in the same crate, cross-module static
-    /// references compile without circular-dependency issues.
-    Target {
-        /// Owner-side fields whose `target_field` is this field.
-        source_fields: &'static [&'static dyn crate::field::HalfEdge],
-    },
-    /// CRDT-canonical owner side of an edge relationship.
-    ///
-    /// `exclusive_with` names a sibling field on the *same* entity whose
-    /// entries must be removed before adding to this field.  Previously this
-    /// logic was embedded in macro-generated closures; storing it here makes
-    /// the descriptor self-describing.
-    Owner {
-        /// Inverse/lookup field on the target entity.
-        target_field: &'static dyn crate::field::HalfEdge,
-        /// Sibling field on the same entity that is mutually exclusive with
-        /// this one (e.g. credited vs uncredited presenter lists).
-        exclusive_with: Option<&'static dyn crate::field::HalfEdge>,
-    },
-    /// Temporary value for non-edges for use by FieldDescriptor
-    /// before we separate the descriptor types
-    NonEdge,
-}
-
-impl EdgeKind {
-    /// Returns `true` if this is the owning side of an edge.
-    #[must_use]
-    pub fn is_owner(&self) -> bool {
-        matches!(self, Self::Owner { .. })
-    }
-
-    /// Returns the target field if this is an owner, or `None` for targets.
-    #[must_use]
-    pub fn target_field(&self) -> Option<&'static dyn crate::field::HalfEdge> {
-        match self {
-            Self::Owner { target_field, .. } => Some(*target_field),
-            Self::Target { .. } => None,
-            Self::NonEdge => None,
-        }
-    }
-
-    /// Returns the source fields if this is a target, or `None` for owners.
-    #[must_use]
-    pub fn source_fields(&self) -> Option<&'static [&'static dyn crate::field::HalfEdge]> {
-        match self {
-            Self::Target { source_fields } => Some(source_fields),
-            Self::Owner { .. } => None,
-            Self::NonEdge => None,
-        }
-    }
-}
-
-impl PartialEq for EdgeKind {
-    fn eq(&self, other: &Self) -> bool {
-        match (self, other) {
-            (Self::Target { .. }, Self::Target { .. }) => true,
-            (
-                Self::Owner {
-                    target_field: a, ..
-                },
-                Self::Owner {
-                    target_field: b, ..
-                },
-            ) => std::ptr::eq(
-                *a as *const dyn crate::field::HalfEdge as *const (),
-                *b as *const dyn crate::field::HalfEdge as *const (),
-            ),
-            _ => false,
-        }
-    }
-}
-
-impl Eq for EdgeKind {}
-
-impl std::fmt::Debug for EdgeKind {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        match self {
-            Self::Target { source_fields } => f
-                .debug_struct("Target")
-                .field("source_count", &source_fields.len())
-                .finish(),
-            Self::Owner {
-                target_field,
-                exclusive_with,
-            } => f
-                .debug_struct("Owner")
-                .field("target_field", &target_field.name())
-                .field("exclusive_with", &exclusive_with.map(|e| e.name()))
-                .finish(),
-            Self::NonEdge => f.write_str("NonEdge"),
-        }
-    }
-}
-
-/// How a field maps to CRDT storage in Phase 4.
-///
-/// Annotations are baked in from Phase 2 so no entity structs need changing
-/// when automerge integration lands.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum CrdtFieldType {
-    /// Last-write-wins scalar via `put` / `get` (automerge LWW).
-    Scalar,
-    /// Prose RGA text via `splice_text` / `text` (automerge RGA).
-    Text,
-    /// OR-Set equivalent list via `insert` / `delete` / `list` (automerge list).
-    List,
-    /// Computed from relationships; not stored in CRDT — lives only in RAM.
-    Derived,
 }
 
 /// Top-level error for field operations.
@@ -689,7 +567,6 @@ pub enum VerificationError {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::field_value;
     use chrono::NaiveDate;
 
     fn sample_datetime() -> NaiveDateTime {
@@ -788,17 +665,6 @@ mod tests {
     fn test_into_list_ok() {
         let v = FieldValue::List(vec![FieldValueItem::Integer(1)]);
         assert_eq!(v.into_list().unwrap().len(), 1);
-    }
-
-    #[test]
-    fn test_crdt_field_type_variants() {
-        let non_edge = [
-            CrdtFieldType::Scalar,
-            CrdtFieldType::Text,
-            CrdtFieldType::List,
-            CrdtFieldType::Derived,
-        ];
-        assert_eq!(non_edge.len(), 4);
     }
 
     #[test]
@@ -930,7 +796,7 @@ mod tests {
     #[test]
     fn test_field_type_of_entity_identifier() {
         use crate::entity::{EntityId, RuntimeEntityId};
-        use crate::panel::PanelEntityType;
+        use crate::tables::panel::PanelEntityType;
         use uuid::{NonNilUuid, Uuid};
         let uuid = Uuid::parse_str("550e8400-e29b-41d4-a716-446655440000").unwrap();
         let non_nil_uuid = NonNilUuid::new(uuid).unwrap();

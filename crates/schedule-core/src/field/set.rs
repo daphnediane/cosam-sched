@@ -34,10 +34,11 @@
 //! field with canonical name `"kind"` whose spreadsheet header is `"PanelKind"`
 //! should include `"Panel_Kind"` in its `aliases` list.
 
+use crate::crdt::CrdtFieldType;
 use crate::entity::EntityType;
 use crate::field::{FieldDescriptor, NamedField, ReadableField, VerifiableField, WritableField};
 use crate::schedule::Schedule;
-use crate::value::{CrdtFieldType, FieldError, FieldValue, IntoFieldValue, VerificationError};
+use crate::value::{FieldError, FieldValue, IntoFieldValue, VerificationError};
 use std::collections::HashMap;
 use thiserror::Error;
 
@@ -422,11 +423,13 @@ impl<E: EntityType> FieldSet<E> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::crdt::CrdtFieldType;
+    use crate::edge::EdgeKind;
     use crate::entity::{EntityId, EntityType};
     use crate::field::{CommonFieldData, ReadFn, WriteFn};
     use crate::field_value;
-    use crate::value::{CrdtFieldType, EdgeKind, FieldError, ValidationError};
     use crate::value::{FieldCardinality, FieldType, FieldTypeItem};
+    use crate::value::{FieldError, ValidationError};
     use uuid::Uuid;
 
     // ── Mock entity ──────────────────────────────────────────────────────────

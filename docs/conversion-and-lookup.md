@@ -341,7 +341,7 @@ Note: This is simple string-to-string conversion. For entity-specific formatting
 String => EntityId conversion uses the lookup module functions:
 
 ```rust
-use crate::lookup::{lookup_single, lookup_or_create_single};
+use crate::query::lookup::{lookup_single, lookup_or_create_single};
 
 // Read-only lookup
 let id: EntityId<PresenterEntityType> = lookup_single(&schedule, "P:John Smith")?;

@@ -40,8 +40,8 @@
 //! map[group_uuid][FIELD_MEMBERS]  = [(FIELD_GROUPS,  member_uuid), ...]
 //! ```
 
+use crate::edge::id::{DynamicFieldNodeId, EdgeRef, RuntimeFieldNodeId};
 use crate::entity::DynamicEntityId;
-use crate::field_node_id::{DynamicFieldNodeId, EdgeRef, RuntimeFieldNodeId};
 use std::collections::HashMap;
 use uuid::NonNilUuid;
 
@@ -260,8 +260,8 @@ impl RawEdgeMap {
         for ((src_field, dest_field), neighbor_uuids) in inner {
             let node_field = near_node.field();
             // Compare data pointers for field descriptor equality
-            let src_ptr = src_field.0 as *const dyn crate::field::HalfEdge as *const ();
-            let node_ptr = node_field as *const dyn crate::field::HalfEdge as *const ();
+            let src_ptr = src_field.0 as *const dyn crate::edge::HalfEdge as *const ();
+            let node_ptr = node_field as *const dyn crate::edge::HalfEdge as *const ();
             if src_ptr == node_ptr {
                 for neighbor_uuid in neighbor_uuids {
                     // SAFETY: The stored field (dest_field) is always a valid NamedField
@@ -280,12 +280,13 @@ impl RawEdgeMap {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::crdt::CrdtFieldType;
+    use crate::edge::EdgeKind;
+    use crate::edge::HalfEdge;
     use crate::entity::{EntityId, EntityType};
-    use crate::field::{CommonFieldData, FieldDescriptor, HalfEdge};
-    use crate::field_set::FieldSet;
-    use crate::value::{
-        CrdtFieldType, EdgeKind, FieldCardinality, FieldType, FieldTypeItem, ValidationError,
-    };
+    use crate::field::set::FieldSet;
+    use crate::field::{CommonFieldData, FieldDescriptor};
+    use crate::value::{FieldCardinality, FieldType, FieldTypeItem, ValidationError};
     use uuid::{NonNilUuid, Uuid};
 
     // ── Minimal mock entity types ────────────────────────────────────────────

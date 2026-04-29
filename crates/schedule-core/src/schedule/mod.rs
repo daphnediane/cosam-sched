@@ -10,13 +10,16 @@
 //! Fully generic: no entity-type imports here; all typed wiring lives in
 //! entity modules.
 
+use crate::crdt::CrdtFieldType;
 use crate::crdt::{self, CrdtError};
-use crate::edge_cache::TransitiveEdgeCache;
-use crate::edge_map::RawEdgeMap;
+use crate::edge::cache::TransitiveEdgeCache;
+use crate::edge::map::RawEdgeMap;
+use crate::edge::EdgeKind;
+use crate::edge::HalfEdge;
+use crate::edge::{DynamicFieldNodeId, FieldNodeId};
 use crate::entity::{registered_entity_types, EntityType};
-use crate::field::{HalfEdge, NamedField, ReadableField};
-use crate::field_node_id::{DynamicFieldNodeId, FieldNodeId};
-use crate::value::{CrdtFieldType, EdgeKind, FieldError, FieldValue};
+use crate::field::{NamedField, ReadableField};
+use crate::value::{FieldError, FieldValue};
 use crate::{DynamicEntityId, EntityId, EntityTyped, EntityUuid, RuntimeEntityId};
 use automerge::AutoCommit;
 use serde::{Deserialize, Serialize};
@@ -425,8 +428,10 @@ impl Schedule {
         // iterator while we mutate `self`.
         struct RehydrateWork {
             type_name: &'static str,
-            rehydrate_fn:
-                fn(&mut Schedule, NonNilUuid) -> Result<NonNilUuid, crate::builder::BuildError>,
+            rehydrate_fn: fn(
+                &mut Schedule,
+                NonNilUuid,
+            ) -> Result<NonNilUuid, crate::edit::builder::BuildError>,
             uuids: Vec<NonNilUuid>,
         }
         let mut work: Vec<RehydrateWork> = Vec::new();
@@ -469,14 +474,14 @@ impl Schedule {
     /// [`Self::with_mirror_disabled`] — otherwise each replayed edge would
     /// re-write the same list back into the doc.
     fn rebuild_edges_from_doc(&mut self) {
-        use crate::field_node_id::RuntimeFieldNodeId;
+        use crate::edge::RuntimeFieldNodeId;
         use crate::value::FieldTypeItem;
 
         // Snapshot the `(owner_uuid, target_uuids)` pairs while borrowing
         // `&self.doc`, then apply them under `&mut self`.
         struct EdgeBatch {
-            owner_field: crate::field_node_id::EdgeRef,
-            target_field: crate::field_node_id::EdgeRef,
+            owner_field: crate::edge::EdgeRef,
+            target_field: crate::edge::EdgeRef,
             pairs: Vec<(NonNilUuid, Vec<NonNilUuid>)>,
         }
         let mut batches: Vec<EdgeBatch> = Vec::new();
@@ -502,7 +507,7 @@ impl Schedule {
                 if crdt::is_deleted(&self.doc, owner_type, owner_uuid) {
                     continue;
                 }
-                let targets = crate::edge_crdt::read_owner_list(
+                let targets = crate::crdt::edge::read_owner_list(
                     &self.doc,
                     owner_type,
                     owner_uuid,
@@ -610,7 +615,7 @@ impl Schedule {
         // variant in each field descriptor, avoiding a global descriptor scan.
         for desc in E::field_set().fields() {
             if matches!(desc.edge_kind(), EdgeKind::Owner { .. }) {
-                crate::edge_crdt::ensure_owner_list(&mut self.doc, type_name, uuid, desc.name())?;
+                crate::crdt::edge::ensure_owner_list(&mut self.doc, type_name, uuid, desc.name())?;
             }
         }
         Ok(())
@@ -762,16 +767,16 @@ impl Schedule {
     /// All neighbor field node IDs reachable via the given field node, filtered by far-side field.
     ///
     /// Lowest-level field-based query; suitable for entity-module read functions
-    /// that have a concrete [`crate::field_node_id::EdgeRef`] in hand.
+    /// that have a concrete [`crate::edge::EdgeRef`] in hand.
     /// Only returns connections where the far-side field matches `far_field`.
     /// Returns the full [`RuntimeFieldNodeId`] of each neighbor (including both
     /// the entity UUID and the field ID of the reverse edge).
     #[must_use]
     pub fn connected_field_nodes(
         &self,
-        node: impl crate::field_node_id::DynamicFieldNodeId,
-        far_field: crate::field_node_id::EdgeRef,
-    ) -> Vec<crate::field_node_id::RuntimeFieldNodeId> {
+        node: impl crate::edge::DynamicFieldNodeId,
+        far_field: crate::edge::EdgeRef,
+    ) -> Vec<crate::edge::RuntimeFieldNodeId> {
         self.edges.neighbors(node, far_field)
     }
 
@@ -783,8 +788,8 @@ impl Schedule {
     #[must_use]
     pub fn connected_entities<R: EntityType>(
         &self,
-        node: impl crate::field_node_id::DynamicFieldNodeId,
-        far_field: &'static dyn crate::field::HalfEdge,
+        node: impl crate::edge::DynamicFieldNodeId,
+        far_field: &'static dyn HalfEdge,
     ) -> Vec<EntityId<R>> {
         let far_field_ref = far_field.edge_id();
         self.connected_field_nodes(node, far_field_ref)
@@ -846,7 +851,7 @@ impl Schedule {
     ///
     /// After updating the cache, if the mirror is enabled the new endpoint
     /// is incrementally `insert`ed into the canonical owner's list field
-    /// (via [`crate::edge_crdt::list_append_unique`]) — **not** rewritten in
+    /// (via [`crate::crdt::edge::list_append_unique`]) — **not** rewritten in
     /// full — so concurrent add/add from two replicas converges to the
     /// union rather than LWW on the list object.
     pub fn edge_add(&mut self, l: impl DynamicFieldNodeId, r: impl DynamicFieldNodeId) {
@@ -902,7 +907,7 @@ impl Schedule {
     pub fn edge_set(
         &mut self,
         near: impl DynamicFieldNodeId,
-        far_field: &'static dyn crate::field::HalfEdge,
+        far_field: &'static dyn HalfEdge,
         targets: impl IntoIterator<Item = impl DynamicEntityId>,
     ) {
         let far_field_ref = far_field.edge_id();
@@ -924,12 +929,12 @@ impl Schedule {
     /// `mirror_entity_fields` (via `ensure_owner_list` on each `Owner` field).
     ///
     /// Ownership is resolved from the field descriptors embedded in `near`
-    /// and `far` via [`crate::edge_crdt::canonical_owner`].
+    /// and `far` via [`crate::crdt::edge::canonical_owner`].
     fn mirror_edge_add(&mut self, near: &impl DynamicFieldNodeId, far: &impl DynamicFieldNodeId) {
         if !self.mirror_enabled {
             return;
         }
-        let Some(canon) = crate::edge_crdt::canonical_owner(near.field(), far.field()) else {
+        let Some(canon) = crate::crdt::edge::canonical_owner(near.field(), far.field()) else {
             return;
         };
         let (owner_uuid, target_uuid) = if canon.near_is_owner {
@@ -937,7 +942,7 @@ impl Schedule {
         } else {
             (far.entity_uuid(), near.entity_uuid())
         };
-        if let Err(e) = crate::edge_crdt::list_append_unique(
+        if let Err(e) = crate::crdt::edge::list_append_unique(
             &mut self.doc,
             canon.owner_type(),
             owner_uuid,
@@ -957,7 +962,7 @@ impl Schedule {
     /// branch survives the merge.
     ///
     /// Ownership is resolved from the field descriptors embedded in `near`
-    /// and `far` via [`crate::edge_crdt::canonical_owner`].
+    /// and `far` via [`crate::crdt::edge::canonical_owner`].
     fn mirror_edge_remove(
         &mut self,
         near: &impl DynamicFieldNodeId,
@@ -966,7 +971,7 @@ impl Schedule {
         if !self.mirror_enabled {
             return;
         }
-        let Some(canon) = crate::edge_crdt::canonical_owner(near.field(), far.field()) else {
+        let Some(canon) = crate::crdt::edge::canonical_owner(near.field(), far.field()) else {
             return;
         };
         let (owner_uuid, target_uuid) = if canon.near_is_owner {
@@ -974,7 +979,7 @@ impl Schedule {
         } else {
             (far.entity_uuid(), near.entity_uuid())
         };
-        if let Err(e) = crate::edge_crdt::list_remove_uuid(
+        if let Err(e) = crate::crdt::edge::list_remove_uuid(
             &mut self.doc,
             canon.owner_type(),
             owner_uuid,
@@ -998,26 +1003,26 @@ impl Schedule {
     /// When far is the canonical owner, each added/removed far entity's list
     /// is updated to add/remove near.
     ///
-    /// Field refs are derived directly from the [`crate::edge_crdt::CanonicalOwner`]
-    /// returned by [`crate::edge_crdt::canonical_owner`].
+    /// Field refs are derived directly from the [`crate::crdt::edge::CanonicalOwner`]
+    /// returned by [`crate::crdt::edge::canonical_owner`].
     fn mirror_edge_set(
         &mut self,
         near: &impl DynamicFieldNodeId,
-        far_field: &'static dyn crate::field::HalfEdge,
+        far_field: &'static dyn HalfEdge,
         added: &[NonNilUuid],
         removed: &[NonNilUuid],
     ) {
         if !self.mirror_enabled {
             return;
         }
-        let Some(canon) = crate::edge_crdt::canonical_owner(near.field(), far_field) else {
+        let Some(canon) = crate::crdt::edge::canonical_owner(near.field(), far_field) else {
             return;
         };
         let near_uuid = near.entity_uuid();
         if canon.near_is_owner {
             // Apply diffs to near's owner list.
             for target_uuid in added {
-                if let Err(e) = crate::edge_crdt::list_append_unique(
+                if let Err(e) = crate::crdt::edge::list_append_unique(
                     &mut self.doc,
                     canon.owner_type(),
                     near_uuid,
@@ -1030,7 +1035,7 @@ impl Schedule {
                 }
             }
             for target_uuid in removed {
-                if let Err(e) = crate::edge_crdt::list_remove_uuid(
+                if let Err(e) = crate::crdt::edge::list_remove_uuid(
                     &mut self.doc,
                     canon.owner_type(),
                     near_uuid,
@@ -1047,7 +1052,7 @@ impl Schedule {
         // Far is owner — for each added far, append near to that far's list.
         // For each removed far, remove near from that far's list.
         for far_uuid in added {
-            if let Err(e) = crate::edge_crdt::list_append_unique(
+            if let Err(e) = crate::crdt::edge::list_append_unique(
                 &mut self.doc,
                 canon.owner_type(),
                 *far_uuid,
@@ -1060,7 +1065,7 @@ impl Schedule {
             }
         }
         for far_uuid in removed {
-            if let Err(e) = crate::edge_crdt::list_remove_uuid(
+            if let Err(e) = crate::crdt::edge::list_remove_uuid(
                 &mut self.doc,
                 canon.owner_type(),
                 *far_uuid,
@@ -1133,22 +1138,24 @@ pub fn field_value_to_entity_ids<E: EntityType>(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::edge::FieldNodeId;
     use crate::entity::{EntityId, UuidPreference};
-    use crate::event_room::{
+    use crate::tables::event_room::{
         EventRoomCommonData, EventRoomEntityType, EventRoomInternalData, FIELD_HOTEL_ROOMS,
     };
-    use crate::field_node_id::FieldNodeId;
-    use crate::hotel_room::{
+    use crate::tables::hotel_room::{
         HotelRoomCommonData, HotelRoomEntityType, HotelRoomInternalData, FIELD_EVENT_ROOMS,
     };
-    use crate::panel::{PanelCommonData, PanelEntityType, PanelId, PanelInternalData};
-    use crate::panel_type::{PanelTypeCommonData, PanelTypeEntityType, PanelTypeInternalData};
-    use crate::panel_uniq_id::PanelUniqId;
-    use crate::presenter::{
+    use crate::tables::panel::{PanelCommonData, PanelEntityType, PanelId, PanelInternalData};
+    use crate::tables::panel_type::{
+        PanelTypeCommonData, PanelTypeEntityType, PanelTypeInternalData,
+    };
+    use crate::tables::presenter::{
         PresenterCommonData, PresenterEntityType, PresenterId, PresenterInternalData, FIELD_GROUPS,
         FIELD_MEMBERS, FIELD_PANELS,
     };
-    use crate::time::TimeRange;
+    use crate::value::time::TimeRange;
+    use crate::value::uniq_id::PanelUniqId;
 
     fn make_panel_type() -> (EntityId<PanelTypeEntityType>, PanelTypeInternalData) {
         let id = EntityId::from_preference(UuidPreference::GenerateNew);
@@ -1320,19 +1327,19 @@ mod tests {
         sched.insert(pres_id, pres_data);
 
         sched.edge_add(
-            FieldNodeId::new(panel_id, &crate::panel::FIELD_CREDITED_PRESENTERS),
+            FieldNodeId::new(panel_id, &crate::tables::panel::FIELD_CREDITED_PRESENTERS),
             FieldNodeId::new(pres_id, &FIELD_PANELS),
         );
 
         let presenters = sched.connected_entities::<PresenterEntityType>(
-            FieldNodeId::new(panel_id, &crate::panel::FIELD_CREDITED_PRESENTERS),
-            &crate::presenter::FIELD_PANELS,
+            FieldNodeId::new(panel_id, &crate::tables::panel::FIELD_CREDITED_PRESENTERS),
+            &crate::tables::presenter::FIELD_PANELS,
         );
         assert_eq!(presenters, vec![pres_id]);
 
         let panels = sched.connected_entities::<PanelEntityType>(
             FieldNodeId::new(pres_id, &FIELD_PANELS),
-            &crate::panel::FIELD_CREDITED_PRESENTERS,
+            &crate::tables::panel::FIELD_CREDITED_PRESENTERS,
         );
         assert_eq!(panels, vec![panel_id]);
     }
@@ -1346,24 +1353,24 @@ mod tests {
         sched.insert(pres_id, pres_data);
 
         sched.edge_add(
-            FieldNodeId::new(panel_id, &crate::panel::FIELD_CREDITED_PRESENTERS),
+            FieldNodeId::new(panel_id, &crate::tables::panel::FIELD_CREDITED_PRESENTERS),
             FieldNodeId::new(pres_id, &FIELD_PANELS),
         );
         sched.edge_remove(
-            FieldNodeId::new(panel_id, &crate::panel::FIELD_CREDITED_PRESENTERS),
+            FieldNodeId::new(panel_id, &crate::tables::panel::FIELD_CREDITED_PRESENTERS),
             FieldNodeId::new(pres_id, &FIELD_PANELS),
         );
 
         assert!(sched
             .connected_entities::<PresenterEntityType>(
-                FieldNodeId::new(panel_id, &crate::panel::FIELD_CREDITED_PRESENTERS),
-                &crate::presenter::FIELD_PANELS,
+                FieldNodeId::new(panel_id, &crate::tables::panel::FIELD_CREDITED_PRESENTERS),
+                &crate::tables::presenter::FIELD_PANELS,
             )
             .is_empty());
         assert!(sched
             .connected_entities::<PanelEntityType>(
                 FieldNodeId::new(pres_id, &FIELD_PANELS),
-                &crate::panel::FIELD_CREDITED_PRESENTERS,
+                &crate::tables::panel::FIELD_CREDITED_PRESENTERS,
             )
             .is_empty());
     }
@@ -1381,13 +1388,13 @@ mod tests {
         sched.insert(p3_id, p3_data);
 
         sched.edge_set(
-            FieldNodeId::new(panel_id, &crate::panel::FIELD_CREDITED_PRESENTERS),
-            &crate::presenter::FIELD_PANELS,
+            FieldNodeId::new(panel_id, &crate::tables::panel::FIELD_CREDITED_PRESENTERS),
+            &crate::tables::presenter::FIELD_PANELS,
             vec![p1_id, p2_id],
         );
         let mut presenters = sched.connected_entities::<PresenterEntityType>(
-            FieldNodeId::new(panel_id, &crate::panel::FIELD_CREDITED_PRESENTERS),
-            &crate::presenter::FIELD_PANELS,
+            FieldNodeId::new(panel_id, &crate::tables::panel::FIELD_CREDITED_PRESENTERS),
+            &crate::tables::presenter::FIELD_PANELS,
         );
         presenters.sort_by_key(|id| id.entity_uuid());
         let mut expected = vec![p1_id, p2_id];
@@ -1395,14 +1402,14 @@ mod tests {
         assert_eq!(presenters, expected);
 
         sched.edge_set(
-            FieldNodeId::new(panel_id, &crate::panel::FIELD_CREDITED_PRESENTERS),
-            &crate::presenter::FIELD_PANELS,
+            FieldNodeId::new(panel_id, &crate::tables::panel::FIELD_CREDITED_PRESENTERS),
+            &crate::tables::presenter::FIELD_PANELS,
             vec![p3_id],
         );
         assert_eq!(
             sched.connected_entities::<PresenterEntityType>(
-                FieldNodeId::new(panel_id, &crate::panel::FIELD_CREDITED_PRESENTERS),
-                &crate::presenter::FIELD_PANELS,
+                FieldNodeId::new(panel_id, &crate::tables::panel::FIELD_CREDITED_PRESENTERS),
+                &crate::tables::presenter::FIELD_PANELS,
             ),
             vec![p3_id]
         );
@@ -1410,13 +1417,13 @@ mod tests {
         assert!(sched
             .connected_entities::<PanelEntityType>(
                 FieldNodeId::new(p1_id, &FIELD_PANELS),
-                &crate::panel::FIELD_CREDITED_PRESENTERS,
+                &crate::tables::panel::FIELD_CREDITED_PRESENTERS,
             )
             .is_empty());
         assert!(sched
             .connected_entities::<PanelEntityType>(
                 FieldNodeId::new(p2_id, &FIELD_PANELS),
-                &crate::panel::FIELD_CREDITED_PRESENTERS,
+                &crate::tables::panel::FIELD_CREDITED_PRESENTERS,
             )
             .is_empty());
     }
@@ -1429,7 +1436,7 @@ mod tests {
         sched.insert(panel_id, panel_data);
         sched.insert(pres_id, pres_data);
         sched.edge_add(
-            FieldNodeId::new(panel_id, &crate::panel::FIELD_CREDITED_PRESENTERS),
+            FieldNodeId::new(panel_id, &crate::tables::panel::FIELD_CREDITED_PRESENTERS),
             FieldNodeId::new(pres_id, &FIELD_PANELS),
         );
 
@@ -1439,7 +1446,7 @@ mod tests {
         assert!(sched
             .connected_entities::<PanelEntityType>(
                 FieldNodeId::new(pres_id, &FIELD_PANELS),
-                &crate::panel::FIELD_CREDITED_PRESENTERS,
+                &crate::tables::panel::FIELD_CREDITED_PRESENTERS,
             )
             .is_empty());
     }
@@ -1461,14 +1468,14 @@ mod tests {
 
         let hotels = sched.connected_entities::<HotelRoomEntityType>(
             FieldNodeId::new(room_id, &FIELD_HOTEL_ROOMS),
-            &crate::hotel_room::FIELD_EVENT_ROOMS,
+            &crate::tables::hotel_room::FIELD_EVENT_ROOMS,
         );
         assert_eq!(hotels, vec![hotel_id]);
 
         // Reverse: hotel_room.event_rooms via connected_entities with FIELD_EVENT_ROOMS
         let rooms = sched.connected_entities::<EventRoomEntityType>(
             FieldNodeId::new(hotel_id, &FIELD_EVENT_ROOMS),
-            &crate::event_room::FIELD_HOTEL_ROOMS,
+            &crate::tables::event_room::FIELD_HOTEL_ROOMS,
         );
         assert_eq!(rooms, vec![room_id]);
     }
@@ -1689,7 +1696,8 @@ mod tests {
     #[test]
     fn crdt_mirror_populates_doc_on_insert() {
         use crate::crdt;
-        use crate::value::{CrdtFieldType, FieldTypeItem};
+        use crate::crdt::CrdtFieldType;
+        use crate::value::FieldTypeItem;
 
         let mut sched = Schedule::new();
         let (id, data) = make_panel_type();
@@ -1716,8 +1724,9 @@ mod tests {
     #[test]
     fn crdt_mirror_tracks_single_field_write() {
         use crate::crdt;
+        use crate::crdt::CrdtFieldType;
         use crate::entity::EntityType;
-        use crate::value::{CrdtFieldType, FieldTypeItem, FieldValue, FieldValueItem};
+        use crate::value::{FieldTypeItem, FieldValue, FieldValueItem};
 
         let mut sched = Schedule::new();
         let (id, data) = make_panel_type();
@@ -1909,7 +1918,7 @@ mod tests {
         sched.insert(panel_id, panel_data);
         sched.insert(pres_id, pres_data);
         sched.edge_add(
-            FieldNodeId::new(panel_id, &crate::panel::FIELD_CREDITED_PRESENTERS),
+            FieldNodeId::new(panel_id, &crate::tables::panel::FIELD_CREDITED_PRESENTERS),
             FieldNodeId::new(pres_id, &FIELD_PANELS),
         );
 
@@ -1917,8 +1926,8 @@ mod tests {
         let loaded = Schedule::load_from_file(&bytes).expect("load_from_file");
 
         let forwards: Vec<PresenterId> = loaded.connected_entities::<PresenterEntityType>(
-            FieldNodeId::new(panel_id, &crate::panel::FIELD_CREDITED_PRESENTERS),
-            &crate::presenter::FIELD_PANELS,
+            FieldNodeId::new(panel_id, &crate::tables::panel::FIELD_CREDITED_PRESENTERS),
+            &crate::tables::presenter::FIELD_PANELS,
         );
         assert_eq!(forwards, vec![pres_id]);
     }
@@ -1969,7 +1978,7 @@ mod tests {
         sched.insert(panel_id, panel_data);
         sched.insert(pres_id, pres_data);
         sched.edge_add(
-            FieldNodeId::new(panel_id, &crate::panel::FIELD_CREDITED_PRESENTERS),
+            FieldNodeId::new(panel_id, &crate::tables::panel::FIELD_CREDITED_PRESENTERS),
             FieldNodeId::new(pres_id, &FIELD_PANELS),
         );
 
@@ -1978,15 +1987,15 @@ mod tests {
 
         // Forward edge (panel → presenter)
         let forwards: Vec<PresenterId> = loaded.connected_entities::<PresenterEntityType>(
-            FieldNodeId::new(panel_id, &crate::panel::FIELD_CREDITED_PRESENTERS),
-            &crate::presenter::FIELD_PANELS,
+            FieldNodeId::new(panel_id, &crate::tables::panel::FIELD_CREDITED_PRESENTERS),
+            &crate::tables::presenter::FIELD_PANELS,
         );
         assert_eq!(forwards, vec![pres_id]);
         // Reverse edge (presenter → panel) also rebuilt from the single
         // owner list on the panel side.
         let reverses: Vec<PanelId> = loaded.connected_entities::<PanelEntityType>(
             FieldNodeId::new(pres_id, &FIELD_PANELS),
-            &crate::panel::FIELD_CREDITED_PRESENTERS,
+            &crate::tables::panel::FIELD_CREDITED_PRESENTERS,
         );
         assert_eq!(reverses, vec![panel_id]);
     }
@@ -2009,13 +2018,13 @@ mod tests {
         let hotel_rooms: Vec<EntityId<HotelRoomEntityType>> = loaded
             .connected_entities::<HotelRoomEntityType>(
                 FieldNodeId::new(er_id, &FIELD_HOTEL_ROOMS),
-                &crate::hotel_room::FIELD_EVENT_ROOMS,
+                &crate::tables::hotel_room::FIELD_EVENT_ROOMS,
             );
         assert_eq!(hotel_rooms, vec![hr_id]);
         let event_rooms: Vec<EntityId<EventRoomEntityType>> = loaded
             .connected_entities::<EventRoomEntityType>(
                 FieldNodeId::new(hr_id, &FIELD_EVENT_ROOMS),
-                &crate::event_room::FIELD_HOTEL_ROOMS,
+                &crate::tables::event_room::FIELD_HOTEL_ROOMS,
             );
         assert_eq!(event_rooms, vec![er_id]);
     }
@@ -2056,11 +2065,11 @@ mod tests {
         sched.insert(panel_id, panel_data);
         sched.insert(pres_id, pres_data);
         sched.edge_add(
-            FieldNodeId::new(panel_id, &crate::panel::FIELD_CREDITED_PRESENTERS),
+            FieldNodeId::new(panel_id, &crate::tables::panel::FIELD_CREDITED_PRESENTERS),
             FieldNodeId::new(pres_id, &FIELD_PANELS),
         );
         sched.edge_remove(
-            FieldNodeId::new(panel_id, &crate::panel::FIELD_CREDITED_PRESENTERS),
+            FieldNodeId::new(panel_id, &crate::tables::panel::FIELD_CREDITED_PRESENTERS),
             FieldNodeId::new(pres_id, &FIELD_PANELS),
         );
 
@@ -2068,8 +2077,8 @@ mod tests {
         let loaded = Schedule::load(&bytes).expect("load");
 
         let forwards: Vec<PresenterId> = loaded.connected_entities::<PresenterEntityType>(
-            FieldNodeId::new(panel_id, &crate::panel::FIELD_CREDITED_PRESENTERS),
-            &crate::presenter::FIELD_PANELS,
+            FieldNodeId::new(panel_id, &crate::tables::panel::FIELD_CREDITED_PRESENTERS),
+            &crate::tables::presenter::FIELD_PANELS,
         );
         assert!(forwards.is_empty());
     }
@@ -2084,12 +2093,12 @@ mod tests {
         sched.insert(alice_id, alice_data);
         sched.insert(bob_id, bob_data);
         sched.edge_add(
-            FieldNodeId::new(panel_id, &crate::panel::FIELD_CREDITED_PRESENTERS),
+            FieldNodeId::new(panel_id, &crate::tables::panel::FIELD_CREDITED_PRESENTERS),
             FieldNodeId::new(alice_id, &FIELD_PANELS),
         );
         sched.edge_set(
-            FieldNodeId::new(panel_id, &crate::panel::FIELD_CREDITED_PRESENTERS),
-            &crate::presenter::FIELD_PANELS,
+            FieldNodeId::new(panel_id, &crate::tables::panel::FIELD_CREDITED_PRESENTERS),
+            &crate::tables::presenter::FIELD_PANELS,
             vec![bob_id],
         );
 
@@ -2097,8 +2106,8 @@ mod tests {
         let loaded = Schedule::load(&bytes).expect("load");
 
         let forwards: Vec<PresenterId> = loaded.connected_entities::<PresenterEntityType>(
-            FieldNodeId::new(panel_id, &crate::panel::FIELD_CREDITED_PRESENTERS),
-            &crate::presenter::FIELD_PANELS,
+            FieldNodeId::new(panel_id, &crate::tables::panel::FIELD_CREDITED_PRESENTERS),
+            &crate::tables::presenter::FIELD_PANELS,
         );
         assert_eq!(forwards, vec![bob_id]);
     }
@@ -2121,14 +2130,14 @@ mod tests {
         // Replica A adds Alice.
         let mut replica_a = Schedule::load(&base_bytes).expect("load A");
         replica_a.edge_add(
-            FieldNodeId::new(panel_id, &crate::panel::FIELD_CREDITED_PRESENTERS),
+            FieldNodeId::new(panel_id, &crate::tables::panel::FIELD_CREDITED_PRESENTERS),
             FieldNodeId::new(alice_id, &FIELD_PANELS),
         );
 
         // Replica B (independent) adds Bob.
         let mut replica_b = Schedule::load(&base_bytes).expect("load B");
         replica_b.edge_add(
-            FieldNodeId::new(panel_id, &crate::panel::FIELD_CREDITED_PRESENTERS),
+            FieldNodeId::new(panel_id, &crate::tables::panel::FIELD_CREDITED_PRESENTERS),
             FieldNodeId::new(bob_id, &FIELD_PANELS),
         );
 
@@ -2139,8 +2148,8 @@ mod tests {
         let merged = Schedule::load(&doc_a.save()).expect("load merged");
 
         let mut forwards: Vec<PresenterId> = merged.connected_entities::<PresenterEntityType>(
-            FieldNodeId::new(panel_id, &crate::panel::FIELD_CREDITED_PRESENTERS),
-            &crate::presenter::FIELD_PANELS,
+            FieldNodeId::new(panel_id, &crate::tables::panel::FIELD_CREDITED_PRESENTERS),
+            &crate::tables::presenter::FIELD_PANELS,
         );
         forwards.sort_by_key(|id| id.entity_uuid());
         let mut expected = vec![alice_id, bob_id];
@@ -2183,11 +2192,11 @@ mod tests {
         let mut a = Schedule::load(&base.save()).expect("load A");
         let mut b = Schedule::load(&base.save()).expect("load B");
         a.edge_add(
-            FieldNodeId::new(panel_id, &crate::panel::FIELD_CREDITED_PRESENTERS),
+            FieldNodeId::new(panel_id, &crate::tables::panel::FIELD_CREDITED_PRESENTERS),
             FieldNodeId::new(alice_id, &FIELD_PANELS),
         );
         b.edge_add(
-            FieldNodeId::new(panel_id, &crate::panel::FIELD_CREDITED_PRESENTERS),
+            FieldNodeId::new(panel_id, &crate::tables::panel::FIELD_CREDITED_PRESENTERS),
             FieldNodeId::new(bob_id, &FIELD_PANELS),
         );
 
@@ -2195,8 +2204,8 @@ mod tests {
 
         let mut ids: Vec<_> = a
             .connected_entities::<PresenterEntityType>(
-                FieldNodeId::new(panel_id, &crate::panel::FIELD_CREDITED_PRESENTERS),
-                &crate::presenter::FIELD_PANELS,
+                FieldNodeId::new(panel_id, &crate::tables::panel::FIELD_CREDITED_PRESENTERS),
+                &crate::tables::presenter::FIELD_PANELS,
             )
             .iter()
             .map(|id| id.entity_uuid())
@@ -2334,7 +2343,7 @@ mod tests {
         // A adds Alice without knowing about any remove on B's side.
         let mut replica_a = Schedule::load(&base_bytes).expect("load A");
         replica_a.edge_add(
-            FieldNodeId::new(panel_id, &crate::panel::FIELD_CREDITED_PRESENTERS),
+            FieldNodeId::new(panel_id, &crate::tables::panel::FIELD_CREDITED_PRESENTERS),
             FieldNodeId::new(alice_id, &FIELD_PANELS),
         );
 
@@ -2343,7 +2352,7 @@ mod tests {
         // B having never observed A's add.
         let mut replica_b = Schedule::load(&base_bytes).expect("load B");
         replica_b.edge_remove(
-            FieldNodeId::new(panel_id, &crate::panel::FIELD_CREDITED_PRESENTERS),
+            FieldNodeId::new(panel_id, &crate::tables::panel::FIELD_CREDITED_PRESENTERS),
             FieldNodeId::new(alice_id, &FIELD_PANELS),
         );
 
@@ -2354,8 +2363,8 @@ mod tests {
 
         // Add wins: Alice is still in the list.
         let forwards: Vec<PresenterId> = merged.connected_entities::<PresenterEntityType>(
-            FieldNodeId::new(panel_id, &crate::panel::FIELD_CREDITED_PRESENTERS),
-            &crate::presenter::FIELD_PANELS,
+            FieldNodeId::new(panel_id, &crate::tables::panel::FIELD_CREDITED_PRESENTERS),
+            &crate::tables::presenter::FIELD_PANELS,
         );
         assert_eq!(forwards, vec![alice_id]);
     }

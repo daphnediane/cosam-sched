@@ -129,7 +129,7 @@ fn expand_stored(inp: &FieldInput) -> syn::Result<TokenStream> {
                 |d: &<#entity as ::schedule_core::entity::EntityType>::InternalData| {
                     d.data.#accessor.as_ref().map(|x| {
                         ::schedule_core::value::FieldValue::Single(
-                            <#marker as ::schedule_core::converter::FieldTypeMapping>::to_field_value_item(
+                            <#marker as ::schedule_core::query::converter::FieldTypeMapping>::to_field_value_item(
                                 x.clone(),
                             ),
                         )
@@ -142,7 +142,7 @@ fn expand_stored(inp: &FieldInput) -> syn::Result<TokenStream> {
             Some(::schedule_core::field::ReadFn::Bare(
                 |d: &<#entity as ::schedule_core::entity::EntityType>::InternalData| {
                     Some(::schedule_core::value::FieldValue::Single(
-                        <#marker as ::schedule_core::converter::FieldTypeMapping>::to_field_value_item(
+                        <#marker as ::schedule_core::query::converter::FieldTypeMapping>::to_field_value_item(
                             d.data.#accessor.clone(),
                         ),
                     ))
@@ -159,7 +159,7 @@ fn expand_stored(inp: &FieldInput) -> syn::Result<TokenStream> {
                 |d: &mut <#entity as ::schedule_core::entity::EntityType>::InternalData,
                  v: ::schedule_core::value::FieldValue| {
                     d.data.#accessor =
-                        ::schedule_core::converter::convert_optional::<#marker>(v)?;
+                        ::schedule_core::query::converter::convert_optional::<#marker>(v)?;
                     Ok(())
                 },
             ))
@@ -170,7 +170,7 @@ fn expand_stored(inp: &FieldInput) -> syn::Result<TokenStream> {
                 |d: &mut <#entity as ::schedule_core::entity::EntityType>::InternalData,
                  v: ::schedule_core::value::FieldValue| {
                     d.data.#accessor =
-                        ::schedule_core::converter::convert_required::<#marker>(v)?;
+                        ::schedule_core::query::converter::convert_required::<#marker>(v)?;
                     Ok(())
                 },
             ))
@@ -186,7 +186,7 @@ fn expand_stored(inp: &FieldInput) -> syn::Result<TokenStream> {
     let field_type_ts = quote! {
         ::schedule_core::value::FieldType(
             #cardinality,
-            <#marker as ::schedule_core::converter::FieldTypeMapping>::FIELD_TYPE_ITEM,
+            <#marker as ::schedule_core::query::converter::FieldTypeMapping>::FIELD_TYPE_ITEM,
         )
     };
     let meta = common_meta(inp, field_type_ts)?;
@@ -194,8 +194,8 @@ fn expand_stored(inp: &FieldInput) -> syn::Result<TokenStream> {
     let body = quote! {
         #meta
         required: #required_lit,
-        edge_kind: ::schedule_core::value::EdgeKind::NonEdge,
-        crdt_type: <#marker as ::schedule_core::converter::FieldTypeMapping>::CRDT_TYPE,
+        edge_kind: ::schedule_core::edge::EdgeKind::NonEdge,
+        crdt_type: <#marker as ::schedule_core::query::converter::FieldTypeMapping>::CRDT_TYPE,
         read_fn: #read_fn,
         write_fn: #write_fn,
         verify_fn: #verify_fn,
@@ -223,16 +223,16 @@ fn expand_edge(inp: &FieldInput) -> syn::Result<TokenStream> {
                 Some(expr) => quote!(Some(#expr)),
                 None => quote!(None),
             };
-            quote!(::schedule_core::value::EdgeKind::Owner {
+            quote!(::schedule_core::edge::EdgeKind::Owner {
                 target_field: #target_field,
                 exclusive_with: #sibling,
             })
         }
         ("ro" | "rw" | "one", false) => {
-            quote!(::schedule_core::value::EdgeKind::Target { source_fields: &[] })
+            quote!(::schedule_core::edge::EdgeKind::Target { source_fields: &[] })
         }
         ("add" | "remove", _) => {
-            quote!(::schedule_core::value::EdgeKind::NonEdge)
+            quote!(::schedule_core::edge::EdgeKind::NonEdge)
         }
         _ => {
             return Err(syn::Error::new(
@@ -260,7 +260,7 @@ fn expand_edge(inp: &FieldInput) -> syn::Result<TokenStream> {
             Some(::schedule_core::field::ReadFn::Schedule(
                 |sched: &::schedule_core::schedule::Schedule,
                  id: ::schedule_core::entity::EntityId<#entity>| {
-                    let node = ::schedule_core::field_node_id::FieldNodeId::new(id, &#static_name);
+                    let node = ::schedule_core::edge::FieldNodeId::new(id, &#static_name);
                     let ids = sched.connected_entities::<#target>(node, #target_field);
                     Some(::schedule_core::schedule::entity_ids_to_field_value(ids))
                 },
@@ -320,7 +320,7 @@ fn expand_edge(inp: &FieldInput) -> syn::Result<TokenStream> {
         #meta
         required: false,
         edge_kind: #edge_kind,
-        crdt_type: ::schedule_core::value::CrdtFieldType::Derived,
+        crdt_type: ::schedule_core::crdt::CrdtFieldType::Derived,
         read_fn: #read_fn,
         write_fn: #write_fn,
         verify_fn: #verify_fn,
@@ -340,11 +340,11 @@ fn generate_rw_write(
         // For rw fields with exclusive_with, we need to remove from the sibling field
         // before setting this field. The sibling field is on the same entity.
         quote! {
-            let __near = unsafe{ ::schedule_core::field_node_id::RuntimeFieldNodeId::new_unchecked(id.entity_uuid(), #exclusive_with) };
+            let __near = unsafe{ ::schedule_core::edge::RuntimeFieldNodeId::new_unchecked(id.entity_uuid(), #exclusive_with) };
             for __r in &ids {
                 sched.edge_remove(
                     __near,
-                    ::schedule_core::field_node_id::FieldNodeId::new(*__r, #target_field),
+                    ::schedule_core::edge::FieldNodeId::new(*__r, #target_field),
                 );
             }
         }
@@ -360,7 +360,7 @@ fn generate_rw_write(
                     ::schedule_core::schedule::field_value_to_entity_ids::<#target>(val)?;
                 #exclusivity_prelude
                 sched.edge_set(
-                    ::schedule_core::field_node_id::FieldNodeId::new(id, &#static_name),
+                    ::schedule_core::edge::FieldNodeId::new(id, &#static_name),
                     #target_field,
                     ids,
                 );
@@ -382,8 +382,8 @@ fn generate_add_write(
         // before adding to this field. The sibling field is on the same entity.
         quote! {
             sched.edge_remove(
-                    unsafe{ ::schedule_core::field_node_id::RuntimeFieldNodeId::new_unchecked(id.entity_uuid(), #sibling) },
-                    ::schedule_core::field_node_id::FieldNodeId::new(r, #target_field),
+                    unsafe{ ::schedule_core::edge::RuntimeFieldNodeId::new_unchecked(id.entity_uuid(), #sibling) },
+                    ::schedule_core::edge::FieldNodeId::new(r, #target_field),
             );
         }
     } else {
@@ -399,8 +399,8 @@ fn generate_add_write(
                 for r in ids {
                     #exclusivity_prelude
                     sched.edge_add(
-                        ::schedule_core::field_node_id::FieldNodeId::new(id, &#static_name),
-                        ::schedule_core::field_node_id::FieldNodeId::new(r, #target_field),
+                        ::schedule_core::edge::FieldNodeId::new(id, &#static_name),
+                        ::schedule_core::edge::FieldNodeId::new(r, #target_field),
                     );
                 }
                 Ok(())
@@ -424,8 +424,8 @@ fn generate_remove_write(
                     ::schedule_core::schedule::field_value_to_entity_ids::<#target>(val)?;
                 for r in ids {
                     sched.edge_remove(
-                        ::schedule_core::field_node_id::FieldNodeId::new(id, &#static_name),
-                        ::schedule_core::field_node_id::FieldNodeId::new(r, #target_field),
+                        ::schedule_core::edge::FieldNodeId::new(id, &#static_name),
+                        ::schedule_core::edge::FieldNodeId::new(r, #target_field),
                     );
                 }
                 Ok(())
@@ -445,15 +445,15 @@ fn expand_custom(inp: &FieldInput) -> syn::Result<TokenStream> {
         )
     })?;
     let edge_kind = match crdt_ident.to_string().as_str() {
-        "EdgeTarget" => quote!(::schedule_core::value::EdgeKind::Target { source_fields: &[] }),
-        _ => quote!(::schedule_core::value::EdgeKind::NonEdge),
+        "EdgeTarget" => quote!(::schedule_core::edge::EdgeKind::Target { source_fields: &[] }),
+        _ => quote!(::schedule_core::edge::EdgeKind::NonEdge),
     };
     let crdt_type = match crdt_ident.to_string().as_str() {
-        "Scalar" => quote!(::schedule_core::value::CrdtFieldType::Scalar),
-        "Text" => quote!(::schedule_core::value::CrdtFieldType::Text),
-        "List" => quote!(::schedule_core::value::CrdtFieldType::List),
-        "Derived" => quote!(::schedule_core::value::CrdtFieldType::Derived),
-        "EdgeTarget" => quote!(::schedule_core::value::CrdtFieldType::Derived),
+        "Scalar" => quote!(::schedule_core::crdt::CrdtFieldType::Scalar),
+        "Text" => quote!(::schedule_core::crdt::CrdtFieldType::Text),
+        "List" => quote!(::schedule_core::crdt::CrdtFieldType::List),
+        "Derived" => quote!(::schedule_core::crdt::CrdtFieldType::Derived),
+        "EdgeTarget" => quote!(::schedule_core::crdt::CrdtFieldType::Derived),
         other => {
             return Err(syn::Error::new(
                 crdt_ident.span(),

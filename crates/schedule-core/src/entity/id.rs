@@ -11,9 +11,9 @@
 //! - [`EntityId<E>`] — compile-time type-safe entity identifier
 //! - [`RuntimeEntityId`] — dynamic (untyped) entity identifier
 //!
-//! Field node identifiers are defined in [`crate::field_node_id`]:
-//! - [`crate::field_node_id::FieldNodeId`] — compile-time type-safe field node identifier
-//! - [`crate::field_node_id::RuntimeFieldNodeId`] — dynamic (untyped) field node identifier
+//! Field node identifiers are defined in [`crate::edge`]:
+//! - [`crate::edge::FieldNodeId`] — compile-time type-safe field node identifier
+//! - [`crate::edge::RuntimeFieldNodeId`] — dynamic (untyped) field node identifier
 
 use crate::{entity::EntityType, value::ConversionError};
 use serde::{Deserialize, Deserializer, Serialize, Serializer};
@@ -379,7 +379,7 @@ mod tests {
             &NS
         }
 
-        fn field_set() -> &'static crate::field_set::FieldSet<Self> {
+        fn field_set() -> &'static crate::field::set::FieldSet<Self> {
             unimplemented!()
         }
 

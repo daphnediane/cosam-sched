@@ -18,19 +18,21 @@
 //! via edge-backed computed fields wired through `Schedule::edges_from` /
 //! `Schedule::edges_to` using `crate::field::ReadFn::Schedule` / `crate::field::WriteFn::Schedule`.
 
-use crate::converter::{AsBoolean, AsInteger, AsString, AsText, EntityStringResolver};
 use crate::define_field;
+use crate::edge::FieldNodeId;
 use crate::entity::{EntityId, EntityType, EntityUuid, FieldSet};
-use crate::event_room::{EventRoomEntityType, EventRoomId};
 use crate::field::{FieldDescriptor, NamedField};
-use crate::field_node_id::FieldNodeId;
 use crate::field_value;
-use crate::hotel_room::{HotelRoomEntityType, HotelRoomId};
-use crate::panel_type::{PanelTypeEntityType, PanelTypeId};
-use crate::panel_uniq_id::PanelUniqId;
-use crate::presenter::{PresenterCommonData, PresenterEntityType, PresenterId, FIELD_PANELS};
+use crate::query::converter::{AsBoolean, AsInteger, AsString, AsText, EntityStringResolver};
 use crate::schedule::Schedule;
-use crate::time::{parse_datetime, parse_duration, TimeRange};
+use crate::tables::event_room::{EventRoomEntityType, EventRoomId};
+use crate::tables::hotel_room::{HotelRoomEntityType, HotelRoomId};
+use crate::tables::panel_type::{PanelTypeEntityType, PanelTypeId};
+use crate::tables::presenter::{
+    PresenterCommonData, PresenterEntityType, PresenterId, FIELD_PANELS,
+};
+use crate::value::time::{parse_datetime, parse_duration, TimeRange};
+use crate::value::uniq_id::PanelUniqId;
 use crate::value::{FieldTypeItem, FieldValue, FieldValueItem, ValidationError};
 use chrono::Duration;
 use serde::{Deserialize, Serialize};
@@ -212,12 +214,12 @@ inventory::submit! {
             PanelEntityType::field_set().write_field_value(field_name, id, schedule, value)
         },
         build_fn: |schedule, uuid, fields| {
-            crate::builder::build_entity::<PanelEntityType>(
+            crate::edit::builder::build_entity::<PanelEntityType>(
                 schedule,
                 crate::entity::UuidPreference::Exact(uuid),
                 fields
                     .iter()
-                    .map(|(n, v)| (crate::field_set::FieldRef::Name(n), v.clone()))
+                    .map(|(n, v)| (crate::field::set::FieldRef::Name(n), v.clone()))
                     .collect(),
             )
             .map(|id| id.entity_uuid())
@@ -247,7 +249,7 @@ inventory::submit! {
 
 // ── EntityBuildable ─────────────────────────────────────────────────────────────
 
-impl crate::builder::EntityBuildable for PanelEntityType {
+impl crate::edit::builder::EntityBuildable for PanelEntityType {
     fn default_data(id: EntityId<Self>) -> Self::InternalData {
         PanelInternalData {
             id,
@@ -672,7 +674,7 @@ define_field! {
 
 define_field! {
     static FIELD_CREDITED_PRESENTERS: FieldDescriptor<PanelEntityType>,
-    edge: rw, target: PresenterEntityType, target_field: &crate::presenter::FIELD_PANELS,
+    edge: rw, target: PresenterEntityType, target_field: &crate::tables::presenter::FIELD_PANELS,
     owner,
     exclusive_with: &FIELD_UNCREDITED_PRESENTERS,
     name: "credited_presenters", display: "Credited Presenters",
@@ -684,7 +686,7 @@ define_field! {
 
 define_field! {
     static FIELD_UNCREDITED_PRESENTERS: FieldDescriptor<PanelEntityType>,
-    edge: rw, target: PresenterEntityType, target_field: &crate::presenter::FIELD_PANELS,
+    edge: rw, target: PresenterEntityType, target_field: &crate::tables::presenter::FIELD_PANELS,
     owner,
     exclusive_with: &FIELD_CREDITED_PRESENTERS,
     name: "uncredited_presenters", display: "Uncredited Presenters",
@@ -712,12 +714,12 @@ define_field! {
         let mut ids: Vec<PresenterId> = sched
             .connected_entities::<PresenterEntityType>(
                 credited_node,
-                &crate::presenter::FIELD_PANELS,
+                &crate::tables::presenter::FIELD_PANELS,
             );
         ids.extend(
             sched.connected_entities::<PresenterEntityType>(
                 uncredited_node,
-                &crate::presenter::FIELD_PANELS,
+                &crate::tables::presenter::FIELD_PANELS,
             ),
         );
         ids.sort_by_key(|p| p.entity_uuid());
@@ -732,7 +734,7 @@ define_field! {
     /// Write-only.  Each presenter in the list is added to the credited list
     /// and removed from the uncredited list (if present).
     static FIELD_ADD_CREDITED_PRESENTERS: FieldDescriptor<PanelEntityType>,
-    edge: add, target: PresenterEntityType, target_field: &crate::presenter::FIELD_PANELS,
+    edge: add, target: PresenterEntityType, target_field: &crate::tables::presenter::FIELD_PANELS,
     exclusive_with: &FIELD_UNCREDITED_PRESENTERS,
     name: "add_credited_presenters", display: "Add Credited Presenters",
     desc: "Add presenters to this panel and mark them as credited.",
@@ -747,7 +749,7 @@ define_field! {
     /// Write-only.  Each presenter in the list is added to the uncredited list
     /// and removed from the credited list (if present).
     static FIELD_ADD_UNCREDITED_PRESENTERS: FieldDescriptor<PanelEntityType>,
-    edge: add, target: PresenterEntityType, target_field: &crate::presenter::FIELD_PANELS,
+    edge: add, target: PresenterEntityType, target_field: &crate::tables::presenter::FIELD_PANELS,
     exclusive_with: &FIELD_CREDITED_PRESENTERS,
     name: "add_uncredited_presenters", display: "Add Uncredited Presenters",
     desc: "Add presenters to this panel and mark them as uncredited.",
@@ -773,11 +775,11 @@ define_field! {
         for p in ids {
             sched.edge_remove(
                 FieldNodeId::new(panel_id, &FIELD_CREDITED_PRESENTERS),
-                FieldNodeId::new(p, &crate::presenter::FIELD_PANELS),
+                FieldNodeId::new(p, &crate::tables::presenter::FIELD_PANELS),
             );
             sched.edge_remove(
                 FieldNodeId::new(panel_id, &FIELD_UNCREDITED_PRESENTERS),
-                FieldNodeId::new(p, &crate::presenter::FIELD_PANELS),
+                FieldNodeId::new(p, &crate::tables::presenter::FIELD_PANELS),
             );
         }
         Ok(())
@@ -815,15 +817,15 @@ define_field! {
             result.insert(p);
             // Inclusive groups of p: all groups reachable going up (forward homogeneous edges)
             for g in sched.inclusive_edges::<PresenterEntityType, PresenterEntityType>(
-                FieldNodeId::new(p, &crate::presenter::FIELD_MEMBERS),
-                &crate::presenter::FIELD_GROUPS,
+                FieldNodeId::new(p, &crate::tables::presenter::FIELD_MEMBERS),
+                &crate::tables::presenter::FIELD_GROUPS,
             ) {
                 result.insert(g);
             }
             // Inclusive members of p: all members reachable going down (reverse homogeneous edges)
             for m in sched.inclusive_edges::<PresenterEntityType, PresenterEntityType>(
-                FieldNodeId::new(p, &crate::presenter::FIELD_GROUPS),
-                &crate::presenter::FIELD_MEMBERS,
+                FieldNodeId::new(p, &crate::tables::presenter::FIELD_GROUPS),
+                &crate::tables::presenter::FIELD_MEMBERS,
             ) {
                 result.insert(m);
             }
@@ -835,7 +837,7 @@ define_field! {
 
 define_field! {
     static FIELD_EVENT_ROOMS: FieldDescriptor<PanelEntityType>,
-    edge: rw, target: EventRoomEntityType, target_field: &crate::event_room::FIELD_PANELS, owner,
+    edge: rw, target: EventRoomEntityType, target_field: &crate::tables::event_room::FIELD_PANELS, owner,
     name: "event_rooms", display: "Event Rooms",
     desc: "Rooms where this panel takes place.",
     aliases: &["rooms", "room", "event_room"],
@@ -845,7 +847,7 @@ define_field! {
 
 define_field! {
     static FIELD_ADD_ROOMS: FieldDescriptor<PanelEntityType>,
-    edge: add, target: EventRoomEntityType, target_field: &crate::event_room::FIELD_PANELS,
+    edge: add, target: EventRoomEntityType, target_field: &crate::tables::event_room::FIELD_PANELS,
     name: "add_rooms", display: "Add Rooms",
     desc: "Append event rooms to this panel.",
     aliases: &["add_room"],
@@ -855,7 +857,7 @@ define_field! {
 
 define_field! {
     static FIELD_REMOVE_ROOMS: FieldDescriptor<PanelEntityType>,
-    edge: remove, target: EventRoomEntityType, target_field: &crate::event_room::FIELD_PANELS,
+    edge: remove, target: EventRoomEntityType, target_field: &crate::tables::event_room::FIELD_PANELS,
     name: "remove_rooms", display: "Remove Rooms",
     desc: "Remove event rooms from this panel.",
     aliases: &["remove_room"],
@@ -865,7 +867,7 @@ define_field! {
 
 define_field! {
     static FIELD_PANEL_TYPE: FieldDescriptor<PanelEntityType>,
-    edge: one, target: PanelTypeEntityType, target_field: &crate::panel_type::FIELD_PANELS, owner,
+    edge: one, target: PanelTypeEntityType, target_field: &crate::tables::panel_type::FIELD_PANELS, owner,
     name: "panel_type", display: "Panel Type",
     desc: "Panel type / kind.",
     aliases: &["kind", "type"],
@@ -890,15 +892,15 @@ define_field! {
         let event_room_ids = sched
             .connected_entities::<EventRoomEntityType>(
                 node,
-                &crate::event_room::FIELD_PANELS,
+                &crate::tables::event_room::FIELD_PANELS,
             );
         let mut hotel_room_ids: HashSet<HotelRoomId> = HashSet::new();
         for event_room_id in event_room_ids {
-            let node = FieldNodeId::new(event_room_id, &crate::event_room::FIELD_HOTEL_ROOMS);
+            let node = FieldNodeId::new(event_room_id, &crate::tables::event_room::FIELD_HOTEL_ROOMS);
             let rooms = sched
                 .connected_entities::<HotelRoomEntityType>(
                     node,
-                    &crate::hotel_room::FIELD_EVENT_ROOMS,
+                    &crate::tables::hotel_room::FIELD_EVENT_ROOMS,
                 );
             hotel_room_ids.extend(rooms);
         }
@@ -932,10 +934,11 @@ pub(crate) fn compute_credits(sched: &crate::schedule::Schedule, panel_id: Panel
     }
 
     // Get credited presenters directly from the credited edge list
-    let credited_node =
-        crate::field_node_id::FieldNodeId::new(panel_id, &FIELD_CREDITED_PRESENTERS);
-    let credited_ids = sched
-        .connected_entities::<PresenterEntityType>(credited_node, &crate::presenter::FIELD_PANELS);
+    let credited_node = crate::edge::FieldNodeId::new(panel_id, &FIELD_CREDITED_PRESENTERS);
+    let credited_ids = sched.connected_entities::<PresenterEntityType>(
+        credited_node,
+        &crate::tables::presenter::FIELD_PANELS,
+    );
     if credited_ids.is_empty() {
         return Vec::new();
     }
@@ -960,12 +963,14 @@ pub(crate) fn compute_credits(sched: &crate::schedule::Schedule, panel_id: Panel
             continue;
         };
         if presenter_data.is_explicit_group {
-            let node = crate::field_node_id::FieldNodeId::new(
+            let node = crate::edge::FieldNodeId::new(
                 presenter_id,
-                &crate::presenter::FIELD_MEMBERS,
+                &crate::tables::presenter::FIELD_MEMBERS,
             );
-            let member_ids = sched
-                .connected_entities::<PresenterEntityType>(node, &crate::presenter::FIELD_GROUPS);
+            let member_ids = sched.connected_entities::<PresenterEntityType>(
+                node,
+                &crate::tables::presenter::FIELD_GROUPS,
+            );
             let all_members: HashSet<PresenterId> = member_ids.iter().cloned().collect();
             let credited_members: Vec<PresenterId> = all_members
                 .iter()
@@ -1025,23 +1030,25 @@ pub(crate) fn compute_credits(sched: &crate::schedule::Schedule, panel_id: Panel
             used_groups.insert(presenter_id);
         } else if presenter_data.always_grouped {
             // This member always appears under their group's name.
-            let node = crate::field_node_id::FieldNodeId::new(
+            let node = crate::edge::FieldNodeId::new(
                 presenter_id,
-                &crate::presenter::FIELD_MEMBERS,
+                &crate::tables::presenter::FIELD_MEMBERS,
             );
-            let group_ids = sched
-                .connected_entities::<PresenterEntityType>(node, &crate::presenter::FIELD_GROUPS);
+            let group_ids = sched.connected_entities::<PresenterEntityType>(
+                node,
+                &crate::tables::presenter::FIELD_GROUPS,
+            );
             for group_id in group_ids {
                 let Some(&group_data) = presenter_lookup.get(&group_id) else {
                     continue;
                 };
-                let node = crate::field_node_id::FieldNodeId::new(
+                let node = crate::edge::FieldNodeId::new(
                     group_id,
-                    &crate::presenter::FIELD_MEMBERS,
+                    &crate::tables::presenter::FIELD_MEMBERS,
                 );
                 let group_member_ids = sched.connected_entities::<PresenterEntityType>(
                     node,
-                    &crate::presenter::FIELD_GROUPS,
+                    &crate::tables::presenter::FIELD_GROUPS,
                 );
                 let show_as_group = group_data.always_shown_in_group
                     || group_member_ids.iter().all(|m| credited_ids.contains(m));
@@ -1119,7 +1126,7 @@ static PANEL_FIELD_SET: LazyLock<FieldSet<PanelEntityType>> =
 // ... (rest of the code remains the same)
 // ── Builder ───────────────────────────────────────────────────────────────────
 
-crate::field_macros::define_entity_builder! {
+crate::field::macros::define_entity_builder! {
     /// Typed builder for [`PanelEntityType`] entities.
     PanelBuilder for PanelEntityType {
         /// Set the Uniq ID code (e.g. `"GP032"`).  Required.  The write path
@@ -1189,11 +1196,14 @@ crate::field_macros::define_entity_builder! {
 
 // ── EntityMatcher ─────────────────────────────────────────────────────────────
 
-impl crate::lookup::EntityScannable for PanelEntityType {}
+impl crate::query::lookup::EntityScannable for PanelEntityType {}
 
-impl crate::lookup::EntityMatcher for PanelEntityType {
-    fn match_entity(query: &str, data: &PanelInternalData) -> Option<crate::lookup::MatchPriority> {
-        use crate::lookup::string_match_priority;
+impl crate::query::lookup::EntityMatcher for PanelEntityType {
+    fn match_entity(
+        query: &str,
+        data: &PanelInternalData,
+    ) -> Option<crate::query::lookup::MatchPriority> {
+        use crate::query::lookup::string_match_priority;
         // Match on code (full_id e.g. "GP001P2", base_id e.g. "GP001") and name.
         [
             string_match_priority(query, &data.code.full_id()),
@@ -1211,9 +1221,9 @@ impl crate::lookup::EntityMatcher for PanelEntityType {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::edge::FieldNodeId;
     use crate::schedule::Schedule;
     use crate::value::FieldError;
-    use crate::{field_text, field_value};
     use chrono::NaiveDate;
     use uuid::Uuid;
 
@@ -1346,11 +1356,11 @@ mod tests {
         let id = new_panel_id();
         let mut s = sched_with(id, sample_internal(id));
         let fs = PanelEntityType::field_set();
-        fs.write_field_value("description", id, &mut s, field_text!("updated bio"))
+        fs.write_field_value("description", id, &mut s, crate::field_text!("updated bio"))
             .unwrap();
         assert_eq!(
             fs.read_field_value("description", id, &s).unwrap(),
-            Some(field_text!("updated bio"))
+            Some(crate::field_text!("updated bio"))
         );
     }
 
@@ -1359,7 +1369,7 @@ mod tests {
         let id = new_panel_id();
         let mut s = sched_with(id, sample_internal(id));
         let fs = PanelEntityType::field_set();
-        fs.write_field_value("cost", id, &mut s, field_value!(empty_list))
+        fs.write_field_value("cost", id, &mut s, crate::field_empty_list!())
             .unwrap();
         assert_eq!(fs.read_field_value("cost", id, &s).unwrap(), None);
     }
@@ -1474,19 +1484,19 @@ mod tests {
         let fs = PanelEntityType::field_set();
         assert_eq!(
             fs.read_field_value("presenters", id, &s).unwrap(),
-            Some(field_value!(empty_list))
+            Some(crate::field_empty_list!())
         );
         assert_eq!(
             fs.read_field_value("rooms", id, &s).unwrap(),
-            Some(field_value!(empty_list))
+            Some(crate::field_empty_list!())
         );
         assert_eq!(
             fs.read_field_value("panel_type", id, &s).unwrap(),
-            Some(field_value!(empty_list))
+            Some(crate::field_empty_list!())
         );
         assert_eq!(
             fs.read_field_value("inclusive_presenters", id, &s).unwrap(),
-            Some(field_value!(empty_list))
+            Some(crate::field_empty_list!())
         );
     }
 
@@ -1499,14 +1509,14 @@ mod tests {
             "add_credited_presenters",
             id,
             &mut s,
-            field_value!(empty_list),
+            crate::field_empty_list!(),
         )
         .unwrap();
         fs.write_field_value(
             "add_uncredited_presenters",
             id,
             &mut s,
-            field_value!(empty_list),
+            crate::field_empty_list!(),
         )
         .unwrap();
     }
@@ -1516,7 +1526,12 @@ mod tests {
         let id = new_panel_id();
         let mut s = sched_with(id, sample_internal(id));
         let fs = PanelEntityType::field_set();
-        let r = fs.write_field_value("inclusive_presenters", id, &mut s, field_value!(empty_list));
+        let r = fs.write_field_value(
+            "inclusive_presenters",
+            id,
+            &mut s,
+            crate::field_empty_list!(),
+        );
         assert!(matches!(r, Err(FieldError::ReadOnly { .. })));
     }
 
@@ -1587,7 +1602,7 @@ mod tests {
 
     #[test]
     fn test_entity_to_string_returns_code_name_format() {
-        use crate::converter::EntityStringResolver;
+        use crate::query::converter::EntityStringResolver;
         let id = new_panel_id();
         let mut sched = Schedule::default();
         sched.insert(id, sample_internal(id));
@@ -1597,7 +1612,7 @@ mod tests {
 
     #[test]
     fn test_entity_to_string_fallback_to_uuid() {
-        use crate::converter::EntityStringResolver;
+        use crate::query::converter::EntityStringResolver;
         let id = new_panel_id();
         let sched = Schedule::default();
         let s = PanelEntityType::entity_to_string(&sched, id);
@@ -1614,9 +1629,9 @@ mod tests {
         let pres_id = crate::entity::EntityId::<PresenterEntityType>::from_preference(
             UuidPreference::GenerateNew,
         );
-        let data = crate::presenter::PresenterInternalData {
+        let data = crate::tables::presenter::PresenterInternalData {
             id: pres_id,
-            data: crate::presenter::PresenterCommonData {
+            data: crate::tables::presenter::PresenterCommonData {
                 name: name.into(),
                 ..Default::default()
             },
@@ -1635,11 +1650,11 @@ mod tests {
 
         sched.edge_add(
             FieldNodeId::new(panel_id, &FIELD_CREDITED_PRESENTERS),
-            FieldNodeId::new(alice, &crate::presenter::FIELD_PANELS),
+            FieldNodeId::new(alice, &crate::tables::presenter::FIELD_PANELS),
         );
         sched.edge_add(
             FieldNodeId::new(panel_id, &FIELD_CREDITED_PRESENTERS),
-            FieldNodeId::new(bob, &crate::presenter::FIELD_PANELS),
+            FieldNodeId::new(bob, &crate::tables::presenter::FIELD_PANELS),
         );
         PanelEntityType::field_set()
             .write_field_value(
@@ -1673,11 +1688,11 @@ mod tests {
 
         sched.edge_add(
             FieldNodeId::new(panel_id, &FIELD_CREDITED_PRESENTERS),
-            FieldNodeId::new(alice, &crate::presenter::FIELD_PANELS),
+            FieldNodeId::new(alice, &crate::tables::presenter::FIELD_PANELS),
         );
         sched.edge_add(
             FieldNodeId::new(panel_id, &FIELD_CREDITED_PRESENTERS),
-            FieldNodeId::new(bob, &crate::presenter::FIELD_PANELS),
+            FieldNodeId::new(bob, &crate::tables::presenter::FIELD_PANELS),
         );
         PanelEntityType::field_set()
             .write_field_value(
@@ -1714,24 +1729,24 @@ mod tests {
 
         sched.edge_add(
             FieldNodeId::new(panel_id, &FIELD_CREDITED_PRESENTERS),
-            FieldNodeId::new(alice, &crate::presenter::FIELD_PANELS),
+            FieldNodeId::new(alice, &crate::tables::presenter::FIELD_PANELS),
         );
         sched.edge_add(
             FieldNodeId::new(panel_id, &FIELD_CREDITED_PRESENTERS),
-            FieldNodeId::new(bob, &crate::presenter::FIELD_PANELS),
+            FieldNodeId::new(bob, &crate::tables::presenter::FIELD_PANELS),
         );
 
         // Write credited_presenters = [alice] — bob should be removed.
         sched.edge_set(
             FieldNodeId::new(panel_id, &FIELD_CREDITED_PRESENTERS),
-            &crate::presenter::FIELD_PANELS,
+            &crate::tables::presenter::FIELD_PANELS,
             vec![alice],
         );
 
         // Bob's edge should be gone.
         let all = sched.connected_entities(
             FieldNodeId::new(panel_id, &FIELD_CREDITED_PRESENTERS),
-            &crate::presenter::FIELD_PANELS,
+            &crate::tables::presenter::FIELD_PANELS,
         );
         assert!(!all.contains(&bob), "Bob should have been removed");
 
@@ -1767,28 +1782,28 @@ mod tests {
 
         sched.edge_add(
             FieldNodeId::new(panel_id, &FIELD_CREDITED_PRESENTERS),
-            FieldNodeId::new(alice, &crate::presenter::FIELD_PANELS),
+            FieldNodeId::new(alice, &crate::tables::presenter::FIELD_PANELS),
         );
         sched.edge_add(
             FieldNodeId::new(panel_id, &FIELD_CREDITED_PRESENTERS),
-            FieldNodeId::new(bob, &crate::presenter::FIELD_PANELS),
+            FieldNodeId::new(bob, &crate::tables::presenter::FIELD_PANELS),
         );
         sched.edge_add(
             FieldNodeId::new(panel_id, &FIELD_UNCREDITED_PRESENTERS),
-            FieldNodeId::new(carol, &crate::presenter::FIELD_PANELS),
+            FieldNodeId::new(carol, &crate::tables::presenter::FIELD_PANELS),
         );
 
         // Replace credited_presenters with [alice] — bob removed, carol untouched.
         sched.edge_set(
             FieldNodeId::new(panel_id, &FIELD_CREDITED_PRESENTERS),
-            &crate::presenter::FIELD_PANELS,
+            &crate::tables::presenter::FIELD_PANELS,
             vec![alice],
         );
 
         // Carol should still be in the uncredited list.
         let uncredited = sched.connected_entities(
             FieldNodeId::new(panel_id, &FIELD_UNCREDITED_PRESENTERS),
-            &crate::presenter::FIELD_PANELS,
+            &crate::tables::presenter::FIELD_PANELS,
         );
         assert!(
             uncredited.contains(&carol),
@@ -1798,7 +1813,7 @@ mod tests {
         // Carol should not have leaked into credited.
         let credited = sched.connected_entities(
             FieldNodeId::new(panel_id, &FIELD_CREDITED_PRESENTERS),
-            &crate::presenter::FIELD_PANELS,
+            &crate::tables::presenter::FIELD_PANELS,
         );
         assert!(
             !credited.contains(&carol),

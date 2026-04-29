@@ -12,15 +12,15 @@
 //! `macro_rules!` macros that previously lived here have been removed.
 //!
 //! Only [`define_entity_builder!`] remains: it generates a typed builder
-//! struct on top of [`FieldSet::write_multiple`](crate::field_set::FieldSet)
-//! and [`build_entity`](crate::builder::build_entity) for an entity, given
+//! struct on top of [`FieldSet::write_multiple`](crate::field::set::FieldSet)
+//! and [`build_entity`](crate::edit::builder::build_entity) for an entity, given
 //! a list of `with_<setter> => FIELD_STATIC` entries.
 
 // ── Entity builder ───────────────────────────────────────────────────────────
 
 /// Generate a typed builder struct for an entity on top of
 /// [`FieldSet::write_multiple`] and
-/// [`build_entity`](crate::builder::build_entity).
+/// [`build_entity`](crate::edit::builder::build_entity).
 ///
 /// The call site lists one `with_<setter> => &FIELD_STATIC` entry per field
 /// that should be settable through the builder.  Each setter takes any
@@ -51,7 +51,7 @@
 /// ```
 ///
 /// `build` creates a new entity by seeding via
-/// [`EntityBuildable::default_data`](crate::builder::EntityBuildable::default_data)
+/// [`EntityBuildable::default_data`](crate::edit::builder::EntityBuildable::default_data)
 /// and applying the queued writes through `write_multiple`, with rollback on
 /// any failure.  `apply_to` reuses the same queue against an existing
 /// entity without insertion or rollback.
@@ -77,6 +77,7 @@
 ///     }
 /// }
 /// ```
+#[macro_export]
 macro_rules! define_entity_builder {
     (
         $(#[$attr:meta])*
@@ -91,7 +92,7 @@ macro_rules! define_entity_builder {
         pub struct $builder {
             uuid: $crate::entity::UuidPreference,
             updates: ::std::vec::Vec<(
-                $crate::field_set::FieldRef<$entity>,
+                $crate::field::set::FieldRef<$entity>,
                 $crate::value::FieldValue,
             )>,
         }
@@ -131,7 +132,7 @@ macro_rules! define_entity_builder {
                     value: impl $crate::value::IntoFieldValue,
                 ) -> Self {
                     self.updates.push((
-                        $crate::field_set::FieldRef::Descriptor(&$field),
+                        $crate::field::set::FieldRef::Descriptor(&$field),
                         $crate::value::IntoFieldValue::into_field_value(value),
                     ));
                     self
@@ -139,7 +140,7 @@ macro_rules! define_entity_builder {
             )*
 
             /// Create a new entity in `schedule`, seeding it via
-            /// [`EntityBuildable::default_data`](crate::builder::EntityBuildable::default_data),
+            /// [`EntityBuildable::default_data`](crate::edit::builder::EntityBuildable::default_data),
             /// applying all queued writes, and running
             /// [`EntityType::validate`](crate::entity::EntityType::validate).
             /// Rolls back on any error.
@@ -148,9 +149,9 @@ macro_rules! define_entity_builder {
                 schedule: &mut $crate::schedule::Schedule,
             ) -> ::core::result::Result<
                 $crate::entity::EntityId<$entity>,
-                $crate::builder::BuildError,
+                $crate::edit::builder::BuildError,
             > {
-                $crate::builder::build_entity::<$entity>(schedule, self.uuid, self.updates)
+                $crate::edit::builder::build_entity::<$entity>(schedule, self.uuid, self.updates)
             }
 
             /// Apply the queued writes to an existing entity.  Does not seed
@@ -160,7 +161,7 @@ macro_rules! define_entity_builder {
                 self,
                 id: $crate::entity::EntityId<$entity>,
                 schedule: &mut $crate::schedule::Schedule,
-            ) -> ::core::result::Result<(), $crate::field_set::FieldSetError> {
+            ) -> ::core::result::Result<(), $crate::field::set::FieldSetError> {
                 <$entity as $crate::entity::EntityType>::field_set()
                     .write_multiple(id, schedule, &self.updates)
             }

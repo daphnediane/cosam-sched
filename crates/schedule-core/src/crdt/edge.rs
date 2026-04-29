@@ -29,8 +29,9 @@
 //! concurrent add/remove — see `docs/crdt-design.md`).
 
 use crate::crdt;
+use crate::crdt::CrdtFieldType;
 use crate::entity::{EntityUuid, RuntimeEntityId};
-use crate::value::{CrdtFieldType, FieldTypeItem, FieldValue, FieldValueItem};
+use crate::value::{FieldTypeItem, FieldValue, FieldValueItem};
 use automerge::transaction::Transactable;
 use automerge::{AutoCommit, ObjType, ReadDoc, Value};
 use uuid::NonNilUuid;
@@ -41,9 +42,9 @@ pub struct CanonicalOwner {
     /// `true` when the near (queried) field is the edge_kind owner side.
     pub near_is_owner: bool,
     /// The owner-side field (carries `Owner { target_field: … }`).
-    pub owner_field: &'static dyn crate::field::HalfEdge,
+    pub owner_field: &'static dyn crate::edge::HalfEdge,
     /// The target-side field (the inverse/lookup field).
-    pub target_field: &'static dyn crate::field::HalfEdge,
+    pub target_field: &'static dyn crate::edge::HalfEdge,
 }
 
 impl CanonicalOwner {
@@ -79,7 +80,7 @@ impl std::fmt::Debug for CanonicalOwner {
 
 /// Resolve CRDT ownership for an edge given both field descriptors.
 ///
-/// Each field knows its own [`crate::value::EdgeKind`], so resolution
+/// Each field knows its own [`crate::edge::EdgeKind`], so resolution
 /// is a constant-time check on the two supplied fields:
 ///
 /// - If `near_field` is `Owner { target_field }` and `target_field`
@@ -94,16 +95,13 @@ impl std::fmt::Debug for CanonicalOwner {
 /// `FIELD_PANELS`).
 #[must_use]
 pub fn canonical_owner(
-    near_field: &'static dyn crate::field::HalfEdge,
-    far_field: &'static dyn crate::field::HalfEdge,
+    near_field: &'static dyn crate::edge::HalfEdge,
+    far_field: &'static dyn crate::edge::HalfEdge,
 ) -> Option<CanonicalOwner> {
-    fn same(
-        a: &'static dyn crate::field::HalfEdge,
-        b: &'static dyn crate::field::HalfEdge,
-    ) -> bool {
+    fn same(a: &'static dyn crate::edge::HalfEdge, b: &'static dyn crate::edge::HalfEdge) -> bool {
         a.name() == b.name() && a.entity_type_name() == b.entity_type_name()
     }
-    if let crate::value::EdgeKind::Owner { target_field, .. } = near_field.edge_kind() {
+    if let crate::edge::EdgeKind::Owner { target_field, .. } = near_field.edge_kind() {
         if same(*target_field, far_field) {
             return Some(CanonicalOwner {
                 near_is_owner: true,
@@ -112,7 +110,7 @@ pub fn canonical_owner(
             });
         }
     }
-    if let crate::value::EdgeKind::Owner { target_field, .. } = far_field.edge_kind() {
+    if let crate::edge::EdgeKind::Owner { target_field, .. } = far_field.edge_kind() {
         if same(*target_field, near_field) {
             return Some(CanonicalOwner {
                 near_is_owner: false,

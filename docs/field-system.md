@@ -222,7 +222,7 @@ data-only and schedule-aware paths is handled internally by matching on
 `ReadFn<E>`, `WriteFn<E>`, and `VerifyFn<E>` (see below).
 
 Entity-level text matching (previously `IndexableField<E>` / `match_index`)
-is now handled by the `EntityMatcher` trait in `crate::lookup`; see
+is now handled by the `EntityMatcher` trait in `crate::query::lookup`; see
 `conversion-and-lookup.md`. Individual field descriptors no longer carry
 an `index_fn` — each entity type owns its holistic `match_entity` logic.
 
@@ -328,7 +328,7 @@ static FIELD_PANEL_NAME: FieldDescriptor<PanelEntityType> = FieldDescriptor {
 // Edge field (CRDT owner, no direct write fn — write via add/remove helpers):
 define_field! {
     static FIELD_PRESENTERS: FieldDescriptor<PanelEntityType>,
-    edge: ro, target: PresenterEntityType, target_field: &crate::presenter::FIELD_PANELS, owner,
+    edge: ro, target: PresenterEntityType, target_field: &crate::tables::presenter::FIELD_PANELS, owner,
     name: "presenters", display: "Presenters",
     desc: "All presenters attached to this panel (credited and uncredited).",
     aliases: &["panelists", "presenter"],

@@ -17,15 +17,15 @@
 //! Tagged credit-string resolution (`[Kind:]Name[=Group]`) is implemented
 //! by `find_tagged_presenter` and `find_or_create_tagged_presenter`.
 
-use crate::converter::{AsBoolean, AsString, AsText, EntityStringResolver};
 use crate::define_field;
+use crate::edge::{FieldNodeId, HalfEdge};
 use crate::entity::{EntityId, EntityType, EntityUuid, FieldSet, UuidPreference};
-use crate::field::{FieldDescriptor, HalfEdge, NamedField};
-use crate::field_node_id::FieldNodeId;
+use crate::field::{FieldDescriptor, NamedField};
 use crate::field_value;
-use crate::lookup::{EntityMatcher, MatchPriority};
-use crate::panel::{PanelEntityType, PanelId};
+use crate::query::converter::{AsBoolean, AsString, AsText, EntityStringResolver};
+use crate::query::lookup::{EntityMatcher, MatchPriority};
 use crate::schedule::Schedule;
+use crate::tables::panel::{PanelEntityType, PanelId};
 use crate::value::{ConversionError, FieldTypeItem, FieldValue, ValidationError};
 use serde::{Deserialize, Deserializer, Serialize, Serializer};
 use std::sync::LazyLock;
@@ -356,12 +356,12 @@ inventory::submit! {
             PresenterEntityType::field_set().write_field_value(field_name, id, schedule, value)
         },
         build_fn: |schedule, uuid, fields| {
-            crate::builder::build_entity::<PresenterEntityType>(
+            crate::edit::builder::build_entity::<PresenterEntityType>(
                 schedule,
                 crate::entity::UuidPreference::Exact(uuid),
                 fields
                     .iter()
-                    .map(|(n, v)| (crate::field_set::FieldRef::Name(n), v.clone()))
+                    .map(|(n, v)| (crate::field::set::FieldRef::Name(n), v.clone()))
                     .collect(),
             )
             .map(|id| id.entity_uuid())
@@ -391,7 +391,7 @@ inventory::submit! {
 
 // ── EntityBuildable ─────────────────────────────────────────────────────────────
 
-impl crate::builder::EntityBuildable for PresenterEntityType {
+impl crate::edit::builder::EntityBuildable for PresenterEntityType {
     fn default_data(id: EntityId<Self>) -> Self::InternalData {
         PresenterInternalData {
             id,
@@ -505,7 +505,7 @@ fn is_group_entity(schedule: &crate::schedule::Schedule, id: PresenterId) -> boo
         .is_some_and(|d| d.data.is_explicit_group)
         || {
             // Check if this presenter has any members (edges pointing to it via FIELD_GROUPS)
-            let node = crate::field_node_id::FieldNodeId::new(id, &FIELD_GROUPS);
+            let node = crate::edge::FieldNodeId::new(id, &FIELD_GROUPS);
             !schedule
                 .connected_field_nodes(node, FIELD_MEMBERS.edge_id())
                 .is_empty()
@@ -550,7 +550,7 @@ pub fn find_tagged_presenter(
         let id = PresenterEntityType::find_by_name(schedule, parsed.name)?;
         // Verify group membership if a group suffix is given
         if let Some(group_name) = parsed.group_name {
-            let node = crate::field_node_id::FieldNodeId::new(id, &FIELD_MEMBERS);
+            let node = crate::edge::FieldNodeId::new(id, &FIELD_MEMBERS);
             let in_group = schedule
                 .connected_entities::<PresenterEntityType>(node, &FIELD_GROUPS)
                 .into_iter()
@@ -636,7 +636,7 @@ pub fn find_or_create_tagged_presenter(
             }
         }
         let already_in_group = {
-            let node = crate::field_node_id::FieldNodeId::new(pres_id, &FIELD_MEMBERS);
+            let node = crate::edge::FieldNodeId::new(pres_id, &FIELD_MEMBERS);
             schedule
                 .connected_entities::<PresenterEntityType>(node, &FIELD_GROUPS)
                 .contains(&gid)
@@ -793,7 +793,7 @@ define_field! {
         // `FIELD_MEMBERS` on `id` therefore points at id's members
         // (id playing the group role); querying it toward far-side
         // `FIELD_GROUPS` returns those member entities.
-        let node = crate::field_node_id::FieldNodeId::new(id, &FIELD_MEMBERS);
+        let node = crate::edge::FieldNodeId::new(id, &FIELD_MEMBERS);
         let has_members = !sched
             .connected_field_nodes(node, FIELD_GROUPS.edge_id())
             .is_empty();
@@ -836,7 +836,7 @@ define_field! {
     item: FieldTypeItem::EntityIdentifier(PresenterEntityType::TYPE_NAME),
     read: |sched: &Schedule, id: EntityId<PresenterEntityType>| {
         let ids = sched.inclusive_edges::<PresenterEntityType, PresenterEntityType>(
-            crate::field_node_id::FieldNodeId::new(id, &FIELD_MEMBERS),
+            crate::edge::FieldNodeId::new(id, &FIELD_MEMBERS),
             &FIELD_GROUPS,
         );
         Some(crate::schedule::entity_ids_to_field_value(ids))
@@ -858,7 +858,7 @@ define_field! {
     item: FieldTypeItem::EntityIdentifier(PresenterEntityType::TYPE_NAME),
     read: |sched: &Schedule, id: EntityId<PresenterEntityType>| {
         let ids = sched.inclusive_edges::<PresenterEntityType, PresenterEntityType>(
-            crate::field_node_id::FieldNodeId::new(id, &FIELD_GROUPS),
+            crate::edge::FieldNodeId::new(id, &FIELD_GROUPS),
             &FIELD_MEMBERS,
         );
         Some(crate::schedule::entity_ids_to_field_value(ids))
@@ -883,13 +883,13 @@ define_field! {
         let mut ids: Vec<PanelId> = sched
             .connected_entities::<PanelEntityType>(
                 credited_node,
-                &crate::panel::FIELD_CREDITED_PRESENTERS,
+                &crate::tables::panel::FIELD_CREDITED_PRESENTERS,
             );
         // Query panels where this presenter is uncredited
         ids.extend(
             sched.connected_entities::<PanelEntityType>(
                 credited_node,
-                &crate::panel::FIELD_UNCREDITED_PRESENTERS,
+                &crate::tables::panel::FIELD_UNCREDITED_PRESENTERS,
             ),
         );
         ids.sort_by_key(|p| p.entity_uuid());
@@ -916,12 +916,12 @@ define_field! {
         for p in ids {
             // Remove from uncredited first (exclusivity)
             sched.edge_remove(
-                FieldNodeId::new(p, &crate::panel::FIELD_UNCREDITED_PRESENTERS),
+                FieldNodeId::new(p, &crate::tables::panel::FIELD_UNCREDITED_PRESENTERS),
                 FieldNodeId::new(presenter_id, &FIELD_PANELS),
             );
             // Add to credited
             sched.edge_add(
-                FieldNodeId::new(p, &crate::panel::FIELD_CREDITED_PRESENTERS),
+                FieldNodeId::new(p, &crate::tables::panel::FIELD_CREDITED_PRESENTERS),
                 FieldNodeId::new(presenter_id, &FIELD_PANELS),
             );
         }
@@ -947,12 +947,12 @@ define_field! {
         for p in ids {
             // Remove from credited first (exclusivity)
             sched.edge_remove(
-                FieldNodeId::new(p, &crate::panel::FIELD_CREDITED_PRESENTERS),
+                FieldNodeId::new(p, &crate::tables::panel::FIELD_CREDITED_PRESENTERS),
                 FieldNodeId::new(presenter_id, &FIELD_PANELS),
             );
             // Add to uncredited
             sched.edge_add(
-                FieldNodeId::new(p, &crate::panel::FIELD_UNCREDITED_PRESENTERS),
+                FieldNodeId::new(p, &crate::tables::panel::FIELD_UNCREDITED_PRESENTERS),
                 FieldNodeId::new(presenter_id, &FIELD_PANELS),
             );
         }
@@ -977,12 +977,12 @@ define_field! {
         for p in ids {
             // Remove from credited
             sched.edge_remove(
-                FieldNodeId::new(p, &crate::panel::FIELD_CREDITED_PRESENTERS),
+                FieldNodeId::new(p, &crate::tables::panel::FIELD_CREDITED_PRESENTERS),
                 FieldNodeId::new(presenter_id, &FIELD_PANELS),
             );
             // Remove from uncredited
             sched.edge_remove(
-                FieldNodeId::new(p, &crate::panel::FIELD_UNCREDITED_PRESENTERS),
+                FieldNodeId::new(p, &crate::tables::panel::FIELD_UNCREDITED_PRESENTERS),
                 FieldNodeId::new(presenter_id, &FIELD_PANELS),
             );
         }
@@ -1013,27 +1013,27 @@ define_field! {
         use std::collections::HashSet;
         let mut panel_set: HashSet<PanelId> = HashSet::new();
         // Direct panels of this presenter
-        let node = crate::field_node_id::FieldNodeId::new(id, &FIELD_PANELS);
-        for p in sched.connected_entities::<PanelEntityType>(node, &crate::panel::FIELD_PRESENTERS) {
+        let node = crate::edge::FieldNodeId::new(id, &FIELD_PANELS);
+        for p in sched.connected_entities::<PanelEntityType>(node, &crate::tables::panel::FIELD_PRESENTERS) {
             panel_set.insert(p);
         }
         // Panels of all transitive groups (upward)
         for g in sched.inclusive_edges::<PresenterEntityType, PresenterEntityType>(
-            crate::field_node_id::FieldNodeId::new(id, &FIELD_MEMBERS),
+            crate::edge::FieldNodeId::new(id, &FIELD_MEMBERS),
             &FIELD_GROUPS,
         ) {
-            let node = crate::field_node_id::FieldNodeId::new(g, &FIELD_PANELS);
-            for p in sched.connected_entities::<PanelEntityType>(node, &crate::panel::FIELD_PRESENTERS) {
+            let node = crate::edge::FieldNodeId::new(g, &FIELD_PANELS);
+            for p in sched.connected_entities::<PanelEntityType>(node, &crate::tables::panel::FIELD_PRESENTERS) {
                 panel_set.insert(p);
             }
         }
         // Panels of all transitive members (downward)
         for m in sched.inclusive_edges::<PresenterEntityType, PresenterEntityType>(
-            crate::field_node_id::FieldNodeId::new(id, &FIELD_GROUPS),
+            crate::edge::FieldNodeId::new(id, &FIELD_GROUPS),
             &FIELD_MEMBERS,
         ) {
-            let node = crate::field_node_id::FieldNodeId::new(m, &FIELD_PANELS);
-            for p in sched.connected_entities::<PanelEntityType>(node, &crate::panel::FIELD_PRESENTERS) {
+            let node = crate::edge::FieldNodeId::new(m, &FIELD_PANELS);
+            for p in sched.connected_entities::<PanelEntityType>(node, &crate::tables::panel::FIELD_PRESENTERS) {
                 panel_set.insert(p);
             }
         }
@@ -1049,7 +1049,7 @@ static PRESENTER_FIELD_SET: LazyLock<FieldSet<PresenterEntityType>> =
 
 // ── Builder ───────────────────────────────────────────────────────────────────
 
-crate::field_macros::define_entity_builder! {
+crate::field::macros::define_entity_builder! {
     /// Typed builder for [`PresenterEntityType`] entities.
     PresenterBuilder for PresenterEntityType {
         /// Set the presenter or group display name.  Required.
@@ -1115,7 +1115,7 @@ fn extract_presenter_match_name(query: &str) -> &str {
     }
 }
 
-impl crate::lookup::EntityScannable for PresenterEntityType {
+impl crate::query::lookup::EntityScannable for PresenterEntityType {
     /// Tagged-presenter-aware scan.
     ///
     /// The tagged credit syntax (`"Kind:Name=Group"`) is always per-token —
@@ -1128,15 +1128,15 @@ impl crate::lookup::EntityScannable for PresenterEntityType {
     /// On miss we defer to [`PresenterEntityType::can_create`]; its
     /// `CanCreate::Yes` hint drives whether the loop queues the whole
     /// remaining query or just the current token.  Actual creation runs
-    /// through [`crate::lookup::EntityCreatable::create_from_string`], which in turn calls
+    /// through [`crate::query::lookup::EntityCreatable::create_from_string`], which in turn calls
     /// [`find_or_create_tagged_presenter`] — so group membership and rank
     /// promotion are honoured on the create path too.
     fn scan_entity(
         full: &str,
         partial: &str,
         schedule: &crate::schedule::Schedule,
-    ) -> Result<crate::lookup::ScanResult<Self>, crate::lookup::LookupError> {
-        use crate::lookup::{
+    ) -> Result<crate::query::lookup::ScanResult<Self>, crate::query::lookup::LookupError> {
+        use crate::query::lookup::{
             CanCreate, EntityMatcher, LookupError, MatchConsumed, ScanFound, ScanResult,
         };
 
@@ -1159,35 +1159,35 @@ impl crate::lookup::EntityScannable for PresenterEntityType {
     }
 }
 
-impl crate::lookup::EntityMatcher for PresenterEntityType {
-    fn can_create(full: &str, partial: &str) -> crate::lookup::CanCreate {
+impl crate::query::lookup::EntityMatcher for PresenterEntityType {
+    fn can_create(full: &str, partial: &str) -> crate::query::lookup::CanCreate {
         if partial.is_empty() {
-            crate::lookup::CanCreate::No
+            crate::query::lookup::CanCreate::No
         } else if full == partial {
-            crate::lookup::CanCreate::Yes(crate::lookup::MatchConsumed::Full)
+            crate::query::lookup::CanCreate::Yes(crate::query::lookup::MatchConsumed::Full)
         } else {
-            crate::lookup::CanCreate::Yes(crate::lookup::MatchConsumed::Partial)
+            crate::query::lookup::CanCreate::Yes(crate::query::lookup::MatchConsumed::Partial)
         }
     }
 
     fn match_entity(
         query: &str,
         data: &PresenterInternalData,
-    ) -> Option<crate::lookup::MatchPriority> {
+    ) -> Option<crate::query::lookup::MatchPriority> {
         let name = extract_presenter_match_name(query);
-        crate::lookup::string_match_priority(name, &data.data.name)
+        crate::query::lookup::string_match_priority(name, &data.data.name)
     }
 }
 
 // ── EntityCreatable ───────────────────────────────────────────────────────────
 
-impl crate::lookup::EntityCreatable for PresenterEntityType {
+impl crate::query::lookup::EntityCreatable for PresenterEntityType {
     fn create_from_string(
         schedule: &mut crate::schedule::Schedule,
         s: &str,
-    ) -> Result<EntityId<Self>, crate::lookup::LookupError> {
+    ) -> Result<EntityId<Self>, crate::query::lookup::LookupError> {
         find_or_create_tagged_presenter(schedule, s).map_err(|e| {
-            crate::lookup::LookupError::CreateFailed {
+            crate::query::lookup::LookupError::CreateFailed {
                 message: e.to_string(),
             }
         })
@@ -1199,8 +1199,7 @@ impl crate::lookup::EntityCreatable for PresenterEntityType {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::field_value;
-    use crate::lookup::{match_priority, EntityMatcher};
+    use crate::query::lookup::{match_priority, EntityMatcher};
     use crate::schedule::Schedule;
     use crate::value::FieldError;
     use uuid::Uuid;
@@ -1373,8 +1372,8 @@ mod tests {
 
         // Add the membership edge: group's MEMBERS pointer ↔ member's GROUPS pointer.
         sched.edge_add(
-            crate::field_node_id::FieldNodeId::new(group_id, &FIELD_MEMBERS),
-            crate::field_node_id::FieldNodeId::new(member_id, &FIELD_GROUPS),
+            crate::edge::FieldNodeId::new(group_id, &FIELD_MEMBERS),
+            crate::edge::FieldNodeId::new(member_id, &FIELD_GROUPS),
         );
 
         let fs = PresenterEntityType::field_set();
@@ -1476,7 +1475,7 @@ mod tests {
 
     #[test]
     fn test_entity_to_string_returns_name() {
-        use crate::converter::EntityStringResolver;
+        use crate::query::converter::EntityStringResolver;
         let id = make_id();
         let sched = schedule_with(id, make_internal());
         let s = PresenterEntityType::entity_to_string(&sched, id);
@@ -1485,7 +1484,7 @@ mod tests {
 
     #[test]
     fn test_entity_to_string_fallback_to_uuid() {
-        use crate::converter::EntityStringResolver;
+        use crate::query::converter::EntityStringResolver;
         let id = make_id();
         let sched = Schedule::default();
         let s = PresenterEntityType::entity_to_string(&sched, id);
@@ -1747,7 +1746,7 @@ mod tests {
 
     #[test]
     fn test_lookup_single_finds_by_tagged() {
-        use crate::lookup::lookup_single;
+        use crate::query::lookup::lookup_single;
         let mut sched = Schedule::default();
         let id = find_or_create_tagged_presenter(&mut sched, "G:Alice").unwrap();
         let found = lookup_single::<PresenterEntityType>(&sched, "Alice").unwrap();
@@ -1756,7 +1755,7 @@ mod tests {
 
     #[test]
     fn test_lookup_or_create_single_creates() {
-        use crate::lookup::lookup_or_create_single;
+        use crate::query::lookup::lookup_or_create_single;
         let mut sched = Schedule::default();
         let id = lookup_or_create_single::<PresenterEntityType>(&mut sched, "P:Bob=Crew").unwrap();
         assert_eq!(sched.entity_count::<PresenterEntityType>(), 2);
@@ -1770,13 +1769,13 @@ mod tests {
         let group_id = find_or_create_tagged_presenter(&mut sched, "MyBand").unwrap();
         let member_id = find_or_create_tagged_presenter(&mut sched, "Alice").unwrap();
         // Manually add member → group edge (group is NOT is_explicit_group yet)
-        let member_node = crate::field_node_id::FieldNodeId::new(member_id, &FIELD_MEMBERS);
-        let group_node = crate::field_node_id::FieldNodeId::new(group_id, &FIELD_GROUPS);
+        let member_node = crate::edge::FieldNodeId::new(member_id, &FIELD_MEMBERS);
+        let group_node = crate::edge::FieldNodeId::new(group_id, &FIELD_GROUPS);
         sched.edge_add(member_node, group_node);
 
         // Debug: check what's in the edge map
-        let members_node = crate::field_node_id::FieldNodeId::new(group_id, &FIELD_MEMBERS);
-        let groups_node = crate::field_node_id::FieldNodeId::new(group_id, &FIELD_GROUPS);
+        let members_node = crate::edge::FieldNodeId::new(group_id, &FIELD_MEMBERS);
+        let groups_node = crate::edge::FieldNodeId::new(group_id, &FIELD_GROUPS);
         eprintln!(
             "FIELD_MEMBERS on group: {:?}",
             sched
@@ -1793,7 +1792,7 @@ mod tests {
             "FIELD_MEMBERS on member: {:?}",
             sched
                 .connected_field_nodes(
-                    crate::field_node_id::FieldNodeId::new(member_id, &FIELD_MEMBERS),
+                    crate::edge::FieldNodeId::new(member_id, &FIELD_MEMBERS),
                     FIELD_GROUPS.edge_id()
                 )
                 .len()
@@ -1809,25 +1808,25 @@ mod tests {
 
     #[test]
     fn test_can_create_no_separator_returns_from_full() {
-        use crate::lookup::{CanCreate, EntityMatcher};
+        use crate::query::lookup::{CanCreate, EntityMatcher};
         assert!(matches!(
             PresenterEntityType::can_create("G:Alice", "G:Alice"),
-            CanCreate::Yes(crate::lookup::MatchConsumed::Full)
+            CanCreate::Yes(crate::query::lookup::MatchConsumed::Full)
         ));
     }
 
     #[test]
     fn test_can_create_with_separator_returns_from_partial() {
-        use crate::lookup::{CanCreate, EntityMatcher};
+        use crate::query::lookup::{CanCreate, EntityMatcher};
         assert!(matches!(
             PresenterEntityType::can_create("G:Alice, P:Bob", "G:Alice"),
-            CanCreate::Yes(crate::lookup::MatchConsumed::Partial)
+            CanCreate::Yes(crate::query::lookup::MatchConsumed::Partial)
         ));
     }
 
     #[test]
     fn test_can_create_empty_partial_returns_no() {
-        use crate::lookup::{CanCreate, EntityMatcher};
+        use crate::query::lookup::{CanCreate, EntityMatcher};
         assert!(matches!(
             PresenterEntityType::can_create("G:Alice", ""),
             CanCreate::No
@@ -1836,7 +1835,7 @@ mod tests {
 
     #[test]
     fn test_create_from_string_creates_presenter() {
-        use crate::lookup::EntityCreatable;
+        use crate::query::lookup::EntityCreatable;
         let mut sched = Schedule::default();
         let id = PresenterEntityType::create_from_string(&mut sched, "G:Alice").unwrap();
         let data = sched.get_internal(id).unwrap();
@@ -1846,7 +1845,7 @@ mod tests {
 
     #[test]
     fn test_create_from_string_tagged_with_group() {
-        use crate::lookup::EntityCreatable;
+        use crate::query::lookup::EntityCreatable;
         let mut sched = Schedule::default();
         let id = PresenterEntityType::create_from_string(&mut sched, "P:Bob=Crew").unwrap();
         let data = sched.get_internal(id).unwrap();

@@ -4,40 +4,10 @@
  * See LICENSE file for full license text
  */
 
-//! CRDT storage layer — the authoritative backing store for [`Schedule`].
+//! CRDT system for conflict-free replicated data types.
 //!
-//! An [`automerge::AutoCommit`] document owned by `Schedule` holds the true
-//! state of every entity. The in-memory `HashMap` entity store and
-//! [`crate::edge_map::RawEdgeMap`] are derived caches rebuilt from the document
-//! on load/merge and refreshed on every write.
-//!
-//! Document layout:
-//!
-//! ```text
-//! ROOT
-//! └── entities (Map)
-//!     └── {type_name} (Map)
-//!         └── {uuid_string} (Map)
-//!             ├── {field_name_A}   ← Scalar: ScalarValue
-//!             ├── {field_name_B}   ← Text:   ObjType::Text
-//!             ├── {field_name_C}   ← List:   ObjType::List of ScalarValue
-//!             └── __deleted        ← soft delete flag (bool)
-//! ```
-//!
-//! Field routing is controlled by each [`FieldDescriptor`]'s
-//! [`CrdtFieldType`](crate::value::CrdtFieldType) annotation:
-//!
-//! | `CrdtFieldType` | automerge op                              |
-//! | --------------- | ----------------------------------------- |
-//! | `Scalar`        | [`put`](Transactable::put) (LWW)          |
-//! | `Text`          | [`put_object`] + [`splice_text`] (RGA)    |
-//! | `List`          | [`put_object`] + [`insert`] / [`delete`]  |
-//! | `Derived`       | not stored                                |
-//!
-//! [`put_object`]: Transactable::put_object
-//! [`splice_text`]: Transactable::splice_text
-//! [`insert`]: Transactable::insert
-//! [`delete`]: Transactable::delete
+//! This module provides the CRDT document structure and edge-specific CRDT operations
+//! for the schedule system.
 
 use automerge::transaction::Transactable;
 use automerge::{AutoCommit, ObjId, ObjType, ReadDoc, ScalarValue, Value, ROOT};
@@ -45,12 +15,12 @@ use chrono::{DateTime, Duration, TimeZone, Utc};
 use thiserror::Error;
 use uuid::{NonNilUuid, Uuid};
 
-use crate::builder::{build_entity, BuildError, EntityBuildable};
+use crate::edit::builder::{build_entity, BuildError, EntityBuildable};
 use crate::entity::{EntityTyped, EntityUuid, RuntimeEntityId, UuidPreference};
+use crate::field::set::FieldRef;
 use crate::field::NamedField;
-use crate::field_set::FieldRef;
 use crate::schedule::Schedule;
-use crate::value::{CrdtFieldType, FieldTypeItem, FieldValue, FieldValueItem};
+use crate::value::{FieldTypeItem, FieldValue, FieldValueItem};
 
 /// Top-level key for the entities sub-map in the document.
 pub const ENTITIES_KEY: &str = "entities";
@@ -85,6 +55,24 @@ pub enum CrdtError {
 
 /// Shorthand result type for the mirror layer.
 pub type CrdtResult<T> = Result<T, CrdtError>;
+
+// ── CrdtFieldType ─────────────────────────────────────────────────────────────
+
+/// How a field maps to CRDT storage in Phase 4.
+///
+/// Annotations are baked in from Phase 2 so no entity structs need changing
+/// when automerge integration lands.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum CrdtFieldType {
+    /// Last-write-wins scalar via `put` / `get` (automerge LWW).
+    Scalar,
+    /// Prose RGA text via `splice_text` / `text` (automerge RGA).
+    Text,
+    /// OR-Set equivalent list via `insert` / `delete` / `list` (automerge list).
+    List,
+    /// Computed from relationships; not stored in CRDT — lives only in RAM.
+    Derived,
+}
 
 // ── Path helpers ───────────────────────────────────────────────────────────
 
@@ -481,4 +469,24 @@ pub fn rehydrate_entity<E: EntityBuildable>(
         }
     }
     build_entity::<E>(schedule, UuidPreference::Exact(uuid), updates).map(|id| id.entity_uuid())
+}
+
+pub mod edge;
+
+pub use edge::*;
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_crdt_field_type_variants() {
+        let non_edge = [
+            CrdtFieldType::Scalar,
+            CrdtFieldType::Text,
+            CrdtFieldType::List,
+            CrdtFieldType::Derived,
+        ];
+        assert_eq!(non_edge.len(), 4);
+    }
 }
