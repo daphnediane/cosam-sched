@@ -135,20 +135,19 @@ Both directions of every edge are stored symmetrically in the same map.  Homogen
 - `edge_set<Far>(near, far_field, targets)` — bulk replace neighbors; returns `(added, removed)` diff used for incremental CRDT mirroring
 
 CRDT ownership for any `(near_field, far_field)` pair is resolved by
-`edge_crdt::canonical_owner`, which inspects each side's `crdt_type()`:
-whichever side carries `CrdtFieldType::EdgeOwner { target_field }` pointing at
-the other is the owner.  No inventory traversal is required — the owner field
-is self-describing (FEATURE-070 collapsed the former `EdgeDescriptor` struct
-and inventory into the field descriptor itself).  Transitive (formerly
-homogeneous) edge mutations also invalidate the `TransitiveEdgeCache`.
+`edge_crdt::canonical_owner`, which inspects each side's `edge_kind()`:
+whichever side carries `EdgeKind::Owner { target_field, .. }` pointing at
+the other is the owner. No inventory traversal is required — the owner field
+is self-describing through `EdgeDescriptor` (REFACTOR-074). Transitive
+(formerly homogeneous) edge mutations also invalidate the `TransitiveEdgeCache`.
 
 ### Panel ↔ Presenter Edge Partitions
 
-The Panel ↔ Presenter relationship is split into two independent `EdgeOwner`
-lists on Panel: `credited_presenters` and `uncredited_presenters`. Each carries
-`CrdtFieldType::EdgeOwner { target_field: &FIELD_PANELS }` with an `exclusive_with`
-sibling so the macro enforces mutual exclusivity on write. The legacy single
-`presenters` list and the `_meta` boolean per-edge map have been removed.
+The Panel ↔ Presenter relationship is split into two independent edge lists
+on Panel: `credited_presenters` and `uncredited_presenters`. Each carries
+`EdgeKind::Owner { target_field: &FIELD_PANELS, exclusive_with: ... }` so the
+macro enforces mutual exclusivity on write. The legacy single `presenters` list
+and the `_meta` boolean per-edge map have been removed.
 
 | Panel field                 | Mode       | Semantics                                             |
 | --------------------------- | ---------- | ----------------------------------------------------- |

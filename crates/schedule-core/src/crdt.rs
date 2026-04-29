@@ -33,8 +33,6 @@
 //! | `Text`          | [`put_object`] + [`splice_text`] (RGA)    |
 //! | `List`          | [`put_object`] + [`insert`] / [`delete`]  |
 //! | `Derived`       | not stored                                |
-//! | `EdgeOwner`     | not stored here — managed by `edge_crdt`  |
-//! | `EdgeTarget`    | not stored here — managed by `edge_crdt`  |
 //!
 //! [`put_object`]: Transactable::put_object
 //! [`splice_text`]: Transactable::splice_text
@@ -186,10 +184,9 @@ pub fn list_all_uuids(doc: &AutoCommit, type_name: &str) -> Vec<NonNilUuid> {
 
 /// Mirror a field's current value into the document, routed by `crdt_type`.
 ///
-/// `Derived`, `EdgeOwner`, and `EdgeTarget` fields are skipped silently.
-/// Edge list storage is managed exclusively by the `edge_crdt` functions.
-/// Other combinations of `(crdt_type, value)` that don't match are reported
-/// as [`CrdtError::Unsupported`].
+/// `Derived` fields are skipped silently. Other combinations of
+/// `(crdt_type, value)` that don't match are reported as
+/// [`CrdtError::Unsupported`].
 pub fn write_field(
     doc: &mut AutoCommit,
     type_name: &str,
@@ -198,10 +195,7 @@ pub fn write_field(
     crdt_type: CrdtFieldType,
     value: &FieldValue,
 ) -> CrdtResult<()> {
-    if matches!(
-        crdt_type,
-        CrdtFieldType::Derived | CrdtFieldType::EdgeOwner { .. } | CrdtFieldType::EdgeTarget
-    ) {
+    if matches!(crdt_type, CrdtFieldType::Derived) {
         return Ok(());
     }
     let entity = ensure_entity_map(doc, type_name, uuid)?;
@@ -225,12 +219,7 @@ pub fn write_field(
         (CrdtFieldType::List, FieldValue::Single(_)) => Err(CrdtError::Unsupported(format!(
             "field `{field_name}`: List CrdtFieldType requires FieldValue::List"
         ))),
-        (
-            CrdtFieldType::Derived | CrdtFieldType::EdgeOwner { .. } | CrdtFieldType::EdgeTarget,
-            _,
-        ) => {
-            unreachable!("handled above")
-        }
+        (CrdtFieldType::Derived, _) => unreachable!("handled above"),
     }
 }
 
@@ -269,9 +258,7 @@ pub fn read_field(
         return Ok(None);
     };
     match crdt_type {
-        CrdtFieldType::Derived | CrdtFieldType::EdgeOwner { .. } | CrdtFieldType::EdgeTarget => {
-            Ok(None)
-        }
+        CrdtFieldType::Derived => Ok(None),
         CrdtFieldType::Scalar => match doc.get(&entity, field_name)? {
             Some((Value::Scalar(sv), _)) => Ok(Some(FieldValue::Single(scalar_to_item(
                 sv.as_ref(),

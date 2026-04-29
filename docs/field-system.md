@@ -202,6 +202,9 @@ storage (Phase 4):
 | `List`    | OR-Set equivalent via `list_add` / `list_remove` / `read_list` |
 | `Derived` | Computed from relationships; NOT stored in CRDT                |
 
+All edge relationship fields use `CrdtFieldType::Derived`. Edge ownership direction
+is encoded in `EdgeKind` (within `EdgeDescriptor`), not in `CrdtFieldType`.
+
 ## Field Trait Hierarchy
 
 ```text
@@ -397,41 +400,39 @@ read/write closures. Custom fields explicitly provide their own closures.
 See `schedule-macro` crate documentation for the full grammar and all supported
 options.
 
-### Edge ownership in `CrdtFieldType` (FEATURE-070)
+### Edge ownership via EdgeDescriptor (REFACTOR-074)
 
-There is no separate `EdgeDescriptor` struct.  CRDT-edge information lives
-directly inside the owner field's `CrdtFieldType`:
+Edge relationship metadata lives in `EdgeDescriptor<E>`, which is separate from
+`FieldDescriptor<E>`. Edge ownership direction is encoded in `EdgeKind`:
 
 ```rust
-pub enum CrdtFieldType {
-    Scalar,
-    Text,
-    List,
-    Derived,
-    /// CRDT-canonical owner side of an edge relationship.
-    EdgeOwner {
+pub enum EdgeKind {
+    /// Owner side of an edge relationship.
+    Owner {
         /// Inverse/lookup field on the target entity.
-        target_field: &'static dyn NamedField,
+        target_field: &'static dyn HalfEdge,
+        /// Mutually exclusive sibling field (e.g., credited vs uncredited).
+        exclusive_with: Option<&'static dyn HalfEdge>,
     },
-    /// Non-owner (inverse/lookup) side; no payload.
-    EdgeTarget,
+    /// Non-owner (inverse/lookup) side.
+    Target {
+        /// All source fields that point at this target.
+        source_fields: &'static [&'static dyn HalfEdge],
+    },
 }
 ```
 
 Resolution: `edge_crdt::canonical_owner(near, far)` checks each side's
-`crdt_type()` — whichever side is `EdgeOwner { target_field }` pointing at the
-other is the owner.  Constant time, no inventory traversal.
+`edge_kind()` — whichever side is `EdgeKind::Owner { target_field, .. }`
+pointing at the other is the owner. Constant time, no inventory traversal.
 
-Per-edge metadata schema (`EdgeFieldSpec` / `EdgeFieldDefault`) was removed in
-FEATURE-070.  The `_meta` map storage and `Schedule::edge_get_bool` /
-`edge_set_bool` access points still exist for the legacy `credited` flag
-(default `true`); FEATURE-065 will retire them entirely by splitting
-`presenters` into `credited_presenters` / `uncredited_presenters` first-class
-CRDT lists. See `crdt-design.md` for the document path layout.
+The `HalfEdge` trait extends `NamedField` with `edge_kind()` and `edge_id()`.
+Only fields implementing `HalfEdge` can be used in edge operations. This is enforced
+at compile time through `TypedHalfEdge<E>` bounds on `FieldNodeId<E>`.
 
 **Presenter partition fields on Panel** use `define_field!` with `WriteFn::Schedule`
 and call `field_value_to_entity_ids` (the standard edge-parsing helper) for input
-normalization, then `edge_get_bool` / `edge_set_bool` / `edge_add` / `edge_remove`:
+normalization, then `edge_add` / `edge_remove`:
 
 | Field                       | Mode       | Semantics                                                                       |
 | --------------------------- | ---------- | ------------------------------------------------------------------------------- |
@@ -480,10 +481,8 @@ define_field!(
 
 This pattern is used for:
 
-- **Panel**: `credits` (formats credited presenter strings with group resolution; filtered
-  by per-edge `credited` flag), `credited_presenters` / `uncredited_presenters` (read
-  the credited/uncredited partitions by checking `edge_get_bool`), `hotel_rooms`
-  (traverses event_rooms to hotel rooms)
+- **Panel**: `credits` (formats credited presenter strings with group resolution),
+  `hotel_rooms` (traverses event_rooms to hotel rooms)
 - **Presenter**: `inclusive_groups`, `inclusive_members` (transitive closure via
   `inclusive_edges_from`/`inclusive_edges_to`)
 

@@ -37,8 +37,19 @@ fields can appear in `FieldNodeId` by:
 
 Two-phase implementation:
 
-**Phase A (additive):** Add `EdgeKind`, new traits, `EdgeDescriptor<E>`, update `CrdtFieldType`,
-update `FieldSet`. Commit as standalone.
+**Phase A (additive):** Add `EdgeKind`, new traits, `EdgeDescriptor<E>`, update `CrdtFieldType`
+to remove `EdgeOwner`/`EdgeTarget` (all edges now `Derived`), update `FieldSet`. Commit as standalone.
 
 **Phase B (breaking):** Change `EdgeRef` inner type, update `FieldNodeId`/`RuntimeFieldNodeId`,
 update macro, update entity statics, update schedule.rs, update tests. One commit.
+
+**Phase A completed:**
+
+- Added `EdgeKind` enum with `Owner { target_field, exclusive_with }` and `Target { source_fields }`
+- Added `HalfEdge` trait extending `NamedField` with `edge_kind()` and `edge_id()`
+- Added `EdgeDescriptor<E>` struct for edge fields
+- Removed `EdgeOwner` and `EdgeTarget` variants from `CrdtFieldType` (all edge fields now use `Derived`)
+- Updated `define_field!` macro to emit `EdgeDescriptor` for edge fields
+- Added derives (`Debug`, `Clone`, `Copy`, `PartialEq`, `Eq`) to `CrdtFieldType`
+
+**Phase B:** In Progress

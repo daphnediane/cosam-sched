@@ -35,8 +35,7 @@ the Automerge mirror for `Derived` fields:
 crates/schedule-core/src/field.rs:289-310
 if !schedule.mirror_enabled()
     || matches!(self.crdt_type,
-        CrdtFieldType::Derived | CrdtFieldType::EdgeOwner { .. } |
-        CrdtFieldType::EdgeTarget) {
+        CrdtFieldType::Derived) {
     return Ok(());
 }
 ```
@@ -115,4 +114,3 @@ enum with three variants, none of which fit the existing
   round-trip tests exercise non-`Unspecified` time slots by default.
 - Verify `cargo test -p schedule-core --lib` still passes; the existing
   `save_load_*` tests should be unaffected.
-

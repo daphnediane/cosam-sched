@@ -149,9 +149,6 @@ pub trait NamedField: 'static + Send + Sync + std::any::Any {
     fn entity_type_name(&self) -> &'static str;
 
     /// CRDT storage type annotation.
-    ///
-    /// Used to filter fields by role (e.g. `EdgeOwner { .. }` for edge-owning
-    /// fields) without requiring a separate inventory.
     fn crdt_type(&self) -> crate::value::CrdtFieldType;
 
     /// Upcast `self` to `Option<&dyn HalfEdge>`.
@@ -311,15 +308,7 @@ impl<E: EntityType> NamedField for EdgeDescriptor<E> {
     }
 
     fn crdt_type(&self) -> crate::value::CrdtFieldType {
-        match &self.edge_kind {
-            crate::value::EdgeKind::Owner { target_field, .. } => {
-                crate::value::CrdtFieldType::EdgeOwner {
-                    target_field: *target_field,
-                }
-            }
-            crate::value::EdgeKind::Target { .. } => crate::value::CrdtFieldType::EdgeTarget,
-            crate::value::EdgeKind::NonEdge => crate::value::CrdtFieldType::Scalar,
-        }
+        crate::value::CrdtFieldType::Derived
     }
 
     fn try_as_half_edge(&self) -> Option<&dyn HalfEdge> {
@@ -556,12 +545,7 @@ impl<E: EntityType> WritableField<E> for FieldDescriptor<E> {
         // value back through the descriptor's own read_fn and push it into
         // the authoritative automerge document.
         if !schedule.mirror_enabled()
-            || matches!(
-                self.crdt_type,
-                crate::value::CrdtFieldType::Derived
-                    | crate::value::CrdtFieldType::EdgeOwner { .. }
-                    | crate::value::CrdtFieldType::EdgeTarget
-            )
+            || matches!(self.crdt_type, crate::value::CrdtFieldType::Derived)
         {
             return Ok(());
         }

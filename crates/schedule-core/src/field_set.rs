@@ -251,7 +251,7 @@ impl<E: EntityType> FieldSet<E> {
     /// Returns `(name, CrdtFieldType)` pairs for every field whose
     /// `crdt_type` has automerge backing (`Scalar`, `Text`, or `List`).
     ///
-    /// `Derived`, `EdgeOwner`, and `EdgeTarget` fields are excluded — edge
+    /// `Derived` fields including edge fields are excluded — edge
     /// list storage is managed by the `edge_crdt` layer, not `write_field`.
     ///
     /// Used by the Phase 4 CRDT materialization layer to know which fields

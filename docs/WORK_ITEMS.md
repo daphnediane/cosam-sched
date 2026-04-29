@@ -1,6 +1,6 @@
 # Cosplay America Schedule - Work Item
 
-Updated on: Tue Apr 28 13:59:03 2026
+Updated on: Wed Apr 29 00:58:31 2026
 
 ## Completed
 
@@ -40,7 +40,17 @@ into actual edge storage fields, eliminating the `credited` per-edge boolean and
 parameters is ergonomic without ownership gymnastics.
 * [FEATURE-069] Encode CRDT edge ownership direction directly in `CrdtFieldType` instead of
 relying solely on `EdgeDescriptor` and `canonical_owner()`.
+
+**Note:** This approach was superseded by REFACTOR-074, which moved edge ownership
+information from `CrdtFieldType` to `EdgeKind` within `EdgeDescriptor`. All edge
+fields now use `CrdtFieldType::Derived`, and ownership direction is encoded in
+`EdgeKind::Owner { target_field, exclusive_with }` vs `EdgeKind::Target { source_fields }`.
 * [FEATURE-070] Remove the separate `EdgeDescriptor` struct and inventory; encode CRDT-edge ownership and target field directly inside `CrdtFieldType::EdgeOwner` on the owner field.
+
+**Note:** This work item was later superseded by REFACTOR-074, which reintroduced
+`EdgeDescriptor` as a separate struct with `EdgeKind` encoding ownership direction.
+The `EdgeOwner`/`EdgeTarget` variants in `CrdtFieldType` were removed; all edge
+fields now use `CrdtFieldType::Derived`, and ownership is encoded in `EdgeKind`.
 * [FEATURE-071] Replace the declarative `macro_rules!` field-declaration helpers (`stored_field!`,
 `edge_field!`, `define_field!`) with attribute-style proc-macros in a new
 `schedule-macro` crate; add an `exclusive_with:` clause to express
@@ -173,8 +183,7 @@ the Automerge mirror for `Derived` fields:
 crates/schedule-core/src/field.rs:289-310
 if !schedule.mirror_enabled()
     || matches!(self.crdt_type,
-        CrdtFieldType::Derived | CrdtFieldType::EdgeOwner { .. } |
-        CrdtFieldType::EdgeTarget) {
+        CrdtFieldType::Derived) {
     return Ok(());
 }
 ```
@@ -618,12 +627,14 @@ constructed from edge fields.
 text, derived, etc.) to be used as a field node ID. This refactor enforces that only half-edge
 fields can appear in `FieldNodeId` by:
 
-* Adding `HalfEdge : NamedField` trait with `field_id()` and `edge_kind() -> &EdgeKind`
+* Rename `field_id()` to `edge_id()`
+* Adding `HalfEdge : NamedField` trait with `edge_id()` and `edge_kind() -> &EdgeKind`
 * Adding `EdgeKind` enum with `Target { source_fields }` and `Owner { target_field, exclusive_with }`
 * Adding `EdgeDescriptor<E>` — a unified struct for all edge fields (owner and target)
 * Adding `TypedField<E>` blanket supertrait over `ReadableField + WritableField + VerifiableField`
 * Adding `TypedHalfEdge<E>` blanket over `HalfEdge + TypedField<E>`; stored in `FieldNodeId<E>`
-* Changing `FieldRef` to hold `&'static dyn HalfEdge` (was `&'static dyn NamedField`)
+* Rename `field_node_id::FieldRef` to `EdgeRef`
+* Changing `EdgeRef` to hold `&'static dyn HalfEdge` (was `&'static dyn NamedField`)
 * Removing `target_field` payload from `CrdtFieldType::EdgeOwner` (now in `EdgeKind`)
 * Moving `exclusive_with` from macro closures into `EdgeKind::Owner`
 * Updating `FieldSet<E>` to hold `dyn TypedField<E>`

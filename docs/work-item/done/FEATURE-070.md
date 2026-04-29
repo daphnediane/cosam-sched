@@ -4,6 +4,11 @@
 
 Remove the separate `EdgeDescriptor` struct and inventory; encode CRDT-edge ownership and target field directly inside `CrdtFieldType::EdgeOwner` on the owner field.
 
+**Note:** This work item was later superseded by REFACTOR-074, which reintroduced
+`EdgeDescriptor` as a separate struct with `EdgeKind` encoding ownership direction.
+The `EdgeOwner`/`EdgeTarget` variants in `CrdtFieldType` were removed; all edge
+fields now use `CrdtFieldType::Derived`, and ownership is encoded in `EdgeKind`.
+
 ## Status
 
 Completed

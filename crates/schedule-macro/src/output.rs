@@ -241,24 +241,6 @@ fn expand_edge(inp: &FieldInput) -> syn::Result<TokenStream> {
             ));
         }
     };
-    // crdt_type
-    let crdt_type = match (edge_mode_str.as_str(), owner) {
-        ("ro" | "rw" | "one", true) => {
-            quote!(::schedule_core::value::CrdtFieldType::EdgeOwner { target_field: #target_field })
-        }
-        ("ro" | "rw" | "one", false) => {
-            quote!(::schedule_core::value::CrdtFieldType::EdgeTarget)
-        }
-        ("add" | "remove", _) => {
-            quote!(::schedule_core::value::CrdtFieldType::Derived)
-        }
-        _ => {
-            return Err(syn::Error::new(
-                edge_mode.span(),
-                format!("unknown edge mode `{edge_mode_str}` (expected ro|rw|one|add|remove)"),
-            ));
-        }
-    };
 
     // field_type — list of EntityIdentifier(target_type).
     let field_type = quote! {
@@ -338,7 +320,7 @@ fn expand_edge(inp: &FieldInput) -> syn::Result<TokenStream> {
         #meta
         required: false,
         edge_kind: #edge_kind,
-        crdt_type: #crdt_type,
+        crdt_type: ::schedule_core::value::CrdtFieldType::Derived,
         read_fn: #read_fn,
         write_fn: #write_fn,
         verify_fn: #verify_fn,
@@ -471,13 +453,13 @@ fn expand_custom(inp: &FieldInput) -> syn::Result<TokenStream> {
         "Text" => quote!(::schedule_core::value::CrdtFieldType::Text),
         "List" => quote!(::schedule_core::value::CrdtFieldType::List),
         "Derived" => quote!(::schedule_core::value::CrdtFieldType::Derived),
-        "EdgeTarget" => quote!(::schedule_core::value::CrdtFieldType::EdgeTarget),
+        "EdgeTarget" => quote!(::schedule_core::value::CrdtFieldType::Derived),
         other => {
             return Err(syn::Error::new(
                 crdt_ident.span(),
                 format!(
                     "unknown crdt variant `{other}` \
-                     (use `edge:` to declare EdgeOwner fields)"
+                     (use `owner` to declare edge owner fields)"
                 ),
             ));
         }

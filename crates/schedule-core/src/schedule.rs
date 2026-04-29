@@ -16,7 +16,7 @@ use crate::edge_map::RawEdgeMap;
 use crate::entity::{registered_entity_types, EntityType};
 use crate::field::{HalfEdge, NamedField, ReadableField};
 use crate::field_node_id::{DynamicFieldNodeId, FieldNodeId};
-use crate::value::{CrdtFieldType, FieldError, FieldValue};
+use crate::value::{CrdtFieldType, EdgeKind, FieldError, FieldValue};
 use crate::{DynamicEntityId, EntityId, EntityTyped, EntityUuid, RuntimeEntityId};
 use automerge::AutoCommit;
 use serde::{Deserialize, Serialize};
@@ -462,8 +462,8 @@ impl Schedule {
     /// Replay every canonical owner's relationship-list field into the
     /// in-memory [`RawEdgeMap`].
     ///
-    /// Iterates every field in the inventory whose `crdt_type` is
-    /// [`CrdtFieldType::EdgeOwner`], iterates every live owner uuid in the
+    /// Iterates every field in the inventory whose `edge_kind` is
+    /// [`EdgeKind::Owner`], iterates every live owner uuid in the
     /// doc, reads the list, and `add_edge`s each endpoint pair into the cache.
     /// The caller is responsible for running this under
     /// [`Self::with_mirror_disabled`] — otherwise each replayed edge would
@@ -484,9 +484,10 @@ impl Schedule {
             let Some(owner_nf) = collected.0.try_as_half_edge() else {
                 continue;
             };
-            let CrdtFieldType::EdgeOwner {
+            let EdgeKind::Owner {
                 target_field: target_nf,
-            } = owner_nf.crdt_type()
+                ..
+            } = owner_nf.edge_kind()
             else {
                 continue;
             };
@@ -605,10 +606,10 @@ impl Schedule {
         // `edge_add`/`edge_remove` can converge via incremental
         // `insert`/`delete` (FEATURE-023).
         //
-        // We derive which fields own edges directly from the `EdgeOwner`
+        // We derive which fields own edges directly from the `Owner`
         // variant in each field descriptor, avoiding a global descriptor scan.
         for desc in E::field_set().fields() {
-            if matches!(desc.crdt_type, CrdtFieldType::EdgeOwner { .. }) {
+            if matches!(desc.edge_kind(), EdgeKind::Owner { .. }) {
                 crate::edge_crdt::ensure_owner_list(&mut self.doc, type_name, uuid, desc.name())?;
             }
         }
@@ -630,14 +631,7 @@ impl Schedule {
         crdt_type: CrdtFieldType,
         value: Option<&FieldValue>,
     ) -> Result<(), FieldError> {
-        if !self.mirror_enabled
-            || matches!(
-                crdt_type,
-                CrdtFieldType::Derived
-                    | CrdtFieldType::EdgeOwner { .. }
-                    | CrdtFieldType::EdgeTarget
-            )
-        {
+        if !self.mirror_enabled || matches!(crdt_type, CrdtFieldType::Derived) {
             return Ok(());
         }
         let uuid = id.entity_uuid();
@@ -927,7 +921,7 @@ impl Schedule {
     /// canonical owner's list field. Concurrent add/add converges to the
     /// union because both replicas insert into the same shared list
     /// [`ObjId`](automerge::ObjId) created up-front by
-    /// `mirror_entity_fields` (via `ensure_owner_list` on each `EdgeOwner` field).
+    /// `mirror_entity_fields` (via `ensure_owner_list` on each `Owner` field).
     ///
     /// Ownership is resolved from the field descriptors embedded in `near`
     /// and `far` via [`crate::edge_crdt::canonical_owner`].

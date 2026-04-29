@@ -38,9 +38,9 @@ use uuid::NonNilUuid;
 /// Resolved CRDT ownership for an edge, looked up from the field inventory.
 #[derive(Clone, Copy)]
 pub struct CanonicalOwner {
-    /// `true` when the near (queried) field is the CRDT owner side.
+    /// `true` when the near (queried) field is the edge_kind owner side.
     pub near_is_owner: bool,
-    /// The owner-side field (carries `EdgeOwner { target_field: … }`).
+    /// The owner-side field (carries `Owner { target_field: … }`).
     pub owner_field: &'static dyn crate::field::HalfEdge,
     /// The target-side field (the inverse/lookup field).
     pub target_field: &'static dyn crate::field::HalfEdge,
@@ -79,12 +79,12 @@ impl std::fmt::Debug for CanonicalOwner {
 
 /// Resolve CRDT ownership for an edge given both field descriptors.
 ///
-/// Each field knows its own [`crate::value::CrdtFieldType`], so resolution
+/// Each field knows its own [`crate::value::EdgeKind`], so resolution
 /// is a constant-time check on the two supplied fields:
 ///
-/// - If `near_field` is `EdgeOwner { target_field }` and `target_field`
+/// - If `near_field` is `Owner { target_field }` and `target_field`
 ///   identifies `far_field`, `near` is the owner.
-/// - Else if `far_field` is `EdgeOwner { target_field }` and `target_field`
+/// - Else if `far_field` is `Owner { target_field }` and `target_field`
 ///   identifies `near_field`, `far` is the owner.
 /// - Otherwise the pair is not a recognized edge.
 ///
@@ -103,21 +103,21 @@ pub fn canonical_owner(
     ) -> bool {
         a.name() == b.name() && a.entity_type_name() == b.entity_type_name()
     }
-    if let crate::value::CrdtFieldType::EdgeOwner { target_field } = near_field.crdt_type() {
-        if same(target_field, far_field) {
+    if let crate::value::EdgeKind::Owner { target_field, .. } = near_field.edge_kind() {
+        if same(*target_field, far_field) {
             return Some(CanonicalOwner {
                 near_is_owner: true,
                 owner_field: near_field,
-                target_field,
+                target_field: far_field,
             });
         }
     }
-    if let crate::value::CrdtFieldType::EdgeOwner { target_field } = far_field.crdt_type() {
-        if same(target_field, near_field) {
+    if let crate::value::EdgeKind::Owner { target_field, .. } = far_field.edge_kind() {
+        if same(*target_field, near_field) {
             return Some(CanonicalOwner {
                 near_is_owner: false,
                 owner_field: far_field,
-                target_field,
+                target_field: near_field,
             });
         }
     }
