@@ -281,7 +281,7 @@ impl RawEdgeMap {
 mod tests {
     use super::*;
     use crate::entity::{EntityId, EntityType};
-    use crate::field::FieldDescriptor;
+    use crate::field::{CommonFieldData, FieldDescriptor};
     use crate::field_set::FieldSet;
     use crate::value::{
         CrdtFieldType, FieldCardinality, FieldType, FieldTypeItem, ValidationError,
@@ -339,45 +339,51 @@ mod tests {
     // ── Static field descriptors for two TypeA fields and one TypeB field ────
 
     static FIELD_A1: FieldDescriptor<TypeA> = FieldDescriptor {
-        name: "a1",
-        display: "A1",
-        description: "Test field A1",
-        aliases: &[],
+        data: CommonFieldData {
+            name: "a1",
+            display: "A1",
+            description: "Test field A1",
+            aliases: &[],
+            field_type: FieldType(FieldCardinality::Optional, FieldTypeItem::Text),
+            example: "",
+            order: 0,
+        },
         required: false,
         crdt_type: CrdtFieldType::Derived,
-        field_type: FieldType(FieldCardinality::Optional, FieldTypeItem::Text),
-        example: "",
-        order: 0,
         read_fn: None,
         write_fn: None,
         verify_fn: None,
     };
 
     static FIELD_A2: FieldDescriptor<TypeA> = FieldDescriptor {
-        name: "a2",
-        display: "A2",
-        description: "Test field A2",
-        aliases: &[],
+        data: CommonFieldData {
+            name: "a2",
+            display: "A2",
+            description: "Test field A2",
+            aliases: &[],
+            field_type: FieldType(FieldCardinality::Optional, FieldTypeItem::Text),
+            example: "",
+            order: 1,
+        },
         required: false,
         crdt_type: CrdtFieldType::Derived,
-        field_type: FieldType(FieldCardinality::Optional, FieldTypeItem::Text),
-        example: "",
-        order: 1,
         read_fn: None,
         write_fn: None,
         verify_fn: None,
     };
 
     static FIELD_B1: FieldDescriptor<TypeB> = FieldDescriptor {
-        name: "b1",
-        display: "B1",
-        description: "Test field B1",
-        aliases: &[],
+        data: CommonFieldData {
+            name: "b1",
+            display: "B1",
+            description: "Test field B1",
+            aliases: &[],
+            field_type: FieldType(FieldCardinality::Optional, FieldTypeItem::Text),
+            example: "",
+            order: 0,
+        },
         required: false,
         crdt_type: CrdtFieldType::Derived,
-        field_type: FieldType(FieldCardinality::Optional, FieldTypeItem::Text),
-        example: "",
-        order: 0,
         read_fn: None,
         write_fn: None,
         verify_fn: None,

@@ -67,6 +67,28 @@ pub enum VerifyFn<E: EntityType> {
     ReRead,
 }
 
+/// Generic field data shared by all field descriptors.
+///
+/// Fields are `pub(crate)` so entity modules and macro-generated code within
+/// `schedule-core` can initialize statics using struct literal syntax.
+/// External code accesses these through the [`NamedField`] trait methods.
+pub struct CommonFieldData {
+    /// Canonical field name (snake_case).
+    pub name: &'static str,
+    /// Human-readable display name.
+    pub display: &'static str,
+    /// Short description of the field's purpose.
+    pub description: &'static str,
+    /// Alternative names accepted during lookup.
+    pub aliases: &'static [&'static str],
+    /// Logical field type (value type and cardinality).
+    pub field_type: crate::value::FieldType,
+    /// Example value for documentation and UI hints.
+    pub example: &'static str,
+    /// Display/iteration order (lower values first).
+    pub order: u32,
+}
+
 /// Metadata common to all field descriptors.
 ///
 /// Provides naming and description information, plus type-erased identity
@@ -76,18 +98,42 @@ pub enum VerifyFn<E: EntityType> {
 /// Implemented by [`FieldDescriptor`] and exposed as a trait object for
 /// type-erased field lookup.
 pub trait NamedField: 'static + Send + Sync + std::any::Any {
+    /// Returns the common field data.
+    fn common_data(&self) -> &CommonFieldData;
+
     /// Canonical field name used in programmatic access (snake_case).
-    fn name(&self) -> &'static str;
+    fn name(&self) -> &'static str {
+        self.common_data().name
+    }
 
     /// Human-readable display name for UI presentation.
-    fn display_name(&self) -> &'static str;
+    fn display_name(&self) -> &'static str {
+        self.common_data().display
+    }
 
     /// Short description of the field's purpose.
-    fn description(&self) -> &'static str;
+    fn description(&self) -> &'static str {
+        self.common_data().description
+    }
 
     /// Alternative names accepted during lookup (e.g. singular/plural forms).
     fn aliases(&self) -> &'static [&'static str] {
-        &[]
+        self.common_data().aliases
+    }
+
+    /// Logical field type (value type and cardinality).
+    fn field_type(&self) -> FieldType {
+        self.common_data().field_type
+    }
+
+    /// Example value for documentation and UI hints.
+    fn example(&self) -> &'static str {
+        self.common_data().example
+    }
+
+    /// Display/iteration order — lower values sort first.
+    fn order(&self) -> u32 {
+        self.common_data().order
     }
 
     /// Returns `true` if `query` matches the canonical name or any alias
@@ -248,20 +294,8 @@ impl<E: EntityType, T: HalfEdge + TypedField<E>> TypedHalfEdge<E> for T {}
 /// };
 /// ```
 pub struct EdgeDescriptor<E: EntityType> {
-    /// Canonical field name (snake_case).
-    pub name: &'static str,
-    /// Human-readable display name.
-    pub display: &'static str,
-    /// Short description of the field's purpose.
-    pub description: &'static str,
-    /// Alternative names accepted during lookup.
-    pub aliases: &'static [&'static str],
-    /// Logical field type (value type and cardinality).
-    pub field_type: crate::value::FieldType,
-    /// Example value for documentation and UI hints.
-    pub example: &'static str,
-    /// Display/iteration order (lower values first).
-    pub order: u32,
+    /// Data shared by all field types
+    pub(crate) data: CommonFieldData,
     /// Edge ownership and relationship metadata.
     pub edge_kind: crate::value::EdgeKind,
     /// Read implementation. `None` means write-only.
@@ -273,20 +307,8 @@ pub struct EdgeDescriptor<E: EntityType> {
 }
 
 impl<E: EntityType> NamedField for EdgeDescriptor<E> {
-    fn name(&self) -> &'static str {
-        self.name
-    }
-
-    fn display_name(&self) -> &'static str {
-        self.display
-    }
-
-    fn description(&self) -> &'static str {
-        self.description
-    }
-
-    fn aliases(&self) -> &'static [&'static str] {
-        self.aliases
+    fn common_data(&self) -> &CommonFieldData {
+        &self.data
     }
 
     fn field_id(&self) -> FieldRef {
@@ -327,7 +349,9 @@ impl<E: EntityType> HalfEdge for EdgeDescriptor<E> {
 impl<E: EntityType> ReadableField<E> for EdgeDescriptor<E> {
     fn read(&self, id: EntityId<E>, schedule: &Schedule) -> Result<Option<FieldValue>, FieldError> {
         match &self.read_fn {
-            None => Err(FieldError::WriteOnly { name: self.name }),
+            None => Err(FieldError::WriteOnly {
+                name: self.data.name,
+            }),
             Some(ReadFn::Bare(f)) => Ok(schedule.get_internal::<E>(id).and_then(f)),
             Some(ReadFn::Schedule(f)) => Ok(f(schedule, id)),
         }
@@ -342,11 +366,17 @@ impl<E: EntityType> WritableField<E> for EdgeDescriptor<E> {
         value: FieldValue,
     ) -> Result<(), FieldError> {
         match &self.write_fn {
-            None => return Err(FieldError::ReadOnly { name: self.name }),
+            None => {
+                return Err(FieldError::ReadOnly {
+                    name: self.data.name,
+                })
+            }
             Some(WriteFn::Bare(f)) => {
                 let data = schedule
                     .get_internal_mut::<E>(id)
-                    .ok_or(FieldError::NotFound { name: self.name })?;
+                    .ok_or(FieldError::NotFound {
+                        name: self.data.name,
+                    })?;
                 f(data, value)?;
             }
             Some(WriteFn::Schedule(f)) => f(schedule, id, value)?,
@@ -365,22 +395,29 @@ impl<E: EntityType> VerifiableField<E> for EdgeDescriptor<E> {
     ) -> Result<(), VerificationError> {
         match &self.verify_fn {
             Some(VerifyFn::Bare(f)) => {
-                let data = schedule
-                    .get_internal::<E>(id)
-                    .ok_or(VerificationError::NotVerifiable { field: self.name })?;
+                let data =
+                    schedule
+                        .get_internal::<E>(id)
+                        .ok_or(VerificationError::NotVerifiable {
+                            field: self.data.name,
+                        })?;
                 f(data, attempted)
             }
             Some(VerifyFn::Schedule(f)) => f(schedule, id, attempted),
             Some(VerifyFn::ReRead) => {
                 let actual = self
                     .read(id, schedule)
-                    .map_err(|_| VerificationError::NotVerifiable { field: self.name })?
-                    .ok_or(VerificationError::NotVerifiable { field: self.name })?;
+                    .map_err(|_| VerificationError::NotVerifiable {
+                        field: self.data.name,
+                    })?
+                    .ok_or(VerificationError::NotVerifiable {
+                        field: self.data.name,
+                    })?;
                 if actual == *attempted {
                     Ok(())
                 } else {
                     Err(VerificationError::ValueChanged {
-                        field: self.name,
+                        field: self.data.name,
                         requested: attempted.clone(),
                         actual,
                     })
@@ -428,25 +465,12 @@ impl<E: EntityType> VerifiableField<E> for EdgeDescriptor<E> {
 /// };
 /// ```
 pub struct FieldDescriptor<E: EntityType> {
-    /// Canonical field name (snake_case).
-    pub name: &'static str,
-    /// Human-readable display name.
-    pub display: &'static str,
-    /// Short description of the field's purpose.
-    pub description: &'static str,
-    /// Alternative names accepted during lookup.
-    pub aliases: &'static [&'static str],
+    /// Data shared by all field types
+    pub(crate) data: CommonFieldData,
     /// Whether the field is required (must be non-empty).
     pub required: bool,
     /// CRDT storage type annotation for Phase 4.
     pub crdt_type: CrdtFieldType,
-    /// Logical field type (value type and cardinality).
-    pub field_type: FieldType,
-    /// Example value for documentation and UI hints.
-    pub example: &'static str,
-    /// Display/iteration order (lower values first). Used by `FieldSet::from_inventory`
-    /// to produce a stable field ordering when fields self-register via inventory.
-    pub order: u32,
     /// Read implementation. `None` means write-only.
     pub read_fn: Option<ReadFn<E>>,
     /// Write implementation. `None` means read-only.
@@ -456,20 +480,8 @@ pub struct FieldDescriptor<E: EntityType> {
 }
 
 impl<E: EntityType> NamedField for FieldDescriptor<E> {
-    fn name(&self) -> &'static str {
-        self.name
-    }
-
-    fn display_name(&self) -> &'static str {
-        self.display
-    }
-
-    fn description(&self) -> &'static str {
-        self.description
-    }
-
-    fn aliases(&self) -> &'static [&'static str] {
-        self.aliases
+    fn common_data(&self) -> &CommonFieldData {
+        &self.data
     }
 
     fn field_id(&self) -> FieldRef {
@@ -493,7 +505,9 @@ impl<E: EntityType> NamedField for FieldDescriptor<E> {
 impl<E: EntityType> ReadableField<E> for FieldDescriptor<E> {
     fn read(&self, id: EntityId<E>, schedule: &Schedule) -> Result<Option<FieldValue>, FieldError> {
         match &self.read_fn {
-            None => Err(FieldError::WriteOnly { name: self.name }),
+            None => Err(FieldError::WriteOnly {
+                name: self.data.name,
+            }),
             Some(ReadFn::Bare(f)) => Ok(schedule.get_internal::<E>(id).and_then(f)),
             Some(ReadFn::Schedule(f)) => Ok(f(schedule, id)),
         }
@@ -508,11 +522,17 @@ impl<E: EntityType> WritableField<E> for FieldDescriptor<E> {
         value: FieldValue,
     ) -> Result<(), FieldError> {
         match &self.write_fn {
-            None => return Err(FieldError::ReadOnly { name: self.name }),
+            None => {
+                return Err(FieldError::ReadOnly {
+                    name: self.data.name,
+                })
+            }
             Some(WriteFn::Bare(f)) => {
                 let data = schedule
                     .get_internal_mut::<E>(id)
-                    .ok_or(FieldError::NotFound { name: self.name })?;
+                    .ok_or(FieldError::NotFound {
+                        name: self.data.name,
+                    })?;
                 f(data, value)?;
             }
             Some(WriteFn::Schedule(f)) => f(schedule, id, value)?,
@@ -538,7 +558,7 @@ impl<E: EntityType> WritableField<E> for FieldDescriptor<E> {
             Err(FieldError::WriteOnly { .. }) => return Ok(()),
             Err(e) => return Err(e),
         };
-        schedule.mirror_field_value::<E>(id, self.name, self.crdt_type, value_opt.as_ref())
+        schedule.mirror_field_value::<E>(id, self.data.name, self.crdt_type, value_opt.as_ref())
     }
 }
 
@@ -552,9 +572,12 @@ impl<E: EntityType> VerifiableField<E> for FieldDescriptor<E> {
         match &self.verify_fn {
             // Custom verification functions
             Some(VerifyFn::Bare(f)) => {
-                let data = schedule
-                    .get_internal::<E>(id)
-                    .ok_or(VerificationError::NotVerifiable { field: self.name })?;
+                let data =
+                    schedule
+                        .get_internal::<E>(id)
+                        .ok_or(VerificationError::NotVerifiable {
+                            field: self.data.name,
+                        })?;
                 f(data, attempted)
             }
             Some(VerifyFn::Schedule(f)) => f(schedule, id, attempted),
@@ -562,13 +585,17 @@ impl<E: EntityType> VerifiableField<E> for FieldDescriptor<E> {
             Some(VerifyFn::ReRead) => {
                 let actual = self
                     .read(id, schedule)
-                    .map_err(|_| VerificationError::NotVerifiable { field: self.name })?
-                    .ok_or(VerificationError::NotVerifiable { field: self.name })?;
+                    .map_err(|_| VerificationError::NotVerifiable {
+                        field: self.data.name,
+                    })?
+                    .ok_or(VerificationError::NotVerifiable {
+                        field: self.data.name,
+                    })?;
                 if actual == *attempted {
                     Ok(())
                 } else {
                     Err(VerificationError::ValueChanged {
-                        field: self.name,
+                        field: self.data.name,
                         requested: attempted.clone(),
                         actual,
                     })
@@ -663,15 +690,17 @@ mod tests {
     }
 
     static LABEL_FIELD: FieldDescriptor<MockEntity> = FieldDescriptor {
-        name: "label",
-        display: "Label",
-        description: "A text label.",
-        aliases: &["tag", "name"],
+        data: CommonFieldData {
+            name: "label",
+            display: "Label",
+            description: "A text label.",
+            aliases: &["tag", "name"],
+            field_type: FieldType(FieldCardinality::Single, FieldTypeItem::String),
+            example: "Hello World",
+            order: 0,
+        },
         required: true,
         crdt_type: CrdtFieldType::Scalar,
-        field_type: FieldType(FieldCardinality::Single, FieldTypeItem::String),
-        example: "Hello World",
-        order: 0,
         read_fn: Some(ReadFn::Bare(|d: &MockInternalData| {
             Some(field_value!(d.label.clone()))
         })),
@@ -683,15 +712,17 @@ mod tests {
     };
 
     static COUNT_FIELD: FieldDescriptor<MockEntity> = FieldDescriptor {
-        name: "count",
-        display: "Count",
-        description: "An integer count.",
-        aliases: &[],
+        data: CommonFieldData {
+            name: "count",
+            display: "Count",
+            description: "An integer count.",
+            aliases: &[],
+            field_type: FieldType(FieldCardinality::Single, FieldTypeItem::Integer),
+            example: "7",
+            order: 100,
+        },
         required: false,
         crdt_type: CrdtFieldType::Scalar,
-        field_type: FieldType(FieldCardinality::Single, FieldTypeItem::Integer),
-        example: "7",
-        order: 100,
         read_fn: Some(ReadFn::Bare(|d: &MockInternalData| {
             Some(field_value!(d.count))
         })),
@@ -703,30 +734,34 @@ mod tests {
     };
 
     static READONLY_FIELD: FieldDescriptor<MockEntity> = FieldDescriptor {
-        name: "readonly",
-        display: "Read Only",
-        description: "Always 42.",
-        aliases: &[],
+        data: CommonFieldData {
+            name: "readonly",
+            display: "Read Only",
+            description: "Always 42.",
+            aliases: &[],
+            field_type: FieldType(FieldCardinality::Single, FieldTypeItem::Integer),
+            example: "42",
+            order: 200,
+        },
         required: false,
         crdt_type: CrdtFieldType::Derived,
-        field_type: FieldType(FieldCardinality::Single, FieldTypeItem::Integer),
-        example: "42",
-        order: 200,
         read_fn: Some(ReadFn::Bare(|_: &MockInternalData| Some(field_value!(42)))),
         write_fn: None,
         verify_fn: None,
     };
 
     static WRITEONLY_FIELD: FieldDescriptor<MockEntity> = FieldDescriptor {
-        name: "writeonly",
-        display: "Write Only",
-        description: "Accepts a label update but cannot be read back.",
-        aliases: &[],
+        data: CommonFieldData {
+            name: "writeonly",
+            display: "Write Only",
+            description: "Accepts a label update but cannot be read back.",
+            aliases: &[],
+            field_type: FieldType(FieldCardinality::Single, FieldTypeItem::String),
+            example: "Hello World",
+            order: 300,
+        },
         required: false,
         crdt_type: CrdtFieldType::Derived,
-        field_type: FieldType(FieldCardinality::Single, FieldTypeItem::String),
-        example: "Hello World",
-        order: 300,
         read_fn: None,
         write_fn: Some(WriteFn::Bare(|d: &mut MockInternalData, v| {
             d.label = v.into_string()?;

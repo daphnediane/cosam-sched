@@ -22,7 +22,7 @@ use crate::converter::{AsBoolean, AsInteger, AsString, AsText, EntityStringResol
 use crate::define_field;
 use crate::entity::{EntityId, EntityType, EntityUuid, FieldSet};
 use crate::event_room::{EventRoomEntityType, EventRoomId};
-use crate::field::FieldDescriptor;
+use crate::field::{FieldDescriptor, NamedField};
 use crate::field_node_id::FieldNodeId;
 use crate::field_value;
 use crate::hotel_room::{HotelRoomEntityType, HotelRoomId};
@@ -230,7 +230,7 @@ inventory::submit! {
                 .fields()
                 .filter(|d| d.read_fn.is_some() && d.write_fn.is_some())
                 .filter_map(|d| {
-                    d.read(id, schedule).ok().flatten().map(|v| (d.name, v))
+                    d.read(id, schedule).ok().flatten().map(|v| (d.name(), v))
                 })
                 .collect()
         },
@@ -1293,7 +1293,7 @@ mod tests {
     #[test]
     fn required_fields_are_code_and_name() {
         let fs = PanelEntityType::field_set();
-        let names: Vec<_> = fs.required_fields().map(|d| d.name).collect();
+        let names: Vec<_> = fs.required_fields().map(|d| d.name()).collect();
         assert_eq!(names, vec!["code", "name"]);
     }
 

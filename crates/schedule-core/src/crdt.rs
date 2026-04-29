@@ -49,6 +49,7 @@ use uuid::{NonNilUuid, Uuid};
 
 use crate::builder::{build_entity, BuildError, EntityBuildable};
 use crate::entity::{EntityTyped, EntityUuid, RuntimeEntityId, UuidPreference};
+use crate::field::NamedField;
 use crate::field_set::FieldRef;
 use crate::schedule::Schedule;
 use crate::value::{CrdtFieldType, FieldTypeItem, FieldValue, FieldValueItem};
@@ -474,16 +475,16 @@ pub fn rehydrate_entity<E: EntityBuildable>(
         if desc.write_fn.is_none() {
             continue;
         }
-        let item_type = desc.field_type.item_type();
+        let item_type = desc.field_type().item_type();
         match read_field(
             schedule.doc(),
             E::TYPE_NAME,
             uuid,
-            desc.name,
+            desc.name(),
             item_type,
             desc.crdt_type,
         ) {
-            Ok(Some(v)) => updates.push((FieldRef::Name(desc.name), v)),
+            Ok(Some(v)) => updates.push((FieldRef::Name(desc.name()), v)),
             Ok(None) => {}
             // Treat a per-field shape mismatch as "field not present" during
             // rehydration — the builder's validation will catch any missing

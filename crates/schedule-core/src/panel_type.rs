@@ -17,7 +17,7 @@
 use crate::converter::{AsBoolean, AsString, EntityStringResolver};
 use crate::define_field;
 use crate::entity::{EntityId, EntityType, EntityUuid, UuidPreference};
-use crate::field::FieldDescriptor;
+use crate::field::{FieldDescriptor, NamedField};
 use crate::field_macros::define_entity_builder;
 use crate::field_set::FieldSet;
 use crate::field_value;
@@ -185,7 +185,7 @@ inventory::submit! {
                 .fields()
                 .filter(|d| d.read_fn.is_some() && d.write_fn.is_some())
                 .filter_map(|d| {
-                    d.read(id, schedule).ok().flatten().map(|v| (d.name, v))
+                    d.read(id, schedule).ok().flatten().map(|v| (d.name(), v))
                 })
                 .collect()
         },
@@ -549,7 +549,7 @@ mod tests {
     #[test]
     fn test_required_fields() {
         let fs = PanelTypeEntityType::field_set();
-        let required: Vec<_> = fs.required_fields().map(|d| d.name).collect();
+        let required: Vec<_> = fs.required_fields().map(|d| d.name()).collect();
         assert!(required.contains(&"prefix"));
         assert!(required.contains(&"panel_kind"));
         assert_eq!(required.len(), 2);

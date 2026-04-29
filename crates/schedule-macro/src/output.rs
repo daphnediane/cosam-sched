@@ -61,7 +61,7 @@ fn emit_static(inp: &FieldInput, body: TokenStream) -> TokenStream {
 }
 
 /// Pull out the common (name/display/desc/aliases/example/order) parameters.
-fn common_meta(inp: &FieldInput) -> syn::Result<TokenStream> {
+fn common_meta(inp: &FieldInput, field_type: TokenStream) -> syn::Result<TokenStream> {
     let name_lit = inp.require_str("name")?;
     let display_lit = inp.require_str("display")?;
     let desc_lit = inp.require_str("desc")?;
@@ -69,12 +69,15 @@ fn common_meta(inp: &FieldInput) -> syn::Result<TokenStream> {
     let example_lit = inp.require_str("example")?;
     let order_expr = inp.require_expr("order")?;
     Ok(quote! {
-        name: #name_lit,
-        display: #display_lit,
-        description: #desc_lit,
-        aliases: #aliases,
-        example: #example_lit,
-        order: #order_expr,
+        data: ::schedule_core::field::CommonFieldData {
+            name: #name_lit,
+            display: #display_lit,
+            description: #desc_lit,
+            aliases: #aliases,
+            field_type: #field_type,
+            example: #example_lit,
+            order: #order_expr,
+        },
     })
 }
 
@@ -180,16 +183,18 @@ fn expand_stored(inp: &FieldInput) -> syn::Result<TokenStream> {
         quote!(None)
     };
 
-    let meta = common_meta(inp)?;
+    let field_type_ts = quote! {
+        ::schedule_core::value::FieldType(
+            #cardinality,
+            <#marker as ::schedule_core::converter::FieldTypeMapping>::FIELD_TYPE_ITEM,
+        )
+    };
+    let meta = common_meta(inp, field_type_ts)?;
 
     let body = quote! {
         #meta
         required: #required_lit,
         crdt_type: <#marker as ::schedule_core::converter::FieldTypeMapping>::CRDT_TYPE,
-        field_type: ::schedule_core::value::FieldType(
-            #cardinality,
-            <#marker as ::schedule_core::converter::FieldTypeMapping>::FIELD_TYPE_ITEM,
-        ),
         read_fn: #read_fn,
         write_fn: #write_fn,
         verify_fn: #verify_fn,
@@ -302,12 +307,11 @@ fn expand_edge(inp: &FieldInput) -> syn::Result<TokenStream> {
         quote!(None)
     };
 
-    let meta = common_meta(inp)?;
+    let meta = common_meta(inp, field_type)?;
     let body = quote! {
         #meta
         required: false,
         crdt_type: #crdt_type,
-        field_type: #field_type,
         read_fn: #read_fn,
         write_fn: #write_fn,
         verify_fn: #verify_fn,
@@ -530,12 +534,14 @@ fn expand_custom(inp: &FieldInput) -> syn::Result<TokenStream> {
         quote!(None)
     };
 
-    let meta = common_meta(inp)?;
+    let field_type_ts = quote! {
+        ::schedule_core::value::FieldType(#cardinality, #item_expr)
+    };
+    let meta = common_meta(inp, field_type_ts)?;
     let body = quote! {
         #meta
         required: #required_lit,
         crdt_type: #crdt_type,
-        field_type: ::schedule_core::value::FieldType(#cardinality, #item_expr),
         read_fn: #read_fn,
         write_fn: #write_fn,
         verify_fn: #verify_fn,

@@ -445,6 +445,7 @@ impl<E: EntityType> Copy for FieldNodeId<E> {}
 mod tests {
     use super::*;
     use crate::entity::EntityType;
+    use crate::field::CommonFieldData;
     use crate::field_set::FieldSet;
     use crate::value::{
         CrdtFieldType, FieldCardinality, FieldType, FieldTypeItem, ValidationError,
@@ -479,30 +480,34 @@ mod tests {
     }
 
     static FIELD_A: FieldDescriptor<MockEntity> = FieldDescriptor {
-        name: "field_a",
-        display: "Field A",
-        description: "Test field A",
-        aliases: &[],
+        data: CommonFieldData {
+            name: "field_a",
+            display: "Field A",
+            description: "Test field A",
+            aliases: &[],
+            field_type: FieldType(FieldCardinality::Optional, FieldTypeItem::Text),
+            example: "",
+            order: 0,
+        },
         required: false,
         crdt_type: CrdtFieldType::Derived,
-        field_type: FieldType(FieldCardinality::Optional, FieldTypeItem::Text),
-        example: "",
-        order: 0,
         read_fn: None,
         write_fn: None,
         verify_fn: None,
     };
 
     static FIELD_B: FieldDescriptor<MockEntity> = FieldDescriptor {
-        name: "field_b",
-        display: "Field B",
-        description: "Test field B",
-        aliases: &[],
+        data: CommonFieldData {
+            name: "field_b",
+            display: "Field B",
+            description: "Test field B",
+            aliases: &[],
+            field_type: FieldType(FieldCardinality::Optional, FieldTypeItem::Text),
+            example: "",
+            order: 1,
+        },
         required: false,
         crdt_type: CrdtFieldType::Derived,
-        field_type: FieldType(FieldCardinality::Optional, FieldTypeItem::Text),
-        example: "",
-        order: 1,
         read_fn: None,
         write_fn: None,
         verify_fn: None,
@@ -583,7 +588,7 @@ mod tests {
         let uuid = nnu(1);
         let typed = unsafe { FieldNodeId::new_unchecked(uuid, &FIELD_A) };
         let runtime: RuntimeFieldNodeId = typed.into();
-        assert_eq!(runtime.field.name(), FIELD_A.name);
+        assert_eq!(runtime.field.name(), FIELD_A.name());
         assert_eq!(runtime.uuid, uuid);
     }
 

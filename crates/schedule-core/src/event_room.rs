@@ -19,7 +19,7 @@
 use crate::converter::{AsInteger, AsString, EntityStringResolver};
 use crate::define_field;
 use crate::entity::{EntityId, EntityType, EntityUuid, UuidPreference};
-use crate::field::FieldDescriptor;
+use crate::field::{FieldDescriptor, NamedField};
 use crate::field_set::FieldSet;
 use crate::hotel_room::{HotelRoomEntityType, HotelRoomId};
 use crate::panel::{PanelEntityType, PanelId};
@@ -155,7 +155,7 @@ inventory::submit! {
                 .fields()
                 .filter(|d| d.read_fn.is_some() && d.write_fn.is_some())
                 .filter_map(|d| {
-                    d.read(id, schedule).ok().flatten().map(|v| (d.name, v))
+                    d.read(id, schedule).ok().flatten().map(|v| (d.name(), v))
                 })
                 .collect()
         },
@@ -369,7 +369,7 @@ mod tests {
     fn test_field_set_count_and_required() {
         let fs = EventRoomEntityType::field_set();
         assert_eq!(fs.fields().count(), 5);
-        let required: Vec<_> = fs.required_fields().map(|d| d.name).collect();
+        let required: Vec<_> = fs.required_fields().map(|d| d.name()).collect();
         assert_eq!(required, vec!["room_name"]);
     }
 

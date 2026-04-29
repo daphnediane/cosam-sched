@@ -14,7 +14,7 @@ use crate::crdt::{self, CrdtError};
 use crate::edge_cache::TransitiveEdgeCache;
 use crate::edge_map::RawEdgeMap;
 use crate::entity::{registered_entity_types, EntityType};
-use crate::field::ReadableField;
+use crate::field::{NamedField, ReadableField};
 use crate::field_node_id::{DynamicFieldNodeId, FieldNodeId};
 use crate::value::{CrdtFieldType, FieldError, FieldValue};
 use crate::{DynamicEntityId, EntityId, EntityTyped, EntityUuid, RuntimeEntityId};
@@ -376,10 +376,10 @@ impl Schedule {
         else {
             return Vec::new();
         };
-        let Ok(values) = self.doc.get_all(&entity_map, desc.name) else {
+        let Ok(values) = self.doc.get_all(&entity_map, desc.name()) else {
             return Vec::new();
         };
-        let item_type = desc.field_type.item_type();
+        let item_type = desc.field_type().item_type();
         values
             .into_iter()
             .filter_map(|(value, _obj_id)| match value {
@@ -590,7 +590,7 @@ impl Schedule {
                 continue;
             }
             if let Ok(Some(v)) = desc.read(id, self) {
-                pending.push((desc.name, desc.crdt_type, v));
+                pending.push((desc.name(), desc.crdt_type, v));
             }
         }
         for (name, crdt_type, v) in pending {
@@ -607,7 +607,7 @@ impl Schedule {
         // variant in each field descriptor, avoiding a global descriptor scan.
         for desc in E::field_set().fields() {
             if matches!(desc.crdt_type, CrdtFieldType::EdgeOwner { .. }) {
-                crate::edge_crdt::ensure_owner_list(&mut self.doc, type_name, uuid, desc.name)?;
+                crate::edge_crdt::ensure_owner_list(&mut self.doc, type_name, uuid, desc.name())?;
             }
         }
         Ok(())

@@ -35,7 +35,7 @@
 //! should include `"Panel_Kind"` in its `aliases` list.
 
 use crate::entity::EntityType;
-use crate::field::{FieldDescriptor, ReadableField, VerifiableField, WritableField};
+use crate::field::{FieldDescriptor, NamedField, ReadableField, VerifiableField, WritableField};
 use crate::schedule::Schedule;
 use crate::value::{CrdtFieldType, FieldError, FieldValue, IntoFieldValue, VerificationError};
 use std::collections::HashMap;
@@ -164,7 +164,7 @@ impl<E: EntityType> FieldSet<E> {
             .filter(|f| f.0.entity_type_name() == E::TYPE_NAME)
             .filter_map(|f| (f.0 as &dyn Any).downcast_ref::<FieldDescriptor<E>>())
             .collect();
-        descriptors.sort_by_key(|d| d.order);
+        descriptors.sort_by_key(|d| d.order());
         Self::from_slice(&descriptors)
     }
 
@@ -190,8 +190,8 @@ impl<E: EntityType> FieldSet<E> {
         let mut writable = Vec::new();
 
         for (idx, desc) in fields.iter().enumerate() {
-            name_map.insert(desc.name.to_string(), idx);
-            for alias in desc.aliases {
+            name_map.insert(desc.name().to_string(), idx);
+            for alias in desc.aliases() {
                 name_map.insert(alias.to_string(), idx);
             }
             if desc.required {
@@ -262,7 +262,7 @@ impl<E: EntityType> FieldSet<E> {
                 d.crdt_type,
                 CrdtFieldType::Scalar | CrdtFieldType::Text | CrdtFieldType::List
             ) {
-                Some((d.name, d.crdt_type))
+                Some((d.name(), d.crdt_type))
             } else {
                 None
             }
@@ -352,7 +352,7 @@ impl<E: EntityType> FieldSet<E> {
                 .iter()
                 .any(|(prev, _)| std::ptr::eq(*prev as *const _, desc as *const _))
             {
-                return Err(FieldSetError::DuplicateField(desc.name));
+                return Err(FieldSetError::DuplicateField(desc.name()));
             }
             resolved.push((desc, value));
         }
@@ -361,7 +361,7 @@ impl<E: EntityType> FieldSet<E> {
         for (desc, value) in &resolved {
             desc.write(id, schedule, (*value).clone())
                 .map_err(|error| FieldSetError::WriteError {
-                    field: desc.name,
+                    field: desc.name(),
                     error: Box::new(error),
                 })?;
         }
@@ -371,7 +371,7 @@ impl<E: EntityType> FieldSet<E> {
             if desc.verify_fn.is_some() {
                 desc.verify(id, schedule, value).map_err(|error| {
                     FieldSetError::VerificationError {
-                        field: desc.name,
+                        field: desc.name(),
                         error: Box::new(error),
                     }
                 })?;
@@ -423,7 +423,7 @@ impl<E: EntityType> FieldSet<E> {
 mod tests {
     use super::*;
     use crate::entity::{EntityId, EntityType};
-    use crate::field::{ReadFn, WriteFn};
+    use crate::field::{CommonFieldData, ReadFn, WriteFn};
     use crate::field_value;
     use crate::value::{CrdtFieldType, FieldError, ValidationError};
     use crate::value::{FieldCardinality, FieldType, FieldTypeItem};
@@ -469,15 +469,17 @@ mod tests {
     // ── Static field descriptors ─────────────────────────────────────────────
 
     static LABEL_FIELD: FieldDescriptor<MockEntity> = FieldDescriptor {
-        name: "label",
-        display: "Label",
-        description: "A text label.",
-        aliases: &["tag", "name"],
+        data: CommonFieldData {
+            name: "label",
+            display: "Label",
+            description: "A text label.",
+            aliases: &["tag", "name"],
+            field_type: FieldType(FieldCardinality::Single, FieldTypeItem::String),
+            example: "Hello World",
+            order: 0,
+        },
         required: true,
         crdt_type: CrdtFieldType::Scalar,
-        field_type: FieldType(FieldCardinality::Single, FieldTypeItem::String),
-        example: "Hello World",
-        order: 0,
         read_fn: Some(ReadFn::Bare(|d: &MockData| {
             Some(field_value!(d.label.clone()))
         })),
@@ -489,15 +491,17 @@ mod tests {
     };
 
     static COUNT_FIELD: FieldDescriptor<MockEntity> = FieldDescriptor {
-        name: "count",
-        display: "Count",
-        description: "An integer count.",
-        aliases: &[],
+        data: CommonFieldData {
+            name: "count",
+            display: "Count",
+            description: "An integer count.",
+            aliases: &[],
+            field_type: FieldType(FieldCardinality::Single, FieldTypeItem::Integer),
+            example: "7",
+            order: 100,
+        },
         required: false,
         crdt_type: CrdtFieldType::Scalar,
-        field_type: FieldType(FieldCardinality::Single, FieldTypeItem::Integer),
-        example: "7",
-        order: 100,
         read_fn: Some(ReadFn::Bare(|d: &MockData| Some(field_value!(d.count)))),
         write_fn: Some(WriteFn::Bare(|d: &mut MockData, v| {
             d.count = v.into_integer()?;
@@ -507,15 +511,17 @@ mod tests {
     };
 
     static DERIVED_FIELD: FieldDescriptor<MockEntity> = FieldDescriptor {
-        name: "derived",
-        display: "Derived",
-        description: "Read-only derived value.",
-        aliases: &[],
+        data: CommonFieldData {
+            name: "derived",
+            display: "Derived",
+            description: "Read-only derived value.",
+            aliases: &[],
+            field_type: FieldType(FieldCardinality::Single, FieldTypeItem::Integer),
+            example: "42",
+            order: 200,
+        },
         required: false,
         crdt_type: CrdtFieldType::Derived,
-        field_type: FieldType(FieldCardinality::Single, FieldTypeItem::Integer),
-        example: "42",
-        order: 200,
         read_fn: Some(ReadFn::Bare(|_: &MockData| Some(field_value!(42)))),
         write_fn: None,
         verify_fn: None,
@@ -553,8 +559,8 @@ mod tests {
         assert!(fs.get_by_name("name").is_some());
         // alias resolves to the same descriptor as canonical
         assert_eq!(
-            fs.get_by_name("tag").unwrap().name,
-            fs.get_by_name("label").unwrap().name
+            fs.get_by_name("tag").unwrap().name(),
+            fs.get_by_name("label").unwrap().name()
         );
     }
 
@@ -569,14 +575,14 @@ mod tests {
     #[test]
     fn test_required_fields() {
         let fs = make_field_set();
-        let names: Vec<_> = fs.required_fields().map(|d| d.name).collect();
+        let names: Vec<_> = fs.required_fields().map(|d| d.name()).collect();
         assert_eq!(names, vec!["label"]);
     }
 
     #[test]
     fn test_readable_fields() {
         let fs = make_field_set();
-        let names: Vec<_> = fs.readable_fields().map(|d| d.name).collect();
+        let names: Vec<_> = fs.readable_fields().map(|d| d.name()).collect();
         assert!(names.contains(&"label"));
         assert!(names.contains(&"count"));
         assert!(names.contains(&"derived"));
@@ -585,7 +591,7 @@ mod tests {
     #[test]
     fn test_writable_fields() {
         let fs = make_field_set();
-        let names: Vec<_> = fs.writable_fields().map(|d| d.name).collect();
+        let names: Vec<_> = fs.writable_fields().map(|d| d.name()).collect();
         assert!(names.contains(&"label"));
         assert!(names.contains(&"count"));
         // derived is read-only
@@ -595,7 +601,7 @@ mod tests {
     #[test]
     fn test_fields_order() {
         let fs = make_field_set();
-        let names: Vec<_> = fs.fields().map(|d| d.name).collect();
+        let names: Vec<_> = fs.fields().map(|d| d.name()).collect();
         assert_eq!(names, vec!["label", "count", "derived"]);
     }
 
@@ -746,15 +752,17 @@ mod tests {
     /// A field with `VerifyFn::ReRead` — used to prove the verify phase runs
     /// after writes and catches drift.
     static REREAD_LABEL_FIELD: FieldDescriptor<MockEntity> = FieldDescriptor {
-        name: "label_rr",
-        display: "Label (ReRead)",
-        description: "Mirror of `label` but with ReRead verification enabled.",
-        aliases: &[],
+        data: CommonFieldData {
+            name: "label_rr",
+            display: "Label (ReRead)",
+            description: "Mirror of `label` but with ReRead verification enabled.",
+            aliases: &[],
+            field_type: FieldType(FieldCardinality::Single, FieldTypeItem::String),
+            example: "Hello",
+            order: 300,
+        },
         required: false,
         crdt_type: CrdtFieldType::Scalar,
-        field_type: FieldType(FieldCardinality::Single, FieldTypeItem::String),
-        example: "Hello",
-        order: 300,
         read_fn: Some(ReadFn::Bare(|d: &MockData| {
             Some(field_value!(d.label.clone()))
         })),
@@ -768,15 +776,17 @@ mod tests {
     /// A field whose write *clobbers* `count` to force drift on any verified
     /// field that re-reads `count`.
     static CLOBBER_COUNT_FIELD: FieldDescriptor<MockEntity> = FieldDescriptor {
-        name: "clobber_count",
-        display: "Clobber Count",
-        description: "Ignores its argument and resets `count` to 0.",
-        aliases: &[],
+        data: CommonFieldData {
+            name: "clobber_count",
+            display: "Clobber Count",
+            description: "Ignores its argument and resets `count` to 0.",
+            aliases: &[],
+            field_type: FieldType(FieldCardinality::Single, FieldTypeItem::Integer),
+            example: "0",
+            order: 400,
+        },
         required: false,
         crdt_type: CrdtFieldType::Derived,
-        field_type: FieldType(FieldCardinality::Single, FieldTypeItem::Integer),
-        example: "0",
-        order: 400,
         read_fn: None,
         write_fn: Some(WriteFn::Bare(|d: &mut MockData, _v| {
             d.count = 0;
@@ -789,15 +799,17 @@ mod tests {
     /// the attempted value via the `Bare` verify variant.
     static VERIFIED_COUNT_FIELD: FieldDescriptor<MockEntity> =
         FieldDescriptor {
-            name: "count_verified",
-            display: "Count (Verified)",
-            description: "Writes and then verifies via Bare verify_fn.",
-            aliases: &[],
+            data: CommonFieldData {
+                name: "count_verified",
+                display: "Count (Verified)",
+                description: "Writes and then verifies via Bare verify_fn.",
+                aliases: &[],
+                field_type: FieldType(FieldCardinality::Single, FieldTypeItem::Integer),
+                example: "7",
+                order: 500,
+            },
             required: false,
             crdt_type: CrdtFieldType::Scalar,
-            field_type: FieldType(FieldCardinality::Single, FieldTypeItem::Integer),
-            example: "7",
-            order: 500,
             read_fn: Some(ReadFn::Bare(|d: &MockData| Some(field_value!(d.count)))),
             write_fn: Some(WriteFn::Bare(|d: &mut MockData, v| {
                 d.count = v.into_integer()?;
@@ -824,15 +836,17 @@ mod tests {
     /// Schedule-variant verifier — equivalent check via `VerifyFn::Schedule`.
     static VERIFIED_SCHED_COUNT_FIELD: FieldDescriptor<MockEntity> =
         FieldDescriptor {
-            name: "count_sched_verified",
-            display: "Count (Schedule Verified)",
-            description: "Writes and then verifies via Schedule verify_fn.",
-            aliases: &[],
+            data: CommonFieldData {
+                name: "count_sched_verified",
+                display: "Count (Schedule Verified)",
+                description: "Writes and then verifies via Schedule verify_fn.",
+                aliases: &[],
+                field_type: FieldType(FieldCardinality::Single, FieldTypeItem::Integer),
+                example: "7",
+                order: 600,
+            },
             required: false,
             crdt_type: CrdtFieldType::Scalar,
-            field_type: FieldType(FieldCardinality::Single, FieldTypeItem::Integer),
-            example: "7",
-            order: 600,
             read_fn: Some(ReadFn::Bare(|d: &MockData| Some(field_value!(d.count)))),
             write_fn: Some(WriteFn::Bare(|d: &mut MockData, v| {
                 d.count = v.into_integer()?;
@@ -1068,15 +1082,17 @@ mod tests {
         // REREAD_LABEL writes "final"; a later field stomps `label` back.
         // The ReRead verify phase must fire and catch the drift.
         static STOMP_LABEL_FIELD: FieldDescriptor<MockEntity> = FieldDescriptor {
-            name: "stomp_label",
-            display: "Stomp Label",
-            description: "Forces label = 'stomped'.",
-            aliases: &[],
+            data: CommonFieldData {
+                name: "stomp_label",
+                display: "Stomp Label",
+                description: "Forces label = 'stomped'.",
+                aliases: &[],
+                field_type: FieldType(FieldCardinality::Single, FieldTypeItem::String),
+                example: "stomped",
+                order: 700,
+            },
             required: false,
             crdt_type: CrdtFieldType::Derived,
-            field_type: FieldType(FieldCardinality::Single, FieldTypeItem::String),
-            example: "stomped",
-            order: 700,
             read_fn: None,
             write_fn: Some(WriteFn::Bare(|d: &mut MockData, _v| {
                 d.label = "stomped".into();

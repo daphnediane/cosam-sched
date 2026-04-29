@@ -20,7 +20,7 @@
 use crate::converter::{AsBoolean, AsString, AsText, EntityStringResolver};
 use crate::define_field;
 use crate::entity::{EntityId, EntityType, EntityUuid, FieldSet, UuidPreference};
-use crate::field::FieldDescriptor;
+use crate::field::{FieldDescriptor, NamedField};
 use crate::field_node_id::FieldNodeId;
 use crate::field_value;
 use crate::lookup::{EntityMatcher, MatchPriority};
@@ -374,7 +374,7 @@ inventory::submit! {
                 .fields()
                 .filter(|d| d.read_fn.is_some() && d.write_fn.is_some())
                 .filter_map(|d| {
-                    d.read(id, schedule).ok().flatten().map(|v| (d.name, v))
+                    d.read(id, schedule).ok().flatten().map(|v| (d.name(), v))
                 })
                 .collect()
         },
@@ -1284,7 +1284,7 @@ mod tests {
     fn test_field_set_count_and_required() {
         let fs = PresenterEntityType::field_set();
         assert_eq!(fs.fields().count(), 16);
-        let required: Vec<_> = fs.required_fields().map(|d| d.name).collect();
+        let required: Vec<_> = fs.required_fields().map(|d| d.name()).collect();
         assert_eq!(required, vec!["name"]);
     }
 

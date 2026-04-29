@@ -109,7 +109,7 @@ fn transitive_neighbors(
 mod tests {
     use super::*;
     use crate::entity::EntityType;
-    use crate::field::FieldDescriptor;
+    use crate::field::{CommonFieldData, FieldDescriptor};
     use crate::field_node_id::RuntimeFieldNodeId;
     use crate::field_set::FieldSet;
     use crate::value::{
@@ -143,30 +143,34 @@ mod tests {
 
     // Two static fields used as forward / reverse directions.
     static FIELD_FWD: FieldDescriptor<TypeA> = FieldDescriptor {
-        name: "groups",
-        display: "Groups",
-        description: "Forward field",
-        aliases: &[],
+        data: CommonFieldData {
+            name: "groups",
+            display: "Groups",
+            description: "Forward field",
+            aliases: &[],
+            field_type: FieldType(FieldCardinality::Optional, FieldTypeItem::Text),
+            example: "",
+            order: 0,
+        },
         required: false,
         crdt_type: CrdtFieldType::Derived,
-        field_type: FieldType(FieldCardinality::Optional, FieldTypeItem::Text),
-        example: "",
-        order: 0,
         read_fn: None,
         write_fn: None,
         verify_fn: None,
     };
 
     static FIELD_REV: FieldDescriptor<TypeA> = FieldDescriptor {
-        name: "members",
-        display: "Members",
-        description: "Reverse field",
-        aliases: &[],
+        data: CommonFieldData {
+            name: "members",
+            display: "Members",
+            description: "Reverse field",
+            aliases: &[],
+            field_type: FieldType(FieldCardinality::Optional, FieldTypeItem::Text),
+            example: "",
+            order: 1,
+        },
         required: false,
         crdt_type: CrdtFieldType::Derived,
-        field_type: FieldType(FieldCardinality::Optional, FieldTypeItem::Text),
-        example: "",
-        order: 1,
         read_fn: None,
         write_fn: None,
         verify_fn: None,
