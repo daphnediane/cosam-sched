@@ -20,7 +20,7 @@
 use crate::converter::{AsBoolean, AsString, AsText, EntityStringResolver};
 use crate::define_field;
 use crate::entity::{EntityId, EntityType, EntityUuid, FieldSet, UuidPreference};
-use crate::field::{FieldDescriptor, NamedField};
+use crate::field::{FieldDescriptor, HalfEdge, NamedField};
 use crate::field_node_id::FieldNodeId;
 use crate::field_value;
 use crate::lookup::{EntityMatcher, MatchPriority};
@@ -507,7 +507,7 @@ fn is_group_entity(schedule: &crate::schedule::Schedule, id: PresenterId) -> boo
             // Check if this presenter has any members (edges pointing to it via FIELD_GROUPS)
             let node = crate::field_node_id::FieldNodeId::new(id, &FIELD_GROUPS);
             !schedule
-                .connected_field_nodes(node, crate::field_node_id::FieldRef(&FIELD_MEMBERS))
+                .connected_field_nodes(node, FIELD_MEMBERS.edge_id())
                 .is_empty()
         }
 }
@@ -795,7 +795,7 @@ define_field! {
         // `FIELD_GROUPS` returns those member entities.
         let node = crate::field_node_id::FieldNodeId::new(id, &FIELD_MEMBERS);
         let has_members = !sched
-            .connected_field_nodes(node, crate::field_node_id::FieldRef(&FIELD_GROUPS))
+            .connected_field_nodes(node, FIELD_GROUPS.edge_id())
             .is_empty();
         Some(field_value!(explicit || has_members))
     }
@@ -1780,13 +1780,13 @@ mod tests {
         eprintln!(
             "FIELD_MEMBERS on group: {:?}",
             sched
-                .connected_field_nodes(members_node, crate::field_node_id::FieldRef(&FIELD_GROUPS))
+                .connected_field_nodes(members_node, FIELD_GROUPS.edge_id())
                 .len()
         );
         eprintln!(
             "FIELD_GROUPS on group: {:?}",
             sched
-                .connected_field_nodes(groups_node, crate::field_node_id::FieldRef(&FIELD_MEMBERS))
+                .connected_field_nodes(groups_node, FIELD_MEMBERS.edge_id())
                 .len()
         );
         eprintln!(
@@ -1794,7 +1794,7 @@ mod tests {
             sched
                 .connected_field_nodes(
                     crate::field_node_id::FieldNodeId::new(member_id, &FIELD_MEMBERS),
-                    crate::field_node_id::FieldRef(&FIELD_GROUPS)
+                    FIELD_GROUPS.edge_id()
                 )
                 .len()
         );

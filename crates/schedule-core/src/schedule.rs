@@ -14,7 +14,7 @@ use crate::crdt::{self, CrdtError};
 use crate::edge_cache::TransitiveEdgeCache;
 use crate::edge_map::RawEdgeMap;
 use crate::entity::{registered_entity_types, EntityType};
-use crate::field::{NamedField, ReadableField};
+use crate::field::{HalfEdge, NamedField, ReadableField};
 use crate::field_node_id::{DynamicFieldNodeId, FieldNodeId};
 use crate::value::{CrdtFieldType, FieldError, FieldValue};
 use crate::{DynamicEntityId, EntityId, EntityTyped, EntityUuid, RuntimeEntityId};
@@ -475,13 +475,15 @@ impl Schedule {
         // Snapshot the `(owner_uuid, target_uuids)` pairs while borrowing
         // `&self.doc`, then apply them under `&mut self`.
         struct EdgeBatch {
-            owner_field: crate::field_node_id::FieldRef,
-            target_field: crate::field_node_id::FieldRef,
+            owner_field: crate::field_node_id::EdgeRef,
+            target_field: crate::field_node_id::EdgeRef,
             pairs: Vec<(NonNilUuid, Vec<NonNilUuid>)>,
         }
         let mut batches: Vec<EdgeBatch> = Vec::new();
         for collected in crate::field::all_named_fields() {
-            let owner_nf = collected.0;
+            let Some(owner_nf) = collected.0.try_as_half_edge() else {
+                continue;
+            };
             let CrdtFieldType::EdgeOwner {
                 target_field: target_nf,
             } = owner_nf.crdt_type()
@@ -491,8 +493,8 @@ impl Schedule {
             let owner_type = owner_nf.entity_type_name();
             let field_name = owner_nf.name();
             let target_type = target_nf.entity_type_name();
-            let owner_field = owner_nf.field_id();
-            let target_field = target_nf.field_id();
+            let owner_field = owner_nf.edge_id();
+            let target_field = target_nf.edge_id();
             let owner_uuids = crdt::list_all_uuids(&self.doc, owner_type);
             let mut pairs: Vec<(NonNilUuid, Vec<NonNilUuid>)> = Vec::new();
             for owner_uuid in owner_uuids {
@@ -766,7 +768,7 @@ impl Schedule {
     /// All neighbor field node IDs reachable via the given field node, filtered by far-side field.
     ///
     /// Lowest-level field-based query; suitable for entity-module read functions
-    /// that have a concrete [`crate::field_node_id::FieldRef`] in hand.
+    /// that have a concrete [`crate::field_node_id::EdgeRef`] in hand.
     /// Only returns connections where the far-side field matches `far_field`.
     /// Returns the full [`RuntimeFieldNodeId`] of each neighbor (including both
     /// the entity UUID and the field ID of the reverse edge).
@@ -774,7 +776,7 @@ impl Schedule {
     pub fn connected_field_nodes(
         &self,
         node: impl crate::field_node_id::DynamicFieldNodeId,
-        far_field: crate::field_node_id::FieldRef,
+        far_field: crate::field_node_id::EdgeRef,
     ) -> Vec<crate::field_node_id::RuntimeFieldNodeId> {
         self.edges.neighbors(node, far_field)
     }
@@ -788,9 +790,9 @@ impl Schedule {
     pub fn connected_entities<R: EntityType>(
         &self,
         node: impl crate::field_node_id::DynamicFieldNodeId,
-        far_field: &'static dyn crate::field::NamedField,
+        far_field: &'static dyn crate::field::HalfEdge,
     ) -> Vec<EntityId<R>> {
-        let far_field_ref = crate::field_node_id::FieldRef(far_field);
+        let far_field_ref = far_field.edge_id();
         self.connected_field_nodes(node, far_field_ref)
             .iter()
             .filter(|fn_id| fn_id.entity_type_name() == R::TYPE_NAME)
@@ -815,8 +817,8 @@ impl Schedule {
         far_field: &'static crate::field::FieldDescriptor<Far>,
     ) -> Vec<EntityId<Far>> {
         if Near::TYPE_NAME == Far::TYPE_NAME {
-            let near_field_ref = crate::field_node_id::FieldRef(near.field());
-            let far_field_ref = crate::field_node_id::FieldRef(far_field);
+            let near_field_ref = near.field().edge_id();
+            let far_field_ref = far_field.edge_id();
             let uuids = {
                 let mut cache_opt = self.transitive_edge_cache.borrow_mut();
                 let cache = cache_opt.get_or_insert_with(TransitiveEdgeCache::default);
@@ -833,7 +835,7 @@ impl Schedule {
                 .map(|uuid| unsafe { EntityId::new_unchecked(uuid) })
                 .collect()
         } else {
-            let far_field_ref = crate::field_node_id::FieldRef(far_field);
+            let far_field_ref = far_field.edge_id();
             self.connected_field_nodes(near, far_field_ref)
                 .into_iter()
                 // SAFETY: The field descriptor ensures the UUID belongs to entity type Far.
@@ -906,11 +908,10 @@ impl Schedule {
     pub fn edge_set(
         &mut self,
         near: impl DynamicFieldNodeId,
-        far_field: &'static dyn crate::field::NamedField,
+        far_field: &'static dyn crate::field::HalfEdge,
         targets: impl IntoIterator<Item = impl DynamicEntityId>,
     ) {
-        use crate::field_node_id::FieldRef;
-        let far_field_ref = FieldRef(far_field);
+        let far_field_ref = far_field.edge_id();
         let (added, removed) = self.edges.set_neighbors(near, far_field_ref, targets);
 
         // Invalidate transitive cache when near and far share the same entity type.
@@ -1008,7 +1009,7 @@ impl Schedule {
     fn mirror_edge_set(
         &mut self,
         near: &impl DynamicFieldNodeId,
-        far_field: &'static dyn crate::field::NamedField,
+        far_field: &'static dyn crate::field::HalfEdge,
         added: &[NonNilUuid],
         removed: &[NonNilUuid],
     ) {

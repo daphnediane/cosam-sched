@@ -23,7 +23,7 @@
 
 use crate::edge_map::RawEdgeMap;
 use crate::entity::EntityUuid;
-use crate::field_node_id::{FieldRef, RuntimeFieldNodeId};
+use crate::field_node_id::{EdgeRef, RuntimeFieldNodeId};
 use std::collections::{HashMap, HashSet};
 use uuid::NonNilUuid;
 
@@ -36,15 +36,15 @@ use uuid::NonNilUuid;
 /// valid until the cache is set to `None` (invalidated) by any transitive-edge
 /// mutation.
 ///
-/// Entries are keyed by `(FieldRef, FieldRef, NonNilUuid)` — the near and far
+/// Entries are keyed by `(EdgeRef, EdgeRef, NonNilUuid)` — the near and far
 /// fields encode traversal direction (forward and reverse use different
-/// `FieldRef`s), while the UUID is the starting node.  Multiple independent
+/// `EdgeRef`s), while the UUID is the starting node.  Multiple independent
 /// transitive-edge relationships can share one cache without key collision.
 #[derive(Debug, Default)]
 pub struct TransitiveEdgeCache {
     /// `(near_field_ref, far_field_ref, start_uuid)` → all UUIDs transitively
     /// reachable by following edges from `near_field_ref` to `far_field_ref`.
-    cache: HashMap<(FieldRef, FieldRef, NonNilUuid), Box<[NonNilUuid]>>,
+    cache: HashMap<(EdgeRef, EdgeRef, NonNilUuid), Box<[NonNilUuid]>>,
 }
 
 impl TransitiveEdgeCache {
@@ -57,8 +57,8 @@ impl TransitiveEdgeCache {
         &mut self,
         edge_map: &RawEdgeMap,
         start: NonNilUuid,
-        near_field_ref: FieldRef,
-        far_field_ref: FieldRef,
+        near_field_ref: EdgeRef,
+        far_field_ref: EdgeRef,
     ) -> Vec<NonNilUuid> {
         self.cache
             .entry((near_field_ref, far_field_ref, start))
@@ -79,8 +79,8 @@ impl TransitiveEdgeCache {
 fn transitive_neighbors(
     edge_map: &RawEdgeMap,
     start: NonNilUuid,
-    near_field_ref: FieldRef,
-    far_field_ref: FieldRef,
+    near_field_ref: EdgeRef,
+    far_field_ref: EdgeRef,
 ) -> Vec<NonNilUuid> {
     let mut visited: HashSet<NonNilUuid> = HashSet::new();
     visited.insert(start); // prevent re-queuing start or looping back through it
@@ -109,7 +109,7 @@ fn transitive_neighbors(
 mod tests {
     use super::*;
     use crate::entity::EntityType;
-    use crate::field::{CommonFieldData, FieldDescriptor};
+    use crate::field::{CommonFieldData, FieldDescriptor, HalfEdge};
     use crate::field_node_id::RuntimeFieldNodeId;
     use crate::field_set::FieldSet;
     use crate::value::{
@@ -181,11 +181,11 @@ mod tests {
         verify_fn: None,
     };
 
-    fn fwd() -> FieldRef {
-        FieldRef(&FIELD_FWD as &dyn crate::field::NamedField)
+    fn fwd() -> EdgeRef {
+        FIELD_FWD.edge_id()
     }
-    fn rev() -> FieldRef {
-        FieldRef(&FIELD_REV as &dyn crate::field::NamedField)
+    fn rev() -> EdgeRef {
+        FIELD_REV.edge_id()
     }
 
     fn nnu(n: u128) -> NonNilUuid {

@@ -514,12 +514,12 @@ pub trait NamedField: 'static + Send + Sync + std::any::Any {
     fn display_name(&self) -> &'static str;
     fn description(&self) -> &'static str;
     fn aliases(&self) -> &'static [&'static str];
-    fn field_id(&self) -> FieldId;
+    fn edge_id(&self) -> FieldId; // Actually on HalfEdge (to document)
     fn entity_type_name(&self) -> &'static str;
 }
 ```
 
-The `field_id()` and `entity_type_name()` methods enable type-erased field identity
+The `edge_id()` and `entity_type_name()` methods enable type-erased field identity
 and entity type identification. The `std::any::Any` super-trait enables safe downcasting
 via `downcast_ref`.
 

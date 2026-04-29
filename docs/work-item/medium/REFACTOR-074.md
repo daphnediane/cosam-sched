@@ -20,12 +20,14 @@ Currently `FieldNodeId<E>` holds `&'static FieldDescriptor<E>`, which allows any
 text, derived, etc.) to be used as a field node ID. This refactor enforces that only half-edge
 fields can appear in `FieldNodeId` by:
 
-- Adding `HalfEdge : NamedField` trait with `field_id()` and `edge_kind() -> &EdgeKind`
+- Rename `field_id()` to `edge_id()`
+- Adding `HalfEdge : NamedField` trait with `edge_id()` and `edge_kind() -> &EdgeKind`
 - Adding `EdgeKind` enum with `Target { source_fields }` and `Owner { target_field, exclusive_with }`
 - Adding `EdgeDescriptor<E>` — a unified struct for all edge fields (owner and target)
 - Adding `TypedField<E>` blanket supertrait over `ReadableField + WritableField + VerifiableField`
 - Adding `TypedHalfEdge<E>` blanket over `HalfEdge + TypedField<E>`; stored in `FieldNodeId<E>`
-- Changing `FieldRef` to hold `&'static dyn HalfEdge` (was `&'static dyn NamedField`)
+- Rename `field_node_id::FieldRef` to `EdgeRef`
+- Changing `EdgeRef` to hold `&'static dyn HalfEdge` (was `&'static dyn NamedField`)
 - Removing `target_field` payload from `CrdtFieldType::EdgeOwner` (now in `EdgeKind`)
 - Moving `exclusive_with` from macro closures into `EdgeKind::Owner`
 - Updating `FieldSet<E>` to hold `dyn TypedField<E>`
@@ -38,5 +40,5 @@ Two-phase implementation:
 **Phase A (additive):** Add `EdgeKind`, new traits, `EdgeDescriptor<E>`, update `CrdtFieldType`,
 update `FieldSet`. Commit as standalone.
 
-**Phase B (breaking):** Change `FieldRef` inner type, update `FieldNodeId`/`RuntimeFieldNodeId`,
+**Phase B (breaking):** Change `EdgeRef` inner type, update `FieldNodeId`/`RuntimeFieldNodeId`,
 update macro, update entity statics, update schedule.rs, update tests. One commit.

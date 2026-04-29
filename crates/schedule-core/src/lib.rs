@@ -40,4 +40,4 @@ pub use schedule_macro::define_field;
 pub use entity_id::{DynamicEntityId, EntityId, EntityTyped, EntityUuid, RuntimeEntityId};
 
 // Re-exports from field_node_id
-pub use field_node_id::{DynamicFieldNodeId, FieldNodeId, FieldRef, RuntimeFieldNodeId};
+pub use field_node_id::{DynamicFieldNodeId, EdgeRef, FieldNodeId, RuntimeFieldNodeId};

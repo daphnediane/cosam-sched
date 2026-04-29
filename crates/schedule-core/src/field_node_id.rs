@@ -28,42 +28,42 @@
 use crate::entity::{
     DynamicEntityId, EntityId, EntityType, EntityTyped, EntityUuid, TypedEntityId,
 };
-use crate::field::{FieldDescriptor, NamedField};
+use crate::field::{FieldDescriptor, HalfEdge, NamedField};
 use crate::value::ConversionError;
 use std::marker::PhantomData;
 use uuid::NonNilUuid;
 
-// ── FieldRef ─────────────────────────────────────────────────────────────────────
+// ── EdgeRef -─────────────────────────────────────────────────────────────────────
 
 /// Wrapper for `&'static dyn NamedField` that implements Eq/Hash based on pointer address.
 ///
 /// This allows field references to be used as HashMap keys without requiring the
 /// NamedField trait itself to be dyn-compatible with Eq/Hash.
 #[derive(Clone, Copy)]
-pub struct FieldRef(pub &'static dyn NamedField);
+pub struct EdgeRef(pub &'static dyn HalfEdge);
 
-impl PartialEq for FieldRef {
+impl PartialEq for EdgeRef {
     fn eq(&self, other: &Self) -> bool {
         // Compare by data pointer address only (ignore vtable)
         // Cast fat pointer to thin pointer (data pointer only) then compare addresses
         std::ptr::eq(
-            self.0 as *const dyn NamedField as *const (),
-            other.0 as *const dyn NamedField as *const (),
+            self.0 as *const dyn HalfEdge as *const (),
+            other.0 as *const dyn HalfEdge as *const (),
         )
     }
 }
 
-impl Eq for FieldRef {}
+impl Eq for EdgeRef {}
 
-impl std::hash::Hash for FieldRef {
+impl std::hash::Hash for EdgeRef {
     fn hash<H: std::hash::Hasher>(&self, state: &mut H) {
         // Hash by data pointer address only (ignore vtable)
         // Cast fat pointer to thin pointer (data pointer only) then hash the address
-        (self.0 as *const dyn NamedField as *const () as usize).hash(state);
+        (self.0 as *const dyn HalfEdge as *const () as usize).hash(state);
     }
 }
 
-impl std::fmt::Debug for FieldRef {
+impl std::fmt::Debug for EdgeRef {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.debug_tuple("FieldRef").field(&self.0.name()).finish()
     }
@@ -94,7 +94,7 @@ impl std::fmt::Debug for FieldRef {
 /// ```
 pub trait DynamicFieldNodeId: DynamicEntityId {
     /// Get the field descriptor as a trait object.
-    fn field(&self) -> &'static dyn NamedField;
+    fn field(&self) -> &'static dyn HalfEdge;
 
     /// Try to get the field descriptor as a typed field descriptor.
     ///
@@ -129,7 +129,7 @@ pub struct RuntimeFieldNodeId {
     /// The entity instance.
     uuid: NonNilUuid,
     /// Which field on the entity this endpoint represents.
-    field: &'static dyn NamedField,
+    field: &'static dyn HalfEdge,
 }
 
 impl EntityUuid for RuntimeFieldNodeId {
@@ -145,7 +145,7 @@ impl EntityTyped for RuntimeFieldNodeId {
 }
 
 impl DynamicFieldNodeId for RuntimeFieldNodeId {
-    fn field(&self) -> &'static dyn NamedField {
+    fn field(&self) -> &'static dyn HalfEdge {
         self.field
     }
 
@@ -168,7 +168,7 @@ impl RuntimeFieldNodeId {
     /// The caller must ensure that `uuid` actually identifies an entity of
     /// type field. Code that has a UUID→type registry (e.g. `Schedule`) can
     /// call this safely after verifying the type.
-    pub unsafe fn new_unchecked(uuid: NonNilUuid, field: &'static dyn NamedField) -> Self {
+    pub unsafe fn new_unchecked(uuid: NonNilUuid, field: &'static dyn HalfEdge) -> Self {
         Self { uuid, field }
     }
 
@@ -199,7 +199,7 @@ impl RuntimeFieldNodeId {
     /// This is a convenience constructor for converting from any entity ID type
     /// to a RuntimeFieldNodeId for a specific field.
     #[must_use]
-    pub fn from_dynamic<T: DynamicEntityId>(entity: T, field: &'static dyn NamedField) -> Self {
+    pub fn from_dynamic<T: DynamicEntityId>(entity: T, field: &'static dyn HalfEdge) -> Self {
         Self {
             field,
             uuid: entity.entity_uuid(),
@@ -253,8 +253,8 @@ impl PartialEq for RuntimeFieldNodeId {
         // Compare by data pointer address of the field descriptor and UUID
         // Cast fat pointer to thin pointer (data pointer only) then compare addresses
         std::ptr::eq(
-            self.field as *const dyn NamedField as *const (),
-            other.field as *const dyn NamedField as *const (),
+            self.field as *const dyn HalfEdge as *const (),
+            other.field as *const dyn HalfEdge as *const (),
         ) && self.uuid == other.uuid
     }
 }
@@ -265,7 +265,7 @@ impl std::hash::Hash for RuntimeFieldNodeId {
     fn hash<H: std::hash::Hasher>(&self, state: &mut H) {
         // Hash by pointer address of the field descriptor and UUID
         // Cast fat pointer to thin pointer (data pointer only) then to usize
-        (self.field as *const dyn NamedField as *const () as usize).hash(state);
+        (self.field as *const dyn HalfEdge as *const () as usize).hash(state);
         self.uuid.hash(state);
     }
 }
@@ -303,7 +303,7 @@ impl<E: EntityType> EntityTyped for FieldNodeId<E> {
 impl<E: EntityType> TypedEntityId<E> for FieldNodeId<E> {}
 
 impl<E: EntityType> DynamicFieldNodeId for FieldNodeId<E> {
-    fn field(&self) -> &'static dyn NamedField {
+    fn field(&self) -> &'static dyn HalfEdge {
         self.field
     }
 
@@ -357,7 +357,7 @@ impl<E: EntityType> FieldNodeId<E> {
     /// This is a safe constructor that performs runtime type checking using the
     /// `Any` trait for downcasting the field descriptor.
     #[must_use]
-    pub fn try_new(uuid: impl DynamicEntityId, field: &'static dyn NamedField) -> Option<Self> {
+    pub fn try_new(uuid: impl DynamicEntityId, field: &'static dyn HalfEdge) -> Option<Self> {
         let field = (field as &dyn std::any::Any).downcast_ref::<FieldDescriptor<E>>()?;
         if uuid.entity_type_name() == E::TYPE_NAME {
             Some(Self {
@@ -416,7 +416,7 @@ impl<E: EntityType> std::hash::Hash for FieldNodeId<E> {
     fn hash<H: std::hash::Hasher>(&self, state: &mut H) {
         // Hash by pointer address of the field descriptor and UUID
         // Cast fat pointer to thin pointer (data pointer only) then to usize
-        (self.field as *const dyn NamedField as *const () as usize).hash(state);
+        (self.field as *const dyn HalfEdge as *const () as usize).hash(state);
         self.uuid.hash(state);
     }
 }

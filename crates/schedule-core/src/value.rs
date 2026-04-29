@@ -629,7 +629,7 @@ pub enum CrdtFieldType {
     /// list so that concurrent replicas share the same `ObjId`.
     EdgeOwner {
         /// Inverse/lookup field on the target entity.
-        target_field: &'static dyn crate::field::NamedField,
+        target_field: &'static dyn crate::field::HalfEdge,
     },
     /// Non-owner (inverse/lookup) side of an edge relationship.
     ///
@@ -648,7 +648,7 @@ impl PartialEq for CrdtFieldType {
             | (Self::Derived, Self::Derived)
             | (Self::EdgeTarget, Self::EdgeTarget) => true,
             (Self::EdgeOwner { target_field: a }, Self::EdgeOwner { target_field: b }) => {
-                a.field_id() == b.field_id()
+                a.edge_id() == b.edge_id()
             }
             _ => false,
         }

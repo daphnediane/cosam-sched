@@ -24,7 +24,7 @@
 //! borrow problem for edge-mutating fields (e.g. `add_presenters`).
 
 use crate::entity::{EntityId, EntityType};
-use crate::field_node_id::FieldRef;
+use crate::field_node_id::EdgeRef;
 use crate::schedule::Schedule;
 use crate::value::{CrdtFieldType, EdgeKind, FieldError, FieldType, FieldValue, VerificationError};
 
@@ -91,9 +91,8 @@ pub struct CommonFieldData {
 
 /// Metadata common to all field descriptors.
 ///
-/// Provides naming and description information, plus type-erased identity
-/// via [`Self::field_id`] and entity type identification via
-/// [`Self::entity_type_name`].
+/// Provides naming and description information, and entity
+/// type identification via [`Self::entity_type_name`].
 ///
 /// Implemented by [`FieldDescriptor`] and exposed as a trait object for
 /// type-erased field lookup.
@@ -146,13 +145,6 @@ pub trait NamedField: 'static + Send + Sync + std::any::Any {
         self.aliases().iter().any(|a| a.to_lowercase() == q)
     }
 
-    /// Type-erased identity — the address of the `'static` descriptor singleton.
-    ///
-    /// Only meaningful when called on a `'static` field descriptor (i.e. one of the
-    /// statics declared in each entity module). Returns a [`FieldRef`] wrapper
-    /// that can be used as a HashMap key.
-    fn field_id(&self) -> FieldRef;
-
     /// [`crate::entity::EntityType::TYPE_NAME`] for the entity this field belongs to.
     fn entity_type_name(&self) -> &'static str;
 
@@ -161,6 +153,9 @@ pub trait NamedField: 'static + Send + Sync + std::any::Any {
     /// Used to filter fields by role (e.g. `EdgeOwner { .. }` for edge-owning
     /// fields) without requiring a separate inventory.
     fn crdt_type(&self) -> crate::value::CrdtFieldType;
+
+    /// Upcast `self` to `Option<&dyn HalfEdge>`.
+    fn try_as_half_edge(&self) -> Option<&dyn HalfEdge>;
 }
 
 /// Field that can produce a [`FieldValue`] given an entity ID and schedule.
@@ -233,23 +228,23 @@ impl<E: EntityType, T: ReadableField<E> + WritableField<E> + VerifiableField<E>>
 /// (scalar, text, list, derived fields) intentionally does **not** implement
 /// it, ensuring that non-edge fields cannot be used as [`FieldNodeId`] endpoints.
 ///
+/// Provides naming and description information, plus type-erased identity
+/// via [`Self::edge_id`].
+///
 /// [`FieldNodeId`]: crate::field_node_id::FieldNodeId
 pub trait HalfEdge: NamedField {
     /// Returns the edge-kind (owner or target) and associated metadata.
     fn edge_kind(&self) -> &crate::value::EdgeKind;
 
-    /// Upcast `self` to `&'static dyn NamedField`.
+    /// Type-erased identity — the address of the `'static` descriptor singleton.
     ///
-    /// Stable Rust does not support automatic trait-object upcasting, so this
-    /// explicit method is required.  Implementors transmute `self as &dyn
-    /// NamedField` to extend the lifetime to `'static`.
-    ///
-    /// # Safety (for implementors)
-    ///
-    /// This is safe only when `self` was originally a `'static` reference (i.e.
-    /// one of the `static` field descriptor singletons declared in each entity
-    /// module).
-    fn as_named_field_static(&self) -> &'static dyn NamedField;
+    /// Only meaningful when called on a `'static` edge field descriptor (i.e. one of the
+    /// statics declared in each entity module). Returns a [`EdgeRef`] wrapper
+    /// that can be used as a HashMap key.
+    fn edge_id(&self) -> EdgeRef;
+
+    /// Upcast `self` to `&'dyn NamedField`.
+    fn as_named_field(&self) -> &dyn NamedField;
 }
 
 // ── TypedHalfEdge<E> ─────────────────────────────────────────────────────────
@@ -311,14 +306,6 @@ impl<E: EntityType> NamedField for EdgeDescriptor<E> {
         &self.data
     }
 
-    fn field_id(&self) -> FieldRef {
-        // SAFETY: self is a &'static EdgeDescriptor<E> (edge descriptors are static singletons).
-        unsafe {
-            let static_ref: &'static dyn NamedField = std::mem::transmute(self as &dyn NamedField);
-            FieldRef(static_ref)
-        }
-    }
-
     fn entity_type_name(&self) -> &'static str {
         E::TYPE_NAME
     }
@@ -327,12 +314,16 @@ impl<E: EntityType> NamedField for EdgeDescriptor<E> {
         match &self.edge_kind {
             crate::value::EdgeKind::Owner { target_field, .. } => {
                 crate::value::CrdtFieldType::EdgeOwner {
-                    target_field: target_field.as_named_field_static(),
+                    target_field: *target_field,
                 }
             }
             crate::value::EdgeKind::Target { .. } => crate::value::CrdtFieldType::EdgeTarget,
             crate::value::EdgeKind::NonEdge => crate::value::CrdtFieldType::Scalar,
         }
+    }
+
+    fn try_as_half_edge(&self) -> Option<&dyn HalfEdge> {
+        Some(self)
     }
 }
 
@@ -341,9 +332,16 @@ impl<E: EntityType> HalfEdge for EdgeDescriptor<E> {
         &self.edge_kind
     }
 
-    fn as_named_field_static(&self) -> &'static dyn NamedField {
-        // SAFETY: EdgeDescriptor instances are 'static singletons.
-        unsafe { std::mem::transmute(self as &dyn NamedField) }
+    fn edge_id(&self) -> EdgeRef {
+        // SAFETY: self is a &'static EdgeDescriptor<E> (edge descriptors are static singletons).
+        unsafe {
+            let static_ref: &'static dyn HalfEdge = std::mem::transmute(self as &dyn HalfEdge);
+            EdgeRef(static_ref)
+        }
+    }
+
+    fn as_named_field(&self) -> &dyn NamedField {
+        self
     }
 }
 
@@ -487,21 +485,16 @@ impl<E: EntityType> NamedField for FieldDescriptor<E> {
         &self.data
     }
 
-    fn field_id(&self) -> FieldRef {
-        // SAFETY: self is a &'static FieldDescriptor<E> (field descriptors are static singletons),
-        // so its address is stable for the life of the process. We extend the lifetime to 'static.
-        unsafe {
-            let static_ref: &'static dyn NamedField = std::mem::transmute(self as &dyn NamedField);
-            FieldRef(static_ref)
-        }
-    }
-
     fn entity_type_name(&self) -> &'static str {
         E::TYPE_NAME
     }
 
     fn crdt_type(&self) -> crate::value::CrdtFieldType {
         self.crdt_type
+    }
+
+    fn try_as_half_edge(&self) -> Option<&dyn HalfEdge> {
+        Some(self)
     }
 }
 
@@ -510,9 +503,16 @@ impl<E: EntityType> HalfEdge for FieldDescriptor<E> {
         &self.edge_kind
     }
 
-    fn as_named_field_static(&self) -> &'static dyn NamedField {
-        // SAFETY: FieldDescriptor instances are 'static singletons.
-        unsafe { std::mem::transmute(self as &dyn NamedField) }
+    fn edge_id(&self) -> EdgeRef {
+        // SAFETY: self is a &'static EdgeDescriptor<E> (edge descriptors are static singletons).
+        unsafe {
+            let static_ref: &'static dyn HalfEdge = std::mem::transmute(self as &dyn HalfEdge);
+            EdgeRef(static_ref)
+        }
+    }
+
+    fn as_named_field(&self) -> &dyn NamedField {
+        self
     }
 }
 

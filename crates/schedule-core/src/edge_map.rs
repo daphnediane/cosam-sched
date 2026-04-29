@@ -12,8 +12,8 @@
 //! ## Structure
 //!
 //! ```text
-//! HashMap<NonNilUuid,                  // outer key: entity UUID
-//!     HashMap<FieldRef,         // inner key: which field on that entity
+//! HashMap<NonNilUuid,                 // outer key: entity UUID
+//!     HashMap<EdgeRef,                // inner key: which field on that entity
 //!         Vec<RuntimeFieldNodeId>>>   // values: (field, uuid) of the other side
 //! ```
 //!
@@ -41,7 +41,7 @@
 //! ```
 
 use crate::entity::DynamicEntityId;
-use crate::field_node_id::{DynamicFieldNodeId, FieldRef, RuntimeFieldNodeId};
+use crate::field_node_id::{DynamicFieldNodeId, EdgeRef, RuntimeFieldNodeId};
 use std::collections::HashMap;
 use uuid::NonNilUuid;
 
@@ -52,7 +52,7 @@ use uuid::NonNilUuid;
 /// `edges_from` / `edges_to` / `edge_add` / `edge_remove` / `edge_set` methods.
 #[derive(Debug, Default, Clone)]
 pub struct RawEdgeMap {
-    map: HashMap<NonNilUuid, HashMap<(FieldRef, FieldRef), Vec<NonNilUuid>>>,
+    map: HashMap<NonNilUuid, HashMap<(EdgeRef, EdgeRef), Vec<NonNilUuid>>>,
 }
 
 impl RawEdgeMap {
@@ -63,8 +63,8 @@ impl RawEdgeMap {
     /// Both endpoints store the other.  Idempotent — does nothing if the edge
     /// already exists in either direction.
     pub fn add_edge(&mut self, from: impl DynamicFieldNodeId, to: impl DynamicFieldNodeId) {
-        let from_field = FieldRef(from.field());
-        let to_field = FieldRef(to.field());
+        let from_field = from.field().edge_id();
+        let to_field = to.field().edge_id();
         let from_key = (from_field, to_field);
         let to_key = (to_field, from_field);
 
@@ -92,8 +92,8 @@ impl RawEdgeMap {
     ///
     /// No-op if the edge does not exist.
     pub fn remove_edge(&mut self, from: impl DynamicFieldNodeId, to: impl DynamicFieldNodeId) {
-        let from_field = FieldRef(from.field());
-        let to_field = FieldRef(to.field());
+        let from_field = from.field().edge_id();
+        let to_field = to.field().edge_id();
         let from_key = (from_field, to_field);
         let to_key = (to_field, from_field);
 
@@ -124,10 +124,10 @@ impl RawEdgeMap {
     pub fn set_neighbors(
         &mut self,
         from: impl DynamicFieldNodeId,
-        far: FieldRef,
+        far: EdgeRef,
         new_targets: impl IntoIterator<Item = impl DynamicEntityId>,
     ) -> (Vec<NonNilUuid>, Vec<NonNilUuid>) {
-        let from_field = FieldRef(from.field());
+        let from_field = from.field().edge_id();
         let from_uuid = from.entity_uuid();
         let edge_key = (from_field, far);
         let reverse_key = (far, from_field);
@@ -214,9 +214,9 @@ impl RawEdgeMap {
     pub fn neighbors(
         &self,
         near_node: impl DynamicFieldNodeId,
-        far: FieldRef,
+        far: EdgeRef,
     ) -> Vec<RuntimeFieldNodeId> {
-        let near_field = FieldRef(near_node.field());
+        let near_field = near_node.field().edge_id();
         let near_uuid = near_node.entity_uuid();
         let edge_key = (near_field, far);
 
@@ -260,8 +260,8 @@ impl RawEdgeMap {
         for ((src_field, dest_field), neighbor_uuids) in inner {
             let node_field = near_node.field();
             // Compare data pointers for field descriptor equality
-            let src_ptr = src_field.0 as *const dyn crate::field::NamedField as *const ();
-            let node_ptr = node_field as *const dyn crate::field::NamedField as *const ();
+            let src_ptr = src_field.0 as *const dyn crate::field::HalfEdge as *const ();
+            let node_ptr = node_field as *const dyn crate::field::HalfEdge as *const ();
             if src_ptr == node_ptr {
                 for neighbor_uuid in neighbor_uuids {
                     // SAFETY: The stored field (dest_field) is always a valid NamedField
@@ -281,7 +281,7 @@ impl RawEdgeMap {
 mod tests {
     use super::*;
     use crate::entity::{EntityId, EntityType};
-    use crate::field::{CommonFieldData, FieldDescriptor};
+    use crate::field::{CommonFieldData, FieldDescriptor, HalfEdge};
     use crate::field_set::FieldSet;
     use crate::value::{
         CrdtFieldType, EdgeKind, FieldCardinality, FieldType, FieldTypeItem, ValidationError,
@@ -392,14 +392,14 @@ mod tests {
         verify_fn: None,
     };
 
-    fn fr_a1() -> FieldRef {
-        FieldRef(&FIELD_A1)
+    fn fr_a1() -> EdgeRef {
+        FIELD_A1.edge_id()
     }
-    fn fr_a2() -> FieldRef {
-        FieldRef(&FIELD_A2)
+    fn fr_a2() -> EdgeRef {
+        FIELD_A2.edge_id()
     }
-    fn fr_b1() -> FieldRef {
-        FieldRef(&FIELD_B1)
+    fn fr_b1() -> EdgeRef {
+        FIELD_B1.edge_id()
     }
 
     fn fn_a1(n: u128) -> RuntimeFieldNodeId {

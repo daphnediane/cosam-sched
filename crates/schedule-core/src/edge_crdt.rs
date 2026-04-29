@@ -41,9 +41,9 @@ pub struct CanonicalOwner {
     /// `true` when the near (queried) field is the CRDT owner side.
     pub near_is_owner: bool,
     /// The owner-side field (carries `EdgeOwner { target_field: … }`).
-    pub owner_field: &'static dyn crate::field::NamedField,
+    pub owner_field: &'static dyn crate::field::HalfEdge,
     /// The target-side field (the inverse/lookup field).
-    pub target_field: &'static dyn crate::field::NamedField,
+    pub target_field: &'static dyn crate::field::HalfEdge,
 }
 
 impl CanonicalOwner {
@@ -94,12 +94,12 @@ impl std::fmt::Debug for CanonicalOwner {
 /// `FIELD_PANELS`).
 #[must_use]
 pub fn canonical_owner(
-    near_field: &'static dyn crate::field::NamedField,
-    far_field: &'static dyn crate::field::NamedField,
+    near_field: &'static dyn crate::field::HalfEdge,
+    far_field: &'static dyn crate::field::HalfEdge,
 ) -> Option<CanonicalOwner> {
     fn same(
-        a: &'static dyn crate::field::NamedField,
-        b: &'static dyn crate::field::NamedField,
+        a: &'static dyn crate::field::HalfEdge,
+        b: &'static dyn crate::field::HalfEdge,
     ) -> bool {
         a.name() == b.name() && a.entity_type_name() == b.entity_type_name()
     }
