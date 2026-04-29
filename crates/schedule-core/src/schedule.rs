@@ -17,7 +17,7 @@ use crate::entity::{registered_entity_types, EntityType};
 use crate::field::ReadableField;
 use crate::field_node_id::{DynamicFieldNodeId, FieldNodeId};
 use crate::value::{CrdtFieldType, FieldError, FieldValue};
-use crate::{EntityId, EntityTyped, EntityUuid, RuntimeEntityId};
+use crate::{DynamicEntityId, EntityId, EntityTyped, EntityUuid, RuntimeEntityId};
 use automerge::AutoCommit;
 use serde::{Deserialize, Serialize};
 use std::any::{Any, TypeId};
@@ -785,10 +785,10 @@ impl Schedule {
     /// useful when an entity has multiple fields relating to the same target type.
     /// The far field parameter specifies which field on the target entity stores the reverse relationship.
     #[must_use]
-    pub fn connected_entities<E: EntityType, R: EntityType>(
+    pub fn connected_entities<R: EntityType>(
         &self,
-        node: FieldNodeId<E>,
-        far_field: &'static crate::field::FieldDescriptor<R>,
+        node: impl crate::field_node_id::DynamicFieldNodeId,
+        far_field: &'static dyn crate::field::NamedField,
     ) -> Vec<EntityId<R>> {
         let far_field_ref = crate::field_node_id::FieldRef(far_field);
         self.connected_field_nodes(node, far_field_ref)
@@ -901,25 +901,20 @@ impl Schedule {
     /// field descriptor on the target entity type.  Works from either
     /// direction — `set_neighbors` handles the bidirectional bookkeeping.
     ///
-    /// When `Near` and `Far` are the same type (transitive/homogeneous edge),
+    /// When the two endpoints share the same entity type (transitive/homogeneous edge),
     /// the transitive edge cache is invalidated.
-    pub fn edge_set<Near: EntityType, Far: EntityType>(
+    pub fn edge_set(
         &mut self,
-        near: FieldNodeId<Near>,
-        far_field: &'static crate::field::FieldDescriptor<Far>,
-        targets: Vec<EntityId<Far>>,
+        near: impl DynamicFieldNodeId,
+        far_field: &'static dyn crate::field::NamedField,
+        targets: impl IntoIterator<Item = impl DynamicEntityId>,
     ) {
-        use crate::field_node_id::{FieldRef, RuntimeFieldNodeId};
+        use crate::field_node_id::FieldRef;
         let far_field_ref = FieldRef(far_field);
-        let new_targets: Vec<RuntimeFieldNodeId> = targets
-            .iter()
-            .copied()
-            .map(|t| RuntimeFieldNodeId::from(FieldNodeId::new(t, far_field)))
-            .collect();
-        let (added, removed) = self.edges.set_neighbors(near, far_field_ref, new_targets);
+        let (added, removed) = self.edges.set_neighbors(near, far_field_ref, targets);
 
         // Invalidate transitive cache when near and far share the same entity type.
-        if Near::TYPE_NAME == Far::TYPE_NAME {
+        if near.entity_type_name() == far_field.entity_type_name() {
             *self.transitive_edge_cache.borrow_mut() = None;
         }
 
@@ -1334,13 +1329,13 @@ mod tests {
             FieldNodeId::new(pres_id, &FIELD_PANELS),
         );
 
-        let presenters = sched.connected_entities::<PanelEntityType, PresenterEntityType>(
+        let presenters = sched.connected_entities::<PresenterEntityType>(
             FieldNodeId::new(panel_id, &crate::panel::FIELD_CREDITED_PRESENTERS),
             &crate::presenter::FIELD_PANELS,
         );
         assert_eq!(presenters, vec![pres_id]);
 
-        let panels = sched.connected_entities::<PresenterEntityType, PanelEntityType>(
+        let panels = sched.connected_entities::<PanelEntityType>(
             FieldNodeId::new(pres_id, &FIELD_PANELS),
             &crate::panel::FIELD_CREDITED_PRESENTERS,
         );
@@ -1365,13 +1360,13 @@ mod tests {
         );
 
         assert!(sched
-            .connected_entities::<PanelEntityType, PresenterEntityType>(
+            .connected_entities::<PresenterEntityType>(
                 FieldNodeId::new(panel_id, &crate::panel::FIELD_CREDITED_PRESENTERS),
                 &crate::presenter::FIELD_PANELS,
             )
             .is_empty());
         assert!(sched
-            .connected_entities::<PresenterEntityType, PanelEntityType>(
+            .connected_entities::<PanelEntityType>(
                 FieldNodeId::new(pres_id, &FIELD_PANELS),
                 &crate::panel::FIELD_CREDITED_PRESENTERS,
             )
@@ -1390,12 +1385,12 @@ mod tests {
         sched.insert(p2_id, p2_data);
         sched.insert(p3_id, p3_data);
 
-        sched.edge_set::<PanelEntityType, PresenterEntityType>(
+        sched.edge_set(
             FieldNodeId::new(panel_id, &crate::panel::FIELD_CREDITED_PRESENTERS),
             &crate::presenter::FIELD_PANELS,
             vec![p1_id, p2_id],
         );
-        let mut presenters = sched.connected_entities::<PanelEntityType, PresenterEntityType>(
+        let mut presenters = sched.connected_entities::<PresenterEntityType>(
             FieldNodeId::new(panel_id, &crate::panel::FIELD_CREDITED_PRESENTERS),
             &crate::presenter::FIELD_PANELS,
         );
@@ -1404,13 +1399,13 @@ mod tests {
         expected.sort_by_key(|id| id.entity_uuid());
         assert_eq!(presenters, expected);
 
-        sched.edge_set::<PanelEntityType, PresenterEntityType>(
+        sched.edge_set(
             FieldNodeId::new(panel_id, &crate::panel::FIELD_CREDITED_PRESENTERS),
             &crate::presenter::FIELD_PANELS,
             vec![p3_id],
         );
         assert_eq!(
-            sched.connected_entities::<PanelEntityType, PresenterEntityType>(
+            sched.connected_entities::<PresenterEntityType>(
                 FieldNodeId::new(panel_id, &crate::panel::FIELD_CREDITED_PRESENTERS),
                 &crate::presenter::FIELD_PANELS,
             ),
@@ -1418,13 +1413,13 @@ mod tests {
         );
         // p1 and p2 no longer link back to panel
         assert!(sched
-            .connected_entities::<PresenterEntityType, PanelEntityType>(
+            .connected_entities::<PanelEntityType>(
                 FieldNodeId::new(p1_id, &FIELD_PANELS),
                 &crate::panel::FIELD_CREDITED_PRESENTERS,
             )
             .is_empty());
         assert!(sched
-            .connected_entities::<PresenterEntityType, PanelEntityType>(
+            .connected_entities::<PanelEntityType>(
                 FieldNodeId::new(p2_id, &FIELD_PANELS),
                 &crate::panel::FIELD_CREDITED_PRESENTERS,
             )
@@ -1447,7 +1442,7 @@ mod tests {
 
         // Edge from presenter side should be gone too
         assert!(sched
-            .connected_entities::<PresenterEntityType, PanelEntityType>(
+            .connected_entities::<PanelEntityType>(
                 FieldNodeId::new(pres_id, &FIELD_PANELS),
                 &crate::panel::FIELD_CREDITED_PRESENTERS,
             )
@@ -1469,14 +1464,14 @@ mod tests {
             FieldNodeId::new(hotel_id, &FIELD_EVENT_ROOMS),
         );
 
-        let hotels = sched.connected_entities::<EventRoomEntityType, HotelRoomEntityType>(
+        let hotels = sched.connected_entities::<HotelRoomEntityType>(
             FieldNodeId::new(room_id, &FIELD_HOTEL_ROOMS),
             &crate::hotel_room::FIELD_EVENT_ROOMS,
         );
         assert_eq!(hotels, vec![hotel_id]);
 
         // Reverse: hotel_room.event_rooms via connected_entities with FIELD_EVENT_ROOMS
-        let rooms = sched.connected_entities::<HotelRoomEntityType, EventRoomEntityType>(
+        let rooms = sched.connected_entities::<EventRoomEntityType>(
             FieldNodeId::new(hotel_id, &FIELD_EVENT_ROOMS),
             &crate::event_room::FIELD_HOTEL_ROOMS,
         );
@@ -1500,14 +1495,14 @@ mod tests {
         );
 
         // groups of member: connected_entities with FIELD_MEMBERS
-        let groups = sched.connected_entities::<PresenterEntityType, PresenterEntityType>(
+        let groups = sched.connected_entities::<PresenterEntityType>(
             FieldNodeId::new(member_id, &FIELD_MEMBERS),
             &FIELD_GROUPS,
         );
         assert_eq!(groups, vec![group_id]);
 
         // members of group: connected_entities with FIELD_MEMBERS
-        let members = sched.connected_entities::<PresenterEntityType, PresenterEntityType>(
+        let members = sched.connected_entities::<PresenterEntityType>(
             FieldNodeId::new(group_id, &FIELD_GROUPS),
             &FIELD_MEMBERS,
         );
@@ -1532,13 +1527,13 @@ mod tests {
         );
 
         assert!(sched
-            .connected_entities::<PresenterEntityType, PresenterEntityType>(
+            .connected_entities::<PresenterEntityType>(
                 FieldNodeId::new(member_id, &FIELD_MEMBERS),
                 &FIELD_GROUPS,
             )
             .is_empty());
         assert!(sched
-            .connected_entities::<PresenterEntityType, PresenterEntityType>(
+            .connected_entities::<PresenterEntityType>(
                 FieldNodeId::new(group_id, &FIELD_GROUPS),
                 &FIELD_MEMBERS,
             )
@@ -1555,33 +1550,33 @@ mod tests {
         sched.insert(g1_id, g1_data);
         sched.insert(g2_id, g2_data);
 
-        sched.edge_set::<PresenterEntityType, PresenterEntityType>(
+        sched.edge_set(
             FieldNodeId::new(member_id, &FIELD_MEMBERS),
             &FIELD_GROUPS,
             vec![g1_id],
         );
         assert_eq!(
-            sched.connected_entities::<PresenterEntityType, PresenterEntityType>(
+            sched.connected_entities::<PresenterEntityType>(
                 FieldNodeId::new(member_id, &FIELD_MEMBERS),
                 &FIELD_GROUPS,
             ),
             vec![g1_id]
         );
 
-        sched.edge_set::<PresenterEntityType, PresenterEntityType>(
+        sched.edge_set(
             FieldNodeId::new(member_id, &FIELD_MEMBERS),
             &FIELD_GROUPS,
             vec![g2_id],
         );
         assert_eq!(
-            sched.connected_entities::<PresenterEntityType, PresenterEntityType>(
+            sched.connected_entities::<PresenterEntityType>(
                 FieldNodeId::new(member_id, &FIELD_MEMBERS),
                 &FIELD_GROUPS,
             ),
             vec![g2_id]
         );
         assert!(sched
-            .connected_entities::<PresenterEntityType, PresenterEntityType>(
+            .connected_entities::<PresenterEntityType>(
                 FieldNodeId::new(g1_id, &FIELD_GROUPS),
                 &FIELD_MEMBERS,
             )
@@ -1599,13 +1594,13 @@ mod tests {
         sched.insert(g_id, g_data);
 
         // Set members of group to [m1, m2]
-        sched.edge_set::<PresenterEntityType, PresenterEntityType>(
+        sched.edge_set(
             FieldNodeId::new(g_id, &FIELD_GROUPS),
             &FIELD_MEMBERS,
             vec![m1_id, m2_id],
         );
 
-        let mut members = sched.connected_entities::<PresenterEntityType, PresenterEntityType>(
+        let mut members = sched.connected_entities::<PresenterEntityType>(
             FieldNodeId::new(g_id, &FIELD_GROUPS),
             &FIELD_MEMBERS,
         );
@@ -1616,14 +1611,14 @@ mod tests {
 
         // m1 and m2 should have group in their groups list
         assert_eq!(
-            sched.connected_entities::<PresenterEntityType, PresenterEntityType>(
+            sched.connected_entities::<PresenterEntityType>(
                 FieldNodeId::new(m1_id, &FIELD_MEMBERS),
                 &FIELD_GROUPS,
             ),
             vec![g_id]
         );
         assert_eq!(
-            sched.connected_entities::<PresenterEntityType, PresenterEntityType>(
+            sched.connected_entities::<PresenterEntityType>(
                 FieldNodeId::new(m2_id, &FIELD_MEMBERS),
                 &FIELD_GROUPS,
             ),
@@ -1631,20 +1626,20 @@ mod tests {
         );
 
         // Replace with just m1
-        sched.edge_set::<PresenterEntityType, PresenterEntityType>(
+        sched.edge_set(
             FieldNodeId::new(g_id, &FIELD_GROUPS),
             &FIELD_MEMBERS,
             vec![m1_id],
         );
         assert_eq!(
-            sched.connected_entities::<PresenterEntityType, PresenterEntityType>(
+            sched.connected_entities::<PresenterEntityType>(
                 FieldNodeId::new(g_id, &FIELD_GROUPS),
                 &FIELD_MEMBERS,
             ),
             vec![m1_id]
         );
         assert!(sched
-            .connected_entities::<PresenterEntityType, PresenterEntityType>(
+            .connected_entities::<PresenterEntityType>(
                 FieldNodeId::new(m2_id, &FIELD_MEMBERS),
                 &FIELD_GROUPS,
             )
@@ -1667,7 +1662,7 @@ mod tests {
 
         // group should no longer see member
         assert!(sched
-            .connected_entities::<PresenterEntityType, PresenterEntityType>(
+            .connected_entities::<PresenterEntityType>(
                 FieldNodeId::new(group_id, &FIELD_MEMBERS),
                 &FIELD_GROUPS,
             )
@@ -1926,11 +1921,10 @@ mod tests {
         let bytes = sched.save_to_file();
         let loaded = Schedule::load_from_file(&bytes).expect("load_from_file");
 
-        let forwards: Vec<PresenterId> = loaded
-            .connected_entities::<PanelEntityType, PresenterEntityType>(
-                FieldNodeId::new(panel_id, &crate::panel::FIELD_CREDITED_PRESENTERS),
-                &crate::presenter::FIELD_PANELS,
-            );
+        let forwards: Vec<PresenterId> = loaded.connected_entities::<PresenterEntityType>(
+            FieldNodeId::new(panel_id, &crate::panel::FIELD_CREDITED_PRESENTERS),
+            &crate::presenter::FIELD_PANELS,
+        );
         assert_eq!(forwards, vec![pres_id]);
     }
 
@@ -1988,19 +1982,17 @@ mod tests {
         let loaded = Schedule::load(&bytes).expect("load");
 
         // Forward edge (panel → presenter)
-        let forwards: Vec<PresenterId> = loaded
-            .connected_entities::<PanelEntityType, PresenterEntityType>(
-                FieldNodeId::new(panel_id, &crate::panel::FIELD_CREDITED_PRESENTERS),
-                &crate::presenter::FIELD_PANELS,
-            );
+        let forwards: Vec<PresenterId> = loaded.connected_entities::<PresenterEntityType>(
+            FieldNodeId::new(panel_id, &crate::panel::FIELD_CREDITED_PRESENTERS),
+            &crate::presenter::FIELD_PANELS,
+        );
         assert_eq!(forwards, vec![pres_id]);
         // Reverse edge (presenter → panel) also rebuilt from the single
         // owner list on the panel side.
-        let reverses: Vec<PanelId> = loaded
-            .connected_entities::<PresenterEntityType, PanelEntityType>(
-                FieldNodeId::new(pres_id, &FIELD_PANELS),
-                &crate::panel::FIELD_CREDITED_PRESENTERS,
-            );
+        let reverses: Vec<PanelId> = loaded.connected_entities::<PanelEntityType>(
+            FieldNodeId::new(pres_id, &FIELD_PANELS),
+            &crate::panel::FIELD_CREDITED_PRESENTERS,
+        );
         assert_eq!(reverses, vec![panel_id]);
     }
 
@@ -2020,13 +2012,13 @@ mod tests {
         let loaded = Schedule::load(&bytes).expect("load");
 
         let hotel_rooms: Vec<EntityId<HotelRoomEntityType>> = loaded
-            .connected_entities::<EventRoomEntityType, HotelRoomEntityType>(
+            .connected_entities::<HotelRoomEntityType>(
                 FieldNodeId::new(er_id, &FIELD_HOTEL_ROOMS),
                 &crate::hotel_room::FIELD_EVENT_ROOMS,
             );
         assert_eq!(hotel_rooms, vec![hr_id]);
         let event_rooms: Vec<EntityId<EventRoomEntityType>> = loaded
-            .connected_entities::<HotelRoomEntityType, EventRoomEntityType>(
+            .connected_entities::<EventRoomEntityType>(
                 FieldNodeId::new(hr_id, &FIELD_EVENT_ROOMS),
                 &crate::event_room::FIELD_HOTEL_ROOMS,
             );
@@ -2049,17 +2041,15 @@ mod tests {
         let bytes = sched.save();
         let loaded = Schedule::load(&bytes).expect("load");
 
-        let groups: Vec<PresenterId> = loaded
-            .connected_entities::<PresenterEntityType, PresenterEntityType>(
-                FieldNodeId::new(alice_id, &FIELD_MEMBERS),
-                &FIELD_GROUPS,
-            );
+        let groups: Vec<PresenterId> = loaded.connected_entities::<PresenterEntityType>(
+            FieldNodeId::new(alice_id, &FIELD_MEMBERS),
+            &FIELD_GROUPS,
+        );
         assert_eq!(groups, vec![group_id]);
-        let members: Vec<PresenterId> = loaded
-            .connected_entities::<PresenterEntityType, PresenterEntityType>(
-                FieldNodeId::new(group_id, &FIELD_GROUPS),
-                &FIELD_MEMBERS,
-            );
+        let members: Vec<PresenterId> = loaded.connected_entities::<PresenterEntityType>(
+            FieldNodeId::new(group_id, &FIELD_GROUPS),
+            &FIELD_MEMBERS,
+        );
         assert_eq!(members, vec![alice_id]);
     }
 
@@ -2082,11 +2072,10 @@ mod tests {
         let bytes = sched.save();
         let loaded = Schedule::load(&bytes).expect("load");
 
-        let forwards: Vec<PresenterId> = loaded
-            .connected_entities::<PanelEntityType, PresenterEntityType>(
-                FieldNodeId::new(panel_id, &crate::panel::FIELD_CREDITED_PRESENTERS),
-                &crate::presenter::FIELD_PANELS,
-            );
+        let forwards: Vec<PresenterId> = loaded.connected_entities::<PresenterEntityType>(
+            FieldNodeId::new(panel_id, &crate::panel::FIELD_CREDITED_PRESENTERS),
+            &crate::presenter::FIELD_PANELS,
+        );
         assert!(forwards.is_empty());
     }
 
@@ -2103,7 +2092,7 @@ mod tests {
             FieldNodeId::new(panel_id, &crate::panel::FIELD_CREDITED_PRESENTERS),
             FieldNodeId::new(alice_id, &FIELD_PANELS),
         );
-        sched.edge_set::<PanelEntityType, PresenterEntityType>(
+        sched.edge_set(
             FieldNodeId::new(panel_id, &crate::panel::FIELD_CREDITED_PRESENTERS),
             &crate::presenter::FIELD_PANELS,
             vec![bob_id],
@@ -2112,11 +2101,10 @@ mod tests {
         let bytes = sched.save();
         let loaded = Schedule::load(&bytes).expect("load");
 
-        let forwards: Vec<PresenterId> = loaded
-            .connected_entities::<PanelEntityType, PresenterEntityType>(
-                FieldNodeId::new(panel_id, &crate::panel::FIELD_CREDITED_PRESENTERS),
-                &crate::presenter::FIELD_PANELS,
-            );
+        let forwards: Vec<PresenterId> = loaded.connected_entities::<PresenterEntityType>(
+            FieldNodeId::new(panel_id, &crate::panel::FIELD_CREDITED_PRESENTERS),
+            &crate::presenter::FIELD_PANELS,
+        );
         assert_eq!(forwards, vec![bob_id]);
     }
 
@@ -2155,11 +2143,10 @@ mod tests {
         doc_a.merge(&mut doc_b).unwrap();
         let merged = Schedule::load(&doc_a.save()).expect("load merged");
 
-        let mut forwards: Vec<PresenterId> = merged
-            .connected_entities::<PanelEntityType, PresenterEntityType>(
-                FieldNodeId::new(panel_id, &crate::panel::FIELD_CREDITED_PRESENTERS),
-                &crate::presenter::FIELD_PANELS,
-            );
+        let mut forwards: Vec<PresenterId> = merged.connected_entities::<PresenterEntityType>(
+            FieldNodeId::new(panel_id, &crate::panel::FIELD_CREDITED_PRESENTERS),
+            &crate::presenter::FIELD_PANELS,
+        );
         forwards.sort_by_key(|id| id.entity_uuid());
         let mut expected = vec![alice_id, bob_id];
         expected.sort_by_key(|id| id.entity_uuid());
@@ -2212,7 +2199,7 @@ mod tests {
         a.merge(&mut b).expect("merge");
 
         let mut ids: Vec<_> = a
-            .connected_entities::<PanelEntityType, PresenterEntityType>(
+            .connected_entities::<PresenterEntityType>(
                 FieldNodeId::new(panel_id, &crate::panel::FIELD_CREDITED_PRESENTERS),
                 &crate::presenter::FIELD_PANELS,
             )
@@ -2371,11 +2358,10 @@ mod tests {
         let merged = Schedule::load(&doc_a.save()).expect("load merged");
 
         // Add wins: Alice is still in the list.
-        let forwards: Vec<PresenterId> = merged
-            .connected_entities::<PanelEntityType, PresenterEntityType>(
-                FieldNodeId::new(panel_id, &crate::panel::FIELD_CREDITED_PRESENTERS),
-                &crate::presenter::FIELD_PANELS,
-            );
+        let forwards: Vec<PresenterId> = merged.connected_entities::<PresenterEntityType>(
+            FieldNodeId::new(panel_id, &crate::panel::FIELD_CREDITED_PRESENTERS),
+            &crate::presenter::FIELD_PANELS,
+        );
         assert_eq!(forwards, vec![alice_id]);
     }
 

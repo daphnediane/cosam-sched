@@ -129,10 +129,10 @@ Both directions of every edge are stored symmetrically in the same map.  Homogen
 
 `Schedule` exposes typed generic methods:
 
-- `connected_entities::<L, R>(near_node, far_field)` — R entities connected to `near_node` whose far-side field matches `far_field`
+- `connected_entities::<R>(near_node, far_field)` — R entities connected to `near_node` whose far-side field matches `far_field`
 - `connected_field_nodes(near_node, far_field_ref)` — `RuntimeFieldNodeId` neighbors filtered by far-side `FieldRef`
 - `edge_add` / `edge_remove` — mutators; accept `impl DynamicFieldNodeId`
-- `edge_set<Near, Far>(near, far_field, targets)` — bulk replace neighbors; returns `(added, removed)` diff used for incremental CRDT mirroring
+- `edge_set<Far>(near, far_field, targets)` — bulk replace neighbors; returns `(added, removed)` diff used for incremental CRDT mirroring
 
 CRDT ownership for any `(near_field, far_field)` pair is resolved by
 `edge_crdt::canonical_owner`, which inspects each side's `crdt_type()`:

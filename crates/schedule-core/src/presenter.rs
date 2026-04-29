@@ -552,7 +552,7 @@ pub fn find_tagged_presenter(
         if let Some(group_name) = parsed.group_name {
             let node = crate::field_node_id::FieldNodeId::new(id, &FIELD_MEMBERS);
             let in_group = schedule
-                .connected_entities::<PresenterEntityType, PresenterEntityType>(node, &FIELD_GROUPS)
+                .connected_entities::<PresenterEntityType>(node, &FIELD_GROUPS)
                 .into_iter()
                 .any(|gid| {
                     schedule
@@ -638,7 +638,7 @@ pub fn find_or_create_tagged_presenter(
         let already_in_group = {
             let node = crate::field_node_id::FieldNodeId::new(pres_id, &FIELD_MEMBERS);
             schedule
-                .connected_entities::<PresenterEntityType, PresenterEntityType>(node, &FIELD_GROUPS)
+                .connected_entities::<PresenterEntityType>(node, &FIELD_GROUPS)
                 .contains(&gid)
         };
         if !already_in_group {
@@ -881,13 +881,13 @@ define_field! {
         // Query panels where this presenter is credited
         let credited_node = FieldNodeId::new(id, &FIELD_PANELS);
         let mut ids: Vec<PanelId> = sched
-            .connected_entities::<PresenterEntityType, PanelEntityType>(
+            .connected_entities::<PanelEntityType>(
                 credited_node,
                 &crate::panel::FIELD_CREDITED_PRESENTERS,
             );
         // Query panels where this presenter is uncredited
         ids.extend(
-            sched.connected_entities::<PresenterEntityType, PanelEntityType>(
+            sched.connected_entities::<PanelEntityType>(
                 credited_node,
                 &crate::panel::FIELD_UNCREDITED_PRESENTERS,
             ),
@@ -1014,7 +1014,7 @@ define_field! {
         let mut panel_set: HashSet<PanelId> = HashSet::new();
         // Direct panels of this presenter
         let node = crate::field_node_id::FieldNodeId::new(id, &FIELD_PANELS);
-        for p in sched.connected_entities::<PresenterEntityType, PanelEntityType>(node, &crate::panel::FIELD_PRESENTERS) {
+        for p in sched.connected_entities::<PanelEntityType>(node, &crate::panel::FIELD_PRESENTERS) {
             panel_set.insert(p);
         }
         // Panels of all transitive groups (upward)
@@ -1023,7 +1023,7 @@ define_field! {
             &FIELD_GROUPS,
         ) {
             let node = crate::field_node_id::FieldNodeId::new(g, &FIELD_PANELS);
-            for p in sched.connected_entities::<PresenterEntityType, PanelEntityType>(node, &crate::panel::FIELD_PRESENTERS) {
+            for p in sched.connected_entities::<PanelEntityType>(node, &crate::panel::FIELD_PRESENTERS) {
                 panel_set.insert(p);
             }
         }
@@ -1033,7 +1033,7 @@ define_field! {
             &FIELD_MEMBERS,
         ) {
             let node = crate::field_node_id::FieldNodeId::new(m, &FIELD_PANELS);
-            for p in sched.connected_entities::<PresenterEntityType, PanelEntityType>(node, &crate::panel::FIELD_PRESENTERS) {
+            for p in sched.connected_entities::<PanelEntityType>(node, &crate::panel::FIELD_PRESENTERS) {
                 panel_set.insert(p);
             }
         }
@@ -1670,7 +1670,7 @@ mod tests {
         assert_eq!(alice.data.name, "Alice");
         assert!(!alice.data.is_explicit_group);
 
-        let groups = sched.connected_entities::<PresenterEntityType, PresenterEntityType>(
+        let groups = sched.connected_entities::<PresenterEntityType>(
             FieldNodeId::new(alice_id, &FIELD_MEMBERS),
             &FIELD_GROUPS,
         );
@@ -1687,7 +1687,7 @@ mod tests {
     fn test_find_or_create_double_equals_always_shown() {
         let mut sched = Schedule::default();
         let alice_id = find_or_create_tagged_presenter(&mut sched, "P:Alice==MyBand").unwrap();
-        let groups = sched.connected_entities::<PresenterEntityType, PresenterEntityType>(
+        let groups = sched.connected_entities::<PresenterEntityType>(
             FieldNodeId::new(alice_id, &FIELD_MEMBERS),
             &FIELD_GROUPS,
         );

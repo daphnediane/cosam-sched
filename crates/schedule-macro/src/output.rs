@@ -248,7 +248,7 @@ fn expand_edge(inp: &FieldInput) -> syn::Result<TokenStream> {
                 |sched: &::schedule_core::schedule::Schedule,
                  id: ::schedule_core::entity::EntityId<#entity>| {
                     let node = ::schedule_core::field_node_id::FieldNodeId::new(id, &#static_name);
-                    let ids = sched.connected_entities::<#entity, #target>(node, #target_field);
+                    let ids = sched.connected_entities::<#target>(node, #target_field);
                     Some(::schedule_core::schedule::entity_ids_to_field_value(ids))
                 },
             ))
@@ -346,7 +346,7 @@ fn generate_rw_write(
                 let ids =
                     ::schedule_core::schedule::field_value_to_entity_ids::<#target>(val)?;
                 #exclusivity_prelude
-                sched.edge_set::<#entity, #target>(
+                sched.edge_set(
                     ::schedule_core::field_node_id::FieldNodeId::new(id, &#static_name),
                     #target_field,
                     ids,

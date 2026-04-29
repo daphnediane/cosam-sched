@@ -710,12 +710,12 @@ define_field! {
         let credited_node = FieldNodeId::new(id, &FIELD_CREDITED_PRESENTERS);
         let uncredited_node = FieldNodeId::new(id, &FIELD_UNCREDITED_PRESENTERS);
         let mut ids: Vec<PresenterId> = sched
-            .connected_entities::<PanelEntityType, PresenterEntityType>(
+            .connected_entities::<PresenterEntityType>(
                 credited_node,
                 &crate::presenter::FIELD_PANELS,
             );
         ids.extend(
-            sched.connected_entities::<PanelEntityType, PresenterEntityType>(
+            sched.connected_entities::<PresenterEntityType>(
                 uncredited_node,
                 &crate::presenter::FIELD_PANELS,
             ),
@@ -809,7 +809,7 @@ define_field! {
     item: FieldTypeItem::EntityIdentifier(PresenterEntityType::TYPE_NAME),
     read: |sched: &Schedule, panel_id: PanelId| {
         let node = FieldNodeId::new(panel_id, &FIELD_PRESENTERS);
-        let direct = sched.connected_entities::<PanelEntityType, PresenterEntityType>(node, &FIELD_PANELS);
+        let direct = sched.connected_entities::<PresenterEntityType>(node, &FIELD_PANELS);
         let mut result: HashSet<PresenterId> = HashSet::new();
         for p in direct {
             result.insert(p);
@@ -888,7 +888,7 @@ define_field! {
     read: |sched: &Schedule, id: PanelId| {
         let node = FieldNodeId::new(id, &FIELD_EVENT_ROOMS);
         let event_room_ids = sched
-            .connected_entities::<PanelEntityType, EventRoomEntityType>(
+            .connected_entities::<EventRoomEntityType>(
                 node,
                 &crate::event_room::FIELD_PANELS,
             );
@@ -896,7 +896,7 @@ define_field! {
         for event_room_id in event_room_ids {
             let node = FieldNodeId::new(event_room_id, &crate::event_room::FIELD_HOTEL_ROOMS);
             let rooms = sched
-                .connected_entities::<EventRoomEntityType, HotelRoomEntityType>(
+                .connected_entities::<HotelRoomEntityType>(
                     node,
                     &crate::hotel_room::FIELD_EVENT_ROOMS,
                 );
@@ -934,10 +934,8 @@ pub(crate) fn compute_credits(sched: &crate::schedule::Schedule, panel_id: Panel
     // Get credited presenters directly from the credited edge list
     let credited_node =
         crate::field_node_id::FieldNodeId::new(panel_id, &FIELD_CREDITED_PRESENTERS);
-    let credited_ids = sched.connected_entities::<PanelEntityType, PresenterEntityType>(
-        credited_node,
-        &crate::presenter::FIELD_PANELS,
-    );
+    let credited_ids = sched
+        .connected_entities::<PresenterEntityType>(credited_node, &crate::presenter::FIELD_PANELS);
     if credited_ids.is_empty() {
         return Vec::new();
     }
@@ -966,10 +964,8 @@ pub(crate) fn compute_credits(sched: &crate::schedule::Schedule, panel_id: Panel
                 presenter_id,
                 &crate::presenter::FIELD_MEMBERS,
             );
-            let member_ids = sched.connected_entities::<PresenterEntityType, PresenterEntityType>(
-                node,
-                &crate::presenter::FIELD_GROUPS,
-            );
+            let member_ids = sched
+                .connected_entities::<PresenterEntityType>(node, &crate::presenter::FIELD_GROUPS);
             let all_members: HashSet<PresenterId> = member_ids.iter().cloned().collect();
             let credited_members: Vec<PresenterId> = all_members
                 .iter()
@@ -1033,10 +1029,8 @@ pub(crate) fn compute_credits(sched: &crate::schedule::Schedule, panel_id: Panel
                 presenter_id,
                 &crate::presenter::FIELD_MEMBERS,
             );
-            let group_ids = sched.connected_entities::<PresenterEntityType, PresenterEntityType>(
-                node,
-                &crate::presenter::FIELD_GROUPS,
-            );
+            let group_ids = sched
+                .connected_entities::<PresenterEntityType>(node, &crate::presenter::FIELD_GROUPS);
             for group_id in group_ids {
                 let Some(&group_data) = presenter_lookup.get(&group_id) else {
                     continue;
@@ -1045,11 +1039,10 @@ pub(crate) fn compute_credits(sched: &crate::schedule::Schedule, panel_id: Panel
                     group_id,
                     &crate::presenter::FIELD_MEMBERS,
                 );
-                let group_member_ids = sched
-                    .connected_entities::<PresenterEntityType, PresenterEntityType>(
-                        node,
-                        &crate::presenter::FIELD_GROUPS,
-                    );
+                let group_member_ids = sched.connected_entities::<PresenterEntityType>(
+                    node,
+                    &crate::presenter::FIELD_GROUPS,
+                );
                 let show_as_group = group_data.always_shown_in_group
                     || group_member_ids.iter().all(|m| credited_ids.contains(m));
 

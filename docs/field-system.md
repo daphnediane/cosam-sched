@@ -468,7 +468,7 @@ define_field!(
             |sched: &Schedule, id: PanelId| {
                 // Access schedule to traverse edges, look up entities, etc.
                 let node = FieldNodeId::new(id, &FIELD_PRESENTERS);
-                let presenter_ids = sched.connected_entities::<PanelEntityType, PresenterEntityType>(node, &FIELD_PANELS);
+                let presenter_ids = sched.connected_entities::<PresenterEntityType>(node, &FIELD_PANELS);
                 // ... compute and return FieldValue
             },
         )),

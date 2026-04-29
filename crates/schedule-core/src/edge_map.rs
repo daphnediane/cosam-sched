@@ -40,7 +40,7 @@
 //! map[group_uuid][FIELD_MEMBERS]  = [(FIELD_GROUPS,  member_uuid), ...]
 //! ```
 
-use crate::entity::EntityUuid;
+use crate::entity::DynamicEntityId;
 use crate::field_node_id::{DynamicFieldNodeId, FieldRef, RuntimeFieldNodeId};
 use std::collections::HashMap;
 use uuid::NonNilUuid;
@@ -125,7 +125,7 @@ impl RawEdgeMap {
         &mut self,
         from: impl DynamicFieldNodeId,
         far: FieldRef,
-        new_targets: Vec<RuntimeFieldNodeId>,
+        new_targets: impl IntoIterator<Item = impl DynamicEntityId>,
     ) -> (Vec<NonNilUuid>, Vec<NonNilUuid>) {
         let from_field = FieldRef(from.field());
         let from_uuid = from.entity_uuid();
@@ -140,11 +140,9 @@ impl RawEdgeMap {
             .cloned()
             .unwrap_or_default();
 
-        // Build new neighbor UUIDs
-        let new_neighbor_uuids: Vec<NonNilUuid> = new_targets
-            .iter()
-            .map(|target| target.entity_uuid())
-            .collect();
+        // Build new neighbor UUIDs directly from entity IDs
+        let new_neighbor_uuids: Vec<NonNilUuid> =
+            new_targets.into_iter().map(|t| t.entity_uuid()).collect();
 
         // Compute diffs.
         let added: Vec<NonNilUuid> = new_neighbor_uuids
@@ -282,7 +280,7 @@ impl RawEdgeMap {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::entity::EntityType;
+    use crate::entity::{EntityId, EntityType};
     use crate::field::FieldDescriptor;
     use crate::field_set::FieldSet;
     use crate::value::{
@@ -406,6 +404,11 @@ mod tests {
     fn fn_b1(n: u128) -> RuntimeFieldNodeId {
         // SAFETY: Test fixtures use matching entity types for their fields.
         unsafe { RuntimeFieldNodeId::new_unchecked(nnu(n), &FIELD_B1) }
+    }
+
+    fn id_b(n: u128) -> EntityId<TypeB> {
+        // SAFETY: Test fixtures use valid UUIDs for TypeB.
+        unsafe { EntityId::new_unchecked(nnu(n)) }
     }
 
     fn nnu(n: u128) -> NonNilUuid {
@@ -537,7 +540,7 @@ mod tests {
         map.add_edge(fn_a1(1), fn_b1(10));
         map.add_edge(fn_a1(1), fn_b1(11));
 
-        map.set_neighbors(fn_a1(1), fr_b1(), vec![fn_b1(12)]);
+        map.set_neighbors(fn_a1(1), fr_b1(), vec![id_b(12)]);
 
         let neighbors = map.neighbors(fn_a1(1), fr_b1());
         assert_eq!(neighbors.len(), 1);
@@ -553,7 +556,7 @@ mod tests {
     fn test_set_neighbors_to_empty_clears_all() {
         let mut map = RawEdgeMap::default();
         map.add_edge(fn_a1(1), fn_b1(2));
-        map.set_neighbors(fn_a1(1), fr_b1(), vec![]);
+        map.set_neighbors(fn_a1(1), fr_b1(), vec![] as Vec<EntityId<TypeB>>);
 
         assert!(map.neighbors(fn_a1(1), fr_b1()).is_empty());
         assert!(map.neighbors(fn_b1(2), fr_a1()).is_empty());
@@ -565,7 +568,7 @@ mod tests {
         map.add_edge(fn_a1(1), fn_b1(10));
         map.add_edge(fn_a1(1), fn_a2(20));
 
-        map.set_neighbors(fn_a1(1), fr_b1(), vec![fn_b1(11)]);
+        map.set_neighbors(fn_a1(1), fr_b1(), vec![id_b(11)]);
 
         let neighbors_b = map.neighbors(fn_a1(1), fr_b1());
         assert_eq!(neighbors_b.len(), 1);
