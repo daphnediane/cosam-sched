@@ -425,7 +425,7 @@ mod tests {
     use crate::entity::{EntityId, EntityType};
     use crate::field::{CommonFieldData, ReadFn, WriteFn};
     use crate::field_value;
-    use crate::value::{CrdtFieldType, FieldError, ValidationError};
+    use crate::value::{CrdtFieldType, EdgeKind, FieldError, ValidationError};
     use crate::value::{FieldCardinality, FieldType, FieldTypeItem};
     use uuid::Uuid;
 
@@ -479,6 +479,7 @@ mod tests {
             order: 0,
         },
         required: true,
+        edge_kind: EdgeKind::NonEdge,
         crdt_type: CrdtFieldType::Scalar,
         read_fn: Some(ReadFn::Bare(|d: &MockData| {
             Some(field_value!(d.label.clone()))
@@ -501,6 +502,7 @@ mod tests {
             order: 100,
         },
         required: false,
+        edge_kind: EdgeKind::NonEdge,
         crdt_type: CrdtFieldType::Scalar,
         read_fn: Some(ReadFn::Bare(|d: &MockData| Some(field_value!(d.count)))),
         write_fn: Some(WriteFn::Bare(|d: &mut MockData, v| {
@@ -521,6 +523,7 @@ mod tests {
             order: 200,
         },
         required: false,
+        edge_kind: EdgeKind::NonEdge,
         crdt_type: CrdtFieldType::Derived,
         read_fn: Some(ReadFn::Bare(|_: &MockData| Some(field_value!(42)))),
         write_fn: None,
@@ -762,6 +765,7 @@ mod tests {
             order: 300,
         },
         required: false,
+        edge_kind: EdgeKind::NonEdge,
         crdt_type: CrdtFieldType::Scalar,
         read_fn: Some(ReadFn::Bare(|d: &MockData| {
             Some(field_value!(d.label.clone()))
@@ -786,6 +790,7 @@ mod tests {
             order: 400,
         },
         required: false,
+        edge_kind: EdgeKind::NonEdge,
         crdt_type: CrdtFieldType::Derived,
         read_fn: None,
         write_fn: Some(WriteFn::Bare(|d: &mut MockData, _v| {
@@ -809,6 +814,7 @@ mod tests {
                 order: 500,
             },
             required: false,
+            edge_kind: EdgeKind::NonEdge,
             crdt_type: CrdtFieldType::Scalar,
             read_fn: Some(ReadFn::Bare(|d: &MockData| Some(field_value!(d.count)))),
             write_fn: Some(WriteFn::Bare(|d: &mut MockData, v| {
@@ -846,6 +852,7 @@ mod tests {
                 order: 600,
             },
             required: false,
+            edge_kind: EdgeKind::NonEdge,
             crdt_type: CrdtFieldType::Scalar,
             read_fn: Some(ReadFn::Bare(|d: &MockData| Some(field_value!(d.count)))),
             write_fn: Some(WriteFn::Bare(|d: &mut MockData, v| {
@@ -1092,6 +1099,7 @@ mod tests {
                 order: 700,
             },
             required: false,
+            edge_kind: EdgeKind::NonEdge,
             crdt_type: CrdtFieldType::Derived,
             read_fn: None,
             write_fn: Some(WriteFn::Bare(|d: &mut MockData, _v| {

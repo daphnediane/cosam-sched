@@ -194,6 +194,7 @@ fn expand_stored(inp: &FieldInput) -> syn::Result<TokenStream> {
     let body = quote! {
         #meta
         required: #required_lit,
+        edge_kind: ::schedule_core::value::EdgeKind::NonEdge,
         crdt_type: <#marker as ::schedule_core::converter::FieldTypeMapping>::CRDT_TYPE,
         read_fn: #read_fn,
         write_fn: #write_fn,
@@ -215,6 +216,31 @@ fn expand_edge(inp: &FieldInput) -> syn::Result<TokenStream> {
     let owner = inp.flag("owner");
     let exclusive_with = inp.opt_expr("exclusive_with")?;
 
+    // edge_type
+    let edge_kind = match (edge_mode_str.as_str(), owner) {
+        ("ro" | "rw" | "one", true) => {
+            let sibling = match exclusive_with.clone() {
+                Some(expr) => quote!(Some(#expr)),
+                None => quote!(None),
+            };
+            quote!(::schedule_core::value::EdgeKind::Owner {
+                target_field: #target_field,
+                exclusive_with: #sibling,
+            })
+        }
+        ("ro" | "rw" | "one", false) => {
+            quote!(::schedule_core::value::EdgeKind::Target { source_fields: &[] })
+        }
+        ("add" | "remove", _) => {
+            quote!(::schedule_core::value::EdgeKind::NonEdge)
+        }
+        _ => {
+            return Err(syn::Error::new(
+                edge_mode.span(),
+                format!("unknown edge mode `{edge_mode_str}` (expected ro|rw|one|add|remove)"),
+            ));
+        }
+    };
     // crdt_type
     let crdt_type = match (edge_mode_str.as_str(), owner) {
         ("ro" | "rw" | "one", true) => {
@@ -311,6 +337,7 @@ fn expand_edge(inp: &FieldInput) -> syn::Result<TokenStream> {
     let body = quote! {
         #meta
         required: false,
+        edge_kind: #edge_kind,
         crdt_type: #crdt_type,
         read_fn: #read_fn,
         write_fn: #write_fn,
@@ -435,6 +462,10 @@ fn expand_custom(inp: &FieldInput) -> syn::Result<TokenStream> {
             "custom define_field! requires `crdt:` (e.g. `crdt: Derived`)",
         )
     })?;
+    let edge_kind = match crdt_ident.to_string().as_str() {
+        "EdgeTarget" => quote!(::schedule_core::value::EdgeKind::Target { source_fields: &[] }),
+        _ => quote!(::schedule_core::value::EdgeKind::NonEdge),
+    };
     let crdt_type = match crdt_ident.to_string().as_str() {
         "Scalar" => quote!(::schedule_core::value::CrdtFieldType::Scalar),
         "Text" => quote!(::schedule_core::value::CrdtFieldType::Text),
@@ -541,6 +572,7 @@ fn expand_custom(inp: &FieldInput) -> syn::Result<TokenStream> {
     let body = quote! {
         #meta
         required: #required_lit,
+        edge_kind: #edge_kind,
         crdt_type: #crdt_type,
         read_fn: #read_fn,
         write_fn: #write_fn,

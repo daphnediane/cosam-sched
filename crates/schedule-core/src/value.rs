@@ -517,6 +517,9 @@ pub enum EdgeKind {
         /// this one (e.g. credited vs uncredited presenter lists).
         exclusive_with: Option<&'static dyn crate::field::HalfEdge>,
     },
+    /// Temporary value for non-edges for use by FieldDescriptor
+    /// before we separate the descriptor types
+    NonEdge,
 }
 
 impl EdgeKind {
@@ -532,6 +535,7 @@ impl EdgeKind {
         match self {
             Self::Owner { target_field, .. } => Some(*target_field),
             Self::Target { .. } => None,
+            Self::NonEdge => None,
         }
     }
 
@@ -541,6 +545,7 @@ impl EdgeKind {
         match self {
             Self::Target { source_fields } => Some(source_fields),
             Self::Owner { .. } => None,
+            Self::NonEdge => None,
         }
     }
 }
@@ -582,6 +587,7 @@ impl std::fmt::Debug for EdgeKind {
                 .field("target_field", &target_field.name())
                 .field("exclusive_with", &exclusive_with.map(|e| e.name()))
                 .finish(),
+            Self::NonEdge => f.write_str("NonEdge"),
         }
     }
 }

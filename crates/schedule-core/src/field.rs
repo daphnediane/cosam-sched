@@ -26,7 +26,7 @@
 use crate::entity::{EntityId, EntityType};
 use crate::field_node_id::FieldRef;
 use crate::schedule::Schedule;
-use crate::value::{CrdtFieldType, FieldError, FieldType, FieldValue, VerificationError};
+use crate::value::{CrdtFieldType, EdgeKind, FieldError, FieldType, FieldValue, VerificationError};
 
 /// How a field reads its value: directly from [`EntityType::InternalData`], or
 /// via a [`Schedule`] lookup by [`EntityId`].
@@ -297,7 +297,7 @@ pub struct EdgeDescriptor<E: EntityType> {
     /// Data shared by all field types
     pub(crate) data: CommonFieldData,
     /// Edge ownership and relationship metadata.
-    pub edge_kind: crate::value::EdgeKind,
+    pub edge_kind: EdgeKind,
     /// Read implementation. `None` means write-only.
     pub read_fn: Option<ReadFn<E>>,
     /// Write implementation. `None` means read-only.
@@ -331,12 +331,13 @@ impl<E: EntityType> NamedField for EdgeDescriptor<E> {
                 }
             }
             crate::value::EdgeKind::Target { .. } => crate::value::CrdtFieldType::EdgeTarget,
+            crate::value::EdgeKind::NonEdge => crate::value::CrdtFieldType::Scalar,
         }
     }
 }
 
 impl<E: EntityType> HalfEdge for EdgeDescriptor<E> {
-    fn edge_kind(&self) -> &crate::value::EdgeKind {
+    fn edge_kind(&self) -> &EdgeKind {
         &self.edge_kind
     }
 
@@ -469,6 +470,8 @@ pub struct FieldDescriptor<E: EntityType> {
     pub(crate) data: CommonFieldData,
     /// Whether the field is required (must be non-empty).
     pub required: bool,
+    /// Edge ownership and relationship metadata -- (To be removed once EdgeDescriptor is live)
+    pub edge_kind: EdgeKind,
     /// CRDT storage type annotation for Phase 4.
     pub crdt_type: CrdtFieldType,
     /// Read implementation. `None` means write-only.
@@ -499,6 +502,17 @@ impl<E: EntityType> NamedField for FieldDescriptor<E> {
 
     fn crdt_type(&self) -> crate::value::CrdtFieldType {
         self.crdt_type
+    }
+}
+
+impl<E: EntityType> HalfEdge for FieldDescriptor<E> {
+    fn edge_kind(&self) -> &EdgeKind {
+        &self.edge_kind
+    }
+
+    fn as_named_field_static(&self) -> &'static dyn NamedField {
+        // SAFETY: FieldDescriptor instances are 'static singletons.
+        unsafe { std::mem::transmute(self as &dyn NamedField) }
     }
 }
 
@@ -700,6 +714,7 @@ mod tests {
             order: 0,
         },
         required: true,
+        edge_kind: EdgeKind::NonEdge,
         crdt_type: CrdtFieldType::Scalar,
         read_fn: Some(ReadFn::Bare(|d: &MockInternalData| {
             Some(field_value!(d.label.clone()))
@@ -722,6 +737,7 @@ mod tests {
             order: 100,
         },
         required: false,
+        edge_kind: EdgeKind::NonEdge,
         crdt_type: CrdtFieldType::Scalar,
         read_fn: Some(ReadFn::Bare(|d: &MockInternalData| {
             Some(field_value!(d.count))
@@ -744,6 +760,7 @@ mod tests {
             order: 200,
         },
         required: false,
+        edge_kind: EdgeKind::NonEdge,
         crdt_type: CrdtFieldType::Derived,
         read_fn: Some(ReadFn::Bare(|_: &MockInternalData| Some(field_value!(42)))),
         write_fn: None,
@@ -761,6 +778,7 @@ mod tests {
             order: 300,
         },
         required: false,
+        edge_kind: EdgeKind::NonEdge,
         crdt_type: CrdtFieldType::Derived,
         read_fn: None,
         write_fn: Some(WriteFn::Bare(|d: &mut MockInternalData, v| {

@@ -113,7 +113,7 @@ mod tests {
     use crate::field_node_id::RuntimeFieldNodeId;
     use crate::field_set::FieldSet;
     use crate::value::{
-        CrdtFieldType, FieldCardinality, FieldType, FieldTypeItem, ValidationError,
+        CrdtFieldType, EdgeKind, FieldCardinality, FieldType, FieldTypeItem, ValidationError,
     };
     use uuid::{NonNilUuid, Uuid};
 
@@ -153,6 +153,10 @@ mod tests {
             order: 0,
         },
         required: false,
+        edge_kind: EdgeKind::Owner {
+            target_field: &FIELD_REV,
+            exclusive_with: None,
+        },
         crdt_type: CrdtFieldType::Derived,
         read_fn: None,
         write_fn: None,
@@ -170,6 +174,7 @@ mod tests {
             order: 1,
         },
         required: false,
+        edge_kind: EdgeKind::Target { source_fields: &[] },
         crdt_type: CrdtFieldType::Derived,
         read_fn: None,
         write_fn: None,

@@ -284,7 +284,7 @@ mod tests {
     use crate::field::{CommonFieldData, FieldDescriptor};
     use crate::field_set::FieldSet;
     use crate::value::{
-        CrdtFieldType, FieldCardinality, FieldType, FieldTypeItem, ValidationError,
+        CrdtFieldType, EdgeKind, FieldCardinality, FieldType, FieldTypeItem, ValidationError,
     };
     use uuid::{NonNilUuid, Uuid};
 
@@ -349,6 +349,7 @@ mod tests {
             order: 0,
         },
         required: false,
+        edge_kind: EdgeKind::NonEdge,
         crdt_type: CrdtFieldType::Derived,
         read_fn: None,
         write_fn: None,
@@ -366,6 +367,7 @@ mod tests {
             order: 1,
         },
         required: false,
+        edge_kind: EdgeKind::NonEdge,
         crdt_type: CrdtFieldType::Derived,
         read_fn: None,
         write_fn: None,
@@ -383,6 +385,7 @@ mod tests {
             order: 0,
         },
         required: false,
+        edge_kind: EdgeKind::NonEdge,
         crdt_type: CrdtFieldType::Derived,
         read_fn: None,
         write_fn: None,
