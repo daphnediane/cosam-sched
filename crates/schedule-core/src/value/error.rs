@@ -55,6 +55,9 @@ pub enum ConversionError {
     /// A string could not be parsed into the target type.
     #[error("parse error: {message}")]
     ParseError { message: std::string::String },
+    /// Invalid edge configuration.
+    #[error("invalid edge: {reason}")]
+    InvalidEdge { reason: std::string::String },
 }
 
 // ── ValidationError ─────────────────────────────────────────────────────────

@@ -15,6 +15,6 @@ pub mod traits;
 
 pub use cache::TransitiveEdgeCache;
 pub use descriptor::{EdgeDescriptor, EdgeKind};
-pub use id::{DynamicFieldNodeId, EdgeRef, FieldNodeId, RuntimeFieldNodeId};
+pub use id::{DynamicFieldNodeId, EdgeRef, FieldNodeId, FullEdge, RuntimeFieldNodeId};
 pub use map::RawEdgeMap;
 pub use traits::{HalfEdge, TypedHalfEdge};
