@@ -1,0 +1,380 @@
+/*
+ * Copyright (c) 2026 Daphne Pfister
+ * SPDX-License-Identifier: BSD-2-Clause
+ * See LICENSE file for full license text
+ */
+
+//! Edge operations for [`Schedule`].
+
+use crate::edge::cache::TransitiveEdgeCache;
+use crate::edge::{DynamicFieldNodeId, FieldNodeId, HalfEdge};
+use crate::entity::{EntityType, EntityUuid};
+use crate::value::{ConversionError, FieldError, FieldValue, FieldValueItem};
+use crate::{DynamicEntityId, EntityId, EntityTyped};
+use uuid::NonNilUuid;
+
+use super::Schedule;
+
+impl Schedule {
+    // ── Edge API ──────────────────────────────────────────────────────────────
+
+    /// All neighbor field node IDs reachable via the given field node, filtered by far-side field.
+    ///
+    /// Lowest-level field-based query; suitable for entity-module read functions
+    /// that have a concrete [`crate::edge::EdgeRef`] in hand.
+    /// Only returns connections where the far-side field matches `far_field`.
+    /// Returns the full [`crate::edge::RuntimeFieldNodeId`] of each neighbor (including both
+    /// the entity UUID and the field ID of the reverse edge).
+    #[must_use]
+    pub fn connected_field_nodes(
+        &self,
+        node: impl crate::edge::DynamicFieldNodeId,
+        far_field: crate::edge::EdgeRef,
+    ) -> Vec<crate::edge::RuntimeFieldNodeId> {
+        self.edges.neighbors(node, far_field)
+    }
+
+    /// Returns all entities of type `R` connected to `node` via the given far field.
+    ///
+    /// The field node ID specifies which field on the entity stores the relationship,
+    /// useful when an entity has multiple fields relating to the same target type.
+    /// The far field parameter specifies which field on the target entity stores the reverse relationship.
+    #[must_use]
+    pub fn connected_entities<R: EntityType>(
+        &self,
+        node: impl crate::edge::DynamicFieldNodeId,
+        far_field: &'static dyn HalfEdge,
+    ) -> Vec<EntityId<R>> {
+        let far_field_ref = far_field.edge_id();
+        self.connected_field_nodes(node, far_field_ref)
+            .iter()
+            .filter(|fn_id| fn_id.entity_type_name() == R::TYPE_NAME)
+            // SAFETY: filter above ensures the UUID belongs to entity type R.
+            .map(|fn_id| unsafe { EntityId::new_unchecked(fn_id.entity_uuid()) })
+            .collect()
+    }
+
+    /// All `Far` entities reachable from `near` via edges.
+    ///
+    /// When `Near` and `Far` are the same entity type (homogeneous edge),
+    /// follows edges transitively via the cache (e.g.
+    /// `inclusive_edges(alice_members, &FIELD_GROUPS)` returns all groups
+    /// alice belongs to, transitively — not alice herself).
+    /// For heterogeneous edges: single-hop lookup via `connected_field_nodes`.
+    ///
+    /// Takes `&self`; the edge cache is updated through interior mutability.
+    #[must_use]
+    pub fn inclusive_edges<Near: EntityType, Far: EntityType>(
+        &self,
+        near: FieldNodeId<Near>,
+        far_field: &'static crate::field::FieldDescriptor<Far>,
+    ) -> Vec<EntityId<Far>> {
+        if Near::TYPE_NAME == Far::TYPE_NAME {
+            let near_field_ref = near.field().edge_id();
+            let far_field_ref = far_field.edge_id();
+            let uuids = {
+                let mut cache_opt = self.transitive_edge_cache.borrow_mut();
+                let cache = cache_opt.get_or_insert_with(TransitiveEdgeCache::default);
+                cache.get_or_compute(
+                    &self.edges,
+                    near.entity_uuid(),
+                    near_field_ref,
+                    far_field_ref,
+                )
+            };
+            uuids
+                .into_iter()
+                // SAFETY: uuid came from the edge map which only stores valid entity IDs of type Far.
+                .map(|uuid| unsafe { EntityId::new_unchecked(uuid) })
+                .collect()
+        } else {
+            let far_field_ref = far_field.edge_id();
+            self.connected_field_nodes(near, far_field_ref)
+                .into_iter()
+                // SAFETY: The field descriptor ensures the UUID belongs to entity type Far.
+                .map(|fn_id| unsafe { EntityId::<Far>::new_unchecked(fn_id.entity_uuid()) })
+                .collect()
+        }
+    }
+
+    /// Add an edge from `l` to `r`.
+    ///
+    /// Resolves the field IDs for the `(L, R)` pair and calls
+    /// [`crate::edge_map::RawEdgeMap::add_edge`].  When the edge is transitive,
+    /// also invalidates the [`TransitiveEdgeCache`].
+    ///
+    /// After updating the cache, if the mirror is enabled the new endpoint
+    /// is incrementally `insert`ed into the canonical owner's list field
+    /// (via [`crate::crdt::edge::list_append_unique`]) — **not** rewritten in
+    /// full — so concurrent add/add from two replicas converges to the
+    /// union rather than LWW on the list object.
+    pub fn edge_add(&mut self, l: impl DynamicFieldNodeId, r: impl DynamicFieldNodeId) {
+        let l_type = l.entity_type_name();
+        let r_type = r.entity_type_name();
+
+        // Copy values since DynamicFieldNodeId includes Copy
+        let l_copy = l;
+        let r_copy = r;
+
+        self.edges.add_edge(l_copy, r_copy);
+
+        // Invalidate transitive cache when the two endpoints share the same entity type.
+        if l_type == r_type {
+            *self.transitive_edge_cache.borrow_mut() = None;
+        }
+
+        // CRDT mirror - use the original values (which were copied above)
+        self.mirror_edge_add(&l, &r);
+    }
+
+    /// Remove the edge from `l` to `r`.
+    ///
+    /// The CRDT mirror uses an incremental delete on observed indices so
+    /// concurrent add-vs-unobserved-remove resolves add-wins.
+    pub fn edge_remove(&mut self, l: impl DynamicFieldNodeId, r: impl DynamicFieldNodeId) {
+        let l_type = l.entity_type_name();
+        let r_type = r.entity_type_name();
+
+        // Copy values since DynamicFieldNodeId includes Copy
+        let l_copy = l;
+        let r_copy = r;
+
+        self.edges.remove_edge(l_copy, r_copy);
+
+        // Invalidate transitive cache when the two endpoints share the same entity type.
+        if l_type == r_type {
+            *self.transitive_edge_cache.borrow_mut() = None;
+        }
+
+        // CRDT mirror - use the original values (which were copied above)
+        self.mirror_edge_remove(&l, &r);
+    }
+
+    /// Replace all far-side neighbors of `near` with `targets`.
+    ///
+    /// `near` identifies the fixed entity + its field; `far_field` is the
+    /// field descriptor on the target entity type.  Works from either
+    /// direction — `set_neighbors` handles the bidirectional bookkeeping.
+    ///
+    /// When the two endpoints share the same entity type (transitive/homogeneous edge),
+    /// the transitive edge cache is invalidated.
+    pub fn edge_set(
+        &mut self,
+        near: impl DynamicFieldNodeId,
+        far_field: &'static dyn HalfEdge,
+        targets: impl IntoIterator<Item = impl DynamicEntityId>,
+    ) {
+        let far_field_ref = far_field.edge_id();
+        let (added, removed) = self.edges.set_neighbors(near, far_field_ref, targets);
+
+        // Invalidate transitive cache when near and far share the same entity type.
+        if near.entity_type_name() == far_field.entity_type_name() {
+            *self.transitive_edge_cache.borrow_mut() = None;
+        }
+
+        // CRDT mirror — field-based canonical_owner resolves ownership.
+        self.mirror_edge_set(&near, far_field, &added, &removed);
+    }
+
+    /// After `edge_add`, incrementally append the new endpoint into the
+    /// canonical owner's list field. Concurrent add/add converges to the
+    /// union because both replicas insert into the same shared list
+    /// [`ObjId`](automerge::ObjId) created up-front by
+    /// `mirror_entity_fields` (via `ensure_owner_list` on each `Owner` field).
+    ///
+    /// Ownership is resolved from the field descriptors embedded in `near`
+    /// and `far` via [`crate::crdt::edge::canonical_owner`].
+    fn mirror_edge_add(&mut self, near: &impl DynamicFieldNodeId, far: &impl DynamicFieldNodeId) {
+        if !self.mirror_enabled {
+            return;
+        }
+        let Some(canon) = crate::crdt::edge::canonical_owner(near.field(), far.field()) else {
+            return;
+        };
+        let (owner_uuid, target_uuid) = if canon.near_is_owner {
+            (near.entity_uuid(), far.entity_uuid())
+        } else {
+            (far.entity_uuid(), near.entity_uuid())
+        };
+        if let Err(e) = crate::crdt::edge::list_append_unique(
+            &mut self.doc,
+            canon.owner_type(),
+            owner_uuid,
+            canon.target_type(),
+            canon.field_name(),
+            target_uuid,
+        ) {
+            debug_assert!(false, "CRDT edge_add mirror failed: {e}");
+            let _ = e;
+        }
+    }
+
+    /// After `edge_remove`, incrementally delete every occurrence of the
+    /// endpoint from the canonical owner's list.  Concurrent add-vs-
+    /// unobserved-remove resolves add-wins: the remove only targets
+    /// indices this actor observed, so an insert recorded on a parallel
+    /// branch survives the merge.
+    ///
+    /// Ownership is resolved from the field descriptors embedded in `near`
+    /// and `far` via [`crate::crdt::edge::canonical_owner`].
+    fn mirror_edge_remove(
+        &mut self,
+        near: &impl DynamicFieldNodeId,
+        far: &impl DynamicFieldNodeId,
+    ) {
+        if !self.mirror_enabled {
+            return;
+        }
+        let Some(canon) = crate::crdt::edge::canonical_owner(near.field(), far.field()) else {
+            return;
+        };
+        let (owner_uuid, target_uuid) = if canon.near_is_owner {
+            (near.entity_uuid(), far.entity_uuid())
+        } else {
+            (far.entity_uuid(), near.entity_uuid())
+        };
+        if let Err(e) = crate::crdt::edge::list_remove_uuid(
+            &mut self.doc,
+            canon.owner_type(),
+            owner_uuid,
+            canon.target_type(),
+            canon.field_name(),
+            target_uuid,
+        ) {
+            debug_assert!(false, "CRDT edge_remove mirror failed: {e}");
+            let _ = e;
+        }
+    }
+
+    /// Edge-set mirror — incremental version.
+    ///
+    /// Applies the `(added, removed)` diff produced by [`EdgeMap::set_neighbors`]
+    /// as a series of per-edge incremental CRDT operations (`list_append_unique`
+    /// / `list_remove_uuid`) so that concurrent edits on other replicas are
+    /// preserved rather than clobbered by a full list rewrite.
+    ///
+    /// When near is the canonical owner, all writes target near's list.
+    /// When far is the canonical owner, each added/removed far entity's list
+    /// is updated to add/remove near.
+    ///
+    /// Field refs are derived directly from the [`crate::crdt::edge::CanonicalOwner`]
+    /// returned by [`crate::crdt::edge::canonical_owner`].
+    fn mirror_edge_set(
+        &mut self,
+        near: &impl DynamicFieldNodeId,
+        far_field: &'static dyn HalfEdge,
+        added: &[NonNilUuid],
+        removed: &[NonNilUuid],
+    ) {
+        if !self.mirror_enabled {
+            return;
+        }
+        let Some(canon) = crate::crdt::edge::canonical_owner(near.field(), far_field) else {
+            return;
+        };
+        let near_uuid = near.entity_uuid();
+        if canon.near_is_owner {
+            // Apply diffs to near's owner list.
+            for target_uuid in added {
+                if let Err(e) = crate::crdt::edge::list_append_unique(
+                    &mut self.doc,
+                    canon.owner_type(),
+                    near_uuid,
+                    canon.target_type(),
+                    canon.field_name(),
+                    *target_uuid,
+                ) {
+                    debug_assert!(false, "CRDT edge_set mirror (append) failed: {e}");
+                    let _ = e;
+                }
+            }
+            for target_uuid in removed {
+                if let Err(e) = crate::crdt::edge::list_remove_uuid(
+                    &mut self.doc,
+                    canon.owner_type(),
+                    near_uuid,
+                    canon.target_type(),
+                    canon.field_name(),
+                    *target_uuid,
+                ) {
+                    debug_assert!(false, "CRDT edge_set mirror (remove) failed: {e}");
+                    let _ = e;
+                }
+            }
+            return;
+        }
+        // Far is owner — for each added far, append near to that far's list.
+        // For each removed far, remove near from that far's list.
+        for far_uuid in added {
+            if let Err(e) = crate::crdt::edge::list_append_unique(
+                &mut self.doc,
+                canon.owner_type(),
+                *far_uuid,
+                canon.target_type(),
+                canon.field_name(),
+                near_uuid,
+            ) {
+                debug_assert!(false, "CRDT edge_set mirror (append) failed: {e}");
+                let _ = e;
+            }
+        }
+        for far_uuid in removed {
+            if let Err(e) = crate::crdt::edge::list_remove_uuid(
+                &mut self.doc,
+                canon.owner_type(),
+                *far_uuid,
+                canon.target_type(),
+                canon.field_name(),
+                near_uuid,
+            ) {
+                debug_assert!(false, "CRDT edge_set mirror (remove) failed: {e}");
+                let _ = e;
+            }
+        }
+    }
+}
+
+// ── Helper: convert Vec<EntityId<E>> to FieldValue ───────────────────────────
+
+/// Convert a `Vec<EntityId<E>>` to a `FieldValue::List` of `EntityIdentifier` items.
+///
+/// Used by `ReadFn::Schedule` closures in edge-backed field descriptors.
+pub fn entity_ids_to_field_value<E: EntityType>(ids: Vec<EntityId<E>>) -> FieldValue {
+    FieldValue::List(
+        ids.into_iter()
+            .map(|id| FieldValueItem::EntityIdentifier(id.into()))
+            .collect(),
+    )
+}
+
+/// Parse a `FieldValue` into a `Vec<EntityId<E>>`.
+///
+/// Accepts `FieldValue::List(...)` of `EntityIdentifier` items; returns
+/// `Err(FieldError::Conversion(...))` for any non-matching items or variants.
+///
+/// Used by `WriteFn::Schedule` closures in edge-backed field descriptors.
+pub fn field_value_to_entity_ids<E: EntityType>(
+    val: FieldValue,
+) -> Result<Vec<EntityId<E>>, FieldError> {
+    match val {
+        FieldValue::List(items) => items
+            .into_iter()
+            .map(|item| match item {
+                FieldValueItem::EntityIdentifier(rid) => rid.try_into().map_err(|_| {
+                    FieldError::Conversion(ConversionError::WrongVariant {
+                        expected: E::TYPE_NAME,
+                        got: "other entity type",
+                    })
+                }),
+                _ => Err(FieldError::Conversion(ConversionError::WrongVariant {
+                    expected: "EntityIdentifier",
+                    got: "other",
+                })),
+            })
+            .collect(),
+        _ => Err(FieldError::Conversion(ConversionError::WrongVariant {
+            expected: "List",
+            got: "other",
+        })),
+    }
+}
