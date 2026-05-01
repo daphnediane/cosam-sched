@@ -304,7 +304,7 @@ mod tests {
     use crate::edge::EdgeKind;
     use crate::entity::{EntityType, RuntimeEntityId};
     use crate::field::set::FieldSet;
-    use crate::field::{CommonFieldData, FieldDescriptor};
+    use crate::field::{CommonFieldData, FieldCallbacks, FieldDescriptor};
     use crate::value::{FieldCardinality, FieldType, FieldTypeItem, ValidationError};
     use uuid::{NonNilUuid, Uuid};
 
@@ -371,9 +371,11 @@ mod tests {
         required: false,
         edge_kind: EdgeKind::NonEdge,
         crdt_type: CrdtFieldType::Derived,
-        read_fn: None,
-        write_fn: None,
-        verify_fn: None,
+        cb: FieldCallbacks {
+            read_fn: None,
+            write_fn: None,
+            verify_fn: None,
+        },
     };
 
     static FIELD_A2: FieldDescriptor<TypeA> = FieldDescriptor {
@@ -389,9 +391,11 @@ mod tests {
         required: false,
         edge_kind: EdgeKind::NonEdge,
         crdt_type: CrdtFieldType::Derived,
-        read_fn: None,
-        write_fn: None,
-        verify_fn: None,
+        cb: FieldCallbacks {
+            read_fn: None,
+            write_fn: None,
+            verify_fn: None,
+        },
     };
 
     static FIELD_B1: FieldDescriptor<TypeB> = FieldDescriptor {
@@ -407,9 +411,11 @@ mod tests {
         required: false,
         edge_kind: EdgeKind::NonEdge,
         crdt_type: CrdtFieldType::Derived,
-        read_fn: None,
-        write_fn: None,
-        verify_fn: None,
+        cb: FieldCallbacks {
+            read_fn: None,
+            write_fn: None,
+            verify_fn: None,
+        },
     };
 
     fn fn_a1(n: u128) -> RuntimeEntityId {

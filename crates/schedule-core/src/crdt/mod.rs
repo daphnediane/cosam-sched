@@ -447,7 +447,7 @@ pub fn rehydrate_entity<E: EntityBuildable>(
         if matches!(desc.crdt_type, CrdtFieldType::Derived) {
             continue;
         }
-        if desc.write_fn.is_none() {
+        if desc.cb.write_fn.is_none() {
             continue;
         }
         let item_type = desc.field_type().item_type();

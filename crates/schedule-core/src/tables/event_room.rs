@@ -17,8 +17,7 @@
 //! `Schedule::edges_to`.
 
 use crate::define_field;
-use crate::entity::{EntityId, EntityType, EntityUuid, UuidPreference};
-use crate::field::set::FieldSet;
+use crate::entity::{EntityId, EntityType, EntityUuid, FieldSet, UuidPreference};
 use crate::field::{FieldDescriptor, NamedField};
 use crate::query::converter::{AsInteger, AsString, EntityStringResolver};
 use crate::tables::hotel_room::{HotelRoomEntityType, HotelRoomId};
@@ -153,7 +152,7 @@ inventory::submit! {
             let id = unsafe { crate::entity::EntityId::<EventRoomEntityType>::new_unchecked(uuid) };
             EventRoomEntityType::field_set()
                 .fields()
-                .filter(|d| d.read_fn.is_some() && d.write_fn.is_some())
+                .filter(|d| d.cb.read_fn.is_some() && d.cb.write_fn.is_some())
                 .filter_map(|d| {
                     d.read(id, schedule).ok().flatten().map(|v| (d.name(), v))
                 })

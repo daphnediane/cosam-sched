@@ -4,17 +4,130 @@
  * See LICENSE file for full license text
  */
 
-//! Remaining `macro_rules!` helper for entity builders.
+//! Remaining `macro_rules!` helpers for field declarations and entity builders.
 //!
 //! Field declarations have moved to the [`schedule_macro::define_field!`]
 //! function-like proc-macro (re-exported as [`crate::define_field`]); the
 //! historical `stored_field!`, `edge_field!`, and `define_field!`
 //! `macro_rules!` macros that previously lived here have been removed.
 //!
-//! Only [`define_entity_builder!`] remains: it generates a typed builder
-//! struct on top of [`FieldSet::write_multiple`](crate::field::set::FieldSet)
-//! and [`build_entity`](crate::edit::builder::build_entity) for an entity, given
-//! a list of `with_<setter> => FIELD_STATIC` entries.
+//! This module now provides:
+//! - [`accessor_callbacks!`] - generates read/write/verify callbacks for stored fields
+//! - [`define_entity_builder!`] - generates a typed builder struct on top of
+//!   [`FieldSet::write_multiple`](crate::field::set::FieldSet) and
+//!   [`build_entity`](crate::edit::builder::build_entity) for an entity, given
+//!   a list of `with_<setter> => FIELD_STATIC` entries.
+
+// ── Accessor callbacks ─────────────────────────────────────────────────────────
+
+/// Generate read/write/verify callback functions for a stored field accessor.
+///
+/// This macro generates the boilerplate closures for accessing a field on
+/// [`EntityType::InternalData`] using a marker trait for type conversion.
+/// Returns a [`FieldCallbacks<E>`] struct containing all three callbacks.
+///
+/// # Syntax
+///
+/// ```ignore
+/// accessor_callbacks!(<entity_type>, <mode>, <accessor_name>, <MarkerTrait>)
+/// ```
+///
+/// Where `<mode>` is one of:
+/// - `required` - field is always present, uses `convert_required`/direct access
+/// - `optional` - field is `Option<T>`, uses `convert_optional`/`as_ref().map()`
+/// - `with_default` - field has a default value (treated like required)
+///
+/// # Example
+///
+/// ```ignore
+/// static FIELD_NAME: FieldDescriptor<PanelEntityType> = FieldDescriptor {
+///     data: CommonFieldData { /* ... */ },
+///     required: true,
+///     edge_kind: EdgeKind::NonEdge,
+///     crdt_type: AsString::CRDT_TYPE,
+///     ..accessor_callbacks!(PanelEntityType, required, name, AsString)
+/// };
+/// ```
+#[macro_export]
+macro_rules! accessor_callbacks {
+    ($entity:ty, required, $accessor:ident, $marker:ty) => {
+        {
+            let callbacks = $crate::field::FieldCallbacks {
+                read_fn: Some($crate::field::ReadFn::Bare(
+                    |d: &<$entity as $crate::entity::EntityType>::InternalData| {
+                        Some($crate::value::FieldValue::Single(
+                            <$marker as $crate::query::converter::FieldTypeMapping>::to_field_value_item(
+                                d.data.$accessor.clone(),
+                            ),
+                        ))
+                    },
+                )),
+                write_fn: Some($crate::field::WriteFn::Bare(
+                    |d: &mut <$entity as $crate::entity::EntityType>::InternalData,
+                     v: $crate::value::FieldValue| {
+                        d.data.$accessor =
+                            $crate::query::converter::convert_required::<$marker>(v)?;
+                        Ok(())
+                    },
+                )),
+                verify_fn: None,
+            };
+            callbacks
+        }
+    };
+    ($entity:ty, optional, $accessor:ident, $marker:ty) => {
+        {
+            let callbacks = $crate::field::FieldCallbacks {
+                read_fn: Some($crate::field::ReadFn::Bare(
+                    |d: &<$entity as $crate::entity::EntityType>::InternalData| {
+                        d.data.$accessor.as_ref().map(|x| {
+                            $crate::value::FieldValue::Single(
+                                <$marker as $crate::query::converter::FieldTypeMapping>::to_field_value_item(
+                                    x.clone(),
+                                ),
+                            )
+                        })
+                    },
+                )),
+                write_fn: Some($crate::field::WriteFn::Bare(
+                    |d: &mut <$entity as $crate::entity::EntityType>::InternalData,
+                     v: $crate::value::FieldValue| {
+                        d.data.$accessor =
+                            $crate::query::converter::convert_optional::<$marker>(v)?;
+                        Ok(())
+                    },
+                )),
+                verify_fn: None,
+            };
+            callbacks
+        }
+    };
+    ($entity:ty, with_default, $accessor:ident, $marker:ty) => {
+        {
+            let callbacks = $crate::field::FieldCallbacks {
+                read_fn: Some($crate::field::ReadFn::Bare(
+                    |d: &<$entity as $crate::entity::EntityType>::InternalData| {
+                        Some($crate::value::FieldValue::Single(
+                            <$marker as $crate::query::converter::FieldTypeMapping>::to_field_value_item(
+                                d.data.$accessor.clone(),
+                            ),
+                        ))
+                    },
+                )),
+                write_fn: Some($crate::field::WriteFn::Bare(
+                    |d: &mut <$entity as $crate::entity::EntityType>::InternalData,
+                     v: $crate::value::FieldValue| {
+                        d.data.$accessor =
+                            $crate::query::converter::convert_required::<$marker>(v)?;
+                        Ok(())
+                    },
+                )),
+                verify_fn: None,
+            };
+            callbacks
+        }
+    };
+}
 
 // ── Entity builder ───────────────────────────────────────────────────────────
 

@@ -23,6 +23,7 @@
 //! select the correct calling convention internally, avoiding the double-`&mut`
 //! borrow problem for edge-mutating fields (e.g. `add_presenters`).
 
+pub mod callback;
 pub mod descriptor;
 pub mod macros;
 pub mod set;
@@ -31,8 +32,10 @@ pub mod traits;
 // Re-export field traits from the traits module
 pub use traits::{NamedField, ReadableField, TypedField, VerifiableField, WritableField};
 
+// Re-export callback types from the callback module
+pub use callback::{FieldCallbacks, ReadFn, VerifyFn, WriteFn};
 // Re-export descriptor types from the descriptor module
-pub use descriptor::{FieldDescriptor, ReadFn, VerifyFn, WriteFn};
+pub use descriptor::FieldDescriptor;
 
 // ── CommonFieldData ─────────────────────────────────────────────────────────────
 
@@ -155,14 +158,16 @@ mod tests {
         required: true,
         edge_kind: EdgeKind::NonEdge,
         crdt_type: CrdtFieldType::Scalar,
-        read_fn: Some(ReadFn::Bare(|d: &MockInternalData| {
-            Some(field_value!(d.label.clone()))
-        })),
-        write_fn: Some(WriteFn::Bare(|d: &mut MockInternalData, v| {
-            d.label = v.into_string()?;
-            Ok(())
-        })),
-        verify_fn: None,
+        cb: FieldCallbacks {
+            read_fn: Some(ReadFn::Bare(|d: &MockInternalData| {
+                Some(field_value!(d.label.clone()))
+            })),
+            write_fn: Some(WriteFn::Bare(|d: &mut MockInternalData, v| {
+                d.label = v.into_string()?;
+                Ok(())
+            })),
+            verify_fn: None,
+        },
     };
 
     static COUNT_FIELD: FieldDescriptor<MockEntity> = FieldDescriptor {
@@ -178,14 +183,16 @@ mod tests {
         required: false,
         edge_kind: EdgeKind::NonEdge,
         crdt_type: CrdtFieldType::Scalar,
-        read_fn: Some(ReadFn::Bare(|d: &MockInternalData| {
-            Some(field_value!(d.count))
-        })),
-        write_fn: Some(WriteFn::Bare(|d: &mut MockInternalData, v| {
-            d.count = v.into_integer()?;
-            Ok(())
-        })),
-        verify_fn: None,
+        cb: FieldCallbacks {
+            read_fn: Some(ReadFn::Bare(|d: &MockInternalData| {
+                Some(field_value!(d.count))
+            })),
+            write_fn: Some(WriteFn::Bare(|d: &mut MockInternalData, v| {
+                d.count = v.into_integer()?;
+                Ok(())
+            })),
+            verify_fn: None,
+        },
     };
 
     static READONLY_FIELD: FieldDescriptor<MockEntity> = FieldDescriptor {
@@ -201,9 +208,11 @@ mod tests {
         required: false,
         edge_kind: EdgeKind::NonEdge,
         crdt_type: CrdtFieldType::Derived,
-        read_fn: Some(ReadFn::Bare(|_: &MockInternalData| Some(field_value!(42)))),
-        write_fn: None,
-        verify_fn: None,
+        cb: FieldCallbacks {
+            read_fn: Some(ReadFn::Bare(|_: &MockInternalData| Some(field_value!(42)))),
+            write_fn: None,
+            verify_fn: None,
+        },
     };
 
     static WRITEONLY_FIELD: FieldDescriptor<MockEntity> = FieldDescriptor {
@@ -219,12 +228,14 @@ mod tests {
         required: false,
         edge_kind: EdgeKind::NonEdge,
         crdt_type: CrdtFieldType::Derived,
-        read_fn: None,
-        write_fn: Some(WriteFn::Bare(|d: &mut MockInternalData, v| {
-            d.label = v.into_string()?;
-            Ok(())
-        })),
-        verify_fn: None,
+        cb: FieldCallbacks {
+            read_fn: None,
+            write_fn: Some(WriteFn::Bare(|d: &mut MockInternalData, v| {
+                d.label = v.into_string()?;
+                Ok(())
+            })),
+            verify_fn: None,
+        },
     };
 
     fn make_data() -> MockInternalData {

@@ -4,77 +4,16 @@
  * See LICENSE file for full license text
  */
 
-//! Field descriptor types: [`FieldDescriptor<E>`] and function pointer enums.
+//! Field descriptor types: [`FieldDescriptor<E>`].
 
 use crate::crdt::CrdtFieldType;
 use crate::edge::traits::HalfEdge;
 use crate::edge::EdgeKind;
 use crate::entity::{EntityId, EntityType};
+use crate::field::callback::{FieldCallbacks, ReadFn, VerifyFn, WriteFn};
 use crate::field::traits::{NamedField, ReadableField, VerifiableField, WritableField};
 use crate::schedule::Schedule;
 use crate::value::{FieldError, FieldValue, VerificationError};
-use crate::FullEdge;
-
-// ── ReadFn<E> ─────────────────────────────────────────────────────────────────
-
-/// How a field reads its value: directly from [`EntityType::InternalData`], or
-/// via a [`Schedule`] lookup by [`EntityId`].
-pub enum ReadFn<E: EntityType> {
-    /// Data-only read — no schedule access needed.
-    Bare(fn(&E::InternalData) -> Option<FieldValue>),
-    /// Schedule-aware read — fn receives `(&Schedule, EntityId<E>)` and
-    /// performs its own entity lookup internally.
-    Schedule(fn(&Schedule, EntityId<E>) -> Option<FieldValue>),
-    /// Get Entities connected to this entity via a list of full edges.
-    ReadEdges { edges: &'static [&'static FullEdge] },
-    /// Read our edge -- to do remove and add to EdgeReadFn
-    ReadEdge,
-}
-
-// ── WriteFn<E> ────────────────────────────────────────────────────────────────
-
-/// How a field writes its value: directly into [`EntityType::InternalData`], or
-/// via a [`Schedule`] lookup by [`EntityId`].
-///
-/// The `Schedule` variant avoids the double-`&mut` borrow problem: the fn
-/// receives `(&mut Schedule, EntityId<E>)` with no `&mut InternalData`
-/// parameter and handles its own lookup/release internally.
-pub enum WriteFn<E: EntityType> {
-    /// Data-only write — no schedule access needed.
-    Bare(fn(&mut E::InternalData, FieldValue) -> Result<(), FieldError>),
-    /// Schedule-aware write — used for edge mutations (e.g. `add_presenters`).
-    Schedule(fn(&mut Schedule, EntityId<E>, FieldValue) -> Result<(), FieldError>),
-    /// Add to an edge where both near and far are specified (for other fields)
-    AddEdge {
-        edge: FullEdge,
-        exclusive_with: Option<FullEdge>,
-    },
-    /// Remove from an edge where both near and far are specified (for other fields)
-    RemoveEdge {
-        edge: FullEdge,
-        exclusive_with: Option<FullEdge>,
-    },
-    /// Write our edge -- to do remove and add to EdgeWriteFn
-    WriteEdge,
-}
-
-// ── VerifyFn<E> ─────────────────────────────────────────────────────────────────
-
-/// How a field verifies its value after a batch write: directly from
-/// [`EntityType::InternalData`], via a [`Schedule`] lookup, or by re-reading.
-///
-/// Verification checks that the field still has the value that was requested
-/// after all writes in a batch have completed. This catches conflicts where
-/// one computed field's write modified another field's backing data.
-pub enum VerifyFn<E: EntityType> {
-    /// Data-only verification — no schedule access needed.
-    Bare(fn(&E::InternalData, &FieldValue) -> Result<(), VerificationError>),
-    /// Schedule-aware verification — fn receives `(&Schedule, EntityId<E>)`.
-    Schedule(fn(&Schedule, EntityId<E>, &FieldValue) -> Result<(), VerificationError>),
-    /// Re-read verification — read the field back and compare to attempted value.
-    /// Uses `read_fn` internally; fails verification if field is write-only.
-    ReRead,
-}
 
 // ── FieldDescriptor<E> ─────────────────────────────────────────────────────────
 
@@ -83,9 +22,9 @@ pub enum VerifyFn<E: EntityType> {
 /// Uses enum fn pointers so it can be stored as a `static` value.
 /// Non-capturing closures coerce to fn pointers automatically.
 ///
-/// - `read_fn: None` — field is write-only; `read()` returns `FieldError::WriteOnly`.
-/// - `write_fn: None` — field is read-only; `write()` returns `FieldError::ReadOnly`.
-/// - `verify_fn: None` — field uses automatic read-back verification if `read_fn` is present.
+/// - `cb.read_fn: None` — field is write-only; `read()` returns `FieldError::WriteOnly`.
+/// - `cb.write_fn: None` — field is read-only; `write()` returns `FieldError::ReadOnly`.
+/// - `cb.verify_fn: None` — field uses automatic read-back verification if `read_fn` is present.
 ///
 /// # Example
 ///
@@ -103,9 +42,7 @@ pub enum VerifyFn<E: EntityType> {
 ///     required: true,
 ///     crdt_type: CrdtFieldType::Scalar,
 ///     edge_kind: EdgeKind::NonEdge,
-///     read_fn: Some(ReadFn::Bare(|d| Some(FieldValue::String(d.data.name.clone())))),
-///     write_fn: Some(WriteFn::Bare(|d, v| { d.data.name = v.into_string()?; Ok(()) })),
-///     verify_fn: None,
+///     cb: accessor_callbacks!(PanelEntityType, required, name, AsString),
 /// };
 ///
 /// static FIELD_ADD_PRESENTERS: FieldDescriptor<PanelEntityType> = FieldDescriptor {
@@ -121,9 +58,11 @@ pub enum VerifyFn<E: EntityType> {
 ///     required: false,
 ///     crdt_type: CrdtFieldType::Derived,
 ///     edge_kind: EdgeKind::NonEdge,
-///     read_fn: None,
-///     write_fn: Some(WriteFn::Schedule(|schedule, id, v| { todo!() })),
-///     verify_fn: None,
+///     cb: FieldCallbacks {
+///         read_fn: None,
+///         write_fn: Some(WriteFn::Schedule(|schedule, id, v| { todo!() })),
+///         verify_fn: None,
+///     },
 /// };
 /// ```
 pub struct FieldDescriptor<E: EntityType> {
@@ -135,12 +74,8 @@ pub struct FieldDescriptor<E: EntityType> {
     pub edge_kind: EdgeKind,
     /// CRDT storage type annotation for Phase 4.
     pub crdt_type: CrdtFieldType,
-    /// Read implementation. `None` means write-only.
-    pub read_fn: Option<ReadFn<E>>,
-    /// Write implementation. `None` means read-only.
-    pub write_fn: Option<WriteFn<E>>,
-    /// Verification implementation. `None` means use automatic read-back if `read_fn` is present.
-    pub verify_fn: Option<VerifyFn<E>>,
+    /// Callback functions for read/write/verify operations
+    pub(crate) cb: FieldCallbacks<E>,
 }
 
 impl<E: EntityType> NamedField for FieldDescriptor<E> {
@@ -178,7 +113,7 @@ impl<E: EntityType> HalfEdge for FieldDescriptor<E> {
 
 impl<E: EntityType> ReadableField<E> for FieldDescriptor<E> {
     fn read(&self, id: EntityId<E>, schedule: &Schedule) -> Result<Option<FieldValue>, FieldError> {
-        match &self.read_fn {
+        match &self.cb.read_fn {
             None => Err(FieldError::WriteOnly {
                 name: self.data.name,
             }),
@@ -216,7 +151,7 @@ impl<E: EntityType> WritableField<E> for FieldDescriptor<E> {
         schedule: &mut Schedule,
         value: FieldValue,
     ) -> Result<(), FieldError> {
-        match &self.write_fn {
+        match &self.cb.write_fn {
             None => {
                 return Err(FieldError::ReadOnly {
                     name: self.data.name,
@@ -282,7 +217,7 @@ impl<E: EntityType> VerifiableField<E> for FieldDescriptor<E> {
         schedule: &Schedule,
         attempted: &FieldValue,
     ) -> Result<(), VerificationError> {
-        match &self.verify_fn {
+        match &self.cb.verify_fn {
             // Custom verification functions
             Some(VerifyFn::Bare(f)) => {
                 let data =

@@ -1234,8 +1234,8 @@ fn inclusive_edges_from_transitive_closure() {
     // Inclusive groups from p1 should reach both p2 and p3 transitively.
     let result = sched.inclusive_edges(p1_id, FIELD_MEMBERS.edge_to(&FIELD_GROUPS));
     assert_eq!(result.len(), 2);
-    assert!(result.contains(&p2_id.into()));
-    assert!(result.contains(&p3_id.into()));
+    assert!(result.contains(&p2_id));
+    assert!(result.contains(&p3_id));
 }
 
 #[test]
@@ -1259,8 +1259,8 @@ fn inclusive_edges_to_transitive_closure() {
     // Inclusive members of p3 should include both p1 and p2 transitively.
     let result = sched.inclusive_edges(p3_id, FIELD_GROUPS.edge_to(&FIELD_MEMBERS));
     assert_eq!(result.len(), 2);
-    assert!(result.contains(&p1_id.into()));
-    assert!(result.contains(&p2_id.into()));
+    assert!(result.contains(&p1_id));
+    assert!(result.contains(&p2_id));
 }
 
 #[test]
@@ -1281,7 +1281,7 @@ fn inclusive_edges_cycle_handling() {
 
     // Should not infinite loop; p2 is reachable from p1.
     let result = sched.inclusive_edges(p1_id, FIELD_MEMBERS.edge_to(&FIELD_GROUPS));
-    assert!(result.contains(&p2_id.into()));
+    assert!(result.contains(&p2_id));
 }
 
 #[test]
@@ -1307,6 +1307,6 @@ fn inclusive_edges_cache_invalidation() {
         .edge_add(p2_id, p3_id, FIELD_MEMBERS.edge_to(&FIELD_GROUPS))
         .unwrap();
     let result2 = sched.inclusive_edges(p1_id, FIELD_MEMBERS.edge_to(&FIELD_GROUPS));
-    assert!(result2.contains(&p2_id.into()));
-    assert!(result2.contains(&p3_id.into()));
+    assert!(result2.contains(&p2_id));
+    assert!(result2.contains(&p3_id));
 }

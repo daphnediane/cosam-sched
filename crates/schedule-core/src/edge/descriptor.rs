@@ -10,8 +10,8 @@ use crate::crdt::CrdtFieldType;
 use crate::edge::traits::HalfEdge;
 use crate::entity::{EntityId, EntityType, EntityUuid};
 use crate::field::{
-    CommonFieldData, NamedField, ReadFn, ReadableField, VerifiableField, VerifyFn, WritableField,
-    WriteFn,
+    CommonFieldData, FieldCallbacks, NamedField, ReadFn, ReadableField, VerifiableField, VerifyFn,
+    WritableField, WriteFn,
 };
 use crate::schedule::Schedule;
 use crate::value::{FieldError, FieldValue, VerificationError};
@@ -154,9 +154,11 @@ impl std::fmt::Debug for EdgeKind {
 ///         target_field: &crate::tables::presenter::FIELD_PANELS,
 ///         exclusive_with: Some(&FIELD_UNCREDITED_PRESENTERS),
 ///     },
-///     read_fn: Some(ReadFn::Schedule(|sched, id| { … })),
-///     write_fn: Some(WriteFn::Schedule(|sched, id, val| { … })),
-///     verify_fn: None,
+///     cb: FieldCallbacks {
+///         read_fn: Some(ReadFn::Schedule(|sched, id| { … })),
+///         write_fn: Some(WriteFn::Schedule(|sched, id, val| { … })),
+///         verify_fn: None,
+///     },
 /// };
 /// ```
 ///
@@ -166,12 +168,8 @@ pub struct EdgeDescriptor<E: EntityType> {
     pub(crate) data: CommonFieldData,
     /// Edge ownership and relationship metadata.
     pub edge_kind: EdgeKind,
-    /// Read implementation. `None` means write-only.
-    pub read_fn: Option<ReadFn<E>>,
-    /// Write implementation. `None` means read-only.
-    pub write_fn: Option<WriteFn<E>>,
-    /// Verification implementation. `None` means skip verification.
-    pub verify_fn: Option<VerifyFn<E>>,
+    /// Callback functions for read/write/verify operations
+    pub(crate) cb: FieldCallbacks<E>,
 }
 
 impl<E: EntityType> NamedField for EdgeDescriptor<E> {
@@ -209,7 +207,7 @@ impl<E: EntityType> HalfEdge for EdgeDescriptor<E> {
 
 impl<E: EntityType> ReadableField<E> for EdgeDescriptor<E> {
     fn read(&self, id: EntityId<E>, schedule: &Schedule) -> Result<Option<FieldValue>, FieldError> {
-        match &self.read_fn {
+        match &self.cb.read_fn {
             None => Err(FieldError::WriteOnly {
                 name: self.data.name,
             }),
@@ -263,47 +261,35 @@ impl<E: EntityType> WritableField<E> for EdgeDescriptor<E> {
         schedule: &mut Schedule,
         value: FieldValue,
     ) -> Result<(), FieldError> {
-        match &self.write_fn {
-            None => {
-                return Err(FieldError::ReadOnly {
-                    name: self.data.name,
-                })
+        match &self.cb.write_fn {
+            None => Err(FieldError::ReadOnly {
+                name: self.data.name,
+            }),
+            Some(WriteFn::Bare(f)) => {
+                let data = schedule
+                    .get_internal_mut::<E>(id)
+                    .ok_or(FieldError::NotFound {
+                        name: self.data.name,
+                    })?;
+                f(data, value)
             }
-            Some(ref write_fn) => match write_fn {
-                WriteFn::Bare(f) => {
-                    let data = schedule
-                        .get_internal_mut::<E>(id)
-                        .ok_or(FieldError::NotFound {
-                            name: self.data.name,
-                        })?;
-                    f(data, value)?;
-                }
-                WriteFn::Schedule(f) => f(schedule, id, value)?,
-                WriteFn::AddEdge {
-                    edge,
-                    exclusive_with,
-                } => crate::schedule::add_edge(schedule, id, edge, exclusive_with.as_ref(), value)?,
-                WriteFn::RemoveEdge {
-                    edge,
-                    exclusive_with,
-                } => crate::schedule::remove_edge(
-                    schedule,
-                    id,
-                    edge,
-                    exclusive_with.as_ref(),
-                    value,
-                )?,
-                WriteFn::WriteEdge => {
-                    // Set the edges from this entity to the target entities specified in value
-                    // SAFETY: self is a &'static EdgeDescriptor<E> (edge descriptors are static singletons).
-                    let static_field: &'static dyn HalfEdge =
-                        unsafe { std::mem::transmute(self as &dyn HalfEdge) };
-                    crate::schedule::edge::write_edge(schedule, id, static_field, value)?
-                }
-            },
+            Some(WriteFn::Schedule(f)) => f(schedule, id, value),
+            Some(WriteFn::AddEdge {
+                edge,
+                exclusive_with,
+            }) => crate::schedule::add_edge(schedule, id, edge, exclusive_with.as_ref(), value),
+            Some(WriteFn::RemoveEdge {
+                edge,
+                exclusive_with,
+            }) => crate::schedule::remove_edge(schedule, id, edge, exclusive_with.as_ref(), value),
+            Some(WriteFn::WriteEdge) => {
+                // Set the edges from this entity to the target entities specified in value
+                // SAFETY: self is a &'static EdgeDescriptor<E> (edge descriptors are static singletons).
+                let static_field: &'static dyn HalfEdge =
+                    unsafe { std::mem::transmute(self as &dyn HalfEdge) };
+                crate::schedule::edge::write_edge(schedule, id, static_field, value)
+            }
         }
-        // Edge fields manage their own CRDT mirroring; no scalar mirror needed.
-        Ok(())
     }
 }
 
@@ -314,7 +300,26 @@ impl<E: EntityType> VerifiableField<E> for EdgeDescriptor<E> {
         schedule: &Schedule,
         attempted: &FieldValue,
     ) -> Result<(), VerificationError> {
-        match &self.verify_fn {
+        match &self.cb.verify_fn {
+            None => Ok(()),
+            Some(VerifyFn::ReRead) => {
+                // Re-read the field and compare with the attempted value
+                if let Ok(Some(actual)) = self.read(id, schedule) {
+                    if actual == *attempted {
+                        Ok(())
+                    } else {
+                        Err(VerificationError::ValueChanged {
+                            field: self.data.name,
+                            requested: attempted.clone(),
+                            actual,
+                        })
+                    }
+                } else {
+                    Err(VerificationError::NotVerifiable {
+                        field: self.data.name,
+                    })
+                }
+            }
             Some(VerifyFn::Bare(f)) => {
                 let data =
                     schedule
@@ -325,26 +330,6 @@ impl<E: EntityType> VerifiableField<E> for EdgeDescriptor<E> {
                 f(data, attempted)
             }
             Some(VerifyFn::Schedule(f)) => f(schedule, id, attempted),
-            Some(VerifyFn::ReRead) => {
-                let actual = self
-                    .read(id, schedule)
-                    .map_err(|_| VerificationError::NotVerifiable {
-                        field: self.data.name,
-                    })?
-                    .ok_or(VerificationError::NotVerifiable {
-                        field: self.data.name,
-                    })?;
-                if actual == *attempted {
-                    Ok(())
-                } else {
-                    Err(VerificationError::ValueChanged {
-                        field: self.data.name,
-                        requested: attempted.clone(),
-                        actual,
-                    })
-                }
-            }
-            None => Ok(()),
         }
     }
 }

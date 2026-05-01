@@ -198,10 +198,10 @@ impl<E: EntityType> FieldSet<E> {
             if desc.required {
                 required.push(idx);
             }
-            if desc.read_fn.is_some() {
+            if desc.cb.read_fn.is_some() {
                 readable.push(idx);
             }
-            if desc.write_fn.is_some() {
+            if desc.cb.write_fn.is_some() {
                 writable.push(idx);
             }
         }
@@ -369,7 +369,7 @@ impl<E: EntityType> FieldSet<E> {
 
         // Verify phase — only descriptors with verify_fn participate.
         for (desc, value) in &resolved {
-            if desc.verify_fn.is_some() {
+            if desc.cb.verify_fn.is_some() {
                 desc.verify(id, schedule, value).map_err(|error| {
                     FieldSetError::VerificationError {
                         field: desc.name(),
@@ -426,7 +426,7 @@ mod tests {
     use crate::crdt::CrdtFieldType;
     use crate::edge::EdgeKind;
     use crate::entity::{EntityId, EntityType};
-    use crate::field::{CommonFieldData, ReadFn, WriteFn};
+    use crate::field::{CommonFieldData, FieldCallbacks, ReadFn, WriteFn};
     use crate::field_value;
     use crate::value::{FieldCardinality, FieldType, FieldTypeItem};
     use crate::value::{FieldError, ValidationError};
@@ -484,14 +484,16 @@ mod tests {
         required: true,
         edge_kind: EdgeKind::NonEdge,
         crdt_type: CrdtFieldType::Scalar,
-        read_fn: Some(ReadFn::Bare(|d: &MockData| {
-            Some(field_value!(d.label.clone()))
-        })),
-        write_fn: Some(WriteFn::Bare(|d: &mut MockData, v| {
-            d.label = v.into_string()?;
-            Ok(())
-        })),
-        verify_fn: None,
+        cb: FieldCallbacks {
+            read_fn: Some(ReadFn::Bare(|d: &MockData| {
+                Some(field_value!(d.label.clone()))
+            })),
+            write_fn: Some(WriteFn::Bare(|d: &mut MockData, v| {
+                d.label = v.into_string()?;
+                Ok(())
+            })),
+            verify_fn: None,
+        },
     };
 
     static COUNT_FIELD: FieldDescriptor<MockEntity> = FieldDescriptor {
@@ -507,12 +509,14 @@ mod tests {
         required: false,
         edge_kind: EdgeKind::NonEdge,
         crdt_type: CrdtFieldType::Scalar,
-        read_fn: Some(ReadFn::Bare(|d: &MockData| Some(field_value!(d.count)))),
-        write_fn: Some(WriteFn::Bare(|d: &mut MockData, v| {
-            d.count = v.into_integer()?;
-            Ok(())
-        })),
-        verify_fn: None,
+        cb: FieldCallbacks {
+            read_fn: Some(ReadFn::Bare(|d: &MockData| Some(field_value!(d.count)))),
+            write_fn: Some(WriteFn::Bare(|d: &mut MockData, v| {
+                d.count = v.into_integer()?;
+                Ok(())
+            })),
+            verify_fn: None,
+        },
     };
 
     static DERIVED_FIELD: FieldDescriptor<MockEntity> = FieldDescriptor {
@@ -528,9 +532,11 @@ mod tests {
         required: false,
         edge_kind: EdgeKind::NonEdge,
         crdt_type: CrdtFieldType::Derived,
-        read_fn: Some(ReadFn::Bare(|_: &MockData| Some(field_value!(42)))),
-        write_fn: None,
-        verify_fn: None,
+        cb: FieldCallbacks {
+            read_fn: Some(ReadFn::Bare(|_: &MockData| Some(field_value!(42)))),
+            write_fn: None,
+            verify_fn: None,
+        },
     };
 
     fn make_field_set() -> FieldSet<MockEntity> {
@@ -770,14 +776,16 @@ mod tests {
         required: false,
         edge_kind: EdgeKind::NonEdge,
         crdt_type: CrdtFieldType::Scalar,
-        read_fn: Some(ReadFn::Bare(|d: &MockData| {
-            Some(field_value!(d.label.clone()))
-        })),
-        write_fn: Some(WriteFn::Bare(|d: &mut MockData, v| {
-            d.label = v.into_string()?;
-            Ok(())
-        })),
-        verify_fn: Some(VerifyFn::ReRead),
+        cb: FieldCallbacks {
+            read_fn: Some(ReadFn::Bare(|d: &MockData| {
+                Some(field_value!(d.label.clone()))
+            })),
+            write_fn: Some(WriteFn::Bare(|d: &mut MockData, v| {
+                d.label = v.into_string()?;
+                Ok(())
+            })),
+            verify_fn: Some(VerifyFn::ReRead),
+        },
     };
 
     /// A field whose write *clobbers* `count` to force drift on any verified
@@ -795,30 +803,32 @@ mod tests {
         required: false,
         edge_kind: EdgeKind::NonEdge,
         crdt_type: CrdtFieldType::Derived,
-        read_fn: None,
-        write_fn: Some(WriteFn::Bare(|d: &mut MockData, _v| {
-            d.count = 0;
-            Ok(())
-        })),
-        verify_fn: None,
+        cb: FieldCallbacks {
+            read_fn: None,
+            write_fn: Some(WriteFn::Bare(|d: &mut MockData, _v| {
+                d.count = 0;
+                Ok(())
+            })),
+            verify_fn: None,
+        },
     };
 
     /// A verify-only sibling of `count` that checks the backing field equals
     /// the attempted value via the `Bare` verify variant.
-    static VERIFIED_COUNT_FIELD: FieldDescriptor<MockEntity> =
-        FieldDescriptor {
-            data: CommonFieldData {
-                name: "count_verified",
-                display: "Count (Verified)",
-                description: "Writes and then verifies via Bare verify_fn.",
-                aliases: &[],
-                field_type: FieldType(FieldCardinality::Single, FieldTypeItem::Integer),
-                example: "7",
-                order: 500,
-            },
-            required: false,
-            edge_kind: EdgeKind::NonEdge,
-            crdt_type: CrdtFieldType::Scalar,
+    static VERIFIED_COUNT_FIELD: FieldDescriptor<MockEntity> = FieldDescriptor {
+        data: CommonFieldData {
+            name: "count_verified",
+            display: "Count (Verified)",
+            description: "Writes and then verifies via Bare verify_fn.",
+            aliases: &[],
+            field_type: FieldType(FieldCardinality::Single, FieldTypeItem::Integer),
+            example: "7",
+            order: 500,
+        },
+        required: false,
+        edge_kind: EdgeKind::NonEdge,
+        crdt_type: CrdtFieldType::Scalar,
+        cb: FieldCallbacks {
             read_fn: Some(ReadFn::Bare(|d: &MockData| Some(field_value!(d.count)))),
             write_fn: Some(WriteFn::Bare(|d: &mut MockData, v| {
                 d.count = v.into_integer()?;
@@ -840,23 +850,24 @@ mod tests {
                     })
                 }
             })),
-        };
+        },
+    };
 
     /// Schedule-variant verifier — equivalent check via `VerifyFn::Schedule`.
-    static VERIFIED_SCHED_COUNT_FIELD: FieldDescriptor<MockEntity> =
-        FieldDescriptor {
-            data: CommonFieldData {
-                name: "count_sched_verified",
-                display: "Count (Schedule Verified)",
-                description: "Writes and then verifies via Schedule verify_fn.",
-                aliases: &[],
-                field_type: FieldType(FieldCardinality::Single, FieldTypeItem::Integer),
-                example: "7",
-                order: 600,
-            },
-            required: false,
-            edge_kind: EdgeKind::NonEdge,
-            crdt_type: CrdtFieldType::Scalar,
+    static VERIFIED_SCHED_COUNT_FIELD: FieldDescriptor<MockEntity> = FieldDescriptor {
+        data: CommonFieldData {
+            name: "count_sched_verified",
+            display: "Count (Schedule Verified)",
+            description: "Writes and then verifies via Schedule verify_fn.",
+            aliases: &[],
+            field_type: FieldType(FieldCardinality::Single, FieldTypeItem::Integer),
+            example: "7",
+            order: 600,
+        },
+        required: false,
+        edge_kind: EdgeKind::NonEdge,
+        crdt_type: CrdtFieldType::Scalar,
+        cb: FieldCallbacks {
             read_fn: Some(ReadFn::Bare(|d: &MockData| Some(field_value!(d.count)))),
             write_fn: Some(WriteFn::Bare(|d: &mut MockData, v| {
                 d.count = v.into_integer()?;
@@ -883,7 +894,8 @@ mod tests {
                     })
                 }
             })),
-        };
+        },
+    };
 
     fn make_verify_field_set() -> FieldSet<MockEntity> {
         FieldSet::new(&[
@@ -1104,12 +1116,14 @@ mod tests {
             required: false,
             edge_kind: EdgeKind::NonEdge,
             crdt_type: CrdtFieldType::Derived,
-            read_fn: None,
-            write_fn: Some(WriteFn::Bare(|d: &mut MockData, _v| {
-                d.label = "stomped".into();
-                Ok(())
-            })),
-            verify_fn: None,
+            cb: FieldCallbacks {
+                read_fn: None,
+                write_fn: Some(WriteFn::Bare(|d: &mut MockData, _v| {
+                    d.label = "stomped".into();
+                    Ok(())
+                })),
+                verify_fn: None,
+            },
         };
         let fs = FieldSet::<MockEntity>::new(&[&REREAD_LABEL_FIELD, &STOMP_LABEL_FIELD]);
         let id = make_id();

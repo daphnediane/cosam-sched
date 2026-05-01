@@ -229,7 +229,7 @@ inventory::submit! {
             let id = unsafe { crate::entity::EntityId::<PanelEntityType>::new_unchecked(uuid) };
             PanelEntityType::field_set()
                 .fields()
-                .filter(|d| d.read_fn.is_some() && d.write_fn.is_some())
+                .filter(|d| d.cb.read_fn.is_some() && d.cb.write_fn.is_some())
                 .filter_map(|d| {
                     d.read(id, schedule).ok().flatten().map(|v| (d.name(), v))
                 })

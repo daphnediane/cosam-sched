@@ -110,7 +110,7 @@ mod tests {
     use crate::edge::EdgeKind;
     use crate::entity::{EntityId, EntityType};
     use crate::field::set::FieldSet;
-    use crate::field::{CommonFieldData, FieldDescriptor};
+    use crate::field::{CommonFieldData, FieldCallbacks, FieldDescriptor};
     use crate::value::{FieldCardinality, FieldType, FieldTypeItem, ValidationError};
     use uuid::{NonNilUuid, Uuid};
 
@@ -141,8 +141,8 @@ mod tests {
     // Two static fields used as forward / reverse directions.
     static FIELD_FWD: FieldDescriptor<TypeA> = FieldDescriptor {
         data: CommonFieldData {
-            name: "groups",
-            display: "Groups",
+            name: "owner",
+            display: "Owner",
             description: "Forward field",
             aliases: &[],
             field_type: FieldType(FieldCardinality::Optional, FieldTypeItem::Text),
@@ -155,9 +155,11 @@ mod tests {
             exclusive_with: None,
         },
         crdt_type: CrdtFieldType::Derived,
-        read_fn: None,
-        write_fn: None,
-        verify_fn: None,
+        cb: FieldCallbacks {
+            read_fn: None,
+            write_fn: None,
+            verify_fn: None,
+        },
     };
 
     static FIELD_REV: FieldDescriptor<TypeA> = FieldDescriptor {
@@ -173,9 +175,11 @@ mod tests {
         required: false,
         edge_kind: EdgeKind::Target { source_fields: &[] },
         crdt_type: CrdtFieldType::Derived,
-        read_fn: None,
-        write_fn: None,
-        verify_fn: None,
+        cb: FieldCallbacks {
+            read_fn: None,
+            write_fn: None,
+            verify_fn: None,
+        },
     };
 
     fn fwd() -> FullEdge {

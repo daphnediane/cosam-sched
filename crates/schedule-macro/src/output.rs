@@ -196,9 +196,11 @@ fn expand_stored(inp: &FieldInput) -> syn::Result<TokenStream> {
         required: #required_lit,
         edge_kind: ::schedule_core::edge::EdgeKind::NonEdge,
         crdt_type: <#marker as ::schedule_core::query::converter::FieldTypeMapping>::CRDT_TYPE,
-        read_fn: #read_fn,
-        write_fn: #write_fn,
-        verify_fn: #verify_fn,
+        cb: ::schedule_core::field::FieldCallbacks {
+            read_fn: #read_fn,
+            write_fn: #write_fn,
+            verify_fn: #verify_fn,
+        },
     };
 
     Ok(emit_static(inp, body))
@@ -325,9 +327,11 @@ fn expand_edge(inp: &FieldInput) -> syn::Result<TokenStream> {
         required: false,
         edge_kind: #edge_kind,
         crdt_type: ::schedule_core::crdt::CrdtFieldType::Derived,
-        read_fn: #read_fn,
-        write_fn: #write_fn,
-        verify_fn: #verify_fn,
+        cb: ::schedule_core::field::FieldCallbacks {
+            read_fn: #read_fn,
+            write_fn: #write_fn,
+            verify_fn: #verify_fn,
+        },
     };
 
     Ok(emit_static(inp, body))
@@ -455,9 +459,11 @@ fn expand_custom(inp: &FieldInput) -> syn::Result<TokenStream> {
         required: #required_lit,
         edge_kind: #edge_kind,
         crdt_type: #crdt_type,
-        read_fn: #read_fn,
-        write_fn: #write_fn,
-        verify_fn: #verify_fn,
+        cb: ::schedule_core::field::FieldCallbacks {
+            read_fn: #read_fn,
+            write_fn: #write_fn,
+            verify_fn: #verify_fn,
+        },
     };
     Ok(emit_static(inp, body))
 }
