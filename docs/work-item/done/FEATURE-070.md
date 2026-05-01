@@ -4,11 +4,6 @@
 
 Remove the separate `EdgeDescriptor` struct and inventory; encode CRDT-edge ownership and target field directly inside `CrdtFieldType::EdgeOwner` on the owner field.
 
-**Note:** This work item was later superseded by REFACTOR-074, which reintroduced
-`EdgeDescriptor` as a separate struct with `EdgeKind` encoding ownership direction.
-The `EdgeOwner`/`EdgeTarget` variants in `CrdtFieldType` were removed; all edge
-fields now use `CrdtFieldType::Derived`, and ownership is encoded in `EdgeKind`.
-
 ## Status
 
 Completed
@@ -49,3 +44,7 @@ Each edge relationship was described in two places:
 
 - Follow-up: a proc-macro crate (`schedule-macro`) could replace the declarative `macro_rules!` and add an `exclusive_with:` clause for cross-partition exclusivity — that's needed to cleanly redo FEATURE-065 (credited/uncredited presenter split). Tracked as a separate work item.
 - The half-edge model — each field declares its own direction; no auto-pairing of inverse fields — is preserved.
+- This work item was later superseded by REFACTOR-074, which reintroduced
+  `EdgeDescriptor` as a separate struct with `EdgeKind` encoding ownership direction.
+  The `EdgeOwner`/`EdgeTarget` variants in `CrdtFieldType` were removed; all edge
+  fields now use `CrdtFieldType::Derived`, and ownership is encoded in `EdgeKind`.

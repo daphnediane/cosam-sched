@@ -88,26 +88,28 @@ impl Schedule {
         }
     }
 
-    /// Add an edge from `near` to `far`.
+    /// Add edges from `near` to each node in `far_nodes`.
     ///
-    /// Adds the edge to [`crate::edge_map::RawEdgeMap`]. When the edge is transitive,
+    /// Adds the edges to [`crate::edge_map::RawEdgeMap`]. When the edge is transitive,
     /// also invalidates the [`TransitiveEdgeCache`].
     ///
-    /// After updating the cache, if the mirror is enabled the new endpoint
+    /// After updating the cache, if the mirror is enabled each new endpoint
     /// is incrementally `insert`ed into the canonical owner's list field
     /// (via [`crate::crdt::edge::list_append_unique`]) — **not** rewritten in
     /// full — so concurrent add/add from two replicas converges to the
     /// union rather than LWW on the list object.
+    ///
+    /// Returns the UUIDs of edges that were actually added (excluding duplicates).
     pub fn edge_add(
         &mut self,
         near: impl DynamicEntityId,
-        far: impl DynamicEntityId,
         edge: FullEdge,
-    ) -> Result<(), EdgeError> {
+        far_nodes: impl IntoIterator<Item = impl DynamicEntityId>,
+    ) -> Result<Vec<NonNilUuid>, EdgeError> {
         let near_type = near.entity_type_name();
-        let far_type = far.entity_type_name();
+        let far_type = edge.far.entity_type_name();
 
-        self.edges.add_edge(near, far, edge)?;
+        let added = self.edges.add_edge(near, edge, far_nodes)?;
 
         // Invalidate transitive cache when the two endpoints share the same entity type.
         if near_type == far_type {
@@ -115,25 +117,27 @@ impl Schedule {
         }
 
         // CRDT mirror
-        self.mirror_edge_add(&near, &far, edge);
+        self.mirror_edge_add(&near, edge, &added);
 
-        Ok(())
+        Ok(added)
     }
 
-    /// Remove the edge from `near` to `far`.
+    /// Remove edges from `near` to each node in `far_nodes`.
     ///
     /// The CRDT mirror uses an incremental delete on observed indices so
     /// concurrent add-vs-unobserved-remove resolves add-wins.
+    ///
+    /// Returns the UUIDs of edges that were actually removed.
     pub fn edge_remove(
         &mut self,
         near: impl DynamicEntityId,
-        far: impl DynamicEntityId,
         edge: FullEdge,
-    ) {
+        far_nodes: impl IntoIterator<Item = impl DynamicEntityId>,
+    ) -> Vec<NonNilUuid> {
         let near_type = near.entity_type_name();
-        let far_type = far.entity_type_name();
+        let far_type = edge.far.entity_type_name();
 
-        self.edges.remove_edge(near, far, edge);
+        let removed = self.edges.remove_edge(near, edge, far_nodes);
 
         // Invalidate transitive cache when the two endpoints share the same entity type.
         if near_type == far_type {
@@ -141,7 +145,9 @@ impl Schedule {
         }
 
         // CRDT mirror
-        self.mirror_edge_remove(&near, &far, edge);
+        self.mirror_edge_remove(&near, edge, &removed);
+
+        removed
     }
 
     /// Replace all far-side neighbors of `near` with `targets`.
@@ -172,7 +178,7 @@ impl Schedule {
         Ok((added.len(), removed.len()))
     }
 
-    /// After `edge_add`, incrementally append the new endpoint into the
+    /// After `edge_add`, incrementally append each new endpoint into the
     /// canonical owner's list field. Concurrent add/add converges to the
     /// union because both replicas insert into the same shared list
     /// [`ObjId`](automerge::ObjId) created up-front by
@@ -183,8 +189,8 @@ impl Schedule {
     fn mirror_edge_add(
         &mut self,
         near: &impl DynamicEntityId,
-        far: &impl DynamicEntityId,
         edge: FullEdge,
+        far_uuids: &[NonNilUuid],
     ) {
         if !self.mirror_enabled {
             return;
@@ -192,25 +198,28 @@ impl Schedule {
         let Some(canon) = crate::crdt::edge::canonical_owner(edge.near, edge.far) else {
             return;
         };
-        let (owner_uuid, target_uuid) = if canon.near_is_owner {
-            (near.entity_uuid(), far.entity_uuid())
-        } else {
-            (far.entity_uuid(), near.entity_uuid())
-        };
-        if let Err(e) = crate::crdt::edge::list_append_unique(
-            &mut self.doc,
-            canon.owner_type(),
-            owner_uuid,
-            canon.target_type(),
-            canon.field_name(),
-            target_uuid,
-        ) {
-            debug_assert!(false, "CRDT edge_add mirror failed: {e}");
-            let _ = e;
+        let near_uuid = near.entity_uuid();
+        for far_uuid in far_uuids {
+            let (owner_uuid, target_uuid) = if canon.near_is_owner {
+                (near_uuid, *far_uuid)
+            } else {
+                (*far_uuid, near_uuid)
+            };
+            if let Err(e) = crate::crdt::edge::list_append_unique(
+                &mut self.doc,
+                canon.owner_type(),
+                owner_uuid,
+                canon.target_type(),
+                canon.field_name(),
+                target_uuid,
+            ) {
+                debug_assert!(false, "CRDT edge_add mirror failed: {e}");
+                let _ = e;
+            }
         }
     }
 
-    /// After `edge_remove`, incrementally delete every occurrence of the
+    /// After `edge_remove`, incrementally delete every occurrence of each
     /// endpoint from the canonical owner's list.  Concurrent add-vs-
     /// unobserved-remove resolves add-wins: the remove only targets
     /// indices this actor observed, so an insert recorded on a parallel
@@ -221,8 +230,8 @@ impl Schedule {
     fn mirror_edge_remove(
         &mut self,
         near: &impl DynamicEntityId,
-        far: &impl DynamicEntityId,
         edge: FullEdge,
+        far_uuids: &[NonNilUuid],
     ) {
         if !self.mirror_enabled {
             return;
@@ -230,21 +239,24 @@ impl Schedule {
         let Some(canon) = crate::crdt::edge::canonical_owner(edge.near, edge.far) else {
             return;
         };
-        let (owner_uuid, target_uuid) = if canon.near_is_owner {
-            (near.entity_uuid(), far.entity_uuid())
-        } else {
-            (far.entity_uuid(), near.entity_uuid())
-        };
-        if let Err(e) = crate::crdt::edge::list_remove_uuid(
-            &mut self.doc,
-            canon.owner_type(),
-            owner_uuid,
-            canon.target_type(),
-            canon.field_name(),
-            target_uuid,
-        ) {
-            debug_assert!(false, "CRDT edge_remove mirror failed: {e}");
-            let _ = e;
+        let near_uuid = near.entity_uuid();
+        for far_uuid in far_uuids {
+            let (owner_uuid, target_uuid) = if canon.near_is_owner {
+                (near_uuid, *far_uuid)
+            } else {
+                (*far_uuid, near_uuid)
+            };
+            if let Err(e) = crate::crdt::edge::list_remove_uuid(
+                &mut self.doc,
+                canon.owner_type(),
+                owner_uuid,
+                canon.target_type(),
+                canon.field_name(),
+                target_uuid,
+            ) {
+                debug_assert!(false, "CRDT edge_remove mirror failed: {e}");
+                let _ = e;
+            }
         }
     }
 
@@ -515,12 +527,19 @@ pub fn add_edge<E: EntityType>(
     value: FieldValue,
 ) -> Result<(), FieldError> {
     let target_ids = field_value_to_runtime_entity_ids(value)?;
-    for target_id in target_ids {
-        // Handle exclusive_with: remove from the exclusive sibling field before adding
-        if let Some(exclusive_edge) = exclusive_with {
-            schedule.edge_remove(id, target_id, *exclusive_edge);
-        }
-        schedule.edge_add(id, target_id, *edge)?;
+    // Add edges first, then clean up exclusive_with for only the actually-added targets
+    let added = schedule.edge_add(id, *edge, target_ids)?;
+    if let Some(exclusive_edge) = exclusive_with {
+        // SAFETY: The added UUIDs are already validated to be edge.far.entity_type_name().
+        // If exclusive_edge.far.entity_type_name() is the same, we can use the same UUIDs.
+        // If different, the edge isn't really exclusive (different types).
+        let added_runtime: Vec<crate::entity::RuntimeEntityId> = added
+            .into_iter()
+            .map(|uuid| unsafe {
+                crate::entity::RuntimeEntityId::new_unchecked(uuid, edge.far.entity_type_name())
+            })
+            .collect();
+        let _ = schedule.edge_remove(id, *exclusive_edge, added_runtime);
     }
     Ok(())
 }
@@ -538,12 +557,19 @@ pub fn remove_edge<E: EntityType>(
     value: FieldValue,
 ) -> Result<(), FieldError> {
     let target_ids = field_value_to_runtime_entity_ids(value)?;
-    for target_id in target_ids {
-        schedule.edge_remove(id, target_id, *edge);
-        // Handle exclusive_with: also remove from the exclusive sibling field
-        if let Some(exclusive_edge) = exclusive_with {
-            schedule.edge_remove(id, target_id, *exclusive_edge);
-        }
+    // Remove edges first, then clean up exclusive_with for only the actually-removed targets
+    let removed = schedule.edge_remove(id, *edge, target_ids);
+    if let Some(exclusive_edge) = exclusive_with {
+        // SAFETY: The removed UUIDs are already validated to be edge.far.entity_type_name().
+        // If exclusive_edge.far.entity_type_name() is the same, we can use the same UUIDs.
+        // If different, the edge isn't really exclusive (different types).
+        let removed_runtime: Vec<crate::entity::RuntimeEntityId> = removed
+            .into_iter()
+            .map(|uuid| unsafe {
+                crate::entity::RuntimeEntityId::new_unchecked(uuid, edge.far.entity_type_name())
+            })
+            .collect();
+        let _ = schedule.edge_remove(id, *exclusive_edge, removed_runtime);
     }
     Ok(())
 }
@@ -614,7 +640,7 @@ pub fn write_edge<E: EntityType>(
         };
         // Remove each target entity from the exclusive sibling field
         for target_id in &target_ids {
-            schedule.edge_remove(id, *target_id, exclusive_edge);
+            let _ = schedule.edge_remove(id, exclusive_edge, std::iter::once(*target_id));
         }
     }
 

@@ -206,7 +206,7 @@ mod tests {
             unsafe { crate::entity::RuntimeEntityId::new_unchecked(nnu(member), "type_a") };
         let group_id =
             unsafe { crate::entity::RuntimeEntityId::new_unchecked(nnu(group), "type_a") };
-        map.add_edge(member_id, group_id, fwd_edge)
+        map.add_edge(member_id, fwd_edge, std::iter::once(group_id))
             .expect("edge type validation failed");
     }
 

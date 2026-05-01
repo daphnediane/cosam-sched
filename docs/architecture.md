@@ -158,39 +158,39 @@ and the `_meta` boolean per-edge map have been removed.
 
 ### Transitive Edge Cache
 
-`TransitiveEdgeCache` (`edge_cache.rs`) caches transitive closures of homogeneous edges
+`TransitiveEdgeCache` (`edge/cache.rs`) caches transitive closures of homogeneous edges
 (same entity type on both ends). Heterogeneous-edge transitive queries are not cached
-here; they are composed in entity modules from direct `inclusive_edges_from` /
-`inclusive_edges_to` calls.
+here; they are composed in entity modules from direct `connected_field_nodes` calls.
 
 `Schedule` holds the cache as `RefCell<Option<TransitiveEdgeCache>>`. Interior mutability
-lets `inclusive_edges_from` / `inclusive_edges_to` update the cache through a `&self`
+lets `inclusive_edges` update the cache through a `&self`
 reference. Setting the field to `None` invalidates the entire cache; it is rebuilt
 lazily per-entry on the next query.
 
 ```text
-homo_edge_cache: RefCell<Option<TransitiveEdgeCache>>
-  inclusive_forward: HashMap<NonNilUuid, Box<[NonNilUuid]>>
-  inclusive_reverse: HashMap<NonNilUuid, Box<[NonNilUuid]>>
+homogeneous_edge_cache: RefCell<Option<TransitiveEdgeCache>>
+  cache: HashMap<(FullEdge, NonNilUuid), Box<[NonNilUuid]>>
 ```
 
-The cache key is `NonNilUuid` alone (no type tag) because UUIDs are globally unique
-across all entity types — a given UUID belongs to exactly one type, so keying on UUID
-alone is sufficient.
+The cache key is `(FullEdge, NonNilUuid)` — the edge encodes traversal direction
+(forward and reverse use different `FullEdge` orientations), while the UUID is the
+starting node. Multiple independent transitive-edge relationships can share one
+cache without key collision.
 
-**Invalidation:** `homo_edge_cache` is set to `None` inside `edge_add`, `edge_remove`,
+**Invalidation:** `homogeneous_edge_cache` is set to `None` inside `edge_add`, `edge_remove`,
 `edge_set`, and `remove_entity` whenever the edge is homogeneous.
 Heterogeneous-edge mutations do not touch the cache.
 
-**`Schedule` methods:**
+**`Schedule` method:**
 
-- `inclusive_edges_from<L, R>(id)` — all `R` entities transitively reachable from `id`
-  via forward homo edges; falls back to direct `edges_from` for het edges.
-- `inclusive_edges_to<L, R>(id)` — all `L` entities that transitively point to `id`
-  via reverse homo edges; falls back to direct `edges_to` for het edges.
+- `inclusive_edges<Near, Far>(near: EntityId<Near>, edge: FullEdge)` — all `Far` entities
+  reachable from `near` via the given edge. When `Near` and `Far` are the same type (homogeneous
+  edge), follows edges transitively via the cache; for heterogeneous edges, performs a single-hop
+  lookup via `connected_field_nodes`.
 
-These are the methods used by entity-level computed fields such as `inclusive_groups`
-and `inclusive_members` on `Presenter`.
+This method is used by entity-level computed fields such as `inclusive_groups`
+and `inclusive_members` on `Presenter` with explicit `FullEdge` constants (`EDGE_GROUPS`,
+`EDGE_MEMBERS`) to avoid near/far confusion.
 
 ### Query system
 

@@ -28,7 +28,7 @@ use crate::tables::event_room::{EventRoomEntityType, EventRoomId};
 use crate::tables::hotel_room::{HotelRoomEntityType, HotelRoomId};
 use crate::tables::panel_type::{PanelTypeEntityType, PanelTypeId};
 use crate::tables::presenter::{
-    PresenterCommonData, PresenterEntityType, PresenterId, FIELD_PANELS,
+    PresenterCommonData, PresenterEntityType, PresenterId, EDGE_GROUPS, EDGE_MEMBERS, FIELD_PANELS,
 };
 use crate::value::time::{parse_datetime, parse_duration, TimeRange};
 use crate::value::uniq_id::PanelUniqId;
@@ -761,8 +761,8 @@ define_field! {
         let credited_edge = FIELD_CREDITED_PRESENTERS.edge_to(&crate::tables::presenter::FIELD_PANELS);
         let uncredited_edge = FIELD_UNCREDITED_PRESENTERS.edge_to(&crate::tables::presenter::FIELD_PANELS);
         for p in ids {
-            sched.edge_remove(panel_id, p, credited_edge);
-            sched.edge_remove(panel_id, p, uncredited_edge);
+            sched.edge_remove(panel_id, credited_edge, std::iter::once(p));
+            sched.edge_remove(panel_id, uncredited_edge, std::iter::once(p));
         }
         Ok(())
     }
@@ -801,19 +801,17 @@ define_field! {
         let mut result: HashSet<PresenterId> = HashSet::new();
         for p in direct {
             result.insert(p);
-            // Inclusive members of p: all members reachable going down (forward homogeneous edges)
-            let members_edge = crate::tables::presenter::FIELD_MEMBERS.edge_to(&crate::tables::presenter::FIELD_GROUPS);
+            // Inclusive members of p: all members of p (following EDGE_MEMBERS from p)
             for m in sched.inclusive_edges::<PresenterEntityType, PresenterEntityType>(
                 p,
-                members_edge,
+                EDGE_MEMBERS,
             ) {
                 result.insert(m);
             }
-            // Inclusive groups of p: all groups reachable going up (reverse homogeneous edges)
-            let groups_edge = crate::tables::presenter::FIELD_GROUPS.edge_to(&crate::tables::presenter::FIELD_MEMBERS);
+            // Inclusive groups of p: all groups p belongs to (following EDGE_GROUPS from p)
             for g in sched.inclusive_edges::<PresenterEntityType, PresenterEntityType>(
                 p,
-                groups_edge,
+                EDGE_GROUPS,
             ) {
                 result.insert(g);
             }
@@ -952,10 +950,8 @@ pub(crate) fn compute_credits(sched: &crate::schedule::Schedule, panel_id: Panel
             continue;
         };
         if presenter_data.is_explicit_group {
-            let members_edge = crate::tables::presenter::FIELD_MEMBERS
-                .edge_to(&crate::tables::presenter::FIELD_GROUPS);
             let member_ids = sched
-                .connected_field_nodes(presenter_id, members_edge)
+                .connected_field_nodes(presenter_id, EDGE_MEMBERS)
                 .into_iter()
                 .map(|e| unsafe { PresenterId::new_unchecked(e.entity_uuid()) })
                 .collect::<Vec<PresenterId>>();
@@ -1018,10 +1014,9 @@ pub(crate) fn compute_credits(sched: &crate::schedule::Schedule, panel_id: Panel
             used_groups.insert(presenter_id);
         } else if presenter_data.always_grouped {
             // This member always appears under their group's name.
-            let members_edge = crate::tables::presenter::FIELD_MEMBERS
-                .edge_to(&crate::tables::presenter::FIELD_GROUPS);
+            // First: find which groups this presenter belongs to
             let group_ids = sched
-                .connected_field_nodes(presenter_id, members_edge)
+                .connected_field_nodes(presenter_id, EDGE_GROUPS)
                 .into_iter()
                 .map(|e| unsafe { PresenterId::new_unchecked(e.entity_uuid()) })
                 .collect::<Vec<PresenterId>>();
@@ -1029,8 +1024,9 @@ pub(crate) fn compute_credits(sched: &crate::schedule::Schedule, panel_id: Panel
                 let Some(&group_data) = presenter_lookup.get(&group_id) else {
                     continue;
                 };
+                // Then: find all members of that group
                 let group_member_ids = sched
-                    .connected_field_nodes(group_id, members_edge)
+                    .connected_field_nodes(group_id, EDGE_MEMBERS)
                     .into_iter()
                     .map(|e| unsafe { PresenterId::new_unchecked(e.entity_uuid()) })
                     .collect::<Vec<PresenterId>>();
@@ -1634,10 +1630,10 @@ mod tests {
         let credited_edge =
             FIELD_CREDITED_PRESENTERS.edge_to(&crate::tables::presenter::FIELD_PANELS);
         sched
-            .edge_add(panel_id, alice, credited_edge)
+            .edge_add(panel_id, credited_edge, std::iter::once(alice))
             .expect("edge type validation failed");
         sched
-            .edge_add(panel_id, bob, credited_edge)
+            .edge_add(panel_id, credited_edge, std::iter::once(bob))
             .expect("edge type validation failed");
         PanelEntityType::field_set()
             .write_field_value(
@@ -1672,10 +1668,10 @@ mod tests {
         let credited_edge =
             FIELD_CREDITED_PRESENTERS.edge_to(&crate::tables::presenter::FIELD_PANELS);
         sched
-            .edge_add(panel_id, alice, credited_edge)
+            .edge_add(panel_id, credited_edge, std::iter::once(alice))
             .expect("edge type validation failed: credited presenter");
         sched
-            .edge_add(panel_id, bob, credited_edge)
+            .edge_add(panel_id, credited_edge, std::iter::once(bob))
             .expect("edge type validation failed: credited presenter");
         PanelEntityType::field_set()
             .write_field_value(
@@ -1713,10 +1709,10 @@ mod tests {
         let credited_edge =
             FIELD_CREDITED_PRESENTERS.edge_to(&crate::tables::presenter::FIELD_PANELS);
         sched
-            .edge_add(panel_id, alice, credited_edge)
+            .edge_add(panel_id, credited_edge, std::iter::once(alice))
             .expect("edge type validation failed");
         sched
-            .edge_add(panel_id, bob, credited_edge)
+            .edge_add(panel_id, credited_edge, std::iter::once(bob))
             .expect("edge type validation failed");
 
         // Write credited_presenters = [alice] — bob should be removed.
@@ -1767,13 +1763,13 @@ mod tests {
         let uncredited_edge =
             FIELD_UNCREDITED_PRESENTERS.edge_to(&crate::tables::presenter::FIELD_PANELS);
         sched
-            .edge_add(panel_id, alice, credited_edge)
+            .edge_add(panel_id, credited_edge, std::iter::once(alice))
             .expect("edge type validation failed");
         sched
-            .edge_add(panel_id, bob, credited_edge)
+            .edge_add(panel_id, credited_edge, std::iter::once(bob))
             .expect("edge type validation failed");
         sched
-            .edge_add(panel_id, carol, uncredited_edge)
+            .edge_add(panel_id, uncredited_edge, std::iter::once(carol))
             .expect("edge type validation failed");
 
         // Replace credited_presenters with [alice] — bob removed, carol untouched.

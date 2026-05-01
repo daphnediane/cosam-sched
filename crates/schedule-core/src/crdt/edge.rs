@@ -13,14 +13,14 @@
 //!
 //! Canonical owners follow the panels-outward rule from FEATURE-023:
 //!
-//! | Relation                     | Owner     | Field          | Homo? |
-//! |------------------------------|-----------|----------------|-------|
-//! | Panel ↔ Presenter (credited)   | Panel     | `credited_presenters`   | no    |
-//! | Panel ↔ Presenter (uncredited) | Panel     | `uncredited_presenters` | no    |
-//! | Panel ↔ EventRoom              | Panel     | `event_rooms`           | no    |
-//! | Panel → PanelType              | Panel     | `panel_type`            | no    |
-//! | EventRoom ↔ HotelRoom          | EventRoom | `hotel_rooms`           | no    |
-//! | Presenter → Group              | Presenter | `groups`                | yes   |
+//! | Relation                        | Owner     | Field                   | Homogenous? |
+//! |---------------------------------|-----------|-------------------------|-------------|
+//! | Panel ↔ Presenter (credited)   | Panel     | `credited_presenters`   | no          |
+//! | Panel ↔ Presenter (uncredited) | Panel     | `uncredited_presenters` | no          |
+//! | Panel ↔ EventRoom              | Panel     | `event_rooms`           | no          |
+//! | Panel → PanelType              | Panel     | `panel_type`            | no          |
+//! | EventRoom ↔ HotelRoom          | EventRoom | `hotel_rooms`           | no          |
+//! | Member → Group                 | Presenter | `members`               | yes         |
 //!
 //! Every `Schedule::edge_add` / `edge_remove` / `edge_set`
 //! call resolves the canonical owner for its `(near_field, far_field)` pair

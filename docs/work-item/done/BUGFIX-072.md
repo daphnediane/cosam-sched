@@ -9,7 +9,7 @@ intent explicit at each call site and fix the inverted queries.
 
 ## Status
 
-Open
+Done
 
 ## Priority
 
@@ -100,53 +100,59 @@ sites as the real problems.
 
 ## Steps to Fix
 
-### Aliases (clarity pass)
+### API refactoring (to enable correct usage)
 
-Introduce re-export-style aliases in `presenter.rs` alongside the
-existing fields, so each call site reads unambiguously:
+Instead of aliases, refactored the edge API to make correct usage more ergonomic:
 
-```rust
-pub use FIELD_MEMBERS as FIELD_MEMBERS_NEAR;     // group's pointer at its members
-pub use FIELD_GROUPS  as FIELD_MEMBERS_FAR;      // member's reverse pointer
-pub use FIELD_GROUPS  as FIELD_GROUPS_NEAR;      // member's pointer at its groups
-pub use FIELD_MEMBERS as FIELD_GROUPS_FAR;       // group's reverse pointer
-```
+1. Changed `edge_add` and `edge_remove` signatures to accept multiple targets via iterator:
+   - `edge_add(near, edge, far_nodes: impl IntoIterator<Item = impl DynamicEntityId>)`
+   - `edge_remove(near, edge, far_nodes: impl IntoIterator<Item = impl DynamicEntityId>)`
+   - Both now return `Vec<NonNilUuid>` of actual changes made
 
-(Exact alias mechanism TBD — may need `static` re-references rather than
-`pub use` depending on how inventory handles re-exports.)
+2. Introduced explicit `FullEdge` constants for homogeneous edges:
+   - `pub const EDGE_GROUPS: FullEdge` - from FIELD_GROUPS to FIELD_MEMBERS
+   - `pub const EDGE_MEMBERS: FullEdge` - from FIELD_MEMBERS to FIELD_GROUPS
 
-Then rewrite the bugged call sites using the aliases so the intent is
-self-documenting:
-
-```rust
-// members of id (id is the group)
-connected_entities((id, &FIELD_MEMBERS_NEAR), &FIELD_MEMBERS_FAR)
-
-// groups id belongs to (id is the member)
-connected_entities((id, &FIELD_GROUPS_NEAR), &FIELD_GROUPS_FAR)
-```
+3. Made `FIELD_GROUPS` and `FIELD_MEMBERS` private (`pub(self)`) to prevent accidental misuse
 
 ### Fixes
 
-- `FIELD_INCLUSIVE_GROUPS`: use `(id, &FIELD_GROUPS_NEAR), &FIELD_GROUPS_FAR`.
-- `FIELD_INCLUSIVE_MEMBERS`: use `(id, &FIELD_MEMBERS_NEAR), &FIELD_MEMBERS_FAR`.
-- `panel.rs always_grouped branch`: use the `GROUPS_NEAR` / `GROUPS_FAR`
-  pair to fetch the presenter's groups, then iterate each group's
-  `MEMBERS_NEAR` / `MEMBERS_FAR` to enumerate siblings.
-- `FIELD_INCLUSIVE_PANELS`: rewrite the inner comments + call-site pair
-  so the "upward" branch uses `GROUPS_NEAR/FAR` and the "downward"
-  branch uses `MEMBERS_NEAR/FAR`. Behaviour is unchanged.
-- `schedule.rs` tests / doc comment: rename `member_id`/`group_id` and
-  the `inclusive_edges` example so the labels match the convention.
+- `FIELD_INCLUSIVE_GROUPS`: use `EDGE_GROUPS` constant (was incorrectly using FIELD_MEMBERS→FIELD_GROUPS)
+- `FIELD_INCLUSIVE_MEMBERS`: use `EDGE_MEMBERS` constant (was incorrectly using FIELD_GROUPS→FIELD_MEMBERS)
+- `panel.rs always_grouped branch`: use `EDGE_GROUPS` to fetch presenter's groups, then `EDGE_MEMBERS` to enumerate siblings
+- `FIELD_INCLUSIVE_PANELS`: updated to use `EDGE_GROUPS`/`EDGE_MEMBERS` constants with correct direction
+- All integration tests updated to use new API and correct edge constants
 
 ## Testing
 
-- Add regression tests mirroring `test_is_group_implicit_via_member_edge`:
-  - `FIELD_INCLUSIVE_GROUPS` on a leaf member returns its parent group
-    (direct + transitive).
-  - `FIELD_INCLUSIVE_MEMBERS` on a group returns its direct + transitive
-    members.
-- For the `always_grouped` branch, add a panel export test where a
-  member flagged `always_grouped` is expected to surface under its
-  group's display name, with a sibling-credited check.
-- Full `cargo test -p schedule-core --lib` must stay green.
+Regression tests added (see Implementation section for details):
+
+- Basic unit tests in `presenter.rs` for direct edge relationships
+- Integration tests in `tests/edges_integration.rs` for transitive closure and symmetry
+- All 400 lib tests pass. All 5 integration tests pass.
+
+## Implementation
+
+**Fixed:** All homogeneous-edge queries now use explicit `FullEdge` constants:
+
+- `presenter.rs`: `FIELD_INCLUSIVE_GROUPS`, `FIELD_INCLUSIVE_MEMBERS`, `FIELD_IS_GROUP` use `EDGE_GROUPS`/`EDGE_MEMBERS`
+- `panel.rs`: `FIELD_INCLUSIVE_PRESENTERS` and `always_grouped` branch migrated to `EDGE_GROUPS`/`EDGE_MEMBERS`
+- `EDGE_GROUPS` and `EDGE_MEMBERS` are now `pub` for cross-module use
+
+**Documentation:** Added "Homogeneous edges and explicit FullEdge constants" section to `field-system.md` explaining the pattern and why to avoid dynamic `.edge_to()` construction.
+
+Added regression tests in `presenter.rs` (basic unit tests):
+
+- `test_field_inclusive_groups_leaf_member_returns_parent_group` - Verifies FIELD_INCLUSIVE_GROUPS returns the direct parent group
+- `test_field_inclusive_members_group_returns_direct_members` - Verifies FIELD_INCLUSIVE_MEMBERS returns direct members of a group
+- `test_edge_add_remove_symmetry_groups_and_members` - Verifies add/remove operations are symmetric in both directions
+
+Added integration tests in `tests/edges_integration.rs`:
+
+- `test_inclusive_groups_transitive_closure` - Verifies FIELD_INCLUSIVE_GROUPS returns both direct and transitive parent groups
+- `test_inclusive_members_transitive_closure` - Verifies FIELD_INCLUSIVE_MEMBERS returns direct + transitive members (nested groups)
+- `test_edge_add_multiple_targets_symmetry` - Verifies adding/removing multiple targets maintains symmetry
+- `test_edge_add_from_group_side_symmetry` - Verifies edge_add from group side (EDGE_MEMBERS) works correctly
+- `test_edge_add_multiple_members_from_group_side` - Verifies adding multiple members from group side
+
+- All 400 lib tests pass. All 5 integration tests pass.

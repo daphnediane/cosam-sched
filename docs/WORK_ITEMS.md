@@ -1,9 +1,13 @@
 # Cosplay America Schedule - Work Item
 
-Updated on: Wed Apr 29 00:58:31 2026
+Updated on: Fri May  1 10:30:16 2026
 
 ## Completed
 
+* [BUGFIX-072] Several homogeneous-edge queries on the presenter member/group relationship
+use the near/far field pair swapped from what their docs and field names
+advertise. Introduce `FIELD_*_NEAR` / `FIELD_*_FAR` aliases to make the
+intent explicit at each call site and fix the inverted queries.
 * [FEATURE-009] Set up the Cargo workspace root and create skeleton application crates.
 * [FEATURE-010] Implement the universal `FieldValue` enum, error types, and CRDT field type annotation.
 * [FEATURE-011] Implement the field trait hierarchy and generic `FieldDescriptor` type that replaces the old proc-macro's generated per-field unit structs.
@@ -36,21 +40,11 @@ existing static field descriptors across every entity file.
 * [FEATURE-065] Convert `credited_presenters` and `uncredited_presenters` on Panel from computed/derived fields
 into actual edge storage fields, eliminating the `credited` per-edge boolean and its CRDT
 `presenters_meta` map.
-* [FEATURE-068] Add `Copy` as a super-trait of `DynamicEntityId` so that by-value usage of id
+* [FEATURE-068] Add `Copy` as a supertrait of `DynamicEntityId` so that by-value usage of id
 parameters is ergonomic without ownership gymnastics.
 * [FEATURE-069] Encode CRDT edge ownership direction directly in `CrdtFieldType` instead of
 relying solely on `EdgeDescriptor` and `canonical_owner()`.
-
-**Note:** This approach was superseded by REFACTOR-074, which moved edge ownership
-information from `CrdtFieldType` to `EdgeKind` within `EdgeDescriptor`. All edge
-fields now use `CrdtFieldType::Derived`, and ownership direction is encoded in
-`EdgeKind::Owner { target_field, exclusive_with }` vs `EdgeKind::Target { source_fields }`.
 * [FEATURE-070] Remove the separate `EdgeDescriptor` struct and inventory; encode CRDT-edge ownership and target field directly inside `CrdtFieldType::EdgeOwner` on the owner field.
-
-**Note:** This work item was later superseded by REFACTOR-074, which reintroduced
-`EdgeDescriptor` as a separate struct with `EdgeKind` encoding ownership direction.
-The `EdgeOwner`/`EdgeTarget` variants in `CrdtFieldType` were removed; all edge
-fields now use `CrdtFieldType::Derived`, and ownership is encoded in `EdgeKind`.
 * [FEATURE-071] Replace the declarative `macro_rules!` field-declaration helpers (`stored_field!`,
 `edge_field!`, `define_field!`) with attribute-style proc-macros in a new
 `schedule-macro` crate; add an `exclusive_with:` clause to express
@@ -101,7 +95,7 @@ and improve `FieldId` conversions with a global registry and type-safe downcasti
 
 ## Summary of Open Items
 
-**Total open items:** 21
+**Total open items:** 20
 
 * **Meta / Project-Level**
   * [META-001] Meta work item tracking the full multi-phase redesign of the schedule system. (Blocked by [META-005], [META-006], [META-007], [META-008])
@@ -118,10 +112,6 @@ through any save → load (or merge) round trip.
 
 * **Medium Priority**
   * [BUGFIX-045] In `scratch/field_update_logic.rs`, duration values are incorrectly stored as `FieldValue::Integer(minutes)` instead of `FieldValue::Duration(Duration)`.
-  * [BUGFIX-072] Several homogeneous-edge queries on the presenter member/group relationship
-use the near/far field pair swapped from what their docs and field names
-advertise. Introduce `FIELD_*_NEAR` / `FIELD_*_FAR` aliases to make the
-intent explicit at each call site and fix the inverted queries.
   * [FEATURE-026] ([META-005]) Support multiple convention years in a single schedule file for historical
 reference and jump-starting new conventions.
   * [FEATURE-027] ([META-005]) Implement export of schedule data to the JSON format consumed by the calendar display widget.
@@ -131,8 +121,7 @@ reference and jump-starting new conventions.
   * [REFACTOR-058] Update `FIELD_CREDITS` to use the per-edge `credited` flag introduced by
 REFACTOR-060, so individual presenters can be excluded from credit display.
   * [REFACTOR-074] Split edge fields out of `FieldDescriptor<E>` into a new `EdgeDescriptor<E>` struct; add
-`HalfEdge`, `TypedField<E>`, and `TypedHalfEdge<E>` traits so that `FieldNodeId` can only be
-constructed from edge fields.
+`HalfEdge`, `TypedField<E>`, and `TypedHalfEdge<E>` traits.
 
 * **Low Priority**
   * [CLI-030] ([META-006]) CLI tool for converting between schedule file formats (XLSX, JSON, widget JSON).
@@ -221,40 +210,6 @@ This is a type safety issue — durations should be typed as `Duration`, not raw
 * Type-safe operations (can't accidentally add minutes to a count field)
 * Proper serialization (duration format vs raw number)
 * Clear semantic meaning in the type system
-
----
-
-### [BUGFIX-072] BUGFIX-072: FIELD_MEMBERS / FIELD_GROUPS near/far confusion in presenter.rs and panel.rs
-
-**Status:** Open
-
-**Priority:** Medium
-
-**Summary:** Several homogeneous-edge queries on the presenter member/group relationship
-use the near/far field pair swapped from what their docs and field names
-advertise. Introduce `FIELD_*_NEAR` / `FIELD_*_FAR` aliases to make the
-intent explicit at each call site and fix the inverted queries.
-
-**Description:** The edge storage convention is **"field name = far side of the edge"**, as
-documented in `crates/schedule-core/src/edge_map.rs:35-40`:
-
-```text
-map[member_uuid][FIELD_GROUPS]  = [(FIELD_MEMBERS, group_uuid), ...]
-map[group_uuid][FIELD_MEMBERS]  = [(FIELD_GROUPS,  member_uuid), ...]
-```
-
-So under this convention:
-
-* `connected_entities((id, FIELD_MEMBERS), &FIELD_GROUPS)` returns the
-  **members** of `id` (`id` acting as a group).
-* `connected_entities((id, FIELD_GROUPS), &FIELD_MEMBERS)` returns the
-  **groups** that `id` belongs to (`id` acting as a member).
-
-Because the two fields look symmetric and their roles depend on which
-side is the near node, several sites in the codebase use the swapped
-pair and therefore compute the wrong set. The bugs are latent because
-most call sites *union* both directions and come out with a consistent
-(if mis-labelled) result, but a few sites rely on the specific direction.
 
 ---
 
@@ -620,21 +575,16 @@ This item covers any remaining integration work and documentation.
 **Priority:** Medium
 
 **Summary:** Split edge fields out of `FieldDescriptor<E>` into a new `EdgeDescriptor<E>` struct; add
-`HalfEdge`, `TypedField<E>`, and `TypedHalfEdge<E>` traits so that `FieldNodeId` can only be
-constructed from edge fields.
+`HalfEdge`, `TypedField<E>`, and `TypedHalfEdge<E>` traits.
 
-**Description:** Currently `FieldNodeId<E>` holds `&'static FieldDescriptor<E>`, which allows any field (scalar,
-text, derived, etc.) to be used as a field node ID. This refactor enforces that only half-edge
-fields can appear in `FieldNodeId` by:
+**Description:** This refactor adds the edge field trait hierarchy and splits edge fields out of `FieldDescriptor<E>`:
 
 * Rename `field_id()` to `edge_id()`
 * Adding `HalfEdge : NamedField` trait with `edge_id()` and `edge_kind() -> &EdgeKind`
 * Adding `EdgeKind` enum with `Target { source_fields }` and `Owner { target_field, exclusive_with }`
 * Adding `EdgeDescriptor<E>` — a unified struct for all edge fields (owner and target)
 * Adding `TypedField<E>` blanket supertrait over `ReadableField + WritableField + VerifiableField`
-* Adding `TypedHalfEdge<E>` blanket over `HalfEdge + TypedField<E>`; stored in `FieldNodeId<E>`
-* Rename `field_node_id::FieldRef` to `EdgeRef`
-* Changing `EdgeRef` to hold `&'static dyn HalfEdge` (was `&'static dyn NamedField`)
+* Adding `TypedHalfEdge<E>` blanket over `HalfEdge + TypedField<E>`
 * Removing `target_field` payload from `CrdtFieldType::EdgeOwner` (now in `EdgeKind`)
 * Moving `exclusive_with` from macro closures into `EdgeKind::Owner`
 * Updating `FieldSet<E>` to hold `dyn TypedField<E>`
@@ -645,7 +595,7 @@ fields can appear in `FieldNodeId` by:
 ---
 
 [BUGFIX-045]: work-item/medium/BUGFIX-045.md
-[BUGFIX-072]: work-item/medium/BUGFIX-072.md
+[BUGFIX-072]: work-item/done/BUGFIX-072.md
 [BUGFIX-073]: work-item/high/BUGFIX-073.md
 [CLI-030]: work-item/low/CLI-030.md
 [CLI-031]: work-item/low/CLI-031.md

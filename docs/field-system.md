@@ -443,6 +443,104 @@ affect presenters in the uncredited partition and vice versa. Moving a presenter
 between partitions (by writing them into the other field) sets the flag; their
 edge is retained.
 
+### Edge operations API: Schedule::edge_add and Schedule::edge_remove
+
+The `Schedule` struct provides low-level edge manipulation methods:
+
+```rust
+pub fn edge_add(
+    &mut self,
+    near: impl DynamicEntityId,
+    edge: FullEdge,
+    far_nodes: impl IntoIterator<Item = impl DynamicEntityId>,
+) -> Result<Vec<NonNilUuid>, EdgeError>
+
+pub fn edge_remove(
+    &mut self,
+    near: impl DynamicEntityId,
+    edge: FullEdge,
+    far_nodes: impl IntoIterator<Item = impl DynamicEntityId>,
+) -> Vec<NonNilUuid>
+```
+
+**Key design decisions:**
+
+- **Batch operations**: Both methods accept iterators of far nodes, enabling efficient
+  addition/removal of multiple edges in a single call. This is more efficient than
+  calling the methods repeatedly for each target.
+- **Return actual UUIDs**: Both methods return the UUIDs of edges that were actually
+  added or removed (not just counts). This enables:
+  - Precise exclusive edge cleanup in helper functions (only clean up edges that
+    actually changed)
+  - CRDT mirroring with incremental updates instead of full rewrites
+  - Better observability and debugging
+- **Parameter order**: `near` (source), `edge` (relationship), `far_nodes` (targets).
+  The `FullEdge` parameter is second to match the `edge_set` pattern.
+
+**Efficiency improvements in RawEdgeMap:**
+
+The underlying `RawEdgeMap::add_edge` and `RawEdgeMap::remove_edge` have been
+optimized to avoid redundant hash map lookups:
+
+- **Single lookup per operation**: Instead of per-target lookups, the methods now
+  do a single hash map lookup for the near side, compute the diff (which targets
+  were actually added/removed), and then iterate only over the changed targets for
+  the reverse direction.
+- **Batch diff computation**: The set of actually-added/removed UUIDs is computed
+  once, then used for both the near-side update and the far-side reverse update.
+- **Redundant check removal**: The `contains` guard on reverse-entry insertion in
+  `add_edge` was removed since we only iterate over freshly-added targets.
+
+These optimizations significantly improve performance when adding/removing multiple
+edges, especially for operations like setting a full list of presenters on a panel.
+
+### Homogeneous edges and explicit `FullEdge` constants
+
+Homogeneous edges connect entities of the same type (e.g., Presenter-to-Presenter
+member/group relationships). Because the field names (`FIELD_MEMBERS`,
+`FIELD_GROUPS`) are symmetric and their semantic roles depend on which side is the
+"near" node, these edges are prone to near/far confusion.
+
+**Solution:** Define explicit `FullEdge` static constants that name the query intent:
+
+```rust
+/// Static edge from groups field to members field (for querying a presenter's groups)
+static EDGE_GROUPS: FullEdge = FullEdge {
+    near: &FIELD_GROUPS,   // Start at the presenter's "groups" field
+    far: &FIELD_MEMBERS,   // Follow to members on the target side
+};
+
+/// Static edge from members field to groups field (for querying a group's members)
+static EDGE_MEMBERS: FullEdge = FullEdge {
+    near: &FIELD_MEMBERS,  // Start at the group's "members" field
+    far: &FIELD_GROUPS,    // Follow to groups on the target side
+};
+```
+
+**Usage in computed fields:**
+
+```rust
+// Get all groups this presenter belongs to (transitive)
+let ids = sched.inclusive_edges::<PresenterEntityType, PresenterEntityType>(id, EDGE_GROUPS);
+
+// Get all members of this group (transitive)
+let ids = sched.inclusive_edges::<PresenterEntityType, PresenterEntityType>(id, EDGE_MEMBERS);
+```
+
+**Avoid:** Using `.edge_to()` to construct edges dynamically at call sites. While
+functionally equivalent, it lacks the self-documenting property of named constants:
+
+```rust
+// Don't do this — unclear which direction this follows
+let edge = FIELD_MEMBERS.edge_to(&FIELD_GROUPS);
+
+// Do this instead — explicitly named intent
+let edge = EDGE_MEMBERS;  // "Querying a group's members"
+```
+
+The `FullEdge` type is defined in `crate::edge::id` and provides `near`/`far`
+accessors, direction checking (`is_homogeneous()`), and edge flipping (`flip()`).
+
 ### Read-only computed fields with Schedule access
 
 For computed fields that require Schedule access to traverse edges or access other
@@ -479,7 +577,7 @@ This pattern is used for:
 - **Panel**: `credits` (formats credited presenter strings with group resolution),
   `hotel_rooms` (traverses event_rooms to hotel rooms)
 - **Presenter**: `inclusive_groups`, `inclusive_members` (transitive closure via
-  `inclusive_edges_from`/`inclusive_edges_to`)
+  `inclusive_edges` with explicit `FullEdge` constants)
 
 ### Inventory-based field registration
 
@@ -514,7 +612,7 @@ pub trait NamedField: 'static + Send + Sync + std::any::Any {
 ```
 
 The `edge_id()` and `entity_type_name()` methods enable type-erased field identity
-and entity type identification. The `std::any::Any` super-trait enables safe downcasting
+and entity type identification. The `std::any::Any` supertrait enables safe downcasting
 via `downcast_ref`.
 
 **Inventory registration** - The `define_field!` proc-macro automatically generates

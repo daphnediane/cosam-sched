@@ -444,7 +444,7 @@ impl Schedule {
                         far: batch.target_field,
                     };
                     self.edges
-                        .add_edge(from, to, edge)
+                        .add_edge(from, edge, std::iter::once(to))
                         .expect("edge type validation failed");
                 }
             }

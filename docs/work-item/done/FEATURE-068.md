@@ -2,7 +2,7 @@
 
 ## Summary
 
-Add `Copy` as a super-trait of `DynamicEntityId` so that by-value usage of id
+Add `Copy` as a supertrait of `DynamicEntityId` so that by-value usage of id
 parameters is ergonomic without ownership gymnastics.
 
 ## Status
@@ -20,7 +20,7 @@ currently do not require `Copy`.  The only concrete implementors
 (`EntityId<E>`, `RuntimeEntityId`, `FieldNodeId<E>`, `RuntimeFieldNodeId`) are
 all `Copy`.
 
-Adding `Copy` as a super-trait would allow callers to use `impl DynamicEntityId`
+Adding `Copy` as a supertrait would allow callers to use `impl DynamicEntityId`
 parameters by value multiple times without borrow/clone workarounds, and would
 let `&impl DynamicEntityId` auto-deref to the trait methods without needing
 blanket impls for references.

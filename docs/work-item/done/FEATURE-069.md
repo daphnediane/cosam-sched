@@ -5,11 +5,6 @@
 Encode CRDT edge ownership direction directly in `CrdtFieldType` instead of
 relying solely on `EdgeDescriptor` and `canonical_owner()`.
 
-**Note:** This approach was superseded by REFACTOR-074, which moved edge ownership
-information from `CrdtFieldType` to `EdgeKind` within `EdgeDescriptor`. All edge
-fields now use `CrdtFieldType::Derived`, and ownership direction is encoded in
-`EdgeKind::Owner { target_field, exclusive_with }` vs `EdgeKind::Target { source_fields }`.
-
 ## Status
 
 Completed
@@ -43,3 +38,10 @@ Adding `EdgeOwner` / `EdgeTarget` variants to `CrdtFieldType` would:
 - `rw_to` mode merged into `rw` (generated code was identical; `source:`/`source_field:` was cosmetic)
 - `mirror_entity_fields` iterates `EdgeOwner` fields to call `ensure_owner_list`,
   eliminating the separate `ensure_all_owner_lists_for_type` setup pass
+
+## Follow up
+
+**Note:** This approach was superseded by REFACTOR-074, which moved edge ownership
+information from `CrdtFieldType` to `EdgeKind` within `EdgeDescriptor`. All edge
+fields now use `CrdtFieldType::Derived`, and ownership direction is encoded in
+`EdgeKind::Owner { target_field, exclusive_with }` vs `EdgeKind::Target { source_fields }`.

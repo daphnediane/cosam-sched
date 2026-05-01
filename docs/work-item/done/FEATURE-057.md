@@ -59,3 +59,7 @@ This feature implements a cache similar to the v10-try1 relationship.rs implemen
 Reference implementation: v10-try1/crates/schedule-core/src/data/relationship.rs
 
 The main workspace uses a different edge storage model (RawEdgeMap with UUIDs and type tags) compared to v10-try1 (string-based names), so the cache must be adapted to work with the current architecture.
+
+## Followup
+
+The implementation now uses a single `inclusive_edges<Near, Far>(near: EntityId<Near>, edge: FullEdge)` method instead of the originally planned separate `inclusive_edges_from` and `inclusive_edges_to` methods. The `FullEdge` parameter encodes both the near and far field descriptors and traversal direction, making the API more explicit and avoiding near/far confusion for homogeneous edges.
