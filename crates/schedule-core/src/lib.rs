@@ -29,6 +29,3 @@ pub use schedule_macro::define_field;
 
 // Re-exports from entity
 pub use entity::{DynamicEntityId, EntityId, EntityTyped, EntityUuid, RuntimeEntityId};
-
-// Re-exports from edge
-pub use edge::{DynamicFieldNodeId, EdgeRef, FieldNodeId, RuntimeFieldNodeId};

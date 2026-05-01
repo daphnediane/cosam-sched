@@ -39,6 +39,9 @@ pub enum FieldError {
         name: &'static str,
         detail: std::string::String,
     },
+    /// Edge operation failed.
+    #[error("edge operation failed: {0}")]
+    Edge(#[from] crate::edge::map::EdgeError),
 }
 
 // ── ConversionError ─────────────────────────────────────────────────────────

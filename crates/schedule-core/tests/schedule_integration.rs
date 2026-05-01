@@ -27,7 +27,7 @@ use schedule_core::tables::presenter::{
 use schedule_core::value::time::TimeRange;
 use schedule_core::value::uniq_id::PanelUniqId;
 use schedule_core::value::FieldTypeItem;
-use schedule_core::{EntityTyped, FieldNodeId};
+use schedule_core::EntityTyped;
 
 fn make_panel_type() -> (EntityId<PanelTypeEntityType>, PanelTypeInternalData) {
     let id = EntityId::from_preference(UuidPreference::GenerateNew);
@@ -198,27 +198,24 @@ fn het_edge_add_and_query_both_directions() {
     sched.insert(panel_id, panel_data);
     sched.insert(pres_id, pres_data);
 
-    sched.edge_add(
-        FieldNodeId::new(
-            panel_id,
-            &schedule_core::tables::panel::FIELD_CREDITED_PRESENTERS,
-        ),
-        FieldNodeId::new(pres_id, &FIELD_PANELS),
-    );
+    let edge = schedule_core::tables::panel::FIELD_CREDITED_PRESENTERS.edge_to(&FIELD_PANELS);
+    sched.edge_add(panel_id, pres_id, edge).unwrap();
 
-    let presenters = sched.connected_entities::<PresenterEntityType>(
-        FieldNodeId::new(
-            panel_id,
-            &schedule_core::tables::panel::FIELD_CREDITED_PRESENTERS,
-        ),
-        &schedule_core::tables::presenter::FIELD_PANELS,
-    );
+    let presenters = sched
+        .connected_field_nodes(panel_id, edge)
+        .into_iter()
+        .map(|e| unsafe { PresenterId::new_unchecked(e.entity_uuid()) })
+        .collect::<Vec<PresenterId>>();
     assert_eq!(presenters, vec![pres_id]);
 
-    let panels = sched.connected_entities::<PanelEntityType>(
-        FieldNodeId::new(pres_id, &FIELD_PANELS),
-        &schedule_core::tables::panel::FIELD_CREDITED_PRESENTERS,
-    );
+    let panels = sched
+        .connected_field_nodes(
+            pres_id,
+            FIELD_PANELS.edge_to(&schedule_core::tables::panel::FIELD_CREDITED_PRESENTERS),
+        )
+        .into_iter()
+        .map(|e| unsafe { PanelId::new_unchecked(e.entity_uuid()) })
+        .collect::<Vec<PanelId>>();
     assert_eq!(panels, vec![panel_id]);
 }
 
@@ -230,36 +227,12 @@ fn het_edge_remove() {
     sched.insert(panel_id, panel_data);
     sched.insert(pres_id, pres_data);
 
-    sched.edge_add(
-        FieldNodeId::new(
-            panel_id,
-            &schedule_core::tables::panel::FIELD_CREDITED_PRESENTERS,
-        ),
-        FieldNodeId::new(pres_id, &FIELD_PANELS),
-    );
-    sched.edge_remove(
-        FieldNodeId::new(
-            panel_id,
-            &schedule_core::tables::panel::FIELD_CREDITED_PRESENTERS,
-        ),
-        FieldNodeId::new(pres_id, &FIELD_PANELS),
-    );
+    let edge = schedule_core::tables::panel::FIELD_CREDITED_PRESENTERS.edge_to(&FIELD_PANELS);
+    sched.edge_add(panel_id, pres_id, edge).unwrap();
+    sched.edge_remove(panel_id, pres_id, edge);
 
-    assert!(sched
-        .connected_entities::<PresenterEntityType>(
-            FieldNodeId::new(
-                panel_id,
-                &schedule_core::tables::panel::FIELD_CREDITED_PRESENTERS
-            ),
-            &schedule_core::tables::presenter::FIELD_PANELS,
-        )
-        .is_empty());
-    assert!(sched
-        .connected_entities::<PanelEntityType>(
-            FieldNodeId::new(pres_id, &FIELD_PANELS),
-            &schedule_core::tables::panel::FIELD_CREDITED_PRESENTERS,
-        )
-        .is_empty());
+    assert!(sched.connected_field_nodes(panel_id, edge).is_empty());
+    assert!(sched.connected_field_nodes(pres_id, edge).is_empty());
 }
 
 #[test]
@@ -274,55 +247,48 @@ fn het_edge_set_replaces_all() {
     sched.insert(p2_id, p2_data);
     sched.insert(p3_id, p3_data);
 
-    sched.edge_set(
-        FieldNodeId::new(
+    sched
+        .edge_set(
             panel_id,
-            &schedule_core::tables::panel::FIELD_CREDITED_PRESENTERS,
-        ),
-        &schedule_core::tables::presenter::FIELD_PANELS,
-        vec![p1_id, p2_id],
-    );
-    let mut presenters = sched.connected_entities::<PresenterEntityType>(
-        FieldNodeId::new(
-            panel_id,
-            &schedule_core::tables::panel::FIELD_CREDITED_PRESENTERS,
-        ),
-        &schedule_core::tables::presenter::FIELD_PANELS,
+            schedule_core::tables::panel::FIELD_CREDITED_PRESENTERS.edge_to(&FIELD_PANELS),
+            vec![p1_id, p2_id],
+        )
+        .unwrap();
+    let mut presenters = sched.connected_field_nodes(
+        panel_id,
+        schedule_core::tables::panel::FIELD_CREDITED_PRESENTERS.edge_to(&FIELD_PANELS),
     );
     presenters.sort_by_key(|id| id.entity_uuid());
-    let mut expected = vec![p1_id, p2_id];
+    let mut expected: Vec<schedule_core::entity::RuntimeEntityId> =
+        vec![p1_id.into(), p2_id.into()];
     expected.sort_by_key(|id| id.entity_uuid());
     assert_eq!(presenters, expected);
 
-    sched.edge_set(
-        FieldNodeId::new(
+    sched
+        .edge_set(
             panel_id,
-            &schedule_core::tables::panel::FIELD_CREDITED_PRESENTERS,
-        ),
-        &schedule_core::tables::presenter::FIELD_PANELS,
-        vec![p3_id],
-    );
+            schedule_core::tables::panel::FIELD_CREDITED_PRESENTERS.edge_to(&FIELD_PANELS),
+            vec![p3_id],
+        )
+        .unwrap();
     assert_eq!(
-        sched.connected_entities::<PresenterEntityType>(
-            FieldNodeId::new(
-                panel_id,
-                &schedule_core::tables::panel::FIELD_CREDITED_PRESENTERS
-            ),
-            &schedule_core::tables::presenter::FIELD_PANELS,
+        sched.connected_field_nodes(
+            panel_id,
+            schedule_core::tables::panel::FIELD_CREDITED_PRESENTERS.edge_to(&FIELD_PANELS),
         ),
-        vec![p3_id]
+        vec![p3_id.into()]
     );
     // p1 and p2 no longer link back to panel
     assert!(sched
-        .connected_entities::<PanelEntityType>(
-            FieldNodeId::new(p1_id, &FIELD_PANELS),
-            &schedule_core::tables::panel::FIELD_CREDITED_PRESENTERS,
+        .connected_field_nodes(
+            p1_id,
+            schedule_core::tables::panel::FIELD_CREDITED_PRESENTERS.edge_to(&FIELD_PANELS),
         )
         .is_empty());
     assert!(sched
-        .connected_entities::<PanelEntityType>(
-            FieldNodeId::new(p2_id, &FIELD_PANELS),
-            &schedule_core::tables::panel::FIELD_CREDITED_PRESENTERS,
+        .connected_field_nodes(
+            p2_id,
+            schedule_core::tables::panel::FIELD_CREDITED_PRESENTERS.edge_to(&FIELD_PANELS),
         )
         .is_empty());
 }
@@ -334,23 +300,13 @@ fn remove_entity_clears_het_edges() {
     let (pres_id, pres_data) = make_presenter("Alice");
     sched.insert(panel_id, panel_data);
     sched.insert(pres_id, pres_data);
-    sched.edge_add(
-        FieldNodeId::new(
-            panel_id,
-            &schedule_core::tables::panel::FIELD_CREDITED_PRESENTERS,
-        ),
-        FieldNodeId::new(pres_id, &FIELD_PANELS),
-    );
+    let edge = schedule_core::tables::panel::FIELD_CREDITED_PRESENTERS.edge_to(&FIELD_PANELS);
+    sched.edge_add(panel_id, pres_id, edge).unwrap();
 
     sched.remove_entity::<PanelEntityType>(panel_id);
 
     // Edge from presenter side should be gone too
-    assert!(sched
-        .connected_entities::<PanelEntityType>(
-            FieldNodeId::new(pres_id, &FIELD_PANELS),
-            &schedule_core::tables::panel::FIELD_CREDITED_PRESENTERS,
-        )
-        .is_empty());
+    assert!(sched.connected_field_nodes(pres_id, edge).is_empty());
 }
 
 // ── EventRoom / HotelRoom heterogeneous edges ─────────────────────────────
@@ -363,23 +319,26 @@ fn event_room_hotel_room_het_edge() {
     sched.insert(room_id, room_data);
     sched.insert(hotel_id, hotel_data);
 
-    sched.edge_add(
-        FieldNodeId::new(room_id, &FIELD_HOTEL_ROOMS),
-        FieldNodeId::new(hotel_id, &FIELD_EVENT_ROOMS),
-    );
+    sched
+        .edge_add(
+            room_id,
+            hotel_id,
+            FIELD_HOTEL_ROOMS.edge_to(&schedule_core::tables::hotel_room::FIELD_EVENT_ROOMS),
+        )
+        .unwrap();
 
-    let hotels = sched.connected_entities::<HotelRoomEntityType>(
-        FieldNodeId::new(room_id, &FIELD_HOTEL_ROOMS),
-        &schedule_core::tables::hotel_room::FIELD_EVENT_ROOMS,
+    let hotels = sched.connected_field_nodes(
+        room_id,
+        FIELD_HOTEL_ROOMS.edge_to(&schedule_core::tables::hotel_room::FIELD_EVENT_ROOMS),
     );
-    assert_eq!(hotels, vec![hotel_id]);
+    assert_eq!(hotels, vec![hotel_id.into()]);
 
-    // Reverse: hotel_room.event_rooms via connected_entities with FIELD_EVENT_ROOMS
-    let rooms = sched.connected_entities::<EventRoomEntityType>(
-        FieldNodeId::new(hotel_id, &FIELD_EVENT_ROOMS),
-        &schedule_core::tables::event_room::FIELD_HOTEL_ROOMS,
+    // Reverse: hotel_room.event_rooms via connected_field_nodes with FIELD_EVENT_ROOMS
+    let rooms = sched.connected_field_nodes(
+        hotel_id,
+        FIELD_EVENT_ROOMS.edge_to(&schedule_core::tables::event_room::FIELD_HOTEL_ROOMS),
     );
-    assert_eq!(rooms, vec![room_id]);
+    assert_eq!(rooms, vec![room_id.into()]);
 }
 
 // ── Homo edges (Presenter → Presenter) ───────────────────────────────────
@@ -393,24 +352,17 @@ fn homo_edge_groups_and_members() {
     sched.insert(group_id, group_data);
 
     // member → group (forward homogeneous edge: member is in group)
-    sched.edge_add(
-        FieldNodeId::new(member_id, &FIELD_MEMBERS),
-        FieldNodeId::new(group_id, &FIELD_GROUPS),
-    );
+    sched
+        .edge_add(member_id, group_id, FIELD_MEMBERS.edge_to(&FIELD_GROUPS))
+        .unwrap();
 
-    // groups of member: connected_entities with FIELD_MEMBERS
-    let groups = sched.connected_entities::<PresenterEntityType>(
-        FieldNodeId::new(member_id, &FIELD_MEMBERS),
-        &FIELD_GROUPS,
-    );
-    assert_eq!(groups, vec![group_id]);
+    // groups of member: connected_field_nodes with FIELD_MEMBERS
+    let groups = sched.connected_field_nodes(member_id, FIELD_MEMBERS.edge_to(&FIELD_GROUPS));
+    assert_eq!(groups, vec![group_id.into()]);
 
-    // members of group: connected_entities with FIELD_MEMBERS
-    let members = sched.connected_entities::<PresenterEntityType>(
-        FieldNodeId::new(group_id, &FIELD_GROUPS),
-        &FIELD_MEMBERS,
-    );
-    assert_eq!(members, vec![member_id]);
+    // members of group: connected_field_nodes with FIELD_MEMBERS
+    let members = sched.connected_field_nodes(group_id, FIELD_GROUPS.edge_to(&FIELD_MEMBERS));
+    assert_eq!(members, vec![member_id.into()]);
 }
 
 #[test]
@@ -421,26 +373,16 @@ fn homo_edge_remove() {
     sched.insert(member_id, member_data);
     sched.insert(group_id, group_data);
 
-    sched.edge_add(
-        FieldNodeId::new(member_id, &FIELD_MEMBERS),
-        FieldNodeId::new(group_id, &FIELD_GROUPS),
-    );
-    sched.edge_remove(
-        FieldNodeId::new(member_id, &FIELD_MEMBERS),
-        FieldNodeId::new(group_id, &FIELD_GROUPS),
-    );
+    sched
+        .edge_add(member_id, group_id, FIELD_MEMBERS.edge_to(&FIELD_GROUPS))
+        .unwrap();
+    sched.edge_remove(member_id, group_id, FIELD_MEMBERS.edge_to(&FIELD_GROUPS));
 
     assert!(sched
-        .connected_entities::<PresenterEntityType>(
-            FieldNodeId::new(member_id, &FIELD_MEMBERS),
-            &FIELD_GROUPS,
-        )
+        .connected_field_nodes(member_id, FIELD_MEMBERS.edge_to(&FIELD_GROUPS),)
         .is_empty());
     assert!(sched
-        .connected_entities::<PresenterEntityType>(
-            FieldNodeId::new(group_id, &FIELD_GROUPS),
-            &FIELD_MEMBERS,
-        )
+        .connected_field_nodes(group_id, FIELD_GROUPS.edge_to(&FIELD_MEMBERS),)
         .is_empty());
 }
 
@@ -454,36 +396,23 @@ fn homo_edge_set_replaces() {
     sched.insert(g1_id, g1_data);
     sched.insert(g2_id, g2_data);
 
-    sched.edge_set(
-        FieldNodeId::new(member_id, &FIELD_MEMBERS),
-        &FIELD_GROUPS,
-        vec![g1_id],
-    );
+    sched
+        .edge_set(member_id, FIELD_MEMBERS.edge_to(&FIELD_GROUPS), vec![g1_id])
+        .unwrap();
     assert_eq!(
-        sched.connected_entities::<PresenterEntityType>(
-            FieldNodeId::new(member_id, &FIELD_MEMBERS),
-            &FIELD_GROUPS,
-        ),
-        vec![g1_id]
+        sched.connected_field_nodes(member_id, FIELD_MEMBERS.edge_to(&FIELD_GROUPS),),
+        vec![g1_id.into()]
     );
 
-    sched.edge_set(
-        FieldNodeId::new(member_id, &FIELD_MEMBERS),
-        &FIELD_GROUPS,
-        vec![g2_id],
-    );
+    sched
+        .edge_set(member_id, FIELD_MEMBERS.edge_to(&FIELD_GROUPS), vec![g2_id])
+        .unwrap();
     assert_eq!(
-        sched.connected_entities::<PresenterEntityType>(
-            FieldNodeId::new(member_id, &FIELD_MEMBERS),
-            &FIELD_GROUPS,
-        ),
-        vec![g2_id]
+        sched.connected_field_nodes(member_id, FIELD_MEMBERS.edge_to(&FIELD_GROUPS),),
+        vec![g2_id.into()]
     );
     assert!(sched
-        .connected_entities::<PresenterEntityType>(
-            FieldNodeId::new(g1_id, &FIELD_GROUPS),
-            &FIELD_MEMBERS,
-        )
+        .connected_field_nodes(g1_id, FIELD_GROUPS.edge_to(&FIELD_MEMBERS),)
         .is_empty());
 }
 
@@ -498,55 +427,41 @@ fn edge_set_to_sets_members() {
     sched.insert(g_id, g_data);
 
     // Set members of group to [m1, m2]
-    sched.edge_set(
-        FieldNodeId::new(g_id, &FIELD_GROUPS),
-        &FIELD_MEMBERS,
-        vec![m1_id, m2_id],
-    );
+    sched
+        .edge_set(
+            g_id,
+            FIELD_GROUPS.edge_to(&FIELD_MEMBERS),
+            vec![m1_id, m2_id],
+        )
+        .unwrap();
 
-    let mut members = sched.connected_entities::<PresenterEntityType>(
-        FieldNodeId::new(g_id, &FIELD_GROUPS),
-        &FIELD_MEMBERS,
-    );
+    let mut members = sched.connected_field_nodes(g_id, FIELD_GROUPS.edge_to(&FIELD_MEMBERS));
     members.sort_by_key(|id| id.entity_uuid());
-    let mut expected = vec![m1_id, m2_id];
+    let mut expected: Vec<schedule_core::entity::RuntimeEntityId> =
+        vec![m1_id.into(), m2_id.into()];
     expected.sort_by_key(|id| id.entity_uuid());
     assert_eq!(members, expected);
 
     // m1 and m2 should have group in their groups list
     assert_eq!(
-        sched.connected_entities::<PresenterEntityType>(
-            FieldNodeId::new(m1_id, &FIELD_MEMBERS),
-            &FIELD_GROUPS,
-        ),
-        vec![g_id]
+        sched.connected_field_nodes(m1_id, FIELD_MEMBERS.edge_to(&FIELD_GROUPS),),
+        vec![g_id.into()]
     );
     assert_eq!(
-        sched.connected_entities::<PresenterEntityType>(
-            FieldNodeId::new(m2_id, &FIELD_MEMBERS),
-            &FIELD_GROUPS,
-        ),
-        vec![g_id]
+        sched.connected_field_nodes(m2_id, FIELD_MEMBERS.edge_to(&FIELD_GROUPS),),
+        vec![g_id.into()]
     );
 
     // Replace with just m1
-    sched.edge_set(
-        FieldNodeId::new(g_id, &FIELD_GROUPS),
-        &FIELD_MEMBERS,
-        vec![m1_id],
-    );
+    sched
+        .edge_set(g_id, FIELD_GROUPS.edge_to(&FIELD_MEMBERS), vec![m1_id])
+        .unwrap();
     assert_eq!(
-        sched.connected_entities::<PresenterEntityType>(
-            FieldNodeId::new(g_id, &FIELD_GROUPS),
-            &FIELD_MEMBERS,
-        ),
-        vec![m1_id]
+        sched.connected_field_nodes(g_id, FIELD_GROUPS.edge_to(&FIELD_MEMBERS),),
+        vec![m1_id.into()]
     );
     assert!(sched
-        .connected_entities::<PresenterEntityType>(
-            FieldNodeId::new(m2_id, &FIELD_MEMBERS),
-            &FIELD_GROUPS,
-        )
+        .connected_field_nodes(m2_id, FIELD_MEMBERS.edge_to(&FIELD_GROUPS),)
         .is_empty());
 }
 
@@ -557,19 +472,15 @@ fn remove_entity_clears_homo_edges() {
     let (group_id, group_data) = make_presenter("The Group");
     sched.insert(member_id, member_data);
     sched.insert(group_id, group_data);
-    sched.edge_add(
-        FieldNodeId::new(member_id, &FIELD_MEMBERS),
-        FieldNodeId::new(group_id, &FIELD_GROUPS),
-    );
+    sched
+        .edge_add(member_id, group_id, FIELD_MEMBERS.edge_to(&FIELD_GROUPS))
+        .unwrap();
 
     sched.remove_entity::<PresenterEntityType>(member_id);
 
     // group should no longer see member
     assert!(sched
-        .connected_entities::<PresenterEntityType>(
-            FieldNodeId::new(group_id, &FIELD_MEMBERS),
-            &FIELD_GROUPS,
-        )
+        .connected_field_nodes(group_id, FIELD_MEMBERS.edge_to(&FIELD_GROUPS),)
         .is_empty());
 }
 
@@ -819,25 +730,22 @@ fn save_to_file_load_from_file_preserves_edges() {
     let (pres_id, pres_data) = make_presenter("Alice");
     sched.insert(panel_id, panel_data);
     sched.insert(pres_id, pres_data);
-    sched.edge_add(
-        FieldNodeId::new(
+    sched
+        .edge_add(
             panel_id,
-            &schedule_core::tables::panel::FIELD_CREDITED_PRESENTERS,
-        ),
-        FieldNodeId::new(pres_id, &FIELD_PANELS),
-    );
+            pres_id,
+            schedule_core::tables::panel::FIELD_CREDITED_PRESENTERS.edge_to(&FIELD_PANELS),
+        )
+        .unwrap();
 
     let bytes = sched.save_to_file();
     let loaded = Schedule::load_from_file(&bytes).expect("load_from_file");
 
-    let forwards: Vec<PresenterId> = loaded.connected_entities::<PresenterEntityType>(
-        FieldNodeId::new(
-            panel_id,
-            &schedule_core::tables::panel::FIELD_CREDITED_PRESENTERS,
-        ),
-        &schedule_core::tables::presenter::FIELD_PANELS,
+    let forwards = loaded.connected_field_nodes(
+        panel_id,
+        schedule_core::tables::panel::FIELD_CREDITED_PRESENTERS.edge_to(&FIELD_PANELS),
     );
-    assert_eq!(forwards, vec![pres_id]);
+    assert_eq!(forwards, vec![pres_id.into()]);
 }
 
 #[test]
@@ -885,33 +793,30 @@ fn save_load_roundtrips_panel_presenter_edge() {
     let (pres_id, pres_data) = make_presenter("Alice");
     sched.insert(panel_id, panel_data);
     sched.insert(pres_id, pres_data);
-    sched.edge_add(
-        FieldNodeId::new(
+    sched
+        .edge_add(
             panel_id,
-            &schedule_core::tables::panel::FIELD_CREDITED_PRESENTERS,
-        ),
-        FieldNodeId::new(pres_id, &FIELD_PANELS),
-    );
+            pres_id,
+            schedule_core::tables::panel::FIELD_CREDITED_PRESENTERS.edge_to(&FIELD_PANELS),
+        )
+        .unwrap();
 
     let bytes = sched.save();
     let loaded = Schedule::load(&bytes).expect("load");
 
     // Forward edge (panel → presenter)
-    let forwards: Vec<PresenterId> = loaded.connected_entities::<PresenterEntityType>(
-        FieldNodeId::new(
-            panel_id,
-            &schedule_core::tables::panel::FIELD_CREDITED_PRESENTERS,
-        ),
-        &schedule_core::tables::presenter::FIELD_PANELS,
+    let forwards = loaded.connected_field_nodes(
+        panel_id,
+        schedule_core::tables::panel::FIELD_CREDITED_PRESENTERS.edge_to(&FIELD_PANELS),
     );
-    assert_eq!(forwards, vec![pres_id]);
+    assert_eq!(forwards, vec![pres_id.into()]);
     // Reverse edge (presenter → panel) also rebuilt from the single
     // owner list on the panel side.
-    let reverses: Vec<PanelId> = loaded.connected_entities::<PanelEntityType>(
-        FieldNodeId::new(pres_id, &FIELD_PANELS),
-        &schedule_core::tables::panel::FIELD_CREDITED_PRESENTERS,
+    let reverses = loaded.connected_field_nodes(
+        pres_id,
+        FIELD_PANELS.edge_to(&schedule_core::tables::panel::FIELD_CREDITED_PRESENTERS),
     );
-    assert_eq!(reverses, vec![panel_id]);
+    assert_eq!(reverses, vec![panel_id.into()]);
 }
 
 #[test]
@@ -921,26 +826,27 @@ fn save_load_roundtrips_event_room_hotel_room_edge() {
     let (hr_id, hr_data) = make_hotel_room("Suite A");
     sched.insert(er_id, er_data);
     sched.insert(hr_id, hr_data);
-    sched.edge_add(
-        FieldNodeId::new(er_id, &FIELD_HOTEL_ROOMS),
-        FieldNodeId::new(hr_id, &FIELD_EVENT_ROOMS),
-    );
+    sched
+        .edge_add(
+            er_id,
+            hr_id,
+            FIELD_HOTEL_ROOMS.edge_to(&schedule_core::tables::hotel_room::FIELD_EVENT_ROOMS),
+        )
+        .unwrap();
 
     let bytes = sched.save();
     let loaded = Schedule::load(&bytes).expect("load");
 
-    let hotel_rooms: Vec<EntityId<HotelRoomEntityType>> = loaded
-        .connected_entities::<HotelRoomEntityType>(
-            FieldNodeId::new(er_id, &FIELD_HOTEL_ROOMS),
-            &schedule_core::tables::hotel_room::FIELD_EVENT_ROOMS,
-        );
-    assert_eq!(hotel_rooms, vec![hr_id]);
-    let event_rooms: Vec<EntityId<EventRoomEntityType>> = loaded
-        .connected_entities::<EventRoomEntityType>(
-            FieldNodeId::new(hr_id, &FIELD_EVENT_ROOMS),
-            &schedule_core::tables::event_room::FIELD_HOTEL_ROOMS,
-        );
-    assert_eq!(event_rooms, vec![er_id]);
+    let hotel_rooms = loaded.connected_field_nodes(
+        er_id,
+        FIELD_HOTEL_ROOMS.edge_to(&schedule_core::tables::hotel_room::FIELD_EVENT_ROOMS),
+    );
+    assert_eq!(hotel_rooms, vec![hr_id.into()]);
+    let event_rooms = loaded.connected_field_nodes(
+        hr_id,
+        FIELD_EVENT_ROOMS.edge_to(&schedule_core::tables::event_room::FIELD_HOTEL_ROOMS),
+    );
+    assert_eq!(event_rooms, vec![er_id.into()]);
 }
 
 #[test]
@@ -951,24 +857,17 @@ fn save_load_roundtrips_presenter_group_edge() {
     sched.insert(alice_id, alice);
     sched.insert(group_id, group);
     // alice is a member of the Speakers group
-    sched.edge_add(
-        FieldNodeId::new(alice_id, &FIELD_MEMBERS),
-        FieldNodeId::new(group_id, &FIELD_GROUPS),
-    );
+    sched
+        .edge_add(alice_id, group_id, FIELD_MEMBERS.edge_to(&FIELD_GROUPS))
+        .unwrap();
 
     let bytes = sched.save();
     let loaded = Schedule::load(&bytes).expect("load");
 
-    let groups: Vec<PresenterId> = loaded.connected_entities::<PresenterEntityType>(
-        FieldNodeId::new(alice_id, &FIELD_MEMBERS),
-        &FIELD_GROUPS,
-    );
-    assert_eq!(groups, vec![group_id]);
-    let members: Vec<PresenterId> = loaded.connected_entities::<PresenterEntityType>(
-        FieldNodeId::new(group_id, &FIELD_GROUPS),
-        &FIELD_MEMBERS,
-    );
-    assert_eq!(members, vec![alice_id]);
+    let groups = loaded.connected_field_nodes(alice_id, FIELD_MEMBERS.edge_to(&FIELD_GROUPS));
+    assert_eq!(groups, vec![group_id.into()]);
+    let members = loaded.connected_field_nodes(group_id, FIELD_GROUPS.edge_to(&FIELD_MEMBERS));
+    assert_eq!(members, vec![alice_id.into()]);
 }
 
 #[test]
@@ -978,30 +877,25 @@ fn edge_remove_roundtrips_through_save_load() {
     let (pres_id, pres_data) = make_presenter("Alice");
     sched.insert(panel_id, panel_data);
     sched.insert(pres_id, pres_data);
-    sched.edge_add(
-        FieldNodeId::new(
+    sched
+        .edge_add(
             panel_id,
-            &schedule_core::tables::panel::FIELD_CREDITED_PRESENTERS,
-        ),
-        FieldNodeId::new(pres_id, &FIELD_PANELS),
-    );
+            pres_id,
+            schedule_core::tables::panel::FIELD_CREDITED_PRESENTERS.edge_to(&FIELD_PANELS),
+        )
+        .unwrap();
     sched.edge_remove(
-        FieldNodeId::new(
-            panel_id,
-            &schedule_core::tables::panel::FIELD_CREDITED_PRESENTERS,
-        ),
-        FieldNodeId::new(pres_id, &FIELD_PANELS),
+        panel_id,
+        pres_id,
+        schedule_core::tables::panel::FIELD_CREDITED_PRESENTERS.edge_to(&FIELD_PANELS),
     );
 
     let bytes = sched.save();
     let loaded = Schedule::load(&bytes).expect("load");
 
-    let forwards: Vec<PresenterId> = loaded.connected_entities::<PresenterEntityType>(
-        FieldNodeId::new(
-            panel_id,
-            &schedule_core::tables::panel::FIELD_CREDITED_PRESENTERS,
-        ),
-        &schedule_core::tables::presenter::FIELD_PANELS,
+    let forwards = loaded.connected_field_nodes(
+        panel_id,
+        schedule_core::tables::panel::FIELD_CREDITED_PRESENTERS.edge_to(&FIELD_PANELS),
     );
     assert!(forwards.is_empty());
 }
@@ -1015,33 +909,29 @@ fn edge_set_replaces_through_save_load() {
     sched.insert(panel_id, panel_data);
     sched.insert(alice_id, alice_data);
     sched.insert(bob_id, bob_data);
-    sched.edge_add(
-        FieldNodeId::new(
+    sched
+        .edge_add(
             panel_id,
-            &schedule_core::tables::panel::FIELD_CREDITED_PRESENTERS,
-        ),
-        FieldNodeId::new(alice_id, &FIELD_PANELS),
-    );
-    sched.edge_set(
-        FieldNodeId::new(
+            alice_id,
+            schedule_core::tables::panel::FIELD_CREDITED_PRESENTERS.edge_to(&FIELD_PANELS),
+        )
+        .unwrap();
+    sched
+        .edge_set(
             panel_id,
-            &schedule_core::tables::panel::FIELD_CREDITED_PRESENTERS,
-        ),
-        &schedule_core::tables::presenter::FIELD_PANELS,
-        vec![bob_id],
-    );
+            schedule_core::tables::panel::FIELD_CREDITED_PRESENTERS.edge_to(&FIELD_PANELS),
+            vec![bob_id],
+        )
+        .unwrap();
 
     let bytes = sched.save();
     let loaded = Schedule::load(&bytes).expect("load");
 
-    let forwards: Vec<PresenterId> = loaded.connected_entities::<PresenterEntityType>(
-        FieldNodeId::new(
-            panel_id,
-            &schedule_core::tables::panel::FIELD_CREDITED_PRESENTERS,
-        ),
-        &schedule_core::tables::presenter::FIELD_PANELS,
+    let forwards = loaded.connected_field_nodes(
+        panel_id,
+        schedule_core::tables::panel::FIELD_CREDITED_PRESENTERS.edge_to(&FIELD_PANELS),
     );
-    assert_eq!(forwards, vec![bob_id]);
+    assert_eq!(forwards, vec![bob_id.into()]);
 }
 
 /// Concurrent add/add from two replicas converges to the union.
@@ -1061,23 +951,23 @@ fn concurrent_edge_adds_merge_to_union() {
 
     // Replica A adds Alice.
     let mut replica_a = Schedule::load(&base_bytes).expect("load A");
-    replica_a.edge_add(
-        FieldNodeId::new(
+    replica_a
+        .edge_add(
             panel_id,
-            &schedule_core::tables::panel::FIELD_CREDITED_PRESENTERS,
-        ),
-        FieldNodeId::new(alice_id, &FIELD_PANELS),
-    );
+            alice_id,
+            schedule_core::tables::panel::FIELD_CREDITED_PRESENTERS.edge_to(&FIELD_PANELS),
+        )
+        .unwrap();
 
     // Replica B (independent) adds Bob.
     let mut replica_b = Schedule::load(&base_bytes).expect("load B");
-    replica_b.edge_add(
-        FieldNodeId::new(
+    replica_b
+        .edge_add(
             panel_id,
-            &schedule_core::tables::panel::FIELD_CREDITED_PRESENTERS,
-        ),
-        FieldNodeId::new(bob_id, &FIELD_PANELS),
-    );
+            bob_id,
+            schedule_core::tables::panel::FIELD_CREDITED_PRESENTERS.edge_to(&FIELD_PANELS),
+        )
+        .unwrap();
 
     // Merge A ← B at the automerge layer, then rebuild via load().
     let mut doc_a = AutoCommit::load(&replica_a.save()).unwrap();
@@ -1085,15 +975,13 @@ fn concurrent_edge_adds_merge_to_union() {
     doc_a.merge(&mut doc_b).unwrap();
     let merged = Schedule::load(&doc_a.save()).expect("load merged");
 
-    let mut forwards: Vec<PresenterId> = merged.connected_entities::<PresenterEntityType>(
-        FieldNodeId::new(
-            panel_id,
-            &schedule_core::tables::panel::FIELD_CREDITED_PRESENTERS,
-        ),
-        &schedule_core::tables::presenter::FIELD_PANELS,
+    let mut forwards = merged.connected_field_nodes(
+        panel_id,
+        schedule_core::tables::panel::FIELD_CREDITED_PRESENTERS.edge_to(&FIELD_PANELS),
     );
     forwards.sort_by_key(|id| id.entity_uuid());
-    let mut expected = vec![alice_id, bob_id];
+    let mut expected: Vec<schedule_core::entity::RuntimeEntityId> =
+        vec![alice_id.into(), bob_id.into()];
     expected.sort_by_key(|id| id.entity_uuid());
     assert_eq!(forwards, expected);
 }
@@ -1133,29 +1021,24 @@ fn merge_preserves_edges_from_both_sides() {
     let mut a = Schedule::load(&base.save()).expect("load A");
     let mut b = Schedule::load(&base.save()).expect("load B");
     a.edge_add(
-        FieldNodeId::new(
-            panel_id,
-            &schedule_core::tables::panel::FIELD_CREDITED_PRESENTERS,
-        ),
-        FieldNodeId::new(alice_id, &FIELD_PANELS),
-    );
+        panel_id,
+        alice_id,
+        schedule_core::tables::panel::FIELD_CREDITED_PRESENTERS.edge_to(&FIELD_PANELS),
+    )
+    .unwrap();
     b.edge_add(
-        FieldNodeId::new(
-            panel_id,
-            &schedule_core::tables::panel::FIELD_CREDITED_PRESENTERS,
-        ),
-        FieldNodeId::new(bob_id, &FIELD_PANELS),
-    );
+        panel_id,
+        bob_id,
+        schedule_core::tables::panel::FIELD_CREDITED_PRESENTERS.edge_to(&FIELD_PANELS),
+    )
+    .unwrap();
 
     a.merge(&mut b).expect("merge");
 
     let mut ids: Vec<_> = a
-        .connected_entities::<PresenterEntityType>(
-            FieldNodeId::new(
-                panel_id,
-                &schedule_core::tables::panel::FIELD_CREDITED_PRESENTERS,
-            ),
-            &schedule_core::tables::presenter::FIELD_PANELS,
+        .connected_field_nodes(
+            panel_id,
+            schedule_core::tables::panel::FIELD_CREDITED_PRESENTERS.edge_to(&FIELD_PANELS),
         )
         .iter()
         .map(|id| id.entity_uuid())
@@ -1292,24 +1175,22 @@ fn concurrent_add_beats_unobserved_remove() {
 
     // A adds Alice without knowing about any remove on B's side.
     let mut replica_a = Schedule::load(&base_bytes).expect("load A");
-    replica_a.edge_add(
-        FieldNodeId::new(
+    replica_a
+        .edge_add(
             panel_id,
-            &schedule_core::tables::panel::FIELD_CREDITED_PRESENTERS,
-        ),
-        FieldNodeId::new(alice_id, &FIELD_PANELS),
-    );
+            alice_id,
+            schedule_core::tables::panel::FIELD_CREDITED_PRESENTERS.edge_to(&FIELD_PANELS),
+        )
+        .unwrap();
 
     // B starts from the same base (no edge), removes Alice (no-op on its
     // own state but records a causally-unordered change); this simulates
     // B having never observed A's add.
     let mut replica_b = Schedule::load(&base_bytes).expect("load B");
     replica_b.edge_remove(
-        FieldNodeId::new(
-            panel_id,
-            &schedule_core::tables::panel::FIELD_CREDITED_PRESENTERS,
-        ),
-        FieldNodeId::new(alice_id, &FIELD_PANELS),
+        panel_id,
+        alice_id,
+        schedule_core::tables::panel::FIELD_CREDITED_PRESENTERS.edge_to(&FIELD_PANELS),
     );
 
     let mut doc_a = AutoCommit::load(&replica_a.save()).unwrap();
@@ -1318,14 +1199,11 @@ fn concurrent_add_beats_unobserved_remove() {
     let merged = Schedule::load(&doc_a.save()).expect("load merged");
 
     // Add wins: Alice is still in the list.
-    let forwards: Vec<PresenterId> = merged.connected_entities::<PresenterEntityType>(
-        FieldNodeId::new(
-            panel_id,
-            &schedule_core::tables::panel::FIELD_CREDITED_PRESENTERS,
-        ),
-        &schedule_core::tables::presenter::FIELD_PANELS,
+    let forwards = merged.connected_field_nodes(
+        panel_id,
+        schedule_core::tables::panel::FIELD_CREDITED_PRESENTERS.edge_to(&FIELD_PANELS),
     );
-    assert_eq!(forwards, vec![alice_id]);
+    assert_eq!(forwards, vec![alice_id.into()]);
 }
 
 // ── Edge cache / transitive closure tests ────────────────────────────────
@@ -1346,23 +1224,18 @@ fn inclusive_edges_from_transitive_closure() {
     sched.insert(p3_id, p3_data);
 
     // Chain: p1 → p2 → p3 (member-of-group direction)
-    sched.edge_add(
-        FieldNodeId::new(p1_id, &FIELD_MEMBERS),
-        FieldNodeId::new(p2_id, &FIELD_GROUPS),
-    );
-    sched.edge_add(
-        FieldNodeId::new(p2_id, &FIELD_MEMBERS),
-        FieldNodeId::new(p3_id, &FIELD_GROUPS),
-    );
+    sched
+        .edge_add(p1_id, p2_id, FIELD_MEMBERS.edge_to(&FIELD_GROUPS))
+        .unwrap();
+    sched
+        .edge_add(p2_id, p3_id, FIELD_MEMBERS.edge_to(&FIELD_GROUPS))
+        .unwrap();
 
     // Inclusive groups from p1 should reach both p2 and p3 transitively.
-    let result = sched.inclusive_edges::<PresenterEntityType, PresenterEntityType>(
-        FieldNodeId::new(p1_id, &FIELD_MEMBERS),
-        &FIELD_GROUPS,
-    );
+    let result = sched.inclusive_edges(p1_id, FIELD_MEMBERS.edge_to(&FIELD_GROUPS));
     assert_eq!(result.len(), 2);
-    assert!(result.contains(&p2_id));
-    assert!(result.contains(&p3_id));
+    assert!(result.contains(&p2_id.into()));
+    assert!(result.contains(&p3_id.into()));
 }
 
 #[test]
@@ -1376,23 +1249,18 @@ fn inclusive_edges_to_transitive_closure() {
     sched.insert(p3_id, p3_data);
 
     // Chain: p1 → p2 → p3
-    sched.edge_add(
-        FieldNodeId::new(p1_id, &FIELD_MEMBERS),
-        FieldNodeId::new(p2_id, &FIELD_GROUPS),
-    );
-    sched.edge_add(
-        FieldNodeId::new(p2_id, &FIELD_MEMBERS),
-        FieldNodeId::new(p3_id, &FIELD_GROUPS),
-    );
+    sched
+        .edge_add(p1_id, p2_id, FIELD_MEMBERS.edge_to(&FIELD_GROUPS))
+        .unwrap();
+    sched
+        .edge_add(p2_id, p3_id, FIELD_MEMBERS.edge_to(&FIELD_GROUPS))
+        .unwrap();
 
     // Inclusive members of p3 should include both p1 and p2 transitively.
-    let result = sched.inclusive_edges::<PresenterEntityType, PresenterEntityType>(
-        FieldNodeId::new(p3_id, &FIELD_GROUPS),
-        &FIELD_MEMBERS,
-    );
+    let result = sched.inclusive_edges(p3_id, FIELD_GROUPS.edge_to(&FIELD_MEMBERS));
     assert_eq!(result.len(), 2);
-    assert!(result.contains(&p1_id));
-    assert!(result.contains(&p2_id));
+    assert!(result.contains(&p1_id.into()));
+    assert!(result.contains(&p2_id.into()));
 }
 
 #[test]
@@ -1404,21 +1272,16 @@ fn inclusive_edges_cycle_handling() {
     sched.insert(p2_id, p2_data);
 
     // Cycle: p1 → p2, p2 → p1
-    sched.edge_add(
-        FieldNodeId::new(p1_id, &FIELD_MEMBERS),
-        FieldNodeId::new(p2_id, &FIELD_GROUPS),
-    );
-    sched.edge_add(
-        FieldNodeId::new(p2_id, &FIELD_MEMBERS),
-        FieldNodeId::new(p1_id, &FIELD_GROUPS),
-    );
+    sched
+        .edge_add(p1_id, p2_id, FIELD_MEMBERS.edge_to(&FIELD_GROUPS))
+        .unwrap();
+    sched
+        .edge_add(p2_id, p1_id, FIELD_MEMBERS.edge_to(&FIELD_GROUPS))
+        .unwrap();
 
     // Should not infinite loop; p2 is reachable from p1.
-    let result = sched.inclusive_edges::<PresenterEntityType, PresenterEntityType>(
-        FieldNodeId::new(p1_id, &FIELD_MEMBERS),
-        &FIELD_GROUPS,
-    );
-    assert!(result.contains(&p2_id));
+    let result = sched.inclusive_edges(p1_id, FIELD_MEMBERS.edge_to(&FIELD_GROUPS));
+    assert!(result.contains(&p2_id.into()));
 }
 
 #[test]
@@ -1432,25 +1295,18 @@ fn inclusive_edges_cache_invalidation() {
     sched.insert(p3_id, p3_data);
 
     // Add initial edge p1 → p2.
-    sched.edge_add(
-        FieldNodeId::new(p1_id, &FIELD_MEMBERS),
-        FieldNodeId::new(p2_id, &FIELD_GROUPS),
-    );
-    let result1 = sched.inclusive_edges::<PresenterEntityType, PresenterEntityType>(
-        FieldNodeId::new(p1_id, &FIELD_MEMBERS),
-        &FIELD_GROUPS,
-    );
+    sched
+        .edge_add(p1_id, p2_id, FIELD_MEMBERS.edge_to(&FIELD_GROUPS))
+        .unwrap();
+    let result1: Vec<PresenterId> =
+        sched.inclusive_edges(p1_id, FIELD_MEMBERS.edge_to(&FIELD_GROUPS));
     assert_eq!(result1.len(), 1);
 
     // Add p2 → p3; cache should invalidate and now p3 is reachable from p1.
-    sched.edge_add(
-        FieldNodeId::new(p2_id, &FIELD_MEMBERS),
-        FieldNodeId::new(p3_id, &FIELD_GROUPS),
-    );
-    let result2 = sched.inclusive_edges::<PresenterEntityType, PresenterEntityType>(
-        FieldNodeId::new(p1_id, &FIELD_MEMBERS),
-        &FIELD_GROUPS,
-    );
-    assert!(result2.contains(&p2_id));
-    assert!(result2.contains(&p3_id));
+    sched
+        .edge_add(p2_id, p3_id, FIELD_MEMBERS.edge_to(&FIELD_GROUPS))
+        .unwrap();
+    let result2 = sched.inclusive_edges(p1_id, FIELD_MEMBERS.edge_to(&FIELD_GROUPS));
+    assert!(result2.contains(&p2_id.into()));
+    assert!(result2.contains(&p3_id.into()));
 }

@@ -18,7 +18,6 @@
 //! by `find_tagged_presenter` and `find_or_create_tagged_presenter`.
 
 use crate::define_field;
-use crate::edge::{FieldNodeId, HalfEdge};
 use crate::entity::{EntityId, EntityType, EntityUuid, FieldSet, UuidPreference};
 use crate::field::{FieldDescriptor, NamedField};
 use crate::field_value;
@@ -504,11 +503,8 @@ fn is_group_entity(schedule: &crate::schedule::Schedule, id: PresenterId) -> boo
         .get_internal::<PresenterEntityType>(id)
         .is_some_and(|d| d.data.is_explicit_group)
         || {
-            // Check if this presenter has any members (edges pointing to it via FIELD_GROUPS)
-            let node = crate::edge::FieldNodeId::new(id, &FIELD_GROUPS);
-            !schedule
-                .connected_field_nodes(node, FIELD_MEMBERS.edge_id())
-                .is_empty()
+            // Check if this presenter has any members (edges from FIELD_MEMBERS pointing to any members)
+            !schedule.connected_field_nodes(id, EDGE_MEMBERS).is_empty()
         }
 }
 
@@ -550,10 +546,11 @@ pub fn find_tagged_presenter(
         let id = PresenterEntityType::find_by_name(schedule, parsed.name)?;
         // Verify group membership if a group suffix is given
         if let Some(group_name) = parsed.group_name {
-            let node = crate::edge::FieldNodeId::new(id, &FIELD_MEMBERS);
+            let edge = EDGE_GROUPS;
             let in_group = schedule
-                .connected_entities::<PresenterEntityType>(node, &FIELD_GROUPS)
+                .connected_field_nodes(id, edge)
                 .into_iter()
+                .map(|e| unsafe { PresenterId::new_unchecked(e.entity_uuid()) })
                 .any(|gid| {
                     schedule
                         .get_internal::<PresenterEntityType>(gid)
@@ -636,16 +633,19 @@ pub fn find_or_create_tagged_presenter(
             }
         }
         let already_in_group = {
-            let node = crate::edge::FieldNodeId::new(pres_id, &FIELD_MEMBERS);
+            let edge = EDGE_GROUPS;
             schedule
-                .connected_entities::<PresenterEntityType>(node, &FIELD_GROUPS)
+                .connected_field_nodes(pres_id, edge)
+                .into_iter()
+                .map(|e| unsafe { PresenterId::new_unchecked(e.entity_uuid()) })
+                .collect::<Vec<PresenterId>>()
                 .contains(&gid)
         };
         if !already_in_group {
-            schedule.edge_add(
-                FieldNodeId::new(pres_id, &FIELD_MEMBERS),
-                FieldNodeId::new(gid, &FIELD_GROUPS),
-            );
+            let edge = EDGE_GROUPS;
+            schedule
+                .edge_add(pres_id, gid, edge)
+                .expect("edge type validation failed");
         }
     }
 
@@ -793,9 +793,9 @@ define_field! {
         // `FIELD_MEMBERS` on `id` therefore points at id's members
         // (id playing the group role); querying it toward far-side
         // `FIELD_GROUPS` returns those member entities.
-        let node = crate::edge::FieldNodeId::new(id, &FIELD_MEMBERS);
+        let edge = EDGE_MEMBERS;
         let has_members = !sched
-            .connected_field_nodes(node, FIELD_GROUPS.edge_id())
+            .connected_field_nodes(id, edge)
             .is_empty();
         Some(field_value!(explicit || has_members))
     }
@@ -811,6 +811,12 @@ define_field! {
     order: 700
 }
 
+/// Static edge from groups field to members field (for querying a presenter's groups)
+static EDGE_GROUPS: crate::edge::FullEdge = crate::edge::FullEdge {
+    near: &FIELD_GROUPS,
+    far: &FIELD_MEMBERS,
+};
+
 define_field! {
     static FIELD_MEMBERS: FieldDescriptor<PresenterEntityType>,
     edge: rw, target: PresenterEntityType, target_field: &FIELD_GROUPS, owner,
@@ -820,6 +826,12 @@ define_field! {
     example: "[]",
     order: 800
 }
+
+/// Static edge from members field to groups field (for querying a group's members)
+static EDGE_MEMBERS: crate::edge::FullEdge = crate::edge::FullEdge {
+    near: &FIELD_MEMBERS,
+    far: &FIELD_GROUPS,
+};
 
 define_field! {
     /// Inclusive groups — all groups this presenter belongs to, transitively.
@@ -835,10 +847,8 @@ define_field! {
     crdt: Derived, cardinality: list,
     item: FieldTypeItem::EntityIdentifier(PresenterEntityType::TYPE_NAME),
     read: |sched: &Schedule, id: EntityId<PresenterEntityType>| {
-        let ids = sched.inclusive_edges::<PresenterEntityType, PresenterEntityType>(
-            crate::edge::FieldNodeId::new(id, &FIELD_MEMBERS),
-            &FIELD_GROUPS,
-        );
+        let edge = EDGE_GROUPS;
+        let ids = sched.inclusive_edges::<PresenterEntityType, PresenterEntityType>(id, edge);
         Some(crate::schedule::entity_ids_to_field_value(ids))
     }
 }
@@ -857,10 +867,8 @@ define_field! {
     crdt: Derived, cardinality: list,
     item: FieldTypeItem::EntityIdentifier(PresenterEntityType::TYPE_NAME),
     read: |sched: &Schedule, id: EntityId<PresenterEntityType>| {
-        let ids = sched.inclusive_edges::<PresenterEntityType, PresenterEntityType>(
-            crate::edge::FieldNodeId::new(id, &FIELD_GROUPS),
-            &FIELD_MEMBERS,
-        );
+        let edge = EDGE_MEMBERS;
+        let ids = sched.inclusive_edges::<PresenterEntityType, PresenterEntityType>(id, edge);
         Some(crate::schedule::entity_ids_to_field_value(ids))
     }
 }
@@ -879,18 +887,18 @@ define_field! {
     item: FieldTypeItem::EntityIdentifier(PanelEntityType::TYPE_NAME),
     read: |sched: &Schedule, id: PresenterId| {
         // Query panels where this presenter is credited
-        let credited_node = FieldNodeId::new(id, &FIELD_PANELS);
+        let edge_credited = FIELD_PANELS.edge_to(&crate::tables::panel::FIELD_CREDITED_PRESENTERS);
         let mut ids: Vec<PanelId> = sched
-            .connected_entities::<PanelEntityType>(
-                credited_node,
-                &crate::tables::panel::FIELD_CREDITED_PRESENTERS,
-            );
+            .connected_field_nodes(id, edge_credited)
+            .into_iter()
+            .map(|e| unsafe { PanelId::new_unchecked(e.entity_uuid()) })
+            .collect();
         // Query panels where this presenter is uncredited
+        let edge_uncredited = FIELD_PANELS.edge_to(&crate::tables::panel::FIELD_UNCREDITED_PRESENTERS);
         ids.extend(
-            sched.connected_entities::<PanelEntityType>(
-                credited_node,
-                &crate::tables::panel::FIELD_UNCREDITED_PRESENTERS,
-            ),
+            sched.connected_field_nodes(id, edge_uncredited)
+                .into_iter()
+                .map(|e| unsafe { PanelId::new_unchecked(e.entity_uuid()) })
         );
         ids.sort_by_key(|p| p.entity_uuid());
         ids.dedup();
@@ -915,15 +923,11 @@ define_field! {
         let ids = crate::schedule::field_value_to_entity_ids::<PanelEntityType>(val)?;
         for p in ids {
             // Remove from uncredited first (exclusivity)
-            sched.edge_remove(
-                FieldNodeId::new(p, &crate::tables::panel::FIELD_UNCREDITED_PRESENTERS),
-                FieldNodeId::new(presenter_id, &FIELD_PANELS),
-            );
+            let edge_uncredited = crate::tables::panel::FIELD_UNCREDITED_PRESENTERS.edge_to(&FIELD_PANELS);
+            sched.edge_remove(p, presenter_id, edge_uncredited);
             // Add to credited
-            sched.edge_add(
-                FieldNodeId::new(p, &crate::tables::panel::FIELD_CREDITED_PRESENTERS),
-                FieldNodeId::new(presenter_id, &FIELD_PANELS),
-            );
+            let edge_credited = crate::tables::panel::FIELD_CREDITED_PRESENTERS.edge_to(&FIELD_PANELS);
+            sched.edge_add(p, presenter_id, edge_credited).expect("edge type validation failed");
         }
         Ok(())
     }
@@ -946,15 +950,11 @@ define_field! {
         let ids = crate::schedule::field_value_to_entity_ids::<PanelEntityType>(val)?;
         for p in ids {
             // Remove from credited first (exclusivity)
-            sched.edge_remove(
-                FieldNodeId::new(p, &crate::tables::panel::FIELD_CREDITED_PRESENTERS),
-                FieldNodeId::new(presenter_id, &FIELD_PANELS),
-            );
+            let edge_credited = crate::tables::panel::FIELD_CREDITED_PRESENTERS.edge_to(&FIELD_PANELS);
+            sched.edge_remove(p, presenter_id, edge_credited);
             // Add to uncredited
-            sched.edge_add(
-                FieldNodeId::new(p, &crate::tables::panel::FIELD_UNCREDITED_PRESENTERS),
-                FieldNodeId::new(presenter_id, &FIELD_PANELS),
-            );
+            let edge_uncredited = crate::tables::panel::FIELD_UNCREDITED_PRESENTERS.edge_to(&FIELD_PANELS);
+            sched.edge_add(p, presenter_id, edge_uncredited).expect("edge type validation failed");
         }
         Ok(())
     }
@@ -976,15 +976,11 @@ define_field! {
         let ids = crate::schedule::field_value_to_entity_ids::<PanelEntityType>(val)?;
         for p in ids {
             // Remove from credited
-            sched.edge_remove(
-                FieldNodeId::new(p, &crate::tables::panel::FIELD_CREDITED_PRESENTERS),
-                FieldNodeId::new(presenter_id, &FIELD_PANELS),
-            );
+            let edge_credited = crate::tables::panel::FIELD_CREDITED_PRESENTERS.edge_to(&FIELD_PANELS);
+            sched.edge_remove(p, presenter_id, edge_credited);
             // Remove from uncredited
-            sched.edge_remove(
-                FieldNodeId::new(p, &crate::tables::panel::FIELD_UNCREDITED_PRESENTERS),
-                FieldNodeId::new(presenter_id, &FIELD_PANELS),
-            );
+            let edge_uncredited = crate::tables::panel::FIELD_UNCREDITED_PRESENTERS.edge_to(&FIELD_PANELS);
+            sched.edge_remove(p, presenter_id, edge_uncredited);
         }
         Ok(())
     }
@@ -1013,27 +1009,33 @@ define_field! {
         use std::collections::HashSet;
         let mut panel_set: HashSet<PanelId> = HashSet::new();
         // Direct panels of this presenter
-        let node = crate::edge::FieldNodeId::new(id, &FIELD_PANELS);
-        for p in sched.connected_entities::<PanelEntityType>(node, &crate::tables::panel::FIELD_PRESENTERS) {
+        let edge_presenters = FIELD_PANELS.edge_to(&crate::tables::panel::FIELD_PRESENTERS);
+        for p in sched
+            .connected_field_nodes(id, edge_presenters)
+            .into_iter()
+            .map(|e| unsafe { PanelId::new_unchecked(e.entity_uuid()) })
+        {
             panel_set.insert(p);
         }
         // Panels of all transitive groups (upward)
-        for g in sched.inclusive_edges::<PresenterEntityType, PresenterEntityType>(
-            crate::edge::FieldNodeId::new(id, &FIELD_MEMBERS),
-            &FIELD_GROUPS,
-        ) {
-            let node = crate::edge::FieldNodeId::new(g, &FIELD_PANELS);
-            for p in sched.connected_entities::<PanelEntityType>(node, &crate::tables::panel::FIELD_PRESENTERS) {
+        for g in sched.inclusive_edges::<PresenterEntityType, PresenterEntityType>(id, EDGE_GROUPS) {
+            let edge = FIELD_PANELS.edge_to(&crate::tables::panel::FIELD_PRESENTERS);
+            for p in sched
+                .connected_field_nodes(g, edge)
+                .into_iter()
+                .map(|e| unsafe { PanelId::new_unchecked(e.entity_uuid()) })
+            {
                 panel_set.insert(p);
             }
         }
         // Panels of all transitive members (downward)
-        for m in sched.inclusive_edges::<PresenterEntityType, PresenterEntityType>(
-            crate::edge::FieldNodeId::new(id, &FIELD_GROUPS),
-            &FIELD_MEMBERS,
-        ) {
-            let node = crate::edge::FieldNodeId::new(m, &FIELD_PANELS);
-            for p in sched.connected_entities::<PanelEntityType>(node, &crate::tables::panel::FIELD_PRESENTERS) {
+        for m in sched.inclusive_edges::<PresenterEntityType, PresenterEntityType>(id, EDGE_MEMBERS) {
+            let edge = FIELD_PANELS.edge_to(&crate::tables::panel::FIELD_PRESENTERS);
+            for p in sched
+                .connected_field_nodes(m, edge)
+                .into_iter()
+                .map(|e| unsafe { PanelId::new_unchecked(e.entity_uuid()) })
+            {
                 panel_set.insert(p);
             }
         }
@@ -1370,11 +1372,10 @@ mod tests {
             d
         });
 
-        // Add the membership edge: group's MEMBERS pointer ↔ member's GROUPS pointer.
-        sched.edge_add(
-            crate::edge::FieldNodeId::new(group_id, &FIELD_MEMBERS),
-            crate::edge::FieldNodeId::new(member_id, &FIELD_GROUPS),
-        );
+        // Add the group edge: member's GROUPS pointer → group
+        sched
+            .edge_add(member_id, group_id, EDGE_GROUPS)
+            .expect("edge type validation failed");
 
         let fs = PresenterEntityType::field_set();
         // The group reports is_group: true via the member edge.
@@ -1580,10 +1581,10 @@ mod tests {
         group.data.is_explicit_group = true;
         sched.insert(alice_id, alice);
         sched.insert(group_id, group);
-        sched.edge_add(
-            FieldNodeId::new(alice_id, &FIELD_MEMBERS),
-            FieldNodeId::new(group_id, &FIELD_GROUPS),
-        );
+        let edge = EDGE_GROUPS;
+        sched
+            .edge_add(alice_id, group_id, edge)
+            .expect("edge type validation failed");
 
         assert_eq!(
             find_tagged_presenter(&sched, "Alice=MyBand"),
@@ -1669,10 +1670,12 @@ mod tests {
         assert_eq!(alice.data.name, "Alice");
         assert!(!alice.data.is_explicit_group);
 
-        let groups = sched.connected_entities::<PresenterEntityType>(
-            FieldNodeId::new(alice_id, &FIELD_MEMBERS),
-            &FIELD_GROUPS,
-        );
+        let edge = EDGE_GROUPS;
+        let groups = sched
+            .connected_field_nodes(alice_id, edge)
+            .into_iter()
+            .map(|e| unsafe { PresenterId::new_unchecked(e.entity_uuid()) })
+            .collect::<Vec<PresenterId>>();
         assert_eq!(groups.len(), 1);
         let group = sched
             .get_internal::<PresenterEntityType>(groups[0])
@@ -1686,10 +1689,12 @@ mod tests {
     fn test_find_or_create_double_equals_always_shown() {
         let mut sched = Schedule::default();
         let alice_id = find_or_create_tagged_presenter(&mut sched, "P:Alice==MyBand").unwrap();
-        let groups = sched.connected_entities::<PresenterEntityType>(
-            FieldNodeId::new(alice_id, &FIELD_MEMBERS),
-            &FIELD_GROUPS,
-        );
+        let edge = EDGE_GROUPS;
+        let groups = sched
+            .connected_field_nodes(alice_id, edge)
+            .into_iter()
+            .map(|e| unsafe { PresenterId::new_unchecked(e.entity_uuid()) })
+            .collect::<Vec<PresenterId>>();
         let group = sched
             .get_internal::<PresenterEntityType>(groups[0])
             .unwrap();
@@ -1768,34 +1773,23 @@ mod tests {
         let mut sched = Schedule::default();
         let group_id = find_or_create_tagged_presenter(&mut sched, "MyBand").unwrap();
         let member_id = find_or_create_tagged_presenter(&mut sched, "Alice").unwrap();
-        // Manually add member → group edge (group is NOT is_explicit_group yet)
-        let member_node = crate::edge::FieldNodeId::new(member_id, &FIELD_MEMBERS);
-        let group_node = crate::edge::FieldNodeId::new(group_id, &FIELD_GROUPS);
-        sched.edge_add(member_node, group_node);
+        // Manually add MyBand to Alice's group list
+        sched
+            .edge_add(member_id, group_id, EDGE_GROUPS)
+            .expect("edge type validation failed");
 
         // Debug: check what's in the edge map
-        let members_node = crate::edge::FieldNodeId::new(group_id, &FIELD_MEMBERS);
-        let groups_node = crate::edge::FieldNodeId::new(group_id, &FIELD_GROUPS);
         eprintln!(
             "FIELD_MEMBERS on group: {:?}",
-            sched
-                .connected_field_nodes(members_node, FIELD_GROUPS.edge_id())
-                .len()
+            sched.connected_field_nodes(group_id, EDGE_MEMBERS).len()
         );
         eprintln!(
             "FIELD_GROUPS on group: {:?}",
-            sched
-                .connected_field_nodes(groups_node, FIELD_MEMBERS.edge_id())
-                .len()
+            sched.connected_field_nodes(group_id, EDGE_GROUPS).len()
         );
         eprintln!(
             "FIELD_MEMBERS on member: {:?}",
-            sched
-                .connected_field_nodes(
-                    crate::edge::FieldNodeId::new(member_id, &FIELD_MEMBERS),
-                    FIELD_GROUPS.edge_id()
-                )
-                .len()
+            sched.connected_field_nodes(member_id, EDGE_MEMBERS).len()
         );
 
         // Now is_group_entity should return true via edges_to check

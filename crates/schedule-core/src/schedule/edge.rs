@@ -7,10 +7,11 @@
 //! Edge operations for [`Schedule`].
 
 use crate::edge::cache::TransitiveEdgeCache;
-use crate::edge::{DynamicFieldNodeId, FieldNodeId, HalfEdge};
-use crate::entity::{EntityType, EntityUuid};
+use crate::edge::map::EdgeError;
+use crate::edge::{FullEdge, HalfEdge};
+use crate::entity::{DynamicEntityId, EntityType, EntityUuid};
 use crate::value::{ConversionError, FieldError, FieldValue, FieldValueItem};
-use crate::{DynamicEntityId, EntityId, EntityTyped};
+use crate::EntityId;
 use uuid::NonNilUuid;
 
 use super::Schedule;
@@ -21,17 +22,17 @@ impl Schedule {
     /// All neighbor field node IDs reachable via the given field node, filtered by far-side field.
     ///
     /// Lowest-level field-based query; suitable for entity-module read functions
-    /// that have a concrete [`crate::edge::EdgeRef`] in hand.
+    /// that have a concrete [`FullEdge`] in hand.
     /// Only returns connections where the far-side field matches `far_field`.
-    /// Returns the full [`crate::edge::RuntimeFieldNodeId`] of each neighbor (including both
+    /// Returns the full [`crate::entity::RuntimeEntityId`] of each neighbor (including both
     /// the entity UUID and the field ID of the reverse edge).
     #[must_use]
     pub fn connected_field_nodes(
         &self,
-        node: impl crate::edge::DynamicFieldNodeId,
-        far_field: crate::edge::EdgeRef,
-    ) -> Vec<crate::edge::RuntimeFieldNodeId> {
-        self.edges.neighbors(node, far_field)
+        node: impl DynamicEntityId,
+        edge: FullEdge,
+    ) -> Vec<crate::entity::RuntimeEntityId> {
+        self.edges.neighbors(node, edge)
     }
 
     /// Returns all entities of type `R` connected to `node` via the given far field.
@@ -42,14 +43,12 @@ impl Schedule {
     #[must_use]
     pub fn connected_entities<R: EntityType>(
         &self,
-        node: impl crate::edge::DynamicFieldNodeId,
-        far_field: &'static dyn HalfEdge,
+        node: impl DynamicEntityId,
+        edge: FullEdge,
     ) -> Vec<EntityId<R>> {
-        let far_field_ref = far_field.edge_id();
-        self.connected_field_nodes(node, far_field_ref)
+        self.connected_field_nodes(node, edge)
             .iter()
-            .filter(|fn_id| fn_id.entity_type_name() == R::TYPE_NAME)
-            // SAFETY: filter above ensures the UUID belongs to entity type R.
+            // SAFETY: edge_map validates that all stored entities match edge.far.entity_type_name()
             .map(|fn_id| unsafe { EntityId::new_unchecked(fn_id.entity_uuid()) })
             .collect()
     }
@@ -66,21 +65,14 @@ impl Schedule {
     #[must_use]
     pub fn inclusive_edges<Near: EntityType, Far: EntityType>(
         &self,
-        near: FieldNodeId<Near>,
-        far_field: &'static crate::field::FieldDescriptor<Far>,
+        near: EntityId<Near>,
+        edge: FullEdge,
     ) -> Vec<EntityId<Far>> {
         if Near::TYPE_NAME == Far::TYPE_NAME {
-            let near_field_ref = near.field().edge_id();
-            let far_field_ref = far_field.edge_id();
             let uuids = {
                 let mut cache_opt = self.transitive_edge_cache.borrow_mut();
                 let cache = cache_opt.get_or_insert_with(TransitiveEdgeCache::default);
-                cache.get_or_compute(
-                    &self.edges,
-                    near.entity_uuid(),
-                    near_field_ref,
-                    far_field_ref,
-                )
+                cache.get_or_compute(&self.edges, near, edge)
             };
             uuids
                 .into_iter()
@@ -88,8 +80,7 @@ impl Schedule {
                 .map(|uuid| unsafe { EntityId::new_unchecked(uuid) })
                 .collect()
         } else {
-            let far_field_ref = far_field.edge_id();
-            self.connected_field_nodes(near, far_field_ref)
+            self.connected_field_nodes(near, edge)
                 .into_iter()
                 // SAFETY: The field descriptor ensures the UUID belongs to entity type Far.
                 .map(|fn_id| unsafe { EntityId::<Far>::new_unchecked(fn_id.entity_uuid()) })
@@ -97,10 +88,9 @@ impl Schedule {
         }
     }
 
-    /// Add an edge from `l` to `r`.
+    /// Add an edge from `near` to `far`.
     ///
-    /// Resolves the field IDs for the `(L, R)` pair and calls
-    /// [`crate::edge_map::RawEdgeMap::add_edge`].  When the edge is transitive,
+    /// Adds the edge to [`crate::edge_map::RawEdgeMap`]. When the edge is transitive,
     /// also invalidates the [`TransitiveEdgeCache`].
     ///
     /// After updating the cache, if the mirror is enabled the new endpoint
@@ -108,72 +98,78 @@ impl Schedule {
     /// (via [`crate::crdt::edge::list_append_unique`]) — **not** rewritten in
     /// full — so concurrent add/add from two replicas converges to the
     /// union rather than LWW on the list object.
-    pub fn edge_add(&mut self, l: impl DynamicFieldNodeId, r: impl DynamicFieldNodeId) {
-        let l_type = l.entity_type_name();
-        let r_type = r.entity_type_name();
+    pub fn edge_add(
+        &mut self,
+        near: impl DynamicEntityId,
+        far: impl DynamicEntityId,
+        edge: FullEdge,
+    ) -> Result<(), EdgeError> {
+        let near_type = near.entity_type_name();
+        let far_type = far.entity_type_name();
 
-        // Copy values since DynamicFieldNodeId includes Copy
-        let l_copy = l;
-        let r_copy = r;
-
-        self.edges.add_edge(l_copy, r_copy);
+        self.edges.add_edge(near, far, edge)?;
 
         // Invalidate transitive cache when the two endpoints share the same entity type.
-        if l_type == r_type {
+        if near_type == far_type {
             *self.transitive_edge_cache.borrow_mut() = None;
         }
 
-        // CRDT mirror - use the original values (which were copied above)
-        self.mirror_edge_add(&l, &r);
+        // CRDT mirror
+        self.mirror_edge_add(&near, &far, edge);
+
+        Ok(())
     }
 
-    /// Remove the edge from `l` to `r`.
+    /// Remove the edge from `near` to `far`.
     ///
     /// The CRDT mirror uses an incremental delete on observed indices so
     /// concurrent add-vs-unobserved-remove resolves add-wins.
-    pub fn edge_remove(&mut self, l: impl DynamicFieldNodeId, r: impl DynamicFieldNodeId) {
-        let l_type = l.entity_type_name();
-        let r_type = r.entity_type_name();
+    pub fn edge_remove(
+        &mut self,
+        near: impl DynamicEntityId,
+        far: impl DynamicEntityId,
+        edge: FullEdge,
+    ) {
+        let near_type = near.entity_type_name();
+        let far_type = far.entity_type_name();
 
-        // Copy values since DynamicFieldNodeId includes Copy
-        let l_copy = l;
-        let r_copy = r;
-
-        self.edges.remove_edge(l_copy, r_copy);
+        self.edges.remove_edge(near, far, edge);
 
         // Invalidate transitive cache when the two endpoints share the same entity type.
-        if l_type == r_type {
+        if near_type == far_type {
             *self.transitive_edge_cache.borrow_mut() = None;
         }
 
-        // CRDT mirror - use the original values (which were copied above)
-        self.mirror_edge_remove(&l, &r);
+        // CRDT mirror
+        self.mirror_edge_remove(&near, &far, edge);
     }
 
     /// Replace all far-side neighbors of `near` with `targets`.
     ///
-    /// `near` identifies the fixed entity + its field; `far_field` is the
-    /// field descriptor on the target entity type.  Works from either
-    /// direction — `set_neighbors` handles the bidirectional bookkeeping.
+    /// `near` identifies the entity; `edge` specifies both near and far fields.
+    /// Works from either direction — `set_neighbors` handles the bidirectional bookkeeping.
     ///
     /// When the two endpoints share the same entity type (transitive/homogeneous edge),
     /// the transitive edge cache is invalidated.
+    ///
+    /// Returns the number of edges added and removed.
     pub fn edge_set(
         &mut self,
-        near: impl DynamicFieldNodeId,
-        far_field: &'static dyn HalfEdge,
+        near: impl DynamicEntityId,
+        edge: FullEdge,
         targets: impl IntoIterator<Item = impl DynamicEntityId>,
-    ) {
-        let far_field_ref = far_field.edge_id();
-        let (added, removed) = self.edges.set_neighbors(near, far_field_ref, targets);
+    ) -> Result<(usize, usize), EdgeError> {
+        let (added, removed) = self.edges.set_neighbors(near, edge, targets)?;
 
         // Invalidate transitive cache when near and far share the same entity type.
-        if near.entity_type_name() == far_field.entity_type_name() {
+        if near.entity_type_name() == edge.far.entity_type_name() {
             *self.transitive_edge_cache.borrow_mut() = None;
         }
 
-        // CRDT mirror — field-based canonical_owner resolves ownership.
-        self.mirror_edge_set(&near, far_field, &added, &removed);
+        // CRDT mirror
+        self.mirror_edge_set(&near, edge, &added, &removed);
+
+        Ok((added.len(), removed.len()))
     }
 
     /// After `edge_add`, incrementally append the new endpoint into the
@@ -182,13 +178,18 @@ impl Schedule {
     /// [`ObjId`](automerge::ObjId) created up-front by
     /// `mirror_entity_fields` (via `ensure_owner_list` on each `Owner` field).
     ///
-    /// Ownership is resolved from the field descriptors embedded in `near`
-    /// and `far` via [`crate::crdt::edge::canonical_owner`].
-    fn mirror_edge_add(&mut self, near: &impl DynamicFieldNodeId, far: &impl DynamicFieldNodeId) {
+    /// Ownership is resolved from the field descriptors embedded in `edge`
+    /// via [`crate::crdt::edge::canonical_owner`].
+    fn mirror_edge_add(
+        &mut self,
+        near: &impl DynamicEntityId,
+        far: &impl DynamicEntityId,
+        edge: FullEdge,
+    ) {
         if !self.mirror_enabled {
             return;
         }
-        let Some(canon) = crate::crdt::edge::canonical_owner(near.field(), far.field()) else {
+        let Some(canon) = crate::crdt::edge::canonical_owner(edge.near, edge.far) else {
             return;
         };
         let (owner_uuid, target_uuid) = if canon.near_is_owner {
@@ -215,17 +216,18 @@ impl Schedule {
     /// indices this actor observed, so an insert recorded on a parallel
     /// branch survives the merge.
     ///
-    /// Ownership is resolved from the field descriptors embedded in `near`
-    /// and `far` via [`crate::crdt::edge::canonical_owner`].
+    /// Ownership is resolved from the field descriptors embedded in `edge`
+    /// via [`crate::crdt::edge::canonical_owner`].
     fn mirror_edge_remove(
         &mut self,
-        near: &impl DynamicFieldNodeId,
-        far: &impl DynamicFieldNodeId,
+        near: &impl DynamicEntityId,
+        far: &impl DynamicEntityId,
+        edge: FullEdge,
     ) {
         if !self.mirror_enabled {
             return;
         }
-        let Some(canon) = crate::crdt::edge::canonical_owner(near.field(), far.field()) else {
+        let Some(canon) = crate::crdt::edge::canonical_owner(edge.near, edge.far) else {
             return;
         };
         let (owner_uuid, target_uuid) = if canon.near_is_owner {
@@ -261,15 +263,15 @@ impl Schedule {
     /// returned by [`crate::crdt::edge::canonical_owner`].
     fn mirror_edge_set(
         &mut self,
-        near: &impl DynamicFieldNodeId,
-        far_field: &'static dyn HalfEdge,
+        near: &impl DynamicEntityId,
+        edge: FullEdge,
         added: &[NonNilUuid],
         removed: &[NonNilUuid],
     ) {
         if !self.mirror_enabled {
             return;
         }
-        let Some(canon) = crate::crdt::edge::canonical_owner(near.field(), far_field) else {
+        let Some(canon) = crate::crdt::edge::canonical_owner(edge.near, edge.far) else {
             return;
         };
         let near_uuid = near.entity_uuid();
@@ -419,7 +421,10 @@ pub fn read_edge<E: EntityType>(
     match field.edge_kind() {
         EdgeKind::Owner { target_field, .. } => {
             // Construct a FullEdge from field (near) and target_field (far)
-            let edge = crate::edge::FullEdge::new(field, *target_field);
+            let edge = crate::edge::FullEdge {
+                near: field,
+                far: *target_field,
+            };
             read_full_edge(schedule, id, &edge)
         }
         EdgeKind::Target { source_fields } => {
@@ -427,7 +432,10 @@ pub fn read_edge<E: EntityType>(
             match source_fields {
                 [single] => {
                     // Construct a FullEdge from field (near) and single source (far)
-                    let edge = crate::edge::FullEdge::new(field, *single);
+                    let edge = crate::edge::FullEdge {
+                        near: field,
+                        far: *single,
+                    };
                     read_full_edge(schedule, id, &edge)
                 }
                 _ => {
@@ -438,7 +446,10 @@ pub fn read_edge<E: EntityType>(
                             // SAFETY: source is a &'static HalfEdge (edge descriptors are static singletons).
                             let static_source: &'static dyn HalfEdge =
                                 unsafe { std::mem::transmute(*source) };
-                            crate::edge::FullEdge::new(field, static_source)
+                            crate::edge::FullEdge {
+                                near: field,
+                                far: static_source,
+                            }
                         })
                         .collect();
                     let edge_refs: Vec<&crate::edge::FullEdge> = edges.iter().collect();
@@ -459,13 +470,8 @@ pub fn read_full_edge<E: EntityType>(
     id: EntityId<E>,
     edge: &crate::edge::FullEdge,
 ) -> Result<Option<FieldValue>, FieldError> {
-    // SAFETY: edge.near is a &'static HalfEdge (edge descriptors are static singletons).
-    let static_near: &'static dyn HalfEdge = unsafe { std::mem::transmute(edge.near) };
-    let near_node = crate::edge::RuntimeFieldNodeId::from_dynamic(id, static_near);
-    let neighbors = schedule.connected_field_nodes(near_node, edge.far.edge_id());
-    let ids: Vec<crate::entity::RuntimeEntityId> =
-        neighbors.into_iter().map(|n| n.into()).collect();
-    let items = ids
+    let neighbors = schedule.connected_field_nodes(id, *edge);
+    let items = neighbors
         .into_iter()
         .map(FieldValueItem::EntityIdentifier)
         .collect();
@@ -483,16 +489,11 @@ pub fn combine_full_edges<E: EntityType>(
 ) -> Result<Option<FieldValue>, FieldError> {
     let mut all_ids = Vec::new();
     for edge in edges {
-        // SAFETY: edge.near is a &'static HalfEdge (edge descriptors are static singletons).
-        let static_near: &'static dyn HalfEdge = unsafe { std::mem::transmute(edge.near) };
-        let near_node = crate::edge::RuntimeFieldNodeId::from_dynamic(id, static_near);
-        let neighbors = schedule.connected_field_nodes(near_node, edge.far.edge_id());
-        let ids: Vec<crate::entity::RuntimeEntityId> =
-            neighbors.into_iter().map(|n| n.into()).collect();
-        all_ids.extend(ids);
+        let neighbors = schedule.connected_field_nodes(id, **edge);
+        all_ids.extend(neighbors);
     }
     // Deduplicate by UUID
-    all_ids.sort_by_key(|e: &crate::entity::RuntimeEntityId| e.entity_uuid());
+    all_ids.sort_by_key(|e| e.entity_uuid());
     all_ids.dedup_by_key(|e| e.entity_uuid());
     let items = all_ids
         .into_iter()
@@ -514,28 +515,12 @@ pub fn add_edge<E: EntityType>(
     value: FieldValue,
 ) -> Result<(), FieldError> {
     let target_ids = field_value_to_runtime_entity_ids(value)?;
-    // SAFETY: edge.near is a &'static HalfEdge (edge descriptors are static singletons).
-    let static_near: &'static dyn HalfEdge = unsafe { std::mem::transmute(edge.near) };
-    let near_node = crate::edge::RuntimeFieldNodeId::from_dynamic(id, static_near);
     for target_id in target_ids {
         // Handle exclusive_with: remove from the exclusive sibling field before adding
         if let Some(exclusive_edge) = exclusive_with {
-            let static_exclusive_near: &'static dyn HalfEdge =
-                unsafe { std::mem::transmute(exclusive_edge.near) };
-            let exclusive_node =
-                crate::edge::RuntimeFieldNodeId::from_dynamic(id, static_exclusive_near);
-            let far_node = unsafe {
-                crate::edge::RuntimeFieldNodeId::new_unchecked(
-                    target_id.entity_uuid(),
-                    exclusive_edge.far,
-                )
-            };
-            schedule.edge_remove(exclusive_node, far_node);
+            schedule.edge_remove(id, target_id, *exclusive_edge);
         }
-        let far_node = unsafe {
-            crate::edge::RuntimeFieldNodeId::new_unchecked(target_id.entity_uuid(), edge.far)
-        };
-        schedule.edge_add(near_node, far_node);
+        schedule.edge_add(id, target_id, *edge)?;
     }
     Ok(())
 }
@@ -553,27 +538,11 @@ pub fn remove_edge<E: EntityType>(
     value: FieldValue,
 ) -> Result<(), FieldError> {
     let target_ids = field_value_to_runtime_entity_ids(value)?;
-    // SAFETY: edge.near is a &'static HalfEdge (edge descriptors are static singletons).
-    let static_near: &'static dyn HalfEdge = unsafe { std::mem::transmute(edge.near) };
-    let near_node = crate::edge::RuntimeFieldNodeId::from_dynamic(id, static_near);
     for target_id in target_ids {
-        let far_node = unsafe {
-            crate::edge::RuntimeFieldNodeId::new_unchecked(target_id.entity_uuid(), edge.far)
-        };
-        schedule.edge_remove(near_node, far_node);
+        schedule.edge_remove(id, target_id, *edge);
         // Handle exclusive_with: also remove from the exclusive sibling field
         if let Some(exclusive_edge) = exclusive_with {
-            let static_exclusive_near: &'static dyn HalfEdge =
-                unsafe { std::mem::transmute(exclusive_edge.near) };
-            let exclusive_node =
-                crate::edge::RuntimeFieldNodeId::from_dynamic(id, static_exclusive_near);
-            let far_node = unsafe {
-                crate::edge::RuntimeFieldNodeId::new_unchecked(
-                    target_id.entity_uuid(),
-                    exclusive_edge.far,
-                )
-            };
-            schedule.edge_remove(exclusive_node, far_node);
+            schedule.edge_remove(id, target_id, *exclusive_edge);
         }
     }
     Ok(())
@@ -614,9 +583,12 @@ pub fn write_edge<E: EntityType>(
             }));
         }
     };
-    // SAFETY: field is a &'static HalfEdge (edge descriptors are static singletons).
-    let static_field: &'static dyn HalfEdge = unsafe { std::mem::transmute(field) };
-    let near_node = crate::edge::RuntimeFieldNodeId::from_dynamic(id, static_field);
+
+    // Construct FullEdge for edge_set
+    let edge = crate::edge::FullEdge {
+        near: field,
+        far: far_field,
+    };
 
     // If there's an exclusive sibling field, remove edges from it first
     if let Some(exclusive_field) = exclusive_with {
@@ -636,22 +608,16 @@ pub fn write_edge<E: EntityType>(
                 }));
             }
         };
-        // SAFETY: id is a valid EntityId<E> and exclusive_field is a &'static HalfEdge
-        let exclusive_node = unsafe {
-            crate::edge::RuntimeFieldNodeId::new_unchecked(id.entity_uuid(), exclusive_field)
+        let exclusive_edge = crate::edge::FullEdge {
+            near: exclusive_field,
+            far: exclusive_far,
         };
         // Remove each target entity from the exclusive sibling field
         for target_id in &target_ids {
-            let far_node = unsafe {
-                crate::edge::RuntimeFieldNodeId::new_unchecked(
-                    target_id.entity_uuid(),
-                    exclusive_far,
-                )
-            };
-            schedule.edge_remove(exclusive_node, far_node);
+            schedule.edge_remove(id, *target_id, exclusive_edge);
         }
     }
 
-    schedule.edge_set(near_node, far_field, target_ids);
+    schedule.edge_set(id, edge, target_ids)?;
     Ok(())
 }

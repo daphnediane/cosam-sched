@@ -7,7 +7,6 @@
 //! Edge descriptor type: [`EdgeDescriptor<E>`].
 
 use crate::crdt::CrdtFieldType;
-use crate::edge::id::EdgeRef;
 use crate::edge::traits::HalfEdge;
 use crate::entity::{EntityId, EntityType, EntityUuid};
 use crate::field::{
@@ -51,7 +50,7 @@ pub enum EdgeKind {
     Owner {
         /// Inverse/lookup field on the target entity.
         target_field: &'static dyn crate::edge::HalfEdge,
-        /// Sibling field on the same entity that is mutually exclusive with
+        /// Sibling field on the *same* entity that is mutually exclusive with
         /// this one (e.g. credited vs uncredited presenter lists).
         exclusive_with: Option<&'static dyn crate::edge::HalfEdge>,
     },
@@ -198,12 +197,9 @@ impl<E: EntityType> HalfEdge for EdgeDescriptor<E> {
         &self.edge_kind
     }
 
-    fn edge_id(&self) -> EdgeRef {
+    fn edge_id(&self) -> &'static dyn HalfEdge {
         // SAFETY: self is a &'static EdgeDescriptor<E> (edge descriptors are static singletons).
-        unsafe {
-            let static_ref: &'static dyn HalfEdge = std::mem::transmute(self as &dyn HalfEdge);
-            EdgeRef(static_ref)
-        }
+        unsafe { std::mem::transmute(self as &dyn HalfEdge) }
     }
 
     fn as_named_field(&self) -> &dyn NamedField {
@@ -221,19 +217,13 @@ impl<E: EntityType> ReadableField<E> for EdgeDescriptor<E> {
             Some(ReadFn::Schedule(f)) => Ok(f(schedule, id)),
             Some(ReadFn::ReadEdges { edges }) => {
                 // Read entities connected via a list of full edges
-                // SAFETY: self is a &'static EdgeDescriptor<E> (edge descriptors are static singletons).
-                let static_field: &'static dyn HalfEdge =
-                    unsafe { std::mem::transmute(self as &dyn HalfEdge) };
-
                 // Optimized single-edge case: no deduplication needed
                 if edges.len() == 1 {
                     let edge = edges[0];
-                    let near_node = crate::edge::RuntimeFieldNodeId::from_dynamic(id, static_field);
-                    let far_field = edge.far;
-                    let neighbors = schedule.connected_field_nodes(near_node, far_field.edge_id());
+                    let neighbors = schedule.connected_field_nodes(id, *edge);
                     let items = neighbors
                         .into_iter()
-                        .map(|n| crate::value::FieldValueItem::EntityIdentifier(n.into()))
+                        .map(crate::value::FieldValueItem::EntityIdentifier)
                         .collect();
                     return Ok(Some(crate::value::FieldValue::List(items)));
                 }
@@ -241,11 +231,9 @@ impl<E: EntityType> ReadableField<E> for EdgeDescriptor<E> {
                 // Multi-edge case: collect, deduplicate, and convert
                 let mut all_ids: Vec<crate::entity::RuntimeEntityId> = Vec::new();
                 for edge in *edges {
-                    let near_node = crate::edge::RuntimeFieldNodeId::from_dynamic(id, static_field);
-                    let far_field = edge.far;
-                    let neighbors = schedule.connected_field_nodes(near_node, far_field.edge_id());
+                    let neighbors = schedule.connected_field_nodes(id, **edge);
                     for neighbor in neighbors {
-                        all_ids.push(crate::entity::RuntimeEntityId::from(neighbor));
+                        all_ids.push(neighbor);
                     }
                 }
                 // Deduplicate and convert to FieldValue
@@ -358,6 +346,16 @@ impl<E: EntityType> VerifiableField<E> for EdgeDescriptor<E> {
             }
             None => Ok(()),
         }
+    }
+}
+
+impl<E: EntityType> EdgeDescriptor<E> {
+    /// Get the full edge connecting this field to another field.
+    pub const fn edge_to<F: EntityType>(
+        &'static self,
+        far: &'static EdgeDescriptor<F>,
+    ) -> crate::edge::id::FullEdge {
+        crate::edge::id::FullEdge { near: self, far }
     }
 }
 

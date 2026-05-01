@@ -116,12 +116,11 @@ All entity relationships are stored in a single `RawEdgeMap` on `Schedule`.
 ```text
 HashMap<NonNilUuid,          // outer key: entity UUID
     HashMap<FieldId,         // inner key: which field on that entity
-        Vec<FieldNodeId>>>   // values: (field, uuid) of the other side
+        Vec<RuntimeEntityId>>>   // values: entity UUIDs of connected entities
 ```
 
 A `FieldId` is derived from the address of the `&'static dyn NamedField` singleton for
-a given field, making it globally unique and stable.  A `FieldNodeId` pairs a `FieldId` with
-a `NonNilUuid` to represent "entity X's field Y" as an edge endpoint.
+a given field, making it globally unique and stable.
 
 Both directions of every edge are stored symmetrically in the same map.  Homogeneous
 (same-type) and heterogeneous (different-type) edges are treated identically — no separate
@@ -129,9 +128,8 @@ Both directions of every edge are stored symmetrically in the same map.  Homogen
 
 `Schedule` exposes typed generic methods:
 
-- `connected_entities::<R>(near_node, far_field)` — R entities connected to `near_node` whose far-side field matches `far_field`
-- `connected_field_nodes(near_node, far_field_ref)` — `RuntimeFieldNodeId` neighbors filtered by far-side `EdgeRef`
-- `edge_add` / `edge_remove` — mutators; accept `impl DynamicFieldNodeId`
+- `connected_field_nodes::<R>(near_node, far_field)` — R entities connected to `near_node` via `far_field`
+- `edge_add` / `edge_remove` — mutators; accept `impl DynamicEntityId` and `FullEdge`
 - `edge_set<Far>(near, far_field, targets)` — bulk replace neighbors; returns `(added, removed)` diff used for incremental CRDT mirroring
 
 CRDT ownership for any `(near_field, far_field)` pair is resolved by
@@ -262,11 +260,9 @@ should never touch `Uuid` or `NonNilUuid` directly — prefer the typed wrappers
 - **`RuntimeEntityId`** — `NonNilUuid` + `&'static str` type name; use for dynamic
   dispatch (e.g. generic commands, serialized references)
 
-All four ID types (`EntityId<E>`, `RuntimeEntityId`, `FieldNodeId<E>`, `RuntimeFieldNodeId`)
-implement a shared trait hierarchy — `EntityUuid` (`.entity_uuid()`), `EntityTyped`
-(`.entity_type_name()`), and the blanket `DynamicEntityId`. Field node types additionally
-implement `DynamicFieldNodeId` (`.field()`, `.try_as_typed_field<E>()`). This enables APIs
-to be generic over any ID type via `impl DynamicEntityId` or `impl DynamicFieldNodeId`.
+Both ID types (`EntityId<E>`, `RuntimeEntityId`) implement a shared trait hierarchy —
+`EntityUuid` (`.entity_uuid()`), `EntityTyped` (`.entity_type_name()`), and the blanket
+`DynamicEntityId`. This enables APIs to be generic over any ID type via `impl DynamicEntityId`.
 See `field-system.md#id-trait-hierarchy` for the full hierarchy.
 
 ### UUID version policy

@@ -3,8 +3,7 @@
 ## Summary
 
 Split edge fields out of `FieldDescriptor<E>` into a new `EdgeDescriptor<E>` struct; add
-`HalfEdge`, `TypedField<E>`, and `TypedHalfEdge<E>` traits so that `FieldNodeId` can only be
-constructed from edge fields.
+`HalfEdge`, `TypedField<E>`, and `TypedHalfEdge<E>` traits.
 
 ## Status
 
@@ -16,18 +15,14 @@ Medium
 
 ## Description
 
-Currently `FieldNodeId<E>` holds `&'static FieldDescriptor<E>`, which allows any field (scalar,
-text, derived, etc.) to be used as a field node ID. This refactor enforces that only half-edge
-fields can appear in `FieldNodeId` by:
+This refactor adds the edge field trait hierarchy and splits edge fields out of `FieldDescriptor<E>`:
 
 - Rename `field_id()` to `edge_id()`
 - Adding `HalfEdge : NamedField` trait with `edge_id()` and `edge_kind() -> &EdgeKind`
 - Adding `EdgeKind` enum with `Target { source_fields }` and `Owner { target_field, exclusive_with }`
 - Adding `EdgeDescriptor<E>` — a unified struct for all edge fields (owner and target)
 - Adding `TypedField<E>` blanket supertrait over `ReadableField + WritableField + VerifiableField`
-- Adding `TypedHalfEdge<E>` blanket over `HalfEdge + TypedField<E>`; stored in `FieldNodeId<E>`
-- Rename `field_node_id::FieldRef` to `EdgeRef`
-- Changing `EdgeRef` to hold `&'static dyn HalfEdge` (was `&'static dyn NamedField`)
+- Adding `TypedHalfEdge<E>` blanket over `HalfEdge + TypedField<E>`
 - Removing `target_field` payload from `CrdtFieldType::EdgeOwner` (now in `EdgeKind`)
 - Moving `exclusive_with` from macro closures into `EdgeKind::Owner`
 - Updating `FieldSet<E>` to hold `dyn TypedField<E>`
@@ -40,8 +35,9 @@ Two-phase implementation:
 **Phase A (additive):** Add `EdgeKind`, new traits, `EdgeDescriptor<E>`, update `CrdtFieldType`
 to remove `EdgeOwner`/`EdgeTarget` (all edges now `Derived`), update `FieldSet`. Commit as standalone.
 
-**Phase B (breaking):** Change `EdgeRef` inner type, update `FieldNodeId`/`RuntimeFieldNodeId`,
-update macro, update entity statics, update schedule.rs, update tests. One commit.
+**Phase B (breaking):** Switch edge field statics from `FieldDescriptor<E>` to `EdgeDescriptor<E>`,
+update macro to emit `EdgeDescriptor` for edge fields, update `FieldSet` to hold `dyn TypedField<E>`,
+update schedule.rs to use `HalfEdge` trait, update tests. One commit.
 
 **Phase A completed:**
 
@@ -51,5 +47,7 @@ update macro, update entity statics, update schedule.rs, update tests. One commi
 - Removed `EdgeOwner` and `EdgeTarget` variants from `CrdtFieldType` (all edge fields now use `Derived`)
 - Updated `define_field!` macro to emit `EdgeDescriptor` for edge fields
 - Added derives (`Debug`, `Clone`, `Copy`, `PartialEq`, `Eq`) to `CrdtFieldType`
+- Added `TypedField<E>` blanket supertrait
+- Added `TypedHalfEdge<E>` blanket trait
 
-**Phase B:** In Progress
+**Phase B:** In Progress - need to switch edge field statics from `FieldDescriptor<E>` to `EdgeDescriptor<E>`

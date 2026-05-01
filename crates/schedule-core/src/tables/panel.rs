@@ -19,7 +19,6 @@
 //! `Schedule::edges_to` using `crate::field::ReadFn::Schedule` / `crate::field::WriteFn::Schedule`.
 
 use crate::define_field;
-use crate::edge::FieldNodeId;
 use crate::entity::{EntityId, EntityType, EntityUuid, FieldSet};
 use crate::field::{FieldDescriptor, NamedField};
 use crate::field_value;
@@ -709,22 +708,9 @@ define_field! {
     crdt: Derived, cardinality: list,
     item: FieldTypeItem::EntityIdentifier(PresenterEntityType::TYPE_NAME),
     read: |sched: &Schedule, id: PanelId| {
-        let credited_node = FieldNodeId::new(id, &FIELD_CREDITED_PRESENTERS);
-        let uncredited_node = FieldNodeId::new(id, &FIELD_UNCREDITED_PRESENTERS);
-        let mut ids: Vec<PresenterId> = sched
-            .connected_entities::<PresenterEntityType>(
-                credited_node,
-                &crate::tables::presenter::FIELD_PANELS,
-            );
-        ids.extend(
-            sched.connected_entities::<PresenterEntityType>(
-                uncredited_node,
-                &crate::tables::presenter::FIELD_PANELS,
-            ),
-        );
-        ids.sort_by_key(|p| p.entity_uuid());
-        ids.dedup();
-        Some(crate::schedule::entity_ids_to_field_value(ids))
+        let credited_edge = FIELD_CREDITED_PRESENTERS.edge_to(&crate::tables::presenter::FIELD_PANELS);
+        let uncredited_edge = FIELD_UNCREDITED_PRESENTERS.edge_to(&crate::tables::presenter::FIELD_PANELS);
+        crate::schedule::combine_full_edges(sched, id, &[&credited_edge, &uncredited_edge]).ok().flatten()
     }
 }
 
@@ -772,15 +758,11 @@ define_field! {
     item: FieldTypeItem::EntityIdentifier(PresenterEntityType::TYPE_NAME),
     write: |sched: &mut Schedule, panel_id: PanelId, val: FieldValue| {
         let ids = crate::schedule::field_value_to_entity_ids::<PresenterEntityType>(val)?;
+        let credited_edge = FIELD_CREDITED_PRESENTERS.edge_to(&crate::tables::presenter::FIELD_PANELS);
+        let uncredited_edge = FIELD_UNCREDITED_PRESENTERS.edge_to(&crate::tables::presenter::FIELD_PANELS);
         for p in ids {
-            sched.edge_remove(
-                FieldNodeId::new(panel_id, &FIELD_CREDITED_PRESENTERS),
-                FieldNodeId::new(p, &crate::tables::presenter::FIELD_PANELS),
-            );
-            sched.edge_remove(
-                FieldNodeId::new(panel_id, &FIELD_UNCREDITED_PRESENTERS),
-                FieldNodeId::new(p, &crate::tables::presenter::FIELD_PANELS),
-            );
+            sched.edge_remove(panel_id, p, credited_edge);
+            sched.edge_remove(panel_id, p, uncredited_edge);
         }
         Ok(())
     }
@@ -810,24 +792,30 @@ define_field! {
     crdt: Derived, cardinality: list,
     item: FieldTypeItem::EntityIdentifier(PresenterEntityType::TYPE_NAME),
     read: |sched: &Schedule, panel_id: PanelId| {
-        let node = FieldNodeId::new(panel_id, &FIELD_PRESENTERS);
-        let direct = sched.connected_entities::<PresenterEntityType>(node, &FIELD_PANELS);
+        let edge = FIELD_PRESENTERS.edge_to(&FIELD_PANELS);
+        let direct = sched
+            .connected_field_nodes(panel_id, edge)
+            .into_iter()
+            .map(|e| unsafe { PresenterId::new_unchecked(e.entity_uuid()) })
+            .collect::<Vec<PresenterId>>();
         let mut result: HashSet<PresenterId> = HashSet::new();
         for p in direct {
             result.insert(p);
-            // Inclusive groups of p: all groups reachable going up (forward homogeneous edges)
-            for g in sched.inclusive_edges::<PresenterEntityType, PresenterEntityType>(
-                FieldNodeId::new(p, &crate::tables::presenter::FIELD_MEMBERS),
-                &crate::tables::presenter::FIELD_GROUPS,
-            ) {
-                result.insert(g);
-            }
-            // Inclusive members of p: all members reachable going down (reverse homogeneous edges)
+            // Inclusive members of p: all members reachable going down (forward homogeneous edges)
+            let members_edge = crate::tables::presenter::FIELD_MEMBERS.edge_to(&crate::tables::presenter::FIELD_GROUPS);
             for m in sched.inclusive_edges::<PresenterEntityType, PresenterEntityType>(
-                FieldNodeId::new(p, &crate::tables::presenter::FIELD_GROUPS),
-                &crate::tables::presenter::FIELD_MEMBERS,
+                p,
+                members_edge,
             ) {
                 result.insert(m);
+            }
+            // Inclusive groups of p: all groups reachable going up (reverse homogeneous edges)
+            let groups_edge = crate::tables::presenter::FIELD_GROUPS.edge_to(&crate::tables::presenter::FIELD_MEMBERS);
+            for g in sched.inclusive_edges::<PresenterEntityType, PresenterEntityType>(
+                p,
+                groups_edge,
+            ) {
+                result.insert(g);
             }
         }
         let ids: Vec<PresenterId> = result.into_iter().collect();
@@ -888,20 +876,20 @@ define_field! {
     crdt: Derived, cardinality: list,
     item: FieldTypeItem::EntityIdentifier(HotelRoomEntityType::TYPE_NAME),
     read: |sched: &Schedule, id: PanelId| {
-        let node = FieldNodeId::new(id, &FIELD_EVENT_ROOMS);
+        let event_edge = FIELD_EVENT_ROOMS.edge_to(&crate::tables::event_room::FIELD_PANELS);
         let event_room_ids = sched
-            .connected_entities::<EventRoomEntityType>(
-                node,
-                &crate::tables::event_room::FIELD_PANELS,
-            );
+            .connected_field_nodes(id, event_edge)
+            .into_iter()
+            .map(|e| unsafe { EventRoomId::new_unchecked(e.entity_uuid()) })
+            .collect::<Vec<EventRoomId>>();
         let mut hotel_room_ids: HashSet<HotelRoomId> = HashSet::new();
         for event_room_id in event_room_ids {
-            let node = FieldNodeId::new(event_room_id, &crate::tables::event_room::FIELD_HOTEL_ROOMS);
+            let hotel_edge = crate::tables::event_room::FIELD_HOTEL_ROOMS.edge_to(&crate::tables::hotel_room::FIELD_EVENT_ROOMS);
             let rooms = sched
-                .connected_entities::<HotelRoomEntityType>(
-                    node,
-                    &crate::tables::hotel_room::FIELD_EVENT_ROOMS,
-                );
+                .connected_field_nodes(event_room_id, hotel_edge)
+                .into_iter()
+                .map(|e| unsafe { HotelRoomId::new_unchecked(e.entity_uuid()) })
+                .collect::<Vec<HotelRoomId>>();
             hotel_room_ids.extend(rooms);
         }
         let hotel_room_ids: Vec<HotelRoomId> = hotel_room_ids.into_iter().collect();
@@ -934,11 +922,12 @@ pub(crate) fn compute_credits(sched: &crate::schedule::Schedule, panel_id: Panel
     }
 
     // Get credited presenters directly from the credited edge list
-    let credited_node = crate::edge::FieldNodeId::new(panel_id, &FIELD_CREDITED_PRESENTERS);
-    let credited_ids = sched.connected_entities::<PresenterEntityType>(
-        credited_node,
-        &crate::tables::presenter::FIELD_PANELS,
-    );
+    let credited_edge = FIELD_CREDITED_PRESENTERS.edge_to(&crate::tables::presenter::FIELD_PANELS);
+    let credited_ids = sched
+        .connected_field_nodes(panel_id, credited_edge)
+        .into_iter()
+        .map(|e| unsafe { PresenterId::new_unchecked(e.entity_uuid()) })
+        .collect::<Vec<PresenterId>>();
     if credited_ids.is_empty() {
         return Vec::new();
     }
@@ -963,14 +952,13 @@ pub(crate) fn compute_credits(sched: &crate::schedule::Schedule, panel_id: Panel
             continue;
         };
         if presenter_data.is_explicit_group {
-            let node = crate::edge::FieldNodeId::new(
-                presenter_id,
-                &crate::tables::presenter::FIELD_MEMBERS,
-            );
-            let member_ids = sched.connected_entities::<PresenterEntityType>(
-                node,
-                &crate::tables::presenter::FIELD_GROUPS,
-            );
+            let members_edge = crate::tables::presenter::FIELD_MEMBERS
+                .edge_to(&crate::tables::presenter::FIELD_GROUPS);
+            let member_ids = sched
+                .connected_field_nodes(presenter_id, members_edge)
+                .into_iter()
+                .map(|e| unsafe { PresenterId::new_unchecked(e.entity_uuid()) })
+                .collect::<Vec<PresenterId>>();
             let all_members: HashSet<PresenterId> = member_ids.iter().cloned().collect();
             let credited_members: Vec<PresenterId> = all_members
                 .iter()
@@ -1030,26 +1018,22 @@ pub(crate) fn compute_credits(sched: &crate::schedule::Schedule, panel_id: Panel
             used_groups.insert(presenter_id);
         } else if presenter_data.always_grouped {
             // This member always appears under their group's name.
-            let node = crate::edge::FieldNodeId::new(
-                presenter_id,
-                &crate::tables::presenter::FIELD_MEMBERS,
-            );
-            let group_ids = sched.connected_entities::<PresenterEntityType>(
-                node,
-                &crate::tables::presenter::FIELD_GROUPS,
-            );
+            let members_edge = crate::tables::presenter::FIELD_MEMBERS
+                .edge_to(&crate::tables::presenter::FIELD_GROUPS);
+            let group_ids = sched
+                .connected_field_nodes(presenter_id, members_edge)
+                .into_iter()
+                .map(|e| unsafe { PresenterId::new_unchecked(e.entity_uuid()) })
+                .collect::<Vec<PresenterId>>();
             for group_id in group_ids {
                 let Some(&group_data) = presenter_lookup.get(&group_id) else {
                     continue;
                 };
-                let node = crate::edge::FieldNodeId::new(
-                    group_id,
-                    &crate::tables::presenter::FIELD_MEMBERS,
-                );
-                let group_member_ids = sched.connected_entities::<PresenterEntityType>(
-                    node,
-                    &crate::tables::presenter::FIELD_GROUPS,
-                );
+                let group_member_ids = sched
+                    .connected_field_nodes(group_id, members_edge)
+                    .into_iter()
+                    .map(|e| unsafe { PresenterId::new_unchecked(e.entity_uuid()) })
+                    .collect::<Vec<PresenterId>>();
                 let show_as_group = group_data.always_shown_in_group
                     || group_member_ids.iter().all(|m| credited_ids.contains(m));
 
@@ -1221,7 +1205,6 @@ impl crate::query::lookup::EntityMatcher for PanelEntityType {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::edge::FieldNodeId;
     use crate::schedule::Schedule;
     use crate::value::FieldError;
     use chrono::NaiveDate;
@@ -1648,14 +1631,14 @@ mod tests {
         let alice = make_presenter_for_panel(&mut sched, "Alice");
         let bob = make_presenter_for_panel(&mut sched, "Bob");
 
-        sched.edge_add(
-            FieldNodeId::new(panel_id, &FIELD_CREDITED_PRESENTERS),
-            FieldNodeId::new(alice, &crate::tables::presenter::FIELD_PANELS),
-        );
-        sched.edge_add(
-            FieldNodeId::new(panel_id, &FIELD_CREDITED_PRESENTERS),
-            FieldNodeId::new(bob, &crate::tables::presenter::FIELD_PANELS),
-        );
+        let credited_edge =
+            FIELD_CREDITED_PRESENTERS.edge_to(&crate::tables::presenter::FIELD_PANELS);
+        sched
+            .edge_add(panel_id, alice, credited_edge)
+            .expect("edge type validation failed");
+        sched
+            .edge_add(panel_id, bob, credited_edge)
+            .expect("edge type validation failed");
         PanelEntityType::field_set()
             .write_field_value(
                 "add_uncredited_presenters",
@@ -1686,14 +1669,14 @@ mod tests {
         let alice = make_presenter_for_panel(&mut sched, "Alice");
         let bob = make_presenter_for_panel(&mut sched, "Bob");
 
-        sched.edge_add(
-            FieldNodeId::new(panel_id, &FIELD_CREDITED_PRESENTERS),
-            FieldNodeId::new(alice, &crate::tables::presenter::FIELD_PANELS),
-        );
-        sched.edge_add(
-            FieldNodeId::new(panel_id, &FIELD_CREDITED_PRESENTERS),
-            FieldNodeId::new(bob, &crate::tables::presenter::FIELD_PANELS),
-        );
+        let credited_edge =
+            FIELD_CREDITED_PRESENTERS.edge_to(&crate::tables::presenter::FIELD_PANELS);
+        sched
+            .edge_add(panel_id, alice, credited_edge)
+            .expect("edge type validation failed: credited presenter");
+        sched
+            .edge_add(panel_id, bob, credited_edge)
+            .expect("edge type validation failed: credited presenter");
         PanelEntityType::field_set()
             .write_field_value(
                 "add_uncredited_presenters",
@@ -1727,27 +1710,26 @@ mod tests {
         let alice = make_presenter_for_panel(&mut sched, "Alice"); // credited
         let bob = make_presenter_for_panel(&mut sched, "Bob"); // credited, will be dropped
 
-        sched.edge_add(
-            FieldNodeId::new(panel_id, &FIELD_CREDITED_PRESENTERS),
-            FieldNodeId::new(alice, &crate::tables::presenter::FIELD_PANELS),
-        );
-        sched.edge_add(
-            FieldNodeId::new(panel_id, &FIELD_CREDITED_PRESENTERS),
-            FieldNodeId::new(bob, &crate::tables::presenter::FIELD_PANELS),
-        );
+        let credited_edge =
+            FIELD_CREDITED_PRESENTERS.edge_to(&crate::tables::presenter::FIELD_PANELS);
+        sched
+            .edge_add(panel_id, alice, credited_edge)
+            .expect("edge type validation failed");
+        sched
+            .edge_add(panel_id, bob, credited_edge)
+            .expect("edge type validation failed");
 
         // Write credited_presenters = [alice] — bob should be removed.
-        sched.edge_set(
-            FieldNodeId::new(panel_id, &FIELD_CREDITED_PRESENTERS),
-            &crate::tables::presenter::FIELD_PANELS,
-            vec![alice],
-        );
+        sched
+            .edge_set(panel_id, credited_edge, vec![alice])
+            .expect("edge type validation failed");
 
         // Bob's edge should be gone.
-        let all = sched.connected_entities(
-            FieldNodeId::new(panel_id, &FIELD_CREDITED_PRESENTERS),
-            &crate::tables::presenter::FIELD_PANELS,
-        );
+        let all = sched
+            .connected_field_nodes(panel_id, credited_edge)
+            .into_iter()
+            .map(|e| unsafe { PresenterId::new_unchecked(e.entity_uuid()) })
+            .collect::<Vec<PresenterId>>();
         assert!(!all.contains(&bob), "Bob should have been removed");
 
         // Alice still present and credited.
@@ -1780,41 +1762,42 @@ mod tests {
         let bob = make_presenter_for_panel(&mut sched, "Bob"); // credited, will be dropped
         let carol = make_presenter_for_panel(&mut sched, "Carol"); // uncredited — must be untouched
 
-        sched.edge_add(
-            FieldNodeId::new(panel_id, &FIELD_CREDITED_PRESENTERS),
-            FieldNodeId::new(alice, &crate::tables::presenter::FIELD_PANELS),
-        );
-        sched.edge_add(
-            FieldNodeId::new(panel_id, &FIELD_CREDITED_PRESENTERS),
-            FieldNodeId::new(bob, &crate::tables::presenter::FIELD_PANELS),
-        );
-        sched.edge_add(
-            FieldNodeId::new(panel_id, &FIELD_UNCREDITED_PRESENTERS),
-            FieldNodeId::new(carol, &crate::tables::presenter::FIELD_PANELS),
-        );
+        let credited_edge =
+            FIELD_CREDITED_PRESENTERS.edge_to(&crate::tables::presenter::FIELD_PANELS);
+        let uncredited_edge =
+            FIELD_UNCREDITED_PRESENTERS.edge_to(&crate::tables::presenter::FIELD_PANELS);
+        sched
+            .edge_add(panel_id, alice, credited_edge)
+            .expect("edge type validation failed");
+        sched
+            .edge_add(panel_id, bob, credited_edge)
+            .expect("edge type validation failed");
+        sched
+            .edge_add(panel_id, carol, uncredited_edge)
+            .expect("edge type validation failed");
 
         // Replace credited_presenters with [alice] — bob removed, carol untouched.
-        sched.edge_set(
-            FieldNodeId::new(panel_id, &FIELD_CREDITED_PRESENTERS),
-            &crate::tables::presenter::FIELD_PANELS,
-            vec![alice],
-        );
+        sched
+            .edge_set(panel_id, credited_edge, vec![alice])
+            .expect("edge type validation failed");
 
         // Carol should still be in the uncredited list.
-        let uncredited = sched.connected_entities(
-            FieldNodeId::new(panel_id, &FIELD_UNCREDITED_PRESENTERS),
-            &crate::tables::presenter::FIELD_PANELS,
-        );
+        let uncredited = sched
+            .connected_field_nodes(panel_id, uncredited_edge)
+            .into_iter()
+            .map(|e| unsafe { PresenterId::new_unchecked(e.entity_uuid()) })
+            .collect::<Vec<PresenterId>>();
         assert!(
             uncredited.contains(&carol),
             "Carol (uncredited) should be untouched"
         );
 
         // Carol should not have leaked into credited.
-        let credited = sched.connected_entities(
-            FieldNodeId::new(panel_id, &FIELD_CREDITED_PRESENTERS),
-            &crate::tables::presenter::FIELD_PANELS,
-        );
+        let credited = sched
+            .connected_field_nodes(panel_id, credited_edge)
+            .into_iter()
+            .map(|e| unsafe { PresenterId::new_unchecked(e.entity_uuid()) })
+            .collect::<Vec<PresenterId>>();
         assert!(
             !credited.contains(&carol),
             "Carol should not be in credited list"

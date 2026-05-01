@@ -61,15 +61,11 @@ All ID types implement a common trait hierarchy defined in `entity_id.rs` and
 ```text
 EntityUuid            entity_uuid() -> NonNilUuid
 EntityTyped           entity_type_name() -> &'static str
-DynamicEntityId       blanket impl for EntityUuid + EntityTyped  (for any entity or field node ID)
-TypedEntityId<E>      marker for compile-time typed IDs (EntityId<E>, FieldNodeId<E>)
-
-DynamicFieldNodeId    extends DynamicEntityId; adds field() and try_as_typed_field<E>()
-TypedFieldNodeId<E>   extends DynamicFieldNodeId + TypedEntityId<E>; adds typed_field()
+DynamicEntityId       blanket impl for EntityUuid + EntityTyped  (for any entity ID)
+TypedEntityId<E>      marker for compile-time typed IDs (EntityId<E>)
 ```
 
-This lets functions accept `impl DynamicEntityId`, `impl TypedEntityId<E>`, or
-`impl DynamicFieldNodeId` instead of concrete types, eliminating redundant overloads.
+This lets functions accept `impl DynamicEntityId` or `impl TypedEntityId<E>` instead of concrete types, eliminating redundant overloads.
 
 ### EntityId\<E\>
 
@@ -427,8 +423,7 @@ Resolution: `edge_crdt::canonical_owner(near, far)` checks each side's
 pointing at the other is the owner. Constant time, no inventory traversal.
 
 The `HalfEdge` trait extends `NamedField` with `edge_kind()` and `edge_id()`.
-Only fields implementing `HalfEdge` can be used in edge operations. This is enforced
-at compile time through `TypedHalfEdge<E>` bounds on `FieldNodeId<E>`.
+Only fields implementing `HalfEdge` can be used in edge operations.
 
 **Presenter partition fields on Panel** use `define_field!` with `WriteFn::Schedule`
 and call `field_value_to_entity_ids` (the standard edge-parsing helper) for input
@@ -468,8 +463,8 @@ define_field!(
         read_fn: Some(ReadFn::Schedule(
             |sched: &Schedule, id: PanelId| {
                 // Access schedule to traverse edges, look up entities, etc.
-                let node = FieldNodeId::new(id, &FIELD_PRESENTERS);
-                let presenter_ids = sched.connected_entities::<PresenterEntityType>(node, &FIELD_PANELS);
+                let edge = FIELD_PRESENTERS.edge_to(&FIELD_PANELS);
+                let presenter_ids = sched.connected_field_nodes::<PresenterEntityType>(id, edge);
                 // ... compute and return FieldValue
             },
         )),

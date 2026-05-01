@@ -8,7 +8,7 @@
 
 use crate::crdt::CrdtFieldType;
 use crate::crdt::{self, CrdtError};
-use crate::edge::{EdgeKind, HalfEdge, RawEdgeMap};
+use crate::edge::{EdgeKind, FullEdge, HalfEdge, RawEdgeMap};
 use crate::entity::{registered_entity_types, EntityType, EntityUuid};
 use crate::field::{NamedField, ReadableField};
 use crate::value::{FieldError, FieldValue};
@@ -375,14 +375,13 @@ impl Schedule {
     /// [`Self::with_mirror_disabled`] — otherwise each replayed edge would
     /// re-write the same list back into the doc.
     fn rebuild_edges_from_doc(&mut self) {
-        use crate::edge::RuntimeFieldNodeId;
         use crate::value::FieldTypeItem;
 
         // Snapshot the `(owner_uuid, target_uuids)` pairs while borrowing
         // `&self.doc`, then apply them under `&mut self`.
         struct EdgeBatch {
-            owner_field: crate::edge::EdgeRef,
-            target_field: crate::edge::EdgeRef,
+            owner_field: &'static dyn crate::edge::HalfEdge,
+            target_field: &'static dyn crate::edge::HalfEdge,
             pairs: Vec<(NonNilUuid, Vec<NonNilUuid>)>,
         }
         let mut batches: Vec<EdgeBatch> = Vec::new();
@@ -431,13 +430,22 @@ impl Schedule {
             for (owner_uuid, targets) in batch.pairs {
                 // SAFETY: owner_uuid and target_uuid come from edge descriptors which
                 // guarantee type compatibility with their respective fields.
-                let from =
-                    unsafe { RuntimeFieldNodeId::new_unchecked(owner_uuid, batch.owner_field.0) };
+                let owner_type = batch.owner_field.entity_type_name();
+                let target_type = batch.target_field.entity_type_name();
+                let from = unsafe {
+                    crate::entity::RuntimeEntityId::new_unchecked(owner_uuid, owner_type)
+                };
                 for target_uuid in targets {
                     let to = unsafe {
-                        RuntimeFieldNodeId::new_unchecked(target_uuid, batch.target_field.0)
+                        crate::entity::RuntimeEntityId::new_unchecked(target_uuid, target_type)
                     };
-                    self.edges.add_edge(from, to);
+                    let edge = FullEdge {
+                        near: batch.owner_field,
+                        far: batch.target_field,
+                    };
+                    self.edges
+                        .add_edge(from, to, edge)
+                        .expect("edge type validation failed");
                 }
             }
         }

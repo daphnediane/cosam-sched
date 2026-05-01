@@ -270,13 +270,13 @@ fn expand_edge(inp: &FieldInput) -> syn::Result<TokenStream> {
             let exclusive_with_clone = exclusive_with.clone();
             let exclusive_with_expr = match exclusive_with_clone {
                 Some(ref expr) => {
-                    quote!(Some(::schedule_core::edge::FullEdge::new(#expr, #target_field)))
+                    quote!(Some(::schedule_core::edge::id::FullEdge { near: #expr, far: #target_field }))
                 }
                 None => quote!(None),
             };
             Some(quote! {
                 Some(::schedule_core::field::WriteFn::AddEdge{
-                    edge: ::schedule_core::edge::FullEdge::new(&#static_name, #target_field),
+                    edge: ::schedule_core::edge::id::FullEdge { near: &#static_name, far: #target_field },
                     exclusive_with: #exclusive_with_expr,
                 })
             })
@@ -285,13 +285,13 @@ fn expand_edge(inp: &FieldInput) -> syn::Result<TokenStream> {
             let exclusive_with_clone = exclusive_with.clone();
             let exclusive_with_expr = match exclusive_with_clone {
                 Some(ref expr) => {
-                    quote!(Some(::schedule_core::edge::FullEdge::new(#expr, #target_field)))
+                    quote!(Some(::schedule_core::edge::id::FullEdge { near: #expr, far: #target_field }))
                 }
                 None => quote!(None),
             };
             Some(quote! {
                 Some(::schedule_core::field::WriteFn::RemoveEdge{
-                    edge: ::schedule_core::edge::FullEdge::new(&#static_name, #target_field),
+                    edge: ::schedule_core::edge::id::FullEdge { near: &#static_name, far: #target_field },
                     exclusive_with: #exclusive_with_expr,
                 })
             })

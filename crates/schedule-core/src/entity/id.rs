@@ -11,10 +11,12 @@
 //! - [`EntityId<E>`] — compile-time type-safe entity identifier
 //! - [`RuntimeEntityId`] — dynamic (untyped) entity identifier
 //!
-//! Field node identifiers are defined in [`crate::edge`]:
-//! - [`crate::edge::FieldNodeId`] — compile-time type-safe field node identifier
-//! - [`crate::edge::RuntimeFieldNodeId`] — dynamic (untyped) field node identifier
-
+//! Entity identifiers are defined in [`crate::entity::id`]:
+//! - [`crate::entity::id::EntityId`] — compile-time type-safe entity identifier
+//! - [`crate::entity::id::RuntimeEntityId`] — dynamic (untyped) entity identifier
+//!
+//! Non-nil UUID identity uses [`uuid::NonNilUuid`] from the `uuid` crate
+//! directly.
 use crate::{entity::EntityType, value::ConversionError};
 use serde::{Deserialize, Deserializer, Serialize, Serializer};
 use std::fmt;
@@ -24,15 +26,12 @@ use uuid::{NonNilUuid, Uuid};
 /// Trait for types that hold a UUID.
 ///
 /// This trait provides a uniform way to extract the UUID from different ID types,
-/// including both compile-time typed IDs (`EntityId<E>`, `FieldNodeId<E>`) and
-/// runtime dynamic IDs (`RuntimeEntityId`, `RuntimeFieldNodeId`).
+/// including both compile-time typed IDs (`EntityId<E>`) and runtime dynamic IDs (`RuntimeEntityId`).
 ///
 /// # Implementors
 ///
 /// - [`RuntimeEntityId`] - dynamic (untyped) entity identifier
 /// - [`EntityId<E>`] - compile-time type-safe entity identifier
-/// - [`RuntimeFieldNodeId`] - dynamic (untyped) field node identifier
-/// - [`FieldNodeId<E>`] - compile-time type-safe field node identifier
 pub trait EntityUuid {
     /// Get the raw UUID.
     fn entity_uuid(&self) -> NonNilUuid;
@@ -41,15 +40,12 @@ pub trait EntityUuid {
 /// Trait for types that have an associated entity type.
 ///
 /// This trait provides a uniform way to extract the entity type name from different
-/// ID types, including both compile-time typed IDs (`EntityId<E>`, `FieldNodeId<E>`)
-/// and runtime dynamic IDs (`RuntimeEntityId`, `RuntimeFieldNodeId`).
+/// ID types, including both compile-time typed IDs (`EntityId<E>`) and runtime dynamic IDs (`RuntimeEntityId`).
 ///
 /// # Implementors
 ///
 /// - [`RuntimeEntityId`] - dynamic (untyped) entity identifier
 /// - [`EntityId<E>`] - compile-time type-safe entity identifier
-/// - [`RuntimeFieldNodeId`] - dynamic (untyped) field node identifier
-/// - [`FieldNodeId<E>`] - compile-time type-safe field node identifier
 pub trait EntityTyped {
     /// Get the static entity type name (e.g. `"panel"`, `"presenter"`).
     fn entity_type_name(&self) -> &'static str;
@@ -58,9 +54,9 @@ pub trait EntityTyped {
 /// Common interface for accessing entity ID properties across different ID types.
 ///
 /// This trait provides a uniform way to extract the UUID and type name from both
-/// compile-time typed IDs (`EntityId<E>`, `FieldNodeId<E>`) and runtime dynamic IDs
-/// (`RuntimeEntityId`, `RuntimeFieldNodeId`). It enables APIs to accept any ID type
-/// through `impl DynamicEntityId` without needing to know the concrete type.
+/// compile-time typed IDs (`EntityId<E>`) and runtime dynamic IDs (`RuntimeEntityId`).
+/// It enables APIs to accept any ID type through `impl DynamicEntityId` without needing
+/// to know the concrete type.
 ///
 /// This trait is a combination of [`EntityUuid`] (for UUID access), [`EntityTyped`]
 /// (for type name access), and [`Copy`] (required so id parameters can be used by
@@ -71,8 +67,6 @@ pub trait EntityTyped {
 ///
 /// - [`RuntimeEntityId`] - dynamic (untyped) entity identifier
 /// - [`EntityId<E>`] - compile-time type-safe entity identifier
-/// - [`RuntimeFieldNodeId`] - dynamic (untyped) field node identifier
-/// - [`FieldNodeId<E>`] - compile-time type-safe field node identifier
 ///
 /// # Example
 ///
@@ -85,22 +79,6 @@ pub trait EntityTyped {
 pub trait DynamicEntityId: EntityUuid + EntityTyped + Copy {}
 
 impl<T> DynamicEntityId for T where T: EntityUuid + EntityTyped + Copy {}
-
-/// Marker trait for compile-time typed entity IDs.
-///
-/// This trait extends [`DynamicEntityId`] with a compile-time entity type parameter `E`,
-/// providing type safety for APIs that know the entity type at compile time.
-/// It is implemented by [`EntityId<E>`] and [`FieldNodeId<E>`].
-///
-/// # Type Parameters
-///
-/// * `E` - The entity type (e.g., `PanelEntityType`, `PresenterEntityType`)
-///
-/// # Implementors
-///
-/// - [`EntityId<E>`] - compile-time type-safe entity identifier
-/// - [`FieldNodeId<E>`] - compile-time type-safe field node identifier
-pub trait TypedEntityId<E: EntityType>: DynamicEntityId {}
 
 // ── RuntimeEntityId ───────────────────────────────────────────────────────────
 
@@ -243,8 +221,6 @@ impl<E: EntityType> EntityTyped for EntityId<E> {
     }
 }
 
-impl<E: EntityType> TypedEntityId<E> for EntityId<E> {}
-
 impl<E: EntityType> EntityId<E> {
     /// Create an EntityId from a [`NonNilUuid`].
     ///
@@ -291,11 +267,6 @@ impl<E: EntityType> EntityId<E> {
         } else {
             None
         }
-    }
-
-    pub fn from_typed<T: TypedEntityId<E>>(id: T) -> Self {
-        // SAFETY: T implements TypedEntityId<E>, so it's guaranteed to be of type E
-        unsafe { Self::new_unchecked(id.entity_uuid()) }
     }
 }
 

@@ -12,11 +12,6 @@
 //! - [`crate::entity::id::DynamicEntityId`] — dynamic entity identifier trait
 //! - [`crate::entity::id::EntityUuid`] — entity UUID wrapper
 //! - [`crate::entity::id::EntityTyped`] — entity UUID with type marker
-//! - [`crate::entity::id::TypedEntityId`] — typed entity ID alias
-//!
-//! Field node identifiers are defined in [`crate::edge`]:
-//! - [`crate::edge::FieldNodeId`] — compile-time type-safe field node identifier
-//! - [`crate::edge::RuntimeFieldNodeId`] — dynamic (untyped) field node identifier
 //!
 //! Non-nil UUID identity uses [`uuid::NonNilUuid`] from the `uuid` crate
 //! directly.
@@ -29,7 +24,7 @@ use uuid::{NonNilUuid, Uuid};
 
 // ── Re-exports from id ─────────────────────────────────────────────────────────
 
-pub use id::{DynamicEntityId, EntityId, EntityTyped, EntityUuid, RuntimeEntityId, TypedEntityId};
+pub use id::{DynamicEntityId, EntityId, EntityTyped, EntityUuid, RuntimeEntityId};
 
 // ── UuidPreference ────────────────────────────────────────────────────────────
 

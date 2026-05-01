@@ -7,9 +7,8 @@
 //! Field descriptor types: [`FieldDescriptor<E>`] and function pointer enums.
 
 use crate::crdt::CrdtFieldType;
+use crate::edge::traits::HalfEdge;
 use crate::edge::EdgeKind;
-use crate::edge::EdgeRef;
-use crate::edge::HalfEdge;
 use crate::entity::{EntityId, EntityType};
 use crate::field::traits::{NamedField, ReadableField, VerifiableField, WritableField};
 use crate::schedule::Schedule;
@@ -167,12 +166,9 @@ impl<E: EntityType> HalfEdge for FieldDescriptor<E> {
         &self.edge_kind
     }
 
-    fn edge_id(&self) -> EdgeRef {
+    fn edge_id(&self) -> &'static dyn HalfEdge {
         // SAFETY: self is a &'static EdgeDescriptor<E> (edge descriptors are static singletons).
-        unsafe {
-            let static_ref: &'static dyn HalfEdge = std::mem::transmute(self as &dyn HalfEdge);
-            EdgeRef(static_ref)
-        }
+        unsafe { std::mem::transmute(self as &dyn HalfEdge) }
     }
 
     fn as_named_field(&self) -> &dyn NamedField {
@@ -321,5 +317,15 @@ impl<E: EntityType> VerifiableField<E> for FieldDescriptor<E> {
             // No verification requested - success by default
             None => Ok(()),
         }
+    }
+}
+
+impl<E: EntityType> FieldDescriptor<E> {
+    /// Get the full edge connecting this field to another field.
+    pub const fn edge_to<F: EntityType>(
+        &'static self,
+        far: &'static FieldDescriptor<F>,
+    ) -> crate::edge::id::FullEdge {
+        crate::edge::id::FullEdge { near: self, far }
     }
 }
