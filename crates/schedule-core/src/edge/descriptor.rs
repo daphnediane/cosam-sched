@@ -9,7 +9,7 @@
 use crate::crdt::CrdtFieldType;
 use crate::edge::id::EdgeRef;
 use crate::edge::traits::HalfEdge;
-use crate::entity::{EntityId, EntityType};
+use crate::entity::{EntityId, EntityType, EntityUuid};
 use crate::field::{
     CommonFieldData, NamedField, ReadFn, ReadableField, VerifiableField, VerifyFn, WritableField,
     WriteFn,
@@ -219,6 +219,51 @@ impl<E: EntityType> ReadableField<E> for EdgeDescriptor<E> {
             }),
             Some(ReadFn::Bare(f)) => Ok(schedule.get_internal::<E>(id).and_then(f)),
             Some(ReadFn::Schedule(f)) => Ok(f(schedule, id)),
+            Some(ReadFn::ReadEdges { edges }) => {
+                // Read entities connected via a list of full edges
+                // SAFETY: self is a &'static EdgeDescriptor<E> (edge descriptors are static singletons).
+                let static_field: &'static dyn HalfEdge =
+                    unsafe { std::mem::transmute(self as &dyn HalfEdge) };
+
+                // Optimized single-edge case: no deduplication needed
+                if edges.len() == 1 {
+                    let edge = edges[0];
+                    let near_node = crate::edge::RuntimeFieldNodeId::from_dynamic(id, static_field);
+                    let far_field = edge.far;
+                    let neighbors = schedule.connected_field_nodes(near_node, far_field.edge_id());
+                    let items = neighbors
+                        .into_iter()
+                        .map(|n| crate::value::FieldValueItem::EntityIdentifier(n.into()))
+                        .collect();
+                    return Ok(Some(crate::value::FieldValue::List(items)));
+                }
+
+                // Multi-edge case: collect, deduplicate, and convert
+                let mut all_ids: Vec<crate::entity::RuntimeEntityId> = Vec::new();
+                for edge in *edges {
+                    let near_node = crate::edge::RuntimeFieldNodeId::from_dynamic(id, static_field);
+                    let far_field = edge.far;
+                    let neighbors = schedule.connected_field_nodes(near_node, far_field.edge_id());
+                    for neighbor in neighbors {
+                        all_ids.push(crate::entity::RuntimeEntityId::from(neighbor));
+                    }
+                }
+                // Deduplicate and convert to FieldValue
+                all_ids.sort_by_key(|e| e.entity_uuid());
+                all_ids.dedup_by_key(|e| e.entity_uuid());
+                let items = all_ids
+                    .into_iter()
+                    .map(crate::value::FieldValueItem::EntityIdentifier)
+                    .collect();
+                Ok(Some(crate::value::FieldValue::List(items)))
+            }
+            Some(ReadFn::ReadEdge) => {
+                // Read entities connected via this edge descriptor's own relationship
+                // SAFETY: self is a &'static EdgeDescriptor<E> (edge descriptors are static singletons).
+                let static_field: &'static dyn HalfEdge =
+                    unsafe { std::mem::transmute(self as &dyn HalfEdge) };
+                crate::schedule::edge::read_edge(schedule, id, static_field)
+            }
         }
     }
 }
@@ -236,15 +281,38 @@ impl<E: EntityType> WritableField<E> for EdgeDescriptor<E> {
                     name: self.data.name,
                 })
             }
-            Some(WriteFn::Bare(f)) => {
-                let data = schedule
-                    .get_internal_mut::<E>(id)
-                    .ok_or(FieldError::NotFound {
-                        name: self.data.name,
-                    })?;
-                f(data, value)?;
-            }
-            Some(WriteFn::Schedule(f)) => f(schedule, id, value)?,
+            Some(ref write_fn) => match write_fn {
+                WriteFn::Bare(f) => {
+                    let data = schedule
+                        .get_internal_mut::<E>(id)
+                        .ok_or(FieldError::NotFound {
+                            name: self.data.name,
+                        })?;
+                    f(data, value)?;
+                }
+                WriteFn::Schedule(f) => f(schedule, id, value)?,
+                WriteFn::AddEdge {
+                    edge,
+                    exclusive_with,
+                } => crate::schedule::add_edge(schedule, id, edge, exclusive_with.as_ref(), value)?,
+                WriteFn::RemoveEdge {
+                    edge,
+                    exclusive_with,
+                } => crate::schedule::remove_edge(
+                    schedule,
+                    id,
+                    edge,
+                    exclusive_with.as_ref(),
+                    value,
+                )?,
+                WriteFn::WriteEdge => {
+                    // Set the edges from this entity to the target entities specified in value
+                    // SAFETY: self is a &'static EdgeDescriptor<E> (edge descriptors are static singletons).
+                    let static_field: &'static dyn HalfEdge =
+                        unsafe { std::mem::transmute(self as &dyn HalfEdge) };
+                    crate::schedule::edge::write_edge(schedule, id, static_field, value)?
+                }
+            },
         }
         // Edge fields manage their own CRDT mirroring; no scalar mirror needed.
         Ok(())

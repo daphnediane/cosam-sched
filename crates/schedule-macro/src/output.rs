@@ -210,7 +210,6 @@ fn expand_edge(inp: &FieldInput) -> syn::Result<TokenStream> {
     let edge_mode_ts = inp.kv("edge").unwrap();
     let edge_mode: Ident = syn::parse2(edge_mode_ts.clone())?;
     let edge_mode_str = edge_mode.to_string();
-    let entity = entity_type_from_static_type(&inp.static_type)?;
     let target: Type = inp.require_type("target")?;
     let target_field: Expr = inp.require_expr("target_field")?;
     let owner = inp.flag("owner");
@@ -220,7 +219,7 @@ fn expand_edge(inp: &FieldInput) -> syn::Result<TokenStream> {
     let edge_kind = match (edge_mode_str.as_str(), owner) {
         ("ro" | "rw" | "one", true) => {
             let sibling = match exclusive_with.clone() {
-                Some(expr) => quote!(Some(#expr)),
+                Some(ref expr) => quote!(Some(#expr)),
                 None => quote!(None),
             };
             quote!(::schedule_core::edge::EdgeKind::Owner {
@@ -252,46 +251,51 @@ fn expand_edge(inp: &FieldInput) -> syn::Result<TokenStream> {
         )
     };
 
-    let static_name = &inp.static_name;
-
-    // Auto-gen read fn (ro/rw/one) — connected_entities lookup.
+    // Auto-gen read fn (ro/rw/one) — use ReadEdge variant.
     let auto_read = match edge_mode_str.as_str() {
         "ro" | "rw" | "one" => Some(quote! {
-            Some(::schedule_core::field::ReadFn::Schedule(
-                |sched: &::schedule_core::schedule::Schedule,
-                 id: ::schedule_core::entity::EntityId<#entity>| {
-                    let node = ::schedule_core::edge::FieldNodeId::new(id, &#static_name);
-                    let ids = sched.connected_entities::<#target>(node, #target_field);
-                    Some(::schedule_core::schedule::entity_ids_to_field_value(ids))
-                },
-            ))
+            Some(::schedule_core::field::ReadFn::ReadEdge)
         }),
         _ => None,
     };
 
     // Auto-gen write fn — depends on mode + exclusive_with.
+    let static_name = &inp.static_name;
     let auto_write = match edge_mode_str.as_str() {
         "ro" => None,
-        "rw" | "one" => Some(generate_rw_write(
-            &entity,
-            &target,
-            static_name,
-            &target_field,
-            exclusive_with.as_ref(),
-        )),
-        "add" => Some(generate_add_write(
-            &entity,
-            &target,
-            static_name,
-            &target_field,
-            exclusive_with.as_ref(),
-        )),
-        "remove" => Some(generate_remove_write(
-            &entity,
-            &target,
-            static_name,
-            &target_field,
-        )),
+        "rw" | "one" => Some(quote! {
+            Some(::schedule_core::field::WriteFn::WriteEdge)
+        }),
+        "add" => {
+            let exclusive_with_clone = exclusive_with.clone();
+            let exclusive_with_expr = match exclusive_with_clone {
+                Some(ref expr) => {
+                    quote!(Some(::schedule_core::edge::FullEdge::new(#expr, #target_field)))
+                }
+                None => quote!(None),
+            };
+            Some(quote! {
+                Some(::schedule_core::field::WriteFn::AddEdge{
+                    edge: ::schedule_core::edge::FullEdge::new(&#static_name, #target_field),
+                    exclusive_with: #exclusive_with_expr,
+                })
+            })
+        }
+        "remove" => {
+            let exclusive_with_clone = exclusive_with.clone();
+            let exclusive_with_expr = match exclusive_with_clone {
+                Some(ref expr) => {
+                    quote!(Some(::schedule_core::edge::FullEdge::new(#expr, #target_field)))
+                }
+                None => quote!(None),
+            };
+            Some(quote! {
+                Some(::schedule_core::field::WriteFn::RemoveEdge{
+                    edge: ::schedule_core::edge::FullEdge::new(&#static_name, #target_field),
+                    exclusive_with: #exclusive_with_expr,
+                })
+            })
+        }
         _ => unreachable!(),
     };
 
@@ -327,111 +331,6 @@ fn expand_edge(inp: &FieldInput) -> syn::Result<TokenStream> {
     };
 
     Ok(emit_static(inp, body))
-}
-
-fn generate_rw_write(
-    entity: &Type,
-    target: &Type,
-    static_name: &Ident,
-    target_field: &Expr,
-    exclusive_with: Option<&Expr>,
-) -> TokenStream {
-    let exclusivity_prelude = if let Some(exclusive_with) = exclusive_with {
-        // For rw fields with exclusive_with, we need to remove from the sibling field
-        // before setting this field. The sibling field is on the same entity.
-        quote! {
-            let __near = unsafe{ ::schedule_core::edge::RuntimeFieldNodeId::new_unchecked(id.entity_uuid(), #exclusive_with) };
-            for __r in &ids {
-                sched.edge_remove(
-                    __near,
-                    ::schedule_core::edge::FieldNodeId::new(*__r, #target_field),
-                );
-            }
-        }
-    } else {
-        quote!()
-    };
-    quote! {
-        Some(::schedule_core::field::WriteFn::Schedule(
-            |sched: &mut ::schedule_core::schedule::Schedule,
-             id: ::schedule_core::entity::EntityId<#entity>,
-             val: ::schedule_core::value::FieldValue| {
-                let ids =
-                    ::schedule_core::schedule::field_value_to_entity_ids::<#target>(val)?;
-                #exclusivity_prelude
-                sched.edge_set(
-                    ::schedule_core::edge::FieldNodeId::new(id, &#static_name),
-                    #target_field,
-                    ids,
-                );
-                Ok(())
-            },
-        ))
-    }
-}
-
-fn generate_add_write(
-    entity: &Type,
-    target: &Type,
-    static_name: &Ident,
-    target_field: &Expr,
-    exclusive_with: Option<&Expr>,
-) -> TokenStream {
-    let exclusivity_prelude = if let Some(sibling) = exclusive_with {
-        // For add fields with exclusive_with, we need to remove from the sibling field
-        // before adding to this field. The sibling field is on the same entity.
-        quote! {
-            sched.edge_remove(
-                    unsafe{ ::schedule_core::edge::RuntimeFieldNodeId::new_unchecked(id.entity_uuid(), #sibling) },
-                    ::schedule_core::edge::FieldNodeId::new(r, #target_field),
-            );
-        }
-    } else {
-        quote!()
-    };
-    quote! {
-        Some(::schedule_core::field::WriteFn::Schedule(
-            |sched: &mut ::schedule_core::schedule::Schedule,
-             id: ::schedule_core::entity::EntityId<#entity>,
-             val: ::schedule_core::value::FieldValue| {
-                let ids =
-                    ::schedule_core::schedule::field_value_to_entity_ids::<#target>(val)?;
-                for r in ids {
-                    #exclusivity_prelude
-                    sched.edge_add(
-                        ::schedule_core::edge::FieldNodeId::new(id, &#static_name),
-                        ::schedule_core::edge::FieldNodeId::new(r, #target_field),
-                    );
-                }
-                Ok(())
-            },
-        ))
-    }
-}
-
-fn generate_remove_write(
-    entity: &Type,
-    target: &Type,
-    static_name: &Ident,
-    target_field: &Expr,
-) -> TokenStream {
-    quote! {
-        Some(::schedule_core::field::WriteFn::Schedule(
-            |sched: &mut ::schedule_core::schedule::Schedule,
-             id: ::schedule_core::entity::EntityId<#entity>,
-             val: ::schedule_core::value::FieldValue| {
-                let ids =
-                    ::schedule_core::schedule::field_value_to_entity_ids::<#target>(val)?;
-                for r in ids {
-                    sched.edge_remove(
-                        ::schedule_core::edge::FieldNodeId::new(id, &#static_name),
-                        ::schedule_core::edge::FieldNodeId::new(r, #target_field),
-                    );
-                }
-                Ok(())
-            },
-        ))
-    }
 }
 
 // ── Custom fields ───────────────────────────────────────────────────────────

@@ -130,6 +130,17 @@ impl FullEdge {
     pub fn is_homogeneous(&self) -> bool {
         self.near.entity_type_name() == self.far.entity_type_name()
     }
+
+    /// Flip the edge, swapping near and far.
+    ///
+    /// Returns a new FullEdge with near and far swapped.
+    #[must_use]
+    pub const fn flip(&self) -> Self {
+        Self {
+            near: self.far,
+            far: self.near,
+        }
+    }
 }
 
 impl std::fmt::Debug for FullEdge {

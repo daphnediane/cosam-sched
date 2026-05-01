@@ -16,7 +16,11 @@ pub mod entity;
 
 // Re-exports from submodules
 pub use crdt::{LoadError, ScheduleMetadata, FILE_FORMAT_VERSION, FILE_MAGIC};
-pub use edge::{entity_ids_to_field_value, field_value_to_entity_ids};
+pub use edge::{
+    add_edge, combine_full_edges, entity_ids_to_field_value, field_value_to_entity_ids,
+    field_value_to_runtime_entity_ids,
+};
+pub use edge::{read_edge, read_full_edge, remove_edge, write_edge};
 
 use crate::edge::cache::TransitiveEdgeCache;
 use crate::edge::map::RawEdgeMap;

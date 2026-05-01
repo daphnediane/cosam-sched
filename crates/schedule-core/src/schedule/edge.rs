@@ -378,3 +378,280 @@ pub fn field_value_to_entity_ids<E: EntityType>(
         })),
     }
 }
+
+/// Parse a `FieldValue` into a `Vec<RuntimeEntityId>`.
+///
+/// Accepts `FieldValue::List(...)` of `EntityIdentifier` items; returns
+/// `Err(FieldError::Conversion(...))` for any non-matching items or variants.
+///
+/// Used by edge write operations where the target entity type is not known at compile time.
+pub fn field_value_to_runtime_entity_ids(
+    val: FieldValue,
+) -> Result<Vec<crate::entity::RuntimeEntityId>, FieldError> {
+    match val {
+        FieldValue::List(items) => items
+            .into_iter()
+            .map(|item| match item {
+                FieldValueItem::EntityIdentifier(rid) => Ok(rid),
+                _ => Err(FieldError::Conversion(ConversionError::WrongVariant {
+                    expected: "EntityIdentifier",
+                    got: "other",
+                })),
+            })
+            .collect(),
+        _ => Err(FieldError::Conversion(ConversionError::WrongVariant {
+            expected: "List",
+            got: "other",
+        })),
+    }
+}
+
+/// Read entities connected via a field's own edge relationship.
+///
+/// Determines the far field from the edge kind and queries connected entities.
+/// This is a convenience method for use by both `EdgeDescriptor` and `FieldDescriptor`.
+pub fn read_edge<E: EntityType>(
+    schedule: &Schedule,
+    id: EntityId<E>,
+    field: &'static dyn HalfEdge,
+) -> Result<Option<FieldValue>, FieldError> {
+    use crate::edge::EdgeKind;
+    match field.edge_kind() {
+        EdgeKind::Owner { target_field, .. } => {
+            // Construct a FullEdge from field (near) and target_field (far)
+            let edge = crate::edge::FullEdge::new(field, *target_field);
+            read_full_edge(schedule, id, &edge)
+        }
+        EdgeKind::Target { source_fields } => {
+            // For target fields with a single source, treat it like Owner
+            match source_fields {
+                [single] => {
+                    // Construct a FullEdge from field (near) and single source (far)
+                    let edge = crate::edge::FullEdge::new(field, *single);
+                    read_full_edge(schedule, id, &edge)
+                }
+                _ => {
+                    // For multiple source fields, construct FullEdges and combine
+                    let edges: Vec<crate::edge::FullEdge> = source_fields
+                        .iter()
+                        .map(|source| {
+                            // SAFETY: source is a &'static HalfEdge (edge descriptors are static singletons).
+                            let static_source: &'static dyn HalfEdge =
+                                unsafe { std::mem::transmute(*source) };
+                            crate::edge::FullEdge::new(field, static_source)
+                        })
+                        .collect();
+                    let edge_refs: Vec<&crate::edge::FullEdge> = edges.iter().collect();
+                    combine_full_edges(schedule, id, &edge_refs)
+                }
+            }
+        }
+        EdgeKind::NonEdge => Ok(Some(FieldValue::List(vec![]))),
+    }
+}
+
+/// Read entities connected via a single [`FullEdge`].
+///
+/// Queries connected entities from the near entity through the near field to the far field.
+/// This is a convenience method for use by both `EdgeDescriptor` and `FieldDescriptor`.
+pub fn read_full_edge<E: EntityType>(
+    schedule: &Schedule,
+    id: EntityId<E>,
+    edge: &crate::edge::FullEdge,
+) -> Result<Option<FieldValue>, FieldError> {
+    // SAFETY: edge.near is a &'static HalfEdge (edge descriptors are static singletons).
+    let static_near: &'static dyn HalfEdge = unsafe { std::mem::transmute(edge.near) };
+    let near_node = crate::edge::RuntimeFieldNodeId::from_dynamic(id, static_near);
+    let neighbors = schedule.connected_field_nodes(near_node, edge.far.edge_id());
+    let ids: Vec<crate::entity::RuntimeEntityId> =
+        neighbors.into_iter().map(|n| n.into()).collect();
+    let items = ids
+        .into_iter()
+        .map(FieldValueItem::EntityIdentifier)
+        .collect();
+    Ok(Some(FieldValue::List(items)))
+}
+
+/// Read entities connected via multiple [`FullEdge`]s and combine the results.
+///
+/// Queries each edge and unions the results with deduplication by UUID.
+/// This is a convenience method for use by both `EdgeDescriptor` and `FieldDescriptor`.
+pub fn combine_full_edges<E: EntityType>(
+    schedule: &Schedule,
+    id: EntityId<E>,
+    edges: &[&crate::edge::FullEdge],
+) -> Result<Option<FieldValue>, FieldError> {
+    let mut all_ids = Vec::new();
+    for edge in edges {
+        // SAFETY: edge.near is a &'static HalfEdge (edge descriptors are static singletons).
+        let static_near: &'static dyn HalfEdge = unsafe { std::mem::transmute(edge.near) };
+        let near_node = crate::edge::RuntimeFieldNodeId::from_dynamic(id, static_near);
+        let neighbors = schedule.connected_field_nodes(near_node, edge.far.edge_id());
+        let ids: Vec<crate::entity::RuntimeEntityId> =
+            neighbors.into_iter().map(|n| n.into()).collect();
+        all_ids.extend(ids);
+    }
+    // Deduplicate by UUID
+    all_ids.sort_by_key(|e: &crate::entity::RuntimeEntityId| e.entity_uuid());
+    all_ids.dedup_by_key(|e| e.entity_uuid());
+    let items = all_ids
+        .into_iter()
+        .map(FieldValueItem::EntityIdentifier)
+        .collect();
+    Ok(Some(FieldValue::List(items)))
+}
+
+/// Add entities to an edge relationship via a [`FullEdge`].
+///
+/// Adds the target entities from the value to the edge without removing existing ones.
+/// If `exclusive_with` is provided, removes each target from that exclusive sibling field first.
+/// This is a convenience method for use by both `EdgeDescriptor` and `FieldDescriptor`.
+pub fn add_edge<E: EntityType>(
+    schedule: &mut Schedule,
+    id: EntityId<E>,
+    edge: &crate::edge::FullEdge,
+    exclusive_with: Option<&crate::edge::FullEdge>,
+    value: FieldValue,
+) -> Result<(), FieldError> {
+    let target_ids = field_value_to_runtime_entity_ids(value)?;
+    // SAFETY: edge.near is a &'static HalfEdge (edge descriptors are static singletons).
+    let static_near: &'static dyn HalfEdge = unsafe { std::mem::transmute(edge.near) };
+    let near_node = crate::edge::RuntimeFieldNodeId::from_dynamic(id, static_near);
+    for target_id in target_ids {
+        // Handle exclusive_with: remove from the exclusive sibling field before adding
+        if let Some(exclusive_edge) = exclusive_with {
+            let static_exclusive_near: &'static dyn HalfEdge =
+                unsafe { std::mem::transmute(exclusive_edge.near) };
+            let exclusive_node =
+                crate::edge::RuntimeFieldNodeId::from_dynamic(id, static_exclusive_near);
+            let far_node = unsafe {
+                crate::edge::RuntimeFieldNodeId::new_unchecked(
+                    target_id.entity_uuid(),
+                    exclusive_edge.far,
+                )
+            };
+            schedule.edge_remove(exclusive_node, far_node);
+        }
+        let far_node = unsafe {
+            crate::edge::RuntimeFieldNodeId::new_unchecked(target_id.entity_uuid(), edge.far)
+        };
+        schedule.edge_add(near_node, far_node);
+    }
+    Ok(())
+}
+
+/// Remove entities from an edge relationship via a [`FullEdge`].
+///
+/// Removes the target entities from the value from the edge.
+/// If `exclusive_with` is provided, also removes from that exclusive sibling field.
+/// This is a convenience method for use by both `EdgeDescriptor` and `FieldDescriptor`.
+pub fn remove_edge<E: EntityType>(
+    schedule: &mut Schedule,
+    id: EntityId<E>,
+    edge: &crate::edge::FullEdge,
+    exclusive_with: Option<&crate::edge::FullEdge>,
+    value: FieldValue,
+) -> Result<(), FieldError> {
+    let target_ids = field_value_to_runtime_entity_ids(value)?;
+    // SAFETY: edge.near is a &'static HalfEdge (edge descriptors are static singletons).
+    let static_near: &'static dyn HalfEdge = unsafe { std::mem::transmute(edge.near) };
+    let near_node = crate::edge::RuntimeFieldNodeId::from_dynamic(id, static_near);
+    for target_id in target_ids {
+        let far_node = unsafe {
+            crate::edge::RuntimeFieldNodeId::new_unchecked(target_id.entity_uuid(), edge.far)
+        };
+        schedule.edge_remove(near_node, far_node);
+        // Handle exclusive_with: also remove from the exclusive sibling field
+        if let Some(exclusive_edge) = exclusive_with {
+            let static_exclusive_near: &'static dyn HalfEdge =
+                unsafe { std::mem::transmute(exclusive_edge.near) };
+            let exclusive_node =
+                crate::edge::RuntimeFieldNodeId::from_dynamic(id, static_exclusive_near);
+            let far_node = unsafe {
+                crate::edge::RuntimeFieldNodeId::new_unchecked(
+                    target_id.entity_uuid(),
+                    exclusive_edge.far,
+                )
+            };
+            schedule.edge_remove(exclusive_node, far_node);
+        }
+    }
+    Ok(())
+}
+
+/// Set the edges from an entity to target entities via a field.
+///
+/// Handles `exclusive_with` by removing each target from the exclusive sibling field.
+/// This is a convenience method for use by both `EdgeDescriptor` and `FieldDescriptor`.
+pub fn write_edge<E: EntityType>(
+    schedule: &mut Schedule,
+    id: EntityId<E>,
+    field: &'static dyn HalfEdge,
+    value: FieldValue,
+) -> Result<(), FieldError> {
+    use crate::edge::EdgeKind;
+    let target_ids = field_value_to_runtime_entity_ids(value)?;
+    let (far_field, exclusive_with) = match field.edge_kind() {
+        EdgeKind::Owner {
+            target_field,
+            exclusive_with,
+        } => (*target_field, *exclusive_with),
+        EdgeKind::Target { source_fields } => {
+            // For target fields, write to the first source field
+            match source_fields {
+                [single] => (*single, None),
+                _ => {
+                    // Multiple sources - return error for now
+                    return Err(FieldError::Conversion(ConversionError::InvalidEdge {
+                        reason: "Multiple source fields not supported for write_edge".to_string(),
+                    }));
+                }
+            }
+        }
+        EdgeKind::NonEdge => {
+            return Err(FieldError::Conversion(ConversionError::InvalidEdge {
+                reason: "NonEdge fields cannot use write_edge".to_string(),
+            }));
+        }
+    };
+    // SAFETY: field is a &'static HalfEdge (edge descriptors are static singletons).
+    let static_field: &'static dyn HalfEdge = unsafe { std::mem::transmute(field) };
+    let near_node = crate::edge::RuntimeFieldNodeId::from_dynamic(id, static_field);
+
+    // If there's an exclusive sibling field, remove edges from it first
+    if let Some(exclusive_field) = exclusive_with {
+        let exclusive_far: &'static dyn HalfEdge = match exclusive_field.edge_kind() {
+            EdgeKind::Owner { target_field, .. } => *target_field,
+            EdgeKind::Target { source_fields } => match source_fields {
+                [single] => *single,
+                _ => {
+                    return Err(FieldError::Conversion(ConversionError::InvalidEdge {
+                        reason: "Exclusive field has multiple sources".to_string(),
+                    }));
+                }
+            },
+            EdgeKind::NonEdge => {
+                return Err(FieldError::Conversion(ConversionError::InvalidEdge {
+                    reason: "Exclusive field is NonEdge".to_string(),
+                }));
+            }
+        };
+        // SAFETY: id is a valid EntityId<E> and exclusive_field is a &'static HalfEdge
+        let exclusive_node = unsafe {
+            crate::edge::RuntimeFieldNodeId::new_unchecked(id.entity_uuid(), exclusive_field)
+        };
+        // Remove each target entity from the exclusive sibling field
+        for target_id in &target_ids {
+            let far_node = unsafe {
+                crate::edge::RuntimeFieldNodeId::new_unchecked(
+                    target_id.entity_uuid(),
+                    exclusive_far,
+                )
+            };
+            schedule.edge_remove(exclusive_node, far_node);
+        }
+    }
+
+    schedule.edge_set(near_node, far_field, target_ids);
+    Ok(())
+}

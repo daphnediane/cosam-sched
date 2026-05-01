@@ -14,6 +14,7 @@ use crate::entity::{EntityId, EntityType};
 use crate::field::traits::{NamedField, ReadableField, VerifiableField, WritableField};
 use crate::schedule::Schedule;
 use crate::value::{FieldError, FieldValue, VerificationError};
+use crate::FullEdge;
 
 // ── ReadFn<E> ─────────────────────────────────────────────────────────────────
 
@@ -25,6 +26,10 @@ pub enum ReadFn<E: EntityType> {
     /// Schedule-aware read — fn receives `(&Schedule, EntityId<E>)` and
     /// performs its own entity lookup internally.
     Schedule(fn(&Schedule, EntityId<E>) -> Option<FieldValue>),
+    /// Get Entities connected to this entity via a list of full edges.
+    ReadEdges { edges: &'static [&'static FullEdge] },
+    /// Read our edge -- to do remove and add to EdgeReadFn
+    ReadEdge,
 }
 
 // ── WriteFn<E> ────────────────────────────────────────────────────────────────
@@ -40,6 +45,18 @@ pub enum WriteFn<E: EntityType> {
     Bare(fn(&mut E::InternalData, FieldValue) -> Result<(), FieldError>),
     /// Schedule-aware write — used for edge mutations (e.g. `add_presenters`).
     Schedule(fn(&mut Schedule, EntityId<E>, FieldValue) -> Result<(), FieldError>),
+    /// Add to an edge where both near and far are specified (for other fields)
+    AddEdge {
+        edge: FullEdge,
+        exclusive_with: Option<FullEdge>,
+    },
+    /// Remove from an edge where both near and far are specified (for other fields)
+    RemoveEdge {
+        edge: FullEdge,
+        exclusive_with: Option<FullEdge>,
+    },
+    /// Write our edge -- to do remove and add to EdgeWriteFn
+    WriteEdge,
 }
 
 // ── VerifyFn<E> ─────────────────────────────────────────────────────────────────
@@ -171,6 +188,27 @@ impl<E: EntityType> ReadableField<E> for FieldDescriptor<E> {
             }),
             Some(ReadFn::Bare(f)) => Ok(schedule.get_internal::<E>(id).and_then(f)),
             Some(ReadFn::Schedule(f)) => Ok(f(schedule, id)),
+            Some(ReadFn::ReadEdges { edges }) => {
+                // Read entities connected via multiple full edges
+                crate::schedule::combine_full_edges(schedule, id, edges)
+            }
+            Some(ReadFn::ReadEdge) => {
+                // Read entities connected via this field's own edge relationship
+                // This requires the field to implement HalfEdge
+                match self.edge_kind {
+                    crate::edge::EdgeKind::Owner { .. } | crate::edge::EdgeKind::Target { .. } => {
+                        // SAFETY: self is a &'static FieldDescriptor<E> (field descriptors are static singletons).
+                        let static_field: &'static dyn HalfEdge =
+                            unsafe { std::mem::transmute(self as &dyn HalfEdge) };
+                        crate::schedule::read_edge(schedule, id, static_field)
+                    }
+                    crate::edge::EdgeKind::NonEdge => Err(FieldError::Conversion(
+                        crate::value::ConversionError::InvalidEdge {
+                            reason: "NonEdge fields cannot use ReadEdge".to_string(),
+                        },
+                    )),
+                }
+            }
         }
     }
 }
@@ -188,15 +226,38 @@ impl<E: EntityType> WritableField<E> for FieldDescriptor<E> {
                     name: self.data.name,
                 })
             }
-            Some(WriteFn::Bare(f)) => {
-                let data = schedule
-                    .get_internal_mut::<E>(id)
-                    .ok_or(FieldError::NotFound {
-                        name: self.data.name,
-                    })?;
-                f(data, value)?;
-            }
-            Some(WriteFn::Schedule(f)) => f(schedule, id, value)?,
+            Some(ref write_fn) => match write_fn {
+                WriteFn::Bare(f) => {
+                    let data = schedule
+                        .get_internal_mut::<E>(id)
+                        .ok_or(FieldError::NotFound {
+                            name: self.data.name,
+                        })?;
+                    f(data, value)?;
+                }
+                WriteFn::Schedule(f) => f(schedule, id, value)?,
+                WriteFn::AddEdge {
+                    edge,
+                    exclusive_with,
+                } => crate::schedule::add_edge(schedule, id, edge, exclusive_with.as_ref(), value)?,
+                WriteFn::RemoveEdge {
+                    edge,
+                    exclusive_with,
+                } => crate::schedule::remove_edge(
+                    schedule,
+                    id,
+                    edge,
+                    exclusive_with.as_ref(),
+                    value,
+                )?,
+                WriteFn::WriteEdge => {
+                    // WriteEdge is valid for both, but FieldDescriptor should use WriteFn::Schedule for now
+                    // This will be removed when HalfEdge is dropped from FieldDescriptor
+                    return Err(FieldError::Conversion(crate::value::ConversionError::InvalidEdge {
+                        reason: "FieldDescriptor should use WriteFn::Schedule for edge operations. WriteEdge will be removed from FieldDescriptor when HalfEdge is dropped.".to_string(),
+                    }));
+                }
+            },
         }
 
         // CRDT mirror: after the inner write succeeds, read the post-write
