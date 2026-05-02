@@ -470,6 +470,25 @@ pointing at the other is the owner. Constant time, no inventory traversal.
 The `HalfEdge` trait extends `NamedField` with `edge_kind()` and `edge_id()`.
 Only fields implementing `HalfEdge` can be used in edge operations.
 
+### FullEdge serialization
+
+`FullEdge` serializes to a compact 2-field JSON object:
+
+```json
+{"ownerField": "panel:panel_type", "nearIsOwner": true}
+```
+
+- **`ownerField`** — `field_key()` of the Owner half-edge (`"entity_type:field_name"`).
+- **`nearIsOwner`** — `true` if `near = owner, far = target`; `false` for the flipped orientation.
+
+Every `FullEdge` has exactly one Owner half-edge, so this form uniquely identifies
+any edge — even when a Target half-edge is shared by multiple Owners
+(e.g. `presenter:panels` is the target of both `credited_presenters` and
+`uncredited_presenters`; they are disambiguated by their distinct owner keys).
+
+Deserialization calls `registry::get_full_edge_by_owner(owner_key)` for an O(1) lookup
+from the six-entry `FULL_EDGE_INDEX`, then flips if `near_is_owner` is `false`.
+
 **Presenter partition fields on Panel** use `define_field!` with `WriteFn::Schedule`
 and call `field_value_to_entity_ids` (the standard edge-parsing helper) for input
 normalization, then `edge_add` / `edge_remove`:
@@ -647,22 +666,76 @@ eliminating the need for per-entity-type registries.
 
 ```rust
 pub trait NamedField: 'static + Send + Sync + std::any::Any {
-    fn name(&self) -> &'static str;
-    fn display_name(&self) -> &'static str;
-    fn description(&self) -> &'static str;
-    fn aliases(&self) -> &'static [&'static str];
-    fn edge_id(&self) -> FieldId; // Actually on HalfEdge (to document)
-    fn entity_type_name(&self) -> &'static str;
+    fn name(&self) -> &'static str;                    // required
+    fn entity_type_name(&self) -> &'static str;        // required
+    fn display_name(&self) -> &'static str;            // provided (via common_data)
+    fn description(&self) -> &'static str;             // provided
+    fn aliases(&self) -> &'static [&'static str];      // provided
+    fn field_key(&self) -> String;                     // provided: "entity_type:field_name"
+    fn try_as_half_edge(&self) -> Option<&dyn HalfEdge>; // required
+    // ... plus field_type, crdt_type, example, order, matches_name
 }
 ```
 
-The `edge_id()` and `entity_type_name()` methods enable type-erased field identity
-and entity type identification. The `std::any::Any` supertrait enables safe downcasting
-via `downcast_ref`.
+`field_key()` produces `"entity_type:field_name"` (e.g. `"panel:panel_type"`). It is the
+primary key used by the global registry and `FullEdge` serialization. The `std::any::Any`
+supertrait enables safe downcasting via `downcast_ref`. `try_as_half_edge()` upcasts to
+`Option<&dyn HalfEdge>` for fields that participate in edge relationships.
 
 **Inventory registration** - The `define_field!` proc-macro automatically generates
 the required `inventory::submit!` call, ensuring every field descriptor is registered
 in the global `CollectedNamedField` registry.
+
+## Global Registry (`registry` module)
+
+The `registry` module wraps the `inventory` iterators with `LazyLock`-backed `HashMap`
+caches that provide O(1) lookups. These complement (not replace) the iterator-based
+`registered_entity_types()` and `all_named_fields()` functions.
+
+### Three caches
+
+| Static            | Key                         | Value                             |
+| ----------------- | --------------------------- | --------------------------------- |
+| `ENTITY_REGISTRY` | `type_name: &'static str`   | `&'static RegisteredEntityType`   |
+| `FIELD_INDEX`     | `(entity_name, field_name)` | `&'static dyn NamedField`         |
+| `FULL_EDGE_INDEX` | owner `field_key()` string  | canonical `FullEdge` (owner=near) |
+
+`FIELD_INDEX` registers both canonical names and all aliases in the inner map so
+alias-based lookup works without a separate normalization step.
+
+`FULL_EDGE_INDEX` contains exactly 6 entries (one per Owner half-edge in the schema).
+Values are the canonical orientation (`near = owner, far = target`); callers call
+`.flip()` when they need the reversed orientation.
+
+### Free functions
+
+```rust
+pub fn get_entity_type(name: &str) -> Option<&'static RegisteredEntityType>
+pub fn get_named_field(entity: &str, field: &str) -> Option<&'static dyn NamedField>
+pub fn get_full_edge_by_owner(owner_key: &str) -> Option<FullEdge>
+```
+
+### Macros with per-call-site caching
+
+`get_named_field!` and `get_entity_type!` support three call styles. With string
+literals they generate a per-call-site `OnceLock` so the first call populates a
+`static` and all subsequent calls cost a single pointer load:
+
+```rust
+// Literal — per-call-site OnceLock (zero-cost on hot paths)
+let field = get_named_field!("panel:panel_type");
+let field = get_named_field!("panel", "panel_type");
+
+// Runtime expressions — direct HashMap lookup
+let field = get_named_field!(entity_str, field_str);
+```
+
+### Usage in deserialization
+
+- `RuntimeEntityId::deserialize` uses `get_entity_type(type_name_str)` (O(1)) instead
+  of `registered_entity_types().find(...)` (O(n)).
+- `FullEdge::deserialize` uses `get_full_edge_by_owner(owner_key)` (O(1)) instead of
+  two O(n) `all_named_fields().find(...)` scans.
 
 ## FieldSet
 

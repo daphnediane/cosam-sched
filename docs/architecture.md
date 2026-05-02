@@ -288,9 +288,10 @@ submits a `RegisteredEntityType` entry containing its `TYPE_NAME` and UUID names
 function. The `registered_entity_types()` function iterates all registered types
 at runtime, enabling dynamic type lookup without a central enum.
 
-This registry is used by `RuntimeEntityId` deserialization to validate that a
-deserialized type name corresponds to a known entity type, rejecting unknown types
-as errors.
+The `registry` module (see `field-system.md#global-registry-registry-module`) wraps
+these inventory iterators with `LazyLock`-backed `HashMap` caches. All hot-path
+deserialization code uses `registry::get_entity_type` and `registry::get_named_field`
+(O(1)) instead of the O(n) iterator forms.
 
 ### Unified ID serialization format
 

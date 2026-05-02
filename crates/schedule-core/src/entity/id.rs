@@ -168,8 +168,7 @@ impl<'de> Deserialize<'de> for RuntimeEntityId {
             .map_err(|e| serde::de::Error::custom(format!("invalid UUID: {e}")))?;
         let nnu = NonNilUuid::new(uuid)
             .ok_or_else(|| serde::de::Error::custom("entity UUID must not be nil"))?;
-        let type_name = crate::entity::registered_entity_types()
-            .find(|r| r.type_name == type_name_str)
+        let type_name = crate::registry::get_entity_type(type_name_str)
             .map(|r| r.type_name)
             .ok_or_else(|| {
                 serde::de::Error::custom(format!("unknown entity type {type_name_str:?}"))

@@ -25,6 +25,7 @@
 use crate::edge::HalfEdge;
 use crate::entity::{DynamicEntityId, EntityType};
 use crate::value::ConversionError;
+use serde::{Deserialize, Serialize};
 
 // ── FullEdge ─────────────────────────────────────────────────────────────────────
 
@@ -38,6 +39,70 @@ pub struct FullEdge {
     pub near: &'static dyn HalfEdge,
     /// The far half-edge (the opposite side of the edge).
     pub far: &'static dyn HalfEdge,
+}
+
+/// Serializable proxy for [`FullEdge`].
+///
+/// Stores the owner half-edge's `"entity_type:field_name"` key and a bool
+/// indicating which side of the edge is `near`. Every valid `FullEdge` has
+/// exactly one Owner half-edge, so this 2-field form uniquely identifies any
+/// edge even when a Target half-edge is shared by multiple Owners.
+#[derive(Serialize, Deserialize, Debug, Clone, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+struct FullEdgeProxy {
+    /// `"entity_type:field_name"` of the Owner half-edge.
+    owner_field: String,
+    /// `true` if `near` is the Owner side; `false` if `near` is the Target side.
+    near_is_owner: bool,
+}
+
+impl From<FullEdge> for FullEdgeProxy {
+    fn from(edge: FullEdge) -> Self {
+        if edge.near.edge_kind().is_owner() {
+            Self {
+                owner_field: edge.near.field_key(),
+                near_is_owner: true,
+            }
+        } else {
+            Self {
+                owner_field: edge.far.field_key(),
+                near_is_owner: false,
+            }
+        }
+    }
+}
+
+impl TryFrom<FullEdgeProxy> for FullEdge {
+    type Error = String;
+
+    fn try_from(proxy: FullEdgeProxy) -> Result<Self, Self::Error> {
+        let canonical = crate::registry::get_full_edge_by_owner(&proxy.owner_field)
+            .ok_or_else(|| format!("Unknown owner edge: {}", proxy.owner_field))?;
+        if proxy.near_is_owner {
+            Ok(canonical)
+        } else {
+            Ok(canonical.flip())
+        }
+    }
+}
+
+impl Serialize for FullEdge {
+    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: serde::Serializer,
+    {
+        FullEdgeProxy::from(*self).serialize(serializer)
+    }
+}
+
+impl<'de> Deserialize<'de> for FullEdge {
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    where
+        D: serde::Deserializer<'de>,
+    {
+        let proxy = FullEdgeProxy::deserialize(deserializer)?;
+        FullEdge::try_from(proxy).map_err(serde::de::Error::custom)
+    }
 }
 
 impl FullEdge {
@@ -162,5 +227,80 @@ impl<E: EntityType> TryFrom<&'static crate::edge::EdgeDescriptor<E>> for FullEdg
     fn try_from(descriptor: &'static crate::edge::EdgeDescriptor<E>) -> Result<Self, Self::Error> {
         // EdgeDescriptor implements HalfEdge, so delegate to that implementation
         Self::try_from(descriptor as &'static dyn HalfEdge)
+    }
+}
+
+// ── Tests ─────────────────────────────────────────────────────────────────────
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_full_edge_serialize_round_trip() {
+        use crate::tables::panel::HALF_EDGE_PANEL_TYPE;
+
+        // Create a FullEdge from the panel -> panel_type edge
+        let edge = FullEdge::try_from(HALF_EDGE_PANEL_TYPE.edge_id()).unwrap();
+
+        // Serialize to JSON
+        let json = serde_json::to_string(&edge).expect("Failed to serialize FullEdge");
+
+        // Deserialize back
+        let deserialized: FullEdge =
+            serde_json::from_str(&json).expect("Failed to deserialize FullEdge");
+
+        // Verify the round-trip preserves the edge (by pointer equality)
+        assert_eq!(edge, deserialized);
+    }
+
+    #[test]
+    fn test_full_edge_proxy_from() {
+        use crate::tables::panel::HALF_EDGE_PANEL_TYPE;
+
+        let edge = FullEdge::try_from(HALF_EDGE_PANEL_TYPE.edge_id()).unwrap();
+        let proxy = FullEdgeProxy::from(edge);
+
+        assert_eq!(proxy.owner_field, "panel:panel_type");
+        assert!(proxy.near_is_owner);
+    }
+
+    #[test]
+    fn test_full_edge_proxy_from_flipped() {
+        use crate::tables::panel::HALF_EDGE_PANEL_TYPE;
+
+        let canonical = FullEdge::try_from(HALF_EDGE_PANEL_TYPE.edge_id()).unwrap();
+        let flipped = canonical.flip();
+        let proxy = FullEdgeProxy::from(flipped);
+
+        assert_eq!(proxy.owner_field, "panel:panel_type");
+        assert!(!proxy.near_is_owner);
+    }
+
+    #[test]
+    fn test_full_edge_proxy_try_from() {
+        use crate::tables::panel::HALF_EDGE_PANEL_TYPE;
+
+        let edge = FullEdge::try_from(HALF_EDGE_PANEL_TYPE.edge_id()).unwrap();
+        let proxy = FullEdgeProxy::from(edge);
+
+        let reconstructed = FullEdge::try_from(proxy).expect("Failed to reconstruct FullEdge");
+
+        // Verify reconstruction matches original (by pointer equality)
+        assert_eq!(edge, reconstructed);
+    }
+
+    #[test]
+    fn test_full_edge_proxy_try_from_flipped() {
+        use crate::tables::panel::HALF_EDGE_PANEL_TYPE;
+
+        let canonical = FullEdge::try_from(HALF_EDGE_PANEL_TYPE.edge_id()).unwrap();
+        let flipped = canonical.flip();
+        let proxy = FullEdgeProxy::from(flipped);
+
+        let reconstructed =
+            FullEdge::try_from(proxy).expect("Failed to reconstruct flipped FullEdge");
+
+        assert_eq!(flipped, reconstructed);
     }
 }

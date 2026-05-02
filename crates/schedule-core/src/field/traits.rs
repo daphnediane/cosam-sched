@@ -83,6 +83,12 @@ pub trait NamedField: 'static + Send + Sync + std::any::Any {
     /// [`crate::entity::EntityType::TYPE_NAME`] for the entity this field belongs to.
     fn entity_type_name(&self) -> &'static str;
 
+    /// Compact `"entity_type:field_name"` key for serialization and registry lookup.
+    #[must_use]
+    fn field_key(&self) -> String {
+        format!("{}:{}", self.entity_type_name(), self.name())
+    }
+
     /// Upcast `self` to `Option<&dyn HalfEdge>`.
     fn try_as_half_edge(&self) -> Option<&dyn HalfEdge>;
 }

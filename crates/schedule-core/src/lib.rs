@@ -15,6 +15,7 @@ pub mod edit;
 pub mod entity;
 pub mod field;
 pub mod query;
+pub mod registry;
 pub mod schedule;
 pub mod tables;
 pub mod value;
