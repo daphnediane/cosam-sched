@@ -158,13 +158,13 @@ impl Schedule {
     /// When the two endpoints share the same entity type (transitive/homogeneous edge),
     /// the transitive edge cache is invalidated.
     ///
-    /// Returns the number of edges added and removed.
+    /// Returns the edges added and removed.
     pub fn edge_set(
         &mut self,
         near: impl DynamicEntityId,
         edge: FullEdge,
         targets: impl IntoIterator<Item = impl DynamicEntityId>,
-    ) -> Result<(usize, usize), EdgeError> {
+    ) -> Result<(Vec<NonNilUuid>, Vec<NonNilUuid>), EdgeError> {
         let (added, removed) = self.edges.set_neighbors(near, edge, targets)?;
 
         // Invalidate transitive cache when near and far share the same entity type.
@@ -175,7 +175,7 @@ impl Schedule {
         // CRDT mirror
         self.mirror_edge_set(&near, edge, &added, &removed);
 
-        Ok((added.len(), removed.len()))
+        Ok((added, removed))
     }
 
     /// After `edge_add`, incrementally append each new endpoint into the
@@ -519,7 +519,7 @@ pub fn combine_full_edges<E: EntityType>(
 /// Adds the target entities from the value to the edge without removing existing ones.
 /// If `exclusive_with` is provided, removes each target from that exclusive sibling field first.
 /// This is a convenience method for use by both `EdgeDescriptor` and `FieldDescriptor`.
-pub fn add_edge<E: EntityType>(
+pub fn add_edge_helper_field<E: EntityType>(
     schedule: &mut Schedule,
     id: EntityId<E>,
     edge: &crate::edge::FullEdge,
@@ -549,28 +549,15 @@ pub fn add_edge<E: EntityType>(
 /// Removes the target entities from the value from the edge.
 /// If `exclusive_with` is provided, also removes from that exclusive sibling field.
 /// This is a convenience method for use by both `EdgeDescriptor` and `FieldDescriptor`.
-pub fn remove_edge<E: EntityType>(
+pub fn remove_edge_helper_field<E: EntityType>(
     schedule: &mut Schedule,
     id: EntityId<E>,
     edge: &crate::edge::FullEdge,
-    exclusive_with: Option<&crate::edge::FullEdge>,
     value: FieldValue,
 ) -> Result<(), FieldError> {
     let target_ids = field_value_to_runtime_entity_ids(value)?;
     // Remove edges first, then clean up exclusive_with for only the actually-removed targets
-    let removed = schedule.edge_remove(id, *edge, target_ids);
-    if let Some(exclusive_edge) = exclusive_with {
-        // SAFETY: The removed UUIDs are already validated to be edge.far.entity_type_name().
-        // If exclusive_edge.far.entity_type_name() is the same, we can use the same UUIDs.
-        // If different, the edge isn't really exclusive (different types).
-        let removed_runtime: Vec<crate::entity::RuntimeEntityId> = removed
-            .into_iter()
-            .map(|uuid| unsafe {
-                crate::entity::RuntimeEntityId::new_unchecked(uuid, edge.far.entity_type_name())
-            })
-            .collect();
-        let _ = schedule.edge_remove(id, *exclusive_edge, removed_runtime);
-    }
+    let _ = schedule.edge_remove(id, *edge, target_ids);
     Ok(())
 }
 
@@ -616,34 +603,121 @@ pub fn write_edge<E: EntityType>(
         far: far_field,
     };
 
-    // If there's an exclusive sibling field, remove edges from it first
+    // Set edges first, then clean up exclusive_with for only the actually-added targets
+    let (added, _removed) = schedule.edge_set(id, edge, target_ids)?;
     if let Some(exclusive_field) = exclusive_with {
-        let exclusive_far: &'static dyn HalfEdge = match exclusive_field.edge_kind() {
-            EdgeKind::Owner { target_field, .. } => *target_field,
-            EdgeKind::Target { source_fields } => match source_fields {
-                [single] => *single,
-                _ => {
-                    return Err(FieldError::Conversion(ConversionError::InvalidEdge {
-                        reason: "Exclusive field has multiple sources".to_string(),
-                    }));
-                }
-            },
-            EdgeKind::NonEdge => {
-                return Err(FieldError::Conversion(ConversionError::InvalidEdge {
-                    reason: "Exclusive field is NonEdge".to_string(),
-                }));
-            }
-        };
         let exclusive_edge = crate::edge::FullEdge {
             near: exclusive_field,
-            far: exclusive_far,
+            far: far_field,
         };
-        // Remove each target entity from the exclusive sibling field
-        for target_id in &target_ids {
-            let _ = schedule.edge_remove(id, exclusive_edge, std::iter::once(*target_id));
-        }
+        // Remove only the actually-added target entities from the exclusive sibling field
+        let added_runtime: Vec<crate::entity::RuntimeEntityId> = added
+            .into_iter()
+            .map(|uuid| unsafe {
+                crate::entity::RuntimeEntityId::new_unchecked(uuid, far_field.entity_type_name())
+            })
+            .collect();
+        let _ = schedule.edge_remove(id, exclusive_edge, added_runtime);
     }
+    Ok(())
+}
 
-    schedule.edge_set(id, edge, target_ids)?;
+/// Adds the target entities from the value to the edge without removing existing ones.
+/// If `exclusive_with` is provided, removes each target from that exclusive sibling field first.
+/// This is a convenience method for use by both `EdgeDescriptor` and `FieldDescriptor`.
+pub fn add_edge<E: EntityType>(
+    schedule: &mut Schedule,
+    id: EntityId<E>,
+    field: &'static dyn HalfEdge,
+    value: FieldValue,
+) -> Result<(), FieldError> {
+    use crate::edge::EdgeKind;
+    let target_ids = field_value_to_runtime_entity_ids(value)?;
+    let (far_field, exclusive_with) = match field.edge_kind() {
+        EdgeKind::Owner {
+            target_field,
+            exclusive_with,
+        } => (*target_field, *exclusive_with),
+        EdgeKind::Target { source_fields } => {
+            // For target fields, add to the first source field
+            match source_fields {
+                [single] => (*single, None),
+                _ => {
+                    // Multiple sources - return error for now
+                    return Err(FieldError::Conversion(ConversionError::InvalidEdge {
+                        reason: "Multiple source fields not supported for add_edge".to_string(),
+                    }));
+                }
+            }
+        }
+        EdgeKind::NonEdge => {
+            return Err(FieldError::Conversion(ConversionError::InvalidEdge {
+                reason: "NonEdge fields cannot use add_edge".to_string(),
+            }));
+        }
+    };
+
+    // Construct FullEdge for edge_add
+    let edge = crate::edge::FullEdge {
+        near: field,
+        far: far_field,
+    };
+
+    // Add edges first, then clean up exclusive_with for only the actually-added targets
+    let added = schedule.edge_add(id, edge, target_ids)?;
+    if let Some(exclusive_field) = exclusive_with {
+        let exclusive_edge = crate::edge::FullEdge {
+            near: exclusive_field,
+            far: far_field,
+        };
+        // Remove only the actually-added target entities from the exclusive sibling field
+        let added_runtime: Vec<crate::entity::RuntimeEntityId> = added
+            .into_iter()
+            .map(|uuid| unsafe {
+                crate::entity::RuntimeEntityId::new_unchecked(uuid, far_field.entity_type_name())
+            })
+            .collect();
+        let _ = schedule.edge_remove(id, exclusive_edge, added_runtime);
+    }
+    Ok(())
+}
+
+/// Removes the target entities from the value from the edge.
+/// This is a convenience method for use by both `EdgeDescriptor` and `FieldDescriptor`.
+pub fn remove_edge<E: EntityType>(
+    schedule: &mut Schedule,
+    id: EntityId<E>,
+    field: &'static dyn HalfEdge,
+    value: FieldValue,
+) -> Result<(), FieldError> {
+    use crate::edge::EdgeKind;
+    let target_ids = field_value_to_runtime_entity_ids(value)?;
+    let far_field = match field.edge_kind() {
+        EdgeKind::Owner { target_field, .. } => *target_field,
+        EdgeKind::Target { source_fields } => {
+            // For target fields, remove from all source fields
+            for source in *source_fields {
+                let edge = crate::edge::FullEdge {
+                    near: *source,
+                    far: field,
+                };
+                schedule.edge_remove(id, edge, target_ids.clone());
+            }
+            return Ok(());
+        }
+        EdgeKind::NonEdge => {
+            return Err(FieldError::Conversion(ConversionError::InvalidEdge {
+                reason: "NonEdge fields cannot use remove_edge".to_string(),
+            }));
+        }
+    };
+
+    // Construct FullEdge for edge_remove
+    let edge = crate::edge::FullEdge {
+        near: field,
+        far: far_field,
+    };
+
+    schedule.edge_remove(id, edge, target_ids);
     Ok(())
 }

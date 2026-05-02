@@ -135,12 +135,41 @@ pub trait VerifiableField<E: EntityType>: NamedField {
     ) -> Result<(), VerificationError>;
 }
 
+// ── AddableField<E> ───────────────────────────────────────────────────────────
+
+/// Field that can accept adding items to a list value.
+///
+/// Returns `Err(FieldError::ReadOnly)` for fields that don't support add operations.
+pub trait AddableField<E: EntityType>: NamedField {
+    fn add(
+        &self,
+        id: EntityId<E>,
+        schedule: &mut Schedule,
+        value: FieldValue,
+    ) -> Result<(), FieldError>;
+}
+
+// ── RemovableField<E> ─────────────────────────────────────────────────────────
+
+/// Field that can accept removing items from a list value.
+///
+/// Returns `Err(FieldError::ReadOnly)` for fields that don't support remove operations.
+pub trait RemovableField<E: EntityType>: NamedField {
+    fn remove(
+        &self,
+        id: EntityId<E>,
+        schedule: &mut Schedule,
+        value: FieldValue,
+    ) -> Result<(), FieldError>;
+}
+
 // ── TypedField<E> ─────────────────────────────────────────────────────────────
 
-/// Entity-typed field: combines read, write, and verify capabilities.
+/// Entity-typed field: combines read, write, verify, add, and remove capabilities.
 ///
-/// A blanket implementation covers any type that implements all three of
-/// [`ReadableField<E>`], [`WritableField<E>`], and [`VerifiableField<E>`].
+/// A blanket implementation covers any type that implements all of
+/// [`ReadableField<E>`], [`WritableField<E>`], [`VerifiableField<E>`],
+/// [`AddableField<E>`], and [`RemovableField<E>`].
 ///
 /// This trait is used as `dyn TypedField<E>` in [`crate::field_set::FieldSet`]
 /// so that all descriptor types — both [`FieldDescriptor<E>`] (non-edge) and
@@ -148,11 +177,17 @@ pub trait VerifiableField<E: EntityType>: NamedField {
 ///
 /// [`FieldDescriptor<E>`]: crate::field::FieldDescriptor
 pub trait TypedField<E: EntityType>:
-    ReadableField<E> + WritableField<E> + VerifiableField<E>
+    ReadableField<E> + WritableField<E> + VerifiableField<E> + AddableField<E> + RemovableField<E>
 {
 }
 
-impl<E: EntityType, T: ReadableField<E> + WritableField<E> + VerifiableField<E>> TypedField<E>
-    for T
+impl<
+        E: EntityType,
+        T: ReadableField<E>
+            + WritableField<E>
+            + VerifiableField<E>
+            + AddableField<E>
+            + RemovableField<E>,
+    > TypedField<E> for T
 {
 }

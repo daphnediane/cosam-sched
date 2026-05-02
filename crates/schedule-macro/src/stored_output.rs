@@ -107,6 +107,9 @@ pub fn expand(inp: &StoredInput) -> syn::Result<TokenStream> {
             let cb = ::schedule_core::field::FieldCallbacks {
                 read_fn: #read_fn,
                 write_fn: #write_fn,
+                // TODO: Revisit if list cardinality support is implemented for accessor_field_properties
+                add_fn: None,
+                remove_fn: None,
                 verify_fn: None,
             };
             (data, cb)

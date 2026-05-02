@@ -22,6 +22,10 @@ pub struct FieldCallbacks<E: EntityType> {
     pub read_fn: Option<ReadFn<E>>,
     /// Write implementation. `None` means read-only.
     pub write_fn: Option<WriteFn<E>>,
+    /// Add implementation. `None` means no add.
+    pub add_fn: Option<AddFn<E>>,
+    /// Remove implementation. `None` means no remove.
+    pub remove_fn: Option<RemoveFn<E>>,
     /// Verification implementation. `None` means skip verification.
     pub verify_fn: Option<VerifyFn<E>>,
 }
@@ -56,17 +60,52 @@ pub enum WriteFn<E: EntityType> {
     /// Schedule-aware write — used for edge mutations (e.g. `add_presenters`).
     Schedule(fn(&mut Schedule, EntityId<E>, FieldValue) -> Result<(), FieldError>),
     /// Add to an edge where both near and far are specified (for other fields)
+    ///
+    /// TODO: This should be removed in favor of AddFn
     AddEdge {
         edge: FullEdge,
         exclusive_with: Option<FullEdge>,
     },
     /// Remove from an edge where both near and far are specified (for other fields)
-    RemoveEdge {
-        edge: FullEdge,
-        exclusive_with: Option<FullEdge>,
-    },
+    ///
+    /// TODO: This should be removed in favor of RemoveFn
+    RemoveEdge { edge: FullEdge },
     /// Write our edge -- to do remove and add to EdgeWriteFn
     WriteEdge,
+}
+
+// ── AddFn<E> ────────────────────────────────────────────────────────────────
+
+/// How a field appends its value: directly into [`EntityType::InternalData`], or
+/// via a [`Schedule`] lookup by [`EntityId`].
+///
+/// The `Schedule` variant avoids the double-`&mut` borrow problem: the fn
+/// receives `(&mut Schedule, EntityId<E>)` with no `&mut InternalData`
+/// parameter and handles its own lookup/release internally.
+pub enum AddFn<E: EntityType> {
+    /// Data-only append — no schedule access needed.
+    Bare(fn(&mut E::InternalData, FieldValue) -> Result<(), FieldError>),
+    /// Schedule-aware append — used for edge mutations (e.g. `add_presenters`).
+    Schedule(fn(&mut Schedule, EntityId<E>, FieldValue) -> Result<(), FieldError>),
+    /// Add to our edge
+    AddEdge,
+}
+
+// ── RemoveFn<E> ────────────────────────────────────────────────────────────────
+
+/// How a field removes from its value: directly into [`EntityType::InternalData`], or
+/// via a [`Schedule`] lookup by [`EntityId`].
+///
+/// The `Schedule` variant avoids the double-`&mut` borrow problem: the fn
+/// receives `(&mut Schedule, EntityId<E>)` with no `&mut InternalData`
+/// parameter and handles its own lookup/release internally.
+pub enum RemoveFn<E: EntityType> {
+    /// Data-only remove — no schedule access needed.
+    Bare(fn(&mut E::InternalData, FieldValue) -> Result<(), FieldError>),
+    /// Schedule-aware remove — used for edge mutations (e.g. `add_presenters`).
+    Schedule(fn(&mut Schedule, EntityId<E>, FieldValue) -> Result<(), FieldError>),
+    /// Remove from our edge
+    RemoveEdge,
 }
 
 // ── VerifyFn<E> ─────────────────────────────────────────────────────────────────

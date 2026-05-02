@@ -492,6 +492,8 @@ mod tests {
                 d.label = v.into_string()?;
                 Ok(())
             })),
+            add_fn: None,
+            remove_fn: None,
             verify_fn: None,
         },
     };
@@ -515,6 +517,8 @@ mod tests {
                 d.count = v.into_integer()?;
                 Ok(())
             })),
+            add_fn: None,
+            remove_fn: None,
             verify_fn: None,
         },
     };
@@ -535,6 +539,8 @@ mod tests {
         cb: FieldCallbacks {
             read_fn: Some(ReadFn::Bare(|_: &MockData| Some(field_value!(42)))),
             write_fn: None,
+            add_fn: None,
+            remove_fn: None,
             verify_fn: None,
         },
     };
@@ -784,6 +790,8 @@ mod tests {
                 d.label = v.into_string()?;
                 Ok(())
             })),
+            add_fn: None,
+            remove_fn: None,
             verify_fn: Some(VerifyFn::ReRead),
         },
     };
@@ -809,6 +817,8 @@ mod tests {
                 d.count = 0;
                 Ok(())
             })),
+            add_fn: None,
+            remove_fn: None,
             verify_fn: None,
         },
     };
@@ -834,6 +844,8 @@ mod tests {
                 d.count = v.into_integer()?;
                 Ok(())
             })),
+            add_fn: None,
+            remove_fn: None,
             verify_fn: Some(VerifyFn::Bare(|d: &MockData, attempted| {
                 let want = attempted.clone().into_integer().map_err(|_| {
                     VerificationError::NotVerifiable {
@@ -873,6 +885,8 @@ mod tests {
                 d.count = v.into_integer()?;
                 Ok(())
             })),
+            add_fn: None,
+            remove_fn: None,
             verify_fn: Some(VerifyFn::Schedule(|sched, id, attempted| {
                 let d = sched.get_internal::<MockEntity>(id).ok_or(
                     VerificationError::NotVerifiable {
@@ -1122,6 +1136,8 @@ mod tests {
                     d.label = "stomped".into();
                     Ok(())
                 })),
+                add_fn: None,
+                remove_fn: None,
                 verify_fn: None,
             },
         };

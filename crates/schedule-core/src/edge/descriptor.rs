@@ -8,6 +8,7 @@
 
 use crate::edge::traits::HalfEdge;
 use crate::entity::{EntityId, EntityType, EntityUuid};
+use crate::field::traits::{AddableField, RemovableField};
 use crate::field::{
     CommonFieldData, FieldCallbacks, NamedField, ReadFn, ReadableField, VerifiableField, VerifyFn,
     WritableField, WriteFn,
@@ -272,11 +273,16 @@ impl<E: EntityType> WritableField<E> for EdgeDescriptor<E> {
             Some(WriteFn::AddEdge {
                 edge,
                 exclusive_with,
-            }) => crate::schedule::add_edge(schedule, id, edge, exclusive_with.as_ref(), value),
-            Some(WriteFn::RemoveEdge {
+            }) => crate::schedule::add_edge_helper_field(
+                schedule,
+                id,
                 edge,
-                exclusive_with,
-            }) => crate::schedule::remove_edge(schedule, id, edge, exclusive_with.as_ref(), value),
+                exclusive_with.as_ref(),
+                value,
+            ),
+            Some(WriteFn::RemoveEdge { edge }) => {
+                crate::schedule::remove_edge_helper_field(schedule, id, edge, value)
+            }
             Some(WriteFn::WriteEdge) => {
                 // Set the edges from this entity to the target entities specified in value
                 // SAFETY: self is a &'static EdgeDescriptor<E> (edge descriptors are static singletons).
@@ -325,6 +331,68 @@ impl<E: EntityType> VerifiableField<E> for EdgeDescriptor<E> {
                 f(data, attempted)
             }
             Some(VerifyFn::Schedule(f)) => f(schedule, id, attempted),
+        }
+    }
+}
+
+impl<E: EntityType> AddableField<E> for EdgeDescriptor<E> {
+    fn add(
+        &self,
+        id: EntityId<E>,
+        schedule: &mut Schedule,
+        value: FieldValue,
+    ) -> Result<(), FieldError> {
+        use crate::field::callback::AddFn;
+        match &self.cb.add_fn {
+            None => Err(FieldError::ReadOnly {
+                name: self.data.name,
+            }),
+            Some(AddFn::Bare(f)) => {
+                let data = schedule
+                    .get_internal_mut::<E>(id)
+                    .ok_or(FieldError::NotFound {
+                        name: self.data.name,
+                    })?;
+                f(data, value)
+            }
+            Some(AddFn::Schedule(f)) => f(schedule, id, value),
+            Some(AddFn::AddEdge) => {
+                // SAFETY: self is a &'static EdgeDescriptor<E> (edge descriptors are static singletons).
+                let static_field: &'static dyn HalfEdge =
+                    unsafe { std::mem::transmute(self as &dyn HalfEdge) };
+                crate::schedule::add_edge(schedule, id, static_field, value)
+            }
+        }
+    }
+}
+
+impl<E: EntityType> RemovableField<E> for EdgeDescriptor<E> {
+    fn remove(
+        &self,
+        id: EntityId<E>,
+        schedule: &mut Schedule,
+        value: FieldValue,
+    ) -> Result<(), FieldError> {
+        use crate::field::callback::RemoveFn;
+        match &self.cb.remove_fn {
+            None => Err(FieldError::ReadOnly {
+                name: self.data.name,
+            }),
+            Some(RemoveFn::Bare(f)) => {
+                let data = schedule
+                    .get_internal_mut::<E>(id)
+                    .ok_or(FieldError::NotFound {
+                        name: self.data.name,
+                    })?;
+                f(data, value)
+            }
+            Some(RemoveFn::Schedule(f)) => f(schedule, id, value),
+            Some(RemoveFn::RemoveEdge) => {
+                // SAFETY: self is a &'static EdgeDescriptor<E> (edge descriptors are static singletons).
+                let static_field: &'static dyn HalfEdge =
+                    unsafe { std::mem::transmute(self as &dyn HalfEdge) };
+                crate::schedule::remove_edge(schedule, id, static_field, value)
+            }
         }
     }
 }

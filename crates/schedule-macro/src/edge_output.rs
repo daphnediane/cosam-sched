@@ -65,6 +65,35 @@ pub fn expand(inp: &EdgeInput) -> syn::Result<TokenStream> {
     // Generate write_fn - WriteEdge for both owner and target
     let write_fn = quote!(Some(::schedule_core::field::WriteFn::WriteEdge));
 
+    // Generate add_fn:
+    // - Owner edges: AddEdge
+    // - Target edges with single source: AddEdge
+    // - Target edges with multiple sources: None (TODO: implement multi-source detection)
+    let add_fn = if is_owner {
+        quote!(Some(::schedule_core::field::AddFn::AddEdge))
+    } else if is_target {
+        // TODO: Parse source_fields array to check length, return None for multiple sources
+        quote!(Some(::schedule_core::field::AddFn::AddEdge))
+    } else {
+        quote!(None)
+    };
+
+    // Generate remove_fn:
+    // - Target edges: RemoveEdge
+    // - Owner edges without exclusive_with: RemoveEdge
+    // - Owner edges with exclusive_with: None
+    let remove_fn = if is_target {
+        quote!(Some(::schedule_core::field::RemoveFn::RemoveEdge))
+    } else if is_owner {
+        if inp.exclusive_with.is_some() {
+            quote!(None)
+        } else {
+            quote!(Some(::schedule_core::field::RemoveFn::RemoveEdge))
+        }
+    } else {
+        quote!(None)
+    };
+
     // Generate verify_fn - None for edge fields
     let verify_fn = quote!(None);
 
@@ -75,6 +104,8 @@ pub fn expand(inp: &EdgeInput) -> syn::Result<TokenStream> {
             let cb = ::schedule_core::field::FieldCallbacks {
                 read_fn: #read_fn,
                 write_fn: #write_fn,
+                add_fn: #add_fn,
+                remove_fn: #remove_fn,
                 verify_fn: #verify_fn,
             };
             let edge_kind = #edge_kind;

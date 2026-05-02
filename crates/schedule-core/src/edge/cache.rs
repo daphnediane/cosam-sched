@@ -158,6 +158,8 @@ mod tests {
         cb: FieldCallbacks {
             read_fn: None,
             write_fn: None,
+            add_fn: None,
+            remove_fn: None,
             verify_fn: None,
         },
     };
@@ -178,6 +180,8 @@ mod tests {
         cb: FieldCallbacks {
             read_fn: None,
             write_fn: None,
+            add_fn: None,
+            remove_fn: None,
             verify_fn: None,
         },
     };

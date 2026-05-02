@@ -33,7 +33,7 @@ pub mod traits;
 pub use traits::{NamedField, ReadableField, TypedField, VerifiableField, WritableField};
 
 // Re-export callback types from the callback module
-pub use callback::{FieldCallbacks, ReadFn, VerifyFn, WriteFn};
+pub use callback::{AddFn, FieldCallbacks, ReadFn, RemoveFn, VerifyFn, WriteFn};
 // Re-export descriptor types from the descriptor module
 pub use descriptor::FieldDescriptor;
 
@@ -168,6 +168,8 @@ mod tests {
                 d.label = v.into_string()?;
                 Ok(())
             })),
+            add_fn: None,
+            remove_fn: None,
             verify_fn: None,
         },
     };
@@ -193,6 +195,8 @@ mod tests {
                 d.count = v.into_integer()?;
                 Ok(())
             })),
+            add_fn: None,
+            remove_fn: None,
             verify_fn: None,
         },
     };
@@ -213,6 +217,8 @@ mod tests {
         cb: FieldCallbacks {
             read_fn: Some(ReadFn::Bare(|_: &MockInternalData| Some(field_value!(42)))),
             write_fn: None,
+            add_fn: None,
+            remove_fn: None,
             verify_fn: None,
         },
     };
@@ -236,6 +242,8 @@ mod tests {
                 d.label = v.into_string()?;
                 Ok(())
             })),
+            add_fn: None,
+            remove_fn: None,
             verify_fn: None,
         },
     };

@@ -208,21 +208,23 @@ NamedField          name(), display_name(), description(), aliases()
 ReadableField<E>    read(EntityId<E>, &Schedule) → Option<FieldValue>
 WritableField<E>    write(EntityId<E>, &mut Schedule, FieldValue) → Result<(), FieldError>
 VerifiableField<E>  verify(EntityId<E>, &Schedule, &FieldValue) → Result<(), VerificationError>
+AddableField<E>     add(EntityId<E>, &mut Schedule, FieldValue) → Result<(), FieldError>
+RemovableField<E>   remove(EntityId<E>, &mut Schedule, FieldValue) → Result<(), FieldError>
 ```
 
-All four traits are flat — no `Simple*` or `Schedule*` sub-traits. The
+All six traits are flat — no `Simple*` or `Schedule*` sub-traits. The
 caller-facing API is always `(EntityId<E>, &[mut] Schedule)`.
 
-`FieldDescriptor<E>` implements all four directly. Dispatch between
+`FieldDescriptor<E>` implements all six directly. Dispatch between
 data-only and schedule-aware paths is handled internally by matching on
-`ReadFn<E>`, `WriteFn<E>`, and `VerifyFn<E>` (see below).
+`ReadFn<E>`, `WriteFn<E>`, `VerifyFn<E>`, `AddFn<E>`, and `RemoveFn<E>` (see below).
 
 Entity-level text matching (previously `IndexableField<E>` / `match_index`)
 is now handled by the `EntityMatcher` trait in `crate::query::lookup`; see
 `conversion-and-lookup.md`. Individual field descriptors no longer carry
 an `index_fn` — each entity type owns its holistic `match_entity` logic.
 
-## ReadFn / WriteFn enums
+## ReadFn / WriteFn / AddFn / RemoveFn enums
 
 Each `FieldDescriptor` carries enum-valued fn pointers that select the
 correct calling convention. This avoids any double-`&mut` borrow problem:
@@ -230,19 +232,51 @@ the `Schedule` variant never exposes `&mut InternalData` to the caller.
 
 ```rust
 pub enum ReadFn<E: EntityType> {
-    /// Data-only read — no schedule needed.
+    /// Data-only read — no schedule access needed.
     Bare(fn(&E::InternalData) -> Option<FieldValue>),
-    /// Schedule-aware read — fn looks up entity internally.
+    /// Schedule-aware read — fn receives `(&Schedule, EntityId<E>)` and
+    /// performs its own entity lookup internally.
     Schedule(fn(&Schedule, EntityId<E>) -> Option<FieldValue>),
+    /// Get entities connected to this entity via a list of full edges.
+    ReadEdges { edges: &'static [&'static FullEdge] },
+    /// Read edge — reads edges for this field.
+    ReadEdge,
 }
 
 pub enum WriteFn<E: EntityType> {
-    /// Data-only write — no schedule needed.
+    /// Data-only write — no schedule access needed.
     Bare(fn(&mut E::InternalData, FieldValue) -> Result<(), FieldError>),
-    /// Schedule-aware write — used for edge mutations (add_presenters, etc.).
-    /// Fn receives (&mut Schedule, EntityId<E>) with no &mut InternalData;
-    /// it handles its own lookup/release internally.
+    /// Schedule-aware write — used for edge mutations (e.g. `add_presenters`).
     Schedule(fn(&mut Schedule, EntityId<E>, FieldValue) -> Result<(), FieldError>),
+    /// Add to an edge where both near and far are specified.
+    /// TODO: This should be removed in favor of AddFn
+    AddEdge {
+        edge: FullEdge,
+        exclusive_with: Option<FullEdge>,
+    },
+    /// Remove from an edge where both near and far are specified.
+    /// TODO: This should be removed in favor of RemoveFn
+    RemoveEdge { edge: FullEdge },
+    /// Write edge — sets edges from this entity to the target entities specified in value.
+    WriteEdge,
+}
+
+pub enum AddFn<E: EntityType> {
+    /// Data-only add — no schedule access needed.
+    Bare(fn(&mut E::InternalData, FieldValue) -> Result<(), FieldError>),
+    /// Schedule-aware add — used for edge mutations (e.g. `add_presenters`).
+    Schedule(fn(&mut Schedule, EntityId<E>, FieldValue) -> Result<(), FieldError>),
+    /// Add edge — used for edge fields to add edges.
+    AddEdge,
+}
+
+pub enum RemoveFn<E: EntityType> {
+    /// Data-only remove — no schedule access needed.
+    Bare(fn(&mut E::InternalData, FieldValue) -> Result<(), FieldError>),
+    /// Schedule-aware remove — used for edge mutations (e.g. `remove_presenters`).
+    Schedule(fn(&mut Schedule, EntityId<E>, FieldValue) -> Result<(), FieldError>),
+    /// Remove edge — used for edge fields to remove edges.
+    RemoveEdge,
 }
 
 /// How a field verifies its value after a batch write: directly from
@@ -276,6 +310,8 @@ pub struct FieldDescriptor<E: EntityType> {
     pub order: u32,                     // Stable iteration order for inventory collection
     pub read_fn: Option<ReadFn<E>>,     // None → write-only
     pub write_fn: Option<WriteFn<E>>,   // None → read-only
+    pub add_fn: Option<AddFn<E>>,       // None → read-only or add not supported
+    pub remove_fn: Option<RemoveFn<E>>, // None → read-only or remove not supported
     pub verify_fn: Option<VerifyFn<E>>, // None → no verification requested
 }
 ```
@@ -285,7 +321,8 @@ inventory. Fields are sorted by this value (ascending) when `FieldSet::from_inve
 collects them. Use multiples of 100 (0, 100, 200, ...) to leave room for future insertions.
 
 `FieldDescriptor` implements `NamedField`, `ReadableField<E>`,
-`WritableField<E>`, and `VerifiableField<E>` directly:
+`WritableField<E>`, `VerifiableField<E>`, `AddableField<E>`, and
+`RemovableField<E>` directly:
 
 - `read()` matches `read_fn`: `None` → `FieldError::WriteOnly`;
   `Bare` fetches `InternalData` from the schedule then calls the fn;
@@ -293,6 +330,14 @@ collects them. Use multiples of 100 (0, 100, 200, ...) to leave room for future 
 - `write()` matches `write_fn`: `None` → `FieldError::ReadOnly`;
   `Bare` fetches `&mut InternalData` then calls the fn;
   `Schedule` delegates directly (no double `&mut`).
+- `add()` matches `add_fn`: `None` → `FieldError::ReadOnly` or add not supported;
+  `Bare` fetches `&mut InternalData` then calls the fn;
+  `Schedule` delegates directly;
+  `AddEdge` calls `crate::schedule::add_edge` for edge operations.
+- `remove()` matches `remove_fn`: `None` → `FieldError::ReadOnly` or remove not supported;
+  `Bare` fetches `&mut InternalData` then calls the fn;
+  `Schedule` delegates directly;
+  `RemoveEdge` calls `crate::schedule::remove_edge` for edge operations.
 - `verify()` checks value stability after batch writes (opt-in):
   - If `verify_fn` is `None`, returns `Ok(())` — no verification requested
   - If `verify_fn` is `Some(Bare(f))`, calls the custom data-only verification function

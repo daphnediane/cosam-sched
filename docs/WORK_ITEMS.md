@@ -1,6 +1,6 @@
 # Cosplay America Schedule - Work Item
 
-Updated on: Fri May  1 23:41:57 2026
+Updated on: Sat May  2 09:29:02 2026
 
 ## Completed
 
@@ -95,7 +95,7 @@ and improve `FieldId` conversions with a global registry and type-safe downcasti
 
 ## Summary of Open Items
 
-**Total open items:** 21
+**Total open items:** 22
 
 * **Meta / Project-Level**
   * [META-001] Meta work item tracking the full multi-phase redesign of the schedule system. (Blocked by [META-005], [META-006], [META-007], [META-008])
@@ -124,6 +124,7 @@ REFACTOR-060, so individual presenters can be excluded from credit display.
 `HalfEdge`, `TypedField<E>`, and `TypedHalfEdge<E>` traits.
 
 * **Low Priority**
+  * [BUGFIX-076] The edge_field_properties macro currently sets add_fn to AddEdge for all target edges without checking if the edge has multiple source fields. This should return None for target edges with multiple sources since add_edge doesn't support multi-source edges yet.
   * [CLI-030] ([META-006]) CLI tool for converting between schedule file formats (XLSX, JSON, widget JSON).
   * [CLI-031] ([META-006]) CLI tool for making batch edits to schedule data from the command line.
   * [EDITOR-032] ([META-007]) Select the GUI framework for cosam-editor and create the application scaffold.
@@ -211,6 +212,18 @@ This is a type safety issue — durations should be typed as `Duration`, not raw
 * Type-safe operations (can't accidentally add minutes to a count field)
 * Proper serialization (duration format vs raw number)
 * Clear semantic meaning in the type system
+
+---
+
+### [BUGFIX-076] BUGFIX-076: Implement multi-source detection for edge_field_properties add_fn
+
+**Status:** Open
+
+**Priority:** Low
+
+**Summary:** The edge_field_properties macro currently sets add_fn to AddEdge for all target edges without checking if the edge has multiple source fields. This should return None for target edges with multiple sources since add_edge doesn't support multi-source edges yet.
+
+**Description:** In the edge_field_properties macro (crates/schedule-macro/src/edge_output.rs), the add_fn generation logic currently returns AddEdge for all target edges regardless of the number of source fields. However, the add_edge function in schedule-core only supports single-source target edges (it returns an error for multiple sources). This inconsistency means the macro-generated code claims to support add operations that will fail at runtime.
 
 ---
 
@@ -617,6 +630,7 @@ WriteEdge will be removed from FieldDescriptor when HalfEdge is dropped.
 [BUGFIX-045]: work-item/medium/BUGFIX-045.md
 [BUGFIX-072]: work-item/done/BUGFIX-072.md
 [BUGFIX-073]: work-item/high/BUGFIX-073.md
+[BUGFIX-076]: work-item/low/BUGFIX-076.md
 [CLI-030]: work-item/low/CLI-030.md
 [CLI-031]: work-item/low/CLI-031.md
 [EDITOR-032]: work-item/low/EDITOR-032.md

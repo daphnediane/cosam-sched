@@ -206,6 +206,8 @@ fn expand_stored(inp: &FieldInput) -> syn::Result<TokenStream> {
         cb: ::schedule_core::field::FieldCallbacks {
             read_fn: #read_fn,
             write_fn: #write_fn,
+            add_fn: None,
+            remove_fn: None,
             verify_fn: #verify_fn,
         },
     };
@@ -290,21 +292,11 @@ fn expand_edge(inp: &FieldInput) -> syn::Result<TokenStream> {
                 })
             })
         }
-        "remove" => {
-            let exclusive_with_clone = exclusive_with.clone();
-            let exclusive_with_expr = match exclusive_with_clone {
-                Some(ref expr) => {
-                    quote!(Some(::schedule_core::edge::id::FullEdge { near: #expr, far: #target_field }))
-                }
-                None => quote!(None),
-            };
-            Some(quote! {
-                Some(::schedule_core::field::WriteFn::RemoveEdge{
-                    edge: ::schedule_core::edge::id::FullEdge { near: &#static_name, far: #target_field },
-                    exclusive_with: #exclusive_with_expr,
-                })
+        "remove" => Some(quote! {
+            Some(::schedule_core::field::WriteFn::RemoveEdge{
+                edge: ::schedule_core::edge::id::FullEdge { near: &#static_name, far: #target_field }
             })
-        }
+        }),
         _ => unreachable!(),
     };
 
@@ -337,6 +329,8 @@ fn expand_edge(inp: &FieldInput) -> syn::Result<TokenStream> {
         cb: ::schedule_core::field::FieldCallbacks {
             read_fn: #read_fn,
             write_fn: #write_fn,
+            add_fn: None,
+            remove_fn: None,
             verify_fn: #verify_fn,
         },
     };
@@ -468,6 +462,8 @@ fn expand_custom(inp: &FieldInput) -> syn::Result<TokenStream> {
         cb: ::schedule_core::field::FieldCallbacks {
             read_fn: #read_fn,
             write_fn: #write_fn,
+            add_fn: None,
+            remove_fn: None,
             verify_fn: #verify_fn,
         },
     };
