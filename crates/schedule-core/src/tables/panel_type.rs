@@ -14,14 +14,17 @@
 //!
 //! Field descriptors are static values assembled into a [`FieldSet`] inside a [`LazyLock`].
 
+use crate::accessor_field_properties;
 use crate::define_field;
+use crate::edge::EdgeKind;
 use crate::entity::{EntityId, EntityType, EntityUuid, UuidPreference};
 use crate::field::set::FieldSet;
-use crate::field::{FieldDescriptor, NamedField};
+use crate::field::{CollectedNamedField, FieldDescriptor, NamedField};
 use crate::field_value;
-use crate::query::converter::{AsBoolean, AsString, EntityStringResolver};
+use crate::query::converter::EntityStringResolver;
 use crate::tables::panel::{PanelEntityType, PanelId};
-use crate::value::{FieldTypeItem, ValidationError};
+use crate::value::FieldTypeItem;
+use crate::value::ValidationError;
 use serde::{Deserialize, Serialize};
 use std::sync::LazyLock;
 
@@ -223,115 +226,247 @@ impl EntityStringResolver for PanelTypeEntityType {
 
 // ── Field Descriptors ──────────────────────────────────────────────────────────
 
-define_field! {
-    static FIELD_PREFIX: FieldDescriptor<PanelTypeEntityType>,
-    accessor: prefix, required, as: AsString,
-    name: "prefix", display: "Prefix",
-    desc: "Two-letter Uniq ID prefix for panels of this type.",
-    aliases: &["uniq_id_prefix"],
-    example: "GP",
-    order: 0
-}
+pub static FIELD_PREFIX: FieldDescriptor<PanelTypeEntityType> = {
+    let (data, cb) = accessor_field_properties! {
+        PanelTypeEntityType,
+        prefix,
+        name: "prefix",
+        display: "Prefix",
+        description: "Two-letter Uniq ID prefix for panels of this type.",
+        aliases: &["uniq_id_prefix"],
+        cardinality: Single,
+        item: String,
+        example: "GP",
+        order: 0,
+    };
+    FieldDescriptor {
+        data,
+        required: true,
+        edge_kind: EdgeKind::NonEdge,
+        cb,
+    }
+};
+inventory::submit! { CollectedNamedField(&FIELD_PREFIX) }
 
-define_field! {
-    static FIELD_PANEL_KIND: FieldDescriptor<PanelTypeEntityType>,
-    accessor: panel_kind, required, as: AsString,
-    name: "panel_kind", display: "Panel Kind",
-    desc: "Human-readable kind name for this panel type.",
-    aliases: &["kind", "type_name"],
-    example: "Guest Panel",
-    order: 100
-}
+pub static FIELD_PANEL_KIND: FieldDescriptor<PanelTypeEntityType> = {
+    let (data, cb) = accessor_field_properties! {
+        PanelTypeEntityType,
+        panel_kind,
+        name: "panel_kind",
+        display: "Panel Kind",
+        description: "Human-readable kind name for this panel type.",
+        aliases: &["kind", "type_name"],
+        cardinality: Single,
+        item: String,
+        example: "Guest Panel",
+        order: 100,
+    };
+    FieldDescriptor {
+        data,
+        required: true,
+        edge_kind: EdgeKind::NonEdge,
+        cb,
+    }
+};
+inventory::submit! { CollectedNamedField(&FIELD_PANEL_KIND) }
 
-define_field! {
-    static FIELD_HIDDEN: FieldDescriptor<PanelTypeEntityType>,
-    accessor: hidden, with_default, as: AsBoolean,
-    name: "hidden", display: "Hidden",
-    desc: "Whether this panel type is hidden from UI.",
-    aliases: &[],
-    example: "false",
-    order: 200
-}
+pub static FIELD_HIDDEN: FieldDescriptor<PanelTypeEntityType> = {
+    let (data, cb) = accessor_field_properties! {
+        PanelTypeEntityType,
+        hidden,
+        name: "hidden",
+        display: "Hidden",
+        description: "Whether this panel type is hidden from UI.",
+        aliases: &[],
+        cardinality: Single,
+        item: Boolean,
+        example: "false",
+        order: 200,
+    };
+    FieldDescriptor {
+        data,
+        required: false,
+        edge_kind: EdgeKind::NonEdge,
+        cb,
+    }
+};
+inventory::submit! { CollectedNamedField(&FIELD_HIDDEN) }
 
-define_field! {
-    static FIELD_IS_WORKSHOP: FieldDescriptor<PanelTypeEntityType>,
-    accessor: is_workshop, with_default, as: AsBoolean,
-    name: "is_workshop", display: "Is Workshop",
-    desc: "Whether panels of this type are workshops.",
-    aliases: &["workshop"],
-    example: "false",
-    order: 300
-}
+pub static FIELD_IS_WORKSHOP: FieldDescriptor<PanelTypeEntityType> = {
+    let (data, cb) = accessor_field_properties! {
+        PanelTypeEntityType,
+        is_workshop,
+        name: "is_workshop",
+        display: "Is Workshop",
+        description: "Whether panels of this type are workshops.",
+        aliases: &["workshop"],
+        cardinality: Single,
+        item: Boolean,
+        example: "false",
+        order: 300,
+    };
+    FieldDescriptor {
+        data,
+        required: false,
+        edge_kind: EdgeKind::NonEdge,
+        cb,
+    }
+};
+inventory::submit! { CollectedNamedField(&FIELD_IS_WORKSHOP) }
 
-define_field! {
-    static FIELD_IS_BREAK: FieldDescriptor<PanelTypeEntityType>,
-    accessor: is_break, with_default, as: AsBoolean,
-    name: "is_break", display: "Is Break",
-    desc: "Whether panels of this type are break periods.",
-    aliases: &["break"],
-    example: "false",
-    order: 400
-}
+pub static FIELD_IS_BREAK: FieldDescriptor<PanelTypeEntityType> = {
+    let (data, cb) = accessor_field_properties! {
+        PanelTypeEntityType,
+        is_break,
+        name: "is_break",
+        display: "Is Break",
+        description: "Whether panels of this type are break periods.",
+        aliases: &["break"],
+        cardinality: Single,
+        item: Boolean,
+        example: "false",
+        order: 400,
+    };
+    FieldDescriptor {
+        data,
+        required: false,
+        edge_kind: EdgeKind::NonEdge,
+        cb,
+    }
+};
+inventory::submit! { CollectedNamedField(&FIELD_IS_BREAK) }
 
-define_field! {
-    static FIELD_IS_CAFE: FieldDescriptor<PanelTypeEntityType>,
-    accessor: is_cafe, with_default, as: AsBoolean,
-    name: "is_cafe", display: "Is Cafe",
-    desc: "Whether panels of this type are cafe events.",
-    aliases: &["cafe"],
-    example: "false",
-    order: 500
-}
+pub static FIELD_IS_CAFE: FieldDescriptor<PanelTypeEntityType> = {
+    let (data, cb) = accessor_field_properties! {
+        PanelTypeEntityType,
+        is_cafe,
+        name: "is_cafe",
+        display: "Is Cafe",
+        description: "Whether panels of this type are cafe events.",
+        aliases: &["cafe"],
+        cardinality: Single,
+        item: Boolean,
+        example: "false",
+        order: 500,
+    };
+    FieldDescriptor {
+        data,
+        required: false,
+        edge_kind: EdgeKind::NonEdge,
+        cb,
+    }
+};
+inventory::submit! { CollectedNamedField(&FIELD_IS_CAFE) }
 
-define_field! {
-    static FIELD_IS_ROOM_HOURS: FieldDescriptor<PanelTypeEntityType>,
-    accessor: is_room_hours, with_default, as: AsBoolean,
-    name: "is_room_hours", display: "Is Room Hours",
-    desc: "Whether panels of this type are room hours.",
-    aliases: &["room_hours"],
-    example: "false",
-    order: 600
-}
+pub static FIELD_IS_ROOM_HOURS: FieldDescriptor<PanelTypeEntityType> = {
+    let (data, cb) = accessor_field_properties! {
+        PanelTypeEntityType,
+        is_room_hours,
+        name: "is_room_hours",
+        display: "Is Room Hours",
+        description: "Whether panels of this type are room hours.",
+        aliases: &["room_hours"],
+        cardinality: Single,
+        item: Boolean,
+        example: "false",
+        order: 600,
+    };
+    FieldDescriptor {
+        data,
+        required: false,
+        edge_kind: EdgeKind::NonEdge,
+        cb,
+    }
+};
+inventory::submit! { CollectedNamedField(&FIELD_IS_ROOM_HOURS) }
 
-define_field! {
-    static FIELD_IS_TIMELINE: FieldDescriptor<PanelTypeEntityType>,
-    accessor: is_timeline, with_default, as: AsBoolean,
-    name: "is_timeline", display: "Is Timeline",
-    desc: "Whether panels of this type are timeline events.",
-    aliases: &["timeline"],
-    example: "false",
-    order: 700
-}
+pub static FIELD_IS_TIMELINE: FieldDescriptor<PanelTypeEntityType> = {
+    let (data, cb) = accessor_field_properties! {
+        PanelTypeEntityType,
+        is_timeline,
+        name: "is_timeline",
+        display: "Is Timeline",
+        description: "Whether panels of this type are timeline events.",
+        aliases: &["timeline"],
+        cardinality: Single,
+        item: Boolean,
+        example: "false",
+        order: 700,
+    };
+    FieldDescriptor {
+        data,
+        required: false,
+        edge_kind: EdgeKind::NonEdge,
+        cb,
+    }
+};
+inventory::submit! { CollectedNamedField(&FIELD_IS_TIMELINE) }
 
-define_field! {
-    static FIELD_IS_PRIVATE: FieldDescriptor<PanelTypeEntityType>,
-    accessor: is_private, with_default, as: AsBoolean,
-    name: "is_private", display: "Is Private",
-    desc: "Whether panels of this type are private events.",
-    aliases: &["private"],
-    example: "false",
-    order: 800
-}
+pub static FIELD_IS_PRIVATE: FieldDescriptor<PanelTypeEntityType> = {
+    let (data, cb) = accessor_field_properties! {
+        PanelTypeEntityType,
+        is_private,
+        name: "is_private",
+        display: "Is Private",
+        description: "Whether panels of this type are private events.",
+        aliases: &["private"],
+        cardinality: Single,
+        item: Boolean,
+        example: "false",
+        order: 800,
+    };
+    FieldDescriptor {
+        data,
+        required: false,
+        edge_kind: EdgeKind::NonEdge,
+        cb,
+    }
+};
+inventory::submit! { CollectedNamedField(&FIELD_IS_PRIVATE) }
 
-define_field! {
-    static FIELD_COLOR: FieldDescriptor<PanelTypeEntityType>,
-    accessor: color, optional, as: AsString,
-    name: "color", display: "Color",
-    desc: "CSS color for panels of this type.",
-    aliases: &[],
-    example: "#db2777",
-    order: 900
-}
+pub static FIELD_COLOR: FieldDescriptor<PanelTypeEntityType> = {
+    let (data, cb) = accessor_field_properties! {
+        PanelTypeEntityType,
+        color,
+        name: "color",
+        display: "Color",
+        description: "CSS color for panels of this type.",
+        aliases: &[],
+        cardinality: Optional,
+        item: String,
+        example: "#db2777",
+        order: 900,
+    };
+    FieldDescriptor {
+        data,
+        required: false,
+        edge_kind: EdgeKind::NonEdge,
+        cb,
+    }
+};
+inventory::submit! { CollectedNamedField(&FIELD_COLOR) }
 
-define_field! {
-    static FIELD_BW: FieldDescriptor<PanelTypeEntityType>,
-    accessor: bw, optional, as: AsString,
-    name: "bw", display: "BW Color",
-    desc: "Alternate monochrome color for panels of this type.",
-    aliases: &["bw_color", "monochrome"],
-    example: "#666666",
-    order: 1000
-}
+pub static FIELD_BW: FieldDescriptor<PanelTypeEntityType> = {
+    let (data, cb) = accessor_field_properties! {
+        PanelTypeEntityType,
+        bw,
+        name: "bw",
+        display: "BW Color",
+        description: "Alternate monochrome color for panels of this type.",
+        aliases: &["bw_color", "monochrome"],
+        cardinality: Optional,
+        item: String,
+        example: "#666666",
+        order: 1000,
+    };
+    FieldDescriptor {
+        data,
+        required: false,
+        edge_kind: EdgeKind::NonEdge,
+        cb,
+    }
+};
+inventory::submit! { CollectedNamedField(&FIELD_BW) }
 
 define_field! {
     /// Computed display name — derived from `panel_kind` and `prefix`.

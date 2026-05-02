@@ -16,11 +16,13 @@
 //! The reverse `event_rooms` lookup is an edge-backed computed field wired
 //! through `Schedule::edges_from`.
 
+use crate::accessor_field_properties;
 use crate::define_field;
+use crate::edge::EdgeKind;
 use crate::entity::{EntityId, EntityType, EntityUuid, UuidPreference};
 use crate::field::set::FieldSet;
-use crate::field::NamedField;
-use crate::query::converter::{AsString, EntityStringResolver};
+use crate::field::{CollectedNamedField, FieldDescriptor, NamedField};
+use crate::query::converter::EntityStringResolver;
 use crate::tables::event_room::{EventRoomEntityType, EventRoomId};
 use crate::value::ValidationError;
 use serde::{Deserialize, Serialize};
@@ -182,15 +184,27 @@ impl EntityStringResolver for HotelRoomEntityType {
 
 // ── Field descriptors ─────────────────────────────────────────────────────────
 
-define_field! {
-    static FIELD_HOTEL_ROOM_NAME: crate::field::FieldDescriptor<HotelRoomEntityType>,
-    accessor: hotel_room_name, required, as: AsString,
-    name: "hotel_room_name", display: "Hotel Room Name",
-    desc: "Physical hotel room name / identifier.",
-    aliases: &["name", "room_name"],
-    example: "Ballroom East",
-    order: 0
-}
+pub static FIELD_HOTEL_ROOM_NAME: crate::field::FieldDescriptor<HotelRoomEntityType> = {
+    let (data, cb) = accessor_field_properties! {
+        HotelRoomEntityType,
+        hotel_room_name,
+        name: "hotel_room_name",
+        display: "Hotel Room Name",
+        description: "Physical hotel room name / identifier.",
+        aliases: &["name", "room_name"],
+        cardinality: Single,
+        item: String,
+        example: "Ballroom East",
+        order: 0,
+    };
+    FieldDescriptor {
+        data,
+        required: true,
+        edge_kind: EdgeKind::NonEdge,
+        cb,
+    }
+};
+inventory::submit! { CollectedNamedField(&FIELD_HOTEL_ROOM_NAME) }
 
 define_field! {
     static FIELD_EVENT_ROOMS: crate::field::FieldDescriptor<HotelRoomEntityType>,

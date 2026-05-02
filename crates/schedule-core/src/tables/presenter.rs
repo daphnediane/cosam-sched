@@ -17,11 +17,13 @@
 //! Tagged credit-string resolution (`[Kind:]Name[=Group]`) is implemented
 //! by `find_tagged_presenter` and `find_or_create_tagged_presenter`.
 
+use crate::accessor_field_properties;
 use crate::define_field;
+use crate::edge::EdgeKind;
 use crate::entity::{EntityId, EntityType, EntityUuid, FieldSet, UuidPreference};
-use crate::field::{FieldDescriptor, NamedField};
+use crate::field::{CollectedNamedField, FieldDescriptor, NamedField};
 use crate::field_value;
-use crate::query::converter::{AsBoolean, AsString, AsText, EntityStringResolver};
+use crate::query::converter::EntityStringResolver;
 use crate::query::lookup::{EntityMatcher, MatchPriority};
 use crate::schedule::Schedule;
 use crate::tables::panel::{PanelEntityType, PanelId};
@@ -700,15 +702,27 @@ impl EntityStringResolver for PresenterEntityType {
 
 // ── Stored field descriptors ──────────────────────────────────────────────────
 
-define_field! {
-    static FIELD_NAME: FieldDescriptor<PresenterEntityType>,
-    accessor: name, required, as: AsString,
-    name: "name", display: "Name",
-    desc: "Presenter or group display name.",
-    aliases: &["presenter_name", "display_name"],
-    example: "Alice Example",
-    order: 0
-}
+pub static FIELD_NAME: FieldDescriptor<PresenterEntityType> = {
+    let (data, cb) = accessor_field_properties! {
+        PresenterEntityType,
+        name,
+        name: "name",
+        display: "Name",
+        description: "Presenter or group display name.",
+        aliases: &["presenter_name", "display_name"],
+        cardinality: Single,
+        item: String,
+        example: "Alice Example",
+        order: 0,
+    };
+    FieldDescriptor {
+        data,
+        required: true,
+        edge_kind: EdgeKind::NonEdge,
+        cb,
+    }
+};
+inventory::submit! { CollectedNamedField(&FIELD_NAME) }
 
 define_field! {
     /// Presenter rank — stored as `PresenterRank`, exposed as `FieldValue::String`
@@ -730,45 +744,96 @@ define_field! {
     }
 }
 
-define_field! {
-    static FIELD_BIO: FieldDescriptor<PresenterEntityType>,
-    accessor: bio, optional, as: AsText,
-    name: "bio", display: "Bio",
-    desc: "Biography or description.",
-    aliases: &["biography", "description"],
-    example: "Long-time guest.",
-    order: 200
-}
+pub static FIELD_BIO: FieldDescriptor<PresenterEntityType> = {
+    let (data, cb) = accessor_field_properties! {
+        PresenterEntityType,
+        bio,
+        name: "bio",
+        display: "Bio",
+        description: "Biography or description.",
+        aliases: &["biography", "description"],
+        cardinality: Optional,
+        item: Text,
+        example: "Long-time guest.",
+        order: 200,
+    };
+    FieldDescriptor {
+        data,
+        required: false,
+        edge_kind: EdgeKind::NonEdge,
+        cb,
+    }
+};
+inventory::submit! { CollectedNamedField(&FIELD_BIO) }
 
-define_field! {
-    static FIELD_IS_EXPLICIT_GROUP: FieldDescriptor<PresenterEntityType>,
-    accessor: is_explicit_group, with_default, as: AsBoolean,
-    name: "is_explicit_group", display: "Is Explicit Group",
-    desc: "Marks this presenter entity as an explicit group.",
-    aliases: &["explicit_group"],
-    example: "false",
-    order: 300
-}
+pub static FIELD_IS_EXPLICIT_GROUP: FieldDescriptor<PresenterEntityType> = {
+    let (data, cb) = accessor_field_properties! {
+        PresenterEntityType,
+        is_explicit_group,
+        name: "is_explicit_group",
+        display: "Is Explicit Group",
+        description: "Marks this presenter entity as an explicit group.",
+        aliases: &["explicit_group"],
+        cardinality: Single,
+        item: Boolean,
+        example: "false",
+        order: 300,
+        required: false,
+    };
+    FieldDescriptor {
+        data,
+        required: false,
+        edge_kind: EdgeKind::NonEdge,
+        cb,
+    }
+};
+inventory::submit! { CollectedNamedField(&FIELD_IS_EXPLICIT_GROUP) }
 
-define_field! {
-    static FIELD_ALWAYS_GROUPED: FieldDescriptor<PresenterEntityType>,
-    accessor: always_grouped, with_default, as: AsBoolean,
-    name: "always_grouped", display: "Always Grouped",
-    desc: "Always display this member under its group name.",
-    aliases: &[],
-    example: "false",
-    order: 400
-}
+pub static FIELD_ALWAYS_GROUPED: FieldDescriptor<PresenterEntityType> = {
+    let (data, cb) = accessor_field_properties! {
+        PresenterEntityType,
+        always_grouped,
+        name: "always_grouped",
+        display: "Always Grouped",
+        description: "Always display this member under its group name.",
+        aliases: &[],
+        cardinality: Single,
+        item: Boolean,
+        example: "false",
+        order: 400,
+        required: false,
+    };
+    FieldDescriptor {
+        data,
+        required: false,
+        edge_kind: EdgeKind::NonEdge,
+        cb,
+    }
+};
+inventory::submit! { CollectedNamedField(&FIELD_ALWAYS_GROUPED) }
 
-define_field! {
-    static FIELD_ALWAYS_SHOWN_IN_GROUP: FieldDescriptor<PresenterEntityType>,
-    accessor: always_shown_in_group, with_default, as: AsBoolean,
-    name: "always_shown_in_group", display: "Always Shown In Group",
-    desc: "Always show group name even with partial member attendance.",
-    aliases: &["always_shown"],
-    example: "false",
-    order: 500
-}
+pub static FIELD_ALWAYS_SHOWN_IN_GROUP: FieldDescriptor<PresenterEntityType> = {
+    let (data, cb) = accessor_field_properties! {
+        PresenterEntityType,
+        always_shown_in_group,
+        name: "always_shown_in_group",
+        display: "Always Shown In Group",
+        description: "Always show group name even with partial member attendance.",
+        aliases: &["always_shown"],
+        cardinality: Single,
+        item: Boolean,
+        example: "false",
+        order: 500,
+        required: false,
+    };
+    FieldDescriptor {
+        data,
+        required: false,
+        edge_kind: EdgeKind::NonEdge,
+        cb,
+    }
+};
+inventory::submit! { CollectedNamedField(&FIELD_ALWAYS_SHOWN_IN_GROUP) }
 
 // ── Computed / edge-backed fields ─────────────────────────────────────────────
 

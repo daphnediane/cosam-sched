@@ -18,11 +18,13 @@
 //! via edge-backed computed fields wired through `Schedule::edges_from` /
 //! `Schedule::edges_to` using `crate::field::ReadFn::Schedule` / `crate::field::WriteFn::Schedule`.
 
+use crate::accessor_field_properties;
 use crate::define_field;
+use crate::edge::EdgeKind;
 use crate::entity::{EntityId, EntityType, EntityUuid, FieldSet};
-use crate::field::{FieldDescriptor, NamedField};
+use crate::field::{CollectedNamedField, FieldDescriptor, NamedField};
 use crate::field_value;
-use crate::query::converter::{AsBoolean, AsInteger, AsString, AsText, EntityStringResolver};
+use crate::query::converter::EntityStringResolver;
 use crate::schedule::Schedule;
 use crate::tables::event_room::{EventRoomEntityType, EventRoomId};
 use crate::tables::hotel_room::{HotelRoomEntityType, HotelRoomId};
@@ -308,235 +310,517 @@ define_field! {
 }
 
 // @todo: Name can be empty, should be optional
-define_field! {
-    static FIELD_NAME: FieldDescriptor<PanelEntityType>,
-    accessor: name, required, as: AsString,
-    name: "name", display: "Name",
-    desc: "Panel name / title.",
-    aliases: &["title", "panel_name"],
-    example: "Cosplay Foam Armor 101",
-    order: 100
-}
+pub static FIELD_NAME: FieldDescriptor<PanelEntityType> = {
+    let (data, cb) = accessor_field_properties! {
+        PanelEntityType,
+        name,
+        name: "name",
+        display: "Name",
+        description: "Panel name / title.",
+        aliases: &["title", "panel_name"],
+        cardinality: Single,
+        item: String,
+        example: "Cosplay Foam Armor 101",
+        order: 100,
+    };
+    FieldDescriptor {
+        data,
+        required: true,
+        edge_kind: EdgeKind::NonEdge,
+        cb,
+    }
+};
+inventory::submit! { CollectedNamedField(&FIELD_NAME) }
 
-define_field! {
-    static FIELD_DESCRIPTION: FieldDescriptor<PanelEntityType>,
-    accessor: description, optional, as: AsText,
-    name: "description", display: "Description",
-    desc: "Event description shown to attendees.",
-    aliases: &["desc"],
-    example: "Learn the basics of foam armor construction",
-    order: 200
-}
+pub static FIELD_DESCRIPTION: FieldDescriptor<PanelEntityType> = {
+    let (data, cb) = accessor_field_properties! {
+        PanelEntityType,
+        description,
+        name: "description",
+        display: "Description",
+        description: "Event description shown to attendees.",
+        aliases: &["desc"],
+        cardinality: Optional,
+        item: Text,
+        example: "Learn the basics of foam armor construction",
+        order: 200,
+    };
+    FieldDescriptor {
+        data,
+        required: false,
+        edge_kind: EdgeKind::NonEdge,
+        cb,
+    }
+};
+inventory::submit! { CollectedNamedField(&FIELD_DESCRIPTION) }
 
-define_field! {
-    static FIELD_NOTE: FieldDescriptor<PanelEntityType>,
-    accessor: note, optional, as: AsText,
-    name: "note", display: "Note",
-    desc: "Extra note displayed verbatim.",
-    aliases: &[],
-    example: "Bring your own materials",
-    order: 300
-}
+pub static FIELD_NOTE: FieldDescriptor<PanelEntityType> = {
+    let (data, cb) = accessor_field_properties! {
+        PanelEntityType,
+        note,
+        name: "note",
+        display: "Note",
+        description: "Extra note displayed verbatim.",
+        aliases: &[],
+        cardinality: Optional,
+        item: Text,
+        example: "Bring your own materials",
+        order: 300,
+    };
+    FieldDescriptor {
+        data,
+        required: false,
+        edge_kind: EdgeKind::NonEdge,
+        cb,
+    }
+};
+inventory::submit! { CollectedNamedField(&FIELD_NOTE) }
 
-define_field! {
-    static FIELD_NOTES_NON_PRINTING: FieldDescriptor<PanelEntityType>,
-    accessor: notes_non_printing, optional, as: AsText,
-    name: "notes_non_printing", display: "Notes (Non Printing)",
-    desc: "Internal notes not shown to the public.",
-    aliases: &["internal_notes"],
-    example: "Internal note for staff",
-    order: 400
-}
+pub static FIELD_NOTES_NON_PRINTING: FieldDescriptor<PanelEntityType> = {
+    let (data, cb) = accessor_field_properties! {
+        PanelEntityType,
+        notes_non_printing,
+        name: "notes_non_printing",
+        display: "Notes (Non Printing)",
+        description: "Internal notes not shown to the public.",
+        aliases: &["internal_notes"],
+        cardinality: Optional,
+        item: Text,
+        example: "Internal note for staff",
+        order: 400,
+    };
+    FieldDescriptor {
+        data,
+        required: false,
+        edge_kind: EdgeKind::NonEdge,
+        cb,
+    }
+};
+inventory::submit! { CollectedNamedField(&FIELD_NOTES_NON_PRINTING) }
 
-define_field! {
-    static FIELD_WORKSHOP_NOTES: FieldDescriptor<PanelEntityType>,
-    accessor: workshop_notes, optional, as: AsText,
-    name: "workshop_notes", display: "Workshop Notes",
-    desc: "Notes for workshop staff.",
-    aliases: &[],
-    example: "Staff notes for workshop",
-    order: 500
-}
+pub static FIELD_WORKSHOP_NOTES: FieldDescriptor<PanelEntityType> = {
+    let (data, cb) = accessor_field_properties! {
+        PanelEntityType,
+        workshop_notes,
+        name: "workshop_notes",
+        display: "Workshop Notes",
+        description: "Notes for workshop staff.",
+        aliases: &[],
+        cardinality: Optional,
+        item: Text,
+        example: "Staff notes for workshop",
+        order: 500,
+    };
+    FieldDescriptor {
+        data,
+        required: false,
+        edge_kind: EdgeKind::NonEdge,
+        cb,
+    }
+};
+inventory::submit! { CollectedNamedField(&FIELD_WORKSHOP_NOTES) }
 
-define_field! {
-    static FIELD_POWER_NEEDS: FieldDescriptor<PanelEntityType>,
-    accessor: power_needs, optional, as: AsString,
-    name: "power_needs", display: "Power Needs",
-    desc: "Power / electrical requirements.",
-    aliases: &["power"],
-    example: "2 outlets",
-    order: 600
-}
+pub static FIELD_POWER_NEEDS: FieldDescriptor<PanelEntityType> = {
+    let (data, cb) = accessor_field_properties! {
+        PanelEntityType,
+        power_needs,
+        name: "power_needs",
+        display: "Power Needs",
+        description: "Power / electrical requirements.",
+        aliases: &["power"],
+        cardinality: Optional,
+        item: String,
+        example: "2 outlets",
+        order: 600,
+    };
+    FieldDescriptor {
+        data,
+        required: false,
+        edge_kind: EdgeKind::NonEdge,
+        cb,
+    }
+};
+inventory::submit! { CollectedNamedField(&FIELD_POWER_NEEDS) }
 
-define_field! {
-    static FIELD_SEWING_MACHINES: FieldDescriptor<PanelEntityType>,
-    accessor: sewing_machines, with_default, as: AsBoolean,
-    name: "sewing_machines", display: "Sewing Machines",
-    desc: "Whether sewing machines are required.",
-    aliases: &["sewing"],
-    example: "false",
-    order: 700
-}
+pub static FIELD_SEWING_MACHINES: FieldDescriptor<PanelEntityType> = {
+    let (data, cb) = accessor_field_properties! {
+        PanelEntityType,
+        sewing_machines,
+        name: "sewing_machines",
+        display: "Sewing Machines",
+        description: "Whether sewing machines are required.",
+        aliases: &["sewing"],
+        cardinality: Single,
+        item: Boolean,
+        example: "false",
+        order: 700,
+        required: false,
+    };
+    FieldDescriptor {
+        data,
+        required: false,
+        edge_kind: EdgeKind::NonEdge,
+        cb,
+    }
+};
+inventory::submit! { CollectedNamedField(&FIELD_SEWING_MACHINES) }
 
-define_field! {
-    static FIELD_AV_NOTES: FieldDescriptor<PanelEntityType>,
-    accessor: av_notes, optional, as: AsText,
-    name: "av_notes", display: "AV Notes",
-    desc: "Audio/visual setup notes.",
-    aliases: &["av"],
-    example: "Projector needed",
-    order: 800
-}
+pub static FIELD_AV_NOTES: FieldDescriptor<PanelEntityType> = {
+    let (data, cb) = accessor_field_properties! {
+        PanelEntityType,
+        av_notes,
+        name: "av_notes",
+        display: "AV Notes",
+        description: "Audio/visual setup notes.",
+        aliases: &["av"],
+        cardinality: Optional,
+        item: Text,
+        example: "Projector needed",
+        order: 800,
+    };
+    FieldDescriptor {
+        data,
+        required: false,
+        edge_kind: EdgeKind::NonEdge,
+        cb,
+    }
+};
+inventory::submit! { CollectedNamedField(&FIELD_AV_NOTES) }
 
-define_field! {
-    static FIELD_DIFFICULTY: FieldDescriptor<PanelEntityType>,
-    accessor: difficulty, optional, as: AsString,
-    name: "difficulty", display: "Difficulty",
-    desc: "Skill-level indicator (free text).",
-    aliases: &[],
-    example: "Beginner",
-    order: 900
-}
+pub static FIELD_DIFFICULTY: FieldDescriptor<PanelEntityType> = {
+    let (data, cb) = accessor_field_properties! {
+        PanelEntityType,
+        difficulty,
+        name: "difficulty",
+        display: "Difficulty",
+        description: "Skill-level indicator (free text).",
+        aliases: &[],
+        cardinality: Optional,
+        item: String,
+        example: "Beginner",
+        order: 900,
+    };
+    FieldDescriptor {
+        data,
+        required: false,
+        edge_kind: EdgeKind::NonEdge,
+        cb,
+    }
+};
+inventory::submit! { CollectedNamedField(&FIELD_DIFFICULTY) }
 
-define_field! {
-    static FIELD_PREREQ: FieldDescriptor<PanelEntityType>,
-    accessor: prereq, optional, as: AsString,
-    name: "prereq", display: "Prerequisites",
-    desc: "Comma-separated prerequisite Uniq IDs.",
-    aliases: &["prerequisites"],
-    example: "GP001",
-    order: 1000
-}
+pub static FIELD_PREREQ: FieldDescriptor<PanelEntityType> = {
+    let (data, cb) = accessor_field_properties! {
+        PanelEntityType,
+        prereq,
+        name: "prereq",
+        display: "Prerequisites",
+        description: "Comma-separated prerequisite Uniq IDs.",
+        aliases: &["prerequisites"],
+        cardinality: Optional,
+        item: String,
+        example: "GP001",
+        order: 1000,
+    };
+    FieldDescriptor {
+        data,
+        required: false,
+        edge_kind: EdgeKind::NonEdge,
+        cb,
+    }
+};
+inventory::submit! { CollectedNamedField(&FIELD_PREREQ) }
 
-define_field! {
-    static FIELD_COST: FieldDescriptor<PanelEntityType>,
-    accessor: cost, optional, as: AsString,
-    name: "cost", display: "Cost",
-    desc: "Raw cost cell value (e.g. \"$35\", \"Free\", \"Kids\").",
-    aliases: &[],
-    example: "$35",
-    order: 1100
-}
+pub static FIELD_COST: FieldDescriptor<PanelEntityType> = {
+    let (data, cb) = accessor_field_properties! {
+        PanelEntityType,
+        cost,
+        name: "cost",
+        display: "Cost",
+        description: "Raw cost cell value (e.g. \"$35\", \"Free\", \"Kids\").",
+        aliases: &[],
+        cardinality: Optional,
+        item: String,
+        example: "$35",
+        order: 1100,
+    };
+    FieldDescriptor {
+        data,
+        required: false,
+        edge_kind: EdgeKind::NonEdge,
+        cb,
+    }
+};
+inventory::submit! { CollectedNamedField(&FIELD_COST) }
 
-define_field! {
-    static FIELD_IS_FREE: FieldDescriptor<PanelEntityType>,
-    accessor: is_free, with_default, as: AsBoolean,
-    name: "is_free", display: "Is Free",
-    desc: "Parsed during import: cost is blank, \"Free\", \"$0\", or \"N/A\".",
-    aliases: &["free"],
-    example: "false",
-    order: 1200
-}
+pub static FIELD_IS_FREE: FieldDescriptor<PanelEntityType> = {
+    let (data, cb) = accessor_field_properties! {
+        PanelEntityType,
+        is_free,
+        name: "is_free",
+        display: "Is Free",
+        description: "Parsed during import: cost is blank, \"Free\", \"$0\", or \"N/A\".",
+        aliases: &["free"],
+        cardinality: Single,
+        item: Boolean,
+        example: "false",
+        order: 1200,
+        required: false,
+    };
+    FieldDescriptor {
+        data,
+        required: false,
+        edge_kind: EdgeKind::NonEdge,
+        cb,
+    }
+};
+inventory::submit! { CollectedNamedField(&FIELD_IS_FREE) }
 
-define_field! {
-    static FIELD_IS_KIDS: FieldDescriptor<PanelEntityType>,
-    accessor: is_kids, with_default, as: AsBoolean,
-    name: "is_kids", display: "Is Kids",
-    desc: "Parsed during import: cost indicates kids-only pricing.",
-    aliases: &["kids"],
-    example: "false",
-    order: 1300
-}
+pub static FIELD_IS_KIDS: FieldDescriptor<PanelEntityType> = {
+    let (data, cb) = accessor_field_properties! {
+        PanelEntityType,
+        is_kids,
+        name: "is_kids",
+        display: "Is Kids",
+        description: "Parsed during import: cost indicates kids-only pricing.",
+        aliases: &["kids"],
+        cardinality: Single,
+        item: Boolean,
+        example: "false",
+        order: 1300,
+        required: false,
+    };
+    FieldDescriptor {
+        data,
+        required: false,
+        edge_kind: EdgeKind::NonEdge,
+        cb,
+    }
+};
+inventory::submit! { CollectedNamedField(&FIELD_IS_KIDS) }
 
-define_field! {
-    static FIELD_IS_FULL: FieldDescriptor<PanelEntityType>,
-    accessor: is_full, with_default, as: AsBoolean,
-    name: "is_full", display: "Full",
-    desc: "Event is at capacity.",
-    aliases: &["full"],
-    example: "false",
-    order: 1400
-}
+pub static FIELD_IS_FULL: FieldDescriptor<PanelEntityType> = {
+    let (data, cb) = accessor_field_properties! {
+        PanelEntityType,
+        is_full,
+        name: "is_full",
+        display: "Full",
+        description: "Event is at capacity.",
+        aliases: &["full"],
+        cardinality: Single,
+        item: Boolean,
+        example: "false",
+        order: 1400,
+        required: false,
+    };
+    FieldDescriptor {
+        data,
+        required: false,
+        edge_kind: EdgeKind::NonEdge,
+        cb,
+    }
+};
+inventory::submit! { CollectedNamedField(&FIELD_IS_FULL) }
 
-define_field! {
-    static FIELD_CAPACITY: FieldDescriptor<PanelEntityType>,
-    accessor: capacity, optional, as: AsInteger,
-    name: "capacity", display: "Capacity",
-    desc: "Total seats available.",
-    aliases: &[],
-    example: "50",
-    order: 1500
-}
+pub static FIELD_CAPACITY: FieldDescriptor<PanelEntityType> = {
+    let (data, cb) = accessor_field_properties! {
+        PanelEntityType,
+        capacity,
+        name: "capacity",
+        display: "Capacity",
+        description: "Total seats available.",
+        aliases: &[],
+        cardinality: Optional,
+        item: Integer,
+        example: "50",
+        order: 1500,
+    };
+    FieldDescriptor {
+        data,
+        required: false,
+        edge_kind: EdgeKind::NonEdge,
+        cb,
+    }
+};
+inventory::submit! { CollectedNamedField(&FIELD_CAPACITY) }
 
-define_field! {
-    static FIELD_SEATS_SOLD: FieldDescriptor<PanelEntityType>,
-    accessor: seats_sold, optional, as: AsInteger,
-    name: "seats_sold", display: "Seats Sold",
-    desc: "Number of seats pre-sold or reserved via ticketing.",
-    aliases: &[],
-    example: "25",
-    order: 1600
-}
+pub static FIELD_SEATS_SOLD: FieldDescriptor<PanelEntityType> = {
+    let (data, cb) = accessor_field_properties! {
+        PanelEntityType,
+        seats_sold,
+        name: "seats_sold",
+        display: "Seats Sold",
+        description: "Number of seats pre-sold or reserved via ticketing.",
+        aliases: &[],
+        cardinality: Optional,
+        item: Integer,
+        example: "25",
+        order: 1600,
+    };
+    FieldDescriptor {
+        data,
+        required: false,
+        edge_kind: EdgeKind::NonEdge,
+        cb,
+    }
+};
+inventory::submit! { CollectedNamedField(&FIELD_SEATS_SOLD) }
 
-define_field! {
-    static FIELD_PRE_REG_MAX: FieldDescriptor<PanelEntityType>,
-    accessor: pre_reg_max, optional, as: AsInteger,
-    name: "pre_reg_max", display: "Pre-reg Max",
-    desc: "Maximum seats available for pre-registration.",
-    aliases: &["prereg_max"],
-    example: "40",
-    order: 1700
-}
+pub static FIELD_PRE_REG_MAX: FieldDescriptor<PanelEntityType> = {
+    let (data, cb) = accessor_field_properties! {
+        PanelEntityType,
+        pre_reg_max,
+        name: "pre_reg_max",
+        display: "Pre-reg Max",
+        description: "Maximum seats available for pre-registration.",
+        aliases: &["prereg_max"],
+        cardinality: Optional,
+        item: Integer,
+        example: "40",
+        order: 1700,
+    };
+    FieldDescriptor {
+        data,
+        required: false,
+        edge_kind: EdgeKind::NonEdge,
+        cb,
+    }
+};
+inventory::submit! { CollectedNamedField(&FIELD_PRE_REG_MAX) }
 
-define_field! {
-    static FIELD_TICKET_URL: FieldDescriptor<PanelEntityType>,
-    accessor: ticket_url, optional, as: AsString,
-    name: "ticket_url", display: "Ticket URL",
-    desc: "URL for purchasing tickets.",
-    aliases: &["ticket_sale"],
-    example: "https://example.com/ticket",
-    order: 1800
-}
+pub static FIELD_TICKET_URL: FieldDescriptor<PanelEntityType> = {
+    let (data, cb) = accessor_field_properties! {
+        PanelEntityType,
+        ticket_url,
+        name: "ticket_url",
+        display: "Ticket URL",
+        description: "URL for purchasing tickets.",
+        aliases: &["ticket_sale"],
+        cardinality: Optional,
+        item: String,
+        example: "https://example.com/ticket",
+        order: 1800,
+    };
+    FieldDescriptor {
+        data,
+        required: false,
+        edge_kind: EdgeKind::NonEdge,
+        cb,
+    }
+};
+inventory::submit! { CollectedNamedField(&FIELD_TICKET_URL) }
 
-define_field! {
-    static FIELD_HAVE_TICKET_IMAGE: FieldDescriptor<PanelEntityType>,
-    accessor: have_ticket_image, with_default, as: AsBoolean,
-    name: "have_ticket_image", display: "Have Ticket Image",
-    desc: "Whether a ticket / flyer image has been received.",
-    aliases: &[],
-    example: "false",
-    order: 1900
-}
+pub static FIELD_HAVE_TICKET_IMAGE: FieldDescriptor<PanelEntityType> = {
+    let (data, cb) = accessor_field_properties! {
+        PanelEntityType,
+        have_ticket_image,
+        name: "have_ticket_image",
+        display: "Have Ticket Image",
+        description: "Whether a ticket / flyer image has been received.",
+        aliases: &[],
+        cardinality: Single,
+        item: Boolean,
+        example: "false",
+        order: 1900,
+        required: false,
+    };
+    FieldDescriptor {
+        data,
+        required: false,
+        edge_kind: EdgeKind::NonEdge,
+        cb,
+    }
+};
+inventory::submit! { CollectedNamedField(&FIELD_HAVE_TICKET_IMAGE) }
 
-define_field! {
-    static FIELD_SIMPLETIX_EVENT: FieldDescriptor<PanelEntityType>,
-    accessor: simpletix_event, optional, as: AsString,
-    name: "simpletix_event", display: "SimpleTix Event",
-    desc: "Internal admin URL for SimpleTix event configuration.",
-    aliases: &["simpletix"],
-    example: "https://admin.simpletix.com/event/123",
-    order: 2000
-}
+pub static FIELD_SIMPLETIX_EVENT: FieldDescriptor<PanelEntityType> = {
+    let (data, cb) = accessor_field_properties! {
+        PanelEntityType,
+        simpletix_event,
+        name: "simpletix_event",
+        display: "SimpleTix Event",
+        description: "Internal admin URL for SimpleTix event configuration.",
+        aliases: &["simpletix"],
+        cardinality: Optional,
+        item: String,
+        example: "https://admin.simpletix.com/event/123",
+        order: 2000,
+    };
+    FieldDescriptor {
+        data,
+        required: false,
+        edge_kind: EdgeKind::NonEdge,
+        cb,
+    }
+};
+inventory::submit! { CollectedNamedField(&FIELD_SIMPLETIX_EVENT) }
 
-define_field! {
-    static FIELD_SIMPLETIX_LINK: FieldDescriptor<PanelEntityType>,
-    accessor: simpletix_link, optional, as: AsString,
-    name: "simpletix_link", display: "SimpleTix Link",
-    desc: "Public-facing direct ticket purchase link.",
-    aliases: &[],
-    example: "https://simpletix.com/event/123",
-    order: 2100
-}
+pub static FIELD_SIMPLETIX_LINK: FieldDescriptor<PanelEntityType> = {
+    let (data, cb) = accessor_field_properties! {
+        PanelEntityType,
+        simpletix_link,
+        name: "simpletix_link",
+        display: "SimpleTix Link",
+        description: "Public-facing direct ticket purchase link.",
+        aliases: &[],
+        cardinality: Optional,
+        item: String,
+        example: "https://simpletix.com/event/123",
+        order: 2100,
+    };
+    FieldDescriptor {
+        data,
+        required: false,
+        edge_kind: EdgeKind::NonEdge,
+        cb,
+    }
+};
+inventory::submit! { CollectedNamedField(&FIELD_SIMPLETIX_LINK) }
 
-define_field! {
-    static FIELD_HIDE_PANELIST: FieldDescriptor<PanelEntityType>,
-    accessor: hide_panelist, with_default, as: AsBoolean,
-    name: "hide_panelist", display: "Hide Panelist",
-    desc: "Suppress presenter credits for this panel.",
-    aliases: &[],
-    example: "false",
-    order: 2200
-}
+pub static FIELD_HIDE_PANELIST: FieldDescriptor<PanelEntityType> = {
+    let (data, cb) = accessor_field_properties! {
+        PanelEntityType,
+        hide_panelist,
+        name: "hide_panelist",
+        display: "Hide Panelist",
+        description: "Suppress presenter credits for this panel.",
+        aliases: &[],
+        cardinality: Single,
+        item: Boolean,
+        example: "false",
+        order: 2200,
+        required: false,
+    };
+    FieldDescriptor {
+        data,
+        required: false,
+        edge_kind: EdgeKind::NonEdge,
+        cb,
+    }
+};
+inventory::submit! { CollectedNamedField(&FIELD_HIDE_PANELIST) }
 
-define_field! {
-    static FIELD_ALT_PANELIST: FieldDescriptor<PanelEntityType>,
-    accessor: alt_panelist, optional, as: AsString,
-    name: "alt_panelist", display: "Alt Panelist",
-    desc: "Override text for the presenter credits line.",
-    aliases: &[],
-    example: "Special Guest",
-    order: 2300
-}
+pub static FIELD_ALT_PANELIST: FieldDescriptor<PanelEntityType> = {
+    let (data, cb) = accessor_field_properties! {
+        PanelEntityType,
+        alt_panelist,
+        name: "alt_panelist",
+        display: "Alt Panelist",
+        description: "Override text for the presenter credits line.",
+        aliases: &[],
+        cardinality: Optional,
+        item: String,
+        example: "Special Guest",
+        order: 2300,
+    };
+    FieldDescriptor {
+        data,
+        required: false,
+        edge_kind: EdgeKind::NonEdge,
+        cb,
+    }
+};
+inventory::submit! { CollectedNamedField(&FIELD_ALT_PANELIST) }
 
 // ── Computed time projections ─────────────────────────────────────────────────
 

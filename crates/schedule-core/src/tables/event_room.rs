@@ -16,10 +16,12 @@
 //! edge-backed computed fields wired through `Schedule::edges_from` /
 //! `Schedule::edges_to`.
 
+use crate::accessor_field_properties;
 use crate::define_field;
+use crate::edge::EdgeKind;
 use crate::entity::{EntityId, EntityType, EntityUuid, FieldSet, UuidPreference};
-use crate::field::{FieldDescriptor, NamedField};
-use crate::query::converter::{AsInteger, AsString, EntityStringResolver};
+use crate::field::{CollectedNamedField, FieldDescriptor, NamedField};
+use crate::query::converter::EntityStringResolver;
 use crate::tables::hotel_room::{HotelRoomEntityType, HotelRoomId};
 use crate::tables::panel::{PanelEntityType, PanelId};
 use crate::value::ValidationError;
@@ -193,36 +195,72 @@ impl EntityStringResolver for EventRoomEntityType {
 
 // ── Stored field descriptors ──────────────────────────────────────────────────
 
-define_field! {
-    static FIELD_ROOM_NAME: FieldDescriptor<EventRoomEntityType>,
-    accessor: room_name, required, as: AsString,
-    name: "room_name", display: "Room Name",
-    desc: "Room code as it appears in the Schedule sheet's Room column.",
-    aliases: &["room", "name"],
-    example: "Panel 1",
-    order: 0
-}
+pub static FIELD_ROOM_NAME: FieldDescriptor<EventRoomEntityType> = {
+    let (data, cb) = accessor_field_properties! {
+        EventRoomEntityType,
+        room_name,
+        name: "room_name",
+        display: "Room Name",
+        description: "Room code as it appears in the Schedule sheet's Room column.",
+        aliases: &["room", "name"],
+        cardinality: Single,
+        item: String,
+        example: "Panel 1",
+        order: 0,
+    };
+    FieldDescriptor {
+        data,
+        required: true,
+        edge_kind: EdgeKind::NonEdge,
+        cb,
+    }
+};
+inventory::submit! { CollectedNamedField(&FIELD_ROOM_NAME) }
 
-define_field! {
-    /// Optional display name shown in the widget / public schedule.
-    static FIELD_LONG_NAME: FieldDescriptor<EventRoomEntityType>,
-    accessor: long_name, optional, as: AsString,
-    name: "long_name", display: "Long Name",
-    desc: "Display name shown in the widget / public schedule.",
-    aliases: &["display_name", "long"],
-    example: "Grand Ballroom A",
-    order: 100
-}
+/// Optional display name shown in the widget / public schedule.
+pub static FIELD_LONG_NAME: FieldDescriptor<EventRoomEntityType> = {
+    let (data, cb) = accessor_field_properties! {
+        EventRoomEntityType,
+        long_name,
+        name: "long_name",
+        display: "Long Name",
+        description: "Display name shown in the widget / public schedule.",
+        aliases: &["display_name", "long"],
+        cardinality: Optional,
+        item: String,
+        example: "Grand Ballroom A",
+        order: 100,
+    };
+    FieldDescriptor {
+        data,
+        required: false,
+        edge_kind: EdgeKind::NonEdge,
+        cb,
+    }
+};
+inventory::submit! { CollectedNamedField(&FIELD_LONG_NAME) }
 
-define_field! {
-    static FIELD_SORT_KEY: FieldDescriptor<EventRoomEntityType>,
-    accessor: sort_key, optional, as: AsInteger,
-    name: "sort_key", display: "Sort Key",
-    desc: "Ordering key; values >= 100 are hidden from the public schedule.",
-    aliases: &["sort"],
-    example: "10",
-    order: 200
-}
+pub static FIELD_SORT_KEY: FieldDescriptor<EventRoomEntityType> = {
+    let (data, cb) = accessor_field_properties! {
+        EventRoomEntityType,
+        sort_key,
+        name: "sort_key",
+        display: "Sort Key",
+        description: "Ordering key; values >= 100 are hidden from the public schedule.",
+        aliases: &["sort"],
+        cardinality: Optional,
+        item: Integer,
+        example: "10",
+        order: 200,
+    };
+    FieldDescriptor {
+        data,
+        required: false,
+        edge_kind: EdgeKind::NonEdge,
+        cb,
+    }
+};
+inventory::submit! { CollectedNamedField(&FIELD_SORT_KEY) }
 
 // ── Edge-backed computed fields ─────────────────────────────────────
 
