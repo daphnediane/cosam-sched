@@ -11,7 +11,7 @@ use schedule_core::edit::command::{add_entity_cmd, EditCommand};
 use schedule_core::edit::context::EditContext;
 use schedule_core::edit::EditError;
 use schedule_core::entity::{RuntimeEntityId, UuidPreference};
-use schedule_core::field::set::FieldRef;
+use schedule_core::field::set::FieldUpdate;
 use schedule_core::field_value;
 use schedule_core::schedule::Schedule;
 use schedule_core::tables::panel_type::PanelTypeEntityType;
@@ -22,8 +22,8 @@ fn make_panel_type_in_context() -> (EditContext, RuntimeEntityId) {
         &mut sched,
         UuidPreference::GenerateNew,
         vec![
-            (FieldRef::Name("prefix"), field_value!("GP")),
-            (FieldRef::Name("panel_kind"), field_value!("Guest Panel")),
+            FieldUpdate::set("prefix", "GP"),
+            FieldUpdate::set("panel_kind", "Guest Panel"),
         ],
     )
     .expect("build_entity succeeded");
@@ -116,8 +116,8 @@ fn add_entity_undo_removes_it() {
         &mut sched,
         UuidPreference::GenerateNew,
         vec![
-            (FieldRef::Name("prefix"), field_value!("GP")),
-            (FieldRef::Name("panel_kind"), field_value!("Guest Panel")),
+            FieldUpdate::set("prefix", "GP"),
+            FieldUpdate::set("panel_kind", "Guest Panel"),
         ],
     )
     .expect("build_entity");
@@ -139,8 +139,8 @@ fn add_entity_undo_then_redo_restores_same_uuid() {
         &mut sched,
         UuidPreference::GenerateNew,
         vec![
-            (FieldRef::Name("prefix"), field_value!("GP")),
-            (FieldRef::Name("panel_kind"), field_value!("Guest Panel")),
+            FieldUpdate::set("prefix", "GP"),
+            FieldUpdate::set("panel_kind", "Guest Panel"),
         ],
     )
     .expect("build_entity");
@@ -264,8 +264,8 @@ fn history_respects_max_depth() {
             &mut sched2,
             UuidPreference::GenerateNew,
             vec![
-                (FieldRef::Name("prefix"), field_value!(format!("P{i}"))),
-                (FieldRef::Name("panel_kind"), field_value!("Kind")),
+                FieldUpdate::set("prefix", format!("P{i}")),
+                FieldUpdate::set("panel_kind", "Kind"),
             ],
         )
         .expect("build");

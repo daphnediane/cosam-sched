@@ -174,7 +174,11 @@ inventory::submit! {
                 crate::entity::UuidPreference::Exact(uuid),
                 fields
                     .iter()
-                    .map(|(n, v)| (crate::field::set::FieldRef::Name(n), v.clone()))
+                    .map(|(n, v)| crate::field::set::FieldUpdate {
+                        op: crate::field::set::FieldOp::Set,
+                        field: crate::field::set::FieldRef::Name(n),
+                        value: v.clone(),
+                    })
                     .collect(),
             )
             .map(|id| id.entity_uuid())

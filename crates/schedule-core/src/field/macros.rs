@@ -204,10 +204,7 @@ macro_rules! define_entity_builder {
         $(#[$attr])*
         pub struct $builder {
             uuid: $crate::entity::UuidPreference,
-            updates: ::std::vec::Vec<(
-                $crate::field::set::FieldRef<$entity>,
-                $crate::value::FieldValue,
-            )>,
+            updates: ::std::vec::Vec<$crate::field::set::FieldUpdate<$entity>>,
         }
 
         impl $builder {
@@ -244,9 +241,9 @@ macro_rules! define_entity_builder {
                     mut self,
                     value: impl $crate::value::IntoFieldValue,
                 ) -> Self {
-                    self.updates.push((
-                        $crate::field::set::FieldRef::Descriptor(&$field),
-                        $crate::value::IntoFieldValue::into_field_value(value),
+                    self.updates.push($crate::field::set::FieldUpdate::set(
+                        &$field,
+                        value,
                     ));
                     self
                 }

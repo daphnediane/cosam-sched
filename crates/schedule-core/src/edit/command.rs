@@ -66,7 +66,7 @@ pub enum EditError {
     EdgeAdd {
         near: RuntimeEntityId,
         #[source]
-        source: FieldError,
+        source: Box<FieldError>,
     },
 }
 
@@ -207,14 +207,17 @@ impl EditCommand {
 
             EditCommand::AddToField { near, edge, items } => {
                 let target_ids = crate::schedule::field_value_to_runtime_entity_ids(items)
-                    .map_err(|e| EditError::EdgeAdd { near, source: e })?;
+                    .map_err(|e| EditError::EdgeAdd {
+                        near,
+                        source: Box::new(e),
+                    })?;
 
                 let actually_added =
                     schedule
                         .edge_add(near, edge, target_ids)
                         .map_err(|e| EditError::EdgeAdd {
                             near,
-                            source: e.into(),
+                            source: Box::new(e.into()),
                         })?;
 
                 // Handle exclusive_with if present
@@ -258,7 +261,10 @@ impl EditCommand {
 
             EditCommand::RemoveFromField { near, edge, items } => {
                 let target_ids = crate::schedule::field_value_to_runtime_entity_ids(items)
-                    .map_err(|e| EditError::EdgeAdd { near, source: e })?;
+                    .map_err(|e| EditError::EdgeAdd {
+                        near,
+                        source: Box::new(e),
+                    })?;
 
                 let actually_removed = schedule.edge_remove(near, edge, target_ids);
 

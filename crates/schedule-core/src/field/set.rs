@@ -36,7 +36,10 @@
 
 use crate::crdt::CrdtFieldType;
 use crate::entity::EntityType;
-use crate::field::{FieldDescriptor, NamedField, ReadableField, VerifiableField, WritableField};
+use crate::field::{
+    traits::{AddableField, ReadableField, RemovableField, VerifiableField, WritableField},
+    FieldDescriptor, NamedField,
+};
 use crate::schedule::Schedule;
 use crate::value::{FieldError, FieldValue, IntoFieldValue, VerificationError};
 use std::collections::HashMap;
@@ -72,6 +75,60 @@ impl<E: EntityType> From<&'static str> for FieldRef<E> {
 impl<E: EntityType> From<&'static FieldDescriptor<E>> for FieldRef<E> {
     fn from(desc: &'static FieldDescriptor<E>) -> Self {
         FieldRef::Descriptor(desc)
+    }
+}
+
+/// Operation type for [`FieldUpdate`] — determines which field method is invoked.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum FieldOp {
+    /// Set/replace the field value (calls [`WritableField::write`]).
+    Set,
+    /// Add items to a list field (calls [`AddableField::add`]).
+    Add,
+    /// Remove items from a list field (calls [`RemovableField::remove`]).
+    Remove,
+}
+
+/// A single field update operation in a batch.
+///
+/// Used as the element type in [`FieldSet::write_multiple`] and
+/// [`FieldSet::write_many`]. Combines the operation type, field reference,
+/// and value into a single struct.
+pub struct FieldUpdate<E: EntityType> {
+    /// The operation to perform (Set, Add, or Remove).
+    pub op: FieldOp,
+    /// Reference to the field (by name or descriptor).
+    pub field: FieldRef<E>,
+    /// The value to write, add, or remove.
+    pub value: FieldValue,
+}
+
+impl<E: EntityType> FieldUpdate<E> {
+    /// Create a new field update with the Set operation.
+    pub fn set(field: impl Into<FieldRef<E>>, value: impl IntoFieldValue) -> Self {
+        Self {
+            op: FieldOp::Set,
+            field: field.into(),
+            value: value.into_field_value(),
+        }
+    }
+
+    /// Create a new field update with the Add operation.
+    pub fn add(field: impl Into<FieldRef<E>>, value: impl IntoFieldValue) -> Self {
+        Self {
+            op: FieldOp::Add,
+            field: field.into(),
+            value: value.into_field_value(),
+        }
+    }
+
+    /// Create a new field update with the Remove operation.
+    pub fn remove(field: impl Into<FieldRef<E>>, value: impl IntoFieldValue) -> Self {
+        Self {
+            op: FieldOp::Remove,
+            field: field.into(),
+            value: value.into_field_value(),
+        }
     }
 }
 
@@ -305,70 +362,101 @@ impl<E: EntityType> FieldSet<E> {
 
     // ── Batch writes ──────────────────────────────────────────────────────────
 
-    /// Apply a batch of field writes atomically (from the caller's point of
+    /// Apply a batch of field operations atomically (from the caller's point of
     /// view), then run [`VerifiableField::verify`] for every descriptor that
     /// has a `verify_fn`.
     ///
     /// # Resolution
     ///
-    /// Each [`FieldRef`] is resolved to a `&'static FieldDescriptor<E>`:
+    /// Each [`FieldUpdate::field`] ([`FieldRef`]) is resolved to a
+    /// `&'static FieldDescriptor<E>`:
     /// - [`FieldRef::Descriptor`] is used directly (zero-cost).
     /// - [`FieldRef::Name`] is looked up in the name/alias map; an unknown
     ///   name returns [`FieldSetError::UnknownField`].
     ///
     /// # De-duplication
     ///
-    /// Two references that resolve to the same static descriptor are treated
-    /// as duplicates and the batch aborts with
-    /// [`FieldSetError::DuplicateField`] before any writes occur.
+    /// Two Set operations on the same field, or a Set operation after any
+    /// prior operation (Set, Add, or Remove), will cause the batch to abort
+    /// with [`FieldSetError::DuplicateField`] before any writes occur.
+    /// Multiple Add and/or Remove operations on the same field are allowed.
     ///
     /// # Write phase
     ///
-    /// Writes are applied in the order supplied by the caller.  The first
-    /// write failure aborts the batch and returns
+    /// Operations are applied in the order supplied by the caller, dispatched
+    /// by [`FieldUpdate::op`]:
+    /// - [`FieldOp::Set`] → calls [`WritableField::write`]
+    /// - [`FieldOp::Add`] → calls [`AddableField::add`]
+    /// - [`FieldOp::Remove`] → calls [`RemovableField::remove`]
+    ///
+    /// The first failure aborts the batch and returns
     /// [`FieldSetError::WriteError`].  **No rollback** is performed; prior
     /// writes remain applied.  Higher-level builders (see `builder.rs`) are
     /// responsible for rolling back at the entity level if required.
     ///
     /// # Verify phase
     ///
-    /// After all writes succeed, every resolved descriptor whose `verify_fn`
-    /// is `Some(_)` has its [`VerifiableField::verify`] called with the
-    /// originally-attempted value.  The first verification failure returns
-    /// [`FieldSetError::VerificationError`].  Descriptors with `verify_fn:
-    /// None` are not verified here.
+    /// Verification runs only when the batch contains **only** `Set` operations
+    /// (no `Add` or `Remove`). This avoids false positives where a `Set` followed
+    /// by `Add` on the same field would fail verification because the final value
+    /// includes items added after the set. This restriction will be refined in a
+    /// future design change.
     pub fn write_multiple(
         &self,
         id: crate::entity::EntityId<E>,
         schedule: &mut Schedule,
-        updates: &[(FieldRef<E>, FieldValue)],
+        updates: &[FieldUpdate<E>],
     ) -> Result<(), FieldSetError> {
         // Resolve every FieldRef up front so de-duplication and unknown-name
         // errors fire before any writes happen.
-        let mut resolved: Vec<(&'static FieldDescriptor<E>, &FieldValue)> =
+        // Track operations per field: Set conflicts with any prior operation
+        // (Set, Add, or Remove). Multiple Add/Remove ops on the same field
+        // are allowed, and Add/Remove after Set is also allowed.
+        let mut resolved: Vec<(&'static FieldDescriptor<E>, FieldOp, &FieldValue)> =
             Vec::with_capacity(updates.len());
-        for (field_ref, value) in updates {
-            let desc = self.resolve(field_ref)?;
+        let mut has_add_or_remove = false;
+        for update in updates {
+            let desc = self.resolve(&update.field)?;
             if resolved
                 .iter()
-                .any(|(prev, _)| std::ptr::eq(*prev as *const _, desc as *const _))
+                .any(|(prev, _, _)| std::ptr::eq(*prev as *const _, desc as *const _))
             {
-                return Err(FieldSetError::DuplicateField(desc.name()));
+                // Set conflicts with any prior op
+                // Multiple Add/Remove ops are allowed
+                if update.op == FieldOp::Set {
+                    return Err(FieldSetError::DuplicateField(desc.name()));
+                }
             }
-            resolved.push((desc, value));
+            if update.op != FieldOp::Set {
+                has_add_or_remove = true;
+            }
+            resolved.push((desc, update.op, &update.value));
         }
 
         // Write phase — first failure aborts; prior writes stay applied.
-        for (desc, value) in &resolved {
-            desc.write(id, schedule, (*value).clone())
-                .map_err(|error| FieldSetError::WriteError {
-                    field: desc.name(),
-                    error: Box::new(error),
-                })?;
+        for (desc, op, value) in &resolved {
+            let result = match op {
+                FieldOp::Set => desc.write(id, schedule, (*value).clone()),
+                FieldOp::Add => desc.add(id, schedule, (*value).clone()),
+                FieldOp::Remove => desc.remove(id, schedule, (*value).clone()),
+            };
+            result.map_err(|error| FieldSetError::WriteError {
+                field: desc.name(),
+                error: Box::new(error),
+            })?;
+        }
+
+        // Skip verification entirely if any add/remove was present;
+        // this will be addressed in a future design change.
+        // Verification is designed for writes, but with Add/Remove operations
+        // now supported, a Set followed by Add will incorrectly fail verification
+        // when it sees the additional values.
+        if has_add_or_remove {
+            return Ok(());
         }
 
         // Verify phase — only descriptors with verify_fn participate.
-        for (desc, value) in &resolved {
+        for (desc, _op, value) in &resolved {
             if desc.cb.verify_fn.is_some() {
                 desc.verify(id, schedule, value).map_err(|error| {
                     FieldSetError::VerificationError {
@@ -386,8 +474,7 @@ impl<E: EntityType> FieldSet<E> {
     ///
     /// Saves call sites (and the `define_entity_builder!` macro expansion)
     /// from constructing `FieldValue` explicitly.  Internally allocates a
-    /// `Vec<(FieldRef<E>, FieldValue)>` and dispatches to
-    /// [`FieldSet::write_multiple`].
+    /// `Vec<FieldUpdate<E>>` and dispatches to [`FieldSet::write_multiple`].
     pub fn write_many<I, V>(
         &self,
         id: crate::entity::EntityId<E>,
@@ -395,12 +482,16 @@ impl<E: EntityType> FieldSet<E> {
         updates: I,
     ) -> Result<(), FieldSetError>
     where
-        I: IntoIterator<Item = (FieldRef<E>, V)>,
+        I: IntoIterator<Item = (FieldOp, FieldRef<E>, V)>,
         V: IntoFieldValue,
     {
-        let batch: Vec<(FieldRef<E>, FieldValue)> = updates
+        let batch: Vec<FieldUpdate<E>> = updates
             .into_iter()
-            .map(|(r, v)| (r, v.into_field_value()))
+            .map(|(op, field, value)| FieldUpdate {
+                op,
+                field,
+                value: value.into_field_value(),
+            })
             .collect();
         self.write_multiple(id, schedule, &batch)
     }
@@ -946,8 +1037,8 @@ mod tests {
             id,
             &mut sched,
             &[
-                (FieldRef::Name("label"), field_value!("hi")),
-                (FieldRef::Name("count"), field_value!(7_i64)),
+                FieldUpdate::set("label", "hi"),
+                FieldUpdate::set("count", 7_i64),
             ],
         )
         .unwrap();
@@ -965,8 +1056,8 @@ mod tests {
             id,
             &mut sched,
             &[
-                (FieldRef::Descriptor(&LABEL_FIELD), field_value!("hi")),
-                (FieldRef::Descriptor(&COUNT_FIELD), field_value!(9_i64)),
+                FieldUpdate::set(&LABEL_FIELD, "hi"),
+                FieldUpdate::set(&COUNT_FIELD, 9_i64),
             ],
         )
         .unwrap();
@@ -984,8 +1075,8 @@ mod tests {
             id,
             &mut sched,
             &[
-                (FieldRef::Name("label"), field_value!("hi")),
-                (FieldRef::Descriptor(&COUNT_FIELD), field_value!(11_i64)),
+                FieldUpdate::set("label", "hi"),
+                FieldUpdate::set(&COUNT_FIELD, 11_i64),
             ],
         )
         .unwrap();
@@ -1000,11 +1091,7 @@ mod tests {
         let id = make_id();
         let mut sched = make_schedule_with(id, initial_data());
         let err = fs
-            .write_multiple(
-                id,
-                &mut sched,
-                &[(FieldRef::Name("nofield"), field_value!("x"))],
-            )
+            .write_multiple(id, &mut sched, &[FieldUpdate::set("nofield", "x")])
             .unwrap_err();
         assert!(matches!(err, FieldSetError::UnknownField(ref s) if s == "nofield"));
         // No writes should have happened.
@@ -1022,8 +1109,8 @@ mod tests {
                 id,
                 &mut sched,
                 &[
-                    (FieldRef::Descriptor(&LABEL_FIELD), field_value!("a")),
-                    (FieldRef::Descriptor(&LABEL_FIELD), field_value!("b")),
+                    FieldUpdate::set(&LABEL_FIELD, "a"),
+                    FieldUpdate::set(&LABEL_FIELD, "b"),
                 ],
             )
             .unwrap_err();
@@ -1044,8 +1131,8 @@ mod tests {
                 id,
                 &mut sched,
                 &[
-                    (FieldRef::Name("label"), field_value!("a")),
-                    (FieldRef::Descriptor(&LABEL_FIELD), field_value!("b")),
+                    FieldUpdate::set("label", "a"),
+                    FieldUpdate::set(&LABEL_FIELD, "b"),
                 ],
             )
             .unwrap_err();
@@ -1062,10 +1149,7 @@ mod tests {
             .write_multiple(
                 id,
                 &mut sched,
-                &[
-                    (FieldRef::Name("label"), field_value!("a")),
-                    (FieldRef::Name("tag"), field_value!("b")),
-                ],
+                &[FieldUpdate::set("label", "a"), FieldUpdate::set("tag", "b")],
             )
             .unwrap_err();
         assert!(matches!(err, FieldSetError::DuplicateField("label")));
@@ -1083,8 +1167,8 @@ mod tests {
                 id,
                 &mut sched,
                 &[
-                    (FieldRef::Name("label"), field_value!("applied")),
-                    (FieldRef::Name("count"), field_value!("not an integer")),
+                    FieldUpdate::set("label", "applied"),
+                    FieldUpdate::set("count", "not an integer"),
                 ],
             )
             .unwrap_err();
@@ -1104,10 +1188,7 @@ mod tests {
         fs.write_multiple(
             id,
             &mut sched,
-            &[(
-                FieldRef::Descriptor(&REREAD_LABEL_FIELD),
-                field_value!("after"),
-            )],
+            &[FieldUpdate::set(&REREAD_LABEL_FIELD, "after")],
         )
         .unwrap();
         assert_eq!(sched.get_internal::<MockEntity>(id).unwrap().label, "after");
@@ -1149,14 +1230,8 @@ mod tests {
                 id,
                 &mut sched,
                 &[
-                    (
-                        FieldRef::Descriptor(&REREAD_LABEL_FIELD),
-                        field_value!("final"),
-                    ),
-                    (
-                        FieldRef::Descriptor(&STOMP_LABEL_FIELD),
-                        field_value!("ignored"),
-                    ),
+                    FieldUpdate::set(&REREAD_LABEL_FIELD, "final"),
+                    FieldUpdate::set(&STOMP_LABEL_FIELD, "ignored"),
                 ],
             )
             .unwrap_err();
@@ -1177,10 +1252,7 @@ mod tests {
         fs.write_multiple(
             id,
             &mut sched,
-            &[(
-                FieldRef::Descriptor(&VERIFIED_COUNT_FIELD),
-                field_value!(42_i64),
-            )],
+            &[FieldUpdate::set(&VERIFIED_COUNT_FIELD, 42_i64)],
         )
         .unwrap();
         assert_eq!(sched.get_internal::<MockEntity>(id).unwrap().count, 42);
@@ -1197,14 +1269,8 @@ mod tests {
                 id,
                 &mut sched,
                 &[
-                    (
-                        FieldRef::Descriptor(&VERIFIED_COUNT_FIELD),
-                        field_value!(42_i64),
-                    ),
-                    (
-                        FieldRef::Descriptor(&CLOBBER_COUNT_FIELD),
-                        field_value!(0_i64),
-                    ),
+                    FieldUpdate::set(&VERIFIED_COUNT_FIELD, 42_i64),
+                    FieldUpdate::set(&CLOBBER_COUNT_FIELD, 0_i64),
                 ],
             )
             .unwrap_err();
@@ -1225,10 +1291,7 @@ mod tests {
         fs.write_multiple(
             id,
             &mut sched,
-            &[(
-                FieldRef::Descriptor(&VERIFIED_SCHED_COUNT_FIELD),
-                field_value!(99_i64),
-            )],
+            &[FieldUpdate::set(&VERIFIED_SCHED_COUNT_FIELD, 99_i64)],
         )
         .unwrap();
         assert_eq!(sched.get_internal::<MockEntity>(id).unwrap().count, 99);
@@ -1244,14 +1307,8 @@ mod tests {
                 id,
                 &mut sched,
                 &[
-                    (
-                        FieldRef::Descriptor(&VERIFIED_SCHED_COUNT_FIELD),
-                        field_value!(99_i64),
-                    ),
-                    (
-                        FieldRef::Descriptor(&CLOBBER_COUNT_FIELD),
-                        field_value!(0_i64),
-                    ),
+                    FieldUpdate::set(&VERIFIED_SCHED_COUNT_FIELD, 99_i64),
+                    FieldUpdate::set(&CLOBBER_COUNT_FIELD, 0_i64),
                 ],
             )
             .unwrap_err();
@@ -1271,12 +1328,8 @@ mod tests {
         let fs = make_field_set();
         let id = make_id();
         let mut sched = make_schedule_with(id, initial_data());
-        fs.write_multiple(
-            id,
-            &mut sched,
-            &[(FieldRef::Name("label"), field_value!("anything"))],
-        )
-        .unwrap();
+        fs.write_multiple(id, &mut sched, &[FieldUpdate::set("label", "anything")])
+            .unwrap();
     }
 
     // ── write_many (IntoFieldValue wrapper) ──────────────────────────────────
@@ -1290,7 +1343,11 @@ mod tests {
             id,
             &mut sched,
             [
-                (FieldRef::Descriptor(&LABEL_FIELD), "typed-str"),
+                (
+                    FieldOp::Set,
+                    FieldRef::Descriptor(&LABEL_FIELD),
+                    "typed-str",
+                ),
                 // Different IntoFieldValue V per tuple isn't allowed by the
                 // array literal's homogeneous type requirement; test int via
                 // a second call.
@@ -1300,7 +1357,7 @@ mod tests {
         fs.write_many(
             id,
             &mut sched,
-            [(FieldRef::Descriptor(&COUNT_FIELD), 13_i64)],
+            [(FieldOp::Set, FieldRef::Descriptor(&COUNT_FIELD), 13_i64)],
         )
         .unwrap();
         let d = sched.get_internal::<MockEntity>(id).unwrap();
@@ -1314,7 +1371,11 @@ mod tests {
         let id = make_id();
         let mut sched = make_schedule_with(id, initial_data());
         let err = fs
-            .write_many(id, &mut sched, [(FieldRef::Name("nofield"), "x")])
+            .write_many(
+                id,
+                &mut sched,
+                [(FieldOp::Set, FieldRef::Name("nofield"), "x")],
+            )
             .unwrap_err();
         assert!(matches!(err, FieldSetError::UnknownField(_)));
     }

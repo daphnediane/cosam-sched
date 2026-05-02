@@ -8,7 +8,7 @@
 //! that underpins the `define_entity_builder!` macro.
 //!
 //! The builder pattern layers on top of [`crate::field::set::FieldSet::write_multiple`]:
-//! each builder collects a `Vec<(FieldRef<E>, FieldValue)>`
+//! each builder collects a `Vec<FieldUpdate<E>>`
 //! via typed `with_*` setters, then [`build_entity`] seeds a fresh entity
 //! with [`EntityBuildable::default_data`], applies the batch, runs
 //! [`EntityType::validate`], and rolls back via [`Schedule::remove_entity`]
@@ -19,9 +19,9 @@
 //! implement it.
 
 use crate::entity::{EntityId, EntityType, UuidPreference};
-use crate::field::set::{FieldRef, FieldSetError};
+use crate::field::set::{FieldSetError, FieldUpdate};
 use crate::schedule::Schedule;
-use crate::value::{FieldValue, ValidationError};
+use crate::value::ValidationError;
 use thiserror::Error;
 
 /// Entity types that support building via the `define_entity_builder!` macro.
@@ -83,7 +83,7 @@ pub enum BuildError {
 pub fn build_entity<E: EntityBuildable>(
     schedule: &mut Schedule,
     uuid_pref: UuidPreference,
-    updates: Vec<(FieldRef<E>, FieldValue)>,
+    updates: Vec<FieldUpdate<E>>,
 ) -> Result<EntityId<E>, BuildError> {
     let id = EntityId::<E>::from_preference(uuid_pref);
     schedule.insert(id, E::default_data(id));
@@ -110,13 +110,12 @@ pub fn build_entity<E: EntityBuildable>(
 mod tests {
     use super::*;
     use crate::entity::EntityUuid;
-    use crate::field_value;
     use crate::tables::panel_type::PanelTypeEntityType;
 
-    fn valid_panel_type_updates() -> Vec<(FieldRef<PanelTypeEntityType>, FieldValue)> {
+    fn valid_panel_type_updates() -> Vec<FieldUpdate<PanelTypeEntityType>> {
         vec![
-            (FieldRef::Name("prefix"), field_value!("GP")),
-            (FieldRef::Name("panel_kind"), field_value!("Guest Panel")),
+            FieldUpdate::set("prefix", "GP"),
+            FieldUpdate::set("panel_kind", "Guest Panel"),
         ]
     }
 
@@ -164,7 +163,7 @@ mod tests {
         let err = build_entity::<PanelTypeEntityType>(
             &mut sched,
             UuidPreference::GenerateNew,
-            vec![(FieldRef::Name("panel_kind"), field_value!("Guest Panel"))],
+            vec![FieldUpdate::set("panel_kind", "Guest Panel")],
         )
         .unwrap_err();
 
@@ -179,7 +178,7 @@ mod tests {
         let err = build_entity::<PanelTypeEntityType>(
             &mut sched,
             UuidPreference::GenerateNew,
-            vec![(FieldRef::Name("definitely_not_a_field"), field_value!("x"))],
+            vec![FieldUpdate::set("definitely_not_a_field", "x")],
         )
         .unwrap_err();
 

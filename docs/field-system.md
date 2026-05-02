@@ -801,21 +801,65 @@ pub enum FieldRef<E: EntityType> {
 }
 ```
 
-Used by `FieldSet::write_multiple()` to accept mixed field references:
+Used by `FieldSet::write_multiple()` to construct `FieldUpdate` values.
+
+## FieldOp and FieldUpdate
+
+`FieldOp` is an enum representing the operation type for field updates:
+
+```rust
+pub enum FieldOp {
+    /// Set/replace the field value (calls `WritableField::write`).
+    Set,
+    /// Add items to a list field (calls `AddableField::add`).
+    Add,
+    /// Remove items from a list field (calls `RemovableField::remove`).
+    Remove,
+}
+```
+
+`FieldUpdate<E>` combines the operation, field reference, and value for batch updates:
+
+```rust
+pub struct FieldUpdate<E: EntityType> {
+    /// The operation to perform (Set, Add, or Remove).
+    pub op: FieldOp,
+    /// Reference to the field (by name or descriptor).
+    pub field: FieldRef<E>,
+    /// The value to write, add, or remove.
+    pub value: FieldValue,
+}
+```
+
+Convenience constructors for common operations:
 
 ```rust
 // Using field names (ergonomic, runtime lookup)
 field_set.write_multiple(id, schedule, &[
-    ("start_time", start.into()),
-    ("end_time", end.into()),
+    FieldUpdate::set("start_time", start),
+    FieldUpdate::set("end_time", end),
 ])?;
 
 // Using field descriptors (zero-cost, compile-time checked)
 field_set.write_multiple(id, schedule, &[
-    (&FIELD_START_TIME, start.into()),
-    (&FIELD_END_TIME, end.into()),
+    FieldUpdate::set(&FIELD_START_TIME, start),
+    FieldUpdate::set(&FIELD_END_TIME, end),
+])?;
+
+// Using add/remove operations on list fields
+field_set.write_multiple(id, schedule, &[
+    FieldUpdate::set("presenters", vec![id1, id2]),
+    FieldUpdate::add("presenters", id3),
+    FieldUpdate::remove("presenters", id4),
 ])?;
 ```
+
+**De-duplication rules for batch updates:**
+- A `Set` operation conflicts with any prior operation on the same field (Set, Add, or Remove)
+- Multiple `Add` and/or `Remove` operations on the same field are allowed
+- `Add` or `Remove` after a prior `Set` on the same field is allowed
+
+This enables patterns like "set initial value then add more items" in a single batch.
 
 The `From` impls allow ergonomic `.into()` at call sites.
 
@@ -932,7 +976,7 @@ Core function that seeds, populates, and validates a new entity:
 pub fn build_entity<E: EntityBuildable>(
     schedule: &mut Schedule,
     uuid_pref: UuidPreference,
-    updates: Vec<(FieldRef<E>, FieldValue)>,
+    updates: Vec<FieldUpdate<E>>,
 ) -> Result<EntityId<E>, BuildError>;
 ```
 

@@ -17,7 +17,7 @@ use uuid::{NonNilUuid, Uuid};
 
 use crate::edit::builder::{build_entity, BuildError, EntityBuildable};
 use crate::entity::{EntityTyped, EntityUuid, RuntimeEntityId, UuidPreference};
-use crate::field::set::FieldRef;
+use crate::field::set::{FieldRef, FieldUpdate};
 use crate::field::NamedField;
 use crate::schedule::Schedule;
 use crate::value::{FieldTypeItem, FieldValue, FieldValueItem};
@@ -442,7 +442,7 @@ pub fn rehydrate_entity<E: EntityBuildable>(
 ) -> Result<NonNilUuid, BuildError> {
     // Collect (name, value) pairs while holding `&schedule.doc()`; apply
     // them through the builder after the borrow is released.
-    let mut updates: Vec<(FieldRef<E>, FieldValue)> = Vec::new();
+    let mut updates: Vec<FieldUpdate<E>> = Vec::new();
     for desc in E::field_set().fields() {
         if matches!(desc.crdt_type(), CrdtFieldType::Derived) {
             continue;
@@ -459,7 +459,11 @@ pub fn rehydrate_entity<E: EntityBuildable>(
             item_type,
             desc.crdt_type(),
         ) {
-            Ok(Some(v)) => updates.push((FieldRef::Name(desc.name()), v)),
+            Ok(Some(v)) => updates.push(FieldUpdate {
+                op: crate::field::set::FieldOp::Set,
+                field: FieldRef::Name(desc.name()),
+                value: v,
+            }),
             Ok(None) => {}
             // Treat a per-field shape mismatch as "field not present" during
             // rehydration — the builder's validation will catch any missing
