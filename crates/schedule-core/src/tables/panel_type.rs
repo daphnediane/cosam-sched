@@ -492,15 +492,36 @@ define_field! {
 }
 
 // Panels of this type — reverse heterogeneous edge from Panel → PanelType.
-define_field! {
-    static FIELD_PANELS: FieldDescriptor<PanelTypeEntityType>,
-    edge: ro, target: PanelEntityType, target_field: &crate::tables::panel::FIELD_PANEL_TYPE,
-    name: "panels", display: "Panels",
-    desc: "Panels of this type.",
-    aliases: &[],
-    example: "[]",
-    order: 1200
-}
+pub static HALF_EDGE_PANELS: crate::field::FieldDescriptor<PanelTypeEntityType> = {
+    let (data, cb, edge_kind) = crate::edge_field_properties! {
+        PanelTypeEntityType,
+        target: PanelEntityType,
+        source_fields: &[&crate::tables::panel::HALF_EDGE_PANEL_TYPE],
+        name: "panels",
+        display: "Panels",
+        description: "Panels of this type.",
+        aliases: &[],
+        example: "[]",
+        order: 1200,
+    };
+    crate::field::FieldDescriptor {
+        data,
+        required: false,
+        edge_kind,
+        cb,
+    }
+};
+inventory::submit! { CollectedNamedField(&HALF_EDGE_PANELS) }
+
+// Temporary alias for migration - remove when edit_integration.rs is updated
+#[allow(deprecated)]
+pub use HALF_EDGE_PANELS as FIELD_PANELS;
+
+/// Full edge from panel type panels to panel panel type
+pub const EDGE_PANELS: crate::edge::FullEdge = crate::edge::FullEdge {
+    near: &HALF_EDGE_PANELS,
+    far: &crate::tables::panel::HALF_EDGE_PANEL_TYPE,
+};
 
 // ── FieldSet ────────────────────────────────────────────────────────────────────
 

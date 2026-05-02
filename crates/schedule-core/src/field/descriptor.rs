@@ -175,11 +175,12 @@ impl<E: EntityType> WritableField<E> for FieldDescriptor<E> {
                     value,
                 )?,
                 WriteFn::WriteEdge => {
-                    // WriteEdge is valid for both, but FieldDescriptor should use WriteFn::Schedule for now
-                    // This will be removed when HalfEdge is dropped from FieldDescriptor
-                    return Err(FieldError::Conversion(crate::value::ConversionError::InvalidEdge {
-                        reason: "FieldDescriptor should use WriteFn::Schedule for edge operations. WriteEdge will be removed from FieldDescriptor when HalfEdge is dropped.".to_string(),
-                    }));
+                    // Set the edges from this entity to the target entities specified in value
+                    // SAFETY: self is a &'static EdgeDescriptor<E> (edge descriptors are static singletons).
+                    let static_field: &'static dyn HalfEdge =
+                        unsafe { std::mem::transmute(self as &dyn HalfEdge) };
+                    crate::schedule::edge::write_edge(schedule, id, static_field, value)?;
+                    return Ok(());
                 }
             },
         }

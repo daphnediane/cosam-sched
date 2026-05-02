@@ -14,7 +14,7 @@ use schedule_core::tables::event_room::{
     EventRoomCommonData, EventRoomEntityType, EventRoomInternalData, FIELD_HOTEL_ROOMS,
 };
 use schedule_core::tables::hotel_room::{
-    HotelRoomCommonData, HotelRoomEntityType, HotelRoomInternalData, FIELD_EVENT_ROOMS,
+    HotelRoomCommonData, HotelRoomEntityType, HotelRoomInternalData, HALF_EDGE_EVENT_ROOMS,
 };
 use schedule_core::tables::panel::{PanelCommonData, PanelEntityType, PanelId, PanelInternalData};
 use schedule_core::tables::panel_type::{
@@ -198,7 +198,7 @@ fn het_edge_add_and_query_both_directions() {
     sched.insert(panel_id, panel_data);
     sched.insert(pres_id, pres_data);
 
-    let edge = schedule_core::tables::panel::FIELD_CREDITED_PRESENTERS.edge_to(&FIELD_PANELS);
+    let edge = schedule_core::tables::panel::HALF_EDGE_CREDITED_PRESENTERS.edge_to(&FIELD_PANELS);
     sched
         .edge_add(panel_id, edge, std::iter::once(pres_id))
         .unwrap();
@@ -213,7 +213,7 @@ fn het_edge_add_and_query_both_directions() {
     let panels = sched
         .connected_field_nodes(
             pres_id,
-            FIELD_PANELS.edge_to(&schedule_core::tables::panel::FIELD_CREDITED_PRESENTERS),
+            FIELD_PANELS.edge_to(&schedule_core::tables::panel::HALF_EDGE_CREDITED_PRESENTERS),
         )
         .into_iter()
         .map(|e| unsafe { PanelId::new_unchecked(e.entity_uuid()) })
@@ -229,7 +229,7 @@ fn het_edge_remove() {
     sched.insert(panel_id, panel_data);
     sched.insert(pres_id, pres_data);
 
-    let edge = schedule_core::tables::panel::FIELD_CREDITED_PRESENTERS.edge_to(&FIELD_PANELS);
+    let edge = schedule_core::tables::panel::HALF_EDGE_CREDITED_PRESENTERS.edge_to(&FIELD_PANELS);
     sched
         .edge_add(panel_id, edge, std::iter::once(pres_id))
         .unwrap();
@@ -254,13 +254,13 @@ fn het_edge_set_replaces_all() {
     sched
         .edge_set(
             panel_id,
-            schedule_core::tables::panel::FIELD_CREDITED_PRESENTERS.edge_to(&FIELD_PANELS),
+            schedule_core::tables::panel::HALF_EDGE_CREDITED_PRESENTERS.edge_to(&FIELD_PANELS),
             vec![p1_id, p2_id],
         )
         .unwrap();
     let mut presenters = sched.connected_field_nodes(
         panel_id,
-        schedule_core::tables::panel::FIELD_CREDITED_PRESENTERS.edge_to(&FIELD_PANELS),
+        schedule_core::tables::panel::HALF_EDGE_CREDITED_PRESENTERS.edge_to(&FIELD_PANELS),
     );
     presenters.sort_by_key(|id| id.entity_uuid());
     let mut expected: Vec<schedule_core::entity::RuntimeEntityId> =
@@ -271,14 +271,14 @@ fn het_edge_set_replaces_all() {
     sched
         .edge_set(
             panel_id,
-            schedule_core::tables::panel::FIELD_CREDITED_PRESENTERS.edge_to(&FIELD_PANELS),
+            schedule_core::tables::panel::HALF_EDGE_CREDITED_PRESENTERS.edge_to(&FIELD_PANELS),
             vec![p3_id],
         )
         .unwrap();
     assert_eq!(
         sched.connected_field_nodes(
             panel_id,
-            schedule_core::tables::panel::FIELD_CREDITED_PRESENTERS.edge_to(&FIELD_PANELS),
+            schedule_core::tables::panel::HALF_EDGE_CREDITED_PRESENTERS.edge_to(&FIELD_PANELS),
         ),
         vec![p3_id.into()]
     );
@@ -286,13 +286,13 @@ fn het_edge_set_replaces_all() {
     assert!(sched
         .connected_field_nodes(
             p1_id,
-            schedule_core::tables::panel::FIELD_CREDITED_PRESENTERS.edge_to(&FIELD_PANELS),
+            schedule_core::tables::panel::HALF_EDGE_CREDITED_PRESENTERS.edge_to(&FIELD_PANELS),
         )
         .is_empty());
     assert!(sched
         .connected_field_nodes(
             p2_id,
-            schedule_core::tables::panel::FIELD_CREDITED_PRESENTERS.edge_to(&FIELD_PANELS),
+            schedule_core::tables::panel::HALF_EDGE_CREDITED_PRESENTERS.edge_to(&FIELD_PANELS),
         )
         .is_empty());
 }
@@ -304,7 +304,7 @@ fn remove_entity_clears_het_edges() {
     let (pres_id, pres_data) = make_presenter("Alice");
     sched.insert(panel_id, panel_data);
     sched.insert(pres_id, pres_data);
-    let edge = schedule_core::tables::panel::FIELD_CREDITED_PRESENTERS.edge_to(&FIELD_PANELS);
+    let edge = schedule_core::tables::panel::HALF_EDGE_CREDITED_PRESENTERS.edge_to(&FIELD_PANELS);
     sched
         .edge_add(panel_id, edge, std::iter::once(pres_id))
         .unwrap();
@@ -328,21 +328,21 @@ fn event_room_hotel_room_het_edge() {
     sched
         .edge_add(
             room_id,
-            FIELD_HOTEL_ROOMS.edge_to(&schedule_core::tables::hotel_room::FIELD_EVENT_ROOMS),
+            FIELD_HOTEL_ROOMS.edge_to(&schedule_core::tables::hotel_room::HALF_EDGE_EVENT_ROOMS),
             std::iter::once(hotel_id),
         )
         .unwrap();
 
     let hotels = sched.connected_field_nodes(
         room_id,
-        FIELD_HOTEL_ROOMS.edge_to(&schedule_core::tables::hotel_room::FIELD_EVENT_ROOMS),
+        FIELD_HOTEL_ROOMS.edge_to(&schedule_core::tables::hotel_room::HALF_EDGE_EVENT_ROOMS),
     );
     assert_eq!(hotels, vec![hotel_id.into()]);
 
-    // Reverse: hotel_room.event_rooms via connected_field_nodes with FIELD_EVENT_ROOMS
+    // Reverse: hotel_room.event_rooms via connected_field_nodes with HALF_EDGE_EVENT_ROOMS
     let rooms = sched.connected_field_nodes(
         hotel_id,
-        FIELD_EVENT_ROOMS.edge_to(&schedule_core::tables::event_room::FIELD_HOTEL_ROOMS),
+        HALF_EDGE_EVENT_ROOMS.edge_to(&schedule_core::tables::event_room::FIELD_HOTEL_ROOMS),
     );
     assert_eq!(rooms, vec![room_id.into()]);
 }
@@ -725,7 +725,7 @@ fn save_to_file_load_from_file_preserves_edges() {
     sched
         .edge_add(
             panel_id,
-            schedule_core::tables::panel::FIELD_CREDITED_PRESENTERS.edge_to(&FIELD_PANELS),
+            schedule_core::tables::panel::HALF_EDGE_CREDITED_PRESENTERS.edge_to(&FIELD_PANELS),
             std::iter::once(pres_id),
         )
         .unwrap();
@@ -735,7 +735,7 @@ fn save_to_file_load_from_file_preserves_edges() {
 
     let forwards = loaded.connected_field_nodes(
         panel_id,
-        schedule_core::tables::panel::FIELD_CREDITED_PRESENTERS.edge_to(&FIELD_PANELS),
+        schedule_core::tables::panel::HALF_EDGE_CREDITED_PRESENTERS.edge_to(&FIELD_PANELS),
     );
     assert_eq!(forwards, vec![pres_id.into()]);
 }
@@ -788,7 +788,7 @@ fn save_load_roundtrips_panel_presenter_edge() {
     sched
         .edge_add(
             panel_id,
-            schedule_core::tables::panel::FIELD_CREDITED_PRESENTERS.edge_to(&FIELD_PANELS),
+            schedule_core::tables::panel::HALF_EDGE_CREDITED_PRESENTERS.edge_to(&FIELD_PANELS),
             std::iter::once(pres_id),
         )
         .unwrap();
@@ -799,14 +799,14 @@ fn save_load_roundtrips_panel_presenter_edge() {
     // Forward edge (panel → presenter)
     let forwards = loaded.connected_field_nodes(
         panel_id,
-        schedule_core::tables::panel::FIELD_CREDITED_PRESENTERS.edge_to(&FIELD_PANELS),
+        schedule_core::tables::panel::HALF_EDGE_CREDITED_PRESENTERS.edge_to(&FIELD_PANELS),
     );
     assert_eq!(forwards, vec![pres_id.into()]);
     // Reverse edge (presenter → panel) also rebuilt from the single
     // owner list on the panel side.
     let reverses = loaded.connected_field_nodes(
         pres_id,
-        FIELD_PANELS.edge_to(&schedule_core::tables::panel::FIELD_CREDITED_PRESENTERS),
+        FIELD_PANELS.edge_to(&schedule_core::tables::panel::HALF_EDGE_CREDITED_PRESENTERS),
     );
     assert_eq!(reverses, vec![panel_id.into()]);
 }
@@ -821,7 +821,7 @@ fn save_load_roundtrips_event_room_hotel_room_edge() {
     sched
         .edge_add(
             er_id,
-            FIELD_HOTEL_ROOMS.edge_to(&schedule_core::tables::hotel_room::FIELD_EVENT_ROOMS),
+            FIELD_HOTEL_ROOMS.edge_to(&schedule_core::tables::hotel_room::HALF_EDGE_EVENT_ROOMS),
             std::iter::once(hr_id),
         )
         .unwrap();
@@ -831,12 +831,12 @@ fn save_load_roundtrips_event_room_hotel_room_edge() {
 
     let hotel_rooms = loaded.connected_field_nodes(
         er_id,
-        FIELD_HOTEL_ROOMS.edge_to(&schedule_core::tables::hotel_room::FIELD_EVENT_ROOMS),
+        FIELD_HOTEL_ROOMS.edge_to(&schedule_core::tables::hotel_room::HALF_EDGE_EVENT_ROOMS),
     );
     assert_eq!(hotel_rooms, vec![hr_id.into()]);
     let event_rooms = loaded.connected_field_nodes(
         hr_id,
-        FIELD_EVENT_ROOMS.edge_to(&schedule_core::tables::event_room::FIELD_HOTEL_ROOMS),
+        HALF_EDGE_EVENT_ROOMS.edge_to(&schedule_core::tables::event_room::FIELD_HOTEL_ROOMS),
     );
     assert_eq!(event_rooms, vec![er_id.into()]);
 }
@@ -872,13 +872,13 @@ fn edge_remove_roundtrips_through_save_load() {
     sched
         .edge_add(
             panel_id,
-            schedule_core::tables::panel::FIELD_CREDITED_PRESENTERS.edge_to(&FIELD_PANELS),
+            schedule_core::tables::panel::HALF_EDGE_CREDITED_PRESENTERS.edge_to(&FIELD_PANELS),
             std::iter::once(pres_id),
         )
         .unwrap();
     sched.edge_remove(
         panel_id,
-        schedule_core::tables::panel::FIELD_CREDITED_PRESENTERS.edge_to(&FIELD_PANELS),
+        schedule_core::tables::panel::HALF_EDGE_CREDITED_PRESENTERS.edge_to(&FIELD_PANELS),
         std::iter::once(pres_id),
     );
 
@@ -887,7 +887,7 @@ fn edge_remove_roundtrips_through_save_load() {
 
     let forwards = loaded.connected_field_nodes(
         panel_id,
-        schedule_core::tables::panel::FIELD_CREDITED_PRESENTERS.edge_to(&FIELD_PANELS),
+        schedule_core::tables::panel::HALF_EDGE_CREDITED_PRESENTERS.edge_to(&FIELD_PANELS),
     );
     assert!(forwards.is_empty());
 }
@@ -904,14 +904,14 @@ fn edge_set_replaces_through_save_load() {
     sched
         .edge_add(
             panel_id,
-            schedule_core::tables::panel::FIELD_CREDITED_PRESENTERS.edge_to(&FIELD_PANELS),
+            schedule_core::tables::panel::HALF_EDGE_CREDITED_PRESENTERS.edge_to(&FIELD_PANELS),
             std::iter::once(alice_id),
         )
         .unwrap();
     sched
         .edge_set(
             panel_id,
-            schedule_core::tables::panel::FIELD_CREDITED_PRESENTERS.edge_to(&FIELD_PANELS),
+            schedule_core::tables::panel::HALF_EDGE_CREDITED_PRESENTERS.edge_to(&FIELD_PANELS),
             vec![bob_id],
         )
         .unwrap();
@@ -921,7 +921,7 @@ fn edge_set_replaces_through_save_load() {
 
     let forwards = loaded.connected_field_nodes(
         panel_id,
-        schedule_core::tables::panel::FIELD_CREDITED_PRESENTERS.edge_to(&FIELD_PANELS),
+        schedule_core::tables::panel::HALF_EDGE_CREDITED_PRESENTERS.edge_to(&FIELD_PANELS),
     );
     assert_eq!(forwards, vec![bob_id.into()]);
 }
@@ -946,7 +946,7 @@ fn concurrent_edge_adds_merge_to_union() {
     replica_a
         .edge_add(
             panel_id,
-            schedule_core::tables::panel::FIELD_CREDITED_PRESENTERS.edge_to(&FIELD_PANELS),
+            schedule_core::tables::panel::HALF_EDGE_CREDITED_PRESENTERS.edge_to(&FIELD_PANELS),
             std::iter::once(alice_id),
         )
         .unwrap();
@@ -956,7 +956,7 @@ fn concurrent_edge_adds_merge_to_union() {
     replica_b
         .edge_add(
             panel_id,
-            schedule_core::tables::panel::FIELD_CREDITED_PRESENTERS.edge_to(&FIELD_PANELS),
+            schedule_core::tables::panel::HALF_EDGE_CREDITED_PRESENTERS.edge_to(&FIELD_PANELS),
             std::iter::once(bob_id),
         )
         .unwrap();
@@ -969,7 +969,7 @@ fn concurrent_edge_adds_merge_to_union() {
 
     let mut forwards = merged.connected_field_nodes(
         panel_id,
-        schedule_core::tables::panel::FIELD_CREDITED_PRESENTERS.edge_to(&FIELD_PANELS),
+        schedule_core::tables::panel::HALF_EDGE_CREDITED_PRESENTERS.edge_to(&FIELD_PANELS),
     );
     forwards.sort_by_key(|id| id.entity_uuid());
     let mut expected: Vec<schedule_core::entity::RuntimeEntityId> =
@@ -1014,13 +1014,13 @@ fn merge_preserves_edges_from_both_sides() {
     let mut b = Schedule::load(&base.save()).expect("load B");
     a.edge_add(
         panel_id,
-        schedule_core::tables::panel::FIELD_CREDITED_PRESENTERS.edge_to(&FIELD_PANELS),
+        schedule_core::tables::panel::HALF_EDGE_CREDITED_PRESENTERS.edge_to(&FIELD_PANELS),
         std::iter::once(alice_id),
     )
     .unwrap();
     b.edge_add(
         panel_id,
-        schedule_core::tables::panel::FIELD_CREDITED_PRESENTERS.edge_to(&FIELD_PANELS),
+        schedule_core::tables::panel::HALF_EDGE_CREDITED_PRESENTERS.edge_to(&FIELD_PANELS),
         std::iter::once(bob_id),
     )
     .unwrap();
@@ -1030,7 +1030,7 @@ fn merge_preserves_edges_from_both_sides() {
     let mut ids: Vec<_> = a
         .connected_field_nodes(
             panel_id,
-            schedule_core::tables::panel::FIELD_CREDITED_PRESENTERS.edge_to(&FIELD_PANELS),
+            schedule_core::tables::panel::HALF_EDGE_CREDITED_PRESENTERS.edge_to(&FIELD_PANELS),
         )
         .iter()
         .map(|id| id.entity_uuid())
@@ -1170,7 +1170,7 @@ fn concurrent_add_beats_unobserved_remove() {
     replica_a
         .edge_add(
             panel_id,
-            schedule_core::tables::panel::FIELD_CREDITED_PRESENTERS.edge_to(&FIELD_PANELS),
+            schedule_core::tables::panel::HALF_EDGE_CREDITED_PRESENTERS.edge_to(&FIELD_PANELS),
             std::iter::once(alice_id),
         )
         .unwrap();
@@ -1181,7 +1181,7 @@ fn concurrent_add_beats_unobserved_remove() {
     let mut replica_b = Schedule::load(&base_bytes).expect("load B");
     replica_b.edge_remove(
         panel_id,
-        schedule_core::tables::panel::FIELD_CREDITED_PRESENTERS.edge_to(&FIELD_PANELS),
+        schedule_core::tables::panel::HALF_EDGE_CREDITED_PRESENTERS.edge_to(&FIELD_PANELS),
         std::iter::once(alice_id),
     );
 
@@ -1193,7 +1193,7 @@ fn concurrent_add_beats_unobserved_remove() {
     // Add wins: Alice is still in the list.
     let forwards = merged.connected_field_nodes(
         panel_id,
-        schedule_core::tables::panel::FIELD_CREDITED_PRESENTERS.edge_to(&FIELD_PANELS),
+        schedule_core::tables::panel::HALF_EDGE_CREDITED_PRESENTERS.edge_to(&FIELD_PANELS),
     );
     assert_eq!(forwards, vec![alice_id.into()]);
 }

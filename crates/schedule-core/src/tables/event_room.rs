@@ -17,7 +17,6 @@
 //! `Schedule::edges_to`.
 
 use crate::accessor_field_properties;
-use crate::define_field;
 use crate::edge::EdgeKind;
 use crate::entity::{EntityId, EntityType, EntityUuid, FieldSet, UuidPreference};
 use crate::field::{CollectedNamedField, FieldDescriptor, NamedField};
@@ -264,26 +263,67 @@ inventory::submit! { CollectedNamedField(&FIELD_SORT_KEY) }
 
 // ── Edge-backed computed fields ─────────────────────────────────────
 
-define_field! {
-    static FIELD_HOTEL_ROOMS: FieldDescriptor<EventRoomEntityType>,
-    edge: rw, target: HotelRoomEntityType, target_field: &crate::tables::hotel_room::FIELD_EVENT_ROOMS,
-    owner,
-    name: "hotel_rooms", display: "Hotel Rooms",
-    desc: "Hotel rooms that contain this event room.",
-    aliases: &["hotel_room"],
-    example: "[]",
-    order: 300
-}
+pub static HALF_EDGE_HOTEL_ROOMS: crate::field::FieldDescriptor<EventRoomEntityType> = {
+    let (data, cb, edge_kind) = crate::edge_field_properties! {
+        EventRoomEntityType,
+        target: HotelRoomEntityType,
+        target_field: &crate::tables::hotel_room::HALF_EDGE_EVENT_ROOMS,
+        name: "hotel_rooms",
+        display: "Hotel Rooms",
+        description: "Hotel rooms that contain this event room.",
+        aliases: &["hotel_room"],
+        example: "[]",
+        order: 300,
+    };
+    crate::field::FieldDescriptor {
+        data,
+        required: false,
+        edge_kind,
+        cb,
+    }
+};
+inventory::submit! { CollectedNamedField(&HALF_EDGE_HOTEL_ROOMS) }
 
-define_field! {
-    static FIELD_PANELS: FieldDescriptor<EventRoomEntityType>,
-    edge: rw, target: PanelEntityType, target_field: &crate::tables::panel::FIELD_EVENT_ROOMS,
-    name: "panels", display: "Panels",
-    desc: "Panels scheduled in this event room.",
-    aliases: &["panel"],
-    example: "[]",
-    order: 400
-}
+// Temporary alias for migration
+#[allow(deprecated)]
+pub use HALF_EDGE_HOTEL_ROOMS as FIELD_HOTEL_ROOMS;
+
+pub static HALF_EDGE_PANELS: crate::field::FieldDescriptor<EventRoomEntityType> = {
+    let (data, cb, edge_kind) = crate::edge_field_properties! {
+        EventRoomEntityType,
+        target: PanelEntityType,
+        source_fields: &[&crate::tables::panel::HALF_EDGE_EVENT_ROOMS],
+        name: "panels",
+        display: "Panels",
+        description: "Panels scheduled in this event room.",
+        aliases: &["panel"],
+        example: "[]",
+        order: 400,
+    };
+    crate::field::FieldDescriptor {
+        data,
+        required: false,
+        edge_kind,
+        cb,
+    }
+};
+inventory::submit! { CollectedNamedField(&HALF_EDGE_PANELS) }
+
+// Temporary alias for migration
+#[allow(deprecated)]
+pub use HALF_EDGE_PANELS as FIELD_PANELS;
+
+/// Full edge from event room hotel rooms to hotel room event rooms
+pub const EDGE_HOTEL_ROOMS: crate::edge::FullEdge = crate::edge::FullEdge {
+    near: &HALF_EDGE_HOTEL_ROOMS,
+    far: &crate::tables::hotel_room::HALF_EDGE_EVENT_ROOMS,
+};
+
+/// Full edge from event room panels to panel event rooms
+pub const EDGE_PANELS: crate::edge::FullEdge = crate::edge::FullEdge {
+    near: &HALF_EDGE_PANELS,
+    far: &crate::tables::panel::HALF_EDGE_EVENT_ROOMS,
+};
 
 // ── FieldSet ──────────────────────────────────────────────────────────────────
 

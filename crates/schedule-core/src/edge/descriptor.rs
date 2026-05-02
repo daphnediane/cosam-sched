@@ -30,7 +30,7 @@ pub enum EdgeKind {
     /// `source_fields` lists all owner-side fields whose `target_field` points
     /// at this field.  A single target field may be reached by multiple owners
     /// (e.g. `FIELD_PANELS` on `Presenter` is targeted by both
-    /// `FIELD_CREDITED_PRESENTERS` and `FIELD_UNCREDITED_PRESENTERS` on
+    /// `HALF_EDGE_CREDITED_PRESENTERS` and `FIELD_UNCREDITED_PRESENTERS` on
     /// `Panel`).
     ///
     /// Use `&[]` when no sources are known at static-initializer time.
@@ -139,7 +139,7 @@ impl std::fmt::Debug for EdgeKind {
 /// # Example
 ///
 /// ```ignore
-/// static FIELD_CREDITED_PRESENTERS: EdgeDescriptor<PanelEntityType> = EdgeDescriptor {
+/// pub static HALF_EDGE_CREDITED_PRESENTERS: EdgeDescriptor<PanelEntityType> = EdgeDescriptor {
 ///     data: CommonFieldData {
 ///         name: "credited_presenters",
 ///         display: "Credited Presenters",
@@ -346,7 +346,7 @@ mod tests {
     #[test]
     fn test_edge_kind_is_owner() {
         let owner = EdgeKind::Owner {
-            target_field: &crate::tables::panel::FIELD_CREDITED_PRESENTERS,
+            target_field: &crate::tables::panel::HALF_EDGE_CREDITED_PRESENTERS,
             exclusive_with: None,
         };
         assert!(owner.is_owner());
@@ -360,7 +360,7 @@ mod tests {
 
     #[test]
     fn test_edge_kind_target_field() {
-        let target_field = &crate::tables::panel::FIELD_CREDITED_PRESENTERS;
+        let target_field = &crate::tables::panel::HALF_EDGE_CREDITED_PRESENTERS;
         let owner = EdgeKind::Owner {
             target_field,
             exclusive_with: None,
@@ -381,7 +381,7 @@ mod tests {
         assert!(target.source_fields().is_some());
 
         let owner = EdgeKind::Owner {
-            target_field: &crate::tables::panel::FIELD_CREDITED_PRESENTERS,
+            target_field: &crate::tables::panel::HALF_EDGE_CREDITED_PRESENTERS,
             exclusive_with: None,
         };
         assert!(owner.source_fields().is_none());
@@ -399,7 +399,7 @@ mod tests {
 
     #[test]
     fn test_edge_kind_partial_eq_owner_same() {
-        let target_field = &crate::tables::panel::FIELD_CREDITED_PRESENTERS;
+        let target_field = &crate::tables::panel::HALF_EDGE_CREDITED_PRESENTERS;
         let owner1 = EdgeKind::Owner {
             target_field,
             exclusive_with: None,
@@ -414,11 +414,11 @@ mod tests {
     #[test]
     fn test_edge_kind_partial_eq_owner_different() {
         let owner1 = EdgeKind::Owner {
-            target_field: &crate::tables::panel::FIELD_CREDITED_PRESENTERS,
+            target_field: &crate::tables::panel::HALF_EDGE_CREDITED_PRESENTERS,
             exclusive_with: None,
         };
         let owner2 = EdgeKind::Owner {
-            target_field: &crate::tables::panel::FIELD_UNCREDITED_PRESENTERS,
+            target_field: &crate::tables::panel::HALF_EDGE_UNCREDITED_PRESENTERS,
             exclusive_with: None,
         };
         assert_ne!(owner1, owner2);
@@ -427,7 +427,7 @@ mod tests {
     #[test]
     fn test_edge_kind_partial_eq_mismatch() {
         let owner = EdgeKind::Owner {
-            target_field: &crate::tables::panel::FIELD_CREDITED_PRESENTERS,
+            target_field: &crate::tables::panel::HALF_EDGE_CREDITED_PRESENTERS,
             exclusive_with: None,
         };
         let target = EdgeKind::Target { source_fields: &[] };
@@ -444,7 +444,7 @@ mod tests {
     #[test]
     fn test_edge_kind_debug_owner() {
         let owner = EdgeKind::Owner {
-            target_field: &crate::tables::panel::FIELD_CREDITED_PRESENTERS,
+            target_field: &crate::tables::panel::HALF_EDGE_CREDITED_PRESENTERS,
             exclusive_with: None,
         };
         let s = format!("{:?}", owner);

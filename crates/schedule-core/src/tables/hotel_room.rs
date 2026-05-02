@@ -17,7 +17,6 @@
 //! through `Schedule::edges_from`.
 
 use crate::accessor_field_properties;
-use crate::define_field;
 use crate::edge::EdgeKind;
 use crate::entity::{EntityId, EntityType, EntityUuid, UuidPreference};
 use crate::field::set::FieldSet;
@@ -206,15 +205,36 @@ pub static FIELD_HOTEL_ROOM_NAME: crate::field::FieldDescriptor<HotelRoomEntityT
 };
 inventory::submit! { CollectedNamedField(&FIELD_HOTEL_ROOM_NAME) }
 
-define_field! {
-    static FIELD_EVENT_ROOMS: crate::field::FieldDescriptor<HotelRoomEntityType>,
-    edge: ro, target: EventRoomEntityType, target_field: &crate::tables::event_room::FIELD_HOTEL_ROOMS,
-    name: "event_rooms", display: "Event Rooms",
-    desc: "Event rooms contained within this hotel room.",
-    aliases: &["event_room"],
-    example: "[]",
-    order: 100
-}
+pub static HALF_EDGE_EVENT_ROOMS: crate::field::FieldDescriptor<HotelRoomEntityType> = {
+    let (data, cb, edge_kind) = crate::edge_field_properties! {
+        HotelRoomEntityType,
+        target: EventRoomEntityType,
+        source_fields: &[&crate::tables::event_room::HALF_EDGE_HOTEL_ROOMS],
+        name: "event_rooms",
+        display: "Event Rooms",
+        description: "Event rooms contained within this hotel room.",
+        aliases: &["event_room"],
+        example: "[]",
+        order: 100,
+    };
+    crate::field::FieldDescriptor {
+        data,
+        required: false,
+        edge_kind,
+        cb,
+    }
+};
+inventory::submit! { CollectedNamedField(&HALF_EDGE_EVENT_ROOMS) }
+
+// Temporary alias for migration - remove when edit_integration.rs is updated
+#[allow(deprecated)]
+pub use HALF_EDGE_EVENT_ROOMS as FIELD_EVENT_ROOMS;
+
+/// Full edge from hotel room event rooms to event room hotel rooms
+pub const EDGE_EVENT_ROOMS: crate::edge::FullEdge = crate::edge::FullEdge {
+    near: &HALF_EDGE_EVENT_ROOMS,
+    far: &crate::tables::event_room::HALF_EDGE_HOTEL_ROOMS,
+};
 
 // ── FieldSet ──────────────────────────────────────────────────────────────────
 

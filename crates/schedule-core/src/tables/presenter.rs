@@ -862,36 +862,62 @@ define_field! {
     }
 }
 
-define_field! {
-    pub(self) static FIELD_GROUPS: FieldDescriptor<PresenterEntityType>,
-    edge: rw, target: PresenterEntityType, target_field: &FIELD_MEMBERS,
-    name: "groups", display: "Groups",
-    desc: "Groups this presenter belongs to.",
-    aliases: &["group_memberships"],
-    example: "[]",
-    order: 700
-}
+pub static HALF_EDGE_MEMBERS: crate::field::FieldDescriptor<PresenterEntityType> = {
+    let (data, cb, edge_kind) = crate::edge_field_properties! {
+        PresenterEntityType,
+        target: PresenterEntityType,
+        target_field: &HALF_EDGE_GROUPS,
+        name: "members",
+        display: "Members",
+        description: "Members of this group (empty for individuals).",
+        aliases: &["group_members"],
+        example: "[]",
+        order: 800,
+    };
+    crate::field::FieldDescriptor {
+        data,
+        required: false,
+        edge_kind,
+        cb,
+    }
+};
+inventory::submit! { CollectedNamedField(&HALF_EDGE_MEMBERS) }
+
+pub static HALF_EDGE_GROUPS: crate::field::FieldDescriptor<PresenterEntityType> = {
+    let (data, cb, edge_kind) = crate::edge_field_properties! {
+        PresenterEntityType,
+        target: PresenterEntityType,
+        source_fields: &[&HALF_EDGE_MEMBERS],
+        name: "groups",
+        display: "Groups",
+        description: "Groups this presenter belongs to.",
+        aliases: &["group_memberships"],
+        example: "[]",
+        order: 700,
+    };
+    crate::field::FieldDescriptor {
+        data,
+        required: false,
+        edge_kind,
+        cb,
+    }
+};
+inventory::submit! { CollectedNamedField(&HALF_EDGE_GROUPS) }
+
+// Temporary alias for migration - remove when edit_integration.rs is updated
+#[allow(deprecated)]
+pub use HALF_EDGE_GROUPS as FIELD_GROUPS;
 
 /// Static edge from groups field to members field (for querying a presenter's groups)
 pub const EDGE_GROUPS: crate::edge::FullEdge = crate::edge::FullEdge {
-    near: &FIELD_GROUPS,
-    far: &FIELD_MEMBERS,
+    near: &HALF_EDGE_GROUPS,
+    far: &HALF_EDGE_MEMBERS,
 };
-
-define_field! {
-    pub(self) static FIELD_MEMBERS: FieldDescriptor<PresenterEntityType>,
-    edge: rw, target: PresenterEntityType, target_field: &FIELD_GROUPS, owner,
-    name: "members", display: "Members",
-    desc: "Members of this group (empty for individuals).",
-    aliases: &["group_members"],
-    example: "[]",
-    order: 800
-}
 
 /// Static edge from members field to groups field (for querying a group's members)
 pub const EDGE_MEMBERS: crate::edge::FullEdge = crate::edge::FullEdge {
-    near: &FIELD_MEMBERS,
-    far: &FIELD_GROUPS,
+    near: &HALF_EDGE_MEMBERS,
+    far: &HALF_EDGE_GROUPS,
 };
 
 define_field! {
@@ -946,14 +972,14 @@ define_field! {
     item: FieldTypeItem::EntityIdentifier(PanelEntityType::TYPE_NAME),
     read: |sched: &Schedule, id: PresenterId| {
         // Query panels where this presenter is credited
-        let edge_credited = FIELD_PANELS.edge_to(&crate::tables::panel::FIELD_CREDITED_PRESENTERS);
+        let edge_credited = FIELD_PANELS.edge_to(&crate::tables::panel::HALF_EDGE_CREDITED_PRESENTERS);
         let mut ids: Vec<PanelId> = sched
             .connected_field_nodes(id, edge_credited)
             .into_iter()
             .map(|e| unsafe { PanelId::new_unchecked(e.entity_uuid()) })
             .collect();
         // Query panels where this presenter is uncredited
-        let edge_uncredited = FIELD_PANELS.edge_to(&crate::tables::panel::FIELD_UNCREDITED_PRESENTERS);
+        let edge_uncredited = FIELD_PANELS.edge_to(&crate::tables::panel::HALF_EDGE_UNCREDITED_PRESENTERS);
         ids.extend(
             sched.connected_field_nodes(id, edge_uncredited)
                 .into_iter()
@@ -982,10 +1008,10 @@ define_field! {
         let ids = crate::schedule::field_value_to_entity_ids::<PanelEntityType>(val)?;
         for p in ids {
             // Remove from uncredited first (exclusivity)
-            let edge_uncredited = crate::tables::panel::FIELD_UNCREDITED_PRESENTERS.edge_to(&FIELD_PANELS);
+            let edge_uncredited = crate::tables::panel::HALF_EDGE_UNCREDITED_PRESENTERS.edge_to(&FIELD_PANELS);
             sched.edge_remove(p, edge_uncredited, std::iter::once(presenter_id));
             // Add to credited
-            let edge_credited = crate::tables::panel::FIELD_CREDITED_PRESENTERS.edge_to(&FIELD_PANELS);
+            let edge_credited = crate::tables::panel::HALF_EDGE_CREDITED_PRESENTERS.edge_to(&FIELD_PANELS);
             sched.edge_add(p, edge_credited, std::iter::once(presenter_id)).expect("edge type validation failed");
         }
         Ok(())
@@ -1009,10 +1035,10 @@ define_field! {
         let ids = crate::schedule::field_value_to_entity_ids::<PanelEntityType>(val)?;
         for p in ids {
             // Remove from credited first (exclusivity)
-            let edge_credited = crate::tables::panel::FIELD_CREDITED_PRESENTERS.edge_to(&FIELD_PANELS);
+            let edge_credited = crate::tables::panel::HALF_EDGE_CREDITED_PRESENTERS.edge_to(&FIELD_PANELS);
             sched.edge_remove(p, edge_credited, std::iter::once(presenter_id));
             // Add to uncredited
-            let edge_uncredited = crate::tables::panel::FIELD_UNCREDITED_PRESENTERS.edge_to(&FIELD_PANELS);
+            let edge_uncredited = crate::tables::panel::HALF_EDGE_UNCREDITED_PRESENTERS.edge_to(&FIELD_PANELS);
             sched.edge_add(p, edge_uncredited, std::iter::once(presenter_id)).expect("edge type validation failed");
         }
         Ok(())
@@ -1033,13 +1059,11 @@ define_field! {
     item: FieldTypeItem::EntityIdentifier(PanelEntityType::TYPE_NAME),
     write: |sched: &mut Schedule, presenter_id: PresenterId, val: FieldValue| {
         let ids = crate::schedule::field_value_to_entity_ids::<PanelEntityType>(val)?;
+        let credited_edge = crate::tables::panel::HALF_EDGE_CREDITED_PRESENTERS.edge_to(&FIELD_PANELS);
+        let uncredited_edge = crate::tables::panel::HALF_EDGE_UNCREDITED_PRESENTERS.edge_to(&FIELD_PANELS);
         for p in ids {
-            // Remove from credited
-            let edge_credited = crate::tables::panel::FIELD_CREDITED_PRESENTERS.edge_to(&FIELD_PANELS);
-            sched.edge_remove(p, edge_credited, std::iter::once(presenter_id));
-            // Remove from uncredited
-            let edge_uncredited = crate::tables::panel::FIELD_UNCREDITED_PRESENTERS.edge_to(&FIELD_PANELS);
-            sched.edge_remove(p, edge_uncredited, std::iter::once(presenter_id));
+            sched.edge_remove(p, credited_edge, std::iter::once(presenter_id));
+            sched.edge_remove(p, uncredited_edge, std::iter::once(presenter_id));
         }
         Ok(())
     }
@@ -1126,10 +1150,10 @@ crate::field::macros::define_entity_builder! {
         with_always_grouped        => FIELD_ALWAYS_GROUPED,
         /// Always show the group name, even with partial member attendance.
         with_always_shown_in_group => FIELD_ALWAYS_SHOWN_IN_GROUP,
-        /// Replace the set of groups this presenter belongs to.
-        with_groups                => FIELD_GROUPS,
-        /// Replace the set of members of this group (ignored for individuals).
-        with_members               => FIELD_MEMBERS,
+        /// Set the groups this presenter belongs to.
+        with_groups                => HALF_EDGE_GROUPS,
+        /// Set the members of this group (empty for individuals).
+        with_members               => HALF_EDGE_MEMBERS,
         /// Replace the set of panels this presenter is scheduled on.
         with_panels                => FIELD_PANELS,
     }
