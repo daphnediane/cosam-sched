@@ -60,6 +60,14 @@ pub enum EditError {
     /// Redo stack is empty.
     #[error("nothing to redo")]
     NothingToRedo,
+
+    /// An edge add operation failed.
+    #[error("edge add error on {near}: {source}")]
+    EdgeAdd {
+        near: RuntimeEntityId,
+        #[source]
+        source: FieldError,
+    },
 }
 
 // ── EditCommand ───────────────────────────────────────────────────────────────
@@ -110,6 +118,26 @@ pub enum EditCommand {
 
     /// Execute a sequence of commands as a single atomic undo/redo unit.
     BatchEdit(Vec<EditCommand>),
+
+    /// Add items to an edge field.
+    ///
+    /// The `items` field stores the requested items. After execute, the inverse
+    /// `RemoveFromField` stores the *actually added* delta.
+    AddToField {
+        near: RuntimeEntityId,
+        edge: crate::edge::id::FullEdge,
+        items: FieldValue,
+    },
+
+    /// Remove items from an edge field.
+    ///
+    /// The `items` field stores the requested items. After execute, the inverse
+    /// `AddToField` stores the *actually removed* delta.
+    RemoveFromField {
+        near: RuntimeEntityId,
+        edge: crate::edge::id::FullEdge,
+        items: FieldValue,
+    },
 }
 
 impl EditCommand {
@@ -175,6 +203,82 @@ impl EditCommand {
                 }
                 inverses.reverse();
                 Ok(EditCommand::BatchEdit(inverses))
+            }
+
+            EditCommand::AddToField { near, edge, items } => {
+                let target_ids = crate::schedule::field_value_to_runtime_entity_ids(items)
+                    .map_err(|e| EditError::EdgeAdd { near, source: e })?;
+
+                let actually_added =
+                    schedule
+                        .edge_add(near, edge, target_ids)
+                        .map_err(|e| EditError::EdgeAdd {
+                            near,
+                            source: e.into(),
+                        })?;
+
+                // Handle exclusive_with if present
+                if let crate::edge::EdgeKind::Owner {
+                    exclusive_with: Some(excl_field),
+                    ..
+                } = edge.near.edge_kind()
+                {
+                    let excl_edge = crate::edge::id::FullEdge {
+                        near: *excl_field,
+                        far: edge.far,
+                    };
+                    let actually_added_runtime: Vec<RuntimeEntityId> = actually_added
+                        .clone()
+                        .into_iter()
+                        .map(|uuid| unsafe {
+                            RuntimeEntityId::new_unchecked(uuid, edge.far.entity_type_name())
+                        })
+                        .collect();
+                    let _ = schedule.edge_remove(near, excl_edge, actually_added_runtime);
+                }
+
+                let actually_added_value = FieldValue::List(
+                    actually_added
+                        .into_iter()
+                        .map(|uuid| {
+                            let rid = unsafe {
+                                RuntimeEntityId::new_unchecked(uuid, edge.far.entity_type_name())
+                            };
+                            crate::value::FieldValueItem::EntityIdentifier(rid)
+                        })
+                        .collect(),
+                );
+
+                Ok(EditCommand::RemoveFromField {
+                    near,
+                    edge,
+                    items: actually_added_value,
+                })
+            }
+
+            EditCommand::RemoveFromField { near, edge, items } => {
+                let target_ids = crate::schedule::field_value_to_runtime_entity_ids(items)
+                    .map_err(|e| EditError::EdgeAdd { near, source: e })?;
+
+                let actually_removed = schedule.edge_remove(near, edge, target_ids);
+
+                let actually_removed_value = FieldValue::List(
+                    actually_removed
+                        .into_iter()
+                        .map(|uuid| {
+                            let rid = unsafe {
+                                RuntimeEntityId::new_unchecked(uuid, edge.far.entity_type_name())
+                            };
+                            crate::value::FieldValueItem::EntityIdentifier(rid)
+                        })
+                        .collect(),
+                );
+
+                Ok(EditCommand::AddToField {
+                    near,
+                    edge,
+                    items: actually_removed_value,
+                })
             }
         }
     }

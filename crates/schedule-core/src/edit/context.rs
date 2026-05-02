@@ -182,4 +182,32 @@ impl EditContext {
             vec![time_cmd, room_cmd],
         ))))
     }
+
+    /// Build an `AddToField` command to add items to an edge field.
+    ///
+    /// This is a trivial constructor - no pre-read needed. The delta
+    /// (actually added items) is captured during execute.
+    pub fn add_to_field_cmd(
+        &self,
+        near: impl DynamicEntityId,
+        edge: crate::edge::id::FullEdge,
+        items: FieldValue,
+    ) -> EditCommand {
+        let near = RuntimeEntityId::from_dynamic(near);
+        EditCommand::AddToField { near, edge, items }
+    }
+
+    /// Build a `RemoveFromField` command to remove items from an edge field.
+    ///
+    /// This is a trivial constructor - no pre-read needed. The delta
+    /// (actually removed items) is captured during execute.
+    pub fn remove_from_field_cmd(
+        &self,
+        near: impl DynamicEntityId,
+        edge: crate::edge::id::FullEdge,
+        items: FieldValue,
+    ) -> EditCommand {
+        let near = RuntimeEntityId::from_dynamic(near);
+        EditCommand::RemoveFromField { near, edge, items }
+    }
 }
