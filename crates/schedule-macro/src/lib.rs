@@ -6,7 +6,7 @@
 
 //! Proc-macro support crate for `schedule-core`.
 //!
-//! Currently provides two function-like proc-macros:
+//! Currently provides three function-like proc-macros:
 //!
 //! - [`define_field`] — declarative `FieldDescriptor` static + inventory
 //!   submission.  Branches on parameter shape:
@@ -16,12 +16,22 @@
 //!   - neither — custom field; require explicit `crdt:`, `cardinality:`,
 //!     `item:`, and at least one of `read:` / `write:` closures.
 //!
+//! - [`accessor_field_properties`] — generates `(CommonFieldData, FieldCallbacks)`
+//!   tuple for accessor-based fields without custom callbacks.
+//!
+//! - [`edge_field_properties`] — generates `(CommonFieldData, FieldCallbacks, EdgeKind)`
+//!   tuple for edge fields without custom callbacks.
+//!
 //! All three branches share the common parameters:
 //! `name:`, `display:`, `desc:`, `aliases:`, `example:`, `order:`, `required` flag,
 //! optional `read:` / `write:` / `verify:` closures (override auto-generated).
 //!
 //! Re-exported from `schedule-core` so callers `use schedule_core::define_field;`.
 
+mod common_input;
+mod common_output;
+mod edge_input;
+mod edge_output;
 mod input;
 mod output;
 mod stored_input;
@@ -97,6 +107,83 @@ pub fn define_field(input: TokenStream) -> TokenStream {
 pub fn accessor_field_properties(input: TokenStream) -> TokenStream {
     let parsed = syn::parse_macro_input!(input as stored_input::StoredInput);
     match stored_output::expand(&parsed) {
+        Ok(ts) => ts.into(),
+        Err(e) => e.to_compile_error().into(),
+    }
+}
+
+/// Generate `CommonFieldData`, `FieldCallbacks`, and `EdgeKind` for an edge field.
+///
+/// Returns a `(CommonFieldData, FieldCallbacks<E>, EdgeKind)` tuple containing
+/// the field metadata, read/write/verify callbacks, and edge ownership information.
+/// The caller constructs the `FieldDescriptor` to control other descriptor-level
+/// properties.
+///
+/// Supports both owner edges (with optional exclusivity) and target edges (with
+/// multiple source fields).
+///
+/// # Owner edge syntax
+///
+/// ```ignore
+/// let (data, cb, edge_kind) = edge_field_properties! {
+///     EntityType,
+///     target: TargetEntityType,
+///     target_field: &other_entity::FIELD_OTHER,
+///     [exclusive_with: &FIELD_SIBLING,]
+///     name: "field_name",
+///     display: "Field Name",
+///     description: "Description text",
+///     aliases: &["alias1", "alias2"],
+///     example: "example value",
+///     order: 100,
+/// };
+/// ```
+///
+/// # Target edge syntax
+///
+/// ```ignore
+/// let (data, cb, edge_kind) = edge_field_properties! {
+///     EntityType,
+///     target: TargetEntityType,
+///     source_fields: &[&other_entity::FIELD_OWNER1, &other_entity::FIELD_OWNER2],
+///     name: "field_name",
+///     display: "Field Name",
+///     description: "Description text",
+///     aliases: &["alias1", "alias2"],
+///     example: "example value",
+///     order: 100,
+/// };
+/// ```
+///
+/// # Owner edge example
+///
+/// ```ignore
+/// pub static FIELD_CREDITED_PRESENTERS: FieldDescriptor<PanelEntityType> = {
+///     let (data, cb, edge_kind) = edge_field_properties! {
+///         PanelEntityType,
+///         target: PresenterEntityType,
+///         target_field: &crate::tables::presenter::FIELD_PANELS,
+///         exclusive_with: &FIELD_UNCREDITED_PRESENTERS,
+///         name: "credited_presenters",
+///         display: "Credited Presenters",
+///         description: "Presenters credited on this panel.",
+///         aliases: &["credited_panelists", "credited_presenter"],
+///         example: "[presenter_id]",
+///         order: 2710,
+///     };
+///     FieldDescriptor {
+///         data,
+///         required: false,
+///         edge_kind,
+///         cb,
+///     }
+/// };
+/// inventory::submit! { CollectedNamedField(&FIELD_CREDITED_PRESENTERS) }
+/// ```
+#[proc_macro]
+pub fn edge_field_properties(input: TokenStream) -> TokenStream {
+    let parsed = syn::parse_macro_input!(input as edge_input::EdgeInput);
+    match edge_output::expand(&parsed) {
         Ok(ts) => ts.into(),
         Err(e) => e.to_compile_error().into(),
     }

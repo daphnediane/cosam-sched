@@ -24,6 +24,7 @@
 //! }
 //! ```
 
+use crate::common_input::CommonMetadata;
 use syn::parse::{Parse, ParseStream};
 use syn::{Expr, Ident, Type};
 
@@ -33,24 +34,14 @@ pub struct StoredInput {
     pub entity_type: Type,
     /// Struct field identifier (e.g., `prefix`).
     pub accessor_name: Ident,
-    /// Field name (e.g., "prefix").
-    pub name: Expr,
-    /// Display name (e.g., "Prefix").
-    pub display: Expr,
-    /// Description text.
-    pub description: Expr,
-    /// Aliases array.
-    pub aliases: Expr,
     /// Field cardinality (Single, Optional, List).
     pub cardinality: Ident,
     /// Field type item (String, Boolean, etc.).
     pub item: Ident,
-    /// Example value.
-    pub example: Expr,
-    /// Order value.
-    pub order: Expr,
     /// Whether the field is required (optional, defaults based on cardinality).
     pub required: Option<Expr>,
+    /// Common field metadata.
+    pub common: CommonMetadata,
 }
 
 impl Parse for StoredInput {
@@ -64,25 +55,16 @@ impl Parse for StoredInput {
         input.parse::<syn::Token![,]>()?;
 
         // Parse key: value pairs
-        let mut name = None;
-        let mut display = None;
-        let mut description = None;
-        let mut aliases = None;
         let mut cardinality = None;
         let mut item = None;
-        let mut example = None;
-        let mut order = None;
         let mut required = None;
+        let mut common = crate::common_input::CommonMetadataOptions::default();
 
         while !input.is_empty() {
             let key: Ident = input.parse()?;
             input.parse::<syn::Token![:]>()?;
 
             match key.to_string().as_str() {
-                "name" => name = Some(input.parse()?),
-                "display" => display = Some(input.parse()?),
-                "description" => description = Some(input.parse()?),
-                "aliases" => aliases = Some(input.parse()?),
                 "cardinality" => {
                     let val: Ident = input.parse()?;
                     cardinality = Some(val);
@@ -91,14 +73,16 @@ impl Parse for StoredInput {
                     let val: Ident = input.parse()?;
                     item = Some(val);
                 }
-                "example" => example = Some(input.parse()?),
-                "order" => order = Some(input.parse()?),
                 "required" => required = Some(input.parse()?),
-                other => {
-                    return Err(syn::Error::new(
-                        key.span(),
-                        format!("unknown field parameter: {other}"),
-                    ));
+                _ => {
+                    // Try to parse as common metadata
+                    let value = input.parse::<Expr>()?;
+                    if !crate::common_input::try_parse_common_field(&key, value, &mut common) {
+                        return Err(syn::Error::new(
+                            key.span(),
+                            format!("unknown field parameter: {}", key),
+                        ));
+                    }
                 }
             }
 
@@ -111,17 +95,11 @@ impl Parse for StoredInput {
         Ok(Self {
             entity_type,
             accessor_name,
-            name: name.ok_or_else(|| syn::Error::new(input.span(), "missing 'name'"))?,
-            display: display.ok_or_else(|| syn::Error::new(input.span(), "missing 'display'"))?,
-            description: description
-                .ok_or_else(|| syn::Error::new(input.span(), "missing 'description'"))?,
-            aliases: aliases.ok_or_else(|| syn::Error::new(input.span(), "missing 'aliases'"))?,
             cardinality: cardinality
                 .ok_or_else(|| syn::Error::new(input.span(), "missing 'cardinality'"))?,
             item: item.ok_or_else(|| syn::Error::new(input.span(), "missing 'item'"))?,
-            example: example.ok_or_else(|| syn::Error::new(input.span(), "missing 'example'"))?,
-            order: order.ok_or_else(|| syn::Error::new(input.span(), "missing 'order'"))?,
             required,
+            common: common.into_common_metadata(input.span())?,
         })
     }
 }

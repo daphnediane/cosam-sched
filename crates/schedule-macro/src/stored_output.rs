@@ -6,20 +6,15 @@
 
 //! Code generation for `accessor_field_properties!`.
 
+use crate::common_output;
+use crate::stored_input::StoredInput;
 use proc_macro2::TokenStream;
 use quote::quote;
-
-use crate::stored_input::StoredInput;
 
 pub fn expand(inp: &StoredInput) -> syn::Result<TokenStream> {
     let entity_type = &inp.entity_type;
     let accessor_name = &inp.accessor_name;
-    let name = &inp.name;
-    let display = &inp.display;
-    let description = &inp.description;
-    let aliases = &inp.aliases;
-    let example = &inp.example;
-    let order = &inp.order;
+    let common = &inp.common;
 
     let cardinality = &inp.cardinality;
     let item = &inp.item;
@@ -39,52 +34,9 @@ pub fn expand(inp: &StoredInput) -> syn::Result<TokenStream> {
         }
     };
 
-    // Generate field_type path
-    let cardinality_path = match cardinality.to_string().as_str() {
-        "Single" => quote!(::schedule_core::value::FieldCardinality::Single),
-        "Optional" => quote!(::schedule_core::value::FieldCardinality::Optional),
-        "List" => quote!(::schedule_core::value::FieldCardinality::List),
-        other => {
-            return Err(syn::Error::new(
-                cardinality.span(),
-                format!("unknown cardinality: {other}. Use Single, Optional, or List."),
-            ));
-        }
-    };
-
-    // Generate FieldTypeItem path
-    let item_path = match item.to_string().as_str() {
-        "String" => quote!(::schedule_core::value::FieldTypeItem::String),
-        "Boolean" => quote!(::schedule_core::value::FieldTypeItem::Boolean),
-        "Integer" => quote!(::schedule_core::value::FieldTypeItem::Integer),
-        "Float" => quote!(::schedule_core::value::FieldTypeItem::Float),
-        "DateTime" => quote!(::schedule_core::value::FieldTypeItem::DateTime),
-        "Duration" => quote!(::schedule_core::value::FieldTypeItem::Duration),
-        "Text" => quote!(::schedule_core::value::FieldTypeItem::Text),
-        other => {
-            return Err(syn::Error::new(
-                item.span(),
-                format!("unknown item type: {other}. Use String, Boolean, Integer, Float, DateTime, Duration, or Text."),
-            ));
-        }
-    };
-
-    // Generate marker trait path
-    let marker_trait = match item.to_string().as_str() {
-        "String" => quote!(::schedule_core::query::converter::AsString),
-        "Boolean" => quote!(::schedule_core::query::converter::AsBoolean),
-        "Integer" => quote!(::schedule_core::query::converter::AsInteger),
-        "Float" => quote!(::schedule_core::query::converter::AsFloat),
-        "DateTime" => quote!(::schedule_core::query::converter::AsDateTime),
-        "Duration" => quote!(::schedule_core::query::converter::AsDuration),
-        "Text" => quote!(::schedule_core::query::converter::AsText),
-        other => {
-            return Err(syn::Error::new(
-                item.span(),
-                format!("cannot map item type to marker trait: {other}"),
-            ));
-        }
-    };
+    // Generate field_type and marker_trait using common helpers
+    let field_type = common_output::generate_field_type(cardinality, item)?;
+    let marker_trait = common_output::generate_marker_trait(item)?;
 
     // Generate read_fn
     let read_fn = if is_optional {
@@ -145,22 +97,13 @@ pub fn expand(inp: &StoredInput) -> syn::Result<TokenStream> {
         <#marker_trait as ::schedule_core::query::converter::FieldTypeMapping>::CRDT_TYPE
     };
 
+    // Generate CommonFieldData using common helper
+    let data = common_output::generate_common_data(common, field_type, crdt_type);
+
     // Generate the complete output - returns (CommonFieldData, FieldCallbacks) tuple
     Ok(quote! {
         {
-            let data = ::schedule_core::field::CommonFieldData {
-                name: #name,
-                display: #display,
-                description: #description,
-                aliases: #aliases,
-                field_type: ::schedule_core::value::FieldType(
-                    #cardinality_path,
-                    #item_path,
-                ),
-                crdt_type: #crdt_type,
-                example: #example,
-                order: #order,
-            };
+            let data = #data;
             let cb = ::schedule_core::field::FieldCallbacks {
                 read_fn: #read_fn,
                 write_fn: #write_fn,
