@@ -55,6 +55,8 @@ pub struct CommonFieldData {
     pub aliases: &'static [&'static str],
     /// Logical field type (value type and cardinality).
     pub field_type: crate::value::FieldType,
+    /// CRDT storage type annotation.
+    pub crdt_type: crate::crdt::CrdtFieldType,
     /// Example value for documentation and UI hints.
     pub example: &'static str,
     /// Display/iteration order (lower values first).
@@ -152,12 +154,12 @@ mod tests {
             description: "A text label.",
             aliases: &["tag", "name"],
             field_type: FieldType(FieldCardinality::Single, FieldTypeItem::String),
+            crdt_type: CrdtFieldType::Scalar,
             example: "Hello World",
             order: 0,
         },
         required: true,
         edge_kind: EdgeKind::NonEdge,
-        crdt_type: CrdtFieldType::Scalar,
         cb: FieldCallbacks {
             read_fn: Some(ReadFn::Bare(|d: &MockInternalData| {
                 Some(field_value!(d.label.clone()))
@@ -177,12 +179,12 @@ mod tests {
             description: "An integer count.",
             aliases: &[],
             field_type: FieldType(FieldCardinality::Single, FieldTypeItem::Integer),
+            crdt_type: CrdtFieldType::Scalar,
             example: "7",
             order: 100,
         },
         required: false,
         edge_kind: EdgeKind::NonEdge,
-        crdt_type: CrdtFieldType::Scalar,
         cb: FieldCallbacks {
             read_fn: Some(ReadFn::Bare(|d: &MockInternalData| {
                 Some(field_value!(d.count))
@@ -202,12 +204,12 @@ mod tests {
             description: "Always 42.",
             aliases: &[],
             field_type: FieldType(FieldCardinality::Single, FieldTypeItem::Integer),
+            crdt_type: CrdtFieldType::Derived,
             example: "42",
             order: 200,
         },
         required: false,
         edge_kind: EdgeKind::NonEdge,
-        crdt_type: CrdtFieldType::Derived,
         cb: FieldCallbacks {
             read_fn: Some(ReadFn::Bare(|_: &MockInternalData| Some(field_value!(42)))),
             write_fn: None,
@@ -222,12 +224,12 @@ mod tests {
             description: "Accepts a label update but cannot be read back.",
             aliases: &[],
             field_type: FieldType(FieldCardinality::Single, FieldTypeItem::String),
+            crdt_type: CrdtFieldType::Derived,
             example: "Hello World",
             order: 300,
         },
         required: false,
         edge_kind: EdgeKind::NonEdge,
-        crdt_type: CrdtFieldType::Derived,
         cb: FieldCallbacks {
             read_fn: None,
             write_fn: Some(WriteFn::Bare(|d: &mut MockInternalData, v| {

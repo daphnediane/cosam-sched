@@ -444,7 +444,7 @@ pub fn rehydrate_entity<E: EntityBuildable>(
     // them through the builder after the borrow is released.
     let mut updates: Vec<(FieldRef<E>, FieldValue)> = Vec::new();
     for desc in E::field_set().fields() {
-        if matches!(desc.crdt_type, CrdtFieldType::Derived) {
+        if matches!(desc.crdt_type(), CrdtFieldType::Derived) {
             continue;
         }
         if desc.cb.write_fn.is_none() {
@@ -457,7 +457,7 @@ pub fn rehydrate_entity<E: EntityBuildable>(
             uuid,
             desc.name(),
             item_type,
-            desc.crdt_type,
+            desc.crdt_type(),
         ) {
             Ok(Some(v)) => updates.push((FieldRef::Name(desc.name()), v)),
             Ok(None) => {}

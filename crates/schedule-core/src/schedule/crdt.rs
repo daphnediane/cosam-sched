@@ -273,7 +273,7 @@ impl Schedule {
         let Some(desc) = E::field_set().get_by_name(field_name) else {
             return Vec::new();
         };
-        if !matches!(desc.crdt_type, CrdtFieldType::Scalar) {
+        if !matches!(desc.crdt_type(), CrdtFieldType::Scalar) {
             return Vec::new();
         }
         let Some(entity_map) = crdt::get_entity_map(&self.doc, E::TYPE_NAME, id.entity_uuid())
@@ -501,13 +501,13 @@ impl Schedule {
         let mut pending: Vec<(&'static str, CrdtFieldType, FieldValue)> = Vec::new();
         for desc in E::field_set().fields() {
             if !matches!(
-                desc.crdt_type,
+                desc.crdt_type(),
                 CrdtFieldType::Scalar | CrdtFieldType::Text | CrdtFieldType::List
             ) {
                 continue;
             }
             if let Ok(Some(v)) = desc.read(id, self) {
-                pending.push((desc.name(), desc.crdt_type, v));
+                pending.push((desc.name(), desc.crdt_type(), v));
             }
         }
         for (name, crdt_type, v) in pending {

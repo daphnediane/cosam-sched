@@ -6,7 +6,6 @@
 
 //! Field descriptor types: [`FieldDescriptor<E>`].
 
-use crate::crdt::CrdtFieldType;
 use crate::edge::traits::HalfEdge;
 use crate::edge::EdgeKind;
 use crate::entity::{EntityId, EntityType};
@@ -36,11 +35,11 @@ use crate::value::{FieldError, FieldValue, VerificationError};
 ///         description: "The title of the panel.",
 ///         aliases: &[],
 ///         field_type: FieldType::Single(FieldTypeItem::String),
+///         crdt_type: CrdtFieldType::Scalar,
 ///         example: "",
 ///         order: 0,
 ///     },
 ///     required: true,
-///     crdt_type: CrdtFieldType::Scalar,
 ///     edge_kind: EdgeKind::NonEdge,
 ///     cb: accessor_callbacks!(PanelEntityType, required, name, AsString),
 /// };
@@ -52,11 +51,11 @@ use crate::value::{FieldError, FieldValue, VerificationError};
 ///         description: "Add presenters to this panel.",
 ///         aliases: &[],
 ///         field_type: FieldType(FieldCardinality::List, FieldTypeItem::EntityIdentifier("presenter")),
+///         crdt_type: CrdtFieldType::Derived,
 ///         example: "",
 ///         order: 10,
 ///     },
 ///     required: false,
-///     crdt_type: CrdtFieldType::Derived,
 ///     edge_kind: EdgeKind::NonEdge,
 ///     cb: FieldCallbacks {
 ///         read_fn: None,
@@ -72,8 +71,6 @@ pub struct FieldDescriptor<E: EntityType> {
     pub required: bool,
     /// Edge ownership and relationship metadata -- (To be removed once EdgeDescriptor is live)
     pub edge_kind: EdgeKind,
-    /// CRDT storage type annotation for Phase 4.
-    pub crdt_type: CrdtFieldType,
     /// Callback functions for read/write/verify operations
     pub(crate) cb: FieldCallbacks<E>,
 }
@@ -85,10 +82,6 @@ impl<E: EntityType> NamedField for FieldDescriptor<E> {
 
     fn entity_type_name(&self) -> &'static str {
         E::TYPE_NAME
-    }
-
-    fn crdt_type(&self) -> CrdtFieldType {
-        self.crdt_type
     }
 
     fn try_as_half_edge(&self) -> Option<&dyn HalfEdge> {
@@ -195,7 +188,7 @@ impl<E: EntityType> WritableField<E> for FieldDescriptor<E> {
         // value back through the descriptor's own read_fn and push it into
         // the authoritative automerge document.
         if !schedule.mirror_enabled()
-            || matches!(self.crdt_type, crate::crdt::CrdtFieldType::Derived)
+            || matches!(self.data.crdt_type, crate::crdt::CrdtFieldType::Derived)
         {
             return Ok(());
         }
@@ -206,7 +199,12 @@ impl<E: EntityType> WritableField<E> for FieldDescriptor<E> {
             Err(FieldError::WriteOnly { .. }) => return Ok(()),
             Err(e) => return Err(e),
         };
-        schedule.mirror_field_value::<E>(id, self.data.name, self.crdt_type, value_opt.as_ref())
+        schedule.mirror_field_value::<E>(
+            id,
+            self.data.name,
+            self.data.crdt_type,
+            value_opt.as_ref(),
+        )
     }
 }
 

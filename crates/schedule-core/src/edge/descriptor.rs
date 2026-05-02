@@ -6,7 +6,6 @@
 
 //! Edge descriptor type: [`EdgeDescriptor<E>`].
 
-use crate::crdt::CrdtFieldType;
 use crate::edge::traits::HalfEdge;
 use crate::entity::{EntityId, EntityType, EntityUuid};
 use crate::field::{
@@ -179,10 +178,6 @@ impl<E: EntityType> NamedField for EdgeDescriptor<E> {
 
     fn entity_type_name(&self) -> &'static str {
         E::TYPE_NAME
-    }
-
-    fn crdt_type(&self) -> CrdtFieldType {
-        CrdtFieldType::Derived
     }
 
     fn try_as_half_edge(&self) -> Option<&dyn HalfEdge> {

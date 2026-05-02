@@ -113,11 +113,7 @@ fn test_edge_add_multiple_targets_symmetry() {
 
     // Add member to both groups in one call
     let added = sched
-        .edge_add(
-            member_id,
-            EDGE_GROUPS,
-            vec![group1_id, group2_id].into_iter(),
-        )
+        .edge_add(member_id, EDGE_GROUPS, vec![group1_id, group2_id])
         .expect("edge type validation failed");
     assert_eq!(added.len(), 2);
 
@@ -138,11 +134,7 @@ fn test_edge_add_multiple_targets_symmetry() {
     );
 
     // Remove from both groups
-    let removed = sched.edge_remove(
-        member_id,
-        EDGE_GROUPS,
-        vec![group1_id, group2_id].into_iter(),
-    );
+    let removed = sched.edge_remove(member_id, EDGE_GROUPS, vec![group1_id, group2_id]);
     assert_eq!(removed.len(), 2);
 
     // Verify all directions cleared
@@ -207,11 +199,7 @@ fn test_edge_add_multiple_members_from_group_side() {
 
     // Add both members from group side
     let added = sched
-        .edge_add(
-            group_id,
-            EDGE_MEMBERS,
-            vec![member1_id, member2_id].into_iter(),
-        )
+        .edge_add(group_id, EDGE_MEMBERS, vec![member1_id, member2_id])
         .expect("edge type validation failed");
     assert_eq!(added.len(), 2);
 
@@ -232,11 +220,7 @@ fn test_edge_add_multiple_members_from_group_side() {
     );
 
     // Remove both members from group side
-    let removed = sched.edge_remove(
-        group_id,
-        EDGE_MEMBERS,
-        vec![member1_id, member2_id].into_iter(),
-    );
+    let removed = sched.edge_remove(group_id, EDGE_MEMBERS, vec![member1_id, member2_id]);
     assert_eq!(removed.len(), 2);
 
     // Verify all directions cleared

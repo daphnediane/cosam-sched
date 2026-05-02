@@ -55,6 +55,11 @@ pub trait NamedField: 'static + Send + Sync + std::any::Any {
         self.common_data().field_type
     }
 
+    /// CRDT storage type annotation.
+    fn crdt_type(&self) -> CrdtFieldType {
+        self.common_data().crdt_type
+    }
+
     /// Example value for documentation and UI hints.
     fn example(&self) -> &'static str {
         self.common_data().example
@@ -77,9 +82,6 @@ pub trait NamedField: 'static + Send + Sync + std::any::Any {
 
     /// [`crate::entity::EntityType::TYPE_NAME`] for the entity this field belongs to.
     fn entity_type_name(&self) -> &'static str;
-
-    /// CRDT storage type annotation.
-    fn crdt_type(&self) -> CrdtFieldType;
 
     /// Upcast `self` to `Option<&dyn HalfEdge>`.
     fn try_as_half_edge(&self) -> Option<&dyn HalfEdge>;

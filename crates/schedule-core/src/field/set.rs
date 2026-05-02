@@ -260,10 +260,10 @@ impl<E: EntityType> FieldSet<E> {
     pub fn crdt_fields(&self) -> impl Iterator<Item = (&'static str, CrdtFieldType)> + '_ {
         self.fields.iter().filter_map(|d| {
             if matches!(
-                d.crdt_type,
+                d.crdt_type(),
                 CrdtFieldType::Scalar | CrdtFieldType::Text | CrdtFieldType::List
             ) {
-                Some((d.name(), d.crdt_type))
+                Some((d.name(), d.crdt_type()))
             } else {
                 None
             }
@@ -478,12 +478,12 @@ mod tests {
             description: "A text label.",
             aliases: &["tag", "name"],
             field_type: FieldType(FieldCardinality::Single, FieldTypeItem::String),
+            crdt_type: CrdtFieldType::Scalar,
             example: "Hello World",
             order: 0,
         },
         required: true,
         edge_kind: EdgeKind::NonEdge,
-        crdt_type: CrdtFieldType::Scalar,
         cb: FieldCallbacks {
             read_fn: Some(ReadFn::Bare(|d: &MockData| {
                 Some(field_value!(d.label.clone()))
@@ -503,12 +503,12 @@ mod tests {
             description: "An integer count.",
             aliases: &[],
             field_type: FieldType(FieldCardinality::Single, FieldTypeItem::Integer),
+            crdt_type: CrdtFieldType::Scalar,
             example: "7",
             order: 100,
         },
         required: false,
         edge_kind: EdgeKind::NonEdge,
-        crdt_type: CrdtFieldType::Scalar,
         cb: FieldCallbacks {
             read_fn: Some(ReadFn::Bare(|d: &MockData| Some(field_value!(d.count)))),
             write_fn: Some(WriteFn::Bare(|d: &mut MockData, v| {
@@ -526,12 +526,12 @@ mod tests {
             description: "Read-only derived value.",
             aliases: &[],
             field_type: FieldType(FieldCardinality::Single, FieldTypeItem::Integer),
+            crdt_type: CrdtFieldType::Derived,
             example: "42",
             order: 200,
         },
         required: false,
         edge_kind: EdgeKind::NonEdge,
-        crdt_type: CrdtFieldType::Derived,
         cb: FieldCallbacks {
             read_fn: Some(ReadFn::Bare(|_: &MockData| Some(field_value!(42)))),
             write_fn: None,
@@ -770,12 +770,12 @@ mod tests {
             description: "Mirror of `label` but with ReRead verification enabled.",
             aliases: &[],
             field_type: FieldType(FieldCardinality::Single, FieldTypeItem::String),
+            crdt_type: CrdtFieldType::Scalar,
             example: "Hello",
             order: 300,
         },
         required: false,
         edge_kind: EdgeKind::NonEdge,
-        crdt_type: CrdtFieldType::Scalar,
         cb: FieldCallbacks {
             read_fn: Some(ReadFn::Bare(|d: &MockData| {
                 Some(field_value!(d.label.clone()))
@@ -797,12 +797,12 @@ mod tests {
             description: "Ignores its argument and resets `count` to 0.",
             aliases: &[],
             field_type: FieldType(FieldCardinality::Single, FieldTypeItem::Integer),
+            crdt_type: CrdtFieldType::Derived,
             example: "0",
             order: 400,
         },
         required: false,
         edge_kind: EdgeKind::NonEdge,
-        crdt_type: CrdtFieldType::Derived,
         cb: FieldCallbacks {
             read_fn: None,
             write_fn: Some(WriteFn::Bare(|d: &mut MockData, _v| {
@@ -822,12 +822,12 @@ mod tests {
             description: "Writes and then verifies via Bare verify_fn.",
             aliases: &[],
             field_type: FieldType(FieldCardinality::Single, FieldTypeItem::Integer),
+            crdt_type: CrdtFieldType::Scalar,
             example: "7",
             order: 500,
         },
         required: false,
         edge_kind: EdgeKind::NonEdge,
-        crdt_type: CrdtFieldType::Scalar,
         cb: FieldCallbacks {
             read_fn: Some(ReadFn::Bare(|d: &MockData| Some(field_value!(d.count)))),
             write_fn: Some(WriteFn::Bare(|d: &mut MockData, v| {
@@ -861,12 +861,12 @@ mod tests {
             description: "Writes and then verifies via Schedule verify_fn.",
             aliases: &[],
             field_type: FieldType(FieldCardinality::Single, FieldTypeItem::Integer),
+            crdt_type: CrdtFieldType::Scalar,
             example: "7",
             order: 600,
         },
         required: false,
         edge_kind: EdgeKind::NonEdge,
-        crdt_type: CrdtFieldType::Scalar,
         cb: FieldCallbacks {
             read_fn: Some(ReadFn::Bare(|d: &MockData| Some(field_value!(d.count)))),
             write_fn: Some(WriteFn::Bare(|d: &mut MockData, v| {
@@ -1110,12 +1110,12 @@ mod tests {
                 description: "Forces label = 'stomped'.",
                 aliases: &[],
                 field_type: FieldType(FieldCardinality::Single, FieldTypeItem::String),
+                crdt_type: CrdtFieldType::Derived,
                 example: "stomped",
                 order: 700,
             },
             required: false,
             edge_kind: EdgeKind::NonEdge,
-            crdt_type: CrdtFieldType::Derived,
             cb: FieldCallbacks {
                 read_fn: None,
                 write_fn: Some(WriteFn::Bare(|d: &mut MockData, _v| {
