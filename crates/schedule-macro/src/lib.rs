@@ -71,7 +71,6 @@ use proc_macro::TokenStream;
 ///     FieldDescriptor {
 ///         data,
 ///         required: true,
-///         edge_kind: EdgeKind::NonEdge,
 ///         cb,
 ///     }
 /// };
@@ -127,7 +126,6 @@ pub fn accessor_field_properties(input: TokenStream) -> TokenStream {
 /// - Remove closures: 2 args → `RemoveFn::Bare`, 3 args → `RemoveFn::Schedule`
 ///
 /// **Enum variants**: Use directly without wrapping, e.g.:
-/// - `ReadFn::ReadEdges { edges }`
 /// - `WriteFn::Schedule`
 /// - `AddFn::Schedule`
 /// - `RemoveFn::Schedule`
@@ -152,7 +150,6 @@ pub fn accessor_field_properties(input: TokenStream) -> TokenStream {
 ///     FieldDescriptor {
 ///         data,
 ///         required: false,
-///         edge_kind: EdgeKind::NonEdge,
 ///         cb,
 ///     }
 /// };

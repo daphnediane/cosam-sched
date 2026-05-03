@@ -20,7 +20,6 @@
 
 use crate::accessor_field_properties;
 use crate::callback_field_properties;
-use crate::edge::EdgeKind;
 use crate::entity::{EntityId, EntityType, EntityUuid, FieldSet};
 use crate::field::{CollectedField, CollectedHalfEdge, FieldDescriptor, NamedField};
 use crate::field_value;
@@ -228,7 +227,6 @@ inventory::submit! {
             .map(|id| id.entity_uuid())
         },
         snapshot_fn: |schedule, uuid| {
-            use crate::field::ReadableField;
             // SAFETY: uuid came from an existing PanelEntityType entity.
             let id = unsafe { crate::entity::EntityId::<PanelEntityType>::new_unchecked(uuid) };
             PanelEntityType::field_set()
@@ -315,7 +313,6 @@ pub static FIELD_CODE: FieldDescriptor<PanelEntityType> = {
     FieldDescriptor {
         data,
         required: true,
-        edge_kind: EdgeKind::NonEdge,
         cb,
     }
 };
@@ -338,7 +335,6 @@ pub static FIELD_NAME: FieldDescriptor<PanelEntityType> = {
     FieldDescriptor {
         data,
         required: true,
-        edge_kind: EdgeKind::NonEdge,
         cb,
     }
 };
@@ -360,7 +356,6 @@ pub static FIELD_DESCRIPTION: FieldDescriptor<PanelEntityType> = {
     FieldDescriptor {
         data,
         required: false,
-        edge_kind: EdgeKind::NonEdge,
         cb,
     }
 };
@@ -382,7 +377,6 @@ pub static FIELD_NOTE: FieldDescriptor<PanelEntityType> = {
     FieldDescriptor {
         data,
         required: false,
-        edge_kind: EdgeKind::NonEdge,
         cb,
     }
 };
@@ -404,7 +398,6 @@ pub static FIELD_NOTES_NON_PRINTING: FieldDescriptor<PanelEntityType> = {
     FieldDescriptor {
         data,
         required: false,
-        edge_kind: EdgeKind::NonEdge,
         cb,
     }
 };
@@ -426,7 +419,6 @@ pub static FIELD_WORKSHOP_NOTES: FieldDescriptor<PanelEntityType> = {
     FieldDescriptor {
         data,
         required: false,
-        edge_kind: EdgeKind::NonEdge,
         cb,
     }
 };
@@ -448,7 +440,6 @@ pub static FIELD_POWER_NEEDS: FieldDescriptor<PanelEntityType> = {
     FieldDescriptor {
         data,
         required: false,
-        edge_kind: EdgeKind::NonEdge,
         cb,
     }
 };
@@ -471,7 +462,6 @@ pub static FIELD_SEWING_MACHINES: FieldDescriptor<PanelEntityType> = {
     FieldDescriptor {
         data,
         required: false,
-        edge_kind: EdgeKind::NonEdge,
         cb,
     }
 };
@@ -493,7 +483,6 @@ pub static FIELD_AV_NOTES: FieldDescriptor<PanelEntityType> = {
     FieldDescriptor {
         data,
         required: false,
-        edge_kind: EdgeKind::NonEdge,
         cb,
     }
 };
@@ -515,7 +504,6 @@ pub static FIELD_DIFFICULTY: FieldDescriptor<PanelEntityType> = {
     FieldDescriptor {
         data,
         required: false,
-        edge_kind: EdgeKind::NonEdge,
         cb,
     }
 };
@@ -537,7 +525,6 @@ pub static FIELD_PREREQ: FieldDescriptor<PanelEntityType> = {
     FieldDescriptor {
         data,
         required: false,
-        edge_kind: EdgeKind::NonEdge,
         cb,
     }
 };
@@ -559,7 +546,6 @@ pub static FIELD_COST: FieldDescriptor<PanelEntityType> = {
     FieldDescriptor {
         data,
         required: false,
-        edge_kind: EdgeKind::NonEdge,
         cb,
     }
 };
@@ -582,7 +568,6 @@ pub static FIELD_IS_FREE: FieldDescriptor<PanelEntityType> = {
     FieldDescriptor {
         data,
         required: false,
-        edge_kind: EdgeKind::NonEdge,
         cb,
     }
 };
@@ -605,7 +590,6 @@ pub static FIELD_IS_KIDS: FieldDescriptor<PanelEntityType> = {
     FieldDescriptor {
         data,
         required: false,
-        edge_kind: EdgeKind::NonEdge,
         cb,
     }
 };
@@ -628,7 +612,6 @@ pub static FIELD_IS_FULL: FieldDescriptor<PanelEntityType> = {
     FieldDescriptor {
         data,
         required: false,
-        edge_kind: EdgeKind::NonEdge,
         cb,
     }
 };
@@ -650,7 +633,6 @@ pub static FIELD_CAPACITY: FieldDescriptor<PanelEntityType> = {
     FieldDescriptor {
         data,
         required: false,
-        edge_kind: EdgeKind::NonEdge,
         cb,
     }
 };
@@ -672,7 +654,6 @@ pub static FIELD_SEATS_SOLD: FieldDescriptor<PanelEntityType> = {
     FieldDescriptor {
         data,
         required: false,
-        edge_kind: EdgeKind::NonEdge,
         cb,
     }
 };
@@ -694,7 +675,6 @@ pub static FIELD_PRE_REG_MAX: FieldDescriptor<PanelEntityType> = {
     FieldDescriptor {
         data,
         required: false,
-        edge_kind: EdgeKind::NonEdge,
         cb,
     }
 };
@@ -716,7 +696,6 @@ pub static FIELD_TICKET_URL: FieldDescriptor<PanelEntityType> = {
     FieldDescriptor {
         data,
         required: false,
-        edge_kind: EdgeKind::NonEdge,
         cb,
     }
 };
@@ -739,7 +718,6 @@ pub static FIELD_HAVE_TICKET_IMAGE: FieldDescriptor<PanelEntityType> = {
     FieldDescriptor {
         data,
         required: false,
-        edge_kind: EdgeKind::NonEdge,
         cb,
     }
 };
@@ -761,7 +739,6 @@ pub static FIELD_SIMPLETIX_EVENT: FieldDescriptor<PanelEntityType> = {
     FieldDescriptor {
         data,
         required: false,
-        edge_kind: EdgeKind::NonEdge,
         cb,
     }
 };
@@ -783,7 +760,6 @@ pub static FIELD_SIMPLETIX_LINK: FieldDescriptor<PanelEntityType> = {
     FieldDescriptor {
         data,
         required: false,
-        edge_kind: EdgeKind::NonEdge,
         cb,
     }
 };
@@ -806,7 +782,6 @@ pub static FIELD_HIDE_PANELIST: FieldDescriptor<PanelEntityType> = {
     FieldDescriptor {
         data,
         required: false,
-        edge_kind: EdgeKind::NonEdge,
         cb,
     }
 };
@@ -828,7 +803,6 @@ pub static FIELD_ALT_PANELIST: FieldDescriptor<PanelEntityType> = {
     FieldDescriptor {
         data,
         required: false,
-        edge_kind: EdgeKind::NonEdge,
         cb,
     }
 };
@@ -882,7 +856,6 @@ pub static FIELD_START_TIME: FieldDescriptor<PanelEntityType> = {
     FieldDescriptor {
         data,
         required: false,
-        edge_kind: EdgeKind::NonEdge,
         cb,
     }
 };
@@ -934,7 +907,6 @@ pub static FIELD_END_TIME: FieldDescriptor<PanelEntityType> = {
     FieldDescriptor {
         data,
         required: false,
-        edge_kind: EdgeKind::NonEdge,
         cb,
     }
 };
@@ -989,7 +961,6 @@ pub static FIELD_DURATION: FieldDescriptor<PanelEntityType> = {
     FieldDescriptor {
         data,
         required: false,
-        edge_kind: EdgeKind::NonEdge,
         cb,
     }
 };
@@ -997,7 +968,7 @@ inventory::submit! { CollectedField(&FIELD_DURATION) }
 
 // ── Edge-backed computed fields ───────────────────────────────────────────────
 
-pub static HALF_EDGE_CREDITED_PRESENTERS: crate::edge::HalfEdgeDescriptor<PanelEntityType> = {
+pub static HALF_EDGE_CREDITED_PRESENTERS: crate::edge::HalfEdgeDescriptor = {
     crate::edge::HalfEdgeDescriptor {
         data: crate::field::CommonFieldData {
             name: "credited_presenters",
@@ -1016,12 +987,12 @@ pub static HALF_EDGE_CREDITED_PRESENTERS: crate::edge::HalfEdgeDescriptor<PanelE
             target_field: &presenter::HALF_EDGE_PANELS,
             exclusive_with: Some(&HALF_EDGE_UNCREDITED_PRESENTERS),
         },
-        _phantom: std::marker::PhantomData,
+        entity_name: PanelEntityType::TYPE_NAME,
     }
 };
 inventory::submit! { CollectedHalfEdge(&HALF_EDGE_CREDITED_PRESENTERS) }
 
-pub static HALF_EDGE_UNCREDITED_PRESENTERS: crate::edge::HalfEdgeDescriptor<PanelEntityType> = {
+pub static HALF_EDGE_UNCREDITED_PRESENTERS: crate::edge::HalfEdgeDescriptor = {
     crate::edge::HalfEdgeDescriptor {
         data: crate::field::CommonFieldData {
             name: "uncredited_presenters",
@@ -1040,7 +1011,7 @@ pub static HALF_EDGE_UNCREDITED_PRESENTERS: crate::edge::HalfEdgeDescriptor<Pane
             target_field: &presenter::HALF_EDGE_PANELS,
             exclusive_with: Some(&HALF_EDGE_CREDITED_PRESENTERS),
         },
-        _phantom: std::marker::PhantomData,
+        entity_name: PanelEntityType::TYPE_NAME,
     }
 };
 inventory::submit! { CollectedHalfEdge(&HALF_EDGE_UNCREDITED_PRESENTERS) }
@@ -1077,7 +1048,6 @@ pub static FIELD_PRESENTERS: FieldDescriptor<PanelEntityType> = {
     FieldDescriptor {
         data,
         required: false,
-        edge_kind: EdgeKind::NonEdge,
         cb,
     }
 };
@@ -1146,13 +1116,12 @@ pub static FIELD_INCLUSIVE_PRESENTERS: FieldDescriptor<PanelEntityType> = {
     FieldDescriptor {
         data,
         required: false,
-        edge_kind: EdgeKind::NonEdge,
         cb,
     }
 };
 inventory::submit! { CollectedField(&FIELD_INCLUSIVE_PRESENTERS) }
 
-pub static HALF_EDGE_EVENT_ROOMS: crate::edge::HalfEdgeDescriptor<PanelEntityType> = {
+pub static HALF_EDGE_EVENT_ROOMS: crate::edge::HalfEdgeDescriptor = {
     crate::edge::HalfEdgeDescriptor {
         data: crate::field::CommonFieldData {
             name: "event_rooms",
@@ -1171,31 +1140,31 @@ pub static HALF_EDGE_EVENT_ROOMS: crate::edge::HalfEdgeDescriptor<PanelEntityTyp
             target_field: &event_room::HALF_EDGE_PANELS,
             exclusive_with: None,
         },
-        _phantom: std::marker::PhantomData,
+        entity_name: PanelEntityType::TYPE_NAME,
     }
 };
 inventory::submit! { CollectedHalfEdge(&HALF_EDGE_EVENT_ROOMS) }
 
-pub static HALF_EDGE_PANEL_TYPE: crate::edge::HalfEdgeDescriptor<PanelEntityType> = {
+pub static HALF_EDGE_PANEL_TYPE: crate::edge::HalfEdgeDescriptor = {
     crate::edge::HalfEdgeDescriptor {
         data: crate::field::CommonFieldData {
             name: "panel_type",
             display: "Panel Type",
-            description: "Panel type / kind.",
-            aliases: &["kind", "type"],
+            description: "Type of panel (e.g. panel, workshop, roundtable).",
+            aliases: &["type", "kind", "category"],
             field_type: crate::value::FieldType(
-                crate::value::FieldCardinality::Single,
+                crate::value::FieldCardinality::Optional,
                 crate::value::FieldTypeItem::EntityIdentifier(PanelTypeEntityType::TYPE_NAME),
             ),
             crdt_type: crate::crdt::CrdtFieldType::Scalar,
-            example: "{}",
-            order: 3400,
+            example: "panel_type_id",
+            order: 3200,
         },
         edge_kind: crate::edge::EdgeKind::Owner {
             target_field: &panel_type::HALF_EDGE_PANELS,
             exclusive_with: None,
         },
-        _phantom: std::marker::PhantomData,
+        entity_name: PanelEntityType::TYPE_NAME,
     }
 };
 inventory::submit! { CollectedHalfEdge(&HALF_EDGE_PANEL_TYPE) }
@@ -1263,7 +1232,6 @@ pub static FIELD_HOTEL_ROOMS: FieldDescriptor<PanelEntityType> = {
     FieldDescriptor {
         data,
         required: false,
-        edge_kind: EdgeKind::NonEdge,
         cb,
     }
 };
@@ -1477,7 +1445,6 @@ pub static FIELD_CREDITS: FieldDescriptor<PanelEntityType> = {
     FieldDescriptor {
         data,
         required: false,
-        edge_kind: EdgeKind::NonEdge,
         cb,
     }
 };

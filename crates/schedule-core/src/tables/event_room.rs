@@ -17,7 +17,6 @@
 //! `Schedule::edges_to`.
 
 use crate::accessor_field_properties;
-use crate::edge::EdgeKind;
 use crate::entity::{EntityId, EntityType, EntityUuid, FieldSet, UuidPreference};
 use crate::field::{CollectedField, CollectedHalfEdge, FieldDescriptor, NamedField};
 use crate::query::converter::EntityStringResolver;
@@ -152,7 +151,6 @@ inventory::submit! {
             .map(|id| id.entity_uuid())
         },
         snapshot_fn: |schedule, uuid| {
-            use crate::field::ReadableField;
             // SAFETY: uuid came from an existing EventRoomEntityType entity.
             let id = unsafe { crate::entity::EntityId::<EventRoomEntityType>::new_unchecked(uuid) };
             EventRoomEntityType::field_set()
@@ -214,7 +212,6 @@ pub static FIELD_ROOM_NAME: FieldDescriptor<EventRoomEntityType> = {
     FieldDescriptor {
         data,
         required: true,
-        edge_kind: EdgeKind::NonEdge,
         cb,
     }
 };
@@ -237,7 +234,6 @@ pub static FIELD_LONG_NAME: FieldDescriptor<EventRoomEntityType> = {
     FieldDescriptor {
         data,
         required: false,
-        edge_kind: EdgeKind::NonEdge,
         cb,
     }
 };
@@ -259,7 +255,6 @@ pub static FIELD_SORT_KEY: FieldDescriptor<EventRoomEntityType> = {
     FieldDescriptor {
         data,
         required: false,
-        edge_kind: EdgeKind::NonEdge,
         cb,
     }
 };
@@ -267,7 +262,7 @@ inventory::submit! { CollectedField(&FIELD_SORT_KEY) }
 
 // ── Edge-backed computed fields ─────────────────────────────────────
 
-pub static HALF_EDGE_HOTEL_ROOMS: crate::edge::HalfEdgeDescriptor<EventRoomEntityType> = {
+pub static HALF_EDGE_HOTEL_ROOMS: crate::edge::HalfEdgeDescriptor = {
     crate::edge::HalfEdgeDescriptor {
         data: crate::field::CommonFieldData {
             name: "hotel_rooms",
@@ -286,12 +281,12 @@ pub static HALF_EDGE_HOTEL_ROOMS: crate::edge::HalfEdgeDescriptor<EventRoomEntit
             target_field: &hotel_room::HALF_EDGE_EVENT_ROOMS,
             exclusive_with: None,
         },
-        _phantom: std::marker::PhantomData,
+        entity_name: EventRoomEntityType::TYPE_NAME,
     }
 };
 inventory::submit! { CollectedHalfEdge(&HALF_EDGE_HOTEL_ROOMS) }
 
-pub static HALF_EDGE_PANELS: crate::edge::HalfEdgeDescriptor<EventRoomEntityType> = {
+pub static HALF_EDGE_PANELS: crate::edge::HalfEdgeDescriptor = {
     crate::edge::HalfEdgeDescriptor {
         data: crate::field::CommonFieldData {
             name: "panels",
@@ -309,7 +304,7 @@ pub static HALF_EDGE_PANELS: crate::edge::HalfEdgeDescriptor<EventRoomEntityType
         edge_kind: crate::edge::EdgeKind::Target {
             source_fields: &[&panel::HALF_EDGE_EVENT_ROOMS],
         },
-        _phantom: std::marker::PhantomData,
+        entity_name: EventRoomEntityType::TYPE_NAME,
     }
 };
 inventory::submit! { CollectedHalfEdge(&HALF_EDGE_PANELS) }

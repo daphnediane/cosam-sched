@@ -16,7 +16,6 @@
 
 use crate::accessor_field_properties;
 use crate::callback_field_properties;
-use crate::edge::EdgeKind;
 use crate::entity::{EntityId, EntityType, EntityUuid, UuidPreference};
 use crate::field::set::FieldSet;
 use crate::field::{CollectedField, CollectedHalfEdge, FieldDescriptor, NamedField};
@@ -183,7 +182,6 @@ inventory::submit! {
             .map(|id| id.entity_uuid())
         },
         snapshot_fn: |schedule, uuid| {
-            use crate::field::ReadableField;
             // SAFETY: uuid came from an existing PanelTypeEntityType entity.
             let id = unsafe { crate::entity::EntityId::<PanelTypeEntityType>::new_unchecked(uuid) };
             PanelTypeEntityType::field_set()
@@ -245,7 +243,6 @@ pub static FIELD_PREFIX: FieldDescriptor<PanelTypeEntityType> = {
     FieldDescriptor {
         data,
         required: true,
-        edge_kind: EdgeKind::NonEdge,
         cb,
     }
 };
@@ -267,7 +264,6 @@ pub static FIELD_PANEL_KIND: FieldDescriptor<PanelTypeEntityType> = {
     FieldDescriptor {
         data,
         required: true,
-        edge_kind: EdgeKind::NonEdge,
         cb,
     }
 };
@@ -289,7 +285,6 @@ pub static FIELD_HIDDEN: FieldDescriptor<PanelTypeEntityType> = {
     FieldDescriptor {
         data,
         required: false,
-        edge_kind: EdgeKind::NonEdge,
         cb,
     }
 };
@@ -311,7 +306,6 @@ pub static FIELD_IS_WORKSHOP: FieldDescriptor<PanelTypeEntityType> = {
     FieldDescriptor {
         data,
         required: false,
-        edge_kind: EdgeKind::NonEdge,
         cb,
     }
 };
@@ -333,7 +327,6 @@ pub static FIELD_IS_BREAK: FieldDescriptor<PanelTypeEntityType> = {
     FieldDescriptor {
         data,
         required: false,
-        edge_kind: EdgeKind::NonEdge,
         cb,
     }
 };
@@ -355,7 +348,6 @@ pub static FIELD_IS_CAFE: FieldDescriptor<PanelTypeEntityType> = {
     FieldDescriptor {
         data,
         required: false,
-        edge_kind: EdgeKind::NonEdge,
         cb,
     }
 };
@@ -377,7 +369,6 @@ pub static FIELD_IS_ROOM_HOURS: FieldDescriptor<PanelTypeEntityType> = {
     FieldDescriptor {
         data,
         required: false,
-        edge_kind: EdgeKind::NonEdge,
         cb,
     }
 };
@@ -399,7 +390,6 @@ pub static FIELD_IS_TIMELINE: FieldDescriptor<PanelTypeEntityType> = {
     FieldDescriptor {
         data,
         required: false,
-        edge_kind: EdgeKind::NonEdge,
         cb,
     }
 };
@@ -421,7 +411,6 @@ pub static FIELD_IS_PRIVATE: FieldDescriptor<PanelTypeEntityType> = {
     FieldDescriptor {
         data,
         required: false,
-        edge_kind: EdgeKind::NonEdge,
         cb,
     }
 };
@@ -443,7 +432,6 @@ pub static FIELD_COLOR: FieldDescriptor<PanelTypeEntityType> = {
     FieldDescriptor {
         data,
         required: false,
-        edge_kind: EdgeKind::NonEdge,
         cb,
     }
 };
@@ -465,7 +453,6 @@ pub static FIELD_BW: FieldDescriptor<PanelTypeEntityType> = {
     FieldDescriptor {
         data,
         required: false,
-        edge_kind: EdgeKind::NonEdge,
         cb,
     }
 };
@@ -499,14 +486,13 @@ pub static FIELD_DISPLAY_NAME: FieldDescriptor<PanelTypeEntityType> = {
     FieldDescriptor {
         data,
         required: false,
-        edge_kind: EdgeKind::NonEdge,
         cb,
     }
 };
 inventory::submit! { CollectedField(&FIELD_DISPLAY_NAME) }
 
 // Panels of this type — reverse heterogeneous edge from Panel → PanelType.
-pub static HALF_EDGE_PANELS: crate::edge::HalfEdgeDescriptor<PanelTypeEntityType> = {
+pub static HALF_EDGE_PANELS: crate::edge::HalfEdgeDescriptor = {
     crate::edge::HalfEdgeDescriptor {
         data: crate::field::CommonFieldData {
             name: "panels",
@@ -524,7 +510,7 @@ pub static HALF_EDGE_PANELS: crate::edge::HalfEdgeDescriptor<PanelTypeEntityType
         edge_kind: crate::edge::EdgeKind::Target {
             source_fields: &[&panel::HALF_EDGE_PANEL_TYPE],
         },
-        _phantom: std::marker::PhantomData,
+        entity_name: PanelTypeEntityType::TYPE_NAME,
     }
 };
 inventory::submit! { CollectedHalfEdge(&HALF_EDGE_PANELS) }

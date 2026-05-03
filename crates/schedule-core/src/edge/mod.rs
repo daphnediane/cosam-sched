@@ -17,4 +17,4 @@ pub use cache::TransitiveEdgeCache;
 pub use descriptor::{EdgeKind, HalfEdgeDescriptor};
 pub use id::FullEdge;
 pub use map::RawEdgeMap;
-pub use traits::{HalfEdge, TypedHalfEdge};
+pub use traits::HalfEdge;

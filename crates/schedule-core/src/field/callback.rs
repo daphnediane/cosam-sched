@@ -9,7 +9,6 @@
 use crate::entity::{EntityId, EntityType};
 use crate::schedule::Schedule;
 use crate::value::{FieldError, FieldValue};
-use crate::FullEdge;
 
 // ── FieldCallbacks<E> ───────────────────────────────────────────────────────────
 
@@ -38,8 +37,6 @@ pub enum ReadFn<E: EntityType> {
     /// Schedule-aware read — fn receives `(&Schedule, EntityId<E>)` and
     /// performs its own entity lookup internally.
     Schedule(fn(&Schedule, EntityId<E>) -> Option<FieldValue>),
-    /// Get Entities connected to this entity via a list of full edges.
-    ReadEdges { edges: &'static [&'static FullEdge] },
 }
 
 // ── WriteFn<E> ────────────────────────────────────────────────────────────────

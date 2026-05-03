@@ -43,10 +43,7 @@
 use crate::crdt::CrdtFieldType;
 use crate::edge::HalfEdgeDescriptor;
 use crate::entity::EntityType;
-use crate::field::{
-    traits::{AddableField, ReadableField, RemovableField, WritableField},
-    FieldDescriptor, NamedField,
-};
+use crate::field::{FieldDescriptor, NamedField};
 use crate::schedule::Schedule;
 use crate::value::{FieldError, FieldValue, IntoFieldValue};
 use std::collections::HashMap;
@@ -72,7 +69,7 @@ pub enum ResolvedRef<E: EntityType> {
     /// A plain (non-edge) [`FieldDescriptor`].
     Field(&'static FieldDescriptor<E>),
     /// A [`HalfEdgeDescriptor`].
-    HalfEdge(&'static HalfEdgeDescriptor<E>),
+    HalfEdge(&'static HalfEdgeDescriptor),
 }
 
 impl<E: EntityType> ResolvedRef<E> {
@@ -202,7 +199,7 @@ pub enum FieldRef<E: EntityType> {
     ///
     /// Bypasses the name-map lookup and is the form produced by the
     /// `define_entity_builder!` macro for edge fields.
-    HalfEdge(&'static HalfEdgeDescriptor<E>),
+    HalfEdge(&'static HalfEdgeDescriptor),
 }
 
 impl<E: EntityType> From<&'static str> for FieldRef<E> {
@@ -217,8 +214,8 @@ impl<E: EntityType> From<&'static FieldDescriptor<E>> for FieldRef<E> {
     }
 }
 
-impl<E: EntityType> From<&'static HalfEdgeDescriptor<E>> for FieldRef<E> {
-    fn from(desc: &'static HalfEdgeDescriptor<E>) -> Self {
+impl<E: EntityType> From<&'static HalfEdgeDescriptor> for FieldRef<E> {
+    fn from(desc: &'static HalfEdgeDescriptor) -> Self {
         FieldRef::HalfEdge(desc)
     }
 }
@@ -332,7 +329,7 @@ pub struct FieldSet<E: EntityType> {
     /// Plain (non-edge) descriptors in declaration order.
     fields: Vec<&'static FieldDescriptor<E>>,
     /// Half-edge descriptors in declaration order.
-    edges: Vec<&'static HalfEdgeDescriptor<E>>,
+    edges: Vec<&'static HalfEdgeDescriptor>,
     /// Maps every canonical name **and** alias → index discriminant.
     name_map: HashMap<String, FieldIndex>,
     /// Indices into `fields` where `required == true`.
@@ -359,9 +356,9 @@ impl<E: EntityType> FieldSet<E> {
             .collect();
         field_descs.sort_by_key(|d| d.order());
 
-        let mut edge_descs: Vec<&'static HalfEdgeDescriptor<E>> = all_half_edges()
+        let mut edge_descs: Vec<&'static HalfEdgeDescriptor> = all_half_edges()
             .filter(|ce| ce.0.entity_type_name() == E::TYPE_NAME)
-            .filter_map(|ce| (ce.0 as &dyn Any).downcast_ref::<HalfEdgeDescriptor<E>>())
+            .filter_map(|ce| (ce.0 as &dyn Any).downcast_ref::<HalfEdgeDescriptor>())
             .collect();
         edge_descs.sort_by_key(|d| d.order());
 
@@ -380,10 +377,10 @@ impl<E: EntityType> FieldSet<E> {
 
     fn from_slices(
         field_descs: &[&'static FieldDescriptor<E>],
-        edge_descs: &[&'static HalfEdgeDescriptor<E>],
+        edge_descs: &[&'static HalfEdgeDescriptor],
     ) -> Self {
         let fields: Vec<&'static FieldDescriptor<E>> = field_descs.to_vec();
-        let edges: Vec<&'static HalfEdgeDescriptor<E>> = edge_descs.to_vec();
+        let edges: Vec<&'static HalfEdgeDescriptor> = edge_descs.to_vec();
         let mut name_map: HashMap<String, FieldIndex> = HashMap::new();
         let mut required = Vec::new();
         let mut readable = Vec::new();
@@ -447,7 +444,7 @@ impl<E: EntityType> FieldSet<E> {
     }
 
     /// Iterate half-edge descriptors in declaration order.
-    pub fn half_edges(&self) -> impl Iterator<Item = &'static HalfEdgeDescriptor<E>> + '_ {
+    pub fn half_edges(&self) -> impl Iterator<Item = &'static HalfEdgeDescriptor> + '_ {
         self.edges.iter().copied()
     }
 
@@ -631,7 +628,7 @@ impl<E: EntityType> FieldSet<E> {
     ) -> Result<(ResolvedRef<E>, FieldOp), FieldSetError> {
         match field_ref {
             FieldRef::Field(d) => Ok((ResolvedRef::Field(*d), op)),
-            FieldRef::HalfEdge(d) => Ok((ResolvedRef::HalfEdge(*d), op)),
+            FieldRef::HalfEdge(d) => Ok((ResolvedRef::HalfEdge(d), op)),
             FieldRef::Name(name) => {
                 if let Some(resolved) = self.get_by_name(name) {
                     return Ok((resolved, op));
@@ -665,7 +662,6 @@ impl<E: EntityType> FieldSet<E> {
 mod tests {
     use super::*;
     use crate::crdt::CrdtFieldType;
-    use crate::edge::EdgeKind;
     use crate::entity::{EntityId, EntityType};
     use crate::field::{CommonFieldData, FieldCallbacks, ReadFn, WriteFn};
     use crate::field_value;
@@ -722,7 +718,6 @@ mod tests {
             order: 0,
         },
         required: true,
-        edge_kind: EdgeKind::NonEdge,
         cb: FieldCallbacks {
             read_fn: Some(ReadFn::Bare(|d: &MockData| {
                 Some(field_value!(d.label.clone()))
@@ -748,7 +743,6 @@ mod tests {
             order: 100,
         },
         required: false,
-        edge_kind: EdgeKind::NonEdge,
         cb: FieldCallbacks {
             read_fn: Some(ReadFn::Bare(|d: &MockData| Some(field_value!(d.count)))),
             write_fn: Some(WriteFn::Bare(|d: &mut MockData, v| {
@@ -772,7 +766,6 @@ mod tests {
             order: 200,
         },
         required: false,
-        edge_kind: EdgeKind::NonEdge,
         cb: FieldCallbacks {
             read_fn: Some(ReadFn::Bare(|_: &MockData| Some(field_value!(42)))),
             write_fn: None,

@@ -469,7 +469,6 @@ pub fn read_edge<E: EntityType>(
                 }
             }
         }
-        EdgeKind::NonEdge => Ok(Some(FieldValue::List(vec![]))),
     }
 }
 
@@ -590,11 +589,6 @@ pub fn write_edge<E: EntityType>(
                 }
             }
         }
-        EdgeKind::NonEdge => {
-            return Err(FieldError::Conversion(ConversionError::InvalidEdge {
-                reason: "NonEdge fields cannot use write_edge".to_string(),
-            }));
-        }
     };
 
     // Construct FullEdge for edge_set
@@ -650,11 +644,6 @@ pub fn add_edge<E: EntityType>(
                 }
             }
         }
-        EdgeKind::NonEdge => {
-            return Err(FieldError::Conversion(ConversionError::InvalidEdge {
-                reason: "NonEdge fields cannot use add_edge".to_string(),
-            }));
-        }
     };
 
     // Construct FullEdge for edge_add
@@ -704,11 +693,6 @@ pub fn remove_edge<E: EntityType>(
                 schedule.edge_remove(id, edge, target_ids.clone());
             }
             return Ok(());
-        }
-        EdgeKind::NonEdge => {
-            return Err(FieldError::Conversion(ConversionError::InvalidEdge {
-                reason: "NonEdge fields cannot use remove_edge".to_string(),
-            }));
         }
     };
 

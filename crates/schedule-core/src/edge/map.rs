@@ -353,8 +353,9 @@ mod tests {
     use crate::edge::EdgeKind;
     use crate::entity::{EntityType, RuntimeEntityId};
     use crate::field::set::FieldSet;
-    use crate::field::{CommonFieldData, FieldCallbacks, FieldDescriptor};
+    use crate::field::CommonFieldData;
     use crate::value::{FieldCardinality, FieldType, FieldTypeItem, ValidationError};
+    use crate::HalfEdgeDescriptor;
     use uuid::{NonNilUuid, Uuid};
 
     // ── Minimal mock entity types ────────────────────────────────────────────
@@ -405,9 +406,9 @@ mod tests {
         }
     }
 
-    // ── Static field descriptors for two TypeA fields and one TypeB field ────
+    // ── Static edge descriptors for two TypeA fields and one TypeB field ────
 
-    static FIELD_A1: FieldDescriptor<TypeA> = FieldDescriptor {
+    static FIELD_A1: HalfEdgeDescriptor = HalfEdgeDescriptor {
         data: CommonFieldData {
             name: "a1",
             display: "A1",
@@ -418,17 +419,13 @@ mod tests {
             example: "",
             order: 0,
         },
-        required: false,
-        edge_kind: EdgeKind::NonEdge,
-        cb: FieldCallbacks {
-            read_fn: None,
-            write_fn: None,
-            add_fn: None,
-            remove_fn: None,
+        edge_kind: EdgeKind::Target {
+            source_fields: &[&FIELD_B1, &FIELD_A2],
         },
+        entity_name: "type_a",
     };
 
-    static FIELD_A2: FieldDescriptor<TypeA> = FieldDescriptor {
+    static FIELD_A2: HalfEdgeDescriptor = HalfEdgeDescriptor {
         data: CommonFieldData {
             name: "a2",
             display: "A2",
@@ -439,17 +436,14 @@ mod tests {
             example: "",
             order: 1,
         },
-        required: false,
-        edge_kind: EdgeKind::NonEdge,
-        cb: FieldCallbacks {
-            read_fn: None,
-            write_fn: None,
-            add_fn: None,
-            remove_fn: None,
+        edge_kind: EdgeKind::Owner {
+            target_field: &FIELD_A1,
+            exclusive_with: None,
         },
+        entity_name: "type_a",
     };
 
-    static FIELD_B1: FieldDescriptor<TypeB> = FieldDescriptor {
+    static FIELD_B1: HalfEdgeDescriptor = HalfEdgeDescriptor {
         data: CommonFieldData {
             name: "b1",
             display: "B1",
@@ -460,14 +454,11 @@ mod tests {
             example: "",
             order: 0,
         },
-        required: false,
-        edge_kind: EdgeKind::NonEdge,
-        cb: FieldCallbacks {
-            read_fn: None,
-            write_fn: None,
-            add_fn: None,
-            remove_fn: None,
+        edge_kind: EdgeKind::Owner {
+            target_field: &FIELD_A1,
+            exclusive_with: None,
         },
+        entity_name: "type_b",
     };
 
     fn fn_a1(n: u128) -> RuntimeEntityId {

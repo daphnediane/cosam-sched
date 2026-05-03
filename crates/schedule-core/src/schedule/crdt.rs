@@ -10,7 +10,7 @@ use crate::crdt::CrdtFieldType;
 use crate::crdt::{self, CrdtError};
 use crate::edge::{EdgeKind, FullEdge, HalfEdge, RawEdgeMap};
 use crate::entity::{registered_entity_types, EntityType, EntityUuid};
-use crate::field::{NamedField, ReadableField};
+use crate::field::NamedField;
 use crate::value::{FieldError, FieldValue};
 use crate::EntityId;
 use automerge::AutoCommit;

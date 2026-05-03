@@ -7,12 +7,9 @@
 //! Field descriptor types: [`FieldDescriptor<E>`].
 
 use crate::edge::traits::HalfEdge;
-use crate::edge::EdgeKind;
 use crate::entity::{EntityId, EntityType};
 use crate::field::callback::{FieldCallbacks, ReadFn, WriteFn};
-use crate::field::traits::{
-    AddableField, NamedField, ReadableField, RemovableField, WritableField,
-};
+use crate::field::traits::NamedField;
 use crate::schedule::Schedule;
 use crate::value::{FieldError, FieldValue};
 
@@ -41,7 +38,6 @@ use crate::value::{FieldError, FieldValue};
 ///         order: 0,
 ///     },
 ///     required: true,
-///     edge_kind: EdgeKind::NonEdge,
 ///     cb: accessor_callbacks!(PanelEntityType, required, name, AsString),
 /// };
 ///
@@ -57,7 +53,6 @@ use crate::value::{FieldError, FieldValue};
 ///         order: 10,
 ///     },
 ///     required: false,
-///     edge_kind: EdgeKind::NonEdge,
 ///     cb: FieldCallbacks {
 ///         read_fn: None,
 ///         write_fn: Some(WriteFn::Schedule(|schedule, id, v| { todo!() })),
@@ -69,8 +64,6 @@ pub struct FieldDescriptor<E: EntityType> {
     pub(crate) data: super::CommonFieldData,
     /// Whether the field is required (must be non-empty).
     pub required: bool,
-    /// Edge ownership and relationship metadata -- (To be removed once EdgeDescriptor is live)
-    pub edge_kind: EdgeKind,
     /// Callback functions for read/write operations
     pub(crate) cb: FieldCallbacks<E>,
 }
@@ -85,43 +78,26 @@ impl<E: EntityType> NamedField for FieldDescriptor<E> {
     }
 
     fn try_as_half_edge(&self) -> Option<&dyn HalfEdge> {
-        Some(self)
+        None
     }
 }
 
-impl<E: EntityType> HalfEdge for FieldDescriptor<E> {
-    fn edge_kind(&self) -> &EdgeKind {
-        &self.edge_kind
-    }
-
-    fn edge_id(&self) -> &'static dyn HalfEdge {
-        // SAFETY: self is a &'static EdgeDescriptor<E> (edge descriptors are static singletons).
-        unsafe { std::mem::transmute(self as &dyn HalfEdge) }
-    }
-
-    fn as_named_field(&self) -> &dyn NamedField {
-        self
-    }
-}
-
-impl<E: EntityType> ReadableField<E> for FieldDescriptor<E> {
-    fn read(&self, id: EntityId<E>, schedule: &Schedule) -> Result<Option<FieldValue>, FieldError> {
+impl<E: EntityType> FieldDescriptor<E> {
+    pub fn read(
+        &self,
+        id: EntityId<E>,
+        schedule: &Schedule,
+    ) -> Result<Option<FieldValue>, FieldError> {
         match &self.cb.read_fn {
             None => Err(FieldError::WriteOnly {
                 name: self.data.name,
             }),
             Some(ReadFn::Bare(f)) => Ok(schedule.get_internal::<E>(id).and_then(f)),
             Some(ReadFn::Schedule(f)) => Ok(f(schedule, id)),
-            Some(ReadFn::ReadEdges { edges }) => {
-                // Read entities connected via multiple full edges
-                crate::schedule::combine_full_edges(schedule, id, edges)
-            }
         }
     }
-}
 
-impl<E: EntityType> WritableField<E> for FieldDescriptor<E> {
-    fn write(
+    pub fn write(
         &self,
         id: EntityId<E>,
         schedule: &mut Schedule,
@@ -168,10 +144,8 @@ impl<E: EntityType> WritableField<E> for FieldDescriptor<E> {
             value_opt.as_ref(),
         )
     }
-}
 
-impl<E: EntityType> AddableField<E> for FieldDescriptor<E> {
-    fn add(
+    pub fn add(
         &self,
         id: EntityId<E>,
         schedule: &mut Schedule,
@@ -194,10 +168,8 @@ impl<E: EntityType> AddableField<E> for FieldDescriptor<E> {
             },
         }
     }
-}
 
-impl<E: EntityType> RemovableField<E> for FieldDescriptor<E> {
-    fn remove(
+    pub fn remove(
         &self,
         id: EntityId<E>,
         schedule: &mut Schedule,
@@ -219,15 +191,5 @@ impl<E: EntityType> RemovableField<E> for FieldDescriptor<E> {
                 crate::field::callback::RemoveFn::Schedule(f) => f(schedule, id, value),
             },
         }
-    }
-}
-
-impl<E: EntityType> FieldDescriptor<E> {
-    /// Get the full edge connecting this field to another field.
-    pub const fn edge_to<F: EntityType>(
-        &'static self,
-        far: &'static FieldDescriptor<F>,
-    ) -> crate::edge::id::FullEdge {
-        crate::edge::id::FullEdge { near: self, far }
     }
 }

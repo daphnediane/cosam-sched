@@ -7,9 +7,7 @@
 //! Edge descriptor type: [`EdgeDescriptor<E>`].
 
 use crate::edge::traits::HalfEdge;
-use crate::entity::EntityType;
 use crate::field::{CommonFieldData, NamedField};
-use std::marker::PhantomData;
 
 // ── EdgeKind ─────────────────────────────────────────────────────────────────
 
@@ -49,9 +47,6 @@ pub enum EdgeKind {
         /// this one (e.g. credited vs uncredited presenter lists).
         exclusive_with: Option<&'static dyn crate::edge::HalfEdge>,
     },
-    /// Temporary value for non-edges for use by FieldDescriptor
-    /// before we separate the descriptor types
-    NonEdge,
 }
 
 impl EdgeKind {
@@ -67,7 +62,6 @@ impl EdgeKind {
         match self {
             Self::Owner { target_field, .. } => Some(*target_field),
             Self::Target { .. } => None,
-            Self::NonEdge => None,
         }
     }
 
@@ -77,7 +71,6 @@ impl EdgeKind {
         match self {
             Self::Target { source_fields } => Some(source_fields),
             Self::Owner { .. } => None,
-            Self::NonEdge => None,
         }
     }
 }
@@ -119,7 +112,6 @@ impl std::fmt::Debug for EdgeKind {
                 .field("target_field", &target_field.name())
                 .field("exclusive_with", &exclusive_with.map(|e| e.name()))
                 .finish(),
-            Self::NonEdge => f.write_str("NonEdge"),
         }
     }
 }
@@ -153,19 +145,19 @@ impl std::fmt::Debug for EdgeKind {
 /// ```
 ///
 /// [`FieldDescriptor<E>`]: crate::field::FieldDescriptor
-pub struct HalfEdgeDescriptor<E: EntityType> {
+pub struct HalfEdgeDescriptor {
     pub(crate) data: CommonFieldData,
     pub edge_kind: EdgeKind,
-    pub _phantom: PhantomData<E>,
+    pub entity_name: &'static str,
 }
 
-impl<E: EntityType + Send + Sync> NamedField for HalfEdgeDescriptor<E> {
+impl NamedField for HalfEdgeDescriptor {
     fn common_data(&self) -> &CommonFieldData {
         &self.data
     }
 
     fn entity_type_name(&self) -> &'static str {
-        E::TYPE_NAME
+        self.entity_name
     }
 
     fn try_as_half_edge(&self) -> Option<&dyn HalfEdge> {
@@ -173,13 +165,13 @@ impl<E: EntityType + Send + Sync> NamedField for HalfEdgeDescriptor<E> {
     }
 }
 
-impl<E: EntityType> HalfEdge for HalfEdgeDescriptor<E> {
+impl HalfEdge for HalfEdgeDescriptor {
     fn edge_kind(&self) -> &EdgeKind {
         &self.edge_kind
     }
 
     fn edge_id(&self) -> &'static dyn HalfEdge {
-        // SAFETY: self is a &'static EdgeDescriptor<E> (edge descriptors are static singletons).
+        // SAFETY: self is a &'static HalfEdgeDescriptor (edge descriptors are static singletons).
         unsafe { std::mem::transmute(self as &dyn HalfEdge) }
     }
 
@@ -188,11 +180,11 @@ impl<E: EntityType> HalfEdge for HalfEdgeDescriptor<E> {
     }
 }
 
-impl<E: EntityType> HalfEdgeDescriptor<E> {
+impl HalfEdgeDescriptor {
     /// Get the full edge connecting this field to another field.
-    pub const fn edge_to<F: EntityType>(
+    pub const fn edge_to(
         &'static self,
-        far: &'static HalfEdgeDescriptor<F>,
+        far: &'static HalfEdgeDescriptor,
     ) -> crate::edge::id::FullEdge {
         crate::edge::id::FullEdge { near: self, far }
     }
@@ -212,9 +204,6 @@ mod tests {
 
         let target = EdgeKind::Target { source_fields: &[] };
         assert!(!target.is_owner());
-
-        let non_edge = EdgeKind::NonEdge;
-        assert!(!non_edge.is_owner());
     }
 
     #[test]
@@ -228,9 +217,6 @@ mod tests {
 
         let target = EdgeKind::Target { source_fields: &[] };
         assert!(target.target_field().is_none());
-
-        let non_edge = EdgeKind::NonEdge;
-        assert!(non_edge.target_field().is_none());
     }
 
     #[test]
@@ -244,9 +230,6 @@ mod tests {
             exclusive_with: None,
         };
         assert!(owner.source_fields().is_none());
-
-        let non_edge = EdgeKind::NonEdge;
-        assert!(non_edge.source_fields().is_none());
     }
 
     #[test]
@@ -308,12 +291,5 @@ mod tests {
         };
         let s = format!("{:?}", owner);
         assert!(s.contains("Owner"));
-    }
-
-    #[test]
-    fn test_edge_kind_debug_non_edge() {
-        let non_edge = EdgeKind::NonEdge;
-        let s = format!("{:?}", non_edge);
-        assert_eq!(s, "NonEdge");
     }
 }

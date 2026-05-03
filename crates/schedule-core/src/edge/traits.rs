@@ -4,14 +4,13 @@
  * See LICENSE file for full license text
  */
 
-//! Edge trait hierarchy: [`HalfEdge`] and [`TypedHalfEdge`].
+//! Edge trait hierarchy: [`HalfEdge`].
 //!
 //! These types were extracted from `field.rs` so the `edge` module can own
 //! edge-specific semantics independently of the general field trait hierarchy.
 
 use crate::edge::EdgeKind;
-use crate::entity::EntityType;
-use crate::field::{NamedField, TypedField};
+use crate::field::NamedField;
 
 // ── HalfEdge ─────────────────────────────────────────────────────────────────
 
@@ -39,13 +38,3 @@ pub trait HalfEdge: NamedField {
     /// Upcast `self` to `&'dyn NamedField`.
     fn as_named_field(&self) -> &dyn NamedField;
 }
-
-// ── TypedHalfEdge<E> ─────────────────────────────────────────────────────────
-
-/// Entity-typed edge half-edge: combines [`HalfEdge`] with [`TypedField<E>`].
-///
-/// A blanket implementation covers any type that is both a [`HalfEdge`] and a
-/// [`TypedField<E>`].
-pub trait TypedHalfEdge<E: EntityType>: HalfEdge + TypedField<E> {}
-
-impl<E: EntityType, T: HalfEdge + TypedField<E>> TypedHalfEdge<E> for T {}

@@ -214,19 +214,14 @@ impl TryFrom<&'static dyn HalfEdge> for FullEdge {
                     }),
                 }
             }
-            crate::edge::EdgeKind::NonEdge => Err(ConversionError::InvalidEdge {
-                reason: "Non-edge fields cannot form a FullEdge".to_string(),
-            }),
         }
     }
 }
 
-impl<E: EntityType> TryFrom<&'static crate::edge::HalfEdgeDescriptor<E>> for FullEdge {
+impl TryFrom<&'static crate::edge::HalfEdgeDescriptor> for FullEdge {
     type Error = ConversionError;
 
-    fn try_from(
-        descriptor: &'static crate::edge::HalfEdgeDescriptor<E>,
-    ) -> Result<Self, Self::Error> {
+    fn try_from(descriptor: &'static crate::edge::HalfEdgeDescriptor) -> Result<Self, Self::Error> {
         // EdgeDescriptor implements HalfEdge, so delegate to that implementation
         Self::try_from(descriptor as &'static dyn HalfEdge)
     }

@@ -19,7 +19,6 @@
 
 use crate::accessor_field_properties;
 use crate::callback_field_properties;
-use crate::edge::EdgeKind;
 use crate::entity::{EntityId, EntityType, EntityUuid, FieldSet, UuidPreference};
 use crate::field::{CollectedField, CollectedHalfEdge, FieldDescriptor, NamedField};
 use crate::field_value;
@@ -372,7 +371,6 @@ inventory::submit! {
             .map(|id| id.entity_uuid())
         },
         snapshot_fn: |schedule, uuid| {
-            use crate::field::ReadableField;
             // SAFETY: uuid came from an existing PresenterEntityType entity.
             let id = unsafe { crate::entity::EntityId::<PresenterEntityType>::new_unchecked(uuid) };
             PresenterEntityType::field_set()
@@ -722,7 +720,6 @@ pub static FIELD_NAME: FieldDescriptor<PresenterEntityType> = {
     FieldDescriptor {
         data,
         required: true,
-        edge_kind: EdgeKind::NonEdge,
         cb,
     }
 };
@@ -753,7 +750,6 @@ pub static FIELD_RANK: FieldDescriptor<PresenterEntityType> = {
     FieldDescriptor {
         data,
         required: false,
-        edge_kind: EdgeKind::NonEdge,
         cb,
     }
 };
@@ -775,7 +771,6 @@ pub static FIELD_BIO: FieldDescriptor<PresenterEntityType> = {
     FieldDescriptor {
         data,
         required: false,
-        edge_kind: EdgeKind::NonEdge,
         cb,
     }
 };
@@ -798,7 +793,6 @@ pub static FIELD_IS_EXPLICIT_GROUP: FieldDescriptor<PresenterEntityType> = {
     FieldDescriptor {
         data,
         required: false,
-        edge_kind: EdgeKind::NonEdge,
         cb,
     }
 };
@@ -821,7 +815,6 @@ pub static FIELD_ALWAYS_GROUPED: FieldDescriptor<PresenterEntityType> = {
     FieldDescriptor {
         data,
         required: false,
-        edge_kind: EdgeKind::NonEdge,
         cb,
     }
 };
@@ -844,7 +837,6 @@ pub static FIELD_ALWAYS_SHOWN_IN_GROUP: FieldDescriptor<PresenterEntityType> = {
     FieldDescriptor {
         data,
         required: false,
-        edge_kind: EdgeKind::NonEdge,
         cb,
     }
 };
@@ -882,13 +874,12 @@ pub static FIELD_IS_GROUP: FieldDescriptor<PresenterEntityType> = {
     FieldDescriptor {
         data,
         required: false,
-        edge_kind: EdgeKind::NonEdge,
         cb,
     }
 };
 inventory::submit! { CollectedField(&FIELD_IS_GROUP) }
 
-pub static HALF_EDGE_MEMBERS: crate::edge::HalfEdgeDescriptor<PresenterEntityType> = {
+pub static HALF_EDGE_MEMBERS: crate::edge::HalfEdgeDescriptor = {
     crate::edge::HalfEdgeDescriptor {
         data: crate::field::CommonFieldData {
             name: "members",
@@ -907,12 +898,12 @@ pub static HALF_EDGE_MEMBERS: crate::edge::HalfEdgeDescriptor<PresenterEntityTyp
             target_field: &HALF_EDGE_GROUPS,
             exclusive_with: None,
         },
-        _phantom: std::marker::PhantomData,
+        entity_name: PresenterEntityType::TYPE_NAME,
     }
 };
 inventory::submit! { CollectedHalfEdge(&HALF_EDGE_MEMBERS) }
 
-pub static HALF_EDGE_GROUPS: crate::edge::HalfEdgeDescriptor<PresenterEntityType> = {
+pub static HALF_EDGE_GROUPS: crate::edge::HalfEdgeDescriptor = {
     crate::edge::HalfEdgeDescriptor {
         data: crate::field::CommonFieldData {
             name: "groups",
@@ -930,7 +921,7 @@ pub static HALF_EDGE_GROUPS: crate::edge::HalfEdgeDescriptor<PresenterEntityType
         edge_kind: crate::edge::EdgeKind::Target {
             source_fields: &[&HALF_EDGE_MEMBERS],
         },
-        _phantom: std::marker::PhantomData,
+        entity_name: PresenterEntityType::TYPE_NAME,
     }
 };
 inventory::submit! { CollectedHalfEdge(&HALF_EDGE_GROUPS) }
@@ -971,7 +962,6 @@ pub static FIELD_INCLUSIVE_GROUPS: FieldDescriptor<PresenterEntityType> = {
     FieldDescriptor {
         data,
         required: false,
-        edge_kind: EdgeKind::NonEdge,
         cb,
     }
 };
@@ -1001,7 +991,6 @@ pub static FIELD_INCLUSIVE_MEMBERS: FieldDescriptor<PresenterEntityType> = {
     FieldDescriptor {
         data,
         required: false,
-        edge_kind: EdgeKind::NonEdge,
         cb,
     }
 };
@@ -1010,7 +999,7 @@ inventory::submit! { CollectedField(&FIELD_INCLUSIVE_MEMBERS) }
 /// All panels this presenter is scheduled on (credited and uncredited).
 ///
 /// Target edge that combines credited and uncredited panel edges.
-pub static HALF_EDGE_PANELS: crate::edge::HalfEdgeDescriptor<PresenterEntityType> = {
+pub static HALF_EDGE_PANELS: crate::edge::HalfEdgeDescriptor = {
     crate::edge::HalfEdgeDescriptor {
         data: crate::field::CommonFieldData {
             name: "panels",
@@ -1031,7 +1020,7 @@ pub static HALF_EDGE_PANELS: crate::edge::HalfEdgeDescriptor<PresenterEntityType
                 &panel::HALF_EDGE_UNCREDITED_PRESENTERS,
             ],
         },
-        _phantom: std::marker::PhantomData,
+        entity_name: PresenterEntityType::TYPE_NAME,
     }
 };
 inventory::submit! { CollectedHalfEdge(&HALF_EDGE_PANELS) }
@@ -1103,7 +1092,6 @@ pub static FIELD_CREDITED_PANELS: FieldDescriptor<PresenterEntityType> = {
     FieldDescriptor {
         data,
         required: false,
-        edge_kind: EdgeKind::NonEdge,
         cb,
     }
 };
@@ -1165,7 +1153,6 @@ pub static FIELD_UNCREDITED_PANELS: FieldDescriptor<PresenterEntityType> = {
     FieldDescriptor {
         data,
         required: false,
-        edge_kind: EdgeKind::NonEdge,
         cb,
     }
 };
@@ -1249,7 +1236,6 @@ pub static FIELD_INCLUSIVE_PANELS: FieldDescriptor<PresenterEntityType> = {
     FieldDescriptor {
         data,
         required: false,
-        edge_kind: EdgeKind::NonEdge,
         cb,
     }
 };

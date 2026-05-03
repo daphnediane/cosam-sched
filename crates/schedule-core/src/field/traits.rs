@@ -5,7 +5,7 @@
  */
 
 //! Field trait hierarchy: [`NamedField`], [`ReadableField<E>`], [`WritableField<E>`],
-//! and [`TypedField<E>`].
+//! [`AddableField<E>`], and [`RemovableField<E>`]
 //!
 //! These traits define the core field API used throughout the entity/field system.
 
@@ -143,29 +143,4 @@ pub trait RemovableField<E: EntityType>: NamedField {
         schedule: &mut Schedule,
         value: FieldValue,
     ) -> Result<(), FieldError>;
-}
-
-// ── TypedField<E> ─────────────────────────────────────────────────────────────
-
-/// Entity-typed field: combines read, write, add, and remove capabilities.
-///
-/// A blanket implementation covers any type that implements all of
-/// [`ReadableField<E>`], [`WritableField<E>`],
-/// [`AddableField<E>`], and [`RemovableField<E>`].
-///
-/// This trait is used as `dyn TypedField<E>` in [`crate::field_set::FieldSet`]
-/// so that all descriptor types — both [`FieldDescriptor<E>`] (non-edge) and
-/// [`crate::edge::EdgeDescriptor<E>`] (edge) — can be stored in a single collection.
-///
-/// [`FieldDescriptor<E>`]: crate::field::FieldDescriptor
-pub trait TypedField<E: EntityType>:
-    ReadableField<E> + WritableField<E> + AddableField<E> + RemovableField<E>
-{
-}
-
-impl<
-        E: EntityType,
-        T: ReadableField<E> + WritableField<E> + AddableField<E> + RemovableField<E>,
-    > TypedField<E> for T
-{
 }

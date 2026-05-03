@@ -110,8 +110,9 @@ mod tests {
     use crate::edge::EdgeKind;
     use crate::entity::{EntityId, EntityType};
     use crate::field::set::FieldSet;
-    use crate::field::{CommonFieldData, FieldCallbacks, FieldDescriptor};
+    use crate::field::CommonFieldData;
     use crate::value::{FieldCardinality, FieldType, FieldTypeItem, ValidationError};
+    use crate::HalfEdgeDescriptor;
     use uuid::{NonNilUuid, Uuid};
 
     struct TypeA;
@@ -139,7 +140,7 @@ mod tests {
     }
 
     // Two static fields used as forward / reverse directions.
-    static FIELD_FWD: FieldDescriptor<TypeA> = FieldDescriptor {
+    static FIELD_FWD: HalfEdgeDescriptor = HalfEdgeDescriptor {
         data: CommonFieldData {
             name: "owner",
             display: "Owner",
@@ -150,20 +151,14 @@ mod tests {
             example: "",
             order: 0,
         },
-        required: false,
         edge_kind: EdgeKind::Owner {
             target_field: &FIELD_REV,
             exclusive_with: None,
         },
-        cb: FieldCallbacks {
-            read_fn: None,
-            write_fn: None,
-            add_fn: None,
-            remove_fn: None,
-        },
+        entity_name: "type_a",
     };
 
-    static FIELD_REV: FieldDescriptor<TypeA> = FieldDescriptor {
+    static FIELD_REV: HalfEdgeDescriptor = HalfEdgeDescriptor {
         data: CommonFieldData {
             name: "members",
             display: "Members",
@@ -172,16 +167,12 @@ mod tests {
             field_type: FieldType(FieldCardinality::Optional, FieldTypeItem::Text),
             crdt_type: CrdtFieldType::Derived,
             example: "",
-            order: 1,
+            order: 0,
         },
-        required: false,
-        edge_kind: EdgeKind::Target { source_fields: &[] },
-        cb: FieldCallbacks {
-            read_fn: None,
-            write_fn: None,
-            add_fn: None,
-            remove_fn: None,
+        edge_kind: EdgeKind::Target {
+            source_fields: &[&FIELD_FWD],
         },
+        entity_name: "type_a",
     };
 
     fn fwd() -> FullEdge {

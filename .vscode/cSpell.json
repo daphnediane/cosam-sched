@@ -37,6 +37,7 @@
         "Datelike",
         "datetimes",
         "deque",
+        "descs",
         "downcasting",
         "dpfister",
         "ello",

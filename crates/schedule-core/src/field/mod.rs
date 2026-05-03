@@ -29,7 +29,7 @@ pub mod set;
 pub mod traits;
 
 // Re-export field traits from the traits module
-pub use traits::{NamedField, ReadableField, TypedField, WritableField};
+pub use traits::{NamedField, ReadableField, WritableField};
 
 // Re-export callback types from the callback module
 pub use callback::{AddFn, FieldCallbacks, ReadFn, RemoveFn, WriteFn};
@@ -105,7 +105,6 @@ pub fn all_named_fields() -> impl Iterator<Item = &'static dyn NamedField> {
 mod tests {
     use super::*;
     use crate::crdt::CrdtFieldType;
-    use crate::edge::EdgeKind;
     use crate::entity::{EntityId, EntityType};
     use crate::field_value;
     use crate::value::{FieldCardinality, FieldType, FieldTypeItem};
@@ -177,7 +176,6 @@ mod tests {
             order: 0,
         },
         required: true,
-        edge_kind: EdgeKind::NonEdge,
         cb: FieldCallbacks {
             read_fn: Some(ReadFn::Bare(|d: &MockInternalData| {
                 Some(field_value!(d.label.clone()))
@@ -203,7 +201,6 @@ mod tests {
             order: 100,
         },
         required: false,
-        edge_kind: EdgeKind::NonEdge,
         cb: FieldCallbacks {
             read_fn: Some(ReadFn::Bare(|d: &MockInternalData| {
                 Some(field_value!(d.count))
@@ -229,7 +226,6 @@ mod tests {
             order: 200,
         },
         required: false,
-        edge_kind: EdgeKind::NonEdge,
         cb: FieldCallbacks {
             read_fn: Some(ReadFn::Bare(|_: &MockInternalData| Some(field_value!(42)))),
             write_fn: None,
@@ -250,7 +246,6 @@ mod tests {
             order: 300,
         },
         required: false,
-        edge_kind: EdgeKind::NonEdge,
         cb: FieldCallbacks {
             read_fn: None,
             write_fn: Some(WriteFn::Bare(|d: &mut MockInternalData, v| {
