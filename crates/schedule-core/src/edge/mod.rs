@@ -4,17 +4,15 @@
  * See LICENSE file for full license text
  */
 
-//! Edge system: half-edge traits, typed edge descriptors, edge maps,
+//! Edge system: typed edge descriptors, edge maps,
 //! transitive edge caches, and field node IDs.
 
 pub mod cache;
 pub mod descriptor;
 pub mod id;
 pub mod map;
-pub mod traits;
 
 pub use cache::TransitiveEdgeCache;
 pub use descriptor::{EdgeKind, HalfEdgeDescriptor};
 pub use id::FullEdge;
 pub use map::RawEdgeMap;
-pub use traits::HalfEdge;

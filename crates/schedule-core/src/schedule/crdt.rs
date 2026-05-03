@@ -8,7 +8,7 @@
 
 use crate::crdt::CrdtFieldType;
 use crate::crdt::{self, CrdtError};
-use crate::edge::{EdgeKind, FullEdge, HalfEdge, RawEdgeMap};
+use crate::edge::{EdgeKind, FullEdge, RawEdgeMap};
 use crate::entity::{registered_entity_types, EntityType, EntityUuid};
 use crate::field::NamedField;
 use crate::value::{FieldError, FieldValue};
@@ -380,8 +380,8 @@ impl Schedule {
         // Snapshot the `(owner_uuid, target_uuids)` pairs while borrowing
         // `&self.doc`, then apply them under `&mut self`.
         struct EdgeBatch {
-            owner_field: &'static dyn crate::edge::HalfEdge,
-            target_field: &'static dyn crate::edge::HalfEdge,
+            owner_field: &'static crate::edge::HalfEdgeDescriptor,
+            target_field: &'static crate::edge::HalfEdgeDescriptor,
             pairs: Vec<(NonNilUuid, Vec<NonNilUuid>)>,
         }
         let mut batches: Vec<EdgeBatch> = Vec::new();
@@ -392,15 +392,15 @@ impl Schedule {
             let EdgeKind::Owner {
                 target_field: target_nf,
                 ..
-            } = owner_nf.edge_kind()
+            } = owner_nf.edge_kind
             else {
                 continue;
             };
             let owner_type = owner_nf.entity_type_name();
             let field_name = owner_nf.name();
             let target_type = target_nf.entity_type_name();
-            let owner_field = owner_nf.edge_id();
-            let target_field = target_nf.edge_id();
+            let owner_field = owner_nf;
+            let target_field = target_nf;
             let owner_uuids = crdt::list_all_uuids(&self.doc, owner_type);
             let mut pairs: Vec<(NonNilUuid, Vec<NonNilUuid>)> = Vec::new();
             for owner_uuid in owner_uuids {
@@ -524,7 +524,7 @@ impl Schedule {
         // We derive which fields own edges directly from the `Owner`
         // variant in each field descriptor, avoiding a global descriptor scan.
         for desc in E::field_set().half_edges() {
-            if matches!(desc.edge_kind(), EdgeKind::Owner { .. }) {
+            if matches!(desc.edge_kind, EdgeKind::Owner { .. }) {
                 crate::crdt::edge::ensure_owner_list(&mut self.doc, type_name, uuid, desc.name())?;
             }
         }

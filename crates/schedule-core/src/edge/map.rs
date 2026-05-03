@@ -37,6 +37,7 @@
 
 use crate::edge::id::FullEdge;
 use crate::entity::{DynamicEntityId, RuntimeEntityId};
+use crate::field::NamedField;
 use std::collections::HashMap;
 use thiserror::Error;
 use uuid::NonNilUuid;

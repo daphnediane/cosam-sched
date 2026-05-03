@@ -10,6 +10,7 @@ use crate::edit::builder::BuildError;
 use crate::entity::{
     registered_entity_types, DynamicEntityId, EntityTyped, EntityUuid, RuntimeEntityId,
 };
+use crate::field::NamedField;
 use crate::schedule::Schedule;
 use crate::value::{FieldError, FieldValue};
 use thiserror::Error;
@@ -224,10 +225,10 @@ impl EditCommand {
                 if let crate::edge::EdgeKind::Owner {
                     exclusive_with: Some(excl_field),
                     ..
-                } = edge.near.edge_kind()
+                } = edge.near.edge_kind
                 {
                     let excl_edge = crate::edge::id::FullEdge {
-                        near: *excl_field,
+                        near: excl_field,
                         far: edge.far,
                     };
                     let actually_added_runtime: Vec<RuntimeEntityId> = actually_added

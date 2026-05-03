@@ -24,6 +24,7 @@
 use crate::edge::id::FullEdge;
 use crate::edge::map::RawEdgeMap;
 use crate::entity::{DynamicEntityId, EntityUuid};
+use crate::field::NamedField;
 use std::collections::{HashMap, HashSet};
 use uuid::NonNilUuid;
 
@@ -82,7 +83,7 @@ fn transitive_neighbors(
     let mut result = Vec::new();
 
     // Get entity type name from the edge (homogeneous edges have same type on both sides)
-    let type_name = edge.near.as_named_field().entity_type_name();
+    let type_name = edge.near.entity_type_name();
 
     while let Some(curr) = queue.pop() {
         // SAFETY: The transitive closure is only used for homogeneous edges,

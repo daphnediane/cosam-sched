@@ -114,8 +114,8 @@ impl<E: EntityType> ResolvedRef<E> {
             Self::Field(d) => d.read(id, schedule),
             Self::HalfEdge(d) => {
                 // SAFETY: d is a &'static HalfEdgeDescriptor<E> (edge descriptors are static singletons).
-                let static_field: &'static dyn crate::edge::HalfEdge =
-                    unsafe { std::mem::transmute(*d as &dyn crate::edge::HalfEdge) };
+                let static_field: &'static crate::edge::HalfEdgeDescriptor =
+                    unsafe { std::mem::transmute(*d) };
                 crate::schedule::edge::read_edge(schedule, id, static_field)
             }
         }
@@ -131,8 +131,8 @@ impl<E: EntityType> ResolvedRef<E> {
             Self::Field(d) => d.write(id, schedule, value),
             Self::HalfEdge(d) => {
                 // SAFETY: d is a &'static HalfEdgeDescriptor<E> (edge descriptors are static singletons).
-                let static_field: &'static dyn crate::edge::HalfEdge =
-                    unsafe { std::mem::transmute(*d as &dyn crate::edge::HalfEdge) };
+                let static_field: &'static crate::edge::HalfEdgeDescriptor =
+                    unsafe { std::mem::transmute(*d) };
                 crate::schedule::edge::write_edge(schedule, id, static_field, value)
             }
         }
@@ -148,8 +148,8 @@ impl<E: EntityType> ResolvedRef<E> {
             Self::Field(d) => d.add(id, schedule, value),
             Self::HalfEdge(d) => {
                 // SAFETY: d is a &'static HalfEdgeDescriptor<E> (edge descriptors are static singletons).
-                let static_field: &'static dyn crate::edge::HalfEdge =
-                    unsafe { std::mem::transmute(*d as &dyn crate::edge::HalfEdge) };
+                let static_field: &'static crate::edge::HalfEdgeDescriptor =
+                    unsafe { std::mem::transmute(*d) };
                 crate::schedule::add_edge(schedule, id, static_field, value)
             }
         }
@@ -165,8 +165,8 @@ impl<E: EntityType> ResolvedRef<E> {
             Self::Field(d) => d.remove(id, schedule, value),
             Self::HalfEdge(d) => {
                 // SAFETY: d is a &'static HalfEdgeDescriptor<E> (edge descriptors are static singletons).
-                let static_field: &'static dyn crate::edge::HalfEdge =
-                    unsafe { std::mem::transmute(*d as &dyn crate::edge::HalfEdge) };
+                let static_field: &'static crate::edge::HalfEdgeDescriptor =
+                    unsafe { std::mem::transmute(*d) };
                 crate::schedule::remove_edge(schedule, id, static_field, value)
             }
         }
@@ -225,11 +225,11 @@ impl<E: EntityType> From<&'static HalfEdgeDescriptor> for FieldRef<E> {
 /// Operation type for [`FieldUpdate`] — determines which field method is invoked.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum FieldOp {
-    /// Set/replace the field value (calls [`WritableField::write`]).
+    /// Set/replace the field value (calls [`write`]).
     Set,
-    /// Add items to a list field (calls [`AddableField::add`]).
+    /// Add items to a list field (calls [`add`]).
     Add,
-    /// Remove items from a list field (calls [`RemovableField::remove`]).
+    /// Remove items from a list field (calls [`remove`]).
     Remove,
 }
 
@@ -556,9 +556,9 @@ impl<E: EntityType> FieldSet<E> {
     ///
     /// Operations are applied in the order supplied by the caller, dispatched
     /// by [`FieldUpdate::op`]:
-    /// - [`FieldOp::Set`] → calls [`WritableField::write`]
-    /// - [`FieldOp::Add`] → calls [`AddableField::add`]
-    /// - [`FieldOp::Remove`] → calls [`RemovableField::remove`]
+    /// - [`FieldOp::Set`] → calls [`write`]
+    /// - [`FieldOp::Add`] → calls [`add`]
+    /// - [`FieldOp::Remove`] → calls [`remove`]
     ///
     /// The first failure aborts the batch and returns
     /// [`FieldSetError::WriteError`].  **No rollback** is performed; prior

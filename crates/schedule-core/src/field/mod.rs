@@ -10,11 +10,8 @@
 //!
 //! ```text
 //! NamedField          name(), display_name(), description(), aliases()
-//! ReadableField<E>    read(EntityId<E>, &Schedule) → Option<FieldValue>
-//! WritableField<E>    write(EntityId<E>, &mut Schedule, FieldValue) → Result<(), FieldError>
 //! ```
 //!
-//! All traits are flat — no `Simple*` or `Schedule*` sub-traits.
 //! The caller-facing API is always `(EntityId<E>, &[mut] Schedule)`.
 //! Entity-level matching is handled via [`crate::lookup::EntityMatcher`].
 //!
@@ -29,7 +26,7 @@ pub mod set;
 pub mod traits;
 
 // Re-export field traits from the traits module
-pub use traits::{NamedField, ReadableField, WritableField};
+pub use traits::NamedField;
 
 // Re-export callback types from the callback module
 pub use callback::{AddFn, FieldCallbacks, ReadFn, RemoveFn, WriteFn};
@@ -317,7 +314,7 @@ mod tests {
         assert!(!LABEL_FIELD.matches_name("notafield"));
     }
 
-    // --- ReadableField ---
+    // --- FieldDescriptor ---
 
     #[test]
     fn test_read_string_field() {
@@ -358,8 +355,6 @@ mod tests {
             Err(FieldError::WriteOnly { .. })
         ));
     }
-
-    // --- WritableField ---
 
     #[test]
     fn test_write_string_field() {

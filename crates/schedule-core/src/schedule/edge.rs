@@ -8,8 +8,9 @@
 
 use crate::edge::cache::TransitiveEdgeCache;
 use crate::edge::map::EdgeError;
-use crate::edge::{FullEdge, HalfEdge};
+use crate::edge::{FullEdge, HalfEdgeDescriptor};
 use crate::entity::{DynamicEntityId, EntityType, EntityUuid};
+use crate::field::NamedField;
 use crate::value::{ConversionError, FieldError, FieldValue, FieldValueItem};
 use crate::EntityId;
 use uuid::NonNilUuid;
@@ -427,15 +428,15 @@ pub fn field_value_to_runtime_entity_ids(
 pub fn read_edge<E: EntityType>(
     schedule: &Schedule,
     id: EntityId<E>,
-    field: &'static dyn HalfEdge,
+    field: &'static HalfEdgeDescriptor,
 ) -> Result<Option<FieldValue>, FieldError> {
     use crate::edge::EdgeKind;
-    match field.edge_kind() {
+    match field.edge_kind {
         EdgeKind::Owner { target_field, .. } => {
             // Construct a FullEdge from field (near) and target_field (far)
             let edge = crate::edge::FullEdge {
                 near: field,
-                far: *target_field,
+                far: target_field,
             };
             read_full_edge(schedule, id, &edge)
         }
@@ -446,7 +447,7 @@ pub fn read_edge<E: EntityType>(
                     // Construct a FullEdge from field (near) and single source (far)
                     let edge = crate::edge::FullEdge {
                         near: field,
-                        far: *single,
+                        far: single,
                     };
                     read_full_edge(schedule, id, &edge)
                 }
@@ -454,14 +455,9 @@ pub fn read_edge<E: EntityType>(
                     // For multiple source fields, construct FullEdges and combine
                     let edges: Vec<crate::edge::FullEdge> = source_fields
                         .iter()
-                        .map(|source| {
-                            // SAFETY: source is a &'static HalfEdge (edge descriptors are static singletons).
-                            let static_source: &'static dyn HalfEdge =
-                                unsafe { std::mem::transmute(*source) };
-                            crate::edge::FullEdge {
-                                near: field,
-                                far: static_source,
-                            }
+                        .map(|source| crate::edge::FullEdge {
+                            near: field,
+                            far: source,
                         })
                         .collect();
                     let edge_refs: Vec<&crate::edge::FullEdge> = edges.iter().collect();
@@ -567,16 +563,16 @@ pub fn remove_edge_helper_field<E: EntityType>(
 pub fn write_edge<E: EntityType>(
     schedule: &mut Schedule,
     id: EntityId<E>,
-    field: &'static dyn HalfEdge,
+    field: &'static HalfEdgeDescriptor,
     value: FieldValue,
 ) -> Result<(), FieldError> {
     use crate::edge::EdgeKind;
     let target_ids = field_value_to_runtime_entity_ids(value)?;
-    let (far_field, exclusive_with) = match field.edge_kind() {
+    let (far_field, exclusive_with) = match field.edge_kind {
         EdgeKind::Owner {
             target_field,
             exclusive_with,
-        } => (*target_field, *exclusive_with),
+        } => (target_field, exclusive_with),
         EdgeKind::Target { source_fields } => {
             // For target fields, write to the first source field
             match source_fields {
@@ -622,16 +618,16 @@ pub fn write_edge<E: EntityType>(
 pub fn add_edge<E: EntityType>(
     schedule: &mut Schedule,
     id: EntityId<E>,
-    field: &'static dyn HalfEdge,
+    field: &'static HalfEdgeDescriptor,
     value: FieldValue,
 ) -> Result<(), FieldError> {
     use crate::edge::EdgeKind;
     let target_ids = field_value_to_runtime_entity_ids(value)?;
-    let (far_field, exclusive_with) = match field.edge_kind() {
+    let (far_field, exclusive_with) = match field.edge_kind {
         EdgeKind::Owner {
             target_field,
             exclusive_with,
-        } => (*target_field, *exclusive_with),
+        } => (target_field, exclusive_with),
         EdgeKind::Target { source_fields } => {
             // For target fields, add to the first source field
             match source_fields {
@@ -676,18 +672,18 @@ pub fn add_edge<E: EntityType>(
 pub fn remove_edge<E: EntityType>(
     schedule: &mut Schedule,
     id: EntityId<E>,
-    field: &'static dyn HalfEdge,
+    field: &'static HalfEdgeDescriptor,
     value: FieldValue,
 ) -> Result<(), FieldError> {
     use crate::edge::EdgeKind;
     let target_ids = field_value_to_runtime_entity_ids(value)?;
-    let far_field = match field.edge_kind() {
-        EdgeKind::Owner { target_field, .. } => *target_field,
+    let far_field = match field.edge_kind {
+        EdgeKind::Owner { target_field, .. } => target_field,
         EdgeKind::Target { source_fields } => {
             // For target fields, remove from all source fields
-            for source in *source_fields {
+            for source in source_fields {
                 let edge = crate::edge::FullEdge {
-                    near: *source,
+                    near: source,
                     far: field,
                 };
                 schedule.edge_remove(id, edge, target_ids.clone());

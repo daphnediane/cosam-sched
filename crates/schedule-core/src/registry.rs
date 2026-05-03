@@ -84,11 +84,10 @@ static FULL_EDGE_INDEX: LazyLock<HashMap<String, FullEdge>> = LazyLock::new(|| {
     let mut map = HashMap::new();
     for field in all_named_fields() {
         if let Some(he) = field.try_as_half_edge() {
-            if let EdgeKind::Owner { target_field, .. } = he.edge_kind() {
-                let owner = he.edge_id();
+            if let EdgeKind::Owner { target_field, .. } = he.edge_kind {
                 let edge = FullEdge {
-                    near: owner,
-                    far: *target_field,
+                    near: he,
+                    far: target_field,
                 };
                 map.insert(field.field_key(), edge);
             }

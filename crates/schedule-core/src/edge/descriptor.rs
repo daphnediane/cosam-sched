@@ -6,7 +6,6 @@
 
 //! Edge descriptor type: [`EdgeDescriptor<E>`].
 
-use crate::edge::traits::HalfEdge;
 use crate::field::{CommonFieldData, NamedField};
 
 // ── EdgeKind ─────────────────────────────────────────────────────────────────
@@ -14,7 +13,7 @@ use crate::field::{CommonFieldData, NamedField};
 /// Ownership and relationship info for an edge half-edge field.
 ///
 /// Stored in [`EdgeDescriptor::edge_kind`](EdgeDescriptor) and
-/// exposed through [`HalfEdge::edge_kind`](crate::edge::HalfEdge::edge_kind).
+/// exposed through the `edge_kind` field on [`HalfEdgeDescriptor`].
 /// Replaces the `target_field` payload that was previously embedded directly
 /// in [`crate::value::CrdtFieldType::EdgeOwner`].
 #[derive(Clone, Copy)]
@@ -32,7 +31,7 @@ pub enum EdgeKind {
     /// references compile without circular-dependency issues.
     Target {
         /// Owner-side fields whose `target_field` is this field.
-        source_fields: &'static [&'static dyn crate::edge::HalfEdge],
+        source_fields: &'static [&'static HalfEdgeDescriptor],
     },
     /// CRDT-canonical owner side of an edge relationship.
     ///
@@ -42,10 +41,10 @@ pub enum EdgeKind {
     /// the descriptor self-describing.
     Owner {
         /// Inverse/lookup field on the target entity.
-        target_field: &'static dyn crate::edge::HalfEdge,
+        target_field: &'static HalfEdgeDescriptor,
         /// Sibling field on the *same* entity that is mutually exclusive with
         /// this one (e.g. credited vs uncredited presenter lists).
-        exclusive_with: Option<&'static dyn crate::edge::HalfEdge>,
+        exclusive_with: Option<&'static HalfEdgeDescriptor>,
     },
 }
 
@@ -58,7 +57,7 @@ impl EdgeKind {
 
     /// Returns the target field if this is an owner, or `None` for targets.
     #[must_use]
-    pub fn target_field(&self) -> Option<&'static dyn crate::edge::HalfEdge> {
+    pub fn target_field(&self) -> Option<&'static HalfEdgeDescriptor> {
         match self {
             Self::Owner { target_field, .. } => Some(*target_field),
             Self::Target { .. } => None,
@@ -67,7 +66,7 @@ impl EdgeKind {
 
     /// Returns the source fields if this is a target, or `None` for owners.
     #[must_use]
-    pub fn source_fields(&self) -> Option<&'static [&'static dyn crate::edge::HalfEdge]> {
+    pub fn source_fields(&self) -> Option<&'static [&'static HalfEdgeDescriptor]> {
         match self {
             Self::Target { source_fields } => Some(source_fields),
             Self::Owner { .. } => None,
@@ -86,10 +85,7 @@ impl PartialEq for EdgeKind {
                 Self::Owner {
                     target_field: b, ..
                 },
-            ) => std::ptr::eq(
-                *a as *const dyn crate::edge::HalfEdge as *const (),
-                *b as *const dyn crate::edge::HalfEdge as *const (),
-            ),
+            ) => std::ptr::eq(*a, *b),
             _ => false,
         }
     }
@@ -160,23 +156,8 @@ impl NamedField for HalfEdgeDescriptor {
         self.entity_name
     }
 
-    fn try_as_half_edge(&self) -> Option<&dyn HalfEdge> {
+    fn try_as_half_edge(&self) -> Option<&HalfEdgeDescriptor> {
         Some(self)
-    }
-}
-
-impl HalfEdge for HalfEdgeDescriptor {
-    fn edge_kind(&self) -> &EdgeKind {
-        &self.edge_kind
-    }
-
-    fn edge_id(&self) -> &'static dyn HalfEdge {
-        // SAFETY: self is a &'static HalfEdgeDescriptor (edge descriptors are static singletons).
-        unsafe { std::mem::transmute(self as &dyn HalfEdge) }
-    }
-
-    fn as_named_field(&self) -> &dyn NamedField {
-        self
     }
 }
 
@@ -221,7 +202,7 @@ mod tests {
 
     #[test]
     fn test_edge_kind_source_fields() {
-        let source_fields: &[&dyn HalfEdge] = &[];
+        let source_fields: &[&HalfEdgeDescriptor] = &[];
         let target = EdgeKind::Target { source_fields };
         assert!(target.source_fields().is_some());
 

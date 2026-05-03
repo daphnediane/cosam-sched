@@ -18,19 +18,17 @@
 //! | Panel ↔ Presenter (credited)   | Panel     | `credited_presenters`   | no          |
 //! | Panel ↔ Presenter (uncredited) | Panel     | `uncredited_presenters` | no          |
 //! | Panel ↔ EventRoom              | Panel     | `event_rooms`           | no          |
-//! | Panel → PanelType              | Panel     | `panel_type`            | no          |
-//! | EventRoom ↔ HotelRoom          | EventRoom | `hotel_rooms`           | no          |
-//! | Member → Group                 | Presenter | `members`               | yes         |
+//! | Panel ↔ Session               | Panel     | `sessions`              | yes         |
+//! | Session ↔ Presenter           | Session   | `presenters`            | yes         |
 //!
-//! Every `Schedule::edge_add` / `edge_remove` / `edge_set`
-//! call resolves the canonical owner for its `(near_field, far_field)` pair
-//! and writes incremental list operations to the doc so that concurrent
-//! replicas converge under automerge's list semantics (add-wins for
-//! concurrent add/remove — see `docs/crdt-design.md`).
+//! The CRDT storage is a single source of truth that can be saved to disk
+//! and merged across replicas.  The in-memory `RawEdgeMap` is derived from
+//! it and used for fast queries.
 
 use crate::crdt;
 use crate::crdt::CrdtFieldType;
 use crate::entity::{EntityUuid, RuntimeEntityId};
+use crate::field::NamedField;
 use crate::value::{FieldTypeItem, FieldValue, FieldValueItem};
 use automerge::transaction::Transactable;
 use automerge::{AutoCommit, ObjType, ReadDoc, Value};
@@ -42,9 +40,9 @@ pub struct CanonicalOwner {
     /// `true` when the near (queried) field is the edge_kind owner side.
     pub near_is_owner: bool,
     /// The owner-side field (carries `Owner { target_field: … }`).
-    pub owner_field: &'static dyn crate::edge::HalfEdge,
+    pub owner_field: &'static crate::edge::HalfEdgeDescriptor,
     /// The target-side field (the inverse/lookup field).
-    pub target_field: &'static dyn crate::edge::HalfEdge,
+    pub target_field: &'static crate::edge::HalfEdgeDescriptor,
 }
 
 impl CanonicalOwner {
@@ -95,14 +93,17 @@ impl std::fmt::Debug for CanonicalOwner {
 /// `HALF_EDGE_PANELS`).
 #[must_use]
 pub fn canonical_owner(
-    near_field: &'static dyn crate::edge::HalfEdge,
-    far_field: &'static dyn crate::edge::HalfEdge,
+    near_field: &'static crate::edge::HalfEdgeDescriptor,
+    far_field: &'static crate::edge::HalfEdgeDescriptor,
 ) -> Option<CanonicalOwner> {
-    fn same(a: &'static dyn crate::edge::HalfEdge, b: &'static dyn crate::edge::HalfEdge) -> bool {
+    fn same(
+        a: &'static crate::edge::HalfEdgeDescriptor,
+        b: &'static crate::edge::HalfEdgeDescriptor,
+    ) -> bool {
         a.name() == b.name() && a.entity_type_name() == b.entity_type_name()
     }
-    if let crate::edge::EdgeKind::Owner { target_field, .. } = near_field.edge_kind() {
-        if same(*target_field, far_field) {
+    if let crate::edge::EdgeKind::Owner { target_field, .. } = near_field.edge_kind {
+        if same(target_field, far_field) {
             return Some(CanonicalOwner {
                 near_is_owner: true,
                 owner_field: near_field,
@@ -110,8 +111,8 @@ pub fn canonical_owner(
             });
         }
     }
-    if let crate::edge::EdgeKind::Owner { target_field, .. } = far_field.edge_kind() {
-        if same(*target_field, near_field) {
+    if let crate::edge::EdgeKind::Owner { target_field, .. } = far_field.edge_kind {
+        if same(target_field, near_field) {
             return Some(CanonicalOwner {
                 near_is_owner: false,
                 owner_field: far_field,

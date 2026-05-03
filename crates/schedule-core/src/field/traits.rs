@@ -4,16 +4,12 @@
  * See LICENSE file for full license text
  */
 
-//! Field trait hierarchy: [`NamedField`], [`ReadableField<E>`], [`WritableField<E>`],
-//! [`AddableField<E>`], and [`RemovableField<E>`]
+//! Field trait hierarchy: [`NamedField`]
 //!
 //! These traits define the core field API used throughout the entity/field system.
 
 use crate::crdt::CrdtFieldType;
-use crate::edge::HalfEdge;
-use crate::entity::{EntityId, EntityType};
-use crate::schedule::Schedule;
-use crate::value::{FieldError, FieldValue};
+use crate::edge::HalfEdgeDescriptor;
 
 // ── NamedField ────────────────────────────────────────────────────────────────
 
@@ -89,58 +85,6 @@ pub trait NamedField: 'static + Send + Sync + std::any::Any {
         format!("{}:{}", self.entity_type_name(), self.name())
     }
 
-    /// Upcast `self` to `Option<&dyn HalfEdge>`.
-    fn try_as_half_edge(&self) -> Option<&dyn HalfEdge>;
-}
-
-// ── ReadableField<E> ───────────────────────────────────────────────────────────
-
-/// Field that can produce a [`FieldValue`] given an entity ID and schedule.
-///
-/// Returns `Err(FieldError::WriteOnly)` for write-only fields.
-pub trait ReadableField<E: EntityType>: NamedField {
-    fn read(&self, id: EntityId<E>, schedule: &Schedule) -> Result<Option<FieldValue>, FieldError>;
-}
-
-// ── WritableField<E> ───────────────────────────────────────────────────────────
-
-/// Field that can accept a [`FieldValue`] given an entity ID and schedule.
-///
-/// Returns `Err(FieldError::ReadOnly)` for read-only fields.
-/// Returns `Err(FieldError::NotFound)` if the entity is absent from the schedule.
-pub trait WritableField<E: EntityType>: NamedField {
-    fn write(
-        &self,
-        id: EntityId<E>,
-        schedule: &mut Schedule,
-        value: FieldValue,
-    ) -> Result<(), FieldError>;
-}
-
-// ── AddableField<E> ───────────────────────────────────────────────────────────
-
-/// Field that can accept adding items to a list value.
-///
-/// Returns `Err(FieldError::ReadOnly)` for fields that don't support add operations.
-pub trait AddableField<E: EntityType>: NamedField {
-    fn add(
-        &self,
-        id: EntityId<E>,
-        schedule: &mut Schedule,
-        value: FieldValue,
-    ) -> Result<(), FieldError>;
-}
-
-// ── RemovableField<E> ─────────────────────────────────────────────────────────
-
-/// Field that can accept removing items from a list value.
-///
-/// Returns `Err(FieldError::ReadOnly)` for fields that don't support remove operations.
-pub trait RemovableField<E: EntityType>: NamedField {
-    fn remove(
-        &self,
-        id: EntityId<E>,
-        schedule: &mut Schedule,
-        value: FieldValue,
-    ) -> Result<(), FieldError>;
+    /// Upcast `self` to `Option<&HalfEdgeDescriptor>`.
+    fn try_as_half_edge(&self) -> Option<&HalfEdgeDescriptor>;
 }

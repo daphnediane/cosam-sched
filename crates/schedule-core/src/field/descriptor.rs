@@ -6,7 +6,6 @@
 
 //! Field descriptor types: [`FieldDescriptor<E>`].
 
-use crate::edge::traits::HalfEdge;
 use crate::entity::{EntityId, EntityType};
 use crate::field::callback::{FieldCallbacks, ReadFn, WriteFn};
 use crate::field::traits::NamedField;
@@ -77,7 +76,7 @@ impl<E: EntityType> NamedField for FieldDescriptor<E> {
         E::TYPE_NAME
     }
 
-    fn try_as_half_edge(&self) -> Option<&dyn HalfEdge> {
+    fn try_as_half_edge(&self) -> Option<&crate::edge::HalfEdgeDescriptor> {
         None
     }
 }

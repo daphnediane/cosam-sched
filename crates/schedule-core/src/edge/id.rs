@@ -13,7 +13,7 @@
 //!
 //! ## Design
 //!
-//! A [`FullEdge`] combines two [`HalfEdge`] references to represent a complete
+//! A [`FullEdge`] combines two [`HalfEdgeDescriptor`] references to represent a complete
 //! bidirectional edge. The `near` half-edge is the starting point, and the `far`
 //! half-edge is the opposite side of the relationship.
 //!
@@ -22,10 +22,12 @@
 //!
 //! [`FieldDescriptor<E>`]: crate::field::FieldDescriptor
 
-use crate::edge::HalfEdge;
 use crate::entity::{DynamicEntityId, EntityType};
+use crate::field::NamedField;
 use crate::value::ConversionError;
 use serde::{Deserialize, Serialize};
+
+use super::HalfEdgeDescriptor;
 
 // ── FullEdge ─────────────────────────────────────────────────────────────────────
 
@@ -36,9 +38,9 @@ use serde::{Deserialize, Serialize};
 #[derive(Clone, Copy)]
 pub struct FullEdge {
     /// The near half-edge (the starting side of the edge).
-    pub near: &'static dyn HalfEdge,
+    pub near: &'static HalfEdgeDescriptor,
     /// The far half-edge (the opposite side of the edge).
-    pub far: &'static dyn HalfEdge,
+    pub far: &'static HalfEdgeDescriptor,
 }
 
 /// Serializable proxy for [`FullEdge`].
@@ -58,7 +60,7 @@ struct FullEdgeProxy {
 
 impl From<FullEdge> for FullEdgeProxy {
     fn from(edge: FullEdge) -> Self {
-        if edge.near.edge_kind().is_owner() {
+        if edge.near.edge_kind.is_owner() {
             Self {
                 owner_field: edge.near.field_key(),
                 near_is_owner: true,
@@ -170,13 +172,7 @@ impl std::fmt::Debug for FullEdge {
 impl PartialEq for FullEdge {
     fn eq(&self, other: &Self) -> bool {
         // Compare by pointer address of both half-edges
-        std::ptr::eq(
-            self.near as *const dyn HalfEdge as *const (),
-            other.near as *const dyn HalfEdge as *const (),
-        ) && std::ptr::eq(
-            self.far as *const dyn HalfEdge as *const (),
-            other.far as *const dyn HalfEdge as *const (),
-        )
+        std::ptr::eq(self.near, other.near) && std::ptr::eq(self.far, other.far)
     }
 }
 
@@ -185,21 +181,21 @@ impl Eq for FullEdge {}
 impl std::hash::Hash for FullEdge {
     fn hash<H: std::hash::Hasher>(&self, state: &mut H) {
         // Hash by pointer address of both half-edges
-        (self.near as *const dyn HalfEdge as *const () as usize).hash(state);
-        (self.far as *const dyn HalfEdge as *const () as usize).hash(state);
+        (self.near as *const HalfEdgeDescriptor as *const () as usize).hash(state);
+        (self.far as *const HalfEdgeDescriptor as *const () as usize).hash(state);
     }
 }
 
-impl TryFrom<&'static dyn HalfEdge> for FullEdge {
+impl TryFrom<&'static HalfEdgeDescriptor> for FullEdge {
     type Error = ConversionError;
 
-    fn try_from(near: &'static dyn HalfEdge) -> Result<Self, Self::Error> {
-        match near.edge_kind() {
+    fn try_from(near: &'static HalfEdgeDescriptor) -> Result<Self, Self::Error> {
+        match near.edge_kind {
             crate::edge::EdgeKind::Owner { target_field, .. } => {
                 // Owner has a single target field
                 Ok(Self {
                     near,
-                    far: *target_field,
+                    far: target_field,
                 })
             }
             crate::edge::EdgeKind::Target { source_fields } => {
@@ -215,15 +211,6 @@ impl TryFrom<&'static dyn HalfEdge> for FullEdge {
                 }
             }
         }
-    }
-}
-
-impl TryFrom<&'static crate::edge::HalfEdgeDescriptor> for FullEdge {
-    type Error = ConversionError;
-
-    fn try_from(descriptor: &'static crate::edge::HalfEdgeDescriptor) -> Result<Self, Self::Error> {
-        // EdgeDescriptor implements HalfEdge, so delegate to that implementation
-        Self::try_from(descriptor as &'static dyn HalfEdge)
     }
 }
 
