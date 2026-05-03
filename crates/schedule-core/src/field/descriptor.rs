@@ -9,12 +9,12 @@
 use crate::edge::traits::HalfEdge;
 use crate::edge::EdgeKind;
 use crate::entity::{EntityId, EntityType};
-use crate::field::callback::{FieldCallbacks, ReadFn, VerifyFn, WriteFn};
+use crate::field::callback::{FieldCallbacks, ReadFn, WriteFn};
 use crate::field::traits::{
-    AddableField, NamedField, ReadableField, RemovableField, VerifiableField, WritableField,
+    AddableField, NamedField, ReadableField, RemovableField, WritableField,
 };
 use crate::schedule::Schedule;
-use crate::value::{FieldError, FieldValue, VerificationError};
+use crate::value::{FieldError, FieldValue};
 
 // ── FieldDescriptor<E> ─────────────────────────────────────────────────────────
 
@@ -25,7 +25,6 @@ use crate::value::{FieldError, FieldValue, VerificationError};
 ///
 /// - `cb.read_fn: None` — field is write-only; `read()` returns `FieldError::WriteOnly`.
 /// - `cb.write_fn: None` — field is read-only; `write()` returns `FieldError::ReadOnly`.
-/// - `cb.verify_fn: None` — field uses automatic read-back verification if `read_fn` is present.
 ///
 /// # Example
 ///
@@ -62,7 +61,6 @@ use crate::value::{FieldError, FieldValue, VerificationError};
 ///     cb: FieldCallbacks {
 ///         read_fn: None,
 ///         write_fn: Some(WriteFn::Schedule(|schedule, id, v| { todo!() })),
-///         verify_fn: None,
 ///     },
 /// };
 /// ```
@@ -73,7 +71,7 @@ pub struct FieldDescriptor<E: EntityType> {
     pub required: bool,
     /// Edge ownership and relationship metadata -- (To be removed once EdgeDescriptor is live)
     pub edge_kind: EdgeKind,
-    /// Callback functions for read/write/verify operations
+    /// Callback functions for read/write operations
     pub(crate) cb: FieldCallbacks<E>,
 }
 
@@ -207,51 +205,6 @@ impl<E: EntityType> WritableField<E> for FieldDescriptor<E> {
             self.data.crdt_type,
             value_opt.as_ref(),
         )
-    }
-}
-
-impl<E: EntityType> VerifiableField<E> for FieldDescriptor<E> {
-    fn verify(
-        &self,
-        id: EntityId<E>,
-        schedule: &Schedule,
-        attempted: &FieldValue,
-    ) -> Result<(), VerificationError> {
-        match &self.cb.verify_fn {
-            // Custom verification functions
-            Some(VerifyFn::Bare(f)) => {
-                let data =
-                    schedule
-                        .get_internal::<E>(id)
-                        .ok_or(VerificationError::NotVerifiable {
-                            field: self.data.name,
-                        })?;
-                f(data, attempted)
-            }
-            Some(VerifyFn::Schedule(f)) => f(schedule, id, attempted),
-            // Explicit opt-in to read-back verification
-            Some(VerifyFn::ReRead) => {
-                let actual = self
-                    .read(id, schedule)
-                    .map_err(|_| VerificationError::NotVerifiable {
-                        field: self.data.name,
-                    })?
-                    .ok_or(VerificationError::NotVerifiable {
-                        field: self.data.name,
-                    })?;
-                if actual == *attempted {
-                    Ok(())
-                } else {
-                    Err(VerificationError::ValueChanged {
-                        field: self.data.name,
-                        requested: attempted.clone(),
-                        actual,
-                    })
-                }
-            }
-            // No verification requested - success by default
-            None => Ok(()),
-        }
     }
 }
 

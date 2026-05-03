@@ -32,7 +32,7 @@ use syn::{Attribute, Expr, ExprClosure, Ident, LitStr, Token, Type, Visibility};
 pub enum Param {
     /// `key: <expr>` — generic value parameter.
     KeyValue { key: Ident, value: TokenStream },
-    /// `read: |…| { … }` / `write: |…| { … }` / `verify: |…| { … }` — closure.
+    /// `read: |…| { … }` / `write: |…| { … }` — closure.
     Closure { key: Ident, closure: ExprClosure },
     /// Bare flag (`required`, `optional`, `with_default`, `owner`).
     Flag(Ident),
@@ -92,7 +92,7 @@ fn parse_param(input: ParseStream) -> syn::Result<Param> {
     }
     input.parse::<Token![:]>()?;
     // Closure params are recognized by name + the leading `|` or `move |`.
-    let is_closure_key = matches!(key.to_string().as_str(), "read" | "write" | "verify");
+    let is_closure_key = matches!(key.to_string().as_str(), "read" | "write");
     if is_closure_key && (input.peek(Token![|]) || input.peek(Token![move])) {
         let closure: ExprClosure = input.parse()?;
         return Ok(Param::Closure { key, closure });

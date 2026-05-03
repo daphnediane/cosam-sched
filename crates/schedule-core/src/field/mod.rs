@@ -12,7 +12,6 @@
 //! NamedField          name(), display_name(), description(), aliases()
 //! ReadableField<E>    read(EntityId<E>, &Schedule) → Option<FieldValue>
 //! WritableField<E>    write(EntityId<E>, &mut Schedule, FieldValue) → Result<(), FieldError>
-//! VerifiableField<E>  verify(EntityId<E>, &Schedule, &FieldValue) → Result<(), VerificationError>
 //! ```
 //!
 //! All traits are flat — no `Simple*` or `Schedule*` sub-traits.
@@ -30,10 +29,10 @@ pub mod set;
 pub mod traits;
 
 // Re-export field traits from the traits module
-pub use traits::{NamedField, ReadableField, TypedField, VerifiableField, WritableField};
+pub use traits::{NamedField, ReadableField, TypedField, WritableField};
 
 // Re-export callback types from the callback module
-pub use callback::{AddFn, FieldCallbacks, ReadFn, RemoveFn, VerifyFn, WriteFn};
+pub use callback::{AddFn, FieldCallbacks, ReadFn, RemoveFn, WriteFn};
 // Re-export descriptor types from the descriptor module
 pub use descriptor::FieldDescriptor;
 
@@ -170,7 +169,6 @@ mod tests {
             })),
             add_fn: None,
             remove_fn: None,
-            verify_fn: None,
         },
     };
 
@@ -197,7 +195,6 @@ mod tests {
             })),
             add_fn: None,
             remove_fn: None,
-            verify_fn: None,
         },
     };
 
@@ -219,7 +216,6 @@ mod tests {
             write_fn: None,
             add_fn: None,
             remove_fn: None,
-            verify_fn: None,
         },
     };
 
@@ -244,7 +240,6 @@ mod tests {
             })),
             add_fn: None,
             remove_fn: None,
-            verify_fn: None,
         },
     };
 

@@ -48,11 +48,6 @@ pub fn expand(inp: &CallbackInput) -> syn::Result<TokenStream> {
         None => quote!(None),
     };
 
-    let verify_fn = match &inp.verify {
-        Some(cb) => generate_verify_callback(cb)?,
-        None => quote!(None),
-    };
-
     let add_fn = match &inp.add {
         Some(cb) => generate_add_callback(cb)?,
         None => quote!(None),
@@ -72,7 +67,6 @@ pub fn expand(inp: &CallbackInput) -> syn::Result<TokenStream> {
                 write_fn: #write_fn,
                 add_fn: #add_fn,
                 remove_fn: #remove_fn,
-                verify_fn: #verify_fn,
             };
             (data, cb)
         }
@@ -129,11 +123,6 @@ fn generate_read_callback(cb: &CallbackValue) -> syn::Result<TokenStream> {
 /// Generate a write callback expression.
 fn generate_write_callback(cb: &CallbackValue) -> syn::Result<TokenStream> {
     generate_callback(cb, "WriteFn", "write", 2, 3)
-}
-
-/// Generate a verify callback expression.
-fn generate_verify_callback(cb: &CallbackValue) -> syn::Result<TokenStream> {
-    generate_callback(cb, "VerifyFn", "verify", 2, 3)
 }
 
 /// Generate an add callback expression.

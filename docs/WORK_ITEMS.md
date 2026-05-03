@@ -1,6 +1,6 @@
 # Cosplay America Schedule - Work Item
 
-Updated on: Sat May  2 09:29:02 2026
+Updated on: Sat May  2 22:16:54 2026
 
 ## Completed
 
@@ -597,7 +597,7 @@ This item covers any remaining integration work and documentation.
 * Adding `HalfEdge : NamedField` trait with `edge_id()` and `edge_kind() -> &EdgeKind`
 * Adding `EdgeKind` enum with `Target { source_fields }` and `Owner { target_field, exclusive_with }`
 * Adding `EdgeDescriptor<E>` — a unified struct for all edge fields (owner and target)
-* Adding `TypedField<E>` blanket supertrait over `ReadableField + WritableField + VerifiableField`
+* Adding `TypedField<E>` blanket supertrait over `ReadableField + WritableField`
 * Adding `TypedHalfEdge<E>` blanket over `HalfEdge + TypedField<E>`
 * Removing `target_field` payload from `CrdtFieldType::EdgeOwner` (now in `EdgeKind`)
 * Moving `exclusive_with` from macro closures into `EdgeKind::Owner`

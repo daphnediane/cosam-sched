@@ -11,7 +11,7 @@ pub mod time;
 pub mod uniq_id;
 
 // Re-exports from error submodule
-pub use error::{ConversionError, FieldError, ValidationError, VerificationError};
+pub use error::{ConversionError, FieldError, ValidationError};
 
 use chrono::{Duration, NaiveDateTime};
 use std::fmt;

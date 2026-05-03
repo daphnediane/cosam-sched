@@ -94,9 +94,6 @@ pub fn expand(inp: &EdgeInput) -> syn::Result<TokenStream> {
         quote!(None)
     };
 
-    // Generate verify_fn - None for edge fields
-    let verify_fn = quote!(None);
-
     // Generate the complete output - returns (CommonFieldData, FieldCallbacks, EdgeKind) tuple
     Ok(quote! {
         {
@@ -106,7 +103,6 @@ pub fn expand(inp: &EdgeInput) -> syn::Result<TokenStream> {
                 write_fn: #write_fn,
                 add_fn: #add_fn,
                 remove_fn: #remove_fn,
-                verify_fn: #verify_fn,
             };
             let edge_kind = #edge_kind;
             (data, cb, edge_kind)

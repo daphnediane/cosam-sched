@@ -160,7 +160,6 @@ mod tests {
             write_fn: None,
             add_fn: None,
             remove_fn: None,
-            verify_fn: None,
         },
     };
 
@@ -182,7 +181,6 @@ mod tests {
             write_fn: None,
             add_fn: None,
             remove_fn: None,
-            verify_fn: None,
         },
     };
 

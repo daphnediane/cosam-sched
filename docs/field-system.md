@@ -207,17 +207,16 @@ is encoded in `EdgeKind` (within `EdgeDescriptor`), not in `CrdtFieldType`.
 NamedField          name(), display_name(), description(), aliases()
 ReadableField<E>    read(EntityId<E>, &Schedule) → Option<FieldValue>
 WritableField<E>    write(EntityId<E>, &mut Schedule, FieldValue) → Result<(), FieldError>
-VerifiableField<E>  verify(EntityId<E>, &Schedule, &FieldValue) → Result<(), VerificationError>
 AddableField<E>     add(EntityId<E>, &mut Schedule, FieldValue) → Result<(), FieldError>
 RemovableField<E>   remove(EntityId<E>, &mut Schedule, FieldValue) → Result<(), FieldError>
 ```
 
-All six traits are flat — no `Simple*` or `Schedule*` sub-traits. The
+All five traits are flat — no `Simple*` or `Schedule*` sub-traits. The
 caller-facing API is always `(EntityId<E>, &[mut] Schedule)`.
 
-`FieldDescriptor<E>` implements all six directly. Dispatch between
+`FieldDescriptor<E>` implements all five directly. Dispatch between
 data-only and schedule-aware paths is handled internally by matching on
-`ReadFn<E>`, `WriteFn<E>`, `VerifyFn<E>`, `AddFn<E>`, and `RemoveFn<E>` (see below).
+`ReadFn<E>`, `WriteFn<E>`, `AddFn<E>`, and `RemoveFn<E>` (see below).
 
 Entity-level text matching (previously `IndexableField<E>` / `match_index`)
 is now handled by the `EntityMatcher` trait in `crate::query::lookup`; see
@@ -279,17 +278,6 @@ pub enum RemoveFn<E: EntityType> {
     RemoveEdge,
 }
 
-/// How a field verifies its value after a batch write: directly from
-/// [`EntityType::InternalData`], via a [`Schedule`] lookup, or by re-reading.
-pub enum VerifyFn<E: EntityType> {
-    /// Data-only verification — no schedule access needed.
-    Bare(fn(&E::InternalData, &FieldValue) -> Result<(), VerificationError>),
-    /// Schedule-aware verification — fn receives `(&Schedule, EntityId<E>)`.
-    Schedule(fn(&Schedule, EntityId<E>, &FieldValue) -> Result<(), VerificationError>),
-    /// Re-read verification — read the field back and compare to attempted value.
-    /// Uses `read_fn` internally; fails verification if field is write-only.
-    ReRead,
-}
 ```
 
 ## FieldDescriptor
@@ -312,7 +300,6 @@ pub struct FieldDescriptor<E: EntityType> {
     pub write_fn: Option<WriteFn<E>>,   // None → read-only
     pub add_fn: Option<AddFn<E>>,       // None → read-only or add not supported
     pub remove_fn: Option<RemoveFn<E>>, // None → read-only or remove not supported
-    pub verify_fn: Option<VerifyFn<E>>, // None → no verification requested
 }
 ```
 
@@ -321,7 +308,7 @@ inventory. Fields are sorted by this value (ascending) when `FieldSet::from_inve
 collects them. Use multiples of 100 (0, 100, 200, ...) to leave room for future insertions.
 
 `FieldDescriptor` implements `NamedField`, `ReadableField<E>`,
-`WritableField<E>`, `VerifiableField<E>`, `AddableField<E>`, and
+`WritableField<E>`, `AddableField<E>`, and
 `RemovableField<E>` directly:
 
 - `read()` matches `read_fn`: `None` → `FieldError::WriteOnly`;
@@ -338,15 +325,6 @@ collects them. Use multiples of 100 (0, 100, 200, ...) to leave room for future 
   `Bare` fetches `&mut InternalData` then calls the fn;
   `Schedule` delegates directly;
   `RemoveEdge` calls `crate::schedule::remove_edge` for edge operations.
-- `verify()` checks value stability after batch writes (opt-in):
-  - If `verify_fn` is `None`, returns `Ok(())` — no verification requested
-  - If `verify_fn` is `Some(Bare(f))`, calls the custom data-only verification function
-  - If `verify_fn` is `Some(Schedule(f))`, calls the custom schedule-aware function
-  - If `verify_fn` is `Some(ReRead)`, reads the field back via `read()` and compares
-    to the attempted value; returns `VerificationError::NotVerifiable` if the field
-    is write-only (no `read_fn`)
-  - Returns `VerificationError::ValueChanged` if the verified value differs from
-    the attempted value
 
 Declared as `static` values, e.g.:
 
@@ -363,7 +341,6 @@ static FIELD_PANEL_NAME: FieldDescriptor<PanelEntityType> = FieldDescriptor {
     order: 0,
     read_fn: Some(ReadFn::Bare(|d| Some(FieldValue::String(d.data.name.clone())))),
     write_fn: Some(WriteFn::Bare(|d, v| { d.data.name = v.into_string()?; Ok(()) })),
-    verify_fn: None,
 };
 
 // Edge field (CRDT owner, no direct write fn — write via add/remove helpers):
@@ -526,7 +503,7 @@ inventory::submit! { CollectedNamedField(&FIELD_CODE) }
 
 - Use `accessor_field_properties!` for stored fields that map directly to `CommonData` fields
 - Use `edge_field_properties!` for edge relationship fields (during migration to `EdgeDescriptor<E>`)
-- Use `callback_field_properties!` for computed fields with custom read/write/verify logic
+- Use `callback_field_properties!` for computed fields with custom read/write logic
 - Use `define_field!` only for **pseudo edge fields** — computed fields that behave like edges but don't use the standard edge mechanism (e.g., `FIELD_PANELS` union fields)
 
 **Callback support:**
@@ -536,11 +513,10 @@ The `callback_field_properties!` macro supports both closures and enum variants 
 - **Closures**: Automatically wrapped in appropriate enum variant based on arity:
   - Read closures: 1 arg → `ReadFn::Bare`, 2 args → `ReadFn::Schedule`
   - Write closures: 2 args → `WriteFn::Bare`, 3 args → `WriteFn::Schedule`
-  - Verify closures: 2 args → `VerifyFn::Bare`, 3 args → `VerifyFn::Schedule`
   - Add/Remove closures: 2 args → `AddFn::Bare`/`RemoveFn::Bare`, 3 args → `AddFn::Schedule`/`RemoveFn::Schedule`
 
 - **Enum variants**: Use directly without wrapping:
-  - `ReadFn::ReadEdge`, `WriteFn::WriteEdge`, `VerifyFn::ReRead`, etc.
+  - `ReadFn::ReadEdge`, `WriteFn::WriteEdge`, `AddFn::AddEdge`, `RemoveFn::RemoveEdge`, etc.
 
 The macro derives `field_type` and `crdt_type` from `cardinality` and `item` automatically,
 so these don't need to be specified explicitly.
@@ -807,7 +783,6 @@ define_field!(
             },
         )),
         write_fn: None,  // Read-only
-        verify_fn: None,
     }
 );
 ```

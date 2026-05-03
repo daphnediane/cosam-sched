@@ -37,11 +37,11 @@
 use crate::crdt::CrdtFieldType;
 use crate::entity::EntityType;
 use crate::field::{
-    traits::{AddableField, ReadableField, RemovableField, VerifiableField, WritableField},
+    traits::{AddableField, ReadableField, RemovableField, WritableField},
     FieldDescriptor, NamedField,
 };
 use crate::schedule::Schedule;
-use crate::value::{FieldError, FieldValue, IntoFieldValue, VerificationError};
+use crate::value::{FieldError, FieldValue, IntoFieldValue};
 use std::collections::HashMap;
 use thiserror::Error;
 
@@ -160,20 +160,6 @@ pub enum FieldSetError {
         /// The underlying [`FieldError`].
         #[source]
         error: Box<FieldError>,
-    },
-
-    /// Verification failed for a field that has a `verify_fn`.
-    ///
-    /// Raised during the post-write verification phase after all writes in
-    /// the batch have been applied.  The inner [`VerificationError`] is boxed
-    /// for the same size reasons as [`FieldSetError::WriteError`].
-    #[error("verification failed for field '{field}': {error}")]
-    VerificationError {
-        /// Canonical name of the field that failed verification.
-        field: &'static str,
-        /// The underlying [`VerificationError`].
-        #[source]
-        error: Box<VerificationError>,
     },
 }
 
@@ -382,8 +368,7 @@ impl<E: EntityType> FieldSet<E> {
     // ── Batch writes ──────────────────────────────────────────────────────────
 
     /// Apply a batch of field operations atomically (from the caller's point of
-    /// view), then run [`VerifiableField::verify`] for every descriptor that
-    /// has a `verify_fn`.
+    /// view).
     ///
     /// # Resolution
     ///
@@ -412,14 +397,6 @@ impl<E: EntityType> FieldSet<E> {
     /// [`FieldSetError::WriteError`].  **No rollback** is performed; prior
     /// writes remain applied.  Higher-level builders (see `builder.rs`) are
     /// responsible for rolling back at the entity level if required.
-    ///
-    /// # Verify phase
-    ///
-    /// Verification runs only when the batch contains **only** `Set` operations
-    /// (no `Add` or `Remove`). This avoids false positives where a `Set` followed
-    /// by `Add` on the same field would fail verification because the final value
-    /// includes items added after the set. This restriction will be refined in a
-    /// future design change.
     pub fn write_multiple(
         &self,
         id: crate::entity::EntityId<E>,
@@ -433,7 +410,6 @@ impl<E: EntityType> FieldSet<E> {
         // are allowed, and Add/Remove after Set is also allowed.
         let mut resolved: Vec<(&'static FieldDescriptor<E>, FieldOp, &FieldValue)> =
             Vec::with_capacity(updates.len());
-        let mut has_add_or_remove = false;
         for update in updates {
             let (desc, resolved_op) = self.resolve(&update.field, update.op)?;
             if resolved
@@ -445,9 +421,6 @@ impl<E: EntityType> FieldSet<E> {
                 if resolved_op == FieldOp::Set {
                     return Err(FieldSetError::DuplicateField(desc.name()));
                 }
-            }
-            if resolved_op != FieldOp::Set {
-                has_add_or_remove = true;
             }
             resolved.push((desc, resolved_op, &update.value));
         }
@@ -465,24 +438,6 @@ impl<E: EntityType> FieldSet<E> {
             })?;
         }
 
-        // Skip verification if:
-        // - Any add/remove operation was present (verification designed for writes only)
-        // - Only a single field is being written (verification is for batch consistency)
-        if has_add_or_remove || resolved.len() == 1 {
-            return Ok(());
-        }
-
-        // Verify phase — only descriptors with verify_fn participate.
-        for (desc, _op, value) in &resolved {
-            if desc.cb.verify_fn.is_some() {
-                desc.verify(id, schedule, value).map_err(|error| {
-                    FieldSetError::VerificationError {
-                        field: desc.name(),
-                        error: Box::new(error),
-                    }
-                })?;
-            }
-        }
         Ok(())
     }
 
@@ -627,7 +582,6 @@ mod tests {
             })),
             add_fn: None,
             remove_fn: None,
-            verify_fn: None,
         },
     };
 
@@ -652,7 +606,6 @@ mod tests {
             })),
             add_fn: None,
             remove_fn: None,
-            verify_fn: None,
         },
     };
 
@@ -674,7 +627,6 @@ mod tests {
             write_fn: None,
             add_fn: None,
             remove_fn: None,
-            verify_fn: None,
         },
     };
 
@@ -895,165 +847,7 @@ mod tests {
         assert_eq!(fs.crdt_fields().count(), 0);
     }
 
-    // ── write_multiple / write_many ──────────────────────────────────────────
-
-    use crate::field::VerifyFn;
-    use crate::value::VerificationError;
-
-    /// A field with `VerifyFn::ReRead` — used to prove the verify phase runs
-    /// after writes and catches drift.
-    static REREAD_LABEL_FIELD: FieldDescriptor<MockEntity> = FieldDescriptor {
-        data: CommonFieldData {
-            name: "label_rr",
-            display: "Label (ReRead)",
-            description: "Mirror of `label` but with ReRead verification enabled.",
-            aliases: &[],
-            field_type: FieldType(FieldCardinality::Single, FieldTypeItem::String),
-            crdt_type: CrdtFieldType::Scalar,
-            example: "Hello",
-            order: 300,
-        },
-        required: false,
-        edge_kind: EdgeKind::NonEdge,
-        cb: FieldCallbacks {
-            read_fn: Some(ReadFn::Bare(|d: &MockData| {
-                Some(field_value!(d.label.clone()))
-            })),
-            write_fn: Some(WriteFn::Bare(|d: &mut MockData, v| {
-                d.label = v.into_string()?;
-                Ok(())
-            })),
-            add_fn: None,
-            remove_fn: None,
-            verify_fn: Some(VerifyFn::ReRead),
-        },
-    };
-
-    /// A field whose write *clobbers* `count` to force drift on any verified
-    /// field that re-reads `count`.
-    static CLOBBER_COUNT_FIELD: FieldDescriptor<MockEntity> = FieldDescriptor {
-        data: CommonFieldData {
-            name: "clobber_count",
-            display: "Clobber Count",
-            description: "Ignores its argument and resets `count` to 0.",
-            aliases: &[],
-            field_type: FieldType(FieldCardinality::Single, FieldTypeItem::Integer),
-            crdt_type: CrdtFieldType::Derived,
-            example: "0",
-            order: 400,
-        },
-        required: false,
-        edge_kind: EdgeKind::NonEdge,
-        cb: FieldCallbacks {
-            read_fn: None,
-            write_fn: Some(WriteFn::Bare(|d: &mut MockData, _v| {
-                d.count = 0;
-                Ok(())
-            })),
-            add_fn: None,
-            remove_fn: None,
-            verify_fn: None,
-        },
-    };
-
-    /// A verify-only sibling of `count` that checks the backing field equals
-    /// the attempted value via the `Bare` verify variant.
-    static VERIFIED_COUNT_FIELD: FieldDescriptor<MockEntity> = FieldDescriptor {
-        data: CommonFieldData {
-            name: "count_verified",
-            display: "Count (Verified)",
-            description: "Writes and then verifies via Bare verify_fn.",
-            aliases: &[],
-            field_type: FieldType(FieldCardinality::Single, FieldTypeItem::Integer),
-            crdt_type: CrdtFieldType::Scalar,
-            example: "7",
-            order: 500,
-        },
-        required: false,
-        edge_kind: EdgeKind::NonEdge,
-        cb: FieldCallbacks {
-            read_fn: Some(ReadFn::Bare(|d: &MockData| Some(field_value!(d.count)))),
-            write_fn: Some(WriteFn::Bare(|d: &mut MockData, v| {
-                d.count = v.into_integer()?;
-                Ok(())
-            })),
-            add_fn: None,
-            remove_fn: None,
-            verify_fn: Some(VerifyFn::Bare(|d: &MockData, attempted| {
-                let want = attempted.clone().into_integer().map_err(|_| {
-                    VerificationError::NotVerifiable {
-                        field: "count_verified",
-                    }
-                })?;
-                if d.count == want {
-                    Ok(())
-                } else {
-                    Err(VerificationError::ValueChanged {
-                        field: "count_verified",
-                        requested: attempted.clone(),
-                        actual: field_value!(d.count),
-                    })
-                }
-            })),
-        },
-    };
-
-    /// Schedule-variant verifier — equivalent check via `VerifyFn::Schedule`.
-    static VERIFIED_SCHED_COUNT_FIELD: FieldDescriptor<MockEntity> = FieldDescriptor {
-        data: CommonFieldData {
-            name: "count_sched_verified",
-            display: "Count (Schedule Verified)",
-            description: "Writes and then verifies via Schedule verify_fn.",
-            aliases: &[],
-            field_type: FieldType(FieldCardinality::Single, FieldTypeItem::Integer),
-            crdt_type: CrdtFieldType::Scalar,
-            example: "7",
-            order: 600,
-        },
-        required: false,
-        edge_kind: EdgeKind::NonEdge,
-        cb: FieldCallbacks {
-            read_fn: Some(ReadFn::Bare(|d: &MockData| Some(field_value!(d.count)))),
-            write_fn: Some(WriteFn::Bare(|d: &mut MockData, v| {
-                d.count = v.into_integer()?;
-                Ok(())
-            })),
-            add_fn: None,
-            remove_fn: None,
-            verify_fn: Some(VerifyFn::Schedule(|sched, id, attempted| {
-                let d = sched.get_internal::<MockEntity>(id).ok_or(
-                    VerificationError::NotVerifiable {
-                        field: "count_sched_verified",
-                    },
-                )?;
-                let want = attempted.clone().into_integer().map_err(|_| {
-                    VerificationError::NotVerifiable {
-                        field: "count_sched_verified",
-                    }
-                })?;
-                if d.count == want {
-                    Ok(())
-                } else {
-                    Err(VerificationError::ValueChanged {
-                        field: "count_sched_verified",
-                        requested: attempted.clone(),
-                        actual: field_value!(d.count),
-                    })
-                }
-            })),
-        },
-    };
-
-    fn make_verify_field_set() -> FieldSet<MockEntity> {
-        FieldSet::new(&[
-            &LABEL_FIELD,
-            &COUNT_FIELD,
-            &REREAD_LABEL_FIELD,
-            &CLOBBER_COUNT_FIELD,
-            &VERIFIED_COUNT_FIELD,
-            &VERIFIED_SCHED_COUNT_FIELD,
-        ])
-    }
+    // ── write_multiple / write_many ────────────────────────────────────────
 
     fn initial_data() -> MockData {
         MockData {
@@ -1222,159 +1016,7 @@ mod tests {
         assert_eq!(d.label, "applied"); // earlier write stuck
     }
 
-    #[test]
-    fn test_write_multiple_verify_reread_pass() {
-        let fs = make_verify_field_set();
-        let id = make_id();
-        let mut sched = make_schedule_with(id, initial_data());
-        fs.write_multiple(
-            id,
-            &mut sched,
-            &[FieldUpdate::set(&REREAD_LABEL_FIELD, "after")],
-        )
-        .unwrap();
-        assert_eq!(sched.get_internal::<MockEntity>(id).unwrap().label, "after");
-    }
-
-    #[test]
-    fn test_write_multiple_verify_reread_catches_drift() {
-        // REREAD_LABEL writes "final"; a later field stomps `label` back.
-        // The ReRead verify phase must fire and catch the drift.
-        static STOMP_LABEL_FIELD: FieldDescriptor<MockEntity> = FieldDescriptor {
-            data: CommonFieldData {
-                name: "stomp_label",
-                display: "Stomp Label",
-                description: "Forces label = 'stomped'.",
-                aliases: &[],
-                field_type: FieldType(FieldCardinality::Single, FieldTypeItem::String),
-                crdt_type: CrdtFieldType::Derived,
-                example: "stomped",
-                order: 700,
-            },
-            required: false,
-            edge_kind: EdgeKind::NonEdge,
-            cb: FieldCallbacks {
-                read_fn: None,
-                write_fn: Some(WriteFn::Bare(|d: &mut MockData, _v| {
-                    d.label = "stomped".into();
-                    Ok(())
-                })),
-                add_fn: None,
-                remove_fn: None,
-                verify_fn: None,
-            },
-        };
-        let fs = FieldSet::<MockEntity>::new(&[&REREAD_LABEL_FIELD, &STOMP_LABEL_FIELD]);
-        let id = make_id();
-        let mut sched = make_schedule_with(id, initial_data());
-        let err = fs
-            .write_multiple(
-                id,
-                &mut sched,
-                &[
-                    FieldUpdate::set(&REREAD_LABEL_FIELD, "final"),
-                    FieldUpdate::set(&STOMP_LABEL_FIELD, "ignored"),
-                ],
-            )
-            .unwrap_err();
-        match err {
-            FieldSetError::VerificationError { field, error } => {
-                assert_eq!(field, "label_rr");
-                assert!(matches!(*error, VerificationError::ValueChanged { .. }));
-            }
-            other => panic!("expected VerificationError, got {other:?}"),
-        }
-    }
-
-    #[test]
-    fn test_write_multiple_verify_bare_pass() {
-        let fs = make_verify_field_set();
-        let id = make_id();
-        let mut sched = make_schedule_with(id, initial_data());
-        fs.write_multiple(
-            id,
-            &mut sched,
-            &[FieldUpdate::set(&VERIFIED_COUNT_FIELD, 42_i64)],
-        )
-        .unwrap();
-        assert_eq!(sched.get_internal::<MockEntity>(id).unwrap().count, 42);
-    }
-
-    #[test]
-    fn test_write_multiple_verify_bare_catches_drift() {
-        // Write count_verified=42 then clobber via CLOBBER_COUNT_FIELD.
-        let fs = make_verify_field_set();
-        let id = make_id();
-        let mut sched = make_schedule_with(id, initial_data());
-        let err = fs
-            .write_multiple(
-                id,
-                &mut sched,
-                &[
-                    FieldUpdate::set(&VERIFIED_COUNT_FIELD, 42_i64),
-                    FieldUpdate::set(&CLOBBER_COUNT_FIELD, 0_i64),
-                ],
-            )
-            .unwrap_err();
-        match err {
-            FieldSetError::VerificationError { field, error } => {
-                assert_eq!(field, "count_verified");
-                assert!(matches!(*error, VerificationError::ValueChanged { .. }));
-            }
-            other => panic!("expected VerificationError, got {other:?}"),
-        }
-    }
-
-    #[test]
-    fn test_write_multiple_verify_schedule_pass() {
-        let fs = make_verify_field_set();
-        let id = make_id();
-        let mut sched = make_schedule_with(id, initial_data());
-        fs.write_multiple(
-            id,
-            &mut sched,
-            &[FieldUpdate::set(&VERIFIED_SCHED_COUNT_FIELD, 99_i64)],
-        )
-        .unwrap();
-        assert_eq!(sched.get_internal::<MockEntity>(id).unwrap().count, 99);
-    }
-
-    #[test]
-    fn test_write_multiple_verify_schedule_catches_drift() {
-        let fs = make_verify_field_set();
-        let id = make_id();
-        let mut sched = make_schedule_with(id, initial_data());
-        let err = fs
-            .write_multiple(
-                id,
-                &mut sched,
-                &[
-                    FieldUpdate::set(&VERIFIED_SCHED_COUNT_FIELD, 99_i64),
-                    FieldUpdate::set(&CLOBBER_COUNT_FIELD, 0_i64),
-                ],
-            )
-            .unwrap_err();
-        match err {
-            FieldSetError::VerificationError { field, error } => {
-                assert_eq!(field, "count_sched_verified");
-                assert!(matches!(*error, VerificationError::ValueChanged { .. }));
-            }
-            other => panic!("expected VerificationError, got {other:?}"),
-        }
-    }
-
-    #[test]
-    fn test_write_multiple_verify_skipped_when_verify_fn_none() {
-        // LABEL_FIELD has verify_fn: None — even if writes mutate the backing
-        // data, no verification error is raised.
-        let fs = make_field_set();
-        let id = make_id();
-        let mut sched = make_schedule_with(id, initial_data());
-        fs.write_multiple(id, &mut sched, &[FieldUpdate::set("label", "anything")])
-            .unwrap();
-    }
-
-    // ── write_many (IntoFieldValue wrapper) ──────────────────────────────────
+    // ── write_many (IntoFieldValue wrapper) ────────────────────────────────────
 
     #[test]
     fn test_write_many_typed_values() {

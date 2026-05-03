@@ -5,7 +5,7 @@
  */
 
 //! Field trait hierarchy: [`NamedField`], [`ReadableField<E>`], [`WritableField<E>`],
-//! [`VerifiableField<E>`], and [`TypedField<E>`].
+//! and [`TypedField<E>`].
 //!
 //! These traits define the core field API used throughout the entity/field system.
 
@@ -13,7 +13,7 @@ use crate::crdt::CrdtFieldType;
 use crate::edge::HalfEdge;
 use crate::entity::{EntityId, EntityType};
 use crate::schedule::Schedule;
-use crate::value::{FieldError, FieldValue, VerificationError};
+use crate::value::{FieldError, FieldValue};
 
 // ── NamedField ────────────────────────────────────────────────────────────────
 
@@ -117,30 +117,6 @@ pub trait WritableField<E: EntityType>: NamedField {
     ) -> Result<(), FieldError>;
 }
 
-// ── VerifiableField<E> ─────────────────────────────────────────────────────────
-
-/// Field that can be verified after a batch write.
-///
-/// Verification checks that the field still has the value that was requested
-/// after all writes in a batch have completed. This is essential for computed
-/// fields that may have their backing data modified by other field writes.
-pub trait VerifiableField<E: EntityType>: NamedField {
-    /// Verify that the field has the expected value after batch writes.
-    ///
-    /// Called after all writes in a batch are complete. The `attempted` parameter
-    /// is the value that was originally passed to `write()` for this field.
-    ///
-    /// Returns `Ok(())` if verification passes, or `Err(VerificationError)` if:
-    /// - The field value changed during the batch (another write modified it)
-    /// - The field cannot be verified (no `verify_fn` or `read_fn`)
-    fn verify(
-        &self,
-        id: EntityId<E>,
-        schedule: &Schedule,
-        attempted: &FieldValue,
-    ) -> Result<(), VerificationError>;
-}
-
 // ── AddableField<E> ───────────────────────────────────────────────────────────
 
 /// Field that can accept adding items to a list value.
@@ -171,10 +147,10 @@ pub trait RemovableField<E: EntityType>: NamedField {
 
 // ── TypedField<E> ─────────────────────────────────────────────────────────────
 
-/// Entity-typed field: combines read, write, verify, add, and remove capabilities.
+/// Entity-typed field: combines read, write, add, and remove capabilities.
 ///
 /// A blanket implementation covers any type that implements all of
-/// [`ReadableField<E>`], [`WritableField<E>`], [`VerifiableField<E>`],
+/// [`ReadableField<E>`], [`WritableField<E>`],
 /// [`AddableField<E>`], and [`RemovableField<E>`].
 ///
 /// This trait is used as `dyn TypedField<E>` in [`crate::field_set::FieldSet`]
@@ -183,17 +159,13 @@ pub trait RemovableField<E: EntityType>: NamedField {
 ///
 /// [`FieldDescriptor<E>`]: crate::field::FieldDescriptor
 pub trait TypedField<E: EntityType>:
-    ReadableField<E> + WritableField<E> + VerifiableField<E> + AddableField<E> + RemovableField<E>
+    ReadableField<E> + WritableField<E> + AddableField<E> + RemovableField<E>
 {
 }
 
 impl<
         E: EntityType,
-        T: ReadableField<E>
-            + WritableField<E>
-            + VerifiableField<E>
-            + AddableField<E>
-            + RemovableField<E>,
+        T: ReadableField<E> + WritableField<E> + AddableField<E> + RemovableField<E>,
     > TypedField<E> for T
 {
 }

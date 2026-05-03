@@ -21,7 +21,7 @@ This refactor adds the edge field trait hierarchy and splits edge fields out of 
 - Adding `HalfEdge : NamedField` trait with `edge_id()` and `edge_kind() -> &EdgeKind`
 - Adding `EdgeKind` enum with `Target { source_fields }` and `Owner { target_field, exclusive_with }`
 - Adding `EdgeDescriptor<E>` — a unified struct for all edge fields (owner and target)
-- Adding `TypedField<E>` blanket supertrait over `ReadableField + WritableField + VerifiableField`
+- Adding `TypedField<E>` blanket supertrait over `ReadableField + WritableField`
 - Adding `TypedHalfEdge<E>` blanket over `HalfEdge + TypedField<E>`
 - Removing `target_field` payload from `CrdtFieldType::EdgeOwner` (now in `EdgeKind`)
 - Moving `exclusive_with` from macro closures into `EdgeKind::Owner`

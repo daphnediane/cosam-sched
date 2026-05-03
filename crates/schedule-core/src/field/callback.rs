@@ -4,18 +4,18 @@
  * See LICENSE file for full license text
  */
 
-//! Field callback functions for read/write/verify operations.
+//! Field callback functions for read/write operations.
 
 use crate::entity::{EntityId, EntityType};
 use crate::schedule::Schedule;
-use crate::value::{FieldError, FieldValue, VerificationError};
+use crate::value::{FieldError, FieldValue};
 use crate::FullEdge;
 
 // ── FieldCallbacks<E> ───────────────────────────────────────────────────────────
 
-/// Callback functions for field read/write/verify operations.
+/// Callback functions for field read/write operations.
 ///
-/// This struct groups the three callback functions needed for field operations
+/// This struct groups the callback functions needed for field operations
 /// into a single unit, improving code organization and reducing boilerplate.
 pub struct FieldCallbacks<E: EntityType> {
     /// Read implementation. `None` means write-only.
@@ -26,8 +26,6 @@ pub struct FieldCallbacks<E: EntityType> {
     pub add_fn: Option<AddFn<E>>,
     /// Remove implementation. `None` means no remove.
     pub remove_fn: Option<RemoveFn<E>>,
-    /// Verification implementation. `None` means skip verification.
-    pub verify_fn: Option<VerifyFn<E>>,
 }
 
 // ── ReadFn<E> ─────────────────────────────────────────────────────────────────
@@ -106,22 +104,4 @@ pub enum RemoveFn<E: EntityType> {
     Schedule(fn(&mut Schedule, EntityId<E>, FieldValue) -> Result<(), FieldError>),
     /// Remove from our edge
     RemoveEdge,
-}
-
-// ── VerifyFn<E> ─────────────────────────────────────────────────────────────────
-
-/// How a field verifies its value after a batch write: directly from
-/// [`EntityType::InternalData`], via a [`Schedule`] lookup, or by re-reading.
-///
-/// Verification checks that the field still has the value that was requested
-/// after all writes in a batch have completed. This catches conflicts where
-/// one computed field's write modified another field's backing data.
-pub enum VerifyFn<E: EntityType> {
-    /// Data-only verification — no schedule access needed.
-    Bare(fn(&E::InternalData, &FieldValue) -> Result<(), VerificationError>),
-    /// Schedule-aware verification — fn receives `(&Schedule, EntityId<E>)`.
-    Schedule(fn(&Schedule, EntityId<E>, &FieldValue) -> Result<(), VerificationError>),
-    /// Re-read verification — read the field back and compare to attempted value.
-    /// Uses `read_fn` internally; fails verification if field is write-only.
-    ReRead,
 }

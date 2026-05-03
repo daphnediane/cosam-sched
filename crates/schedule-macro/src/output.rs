@@ -182,12 +182,6 @@ fn expand_stored(inp: &FieldInput) -> syn::Result<TokenStream> {
         }
     };
 
-    let verify_fn = if let Some(c) = inp.closure("verify") {
-        quote!(Some(::schedule_core::field::VerifyFn::Schedule(#c)))
-    } else {
-        quote!(None)
-    };
-
     let field_type_ts = quote! {
         ::schedule_core::value::FieldType(
             #cardinality,
@@ -208,7 +202,6 @@ fn expand_stored(inp: &FieldInput) -> syn::Result<TokenStream> {
             write_fn: #write_fn,
             add_fn: None,
             remove_fn: None,
-            verify_fn: #verify_fn,
         },
     };
 
@@ -314,12 +307,6 @@ fn expand_edge(inp: &FieldInput) -> syn::Result<TokenStream> {
     } else {
         quote!(None)
     };
-    let verify_fn = if let Some(c) = inp.closure("verify") {
-        quote!(Some(::schedule_core::field::VerifyFn::Schedule(#c)))
-    } else {
-        quote!(None)
-    };
-
     let crdt_type_ts = quote!(::schedule_core::crdt::CrdtFieldType::Derived);
     let meta = common_meta(inp, field_type, crdt_type_ts)?;
     let body = quote! {
@@ -331,7 +318,6 @@ fn expand_edge(inp: &FieldInput) -> syn::Result<TokenStream> {
             write_fn: #write_fn,
             add_fn: None,
             remove_fn: None,
-            verify_fn: #verify_fn,
         },
     };
 
@@ -425,32 +411,6 @@ fn expand_custom(inp: &FieldInput) -> syn::Result<TokenStream> {
     } else {
         quote!(None)
     };
-    let verify_fn = if let Some(c) = inp.closure("verify") {
-        match closure_arity(c) {
-            2 => quote!(Some(::schedule_core::field::VerifyFn::Bare(#c))),
-            3 => quote!(Some(::schedule_core::field::VerifyFn::Schedule(#c))),
-            n => {
-                return Err(syn::Error::new(
-                    c.span(),
-                    format!("verify closure must take 2 (Bare) or 3 (Schedule) args; got {n}"),
-                ));
-            }
-        }
-    } else if let Some(ts) = inp.kv("verify") {
-        // Allow `verify: ReRead` shorthand.
-        let id: Ident = syn::parse2(ts.clone())?;
-        if id == "ReRead" {
-            quote!(Some(::schedule_core::field::VerifyFn::ReRead))
-        } else {
-            return Err(syn::Error::new(
-                id.span(),
-                "verify: must be a closure or `ReRead`",
-            ));
-        }
-    } else {
-        quote!(None)
-    };
-
     let field_type_ts = quote! {
         ::schedule_core::value::FieldType(#cardinality, #item_expr)
     };
@@ -464,7 +424,6 @@ fn expand_custom(inp: &FieldInput) -> syn::Result<TokenStream> {
             write_fn: #write_fn,
             add_fn: None,
             remove_fn: None,
-            verify_fn: #verify_fn,
         },
     };
     Ok(emit_static(inp, body))

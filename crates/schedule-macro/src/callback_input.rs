@@ -21,7 +21,6 @@
 //!     order: 100,
 //!     [read: <closure or enum variant>,]
 //!     [write: <closure or enum variant>,]
-//!     [verify: <closure or enum variant>,]
 //!     [add: <closure or enum variant>,]
 //!     [remove: <closure or enum variant>,]
 //! }
@@ -43,8 +42,6 @@ pub struct CallbackInput {
     pub read: Option<CallbackValue>,
     /// Write callback (closure or enum variant).
     pub write: Option<CallbackValue>,
-    /// Verify callback (closure or enum variant).
-    pub verify: Option<CallbackValue>,
     /// Add callback (closure or enum variant).
     pub add: Option<CallbackValue>,
     /// Remove callback (closure or enum variant).
@@ -85,7 +82,6 @@ impl Parse for CallbackInput {
         let mut item = None;
         let mut read = None;
         let mut write = None;
-        let mut verify = None;
         let mut add = None;
         let mut remove = None;
         let mut common = crate::common_input::CommonMetadataOptions::default();
@@ -105,7 +101,6 @@ impl Parse for CallbackInput {
                 }
                 "read" => read = Some(CallbackValue::parse_callback(input)?),
                 "write" => write = Some(CallbackValue::parse_callback(input)?),
-                "verify" => verify = Some(CallbackValue::parse_callback(input)?),
                 "add" => add = Some(CallbackValue::parse_callback(input)?),
                 "remove" => remove = Some(CallbackValue::parse_callback(input)?),
                 _ => {
@@ -133,7 +128,6 @@ impl Parse for CallbackInput {
             item: item.ok_or_else(|| syn::Error::new(input.span(), "missing 'item'"))?,
             read,
             write,
-            verify,
             add,
             remove,
             common: common.into_common_metadata(input.span())?,

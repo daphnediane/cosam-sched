@@ -23,7 +23,7 @@ use crate::callback_field_properties;
 use crate::define_field;
 use crate::edge::EdgeKind;
 use crate::entity::{EntityId, EntityType, EntityUuid, FieldSet};
-use crate::field::{CollectedNamedField, FieldDescriptor, NamedField, VerifyFn};
+use crate::field::{CollectedNamedField, FieldDescriptor, NamedField};
 use crate::field_value;
 use crate::query::converter::EntityStringResolver;
 use crate::schedule::Schedule;
@@ -881,7 +881,6 @@ pub static FIELD_START_TIME: FieldDescriptor<PanelEntityType> = {
             }
             Ok(())
         },
-        verify: VerifyFn::ReRead
     };
     FieldDescriptor {
         data,
@@ -934,7 +933,6 @@ pub static FIELD_END_TIME: FieldDescriptor<PanelEntityType> = {
             }
             Ok(())
         },
-        verify: VerifyFn::ReRead
     };
     FieldDescriptor {
         data,
@@ -990,7 +988,6 @@ pub static FIELD_DURATION: FieldDescriptor<PanelEntityType> = {
             }
             Ok(())
         },
-        verify: VerifyFn::ReRead
     };
     FieldDescriptor {
         data,

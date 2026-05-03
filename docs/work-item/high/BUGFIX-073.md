@@ -87,8 +87,6 @@ Preferred: promote the three projections from `Derived` to `Scalar`.
 
 - Change `crdt: Derived` → `crdt: Scalar` in `FIELD_START_TIME`,
   `FIELD_END_TIME`, `FIELD_DURATION` (panel.rs).
-- Drop the now-redundant `verify: ReRead` on those fields (the `Scalar`
-  mirror already round-trips the value through `read_fn`).
 - Confirm `crdt::put_field` / `get_field` already handle
   `Optional<DateTime>` and `Optional<Duration>` Scalars (they do today
   for `event_room`'s optional string / etc.).
