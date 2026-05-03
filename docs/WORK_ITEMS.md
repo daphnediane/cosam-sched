@@ -1,6 +1,6 @@
 # Cosplay America Schedule - Work Item
 
-Updated on: Sun May  3 03:27:28 2026
+Updated on: Sun May  3 11:39:29 2026
 
 ## Completed
 
@@ -95,9 +95,15 @@ and improve `FieldId` conversions with a global registry and type-safe downcasti
 
 ---
 
+## Superseded / Rejected
+
+* [BUGFIX-045] (Superseded) In `scratch/field_update_logic.rs`, duration values are incorrectly stored as `FieldValue::Integer(minutes)` instead of `FieldValue::Duration(Duration)`.
+
+---
+
 ## Summary of Open Items
 
-**Total open items:** 21
+**Total open items:** 20
 
 * **Meta / Project-Level**
   * [META-001] Meta work item tracking the full multi-phase redesign of the schedule system. (Blocked by [META-005], [META-006], [META-007], [META-008])
@@ -113,7 +119,6 @@ end / duration are not mirrored to the Automerge document and are lost
 through any save → load (or merge) round trip.
 
 * **Medium Priority**
-  * [BUGFIX-045] In `scratch/field_update_logic.rs`, duration values are incorrectly stored as `FieldValue::Integer(minutes)` instead of `FieldValue::Duration(Duration)`.
   * [FEATURE-026] ([META-005]) Support multiple convention years in a single schedule file for historical
 reference and jump-starting new conventions.
   * [FEATURE-027] ([META-005]) Implement export of schedule data to the JSON format consumed by the calendar display widget.
@@ -194,24 +199,6 @@ Net effect:
   `Derived` descriptor, so the rehydrated `PanelInternalData` falls back
   to the builder's `TimeRange::default()` → `TimeRange::Unspecified`.
 * A merge of two replicas similarly carries no temporal information.
-
----
-
-### [BUGFIX-045] BUGFIX-045: Duration stored as Integer instead of Duration in field_update_logic.rs
-
-**Status:** Open
-
-**Priority:** Medium
-
-**Summary:** In `scratch/field_update_logic.rs`, duration values are incorrectly stored as `FieldValue::Integer(minutes)` instead of `FieldValue::Duration(Duration)`.
-
-**Description:** The `FieldValue` enum has a dedicated `Duration(Duration)` variant for representing time durations. However, in `scratch/field_update_logic.rs`, duration values are being pushed as `FieldValue::Integer(new_duration_minutes)` instead of using the proper `FieldValue::Duration` variant with a `chrono::Duration`.
-
-This is a type safety issue — durations should be typed as `Duration`, not raw integers, to ensure:
-
-* Type-safe operations (can't accidentally add minutes to a count field)
-* Proper serialization (duration format vs raw number)
-* Clear semantic meaning in the type system
 
 ---
 
@@ -603,7 +590,7 @@ WriteEdge will be removed from FieldDescriptor when HalfEdge is dropped.
 
 ---
 
-[BUGFIX-045]: work-item/medium/BUGFIX-045.md
+[BUGFIX-045]: work-item/rejected/BUGFIX-045.md
 [BUGFIX-072]: work-item/done/BUGFIX-072.md
 [BUGFIX-073]: work-item/high/BUGFIX-073.md
 [BUGFIX-076]: work-item/low/BUGFIX-076.md

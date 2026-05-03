@@ -6,7 +6,7 @@ In `scratch/field_update_logic.rs`, duration values are incorrectly stored as `F
 
 ## Status
 
-Open
+Superseded
 
 ## Priority
 
