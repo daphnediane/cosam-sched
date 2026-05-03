@@ -416,21 +416,21 @@ impl<E: EntityType> FieldSet<E> {
             Vec::with_capacity(updates.len());
         let mut has_add_or_remove = false;
         for update in updates {
-            let desc = self.resolve(&update.field)?;
+            let (desc, resolved_op) = self.resolve(&update.field, update.op)?;
             if resolved
                 .iter()
                 .any(|(prev, _, _)| std::ptr::eq(*prev as *const _, desc as *const _))
             {
                 // Set conflicts with any prior op
                 // Multiple Add/Remove ops are allowed
-                if update.op == FieldOp::Set {
+                if resolved_op == FieldOp::Set {
                     return Err(FieldSetError::DuplicateField(desc.name()));
                 }
             }
-            if update.op != FieldOp::Set {
+            if resolved_op != FieldOp::Set {
                 has_add_or_remove = true;
             }
-            resolved.push((desc, update.op, &update.value));
+            resolved.push((desc, resolved_op, &update.value));
         }
 
         // Write phase — first failure aborts; prior writes stay applied.
@@ -499,12 +499,37 @@ impl<E: EntityType> FieldSet<E> {
     fn resolve(
         &self,
         field_ref: &FieldRef<E>,
-    ) -> Result<&'static FieldDescriptor<E>, FieldSetError> {
+        op: FieldOp,
+    ) -> Result<(&'static FieldDescriptor<E>, FieldOp), FieldSetError> {
         match field_ref {
-            FieldRef::Descriptor(d) => Ok(*d),
-            FieldRef::Name(name) => self
-                .get_by_name(name)
-                .ok_or_else(|| FieldSetError::UnknownField((*name).to_string())),
+            FieldRef::Descriptor(d) => Ok((*d, op)),
+            FieldRef::Name(name) => {
+                // Try direct lookup first
+                if let Some(desc) = self.get_by_name(name) {
+                    return Ok((desc, op));
+                }
+
+                // If direct lookup fails, check for add_/remove_ prefix based on op
+                // Only check add_ prefix if op is Set or Add
+                if op == FieldOp::Set || op == FieldOp::Add {
+                    if let Some(stripped) = name.strip_prefix("add_") {
+                        if let Some(desc) = self.get_by_name(stripped) {
+                            return Ok((desc, FieldOp::Add));
+                        }
+                    }
+                }
+
+                // Only check remove_ prefix if op is Set or Remove
+                if op == FieldOp::Set || op == FieldOp::Remove {
+                    if let Some(stripped) = name.strip_prefix("remove_") {
+                        if let Some(desc) = self.get_by_name(stripped) {
+                            return Ok((desc, FieldOp::Remove));
+                        }
+                    }
+                }
+
+                Err(FieldSetError::UnknownField((*name).to_string()))
+            }
         }
     }
 }

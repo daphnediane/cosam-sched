@@ -1032,40 +1032,6 @@ define_field! {
     }
 }
 
-// Note: FIELD_ADD_CREDITED_PRESENTERS and FIELD_ADD_UNCREDITED_PRESENTERS use 'add' edge mode
-// which is not yet supported by edge_field_properties!. Leave as define_field! for now.
-// TODO: Migrate when edge_field_properties! supports add/remove modes.
-
-define_field! {
-    /// Add presenters to this panel and mark them as credited.
-    ///
-    /// Write-only.  Each presenter in the list is added to the credited list
-    /// and removed from the uncredited list (if present).
-    static FIELD_ADD_CREDITED_PRESENTERS: FieldDescriptor<PanelEntityType>,
-    edge: add, target: PresenterEntityType, target_field: &crate::tables::presenter::FIELD_PANELS,
-    exclusive_with: &HALF_EDGE_UNCREDITED_PRESENTERS,
-    name: "add_credited_presenters", display: "Add Credited Presenters",
-    desc: "Add presenters to this panel and mark them as credited.",
-    aliases: &["add_credited_presenter"],
-    example: "[presenter_id]",
-    order: 2730
-}
-
-define_field! {
-    /// Add presenters to this panel and mark them as uncredited.
-    ///
-    /// Write-only.  Each presenter in the list is added to the uncredited list
-    /// and removed from the credited list (if present).
-    static FIELD_ADD_UNCREDITED_PRESENTERS: FieldDescriptor<PanelEntityType>,
-    edge: add, target: PresenterEntityType, target_field: &crate::tables::presenter::FIELD_PANELS,
-    exclusive_with: &HALF_EDGE_CREDITED_PRESENTERS,
-    name: "add_uncredited_presenters", display: "Add Uncredited Presenters",
-    desc: "Add presenters to this panel and mark them as uncredited.",
-    aliases: &["add_uncredited_presenter"],
-    example: "[presenter_id]",
-    order: 2740
-}
-
 define_field! {
     /// Remove presenters from this panel.
     ///
@@ -1167,30 +1133,6 @@ inventory::submit! { CollectedNamedField(&HALF_EDGE_EVENT_ROOMS) }
 // Temporary alias for migration
 #[allow(deprecated)]
 pub use HALF_EDGE_EVENT_ROOMS as FIELD_EVENT_ROOMS;
-
-// Note: FIELD_ADD_ROOMS and FIELD_REMOVE_ROOMS use 'add'/'remove' edge modes
-// which are not yet supported by edge_field_properties!. Leave as define_field! for now.
-// TODO: Migrate when edge_field_properties! supports add/remove modes.
-
-define_field! {
-    static FIELD_ADD_ROOMS: FieldDescriptor<PanelEntityType>,
-    edge: add, target: EventRoomEntityType, target_field: &crate::tables::event_room::HALF_EDGE_PANELS,
-    name: "add_rooms", display: "Add Rooms",
-    desc: "Append event rooms to this panel.",
-    aliases: &["add_room"],
-    example: "[room_id]",
-    order: 3200
-}
-
-define_field! {
-    static FIELD_REMOVE_ROOMS: FieldDescriptor<PanelEntityType>,
-    edge: remove, target: EventRoomEntityType, target_field: &crate::tables::event_room::HALF_EDGE_PANELS,
-    name: "remove_rooms", display: "Remove Rooms",
-    desc: "Remove event rooms from this panel.",
-    aliases: &["remove_room"],
-    example: "[room_id]",
-    order: 3300
-}
 
 pub static HALF_EDGE_PANEL_TYPE: crate::field::FieldDescriptor<PanelEntityType> = {
     let (data, cb, edge_kind) = crate::edge_field_properties! {
