@@ -18,6 +18,7 @@
 //! by `find_tagged_presenter` and `find_or_create_tagged_presenter`.
 
 use crate::accessor_field_properties;
+use crate::callback_field_properties;
 use crate::define_field;
 use crate::edge::EdgeKind;
 use crate::entity::{EntityId, EntityType, EntityUuid, FieldSet, UuidPreference};
@@ -728,25 +729,36 @@ pub static FIELD_NAME: FieldDescriptor<PresenterEntityType> = {
 };
 inventory::submit! { CollectedNamedField(&FIELD_NAME) }
 
-define_field! {
-    /// Presenter rank — stored as `PresenterRank`, exposed as `FieldValue::String`
-    /// using the canonical tag (`guest`, `judge`, `staff`, `invited_panelist`,
-    /// `fan_panelist`, or a custom invited-guest label).
-    static FIELD_RANK: FieldDescriptor<PresenterEntityType>,
-    name: "rank", display: "Rank",
-    desc: "Presenter classification tier.",
-    aliases: &["classification"],
-    example: "guest",
-    order: 100,
-    crdt: Scalar, cardinality: optional, item: FieldTypeItem::String,
-    read: |d: &PresenterInternalData| {
-        Some(field_value!(d.data.rank.as_str()))
-    },
-    write: |d: &mut PresenterInternalData, v: FieldValue| {
-        d.data.rank = PresenterRank::parse(&v.into_string()?);
-        Ok(())
+/// Presenter rank — stored as `PresenterRank`, exposed as `FieldValue::String`
+/// using the canonical tag (`guest`, `judge`, `staff`, `invited_panelist`,
+/// `fan_panelist`, or a custom invited-guest label).
+pub static FIELD_RANK: FieldDescriptor<PresenterEntityType> = {
+    let (data, cb) = callback_field_properties! {
+        PresenterEntityType,
+        name: "rank",
+        display: "Rank",
+        description: "Presenter classification tier.",
+        aliases: &["classification"],
+        cardinality: Optional,
+        item: String,
+        example: "guest",
+        order: 100,
+        read: |d: &PresenterInternalData| {
+            Some(field_value!(d.data.rank.as_str()))
+        },
+        write: |d: &mut PresenterInternalData, v: FieldValue| {
+            d.data.rank = PresenterRank::parse(&v.into_string()?);
+            Ok(())
+        }
+    };
+    FieldDescriptor {
+        data,
+        required: false,
+        edge_kind: EdgeKind::NonEdge,
+        cb,
     }
-}
+};
+inventory::submit! { CollectedNamedField(&FIELD_RANK) }
 
 pub static FIELD_BIO: FieldDescriptor<PresenterEntityType> = {
     let (data, cb) = accessor_field_properties! {
@@ -841,30 +853,41 @@ inventory::submit! { CollectedNamedField(&FIELD_ALWAYS_SHOWN_IN_GROUP) }
 
 // ── Computed / edge-backed fields ─────────────────────────────────────────────
 
-define_field! {
-    /// `is_group` — `true` if `is_explicit_group` is set OR this presenter has
-    /// any members (edge-based membership).
-    static FIELD_IS_GROUP: FieldDescriptor<PresenterEntityType>,
-    name: "is_group", display: "Is Group",
-    desc: "Whether this entity represents a group (explicit flag or has members).",
-    aliases: &["group"],
-    example: "false",
-    order: 600,
-    crdt: Derived, cardinality: single, item: FieldTypeItem::Boolean,
-    read: |sched: &Schedule, id: EntityId<PresenterEntityType>| {
-        let explicit = sched
-            .get_internal::<PresenterEntityType>(id)
-            .is_some_and(|d| d.data.is_explicit_group);
-        // Edge convention: a field name points at the far side of the edge.
-        // `FIELD_MEMBERS` on `id` therefore points at id's members
-        // (id playing the group role); querying it toward far-side
-        // `FIELD_GROUPS` returns those member entities.
-        let has_members = !sched
-            .connected_field_nodes(id, EDGE_MEMBERS)
-            .is_empty();
-        Some(field_value!(explicit || has_members))
+/// `is_group` — `true` if `is_explicit_group` is set OR this presenter has
+/// any members (edge-based membership).
+pub static FIELD_IS_GROUP: FieldDescriptor<PresenterEntityType> = {
+    let (data, cb) = callback_field_properties! {
+        PresenterEntityType,
+        name: "is_group",
+        display: "Is Group",
+        description: "Whether this entity represents a group (explicit flag or has members).",
+        aliases: &["group"],
+        cardinality: Single,
+        item: Boolean,
+        example: "false",
+        order: 600,
+        read: |sched: &Schedule, id: EntityId<PresenterEntityType>| {
+            let explicit = sched
+                .get_internal::<PresenterEntityType>(id)
+                .is_some_and(|d| d.data.is_explicit_group);
+            // Edge convention: a field name points at the far side of the edge.
+            // `FIELD_MEMBERS` on `id` therefore points at id's members
+            // (id playing the group role); querying it toward far-side
+            // `FIELD_GROUPS` returns those member entities.
+            let has_members = !sched
+                .connected_field_nodes(id, EDGE_MEMBERS)
+                .is_empty();
+            Some(field_value!(explicit || has_members))
+        }
+    };
+    FieldDescriptor {
+        data,
+        required: false,
+        edge_kind: EdgeKind::NonEdge,
+        cb,
     }
-}
+};
+inventory::submit! { CollectedNamedField(&FIELD_IS_GROUP) }
 
 pub static HALF_EDGE_MEMBERS: crate::field::FieldDescriptor<PresenterEntityType> = {
     let (data, cb, edge_kind) = crate::edge_field_properties! {

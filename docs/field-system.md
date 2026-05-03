@@ -378,11 +378,187 @@ define_field! {
 }
 ```
 
-### Field declaration via `define_field!` proc-macro
+### Field descriptors declarations
 
-All field descriptors are declared using the unified `define_field!` function-like
-proc-macro from the `schedule-macro` crate (re-exported as `schedule_core::define_field`).
-The macro supports three declaration modes:
+Three proc-macros generate the `(CommonFieldData, FieldCallbacks)` tuple for
+hand-written field descriptors. Each is designed for a specific field type:
+
+- **`accessor_field_properties!`** — Stored fields backed by `CommonData` slots
+- **`edge_field_properties!`** — Edge relationship fields
+- **`callback_field_properties!`** — Computed fields with custom callbacks
+
+Choose the appropriate macro based on your field's behavior, then construct
+the `FieldDescriptor` manually to control `required` and `edge_kind`.
+
+#### Using `accessor_field_properties!`
+
+For stored fields that map directly to `CommonData` fields, use `accessor_field_properties!`
+to auto-generate read/write callbacks from the field's `As*` marker trait:
+
+```rust
+pub static FIELD_NAME: FieldDescriptor<PresenterEntityType> = {
+    let (data, cb) = accessor_field_properties! {
+        PresenterEntityType,
+        accessor: name,           // Field name in CommonData
+        as: AsString,             // Marker trait for type conversion
+        name: "name",
+        display: "Name",
+        description: "Presenter or group display name.",
+        aliases: &["presenter_name", "display_name"],
+        example: "Alice Example",
+        order: 0
+    };
+    FieldDescriptor {
+        data,
+        required: true,
+        edge_kind: EdgeKind::NonEdge,
+        cb,
+    }
+};
+inventory::submit! { CollectedNamedField(&FIELD_NAME) }
+```
+
+**Parameters:**
+
+- `accessor: <ident>` — The field name in `CommonData` (e.g., `name`, `bio`)
+- `as: <trait>` — The marker trait for type conversion (`AsString`, `AsBoolean`, `AsInteger`, `AsText`)
+- Standard `CommonFieldData` parameters (`name`, `display`, `description`, `aliases`, `example`, `order`)
+
+The macro derives `cardinality` from the field type (via the marker trait),
+generates `ReadFn::Bare` and `WriteFn::Bare` callbacks that access the field directly,
+and sets `crdt_type` based on the item type.
+
+#### Using `edge_field_properties!`
+
+For edge relationship fields, use `edge_field_properties!` to auto-generate
+the appropriate edge-backed callbacks and `EdgeKind`.
+
+**Note:** Edge fields are currently being migrated to `EdgeDescriptor<E>` (see
+Edge ownership section below). During this transition, `edge_field_properties!`
+is used for hand-written `FieldDescriptor` declarations. Once `EdgeDescriptor<E>`
+is fully implemented, this macro will be the primary way to declare edge fields
+with auto-generated callbacks.
+
+```rust
+pub static HALF_EDGE_PANELS: FieldDescriptor<PanelTypeEntityType> = {
+    let (data, cb, edge_kind) = edge_field_properties! {
+        PanelTypeEntityType,
+        target: PanelEntityType,
+        target_field: &crate::tables::panel::FIELD_PANEL_TYPE,
+        owner,                      // This side owns the edge
+        name: "panels",
+        display: "Panels",
+        description: "All panels of this type.",
+        aliases: &[],
+        example: "[]",
+        order: 1000
+    };
+    FieldDescriptor {
+        data,
+        required: false,
+        edge_kind,
+        cb,
+    }
+};
+inventory::submit! { CollectedNamedField(&HALF_EDGE_PANELS) }
+```
+
+**Parameters:**
+
+- `target: <EntityType>` — The entity type on the far side of the edge
+- `target_field: &<FieldDescriptor>` — The field descriptor on the target entity that points back
+- `owner` or `target` — Whether this side owns the edge (affects CRDT storage)
+- `exclusive_with: &<FieldDescriptor>` (optional) — Mutually exclusive sibling field
+- Standard `CommonFieldData` parameters
+
+The macro returns a 3-tuple `(CommonFieldData, FieldCallbacks, EdgeKind)` and
+generates appropriate `ReadFn::ReadEdge`, `WriteFn::WriteEdge`, `AddFn::AddEdge`,
+and `RemoveFn::RemoveEdge` callbacks.
+
+#### Using `callback_field_properties!`
+
+For computed fields that need custom callback logic but also require manual
+control over descriptor-level properties (e.g., `required` flag, `edge_kind`),
+use the `callback_field_properties!` macro to generate only the
+`(CommonFieldData, FieldCallbacks)` tuple, then construct the `FieldDescriptor`
+manually:
+
+```rust
+pub static FIELD_CODE: FieldDescriptor<PanelEntityType> = {
+    let (data, cb) = callback_field_properties! {
+        PanelEntityType,
+        name: "code",
+        display: "Uniq ID",
+        description: "Panel Uniq ID (e.g. \"GP032\"), parsed from the Schedule sheet.",
+        aliases: &["uid", "uniq_id", "id"],
+        cardinality: Single,
+        item: String,
+        example: "GP032",
+        order: 0,
+        read: |d: &PanelInternalData| {
+            Some(field_value!(d.code.full_id()))
+        },
+        write: |d: &mut PanelInternalData, v: FieldValue| {
+            let s = v.into_string()?;
+            match PanelUniqId::parse(&s) {
+                Some(parsed) => {
+                    d.code = parsed;
+                    Ok(())
+                }
+                None => Err(crate::value::ConversionError::ParseError {
+                    message: format!("could not parse panel Uniq ID {s:?}"),
+                }
+                .into()),
+            }
+        }
+    };
+    FieldDescriptor {
+        data,
+        required: true,
+        edge_kind: EdgeKind::NonEdge,
+        cb,
+    }
+};
+inventory::submit! { CollectedNamedField(&FIELD_CODE) }
+```
+
+**When to use each macro:**
+
+- Use `accessor_field_properties!` for stored fields that map directly to `CommonData` fields
+- Use `edge_field_properties!` for edge relationship fields (during migration to `EdgeDescriptor<E>`)
+- Use `callback_field_properties!` for computed fields with custom read/write/verify logic
+- Use `define_field!` only for **pseudo edge fields** — computed fields that behave like edges but don't use the standard edge mechanism (e.g., `FIELD_PANELS` union fields)
+
+**Callback support:**
+
+The `callback_field_properties!` macro supports both closures and enum variants for callbacks:
+
+- **Closures**: Automatically wrapped in appropriate enum variant based on arity:
+  - Read closures: 1 arg → `ReadFn::Bare`, 2 args → `ReadFn::Schedule`
+  - Write closures: 2 args → `WriteFn::Bare`, 3 args → `WriteFn::Schedule`
+  - Verify closures: 2 args → `VerifyFn::Bare`, 3 args → `VerifyFn::Schedule`
+  - Add/Remove closures: 2 args → `AddFn::Bare`/`RemoveFn::Bare`, 3 args → `AddFn::Schedule`/`RemoveFn::Schedule`
+
+- **Enum variants**: Use directly without wrapping:
+  - `ReadFn::ReadEdge`, `WriteFn::WriteEdge`, `VerifyFn::ReRead`, etc.
+
+The macro derives `field_type` and `crdt_type` from `cardinality` and `item` automatically,
+so these don't need to be specified explicitly.
+
+### Legacy: `define_field!` for pseudo edge fields
+
+The `define_field!` proc-macro is **legacy** and retained only for **pseudo edge fields** —
+computed fields that behave like edges but don't use the standard edge mechanism.
+These are fields like `FIELD_PANELS` (union of credited and uncredited presenters)
+and partition helpers like `FIELD_ADD_CREDITED_PANELS`.
+
+For all other fields, prefer the hand-written descriptor macros:
+
+- `accessor_field_properties!` for stored fields
+- `edge_field_properties!` for edge relationship fields  
+- `callback_field_properties!` for computed fields with custom logic
+
+The `define_field!` macro supports three declaration modes (all legacy):
 
 **Stored fields** (scalar fields backed by `CommonData` slots):
 
@@ -855,6 +1031,7 @@ field_set.write_multiple(id, schedule, &[
 ```
 
 **De-duplication rules for batch updates:**
+
 - A `Set` operation conflicts with any prior operation on the same field (Set, Add, or Remove)
 - Multiple `Add` and/or `Remove` operations on the same field are allowed
 - `Add` or `Remove` after a prior `Set` on the same field is allowed

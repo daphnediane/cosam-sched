@@ -23,7 +23,9 @@ pub mod value;
 // Re-export edge types for external use
 pub use edge::*;
 
-pub use schedule_macro::{accessor_field_properties, define_field, edge_field_properties};
+pub use schedule_macro::{
+    accessor_field_properties, callback_field_properties, define_field, edge_field_properties,
+};
 
 // Re-export macros from value/macros.rs
 // Note: macros are #[macro_export] so they're available at crate root automatically

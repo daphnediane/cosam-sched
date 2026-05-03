@@ -346,18 +346,37 @@ impl<E: EntityType> FieldSet<E> {
 
     /// Write a field value by name (or alias) into the schedule.
     ///
+    /// Supports auto-resolution of `add_` and `remove_` prefixes:
+    /// - `add_foo` resolves to field `foo` with `FieldOp::Add`
+    /// - `remove_foo` resolves to field `foo` with `FieldOp::Remove`
+    ///
+    /// Note: This method does NOT run verification. Use [`FieldSet::write_multiple`]
+    /// if you need verification behavior.
+    ///
     /// Returns `Err(FieldError::NotFound)` if no field matches `name`.
     pub fn write_field_value(
         &self,
-        name: &str,
+        name: &'static str,
         id: crate::entity::EntityId<E>,
         schedule: &mut Schedule,
         value: FieldValue,
     ) -> Result<(), FieldError> {
-        let desc = self
-            .get_by_name(name)
-            .ok_or(FieldError::NotFound { name: "field" })?;
-        desc.write(id, schedule, value)
+        // Resolve the field name, including add_/remove_ prefix handling
+        let update = FieldUpdate {
+            op: FieldOp::Set,
+            field: FieldRef::Name(name),
+            value,
+        };
+        let (desc, op) = self
+            .resolve(&update.field, update.op)
+            .map_err(|_| FieldError::NotFound { name: "field" })?;
+
+        // Execute the write without verification
+        match op {
+            FieldOp::Set => desc.write(id, schedule, update.value),
+            FieldOp::Add => desc.add(id, schedule, update.value),
+            FieldOp::Remove => desc.remove(id, schedule, update.value),
+        }
     }
 
     // ── Batch writes ──────────────────────────────────────────────────────────
@@ -446,12 +465,10 @@ impl<E: EntityType> FieldSet<E> {
             })?;
         }
 
-        // Skip verification entirely if any add/remove was present;
-        // this will be addressed in a future design change.
-        // Verification is designed for writes, but with Add/Remove operations
-        // now supported, a Set followed by Add will incorrectly fail verification
-        // when it sees the additional values.
-        if has_add_or_remove {
+        // Skip verification if:
+        // - Any add/remove operation was present (verification designed for writes only)
+        // - Only a single field is being written (verification is for batch consistency)
+        if has_add_or_remove || resolved.len() == 1 {
             return Ok(());
         }
 

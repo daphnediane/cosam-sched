@@ -15,7 +15,7 @@
 //! Field descriptors are static values assembled into a [`FieldSet`] inside a [`LazyLock`].
 
 use crate::accessor_field_properties;
-use crate::define_field;
+use crate::callback_field_properties;
 use crate::edge::EdgeKind;
 use crate::entity::{EntityId, EntityType, EntityUuid, UuidPreference};
 use crate::field::set::FieldSet;
@@ -23,7 +23,6 @@ use crate::field::{CollectedNamedField, FieldDescriptor, NamedField};
 use crate::field_value;
 use crate::query::converter::EntityStringResolver;
 use crate::tables::panel::{PanelEntityType, PanelId};
-use crate::value::FieldTypeItem;
 use crate::value::ValidationError;
 use serde::{Deserialize, Serialize};
 use std::sync::LazyLock;
@@ -472,28 +471,39 @@ pub static FIELD_BW: FieldDescriptor<PanelTypeEntityType> = {
 };
 inventory::submit! { CollectedNamedField(&FIELD_BW) }
 
-define_field! {
-    /// Computed display name — derived from `panel_kind` and `prefix`.
-    ///
-    /// Read-only computed field that produces a human-readable identifier.
-    static FIELD_DISPLAY_NAME: FieldDescriptor<PanelTypeEntityType>,
-    name: "display_name", display: "Display Name",
-    desc: "Human-readable display name combining kind and prefix.",
-    aliases: &["name"],
-    example: "Guest Panel (GP)",
-    order: 1100,
-    crdt: Derived, cardinality: single, item: FieldTypeItem::String,
-    read: |d: &PanelTypeInternalData| {
-        let name = if d.data.prefix.is_empty() {
-            d.data.panel_kind.clone()
-        } else if d.data.panel_kind.is_empty() {
-            d.data.prefix.clone()
-        } else {
-            format!("{} ({})", d.data.panel_kind, d.data.prefix)
-        };
-        Some(field_value!(name))
+/// Computed display name — derived from `panel_kind` and `prefix`.
+///
+/// Read-only computed field that produces a human-readable identifier.
+pub static FIELD_DISPLAY_NAME: FieldDescriptor<PanelTypeEntityType> = {
+    let (data, cb) = callback_field_properties! {
+        PanelTypeEntityType,
+        name: "display_name",
+        display: "Display Name",
+        description: "Human-readable display name combining kind and prefix.",
+        aliases: &["name"],
+        cardinality: Single,
+        item: String,
+        example: "Guest Panel (GP)",
+        order: 1100,
+        read: |d: &PanelTypeInternalData| {
+            let name = if d.data.prefix.is_empty() {
+                d.data.panel_kind.clone()
+            } else if d.data.panel_kind.is_empty() {
+                d.data.prefix.clone()
+            } else {
+                format!("{} ({})", d.data.panel_kind, d.data.prefix)
+            };
+            Some(field_value!(name))
+        }
+    };
+    FieldDescriptor {
+        data,
+        required: false,
+        edge_kind: EdgeKind::NonEdge,
+        cb,
     }
-}
+};
+inventory::submit! { CollectedNamedField(&FIELD_DISPLAY_NAME) }
 
 // Panels of this type — reverse heterogeneous edge from Panel → PanelType.
 pub static HALF_EDGE_PANELS: crate::field::FieldDescriptor<PanelTypeEntityType> = {
