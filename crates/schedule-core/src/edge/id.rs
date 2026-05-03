@@ -234,14 +234,14 @@ impl<E: EntityType> TryFrom<&'static crate::edge::EdgeDescriptor<E>> for FullEdg
 
 #[cfg(test)]
 mod tests {
+    use crate::tables::panel;
+
     use super::*;
 
     #[test]
     fn test_full_edge_serialize_round_trip() {
-        use crate::tables::panel::HALF_EDGE_PANEL_TYPE;
-
-        // Create a FullEdge from the panel -> panel_type edge
-        let edge = FullEdge::try_from(HALF_EDGE_PANEL_TYPE.edge_id()).unwrap();
+        // FullEdge from the panel -> panel_type edge
+        let edge = panel::EDGE_PANEL_TYPE;
 
         // Serialize to JSON
         let json = serde_json::to_string(&edge).expect("Failed to serialize FullEdge");
@@ -256,9 +256,7 @@ mod tests {
 
     #[test]
     fn test_full_edge_proxy_from() {
-        use crate::tables::panel::HALF_EDGE_PANEL_TYPE;
-
-        let edge = FullEdge::try_from(HALF_EDGE_PANEL_TYPE.edge_id()).unwrap();
+        let edge = panel::EDGE_PANEL_TYPE;
         let proxy = FullEdgeProxy::from(edge);
 
         assert_eq!(proxy.owner_field, "panel:panel_type");
@@ -267,9 +265,7 @@ mod tests {
 
     #[test]
     fn test_full_edge_proxy_from_flipped() {
-        use crate::tables::panel::HALF_EDGE_PANEL_TYPE;
-
-        let canonical = FullEdge::try_from(HALF_EDGE_PANEL_TYPE.edge_id()).unwrap();
+        let canonical = panel::EDGE_PANEL_TYPE;
         let flipped = canonical.flip();
         let proxy = FullEdgeProxy::from(flipped);
 
@@ -279,9 +275,7 @@ mod tests {
 
     #[test]
     fn test_full_edge_proxy_try_from() {
-        use crate::tables::panel::HALF_EDGE_PANEL_TYPE;
-
-        let edge = FullEdge::try_from(HALF_EDGE_PANEL_TYPE.edge_id()).unwrap();
+        let edge = panel::EDGE_PANEL_TYPE;
         let proxy = FullEdgeProxy::from(edge);
 
         let reconstructed = FullEdge::try_from(proxy).expect("Failed to reconstruct FullEdge");
@@ -292,9 +286,7 @@ mod tests {
 
     #[test]
     fn test_full_edge_proxy_try_from_flipped() {
-        use crate::tables::panel::HALF_EDGE_PANEL_TYPE;
-
-        let canonical = FullEdge::try_from(HALF_EDGE_PANEL_TYPE.edge_id()).unwrap();
+        let canonical = panel::EDGE_PANEL_TYPE;
         let flipped = canonical.flip();
         let proxy = FullEdgeProxy::from(flipped);
 

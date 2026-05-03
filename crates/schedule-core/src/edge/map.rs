@@ -4,6 +4,8 @@
  * See LICENSE file for full license text
  */
 
+// This needs to be fixed
+
 //! Edge map storage and operations.
 //!
 //! HashMap<NonNilUuid,                 // outer key: entity UUID
@@ -17,20 +19,20 @@
 //!
 //! ## Example
 //!
-//! For a Panel <-> Presenter edge with FIELD_PRESENTERS on Panel and
-//! FIELD_PANELS on Presenter:
+//! For a Panel <-> Presenter edge with panel::EDGE_CREDITED_PRESENTERS on Panel and
+//! presenter::HALF_EDGE_PANELS on Presenter:
 //!
 //! ```text,no_run
-//! map[panel_uuid][FIELD_PRESENTERS] = [(FIELD_PANELS, presenter_uuid), ...]
-//! map[presenter_uuid][FIELD_PANELS] = [(FIELD_PRESENTERS, panel_uuid), ...]
+//! map[panel_uuid][panel::EDGE_CREDITED_PRESENTERS] = [(presenter::HALF_EDGE_PANELS, presenter_uuid), ...]
+//! map[presenter_uuid][presenter::HALF_EDGE_PANELS] = [(panel::EDGE_CREDITED_PRESENTERS, panel_uuid), ...]
 //! ```
 //!
-//! For a Presenter -> Groups homogeneous edge with FIELD_GROUPS on member and
-//! FIELD_MEMBERS on group:
+//! For a Presenter -> Groups homogeneous edge with HALF_EDGE_GROUPS on member and
+//! HALF_EDGE_MEMBERS on group:
 //!
 //! ```text,no_run
-//! map[member_uuid][FIELD_GROUPS]  = [(FIELD_MEMBERS, group_uuid), ...]
-//! map[group_uuid][FIELD_MEMBERS]  = [(FIELD_GROUPS,  member_uuid), ...]
+//! map[member_uuid][HALF_EDGE_GROUPS]  = [(HALF_EDGE_MEMBERS, group_uuid), ...]
+//! map[group_uuid][HALF_EDGE_MEMBERS]  = [(HALF_EDGE_GROUPS,  member_uuid), ...]
 //! ```
 
 use crate::edge::id::FullEdge;

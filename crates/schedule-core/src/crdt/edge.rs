@@ -92,7 +92,7 @@ impl std::fmt::Debug for CanonicalOwner {
 /// Taking both fields makes the lookup unambiguous even when multiple edge
 /// types exist between the same pair of entity types (e.g. FEATURE-065:
 /// `credited_presenters` and `uncredited_presenters` both target
-/// `FIELD_PANELS`).
+/// `HALF_EDGE_PANELS`).
 #[must_use]
 pub fn canonical_owner(
     near_field: &'static dyn crate::edge::HalfEdge,

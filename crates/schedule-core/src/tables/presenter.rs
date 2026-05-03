@@ -26,8 +26,7 @@ use crate::field_value;
 use crate::query::converter::EntityStringResolver;
 use crate::query::lookup::{EntityMatcher, MatchPriority};
 use crate::schedule::Schedule;
-use crate::tables::panel;
-use crate::tables::panel::{PanelEntityType, PanelId};
+use crate::tables::panel::{self, PanelEntityType, PanelId};
 use crate::value::{ConversionError, FieldValue, ValidationError};
 use serde::{Deserialize, Deserializer, Serialize, Serializer};
 use std::sync::LazyLock;
@@ -931,10 +930,6 @@ pub static HALF_EDGE_GROUPS: crate::field::FieldDescriptor<PresenterEntityType> 
 };
 inventory::submit! { CollectedNamedField(&HALF_EDGE_GROUPS) }
 
-// Temporary alias for migration - remove when edit_integration.rs is updated
-#[allow(deprecated)]
-pub use HALF_EDGE_GROUPS as FIELD_GROUPS;
-
 /// Static edge from groups field to members field (for querying a presenter's groups)
 pub const EDGE_GROUPS: crate::edge::FullEdge = crate::edge::FullEdge {
     near: &HALF_EDGE_GROUPS,
@@ -1031,19 +1026,15 @@ pub static HALF_EDGE_PANELS: crate::field::FieldDescriptor<PresenterEntityType> 
 };
 inventory::submit! { CollectedNamedField(&HALF_EDGE_PANELS) }
 
-// Temporary alias for migration - remove when edit_integration.rs is updated
-#[allow(deprecated)]
-pub use HALF_EDGE_PANELS as FIELD_PANELS;
-
 /// Full edge from panel credited presenters to presenter panels
 pub const EDGE_CREDITED_PANELS: crate::edge::FullEdge = crate::edge::FullEdge {
-    near: &FIELD_PANELS,
+    near: &HALF_EDGE_PANELS,
     far: &panel::HALF_EDGE_CREDITED_PRESENTERS,
 };
 
 /// Full edge from panel uncredited presenters to presenter panels
 pub const EDGE_UNCREDITED_PANELS: crate::edge::FullEdge = crate::edge::FullEdge {
-    near: &FIELD_PANELS,
+    near: &HALF_EDGE_PANELS,
     far: &panel::HALF_EDGE_UNCREDITED_PRESENTERS,
 };
 
@@ -1196,33 +1187,48 @@ pub static FIELD_INCLUSIVE_PANELS: FieldDescriptor<PresenterEntityType> = {
             use std::collections::HashSet;
             let mut panel_set: HashSet<PanelId> = HashSet::new();
             // Direct panels of this presenter
-            let edge_presenters = HALF_EDGE_PANELS.edge_to(&crate::tables::panel::FIELD_PRESENTERS);
-            for p in sched
-                .connected_field_nodes(id, edge_presenters)
+            let credited_ids: Vec<PanelId> = sched
+                .connected_field_nodes(id, EDGE_CREDITED_PANELS)
                 .into_iter()
                 .map(|e| unsafe { PanelId::new_unchecked(e.entity_uuid()) })
-            {
+                .collect();
+            let uncredited_ids: Vec<PanelId> = sched
+                .connected_field_nodes(id, EDGE_UNCREDITED_PANELS)
+                .into_iter()
+                .map(|e| unsafe { PanelId::new_unchecked(e.entity_uuid()) })
+                .collect();
+            for p in credited_ids.into_iter().chain(uncredited_ids) {
                 panel_set.insert(p);
             }
             // Panels of all transitive groups (upward)
             for g in sched.inclusive_edges::<PresenterEntityType, PresenterEntityType>(id, EDGE_GROUPS) {
-                let edge = HALF_EDGE_PANELS.edge_to(&crate::tables::panel::FIELD_PRESENTERS);
-                for p in sched
-                    .connected_field_nodes(g, edge)
+                let credited_ids: Vec<PanelId> = sched
+                    .connected_field_nodes(g, EDGE_CREDITED_PANELS)
                     .into_iter()
                     .map(|e| unsafe { PanelId::new_unchecked(e.entity_uuid()) })
-                {
+                    .collect();
+                let uncredited_ids: Vec<PanelId> = sched
+                    .connected_field_nodes(g, EDGE_UNCREDITED_PANELS)
+                    .into_iter()
+                    .map(|e| unsafe { PanelId::new_unchecked(e.entity_uuid()) })
+                    .collect();
+                for p in credited_ids.into_iter().chain(uncredited_ids) {
                     panel_set.insert(p);
                 }
             }
             // Panels of all transitive members (downward)
             for m in sched.inclusive_edges::<PresenterEntityType, PresenterEntityType>(id, EDGE_MEMBERS) {
-                let edge = HALF_EDGE_PANELS.edge_to(&crate::tables::panel::FIELD_PRESENTERS);
-                for p in sched
-                    .connected_field_nodes(m, edge)
+                let credited_ids: Vec<PanelId> = sched
+                    .connected_field_nodes(m, EDGE_CREDITED_PANELS)
                     .into_iter()
                     .map(|e| unsafe { PanelId::new_unchecked(e.entity_uuid()) })
-                {
+                    .collect();
+                let uncredited_ids: Vec<PanelId> = sched
+                    .connected_field_nodes(m, EDGE_UNCREDITED_PANELS)
+                    .into_iter()
+                    .map(|e| unsafe { PanelId::new_unchecked(e.entity_uuid()) })
+                    .collect();
+                for p in credited_ids.into_iter().chain(uncredited_ids) {
                     panel_set.insert(p);
                 }
             }

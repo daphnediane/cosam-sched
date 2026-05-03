@@ -21,8 +21,8 @@ use crate::edge::EdgeKind;
 use crate::entity::{EntityId, EntityType, EntityUuid, FieldSet, UuidPreference};
 use crate::field::{CollectedNamedField, FieldDescriptor, NamedField};
 use crate::query::converter::EntityStringResolver;
-use crate::tables::hotel_room::{HotelRoomEntityType, HotelRoomId};
-use crate::tables::panel::{PanelEntityType, PanelId};
+use crate::tables::hotel_room::{self, HotelRoomEntityType, HotelRoomId};
+use crate::tables::panel::{self, PanelEntityType, PanelId};
 use crate::value::ValidationError;
 use serde::{Deserialize, Serialize};
 use std::sync::LazyLock;
@@ -271,7 +271,7 @@ pub static HALF_EDGE_HOTEL_ROOMS: crate::field::FieldDescriptor<EventRoomEntityT
     let (data, cb, edge_kind) = crate::edge_field_properties! {
         EventRoomEntityType,
         target: HotelRoomEntityType,
-        target_field: &crate::tables::hotel_room::HALF_EDGE_EVENT_ROOMS,
+        target_field: &hotel_room::HALF_EDGE_EVENT_ROOMS,
         name: "hotel_rooms",
         display: "Hotel Rooms",
         description: "Hotel rooms that contain this event room.",
@@ -288,15 +288,11 @@ pub static HALF_EDGE_HOTEL_ROOMS: crate::field::FieldDescriptor<EventRoomEntityT
 };
 inventory::submit! { CollectedNamedField(&HALF_EDGE_HOTEL_ROOMS) }
 
-// Temporary alias for migration
-#[allow(deprecated)]
-pub use HALF_EDGE_HOTEL_ROOMS as FIELD_HOTEL_ROOMS;
-
 pub static HALF_EDGE_PANELS: crate::field::FieldDescriptor<EventRoomEntityType> = {
     let (data, cb, edge_kind) = crate::edge_field_properties! {
         EventRoomEntityType,
         target: PanelEntityType,
-        source_fields: &[&crate::tables::panel::HALF_EDGE_EVENT_ROOMS],
+        source_fields: &[&panel::HALF_EDGE_EVENT_ROOMS],
         name: "panels",
         display: "Panels",
         description: "Panels scheduled in this event room.",
@@ -313,20 +309,16 @@ pub static HALF_EDGE_PANELS: crate::field::FieldDescriptor<EventRoomEntityType> 
 };
 inventory::submit! { CollectedNamedField(&HALF_EDGE_PANELS) }
 
-// Temporary alias for migration
-#[allow(deprecated)]
-pub use HALF_EDGE_PANELS as FIELD_PANELS;
-
 /// Full edge from event room hotel rooms to hotel room event rooms
 pub const EDGE_HOTEL_ROOMS: crate::edge::FullEdge = crate::edge::FullEdge {
     near: &HALF_EDGE_HOTEL_ROOMS,
-    far: &crate::tables::hotel_room::HALF_EDGE_EVENT_ROOMS,
+    far: &hotel_room::HALF_EDGE_EVENT_ROOMS,
 };
 
 /// Full edge from event room panels to panel event rooms
 pub const EDGE_PANELS: crate::edge::FullEdge = crate::edge::FullEdge {
     near: &HALF_EDGE_PANELS,
-    far: &crate::tables::panel::HALF_EDGE_EVENT_ROOMS,
+    far: &panel::HALF_EDGE_EVENT_ROOMS,
 };
 
 // ── FieldSet ──────────────────────────────────────────────────────────────────
@@ -347,9 +339,9 @@ crate::field::macros::define_entity_builder! {
         /// Set the sort key; values `>= 100` hide the room from the public schedule.
         with_sort_key    => FIELD_SORT_KEY,
         /// Replace the set of hotel rooms that contain this event room.
-        with_hotel_rooms => FIELD_HOTEL_ROOMS,
+        with_hotel_rooms => HALF_EDGE_HOTEL_ROOMS,
         /// Replace the set of panels scheduled in this event room.
-        with_panels      => FIELD_PANELS,
+        with_panels      => HALF_EDGE_PANELS,
     }
 }
 

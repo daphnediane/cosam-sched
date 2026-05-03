@@ -141,7 +141,7 @@ pub fn accessor_field_properties(input: TokenStream) -> TokenStream {
 ///     let (data, cb, edge_kind) = edge_field_properties! {
 ///         PanelEntityType,
 ///         target: PresenterEntityType,
-///         target_field: &crate::tables::presenter::FIELD_PANELS,
+///         target_field: &presenter::HALF_EDGE_PANELS,
 ///         exclusive_with: &FIELD_UNCREDITED_PRESENTERS,
 ///         name: "credited_presenters",
 ///         display: "Credited Presenters",

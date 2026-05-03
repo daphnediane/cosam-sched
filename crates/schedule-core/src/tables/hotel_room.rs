@@ -22,7 +22,7 @@ use crate::entity::{EntityId, EntityType, EntityUuid, UuidPreference};
 use crate::field::set::FieldSet;
 use crate::field::{CollectedNamedField, FieldDescriptor, NamedField};
 use crate::query::converter::EntityStringResolver;
-use crate::tables::event_room::{EventRoomEntityType, EventRoomId};
+use crate::tables::event_room::{self, EventRoomEntityType, EventRoomId};
 use crate::value::ValidationError;
 use serde::{Deserialize, Serialize};
 use std::sync::LazyLock;
@@ -213,7 +213,7 @@ pub static HALF_EDGE_EVENT_ROOMS: crate::field::FieldDescriptor<HotelRoomEntityT
     let (data, cb, edge_kind) = crate::edge_field_properties! {
         HotelRoomEntityType,
         target: EventRoomEntityType,
-        source_fields: &[&crate::tables::event_room::HALF_EDGE_HOTEL_ROOMS],
+        source_fields: &[&event_room::HALF_EDGE_HOTEL_ROOMS],
         name: "event_rooms",
         display: "Event Rooms",
         description: "Event rooms contained within this hotel room.",
@@ -230,14 +230,10 @@ pub static HALF_EDGE_EVENT_ROOMS: crate::field::FieldDescriptor<HotelRoomEntityT
 };
 inventory::submit! { CollectedNamedField(&HALF_EDGE_EVENT_ROOMS) }
 
-// Temporary alias for migration - remove when edit_integration.rs is updated
-#[allow(deprecated)]
-pub use HALF_EDGE_EVENT_ROOMS as FIELD_EVENT_ROOMS;
-
 /// Full edge from hotel room event rooms to event room hotel rooms
 pub const EDGE_EVENT_ROOMS: crate::edge::FullEdge = crate::edge::FullEdge {
     near: &HALF_EDGE_EVENT_ROOMS,
-    far: &crate::tables::event_room::HALF_EDGE_HOTEL_ROOMS,
+    far: &event_room::HALF_EDGE_HOTEL_ROOMS,
 };
 
 // ── FieldSet ──────────────────────────────────────────────────────────────────

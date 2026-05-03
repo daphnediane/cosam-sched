@@ -22,7 +22,7 @@ use crate::field::set::FieldSet;
 use crate::field::{CollectedNamedField, FieldDescriptor, NamedField};
 use crate::field_value;
 use crate::query::converter::EntityStringResolver;
-use crate::tables::panel::{PanelEntityType, PanelId};
+use crate::tables::panel::{self, PanelEntityType, PanelId};
 use crate::value::ValidationError;
 use serde::{Deserialize, Serialize};
 use std::sync::LazyLock;
@@ -510,7 +510,7 @@ pub static HALF_EDGE_PANELS: crate::field::FieldDescriptor<PanelTypeEntityType> 
     let (data, cb, edge_kind) = crate::edge_field_properties! {
         PanelTypeEntityType,
         target: PanelEntityType,
-        source_fields: &[&crate::tables::panel::HALF_EDGE_PANEL_TYPE],
+        source_fields: &[&panel::HALF_EDGE_PANEL_TYPE],
         name: "panels",
         display: "Panels",
         description: "Panels of this type.",
@@ -527,14 +527,10 @@ pub static HALF_EDGE_PANELS: crate::field::FieldDescriptor<PanelTypeEntityType> 
 };
 inventory::submit! { CollectedNamedField(&HALF_EDGE_PANELS) }
 
-// Temporary alias for migration - remove when edit_integration.rs is updated
-#[allow(deprecated)]
-pub use HALF_EDGE_PANELS as FIELD_PANELS;
-
 /// Full edge from panel type panels to panel panel type
 pub const EDGE_PANELS: crate::edge::FullEdge = crate::edge::FullEdge {
     near: &HALF_EDGE_PANELS,
-    far: &crate::tables::panel::HALF_EDGE_PANEL_TYPE,
+    far: &panel::HALF_EDGE_PANEL_TYPE,
 };
 
 // ── FieldSet ────────────────────────────────────────────────────────────────────

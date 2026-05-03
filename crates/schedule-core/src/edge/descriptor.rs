@@ -29,8 +29,8 @@ pub enum EdgeKind {
     ///
     /// `source_fields` lists all owner-side fields whose `target_field` points
     /// at this field.  A single target field may be reached by multiple owners
-    /// (e.g. `FIELD_PANELS` on `Presenter` is targeted by both
-    /// `HALF_EDGE_CREDITED_PRESENTERS` and `FIELD_UNCREDITED_PRESENTERS` on
+    /// (e.g. `HALF_EDGE_PANELS` on `Presenter` is targeted by both
+    /// `HALF_EDGE_CREDITED_PRESENTERS` and `HALF_EDGE_UNCREDITED_PRESENTERS` on
     /// `Panel`).
     ///
     /// Use `&[]` when no sources are known at static-initializer time.
@@ -150,8 +150,8 @@ impl std::fmt::Debug for EdgeKind {
 ///         order: 40,
 ///     },
 ///     edge_kind: EdgeKind::Owner {
-///         target_field: &crate::tables::presenter::FIELD_PANELS,
-///         exclusive_with: Some(&FIELD_UNCREDITED_PRESENTERS),
+///         target_field: &presenter::HALF_EDGE_PANELS,
+///         exclusive_with: Some(&HALF_EDGE_UNCREDITED_PRESENTERS),
 ///     },
 ///     cb: FieldCallbacks {
 ///         read_fn: Some(ReadFn::Schedule(|sched, id| { … })),
