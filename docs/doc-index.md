@@ -15,7 +15,7 @@ Complete index of cosam-sched documentation, including current documents and pla
 
 ### Data Model
 
-* **field-system.md** - Entity field system design: three-struct entity pattern, `EntityType` trait, `FieldDescriptor`, `FieldValue`, `CrdtFieldType`, field trait hierarchy, `NamedField::field_key()`, global registry module (`get_entity_type`, `get_named_field`, `get_full_edge_by_owner`), `FieldSet`, and error types.
+* **field-system.md** - Entity field system design: three-struct entity pattern, `EntityType` trait, `FieldDescriptor`, `FieldValue`, `CrdtFieldType`, field trait hierarchy, `NamedField::try_as_half_edge()`, `HalfEdgeDescriptor`, global registry module (`get_entity_type`, `get_named_field`, `get_full_edge_by_owner`), `FieldSet`, and error types.
 * **conversion-and-lookup.md** - Type-safe conversion system for `FieldValue` to typed Rust outputs, including entity resolution support with `FieldValueForSchedule`, `FieldTypeMapping`, `FieldValueConverter`, and `EntityStringResolver`.
 
 ### Storage and Sync

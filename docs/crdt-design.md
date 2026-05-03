@@ -12,7 +12,8 @@ from the document on load/merge and kept in sync on every write. There is no
 Schedule
 ├── doc: automerge::AutoCommit          ← source of truth
 ├── entities: HashMap<TypeId, HashMap<Uuid, Box<InternalData>>>  ← cache
-└── edges: RawEdgeMap                   ← cache, rebuilt from relationship lists
+├── edges: RawEdgeMap                   ← cache, rebuilt from relationship lists
+└── transitive_edge_cache: RefCell<Option<TransitiveEdgeCache>>  ← cache for homogeneous edges
 ```
 
 Document path layout:
@@ -52,11 +53,11 @@ the field maps to automerge storage:
 | `Derived` | not stored                   | Computed from relationships; lives only in RAM |
 
 Edge relationship fields use `CrdtFieldType::Derived`. Edge ownership direction
-is encoded in `EdgeKind` (within `EdgeDescriptor`), not in `CrdtFieldType`.
-Edge list storage is managed exclusively by the `edge_crdt` layer
-(`list_append_unique`, `list_remove`, `read_list_as_uuids`).
+is encoded in `EdgeKind` (within `HalfEdgeDescriptor`), not in `CrdtFieldType`.
+Edge list storage is managed exclusively by the `crdt::edge` layer
+(`list_append_unique`, `list_remove_uuid`, `read_owner_list`).
 
-The `EdgeDescriptor` struct (REFACTOR-074) carries edge metadata including
+The `HalfEdgeDescriptor` struct carries edge metadata including
 ownership direction (`EdgeKind::Owner { target_field, exclusive_with }` vs
 `EdgeKind::Target { source_fields }`). `canonical_owner(near, far)` resolves
 ownership by checking each side's `edge_kind()` — constant time, no inventory
@@ -136,7 +137,7 @@ Applications see the merged result without manual intervention.
 
 Edges are stored in automerge as `ObjType::List` objects on a canonical owner entity,
 following a **panels-outward** ownership rule. Edge ownership direction is encoded
-in `EdgeKind` (within `EdgeDescriptor`), not in `CrdtFieldType`. All edge fields
+in `EdgeKind` (within `HalfEdgeDescriptor`), not in `CrdtFieldType`. All edge fields
 use `CrdtFieldType::Derived`. The `EdgeKind::Owner { target_field, exclusive_with }`
 variant on the owner side carries the inverse/lookup field reference, enabling
 `mirror_entity_fields` to pre-create the right list via `ensure_owner_list` at
@@ -146,10 +147,10 @@ entity-insertion time.
 | ------------------------------ | ------------------ | ----------------------- |
 | Panel ↔ Presenter (credited)   | Panel              | `credited_presenters`   |
 | Panel ↔ Presenter (uncredited) | Panel              | `uncredited_presenters` |
-| Panel ↔ EventRoom              | Panel              | `event_room_ids`        |
-| Panel → PanelType              | Panel              | `panel_type_id`         |
-| EventRoom ↔ HotelRoom          | EventRoom          | `hotel_room_ids`        |
-| Presenter → Presenter group    | Presenter (member) | `group_ids`             |
+| Panel ↔ EventRoom              | Panel              | `event_rooms`           |
+| Panel → PanelType              | Panel              | `panel_type`            |
+| EventRoom ↔ HotelRoom          | EventRoom          | `hotel_rooms`           |
+| Presenter → Presenter group    | Presenter (member) | `members`               |
 
 Automerge list operations give add-wins resolution for concurrent edge
 mutations: an add and a concurrent remove of the same target UUID resolve to
@@ -172,21 +173,133 @@ semantics above.
 
 ## Soft Deletes
 
-Entities are never hard-deleted from a CRDT document. Instead, a `deleted: bool`
-scalar field (CrdtFieldType::Scalar) marks an entity as removed. Queries and
+Entities are never hard-deleted from a CRDT document. Instead, a `__deleted: bool`
+scalar field marks an entity as removed. Queries and
 export filter out deleted entities by default. This preserves causal history and
 avoids tombstone conflicts.
 
-Soft deletes are implemented alongside the full automerge integration in
-Phase 3; no hard-delete code path exists.
+Soft deletes are implemented as part of the full automerge integration.
 
-## Phase Plan
+## Conflict Surfacing
 
-- **Phase 2** (complete): `CrdtFieldType` annotations on all field descriptors.
-- **Phase 3** (current): Authoritative automerge doc under `Schedule`.
-  - FEATURE-022 — Automerge-backed Schedule storage (cache mirrors doc).
-  - FEATURE-023 — CRDT-backed edges via relationship lists on canonical owners.
-  - FEATURE-024 — Change tracking, merge, and conflict surfacing.
-- **Phase 4**: File formats (save/load, multi-year archive, XLSX, widget JSON)
-  built on top of `Schedule::save` / `load`.
-- **Phase 8** (future): Multi-device sync, conflict UI, causal history browser.
+`Schedule::conflicts_for<E>(id, field_name)` surfaces every concurrent value
+for a scalar field. This is useful for UI conflict resolution when two replicas
+edited the same scalar field without observing each other's changes.
+
+- Returns an empty vec when the field is unset
+- Returns a single-element vec when there is no conflict (the same value as normal read)
+- Returns **all** concurrent writers' values when two or more replicas wrote different scalars
+
+Only scalar fields are supported; derived, text, and list fields yield an empty vec
+(they have their own per-character or per-item conflict semantics).
+
+## Save / Load / Merge
+
+### Save
+
+`Schedule::save()` serializes the entire authoritative CRDT document to a compact
+byte blob suitable for on-disk persistence or transport. This is a pure pass-through
+to `AutoCommit::save`; the in-memory cache contributes nothing.
+
+`Schedule::save_to_file()` serializes to the versioned native file format with a
+binary envelope containing magic bytes, format version, metadata JSON, and the
+automerge document. Metadata (schedule UUID, creation timestamp, generator, edit
+version) is embedded so `load_from_file` can restore it exactly.
+
+### Load
+
+`Schedule::load(bytes)` decodes an automerge document from bytes and rebuilds
+a `Schedule` from it: the HashMap cache is rehydrated by replaying every
+non-deleted entity through its registered `RegisteredEntityType::rehydrate_fn`.
+
+`Schedule::load_from_file(bytes)` decodes the versioned native file format,
+restoring both entity data (including CRDT history) and schedule metadata.
+
+### Merge
+
+`Schedule::merge(&mut other)` merges `other`'s automerge document into this one
+and rebuilds the cache to the unified state. Both replicas remain usable — this is
+a symmetric join, not a move.
+
+### Change Tracking
+
+`Schedule::get_heads()` returns the change hashes identifying the current head(s)
+of the CRDT document. `Schedule::get_changes_since(have_deps)` encodes every
+change the doc has observed that is not reachable from `have_deps` as bytes.
+`Schedule::apply_changes(changes)` applies a batch of encoded automerge changes
+and rebuilds the cache.
+
+These methods enable delta sync for multi-device collaboration: the requester
+sends its heads, the responder returns the delta, and the requester applies it.
+
+## Edge CRDT Operations
+
+### Owner List Management
+
+`ensure_owner_list(doc, owner_type, owner_uuid, field_name)` ensures that the empty
+list object exists at `owner.field_name` so that concurrent replicas both inherit
+the same `ObjId` when they later add entries. This is called by `Schedule::insert`
+for every canonical owner field on the inserted entity type.
+
+### Incremental Edge Operations
+
+`list_append_unique(doc, owner_type, owner_uuid, target_type, field_name, target_uuid)`
+incrementally appends `target_uuid` to `owner.field_name` if not already present.
+Used by `Schedule::edge_add` so concurrent adds from two replicas converge to the
+union rather than LWW.
+
+`list_remove_uuid(doc, owner_type, owner_uuid, target_type, field_name, target_uuid)`
+incrementally removes every occurrence of `target_uuid` from `owner.field_name`.
+Used by `Schedule::edge_remove` so concurrent add-vs-unobserved-remove resolves
+add-wins.
+
+### Full List Rewrite
+
+`write_owner_list(doc, owner_type, owner_uuid, target_type, field_name, target_uuids)`
+performs a replace-style full-list rewrite. Used only internally when the caller
+explicitly wants LWW-on-the-whole-list semantics (reasonable for user-driven bulk
+"replace" actions).
+
+### Per-Edge Metadata
+
+`read_edge_meta_bool(doc, owner_type, owner_uuid, field_name, target_uuid, prop_name, default)`
+reads a boolean per-edge property from the `{field_name}_meta` map.
+
+`write_edge_meta_bool(doc, owner_type, owner_uuid, field_name, target_uuid, prop_name, value)`
+writes a boolean per-edge property into the `{field_name}_meta` map (LWW).
+
+Path: `entities/{owner_type}/{owner_uuid}/{meta_field}/{target_uuid}/{prop_name}`
+
+### Canonical Ownership Resolution
+
+`canonical_owner(near_field, far_field)` resolves CRDT ownership for an edge given
+both field descriptors. Each field knows its own `EdgeKind`, so resolution is a
+constant-time check on the two supplied fields:
+
+- If `near_field` is `Owner { target_field }` and `target_field` identifies
+  `far_field`, `near` is the owner.
+- Else if `far_field` is `Owner { target_field }` and `target_field` identifies
+  `near_field`, `far` is the owner.
+- Otherwise the pair is not a recognized edge.
+
+Taking both fields makes the lookup unambiguous even when multiple edge types exist
+between the same pair of entity types (e.g., `credited_presenters` and
+`uncredited_presenters` both target `HALF_EDGE_PANELS`).
+
+## Cache Rehydration
+
+`Schedule::rebuild_cache_from_doc()` discards the in-memory cache and fully
+reconstitutes it from the current CRDT document. Used by `load` / `apply_changes` /
+`merge`.
+
+Runs under `Schedule::with_mirror_disabled` so replayed entity and edge writes
+don't emit redundant changes against the doc we just read from.
+
+The process:
+
+1. Wipe the cache — merge can resurrect soft-deleted UUIDs (add-wins against a
+   delete), retarget edges, and generally change which entities exist.
+2. Snapshot (type_name, rehydrate_fn, uuids) under an immutable borrow of the doc.
+3. Apply each rehydrate with the mirror disabled.
+4. Rebuild edges from the doc by iterating every owner field and replaying its
+   list into `RawEdgeMap`.

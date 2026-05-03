@@ -1,6 +1,6 @@
 # Cosplay America Schedule - Work Item
 
-Updated on: Sat May  2 22:16:54 2026
+Updated on: Sun May  3 03:27:28 2026
 
 ## Completed
 
@@ -90,12 +90,14 @@ eliminating the `homogeneous_reverse` special case.
 * [REFACTOR-066] Eliminate per-entity-type `CollectedField<E>` registries, merge `FieldDescriptorAny` into `NamedField`,
 and improve `FieldId` conversions with a global registry and type-safe downcasting.
 * [REFACTOR-067] Add compile-time typed `FieldNodeId<E>` type similar to `EntityId<E>`, and rename existing `FieldNodeId` to `RuntimeFieldNodeId` for consistency with the entity ID pattern.
+* [REFACTOR-074] Split edge fields out of `FieldDescriptor<E>` into a new `HalfEdgeDescriptor` struct; add
+`EdgeKind` enum with ownership direction and exclusivity information.
 
 ---
 
 ## Summary of Open Items
 
-**Total open items:** 22
+**Total open items:** 21
 
 * **Meta / Project-Level**
   * [META-001] Meta work item tracking the full multi-phase redesign of the schedule system. (Blocked by [META-005], [META-006], [META-007], [META-008])
@@ -120,8 +122,6 @@ reference and jump-starting new conventions.
   * [FEATURE-056] Add computed/synthesized fields to public data structures to support widget JSON export.
   * [REFACTOR-058] Update `FIELD_CREDITS` to use the per-edge `credited` flag introduced by
 REFACTOR-060, so individual presenters can be excluded from credit display.
-  * [REFACTOR-074] Split edge fields out of `FieldDescriptor<E>` into a new `EdgeDescriptor<E>` struct; add
-`HalfEdge`, `TypedField<E>`, and `TypedHalfEdge<E>` traits.
 
 * **Low Priority**
   * [BUGFIX-076] The edge_field_properties macro currently sets add_fn to AddEdge for all target edges without checking if the edge has multiple source fields. This should return None for target edges with multiple sources since add_edge doesn't support multi-source edges yet.
@@ -582,30 +582,6 @@ This item covers any remaining integration work and documentation.
 
 ---
 
-### [REFACTOR-074] REFACTOR-074: Introduce EdgeDescriptor and HalfEdge trait hierarchy
-
-**Status:** In progress
-
-**Priority:** Medium
-
-**Summary:** Split edge fields out of `FieldDescriptor<E>` into a new `EdgeDescriptor<E>` struct; add
-`HalfEdge`, `TypedField<E>`, and `TypedHalfEdge<E>` traits.
-
-**Description:** This refactor adds the edge field trait hierarchy and splits edge fields out of `FieldDescriptor<E>`:
-
-* Rename `field_id()` to `edge_id()`
-* Adding `HalfEdge : NamedField` trait with `edge_id()` and `edge_kind() -> &EdgeKind`
-* Adding `EdgeKind` enum with `Target { source_fields }` and `Owner { target_field, exclusive_with }`
-* Adding `EdgeDescriptor<E>` — a unified struct for all edge fields (owner and target)
-* Adding `TypedField<E>` blanket supertrait over `ReadableField + WritableField`
-* Adding `TypedHalfEdge<E>` blanket over `HalfEdge + TypedField<E>`
-* Removing `target_field` payload from `CrdtFieldType::EdgeOwner` (now in `EdgeKind`)
-* Moving `exclusive_with` from macro closures into `EdgeKind::Owner`
-* Updating `FieldSet<E>` to hold `dyn TypedField<E>`
-* Updating the `define_field!` macro to emit `EdgeDescriptor` for edge fields
-
----
-
 ### [REFACTOR-075] REFACTOR-075: Update edit_integration tests for WriteFn::Schedule
 
 **Status:** Open
@@ -695,5 +671,5 @@ WriteEdge will be removed from FieldDescriptor when HalfEdge is dropped.
 [REFACTOR-064]: work-item/done/REFACTOR-064.md
 [REFACTOR-066]: work-item/done/REFACTOR-066.md
 [REFACTOR-067]: work-item/done/REFACTOR-067.md
-[REFACTOR-074]: work-item/medium/REFACTOR-074.md
+[REFACTOR-074]: work-item/done/REFACTOR-074.md
 [REFACTOR-075]: work-item/low/REFACTOR-075.md

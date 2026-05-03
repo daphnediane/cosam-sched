@@ -7,8 +7,8 @@ cosam-sched project.
 
 cosam-sched manages the scheduling data for Cosplay America conventions.
 The system supports importing schedules from XLSX spreadsheets, editing via
-CLI and GUI tools, exporting JSON for the calendar widget, and (eventually)
-multi-user offline collaborative editing via CRDT-backed storage.
+CLI and GUI tools, exporting JSON for the calendar widget, and multi-user
+offline collaborative editing via CRDT-backed storage (fully implemented).
 
 ## Crate Layout
 
@@ -45,11 +45,20 @@ Each entity type has three hand-written, visible struct declarations:
 `EntityType::Data` is produced by `export(&Schedule)` for serialization and
 external APIs.
 
+### Field Descriptors
+
+Fields are declared as static `FieldDescriptor<E>` or `HalfEdgeDescriptor` values:
+
+- **`FieldDescriptor<E>`** - Regular fields (stored, computed, write-only)
+- **`HalfEdgeDescriptor`** - Edge relationship fields with ownership metadata
+
+Both implement the `NamedField` trait and are registered globally via the `inventory` crate.
+
 ### Builder API
 
 Entity builders provide ergonomic construction with typed setters, UUID assignment,
-validation, and rollback semantics (FEATURE-017). The builder system layers on
-top of `FieldSet::write_multiple` (FEATURE-046) for atomic batch field updates.
+validation, and rollback semantics. The builder system layers on top of
+`FieldSet::write_multiple` for atomic batch field updates.
 
 Key components:
 
@@ -65,10 +74,10 @@ See `field-system.md#builder-system` for details.
 
 Field descriptors self-register globally via the `inventory` crate. Each field
 macro and hand-written descriptor submits a `CollectedNamedField` entry containing
-a `&'static dyn NamedField` reference to the static `FieldDescriptor<E>`. The
-`FieldSet::from_inventory()` constructor filters the global registry by entity type
-name, downcasts each match to the concrete `FieldDescriptor<E>` type via
-`std::any::Any::downcast_ref`, sorts them by the `order: u32` field for stable
+a `&'static dyn NamedField` reference to the static `FieldDescriptor<E>` or
+`HalfEdgeDescriptor`. The `FieldSet::from_inventory()` constructor filters the
+global registry by entity type name, downcasts each match to the concrete type
+via `std::any::Any::downcast_ref`, sorts them by the `order: u32` field for stable
 iteration order, and builds the lookup maps.
 
 This eliminates manual `FieldSet::new(&[...])` lists and prevents accidentally
@@ -98,13 +107,26 @@ determine what type a field expects without calling read/write.
 
 `Schedule` is the top-level data container. It provides:
 
-- **Two-level type-erased entity store**: `HashMap<TypeId, HashMap<NonNilUuid, Box<dyn Any + Send + Sync>>>` — one inner map per entity type. This is the single source of truth; there is no separate UUID registry. `identify(uuid)` queries all inner maps via inventory-registered `TypeId` values.
+- **Two-level type-erased entity store**: `HashMap<TypeId, HashMap<NonNilUuid, Box<dyn Any + Send + Sync>>>` — one inner map per entity type. This is a cache mirroring the CRDT document.
 - **`RawEdgeMap`** — a single unified edge store for all relationships (see below).
+- **`TransitiveEdgeCache`** — cache for transitive homogeneous-edge relationships
 - **`ScheduleMetadata`** — schedule UUID, timestamps, generator info.
+- **Authoritative CRDT document**: `automerge::AutoCommit` — the single source of truth for all entity data
 
 There is no separate `EntityStorage` struct; storage lives directly on `Schedule`.
 `get_internal<E>` / `get_internal_mut<E>` / `insert<E>` dispatch via `TypeId`
 using the `EntityType::InternalData` associated type.
+
+### CRDT Source of Truth
+
+The authoritative state of every entity lives in the `AutoCommit` document `doc`.
+The `entities` HashMap is a cache that mirrors the document: every successful field
+write routes through `crdt::write_field` before returning, and `remove_entity`
+soft-deletes via the `__deleted` flag. On `load` / `apply_changes` / `merge`
+the cache is rebuilt in full from the document.
+
+During load the mirror is disabled via `Schedule::mirror_enabled` so that
+rehydrating entities does not generate redundant writes against the doc.
 
 ### Edge Relationships
 
@@ -121,22 +143,25 @@ HashMap<NonNilUuid,          // outer key: entity UUID
 A `FieldId` is derived from the address of the `&'static dyn NamedField` singleton for
 a given field, making it globally unique and stable.
 
-Both directions of every edge are stored symmetrically in the same map.  Homogeneous
-(same-type) and heterogeneous (different-type) edges are treated identically — no separate
-`homogeneous_reverse` map is needed because each endpoint's field is self-describing.
+Both directions of every edge are stored symmetrically in the same map.
+Homogeneous (same-type) and heterogeneous (different-type) edges are treated
+identically — no separate `homogeneous_reverse` map is needed because each
+endpoint's field is self-describing.
 
 `Schedule` exposes typed generic methods:
 
-- `connected_field_nodes::<R>(near_node, far_field)` — R entities connected to `near_node` via `far_field`
+- `connected_field_nodes(near_node, far_field)` — entities connected to `near_node` via `far_field`
+- `connected_entities<R>(near_node, far_field)` — typed version returning `EntityId<R>`
 - `edge_add` / `edge_remove` — mutators; accept `impl DynamicEntityId` and `FullEdge`
 - `edge_set<Far>(near, far_field, targets)` — bulk replace neighbors; returns `(added, removed)` diff used for incremental CRDT mirroring
+- `inclusive_edges<Near, Far>(near, edge)` — all `Far` entities reachable from `near` via the given edge (transitive for homogeneous edges)
 
 CRDT ownership for any `(near_field, far_field)` pair is resolved by
-`edge_crdt::canonical_owner`, which inspects each side's `edge_kind()`:
+`crdt::edge::canonical_owner`, which inspects each side's `edge_kind()`:
 whichever side carries `EdgeKind::Owner { target_field, .. }` pointing at
 the other is the owner. No inventory traversal is required — the owner field
-is self-describing through `EdgeDescriptor` (REFACTOR-074). Transitive
-(formerly homogeneous) edge mutations also invalidate the `TransitiveEdgeCache`.
+is self-describing through `EdgeKind`. Transitive edge mutations also
+invalidate the `TransitiveEdgeCache`.
 
 ### Panel ↔ Presenter Edge Partitions
 
@@ -162,12 +187,11 @@ and the `_meta` boolean per-edge map have been removed.
 here; they are composed in entity modules from direct `connected_field_nodes` calls.
 
 `Schedule` holds the cache as `RefCell<Option<TransitiveEdgeCache>>`. Interior mutability
-lets `inclusive_edges` update the cache through a `&self`
-reference. Setting the field to `None` invalidates the entire cache; it is rebuilt
-lazily per-entry on the next query.
+lets `inclusive_edges` update the cache through a `&self` reference. Setting the field
+to `None` invalidates the entire cache; it is rebuilt lazily per-entry on the next query.
 
 ```text
-homogeneous_edge_cache: RefCell<Option<TransitiveEdgeCache>>
+transitive_edge_cache: RefCell<Option<TransitiveEdgeCache>>
   cache: HashMap<(FullEdge, NonNilUuid), Box<[NonNilUuid]>>
 ```
 
@@ -176,7 +200,7 @@ The cache key is `(FullEdge, NonNilUuid)` — the edge encodes traversal directi
 starting node. Multiple independent transitive-edge relationships can share one
 cache without key collision.
 
-**Invalidation:** `homogeneous_edge_cache` is set to `None` inside `edge_add`, `edge_remove`,
+**Invalidation:** `transitive_edge_cache` is set to `None` inside `edge_add`, `edge_remove`,
 `edge_set`, and `remove_entity` whenever the edge is homogeneous.
 Heterogeneous-edge mutations do not touch the cache.
 
@@ -193,7 +217,7 @@ and `inclusive_members` on `Presenter` with explicit `FullEdge` constants (`EDGE
 
 ### Query system
 
-Entity lookup is provided by free functions in `schedule-core::lookup`:
+Entity lookup is provided by free functions in `schedule-core::query`:
 
 ```rust
 pub fn lookup<E: EntityScannable>(
@@ -219,17 +243,16 @@ pub fn lookup_or_create_list<E: EntityCreatable>(...)
     -> Result<Vec<EntityId<E>>, LookupError>;
 ```
 
-Entity types implement [`EntityMatcher::match_entity`] to own their holistic
+Entity types implement `EntityMatcher::match_entity` to own their holistic
 match logic (combining any fields they choose), returning a `u8`
-[`MatchPriority`] score (`NO_MATCH` = 0 … `EXACT_MATCH` = 255).
-[`EntityScannable`] extends `EntityMatcher` with a `scan_entity` hook that
+`MatchPriority` score (`NO_MATCH` = 0 … `EXACT_MATCH` = 255).
+`EntityScannable` extends `EntityMatcher` with a `scan_entity` hook that
 the lookup loop dispatches through — the default implementation performs
 the linear scan plus full/partial disambiguation, and entity types can
 override it for index-backed lookups or custom token syntax. Types that
-support find-or-create additionally implement [`EntityCreatable`] (which
+support find-or-create additionally implement `EntityCreatable` (which
 supplies `create_from_string`) and override
-[`EntityMatcher::can_create`] to gate creation. This replaced the
-previous per-field `IndexableField<E>` / `index_fn` approach.
+`EntityMatcher::can_create` to gate creation.
 
 The lookup algorithm splits queries at `,` / `;`, fast-paths bare and
 tagged UUIDs (`"type_name:<uuid>"`), prefers full-string matches over
@@ -310,7 +333,7 @@ logic.
 ## Edit Command System
 
 `schedule-core::edit` provides a command-based mutation API with full undo/redo
-support (FEATURE-021). All mutations to the schedule must go through this module.
+support. All mutations to the schedule must go through this module.
 
 ### `EditCommand`
 
@@ -326,7 +349,7 @@ A `Clone`-able, data-only enum with five variants:
 
 All variants store only `RuntimeEntityId`, `&'static str` field names, and
 `FieldValue` — no closures or `Box<dyn Any>`. This makes `EditCommand: Clone`
-and enables serialization for logging and Phase 4 CRDT broadcast.
+and enables serialization for logging and CRDT broadcast.
 
 ### Field selection for `AddEntity` / `RemoveEntity`
 
@@ -340,7 +363,7 @@ included in entity snapshots. This correctly excludes:
 
 ### `RegisteredEntityType` fn pointers
 
-Five new function pointers were added to `RegisteredEntityType` for dynamic
+Five function pointers are added to `RegisteredEntityType` for dynamic
 dispatch in the edit system:
 
 | Field            | Purpose                                             |
@@ -350,6 +373,7 @@ dispatch in the edit system:
 | `build_fn`       | Build entity from `(name, value)` pairs (redo/undo) |
 | `snapshot_fn`    | Snapshot all read+write fields before removal       |
 | `remove_fn`      | Remove entity and clear its edges                   |
+| `rehydrate_fn`   | Rebuild entity from CRDT document (load path)       |
 
 ### `EditHistory`
 
@@ -374,17 +398,16 @@ Convenience constructors (`update_field_cmd`, `remove_entity_cmd`,
 
 ### CRDT integration point
 
-`EditContext::apply` is the natural hook for Phase 4: every executed command
-can generate CRDT operations to broadcast to peers.
+`EditContext::apply` is the natural hook for CRDT operations: every executed command
+generates CRDT operations that are broadcast to peers for sync.
 
-## CRDT Storage (Phase 4)
+## CRDT Storage
 
 See `crdt-design.md` for the full design.
 
-`CrdtFieldType` annotations on every field are baked in from Phase 2 onward.
-The actual automerge integration is deferred to Phase 4. The field system is
-designed so that plugging in CRDT storage requires no changes to entity struct
-definitions.
+The CRDT system is fully implemented using automerge. The `AutoCommit` document
+is the single source of truth; the in-memory HashMap cache mirrors it.
+Edge relationships are stored as owner-list fields in the CRDT document.
 
 ## Application Targets
 
@@ -394,7 +417,7 @@ definitions.
 | `cosam-modify`  | CLI tool for reading/editing schedule data (search, set, validate) |
 | `cosam-editor`  | GUI desktop editor with full schedule management                   |
 
-GUI framework (`iced` vs `GPUI`) decision is deferred to Phase 6.
+GUI framework (`iced` vs `GPUI`) decision is deferred.
 
 ## Design Decisions
 
@@ -405,8 +428,11 @@ GUI framework (`iced` vs `GPUI`) decision is deferred to Phase 6.
 - **Single library crate**: `schedule-core` replaces the three-crate split
   (`schedule-field` + `schedule-data` + `schedule-macro`) to eliminate the
   layer violations that plagued v10-try3.
-- **CRDT-readiness from day one**: `CrdtFieldType` on every field avoids
-  retrofit pain when Phase 4 lands.
+- **CRDT from day one**: `CrdtFieldType` on every field and automerge document
+  as source of truth avoids retrofit pain.
 - **export() over direct serialization**: `<E>InternalData` is `pub(crate)`;
   external code always works with `<E>Data` via `export()`, keeping the
   runtime/internal representation private.
+- **Owner-list edge storage**: Edge relationships are stored as lists on canonical
+  owner entities in the CRDT document, enabling add-wins semantics for concurrent
+  edge mutations.

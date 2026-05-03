@@ -1,7 +1,7 @@
 # Field System
 
 Entity field system design for `schedule-core`: field traits, `FieldDescriptor`,
-`FieldValue`, `FieldSet`, and the three-struct entity pattern.
+`HalfEdgeDescriptor`, `FieldValue`, `FieldSet`, and the three-struct entity pattern.
 
 ## Design Principles
 
@@ -11,7 +11,7 @@ Entity field system design for `schedule-core`: field traits, `FieldDescriptor`,
   (trait impls, field accessor singletons, builders) but must not obscure the
   struct definitions themselves.
 - **CRDT-readiness**: every field carries a `CrdtFieldType` annotation from day
-  one so CRDT storage can be added in Phase 4 without touching entity structs.
+  one so CRDT storage can be added without touching entity structs.
 
 ## Three-Struct Entity Pattern
 
@@ -55,8 +55,8 @@ Entity types: `PanelTypeEntityType`, `PanelEntityType`, `PresenterEntityType`,
 
 ### ID Trait Hierarchy
 
-All ID types implement a common trait hierarchy defined in `entity_id.rs` and
-`field_node_id.rs`, enabling APIs to accept any ID type uniformly:
+All ID types implement a common trait hierarchy defined in `entity/id.rs`,
+enabling APIs to accept any ID type uniformly:
 
 ```text
 EntityUuid            entity_uuid() -> NonNilUuid
@@ -123,7 +123,7 @@ which uses the entity type's `uuid_namespace()` for v5 generation.
 
 ## FieldValue
 
-Universal value enum used for all field read/write operations. The system uses a two-level structure. See `conversion-and-lookup.md` for the type-safe conversion system including entity resolution support with `FieldValueForSchedule`.
+Universal value enum used for all field read/write operations.
 
 **`FieldValueItem`** - Scalar value types:
 
@@ -189,7 +189,7 @@ without calling read/write.
 ## CrdtFieldType
 
 Annotation on every `FieldDescriptor` controlling how the field maps to CRDT
-storage (Phase 4):
+storage:
 
 | Variant   | Semantics                                                      |
 | --------- | -------------------------------------------------------------- |
@@ -199,29 +199,19 @@ storage (Phase 4):
 | `Derived` | Computed from relationships; NOT stored in CRDT                |
 
 All edge relationship fields use `CrdtFieldType::Derived`. Edge ownership direction
-is encoded in `EdgeKind` (within `EdgeDescriptor`), not in `CrdtFieldType`.
+is encoded in `EdgeKind` (within `HalfEdgeDescriptor`), not in `CrdtFieldType`.
 
 ## Field Trait Hierarchy
 
 ```text
-NamedField          name(), display_name(), description(), aliases()
-ReadableField<E>    read(EntityId<E>, &Schedule) → Option<FieldValue>
-WritableField<E>    write(EntityId<E>, &mut Schedule, FieldValue) → Result<(), FieldError>
-AddableField<E>     add(EntityId<E>, &mut Schedule, FieldValue) → Result<(), FieldError>
-RemovableField<E>   remove(EntityId<E>, &mut Schedule, FieldValue) → Result<(), FieldError>
+NamedField          name(), display_name(), description(), aliases(), entity_type_name(), try_as_half_edge()
 ```
 
-All five traits are flat — no `Simple*` or `Schedule*` sub-traits. The
-caller-facing API is always `(EntityId<E>, &[mut] Schedule)`.
+The caller-facing API is always `(EntityId<E>, &[mut] Schedule)`.
+Entity-level matching is handled via `crate::query::lookup::EntityMatcher`.
 
-`FieldDescriptor<E>` implements all five directly. Dispatch between
-data-only and schedule-aware paths is handled internally by matching on
-`ReadFn<E>`, `WriteFn<E>`, `AddFn<E>`, and `RemoveFn<E>` (see below).
-
-Entity-level text matching (previously `IndexableField<E>` / `match_index`)
-is now handled by the `EntityMatcher` trait in `crate::query::lookup`; see
-`conversion-and-lookup.md`. Individual field descriptors no longer carry
-an `index_fn` — each entity type owns its holistic `match_entity` logic.
+`FieldDescriptor<E>` implements `NamedField` directly.
+`HalfEdgeDescriptor` also implements `NamedField` (with `try_as_half_edge()` returning `Some(self)`).
 
 ## ReadFn / WriteFn / AddFn / RemoveFn enums
 
@@ -236,10 +226,6 @@ pub enum ReadFn<E: EntityType> {
     /// Schedule-aware read — fn receives `(&Schedule, EntityId<E>)` and
     /// performs its own entity lookup internally.
     Schedule(fn(&Schedule, EntityId<E>) -> Option<FieldValue>),
-    /// Get entities connected to this entity via a list of full edges.
-    ReadEdges { edges: &'static [&'static FullEdge] },
-    /// Read edge — reads edges for this field.
-    ReadEdge,
 }
 
 pub enum WriteFn<E: EntityType> {
@@ -247,17 +233,6 @@ pub enum WriteFn<E: EntityType> {
     Bare(fn(&mut E::InternalData, FieldValue) -> Result<(), FieldError>),
     /// Schedule-aware write — used for edge mutations (e.g. `add_presenters`).
     Schedule(fn(&mut Schedule, EntityId<E>, FieldValue) -> Result<(), FieldError>),
-    /// Add to an edge where both near and far are specified.
-    /// TODO: This should be removed in favor of AddFn
-    AddEdge {
-        edge: FullEdge,
-        exclusive_with: Option<FullEdge>,
-    },
-    /// Remove from an edge where both near and far are specified.
-    /// TODO: This should be removed in favor of RemoveFn
-    RemoveEdge { edge: FullEdge },
-    /// Write edge — sets edges from this entity to the target entities specified in value.
-    WriteEdge,
 }
 
 pub enum AddFn<E: EntityType> {
@@ -265,8 +240,6 @@ pub enum AddFn<E: EntityType> {
     Bare(fn(&mut E::InternalData, FieldValue) -> Result<(), FieldError>),
     /// Schedule-aware add — used for edge mutations (e.g. `add_presenters`).
     Schedule(fn(&mut Schedule, EntityId<E>, FieldValue) -> Result<(), FieldError>),
-    /// Add edge — used for edge fields to add edges.
-    AddEdge,
 }
 
 pub enum RemoveFn<E: EntityType> {
@@ -274,10 +247,7 @@ pub enum RemoveFn<E: EntityType> {
     Bare(fn(&mut E::InternalData, FieldValue) -> Result<(), FieldError>),
     /// Schedule-aware remove — used for edge mutations (e.g. `remove_presenters`).
     Schedule(fn(&mut Schedule, EntityId<E>, FieldValue) -> Result<(), FieldError>),
-    /// Remove edge — used for edge fields to remove edges.
-    RemoveEdge,
 }
-
 ```
 
 ## FieldDescriptor
@@ -287,29 +257,13 @@ to fn pointers automatically.
 
 ```rust
 pub struct FieldDescriptor<E: EntityType> {
-    pub name: &'static str,
-    pub display: &'static str,
-    pub description: &'static str,
-    pub aliases: &'static [&'static str],
+    pub(crate) data: CommonFieldData,
     pub required: bool,
-    pub crdt_type: CrdtFieldType,
-    pub field_type: FieldType,          // Logical field type (value type and cardinality)
-    pub example: &'static str,
-    pub order: u32,                     // Stable iteration order for inventory collection
-    pub read_fn: Option<ReadFn<E>>,     // None → write-only
-    pub write_fn: Option<WriteFn<E>>,   // None → read-only
-    pub add_fn: Option<AddFn<E>>,       // None → read-only or add not supported
-    pub remove_fn: Option<RemoveFn<E>>, // None → read-only or remove not supported
+    pub(crate) cb: FieldCallbacks<E>,
 }
 ```
 
-The `order: u32` field enables stable field ordering when fields self-register via
-inventory. Fields are sorted by this value (ascending) when `FieldSet::from_inventory()`
-collects them. Use multiples of 100 (0, 100, 200, ...) to leave room for future insertions.
-
-`FieldDescriptor` implements `NamedField`, `ReadableField<E>`,
-`WritableField<E>`, `AddableField<E>`, and
-`RemovableField<E>` directly:
+`FieldDescriptor<E>` implements `NamedField` directly:
 
 - `read()` matches `read_fn`: `None` → `FieldError::WriteOnly`;
   `Bare` fetches `InternalData` from the schedule then calls the fn;
@@ -319,12 +273,10 @@ collects them. Use multiples of 100 (0, 100, 200, ...) to leave room for future 
   `Schedule` delegates directly (no double `&mut`).
 - `add()` matches `add_fn`: `None` → `FieldError::ReadOnly` or add not supported;
   `Bare` fetches `&mut InternalData` then calls the fn;
-  `Schedule` delegates directly;
-  `AddEdge` calls `crate::schedule::add_edge` for edge operations.
+  `Schedule` delegates directly.
 - `remove()` matches `remove_fn`: `None` → `FieldError::ReadOnly` or remove not supported;
   `Bare` fetches `&mut InternalData` then calls the fn;
-  `Schedule` delegates directly;
-  `RemoveEdge` calls `crate::schedule::remove_edge` for edge operations.
+  `Schedule` delegates directly.
 
 Declared as `static` values, e.g.:
 
@@ -333,7 +285,8 @@ Declared as `static` values, e.g.:
 pub static FIELD_PANEL_NAME: FieldDescriptor<PanelEntityType> = {
     let (data, cb) = accessor_field_properties! {
         PanelEntityType,
-        panel_name,
+        accessor: panel_name,
+        as: AsString,
         name: "panel_name",
         display: "Panel Name",
         description: "The title of the panel.",
@@ -346,49 +299,97 @@ pub static FIELD_PANEL_NAME: FieldDescriptor<PanelEntityType> = {
     FieldDescriptor {
         data,
         required: true,
-        edge_kind: EdgeKind::NonEdge,
         cb,
     }
 };
-inventory::submit! { CollectedNamedField(&FIELD_PANEL_NAME) }
-
-// Edge field using edge_field_properties!:
-pub static HALF_EDGE_CREDITED_PRESENTERS: FieldDescriptor<PanelEntityType> = {
-    let (data, cb, edge_kind) = edge_field_properties! {
-        PanelEntityType,
-        target: PresenterEntityType,
-        target_field: &crate::tables::presenter::HALF_EDGE_PANELS,
-        exclusive_with: &HALF_EDGE_UNCREDITED_PRESENTERS,
-        name: "credited_presenters",
-        display: "Credited Presenters",
-        description: "Presenters credited on this panel.",
-        aliases: &["credited_panelists", "credited_presenter"],
-        example: "[presenter_id]",
-        order: 2710,
-    };
-    FieldDescriptor {
-        data,
-        required: false,
-        edge_kind,
-        cb,
-    }
-};
-inventory::submit! { CollectedNamedField(&HALF_EDGE_CREDITED_PRESENTERS) }
+inventory::submit! { CollectedField(&FIELD_PANEL_NAME) }
 ```
 
-### Field descriptors declarations
+## HalfEdgeDescriptor
 
-Three proc-macros generate the `(CommonFieldData, FieldCallbacks)` tuple for
+Edge field descriptor — one `static` value per edge field on an entity type.
+Replaces `FieldDescriptor<E>` for edge fields (owner and target sides).
+
+```rust
+pub struct HalfEdgeDescriptor {
+    pub(crate) data: CommonFieldData,
+    pub edge_kind: EdgeKind,
+    pub entity_name: &'static str,
+}
+```
+
+The `edge_kind` field distinguishes ownership and carries the target/source field
+references and exclusivity information.
+
+### EdgeKind
+
+Ownership and relationship info for an edge half-edge field:
+
+```rust
+pub enum EdgeKind {
+    /// Non-owner (lookup/inverse) side of an edge relationship.
+    /// `source_fields` lists all owner-side fields whose `target_field` points
+    /// at this field.
+    Target {
+        source_fields: &'static [&'static HalfEdgeDescriptor],
+    },
+    /// CRDT-canonical owner side of an edge relationship.
+    /// `exclusive_with` names a sibling field on the *same* entity whose
+    /// entries must be removed before adding to this field.
+    Owner {
+        target_field: &'static HalfEdgeDescriptor,
+        exclusive_with: Option<&'static HalfEdgeDescriptor>,
+    },
+}
+```
+
+Resolution: `crdt::edge::canonical_owner(near, far)` checks each side's
+`edge_kind()` — whichever side is `EdgeKind::Owner { target_field, .. }`
+pointing at the other is the owner. Constant time, no inventory traversal.
+
+Edge fields are distinguished from regular fields via `NamedField::try_as_half_edge()`,
+which returns `Some(&HalfEdgeDescriptor)` for edge fields and `None` for regular fields.
+
+### FullEdge
+
+Represents a complete edge between two field descriptors:
+
+```rust
+pub struct FullEdge {
+    pub near: &'static HalfEdgeDescriptor,
+    pub far: &'static HalfEdgeDescriptor,
+}
+```
+
+`FullEdge` serializes to a compact 2-field JSON object:
+
+```json
+{"ownerField": "panel:panel_type", "nearIsOwner": true}
+```
+
+- **`ownerField`** — `field_key()` of the Owner half-edge (`"entity_type:field_name"`).
+- **`nearIsOwner`** — `true` if `near = owner, far = target`; `false` for the flipped orientation.
+
+Every `FullEdge` has exactly one Owner half-edge, so this form uniquely identifies
+any edge — even when a Target half-edge is shared by multiple Owners
+(e.g. `presenter:panels` is the target of both `credited_presenters` and
+`uncredited_presenters`; they are disambiguated by their distinct owner keys).
+
+## Field Descriptor Macros
+
+Two proc-macros generate the `(CommonFieldData, FieldCallbacks)` tuple for
 hand-written field descriptors. Each is designed for a specific field type:
 
 - **`accessor_field_properties!`** — Stored fields backed by `CommonData` slots
-- **`edge_field_properties!`** — Edge relationship fields
 - **`callback_field_properties!`** — Computed fields with custom callbacks
 
-Choose the appropriate macro based on your field's behavior, then construct
-the `FieldDescriptor` manually to control `required` and `edge_kind`.
+**When to use each approach:**
 
-#### Using `accessor_field_properties!`
+- Use `accessor_field_properties!` for stored fields that map directly to `CommonData` fields
+- Write `HalfEdgeDescriptor` directly for edge relationship fields (no macro)
+- Use `callback_field_properties!` for computed fields with custom read/write logic
+
+### Using `accessor_field_properties!`
 
 For stored fields that map directly to `CommonData` fields, use `accessor_field_properties!`
 to auto-generate read/write callbacks from the field's `As*` marker trait:
@@ -409,11 +410,10 @@ pub static FIELD_NAME: FieldDescriptor<PresenterEntityType> = {
     FieldDescriptor {
         data,
         required: true,
-        edge_kind: EdgeKind::NonEdge,
         cb,
     }
 };
-inventory::submit! { CollectedNamedField(&FIELD_NAME) }
+inventory::submit! { CollectedField(&FIELD_NAME) }
 ```
 
 **Parameters:**
@@ -426,60 +426,62 @@ The macro derives `cardinality` from the field type (via the marker trait),
 generates `ReadFn::Bare` and `WriteFn::Bare` callbacks that access the field directly,
 and sets `crdt_type` based on the item type.
 
-#### Using `edge_field_properties!`
+### Writing HalfEdgeDescriptor
 
-For edge relationship fields, use `edge_field_properties!` to auto-generate
-the appropriate edge-backed callbacks and `EdgeKind`.
-
-**Note:** Edge fields are currently being migrated to `EdgeDescriptor<E>` (see
-Edge ownership section below). During this transition, `edge_field_properties!`
-is used for hand-written `FieldDescriptor` declarations. Once `EdgeDescriptor<E>`
-is fully implemented, this macro will be the primary way to declare edge fields
-with auto-generated callbacks.
+Edge relationship fields are declared as static `HalfEdgeDescriptor` values written
+without a macro. The descriptor includes the `CommonFieldData`, `EdgeKind` for ownership
+direction, and the entity type name:
 
 ```rust
-pub static HALF_EDGE_PANELS: FieldDescriptor<PanelTypeEntityType> = {
-    let (data, cb, edge_kind) = edge_field_properties! {
-        PanelTypeEntityType,
-        target: PanelEntityType,
-        target_field: &crate::tables::panel::FIELD_PANEL_TYPE,
-        owner,                      // This side owns the edge
-        name: "panels",
-        display: "Panels",
-        description: "All panels of this type.",
-        aliases: &[],
-        example: "[]",
-        order: 1000
-    };
-    FieldDescriptor {
-        data,
-        required: false,
-        edge_kind,
-        cb,
+pub static HALF_EDGE_PANELS: crate::edge::HalfEdgeDescriptor = {
+    crate::edge::HalfEdgeDescriptor {
+        data: crate::field::CommonFieldData {
+            name: "panels",
+            display: "Panels",
+            description: "Panels of this type.",
+            aliases: &[],
+            field_type: crate::value::FieldType(
+                crate::value::FieldCardinality::List,
+                crate::value::FieldTypeItem::EntityIdentifier(PanelEntityType::TYPE_NAME),
+            ),
+            crdt_type: crate::crdt::CrdtFieldType::List,
+            example: "[]",
+            order: 1200,
+        },
+        edge_kind: crate::edge::EdgeKind::Target {
+            source_fields: &[&panel::HALF_EDGE_PANEL_TYPE],
+        },
+        entity_name: PanelTypeEntityType::TYPE_NAME,
     }
 };
-inventory::submit! { CollectedNamedField(&HALF_EDGE_PANELS) }
+inventory::submit! { CollectedHalfEdge(&HALF_EDGE_PANELS) }
 ```
 
-**Parameters:**
+**For owner-side edges**, use `EdgeKind::Owner`:
 
-- `target: <EntityType>` — The entity type on the far side of the edge
-- `target_field: &<FieldDescriptor>` — The field descriptor on the target entity that points back
-- `owner` or `target` — Whether this side owns the edge (affects CRDT storage)
-- `exclusive_with: &<FieldDescriptor>` (optional) — Mutually exclusive sibling field
-- Standard `CommonFieldData` parameters
+```rust
+edge_kind: crate::edge::EdgeKind::Owner {
+    target_field: &presenter::HALF_EDGE_PANELS,
+    exclusive_with: Some(&HALF_EDGE_UNCREDITED_PRESENTERS),
+},
+```
 
-The macro returns a 3-tuple `(CommonFieldData, FieldCallbacks, EdgeKind)` and
-generates appropriate `ReadFn::ReadEdge`, `WriteFn::WriteEdge`, `AddFn::AddEdge`,
-and `RemoveFn::RemoveEdge` callbacks.
+**For target-side edges**, use `EdgeKind::Target`:
 
-#### Using `callback_field_properties!`
+```rust
+edge_kind: crate::edge::EdgeKind::Target {
+    source_fields: &[&panel::HALF_EDGE_CREDITED_PRESENTERS, &panel::HALF_EDGE_UNCREDITED_PRESENTERS],
+},
+```
 
-For computed fields that need custom callback logic but also require manual
-control over descriptor-level properties (e.g., `required` flag, `edge_kind`),
-use the `callback_field_properties!` macro to generate only the
-`(CommonFieldData, FieldCallbacks)` tuple, then construct the `FieldDescriptor`
-manually:
+All edge fields must be registered via `inventory::submit! { CollectedHalfEdge(&FIELD_NAME) }`
+after the static definition.
+
+### Using `callback_field_properties!`
+
+For computed fields that need custom callback logic, use the `callback_field_properties!`
+macro to generate only the `(CommonFieldData, FieldCallbacks)` tuple, then construct
+the `FieldDescriptor` manually:
 
 ```rust
 pub static FIELD_CODE: FieldDescriptor<PanelEntityType> = {
@@ -513,101 +515,79 @@ pub static FIELD_CODE: FieldDescriptor<PanelEntityType> = {
     FieldDescriptor {
         data,
         required: true,
-        edge_kind: EdgeKind::NonEdge,
         cb,
     }
 };
-inventory::submit! { CollectedNamedField(&FIELD_CODE) }
+inventory::submit! { CollectedField(&FIELD_CODE) }
 ```
 
-**When to use each macro:**
+## Inventory-based Field Registration
 
-- Use `accessor_field_properties!` for stored fields that map directly to `CommonData` fields
-- Use `edge_field_properties!` for edge relationship fields
-- Use `callback_field_properties!` for computed fields with custom read/write logic
-
-**Callback support:**
-
-The `callback_field_properties!` macro supports both closures and enum variants for callbacks:
-
-- **Closures**: Automatically wrapped in appropriate enum variant based on arity:
-  - Read closures: 1 arg → `ReadFn::Bare`, 2 args → `ReadFn::Schedule`
-  - Write closures: 2 args → `WriteFn::Bare`, 3 args → `WriteFn::Schedule`
-  - Add/Remove closures: 2 args → `AddFn::Bare`/`RemoveFn::Bare`, 3 args → `AddFn::Schedule`/`RemoveFn::Schedule`
-
-- **Enum variants**: Use directly without wrapping:
-  - `ReadFn::ReadEdge`, `WriteFn::WriteEdge`, `AddFn::AddEdge`, `RemoveFn::RemoveEdge`, etc.
-
-The macro derives `field_type` and `crdt_type` from `cardinality` and `item` automatically,
-so these don't need to be specified explicitly.
-
-### Edge ownership via EdgeDescriptor (REFACTOR-074)
-
-Edge relationship metadata lives in `EdgeDescriptor<E>`, which is separate from
-`FieldDescriptor<E>`. Edge ownership direction is encoded in `EdgeKind`:
+Field descriptors self-register globally via the `inventory` crate. This eliminates
+manual `FieldSet::new(&[...])` lists and prevents accidentally
+omitting fields from the registry.
 
 ```rust
-pub enum EdgeKind {
-    /// Owner side of an edge relationship.
-    Owner {
-        /// Inverse/lookup field on the target entity.
-        target_field: &'static dyn HalfEdge,
-        /// Mutually exclusive sibling field (e.g., credited vs uncredited).
-        exclusive_with: Option<&'static dyn HalfEdge>,
-    },
-    /// Non-owner (inverse/lookup) side.
-    Target {
-        /// All source fields that point at this target.
-        source_fields: &'static [&'static dyn HalfEdge],
-    },
+pub struct CollectedField(pub &'static dyn NamedField);
+pub struct CollectedHalfEdge(pub &'static dyn NamedField);
+
+inventory::collect!(CollectedField);
+inventory::collect!(CollectedHalfEdge);
+```
+
+Field descriptors must explicitly call `inventory::submit!` after definition:
+
+```rust
+inventory::submit! { CollectedField(&FIELD_NAME) }
+inventory::submit! { CollectedHalfEdge(&HALF_EDGE_NAME) }
+```
+
+The global registry enables type-safe downcasting via `std::any::Any::downcast_ref`,
+eliminating the need for per-entity-type registries.
+
+## CommonFieldData
+
+Generic field data shared by all field descriptors:
+
+```rust
+pub struct CommonFieldData {
+    pub name: &'static str,
+    pub display: &'static str,
+    pub description: &'static str,
+    pub aliases: &'static [&'static str],
+    pub field_type: FieldType,
+    pub crdt_type: CrdtFieldType,
+    pub example: &'static str,
+    pub order: u32,
 }
 ```
 
-Resolution: `edge_crdt::canonical_owner(near, far)` checks each side's
-`edge_kind()` — whichever side is `EdgeKind::Owner { target_field, .. }`
-pointing at the other is the owner. Constant time, no inventory traversal.
+Fields are `pub(crate)` so entity modules and macro-generated code within
+`schedule-core` can initialize statics using struct literal syntax.
+External code accesses these through the `NamedField` trait methods.
 
-The `HalfEdge` trait extends `NamedField` with `edge_kind()` and `edge_id()`.
-Only fields implementing `HalfEdge` can be used in edge operations.
+The `order: u32` field enables stable field ordering when fields self-register via
+inventory. Fields are sorted by this value (ascending) when `FieldSet::from_inventory()`
+collects them. Use multiples of 100 (0, 100, 200, ...) to leave room for future insertions.
 
-### FullEdge serialization
+## FieldSet
 
-`FullEdge` serializes to a compact 2-field JSON object:
+`FieldSet<E>` is the collection of all field descriptors for a given entity type.
+It provides lookup by name and iteration over fields.
 
-```json
-{"ownerField": "panel:panel_type", "nearIsOwner": true}
+```rust
+pub struct FieldSet<E: EntityType> {
+    fields: Vec<&'static FieldDescriptor<E>>,
+    half_edges: Vec<&'static HalfEdgeDescriptor>,
+    by_name: HashMap<&'static str, &'static FieldDescriptor<E>>,
+}
 ```
 
-- **`ownerField`** — `field_key()` of the Owner half-edge (`"entity_type:field_name"`).
-- **`nearIsOwner`** — `true` if `near = owner, far = target`; `false` for the flipped orientation.
+`FieldSet::from_inventory()` constructs a `FieldSet` by filtering the global
+registry by entity type name, downcasting each match to the concrete type, and
+sorting by `order`.
 
-Every `FullEdge` has exactly one Owner half-edge, so this form uniquely identifies
-any edge — even when a Target half-edge is shared by multiple Owners
-(e.g. `presenter:panels` is the target of both `credited_presenters` and
-`uncredited_presenters`; they are disambiguated by their distinct owner keys).
-
-Deserialization calls `registry::get_full_edge_by_owner(owner_key)` for an O(1) lookup
-from the six-entry `FULL_EDGE_INDEX`, then flips if `near_is_owner` is `false`.
-
-**Presenter partition fields on Panel** use `callback_field_properties!` with `WriteFn::Schedule`
-and call `field_value_to_entity_ids` (the standard edge-parsing helper) for input
-normalization, then `edge_add` / `edge_remove`:
-
-| Field                       | Mode       | Semantics                                                                       |
-| --------------------------- | ---------- | ------------------------------------------------------------------------------- |
-| `presenters`                | read-only  | All attached presenters (both partitions)                                       |
-| `credited_presenters`       | read/write | Read: credited subset. Write: replace credited partition (absent → removed)     |
-| `uncredited_presenters`     | read/write | Read: uncredited subset. Write: replace uncredited partition (absent → removed) |
-| `add_credited_presenters`   | write-only | Add presenters and set `credited = true`                                        |
-| `add_uncredited_presenters` | write-only | Add presenters and set `credited = false`                                       |
-| `remove_presenters`         | write-only | Remove presenters from the panel entirely                                       |
-
-The two partitions are **independent**: writing `credited_presenters` does not
-affect presenters in the uncredited partition and vice versa. Moving a presenter
-between partitions (by writing them into the other field) sets the flag; their
-edge is retained.
-
-### Edge operations API: Schedule::edge_add and Schedule::edge_remove
+## Edge Operations API
 
 The `Schedule` struct provides low-level edge manipulation methods:
 
@@ -625,21 +605,25 @@ pub fn edge_remove(
     edge: FullEdge,
     far_nodes: impl IntoIterator<Item = impl DynamicEntityId>,
 ) -> Vec<NonNilUuid>
+
+pub fn edge_set(
+    &mut self,
+    near: impl DynamicEntityId,
+    edge: FullEdge,
+    targets: impl IntoIterator<Item = impl DynamicEntityId>,
+) -> Result<(Vec<NonNilUuid>, Vec<NonNilUuid>), EdgeError>
 ```
 
 **Key design decisions:**
 
-- **Batch operations**: Both methods accept iterators of far nodes, enabling efficient
-  addition/removal of multiple edges in a single call. This is more efficient than
-  calling the methods repeatedly for each target.
-- **Return actual UUIDs**: Both methods return the UUIDs of edges that were actually
+- **Batch operations**: All methods accept iterators of far nodes, enabling efficient
+  addition/removal of multiple edges in a single call.
+- **Return actual UUIDs**: All methods return the UUIDs of edges that were actually
   added or removed (not just counts). This enables:
-  - Precise exclusive edge cleanup in helper functions (only clean up edges that
-    actually changed)
+  - Precise exclusive edge cleanup in helper functions
   - CRDT mirroring with incremental updates instead of full rewrites
   - Better observability and debugging
 - **Parameter order**: `near` (source), `edge` (relationship), `far_nodes` (targets).
-  The `FullEdge` parameter is second to match the `edge_set` pattern.
 
 **Efficiency improvements in RawEdgeMap:**
 
@@ -647,18 +631,12 @@ The underlying `RawEdgeMap::add_edge` and `RawEdgeMap::remove_edge` have been
 optimized to avoid redundant hash map lookups:
 
 - **Single lookup per operation**: Instead of per-target lookups, the methods now
-  do a single hash map lookup for the near side, compute the diff (which targets
-  were actually added/removed), and then iterate only over the changed targets for
-  the reverse direction.
+  do a single hash map lookup for the near side, compute the diff, and then iterate
+  only over the changed targets for the reverse direction.
 - **Batch diff computation**: The set of actually-added/removed UUIDs is computed
   once, then used for both the near-side update and the far-side reverse update.
-- **Redundant check removal**: The `contains` guard on reverse-entry insertion in
-  `add_edge` was removed since we only iterate over freshly-added targets.
 
-These optimizations significantly improve performance when adding/removing multiple
-edges, especially for operations like setting a full list of presenters on a panel.
-
-### Homogeneous edges and explicit `FullEdge` constants
+## Homogeneous Edges and Explicit `FullEdge` Constants
 
 Homogeneous edges connect entities of the same type (e.g., Presenter-to-Presenter
 member/group relationships). Because the field names (`FIELD_MEMBERS`,
@@ -691,21 +669,31 @@ let ids = sched.inclusive_edges::<PresenterEntityType, PresenterEntityType>(id, 
 let ids = sched.inclusive_edges::<PresenterEntityType, PresenterEntityType>(id, EDGE_MEMBERS);
 ```
 
-**Avoid:** Using `.edge_to()` to construct edges dynamically at call sites. While
-functionally equivalent, it lacks the self-documenting property of named constants:
-
-```rust
-// Don't do this — unclear which direction this follows
-let edge = FIELD_MEMBERS.edge_to(&FIELD_GROUPS);
-
-// Do this instead — explicitly named intent
-let edge = EDGE_MEMBERS;  // "Querying a group's members"
-```
-
 The `FullEdge` type is defined in `crate::edge::id` and provides `near`/`far`
 accessors, direction checking (`is_homogeneous()`), and edge flipping (`flip()`).
 
-### Read-only computed fields with Schedule access
+## Panel ↔ Presenter Edge Partitions
+
+The Panel ↔ Presenter relationship is split into two independent edge lists
+on Panel: `credited_presenters` and `uncredited_presenters`. Each carries
+`EdgeKind::Owner { target_field: &FIELD_PANELS, exclusive_with: ... }` so the
+macro enforces mutual exclusivity on write.
+
+| Panel field                 | Mode       | Semantics                                                                       |
+| --------------------------- | ---------- | ------------------------------------------------------------------------------- |
+| `presenters`                | read-only  | All attached presenters (both partitions)                                       |
+| `credited_presenters`       | read/write | Read: credited subset. Write: replace credited partition (absent → removed)     |
+| `uncredited_presenters`     | read/write | Read: uncredited subset. Write: replace uncredited partition (absent → removed) |
+| `add_credited_presenters`   | write-only | Add presenters and set `credited = true`                                        |
+| `add_uncredited_presenters` | write-only | Add presenters and set `credited = false`                                       |
+| `remove_presenters`         | write-only | Remove presenters from the panel entirely                                       |
+
+The two partitions are **independent**: writing `credited_presenters` does not
+affect presenters in the uncredited partition and vice versa. Moving a presenter
+between partitions (by writing them into the other field) sets the flag; their
+edge is retained.
+
+## Read-only Computed Fields with Schedule Access
 
 For computed fields that require Schedule access to traverse edges or access other
 entities, use `ReadFn::Schedule` with a closure that receives `(&Schedule, EntityId<E>)`:
@@ -732,7 +720,6 @@ pub static FIELD_CREDITS: FieldDescriptor<PanelEntityType> = {
     FieldDescriptor {
         data,
         required: false,
-        edge_kind: EdgeKind::NonEdge,
         cb,
     }
 };
@@ -744,408 +731,3 @@ This pattern is used for:
   `hotel_rooms` (traverses event_rooms to hotel rooms)
 - **Presenter**: `inclusive_groups`, `inclusive_members` (transitive closure via
   `inclusive_edges` with explicit `FullEdge` constants)
-
-### Inventory-based field registration
-
-Field descriptors self-register globally via the `inventory` crate. This eliminates
-manual `FieldSet::new(&[...])` lists and prevents accidentally
-omitting fields from the registry.
-
-```rust
-pub struct CollectedNamedField(pub &'static dyn NamedField);
-```
-
-Field descriptors must explicitly call `inventory::submit!` after definition:
-
-```rust
-inventory::submit! { CollectedNamedField(&FIELD_NAME) }
-```
-
-The global registry enables type-safe downcasting via `std::any::Any::downcast_ref`,
-eliminating the need for per-entity-type registries.
-
-**NamedField trait** - Base trait providing field metadata:
-
-```rust
-pub trait NamedField: 'static + Send + Sync + std::any::Any {
-    fn name(&self) -> &'static str;                    // required
-    fn entity_type_name(&self) -> &'static str;        // required
-    fn display_name(&self) -> &'static str;            // provided (via common_data)
-    fn description(&self) -> &'static str;             // provided
-    fn aliases(&self) -> &'static [&'static str];      // provided
-    fn field_key(&self) -> String;                     // provided: "entity_type:field_name"
-    fn try_as_half_edge(&self) -> Option<&dyn HalfEdge>; // required
-    // ... plus field_type, crdt_type, example, order, matches_name
-}
-```
-
-`field_key()` produces `"entity_type:field_name"` (e.g. `"panel:panel_type"`). It is the
-primary key used by the global registry and `FullEdge` serialization. The `std::any::Any`
-supertrait enables safe downcasting via `downcast_ref`. `try_as_half_edge()` upcasts to
-`Option<&dyn HalfEdge>` for fields that participate in edge relationships.
-
-**Inventory registration** - Field descriptors must explicitly call
-the required `inventory::submit!` call, ensuring every field descriptor is registered
-in the global `CollectedNamedField` registry.
-
-## Global Registry (`registry` module)
-
-The `registry` module wraps the `inventory` iterators with `LazyLock`-backed `HashMap`
-caches that provide O(1) lookups. These complement (not replace) the iterator-based
-`registered_entity_types()` and `all_named_fields()` functions.
-
-### Three caches
-
-| Static            | Key                         | Value                             |
-| ----------------- | --------------------------- | --------------------------------- |
-| `ENTITY_REGISTRY` | `type_name: &'static str`   | `&'static RegisteredEntityType`   |
-| `FIELD_INDEX`     | `(entity_name, field_name)` | `&'static dyn NamedField`         |
-| `FULL_EDGE_INDEX` | owner `field_key()` string  | canonical `FullEdge` (owner=near) |
-
-`FIELD_INDEX` registers both canonical names and all aliases in the inner map so
-alias-based lookup works without a separate normalization step.
-
-`FULL_EDGE_INDEX` contains exactly 6 entries (one per Owner half-edge in the schema).
-Values are the canonical orientation (`near = owner, far = target`); callers call
-`.flip()` when they need the reversed orientation.
-
-### Free functions
-
-```rust
-pub fn get_entity_type(name: &str) -> Option<&'static RegisteredEntityType>
-pub fn get_named_field(entity: &str, field: &str) -> Option<&'static dyn NamedField>
-pub fn get_full_edge_by_owner(owner_key: &str) -> Option<FullEdge>
-```
-
-### Macros with per-call-site caching
-
-`get_named_field!` and `get_entity_type!` support three call styles. With string
-literals they generate a per-call-site `OnceLock` so the first call populates a
-`static` and all subsequent calls cost a single pointer load:
-
-```rust
-// Literal — per-call-site OnceLock (zero-cost on hot paths)
-let field = get_named_field!("panel:panel_type");
-let field = get_named_field!("panel", "panel_type");
-
-// Runtime expressions — direct HashMap lookup
-let field = get_named_field!(entity_str, field_str);
-```
-
-### Usage in deserialization
-
-- `RuntimeEntityId::deserialize` uses `get_entity_type(type_name_str)` (O(1)) instead
-  of `registered_entity_types().find(...)` (O(n)).
-- `FullEdge::deserialize` uses `get_full_edge_by_owner(owner_key)` (O(1)) instead of
-  two O(n) `all_named_fields().find(...)` scans.
-
-## FieldSet
-
-`FieldSet<E>` is an ordered, name-indexed collection of `&'static FieldDescriptor<E>`
-values for one entity type. Assembled in a `LazyLock` and returned by
-`EntityType::field_set()`. Supports:
-
-- Lookup by canonical name or alias (`get_by_name`) — **exact match, no normalization**
-- Iteration in declaration order (`fields()`)
-- Partitioned iterators: `required_fields()`, `readable_fields()`, `writable_fields()`
-- CRDT field list: `crdt_fields()` — `(name, CrdtFieldType)` for non-`Derived` fields
-- Dispatch helpers: `read_field_value(name, id, schedule)`, `write_field_value(name, id, schedule, value)`
-
-Entity-level text matching is no longer part of the `FieldSet` API — it is
-provided by the `EntityMatcher` trait on the entity type; see
-`conversion-and-lookup.md`.
-
-### Construction via inventory
-
-Production entity types use `FieldSet::from_inventory()` to collect all fields
-submitted via the global `inventory::submit! { CollectedNamedField(&FIELD_NAME) }`
-registry. Fields are filtered by entity type name, downcast to the concrete
-`FieldDescriptor<E>` type via `std::any::Any::downcast_ref`, and sorted by the
-`order: u32` field for stable iteration order.
-
-```rust
-static FIELD_SET: LazyLock<FieldSet<PanelEntityType>> =
-    LazyLock::new(|| FieldSet::from_inventory());
-```
-
-`FieldSet::new(&[...])` is kept for test-only mock entities that don't use
-inventory collections.
-
-### Alias registration for XLSX import
-
-`get_by_name` performs exact matching only. The XLSX import layer normalizes
-raw column headers before lookup using these steps:
-
-1. Split camelCase lower→upper boundaries (`PanelKind` → `Panel Kind`)
-2. Split uppercase-run/UpperCamelCase boundaries (`AVNotes` → `AV Notes`)
-3. Collapse whitespace, underscores, and punctuation to `_` and trim
-
-Examples: `"PanelKind"` → `"Panel_Kind"`, `"AVNotes"` → `"AV_Notes"`,
-`"Room Name"` → `"Room_Name"`.
-
-**Field authors must register the normalized form as an alias** on any
-`FieldDescriptor` that is importable from a spreadsheet. For example, a field
-with canonical name `"kind"` whose spreadsheet header is `"PanelKind"` should
-include `"Panel_Kind"` in `aliases`.
-
-## FieldRef
-
-`FieldRef<E>` is an enum for flexibly referencing fields in batch operations
-(FEATURE-046: Bulk Field Updates). It allows API consumers to use either
-field name strings (runtime lookup) or direct descriptor references (zero-cost):
-
-```rust
-pub enum FieldRef<E: EntityType> {
-    /// Field name string (requires lookup in FieldSet).
-    Name(&'static str),
-    /// Direct field descriptor reference (zero-cost, compile-time checked).
-    Descriptor(&'static FieldDescriptor<E>),
-}
-```
-
-Used by `FieldSet::write_multiple()` to construct `FieldUpdate` values.
-
-## FieldOp and FieldUpdate
-
-`FieldOp` is an enum representing the operation type for field updates:
-
-```rust
-pub enum FieldOp {
-    /// Set/replace the field value (calls `WritableField::write`).
-    Set,
-    /// Add items to a list field (calls `AddableField::add`).
-    Add,
-    /// Remove items from a list field (calls `RemovableField::remove`).
-    Remove,
-}
-```
-
-`FieldUpdate<E>` combines the operation, field reference, and value for batch updates:
-
-```rust
-pub struct FieldUpdate<E: EntityType> {
-    /// The operation to perform (Set, Add, or Remove).
-    pub op: FieldOp,
-    /// Reference to the field (by name or descriptor).
-    pub field: FieldRef<E>,
-    /// The value to write, add, or remove.
-    pub value: FieldValue,
-}
-```
-
-Convenience constructors for common operations:
-
-```rust
-// Using field names (ergonomic, runtime lookup)
-field_set.write_multiple(id, schedule, &[
-    FieldUpdate::set("start_time", start),
-    FieldUpdate::set("end_time", end),
-])?;
-
-// Using field descriptors (zero-cost, compile-time checked)
-field_set.write_multiple(id, schedule, &[
-    FieldUpdate::set(&FIELD_START_TIME, start),
-    FieldUpdate::set(&FIELD_END_TIME, end),
-])?;
-
-// Using add/remove operations on list fields
-field_set.write_multiple(id, schedule, &[
-    FieldUpdate::set("presenters", vec![id1, id2]),
-    FieldUpdate::add("presenters", id3),
-    FieldUpdate::remove("presenters", id4),
-])?;
-```
-
-**De-duplication rules for batch updates:**
-
-- A `Set` operation conflicts with any prior operation on the same field (Set, Add, or Remove)
-- Multiple `Add` and/or `Remove` operations on the same field are allowed
-- `Add` or `Remove` after a prior `Set` on the same field is allowed
-
-This enables patterns like "set initial value then add more items" in a single batch.
-
-The `From` impls allow ergonomic `.into()` at call sites.
-
-## IntoFieldValue Trait Hierarchy
-
-Type-deduced `FieldValue` construction via Rust's trait system.
-
-**IntoFieldValueItem** - Convert Rust types to `FieldValueItem`:
-
-```rust
-pub trait IntoFieldValueItem {
-    fn into_field_value_item(self) -> FieldValueItem;
-}
-```
-
-Implemented for: `String`, `&str`, `i64`, `i32`, `f64`, `bool`, `NaiveDateTime`, `Duration`, `RuntimeEntityId`.
-
-**Note**: `Text` is intentionally excluded. The `String` vs `Text` distinction is a storage-layer semantic (LWW vs RGA CRDT), not derivable from a Rust type. Use `FieldValueItem::Text` or `field_text!` explicitly for prose fields.
-
-**IntoFieldValue** - Convert Rust types to `FieldValue` (with cardinality):
-
-```rust
-pub trait IntoFieldValue {
-    fn into_field_value(self) -> FieldValue;
-}
-```
-
-Blanket impls:
-
-- `T: IntoFieldValueItem` → `Single(T)`
-- `Option<T: IntoFieldValueItem>` → `Single(T)` if `Some`, `List([])` if `None` (clear sentinel)
-- `Vec<T: IntoFieldValueItem>` → `List([...])`
-
-### Field value construction macros
-
-Three macros cover all normal cases for creating `FieldValue` instances:
-
-**`field_value!`** - Type-deduced construction via `IntoFieldValue`:
-
-```rust
-// Type-deduced single values
-field_value!("hello")               // → FieldValue::Single(String("hello"))
-field_value!(42i64)                 // → FieldValue::Single(Integer(42))
-field_value!(true)                  // → FieldValue::Single(Boolean(true))
-field_value!(dt)                    // → FieldValue::Single(DateTime(dt))
-field_value!(dur)                   // → FieldValue::Single(Duration(dur))
-
-// Option handling
-field_value!(Some("x"))             // → FieldValue::Single(String("x"))
-field_value!(Option::<&str>::None)  // → FieldValue::List([]) (clear sentinel)
-
-// Vec handling
-field_value!(vec![1i64, 2, 3])      // → FieldValue::List([Integer(1), Integer(2), Integer(3)])
-
-// Empty list
-field_value!(empty_list)            // → FieldValue::List([])
-```
-
-**`field_text!`** - Explicit `Text` variant for long prose:
-
-```rust
-field_text!("long description")     // → FieldValue::Single(Text("long description"))
-```
-
-Use `field_text!` when the field uses `CrdtFieldType::Text` (long prose routed to RGA CRDT storage). The Rust type `String` alone is insufficient to distinguish `String` from `Text` since they share the same type but have different CRDT semantics.
-
-**`field_empty_list!`** - Shorthand for empty list:
-
-```rust
-field_empty_list!()                 // → FieldValue::List([])
-```
-
-## Error Types
-
-- `FieldError` — top-level error for field operations (wraps sub-errors)
-- `ConversionError` — type conversion failures (wrong variant, parse failure)
-- `ValidationError` — value fails field constraints
-- `FieldSetError` — batch write errors (duplicates, unknown fields, write failures, verification failures)
-
-All use `thiserror`.
-
-## Builder System
-
-The builder pattern provides ergonomic entity construction with typed setters,
-UUID assignment, validation, and rollback semantics (FEATURE-017). It layers on
-top of `FieldSet::write_multiple` for atomic batch field updates.
-
-### EntityBuildable trait
-
-Subtrait of `EntityType` that entity types implement to support building:
-
-```rust
-pub trait EntityBuildable: EntityType {
-    /// Produce an empty `InternalData` stamped with the given ID.
-    fn default_data(id: EntityId<Self>) -> Self::InternalData;
-}
-```
-
-All fields in the returned `InternalData` are initialized to sensible defaults
-(typically via `Default::default()` on the inner `FooCommonData`). Required
-fields will intentionally fail `EntityType::validate` until the builder's batch
-writes run — this is the mechanism that enforces the "you must set required
-fields" contract.
-
-Implemented by all production entity types: `PanelTypeEntityType`,
-`PanelEntityType`, `PresenterEntityType`, `EventRoomEntityType`,
-`HotelRoomEntityType`.
-
-### build_entity driver
-
-Core function that seeds, populates, and validates a new entity:
-
-```rust
-pub fn build_entity<E: EntityBuildable>(
-    schedule: &mut Schedule,
-    uuid_pref: UuidPreference,
-    updates: Vec<FieldUpdate<E>>,
-) -> Result<EntityId<E>, BuildError>;
-```
-
-**Steps:**
-
-1. Resolve `uuid_pref` to a typed `EntityId<E>` (v7, v5, or exact)
-2. Insert `EntityBuildable::default_data` into `schedule`
-3. Call `FieldSet::write_multiple` with `updates`
-4. Run `EntityType::validate` on the final internal data
-
-On any failure (batch write error or validation error), the placeholder entity
-is removed via `Schedule::remove_entity` (which also clears edges), ensuring
-rollback semantics.
-
-### define_entity_builder! macro
-
-`macro_rules!` macro in `field_macros.rs` that generates a typed builder with
-`with_*` setters per field. The generated builder:
-
-- Collects field updates in a `Vec<(FieldRef<E>, FieldValue)>`
-- Delegates to `build_entity` for seed, write, validate, and rollback
-- Accepts a `UuidPreference` parameter for UUID assignment control
-- Provides typed setters accepting native Rust types via `IntoFieldValue`
-
-**Usage pattern:**
-
-```rust
-define_entity_builder!(
-    PanelTypeBuilder,
-    PanelEntityType,
-    PanelTypeInternalData,
-    [
-        (FIELD_PREFIX, with_prefix),
-        (FIELD_HAS_TRACKING, with_has_tracking),
-        // ... more fields
-    ]
-);
-```
-
-Each field tuple specifies the field descriptor static and the setter method
-name. The macro generates:
-
-- A `new(uuid_pref: UuidPreference)` constructor
-- A `with_<field_name>(value)` setter for each field (accepts `impl IntoFieldValue`)
-- A `build(schedule: &mut Schedule) -> Result<EntityId<E>, BuildError>` method
-
-### Instantiated builders
-
-Five production entity builders are instantiated:
-
-- `PanelTypeBuilder` — comprehensive unit tests in `panel_type.rs`
-- `PanelBuilder` — scalar fields (duration) and edge fields (presenters, event rooms, panel type)
-- `PresenterBuilder` — name, rank, bio, status flags, and edge fields (groups, members, panels)
-- `EventRoomBuilder` — name, long_name, sort_key, hotel_rooms, panels
-- `HotelRoomBuilder` — name, event_rooms
-
-### BuildError
-
-Error enum returned by `build_entity` (and therefore by every generated builder):
-
-```rust
-pub enum BuildError {
-    FieldSet(#[from] FieldSetError),      // batch write or verification failed
-    Validation(Vec<ValidationError>),    // entity validation failed
-}
-```
-
-Both variants trigger rollback via `Schedule::remove_entity` before the error
-is returned.
