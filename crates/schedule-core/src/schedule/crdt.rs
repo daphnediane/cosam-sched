@@ -386,7 +386,7 @@ impl Schedule {
         }
         let mut batches: Vec<EdgeBatch> = Vec::new();
         for collected in crate::field::all_named_fields() {
-            let Some(owner_nf) = collected.0.try_as_half_edge() else {
+            let Some(owner_nf) = collected.try_as_half_edge() else {
                 continue;
             };
             let EdgeKind::Owner {
@@ -523,7 +523,7 @@ impl Schedule {
         //
         // We derive which fields own edges directly from the `Owner`
         // variant in each field descriptor, avoiding a global descriptor scan.
-        for desc in E::field_set().fields() {
+        for desc in E::field_set().half_edges() {
             if matches!(desc.edge_kind(), EdgeKind::Owner { .. }) {
                 crate::crdt::edge::ensure_owner_list(&mut self.doc, type_name, uuid, desc.name())?;
             }

@@ -58,8 +58,7 @@ pub fn get_entity_type(name: &str) -> Option<&'static RegisteredEntityType> {
 static FIELD_INDEX: LazyLock<HashMap<String, HashMap<String, &'static dyn NamedField>>> =
     LazyLock::new(|| {
         let mut outer: HashMap<String, HashMap<String, &'static dyn NamedField>> = HashMap::new();
-        for cf in all_named_fields() {
-            let field = cf.0;
+        for field in all_named_fields() {
             let inner = outer
                 .entry(field.entity_type_name().to_string())
                 .or_default();
@@ -83,8 +82,7 @@ pub fn get_named_field(entity: &str, field: &str) -> Option<&'static dyn NamedFi
 
 static FULL_EDGE_INDEX: LazyLock<HashMap<String, FullEdge>> = LazyLock::new(|| {
     let mut map = HashMap::new();
-    for cf in all_named_fields() {
-        let field = cf.0;
+    for field in all_named_fields() {
         if let Some(he) = field.try_as_half_edge() {
             if let EdgeKind::Owner { target_field, .. } = he.edge_kind() {
                 let owner = he.edge_id();

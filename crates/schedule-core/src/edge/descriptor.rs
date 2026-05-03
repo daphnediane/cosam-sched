@@ -161,7 +161,7 @@ impl std::fmt::Debug for EdgeKind {
 /// ```
 ///
 /// [`FieldDescriptor<E>`]: crate::field::FieldDescriptor
-pub struct EdgeDescriptor<E: EntityType> {
+pub struct HalfEdgeDescriptor<E: EntityType> {
     /// Data shared by all field types
     pub(crate) data: CommonFieldData,
     /// Edge ownership and relationship metadata.
@@ -170,7 +170,7 @@ pub struct EdgeDescriptor<E: EntityType> {
     pub(crate) cb: FieldCallbacks<E>,
 }
 
-impl<E: EntityType> NamedField for EdgeDescriptor<E> {
+impl<E: EntityType> NamedField for HalfEdgeDescriptor<E> {
     fn common_data(&self) -> &CommonFieldData {
         &self.data
     }
@@ -184,7 +184,7 @@ impl<E: EntityType> NamedField for EdgeDescriptor<E> {
     }
 }
 
-impl<E: EntityType> HalfEdge for EdgeDescriptor<E> {
+impl<E: EntityType> HalfEdge for HalfEdgeDescriptor<E> {
     fn edge_kind(&self) -> &EdgeKind {
         &self.edge_kind
     }
@@ -199,7 +199,7 @@ impl<E: EntityType> HalfEdge for EdgeDescriptor<E> {
     }
 }
 
-impl<E: EntityType> ReadableField<E> for EdgeDescriptor<E> {
+impl<E: EntityType> ReadableField<E> for HalfEdgeDescriptor<E> {
     fn read(&self, id: EntityId<E>, schedule: &Schedule) -> Result<Option<FieldValue>, FieldError> {
         match &self.cb.read_fn {
             None => Err(FieldError::WriteOnly {
@@ -248,7 +248,7 @@ impl<E: EntityType> ReadableField<E> for EdgeDescriptor<E> {
     }
 }
 
-impl<E: EntityType> WritableField<E> for EdgeDescriptor<E> {
+impl<E: EntityType> WritableField<E> for HalfEdgeDescriptor<E> {
     fn write(
         &self,
         id: EntityId<E>,
@@ -292,7 +292,7 @@ impl<E: EntityType> WritableField<E> for EdgeDescriptor<E> {
     }
 }
 
-impl<E: EntityType> AddableField<E> for EdgeDescriptor<E> {
+impl<E: EntityType> AddableField<E> for HalfEdgeDescriptor<E> {
     fn add(
         &self,
         id: EntityId<E>,
@@ -323,7 +323,7 @@ impl<E: EntityType> AddableField<E> for EdgeDescriptor<E> {
     }
 }
 
-impl<E: EntityType> RemovableField<E> for EdgeDescriptor<E> {
+impl<E: EntityType> RemovableField<E> for HalfEdgeDescriptor<E> {
     fn remove(
         &self,
         id: EntityId<E>,
@@ -354,11 +354,11 @@ impl<E: EntityType> RemovableField<E> for EdgeDescriptor<E> {
     }
 }
 
-impl<E: EntityType> EdgeDescriptor<E> {
+impl<E: EntityType> HalfEdgeDescriptor<E> {
     /// Get the full edge connecting this field to another field.
     pub const fn edge_to<F: EntityType>(
         &'static self,
-        far: &'static EdgeDescriptor<F>,
+        far: &'static HalfEdgeDescriptor<F>,
     ) -> crate::edge::id::FullEdge {
         crate::edge::id::FullEdge { near: self, far }
     }

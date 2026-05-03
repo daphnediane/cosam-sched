@@ -10,6 +10,12 @@
 //! [`EntityType::field_set`].  Provides O(1) name/alias lookup via an internal
 //! `HashMap` populated at construction time.
 //!
+//! Fields ([`FieldDescriptor<E>`]) and half-edges
+//! ([`crate::edge::HalfEdgeDescriptor<E>`]) are stored in separate typed vecs
+//! so callers can iterate each category independently.  Name lookup covers both
+//! and returns a [`ResolvedRef<E>`] that dispatches read/write/add/remove to
+//! the correct concrete type without vtable indirection.
+//!
 //! # Lookup contract
 //!
 //! [`FieldSet::get_by_name`] matches the query **exactly** against canonical
@@ -35,6 +41,7 @@
 //! should include `"Panel_Kind"` in its `aliases` list.
 
 use crate::crdt::CrdtFieldType;
+use crate::edge::HalfEdgeDescriptor;
 use crate::entity::EntityType;
 use crate::field::{
     traits::{AddableField, ReadableField, RemovableField, WritableField},
@@ -45,12 +52,118 @@ use crate::value::{FieldError, FieldValue, IntoFieldValue};
 use std::collections::HashMap;
 use thiserror::Error;
 
-/// Reference to a field in a [`FieldSet`] — either by canonical name/alias or
-/// by direct descriptor pointer.
+// ── FieldIndex ────────────────────────────────────────────────────────────────
+
+/// Internal discriminant stored in `FieldSet::name_map`.
+#[derive(Clone, Copy)]
+enum FieldIndex {
+    Field(usize),
+    HalfEdge(usize),
+}
+
+// ── ResolvedRef<E> ────────────────────────────────────────────────────────────
+
+/// Result of a name or descriptor lookup in a [`FieldSet`].
+///
+/// Dispatches read/write/add/remove to the concrete descriptor type without
+/// requiring trait objects.  Returned by [`FieldSet::get_by_name`] and used
+/// internally by [`FieldSet::write_multiple`].
+pub enum ResolvedRef<E: EntityType> {
+    /// A plain (non-edge) [`FieldDescriptor`].
+    Field(&'static FieldDescriptor<E>),
+    /// A [`HalfEdgeDescriptor`].
+    HalfEdge(&'static HalfEdgeDescriptor<E>),
+}
+
+impl<E: EntityType> ResolvedRef<E> {
+    /// Canonical field name.
+    pub fn name(&self) -> &'static str {
+        match self {
+            Self::Field(d) => d.name(),
+            Self::HalfEdge(d) => d.name(),
+        }
+    }
+
+    /// CRDT storage type annotation.
+    pub fn crdt_type(&self) -> crate::crdt::CrdtFieldType {
+        match self {
+            Self::Field(d) => d.crdt_type(),
+            Self::HalfEdge(d) => d.crdt_type(),
+        }
+    }
+
+    /// Logical field type (value type and cardinality).
+    pub fn field_type(&self) -> crate::value::FieldType {
+        match self {
+            Self::Field(d) => d.field_type(),
+            Self::HalfEdge(d) => d.field_type(),
+        }
+    }
+
+    /// Raw data pointer used for deduplication in [`FieldSet::write_multiple`].
+    fn as_ptr(&self) -> *const () {
+        match self {
+            Self::Field(f) => *f as *const _ as *const (),
+            Self::HalfEdge(e) => *e as *const _ as *const (),
+        }
+    }
+
+    fn read(
+        &self,
+        id: crate::entity::EntityId<E>,
+        schedule: &Schedule,
+    ) -> Result<Option<FieldValue>, FieldError> {
+        match self {
+            Self::Field(d) => d.read(id, schedule),
+            Self::HalfEdge(d) => d.read(id, schedule),
+        }
+    }
+
+    fn write(
+        &self,
+        id: crate::entity::EntityId<E>,
+        schedule: &mut Schedule,
+        value: FieldValue,
+    ) -> Result<(), FieldError> {
+        match self {
+            Self::Field(d) => d.write(id, schedule, value),
+            Self::HalfEdge(d) => d.write(id, schedule, value),
+        }
+    }
+
+    fn add(
+        &self,
+        id: crate::entity::EntityId<E>,
+        schedule: &mut Schedule,
+        value: FieldValue,
+    ) -> Result<(), FieldError> {
+        match self {
+            Self::Field(d) => d.add(id, schedule, value),
+            Self::HalfEdge(d) => d.add(id, schedule, value),
+        }
+    }
+
+    fn remove(
+        &self,
+        id: crate::entity::EntityId<E>,
+        schedule: &mut Schedule,
+        value: FieldValue,
+    ) -> Result<(), FieldError> {
+        match self {
+            Self::Field(d) => d.remove(id, schedule, value),
+            Self::HalfEdge(d) => d.remove(id, schedule, value),
+        }
+    }
+}
+
+// ── FieldRef<E> ───────────────────────────────────────────────────────────────
+
+/// Reference to a field in a [`FieldSet`] — by canonical name/alias, by
+/// concrete [`FieldDescriptor`], or by concrete [`HalfEdgeDescriptor`].
 ///
 /// Used as the first element of each `(FieldRef<E>, FieldValue)` pair in
-/// [`FieldSet::write_multiple`].  The `Descriptor` variant is zero-cost;
-/// the `Name` variant costs one `HashMap` lookup.
+/// [`FieldSet::write_multiple`].  The `Field` and `HalfEdge` variants are
+/// zero-cost; the `Name` variant costs one `HashMap` lookup.
 pub enum FieldRef<E: EntityType> {
     /// Canonical name or alias of a field registered in the [`FieldSet`].
     ///
@@ -62,8 +175,14 @@ pub enum FieldRef<E: EntityType> {
     /// Direct reference to a static [`FieldDescriptor`].
     ///
     /// Bypasses the name-map lookup and is the form produced by the
-    /// `define_entity_builder!` macro.
-    Descriptor(&'static FieldDescriptor<E>),
+    /// `define_entity_builder!` macro for non-edge fields.
+    Field(&'static FieldDescriptor<E>),
+
+    /// Direct reference to a static [`HalfEdgeDescriptor`].
+    ///
+    /// Bypasses the name-map lookup and is the form produced by the
+    /// `define_entity_builder!` macro for edge fields.
+    HalfEdge(&'static HalfEdgeDescriptor<E>),
 }
 
 impl<E: EntityType> From<&'static str> for FieldRef<E> {
@@ -74,9 +193,17 @@ impl<E: EntityType> From<&'static str> for FieldRef<E> {
 
 impl<E: EntityType> From<&'static FieldDescriptor<E>> for FieldRef<E> {
     fn from(desc: &'static FieldDescriptor<E>) -> Self {
-        FieldRef::Descriptor(desc)
+        FieldRef::Field(desc)
     }
 }
+
+impl<E: EntityType> From<&'static HalfEdgeDescriptor<E>> for FieldRef<E> {
+    fn from(desc: &'static HalfEdgeDescriptor<E>) -> Self {
+        FieldRef::HalfEdge(desc)
+    }
+}
+
+// ── FieldOp / FieldUpdate ─────────────────────────────────────────────────────
 
 /// Operation type for [`FieldUpdate`] — determines which field method is invoked.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -132,6 +259,8 @@ impl<E: EntityType> FieldUpdate<E> {
     }
 }
 
+// ── FieldSetError ─────────────────────────────────────────────────────────────
+
 /// Errors returned by [`FieldSet::write_multiple`] and [`FieldSet::write_many`].
 #[derive(Debug, Error)]
 pub enum FieldSetError {
@@ -142,8 +271,8 @@ pub enum FieldSetError {
 
     /// The same descriptor appeared twice in a batch update.  Two references
     /// resolve to the "same" field when they point to the same static
-    /// [`FieldDescriptor`] (pointer equality), regardless of whether they
-    /// arrived as `Name` or `Descriptor` variants.
+    /// descriptor (pointer equality), regardless of whether they arrived as
+    /// `Name`, `Field`, or `HalfEdge` variants.
     #[error("duplicate field '{0}' in batch update")]
     DuplicateField(&'static str),
 
@@ -163,14 +292,16 @@ pub enum FieldSetError {
     },
 }
 
-/// Static registry of all [`FieldDescriptor`]s for an entity type.
+// ── FieldSet<E> ───────────────────────────────────────────────────────────────
+
+/// Static registry of all [`FieldDescriptor`]s and [`HalfEdgeDescriptor`]s for
+/// an entity type.
 ///
 /// # Construction
 ///
 /// ```ignore
-/// static FIELD_SET: LazyLock<FieldSet<MyEntityType>> = LazyLock::new(|| {
-///     FieldSet::new(&[&FIELD_NAME, &FIELD_CODE])
-/// });
+/// static FIELD_SET: LazyLock<FieldSet<MyEntityType>> =
+///     LazyLock::new(FieldSet::from_inventory);
 /// ```
 ///
 /// # Lookup
@@ -178,65 +309,70 @@ pub enum FieldSetError {
 /// All lookups accept both canonical names and aliases (case-sensitive matching
 /// on the stored key; aliases are lowercased by [`crate::field::NamedField::aliases`]).
 pub struct FieldSet<E: EntityType> {
-    /// All descriptors in declaration order.
+    /// Plain (non-edge) descriptors in declaration order.
     fields: Vec<&'static FieldDescriptor<E>>,
-    /// Maps every canonical name **and** alias → index into `fields`.
-    name_map: HashMap<String, usize>,
-    /// Indices of fields where `required == true`.
+    /// Half-edge descriptors in declaration order.
+    edges: Vec<&'static HalfEdgeDescriptor<E>>,
+    /// Maps every canonical name **and** alias → index discriminant.
+    name_map: HashMap<String, FieldIndex>,
+    /// Indices into `fields` where `required == true`.
     required: Vec<usize>,
-    /// Indices of fields that have a `read_fn`.
+    /// Indices into `fields` that have a `read_fn`.
     readable: Vec<usize>,
-    /// Indices of fields that have a `write_fn`.
+    /// Indices into `fields` that have a `write_fn`.
     writable: Vec<usize>,
 }
 
 impl<E: EntityType> FieldSet<E> {
-    /// Build a `FieldSet` from all field descriptors submitted via the global
-    /// [`crate::field::CollectedNamedField`] registry. Fields are sorted by
-    /// [`FieldDescriptor::order`] (ascending) before the lookup map is built.
-    ///
-    /// Filters the global registry for fields where `entity_type_name() == E::TYPE_NAME`,
-    /// then downcasts each match to the concrete type via [`std::any::Any::downcast_ref`].
-    /// This is called in a `LazyLock`, so the O(n) scan and type-checked conversions
-    /// only happen once per entity type.
+    /// Build a `FieldSet` from all descriptors submitted via the global
+    /// [`crate::field::CollectedField`] and [`crate::field::CollectedHalfEdge`]
+    /// registries.  Both vecs are sorted by `order` (ascending) before the
+    /// lookup map is built.
     #[must_use]
     pub fn from_inventory() -> Self {
-        use crate::field::all_named_fields;
+        use crate::field::{all_fields, all_half_edges};
         use std::any::Any;
 
-        let mut descriptors: Vec<&'static FieldDescriptor<E>> = all_named_fields()
-            .filter(|f| f.0.entity_type_name() == E::TYPE_NAME)
-            .filter_map(|f| (f.0 as &dyn Any).downcast_ref::<FieldDescriptor<E>>())
+        let mut field_descs: Vec<&'static FieldDescriptor<E>> = all_fields()
+            .filter(|cf| cf.0.entity_type_name() == E::TYPE_NAME)
+            .filter_map(|cf| (cf.0 as &dyn Any).downcast_ref::<FieldDescriptor<E>>())
             .collect();
-        descriptors.sort_by_key(|d| d.order());
-        Self::from_slice(&descriptors)
+        field_descs.sort_by_key(|d| d.order());
+
+        let mut edge_descs: Vec<&'static HalfEdgeDescriptor<E>> = all_half_edges()
+            .filter(|ce| ce.0.entity_type_name() == E::TYPE_NAME)
+            .filter_map(|ce| (ce.0 as &dyn Any).downcast_ref::<HalfEdgeDescriptor<E>>())
+            .collect();
+        edge_descs.sort_by_key(|d| d.order());
+
+        Self::from_slices(&field_descs, &edge_descs)
     }
 
-    /// Build a `FieldSet` from a slice of static field descriptor references.
-    ///
-    /// Registers each descriptor's canonical name and all its aliases into the
-    /// internal lookup map.  Later entries with colliding names silently
-    /// overwrite earlier ones (prefer no collisions).
+    /// Build a `FieldSet` from explicit slices.
     ///
     /// Prefer [`FieldSet::from_inventory`] for production entity types.
     /// This constructor is kept for tests that use mock entities without
     /// an inventory collection.
     #[must_use]
     pub fn new(descriptors: &[&'static FieldDescriptor<E>]) -> Self {
-        Self::from_slice(descriptors)
+        Self::from_slices(descriptors, &[])
     }
 
-    fn from_slice(descriptors: &[&'static FieldDescriptor<E>]) -> Self {
-        let fields: Vec<&'static FieldDescriptor<E>> = descriptors.to_vec();
-        let mut name_map: HashMap<String, usize> = HashMap::new();
+    fn from_slices(
+        field_descs: &[&'static FieldDescriptor<E>],
+        edge_descs: &[&'static HalfEdgeDescriptor<E>],
+    ) -> Self {
+        let fields: Vec<&'static FieldDescriptor<E>> = field_descs.to_vec();
+        let edges: Vec<&'static HalfEdgeDescriptor<E>> = edge_descs.to_vec();
+        let mut name_map: HashMap<String, FieldIndex> = HashMap::new();
         let mut required = Vec::new();
         let mut readable = Vec::new();
         let mut writable = Vec::new();
 
         for (idx, desc) in fields.iter().enumerate() {
-            name_map.insert(desc.name().to_string(), idx);
+            name_map.insert(desc.name().to_string(), FieldIndex::Field(idx));
             for alias in desc.aliases() {
-                name_map.insert(alias.to_string(), idx);
+                name_map.insert(alias.to_string(), FieldIndex::Field(idx));
             }
             if desc.required {
                 required.push(idx);
@@ -249,8 +385,16 @@ impl<E: EntityType> FieldSet<E> {
             }
         }
 
+        for (idx, desc) in edges.iter().enumerate() {
+            name_map.insert(desc.name().to_string(), FieldIndex::HalfEdge(idx));
+            for alias in desc.aliases() {
+                name_map.insert(alias.to_string(), FieldIndex::HalfEdge(idx));
+            }
+        }
+
         Self {
             fields,
+            edges,
             name_map,
             required,
             readable,
@@ -264,13 +408,27 @@ impl<E: EntityType> FieldSet<E> {
     ///
     /// Returns `None` if neither the name nor any alias matches.
     #[must_use]
-    pub fn get_by_name(&self, name: &str) -> Option<&'static FieldDescriptor<E>> {
-        self.name_map.get(name).map(|&i| self.fields[i])
+    pub fn get_by_name(&self, name: &str) -> Option<ResolvedRef<E>> {
+        self.name_map.get(name).map(|&idx| self.resolve_index(idx))
     }
 
-    /// Iterate all descriptors in declaration order.
+    fn resolve_index(&self, idx: FieldIndex) -> ResolvedRef<E> {
+        match idx {
+            FieldIndex::Field(i) => ResolvedRef::Field(self.fields[i]),
+            FieldIndex::HalfEdge(i) => ResolvedRef::HalfEdge(self.edges[i]),
+        }
+    }
+
+    // ── Iterators ─────────────────────────────────────────────────────────────
+
+    /// Iterate plain (non-edge) descriptors in declaration order.
     pub fn fields(&self) -> impl Iterator<Item = &'static FieldDescriptor<E>> + '_ {
         self.fields.iter().copied()
+    }
+
+    /// Iterate half-edge descriptors in declaration order.
+    pub fn half_edges(&self) -> impl Iterator<Item = &'static HalfEdgeDescriptor<E>> + '_ {
+        self.edges.iter().copied()
     }
 
     // ── Partitions ────────────────────────────────────────────────────────────
@@ -292,14 +450,11 @@ impl<E: EntityType> FieldSet<E> {
 
     // ── CRDT fields ───────────────────────────────────────────────────────────
 
-    /// Returns `(name, CrdtFieldType)` pairs for every field whose
+    /// Returns `(name, CrdtFieldType)` pairs for every plain field whose
     /// `crdt_type` has automerge backing (`Scalar`, `Text`, or `List`).
     ///
-    /// `Derived` fields including edge fields are excluded — edge
-    /// list storage is managed by the `edge_crdt` layer, not `write_field`.
-    ///
-    /// Used by the Phase 4 CRDT materialization layer to know which fields
-    /// need automerge backing.
+    /// `Derived` fields (including all edge fields) are excluded — edge
+    /// list storage is managed by the `edge_crdt` layer.
     pub fn crdt_fields(&self) -> impl Iterator<Item = (&'static str, CrdtFieldType)> + '_ {
         self.fields.iter().filter_map(|d| {
             if matches!(
@@ -315,31 +470,28 @@ impl<E: EntityType> FieldSet<E> {
 
     // ── Dispatch helpers ──────────────────────────────────────────────────────
 
-    /// Read a field by name (or alias) from the schedule.
+    /// Read a field or edge by name (or alias) from the schedule.
     ///
-    /// Returns `Err(FieldError::NotFound)` if no field matches `name`.
+    /// Returns `Err(FieldError::NotFound)` if no field or edge matches `name`.
     pub fn read_field_value(
         &self,
         name: &str,
         id: crate::entity::EntityId<E>,
         schedule: &Schedule,
     ) -> Result<Option<FieldValue>, FieldError> {
-        let desc = self
+        let resolved = self
             .get_by_name(name)
             .ok_or(FieldError::NotFound { name: "field" })?;
-        desc.read(id, schedule)
+        resolved.read(id, schedule)
     }
 
-    /// Write a field value by name (or alias) into the schedule.
+    /// Write a field or edge value by name (or alias) into the schedule.
     ///
     /// Supports auto-resolution of `add_` and `remove_` prefixes:
     /// - `add_foo` resolves to field `foo` with `FieldOp::Add`
     /// - `remove_foo` resolves to field `foo` with `FieldOp::Remove`
     ///
-    /// Note: This method does NOT run verification. Use [`FieldSet::write_multiple`]
-    /// if you need verification behavior.
-    ///
-    /// Returns `Err(FieldError::NotFound)` if no field matches `name`.
+    /// Returns `Err(FieldError::NotFound)` if no field or edge matches `name`.
     pub fn write_field_value(
         &self,
         name: &'static str,
@@ -347,21 +499,19 @@ impl<E: EntityType> FieldSet<E> {
         schedule: &mut Schedule,
         value: FieldValue,
     ) -> Result<(), FieldError> {
-        // Resolve the field name, including add_/remove_ prefix handling
         let update = FieldUpdate {
             op: FieldOp::Set,
             field: FieldRef::Name(name),
             value,
         };
-        let (desc, op) = self
+        let (resolved, op) = self
             .resolve(&update.field, update.op)
             .map_err(|_| FieldError::NotFound { name: "field" })?;
 
-        // Execute the write without verification
         match op {
-            FieldOp::Set => desc.write(id, schedule, update.value),
-            FieldOp::Add => desc.add(id, schedule, update.value),
-            FieldOp::Remove => desc.remove(id, schedule, update.value),
+            FieldOp::Set => resolved.write(id, schedule, update.value),
+            FieldOp::Add => resolved.add(id, schedule, update.value),
+            FieldOp::Remove => resolved.remove(id, schedule, update.value),
         }
     }
 
@@ -373,8 +523,8 @@ impl<E: EntityType> FieldSet<E> {
     /// # Resolution
     ///
     /// Each [`FieldUpdate::field`] ([`FieldRef`]) is resolved to a
-    /// `&'static FieldDescriptor<E>`:
-    /// - [`FieldRef::Descriptor`] is used directly (zero-cost).
+    /// [`ResolvedRef<E>`]:
+    /// - [`FieldRef::Field`] and [`FieldRef::HalfEdge`] are used directly (zero-cost).
     /// - [`FieldRef::Name`] is looked up in the name/alias map; an unknown
     ///   name returns [`FieldSetError::UnknownField`].
     ///
@@ -395,37 +545,27 @@ impl<E: EntityType> FieldSet<E> {
     ///
     /// The first failure aborts the batch and returns
     /// [`FieldSetError::WriteError`].  **No rollback** is performed; prior
-    /// writes remain applied.  Higher-level builders (see `builder.rs`) are
-    /// responsible for rolling back at the entity level if required.
+    /// writes remain applied.
     pub fn write_multiple(
         &self,
         id: crate::entity::EntityId<E>,
         schedule: &mut Schedule,
         updates: &[FieldUpdate<E>],
     ) -> Result<(), FieldSetError> {
-        // Resolve every FieldRef up front so de-duplication and unknown-name
-        // errors fire before any writes happen.
-        // Track operations per field: Set conflicts with any prior operation
-        // (Set, Add, or Remove). Multiple Add/Remove ops on the same field
-        // are allowed, and Add/Remove after Set is also allowed.
-        let mut resolved: Vec<(&'static FieldDescriptor<E>, FieldOp, &FieldValue)> =
+        let mut resolved: Vec<(ResolvedRef<E>, FieldOp, &FieldValue)> =
             Vec::with_capacity(updates.len());
         for update in updates {
             let (desc, resolved_op) = self.resolve(&update.field, update.op)?;
             if resolved
                 .iter()
-                .any(|(prev, _, _)| std::ptr::eq(*prev as *const _, desc as *const _))
+                .any(|(prev, _, _)| prev.as_ptr() == desc.as_ptr())
+                && resolved_op == FieldOp::Set
             {
-                // Set conflicts with any prior op
-                // Multiple Add/Remove ops are allowed
-                if resolved_op == FieldOp::Set {
-                    return Err(FieldSetError::DuplicateField(desc.name()));
-                }
+                return Err(FieldSetError::DuplicateField(desc.name()));
             }
             resolved.push((desc, resolved_op, &update.value));
         }
 
-        // Write phase — first failure aborts; prior writes stay applied.
         for (desc, op, value) in &resolved {
             let result = match op {
                 FieldOp::Set => desc.write(id, schedule, (*value).clone()),
@@ -443,10 +583,6 @@ impl<E: EntityType> FieldSet<E> {
 
     /// Ergonomic wrapper over [`FieldSet::write_multiple`] that accepts any
     /// [`IntoFieldValue`]-typed value.
-    ///
-    /// Saves call sites (and the `define_entity_builder!` macro expansion)
-    /// from constructing `FieldValue` explicitly.  Internally allocates a
-    /// `Vec<FieldUpdate<E>>` and dispatches to [`FieldSet::write_multiple`].
     pub fn write_many<I, V>(
         &self,
         id: crate::entity::EntityId<E>,
@@ -472,30 +608,27 @@ impl<E: EntityType> FieldSet<E> {
         &self,
         field_ref: &FieldRef<E>,
         op: FieldOp,
-    ) -> Result<(&'static FieldDescriptor<E>, FieldOp), FieldSetError> {
+    ) -> Result<(ResolvedRef<E>, FieldOp), FieldSetError> {
         match field_ref {
-            FieldRef::Descriptor(d) => Ok((*d, op)),
+            FieldRef::Field(d) => Ok((ResolvedRef::Field(*d), op)),
+            FieldRef::HalfEdge(d) => Ok((ResolvedRef::HalfEdge(*d), op)),
             FieldRef::Name(name) => {
-                // Try direct lookup first
-                if let Some(desc) = self.get_by_name(name) {
-                    return Ok((desc, op));
+                if let Some(resolved) = self.get_by_name(name) {
+                    return Ok((resolved, op));
                 }
 
-                // If direct lookup fails, check for add_/remove_ prefix based on op
-                // Only check add_ prefix if op is Set or Add
                 if op == FieldOp::Set || op == FieldOp::Add {
                     if let Some(stripped) = name.strip_prefix("add_") {
-                        if let Some(desc) = self.get_by_name(stripped) {
-                            return Ok((desc, FieldOp::Add));
+                        if let Some(resolved) = self.get_by_name(stripped) {
+                            return Ok((resolved, FieldOp::Add));
                         }
                     }
                 }
 
-                // Only check remove_ prefix if op is Set or Remove
                 if op == FieldOp::Set || op == FieldOp::Remove {
                     if let Some(stripped) = name.strip_prefix("remove_") {
-                        if let Some(desc) = self.get_by_name(stripped) {
-                            return Ok((desc, FieldOp::Remove));
+                        if let Some(resolved) = self.get_by_name(stripped) {
+                            return Ok((resolved, FieldOp::Remove));
                         }
                     }
                 }
@@ -544,8 +677,6 @@ mod tests {
             &NS
         }
         fn field_set() -> &'static FieldSet<Self> {
-            // Minimal static FieldSet so `Schedule::insert` can mirror mock
-            // entity fields into the CRDT doc during tests.
             static FS: std::sync::OnceLock<FieldSet<MockEntity>> = std::sync::OnceLock::new();
             FS.get_or_init(|| FieldSet::new(&[&LABEL_FIELD, &COUNT_FIELD, &DERIVED_FIELD]))
         }
@@ -660,7 +791,6 @@ mod tests {
         let fs = make_field_set();
         assert!(fs.get_by_name("tag").is_some());
         assert!(fs.get_by_name("name").is_some());
-        // alias resolves to the same descriptor as canonical
         assert_eq!(
             fs.get_by_name("tag").unwrap().name(),
             fs.get_by_name("label").unwrap().name()
@@ -697,7 +827,6 @@ mod tests {
         let names: Vec<_> = fs.writable_fields().map(|d| d.name()).collect();
         assert!(names.contains(&"label"));
         assert!(names.contains(&"count"));
-        // derived is read-only
         assert!(!names.contains(&"derived"));
     }
 
@@ -930,7 +1059,6 @@ mod tests {
             .write_multiple(id, &mut sched, &[FieldUpdate::set("nofield", "x")])
             .unwrap_err();
         assert!(matches!(err, FieldSetError::UnknownField(ref s) if s == "nofield"));
-        // No writes should have happened.
         let d = sched.get_internal::<MockEntity>(id).unwrap();
         assert_eq!(d.label, "start");
     }
@@ -951,14 +1079,12 @@ mod tests {
             )
             .unwrap_err();
         assert!(matches!(err, FieldSetError::DuplicateField("label")));
-        // No writes should have happened.
         let d = sched.get_internal::<MockEntity>(id).unwrap();
         assert_eq!(d.label, "start");
     }
 
     #[test]
     fn test_write_multiple_duplicate_name_and_descriptor() {
-        // Same descriptor referenced once by name and once by descriptor.
         let fs = make_field_set();
         let id = make_id();
         let mut sched = make_schedule_with(id, initial_data());
@@ -977,7 +1103,6 @@ mod tests {
 
     #[test]
     fn test_write_multiple_duplicate_name_via_alias() {
-        // Same descriptor referenced once by canonical name and once by alias.
         let fs = make_field_set();
         let id = make_id();
         let mut sched = make_schedule_with(id, initial_data());
@@ -993,8 +1118,6 @@ mod tests {
 
     #[test]
     fn test_write_multiple_write_error_short_circuits() {
-        // Second write supplies the wrong FieldValue variant → ConversionError.
-        // The first write must remain applied (documented no-rollback behavior).
         let fs = make_field_set();
         let id = make_id();
         let mut sched = make_schedule_with(id, initial_data());
@@ -1013,10 +1136,10 @@ mod tests {
             other => panic!("expected WriteError, got {other:?}"),
         }
         let d = sched.get_internal::<MockEntity>(id).unwrap();
-        assert_eq!(d.label, "applied"); // earlier write stuck
+        assert_eq!(d.label, "applied");
     }
 
-    // ── write_many (IntoFieldValue wrapper) ────────────────────────────────────
+    // ── write_many ────────────────────────────────────────────────────────────
 
     #[test]
     fn test_write_many_typed_values() {
@@ -1026,22 +1149,13 @@ mod tests {
         fs.write_many(
             id,
             &mut sched,
-            [
-                (
-                    FieldOp::Set,
-                    FieldRef::Descriptor(&LABEL_FIELD),
-                    "typed-str",
-                ),
-                // Different IntoFieldValue V per tuple isn't allowed by the
-                // array literal's homogeneous type requirement; test int via
-                // a second call.
-            ],
+            [(FieldOp::Set, FieldRef::Field(&LABEL_FIELD), "typed-str")],
         )
         .unwrap();
         fs.write_many(
             id,
             &mut sched,
-            [(FieldOp::Set, FieldRef::Descriptor(&COUNT_FIELD), 13_i64)],
+            [(FieldOp::Set, FieldRef::Field(&COUNT_FIELD), 13_i64)],
         )
         .unwrap();
         let d = sched.get_internal::<MockEntity>(id).unwrap();

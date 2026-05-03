@@ -22,7 +22,7 @@ use crate::accessor_field_properties;
 use crate::callback_field_properties;
 use crate::edge::EdgeKind;
 use crate::entity::{EntityId, EntityType, EntityUuid, FieldSet};
-use crate::field::{CollectedNamedField, FieldDescriptor, NamedField};
+use crate::field::{CollectedField, CollectedHalfEdge, FieldDescriptor, NamedField};
 use crate::field_value;
 use crate::query::converter::EntityStringResolver;
 use crate::schedule::Schedule;
@@ -319,7 +319,7 @@ pub static FIELD_CODE: FieldDescriptor<PanelEntityType> = {
         cb,
     }
 };
-inventory::submit! { CollectedNamedField(&FIELD_CODE) }
+inventory::submit! { CollectedField(&FIELD_CODE) }
 
 // @todo: Name can be empty, should be optional
 pub static FIELD_NAME: FieldDescriptor<PanelEntityType> = {
@@ -342,7 +342,7 @@ pub static FIELD_NAME: FieldDescriptor<PanelEntityType> = {
         cb,
     }
 };
-inventory::submit! { CollectedNamedField(&FIELD_NAME) }
+inventory::submit! { CollectedField(&FIELD_NAME) }
 
 pub static FIELD_DESCRIPTION: FieldDescriptor<PanelEntityType> = {
     let (data, cb) = accessor_field_properties! {
@@ -364,7 +364,7 @@ pub static FIELD_DESCRIPTION: FieldDescriptor<PanelEntityType> = {
         cb,
     }
 };
-inventory::submit! { CollectedNamedField(&FIELD_DESCRIPTION) }
+inventory::submit! { CollectedField(&FIELD_DESCRIPTION) }
 
 pub static FIELD_NOTE: FieldDescriptor<PanelEntityType> = {
     let (data, cb) = accessor_field_properties! {
@@ -386,7 +386,7 @@ pub static FIELD_NOTE: FieldDescriptor<PanelEntityType> = {
         cb,
     }
 };
-inventory::submit! { CollectedNamedField(&FIELD_NOTE) }
+inventory::submit! { CollectedField(&FIELD_NOTE) }
 
 pub static FIELD_NOTES_NON_PRINTING: FieldDescriptor<PanelEntityType> = {
     let (data, cb) = accessor_field_properties! {
@@ -408,7 +408,7 @@ pub static FIELD_NOTES_NON_PRINTING: FieldDescriptor<PanelEntityType> = {
         cb,
     }
 };
-inventory::submit! { CollectedNamedField(&FIELD_NOTES_NON_PRINTING) }
+inventory::submit! { CollectedField(&FIELD_NOTES_NON_PRINTING) }
 
 pub static FIELD_WORKSHOP_NOTES: FieldDescriptor<PanelEntityType> = {
     let (data, cb) = accessor_field_properties! {
@@ -430,7 +430,7 @@ pub static FIELD_WORKSHOP_NOTES: FieldDescriptor<PanelEntityType> = {
         cb,
     }
 };
-inventory::submit! { CollectedNamedField(&FIELD_WORKSHOP_NOTES) }
+inventory::submit! { CollectedField(&FIELD_WORKSHOP_NOTES) }
 
 pub static FIELD_POWER_NEEDS: FieldDescriptor<PanelEntityType> = {
     let (data, cb) = accessor_field_properties! {
@@ -452,7 +452,7 @@ pub static FIELD_POWER_NEEDS: FieldDescriptor<PanelEntityType> = {
         cb,
     }
 };
-inventory::submit! { CollectedNamedField(&FIELD_POWER_NEEDS) }
+inventory::submit! { CollectedField(&FIELD_POWER_NEEDS) }
 
 pub static FIELD_SEWING_MACHINES: FieldDescriptor<PanelEntityType> = {
     let (data, cb) = accessor_field_properties! {
@@ -475,7 +475,7 @@ pub static FIELD_SEWING_MACHINES: FieldDescriptor<PanelEntityType> = {
         cb,
     }
 };
-inventory::submit! { CollectedNamedField(&FIELD_SEWING_MACHINES) }
+inventory::submit! { CollectedField(&FIELD_SEWING_MACHINES) }
 
 pub static FIELD_AV_NOTES: FieldDescriptor<PanelEntityType> = {
     let (data, cb) = accessor_field_properties! {
@@ -497,7 +497,7 @@ pub static FIELD_AV_NOTES: FieldDescriptor<PanelEntityType> = {
         cb,
     }
 };
-inventory::submit! { CollectedNamedField(&FIELD_AV_NOTES) }
+inventory::submit! { CollectedField(&FIELD_AV_NOTES) }
 
 pub static FIELD_DIFFICULTY: FieldDescriptor<PanelEntityType> = {
     let (data, cb) = accessor_field_properties! {
@@ -519,7 +519,7 @@ pub static FIELD_DIFFICULTY: FieldDescriptor<PanelEntityType> = {
         cb,
     }
 };
-inventory::submit! { CollectedNamedField(&FIELD_DIFFICULTY) }
+inventory::submit! { CollectedField(&FIELD_DIFFICULTY) }
 
 pub static FIELD_PREREQ: FieldDescriptor<PanelEntityType> = {
     let (data, cb) = accessor_field_properties! {
@@ -541,7 +541,7 @@ pub static FIELD_PREREQ: FieldDescriptor<PanelEntityType> = {
         cb,
     }
 };
-inventory::submit! { CollectedNamedField(&FIELD_PREREQ) }
+inventory::submit! { CollectedField(&FIELD_PREREQ) }
 
 pub static FIELD_COST: FieldDescriptor<PanelEntityType> = {
     let (data, cb) = accessor_field_properties! {
@@ -563,7 +563,7 @@ pub static FIELD_COST: FieldDescriptor<PanelEntityType> = {
         cb,
     }
 };
-inventory::submit! { CollectedNamedField(&FIELD_COST) }
+inventory::submit! { CollectedField(&FIELD_COST) }
 
 pub static FIELD_IS_FREE: FieldDescriptor<PanelEntityType> = {
     let (data, cb) = accessor_field_properties! {
@@ -586,7 +586,7 @@ pub static FIELD_IS_FREE: FieldDescriptor<PanelEntityType> = {
         cb,
     }
 };
-inventory::submit! { CollectedNamedField(&FIELD_IS_FREE) }
+inventory::submit! { CollectedField(&FIELD_IS_FREE) }
 
 pub static FIELD_IS_KIDS: FieldDescriptor<PanelEntityType> = {
     let (data, cb) = accessor_field_properties! {
@@ -609,7 +609,7 @@ pub static FIELD_IS_KIDS: FieldDescriptor<PanelEntityType> = {
         cb,
     }
 };
-inventory::submit! { CollectedNamedField(&FIELD_IS_KIDS) }
+inventory::submit! { CollectedField(&FIELD_IS_KIDS) }
 
 pub static FIELD_IS_FULL: FieldDescriptor<PanelEntityType> = {
     let (data, cb) = accessor_field_properties! {
@@ -632,7 +632,7 @@ pub static FIELD_IS_FULL: FieldDescriptor<PanelEntityType> = {
         cb,
     }
 };
-inventory::submit! { CollectedNamedField(&FIELD_IS_FULL) }
+inventory::submit! { CollectedField(&FIELD_IS_FULL) }
 
 pub static FIELD_CAPACITY: FieldDescriptor<PanelEntityType> = {
     let (data, cb) = accessor_field_properties! {
@@ -654,7 +654,7 @@ pub static FIELD_CAPACITY: FieldDescriptor<PanelEntityType> = {
         cb,
     }
 };
-inventory::submit! { CollectedNamedField(&FIELD_CAPACITY) }
+inventory::submit! { CollectedField(&FIELD_CAPACITY) }
 
 pub static FIELD_SEATS_SOLD: FieldDescriptor<PanelEntityType> = {
     let (data, cb) = accessor_field_properties! {
@@ -676,7 +676,7 @@ pub static FIELD_SEATS_SOLD: FieldDescriptor<PanelEntityType> = {
         cb,
     }
 };
-inventory::submit! { CollectedNamedField(&FIELD_SEATS_SOLD) }
+inventory::submit! { CollectedField(&FIELD_SEATS_SOLD) }
 
 pub static FIELD_PRE_REG_MAX: FieldDescriptor<PanelEntityType> = {
     let (data, cb) = accessor_field_properties! {
@@ -698,7 +698,7 @@ pub static FIELD_PRE_REG_MAX: FieldDescriptor<PanelEntityType> = {
         cb,
     }
 };
-inventory::submit! { CollectedNamedField(&FIELD_PRE_REG_MAX) }
+inventory::submit! { CollectedField(&FIELD_PRE_REG_MAX) }
 
 pub static FIELD_TICKET_URL: FieldDescriptor<PanelEntityType> = {
     let (data, cb) = accessor_field_properties! {
@@ -720,7 +720,7 @@ pub static FIELD_TICKET_URL: FieldDescriptor<PanelEntityType> = {
         cb,
     }
 };
-inventory::submit! { CollectedNamedField(&FIELD_TICKET_URL) }
+inventory::submit! { CollectedField(&FIELD_TICKET_URL) }
 
 pub static FIELD_HAVE_TICKET_IMAGE: FieldDescriptor<PanelEntityType> = {
     let (data, cb) = accessor_field_properties! {
@@ -743,7 +743,7 @@ pub static FIELD_HAVE_TICKET_IMAGE: FieldDescriptor<PanelEntityType> = {
         cb,
     }
 };
-inventory::submit! { CollectedNamedField(&FIELD_HAVE_TICKET_IMAGE) }
+inventory::submit! { CollectedField(&FIELD_HAVE_TICKET_IMAGE) }
 
 pub static FIELD_SIMPLETIX_EVENT: FieldDescriptor<PanelEntityType> = {
     let (data, cb) = accessor_field_properties! {
@@ -765,7 +765,7 @@ pub static FIELD_SIMPLETIX_EVENT: FieldDescriptor<PanelEntityType> = {
         cb,
     }
 };
-inventory::submit! { CollectedNamedField(&FIELD_SIMPLETIX_EVENT) }
+inventory::submit! { CollectedField(&FIELD_SIMPLETIX_EVENT) }
 
 pub static FIELD_SIMPLETIX_LINK: FieldDescriptor<PanelEntityType> = {
     let (data, cb) = accessor_field_properties! {
@@ -787,7 +787,7 @@ pub static FIELD_SIMPLETIX_LINK: FieldDescriptor<PanelEntityType> = {
         cb,
     }
 };
-inventory::submit! { CollectedNamedField(&FIELD_SIMPLETIX_LINK) }
+inventory::submit! { CollectedField(&FIELD_SIMPLETIX_LINK) }
 
 pub static FIELD_HIDE_PANELIST: FieldDescriptor<PanelEntityType> = {
     let (data, cb) = accessor_field_properties! {
@@ -810,7 +810,7 @@ pub static FIELD_HIDE_PANELIST: FieldDescriptor<PanelEntityType> = {
         cb,
     }
 };
-inventory::submit! { CollectedNamedField(&FIELD_HIDE_PANELIST) }
+inventory::submit! { CollectedField(&FIELD_HIDE_PANELIST) }
 
 pub static FIELD_ALT_PANELIST: FieldDescriptor<PanelEntityType> = {
     let (data, cb) = accessor_field_properties! {
@@ -832,7 +832,7 @@ pub static FIELD_ALT_PANELIST: FieldDescriptor<PanelEntityType> = {
         cb,
     }
 };
-inventory::submit! { CollectedNamedField(&FIELD_ALT_PANELIST) }
+inventory::submit! { CollectedField(&FIELD_ALT_PANELIST) }
 
 // ── Computed time projections ─────────────────────────────────────────────────
 
@@ -886,7 +886,7 @@ pub static FIELD_START_TIME: FieldDescriptor<PanelEntityType> = {
         cb,
     }
 };
-inventory::submit! { CollectedNamedField(&FIELD_START_TIME) }
+inventory::submit! { CollectedField(&FIELD_START_TIME) }
 
 /// End time — projected from `time_slot`.
 pub static FIELD_END_TIME: FieldDescriptor<PanelEntityType> = {
@@ -938,7 +938,7 @@ pub static FIELD_END_TIME: FieldDescriptor<PanelEntityType> = {
         cb,
     }
 };
-inventory::submit! { CollectedNamedField(&FIELD_END_TIME) }
+inventory::submit! { CollectedField(&FIELD_END_TIME) }
 
 /// Duration — projected from `time_slot`.
 pub static FIELD_DURATION: FieldDescriptor<PanelEntityType> = {
@@ -993,11 +993,11 @@ pub static FIELD_DURATION: FieldDescriptor<PanelEntityType> = {
         cb,
     }
 };
-inventory::submit! { CollectedNamedField(&FIELD_DURATION) }
+inventory::submit! { CollectedField(&FIELD_DURATION) }
 
 // ── Edge-backed computed fields ───────────────────────────────────────────────
 
-pub static HALF_EDGE_CREDITED_PRESENTERS: crate::field::FieldDescriptor<PanelEntityType> = {
+pub static HALF_EDGE_CREDITED_PRESENTERS: crate::edge::HalfEdgeDescriptor<PanelEntityType> = {
     let (data, cb, edge_kind) = crate::edge_field_properties! {
         PanelEntityType,
         target: PresenterEntityType,
@@ -1010,16 +1010,15 @@ pub static HALF_EDGE_CREDITED_PRESENTERS: crate::field::FieldDescriptor<PanelEnt
         example: "[presenter_id]",
         order: 2710,
     };
-    crate::field::FieldDescriptor {
+    crate::edge::HalfEdgeDescriptor {
         data,
-        required: false,
         edge_kind,
         cb,
     }
 };
-inventory::submit! { CollectedNamedField(&HALF_EDGE_CREDITED_PRESENTERS) }
+inventory::submit! { CollectedHalfEdge(&HALF_EDGE_CREDITED_PRESENTERS) }
 
-pub static HALF_EDGE_UNCREDITED_PRESENTERS: crate::field::FieldDescriptor<PanelEntityType> = {
+pub static HALF_EDGE_UNCREDITED_PRESENTERS: crate::edge::HalfEdgeDescriptor<PanelEntityType> = {
     let (data, cb, edge_kind) = crate::edge_field_properties! {
         PanelEntityType,
         target: PresenterEntityType,
@@ -1032,14 +1031,13 @@ pub static HALF_EDGE_UNCREDITED_PRESENTERS: crate::field::FieldDescriptor<PanelE
         example: "[presenter_id]",
         order: 2720,
     };
-    crate::field::FieldDescriptor {
+    crate::edge::HalfEdgeDescriptor {
         data,
-        required: false,
         edge_kind,
         cb,
     }
 };
-inventory::submit! { CollectedNamedField(&HALF_EDGE_UNCREDITED_PRESENTERS) }
+inventory::submit! { CollectedHalfEdge(&HALF_EDGE_UNCREDITED_PRESENTERS) }
 
 /// All presenters attached to this panel (credited and uncredited).
 ///
@@ -1077,7 +1075,7 @@ pub static FIELD_PRESENTERS: FieldDescriptor<PanelEntityType> = {
         cb,
     }
 };
-inventory::submit! { CollectedNamedField(&FIELD_PRESENTERS) }
+inventory::submit! { CollectedField(&FIELD_PRESENTERS) }
 
 /// Inclusive presenters for a panel.
 ///
@@ -1146,9 +1144,9 @@ pub static FIELD_INCLUSIVE_PRESENTERS: FieldDescriptor<PanelEntityType> = {
         cb,
     }
 };
-inventory::submit! { CollectedNamedField(&FIELD_INCLUSIVE_PRESENTERS) }
+inventory::submit! { CollectedField(&FIELD_INCLUSIVE_PRESENTERS) }
 
-pub static HALF_EDGE_EVENT_ROOMS: crate::field::FieldDescriptor<PanelEntityType> = {
+pub static HALF_EDGE_EVENT_ROOMS: crate::edge::HalfEdgeDescriptor<PanelEntityType> = {
     let (data, cb, edge_kind) = crate::edge_field_properties! {
         PanelEntityType,
         target: EventRoomEntityType,
@@ -1160,16 +1158,15 @@ pub static HALF_EDGE_EVENT_ROOMS: crate::field::FieldDescriptor<PanelEntityType>
         example: "[]",
         order: 3100,
     };
-    crate::field::FieldDescriptor {
+    crate::edge::HalfEdgeDescriptor {
         data,
-        required: false,
         edge_kind,
         cb,
     }
 };
-inventory::submit! { CollectedNamedField(&HALF_EDGE_EVENT_ROOMS) }
+inventory::submit! { CollectedHalfEdge(&HALF_EDGE_EVENT_ROOMS) }
 
-pub static HALF_EDGE_PANEL_TYPE: crate::field::FieldDescriptor<PanelEntityType> = {
+pub static HALF_EDGE_PANEL_TYPE: crate::edge::HalfEdgeDescriptor<PanelEntityType> = {
     let (data, cb, edge_kind) = crate::edge_field_properties! {
         PanelEntityType,
         target: PanelTypeEntityType,
@@ -1181,14 +1178,13 @@ pub static HALF_EDGE_PANEL_TYPE: crate::field::FieldDescriptor<PanelEntityType> 
         example: "{}",
         order: 3400,
     };
-    crate::field::FieldDescriptor {
+    crate::edge::HalfEdgeDescriptor {
         data,
-        required: false,
         edge_kind,
         cb,
     }
 };
-inventory::submit! { CollectedNamedField(&HALF_EDGE_PANEL_TYPE) }
+inventory::submit! { CollectedHalfEdge(&HALF_EDGE_PANEL_TYPE) }
 
 /// Full edge from panel credited presenters to presenter panels
 pub const EDGE_CREDITED_PRESENTERS: crate::edge::FullEdge = crate::edge::FullEdge {
@@ -1257,7 +1253,7 @@ pub static FIELD_HOTEL_ROOMS: FieldDescriptor<PanelEntityType> = {
         cb,
     }
 };
-inventory::submit! { CollectedNamedField(&FIELD_HOTEL_ROOMS) }
+inventory::submit! { CollectedField(&FIELD_HOTEL_ROOMS) }
 
 // ── Credits computation ───────────────────────────────────────────────────────
 
@@ -1471,7 +1467,7 @@ pub static FIELD_CREDITS: FieldDescriptor<PanelEntityType> = {
         cb,
     }
 };
-inventory::submit! { CollectedNamedField(&FIELD_CREDITS) }
+inventory::submit! { CollectedField(&FIELD_CREDITS) }
 
 // ── FieldSet ──────────────────────────────────────────────────────────────────
 
@@ -1644,7 +1640,8 @@ mod tests {
     fn field_set_contains_all_declared_fields() {
         let fs = PanelEntityType::field_set();
         let count = fs.fields().count();
-        assert_eq!(count, 35);
+        assert_eq!(count, 31);
+        assert_eq!(fs.half_edges().count(), 4);
     }
 
     #[test]

@@ -19,7 +19,7 @@ use crate::callback_field_properties;
 use crate::edge::EdgeKind;
 use crate::entity::{EntityId, EntityType, EntityUuid, UuidPreference};
 use crate::field::set::FieldSet;
-use crate::field::{CollectedNamedField, FieldDescriptor, NamedField};
+use crate::field::{CollectedField, CollectedHalfEdge, FieldDescriptor, NamedField};
 use crate::field_value;
 use crate::query::converter::EntityStringResolver;
 use crate::tables::panel::{self, PanelEntityType, PanelId};
@@ -249,7 +249,7 @@ pub static FIELD_PREFIX: FieldDescriptor<PanelTypeEntityType> = {
         cb,
     }
 };
-inventory::submit! { CollectedNamedField(&FIELD_PREFIX) }
+inventory::submit! { CollectedField(&FIELD_PREFIX) }
 
 pub static FIELD_PANEL_KIND: FieldDescriptor<PanelTypeEntityType> = {
     let (data, cb) = accessor_field_properties! {
@@ -271,7 +271,7 @@ pub static FIELD_PANEL_KIND: FieldDescriptor<PanelTypeEntityType> = {
         cb,
     }
 };
-inventory::submit! { CollectedNamedField(&FIELD_PANEL_KIND) }
+inventory::submit! { CollectedField(&FIELD_PANEL_KIND) }
 
 pub static FIELD_HIDDEN: FieldDescriptor<PanelTypeEntityType> = {
     let (data, cb) = accessor_field_properties! {
@@ -293,7 +293,7 @@ pub static FIELD_HIDDEN: FieldDescriptor<PanelTypeEntityType> = {
         cb,
     }
 };
-inventory::submit! { CollectedNamedField(&FIELD_HIDDEN) }
+inventory::submit! { CollectedField(&FIELD_HIDDEN) }
 
 pub static FIELD_IS_WORKSHOP: FieldDescriptor<PanelTypeEntityType> = {
     let (data, cb) = accessor_field_properties! {
@@ -315,7 +315,7 @@ pub static FIELD_IS_WORKSHOP: FieldDescriptor<PanelTypeEntityType> = {
         cb,
     }
 };
-inventory::submit! { CollectedNamedField(&FIELD_IS_WORKSHOP) }
+inventory::submit! { CollectedField(&FIELD_IS_WORKSHOP) }
 
 pub static FIELD_IS_BREAK: FieldDescriptor<PanelTypeEntityType> = {
     let (data, cb) = accessor_field_properties! {
@@ -337,7 +337,7 @@ pub static FIELD_IS_BREAK: FieldDescriptor<PanelTypeEntityType> = {
         cb,
     }
 };
-inventory::submit! { CollectedNamedField(&FIELD_IS_BREAK) }
+inventory::submit! { CollectedField(&FIELD_IS_BREAK) }
 
 pub static FIELD_IS_CAFE: FieldDescriptor<PanelTypeEntityType> = {
     let (data, cb) = accessor_field_properties! {
@@ -359,7 +359,7 @@ pub static FIELD_IS_CAFE: FieldDescriptor<PanelTypeEntityType> = {
         cb,
     }
 };
-inventory::submit! { CollectedNamedField(&FIELD_IS_CAFE) }
+inventory::submit! { CollectedField(&FIELD_IS_CAFE) }
 
 pub static FIELD_IS_ROOM_HOURS: FieldDescriptor<PanelTypeEntityType> = {
     let (data, cb) = accessor_field_properties! {
@@ -381,7 +381,7 @@ pub static FIELD_IS_ROOM_HOURS: FieldDescriptor<PanelTypeEntityType> = {
         cb,
     }
 };
-inventory::submit! { CollectedNamedField(&FIELD_IS_ROOM_HOURS) }
+inventory::submit! { CollectedField(&FIELD_IS_ROOM_HOURS) }
 
 pub static FIELD_IS_TIMELINE: FieldDescriptor<PanelTypeEntityType> = {
     let (data, cb) = accessor_field_properties! {
@@ -403,7 +403,7 @@ pub static FIELD_IS_TIMELINE: FieldDescriptor<PanelTypeEntityType> = {
         cb,
     }
 };
-inventory::submit! { CollectedNamedField(&FIELD_IS_TIMELINE) }
+inventory::submit! { CollectedField(&FIELD_IS_TIMELINE) }
 
 pub static FIELD_IS_PRIVATE: FieldDescriptor<PanelTypeEntityType> = {
     let (data, cb) = accessor_field_properties! {
@@ -425,7 +425,7 @@ pub static FIELD_IS_PRIVATE: FieldDescriptor<PanelTypeEntityType> = {
         cb,
     }
 };
-inventory::submit! { CollectedNamedField(&FIELD_IS_PRIVATE) }
+inventory::submit! { CollectedField(&FIELD_IS_PRIVATE) }
 
 pub static FIELD_COLOR: FieldDescriptor<PanelTypeEntityType> = {
     let (data, cb) = accessor_field_properties! {
@@ -447,7 +447,7 @@ pub static FIELD_COLOR: FieldDescriptor<PanelTypeEntityType> = {
         cb,
     }
 };
-inventory::submit! { CollectedNamedField(&FIELD_COLOR) }
+inventory::submit! { CollectedField(&FIELD_COLOR) }
 
 pub static FIELD_BW: FieldDescriptor<PanelTypeEntityType> = {
     let (data, cb) = accessor_field_properties! {
@@ -469,7 +469,7 @@ pub static FIELD_BW: FieldDescriptor<PanelTypeEntityType> = {
         cb,
     }
 };
-inventory::submit! { CollectedNamedField(&FIELD_BW) }
+inventory::submit! { CollectedField(&FIELD_BW) }
 
 /// Computed display name — derived from `panel_kind` and `prefix`.
 ///
@@ -503,10 +503,10 @@ pub static FIELD_DISPLAY_NAME: FieldDescriptor<PanelTypeEntityType> = {
         cb,
     }
 };
-inventory::submit! { CollectedNamedField(&FIELD_DISPLAY_NAME) }
+inventory::submit! { CollectedField(&FIELD_DISPLAY_NAME) }
 
 // Panels of this type — reverse heterogeneous edge from Panel → PanelType.
-pub static HALF_EDGE_PANELS: crate::field::FieldDescriptor<PanelTypeEntityType> = {
+pub static HALF_EDGE_PANELS: crate::edge::HalfEdgeDescriptor<PanelTypeEntityType> = {
     let (data, cb, edge_kind) = crate::edge_field_properties! {
         PanelTypeEntityType,
         target: PanelEntityType,
@@ -518,14 +518,13 @@ pub static HALF_EDGE_PANELS: crate::field::FieldDescriptor<PanelTypeEntityType> 
         example: "[]",
         order: 1200,
     };
-    crate::field::FieldDescriptor {
+    crate::edge::HalfEdgeDescriptor {
         data,
-        required: false,
         edge_kind,
         cb,
     }
 };
-inventory::submit! { CollectedNamedField(&HALF_EDGE_PANELS) }
+inventory::submit! { CollectedHalfEdge(&HALF_EDGE_PANELS) }
 
 /// Full edge from panel type panels to panel panel type
 pub const EDGE_PANELS: crate::edge::FullEdge = crate::edge::FullEdge {
@@ -707,7 +706,8 @@ mod tests {
     fn test_field_set_fields_count() {
         let fs = PanelTypeEntityType::field_set();
         let fields: Vec<_> = fs.fields().collect();
-        assert_eq!(fields.len(), 13);
+        assert_eq!(fields.len(), 12);
+        assert_eq!(fs.half_edges().count(), 1);
     }
 
     #[test]

@@ -21,7 +21,7 @@ use crate::accessor_field_properties;
 use crate::callback_field_properties;
 use crate::edge::EdgeKind;
 use crate::entity::{EntityId, EntityType, EntityUuid, FieldSet, UuidPreference};
-use crate::field::{CollectedNamedField, FieldDescriptor, NamedField};
+use crate::field::{CollectedField, CollectedHalfEdge, FieldDescriptor, NamedField};
 use crate::field_value;
 use crate::query::converter::EntityStringResolver;
 use crate::query::lookup::{EntityMatcher, MatchPriority};
@@ -726,7 +726,7 @@ pub static FIELD_NAME: FieldDescriptor<PresenterEntityType> = {
         cb,
     }
 };
-inventory::submit! { CollectedNamedField(&FIELD_NAME) }
+inventory::submit! { CollectedField(&FIELD_NAME) }
 
 /// Presenter rank — stored as `PresenterRank`, exposed as `FieldValue::String`
 /// using the canonical tag (`guest`, `judge`, `staff`, `invited_panelist`,
@@ -757,7 +757,7 @@ pub static FIELD_RANK: FieldDescriptor<PresenterEntityType> = {
         cb,
     }
 };
-inventory::submit! { CollectedNamedField(&FIELD_RANK) }
+inventory::submit! { CollectedField(&FIELD_RANK) }
 
 pub static FIELD_BIO: FieldDescriptor<PresenterEntityType> = {
     let (data, cb) = accessor_field_properties! {
@@ -779,7 +779,7 @@ pub static FIELD_BIO: FieldDescriptor<PresenterEntityType> = {
         cb,
     }
 };
-inventory::submit! { CollectedNamedField(&FIELD_BIO) }
+inventory::submit! { CollectedField(&FIELD_BIO) }
 
 pub static FIELD_IS_EXPLICIT_GROUP: FieldDescriptor<PresenterEntityType> = {
     let (data, cb) = accessor_field_properties! {
@@ -802,7 +802,7 @@ pub static FIELD_IS_EXPLICIT_GROUP: FieldDescriptor<PresenterEntityType> = {
         cb,
     }
 };
-inventory::submit! { CollectedNamedField(&FIELD_IS_EXPLICIT_GROUP) }
+inventory::submit! { CollectedField(&FIELD_IS_EXPLICIT_GROUP) }
 
 pub static FIELD_ALWAYS_GROUPED: FieldDescriptor<PresenterEntityType> = {
     let (data, cb) = accessor_field_properties! {
@@ -825,7 +825,7 @@ pub static FIELD_ALWAYS_GROUPED: FieldDescriptor<PresenterEntityType> = {
         cb,
     }
 };
-inventory::submit! { CollectedNamedField(&FIELD_ALWAYS_GROUPED) }
+inventory::submit! { CollectedField(&FIELD_ALWAYS_GROUPED) }
 
 pub static FIELD_ALWAYS_SHOWN_IN_GROUP: FieldDescriptor<PresenterEntityType> = {
     let (data, cb) = accessor_field_properties! {
@@ -848,7 +848,7 @@ pub static FIELD_ALWAYS_SHOWN_IN_GROUP: FieldDescriptor<PresenterEntityType> = {
         cb,
     }
 };
-inventory::submit! { CollectedNamedField(&FIELD_ALWAYS_SHOWN_IN_GROUP) }
+inventory::submit! { CollectedField(&FIELD_ALWAYS_SHOWN_IN_GROUP) }
 
 // ── Computed / edge-backed fields ─────────────────────────────────────────────
 
@@ -886,9 +886,9 @@ pub static FIELD_IS_GROUP: FieldDescriptor<PresenterEntityType> = {
         cb,
     }
 };
-inventory::submit! { CollectedNamedField(&FIELD_IS_GROUP) }
+inventory::submit! { CollectedField(&FIELD_IS_GROUP) }
 
-pub static HALF_EDGE_MEMBERS: crate::field::FieldDescriptor<PresenterEntityType> = {
+pub static HALF_EDGE_MEMBERS: crate::edge::HalfEdgeDescriptor<PresenterEntityType> = {
     let (data, cb, edge_kind) = crate::edge_field_properties! {
         PresenterEntityType,
         target: PresenterEntityType,
@@ -900,16 +900,15 @@ pub static HALF_EDGE_MEMBERS: crate::field::FieldDescriptor<PresenterEntityType>
         example: "[]",
         order: 800,
     };
-    crate::field::FieldDescriptor {
+    crate::edge::HalfEdgeDescriptor {
         data,
-        required: false,
         edge_kind,
         cb,
     }
 };
-inventory::submit! { CollectedNamedField(&HALF_EDGE_MEMBERS) }
+inventory::submit! { CollectedHalfEdge(&HALF_EDGE_MEMBERS) }
 
-pub static HALF_EDGE_GROUPS: crate::field::FieldDescriptor<PresenterEntityType> = {
+pub static HALF_EDGE_GROUPS: crate::edge::HalfEdgeDescriptor<PresenterEntityType> = {
     let (data, cb, edge_kind) = crate::edge_field_properties! {
         PresenterEntityType,
         target: PresenterEntityType,
@@ -921,14 +920,13 @@ pub static HALF_EDGE_GROUPS: crate::field::FieldDescriptor<PresenterEntityType> 
         example: "[]",
         order: 700,
     };
-    crate::field::FieldDescriptor {
+    crate::edge::HalfEdgeDescriptor {
         data,
-        required: false,
         edge_kind,
         cb,
     }
 };
-inventory::submit! { CollectedNamedField(&HALF_EDGE_GROUPS) }
+inventory::submit! { CollectedHalfEdge(&HALF_EDGE_GROUPS) }
 
 /// Static edge from groups field to members field (for querying a presenter's groups)
 pub const EDGE_GROUPS: crate::edge::FullEdge = crate::edge::FullEdge {
@@ -970,7 +968,7 @@ pub static FIELD_INCLUSIVE_GROUPS: FieldDescriptor<PresenterEntityType> = {
         cb,
     }
 };
-inventory::submit! { CollectedNamedField(&FIELD_INCLUSIVE_GROUPS) }
+inventory::submit! { CollectedField(&FIELD_INCLUSIVE_GROUPS) }
 
 /// Inclusive members — all members of this group, transitively.
 ///
@@ -1000,12 +998,12 @@ pub static FIELD_INCLUSIVE_MEMBERS: FieldDescriptor<PresenterEntityType> = {
         cb,
     }
 };
-inventory::submit! { CollectedNamedField(&FIELD_INCLUSIVE_MEMBERS) }
+inventory::submit! { CollectedField(&FIELD_INCLUSIVE_MEMBERS) }
 
 /// All panels this presenter is scheduled on (credited and uncredited).
 ///
 /// Target edge that combines credited and uncredited panel edges.
-pub static HALF_EDGE_PANELS: crate::field::FieldDescriptor<PresenterEntityType> = {
+pub static HALF_EDGE_PANELS: crate::edge::HalfEdgeDescriptor<PresenterEntityType> = {
     let (data, cb, edge_kind) = crate::edge_field_properties! {
         PresenterEntityType,
         target: PanelEntityType,
@@ -1017,14 +1015,13 @@ pub static HALF_EDGE_PANELS: crate::field::FieldDescriptor<PresenterEntityType> 
         example: "[]",
         order: 1100,
     };
-    crate::field::FieldDescriptor {
+    crate::edge::HalfEdgeDescriptor {
         data,
-        required: false,
         edge_kind,
         cb,
     }
 };
-inventory::submit! { CollectedNamedField(&HALF_EDGE_PANELS) }
+inventory::submit! { CollectedHalfEdge(&HALF_EDGE_PANELS) }
 
 /// Full edge from panel credited presenters to presenter panels
 pub const EDGE_CREDITED_PANELS: crate::edge::FullEdge = crate::edge::FullEdge {
@@ -1097,7 +1094,7 @@ pub static FIELD_CREDITED_PANELS: FieldDescriptor<PresenterEntityType> = {
         cb,
     }
 };
-inventory::submit! { CollectedNamedField(&FIELD_CREDITED_PANELS) }
+inventory::submit! { CollectedField(&FIELD_CREDITED_PANELS) }
 
 /// Uncredited panels for this presenter.
 ///
@@ -1159,7 +1156,7 @@ pub static FIELD_UNCREDITED_PANELS: FieldDescriptor<PresenterEntityType> = {
         cb,
     }
 };
-inventory::submit! { CollectedNamedField(&FIELD_UNCREDITED_PANELS) }
+inventory::submit! { CollectedField(&FIELD_UNCREDITED_PANELS) }
 
 /// Inclusive panels for a presenter.
 ///
@@ -1243,7 +1240,7 @@ pub static FIELD_INCLUSIVE_PANELS: FieldDescriptor<PresenterEntityType> = {
         cb,
     }
 };
-inventory::submit! { CollectedNamedField(&FIELD_INCLUSIVE_PANELS) }
+inventory::submit! { CollectedField(&FIELD_INCLUSIVE_PANELS) }
 
 // ── FieldSet ──────────────────────────────────────────────────────────────────
 
@@ -1485,7 +1482,8 @@ mod tests {
     #[test]
     fn test_field_set_count_and_required() {
         let fs = PresenterEntityType::field_set();
-        assert_eq!(fs.fields().count(), 15);
+        assert_eq!(fs.fields().count(), 12);
+        assert_eq!(fs.half_edges().count(), 3);
         let required: Vec<_> = fs.required_fields().map(|d| d.name()).collect();
         assert_eq!(required, vec!["name"]);
     }

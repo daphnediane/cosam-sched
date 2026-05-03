@@ -20,7 +20,7 @@ use crate::accessor_field_properties;
 use crate::edge::EdgeKind;
 use crate::entity::{EntityId, EntityType, EntityUuid, UuidPreference};
 use crate::field::set::FieldSet;
-use crate::field::{CollectedNamedField, FieldDescriptor, NamedField};
+use crate::field::{CollectedField, CollectedHalfEdge, FieldDescriptor, NamedField};
 use crate::query::converter::EntityStringResolver;
 use crate::tables::event_room::{self, EventRoomEntityType, EventRoomId};
 use crate::value::ValidationError;
@@ -207,9 +207,9 @@ pub static FIELD_HOTEL_ROOM_NAME: crate::field::FieldDescriptor<HotelRoomEntityT
         cb,
     }
 };
-inventory::submit! { CollectedNamedField(&FIELD_HOTEL_ROOM_NAME) }
+inventory::submit! { CollectedField(&FIELD_HOTEL_ROOM_NAME) }
 
-pub static HALF_EDGE_EVENT_ROOMS: crate::field::FieldDescriptor<HotelRoomEntityType> = {
+pub static HALF_EDGE_EVENT_ROOMS: crate::edge::HalfEdgeDescriptor<HotelRoomEntityType> = {
     let (data, cb, edge_kind) = crate::edge_field_properties! {
         HotelRoomEntityType,
         target: EventRoomEntityType,
@@ -221,14 +221,13 @@ pub static HALF_EDGE_EVENT_ROOMS: crate::field::FieldDescriptor<HotelRoomEntityT
         example: "[]",
         order: 100,
     };
-    crate::field::FieldDescriptor {
+    crate::edge::HalfEdgeDescriptor {
         data,
-        required: false,
         edge_kind,
         cb,
     }
 };
-inventory::submit! { CollectedNamedField(&HALF_EDGE_EVENT_ROOMS) }
+inventory::submit! { CollectedHalfEdge(&HALF_EDGE_EVENT_ROOMS) }
 
 /// Full edge from hotel room event rooms to event room hotel rooms
 pub const EDGE_EVENT_ROOMS: crate::edge::FullEdge = crate::edge::FullEdge {
@@ -325,7 +324,8 @@ mod tests {
     #[test]
     fn test_field_set_count_and_required() {
         let fs = HotelRoomEntityType::field_set();
-        assert_eq!(fs.fields().count(), 2);
+        assert_eq!(fs.fields().count(), 1);
+        assert_eq!(fs.half_edges().count(), 1);
         let required: Vec<_> = fs.required_fields().map(|d| d.name()).collect();
         assert_eq!(required, vec!["hotel_room_name"]);
     }

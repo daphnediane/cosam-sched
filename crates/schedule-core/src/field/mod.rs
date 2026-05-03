@@ -64,20 +64,39 @@ pub struct CommonFieldData {
 
 // ── Global field registry ─────────────────────────────────────────────────────
 
-/// Wrapper for globally registering a field descriptor via `inventory`.
+/// Wrapper for globally registering a [`FieldDescriptor`] via `inventory`.
 ///
-/// All field descriptors (both macro-generated and hand-written) should submit
-/// via `inventory::submit! { CollectedNamedField(&FIELD_NAME) }` to enable
-/// `FieldId` round-trip conversions.
-pub struct CollectedNamedField(pub &'static dyn NamedField);
+/// Non-edge field descriptors submit via:
+/// `inventory::submit! { CollectedField(&FIELD_NAME) }`
+pub struct CollectedField(pub &'static dyn NamedField);
 
-inventory::collect!(CollectedNamedField);
-
-/// Iterate over all field descriptors registered via `inventory::submit!`.
+/// Wrapper for globally registering a [`crate::edge::HalfEdgeDescriptor`] via `inventory`.
 ///
-/// Enables `FieldId` to convert back to trait object references by address lookup.
-pub fn all_named_fields() -> impl Iterator<Item = &'static CollectedNamedField> {
-    inventory::iter::<CollectedNamedField>()
+/// Edge field descriptors submit via:
+/// `inventory::submit! { CollectedHalfEdge(&HALF_EDGE_NAME) }`
+pub struct CollectedHalfEdge(pub &'static dyn NamedField);
+
+inventory::collect!(CollectedField);
+inventory::collect!(CollectedHalfEdge);
+
+/// Iterate over all registered [`FieldDescriptor`] entries.
+pub fn all_fields() -> impl Iterator<Item = &'static CollectedField> {
+    inventory::iter::<CollectedField>()
+}
+
+/// Iterate over all registered [`crate::edge::HalfEdgeDescriptor`] entries.
+pub fn all_half_edges() -> impl Iterator<Item = &'static CollectedHalfEdge> {
+    inventory::iter::<CollectedHalfEdge>()
+}
+
+/// Iterate over every registered field and half-edge descriptor.
+///
+/// Chains [`all_fields`] and [`all_half_edges`]; used by [`crate::registry`]
+/// for global name-based lookup.
+pub fn all_named_fields() -> impl Iterator<Item = &'static dyn NamedField> {
+    all_fields()
+        .map(|cf| cf.0)
+        .chain(all_half_edges().map(|ce| ce.0))
 }
 
 // ── Tests ─────────────────────────────────────────────────────────────────────

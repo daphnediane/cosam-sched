@@ -19,7 +19,7 @@
 use crate::accessor_field_properties;
 use crate::edge::EdgeKind;
 use crate::entity::{EntityId, EntityType, EntityUuid, FieldSet, UuidPreference};
-use crate::field::{CollectedNamedField, FieldDescriptor, NamedField};
+use crate::field::{CollectedField, CollectedHalfEdge, FieldDescriptor, NamedField};
 use crate::query::converter::EntityStringResolver;
 use crate::tables::hotel_room::{self, HotelRoomEntityType, HotelRoomId};
 use crate::tables::panel::{self, PanelEntityType, PanelId};
@@ -218,7 +218,7 @@ pub static FIELD_ROOM_NAME: FieldDescriptor<EventRoomEntityType> = {
         cb,
     }
 };
-inventory::submit! { CollectedNamedField(&FIELD_ROOM_NAME) }
+inventory::submit! { CollectedField(&FIELD_ROOM_NAME) }
 
 /// Optional display name shown in the widget / public schedule.
 pub static FIELD_LONG_NAME: FieldDescriptor<EventRoomEntityType> = {
@@ -241,7 +241,7 @@ pub static FIELD_LONG_NAME: FieldDescriptor<EventRoomEntityType> = {
         cb,
     }
 };
-inventory::submit! { CollectedNamedField(&FIELD_LONG_NAME) }
+inventory::submit! { CollectedField(&FIELD_LONG_NAME) }
 
 pub static FIELD_SORT_KEY: FieldDescriptor<EventRoomEntityType> = {
     let (data, cb) = accessor_field_properties! {
@@ -263,11 +263,11 @@ pub static FIELD_SORT_KEY: FieldDescriptor<EventRoomEntityType> = {
         cb,
     }
 };
-inventory::submit! { CollectedNamedField(&FIELD_SORT_KEY) }
+inventory::submit! { CollectedField(&FIELD_SORT_KEY) }
 
 // ── Edge-backed computed fields ─────────────────────────────────────
 
-pub static HALF_EDGE_HOTEL_ROOMS: crate::field::FieldDescriptor<EventRoomEntityType> = {
+pub static HALF_EDGE_HOTEL_ROOMS: crate::edge::HalfEdgeDescriptor<EventRoomEntityType> = {
     let (data, cb, edge_kind) = crate::edge_field_properties! {
         EventRoomEntityType,
         target: HotelRoomEntityType,
@@ -279,16 +279,15 @@ pub static HALF_EDGE_HOTEL_ROOMS: crate::field::FieldDescriptor<EventRoomEntityT
         example: "[]",
         order: 300,
     };
-    crate::field::FieldDescriptor {
+    crate::edge::HalfEdgeDescriptor {
         data,
-        required: false,
         edge_kind,
         cb,
     }
 };
-inventory::submit! { CollectedNamedField(&HALF_EDGE_HOTEL_ROOMS) }
+inventory::submit! { CollectedHalfEdge(&HALF_EDGE_HOTEL_ROOMS) }
 
-pub static HALF_EDGE_PANELS: crate::field::FieldDescriptor<EventRoomEntityType> = {
+pub static HALF_EDGE_PANELS: crate::edge::HalfEdgeDescriptor<EventRoomEntityType> = {
     let (data, cb, edge_kind) = crate::edge_field_properties! {
         EventRoomEntityType,
         target: PanelEntityType,
@@ -300,14 +299,13 @@ pub static HALF_EDGE_PANELS: crate::field::FieldDescriptor<EventRoomEntityType> 
         example: "[]",
         order: 400,
     };
-    crate::field::FieldDescriptor {
+    crate::edge::HalfEdgeDescriptor {
         data,
-        required: false,
         edge_kind,
         cb,
     }
 };
-inventory::submit! { CollectedNamedField(&HALF_EDGE_PANELS) }
+inventory::submit! { CollectedHalfEdge(&HALF_EDGE_PANELS) }
 
 /// Full edge from event room hotel rooms to hotel room event rooms
 pub const EDGE_HOTEL_ROOMS: crate::edge::FullEdge = crate::edge::FullEdge {
@@ -441,7 +439,8 @@ mod tests {
     #[test]
     fn test_field_set_count_and_required() {
         let fs = EventRoomEntityType::field_set();
-        assert_eq!(fs.fields().count(), 5);
+        assert_eq!(fs.fields().count(), 3);
+        assert_eq!(fs.half_edges().count(), 2);
         let required: Vec<_> = fs.required_fields().map(|d| d.name()).collect();
         assert_eq!(required, vec!["room_name"]);
     }

@@ -221,10 +221,12 @@ impl TryFrom<&'static dyn HalfEdge> for FullEdge {
     }
 }
 
-impl<E: EntityType> TryFrom<&'static crate::edge::EdgeDescriptor<E>> for FullEdge {
+impl<E: EntityType> TryFrom<&'static crate::edge::HalfEdgeDescriptor<E>> for FullEdge {
     type Error = ConversionError;
 
-    fn try_from(descriptor: &'static crate::edge::EdgeDescriptor<E>) -> Result<Self, Self::Error> {
+    fn try_from(
+        descriptor: &'static crate::edge::HalfEdgeDescriptor<E>,
+    ) -> Result<Self, Self::Error> {
         // EdgeDescriptor implements HalfEdge, so delegate to that implementation
         Self::try_from(descriptor as &'static dyn HalfEdge)
     }
