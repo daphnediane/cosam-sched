@@ -38,6 +38,8 @@ pub struct CallbackInput {
     pub cardinality: Ident,
     /// Field type item (String, Boolean, etc.).
     pub item: Ident,
+    /// Optional entity type for EntityIdentifier items (e.g., PresenterEntityType).
+    pub item_entity: Option<Type>,
     /// Read callback (closure or enum variant).
     pub read: Option<CallbackValue>,
     /// Write callback (closure or enum variant).
@@ -80,6 +82,7 @@ impl Parse for CallbackInput {
         // Parse key: value pairs
         let mut cardinality = None;
         let mut item = None;
+        let mut item_entity = None;
         let mut read = None;
         let mut write = None;
         let mut add = None;
@@ -98,6 +101,10 @@ impl Parse for CallbackInput {
                 "item" => {
                     let val: Ident = input.parse()?;
                     item = Some(val);
+                }
+                "item_entity" => {
+                    let val: Type = input.parse()?;
+                    item_entity = Some(val);
                 }
                 "read" => read = Some(CallbackValue::parse_callback(input)?),
                 "write" => write = Some(CallbackValue::parse_callback(input)?),
@@ -126,6 +133,7 @@ impl Parse for CallbackInput {
             cardinality: cardinality
                 .ok_or_else(|| syn::Error::new(input.span(), "missing 'cardinality'"))?,
             item: item.ok_or_else(|| syn::Error::new(input.span(), "missing 'item'"))?,
+            item_entity,
             read,
             write,
             add,

@@ -24,7 +24,7 @@ pub mod value;
 pub use edge::*;
 
 pub use schedule_macro::{
-    accessor_field_properties, callback_field_properties, define_field, edge_field_properties,
+    accessor_field_properties, callback_field_properties, edge_field_properties,
 };
 
 // Re-export macros from value/macros.rs

@@ -20,7 +20,6 @@
 
 use crate::accessor_field_properties;
 use crate::callback_field_properties;
-use crate::define_field;
 use crate::edge::EdgeKind;
 use crate::entity::{EntityId, EntityType, EntityUuid, FieldSet};
 use crate::field::{CollectedNamedField, FieldDescriptor, NamedField};
@@ -35,7 +34,7 @@ use crate::tables::presenter::{
 };
 use crate::value::time::{parse_datetime, parse_duration, TimeRange};
 use crate::value::uniq_id::PanelUniqId;
-use crate::value::{FieldTypeItem, FieldValue, FieldValueItem, ValidationError};
+use crate::value::{FieldValue, FieldValueItem, ValidationError};
 use chrono::Duration;
 use serde::{Deserialize, Serialize};
 use std::collections::{HashMap, HashSet};
@@ -1054,101 +1053,107 @@ inventory::submit! { CollectedNamedField(&HALF_EDGE_UNCREDITED_PRESENTERS) }
 #[allow(deprecated)]
 pub use HALF_EDGE_UNCREDITED_PRESENTERS as FIELD_UNCREDITED_PRESENTERS;
 
-define_field! {
-    /// All presenters attached to this panel (credited and uncredited).
-    ///
-    /// Read-only union of credited and uncredited presenter lists.
-    static FIELD_PRESENTERS: FieldDescriptor<PanelEntityType>,
-    name: "presenters", display: "Presenters",
-    desc: "All presenters attached to this panel (credited and uncredited).",
-    aliases: &["panelists", "presenter"],
-    example: "[]",
-    order: 2700,
-    crdt: Derived, cardinality: list,
-    item: FieldTypeItem::EntityIdentifier(PresenterEntityType::TYPE_NAME),
-    read: |sched: &Schedule, id: PanelId| {
-        let credited_edge = HALF_EDGE_CREDITED_PRESENTERS.edge_to(&crate::tables::presenter::FIELD_PANELS);
-        let uncredited_edge = HALF_EDGE_UNCREDITED_PRESENTERS.edge_to(&crate::tables::presenter::FIELD_PANELS);
-        crate::schedule::combine_full_edges(sched, id, &[&credited_edge, &uncredited_edge]).ok().flatten()
-    }
-}
-
-define_field! {
-    /// Remove presenters from this panel.
-    ///
-    /// Removes each presenter from both credited and uncredited lists.
-    static FIELD_REMOVE_PRESENTERS: FieldDescriptor<PanelEntityType>,
-    name: "remove_presenters", display: "Remove Presenters",
-    desc: "Remove presenters from this panel (both credited and uncredited).",
-    aliases: &["remove_presenter"],
-    example: "[presenter_id]",
-    order: 2900,
-    crdt: Derived, cardinality: list,
-    item: FieldTypeItem::EntityIdentifier(PresenterEntityType::TYPE_NAME),
-    write: |sched: &mut Schedule, panel_id: PanelId, val: FieldValue| {
-        let ids = crate::schedule::field_value_to_entity_ids::<PresenterEntityType>(val)?;
-        let credited_edge = HALF_EDGE_CREDITED_PRESENTERS.edge_to(&crate::tables::presenter::FIELD_PANELS);
-        let uncredited_edge = HALF_EDGE_UNCREDITED_PRESENTERS.edge_to(&crate::tables::presenter::FIELD_PANELS);
-        for p in ids {
-            sched.edge_remove(panel_id, credited_edge, std::iter::once(p));
-            sched.edge_remove(panel_id, uncredited_edge, std::iter::once(p));
+/// All presenters attached to this panel (credited and uncredited).
+///
+/// Read-only union of credited and uncredited presenter lists.
+pub static FIELD_PRESENTERS: FieldDescriptor<PanelEntityType> = {
+    let (data, cb) = callback_field_properties! {
+        PanelEntityType,
+        name: "presenters",
+        display: "Presenters",
+        description: "All presenters attached to this panel (credited and uncredited).",
+        aliases: &["panelists", "presenter"],
+        cardinality: List,
+        item: EntityIdentifier,
+        item_entity: PresenterEntityType,
+        example: "[]",
+        order: 2700,
+        read: |sched: &Schedule, id: PanelId| {
+            let credited_edge = HALF_EDGE_CREDITED_PRESENTERS.edge_to(&crate::tables::presenter::FIELD_PANELS);
+            let uncredited_edge = HALF_EDGE_UNCREDITED_PRESENTERS.edge_to(&crate::tables::presenter::FIELD_PANELS);
+            crate::schedule::combine_full_edges(sched, id, &[&credited_edge, &uncredited_edge]).ok().flatten()
+        },
+        remove: |sched: &mut Schedule, panel_id: PanelId, val: FieldValue| {
+            let ids = crate::schedule::field_value_to_entity_ids::<PresenterEntityType>(val)?;
+            let credited_edge = HALF_EDGE_CREDITED_PRESENTERS.edge_to(&crate::tables::presenter::FIELD_PANELS);
+            let uncredited_edge = HALF_EDGE_UNCREDITED_PRESENTERS.edge_to(&crate::tables::presenter::FIELD_PANELS);
+            sched.edge_remove(panel_id, credited_edge, ids.iter().copied());
+            sched.edge_remove(panel_id, uncredited_edge, ids.iter().copied());
+            Ok(())
         }
-        Ok(())
+    };
+    FieldDescriptor {
+        data,
+        required: false,
+        edge_kind: EdgeKind::NonEdge,
+        cb,
     }
-}
+};
+inventory::submit! { CollectedNamedField(&FIELD_PRESENTERS) }
 
-define_field! {
-    /// Inclusive presenters for a panel.
-    ///
-    /// For each direct presenter `P` of this panel, the inclusive set contains:
-    /// - `P` itself
-    /// - All transitive groups of `P` (following forward homogeneous edges upward:
-    ///   `P → Group → ParentGroup → …`)
-    /// - All transitive members of `P` (following reverse homogeneous edges downward:
-    ///   `P ← Member ← SubMember ← …`)
-    ///
-    /// Crucially, the expansion does **not** cross boundaries: groups of members
-    /// and members of groups are not included. For example, if a panel lists
-    /// Team A, the result includes Team A, its parent groups (Division C, Corp D)
-    /// and its members (Alice, Bob) — but not Team B (a sibling in Division C),
-    /// and not Club E (a group of Alice's that has nothing to do with Team A).
-    static FIELD_INCLUSIVE_PRESENTERS: FieldDescriptor<PanelEntityType>,
-    name: "inclusive_presenters", display: "Inclusive Presenters",
-    desc: "Direct presenters + their transitive groups + their transitive members.",
-    aliases: &["inclusive_presenter"],
-    example: "[]",
-    order: 3000,
-    crdt: Derived, cardinality: list,
-    item: FieldTypeItem::EntityIdentifier(PresenterEntityType::TYPE_NAME),
-    read: |sched: &Schedule, panel_id: PanelId| {
-        let edge = FIELD_PRESENTERS.edge_to(&crate::tables::presenter::FIELD_PANELS);
-        let direct = sched
-            .connected_field_nodes(panel_id, edge)
-            .into_iter()
-            .map(|e| unsafe { PresenterId::new_unchecked(e.entity_uuid()) })
-            .collect::<Vec<PresenterId>>();
-        let mut result: HashSet<PresenterId> = HashSet::new();
-        for p in direct {
-            result.insert(p);
-            // Inclusive members of p: all members of p (following EDGE_MEMBERS from p)
-            for m in sched.inclusive_edges::<PresenterEntityType, PresenterEntityType>(
-                p,
-                EDGE_MEMBERS,
-            ) {
-                result.insert(m);
+/// Inclusive presenters for a panel.
+///
+/// For each direct presenter `P` of this panel, the inclusive set contains:
+/// - `P` itself
+/// - All transitive groups of `P` (following forward homogeneous edges upward:
+///   `P → Group → ParentGroup → …`)
+/// - All transitive members of `P` (following reverse homogeneous edges downward:
+///   `P ← Member ← SubMember ← …`)
+///
+/// Crucially, the expansion does **not** cross boundaries: groups of members
+/// and members of groups are not included. For example, if a panel lists
+/// Team A, the result includes Team A, its parent groups (Division C, Corp D)
+/// and its members (Alice, Bob) — but not Team B (a sibling in Division C),
+/// and not Club E (a group of Alice's that has nothing to do with Team A).
+pub static FIELD_INCLUSIVE_PRESENTERS: FieldDescriptor<PanelEntityType> = {
+    let (data, cb) = callback_field_properties! {
+        PanelEntityType,
+        name: "inclusive_presenters",
+        display: "Inclusive Presenters",
+        description: "Direct presenters + their transitive groups + their transitive members.",
+        aliases: &["inclusive_presenter"],
+        cardinality: List,
+        item: EntityIdentifier,
+        item_entity: PresenterEntityType,
+        example: "[]",
+        order: 3000,
+        read: |sched: &Schedule, panel_id: PanelId| {
+            let edge = FIELD_PRESENTERS.edge_to(&crate::tables::presenter::FIELD_PANELS);
+            let direct = sched
+                .connected_field_nodes(panel_id, edge)
+                .into_iter()
+                .map(|e| unsafe { PresenterId::new_unchecked(e.entity_uuid()) })
+                .collect::<Vec<PresenterId>>();
+            let mut result: HashSet<PresenterId> = HashSet::new();
+            for p in direct {
+                result.insert(p);
+                // Inclusive members of p: all members of p (following EDGE_MEMBERS from p)
+                for m in sched.inclusive_edges::<PresenterEntityType, PresenterEntityType>(
+                    p,
+                    EDGE_MEMBERS,
+                ) {
+                    result.insert(m);
+                }
+                // Inclusive groups of p: all groups p belongs to (following EDGE_GROUPS from p)
+                for g in sched.inclusive_edges::<PresenterEntityType, PresenterEntityType>(
+                    p,
+                    EDGE_GROUPS,
+                ) {
+                    result.insert(g);
+                }
             }
-            // Inclusive groups of p: all groups p belongs to (following EDGE_GROUPS from p)
-            for g in sched.inclusive_edges::<PresenterEntityType, PresenterEntityType>(
-                p,
-                EDGE_GROUPS,
-            ) {
-                result.insert(g);
-            }
+            let ids: Vec<PresenterId> = result.into_iter().collect();
+            Some(crate::schedule::entity_ids_to_field_value(ids))
         }
-        let ids: Vec<PresenterId> = result.into_iter().collect();
-        Some(crate::schedule::entity_ids_to_field_value(ids))
+    };
+    FieldDescriptor {
+        data,
+        required: false,
+        edge_kind: EdgeKind::NonEdge,
+        cb,
     }
-}
+};
+inventory::submit! { CollectedNamedField(&FIELD_INCLUSIVE_PRESENTERS) }
 
 pub static HALF_EDGE_EVENT_ROOMS: crate::field::FieldDescriptor<PanelEntityType> = {
     let (data, cb, edge_kind) = crate::edge_field_properties! {
@@ -1226,37 +1231,48 @@ pub const EDGE_PANEL_TYPE: crate::edge::FullEdge = crate::edge::FullEdge {
 
 // ── Read-only computed fields ─────────────────────────────────────────────────────
 
-define_field! {
-    /// Hotel rooms for this panel (traverses event_rooms => hotel room edges).
-    static FIELD_HOTEL_ROOMS: FieldDescriptor<PanelEntityType>,
-    name: "hotel_rooms", display: "Hotel Rooms",
-    desc: "Hotel rooms where this panel takes place (traverses event rooms).",
-    aliases: &["hotel_room"],
-    example: "[]",
-    order: 3500,
-    crdt: Derived, cardinality: list,
-    item: FieldTypeItem::EntityIdentifier(HotelRoomEntityType::TYPE_NAME),
-    read: |sched: &Schedule, id: PanelId| {
-        let event_edge = HALF_EDGE_EVENT_ROOMS.edge_to(&crate::tables::event_room::HALF_EDGE_PANELS);
-        let event_room_ids = sched
-            .connected_field_nodes(id, event_edge)
-            .into_iter()
-            .map(|e| unsafe { EventRoomId::new_unchecked(e.entity_uuid()) })
-            .collect::<Vec<EventRoomId>>();
-        let mut hotel_room_ids: HashSet<HotelRoomId> = HashSet::new();
-        for event_room_id in event_room_ids {
-            let hotel_edge = crate::tables::event_room::HALF_EDGE_HOTEL_ROOMS.edge_to(&crate::tables::hotel_room::HALF_EDGE_EVENT_ROOMS);
-            let rooms = sched
-                .connected_field_nodes(event_room_id, hotel_edge)
+/// Hotel rooms for this panel (traverses event_rooms => hotel room edges).
+pub static FIELD_HOTEL_ROOMS: FieldDescriptor<PanelEntityType> = {
+    let (data, cb) = callback_field_properties! {
+        PanelEntityType,
+        name: "hotel_rooms",
+        display: "Hotel Rooms",
+        description: "Hotel rooms where this panel takes place (traverses event rooms).",
+        aliases: &["hotel_room"],
+        cardinality: List,
+        item: EntityIdentifier,
+        item_entity: HotelRoomEntityType,
+        example: "[]",
+        order: 3500,
+        read: |sched: &Schedule, id: PanelId| {
+            let event_edge = HALF_EDGE_EVENT_ROOMS.edge_to(&crate::tables::event_room::HALF_EDGE_PANELS);
+            let event_room_ids = sched
+                .connected_field_nodes(id, event_edge)
                 .into_iter()
-                .map(|e| unsafe { HotelRoomId::new_unchecked(e.entity_uuid()) })
-                .collect::<Vec<HotelRoomId>>();
-            hotel_room_ids.extend(rooms);
+                .map(|e| unsafe { EventRoomId::new_unchecked(e.entity_uuid()) })
+                .collect::<Vec<EventRoomId>>();
+            let mut hotel_room_ids: HashSet<HotelRoomId> = HashSet::new();
+            for event_room_id in event_room_ids {
+                let hotel_edge = crate::tables::event_room::HALF_EDGE_HOTEL_ROOMS.edge_to(&crate::tables::hotel_room::HALF_EDGE_EVENT_ROOMS);
+                let rooms = sched
+                    .connected_field_nodes(event_room_id, hotel_edge)
+                    .into_iter()
+                    .map(|e| unsafe { HotelRoomId::new_unchecked(e.entity_uuid()) })
+                    .collect::<Vec<HotelRoomId>>();
+                hotel_room_ids.extend(rooms);
+            }
+            let hotel_room_ids: Vec<HotelRoomId> = hotel_room_ids.into_iter().collect();
+            Some(crate::schedule::entity_ids_to_field_value(hotel_room_ids))
         }
-        let hotel_room_ids: Vec<HotelRoomId> = hotel_room_ids.into_iter().collect();
-        Some(crate::schedule::entity_ids_to_field_value(hotel_room_ids))
+    };
+    FieldDescriptor {
+        data,
+        required: false,
+        edge_kind: EdgeKind::NonEdge,
+        cb,
     }
-}
+};
+inventory::submit! { CollectedNamedField(&FIELD_HOTEL_ROOMS) }
 
 // ── Credits computation ───────────────────────────────────────────────────────
 
@@ -1642,7 +1658,7 @@ mod tests {
     fn field_set_contains_all_declared_fields() {
         let fs = PanelEntityType::field_set();
         let count = fs.fields().count();
-        assert_eq!(count, 36);
+        assert_eq!(count, 35);
     }
 
     #[test]

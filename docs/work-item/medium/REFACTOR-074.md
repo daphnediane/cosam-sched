@@ -26,7 +26,7 @@ This refactor adds the edge field trait hierarchy and splits edge fields out of 
 - Removing `target_field` payload from `CrdtFieldType::EdgeOwner` (now in `EdgeKind`)
 - Moving `exclusive_with` from macro closures into `EdgeKind::Owner`
 - Updating `FieldSet<E>` to hold `dyn TypedField<E>`
-- Updating the `define_field!` macro to emit `EdgeDescriptor` for edge fields
+- Switching edge field statics from `FieldDescriptor<E>` to `EdgeDescriptor<E>`
 
 ## Implementation Details
 
@@ -45,7 +45,6 @@ update schedule.rs to use `HalfEdge` trait, update tests. One commit.
 - Added `HalfEdge` trait extending `NamedField` with `edge_kind()` and `edge_id()`
 - Added `EdgeDescriptor<E>` struct for edge fields
 - Removed `EdgeOwner` and `EdgeTarget` variants from `CrdtFieldType` (all edge fields now use `Derived`)
-- Updated `define_field!` macro to emit `EdgeDescriptor` for edge fields
 - Added derives (`Debug`, `Clone`, `Copy`, `PartialEq`, `Eq`) to `CrdtFieldType`
 - Added `TypedField<E>` blanket supertrait
 - Added `TypedHalfEdge<E>` blanket trait

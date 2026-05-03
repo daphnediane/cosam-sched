@@ -329,30 +329,51 @@ collects them. Use multiples of 100 (0, 100, 200, ...) to leave room for future 
 Declared as `static` values, e.g.:
 
 ```rust
-static FIELD_PANEL_NAME: FieldDescriptor<PanelEntityType> = FieldDescriptor {
-    name: "name",
-    display: "Panel Name",
-    description: "The title of the panel.",
-    aliases: &[],
-    required: true,
-    crdt_type: CrdtFieldType::Scalar,
-    field_type: FieldType::Single(FieldTypeItem::String),
-    example: "Introduction to Cosplay",
-    order: 0,
-    read_fn: Some(ReadFn::Bare(|d| Some(FieldValue::String(d.data.name.clone())))),
-    write_fn: Some(WriteFn::Bare(|d, v| { d.data.name = v.into_string()?; Ok(()) })),
+// Stored field using accessor_field_properties!:
+pub static FIELD_PANEL_NAME: FieldDescriptor<PanelEntityType> = {
+    let (data, cb) = accessor_field_properties! {
+        PanelEntityType,
+        panel_name,
+        name: "panel_name",
+        display: "Panel Name",
+        description: "The title of the panel.",
+        aliases: &[],
+        cardinality: Single,
+        item: String,
+        example: "Introduction to Cosplay",
+        order: 0,
+    };
+    FieldDescriptor {
+        data,
+        required: true,
+        edge_kind: EdgeKind::NonEdge,
+        cb,
+    }
 };
+inventory::submit! { CollectedNamedField(&FIELD_PANEL_NAME) }
 
-// Edge field (CRDT owner, no direct write fn — write via add/remove helpers):
-define_field! {
-    static FIELD_PRESENTERS: FieldDescriptor<PanelEntityType>,
-    edge: ro, target: PresenterEntityType, target_field: &crate::tables::presenter::FIELD_PANELS, owner,
-    name: "presenters", display: "Presenters",
-    desc: "All presenters attached to this panel (credited and uncredited).",
-    aliases: &["panelists", "presenter"],
-    example: "[]",
-    order: 2700
-}
+// Edge field using edge_field_properties!:
+pub static HALF_EDGE_CREDITED_PRESENTERS: FieldDescriptor<PanelEntityType> = {
+    let (data, cb, edge_kind) = edge_field_properties! {
+        PanelEntityType,
+        target: PresenterEntityType,
+        target_field: &crate::tables::presenter::HALF_EDGE_PANELS,
+        exclusive_with: &HALF_EDGE_UNCREDITED_PRESENTERS,
+        name: "credited_presenters",
+        display: "Credited Presenters",
+        description: "Presenters credited on this panel.",
+        aliases: &["credited_panelists", "credited_presenter"],
+        example: "[presenter_id]",
+        order: 2710,
+    };
+    FieldDescriptor {
+        data,
+        required: false,
+        edge_kind,
+        cb,
+    }
+};
+inventory::submit! { CollectedNamedField(&HALF_EDGE_CREDITED_PRESENTERS) }
 ```
 
 ### Field descriptors declarations
@@ -502,9 +523,8 @@ inventory::submit! { CollectedNamedField(&FIELD_CODE) }
 **When to use each macro:**
 
 - Use `accessor_field_properties!` for stored fields that map directly to `CommonData` fields
-- Use `edge_field_properties!` for edge relationship fields (during migration to `EdgeDescriptor<E>`)
+- Use `edge_field_properties!` for edge relationship fields
 - Use `callback_field_properties!` for computed fields with custom read/write logic
-- Use `define_field!` only for **pseudo edge fields** — computed fields that behave like edges but don't use the standard edge mechanism (e.g., `FIELD_PANELS` union fields)
 
 **Callback support:**
 
@@ -520,78 +540,6 @@ The `callback_field_properties!` macro supports both closures and enum variants 
 
 The macro derives `field_type` and `crdt_type` from `cardinality` and `item` automatically,
 so these don't need to be specified explicitly.
-
-### Legacy: `define_field!` for pseudo edge fields
-
-The `define_field!` proc-macro is **legacy** and retained only for **pseudo edge fields** —
-computed fields that behave like edges but don't use the standard edge mechanism.
-These are fields like `FIELD_PANELS` (union of credited and uncredited presenters)
-and partition helpers like `FIELD_ADD_CREDITED_PANELS`.
-
-For all other fields, prefer the hand-written descriptor macros:
-
-- `accessor_field_properties!` for stored fields
-- `edge_field_properties!` for edge relationship fields  
-- `callback_field_properties!` for computed fields with custom logic
-
-The `define_field!` macro supports three declaration modes (all legacy):
-
-**Stored fields** (scalar fields backed by `CommonData` slots):
-
-```rust
-define_field! {
-    static FIELD_NAME: FieldDescriptor<PresenterEntityType>,
-    accessor: name, required, as: AsString,
-    name: "name", display: "Name",
-    desc: "Presenter or group display name.",
-    aliases: &["presenter_name", "display_name"],
-    example: "Alice Example",
-    order: 0
-}
-```
-
-**Edge fields** (relationship fields):
-
-```rust
-define_field! {
-    static FIELD_MEMBERS: FieldDescriptor<PresenterEntityType>,
-    edge: rw, target: PresenterEntityType, target_field: &FIELD_GROUPS, owner,
-    name: "members", display: "Members",
-    desc: "Members of this group (empty for individuals).",
-    aliases: &["group_members"],
-    example: "[]",
-    order: 800
-}
-```
-
-**Custom fields** (computed fields with explicit read/write closures):
-
-```rust
-define_field! {
-    static FIELD_RANK: FieldDescriptor<PresenterEntityType>,
-    name: "rank", display: "Rank",
-    desc: "Presenter classification tier.",
-    aliases: &["classification"],
-    example: "guest",
-    order: 100,
-    crdt: Scalar, cardinality: optional, item: FieldTypeItem::String,
-    read: |d: &PresenterInternalData| {
-        Some(field_value!(d.data.rank.as_str()))
-    },
-    write: |d: &mut PresenterInternalData, v: FieldValue| {
-        d.data.rank = PresenterRank::parse(&v.into_string()?);
-        Ok(())
-    }
-}
-```
-
-The `accessor:` syntax for stored fields derives the field type and read/write
-functions automatically from the `as:` marker trait (`AsString`, `AsBoolean`,
-`AsInteger`, `AsText`). The `edge:` syntax generates the appropriate edge-backed
-read/write closures. Custom fields explicitly provide their own closures.
-
-See `schedule-macro` crate documentation for the full grammar and all supported
-options.
 
 ### Edge ownership via EdgeDescriptor (REFACTOR-074)
 
@@ -641,7 +589,7 @@ any edge — even when a Target half-edge is shared by multiple Owners
 Deserialization calls `registry::get_full_edge_by_owner(owner_key)` for an O(1) lookup
 from the six-entry `FULL_EDGE_INDEX`, then flips if `near_is_owner` is `false`.
 
-**Presenter partition fields on Panel** use `define_field!` with `WriteFn::Schedule`
+**Presenter partition fields on Panel** use `callback_field_properties!` with `WriteFn::Schedule`
 and call `field_value_to_entity_ids` (the standard edge-parsing helper) for input
 normalization, then `edge_add` / `edge_remove`:
 
@@ -763,28 +711,31 @@ For computed fields that require Schedule access to traverse edges or access oth
 entities, use `ReadFn::Schedule` with a closure that receives `(&Schedule, EntityId<E>)`:
 
 ```rust
-define_field!(
-    static FIELD_CREDITS: FieldDescriptor<PanelEntityType> = FieldDescriptor {
+// Use callback_field_properties! for computed fields with Schedule access
+pub static FIELD_CREDITS: FieldDescriptor<PanelEntityType> = {
+    let (data, cb) = callback_field_properties! {
+        PanelEntityType,
         name: "credits",
         display: "Credits",
         description: "Formatted presenter credit strings for display.",
         aliases: &["credit"],
-        required: false,
-        crdt_type: CrdtFieldType::Derived,
-        field_type: FieldType(FieldCardinality::List, FieldTypeItem::String),
+        cardinality: List,
+        item: String,
         example: "[\"John Doe\", \"Group Name (Alice, Bob)\"]",
         order: 3600,
-        read_fn: Some(ReadFn::Schedule(
-            |sched: &Schedule, id: PanelId| {
-                // Access schedule to traverse edges, look up entities, etc.
-                let edge = FIELD_PRESENTERS.edge_to(&FIELD_PANELS);
-                let presenter_ids = sched.connected_field_nodes::<PresenterEntityType>(id, edge);
-                // ... compute and return FieldValue
-            },
-        )),
-        write_fn: None,  // Read-only
+        read: |sched: &Schedule, id: PanelId| {
+            // Access schedule to traverse edges, look up entities, etc.
+            // ... compute and return FieldValue
+            None
+        },
+    };
+    FieldDescriptor {
+        data,
+        required: false,
+        edge_kind: EdgeKind::NonEdge,
+        cb,
     }
-);
+};
 ```
 
 This pattern is used for:
@@ -804,7 +755,7 @@ omitting fields from the registry.
 pub struct CollectedNamedField(pub &'static dyn NamedField);
 ```
 
-The `define_field!` proc-macro automatically generates the `inventory::submit!` call for each field descriptor:
+Field descriptors must explicitly call `inventory::submit!` after definition:
 
 ```rust
 inventory::submit! { CollectedNamedField(&FIELD_NAME) }
@@ -833,7 +784,7 @@ primary key used by the global registry and `FullEdge` serialization. The `std::
 supertrait enables safe downcasting via `downcast_ref`. `try_as_half_edge()` upcasts to
 `Option<&dyn HalfEdge>` for fields that participate in edge relationships.
 
-**Inventory registration** - The `define_field!` proc-macro automatically generates
+**Inventory registration** - Field descriptors must explicitly call
 the required `inventory::submit!` call, ensuring every field descriptor is registered
 in the global `CollectedNamedField` registry.
 
@@ -1146,8 +1097,7 @@ rollback semantics.
 ### define_entity_builder! macro
 
 `macro_rules!` macro in `field_macros.rs` that generates a typed builder with
-`with_*` setters per field. This is the only remaining `macro_rules!` macro in
-`field_macros.rs` after the migration to the `define_field!` proc-macro. The generated builder:
+`with_*` setters per field. The generated builder:
 
 - Collects field updates in a `Vec<(FieldRef<E>, FieldValue)>`
 - Delegates to `build_entity` for seed, write, validate, and rollback

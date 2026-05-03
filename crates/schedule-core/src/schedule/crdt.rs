@@ -435,18 +435,19 @@ impl Schedule {
                 let from = unsafe {
                     crate::entity::RuntimeEntityId::new_unchecked(owner_uuid, owner_type)
                 };
-                for target_uuid in targets {
-                    let to = unsafe {
+                let edge = FullEdge {
+                    near: batch.owner_field,
+                    far: batch.target_field,
+                };
+                let targets: Vec<crate::entity::RuntimeEntityId> = targets
+                    .into_iter()
+                    .map(|target_uuid| unsafe {
                         crate::entity::RuntimeEntityId::new_unchecked(target_uuid, target_type)
-                    };
-                    let edge = FullEdge {
-                        near: batch.owner_field,
-                        far: batch.target_field,
-                    };
-                    self.edges
-                        .add_edge(from, edge, std::iter::once(to))
-                        .expect("edge type validation failed");
-                }
+                    })
+                    .collect();
+                self.edges
+                    .add_edge(from, edge, targets)
+                    .expect("edge type validation failed");
             }
         }
     }

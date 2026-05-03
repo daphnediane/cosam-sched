@@ -15,7 +15,7 @@ multi-user offline collaborative editing via CRDT-backed storage.
 ```text
 crates/
   schedule-core/   — Entity/field system, data model, schedule container
-  schedule-macro/  — Unified field-declaration proc-macro (define_field!)
+  schedule-macro/  — Field and edge descriptor proc-macros
 apps/
   cosam-convert/   — Format conversion (XLSX → JSON, JSON → JSON, etc.)
   cosam-modify/    — CLI schedule editing tool
@@ -25,9 +25,9 @@ apps/
 `schedule-core` is the single library crate for all data model code. Application
 crates depend on it and add their own I/O, UI, and format-specific logic.
 
-`schedule-macro` provides a unified `define_field!` function-like proc-macro that
-generates `FieldDescriptor` statics for all field types (stored, edge, and custom).
-See `field-system.md` for the field declaration syntax.
+`schedule-macro` provides function-like proc-macros for generating field and edge
+descriptors: `accessor_field_properties!`, `edge_field_properties!`, and
+`callback_field_properties!`. See `field-system.md` for the field declaration syntax.
 
 ## Entity / Field System
 
@@ -72,9 +72,8 @@ name, downcasts each match to the concrete `FieldDescriptor<E>` type via
 iteration order, and builds the lookup maps.
 
 This eliminates manual `FieldSet::new(&[...])` lists and prevents accidentally
-omitting fields from the registry. Hand-written descriptors use the
-`define_field!` macro to bundle the `static` declaration with the required
-`inventory::submit!` call.
+omitting fields from the registry. All field descriptors must explicitly call
+`inventory::submit!` after the singleton definition to register the field.
 
 ### Type-level field enums
 
@@ -401,8 +400,8 @@ GUI framework (`iced` vs `GPUI`) decision is deferred to Phase 6.
 
 - **No proc-macro for data structs**: `<E>CommonData` and `<E>InternalData`
   declarations are hand-written and visible. The `schedule-macro` crate provides
-  a `define_field!` function-like proc-macro for generating `FieldDescriptor`
-  statics, but it does not generate struct definitions.
+  function-like proc-macros for generating `FieldDescriptor` statics, but it does
+  not generate struct definitions.
 - **Single library crate**: `schedule-core` replaces the three-crate split
   (`schedule-field` + `schedule-data` + `schedule-macro`) to eliminate the
   layer violations that plagued v10-try3.

@@ -17,9 +17,11 @@ pub fn expand(inp: &CallbackInput) -> syn::Result<TokenStream> {
     let common = &inp.common;
     let cardinality = &inp.cardinality;
     let item = &inp.item;
+    let item_entity = inp.item_entity.as_ref();
 
     // Generate field_type and marker_trait using common helpers
-    let field_type = common_output::generate_field_type(cardinality, item)?;
+    let field_type =
+        common_output::generate_field_type_with_entity(cardinality, item, item_entity)?;
     let marker_trait = common_output::generate_marker_trait(item)?;
 
     // Generate crdt_type based on cardinality and item type
