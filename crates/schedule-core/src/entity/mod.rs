@@ -60,7 +60,7 @@ pub use crate::field::set::FieldSet;
 // ── EntityType trait ──────────────────────────────────────────────────────────
 
 /// Core trait implemented by every entity type singleton struct.
-pub trait EntityType: 'static + Sized {
+pub trait EntityType: 'static + Sized + Send + Sync {
     /// Runtime storage struct; the field system operates on this.
     type InternalData: Clone + Send + Sync + fmt::Debug + 'static;
 

@@ -507,21 +507,24 @@ inventory::submit! { CollectedField(&FIELD_DISPLAY_NAME) }
 
 // Panels of this type — reverse heterogeneous edge from Panel → PanelType.
 pub static HALF_EDGE_PANELS: crate::edge::HalfEdgeDescriptor<PanelTypeEntityType> = {
-    let (data, cb, edge_kind) = crate::edge_field_properties! {
-        PanelTypeEntityType,
-        target: PanelEntityType,
-        source_fields: &[&panel::HALF_EDGE_PANEL_TYPE],
-        name: "panels",
-        display: "Panels",
-        description: "Panels of this type.",
-        aliases: &[],
-        example: "[]",
-        order: 1200,
-    };
     crate::edge::HalfEdgeDescriptor {
-        data,
-        edge_kind,
-        cb,
+        data: crate::field::CommonFieldData {
+            name: "panels",
+            display: "Panels",
+            description: "Panels of this type.",
+            aliases: &[],
+            field_type: crate::value::FieldType(
+                crate::value::FieldCardinality::List,
+                crate::value::FieldTypeItem::EntityIdentifier(PanelEntityType::TYPE_NAME),
+            ),
+            crdt_type: crate::crdt::CrdtFieldType::List,
+            example: "[]",
+            order: 1200,
+        },
+        edge_kind: crate::edge::EdgeKind::Target {
+            source_fields: &[&panel::HALF_EDGE_PANEL_TYPE],
+        },
+        _phantom: std::marker::PhantomData,
     }
 };
 inventory::submit! { CollectedHalfEdge(&HALF_EDGE_PANELS) }

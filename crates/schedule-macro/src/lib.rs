@@ -6,13 +6,10 @@
 
 //! Proc-macro support crate for `schedule-core`.
 //!
-//! Provides function-like proc-macros for generating field and edge descriptors:
+//! Provides function-like proc-macros for generating field descriptors:
 //!
 //! - [`accessor_field_properties`] — generates `(CommonFieldData, FieldCallbacks)`
 //!   tuple for accessor-based fields without custom callbacks.
-//!
-//! - [`edge_field_properties`] — generates `(CommonFieldData, FieldCallbacks, EdgeKind)`
-//!   tuple for edge fields without custom callbacks.
 //!
 //! - [`callback_field_properties`] — generates `(CommonFieldData, FieldCallbacks)`
 //!   tuple for fields with custom callbacks (closures or enum variants).
@@ -21,8 +18,6 @@ mod callback_input;
 mod callback_output;
 mod common_input;
 mod common_output;
-mod edge_input;
-mod edge_output;
 mod stored_input;
 mod stored_output;
 
@@ -91,83 +86,6 @@ pub fn accessor_field_properties(input: TokenStream) -> TokenStream {
     }
 }
 
-/// Generate `CommonFieldData`, `FieldCallbacks`, and `EdgeKind` for an edge field.
-///
-/// Returns a `(CommonFieldData, FieldCallbacks<E>, EdgeKind)` tuple containing
-/// the field metadata, read/write/add/remove callbacks, and edge ownership information.
-/// The caller constructs the `FieldDescriptor` to control other descriptor-level
-/// properties.
-///
-/// Supports both owner edges (with optional exclusivity) and target edges (with
-/// multiple source fields).
-///
-/// # Owner edge syntax
-///
-/// ```ignore
-/// let (data, cb, edge_kind) = edge_field_properties! {
-///     EntityType,
-///     target: TargetEntityType,
-///     target_field: &other_entity::FIELD_OTHER,
-///     [exclusive_with: &FIELD_SIBLING,]
-///     name: "field_name",
-///     display: "Field Name",
-///     description: "Description text",
-///     aliases: &["alias1", "alias2"],
-///     example: "example value",
-///     order: 100,
-/// };
-/// ```
-///
-/// # Target edge syntax
-///
-/// ```ignore
-/// let (data, cb, edge_kind) = edge_field_properties! {
-///     EntityType,
-///     target: TargetEntityType,
-///     source_fields: &[&other_entity::FIELD_OWNER1, &other_entity::FIELD_OWNER2],
-///     name: "field_name",
-///     display: "Field Name",
-///     description: "Description text",
-///     aliases: &["alias1", "alias2"],
-///     example: "example value",
-///     order: 100,
-/// };
-/// ```
-///
-/// # Owner edge example
-///
-/// ```ignore
-/// pub static FIELD_CREDITED_PRESENTERS: FieldDescriptor<PanelEntityType> = {
-///     let (data, cb, edge_kind) = edge_field_properties! {
-///         PanelEntityType,
-///         target: PresenterEntityType,
-///         target_field: &presenter::HALF_EDGE_PANELS,
-///         exclusive_with: &FIELD_UNCREDITED_PRESENTERS,
-///         name: "credited_presenters",
-///         display: "Credited Presenters",
-///         description: "Presenters credited on this panel.",
-///         aliases: &["credited_panelists", "credited_presenter"],
-///         example: "[presenter_id]",
-///         order: 2710,
-///     };
-///     FieldDescriptor {
-///         data,
-///         required: false,
-///         edge_kind,
-///         cb,
-///     }
-/// };
-/// inventory::submit! { CollectedNamedField(&FIELD_CREDITED_PRESENTERS) }
-/// ```
-#[proc_macro]
-pub fn edge_field_properties(input: TokenStream) -> TokenStream {
-    let parsed = syn::parse_macro_input!(input as edge_input::EdgeInput);
-    match edge_output::expand(&parsed) {
-        Ok(ts) => ts.into(),
-        Err(e) => e.to_compile_error().into(),
-    }
-}
-
 /// Generate `CommonFieldData` and `FieldCallbacks` with custom callbacks.
 ///
 /// Returns a `(CommonFieldData, FieldCallbacks<E>)` tuple containing both
@@ -176,8 +94,7 @@ pub fn edge_field_properties(input: TokenStream) -> TokenStream {
 /// properties.
 ///
 /// This macro is useful when you need custom callback behavior that differs
-/// from the auto-generated behavior of `accessor_field_properties!` or
-/// `edge_field_properties!`.
+/// from the auto-generated behavior of `accessor_field_properties!`.
 ///
 /// # Syntax
 ///
@@ -210,12 +127,10 @@ pub fn edge_field_properties(input: TokenStream) -> TokenStream {
 /// - Remove closures: 2 args → `RemoveFn::Bare`, 3 args → `RemoveFn::Schedule`
 ///
 /// **Enum variants**: Use directly without wrapping, e.g.:
-/// - `ReadFn::ReadEdge`
-/// - `WriteFn::WriteEdge`
-/// - `WriteFn::AddEdge { edge, exclusive_with }`
-/// - `WriteFn::RemoveEdge { edge }`
-/// - `AddFn::AddEdge`
-/// - `RemoveFn::RemoveEdge`
+/// - `ReadFn::ReadEdges { edges }`
+/// - `WriteFn::Schedule`
+/// - `AddFn::Schedule`
+/// - `RemoveFn::Schedule`
 ///
 /// # Example
 ///
@@ -231,8 +146,8 @@ pub fn edge_field_properties(input: TokenStream) -> TokenStream {
 ///         item: String,
 ///         example: "example",
 ///         order: 100,
-///         read: ReadFn::ReadEdge,
-///         write: WriteFn::WriteEdge,
+///         read: ReadFn::Schedule(|sched, id| { … }),
+///         write: WriteFn::Schedule(|sched, id, val| { … }),
 ///     };
 ///     FieldDescriptor {
 ///         data,

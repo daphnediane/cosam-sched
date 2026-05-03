@@ -40,8 +40,6 @@ pub enum ReadFn<E: EntityType> {
     Schedule(fn(&Schedule, EntityId<E>) -> Option<FieldValue>),
     /// Get Entities connected to this entity via a list of full edges.
     ReadEdges { edges: &'static [&'static FullEdge] },
-    /// Read our edge -- to do remove and add to EdgeReadFn
-    ReadEdge,
 }
 
 // ── WriteFn<E> ────────────────────────────────────────────────────────────────
@@ -57,19 +55,6 @@ pub enum WriteFn<E: EntityType> {
     Bare(fn(&mut E::InternalData, FieldValue) -> Result<(), FieldError>),
     /// Schedule-aware write — used for edge mutations (e.g. `add_presenters`).
     Schedule(fn(&mut Schedule, EntityId<E>, FieldValue) -> Result<(), FieldError>),
-    /// Add to an edge where both near and far are specified (for other fields)
-    ///
-    /// TODO: This should be removed in favor of AddFn
-    AddEdge {
-        edge: FullEdge,
-        exclusive_with: Option<FullEdge>,
-    },
-    /// Remove from an edge where both near and far are specified (for other fields)
-    ///
-    /// TODO: This should be removed in favor of RemoveFn
-    RemoveEdge { edge: FullEdge },
-    /// Write our edge -- to do remove and add to EdgeWriteFn
-    WriteEdge,
 }
 
 // ── AddFn<E> ────────────────────────────────────────────────────────────────
@@ -85,8 +70,6 @@ pub enum AddFn<E: EntityType> {
     Bare(fn(&mut E::InternalData, FieldValue) -> Result<(), FieldError>),
     /// Schedule-aware append — used for edge mutations (e.g. `add_presenters`).
     Schedule(fn(&mut Schedule, EntityId<E>, FieldValue) -> Result<(), FieldError>),
-    /// Add to our edge
-    AddEdge,
 }
 
 // ── RemoveFn<E> ────────────────────────────────────────────────────────────────
@@ -102,6 +85,4 @@ pub enum RemoveFn<E: EntityType> {
     Bare(fn(&mut E::InternalData, FieldValue) -> Result<(), FieldError>),
     /// Schedule-aware remove — used for edge mutations (e.g. `add_presenters`).
     Schedule(fn(&mut Schedule, EntityId<E>, FieldValue) -> Result<(), FieldError>),
-    /// Remove from our edge
-    RemoveEdge,
 }

@@ -116,23 +116,6 @@ impl<E: EntityType> ReadableField<E> for FieldDescriptor<E> {
                 // Read entities connected via multiple full edges
                 crate::schedule::combine_full_edges(schedule, id, edges)
             }
-            Some(ReadFn::ReadEdge) => {
-                // Read entities connected via this field's own edge relationship
-                // This requires the field to implement HalfEdge
-                match self.edge_kind {
-                    crate::edge::EdgeKind::Owner { .. } | crate::edge::EdgeKind::Target { .. } => {
-                        // SAFETY: self is a &'static FieldDescriptor<E> (field descriptors are static singletons).
-                        let static_field: &'static dyn HalfEdge =
-                            unsafe { std::mem::transmute(self as &dyn HalfEdge) };
-                        crate::schedule::read_edge(schedule, id, static_field)
-                    }
-                    crate::edge::EdgeKind::NonEdge => Err(FieldError::Conversion(
-                        crate::value::ConversionError::InvalidEdge {
-                            reason: "NonEdge fields cannot use ReadEdge".to_string(),
-                        },
-                    )),
-                }
-            }
         }
     }
 }
@@ -160,27 +143,6 @@ impl<E: EntityType> WritableField<E> for FieldDescriptor<E> {
                     f(data, value)?;
                 }
                 WriteFn::Schedule(f) => f(schedule, id, value)?,
-                WriteFn::AddEdge {
-                    edge,
-                    exclusive_with,
-                } => crate::schedule::add_edge_helper_field(
-                    schedule,
-                    id,
-                    edge,
-                    exclusive_with.as_ref(),
-                    value,
-                )?,
-                WriteFn::RemoveEdge { edge } => {
-                    crate::schedule::remove_edge_helper_field(schedule, id, edge, value)?
-                }
-                WriteFn::WriteEdge => {
-                    // Set the edges from this entity to the target entities specified in value
-                    // SAFETY: self is a &'static EdgeDescriptor<E> (edge descriptors are static singletons).
-                    let static_field: &'static dyn HalfEdge =
-                        unsafe { std::mem::transmute(self as &dyn HalfEdge) };
-                    crate::schedule::edge::write_edge(schedule, id, static_field, value)?;
-                    return Ok(());
-                }
             },
         }
 
@@ -229,12 +191,6 @@ impl<E: EntityType> AddableField<E> for FieldDescriptor<E> {
                     f(data, value)
                 }
                 crate::field::callback::AddFn::Schedule(f) => f(schedule, id, value),
-                crate::field::callback::AddFn::AddEdge => {
-                    // SAFETY: self is a &'static FieldDescriptor<E> (field descriptors are static singletons).
-                    let static_field: &'static dyn crate::edge::HalfEdge =
-                        unsafe { std::mem::transmute(self as &dyn crate::edge::HalfEdge) };
-                    crate::schedule::add_edge(schedule, id, static_field, value)
-                }
             },
         }
     }
@@ -261,12 +217,6 @@ impl<E: EntityType> RemovableField<E> for FieldDescriptor<E> {
                     f(data, value)
                 }
                 crate::field::callback::RemoveFn::Schedule(f) => f(schedule, id, value),
-                crate::field::callback::RemoveFn::RemoveEdge => {
-                    // SAFETY: self is a &'static FieldDescriptor<E> (field descriptors are static singletons).
-                    let static_field: &'static dyn crate::edge::HalfEdge =
-                        unsafe { std::mem::transmute(self as &dyn crate::edge::HalfEdge) };
-                    crate::schedule::remove_edge(schedule, id, static_field, value)
-                }
             },
         }
     }

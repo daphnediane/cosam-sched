@@ -210,21 +210,24 @@ pub static FIELD_HOTEL_ROOM_NAME: crate::field::FieldDescriptor<HotelRoomEntityT
 inventory::submit! { CollectedField(&FIELD_HOTEL_ROOM_NAME) }
 
 pub static HALF_EDGE_EVENT_ROOMS: crate::edge::HalfEdgeDescriptor<HotelRoomEntityType> = {
-    let (data, cb, edge_kind) = crate::edge_field_properties! {
-        HotelRoomEntityType,
-        target: EventRoomEntityType,
-        source_fields: &[&event_room::HALF_EDGE_HOTEL_ROOMS],
-        name: "event_rooms",
-        display: "Event Rooms",
-        description: "Event rooms contained within this hotel room.",
-        aliases: &["event_room"],
-        example: "[]",
-        order: 100,
-    };
     crate::edge::HalfEdgeDescriptor {
-        data,
-        edge_kind,
-        cb,
+        data: crate::field::CommonFieldData {
+            name: "event_rooms",
+            display: "Event Rooms",
+            description: "Event rooms contained within this hotel room.",
+            aliases: &["event_room"],
+            field_type: crate::value::FieldType(
+                crate::value::FieldCardinality::List,
+                crate::value::FieldTypeItem::EntityIdentifier(EventRoomEntityType::TYPE_NAME),
+            ),
+            crdt_type: crate::crdt::CrdtFieldType::List,
+            example: "[]",
+            order: 100,
+        },
+        edge_kind: crate::edge::EdgeKind::Target {
+            source_fields: &[&event_room::HALF_EDGE_HOTEL_ROOMS],
+        },
+        _phantom: std::marker::PhantomData,
     }
 };
 inventory::submit! { CollectedHalfEdge(&HALF_EDGE_EVENT_ROOMS) }

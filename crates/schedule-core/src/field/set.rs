@@ -115,7 +115,12 @@ impl<E: EntityType> ResolvedRef<E> {
     ) -> Result<Option<FieldValue>, FieldError> {
         match self {
             Self::Field(d) => d.read(id, schedule),
-            Self::HalfEdge(d) => d.read(id, schedule),
+            Self::HalfEdge(d) => {
+                // SAFETY: d is a &'static HalfEdgeDescriptor<E> (edge descriptors are static singletons).
+                let static_field: &'static dyn crate::edge::HalfEdge =
+                    unsafe { std::mem::transmute(*d as &dyn crate::edge::HalfEdge) };
+                crate::schedule::edge::read_edge(schedule, id, static_field)
+            }
         }
     }
 
@@ -127,7 +132,12 @@ impl<E: EntityType> ResolvedRef<E> {
     ) -> Result<(), FieldError> {
         match self {
             Self::Field(d) => d.write(id, schedule, value),
-            Self::HalfEdge(d) => d.write(id, schedule, value),
+            Self::HalfEdge(d) => {
+                // SAFETY: d is a &'static HalfEdgeDescriptor<E> (edge descriptors are static singletons).
+                let static_field: &'static dyn crate::edge::HalfEdge =
+                    unsafe { std::mem::transmute(*d as &dyn crate::edge::HalfEdge) };
+                crate::schedule::edge::write_edge(schedule, id, static_field, value)
+            }
         }
     }
 
@@ -139,7 +149,12 @@ impl<E: EntityType> ResolvedRef<E> {
     ) -> Result<(), FieldError> {
         match self {
             Self::Field(d) => d.add(id, schedule, value),
-            Self::HalfEdge(d) => d.add(id, schedule, value),
+            Self::HalfEdge(d) => {
+                // SAFETY: d is a &'static HalfEdgeDescriptor<E> (edge descriptors are static singletons).
+                let static_field: &'static dyn crate::edge::HalfEdge =
+                    unsafe { std::mem::transmute(*d as &dyn crate::edge::HalfEdge) };
+                crate::schedule::add_edge(schedule, id, static_field, value)
+            }
         }
     }
 
@@ -151,7 +166,12 @@ impl<E: EntityType> ResolvedRef<E> {
     ) -> Result<(), FieldError> {
         match self {
             Self::Field(d) => d.remove(id, schedule, value),
-            Self::HalfEdge(d) => d.remove(id, schedule, value),
+            Self::HalfEdge(d) => {
+                // SAFETY: d is a &'static HalfEdgeDescriptor<E> (edge descriptors are static singletons).
+                let static_field: &'static dyn crate::edge::HalfEdge =
+                    unsafe { std::mem::transmute(*d as &dyn crate::edge::HalfEdge) };
+                crate::schedule::remove_edge(schedule, id, static_field, value)
+            }
         }
     }
 }

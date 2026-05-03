@@ -889,41 +889,48 @@ pub static FIELD_IS_GROUP: FieldDescriptor<PresenterEntityType> = {
 inventory::submit! { CollectedField(&FIELD_IS_GROUP) }
 
 pub static HALF_EDGE_MEMBERS: crate::edge::HalfEdgeDescriptor<PresenterEntityType> = {
-    let (data, cb, edge_kind) = crate::edge_field_properties! {
-        PresenterEntityType,
-        target: PresenterEntityType,
-        target_field: &HALF_EDGE_GROUPS,
-        name: "members",
-        display: "Members",
-        description: "Members of this group (empty for individuals).",
-        aliases: &["group_members"],
-        example: "[]",
-        order: 800,
-    };
     crate::edge::HalfEdgeDescriptor {
-        data,
-        edge_kind,
-        cb,
+        data: crate::field::CommonFieldData {
+            name: "members",
+            display: "Members",
+            description: "Members of this group (empty for individuals).",
+            aliases: &["group_members"],
+            field_type: crate::value::FieldType(
+                crate::value::FieldCardinality::List,
+                crate::value::FieldTypeItem::EntityIdentifier(PresenterEntityType::TYPE_NAME),
+            ),
+            crdt_type: crate::crdt::CrdtFieldType::List,
+            example: "[]",
+            order: 800,
+        },
+        edge_kind: crate::edge::EdgeKind::Owner {
+            target_field: &HALF_EDGE_GROUPS,
+            exclusive_with: None,
+        },
+        _phantom: std::marker::PhantomData,
     }
 };
 inventory::submit! { CollectedHalfEdge(&HALF_EDGE_MEMBERS) }
 
 pub static HALF_EDGE_GROUPS: crate::edge::HalfEdgeDescriptor<PresenterEntityType> = {
-    let (data, cb, edge_kind) = crate::edge_field_properties! {
-        PresenterEntityType,
-        target: PresenterEntityType,
-        source_fields: &[&HALF_EDGE_MEMBERS],
-        name: "groups",
-        display: "Groups",
-        description: "Groups this presenter belongs to.",
-        aliases: &["group_memberships"],
-        example: "[]",
-        order: 700,
-    };
     crate::edge::HalfEdgeDescriptor {
-        data,
-        edge_kind,
-        cb,
+        data: crate::field::CommonFieldData {
+            name: "groups",
+            display: "Groups",
+            description: "Groups this presenter belongs to.",
+            aliases: &["group_memberships"],
+            field_type: crate::value::FieldType(
+                crate::value::FieldCardinality::List,
+                crate::value::FieldTypeItem::EntityIdentifier(PresenterEntityType::TYPE_NAME),
+            ),
+            crdt_type: crate::crdt::CrdtFieldType::List,
+            example: "[]",
+            order: 700,
+        },
+        edge_kind: crate::edge::EdgeKind::Target {
+            source_fields: &[&HALF_EDGE_MEMBERS],
+        },
+        _phantom: std::marker::PhantomData,
     }
 };
 inventory::submit! { CollectedHalfEdge(&HALF_EDGE_GROUPS) }
@@ -1004,21 +1011,27 @@ inventory::submit! { CollectedField(&FIELD_INCLUSIVE_MEMBERS) }
 ///
 /// Target edge that combines credited and uncredited panel edges.
 pub static HALF_EDGE_PANELS: crate::edge::HalfEdgeDescriptor<PresenterEntityType> = {
-    let (data, cb, edge_kind) = crate::edge_field_properties! {
-        PresenterEntityType,
-        target: PanelEntityType,
-        source_fields: &[&panel::HALF_EDGE_CREDITED_PRESENTERS, &panel::HALF_EDGE_UNCREDITED_PRESENTERS],
-        name: "panels",
-        display: "Panels",
-        description: "Panels this presenter is scheduled on (credited and uncredited).",
-        aliases: &["panel"],
-        example: "[]",
-        order: 1100,
-    };
     crate::edge::HalfEdgeDescriptor {
-        data,
-        edge_kind,
-        cb,
+        data: crate::field::CommonFieldData {
+            name: "panels",
+            display: "Panels",
+            description: "Panels this presenter is scheduled on (credited and uncredited).",
+            aliases: &["panel"],
+            field_type: crate::value::FieldType(
+                crate::value::FieldCardinality::List,
+                crate::value::FieldTypeItem::EntityIdentifier(PanelEntityType::TYPE_NAME),
+            ),
+            crdt_type: crate::crdt::CrdtFieldType::List,
+            example: "[]",
+            order: 1100,
+        },
+        edge_kind: crate::edge::EdgeKind::Target {
+            source_fields: &[
+                &panel::HALF_EDGE_CREDITED_PRESENTERS,
+                &panel::HALF_EDGE_UNCREDITED_PRESENTERS,
+            ],
+        },
+        _phantom: std::marker::PhantomData,
     }
 };
 inventory::submit! { CollectedHalfEdge(&HALF_EDGE_PANELS) }
