@@ -42,6 +42,73 @@ impl Schedule {
             .downcast_mut::<E::InternalData>()
     }
 
+    /// Check whether an entity with the given ID already exists.
+    ///
+    /// Returns `true` if an entity of type `E` with the specified UUID is present
+    /// in the schedule.
+    #[must_use]
+    pub fn contains_entity<E: EntityType>(&self, id: EntityId<E>) -> bool {
+        self.entities
+            .get(&TypeId::of::<E::InternalData>())
+            .map_or(false, |map| map.contains_key(&id.entity_uuid()))
+    }
+
+    /// Check whether an entity with the given ID is tombstoned (soft-deleted).
+    ///
+    /// Returns `true` if the entity exists in the CRDT document but is marked
+    /// as deleted. Tombstoned entities can be recreated with `Exact` or
+    /// `ExactFromV5` UUID preferences.
+    #[must_use]
+    pub fn is_entity_deleted<E: EntityType>(&self, id: EntityId<E>) -> bool {
+        crate::crdt::is_deleted(&self.doc, E::TYPE_NAME, id.entity_uuid())
+    }
+
+    /// Resolve a UUID preference to an entity ID with conflict checking.
+    ///
+    /// Returns `None` for `Exact` and `ExactFromV5` preferences if the UUID
+    /// conflicts with an existing non-tombstoned entity. For `Prefer` and
+    /// `PreferFromV5`, falls back to `GenerateNew` on conflict. Returns `Some`
+    /// for `GenerateNew` unconditionally.
+    ///
+    /// This is the safe alternative to `EntityId::from_preference_unchecked`.
+    #[must_use]
+    pub fn try_resolve_entity_id<E: EntityType>(
+        &self,
+        preference: crate::entity::UuidPreference,
+    ) -> Option<EntityId<E>> {
+        match &preference {
+            crate::entity::UuidPreference::Exact(_)
+            | crate::entity::UuidPreference::ExactFromV5 { .. } => {
+                // SAFETY: We check for conflicts before using the resolved UUID
+                let id = unsafe { EntityId::<E>::from_preference_unchecked(preference) };
+                if self.contains_entity(id) && !self.is_entity_deleted(id) {
+                    None
+                } else {
+                    Some(id)
+                }
+            }
+            crate::entity::UuidPreference::Prefer(_)
+            | crate::entity::UuidPreference::PreferFromV5 { .. } => {
+                // SAFETY: We check for conflicts before using the resolved UUID
+                let id = unsafe { EntityId::<E>::from_preference_unchecked(preference) };
+                if self.contains_entity(id) && !self.is_entity_deleted(id) {
+                    // Fallback to GenerateNew if the preferred UUID conflicts
+                    Some(unsafe {
+                        EntityId::<E>::from_preference_unchecked(
+                            crate::entity::UuidPreference::GenerateNew,
+                        )
+                    })
+                } else {
+                    Some(id)
+                }
+            }
+            crate::entity::UuidPreference::GenerateNew => {
+                // SAFETY: GenerateNew is always conflict-free
+                Some(unsafe { EntityId::<E>::from_preference_unchecked(preference) })
+            }
+        }
+    }
+
     /// Insert or replace an entity's internal data.
     ///
     /// Populates the in-memory cache and then mirrors every non-derived field

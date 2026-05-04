@@ -124,6 +124,9 @@ fn add_entity_undo_removes_it() {
     let rid: RuntimeEntityId = id.into();
     let add_cmd = add_entity_cmd(&sched, rid).expect("add_entity_cmd");
 
+    // Remove the entity to tombstone it before testing add/undo
+    sched.remove_entity::<PanelTypeEntityType>(id);
+
     let mut ctx = EditContext::new(sched);
     ctx.apply(add_cmd).expect("apply add");
     assert_eq!(ctx.schedule().entity_count::<PanelTypeEntityType>(), 1);
@@ -147,6 +150,9 @@ fn add_entity_undo_then_redo_restores_same_uuid() {
     let rid: RuntimeEntityId = id.into();
     let add_cmd = add_entity_cmd(&sched, rid).expect("add_entity_cmd");
 
+    // Remove the entity to tombstone it before testing add/undo/redo
+    sched.remove_entity::<PanelTypeEntityType>(id);
+
     let mut ctx = EditContext::new(sched);
     ctx.apply(add_cmd).expect("apply");
     ctx.undo().expect("undo");
@@ -156,6 +162,7 @@ fn add_entity_undo_then_redo_restores_same_uuid() {
     let typed = rid.try_into().expect("typed id");
     let data = ctx.schedule().get_internal::<PanelTypeEntityType>(typed);
     assert!(data.is_some(), "entity restored with same UUID");
+    assert_eq!(data.unwrap().data.prefix, "GP");
 }
 
 #[test]

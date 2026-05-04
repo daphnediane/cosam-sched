@@ -4,9 +4,9 @@
  * See LICENSE file for full license text
  */
 
-//! Integration tests for Schedule module.
+//! Integration tests for schedule entity storage and CRDT operations.
 
-use schedule_core::entity::{EntityId, EntityUuid, UuidPreference};
+use schedule_core::entity::{EntityId, EntityUuid};
 use schedule_core::schedule::{
     entity_ids_to_field_value, field_value_to_entity_ids, LoadError, Schedule,
 };
@@ -29,7 +29,7 @@ use schedule_core::value::FieldTypeItem;
 use schedule_core::EntityTyped;
 
 fn make_panel_type() -> (EntityId<PanelTypeEntityType>, PanelTypeInternalData) {
-    let id = EntityId::from_preference(UuidPreference::GenerateNew);
+    let id = EntityId::generate();
     let data = PanelTypeInternalData {
         id,
         data: PanelTypeCommonData {
@@ -42,7 +42,7 @@ fn make_panel_type() -> (EntityId<PanelTypeEntityType>, PanelTypeInternalData) {
 }
 
 fn make_panel() -> (PanelId, PanelInternalData) {
-    let id = EntityId::from_preference(UuidPreference::GenerateNew);
+    let id = EntityId::generate();
     let data = PanelInternalData {
         id,
         data: PanelCommonData {
@@ -56,7 +56,7 @@ fn make_panel() -> (PanelId, PanelInternalData) {
 }
 
 fn make_presenter(name: &str) -> (EntityId<PresenterEntityType>, PresenterInternalData) {
-    let id = EntityId::from_preference(UuidPreference::GenerateNew);
+    let id = EntityId::generate();
     let data = PresenterInternalData {
         id,
         data: PresenterCommonData {
@@ -68,7 +68,7 @@ fn make_presenter(name: &str) -> (EntityId<PresenterEntityType>, PresenterIntern
 }
 
 fn make_event_room(name: &str) -> (EntityId<EventRoomEntityType>, EventRoomInternalData) {
-    let id = EntityId::from_preference(UuidPreference::GenerateNew);
+    let id = EntityId::generate();
     let data = EventRoomInternalData {
         id,
         data: EventRoomCommonData {
@@ -80,7 +80,7 @@ fn make_event_room(name: &str) -> (EntityId<EventRoomEntityType>, EventRoomInter
 }
 
 fn make_hotel_room(name: &str) -> (EntityId<HotelRoomEntityType>, HotelRoomInternalData) {
-    let id = EntityId::from_preference(UuidPreference::GenerateNew);
+    let id = EntityId::generate();
     let data = HotelRoomInternalData {
         id,
         data: HotelRoomCommonData {

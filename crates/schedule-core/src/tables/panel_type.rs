@@ -611,16 +611,18 @@ impl crate::query::lookup::EntityCreatable for PanelTypeEntityType {
         schedule: &mut crate::schedule::Schedule,
         s: &str,
     ) -> Result<EntityId<Self>, crate::query::lookup::LookupError> {
-        let prefix: String = s.chars().take(2).collect();
-        let id = EntityId::from_preference(UuidPreference::FromV5 {
+        let uuid_pref = UuidPreference::PreferFromV5 {
             name: s.to_string(),
-        });
+        };
+        let id = schedule
+            .try_resolve_entity_id(uuid_pref)
+            .expect("PreferFromV5 should always resolve (falls back to GenerateNew)");
         schedule.insert(
             id,
             PanelTypeInternalData {
                 id,
                 data: PanelTypeCommonData {
-                    prefix,
+                    prefix: s.chars().take(2).collect(),
                     panel_kind: s.to_string(),
                     ..Default::default()
                 },
@@ -1129,7 +1131,7 @@ mod tests {
     fn panel_type_builder_uuid_preference_is_honored() {
         let mut sched1 = Schedule::default();
         let id1 = PanelTypeBuilder::new()
-            .with_uuid_preference(UuidPreference::FromV5 { name: "GP".into() })
+            .with_uuid_preference(UuidPreference::ExactFromV5 { name: "GP".into() })
             .with_prefix("GP")
             .with_panel_kind("Guest Panel")
             .build(&mut sched1)
@@ -1137,7 +1139,7 @@ mod tests {
 
         let mut sched2 = Schedule::default();
         let id2 = PanelTypeBuilder::new()
-            .with_uuid_preference(UuidPreference::FromV5 { name: "GP".into() })
+            .with_uuid_preference(UuidPreference::ExactFromV5 { name: "GP".into() })
             .with_prefix("GP")
             .with_panel_kind("Guest Panel")
             .build(&mut sched2)

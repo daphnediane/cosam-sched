@@ -388,9 +388,12 @@ impl crate::query::lookup::EntityCreatable for EventRoomEntityType {
         schedule: &mut crate::schedule::Schedule,
         s: &str,
     ) -> Result<EntityId<Self>, crate::query::lookup::LookupError> {
-        let id = EntityId::from_preference(UuidPreference::FromV5 {
+        let uuid_pref = UuidPreference::PreferFromV5 {
             name: s.to_string(),
-        });
+        };
+        let id = schedule
+            .try_resolve_entity_id(uuid_pref)
+            .expect("PreferFromV5 should always resolve (falls back to GenerateNew)");
         schedule.insert(
             id,
             EventRoomInternalData {

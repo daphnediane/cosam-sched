@@ -1,6 +1,6 @@
 # Cosplay America Schedule - Work Item
 
-Updated on: Mon May  4 01:20:16 2026
+Updated on: Mon May  4 02:12:33 2026
 
 ## Completed
 
@@ -56,6 +56,7 @@ relying solely on `EdgeDescriptor` and `canonical_owner()`.
 `edge_field!`, `define_field!`) with attribute-style proc-macros in a new
 `schedule-macro` crate; add an `exclusive_with:` clause to express
 cross-partition edge exclusivity declaratively.
+* [FEATURE-079] Add UUID conflict detection to entity creation and expand UuidPreference with "prefer" variants that allow fallback to alternate UUIDs.
 * [META-002] Phase tracker for project foundation and Cargo workspace setup.
 * [META-003] Phase tracker for the entity/field system and core schedule data model in schedule-core.
 * [META-004] Phase tracker for making an automerge CRDT document the authoritative storage
@@ -102,12 +103,6 @@ and improve `FieldId` conversions with a global registry and type-safe downcasti
 * [REFACTOR-074] Split edge fields out of `FieldDescriptor<E>` into a new `HalfEdgeDescriptor` struct; add
 `EdgeKind` enum with ownership direction and exclusivity information.
 * [REFACTOR-075] Update edit_integration.rs tests to work with new WriteFn::Schedule edge write mechanism used by HALF_EDGE_* fields
-
----
-
-## Superseded / Rejected
-
-* [BUGFIX-045] (Superseded) In `scratch/field_update_logic.rs`, duration values are incorrectly stored as `FieldValue::Integer(minutes)` instead of `FieldValue::Duration(Duration)`.
 
 ---
 
@@ -425,7 +420,6 @@ to exchange CRDT changes and reconcile concurrent edits to the same fields.
 
 ---
 
-[BUGFIX-045]: work-item/rejected/BUGFIX-045.md
 [BUGFIX-072]: work-item/done/BUGFIX-072.md
 [BUGFIX-073]: work-item/done/BUGFIX-073.md
 [BUGFIX-076]: work-item/done/BUGFIX-076.md
@@ -469,6 +463,7 @@ to exchange CRDT changes and reconcile concurrent edits to the same fields.
 [FEATURE-069]: work-item/done/FEATURE-069.md
 [FEATURE-070]: work-item/done/FEATURE-070.md
 [FEATURE-071]: work-item/done/FEATURE-071.md
+[FEATURE-079]: work-item/done/FEATURE-079.md
 [META-001]: work-item/meta/META-001.md
 [META-002]: work-item/done/META-002.md
 [META-003]: work-item/done/META-003.md

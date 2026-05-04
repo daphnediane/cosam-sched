@@ -765,7 +765,6 @@ pub enum ExportError {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::entity::UuidPreference;
     use crate::schedule::Schedule;
     use crate::tables::event_room::EventRoomInternalData;
     use crate::tables::panel::PanelInternalData;
@@ -783,7 +782,7 @@ mod tests {
         long_name: Option<&str>,
         sort_key: i64,
     ) -> EventRoomId {
-        let id = crate::entity::EntityId::from_preference(UuidPreference::GenerateNew);
+        let id = crate::entity::EntityId::generate();
         sched.insert(
             id,
             EventRoomInternalData {
@@ -804,7 +803,7 @@ mod tests {
         kind: &str,
         is_timeline: bool,
     ) -> crate::tables::panel_type::PanelTypeId {
-        let id = crate::entity::EntityId::from_preference(UuidPreference::GenerateNew);
+        let id = crate::entity::EntityId::generate();
         sched.insert(
             id,
             PanelTypeInternalData {
@@ -834,7 +833,7 @@ mod tests {
         duration_mins: Option<i64>,
     ) -> PanelId {
         let code = PanelUniqId::parse(code_str).unwrap();
-        let id = crate::entity::EntityId::from_preference(UuidPreference::GenerateNew);
+        let id = crate::entity::EntityId::generate();
         let time_slot = match (start_hms, duration_mins) {
             (Some((day_offset, h, m, s)), Some(dur)) => {
                 let base = NaiveDate::from_ymd_opt(2026, 6, 1).unwrap();
@@ -865,7 +864,7 @@ mod tests {
     }
 
     fn make_presenter(sched: &mut Schedule, name: &str) -> PresenterId {
-        let id = crate::entity::EntityId::from_preference(UuidPreference::GenerateNew);
+        let id = crate::entity::EntityId::generate();
         sched.insert(
             id,
             PresenterInternalData {
@@ -1082,7 +1081,7 @@ mod tests {
         let panel_id = make_panel(&mut sched, "GP001", Some((0, 14, 0, 0)), Some(60));
         let member_id = make_presenter(&mut sched, "Alice");
         let group_id = {
-            let id = crate::entity::EntityId::from_preference(UuidPreference::GenerateNew);
+            let id = crate::entity::EntityId::generate();
             sched.insert(
                 id,
                 PresenterInternalData {

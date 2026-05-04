@@ -6,14 +6,14 @@
 
 //! Integration tests for edge system symmetry and transitive closure.
 
-use schedule_core::entity::{EntityId, UuidPreference};
+use schedule_core::entity::EntityId;
 use schedule_core::schedule::Schedule;
 use schedule_core::tables::presenter::{
     self, PresenterCommonData, PresenterId, PresenterInternalData,
 };
 
 fn make_presenter_id() -> PresenterId {
-    EntityId::from_preference(UuidPreference::GenerateNew)
+    EntityId::generate()
 }
 
 fn make_presenter(name: &str) -> (PresenterId, PresenterInternalData) {

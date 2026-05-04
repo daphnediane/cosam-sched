@@ -8,7 +8,7 @@ can be tightened so that `unsafe` search covers all type-membership trust points
 
 ## Status
 
-Open
+Superseded
 
 ## Priority
 
@@ -54,3 +54,8 @@ that search.
 
 - REFACTOR-041: Made `from_uuid` unsafe on `EntityId` and `RuntimeEntityId`
 - FEATURE-012: Original EntityId implementation
+- FEATURE-079: UUID conflict detection with expanded UuidPreference variants
+
+## Follow Up
+
+- addressed by REFACTOR-041 and subsequent changes

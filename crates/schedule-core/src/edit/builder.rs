@@ -18,7 +18,7 @@
 //! in unit tests and any future read-only entity kinds are not forced to
 //! implement it.
 
-use crate::entity::{EntityId, EntityType, UuidPreference};
+use crate::entity::{EntityId, EntityType, EntityUuid, UuidPreference};
 use crate::field::set::{FieldSetError, FieldUpdate};
 use crate::schedule::Schedule;
 use crate::value::ValidationError;
@@ -59,6 +59,14 @@ pub enum BuildError {
     /// schedule.
     #[error("validation failed: {0:?}")]
     Validation(Vec<ValidationError>),
+
+    /// The requested UUID already exists for this entity type.
+    ///
+    /// This occurs with `UuidPreference::Exact` or `UuidPreference::ExactFromV5`
+    /// when the UUID is already in use.  The caller should retry with a different
+    /// UUID or use a "prefer" variant that allows fallback.
+    #[error("UUID {0} already exists for entity type {1}")]
+    UuidConflict(uuid::NonNilUuid, &'static str),
 }
 
 /// Seed, populate, and validate a new entity of type `E`.
@@ -66,12 +74,15 @@ pub enum BuildError {
 /// # Steps
 ///
 /// 1. Resolve `uuid_pref` to a typed [`EntityId<E>`].
-/// 2. Insert [`EntityBuildable::default_data`] into `schedule`.
-/// 3. Call [`FieldSet::write_multiple`] with `updates`.  On any
+/// 2. Check for UUID conflicts:
+///    - For `Exact` and `ExactFromV5`: return [`BuildError::UuidConflict`] if exists
+///    - For `Prefer` and `PreferFromV5`: if conflict, fall back to `GenerateNew`
+/// 3. Insert [`EntityBuildable::default_data`] into `schedule`.
+/// 4. Call [`FieldSet::write_multiple`] with `updates`.  On any
 ///    [`FieldSetError`] the seed is removed via
 ///    [`Schedule::remove_entity`] (which also clears edges), and the error
 ///    is wrapped in [`BuildError::FieldSet`].
-/// 4. Run [`EntityType::validate`] on the final internal data.  Any
+/// 5. Run [`EntityType::validate`] on the final internal data.  Any
 ///    [`ValidationError`]s trigger the same rollback and produce
 ///    [`BuildError::Validation`].
 ///
@@ -85,7 +96,27 @@ pub fn build_entity<E: EntityBuildable>(
     uuid_pref: UuidPreference,
     updates: Vec<FieldUpdate<E>>,
 ) -> Result<EntityId<E>, BuildError> {
-    let id = EntityId::<E>::from_preference(uuid_pref);
+    // Resolve the UUID preference with conflict checking
+    let id = match &uuid_pref {
+        UuidPreference::Exact(_) | UuidPreference::ExactFromV5 { .. } => {
+            schedule
+                .try_resolve_entity_id::<E>(uuid_pref.clone())
+                .ok_or_else(|| {
+                    BuildError::UuidConflict(
+                        // SAFETY: We know the UUID from the preference
+                        unsafe { EntityId::<E>::from_preference_unchecked(uuid_pref.clone()) }
+                            .entity_uuid(),
+                        E::TYPE_NAME,
+                    )
+                })?
+        }
+        UuidPreference::Prefer(_)
+        | UuidPreference::PreferFromV5 { .. }
+        | UuidPreference::GenerateNew => schedule
+            .try_resolve_entity_id::<E>(uuid_pref.clone())
+            .expect("prefer variants and GenerateNew always return Some"),
+    };
+
     schedule.insert(id, E::default_data(id));
 
     if let Err(e) = E::field_set().write_multiple(id, schedule, &updates) {
@@ -139,7 +170,7 @@ mod tests {
         let mut sched1 = Schedule::default();
         let id1 = build_entity::<PanelTypeEntityType>(
             &mut sched1,
-            UuidPreference::FromV5 { name: "GP".into() },
+            UuidPreference::ExactFromV5 { name: "GP".into() },
             valid_panel_type_updates(),
         )
         .unwrap();
@@ -147,7 +178,7 @@ mod tests {
         let mut sched2 = Schedule::default();
         let id2 = build_entity::<PanelTypeEntityType>(
             &mut sched2,
-            UuidPreference::FromV5 { name: "GP".into() },
+            UuidPreference::ExactFromV5 { name: "GP".into() },
             valid_panel_type_updates(),
         )
         .unwrap();
@@ -187,5 +218,174 @@ mod tests {
             BuildError::FieldSet(FieldSetError::UnknownField(_))
         ));
         assert_eq!(sched.entity_count::<PanelTypeEntityType>(), 0);
+    }
+
+    #[test]
+    fn build_entity_exact_conflicts_error() {
+        let mut sched = Schedule::default();
+        let id1 = build_entity::<PanelTypeEntityType>(
+            &mut sched,
+            UuidPreference::GenerateNew,
+            valid_panel_type_updates(),
+        )
+        .unwrap();
+
+        // Try to create another entity with the same UUID using Exact
+        let err = build_entity::<PanelTypeEntityType>(
+            &mut sched,
+            UuidPreference::Exact(id1.entity_uuid()),
+            valid_panel_type_updates(),
+        )
+        .unwrap_err();
+
+        assert!(matches!(err, BuildError::UuidConflict(_, "panel_type")));
+        assert_eq!(sched.entity_count::<PanelTypeEntityType>(), 1);
+    }
+
+    #[test]
+    fn build_entity_exact_from_v5_conflicts_error() {
+        let mut sched = Schedule::default();
+        let _id1 = build_entity::<PanelTypeEntityType>(
+            &mut sched,
+            UuidPreference::ExactFromV5 { name: "GP".into() },
+            valid_panel_type_updates(),
+        )
+        .unwrap();
+
+        // Try to create another entity with the same name using ExactFromV5
+        let err = build_entity::<PanelTypeEntityType>(
+            &mut sched,
+            UuidPreference::ExactFromV5 { name: "GP".into() },
+            valid_panel_type_updates(),
+        )
+        .unwrap_err();
+
+        assert!(matches!(err, BuildError::UuidConflict(_, "panel_type")));
+        assert_eq!(sched.entity_count::<PanelTypeEntityType>(), 1);
+    }
+
+    #[test]
+    fn build_entity_prefer_falls_back_on_conflict() {
+        let mut sched = Schedule::default();
+        let id1 = build_entity::<PanelTypeEntityType>(
+            &mut sched,
+            UuidPreference::GenerateNew,
+            valid_panel_type_updates(),
+        )
+        .unwrap();
+
+        // Try to create another entity with Prefer using the same UUID
+        let id2 = build_entity::<PanelTypeEntityType>(
+            &mut sched,
+            UuidPreference::Prefer(id1.entity_uuid()),
+            valid_panel_type_updates(),
+        )
+        .unwrap();
+
+        // Should succeed with a different UUID
+        assert_ne!(id1.entity_uuid(), id2.entity_uuid());
+        assert_eq!(sched.entity_count::<PanelTypeEntityType>(), 2);
+    }
+
+    #[test]
+    fn build_entity_prefer_from_v5_falls_back_on_conflict() {
+        let mut sched = Schedule::default();
+        let id1 = build_entity::<PanelTypeEntityType>(
+            &mut sched,
+            UuidPreference::ExactFromV5 { name: "GP".into() },
+            valid_panel_type_updates(),
+        )
+        .unwrap();
+
+        // Try to create another entity with PreferFromV5 using the same name
+        let id2 = build_entity::<PanelTypeEntityType>(
+            &mut sched,
+            UuidPreference::PreferFromV5 { name: "GP".into() },
+            valid_panel_type_updates(),
+        )
+        .unwrap();
+
+        // Should succeed with a different UUID
+        assert_ne!(id1.entity_uuid(), id2.entity_uuid());
+        assert_eq!(sched.entity_count::<PanelTypeEntityType>(), 2);
+    }
+
+    #[test]
+    fn build_entity_prefer_from_v5_succeeds_when_no_conflict() {
+        let mut sched = Schedule::default();
+        let id1 = build_entity::<PanelTypeEntityType>(
+            &mut sched,
+            UuidPreference::PreferFromV5 { name: "GP".into() },
+            valid_panel_type_updates(),
+        )
+        .unwrap();
+
+        // Create another entity with a different name
+        let id2 = build_entity::<PanelTypeEntityType>(
+            &mut sched,
+            UuidPreference::PreferFromV5 { name: "SP".into() },
+            valid_panel_type_updates(),
+        )
+        .unwrap();
+
+        // Both should succeed with different UUIDs
+        assert_ne!(id1.entity_uuid(), id2.entity_uuid());
+        assert_eq!(sched.entity_count::<PanelTypeEntityType>(), 2);
+    }
+
+    #[test]
+    fn build_entity_exact_recreates_tombstoned_entity() {
+        let mut sched = Schedule::default();
+        let id = build_entity::<PanelTypeEntityType>(
+            &mut sched,
+            UuidPreference::GenerateNew,
+            valid_panel_type_updates(),
+        )
+        .unwrap();
+
+        // Remove the entity (tombstone it)
+        sched.remove_entity::<PanelTypeEntityType>(id);
+        assert_eq!(sched.entity_count::<PanelTypeEntityType>(), 0);
+        assert!(sched.is_entity_deleted(id));
+
+        // Recreate with the same UUID using Exact - should succeed
+        let id2 = build_entity::<PanelTypeEntityType>(
+            &mut sched,
+            UuidPreference::Exact(id.entity_uuid()),
+            valid_panel_type_updates(),
+        )
+        .unwrap();
+
+        assert_eq!(id.entity_uuid(), id2.entity_uuid());
+        assert_eq!(sched.entity_count::<PanelTypeEntityType>(), 1);
+        assert!(!sched.is_entity_deleted(id));
+    }
+
+    #[test]
+    fn build_entity_exact_from_v5_recreates_tombstoned_entity() {
+        let mut sched = Schedule::default();
+        let id = build_entity::<PanelTypeEntityType>(
+            &mut sched,
+            UuidPreference::ExactFromV5 { name: "GP".into() },
+            valid_panel_type_updates(),
+        )
+        .unwrap();
+
+        // Remove the entity (tombstone it)
+        sched.remove_entity::<PanelTypeEntityType>(id);
+        assert_eq!(sched.entity_count::<PanelTypeEntityType>(), 0);
+        assert!(sched.is_entity_deleted(id));
+
+        // Recreate with the same name using ExactFromV5 - should succeed
+        let id2 = build_entity::<PanelTypeEntityType>(
+            &mut sched,
+            UuidPreference::ExactFromV5 { name: "GP".into() },
+            valid_panel_type_updates(),
+        )
+        .unwrap();
+
+        assert_eq!(id.entity_uuid(), id2.entity_uuid());
+        assert_eq!(sched.entity_count::<PanelTypeEntityType>(), 1);
+        assert!(!sched.is_entity_deleted(id));
     }
 }

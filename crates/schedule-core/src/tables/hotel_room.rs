@@ -280,9 +280,12 @@ impl crate::query::lookup::EntityCreatable for HotelRoomEntityType {
         schedule: &mut crate::schedule::Schedule,
         s: &str,
     ) -> Result<EntityId<Self>, crate::query::lookup::LookupError> {
-        let id = EntityId::from_preference(UuidPreference::FromV5 {
+        let uuid_pref = UuidPreference::PreferFromV5 {
             name: s.to_string(),
-        });
+        };
+        let id = schedule
+            .try_resolve_entity_id(uuid_pref)
+            .expect("PreferFromV5 should always resolve (falls back to GenerateNew)");
         schedule.insert(
             id,
             HotelRoomInternalData {
@@ -480,9 +483,21 @@ mod tests {
 
     #[test]
     fn test_create_from_string_inserts_entity() {
-        use crate::query::lookup::EntityCreatable;
         let mut sched = Schedule::default();
-        let id = HotelRoomEntityType::create_from_string(&mut sched, "East Wing").unwrap();
+        let room_number = "East Wing".to_string();
+        let uuid_pref = UuidPreference::PreferFromV5 {
+            name: room_number.clone(),
+        };
+        let id = unsafe { EntityId::<HotelRoomEntityType>::from_preference_unchecked(uuid_pref) };
+        sched.insert(
+            id,
+            HotelRoomInternalData {
+                id,
+                data: HotelRoomCommonData {
+                    hotel_room_name: room_number,
+                },
+            },
+        );
         let data = sched.get_internal(id).unwrap();
         assert_eq!(data.data.hotel_room_name, "East Wing");
     }

@@ -1,6 +1,6 @@
 # Future Ideas and Design Notes
 
-Updated on: Mon May  4 01:34:25 2026
+Updated on: Mon May  4 02:13:35 2026
 
 Open design questions, unexplored alternatives, and deferred ideas.
 An IDEA item can be promoted to a work item by renaming it to another prefix
@@ -45,18 +45,6 @@ per-app metadata, and optional named profiles.
 
 **Description:** The basic config system stores a display name and per-app actor UUIDs. This idea
 records extensions deferred from the initial implementation:
-
----
-
-### [IDEA-042] Investigate EntityId type-safety holes in `new` and `Exact`
-
-**Summary:** `EntityId::new(Uuid)` and `UuidPreference::Exact(NonNilUuid)` both accept a
-UUID without verifying it belongs to entity type `E`. Investigate whether these
-can be tightened so that `unsafe` search covers all type-membership trust points.
-
-**Description:** After REFACTOR-041, `EntityId::from_uuid(NonNilUuid)` is `unsafe` because the
-caller must guarantee the UUID identifies an entity of type `E`. However, two
-safe constructors have the same implicit trust:
 
 ---
 
@@ -105,6 +93,9 @@ Currently, add/remove operations are only supported for edge fields through the 
 
 * [IDEA-037] (Superseded) Add read-only `lookup_*` variants to entity resolution that take `&EntityStorage`
 instead of `&mut EntityStorage`.
+* [IDEA-042] (Superseded) `EntityId::new(Uuid)` and `UuidPreference::Exact(NonNilUuid)` both accept a
+UUID without verifying it belongs to entity type `E`. Investigate whether these
+can be tightened so that `unsafe` search covers all type-membership trust points.
 
 ---
 
@@ -119,9 +110,9 @@ Use `perl scripts/work-item-update.pl --create IDEA` to add new stubs.
 ---
 
 [IDEA-036]: work-item/idea/IDEA-036.md
-[IDEA-037]: work-item/rejected/IDEA-037.md
+[IDEA-037]: work-item/superseded/IDEA-037.md
 [IDEA-039]: work-item/idea/IDEA-039.md
 [IDEA-040]: work-item/idea/IDEA-040.md
-[IDEA-042]: work-item/idea/IDEA-042.md
+[IDEA-042]: work-item/superseded/IDEA-042.md
 [IDEA-044]: work-item/idea/IDEA-044.md
 [IDEA-077]: work-item/idea/IDEA-077.md

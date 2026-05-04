@@ -42,14 +42,35 @@ pub enum UuidPreference {
     /// Derive a deterministic v5 UUID from the entity-type namespace and a
     /// natural-key string (e.g. `"GP001"`, a presenter name, a room name).
     ///
-    /// Re-importing the same spreadsheet produces the same UUIDs.
-    FromV5 { name: String },
+    /// Errors if the UUID already exists in the schedule.
+    ///
+    /// Use this when importing from an external source where duplicate natural
+    /// keys indicate data corruption that should be surfaced.
+    ExactFromV5 { name: String },
+
+    /// Derive a deterministic v5 UUID from the entity-type namespace and a
+    /// natural-key string (e.g. `"GP001"`, a presenter name, a room name).
+    ///
+    /// If the UUID already exists, falls back to generating a new v7 UUID.
+    ///
+    /// Use this when importing from an external source where duplicate natural
+    /// keys are acceptable and should be handled gracefully.
+    PreferFromV5 { name: String },
 
     /// Use an exact, caller-supplied UUID.
     ///
+    /// Errors if the UUID already exists in the schedule.
+    ///
     /// Use this when round-tripping a previously serialized entity so its
-    /// identity is preserved unchanged.
+    /// identity is preserved unchanged. A conflict indicates data corruption.
     Exact(NonNilUuid),
+
+    /// Prefer a caller-supplied UUID, but fall back to a new v7 UUID if it
+    /// already exists.
+    ///
+    /// Use this when you have a preferred UUID but can accept an alternate
+    /// if there's a conflict.
+    Prefer(NonNilUuid),
 }
 
 // ── FieldSet ─────────────────────────────────────────────────────────────────

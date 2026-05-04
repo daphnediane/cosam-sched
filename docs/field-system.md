@@ -77,10 +77,11 @@ This lets functions accept `impl DynamicEntityId` or `impl TypedEntityId<E>` ins
 Constructors:
 
 ```rust
-pub fn from_preference(pref: UuidPreference) -> Self;    // primary; resolves via E::uuid_namespace()
-pub unsafe fn new_unchecked(uuid: NonNilUuid) -> Self;   // caller must verify type belongs to E
+pub fn generate() -> Self;                                     // safe; creates new v7 UUID
+pub unsafe fn from_preference_unchecked(pref: UuidPreference) -> Self;  // unsafe; resolves via E::uuid_namespace()
+pub unsafe fn new_unchecked(uuid: NonNilUuid) -> Self;         // caller must verify type belongs to E
 pub fn try_from_dynamic(id: impl DynamicEntityId) -> Option<Self>;  // type-checked conversion
-pub fn from_typed<T: TypedEntityId<E>>(id: T) -> Self;  // infallible from typed ID
+pub fn from_typed<T: TypedEntityId<E>>(id: T) -> Self;          // infallible from typed ID
 ```
 
 Access: `.entity_uuid() -> NonNilUuid` (via `EntityUuid` trait).
@@ -118,8 +119,9 @@ Builder-level control over UUID assignment:
 | `FromV5 { name }`         | Deterministic v5 UUID from `E::uuid_namespace()` + name |
 | `Exact(NonNilUuid)`       | Round-trip exact UUID                                   |
 
-Resolution is performed by `EntityId::from_preference(UuidPreference) -> Self`
-which uses the entity type's `uuid_namespace()` for v5 generation.
+Resolution is performed by `EntityId::from_preference_unchecked(UuidPreference) -> Self`
+which uses the entity type's `uuid_namespace()` for v5 generation. For safe UUID resolution
+with conflict checking, use `Schedule::try_resolve_entity_id()`.
 
 ## FieldValue
 

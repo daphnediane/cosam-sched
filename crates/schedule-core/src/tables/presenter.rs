@@ -20,7 +20,7 @@
 use crate::accessor_field_properties;
 use crate::callback_field_properties;
 use crate::crdt::CrdtFieldType;
-use crate::entity::{EntityId, EntityType, EntityUuid, FieldSet, UuidPreference};
+use crate::entity::{EntityId, EntityType, EntityUuid, FieldSet};
 use crate::field::{CollectedField, CollectedHalfEdge, FieldDescriptor, NamedField};
 use crate::field_value;
 use crate::query::converter::EntityStringResolver;
@@ -677,7 +677,7 @@ fn find_or_create_presenter_by_name(
     }
 
     let effective_rank = rank.cloned().unwrap_or(PresenterRank::Panelist);
-    let id = EntityId::from_preference(UuidPreference::GenerateNew);
+    let id = EntityId::generate();
     schedule.insert(
         id,
         PresenterInternalData {

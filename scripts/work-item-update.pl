@@ -33,6 +33,7 @@ Readonly my $OUTPUT_FILE_IDEAS =>
 # All valid subdirectories
 Readonly my $SUBDIR_STATUS_DONE        => q{done};
 Readonly my $SUBDIR_STATUS_REJECTED    => q{rejected};
+Readonly my $SUBDIR_STATUS_SUPERSEDED  => q{superseded};
 Readonly my $SUBDIR_STATUS_PLACEHOLDER => q{new};
 Readonly my $SUBDIR_PREFIX_META        => q{meta};
 Readonly my $SUBDIR_PREFIX_IDEA        => q{idea};
@@ -41,14 +42,15 @@ Readonly my $SUBDIR_PRIORITY_MEDIUM    => q{medium};
 Readonly my $SUBDIR_PRIORITY_LOW       => q{low};
 
 Readonly::Hash my %SUBDIR_RANK => (
-    $SUBDIR_STATUS_REJECTED    => 7,
+    $SUBDIR_STATUS_REJECTED    => 8,
+    $SUBDIR_STATUS_SUPERSEDED  => 7,
     $SUBDIR_STATUS_DONE        => 6,
     $SUBDIR_STATUS_PLACEHOLDER => 5,
     $SUBDIR_PREFIX_META        => 4,
-    $SUBDIR_PREFIX_IDEA        => 4,
-    $SUBDIR_PRIORITY_HIGH      => 3,
-    $SUBDIR_PRIORITY_MEDIUM    => 2,
-    $SUBDIR_PRIORITY_LOW       => 1,
+    $SUBDIR_PREFIX_IDEA        => 3,
+    $SUBDIR_PRIORITY_HIGH      => 2,
+    $SUBDIR_PRIORITY_MEDIUM    => 1,
+    $SUBDIR_PRIORITY_LOW       => 0,
 );
 
 # All known valid prefixes for --create validation
@@ -84,7 +86,7 @@ Readonly my $STATUS_BLOCKED     => q{blocked};
 Readonly my $STATUS_OPEN        => q{open};
 
 Readonly::Hash my %ALIAS_TO_STATUS => _populate_alias_hash( {
-    $STATUS_DONE        => [ qw{done finished complete} ],
+    $STATUS_DONE        => [ qw{done finished complete closed} ],
     $STATUS_SUPERSEDED  => [ qw{replaced} ],
     $STATUS_REJECTED    => [ qw{declined wontfix} ],
     $STATUS_PLACEHOLDER => [ qw{stub template} ],
@@ -102,7 +104,7 @@ Readonly::Hash my %STATUS_TO_OPEN => _populate_over_alias(
 Readonly::Hash my %STATUS_TO_DIR => _populate_over_alias(
     \%ALIAS_TO_STATUS,
     {   $STATUS_DONE        => $SUBDIR_STATUS_DONE,
-        $STATUS_SUPERSEDED  => $SUBDIR_STATUS_REJECTED,
+        $STATUS_SUPERSEDED  => $SUBDIR_STATUS_SUPERSEDED,
         $STATUS_REJECTED    => $SUBDIR_STATUS_REJECTED,
         $STATUS_PLACEHOLDER => $SUBDIR_STATUS_PLACEHOLDER,
     }
@@ -1080,6 +1082,7 @@ sub is_placeholder_status ( $status ) {
     $status = $status->{ status } if ref $status;
     $status = lc $status;
     return 0 if $STATUS_TO_OPEN{ $status };
+    return 1 unless defined $STATUS_TO_DIR{ $status };
     return 1 if $STATUS_TO_DIR{ $status } eq $SUBDIR_STATUS_PLACEHOLDER;
     return 0;
 } ## end sub is_placeholder_status

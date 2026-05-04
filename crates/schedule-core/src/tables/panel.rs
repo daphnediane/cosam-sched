@@ -1987,10 +1987,7 @@ mod tests {
         sched: &mut Schedule,
         name: &str,
     ) -> crate::entity::EntityId<PresenterEntityType> {
-        use crate::entity::UuidPreference;
-        let pres_id = crate::entity::EntityId::<PresenterEntityType>::from_preference(
-            UuidPreference::GenerateNew,
-        );
+        let pres_id = crate::entity::EntityId::<PresenterEntityType>::generate();
         let data = presenter::PresenterInternalData {
             id: pres_id,
             data: presenter::PresenterCommonData {

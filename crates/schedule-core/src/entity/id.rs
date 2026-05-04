@@ -236,23 +236,57 @@ impl<E: EntityType> EntityId<E> {
         }
     }
 
-    /// Create a typed entity ID by resolving a [`crate::entity::UuidPreference`].
+    /// Create a typed entity ID by resolving a [`crate::entity::UuidPreference`]
+    /// without checking for UUID conflicts.
+    ///
+    /// This is an unsafe constructor because it does not verify that the resulting
+    /// UUID is not already in use for an entity of type `E`. Callers must ensure
+    /// that either:
+    /// - The UUID is guaranteed to be unique (e.g., `GenerateNew`)
+    /// - Conflict checking is performed separately (e.g., via `Schedule::try_resolve_entity_id`)
+    /// - The caller explicitly accepts the risk of overwriting existing entities
     ///
     /// Uses [`E::uuid_namespace()`](EntityType::uuid_namespace) for deterministic
     /// v5 UUID generation, so the caller does not need to supply a namespace.
+    ///
+    /// # Safety
+    ///
+    /// The caller must ensure that the resulting UUID does not conflict with an
+    /// existing entity of type `E`, or explicitly accept the risk of overwriting.
     #[must_use]
-    pub fn from_preference(preference: crate::entity::UuidPreference) -> Self {
+    pub unsafe fn from_preference_unchecked(preference: crate::entity::UuidPreference) -> Self {
         let uuid: NonNilUuid = match preference {
             // SAFETY: `Uuid::now_v7()` is guaranteed to be non-nil
             crate::entity::UuidPreference::GenerateNew => unsafe {
                 NonNilUuid::new_unchecked(Uuid::now_v7())
             },
             // SAFETY: `Uuid::new_v5()` is guaranteed to be non-nil
-            crate::entity::UuidPreference::FromV5 { name } => unsafe {
+            crate::entity::UuidPreference::ExactFromV5 { name }
+            | crate::entity::UuidPreference::PreferFromV5 { name } => unsafe {
                 NonNilUuid::new_unchecked(Uuid::new_v5(E::uuid_namespace(), name.as_bytes()))
             },
             crate::entity::UuidPreference::Exact(id) => id,
+            crate::entity::UuidPreference::Prefer(id) => id,
         };
+        Self {
+            uuid,
+            _marker: PhantomData,
+        }
+    }
+
+    /// Generate a new entity ID with a guaranteed unique UUID.
+    ///
+    /// This is a safe constructor that always generates a new v7 UUID.
+    /// No conflict checking is performed since v7 UUIDs are designed to be
+    /// globally unique with negligible collision probability.
+    ///
+    /// This method is provided for code that needs to generate entity IDs
+    /// without depending on a `Schedule` instance. For conflict checking
+    /// with existing entities, use [`Schedule::try_resolve_entity_id`] instead.
+    #[must_use]
+    pub fn generate() -> Self {
+        // SAFETY: `Uuid::now_v7()` is guaranteed to be non-nil
+        let uuid = unsafe { NonNilUuid::new_unchecked(Uuid::now_v7()) };
         Self {
             uuid,
             _marker: PhantomData,
@@ -441,34 +475,44 @@ mod tests {
         assert_eq!(rid, clone);
     }
 
-    // ── EntityId::from_preference ──
+    // ── EntityId::from_preference_unchecked ──
 
     #[test]
-    fn test_from_preference_from_v5_is_deterministic() {
-        let id1 = EntityId::<MockEntity>::from_preference(UuidPreference::FromV5 {
-            name: "GP001".into(),
-        });
-        let id2 = EntityId::<MockEntity>::from_preference(UuidPreference::FromV5 {
-            name: "GP001".into(),
-        });
+    fn test_from_preference_unchecked_exact_from_v5_is_deterministic() {
+        let id1 = unsafe {
+            EntityId::<MockEntity>::from_preference_unchecked(UuidPreference::ExactFromV5 {
+                name: "GP001".into(),
+            })
+        };
+        let id2 = unsafe {
+            EntityId::<MockEntity>::from_preference_unchecked(UuidPreference::ExactFromV5 {
+                name: "GP001".into(),
+            })
+        };
         assert_eq!(id1, id2);
     }
 
     #[test]
-    fn test_from_preference_from_v5_differs_by_name() {
-        let id1 = EntityId::<MockEntity>::from_preference(UuidPreference::FromV5 {
-            name: "GP001".into(),
-        });
-        let id2 = EntityId::<MockEntity>::from_preference(UuidPreference::FromV5 {
-            name: "GP002".into(),
-        });
+    fn test_from_preference_unchecked_exact_from_v5_differs_by_name() {
+        let id1 = unsafe {
+            EntityId::<MockEntity>::from_preference_unchecked(UuidPreference::ExactFromV5 {
+                name: "GP001".into(),
+            })
+        };
+        let id2 = unsafe {
+            EntityId::<MockEntity>::from_preference_unchecked(UuidPreference::ExactFromV5 {
+                name: "GP002".into(),
+            })
+        };
         assert_ne!(id1, id2);
     }
 
     #[test]
-    fn test_from_preference_exact_preserves_id() {
+    fn test_from_preference_unchecked_exact_preserves_id() {
         let nnu = make_non_nil_uuid();
-        let id = EntityId::<MockEntity>::from_preference(UuidPreference::Exact(nnu));
+        let id = unsafe {
+            EntityId::<MockEntity>::from_preference_unchecked(UuidPreference::Exact(nnu))
+        };
         assert_eq!(id.entity_uuid(), nnu);
     }
 

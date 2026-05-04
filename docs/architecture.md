@@ -297,9 +297,12 @@ See `field-system.md#id-trait-hierarchy` for the full hierarchy.
     `uuid_namespace()` and a natural key (e.g. presenter name, room name,
     panel Uniq ID), so re-importing the same spreadsheet produces the same UUIDs
 
-`EntityId::from_preference(UuidPreference)` is the primary constructor for new
-entities. `EntityId::new_unchecked(NonNilUuid)` is `unsafe` — only code with a
-UUID→type registry (e.g. `Schedule`) should call it after verifying the type.
+`EntityId::from_preference_unchecked(UuidPreference)` is the unsafe constructor for entities
+with specific UUID preferences. For safe conflict-free UUID generation, use `EntityId::generate()`
+which creates a new v7 UUID. For safe UUID resolution with conflict checking, use
+`Schedule::try_resolve_entity_id()` which handles PreferFromV5 fallback to GenerateNew on conflict.
+`EntityId::new_unchecked(NonNilUuid)` is `unsafe` — only code with a UUID→type registry
+(e.g. `Schedule`) should call it after verifying the type.
 `EntityId::try_from_dynamic(impl DynamicEntityId)` provides a safe type-checked
 conversion from any dynamic ID.
 
