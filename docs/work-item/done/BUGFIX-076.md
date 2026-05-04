@@ -6,7 +6,7 @@ The edge_field_properties macro currently sets add_fn to AddEdge for all target 
 
 ## Status
 
-Open
+Completed
 
 ## Priority
 

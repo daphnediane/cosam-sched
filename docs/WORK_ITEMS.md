@@ -1,6 +1,6 @@
 # Cosplay America Schedule - Work Item
 
-Updated on: Sun May  3 11:39:29 2026
+Updated on: Sun May  3 11:48:13 2026
 
 ## Completed
 
@@ -8,6 +8,7 @@ Updated on: Sun May  3 11:39:29 2026
 use the near/far field pair swapped from what their docs and field names
 advertise. Introduce `FIELD_*_NEAR` / `FIELD_*_FAR` aliases to make the
 intent explicit at each call site and fix the inverted queries.
+* [BUGFIX-076] The edge_field_properties macro currently sets add_fn to AddEdge for all target edges without checking if the edge has multiple source fields. This should return None for target edges with multiple sources since add_edge doesn't support multi-source edges yet.
 * [FEATURE-009] Set up the Cargo workspace root and create skeleton application crates.
 * [FEATURE-010] Implement the universal `FieldValue` enum, error types, and CRDT field type annotation.
 * [FEATURE-011] Implement the field trait hierarchy and generic `FieldDescriptor` type that replaces the old proc-macro's generated per-field unit structs.
@@ -92,6 +93,7 @@ and improve `FieldId` conversions with a global registry and type-safe downcasti
 * [REFACTOR-067] Add compile-time typed `FieldNodeId<E>` type similar to `EntityId<E>`, and rename existing `FieldNodeId` to `RuntimeFieldNodeId` for consistency with the entity ID pattern.
 * [REFACTOR-074] Split edge fields out of `FieldDescriptor<E>` into a new `HalfEdgeDescriptor` struct; add
 `EdgeKind` enum with ownership direction and exclusivity information.
+* [REFACTOR-075] Update edit_integration.rs tests to work with new WriteFn::Schedule edge write mechanism used by HALF_EDGE_* fields
 
 ---
 
@@ -103,7 +105,7 @@ and improve `FieldId` conversions with a global registry and type-safe downcasti
 
 ## Summary of Open Items
 
-**Total open items:** 20
+**Total open items:** 19
 
 * **Meta / Project-Level**
   * [META-001] Meta work item tracking the full multi-phase redesign of the schedule system. (Blocked by [META-005], [META-006], [META-007], [META-008])
@@ -117,6 +119,7 @@ XLSX import/export. (Blocked by [META-004])
   * [BUGFIX-073] `PanelInternalData::time_slot` has no CRDT backing field, so panel start /
 end / duration are not mirrored to the Automerge document and are lost
 through any save → load (or merge) round trip.
+  * [BUGFIX-078] The `callback_field_properties!` macro generates `CrdtFieldType::Scalar` for all fields, but it should generate `Derived` for fields with custom read/write callbacks that project from internal state (like Panel's time_slot projections).
 
 * **Medium Priority**
   * [FEATURE-026] ([META-005]) Support multiple convention years in a single schedule file for historical
@@ -129,14 +132,12 @@ reference and jump-starting new conventions.
 REFACTOR-060, so individual presenters can be excluded from credit display.
 
 * **Low Priority**
-  * [BUGFIX-076] The edge_field_properties macro currently sets add_fn to AddEdge for all target edges without checking if the edge has multiple source fields. This should return None for target edges with multiple sources since add_edge doesn't support multi-source edges yet.
   * [CLI-030] ([META-006]) CLI tool for converting between schedule file formats (XLSX, JSON, widget JSON).
   * [CLI-031] ([META-006]) CLI tool for making batch edits to schedule data from the command line.
   * [EDITOR-032] ([META-007]) Select the GUI framework for cosam-editor and create the application scaffold.
   * [EDITOR-033] ([META-007]) Implement the main schedule grid view and entity editing UI in cosam-editor.
   * [FEATURE-034] ([META-008]) Define and implement the protocol for synchronizing schedule data between peers.
   * [FEATURE-035] ([META-008]) Provide UI for reviewing and resolving merge conflicts after sync.
-  * [REFACTOR-075] Update edit_integration.rs tests to work with new WriteFn::Schedule edge write mechanism used by HALF_EDGE_* fields
 
 ---
 
@@ -202,15 +203,23 @@ Net effect:
 
 ---
 
-### [BUGFIX-076] BUGFIX-076: Implement multi-source detection for edge_field_properties add_fn
+### [BUGFIX-078] BUGFIX-078: callback_field_properties generates Scalar instead of Derived
 
 **Status:** Open
 
-**Priority:** Low
+**Priority:** High
 
-**Summary:** The edge_field_properties macro currently sets add_fn to AddEdge for all target edges without checking if the edge has multiple source fields. This should return None for target edges with multiple sources since add_edge doesn't support multi-source edges yet.
+**Summary:** The `callback_field_properties!` macro generates `CrdtFieldType::Scalar` for all fields, but it should generate `Derived` for fields with custom read/write callbacks that project from internal state (like Panel's time_slot projections).
 
-**Description:** In the edge_field_properties macro (crates/schedule-macro/src/edge_output.rs), the add_fn generation logic currently returns AddEdge for all target edges regardless of the number of source fields. However, the add_edge function in schedule-core only supports single-source target edges (it returns an error for multiple sources). This inconsistency means the macro-generated code claims to support add operations that will fail at runtime.
+**Description:** The `callback_field_properties!` macro is designed for fields with custom read/write callbacks that project from internal state (e.g., Panel's `start_time`, `end_time`, `duration` projecting from `time_slot`). These are derived fields that should not be stored in the CRDT document.
+
+However, the macro currently generates `crdt_type` based on the `FieldTypeMapping` trait, which defaults to `CrdtFieldType::Scalar` for all types. This causes derived fields to be incorrectly marked as Scalar, leading to:
+
+* Incorrect CRDT storage behavior (derived data being stored)
+* Potential data inconsistency between in-memory state and CRDT document
+* Violation of the single-source-of-truth principle
+
+The macro should generate `CrdtFieldType::Derived` for all callback fields, since they by definition project from other state rather than being the primary storage location.
 
 ---
 
@@ -569,31 +578,13 @@ This item covers any remaining integration work and documentation.
 
 ---
 
-### [REFACTOR-075] REFACTOR-075: Update edit_integration tests for WriteFn::Schedule
-
-**Status:** Open
-
-**Priority:** Low
-
-**Summary:** Update edit_integration.rs tests to work with new WriteFn::Schedule edge write mechanism used by HALF_EDGE_* fields
-
-**Description:** The HALF_EDGE_* fields generated by `edge_field_properties!` use `WriteFn::Schedule` for edge operations, but the `edit_integration.rs` tests still use the old `WriteEdge` mechanism. This causes test failures when entities with edge fields are added/removed/modified.
-
-Error message:
-
-```text
-FieldDescriptor should use WriteFn::Schedule for edge operations.
-WriteEdge will be removed from FieldDescriptor when HalfEdge is dropped.
-```
-
----
-
 ---
 
 [BUGFIX-045]: work-item/rejected/BUGFIX-045.md
 [BUGFIX-072]: work-item/done/BUGFIX-072.md
 [BUGFIX-073]: work-item/high/BUGFIX-073.md
-[BUGFIX-076]: work-item/low/BUGFIX-076.md
+[BUGFIX-076]: work-item/done/BUGFIX-076.md
+[BUGFIX-078]: work-item/high/BUGFIX-078.md
 [CLI-030]: work-item/low/CLI-030.md
 [CLI-031]: work-item/low/CLI-031.md
 [EDITOR-032]: work-item/low/EDITOR-032.md
@@ -659,4 +650,4 @@ WriteEdge will be removed from FieldDescriptor when HalfEdge is dropped.
 [REFACTOR-066]: work-item/done/REFACTOR-066.md
 [REFACTOR-067]: work-item/done/REFACTOR-067.md
 [REFACTOR-074]: work-item/done/REFACTOR-074.md
-[REFACTOR-075]: work-item/low/REFACTOR-075.md
+[REFACTOR-075]: work-item/done/REFACTOR-075.md

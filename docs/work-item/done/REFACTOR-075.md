@@ -6,7 +6,7 @@ Update edit_integration.rs tests to work with new WriteFn::Schedule edge write m
 
 ## Status
 
-Open
+Completed
 
 ## Priority
 
