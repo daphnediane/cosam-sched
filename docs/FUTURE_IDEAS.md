@@ -1,6 +1,6 @@
 # Future Ideas and Design Notes
 
-Updated on: Sat May  2 09:36:44 2026
+Updated on: Mon May  4 01:34:25 2026
 
 Open design questions, unexplored alternatives, and deferred ideas.
 An IDEA item can be promoted to a work item by renaming it to another prefix
@@ -21,18 +21,6 @@ The old `PresenterToGroup` edge stored these as per-edge flags, allowing a
 presenter to be `always_grouped` with respect to Group A but not Group B. This
 distinction was not actually used in the spreadsheet data, but the model
 supported it.
-
----
-
-### [IDEA-037] Read-Only Entity Resolution (Lookup Without Creation)
-
-**Summary:** Add read-only `lookup_*` variants to entity resolution that take `&EntityStorage`
-instead of `&mut EntityStorage`.
-
-**Description:** Currently entity resolution methods (e.g., presenter name lookup) take
-`&mut EntityStorage` because they may auto-create entities during resolution.
-Some callers only need lookup (validation, display, read-only queries) and
-should not require mutable access.
 
 ---
 
@@ -113,6 +101,13 @@ Currently, add/remove operations are only supported for edge fields through the 
 
 ---
 
+## Closed Ideas
+
+* [IDEA-037] (Superseded) Add read-only `lookup_*` variants to entity resolution that take `&EntityStorage`
+instead of `&mut EntityStorage`.
+
+---
+
 ## Placeholders
 
 Rename `IDEA-###.md` to another prefix to promote an idea.
@@ -124,7 +119,7 @@ Use `perl scripts/work-item-update.pl --create IDEA` to add new stubs.
 ---
 
 [IDEA-036]: work-item/idea/IDEA-036.md
-[IDEA-037]: work-item/idea/IDEA-037.md
+[IDEA-037]: work-item/rejected/IDEA-037.md
 [IDEA-039]: work-item/idea/IDEA-039.md
 [IDEA-040]: work-item/idea/IDEA-040.md
 [IDEA-042]: work-item/idea/IDEA-042.md
