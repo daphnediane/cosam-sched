@@ -4,7 +4,7 @@
  * See LICENSE file for full license text
  */
 
-//! Field callback functions for read/write operations.
+//! Field callback functions: [`ReadFn`], [`WriteFn`], [`AddFn`], [`RemoveFn`].
 
 use crate::entity::{EntityId, EntityType};
 use crate::schedule::Schedule;
@@ -12,10 +12,7 @@ use crate::value::{FieldError, FieldValue};
 
 // ── FieldCallbacks<E> ───────────────────────────────────────────────────────────
 
-/// Callback functions for field read/write operations.
-///
-/// This struct groups the callback functions needed for field operations
-/// into a single unit, improving code organization and reducing boilerplate.
+/// Callback functions for field read/write/add/remove operations.
 pub struct FieldCallbacks<E: EntityType> {
     /// Read implementation. `None` means write-only.
     pub read_fn: Option<ReadFn<E>>,
@@ -56,12 +53,10 @@ pub enum WriteFn<E: EntityType> {
 
 // ── AddFn<E> ────────────────────────────────────────────────────────────────
 
-/// How a field appends its value: directly into [`EntityType::InternalData`], or
+/// How a field appends to its value: directly into [`EntityType::InternalData`], or
 /// via a [`Schedule`] lookup by [`EntityId`].
 ///
-/// The `Schedule` variant avoids the double-`&mut` borrow problem: the fn
-/// receives `(&mut Schedule, EntityId<E>)` with no `&mut InternalData`
-/// parameter and handles its own lookup/release internally.
+/// Follows the same `Bare` / `Schedule` split as [`WriteFn`].
 pub enum AddFn<E: EntityType> {
     /// Data-only append — no schedule access needed.
     Bare(fn(&mut E::InternalData, FieldValue) -> Result<(), FieldError>),
@@ -74,12 +69,10 @@ pub enum AddFn<E: EntityType> {
 /// How a field removes from its value: directly into [`EntityType::InternalData`], or
 /// via a [`Schedule`] lookup by [`EntityId`].
 ///
-/// The `Schedule` variant avoids the double-`&mut` borrow problem: the fn
-/// receives `(&mut Schedule, EntityId<E>)` with no `&mut InternalData`
-/// parameter and handles its own lookup/release internally.
+/// Follows the same `Bare` / `Schedule` split as [`WriteFn`].
 pub enum RemoveFn<E: EntityType> {
     /// Data-only remove — no schedule access needed.
     Bare(fn(&mut E::InternalData, FieldValue) -> Result<(), FieldError>),
-    /// Schedule-aware remove — used for edge mutations (e.g. `add_presenters`).
+    /// Schedule-aware remove — used for edge mutations (e.g. `remove_presenters`).
     Schedule(fn(&mut Schedule, EntityId<E>, FieldValue) -> Result<(), FieldError>),
 }

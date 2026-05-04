@@ -56,18 +56,13 @@ use uuid::NonNilUuid;
 /// rehydrating entities does not generate redundant writes against the doc.
 pub struct Schedule {
     /// Two-level type-erased entity store (cache mirroring the CRDT doc).
-    ///
-    /// Outer key: `TypeId::of::<E::InternalData>()`.
-    /// Inner key: entity UUID.
-    /// Value: `Box<E::InternalData>`.
     pub(crate) entities: HashMap<TypeId, HashMap<NonNilUuid, Box<dyn Any + Send + Sync>>>,
 
     /// Single unified edge store for all entity relationships.
     pub(crate) edges: RawEdgeMap,
 
     /// Cache for transitive homogeneous-edge relationships (inclusive groups, members, etc.).
-    /// Set to `None` whenever a homogeneous edge is modified; rebuilt lazily per-entry on query.
-    /// Heterogeneous-edge mutations do not touch this field since the cache contains no heterogeneous data.
+    /// Invalidated on any homogeneous-edge mutation; rebuilt lazily on next query.
     pub(crate) transitive_edge_cache: RefCell<Option<TransitiveEdgeCache>>,
 
     /// Schedule identity and provenance.

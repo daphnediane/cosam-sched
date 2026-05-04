@@ -4,17 +4,8 @@
  * See LICENSE file for full license text
  */
 
-//! Entity type system — [`EntityType`] trait, [`UuidPreference`], and related types.
-//!
-//! Entity identifiers are defined in [`crate::entity::id`]:
-//! - [`crate::entity::id::EntityId`] — compile-time type-safe entity identifier
-//! - [`crate::entity::id::RuntimeEntityId`] — dynamic (untyped) entity identifier
-//! - [`crate::entity::id::DynamicEntityId`] — dynamic entity identifier trait
-//! - [`crate::entity::id::EntityUuid`] — entity UUID wrapper
-//! - [`crate::entity::id::EntityTyped`] — entity UUID with type marker
-//!
-//! Non-nil UUID identity uses [`uuid::NonNilUuid`] from the `uuid` crate
-//! directly.
+//! Entity type system — [`EntityType`] trait, [`UuidPreference`], and entity
+//! identifier types ([`EntityId`], [`RuntimeEntityId`], [`EntityUuid`], etc.).
 
 pub mod id;
 

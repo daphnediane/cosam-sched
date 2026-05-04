@@ -6,15 +6,7 @@
 
 //! Field trait hierarchy and [`FieldDescriptor`] for the entity/field system.
 //!
-//! ## Trait hierarchy
-//!
-//! ```text
-//! NamedField          name(), display_name(), description(), aliases()
-//! ```
-//!
 //! The caller-facing API is always `(EntityId<E>, &[mut] Schedule)`.
-//! Entity-level matching is handled via [`crate::lookup::EntityMatcher`].
-//!
 //! [`FieldDescriptor`] holds [`ReadFn<E>`] and [`WriteFn<E>`] enums that
 //! select the correct calling convention internally, avoiding the double-`&mut`
 //! borrow problem for edge-mutating fields (e.g. `add_presenters`).
@@ -59,16 +51,12 @@ pub struct CommonFieldData {
 
 // ── Global field registry ─────────────────────────────────────────────────────
 
-/// Wrapper for globally registering a [`FieldDescriptor`] via `inventory`.
-///
-/// Non-edge field descriptors submit via:
-/// `inventory::submit! { CollectedField(&FIELD_NAME) }`
+/// Wrapper for globally registering a [`FieldDescriptor`] via
+/// `inventory::submit! { CollectedField(&FIELD_NAME) }`.
 pub struct CollectedField(pub &'static dyn NamedField);
 
-/// Wrapper for globally registering a [`crate::edge::HalfEdgeDescriptor`] via `inventory`.
-///
-/// Edge field descriptors submit via:
-/// `inventory::submit! { CollectedHalfEdge(&HALF_EDGE_NAME) }`
+/// Wrapper for globally registering a [`crate::edge::HalfEdgeDescriptor`] via
+/// `inventory::submit! { CollectedHalfEdge(&HALF_EDGE_NAME) }`.
 pub struct CollectedHalfEdge(pub &'static dyn NamedField);
 
 inventory::collect!(CollectedField);

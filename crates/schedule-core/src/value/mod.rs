@@ -51,18 +51,17 @@ pub enum FieldValueItem {
     DateTime(NaiveDateTime),
     /// Chrono duration.
     Duration(Duration),
-    /// Identifier for an entity
+    /// Identifier for an entity.
     EntityIdentifier(RuntimeEntityId),
 }
 
-/// Universal value enum used for all field read/write operations.
-///
-/// This is a wrapper around `FieldValueItem` that allows for single values or lists of values.
+/// Universal value enum used for all field read/write operations: either a
+/// single [`FieldValueItem`] or a list of them.
 #[derive(Debug, Clone, PartialEq)]
 pub enum FieldValue {
-    /// FieldValue
+    /// A single value.
     Single(FieldValueItem),
-    /// Multi-value list.
+    /// A list of values.
     List(Vec<FieldValueItem>),
 }
 

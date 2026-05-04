@@ -6,18 +6,10 @@
 
 //! Per-table XLSX column header definitions.
 //!
-//! Each table has a module containing [`FieldDef`] constants for every
-//! recognized column.  A `FieldDef` carries:
-//!
-//! - `export`    – the header string written when creating a file (matches the
-//!   real 2026 spreadsheet column names).
-//! - `canonical` – the lookup key produced by `canonical_header(export)`.
-//! - `aliases`   – additional lookup keys accepted during import; may be raw
-//!   spreadsheet strings or canonical forms from older files.
-//!
-//! Use `FieldDef::keys()` to iterate over all accepted lookup keys (primary
-//! + aliases) when building a lookup map, and `FieldDef::export` when writing
-//! the header row.
+//! Each sub-module (`schedule`, `room_map`, `panel_types`, `people`) contains
+//! [`FieldDef`] constants for every recognized column, plus an `ALL` slice in
+//! 2026 spreadsheet order.  Use [`FieldDef::keys`] when building a lookup map
+//! and [`FieldDef::export`] when writing the header row.
 
 /// A single column definition: one export name plus zero or more import aliases.
 #[derive(Debug, Clone, Copy)]
