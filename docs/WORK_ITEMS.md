@@ -1,6 +1,6 @@
 # Cosplay America Schedule - Work Item
 
-Updated on: Mon May  4 01:03:23 2026
+Updated on: Mon May  4 01:20:16 2026
 
 ## Completed
 
@@ -80,6 +80,8 @@ collection, and expose a `registered_entity_types()` accessor.
 * [REFACTOR-055] Add `define_field!` macro to bundle hand-written `FieldDescriptor` statics with
 `inventory::submit!`, and add `IntoFieldValue` trait hierarchy for type-deduced
 `field_value!(expr)` construction.
+* [REFACTOR-058] Update `FIELD_CREDITS` to use the per-edge `credited` flag introduced by
+REFACTOR-060, so individual presenters can be excluded from credit display.
 * [REFACTOR-059] Introduce `EdgeDescriptor` as a first-class type that co-locates edge definition,
 CRDT ownership, and relationship semantics on the canonical owner entity type,
 replacing the split `canonical_owner()` match table and `OWNER_EDGE_FIELDS` constant.
@@ -111,7 +113,7 @@ and improve `FieldId` conversions with a global registry and type-safe downcasti
 
 ## Summary of Open Items
 
-**Total open items:** 15
+**Total open items:** 14
 
 * **Meta / Project-Level**
   * [META-001] Meta work item tracking the full multi-phase redesign of the schedule system. (Blocked by [META-005], [META-006], [META-007], [META-008])
@@ -126,8 +128,6 @@ XLSX import/export. (Blocked by [META-004])
 reference and jump-starting new conventions.
   * [FEATURE-028] ([META-005]) Import schedule data from the existing XLSX spreadsheet format.
   * [FEATURE-029] ([META-005]) Export schedule data back to the XLSX spreadsheet format.
-  * [REFACTOR-058] Update `FIELD_CREDITS` to use the per-edge `credited` flag introduced by
-REFACTOR-060, so individual presenters can be excluded from credit display.
 
 * **Low Priority**
   * [CLI-030] ([META-006]) CLI tool for converting between schedule file formats (XLSX, JSON, widget JSON).
@@ -357,7 +357,7 @@ Multi-year archive support (FEATURE-026) deferred out of this phase.
 
 * FEATURE-025: Internal schedule file format (save/load) — Completed
 * FEATURE-056: Synthesized data fields for export — Completed
-* FEATURE-027: Widget display JSON export
+* FEATURE-027: Widget display JSON export — Completed
 * FEATURE-028: XLSX spreadsheet import (blocked by FEATURE-020)
 * FEATURE-029: XLSX spreadsheet export (blocked by FEATURE-028)
 
@@ -423,29 +423,6 @@ to exchange CRDT changes and reconcile concurrent edits to the same fields.
 
 ---
 
-## Open REFACTOR Items
-
-### [REFACTOR-058] REFACTOR-058: Credited vs Uncredited Presenter Handling
-
-**Status:** Open
-
-**Priority:** Medium
-
-**Summary:** Update `FIELD_CREDITS` to use the per-edge `credited` flag introduced by
-REFACTOR-060, so individual presenters can be excluded from credit display.
-
-**Description:** The `credits` computed field (`FIELD_CREDITS`) currently treats all presenters
-attached to a panel as credited. The v9 system distinguished between credited
-and uncredited presenters (e.g., moderators, tech staff, guests who requested
-anonymity) using separate `credited_presenters` vs `all_presenters` lists.
-
-REFACTOR-060 added `credited: bool` per-edge metadata and the
-`credited_presenters` / `uncredited_presenters` / `add_credited_presenters` /
-`add_uncredited_presenters` field API. `FIELD_CREDITS` now filters by the flag.
-This item covers any remaining integration work and documentation.
-
----
-
 ---
 
 [BUGFIX-045]: work-item/rejected/BUGFIX-045.md
@@ -508,7 +485,7 @@ This item covers any remaining integration work and documentation.
 [REFACTOR-053]: work-item/done/REFACTOR-053.md
 [REFACTOR-054]: work-item/done/REFACTOR-054.md
 [REFACTOR-055]: work-item/done/REFACTOR-055.md
-[REFACTOR-058]: work-item/medium/REFACTOR-058.md
+[REFACTOR-058]: work-item/done/REFACTOR-058.md
 [REFACTOR-059]: work-item/done/REFACTOR-059.md
 [REFACTOR-060]: work-item/done/REFACTOR-060.md
 [REFACTOR-061]: work-item/done/REFACTOR-061.md

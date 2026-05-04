@@ -7,7 +7,7 @@ REFACTOR-060, so individual presenters can be excluded from credit display.
 
 ## Status
 
-Open
+Completed
 
 ## Priority
 
@@ -42,14 +42,22 @@ resolution. The infrastructure is implemented in REFACTOR-060.
 
 ## Acceptance Criteria
 
-- [ ] `FIELD_CREDITS` reads `credited` flag via `Schedule::edge_get_bool` and
+- [x] `FIELD_CREDITS` reads `credited` flag via `Schedule::edge_get_bool` and
   excludes uncredited presenters from the credit string output
-- [ ] Group expansion logic also excludes uncredited presenters
-- [ ] Tests cover credited vs uncredited presenter handling
-- [ ] Document approach in `architecture.md`
+- [x] Group expansion logic also excludes uncredited presenters
+- [x] Tests cover credited vs uncredited presenter handling
+- [x] Document approach in `architecture.md`
 
 ## Notes
 
 Blocked on REFACTOR-060. Once REFACTOR-060 is complete, the `FIELD_CREDITS`
 update is already included in that item's scope — this work item may be
 marked as Completed at the same time.
+
+**Completion Note:** The implementation evolved beyond the original plan.
+FEATURE-065 replaced the per-edge `credited` boolean approach with a cleaner
+partitioned edge model (`EDGE_CREDITED_PRESENTERS` / `EDGE_UNCREDITED_PRESENTERS`),
+eliminating the `credited` per-edge boolean and its CRDT storage. The current
+implementation in `compute_credits()` uses `EDGE_CREDITED_PRESENTERS` and properly
+excludes uncredited presenters. Tests verify the functionality, and the approach
+is documented in `architecture.md` and `field-system.md`.
