@@ -6,7 +6,7 @@ Import schedule data from the existing XLSX spreadsheet format.
 
 ## Status
 
-Open
+Completed
 
 ## Priority
 

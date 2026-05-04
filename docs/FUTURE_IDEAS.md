@@ -1,6 +1,6 @@
 # Future Ideas and Design Notes
 
-Updated on: Mon May  4 02:13:35 2026
+Updated on: Mon May  4 10:03:56 2026
 
 Open design questions, unexplored alternatives, and deferred ideas.
 An IDEA item can be promoted to a work item by renaming it to another prefix
@@ -89,10 +89,39 @@ Currently, add/remove operations are only supported for edge fields through the 
 
 ---
 
+### [IDEA-080] IDEA-080: Update Schedule from Spreadsheet (Merge Import)
+
+**Summary:** Design for merging a new XLSX import into an existing CRDT-tracked schedule
+rather than always starting from a clean slate.
+
+**Description:** The current `import_xlsx` implementation always creates a fresh `Schedule` from
+scratch. The convention workflow involves iterative edits to a live spreadsheet,
+and it would be useful to re-import without losing manual edits made inside the
+editor (e.g., notes, tags, or structural changes applied after the last import).
+
+A merge-based import would:
+
+* Treat the XLSX as the authoritative source for spreadsheet-resident fields
+  (name, times, rooms, panelists, costs, etc.)
+* Preserve fields set only in the editor that have no spreadsheet column
+* Use the existing CRDT merge infrastructure to converge the two states
+
+This is intentionally deferred because:
+
+* It requires careful field-ownership semantics (which fields "belong" to the
+  spreadsheet vs. the editor)
+* The CRDT merge model needs to be well-established first (FEATURE-022/023)
+* A clean-slate import is sufficient for the current workflow
+
+---
+
 ## Closed Ideas
 
 * [IDEA-037] (Superseded) Add read-only `lookup_*` variants to entity resolution that take `&EntityStorage`
 instead of `&mut EntityStorage`.
+* [IDEA-042] (Completed) `EntityId::new(Uuid)` and `UuidPreference::Exact(NonNilUuid)` both accept a
+UUID without verifying it belongs to entity type `E`. Investigate whether these
+can be tightened so that `unsafe` search covers all type-membership trust points.
 * [IDEA-042] (Superseded) `EntityId::new(Uuid)` and `UuidPreference::Exact(NonNilUuid)` both accept a
 UUID without verifying it belongs to entity type `E`. Investigate whether these
 can be tightened so that `unsafe` search covers all type-membership trust points.
@@ -113,6 +142,7 @@ Use `perl scripts/work-item-update.pl --create IDEA` to add new stubs.
 [IDEA-037]: work-item/superseded/IDEA-037.md
 [IDEA-039]: work-item/idea/IDEA-039.md
 [IDEA-040]: work-item/idea/IDEA-040.md
-[IDEA-042]: work-item/superseded/IDEA-042.md
+[IDEA-042]: work-item/done/IDEA-042.md
 [IDEA-044]: work-item/idea/IDEA-044.md
 [IDEA-077]: work-item/idea/IDEA-077.md
+[IDEA-080]: work-item/idea/IDEA-080.md

@@ -19,6 +19,7 @@ pub mod registry;
 pub mod schedule;
 pub mod tables;
 pub mod value;
+pub mod xlsx;
 
 // Re-export edge types for external use
 pub use edge::*;

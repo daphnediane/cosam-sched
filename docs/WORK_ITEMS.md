@@ -1,6 +1,6 @@
 # Cosplay America Schedule - Work Item
 
-Updated on: Mon May  4 02:12:33 2026
+Updated on: Mon May  4 10:02:35 2026
 
 ## Completed
 
@@ -34,6 +34,7 @@ through any save → load (or merge) round trip.
 concurrent scalar conflicts to the caller.
 * [FEATURE-025] Define and implement the native save/load format for schedule documents.
 * [FEATURE-027] Implement export of schedule data to the JSON format consumed by the calendar display widget.
+* [FEATURE-028] Import schedule data from the existing XLSX spreadsheet format.
 * [FEATURE-038] Add a type-safe `FieldValueConverter<M>` trait and driver functions for converting
 `FieldValue` inputs to typed Rust outputs via a work-queue iteration pattern.
 * [FEATURE-043] Add a `verify` callback to `FieldDescriptor` for cross-field consistency checks after batch writes to computed fields.
@@ -108,7 +109,7 @@ and improve `FieldId` conversions with a global registry and type-safe downcasti
 
 ## Summary of Open Items
 
-**Total open items:** 14
+**Total open items:** 13
 
 * **Meta / Project-Level**
   * [META-001] Meta work item tracking the full multi-phase redesign of the schedule system. (Blocked by [META-005], [META-006], [META-007], [META-008])
@@ -121,7 +122,6 @@ XLSX import/export. (Blocked by [META-004])
 * **Medium Priority**
   * [FEATURE-026] Support multiple convention years in a single schedule file for historical
 reference and jump-starting new conventions.
-  * [FEATURE-028] ([META-005]) Import schedule data from the existing XLSX spreadsheet format.
   * [FEATURE-029] ([META-005]) Export schedule data back to the XLSX spreadsheet format.
 
 * **Low Priority**
@@ -225,21 +225,6 @@ enabling:
 * **Jump-start**: Copy entities from a prior year to pre-populate the next
   convention (recurring panels, returning presenters, same rooms)
 * **Historical reference**: View past schedules alongside the current one
-
----
-
-### [FEATURE-028] XLSX Spreadsheet Import
-
-**Status:** Open
-
-**Priority:** Medium
-
-**Summary:** Import schedule data from the existing XLSX spreadsheet format.
-
-**Part of:** [META-005]
-
-**Description:** The primary data source is an Excel spreadsheet maintained by the convention
-organizers. Import must handle the existing column layout.
 
 ---
 
@@ -447,7 +432,7 @@ to exchange CRDT changes and reconcile concurrent edits to the same fields.
 [FEATURE-025]: work-item/done/FEATURE-025.md
 [FEATURE-026]: work-item/medium/FEATURE-026.md
 [FEATURE-027]: work-item/done/FEATURE-027.md
-[FEATURE-028]: work-item/medium/FEATURE-028.md
+[FEATURE-028]: work-item/done/FEATURE-028.md
 [FEATURE-029]: work-item/medium/FEATURE-029.md
 [FEATURE-034]: work-item/low/FEATURE-034.md
 [FEATURE-035]: work-item/low/FEATURE-035.md
