@@ -15,7 +15,7 @@ use crate::edit::builder::build_entity;
 use crate::entity::UuidPreference;
 use crate::field::set::FieldUpdate;
 use crate::schedule::Schedule;
-use crate::tables::panel_type::{PanelTypeEntityType, PanelTypeId};
+use crate::tables::panel_type::{self, PanelTypeEntityType, PanelTypeId};
 use crate::xlsx::columns::panel_types as pt;
 
 use super::{build_column_map, find_data_range, get_field_def, is_truthy, row_to_map};
@@ -108,21 +108,21 @@ pub(super) fn read_panel_types_into(
             name: prefix.clone(),
         };
         let mut updates: Vec<FieldUpdate<PanelTypeEntityType>> = vec![
-            FieldUpdate::set("prefix", prefix.as_str()),
-            FieldUpdate::set("panel_kind", panel_kind.as_str()),
-            FieldUpdate::set("hidden", hidden),
-            FieldUpdate::set("is_break", is_break),
-            FieldUpdate::set("is_cafe", is_cafe),
-            FieldUpdate::set("is_workshop", is_workshop),
-            FieldUpdate::set("is_room_hours", is_room_hours),
-            FieldUpdate::set("is_timeline", is_timeline),
-            FieldUpdate::set("is_private", is_private),
+            FieldUpdate::set(&panel_type::FIELD_PREFIX, prefix.as_str()),
+            FieldUpdate::set(&panel_type::FIELD_PANEL_KIND, panel_kind.as_str()),
+            FieldUpdate::set(&panel_type::FIELD_HIDDEN, hidden),
+            FieldUpdate::set(&panel_type::FIELD_IS_BREAK, is_break),
+            FieldUpdate::set(&panel_type::FIELD_IS_CAFE, is_cafe),
+            FieldUpdate::set(&panel_type::FIELD_IS_WORKSHOP, is_workshop),
+            FieldUpdate::set(&panel_type::FIELD_IS_ROOM_HOURS, is_room_hours),
+            FieldUpdate::set(&panel_type::FIELD_IS_TIMELINE, is_timeline),
+            FieldUpdate::set(&panel_type::FIELD_IS_PRIVATE, is_private),
         ];
         if let Some(ref c) = color {
-            updates.push(FieldUpdate::set("color", c.as_str()));
+            updates.push(FieldUpdate::set(&panel_type::FIELD_COLOR, c.as_str()));
         }
         if let Some(ref b) = bw {
-            updates.push(FieldUpdate::set("bw", b.as_str()));
+            updates.push(FieldUpdate::set(&panel_type::FIELD_BW, b.as_str()));
         }
 
         match build_entity::<PanelTypeEntityType>(schedule, uuid_pref, updates) {

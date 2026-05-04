@@ -25,7 +25,7 @@ use crate::edit::builder::build_entity;
 use crate::entity::{EntityType, UuidPreference};
 use crate::field::set::FieldUpdate;
 use crate::schedule::Schedule;
-use crate::tables::presenter::{PresenterEntityType, PresenterRank};
+use crate::tables::presenter::{self, PresenterEntityType, PresenterRank};
 use crate::xlsx::columns::people as pc;
 
 use super::{build_column_map, find_data_range, get_field_def, is_truthy, row_to_map};
@@ -94,13 +94,13 @@ pub(super) fn read_people_into(
                 .unwrap_or_default();
 
             let mut updates: Vec<FieldUpdate<PresenterEntityType>> = vec![
-                FieldUpdate::set("is_explicit_group", is_explicit_group),
-                FieldUpdate::set("always_grouped", always_grouped),
-                FieldUpdate::set("always_shown_in_group", always_shown),
+                FieldUpdate::set(&presenter::FIELD_IS_EXPLICIT_GROUP, is_explicit_group),
+                FieldUpdate::set(&presenter::FIELD_ALWAYS_GROUPED, always_grouped),
+                FieldUpdate::set(&presenter::FIELD_ALWAYS_SHOWN_IN_GROUP, always_shown),
             ];
             // People table is authoritative: upgrade rank if it has higher priority.
             if rank.priority() < existing_rank.priority() {
-                updates.push(FieldUpdate::set("rank", rank.as_str()));
+                updates.push(FieldUpdate::set(&presenter::FIELD_RANK, rank.as_str()));
             }
             let _ =
                 PresenterEntityType::field_set().write_multiple(existing_id, schedule, &updates);
@@ -110,11 +110,11 @@ pub(super) fn read_people_into(
                 name: name.to_lowercase(),
             };
             let updates = vec![
-                FieldUpdate::set("name", name.as_str()),
-                FieldUpdate::set("rank", rank.as_str()),
-                FieldUpdate::set("is_explicit_group", is_explicit_group),
-                FieldUpdate::set("always_grouped", always_grouped),
-                FieldUpdate::set("always_shown_in_group", always_shown),
+                FieldUpdate::set(&presenter::FIELD_NAME, name.as_str()),
+                FieldUpdate::set(&presenter::FIELD_RANK, rank.as_str()),
+                FieldUpdate::set(&presenter::FIELD_IS_EXPLICIT_GROUP, is_explicit_group),
+                FieldUpdate::set(&presenter::FIELD_ALWAYS_GROUPED, always_grouped),
+                FieldUpdate::set(&presenter::FIELD_ALWAYS_SHOWN_IN_GROUP, always_shown),
             ];
             match build_entity::<PresenterEntityType>(schedule, uuid_pref, updates) {
                 Ok(_) => {}

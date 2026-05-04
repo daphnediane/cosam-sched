@@ -50,7 +50,7 @@ impl Schedule {
     pub fn contains_entity<E: EntityType>(&self, id: EntityId<E>) -> bool {
         self.entities
             .get(&TypeId::of::<E::InternalData>())
-            .map_or(false, |map| map.contains_key(&id.entity_uuid()))
+            .is_some_and(|map| map.contains_key(&id.entity_uuid()))
     }
 
     /// Check whether an entity with the given ID is tombstoned (soft-deleted).

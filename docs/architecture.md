@@ -54,6 +54,8 @@ Fields are declared as static `FieldDescriptor<E>` or `HalfEdgeDescriptor` value
 
 Both implement the `NamedField` trait and are registered globally via the `inventory` crate.
 
+**Important:** Field descriptors must always be accessed via the table module prefix (e.g., `panel::FIELD_NAME`) to avoid name collisions. Never import individual field descriptors directly. See `field-system.md#field-descriptor-usage-guidelines` for detailed usage patterns and rationale.
+
 ### Builder API
 
 Entity builders provide ergonomic construction with typed setters, UUID assignment,

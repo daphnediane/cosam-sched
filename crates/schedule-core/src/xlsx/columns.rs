@@ -8,11 +8,12 @@
 //!
 //! Each table has a module containing [`FieldDef`] constants for every
 //! recognized column.  A `FieldDef` carries:
+//!
 //! - `export`    – the header string written when creating a file (matches the
-//!                 real 2026 spreadsheet column names).
+//!   real 2026 spreadsheet column names).
 //! - `canonical` – the lookup key produced by `canonical_header(export)`.
 //! - `aliases`   – additional lookup keys accepted during import; may be raw
-//!                 spreadsheet strings or canonical forms from older files.
+//!   spreadsheet strings or canonical forms from older files.
 //!
 //! Use `FieldDef::keys()` to iterate over all accepted lookup keys (primary
 //! + aliases) when building a lookup map, and `FieldDef::export` when writing

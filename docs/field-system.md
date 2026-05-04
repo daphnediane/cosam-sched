@@ -252,6 +252,63 @@ pub enum RemoveFn<E: EntityType> {
 }
 ```
 
+## Field Descriptor Usage Guidelines
+
+Field descriptors (`FieldDescriptor<E>`, `HalfEdgeDescriptor`, and `FullEdge`) must always be accessed via the table module prefix to avoid name collisions and ensure clarity. Never import individual field descriptors directly.
+
+### Correct Usage Patterns
+
+**Outside table modules (e.g., xlsx import, converters):**
+
+```rust
+use crate::tables::panel::{self};
+FieldUpdate::set(&panel::FIELD_NAME, name),
+schedule.edge_add(panel, panel::EDGE_EVENT_ROOMS, [event_room]);
+```
+
+**Inside the table module itself (e.g., panel.rs):**
+
+```rust
+FieldUpdate::set(&FIELD_NAME, name),
+schedule.edge_add(panel, EDGE_EVENT_ROOMS, [event_room]);
+```
+
+**User-provided field names (e.g., cosam-modify CLI):**
+
+```rust
+FieldUpdate::set(field_name, field_value),  // String is user input
+```
+
+### Incorrect Usage Patterns
+
+**Never import individual field descriptors:**
+
+```rust
+// WRONG - do not import individual fields
+use crate::tables::panel::{FIELD_NAME, EDGE_EVENT_ROOMS};
+FieldUpdate::set(&FIELD_NAME, name),
+schedule.edge_add(panel, EDGE_EVENT_ROOMS, [event_room]);
+```
+
+**Never use string literals for known field names:**
+
+```rust
+// WRONG - use static descriptor instead
+FieldUpdate::set("name", name),
+```
+
+### Rationale
+
+- **Name collision avoidance**: Multiple entity types share field names (e.g., `FIELD_NAME` exists on Panel, Presenter, EventRoom, HotelRoom). Using the module prefix (`panel::FIELD_NAME`) disambiguates references.
+- **Efficiency**: Static field descriptors bypass HashMap lookups that occur with string-based field names.
+- **Clarity**: The module prefix makes the entity type explicit at the call site.
+- **Single source of truth**: The table module owns the field definitions and is the only place where unqualified names should be used.
+
+### Exceptions
+
+- **Inside table modules**: The module's own field descriptors may be used without the prefix (e.g., `FIELD_NAME` inside `panel.rs`).
+- **User-provided field names**: When the field name comes from user input (e.g., CLI arguments, API requests), use the string form directly.
+
 ## FieldDescriptor
 
 Generic struct — one `static` value per field. Non-capturing closures coerce

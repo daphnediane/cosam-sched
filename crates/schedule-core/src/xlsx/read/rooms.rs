@@ -15,8 +15,8 @@ use crate::edit::builder::build_entity;
 use crate::entity::UuidPreference;
 use crate::field::set::FieldUpdate;
 use crate::schedule::Schedule;
-use crate::tables::event_room::{EventRoomEntityType, EventRoomId, EDGE_HOTEL_ROOMS};
-use crate::tables::hotel_room::HotelRoomEntityType;
+use crate::tables::event_room::{self, EventRoomEntityType, EventRoomId};
+use crate::tables::hotel_room::{self, HotelRoomEntityType};
 use crate::xlsx::columns::room_map;
 
 use super::{build_column_map, find_data_range, get_field_def, row_to_map};
@@ -31,7 +31,7 @@ pub(super) fn read_rooms_into(
     schedule: &mut Schedule,
 ) -> Result<HashMap<String, EventRoomId>> {
     let mut room_lookup: HashMap<String, EventRoomId> = HashMap::new();
-    let mut hotel_lookup: HashMap<String, crate::tables::hotel_room::HotelRoomId> = HashMap::new();
+    let mut hotel_lookup: HashMap<String, hotel_room::HotelRoomId> = HashMap::new();
 
     let range = match find_data_range(book, preferred, &["RoomMap", "Rooms"]) {
         Some(r) => r,
@@ -78,13 +78,15 @@ pub(super) fn read_rooms_into(
         let uuid_pref = UuidPreference::PreferFromV5 {
             name: room_name.to_lowercase(),
         };
-        let mut updates: Vec<FieldUpdate<EventRoomEntityType>> =
-            vec![FieldUpdate::set("room_name", room_name.as_str())];
+        let mut updates: Vec<FieldUpdate<EventRoomEntityType>> = vec![FieldUpdate::set(
+            &event_room::FIELD_ROOM_NAME,
+            room_name.as_str(),
+        )];
         if let Some(ref ln) = long_name {
-            updates.push(FieldUpdate::set("long_name", ln.as_str()));
+            updates.push(FieldUpdate::set(&event_room::FIELD_LONG_NAME, ln.as_str()));
         }
         if let Some(sk) = sort_key {
-            updates.push(FieldUpdate::set("sort_key", sk));
+            updates.push(FieldUpdate::set(&event_room::FIELD_SORT_KEY, sk));
         }
 
         let room_id = match build_entity::<EventRoomEntityType>(schedule, uuid_pref, updates) {
@@ -112,7 +114,10 @@ pub(super) fn read_rooms_into(
                 match build_entity::<HotelRoomEntityType>(
                     schedule,
                     hr_uuid,
-                    vec![FieldUpdate::set("hotel_room_name", hr_name.as_str())],
+                    vec![FieldUpdate::set(
+                        &hotel_room::FIELD_HOTEL_ROOM_NAME,
+                        hr_name.as_str(),
+                    )],
                 ) {
                     Ok(id) => {
                         hotel_lookup.insert(hr_name.to_lowercase(), id);
@@ -124,7 +129,7 @@ pub(super) fn read_rooms_into(
                     }
                 }
             };
-            let _ = schedule.edge_add(room_id, EDGE_HOTEL_ROOMS, [hr_id]);
+            let _ = schedule.edge_add(room_id, event_room::EDGE_HOTEL_ROOMS, [hr_id]);
         }
     }
 

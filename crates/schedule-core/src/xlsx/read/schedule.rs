@@ -18,10 +18,7 @@ use crate::entity::UuidPreference;
 use crate::field::set::FieldUpdate;
 use crate::schedule::Schedule;
 use crate::tables::event_room::EventRoomId;
-use crate::tables::panel::{
-    PanelEntityType, PanelId, EDGE_CREDITED_PRESENTERS, EDGE_EVENT_ROOMS, EDGE_PANEL_TYPE,
-    EDGE_UNCREDITED_PRESENTERS,
-};
+use crate::tables::panel::{self, PanelEntityType, PanelId};
 use crate::tables::panel_type::PanelTypeId;
 use crate::tables::presenter::find_or_create_tagged_presenter;
 use crate::value::time::{parse_datetime, parse_duration};
@@ -90,7 +87,7 @@ pub(super) fn read_schedule_into(
     let ticket_keys: std::collections::HashSet<String> = sc::TICKET_SALE
         .keys()
         .chain(sc::SIMPLE_TIX_EVENT.keys())
-        .filter_map(|k| super::canonical_header(k))
+        .filter_map(super::canonical_header)
         .collect();
     let ticket_cols: std::collections::HashSet<u32> = canonical_headers
         .iter()
@@ -230,66 +227,117 @@ pub(super) fn read_schedule_into(
             name: code_str.to_uppercase(),
         };
         let mut updates: Vec<FieldUpdate<PanelEntityType>> = vec![
-            FieldUpdate::set("code", code_str.as_str()),
-            FieldUpdate::set("name", name.as_str()),
-            FieldUpdate::set("is_free", is_free),
-            FieldUpdate::set("is_kids", is_kids),
-            FieldUpdate::set("is_full", is_full),
-            FieldUpdate::set("hide_panelist", hide_panelist),
-            FieldUpdate::set("sewing_machines", sewing_machines),
-            FieldUpdate::set("have_ticket_image", have_ticket_image),
+            FieldUpdate::set(&crate::tables::panel::FIELD_CODE, code_str.as_str()),
+            FieldUpdate::set(&crate::tables::panel::FIELD_NAME, name.as_str()),
+            FieldUpdate::set(&crate::tables::panel::FIELD_IS_FREE, is_free),
+            FieldUpdate::set(&crate::tables::panel::FIELD_IS_KIDS, is_kids),
+            FieldUpdate::set(&crate::tables::panel::FIELD_IS_FULL, is_full),
+            FieldUpdate::set(&crate::tables::panel::FIELD_HIDE_PANELIST, hide_panelist),
+            FieldUpdate::set(
+                &crate::tables::panel::FIELD_SEWING_MACHINES,
+                sewing_machines,
+            ),
+            FieldUpdate::set(
+                &crate::tables::panel::FIELD_HAVE_TICKET_IMAGE,
+                have_ticket_image,
+            ),
         ];
 
         if let Some(ref c) = cost {
-            updates.push(FieldUpdate::set("cost", c.as_str()));
+            updates.push(FieldUpdate::set(
+                &crate::tables::panel::FIELD_COST,
+                c.as_str(),
+            ));
         }
         if let Some(ref d) = get_field_def(&data, &sc::DESCRIPTION).cloned() {
-            updates.push(FieldUpdate::set("description", d.as_str()));
+            updates.push(FieldUpdate::set(
+                &crate::tables::panel::FIELD_DESCRIPTION,
+                d.as_str(),
+            ));
         }
         if let Some(ref n) = get_field_def(&data, &sc::NOTE).cloned() {
-            updates.push(FieldUpdate::set("note", n.as_str()));
+            updates.push(FieldUpdate::set(
+                &crate::tables::panel::FIELD_NOTE,
+                n.as_str(),
+            ));
         }
         if let Some(ref n) = get_field_def(&data, &sc::NOTES_NON_PRINTING).cloned() {
-            updates.push(FieldUpdate::set("notes_non_printing", n.as_str()));
+            updates.push(FieldUpdate::set(
+                &crate::tables::panel::FIELD_NOTES_NON_PRINTING,
+                n.as_str(),
+            ));
         }
         if let Some(ref n) = get_field_def(&data, &sc::WORKSHOP_NOTES).cloned() {
-            updates.push(FieldUpdate::set("workshop_notes", n.as_str()));
+            updates.push(FieldUpdate::set(
+                &crate::tables::panel::FIELD_WORKSHOP_NOTES,
+                n.as_str(),
+            ));
         }
         if let Some(ref n) = get_field_def(&data, &sc::POWER_NEEDS).cloned() {
-            updates.push(FieldUpdate::set("power_needs", n.as_str()));
+            updates.push(FieldUpdate::set(
+                &crate::tables::panel::FIELD_POWER_NEEDS,
+                n.as_str(),
+            ));
         }
         if let Some(ref n) = get_field_def(&data, &sc::AV_NOTES).cloned() {
-            updates.push(FieldUpdate::set("av_notes", n.as_str()));
+            updates.push(FieldUpdate::set(
+                &crate::tables::panel::FIELD_AV_NOTES,
+                n.as_str(),
+            ));
         }
         if let Some(ref n) = get_field_def(&data, &sc::DIFFICULTY).cloned() {
-            updates.push(FieldUpdate::set("difficulty", n.as_str()));
+            updates.push(FieldUpdate::set(
+                &crate::tables::panel::FIELD_DIFFICULTY,
+                n.as_str(),
+            ));
         }
         if let Some(ref n) = get_field_def(&data, &sc::PREREQ).cloned() {
-            updates.push(FieldUpdate::set("prereq", n.as_str()));
+            updates.push(FieldUpdate::set(
+                &crate::tables::panel::FIELD_PREREQ,
+                n.as_str(),
+            ));
         }
         if let Some(ref n) = get_field_def(&data, &sc::TICKET_SALE).cloned() {
-            updates.push(FieldUpdate::set("ticket_url", n.as_str()));
+            updates.push(FieldUpdate::set(
+                &crate::tables::panel::FIELD_TICKET_URL,
+                n.as_str(),
+            ));
         }
         if let Some(ref n) = get_field_def(&data, &sc::SIMPLE_TIX_EVENT).cloned() {
-            updates.push(FieldUpdate::set("simpletix_event", n.as_str()));
+            updates.push(FieldUpdate::set(
+                &crate::tables::panel::FIELD_SIMPLETIX_EVENT,
+                n.as_str(),
+            ));
         }
         if let Some(ref n) = get_field_def(&data, &sc::ALT_PANELIST).cloned() {
-            updates.push(FieldUpdate::set("alt_panelist", n.as_str()));
+            updates.push(FieldUpdate::set(
+                &crate::tables::panel::FIELD_ALT_PANELIST,
+                n.as_str(),
+            ));
         }
         if let Some(cap) = capacity {
-            updates.push(FieldUpdate::set("capacity", cap));
+            updates.push(FieldUpdate::set(&crate::tables::panel::FIELD_CAPACITY, cap));
         }
         if let Some(ss) = seats_sold {
-            updates.push(FieldUpdate::set("seats_sold", ss));
+            updates.push(FieldUpdate::set(
+                &crate::tables::panel::FIELD_SEATS_SOLD,
+                ss,
+            ));
         }
         if let Some(prm) = pre_reg_max {
-            updates.push(FieldUpdate::set("pre_reg_max", prm));
+            updates.push(FieldUpdate::set(
+                &crate::tables::panel::FIELD_PRE_REG_MAX,
+                prm,
+            ));
         }
         if let Some(st) = effective_start {
-            updates.push(FieldUpdate::set("start_time", st));
+            updates.push(FieldUpdate::set(
+                &crate::tables::panel::FIELD_START_TIME,
+                st,
+            ));
         }
         if let Some(dur) = effective_duration {
-            updates.push(FieldUpdate::set("duration", dur));
+            updates.push(FieldUpdate::set(&crate::tables::panel::FIELD_DURATION, dur));
         }
 
         let panel_id: PanelId = match build_entity::<PanelEntityType>(schedule, uuid_pref, updates)
@@ -303,20 +351,20 @@ pub(super) fn read_schedule_into(
 
         // Wire edges.
         if !room_ids.is_empty() {
-            let _ = schedule.edge_add(panel_id, EDGE_EVENT_ROOMS, room_ids);
+            let _ = schedule.edge_add(panel_id, panel::EDGE_EVENT_ROOMS, room_ids);
         }
         if let Some(pt_id) = panel_type_id {
-            let _ = schedule.edge_add(panel_id, EDGE_PANEL_TYPE, [pt_id]);
+            let _ = schedule.edge_add(panel_id, panel::EDGE_PANEL_TYPE, [pt_id]);
         }
 
         // Parse presenter columns for this row.
         let (credited, uncredited) = collect_presenters(ws, row, &presenter_cols, schedule);
 
         if !credited.is_empty() {
-            let _ = schedule.edge_add(panel_id, EDGE_CREDITED_PRESENTERS, credited);
+            let _ = schedule.edge_add(panel_id, panel::EDGE_CREDITED_PRESENTERS, credited);
         }
         if !uncredited.is_empty() {
-            let _ = schedule.edge_add(panel_id, EDGE_UNCREDITED_PRESENTERS, uncredited);
+            let _ = schedule.edge_add(panel_id, panel::EDGE_UNCREDITED_PRESENTERS, uncredited);
         }
     }
 

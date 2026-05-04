@@ -14,7 +14,7 @@ use std::path::PathBuf;
 
 use schedule_core::tables::event_room::EventRoomEntityType;
 use schedule_core::tables::hotel_room::HotelRoomEntityType;
-use schedule_core::tables::panel::PanelEntityType;
+use schedule_core::tables::panel::{self, PanelEntityType};
 use schedule_core::tables::panel_type::PanelTypeEntityType;
 use schedule_core::tables::presenter::PresenterEntityType;
 use schedule_core::xlsx::{import_xlsx, XlsxImportOptions};
@@ -281,9 +281,8 @@ fn test_import_presenter_columns_tagged() {
         .map(|(id, _)| id)
         .unwrap();
 
-    use schedule_core::tables::panel::EDGE_CREDITED_PRESENTERS;
     let credited: Vec<_> = schedule
-        .connected_entities::<PresenterEntityType>(gp001_id, EDGE_CREDITED_PRESENTERS)
+        .connected_entities::<PresenterEntityType>(gp001_id, panel::EDGE_CREDITED_PRESENTERS)
         .into_iter()
         .collect();
     assert!(
@@ -329,9 +328,8 @@ fn test_import_panel_room_edge() {
         .map(|(id, _)| id)
         .unwrap();
 
-    use schedule_core::tables::panel::EDGE_EVENT_ROOMS;
     let rooms: Vec<_> = schedule
-        .connected_entities::<EventRoomEntityType>(gp001_id, EDGE_EVENT_ROOMS)
+        .connected_entities::<EventRoomEntityType>(gp001_id, panel::EDGE_EVENT_ROOMS)
         .into_iter()
         .collect();
     assert_eq!(rooms.len(), 1, "GP001 should be linked to one room");
