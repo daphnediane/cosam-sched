@@ -7,7 +7,7 @@ reference and jump-starting new conventions.
 
 ## Status
 
-Open
+Not Started
 
 ## Priority
 

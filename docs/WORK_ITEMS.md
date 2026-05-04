@@ -1,6 +1,6 @@
 # Cosplay America Schedule - Work Item
 
-Updated on: Mon May  4 00:24:21 2026
+Updated on: Mon May  4 00:58:26 2026
 
 ## Completed
 
@@ -41,6 +41,7 @@ concurrent scalar conflicts to the caller.
 wrappers) to `value.rs` as `Copy` type-level mirrors of `FieldValueItem`/`FieldValue`.
 * [FEATURE-051] Add a `field_type: FieldType` field to `FieldDescriptor` and populate it in all
 existing static field descriptors across every entity file.
+* [FEATURE-056] Add computed/synthesized fields to public data structures to support widget JSON export.
 * [FEATURE-057] Implement a transitive edge relationship cache to efficiently compute inclusive members, groups, panels, and other hierarchical relationships.
 * [FEATURE-065] Convert `credited_presenters` and `uncredited_presenters` on Panel from computed/derived fields
 into actual edge storage fields, eliminating the `credited` per-edge boolean and its CRDT
@@ -109,7 +110,7 @@ and improve `FieldId` conversions with a global registry and type-safe downcasti
 
 ## Summary of Open Items
 
-**Total open items:** 17
+**Total open items:** 16
 
 * **Meta / Project-Level**
   * [META-001] Meta work item tracking the full multi-phase redesign of the schedule system. (Blocked by [META-005], [META-006], [META-007], [META-008])
@@ -120,12 +121,11 @@ XLSX import/export. (Blocked by [META-004])
   * [META-008] Phase tracker for peer-to-peer schedule synchronization and conflict resolution. (Blocked by [META-004])
 
 * **Medium Priority**
-  * [FEATURE-026] ([META-005]) Support multiple convention years in a single schedule file for historical
+  * [FEATURE-026] Support multiple convention years in a single schedule file for historical
 reference and jump-starting new conventions.
   * [FEATURE-027] ([META-005]) Implement export of schedule data to the JSON format consumed by the calendar display widget.
   * [FEATURE-028] ([META-005]) Import schedule data from the existing XLSX spreadsheet format.
   * [FEATURE-029] ([META-005]) Export schedule data back to the XLSX spreadsheet format.
-  * [FEATURE-056] Add computed/synthesized fields to public data structures to support widget JSON export.
   * [REFACTOR-058] Update `FIELD_CREDITS` to use the per-edge `credited` flag introduced by
 REFACTOR-060, so individual presenters can be excluded from credit display.
 
@@ -222,7 +222,7 @@ panels arranged by time and room, with inline editing of entity fields.
 **Summary:** Support multiple convention years in a single schedule file for historical
 reference and jump-starting new conventions.
 
-**Part of:** [META-005]
+**Blocked By:** [FEATURE-025]
 
 **Description:** A schedule archive contains multiple years of convention data in one file,
 enabling:
@@ -284,40 +284,6 @@ organizers. Import must handle the existing column layout.
 
 **Description:** Export the schedule to an Excel spreadsheet matching the convention's expected
 column layout, enabling round-trip with the import (FEATURE-028).
-
----
-
-### [FEATURE-056] Synthesized Data Fields for Export
-
-**Status:** Open
-
-**Priority:** Medium
-
-**Summary:** Add computed/synthesized fields to public data structures to support widget JSON export.
-
-**Blocked By:** [FEATURE-019]
-
-**Description:** The widget JSON export requires certain data that is not directly stored in the internal
-entity structures but can be computed from existing fields. This work item adds computed
-fields to the public data structures (PanelData, HotelRoomData, EventRoomData, etc.) to
-make this data available for export.
-
-Specific synthesized fields needed:
-
-**PanelData:**
-
-* `credits`: Formatted credit strings for display (hidePanelist, altPanelist, group resolution)
-* `hotel_rooms`: Computed field that traverses event_rooms => hotel room edges (similar to inclusive_presenters traversal)
-
-**Existing fields (no changes needed):**
-
-* `inclusive_presenters`: Already exists as computed field (BFS over direct presenters + groups/members)
-* `event_rooms`: Already exists as edge field to EventRoomEntityType
-
-**PresenterData:**
-
-* Verify existing fields meet export needs
-* May need additional computed fields for bidirectional group membership
 
 ---
 
@@ -396,7 +362,7 @@ replacing the old `schedule-field`, `schedule-data`, and `schedule-macro` crates
 
 ### [META-005] Phase 4 — File Formats & Import/Export
 
-**Status:** Blocked
+**Status:** In progress
 
 **Priority:** Medium
 
@@ -406,16 +372,18 @@ XLSX import/export.
 **Blocked By:** [META-004]
 
 **Description:** Define and implement all file format support: the internal native format with
-CRDT state, multi-year archive support, widget display JSON export, and
-round-trip XLSX import/export for the convention spreadsheet workflow.
+CRDT state, widget display JSON export, and round-trip XLSX import/export for
+the convention spreadsheet workflow.
+
+Multi-year archive support (FEATURE-026) deferred out of this phase.
 
 **Work Items:**
 
-* FEATURE-025: Internal schedule file format (save/load)
-* FEATURE-026: Multi-year schedule archive support
+* FEATURE-025: Internal schedule file format (save/load) — Completed
+* FEATURE-056: Synthesized data fields for export — Completed
 * FEATURE-027: Widget display JSON export
-* FEATURE-028: XLSX spreadsheet import
-* FEATURE-029: XLSX spreadsheet export
+* FEATURE-028: XLSX spreadsheet import (blocked by FEATURE-020)
+* FEATURE-029: XLSX spreadsheet export (blocked by FEATURE-028)
 
 ---
 
@@ -541,7 +509,7 @@ This item covers any remaining integration work and documentation.
 [FEATURE-046]: work-item/done/FEATURE-046.md
 [FEATURE-050]: work-item/done/FEATURE-050.md
 [FEATURE-051]: work-item/done/FEATURE-051.md
-[FEATURE-056]: work-item/medium/FEATURE-056.md
+[FEATURE-056]: work-item/done/FEATURE-056.md
 [FEATURE-057]: work-item/done/FEATURE-057.md
 [FEATURE-065]: work-item/done/FEATURE-065.md
 [FEATURE-068]: work-item/done/FEATURE-068.md

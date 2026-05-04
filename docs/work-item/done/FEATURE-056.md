@@ -6,7 +6,7 @@ Add computed/synthesized fields to public data structures to support widget JSON
 
 ## Status
 
-Open
+Completed
 
 ## Priority
 
