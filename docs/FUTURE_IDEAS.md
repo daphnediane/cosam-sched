@@ -1,6 +1,6 @@
 # Future Ideas and Design Notes
 
-Updated on: Mon May  4 10:03:56 2026
+Updated on: Mon May  4 10:37:04 2026
 
 Open design questions, unexplored alternatives, and deferred ideas.
 An IDEA item can be promoted to a work item by renaming it to another prefix
@@ -115,6 +115,61 @@ This is intentionally deferred because:
 
 ---
 
+### [IDEA-081] IDEA-081: Import Provenance / SourceInfo Sidecar
+
+**Summary:** Track where each entity came from (file, sheet, row) in a UUID-indexed sidecar
+structure separate from the CRDT schedule document.
+
+**Description:** During XLSX import every entity has an origin: which file it was read from, which
+sheet, and which row. This "source info" is useful for:
+
+* Displaying provenance in the editor ("imported from 2026.xlsx row 42")
+* Round-trip update workflows (knowing which entities were xlsx-imported vs.
+  created in the editor)
+* Future merge-import (IDEA-080): knowing a row's origin helps decide authority
+
+**Why not in the CRDT entity?**
+
+SourceInfo is import-specific and changes every re-import, so storing it as CRDT
+fields creates unnecessary history and awkward merge semantics (two replicas that
+import the same xlsx agree on source info, but a replica that created an entity
+programmatically has no source info, causing spurious conflicts).
+
+**Proposed design: UUID-indexed sidecar**
+
+A `HashMap<NonNilUuid, SourceInfo>` stored alongside the schedule but outside the
+automerge doc. Possibilities:
+
+* In-memory only (lost on save/load — acceptable if only used for import→export
+  within one session)
+* Serialized into the native file envelope (an extra JSON chunk after the automerge
+  blob, indexed by UUID)
+* A separate `.provenance` file alongside the `.cosam` file
+
+The sidecar should also cover non-xlsx sources (e.g., "created in editor at time T")
+so it generalises beyond just xlsx.
+
+**Open questions**
+
+* Does the sidecar need to survive save/load for the current use cases?
+* Should SourceInfo be shared with the extra-metadata sidecar (IDEA-082)?
+* What format: flat JSON map, or a structured envelope with version/type?
+
+---
+
+### [IDEA-082] IDEA-082: Extended Entity Metadata (Unknown XLSX Columns)
+
+**Summary:** Preserve unknown XLSX columns across import/export without encoding them as
+first-class entity fields, and decide how this interacts with CRDT merge.
+
+**Description:** When importing an XLSX spreadsheet, columns that are not recognized by the
+importer (e.g., custom convention-specific fields, computed legacy columns like
+`Lstart`/`Lend`, or future columns not yet in the schema) are currently silently
+dropped. For round-trip fidelity (import → edit → export → same spreadsheet) they
+should be preserved.
+
+---
+
 ## Closed Ideas
 
 * [IDEA-037] (Superseded) Add read-only `lookup_*` variants to entity resolution that take `&EntityStorage`
@@ -146,3 +201,5 @@ Use `perl scripts/work-item-update.pl --create IDEA` to add new stubs.
 [IDEA-044]: work-item/idea/IDEA-044.md
 [IDEA-077]: work-item/idea/IDEA-077.md
 [IDEA-080]: work-item/idea/IDEA-080.md
+[IDEA-081]: work-item/idea/IDEA-081.md
+[IDEA-082]: work-item/idea/IDEA-082.md

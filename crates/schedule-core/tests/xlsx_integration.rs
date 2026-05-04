@@ -406,3 +406,98 @@ fn test_import_soft_deleted_rows_skipped() {
         .any(|(_, d)| d.code.full_id() == "GP001");
     assert!(exists);
 }
+
+#[test]
+fn test_import_people_sheet_creates_presenters_with_rank() {
+    let mut book = umya_spreadsheet::new_file();
+
+    // People sheet
+    {
+        let ws = book.new_sheet("People").unwrap();
+        set_cell(ws, 1, 1, "Person");
+        set_cell(ws, 2, 1, "Classification");
+        set_cell(ws, 3, 1, "Is Group");
+
+        set_cell(ws, 1, 2, "Alice Example");
+        set_cell(ws, 2, 2, "Guest");
+
+        set_cell(ws, 1, 3, "UNC Staff");
+        set_cell(ws, 2, 3, "Staff");
+        set_cell(ws, 3, 3, "Yes"); // is_explicit_group
+    }
+
+    {
+        let ws = book.get_sheet_mut(&0).unwrap();
+        ws.set_name("Schedule");
+        set_cell(ws, 1, 1, "Name");
+    }
+
+    let path = write_temp(book);
+    let schedule = import_xlsx(&path, &XlsxImportOptions::default()).unwrap();
+    cleanup(&path);
+
+    assert_eq!(schedule.entity_count::<PresenterEntityType>(), 2);
+
+    let alice = schedule
+        .iter_entities::<PresenterEntityType>()
+        .find(|(_, d)| d.data.name == "Alice Example")
+        .map(|(_, d)| d.data.clone())
+        .expect("Alice should exist");
+    assert_eq!(
+        alice.rank,
+        schedule_core::tables::presenter::PresenterRank::Guest
+    );
+
+    let unc = schedule
+        .iter_entities::<PresenterEntityType>()
+        .find(|(_, d)| d.data.name == "UNC Staff")
+        .map(|(_, d)| d.data.clone())
+        .expect("UNC Staff should exist");
+    assert_eq!(
+        unc.rank,
+        schedule_core::tables::presenter::PresenterRank::Staff
+    );
+    assert!(unc.is_explicit_group);
+}
+
+#[test]
+fn test_import_people_rank_upgraded_by_schedule_presenter_column() {
+    // Presenter appears in both People (as Panelist) and a Guest column on Schedule.
+    // People table is read first; Schedule column's find_or_create_tagged_presenter
+    // should upgrade the rank because Guest has higher priority than Panelist.
+    let mut book = umya_spreadsheet::new_file();
+
+    {
+        let ws = book.new_sheet("People").unwrap();
+        set_cell(ws, 1, 1, "Person");
+        set_cell(ws, 2, 1, "Classification");
+        set_cell(ws, 1, 2, "Jane Smith");
+        set_cell(ws, 2, 2, "Panelist");
+    }
+
+    {
+        let ws = book.get_sheet_mut(&0).unwrap();
+        ws.set_name("Schedule");
+        set_cell(ws, 1, 1, "Uniq ID");
+        set_cell(ws, 2, 1, "Name");
+        set_cell(ws, 3, 1, "G:Jane Smith"); // Guest column — higher rank
+        set_cell(ws, 1, 2, "GP001");
+        set_cell(ws, 2, 2, "A Panel");
+        set_cell(ws, 3, 2, "Yes");
+    }
+
+    let path = write_temp(book);
+    let schedule = import_xlsx(&path, &XlsxImportOptions::default()).unwrap();
+    cleanup(&path);
+
+    // Jane should exist exactly once with Guest rank (upgraded by schedule column).
+    let janes: Vec<_> = schedule
+        .iter_entities::<PresenterEntityType>()
+        .filter(|(_, d)| d.data.name == "Jane Smith")
+        .collect();
+    assert_eq!(janes.len(), 1, "Jane should appear exactly once");
+    assert_eq!(
+        janes[0].1.data.rank,
+        schedule_core::tables::presenter::PresenterRank::Guest
+    );
+}

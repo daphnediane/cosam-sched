@@ -380,6 +380,48 @@ pub mod panel_types {
     ];
 }
 
+// ─── People / Presenters table ───────────────────────────────────────────────
+
+/// Column definitions for the **People** / **Presenters** sheet.
+pub mod people {
+    use super::FieldDef;
+
+    /// Presenter name — "Person" is the 2026 header; older sheets use "Name".
+    pub const NAME: FieldDef = FieldDef {
+        export: "Person",
+        canonical: "Person",
+        aliases: &["Name", "Presenter", "Panelist", "Speaker"],
+    };
+
+    /// Classification / rank column.
+    pub const CLASSIFICATION: FieldDef = FieldDef {
+        export: "Classification",
+        canonical: "Classification",
+        aliases: &["Rank", "Type", "Role", "Level"],
+    };
+
+    pub const IS_GROUP: FieldDef = FieldDef {
+        export: "Is Group",
+        canonical: "Is_Group",
+        aliases: &["IsGroup", "Group"],
+    };
+
+    pub const ALWAYS_GROUPED: FieldDef = FieldDef {
+        export: "Always Grouped",
+        canonical: "Always_Grouped",
+        aliases: &["AlwaysGrouped", "Always_In_Group"],
+    };
+
+    pub const ALWAYS_SHOWN: FieldDef = FieldDef {
+        export: "Always Shown",
+        canonical: "Always_Shown",
+        aliases: &["AlwaysShown", "Group_Shown"],
+    };
+
+    /// All primary column definitions in export order.
+    pub const ALL: &[FieldDef] = &[NAME, CLASSIFICATION, IS_GROUP, ALWAYS_GROUPED, ALWAYS_SHOWN];
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

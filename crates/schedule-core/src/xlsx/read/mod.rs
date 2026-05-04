@@ -8,6 +8,7 @@
 
 pub mod headers;
 mod panel_types;
+mod people;
 mod rooms;
 mod schedule;
 
@@ -34,6 +35,9 @@ pub struct XlsxImportOptions {
     pub rooms_table: String,
     /// Preferred sheet/table name for panel types (default: `"PanelTypes"`).
     pub panel_types_table: String,
+    /// Preferred sheet/table name for the People/Presenters sheet (default: `"People"`).
+    /// Set to an empty string to skip People sheet processing.
+    pub people_table: String,
 }
 
 impl Default for XlsxImportOptions {
@@ -42,6 +46,7 @@ impl Default for XlsxImportOptions {
             schedule_table: "Schedule".to_string(),
             rooms_table: "Rooms".to_string(),
             panel_types_table: "PanelTypes".to_string(),
+            people_table: "People".to_string(),
         }
     }
 }
@@ -50,12 +55,16 @@ impl Default for XlsxImportOptions {
 
 /// Import an XLSX spreadsheet and return a populated [`Schedule`].
 ///
-/// Reads the PanelTypes sheet first (so panel-type lookups work during
-/// schedule import), then the Rooms sheet, then the Schedule sheet.
+/// Read order:
+/// 1. PanelTypes — so panel-type lookups work during schedule import.
+/// 2. Rooms — so room lookups work during schedule import.
+/// 3. People — establishes presenter rank/flags before the Schedule sheet
+///    creates presenter entities from column headers.
+/// 4. Schedule — panels, timing, rooms, panel type, and presenter edges.
 ///
 /// The returned `Schedule` is a clean slate — all entities and edges are
 /// freshly created.  No existing CRDT state is preserved or merged.
-/// See IDEA-079 for future merge-import support.
+/// See IDEA-080 for future merge-import support.
 pub fn import_xlsx(path: &Path, options: &XlsxImportOptions) -> Result<Schedule> {
     let book = umya_spreadsheet::reader::xlsx::read(path)
         .with_context(|| format!("Failed to open {}", path.display()))?;
@@ -65,6 +74,10 @@ pub fn import_xlsx(path: &Path, options: &XlsxImportOptions) -> Result<Schedule>
     let panel_type_lookup =
         panel_types::read_panel_types_into(&book, &options.panel_types_table, &mut schedule)?;
     let room_lookup = rooms::read_rooms_into(&book, &options.rooms_table, &mut schedule)?;
+
+    if !options.people_table.is_empty() {
+        people::read_people_into(&book, &options.people_table, &mut schedule)?;
+    }
 
     schedule::read_schedule_into(
         &book,
