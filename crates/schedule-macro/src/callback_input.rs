@@ -25,6 +25,10 @@
 //!     [remove: <closure or enum variant>,]
 //! }
 //! ```
+//!
+//! Returns a 3-tuple: (CommonFieldData, crdt_type, FieldCallbacks).
+//! The crdt_type is computed from the field type and cardinality.
+//! The caller can use this default or override it.
 
 use crate::common_input::CommonMetadata;
 use syn::parse::{Parse, ParseStream};

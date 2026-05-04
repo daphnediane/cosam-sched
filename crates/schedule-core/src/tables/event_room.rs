@@ -197,7 +197,7 @@ impl EntityStringResolver for EventRoomEntityType {
 // ── Stored field descriptors ──────────────────────────────────────────────────
 
 pub static FIELD_ROOM_NAME: FieldDescriptor<EventRoomEntityType> = {
-    let (data, cb) = accessor_field_properties! {
+    let (data, crdt_type, cb) = accessor_field_properties! {
         EventRoomEntityType,
         room_name,
         name: "room_name",
@@ -211,6 +211,7 @@ pub static FIELD_ROOM_NAME: FieldDescriptor<EventRoomEntityType> = {
     };
     FieldDescriptor {
         data,
+        crdt_type,
         required: true,
         cb,
     }
@@ -219,7 +220,7 @@ inventory::submit! { CollectedField(&FIELD_ROOM_NAME) }
 
 /// Optional display name shown in the widget / public schedule.
 pub static FIELD_LONG_NAME: FieldDescriptor<EventRoomEntityType> = {
-    let (data, cb) = accessor_field_properties! {
+    let (data, crdt_type, cb) = accessor_field_properties! {
         EventRoomEntityType,
         long_name,
         name: "long_name",
@@ -233,6 +234,7 @@ pub static FIELD_LONG_NAME: FieldDescriptor<EventRoomEntityType> = {
     };
     FieldDescriptor {
         data,
+        crdt_type,
         required: false,
         cb,
     }
@@ -240,7 +242,7 @@ pub static FIELD_LONG_NAME: FieldDescriptor<EventRoomEntityType> = {
 inventory::submit! { CollectedField(&FIELD_LONG_NAME) }
 
 pub static FIELD_SORT_KEY: FieldDescriptor<EventRoomEntityType> = {
-    let (data, cb) = accessor_field_properties! {
+    let (data, crdt_type, cb) = accessor_field_properties! {
         EventRoomEntityType,
         sort_key,
         name: "sort_key",
@@ -254,6 +256,7 @@ pub static FIELD_SORT_KEY: FieldDescriptor<EventRoomEntityType> = {
     };
     FieldDescriptor {
         data,
+        crdt_type,
         required: false,
         cb,
     }
@@ -273,7 +276,6 @@ pub static HALF_EDGE_HOTEL_ROOMS: crate::edge::HalfEdgeDescriptor = {
                 crate::value::FieldCardinality::List,
                 crate::value::FieldTypeItem::EntityIdentifier(HotelRoomEntityType::TYPE_NAME),
             ),
-            crdt_type: crate::crdt::CrdtFieldType::List,
             example: "[]",
             order: 300,
         },
@@ -297,7 +299,6 @@ pub static HALF_EDGE_PANELS: crate::edge::HalfEdgeDescriptor = {
                 crate::value::FieldCardinality::List,
                 crate::value::FieldTypeItem::EntityIdentifier(PanelEntityType::TYPE_NAME),
             ),
-            crdt_type: crate::crdt::CrdtFieldType::List,
             example: "[]",
             order: 400,
         },

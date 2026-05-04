@@ -12,12 +12,8 @@ use syn::Ident;
 
 use crate::common_input::CommonMetadata;
 
-/// Generate CommonFieldData from common metadata, field type, and crdt type.
-pub fn generate_common_data(
-    metadata: &CommonMetadata,
-    field_type: TokenStream,
-    crdt_type: TokenStream,
-) -> TokenStream {
+/// Generate CommonFieldData from common metadata and field type.
+pub fn generate_common_data(metadata: &CommonMetadata, field_type: TokenStream) -> TokenStream {
     let name = &metadata.name;
     let display = &metadata.display;
     let description = &metadata.description;
@@ -32,7 +28,6 @@ pub fn generate_common_data(
             description: #description,
             aliases: #aliases,
             field_type: #field_type,
-            crdt_type: #crdt_type,
             example: #example,
             order: #order,
         }

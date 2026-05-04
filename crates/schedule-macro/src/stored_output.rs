@@ -97,13 +97,14 @@ pub fn expand(inp: &StoredInput) -> syn::Result<TokenStream> {
         <#marker_trait as ::schedule_core::query::converter::FieldTypeMapping>::CRDT_TYPE
     };
 
-    // Generate CommonFieldData using common helper
-    let data = common_output::generate_common_data(common, field_type, crdt_type);
+    // Generate CommonFieldData using common helper (without crdt_type)
+    let data = common_output::generate_common_data(common, field_type);
 
-    // Generate the complete output - returns (CommonFieldData, FieldCallbacks) tuple
+    // Generate the complete output - returns (CommonFieldData, crdt_type, FieldCallbacks) tuple
     Ok(quote! {
         {
             let data = #data;
+            let crdt_type = #crdt_type;
             let cb = ::schedule_core::field::FieldCallbacks {
                 read_fn: #read_fn,
                 write_fn: #write_fn,
@@ -111,7 +112,7 @@ pub fn expand(inp: &StoredInput) -> syn::Result<TokenStream> {
                 add_fn: None,
                 remove_fn: None,
             };
-            (data, cb)
+            (data, crdt_type, cb)
         }
     })
 }

@@ -19,6 +19,7 @@
 
 use crate::accessor_field_properties;
 use crate::callback_field_properties;
+use crate::crdt::CrdtFieldType;
 use crate::entity::{EntityId, EntityType, EntityUuid, FieldSet, UuidPreference};
 use crate::field::{CollectedField, CollectedHalfEdge, FieldDescriptor, NamedField};
 use crate::field_value;
@@ -705,7 +706,7 @@ impl EntityStringResolver for PresenterEntityType {
 // ── Stored field descriptors ──────────────────────────────────────────────────
 
 pub static FIELD_NAME: FieldDescriptor<PresenterEntityType> = {
-    let (data, cb) = accessor_field_properties! {
+    let (data, crdt_type, cb) = accessor_field_properties! {
         PresenterEntityType,
         name,
         name: "name",
@@ -719,6 +720,7 @@ pub static FIELD_NAME: FieldDescriptor<PresenterEntityType> = {
     };
     FieldDescriptor {
         data,
+        crdt_type,
         required: true,
         cb,
     }
@@ -729,7 +731,7 @@ inventory::submit! { CollectedField(&FIELD_NAME) }
 /// using the canonical tag (`guest`, `judge`, `staff`, `invited_panelist`,
 /// `fan_panelist`, or a custom invited-guest label).
 pub static FIELD_RANK: FieldDescriptor<PresenterEntityType> = {
-    let (data, cb) = callback_field_properties! {
+    let (data, crdt_type, cb) = callback_field_properties! {
         PresenterEntityType,
         name: "rank",
         display: "Rank",
@@ -749,6 +751,7 @@ pub static FIELD_RANK: FieldDescriptor<PresenterEntityType> = {
     };
     FieldDescriptor {
         data,
+        crdt_type,
         required: false,
         cb,
     }
@@ -756,7 +759,7 @@ pub static FIELD_RANK: FieldDescriptor<PresenterEntityType> = {
 inventory::submit! { CollectedField(&FIELD_RANK) }
 
 pub static FIELD_BIO: FieldDescriptor<PresenterEntityType> = {
-    let (data, cb) = accessor_field_properties! {
+    let (data, crdt_type, cb) = accessor_field_properties! {
         PresenterEntityType,
         bio,
         name: "bio",
@@ -770,6 +773,7 @@ pub static FIELD_BIO: FieldDescriptor<PresenterEntityType> = {
     };
     FieldDescriptor {
         data,
+        crdt_type,
         required: false,
         cb,
     }
@@ -777,7 +781,7 @@ pub static FIELD_BIO: FieldDescriptor<PresenterEntityType> = {
 inventory::submit! { CollectedField(&FIELD_BIO) }
 
 pub static FIELD_IS_EXPLICIT_GROUP: FieldDescriptor<PresenterEntityType> = {
-    let (data, cb) = accessor_field_properties! {
+    let (data, crdt_type, cb) = accessor_field_properties! {
         PresenterEntityType,
         is_explicit_group,
         name: "is_explicit_group",
@@ -792,6 +796,7 @@ pub static FIELD_IS_EXPLICIT_GROUP: FieldDescriptor<PresenterEntityType> = {
     };
     FieldDescriptor {
         data,
+        crdt_type,
         required: false,
         cb,
     }
@@ -799,7 +804,7 @@ pub static FIELD_IS_EXPLICIT_GROUP: FieldDescriptor<PresenterEntityType> = {
 inventory::submit! { CollectedField(&FIELD_IS_EXPLICIT_GROUP) }
 
 pub static FIELD_ALWAYS_GROUPED: FieldDescriptor<PresenterEntityType> = {
-    let (data, cb) = accessor_field_properties! {
+    let (data, crdt_type, cb) = accessor_field_properties! {
         PresenterEntityType,
         always_grouped,
         name: "always_grouped",
@@ -814,6 +819,7 @@ pub static FIELD_ALWAYS_GROUPED: FieldDescriptor<PresenterEntityType> = {
     };
     FieldDescriptor {
         data,
+        crdt_type,
         required: false,
         cb,
     }
@@ -821,7 +827,7 @@ pub static FIELD_ALWAYS_GROUPED: FieldDescriptor<PresenterEntityType> = {
 inventory::submit! { CollectedField(&FIELD_ALWAYS_GROUPED) }
 
 pub static FIELD_ALWAYS_SHOWN_IN_GROUP: FieldDescriptor<PresenterEntityType> = {
-    let (data, cb) = accessor_field_properties! {
+    let (data, crdt_type, cb) = accessor_field_properties! {
         PresenterEntityType,
         always_shown_in_group,
         name: "always_shown_in_group",
@@ -836,6 +842,7 @@ pub static FIELD_ALWAYS_SHOWN_IN_GROUP: FieldDescriptor<PresenterEntityType> = {
     };
     FieldDescriptor {
         data,
+        crdt_type,
         required: false,
         cb,
     }
@@ -847,7 +854,7 @@ inventory::submit! { CollectedField(&FIELD_ALWAYS_SHOWN_IN_GROUP) }
 /// `is_group` — `true` if `is_explicit_group` is set OR this presenter has
 /// any members (edge-based membership).
 pub static FIELD_IS_GROUP: FieldDescriptor<PresenterEntityType> = {
-    let (data, cb) = callback_field_properties! {
+    let (data, _, cb) = callback_field_properties! {
         PresenterEntityType,
         name: "is_group",
         display: "Is Group",
@@ -873,6 +880,7 @@ pub static FIELD_IS_GROUP: FieldDescriptor<PresenterEntityType> = {
     };
     FieldDescriptor {
         data,
+        crdt_type: CrdtFieldType::Derived,
         required: false,
         cb,
     }
@@ -890,7 +898,6 @@ pub static HALF_EDGE_MEMBERS: crate::edge::HalfEdgeDescriptor = {
                 crate::value::FieldCardinality::List,
                 crate::value::FieldTypeItem::EntityIdentifier(PresenterEntityType::TYPE_NAME),
             ),
-            crdt_type: crate::crdt::CrdtFieldType::List,
             example: "[]",
             order: 800,
         },
@@ -914,7 +921,6 @@ pub static HALF_EDGE_GROUPS: crate::edge::HalfEdgeDescriptor = {
                 crate::value::FieldCardinality::List,
                 crate::value::FieldTypeItem::EntityIdentifier(PresenterEntityType::TYPE_NAME),
             ),
-            crdt_type: crate::crdt::CrdtFieldType::List,
             example: "[]",
             order: 700,
         },
@@ -943,7 +949,7 @@ pub const EDGE_MEMBERS: crate::edge::FullEdge = crate::edge::FullEdge {
 /// Follows forward homogeneous edges upward: `presenter → group → parent_group → …`.
 /// Does not include the presenter itself.
 pub static FIELD_INCLUSIVE_GROUPS: FieldDescriptor<PresenterEntityType> = {
-    let (data, cb) = callback_field_properties! {
+    let (data, _, cb) = callback_field_properties! {
         PresenterEntityType,
         name: "inclusive_groups",
         display: "Inclusive Groups",
@@ -961,6 +967,7 @@ pub static FIELD_INCLUSIVE_GROUPS: FieldDescriptor<PresenterEntityType> = {
     };
     FieldDescriptor {
         data,
+        crdt_type: CrdtFieldType::Derived,
         required: false,
         cb,
     }
@@ -972,7 +979,7 @@ inventory::submit! { CollectedField(&FIELD_INCLUSIVE_GROUPS) }
 /// Follows reverse homogeneous edges downward: `group ← member ← sub_member ← …`.
 /// Does not include the group itself.
 pub static FIELD_INCLUSIVE_MEMBERS: FieldDescriptor<PresenterEntityType> = {
-    let (data, cb) = callback_field_properties! {
+    let (data, _, cb) = callback_field_properties! {
         PresenterEntityType,
         name: "inclusive_members",
         display: "Inclusive Members",
@@ -990,6 +997,7 @@ pub static FIELD_INCLUSIVE_MEMBERS: FieldDescriptor<PresenterEntityType> = {
     };
     FieldDescriptor {
         data,
+        crdt_type: CrdtFieldType::Derived,
         required: false,
         cb,
     }
@@ -1010,7 +1018,6 @@ pub static HALF_EDGE_PANELS: crate::edge::HalfEdgeDescriptor = {
                 crate::value::FieldCardinality::List,
                 crate::value::FieldTypeItem::EntityIdentifier(PanelEntityType::TYPE_NAME),
             ),
-            crdt_type: crate::crdt::CrdtFieldType::List,
             example: "[]",
             order: 1100,
         },
@@ -1041,7 +1048,7 @@ pub const EDGE_UNCREDITED_PANELS: crate::edge::FullEdge = crate::edge::FullEdge 
 ///
 /// Read/write field for panels where this presenter is credited.
 pub static FIELD_CREDITED_PANELS: FieldDescriptor<PresenterEntityType> = {
-    let (data, cb) = callback_field_properties! {
+    let (data, _, cb) = callback_field_properties! {
         PresenterEntityType,
         name: "credited_panels",
         display: "Credited Panels",
@@ -1091,6 +1098,7 @@ pub static FIELD_CREDITED_PANELS: FieldDescriptor<PresenterEntityType> = {
     };
     FieldDescriptor {
         data,
+        crdt_type: crate::crdt::CrdtFieldType::Derived,
         required: false,
         cb,
     }
@@ -1101,7 +1109,7 @@ inventory::submit! { CollectedField(&FIELD_CREDITED_PANELS) }
 ///
 /// Read/write field for panels where this presenter is uncredited.
 pub static FIELD_UNCREDITED_PANELS: FieldDescriptor<PresenterEntityType> = {
-    let (data, cb) = callback_field_properties! {
+    let (data, _, cb) = callback_field_properties! {
         PresenterEntityType,
         name: "uncredited_panels",
         display: "Uncredited Panels",
@@ -1152,6 +1160,7 @@ pub static FIELD_UNCREDITED_PANELS: FieldDescriptor<PresenterEntityType> = {
     };
     FieldDescriptor {
         data,
+        crdt_type: CrdtFieldType::Derived,
         required: false,
         cb,
     }
@@ -1169,7 +1178,7 @@ inventory::submit! { CollectedField(&FIELD_UNCREDITED_PANELS) }
 /// lists Team A, then all of Team A's inclusive presenters see that panel in
 /// their inclusive panels.
 pub static FIELD_INCLUSIVE_PANELS: FieldDescriptor<PresenterEntityType> = {
-    let (data, cb) = callback_field_properties! {
+    let (data, _, cb) = callback_field_properties! {
         PresenterEntityType,
         name: "inclusive_panels",
         display: "Inclusive Panels",
@@ -1235,6 +1244,7 @@ pub static FIELD_INCLUSIVE_PANELS: FieldDescriptor<PresenterEntityType> = {
     };
     FieldDescriptor {
         data,
+        crdt_type: CrdtFieldType::Derived,
         required: false,
         cb,
     }

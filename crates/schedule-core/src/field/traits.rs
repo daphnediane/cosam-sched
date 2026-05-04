@@ -8,7 +8,6 @@
 //!
 //! These traits define the core field API used throughout the entity/field system.
 
-use crate::crdt::CrdtFieldType;
 use crate::edge::HalfEdgeDescriptor;
 
 // ── NamedField ────────────────────────────────────────────────────────────────
@@ -49,11 +48,6 @@ pub trait NamedField: 'static + Send + Sync + std::any::Any {
     /// Logical field type (value type and cardinality).
     fn field_type(&self) -> crate::value::FieldType {
         self.common_data().field_type
-    }
-
-    /// CRDT storage type annotation.
-    fn crdt_type(&self) -> CrdtFieldType {
-        self.common_data().crdt_type
     }
 
     /// Example value for documentation and UI hints.

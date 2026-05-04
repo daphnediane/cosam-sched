@@ -32,10 +32,10 @@ use crate::value::{FieldError, FieldValue};
 ///         description: "The title of the panel.",
 ///         aliases: &[],
 ///         field_type: FieldType::Single(FieldTypeItem::String),
-///         crdt_type: CrdtFieldType::Scalar,
 ///         example: "",
 ///         order: 0,
 ///     },
+///     crdt_type: CrdtFieldType::Scalar,
 ///     required: true,
 ///     cb: accessor_callbacks!(PanelEntityType, required, name, AsString),
 /// };
@@ -47,10 +47,10 @@ use crate::value::{FieldError, FieldValue};
 ///         description: "Add presenters to this panel.",
 ///         aliases: &[],
 ///         field_type: FieldType(FieldCardinality::List, FieldTypeItem::EntityIdentifier("presenter")),
-///         crdt_type: CrdtFieldType::Derived,
 ///         example: "",
 ///         order: 10,
 ///     },
+///     crdt_type: CrdtFieldType::Derived,
 ///     required: false,
 ///     cb: FieldCallbacks {
 ///         read_fn: None,
@@ -61,6 +61,8 @@ use crate::value::{FieldError, FieldValue};
 pub struct FieldDescriptor<E: EntityType> {
     /// Data shared by all field types
     pub(crate) data: super::CommonFieldData,
+    /// CRDT storage type annotation.
+    pub crdt_type: crate::crdt::CrdtFieldType,
     /// Whether the field is required (must be non-empty).
     pub required: bool,
     /// Callback functions for read/write operations
@@ -125,7 +127,7 @@ impl<E: EntityType> FieldDescriptor<E> {
         // value back through the descriptor's own read_fn and push it into
         // the authoritative automerge document.
         if !schedule.mirror_enabled()
-            || matches!(self.data.crdt_type, crate::crdt::CrdtFieldType::Derived)
+            || matches!(self.crdt_type, crate::crdt::CrdtFieldType::Derived)
         {
             return Ok(());
         }
@@ -136,12 +138,7 @@ impl<E: EntityType> FieldDescriptor<E> {
             Err(FieldError::WriteOnly { .. }) => return Ok(()),
             Err(e) => return Err(e),
         };
-        schedule.mirror_field_value::<E>(
-            id,
-            self.data.name,
-            self.data.crdt_type,
-            value_opt.as_ref(),
-        )
+        schedule.mirror_field_value::<E>(id, self.data.name, self.crdt_type, value_opt.as_ref())
     }
 
     pub fn add(

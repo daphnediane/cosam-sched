@@ -106,7 +106,6 @@ fn transitive_neighbors(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::crdt::CrdtFieldType;
     use crate::edge::id::FullEdge;
     use crate::edge::EdgeKind;
     use crate::entity::{EntityId, EntityType};
@@ -148,7 +147,6 @@ mod tests {
             description: "Forward field",
             aliases: &[],
             field_type: FieldType(FieldCardinality::Optional, FieldTypeItem::Text),
-            crdt_type: CrdtFieldType::Derived,
             example: "",
             order: 0,
         },
@@ -166,7 +164,6 @@ mod tests {
             description: "Reverse field",
             aliases: &[],
             field_type: FieldType(FieldCardinality::Optional, FieldTypeItem::Text),
-            crdt_type: CrdtFieldType::Derived,
             example: "",
             order: 0,
         },

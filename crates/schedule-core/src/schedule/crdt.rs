@@ -502,13 +502,13 @@ impl Schedule {
         let mut pending: Vec<(&'static str, CrdtFieldType, FieldValue)> = Vec::new();
         for desc in E::field_set().fields() {
             if !matches!(
-                desc.crdt_type(),
+                desc.crdt_type,
                 CrdtFieldType::Scalar | CrdtFieldType::Text | CrdtFieldType::List
             ) {
                 continue;
             }
             if let Ok(Some(v)) = desc.read(id, self) {
-                pending.push((desc.name(), desc.crdt_type(), v));
+                pending.push((desc.name(), desc.crdt_type, v));
             }
         }
         for (name, crdt_type, v) in pending {

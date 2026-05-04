@@ -258,6 +258,7 @@ to fn pointers automatically.
 ```rust
 pub struct FieldDescriptor<E: EntityType> {
     pub(crate) data: CommonFieldData,
+    pub crdt_type: CrdtFieldType,
     pub required: bool,
     pub(crate) cb: FieldCallbacks<E>,
 }
@@ -283,7 +284,7 @@ Declared as `static` values, e.g.:
 ```rust
 // Stored field using accessor_field_properties!:
 pub static FIELD_PANEL_NAME: FieldDescriptor<PanelEntityType> = {
-    let (data, cb) = accessor_field_properties! {
+    let (data, crdt_type, cb) = accessor_field_properties! {
         PanelEntityType,
         accessor: panel_name,
         as: AsString,
@@ -298,6 +299,7 @@ pub static FIELD_PANEL_NAME: FieldDescriptor<PanelEntityType> = {
     };
     FieldDescriptor {
         data,
+        crdt_type,
         required: true,
         cb,
     }
@@ -319,7 +321,9 @@ pub struct HalfEdgeDescriptor {
 ```
 
 The `edge_kind` field distinguishes ownership and carries the target/source field
-references and exclusivity information.
+references and exclusivity information. Note that `HalfEdgeDescriptor` does not
+include `crdt_type` since edge fields are always `Derived` (stored as CRDT lists
+on the canonical owner side).
 
 ### EdgeKind
 
@@ -377,7 +381,7 @@ any edge — even when a Target half-edge is shared by multiple Owners
 
 ## Field Descriptor Macros
 
-Two proc-macros generate the `(CommonFieldData, FieldCallbacks)` tuple for
+Two proc-macros generate the `(CommonFieldData, CrdtFieldType, FieldCallbacks)` tuple for
 hand-written field descriptors. Each is designed for a specific field type:
 
 - **`accessor_field_properties!`** — Stored fields backed by `CommonData` slots
@@ -389,6 +393,16 @@ hand-written field descriptors. Each is designed for a specific field type:
 - Write `HalfEdgeDescriptor` directly for edge relationship fields (no macro)
 - Use `callback_field_properties!` for computed fields with custom read/write logic
 
+**Macro return pattern:**
+
+Both macros return a 3-tuple `(data, crdt_type, cb)`:
+
+- `data`: `CommonFieldData` with name, display, description, field_type, example, order
+- `crdt_type`: Default `CrdtFieldType` derived from field type (List → List, Single/Optional → use marker trait's CRDT_TYPE)
+- `cb`: `FieldCallbacks<E>` with read_fn, write_fn, add_fn, remove_fn
+
+Field authors can use the macro's default `crdt_type` or override it by using `let (data, _, cb)` (ignoring the macro's crdt_type) and explicitly setting `crdt_type: CrdtFieldType::Derived` in the `FieldDescriptor` initialization.
+
 ### Using `accessor_field_properties!`
 
 For stored fields that map directly to `CommonData` fields, use `accessor_field_properties!`
@@ -396,7 +410,7 @@ to auto-generate read/write callbacks from the field's `As*` marker trait:
 
 ```rust
 pub static FIELD_NAME: FieldDescriptor<PresenterEntityType> = {
-    let (data, cb) = accessor_field_properties! {
+    let (data, crdt_type, cb) = accessor_field_properties! {
         PresenterEntityType,
         accessor: name,           // Field name in CommonData
         as: AsString,             // Marker trait for type conversion
@@ -409,6 +423,7 @@ pub static FIELD_NAME: FieldDescriptor<PresenterEntityType> = {
     };
     FieldDescriptor {
         data,
+        crdt_type,
         required: true,
         cb,
     }
@@ -424,7 +439,7 @@ inventory::submit! { CollectedField(&FIELD_NAME) }
 
 The macro derives `cardinality` from the field type (via the marker trait),
 generates `ReadFn::Bare` and `WriteFn::Bare` callbacks that access the field directly,
-and sets `crdt_type` based on the item type.
+and computes a default `crdt_type` based on the field type (List → List, Single/Optional → use marker trait's CRDT_TYPE).
 
 ### Writing HalfEdgeDescriptor
 
@@ -444,7 +459,6 @@ pub static HALF_EDGE_PANELS: crate::edge::HalfEdgeDescriptor = {
                 crate::value::FieldCardinality::List,
                 crate::value::FieldTypeItem::EntityIdentifier(PanelEntityType::TYPE_NAME),
             ),
-            crdt_type: crate::crdt::CrdtFieldType::List,
             example: "[]",
             order: 1200,
         },
@@ -480,12 +494,12 @@ after the static definition.
 ### Using `callback_field_properties!`
 
 For computed fields that need custom callback logic, use the `callback_field_properties!`
-macro to generate only the `(CommonFieldData, FieldCallbacks)` tuple, then construct
+macro to generate the `(CommonFieldData, CrdtFieldType, FieldCallbacks)` tuple, then construct
 the `FieldDescriptor` manually:
 
 ```rust
 pub static FIELD_CODE: FieldDescriptor<PanelEntityType> = {
-    let (data, cb) = callback_field_properties! {
+    let (data, crdt_type, cb) = callback_field_properties! {
         PanelEntityType,
         name: "code",
         display: "Uniq ID",
@@ -514,11 +528,44 @@ pub static FIELD_CODE: FieldDescriptor<PanelEntityType> = {
     };
     FieldDescriptor {
         data,
+        crdt_type,
         required: true,
         cb,
     }
 };
 inventory::submit! { CollectedField(&FIELD_CODE) }
+```
+
+**Overriding the default crdt_type:**
+
+For fields that should be `Derived` (computed from relationships, not stored in CRDT), use `let (data, _, cb)` to ignore the macro's default and explicitly set `crdt_type: CrdtFieldType::Derived`:
+
+```rust
+pub static FIELD_PRESENTERS: FieldDescriptor<PanelEntityType> = {
+    let (data, _, cb) = callback_field_properties! {
+        PanelEntityType,
+        name: "presenters",
+        display: "Presenters",
+        description: "Read-only union of credited and uncredited presenter lists.",
+        aliases: &[],
+        cardinality: List,
+        item: EntityIdentifier,
+        item_entity: PresenterEntityType,
+        example: "[]",
+        order: 2700,
+        read: |sched: &Schedule, id: PanelId| {
+            // Computed from edge relationships
+            None
+        },
+    };
+    FieldDescriptor {
+        data,
+        crdt_type: CrdtFieldType::Derived,
+        required: false,
+        cb,
+    }
+};
+inventory::submit! { CollectedField(&FIELD_PRESENTERS) }
 ```
 
 ## Inventory-based Field Registration
@@ -556,7 +603,6 @@ pub struct CommonFieldData {
     pub description: &'static str,
     pub aliases: &'static [&'static str],
     pub field_type: FieldType,
-    pub crdt_type: CrdtFieldType,
     pub example: &'static str,
     pub order: u32,
 }
@@ -569,6 +615,10 @@ External code accesses these through the `NamedField` trait methods.
 The `order: u32` field enables stable field ordering when fields self-register via
 inventory. Fields are sorted by this value (ascending) when `FieldSet::from_inventory()`
 collects them. Use multiples of 100 (0, 100, 200, ...) to leave room for future insertions.
+
+**Note:** `crdt_type` is not part of `CommonFieldData`; it is a direct field on `FieldDescriptor<E>`
+instead. This separation allows `HalfEdgeDescriptor` (which uses `CommonFieldData`) to avoid
+carrying a redundant `crdt_type` since edge fields are always `Derived`.
 
 ## FieldSet
 

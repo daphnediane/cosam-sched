@@ -6,7 +6,7 @@ The `callback_field_properties!` macro generates `CrdtFieldType::Scalar` for all
 
 ## Status
 
-Open
+Done
 
 ## Priority
 
@@ -47,12 +47,22 @@ Review of open bugfix items BUGFIX-073 and BUGFIX-076 during work item cleanup. 
 
 **Actual:** Fields have `crdt_type: Scalar` based on the item type's `FieldTypeMapping::CRDT_TYPE`.
 
-## Steps to Fix
+## Resolution
 
-1. Modify `callback_output.rs` to unconditionally generate `CrdtFieldType::Derived` instead of using the marker trait's `CRDT_TYPE`
-2. Remove the `crdt_type` generation logic that depends on cardinality and item type
-3. Update the macro documentation to clarify that callback fields are always Derived
-4. Consider adding a separate macro for Scalar fields with custom callbacks if needed
+Fixed by refactoring `crdt_type` handling in the macros:
+
+- Moved `crdt_type` from `CommonFieldData` to `FieldDescriptor<E>` (field/descriptor.rs)
+- Updated `callback_field_properties!` to compute a default `crdt_type` based on field type:
+  - List cardinality → `CrdtFieldType::List`
+  - Single/Optional cardinality → use the marker trait's `CRDT_TYPE` (e.g., DateTime → Auto, String → Scalar, Text → Text)
+- Removed `crdt_type` as an input parameter from `callback_field_properties!` macro
+- Updated macro to return a 3-tuple `(data, crdt_type, cb)` instead of `(data, cb)`
+- Field authors can override the default by using `let (data, _, cb)` (ignoring the macro's crdt_type) and explicitly setting `crdt_type: CrdtFieldType::Derived` in the FieldDescriptor initialization
+- Updated all field definitions across panel.rs, presenter.rs, panel_type.rs, event_room.rs, and hotel_room.rs to use the new pattern
+- Fields that are truly derived (e.g., `FIELD_PRESENTERS`, `FIELD_INCLUSIVE_PRESENTERS`, `FIELD_CREDITS`) now explicitly set `crdt_type: CrdtFieldType::Derived`
+- Fields that should be stored (e.g., `FIELD_START_TIME`, `FIELD_END_TIME`, `FIELD_DURATION`) use the macro's default
+
+This approach provides sensible defaults based on field type while giving field authors explicit control to override when needed.
 
 ## Testing
 

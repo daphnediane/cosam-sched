@@ -1,6 +1,6 @@
 # Cosplay America Schedule - Work Item
 
-Updated on: Sun May  3 11:48:13 2026
+Updated on: Mon May  4 00:24:21 2026
 
 ## Completed
 
@@ -8,7 +8,11 @@ Updated on: Sun May  3 11:48:13 2026
 use the near/far field pair swapped from what their docs and field names
 advertise. Introduce `FIELD_*_NEAR` / `FIELD_*_FAR` aliases to make the
 intent explicit at each call site and fix the inverted queries.
+* [BUGFIX-073] `PanelInternalData::time_slot` has no CRDT backing field, so panel start /
+end / duration are not mirrored to the Automerge document and are lost
+through any save → load (or merge) round trip.
 * [BUGFIX-076] The edge_field_properties macro currently sets add_fn to AddEdge for all target edges without checking if the edge has multiple source fields. This should return None for target edges with multiple sources since add_edge doesn't support multi-source edges yet.
+* [BUGFIX-078] The `callback_field_properties!` macro generates `CrdtFieldType::Scalar` for all fields, but it should generate `Derived` for fields with custom read/write callbacks that project from internal state (like Panel's time_slot projections).
 * [FEATURE-009] Set up the Cargo workspace root and create skeleton application crates.
 * [FEATURE-010] Implement the universal `FieldValue` enum, error types, and CRDT field type annotation.
 * [FEATURE-011] Implement the field trait hierarchy and generic `FieldDescriptor` type that replaces the old proc-macro's generated per-field unit structs.
@@ -105,7 +109,7 @@ and improve `FieldId` conversions with a global registry and type-safe downcasti
 
 ## Summary of Open Items
 
-**Total open items:** 19
+**Total open items:** 17
 
 * **Meta / Project-Level**
   * [META-001] Meta work item tracking the full multi-phase redesign of the schedule system. (Blocked by [META-005], [META-006], [META-007], [META-008])
@@ -114,12 +118,6 @@ XLSX import/export. (Blocked by [META-004])
   * [META-006] Phase tracker for the cosam-convert and cosam-modify command-line applications. (Blocked by [META-005])
   * [META-007] Phase tracker for the cosam-editor desktop GUI application. (Blocked by [META-005])
   * [META-008] Phase tracker for peer-to-peer schedule synchronization and conflict resolution. (Blocked by [META-004])
-
-* **High Priority**
-  * [BUGFIX-073] `PanelInternalData::time_slot` has no CRDT backing field, so panel start /
-end / duration are not mirrored to the Automerge document and are lost
-through any save → load (or merge) round trip.
-  * [BUGFIX-078] The `callback_field_properties!` macro generates `CrdtFieldType::Scalar` for all fields, but it should generate `Derived` for fields with custom read/write callbacks that project from internal state (like Panel's time_slot projections).
 
 * **Medium Priority**
   * [FEATURE-026] ([META-005]) Support multiple convention years in a single schedule file for historical
@@ -146,80 +144,6 @@ REFACTOR-060, so individual presenters can be excluded from credit display.
 *No placeholders — all stubs have been promoted.*
 
 Use `perl scripts/work-item-update.pl --create <PREFIX>` to add new stubs.
-
----
-
-## Open BUGFIX Items
-
-### [BUGFIX-073] BUGFIX-073: Panel `time_slot` is silently dropped on save/load
-
-**Status:** Open
-
-**Priority:** High
-
-**Summary:** `PanelInternalData::time_slot` has no CRDT backing field, so panel start /
-end / duration are not mirrored to the Automerge document and are lost
-through any save → load (or merge) round trip.
-
-**Description:** `PanelInternalData` carries the temporal state of a panel in a single
-`time_slot: TimeRange` field (`@../../../crates/schedule-core/src/panel.rs:88-93`).
-The field system exposes three projections onto that struct:
-
-* `FIELD_START_TIME`
-* `FIELD_END_TIME`
-* `FIELD_DURATION`
-
-All three are declared `crdt: Derived` (panel.rs lines around 542, 584,
-626). There is no `FIELD_TIME_SLOT`, so `time_slot` itself is never
-seen by the field-set / CRDT plumbing.
-
-The write path mutates the in-memory cache and then deliberately skips
-the Automerge mirror for `Derived` fields:
-
-```text
-crates/schedule-core/src/field.rs:289-310
-if !schedule.mirror_enabled()
-    || matches!(self.crdt_type,
-        CrdtFieldType::Derived) {
-    return Ok(());
-}
-```
-
-`crdt::put_field` and the rehydrate path do the same:
-
-```text
-crates/schedule-core/src/crdt.rs:30-37     # "| Derived | not stored |"
-crates/schedule-core/src/crdt.rs:469-473   # rehydrate skips Derived
-```
-
-Net effect:
-
-* `with_start_time(…)` updates `d.time_slot` only in the cache; nothing
-  is written to the Automerge document.
-* On load, `rehydrate_entity` walks `field_set.fields()` and skips every
-  `Derived` descriptor, so the rehydrated `PanelInternalData` falls back
-  to the builder's `TimeRange::default()` → `TimeRange::Unspecified`.
-* A merge of two replicas similarly carries no temporal information.
-
----
-
-### [BUGFIX-078] BUGFIX-078: callback_field_properties generates Scalar instead of Derived
-
-**Status:** Open
-
-**Priority:** High
-
-**Summary:** The `callback_field_properties!` macro generates `CrdtFieldType::Scalar` for all fields, but it should generate `Derived` for fields with custom read/write callbacks that project from internal state (like Panel's time_slot projections).
-
-**Description:** The `callback_field_properties!` macro is designed for fields with custom read/write callbacks that project from internal state (e.g., Panel's `start_time`, `end_time`, `duration` projecting from `time_slot`). These are derived fields that should not be stored in the CRDT document.
-
-However, the macro currently generates `crdt_type` based on the `FieldTypeMapping` trait, which defaults to `CrdtFieldType::Scalar` for all types. This causes derived fields to be incorrectly marked as Scalar, leading to:
-
-* Incorrect CRDT storage behavior (derived data being stored)
-* Potential data inconsistency between in-memory state and CRDT document
-* Violation of the single-source-of-truth principle
-
-The macro should generate `CrdtFieldType::Derived` for all callback fields, since they by definition project from other state rather than being the primary storage location.
 
 ---
 
@@ -582,9 +506,9 @@ This item covers any remaining integration work and documentation.
 
 [BUGFIX-045]: work-item/rejected/BUGFIX-045.md
 [BUGFIX-072]: work-item/done/BUGFIX-072.md
-[BUGFIX-073]: work-item/high/BUGFIX-073.md
+[BUGFIX-073]: work-item/done/BUGFIX-073.md
 [BUGFIX-076]: work-item/done/BUGFIX-076.md
-[BUGFIX-078]: work-item/high/BUGFIX-078.md
+[BUGFIX-078]: work-item/done/BUGFIX-078.md
 [CLI-030]: work-item/low/CLI-030.md
 [CLI-031]: work-item/low/CLI-031.md
 [EDITOR-032]: work-item/low/EDITOR-032.md

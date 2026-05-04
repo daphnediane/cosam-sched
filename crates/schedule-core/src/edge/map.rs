@@ -350,7 +350,6 @@ impl RawEdgeMap {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::crdt::CrdtFieldType;
     use crate::edge::EdgeKind;
     use crate::entity::{EntityType, RuntimeEntityId};
     use crate::field::set::FieldSet;
@@ -416,7 +415,6 @@ mod tests {
             description: "Test field A1",
             aliases: &[],
             field_type: FieldType(FieldCardinality::Optional, FieldTypeItem::Text),
-            crdt_type: CrdtFieldType::Derived,
             example: "",
             order: 0,
         },
@@ -433,7 +431,6 @@ mod tests {
             description: "Test field A2",
             aliases: &[],
             field_type: FieldType(FieldCardinality::Optional, FieldTypeItem::Text),
-            crdt_type: CrdtFieldType::Derived,
             example: "",
             order: 1,
         },
@@ -451,7 +448,6 @@ mod tests {
             description: "Test field B1",
             aliases: &[],
             field_type: FieldType(FieldCardinality::Optional, FieldTypeItem::Text),
-            crdt_type: CrdtFieldType::Derived,
             example: "",
             order: 0,
         },

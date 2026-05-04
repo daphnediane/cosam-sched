@@ -186,7 +186,7 @@ impl EntityStringResolver for HotelRoomEntityType {
 // ── Field descriptors ─────────────────────────────────────────────────────────
 
 pub static FIELD_HOTEL_ROOM_NAME: crate::field::FieldDescriptor<HotelRoomEntityType> = {
-    let (data, cb) = accessor_field_properties! {
+    let (data, crdt_type, cb) = accessor_field_properties! {
         HotelRoomEntityType,
         hotel_room_name,
         name: "hotel_room_name",
@@ -200,6 +200,7 @@ pub static FIELD_HOTEL_ROOM_NAME: crate::field::FieldDescriptor<HotelRoomEntityT
     };
     FieldDescriptor {
         data,
+        crdt_type,
         required: true,
         cb,
     }
@@ -217,7 +218,6 @@ pub static HALF_EDGE_EVENT_ROOMS: crate::edge::HalfEdgeDescriptor = {
                 crate::value::FieldCardinality::List,
                 crate::value::FieldTypeItem::EntityIdentifier(EventRoomEntityType::TYPE_NAME),
             ),
-            crdt_type: crate::crdt::CrdtFieldType::List,
             example: "[]",
             order: 100,
         },

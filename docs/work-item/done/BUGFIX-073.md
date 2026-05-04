@@ -8,7 +8,7 @@ through any save → load (or merge) round trip.
 
 ## Status
 
-Open
+Done
 
 ## Priority
 
@@ -81,26 +81,19 @@ The existing tests don't catch this because `make_panel()` in
 uses `TimeRange::Unspecified`, and `Unspecified → Unspecified` is a
 no-op round trip.
 
-## Steps to Fix
+## Resolution
 
-Preferred: promote the three projections from `Derived` to `Scalar`.
+Fixed by refactoring `crdt_type` handling:
 
-- Change `crdt: Derived` → `crdt: Scalar` in `FIELD_START_TIME`,
-  `FIELD_END_TIME`, `FIELD_DURATION` (panel.rs).
-- Confirm `crdt::put_field` / `get_field` already handle
-  `Optional<DateTime>` and `Optional<Duration>` Scalars (they do today
-  for `event_room`'s optional string / etc.).
+- Moved `crdt_type` from `CommonFieldData` to `FieldDescriptor<E>` (field/descriptor.rs)
+- Updated `callback_field_properties!` and `accessor_field_properties!` macros to return a 3-tuple `(data, crdt_type, cb)` with a default `crdt_type` derived from field type
+- Removed `crdt_type` as a required parameter from `callback_field_properties!` macro input
+- Updated all field definitions across panel.rs, presenter.rs, panel_type.rs, event_room.rs, and hotel_room.rs to use the new pattern
+- `FIELD_START_TIME`, `FIELD_END_TIME`, `FIELD_DURATION` now use the macro's default `crdt_type` (based on their DateTime/Duration item types) instead of being forced to Derived
+- Fields that should be Derived (e.g., `FIELD_PRESENTERS`, `FIELD_INCLUSIVE_PRESENTERS`) explicitly override using `let (data, _, cb)` and set `crdt_type: CrdtFieldType::Derived` in the FieldDescriptor initialization
+- HalfEdgeDescriptors no longer require `crdt_type` in CommonFieldData since they're always Derived
 
-This keeps `TimeRange` as the in-memory representation and lets the
-three field writes naturally repopulate it on rehydrate. The existing
-write closures already accept `DateTime`, `String`, `Duration`,
-`Integer` etc. and project onto `time_slot`, so no closure change is
-needed.
-
-Alternative (heavier): introduce a real stored `FIELD_TIME_SLOT` whose
-value is a serialized `TimeRange`. Rejected for now — `TimeRange` is an
-enum with three variants, none of which fit the existing
-`FieldTypeItem` palette without a new variant or custom serializer.
+This approach allows the macro to provide sensible defaults while giving field authors explicit control to override when needed.
 
 ## Testing
 

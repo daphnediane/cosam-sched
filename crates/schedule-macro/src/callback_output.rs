@@ -25,19 +25,19 @@ pub fn expand(inp: &CallbackInput) -> syn::Result<TokenStream> {
     let marker_trait = common_output::generate_marker_trait(item)?;
 
     // Generate crdt_type based on cardinality and item type
-    // List cardinality always uses CrdtFieldType::List regardless of item type
+    // List cardinality always uses List CRDT type
+    // Single/Optional use the marker trait's CRDT type
     let cardinality_str = cardinality.to_string();
     let crdt_type = if cardinality_str == "List" {
         quote!(::schedule_core::crdt::CrdtFieldType::List)
     } else {
-        // Single/Optional use the marker trait's CRDT type
         quote! {
             <#marker_trait as ::schedule_core::query::converter::FieldTypeMapping>::CRDT_TYPE
         }
     };
 
-    // Generate CommonFieldData using common helper
-    let data = common_output::generate_common_data(common, field_type, crdt_type);
+    // Generate CommonFieldData using common helper (without crdt_type)
+    let data = common_output::generate_common_data(common, field_type);
 
     // Generate callbacks - handle both closures and enum variants
     let read_fn = match &inp.read {
@@ -60,17 +60,18 @@ pub fn expand(inp: &CallbackInput) -> syn::Result<TokenStream> {
         None => quote!(None),
     };
 
-    // Generate the complete output - returns (CommonFieldData, FieldCallbacks) tuple
+    // Generate the complete output - returns (CommonFieldData, crdt_type, FieldCallbacks) tuple
     Ok(quote! {
         {
             let data = #data;
+            let crdt_type = #crdt_type;
             let cb = ::schedule_core::field::FieldCallbacks::<#entity_type> {
                 read_fn: #read_fn,
                 write_fn: #write_fn,
                 add_fn: #add_fn,
                 remove_fn: #remove_fn,
             };
-            (data, cb)
+            (data, crdt_type, cb)
         }
     })
 }

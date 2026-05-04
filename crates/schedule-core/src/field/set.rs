@@ -84,8 +84,8 @@ impl<E: EntityType> ResolvedRef<E> {
     /// CRDT storage type annotation.
     pub fn crdt_type(&self) -> crate::crdt::CrdtFieldType {
         match self {
-            Self::Field(d) => d.crdt_type(),
-            Self::HalfEdge(d) => d.crdt_type(),
+            Self::Field(d) => d.crdt_type,
+            Self::HalfEdge(..) => CrdtFieldType::Derived,
         }
     }
 
@@ -475,10 +475,10 @@ impl<E: EntityType> FieldSet<E> {
     pub fn crdt_fields(&self) -> impl Iterator<Item = (&'static str, CrdtFieldType)> + '_ {
         self.fields.iter().filter_map(|d| {
             if matches!(
-                d.crdt_type(),
+                d.crdt_type,
                 CrdtFieldType::Scalar | CrdtFieldType::Text | CrdtFieldType::List
             ) {
-                Some((d.name(), d.crdt_type()))
+                Some((d.name(), d.crdt_type))
             } else {
                 None
             }
@@ -713,10 +713,10 @@ mod tests {
             description: "A text label.",
             aliases: &["tag", "name"],
             field_type: FieldType(FieldCardinality::Single, FieldTypeItem::String),
-            crdt_type: CrdtFieldType::Scalar,
             example: "Hello World",
             order: 0,
         },
+        crdt_type: CrdtFieldType::Scalar,
         required: true,
         cb: FieldCallbacks {
             read_fn: Some(ReadFn::Bare(|d: &MockData| {
@@ -738,10 +738,10 @@ mod tests {
             description: "An integer count.",
             aliases: &[],
             field_type: FieldType(FieldCardinality::Single, FieldTypeItem::Integer),
-            crdt_type: CrdtFieldType::Scalar,
             example: "7",
             order: 100,
         },
+        crdt_type: CrdtFieldType::Scalar,
         required: false,
         cb: FieldCallbacks {
             read_fn: Some(ReadFn::Bare(|d: &MockData| Some(field_value!(d.count)))),
@@ -761,10 +761,10 @@ mod tests {
             description: "Read-only derived value.",
             aliases: &[],
             field_type: FieldType(FieldCardinality::Single, FieldTypeItem::Integer),
-            crdt_type: CrdtFieldType::Derived,
             example: "42",
             order: 200,
         },
+        crdt_type: CrdtFieldType::Derived,
         required: false,
         cb: FieldCallbacks {
             read_fn: Some(ReadFn::Bare(|_: &MockData| Some(field_value!(42)))),
