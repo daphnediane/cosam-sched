@@ -1,6 +1,6 @@
 # Cosplay America Schedule - Work Item
 
-Updated on: Mon May  4 00:58:26 2026
+Updated on: Mon May  4 01:03:23 2026
 
 ## Completed
 
@@ -33,6 +33,7 @@ through any save → load (or merge) round trip.
 * [FEATURE-024] Expose automerge change tracking and merge through `Schedule`, and surface
 concurrent scalar conflicts to the caller.
 * [FEATURE-025] Define and implement the native save/load format for schedule documents.
+* [FEATURE-027] Implement export of schedule data to the JSON format consumed by the calendar display widget.
 * [FEATURE-038] Add a type-safe `FieldValueConverter<M>` trait and driver functions for converting
 `FieldValue` inputs to typed Rust outputs via a work-queue iteration pattern.
 * [FEATURE-043] Add a `verify` callback to `FieldDescriptor` for cross-field consistency checks after batch writes to computed fields.
@@ -110,7 +111,7 @@ and improve `FieldId` conversions with a global registry and type-safe downcasti
 
 ## Summary of Open Items
 
-**Total open items:** 16
+**Total open items:** 15
 
 * **Meta / Project-Level**
   * [META-001] Meta work item tracking the full multi-phase redesign of the schedule system. (Blocked by [META-005], [META-006], [META-007], [META-008])
@@ -123,7 +124,6 @@ XLSX import/export. (Blocked by [META-004])
 * **Medium Priority**
   * [FEATURE-026] Support multiple convention years in a single schedule file for historical
 reference and jump-starting new conventions.
-  * [FEATURE-027] ([META-005]) Implement export of schedule data to the JSON format consumed by the calendar display widget.
   * [FEATURE-028] ([META-005]) Import schedule data from the existing XLSX spreadsheet format.
   * [FEATURE-029] ([META-005]) Export schedule data back to the XLSX spreadsheet format.
   * [REFACTOR-058] Update `FIELD_CREDITS` to use the per-edge `credited` flag introduced by
@@ -230,30 +230,6 @@ enabling:
 * **Jump-start**: Copy entities from a prior year to pre-populate the next
   convention (recurring panels, returning presenters, same rooms)
 * **Historical reference**: View past schedules alongside the current one
-
----
-
-### [FEATURE-027] Widget Display JSON Export
-
-**Status:** In progress
-
-**Priority:** Medium
-
-**Summary:** Implement export of schedule data to the JSON format consumed by the calendar display widget.
-
-**Part of:** [META-005]
-
-**Description:** The calendar widget renders schedule data from a JSON file. This work item
-implements the export functionality that converts from the internal CRDT/field-system
-format to the widget JSON display format (documented in `docs/widget-json-format.md`).
-
-The export should use the public data structures (PanelTypeData, HotelRoomData, EventRoomData, etc.)
-rather than InternalData, as these already contain synthesized fields like `inclusive_presenters`.
-If public versions don't have data in the required format, computed fields should be added to the public data structure.
-
-All items should use Uuid for identification. For break synthesis, Uuid v5 should be generated.
-References between items should use Uuid instead of names or other IDs. Panels should have references
-to both hotel and event rooms as separate records.
 
 ---
 
@@ -499,7 +475,7 @@ This item covers any remaining integration work and documentation.
 [FEATURE-024]: work-item/done/FEATURE-024.md
 [FEATURE-025]: work-item/done/FEATURE-025.md
 [FEATURE-026]: work-item/medium/FEATURE-026.md
-[FEATURE-027]: work-item/medium/FEATURE-027.md
+[FEATURE-027]: work-item/done/FEATURE-027.md
 [FEATURE-028]: work-item/medium/FEATURE-028.md
 [FEATURE-029]: work-item/medium/FEATURE-029.md
 [FEATURE-034]: work-item/low/FEATURE-034.md

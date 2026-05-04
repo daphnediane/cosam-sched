@@ -6,7 +6,7 @@ Implement export of schedule data to the JSON format consumed by the calendar di
 
 ## Status
 
-In Progress
+Completed
 
 ## Priority
 
