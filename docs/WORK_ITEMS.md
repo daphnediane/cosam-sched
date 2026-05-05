@@ -1,6 +1,6 @@
 # Cosplay America Schedule - Work Item
 
-Updated on: Mon May  4 21:50:07 2026
+Updated on: Mon May  4 21:52:25 2026
 
 ## Completed
 
@@ -63,6 +63,8 @@ cross-partition edge exclusivity declaratively.
 * [META-003] Phase tracker for the entity/field system and core schedule data model in schedule-core.
 * [META-004] Phase tracker for making an automerge CRDT document the authoritative storage
 underneath `Schedule`.
+* [META-005] Phase tracker for internal file format, multi-year archive, widget JSON, and
+XLSX import/export.
 * [META-048] Restructure `FieldValue` with proper cardinality, add `FieldTypeItem`/`FieldType`
 enums, wire `FieldType` into `FieldDescriptor`, and implement the generic
 `FieldValueConverter` system from IDEA-038.
@@ -110,12 +112,10 @@ and improve `FieldId` conversions with a global registry and type-safe downcasti
 
 ## Summary of Open Items
 
-**Total open items:** 13
+**Total open items:** 12
 
 * **Meta / Project-Level**
-  * [META-001] Meta work item tracking the full multi-phase redesign of the schedule system. (Blocked by [META-005], [META-006], [META-007], [META-008])
-  * [META-005] Phase tracker for internal file format, multi-year archive, widget JSON, and
-XLSX import/export. (Blocked by [META-004])
+  * [META-001] Meta work item tracking the full multi-phase redesign of the schedule system. (Blocked by [META-006], [META-007], [META-008])
   * [META-006] Phase tracker for the cosam-convert and cosam-modify command-line applications. (Blocked by [META-005])
   * [META-007] Phase tracker for the cosam-editor desktop GUI application. (Blocked by [META-005])
   * [META-008] Phase tracker for peer-to-peer schedule synchronization and conflict resolution. (Blocked by [META-004])
@@ -297,7 +297,7 @@ override them.
 
 **Summary:** Meta work item tracking the full multi-phase redesign of the schedule system.
 
-**Blocked By:** [META-005], [META-006], [META-007], [META-008]
+**Blocked By:** [META-006], [META-007], [META-008]
 
 **Description:** Redesign the cosam-sched schedule system from the ground up with:
 
@@ -326,33 +326,6 @@ replacing the old `schedule-field`, `schedule-data`, and `schedule-macro` crates
 * META-006: Phase 5 — CLI Tools
 * META-007: Phase 6 — GUI Editor
 * META-008: Phase 7 — Sync & Multi-User
-
----
-
-### [META-005] Phase 4 — File Formats & Import/Export
-
-**Status:** In progress
-
-**Priority:** Medium
-
-**Summary:** Phase tracker for internal file format, multi-year archive, widget JSON, and
-XLSX import/export.
-
-**Blocked By:** [META-004]
-
-**Description:** Define and implement all file format support: the internal native format with
-CRDT state, widget display JSON export, and round-trip XLSX import/export for
-the convention spreadsheet workflow.
-
-Multi-year archive support (FEATURE-026) deferred out of this phase.
-
-**Work Items:**
-
-* FEATURE-025: Internal schedule file format (save/load) — Completed
-* FEATURE-056: Synthesized data fields for export — Completed
-* FEATURE-027: Widget display JSON export — Completed
-* FEATURE-028: XLSX spreadsheet import (blocked by FEATURE-020) -- Completed
-* FEATURE-029: XLSX spreadsheet export (blocked by FEATURE-028) -- Completed
 
 ---
 
@@ -467,7 +440,7 @@ to exchange CRDT changes and reconcile concurrent edits to the same fields.
 [META-002]: work-item/done/META-002.md
 [META-003]: work-item/done/META-003.md
 [META-004]: work-item/done/META-004.md
-[META-005]: work-item/meta/META-005.md
+[META-005]: work-item/done/META-005.md
 [META-006]: work-item/meta/META-006.md
 [META-007]: work-item/meta/META-007.md
 [META-008]: work-item/meta/META-008.md

@@ -7,7 +7,7 @@ XLSX import/export.
 
 ## Status
 
-In Progress
+Completed
 
 ## Priority
 
