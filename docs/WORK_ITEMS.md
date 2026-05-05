@@ -1,6 +1,6 @@
 # Cosplay America Schedule - Work Item
 
-Updated on: Mon May  4 21:28:35 2026
+Updated on: Mon May  4 21:50:07 2026
 
 ## Completed
 
@@ -110,7 +110,7 @@ and improve `FieldId` conversions with a global registry and type-safe downcasti
 
 ## Summary of Open Items
 
-**Total open items:** 12
+**Total open items:** 13
 
 * **Meta / Project-Level**
   * [META-001] Meta work item tracking the full multi-phase redesign of the schedule system. (Blocked by [META-005], [META-006], [META-007], [META-008])
@@ -123,6 +123,8 @@ XLSX import/export. (Blocked by [META-004])
 * **Medium Priority**
   * [FEATURE-026] Support multiple convention years in a single schedule file for historical
 reference and jump-starting new conventions.
+  * [FEATURE-084] Implement `update_xlsx` to write schedule changes back into an existing XLSX
+file, preserving formatting, formulas, extra columns, and non-standard content.
 
 * **Low Priority**
   * [CLI-030] ([META-006]) CLI tool for converting between schedule file formats (XLSX, JSON, widget JSON).
@@ -225,6 +227,32 @@ enabling:
 * **Jump-start**: Copy entities from a prior year to pre-populate the next
   convention (recurring panels, returning presenters, same rooms)
 * **Historical reference**: View past schedules alongside the current one
+
+---
+
+### [FEATURE-084] FEATURE-084: XLSX Spreadsheet Update (In-Place Save)
+
+**Status:** Open
+
+**Priority:** Medium
+
+**Summary:** Implement `update_xlsx` to write schedule changes back into an existing XLSX
+file, preserving formatting, formulas, extra columns, and non-standard content.
+
+**Blocked By:** [FEATURE-029]
+
+**Description:** `export_xlsx` (FEATURE-029) always writes a fresh workbook from scratch.
+`update_xlsx` would instead open the original file and patch only the rows that
+changed, preserving:
+
+* Cell formatting (colors, fonts, borders)
+* Formula cells the user has added (e.g., conditional-format helpers)
+* Extra non-standard columns (custom per-convention data)
+* Timestamp and Grid sheets
+* Non-imported sheets that we never touch
+
+This is the workflow convention staff actually uses: import once to seed the
+schedule database, then save back repeatedly as edits accumulate.
 
 ---
 
@@ -434,6 +462,7 @@ to exchange CRDT changes and reconcile concurrent edits to the same fields.
 [FEATURE-070]: work-item/done/FEATURE-070.md
 [FEATURE-071]: work-item/done/FEATURE-071.md
 [FEATURE-079]: work-item/done/FEATURE-079.md
+[FEATURE-084]: work-item/medium/FEATURE-084.md
 [META-001]: work-item/meta/META-001.md
 [META-002]: work-item/done/META-002.md
 [META-003]: work-item/done/META-003.md
