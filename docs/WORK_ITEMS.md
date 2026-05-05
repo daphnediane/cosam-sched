@@ -1,6 +1,6 @@
 # Cosplay America Schedule - Work Item
 
-Updated on: Mon May  4 10:02:35 2026
+Updated on: Mon May  4 21:28:35 2026
 
 ## Completed
 
@@ -35,6 +35,7 @@ concurrent scalar conflicts to the caller.
 * [FEATURE-025] Define and implement the native save/load format for schedule documents.
 * [FEATURE-027] Implement export of schedule data to the JSON format consumed by the calendar display widget.
 * [FEATURE-028] Import schedule data from the existing XLSX spreadsheet format.
+* [FEATURE-029] Export schedule data back to the XLSX spreadsheet format.
 * [FEATURE-038] Add a type-safe `FieldValueConverter<M>` trait and driver functions for converting
 `FieldValue` inputs to typed Rust outputs via a work-queue iteration pattern.
 * [FEATURE-043] Add a `verify` callback to `FieldDescriptor` for cross-field consistency checks after batch writes to computed fields.
@@ -109,7 +110,7 @@ and improve `FieldId` conversions with a global registry and type-safe downcasti
 
 ## Summary of Open Items
 
-**Total open items:** 13
+**Total open items:** 12
 
 * **Meta / Project-Level**
   * [META-001] Meta work item tracking the full multi-phase redesign of the schedule system. (Blocked by [META-005], [META-006], [META-007], [META-008])
@@ -122,7 +123,6 @@ XLSX import/export. (Blocked by [META-004])
 * **Medium Priority**
   * [FEATURE-026] Support multiple convention years in a single schedule file for historical
 reference and jump-starting new conventions.
-  * [FEATURE-029] ([META-005]) Export schedule data back to the XLSX spreadsheet format.
 
 * **Low Priority**
   * [CLI-030] ([META-006]) CLI tool for converting between schedule file formats (XLSX, JSON, widget JSON).
@@ -228,21 +228,6 @@ enabling:
 
 ---
 
-### [FEATURE-029] XLSX Spreadsheet Export
-
-**Status:** Open
-
-**Priority:** Medium
-
-**Summary:** Export schedule data back to the XLSX spreadsheet format.
-
-**Part of:** [META-005]
-
-**Description:** Export the schedule to an Excel spreadsheet matching the convention's expected
-column layout, enabling round-trip with the import (FEATURE-028).
-
----
-
 ### [FEATURE-034] Peer-to-Peer Schedule Sync Protocol
 
 **Status:** Open
@@ -338,8 +323,8 @@ Multi-year archive support (FEATURE-026) deferred out of this phase.
 * FEATURE-025: Internal schedule file format (save/load) — Completed
 * FEATURE-056: Synthesized data fields for export — Completed
 * FEATURE-027: Widget display JSON export — Completed
-* FEATURE-028: XLSX spreadsheet import (blocked by FEATURE-020)
-* FEATURE-029: XLSX spreadsheet export (blocked by FEATURE-028)
+* FEATURE-028: XLSX spreadsheet import (blocked by FEATURE-020) -- Completed
+* FEATURE-029: XLSX spreadsheet export (blocked by FEATURE-028) -- Completed
 
 ---
 
@@ -433,7 +418,7 @@ to exchange CRDT changes and reconcile concurrent edits to the same fields.
 [FEATURE-026]: work-item/medium/FEATURE-026.md
 [FEATURE-027]: work-item/done/FEATURE-027.md
 [FEATURE-028]: work-item/done/FEATURE-028.md
-[FEATURE-029]: work-item/medium/FEATURE-029.md
+[FEATURE-029]: work-item/done/FEATURE-029.md
 [FEATURE-034]: work-item/low/FEATURE-034.md
 [FEATURE-035]: work-item/low/FEATURE-035.md
 [FEATURE-038]: work-item/done/FEATURE-038.md

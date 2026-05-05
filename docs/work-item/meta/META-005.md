@@ -30,5 +30,5 @@ Multi-year archive support (FEATURE-026) deferred out of this phase.
 - FEATURE-025: Internal schedule file format (save/load) — Completed
 - FEATURE-056: Synthesized data fields for export — Completed
 - FEATURE-027: Widget display JSON export — Completed
-- FEATURE-028: XLSX spreadsheet import (blocked by FEATURE-020)
-- FEATURE-029: XLSX spreadsheet export (blocked by FEATURE-028)
+- FEATURE-028: XLSX spreadsheet import (blocked by FEATURE-020) -- Completed
+- FEATURE-029: XLSX spreadsheet export (blocked by FEATURE-028) -- Completed

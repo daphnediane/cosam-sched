@@ -21,6 +21,7 @@
 
 pub mod columns;
 pub mod read;
+mod write;
 
 use std::path::Path;
 
@@ -38,16 +39,4 @@ pub use read::{canonical_header, import_xlsx, XlsxImportOptions};
 /// Returns an error if the file cannot be created or written.
 pub fn export_xlsx(schedule: &Schedule, path: &Path) -> Result<()> {
     write::export_xlsx(schedule, path)
-}
-
-mod write {
-    use std::path::Path;
-
-    use anyhow::Result;
-
-    use crate::schedule::Schedule;
-
-    pub(super) fn export_xlsx(_schedule: &Schedule, _path: &Path) -> Result<()> {
-        anyhow::bail!("XLSX export not yet implemented (FEATURE-029)")
-    }
 }

@@ -1,6 +1,6 @@
 # Future Ideas and Design Notes
 
-Updated on: Mon May  4 10:37:04 2026
+Updated on: Mon May  4 21:15:05 2026
 
 Open design questions, unexplored alternatives, and deferred ideas.
 An IDEA item can be promoted to a work item by renaming it to another prefix
@@ -135,7 +135,7 @@ fields creates unnecessary history and awkward merge semantics (two replicas tha
 import the same xlsx agree on source info, but a replica that created an entity
 programmatically has no source info, causing spurious conflicts).
 
-**Proposed design: UUID-indexed sidecar**
+**Proposed design: UUID-indexed sidecar:**
 
 A `HashMap<NonNilUuid, SourceInfo>` stored alongside the schedule but outside the
 automerge doc. Possibilities:
@@ -147,9 +147,9 @@ automerge doc. Possibilities:
 * A separate `.provenance` file alongside the `.cosam` file
 
 The sidecar should also cover non-xlsx sources (e.g., "created in editor at time T")
-so it generalises beyond just xlsx.
+so it generalizes beyond just xlsx.
 
-**Open questions**
+**Open questions:**
 
 * Does the sidecar need to survive save/load for the current use cases?
 * Should SourceInfo be shared with the extra-metadata sidecar (IDEA-082)?
@@ -167,6 +167,36 @@ importer (e.g., custom convention-specific fields, computed legacy columns like
 `Lstart`/`Lend`, or future columns not yet in the schema) are currently silently
 dropped. For round-trip fidelity (import → edit → export → same spreadsheet) they
 should be preserved.
+
+---
+
+### [IDEA-083] IDEA-083: Separate Hotel Room sheet in XLSX import/export
+
+**Summary:** Add a dedicated `Hotels` sheet to the XLSX format for richer hotel-room metadata.
+
+**Description:** Currently hotel rooms are expressed as a single column (`Hotel Room`) in the Rooms sheet,
+limited to one hotel room name per event room. A dedicated `Hotels` sheet would allow richer
+metadata (sort key, long name, notes) and cleaner round-trips, mirroring how rooms and panel
+types already get their own sheets.
+
+Proposed sheet name: `Hotels` (with `Hotel Rooms` as a fallback alias).
+
+Proposed columns:
+
+* Hotel Room — canonical name (key for linking from the Rooms sheet)
+* Sort Key — optional integer for ordering
+* Long Name — optional display name
+
+Implementation notes:
+
+* Import: teach `read/rooms.rs` to look for a Hotels sheet and create `HotelRoomEntityType`
+  entities from it; the `Hotel Room` column in the Rooms sheet would still be accepted as a
+  fallback for files without the separate sheet.
+* Export: add `write_hotel_rooms_sheet()` in `xlsx/write/export.rs` alongside the existing
+  `write_rooms_sheet()`; suppress the `Hotel Room` column from the Rooms sheet when the
+  separate sheet is written.
+* The `EDGE_HOTEL_ROOMS` relationship in `event_room.rs` and `columns::room_map::HOTEL_ROOM`
+  are the key integration points.
 
 ---
 
@@ -203,3 +233,4 @@ Use `perl scripts/work-item-update.pl --create IDEA` to add new stubs.
 [IDEA-080]: work-item/idea/IDEA-080.md
 [IDEA-081]: work-item/idea/IDEA-081.md
 [IDEA-082]: work-item/idea/IDEA-082.md
+[IDEA-083]: work-item/idea/IDEA-083.md

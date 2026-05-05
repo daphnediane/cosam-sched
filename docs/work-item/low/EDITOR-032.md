@@ -27,6 +27,7 @@ application structure.
 - **GPUI** — Zed's framework, high performance, macOS-first
 - **egui** — immediate mode, easy prototyping
 - **Tauri** — web-based UI
+- **Dioxus** -- web-based UI
 
 ### Scaffold
 

@@ -30,7 +30,7 @@ fields creates unnecessary history and awkward merge semantics (two replicas tha
 import the same xlsx agree on source info, but a replica that created an entity
 programmatically has no source info, causing spurious conflicts).
 
-**Proposed design: UUID-indexed sidecar**
+**Proposed design: UUID-indexed sidecar:**
 
 A `HashMap<NonNilUuid, SourceInfo>` stored alongside the schedule but outside the
 automerge doc. Possibilities:
@@ -42,9 +42,9 @@ automerge doc. Possibilities:
 - A separate `.provenance` file alongside the `.cosam` file
 
 The sidecar should also cover non-xlsx sources (e.g., "created in editor at time T")
-so it generalises beyond just xlsx.
+so it generalizes beyond just xlsx.
 
-**Open questions**
+**Open questions:**
 
 - Does the sidecar need to survive save/load for the current use cases?
 - Should SourceInfo be shared with the extra-metadata sidecar (IDEA-082)?

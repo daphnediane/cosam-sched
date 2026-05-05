@@ -4,20 +4,24 @@
  * See LICENSE file for full license text
  */
 
-//! Integration tests for XLSX import (FEATURE-028).
+//! Integration tests for XLSX import (FEATURE-028) and export (FEATURE-029).
 //!
-//! Tests build minimal spreadsheets in memory using `umya-spreadsheet`, write
-//! them to a temp file, run `import_xlsx`, then assert on the resulting
+//! Import tests build minimal spreadsheets in memory using `umya-spreadsheet`,
+//! write them to a temp file, run `import_xlsx`, then assert on the resulting
 //! `Schedule` entities and edges.
+//!
+//! Export tests follow a round-trip approach: build a schedule via import,
+//! export it with `export_xlsx`, re-import the exported file, then assert the
+//! data is equivalent.
 
 use std::path::PathBuf;
 
-use schedule_core::tables::event_room::EventRoomEntityType;
+use schedule_core::tables::event_room::{self as event_room, EventRoomEntityType};
 use schedule_core::tables::hotel_room::HotelRoomEntityType;
 use schedule_core::tables::panel::{self, PanelEntityType};
 use schedule_core::tables::panel_type::PanelTypeEntityType;
-use schedule_core::tables::presenter::PresenterEntityType;
-use schedule_core::xlsx::{import_xlsx, XlsxImportOptions};
+use schedule_core::tables::presenter::{self as presenter, PresenterEntityType};
+use schedule_core::xlsx::{export_xlsx, import_xlsx, XlsxImportOptions};
 
 // ── Spreadsheet builder helpers ───────────────────────────────────────────────
 
@@ -498,4 +502,312 @@ fn test_import_people_rank_upgraded_by_schedule_presenter_column() {
         janes[0].1.data.rank,
         schedule_core::tables::presenter::PresenterRank::Guest
     );
+}
+
+// ── Export helpers ────────────────────────────────────────────────────────────
+
+fn export_to_temp(schedule: &schedule_core::schedule::Schedule) -> PathBuf {
+    let nanos = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .unwrap()
+        .as_nanos();
+    let tid = format!("{:?}", std::thread::current().id());
+    let tid_hash: u64 = tid
+        .bytes()
+        .fold(0u64, |acc, b| acc.wrapping_mul(31).wrapping_add(b as u64));
+    let path = std::env::temp_dir().join(format!("cosam_export_test_{nanos}_{tid_hash}.xlsx"));
+    export_xlsx(schedule, &path).expect("export_xlsx should succeed");
+    path
+}
+
+fn round_trip(schedule: schedule_core::schedule::Schedule) -> schedule_core::schedule::Schedule {
+    let path = export_to_temp(&schedule);
+    let reimported = import_xlsx(&path, &XlsxImportOptions::default())
+        .expect("re-import of exported file should succeed");
+    cleanup(&path);
+    reimported
+}
+
+// ── Export / round-trip tests (FEATURE-029) ───────────────────────────────────
+
+#[test]
+fn test_export_round_trip_panel_types() {
+    let mut book = umya_spreadsheet::new_file();
+    {
+        let ws = book.new_sheet("PanelTypes").unwrap();
+        set_cell(ws, 1, 1, "Prefix");
+        set_cell(ws, 2, 1, "Panel Kind");
+        set_cell(ws, 3, 1, "Is Workshop");
+        set_cell(ws, 4, 1, "Color");
+        set_cell(ws, 1, 2, "GP");
+        set_cell(ws, 2, 2, "Guest Panel");
+        set_cell(ws, 4, 2, "#FF0000");
+        set_cell(ws, 1, 3, "FW");
+        set_cell(ws, 2, 3, "Fan Workshop");
+        set_cell(ws, 3, 3, "Yes");
+    }
+    {
+        let ws = book.get_sheet_mut(&0).unwrap();
+        ws.set_name("Schedule");
+        set_cell(ws, 1, 1, "Name");
+    }
+    let path = write_temp(book);
+    let schedule = import_xlsx(&path, &XlsxImportOptions::default()).unwrap();
+    cleanup(&path);
+
+    let rt = round_trip(schedule);
+
+    assert_eq!(rt.entity_count::<PanelTypeEntityType>(), 2);
+    let gp = rt
+        .iter_entities::<PanelTypeEntityType>()
+        .find(|(_, d)| d.data.prefix == "GP")
+        .map(|(_, d)| d.data.clone())
+        .expect("GP should survive round-trip");
+    assert_eq!(gp.panel_kind, "Guest Panel");
+    assert!(!gp.is_workshop);
+    assert_eq!(gp.color.as_deref(), Some("#FF0000"));
+
+    let fw = rt
+        .iter_entities::<PanelTypeEntityType>()
+        .find(|(_, d)| d.data.prefix == "FW")
+        .map(|(_, d)| d.data.clone())
+        .expect("FW should survive round-trip");
+    assert!(fw.is_workshop);
+}
+
+#[test]
+fn test_export_round_trip_rooms() {
+    let mut book = umya_spreadsheet::new_file();
+    {
+        let ws = book.new_sheet("Rooms").unwrap();
+        set_cell(ws, 1, 1, "Room Name");
+        set_cell(ws, 2, 1, "Sort Key");
+        set_cell(ws, 3, 1, "Long Name");
+        set_cell(ws, 4, 1, "Hotel Room");
+        set_cell(ws, 1, 2, "Ballroom A");
+        set_cell(ws, 2, 2, "10");
+        set_cell(ws, 3, 2, "Main Ballroom");
+        set_cell(ws, 4, 2, "Grand Hotel");
+    }
+    {
+        let ws = book.get_sheet_mut(&0).unwrap();
+        ws.set_name("Schedule");
+        set_cell(ws, 1, 1, "Name");
+    }
+    let path = write_temp(book);
+    let schedule = import_xlsx(&path, &XlsxImportOptions::default()).unwrap();
+    cleanup(&path);
+
+    let rt = round_trip(schedule);
+
+    assert_eq!(rt.entity_count::<EventRoomEntityType>(), 1);
+    let room = rt
+        .iter_entities::<EventRoomEntityType>()
+        .find(|(_, d)| d.data.room_name == "Ballroom A")
+        .map(|(id, d)| (id, d.data.clone()))
+        .expect("Ballroom A should survive round-trip");
+    assert_eq!(room.1.long_name.as_deref(), Some("Main Ballroom"));
+    assert_eq!(room.1.sort_key, Some(10));
+
+    // Hotel room link should survive.
+    let hotel_ids =
+        rt.connected_entities::<HotelRoomEntityType>(room.0, event_room::EDGE_HOTEL_ROOMS);
+    assert_eq!(
+        hotel_ids.len(),
+        1,
+        "hotel room link should survive round-trip"
+    );
+    let hotel = rt
+        .get_internal::<HotelRoomEntityType>(hotel_ids[0])
+        .expect("hotel room entity should exist");
+    assert_eq!(hotel.data.hotel_room_name, "Grand Hotel");
+}
+
+#[test]
+fn test_export_round_trip_panels() {
+    let mut book = umya_spreadsheet::new_file();
+    {
+        let ws = book.new_sheet("PanelTypes").unwrap();
+        set_cell(ws, 1, 1, "Prefix");
+        set_cell(ws, 2, 1, "Panel Kind");
+        set_cell(ws, 1, 2, "GP");
+        set_cell(ws, 2, 2, "Guest Panel");
+    }
+    {
+        let ws = book.new_sheet("Rooms").unwrap();
+        set_cell(ws, 1, 1, "Room Name");
+        set_cell(ws, 1, 2, "Main Hall");
+    }
+    {
+        let ws = book.get_sheet_mut(&0).unwrap();
+        ws.set_name("Schedule");
+        set_cell(ws, 1, 1, "Uniq ID");
+        set_cell(ws, 2, 1, "Name");
+        set_cell(ws, 3, 1, "Start Time");
+        set_cell(ws, 4, 1, "Duration");
+        set_cell(ws, 5, 1, "Room");
+        set_cell(ws, 6, 1, "Description");
+        set_cell(ws, 7, 1, "Note");
+        set_cell(ws, 1, 2, "GP001");
+        set_cell(ws, 2, 2, "Opening Ceremony");
+        set_cell(ws, 3, 2, "2026-06-26T10:00:00");
+        set_cell(ws, 4, 2, "60");
+        set_cell(ws, 5, 2, "Main Hall");
+        set_cell(ws, 6, 2, "Welcome to the con");
+        set_cell(ws, 7, 2, "A note");
+    }
+    let path = write_temp(book);
+    let schedule = import_xlsx(&path, &XlsxImportOptions::default()).unwrap();
+    cleanup(&path);
+
+    let rt = round_trip(schedule);
+
+    assert_eq!(rt.entity_count::<PanelEntityType>(), 1);
+    let panel = rt
+        .iter_entities::<PanelEntityType>()
+        .find(|(_, d)| d.code.full_id() == "GP001")
+        .map(|(id, d)| (id, d.clone()))
+        .expect("GP001 should survive round-trip");
+    assert_eq!(panel.1.data.name, "Opening Ceremony");
+    assert_eq!(
+        panel.1.data.description.as_deref(),
+        Some("Welcome to the con")
+    );
+    assert_eq!(panel.1.data.note.as_deref(), Some("A note"));
+    assert_eq!(
+        panel.1.time_slot.duration().map(|d| d.num_minutes()),
+        Some(60)
+    );
+    assert!(
+        panel.1.time_slot.start_time().is_some(),
+        "start time should survive round-trip"
+    );
+
+    // Room link should survive.
+    let room_ids = rt.connected_entities::<EventRoomEntityType>(panel.0, panel::EDGE_EVENT_ROOMS);
+    assert_eq!(room_ids.len(), 1, "room link should survive round-trip");
+    let room = rt
+        .get_internal::<EventRoomEntityType>(room_ids[0])
+        .expect("room entity should exist");
+    assert_eq!(room.data.room_name, "Main Hall");
+}
+
+#[test]
+fn test_export_round_trip_presenters() {
+    // Alice has 3 panels (gets a named column), Bob has 1 panel (goes to Other).
+    let mut book = umya_spreadsheet::new_file();
+    {
+        let ws = book.get_sheet_mut(&0).unwrap();
+        ws.set_name("Schedule");
+        set_cell(ws, 1, 1, "Uniq ID");
+        set_cell(ws, 2, 1, "Name");
+        set_cell(ws, 3, 1, "G:Alice Example");
+        set_cell(ws, 4, 1, "G:Bob Smith");
+
+        set_cell(ws, 1, 2, "GP001");
+        set_cell(ws, 2, 2, "Panel One");
+        set_cell(ws, 3, 2, "Yes");
+        set_cell(ws, 4, 2, "Yes");
+
+        set_cell(ws, 1, 3, "GP002");
+        set_cell(ws, 2, 3, "Panel Two");
+        set_cell(ws, 3, 3, "Yes");
+
+        set_cell(ws, 1, 4, "GP003");
+        set_cell(ws, 2, 4, "Panel Three");
+        set_cell(ws, 3, 4, "Yes");
+    }
+    let path = write_temp(book);
+    let schedule = import_xlsx(&path, &XlsxImportOptions::default()).unwrap();
+    cleanup(&path);
+
+    let rt = round_trip(schedule);
+
+    assert_eq!(rt.entity_count::<PanelEntityType>(), 3);
+    assert!(rt.entity_count::<PresenterEntityType>() >= 2);
+
+    // Alice should still be credited on all three panels after round-trip.
+    let alice_id = rt
+        .iter_entities::<PresenterEntityType>()
+        .find(|(_, d)| d.data.name == "Alice Example")
+        .map(|(id, _)| id)
+        .expect("Alice should survive round-trip");
+
+    let alice_panels =
+        rt.connected_entities::<PanelEntityType>(alice_id, presenter::EDGE_CREDITED_PANELS);
+    assert_eq!(
+        alice_panels.len(),
+        3,
+        "Alice should be credited on all three panels after round-trip"
+    );
+
+    // Bob should survive round-trip even going through an Other column.
+    let bob_exists = rt
+        .iter_entities::<PresenterEntityType>()
+        .any(|(_, d)| d.data.name == "Bob Smith");
+    assert!(bob_exists, "Bob should survive round-trip via Other column");
+}
+
+#[test]
+fn test_export_round_trip_people_sheet() {
+    let mut book = umya_spreadsheet::new_file();
+    {
+        let ws = book.new_sheet("People").unwrap();
+        set_cell(ws, 1, 1, "Person");
+        set_cell(ws, 2, 1, "Classification");
+        set_cell(ws, 3, 1, "Is Group");
+        set_cell(ws, 4, 1, "Always Grouped");
+        set_cell(ws, 5, 1, "Always Shown");
+
+        set_cell(ws, 1, 2, "Alice Example");
+        set_cell(ws, 2, 2, "Guest");
+
+        set_cell(ws, 1, 3, "Fan Club");
+        set_cell(ws, 2, 3, "Panelist");
+        set_cell(ws, 3, 3, "Yes");
+
+        set_cell(ws, 1, 4, "Bob Fan");
+        set_cell(ws, 2, 4, "Fan Panelist");
+        set_cell(ws, 4, 4, "Yes"); // always_grouped
+    }
+    {
+        let ws = book.get_sheet_mut(&0).unwrap();
+        ws.set_name("Schedule");
+        set_cell(ws, 1, 1, "Name");
+    }
+    let path = write_temp(book);
+    let schedule = import_xlsx(&path, &XlsxImportOptions::default()).unwrap();
+    cleanup(&path);
+
+    let rt = round_trip(schedule);
+
+    assert_eq!(rt.entity_count::<PresenterEntityType>(), 3);
+
+    let alice = rt
+        .iter_entities::<PresenterEntityType>()
+        .find(|(_, d)| d.data.name == "Alice Example")
+        .map(|(_, d)| d.data.clone())
+        .expect("Alice should survive round-trip");
+    assert_eq!(
+        alice.rank,
+        schedule_core::tables::presenter::PresenterRank::Guest
+    );
+
+    let fan_club = rt
+        .iter_entities::<PresenterEntityType>()
+        .find(|(_, d)| d.data.name == "Fan Club")
+        .map(|(_, d)| d.data.clone())
+        .expect("Fan Club should survive round-trip");
+    assert!(fan_club.is_explicit_group);
+
+    let bob = rt
+        .iter_entities::<PresenterEntityType>()
+        .find(|(_, d)| d.data.name == "Bob Fan")
+        .map(|(_, d)| d.data.clone())
+        .expect("Bob Fan should survive round-trip");
+    assert_eq!(
+        bob.rank,
+        schedule_core::tables::presenter::PresenterRank::FanPanelist
+    );
+    assert!(bob.always_grouped);
 }
