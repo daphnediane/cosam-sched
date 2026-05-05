@@ -15,6 +15,8 @@ use schedule_core::tables::panel_type::PanelTypeEntityType;
 use schedule_core::tables::presenter::PresenterEntityType;
 use schedule_core::xlsx::{export_xlsx, import_xlsx, XlsxImportOptions};
 
+mod conflicts;
+
 // ── Output settings ───────────────────────────────────────────────────────────
 
 #[derive(Debug, Clone)]
@@ -491,11 +493,19 @@ fn main() {
 
     print_stats(&schedule);
 
-    // Phase 2 will add scheduling conflict detection here.
-    eprintln!("No conflicts detected");
+    let scheduling_conflicts = conflicts::detect_conflicts(&schedule);
+    conflicts::print_conflicts(&scheduling_conflicts);
 
     if cli.check_only {
-        eprintln!("Validation completed successfully");
+        if scheduling_conflicts.is_empty() {
+            eprintln!("Validation completed successfully");
+        } else {
+            eprintln!(
+                "Validation failed — {} conflict(s) detected",
+                scheduling_conflicts.len()
+            );
+            std::process::exit(1);
+        }
         return;
     }
 
