@@ -1,6 +1,6 @@
 # Cosplay America Schedule - Work Item
 
-Updated on: Mon May  4 21:52:25 2026
+Updated on: Mon May  4 23:05:24 2026
 
 ## Completed
 
@@ -127,7 +127,7 @@ reference and jump-starting new conventions.
 file, preserving formatting, formulas, extra columns, and non-standard content.
 
 * **Low Priority**
-  * [CLI-030] ([META-006]) CLI tool for converting between schedule file formats (XLSX, JSON, widget JSON).
+  * [CLI-030] ([META-006]) CLI tool for converting between schedule file formats (XLSX, native binary, widget JSON, HTML).
   * [CLI-031] ([META-006]) CLI tool for making batch edits to schedule data from the command line.
   * [EDITOR-032] ([META-007]) Select the GUI framework for cosam-editor and create the application scaffold.
   * [EDITOR-033] ([META-007]) Implement the main schedule grid view and entity editing UI in cosam-editor.
@@ -148,16 +148,19 @@ Use `perl scripts/work-item-update.pl --create <PREFIX>` to add new stubs.
 
 ### [CLI-030] cosam-convert: Format Conversion Tool
 
-**Status:** Open
+**Status:** In progress
 
 **Priority:** Low
 
-**Summary:** CLI tool for converting between schedule file formats (XLSX, JSON, widget JSON).
+**Summary:** CLI tool for converting between schedule file formats (XLSX, native binary, widget JSON, HTML).
 
 **Part of:** [META-006]
 
 **Description:** `cosam-convert` is a command-line application for importing and exporting
-schedule data between supported formats.
+schedule data between supported formats. It uses a flag-based API with
+settings chaining: output settings accumulate and are snapshotted into each
+output job, enabling multiple outputs with different settings in one
+invocation.
 
 ---
 

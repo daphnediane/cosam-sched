@@ -9,3 +9,8 @@ description = "Format conversion CLI for cosam schedules"
 [[bin]]
 name = "cosam-convert"
 path = "src/main.rs"
+
+[dependencies]
+anyhow = "1"
+serde_json = "1"
+schedule-core = { path = "../../crates/schedule-core" }
