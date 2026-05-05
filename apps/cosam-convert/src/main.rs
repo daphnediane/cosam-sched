@@ -16,6 +16,7 @@ use schedule_core::tables::presenter::PresenterEntityType;
 use schedule_core::xlsx::{export_xlsx, import_xlsx, XlsxImportOptions};
 
 mod conflicts;
+mod embed;
 
 // ── Output settings ───────────────────────────────────────────────────────────
 
@@ -450,10 +451,18 @@ fn write_output(schedule: &mut Schedule, path: &Path) -> Result<()> {
     }
 }
 
-fn write_widget_json(schedule: &Schedule, path: &Path, title: &str) -> Result<()> {
+fn widget_json_string(schedule: &Schedule, title: &str) -> Result<String> {
     let widget = export_to_widget_json(schedule, title).map_err(|e| anyhow::anyhow!("{}", e))?;
-    let json = serde_json::to_string_pretty(&widget)?;
+    serde_json::to_string_pretty(&widget).map_err(Into::into)
+}
+
+fn write_widget_json(schedule: &Schedule, path: &Path, title: &str) -> Result<()> {
+    let json = widget_json_string(schedule, title)?;
     std::fs::write(path, json).with_context(|| format!("Failed to write {}", path.display()))
+}
+
+fn write_widget_json_to_string(schedule: &Schedule, title: &str) -> Result<String> {
+    widget_json_string(schedule, title)
 }
 
 // ── Stats reporting ───────────────────────────────────────────────────────────
@@ -523,9 +532,48 @@ fn main() {
                     eprintln!("Exported: {}", job.path.display());
                 })
             }
-            OutputType::ExportEmbed | OutputType::ExportTest => Err(anyhow::anyhow!(
-                "HTML embedding not yet implemented (coming in Phase 3)"
-            )),
+            OutputType::ExportEmbed | OutputType::ExportTest => {
+                let sources = match embed::WidgetSources::resolve(
+                    job.settings.widget_css.as_deref(),
+                    job.settings.widget_js.as_deref(),
+                    job.settings.test_template.as_deref(),
+                ) {
+                    Ok(s) => s,
+                    Err(err) => {
+                        eprintln!("Error resolving widget sources: {err}");
+                        had_error = true;
+                        continue;
+                    }
+                };
+
+                let json_data = match write_widget_json_to_string(&schedule, &effective_title) {
+                    Ok(j) => j,
+                    Err(err) => {
+                        eprintln!("Error generating widget JSON: {err}");
+                        had_error = true;
+                        continue;
+                    }
+                };
+
+                match job.job_type {
+                    OutputType::ExportEmbed => embed::write_embed_html(
+                        &job.path,
+                        &json_data,
+                        &sources,
+                        job.settings.minified,
+                        job.settings.style_page,
+                    ),
+                    OutputType::ExportTest => embed::write_test_html(
+                        &job.path,
+                        &json_data,
+                        &effective_title,
+                        &sources,
+                        job.settings.minified,
+                        job.settings.style_page,
+                    ),
+                    _ => unreachable!(),
+                }
+            }
         };
 
         if let Err(err) = result {
