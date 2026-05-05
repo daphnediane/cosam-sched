@@ -1,6 +1,6 @@
 # Cosplay America Schedule - Work Item
 
-Updated on: Mon May  4 23:05:24 2026
+Updated on: Tue May  5 09:51:36 2026
 
 ## Completed
 
@@ -13,6 +13,7 @@ end / duration are not mirrored to the Automerge document and are lost
 through any save → load (or merge) round trip.
 * [BUGFIX-076] The edge_field_properties macro currently sets add_fn to AddEdge for all target edges without checking if the edge has multiple source fields. This should return None for target edges with multiple sources since add_edge doesn't support multi-source edges yet.
 * [BUGFIX-078] The `callback_field_properties!` macro generates `CrdtFieldType::Scalar` for all fields, but it should generate `Derived` for fields with custom read/write callbacks that project from internal state (like Panel's time_slot projections).
+* [CLI-030] CLI tool for converting between schedule file formats (XLSX, native binary, widget JSON, HTML).
 * [FEATURE-009] Set up the Cargo workspace root and create skeleton application crates.
 * [FEATURE-010] Implement the universal `FieldValue` enum, error types, and CRDT field type annotation.
 * [FEATURE-011] Implement the field trait hierarchy and generic `FieldDescriptor` type that replaces the old proc-macro's generated per-field unit structs.
@@ -112,7 +113,7 @@ and improve `FieldId` conversions with a global registry and type-safe downcasti
 
 ## Summary of Open Items
 
-**Total open items:** 12
+**Total open items:** 11
 
 * **Meta / Project-Level**
   * [META-001] Meta work item tracking the full multi-phase redesign of the schedule system. (Blocked by [META-006], [META-007], [META-008])
@@ -127,7 +128,6 @@ reference and jump-starting new conventions.
 file, preserving formatting, formulas, extra columns, and non-standard content.
 
 * **Low Priority**
-  * [CLI-030] ([META-006]) CLI tool for converting between schedule file formats (XLSX, native binary, widget JSON, HTML).
   * [CLI-031] ([META-006]) CLI tool for making batch edits to schedule data from the command line.
   * [EDITOR-032] ([META-007]) Select the GUI framework for cosam-editor and create the application scaffold.
   * [EDITOR-033] ([META-007]) Implement the main schedule grid view and entity editing UI in cosam-editor.
@@ -145,24 +145,6 @@ Use `perl scripts/work-item-update.pl --create <PREFIX>` to add new stubs.
 ---
 
 ## Open CLI Items
-
-### [CLI-030] cosam-convert: Format Conversion Tool
-
-**Status:** In progress
-
-**Priority:** Low
-
-**Summary:** CLI tool for converting between schedule file formats (XLSX, native binary, widget JSON, HTML).
-
-**Part of:** [META-006]
-
-**Description:** `cosam-convert` is a command-line application for importing and exporting
-schedule data between supported formats. It uses a flag-based API with
-settings chaining: output settings accumulate and are snapshotted into each
-output job, enabling multiple outputs with different settings in one
-invocation.
-
----
 
 ### [CLI-031] cosam-modify: CLI Editing Tool
 
@@ -398,7 +380,7 @@ to exchange CRDT changes and reconcile concurrent edits to the same fields.
 [BUGFIX-073]: work-item/done/BUGFIX-073.md
 [BUGFIX-076]: work-item/done/BUGFIX-076.md
 [BUGFIX-078]: work-item/done/BUGFIX-078.md
-[CLI-030]: work-item/low/CLI-030.md
+[CLI-030]: work-item/done/CLI-030.md
 [CLI-031]: work-item/low/CLI-031.md
 [EDITOR-032]: work-item/low/EDITOR-032.md
 [EDITOR-033]: work-item/low/EDITOR-033.md
