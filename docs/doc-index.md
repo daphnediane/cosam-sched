@@ -4,6 +4,10 @@ Complete index of cosam-sched documentation, including current documents and pla
 
 ## Current Documentation
 
+### User Guides
+
+* **cosam-convert.md** - Full CLI reference for `cosam-convert`: all flags, output commands, settings chaining, conflict detection, and examples including the batch-export workflow.
+
 ### Core Documentation
 
 * **WORK_ITEMS.md** - Master index of all work items, organized by priority and status. Automatically generated from work-item/ directory.
@@ -84,4 +88,4 @@ The following documents are stubs to be expanded as the project progresses.
 
 When completing work items, update relevant documentation listed in this index. Always cross-reference between documents when changes affect multiple areas.
 
-See `.windsurf/rules/track_work_item.md` for the work item tracking workflow and documentation update guidelines.
+See `.windsurf/rules/track_work_item.md` or `.claude/rules/track_work_item.md` for the work item tracking workflow and documentation update guidelines.
