@@ -116,8 +116,8 @@ pub fn parse_args() -> Result<CliArgs> {
             global_end = i;
             break;
         }
-        // Stop at the first command word too (in single-stage invocation).
-        if is_command_word(a) {
+        // Stop at the first command or stage-start word (single-stage invocation).
+        if is_command_word(a) || *a == "--select" {
             global_end = i;
             break;
         }
