@@ -46,10 +46,14 @@ pub struct EventRoomCommonData {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub long_name: Option<String>,
 
-    /// Sort key for room ordering. Values `>= 100` are hidden from the
-    /// public schedule.
+    /// Sort key for room ordering.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub sort_key: Option<i64>,
+
+    /// When `true`, this room is a scheduling artifact (e.g. SPLIT, BREAK)
+    /// and must not appear in the public export.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub is_pseudo: bool,
 }
 
 impl EventRoomCommonData {
@@ -263,6 +267,28 @@ pub static FIELD_SORT_KEY: FieldDescriptor<EventRoomEntityType> = {
 };
 inventory::submit! { CollectedField(&FIELD_SORT_KEY) }
 
+pub static FIELD_IS_PSEUDO: FieldDescriptor<EventRoomEntityType> = {
+    let (data, crdt_type, cb) = accessor_field_properties! {
+        EventRoomEntityType,
+        is_pseudo,
+        name: "is_pseudo",
+        display: "Is Pseudo",
+        description: "Scheduling artifact (SPLIT, BREAK, etc.); excluded from public export.",
+        aliases: &["pseudo", "fake", "IsPseudo"],
+        cardinality: Single,
+        item: Boolean,
+        example: "Yes",
+        order: 300,
+    };
+    FieldDescriptor {
+        data,
+        crdt_type,
+        required: false,
+        cb,
+    }
+};
+inventory::submit! { CollectedField(&FIELD_IS_PSEUDO) }
+
 // ── Edge-backed computed fields ─────────────────────────────────────
 
 pub static HALF_EDGE_HOTEL_ROOMS: crate::edge::HalfEdgeDescriptor = {
@@ -402,6 +428,7 @@ impl crate::query::lookup::EntityCreatable for EventRoomEntityType {
                     room_name: s.to_string(),
                     long_name: Some(s.to_string()),
                     sort_key: None,
+                    is_pseudo: false,
                 },
             },
         );
@@ -431,6 +458,7 @@ mod tests {
                 room_name: "Panel 1".into(),
                 long_name: Some("Grand Ballroom A".into()),
                 sort_key: Some(10),
+                is_pseudo: false,
             },
             id: make_id(),
         }
@@ -445,7 +473,7 @@ mod tests {
     #[test]
     fn test_field_set_count_and_required() {
         let fs = EventRoomEntityType::field_set();
-        assert_eq!(fs.fields().count(), 3);
+        assert_eq!(fs.fields().count(), 4);
         assert_eq!(fs.half_edges().count(), 2);
         let required: Vec<_> = fs.required_fields().map(|d| d.name()).collect();
         assert_eq!(required, vec!["room_name"]);
@@ -511,6 +539,7 @@ mod tests {
             room_name: "Panel 1".into(),
             long_name: Some("Grand Ballroom A".into()),
             sort_key: Some(10),
+            is_pseudo: false,
         };
         let json = serde_json::to_string(&original).unwrap();
         let back: EventRoomCommonData = serde_json::from_str(&json).unwrap();

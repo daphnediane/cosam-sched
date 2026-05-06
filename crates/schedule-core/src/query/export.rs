@@ -161,11 +161,8 @@ pub fn export_to_widget_json(
     let now = Utc::now();
 
     let (rooms, room_uid_map) = build_room_uid_map(schedule);
-    let visible_room_uids: Vec<i32> = rooms
-        .iter()
-        .filter(|r| r.sort_key < 100 && !r.is_break)
-        .map(|r| r.uid)
-        .collect();
+    // All rooms in `rooms` are already non-pseudo; use them all for break synthesis.
+    let visible_room_uids: Vec<i32> = rooms.iter().map(|r| r.uid).collect();
 
     let panel_types = export_panel_types(schedule)?;
     let panels = export_panels(schedule, &room_uid_map, &visible_room_uids, &panel_types)?;
@@ -220,9 +217,17 @@ fn build_room_uid_map(schedule: &Schedule) -> (Vec<WidgetRoom>, HashMap<EventRoo
 
     let mut uid_map = HashMap::new();
     let mut rooms = Vec::new();
+    let mut uid_counter: i32 = 0;
 
-    for (idx, (id, internal)) in room_list.iter().enumerate() {
-        let uid = (idx + 1) as i32;
+    for (id, internal) in &room_list {
+        // Pseudo rooms (SPLIT, BREAK, etc.) are excluded from the public output.
+        // Panels assigned to them will have roomIds: [] in the export.
+        if internal.data.is_pseudo {
+            continue;
+        }
+
+        uid_counter += 1;
+        let uid = uid_counter;
         uid_map.insert(*id, uid);
 
         let hotel_room = get_hotel_room_name(schedule, *id);
@@ -824,6 +829,7 @@ mod tests {
                     room_name: room_name.to_string(),
                     long_name: long_name.map(|s| s.to_string()),
                     sort_key: Some(sort_key),
+                    is_pseudo: false,
                 },
             },
         );

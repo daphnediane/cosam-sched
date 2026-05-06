@@ -165,15 +165,21 @@ fn test_import_rooms_sheet() {
 }
 
 #[test]
-fn test_import_rooms_skips_split_rooms() {
+fn test_import_rooms_pseudo_flag() {
+    // Pseudo rooms (Is Pseudo = Yes) are imported into the schedule so that
+    // panels assigned to them can still be read, but they carry is_pseudo=true
+    // so the export layer can exclude them from the public output.
     let mut book = umya_spreadsheet::new_file();
 
     {
         let ws = book.new_sheet("Rooms").unwrap();
         set_cell(ws, 1, 1, "Room Name");
-        set_cell(ws, 1, 2, "Panel Room 1");
-        set_cell(ws, 1, 3, "SPLITDAY"); // should be skipped
-        set_cell(ws, 1, 4, "SPLITNIGHT"); // should be skipped
+        set_cell(ws, 2, 1, "Is Pseudo");
+        set_cell(ws, 1, 2, "Panel Room 1"); // real room
+        set_cell(ws, 1, 3, "SPLITDAY");
+        set_cell(ws, 2, 3, "Yes"); // pseudo
+        set_cell(ws, 1, 4, "SPLITNIGHT");
+        set_cell(ws, 2, 4, "Yes"); // pseudo
     }
 
     {
@@ -186,7 +192,15 @@ fn test_import_rooms_skips_split_rooms() {
     let schedule = import_xlsx(&path, &XlsxImportOptions::default()).unwrap();
     cleanup(&path);
 
-    assert_eq!(schedule.entity_count::<EventRoomEntityType>(), 1);
+    // All three rooms are imported (pseudo rooms are not dropped at import time).
+    assert_eq!(schedule.entity_count::<EventRoomEntityType>(), 3);
+
+    // Only the real room has is_pseudo = false.
+    let pseudo_count = schedule
+        .iter_entities::<EventRoomEntityType>()
+        .filter(|(_, d)| d.data.is_pseudo)
+        .count();
+    assert_eq!(pseudo_count, 2);
 }
 
 #[test]

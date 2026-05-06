@@ -245,20 +245,36 @@ Example:
 
 ## Rooms Sheet
 
-A sheet named **Rooms** defines the room list.
+A sheet named **Rooms** (or **RoomMap**) defines the room list.
 
-| Column     | Description                                                   |
-| ---------- | ------------------------------------------------------------- |
-| Room Name  | Short name, must match the Room column in the Schedule sheet. |
-| Long Name  | Display name shown in the widget.                             |
-| Hotel Room | Physical hotel room name.                                     |
-| Sort Key   | Numeric sort order. Values ≥ 100 are hidden.                  |
+| Column     | Required? | Description                                                                                                                                                                                     |
+| ---------- | --------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Room Name  | Yes       | Short name, must match the Room column in the Schedule sheet.                                                                                                                                   |
+| Sort Key   |           | Numeric sort order for the room grid display.                                                                                                                                                   |
+| Long Name  |           | Display name shown in the widget (falls back to Room Name if absent).                                                                                                                           |
+| Hotel Room |           | Physical hotel room or building name.                                                                                                                                                           |
+| Is Pseudo  |           | Non-blank if this is a scheduling artifact, not a real physical room. Pseudo rooms are imported but excluded from the public export; panels assigned to them appear with no room in the widget. |
 
-### Special Rooms
+### Pseudo Rooms
 
-Room names beginning with `SPLIT` (e.g. `SPLITDAY`, `SPLITNIGHT`) are used
-to control page breaks in schedule-to-html and are filtered out by the
-converter.
+Pseudo rooms are entries in the Rooms sheet that represent scheduling
+conventions rather than physical spaces, marked with **Is Pseudo = Yes**.
+Common examples:
+
+| Room Name    | Purpose                                                               |
+| ------------ | --------------------------------------------------------------------- |
+| `SPLIT`      | Legacy schedule-to-html page-break marker; no physical room.          |
+| `SPLITDAY`   | Same as SPLIT — day-boundary break.                                   |
+| `SPLITNIGHT` | Same as SPLIT — night-boundary break.                                 |
+| `BREAK`      | Convention-wide break; breaks are now encoded via panel type instead. |
+
+Pseudo rooms are stored in the internal schedule so that panels
+referencing them can still be read. However they do not appear in the
+`rooms` array of the exported widget JSON, and panels assigned to
+them export with `roomIds: []`.
+
+Break panels (meals, day-end breaks, etc.) should use a panel type
+with **Is Break = Yes** (e.g. prefix `BR`) rather than a pseudo room.
 
 ## PanelTypes Sheet
 

@@ -280,8 +280,14 @@ pub mod room_map {
         aliases: &["HotelRoom", "Hotel", "Building"],
     };
 
+    pub const IS_PSEUDO: FieldDef = FieldDef {
+        export: "Is Pseudo",
+        canonical: "Is_Pseudo",
+        aliases: &["IsPseudo", "Pseudo", "Fake"],
+    };
+
     /// All primary column definitions in 2026 spreadsheet order.
-    pub const ALL: &[FieldDef] = &[ROOM_NAME, SORT_KEY, LONG_NAME, HOTEL_ROOM];
+    pub const ALL: &[FieldDef] = &[ROOM_NAME, SORT_KEY, LONG_NAME, HOTEL_ROOM, IS_PSEUDO];
 }
 
 // ─── Panel types table ────────────────────────────────────────────────────────

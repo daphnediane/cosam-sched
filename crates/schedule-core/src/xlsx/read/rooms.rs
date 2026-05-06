@@ -57,11 +57,6 @@ pub(super) fn read_rooms_into(
             _ => continue,
         };
 
-        // Skip SPLIT* rooms used only as schedule-to-html page-break markers.
-        if room_name.to_uppercase().starts_with("SPLIT") {
-            continue;
-        }
-
         let long_name = get_field_def(&data, &room_map::LONG_NAME)
             .filter(|n| n != &"#ERROR!")
             .cloned();
@@ -73,6 +68,9 @@ pub(super) fn read_rooms_into(
         let hotel_room_name = get_field_def(&data, &room_map::HOTEL_ROOM)
             .filter(|s| !s.is_empty())
             .cloned();
+
+        let is_pseudo =
+            get_field_def(&data, &room_map::IS_PSEUDO).is_some_and(|s| super::is_truthy(s));
 
         // Build EventRoom via field system.
         let uuid_pref = UuidPreference::PreferFromV5 {
@@ -87,6 +85,9 @@ pub(super) fn read_rooms_into(
         }
         if let Some(sk) = sort_key {
             updates.push(FieldUpdate::set(&event_room::FIELD_SORT_KEY, sk));
+        }
+        if is_pseudo {
+            updates.push(FieldUpdate::set(&event_room::FIELD_IS_PSEUDO, true));
         }
 
         let room_id = match build_entity::<EventRoomEntityType>(schedule, uuid_pref, updates) {
