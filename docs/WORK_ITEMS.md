@@ -1,6 +1,6 @@
 # Cosplay America Schedule - Work Item
 
-Updated on: Wed May  6 18:49:08 2026
+Updated on: Wed May  6 19:31:46 2026
 
 ## Completed
 
@@ -22,6 +22,7 @@ wire `touch_modified` into `apply()`, `undo()`, and `redo()`.
 load/save infrastructure for `cosam-modify`.
 * [CLI-092] Implement the `list` and `get` subcommands to display entities and their field values.
 * [CLI-093] Implement the `set` subcommand to update a named field on one or more entities.
+* [CLI-094] Implement the `create` subcommand to add a new entity of any type with specified fields.
 * [FEATURE-009] Set up the Cargo workspace root and create skeleton application crates.
 * [FEATURE-010] Implement the universal `FieldValue` enum, error types, and CRDT field type annotation.
 * [FEATURE-011] Implement the field trait hierarchy and generic `FieldDescriptor` type that replaces the old proc-macro's generated per-field unit structs.
@@ -129,7 +130,7 @@ above panelists and groups.
 
 ## Summary of Open Items
 
-**Total open items:** 18
+**Total open items:** 17
 
 * **Meta / Project-Level**
   * [META-001] Meta work item tracking the full multi-phase redesign of the schedule system. (Blocked by [META-006], [META-007], [META-008])
@@ -145,7 +146,6 @@ file, preserving formatting, formulas, extra columns, and non-standard content.
 
 * **Low Priority**
   * [CLI-031] ([META-006]) CLI tool for making batch edits to schedule data from the command line.
-  * [CLI-094] ([META-006]) Implement the `create` subcommand to add a new entity of any type with specified fields.
   * [CLI-095] ([META-006]) Implement the `delete` subcommand to soft-delete an entity by name or UUID.
   * [CLI-096] ([META-006]) Implement `add-edge` and `remove-edge` subcommands to manage entity relationships.
   * [CLI-097] ([META-006]) Implement in-memory `undo`, `redo`, and `show-history` subcommands.
@@ -186,32 +186,6 @@ Use `perl scripts/work-item-update.pl --create <PREFIX>` to add new stubs.
 or batch modifications. It supports all entity types via the field system, with all
 changes recorded in the CRDT (automerge) document. Input can be native binary or xlsx;
 output is always native binary.
-
----
-
-### [CLI-094] CLI-094: cosam-modify create command
-
-**Status:** Open
-
-**Priority:** Low
-
-**Summary:** Implement the `create` subcommand to add a new entity of any type with specified fields.
-
-**Part of:** [META-006]
-
-**Description:** `create` builds an `AddEntity` command with the user-supplied fields and applies it through
-`EditContext::apply()`. The execute path calls the registered `build_fn` which runs
-`build_entity` internally.
-
-```text
-cosam-modify --file <path> --select <type> create <field>=<value> [...]
-```
-
-or with named flags:
-
-```text
-cosam-modify --file <path> --select <type> create --field <name> <value> [...]
-```
 
 ---
 
@@ -584,7 +558,7 @@ to exchange CRDT changes and reconcile concurrent edits to the same fields.
 [CLI-091]: work-item/done/CLI-091.md
 [CLI-092]: work-item/done/CLI-092.md
 [CLI-093]: work-item/done/CLI-093.md
-[CLI-094]: work-item/low/CLI-094.md
+[CLI-094]: work-item/done/CLI-094.md
 [CLI-095]: work-item/low/CLI-095.md
 [CLI-096]: work-item/low/CLI-096.md
 [CLI-097]: work-item/low/CLI-097.md
