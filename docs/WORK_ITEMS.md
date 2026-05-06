@@ -1,6 +1,6 @@
 # Cosplay America Schedule - Work Item
 
-Updated on: Wed May  6 17:41:16 2026
+Updated on: Wed May  6 17:45:25 2026
 
 ## Completed
 
@@ -16,6 +16,8 @@ through any save → load (or merge) round trip.
 * [BUGFIX-086] Room filter chips are blank and hotel room context is absent because the new
 export format uses camelCase field names that the widget doesn't handle.
 * [CLI-030] CLI tool for converting between schedule file formats (XLSX, native binary, widget JSON, HTML).
+* [CLI-090] Add `Schedule::touch_modified()` and `EditContext::schedule_mut()` to schedule-core;
+wire `touch_modified` into `apply()`, `undo()`, and `redo()`.
 * [FEATURE-009] Set up the Cargo workspace root and create skeleton application crates.
 * [FEATURE-010] Implement the universal `FieldValue` enum, error types, and CRDT field type annotation.
 * [FEATURE-011] Implement the field trait hierarchy and generic `FieldDescriptor` type that replaces the old proc-macro's generated per-field unit structs.
@@ -123,7 +125,7 @@ above panelists and groups.
 
 ## Summary of Open Items
 
-**Total open items:** 22
+**Total open items:** 21
 
 * **Meta / Project-Level**
   * [META-001] Meta work item tracking the full multi-phase redesign of the schedule system. (Blocked by [META-006], [META-007], [META-008])
@@ -139,8 +141,6 @@ file, preserving formatting, formulas, extra columns, and non-standard content.
 
 * **Low Priority**
   * [CLI-031] ([META-006]) CLI tool for making batch edits to schedule data from the command line.
-  * [CLI-090] ([META-006]) Add `Schedule::touch_modified()` and `EditContext::schedule_mut()` to schedule-core;
-wire `touch_modified` into `apply()`, `undo()`, and `redo()`.
   * [CLI-091] ([META-006]) Establish the module layout, Cargo dependencies, arg-parsing skeleton, and file
 load/save infrastructure for `cosam-modify`.
   * [CLI-092] ([META-006]) Implement the `list` and `get` subcommands to display entities and their field values.
@@ -186,22 +186,6 @@ Use `perl scripts/work-item-update.pl --create <PREFIX>` to add new stubs.
 or batch modifications. It supports all entity types via the field system, with all
 changes recorded in the CRDT (automerge) document. Input can be native binary or xlsx;
 output is always native binary.
-
----
-
-### [CLI-090] CLI-090: schedule-core metadata update API for cosam-modify
-
-**Status:** Open
-
-**Priority:** Low
-
-**Summary:** Add `Schedule::touch_modified()` and `EditContext::schedule_mut()` to schedule-core;
-wire `touch_modified` into `apply()`, `undo()`, and `redo()`.
-
-**Part of:** [META-006]
-
-**Description:** `EditContext::apply()` currently never updates `Schedule::metadata.modified_at`, so binary
-files saved after edits always have a stale or missing modification timestamp.
 
 ---
 
@@ -648,7 +632,7 @@ to exchange CRDT changes and reconcile concurrent edits to the same fields.
 [BUGFIX-086]: work-item/done/BUGFIX-086.md
 [CLI-030]: work-item/done/CLI-030.md
 [CLI-031]: work-item/low/CLI-031.md
-[CLI-090]: work-item/low/CLI-090.md
+[CLI-090]: work-item/done/CLI-090.md
 [CLI-091]: work-item/low/CLI-091.md
 [CLI-092]: work-item/low/CLI-092.md
 [CLI-093]: work-item/low/CLI-093.md

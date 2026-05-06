@@ -302,3 +302,91 @@ fn redo_on_empty_stack_returns_error() {
     let mut ctx = EditContext::new(sched);
     assert!(matches!(ctx.redo(), Err(EditError::NothingToRedo)));
 }
+
+// ── touch_modified / metadata ────────────────────────────────────────────
+
+#[test]
+fn touch_modified_sets_timestamp() {
+    let mut sched = Schedule::default();
+    assert!(sched.metadata.modified_at.is_none());
+    sched.touch_modified();
+    assert!(sched.metadata.modified_at.is_some());
+}
+
+#[test]
+fn touch_modified_does_not_change_version() {
+    let mut sched = Schedule::default();
+    assert_eq!(sched.metadata.version, 0);
+    sched.touch_modified();
+    assert_eq!(sched.metadata.version, 0);
+}
+
+#[test]
+fn apply_calls_touch_modified() {
+    let sched = Schedule::default();
+    let mut ctx = EditContext::new(sched);
+    assert!(ctx.schedule().metadata.modified_at.is_none());
+
+    let id = schedule_core::entity::EntityId::<PanelTypeEntityType>::generate();
+    let rid: RuntimeEntityId = id.into();
+    let cmd = EditCommand::AddEntity {
+        entity: rid,
+        fields: vec![
+            ("prefix", field_value!("TS")),
+            ("panel_kind", field_value!("Test")),
+        ],
+    };
+    ctx.apply(cmd).expect("apply succeeded");
+
+    assert!(
+        ctx.schedule().metadata.modified_at.is_some(),
+        "apply should call touch_modified"
+    );
+}
+
+#[test]
+fn undo_calls_touch_modified() {
+    let (mut ctx, entity) = make_panel_type_in_context();
+    // Reset modified_at so we can detect the change from undo
+    ctx.schedule_mut().metadata.modified_at = None;
+
+    let cmd = ctx
+        .update_field_cmd(entity, "prefix", field_value!("ZZ"))
+        .expect("cmd built");
+    ctx.apply(cmd).expect("apply");
+    // Reset again after apply
+    ctx.schedule_mut().metadata.modified_at = None;
+
+    ctx.undo().expect("undo");
+    assert!(
+        ctx.schedule().metadata.modified_at.is_some(),
+        "undo should call touch_modified"
+    );
+}
+
+#[test]
+fn redo_calls_touch_modified() {
+    let (mut ctx, entity) = make_panel_type_in_context();
+
+    let cmd = ctx
+        .update_field_cmd(entity, "prefix", field_value!("ZZ"))
+        .expect("cmd built");
+    ctx.apply(cmd).expect("apply");
+    ctx.undo().expect("undo");
+    // Reset before redo
+    ctx.schedule_mut().metadata.modified_at = None;
+
+    ctx.redo().expect("redo");
+    assert!(
+        ctx.schedule().metadata.modified_at.is_some(),
+        "redo should call touch_modified"
+    );
+}
+
+#[test]
+fn schedule_mut_allows_stamping_generator() {
+    let sched = Schedule::default();
+    let mut ctx = EditContext::new(sched);
+    ctx.schedule_mut().metadata.generator = "test-tool 1.0".to_string();
+    assert_eq!(ctx.schedule().metadata.generator, "test-tool 1.0");
+}

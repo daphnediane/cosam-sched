@@ -462,6 +462,19 @@ impl Schedule {
 
     // ── CRDT access ───────────────────────────────────────────────────────────
 
+    /// Update the modification timestamp to the current UTC time.
+    ///
+    /// Called by [`crate::edit::context::EditContext`] after every successful
+    /// [`apply`](crate::edit::context::EditContext::apply),
+    /// [`undo`](crate::edit::context::EditContext::undo), and
+    /// [`redo`](crate::edit::context::EditContext::redo).
+    ///
+    /// Import and CRDT-hydration paths bypass `EditContext` and must **not** call
+    /// this — they manage `modified_at` directly from the source timestamp.
+    pub fn touch_modified(&mut self) {
+        self.metadata.modified_at = Some(chrono::Utc::now());
+    }
+
     /// Borrow the underlying CRDT document (for change-tracking / save).
     #[must_use]
     pub fn doc(&self) -> &AutoCommit {

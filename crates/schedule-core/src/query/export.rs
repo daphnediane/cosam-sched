@@ -1176,8 +1176,14 @@ mod tests {
         link_panel_type(&mut sched, panel_id, gp_pt);
 
         let export = export_to_widget_json(&sched, "Test").unwrap();
-        assert!(export.panel_types.contains_key("GP"), "GP should be present");
-        assert!(!export.panel_types.contains_key("FP"), "FP should be absent");
+        assert!(
+            export.panel_types.contains_key("GP"),
+            "GP should be present"
+        );
+        assert!(
+            !export.panel_types.contains_key("FP"),
+            "FP should be absent"
+        );
         // %IB/%NB should NOT be present when there are no gaps between panels
         // (single panel — no synthesized breaks)
         assert!(!export.panel_types.contains_key("%IB"));

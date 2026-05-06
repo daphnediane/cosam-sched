@@ -59,6 +59,15 @@ impl EditContext {
         &self.schedule
     }
 
+    /// Mutably borrow the underlying schedule.
+    ///
+    /// Intended for callers that need to stamp metadata (e.g. `metadata.generator`)
+    /// before saving.  Mutations made directly through this accessor bypass the edit
+    /// history — use [`apply`](Self::apply) for all data edits.
+    pub fn schedule_mut(&mut self) -> &mut Schedule {
+        &mut self.schedule
+    }
+
     /// Returns `true` if there are unsaved changes since the last
     /// [`mark_clean`](Self::mark_clean) call.
     #[must_use]
@@ -93,6 +102,7 @@ impl EditContext {
         let inverse = cmd.execute(&mut self.schedule)?;
         self.history.push_undo(inverse);
         self.dirty_count += 1;
+        self.schedule.touch_modified();
         Ok(())
     }
 
@@ -104,6 +114,7 @@ impl EditContext {
         let redo_cmd = undo_cmd.execute(&mut self.schedule)?;
         self.history.push_redo(redo_cmd);
         self.dirty_count = self.dirty_count.saturating_sub(1);
+        self.schedule.touch_modified();
         Ok(())
     }
 
@@ -115,6 +126,7 @@ impl EditContext {
         let inverse = redo_cmd.execute(&mut self.schedule)?;
         self.history.push_undo(inverse);
         self.dirty_count += 1;
+        self.schedule.touch_modified();
         Ok(())
     }
 
