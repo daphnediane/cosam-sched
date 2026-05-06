@@ -1,6 +1,6 @@
 # Future Ideas and Design Notes
 
-Updated on: Mon May  4 21:15:05 2026
+Updated on: Wed May  6 17:42:30 2026
 
 Open design questions, unexplored alternatives, and deferred ideas.
 An IDEA item can be promoted to a work item by renaming it to another prefix
@@ -200,6 +200,17 @@ Implementation notes:
 
 ---
 
+### [IDEA-101] IDEA-101: Decide what ScheduleMetadata.version is for
+
+**Summary:** Decide the long-term use of `ScheduleMetadata.version` and update its doc comment and all
+call sites accordingly.
+
+**Description:** `ScheduleMetadata` has a `version: u32` field whose doc comment says "Monotonically
+increasing edit version counter" but the user says it is a file-format/schema version that
+should stay at `0`. There is a discrepancy between the comment and the intended use.
+
+---
+
 ## Closed Ideas
 
 * [IDEA-037] (Superseded) Add read-only `lookup_*` variants to entity resolution that take `&EntityStorage`
@@ -234,3 +245,4 @@ Use `perl scripts/work-item-update.pl --create IDEA` to add new stubs.
 [IDEA-081]: work-item/idea/IDEA-081.md
 [IDEA-082]: work-item/idea/IDEA-082.md
 [IDEA-083]: work-item/idea/IDEA-083.md
+[IDEA-101]: work-item/idea/IDEA-101.md

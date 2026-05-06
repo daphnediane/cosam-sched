@@ -1,6 +1,6 @@
 # Cosplay America Schedule - Work Item
 
-Updated on: Tue May  5 23:31:09 2026
+Updated on: Wed May  6 17:41:16 2026
 
 ## Completed
 
@@ -123,7 +123,7 @@ above panelists and groups.
 
 ## Summary of Open Items
 
-**Total open items:** 11
+**Total open items:** 22
 
 * **Meta / Project-Level**
   * [META-001] Meta work item tracking the full multi-phase redesign of the schedule system. (Blocked by [META-006], [META-007], [META-008])
@@ -139,6 +139,22 @@ file, preserving formatting, formulas, extra columns, and non-standard content.
 
 * **Low Priority**
   * [CLI-031] ([META-006]) CLI tool for making batch edits to schedule data from the command line.
+  * [CLI-090] ([META-006]) Add `Schedule::touch_modified()` and `EditContext::schedule_mut()` to schedule-core;
+wire `touch_modified` into `apply()`, `undo()`, and `redo()`.
+  * [CLI-091] ([META-006]) Establish the module layout, Cargo dependencies, arg-parsing skeleton, and file
+load/save infrastructure for `cosam-modify`.
+  * [CLI-092] ([META-006]) Implement the `list` and `get` subcommands to display entities and their field values.
+  * [CLI-093] ([META-006]) Implement the `set` subcommand to update a named field on one or more entities.
+  * [CLI-094] ([META-006]) Implement the `create` subcommand to add a new entity of any type with specified fields.
+  * [CLI-095] ([META-006]) Implement the `delete` subcommand to soft-delete an entity by name or UUID.
+  * [CLI-096] ([META-006]) Implement `add-edge` and `remove-edge` subcommands to manage entity relationships.
+  * [CLI-097] ([META-006]) Implement in-memory `undo`, `redo`, and `show-history` subcommands.
+  * [CLI-098] ([META-006]) Add `--help` output, proper exit codes, integration tests for all commands, and close out
+CLI-031 and CLI-090–098.
+  * [CLI-099] ([META-006]) Serialize the `EditHistory` undo/redo stacks into the `.schedule` binary file so that
+undo/redo works across `cosam-modify` invocations.
+  * [CLI-100] ([META-006]) Add a `--interactive` flag to `cosam-modify` that opens a read-eval-print loop for
+entering commands one at a time.
   * [EDITOR-032] ([META-007]) Select the GUI framework for cosam-editor and create the application scaffold.
   * [EDITOR-033] ([META-007]) Implement the main schedule grid view and entity editing UI in cosam-editor.
   * [FEATURE-034] ([META-008]) Define and implement the protocol for synchronizing schedule data between peers.
@@ -158,7 +174,7 @@ Use `perl scripts/work-item-update.pl --create <PREFIX>` to add new stubs.
 
 ### [CLI-031] cosam-modify: CLI Editing Tool
 
-**Status:** Open
+**Status:** In progress
 
 **Priority:** Low
 
@@ -166,8 +182,235 @@ Use `perl scripts/work-item-update.pl --create <PREFIX>` to add new stubs.
 
 **Part of:** [META-006]
 
-**Description:** `cosam-modify` provides command-line access to the edit system for scripted
-or batch modifications to schedule data.
+**Description:** `cosam-modify` provides command-line access to the schedule edit system for scripted
+or batch modifications. It supports all entity types via the field system, with all
+changes recorded in the CRDT (automerge) document. Input can be native binary or xlsx;
+output is always native binary.
+
+---
+
+### [CLI-090] CLI-090: schedule-core metadata update API for cosam-modify
+
+**Status:** Open
+
+**Priority:** Low
+
+**Summary:** Add `Schedule::touch_modified()` and `EditContext::schedule_mut()` to schedule-core;
+wire `touch_modified` into `apply()`, `undo()`, and `redo()`.
+
+**Part of:** [META-006]
+
+**Description:** `EditContext::apply()` currently never updates `Schedule::metadata.modified_at`, so binary
+files saved after edits always have a stale or missing modification timestamp.
+
+---
+
+### [CLI-091] CLI-091: cosam-modify scaffold, file I/O, module structure
+
+**Status:** Open
+
+**Priority:** Low
+
+**Summary:** Establish the module layout, Cargo dependencies, arg-parsing skeleton, and file
+load/save infrastructure for `cosam-modify`.
+
+**Part of:** [META-006]
+
+**Description:** Creates the module skeleton for `cosam-modify` and wires the two core operations every
+subcommand needs: loading a schedule (binary or xlsx) and saving it back as native binary.
+
+---
+
+### [CLI-092] CLI-092: cosam-modify list and get commands
+
+**Status:** Open
+
+**Priority:** Low
+
+**Summary:** Implement the `list` and `get` subcommands to display entities and their field values.
+
+**Part of:** [META-006]
+
+**Description:** `list` displays all (or filtered) entities of a type. `get` displays a single entity
+by name or UUID. Both use the field system to enumerate readable fields and edge fields,
+producing output in `text`, `json`, or `toml` format.
+
+---
+
+### [CLI-093] CLI-093: cosam-modify set command
+
+**Status:** Open
+
+**Priority:** Low
+
+**Summary:** Implement the `set` subcommand to update a named field on one or more entities.
+
+**Part of:** [META-006]
+
+**Description:** `set` updates a single field on the selected entities, routing the change through
+`EditContext::update_field_cmd` so the edit is tracked in the undo stack and mirrors to the
+CRDT document.
+
+```text
+cosam-modify --file <path> [--select <type> [<query>]] set <field> <value>
+```
+
+---
+
+### [CLI-094] CLI-094: cosam-modify create command
+
+**Status:** Open
+
+**Priority:** Low
+
+**Summary:** Implement the `create` subcommand to add a new entity of any type with specified fields.
+
+**Part of:** [META-006]
+
+**Description:** `create` builds an `AddEntity` command with the user-supplied fields and applies it through
+`EditContext::apply()`. The execute path calls the registered `build_fn` which runs
+`build_entity` internally.
+
+```text
+cosam-modify --file <path> --select <type> create <field>=<value> [...]
+```
+
+or with named flags:
+
+```text
+cosam-modify --file <path> --select <type> create --field <name> <value> [...]
+```
+
+---
+
+### [CLI-095] CLI-095: cosam-modify delete command
+
+**Status:** Open
+
+**Priority:** Low
+
+**Summary:** Implement the `delete` subcommand to soft-delete an entity by name or UUID.
+
+**Part of:** [META-006]
+
+**Description:** `delete` removes the selected entity using `EditContext::remove_entity_cmd` + `apply`,
+which soft-deletes via the `__deleted` CRDT flag.
+
+```text
+cosam-modify --file <path> [--select <type>] delete <query>
+```
+
+An explicit non-wildcard query is required. Bulk `delete *` is intentionally disallowed
+without a `--force` flag to prevent accidental mass deletion.
+
+---
+
+### [CLI-096] CLI-096: cosam-modify add-edge and remove-edge commands
+
+**Status:** Open
+
+**Priority:** Low
+
+**Summary:** Implement `add-edge` and `remove-edge` subcommands to manage entity relationships.
+
+**Part of:** [META-006]
+
+**Description:** Edge commands add or remove relationships between entities using
+`EditContext::add_to_field_cmd` / `remove_from_field_cmd`.
+
+```text
+cosam-modify --file <path> [--select <type> <query>] add-edge <edge-field> <target-query>
+cosam-modify --file <path> [--select <type> <query>] remove-edge <edge-field> <target-query>
+```
+
+---
+
+### [CLI-097] CLI-097: cosam-modify undo, redo, and show-history commands
+
+**Status:** Open
+
+**Priority:** Low
+
+**Summary:** Implement in-memory `undo`, `redo`, and `show-history` subcommands.
+
+**Part of:** [META-006]
+
+**Description:** Thin wrappers around `EditContext::undo()`, `EditContext::redo()`, and the depth accessors.
+Useful within a multi-stage invocation to reverse earlier stages.
+
+```text
+cosam-modify --file <path> <edit-stage> -- undo
+cosam-modify --file <path> show-history
+```
+
+**Limitation:** The EditHistory undo/redo stacks are in-memory only and are NOT persisted
+across invocations. CLI-099 tracks adding binary-file persistence.
+
+---
+
+### [CLI-098] CLI-098: cosam-modify help text, exit codes, integration tests, and polish
+
+**Status:** Open
+
+**Priority:** Low
+
+**Summary:** Add `--help` output, proper exit codes, integration tests for all commands, and close out
+CLI-031 and CLI-090–098.
+
+**Part of:** [META-006]
+
+**Description:** Final polish pass for the `cosam-modify` implementation.
+
+---
+
+### [CLI-099] CLI-099: Undo/redo history persistence in binary file
+
+**Status:** Open
+
+**Priority:** Low
+
+**Summary:** Serialize the `EditHistory` undo/redo stacks into the `.schedule` binary file so that
+undo/redo works across `cosam-modify` invocations.
+
+**Part of:** [META-006]
+
+**Description:** Currently `EditHistory` is in-memory only. A fresh invocation of `cosam-modify` always
+starts with empty undo/redo stacks even if the previous invocation made changes.
+
+Implementing cross-invocation undo requires:
+
+1. A serialization format for `EditCommand` (and thus `FieldValue`, `RuntimeEntityId`, etc.)
+2. A binary file format change — either bumping `FILE_FORMAT_VERSION` and adding an undo
+   section to the envelope, or storing the history inside the automerge document.
+3. Care that CRDT `apply_changes` / `merge` paths do not restore stale undo state from a
+   diverged replica.
+4. A maximum history depth limit for the on-disk representation.
+
+---
+
+### [CLI-100] CLI-100: cosam-modify interactive mode (--interactive REPL)
+
+**Status:** Open
+
+**Priority:** Low
+
+**Summary:** Add a `--interactive` flag to `cosam-modify` that opens a read-eval-print loop for
+entering commands one at a time.
+
+**Part of:** [META-006]
+
+**Description:** Interactive mode presents a prompt (`>`) and accepts the same commands as batch mode, one
+per line:
+
+```text
+cosam-modify --file myfile.schedule --interactive
+> list panels --select presenter matches Jane
+> set panel GW0103 note "Will be outside if no rain"
+> save
+> open other.schedule
+> quit
+Save your changes? (Y/N)
+```
 
 ---
 
@@ -326,7 +569,7 @@ replacing the old `schedule-field`, `schedule-data`, and `schedule-macro` crates
 
 ### [META-006] Phase 5 — CLI Tools
 
-**Status:** Blocked
+**Status:** In progress
 
 **Priority:** Low
 
@@ -341,6 +584,18 @@ These applications wrap `schedule-core`'s import/export and edit command systems
 
 * CLI-030: cosam-convert: format conversion tool
 * CLI-031: cosam-modify: CLI editing tool
+* CLI-090: schedule-core metadata update API
+* CLI-091: cosam-modify scaffold, file I/O, module structure
+* CLI-092: list and get commands
+* CLI-093: set command
+* CLI-094: create command
+* CLI-095: delete command
+* CLI-096: add-edge / remove-edge commands
+* CLI-097: undo / redo / show-history (in-memory)
+* CLI-098: help text, exit codes, integration tests, polish
+* CLI-099: undo/redo history persistence in binary file (not started)
+* CLI-100: interactive mode — --interactive REPL (not started)
+* IDEA-101: decide what ScheduleMetadata.version is for
 
 ---
 
@@ -393,6 +648,17 @@ to exchange CRDT changes and reconcile concurrent edits to the same fields.
 [BUGFIX-086]: work-item/done/BUGFIX-086.md
 [CLI-030]: work-item/done/CLI-030.md
 [CLI-031]: work-item/low/CLI-031.md
+[CLI-090]: work-item/low/CLI-090.md
+[CLI-091]: work-item/low/CLI-091.md
+[CLI-092]: work-item/low/CLI-092.md
+[CLI-093]: work-item/low/CLI-093.md
+[CLI-094]: work-item/low/CLI-094.md
+[CLI-095]: work-item/low/CLI-095.md
+[CLI-096]: work-item/low/CLI-096.md
+[CLI-097]: work-item/low/CLI-097.md
+[CLI-098]: work-item/low/CLI-098.md
+[CLI-099]: work-item/low/CLI-099.md
+[CLI-100]: work-item/low/CLI-100.md
 [EDITOR-032]: work-item/low/EDITOR-032.md
 [EDITOR-033]: work-item/low/EDITOR-033.md
 [FEATURE-009]: work-item/done/FEATURE-009.md
