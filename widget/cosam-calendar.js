@@ -319,10 +319,8 @@
       // Cost — breaks excluded when filtering by cost
       if (this.filters.cost === 'included') {
         events = events.filter(e => e.isFree);
-      } else if (this.filters.cost === 'paid') {
-        events = events.filter(e => !e.isFree && !e.isWorkshop);
-      } else if (this.filters.cost === 'workshop') {
-        events = events.filter(e => e.isWorkshop);
+      } else if (this.filters.cost === 'premium') {
+        events = events.filter(e => !e.isFree);
       }
 
       // Presenter — breaks excluded when filtering by presenter
@@ -468,13 +466,12 @@
         presenters = [];
       }
 
-      // Filter rooms: exclude break rooms and unused rooms
+      // Filter rooms to those used by real (non-break, non-timeline) panels,
+      // then normalize all field names to camelCase.
+      // The new export format uses camelCase (shortName, longName, hotelRoom,
+      // sortKey); accept snake_case from older data too.
       let rooms = [];
       if (Array.isArray(data.rooms)) {
-        // Collect room IDs used by non-break, non-timeline panels.
-        // BREAK is a pseudo room like SPLIT — exclude it by checking the panel
-        // type's isBreak flag, not the room's is_break field (which may not be
-        // set correctly until the import-side fix lands).
         const usedRoomIds = new Set();
         for (const panel of panels) {
           if (!panel.roomIds) continue;
@@ -485,11 +482,20 @@
           }
         }
 
-        // Only include rooms that are referenced by real (non-break) panels.
-        rooms = data.rooms.filter(room => {
-          const roomId = room.uid || room.id;
-          return usedRoomIds.has(roomId);
-        });
+        rooms = data.rooms
+          .filter(room => {
+            const roomId = room.uid !== undefined ? room.uid : room.id;
+            if (room.isBreak || room.is_break) return false;
+            return usedRoomIds.has(roomId);
+          })
+          .map(room => ({
+            uid: room.uid !== undefined ? room.uid : room.id,
+            shortName: room.shortName || room.short_name || '',
+            longName: room.longName || room.long_name || '',
+            hotelRoom: room.hotelRoom || room.hotel_room || '',
+            sortKey: room.sortKey !== undefined ? room.sortKey
+              : room.sort_key !== undefined ? room.sort_key : 0,
+          }));
       }
 
       return {
@@ -691,7 +697,9 @@
       roomGroup.appendChild(el('label', {}, 'Room'));
       const roomChips = el('div', { className: 'cosam-filter-checkboxes' });
       for (const room of this.state.data.rooms) {
-        const name = room.long_name || room.short_name;
+        const name = room.longName || room.shortName;
+        const displayName = (room.hotelRoom && room.hotelRoom !== name)
+          ? `${name} (${room.hotelRoom})` : name;
         const selected = this.state.filters.rooms.has(room.uid);
         const chip = el('button', {
           type: 'button',
@@ -702,7 +710,7 @@
             else this.state.filters.rooms.add(room.uid);
             this.render();
           },
-        }, name);
+        }, displayName);
         roomChips.appendChild(chip);
       }
       roomGroup.appendChild(roomChips);
@@ -735,12 +743,14 @@
       // Row 2: Cost + Presenter
       const row2 = el('div', { className: 'cosam-filter-row' });
 
-      // Cost filter
+      // Pricing filter
       const costGroup = el('div', { className: 'cosam-filter-group' });
-      costGroup.appendChild(el('label', {}, 'Cost'));
+      costGroup.appendChild(el('label', {}, 'Pricing'));
       const costChips = el('div', { className: 'cosam-filter-checkboxes' });
-      for (const [value, label] of [['all', 'All'], ['included', 'Included'], ['paid', 'Additional Cost'], ['workshop', 'Workshops']]) {
-        const selected = this.state.filters.cost === value;
+      const activeCost = ['all', 'included', 'premium'].includes(this.state.filters.cost)
+        ? this.state.filters.cost : 'all';
+      for (const [value, label] of [['all', 'All'], ['included', 'Included'], ['premium', 'Premium']]) {
+        const selected = activeCost === value;
         const chip = el('button', {
           type: 'button',
           className: 'cosam-filter-chip' + (selected ? ' selected' : ''),
@@ -752,23 +762,20 @@
       costGroup.appendChild(costChips);
       row2.appendChild(costGroup);
 
-      // Presenter filter
+      // Presenter filter — guests first, then panelists, then groups
       const presGroup = el('div', { className: 'cosam-filter-group' });
       presGroup.appendChild(el('label', {}, 'Presenter'));
 
-      // Separate presenters into individuals and groups
-      const individuals = [];
+      const guestPresenters = [];
+      const panelistPresenters = [];
       const groups = [];
 
       for (const p of this.state.data.presenters) {
-        if (p.isGroup) {
-          groups.push(p);
-        } else {
-          individuals.push(p);
-        }
+        if (p.isGroup) groups.push(p);
+        else if (p.rank === 'guest') guestPresenters.push(p);
+        else panelistPresenters.push(p);
       }
 
-      // Single-select dropdown for presenters
       const presSelect = el('select', {
         className: 'cosam-select cosam-presenter-select',
         onChange: (e) => {
@@ -777,26 +784,32 @@
         }
       });
 
-      // Add "All Presenters" option
       presSelect.appendChild(el('option', { value: '' }, '— All Presenters —'));
 
-      // Add individuals first
-      if (individuals.length > 0) {
-        const indivGroup = el('optgroup', { label: 'Individual Presenters' });
-        for (const p of individuals) {
+      if (guestPresenters.length > 0) {
+        const guestGroup = el('optgroup', { label: 'Guest Presenters' });
+        for (const p of guestPresenters) {
+          const opt = el('option', { value: p.name }, p.name);
+          if (this.state.filters.presenter === p.name) opt.selected = true;
+          guestGroup.appendChild(opt);
+        }
+        presSelect.appendChild(guestGroup);
+      }
+
+      if (panelistPresenters.length > 0) {
+        const panelistGroup = el('optgroup', { label: 'Panelists' });
+        for (const p of panelistPresenters) {
           let displayText = p.name;
-          // V9 format: Show groups in parentheses for individuals
           if (p.groups && p.groups.length > 0) {
             displayText += ' (' + p.groups.join(', ') + ')';
           }
           const opt = el('option', { value: p.name }, displayText);
           if (this.state.filters.presenter === p.name) opt.selected = true;
-          indivGroup.appendChild(opt);
+          panelistGroup.appendChild(opt);
         }
-        presSelect.appendChild(indivGroup);
+        presSelect.appendChild(panelistGroup);
       }
 
-      // Add groups with visual distinction
       if (groups.length > 0) {
         const groupGroup = el('optgroup', { label: 'Presenter Groups' });
         for (const p of groups) {
@@ -979,11 +992,11 @@
         for (const roomId of evt.roomIds) {
           const room = this.state.data.rooms.find(r => r.uid === roomId);
           if (!room) continue;
-          const roomName = room.long_name || room.short_name;
+          const roomName = room.longName || room.shortName;
           const textWrap = el('span', { className: 'cosam-meta-room-text' });
           textWrap.appendChild(el('span', {}, roomName));
-          if (room.hotel_room && room.hotel_room !== roomName) {
-            textWrap.appendChild(el('span', { className: 'cosam-meta-room-sub' }, `(${room.hotel_room})`));
+          if (room.hotelRoom && room.hotelRoom !== roomName) {
+            textWrap.appendChild(el('span', { className: 'cosam-meta-room-sub' }, `(${room.hotelRoom})`));
           }
           roomElements.push(textWrap);
         }
@@ -1064,8 +1077,8 @@
       const roomIds = [...new Set(regularEvents.flatMap(e => e.roomIds || []).filter(id => id !== null && id !== undefined))];
       const roomOrder = this.state.data.rooms
         .filter(r => roomIds.includes(r.uid || r.id))
-        .sort((a, b) => (a.sort_key || a.sortKey) - (b.sort_key || b.sortKey))
-        .map(r => r.uid || r.id);
+        .sort((a, b) => a.sortKey - b.sortKey)
+        .map(r => r.uid);
 
       // Add any rooms not in the rooms list
       for (const rid of roomIds) {
@@ -1376,10 +1389,11 @@
 
       // Room headers
       for (const roomId of roomOrder) {
-        const room = this.state.data.rooms.find(r => (r.uid || r.id) === roomId);
-        let roomDisplay = room ? (room.long_name || room.longName || room.short_name || room.shortName) : 'Unknown';
-        if (room && room.hotel_room && room.hotel_room !== (room.long_name || room.longName || room.short_name || room.shortName)) {
-          roomDisplay = `${room.long_name || room.longName || room.short_name || room.shortName}<br><small style="opacity: 0.8">(${room.hotel_room})</small>`;
+        const room = this.state.data.rooms.find(r => r.uid === roomId);
+        const roomName = room ? (room.longName || room.shortName) : 'Unknown';
+        let roomDisplay = roomName;
+        if (room && room.hotelRoom && room.hotelRoom !== roomName) {
+          roomDisplay = `${roomName}<br><small style="opacity: 0.8">(${room.hotelRoom})</small>`;
         }
         const roomHeader = el('div', {
           className: 'cosam-grid-header-cell',
@@ -1454,10 +1468,9 @@
         const roomNames = evt.roomIds.map(roomId => {
           const room = this.state.data.rooms.find(r => r.uid === roomId);
           if (!room) return null;
-          let roomDisplay = room.long_name || room.longName || room.short_name || room.shortName;
-          if (room.hotel_room && room.hotel_room !== (room.long_name || room.longName || room.short_name || room.shortName)) {
-            roomDisplay = `${room.long_name || room.longName || room.short_name || room.shortName} (${room.hotel_room})`;
-          }
+          const rn = room.longName || room.shortName;
+          const roomDisplay = (room.hotelRoom && room.hotelRoom !== rn)
+            ? `${rn} (${room.hotelRoom})` : rn;
           return roomDisplay;
         }).filter(Boolean);
 
@@ -1545,11 +1558,11 @@
         for (const roomId of evt.roomIds) {
           const room = this.state.data.rooms.find(r => r.uid === roomId);
           if (!room) continue;
-          const roomName = room.long_name || room.short_name;
+          const roomName = room.longName || room.shortName;
           const textWrap = el('span', { className: 'cosam-meta-room-text' });
           textWrap.appendChild(el('span', {}, roomName));
-          if (room.hotel_room && room.hotel_room !== roomName) {
-            textWrap.appendChild(el('span', { className: 'cosam-meta-room-sub' }, `(${room.hotel_room})`));
+          if (room.hotelRoom && room.hotelRoom !== roomName) {
+            textWrap.appendChild(el('span', { className: 'cosam-meta-room-sub' }, `(${room.hotelRoom})`));
           }
           roomElements.push(textWrap);
         }

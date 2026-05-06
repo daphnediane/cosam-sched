@@ -1,6 +1,6 @@
 # Cosplay America Schedule - Work Item
 
-Updated on: Tue May  5 23:05:59 2026
+Updated on: Tue May  5 23:31:09 2026
 
 ## Completed
 
@@ -13,6 +13,8 @@ end / duration are not mirrored to the Automerge document and are lost
 through any save → load (or merge) round trip.
 * [BUGFIX-076] The edge_field_properties macro currently sets add_fn to AddEdge for all target edges without checking if the edge has multiple source fields. This should return None for target edges with multiple sources since add_edge doesn't support multi-source edges yet.
 * [BUGFIX-078] The `callback_field_properties!` macro generates `CrdtFieldType::Scalar` for all fields, but it should generate `Derived` for fields with custom read/write callbacks that project from internal state (like Panel's time_slot projections).
+* [BUGFIX-086] Room filter chips are blank and hotel room context is absent because the new
+export format uses camelCase field names that the widget doesn't handle.
 * [CLI-030] CLI tool for converting between schedule file formats (XLSX, native binary, widget JSON, HTML).
 * [FEATURE-009] Set up the Cargo workspace root and create skeleton application crates.
 * [FEATURE-010] Implement the universal `FieldValue` enum, error types, and CRDT field type annotation.
@@ -110,6 +112,12 @@ and improve `FieldId` conversions with a global registry and type-safe downcasti
 * [REFACTOR-075] Update edit_integration.rs tests to work with new WriteFn::Schedule edge write mechanism used by HALF_EDGE_* fields
 * [UI-085] Audit and update the calendar widget to handle the format differences between
 the v9 JSON output and the format produced by `cosam-convert` (CLI-030).
+* [UI-087] The Event Type filter shows all non-hidden panel types even when none of that
+type appear in the loaded schedule.
+* [UI-088] Guest presenters should appear at the top of the presenter filter dropdown,
+above panelists and groups.
+* [UI-089] The cost filter has too many options; collapse "Additional Cost" and
+"Workshops" into a single "Premium" option.
 
 ---
 
@@ -382,6 +390,7 @@ to exchange CRDT changes and reconcile concurrent edits to the same fields.
 [BUGFIX-073]: work-item/done/BUGFIX-073.md
 [BUGFIX-076]: work-item/done/BUGFIX-076.md
 [BUGFIX-078]: work-item/done/BUGFIX-078.md
+[BUGFIX-086]: work-item/done/BUGFIX-086.md
 [CLI-030]: work-item/done/CLI-030.md
 [CLI-031]: work-item/low/CLI-031.md
 [EDITOR-032]: work-item/low/EDITOR-032.md
@@ -451,3 +460,6 @@ to exchange CRDT changes and reconcile concurrent edits to the same fields.
 [REFACTOR-074]: work-item/done/REFACTOR-074.md
 [REFACTOR-075]: work-item/done/REFACTOR-075.md
 [UI-085]: work-item/done/UI-085.md
+[UI-087]: work-item/done/UI-087.md
+[UI-088]: work-item/done/UI-088.md
+[UI-089]: work-item/done/UI-089.md

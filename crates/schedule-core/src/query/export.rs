@@ -169,6 +169,17 @@ pub fn export_to_widget_json(
     let timeline = export_timeline(schedule, &panel_types)?;
     let presenters = export_presenters(schedule, &panels)?;
 
+    // Only include panel types actually referenced by panels or timeline entries.
+    let used_prefixes: HashSet<String> = panels
+        .iter()
+        .filter_map(|p| p.panel_type.clone())
+        .chain(timeline.iter().filter_map(|t| t.panel_type.clone()))
+        .collect();
+    let panel_types: HashMap<String, WidgetPanelType> = panel_types
+        .into_iter()
+        .filter(|(k, _)| used_prefixes.contains(k))
+        .collect();
+
     let (start_time, end_time) = compute_schedule_bounds(&panels, &now);
 
     let meta = WidgetMeta {
@@ -943,8 +954,8 @@ mod tests {
         let export = result.unwrap();
         assert_eq!(export.meta.version, 0);
         assert_eq!(export.meta.variant, "display");
-        assert!(export.panel_types.contains_key("%IB"));
-        assert!(export.panel_types.contains_key("%NB"));
+        // Empty schedule has no panels so no panel types should be emitted
+        assert!(export.panel_types.is_empty());
     }
 
     #[test]
@@ -1153,6 +1164,23 @@ mod tests {
         assert!(!alice.is_group);
         assert!(alice.groups.contains(&"Team Alpha".to_string()));
         assert!(alice.panel_ids.contains(&"GP001".to_string()));
+    }
+
+    #[test]
+    fn test_export_filters_unused_panel_types() {
+        let mut sched = Schedule::new();
+        // GP has a panel; FP has no panels → FP must be absent from output
+        let gp_pt = make_panel_type(&mut sched, "GP", "Guest Panel", false);
+        make_panel_type(&mut sched, "FP", "Fan Panel", false);
+        let panel_id = make_panel(&mut sched, "GP001", Some((0, 14, 0, 0)), Some(60));
+        link_panel_type(&mut sched, panel_id, gp_pt);
+
+        let export = export_to_widget_json(&sched, "Test").unwrap();
+        assert!(export.panel_types.contains_key("GP"), "GP should be present");
+        assert!(!export.panel_types.contains_key("FP"), "FP should be absent");
+        // %IB/%NB should NOT be present when there are no gaps between panels
+        // (single panel — no synthesized breaks)
+        assert!(!export.panel_types.contains_key("%IB"));
     }
 
     #[test]

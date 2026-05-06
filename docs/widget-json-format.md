@@ -42,15 +42,18 @@ Metadata describing the schedule file.
 ```json
 {
   "title": "Event Schedule 2026",
-  "version": 9,
+  "version": 0,
   "variant": "display",
   "generator": "cosam-convert 0.1.0",
   "generated": "2026-03-26T22:00:00Z",
   "modified": "2026-03-26T21:45:00Z",
-  "startTime": "2026-05-29T17:00:00Z",
-  "endTime": "2026-06-01T15:00:00Z"
+  "startTime": "2026-05-29T17:00:00",
+  "endTime": "2026-06-01T15:00:00"
 }
 ```
+
+> **Note:** `startTime` and `endTime` are local datetime strings without a timezone
+> suffix. `generated` and `modified` are UTC with a `Z` suffix.
 
 ## Panels
 
@@ -148,7 +151,9 @@ Entries are ordered chronologically by `startTime`. Unscheduled sessions (null `
 
 ## Panel Types
 
-`panelTypes` is a JSON object (hashmap) keyed by uppercase prefix, where each value defines a category of panels.
+`panelTypes` is a JSON object (hashmap) keyed by uppercase prefix, where each value
+defines a category of panels. Only panel types that are referenced by at least one
+panel or timeline entry are included in the export.
 
 | Field         | Type    | Description                                                   |
 | ------------- | ------- | ------------------------------------------------------------- |
@@ -233,28 +238,32 @@ For widget styling, the CSS class is derived from the prefix: `cosam-panel-type-
 
 ## Rooms
 
-`rooms` is a JSON array where each entry represents a physical or virtual space where panels can be scheduled.
+`rooms` is a JSON array where each entry represents a physical space where panels can be
+scheduled. Pseudo rooms (BREAK, SPLIT, etc.) are excluded from the display export.
 
-| Field        | Type    | Description                                   |
-| ------------ | ------- | --------------------------------------------- |
-| `uid`        | integer | Unique room identifier from spreadsheet       |
-| `short_name` | string  | Abbreviated room name for compact display     |
-| `long_name`  | string  | Full room name                                |
-| `hotel_room` | string  | Physical hotel room identifier                |
-| `sort_key`   | integer | Display sort order (lower = first, 1-indexed) |
-| `is_break`   | boolean | True for virtual break rooms                  |
+All field names use camelCase.
+
+| Field       | Type    | Description                                   |
+| ----------- | ------- | --------------------------------------------- |
+| `uid`       | integer | Unique room identifier (1-based, sequential)  |
+| `shortName` | string  | Abbreviated room name for compact display     |
+| `longName`  | string  | Full room name                                |
+| `hotelRoom` | string  | Physical hotel room identifier                |
+| `sortKey`   | integer | Display sort order (lower = first, 1-indexed) |
+| `isBreak`   | boolean | Always `false` (pseudo/break rooms excluded)  |
 
 ### Room UIDs
 
-Room UIDs are assigned based on the order they appear in the spreadsheet's Rooms sheet. They are stable identifiers that must be consistent between the `rooms` array and all `roomIds` references in panel sessions.
+UIDs are assigned 1-based sequentially in `sortKey` order at export time. They are
+stable within a single export but may differ between exports if rooms are added or
+reordered. All `roomIds` references in panel objects use the same UID values.
 
-### Virtual Break Rooms
+### Pseudo Rooms
 
-Rooms with `is_break: true` are virtual rooms used for break panels. In the display variant, break panels are expanded to fill all inactive visible rooms during their time slot.
-
-### Sort Key and Hidden Rooms
-
-Rooms with `sort_key` values >= 100 are hidden from the public schedule display. The sort key determines the left-to-right order of rooms in grid views.
+Pseudo rooms (BREAK, SPLIT, SPLITDAY, SPLITNIGHT, etc.) are excluded from the
+`rooms` array. Panels that were assigned to pseudo rooms have `roomIds: []` in
+the export. Break panels are identified by their panel type's `isBreak` flag, not
+by room membership.
 
 ### Rooms Example
 
@@ -262,27 +271,19 @@ Rooms with `sort_key` values >= 100 are hidden from the public schedule display.
 [
   {
     "uid": 1,
-    "short_name": "WS 1",
-    "long_name": "Workshop Room 1",
-    "hotel_room": "Salon A",
-    "sort_key": 1,
-    "is_break": false
+    "shortName": "WS 1",
+    "longName": "Workshop Room 1",
+    "hotelRoom": "Salon A",
+    "sortKey": 1,
+    "isBreak": false
   },
   {
     "uid": 2,
-    "short_name": "WS 2",
-    "long_name": "Workshop Room 2",
-    "hotel_room": "Salon B",
-    "sort_key": 2,
-    "is_break": false
-  },
-  {
-    "uid": 99,
-    "short_name": "BREAK",
-    "long_name": "Break",
-    "hotel_room": "",
-    "sort_key": 100,
-    "is_break": true
+    "shortName": "WS 2",
+    "longName": "Workshop Room 2",
+    "hotelRoom": "Salon B",
+    "sortKey": 2,
+    "isBreak": false
   }
 ]
 ```
@@ -402,9 +403,9 @@ Only presenters referenced by panels (via `panelIds`) are included in the displa
 
 The widget performs the following transformations on the raw JSON:
 
-1. **Panel Types**: Converts the hashmap to an array with a `uid` field (the original key) and flattens color sets
-2. **Presenters**: Filters to only include presenters with `panelIds`, builds `presenterToPanels` mapping for efficient lookups
-3. **Rooms**: Filters out break rooms and unused rooms (rooms not referenced by any non-break panel)
+1. **Panel Types**: Converts the `panelTypes` hashmap to an array with a `uid` field (the original prefix key) and flattens color sets to a single `color` value.
+2. **Presenters**: Builds a `presenterToPanels` reverse mapping for efficient presenter-based filtering.
+3. **Rooms**: Filters out any rooms flagged `isBreak` or not referenced by a real (non-break, non-timeline) panel, then normalizes field names to camelCase for consistent access.
 
 ## Complete Example
 
@@ -412,13 +413,13 @@ The widget performs the following transformations on the raw JSON:
 {
   "meta": {
     "title": "Event Schedule 2026",
-    "version": 9,
+    "version": 0,
     "variant": "display",
     "generator": "cosam-convert 0.1.0",
     "generated": "2026-03-26T22:00:00Z",
     "modified": "2026-03-26T21:45:00Z",
-    "startTime": "2026-05-29T17:00:00Z",
-    "endTime": "2026-06-01T15:00:00Z"
+    "startTime": "2026-05-29T17:00:00",
+    "endTime": "2026-06-01T15:00:00"
   },
   "panels": [
     {
@@ -439,11 +440,11 @@ The widget performs the following transformations on the raw JSON:
   "rooms": [
     {
       "uid": 1,
-      "short_name": "WS 1",
-      "long_name": "Workshop Room 1",
-      "hotel_room": "Salon A",
-      "sort_key": 1,
-      "is_break": false
+      "shortName": "WS 1",
+      "longName": "Workshop Room 1",
+      "hotelRoom": "Salon A",
+      "sortKey": 1,
+      "isBreak": false
     }
   ],
   "panelTypes": {
