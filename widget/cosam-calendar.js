@@ -451,42 +451,44 @@
       // Panels are used as-is; panelType is the raw prefix matching panelTypes keys
       const panels = Array.isArray(data.panels) ? data.panels : [];
 
-      // V9: Filter presenters to only include those with panelIds (used by panels)
-      // and build presenter-to-panel mapping for efficient lookups
+      // Build presenter-to-panel mapping for efficient lookups.
+      // Version 0 is the new export format (structurally identical to V9).
       let presenters = [];
       let presenterToPanels = new Map();
 
-      if (data.meta && data.meta.version >= 9 && Array.isArray(data.presenters)) {
-        // V9 format: Use DisplayPresenter objects with panelIds
-        // Include all presenters for dropdown, but only build mapping for those with panelIds
+      const version = data.meta && data.meta.version;
+      if (Array.isArray(data.presenters) && version >= 0) {
         presenters = data.presenters;
 
-        // Build reverse mapping: presenter -> panels (only for presenters with panelIds)
         for (const presenter of data.presenters.filter(p => p.panelIds && p.panelIds.length > 0)) {
           presenterToPanels.set(presenter.name, new Set(presenter.panelIds));
         }
       } else {
-        console.error('Unsupported format - expected V9 or higher');
+        console.error('Unsupported format - no presenter data found');
         presenters = [];
       }
 
       // Filter rooms: exclude break rooms and unused rooms
       let rooms = [];
       if (Array.isArray(data.rooms)) {
-        // Get all room IDs that are actually used by non-break events
+        // Collect room IDs used by non-break, non-timeline panels.
+        // BREAK is a pseudo room like SPLIT — exclude it by checking the panel
+        // type's isBreak flag, not the room's is_break field (which may not be
+        // set correctly until the import-side fix lands).
         const usedRoomIds = new Set();
         for (const panel of panels) {
-          if (panel.roomIds && panel.kind !== 'Break') {
-            for (const roomId of panel.roomIds) {
-              usedRoomIds.add(roomId);
-            }
+          if (!panel.roomIds) continue;
+          const pt = panelTypes.find(p => p.uid === panel.panelType);
+          if (pt && (pt.isBreak || pt.isTimeline)) continue;
+          for (const roomId of panel.roomIds) {
+            usedRoomIds.add(roomId);
           }
         }
 
-        // Only include rooms that are used and are not break rooms
+        // Only include rooms that are referenced by real (non-break) panels.
         rooms = data.rooms.filter(room => {
           const roomId = room.uid || room.id;
-          return usedRoomIds.has(roomId) && !room.is_break;
+          return usedRoomIds.has(roomId);
         });
       }
 
@@ -1058,8 +1060,8 @@
       const regularEvents = events.filter(e => !this.state._isBreakEvent(e));
       const breakEvents = events.filter(e => this.state._isBreakEvent(e));
 
-      // Get visible rooms from regular events only (BREAK room excluded)
-      const roomIds = [...new Set(regularEvents.flatMap(e => e.roomIds).filter(id => id !== null && id !== undefined))];
+      // Get visible rooms from regular events only (BREAK/pseudo rooms excluded)
+      const roomIds = [...new Set(regularEvents.flatMap(e => e.roomIds || []).filter(id => id !== null && id !== undefined))];
       const roomOrder = this.state.data.rooms
         .filter(r => roomIds.includes(r.uid || r.id))
         .sort((a, b) => (a.sort_key || a.sortKey) - (b.sort_key || b.sortKey))
@@ -1174,7 +1176,7 @@
         // Add events for each room
         if (slotBreaks.length > 0) {
           // Determine which rooms have real events at this time
-          const occupiedRoomIds = new Set(slotRegular.flatMap(e => e.roomIds).filter(id => id !== null && id !== undefined));
+          const occupiedRoomIds = new Set(slotRegular.flatMap(e => e.roomIds || []).filter(id => id !== null && id !== undefined));
 
           // Build cells: span across unoccupied rooms, show real events in occupied rooms
           let i = 0;
