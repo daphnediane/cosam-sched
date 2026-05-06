@@ -110,6 +110,7 @@ impl Schedule {
             metadata: ScheduleMetadata {
                 schedule_id,
                 created_at: chrono::Utc::now(),
+                modified_at: None,
                 generator: String::new(),
                 version: 0,
             },

@@ -1,6 +1,6 @@
 # Cosplay America Schedule - Work Item
 
-Updated on: Tue May  5 09:51:36 2026
+Updated on: Tue May  5 21:52:28 2026
 
 ## Completed
 
@@ -113,13 +113,17 @@ and improve `FieldId` conversions with a global registry and type-safe downcasti
 
 ## Summary of Open Items
 
-**Total open items:** 11
+**Total open items:** 12
 
 * **Meta / Project-Level**
   * [META-001] Meta work item tracking the full multi-phase redesign of the schedule system. (Blocked by [META-006], [META-007], [META-008])
   * [META-006] Phase tracker for the cosam-convert and cosam-modify command-line applications. (Blocked by [META-005])
   * [META-007] Phase tracker for the cosam-editor desktop GUI application. (Blocked by [META-005])
   * [META-008] Phase tracker for peer-to-peer schedule synchronization and conflict resolution. (Blocked by [META-004])
+
+* **High Priority**
+  * [UI-085] Audit and update the calendar widget to handle the format differences between
+the v9 JSON output and the format produced by `cosam-convert` (CLI-030).
 
 * **Medium Priority**
   * [FEATURE-026] Support multiple convention years in a single schedule file for historical
@@ -374,6 +378,23 @@ to exchange CRDT changes and reconcile concurrent edits to the same fields.
 
 ---
 
+## Open UI Items
+
+### [UI-085] Widget Compatibility with New Export Format
+
+**Status:** Open
+
+**Priority:** High
+
+**Summary:** Audit and update the calendar widget to handle the format differences between
+the v9 JSON output and the format produced by `cosam-convert` (CLI-030).
+
+**Description:** `cosam-convert` produces a JSON format that differs from what the v9 toolchain
+produced. The widget must be audited and updated to handle these differences
+before the new toolchain can be deployed.
+
+---
+
 ---
 
 [BUGFIX-072]: work-item/done/BUGFIX-072.md
@@ -448,3 +469,4 @@ to exchange CRDT changes and reconcile concurrent edits to the same fields.
 [REFACTOR-067]: work-item/done/REFACTOR-067.md
 [REFACTOR-074]: work-item/done/REFACTOR-074.md
 [REFACTOR-075]: work-item/done/REFACTOR-075.md
+[UI-085]: work-item/high/UI-085.md

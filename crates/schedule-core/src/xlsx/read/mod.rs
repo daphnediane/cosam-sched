@@ -16,6 +16,7 @@ use std::collections::HashMap;
 use std::path::Path;
 
 use anyhow::{Context, Result};
+use chrono::{DateTime, Utc};
 use umya_spreadsheet::structs::Worksheet;
 use umya_spreadsheet::Spreadsheet;
 
@@ -70,6 +71,7 @@ pub fn import_xlsx(path: &Path, options: &XlsxImportOptions) -> Result<Schedule>
         .with_context(|| format!("Failed to open {}", path.display()))?;
 
     let mut schedule = Schedule::new();
+    schedule.metadata.modified_at = resolve_source_modified(&book, path);
 
     let panel_type_lookup =
         panel_types::read_panel_types_into(&book, &options.panel_types_table, &mut schedule)?;
@@ -88,6 +90,37 @@ pub fn import_xlsx(path: &Path, options: &XlsxImportOptions) -> Result<Schedule>
     )?;
 
     Ok(schedule)
+}
+
+// ── Modified-time resolution ──────────────────────────────────────────────────
+
+/// Resolve the best "last modified" timestamp for the imported spreadsheet.
+///
+/// Precedence:
+/// 1. `dcterms:modified` from `docProps/core.xml` inside the XLSX, if the
+///    value parses as RFC 3339 and is after 2010 (earlier values are a known
+///    Google Sheets export bug where it writes `2006-09-16`).
+/// 2. File-system mtime of `path`.
+/// 3. `None` if neither is available.
+fn resolve_source_modified(book: &Spreadsheet, path: &Path) -> Option<DateTime<Utc>> {
+    // Cutoff: reject xlsx-internal timestamps from 2010 or earlier as suspect.
+    let cutoff: DateTime<Utc> = "2010-01-01T00:00:00Z".parse().ok()?;
+
+    let props_raw = book.get_properties().get_modified();
+    if !props_raw.is_empty() {
+        if let Ok(ts) = DateTime::parse_from_rfc3339(props_raw) {
+            let ts_utc = ts.with_timezone(&Utc);
+            if ts_utc > cutoff {
+                return Some(ts_utc);
+            }
+        }
+    }
+
+    // Fall back to file-system mtime.
+    std::fs::metadata(path)
+        .ok()
+        .and_then(|m| m.modified().ok())
+        .map(DateTime::<Utc>::from)
 }
 
 // ── Shared data-range utilities ───────────────────────────────────────────────

@@ -42,25 +42,43 @@ pub struct WidgetMeta {
 pub struct WidgetPanel {
     pub id: String,
     pub base_id: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub part_num: Option<i32>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub session_num: Option<i32>,
     pub name: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub panel_type: Option<String>,
+    #[serde(skip_serializing_if = "Vec::is_empty")]
     pub room_ids: Vec<i32>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub start_time: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub end_time: Option<String>,
     pub duration: i32,
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub description: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub note: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub prereq: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub cost: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub capacity: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub difficulty: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub ticket_url: Option<String>,
+    #[serde(skip_serializing_if = "is_false")]
     pub is_free: bool,
+    #[serde(skip_serializing_if = "is_false")]
     pub is_full: bool,
+    #[serde(skip_serializing_if = "is_false")]
     pub is_kids: bool,
+    #[serde(skip_serializing_if = "Vec::is_empty")]
     pub credits: Vec<String>,
+    #[serde(skip_serializing_if = "Vec::is_empty")]
     pub presenters: Vec<String>,
 }
 
@@ -164,7 +182,8 @@ pub fn export_to_widget_json(
         generated: now.to_rfc3339_opts(chrono::SecondsFormat::Secs, true),
         modified: schedule
             .metadata
-            .created_at
+            .modified_at
+            .unwrap_or(schedule.metadata.created_at)
             .to_rfc3339_opts(chrono::SecondsFormat::Secs, true),
         start_time,
         end_time,
@@ -408,15 +427,25 @@ fn export_panels(
         });
     }
 
-    // Scheduled panels first (by time), then unscheduled (by id)
+    // Sort: scheduled before unscheduled, then within scheduled:
+    //   earliest start → longest duration → lowest room uid → id → name
     panels.sort_by(|a, b| match (&a.start_time, &b.start_time) {
-        (Some(at), Some(bt)) => at.cmp(bt),
+        (Some(at), Some(bt)) => at
+            .cmp(bt)
+            .then_with(|| b.duration.cmp(&a.duration))
+            .then_with(|| first_room_uid(a).cmp(&first_room_uid(b)))
+            .then_with(|| a.id.cmp(&b.id))
+            .then_with(|| a.name.cmp(&b.name)),
         (Some(_), None) => std::cmp::Ordering::Less,
         (None, Some(_)) => std::cmp::Ordering::Greater,
         (None, None) => a.id.cmp(&b.id),
     });
 
     synthesize_breaks(panels, visible_room_uids)
+}
+
+fn first_room_uid(p: &WidgetPanel) -> i32 {
+    p.room_ids.first().copied().unwrap_or(i32::MAX)
 }
 
 fn synthesize_breaks(
@@ -740,6 +769,10 @@ fn compute_schedule_bounds(panels: &[WidgetPanel], now: &DateTime<Utc>) -> (Stri
 
 fn format_naive_dt(dt: NaiveDateTime) -> String {
     dt.format("%Y-%m-%dT%H:%M:%S").to_string()
+}
+
+fn is_false(b: &bool) -> bool {
+    !b
 }
 
 // ── Error Types ─────────────────────────────────────────────────────────────────

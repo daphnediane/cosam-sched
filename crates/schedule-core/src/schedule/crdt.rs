@@ -58,8 +58,16 @@ pub const FILE_FORMAT_VERSION: u16 = 1;
 pub struct ScheduleMetadata {
     /// Globally unique schedule identity (v7, generated at [`Schedule::new`]).
     pub schedule_id: NonNilUuid,
-    /// When this schedule was created.
+    /// When this schedule was created (by our tooling).
     pub created_at: chrono::DateTime<chrono::Utc>,
+    /// When the underlying source data was last modified.
+    ///
+    /// For XLSX imports this is the `dcterms:modified` property from the file's
+    /// `docProps/core.xml`, with a fallback to the file-system mtime.  For
+    /// native `.schedule` files it is carried forward from prior saves.
+    /// `None` means the timestamp was not determinable at import time.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub modified_at: Option<chrono::DateTime<chrono::Utc>>,
     /// Human-readable generator identifier (e.g. `"cosam-convert 0.1"`).
     pub generator: String,
     /// Monotonically increasing edit version counter.
