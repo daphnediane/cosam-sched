@@ -6,6 +6,8 @@ members = [
     "apps/cosam-modify",
     "apps/cosam-editor",
 ]
+# cosam-editor-gpui and cosam-editor-dioxus are standalone workspaces in apps/
+# due to a cocoa crate version conflict between gpui=0.2 and dioxus=0.7.
 resolver = "2"
 
 [workspace.package]

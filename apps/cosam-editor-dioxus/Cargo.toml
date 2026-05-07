@@ -1,0 +1,25 @@
+[workspace]
+# Standalone workspace — excluded from root workspace due to cocoa version
+# conflict: gpui=0.2 pins cocoa=0.26.0; dioxus=0.7 requires cocoa>=0.26.1.
+# Build with: cargo build --manifest-path apps/cosam-editor-dioxus/Cargo.toml
+members = ["."]
+resolver = "2"
+
+[package]
+name = "cosam-editor-dioxus"
+version = "0.1.0"
+edition = "2021"
+license = "BSD-2-Clause"
+authors = ["Daphne Pfister"]
+description = "GUI editor for cosam schedules (Dioxus prototype)"
+
+[[bin]]
+name = "cosam-editor-dioxus"
+path = "src/main.rs"
+
+[dependencies]
+dioxus = { version = "0.7", features = ["desktop"] }
+dioxus-desktop = "0.7"
+anyhow = "1"
+rfd = "0.17"
+schedule-core = { path = "../../crates/schedule-core" }
