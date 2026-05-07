@@ -322,7 +322,7 @@ fn next_arg(args: &[&str], i: &mut usize, msg: &str) -> Result<String> {
 }
 
 fn print_usage() {
-    eprintln!(
+    println!(
         "cosam-modify -- CLI editing tool for cosam schedules
 
 USAGE:

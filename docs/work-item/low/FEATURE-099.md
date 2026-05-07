@@ -1,4 +1,4 @@
-# CLI-099: Undo/redo history persistence in binary file
+# FEATURE-099: Undo/redo history persistence in binary file
 
 ## Summary
 

@@ -1,6 +1,6 @@
 # Cosplay America Schedule - Work Item
 
-Updated on: Wed May  6 20:25:22 2026
+Updated on: Wed May  6 20:57:20 2026
 
 ## Completed
 
@@ -16,6 +16,7 @@ through any save → load (or merge) round trip.
 * [BUGFIX-086] Room filter chips are blank and hotel room context is absent because the new
 export format uses camelCase field names that the widget doesn't handle.
 * [CLI-030] CLI tool for converting between schedule file formats (XLSX, native binary, widget JSON, HTML).
+* [CLI-031] CLI tool for making batch edits to schedule data from the command line.
 * [CLI-090] Add `Schedule::touch_modified()` and `EditContext::schedule_mut()` to schedule-core;
 wire `touch_modified` into `apply()`, `undo()`, and `redo()`.
 * [CLI-091] Establish the module layout, Cargo dependencies, arg-parsing skeleton, and file
@@ -26,6 +27,8 @@ load/save infrastructure for `cosam-modify`.
 * [CLI-095] Implement the `delete` subcommand to soft-delete an entity by name or UUID.
 * [CLI-096] Implement `add-edge` and `remove-edge` subcommands to manage entity relationships.
 * [CLI-097] Implement in-memory `undo`, `redo`, and `show-history` subcommands.
+* [CLI-098] Add `--help` output, proper exit codes, integration tests for all commands, and close out
+CLI-031 and CLI-090–098.
 * [FEATURE-009] Set up the Cargo workspace root and create skeleton application crates.
 * [FEATURE-010] Implement the universal `FieldValue` enum, error types, and CRDT field type annotation.
 * [FEATURE-011] Implement the field trait hierarchy and generic `FieldDescriptor` type that replaces the old proc-macro's generated per-field unit structs.
@@ -78,6 +81,7 @@ cross-partition edge exclusivity declaratively.
 underneath `Schedule`.
 * [META-005] Phase tracker for internal file format, multi-year archive, widget JSON, and
 XLSX import/export.
+* [META-006] Phase tracker for the cosam-convert and cosam-modify command-line applications.
 * [META-048] Restructure `FieldValue` with proper cardinality, add `FieldTypeItem`/`FieldType`
 enums, wire `FieldType` into `FieldDescriptor`, and implement the generic
 `FieldValueConverter` system from IDEA-038.
@@ -133,11 +137,10 @@ above panelists and groups.
 
 ## Summary of Open Items
 
-**Total open items:** 14
+**Total open items:** 11
 
 * **Meta / Project-Level**
-  * [META-001] Meta work item tracking the full multi-phase redesign of the schedule system. (Blocked by [META-006], [META-007], [META-008])
-  * [META-006] Phase tracker for the cosam-convert and cosam-modify command-line applications. (Blocked by [META-005])
+  * [META-001] Meta work item tracking the full multi-phase redesign of the schedule system. (Blocked by [META-007], [META-008])
   * [META-007] Phase tracker for the cosam-editor desktop GUI application. (Blocked by [META-005])
   * [META-008] Phase tracker for peer-to-peer schedule synchronization and conflict resolution. (Blocked by [META-004])
 
@@ -148,17 +151,14 @@ reference and jump-starting new conventions.
 file, preserving formatting, formulas, extra columns, and non-standard content.
 
 * **Low Priority**
-  * [CLI-031] ([META-006]) CLI tool for making batch edits to schedule data from the command line.
-  * [CLI-098] ([META-006]) Add `--help` output, proper exit codes, integration tests for all commands, and close out
-CLI-031 and CLI-090–098.
-  * [CLI-099] ([META-006]) Serialize the `EditHistory` undo/redo stacks into the `.schedule` binary file so that
-undo/redo works across `cosam-modify` invocations.
-  * [CLI-100] ([META-006]) Add a `--interactive` flag to `cosam-modify` that opens a read-eval-print loop for
+  * [CLI-100] Add a `--interactive` flag to `cosam-modify` that opens a read-eval-print loop for
 entering commands one at a time.
   * [EDITOR-032] ([META-007]) Select the GUI framework for cosam-editor and create the application scaffold.
   * [EDITOR-033] ([META-007]) Implement the main schedule grid view and entity editing UI in cosam-editor.
   * [FEATURE-034] ([META-008]) Define and implement the protocol for synchronizing schedule data between peers.
   * [FEATURE-035] ([META-008]) Provide UI for reviewing and resolving merge conflicts after sync.
+  * [FEATURE-099] Serialize the `EditHistory` undo/redo stacks into the `.schedule` binary file so that
+undo/redo works across `cosam-modify` invocations.
 
 ---
 
@@ -172,63 +172,6 @@ Use `perl scripts/work-item-update.pl --create <PREFIX>` to add new stubs.
 
 ## Open CLI Items
 
-### [CLI-031] cosam-modify: CLI Editing Tool
-
-**Status:** In progress
-
-**Priority:** Low
-
-**Summary:** CLI tool for making batch edits to schedule data from the command line.
-
-**Part of:** [META-006]
-
-**Description:** `cosam-modify` provides command-line access to the schedule edit system for scripted
-or batch modifications. It supports all entity types via the field system, with all
-changes recorded in the CRDT (automerge) document. Input can be native binary or xlsx;
-output is always native binary.
-
----
-
-### [CLI-098] CLI-098: cosam-modify help text, exit codes, integration tests, and polish
-
-**Status:** Open
-
-**Priority:** Low
-
-**Summary:** Add `--help` output, proper exit codes, integration tests for all commands, and close out
-CLI-031 and CLI-090–098.
-
-**Part of:** [META-006]
-
-**Description:** Final polish pass for the `cosam-modify` implementation.
-
----
-
-### [CLI-099] CLI-099: Undo/redo history persistence in binary file
-
-**Status:** Open
-
-**Priority:** Low
-
-**Summary:** Serialize the `EditHistory` undo/redo stacks into the `.schedule` binary file so that
-undo/redo works across `cosam-modify` invocations.
-
-**Part of:** [META-006]
-
-**Description:** Currently `EditHistory` is in-memory only. A fresh invocation of `cosam-modify` always
-starts with empty undo/redo stacks even if the previous invocation made changes.
-
-Implementing cross-invocation undo requires:
-
-1. A serialization format for `EditCommand` (and thus `FieldValue`, `RuntimeEntityId`, etc.)
-2. A binary file format change — either bumping `FILE_FORMAT_VERSION` and adding an undo
-   section to the envelope, or storing the history inside the automerge document.
-3. Care that CRDT `apply_changes` / `merge` paths do not restore stale undo state from a
-   diverged replica.
-4. A maximum history depth limit for the on-disk representation.
-
----
-
 ### [CLI-100] CLI-100: cosam-modify interactive mode (--interactive REPL)
 
 **Status:** Open
@@ -238,7 +181,7 @@ Implementing cross-invocation undo requires:
 **Summary:** Add a `--interactive` flag to `cosam-modify` that opens a read-eval-print loop for
 entering commands one at a time.
 
-**Part of:** [META-006]
+**Blocked By:** [CLI-098]
 
 **Description:** Interactive mode presents a prompt (`>`) and accepts the same commands as batch mode, one
 per line:
@@ -366,6 +309,31 @@ override them.
 
 ---
 
+### [FEATURE-099] FEATURE-099: Undo/redo history persistence in binary file
+
+**Status:** Open
+
+**Priority:** Low
+
+**Summary:** Serialize the `EditHistory` undo/redo stacks into the `.schedule` binary file so that
+undo/redo works across `cosam-modify` invocations.
+
+**Blocked By:** [CLI-098], [IDEA-101]
+
+**Description:** Currently `EditHistory` is in-memory only. A fresh invocation of `cosam-modify` always
+starts with empty undo/redo stacks even if the previous invocation made changes.
+
+Implementing cross-invocation undo requires:
+
+1. A serialization format for `EditCommand` (and thus `FieldValue`, `RuntimeEntityId`, etc.)
+2. A binary file format change — either bumping `FILE_FORMAT_VERSION` and adding an undo
+   section to the envelope, or storing the history inside the automerge document.
+3. Care that CRDT `apply_changes` / `merge` paths do not restore stale undo state from a
+   diverged replica.
+4. A maximum history depth limit for the on-disk representation.
+
+---
+
 ## Open META Items
 
 ### [META-001] Architecture Redesign: CRDT-backed Schedule System
@@ -376,7 +344,7 @@ override them.
 
 **Summary:** Meta work item tracking the full multi-phase redesign of the schedule system.
 
-**Blocked By:** [META-006], [META-007], [META-008]
+**Blocked By:** [META-007], [META-008]
 
 **Description:** Redesign the cosam-sched schedule system from the ground up with:
 
@@ -405,38 +373,6 @@ replacing the old `schedule-field`, `schedule-data`, and `schedule-macro` crates
 * META-006: Phase 5 — CLI Tools
 * META-007: Phase 6 — GUI Editor
 * META-008: Phase 7 — Sync & Multi-User
-
----
-
-### [META-006] Phase 5 — CLI Tools
-
-**Status:** In progress
-
-**Priority:** Low
-
-**Summary:** Phase tracker for the cosam-convert and cosam-modify command-line applications.
-
-**Blocked By:** [META-005]
-
-**Description:** Implement the two CLI applications for format conversion and batch editing.
-These applications wrap `schedule-core`'s import/export and edit command systems.
-
-**Work Items:**
-
-* CLI-030: cosam-convert: format conversion tool
-* CLI-031: cosam-modify: CLI editing tool
-* CLI-090: schedule-core metadata update API
-* CLI-091: cosam-modify scaffold, file I/O, module structure
-* CLI-092: list and get commands
-* CLI-093: set command
-* CLI-094: create command
-* CLI-095: delete command
-* CLI-096: add-edge / remove-edge commands
-* CLI-097: undo / redo / show-history (in-memory)
-* CLI-098: help text, exit codes, integration tests, polish
-* CLI-099: undo/redo history persistence in binary file (not started)
-* CLI-100: interactive mode — --interactive REPL (not started)
-* IDEA-101: decide what ScheduleMetadata.version is for
 
 ---
 
@@ -488,7 +424,7 @@ to exchange CRDT changes and reconcile concurrent edits to the same fields.
 [BUGFIX-078]: work-item/done/BUGFIX-078.md
 [BUGFIX-086]: work-item/done/BUGFIX-086.md
 [CLI-030]: work-item/done/CLI-030.md
-[CLI-031]: work-item/low/CLI-031.md
+[CLI-031]: work-item/done/CLI-031.md
 [CLI-090]: work-item/done/CLI-090.md
 [CLI-091]: work-item/done/CLI-091.md
 [CLI-092]: work-item/done/CLI-092.md
@@ -497,8 +433,7 @@ to exchange CRDT changes and reconcile concurrent edits to the same fields.
 [CLI-095]: work-item/done/CLI-095.md
 [CLI-096]: work-item/done/CLI-096.md
 [CLI-097]: work-item/done/CLI-097.md
-[CLI-098]: work-item/low/CLI-098.md
-[CLI-099]: work-item/low/CLI-099.md
+[CLI-098]: work-item/done/CLI-098.md
 [CLI-100]: work-item/low/CLI-100.md
 [EDITOR-032]: work-item/low/EDITOR-032.md
 [EDITOR-033]: work-item/low/EDITOR-033.md
@@ -539,12 +474,13 @@ to exchange CRDT changes and reconcile concurrent edits to the same fields.
 [FEATURE-071]: work-item/done/FEATURE-071.md
 [FEATURE-079]: work-item/done/FEATURE-079.md
 [FEATURE-084]: work-item/medium/FEATURE-084.md
+[FEATURE-099]: work-item/low/FEATURE-099.md
 [META-001]: work-item/meta/META-001.md
 [META-002]: work-item/done/META-002.md
 [META-003]: work-item/done/META-003.md
 [META-004]: work-item/done/META-004.md
 [META-005]: work-item/done/META-005.md
-[META-006]: work-item/meta/META-006.md
+[META-006]: work-item/done/META-006.md
 [META-007]: work-item/meta/META-007.md
 [META-008]: work-item/meta/META-008.md
 [META-048]: work-item/done/META-048.md

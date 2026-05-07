@@ -14,27 +14,44 @@ use load::{load_schedule, save_schedule};
 use schedule_core::edit::context::EditContext;
 
 fn main() {
-    if let Err(e) = run() {
-        eprintln!("Error: {e}");
-        std::process::exit(1);
-    }
+    std::process::exit(run_main());
 }
 
-fn run() -> anyhow::Result<()> {
-    let cli = parse_args()?;
+/// Returns exit code: 0 = success, 1 = user error, 2 = I/O error.
+fn run_main() -> i32 {
+    let cli = match parse_args() {
+        Ok(c) => c,
+        Err(e) => {
+            eprintln!("error: {e:#}");
+            return 1;
+        }
+    };
 
-    let schedule = load_schedule(&cli.file, cli.create_new)?;
+    let schedule = match load_schedule(&cli.file, cli.create_new) {
+        Ok(s) => s,
+        Err(e) => {
+            eprintln!("error: {e:#}");
+            return 2;
+        }
+    };
+
     let mut ctx = EditContext::new(schedule);
 
     for stage in &cli.stages {
-        cmd::run_stage(&mut ctx, stage, &cli.format)?;
+        if let Err(e) = cmd::run_stage(&mut ctx, stage, &cli.format) {
+            eprintln!("error: {e:#}");
+            return 1;
+        }
     }
 
     if ctx.is_dirty() {
         ctx.schedule_mut().metadata.generator =
             concat!("cosam-modify ", env!("CARGO_PKG_VERSION")).to_string();
-        save_schedule(ctx.schedule_mut(), &cli.file)?;
+        if let Err(e) = save_schedule(ctx.schedule_mut(), &cli.file) {
+            eprintln!("error: {e:#}");
+            return 2;
+        }
     }
 
-    Ok(())
+    0
 }

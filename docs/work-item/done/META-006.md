@@ -6,7 +6,7 @@ Phase tracker for the cosam-convert and cosam-modify command-line applications.
 
 ## Status
 
-In Progress
+Completed
 
 ## Priority
 
@@ -34,6 +34,3 @@ These applications wrap `schedule-core`'s import/export and edit command systems
 - CLI-096: add-edge / remove-edge commands
 - CLI-097: undo / redo / show-history (in-memory)
 - CLI-098: help text, exit codes, integration tests, polish
-- CLI-099: undo/redo history persistence in binary file (not started)
-- CLI-100: interactive mode — --interactive REPL (not started)
-- IDEA-101: decide what ScheduleMetadata.version is for
