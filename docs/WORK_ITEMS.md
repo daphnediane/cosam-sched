@@ -1,6 +1,6 @@
 # Cosplay America Schedule - Work Item
 
-Updated on: Wed May  6 19:44:25 2026
+Updated on: Wed May  6 19:54:37 2026
 
 ## Completed
 
@@ -24,6 +24,7 @@ load/save infrastructure for `cosam-modify`.
 * [CLI-093] Implement the `set` subcommand to update a named field on one or more entities.
 * [CLI-094] Implement the `create` subcommand to add a new entity of any type with specified fields.
 * [CLI-095] Implement the `delete` subcommand to soft-delete an entity by name or UUID.
+* [CLI-096] Implement `add-edge` and `remove-edge` subcommands to manage entity relationships.
 * [FEATURE-009] Set up the Cargo workspace root and create skeleton application crates.
 * [FEATURE-010] Implement the universal `FieldValue` enum, error types, and CRDT field type annotation.
 * [FEATURE-011] Implement the field trait hierarchy and generic `FieldDescriptor` type that replaces the old proc-macro's generated per-field unit structs.
@@ -131,7 +132,7 @@ above panelists and groups.
 
 ## Summary of Open Items
 
-**Total open items:** 16
+**Total open items:** 15
 
 * **Meta / Project-Level**
   * [META-001] Meta work item tracking the full multi-phase redesign of the schedule system. (Blocked by [META-006], [META-007], [META-008])
@@ -147,7 +148,6 @@ file, preserving formatting, formulas, extra columns, and non-standard content.
 
 * **Low Priority**
   * [CLI-031] ([META-006]) CLI tool for making batch edits to schedule data from the command line.
-  * [CLI-096] ([META-006]) Implement `add-edge` and `remove-edge` subcommands to manage entity relationships.
   * [CLI-097] ([META-006]) Implement in-memory `undo`, `redo`, and `show-history` subcommands.
   * [CLI-098] ([META-006]) Add `--help` output, proper exit codes, integration tests for all commands, and close out
 CLI-031 and CLI-090–098.
@@ -186,26 +186,6 @@ Use `perl scripts/work-item-update.pl --create <PREFIX>` to add new stubs.
 or batch modifications. It supports all entity types via the field system, with all
 changes recorded in the CRDT (automerge) document. Input can be native binary or xlsx;
 output is always native binary.
-
----
-
-### [CLI-096] CLI-096: cosam-modify add-edge and remove-edge commands
-
-**Status:** Open
-
-**Priority:** Low
-
-**Summary:** Implement `add-edge` and `remove-edge` subcommands to manage entity relationships.
-
-**Part of:** [META-006]
-
-**Description:** Edge commands add or remove relationships between entities using
-`EditContext::add_to_field_cmd` / `remove_from_field_cmd`.
-
-```text
-cosam-modify --file <path> [--select <type> <query>] add-edge <edge-field> <target-query>
-cosam-modify --file <path> [--select <type> <query>] remove-edge <edge-field> <target-query>
-```
 
 ---
 
@@ -538,7 +518,7 @@ to exchange CRDT changes and reconcile concurrent edits to the same fields.
 [CLI-093]: work-item/done/CLI-093.md
 [CLI-094]: work-item/done/CLI-094.md
 [CLI-095]: work-item/done/CLI-095.md
-[CLI-096]: work-item/low/CLI-096.md
+[CLI-096]: work-item/done/CLI-096.md
 [CLI-097]: work-item/low/CLI-097.md
 [CLI-098]: work-item/low/CLI-098.md
 [CLI-099]: work-item/low/CLI-099.md

@@ -5,12 +5,3 @@
  */
 
 //! Output formatting helpers.
-
-pub use crate::args::OutputFormat;
-
-/// Format a `FieldValue` as a display string.
-///
-/// Delegates to `FieldValue`'s `Display` impl.
-pub fn format_field_value(v: &schedule_core::value::FieldValue) -> String {
-    v.to_string()
-}

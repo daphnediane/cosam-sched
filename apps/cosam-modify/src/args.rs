@@ -12,35 +12,25 @@ use anyhow::{bail, Result};
 
 // ── OutputFormat ──────────────────────────────────────────────────────────────
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub enum OutputFormat {
+    #[default]
     Text,
     Json,
     Toml,
 }
 
-impl Default for OutputFormat {
-    fn default() -> Self {
-        Self::Text
-    }
-}
-
 // ── EntityTypeName ────────────────────────────────────────────────────────────
 
 /// The entity type named by `--select <type>`.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub enum EntityTypeName {
+    #[default]
     Panel,
     Presenter,
     EventRoom,
     HotelRoom,
     PanelType,
-}
-
-impl Default for EntityTypeName {
-    fn default() -> Self {
-        Self::Panel
-    }
 }
 
 impl EntityTypeName {
@@ -52,16 +42,6 @@ impl EntityTypeName {
             "hotel_room" | "hotel_rooms" => Some(Self::HotelRoom),
             "panel_type" | "type" | "types" | "panel_types" => Some(Self::PanelType),
             _ => None,
-        }
-    }
-
-    pub fn type_name(self) -> &'static str {
-        match self {
-            Self::Panel => "panel",
-            Self::Presenter => "presenter",
-            Self::EventRoom => "event_room",
-            Self::HotelRoom => "hotel_room",
-            Self::PanelType => "panel_type",
         }
     }
 }
