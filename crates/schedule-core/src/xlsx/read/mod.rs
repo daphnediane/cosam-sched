@@ -20,8 +20,11 @@ use chrono::{DateTime, Utc};
 use umya_spreadsheet::structs::Worksheet;
 use umya_spreadsheet::Spreadsheet;
 
+use crate::entity::{EntityType, EntityUuid};
+use crate::field::set::FieldUpdate;
 use crate::schedule::Schedule;
 use crate::sidecar::SidecarFormulaField;
+use crate::tables::presenter::{self, PresenterEntityType};
 use crate::xlsx::columns::{FieldDef, FormulaColumnDef};
 
 pub use headers::canonical_header;
@@ -112,7 +115,54 @@ pub fn import_xlsx(path: &Path, options: &XlsxImportOptions) -> Result<Schedule>
         import_time,
     )?;
 
+    normalize_presenter_sort_indices(&mut schedule);
+
     Ok(schedule)
+}
+
+// ── Presenter sort normalization ──────────────────────────────────────────────
+
+/// After all sheets are imported, assign monotonically increasing `sort_index`
+/// values (multiples of 100) to each presenter based on their sidecar
+/// `xlsx_sort_key` (column, row).
+///
+/// Sort order: People-sheet entries (col=0) first in row order, then
+/// schedule-sheet entries by (col, row). Presenters with no sidecar key are
+/// appended last. Gaps of 100 allow future manual insertions.
+fn normalize_presenter_sort_indices(schedule: &mut Schedule) {
+    // Collect (uuid, sort_key) for all presenters.
+    let mut keyed: Vec<(uuid::NonNilUuid, Option<(u32, u32)>)> = schedule
+        .iter_entities::<PresenterEntityType>()
+        .map(|(id, _)| {
+            let uuid = id.entity_uuid();
+            let key = schedule.sidecar().get(uuid).and_then(|e| e.xlsx_sort_key);
+            (uuid, key)
+        })
+        .collect();
+
+    // Sort: known keys first (People col=0 before schedule cols), None last.
+    keyed.sort_by(|(_, a), (_, b)| match (a, b) {
+        (Some(ka), Some(kb)) => ka.cmp(kb),
+        (Some(_), None) => std::cmp::Ordering::Less,
+        (None, Some(_)) => std::cmp::Ordering::Greater,
+        (None, None) => std::cmp::Ordering::Equal,
+    });
+
+    // Assign sort_index = (rank + 1) * 100.
+    // Collect (uuid, idx) pairs first, then apply in a separate pass to avoid
+    // borrowing `schedule` while iterating over it.
+    let assignments: Vec<(uuid::NonNilUuid, i64)> = keyed
+        .iter()
+        .enumerate()
+        .map(|(rank, (uuid, _))| (*uuid, (rank as i64 + 1) * 100))
+        .collect();
+
+    for (uuid, idx) in assignments {
+        // SAFETY: uuid came from iter_entities, so the entity exists.
+        let id = unsafe { crate::entity::EntityId::<PresenterEntityType>::new_unchecked(uuid) };
+        let update = FieldUpdate::set(&presenter::FIELD_SORT_INDEX, idx);
+        let _ = PresenterEntityType::field_set().write_multiple(id, schedule, &[update]);
+    }
 }
 
 // ── Modified-time resolution ──────────────────────────────────────────────────

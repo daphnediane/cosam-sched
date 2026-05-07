@@ -173,29 +173,6 @@ impl<'de> Deserialize<'de> for PresenterRank {
     }
 }
 
-// ── PresenterSortRank ─────────────────────────────────────────────────────────
-
-/// Ordering key for a presenter, recording where it was first defined during
-/// import.
-///
-/// - `column_index`: 0 for the People table, schedule column number otherwise.
-/// - `row_index`: row in the People table, or position in a comma-separated
-///   presenter list on the schedule sheet.
-/// - `member_index`: position within a group's member list (0 for the group
-///   itself or for standalone presenters; 1+ for individual members).
-#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub struct PresenterSortRank {
-    pub column_index: u32,
-    pub row_index: u32,
-    #[serde(default, skip_serializing_if = "is_zero_u32")]
-    pub member_index: u32,
-}
-
-fn is_zero_u32(v: &u32) -> bool {
-    *v == 0
-}
-
 // ── PresenterCommonData ───────────────────────────────────────────────────────
 
 /// User-facing presenter fields. Serializable and represents the data as
@@ -228,9 +205,11 @@ pub struct PresenterCommonData {
     #[serde(default)]
     pub always_shown_in_group: bool,
 
-    /// Import ordering key (column/row/member index).
+    /// Import ordering key assigned after XLSX import (multiples of 100, gaps
+    /// allow future insertions). Persisted to CRDT so sort order survives
+    /// save/load.  `None` means the presenter was created without a sort position.
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub sort_rank: Option<PresenterSortRank>,
+    pub sort_index: Option<i64>,
 }
 
 impl PresenterCommonData {
@@ -849,6 +828,28 @@ pub static FIELD_ALWAYS_SHOWN_IN_GROUP: FieldDescriptor<PresenterEntityType> = {
 };
 inventory::submit! { CollectedField(&FIELD_ALWAYS_SHOWN_IN_GROUP) }
 
+pub static FIELD_SORT_INDEX: FieldDescriptor<PresenterEntityType> = {
+    let (data, crdt_type, cb) = accessor_field_properties! {
+        PresenterEntityType,
+        sort_index,
+        name: "sort_index",
+        display: "Sort Index",
+        description: "Import ordering key (multiples of 100; gaps allow future insertions).",
+        aliases: &[],
+        cardinality: Optional,
+        item: Integer,
+        example: "100",
+        order: 600,
+    };
+    FieldDescriptor {
+        data,
+        crdt_type,
+        required: false,
+        cb,
+    }
+};
+inventory::submit! { CollectedField(&FIELD_SORT_INDEX) }
+
 // ── Computed / edge-backed fields ─────────────────────────────────────────────
 
 /// `is_group` — `true` if `is_explicit_group` is set OR this presenter has
@@ -1428,11 +1429,7 @@ mod tests {
                 is_explicit_group: false,
                 always_grouped: false,
                 always_shown_in_group: false,
-                sort_rank: Some(PresenterSortRank {
-                    column_index: 0,
-                    row_index: 3,
-                    member_index: 0,
-                }),
+                sort_index: Some(300),
             },
             id: make_id(),
         }
@@ -1491,7 +1488,7 @@ mod tests {
     #[test]
     fn test_field_set_count_and_required() {
         let fs = PresenterEntityType::field_set();
-        assert_eq!(fs.fields().count(), 12);
+        assert_eq!(fs.fields().count(), 13);
         assert_eq!(fs.half_edges().count(), 3);
         let required: Vec<_> = fs.required_fields().map(|d| d.name()).collect();
         assert_eq!(required, vec!["name"]);
@@ -1644,11 +1641,7 @@ mod tests {
             is_explicit_group: true,
             always_grouped: false,
             always_shown_in_group: true,
-            sort_rank: Some(PresenterSortRank {
-                column_index: 5,
-                row_index: 0,
-                member_index: 0,
-            }),
+            sort_index: Some(500),
         };
         let json = serde_json::to_string(&original).unwrap();
         let back: PresenterCommonData = serde_json::from_str(&json).unwrap();
@@ -1664,22 +1657,26 @@ mod tests {
     }
 
     #[test]
-    fn test_sort_rank_member_index_omitted_when_zero() {
-        let sr = PresenterSortRank {
-            column_index: 1,
-            row_index: 2,
-            member_index: 0,
+    fn test_sort_index_serde_roundtrip() {
+        let data = PresenterCommonData {
+            name: "Alice".into(),
+            sort_index: Some(300),
+            ..PresenterCommonData::default()
         };
-        let json = serde_json::to_string(&sr).unwrap();
-        assert!(!json.contains("memberIndex"));
+        let json = serde_json::to_string(&data).unwrap();
+        assert!(json.contains("sortIndex"));
+        let back: PresenterCommonData = serde_json::from_str(&json).unwrap();
+        assert_eq!(back.sort_index, Some(300));
+    }
 
-        let sr2 = PresenterSortRank {
-            column_index: 1,
-            row_index: 2,
-            member_index: 3,
+    #[test]
+    fn test_sort_index_absent_when_none() {
+        let data = PresenterCommonData {
+            name: "Bob".into(),
+            ..PresenterCommonData::default()
         };
-        let json2 = serde_json::to_string(&sr2).unwrap();
-        assert!(json2.contains("memberIndex"));
+        let json = serde_json::to_string(&data).unwrap();
+        assert!(!json.contains("sortIndex"));
     }
 
     #[test]

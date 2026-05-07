@@ -126,8 +126,9 @@ pub(super) fn read_people_into(
             ];
             match build_entity::<PresenterEntityType>(schedule, uuid_pref, updates) {
                 Ok(id) => {
+                    let uuid = id.entity_uuid();
                     schedule.sidecar_mut().set_origin(
-                        id.entity_uuid(),
+                        uuid,
                         EntityOrigin::Xlsx(XlsxSourceInfo {
                             file_path: file_path.map(str::to_owned),
                             sheet_name: range.sheet_name.clone(),
@@ -135,6 +136,8 @@ pub(super) fn read_people_into(
                             import_time,
                         }),
                     );
+                    // Column 0 = People sheet; row gives relative order.
+                    schedule.sidecar_mut().get_or_insert(uuid).xlsx_sort_key = Some((0, row));
                     route_extra_columns(
                         ws,
                         row,

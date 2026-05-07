@@ -613,15 +613,21 @@ fn export_presenters(
         })
         .collect();
 
-    // Sort by sort_rank, then by name for stability
-    presenters_with_data.sort_by(
-        |(_, a), (_, b)| match (&a.data.sort_rank, &b.data.sort_rank) {
-            (Some(ra), Some(rb)) => ra.cmp(rb),
-            (Some(_), None) => std::cmp::Ordering::Less,
-            (None, Some(_)) => std::cmp::Ordering::Greater,
-            (None, None) => a.data.name.cmp(&b.data.name),
-        },
-    );
+    // Sort by rank tier (Guest first, FanPanelist last), then sort_index
+    // within the tier (None last), then by name for stability.
+    presenters_with_data.sort_by(|(_, a), (_, b)| {
+        a.data
+            .rank
+            .priority()
+            .cmp(&b.data.rank.priority())
+            .then_with(|| match (a.data.sort_index, b.data.sort_index) {
+                (Some(ia), Some(ib)) => ia.cmp(&ib),
+                (Some(_), None) => std::cmp::Ordering::Less,
+                (None, Some(_)) => std::cmp::Ordering::Greater,
+                (None, None) => std::cmp::Ordering::Equal,
+            })
+            .then_with(|| a.data.name.cmp(&b.data.name))
+    });
 
     let mut widget_presenters = Vec::new();
 

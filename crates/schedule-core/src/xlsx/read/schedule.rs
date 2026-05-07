@@ -464,6 +464,18 @@ fn collect_presenters(
 
             match find_or_create_tagged_presenter(schedule, &tagged) {
                 Ok(id) => {
+                    // Record the presenter's first schedule-sheet position as
+                    // the sort key if the People sheet didn't already set one.
+                    let uuid = id.entity_uuid();
+                    if schedule
+                        .sidecar()
+                        .get(uuid)
+                        .and_then(|e| e.xlsx_sort_key)
+                        .is_none()
+                    {
+                        schedule.sidecar_mut().get_or_insert(uuid).xlsx_sort_key =
+                            Some((pc.col, row));
+                    }
                     if is_uncredited {
                         if !uncredited.contains(&id) {
                             uncredited.push(id);
