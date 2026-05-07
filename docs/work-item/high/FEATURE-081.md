@@ -1,9 +1,8 @@
-# IDEA-081: Import Provenance / SourceInfo Sidecar
+# FEATURE-081: Import Provenance / SourceInfo Sidecar
 
 ## Summary
 
-Track where each entity came from (file, sheet, row) in a UUID-indexed sidecar
-structure separate from the CRDT schedule document.
+Implement a UUID-indexed sidecar structure to track where each entity came from (file, sheet, row) separate from the CRDT schedule document.
 
 ## Status
 
@@ -11,7 +10,7 @@ Open
 
 ## Priority
 
-Low
+High
 
 ## Description
 
@@ -21,7 +20,7 @@ sheet, and which row. This "source info" is useful for:
 - Displaying provenance in the editor ("imported from 2026.xlsx row 42")
 - Round-trip update workflows (knowing which entities were xlsx-imported vs.
   created in the editor)
-- Future merge-import (IDEA-080): knowing a row's origin helps decide authority
+- Future merge-import (FEATURE-080): knowing a row's origin helps decide authority
 
 **Why not in the CRDT entity?**
 
@@ -47,7 +46,7 @@ so it generalizes beyond just xlsx.
 **Open questions:**
 
 - Does the sidecar need to survive save/load for the current use cases?
-- Should SourceInfo be shared with the extra-metadata sidecar (IDEA-082)?
+- Should SourceInfo be shared with the extra-metadata sidecar (FEATURE-082)?
 - What format: flat JSON map, or a structured envelope with version/type?
 
 ## Acceptance Criteria

@@ -1,6 +1,6 @@
 # Future Ideas and Design Notes
 
-Updated on: Wed May  6 17:42:30 2026
+Updated on: Wed May  6 21:04:03 2026
 
 Open design questions, unexplored alternatives, and deferred ideas.
 An IDEA item can be promoted to a work item by renaming it to another prefix
@@ -58,37 +58,6 @@ records extensions deferred from the initial implementation:
 
 ---
 
-### [IDEA-077] IDEA-077: Consider list cardinality support for accessor_field_properties
-
-**Summary:** Evaluate whether accessor_field_properties should support add/remove operations for list cardinality fields, and document the work required to implement it.
-
-**Description:** The accessor_field_properties macro currently sets add_fn and remove_fn to None for all fields, with a TODO comment to revisit if list cardinality support is implemented. This idea explores whether accessor fields (computed fields that read/write to underlying storage) should support add/remove operations for list fields.
-
-Currently, add/remove operations are only supported for edge fields through the AddEdge/RemoveEdge variants. Supporting add/remove for accessor list fields would require:
-
-1. **Determine use cases**: Identify which accessor fields with list cardinality should support add/remove operations (e.g., adding to a list field vs. replacing the entire list)
-
-2. **Add new AddFn/RemoveFn variants**: Create new callback variants for accessor field add/remove operations, possibly:
-   * AddFn::BareList - for bare function add operations on lists
-   * AddFn::ScheduleList - for schedule-aware add operations on lists
-   * RemoveFn::BareList - for bare function remove operations on lists
-   * RemoveFn::ScheduleList - for schedule-aware remove operations on lists
-
-3. **Implement AddableField/RemovableField for FieldDescriptor**: The FieldDescriptor already implements these traits, but they would need to handle the new list-specific variants
-
-4. **Update conversion support**: The conversion layer (field_value_to_runtime_entity_ids and similar functions) may need updates to handle list add/remove operations for non-edge types. Currently these conversions are primarily designed for entity IDs in edge contexts.
-
-5. **Update accessor_field_properties macro**: Add logic to generate appropriate add_fn/remove_fn based on:
-   * Field cardinality (Single vs. List)
-   * Whether add/remove operations are desired for the field
-   * The type of callback needed (bare vs. schedule)
-
-6. **Update stored_output.rs**: Modify the macro to conditionally generate add_fn/remove_fn instead of always setting them to None
-
-7. **Testing**: Add comprehensive tests for add/remove operations on accessor list fields
-
----
-
 ### [IDEA-080] IDEA-080: Update Schedule from Spreadsheet (Merge Import)
 
 **Summary:** Design for merging a new XLSX import into an existing CRDT-tracked schedule
@@ -112,91 +81,6 @@ This is intentionally deferred because:
   spreadsheet vs. the editor)
 * The CRDT merge model needs to be well-established first (FEATURE-022/023)
 * A clean-slate import is sufficient for the current workflow
-
----
-
-### [IDEA-081] IDEA-081: Import Provenance / SourceInfo Sidecar
-
-**Summary:** Track where each entity came from (file, sheet, row) in a UUID-indexed sidecar
-structure separate from the CRDT schedule document.
-
-**Description:** During XLSX import every entity has an origin: which file it was read from, which
-sheet, and which row. This "source info" is useful for:
-
-* Displaying provenance in the editor ("imported from 2026.xlsx row 42")
-* Round-trip update workflows (knowing which entities were xlsx-imported vs.
-  created in the editor)
-* Future merge-import (IDEA-080): knowing a row's origin helps decide authority
-
-**Why not in the CRDT entity?**
-
-SourceInfo is import-specific and changes every re-import, so storing it as CRDT
-fields creates unnecessary history and awkward merge semantics (two replicas that
-import the same xlsx agree on source info, but a replica that created an entity
-programmatically has no source info, causing spurious conflicts).
-
-**Proposed design: UUID-indexed sidecar:**
-
-A `HashMap<NonNilUuid, SourceInfo>` stored alongside the schedule but outside the
-automerge doc. Possibilities:
-
-* In-memory only (lost on save/load — acceptable if only used for import→export
-  within one session)
-* Serialized into the native file envelope (an extra JSON chunk after the automerge
-  blob, indexed by UUID)
-* A separate `.provenance` file alongside the `.cosam` file
-
-The sidecar should also cover non-xlsx sources (e.g., "created in editor at time T")
-so it generalizes beyond just xlsx.
-
-**Open questions:**
-
-* Does the sidecar need to survive save/load for the current use cases?
-* Should SourceInfo be shared with the extra-metadata sidecar (IDEA-082)?
-* What format: flat JSON map, or a structured envelope with version/type?
-
----
-
-### [IDEA-082] IDEA-082: Extended Entity Metadata (Unknown XLSX Columns)
-
-**Summary:** Preserve unknown XLSX columns across import/export without encoding them as
-first-class entity fields, and decide how this interacts with CRDT merge.
-
-**Description:** When importing an XLSX spreadsheet, columns that are not recognized by the
-importer (e.g., custom convention-specific fields, computed legacy columns like
-`Lstart`/`Lend`, or future columns not yet in the schema) are currently silently
-dropped. For round-trip fidelity (import → edit → export → same spreadsheet) they
-should be preserved.
-
----
-
-### [IDEA-083] IDEA-083: Separate Hotel Room sheet in XLSX import/export
-
-**Summary:** Add a dedicated `Hotels` sheet to the XLSX format for richer hotel-room metadata.
-
-**Description:** Currently hotel rooms are expressed as a single column (`Hotel Room`) in the Rooms sheet,
-limited to one hotel room name per event room. A dedicated `Hotels` sheet would allow richer
-metadata (sort key, long name, notes) and cleaner round-trips, mirroring how rooms and panel
-types already get their own sheets.
-
-Proposed sheet name: `Hotels` (with `Hotel Rooms` as a fallback alias).
-
-Proposed columns:
-
-* Hotel Room — canonical name (key for linking from the Rooms sheet)
-* Sort Key — optional integer for ordering
-* Long Name — optional display name
-
-Implementation notes:
-
-* Import: teach `read/rooms.rs` to look for a Hotels sheet and create `HotelRoomEntityType`
-  entities from it; the `Hotel Room` column in the Rooms sheet would still be accepted as a
-  fallback for files without the separate sheet.
-* Export: add `write_hotel_rooms_sheet()` in `xlsx/write/export.rs` alongside the existing
-  `write_rooms_sheet()`; suppress the `Hotel Room` column from the Rooms sheet when the
-  separate sheet is written.
-* The `EDGE_HOTEL_ROOMS` relationship in `event_room.rs` and `columns::room_map::HOTEL_ROOM`
-  are the key integration points.
 
 ---
 
@@ -240,9 +124,5 @@ Use `perl scripts/work-item-update.pl --create IDEA` to add new stubs.
 [IDEA-040]: work-item/idea/IDEA-040.md
 [IDEA-042]: work-item/done/IDEA-042.md
 [IDEA-044]: work-item/idea/IDEA-044.md
-[IDEA-077]: work-item/idea/IDEA-077.md
 [IDEA-080]: work-item/idea/IDEA-080.md
-[IDEA-081]: work-item/idea/IDEA-081.md
-[IDEA-082]: work-item/idea/IDEA-082.md
-[IDEA-083]: work-item/idea/IDEA-083.md
 [IDEA-101]: work-item/idea/IDEA-101.md

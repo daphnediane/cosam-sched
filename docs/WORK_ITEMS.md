@@ -1,6 +1,6 @@
 # Cosplay America Schedule - Work Item
 
-Updated on: Wed May  6 20:57:20 2026
+Updated on: Wed May  6 21:10:42 2026
 
 ## Completed
 
@@ -137,18 +137,25 @@ above panelists and groups.
 
 ## Summary of Open Items
 
-**Total open items:** 11
+**Total open items:** 17
 
 * **Meta / Project-Level**
   * [META-001] Meta work item tracking the full multi-phase redesign of the schedule system. (Blocked by [META-007], [META-008])
   * [META-007] Phase tracker for the cosam-editor desktop GUI application. (Blocked by [META-005])
   * [META-008] Phase tracker for peer-to-peer schedule synchronization and conflict resolution. (Blocked by [META-004])
+  * [META-102] Implement sidecar storage for provenance and extra metadata, and enable in-place XLSX updates.
+
+* **High Priority**
+  * [FEATURE-081] ([META-102]) Implement a UUID-indexed sidecar structure to track where each entity came from (file, sheet, row) separate from the CRDT schedule document.
+  * [FEATURE-084] ([META-102]) Implement `update_xlsx` to write schedule changes back into an existing XLSX
+file, preserving formatting, formulas, extra columns, and non-standard content.
 
 * **Medium Priority**
   * [FEATURE-026] Support multiple convention years in a single schedule file for historical
 reference and jump-starting new conventions.
-  * [FEATURE-084] Implement `update_xlsx` to write schedule changes back into an existing XLSX
-file, preserving formatting, formulas, extra columns, and non-standard content.
+  * [FEATURE-082] ([META-102]) Preserve unknown XLSX columns across import/export without encoding them as
+first-class entity fields, and decide how this interacts with CRDT merge.
+  * [FEATURE-103] ([META-102]) Compare and document the field definitions between the current main branch, v9, v10-try1, and v10-try3 to identify gaps and ensure complete coverage.
 
 * **Low Priority**
   * [CLI-100] Add a `--interactive` flag to `cosam-modify` that opens a read-eval-print loop for
@@ -157,6 +164,8 @@ entering commands one at a time.
   * [EDITOR-033] ([META-007]) Implement the main schedule grid view and entity editing UI in cosam-editor.
   * [FEATURE-034] ([META-008]) Define and implement the protocol for synchronizing schedule data between peers.
   * [FEATURE-035] ([META-008]) Provide UI for reviewing and resolving merge conflicts after sync.
+  * [FEATURE-077] Implement add/remove operations for list cardinality fields in accessor_field_properties.
+  * [FEATURE-083] Add a dedicated `Hotels` sheet to the XLSX format for richer hotel-room metadata.
   * [FEATURE-099] Serialize the `EditHistory` undo/redo stacks into the `.schedule` binary file so that
 undo/redo works across `cosam-modify` invocations.
 
@@ -232,6 +241,79 @@ panels arranged by time and room, with inline editing of entity fields.
 
 ## Open FEATURE Items
 
+### [FEATURE-081] FEATURE-081: Import Provenance / SourceInfo Sidecar
+
+**Status:** Open
+
+**Priority:** High
+
+**Summary:** Implement a UUID-indexed sidecar structure to track where each entity came from (file, sheet, row) separate from the CRDT schedule document.
+
+**Part of:** [META-102]
+
+**Description:** During XLSX import every entity has an origin: which file it was read from, which
+sheet, and which row. This "source info" is useful for:
+
+* Displaying provenance in the editor ("imported from 2026.xlsx row 42")
+* Round-trip update workflows (knowing which entities were xlsx-imported vs.
+  created in the editor)
+* Future merge-import (FEATURE-080): knowing a row's origin helps decide authority
+
+**Why not in the CRDT entity?**
+
+SourceInfo is import-specific and changes every re-import, so storing it as CRDT
+fields creates unnecessary history and awkward merge semantics (two replicas that
+import the same xlsx agree on source info, but a replica that created an entity
+programmatically has no source info, causing spurious conflicts).
+
+**Proposed design: UUID-indexed sidecar:**
+
+A `HashMap<NonNilUuid, SourceInfo>` stored alongside the schedule but outside the
+automerge doc. Possibilities:
+
+* In-memory only (lost on save/load — acceptable if only used for import→export
+  within one session)
+* Serialized into the native file envelope (an extra JSON chunk after the automerge
+  blob, indexed by UUID)
+* A separate `.provenance` file alongside the `.cosam` file
+
+The sidecar should also cover non-xlsx sources (e.g., "created in editor at time T")
+so it generalizes beyond just xlsx.
+
+**Open questions:**
+
+* Does the sidecar need to survive save/load for the current use cases?
+* Should SourceInfo be shared with the extra-metadata sidecar (FEATURE-082)?
+* What format: flat JSON map, or a structured envelope with version/type?
+
+---
+
+### [FEATURE-084] FEATURE-084: XLSX Spreadsheet Update (In-Place Save)
+
+**Status:** Open
+
+**Priority:** High
+
+**Summary:** Implement `update_xlsx` to write schedule changes back into an existing XLSX
+file, preserving formatting, formulas, extra columns, and non-standard content.
+
+**Part of:** [META-102]
+
+**Description:** `export_xlsx` (FEATURE-029) always writes a fresh workbook from scratch.
+`update_xlsx` would instead open the original file and patch only the rows that
+changed, preserving:
+
+* Cell formatting (colors, fonts, borders)
+* Formula cells the user has added (e.g., conditional-format helpers)
+* Extra non-standard columns (custom per-convention data)
+* Timestamp and Grid sheets
+* Non-imported sheets that we never touch
+
+This is the workflow convention staff actually uses: import once to seed the
+schedule database, then save back repeatedly as edits accumulate.
+
+---
+
 ### [FEATURE-026] Multi-Year Schedule Archive Support
 
 **Status:** Open
@@ -252,29 +334,44 @@ enabling:
 
 ---
 
-### [FEATURE-084] FEATURE-084: XLSX Spreadsheet Update (In-Place Save)
+### [FEATURE-082] FEATURE-082: Extended Entity Metadata (Unknown XLSX Columns)
 
 **Status:** Open
 
 **Priority:** Medium
 
-**Summary:** Implement `update_xlsx` to write schedule changes back into an existing XLSX
-file, preserving formatting, formulas, extra columns, and non-standard content.
+**Summary:** Preserve unknown XLSX columns across import/export without encoding them as
+first-class entity fields, and decide how this interacts with CRDT merge.
 
-**Blocked By:** [FEATURE-029]
+**Part of:** [META-102]
 
-**Description:** `export_xlsx` (FEATURE-029) always writes a fresh workbook from scratch.
-`update_xlsx` would instead open the original file and patch only the rows that
-changed, preserving:
+**Description:** When importing an XLSX spreadsheet, columns that are not recognized by the
+importer (e.g., custom convention-specific fields, computed legacy columns like
+`Lstart`/`Lend`, or future columns not yet in the schema) are currently silently
+dropped. For round-trip fidelity (import → edit → export → same spreadsheet) they
+should be preserved.
 
-* Cell formatting (colors, fonts, borders)
-* Formula cells the user has added (e.g., conditional-format helpers)
-* Extra non-standard columns (custom per-convention data)
-* Timestamp and Grid sheets
-* Non-imported sheets that we never touch
+---
 
-This is the workflow convention staff actually uses: import once to seed the
-schedule database, then save back repeatedly as edits accumulate.
+### [FEATURE-103] FEATURE-103: Field Comparison Across Codebase Versions
+
+**Status:** Open
+
+**Priority:** Medium
+
+**Summary:** Compare and document the field definitions between the current main branch, v9, v10-try1, and v10-try3 to identify gaps and ensure complete coverage.
+
+**Part of:** [META-102]
+
+**Description:** Investigate the field definitions across different versions of the codebase to understand:
+
+* Which fields exist in v9 that are missing in main
+* Which fields were added in v10-try1 but not carried forward to main
+* Which fields exist in v10-try3 that should be considered for main
+* Field naming and type differences between versions
+* Deprecated or renamed fields
+
+This investigation will help ensure that the main branch has complete field coverage for when binary formats become the primary storage format.
 
 ---
 
@@ -306,6 +403,75 @@ without a central server. Uses automerge's built-in sync protocol.
 **Description:** When two peers edit the same field concurrently, the CRDT automatically picks
 a winner (LWW), but the user should be able to review these decisions and
 override them.
+
+---
+
+### [FEATURE-077] FEATURE-077: List cardinality support for accessor_field_properties
+
+**Status:** Open
+
+**Priority:** Low
+
+**Summary:** Implement add/remove operations for list cardinality fields in accessor_field_properties.
+
+**Description:** The accessor_field_properties macro currently sets add_fn and remove_fn to None for all fields, with a TODO comment to revisit if list cardinality support is implemented. This feature implements add/remove operations for accessor fields (computed fields that read/write to underlying storage) with list cardinality.
+
+Currently, add/remove operations are only supported for edge fields through the AddEdge/RemoveEdge variants. Supporting add/remove for accessor list fields would require:
+
+1. **Determine use cases**: Identify which accessor fields with list cardinality should support add/remove operations (e.g., adding to a list field vs. replacing the entire list)
+
+2. **Add new AddFn/RemoveFn variants**: Create new callback variants for accessor field add/remove operations, possibly:
+   * AddFn::BareList - for bare function add operations on lists
+   * AddFn::ScheduleList - for schedule-aware add operations on lists
+   * RemoveFn::BareList - for bare function remove operations on lists
+   * RemoveFn::ScheduleList - for schedule-aware remove operations on lists
+
+3. **Implement AddableField/RemovableField for FieldDescriptor**: The FieldDescriptor already implements these traits, but they would need to handle the new list-specific variants
+
+4. **Update conversion support**: The conversion layer (field_value_to_runtime_entity_ids and similar functions) may need updates to handle list add/remove operations for non-edge types. Currently these conversions are primarily designed for entity IDs in edge contexts.
+
+5. **Update accessor_field_properties macro**: Add logic to generate appropriate add_fn/remove_fn based on:
+   * Field cardinality (Single vs. List)
+   * Whether add/remove operations are desired for the field
+   * The type of callback needed (bare vs. schedule)
+
+6. **Update stored_output.rs**: Modify the macro to conditionally generate add_fn/remove_fn instead of always setting them to None
+
+7. **Testing**: Add comprehensive tests for add/remove operations on accessor list fields
+
+---
+
+### [FEATURE-083] FEATURE-083: Separate Hotel Room sheet in XLSX import/export
+
+**Status:** Open
+
+**Priority:** Low
+
+**Summary:** Add a dedicated `Hotels` sheet to the XLSX format for richer hotel-room metadata.
+
+**Description:** Currently hotel rooms are expressed as a single column (`Hotel Room`) in the Rooms sheet,
+limited to one hotel room name per event room. A dedicated `Hotels` sheet would allow richer
+metadata (sort key, long name, notes) and cleaner round-trips, mirroring how rooms and panel
+types already get their own sheets.
+
+Proposed sheet name: `Hotels` (with `Hotel Rooms` as a fallback alias).
+
+Proposed columns:
+
+* Hotel Room — canonical name (key for linking from the Rooms sheet)
+* Sort Key — optional integer for ordering
+* Long Name — optional display name
+
+Implementation notes:
+
+* Import: teach `read/rooms.rs` to look for a Hotels sheet and create `HotelRoomEntityType`
+  entities from it; the `Hotel Room` column in the Rooms sheet would still be accepted as a
+  fallback for files without the separate sheet.
+* Export: add `write_hotel_rooms_sheet()` in `xlsx/write/export.rs` alongside the existing
+  `write_rooms_sheet()`; suppress the `Hotel Room` column from the Rooms sheet when the
+  separate sheet is written.
+* The `EDGE_HOTEL_ROOMS` relationship in `event_room.rs` and `columns::room_map::HOTEL_ROOM`
+  are the key integration points.
 
 ---
 
@@ -373,6 +539,29 @@ replacing the old `schedule-field`, `schedule-data`, and `schedule-macro` crates
 * META-006: Phase 5 — CLI Tools
 * META-007: Phase 6 — GUI Editor
 * META-008: Phase 7 — Sync & Multi-User
+
+---
+
+### [META-102] META-102: Storage and XLSX Round-Trip Infrastructure
+
+**Status:** Open
+
+**Priority:** High
+
+**Summary:** Implement sidecar storage for provenance and extra metadata, and enable in-place XLSX updates.
+
+**Description:** This meta tracks work on storage infrastructure needed for XLSX round-trip workflows:
+
+* SourceInfo sidecar to track entity origins (file, sheet, row)
+* Extra metadata sidecar for unknown XLSX columns
+* In-place XLSX update to preserve formatting and custom content
+
+**Work Items:**
+
+* FEATURE-081: Import Provenance / SourceInfo Sidecar
+* FEATURE-082: Extended Entity Metadata (Unknown XLSX Columns)
+* FEATURE-084: XLSX Spreadsheet Update (In-Place Save)
+* FEATURE-103: Field Comparison Across Codebase Versions
 
 ---
 
@@ -472,9 +661,14 @@ to exchange CRDT changes and reconcile concurrent edits to the same fields.
 [FEATURE-069]: work-item/done/FEATURE-069.md
 [FEATURE-070]: work-item/done/FEATURE-070.md
 [FEATURE-071]: work-item/done/FEATURE-071.md
+[FEATURE-077]: work-item/low/FEATURE-077.md
 [FEATURE-079]: work-item/done/FEATURE-079.md
-[FEATURE-084]: work-item/medium/FEATURE-084.md
+[FEATURE-081]: work-item/high/FEATURE-081.md
+[FEATURE-082]: work-item/medium/FEATURE-082.md
+[FEATURE-083]: work-item/low/FEATURE-083.md
+[FEATURE-084]: work-item/high/FEATURE-084.md
 [FEATURE-099]: work-item/low/FEATURE-099.md
+[FEATURE-103]: work-item/medium/FEATURE-103.md
 [META-001]: work-item/meta/META-001.md
 [META-002]: work-item/done/META-002.md
 [META-003]: work-item/done/META-003.md
@@ -484,6 +678,7 @@ to exchange CRDT changes and reconcile concurrent edits to the same fields.
 [META-007]: work-item/meta/META-007.md
 [META-008]: work-item/meta/META-008.md
 [META-048]: work-item/done/META-048.md
+[META-102]: work-item/meta/META-102.md
 [REFACTOR-041]: work-item/done/REFACTOR-041.md
 [REFACTOR-047]: work-item/done/REFACTOR-047.md
 [REFACTOR-049]: work-item/done/REFACTOR-049.md

@@ -1,8 +1,8 @@
-# IDEA-077: Consider list cardinality support for accessor_field_properties
+# FEATURE-077: List cardinality support for accessor_field_properties
 
 ## Summary
 
-Evaluate whether accessor_field_properties should support add/remove operations for list cardinality fields, and document the work required to implement it.
+Implement add/remove operations for list cardinality fields in accessor_field_properties.
 
 ## Status
 
@@ -14,7 +14,7 @@ Low
 
 ## Description
 
-The accessor_field_properties macro currently sets add_fn and remove_fn to None for all fields, with a TODO comment to revisit if list cardinality support is implemented. This idea explores whether accessor fields (computed fields that read/write to underlying storage) should support add/remove operations for list fields.
+The accessor_field_properties macro currently sets add_fn and remove_fn to None for all fields, with a TODO comment to revisit if list cardinality support is implemented. This feature implements add/remove operations for accessor fields (computed fields that read/write to underlying storage) with list cardinality.
 
 Currently, add/remove operations are only supported for edge fields through the AddEdge/RemoveEdge variants. Supporting add/remove for accessor list fields would require:
 

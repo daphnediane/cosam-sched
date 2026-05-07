@@ -1,4 +1,4 @@
-# IDEA-082: Extended Entity Metadata (Unknown XLSX Columns)
+# FEATURE-082: Extended Entity Metadata (Unknown XLSX Columns)
 
 ## Summary
 
@@ -11,7 +11,7 @@ Open
 
 ## Priority
 
-Low
+Medium
 
 ## Description
 
