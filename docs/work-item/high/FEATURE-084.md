@@ -32,6 +32,13 @@ changed, preserving:
 This is the workflow convention staff actually uses: import once to seed the
 schedule database, then save back repeatedly as edits accumulate.
 
+### Other considerations
+
+Currently our spreadsheets are saved either on OneDrive and shared with Excel
+or as Google Sheets, updating them via OneDrive or Google Sheets apis might
+be the better approach then just updating saved files which might break history
+and conflict with lives edits.
+
 ### What v10-try1 implemented
 
 The `v10-try1` worktree has a working reference in

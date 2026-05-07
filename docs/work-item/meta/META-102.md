@@ -24,7 +24,6 @@ This meta tracks work on storage infrastructure needed for XLSX round-trip workf
 
 - FEATURE-081: Import Provenance / SourceInfo Sidecar
 - FEATURE-082: Extended Entity Metadata (Unknown XLSX Columns)
-- FEATURE-084: XLSX Spreadsheet Update (In-Place Save)
 - FEATURE-103: Field Comparison Across Codebase Versions
 
 ## Notes

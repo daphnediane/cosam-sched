@@ -1,6 +1,6 @@
 # Cosplay America Schedule - Work Item
 
-Updated on: Wed May  6 21:10:42 2026
+Updated on: Wed May  6 21:29:17 2026
 
 ## Completed
 
@@ -147,7 +147,7 @@ above panelists and groups.
 
 * **High Priority**
   * [FEATURE-081] ([META-102]) Implement a UUID-indexed sidecar structure to track where each entity came from (file, sheet, row) separate from the CRDT schedule document.
-  * [FEATURE-084] ([META-102]) Implement `update_xlsx` to write schedule changes back into an existing XLSX
+  * [FEATURE-084] Implement `update_xlsx` to write schedule changes back into an existing XLSX
 file, preserving formatting, formulas, extra columns, and non-standard content.
 
 * **Medium Priority**
@@ -297,7 +297,7 @@ so it generalizes beyond just xlsx.
 **Summary:** Implement `update_xlsx` to write schedule changes back into an existing XLSX
 file, preserving formatting, formulas, extra columns, and non-standard content.
 
-**Part of:** [META-102]
+**Blocked By:** [FEATURE-029]
 
 **Description:** `export_xlsx` (FEATURE-029) always writes a fresh workbook from scratch.
 `update_xlsx` would instead open the original file and patch only the rows that
@@ -560,7 +560,6 @@ replacing the old `schedule-field`, `schedule-data`, and `schedule-macro` crates
 
 * FEATURE-081: Import Provenance / SourceInfo Sidecar
 * FEATURE-082: Extended Entity Metadata (Unknown XLSX Columns)
-* FEATURE-084: XLSX Spreadsheet Update (In-Place Save)
 * FEATURE-103: Field Comparison Across Codebase Versions
 
 ---
