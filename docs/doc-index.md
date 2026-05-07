@@ -24,7 +24,8 @@ Complete index of cosam-sched documentation, including current documents and pla
 
 ### Storage and Sync
 
-* **crdt-design.md** - CRDT-backed storage design: automerge library choice, `CrdtFieldType` field mappings per entity, merge semantics (LWW / RGA / OR-Set), soft deletes, and phase plan.
+* **crdt-design.md** - CRDT-backed storage design: automerge library choice, `CrdtFieldType` field mappings per entity, merge semantics (LWW / RGA / OR-Set), `__extra` CRDT map for unknown columns, `ScheduleSidecar` (ephemeral per-session data), `ChangeState` tracking, and save/load semantics.
+* **field-comparison.md** - Cross-version field comparison: which XLSX columns exist in v9, v10-try1, v10-try3, and main; year-by-year spreadsheet column tables (2016–2026); gaps in both directions.
 
 ### JSON Format Documentation
 

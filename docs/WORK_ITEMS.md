@@ -1,6 +1,6 @@
 # Cosplay America Schedule - Work Item
 
-Updated on: Thu May  7 01:03:42 2026
+Updated on: Thu May  7 01:17:09 2026
 
 ## Completed
 
@@ -78,6 +78,7 @@ cross-partition edge exclusivity declaratively.
 * [FEATURE-081] Implement a UUID-indexed sidecar structure to track where each entity came from (file, sheet, row) separate from the CRDT schedule document.
 * [FEATURE-082] Preserve unknown XLSX columns across import/export without encoding them as
 first-class entity fields, and decide how this interacts with CRDT merge.
+* [FEATURE-103] Compare and document the field definitions between the current main branch, v9, v10-try1, and v10-try3 to identify gaps and ensure complete coverage.
 * [META-002] Phase tracker for project foundation and Cargo workspace setup.
 * [META-003] Phase tracker for the entity/field system and core schedule data model in schedule-core.
 * [META-004] Phase tracker for making an automerge CRDT document the authoritative storage
@@ -140,7 +141,7 @@ above panelists and groups.
 
 ## Summary of Open Items
 
-**Total open items:** 15
+**Total open items:** 14
 
 * **Meta / Project-Level**
   * [META-001] Meta work item tracking the full multi-phase redesign of the schedule system. (Blocked by [META-007], [META-008])
@@ -155,7 +156,6 @@ file, preserving formatting, formulas, extra columns, and non-standard content.
 * **Medium Priority**
   * [FEATURE-026] Support multiple convention years in a single schedule file for historical
 reference and jump-starting new conventions.
-  * [FEATURE-103] ([META-102]) Compare and document the field definitions between the current main branch, v9, v10-try1, and v10-try3 to identify gaps and ensure complete coverage.
 
 * **Low Priority**
   * [CLI-100] Add a `--interactive` flag to `cosam-modify` that opens a read-eval-print loop for
@@ -284,28 +284,6 @@ enabling:
 * **Jump-start**: Copy entities from a prior year to pre-populate the next
   convention (recurring panels, returning presenters, same rooms)
 * **Historical reference**: View past schedules alongside the current one
-
----
-
-### [FEATURE-103] FEATURE-103: Field Comparison Across Codebase Versions
-
-**Status:** Open
-
-**Priority:** Medium
-
-**Summary:** Compare and document the field definitions between the current main branch, v9, v10-try1, and v10-try3 to identify gaps and ensure complete coverage.
-
-**Part of:** [META-102]
-
-**Description:** Investigate the field definitions across different versions of the codebase to understand:
-
-* Which fields exist in v9 that are missing in main
-* Which fields were added in v10-try1 but not carried forward to main
-* Which fields exist in v10-try3 that should be considered for main
-* Field naming and type differences between versions
-* Deprecated or renamed fields
-
-This investigation will help ensure that the main branch has complete field coverage for when binary formats become the primary storage format.
 
 ---
 
@@ -601,7 +579,7 @@ to exchange CRDT changes and reconcile concurrent edits to the same fields.
 [FEATURE-083]: work-item/low/FEATURE-083.md
 [FEATURE-084]: work-item/high/FEATURE-084.md
 [FEATURE-099]: work-item/low/FEATURE-099.md
-[FEATURE-103]: work-item/medium/FEATURE-103.md
+[FEATURE-103]: work-item/done/FEATURE-103.md
 [META-001]: work-item/meta/META-001.md
 [META-002]: work-item/done/META-002.md
 [META-003]: work-item/done/META-003.md

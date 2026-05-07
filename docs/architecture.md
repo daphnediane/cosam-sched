@@ -406,6 +406,67 @@ Convenience constructors (`update_field_cmd`, `remove_entity_cmd`,
 `EditContext::apply` is the natural hook for CRDT operations: every executed command
 generates CRDT operations that are broadcast to peers for sync.
 
+## Sidecar and Extra Fields
+
+The system separates per-entity metadata into three storage tiers:
+
+| Tier                        | Module             | Persisted? | Shared? | Examples                                             |
+| --------------------------- | ------------------ | ---------- | ------- | ---------------------------------------------------- |
+| `FieldDescriptor` field     | `tables/`          | ✓ CRDT     | ✓       | `av_notes`, `simpletix_link`, `sort_index`           |
+| `ExtraFieldDescriptor` data | `extra_field/`     | ✓ CRDT     | ✓       | Declared-but-lightweight columns routed to `__extra` |
+| Unknown data extra          | CRDT `__extra` map | ✓ CRDT     | ✓       | Any unrecognized plain-value XLSX column             |
+| `ScheduleSidecar`           | `sidecar/`         | ✗          | ✗       | SourceInfo, formula-cell strings, xlsx_sort_key      |
+
+### ScheduleSidecar
+
+`ScheduleSidecar` stores ephemeral per-entity data that must not be persisted to the
+CRDT document. It is keyed by `NonNilUuid` and holds:
+
+- **`origin: Option<EntityOrigin>`** — where an entity came from: `Xlsx { file_path, sheet_name, row_index, import_time }` or `Editor { at }`.
+- **`formula_extras: HashMap<String, SidecarFormulaField>`** — formula-cell columns captured at import time (formula string + evaluated display value). Used by `update_xlsx` to write back formulas.
+- **`xlsx_sort_key: Option<(u32, u32)>`** — the entity's `(col, row)` position in the source XLSX, used during import to assign a normalized `sort_index`.
+
+The sidecar is cleared on `load_from_file` / `load` but is NOT cleared on `save_to_file`.
+This allows the same-session `import → edit → save → update_xlsx` workflow without
+re-importing the spreadsheet.
+
+### ExtraFieldDescriptor
+
+`ExtraFieldDescriptor` is a lightweight middle tier between a fully-declared `FieldDescriptor`
+and a truly unknown column. It registers a canonical name, display label, and optional aliases
+for a column that stores its value in the CRDT `__extra` map rather than a dedicated struct field.
+
+Registration uses `inventory::submit!` so extras are declared near the entity type that owns them.
+When an `ExtraFieldDescriptor` column earns a proper `FieldDescriptor`, remove the
+`ExtraFieldDescriptor`; the `__extra` entry is superseded by the dedicated field path.
+
+### FormulaColumnDef
+
+`FormulaColumnDef` (in `xlsx/columns.rs`) declares known formula columns at the XLSX layer.
+These are columns whose cells contain spreadsheet formulas rather than user data, so they
+must not be stored in the CRDT. Each entry carries an optional `regenerate` formula template
+used during export to always rewrite the formula string regardless of what was in the sidecar.
+
+Currently declared: `Lstart` and `Lend`.
+
+### Import routing priority
+
+When the XLSX importer encounters a column, it routes it through these steps in order:
+
+1. **Known `FieldDescriptor`** — consumed by the field system (includes `FIELD_END_TIME`)
+2. **Explicit ignore list** — skipped entirely (`Old Uniq Id`)
+3. **`FormulaColumnDef` list** — stored in sidecar `formula_extras`; never in CRDT
+4. **`ExtraFieldDescriptor` registry** — value written to CRDT `__extra`
+5. **Truly unknown**: formula cell → sidecar; plain value → CRDT `__extra`
+
+### ChangeState tracking
+
+`Schedule` maintains a `change_tracker: HashMap<NonNilUuid, ChangeState>` that records
+`Added / Modified / Deleted / Unchanged` for each entity since the last save. The tracker
+is reset on `save_to_file`. The sticky-Added rule applies: writing a field on a newly
+created entity does not downgrade it from `Added` to `Modified`. See `crdt-design.md`
+for the full transition table.
+
 ## CRDT Storage
 
 See `crdt-design.md` for the full design.

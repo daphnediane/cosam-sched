@@ -22,6 +22,7 @@ Document path layout:
 /meta/schedule_id, /meta/created_at, /meta/generator, /meta/version
 /entities/{type_name}/{uuid}/{field_name}     (per CrdtFieldType)
 /entities/{type_name}/{uuid}/__deleted        (soft delete marker)
+/entities/{type_name}/{uuid}/__extra/{key}    (data extra fields; LWW scalar)
 ```
 
 Every field write flows `FieldValue → automerge op → doc`, then the cache is
@@ -97,7 +98,7 @@ traversal required.
 | ----------------------------------------------------------------------------- | ------------- |
 | `name`                                                                        | `Scalar`      |
 | `bio`                                                                         | `Text`        |
-| `rank`, `sort_rank`                                                           | `Scalar`      |
+| `rank`, `sort_index`                                                          | `Scalar`      |
 | `is_explicit_group`, `always_grouped`, `always_shown_in_group`                | `Scalar`      |
 | `members` (CRDT owner, target = `FIELD_GROUPS`)                               | `Derived`     |
 | `groups` (non-owner lookup side)                                              | `Derived`     |
@@ -285,6 +286,105 @@ constant-time check on the two supplied fields:
 Taking both fields makes the lookup unambiguous even when multiple edge types exist
 between the same pair of entity types (e.g., `credited_presenters` and
 `uncredited_presenters` both target `HALF_EDGE_PANELS`).
+
+## Extra Fields (`__extra` Map)
+
+Unknown or not-yet-promoted XLSX columns with plain data values are stored in a
+per-entity `__extra` nested automerge map instead of a dedicated scalar field.
+This allows arbitrary column names to survive save/load and be CRDT-merged between
+users without requiring a code change for each new column.
+
+### Document path
+
+```text
+/entities/{type_name}/{uuid}/__extra/{column_name}   → ScalarValue::Str (LWW)
+```
+
+Each key is an independent LWW scalar — the same last-write-wins semantics as any
+other scalar field. Concurrent edits to different keys do not conflict; concurrent
+edits to the same key resolve by Lamport timestamp.
+
+### API
+
+```rust
+schedule.read_extra_field(uuid, key)             -> Option<String>
+schedule.write_extra_field(uuid, key, value)     -> CrdtResult<()>
+schedule.delete_extra_field(uuid, key)           -> CrdtResult<()>
+schedule.list_extra_fields(uuid)                 -> Vec<(String, String)>
+```
+
+These mirror the `read_edge_meta_bool` / `write_edge_meta_bool` pattern from
+`crdt/edge.rs` — per-entity dynamic map access without going through the typed
+field system.
+
+### What goes in `__extra` vs. a `FieldDescriptor`
+
+| Data kind                                | Storage                                  |
+| ---------------------------------------- | ---------------------------------------- |
+| Well-known, schema-declared fields       | `FieldDescriptor` (dedicated CRDT field) |
+| Declared-but-lightweight data columns    | `ExtraFieldDescriptor` → `__extra` map   |
+| Truly unknown plain-value XLSX columns   | auto-routed to `__extra` map on import   |
+| Formula columns (Lstart, Lend, End Time) | in-memory sidecar only (not in CRDT)     |
+
+Formula column values are never stored in `__extra`; they are ephemeral per-session
+data held in `ScheduleSidecar` (see §Sidecar below).
+
+When a column earns a proper `FieldDescriptor`, remove its `ExtraFieldDescriptor`.
+The `__extra` entry for that key becomes unreachable (old data remains in the doc
+but is superseded by the dedicated field path on next write).
+
+## Sidecar (Ephemeral Per-Session Data)
+
+`ScheduleSidecar` holds per-entity data that is ephemeral to the current editing
+session and is **never** serialized into the CRDT document or the `.cosam` file.
+
+```rust
+pub struct ScheduleSidecar {
+    entries: HashMap<NonNilUuid, EntitySidecar>,
+}
+
+pub struct EntitySidecar {
+    pub origin: Option<EntityOrigin>,
+    pub formula_extras: HashMap<String, SidecarFormulaField>,
+    pub xlsx_sort_key: Option<(u32, u32)>,
+}
+```
+
+| Field            | Purpose                                                                               |
+| ---------------- | ------------------------------------------------------------------------------------- |
+| `origin`         | Where the entity came from: `Xlsx { file_path, sheet, row, time }` or `Editor { at }` |
+| `formula_extras` | Formula-cell columns from import (formula string + display value)                     |
+| `xlsx_sort_key`  | Original sheet position `(col, row)` used to assign `sort_index`                      |
+
+`ScheduleSidecar` is cleared on `load_from_file` and on `load`. It is NOT cleared on
+`save_to_file` — the sidecar must survive an in-session save to support the same-session
+`update_xlsx` workflow (import → edit → save → update_xlsx without re-importing).
+
+## ChangeState Tracking
+
+`Schedule` maintains a `change_tracker: HashMap<NonNilUuid, ChangeState>` that records
+the mutation state of each entity since the last save.
+
+```rust
+pub enum ChangeState { Added, Modified, Deleted, #[default] Unchanged }
+```
+
+| Event                            | Resulting state                                |
+| -------------------------------- | ---------------------------------------------- |
+| Entity created (mirror enabled)  | `Added`                                        |
+| Field written on existing entity | `Modified` (unless already `Added`)            |
+| Entity removed                   | `Deleted` (always, even if previously `Added`) |
+| `save_to_file` succeeds          | tracker cleared (all become `Unchanged`)       |
+| `load` / `load_from_file`        | tracker cleared (empty = all `Unchanged`)      |
+
+The "sticky Added" rule: writing a field on a newly created entity (state `Added`) does
+not downgrade it to `Modified`. The state only escalates: `Unchanged` → `Modified` → `Deleted`.
+
+`entity_change_state(uuid) -> ChangeState` is the public query; `Unchanged` is returned
+for any UUID not in the map (entities that have never been mutated this session).
+
+The tracker is not persisted; it exists only to let the XLSX update-in-place path and
+the editor UI know what has changed without a full diff.
 
 ## Cache Rehydration
 
