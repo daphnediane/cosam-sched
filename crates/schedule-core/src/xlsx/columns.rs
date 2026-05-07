@@ -11,6 +11,33 @@
 //! 2026 spreadsheet order.  Use [`FieldDef::keys`] when building a lookup map
 //! and [`FieldDef::export`] when writing the header row.
 
+/// A formula-only column in an XLSX sheet.
+///
+/// Formula columns are written as spreadsheet formulas on export and stored in
+/// the sidecar (not the CRDT) on import. They carry no user-editable data.
+///
+/// `regenerate: Some(formula)` — always write this formula string on export,
+/// regardless of what was in the sidecar.
+/// `regenerate: None` — preserve the imported formula string; skip if absent.
+#[derive(Debug, Clone, Copy)]
+pub struct FormulaColumnDef {
+    /// The primary column header string (export name).
+    pub export: &'static str,
+    /// Canonical import key (result of `canonical_header(export)`).
+    pub canonical: &'static str,
+    /// Alternative import names.
+    pub aliases: &'static [&'static str],
+    /// Formula template to regenerate on export, or `None` to preserve only.
+    pub regenerate: Option<&'static str>,
+}
+
+impl FormulaColumnDef {
+    /// Iterate over all accepted lookup keys (primary canonical + aliases).
+    pub fn keys(&self) -> impl Iterator<Item = &'static str> {
+        std::iter::once(self.canonical).chain(self.aliases.iter().copied())
+    }
+}
+
 /// A single column definition: one export name plus zero or more import aliases.
 #[derive(Debug, Clone, Copy)]
 pub struct FieldDef {
@@ -33,7 +60,7 @@ impl FieldDef {
 
 /// Column definitions for the main **Schedule** sheet.
 pub mod schedule {
-    use super::FieldDef;
+    use super::{FieldDef, FormulaColumnDef};
 
     pub const UNIQ_ID: FieldDef = FieldDef {
         export: "Uniq ID",
@@ -203,19 +230,11 @@ pub mod schedule {
         aliases: &["IsFull", "Is_Full", "Sold_Out"],
     };
 
-    pub const LSTART: FieldDef = FieldDef {
-        export: "Lstart",
-        canonical: "Lstart",
-        aliases: &[],
-    };
-
-    pub const LEND: FieldDef = FieldDef {
-        export: "Lend",
-        canonical: "Lend",
-        aliases: &[],
-    };
-
     /// All fixed (non-presenter) column definitions in 2026 spreadsheet order.
+    ///
+    /// `LSTART` and `LEND` are intentionally excluded — they are formula columns
+    /// handled by [`FORMULA_COLUMNS`] and stored in the sidecar, not mapped to
+    /// entity fields.
     pub const ALL: &[FieldDef] = &[
         UNIQ_ID,
         OLD_UNIQ_ID,
@@ -245,8 +264,27 @@ pub mod schedule {
         ALT_PANELIST,
         KIND,
         FULL,
-        LSTART,
-        LEND,
+    ];
+
+    /// Formula-only columns appended after all data columns on export.
+    ///
+    /// These are not backed by entity fields; they are regenerated from the
+    /// formula template on every export and preserved in the sidecar on import.
+    pub const FORMULA_COLUMNS: &[FormulaColumnDef] = &[
+        FormulaColumnDef {
+            export: "Lstart",
+            canonical: "Lstart",
+            aliases: &[],
+            regenerate: Some(
+                "IF(ISBLANK([@[Start Time]]),MAX([Start Time])+TIME(80,0,0),[@[Start Time]])",
+            ),
+        },
+        FormulaColumnDef {
+            export: "Lend",
+            canonical: "Lend",
+            aliases: &[],
+            regenerate: Some("[@Lstart]+IF(ISBLANK([@Duration]),0,[@Duration])"),
+        },
     ];
 }
 

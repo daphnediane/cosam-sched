@@ -7,7 +7,7 @@ first-class entity fields, and decide how this interacts with CRDT merge.
 
 ## Status
 
-Open
+Completed
 
 ## Priority
 

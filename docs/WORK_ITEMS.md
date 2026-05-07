@@ -1,6 +1,6 @@
 # Cosplay America Schedule - Work Item
 
-Updated on: Wed May  6 22:52:34 2026
+Updated on: Wed May  6 23:47:45 2026
 
 ## Completed
 
@@ -76,6 +76,8 @@ relying solely on `EdgeDescriptor` and `canonical_owner()`.
 cross-partition edge exclusivity declaratively.
 * [FEATURE-079] Add UUID conflict detection to entity creation and expand UuidPreference with "prefer" variants that allow fallback to alternate UUIDs.
 * [FEATURE-081] Implement a UUID-indexed sidecar structure to track where each entity came from (file, sheet, row) separate from the CRDT schedule document.
+* [FEATURE-082] Preserve unknown XLSX columns across import/export without encoding them as
+first-class entity fields, and decide how this interacts with CRDT merge.
 * [META-002] Phase tracker for project foundation and Cargo workspace setup.
 * [META-003] Phase tracker for the entity/field system and core schedule data model in schedule-core.
 * [META-004] Phase tracker for making an automerge CRDT document the authoritative storage
@@ -138,7 +140,7 @@ above panelists and groups.
 
 ## Summary of Open Items
 
-**Total open items:** 16
+**Total open items:** 15
 
 * **Meta / Project-Level**
   * [META-001] Meta work item tracking the full multi-phase redesign of the schedule system. (Blocked by [META-007], [META-008])
@@ -153,8 +155,6 @@ file, preserving formatting, formulas, extra columns, and non-standard content.
 * **Medium Priority**
   * [FEATURE-026] Support multiple convention years in a single schedule file for historical
 reference and jump-starting new conventions.
-  * [FEATURE-082] ([META-102]) Preserve unknown XLSX columns across import/export without encoding them as
-first-class entity fields, and decide how this interacts with CRDT merge.
   * [FEATURE-103] ([META-102]) Compare and document the field definitions between the current main branch, v9, v10-try1, and v10-try3 to identify gaps and ensure complete coverage.
 
 * **Low Priority**
@@ -284,25 +284,6 @@ enabling:
 * **Jump-start**: Copy entities from a prior year to pre-populate the next
   convention (recurring panels, returning presenters, same rooms)
 * **Historical reference**: View past schedules alongside the current one
-
----
-
-### [FEATURE-082] FEATURE-082: Extended Entity Metadata (Unknown XLSX Columns)
-
-**Status:** Open
-
-**Priority:** Medium
-
-**Summary:** Preserve unknown XLSX columns across import/export without encoding them as
-first-class entity fields, and decide how this interacts with CRDT merge.
-
-**Part of:** [META-102]
-
-**Description:** When importing an XLSX spreadsheet, columns that are not recognized by the
-importer (e.g., custom convention-specific fields, computed legacy columns like
-`Lstart`/`Lend`, or future columns not yet in the schema) are currently silently
-dropped. For round-trip fidelity (import → edit → export → same spreadsheet) they
-should be preserved.
 
 ---
 
@@ -616,7 +597,7 @@ to exchange CRDT changes and reconcile concurrent edits to the same fields.
 [FEATURE-077]: work-item/low/FEATURE-077.md
 [FEATURE-079]: work-item/done/FEATURE-079.md
 [FEATURE-081]: work-item/done/FEATURE-081.md
-[FEATURE-082]: work-item/medium/FEATURE-082.md
+[FEATURE-082]: work-item/done/FEATURE-082.md
 [FEATURE-083]: work-item/low/FEATURE-083.md
 [FEATURE-084]: work-item/high/FEATURE-084.md
 [FEATURE-099]: work-item/low/FEATURE-099.md

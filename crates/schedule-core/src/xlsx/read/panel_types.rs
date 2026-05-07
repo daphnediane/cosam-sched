@@ -13,14 +13,17 @@ use chrono::{DateTime, Utc};
 use umya_spreadsheet::Spreadsheet;
 
 use crate::edit::builder::build_entity;
-use crate::entity::{EntityUuid, UuidPreference};
+use crate::entity::{EntityType, EntityUuid, UuidPreference};
 use crate::field::set::FieldUpdate;
 use crate::schedule::Schedule;
 use crate::sidecar::{EntityOrigin, XlsxSourceInfo};
 use crate::tables::panel_type::{self, PanelTypeEntityType, PanelTypeId};
 use crate::xlsx::columns::panel_types as pt;
 
-use super::{build_column_map, find_data_range, get_field_def, is_truthy, row_to_map};
+use super::{
+    build_column_map, find_data_range, get_field_def, is_truthy, known_field_key_set,
+    route_extra_columns, row_to_map,
+};
 
 /// Read the PanelTypes sheet and populate the schedule with PanelType entities.
 ///
@@ -50,6 +53,7 @@ pub(super) fn read_panel_types_into(
     }
 
     let (raw_headers, canonical_headers, _col_map) = build_column_map(ws, &range);
+    let known_keys = known_field_key_set(pt::ALL, &[]);
 
     for row in (range.header_row + 1)..=range.end_row {
         let data = row_to_map(ws, row, &range, &raw_headers, &canonical_headers);
@@ -139,6 +143,18 @@ pub(super) fn read_panel_types_into(
                         row_index: row,
                         import_time,
                     }),
+                );
+                route_extra_columns(
+                    ws,
+                    row,
+                    &range,
+                    &raw_headers,
+                    &canonical_headers,
+                    &known_keys,
+                    &[],
+                    id.entity_uuid(),
+                    PanelTypeEntityType::TYPE_NAME,
+                    schedule,
                 );
                 lookup.insert(prefix, id);
             }

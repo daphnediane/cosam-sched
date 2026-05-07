@@ -12,6 +12,7 @@ use std::path::Path;
 use anyhow::Result;
 use umya_spreadsheet::structs::Worksheet;
 
+use crate::entity::{EntityType, EntityUuid};
 use crate::schedule::Schedule;
 use crate::tables::event_room::{self, EventRoomEntityType};
 use crate::tables::hotel_room::HotelRoomEntityType;
@@ -25,8 +26,8 @@ use super::common::{add_table, set_headers, set_opt, set_str};
 const MIN_PANELS_FOR_NAMED_COLUMN: usize = 3;
 const TIME_FMT: &str = "%Y-%m-%dT%H:%M:%S";
 
-// Number of fixed data columns before presenter columns (ALL minus LSTART and LEND).
-const FIXED_COL_COUNT: u32 = (sched_cols::ALL.len() - 2) as u32;
+// Number of fixed data columns before presenter columns.
+const FIXED_COL_COUNT: u32 = sched_cols::ALL.len() as u32;
 
 /// Derive the 1-based column number of `field` within `all`.
 ///
@@ -37,6 +38,42 @@ fn col_of(all: &[FieldDef], field: &FieldDef) -> u32 {
         .position(|f| f.canonical == field.canonical)
         .unwrap_or_else(|| panic!("FieldDef '{}' not in column list", field.export)) as u32
         + 1
+}
+
+/// Collect all unique extra-field keys across all entities of type `E`,
+/// in stable insertion order (first key seen wins ordering).
+fn collect_extra_keys<E: EntityType>(schedule: &Schedule) -> Vec<String> {
+    let mut seen: HashSet<String> = HashSet::new();
+    let mut keys: Vec<String> = Vec::new();
+    for (id, _) in schedule.iter_entities::<E>() {
+        for (k, _) in schedule.list_extra_fields(E::TYPE_NAME, id.entity_uuid()) {
+            if seen.insert(k.clone()) {
+                keys.push(k);
+            }
+        }
+    }
+    keys
+}
+
+/// Write extra-field values for a single entity row, given the ordered key list
+/// and the starting column number for extra fields.
+fn write_extra_fields(
+    ws: &mut Worksheet,
+    row: u32,
+    type_name: &str,
+    uuid: uuid::NonNilUuid,
+    extra_keys: &[String],
+    extra_start_col: u32,
+    schedule: &Schedule,
+) {
+    for (i, key) in extra_keys.iter().enumerate() {
+        if let Some(val) = schedule.read_extra_field(type_name, uuid, key) {
+            if !val.is_empty() {
+                ws.get_cell_mut((extra_start_col + i as u32, row))
+                    .set_value(val);
+            }
+        }
+    }
 }
 
 struct ExportPresenterColumn {
@@ -51,6 +88,11 @@ pub(super) fn export_xlsx(schedule: &Schedule, path: &Path) -> Result<()> {
 
     let presenter_cols = build_presenter_columns(schedule);
 
+    let panel_extra_keys = collect_extra_keys::<PanelEntityType>(schedule);
+    let room_extra_keys = collect_extra_keys::<EventRoomEntityType>(schedule);
+    let presenter_extra_keys = collect_extra_keys::<PresenterEntityType>(schedule);
+    let panel_type_extra_keys = collect_extra_keys::<PanelTypeEntityType>(schedule);
+
     // ── Schedule sheet ────────────────────────────────────────────────────────
     {
         let ws = book
@@ -58,17 +100,18 @@ pub(super) fn export_xlsx(schedule: &Schedule, path: &Path) -> Result<()> {
             .ok_or_else(|| anyhow::anyhow!("No default sheet in new workbook"))?;
         ws.set_name("Schedule");
 
-        let last_row = write_schedule_sheet(ws, schedule, &presenter_cols);
+        let last_row = write_schedule_sheet(ws, schedule, &presenter_cols, &panel_extra_keys);
 
-        let mut all_headers: Vec<&str> = sched_cols::ALL[..FIXED_COL_COUNT as usize]
-            .iter()
-            .map(|f| f.export)
-            .collect();
+        let mut all_headers: Vec<&str> = sched_cols::ALL.iter().map(|f| f.export).collect();
         for col in &presenter_cols {
             all_headers.push(col.header.as_str());
         }
-        all_headers.push(sched_cols::LSTART.export);
-        all_headers.push(sched_cols::LEND.export);
+        for k in &panel_extra_keys {
+            all_headers.push(k.as_str());
+        }
+        for fc in sched_cols::FORMULA_COLUMNS {
+            all_headers.push(fc.export);
+        }
 
         add_table(ws, "Schedule", &all_headers, last_row);
     }
@@ -78,8 +121,11 @@ pub(super) fn export_xlsx(schedule: &Schedule, path: &Path) -> Result<()> {
         let ws = book
             .new_sheet("Rooms")
             .map_err(|e| anyhow::anyhow!("Cannot create Rooms sheet: {e}"))?;
-        let last_row = write_rooms_sheet(ws, schedule);
-        let headers: Vec<&str> = room_map::ALL.iter().map(|f| f.export).collect();
+        let last_row = write_rooms_sheet(ws, schedule, &room_extra_keys);
+        let mut headers: Vec<&str> = room_map::ALL.iter().map(|f| f.export).collect();
+        for k in &room_extra_keys {
+            headers.push(k.as_str());
+        }
         add_table(ws, "RoomMap", &headers, last_row);
     }
 
@@ -88,8 +134,11 @@ pub(super) fn export_xlsx(schedule: &Schedule, path: &Path) -> Result<()> {
         let ws = book
             .new_sheet("People")
             .map_err(|e| anyhow::anyhow!("Cannot create People sheet: {e}"))?;
-        let last_row = write_people_sheet(ws, schedule);
-        let headers: Vec<&str> = people::ALL.iter().map(|f| f.export).collect();
+        let last_row = write_people_sheet(ws, schedule, &presenter_extra_keys);
+        let mut headers: Vec<&str> = people::ALL.iter().map(|f| f.export).collect();
+        for k in &presenter_extra_keys {
+            headers.push(k.as_str());
+        }
         add_table(ws, "Presenters", &headers, last_row);
     }
 
@@ -98,8 +147,11 @@ pub(super) fn export_xlsx(schedule: &Schedule, path: &Path) -> Result<()> {
         let ws = book
             .new_sheet("PanelTypes")
             .map_err(|e| anyhow::anyhow!("Cannot create PanelTypes sheet: {e}"))?;
-        let last_row = write_panel_types_sheet(ws, schedule);
-        let headers: Vec<&str> = panel_types::ALL.iter().map(|f| f.export).collect();
+        let last_row = write_panel_types_sheet(ws, schedule, &panel_type_extra_keys);
+        let mut headers: Vec<&str> = panel_types::ALL.iter().map(|f| f.export).collect();
+        for k in &panel_type_extra_keys {
+            headers.push(k.as_str());
+        }
         add_table(ws, "Prefix", &headers, last_row);
     }
 
@@ -213,23 +265,29 @@ fn write_schedule_sheet(
     ws: &mut Worksheet,
     schedule: &Schedule,
     presenter_cols: &[ExportPresenterColumn],
+    extra_keys: &[String],
 ) -> u32 {
     // Write headers.
-    let fixed_headers: Vec<&str> = sched_cols::ALL[..FIXED_COL_COUNT as usize]
-        .iter()
-        .map(|f| f.export)
-        .collect();
+    let fixed_headers: Vec<&str> = sched_cols::ALL.iter().map(|f| f.export).collect();
     set_headers(ws, &fixed_headers);
     for (i, col) in presenter_cols.iter().enumerate() {
         let c = FIXED_COL_COUNT + i as u32 + 1;
         ws.get_cell_mut((c, 1)).set_value(col.header.as_str());
     }
-    let lstart_col = FIXED_COL_COUNT + presenter_cols.len() as u32 + 1;
-    let lend_col = lstart_col + 1;
-    ws.get_cell_mut((lstart_col, 1))
-        .set_value(sched_cols::LSTART.export);
-    ws.get_cell_mut((lend_col, 1))
-        .set_value(sched_cols::LEND.export);
+    // Extra data-field headers after presenter columns.
+    let extra_start_col = FIXED_COL_COUNT + presenter_cols.len() as u32 + 1;
+    for (i, k) in extra_keys.iter().enumerate() {
+        ws.get_cell_mut((extra_start_col + i as u32, 1))
+            .set_value(k.as_str());
+    }
+    // Formula column headers last.
+    let formula_start_col = extra_start_col + extra_keys.len() as u32;
+    for (i, fc) in sched_cols::FORMULA_COLUMNS.iter().enumerate() {
+        ws.get_cell_mut((formula_start_col + i as u32, 1))
+            .set_value(fc.export);
+    }
+    let lstart_col = formula_start_col;
+    let lend_col = formula_start_col + 1;
 
     // Build presenter ID lookup: named presenter_id → column index.
     let named_col_lookup: std::collections::HashMap<PresenterId, u32> = presenter_cols
@@ -438,25 +496,39 @@ fn write_schedule_sheet(
             }
         }
 
-        // ── Lstart / Lend formula columns ─────────────────────────────────────
-        let lstart_formula =
-            "IF(ISBLANK([@[Start Time]]),MAX([Start Time])+TIME(80,0,0),[@[Start Time]])";
-        let cell = ws.get_cell_mut((lstart_col, row));
-        cell.set_formula(lstart_formula);
-        if let Some(start) = panel.time_slot.start_time() {
-            cell.set_value(start.format(TIME_FMT).to_string());
-        } else {
-            cell.set_value("");
+        // ── Lstart / Lend formula columns (driven by FORMULA_COLUMNS) ────────
+        if let Some(lstart_fc) = sched_cols::FORMULA_COLUMNS.first() {
+            if let Some(formula) = lstart_fc.regenerate {
+                let cell = ws.get_cell_mut((lstart_col, row));
+                cell.set_formula(formula);
+                if let Some(start) = panel.time_slot.start_time() {
+                    cell.set_value(start.format(TIME_FMT).to_string());
+                } else {
+                    cell.set_value("");
+                }
+            }
+        }
+        if let Some(lend_fc) = sched_cols::FORMULA_COLUMNS.get(1) {
+            if let Some(formula) = lend_fc.regenerate {
+                let cell = ws.get_cell_mut((lend_col, row));
+                cell.set_formula(formula);
+                if let Some(end) = panel.time_slot.end_time() {
+                    cell.set_value(end.format(TIME_FMT).to_string());
+                } else {
+                    cell.set_value("");
+                }
+            }
         }
 
-        let lend_formula = "[@Lstart]+IF(ISBLANK([@Duration]),0,[@Duration])";
-        let cell = ws.get_cell_mut((lend_col, row));
-        cell.set_formula(lend_formula);
-        if let Some(end) = panel.time_slot.end_time() {
-            cell.set_value(end.format(TIME_FMT).to_string());
-        } else {
-            cell.set_value("");
-        }
+        write_extra_fields(
+            ws,
+            row,
+            PanelEntityType::TYPE_NAME,
+            panel_id.entity_uuid(),
+            extra_keys,
+            extra_start_col,
+            schedule,
+        );
 
         row += 1;
     }
@@ -464,8 +536,11 @@ fn write_schedule_sheet(
     row - 1
 }
 
-fn write_rooms_sheet(ws: &mut Worksheet, schedule: &Schedule) -> u32 {
-    let headers: Vec<&str> = room_map::ALL.iter().map(|f| f.export).collect();
+fn write_rooms_sheet(ws: &mut Worksheet, schedule: &Schedule, extra_keys: &[String]) -> u32 {
+    let mut headers: Vec<&str> = room_map::ALL.iter().map(|f| f.export).collect();
+    for k in extra_keys {
+        headers.push(k.as_str());
+    }
     set_headers(ws, &headers);
 
     // Sort rooms by sort_key (None last), then room_name.
@@ -484,6 +559,7 @@ fn write_rooms_sheet(ws: &mut Worksheet, schedule: &Schedule) -> u32 {
     let c_sort_key = c(&room_map::SORT_KEY);
     let c_long_name = c(&room_map::LONG_NAME);
     let c_hotel_room = c(&room_map::HOTEL_ROOM);
+    let extra_start_col = room_map::ALL.len() as u32 + 1;
 
     let mut row = 2u32;
     for (room_id, room) in &rooms {
@@ -501,13 +577,26 @@ fn write_rooms_sheet(ws: &mut Worksheet, schedule: &Schedule) -> u32 {
             .map(|hr| hr.data.hotel_room_name.clone());
         set_opt(ws, c_hotel_room, row, &hotel_name);
 
+        write_extra_fields(
+            ws,
+            row,
+            EventRoomEntityType::TYPE_NAME,
+            room_id.entity_uuid(),
+            extra_keys,
+            extra_start_col,
+            schedule,
+        );
+
         row += 1;
     }
     row - 1
 }
 
-fn write_people_sheet(ws: &mut Worksheet, schedule: &Schedule) -> u32 {
-    let headers: Vec<&str> = people::ALL.iter().map(|f| f.export).collect();
+fn write_people_sheet(ws: &mut Worksheet, schedule: &Schedule, extra_keys: &[String]) -> u32 {
+    let mut headers: Vec<&str> = people::ALL.iter().map(|f| f.export).collect();
+    for k in extra_keys {
+        headers.push(k.as_str());
+    }
     set_headers(ws, &headers);
 
     // Sort by rank priority (ascending), then name.
@@ -526,9 +615,10 @@ fn write_people_sheet(ws: &mut Worksheet, schedule: &Schedule) -> u32 {
     let c_is_group = c(&people::IS_GROUP);
     let c_always_grouped = c(&people::ALWAYS_GROUPED);
     let c_always_shown = c(&people::ALWAYS_SHOWN);
+    let extra_start_col = people::ALL.len() as u32 + 1;
 
     let mut row = 2u32;
-    for (_, presenter) in &presenters {
+    for (presenter_id, presenter) in &presenters {
         set_str(ws, c_person, row, &presenter.data.name);
         set_str(ws, c_classification, row, presenter.data.rank.as_str());
         if presenter.data.is_explicit_group {
@@ -540,13 +630,25 @@ fn write_people_sheet(ws: &mut Worksheet, schedule: &Schedule) -> u32 {
         if presenter.data.always_shown_in_group {
             set_str(ws, c_always_shown, row, "Yes");
         }
+        write_extra_fields(
+            ws,
+            row,
+            PresenterEntityType::TYPE_NAME,
+            presenter_id.entity_uuid(),
+            extra_keys,
+            extra_start_col,
+            schedule,
+        );
         row += 1;
     }
     row - 1
 }
 
-fn write_panel_types_sheet(ws: &mut Worksheet, schedule: &Schedule) -> u32 {
-    let headers: Vec<&str> = panel_types::ALL.iter().map(|f| f.export).collect();
+fn write_panel_types_sheet(ws: &mut Worksheet, schedule: &Schedule, extra_keys: &[String]) -> u32 {
+    let mut headers: Vec<&str> = panel_types::ALL.iter().map(|f| f.export).collect();
+    for k in extra_keys {
+        headers.push(k.as_str());
+    }
     set_headers(ws, &headers);
 
     // Sort by prefix.
@@ -565,9 +667,10 @@ fn write_panel_types_sheet(ws: &mut Worksheet, schedule: &Schedule) -> u32 {
     let c_is_workshop = c(&panel_types::IS_WORKSHOP);
     let c_is_rh = c(&panel_types::IS_ROOM_HOURS);
     let c_is_cafe = c(&panel_types::IS_CAFE);
+    let extra_start_col = panel_types::ALL.len() as u32 + 1;
 
     let mut row = 2u32;
-    for (_, pt) in &types {
+    for (pt_id, pt) in &types {
         set_str(ws, c_prefix, row, &pt.data.prefix);
         set_str(ws, c_panel_kind, row, &pt.data.panel_kind);
         set_opt(ws, c_color, row, &pt.data.color);
@@ -593,6 +696,15 @@ fn write_panel_types_sheet(ws: &mut Worksheet, schedule: &Schedule) -> u32 {
         if pt.data.is_cafe {
             set_str(ws, c_is_cafe, row, "Yes");
         }
+        write_extra_fields(
+            ws,
+            row,
+            PanelTypeEntityType::TYPE_NAME,
+            pt_id.entity_uuid(),
+            extra_keys,
+            extra_start_col,
+            schedule,
+        );
         row += 1;
     }
     row - 1

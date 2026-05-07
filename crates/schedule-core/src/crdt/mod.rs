@@ -475,6 +475,95 @@ pub fn rehydrate_entity<E: EntityBuildable>(
     build_entity::<E>(schedule, UuidPreference::Exact(uuid), updates).map(|id| id.entity_uuid())
 }
 
+// ── Extra fields (__extra nested map) ─────────────────────────────────────────
+
+/// Key used for the extra-fields child map inside each entity map.
+pub const EXTRA_KEY: &str = "__extra";
+
+/// Get-or-create the `__extra` map for an entity.
+fn ensure_extra_map(doc: &mut AutoCommit, type_name: &str, uuid: NonNilUuid) -> CrdtResult<ObjId> {
+    let entity = ensure_entity_map(doc, type_name, uuid)?;
+    ensure_map(doc, &entity, EXTRA_KEY)
+}
+
+/// Read the `__extra` map for an entity without creating it.
+fn get_extra_map(doc: &AutoCommit, type_name: &str, uuid: NonNilUuid) -> Option<ObjId> {
+    let entity = get_entity_map(doc, type_name, uuid)?;
+    match doc.get(&entity, EXTRA_KEY).ok()?? {
+        (Value::Object(ObjType::Map), id) => Some(id),
+        _ => None,
+    }
+}
+
+/// Write a string value to an extra field, creating `__extra` if needed.
+pub fn write_extra_field(
+    doc: &mut AutoCommit,
+    type_name: &str,
+    uuid: NonNilUuid,
+    key: &str,
+    value: &str,
+) -> CrdtResult<()> {
+    let extra = ensure_extra_map(doc, type_name, uuid)?;
+    doc.put(&extra, key, ScalarValue::Str(value.into()))?;
+    Ok(())
+}
+
+/// Delete an extra field if it exists.
+pub fn delete_extra_field(
+    doc: &mut AutoCommit,
+    type_name: &str,
+    uuid: NonNilUuid,
+    key: &str,
+) -> CrdtResult<()> {
+    let Some(extra) = get_extra_map(doc, type_name, uuid) else {
+        return Ok(());
+    };
+    if doc.get(&extra, key)?.is_some() {
+        doc.delete(&extra, key)?;
+    }
+    Ok(())
+}
+
+/// Read one extra field value, or `None` if the key or map is absent.
+#[must_use]
+pub fn read_extra_field(
+    doc: &AutoCommit,
+    type_name: &str,
+    uuid: NonNilUuid,
+    key: &str,
+) -> Option<String> {
+    let extra = get_extra_map(doc, type_name, uuid)?;
+    match doc.get(&extra, key).ok()?? {
+        (Value::Scalar(sv), _) => match sv.as_ref() {
+            ScalarValue::Str(s) => Some(s.to_string()),
+            _ => None,
+        },
+        _ => None,
+    }
+}
+
+/// Return all `(key, value)` pairs stored in the `__extra` map, or an empty
+/// vec if the map does not exist.
+#[must_use]
+pub fn list_extra_fields(
+    doc: &AutoCommit,
+    type_name: &str,
+    uuid: NonNilUuid,
+) -> Vec<(String, String)> {
+    let Some(extra) = get_extra_map(doc, type_name, uuid) else {
+        return Vec::new();
+    };
+    doc.keys(&extra)
+        .filter_map(|k| match doc.get(&extra, &k).ok()?? {
+            (Value::Scalar(sv), _) => match sv.as_ref() {
+                ScalarValue::Str(s) => Some((k, s.to_string())),
+                _ => None,
+            },
+            _ => None,
+        })
+        .collect()
+}
+
 pub mod edge;
 
 pub use edge::*;
@@ -482,6 +571,11 @@ pub use edge::*;
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    fn test_uuid() -> NonNilUuid {
+        let u = uuid::Uuid::parse_str("550e8400-e29b-41d4-a716-446655440002").unwrap();
+        NonNilUuid::new(u).unwrap()
+    }
 
     #[test]
     fn test_crdt_field_type_variants() {
@@ -492,5 +586,56 @@ mod tests {
             CrdtFieldType::Derived,
         ];
         assert_eq!(non_edge.len(), 4);
+    }
+
+    #[test]
+    fn test_extra_field_write_read() {
+        let mut doc = AutoCommit::new();
+        let uuid = test_uuid();
+        write_extra_field(&mut doc, "panel", uuid, "Tech Notes", "bring extra cable").unwrap();
+        assert_eq!(
+            read_extra_field(&doc, "panel", uuid, "Tech Notes").as_deref(),
+            Some("bring extra cable")
+        );
+    }
+
+    #[test]
+    fn test_extra_field_absent_returns_none() {
+        let doc = AutoCommit::new();
+        assert!(read_extra_field(&doc, "panel", test_uuid(), "missing").is_none());
+    }
+
+    #[test]
+    fn test_extra_field_delete() {
+        let mut doc = AutoCommit::new();
+        let uuid = test_uuid();
+        write_extra_field(&mut doc, "panel", uuid, "key", "val").unwrap();
+        delete_extra_field(&mut doc, "panel", uuid, "key").unwrap();
+        assert!(read_extra_field(&doc, "panel", uuid, "key").is_none());
+    }
+
+    #[test]
+    fn test_extra_fields_list_and_roundtrip() {
+        let mut doc = AutoCommit::new();
+        let uuid = test_uuid();
+        write_extra_field(&mut doc, "panel", uuid, "A", "1").unwrap();
+        write_extra_field(&mut doc, "panel", uuid, "B", "2").unwrap();
+        let fields = list_extra_fields(&doc, "panel", uuid);
+        assert_eq!(fields.len(), 2);
+        assert!(fields.iter().any(|(k, v)| k == "A" && v == "1"));
+        assert!(fields.iter().any(|(k, v)| k == "B" && v == "2"));
+    }
+
+    #[test]
+    fn test_extra_fields_survive_save_load() {
+        let mut doc = AutoCommit::new();
+        let uuid = test_uuid();
+        write_extra_field(&mut doc, "panel", uuid, "Notes", "check mic").unwrap();
+        let bytes = doc.save();
+        let doc2 = AutoCommit::load(&bytes).unwrap();
+        assert_eq!(
+            read_extra_field(&doc2, "panel", uuid, "Notes").as_deref(),
+            Some("check mic")
+        );
     }
 }

@@ -30,7 +30,10 @@ use crate::sidecar::{EntityOrigin, XlsxSourceInfo};
 use crate::tables::presenter::{self, PresenterEntityType, PresenterRank};
 use crate::xlsx::columns::people as pc;
 
-use super::{build_column_map, find_data_range, get_field_def, is_truthy, row_to_map};
+use super::{
+    build_column_map, find_data_range, get_field_def, is_truthy, known_field_key_set,
+    route_extra_columns, row_to_map,
+};
 
 /// Read the People sheet and populate the schedule with Presenter entities.
 ///
@@ -65,6 +68,7 @@ pub(super) fn read_people_into(
     }
 
     let (raw_headers, canonical_headers, _col_map) = build_column_map(ws, &range);
+    let known_keys = known_field_key_set(pc::ALL, &[]);
 
     for row in (range.header_row + 1)..=range.end_row {
         let data = row_to_map(ws, row, &range, &raw_headers, &canonical_headers);
@@ -130,6 +134,18 @@ pub(super) fn read_people_into(
                             row_index: row,
                             import_time,
                         }),
+                    );
+                    route_extra_columns(
+                        ws,
+                        row,
+                        &range,
+                        &raw_headers,
+                        &canonical_headers,
+                        &known_keys,
+                        &[],
+                        id.entity_uuid(),
+                        PresenterEntityType::TYPE_NAME,
+                        schedule,
                     );
                 }
                 Err(e) => eprintln!("xlsx import: skipping presenter {name:?}: {e}"),

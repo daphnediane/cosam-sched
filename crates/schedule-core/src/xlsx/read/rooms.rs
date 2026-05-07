@@ -13,7 +13,7 @@ use chrono::{DateTime, Utc};
 use umya_spreadsheet::Spreadsheet;
 
 use crate::edit::builder::build_entity;
-use crate::entity::{EntityUuid, UuidPreference};
+use crate::entity::{EntityType, EntityUuid, UuidPreference};
 use crate::field::set::FieldUpdate;
 use crate::schedule::Schedule;
 use crate::sidecar::{EntityOrigin, XlsxSourceInfo};
@@ -21,7 +21,10 @@ use crate::tables::event_room::{self, EventRoomEntityType, EventRoomId};
 use crate::tables::hotel_room::{self, HotelRoomEntityType};
 use crate::xlsx::columns::room_map;
 
-use super::{build_column_map, find_data_range, get_field_def, row_to_map};
+use super::{
+    build_column_map, find_data_range, get_field_def, known_field_key_set, route_extra_columns,
+    row_to_map,
+};
 
 /// Read the Rooms sheet and populate the schedule with EventRoom and HotelRoom entities.
 ///
@@ -52,6 +55,7 @@ pub(super) fn read_rooms_into(
     }
 
     let (raw_headers, canonical_headers, _col_map) = build_column_map(ws, &range);
+    let known_keys = known_field_key_set(room_map::ALL, &[]);
 
     for row in (range.header_row + 1)..=range.end_row {
         let data = row_to_map(ws, row, &range, &raw_headers, &canonical_headers);
@@ -109,6 +113,18 @@ pub(super) fn read_rooms_into(
                 row_index: row,
                 import_time,
             }),
+        );
+        route_extra_columns(
+            ws,
+            row,
+            &range,
+            &raw_headers,
+            &canonical_headers,
+            &known_keys,
+            &[],
+            room_id.entity_uuid(),
+            EventRoomEntityType::TYPE_NAME,
+            schedule,
         );
 
         // Register under both room_name (lowercase) and long_name for lookup.

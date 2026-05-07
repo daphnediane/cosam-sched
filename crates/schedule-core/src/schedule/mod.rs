@@ -151,6 +151,50 @@ impl Schedule {
         }
     }
 
+    // ── Extra fields (CRDT __extra map) ──────────────────────────────────────
+
+    /// Read a dynamic extra field value for an entity.
+    ///
+    /// Extra fields are stored in the CRDT doc under
+    /// `entities/{type_name}/{uuid}/__extra/{key}` and survive save/load.
+    /// Returns `None` if the key or entity is absent.
+    #[must_use]
+    pub fn read_extra_field(&self, type_name: &str, uuid: NonNilUuid, key: &str) -> Option<String> {
+        crate::crdt::read_extra_field(&self.doc, type_name, uuid, key)
+    }
+
+    /// Write a dynamic extra field value for an entity.
+    ///
+    /// Creates the `__extra` map if needed. Marks the entity `Modified` in
+    /// the change tracker.
+    pub fn write_extra_field(
+        &mut self,
+        type_name: &str,
+        uuid: NonNilUuid,
+        key: &str,
+        value: &str,
+    ) -> crate::crdt::CrdtResult<()> {
+        crate::crdt::write_extra_field(&mut self.doc, type_name, uuid, key, value)?;
+        self.mark_entity_changed(uuid, ChangeState::Modified);
+        Ok(())
+    }
+
+    /// Delete a dynamic extra field, if it exists.
+    pub fn delete_extra_field(
+        &mut self,
+        type_name: &str,
+        uuid: NonNilUuid,
+        key: &str,
+    ) -> crate::crdt::CrdtResult<()> {
+        crate::crdt::delete_extra_field(&mut self.doc, type_name, uuid, key)
+    }
+
+    /// Return all `(key, value)` pairs in the extra fields map for an entity.
+    #[must_use]
+    pub fn list_extra_fields(&self, type_name: &str, uuid: NonNilUuid) -> Vec<(String, String)> {
+        crate::crdt::list_extra_fields(&self.doc, type_name, uuid)
+    }
+
     /// Create a new, empty schedule with a fresh v7 UUID.
     #[must_use]
     pub fn new() -> Self {

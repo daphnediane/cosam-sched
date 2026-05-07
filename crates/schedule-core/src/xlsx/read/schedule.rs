@@ -14,7 +14,7 @@ use regex::Regex;
 use umya_spreadsheet::Spreadsheet;
 
 use crate::edit::builder::build_entity;
-use crate::entity::{EntityUuid, UuidPreference};
+use crate::entity::{EntityType, EntityUuid, UuidPreference};
 use crate::field::set::FieldUpdate;
 use crate::schedule::Schedule;
 use crate::sidecar::{EntityOrigin, XlsxSourceInfo};
@@ -28,7 +28,8 @@ use crate::xlsx::columns::schedule as sc;
 
 use super::{
     build_column_map, find_data_range, get_cell_number, get_cell_str, is_truthy,
-    parse_presenter_header, row_to_map, PresenterColumn, PresenterHeader,
+    known_field_key_set, parse_presenter_header, route_extra_columns, row_to_map, PresenterColumn,
+    PresenterHeader,
 };
 
 /// Read the Schedule sheet and create Panel entities with all relationships.
@@ -78,6 +79,7 @@ pub(super) fn read_schedule_into(
     }
 
     let (raw_headers, canonical_headers, col_map) = build_column_map(ws, &range);
+    let known_keys = known_field_key_set(sc::ALL, &[sc::OLD_UNIQ_ID]);
 
     // Identify presenter columns.
     let presenter_cols: Vec<PresenterColumn> = raw_headers
@@ -359,6 +361,18 @@ pub(super) fn read_schedule_into(
                 row_index: row,
                 import_time,
             }),
+        );
+        route_extra_columns(
+            ws,
+            row,
+            &range,
+            &raw_headers,
+            &canonical_headers,
+            &known_keys,
+            sc::FORMULA_COLUMNS,
+            panel_id.entity_uuid(),
+            PanelEntityType::TYPE_NAME,
+            schedule,
         );
 
         // Wire edges.

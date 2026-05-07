@@ -21,7 +21,8 @@ use umya_spreadsheet::structs::Worksheet;
 use umya_spreadsheet::Spreadsheet;
 
 use crate::schedule::Schedule;
-use crate::xlsx::columns::FieldDef;
+use crate::sidecar::SidecarFormulaField;
+use crate::xlsx::columns::{FieldDef, FormulaColumnDef};
 
 pub use headers::canonical_header;
 pub(crate) use headers::{parse_presenter_header, PresenterColumn, PresenterHeader};
@@ -299,4 +300,117 @@ pub(super) fn get_field_def<'a>(
 pub(super) fn is_truthy(value: &str) -> bool {
     let lower = value.trim().to_lowercase();
     !lower.is_empty() && lower != "0" && lower != "no" && lower != "false"
+}
+
+// ── Extra-column routing ──────────────────────────────────────────────────────
+
+/// Route all columns not in `known_field_keys` for a given row to either the
+/// CRDT `__extra` map or the sidecar `formula_extras`, following the priority:
+///
+/// 1. Explicit ignore (e.g. `OLD_UNIQ_ID`) — skipped before this call.
+/// 2. [`FormulaColumnDef`] list → sidecar `formula_extras`.
+/// 3. [`crate::extra_field::ExtraFieldDescriptor`] registry → CRDT `__extra`.
+/// 4. Unknown: formula cell → sidecar; plain value → CRDT `__extra`.
+///
+/// `known_field_keys` should be the union of all canonical keys and aliases
+/// from the sheet's `FieldDef::ALL` slice plus any explicitly-ignored columns.
+#[allow(clippy::too_many_arguments)]
+pub(super) fn route_extra_columns(
+    ws: &Worksheet,
+    row: u32,
+    range: &DataRange,
+    raw_headers: &[String],
+    canonical_headers: &[Option<String>],
+    known_field_keys: &std::collections::HashSet<String>,
+    formula_columns: &[FormulaColumnDef],
+    entity_uuid: uuid::NonNilUuid,
+    entity_type_name: &str,
+    schedule: &mut Schedule,
+) {
+    for (i, col) in (range.start_col..=range.end_col).enumerate() {
+        let raw = &raw_headers[i];
+        if raw.is_empty() {
+            continue;
+        }
+        let canonical = match &canonical_headers[i] {
+            Some(c) => c.as_str(),
+            None => continue,
+        };
+        // Skip columns already handled by the field system.
+        if known_field_keys.contains(canonical) {
+            continue;
+        }
+
+        // --- Step 2: FormulaColumnDef list → sidecar formula extras ---
+        let is_formula_col = formula_columns
+            .iter()
+            .any(|fd| fd.keys().any(|k| k == canonical));
+        if is_formula_col {
+            let formula_str = ws
+                .get_cell((col, row))
+                .map(|c| c.get_formula().to_string())
+                .filter(|f| !f.is_empty());
+            let display_value = get_cell_str(ws, col, row).unwrap_or_default();
+            if !display_value.is_empty() || formula_str.is_some() {
+                schedule.sidecar_mut().set_formula_extra(
+                    entity_uuid,
+                    raw.clone(),
+                    SidecarFormulaField {
+                        formula: formula_str,
+                        display_value,
+                    },
+                );
+            }
+            continue;
+        }
+
+        // --- Step 3: ExtraFieldDescriptor registry → CRDT __extra ---
+        if crate::extra_field::find_extra_descriptor(raw, entity_type_name).is_some() {
+            if let Some(value) = get_cell_str(ws, col, row) {
+                let _ = schedule.write_extra_field(entity_type_name, entity_uuid, raw, &value);
+            }
+            continue;
+        }
+
+        // --- Step 4: Unknown column: detect formula vs. plain value ---
+        let formula_str = ws
+            .get_cell((col, row))
+            .map(|c| c.get_formula().to_string())
+            .filter(|f| !f.is_empty());
+        let display_value = get_cell_str(ws, col, row).unwrap_or_default();
+
+        if let Some(formula) = formula_str {
+            // Formula cell → sidecar (preserve formula for update_xlsx round-trip)
+            if !display_value.is_empty() || !formula.is_empty() {
+                schedule.sidecar_mut().set_formula_extra(
+                    entity_uuid,
+                    raw.clone(),
+                    SidecarFormulaField {
+                        formula: Some(formula),
+                        display_value,
+                    },
+                );
+            }
+        } else if !display_value.is_empty() {
+            // Plain value → CRDT __extra (shared, merged between users)
+            let _ = schedule.write_extra_field(entity_type_name, entity_uuid, raw, &display_value);
+        }
+    }
+}
+
+/// Build the set of canonical keys that belong to the field system for a sheet.
+///
+/// Pass the sheet's `FieldDef::ALL` slice and any additional explicit-ignore
+/// columns (e.g. `&[sc::OLD_UNIQ_ID]`).
+pub(super) fn known_field_key_set(
+    all_fields: &[FieldDef],
+    ignore: &[FieldDef],
+) -> std::collections::HashSet<String> {
+    let mut set = std::collections::HashSet::new();
+    for fd in all_fields.iter().chain(ignore.iter()) {
+        for key in fd.keys() {
+            set.insert(key.to_string());
+        }
+    }
+    set
 }

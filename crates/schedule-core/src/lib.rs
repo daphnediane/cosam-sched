@@ -13,6 +13,7 @@ pub mod crdt;
 pub mod edge;
 pub mod edit;
 pub mod entity;
+pub mod extra_field;
 pub mod field;
 pub mod query;
 pub mod registry;
