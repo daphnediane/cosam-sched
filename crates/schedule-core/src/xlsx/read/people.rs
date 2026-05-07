@@ -19,12 +19,14 @@
 //! syntax on the Schedule sheet's presenter columns.
 
 use anyhow::Result;
+use chrono::{DateTime, Utc};
 use umya_spreadsheet::Spreadsheet;
 
 use crate::edit::builder::build_entity;
-use crate::entity::{EntityType, UuidPreference};
+use crate::entity::{EntityType, EntityUuid, UuidPreference};
 use crate::field::set::FieldUpdate;
 use crate::schedule::Schedule;
+use crate::sidecar::{EntityOrigin, XlsxSourceInfo};
 use crate::tables::presenter::{self, PresenterEntityType, PresenterRank};
 use crate::xlsx::columns::people as pc;
 
@@ -41,6 +43,8 @@ pub(super) fn read_people_into(
     book: &Spreadsheet,
     preferred: &str,
     schedule: &mut Schedule,
+    file_path: Option<&str>,
+    import_time: DateTime<Utc>,
 ) -> Result<()> {
     let range = match find_data_range(
         book,
@@ -117,7 +121,17 @@ pub(super) fn read_people_into(
                 FieldUpdate::set(&presenter::FIELD_ALWAYS_SHOWN_IN_GROUP, always_shown),
             ];
             match build_entity::<PresenterEntityType>(schedule, uuid_pref, updates) {
-                Ok(_) => {}
+                Ok(id) => {
+                    schedule.sidecar_mut().set_origin(
+                        id.entity_uuid(),
+                        EntityOrigin::Xlsx(XlsxSourceInfo {
+                            file_path: file_path.map(str::to_owned),
+                            sheet_name: range.sheet_name.clone(),
+                            row_index: row,
+                            import_time,
+                        }),
+                    );
+                }
                 Err(e) => eprintln!("xlsx import: skipping presenter {name:?}: {e}"),
             }
         }

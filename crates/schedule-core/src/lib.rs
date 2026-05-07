@@ -17,6 +17,7 @@ pub mod field;
 pub mod query;
 pub mod registry;
 pub mod schedule;
+pub mod sidecar;
 pub mod tables;
 pub mod value;
 pub mod xlsx;
@@ -31,3 +32,8 @@ pub use schedule_macro::{accessor_field_properties, callback_field_properties};
 
 // Re-exports from entity
 pub use entity::{DynamicEntityId, EntityId, EntityTyped, EntityUuid, RuntimeEntityId};
+
+// Re-exports from sidecar
+pub use sidecar::{
+    ChangeState, EntityOrigin, EntitySidecar, ScheduleSidecar, SidecarFormulaField, XlsxSourceInfo,
+};

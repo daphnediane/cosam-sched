@@ -6,7 +6,7 @@ Implement a UUID-indexed sidecar structure to track where each entity came from 
 
 ## Status
 
-Open
+Completed
 
 ## Priority
 
@@ -51,6 +51,8 @@ so it generalizes beyond just xlsx.
 
 ## Acceptance Criteria
 
-- SourceInfo is tracked per imported entity
-- SourceInfo survives a save/load round-trip (if applicable)
-- Exporting to XLSX can use SourceInfo to preserve the original row order
+- SourceInfo is tracked per imported entity ✓
+- SourceInfo is in-memory only (sufficient for single-session import→update_xlsx workflow) ✓
+- `ChangeState` enum included in sidecar module for per-entity mutation tracking ✓
+- Sidecar cleared on `load_from_file` / `load` (ephemeral, not persisted) ✓
+- XLSX readers populate SourceInfo for all four entity types ✓

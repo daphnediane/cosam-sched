@@ -73,12 +73,32 @@ pub fn import_xlsx(path: &Path, options: &XlsxImportOptions) -> Result<Schedule>
     let mut schedule = Schedule::new();
     schedule.metadata.modified_at = resolve_source_modified(&book, path);
 
-    let panel_type_lookup =
-        panel_types::read_panel_types_into(&book, &options.panel_types_table, &mut schedule)?;
-    let room_lookup = rooms::read_rooms_into(&book, &options.rooms_table, &mut schedule)?;
+    let file_path = path.to_str().map(str::to_owned);
+    let import_time = chrono::Utc::now();
+
+    let panel_type_lookup = panel_types::read_panel_types_into(
+        &book,
+        &options.panel_types_table,
+        &mut schedule,
+        file_path.as_deref(),
+        import_time,
+    )?;
+    let room_lookup = rooms::read_rooms_into(
+        &book,
+        &options.rooms_table,
+        &mut schedule,
+        file_path.as_deref(),
+        import_time,
+    )?;
 
     if !options.people_table.is_empty() {
-        people::read_people_into(&book, &options.people_table, &mut schedule)?;
+        people::read_people_into(
+            &book,
+            &options.people_table,
+            &mut schedule,
+            file_path.as_deref(),
+            import_time,
+        )?;
     }
 
     schedule::read_schedule_into(
@@ -87,6 +107,8 @@ pub fn import_xlsx(path: &Path, options: &XlsxImportOptions) -> Result<Schedule>
         &mut schedule,
         &room_lookup,
         &panel_type_lookup,
+        file_path.as_deref(),
+        import_time,
     )?;
 
     Ok(schedule)

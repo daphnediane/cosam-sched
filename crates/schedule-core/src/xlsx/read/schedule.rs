@@ -14,9 +14,10 @@ use regex::Regex;
 use umya_spreadsheet::Spreadsheet;
 
 use crate::edit::builder::build_entity;
-use crate::entity::UuidPreference;
+use crate::entity::{EntityUuid, UuidPreference};
 use crate::field::set::FieldUpdate;
 use crate::schedule::Schedule;
+use crate::sidecar::{EntityOrigin, XlsxSourceInfo};
 use crate::tables::event_room::EventRoomId;
 use crate::tables::panel::{self, PanelEntityType, PanelId};
 use crate::tables::panel_type::PanelTypeId;
@@ -37,6 +38,8 @@ pub(super) fn read_schedule_into(
     schedule: &mut Schedule,
     room_lookup: &HashMap<String, EventRoomId>,
     panel_type_lookup: &HashMap<String, PanelTypeId>,
+    file_path: Option<&str>,
+    import_time: chrono::DateTime<chrono::Utc>,
 ) -> Result<()> {
     let first_sheet_name = book
         .get_sheet_collection()
@@ -348,6 +351,15 @@ pub(super) fn read_schedule_into(
                 continue;
             }
         };
+        schedule.sidecar_mut().set_origin(
+            panel_id.entity_uuid(),
+            EntityOrigin::Xlsx(XlsxSourceInfo {
+                file_path: file_path.map(str::to_owned),
+                sheet_name: range.sheet_name.clone(),
+                row_index: row,
+                import_time,
+            }),
+        );
 
         // Wire edges.
         if !room_ids.is_empty() {

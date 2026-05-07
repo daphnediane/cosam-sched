@@ -1,6 +1,6 @@
 # Cosplay America Schedule - Work Item
 
-Updated on: Wed May  6 21:29:17 2026
+Updated on: Wed May  6 22:52:34 2026
 
 ## Completed
 
@@ -75,6 +75,7 @@ relying solely on `EdgeDescriptor` and `canonical_owner()`.
 `schedule-macro` crate; add an `exclusive_with:` clause to express
 cross-partition edge exclusivity declaratively.
 * [FEATURE-079] Add UUID conflict detection to entity creation and expand UuidPreference with "prefer" variants that allow fallback to alternate UUIDs.
+* [FEATURE-081] Implement a UUID-indexed sidecar structure to track where each entity came from (file, sheet, row) separate from the CRDT schedule document.
 * [META-002] Phase tracker for project foundation and Cargo workspace setup.
 * [META-003] Phase tracker for the entity/field system and core schedule data model in schedule-core.
 * [META-004] Phase tracker for making an automerge CRDT document the authoritative storage
@@ -137,7 +138,7 @@ above panelists and groups.
 
 ## Summary of Open Items
 
-**Total open items:** 17
+**Total open items:** 16
 
 * **Meta / Project-Level**
   * [META-001] Meta work item tracking the full multi-phase redesign of the schedule system. (Blocked by [META-007], [META-008])
@@ -146,7 +147,6 @@ above panelists and groups.
   * [META-102] Implement sidecar storage for provenance and extra metadata, and enable in-place XLSX updates.
 
 * **High Priority**
-  * [FEATURE-081] ([META-102]) Implement a UUID-indexed sidecar structure to track where each entity came from (file, sheet, row) separate from the CRDT schedule document.
   * [FEATURE-084] Implement `update_xlsx` to write schedule changes back into an existing XLSX
 file, preserving formatting, formulas, extra columns, and non-standard content.
 
@@ -240,53 +240,6 @@ panels arranged by time and room, with inline editing of entity fields.
 ---
 
 ## Open FEATURE Items
-
-### [FEATURE-081] FEATURE-081: Import Provenance / SourceInfo Sidecar
-
-**Status:** Open
-
-**Priority:** High
-
-**Summary:** Implement a UUID-indexed sidecar structure to track where each entity came from (file, sheet, row) separate from the CRDT schedule document.
-
-**Part of:** [META-102]
-
-**Description:** During XLSX import every entity has an origin: which file it was read from, which
-sheet, and which row. This "source info" is useful for:
-
-* Displaying provenance in the editor ("imported from 2026.xlsx row 42")
-* Round-trip update workflows (knowing which entities were xlsx-imported vs.
-  created in the editor)
-* Future merge-import (FEATURE-080): knowing a row's origin helps decide authority
-
-**Why not in the CRDT entity?**
-
-SourceInfo is import-specific and changes every re-import, so storing it as CRDT
-fields creates unnecessary history and awkward merge semantics (two replicas that
-import the same xlsx agree on source info, but a replica that created an entity
-programmatically has no source info, causing spurious conflicts).
-
-**Proposed design: UUID-indexed sidecar:**
-
-A `HashMap<NonNilUuid, SourceInfo>` stored alongside the schedule but outside the
-automerge doc. Possibilities:
-
-* In-memory only (lost on save/load — acceptable if only used for import→export
-  within one session)
-* Serialized into the native file envelope (an extra JSON chunk after the automerge
-  blob, indexed by UUID)
-* A separate `.provenance` file alongside the `.cosam` file
-
-The sidecar should also cover non-xlsx sources (e.g., "created in editor at time T")
-so it generalizes beyond just xlsx.
-
-**Open questions:**
-
-* Does the sidecar need to survive save/load for the current use cases?
-* Should SourceInfo be shared with the extra-metadata sidecar (FEATURE-082)?
-* What format: flat JSON map, or a structured envelope with version/type?
-
----
 
 ### [FEATURE-084] FEATURE-084: XLSX Spreadsheet Update (In-Place Save)
 
@@ -662,7 +615,7 @@ to exchange CRDT changes and reconcile concurrent edits to the same fields.
 [FEATURE-071]: work-item/done/FEATURE-071.md
 [FEATURE-077]: work-item/low/FEATURE-077.md
 [FEATURE-079]: work-item/done/FEATURE-079.md
-[FEATURE-081]: work-item/high/FEATURE-081.md
+[FEATURE-081]: work-item/done/FEATURE-081.md
 [FEATURE-082]: work-item/medium/FEATURE-082.md
 [FEATURE-083]: work-item/low/FEATURE-083.md
 [FEATURE-084]: work-item/high/FEATURE-084.md

@@ -9,12 +9,14 @@
 use std::collections::HashMap;
 
 use anyhow::Result;
+use chrono::{DateTime, Utc};
 use umya_spreadsheet::Spreadsheet;
 
 use crate::edit::builder::build_entity;
-use crate::entity::UuidPreference;
+use crate::entity::{EntityUuid, UuidPreference};
 use crate::field::set::FieldUpdate;
 use crate::schedule::Schedule;
+use crate::sidecar::{EntityOrigin, XlsxSourceInfo};
 use crate::tables::panel_type::{self, PanelTypeEntityType, PanelTypeId};
 use crate::xlsx::columns::panel_types as pt;
 
@@ -28,6 +30,8 @@ pub(super) fn read_panel_types_into(
     book: &Spreadsheet,
     preferred: &str,
     schedule: &mut Schedule,
+    file_path: Option<&str>,
+    import_time: DateTime<Utc>,
 ) -> Result<HashMap<String, PanelTypeId>> {
     let mut lookup: HashMap<String, PanelTypeId> = HashMap::new();
 
@@ -127,6 +131,15 @@ pub(super) fn read_panel_types_into(
 
         match build_entity::<PanelTypeEntityType>(schedule, uuid_pref, updates) {
             Ok(id) => {
+                schedule.sidecar_mut().set_origin(
+                    id.entity_uuid(),
+                    EntityOrigin::Xlsx(XlsxSourceInfo {
+                        file_path: file_path.map(str::to_owned),
+                        sheet_name: range.sheet_name.clone(),
+                        row_index: row,
+                        import_time,
+                    }),
+                );
                 lookup.insert(prefix, id);
             }
             Err(e) => {

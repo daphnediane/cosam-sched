@@ -108,6 +108,8 @@ impl Schedule {
         let mut sched = Self::new();
         sched.doc = doc;
         sched.rebuild_cache_from_doc()?;
+        sched.sidecar.clear();
+        sched.change_tracker.clear();
         Ok(sched)
     }
 
@@ -144,6 +146,13 @@ impl Schedule {
         out.extend_from_slice(&meta_len.to_le_bytes());
         out.extend_from_slice(&meta_json);
         out.extend_from_slice(&automerge_bytes);
+
+        // Clear ephemeral state: change tracker is reset after each successful
+        // save so the next update_xlsx only sees post-save mutations.
+        // The sidecar is NOT cleared here — it remains valid for update_xlsx
+        // calls in the same session immediately after save.
+        self.change_tracker.clear();
+
         out
     }
 
@@ -195,6 +204,10 @@ impl Schedule {
         sched.doc = doc;
         sched.metadata = metadata;
         sched.rebuild_cache_from_doc()?;
+        // Sidecar and change tracker start empty after load — they are
+        // ephemeral and not stored in the file.
+        sched.sidecar.clear();
+        sched.change_tracker.clear();
         Ok(sched)
     }
 

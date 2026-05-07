@@ -24,6 +24,7 @@ pub use edge::{read_edge, read_full_edge, remove_edge, remove_edge_helper_field,
 
 use crate::edge::cache::TransitiveEdgeCache;
 use crate::edge::map::RawEdgeMap;
+use crate::sidecar::{ChangeState, ScheduleSidecar};
 use automerge::AutoCommit;
 use std::any::{Any, TypeId};
 use std::cell::RefCell;
@@ -76,6 +77,14 @@ pub struct Schedule {
     /// bulk rehydration from the document (FEATURE-022 part 2) to avoid
     /// re-generating change records for values already in the doc.
     pub(crate) mirror_enabled: bool,
+
+    /// Ephemeral import-session sidecar (SourceInfo + formula extras).
+    /// Never serialized; cleared on `load_from_file`.
+    pub(crate) sidecar: ScheduleSidecar,
+
+    /// Per-session change tracking: which entities changed since the last
+    /// successful `save_to_file`. Cleared after each save; not persisted.
+    pub(crate) change_tracker: HashMap<NonNilUuid, ChangeState>,
 }
 
 impl std::fmt::Debug for Schedule {
@@ -86,6 +95,7 @@ impl std::fmt::Debug for Schedule {
             .field("transitive_edge_cache", &self.transitive_edge_cache)
             .field("metadata", &self.metadata)
             .field("mirror_enabled", &self.mirror_enabled)
+            .field("change_tracker", &self.change_tracker)
             .finish()
     }
 }
@@ -97,6 +107,50 @@ impl Default for Schedule {
 }
 
 impl Schedule {
+    // ── Sidecar access ────────────────────────────────────────────────────────
+
+    /// Shared access to the ephemeral import sidecar.
+    #[must_use]
+    pub fn sidecar(&self) -> &ScheduleSidecar {
+        &self.sidecar
+    }
+
+    /// Mutable access to the ephemeral import sidecar.
+    pub fn sidecar_mut(&mut self) -> &mut ScheduleSidecar {
+        &mut self.sidecar
+    }
+
+    // ── Change tracking ───────────────────────────────────────────────────────
+
+    /// Return the current [`ChangeState`] for `uuid`.
+    ///
+    /// Returns [`ChangeState::Unchanged`] for any UUID not in the tracker.
+    #[must_use]
+    pub fn entity_change_state(&self, uuid: NonNilUuid) -> ChangeState {
+        self.change_tracker
+            .get(&uuid)
+            .copied()
+            .unwrap_or(ChangeState::Unchanged)
+    }
+
+    /// Update the change state for `uuid`.
+    ///
+    /// Transitions:
+    /// - `Added` is sticky — once added, subsequent `Modified` writes do not
+    ///   downgrade the state.
+    /// - `Deleted` overrides all states.
+    pub(crate) fn mark_entity_changed(&mut self, uuid: NonNilUuid, state: ChangeState) {
+        let entry = self.change_tracker.entry(uuid).or_default();
+        match (*entry, state) {
+            // Deleted always wins.
+            (_, ChangeState::Deleted) => *entry = ChangeState::Deleted,
+            // Added is sticky; don't downgrade to Modified.
+            (ChangeState::Added, ChangeState::Modified) => {}
+            // Otherwise apply the new state.
+            _ => *entry = state,
+        }
+    }
+
     /// Create a new, empty schedule with a fresh v7 UUID.
     #[must_use]
     pub fn new() -> Self {
@@ -116,6 +170,8 @@ impl Schedule {
             },
             doc: AutoCommit::new(),
             mirror_enabled: true,
+            sidecar: ScheduleSidecar::default(),
+            change_tracker: HashMap::new(),
         }
     }
 }

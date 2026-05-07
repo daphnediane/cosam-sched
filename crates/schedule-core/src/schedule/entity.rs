@@ -8,6 +8,7 @@
 
 use crate::crdt;
 use crate::entity::{EntityType, EntityUuid};
+use crate::sidecar::ChangeState;
 use crate::{EntityId, RuntimeEntityId};
 use std::any::TypeId;
 use std::collections::HashMap;
@@ -118,10 +119,15 @@ impl Schedule {
     /// (Mirror failures are only possible on malformed field values today,
     /// and those would have failed validation at build time.)
     pub fn insert<E: EntityType>(&mut self, id: EntityId<E>, data: E::InternalData) {
+        let uuid = id.entity_uuid();
         self.entities
             .entry(TypeId::of::<E::InternalData>())
             .or_default()
-            .insert(id.entity_uuid(), Box::new(data));
+            .insert(uuid, Box::new(data));
+        // Only track during normal operation — not during rehydration from the doc.
+        if self.mirror_enabled {
+            self.mark_entity_changed(uuid, ChangeState::Added);
+        }
         if let Err(e) = self.mirror_entity_fields(id) {
             // Mirror should only fail on genuinely malformed data; surface
             // loudly in debug to catch regressions without panicking in
@@ -140,6 +146,7 @@ impl Schedule {
     /// soft-delete scheme.
     pub fn remove_entity<E: EntityType>(&mut self, id: EntityId<E>) {
         let uuid = id.entity_uuid();
+        self.mark_entity_changed(uuid, ChangeState::Deleted);
         if self.mirror_enabled {
             if let Err(e) = crdt::put_deleted(&mut self.doc, E::TYPE_NAME, uuid, true) {
                 debug_assert!(false, "CRDT soft-delete failed: {e}");
