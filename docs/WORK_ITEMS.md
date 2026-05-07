@@ -1,6 +1,6 @@
 # Cosplay America Schedule - Work Item
 
-Updated on: Wed May  6 19:54:37 2026
+Updated on: Wed May  6 20:25:22 2026
 
 ## Completed
 
@@ -25,6 +25,7 @@ load/save infrastructure for `cosam-modify`.
 * [CLI-094] Implement the `create` subcommand to add a new entity of any type with specified fields.
 * [CLI-095] Implement the `delete` subcommand to soft-delete an entity by name or UUID.
 * [CLI-096] Implement `add-edge` and `remove-edge` subcommands to manage entity relationships.
+* [CLI-097] Implement in-memory `undo`, `redo`, and `show-history` subcommands.
 * [FEATURE-009] Set up the Cargo workspace root and create skeleton application crates.
 * [FEATURE-010] Implement the universal `FieldValue` enum, error types, and CRDT field type annotation.
 * [FEATURE-011] Implement the field trait hierarchy and generic `FieldDescriptor` type that replaces the old proc-macro's generated per-field unit structs.
@@ -132,7 +133,7 @@ above panelists and groups.
 
 ## Summary of Open Items
 
-**Total open items:** 15
+**Total open items:** 14
 
 * **Meta / Project-Level**
   * [META-001] Meta work item tracking the full multi-phase redesign of the schedule system. (Blocked by [META-006], [META-007], [META-008])
@@ -148,7 +149,6 @@ file, preserving formatting, formulas, extra columns, and non-standard content.
 
 * **Low Priority**
   * [CLI-031] ([META-006]) CLI tool for making batch edits to schedule data from the command line.
-  * [CLI-097] ([META-006]) Implement in-memory `undo`, `redo`, and `show-history` subcommands.
   * [CLI-098] ([META-006]) Add `--help` output, proper exit codes, integration tests for all commands, and close out
 CLI-031 and CLI-090–098.
   * [CLI-099] ([META-006]) Serialize the `EditHistory` undo/redo stacks into the `.schedule` binary file so that
@@ -186,29 +186,6 @@ Use `perl scripts/work-item-update.pl --create <PREFIX>` to add new stubs.
 or batch modifications. It supports all entity types via the field system, with all
 changes recorded in the CRDT (automerge) document. Input can be native binary or xlsx;
 output is always native binary.
-
----
-
-### [CLI-097] CLI-097: cosam-modify undo, redo, and show-history commands
-
-**Status:** Open
-
-**Priority:** Low
-
-**Summary:** Implement in-memory `undo`, `redo`, and `show-history` subcommands.
-
-**Part of:** [META-006]
-
-**Description:** Thin wrappers around `EditContext::undo()`, `EditContext::redo()`, and the depth accessors.
-Useful within a multi-stage invocation to reverse earlier stages.
-
-```text
-cosam-modify --file <path> <edit-stage> -- undo
-cosam-modify --file <path> show-history
-```
-
-**Limitation:** The EditHistory undo/redo stacks are in-memory only and are NOT persisted
-across invocations. CLI-099 tracks adding binary-file persistence.
 
 ---
 
@@ -519,7 +496,7 @@ to exchange CRDT changes and reconcile concurrent edits to the same fields.
 [CLI-094]: work-item/done/CLI-094.md
 [CLI-095]: work-item/done/CLI-095.md
 [CLI-096]: work-item/done/CLI-096.md
-[CLI-097]: work-item/low/CLI-097.md
+[CLI-097]: work-item/done/CLI-097.md
 [CLI-098]: work-item/low/CLI-098.md
 [CLI-099]: work-item/low/CLI-099.md
 [CLI-100]: work-item/low/CLI-100.md

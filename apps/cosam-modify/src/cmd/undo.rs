@@ -11,16 +11,28 @@ use schedule_core::edit::context::EditContext;
 
 use crate::args::OutputFormat;
 
-pub fn run_undo(_ctx: &mut EditContext) -> Result<()> {
-    // Implemented in CLI-097
-    Ok(())
+pub fn run_undo(ctx: &mut EditContext) -> Result<()> {
+    ctx.undo().map_err(|e| anyhow::anyhow!("{e}"))
 }
 
-pub fn run_redo(_ctx: &mut EditContext) -> Result<()> {
-    // Implemented in CLI-097
-    Ok(())
+pub fn run_redo(ctx: &mut EditContext) -> Result<()> {
+    ctx.redo().map_err(|e| anyhow::anyhow!("{e}"))
 }
 
-pub fn run_show_history(_ctx: &EditContext, _format: &OutputFormat) {
-    // Implemented in CLI-097
+pub fn run_show_history(ctx: &EditContext, format: &OutputFormat) {
+    let undo = ctx.undo_depth();
+    let redo = ctx.redo_depth();
+    match format {
+        OutputFormat::Text => {
+            println!("undo: {undo}");
+            println!("redo: {redo}");
+        }
+        OutputFormat::Json => {
+            println!(r#"{{"undo": {undo}, "redo": {redo}}}"#);
+        }
+        OutputFormat::Toml => {
+            println!("undo = {undo}");
+            println!("redo = {redo}");
+        }
+    }
 }
