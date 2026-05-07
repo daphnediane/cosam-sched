@@ -6,7 +6,7 @@ Implement sidecar storage for provenance and extra metadata, and enable in-place
 
 ## Status
 
-Open
+In Progress
 
 ## Priority
 
@@ -29,3 +29,8 @@ This meta tracks work on storage infrastructure needed for XLSX round-trip workf
 ## Notes
 
 FEATURE-081 and FEATURE-082 are prerequisites for FEATURE-084.
+
+ChangeState tracking (Added/Modified/Deleted/Unchanged) was implemented as
+part of FEATURE-081's sidecar infrastructure and FEATURE-082's mutation hooks,
+not as a separate FEATURE-103 item. FEATURE-103 (field comparison across
+codebase versions) remains open as a separate documentation task.

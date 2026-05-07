@@ -6,7 +6,7 @@
 
 //! Integration tests for schedule entity storage and CRDT operations.
 
-use schedule_core::entity::{EntityId, EntityUuid};
+use schedule_core::entity::{EntityId, EntityType, EntityUuid};
 use schedule_core::schedule::{
     entity_ids_to_field_value, field_value_to_entity_ids, LoadError, Schedule,
 };
@@ -1297,4 +1297,97 @@ fn inclusive_edges_cache_invalidation() {
     let result2 = sched.inclusive_edges(p1_id, presenter::EDGE_GROUPS);
     assert!(result2.contains(&p2_id));
     assert!(result2.contains(&p3_id));
+}
+
+// ── ChangeState tests ─────────────────────────────────────────────────────────
+
+#[test]
+fn change_state_new_entity_is_added() {
+    let mut sched = Schedule::new();
+    let (id, data) = make_presenter("Alice");
+    sched.insert(id, data);
+    assert_eq!(
+        sched.entity_change_state(id.entity_uuid()),
+        schedule_core::ChangeState::Added
+    );
+}
+
+#[test]
+fn change_state_field_write_marks_modified() {
+    let mut sched = Schedule::new();
+    let (id, data) = make_panel();
+    sched.insert(id, data);
+    // Save clears the tracker (Added → Unchanged).
+    let _ = sched.save_to_file();
+    assert_eq!(
+        sched.entity_change_state(id.entity_uuid()),
+        schedule_core::ChangeState::Unchanged
+    );
+    // Write a field — should become Modified.
+    use schedule_core::field::set::FieldUpdate;
+    use schedule_core::tables::panel;
+    let update = FieldUpdate::set(&panel::FIELD_NAME, "New Name");
+    let _ = PanelEntityType::field_set().write_multiple(id, &mut sched, &[update]);
+    assert_eq!(
+        sched.entity_change_state(id.entity_uuid()),
+        schedule_core::ChangeState::Modified
+    );
+}
+
+#[test]
+fn change_state_delete_marks_deleted() {
+    let mut sched = Schedule::new();
+    let (id, data) = make_panel();
+    sched.insert(id, data);
+    let _ = sched.save_to_file();
+    sched.remove_entity(id);
+    assert_eq!(
+        sched.entity_change_state(id.entity_uuid()),
+        schedule_core::ChangeState::Deleted
+    );
+}
+
+#[test]
+fn change_state_save_resets_to_unchanged() {
+    let mut sched = Schedule::new();
+    let (id, data) = make_panel();
+    sched.insert(id, data);
+    assert_eq!(
+        sched.entity_change_state(id.entity_uuid()),
+        schedule_core::ChangeState::Added
+    );
+    let _ = sched.save_to_file();
+    assert_eq!(
+        sched.entity_change_state(id.entity_uuid()),
+        schedule_core::ChangeState::Unchanged
+    );
+}
+
+#[test]
+fn change_state_load_starts_unchanged() {
+    let mut sched = Schedule::new();
+    let (id, data) = make_panel();
+    sched.insert(id, data);
+    let bytes = sched.save_to_file();
+    let loaded = Schedule::load_from_file(&bytes).unwrap();
+    assert_eq!(
+        loaded.entity_change_state(id.entity_uuid()),
+        schedule_core::ChangeState::Unchanged
+    );
+}
+
+#[test]
+fn change_state_added_sticky_over_field_write() {
+    let mut sched = Schedule::new();
+    let (id, data) = make_panel();
+    sched.insert(id, data);
+    // A field write calls mirror_field_value which marks Modified — but Added is sticky.
+    use schedule_core::field::set::FieldUpdate;
+    use schedule_core::tables::panel;
+    let update = FieldUpdate::set(&panel::FIELD_NAME, "Updated While New");
+    let _ = PanelEntityType::field_set().write_multiple(id, &mut sched, &[update]);
+    assert_eq!(
+        sched.entity_change_state(id.entity_uuid()),
+        schedule_core::ChangeState::Added
+    );
 }

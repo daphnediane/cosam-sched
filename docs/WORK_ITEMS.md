@@ -1,6 +1,6 @@
 # Cosplay America Schedule - Work Item
 
-Updated on: Wed May  6 23:47:45 2026
+Updated on: Thu May  7 01:03:42 2026
 
 ## Completed
 
@@ -478,7 +478,7 @@ replacing the old `schedule-field`, `schedule-data`, and `schedule-macro` crates
 
 ### [META-102] META-102: Storage and XLSX Round-Trip Infrastructure
 
-**Status:** Open
+**Status:** In progress
 
 **Priority:** High
 

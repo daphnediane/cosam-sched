@@ -592,6 +592,9 @@ impl Schedule {
         res.map_err(|e| FieldError::Crdt {
             name,
             detail: e.to_string(),
-        })
+        })?;
+        // Track that this entity was modified (unless it's already Added/Deleted).
+        self.mark_entity_changed(uuid, crate::sidecar::ChangeState::Modified);
+        Ok(())
     }
 }
