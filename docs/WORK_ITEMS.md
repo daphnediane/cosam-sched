@@ -1,6 +1,6 @@
 # Cosplay America Schedule - Work Item
 
-Updated on: Thu May  7 01:17:09 2026
+Updated on: Thu May  7 01:35:43 2026
 
 ## Completed
 
@@ -89,6 +89,7 @@ XLSX import/export.
 * [META-048] Restructure `FieldValue` with proper cardinality, add `FieldTypeItem`/`FieldType`
 enums, wire `FieldType` into `FieldDescriptor`, and implement the generic
 `FieldValueConverter` system from IDEA-038.
+* [META-102] Implement sidecar storage for provenance and extra metadata, and enable in-place XLSX updates.
 * [REFACTOR-041] Replace the `EntityKind` enum with direct use of `EntityType::TYPE_NAME` strings,
 following the v10-try3 design. This eliminates the central enum that required
 modification for every new entity type.
@@ -141,13 +142,12 @@ above panelists and groups.
 
 ## Summary of Open Items
 
-**Total open items:** 14
+**Total open items:** 13
 
 * **Meta / Project-Level**
   * [META-001] Meta work item tracking the full multi-phase redesign of the schedule system. (Blocked by [META-007], [META-008])
   * [META-007] Phase tracker for the cosam-editor desktop GUI application. (Blocked by [META-005])
   * [META-008] Phase tracker for peer-to-peer schedule synchronization and conflict resolution. (Blocked by [META-004])
-  * [META-102] Implement sidecar storage for provenance and extra metadata, and enable in-place XLSX updates.
 
 * **High Priority**
   * [FEATURE-084] Implement `update_xlsx` to write schedule changes back into an existing XLSX
@@ -454,28 +454,6 @@ replacing the old `schedule-field`, `schedule-data`, and `schedule-macro` crates
 
 ---
 
-### [META-102] META-102: Storage and XLSX Round-Trip Infrastructure
-
-**Status:** In progress
-
-**Priority:** High
-
-**Summary:** Implement sidecar storage for provenance and extra metadata, and enable in-place XLSX updates.
-
-**Description:** This meta tracks work on storage infrastructure needed for XLSX round-trip workflows:
-
-* SourceInfo sidecar to track entity origins (file, sheet, row)
-* Extra metadata sidecar for unknown XLSX columns
-* In-place XLSX update to preserve formatting and custom content
-
-**Work Items:**
-
-* FEATURE-081: Import Provenance / SourceInfo Sidecar
-* FEATURE-082: Extended Entity Metadata (Unknown XLSX Columns)
-* FEATURE-103: Field Comparison Across Codebase Versions
-
----
-
 ### [META-007] Phase 6 — GUI Editor
 
 **Status:** Blocked
@@ -589,7 +567,7 @@ to exchange CRDT changes and reconcile concurrent edits to the same fields.
 [META-007]: work-item/meta/META-007.md
 [META-008]: work-item/meta/META-008.md
 [META-048]: work-item/done/META-048.md
-[META-102]: work-item/meta/META-102.md
+[META-102]: work-item/done/META-102.md
 [REFACTOR-041]: work-item/done/REFACTOR-041.md
 [REFACTOR-047]: work-item/done/REFACTOR-047.md
 [REFACTOR-049]: work-item/done/REFACTOR-049.md

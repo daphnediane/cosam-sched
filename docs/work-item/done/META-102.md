@@ -6,7 +6,7 @@ Implement sidecar storage for provenance and extra metadata, and enable in-place
 
 ## Status
 
-In Progress
+Completed
 
 ## Priority
 

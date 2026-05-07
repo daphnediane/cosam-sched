@@ -1,21 +1,26 @@
-# Field Comparison: v9 / v10-try1 / v10-try3 vs main
+# Field Comparison: All Branches vs main
 
 Investigation for FEATURE-103. Documents which fields/columns exist in each
 branch and how they map to the current main branch.
 
 ## Branch Overview
 
-| Branch   | Language | Approach                                               |
-| -------- | -------- | ------------------------------------------------------ |
-| v9       | Rust     | XLSX-column-definition structs; flat entity data model |
-| v10-try1 | Rust     | XLSX-column-definition structs; nearly identical to v9 |
-| v10-try3 | Rust     | `EntityFields` derive macro; attribute-based fields    |
-| **main** | Rust     | `FieldDescriptor` statics + `inventory` registration   |
+| Branch           | Language | Approach                                                     |
+| ---------------- | -------- | ------------------------------------------------------------ |
+| v9               | Rust     | XLSX-column-definition structs; flat entity data model       |
+| v10-try1         | Rust     | XLSX-column-definition structs; nearly identical to v9       |
+| v10-try3         | Rust     | `EntityFields` derive macro; attribute-based fields          |
+| **main**         | Rust     | `FieldDescriptor` statics + `inventory` registration         |
+| schedule-to-html | Perl     | `Readonly` column constants; dynamic presenter pattern-match |
 
-All branches have five entity types: Panel, Presenter, EventRoom, HotelRoom,
+All Rust branches have five entity types: Panel, Presenter, EventRoom, HotelRoom,
 PanelType. The schemas are broadly compatible; the differences are in field
 granularity, how computed/edge fields are represented, and a handful of columns
 that were added or dropped across versions.
+
+`schedule-to-html` is an independent Perl project that reads the same XLSX files
+to generate HTML output. It has its own column registry and handles a subset of
+the fields that main tracks.
 
 ---
 
@@ -251,24 +256,104 @@ in the CRDT `__extra` map via FEATURE-082.
 
 ### PanelTypes Sheet Columns by Year
 
-| Column       | 2016 | 2017 | 2018 | 2019 | 2022 | 2023 | 2024 | 2025 | 2026 | main field     |
-| ------------ | ---- | ---- | ---- | ---- | ---- | ---- | ---- | ---- | ---- | -------------- |
-| Prefix       | ✓    | ✓    | ✓    | ✓    | ✓    | ✓    | ✓    | ✓    | ✓    | `prefix`       |
-| Panel Kind   | ✓    | ✓    | ✓    | ✓    | ✓    | ✓    | ✓    | ✓    | ✓    | `panel_kind`   |
-| Color        | ✓    | ✓    | ✓    | ✓    | ✓    | ✓    | ✓    | ✓    | ✓    | `color`        |
-| BW           | ✓    | ✓    | ✓    | ✓    | ✓    | ✓    | ✓    | ✓    | ✓    | `bw`           |
-| Hidden       | ✓    | ✓    | ✓    | ✓    | ✓    | ✓    | ✓    | ✓    | ✓    | `hidden`       |
-| Is Timeline  | ✓    | ✓    | ✓    | ✓    | ✓    | ✓    | ✓    | ✓    | ✓    | `is_timeline`  |
-| Is Private   | ✓    | ✓    | ✓    | ✓    | ✓    | ✓    | ✓    | ✓    | ✓    | `is_private`   |
-| Is Break     | ✓    | ✓    | ✓    | ✓    | ✓    | ✓    | ✓    | ✓    | ✓    | `is_break`     |
-| Is Workshop  | ✓    | ✓    | ✓    | ✓    | ✓    | ✓    | ✓    | ✓    | ✓    | `is_workshop`  |
-| Is Room Hours| —    | —    | ✓    | ✓    | ✓    | ✓    | ✓    | ✓    | ✓    | `is_room_hours`|
-| Is Café      | ✓    | ✓    | ✓    | ✓    | —    | ✓    | ✓    | ✓    | —    | `is_cafe`      |
-| Visible      | —    | —    | —    | —    | ✓    | —    | —    | —    | —    | extra field    |
+| Column        | 2016 | 2017 | 2018 | 2019 | 2022 | 2023 | 2024 | 2025 | 2026 | main field      |
+| ------------- | ---- | ---- | ---- | ---- | ---- | ---- | ---- | ---- | ---- | --------------- |
+| Prefix        | ✓    | ✓    | ✓    | ✓    | ✓    | ✓    | ✓    | ✓    | ✓    | `prefix`        |
+| Panel Kind    | ✓    | ✓    | ✓    | ✓    | ✓    | ✓    | ✓    | ✓    | ✓    | `panel_kind`    |
+| Color         | ✓    | ✓    | ✓    | ✓    | ✓    | ✓    | ✓    | ✓    | ✓    | `color`         |
+| BW            | ✓    | ✓    | ✓    | ✓    | ✓    | ✓    | ✓    | ✓    | ✓    | `bw`            |
+| Hidden        | ✓    | ✓    | ✓    | ✓    | ✓    | ✓    | ✓    | ✓    | ✓    | `hidden`        |
+| Is Timeline   | ✓    | ✓    | ✓    | ✓    | ✓    | ✓    | ✓    | ✓    | ✓    | `is_timeline`   |
+| Is Private    | ✓    | ✓    | ✓    | ✓    | ✓    | ✓    | ✓    | ✓    | ✓    | `is_private`    |
+| Is Break      | ✓    | ✓    | ✓    | ✓    | ✓    | ✓    | ✓    | ✓    | ✓    | `is_break`      |
+| Is Workshop   | ✓    | ✓    | ✓    | ✓    | ✓    | ✓    | ✓    | ✓    | ✓    | `is_workshop`   |
+| Is Room Hours | —    | —    | ✓    | ✓    | ✓    | ✓    | ✓    | ✓    | ✓    | `is_room_hours` |
+| Is Café       | ✓    | ✓    | ✓    | ✓    | —    | ✓    | ✓    | ✓    | —    | `is_cafe`       |
+| Visible       | —    | —    | —    | —    | ✓    | —    | —    | —    | —    | extra field     |
 
 `Is Room Hours` was added in 2018. `Is Café` is absent from 2022 and 2026 but
 present in all other years. `Visible` appeared only in 2022, possibly as a trial
 counterpart to `Hidden`.
+
+---
+
+## schedule-to-html Column Handling
+
+`schedule-to-html` is a Perl project (Perl 5.38+, `Spreadsheet::ParseXLSX`) that
+reads the same XLSX files to produce HTML schedules. It has its own independent
+column registry.
+
+### Column registration approach
+
+Column names are hardcoded as `Readonly` constants in `Field/*.pm` modules
+(no `inventory`-style auto-registration). Headers are canonicalized on read:
+spaces → underscores, special chars stripped. Lookup is by canonicalized name,
+case-insensitive. **Unknown columns are silently ignored.**
+
+### Panel sheet columns recognized
+
+| schedule-to-html constant | Equivalent main field       | Notes                              |
+| ------------------------- | --------------------------- | ---------------------------------- |
+| `Uniq_ID`                 | `uid` / `code`              | Required                           |
+| `Name`                    | `name`                      | Required                           |
+| `Room`                    | edge to EventRoom           |                                    |
+| `Start_Time`              | via `time_slot`             |                                    |
+| `End_Time`                | `FIELD_END_TIME`            |                                    |
+| `Duration`                | via `time_slot`             |                                    |
+| `Description`             | `description`               |                                    |
+| `Cost`                    | `cost`                      |                                    |
+| `Capacity`                | `capacity`                  |                                    |
+| `Full`                    | `is_full`                   |                                    |
+| `Difficulty`              | `difficulty`                |                                    |
+| `Prereq`                  | `prereq`                    |                                    |
+| `Note`                    | `note`                      |                                    |
+| `AV_Notes`                | `av_notes`                  |                                    |
+| `Kind`                    | import alias / `panel_type` |                                    |
+| `Ticket_Sale`             | `ticket_url`                |                                    |
+| `Hide_Panelist`           | `hide_panelist`             |                                    |
+| `Alt_Panelist`            | `alt_panelist`              |                                    |
+| `Room_Idx`                | sort key (computed)         | Used for room ordering in grid     |
+| `Hotel_Room`              | edge to HotelRoom           |                                    |
+| `Real_Room`               | (no direct equivalent)      | 2019-era column; derived room name |
+
+**Notable omissions vs. main:** `notes_non_printing`, `workshop_notes`,
+`power_needs`, `sewing_machines`, `simpletix_event`, `simpletix_link`,
+`pre_reg_max`, `have_ticket_image`, `av_connection` — these columns exist in
+2024–2026 spreadsheets but schedule-to-html does not read them.
+
+### Presenter columns
+
+Presenter columns are discovered dynamically by pattern-matching header names:
+
+```text
+G:Name          → Guest (rank 0)
+J:Name          → Judge (rank 1)
+S:Name          → Staff (rank 2)
+I:Name          → Invited panelist (rank 3)
+P:Name          → Fan panelist (rank 4)
+G:Base==Sub     → sub-presenter within a group
+Kind:Other      → catch-all bucket for that rank
+```
+
+No pre-registration needed; any column matching the pattern is automatically treated
+as a presenter column. This matches the approach in main's XLSX importer.
+
+### Rooms sheet columns recognized
+
+`Room_Name` (required), `Long_Name`, `Hotel_Room`, `Sort_Key`. Extra room columns
+(`Name_Alt`, `Suffix`, `Orig_Sort`, `Orig_Suffix`, `Notes`, `Is_Pseudo`) are present
+in the spreadsheets but not read by schedule-to-html.
+
+### PanelTypes sheet columns recognized
+
+`Prefix` (required), `Panel_Kind`, `Hidden`, `Is_Break`, `Is_Cafe` / `Is_Café`,
+`Is_Workshop`, `Color`, and any additional color-set columns (e.g. `BW`).
+`Is_Room_Hours`, `Is_Timeline`, `Is_Private` are not read.
+
+### People sheet
+
+schedule-to-html does **not** read a People sheet. Presenter metadata (rank, group
+membership) is derived entirely from the schedule sheet's presenter columns.
 
 ---
 
