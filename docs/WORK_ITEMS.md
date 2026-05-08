@@ -1,6 +1,6 @@
 # Cosplay America Schedule - Work Item
 
-Updated on: Thu May  7 10:29:19 2026
+Updated on: Thu May  7 21:22:59 2026
 
 ## Completed
 
@@ -29,6 +29,7 @@ load/save infrastructure for `cosam-modify`.
 * [CLI-097] Implement in-memory `undo`, `redo`, and `show-history` subcommands.
 * [CLI-098] Add `--help` output, proper exit codes, integration tests for all commands, and close out
 CLI-031 and CLI-090–098.
+* [EDITOR-033] Implement the main schedule grid view and entity editing UI in cosam-editor.
 * [FEATURE-009] Set up the Cargo workspace root and create skeleton application crates.
 * [FEATURE-010] Implement the universal `FieldValue` enum, error types, and CRDT field type annotation.
 * [FEATURE-011] Implement the field trait hierarchy and generic `FieldDescriptor` type that replaces the old proc-macro's generated per-field unit structs.
@@ -142,7 +143,7 @@ above panelists and groups.
 
 ## Summary of Open Items
 
-**Total open items:** 13
+**Total open items:** 12
 
 * **Meta / Project-Level**
   * [META-001] Meta work item tracking the full multi-phase redesign of the schedule system. (Blocked by [META-007], [META-008])
@@ -161,7 +162,6 @@ reference and jump-starting new conventions.
   * [CLI-100] Add a `--interactive` flag to `cosam-modify` that opens a read-eval-print loop for
 entering commands one at a time.
   * [EDITOR-032] ([META-007]) Select the GUI framework for cosam-editor and create the application scaffold.
-  * [EDITOR-033] ([META-007]) Implement the main schedule grid view and entity editing UI in cosam-editor.
   * [FEATURE-034] ([META-008]) Define and implement the protocol for synchronizing schedule data between peers.
   * [FEATURE-035] ([META-008]) Provide UI for reviewing and resolving merge conflicts after sync.
   * [FEATURE-077] Implement add/remove operations for list cardinality fields in accessor_field_properties.
@@ -221,21 +221,6 @@ Save your changes? (Y/N)
 
 **Description:** Evaluate and select between GUI framework candidates, then create the initial
 application structure.
-
----
-
-### [EDITOR-033] cosam-editor: Schedule Grid View and Entity Editing
-
-**Status:** Open
-
-**Priority:** Low
-
-**Summary:** Implement the main schedule grid view and entity editing UI in cosam-editor.
-
-**Part of:** [META-007]
-
-**Description:** The core editing experience for the GUI application: a grid view showing
-panels arranged by time and room, with inline editing of entity fields.
 
 ---
 
@@ -514,7 +499,7 @@ to exchange CRDT changes and reconcile concurrent edits to the same fields.
 [CLI-098]: work-item/done/CLI-098.md
 [CLI-100]: work-item/low/CLI-100.md
 [EDITOR-032]: work-item/low/EDITOR-032.md
-[EDITOR-033]: work-item/low/EDITOR-033.md
+[EDITOR-033]: work-item/done/EDITOR-033.md
 [FEATURE-009]: work-item/done/FEATURE-009.md
 [FEATURE-010]: work-item/done/FEATURE-010.md
 [FEATURE-011]: work-item/done/FEATURE-011.md

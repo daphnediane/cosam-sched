@@ -5,5 +5,6 @@
  */
 
 pub mod editor;
+pub mod schedule_data;
 
 pub use editor::App;

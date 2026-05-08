@@ -21,5 +21,6 @@ path = "src/main.rs"
 dioxus = { version = "0.7", features = ["desktop"] }
 dioxus-desktop = "0.7"
 anyhow = "1"
+chrono = "0.4"
 rfd = "0.17"
 schedule-core = { path = "../../crates/schedule-core" }
