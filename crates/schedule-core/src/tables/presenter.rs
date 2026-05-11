@@ -197,13 +197,13 @@ pub struct PresenterCommonData {
     #[serde(default)]
     pub is_explicit_group: bool,
 
-    /// Always display this member under its group name, never individually.
+    /// Member appears individually, not subsumed by group (tag: <Name).
     #[serde(default)]
-    pub always_grouped: bool,
+    pub show_individually: bool,
 
-    /// Always show the group name even with partial member attendance.
+    /// Group appears in credits and subsumes its members (tag: ==Group).
     #[serde(default)]
-    pub always_shown_in_group: bool,
+    pub subsumes_members: bool,
 
     /// Import ordering key assigned after XLSX import (multiples of 100, gaps
     /// allow future insertions). Persisted to CRDT so sort order survives
@@ -391,17 +391,17 @@ impl crate::edit::builder::EntityBuildable for PresenterEntityType {
 ///
 /// - `Kind:` — one or more rank prefix chars (`G`/`J`/`S`/`I`/`P`/`F`);
 ///   highest-priority rank among them is used.
-/// - `<Name` — sets `always_grouped = true` on the member.
+/// - `<Name` — sets `show_individually = true` on the member.
 /// - `=Group` — links member to a group; group becomes `is_explicit_group`.
-/// - `==Group` — same, and also sets `always_shown_in_group = true` on the group.
+/// - `==Group` — same, and also sets `subsumes_members = true` on the group.
 /// - Empty name or name == group (case-insensitive) → group-only form; returns
 ///   the group's `PresenterId` rather than a member.
 struct ParsedTag<'a> {
     required_rank: Option<PresenterRank>,
     name: &'a str,
     group_name: Option<&'a str>,
-    always_grouped: bool,
-    always_shown: bool,
+    show_individually: bool,
+    subsumes_members: bool,
 }
 
 impl<'a> ParsedTag<'a> {
@@ -450,14 +450,14 @@ fn parse_tag(input: &str) -> ParsedTag<'_> {
         None => (rest, None),
     };
 
-    // Strip '<' from name → always_grouped
-    let (name, always_grouped) = match name_raw.trim().strip_prefix('<') {
+    // Strip '<' from name → show_individually
+    let (name, show_individually) = match name_raw.trim().strip_prefix('<') {
         Some(stripped) => (stripped.trim(), true),
         None => (name_raw.trim(), false),
     };
 
-    // Strip leading '=' from group_part → always_shown
-    let (group_name, always_shown) = match group_part {
+    // Strip leading '=' from group_part → subsumes_members
+    let (group_name, subsumes_members) = match group_part {
         None => (None, false),
         Some(g) => match g.strip_prefix('=') {
             Some(stripped) => {
@@ -475,8 +475,8 @@ fn parse_tag(input: &str) -> ParsedTag<'_> {
         required_rank,
         name,
         group_name,
-        always_grouped,
-        always_shown,
+        show_individually,
+        subsumes_members,
     }
 }
 
@@ -591,8 +591,8 @@ pub fn find_or_create_tagged_presenter(
             find_or_create_presenter_by_name(schedule, group_name, parsed.required_rank.as_ref());
         if let Some(d) = schedule.get_internal_mut::<PresenterEntityType>(gid) {
             d.data.is_explicit_group = true;
-            if parsed.always_shown {
-                d.data.always_shown_in_group = true;
+            if parsed.subsumes_members {
+                d.data.subsumes_members = true;
             }
         }
         return Ok(gid);
@@ -600,9 +600,9 @@ pub fn find_or_create_tagged_presenter(
 
     let pres_id =
         find_or_create_presenter_by_name(schedule, parsed.name, parsed.required_rank.as_ref());
-    if parsed.always_grouped {
+    if parsed.show_individually {
         if let Some(d) = schedule.get_internal_mut::<PresenterEntityType>(pres_id) {
-            d.data.always_grouped = true;
+            d.data.show_individually = true;
         }
     }
 
@@ -611,8 +611,8 @@ pub fn find_or_create_tagged_presenter(
             find_or_create_presenter_by_name(schedule, group_name, parsed.required_rank.as_ref());
         if let Some(gd) = schedule.get_internal_mut::<PresenterEntityType>(gid) {
             gd.data.is_explicit_group = true;
-            if parsed.always_shown {
-                gd.data.always_shown_in_group = true;
+            if parsed.subsumes_members {
+                gd.data.subsumes_members = true;
             }
         }
         let already_in_group = {
@@ -782,13 +782,13 @@ pub static FIELD_IS_EXPLICIT_GROUP: FieldDescriptor<PresenterEntityType> = {
 };
 inventory::submit! { CollectedField(&FIELD_IS_EXPLICIT_GROUP) }
 
-pub static FIELD_ALWAYS_GROUPED: FieldDescriptor<PresenterEntityType> = {
+pub static FIELD_SHOW_INDIVIDUALLY: FieldDescriptor<PresenterEntityType> = {
     let (data, crdt_type, cb) = accessor_field_properties! {
         PresenterEntityType,
-        always_grouped,
-        name: "always_grouped",
-        display: "Always Grouped",
-        description: "Always display this member under its group name.",
+        show_individually,
+        name: "show_individually",
+        display: "Show Individually",
+        description: "Member appears individually, not subsumed by group.",
         aliases: &[],
         cardinality: Single,
         item: Boolean,
@@ -803,16 +803,16 @@ pub static FIELD_ALWAYS_GROUPED: FieldDescriptor<PresenterEntityType> = {
         cb,
     }
 };
-inventory::submit! { CollectedField(&FIELD_ALWAYS_GROUPED) }
+inventory::submit! { CollectedField(&FIELD_SHOW_INDIVIDUALLY) }
 
-pub static FIELD_ALWAYS_SHOWN_IN_GROUP: FieldDescriptor<PresenterEntityType> = {
+pub static FIELD_SUBSUMES_MEMBERS: FieldDescriptor<PresenterEntityType> = {
     let (data, crdt_type, cb) = accessor_field_properties! {
         PresenterEntityType,
-        always_shown_in_group,
-        name: "always_shown_in_group",
-        display: "Always Shown In Group",
-        description: "Always show group name even with partial member attendance.",
-        aliases: &["always_shown"],
+        subsumes_members,
+        name: "subsumes_members",
+        display: "Subsumes Members",
+        description: "Group appears in credits and subsumes its members.",
+        aliases: &["group_shown"],
         cardinality: Single,
         item: Boolean,
         example: "false",
@@ -826,7 +826,7 @@ pub static FIELD_ALWAYS_SHOWN_IN_GROUP: FieldDescriptor<PresenterEntityType> = {
         cb,
     }
 };
-inventory::submit! { CollectedField(&FIELD_ALWAYS_SHOWN_IN_GROUP) }
+inventory::submit! { CollectedField(&FIELD_SUBSUMES_MEMBERS) }
 
 pub static FIELD_SORT_INDEX: FieldDescriptor<PresenterEntityType> = {
     let (data, crdt_type, cb) = accessor_field_properties! {
@@ -1271,10 +1271,10 @@ crate::field::macros::define_entity_builder! {
         with_bio                   => FIELD_BIO,
         /// Mark this entity as an explicit group (vs. an individual).
         with_is_explicit_group     => FIELD_IS_EXPLICIT_GROUP,
-        /// Always display this member under its group name.
-        with_always_grouped        => FIELD_ALWAYS_GROUPED,
-        /// Always show the group name, even with partial member attendance.
-        with_always_shown_in_group => FIELD_ALWAYS_SHOWN_IN_GROUP,
+        /// Member appears individually, not subsumed by group.
+        with_show_individually     => FIELD_SHOW_INDIVIDUALLY,
+        /// Group appears in credits and subsumes its members.
+        with_subsumes_members      => FIELD_SUBSUMES_MEMBERS,
         /// Set the groups this presenter belongs to.
         with_groups                => HALF_EDGE_GROUPS,
         /// Set the members of this group (empty for individuals).
@@ -1427,8 +1427,8 @@ mod tests {
                 rank: PresenterRank::Guest,
                 bio: Some("Long-time guest.".into()),
                 is_explicit_group: false,
-                always_grouped: false,
-                always_shown_in_group: false,
+                show_individually: false,
+                subsumes_members: false,
                 sort_index: Some(300),
             },
             id: make_id(),
@@ -1499,7 +1499,7 @@ mod tests {
         let fs = PresenterEntityType::field_set();
         assert!(fs.get_by_name("classification").is_some()); // rank alias
         assert!(fs.get_by_name("biography").is_some()); // bio alias
-        assert!(fs.get_by_name("always_shown").is_some()); // always_shown_in_group alias
+        assert!(fs.get_by_name("group_shown").is_some()); // subsumes_members alias
     }
 
     #[test]
@@ -1639,8 +1639,8 @@ mod tests {
             rank: PresenterRank::InvitedGuest(Some("105th".into())),
             bio: None,
             is_explicit_group: true,
-            always_grouped: false,
-            always_shown_in_group: true,
+            show_individually: false,
+            subsumes_members: true,
             sort_index: Some(500),
         };
         let json = serde_json::to_string(&original).unwrap();
@@ -1885,11 +1885,11 @@ mod tests {
             .unwrap();
         assert_eq!(group.data.name, "MyBand");
         assert!(group.data.is_explicit_group);
-        assert!(!group.data.always_shown_in_group);
+        assert!(!group.data.subsumes_members);
     }
 
     #[test]
-    fn test_find_or_create_double_equals_always_shown() {
+    fn test_find_or_create_double_equals_sets_subsumes_members() {
         let mut sched = Schedule::default();
         let alice_id = find_or_create_tagged_presenter(&mut sched, "P:Alice==MyBand").unwrap();
         let groups = sched
@@ -1900,15 +1900,15 @@ mod tests {
         let group = sched
             .get_internal::<PresenterEntityType>(groups[0])
             .unwrap();
-        assert!(group.data.always_shown_in_group);
+        assert!(group.data.subsumes_members);
     }
 
     #[test]
-    fn test_find_or_create_less_than_always_grouped() {
+    fn test_find_or_create_less_than_sets_show_individually() {
         let mut sched = Schedule::default();
         let alice_id = find_or_create_tagged_presenter(&mut sched, "P:<Alice=MyBand").unwrap();
         let alice = sched.get_internal::<PresenterEntityType>(alice_id).unwrap();
-        assert!(alice.data.always_grouped);
+        assert!(alice.data.show_individually);
     }
 
     #[test]
@@ -1918,7 +1918,7 @@ mod tests {
         let group = sched.get_internal::<PresenterEntityType>(gid).unwrap();
         assert_eq!(group.data.name, "MyBand");
         assert!(group.data.is_explicit_group);
-        assert!(group.data.always_shown_in_group);
+        assert!(group.data.subsumes_members);
         assert_eq!(sched.entity_count::<PresenterEntityType>(), 1);
     }
 
@@ -1929,7 +1929,7 @@ mod tests {
         let g = sched.get_internal::<PresenterEntityType>(gid).unwrap();
         assert_eq!(g.data.name, "Troupe");
         assert!(g.data.is_explicit_group);
-        assert!(g.data.always_shown_in_group);
+        assert!(g.data.subsumes_members);
     }
 
     #[test]

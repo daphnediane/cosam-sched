@@ -443,12 +443,14 @@ pub mod people {
         aliases: &["IsGroup", "Group"],
     };
 
+    /// Maps to `show_individually` on member - member appears individually.
     pub const ALWAYS_GROUPED: FieldDef = FieldDef {
         export: "Always Grouped",
         canonical: "Always_Grouped",
-        aliases: &["AlwaysGrouped", "Always_In_Group"],
+        aliases: &["AlwaysGrouped", "Always_Show_in_Group"],
     };
 
+    /// Maps to `subsumes_members` on group - group subsumes its members.
     pub const ALWAYS_SHOWN: FieldDef = FieldDef {
         export: "Always Shown",
         canonical: "Always_Shown",

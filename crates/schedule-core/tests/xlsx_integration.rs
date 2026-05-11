@@ -830,5 +830,5 @@ fn test_export_round_trip_people_sheet() {
         bob.rank,
         schedule_core::tables::presenter::PresenterRank::FanPanelist
     );
-    assert!(bob.always_grouped);
+    assert!(bob.show_individually);
 }

@@ -201,8 +201,8 @@ fn build_presenter_columns(schedule: &Schedule) -> Vec<ExportPresenterColumn> {
             if count == 0 {
                 continue;
             }
-            let always_grouped = p.data.always_grouped;
-            if count >= MIN_PANELS_FOR_NAMED_COLUMN || always_grouped {
+            let show_individually = p.data.show_individually;
+            if count >= MIN_PANELS_FOR_NAMED_COLUMN || show_individually {
                 named.push((p_id, p.data.name.clone()));
             } else {
                 has_other = true;
@@ -228,14 +228,31 @@ fn build_presenter_columns(schedule: &Schedule) -> Vec<ExportPresenterColumn> {
             let p_internal = schedule
                 .get_internal::<PresenterEntityType>(p_id)
                 .expect("presenter was in iter_entities");
-            let always_grouped = p_internal.data.always_grouped;
+            let show_individually = p_internal.data.show_individually;
 
-            let header = match group_name {
-                Some(group) if always_grouped => {
+            // Check if group has subsumes_members flag
+            let group_subsumes = group_ids
+                .first()
+                .and_then(|gid| {
+                    schedule
+                        .get_internal::<PresenterEntityType>(*gid)
+                        .map(|g| g.data.subsumes_members)
+                })
+                .unwrap_or(false);
+
+            let header = match (group_name, show_individually, group_subsumes) {
+                (Some(group), true, _) => {
+                    // Member has show_individually → output <Name syntax
+                    format!("{prefix_char}:<{name}={group}")
+                }
+                (Some(group), false, true) => {
+                    // Group has subsumes_members → output ==Group syntax
                     format!("{prefix_char}:{name}=={group}")
                 }
-                Some(group) => format!("{prefix_char}:{name}={group}"),
-                None => format!("{prefix_char}:{name}"),
+                (Some(group), false, false) => {
+                    format!("{prefix_char}:{name}={group}")
+                }
+                (None, _, _) => format!("{prefix_char}:{name}"),
             };
 
             columns.push(ExportPresenterColumn {
@@ -620,10 +637,10 @@ fn write_people_sheet(ws: &mut Worksheet, schedule: &Schedule, extra_keys: &[Str
         if presenter.data.is_explicit_group {
             set_str(ws, c_is_group, row, "Yes");
         }
-        if presenter.data.always_grouped {
+        if presenter.data.show_individually {
             set_str(ws, c_always_grouped, row, "Yes");
         }
-        if presenter.data.always_shown_in_group {
+        if presenter.data.subsumes_members {
             set_str(ws, c_always_shown, row, "Yes");
         }
         write_extra_fields(

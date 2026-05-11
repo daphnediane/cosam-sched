@@ -130,8 +130,6 @@ pub struct WidgetPresenter {
     pub is_group: bool,
     pub members: Vec<String>,
     pub groups: Vec<String>,
-    pub always_grouped: bool,
-    pub always_shown: bool,
     pub panel_ids: Vec<String>,
 }
 
@@ -711,8 +709,6 @@ fn export_presenters(
             is_group,
             members,
             groups,
-            always_grouped: p_data.data.always_grouped,
-            always_shown: p_data.data.always_shown_in_group,
             panel_ids: presenter_panel_ids[p_id].clone(),
         });
     }

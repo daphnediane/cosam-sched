@@ -86,11 +86,13 @@ pub(super) fn read_people_into(
             .map(|s| is_truthy(s))
             .unwrap_or(false);
 
-        let always_grouped = get_field_def(&data, &pc::ALWAYS_GROUPED)
+        // "Always Grouped" / "Always Show in Group" column → show_individually on member
+        let show_individually = get_field_def(&data, &pc::ALWAYS_GROUPED)
             .map(|s| is_truthy(s))
             .unwrap_or(false);
 
-        let always_shown = get_field_def(&data, &pc::ALWAYS_SHOWN)
+        // "Always Shown" / "Group Shown" column → subsumes_members on group
+        let subsumes_members = get_field_def(&data, &pc::ALWAYS_SHOWN)
             .map(|s| is_truthy(s))
             .unwrap_or(false);
 
@@ -103,8 +105,8 @@ pub(super) fn read_people_into(
 
             let mut updates: Vec<FieldUpdate<PresenterEntityType>> = vec![
                 FieldUpdate::set(&presenter::FIELD_IS_EXPLICIT_GROUP, is_explicit_group),
-                FieldUpdate::set(&presenter::FIELD_ALWAYS_GROUPED, always_grouped),
-                FieldUpdate::set(&presenter::FIELD_ALWAYS_SHOWN_IN_GROUP, always_shown),
+                FieldUpdate::set(&presenter::FIELD_SHOW_INDIVIDUALLY, show_individually),
+                FieldUpdate::set(&presenter::FIELD_SUBSUMES_MEMBERS, subsumes_members),
             ];
             // People table is authoritative: upgrade rank if it has higher priority.
             if rank.priority() < existing_rank.priority() {
@@ -121,8 +123,8 @@ pub(super) fn read_people_into(
                 FieldUpdate::set(&presenter::FIELD_NAME, name.as_str()),
                 FieldUpdate::set(&presenter::FIELD_RANK, rank.as_str()),
                 FieldUpdate::set(&presenter::FIELD_IS_EXPLICIT_GROUP, is_explicit_group),
-                FieldUpdate::set(&presenter::FIELD_ALWAYS_GROUPED, always_grouped),
-                FieldUpdate::set(&presenter::FIELD_ALWAYS_SHOWN_IN_GROUP, always_shown),
+                FieldUpdate::set(&presenter::FIELD_SHOW_INDIVIDUALLY, show_individually),
+                FieldUpdate::set(&presenter::FIELD_SUBSUMES_MEMBERS, subsumes_members),
             ];
             match build_entity::<PresenterEntityType>(schedule, uuid_pref, updates) {
                 Ok(id) => {

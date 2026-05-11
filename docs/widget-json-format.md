@@ -337,17 +337,15 @@ When converting from spreadsheet, this array is populated with panels whose pane
 
 `presenters` is a JSON array of DisplayPresenter objects with bidirectional group membership support.
 
-| Field         | Type            | Description                                         |
-| ------------- | --------------- | --------------------------------------------------- |
-| name          | String          | Presenter or group name                             |
-| rank          | String          | Presenter rank (guest, staff, fan_panelist, etc.)   |
-| sortKey       | Integer         | Sequential ordering key (0-based)                   |
-| isGroup       | Boolean         | True if this is a group                             |
-| members       | `Array<String>` | Group member names (empty for individuals)          |
-| groups        | `Array<String>` | Groups this presenter belongs to (empty for groups) |
-| alwaysGrouped | Boolean         | Always display under group name                     |
-| alwaysShown   | Boolean         | Always show group even with partial membership      |
-| panelIds      | `Array<String>` | Panel IDs where this presenter/group should appear  |
+| Field    | Type            | Description                                         |
+| -------- | --------------- | --------------------------------------------------- |
+| name     | String          | Presenter or group name                             |
+| rank     | String          | Presenter rank (guest, staff, fan_panelist, etc.)   |
+| sortKey  | Integer         | Sequential ordering key (0-based)                   |
+| isGroup  | Boolean         | True if this is a group                             |
+| members  | `Array<String>` | Group member names (empty for individuals)          |
+| groups   | `Array<String>` | Groups this presenter belongs to (empty for groups) |
+| panelIds | `Array<String>` | Panel IDs where this presenter/group should appear  |
 
 ### Bidirectional Group Membership Logic
 

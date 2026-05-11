@@ -29,14 +29,14 @@ use crate::schedule::Schedule;
 use crate::tables::event_room::{self, EventRoomEntityType, EventRoomId};
 use crate::tables::hotel_room::{HotelRoomEntityType, HotelRoomId};
 use crate::tables::panel_type::{self, PanelTypeEntityType, PanelTypeId};
-use crate::tables::presenter::{self, PresenterCommonData, PresenterEntityType, PresenterId};
+use crate::tables::presenter::{self, PresenterEntityType, PresenterId};
 use crate::value::cost::{additional_cost_to_string, AdditionalCost};
 use crate::value::time::{parse_datetime, parse_duration, TimeRange};
 use crate::value::uniq_id::PanelUniqId;
 use crate::value::{FieldValue, FieldValueItem, ValidationError};
 use chrono::Duration;
 use serde::{Deserialize, Serialize};
-use std::collections::{HashMap, HashSet};
+use std::collections::HashSet;
 use std::sync::LazyLock;
 
 // ── Type aliases ──────────────────────────────────────────────────────────────
@@ -1144,36 +1144,8 @@ pub static FIELD_INCLUSIVE_PRESENTERS: FieldDescriptor<PanelEntityType> = {
         example: "[]",
         order: 3000,
         read: |sched: &Schedule, panel_id: PanelId| {
-            let credited_ids: Vec<PresenterId> = sched
-                .connected_field_nodes(panel_id, EDGE_CREDITED_PRESENTERS)
-                .into_iter()
-                .map(|e| unsafe { PresenterId::new_unchecked(e.entity_uuid()) })
-                .collect();
-            let uncredited_ids: Vec<PresenterId> = sched
-                .connected_field_nodes(panel_id, EDGE_UNCREDITED_PRESENTERS)
-                .into_iter()
-                .map(|e| unsafe { PresenterId::new_unchecked(e.entity_uuid()) })
-                .collect();
-            let direct: Vec<PresenterId> = credited_ids.into_iter().chain(uncredited_ids).collect();
-            let mut result: HashSet<PresenterId> = HashSet::new();
-            for p in direct {
-                result.insert(p);
-                // Inclusive members of p: all members of p (following EDGE_MEMBERS from p)
-                for m in sched.inclusive_edges::<PresenterEntityType, PresenterEntityType>(
-                    p,
-                    presenter::EDGE_MEMBERS,
-                ) {
-                    result.insert(m);
-                }
-                // Inclusive groups of p: all groups p belongs to (following EDGE_GROUPS from p)
-                for g in sched.inclusive_edges::<PresenterEntityType, PresenterEntityType>(
-                    p,
-                    presenter::EDGE_GROUPS,
-                ) {
-                    result.insert(g);
-                }
-            }
-            let ids: Vec<PresenterId> = result.into_iter().collect();
+            let inclusive_presenters = get_inclusive_presenters(sched, panel_id);
+            let ids: Vec<PresenterId> = inclusive_presenters.into_iter().collect();
             Some(crate::schedule::entity_ids_to_field_value(ids))
         }
     };
@@ -1301,192 +1273,8 @@ pub static FIELD_HOTEL_ROOMS: FieldDescriptor<PanelEntityType> = {
 };
 inventory::submit! { CollectedField(&FIELD_HOTEL_ROOMS) }
 
-// ── Credits computation ───────────────────────────────────────────────────────
-
-/// Compute the formatted presenter credit strings for `panel_id`.
-///
-/// Applies `hide_panelist` / `alt_panelist` overrides, then filters to
-/// credited presenters (per the per-edge `credited` bool), then formats each
-/// credit entry accounting for groups, `always_shown_in_group`, and
-/// `always_grouped` members.
-///
-/// The presenter lookup is built from **all** presenters in the schedule so
-/// that group entities that are not themselves panel edges can still be
-/// resolved for name formatting.
-pub(crate) fn compute_credits(sched: &crate::schedule::Schedule, panel_id: PanelId) -> Vec<String> {
-    let panel_internal = match sched.get_internal::<PanelEntityType>(panel_id) {
-        Some(p) => p,
-        None => return Vec::new(),
-    };
-    if panel_internal.data.hide_panelist {
-        return Vec::new();
-    }
-    if let Some(ref alt) = panel_internal.data.alt_panelist {
-        return vec![alt.clone()];
-    }
-
-    // Get credited presenters directly from the credited edge list
-    let credited_edge = EDGE_CREDITED_PRESENTERS;
-    let credited_ids = sched
-        .connected_field_nodes(panel_id, credited_edge)
-        .into_iter()
-        .map(|e| unsafe { PresenterId::new_unchecked(e.entity_uuid()) })
-        .collect::<Vec<PresenterId>>();
-    if credited_ids.is_empty() {
-        return Vec::new();
-    }
-
-    // Build a schedule-wide lookup so group entities not directly on this
-    // panel (e.g. referenced only via always_grouped membership) can be found.
-    let presenter_lookup: HashMap<PresenterId, &PresenterCommonData> = sched
-        .iter_entities::<PresenterEntityType>()
-        .map(|(id, internal)| (id, &internal.data))
-        .collect();
-
-    let mut credits: Vec<String> = Vec::new();
-    let mut used_as_member: HashSet<PresenterId> = HashSet::new();
-    let mut used_groups: HashSet<PresenterId> = HashSet::new();
-
-    // First pass: handle explicit groups and always_grouped members.
-    for &presenter_id in &credited_ids {
-        if used_as_member.contains(&presenter_id) {
-            continue;
-        }
-        let Some(&presenter_data) = presenter_lookup.get(&presenter_id) else {
-            continue;
-        };
-        if presenter_data.is_explicit_group {
-            let member_ids = sched
-                .connected_field_nodes(presenter_id, presenter::EDGE_MEMBERS)
-                .into_iter()
-                .map(|e| unsafe { PresenterId::new_unchecked(e.entity_uuid()) })
-                .collect::<Vec<PresenterId>>();
-            let all_members: HashSet<PresenterId> = member_ids.iter().cloned().collect();
-            let credited_members: Vec<PresenterId> = all_members
-                .iter()
-                .filter(|m| credited_ids.contains(m))
-                .cloned()
-                .collect();
-
-            if used_groups.contains(&presenter_id) {
-                continue;
-            }
-            if presenter_data.always_shown_in_group {
-                // Partial attendance → "Member of Group" / "Group (M1, M2)"; full → group name.
-                if credited_members.len() < all_members.len() {
-                    match credited_members.len() {
-                        0 => credits.push(presenter_data.name.clone()),
-                        1 => {
-                            if let Some(m) = presenter_lookup.get(&credited_members[0]) {
-                                credits.push(format!("{} of {}", m.name, presenter_data.name));
-                            }
-                        }
-                        _ => {
-                            let names: Vec<String> = credited_members
-                                .iter()
-                                .filter_map(|mid| presenter_lookup.get(mid).map(|d| d.name.clone()))
-                                .collect();
-                            credits.push(format!("{} ({})", presenter_data.name, names.join(", ")));
-                        }
-                    }
-                    for m in &credited_members {
-                        used_as_member.insert(*m);
-                    }
-                } else {
-                    credits.push(presenter_data.name.clone());
-                    for m in all_members {
-                        used_as_member.insert(m);
-                    }
-                }
-            } else {
-                // Regular group: show name if all members present, else individuals.
-                let show_as_group = member_ids.iter().all(|m| credited_ids.contains(m));
-                if show_as_group {
-                    credits.push(presenter_data.name.clone());
-                    for m in member_ids {
-                        used_as_member.insert(m);
-                    }
-                } else {
-                    for m in member_ids {
-                        if credited_ids.contains(&m) && !used_as_member.contains(&m) {
-                            if let Some(md) = presenter_lookup.get(&m) {
-                                credits.push(md.name.clone());
-                                used_as_member.insert(m);
-                            }
-                        }
-                    }
-                }
-            }
-            used_groups.insert(presenter_id);
-        } else if presenter_data.always_grouped {
-            // This member always appears under their group's name.
-            // First: find which groups this presenter belongs to
-            let group_ids = sched
-                .connected_field_nodes(presenter_id, presenter::EDGE_GROUPS)
-                .into_iter()
-                .map(|e| unsafe { PresenterId::new_unchecked(e.entity_uuid()) })
-                .collect::<Vec<PresenterId>>();
-            for group_id in group_ids {
-                let Some(&group_data) = presenter_lookup.get(&group_id) else {
-                    continue;
-                };
-                // Then: find all members of that group
-                let group_member_ids = sched
-                    .connected_field_nodes(group_id, presenter::EDGE_MEMBERS)
-                    .into_iter()
-                    .map(|e| unsafe { PresenterId::new_unchecked(e.entity_uuid()) })
-                    .collect::<Vec<PresenterId>>();
-                let show_as_group = group_data.always_shown_in_group
-                    || group_member_ids.iter().all(|m| credited_ids.contains(m));
-
-                if used_groups.contains(&group_id) || !show_as_group {
-                    continue;
-                }
-                if group_data.always_shown_in_group {
-                    let credited_members: Vec<PresenterId> = group_member_ids
-                        .iter()
-                        .filter(|m| credited_ids.contains(m))
-                        .cloned()
-                        .collect();
-                    if credited_members.len() < group_member_ids.len() {
-                        for m in &credited_members {
-                            if let Some(md) = presenter_lookup.get(m) {
-                                credits.push(format!("{} of {}", md.name, group_data.name));
-                                used_as_member.insert(*m);
-                            }
-                        }
-                    } else {
-                        credits.push(group_data.name.clone());
-                        for m in group_member_ids {
-                            used_as_member.insert(m);
-                        }
-                    }
-                } else {
-                    credits.push(group_data.name.clone());
-                    for m in group_member_ids {
-                        used_as_member.insert(m);
-                    }
-                }
-                used_groups.insert(group_id);
-            }
-        }
-    }
-
-    // Second pass: remaining individuals not consumed by a group.
-    for &presenter_id in &credited_ids {
-        if used_as_member.contains(&presenter_id) {
-            continue;
-        }
-        if let Some(&pd) = presenter_lookup.get(&presenter_id) {
-            if !pd.is_explicit_group && !pd.always_grouped {
-                credits.push(pd.name.clone());
-            }
-        }
-    }
-
-    credits
-}
-
+mod credits;
+pub use credits::{compute_credits, get_inclusive_presenters};
 /// Formatted credit strings for display (hidePanelist, altPanelist, group resolution).
 pub static FIELD_CREDITS: FieldDescriptor<PanelEntityType> = {
     let (data, _, cb) = callback_field_properties! {
@@ -2100,7 +1888,7 @@ mod tests {
         let pres_id = crate::entity::EntityId::<PresenterEntityType>::generate();
         let data = presenter::PresenterInternalData {
             id: pres_id,
-            data: presenter::PresenterCommonData {
+            data: crate::tables::presenter::PresenterCommonData {
                 name: name.into(),
                 ..Default::default()
             },

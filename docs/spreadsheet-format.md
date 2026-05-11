@@ -136,9 +136,9 @@ This is the format used by actual Cosplay America spreadsheets, with support for
 | ------------------- | ---------------------------------------------------------------------------------- |
 | `G:Name`            | Guest named *Name*. Cell is a flag — any non-blank value means they are attending. |
 | `G:Name=Group`      | Guest named *Name*, member of *Group*. Cell is a flag.                             |
-| `G:Name==Group`     | Guest named *Name*, member of *Group*. Sets `always_shown` on the **Group**.       |
-| `G:<Name=Group`     | Guest named *Name*, member of *Group*. Sets `always_grouped` on **Name**.          |
-| `G:<Name==Group`    | Combination: `always_shown` on Group, `always_grouped` on Name.                    |
+| `G:Name==Group`     | Guest named *Name*, member of *Group*. Sets `subsumes_members` on the **Group**.   |
+| `G:<Name=Group`     | Guest named *Name*, member of *Group*. Sets `show_individually` on **Name**.       |
+| `G:<Name==Group`    | Combination: `subsumes_members` on Group, `show_individually` on Name.             |
 | `G:Other`           | Cell contains a **comma-separated list** of additional guest names.                |
 | `J:Name`, `J:Other` | Same as above for **judges**.                                                      |
 | `S:Name`, `S:Other` | Same as above for **staff**.                                                       |
@@ -149,9 +149,9 @@ This is the format used by actual Cosplay America spreadsheets, with support for
 **Group Handling:**
 
 - **Single `=`** (`G:Name=Group`): Individual presenter who is a member of Group. The presenter may be shown individually or as part of the group depending on context.
-- **Double `==`** (`G:Name==Group`): Sets `always_shown` on the **Group** — the group name is shown in credits even when not all members are present. This flag applies to the group, not the individual member.
-- **`<` prefix** (`G:<Name=Group`): Sets `always_grouped` on the **individual member** — this member always appears under their group name in credits, never individually.
-- **Combined** (`G:<Name==Group`): Both flags set — the group is always shown, and this member always appears under the group.
+- **Double `==`** (`G:Name==Group`): Sets `subsumes_members` on the **Group** — the group name is shown in credits and its members are subsumed. Members appear as "Name of Group" unless they have `show_individually` set.
+- **`<` prefix** (`G:<Name=Group`): Sets `show_individually` on the **individual member** — this member appears individually in credits and is NOT subsumed by the group.
+- **Combined** (`G:<Name==Group`): Both flags set — the group subsumes its members, but this member appears individually.
 - **Group names in `Other` columns**: Names are processed for `=Group` and `==Group` syntax similar to header columns. If no `=` syntax is used, the name is treated as an individual presenter unless it has already been defined as a group elsewhere.
 - **Group relationships**: Groups can have multiple members, and presenters can belong to multiple groups. Groups of groups are supported.
 
@@ -181,8 +181,9 @@ For `Kind:Other` columns the cell value is a comma-separated list of names.
 
 - **Individual presenters**: Shown by name when they are the only member attending from their group
 - **Group names**: Shown instead of individuals when all group members are attending
-- **Always-grouped presenters** (`==Group`): Always shown as part of their group, never individually
-- **Mixed attendance**: "Group Name (Individual Name)" when some but not all members are present
+- **Show individually** (`<Name`): Member appears individually and is NOT subsumed by group
+- **Group subsumes members** (`==Group`): Group appears in credits, members shown as "Name of Group"
+- **Mixed attendance**: "Group Name (Member1, Member2)" when some but not all members are present
 
 **Example scenarios:**
 
