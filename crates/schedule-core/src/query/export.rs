@@ -1102,9 +1102,11 @@ mod tests {
         link_panel_room(&mut sched, p1, room_id);
         link_panel_room(&mut sched, p2, room_id);
 
-        let (_, uid_map) = build_room_uid_map(&sched);
+        let (rooms, uid_map) = build_room_uid_map(&sched);
+        let visible_room_uids: Vec<i32> = rooms.iter().map(|r| r.uid).collect();
         let panel_types = export_panel_types(&sched).unwrap();
-        let panels = export_panels(&sched, &uid_map, &[], &panel_types, false).unwrap();
+        let panels =
+            export_panels(&sched, &uid_map, &visible_room_uids, &panel_types, false).unwrap();
 
         let ids: Vec<&str> = panels.iter().map(|p| p.id.as_str()).collect();
         assert!(ids.contains(&"%IB001"), "expected %IB001 in {ids:?}");
@@ -1117,15 +1119,20 @@ mod tests {
     fn test_export_panels_overnight_break() {
         let mut sched = Schedule::new();
         let pt_id = make_panel_type(&mut sched, "GP", "Guest Panel", false);
+        let room_id = make_event_room(&mut sched, "R1", None, 1);
         // Panel 1 ends 23:00 day 0, Panel 2 starts 09:00 day 1
         let p1 = make_panel(&mut sched, "GP001", Some((0, 21, 0, 0)), Some(120)); // 21:00–23:00
         let p2 = make_panel(&mut sched, "GP002", Some((1, 9, 0, 0)), Some(60)); // 09:00–10:00 next day
         link_panel_type(&mut sched, p1, pt_id);
         link_panel_type(&mut sched, p2, pt_id);
+        link_panel_room(&mut sched, p1, room_id);
+        link_panel_room(&mut sched, p2, room_id);
 
-        let (_, uid_map) = build_room_uid_map(&sched);
+        let (rooms, uid_map) = build_room_uid_map(&sched);
+        let visible_room_uids: Vec<i32> = rooms.iter().map(|r| r.uid).collect();
         let panel_types = export_panel_types(&sched).unwrap();
-        let panels = export_panels(&sched, &uid_map, &[], &panel_types, false).unwrap();
+        let panels =
+            export_panels(&sched, &uid_map, &visible_room_uids, &panel_types, false).unwrap();
 
         let ids: Vec<&str> = panels.iter().map(|p| p.id.as_str()).collect();
         assert!(ids.contains(&"%NB001"), "expected %NB001 in {ids:?}");
