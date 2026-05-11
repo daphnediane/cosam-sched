@@ -71,7 +71,7 @@ pub struct WidgetPanel {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub ticket_url: Option<String>,
     #[serde(skip_serializing_if = "is_false")]
-    pub is_free: bool,
+    pub is_included: bool,
     #[serde(skip_serializing_if = "is_false")]
     pub is_full: bool,
     #[serde(skip_serializing_if = "is_false")]
@@ -435,9 +435,19 @@ fn export_panels(
             capacity: internal.data.capacity.map(|c| c.to_string()),
             difficulty: internal.data.difficulty.clone(),
             ticket_url: internal.data.ticket_url.clone(),
-            is_free: internal.data.is_free,
+            is_included: {
+                let cost = internal.data.cost.as_deref();
+                let is_tbd = crate::tables::panel::cost_is_tbd(
+                    cost,
+                    crate::tables::panel::panel_type_is_workshop(schedule, panel_id),
+                );
+                match crate::tables::panel::cost_is_included(cost) {
+                    Some(v) => v,
+                    None => !is_tbd,
+                }
+            },
             is_full: internal.data.is_full,
-            is_kids: internal.data.is_kids,
+            is_kids: crate::tables::panel::cost_is_kid_panel(internal.data.cost.as_deref()),
             credits,
             presenters: presenter_names,
         });
@@ -554,7 +564,7 @@ fn make_break_panel(
         capacity: None,
         difficulty: None,
         ticket_url: None,
-        is_free: true,
+        is_included: true,
         is_full: false,
         is_kids: false,
         credits: Vec::new(),
@@ -910,7 +920,6 @@ mod tests {
                 code,
                 data: crate::tables::panel::PanelCommonData {
                     name: format!("Panel {code_str}"),
-                    is_free: true,
                     ..Default::default()
                 },
                 time_slot,

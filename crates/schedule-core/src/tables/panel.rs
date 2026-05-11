@@ -60,16 +60,10 @@ pub struct PanelCommonData {
     pub difficulty: Option<String>,
     pub prereq: Option<String>,
     pub cost: Option<String>,
-    pub is_free: bool,
-    pub is_kids: bool,
     pub is_full: bool,
     pub capacity: Option<i64>,
-    pub seats_sold: Option<i64>,
     pub pre_reg_max: Option<i64>,
     pub ticket_url: Option<String>,
-    pub have_ticket_image: bool,
-    pub simpletix_event: Option<String>,
-    pub simpletix_link: Option<String>,
     pub hide_panelist: bool,
     pub alt_panelist: Option<String>,
 }
@@ -564,42 +558,141 @@ pub static FIELD_COST: FieldDescriptor<PanelEntityType> = {
 };
 inventory::submit! { CollectedField(&FIELD_COST) }
 
-pub static FIELD_IS_FREE: FieldDescriptor<PanelEntityType> = {
-    let (data, crdt_type, cb) = accessor_field_properties! {
-        PanelEntityType,
-        is_free,
-        name: "is_free",
-        display: "Is Free",
-        description: "Parsed during import: cost is blank, \"Free\", \"$0\", or \"N/A\".",
-        aliases: &["free"],
-        cardinality: Single,
-        item: Boolean,
-        example: "false",
-        order: 1200,
-        required: false,
-    };
-    FieldDescriptor {
-        data,
-        crdt_type,
-        required: false,
-        cb,
-    }
-};
-inventory::submit! { CollectedField(&FIELD_IS_FREE) }
+// ── Cost classification helpers ───────────────────────────────────────────────
 
-pub static FIELD_IS_KIDS: FieldDescriptor<PanelEntityType> = {
-    let (data, crdt_type, cb) = accessor_field_properties! {
+/// Pattern matching `"Kids"` (case-insensitive, optional trailing `s`).
+static RE_KIDS: LazyLock<regex::Regex> =
+    LazyLock::new(|| regex::Regex::new(r"(?i)\Akids?\z").expect("RE_KIDS"));
+
+/// Pattern for a TBD-style cost: optional leading `$`, then `T`, optional
+/// `.`, `B`, optional `.`, `D`, optional `.` (case-insensitive).
+static RE_TBD: LazyLock<regex::Regex> =
+    LazyLock::new(|| regex::Regex::new(r"(?i)\A\$?T\.?B\.?D\.?\z").expect("RE_TBD"));
+
+/// Pattern for free/included costs (mirrors Perl `RE_FREE`):
+/// `free`, `nothing`, `n/a`, `na`, or a zero dollar amount.
+static RE_FREE: LazyLock<regex::Regex> = LazyLock::new(|| {
+    regex::Regex::new(r"(?ix)\A(?:free|nothing|n/?a|\$?(?:0+(?:[.]0+)?|[.]0+))\z").expect("RE_FREE")
+});
+
+/// Returns `true` if the cost string indicates a kids-only panel.
+pub fn cost_is_kid_panel(cost: Option<&str>) -> bool {
+    let text = match cost {
+        Some(t) => t.trim(),
+        None => return false,
+    };
+    RE_KIDS.is_match(text)
+}
+
+/// Returns `true` if `cost` is TBD (matches TBD pattern, or is blank and the
+/// panel type is a workshop).
+pub fn cost_is_tbd(cost: Option<&str>, is_workshop: bool) -> bool {
+    match cost.map(str::trim) {
+        None | Some("") => is_workshop,
+        Some(text) => RE_TBD.is_match(text),
+    }
+}
+
+/// Returns whether this panel's admission is included (i.e. free):
+/// - `None`       — cost is blank/unknown (classification deferred)
+/// - `Some(true)` — cost matches FREE or KIDS pattern
+/// - `Some(false)`— cost is set and not free
+pub fn cost_is_included(cost: Option<&str>) -> Option<bool> {
+    let text = match cost {
+        Some(t) => t.trim(),
+        None => return None,
+    };
+    if text.is_empty() {
+        return None;
+    }
+    if RE_FREE.is_match(text) || RE_KIDS.is_match(text) {
+        return Some(true);
+    }
+    Some(false)
+}
+
+/// Parses a cost string into integer cents (e.g. `"$35"` → `3500`,
+/// `"$35.50"` → `3550`). Returns `None` if unparseable or non-positive.
+pub fn cost_effective_cents(cost: Option<&str>) -> Option<i64> {
+    let text = cost?.trim().trim_start_matches('$');
+    if text.is_empty() {
+        return None;
+    }
+    if let Some((dollars, cents)) = text.split_once('.') {
+        let d: i64 = dollars.parse().ok()?;
+        let cents_str = format!("{cents:0<2}");
+        let c: i64 = cents_str[..2].parse().ok()?;
+        Some(d * 100 + c)
+    } else {
+        let d: i64 = text.parse().ok()?;
+        Some(d * 100)
+    }
+}
+
+/// Formats integer cents back to a cost string (e.g. `3500` → `"$35"`,
+/// `3550` → `"$35.50"`).
+pub fn cents_to_cost_string(cents: i64) -> String {
+    let dollars = cents / 100;
+    let remainder = cents % 100;
+    if remainder == 0 {
+        format!("${dollars}")
+    } else {
+        format!("${dollars}.{remainder:02}")
+    }
+}
+
+/// Traverses `EDGE_PANEL_TYPE` for `panel_id` and returns whether the linked
+/// panel type is marked as a workshop. Returns `false` if no panel type is set.
+pub fn panel_type_is_workshop(sched: &Schedule, panel_id: PanelId) -> bool {
+    sched
+        .connected_field_nodes(panel_id, EDGE_PANEL_TYPE)
+        .into_iter()
+        .next()
+        .and_then(|node| {
+            let pt_id = unsafe {
+                crate::tables::panel_type::PanelTypeId::new_unchecked(node.entity_uuid())
+            };
+            sched
+                .get_internal::<crate::tables::panel_type::PanelTypeEntityType>(pt_id)
+                .map(|d| d.data.is_workshop)
+        })
+        .unwrap_or(false)
+}
+
+// ── Cost computed fields ──────────────────────────────────────────────────────
+
+pub static FIELD_EFFECTIVE_COST: FieldDescriptor<PanelEntityType> = {
+    let (data, crdt_type, cb) = callback_field_properties! {
         PanelEntityType,
-        is_kids,
-        name: "is_kids",
-        display: "Is Kids",
-        description: "Parsed during import: cost indicates kids-only pricing.",
-        aliases: &["kids"],
-        cardinality: Single,
-        item: Boolean,
-        example: "false",
-        order: 1300,
-        required: false,
+        name: "effective_cost",
+        display: "Effective Cost",
+        description: "Cost in cents (integer). Setting updates `cost`. Read from `cost` string.",
+        aliases: &[],
+        cardinality: Optional,
+        item: Integer,
+        example: "3500",
+        order: 1105,
+        read: |d: &PanelInternalData| {
+            cost_effective_cents(d.data.cost.as_deref()).map(|c| field_value!(c))
+        },
+        write: |d: &mut PanelInternalData, v: FieldValue| {
+            match v {
+                FieldValue::List(ref items) if items.is_empty() => {
+                    d.data.cost = None;
+                    Ok(())
+                }
+                FieldValue::Single(FieldValueItem::Integer(cents)) => {
+                    d.data.cost = Some(cents_to_cost_string(cents));
+                    Ok(())
+                }
+                _ => Err(crate::value::FieldError::Conversion(
+                    crate::value::ConversionError::WrongVariant {
+                        expected: "Integer",
+                        got: "other",
+                    },
+                )),
+            }
+        },
     };
     FieldDescriptor {
         data,
@@ -608,7 +701,90 @@ pub static FIELD_IS_KIDS: FieldDescriptor<PanelEntityType> = {
         cb,
     }
 };
-inventory::submit! { CollectedField(&FIELD_IS_KIDS) }
+inventory::submit! { CollectedField(&FIELD_EFFECTIVE_COST) }
+
+pub static FIELD_COST_IS_TBD: FieldDescriptor<PanelEntityType> = {
+    let (data, _, cb) = callback_field_properties! {
+        PanelEntityType,
+        name: "cost_is_tbd",
+        display: "Cost Is TBD",
+        description: "True if cost is a TBD placeholder, or if cost is blank and the panel type is a workshop.",
+        aliases: &["tbd"],
+        cardinality: Single,
+        item: Boolean,
+        example: "false",
+        order: 1210,
+        read: |sched: &Schedule, id: PanelId| {
+            let cost = sched
+                .get_internal::<PanelEntityType>(id)
+                .and_then(|d| d.data.cost.as_deref().map(str::to_owned));
+            let is_workshop = panel_type_is_workshop(sched, id);
+            Some(field_value!(cost_is_tbd(cost.as_deref(), is_workshop)))
+        }
+    };
+    FieldDescriptor {
+        data,
+        crdt_type: CrdtFieldType::Derived,
+        required: false,
+        cb,
+    }
+};
+inventory::submit! { CollectedField(&FIELD_COST_IS_TBD) }
+
+pub static FIELD_PANEL_IS_INCLUDED: FieldDescriptor<PanelEntityType> = {
+    let (data, _, cb) = callback_field_properties! {
+        PanelEntityType,
+        name: "panel_is_included",
+        display: "Panel Is Included",
+        description: "True if no additional cost (free, kids, or blank non-workshop). None if unknown. False if paid.",
+        aliases: &["is_free", "free"],
+        cardinality: Optional,
+        item: Boolean,
+        example: "true",
+        order: 1220,
+        read: |sched: &Schedule, id: PanelId| {
+            let cost = sched
+                .get_internal::<PanelEntityType>(id)
+                .and_then(|d| d.data.cost.as_deref().map(str::to_owned));
+            cost_is_included(cost.as_deref())
+                .map(|v| field_value!(v))
+        }
+    };
+    FieldDescriptor {
+        data,
+        crdt_type: CrdtFieldType::Derived,
+        required: false,
+        cb,
+    }
+};
+inventory::submit! { CollectedField(&FIELD_PANEL_IS_INCLUDED) }
+
+pub static FIELD_IS_KID_PANEL: FieldDescriptor<PanelEntityType> = {
+    let (data, _, cb) = callback_field_properties! {
+        PanelEntityType,
+        name: "is_kid_panel",
+        display: "Is Kid Panel",
+        description: "True if the cost indicates a kids-only panel.",
+        aliases: &["is_kids", "kids"],
+        cardinality: Single,
+        item: Boolean,
+        example: "false",
+        order: 1310,
+        read: |sched: &Schedule, id: PanelId| {
+            let cost = sched
+                .get_internal::<PanelEntityType>(id)
+                .and_then(|d| d.data.cost.as_deref().map(str::to_owned));
+            Some(field_value!(cost_is_kid_panel(cost.as_deref())))
+        }
+    };
+    FieldDescriptor {
+        data,
+        crdt_type: CrdtFieldType::Derived,
+        required: false,
+        cb,
+    }
+};
+inventory::submit! { CollectedField(&FIELD_IS_KID_PANEL) }
 
 pub static FIELD_IS_FULL: FieldDescriptor<PanelEntityType> = {
     let (data, crdt_type, cb) = accessor_field_properties! {
@@ -655,28 +831,6 @@ pub static FIELD_CAPACITY: FieldDescriptor<PanelEntityType> = {
 };
 inventory::submit! { CollectedField(&FIELD_CAPACITY) }
 
-pub static FIELD_SEATS_SOLD: FieldDescriptor<PanelEntityType> = {
-    let (data, crdt_type, cb) = accessor_field_properties! {
-        PanelEntityType,
-        seats_sold,
-        name: "seats_sold",
-        display: "Seats Sold",
-        description: "Number of seats pre-sold or reserved via ticketing.",
-        aliases: &[],
-        cardinality: Optional,
-        item: Integer,
-        example: "25",
-        order: 1600,
-    };
-    FieldDescriptor {
-        data,
-        crdt_type,
-        required: false,
-        cb,
-    }
-};
-inventory::submit! { CollectedField(&FIELD_SEATS_SOLD) }
-
 pub static FIELD_PRE_REG_MAX: FieldDescriptor<PanelEntityType> = {
     let (data, crdt_type, cb) = accessor_field_properties! {
         PanelEntityType,
@@ -720,73 +874,6 @@ pub static FIELD_TICKET_URL: FieldDescriptor<PanelEntityType> = {
     }
 };
 inventory::submit! { CollectedField(&FIELD_TICKET_URL) }
-
-pub static FIELD_HAVE_TICKET_IMAGE: FieldDescriptor<PanelEntityType> = {
-    let (data, crdt_type, cb) = accessor_field_properties! {
-        PanelEntityType,
-        have_ticket_image,
-        name: "have_ticket_image",
-        display: "Have Ticket Image",
-        description: "Whether a ticket / flyer image has been received.",
-        aliases: &[],
-        cardinality: Single,
-        item: Boolean,
-        example: "false",
-        order: 1900,
-        required: false,
-    };
-    FieldDescriptor {
-        data,
-        crdt_type,
-        required: false,
-        cb,
-    }
-};
-inventory::submit! { CollectedField(&FIELD_HAVE_TICKET_IMAGE) }
-
-pub static FIELD_SIMPLETIX_EVENT: FieldDescriptor<PanelEntityType> = {
-    let (data, crdt_type, cb) = accessor_field_properties! {
-        PanelEntityType,
-        simpletix_event,
-        name: "simpletix_event",
-        display: "SimpleTix Event",
-        description: "Internal admin URL for SimpleTix event configuration.",
-        aliases: &["simpletix"],
-        cardinality: Optional,
-        item: String,
-        example: "https://admin.simpletix.com/event/123",
-        order: 2000,
-    };
-    FieldDescriptor {
-        data,
-        crdt_type,
-        required: false,
-        cb,
-    }
-};
-inventory::submit! { CollectedField(&FIELD_SIMPLETIX_EVENT) }
-
-pub static FIELD_SIMPLETIX_LINK: FieldDescriptor<PanelEntityType> = {
-    let (data, crdt_type, cb) = accessor_field_properties! {
-        PanelEntityType,
-        simpletix_link,
-        name: "simpletix_link",
-        display: "SimpleTix Link",
-        description: "Public-facing direct ticket purchase link.",
-        aliases: &[],
-        cardinality: Optional,
-        item: String,
-        example: "https://simpletix.com/event/123",
-        order: 2100,
-    };
-    FieldDescriptor {
-        data,
-        crdt_type,
-        required: false,
-        cb,
-    }
-};
-inventory::submit! { CollectedField(&FIELD_SIMPLETIX_LINK) }
 
 pub static FIELD_HIDE_PANELIST: FieldDescriptor<PanelEntityType> = {
     let (data, crdt_type, cb) = accessor_field_properties! {
@@ -1515,26 +1602,14 @@ crate::field::macros::define_entity_builder! {
         with_prereq              => FIELD_PREREQ,
         /// Set the raw cost cell value (e.g. `"$35"`, `"Free"`, `"Kids"`).
         with_cost                => FIELD_COST,
-        /// Mark the panel as free (parsed from `cost` during import).
-        with_is_free             => FIELD_IS_FREE,
-        /// Mark the panel as kids-only (parsed from `cost` during import).
-        with_is_kids             => FIELD_IS_KIDS,
         /// Mark the panel as at capacity.
         with_is_full             => FIELD_IS_FULL,
         /// Set the total seat capacity.
         with_capacity            => FIELD_CAPACITY,
-        /// Set the number of seats already sold / reserved.
-        with_seats_sold          => FIELD_SEATS_SOLD,
         /// Set the maximum pre-registration seat count.
         with_pre_reg_max         => FIELD_PRE_REG_MAX,
         /// Set the public ticket-purchase URL.
         with_ticket_url          => FIELD_TICKET_URL,
-        /// Mark whether a ticket / flyer image has been received.
-        with_have_ticket_image   => FIELD_HAVE_TICKET_IMAGE,
-        /// Set the internal SimpleTix admin URL.
-        with_simpletix_event     => FIELD_SIMPLETIX_EVENT,
-        /// Set the public-facing SimpleTix purchase link.
-        with_simpletix_link      => FIELD_SIMPLETIX_LINK,
         /// Suppress presenter credits for this panel.
         with_hide_panelist       => FIELD_HIDE_PANELIST,
         /// Override text for the presenter credits line.
@@ -1607,16 +1682,10 @@ mod tests {
             difficulty: None,
             prereq: None,
             cost: Some("$35".into()),
-            is_free: false,
-            is_kids: false,
             is_full: false,
             capacity: Some(50),
-            seats_sold: Some(12),
             pre_reg_max: Some(40),
             ticket_url: None,
-            have_ticket_image: false,
-            simpletix_event: None,
-            simpletix_link: None,
             hide_panelist: false,
             alt_panelist: None,
         }
@@ -1649,7 +1718,7 @@ mod tests {
     fn field_set_contains_all_declared_fields() {
         let fs = PanelEntityType::field_set();
         let count = fs.fields().count();
-        assert_eq!(count, 31);
+        assert_eq!(count, 29);
         assert_eq!(fs.half_edges().count(), 4);
     }
 
@@ -1741,12 +1810,12 @@ mod tests {
         let id = new_panel_id();
         let mut s = sched_with(id, sample_internal(id));
         let fs = PanelEntityType::field_set();
-        fs.write_field_value("is_free", id, &mut s, field_value!(true))
+        fs.write_field_value("is_full", id, &mut s, field_value!(true))
             .unwrap();
         fs.write_field_value("capacity", id, &mut s, field_value!(99))
             .unwrap();
         assert_eq!(
-            fs.read_field_value("is_free", id, &s).unwrap(),
+            fs.read_field_value("is_full", id, &s).unwrap(),
             Some(field_value!(true))
         );
         assert_eq!(

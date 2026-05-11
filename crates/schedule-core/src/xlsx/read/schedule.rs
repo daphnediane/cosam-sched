@@ -202,9 +202,8 @@ pub(super) fn read_schedule_into(
                 })
             });
 
-        // Parse cost / free / kids flags.
-        let cost_raw = get_field_def(&data, &sc::COST).map(|s| s.as_str());
-        let (cost, is_free, is_kids) = normalize_cost(cost_raw);
+        // Parse cost string (classification is computed at read time from FIELD_COST).
+        let cost = normalize_cost(get_field_def(&data, &sc::COST).map(|s| s.as_str()));
 
         let is_full = get_field_def(&data, &sc::FULL)
             .map(|s| is_truthy(s))
@@ -215,12 +214,8 @@ pub(super) fn read_schedule_into(
         let sewing_machines = get_field_def(&data, &sc::SEWING_MACHINES)
             .map(|s| is_truthy(s))
             .unwrap_or(false);
-        let have_ticket_image = get_field_def(&data, &sc::HAVE_TICKET_IMAGE)
-            .map(|s| is_truthy(s))
-            .unwrap_or(false);
 
         let capacity = get_field_def(&data, &sc::CAPACITY).and_then(|s| s.parse::<i64>().ok());
-        let seats_sold = get_field_def(&data, &sc::SEATS_SOLD).and_then(|s| s.parse::<i64>().ok());
         let pre_reg_max =
             get_field_def(&data, &sc::PRE_REG_MAX).and_then(|s| s.parse::<i64>().ok());
 
@@ -234,21 +229,16 @@ pub(super) fn read_schedule_into(
         let mut updates: Vec<FieldUpdate<PanelEntityType>> = vec![
             FieldUpdate::set(&crate::tables::panel::FIELD_CODE, code_str.as_str()),
             FieldUpdate::set(&crate::tables::panel::FIELD_NAME, name.as_str()),
-            FieldUpdate::set(&crate::tables::panel::FIELD_IS_FREE, is_free),
-            FieldUpdate::set(&crate::tables::panel::FIELD_IS_KIDS, is_kids),
             FieldUpdate::set(&crate::tables::panel::FIELD_IS_FULL, is_full),
             FieldUpdate::set(&crate::tables::panel::FIELD_HIDE_PANELIST, hide_panelist),
             FieldUpdate::set(
                 &crate::tables::panel::FIELD_SEWING_MACHINES,
                 sewing_machines,
             ),
-            FieldUpdate::set(
-                &crate::tables::panel::FIELD_HAVE_TICKET_IMAGE,
-                have_ticket_image,
-            ),
         ];
 
         if let Some(ref c) = cost {
+            // cost is Some only for non-empty, non-free, non-kids values
             updates.push(FieldUpdate::set(
                 &crate::tables::panel::FIELD_COST,
                 c.as_str(),
@@ -308,12 +298,6 @@ pub(super) fn read_schedule_into(
                 n.as_str(),
             ));
         }
-        if let Some(ref n) = get_field_def(&data, &sc::SIMPLE_TIX_EVENT).cloned() {
-            updates.push(FieldUpdate::set(
-                &crate::tables::panel::FIELD_SIMPLETIX_EVENT,
-                n.as_str(),
-            ));
-        }
         if let Some(ref n) = get_field_def(&data, &sc::ALT_PANELIST).cloned() {
             updates.push(FieldUpdate::set(
                 &crate::tables::panel::FIELD_ALT_PANELIST,
@@ -322,12 +306,6 @@ pub(super) fn read_schedule_into(
         }
         if let Some(cap) = capacity {
             updates.push(FieldUpdate::set(&crate::tables::panel::FIELD_CAPACITY, cap));
-        }
-        if let Some(ss) = seats_sold {
-            updates.push(FieldUpdate::set(
-                &crate::tables::panel::FIELD_SEATS_SOLD,
-                ss,
-            ));
         }
         if let Some(prm) = pre_reg_max {
             updates.push(FieldUpdate::set(
@@ -563,23 +541,24 @@ fn excel_serial_to_naive_datetime(serial: f64) -> Option<NaiveDateTime> {
 
 // ── Cost normalization ────────────────────────────────────────────────────────
 
-fn normalize_cost(text: Option<&str>) -> (Option<String>, bool, bool) {
-    let text = match text {
-        Some(t) => t.trim(),
-        None => return (None, true, false),
-    };
+/// Normalizes a raw cost cell value for storage in [`FIELD_COST`].
+///
+/// Returns `None` for blank, free, kids, or `*` values so that cost
+/// classification can be re-derived at read time by the computed fields
+/// (`FIELD_PANEL_IS_INCLUDED`, `FIELD_IS_KID_PANEL`, `FIELD_COST_IS_TBD`).
+/// Returns `Some(text)` for any non-trivially-free cost string.
+fn normalize_cost(text: Option<&str>) -> Option<String> {
+    let text = text?.trim();
     if text.is_empty() || text == "*" {
-        return (None, true, false);
+        return None;
     }
-    let lower = text.to_lowercase();
-    if lower == "free" || lower == "n/a" || lower == "nothing" || lower == "$0" || lower == "$0.00"
-    {
-        return (None, true, false);
+    if crate::tables::panel::cost_is_kid_panel(Some(text)) {
+        return None;
     }
-    if lower == "kids" {
-        return (None, true, true);
+    if crate::tables::panel::cost_is_included(Some(text)) == Some(true) {
+        return None;
     }
-    (Some(text.to_string()), false, false)
+    Some(text.to_string())
 }
 
 // ── Name splitting ────────────────────────────────────────────────────────────
@@ -632,15 +611,19 @@ mod tests {
     use super::*;
 
     #[test]
-    fn test_normalize_cost_free() {
-        assert_eq!(normalize_cost(None), (None, true, false));
-        assert_eq!(normalize_cost(Some("Free")), (None, true, false));
-        assert_eq!(normalize_cost(Some("$0")), (None, true, false));
-        assert_eq!(normalize_cost(Some("Kids")), (None, true, true));
-        assert_eq!(
-            normalize_cost(Some("$35")),
-            (Some("$35".into()), false, false)
-        );
+    fn test_normalize_cost_stores_only_paid() {
+        assert_eq!(normalize_cost(None), None);
+        assert_eq!(normalize_cost(Some("Free")), None);
+        assert_eq!(normalize_cost(Some("$0")), None);
+        assert_eq!(normalize_cost(Some("$0.00")), None);
+        assert_eq!(normalize_cost(Some("N/A")), None);
+        assert_eq!(normalize_cost(Some("nothing")), None);
+        assert_eq!(normalize_cost(Some("Kids")), None);
+        assert_eq!(normalize_cost(Some("*")), None);
+        assert_eq!(normalize_cost(Some("")), None);
+        // TBD is NOT free — it should be stored so computed fields can classify it.
+        assert_eq!(normalize_cost(Some("TBD")), Some("TBD".into()));
+        assert_eq!(normalize_cost(Some("$35")), Some("$35".into()));
     }
 
     #[test]

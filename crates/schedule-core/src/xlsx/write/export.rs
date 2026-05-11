@@ -336,11 +336,8 @@ fn write_schedule_sheet(
     let c_av_notes = c(&sched_cols::AV_NOTES);
     let c_difficulty = c(&sched_cols::DIFFICULTY);
     let c_cost = c(&sched_cols::COST);
-    let c_seats_sold = c(&sched_cols::SEATS_SOLD);
     let c_pre_reg_max = c(&sched_cols::PRE_REG_MAX);
     let c_capacity = c(&sched_cols::CAPACITY);
-    let c_have_ticket_img = c(&sched_cols::HAVE_TICKET_IMAGE);
-    let c_simpletix_event = c(&sched_cols::SIMPLE_TIX_EVENT);
     let c_ticket_sale = c(&sched_cols::TICKET_SALE);
     let c_ticket_url = c(&sched_cols::TICKET_URL);
     let c_hide_panelist = c(&sched_cols::HIDE_PANELIST);
@@ -390,30 +387,24 @@ fn write_schedule_sheet(
         set_opt(ws, c_av_notes, row, &panel.data.av_notes);
         set_opt(ws, c_difficulty, row, &panel.data.difficulty);
 
-        // Cost (with free/kids special cases).
-        let cost_str = if panel.data.is_free {
-            Some("Free".to_string())
-        } else if panel.data.is_kids {
+        // Cost: reconstruct display value from stored cost string.
+        let cost_str = if crate::tables::panel::cost_is_kid_panel(panel.data.cost.as_deref()) {
             Some("Kids".to_string())
+        } else if crate::tables::panel::cost_is_included(panel.data.cost.as_deref()) == Some(true) {
+            Some("Free".to_string())
         } else {
             panel.data.cost.clone()
         };
         set_opt(ws, c_cost, row, &cost_str);
 
         // Seat counts.
-        let seats_sold = panel.data.seats_sold.map(|n| n.to_string());
         let pre_reg_max = panel.data.pre_reg_max.map(|n| n.to_string());
         let capacity = panel.data.capacity.map(|n| n.to_string());
-        set_opt(ws, c_seats_sold, row, &seats_sold);
         set_opt(ws, c_pre_reg_max, row, &pre_reg_max);
         set_opt(ws, c_capacity, row, &capacity);
 
         // Ticketing.
-        if panel.data.have_ticket_image {
-            set_str(ws, c_have_ticket_img, row, "Yes");
-        }
-        set_opt(ws, c_simpletix_event, row, &panel.data.simpletix_event);
-        set_opt(ws, c_ticket_sale, row, &panel.data.simpletix_link);
+        set_opt(ws, c_ticket_sale, row, &panel.data.ticket_url);
         set_opt(ws, c_ticket_url, row, &panel.data.ticket_url);
 
         // Presenter display overrides.
