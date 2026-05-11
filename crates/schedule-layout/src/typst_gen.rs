@@ -78,7 +78,7 @@ pub fn schedule_grid(
     let time_col_w = "0.7in";
     let room_col_w = "1fr";
     let cols_spec: Vec<&str> = std::iter::once(time_col_w)
-        .chain(std::iter::repeat(room_col_w).take(layout.room_order.len()))
+        .chain(std::iter::repeat_n(room_col_w, layout.room_order.len()))
         .collect();
     out.push_str(&format!("  columns: ({}),\n", cols_spec.join(", ")));
 

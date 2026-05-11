@@ -70,23 +70,12 @@ pub struct LayoutFilter {
 }
 
 /// Complete configuration for a single layout job.
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Default)]
 pub struct LayoutConfig {
     pub paper: PaperSize,
     pub format: LayoutFormat,
     pub split_by: SplitMode,
     pub filter: LayoutFilter,
-}
-
-impl Default for LayoutConfig {
-    fn default() -> Self {
-        Self {
-            paper: PaperSize::default(),
-            format: LayoutFormat::default(),
-            split_by: SplitMode::default(),
-            filter: LayoutFilter::default(),
-        }
-    }
 }
 
 /// A computed time slot in the grid.

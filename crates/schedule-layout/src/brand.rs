@@ -23,22 +23,11 @@ pub enum BrandError {
 }
 
 /// Brand configuration loaded from `config/brand.toml`.
-#[derive(Debug, Clone, Deserialize, Serialize)]
-#[serde(default)]
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
 pub struct BrandConfig {
     pub colors: BrandColors,
     pub fonts: BrandFonts,
     pub meta: BrandMeta,
-}
-
-impl Default for BrandConfig {
-    fn default() -> Self {
-        Self {
-            colors: BrandColors::default(),
-            fonts: BrandFonts::default(),
-            meta: BrandMeta::default(),
-        }
-    }
 }
 
 impl BrandConfig {
