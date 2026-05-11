@@ -1,0 +1,23 @@
+# Brand configuration sample for cosam-layout.
+# Copy to config/brand.toml and customize. brand.toml is gitignored.
+
+[meta]
+# name = "Cosplay America"
+# site_url = "https://cosplay-america.com"
+# logo_path = "brand/logo.png"   # relative to this file
+
+[colors]
+# Primary accent color
+primary = "#00BCDD"
+# Text black
+black = "#000000"
+# Dark background / header color
+dark_grey = "#18191C"
+# White
+white = "#FFFFFF"
+
+[fonts]
+# heading = "Trend Sans One"
+# subheading = "Bebas Neue"
+# body = "Avenir Next"
+# font_dir = "brand/fonts"   # directory with TTF/OTF files, relative to this file

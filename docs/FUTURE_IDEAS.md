@@ -1,6 +1,6 @@
 # Future Ideas and Design Notes
 
-Updated on: Wed May  6 21:04:03 2026
+Updated on: Mon May 11 18:36:31 2026
 
 Open design questions, unexplored alternatives, and deferred ideas.
 An IDEA item can be promoted to a work item by renaming it to another prefix
@@ -93,6 +93,16 @@ call sites accordingly.
 increasing edit version counter" but the user says it is a file-format/schema version that
 should stay at `0`. There is a discrepancy between the comment and the intended use.
 
+### [IDEA-109] IDEA-109: Color science library for accessibility and contrast
+
+**Summary:** Color science library for accessibility and contrast
+
+**Description:** `crates/schedule-layout` currently uses hand-rolled ITU-R BT.601 luminance math
+(`LUMA_R/G/B` constants in `color.rs`) to derive grayscale fallbacks for BW
+print output. This works for the current use case but leaves several gaps:
+
+---
+
 ---
 
 ## Closed Ideas
@@ -126,3 +136,4 @@ Use `perl scripts/work-item-update.pl --create IDEA` to add new stubs.
 [IDEA-044]: work-item/idea/IDEA-044.md
 [IDEA-080]: work-item/idea/IDEA-080.md
 [IDEA-101]: work-item/idea/IDEA-101.md
+[IDEA-109]: work-item/idea/IDEA-109.md

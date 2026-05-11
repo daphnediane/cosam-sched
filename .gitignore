@@ -38,3 +38,7 @@
 /scratch
 /input
 /output
+
+# Brand config is private; only the sample is committed
+/config/brand.toml
+/config/brand/

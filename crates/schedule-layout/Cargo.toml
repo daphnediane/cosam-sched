@@ -1,0 +1,29 @@
+[package]
+name = "schedule-layout"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+authors.workspace = true
+description = "Layout engine, brand config, and Typst/PDF generation for cosam-sched print output"
+
+[features]
+default = []
+# Enable in-process Typst PDF compilation
+compile = ["dep:typst", "dep:typst-library", "dep:typst-pdf", "dep:comemo"]
+
+[dependencies]
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+toml = "0.8"
+thiserror = "2"
+image = { version = "0.25", default-features = false, features = ["png"] }
+qrcode = "0.14"
+
+# Optional: in-process Typst compilation
+typst = { version = "0.13", optional = true }
+typst-library = { version = "0.13", optional = true }
+typst-pdf = { version = "0.13", optional = true }
+comemo = { version = "0.4", optional = true }
+
+[dev-dependencies]
+serde_json = "1"
