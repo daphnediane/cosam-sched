@@ -71,7 +71,7 @@ pub struct WidgetPanel {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub ticket_url: Option<String>,
     #[serde(skip_serializing_if = "is_false")]
-    pub is_included: bool,
+    pub is_premium: bool,
     #[serde(skip_serializing_if = "is_false")]
     pub is_full: bool,
     #[serde(skip_serializing_if = "is_false")]
@@ -435,9 +435,9 @@ fn export_panels(
             capacity: internal.data.capacity.map(|c| c.to_string()),
             difficulty: internal.data.difficulty.clone(),
             ticket_url: internal.data.ticket_url.clone(),
-            is_included: matches!(
+            is_premium: matches!(
                 internal.data.additional_cost,
-                crate::value::AdditionalCost::Included
+                crate::value::AdditionalCost::TBD | crate::value::AdditionalCost::Premium(_)
             ),
             is_full: internal.data.is_full,
             is_kids: internal.data.for_kids,
@@ -557,7 +557,7 @@ fn make_break_panel(
         capacity: None,
         difficulty: None,
         ticket_url: None,
-        is_included: true,
+        is_premium: false,
         is_full: false,
         is_kids: false,
         credits: Vec::new(),

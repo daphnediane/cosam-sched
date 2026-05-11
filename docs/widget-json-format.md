@@ -78,7 +78,7 @@ Metadata describing the schedule file.
 | `capacity`    | string \| null  | Effective seat capacity (session override or base default)      |
 | `difficulty`  | string \| null  | Skill level indicator (from base)                               |
 | `ticketUrl`   | string \| null  | Effective ticket URL (session override or base default)         |
-| `isIncluded`  | boolean         | True if `additional_cost` is `Included` (no extra charge)       |
+| `isPremium`   | boolean         | True if `additional_cost` is `TBD` or `Premium` (extra charge)  |
 | `isFull`      | boolean         | True if this session is at capacity                             |
 | `isKids`      | boolean         | True for kids-only panels                                       |
 | `credits`     | string[]        | Formatted credit strings for public display                     |
@@ -128,7 +128,6 @@ Entries are ordered chronologically by `startTime`. Unscheduled sessions (null `
     "endTime": "2026-06-26T15:00:00",
     "duration": 60,
     "description": "Example panel description.",
-    "isIncluded": true,
     "credits": ["Presenter Name", "Group Name (Alice, Bob)"],
     "presenters": ["Presenter Name", "Alice", "Bob"]
   },
@@ -142,7 +141,6 @@ Entries are ordered chronologically by `startTime`. Unscheduled sessions (null `
     "endTime": "2026-06-26T15:30:00",
     "duration": 30,
     "description": null,
-    "isIncluded": true,
     "credits": [],
     "presenters": []
   }
@@ -432,7 +430,6 @@ The widget performs the following transformations on the raw JSON:
       "endTime": "2026-06-26T15:00:00",
       "duration": 60,
       "description": "Example panel description.",
-      "isIncluded": true,
       "credits": ["Presenter Name", "Group Name (Alice, Bob)"],
       "presenters": ["Presenter Name", "Alice", "Bob"]
     }

@@ -318,9 +318,9 @@
 
       // Cost — breaks excluded when filtering by cost
       if (this.filters.cost === 'included') {
-        events = events.filter(e => e.isIncluded);
+        events = events.filter(e => !e.isPremium);
       } else if (this.filters.cost === 'premium') {
-        events = events.filter(e => !e.isIncluded);
+        events = events.filter(e => e.isPremium);
       }
 
       // Presenter — breaks excluded when filtering by presenter
@@ -1014,7 +1014,7 @@
       // Badges
       const badges = el('div', { className: 'cosam-event-badges' });
       if (evt.isWorkshop) badges.appendChild(el('span', { className: 'cosam-badge cosam-badge-workshop' }, 'Workshop'));
-      if (evt.cost && !evt.isIncluded) badges.appendChild(el('span', { className: 'cosam-badge cosam-badge-paid' }, evt.cost));
+      if (evt.cost && evt.isPremium) badges.appendChild(el('span', { className: 'cosam-badge cosam-badge-paid' }, evt.cost));
       if (evt.isFull) badges.appendChild(el('span', { className: 'cosam-badge cosam-badge-full' }, 'Full'));
       if (evt.isKids) badges.appendChild(el('span', { className: 'cosam-badge cosam-badge-kids' }, 'Kids'));
       if (badges.children.length > 0) body.appendChild(badges);
@@ -1580,7 +1580,7 @@
       // Badges
       const badges = el('div', { className: 'cosam-event-badges' });
       if (evt.isWorkshop) badges.appendChild(el('span', { className: 'cosam-badge cosam-badge-workshop' }, 'Workshop'));
-      if (evt.cost && !evt.isIncluded) badges.appendChild(el('span', { className: 'cosam-badge cosam-badge-paid' }, evt.cost));
+      if (evt.cost && evt.isPremium) badges.appendChild(el('span', { className: 'cosam-badge cosam-badge-paid' }, evt.cost));
       if (evt.isFull) badges.appendChild(el('span', { className: 'cosam-badge cosam-badge-full' }, 'Full'));
       if (evt.isKids) badges.appendChild(el('span', { className: 'cosam-badge cosam-badge-kids' }, 'Kids'));
       if (badges.children.length > 0) modal.appendChild(badges);
