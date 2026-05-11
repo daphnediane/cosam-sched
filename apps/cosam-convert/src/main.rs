@@ -28,6 +28,7 @@ struct OutputSettings {
     minified: bool,
     style_page: Option<bool>,
     title: String,
+    private_export: bool,
 }
 
 impl Default for OutputSettings {
@@ -39,6 +40,7 @@ impl Default for OutputSettings {
             minified: true,
             style_page: None,
             title: String::new(),
+            private_export: false,
         }
     }
 }
@@ -307,6 +309,18 @@ fn parse_args() -> Result<CliArgs> {
                 }
                 current_settings.style_page = Some(false);
             }
+            "--private" => {
+                if first_setting_index.is_none() {
+                    first_setting_index = Some(index);
+                }
+                current_settings.private_export = true;
+            }
+            "--public" => {
+                if first_setting_index.is_none() {
+                    first_setting_index = Some(index);
+                }
+                current_settings.private_export = false;
+            }
             "--help" | "-h" => {
                 print_usage();
                 std::process::exit(0);
@@ -357,11 +371,11 @@ fn print_usage() {
         "Usage: cosam-convert --input <file> [options]\n\
          \n\
          Input:\n\
-         \x20 --input, -i <file>                  Input file (.xlsx or native .schedule)\n\
+         \x20 --input, -i <file>                   Input file (.xlsx or native .schedule)\n\
          \n\
          Output commands (each captures the current settings snapshot):\n\
-         \x20 --output, -o <file>                 Save private schedule (.xlsx or native binary)\n\
-         \x20 --export, -e <file.json>             Export public widget JSON\n\
+         \x20 --output, -o <file>                  Save schedule (.xlsx or native binary)\n\
+         \x20 --export, -e <file.json>             Export widget JSON\n\
          \x20 --export-embed <file.html>           Export embeddable HTML (inline CSS/JS/JSON)\n\
          \x20 --export-test <file.html>            Export standalone test page (Squarespace sim)\n\
          \n\
@@ -384,6 +398,8 @@ fn print_usage() {
          \x20 --no-minified, --for-debug           Skip minification\n\
          \x20 --style-page                         Set stylePageBody: true in widget init\n\
          \x20 --no-style-page                      Set stylePageBody: false in widget init\n\
+         \x20 --public                             Exclude private panels, timeline, and uncredited presenters in export\n\
+         \x20 --private                            Include private panels, timeline, and uncredited presenters in export\n\
          \n\
          Builtin resource shortcuts:\n\
          \x20 --builtin-css                        Use builtin CSS\n\
@@ -451,18 +467,28 @@ fn write_output(schedule: &mut Schedule, path: &Path) -> Result<()> {
     }
 }
 
-fn widget_json_string(schedule: &Schedule, title: &str) -> Result<String> {
-    let widget = export_to_widget_json(schedule, title).map_err(|e| anyhow::anyhow!("{}", e))?;
+fn widget_json_string(schedule: &Schedule, title: &str, private_export: bool) -> Result<String> {
+    let widget = export_to_widget_json(schedule, title, private_export)
+        .map_err(|e| anyhow::anyhow!("{}", e))?;
     serde_json::to_string_pretty(&widget).map_err(Into::into)
 }
 
-fn write_widget_json(schedule: &Schedule, path: &Path, title: &str) -> Result<()> {
-    let json = widget_json_string(schedule, title)?;
+fn write_widget_json(
+    schedule: &Schedule,
+    path: &Path,
+    title: &str,
+    private_export: bool,
+) -> Result<()> {
+    let json = widget_json_string(schedule, title, private_export)?;
     std::fs::write(path, json).with_context(|| format!("Failed to write {}", path.display()))
 }
 
-fn write_widget_json_to_string(schedule: &Schedule, title: &str) -> Result<String> {
-    widget_json_string(schedule, title)
+fn write_widget_json_to_string(
+    schedule: &Schedule,
+    title: &str,
+    private_export: bool,
+) -> Result<String> {
+    widget_json_string(schedule, title, private_export)
 }
 
 // ── Stats reporting ───────────────────────────────────────────────────────────
@@ -527,11 +553,15 @@ fn main() {
             OutputType::Output => write_output(&mut schedule, &job.path).map(|()| {
                 eprintln!("Saved: {}", job.path.display());
             }),
-            OutputType::Export => {
-                write_widget_json(&schedule, &job.path, &effective_title).map(|()| {
-                    eprintln!("Exported: {}", job.path.display());
-                })
-            }
+            OutputType::Export => write_widget_json(
+                &schedule,
+                &job.path,
+                &effective_title,
+                job.settings.private_export,
+            )
+            .map(|()| {
+                eprintln!("Exported: {}", job.path.display());
+            }),
             OutputType::ExportEmbed | OutputType::ExportTest => {
                 let sources = match embed::WidgetSources::resolve(
                     job.settings.widget_css.as_deref(),
@@ -546,7 +576,11 @@ fn main() {
                     }
                 };
 
-                let json_data = match write_widget_json_to_string(&schedule, &effective_title) {
+                let json_data = match write_widget_json_to_string(
+                    &schedule,
+                    &effective_title,
+                    job.settings.private_export,
+                ) {
                     Ok(j) => j,
                     Err(err) => {
                         eprintln!("Error generating widget JSON: {err}");

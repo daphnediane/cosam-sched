@@ -18,7 +18,7 @@ use crate::tables::panel_type::PanelTypeEntityType;
 use crate::tables::presenter::{self, PresenterEntityType, PresenterId};
 use chrono::{DateTime, NaiveDateTime, Utc};
 use serde::{Deserialize, Serialize};
-use std::collections::{HashMap, HashSet};
+use std::collections::{BTreeMap, HashMap, HashSet};
 
 // ── Widget JSON Structures ───────────────────────────────────────────────────────
 
@@ -142,7 +142,7 @@ pub struct WidgetExport {
     pub meta: WidgetMeta,
     pub panels: Vec<WidgetPanel>,
     pub rooms: Vec<WidgetRoom>,
-    pub panel_types: HashMap<String, WidgetPanelType>,
+    pub panel_types: BTreeMap<String, WidgetPanelType>,
     pub timeline: Vec<WidgetTimeline>,
     pub presenters: Vec<WidgetPresenter>,
 }
@@ -154,9 +154,13 @@ pub struct WidgetExport {
 /// Converts from the internal CRDT/field-system format to the widget JSON display
 /// format, including credit formatting, break synthesis, and bidirectional
 /// presenter group membership.
+///
+/// When `private_export` is true, includes private panels, timeline panels, and
+/// uncredited presenters that are normally excluded from public exports.
 pub fn export_to_widget_json(
     schedule: &Schedule,
     title: &str,
+    private_export: bool,
 ) -> Result<WidgetExport, ExportError> {
     let now = Utc::now();
 
@@ -165,9 +169,15 @@ pub fn export_to_widget_json(
     let visible_room_uids: Vec<i32> = rooms.iter().map(|r| r.uid).collect();
 
     let panel_types = export_panel_types(schedule)?;
-    let panels = export_panels(schedule, &room_uid_map, &visible_room_uids, &panel_types)?;
-    let timeline = export_timeline(schedule, &panel_types)?;
-    let presenters = export_presenters(schedule, &panels)?;
+    let panels = export_panels(
+        schedule,
+        &room_uid_map,
+        &visible_room_uids,
+        &panel_types,
+        private_export,
+    )?;
+    let timeline = export_timeline(schedule, &panel_types, private_export)?;
+    let presenters = export_presenters(schedule, &panels, private_export)?;
 
     // Only include panel types actually referenced by panels or timeline entries.
     let used_prefixes: HashSet<String> = panels
@@ -175,9 +185,9 @@ pub fn export_to_widget_json(
         .filter_map(|p| p.panel_type.clone())
         .chain(timeline.iter().filter_map(|t| t.panel_type.clone()))
         .collect();
-    let panel_types: HashMap<String, WidgetPanelType> = panel_types
+    let panel_types: BTreeMap<String, WidgetPanelType> = panel_types
         .into_iter()
-        .filter(|(k, _)| used_prefixes.contains(k))
+        .filter(|(k, v)| used_prefixes.contains(k) && (private_export || !v.is_private))
         .collect();
 
     let (start_time, end_time) = compute_schedule_bounds(&panels, &now);
@@ -279,8 +289,8 @@ fn get_hotel_room_name(schedule: &Schedule, event_room_id: EventRoomId) -> Strin
 
 fn export_panel_types(
     schedule: &Schedule,
-) -> Result<HashMap<String, WidgetPanelType>, ExportError> {
-    let mut panel_types = HashMap::new();
+) -> Result<BTreeMap<String, WidgetPanelType>, ExportError> {
+    let mut panel_types = BTreeMap::new();
 
     for (_, internal) in schedule.iter_entities::<PanelTypeEntityType>() {
         let data = &internal.data;
@@ -346,7 +356,8 @@ fn export_panel_types(
 
 fn export_timeline(
     schedule: &Schedule,
-    panel_types: &HashMap<String, WidgetPanelType>,
+    panel_types: &BTreeMap<String, WidgetPanelType>,
+    private_export: bool,
 ) -> Result<Vec<WidgetTimeline>, ExportError> {
     let mut timeline = Vec::new();
 
@@ -357,6 +368,15 @@ fn export_timeline(
             .and_then(|p| panel_types.get(p))
             .is_some_and(|pt| pt.is_timeline);
         if !is_timeline {
+            continue;
+        }
+
+        // Private timeline panels are excluded unless private_export
+        let is_private = prefix
+            .as_deref()
+            .and_then(|p| panel_types.get(p))
+            .is_some_and(|pt| pt.is_private);
+        if is_private && !private_export {
             continue;
         }
         let Some(start) = internal.time_slot.start_time() else {
@@ -381,7 +401,8 @@ fn export_panels(
     schedule: &Schedule,
     room_uid_map: &HashMap<EventRoomId, i32>,
     visible_room_uids: &[i32],
-    panel_types: &HashMap<String, WidgetPanelType>,
+    panel_types: &BTreeMap<String, WidgetPanelType>,
+    private_export: bool,
 ) -> Result<Vec<WidgetPanel>, ExportError> {
     let mut panels = Vec::new();
 
@@ -394,6 +415,15 @@ fn export_panels(
             .and_then(|p| panel_types.get(p))
             .is_some_and(|pt| pt.is_timeline);
         if is_timeline {
+            continue;
+        }
+
+        // Private panels are excluded from public export (unless private export)
+        let is_private = prefix
+            .as_deref()
+            .and_then(|p| panel_types.get(p))
+            .is_some_and(|pt| pt.is_private);
+        if is_private && !private_export {
             continue;
         }
 
@@ -570,6 +600,7 @@ fn make_break_panel(
 fn export_presenters(
     schedule: &Schedule,
     panels: &[WidgetPanel],
+    private_export: bool,
 ) -> Result<Vec<WidgetPresenter>, ExportError> {
     // Build panel code → panel ID mapping for schedule lookup
     let code_to_panel_id: HashMap<String, PanelId> = schedule
@@ -589,7 +620,7 @@ fn export_presenters(
             continue;
         };
         let panel_code = panel.id.clone();
-        for p_id in inclusive_presenter_ids(schedule, panel_id) {
+        for p_id in inclusive_presenter_ids(schedule, panel_id, private_export) {
             presenter_panel_ids
                 .entry(p_id)
                 .or_default()
@@ -710,9 +741,19 @@ fn get_panel_type_prefix(schedule: &Schedule, panel_id: PanelId) -> Option<Strin
 /// including transitive groups and transitive members.
 ///
 /// Mirrors the logic of `FIELD_INCLUSIVE_PRESENTERS` in panel.rs.
-fn inclusive_presenter_ids(schedule: &Schedule, panel_id: PanelId) -> HashSet<PresenterId> {
+///
+/// When `include_uncredited` is true, also includes uncredited presenters.
+fn inclusive_presenter_ids(
+    schedule: &Schedule,
+    panel_id: PanelId,
+    include_uncredited: bool,
+) -> HashSet<PresenterId> {
     let credited = schedule.connected_field_nodes(panel_id, panel::EDGE_CREDITED_PRESENTERS);
-    let uncredited = schedule.connected_field_nodes(panel_id, panel::EDGE_UNCREDITED_PRESENTERS);
+    let uncredited = if include_uncredited {
+        schedule.connected_field_nodes(panel_id, panel::EDGE_UNCREDITED_PRESENTERS)
+    } else {
+        Vec::new()
+    };
     let direct = credited
         .into_iter()
         .chain(uncredited)
@@ -737,7 +778,7 @@ fn inclusive_presenter_ids(schedule: &Schedule, panel_id: PanelId) -> HashSet<Pr
 
 /// Individual (non-group) presenter names for the panel's `presenters` search field.
 fn individual_presenter_names(schedule: &Schedule, panel_id: PanelId) -> Vec<String> {
-    let ids = inclusive_presenter_ids(schedule, panel_id);
+    let ids = inclusive_presenter_ids(schedule, panel_id, false);
     let mut names: Vec<String> = ids
         .into_iter()
         .filter_map(|p_id| {
@@ -957,7 +998,7 @@ mod tests {
     #[test]
     fn test_export_creates_valid_structure() {
         let schedule = Schedule::new();
-        let result = export_to_widget_json(&schedule, "Test Schedule");
+        let result = export_to_widget_json(&schedule, "Test Schedule", false);
         assert!(result.is_ok());
         let export = result.unwrap();
         assert_eq!(export.meta.version, 0);
@@ -1014,7 +1055,7 @@ mod tests {
 
         let (_, uid_map) = build_room_uid_map(&sched);
         let panel_types = export_panel_types(&sched).unwrap();
-        let panels = export_panels(&sched, &uid_map, &[1], &panel_types).unwrap();
+        let panels = export_panels(&sched, &uid_map, &[], &panel_types, false).unwrap();
 
         let real: Vec<_> = panels.iter().filter(|p| !p.id.starts_with('%')).collect();
         assert_eq!(real.len(), 1);
@@ -1039,7 +1080,7 @@ mod tests {
 
         let (_, uid_map) = build_room_uid_map(&sched);
         let panel_types = export_panel_types(&sched).unwrap();
-        let panels = export_panels(&sched, &uid_map, &[], &panel_types).unwrap();
+        let panels = export_panels(&sched, &uid_map, &[], &panel_types, false).unwrap();
 
         let real: Vec<_> = panels.iter().filter(|p| !p.id.starts_with('%')).collect();
         assert_eq!(real.len(), 2);
@@ -1063,7 +1104,7 @@ mod tests {
 
         let (_, uid_map) = build_room_uid_map(&sched);
         let panel_types = export_panel_types(&sched).unwrap();
-        let panels = export_panels(&sched, &uid_map, &[1], &panel_types).unwrap();
+        let panels = export_panels(&sched, &uid_map, &[], &panel_types, false).unwrap();
 
         let ids: Vec<&str> = panels.iter().map(|p| p.id.as_str()).collect();
         assert!(ids.contains(&"%IB001"), "expected %IB001 in {ids:?}");
@@ -1084,7 +1125,7 @@ mod tests {
 
         let (_, uid_map) = build_room_uid_map(&sched);
         let panel_types = export_panel_types(&sched).unwrap();
-        let panels = export_panels(&sched, &uid_map, &[1], &panel_types).unwrap();
+        let panels = export_panels(&sched, &uid_map, &[], &panel_types, false).unwrap();
 
         let ids: Vec<&str> = panels.iter().map(|p| p.id.as_str()).collect();
         assert!(ids.contains(&"%NB001"), "expected %NB001 in {ids:?}");
@@ -1102,8 +1143,8 @@ mod tests {
 
         let panel_types = export_panel_types(&sched).unwrap();
         let (_, uid_map) = build_room_uid_map(&sched);
-        let panels = export_panels(&sched, &uid_map, &[], &panel_types).unwrap();
-        let timeline = export_timeline(&sched, &panel_types).unwrap();
+        let panels = export_panels(&sched, &uid_map, &[], &panel_types, false).unwrap();
+        let timeline = export_timeline(&sched, &panel_types, false).unwrap();
 
         let real: Vec<_> = panels.iter().filter(|p| !p.id.starts_with('%')).collect();
         assert_eq!(real.len(), 1);
@@ -1123,8 +1164,8 @@ mod tests {
 
         let (_, uid_map) = build_room_uid_map(&sched);
         let panel_types = export_panel_types(&sched).unwrap();
-        let panels = export_panels(&sched, &uid_map, &[], &panel_types).unwrap();
-        let presenters = export_presenters(&sched, &panels).unwrap();
+        let panels = export_panels(&sched, &uid_map, &[], &panel_types, false).unwrap();
+        let presenters = export_presenters(&sched, &panels, false).unwrap();
 
         let jane = presenters.iter().find(|p| p.name == "Jane Doe").unwrap();
         assert!(!jane.is_group);
@@ -1160,8 +1201,8 @@ mod tests {
 
         let (_, uid_map) = build_room_uid_map(&sched);
         let panel_types = export_panel_types(&sched).unwrap();
-        let panels = export_panels(&sched, &uid_map, &[], &panel_types).unwrap();
-        let presenters = export_presenters(&sched, &panels).unwrap();
+        let panels = export_panels(&sched, &uid_map, &[], &panel_types, false).unwrap();
+        let presenters = export_presenters(&sched, &panels, false).unwrap();
 
         let group = presenters.iter().find(|p| p.name == "Team Alpha").unwrap();
         assert!(group.is_group);
@@ -1183,7 +1224,7 @@ mod tests {
         let panel_id = make_panel(&mut sched, "GP001", Some((0, 14, 0, 0)), Some(60));
         link_panel_type(&mut sched, panel_id, gp_pt);
 
-        let export = export_to_widget_json(&sched, "Test").unwrap();
+        let export = export_to_widget_json(&sched, "Test", false).unwrap();
         assert!(
             export.panel_types.contains_key("GP"),
             "GP should be present"
@@ -1206,7 +1247,7 @@ mod tests {
         link_panel_type(&mut sched, p1, pt_id);
         link_panel_type(&mut sched, p2, pt_id);
 
-        let export = export_to_widget_json(&sched, "Test").unwrap();
+        let export = export_to_widget_json(&sched, "Test", false).unwrap();
         assert!(
             export.meta.start_time.contains("09:00:00"),
             "start_time should contain 09:00:00, got {}",

@@ -104,6 +104,9 @@ pub(super) fn read_panel_types_into(
             .map(|s| is_truthy(s))
             .unwrap_or(false);
 
+        // If is_private is true, ignore the hidden flag and set it to false
+        let hidden = if is_private { false } else { hidden };
+
         let color = get_field_def(&data, &pt::COLOR)
             .filter(|s| !s.is_empty())
             .cloned();

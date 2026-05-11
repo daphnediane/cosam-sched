@@ -46,7 +46,7 @@ for year in $(seq 2016 "$(date +%Y)"); do
     fi
 
     echo "  Validating ${year}..."
-    if ! "$CONVERT_BIN" --input "$src" --check > /dev/null 2>&1; then
+    if ! "$CONVERT_BIN" --input "$src" --check >/dev/null 2>&1; then
         echo "    ${year} has conflicts"
         conflict_years+=("$year")
     else
@@ -75,6 +75,7 @@ for year in $(seq 2016 "$(date +%Y)"); do
     # Output paths for this year
     copy="$year_dir/schedule.xlsx"
     dest="$year_dir/public.json"
+    private_dest="$year_dir/private.json"
     embed="$year_dir/embed.html"
     test_html="$year_dir/test.html"
     style_embed="$year_dir/style-embed.html"
@@ -86,14 +87,17 @@ for year in $(seq 2016 "$(date +%Y)"); do
         --title "Cosplay America ${year} Schedule" \
         --output "$copy" \
         --export "$dest" \
+        --private \
+        --export "$private_dest" \
+        --public \
         --export-embed "$embed" \
         --export-test "$test_html" \
         --style-page \
         --export-embed "$style_embed" \
         --export-test "$style_page"; then
-        built+=("$copy" "$dest" "$embed" "$test_html" "$style_embed" "$style_page")
+        built+=("$copy" "$dest" "$private_dest" "$embed" "$test_html" "$style_embed" "$style_page")
     else
-        failed+=("$copy" "$dest" "$embed" "$test_html" "$style_embed" "$style_page")
+        failed+=("$copy" "$dest" "$private_dest" "$embed" "$test_html" "$style_embed" "$style_page")
     fi
 done
 
