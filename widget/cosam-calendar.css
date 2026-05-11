@@ -781,7 +781,7 @@
   margin-top: 2px;
 }
 
-@media (max-width: 768px) {
+@media screen and (max-width: 768px) {
   .cosam-grid-event-room {
     display: block;
     /* Show room info on mobile */
@@ -1762,82 +1762,212 @@ body.cosam-page-styled a:hover {
 
 @media print {
 
+  /* ── Hide interactive chrome ── */
   .cosam-toolbar,
   .cosam-filters,
   .cosam-day-tabs,
   .cosam-event-star,
   .cosam-grid-event-star,
   .cosam-modal-overlay,
+  .cosam-skip-link,
   .cosam-btn {
     display: none !important;
   }
 
+  /* ── Page setup ── */
   .cosam-calendar {
     max-width: 100%;
+    padding: 0;
+    margin: 0;
   }
 
+  /* ── Preserve colors for panel type backgrounds and borders ── */
+  .cosam-calendar * {
+    -webkit-print-color-adjust: exact;
+    print-color-adjust: exact;
+  }
+
+  /* ── Day section page breaks (list view) ── */
+  .cosam-print-day-label {
+    font-size: 16px;
+    font-weight: 700;
+    margin: 12px 0 6px;
+    break-before: page;
+    page-break-before: always;
+    break-after: avoid;
+    page-break-after: avoid;
+  }
+
+  .cosam-print-day-label:first-child {
+    break-before: avoid;
+    page-break-before: avoid;
+  }
+
+  /* ── List view: event cards ── */
   .cosam-event-card {
     break-inside: avoid;
     page-break-inside: avoid;
     border: 1px solid #ccc;
     box-shadow: none;
+    margin-bottom: 4px;
   }
 
+  /* Show descriptions expanded in print */
   .cosam-event-desc {
     display: block !important;
   }
 
+  /* ── Grid view: layout ── */
+  .cosam-grid-view {
+    overflow: visible !important;
+  }
+
   .cosam-grid {
-    min-width: auto;
-    font-size: 10px;
+    display: grid !important;
+    min-width: 0 !important;
+    width: 100% !important;
+    font-size: 9px;
     gap: 1px;
+    background: #d0d0d0;
     border: 1px solid #999;
-    background: var(--cosam-grid-bg);
+    overflow: visible !important;
+  }
+
+  /* Grid header: room names — header is display:contents so cells are direct grid children */
+  .cosam-grid-header {
+    display: contents;
   }
 
   .cosam-grid-header-cell {
+    position: static !important;
     padding: 3px 4px;
-    border-bottom: 1px solid #999;
-    font-size: 9px;
-    background: #e8e8e8;
+    border-bottom: 2px solid #888;
+    font-size: 8px;
+    font-weight: 700;
+    background: #e0e0e0 !important;
+    color: #000 !important;
+    text-align: center;
+    overflow: hidden;
+    word-break: break-word;
   }
 
+  /* Time column header */
+  .cosam-grid-header-cell.cosam-grid-time-header {
+    font-size: 8px;
+    background: #d8d8d8 !important;
+  }
+
+  /* Time labels */
+  .cosam-grid-time-header {
+    position: static !important;
+    background: #f0f0f0 !important;
+    color: #000 !important;
+    padding: 2px 4px;
+    font-size: 8px;
+    font-weight: 600;
+    border-right: 1px solid #999;
+  }
+
+  .cosam-grid-time-major {
+    font-weight: 700;
+  }
+
+  .cosam-grid-time-minor {
+    font-weight: 400;
+    opacity: 0.8;
+  }
+
+  .cosam-grid-day-label {
+    font-size: 7px;
+    font-weight: 700;
+    text-transform: uppercase;
+    color: #333;
+  }
+
+  /* Grid events: no overflow, break-inside avoid */
   .cosam-grid-event {
+    break-inside: avoid;
+    page-break-inside: avoid;
     margin: 1px;
     padding: 2px 3px;
-    font-size: 9px;
+    font-size: 8px;
+    background: #ffffff !important;
     border: 1px solid #ccc;
-    background: #ffffff;
+    border-left-width: 3px;
+    overflow: hidden;
+    min-height: 0;
   }
 
+  .cosam-grid-event-name {
+    font-weight: 600;
+    white-space: normal;
+    word-break: break-word;
+  }
+
+  /* Show room name in grid events (visible for mobile layout, useful in print too) */
   .cosam-grid-event-room {
-    display: block !important;
-    /* Show room info in print */
+    display: none !important;
   }
 
+  .cosam-grid-event-time {
+    font-size: 7px;
+    color: #555;
+  }
+
+  /* Break events in grid */
+  .cosam-grid-break {
+    break-inside: avoid;
+    page-break-inside: avoid;
+    margin: 1px;
+    padding: 2px 3px;
+    font-size: 8px;
+    background: #e8e8e8 !important;
+    border: 1px solid #bbb;
+    text-align: center;
+    color: #555;
+  }
+
+  /* Grid rule lines */
   .cosam-grid-row-line {
     border-top: 1px solid #ccc;
+    background: transparent;
   }
 
   .cosam-grid-col-line {
-    background: #ccc;
+    border-right: 1px solid #ccc;
+    background: transparent;
   }
 
-  .cosam-time-header {
-    position: static;
+  /* Grid footer */
+  .cosam-grid-footer {
+    background: #e0e0e0 !important;
+    color: #333 !important;
+    border-top: 1px solid #999 !important;
+    padding: 4px 8px;
+    font-size: 8px;
   }
 
-  .cosam-print-day-label {
-    font-size: 18px;
-    font-weight: 700;
-    margin: 16px 0 8px;
-    page-break-after: avoid;
+  /* Day-change label row inside grid */
+  .cosam-grid-time-header .cosam-grid-day-label {
+    break-before: page;
+    page-break-before: always;
+    display: block;
+  }
+
+  .cosam-grid-time-header:first-of-type .cosam-grid-day-label {
+    break-before: avoid;
+    page-break-before: avoid;
+  }
+
+  /* Hide responsive overrides during print */
+  .cosam-sleep-break {
+    display: none;
   }
 }
 
 /* ── Responsive Grid ───────────────────────────────────────────────────────── */
 
-@media (max-width: 768px) {
+@media screen and (max-width: 768px) {
   .cosam-grid {
     grid-template-columns: 1fr !important;
     grid-template-rows: auto !important;
@@ -1909,7 +2039,7 @@ body.cosam-page-styled a:hover {
 
 /* ── Responsive ───────────────────────────────────────────────────────────── */
 
-@media (max-width: 768px) {
+@media screen and (max-width: 768px) {
   .cosam-toolbar {
     flex-direction: column;
     align-items: stretch;

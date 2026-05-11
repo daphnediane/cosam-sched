@@ -1632,30 +1632,233 @@
       this._modalOverlay.classList.add('open');
     }
 
+    // ── Print grid table (repeating headers) ──
+
+    _buildPrintGridTable(events) {
+      const regularEvents = events.filter(e => !this.state._isBreakEvent(e));
+      const roomIds = [...new Set(regularEvents.flatMap(e => e.roomIds || []).filter(id => id !== null && id !== undefined))];
+      const roomOrder = this.state.data.rooms
+        .filter(r => roomIds.includes(r.uid || r.id))
+        .sort((a, b) => a.sortKey - b.sortKey)
+        .map(r => r.uid);
+      for (const rid of roomIds) {
+        if (!roomOrder.includes(rid)) roomOrder.push(rid);
+      }
+
+      if (roomOrder.length === 0) return el('div', {}, 'No rooms to display.');
+
+      // Collect all unique time slot keys, sorted
+      const allTimeKeys = [...new Set(events.flatMap(e => [
+        getTimeSlotKey(e.startTime), getTimeSlotKey(e.endTime)
+      ]).filter(Boolean))].sort();
+
+      const table = el('table', { className: 'cosam-print-grid-table' });
+      table.style.cssText = 'width:100%;border-collapse:collapse;table-layout:fixed;font-size:9px;';
+
+      // <colgroup>: fixed time col, equal percentage cols for rooms.
+      const colgroup = document.createElement('colgroup');
+      const timeCol = document.createElement('col');
+      timeCol.style.width = '64px';
+      colgroup.appendChild(timeCol);
+      for (let i = 0; i < roomOrder.length; i++) {
+        const col = document.createElement('col');
+        col.style.width = Math.floor(100 / roomOrder.length) + '%';
+        colgroup.appendChild(col);
+      }
+      table.appendChild(colgroup);
+
+      // <thead> repeats on every print page
+      const thead = document.createElement('thead');
+      const headerRow = document.createElement('tr');
+      const thTime = document.createElement('th');
+      thTime.textContent = 'Time';
+      thTime.style.cssText = 'background:#2a9ec7;color:#fff;padding:3px 6px;text-align:right;font-size:8px;border:1px solid #999;';
+      headerRow.appendChild(thTime);
+      for (const roomId of roomOrder) {
+        const room = this.state.data.rooms.find(r => r.uid === roomId);
+        const roomName = room ? (room.longName || room.shortName || 'Room') : 'Room';
+        const hotelRoom = room && room.hotelRoom && room.hotelRoom !== roomName ? room.hotelRoom : null;
+        const th = document.createElement('th');
+        th.style.cssText = 'background:#2a9ec7;color:#fff;padding:3px 4px;text-align:center;font-size:8px;border:1px solid #999;word-break:break-word;overflow:hidden;';
+        th.textContent = roomName;
+        if (hotelRoom) {
+          const sub = el('div', {}, '(' + hotelRoom + ')');
+          sub.style.cssText = 'font-size:7px;opacity:0.85;font-weight:400;';
+          th.appendChild(sub);
+        }
+        headerRow.appendChild(th);
+      }
+      thead.appendChild(headerRow);
+      table.appendChild(thead);
+
+      // <tbody>
+      const tbody = document.createElement('tbody');
+
+      // Track which cells are already covered by rowspan
+      const occupied = {}; // `${rowIdx},${colIdx}` -> true
+
+      for (let rowIdx = 0; rowIdx < allTimeKeys.length; rowIdx++) {
+        const key = allTimeKeys[rowIdx];
+        const slotEvents = events.filter(e => getTimeSlotKey(e.startTime) === key);
+        const slotDate = new Date(key + ':00');
+        const isHalfHour = slotDate.getMinutes() !== 0;
+
+        const tr = document.createElement('tr');
+
+        // Time cell
+        const tdTime = document.createElement('td');
+        tdTime.style.cssText = 'background:#e8f4fa;padding:2px 4px;text-align:right;font-size:' + (isHalfHour ? '7' : '8') + 'px;font-weight:' + (isHalfHour ? '400' : '700') + ';border:1px solid #ccc;vertical-align:top;white-space:nowrap;color:#000;';
+        tdTime.textContent = formatTimeGrid(key + ':00');
+        tr.appendChild(tdTime);
+
+        // Room cells
+        for (let colIdx = 0; colIdx < roomOrder.length; colIdx++) {
+          if (occupied[rowIdx + ',' + colIdx]) continue;
+
+          const roomId = roomOrder[colIdx];
+          const roomEvts = slotEvents.filter(e =>
+            !this.state._isBreakEvent(e) && e.roomIds && e.roomIds.includes(roomId)
+          );
+          const breakEvts = slotEvents.filter(e => this.state._isBreakEvent(e));
+
+          const td = document.createElement('td');
+          td.style.cssText = 'padding:2px 3px;border:1px solid #ccc;vertical-align:top;overflow:hidden;';
+
+          if (roomEvts.length > 0) {
+            const evt = roomEvts[0];
+            // Calculate rowspan based on event end time
+            const endKey = getTimeSlotKey(evt.endTime);
+            const endRowIdx = allTimeKeys.indexOf(endKey);
+            const rowspan = endRowIdx > rowIdx ? endRowIdx - rowIdx : 1;
+
+            if (rowspan > 1) {
+              td.rowSpan = rowspan;
+              for (let r = rowIdx; r < rowIdx + rowspan; r++) {
+                occupied[r + ',' + colIdx] = true;
+              }
+            }
+
+            // Apply panel type color as left border
+            const typeClass = this._panelTypeClass(evt.panelType);
+            const color = typeClass && this._panelTypeColors ? this._panelTypeColors.get(typeClass) : null;
+            td.style.borderLeft = '3px solid ' + (color || '#ccc');
+
+            const nameDiv = document.createElement('div');
+            nameDiv.style.cssText = 'font-weight:600;font-size:8px;word-break:break-word;color:#000;';
+            nameDiv.textContent = evt.name;
+            td.appendChild(nameDiv);
+
+            if (evt.duration) {
+              const durDiv = document.createElement('div');
+              durDiv.style.cssText = 'font-size:7px;color:#555;';
+              durDiv.textContent = evt.duration + ' min';
+              td.appendChild(durDiv);
+            }
+
+          } else if (breakEvts.length > 0) {
+            const breakEvt = breakEvts[0];
+            const endKey = getTimeSlotKey(breakEvt.endTime);
+            const endRowIdx = allTimeKeys.indexOf(endKey);
+            const rowspan = endRowIdx > rowIdx ? endRowIdx - rowIdx : 1;
+
+            // Break spans from current col to end of row,
+            // but only counts columns not already occupied by rowspan events
+            let colSpan = 0;
+            for (let c = colIdx; c < roomOrder.length; c++) {
+              if (!occupied[rowIdx + ',' + c]) colSpan++;
+            }
+
+            if (rowspan > 1) {
+              td.rowSpan = rowspan;
+              for (let r = rowIdx; r < rowIdx + rowspan; r++) {
+                for (let c = colIdx; c < roomOrder.length; c++) {
+                  occupied[r + ',' + c] = true;
+                }
+              }
+            } else {
+              for (let c = colIdx; c < roomOrder.length; c++) {
+                occupied[rowIdx + ',' + c] = true;
+              }
+            }
+            if (colSpan === 0) break;
+            if (colSpan > 1) td.colSpan = colSpan;
+
+            td.style.cssText = 'background:#f0f0f0;padding:2px 3px;border:1px solid #ccc;vertical-align:middle;text-align:center;overflow:hidden;';
+            const nameDiv = document.createElement('div');
+            nameDiv.style.cssText = 'font-size:7px;color:#666;';
+            nameDiv.textContent = breakEvt.name || '';
+            td.appendChild(nameDiv);
+            tr.appendChild(td);
+            break; // no more cells in this row after the break span
+
+          } else {
+            td.style.background = '#fafafa';
+          }
+
+          tr.appendChild(td);
+        }
+
+        tbody.appendChild(tr);
+      }
+
+      table.appendChild(tbody);
+      return table;
+    }
+
     // ── Print ──
 
     _handlePrint() {
-      // If starred-only is on, print only starred events
-      const wasStarredOnly = this.state.filters.starredOnly;
       const wasDay = this.state.activeDay;
-
-      // Show all days for print
-      this.state.activeDay = null;
-
-      // Build print content
       const printContainer = el('div', { className: 'cosam-calendar' });
+      printContainer.setAttribute('data-theme', this.state.theme || 'cosam');
 
-      for (const day of this.state.days) {
-        this.state.activeDay = day.key;
-        const events = this.state.filteredEvents.call(this.state);
-        if (events.length === 0) continue;
+      if (this.state.view === 'grid') {
+        // Grid print: render each day as a table so <thead> repeats on page breaks
+        for (const day of this.state.days) {
+          this.state.activeDay = day.key;
+          const events = this.state.filteredEvents.call(this.state);
+          if (events.length === 0) continue;
 
-        printContainer.appendChild(el('div', { className: 'cosam-print-day-label' }, day.label));
-        printContainer.appendChild(this._buildListView(events));
+          const dayLabel = el('div', { className: 'cosam-print-day-label' }, day.label);
+          printContainer.appendChild(dayLabel);
+          printContainer.appendChild(this._buildPrintGridTable(events));
+        }
+      } else {
+        // List print: all days as list sections
+        for (const day of this.state.days) {
+          this.state.activeDay = day.key;
+          const events = this.state.filteredEvents.call(this.state);
+          if (events.length === 0) continue;
+
+          printContainer.appendChild(el('div', { className: 'cosam-print-day-label' }, day.label));
+          printContainer.appendChild(this._buildListView(events));
+        }
       }
 
       // Expand all descriptions for print
       printContainer.querySelectorAll('.cosam-event-desc').forEach(d => { d.style.display = 'block'; });
+
+      // Apply panel type color styles to print container (grid event left borders)
+      if (this._panelTypeColors) {
+        const gridEvents = printContainer.querySelectorAll('.cosam-grid-event');
+        for (const event of gridEvents) {
+          for (const [cls, color] of this._panelTypeColors) {
+            if (event.classList.contains(cls)) {
+              event.style.borderLeftColor = color;
+              break;
+            }
+          }
+        }
+        const colorBars = printContainer.querySelectorAll('.cosam-event-color-bar');
+        for (const bar of colorBars) {
+          for (const [cls, color] of this._panelTypeColors) {
+            if (bar.classList.contains(cls)) {
+              bar.style.backgroundColor = color;
+              break;
+            }
+          }
+        }
+      }
 
       // Restore state
       this.state.activeDay = wasDay;
@@ -1678,7 +1881,8 @@
         catch (e) { return ''; }
       }).join('\n');
 
-      printWin.document.write(`<!DOCTYPE html><html><head><meta charset="utf-8"><title>Schedule</title>${styleTag}${inlineStyleHtml}<style>${allCSS}\n.cosam-event-desc{display:block!important;}</style></head><body>${printContainer.outerHTML}</body></html>`);
+      printWin.document.write(`<!DOCTYPE html><html><head><meta charset="utf-8"><title>Schedule</title>${styleTag}${inlineStyleHtml}<style>${allCSS}
+.cosam-event-desc{display:block!important;}</style></head><body>${printContainer.outerHTML}</body></html>`);
       printWin.document.close();
       printWin.focus();
       setTimeout(() => { printWin.print(); }, 500);
