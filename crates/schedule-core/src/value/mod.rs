@@ -6,9 +6,12 @@
 
 #[macro_use]
 pub mod macros;
+pub mod cost;
 pub mod error;
 pub mod time;
 pub mod uniq_id;
+
+pub use cost::AdditionalCost;
 
 // Re-exports from error submodule
 pub use error::{ConversionError, FieldError, ValidationError};
@@ -53,6 +56,8 @@ pub enum FieldValueItem {
     Duration(Duration),
     /// Identifier for an entity.
     EntityIdentifier(RuntimeEntityId),
+    /// Panel cost classification.
+    AdditionalCost(cost::AdditionalCost),
 }
 
 /// Universal value enum used for all field read/write operations: either a
@@ -75,6 +80,7 @@ impl fmt::Display for FieldValueItem {
             Self::DateTime(dt) => write!(f, "{dt}"),
             Self::Duration(d) => write!(f, "{}m", d.num_minutes()),
             Self::EntityIdentifier(ei) => write!(f, "{ei}"),
+            Self::AdditionalCost(c) => write!(f, "{c}"),
         }
     }
 }
@@ -385,6 +391,8 @@ pub enum FieldTypeItem {
     Duration,
     /// Typed entity reference. The `&'static str` is the entity's `TYPE_NAME`.
     EntityIdentifier(&'static str),
+    /// Panel cost classification ([`AdditionalCost`]).
+    AdditionalCost,
 }
 
 /// Field type with cardinality — the `Copy` type-level mirror of [`FieldValue`].
@@ -406,6 +414,7 @@ impl fmt::Display for FieldTypeItem {
             Self::DateTime => write!(f, "DateTime"),
             Self::Duration => write!(f, "Duration"),
             Self::EntityIdentifier(name) => write!(f, "EntityIdentifier({name})"),
+            Self::AdditionalCost => write!(f, "AdditionalCost"),
         }
     }
 }
@@ -441,6 +450,7 @@ fn value_item_to_type_item(item: &FieldValueItem) -> FieldTypeItem {
         FieldValueItem::EntityIdentifier(id) => {
             FieldTypeItem::EntityIdentifier(id.entity_type_name())
         }
+        FieldValueItem::AdditionalCost(_) => FieldTypeItem::AdditionalCost,
     }
 }
 

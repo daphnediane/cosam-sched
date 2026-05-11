@@ -148,6 +148,7 @@ impl FieldTypeMapping for AsString {
                 }
             }
             FieldValueItem::EntityIdentifier(ei) => Ok(ei.to_string()),
+            FieldValueItem::AdditionalCost(c) => Ok(c.to_string()),
         }
     }
 
@@ -184,6 +185,7 @@ impl FieldTypeMapping for AsText {
                 }
             }
             FieldValueItem::EntityIdentifier(ei) => Ok(ei.to_string()),
+            FieldValueItem::AdditionalCost(c) => Ok(c.to_string()),
         }
     }
 
@@ -191,6 +193,8 @@ impl FieldTypeMapping for AsText {
         FieldValueItem::Text(output)
     }
 }
+
+pub use crate::value::cost::AsAdditionalCost;
 
 /// Marker type for converting to `i64`.
 pub struct AsInteger;
@@ -215,6 +219,13 @@ impl FieldTypeMapping for AsInteger {
                 }
             }
             FieldValueItem::Duration(d) => Ok(d.num_minutes()),
+            FieldValueItem::AdditionalCost(c) => match c {
+                crate::value::AdditionalCost::Included => Ok(0),
+                crate::value::AdditionalCost::Premium(cents) => Ok(((cents + 50) / 100) as i64),
+                crate::value::AdditionalCost::TBD => Err(ConversionError::ParseError {
+                    message: "Cannot convert TBD cost to Integer".to_string(),
+                }),
+            },
             _ => Err(ConversionError::ParseError {
                 message: "Cannot convert to Integer from this type".to_string(),
             }),
@@ -241,6 +252,13 @@ impl FieldTypeMapping for AsFloat {
             }),
             FieldValueItem::Integer(n) => Ok(n as f64),
             FieldValueItem::Duration(d) => Ok(d.num_minutes() as f64),
+            FieldValueItem::AdditionalCost(c) => match c {
+                crate::value::AdditionalCost::Included => Ok(0.0),
+                crate::value::AdditionalCost::Premium(cents) => Ok(cents as f64 / 100.0),
+                crate::value::AdditionalCost::TBD => Err(ConversionError::ParseError {
+                    message: "Cannot convert TBD cost to Float".to_string(),
+                }),
+            },
             _ => Err(ConversionError::ParseError {
                 message: "Cannot convert to Float from this type".to_string(),
             }),

@@ -1,6 +1,6 @@
 # Cosplay America Schedule - Work Item
 
-Updated on: Thu May  7 21:22:59 2026
+Updated on: Mon May 11 00:37:10 2026
 
 ## Completed
 
@@ -130,6 +130,8 @@ and improve `FieldId` conversions with a global registry and type-safe downcasti
 * [REFACTOR-074] Split edge fields out of `FieldDescriptor<E>` into a new `HalfEdgeDescriptor` struct; add
 `EdgeKind` enum with ownership direction and exclusivity information.
 * [REFACTOR-075] Update edit_integration.rs tests to work with new WriteFn::Schedule edge write mechanism used by HALF_EDGE_* fields
+* [REFACTOR-104] Replace `PanelCommonData.cost: Option<String>` with a typed `AdditionalCost` enum
+and a separate `for_kids: bool` flag, making invalid cost states unrepresentable.
 * [UI-085] Audit and update the calendar widget to handle the format differences between
 the v9 JSON output and the format produced by `cosam-convert` (CLI-030).
 * [UI-087] The Event Type filter shows all non-hidden panel types even when none of that
@@ -571,6 +573,7 @@ to exchange CRDT changes and reconcile concurrent edits to the same fields.
 [REFACTOR-067]: work-item/done/REFACTOR-067.md
 [REFACTOR-074]: work-item/done/REFACTOR-074.md
 [REFACTOR-075]: work-item/done/REFACTOR-075.md
+[REFACTOR-104]: work-item/done/REFACTOR-104.md
 [UI-085]: work-item/done/UI-085.md
 [UI-087]: work-item/done/UI-087.md
 [UI-088]: work-item/done/UI-088.md

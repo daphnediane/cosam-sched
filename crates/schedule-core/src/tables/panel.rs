@@ -30,6 +30,7 @@ use crate::tables::event_room::{self, EventRoomEntityType, EventRoomId};
 use crate::tables::hotel_room::{HotelRoomEntityType, HotelRoomId};
 use crate::tables::panel_type::{self, PanelTypeEntityType, PanelTypeId};
 use crate::tables::presenter::{self, PresenterCommonData, PresenterEntityType, PresenterId};
+use crate::value::cost::{additional_cost_to_string, AdditionalCost};
 use crate::value::time::{parse_datetime, parse_duration, TimeRange};
 use crate::value::uniq_id::PanelUniqId;
 use crate::value::{FieldValue, FieldValueItem, ValidationError};
@@ -59,7 +60,8 @@ pub struct PanelCommonData {
     pub av_notes: Option<String>,
     pub difficulty: Option<String>,
     pub prereq: Option<String>,
-    pub cost: Option<String>,
+    pub additional_cost: AdditionalCost,
+    pub for_kids: bool,
     pub is_full: bool,
     pub capacity: Option<i64>,
     pub pre_reg_max: Option<i64>,
@@ -536,18 +538,21 @@ pub static FIELD_PREREQ: FieldDescriptor<PanelEntityType> = {
 };
 inventory::submit! { CollectedField(&FIELD_PREREQ) }
 
-pub static FIELD_COST: FieldDescriptor<PanelEntityType> = {
+/// The stored cost classification field — backed by [`AdditionalCost`] on
+/// [`PanelCommonData`].
+pub static FIELD_ADDITIONAL_COST: FieldDescriptor<PanelEntityType> = {
     let (data, crdt_type, cb) = accessor_field_properties! {
         PanelEntityType,
-        cost,
-        name: "cost",
-        display: "Cost",
-        description: "Raw cost cell value (e.g. \"$35\", \"Free\", \"Kids\").",
-        aliases: &[],
-        cardinality: Optional,
-        item: String,
+        additional_cost,
+        name: "additional_cost",
+        display: "Additional Cost",
+        description: "Cost classification: Included, TBD, or Premium(cents).",
+        aliases: &["cost_category"],
+        cardinality: Single,
+        item: AdditionalCost,
         example: "$35",
-        order: 1100,
+        order: 1095,
+        required: false,
     };
     FieldDescriptor {
         data,
@@ -556,90 +561,59 @@ pub static FIELD_COST: FieldDescriptor<PanelEntityType> = {
         cb,
     }
 };
+inventory::submit! { CollectedField(&FIELD_ADDITIONAL_COST) }
+
+/// The human-readable cost string — **computed** from `additional_cost`.
+/// Read-only: write to `additional_cost` (or `effective_cost`) instead.
+pub static FIELD_COST: FieldDescriptor<PanelEntityType> = {
+    let (data, _, cb) = callback_field_properties! {
+        PanelEntityType,
+        name: "cost",
+        display: "Cost",
+        description: "Synthesized cost string (e.g. \"$35\", \"TBD\"). None when admission is included.",
+        aliases: &[],
+        cardinality: Optional,
+        item: String,
+        example: "$35",
+        order: 1100,
+        read: |d: &PanelInternalData| {
+            additional_cost_to_string(&d.data.additional_cost)
+                .map(|s| field_value!(s))
+        },
+    };
+    FieldDescriptor {
+        data,
+        crdt_type: CrdtFieldType::Derived,
+        required: false,
+        cb,
+    }
+};
 inventory::submit! { CollectedField(&FIELD_COST) }
 
-// ── Cost classification helpers ───────────────────────────────────────────────
-
-/// Pattern matching `"Kids"` (case-insensitive, optional trailing `s`).
-static RE_KIDS: LazyLock<regex::Regex> =
-    LazyLock::new(|| regex::Regex::new(r"(?i)\Akids?\z").expect("RE_KIDS"));
-
-/// Pattern for a TBD-style cost: optional leading `$`, then `T`, optional
-/// `.`, `B`, optional `.`, `D`, optional `.` (case-insensitive).
-static RE_TBD: LazyLock<regex::Regex> =
-    LazyLock::new(|| regex::Regex::new(r"(?i)\A\$?T\.?B\.?D\.?\z").expect("RE_TBD"));
-
-/// Pattern for free/included costs (mirrors Perl `RE_FREE`):
-/// `free`, `nothing`, `n/a`, `na`, or a zero dollar amount.
-static RE_FREE: LazyLock<regex::Regex> = LazyLock::new(|| {
-    regex::Regex::new(r"(?ix)\A(?:free|nothing|n/?a|\$?(?:0+(?:[.]0+)?|[.]0+))\z").expect("RE_FREE")
-});
-
-/// Returns `true` if the cost string indicates a kids-only panel.
-pub fn cost_is_kid_panel(cost: Option<&str>) -> bool {
-    let text = match cost {
-        Some(t) => t.trim(),
-        None => return false,
+/// The for-kids flag — a stored `bool` on [`PanelCommonData`], independent of
+/// the cost category.
+pub static FIELD_FOR_KIDS: FieldDescriptor<PanelEntityType> = {
+    let (data, crdt_type, cb) = accessor_field_properties! {
+        PanelEntityType,
+        for_kids,
+        name: "for_kids",
+        display: "For Kids",
+        description: "True if this panel is aimed at a younger audience.",
+        aliases: &["is_kid_panel", "is_kids", "kids"],
+        cardinality: Single,
+        item: Boolean,
+        example: "false",
+        order: 1300,
+        required: false,
     };
-    RE_KIDS.is_match(text)
-}
-
-/// Returns `true` if `cost` is TBD (matches TBD pattern, or is blank and the
-/// panel type is a workshop).
-pub fn cost_is_tbd(cost: Option<&str>, is_workshop: bool) -> bool {
-    match cost.map(str::trim) {
-        None | Some("") => is_workshop,
-        Some(text) => RE_TBD.is_match(text),
+    FieldDescriptor {
+        data,
+        crdt_type,
+        required: false,
+        cb,
     }
-}
-
-/// Returns whether this panel's admission is included (i.e. free):
-/// - `None`       — cost is blank/unknown (classification deferred)
-/// - `Some(true)` — cost matches FREE or KIDS pattern
-/// - `Some(false)`— cost is set and not free
-pub fn cost_is_included(cost: Option<&str>) -> Option<bool> {
-    let text = match cost {
-        Some(t) => t.trim(),
-        None => return None,
-    };
-    if text.is_empty() {
-        return None;
-    }
-    if RE_FREE.is_match(text) || RE_KIDS.is_match(text) {
-        return Some(true);
-    }
-    Some(false)
-}
-
-/// Parses a cost string into integer cents (e.g. `"$35"` → `3500`,
-/// `"$35.50"` → `3550`). Returns `None` if unparseable or non-positive.
-pub fn cost_effective_cents(cost: Option<&str>) -> Option<i64> {
-    let text = cost?.trim().trim_start_matches('$');
-    if text.is_empty() {
-        return None;
-    }
-    if let Some((dollars, cents)) = text.split_once('.') {
-        let d: i64 = dollars.parse().ok()?;
-        let cents_str = format!("{cents:0<2}");
-        let c: i64 = cents_str[..2].parse().ok()?;
-        Some(d * 100 + c)
-    } else {
-        let d: i64 = text.parse().ok()?;
-        Some(d * 100)
-    }
-}
-
-/// Formats integer cents back to a cost string (e.g. `3500` → `"$35"`,
-/// `3550` → `"$35.50"`).
-pub fn cents_to_cost_string(cents: i64) -> String {
-    let dollars = cents / 100;
-    let remainder = cents % 100;
-    if remainder == 0 {
-        format!("${dollars}")
-    } else {
-        format!("${dollars}.{remainder:02}")
-    }
-}
+};
+inventory::submit! { CollectedField(&FIELD_FOR_KIDS) }
 
 /// Traverses `EDGE_PANEL_TYPE` for `panel_id` and returns whether the linked
 /// panel type is marked as a workshop. Returns `false` if no panel type is set.
@@ -659,30 +633,36 @@ pub fn panel_type_is_workshop(sched: &Schedule, panel_id: PanelId) -> bool {
         .unwrap_or(false)
 }
 
-// ── Cost computed fields ──────────────────────────────────────────────────────
+// ── Cost computed / derived fields ────────────────────────────────────────────
 
+/// Cost in integer cents — derived from `additional_cost`.
+/// Write: sets `additional_cost` to `Premium(cents)`, or `Included` when cleared.
 pub static FIELD_EFFECTIVE_COST: FieldDescriptor<PanelEntityType> = {
-    let (data, crdt_type, cb) = callback_field_properties! {
+    let (data, _, cb) = callback_field_properties! {
         PanelEntityType,
         name: "effective_cost",
         display: "Effective Cost",
-        description: "Cost in cents (integer). Setting updates `cost`. Read from `cost` string.",
-        aliases: &[],
+        description: "Cost in cents (integer). None unless additional_cost is Premium.",
+        aliases: &["cents"],
         cardinality: Optional,
         item: Integer,
         example: "3500",
         order: 1105,
         read: |d: &PanelInternalData| {
-            cost_effective_cents(d.data.cost.as_deref()).map(|c| field_value!(c))
+            if let AdditionalCost::Premium(c) = d.data.additional_cost {
+                Some(field_value!(c as i64))
+            } else {
+                None
+            }
         },
         write: |d: &mut PanelInternalData, v: FieldValue| {
             match v {
                 FieldValue::List(ref items) if items.is_empty() => {
-                    d.data.cost = None;
+                    d.data.additional_cost = AdditionalCost::Included;
                     Ok(())
                 }
-                FieldValue::Single(FieldValueItem::Integer(cents)) => {
-                    d.data.cost = Some(cents_to_cost_string(cents));
+                FieldValue::Single(FieldValueItem::Integer(cents)) if cents >= 0 => {
+                    d.data.additional_cost = AdditionalCost::Premium(cents as u64);
                     Ok(())
                 }
                 _ => Err(crate::value::FieldError::Conversion(
@@ -696,30 +676,27 @@ pub static FIELD_EFFECTIVE_COST: FieldDescriptor<PanelEntityType> = {
     };
     FieldDescriptor {
         data,
-        crdt_type,
+        crdt_type: CrdtFieldType::Derived,
         required: false,
         cb,
     }
 };
 inventory::submit! { CollectedField(&FIELD_EFFECTIVE_COST) }
 
+/// `true` when `additional_cost` is `TBD`.
 pub static FIELD_COST_IS_TBD: FieldDescriptor<PanelEntityType> = {
     let (data, _, cb) = callback_field_properties! {
         PanelEntityType,
         name: "cost_is_tbd",
         display: "Cost Is TBD",
-        description: "True if cost is a TBD placeholder, or if cost is blank and the panel type is a workshop.",
+        description: "True if additional_cost is TBD.",
         aliases: &["tbd"],
         cardinality: Single,
         item: Boolean,
         example: "false",
         order: 1210,
-        read: |sched: &Schedule, id: PanelId| {
-            let cost = sched
-                .get_internal::<PanelEntityType>(id)
-                .and_then(|d| d.data.cost.as_deref().map(str::to_owned));
-            let is_workshop = panel_type_is_workshop(sched, id);
-            Some(field_value!(cost_is_tbd(cost.as_deref(), is_workshop)))
+        read: |d: &PanelInternalData| {
+            Some(field_value!(matches!(d.data.additional_cost, AdditionalCost::TBD)))
         }
     };
     FieldDescriptor {
@@ -731,23 +708,23 @@ pub static FIELD_COST_IS_TBD: FieldDescriptor<PanelEntityType> = {
 };
 inventory::submit! { CollectedField(&FIELD_COST_IS_TBD) }
 
+/// `true` when `additional_cost` is `Included`.
 pub static FIELD_PANEL_IS_INCLUDED: FieldDescriptor<PanelEntityType> = {
     let (data, _, cb) = callback_field_properties! {
         PanelEntityType,
         name: "panel_is_included",
         display: "Panel Is Included",
-        description: "True if no additional cost (free, kids, or blank non-workshop). None if unknown. False if paid.",
+        description: "True if additional_cost is Included (no extra charge).",
         aliases: &["is_free", "free"],
-        cardinality: Optional,
+        cardinality: Single,
         item: Boolean,
         example: "true",
         order: 1220,
-        read: |sched: &Schedule, id: PanelId| {
-            let cost = sched
-                .get_internal::<PanelEntityType>(id)
-                .and_then(|d| d.data.cost.as_deref().map(str::to_owned));
-            cost_is_included(cost.as_deref())
-                .map(|v| field_value!(v))
+        read: |d: &PanelInternalData| {
+            Some(field_value!(matches!(
+                d.data.additional_cost,
+                AdditionalCost::Included
+            )))
         }
     };
     FieldDescriptor {
@@ -758,33 +735,6 @@ pub static FIELD_PANEL_IS_INCLUDED: FieldDescriptor<PanelEntityType> = {
     }
 };
 inventory::submit! { CollectedField(&FIELD_PANEL_IS_INCLUDED) }
-
-pub static FIELD_IS_KID_PANEL: FieldDescriptor<PanelEntityType> = {
-    let (data, _, cb) = callback_field_properties! {
-        PanelEntityType,
-        name: "is_kid_panel",
-        display: "Is Kid Panel",
-        description: "True if the cost indicates a kids-only panel.",
-        aliases: &["is_kids", "kids"],
-        cardinality: Single,
-        item: Boolean,
-        example: "false",
-        order: 1310,
-        read: |sched: &Schedule, id: PanelId| {
-            let cost = sched
-                .get_internal::<PanelEntityType>(id)
-                .and_then(|d| d.data.cost.as_deref().map(str::to_owned));
-            Some(field_value!(cost_is_kid_panel(cost.as_deref())))
-        }
-    };
-    FieldDescriptor {
-        data,
-        crdt_type: CrdtFieldType::Derived,
-        required: false,
-        cb,
-    }
-};
-inventory::submit! { CollectedField(&FIELD_IS_KID_PANEL) }
 
 pub static FIELD_IS_FULL: FieldDescriptor<PanelEntityType> = {
     let (data, crdt_type, cb) = accessor_field_properties! {
@@ -1600,8 +1550,10 @@ crate::field::macros::define_entity_builder! {
         with_difficulty          => FIELD_DIFFICULTY,
         /// Set the comma-separated prerequisite Uniq IDs.
         with_prereq              => FIELD_PREREQ,
-        /// Set the raw cost cell value (e.g. `"$35"`, `"Free"`, `"Kids"`).
-        with_cost                => FIELD_COST,
+        /// Set the cost classification (Included, TBD, or Premium(cents)).
+        with_additional_cost     => FIELD_ADDITIONAL_COST,
+        /// Mark the panel as aimed at a younger audience.
+        with_for_kids            => FIELD_FOR_KIDS,
         /// Mark the panel as at capacity.
         with_is_full             => FIELD_IS_FULL,
         /// Set the total seat capacity.
@@ -1681,7 +1633,8 @@ mod tests {
             av_notes: Some("mic".into()),
             difficulty: None,
             prereq: None,
-            cost: Some("$35".into()),
+            additional_cost: AdditionalCost::Premium(3500),
+            for_kids: false,
             is_full: false,
             capacity: Some(50),
             pre_reg_max: Some(40),
@@ -1718,7 +1671,7 @@ mod tests {
     fn field_set_contains_all_declared_fields() {
         let fs = PanelEntityType::field_set();
         let count = fs.fields().count();
-        assert_eq!(count, 29);
+        assert_eq!(count, 30);
         assert_eq!(fs.half_edges().count(), 4);
     }
 
@@ -1796,13 +1749,101 @@ mod tests {
     }
 
     #[test]
-    fn write_optional_string_to_none_clears() {
+    fn additional_cost_stored_and_read() {
+        let id = new_panel_id();
+        let s = sched_with(id, sample_internal(id));
+        let fs = PanelEntityType::field_set();
+        assert_eq!(
+            fs.read_field_value("cost", id, &s).unwrap(),
+            Some(field_value!("$35"))
+        );
+        assert_eq!(
+            fs.read_field_value("cost_is_tbd", id, &s).unwrap(),
+            Some(field_value!(false))
+        );
+        assert_eq!(
+            fs.read_field_value("panel_is_included", id, &s).unwrap(),
+            Some(field_value!(false))
+        );
+        assert_eq!(
+            fs.read_field_value("effective_cost", id, &s).unwrap(),
+            Some(field_value!(3500i64))
+        );
+    }
+
+    #[test]
+    fn included_panel_cost_reads_as_none() {
+        let id = new_panel_id();
+        let mut data = sample_internal(id);
+        data.data.additional_cost = AdditionalCost::Included;
+        let s = sched_with(id, data);
+        let fs = PanelEntityType::field_set();
+        assert_eq!(fs.read_field_value("cost", id, &s).unwrap(), None);
+        assert_eq!(
+            fs.read_field_value("panel_is_included", id, &s).unwrap(),
+            Some(field_value!(true))
+        );
+    }
+
+    #[test]
+    fn tbd_panel_reads_correctly() {
+        let id = new_panel_id();
+        let mut data = sample_internal(id);
+        data.data.additional_cost = AdditionalCost::TBD;
+        let s = sched_with(id, data);
+        let fs = PanelEntityType::field_set();
+        assert_eq!(
+            fs.read_field_value("cost", id, &s).unwrap(),
+            Some(field_value!("TBD"))
+        );
+        assert_eq!(
+            fs.read_field_value("cost_is_tbd", id, &s).unwrap(),
+            Some(field_value!(true))
+        );
+    }
+
+    #[test]
+    fn write_effective_cost_sets_premium() {
         let id = new_panel_id();
         let mut s = sched_with(id, sample_internal(id));
         let fs = PanelEntityType::field_set();
-        fs.write_field_value("cost", id, &mut s, crate::field_empty_list!())
+        fs.write_field_value("effective_cost", id, &mut s, field_value!(5000i64))
+            .unwrap();
+        assert_eq!(
+            fs.read_field_value("cost", id, &s).unwrap(),
+            Some(field_value!("$50"))
+        );
+    }
+
+    #[test]
+    fn clear_effective_cost_sets_included() {
+        let id = new_panel_id();
+        let mut s = sched_with(id, sample_internal(id));
+        let fs = PanelEntityType::field_set();
+        fs.write_field_value("effective_cost", id, &mut s, crate::field_empty_list!())
             .unwrap();
         assert_eq!(fs.read_field_value("cost", id, &s).unwrap(), None);
+        assert_eq!(
+            fs.read_field_value("panel_is_included", id, &s).unwrap(),
+            Some(field_value!(true))
+        );
+    }
+
+    #[test]
+    fn for_kids_field_readable_writable() {
+        let id = new_panel_id();
+        let mut s = sched_with(id, sample_internal(id));
+        let fs = PanelEntityType::field_set();
+        assert_eq!(
+            fs.read_field_value("for_kids", id, &s).unwrap(),
+            Some(field_value!(false))
+        );
+        fs.write_field_value("for_kids", id, &mut s, field_value!(true))
+            .unwrap();
+        assert_eq!(
+            fs.read_field_value("kids", id, &s).unwrap(),
+            Some(field_value!(true))
+        );
     }
 
     #[test]

@@ -202,8 +202,13 @@ pub(super) fn read_schedule_into(
                 })
             });
 
-        // Parse cost string (classification is computed at read time from FIELD_COST).
-        let cost = normalize_cost(get_field_def(&data, &sc::COST).map(|s| s.as_str()));
+        // Parse cost string into typed fields.
+        // Blank on a workshop means the cost hasn't been set yet (TBD).
+        let (additional_cost, cost_for_kids) = parse_cost_fields(
+            get_field_def(&data, &sc::COST).map(|s| s.as_str()),
+            panel_type_id,
+            schedule,
+        );
 
         let is_full = get_field_def(&data, &sc::FULL)
             .map(|s| is_truthy(s))
@@ -237,11 +242,14 @@ pub(super) fn read_schedule_into(
             ),
         ];
 
-        if let Some(ref c) = cost {
-            // cost is Some only for non-empty, non-free, non-kids values
+        updates.push(FieldUpdate::set(
+            &crate::tables::panel::FIELD_ADDITIONAL_COST,
+            additional_cost,
+        ));
+        if cost_for_kids {
             updates.push(FieldUpdate::set(
-                &crate::tables::panel::FIELD_COST,
-                c.as_str(),
+                &crate::tables::panel::FIELD_FOR_KIDS,
+                true,
             ));
         }
         if let Some(ref d) = get_field_def(&data, &sc::DESCRIPTION).cloned() {
@@ -539,26 +547,69 @@ fn excel_serial_to_naive_datetime(serial: f64) -> Option<NaiveDateTime> {
     Some(NaiveDateTime::new(date, time))
 }
 
-// ── Cost normalization ────────────────────────────────────────────────────────
+// ── Cost parsing ──────────────────────────────────────────────────────────
 
-/// Normalizes a raw cost cell value for storage in [`FIELD_COST`].
+/// Parses a raw cost cell value from the XLSX into a typed
+/// ([`AdditionalCost`], for_kids) pair.
 ///
-/// Returns `None` for blank, free, kids, or `*` values so that cost
-/// classification can be re-derived at read time by the computed fields
-/// (`FIELD_PANEL_IS_INCLUDED`, `FIELD_IS_KID_PANEL`, `FIELD_COST_IS_TBD`).
-/// Returns `Some(text)` for any non-trivially-free cost string.
-fn normalize_cost(text: Option<&str>) -> Option<String> {
-    let text = text?.trim();
-    if text.is_empty() || text == "*" {
-        return None;
+/// - `None` / `""` + workshop → (`TBD`, false) — cost not yet entered.
+/// - `None` / `""` + non-workshop → (`Included`, false).
+/// - `"*"` → (`Included`, false) always (explicit wildcard/placeholder).
+/// - `"Kids"` / `"Kid"` → (`Included`, true).
+/// - `"Free"`, `"$0"`, etc. → (`Included`, false).
+/// - `"TBD"` → (`TBD`, false).
+/// - `"$35"`, etc. → (`Premium(cents)`, false).
+/// - Unrecognized → (`Included`, false) (safe default).
+fn parse_cost_fields(
+    text: Option<&str>,
+    panel_type_id: Option<crate::tables::panel_type::PanelTypeId>,
+    schedule: &crate::schedule::Schedule,
+) -> (crate::value::AdditionalCost, bool) {
+    use crate::value::cost::{cost_string_is_kid_panel, parse_additional_cost};
+    use crate::value::AdditionalCost;
+    let text = match text {
+        Some(t) => t.trim(),
+        None => {
+            let is_ws = is_workshop(panel_type_id, schedule);
+            return (
+                if is_ws {
+                    AdditionalCost::TBD
+                } else {
+                    AdditionalCost::Included
+                },
+                false,
+            );
+        }
+    };
+    if text.is_empty() {
+        let is_ws = is_workshop(panel_type_id, schedule);
+        return (
+            if is_ws {
+                AdditionalCost::TBD
+            } else {
+                AdditionalCost::Included
+            },
+            false,
+        );
     }
-    if crate::tables::panel::cost_is_kid_panel(Some(text)) {
-        return None;
+    if text == "*" {
+        return (AdditionalCost::Included, false);
     }
-    if crate::tables::panel::cost_is_included(Some(text)) == Some(true) {
-        return None;
-    }
-    Some(text.to_string())
+    let for_kids = cost_string_is_kid_panel(text);
+    let cost = parse_additional_cost(text).unwrap_or(AdditionalCost::Included);
+    (cost, for_kids)
+}
+
+fn is_workshop(
+    panel_type_id: Option<crate::tables::panel_type::PanelTypeId>,
+    schedule: &crate::schedule::Schedule,
+) -> bool {
+    panel_type_id
+        .and_then(|pt_id| {
+            schedule.get_internal::<crate::tables::panel_type::PanelTypeEntityType>(pt_id)
+        })
+        .map(|d| d.data.is_workshop)
+        .unwrap_or(false)
 }
 
 // ── Name splitting ────────────────────────────────────────────────────────────
@@ -611,19 +662,87 @@ mod tests {
     use super::*;
 
     #[test]
-    fn test_normalize_cost_stores_only_paid() {
-        assert_eq!(normalize_cost(None), None);
-        assert_eq!(normalize_cost(Some("Free")), None);
-        assert_eq!(normalize_cost(Some("$0")), None);
-        assert_eq!(normalize_cost(Some("$0.00")), None);
-        assert_eq!(normalize_cost(Some("N/A")), None);
-        assert_eq!(normalize_cost(Some("nothing")), None);
-        assert_eq!(normalize_cost(Some("Kids")), None);
-        assert_eq!(normalize_cost(Some("*")), None);
-        assert_eq!(normalize_cost(Some("")), None);
-        // TBD is NOT free — it should be stored so computed fields can classify it.
-        assert_eq!(normalize_cost(Some("TBD")), Some("TBD".into()));
-        assert_eq!(normalize_cost(Some("$35")), Some("$35".into()));
+    fn test_parse_cost_fields() {
+        use crate::value::AdditionalCost;
+        // Build a minimal schedule with a workshop and non-workshop panel type.
+        let mut sched = crate::schedule::Schedule::default();
+        let ws_id = crate::tables::panel_type::PanelTypeBuilder::new()
+            .with_prefix("GW".to_string())
+            .with_panel_kind("Workshop".to_string())
+            .with_is_workshop(true)
+            .build(&mut sched)
+            .unwrap();
+        let gp_id = crate::tables::panel_type::PanelTypeBuilder::new()
+            .with_prefix("GP".to_string())
+            .with_panel_kind("General".to_string())
+            .with_is_workshop(false)
+            .build(&mut sched)
+            .unwrap();
+
+        // Non-workshop: blank/None → Included; * → Included.
+        assert_eq!(
+            parse_cost_fields(None, Some(gp_id), &sched),
+            (AdditionalCost::Included, false)
+        );
+        assert_eq!(
+            parse_cost_fields(Some(""), Some(gp_id), &sched),
+            (AdditionalCost::Included, false)
+        );
+        assert_eq!(
+            parse_cost_fields(Some("*"), Some(gp_id), &sched),
+            (AdditionalCost::Included, false)
+        );
+        // Workshop: blank/None → TBD; * → Included (explicit wildcard).
+        assert_eq!(
+            parse_cost_fields(None, Some(ws_id), &sched),
+            (AdditionalCost::TBD, false)
+        );
+        assert_eq!(
+            parse_cost_fields(Some(""), Some(ws_id), &sched),
+            (AdditionalCost::TBD, false)
+        );
+        assert_eq!(
+            parse_cost_fields(Some("*"), Some(ws_id), &sched),
+            (AdditionalCost::Included, false)
+        );
+        // Explicit values unaffected by workshop flag.
+        assert_eq!(
+            parse_cost_fields(Some("Free"), Some(ws_id), &sched),
+            (AdditionalCost::Included, false)
+        );
+        assert_eq!(
+            parse_cost_fields(Some("$0"), Some(gp_id), &sched),
+            (AdditionalCost::Included, false)
+        );
+        assert_eq!(
+            parse_cost_fields(Some("N/A"), Some(gp_id), &sched),
+            (AdditionalCost::Included, false)
+        );
+        // Kids flag is set separately; cost is still Included.
+        assert_eq!(
+            parse_cost_fields(Some("Kids"), Some(gp_id), &sched),
+            (AdditionalCost::Included, true)
+        );
+        assert_eq!(
+            parse_cost_fields(Some("Kid"), Some(gp_id), &sched),
+            (AdditionalCost::Included, true)
+        );
+        assert_eq!(
+            parse_cost_fields(Some("TBD"), Some(gp_id), &sched),
+            (AdditionalCost::TBD, false)
+        );
+        assert_eq!(
+            parse_cost_fields(Some("TBD"), Some(ws_id), &sched),
+            (AdditionalCost::TBD, false)
+        );
+        assert_eq!(
+            parse_cost_fields(Some("$35"), Some(gp_id), &sched),
+            (AdditionalCost::Premium(3500), false)
+        );
+        assert_eq!(
+            parse_cost_fields(Some("$35.50"), Some(gp_id), &sched),
+            (AdditionalCost::Premium(3550), false)
+        );
     }
 
     #[test]

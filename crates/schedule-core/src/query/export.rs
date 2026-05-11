@@ -431,23 +431,16 @@ fn export_panels(
             description: internal.data.description.clone(),
             note: internal.data.note.clone(),
             prereq: internal.data.prereq.clone(),
-            cost: internal.data.cost.clone(),
+            cost: crate::value::cost::additional_cost_to_string(&internal.data.additional_cost),
             capacity: internal.data.capacity.map(|c| c.to_string()),
             difficulty: internal.data.difficulty.clone(),
             ticket_url: internal.data.ticket_url.clone(),
-            is_included: {
-                let cost = internal.data.cost.as_deref();
-                let is_tbd = crate::tables::panel::cost_is_tbd(
-                    cost,
-                    crate::tables::panel::panel_type_is_workshop(schedule, panel_id),
-                );
-                match crate::tables::panel::cost_is_included(cost) {
-                    Some(v) => v,
-                    None => !is_tbd,
-                }
-            },
+            is_included: matches!(
+                internal.data.additional_cost,
+                crate::value::AdditionalCost::Included
+            ),
             is_full: internal.data.is_full,
-            is_kids: crate::tables::panel::cost_is_kid_panel(internal.data.cost.as_deref()),
+            is_kids: internal.data.for_kids,
             credits,
             presenters: presenter_names,
         });

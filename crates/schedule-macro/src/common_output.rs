@@ -57,13 +57,14 @@ pub fn generate_item_path(item: &Ident) -> syn::Result<TokenStream> {
         "DateTime" => Ok(quote!(::schedule_core::value::FieldTypeItem::DateTime)),
         "Duration" => Ok(quote!(::schedule_core::value::FieldTypeItem::Duration)),
         "Text" => Ok(quote!(::schedule_core::value::FieldTypeItem::Text)),
+        "AdditionalCost" => Ok(quote!(::schedule_core::value::FieldTypeItem::AdditionalCost)),
         "EntityIdentifier" => Err(syn::Error::new(
             item.span(),
             "EntityIdentifier requires item_entity parameter to be specified",
         )),
         other => Err(syn::Error::new(
             item.span(),
-            format!("unknown item type: {other}. Use String, Boolean, Integer, Float, DateTime, Duration, Text, or EntityIdentifier."),
+            format!("unknown item type: {other}. Use String, Boolean, Integer, Float, DateTime, Duration, Text, AdditionalCost, or EntityIdentifier."),
         )),
     }
 }
@@ -99,6 +100,7 @@ pub fn generate_marker_trait(item: &Ident) -> syn::Result<TokenStream> {
         "DateTime" => Ok(quote!(::schedule_core::query::converter::AsDateTime)),
         "Duration" => Ok(quote!(::schedule_core::query::converter::AsDuration)),
         "Text" => Ok(quote!(::schedule_core::query::converter::AsText)),
+        "AdditionalCost" => Ok(quote!(::schedule_core::query::converter::AsAdditionalCost)),
         "EntityIdentifier" => Ok(quote!(::schedule_core::query::converter::AsUuid)),
         other => Err(syn::Error::new(
             item.span(),

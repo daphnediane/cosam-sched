@@ -245,7 +245,11 @@ fn test_import_panels_basic_fields() {
         .expect("GP001 should exist");
     assert_eq!(gp001.data.name, "Opening Ceremony");
     assert_eq!(gp001.data.description.as_deref(), Some("Welcome everyone"));
-    assert_eq!(panel::cost_is_included(gp001.data.cost.as_deref()), None); // blank cost = None (unknown, treated as included for GP001)
+    // blank cost cell → Included (no extra charge)
+    assert_eq!(
+        gp001.data.additional_cost,
+        schedule_core::value::AdditionalCost::Included
+    );
     assert_eq!(
         gp001.time_slot.duration().map(|d| d.num_minutes()),
         Some(60)
@@ -256,11 +260,11 @@ fn test_import_panels_basic_fields() {
         .find(|(_, d)| d.code.full_id() == "FW001")
         .map(|(_, d)| d.clone())
         .expect("FW001 should exist");
-    assert_eq!(fw001.data.cost.as_deref(), Some("$35"));
+    // $35 cost → Premium(3500)
     assert_eq!(
-        panel::cost_is_included(fw001.data.cost.as_deref()),
-        Some(false)
-    ); // $35 cost = not included
+        fw001.data.additional_cost,
+        schedule_core::value::AdditionalCost::Premium(3500)
+    );
 }
 
 #[test]

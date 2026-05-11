@@ -78,7 +78,7 @@ Metadata describing the schedule file.
 | `capacity`    | string \| null  | Effective seat capacity (session override or base default)      |
 | `difficulty`  | string \| null  | Skill level indicator (from base)                               |
 | `ticketUrl`   | string \| null  | Effective ticket URL (session override or base default)         |
-| `isIncluded`  | boolean         | True if no additional cost (free, kids, or blank non-workshop)  |
+| `isIncluded`  | boolean         | True if `additional_cost` is `Included` (no extra charge)       |
 | `isFull`      | boolean         | True if this session is at capacity                             |
 | `isKids`      | boolean         | True for kids-only panels                                       |
 | `credits`     | string[]        | Formatted credit strings for public display                     |

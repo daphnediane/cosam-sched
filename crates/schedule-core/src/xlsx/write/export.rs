@@ -387,13 +387,18 @@ fn write_schedule_sheet(
         set_opt(ws, c_av_notes, row, &panel.data.av_notes);
         set_opt(ws, c_difficulty, row, &panel.data.difficulty);
 
-        // Cost: reconstruct display value from stored cost string.
-        let cost_str = if crate::tables::panel::cost_is_kid_panel(panel.data.cost.as_deref()) {
+        // Cost: synthesize display value from typed fields.
+        // Included always writes "$0" so a blank cell on re-import is not
+        // misread as TBD for workshop panels.
+        let cost_str = if panel.data.for_kids {
             Some("Kids".to_string())
-        } else if crate::tables::panel::cost_is_included(panel.data.cost.as_deref()) == Some(true) {
-            Some("Free".to_string())
+        } else if matches!(
+            panel.data.additional_cost,
+            crate::value::AdditionalCost::Included
+        ) {
+            Some("$0".to_string())
         } else {
-            panel.data.cost.clone()
+            crate::value::cost::additional_cost_to_string(&panel.data.additional_cost)
         };
         set_opt(ws, c_cost, row, &cost_str);
 

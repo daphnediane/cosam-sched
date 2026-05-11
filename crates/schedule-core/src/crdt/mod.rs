@@ -310,6 +310,7 @@ pub(crate) fn item_to_scalar(item: &FieldValueItem) -> CrdtResult<ScalarValue> {
         FieldValueItem::EntityIdentifier(rid) => {
             ScalarValue::Str(format!("{}:{}", rid.entity_type_name(), rid.entity_uuid()).into())
         }
+        FieldValueItem::AdditionalCost(c) => ScalarValue::Str(c.to_string().into()),
     })
 }
 
@@ -337,6 +338,13 @@ pub(crate) fn scalar_to_item(
         }
         (ScalarValue::Int(ms), FieldTypeItem::Duration) => {
             Ok(FieldValueItem::Duration(Duration::milliseconds(*ms)))
+        }
+        (ScalarValue::Str(s), FieldTypeItem::AdditionalCost) => {
+            let cost = s
+                .as_str()
+                .parse::<crate::value::AdditionalCost>()
+                .map_err(CrdtError::TypeMismatch)?;
+            Ok(FieldValueItem::AdditionalCost(cost))
         }
         (ScalarValue::Str(s), FieldTypeItem::EntityIdentifier(type_name)) => {
             let (got_type, uuid_part) = s
