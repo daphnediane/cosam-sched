@@ -9,7 +9,8 @@
 #
 # Usage: scripts/export-schedules.ps1
 #   Reads from input/<YEAR> Schedule.xlsx
-#   Writes to output/<YEAR>/{schedule.xlsx,public.json,embed.html,test.html,style-embed.html,style-page.html}
+#   Writes to output/<YEAR>/{schedule.xlsx,public.json,private.json,embed.html,test.html,style-embed.html,style-page.html}
+#   Also generates PDFs to output/<YEAR>/ via schedule-layout (built into cosam-convert)
 
 param(
     [switch]$Verbose
@@ -47,7 +48,7 @@ try {
         New-Item -ItemType Directory -Path $OutputDir | Out-Null
     }
 
-    # Build cosam-convert once at the start
+    # Build cosam-convert (schedule-layout is linked in via the 'layout' feature)
     Write-Status "Building cosam-convert..."
     Push-Location $RootDir
     & cargo build -p cosam-convert --release
@@ -105,12 +106,13 @@ try {
 
         Write-Status "Building ${year} files..."
 
-        $copy       = Join-Path $yearDir "schedule.xlsx"
-        $dest       = Join-Path $yearDir "public.json"
-        $embed      = Join-Path $yearDir "embed.html"
-        $testHtml   = Join-Path $yearDir "test.html"
+        $copy = Join-Path $yearDir "schedule.xlsx"
+        $dest = Join-Path $yearDir "public.json"
+        $privateDest = Join-Path $yearDir "private.json"
+        $embed = Join-Path $yearDir "embed.html"
+        $testHtml = Join-Path $yearDir "test.html"
         $styleEmbed = Join-Path $yearDir "style-embed.html"
-        $stylePage  = Join-Path $yearDir "style-page.html"
+        $stylePage = Join-Path $yearDir "style-page.html"
 
         try {
             & $ConvertBin `
@@ -118,11 +120,15 @@ try {
                 --title "Cosplay America ${year} Schedule" `
                 --output $copy `
                 --export $dest `
+                --private `
+                --export $privateDest `
+                --public `
                 --export-embed $embed `
                 --export-test $testHtml `
                 --style-page `
                 --export-embed $styleEmbed `
-                --export-test $stylePage
+                --export-test $stylePage `
+                --export-layout $yearDir
 
             if ($LASTEXITCODE -eq 0) {
                 $built += $copy, $dest, $embed, $testHtml, $styleEmbed, $stylePage

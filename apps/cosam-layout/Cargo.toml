@@ -12,5 +12,6 @@ path = "src/main.rs"
 
 [dependencies]
 schedule-layout = { path = "../../crates/schedule-layout" }
+schedule-core = { path = "../../crates/schedule-core" }
 anyhow = "1"
 clap = { version = "4", features = ["derive"] }

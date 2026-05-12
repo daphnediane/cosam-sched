@@ -6,7 +6,7 @@ New CLI binary that consumes `schedule.json` and `config/brand.toml` to produce 
 
 ## Status
 
-Open
+Completed
 
 ## Priority
 

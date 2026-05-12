@@ -5,7 +5,8 @@
  */
 
 //! `cosam-layout` — CLI for generating Typst/PDF print layouts from a
-//! cosam schedule JSON and brand config.
+//! cosam schedule file (widget JSON or internal `.schedule` binary) and
+//! brand config.
 
 mod cli;
 
@@ -41,10 +42,7 @@ fn run() -> Result<()> {
 
     let jobs = cli::parse_layout_jobs(&args.layout_args)?;
 
-    let schedule_json =
-        fs::read_to_string(&args.input).with_context(|| format!("reading {:?}", args.input))?;
-    let data = ScheduleData::from_json(&schedule_json)
-        .with_context(|| format!("parsing {:?}", args.input))?;
+    let data = load_schedule_data(&args.input, &args.brand_config)?;
 
     let brand = load_brand(&args.brand_config);
 
@@ -69,6 +67,36 @@ fn run() -> Result<()> {
     }
 
     Ok(())
+}
+
+/// Load schedule data from either a widget JSON file or an internal `.schedule`
+/// binary, detected by file extension.
+fn load_schedule_data(input: &Path, brand_config: &Path) -> Result<ScheduleData> {
+    let ext = input
+        .extension()
+        .and_then(|e| e.to_str())
+        .unwrap_or("")
+        .to_lowercase();
+
+    if ext == "schedule" {
+        let bytes =
+            fs::read(input).with_context(|| format!("reading schedule file {:?}", input))?;
+        let schedule = schedule_core::schedule::Schedule::load_from_file(&bytes)
+            .map_err(|e| anyhow::anyhow!("{e}"))
+            .with_context(|| format!("loading internal schedule {:?}", input))?;
+        let title = input
+            .file_stem()
+            .and_then(|s| s.to_str())
+            .unwrap_or("Schedule");
+        ScheduleData::from_schedule(&schedule, title)
+            .map_err(|e| anyhow::anyhow!("{e}"))
+            .with_context(|| "building layout data from schedule")
+    } else {
+        let _ = brand_config;
+        let json =
+            fs::read_to_string(input).with_context(|| format!("reading JSON file {:?}", input))?;
+        ScheduleData::from_json(&json).map_err(|e| anyhow::anyhow!("{e}"))
+    }
 }
 
 /// Load brand config, warning and falling back to defaults if the file is

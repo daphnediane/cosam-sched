@@ -6,7 +6,7 @@ Add an `--export-layout <DIR>` flag to `cosam-convert` that runs a default set o
 
 ## Status
 
-Not Started
+Completed
 
 ## Priority
 

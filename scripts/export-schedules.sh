@@ -6,9 +6,10 @@
 #
 # NOTE: When updating this script, also update export-schedules.ps1 to maintain parity
 #
-# Usage: scripts/export-schedules.sh [--year YEAR]
+# Usage: scripts/export-schedules.sh
 #   Reads from input/<YEAR> Schedule.xlsx
-#   Writes to output/<YEAR>/{schedule.xlsx,public.json,embed.html,test.html,style-embed.html,style-page.html}
+#   Writes to output/<YEAR>/{schedule.xlsx,public.json,private.json,embed.html,test.html,style-embed.html,style-page.html}
+#   Also generates PDFs to output/<YEAR>/ via schedule-layout (built into cosam-convert)
 
 set -e
 
@@ -26,7 +27,7 @@ echo ""
 
 mkdir -p "$OUTPUT_DIR"
 
-# Build cosam-convert once at the start
+# Build cosam-convert (schedule-layout is linked in via the 'layout' feature)
 echo "Building cosam-convert..."
 cd "$ROOT_DIR"
 cargo build -p cosam-convert --release
@@ -82,6 +83,7 @@ for year in $(seq 2016 "$(date +%Y)"); do
     style_page="$year_dir/style-page.html"
 
     echo "  Building ${year} files..."
+
     if "$CONVERT_BIN" \
         --input "$src" \
         --title "Cosplay America ${year} Schedule" \
@@ -94,7 +96,8 @@ for year in $(seq 2016 "$(date +%Y)"); do
         --export-test "$test_html" \
         --style-page \
         --export-embed "$style_embed" \
-        --export-test "$style_page"; then
+        --export-test "$style_page" \
+        --export-layout "$year_dir"; then
         built+=("$copy" "$dest" "$private_dest" "$embed" "$test_html" "$style_embed" "$style_page")
     else
         failed+=("$copy" "$dest" "$private_dest" "$embed" "$test_html" "$style_embed" "$style_page")

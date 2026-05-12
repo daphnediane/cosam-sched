@@ -4,7 +4,12 @@
  * See LICENSE file for full license text
  */
 
-//! Widget JSON data model deserialization.
+//! Schedule data model for layout generation.
+//!
+//! [`ScheduleData`] can be built in-process from a
+//! [`schedule_core::schedule::Schedule`] via [`ScheduleData::from_schedule`],
+//! or deserialized from a widget-JSON file via [`ScheduleData::load`] for
+//! standalone `cosam-layout` use.
 
 use std::collections::HashMap;
 
@@ -17,6 +22,8 @@ pub enum ModelError {
     Json(#[from] serde_json::Error),
     #[error("I/O error: {0}")]
     Io(#[from] std::io::Error),
+    #[error("export error: {0}")]
+    Export(String),
 }
 
 /// Top-level schedule data, matching the widget JSON display format.
@@ -35,12 +42,130 @@ pub struct ScheduleData {
 }
 
 impl ScheduleData {
-    /// Parse from a JSON string.
+    /// Build directly from a [`schedule_core::schedule::Schedule`] with no
+    /// JSON serialization round-trip. Uses the public-export view (no private
+    /// panels/presenters).
+    pub fn from_schedule(
+        schedule: &schedule_core::schedule::Schedule,
+        title: &str,
+    ) -> Result<Self, ModelError> {
+        use schedule_core::query::export::export_to_widget_json;
+        let export = export_to_widget_json(schedule, title, false)
+            .map_err(|e| ModelError::Export(e.to_string()))?;
+
+        let meta = Meta {
+            title: export.meta.title,
+            version: export.meta.version as u32,
+            variant: export.meta.variant,
+            generator: export.meta.generator,
+            generated: export.meta.generated,
+            modified: export.meta.modified,
+            start_time: Some(export.meta.start_time).filter(|s| !s.is_empty()),
+            end_time: Some(export.meta.end_time).filter(|s| !s.is_empty()),
+        };
+
+        let panels = export
+            .panels
+            .into_iter()
+            .map(|p| Panel {
+                id: p.id,
+                base_id: p.base_id,
+                name: p.name,
+                panel_type: p.panel_type,
+                room_ids: p.room_ids.into_iter().map(i64::from).collect(),
+                start_time: p.start_time,
+                end_time: p.end_time,
+                duration: p.duration.try_into().ok(),
+                description: p.description,
+                note: p.note,
+                prereq: p.prereq,
+                cost: p.cost,
+                capacity: p.capacity,
+                difficulty: p.difficulty,
+                ticket_url: p.ticket_url,
+                is_premium: p.is_premium,
+                is_full: p.is_full,
+                is_kids: p.is_kids,
+                credits: p.credits,
+                presenters: p.presenters,
+            })
+            .collect();
+
+        let rooms = export
+            .rooms
+            .into_iter()
+            .map(|r| Room {
+                uid: i64::from(r.uid),
+                short_name: r.short_name,
+                long_name: r.long_name,
+                hotel_room: r.hotel_room,
+                sort_key: i64::from(r.sort_key),
+            })
+            .collect();
+
+        let panel_types = export
+            .panel_types
+            .into_iter()
+            .map(|(k, pt)| {
+                let colors = PanelTypeColors {
+                    color: pt.colors.get("color").cloned(),
+                    bw: pt.colors.get("bw").cloned(),
+                };
+                (
+                    k,
+                    PanelType {
+                        kind: pt.kind,
+                        colors,
+                        is_break: pt.is_break,
+                        is_cafe: pt.is_cafe,
+                        is_workshop: pt.is_workshop,
+                        is_hidden: pt.is_hidden,
+                        is_room_hours: pt.is_room_hours,
+                        is_timeline: pt.is_timeline,
+                        is_private: pt.is_private,
+                    },
+                )
+            })
+            .collect();
+
+        let timeline = export
+            .timeline
+            .into_iter()
+            .map(|t| TimelineEntry {
+                id: t.id,
+                name: t.description,
+                panel_type: t.panel_type,
+                start_time: Some(t.start_time),
+                end_time: None,
+            })
+            .collect();
+
+        let presenters = export
+            .presenters
+            .into_iter()
+            .map(|p| Presenter {
+                uid: p.name.clone(),
+                name: p.name,
+                short_name: None,
+            })
+            .collect();
+
+        Ok(Self {
+            meta,
+            panels,
+            rooms,
+            panel_types,
+            timeline,
+            presenters,
+        })
+    }
+
+    /// Parse from a widget-JSON string (for standalone `cosam-layout` use).
     pub fn from_json(json: &str) -> Result<Self, ModelError> {
         Ok(serde_json::from_str(json)?)
     }
 
-    /// Load from a JSON file.
+    /// Load from a widget-JSON file (for standalone `cosam-layout` use).
     pub fn load(path: &std::path::Path) -> Result<Self, ModelError> {
         let json = std::fs::read_to_string(path)?;
         Self::from_json(&json)

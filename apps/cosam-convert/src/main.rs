@@ -29,6 +29,8 @@ struct OutputSettings {
     style_page: Option<bool>,
     title: String,
     private_export: bool,
+    #[cfg(feature = "layout")]
+    brand_config: Option<PathBuf>,
 }
 
 impl Default for OutputSettings {
@@ -41,6 +43,8 @@ impl Default for OutputSettings {
             style_page: None,
             title: String::new(),
             private_export: false,
+            #[cfg(feature = "layout")]
+            brand_config: None,
         }
     }
 }
@@ -60,6 +64,8 @@ enum OutputType {
     Export,
     ExportEmbed,
     ExportTest,
+    #[cfg(feature = "layout")]
+    ExportLayout,
 }
 
 // ── CLI args ──────────────────────────────────────────────────────────────────
@@ -191,6 +197,32 @@ fn parse_args() -> Result<CliArgs> {
                 }
                 presenter_table = arguments[index].clone();
             }
+            #[cfg(feature = "layout")]
+            "--export-layout" => {
+                index += 1;
+                if index >= arguments.len() {
+                    anyhow::bail!("Missing value for --export-layout");
+                }
+                let path = PathBuf::from(&arguments[index]);
+                check_duplicate_output(&output_jobs, &path)?;
+                output_jobs.push(OutputJob {
+                    path,
+                    settings: current_settings.clone(),
+                    job_type: OutputType::ExportLayout,
+                });
+                first_setting_index = None;
+            }
+            #[cfg(feature = "layout")]
+            "--brand-config" => {
+                if first_setting_index.is_none() {
+                    first_setting_index = Some(index);
+                }
+                index += 1;
+                if index >= arguments.len() {
+                    anyhow::bail!("Missing value for --brand-config");
+                }
+                current_settings.brand_config = Some(PathBuf::from(&arguments[index]));
+            }
             "--check" | "--validate" => {
                 check_only = true;
             }
@@ -219,6 +251,13 @@ fn parse_args() -> Result<CliArgs> {
                 }
                 current_settings.test_template = None;
             }
+            #[cfg(feature = "layout")]
+            "--builtin-brand" => {
+                if first_setting_index.is_none() {
+                    first_setting_index = Some(index);
+                }
+                current_settings.brand_config = None;
+            }
             "--builtin" => {
                 if first_setting_index.is_none() {
                     first_setting_index = Some(index);
@@ -226,6 +265,10 @@ fn parse_args() -> Result<CliArgs> {
                 current_settings.widget_css = None;
                 current_settings.widget_js = None;
                 current_settings.test_template = None;
+                #[cfg(feature = "layout")]
+                {
+                    current_settings.brand_config = None;
+                }
             }
             "--default" => {
                 if first_setting_index.is_none() {
@@ -378,6 +421,7 @@ fn print_usage() {
          \x20 --export, -e <file.json>             Export widget JSON\n\
          \x20 --export-embed <file.html>           Export embeddable HTML (inline CSS/JS/JSON)\n\
          \x20 --export-test <file.html>            Export standalone test page (Squarespace sim)\n\
+         \x20 --export-layout <dir>                Run cosam-layout; write PDFs to <dir> (requires cosam-layout on PATH)\n\
          \n\
          Validation:\n\
          \x20 --check, --validate                  Report conflicts; exit non-zero if any found\n\
@@ -394,6 +438,7 @@ fn print_usage() {
          \x20 --widget-css <path>                  Override CSS source (default: builtin)\n\
          \x20 --widget-js <path>                   Override JS source (default: builtin)\n\
          \x20 --test-template <path>               Override test page template (default: builtin)\n\
+         \x20 --brand-config <file>                Brand config for layout (default: config/brand.toml)\n\
          \x20 --minified                           Minify HTML output (default)\n\
          \x20 --no-minified, --for-debug           Skip minification\n\
          \x20 --style-page                         Set stylePageBody: true in widget init\n\
@@ -406,6 +451,7 @@ fn print_usage() {
          \x20 --builtin-js                         Use builtin JS\n\
          \x20 --builtin-widget                     Use builtin CSS and JS\n\
          \x20 --builtin-template                   Use builtin test template\n\
+         \x20 --builtin-brand                      Use builtin brand defaults (no brand.toml)\n\
          \x20 --builtin                            Use all builtin resources\n\
          \x20 --default                            Reset all settings to defaults\n\
          \n\
@@ -413,6 +459,7 @@ fn print_usage() {
          \x20 cosam-convert --input schedule.xlsx --export public.json\n\
          \x20 cosam-convert --input schedule.xlsx --check --export public.json\n\
          \x20 cosam-convert --input schedule.xlsx --output full.schedule --export public.json\n\
+         \x20 cosam-convert --input schedule.xlsx --export public.json --export-layout output/layout\n\
          \x20 cosam-convert --input schedule.xlsx --title \"Event 2026\" \\\n\
          \x20   --minified --export-embed embed.html --no-minified --export-embed debug.html"
     );
@@ -562,6 +609,11 @@ fn main() {
             .map(|()| {
                 eprintln!("Exported: {}", job.path.display());
             }),
+            #[cfg(feature = "layout")]
+            OutputType::ExportLayout => {
+                run_layout_export(&schedule, &effective_title, &job.path, &job.settings);
+                Ok(())
+            }
             OutputType::ExportEmbed | OutputType::ExportTest => {
                 let sources = match embed::WidgetSources::resolve(
                     job.settings.widget_css.as_deref(),
@@ -618,5 +670,144 @@ fn main() {
 
     if had_error {
         std::process::exit(1);
+    }
+}
+
+// ── Layout export ─────────────────────────────────────────────────────────────
+
+#[cfg(feature = "layout")]
+fn run_layout_export(
+    schedule: &schedule_core::schedule::Schedule,
+    title: &str,
+    layout_dir: &Path,
+    settings: &OutputSettings,
+) {
+    use schedule_layout::{
+        brand::BrandConfig,
+        color::ColorMode,
+        formats,
+        grid::{LayoutConfig, LayoutFilter, LayoutFormat, PaperSize, SplitMode},
+        model::ScheduleData,
+    };
+    use std::fs;
+
+    let brand_path = settings
+        .brand_config
+        .clone()
+        .unwrap_or_else(|| PathBuf::from("config/brand.toml"));
+    let brand = match BrandConfig::load(&brand_path) {
+        Ok(b) => b,
+        Err(e) => {
+            eprintln!(
+                "warning: brand config {:?}: {e}; using defaults",
+                brand_path
+            );
+            BrandConfig::default()
+        }
+    };
+
+    let data = match ScheduleData::from_schedule(schedule, title) {
+        Ok(d) => d,
+        Err(e) => {
+            eprintln!("warning: building layout data: {e}; skipping layout export");
+            return;
+        }
+    };
+
+    if let Err(e) = fs::create_dir_all(layout_dir) {
+        eprintln!(
+            "warning: creating layout dir {:?}: {e}; skipping layout export",
+            layout_dir
+        );
+        return;
+    }
+
+    // Default job set matching the old dump_flyers defaults
+    let default_jobs: &[(LayoutFormat, PaperSize, SplitMode, LayoutFilter)] = &[
+        (
+            LayoutFormat::Schedule,
+            PaperSize::Tabloid,
+            SplitMode::HalfDay,
+            LayoutFilter::default(),
+        ),
+        (
+            LayoutFormat::WorkshopPoster,
+            PaperSize::Tabloid,
+            SplitMode::Day,
+            LayoutFilter {
+                premium_only: true,
+                ..LayoutFilter::default()
+            },
+        ),
+        (
+            LayoutFormat::RoomSigns,
+            PaperSize::Tabloid,
+            SplitMode::Day,
+            LayoutFilter::default(),
+        ),
+        (
+            LayoutFormat::GuestPostcards,
+            PaperSize::Postcard4x6,
+            SplitMode::HalfDay,
+            LayoutFilter::default(),
+        ),
+        (
+            LayoutFormat::Descriptions,
+            PaperSize::Tabloid,
+            SplitMode::Day,
+            LayoutFilter::default(),
+        ),
+    ];
+
+    for (format, paper, split_by, filter) in default_jobs {
+        let config = LayoutConfig {
+            format: *format,
+            paper: *paper,
+            split_by: *split_by,
+            filter: filter.clone(),
+        };
+        let outputs = match format {
+            LayoutFormat::Schedule => {
+                formats::schedule::generate(&data, &brand, &config, ColorMode::Color)
+            }
+            LayoutFormat::WorkshopPoster => {
+                formats::workshop_poster::generate(&data, &brand, &config, ColorMode::Color)
+            }
+            LayoutFormat::RoomSigns => {
+                formats::room_signs::generate(&data, &brand, &config, ColorMode::Color)
+            }
+            LayoutFormat::GuestPostcards => {
+                formats::guest_postcards::generate(&data, &brand, &config, ColorMode::Color)
+            }
+            LayoutFormat::Descriptions => {
+                formats::descriptions::generate(&data, &brand, &config, ColorMode::Color)
+            }
+        };
+        for (stem, typ_src) in &outputs {
+            let typ_path = layout_dir.join(format!("{stem}.typ"));
+            let pdf_path = layout_dir.join(format!("{stem}.pdf"));
+            if let Err(e) = fs::write(&typ_path, typ_src) {
+                eprintln!("warning: writing {:?}: {e}", typ_path);
+                continue;
+            }
+            let font_args: Vec<String> = brand
+                .fonts
+                .font_dir
+                .as_ref()
+                .and_then(|d| d.to_str())
+                .map(|d| vec!["--font-path".to_string(), d.to_string()])
+                .unwrap_or_default();
+            let status = std::process::Command::new("typst")
+                .arg("compile")
+                .args(&font_args)
+                .arg(&typ_path)
+                .arg(&pdf_path)
+                .status();
+            match status {
+                Ok(s) if s.success() => eprintln!("compiled {}", pdf_path.display()),
+                Ok(s) => eprintln!("warning: typst exited {} for {:?}", s, typ_path),
+                Err(e) => eprintln!("warning: typst compile {:?}: {e}", typ_path),
+            }
+        }
     }
 }

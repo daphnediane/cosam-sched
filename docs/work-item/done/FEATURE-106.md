@@ -6,7 +6,7 @@ New shared Rust crate providing layout engine, brand config, Typst codegen, and 
 
 ## Status
 
-Open
+Completed
 
 ## Priority
 

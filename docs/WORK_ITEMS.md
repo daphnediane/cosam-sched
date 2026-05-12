@@ -1,6 +1,6 @@
 # Cosplay America Schedule - Work Item
 
-Updated on: Mon May 11 17:34:08 2026
+Updated on: Mon May 11 21:53:06 2026
 
 ## Completed
 
@@ -81,6 +81,9 @@ cross-partition edge exclusivity declaratively.
 first-class entity fields, and decide how this interacts with CRDT merge.
 * [FEATURE-103] Compare and document the field definitions between the current main branch, v9, v10-try1, and v10-try3 to identify gaps and ensure complete coverage.
 * [FEATURE-105] Improve the widget's browser print output so the grid view prints cleanly with proper column layout, hidden chrome, and expanded descriptions.
+* [FEATURE-106] New shared Rust crate providing layout engine, brand config, Typst codegen, and in-process PDF compilation for print output formats.
+* [FEATURE-107] New CLI binary that consumes `schedule.json` and `config/brand.toml` to produce Typst-compiled PDFs and/or `.typ` source files for all print layout formats.
+* [FEATURE-108] Add an `--export-layout <DIR>` flag to `cosam-convert` that runs a default set of `cosam-layout` outputs after the schedule JSON export.
 * [META-002] Phase tracker for project foundation and Cargo workspace setup.
 * [META-003] Phase tracker for the entity/field system and core schedule data model in schedule-core.
 * [META-004] Phase tracker for making an automerge CRDT document the authoritative storage
@@ -146,7 +149,7 @@ above panelists and groups.
 
 ## Summary of Open Items
 
-**Total open items:** 15
+**Total open items:** 13
 
 * **Meta / Project-Level**
   * [META-001] Meta work item tracking the full multi-phase redesign of the schedule system. (Blocked by [META-007], [META-008])
@@ -156,8 +159,6 @@ above panelists and groups.
 * **High Priority**
   * [FEATURE-084] Implement `update_xlsx` to write schedule changes back into an existing XLSX
 file, preserving formatting, formulas, extra columns, and non-standard content.
-  * [FEATURE-106] New shared Rust crate providing layout engine, brand config, Typst codegen, and in-process PDF compilation for print output formats.
-  * [FEATURE-107] New CLI binary that consumes `schedule.json` and `config/brand.toml` to produce Typst-compiled PDFs and/or `.typ` source files for all print layout formats.
 
 * **Medium Priority**
   * [FEATURE-026] Support multiple convention years in a single schedule file for historical
@@ -173,7 +174,7 @@ entering commands one at a time.
   * [FEATURE-083] Add a dedicated `Hotels` sheet to the XLSX format for richer hotel-room metadata.
   * [FEATURE-099] Serialize the `EditHistory` undo/redo stacks into the `.schedule` binary file so that
 undo/redo works across `cosam-modify` invocations.
-  * [FEATURE-108] Add an `--export-layout <DIR>` flag to `cosam-convert` that runs a default set of `cosam-layout` outputs after the schedule JSON export.
+  * [FEATURE-110] Add Adobe InDesign Markup Language (IDML) as an optional export format for schedule layouts.
 
 ---
 
@@ -255,34 +256,6 @@ changed, preserving:
 
 This is the workflow convention staff actually uses: import once to seed the
 schedule database, then save back repeatedly as edits accumulate.
-
----
-
-### [FEATURE-106] FEATURE-106: Add crates/schedule-layout shared crate
-
-**Status:** Open
-
-**Priority:** High
-
-**Summary:** New shared Rust crate providing layout engine, brand config, Typst codegen, and in-process PDF compilation for print output formats.
-
-**Blocked By:** [FEATURE-105]
-
-**Description:** Create `crates/schedule-layout` as a workspace member. This crate is reusable by `cosam-layout`, future `cosam-editor` WYSIWYG grid calculations, and any other tool needing layout logic.
-
----
-
-### [FEATURE-107] FEATURE-107: Add apps/cosam-layout binary
-
-**Status:** Open
-
-**Priority:** High
-
-**Summary:** New CLI binary that consumes `schedule.json` and `config/brand.toml` to produce Typst-compiled PDFs and/or `.typ` source files for all print layout formats.
-
-**Blocked By:** [FEATURE-106]
-
-**Description:** Create `apps/cosam-layout` as a workspace member. CLI is modeled after `cosam-convert` style with repeatable layout job args separated by `--`.
 
 ---
 
@@ -431,17 +404,19 @@ Implementing cross-invocation undo requires:
 
 ---
 
-### [FEATURE-108] FEATURE-108: cosam-convert --export-layout integration
+### [FEATURE-110] FEATURE-110: Add IDML export format option
 
 **Status:** Open
 
 **Priority:** Low
 
-**Summary:** Add an `--export-layout <DIR>` flag to `cosam-convert` that runs a default set of `cosam-layout` outputs after the schedule JSON export.
+**Summary:** Add Adobe InDesign Markup Language (IDML) as an optional export format for schedule layouts.
 
-**Blocked By:** [FEATURE-107]
+**Blocked By:** [FEATURE-106]
 
-**Description:** Convenience integration: running `cosam-convert` with `--export-layout output/layout` invokes the same default layout set as the old `dump_flyers` script, without a separate `cosam-layout` invocation.
+**Description:** Add IDML export as an optional output format in the schedule-layout crate. IDML is Adobe's XML-based format for InDesign documents, packaged as a ZIP archive containing XML files and assets. This would provide an alternative to the Typst/PDF workflow for users who need editable InDesign files or require InDesign-specific features.
+
+IDML is significantly more complex than the current Typst approach, requiring XML generation for multiple components (Stories, Spreads, MasterSpreads, Styles, Resources) and ZIP packaging. This feature should be implemented as an optional format behind a feature flag.
 
 ---
 
@@ -592,9 +567,10 @@ to exchange CRDT changes and reconcile concurrent edits to the same fields.
 [FEATURE-099]: work-item/low/FEATURE-099.md
 [FEATURE-103]: work-item/done/FEATURE-103.md
 [FEATURE-105]: work-item/done/FEATURE-105.md
-[FEATURE-106]: work-item/high/FEATURE-106.md
-[FEATURE-107]: work-item/high/FEATURE-107.md
-[FEATURE-108]: work-item/low/FEATURE-108.md
+[FEATURE-106]: work-item/done/FEATURE-106.md
+[FEATURE-107]: work-item/done/FEATURE-107.md
+[FEATURE-108]: work-item/done/FEATURE-108.md
+[FEATURE-110]: work-item/low/FEATURE-110.md
 [META-001]: work-item/meta/META-001.md
 [META-002]: work-item/done/META-002.md
 [META-003]: work-item/done/META-003.md

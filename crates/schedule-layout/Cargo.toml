@@ -14,6 +14,7 @@ compile = ["dep:typst", "dep:typst-library", "dep:typst-pdf", "dep:comemo"]
 [dependencies]
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
+schedule-core = { path = "../schedule-core" }
 toml = "0.8"
 thiserror = "2"
 image = { version = "0.25", default-features = false, features = ["png"] }
