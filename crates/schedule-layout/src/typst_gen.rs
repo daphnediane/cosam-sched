@@ -19,6 +19,10 @@ pub fn escape_typst(s: &str) -> String {
         .replace(']', "\\]")
         .replace('#', "\\#")
         .replace('@', "\\@")
+        .replace('$', "\\$")
+        .replace('*', "\\*")
+        .replace('<', "\\<")
+        .replace('>', "\\>")
 }
 
 /// Generate the Typst document preamble with paper size, fonts, and brand colors.
@@ -66,13 +70,8 @@ pub fn schedule_grid(
         return out;
     }
 
-    let col_count = layout.room_order.len() + 1; // +1 for time col
-
     // Table header row
-    out.push_str(&format!(
-        "#table(\n  columns: {},\n  align: left,\n",
-        col_count
-    ));
+    out.push_str("#table(\n  align: left,\n");
 
     // Column widths: time col fixed, room cols equal
     let time_col_w = "0.7in";
