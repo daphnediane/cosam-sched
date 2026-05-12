@@ -1812,6 +1812,57 @@ body.cosam-page-styled a:hover {
     margin-bottom: 4px;
   }
 
+  /* Remove hover effects in print */
+  .cosam-event-card:hover,
+  .cosam-grid-event:hover,
+  .cosam-break-banner:hover,
+  .cosam-grid-break:hover,
+  .cosam-btn:hover,
+  .cosam-filter-chip:hover,
+  .cosam-day-tab:hover,
+  .cosam-event-star:hover {
+    box-shadow: none;
+    border-color: inherit;
+    background: inherit;
+    transform: none;
+  }
+
+  /* Keep day headings with their content */
+  .cosam-time-group {
+    break-inside: avoid;
+    page-break-inside: avoid;
+  }
+
+  .cosam-time-header {
+    break-after: avoid;
+    page-break-after: avoid;
+  }
+
+  /* Use normal break styling for overnight breaks in print */
+  .cosam-implicit-overnight-break {
+    background: repeating-linear-gradient(-45deg, #e0e0e0, #e0e0e0 8px, #d5d5d5 8px, #d5d5d5 16px) !important;
+    border: 1px dashed #c0c0c0 !important;
+    color: #666 !important;
+    box-shadow: none !important;
+  }
+
+  .cosam-implicit-overnight-break::before,
+  .cosam-implicit-overnight-break::after {
+    display: none !important;
+  }
+
+  .cosam-implicit-overnight-moon {
+    display: none !important;
+  }
+
+  .cosam-implicit-overnight-break .cosam-break-name,
+  .cosam-implicit-overnight-break .cosam-break-desc,
+  .cosam-implicit-overnight-break .cosam-break-meta,
+  .cosam-implicit-overnight-break .cosam-grid-break-name {
+    color: #666 !important;
+    text-shadow: none !important;
+  }
+
   /* Show descriptions expanded in print */
   .cosam-event-desc {
     display: block !important;
@@ -2041,21 +2092,38 @@ body.cosam-page-styled a:hover {
 
 @media screen and (max-width: 768px) {
   .cosam-toolbar {
-    flex-direction: column;
-    align-items: stretch;
+    flex-direction: row;
+    flex-wrap: wrap;
+    gap: 6px;
+  }
+
+  .cosam-toolbar-left {
+    flex-wrap: wrap;
+    gap: 4px;
   }
 
   .cosam-toolbar-right {
     margin-left: 0;
+    flex: 1;
     justify-content: flex-end;
+    flex-wrap: wrap;
+    gap: 4px;
   }
 
-  .cosam-filter-group {
-    min-width: 100%;
+  /* Hide theme selector on mobile to save space */
+  .cosam-theme-select {
+    display: none;
   }
 
   .cosam-search-wrap {
+    flex: 1;
+    min-width: 120px;
     max-width: 100%;
+  }
+
+  .cosam-btn {
+    padding: 6px 10px;
+    font-size: 13px;
   }
 
   .cosam-event-card {
