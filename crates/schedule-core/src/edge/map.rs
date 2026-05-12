@@ -624,7 +624,7 @@ mod tests {
     }
 
     // ── set_neighbors ─────────────────────────────────────────────────────────
-    // TODO: Update set_neighbors tests to work with new API
+    // TODO(REFACTOR-112): Update set_neighbors tests to work with new API
     #[ignore]
     #[test]
     fn test_set_neighbors_replaces_and_patches_reverse() {

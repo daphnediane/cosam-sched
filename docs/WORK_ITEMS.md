@@ -1,6 +1,6 @@
 # Cosplay America Schedule - Work Item
 
-Updated on: Mon May 11 21:53:06 2026
+Updated on: Mon May 11 22:05:19 2026
 
 ## Completed
 
@@ -149,7 +149,7 @@ above panelists and groups.
 
 ## Summary of Open Items
 
-**Total open items:** 13
+**Total open items:** 16
 
 * **Meta / Project-Level**
   * [META-001] Meta work item tracking the full multi-phase redesign of the schedule system. (Blocked by [META-007], [META-008])
@@ -163,11 +163,17 @@ file, preserving formatting, formulas, extra columns, and non-standard content.
 * **Medium Priority**
   * [FEATURE-026] Support multiple convention years in a single schedule file for historical
 reference and jump-starting new conventions.
+  * [FEATURE-113] Replace the `std::process::Command::new("typst")` subprocess calls in
+`schedule-layout` and `cosam-convert` with in-process compilation using the
+`typst` Rust crate, eliminating the external `typst-cli` dependency.
 
 * **Low Priority**
   * [CLI-100] Add a `--interactive` flag to `cosam-modify` that opens a read-eval-print loop for
 entering commands one at a time.
   * [EDITOR-032] ([META-007]) Select the GUI framework for cosam-editor and create the application scaffold.
+  * [EDITOR-111] Extract the duplicated `schedule_data.rs` UI helper present in both
+`cosam-editor-gpui` and `cosam-editor-dioxus` into a new
+`crates/cosam-editor-shared` crate once the GUI framework is chosen.
   * [FEATURE-034] ([META-008]) Define and implement the protocol for synchronizing schedule data between peers.
   * [FEATURE-035] ([META-008]) Provide UI for reviewing and resolving merge conflicts after sync.
   * [FEATURE-077] Implement add/remove operations for list cardinality fields in accessor_field_properties.
@@ -175,6 +181,8 @@ entering commands one at a time.
   * [FEATURE-099] Serialize the `EditHistory` undo/redo stacks into the `.schedule` binary file so that
 undo/redo works across `cosam-modify` invocations.
   * [FEATURE-110] Add Adobe InDesign Markup Language (IDML) as an optional export format for schedule layouts.
+  * [REFACTOR-112] Update the `#[ignore]`d `set_neighbors` tests in `schedule-core/src/edge/map.rs`
+to compile and pass against the current `RawEdgeMap` API.
 
 ---
 
@@ -231,6 +239,27 @@ application structure.
 
 ---
 
+### [EDITOR-111] EDITOR-111: Extract shared schedule_data module to crates/cosam-editor-shared
+
+**Status:** Open
+
+**Priority:** Low
+
+**Summary:** Extract the duplicated `schedule_data.rs` UI helper present in both
+`cosam-editor-gpui` and `cosam-editor-dioxus` into a new
+`crates/cosam-editor-shared` crate once the GUI framework is chosen.
+
+**Blocked By:** [EDITOR-032]
+
+**Description:** Both `apps/cosam-editor-gpui/src/ui/schedule_data.rs` and
+`apps/cosam-editor-dioxus/src/ui/schedule_data.rs` contain identical
+or near-identical logic for adapting `schedule-core` data for display.
+Once the framework decision is made the surviving copy should move to
+`crates/cosam-editor-shared` so it can be reused by any future editor
+target without duplication.
+
+---
+
 ## Open FEATURE Items
 
 ### [FEATURE-084] FEATURE-084: XLSX Spreadsheet Update (In-Place Save)
@@ -276,6 +305,29 @@ enabling:
 * **Jump-start**: Copy entities from a prior year to pre-populate the next
   convention (recurring panels, returning presenters, same rooms)
 * **Historical reference**: View past schedules alongside the current one
+
+---
+
+### [FEATURE-113] FEATURE-113: In-process Typst PDF compilation (replace typst CLI subprocess)
+
+**Status:** Open
+
+**Priority:** Medium
+
+**Summary:** Replace the `std::process::Command::new("typst")` subprocess calls in
+`schedule-layout` and `cosam-convert` with in-process compilation using the
+`typst` Rust crate, eliminating the external `typst-cli` dependency.
+
+**Description:** Both `apps/cosam-convert/src/main.rs` (`run_layout_export`) and
+`apps/cosam-layout/src/main.rs` (`compile_typst`) currently shell out to the
+`typst compile` CLI binary to produce PDFs. This requires `typst-cli` to be
+installed separately and on `PATH`, which is inconvenient and fragile.
+
+The `typst` Rust crate provides a `compile()` API that can do this in-process,
+but it requires implementing the `World` trait (file I/O, font loading, date,
+package resolution). The `typst-kit` crate (maintained by the Typst team)
+provides ready-made font search and embed helpers to simplify `World`
+implementation.
 
 ---
 
@@ -502,6 +554,25 @@ to exchange CRDT changes and reconcile concurrent edits to the same fields.
 
 ---
 
+## Open REFACTOR Items
+
+### [REFACTOR-112] REFACTOR-112: Update ignored set_neighbors tests to current RawEdgeMap API
+
+**Status:** Open
+
+**Priority:** Low
+
+**Summary:** Update the `#[ignore]`d `set_neighbors` tests in `schedule-core/src/edge/map.rs`
+to compile and pass against the current `RawEdgeMap` API.
+
+**Description:** The test `test_set_neighbors_replaces_and_patches_reverse` (and any related
+`set_neighbors` tests) in `crates/schedule-core/src/edge/map.rs` are marked
+`#[ignore]` with a TODO comment because they were written against an older API
+and no longer compile or reflect the current `RawEdgeMap` structure (which uses
+a `HashMap<NonNilUuid, HashMap<FieldId, Vec<FieldNodeId>>>` layout).
+
+---
+
 ---
 
 [BUGFIX-072]: work-item/done/BUGFIX-072.md
@@ -523,6 +594,7 @@ to exchange CRDT changes and reconcile concurrent edits to the same fields.
 [CLI-100]: work-item/low/CLI-100.md
 [EDITOR-032]: work-item/low/EDITOR-032.md
 [EDITOR-033]: work-item/done/EDITOR-033.md
+[EDITOR-111]: work-item/low/EDITOR-111.md
 [FEATURE-009]: work-item/done/FEATURE-009.md
 [FEATURE-010]: work-item/done/FEATURE-010.md
 [FEATURE-011]: work-item/done/FEATURE-011.md
@@ -571,6 +643,7 @@ to exchange CRDT changes and reconcile concurrent edits to the same fields.
 [FEATURE-107]: work-item/done/FEATURE-107.md
 [FEATURE-108]: work-item/done/FEATURE-108.md
 [FEATURE-110]: work-item/low/FEATURE-110.md
+[FEATURE-113]: work-item/medium/FEATURE-113.md
 [META-001]: work-item/meta/META-001.md
 [META-002]: work-item/done/META-002.md
 [META-003]: work-item/done/META-003.md
@@ -600,6 +673,7 @@ to exchange CRDT changes and reconcile concurrent edits to the same fields.
 [REFACTOR-074]: work-item/done/REFACTOR-074.md
 [REFACTOR-075]: work-item/done/REFACTOR-075.md
 [REFACTOR-104]: work-item/done/REFACTOR-104.md
+[REFACTOR-112]: work-item/low/REFACTOR-112.md
 [UI-085]: work-item/done/UI-085.md
 [UI-087]: work-item/done/UI-087.md
 [UI-088]: work-item/done/UI-088.md

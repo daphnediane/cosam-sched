@@ -113,6 +113,7 @@ try {
         $testHtml = Join-Path $yearDir "test.html"
         $styleEmbed = Join-Path $yearDir "style-embed.html"
         $stylePage = Join-Path $yearDir "style-page.html"
+        $layoutDir = Join-Path $yearDir "layout"
 
         try {
             & $ConvertBin `
@@ -128,19 +129,19 @@ try {
                 --style-page `
                 --export-embed $styleEmbed `
                 --export-test $stylePage `
-                --export-layout $yearDir
+                --export-layout $layoutDir
 
             if ($LASTEXITCODE -eq 0) {
-                $built += $copy, $dest, $embed, $testHtml, $styleEmbed, $stylePage
+                $built += $copy, $dest, $privateDest, $embed, $testHtml, $styleEmbed, $stylePage, $layoutDir
                 Write-Host "    Built all files for ${year}"
             }
             else {
-                $failed += $copy, $dest, $embed, $testHtml, $styleEmbed, $stylePage
+                $failed += $copy, $dest, $privateDest, $embed, $testHtml, $styleEmbed, $stylePage, $layoutDir
                 Write-Warn "Failed to build files for ${year} (exit $LASTEXITCODE)"
             }
         }
         catch {
-            $failed += $copy, $dest, $embed, $testHtml, $styleEmbed, $stylePage
+            $failed += $copy, $dest, $privateDest, $embed, $testHtml, $styleEmbed, $stylePage, $layoutDir
             Write-Warn "Failed to build files for ${year}: $($_.Exception.Message)"
         }
 

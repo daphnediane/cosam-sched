@@ -81,6 +81,7 @@ for year in $(seq 2016 "$(date +%Y)"); do
     test_html="$year_dir/test.html"
     style_embed="$year_dir/style-embed.html"
     style_page="$year_dir/style-page.html"
+    layout_dir="$year_dir/layout"
 
     echo "  Building ${year} files..."
 
@@ -97,10 +98,10 @@ for year in $(seq 2016 "$(date +%Y)"); do
         --style-page \
         --export-embed "$style_embed" \
         --export-test "$style_page" \
-        --export-layout "$year_dir"; then
-        built+=("$copy" "$dest" "$private_dest" "$embed" "$test_html" "$style_embed" "$style_page")
+        --export-layout "$layout_dir"; then
+        built+=("$copy" "$dest" "$private_dest" "$embed" "$test_html" "$style_embed" "$style_page" "$layout_dir")
     else
-        failed+=("$copy" "$dest" "$private_dest" "$embed" "$test_html" "$style_embed" "$style_page")
+        failed+=("$copy" "$dest" "$private_dest" "$embed" "$test_html" "$style_embed" "$style_page" "$layout_dir")
     fi
 done
 
