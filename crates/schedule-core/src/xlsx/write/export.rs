@@ -127,17 +127,17 @@ pub(super) fn export_xlsx(schedule: &Schedule, path: &Path) -> Result<()> {
         add_table(ws, "Schedule", &all_headers, last_row);
     }
 
-    // ── Hotels sheet ───────────────────────────────────────────────────────────
+    // ── Timeline sheet ────────────────────────────────────────────────────────
     {
         let ws = book
-            .new_sheet("Hotels")
-            .map_err(|e| anyhow::anyhow!("Cannot create Hotels sheet: {e}"))?;
-        let last_row = write_hotel_rooms_sheet(ws, schedule, &hotel_room_extra_keys);
-        let mut headers: Vec<&str> = hotel_rooms::ALL.iter().map(|f| f.export).collect();
-        for k in &hotel_room_extra_keys {
+            .new_sheet("Timeline")
+            .map_err(|e| anyhow::anyhow!("Cannot create Timeline sheet: {e}"))?;
+        let last_row = write_timeline_sheet(ws, schedule, &timeline_extra_keys);
+        let mut headers: Vec<&str> = tl_cols::ALL.iter().map(|f| f.export).collect();
+        for k in &timeline_extra_keys {
             headers.push(k.as_str());
         }
-        add_table(ws, "HotelRooms", &headers, last_row);
+        add_table(ws, "Timeline", &headers, last_row);
     }
 
     // ── Rooms sheet ───────────────────────────────────────────────────────────
@@ -153,17 +153,17 @@ pub(super) fn export_xlsx(schedule: &Schedule, path: &Path) -> Result<()> {
         add_table(ws, "RoomMap", &headers, last_row);
     }
 
-    // ── People sheet ──────────────────────────────────────────────────────────
+    // ── Hotel sheet ───────────────────────────────────────────────────────────
     {
         let ws = book
-            .new_sheet("People")
-            .map_err(|e| anyhow::anyhow!("Cannot create People sheet: {e}"))?;
-        let last_row = write_people_sheet(ws, schedule, &presenter_extra_keys);
-        let mut headers: Vec<&str> = people::ALL.iter().map(|f| f.export).collect();
-        for k in &presenter_extra_keys {
+            .new_sheet("Hotel")
+            .map_err(|e| anyhow::anyhow!("Cannot create Hotel sheet: {e}"))?;
+        let last_row = write_hotel_rooms_sheet(ws, schedule, &hotel_room_extra_keys);
+        let mut headers: Vec<&str> = hotel_rooms::ALL.iter().map(|f| f.export).collect();
+        for k in &hotel_room_extra_keys {
             headers.push(k.as_str());
         }
-        add_table(ws, "Presenters", &headers, last_row);
+        add_table(ws, "HotelMap", &headers, last_row);
     }
 
     // ── PanelTypes sheet ──────────────────────────────────────────────────────
@@ -179,17 +179,17 @@ pub(super) fn export_xlsx(schedule: &Schedule, path: &Path) -> Result<()> {
         add_table(ws, "Prefix", &headers, last_row);
     }
 
-    // ── Timeline sheet ────────────────────────────────────────────────────────
+    // ── People sheet ──────────────────────────────────────────────────────────
     {
         let ws = book
-            .new_sheet("Timeline")
-            .map_err(|e| anyhow::anyhow!("Cannot create Timeline sheet: {e}"))?;
-        let last_row = write_timeline_sheet(ws, schedule, &timeline_extra_keys);
-        let mut headers: Vec<&str> = tl_cols::ALL.iter().map(|f| f.export).collect();
-        for k in &timeline_extra_keys {
+            .new_sheet("People")
+            .map_err(|e| anyhow::anyhow!("Cannot create People sheet: {e}"))?;
+        let last_row = write_people_sheet(ws, schedule, &presenter_extra_keys);
+        let mut headers: Vec<&str> = people::ALL.iter().map(|f| f.export).collect();
+        for k in &presenter_extra_keys {
             headers.push(k.as_str());
         }
-        add_table(ws, "Timeline", &headers, last_row);
+        add_table(ws, "Presenters", &headers, last_row);
     }
 
     // ── Grid reference sheets (one per logical day) ─────────────────────────

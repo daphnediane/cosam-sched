@@ -30,13 +30,13 @@ use crate::xlsx::columns::schedule as sc;
 use super::{
     build_column_map, find_data_range, get_cell_number, get_cell_str, is_truthy,
     known_field_key_set, parse_presenter_header, route_extra_columns, row_to_map, PresenterColumn,
-    PresenterHeader,
+    PresenterHeader, TableImportMode,
 };
 
 /// Read the Schedule sheet and create Panel entities with all relationships.
 pub(super) fn read_schedule_into(
     book: &Spreadsheet,
-    preferred: &str,
+    mode: &TableImportMode,
     schedule: &mut Schedule,
     room_lookup: &HashMap<String, EventRoomId>,
     panel_type_lookup: &HashMap<String, PanelTypeId>,
@@ -49,7 +49,7 @@ pub(super) fn read_schedule_into(
         .map(|s| s.get_name().to_string());
     let first_ref = first_sheet_name.as_deref().unwrap_or("");
 
-    let range = match find_data_range(book, preferred, &["Schedule", first_ref]) {
+    let range = match find_data_range(book, mode, &["Schedule", first_ref]) {
         Some(r) => {
             // If actual data extends beyond the named table, expand the range.
             let ws = book.get_sheet_by_name(&r.sheet_name).unwrap();

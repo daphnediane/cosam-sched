@@ -25,7 +25,7 @@ use crate::xlsx::columns::timeline as tl_cols;
 
 use super::{
     build_column_map, find_data_range, get_cell_str, get_field_def, known_field_key_set,
-    route_extra_columns, row_to_map,
+    route_extra_columns, row_to_map, TableImportMode,
 };
 
 /// Read the Timeline sheet and create Timeline entities.
@@ -34,13 +34,13 @@ use super::{
 /// are properly resolved.
 pub(super) fn read_timeline_into(
     book: &Spreadsheet,
-    preferred: &str,
+    mode: &TableImportMode,
     schedule: &mut Schedule,
     panel_type_lookup: &HashMap<String, PanelTypeId>,
     file_path: Option<&str>,
     import_time: DateTime<Utc>,
 ) -> Result<()> {
-    let range = match find_data_range(book, preferred, &["Timeline"]) {
+    let range = match find_data_range(book, mode, &["Timeline", "KeyTimes"]) {
         Some(r) => r,
         None => return Ok(()),
     };

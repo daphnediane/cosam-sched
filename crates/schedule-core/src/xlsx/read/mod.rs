@@ -34,34 +34,54 @@ pub(crate) use headers::{parse_presenter_header, PresenterColumn, PresenterHeade
 
 // ── Import options ────────────────────────────────────────────────────────────
 
+/// Mode for processing a sheet/table during import or export.
+#[derive(Debug, Clone, PartialEq, Default)]
+pub enum TableImportMode {
+    /// Process using the default sheet/table name.
+    #[default]
+    Process,
+    /// Process using a custom sheet/table name.
+    ReadFrom(String),
+    /// Skip processing this sheet/table.
+    Skip,
+}
+
+impl TableImportMode {
+    /// Get the effective name to use, or None if skipped.
+    pub fn effective_name(&self, default: &str) -> Option<String> {
+        match self {
+            TableImportMode::Process => Some(default.to_string()),
+            TableImportMode::ReadFrom(name) => Some(name.clone()),
+            TableImportMode::Skip => None,
+        }
+    }
+}
+
 /// Options controlling which sheets are read during XLSX import.
 pub struct XlsxImportOptions {
-    /// Preferred sheet/table name for panel data (default: `"Schedule"`).
-    pub schedule_table: String,
-    /// Preferred sheet/table name for rooms (default: `"Rooms"`).
-    pub rooms_table: String,
-    /// Preferred sheet/table name for panel types (default: `"PanelTypes"`).
-    pub panel_types_table: String,
-    /// Preferred sheet/table name for the People/Presenters sheet (default: `"People"`).
-    /// Set to an empty string to skip People sheet processing.
-    pub people_table: String,
-    /// Preferred sheet/table name for hotel rooms (default: `"Hotels"`).
-    /// Set to an empty string to skip Hotels sheet processing.
-    pub hotel_rooms_table: String,
-    /// Preferred sheet/table name for timelines (default: `"Timeline"`).
-    /// Set to an empty string to skip Timeline sheet processing.
-    pub timeline_table: String,
+    /// Sheet/table mode for panel data (default: Process with name `"Schedule"`).
+    pub schedule_table: TableImportMode,
+    /// Sheet/table mode for rooms (default: Process with name `"Rooms"`).
+    pub rooms_table: TableImportMode,
+    /// Sheet/table mode for panel types (default: Process with name `"PanelTypes"`).
+    pub panel_types_table: TableImportMode,
+    /// Sheet/table mode for the People/Presenters sheet (default: Process with name `"People"`).
+    pub people_table: TableImportMode,
+    /// Sheet/table mode for hotel rooms (default: Process with name `"Hotel"`).
+    pub hotel_rooms_table: TableImportMode,
+    /// Sheet/table mode for timelines (default: Process with name `"Timeline"`).
+    pub timeline_table: TableImportMode,
 }
 
 impl Default for XlsxImportOptions {
     fn default() -> Self {
         Self {
-            schedule_table: "Schedule".to_string(),
-            rooms_table: "Rooms".to_string(),
-            panel_types_table: "PanelTypes".to_string(),
-            people_table: "People".to_string(),
-            hotel_rooms_table: "Hotels".to_string(),
-            timeline_table: "Timeline".to_string(),
+            schedule_table: TableImportMode::default(),
+            rooms_table: TableImportMode::default(),
+            panel_types_table: TableImportMode::default(),
+            people_table: TableImportMode::default(),
+            hotel_rooms_table: TableImportMode::default(),
+            timeline_table: TableImportMode::default(),
         }
     }
 }
@@ -103,17 +123,13 @@ pub fn import_xlsx(path: &Path, options: &XlsxImportOptions) -> Result<Schedule>
     )?;
 
     // Read Hotels sheet first (optional) to populate HotelRoom entities.
-    let hotel_lookup = if !options.hotel_rooms_table.is_empty() {
-        hotel_rooms::read_hotel_rooms_into(
-            &book,
-            &options.hotel_rooms_table,
-            &mut schedule,
-            file_path.as_deref(),
-            import_time,
-        )?
-    } else {
-        std::collections::HashMap::new()
-    };
+    let hotel_lookup = hotel_rooms::read_hotel_rooms_into(
+        &book,
+        &options.hotel_rooms_table,
+        &mut schedule,
+        file_path.as_deref(),
+        import_time,
+    )?;
 
     let room_lookup = rooms::read_rooms_into(
         &book,
@@ -124,27 +140,23 @@ pub fn import_xlsx(path: &Path, options: &XlsxImportOptions) -> Result<Schedule>
         &hotel_lookup,
     )?;
 
-    if !options.people_table.is_empty() {
-        people::read_people_into(
-            &book,
-            &options.people_table,
-            &mut schedule,
-            file_path.as_deref(),
-            import_time,
-        )?;
-    }
+    people::read_people_into(
+        &book,
+        &options.people_table,
+        &mut schedule,
+        file_path.as_deref(),
+        import_time,
+    )?;
 
     // Read Timeline sheet (optional) to create Timeline entities separately.
-    if !options.timeline_table.is_empty() {
-        timeline::read_timeline_into(
-            &book,
-            &options.timeline_table,
-            &mut schedule,
-            &panel_type_lookup,
-            file_path.as_deref(),
-            import_time,
-        )?;
-    }
+    timeline::read_timeline_into(
+        &book,
+        &options.timeline_table,
+        &mut schedule,
+        &panel_type_lookup,
+        file_path.as_deref(),
+        import_time,
+    )?;
 
     schedule::read_schedule_into(
         &book,
@@ -255,58 +267,110 @@ impl DataRange {
     }
 }
 
-/// Find a named table or sheet by name.
+/// Find a named table by name (case-insensitive).
 ///
-/// Search order:
-/// 1. Named table matching `primary_name` (case-insensitive) on any sheet.
-/// 2. Sheet whose name matches `primary_name` (case-insensitive).
-/// 3. Sheets matching each entry in `fallback_sheet_names` in order.
-pub(super) fn find_data_range(
-    book: &Spreadsheet,
-    primary_name: &str,
-    fallback_sheet_names: &[&str],
-) -> Option<DataRange> {
-    let primary_lower = primary_name.to_lowercase();
+/// Returns the table data range if exactly one table matches, otherwise returns None.
+fn find_table(book: &Spreadsheet, names: &[&str]) -> Option<DataRange> {
+    let mut matches = Vec::new();
 
     for sheet in book.get_sheet_collection() {
         for table in sheet.get_tables() {
-            if table.get_name().to_lowercase() == primary_lower {
-                let (start, end) = table.get_area();
-                return Some(DataRange {
-                    sheet_name: sheet.get_name().to_string(),
-                    start_col: *start.get_col_num(),
-                    header_row: *start.get_row_num(),
-                    end_col: *end.get_col_num(),
-                    end_row: *end.get_row_num(),
-                });
+            let table_lower = table.get_name().to_lowercase();
+            for name in names {
+                if table_lower == name.to_lowercase() {
+                    let (start, end) = table.get_area();
+                    matches.push(DataRange {
+                        sheet_name: sheet.get_name().to_string(),
+                        start_col: *start.get_col_num(),
+                        header_row: *start.get_row_num(),
+                        end_col: *end.get_col_num(),
+                        end_row: *end.get_row_num(),
+                    });
+                    break;
+                }
             }
         }
     }
 
-    let mut all_names: Vec<&str> = vec![primary_name];
-    all_names.extend_from_slice(fallback_sheet_names);
-    for name in all_names {
-        let lower = name.to_lowercase();
-        if let Some(sheet) = book
-            .get_sheet_collection()
-            .iter()
-            .find(|s| s.get_name().to_lowercase() == lower)
-        {
-            let end_col = sheet.get_highest_column();
-            let end_row = sheet.get_highest_row();
-            if end_row >= 2 && end_col >= 1 {
-                return Some(DataRange {
-                    sheet_name: sheet.get_name().to_string(),
-                    start_col: 1,
-                    header_row: 1,
-                    end_col,
-                    end_row,
-                });
+    if matches.len() == 1 {
+        matches.into_iter().next()
+    } else {
+        None
+    }
+}
+
+/// Find a named sheet by name (case-insensitive).
+///
+/// Returns the sheet data range if exactly one sheet matches, otherwise returns None.
+fn find_sheet(book: &Spreadsheet, names: &[&str]) -> Option<DataRange> {
+    let mut matches = Vec::new();
+
+    for sheet in book.get_sheet_collection() {
+        let sheet_lower = sheet.get_name().to_lowercase();
+        for name in names {
+            if sheet_lower == name.to_lowercase() {
+                let end_col = sheet.get_highest_column();
+                let end_row = sheet.get_highest_row();
+                if end_row >= 2 && end_col >= 1 {
+                    matches.push(DataRange {
+                        sheet_name: sheet.get_name().to_string(),
+                        start_col: 1,
+                        header_row: 1,
+                        end_col,
+                        end_row,
+                    });
+                    break;
+                }
             }
         }
     }
 
-    None
+    if matches.len() == 1 {
+        matches.into_iter().next()
+    } else {
+        None
+    }
+}
+
+/// Find a named table or sheet by name.
+///
+/// Search order:
+/// 1. If `TableImportMode::ReadFrom(name)`:
+///    a. Check tables for that name
+///    b. If not found, check sheets for that name
+/// 2. If still not found, check tables for fallback_table_names (error if multiple matches)
+/// 3. If still not found, check sheets for fallback_table_names (error if multiple matches)
+/// 4. If `TableImportMode::Skip`, return None immediately
+pub(super) fn find_data_range(
+    book: &Spreadsheet,
+    primary_mode: &TableImportMode,
+    fallback_table_names: &[&str],
+) -> Option<DataRange> {
+    match primary_mode {
+        TableImportMode::Skip => return None,
+        TableImportMode::ReadFrom(name) => {
+            // Check tables for the specific name first
+            if let Some(range) = find_table(book, &[name]) {
+                return Some(range);
+            }
+            // If not found, check sheets for the specific name
+            if let Some(range) = find_sheet(book, &[name]) {
+                return Some(range);
+            }
+            // If still not found, fall through to fallback names
+        }
+        TableImportMode::Process => {
+            // No specific name provided, skip to fallback names
+        }
+    }
+
+    // Check tables for fallback names
+    if let Some(range) = find_table(book, fallback_table_names) {
+        return Some(range);
+    }
+
+    // Check sheets for fallback names
+    find_sheet(book, fallback_table_names)
 }
 
 /// Return the trimmed string value of a cell, or `None` if empty.

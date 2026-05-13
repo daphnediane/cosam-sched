@@ -4,7 +4,7 @@
  * See LICENSE file for full license text
  */
 
-//! Reads the Hotels sheet → [`HotelRoomEntityType`] entities.
+//! Reads the Hotel/Hotel Rooms/HotelMap sheet → [`HotelRoomEntityType`] entities.
 
 use std::collections::HashMap;
 
@@ -22,23 +22,23 @@ use crate::xlsx::columns::hotel_rooms;
 
 use super::{
     build_column_map, find_data_range, get_field_def, known_field_key_set, route_extra_columns,
-    row_to_map,
+    row_to_map, TableImportMode,
 };
 
-/// Read the Hotels sheet and populate the schedule with HotelRoom entities.
+/// Read the Hotel/Hotel Rooms/HotelMap sheet and populate the schedule with HotelRoom entities.
 ///
 /// Returns a map from lowercase hotel room name → `HotelRoomId` for use when
 /// reading the Rooms sheet (to link event rooms to hotel rooms).
 pub(super) fn read_hotel_rooms_into(
     book: &Spreadsheet,
-    preferred: &str,
+    mode: &TableImportMode,
     schedule: &mut Schedule,
     file_path: Option<&str>,
     import_time: DateTime<Utc>,
 ) -> Result<HashMap<String, HotelRoomId>> {
     let mut hotel_lookup: HashMap<String, HotelRoomId> = HashMap::new();
 
-    let range = match find_data_range(book, preferred, &["Hotels", "Hotel Rooms"]) {
+    let range = match find_data_range(book, mode, &["Hotel", "Hotel Rooms", "HotelMap"]) {
         Some(r) => r,
         None => return Ok(hotel_lookup),
     };

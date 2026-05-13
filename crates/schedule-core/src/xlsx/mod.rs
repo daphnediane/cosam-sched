@@ -30,7 +30,7 @@ use anyhow::Result;
 use crate::schedule::Schedule;
 
 pub use columns::FieldDef;
-pub use read::{canonical_header, import_xlsx, XlsxImportOptions};
+pub use read::{canonical_header, import_xlsx, TableImportMode, XlsxImportOptions};
 
 /// Export a schedule to an XLSX file.
 ///

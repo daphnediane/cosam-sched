@@ -32,7 +32,7 @@ use crate::xlsx::columns::people as pc;
 
 use super::{
     build_column_map, find_data_range, get_field_def, is_truthy, known_field_key_set,
-    route_extra_columns, row_to_map,
+    route_extra_columns, row_to_map, TableImportMode,
 };
 
 /// Read the People sheet and populate the schedule with Presenter entities.
@@ -44,16 +44,13 @@ use super::{
 /// a higher-priority rank.
 pub(super) fn read_people_into(
     book: &Spreadsheet,
-    preferred: &str,
+    mode: &TableImportMode,
     schedule: &mut Schedule,
     file_path: Option<&str>,
     import_time: DateTime<Utc>,
 ) -> Result<()> {
-    let range = match find_data_range(
-        book,
-        preferred,
-        &["Presenters", "Presenter", "People", "Person"],
-    ) {
+    let range = match find_data_range(book, mode, &["Presenters", "Presenter", "People", "Person"])
+    {
         Some(r) => r,
         None => return Ok(()),
     };

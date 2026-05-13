@@ -22,7 +22,7 @@ use crate::xlsx::columns::panel_types as pt;
 
 use super::{
     build_column_map, find_data_range, get_field_def, is_truthy, known_field_key_set,
-    route_extra_columns, row_to_map,
+    route_extra_columns, row_to_map, TableImportMode,
 };
 
 /// Read the PanelTypes sheet and populate the schedule with PanelType entities.
@@ -31,25 +31,25 @@ use super::{
 /// reading the Schedule sheet.
 pub(super) fn read_panel_types_into(
     book: &Spreadsheet,
-    preferred: &str,
+    mode: &TableImportMode,
     schedule: &mut Schedule,
     file_path: Option<&str>,
     import_time: DateTime<Utc>,
 ) -> Result<HashMap<String, PanelTypeId>> {
-    let mut lookup: HashMap<String, PanelTypeId> = HashMap::new();
+    let mut panel_type_lookup: HashMap<String, PanelTypeId> = HashMap::new();
 
-    let range = match find_data_range(book, preferred, &["Prefix", "PanelTypes"]) {
+    let range = match find_data_range(book, mode, &["Prefix", "PanelTypes"]) {
         Some(r) => r,
-        None => return Ok(lookup),
+        None => return Ok(panel_type_lookup),
     };
 
     let ws = match book.get_sheet_by_name(&range.sheet_name) {
         Some(ws) => ws,
-        None => return Ok(lookup),
+        None => return Ok(panel_type_lookup),
     };
 
     if !range.has_data() {
-        return Ok(lookup);
+        return Ok(panel_type_lookup);
     }
 
     let (raw_headers, canonical_headers, _col_map) = build_column_map(ws, &range);
@@ -160,7 +160,7 @@ pub(super) fn read_panel_types_into(
                     PanelTypeEntityType::TYPE_NAME,
                     schedule,
                 );
-                lookup.insert(prefix, id);
+                panel_type_lookup.insert(prefix, id);
             }
             Err(e) => {
                 eprintln!("xlsx import: skipping panel type {prefix:?}: {e}");
@@ -168,5 +168,5 @@ pub(super) fn read_panel_types_into(
         }
     }
 
-    Ok(lookup)
+    Ok(panel_type_lookup)
 }

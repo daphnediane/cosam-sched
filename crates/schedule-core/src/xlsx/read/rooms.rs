@@ -23,7 +23,7 @@ use crate::xlsx::columns::room_map;
 
 use super::{
     build_column_map, find_data_range, get_field_def, known_field_key_set, route_extra_columns,
-    row_to_map,
+    row_to_map, TableImportMode,
 };
 
 /// Read the Rooms sheet and populate the schedule with EventRoom and HotelRoom entities.
@@ -36,7 +36,7 @@ use super::{
 /// be created for hotel room names not found in `hotel_lookup`.
 pub(super) fn read_rooms_into(
     book: &Spreadsheet,
-    preferred: &str,
+    mode: &TableImportMode,
     schedule: &mut Schedule,
     file_path: Option<&str>,
     import_time: DateTime<Utc>,
@@ -46,7 +46,7 @@ pub(super) fn read_rooms_into(
     // Clone the hotel_lookup so we can add new hotel rooms found in the Rooms sheet.
     let mut hotel_lookup: HashMap<String, hotel_room::HotelRoomId> = hotel_lookup.clone();
 
-    let range = match find_data_range(book, preferred, &["RoomMap", "Rooms"]) {
+    let range = match find_data_range(book, mode, &["RoomMap", "Rooms", "EventRooms"]) {
         Some(r) => r,
         None => return Ok(room_lookup),
     };

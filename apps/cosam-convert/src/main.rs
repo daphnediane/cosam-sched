@@ -13,7 +13,7 @@ use schedule_core::tables::event_room::EventRoomEntityType;
 use schedule_core::tables::panel::PanelEntityType;
 use schedule_core::tables::panel_type::PanelTypeEntityType;
 use schedule_core::tables::presenter::PresenterEntityType;
-use schedule_core::xlsx::{export_xlsx, import_xlsx, XlsxImportOptions};
+use schedule_core::xlsx::{export_xlsx, import_xlsx, TableImportMode, XlsxImportOptions};
 
 mod conflicts;
 mod embed;
@@ -70,17 +70,27 @@ enum OutputType {
 
 // ── CLI args ──────────────────────────────────────────────────────────────────
 
+#[derive(Default)]
 struct CliArgs {
     input: PathBuf,
     output_jobs: Vec<OutputJob>,
     check_only: bool,
-    schedule_table: String,
-    roommap_table: String,
-    prefix_table: String,
-    presenter_table: String,
+    xlsx_options: XlsxImportOptions,
 }
 
 // ── Argument parsing ──────────────────────────────────────────────────────────
+
+fn parse_table_mode(arg: &str) -> Result<TableImportMode> {
+    if arg.is_empty() {
+        anyhow::bail!("Sheet mode argument cannot be empty");
+    }
+    let arg_lower = arg.to_lowercase();
+    match arg_lower.as_str() {
+        "default" => Ok(TableImportMode::Process),
+        "ignore" | "skip" => Ok(TableImportMode::Skip),
+        _ => Ok(TableImportMode::ReadFrom(arg.to_string())),
+    }
+}
 
 fn check_duplicate_output(output_jobs: &[OutputJob], path: &PathBuf) -> Result<()> {
     if output_jobs.iter().any(|job| job.path == *path) {
@@ -91,14 +101,9 @@ fn check_duplicate_output(output_jobs: &[OutputJob], path: &PathBuf) -> Result<(
 
 fn parse_args() -> Result<CliArgs> {
     let arguments: Vec<String> = std::env::args().collect();
-    let mut input: Option<PathBuf> = None;
-    let mut output_jobs: Vec<OutputJob> = Vec::new();
-    let mut check_only = false;
-    let mut schedule_table = "Schedule".to_string();
-    let mut roommap_table = "RoomMap".to_string();
-    let mut prefix_table = "Prefix".to_string();
-    let mut presenter_table = "Presenters".to_string();
+    let mut args = CliArgs::default();
 
+    let mut input: Option<PathBuf> = None;
     let mut current_settings = OutputSettings::default();
     // Index of the first setting not yet consumed by an output command.
     let mut first_setting_index: Option<usize> = None;
@@ -119,8 +124,8 @@ fn parse_args() -> Result<CliArgs> {
                     anyhow::bail!("Missing value for --output");
                 }
                 let path = PathBuf::from(&arguments[index]);
-                check_duplicate_output(&output_jobs, &path)?;
-                output_jobs.push(OutputJob {
+                check_duplicate_output(&args.output_jobs, &path)?;
+                args.output_jobs.push(OutputJob {
                     path,
                     settings: current_settings.clone(),
                     job_type: OutputType::Output,
@@ -133,8 +138,8 @@ fn parse_args() -> Result<CliArgs> {
                     anyhow::bail!("Missing value for --export");
                 }
                 let path = PathBuf::from(&arguments[index]);
-                check_duplicate_output(&output_jobs, &path)?;
-                output_jobs.push(OutputJob {
+                check_duplicate_output(&args.output_jobs, &path)?;
+                args.output_jobs.push(OutputJob {
                     path,
                     settings: current_settings.clone(),
                     job_type: OutputType::Export,
@@ -147,8 +152,8 @@ fn parse_args() -> Result<CliArgs> {
                     anyhow::bail!("Missing value for --export-embed");
                 }
                 let path = PathBuf::from(&arguments[index]);
-                check_duplicate_output(&output_jobs, &path)?;
-                output_jobs.push(OutputJob {
+                check_duplicate_output(&args.output_jobs, &path)?;
+                args.output_jobs.push(OutputJob {
                     path,
                     settings: current_settings.clone(),
                     job_type: OutputType::ExportEmbed,
@@ -161,8 +166,8 @@ fn parse_args() -> Result<CliArgs> {
                     anyhow::bail!("Missing value for --export-test");
                 }
                 let path = PathBuf::from(&arguments[index]);
-                check_duplicate_output(&output_jobs, &path)?;
-                output_jobs.push(OutputJob {
+                check_duplicate_output(&args.output_jobs, &path)?;
+                args.output_jobs.push(OutputJob {
                     path,
                     settings: current_settings.clone(),
                     job_type: OutputType::ExportTest,
@@ -174,28 +179,42 @@ fn parse_args() -> Result<CliArgs> {
                 if index >= arguments.len() {
                     anyhow::bail!("Missing value for --schedule-table");
                 }
-                schedule_table = arguments[index].clone();
+                args.xlsx_options.schedule_table = parse_table_mode(&arguments[index])?;
             }
             "--roommap-table" => {
                 index += 1;
                 if index >= arguments.len() {
                     anyhow::bail!("Missing value for --roommap-table");
                 }
-                roommap_table = arguments[index].clone();
+                args.xlsx_options.rooms_table = parse_table_mode(&arguments[index])?;
             }
             "--prefix-table" => {
                 index += 1;
                 if index >= arguments.len() {
                     anyhow::bail!("Missing value for --prefix-table");
                 }
-                prefix_table = arguments[index].clone();
+                args.xlsx_options.panel_types_table = parse_table_mode(&arguments[index])?;
             }
             "--presenter-table" => {
                 index += 1;
                 if index >= arguments.len() {
                     anyhow::bail!("Missing value for --presenter-table");
                 }
-                presenter_table = arguments[index].clone();
+                args.xlsx_options.people_table = parse_table_mode(&arguments[index])?;
+            }
+            "--hotel-table" => {
+                index += 1;
+                if index >= arguments.len() {
+                    anyhow::bail!("Missing value for --hotel-table");
+                }
+                args.xlsx_options.hotel_rooms_table = parse_table_mode(&arguments[index])?;
+            }
+            "--timeline-table" => {
+                index += 1;
+                if index >= arguments.len() {
+                    anyhow::bail!("Missing value for --timeline-table");
+                }
+                args.xlsx_options.timeline_table = parse_table_mode(&arguments[index])?;
             }
             #[cfg(feature = "layout")]
             "--export-layout" => {
@@ -204,8 +223,8 @@ fn parse_args() -> Result<CliArgs> {
                     anyhow::bail!("Missing value for --export-layout");
                 }
                 let path = PathBuf::from(&arguments[index]);
-                check_duplicate_output(&output_jobs, &path)?;
-                output_jobs.push(OutputJob {
+                check_duplicate_output(&args.output_jobs, &path)?;
+                args.output_jobs.push(OutputJob {
                     path,
                     settings: current_settings.clone(),
                     job_type: OutputType::ExportLayout,
@@ -224,7 +243,7 @@ fn parse_args() -> Result<CliArgs> {
                 current_settings.brand_config = Some(PathBuf::from(&arguments[index]));
             }
             "--check" | "--validate" => {
-                check_only = true;
+                args.check_only = true;
             }
             "--builtin-css" => {
                 if first_setting_index.is_none() {
@@ -382,6 +401,7 @@ fn parse_args() -> Result<CliArgs> {
     let Some(input) = input else {
         anyhow::bail!("--input is required");
     };
+    args.input = input;
 
     if let Some(unused_index) = first_setting_index {
         anyhow::bail!(
@@ -391,22 +411,14 @@ fn parse_args() -> Result<CliArgs> {
         );
     }
 
-    if output_jobs.is_empty() && !check_only {
+    if args.output_jobs.is_empty() && !args.check_only {
         anyhow::bail!(
             "At least one output option is required \
              (--output, --export, --export-embed, --export-test) unless --check is specified"
         );
     }
 
-    Ok(CliArgs {
-        input,
-        output_jobs,
-        check_only,
-        schedule_table,
-        roommap_table,
-        prefix_table,
-        presenter_table,
-    })
+    Ok(args)
 }
 
 fn print_usage() {
@@ -427,10 +439,12 @@ fn print_usage() {
          \x20 --check, --validate                  Report conflicts; exit non-zero if any found\n\
          \n\
          Table names (for XLSX import):\n\
-         \x20 --schedule-table <name>              Schedule sheet name (default: Schedule)\n\
-         \x20 --roommap-table <name>               Room map sheet name (default: RoomMap)\n\
-         \x20 --prefix-table <name>                Panel types sheet name (default: Prefix)\n\
-         \x20 --presenter-table <name>             Presenters sheet name (default: Presenters)\n\
+         \x20 --schedule-table <mode|name>          Schedule table: 'default', 'skip', or custom name\n\
+         \x20 --roommap-table <mode|name>           Room map table: 'default', 'skip', or custom name\n\
+         \x20 --prefix-table <mode|name>            Panel types table: 'default', 'skip', or custom name\n\
+         \x20 --presenter-table <mode|name>         Presenters table: 'default', 'skip', or custom name\n\
+         \x20 --hotel-table <mode|name>             Hotel table: 'default', 'skip', or custom name\n\
+         \x20 --timeline-table <mode|name>          Timeline table: 'default', 'skip', or custom name\n\
          \n\
          Output settings (apply to all subsequent output commands until overridden):\n\
          \x20 --title <string>                     Event title for widget JSON and test pages\n\
@@ -466,17 +480,6 @@ fn print_usage() {
 }
 
 // ── Schedule loading ──────────────────────────────────────────────────────────
-
-fn build_import_options(cli: &CliArgs) -> XlsxImportOptions {
-    XlsxImportOptions {
-        schedule_table: cli.schedule_table.clone(),
-        rooms_table: cli.roommap_table.clone(),
-        panel_types_table: cli.prefix_table.clone(),
-        people_table: cli.presenter_table.clone(),
-        hotel_rooms_table: "Hotels".to_string(),
-        timeline_table: "Timeline".to_string(),
-    }
-}
 
 fn load_schedule(path: &Path, options: &XlsxImportOptions) -> Result<Schedule> {
     let ext = path
@@ -564,10 +567,9 @@ fn main() {
         }
     };
 
-    let options = build_import_options(&cli);
     eprintln!("Reading: {}", cli.input.display());
 
-    let mut schedule = match load_schedule(&cli.input, &options) {
+    let mut schedule = match load_schedule(&cli.input, &cli.xlsx_options) {
         Ok(s) => s,
         Err(err) => {
             eprintln!("Error: {err}");
