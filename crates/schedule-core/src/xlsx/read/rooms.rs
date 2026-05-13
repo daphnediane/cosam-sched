@@ -30,15 +30,21 @@ use super::{
 ///
 /// Returns a map from lowercase room name → `EventRoomId` for use when reading
 /// the Schedule sheet.
+///
+/// The `hotel_lookup` parameter contains hotel rooms already created from the Hotels sheet.
+/// Event rooms will be linked to these existing hotel rooms, and new hotel rooms will only
+/// be created for hotel room names not found in `hotel_lookup`.
 pub(super) fn read_rooms_into(
     book: &Spreadsheet,
     preferred: &str,
     schedule: &mut Schedule,
     file_path: Option<&str>,
     import_time: DateTime<Utc>,
+    hotel_lookup: &HashMap<String, hotel_room::HotelRoomId>,
 ) -> Result<HashMap<String, EventRoomId>> {
     let mut room_lookup: HashMap<String, EventRoomId> = HashMap::new();
-    let mut hotel_lookup: HashMap<String, hotel_room::HotelRoomId> = HashMap::new();
+    // Clone the hotel_lookup so we can add new hotel rooms found in the Rooms sheet.
+    let mut hotel_lookup: HashMap<String, hotel_room::HotelRoomId> = hotel_lookup.clone();
 
     let range = match find_data_range(book, preferred, &["RoomMap", "Rooms"]) {
         Some(r) => r,

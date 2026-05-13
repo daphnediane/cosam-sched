@@ -417,6 +417,80 @@ pub mod panel_types {
     ];
 }
 
+// ─── Hotel rooms table ───────────────────────────────────────────────────────
+
+/// Column definitions for the **Hotels** / **Hotel Rooms** sheet.
+pub mod hotel_rooms {
+    use super::FieldDef;
+
+    pub const HOTEL_ROOM_NAME: FieldDef = FieldDef {
+        export: "Hotel Room",
+        canonical: "Hotel_Room",
+        aliases: &["HotelRoom", "Name", "Room"],
+    };
+
+    pub const SORT_KEY: FieldDef = FieldDef {
+        export: "Sort Key",
+        canonical: "Sort_Key",
+        aliases: &["SortKey", "Sort", "Order"],
+    };
+
+    pub const LONG_NAME: FieldDef = FieldDef {
+        export: "Long Name",
+        canonical: "Long_Name",
+        aliases: &["LongName", "Full_Name", "FullName"],
+    };
+
+    /// All column definitions in export order.
+    pub const ALL: &[FieldDef] = &[HOTEL_ROOM_NAME, SORT_KEY, LONG_NAME];
+}
+
+// ─── Timeline table ──────────────────────────────────────────────────────────
+
+/// Column definitions for the **Timeline** sheet.
+pub mod timeline {
+    use super::FieldDef;
+
+    pub const UNIQ_ID: FieldDef = FieldDef {
+        export: "Uniq ID",
+        canonical: "Uniq_ID",
+        aliases: &["UniqID", "ID", "Id", "Code"],
+    };
+
+    pub const NAME: FieldDef = FieldDef {
+        export: "Name",
+        canonical: "Name",
+        aliases: &["Title", "Event"],
+    };
+
+    pub const DESCRIPTION: FieldDef = FieldDef {
+        export: "Description",
+        canonical: "Description",
+        aliases: &["Desc"],
+    };
+
+    pub const NOTE: FieldDef = FieldDef {
+        export: "Note",
+        canonical: "Note",
+        aliases: &["Notes"],
+    };
+
+    pub const TIME: FieldDef = FieldDef {
+        export: "Time",
+        canonical: "Time",
+        aliases: &["Start_Time", "StartTime", "Start"],
+    };
+
+    pub const PANEL_TYPES: FieldDef = FieldDef {
+        export: "Panel Types",
+        canonical: "Panel_Types",
+        aliases: &["PanelTypes", "Kind", "Type", "Prefix"],
+    };
+
+    /// All column definitions in export order.
+    pub const ALL: &[FieldDef] = &[UNIQ_ID, NAME, DESCRIPTION, NOTE, TIME, PANEL_TYPES];
+}
+
 // ─── People / Presenters table ───────────────────────────────────────────────
 
 /// Column definitions for the **People** / **Presenters** sheet.

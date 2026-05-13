@@ -25,7 +25,10 @@ use crate::tables::presenter::{
     PresenterEntityType, PresenterId, PresenterInternalData, EDGE_GROUPS,
 };
 use crate::tables::timeline::{TimelineEntityType, TimelineInternalData};
-use crate::xlsx::columns::{panel_types, people, room_map, schedule as sched_cols, FieldDef};
+use crate::xlsx::columns::{
+    hotel_rooms, panel_types, people, room_map, schedule as sched_cols, timeline as tl_cols,
+    FieldDef,
+};
 
 use super::common::{add_table, set_headers, set_opt, set_str};
 
@@ -98,6 +101,8 @@ pub(super) fn export_xlsx(schedule: &Schedule, path: &Path) -> Result<()> {
     let room_extra_keys = collect_extra_keys::<EventRoomEntityType>(schedule);
     let presenter_extra_keys = collect_extra_keys::<PresenterEntityType>(schedule);
     let panel_type_extra_keys = collect_extra_keys::<PanelTypeEntityType>(schedule);
+    let hotel_room_extra_keys = collect_extra_keys::<HotelRoomEntityType>(schedule);
+    let timeline_extra_keys = collect_extra_keys::<TimelineEntityType>(schedule);
 
     // ── Schedule sheet ────────────────────────────────────────────────────────
     {
@@ -120,6 +125,19 @@ pub(super) fn export_xlsx(schedule: &Schedule, path: &Path) -> Result<()> {
         }
 
         add_table(ws, "Schedule", &all_headers, last_row);
+    }
+
+    // ── Hotels sheet ───────────────────────────────────────────────────────────
+    {
+        let ws = book
+            .new_sheet("Hotels")
+            .map_err(|e| anyhow::anyhow!("Cannot create Hotels sheet: {e}"))?;
+        let last_row = write_hotel_rooms_sheet(ws, schedule, &hotel_room_extra_keys);
+        let mut headers: Vec<&str> = hotel_rooms::ALL.iter().map(|f| f.export).collect();
+        for k in &hotel_room_extra_keys {
+            headers.push(k.as_str());
+        }
+        add_table(ws, "HotelRooms", &headers, last_row);
     }
 
     // ── Rooms sheet ───────────────────────────────────────────────────────────
@@ -159,6 +177,19 @@ pub(super) fn export_xlsx(schedule: &Schedule, path: &Path) -> Result<()> {
             headers.push(k.as_str());
         }
         add_table(ws, "Prefix", &headers, last_row);
+    }
+
+    // ── Timeline sheet ────────────────────────────────────────────────────────
+    {
+        let ws = book
+            .new_sheet("Timeline")
+            .map_err(|e| anyhow::anyhow!("Cannot create Timeline sheet: {e}"))?;
+        let last_row = write_timeline_sheet(ws, schedule, &timeline_extra_keys);
+        let mut headers: Vec<&str> = tl_cols::ALL.iter().map(|f| f.export).collect();
+        for k in &timeline_extra_keys {
+            headers.push(k.as_str());
+        }
+        add_table(ws, "Timeline", &headers, last_row);
     }
 
     // ── Grid reference sheets (one per logical day) ─────────────────────────
@@ -813,6 +844,118 @@ fn write_panel_types_sheet(ws: &mut Worksheet, schedule: &Schedule, extra_keys: 
             extra_start_col,
             schedule,
         );
+        row += 1;
+    }
+    row - 1
+}
+
+fn write_hotel_rooms_sheet(ws: &mut Worksheet, schedule: &Schedule, extra_keys: &[String]) -> u32 {
+    let mut headers: Vec<&str> = hotel_rooms::ALL.iter().map(|f| f.export).collect();
+    for k in extra_keys {
+        headers.push(k.as_str());
+    }
+    set_headers(ws, &headers);
+
+    // Sort hotel rooms by sort_key (None last), then hotel_room_name.
+    let mut hotel_rooms_vec: Vec<_> = schedule.iter_entities::<HotelRoomEntityType>().collect();
+    hotel_rooms_vec.sort_by(|(_, a), (_, b)| match (a.data.sort_key, b.data.sort_key) {
+        (Some(ka), Some(kb)) => ka
+            .cmp(&kb)
+            .then_with(|| a.data.hotel_room_name.cmp(&b.data.hotel_room_name)),
+        (Some(_), None) => std::cmp::Ordering::Less,
+        (None, Some(_)) => std::cmp::Ordering::Greater,
+        (None, None) => a.data.hotel_room_name.cmp(&b.data.hotel_room_name),
+    });
+
+    let c = |f: &FieldDef| col_of(hotel_rooms::ALL, f);
+    let c_hotel_room_name = c(&hotel_rooms::HOTEL_ROOM_NAME);
+    let c_sort_key = c(&hotel_rooms::SORT_KEY);
+    let c_long_name = c(&hotel_rooms::LONG_NAME);
+    let extra_start_col = hotel_rooms::ALL.len() as u32 + 1;
+
+    let mut row = 2u32;
+    for (hotel_id, hotel) in &hotel_rooms_vec {
+        set_str(ws, c_hotel_room_name, row, &hotel.data.hotel_room_name);
+        let sk = hotel.data.sort_key.map(|n| n.to_string());
+        set_opt(ws, c_sort_key, row, &sk);
+        set_opt(ws, c_long_name, row, &hotel.data.long_name);
+
+        write_extra_fields(
+            ws,
+            row,
+            HotelRoomEntityType::TYPE_NAME,
+            hotel_id.entity_uuid(),
+            extra_keys,
+            extra_start_col,
+            schedule,
+        );
+
+        row += 1;
+    }
+    row - 1
+}
+
+fn write_timeline_sheet(ws: &mut Worksheet, schedule: &Schedule, extra_keys: &[String]) -> u32 {
+    let mut headers: Vec<&str> = tl_cols::ALL.iter().map(|f| f.export).collect();
+    for k in extra_keys {
+        headers.push(k.as_str());
+    }
+    set_headers(ws, &headers);
+
+    // Sort timelines by time (None last), then by code.
+    let mut timelines: Vec<_> = schedule.iter_entities::<TimelineEntityType>().collect();
+    timelines.sort_by(|(_, a), (_, b)| match (a.data.time, b.data.time) {
+        (Some(ta), Some(tb)) => ta
+            .cmp(&tb)
+            .then_with(|| a.code.full_id().cmp(&b.code.full_id())),
+        (Some(_), None) => std::cmp::Ordering::Less,
+        (None, Some(_)) => std::cmp::Ordering::Greater,
+        (None, None) => a.code.full_id().cmp(&b.code.full_id()),
+    });
+
+    let c = |f: &FieldDef| col_of(tl_cols::ALL, f);
+    let c_uniq_id = c(&tl_cols::UNIQ_ID);
+    let c_name = c(&tl_cols::NAME);
+    let c_description = c(&tl_cols::DESCRIPTION);
+    let c_note = c(&tl_cols::NOTE);
+    let c_time = c(&tl_cols::TIME);
+    let c_panel_types = c(&tl_cols::PANEL_TYPES);
+    let extra_start_col = tl_cols::ALL.len() as u32 + 1;
+
+    let mut row = 2u32;
+    for (timeline_id, timeline) in &timelines {
+        set_str(ws, c_uniq_id, row, &timeline.code.full_id());
+        set_str(ws, c_name, row, &timeline.data.name);
+        set_opt(ws, c_description, row, &timeline.data.description);
+        set_opt(ws, c_note, row, &timeline.data.note);
+        if let Some(time) = timeline.data.time {
+            set_str(ws, c_time, row, &time.format(TIME_FMT).to_string());
+        }
+
+        // Panel types: comma-join of connected panel type prefixes.
+        let panel_type_prefixes: Vec<String> = schedule
+            .connected_entities::<PanelTypeEntityType>(
+                *timeline_id,
+                crate::tables::timeline::EDGE_PANEL_TYPES,
+            )
+            .into_iter()
+            .filter_map(|pt_id| schedule.get_internal::<PanelTypeEntityType>(pt_id))
+            .map(|pt| pt.data.prefix.clone())
+            .collect();
+        if !panel_type_prefixes.is_empty() {
+            set_str(ws, c_panel_types, row, &panel_type_prefixes.join(", "));
+        }
+
+        write_extra_fields(
+            ws,
+            row,
+            TimelineEntityType::TYPE_NAME,
+            timeline_id.entity_uuid(),
+            extra_keys,
+            extra_start_col,
+            schedule,
+        );
+
         row += 1;
     }
     row - 1

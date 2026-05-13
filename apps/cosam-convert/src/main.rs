@@ -473,6 +473,8 @@ fn build_import_options(cli: &CliArgs) -> XlsxImportOptions {
         rooms_table: cli.roommap_table.clone(),
         panel_types_table: cli.prefix_table.clone(),
         people_table: cli.presenter_table.clone(),
+        hotel_rooms_table: "Hotels".to_string(),
+        timeline_table: "Timeline".to_string(),
     }
 }
 

@@ -85,6 +85,8 @@ fn make_hotel_room(name: &str) -> (EntityId<HotelRoomEntityType>, HotelRoomInter
         id,
         data: HotelRoomCommonData {
             hotel_room_name: name.into(),
+            sort_key: None,
+            long_name: None,
         },
     };
     (id, data)

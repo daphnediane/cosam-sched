@@ -7,10 +7,12 @@
 //! XLSX import: shared utilities and the top-level [`import_xlsx`] entry point.
 
 pub mod headers;
+mod hotel_rooms;
 mod panel_types;
 mod people;
 mod rooms;
 mod schedule;
+mod timeline;
 
 use std::collections::HashMap;
 use std::path::Path;
@@ -43,6 +45,12 @@ pub struct XlsxImportOptions {
     /// Preferred sheet/table name for the People/Presenters sheet (default: `"People"`).
     /// Set to an empty string to skip People sheet processing.
     pub people_table: String,
+    /// Preferred sheet/table name for hotel rooms (default: `"Hotels"`).
+    /// Set to an empty string to skip Hotels sheet processing.
+    pub hotel_rooms_table: String,
+    /// Preferred sheet/table name for timelines (default: `"Timeline"`).
+    /// Set to an empty string to skip Timeline sheet processing.
+    pub timeline_table: String,
 }
 
 impl Default for XlsxImportOptions {
@@ -52,6 +60,8 @@ impl Default for XlsxImportOptions {
             rooms_table: "Rooms".to_string(),
             panel_types_table: "PanelTypes".to_string(),
             people_table: "People".to_string(),
+            hotel_rooms_table: "Hotels".to_string(),
+            timeline_table: "Timeline".to_string(),
         }
     }
 }
@@ -62,10 +72,14 @@ impl Default for XlsxImportOptions {
 ///
 /// Read order:
 /// 1. PanelTypes — so panel-type lookups work during schedule import.
-/// 2. Rooms — so room lookups work during schedule import.
-/// 3. People — establishes presenter rank/flags before the Schedule sheet
+/// 2. Hotels — creates HotelRoom entities with richer metadata (optional).
+/// 3. Rooms — so room lookups work during schedule import.
+///    Links event rooms to hotel rooms from Hotels sheet or inline Hotel Room column.
+/// 4. People — establishes presenter rank/flags before the Schedule sheet
 ///    creates presenter entities from column headers.
-/// 4. Schedule — panels, timing, rooms, panel type, and presenter edges.
+/// 5. Timeline — creates Timeline entities separately from panels (optional).
+/// 6. Schedule — panels, timing, rooms, panel type, and presenter edges.
+///    Timeline rows (is_timeline panel type) are skipped if Timeline sheet was processed.
 ///
 /// The returned `Schedule` is a clean slate — all entities and edges are
 /// freshly created.  No existing CRDT state is preserved or merged.
@@ -87,12 +101,27 @@ pub fn import_xlsx(path: &Path, options: &XlsxImportOptions) -> Result<Schedule>
         file_path.as_deref(),
         import_time,
     )?;
+
+    // Read Hotels sheet first (optional) to populate HotelRoom entities.
+    let hotel_lookup = if !options.hotel_rooms_table.is_empty() {
+        hotel_rooms::read_hotel_rooms_into(
+            &book,
+            &options.hotel_rooms_table,
+            &mut schedule,
+            file_path.as_deref(),
+            import_time,
+        )?
+    } else {
+        std::collections::HashMap::new()
+    };
+
     let room_lookup = rooms::read_rooms_into(
         &book,
         &options.rooms_table,
         &mut schedule,
         file_path.as_deref(),
         import_time,
+        &hotel_lookup,
     )?;
 
     if !options.people_table.is_empty() {
@@ -100,6 +129,18 @@ pub fn import_xlsx(path: &Path, options: &XlsxImportOptions) -> Result<Schedule>
             &book,
             &options.people_table,
             &mut schedule,
+            file_path.as_deref(),
+            import_time,
+        )?;
+    }
+
+    // Read Timeline sheet (optional) to create Timeline entities separately.
+    if !options.timeline_table.is_empty() {
+        timeline::read_timeline_into(
+            &book,
+            &options.timeline_table,
+            &mut schedule,
+            &panel_type_lookup,
             file_path.as_deref(),
             import_time,
         )?;

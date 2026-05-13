@@ -39,6 +39,10 @@ pub type HotelRoomId = EntityId<HotelRoomEntityType>;
 pub struct HotelRoomCommonData {
     /// Physical room name (required, indexed).
     pub hotel_room_name: String,
+    /// Optional sort key for ordering.
+    pub sort_key: Option<i64>,
+    /// Optional display name / long name.
+    pub long_name: Option<String>,
 }
 
 impl HotelRoomCommonData {
@@ -207,6 +211,50 @@ pub static FIELD_HOTEL_ROOM_NAME: crate::field::FieldDescriptor<HotelRoomEntityT
 };
 inventory::submit! { CollectedField(&FIELD_HOTEL_ROOM_NAME) }
 
+pub static FIELD_SORT_KEY: FieldDescriptor<HotelRoomEntityType> = {
+    let (data, crdt_type, cb) = accessor_field_properties! {
+        HotelRoomEntityType,
+        sort_key,
+        name: "sort_key",
+        display: "Sort Key",
+        description: "Optional sort key for ordering hotel rooms.",
+        aliases: &["sort", "order"],
+        cardinality: Optional,
+        item: Integer,
+        example: "10",
+        order: 100,
+    };
+    FieldDescriptor {
+        data,
+        crdt_type,
+        required: false,
+        cb,
+    }
+};
+inventory::submit! { CollectedField(&FIELD_SORT_KEY) }
+
+pub static FIELD_LONG_NAME: FieldDescriptor<HotelRoomEntityType> = {
+    let (data, crdt_type, cb) = accessor_field_properties! {
+        HotelRoomEntityType,
+        long_name,
+        name: "long_name",
+        display: "Long Name",
+        description: "Optional display name for the hotel room.",
+        aliases: &["longname", "display_name"],
+        cardinality: Optional,
+        item: String,
+        example: "Grand Ballroom East",
+        order: 200,
+    };
+    FieldDescriptor {
+        data,
+        crdt_type,
+        required: false,
+        cb,
+    }
+};
+inventory::submit! { CollectedField(&FIELD_LONG_NAME) }
+
 pub static HALF_EDGE_EVENT_ROOMS: crate::edge::HalfEdgeDescriptor = {
     crate::edge::HalfEdgeDescriptor {
         data: crate::field::CommonFieldData {
@@ -247,6 +295,10 @@ crate::field::macros::define_entity_builder! {
     HotelRoomBuilder for HotelRoomEntityType {
         /// Set the physical hotel room name (e.g. `"Ballroom East"`).  Required.
         with_hotel_room_name => FIELD_HOTEL_ROOM_NAME,
+        /// Set the sort key for ordering.
+        with_sort_key => FIELD_SORT_KEY,
+        /// Set the long display name.
+        with_long_name => FIELD_LONG_NAME,
     }
 }
 
@@ -292,6 +344,8 @@ impl crate::query::lookup::EntityCreatable for HotelRoomEntityType {
                 id,
                 data: HotelRoomCommonData {
                     hotel_room_name: s.to_string(),
+                    sort_key: None,
+                    long_name: None,
                 },
             },
         );
@@ -319,6 +373,8 @@ mod tests {
         HotelRoomInternalData {
             data: HotelRoomCommonData {
                 hotel_room_name: "Ballroom East".into(),
+                sort_key: None,
+                long_name: None,
             },
             id: make_id(),
         }
@@ -327,7 +383,7 @@ mod tests {
     #[test]
     fn test_field_set_count_and_required() {
         let fs = HotelRoomEntityType::field_set();
-        assert_eq!(fs.fields().count(), 1);
+        assert_eq!(fs.fields().count(), 3);
         assert_eq!(fs.half_edges().count(), 1);
         let required: Vec<_> = fs.required_fields().map(|d| d.name()).collect();
         assert_eq!(required, vec!["hotel_room_name"]);
@@ -384,6 +440,8 @@ mod tests {
     fn test_common_data_serde_roundtrip() {
         let original = HotelRoomCommonData {
             hotel_room_name: "Main Hall".into(),
+            sort_key: Some(10),
+            long_name: Some("Main Conference Hall".into()),
         };
         let json = serde_json::to_string(&original).unwrap();
         let back: HotelRoomCommonData = serde_json::from_str(&json).unwrap();
@@ -495,6 +553,8 @@ mod tests {
                 id,
                 data: HotelRoomCommonData {
                     hotel_room_name: room_number,
+                    sort_key: None,
+                    long_name: None,
                 },
             },
         );
@@ -510,5 +570,48 @@ mod tests {
         let id1 = HotelRoomEntityType::create_from_string(&mut sched1, "East Wing").unwrap();
         let id2 = HotelRoomEntityType::create_from_string(&mut sched2, "East Wing").unwrap();
         assert_eq!(id1, id2);
+    }
+
+    // ── New Field Tests ─────────────────────────────────────────────────────
+
+    #[test]
+    fn test_sort_key_field_roundtrip() {
+        let id = make_id();
+        let mut sched = Schedule::default();
+        let mut data = make_internal();
+        data.data.sort_key = Some(42);
+        sched.insert(id, data);
+
+        let fs = HotelRoomEntityType::field_set();
+        let value = fs.read_field_value("sort_key", id, &sched).unwrap();
+        assert_eq!(value, Some(field_value!(42i64)));
+
+        fs.write_field_value("sort_key", id, &mut sched, field_value!(100i64))
+            .unwrap();
+        let value = fs.read_field_value("sort_key", id, &sched).unwrap();
+        assert_eq!(value, Some(field_value!(100i64)));
+    }
+
+    #[test]
+    fn test_long_name_field_roundtrip() {
+        let id = make_id();
+        let mut sched = Schedule::default();
+        let mut data = make_internal();
+        data.data.long_name = Some("Grand Ballroom East".into());
+        sched.insert(id, data);
+
+        let fs = HotelRoomEntityType::field_set();
+        let value = fs.read_field_value("long_name", id, &sched).unwrap();
+        assert_eq!(value, Some(field_value!("Grand Ballroom East")));
+
+        fs.write_field_value(
+            "long_name",
+            id,
+            &mut sched,
+            field_value!("Conference Room A"),
+        )
+        .unwrap();
+        let value = fs.read_field_value("long_name", id, &sched).unwrap();
+        assert_eq!(value, Some(field_value!("Conference Room A")));
     }
 }
