@@ -1,0 +1,5 @@
+# Clippy configuration for cosam-sched workspace
+
+# Lint configuration
+# Note: warn-on-all-wildcard-imports doesn't work reliably in clippy.toml
+# Use #[warn(clippy::wildcard_imports)] or #[deny(clippy::wildcard_imports)] in code instead

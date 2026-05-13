@@ -10,7 +10,7 @@ use std::collections::BTreeSet;
 
 use chrono::{NaiveDate, NaiveDateTime};
 use schedule_core::schedule::Schedule;
-use schedule_core::tables::panel::EDGE_EVENT_ROOMS;
+use schedule_core::tables::panel;
 use schedule_core::tables::{EventRoomEntityType, EventRoomId, PanelEntityType, PanelId};
 use schedule_core::ChangeState;
 use schedule_core::EntityUuid;
@@ -88,7 +88,7 @@ pub fn panels_for(
         .filter(|(id, _)| {
             if let Some(filter_id) = room_filter {
                 schedule
-                    .connected_entities::<EventRoomEntityType>(*id, EDGE_EVENT_ROOMS)
+                    .connected_entities::<EventRoomEntityType>(*id, panel::EDGE_EVENT_ROOMS)
                     .contains(&filter_id)
             } else {
                 true
@@ -102,7 +102,8 @@ pub fn panels_for(
                 start.format("%l:%M %p").to_string().trim(),
                 end.format("%l:%M %p").to_string().trim(),
             );
-            let room_ids = schedule.connected_entities::<EventRoomEntityType>(id, EDGE_EVENT_ROOMS);
+            let room_ids =
+                schedule.connected_entities::<EventRoomEntityType>(id, panel::EDGE_EVENT_ROOMS);
             let room_names: Vec<String> = room_ids
                 .iter()
                 .filter_map(|rid| {

@@ -12,9 +12,7 @@
 use chrono::NaiveDateTime;
 use schedule_core::schedule::Schedule;
 use schedule_core::tables::event_room::EventRoomEntityType;
-use schedule_core::tables::panel::{
-    PanelEntityType, EDGE_CREDITED_PRESENTERS, EDGE_EVENT_ROOMS, EDGE_UNCREDITED_PRESENTERS,
-};
+use schedule_core::tables::panel::{self, PanelEntityType};
 use schedule_core::tables::presenter::PresenterEntityType;
 
 // ── Conflict types ────────────────────────────────────────────────────────────
@@ -56,30 +54,33 @@ fn overlaps(
 
 pub fn detect_conflicts(schedule: &Schedule) -> Vec<Conflict> {
     // Build snapshots for all scheduled panels (those with both start and end).
-    let snapshots: Vec<PanelSnapshot> = schedule
-        .iter_entities::<PanelEntityType>()
-        .filter_map(|(id, internal)| {
-            let start = internal.time_slot.start_time()?;
-            let end = internal.time_slot.end_time()?;
-            let name = internal.data.name.clone();
+    let snapshots: Vec<PanelSnapshot> =
+        schedule
+            .iter_entities::<PanelEntityType>()
+            .filter_map(|(id, internal)| {
+                let start = internal.time_slot.start_time()?;
+                let end = internal.time_slot.end_time()?;
+                let name = internal.data.name.clone();
 
-            let room_ids = schedule.connected_entities::<EventRoomEntityType>(id, EDGE_EVENT_ROOMS);
+                let room_ids =
+                    schedule.connected_entities::<EventRoomEntityType>(id, panel::EDGE_EVENT_ROOMS);
 
-            let mut presenter_ids =
-                schedule.connected_entities::<PresenterEntityType>(id, EDGE_CREDITED_PRESENTERS);
-            presenter_ids.extend(
-                schedule.connected_entities::<PresenterEntityType>(id, EDGE_UNCREDITED_PRESENTERS),
-            );
+                let mut presenter_ids = schedule
+                    .connected_entities::<PresenterEntityType>(id, panel::EDGE_CREDITED_PRESENTERS);
+                presenter_ids.extend(schedule.connected_entities::<PresenterEntityType>(
+                    id,
+                    panel::EDGE_UNCREDITED_PRESENTERS,
+                ));
 
-            Some(PanelSnapshot {
-                name,
-                start: Some(start),
-                end: Some(end),
-                room_ids,
-                presenter_ids,
+                Some(PanelSnapshot {
+                    name,
+                    start: Some(start),
+                    end: Some(end),
+                    room_ids,
+                    presenter_ids,
+                })
             })
-        })
-        .collect();
+            .collect();
 
     let mut conflicts = Vec::new();
 

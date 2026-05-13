@@ -574,7 +574,10 @@ pub fn list_extra_fields(
 
 pub mod edge;
 
-pub use edge::*;
+pub use edge::{
+    canonical_owner, ensure_owner_list, list_append_unique, list_remove_uuid, meta_field_name,
+    read_edge_meta_bool, read_owner_list, write_edge_meta_bool, write_owner_list, CanonicalOwner,
+};
 
 #[cfg(test)]
 mod tests {

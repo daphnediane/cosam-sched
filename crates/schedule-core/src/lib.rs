@@ -4,6 +4,8 @@
  * See LICENSE file for full license text
  */
 
+#![deny(clippy::wildcard_imports)]
+
 // Allow proc-macro generated `::schedule_core::...` paths to resolve from
 // within this crate itself.
 extern crate self as schedule_core;
@@ -24,7 +26,7 @@ pub mod value;
 pub mod xlsx;
 
 // Re-export edge types for external use
-pub use edge::*;
+pub use edge::{EdgeKind, FullEdge, HalfEdgeDescriptor, RawEdgeMap, TransitiveEdgeCache};
 
 pub use schedule_macro::{accessor_field_properties, callback_field_properties};
 
