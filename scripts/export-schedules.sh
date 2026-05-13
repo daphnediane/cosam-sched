@@ -9,7 +9,7 @@
 # Usage: scripts/export-schedules.sh
 #   Reads from input/<YEAR> Schedule.xlsx
 #   Writes to output/<YEAR>/{schedule.xlsx,public.json,private.json,embed.html,test.html,style-embed.html,style-page.html}
-#   Also generates PDFs to output/<YEAR>/ via schedule-layout (built into cosam-convert)
+#   Also generates layout to output/<CURRENT_YEAR>/layout/ via schedule-layout (built into cosam-convert)
 
 set -e
 
@@ -63,7 +63,9 @@ fi
 
 echo "Building all output files..."
 
-for year in $(seq 2016 "$(date +%Y)"); do
+current_year=$(date +%Y)
+
+for year in $(seq 2016 "$current_year"); do
     year_dir="$OUTPUT_DIR/$year"
     mkdir -p "$year_dir"
     src="$INPUT_DIR/${year} Schedule.xlsx"
@@ -85,23 +87,40 @@ for year in $(seq 2016 "$(date +%Y)"); do
 
     echo "  Building ${year} files..."
 
+    args=(
+        --input "$src"
+        --title "Cosplay America ${year} Schedule"
+        --output "$copy"
+        --export "$dest"
+        --private
+        --export "$private_dest"
+        --public
+        --export-embed "$embed"
+        --export-test "$test_html"
+        --style-page
+        --export-embed "$style_embed"
+        --export-test "$style_page"
+    )
+    files=(
+        "$copy"
+        "$dest"
+        "$private_dest"
+        "$embed"
+        "$test_html"
+        "$style_embed"
+        "$style_page"
+    )
+    
+    # For current year, also export layout in the same pass
+    if [ "$year" -eq "$current_year" ]; then
+        args+=(--export-layout "$layout_dir")
+        files+=("$layout_dir")
+    fi
     if "$CONVERT_BIN" \
-        --input "$src" \
-        --title "Cosplay America ${year} Schedule" \
-        --output "$copy" \
-        --export "$dest" \
-        --private \
-        --export "$private_dest" \
-        --public \
-        --export-embed "$embed" \
-        --export-test "$test_html" \
-        --style-page \
-        --export-embed "$style_embed" \
-        --export-test "$style_page" \
-        --export-layout "$layout_dir"; then
-        built+=("$copy" "$dest" "$private_dest" "$embed" "$test_html" "$style_embed" "$style_page" "$layout_dir")
+        "${args[@]}"; then
+        built+=("${files[@]}")
     else
-        failed+=("$copy" "$dest" "$private_dest" "$embed" "$test_html" "$style_embed" "$style_page" "$layout_dir")
+        failed+=("${files[@]}")
     fi
 done
 

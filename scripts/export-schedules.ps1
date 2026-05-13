@@ -10,7 +10,7 @@
 # Usage: scripts/export-schedules.ps1
 #   Reads from input/<YEAR> Schedule.xlsx
 #   Writes to output/<YEAR>/{schedule.xlsx,public.json,private.json,embed.html,test.html,style-embed.html,style-page.html}
-#   Also generates PDFs to output/<YEAR>/ via schedule-layout (built into cosam-convert)
+#   Also generates layout to output/<CURRENT_YEAR>/layout/ via schedule-layout (built into cosam-convert)
 
 param(
     [switch]$Verbose
@@ -92,6 +92,8 @@ try {
 
     Write-Status "Building all output files..."
 
+    $currentYear = (Get-Date).Year
+
     for ($year = 2016; $year -le $currentYear; $year++) {
         $yearDir = Join-Path $OutputDir "$year"
         if (-not (Test-Path $yearDir)) {
@@ -115,33 +117,42 @@ try {
         $stylePage = Join-Path $yearDir "style-page.html"
         $layoutDir = Join-Path $yearDir "layout"
 
+        $args = @(
+            "--input", $srcFile,
+            "--title", "Cosplay America ${year} Schedule",
+            "--output", $copy,
+            "--export", $dest,
+            "--private",
+            "--export", $privateDest,
+            "--public",
+            "--export-embed", $embed,
+            "--export-test", $testHtml,
+            "--style-page",
+            "--export-embed", $styleEmbed,
+            "--export-test", $stylePage
+        )
+        $files = @($copy, $dest, $privateDest, $embed, $testHtml, $styleEmbed, $stylePage)
+
+        # For current year, also export layout in the same pass
+        if ($year -eq $currentYear) {
+            $args += "--export-layout", $layoutDir
+            $files += $layoutDir
+        }
+
         try {
-            & $ConvertBin `
-                --input $srcFile `
-                --title "Cosplay America ${year} Schedule" `
-                --output $copy `
-                --export $dest `
-                --private `
-                --export $privateDest `
-                --public `
-                --export-embed $embed `
-                --export-test $testHtml `
-                --style-page `
-                --export-embed $styleEmbed `
-                --export-test $stylePage `
-                --export-layout $layoutDir
+            & $ConvertBin @args
 
             if ($LASTEXITCODE -eq 0) {
-                $built += $copy, $dest, $privateDest, $embed, $testHtml, $styleEmbed, $stylePage, $layoutDir
+                $built += $files
                 Write-Host "    Built all files for ${year}"
             }
             else {
-                $failed += $copy, $dest, $privateDest, $embed, $testHtml, $styleEmbed, $stylePage, $layoutDir
+                $failed += $files
                 Write-Warn "Failed to build files for ${year} (exit $LASTEXITCODE)"
             }
         }
         catch {
-            $failed += $copy, $dest, $privateDest, $embed, $testHtml, $styleEmbed, $stylePage, $layoutDir
+            $failed += $files
             Write-Warn "Failed to build files for ${year}: $($_.Exception.Message)"
         }
 
