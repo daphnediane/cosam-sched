@@ -862,6 +862,16 @@
   text-overflow: ellipsis;
 }
 
+.cosam-grid-event-credits {
+  font-size: 11px;
+  color: var(--cosam-text-muted);
+  font-style: italic;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  margin-top: 2px;
+}
+
 .cosam-grid-event-time {
   font-size: 11px;
   color: var(--cosam-text-muted);

@@ -118,6 +118,15 @@
     }
   }
 
+  function formatDuration(minutes) {
+    if (!minutes || minutes <= 0) return '';
+    const h = Math.floor(minutes / 60);
+    const m = minutes % 60;
+    if (h === 0) return `${m} min`;
+    if (m === 0) return `${h} hr`;
+    return `${h} hr ${m} min`;
+  }
+
   function formatTimeRange(start, end) {
     if (!start) return '';
     const s = formatTime(start);
@@ -1182,7 +1191,7 @@
       });
 
       // Create grid template styles
-      const gridColumns = `[time] minmax(80px, 120px) ` + roomOrder.map(roomId => `[room-${roomId}] 1fr`).join(' ');
+      const gridColumns = `[time] minmax(80px, 120px) ` + roomOrder.map(roomId => `[room-${roomId}] minmax(0, 1fr)`).join(' ');
       const gridRows = `[header] auto ` + timeSlots.map(timeSlot => `[${timeSlot}] minmax(60px, auto)`).join(' ') + ` [footer] auto`;
 
       // Build CSS grid
@@ -1545,7 +1554,7 @@
         div.appendChild(el('div', { className: 'cosam-grid-break-name' }, evt.name));
       }
       if (evt.duration) {
-        div.appendChild(el('div', { className: 'cosam-grid-event-time' }, evt.duration + ' min'));
+        div.appendChild(el('div', { className: 'cosam-grid-event-time' }, formatDuration(evt.duration)));
       }
       return div;
     }
@@ -1585,8 +1594,12 @@
         }
       }
 
+      if (evt.credits && evt.credits.length > 0) {
+        div.appendChild(el('div', { className: 'cosam-grid-event-credits' }, evt.credits.join(', ')));
+      }
+
       if (evt.duration) {
-        div.appendChild(el('div', { className: 'cosam-grid-event-time' }, evt.duration + ' min'));
+        div.appendChild(el('div', { className: 'cosam-grid-event-time' }, formatDuration(evt.duration)));
       }
 
       // Star indicator
@@ -1654,7 +1667,7 @@
         meta.appendChild(ts);
       }
       if (evt.duration) {
-        meta.appendChild(el('span', {}, evt.duration + ' min'));
+        meta.appendChild(el('span', {}, formatDuration(evt.duration)));
       }
       // Rooms - V5 roomIds array
       if (evt.roomIds && evt.roomIds.length > 0) {
@@ -1854,10 +1867,17 @@
             nameDiv.textContent = evt.name;
             td.appendChild(nameDiv);
 
+            if (evt.credits && evt.credits.length > 0) {
+              const credDiv = document.createElement('div');
+              credDiv.style.cssText = 'font-size:7px;color:#555;font-style:italic;word-break:break-word;';
+              credDiv.textContent = evt.credits.join(', ');
+              td.appendChild(credDiv);
+            }
+
             if (evt.duration) {
               const durDiv = document.createElement('div');
               durDiv.style.cssText = 'font-size:7px;color:#555;';
-              durDiv.textContent = evt.duration + ' min';
+              durDiv.textContent = formatDuration(evt.duration);
               td.appendChild(durDiv);
             }
 
