@@ -155,6 +155,7 @@ pub(super) fn read_panel_types_into(
                     &canonical_headers,
                     &known_keys,
                     &[],
+                    &std::collections::HashSet::new(),
                     id.entity_uuid(),
                     PanelTypeEntityType::TYPE_NAME,
                     schedule,

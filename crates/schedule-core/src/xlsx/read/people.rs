@@ -148,6 +148,7 @@ pub(super) fn read_people_into(
                         &canonical_headers,
                         &known_keys,
                         &[],
+                        &std::collections::HashSet::new(),
                         id.entity_uuid(),
                         PresenterEntityType::TYPE_NAME,
                         schedule,

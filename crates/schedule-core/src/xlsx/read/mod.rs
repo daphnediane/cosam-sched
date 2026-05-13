@@ -364,6 +364,7 @@ pub(super) fn is_truthy(value: &str) -> bool {
 ///
 /// `known_field_keys` should be the union of all canonical keys and aliases
 /// from the sheet's `FieldDef::ALL` slice plus any explicitly-ignored columns.
+/// `skip_columns` is an additional set of column names to skip (e.g., presenter columns).
 #[allow(clippy::too_many_arguments)]
 pub(super) fn route_extra_columns(
     ws: &Worksheet,
@@ -373,6 +374,7 @@ pub(super) fn route_extra_columns(
     canonical_headers: &[Option<String>],
     known_field_keys: &std::collections::HashSet<String>,
     formula_columns: &[FormulaColumnDef],
+    skip_columns: &std::collections::HashSet<String>,
     entity_uuid: uuid::NonNilUuid,
     entity_type_name: &str,
     schedule: &mut Schedule,
@@ -388,6 +390,10 @@ pub(super) fn route_extra_columns(
         };
         // Skip columns already handled by the field system.
         if known_field_keys.contains(canonical) {
+            continue;
+        }
+        // Skip columns explicitly marked to skip (e.g., presenter columns).
+        if skip_columns.contains(raw) {
             continue;
         }
 

@@ -25,12 +25,24 @@ pub(super) fn set_headers(ws: &mut Worksheet, headers: &[&str]) {
 }
 
 pub(super) fn add_table(ws: &mut Worksheet, name: &str, headers: &[&str], last_data_row: u32) {
+    // Only add table if there's actual data (at least header + 1 data row)
+    if last_data_row < 2 {
+        return;
+    }
     let num_cols = headers.len() as u32;
-    let last_row = last_data_row.max(2);
-    let mut table = Table::new(name, ((1u32, 1u32), (num_cols, last_row)));
+    let mut table = Table::new(name, ((1u32, 1u32), (num_cols, last_data_row)));
     table.set_display_name(name);
+    // Excel requires unique column names; deduplicate by adding numeric suffixes
+    let mut seen: std::collections::HashMap<String, u32> = std::collections::HashMap::new();
     for header in headers {
-        table.add_column(TableColumn::new(header));
+        let count = seen.entry(header.to_string()).or_insert(0);
+        if *count > 0 {
+            let unique_name = format!("{}{}", header, *count);
+            table.add_column(TableColumn::new(&unique_name));
+        } else {
+            table.add_column(TableColumn::new(header));
+        }
+        *count += 1;
     }
     let style = TableStyleInfo::new("TableStyleMedium2", false, false, true, false);
     table.set_style_info(Some(style));

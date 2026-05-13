@@ -122,6 +122,7 @@ pub(super) fn read_rooms_into(
             &canonical_headers,
             &known_keys,
             &[],
+            &std::collections::HashSet::new(),
             room_id.entity_uuid(),
             EventRoomEntityType::TYPE_NAME,
             schedule,

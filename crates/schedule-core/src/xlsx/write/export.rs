@@ -21,7 +21,9 @@ use crate::tables::event_room::{self, EventRoomEntityType};
 use crate::tables::hotel_room::HotelRoomEntityType;
 use crate::tables::panel::{self, compute_credits, PanelEntityType, PanelInternalData};
 use crate::tables::panel_type::PanelTypeEntityType;
-use crate::tables::presenter::{self, PresenterEntityType, PresenterId, PresenterRank};
+use crate::tables::presenter::{
+    PresenterEntityType, PresenterId, PresenterInternalData, EDGE_GROUPS,
+};
 use crate::xlsx::columns::{panel_types, people, room_map, schedule as sched_cols, FieldDef};
 
 use super::common::{add_table, set_headers, set_opt, set_str};
@@ -199,17 +201,19 @@ fn build_presenter_columns(schedule: &Schedule) -> Vec<ExportPresenterColumn> {
 
     let mut columns = Vec::new();
 
-    for std_rank in PresenterRank::standard_ranks() {
+    // Group presenters by rank prefix to create named columns and "Other" columns.
+    for std_rank in crate::tables::presenter::PresenterRank::standard_ranks() {
         let prefix_char = std_rank.prefix_char();
 
         // Collect presenters for this rank tier who appear on at least one panel.
-        let mut named: Vec<(PresenterId, String)> = Vec::new();
+        let mut named: Vec<(PresenterId, &PresenterInternalData)> = Vec::new();
         let mut has_other = false;
 
-        let mut rank_presenters: Vec<(PresenterId, &_)> = schedule
+        let mut rank_presenters: Vec<(PresenterId, &PresenterInternalData)> = schedule
             .iter_entities::<PresenterEntityType>()
             .filter(|(_, p)| p.data.rank.prefix_char() == prefix_char && !p.data.is_explicit_group)
             .collect();
+
         // Sort by name for stable column ordering.
         rank_presenters.sort_by(|(_, a), (_, b)| a.data.name.cmp(&b.data.name));
 
@@ -218,34 +222,39 @@ fn build_presenter_columns(schedule: &Schedule) -> Vec<ExportPresenterColumn> {
             if count == 0 {
                 continue;
             }
+
+            // Heuristic: Guests and Staff always get named columns if they have any panels.
+            // Other ranks only get named columns if they have >= MIN_PANELS_FOR_NAMED_COLUMN.
             let show_individually = p.data.show_individually;
-            if count >= MIN_PANELS_FOR_NAMED_COLUMN || show_individually {
-                named.push((p_id, p.data.name.clone()));
+            let is_guest_or_staff = matches!(
+                p.data.rank,
+                crate::tables::presenter::PresenterRank::Guest
+                    | crate::tables::presenter::PresenterRank::Staff
+            );
+
+            if is_guest_or_staff || count >= MIN_PANELS_FOR_NAMED_COLUMN || show_individually {
+                named.push((p_id, p));
             } else {
                 has_other = true;
             }
         }
 
         // Sort named presenters by panel count desc, then name asc.
-        named.sort_by(|(id_a, name_a), (id_b, name_b)| {
+        named.sort_by(|(id_a, a), (id_b, b)| {
             let ca = panel_count.get(id_a).copied().unwrap_or(0);
             let cb = panel_count.get(id_b).copied().unwrap_or(0);
-            cb.cmp(&ca).then_with(|| name_a.cmp(name_b))
+            cb.cmp(&ca).then_with(|| a.data.name.cmp(&b.data.name))
         });
 
-        for (p_id, name) in named {
+        for (p_id, p) in named {
             // Build header with optional group suffix.
-            let group_ids =
-                schedule.connected_entities::<PresenterEntityType>(p_id, presenter::EDGE_GROUPS);
+            let group_ids = schedule.connected_entities::<PresenterEntityType>(p_id, EDGE_GROUPS);
             let group_name = group_ids
                 .first()
                 .and_then(|gid| schedule.get_internal::<PresenterEntityType>(*gid))
                 .map(|g| g.data.name.as_str());
 
-            let p_internal = schedule
-                .get_internal::<PresenterEntityType>(p_id)
-                .expect("presenter was in iter_entities");
-            let show_individually = p_internal.data.show_individually;
+            let show_individually = p.data.show_individually;
 
             // Check if group has subsumes_members flag
             let group_subsumes = group_ids
@@ -260,16 +269,16 @@ fn build_presenter_columns(schedule: &Schedule) -> Vec<ExportPresenterColumn> {
             let header = match (group_name, show_individually, group_subsumes) {
                 (Some(group), true, _) => {
                     // Member has show_individually → output <Name syntax
-                    format!("{prefix_char}:<{name}={group}")
+                    format!("{prefix_char}:<{}={}", p.data.name, group)
                 }
                 (Some(group), false, true) => {
                     // Group has subsumes_members → output ==Group syntax
-                    format!("{prefix_char}:{name}=={group}")
+                    format!("{prefix_char}:{}=={}", p.data.name, group)
                 }
                 (Some(group), false, false) => {
-                    format!("{prefix_char}:{name}={group}")
+                    format!("{prefix_char}:{}={}", p.data.name, group)
                 }
-                (None, _, _) => format!("{prefix_char}:{name}"),
+                (None, _, _) => format!("{prefix_char}:{}", p.data.name),
             };
 
             columns.push(ExportPresenterColumn {
@@ -324,11 +333,13 @@ fn write_schedule_sheet(
     let lend_col = formula_start_col + 1;
 
     // Build presenter ID lookup: named presenter_id → column index.
+    // Also track which columns are "Other" columns.
     let named_col_lookup: std::collections::HashMap<PresenterId, u32> = presenter_cols
         .iter()
         .enumerate()
         .filter_map(|(i, col)| {
             col.presenter_id
+                .filter(|_| !col.is_other)
                 .map(|pid| (pid, FIXED_COL_COUNT + i as u32 + 1))
         })
         .collect();

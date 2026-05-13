@@ -348,6 +348,16 @@ pub(super) fn read_schedule_into(
                 import_time,
             }),
         );
+        // Build set of presenter column headers to skip from extra fields.
+        let presenter_headers: std::collections::HashSet<String> = presenter_cols
+            .iter()
+            .map(|pc| {
+                // Use the raw header string from the column index
+                let idx = (pc.col - range.start_col) as usize;
+                raw_headers[idx].clone()
+            })
+            .collect();
+
         route_extra_columns(
             ws,
             row,
@@ -356,6 +366,7 @@ pub(super) fn read_schedule_into(
             &canonical_headers,
             &known_keys,
             sc::FORMULA_COLUMNS,
+            &presenter_headers,
             panel_id.entity_uuid(),
             PanelEntityType::TYPE_NAME,
             schedule,
@@ -372,11 +383,24 @@ pub(super) fn read_schedule_into(
         // Parse presenter columns for this row.
         let (credited, uncredited) = collect_presenters(ws, row, &presenter_cols, schedule);
 
-        if !credited.is_empty() {
-            let _ = schedule.edge_add(panel_id, panel::EDGE_CREDITED_PRESENTERS, credited);
-        }
-        if !uncredited.is_empty() {
-            let _ = schedule.edge_add(panel_id, panel::EDGE_UNCREDITED_PRESENTERS, uncredited);
+        // If hide_panelist is true, treat all presenters as uncredited
+        if hide_panelist {
+            let _ = schedule.edge_add(
+                panel_id,
+                panel::EDGE_UNCREDITED_PRESENTERS,
+                credited
+                    .iter()
+                    .chain(uncredited.iter())
+                    .copied()
+                    .collect::<Vec<_>>(),
+            );
+        } else {
+            if !credited.is_empty() {
+                let _ = schedule.edge_add(panel_id, panel::EDGE_CREDITED_PRESENTERS, credited);
+            }
+            if !uncredited.is_empty() {
+                let _ = schedule.edge_add(panel_id, panel::EDGE_UNCREDITED_PRESENTERS, uncredited);
+            }
         }
     }
 
@@ -425,10 +449,12 @@ fn collect_presenters(
             let tagged = match &pc.header {
                 PresenterHeader::Named(header_name) => {
                     // Cell value is a flag; the header carries the name+group info.
-                    let is_unlisted = name_part.eq_ignore_ascii_case("unlisted");
+                    // Check for uncredited flags before stripping.
+                    let is_unlisted = chunk.eq_ignore_ascii_case("unlisted");
+                    let is_uncredited_flag = chunk.eq_ignore_ascii_case("*");
                     let tag = pc.rank.prefix_char();
                     let input = format!("{tag}:{header_name}");
-                    if is_unlisted {
+                    if is_unlisted || is_uncredited_flag || is_uncredited {
                         // Register presenter but mark uncredited.
                         if let Ok(id) = find_or_create_tagged_presenter(schedule, &input) {
                             if !uncredited.contains(&id) {
