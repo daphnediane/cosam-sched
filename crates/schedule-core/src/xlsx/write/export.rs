@@ -24,6 +24,7 @@ use crate::tables::panel_type::PanelTypeEntityType;
 use crate::tables::presenter::{
     PresenterEntityType, PresenterId, PresenterInternalData, EDGE_GROUPS,
 };
+use crate::tables::timeline::{TimelineEntityType, TimelineInternalData};
 use crate::xlsx::columns::{panel_types, people, room_map, schedule as sched_cols, FieldDef};
 
 use super::common::{add_table, set_headers, set_opt, set_str};
@@ -362,6 +363,18 @@ fn write_schedule_sheet(
         }
     });
 
+    // Collect and sort timelines by time (None last), then by code.
+    let mut timelines: Vec<(_, &TimelineInternalData)> =
+        schedule.iter_entities::<TimelineEntityType>().collect();
+    timelines.sort_by(|(_, a), (_, b)| match (a.data.time, b.data.time) {
+        (Some(ta), Some(tb)) => ta
+            .cmp(&tb)
+            .then_with(|| a.code.full_id().cmp(&b.code.full_id())),
+        (Some(_), None) => std::cmp::Ordering::Less,
+        (None, Some(_)) => std::cmp::Ordering::Greater,
+        (None, None) => a.code.full_id().cmp(&b.code.full_id()),
+    });
+
     // Pre-compute column numbers from schedule::ALL — avoids coupling data
     // writes to the literal position of each field in the array.
     let c = |f: &FieldDef| col_of(sched_cols::ALL, f);
@@ -570,6 +583,60 @@ fn write_schedule_sheet(
             extra_start_col,
             schedule,
         );
+
+        row += 1;
+    }
+
+    // ── Timeline rows ─────────────────────────────────────────────────────────
+    for (_timeline_id, timeline) in &timelines {
+        set_str(ws, c_uniq_id, row, &timeline.code.full_id());
+        set_str(ws, c_name, row, &timeline.data.name);
+
+        // Room: blank for timelines
+        // Timing.
+        if let Some(start) = timeline.data.time {
+            set_str(ws, c_start_time, row, &start.format(TIME_FMT).to_string());
+        }
+        // Duration: blank for timelines (no duration field)
+        // End time: blank for timelines (no end time field)
+
+        // Text fields.
+        set_opt(ws, c_description, row, &timeline.data.description);
+        // Prereq: blank for timelines
+        set_opt(ws, c_note, row, &timeline.data.note);
+        // Notes non-printing: blank for timelines
+        // Workshop notes: blank for timelines
+        // Power needs: blank for timelines
+        // Sewing machines: blank for timelines
+        // AV notes: blank for timelines
+        // Difficulty: blank for timelines
+        // Cost: blank for timelines
+        // Capacity fields: blank for timelines
+        // Hide panelist: blank for timelines
+        // Alt panelist: blank for timelines
+
+        // Panel type kind.
+        let kind = schedule
+            .connected_entities::<PanelTypeEntityType>(
+                *_timeline_id,
+                crate::tables::timeline::EDGE_PANEL_TYPES,
+            )
+            .into_iter()
+            .next()
+            .and_then(|pt_id| schedule.get_internal::<PanelTypeEntityType>(pt_id))
+            .map(|pt| pt.data.panel_kind.clone());
+        set_opt(ws, c_kind, row, &kind);
+
+        // Full flag: blank for timelines
+
+        // ── Presenter columns ─────────────────────────────────────────────────
+        // Timelines don't have presenters, leave blank
+
+        // ── Extra data fields ─────────────────────────────────────────────────
+        // Timelines don't have extra fields, leave blank
+
+        // ── Lstart / Lend formula columns ─────────────────────────────────────
+        // Timelines don't have formulas, leave blank
 
         row += 1;
     }

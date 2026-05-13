@@ -23,6 +23,7 @@ use crate::field::{CollectedField, CollectedHalfEdge, FieldDescriptor, NamedFiel
 use crate::field_value;
 use crate::query::converter::EntityStringResolver;
 use crate::tables::panel::{self, PanelEntityType, PanelId};
+use crate::tables::timeline::{self, TimelineEntityType};
 use crate::value::ValidationError;
 use serde::{Deserialize, Serialize};
 use std::sync::LazyLock;
@@ -533,6 +534,35 @@ pub const EDGE_PANELS: crate::edge::FullEdge = crate::edge::FullEdge {
     far: &panel::HALF_EDGE_PANEL_TYPE,
 };
 
+// Timelines associated with this panel type.
+pub static HALF_EDGE_TIMELINES: crate::edge::HalfEdgeDescriptor = {
+    crate::edge::HalfEdgeDescriptor {
+        data: crate::field::CommonFieldData {
+            name: "timelines",
+            display: "Timelines",
+            description: "Timelines associated with this panel type.",
+            aliases: &["timeline"],
+            field_type: crate::value::FieldType(
+                crate::value::FieldCardinality::List,
+                crate::value::FieldTypeItem::EntityIdentifier(TimelineEntityType::TYPE_NAME),
+            ),
+            example: "[]",
+            order: 1300,
+        },
+        edge_kind: crate::edge::EdgeKind::Target {
+            source_fields: &[&timeline::HALF_EDGE_PANEL_TYPES],
+        },
+        entity_name: PanelTypeEntityType::TYPE_NAME,
+    }
+};
+inventory::submit! { CollectedHalfEdge(&HALF_EDGE_TIMELINES) }
+
+/// Full edge from panel type timelines to timeline panel types
+pub const EDGE_TIMELINES: crate::edge::FullEdge = crate::edge::FullEdge {
+    near: &HALF_EDGE_TIMELINES,
+    far: &timeline::HALF_EDGE_PANEL_TYPES,
+};
+
 // ── FieldSet ────────────────────────────────────────────────────────────────────
 
 static PANEL_TYPE_FIELD_SET: LazyLock<FieldSet<PanelTypeEntityType>> =
@@ -710,7 +740,7 @@ mod tests {
         let fs = PanelTypeEntityType::field_set();
         let fields: Vec<_> = fs.fields().collect();
         assert_eq!(fields.len(), 12);
-        assert_eq!(fs.half_edges().count(), 1);
+        assert_eq!(fs.half_edges().count(), 2);
     }
 
     #[test]

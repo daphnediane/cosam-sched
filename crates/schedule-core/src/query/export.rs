@@ -16,6 +16,8 @@ use crate::tables::hotel_room::HotelRoomEntityType;
 use crate::tables::panel::{self, PanelEntityType, PanelId};
 use crate::tables::panel_type::PanelTypeEntityType;
 use crate::tables::presenter::{self, PresenterEntityType, PresenterId};
+use crate::tables::timeline;
+use crate::tables::timeline::{TimelineEntityType, TimelineId};
 use chrono::{DateTime, NaiveDateTime, Utc};
 use serde::{Deserialize, Serialize};
 use std::collections::{BTreeMap, HashMap, HashSet};
@@ -359,15 +361,8 @@ fn export_timeline(
 ) -> Result<Vec<WidgetTimeline>, ExportError> {
     let mut timeline = Vec::new();
 
-    for (panel_id, internal) in schedule.iter_entities::<PanelEntityType>() {
-        let prefix = get_panel_type_prefix(schedule, panel_id);
-        let is_timeline = prefix
-            .as_deref()
-            .and_then(|p| panel_types.get(p))
-            .is_some_and(|pt| pt.is_timeline);
-        if !is_timeline {
-            continue;
-        }
+    for (timeline_id, internal) in schedule.iter_entities::<TimelineEntityType>() {
+        let prefix = get_timeline_type_prefix(schedule, timeline_id);
 
         // Private timeline panels are excluded unless private_export
         let is_private = prefix
@@ -377,9 +372,11 @@ fn export_timeline(
         if is_private && !private_export {
             continue;
         }
-        let Some(start) = internal.time_slot.start_time() else {
+
+        let Some(start) = internal.data.time else {
             continue;
         };
+
         timeline.push(WidgetTimeline {
             id: internal.code.full_id(),
             start_time: format_naive_dt(start),
@@ -406,15 +403,6 @@ fn export_panels(
 
     for (panel_id, internal) in schedule.iter_entities::<PanelEntityType>() {
         let prefix = get_panel_type_prefix(schedule, panel_id);
-
-        // Timeline panels go to the timeline array, not panels
-        let is_timeline = prefix
-            .as_deref()
-            .and_then(|p| panel_types.get(p))
-            .is_some_and(|pt| pt.is_timeline);
-        if is_timeline {
-            continue;
-        }
 
         // Private panels are excluded from public export (unless private export)
         let is_private = prefix
@@ -733,6 +721,21 @@ fn get_panel_type_prefix(schedule: &Schedule, panel_id: PanelId) -> Option<Strin
         })
 }
 
+/// Return the first panel type prefix string for the given timeline, if one is linked.
+fn get_timeline_type_prefix(schedule: &Schedule, timeline_id: TimelineId) -> Option<String> {
+    schedule
+        .connected_field_nodes(timeline_id, timeline::EDGE_PANEL_TYPES)
+        .into_iter()
+        .next()
+        .and_then(|e| {
+            let pt_id =
+                unsafe { crate::tables::panel_type::PanelTypeId::new_unchecked(e.entity_uuid()) };
+            schedule
+                .get_internal::<PanelTypeEntityType>(pt_id)
+                .map(|d| d.data.prefix.clone())
+        })
+}
+
 /// All presenter IDs reachable from a panel via credited+uncredited edges,
 /// including transitive groups and transitive members.
 ///
@@ -865,6 +868,8 @@ mod tests {
     use crate::tables::panel::PanelInternalData;
     use crate::tables::panel_type::PanelTypeInternalData;
     use crate::tables::presenter::PresenterInternalData;
+    use crate::tables::timeline::TimelineInternalData;
+    use crate::tables::TimelineCommonData;
     use crate::value::time::TimeRange;
     use crate::value::uniq_id::PanelUniqId;
     use chrono::NaiveDate;
@@ -958,6 +963,36 @@ mod tests {
         id
     }
 
+    fn make_timeline(
+        sched: &mut Schedule,
+        code_str: &str,
+        start_hms: Option<(i32, u32, u32, u32)>,
+    ) -> TimelineId {
+        let code = PanelUniqId::parse(code_str).unwrap();
+        let id = crate::entity::EntityId::generate();
+        let time = match start_hms {
+            Some((day_offset, h, m, s)) => {
+                let base = NaiveDate::from_ymd_opt(2026, 6, 1).unwrap();
+                let date = base + chrono::Duration::days(day_offset as i64);
+                Some(date.and_hms_opt(h, m, s).unwrap())
+            }
+            _ => None,
+        };
+        sched.insert(
+            id,
+            TimelineInternalData {
+                id,
+                code,
+                data: TimelineCommonData {
+                    name: format!("Timeline {code_str}"),
+                    time,
+                    ..Default::default()
+                },
+            },
+        );
+        id
+    }
+
     fn make_presenter(sched: &mut Schedule, name: &str) -> PresenterId {
         let id = crate::entity::EntityId::generate();
         sched.insert(
@@ -979,6 +1014,14 @@ mod tests {
         pt_id: crate::tables::panel_type::PanelTypeId,
     ) {
         let _ = sched.edge_set(panel_id, panel::EDGE_PANEL_TYPE, [pt_id]);
+    }
+
+    fn link_timeline_panel_type(
+        sched: &mut Schedule,
+        timeline_id: TimelineId,
+        pt_id: crate::tables::panel_type::PanelTypeId,
+    ) {
+        let _ = sched.edge_set(timeline_id, timeline::EDGE_PANEL_TYPES, [pt_id]);
     }
 
     fn link_panel_room(sched: &mut Schedule, panel_id: PanelId, room_id: EventRoomId) {
@@ -1139,9 +1182,9 @@ mod tests {
         let mut sched = Schedule::new();
         let tl_pt = make_panel_type(&mut sched, "SP", "Split", true);
         let gp_pt = make_panel_type(&mut sched, "GP", "Guest Panel", false);
-        let tl_panel = make_panel(&mut sched, "SP001", Some((0, 8, 0, 0)), Some(0));
+        let tl_timeline = make_timeline(&mut sched, "SP001", Some((0, 8, 0, 0)));
         let gp_panel = make_panel(&mut sched, "GP001", Some((0, 14, 0, 0)), Some(60));
-        link_panel_type(&mut sched, tl_panel, tl_pt);
+        link_timeline_panel_type(&mut sched, tl_timeline, tl_pt);
         link_panel_type(&mut sched, gp_panel, gp_pt);
 
         let panel_types = export_panel_types(&sched).unwrap();

@@ -1,6 +1,6 @@
 # Cosplay America Schedule - Work Item
 
-Updated on: Tue May 12 21:52:01 2026
+Updated on: Wed May 13 01:50:43 2026
 
 ## Completed
 
@@ -150,7 +150,7 @@ above panelists and groups.
 
 ## Summary of Open Items
 
-**Total open items:** 16
+**Total open items:** 17
 
 * **Meta / Project-Level**
   * [META-001] Meta work item tracking the full multi-phase redesign of the schedule system. (Blocked by [META-007], [META-008])
@@ -167,6 +167,7 @@ reference and jump-starting new conventions.
   * [FEATURE-113] Replace the `std::process::Command::new("typst")` subprocess calls in
 `schedule-layout` and `cosam-convert` with in-process compilation using the
 `typst` Rust crate, eliminating the external `typst-cli` dependency.
+  * [FEATURE-115] Separate Timeline Sheet in XLSX
 
 * **Low Priority**
   * [CLI-100] Add a `--interactive` flag to `cosam-modify` that opens a read-eval-print loop for
@@ -329,6 +330,18 @@ but it requires implementing the `World` trait (file I/O, font loading, date,
 package resolution). The `typst-kit` crate (maintained by the Typst team)
 provides ready-made font search and embed helpers to simplify `World`
 implementation.
+
+---
+
+### [FEATURE-115] FEATURE-115: Separate Timeline Sheet in XLSX
+
+**Status:** Open
+
+**Priority:** Medium
+
+**Summary:** Separate Timeline Sheet in XLSX
+
+**Description:** Add a dedicated Timeline sheet to the XLSX format to separate timeline events from regular panels. This aligns with the new Timeline entity type and simplifies the data model.
 
 ---
 
@@ -646,6 +659,7 @@ a `HashMap<NonNilUuid, HashMap<FieldId, Vec<FieldNodeId>>>` layout).
 [FEATURE-110]: work-item/low/FEATURE-110.md
 [FEATURE-113]: work-item/medium/FEATURE-113.md
 [FEATURE-114]: work-item/done/FEATURE-114.md
+[FEATURE-115]: work-item/medium/FEATURE-115.md
 [META-001]: work-item/meta/META-001.md
 [META-002]: work-item/done/META-002.md
 [META-003]: work-item/done/META-003.md

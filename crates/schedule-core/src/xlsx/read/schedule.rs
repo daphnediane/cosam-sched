@@ -22,6 +22,7 @@ use crate::tables::event_room::EventRoomId;
 use crate::tables::panel::{self, PanelEntityType, PanelId};
 use crate::tables::panel_type::PanelTypeId;
 use crate::tables::presenter::find_or_create_tagged_presenter;
+use crate::tables::timeline::{self, TimelineEntityType, TimelineId};
 use crate::value::time::{parse_datetime, parse_duration};
 use crate::value::uniq_id::PanelUniqId;
 use crate::xlsx::columns::schedule as sc;
@@ -329,6 +330,60 @@ pub(super) fn read_schedule_into(
         }
         if let Some(dur) = effective_duration {
             updates.push(FieldUpdate::set(&crate::tables::panel::FIELD_DURATION, dur));
+        }
+
+        // Check if this is a timeline panel (has is_timeline panel type)
+        let is_timeline = panel_type_id
+            .and_then(|pt_id| {
+                schedule.get_internal::<crate::tables::panel_type::PanelTypeEntityType>(pt_id)
+            })
+            .map(|pt| pt.data.is_timeline)
+            .unwrap_or(false);
+
+        if is_timeline {
+            // Create Timeline entity instead of Panel entity
+            let uuid_pref_tl = UuidPreference::PreferFromV5 {
+                name: code_str.to_uppercase(),
+            };
+            let mut tl_updates: Vec<FieldUpdate<TimelineEntityType>> = vec![
+                FieldUpdate::set(&timeline::FIELD_CODE, code_str.as_str()),
+                FieldUpdate::set(&timeline::FIELD_NAME, name.as_str()),
+            ];
+            if let Some(ref d) = get_field_def(&data, &sc::DESCRIPTION).cloned() {
+                tl_updates.push(FieldUpdate::set(&timeline::FIELD_DESCRIPTION, d.as_str()));
+            }
+            if let Some(ref n) = get_field_def(&data, &sc::NOTE).cloned() {
+                tl_updates.push(FieldUpdate::set(&timeline::FIELD_NOTE, n.as_str()));
+            }
+            if let Some(st) = effective_start {
+                tl_updates.push(FieldUpdate::set(&timeline::FIELD_TIME, st));
+            }
+
+            let timeline_id: TimelineId =
+                match build_entity::<TimelineEntityType>(schedule, uuid_pref_tl, tl_updates) {
+                    Ok(id) => id,
+                    Err(e) => {
+                        eprintln!("xlsx import: skipping timeline {code_str:?}: {e}");
+                        continue;
+                    }
+                };
+            schedule.sidecar_mut().set_origin(
+                timeline_id.entity_uuid(),
+                EntityOrigin::Xlsx(XlsxSourceInfo {
+                    file_path: file_path.map(str::to_owned),
+                    sheet_name: range.sheet_name.clone(),
+                    row_index: row,
+                    import_time,
+                }),
+            );
+
+            // Wire panel type edge to timeline
+            if let Some(pt_id) = panel_type_id {
+                let _ = schedule.edge_add(timeline_id, timeline::EDGE_PANEL_TYPES, [pt_id]);
+            }
+
+            // Skip the rest of panel-specific processing for timelines
+            continue;
         }
 
         let panel_id: PanelId = match build_entity::<PanelEntityType>(schedule, uuid_pref, updates)

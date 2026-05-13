@@ -49,7 +49,7 @@ No `type Id` — use `EntityId<E>` directly everywhere a compile-time typed ID
 is needed. `RuntimeEntityId` covers the untyped/dynamic case.
 
 Entity types: `PanelTypeEntityType`, `PanelEntityType`, `PresenterEntityType`,
-`EventRoomEntityType`, `HotelRoomEntityType`.
+`EventRoomEntityType`, `HotelRoomEntityType`, `TimelineEntityType`.
 
 ## Entity Identity
 

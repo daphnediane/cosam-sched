@@ -104,6 +104,7 @@ determine what type a field expects without calling read/write.
 - **Presenter** — a person or group credited on panels
 - **EventRoom** — a logical room where panels take place
 - **HotelRoom** — a physical hotel space that one or more event rooms occupy
+- **Timeline** — a timeline event with a specific time point (not a duration range)
 
 ## Schedule Container
 
