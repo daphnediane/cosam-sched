@@ -1,0 +1,89 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Cosplay America Schedule — Split Time Display Test</title>
+  <link rel="stylesheet" href="cosam-calendar.css">
+  <style>
+    body {
+      margin: 0;
+      padding: 20px;
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+      background: #f5f5f5;
+    }
+
+    .page-header {
+      text-align: center;
+      padding: 20px;
+      margin-bottom: 20px;
+    }
+
+    .page-header h1 {
+      margin: 0 0 8px 0;
+      font-size: 28px;
+      color: #1f2937;
+    }
+
+    .page-header p {
+      margin: 0;
+      color: #6b7280;
+      font-size: 14px;
+    }
+
+    .note {
+      max-width: 800px;
+      margin: 20px auto;
+      padding: 16px;
+      background: #fff;
+      border: 1px solid #e5e7eb;
+      border-radius: 8px;
+      font-size: 14px;
+    }
+
+    .note h2 {
+      margin-top: 0;
+      font-size: 16px;
+      color: #1f2937;
+    }
+
+    .note ul {
+      margin: 8px 0;
+      padding-left: 20px;
+    }
+
+    .note li {
+      margin: 4px 0;
+    }
+  </style>
+</head>
+
+<body>
+  <div class="page-header">
+    <h1>Split Time Display Test</h1>
+    <p>Testing the new split time column layout with accessibility</p>
+  </div>
+
+  <div class="note">
+    <h2>What to Test</h2>
+    <ul>
+      <li><strong>List View:</strong> Time headers should show hour right-aligned, AM/PM or :MM left-aligned</li>
+      <li><strong>Grid View:</strong> Time column should have same split layout</li>
+      <li><strong>Midnight/Noon:</strong> Should be centered across both columns</li>
+      <li><strong>Screen Reader:</strong> Should announce full time (e.g., "3:45 PM") not just hour</li>
+    </ul>
+  </div>
+
+  <!-- This is all you need to embed the calendar -->
+  <div id="cosam-calendar"></div>
+  <script src="cosam-calendar.js"></script>
+  <script>
+    CosAmCalendar.init({
+      el: '#cosam-calendar',
+      dataUrl: '../output/2026/public.json'
+    });
+  </script>
+</body>
+
+</html>

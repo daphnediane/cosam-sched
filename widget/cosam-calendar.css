@@ -437,6 +437,49 @@
   font-size: 14px;
 }
 
+/* Split time column layout for aligned time display */
+.cosam-time-split {
+  display: inline-flex;
+  align-items: center;
+  gap: 0;
+}
+
+/* Hour part - right aligned in left half (narrower for optical centering) */
+.cosam-time-hour {
+  text-align: right;
+  min-width: 1.0em;
+}
+
+/* Suffix part (AM/PM or :MM) - left aligned in right half */
+.cosam-time-suffix {
+  text-align: left;
+  min-width: 2.0em;
+  font-size: 14px;
+}
+
+/* Special times (Midnight, Noon, "Time" header) - centered across both */
+.cosam-time-split.cosam-time-special {
+  justify-content: center;
+}
+
+.cosam-time-split.cosam-time-special .cosam-time-hour {
+  text-align: center;
+  min-width: auto;
+}
+
+/* Screen reader only content - visually hidden but accessible */
+.cosam-sr-only {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  white-space: nowrap;
+  border: 0;
+}
+
 .cosam-event-card {
   display: flex;
   gap: 12px;
@@ -699,8 +742,9 @@
 
 .cosam-grid-time-header {
   text-align: right;
-  padding-right: 10px !important;
+  padding: 0 !important;
   min-width: 80px;
+  width: 100%;
   background: var(--cosam-grid-header-bg) !important;
   z-index: 4;
   border-right: 1px solid var(--cosam-grid-border-soft) !important;
@@ -711,7 +755,9 @@
   display: flex;
   flex-direction: column;
   justify-content: center;
-  align-items: flex-end;
+  align-items: center;
+  width: 100%;
+  padding: 4px 0 !important;
 }
 
 .cosam-grid-day-label {
@@ -721,6 +767,9 @@
   letter-spacing: 0.04em;
   margin-bottom: 2px;
   padding-top: 4px;
+  text-align: center;
+  width: 100%;
+  display: block;
 }
 
 .cosam-grid-time-major {
@@ -729,9 +778,53 @@
 }
 
 .cosam-grid-time-minor {
-  font-size: 13px;
+  font-size: 14px;
   font-weight: 600;
   opacity: 1;
+}
+
+/* Ensure hour part always has same font size regardless of minor/major */
+.cosam-grid-time-major .cosam-grid-time-hour,
+.cosam-grid-time-minor .cosam-grid-time-hour {
+  font-size: 14px;
+}
+
+/* Suffix (:MM or AM/PM) - same size as hour */
+.cosam-grid-time-suffix {
+  font-size: 14px;
+}
+
+/* Grid split time layout */
+.cosam-grid-time-split {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0;
+  width: 100%;
+  box-sizing: border-box;
+  padding: 0 4px;
+}
+
+.cosam-grid-time-split.cosam-grid-time-special {
+  justify-content: center;
+  width: 100%;
+  text-align: center;
+}
+
+.cosam-grid-time-split.cosam-grid-time-special .cosam-grid-time-hour {
+  text-align: center;
+  width: 100%;
+}
+
+.cosam-grid-time-hour {
+  text-align: right;
+  min-width: 1.0em;
+}
+
+.cosam-grid-time-suffix {
+  text-align: left;
+  min-width: 2.0em;
+  font-size: 14px;
 }
 
 .cosam-grid-time-half {

@@ -71,6 +71,53 @@
     return m === 0 ? `${h} ${ampm}` : `${h}:${String(m).padStart(2, '0')}`;
   }
 
+  /**
+   * Split time format for aligned time display.
+   * Returns an object with:
+   *   - isSpecial: true for Midnight/Noon (display centered across both columns)
+   *   - hour: the hour part (right-aligned in left half)
+   *   - suffix: AM/PM or :MM (left-aligned in right half)
+   *   - full: complete time string for accessibility
+   *   - label: user-friendly label for aria-label
+   */
+  function formatTimeSplit(isoStr) {
+    if (!isoStr) return { isSpecial: true, hour: '', suffix: '', full: '', label: '' };
+    const d = new Date(isoStr);
+    let h = d.getHours();
+    const m = d.getMinutes();
+
+    // Midnight and Noon span both columns (centered)
+    if (h === 0 && m === 0) {
+      return { isSpecial: true, hour: 'Midnight', suffix: '', full: 'Midnight', label: 'Midnight' };
+    }
+    if (h === 12 && m === 0) {
+      return { isSpecial: true, hour: 'Noon', suffix: '', full: 'Noon', label: 'Noon' };
+    }
+
+    const ampm = h >= 12 ? 'PM' : 'AM';
+    h = h % 12 || 12;
+
+    if (m === 0) {
+      // On the hour: hour in left, AM/PM in right (with non-breaking space)
+      return {
+        isSpecial: false,
+        hour: String(h),
+        suffix: `\u00A0${ampm}`,
+        full: `${h} ${ampm}`,
+        label: `${h} ${ampm}`
+      };
+    } else {
+      // With minutes: hour in left, :MM in right
+      return {
+        isSpecial: false,
+        hour: String(h),
+        suffix: `:${String(m).padStart(2, '0')}`,
+        full: `${h}:${String(m).padStart(2, '0')} ${ampm}`,
+        label: `${h}:${String(m).padStart(2, '0')} ${ampm}`
+      };
+    }
+  }
+
   function formatTimeRange(start, end) {
     if (!start) return '';
     const s = formatTime(start);
@@ -903,7 +950,34 @@
         if (dayLabel) {
           timeHeader.appendChild(el('div', { className: 'cosam-time-header-day' }, dayLabel));
         }
-        timeHeader.appendChild(el('div', { className: 'cosam-time-header-time' }, timeLabel));
+        // Use split time format for aligned display with accessibility
+        const timeSplit = formatTimeSplit(evts[0] ? evts[0].startTime : null);
+        if (timeSplit.isSpecial) {
+          // Midnight/Noon - centered across both columns
+          timeHeader.appendChild(el('div', {
+            className: 'cosam-time-header-time cosam-time-split cosam-time-special',
+            'aria-label': timeSplit.label,
+          }, timeSplit.hour));
+        } else {
+          // Regular time - split into hour (right) and suffix (left)
+          const timeContainer = el('div', {
+            className: 'cosam-time-header-time cosam-time-split',
+            'aria-label': timeSplit.label,
+          });
+          // Screen reader only full time
+          timeContainer.appendChild(el('span', { className: 'cosam-sr-only' }, timeSplit.full));
+          // Visible hour part (right-aligned)
+          timeContainer.appendChild(el('span', {
+            className: 'cosam-time-hour',
+            'aria-hidden': 'true',
+          }, timeSplit.hour));
+          // Visible suffix part (left-aligned, AM/PM or :MM)
+          timeContainer.appendChild(el('span', {
+            className: 'cosam-time-suffix',
+            'aria-hidden': 'true',
+          }, timeSplit.suffix));
+          timeHeader.appendChild(timeContainer);
+        }
         group.appendChild(timeHeader);
 
         for (const evt of evts) {
@@ -1168,7 +1242,7 @@
           }
         }
 
-        // Build time header with structured content
+        // Build time header with split time format for aligned display
         const timeHeader = el('div', {
           className: 'cosam-grid-time-header' + (isHalfHour ? ' cosam-grid-time-half' : ''),
           style: {
@@ -1180,9 +1254,37 @@
         if (dayLabel) {
           timeHeader.appendChild(el('div', { className: 'cosam-grid-day-label' }, dayLabel));
         }
-        timeHeader.appendChild(el('div', {
-          className: isHalfHour ? 'cosam-grid-time-minor' : 'cosam-grid-time-major'
-        }, timeLabel));
+
+        // Use split time format for accessibility and aligned display
+        const timeSource = slotEvents.length > 0 ? slotEvents[0].startTime : originalKey + ':00';
+        const timeSplit = formatTimeSplit(timeSource);
+
+        if (timeSplit.isSpecial) {
+          // Midnight/Noon - centered
+          timeHeader.appendChild(el('div', {
+            className: (isHalfHour ? 'cosam-grid-time-minor' : 'cosam-grid-time-major') + ' cosam-grid-time-split cosam-grid-time-special',
+            'aria-label': timeSplit.label,
+          }, timeSplit.hour));
+        } else {
+          // Regular time - split display
+          const timeContainer = el('div', {
+            className: (isHalfHour ? 'cosam-grid-time-minor' : 'cosam-grid-time-major') + ' cosam-grid-time-split',
+            'aria-label': timeSplit.label,
+          });
+          // Screen reader only full time
+          timeContainer.appendChild(el('span', { className: 'cosam-sr-only' }, timeSplit.full));
+          // Visible hour (right-aligned)
+          timeContainer.appendChild(el('span', {
+            className: 'cosam-grid-time-hour',
+            'aria-hidden': 'true',
+          }, timeSplit.hour));
+          // Visible suffix (left-aligned: AM/PM or :MM)
+          timeContainer.appendChild(el('span', {
+            className: 'cosam-grid-time-suffix',
+            'aria-hidden': 'true',
+          }, timeSplit.suffix));
+          timeHeader.appendChild(timeContainer);
+        }
 
         grid.appendChild(timeHeader);
 
@@ -1379,12 +1481,16 @@
     _buildGridHeader(roomOrder) {
       const header = el('div', { className: 'cosam-grid-header' });
 
-      // Time header
+      // Time header - centered across split columns
       const timeHeader = el('div', {
         className: 'cosam-grid-header-cell cosam-grid-time-header',
         style: { gridColumn: 'time' }
       });
-      timeHeader.textContent = 'Time';
+      const timeLabel = el('div', {
+        className: 'cosam-grid-time-split cosam-grid-time-special',
+        'aria-label': 'Time column',
+      }, 'Time');
+      timeHeader.appendChild(timeLabel);
       header.appendChild(timeHeader);
 
       // Room headers
