@@ -6,17 +6,20 @@
 
 //! XLSX export implementation (FEATURE-029).
 
-use std::collections::HashSet;
+use std::collections::{HashMap, HashSet};
 use std::path::Path;
 
 use anyhow::Result;
-use umya_spreadsheet::structs::Worksheet;
+use chrono::{NaiveDateTime, Timelike};
+use umya_spreadsheet::structs::{
+    Border, HorizontalAlignmentValues, RichText, TextElement, VerticalAlignmentValues, Worksheet,
+};
 
 use crate::entity::{EntityType, EntityUuid};
 use crate::schedule::Schedule;
 use crate::tables::event_room::{self, EventRoomEntityType};
 use crate::tables::hotel_room::HotelRoomEntityType;
-use crate::tables::panel::{self, PanelEntityType, PanelInternalData};
+use crate::tables::panel::{self, compute_credits, PanelEntityType, PanelInternalData};
 use crate::tables::panel_type::PanelTypeEntityType;
 use crate::tables::presenter::{self, PresenterEntityType, PresenterId, PresenterRank};
 use crate::xlsx::columns::{panel_types, people, room_map, schedule as sched_cols, FieldDef};
@@ -153,6 +156,20 @@ pub(super) fn export_xlsx(schedule: &Schedule, path: &Path) -> Result<()> {
             headers.push(k.as_str());
         }
         add_table(ws, "Prefix", &headers, last_row);
+    }
+
+    // ── Grid reference sheets (one per logical day) ─────────────────────────
+    {
+        let mut used_sheet_names: HashSet<String> = HashSet::new();
+        for (day_label, day_panels) in split_panels_by_logical_day(schedule) {
+            let base = grid_sheet_name(&day_label);
+            let sheet_name = unique_sheet_name(base, &used_sheet_names);
+            used_sheet_names.insert(sheet_name.clone());
+            let ws = book
+                .new_sheet(&sheet_name)
+                .map_err(|e| anyhow::anyhow!("Cannot create grid sheet '{sheet_name}': {e}"))?;
+            write_grid_sheet(ws, schedule, &day_label, &day_panels);
+        }
     }
 
     umya_spreadsheet::writer::xlsx::write(&book, path)
@@ -721,4 +738,630 @@ fn write_panel_types_sheet(ws: &mut Worksheet, schedule: &Schedule, extra_keys: 
         row += 1;
     }
     row - 1
+}
+
+// ── Grid reference sheet helpers ──────────────────────────────────────────────
+
+/// Midnight-safe overnight-break threshold: gap > 4 hours or date line cross.
+const OVERNIGHT_GAP_MINUTES: i64 = 240;
+
+/// Internal panel summary used for grid layout, carrying only what we need.
+struct GridPanel {
+    name: String,
+    credits: Vec<String>,
+    start: NaiveDateTime,
+    end: NaiveDateTime,
+    room_ids: Vec<crate::tables::event_room::EventRoomId>,
+    is_break: bool,
+    /// CSS hex color from the panel type (e.g. `"#db2777"`), used as left-border accent.
+    type_color: Option<String>,
+}
+
+/// Split all scheduled panels in the schedule into logical days.
+///
+/// A new logical day starts when **both** of these are true:
+/// 1. The gap between the last panel end and the next panel start exceeds
+///    `OVERNIGHT_GAP_MINUTES` (4 hours).
+/// 2. The next panel starts on a different calendar date than the previous end.
+///
+/// This means a short gap crossing midnight (e.g. 2 h) keeps panels in the
+/// same logical day, and a long gap within a single calendar date (e.g. setup
+/// vs. programming on the same day) also does not split.
+///
+/// The day label is taken from the calendar date of the first panel in the
+/// group, so a Thursday schedule that runs into Friday early AM is labeled
+/// "Thu".
+fn split_panels_by_logical_day(schedule: &Schedule) -> Vec<(String, Vec<GridPanel>)> {
+    let mut all: Vec<GridPanel> = collect_grid_panels(schedule);
+    all.sort_by_key(|a| a.start);
+
+    let mut days: Vec<(String, Vec<GridPanel>)> = Vec::new();
+    let mut current_max_end: Option<NaiveDateTime> = None;
+    // Track the calendar date that opened the current logical day so that
+    // a panel whose start is on a *different* calendar date (with a large
+    // enough gap) correctly opens a new day even when `current_max_end`
+    // has already advanced into that next date.
+    let mut current_day_date: Option<chrono::NaiveDate> = None;
+
+    for gp in all {
+        let is_new_day = match (current_max_end, current_day_date) {
+            (None, _) => true,
+            (Some(prev_end), Some(day_date)) => {
+                let gap = (gp.start - prev_end).num_minutes();
+                gap > OVERNIGHT_GAP_MINUTES && gp.start.date() != day_date
+            }
+            _ => false,
+        };
+
+        if is_new_day {
+            let label = format_day_label(gp.start);
+            current_day_date = Some(gp.start.date());
+            days.push((label, Vec::new()));
+        }
+
+        let end = gp.end;
+        days.last_mut().unwrap().1.push(gp);
+        current_max_end = Some(match current_max_end {
+            Some(prev) if end > prev => end,
+            Some(prev) => prev,
+            None => end,
+        });
+    }
+
+    days
+}
+
+/// Collect all panels (regular + break) that have both start and end times.
+fn collect_grid_panels(schedule: &Schedule) -> Vec<GridPanel> {
+    let mut out = Vec::new();
+
+    for (panel_id, internal) in schedule.iter_entities::<PanelEntityType>() {
+        let (start, end) = match (
+            internal.time_slot.start_time(),
+            internal.time_slot.end_time(),
+        ) {
+            (Some(s), Some(e)) => (s, e),
+            _ => continue,
+        };
+
+        let panel_type_data = schedule
+            .connected_entities::<PanelTypeEntityType>(panel_id, panel::EDGE_PANEL_TYPE)
+            .into_iter()
+            .next()
+            .and_then(|pt_id| schedule.get_internal::<PanelTypeEntityType>(pt_id))
+            .map(|pt| (pt.data.is_break, pt.data.is_timeline, pt.data.color.clone()));
+
+        let is_break = panel_type_data.as_ref().map(|d| d.0).unwrap_or(false);
+        let is_timeline = panel_type_data.as_ref().map(|d| d.1).unwrap_or(false);
+        let type_color = panel_type_data.and_then(|d| d.2);
+
+        // Timeline panels are scheduling artifacts; skip them in the grid.
+        if is_timeline {
+            continue;
+        }
+
+        let room_ids: Vec<_> = schedule
+            .connected_entities::<EventRoomEntityType>(panel_id, panel::EDGE_EVENT_ROOMS)
+            .into_iter()
+            .collect();
+
+        let credits = if !is_break {
+            compute_credits(schedule, panel_id)
+        } else {
+            Vec::new()
+        };
+
+        out.push(GridPanel {
+            name: internal.data.name.clone(),
+            credits,
+            start,
+            end,
+            room_ids,
+            is_break,
+            type_color,
+        });
+    }
+
+    out
+}
+
+/// Human-readable day label for a grid sheet title, e.g. `"Fri Jun 27"`.
+fn format_day_label(dt: NaiveDateTime) -> String {
+    dt.format("%a %b %-d").to_string()
+}
+
+/// Sheet name for a grid day, e.g. `"Grid - Fri Jun 27"` (capped at 31 chars).
+fn grid_sheet_name(day_label: &str) -> String {
+    let full = format!("Grid - {day_label}");
+    if full.len() <= 31 {
+        full
+    } else {
+        full[..31].to_string()
+    }
+}
+
+/// Return `base` if it is not in `used`; otherwise append " 2", " 3", … until unique.
+///
+/// The returned name is always ≤ 31 characters.
+fn unique_sheet_name(base: String, used: &HashSet<String>) -> String {
+    if !used.contains(&base) {
+        return base;
+    }
+    for n in 2u32.. {
+        let candidate = {
+            let suffix = format!(" {n}");
+            if base.len() + suffix.len() <= 31 {
+                format!("{base}{suffix}")
+            } else {
+                format!("{}{suffix}", &base[..31 - suffix.len()])
+            }
+        };
+        if !used.contains(&candidate) {
+            return candidate;
+        }
+    }
+    unreachable!()
+}
+
+/// Convert a 1-based column number to an Excel column letter string (A, B, …, Z, AA, …).
+fn col_letter(col: u32) -> String {
+    let mut n = col;
+    let mut result = String::new();
+    while n > 0 {
+        n -= 1;
+        result.insert(0, char::from_u32(b'A' as u32 + n % 26).unwrap_or('A'));
+        n /= 26;
+    }
+    result
+}
+
+/// Format a human-readable time label for a `NaiveDateTime`.
+fn grid_time_label(dt: NaiveDateTime) -> String {
+    let hour = dt.hour();
+    let min = dt.minute();
+    let (h12, suffix) = if hour == 0 {
+        (12u32, "AM")
+    } else if hour < 12 {
+        (hour, "AM")
+    } else if hour == 12 {
+        (12, "PM")
+    } else {
+        (hour - 12, "PM")
+    };
+    if min == 0 {
+        format!("{h12} {suffix}")
+    } else {
+        format!("{h12}:{min:02}")
+    }
+}
+
+// ── Grid sheet color constants ────────────────────────────────────────────────
+
+const COLOR_HEADER_BG: &str = "FF2B6CB0"; // dark blue header
+const COLOR_HEADER_FG: &str = "FFFFFFFF"; // white text
+const COLOR_TITLE_BG: &str = "FF1A365D"; // darker blue title row
+const COLOR_TIME_BG: &str = "FFE2E8F0"; // light grey time column
+const COLOR_TIME_FG: &str = "FF2D3748"; // dark grey time text
+const COLOR_EVENT_BG: &str = "FFFFFFFF"; // white event cells
+const COLOR_EVENT_FG: &str = "FF1A202C"; // near-black event text
+const COLOR_BREAK_BG: &str = "FFF7FAFC"; // near-white break rows
+const COLOR_EMPTY_BG: &str = "FFCCCCCC"; // grey empty cells
+const COLOR_BREAK_FG: &str = "FF718096"; // muted grey break text
+const COLOR_BORDER: &str = "FFB2C5D4"; // light blue-grey border
+
+/// Convert a CSS hex color (`"#rrggbb"` or `"#rgb"`) to an ARGB string (`"FFrrggbb"`).
+///
+/// Returns a fully-opaque grey fallback if the input cannot be parsed.
+fn css_hex_to_argb(css: &str) -> String {
+    let hex = css.trim_start_matches('#');
+    match hex.len() {
+        6 => format!("FF{}", hex.to_uppercase()),
+        3 => {
+            let r = &hex[0..1];
+            let g = &hex[1..2];
+            let b = &hex[2..3];
+            format!("FF{r}{r}{g}{g}{b}{b}").to_uppercase()
+        }
+        _ => "FF888888".to_string(),
+    }
+}
+
+/// Apply a thin border on all four sides of a cell style.
+fn apply_thin_border(style: &mut umya_spreadsheet::structs::Style) {
+    let b = style.get_borders_mut();
+    b.get_bottom_mut().set_border_style(Border::BORDER_THIN);
+    b.get_bottom_mut().get_color_mut().set_argb(COLOR_BORDER);
+    b.get_top_mut().set_border_style(Border::BORDER_THIN);
+    b.get_top_mut().get_color_mut().set_argb(COLOR_BORDER);
+    b.get_left_mut().set_border_style(Border::BORDER_THIN);
+    b.get_left_mut().get_color_mut().set_argb(COLOR_BORDER);
+    b.get_right_mut().set_border_style(Border::BORDER_THIN);
+    b.get_right_mut().get_color_mut().set_argb(COLOR_BORDER);
+}
+
+/// Write a single grid reference sheet for one logical day.
+///
+/// Layout:
+/// - Row 1: merged title spanning all columns.
+/// - Row 2: header row — "Time" + one column per room.
+/// - Row 3+: one row per unique time-slot boundary; panel cells use merged ranges.
+fn write_grid_sheet(
+    ws: &mut Worksheet,
+    schedule: &Schedule,
+    day_label: &str,
+    panels: &[GridPanel],
+) {
+    if panels.is_empty() {
+        return;
+    }
+
+    // ── Build sorted room list ────────────────────────────────────────────────
+    let room_ids_used: HashSet<crate::tables::event_room::EventRoomId> = panels
+        .iter()
+        .filter(|p| !p.is_break)
+        .flat_map(|p| p.room_ids.iter().copied())
+        .collect();
+
+    let mut rooms: Vec<_> = schedule
+        .iter_entities::<EventRoomEntityType>()
+        .filter(|(rid, r)| room_ids_used.contains(rid) && !r.data.is_pseudo)
+        .collect();
+    rooms.sort_by(|(_, a), (_, b)| match (a.data.sort_key, b.data.sort_key) {
+        (Some(ka), Some(kb)) => ka
+            .cmp(&kb)
+            .then_with(|| a.data.room_name.cmp(&b.data.room_name)),
+        (Some(_), None) => std::cmp::Ordering::Less,
+        (None, Some(_)) => std::cmp::Ordering::Greater,
+        (None, None) => a.data.room_name.cmp(&b.data.room_name),
+    });
+
+    let num_rooms = rooms.len() as u32;
+    let total_cols = 1 + num_rooms; // col 1 = Time, cols 2.. = rooms
+
+    // ── Collect unique time-slot boundaries ───────────────────────────────────
+    let mut time_keys: Vec<NaiveDateTime> = panels
+        .iter()
+        .flat_map(|p| [p.start, p.end])
+        .collect::<std::collections::HashSet<_>>()
+        .into_iter()
+        .collect();
+    time_keys.sort();
+
+    let time_index: HashMap<NaiveDateTime, usize> = time_keys
+        .iter()
+        .enumerate()
+        .map(|(i, dt)| (*dt, i))
+        .collect();
+
+    let room_col_index: HashMap<crate::tables::event_room::EventRoomId, usize> = rooms
+        .iter()
+        .enumerate()
+        .map(|(i, (rid, _))| (*rid, i))
+        .collect();
+
+    const DATA_ROW_OFFSET: u32 = 3; // rows 1=title, 2=header, 3+=data
+
+    // ── Column widths ─────────────────────────────────────────────────────────
+    ws.get_column_dimension_mut("A").set_width(10.0);
+    for i in 0..num_rooms {
+        ws.get_column_dimension_mut(&col_letter(2 + i))
+            .set_width(22.0);
+    }
+
+    // ── Row 1: title ─────────────────────────────────────────────────────────
+    ws.get_cell_mut((1u32, 1u32)).set_value(day_label);
+    if total_cols > 1 {
+        ws.add_merge_cells(format!("A1:{}1", col_letter(total_cols)));
+    }
+    ws.get_row_dimension_mut(&1).set_height(24.0);
+    {
+        let s = ws.get_style_mut("A1");
+        s.set_background_color_solid(COLOR_TITLE_BG);
+        s.get_font_mut().set_bold(true);
+        s.get_font_mut().set_size(13.0);
+        s.get_font_mut().get_color_mut().set_argb(COLOR_HEADER_FG);
+        s.get_alignment_mut().set_wrap_text(true);
+        s.get_alignment_mut()
+            .set_vertical(VerticalAlignmentValues::Center);
+    }
+
+    // ── Row 2: header row ─────────────────────────────────────────────────────
+    ws.get_row_dimension_mut(&2).set_height(36.0);
+    ws.get_cell_mut((1u32, 2u32)).set_value("Time");
+    for (i, (rid, room)) in rooms.iter().enumerate() {
+        let col = 2 + i as u32;
+        // Show hotel room name in parens if present, otherwise nothing.
+        let hotel_name: Option<String> = schedule
+            .connected_entities::<HotelRoomEntityType>(*rid, event_room::EDGE_HOTEL_ROOMS)
+            .into_iter()
+            .next()
+            .and_then(|hr_id| schedule.get_internal::<HotelRoomEntityType>(hr_id))
+            .map(|hr| hr.data.hotel_room_name.clone());
+        let display = match (&room.data.long_name, &hotel_name) {
+            (Some(long), Some(hotel)) => format!("{long}\n({hotel})"),
+            (Some(long), None) => long.clone(),
+            (None, Some(hotel)) => format!("{}\n({hotel})", room.data.room_name),
+            (None, None) => room.data.room_name.clone(),
+        };
+        ws.get_cell_mut((col, 2u32)).set_value(display.as_str());
+    }
+    // Apply header style to all header cells.
+    for col in 1..=total_cols {
+        let addr = format!("{}{}", col_letter(col), 2);
+        let s = ws.get_style_mut(addr.as_str());
+        s.set_background_color_solid(COLOR_HEADER_BG);
+        s.get_font_mut().set_bold(true);
+        s.get_font_mut().set_size(10.0);
+        s.get_font_mut().get_color_mut().set_argb(COLOR_HEADER_FG);
+        s.get_alignment_mut().set_wrap_text(true);
+        s.get_alignment_mut()
+            .set_vertical(VerticalAlignmentValues::Center);
+        s.get_alignment_mut()
+            .set_horizontal(HorizontalAlignmentValues::Center);
+        apply_thin_border(s);
+    }
+
+    // ── Row 3+: time-slot label column ────────────────────────────────────────
+    for (ti, dt) in time_keys.iter().enumerate() {
+        let row = ti as u32 + DATA_ROW_OFFSET;
+        ws.get_cell_mut((1u32, row))
+            .set_value(grid_time_label(*dt).as_str());
+        ws.get_row_dimension_mut(&row).set_height(45.0);
+
+        // Style the time cell.
+        let addr = format!("A{row}");
+        let s = ws.get_style_mut(addr.as_str());
+        s.set_background_color_solid(COLOR_TIME_BG);
+        s.get_font_mut().set_bold(true);
+        s.get_font_mut().set_size(9.0);
+        s.get_font_mut().get_color_mut().set_argb(COLOR_TIME_FG);
+        s.get_alignment_mut().set_wrap_text(true);
+        s.get_alignment_mut()
+            .set_vertical(VerticalAlignmentValues::Top);
+        apply_thin_border(s);
+
+        // Style empty room cells with grey background and a border.
+        for col in 2..=total_cols {
+            let empty_addr = format!("{}{row}", col_letter(col));
+            let es = ws.get_style_mut(empty_addr.as_str());
+            es.set_background_color_solid(COLOR_EMPTY_BG);
+            apply_thin_border(es);
+        }
+    }
+
+    // ── Place panel cells ─────────────────────────────────────────────────────
+    let mut covered: HashSet<(u32, u32)> = HashSet::new();
+
+    for panel in panels {
+        let row_start_idx = match time_index.get(&panel.start) {
+            Some(&i) => i,
+            None => continue,
+        };
+        let row_end_idx = match time_index.get(&panel.end) {
+            Some(&i) => i,
+            None => continue,
+        };
+        if row_end_idx <= row_start_idx {
+            continue;
+        }
+
+        let xl_row_start = row_start_idx as u32 + DATA_ROW_OFFSET;
+        let xl_row_end = row_end_idx as u32 + DATA_ROW_OFFSET - 1; // inclusive
+
+        // Duration string: "X hr" / "X hr Y min" / "Y min"
+        let duration_mins = (panel.end - panel.start).num_minutes();
+        let duration_str = match (duration_mins / 60, duration_mins % 60) {
+            (h, 0) if h > 0 => format!("{h} hr"),
+            (0, m) => format!("{m} min"),
+            (h, m) => format!("{h} hr {m} min"),
+        };
+
+        let credits_str = panel.credits.join(", ");
+        let break_text = if credits_str.is_empty() {
+            format!("{}  {duration_str}", panel.name)
+        } else {
+            format!("{}\n{credits_str}\n{duration_str}", panel.name)
+        };
+
+        if panel.is_break {
+            if !covered.contains(&(xl_row_start, 1)) {
+                ws.get_cell_mut((1u32, xl_row_start))
+                    .set_value(break_text.as_str());
+                let top_left = format!("A{xl_row_start}");
+                let bottom_right = format!("{}{}", col_letter(total_cols), xl_row_end);
+                if top_left != bottom_right {
+                    ws.add_merge_cells(format!("{top_left}:{bottom_right}"));
+                }
+                // Style the break cell.
+                let s = ws.get_style_mut(top_left.as_str());
+                s.set_background_color_solid(COLOR_BREAK_BG);
+                s.get_font_mut().set_italic(true);
+                s.get_font_mut().set_size(9.0);
+                s.get_font_mut().get_color_mut().set_argb(COLOR_BREAK_FG);
+                s.get_alignment_mut().set_wrap_text(true);
+                s.get_alignment_mut()
+                    .set_vertical(VerticalAlignmentValues::Center);
+                s.get_alignment_mut()
+                    .set_horizontal(HorizontalAlignmentValues::Center);
+                apply_thin_border(s);
+                for r in xl_row_start..=xl_row_end {
+                    for c in 1..=total_cols {
+                        covered.insert((r, c));
+                    }
+                }
+            }
+        } else {
+            for &room_id in &panel.room_ids {
+                if let Some(&room_ci) = room_col_index.get(&room_id) {
+                    let xl_col = 2 + room_ci as u32;
+                    if covered.contains(&(xl_row_start, xl_col)) {
+                        continue;
+                    }
+                    // Build rich text: bold name, then italic credits/duration.
+                    let mut rt = RichText::default();
+                    let mut name_el = TextElement::default();
+                    name_el.set_text(panel.name.clone());
+                    name_el.get_font_mut().set_bold(true);
+                    name_el.get_font_mut().set_size(13.0);
+                    name_el
+                        .get_font_mut()
+                        .get_color_mut()
+                        .set_argb(COLOR_EVENT_FG);
+                    rt.add_rich_text_elements(name_el);
+                    let meta_text = if credits_str.is_empty() {
+                        format!("\n{duration_str}")
+                    } else {
+                        format!("\n{credits_str}\n{duration_str}")
+                    };
+                    let mut meta_el = TextElement::default();
+                    meta_el.set_text(meta_text);
+                    meta_el.get_font_mut().set_italic(true);
+                    meta_el.get_font_mut().set_size(10.0);
+                    meta_el
+                        .get_font_mut()
+                        .get_color_mut()
+                        .set_argb(COLOR_EVENT_FG);
+                    rt.add_rich_text_elements(meta_el);
+                    ws.get_cell_mut((xl_col, xl_row_start)).set_rich_text(rt);
+                    if xl_row_end > xl_row_start {
+                        ws.add_merge_cells(format!(
+                            "{col}{r1}:{col}{r2}",
+                            col = col_letter(xl_col),
+                            r1 = xl_row_start,
+                            r2 = xl_row_end,
+                        ));
+                        for r in xl_row_start..=xl_row_end {
+                            covered.insert((r, xl_col));
+                        }
+                    }
+                    // Style the event cell (top cell of merged range).
+                    let addr = format!("{}{xl_row_start}", col_letter(xl_col));
+                    let s = ws.get_style_mut(addr.as_str());
+                    s.set_background_color_solid(COLOR_EVENT_BG);
+                    s.get_font_mut().set_bold(true);
+                    s.get_font_mut().set_size(13.0);
+                    s.get_font_mut().get_color_mut().set_argb(COLOR_EVENT_FG);
+                    s.get_alignment_mut().set_wrap_text(true);
+                    s.get_alignment_mut()
+                        .set_vertical(VerticalAlignmentValues::Top);
+                    apply_thin_border(s);
+                    // Thick left accent border on every row in the merged range.
+                    if let Some(ref css_hex) = panel.type_color {
+                        let argb = css_hex_to_argb(css_hex);
+                        for accent_row in xl_row_start..=xl_row_end {
+                            let accent_addr = format!("{}{accent_row}", col_letter(xl_col));
+                            let as_ = ws.get_style_mut(accent_addr.as_str());
+                            let b = as_.get_borders_mut();
+                            b.get_left_mut().set_border_style(Border::BORDER_MEDIUM);
+                            b.get_left_mut().get_color_mut().set_argb(argb.clone());
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
+
+// ── Grid sheet tests ──────────────────────────────────────────────────────────
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn make_naive(day: u32, hour: u32, min: u32) -> NaiveDateTime {
+        chrono::NaiveDate::from_ymd_opt(2026, 6, day)
+            .unwrap()
+            .and_hms_opt(hour, min, 0)
+            .unwrap()
+    }
+
+    #[test]
+    fn test_col_letter_basic() {
+        assert_eq!(col_letter(1), "A");
+        assert_eq!(col_letter(26), "Z");
+        assert_eq!(col_letter(27), "AA");
+        assert_eq!(col_letter(52), "AZ");
+    }
+
+    #[test]
+    fn test_grid_time_label() {
+        assert_eq!(grid_time_label(make_naive(27, 14, 0)), "2 PM");
+        assert_eq!(grid_time_label(make_naive(27, 14, 30)), "2:30");
+        assert_eq!(grid_time_label(make_naive(27, 0, 0)), "12 AM");
+        assert_eq!(grid_time_label(make_naive(27, 12, 0)), "12 PM");
+    }
+
+    #[test]
+    fn test_grid_sheet_name_truncates() {
+        let long_label = "A very long day label that exceeds the limit";
+        let name = grid_sheet_name(long_label);
+        assert!(name.len() <= 31);
+        assert!(name.starts_with("Grid - "));
+    }
+
+    #[test]
+    fn test_format_day_label() {
+        let dt = make_naive(27, 10, 0);
+        let label = format_day_label(dt);
+        assert!(
+            label.contains("27"),
+            "label should contain day number: {label}"
+        );
+    }
+
+    fn make_simple_day_split(panels: Vec<(NaiveDateTime, NaiveDateTime)>) -> usize {
+        let mut days: Vec<(String, Vec<(NaiveDateTime, NaiveDateTime)>)> = Vec::new();
+        let mut current_max_end: Option<NaiveDateTime> = None;
+        for (start, end) in panels {
+            let is_new_day = match current_max_end {
+                None => true,
+                Some(prev_end) => {
+                    let gap = (start - prev_end).num_minutes();
+                    gap > OVERNIGHT_GAP_MINUTES && start.date() != prev_end.date()
+                }
+            };
+            if is_new_day {
+                let label = format_day_label(start);
+                days.push((label, Vec::new()));
+            }
+            let e = end;
+            days.last_mut().unwrap().1.push((start, end));
+            current_max_end = Some(match current_max_end {
+                Some(prev) if e > prev => e,
+                Some(prev) => prev,
+                None => e,
+            });
+        }
+        days.len()
+    }
+
+    #[test]
+    fn test_split_same_day_small_gap() {
+        // 2 h gap, same date — same logical day.
+        let count = make_simple_day_split(vec![
+            (make_naive(27, 10, 0), make_naive(27, 11, 0)),
+            (make_naive(27, 13, 0), make_naive(27, 14, 0)),
+        ]);
+        assert_eq!(count, 1, "2 h gap same date: same day");
+    }
+
+    #[test]
+    fn test_split_large_gap_same_date_no_split() {
+        // 5 h gap but same calendar date — no split (e.g. setup gap during the day).
+        let count = make_simple_day_split(vec![
+            (make_naive(27, 8, 0), make_naive(27, 9, 0)),
+            (make_naive(27, 14, 1), make_naive(27, 15, 0)),
+        ]);
+        assert_eq!(count, 1, "gap > 4 h but same date: same logical day");
+    }
+
+    #[test]
+    fn test_split_small_gap_across_midnight_no_split() {
+        // 2 h gap crossing midnight — stays as one logical day.
+        let count = make_simple_day_split(vec![
+            (make_naive(27, 23, 0), make_naive(28, 0, 0)),
+            (make_naive(28, 1, 0), make_naive(28, 2, 0)),
+        ]);
+        assert_eq!(count, 1, "2 h gap crossing midnight: same logical day");
+    }
 }
