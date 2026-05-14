@@ -19,8 +19,6 @@
 //! syntax on the Schedule sheet's presenter columns.
 
 use anyhow::Result;
-use chrono::{DateTime, Utc};
-use umya_spreadsheet::Spreadsheet;
 
 use crate::edit::builder::build_entity;
 use crate::entity::{EntityType, EntityUuid, UuidPreference};
@@ -43,19 +41,16 @@ use super::{
 /// prior pass or earlier in the sheet) is updated if the People sheet carries
 /// a higher-priority rank.
 pub(super) fn read_people_into(
-    book: &Spreadsheet,
+    ctx: &mut super::ImportContext<'_>,
     mode: &TableImportMode,
     schedule: &mut Schedule,
-    file_path: Option<&str>,
-    import_time: DateTime<Utc>,
 ) -> Result<()> {
-    let range = match find_data_range(book, mode, &["Presenters", "Presenter", "People", "Person"])
-    {
+    let range = match find_data_range(ctx, mode, &["Presenters", "Presenter", "People", "Person"]) {
         Some(r) => r,
         None => return Ok(()),
     };
 
-    let ws = match book.get_sheet_by_name(&range.sheet_name) {
+    let ws = match ctx.book.get_sheet_by_name(&range.sheet_name) {
         Some(ws) => ws,
         None => return Ok(()),
     };
@@ -129,10 +124,10 @@ pub(super) fn read_people_into(
                     schedule.sidecar_mut().set_origin(
                         uuid,
                         EntityOrigin::Xlsx(XlsxSourceInfo {
-                            file_path: file_path.map(str::to_owned),
+                            file_path: ctx.file_path.map(str::to_owned),
                             sheet_name: range.sheet_name.clone(),
                             row_index: row,
-                            import_time,
+                            import_time: ctx.import_time,
                         }),
                     );
                     // Column 0 = People sheet; row gives relative order.

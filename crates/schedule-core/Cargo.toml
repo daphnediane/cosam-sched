@@ -18,3 +18,10 @@ serde_json = "1"
 thiserror = "2"
 anyhow = "1"
 umya-spreadsheet = "2"
+csv = "1.3"
+encoding_rs = "0.8"
+
+[features]
+default = ["xlsx"]
+xlsx = []
+csv = []

@@ -9,8 +9,6 @@
 use std::collections::HashMap;
 
 use anyhow::Result;
-use chrono::{DateTime, Utc};
-use umya_spreadsheet::Spreadsheet;
 
 use crate::edit::builder::build_entity;
 use crate::entity::{EntityType, EntityUuid, UuidPreference};
@@ -30,20 +28,18 @@ use super::{
 /// Returns a map from uppercase 2-letter prefix → `PanelTypeId` for use when
 /// reading the Schedule sheet.
 pub(super) fn read_panel_types_into(
-    book: &Spreadsheet,
+    ctx: &mut super::ImportContext<'_>,
     mode: &TableImportMode,
     schedule: &mut Schedule,
-    file_path: Option<&str>,
-    import_time: DateTime<Utc>,
 ) -> Result<HashMap<String, PanelTypeId>> {
     let mut panel_type_lookup: HashMap<String, PanelTypeId> = HashMap::new();
 
-    let range = match find_data_range(book, mode, &["Prefix", "PanelTypes"]) {
+    let range = match find_data_range(ctx, mode, &["Prefix", "PanelTypes"]) {
         Some(r) => r,
         None => return Ok(panel_type_lookup),
     };
 
-    let ws = match book.get_sheet_by_name(&range.sheet_name) {
+    let ws = match ctx.book.get_sheet_by_name(&range.sheet_name) {
         Some(ws) => ws,
         None => return Ok(panel_type_lookup),
     };
@@ -141,10 +137,10 @@ pub(super) fn read_panel_types_into(
                 schedule.sidecar_mut().set_origin(
                     id.entity_uuid(),
                     EntityOrigin::Xlsx(XlsxSourceInfo {
-                        file_path: file_path.map(str::to_owned),
+                        file_path: ctx.file_path.map(str::to_owned),
                         sheet_name: range.sheet_name.clone(),
                         row_index: row,
-                        import_time,
+                        import_time: ctx.import_time,
                     }),
                 );
                 route_extra_columns(

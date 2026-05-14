@@ -15,6 +15,8 @@ mod schedule;
 mod timeline;
 
 use std::collections::HashMap;
+use std::fs::{self, File};
+use std::io::Read;
 use std::path::Path;
 
 use anyhow::{Context, Result};
@@ -57,38 +59,192 @@ impl TableImportMode {
     }
 }
 
-/// Options controlling which sheets are read during XLSX import.
-pub struct XlsxImportOptions {
-    /// Sheet/table mode for panel data (default: Process with name `"Schedule"`).
-    pub schedule_table: TableImportMode,
-    /// Sheet/table mode for rooms (default: Process with name `"Rooms"`).
-    pub rooms_table: TableImportMode,
-    /// Sheet/table mode for panel types (default: Process with name `"PanelTypes"`).
-    pub panel_types_table: TableImportMode,
-    /// Sheet/table mode for the People/Presenters sheet (default: Process with name `"People"`).
-    pub people_table: TableImportMode,
-    /// Sheet/table mode for hotel rooms (default: Process with name `"Hotel"`).
-    pub hotel_rooms_table: TableImportMode,
-    /// Sheet/table mode for timelines (default: Process with name `"Timeline"`).
-    pub timeline_table: TableImportMode,
+/// Common options controlling which tables/sheets are read during import.
+/// Used by both XLSX and CSV import.
+#[derive(Debug, Clone, Default)]
+pub struct TableImportOptions {
+    /// Mode for panel data (default: Process).
+    pub schedule: TableImportMode,
+    /// Mode for rooms (default: Process).
+    pub rooms: TableImportMode,
+    /// Mode for panel types (default: Process).
+    pub panel_types: TableImportMode,
+    /// Mode for the People/Presenters table (default: Process).
+    pub people: TableImportMode,
+    /// Mode for hotel rooms (default: Process).
+    pub hotel_rooms: TableImportMode,
+    /// Mode for timelines (default: Process).
+    pub timeline: TableImportMode,
 }
 
-impl Default for XlsxImportOptions {
-    fn default() -> Self {
+/// Type alias for XLSX import options (for backward compatibility).
+pub type XlsxImportOptions = TableImportOptions;
+
+// ── Import context ───────────────────────────────────────────────────────────────
+
+/// Context structure holding common parameters for XLSX/CSV import operations.
+///
+/// This struct encapsulates the shared parameters passed to all `read_..._into`
+/// functions to reduce parameter count and improve maintainability.
+pub struct ImportContext<'a> {
+    /// The spreadsheet being imported (mutated as CSV files are imported as sheets)
+    pub book: &'a mut Spreadsheet,
+    /// Optional file path for origin tracking
+    pub file_path: Option<&'a str>,
+    /// Timestamp when the import began
+    pub import_time: chrono::DateTime<chrono::Utc>,
+    /// Optional CSV file mapping for directory import mode
+    pub csv_map: &'a Option<CsvFileMap>,
+}
+
+impl<'a> ImportContext<'a> {
+    /// Create a new ImportContext from the common import parameters.
+    pub fn new(
+        book: &'a mut Spreadsheet,
+        file_path: Option<&'a str>,
+        import_time: chrono::DateTime<chrono::Utc>,
+        csv_map: &'a Option<CsvFileMap>,
+    ) -> Self {
         Self {
-            schedule_table: TableImportMode::default(),
-            rooms_table: TableImportMode::default(),
-            panel_types_table: TableImportMode::default(),
-            people_table: TableImportMode::default(),
-            hotel_rooms_table: TableImportMode::default(),
-            timeline_table: TableImportMode::default(),
+            book,
+            file_path,
+            import_time,
+            csv_map,
         }
     }
+}
+
+// ── CSV file mapping for directory import ───────────────────────────────────────
+
+/// Mapping from lowercase sheet names (without extension) to full CSV/TXT file paths.
+/// Used when importing a directory of CSV files via xlsx import.
+#[derive(Debug, Clone)]
+pub struct CsvFileMap {
+    /// Map of lowercase names (e.g., "schedule") to full file paths (e.g., "/path/to/schedule.csv")
+    files: HashMap<String, String>,
+}
+
+impl CsvFileMap {
+    /// Scan a directory for CSV and TXT files and build a mapping.
+    pub fn from_directory(dir_path: &Path) -> Result<Self> {
+        let mut files = HashMap::new();
+
+        let entries = fs::read_dir(dir_path)
+            .with_context(|| format!("Failed to read directory {}", dir_path.display()))?;
+
+        for entry in entries {
+            let entry = entry?;
+            let path = entry.path();
+
+            // Only process regular files
+            if !path.is_file() {
+                continue;
+            }
+
+            // Check for .csv or .txt extension
+            let extension = path
+                .extension()
+                .and_then(|e| e.to_str())
+                .map(|e| e.to_lowercase());
+
+            if extension.as_deref() != Some("csv") && extension.as_deref() != Some("txt") {
+                continue;
+            }
+
+            // Get the filename without extension as the key (lowercase)
+            let stem = path
+                .file_stem()
+                .and_then(|s| s.to_str())
+                .ok_or_else(|| anyhow::anyhow!("Invalid filename: {}", path.display()))?;
+
+            let key = stem.to_lowercase();
+            files.insert(key, path.to_string_lossy().to_string());
+        }
+
+        Ok(CsvFileMap { files })
+    }
+
+    /// Get the full file path for a given lowercase sheet name.
+    pub fn get(&self, name: &str) -> Option<&String> {
+        self.files.get(&name.to_lowercase())
+    }
+
+    /// Check if a file exists for the given name.
+    pub fn contains(&self, name: &str) -> bool {
+        self.files.contains_key(&name.to_lowercase())
+    }
+}
+
+/// Import a CSV file into a spreadsheet as a new sheet.
+fn import_csv_to_sheet(book: &mut Spreadsheet, csv_path: &Path, sheet_name: &str) -> Result<()> {
+    // Detect CSV format
+    let format = crate::csv::read::detect_csv_format(csv_path)?;
+
+    // Read the CSV file
+    let mut file =
+        File::open(csv_path).with_context(|| format!("Failed to open {}", csv_path.display()))?;
+
+    let mut content = Vec::new();
+    file.read_to_end(&mut content)
+        .with_context(|| format!("Failed to read {}", csv_path.display()))?;
+
+    // Convert encoding if needed
+    let content_str = match format {
+        crate::csv::read::CsvFormat::Utf16Tab => {
+            let (decoded, _, _) = encoding_rs::UTF_16LE.decode(&content);
+            decoded.to_string()
+        }
+        crate::csv::read::CsvFormat::Utf8Tab | crate::csv::read::CsvFormat::Utf8Comma => {
+            String::from_utf8(content)
+                .with_context(|| format!("Failed to decode {} as UTF-8", csv_path.display()))?
+        }
+    };
+
+    // Parse CSV content
+    let delimiter = match format {
+        crate::csv::read::CsvFormat::Utf8Tab | crate::csv::read::CsvFormat::Utf16Tab => b'\t',
+        crate::csv::read::CsvFormat::Utf8Comma => b',',
+    };
+
+    let mut rdr = csv::ReaderBuilder::new()
+        .delimiter(delimiter)
+        .from_reader(content_str.as_bytes());
+
+    // Create a new sheet
+    let _ = book.new_sheet(sheet_name);
+
+    // Get the sheet (it should be the last one added)
+    let sheet_index = book.get_sheet_count() - 1;
+    let sheet = book
+        .get_sheet_mut(&sheet_index)
+        .ok_or_else(|| anyhow::anyhow!("Failed to get sheet {}", sheet_name))?;
+
+    // Write headers (row 1)
+    let headers = rdr.headers()?;
+    for (col_idx, header) in headers.iter().enumerate() {
+        let col = (col_idx + 1) as u32;
+        sheet.get_cell_mut((col, 1)).set_value(header);
+    }
+
+    // Write data rows (starting from row 2)
+    for (row_idx, result) in (2u32..).zip(rdr.records()) {
+        let record = result?;
+        for (col_idx, value) in record.iter().enumerate() {
+            let col = (col_idx + 1) as u32;
+            sheet.get_cell_mut((col, row_idx)).set_value(value);
+        }
+    }
+
+    Ok(())
 }
 
 // ── Public entry point ────────────────────────────────────────────────────────
 
 /// Import an XLSX spreadsheet and return a populated [`Schedule`].
+///
+/// If `path` is a directory, it will be scanned for CSV/TXT files and imported
+/// as if they were sheets in an XLSX file. This allows using the same XLSX import
+/// logic with CSV files.
 ///
 /// Read order:
 /// 1. PanelTypes — so panel-type lookups work during schedule import.
@@ -105,8 +261,17 @@ impl Default for XlsxImportOptions {
 /// freshly created.  No existing CRDT state is preserved or merged.
 /// See IDEA-080 for future merge-import support.
 pub fn import_xlsx(path: &Path, options: &XlsxImportOptions) -> Result<Schedule> {
-    let book = umya_spreadsheet::reader::xlsx::read(path)
-        .with_context(|| format!("Failed to open {}", path.display()))?;
+    let (mut book, csv_map) = if path.is_dir() {
+        // Directory mode: scan for CSV files and create empty spreadsheet
+        let csv_map = CsvFileMap::from_directory(path)?;
+        let book = umya_spreadsheet::new_file();
+        (book, Some(csv_map))
+    } else {
+        // File mode: read XLSX file
+        let book = umya_spreadsheet::reader::xlsx::read(path)
+            .with_context(|| format!("Failed to open {}", path.display()))?;
+        (book, None)
+    };
 
     let mut schedule = Schedule::new();
     schedule.metadata.modified_at = resolve_source_modified(&book, path);
@@ -114,58 +279,34 @@ pub fn import_xlsx(path: &Path, options: &XlsxImportOptions) -> Result<Schedule>
     let file_path = path.to_str().map(str::to_owned);
     let import_time = chrono::Utc::now();
 
-    let panel_type_lookup = panel_types::read_panel_types_into(
-        &book,
-        &options.panel_types_table,
-        &mut schedule,
-        file_path.as_deref(),
-        import_time,
-    )?;
+    let mut ctx = ImportContext::new(&mut book, file_path.as_deref(), import_time, &csv_map);
+
+    let panel_type_lookup =
+        panel_types::read_panel_types_into(&mut ctx, &options.panel_types, &mut schedule)?;
 
     // Read Hotels sheet first (optional) to populate HotelRoom entities.
-    let hotel_lookup = hotel_rooms::read_hotel_rooms_into(
-        &book,
-        &options.hotel_rooms_table,
-        &mut schedule,
-        file_path.as_deref(),
-        import_time,
-    )?;
+    let hotel_lookup =
+        hotel_rooms::read_hotel_rooms_into(&mut ctx, &options.hotel_rooms, &mut schedule)?;
 
-    let room_lookup = rooms::read_rooms_into(
-        &book,
-        &options.rooms_table,
-        &mut schedule,
-        file_path.as_deref(),
-        import_time,
-        &hotel_lookup,
-    )?;
+    let room_lookup =
+        rooms::read_rooms_into(&mut ctx, &options.rooms, &mut schedule, &hotel_lookup)?;
 
-    people::read_people_into(
-        &book,
-        &options.people_table,
-        &mut schedule,
-        file_path.as_deref(),
-        import_time,
-    )?;
+    people::read_people_into(&mut ctx, &options.people, &mut schedule)?;
 
     // Read Timeline sheet (optional) to create Timeline entities separately.
     timeline::read_timeline_into(
-        &book,
-        &options.timeline_table,
+        &mut ctx,
+        &options.timeline,
         &mut schedule,
         &panel_type_lookup,
-        file_path.as_deref(),
-        import_time,
     )?;
 
     schedule::read_schedule_into(
-        &book,
-        &options.schedule_table,
+        &mut ctx,
+        &options.schedule,
         &mut schedule,
         &room_lookup,
         &panel_type_lookup,
-        file_path.as_deref(),
-        import_time,
     )?;
 
     normalize_presenter_sort_indices(&mut schedule);
@@ -182,7 +323,7 @@ pub fn import_xlsx(path: &Path, options: &XlsxImportOptions) -> Result<Schedule>
 /// Sort order: People-sheet entries (col=0) first in row order, then
 /// schedule-sheet entries by (col, row). Presenters with no sidecar key are
 /// appended last. Gaps of 100 allow future manual insertions.
-fn normalize_presenter_sort_indices(schedule: &mut Schedule) {
+pub(crate) fn normalize_presenter_sort_indices(schedule: &mut Schedule) {
     // Collect (uuid, sort_key) for all presenters.
     let mut keyed: Vec<(uuid::NonNilUuid, Option<(u32, u32)>)> = schedule
         .iter_entities::<PresenterEntityType>()
@@ -270,10 +411,10 @@ impl DataRange {
 /// Find a named table by name (case-insensitive).
 ///
 /// Returns the table data range if exactly one table matches, otherwise returns None.
-fn find_table(book: &Spreadsheet, names: &[&str]) -> Option<DataRange> {
+fn find_table(ctx: &ImportContext<'_>, names: &[&str]) -> Option<DataRange> {
     let mut matches = Vec::new();
 
-    for sheet in book.get_sheet_collection() {
+    for sheet in ctx.book.get_sheet_collection() {
         for table in sheet.get_tables() {
             let table_lower = table.get_name().to_lowercase();
             for name in names {
@@ -301,11 +442,15 @@ fn find_table(book: &Spreadsheet, names: &[&str]) -> Option<DataRange> {
 
 /// Find a named sheet by name (case-insensitive).
 ///
+/// If `csv_map` is provided and no matching sheet is found, it will attempt
+/// to import a CSV file with the matching name into the spreadsheet.
+///
 /// Returns the sheet data range if exactly one sheet matches, otherwise returns None.
-fn find_sheet(book: &Spreadsheet, names: &[&str]) -> Option<DataRange> {
+#[allow(unused_variables)]
+fn find_sheet(ctx: &mut ImportContext<'_>, names: &[&str]) -> Option<DataRange> {
     let mut matches = Vec::new();
 
-    for sheet in book.get_sheet_collection() {
+    for sheet in ctx.book.get_sheet_collection() {
         let sheet_lower = sheet.get_name().to_lowercase();
         for name in names {
             if sheet_lower == name.to_lowercase() {
@@ -334,15 +479,19 @@ fn find_sheet(book: &Spreadsheet, names: &[&str]) -> Option<DataRange> {
 
 /// Find a named table or sheet by name.
 ///
+/// If `csv_map` is provided and no matching sheet/table is found, it will attempt
+/// to import a CSV file with the matching name into the spreadsheet.
+///
 /// Search order:
 /// 1. If `TableImportMode::ReadFrom(name)`:
 ///    a. Check tables for that name
 ///    b. If not found, check sheets for that name
 /// 2. If still not found, check tables for fallback_table_names (error if multiple matches)
 /// 3. If still not found, check sheets for fallback_table_names (error if multiple matches)
-/// 4. If `TableImportMode::Skip`, return None immediately
+/// 4. If `csv_map` is provided and still not found, try to import CSV file
+/// 5. If `TableImportMode::Skip`, return None immediately
 pub(super) fn find_data_range(
-    book: &Spreadsheet,
+    ctx: &mut ImportContext<'_>,
     primary_mode: &TableImportMode,
     fallback_table_names: &[&str],
 ) -> Option<DataRange> {
@@ -350,11 +499,11 @@ pub(super) fn find_data_range(
         TableImportMode::Skip => return None,
         TableImportMode::ReadFrom(name) => {
             // Check tables for the specific name first
-            if let Some(range) = find_table(book, &[name]) {
+            if let Some(range) = find_table(ctx, &[name]) {
                 return Some(range);
             }
             // If not found, check sheets for the specific name
-            if let Some(range) = find_sheet(book, &[name]) {
+            if let Some(range) = find_sheet(ctx, &[name]) {
                 return Some(range);
             }
             // If still not found, fall through to fallback names
@@ -365,12 +514,32 @@ pub(super) fn find_data_range(
     }
 
     // Check tables for fallback names
-    if let Some(range) = find_table(book, fallback_table_names) {
+    if let Some(range) = find_table(ctx, fallback_table_names) {
         return Some(range);
     }
 
     // Check sheets for fallback names
-    find_sheet(book, fallback_table_names)
+    if let Some(range) = find_sheet(ctx, fallback_table_names) {
+        return Some(range);
+    }
+
+    // If csv_map is provided and still not found, try to import CSV file
+    if let Some(csv_map) = ctx.csv_map {
+        // Try each fallback name to see if there's a CSV file
+        for name in fallback_table_names {
+            if let Some(csv_path) = csv_map.get(name) {
+                let csv_path = Path::new(csv_path);
+                if let Ok(()) = import_csv_to_sheet(ctx.book, csv_path, name) {
+                    // Try to find the sheet again after importing
+                    if let Some(range) = find_sheet(ctx, &[name]) {
+                        return Some(range);
+                    }
+                }
+            }
+        }
+    }
+
+    None
 }
 
 /// Return the trimmed string value of a cell, or `None` if empty.

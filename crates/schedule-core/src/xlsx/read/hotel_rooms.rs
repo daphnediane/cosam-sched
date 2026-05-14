@@ -9,8 +9,6 @@
 use std::collections::HashMap;
 
 use anyhow::Result;
-use chrono::{DateTime, Utc};
-use umya_spreadsheet::Spreadsheet;
 
 use crate::edit::builder::build_entity;
 use crate::entity::{EntityType, EntityUuid, UuidPreference};
@@ -30,20 +28,18 @@ use super::{
 /// Returns a map from lowercase hotel room name → `HotelRoomId` for use when
 /// reading the Rooms sheet (to link event rooms to hotel rooms).
 pub(super) fn read_hotel_rooms_into(
-    book: &Spreadsheet,
+    ctx: &mut super::ImportContext<'_>,
     mode: &TableImportMode,
     schedule: &mut Schedule,
-    file_path: Option<&str>,
-    import_time: DateTime<Utc>,
 ) -> Result<HashMap<String, HotelRoomId>> {
     let mut hotel_lookup: HashMap<String, HotelRoomId> = HashMap::new();
 
-    let range = match find_data_range(book, mode, &["Hotel", "Hotel Rooms", "HotelMap"]) {
+    let range = match find_data_range(ctx, mode, &["Hotel", "Hotel Rooms", "HotelMap"]) {
         Some(r) => r,
         None => return Ok(hotel_lookup),
     };
 
-    let ws = match book.get_sheet_by_name(&range.sheet_name) {
+    let ws = match ctx.book.get_sheet_by_name(&range.sheet_name) {
         Some(ws) => ws,
         None => return Ok(hotel_lookup),
     };
@@ -104,10 +100,10 @@ pub(super) fn read_hotel_rooms_into(
         schedule.sidecar_mut().set_origin(
             hotel_id.entity_uuid(),
             EntityOrigin::Xlsx(XlsxSourceInfo {
-                file_path: file_path.map(str::to_owned),
+                file_path: ctx.file_path.map(str::to_owned),
                 sheet_name: range.sheet_name.clone(),
                 row_index: row,
-                import_time,
+                import_time: ctx.import_time,
             }),
         );
 

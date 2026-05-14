@@ -10,6 +10,7 @@
 # Usage: scripts/export-schedules.ps1
 #   Reads from input/<YEAR> Schedule.xlsx
 #   Writes to output/<YEAR>/{schedule.xlsx,public.json,private.json,embed.html,test.html,style-embed.html,style-page.html}
+#   For current year, also writes CSV files to output/<CURRENT_YEAR>/csv/
 #   Also generates layout to output/<CURRENT_YEAR>/layout/ via schedule-layout (built into cosam-convert)
 
 param(
@@ -116,6 +117,7 @@ try {
         $styleEmbed = Join-Path $yearDir "style-embed.html"
         $stylePage = Join-Path $yearDir "style-page.html"
         $layoutDir = Join-Path $yearDir "layout"
+        $csvDir = Join-Path $yearDir "csv"
 
         $args = @(
             "--input", $srcFile,
@@ -133,10 +135,12 @@ try {
         )
         $files = @($copy, $dest, $privateDest, $embed, $testHtml, $styleEmbed, $stylePage)
 
-        # For current year, also export layout in the same pass
+        # For current year, also export layout and CSV in the same pass
         if ($year -eq $currentYear) {
             $args += "--export-layout", $layoutDir
             $files += $layoutDir
+            $args += "--export-csv-dir", $csvDir
+            $files += $csvDir
         }
 
         try {

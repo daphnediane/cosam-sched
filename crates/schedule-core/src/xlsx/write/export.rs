@@ -92,7 +92,8 @@ struct ExportPresenterColumn {
     is_other: bool,
 }
 
-pub(super) fn export_xlsx(schedule: &Schedule, path: &Path) -> Result<()> {
+/// Build the spreadsheet for export (used by both XLSX and CSV export).
+pub fn build_spreadsheet(schedule: &Schedule) -> Result<umya_spreadsheet::Spreadsheet> {
     let mut book = umya_spreadsheet::new_file();
 
     let presenter_cols = build_presenter_columns(schedule);
@@ -206,9 +207,13 @@ pub(super) fn export_xlsx(schedule: &Schedule, path: &Path) -> Result<()> {
         }
     }
 
+    Ok(book)
+}
+
+pub fn export_xlsx(schedule: &Schedule, path: &Path) -> Result<()> {
+    let book = build_spreadsheet(schedule)?;
     umya_spreadsheet::writer::xlsx::write(&book, path)
         .map_err(|e| anyhow::anyhow!("Failed to write XLSX {}: {e}", path.display()))?;
-
     Ok(())
 }
 

@@ -4,9 +4,8 @@
  * See LICENSE file for full license text
  */
 
-//! XLSX export implementation (FEATURE-029).
+//! CSV export implementation.
 
-pub mod common;
 mod export;
 
-pub use export::{build_spreadsheet, export_xlsx};
+pub use export::export_csv;

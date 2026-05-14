@@ -12,6 +12,7 @@ extern crate self as schedule_core;
 
 // Directory modules
 pub mod crdt;
+pub mod csv;
 pub mod edge;
 pub mod edit;
 pub mod entity;

@@ -9,8 +9,6 @@
 use std::collections::HashMap;
 
 use anyhow::Result;
-use chrono::{DateTime, Utc};
-use umya_spreadsheet::Spreadsheet;
 
 use crate::edit::builder::build_entity;
 use crate::entity::{EntityType, EntityUuid, UuidPreference};
@@ -35,23 +33,21 @@ use super::{
 /// Event rooms will be linked to these existing hotel rooms, and new hotel rooms will only
 /// be created for hotel room names not found in `hotel_lookup`.
 pub(super) fn read_rooms_into(
-    book: &Spreadsheet,
+    ctx: &mut super::ImportContext<'_>,
     mode: &TableImportMode,
     schedule: &mut Schedule,
-    file_path: Option<&str>,
-    import_time: DateTime<Utc>,
     hotel_lookup: &HashMap<String, hotel_room::HotelRoomId>,
 ) -> Result<HashMap<String, EventRoomId>> {
     let mut room_lookup: HashMap<String, EventRoomId> = HashMap::new();
     // Clone the hotel_lookup so we can add new hotel rooms found in the Rooms sheet.
     let mut hotel_lookup: HashMap<String, hotel_room::HotelRoomId> = hotel_lookup.clone();
 
-    let range = match find_data_range(book, mode, &["RoomMap", "Rooms", "EventRooms"]) {
+    let range = match find_data_range(ctx, mode, &["RoomMap", "Rooms", "EventRooms"]) {
         Some(r) => r,
         None => return Ok(room_lookup),
     };
 
-    let ws = match book.get_sheet_by_name(&range.sheet_name) {
+    let ws = match ctx.book.get_sheet_by_name(&range.sheet_name) {
         Some(ws) => ws,
         None => return Ok(room_lookup),
     };
@@ -114,10 +110,10 @@ pub(super) fn read_rooms_into(
         schedule.sidecar_mut().set_origin(
             room_id.entity_uuid(),
             EntityOrigin::Xlsx(XlsxSourceInfo {
-                file_path: file_path.map(str::to_owned),
+                file_path: ctx.file_path.map(str::to_owned),
                 sheet_name: range.sheet_name.clone(),
                 row_index: row,
-                import_time,
+                import_time: ctx.import_time,
             }),
         );
         route_extra_columns(
@@ -160,10 +156,10 @@ pub(super) fn read_rooms_into(
                         schedule.sidecar_mut().set_origin(
                             id.entity_uuid(),
                             EntityOrigin::Xlsx(XlsxSourceInfo {
-                                file_path: file_path.map(str::to_owned),
+                                file_path: ctx.file_path.map(str::to_owned),
                                 sheet_name: range.sheet_name.clone(),
                                 row_index: row,
-                                import_time,
+                                import_time: ctx.import_time,
                             }),
                         );
                         hotel_lookup.insert(hr_name.to_lowercase(), id);

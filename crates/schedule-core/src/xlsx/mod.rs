@@ -21,7 +21,7 @@
 
 pub mod columns;
 pub mod read;
-mod write;
+pub mod write;
 
 use std::path::Path;
 
@@ -30,7 +30,9 @@ use anyhow::Result;
 use crate::schedule::Schedule;
 
 pub use columns::FieldDef;
-pub use read::{canonical_header, import_xlsx, TableImportMode, XlsxImportOptions};
+pub use read::{
+    canonical_header, import_xlsx, TableImportMode, TableImportOptions, XlsxImportOptions,
+};
 
 /// Export a schedule to an XLSX file.
 ///

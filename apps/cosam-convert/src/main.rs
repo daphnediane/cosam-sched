@@ -7,13 +7,14 @@
 use std::path::{Path, PathBuf};
 
 use anyhow::{Context, Result};
+use schedule_core::csv::{export_csv, import_csv};
 use schedule_core::query::export::export_to_widget_json;
 use schedule_core::schedule::Schedule;
 use schedule_core::tables::event_room::EventRoomEntityType;
 use schedule_core::tables::panel::PanelEntityType;
 use schedule_core::tables::panel_type::PanelTypeEntityType;
 use schedule_core::tables::presenter::PresenterEntityType;
-use schedule_core::xlsx::{export_xlsx, import_xlsx, TableImportMode, XlsxImportOptions};
+use schedule_core::xlsx::{export_xlsx, import_xlsx, TableImportMode, TableImportOptions};
 
 mod conflicts;
 mod embed;
@@ -64,6 +65,7 @@ enum OutputType {
     Export,
     ExportEmbed,
     ExportTest,
+    ExportCsv,
     #[cfg(feature = "layout")]
     ExportLayout,
 }
@@ -75,7 +77,7 @@ struct CliArgs {
     input: PathBuf,
     output_jobs: Vec<OutputJob>,
     check_only: bool,
-    xlsx_options: XlsxImportOptions,
+    table_options: TableImportOptions,
 }
 
 // ── Argument parsing ──────────────────────────────────────────────────────────
@@ -179,42 +181,56 @@ fn parse_args() -> Result<CliArgs> {
                 if index >= arguments.len() {
                     anyhow::bail!("Missing value for --schedule-table");
                 }
-                args.xlsx_options.schedule_table = parse_table_mode(&arguments[index])?;
+                args.table_options.schedule = parse_table_mode(&arguments[index])?;
             }
             "--roommap-table" => {
                 index += 1;
                 if index >= arguments.len() {
                     anyhow::bail!("Missing value for --roommap-table");
                 }
-                args.xlsx_options.rooms_table = parse_table_mode(&arguments[index])?;
+                args.table_options.rooms = parse_table_mode(&arguments[index])?;
             }
             "--prefix-table" => {
                 index += 1;
                 if index >= arguments.len() {
                     anyhow::bail!("Missing value for --prefix-table");
                 }
-                args.xlsx_options.panel_types_table = parse_table_mode(&arguments[index])?;
+                args.table_options.panel_types = parse_table_mode(&arguments[index])?;
             }
             "--presenter-table" => {
                 index += 1;
                 if index >= arguments.len() {
                     anyhow::bail!("Missing value for --presenter-table");
                 }
-                args.xlsx_options.people_table = parse_table_mode(&arguments[index])?;
+                args.table_options.people = parse_table_mode(&arguments[index])?;
             }
             "--hotel-table" => {
                 index += 1;
                 if index >= arguments.len() {
                     anyhow::bail!("Missing value for --hotel-table");
                 }
-                args.xlsx_options.hotel_rooms_table = parse_table_mode(&arguments[index])?;
+                args.table_options.hotel_rooms = parse_table_mode(&arguments[index])?;
             }
             "--timeline-table" => {
                 index += 1;
                 if index >= arguments.len() {
                     anyhow::bail!("Missing value for --timeline-table");
                 }
-                args.xlsx_options.timeline_table = parse_table_mode(&arguments[index])?;
+                args.table_options.timeline = parse_table_mode(&arguments[index])?;
+            }
+            "--export-csv-dir" => {
+                index += 1;
+                if index >= arguments.len() {
+                    anyhow::bail!("Missing value for --export-csv-dir");
+                }
+                let path = PathBuf::from(&arguments[index]);
+                check_duplicate_output(&args.output_jobs, &path)?;
+                args.output_jobs.push(OutputJob {
+                    path,
+                    settings: current_settings.clone(),
+                    job_type: OutputType::ExportCsv,
+                });
+                first_setting_index = None;
             }
             #[cfg(feature = "layout")]
             "--export-layout" => {
@@ -414,7 +430,7 @@ fn parse_args() -> Result<CliArgs> {
     if args.output_jobs.is_empty() && !args.check_only {
         anyhow::bail!(
             "At least one output option is required \
-             (--output, --export, --export-embed, --export-test) unless --check is specified"
+             (--output, --export, --export-embed, --export-test, --export-csv-dir) unless --check is specified"
         );
     }
 
@@ -426,13 +442,14 @@ fn print_usage() {
         "Usage: cosam-convert --input <file> [options]\n\
          \n\
          Input:\n\
-         \x20 --input, -i <file>                   Input file (.xlsx or native .schedule)\n\
+         \x20 --input, -i <file>                   Input file (.xlsx, .schedule, or CSV directory)\n\
          \n\
          Output commands (each captures the current settings snapshot):\n\
          \x20 --output, -o <file>                  Save schedule (.xlsx or native binary)\n\
          \x20 --export, -e <file.json>             Export widget JSON\n\
          \x20 --export-embed <file.html>           Export embeddable HTML (inline CSS/JS/JSON)\n\
          \x20 --export-test <file.html>            Export standalone test page (Squarespace sim)\n\
+         \x20 --export-csv-dir <dir>               Export CSV files to directory (UTF-8 comma-delimited)\n\
          \x20 --export-layout <dir>                Run cosam-layout; write PDFs to <dir> (requires cosam-layout on PATH)\n\
          \n\
          Validation:\n\
@@ -474,6 +491,8 @@ fn print_usage() {
          \x20 cosam-convert --input schedule.xlsx --check --export public.json\n\
          \x20 cosam-convert --input schedule.xlsx --output full.schedule --export public.json\n\
          \x20 cosam-convert --input schedule.xlsx --export public.json --export-layout output/layout\n\
+         \x20 cosam-convert --input csv_dir --export public.json\n\
+         \x20 cosam-convert --input schedule.xlsx --export-csv-dir csv_output\n\
          \x20 cosam-convert --input schedule.xlsx --title \"Event 2026\" \\\n\
          \x20   --minified --export-embed embed.html --no-minified --export-embed debug.html"
     );
@@ -481,7 +500,13 @@ fn print_usage() {
 
 // ── Schedule loading ──────────────────────────────────────────────────────────
 
-fn load_schedule(path: &Path, options: &XlsxImportOptions) -> Result<Schedule> {
+fn load_schedule(path: &Path, options: &TableImportOptions) -> Result<Schedule> {
+    // Check if input is a directory (CSV import)
+    if path.is_dir() {
+        return import_csv(path, options)
+            .with_context(|| format!("Failed to import CSV from {}", path.display()));
+    }
+
     let ext = path
         .extension()
         .and_then(|e| e.to_str())
@@ -569,7 +594,7 @@ fn main() {
 
     eprintln!("Reading: {}", cli.input.display());
 
-    let mut schedule = match load_schedule(&cli.input, &cli.xlsx_options) {
+    let mut schedule = match load_schedule(&cli.input, &cli.table_options) {
         Ok(s) => s,
         Err(err) => {
             eprintln!("Error: {err}");
@@ -613,6 +638,18 @@ fn main() {
             .map(|()| {
                 eprintln!("Exported: {}", job.path.display());
             }),
+            OutputType::ExportCsv => {
+                match export_csv(&schedule, &job.path) {
+                    Ok(_) => {
+                        eprintln!("Exported CSV: {}", job.path.display());
+                    }
+                    Err(err) => {
+                        eprintln!("Error: {:#}", err);
+                        had_error = true;
+                    }
+                }
+                Ok(())
+            }
             #[cfg(feature = "layout")]
             OutputType::ExportLayout => {
                 run_layout_export(&schedule, &effective_title, &job.path, &job.settings);

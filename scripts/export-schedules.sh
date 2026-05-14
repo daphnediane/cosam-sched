@@ -9,6 +9,7 @@
 # Usage: scripts/export-schedules.sh
 #   Reads from input/<YEAR> Schedule.xlsx
 #   Writes to output/<YEAR>/{schedule.xlsx,public.json,private.json,embed.html,test.html,style-embed.html,style-page.html}
+#   For current year, also writes CSV files to output/<CURRENT_YEAR>/csv/
 #   Also generates layout to output/<CURRENT_YEAR>/layout/ via schedule-layout (built into cosam-convert)
 
 set -e
@@ -84,6 +85,7 @@ for year in $(seq 2016 "$current_year"); do
     style_embed="$year_dir/style-embed.html"
     style_page="$year_dir/style-page.html"
     layout_dir="$year_dir/layout"
+    csv_dir="$year_dir/csv"
 
     echo "  Building ${year} files..."
 
@@ -110,11 +112,13 @@ for year in $(seq 2016 "$current_year"); do
         "$style_embed"
         "$style_page"
     )
-    
-    # For current year, also export layout in the same pass
+
+    # For current year, also export layout and CSV in the same pass
     if [ "$year" -eq "$current_year" ]; then
         args+=(--export-layout "$layout_dir")
         files+=("$layout_dir")
+        args+=(--export-csv-dir "$csv_dir")
+        files+=("$csv_dir")
     fi
     if "$CONVERT_BIN" \
         "${args[@]}"; then
