@@ -34,6 +34,12 @@
 # Ignore target directory
 /target
 
+# Node.js / esbuild widget build
+/node_modules
+/package-lock.json
+/widget/cosam-calendar.min.js
+/widget/cosam-calendar.min.css
+
 # Ignore input, output and scratch directory
 /scratch
 /input

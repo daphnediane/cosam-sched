@@ -7,6 +7,8 @@
  * SPDX-License-Identifier: BSD-2-Clause
  * See LICENSE file for full license text
  */
+import QRCode from 'qrcode';
+
 (function () {
   'use strict';
 
@@ -24,6 +26,8 @@
     share: '<svg viewBox="0 0 24 24"><circle cx="18" cy="5" r="3"/><circle cx="6" cy="12" r="3"/><circle cx="18" cy="19" r="3"/><line x1="8.59" y1="13.51" x2="15.42" y2="17.49"/><line x1="15.41" y1="6.51" x2="8.59" y2="10.49"/></svg>',
     shareApple: '<svg viewBox="0 0 24 24"><path d="M4 12v8a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-8"/><polyline points="16 6 12 2 8 6"/><line x1="12" y1="2" x2="12" y2="15"/></svg>',
     shareWindows: '<svg viewBox="0 0 24 24"><path d="M4 12v8a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-8"/><path d="M16 6l-4-4-4 4"/><line x1="12" y1="2" x2="12" y2="15"/></svg>',
+    people: '<svg viewBox="0 0 24 24"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/></svg>',
+    chevronDown: '<svg viewBox="0 0 24 24"><polyline points="6 9 12 15 18 9"/></svg>',
     clock: '<svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>',
     mappin: '<svg viewBox="0 0 24 24"><path d="M21 10c0 7-9 13-9 13s-9-6-9-13a9 9 0 0 1 18 0z"/><circle cx="12" cy="10" r="3"/></svg>',
   };
@@ -188,7 +192,12 @@
       this.theme = 'cosam';
       this.activeDay = null;
       this.days = [];
-      this.starred = new Set();
+      // Named schedules: { scheduleName: Set<eventId> }
+      this.schedules = { 'My Schedule': new Set() };
+      this.activeScheduleName = 'My Schedule';
+      // Transient: starred events from a shared URL (never persisted)
+      this.sharedStarred = new Set();
+      this.sharedScheduleName = 'Shared Schedule';
       this.filters = {
         search: '',
         rooms: new Set(),
@@ -196,6 +205,7 @@
         cost: 'all', // 'all', 'free', 'paid', 'workshop'
         presenter: '',
         starredOnly: false,
+        sharedOnly: false,
       };
       this.filtersOpen = false;
       this.modalEvent = null;
@@ -204,8 +214,19 @@
       this._savedView = null; // Saved view state before forced list mode
       this._renderCallback = null;
       this._loadState();
+      this._syncStarred();
       this._loadFromHash();
       this._setupResponsiveView();
+    }
+
+    // starred is a direct reference to the active schedule's Set.
+    // It must be kept in sync whenever activeScheduleName or schedules changes.
+    // Use _syncStarred() after any such change.
+    _syncStarred() {
+      if (!(this.schedules[this.activeScheduleName] instanceof Set)) {
+        this.schedules[this.activeScheduleName] = new Set();
+      }
+      this.starred = this.schedules[this.activeScheduleName];
     }
 
     _storageKey() { return 'cosam-calendar-starred'; }
@@ -221,7 +242,28 @@
           if (saved.view) this.view = saved.view;
           if (saved.activeDay !== undefined) this.activeDay = saved.activeDay;
           if (saved.filtersOpen !== undefined) this.filtersOpen = saved.filtersOpen;
-          if (saved.starred) this.starred = new Set(saved.starred);
+
+          // Load named schedules (new format), or migrate from single starred array
+          if (saved.schedules && typeof saved.schedules === 'object' && !Array.isArray(saved.schedules)) {
+            this.schedules = {};
+            for (const [name, ids] of Object.entries(saved.schedules)) {
+              this.schedules[name] = new Set(ids);
+            }
+            this.activeScheduleName = saved.activeScheduleName || 'My Schedule';
+            if (!this.schedules[this.activeScheduleName]) {
+              this.activeScheduleName = Object.keys(this.schedules)[0] || 'My Schedule';
+            }
+          } else if (saved.starred) {
+            // Migrate single starred array → 'My Schedule'
+            this.schedules = { 'My Schedule': new Set(saved.starred) };
+            this.activeScheduleName = 'My Schedule';
+          } else {
+            this.schedules = { 'My Schedule': new Set() };
+            this.activeScheduleName = 'My Schedule';
+          }
+          // Fallback: ensure at least one schedule exists
+          if (Object.keys(this.schedules).length === 0) this.schedules['My Schedule'] = new Set();
+
           if (saved.filters) {
             if (saved.filters.search) this.filters.search = saved.filters.search;
             if (saved.filters.rooms) this.filters.rooms = new Set(saved.filters.rooms.map(Number));
@@ -231,28 +273,37 @@
             if (saved.filters.starredOnly) this.filters.starredOnly = saved.filters.starredOnly;
           }
           this._hasRestoredState = true;
+          this._syncStarred();
           return;
         }
       } catch (e) { /* ignore */ }
 
+      this.schedules = { 'My Schedule': new Set() };
+      this.activeScheduleName = 'My Schedule';
       try {
         const themeRaw = localStorage.getItem(this._themeStorageKey());
         if (themeRaw) this.theme = themeRaw;
       } catch (e) { /* ignore */ }
       try {
         const starredRaw = localStorage.getItem(this._storageKey());
-        if (starredRaw) this.starred = new Set(JSON.parse(starredRaw));
+        if (starredRaw) this.schedules['My Schedule'] = new Set(JSON.parse(starredRaw));
       } catch (e) { /* ignore */ }
+      this._syncStarred();
     }
 
     _saveState() {
       try {
+        const schedulesObj = {};
+        for (const [name, ids] of Object.entries(this.schedules)) {
+          schedulesObj[name] = [...ids];
+        }
         const state = {
           theme: this.theme,
           view: this.view,
           activeDay: this.activeDay,
           filtersOpen: this.filtersOpen,
-          starred: [...this.starred],
+          activeScheduleName: this.activeScheduleName,
+          schedules: schedulesObj,
           filters: {
             search: this.filters.search,
             rooms: [...this.filters.rooms],
@@ -279,8 +330,13 @@
       if (params.has('starred')) {
         const ids = decodeURIComponent(params.get('starred')).split(',').filter(Boolean);
         if (ids.length > 0) {
-          for (const id of ids) this.starred.add(id);
+          // Treat starred IDs from the URL as a shared schedule, not the user's own.
+          // The user's own starred items are always loaded from localStorage only.
+          for (const id of ids) this.sharedStarred.add(id);
         }
+      }
+      if (params.has('scheduleName')) {
+        this.sharedScheduleName = decodeURIComponent(params.get('scheduleName'));
       }
       if (params.has('view')) {
         const view = params.get('view');
@@ -347,12 +403,87 @@
       this._saveState();
     }
 
+    // ── Schedule management ──
+
+    schedulesForEvent(eventId) {
+      const names = [];
+      for (const [name, ids] of Object.entries(this.schedules)) {
+        if (ids.has(eventId)) names.push(name);
+      }
+      if (this.sharedStarred.has(eventId)) names.push(this.sharedScheduleName);
+      return names;
+    }
+
+    createSchedule(name) {
+      const n = name && name.trim();
+      if (!n || this.schedules[n]) return null;
+      this.schedules[n] = new Set();
+      this._saveState();
+      return n;
+    }
+
+    deleteSchedule(name) {
+      if (!this.schedules[name] || Object.keys(this.schedules).length <= 1) return false;
+      delete this.schedules[name];
+      if (this.activeScheduleName === name) {
+        this.activeScheduleName = Object.keys(this.schedules)[0];
+      }
+      this._syncStarred();
+      this._saveState();
+      return true;
+    }
+
+    renameSchedule(oldName, newName) {
+      const n = newName && newName.trim();
+      if (!n || !this.schedules[oldName] || (this.schedules[n] && n !== oldName)) return false;
+      this.schedules[n] = this.schedules[oldName];
+      if (n !== oldName) delete this.schedules[oldName];
+      if (this.activeScheduleName === oldName) this.activeScheduleName = n;
+      this._saveState();
+      return true;
+    }
+
+    switchSchedule(name) {
+      if (!this.schedules[name]) return;
+      this.activeScheduleName = name;
+      this._syncStarred();
+      this._saveState();
+    }
+
+    mergeIntoSchedule(sourceIds, targetName) {
+      if (!this.schedules[targetName]) return false;
+      for (const id of sourceIds) this.schedules[targetName].add(id);
+      this._saveState();
+      return true;
+    }
+
+    replaceSchedule(sourceIds, targetName) {
+      this.schedules[targetName] = new Set(sourceIds);
+      if (targetName === this.activeScheduleName) this._syncStarred();
+      this._saveState();
+    }
+
+    importAsNewSchedule(name, ids) {
+      let n = (name && name.trim()) ? name.trim() : 'Imported Schedule';
+      if (this.schedules[n]) {
+        let i = 2;
+        while (this.schedules[n + ' ' + i]) i++;
+        n = n + ' ' + i;
+      }
+      this.schedules[n] = new Set(ids);
+      this._saveState();
+      return n;
+    }
+
     getShareUrl(options = {}) {
-      const { includeFilters = true, includeMySchedule = true } = options;
+      const { includeFilters = false, scheduleName, includeSchedule = true } = options;
+      const shareScheduleName = scheduleName !== undefined ? scheduleName : this.activeScheduleName;
+      const schedule = includeSchedule ? this.schedules[shareScheduleName] : null;
       const parts = [];
 
-      if (includeMySchedule && this.starred.size > 0) {
-        parts.push('starred=' + encodeURIComponent([...this.starred].join(',')));
+      if (schedule && schedule.size > 0) {
+        parts.push('starred=' + encodeURIComponent([...schedule].join(',')));
+        parts.push('scheduleName=' + encodeURIComponent(shareScheduleName));
       }
       if (includeFilters) {
         if (this.view && this.view !== 'list') {
@@ -472,6 +603,11 @@
         events = events.filter(e => this.starred.has(e.id));
       }
 
+      // Shared only
+      if (this.filters.sharedOnly) {
+        events = events.filter(e => this.sharedStarred.has(e.id));
+      }
+
       return events;
     }
   }
@@ -501,6 +637,9 @@
       this.state._saveState();
       this._ensurePanelTypeThemeStyles();
       this.root.appendChild(el('a', { className: 'cosam-skip-link', href: '#' + this._eventsRegionId }, 'Skip to events'));
+      if (this.state.sharedStarred.size > 0) {
+        this.root.appendChild(this._buildSharedScheduleBanner());
+      }
       this.root.appendChild(this._buildToolbar());
       this.root.appendChild(this._buildFilters());
       this.root.appendChild(this._buildDayTabs());
@@ -663,6 +802,143 @@
       }
     }
 
+    // ── Schedule Menu ──
+
+    _buildScheduleMenu() {
+      const menu = el('div', { className: 'cosam-schedule-menu', role: 'menu' });
+
+      // One item per named schedule
+      for (const [name, ids] of Object.entries(this.state.schedules)) {
+        const isActive = name === this.state.activeScheduleName;
+        const item = el('button', {
+          type: 'button',
+          className: 'cosam-schedule-menu-item' + (isActive ? ' active' : ''),
+          role: 'menuitem',
+        });
+        const check = el('span', { className: 'cosam-schedule-menu-check', 'aria-hidden': 'true' }, isActive ? '✓' : '');
+        const label = el('span', {}, name);
+        const count = el('span', { className: 'cosam-schedule-menu-count' }, '(' + ids.size + ')');
+        item.append(check, label, count);
+        item.addEventListener('click', () => {
+          this.state.switchSchedule(name);
+          this.state.filters.starredOnly = false;
+          this.state.filters.sharedOnly = false;
+          menu.classList.remove('open');
+          this.render();
+        });
+        menu.appendChild(item);
+      }
+
+      menu.appendChild(el('div', { className: 'cosam-schedule-menu-divider', role: 'separator' }));
+
+      // New schedule
+      const newItem = el('button', { type: 'button', className: 'cosam-schedule-menu-item', role: 'menuitem' }, '+ New Schedule');
+      newItem.addEventListener('click', () => { menu.classList.remove('open'); this._showNewScheduleModal(); });
+      menu.appendChild(newItem);
+
+      // Rename active
+      const renameItem = el('button', { type: 'button', className: 'cosam-schedule-menu-item', role: 'menuitem' },
+        'Rename "' + this.state.activeScheduleName + '"');
+      renameItem.addEventListener('click', () => { menu.classList.remove('open'); this._showRenameScheduleModal(); });
+      menu.appendChild(renameItem);
+
+      // Merge (only when >1 schedule)
+      if (Object.keys(this.state.schedules).length > 1) {
+        const mergeItem = el('button', { type: 'button', className: 'cosam-schedule-menu-item', role: 'menuitem' }, 'Merge schedules...');
+        mergeItem.addEventListener('click', () => { menu.classList.remove('open'); this._showMergeScheduleModal(); });
+        menu.appendChild(mergeItem);
+      }
+
+      // Import from URL
+      const importItem = el('button', { type: 'button', className: 'cosam-schedule-menu-item', role: 'menuitem' }, 'Import from URL...');
+      importItem.addEventListener('click', () => { menu.classList.remove('open'); this._showImportFromUrlModal(); });
+      menu.appendChild(importItem);
+
+      // Delete (only when >1 schedule)
+      if (Object.keys(this.state.schedules).length > 1) {
+        menu.appendChild(el('div', { className: 'cosam-schedule-menu-divider', role: 'separator' }));
+        const deleteItem = el('button', { type: 'button', className: 'cosam-schedule-menu-item cosam-schedule-menu-danger', role: 'menuitem' },
+          'Delete "' + this.state.activeScheduleName + '"');
+        deleteItem.addEventListener('click', () => { menu.classList.remove('open'); this._showDeleteScheduleModal(); });
+        menu.appendChild(deleteItem);
+      }
+
+      return menu;
+    }
+
+    // ── Shared Schedule Banner ──
+
+    _buildSharedScheduleBanner() {
+      const count = this.state.sharedStarred.size;
+      const name = this.state.sharedScheduleName;
+      const banner = el('div', {
+        className: 'cosam-shared-banner',
+        role: 'region',
+        'aria-label': 'Shared schedule notification',
+      });
+
+      const textSpan = el('span', { className: 'cosam-shared-banner-text' });
+      textSpan.innerHTML = ICONS.people;
+      textSpan.appendChild(document.createTextNode(
+        ` "${name}": ${count} event${count === 1 ? '' : 's'}`
+      ));
+      banner.appendChild(textSpan);
+
+      const actions = el('div', { className: 'cosam-shared-banner-actions' });
+
+      // Import as new schedule
+      const importNewBtn = el('button', {
+        type: 'button',
+        className: 'cosam-btn',
+        onClick: () => {
+          const newName = this.state.importAsNewSchedule(name, this.state.sharedStarred);
+          this.state.sharedStarred.clear();
+          this.state.filters.sharedOnly = false;
+          this.state.switchSchedule(newName);
+          this.render();
+        },
+      }, 'Import as New Schedule');
+      actions.appendChild(importNewBtn);
+
+      // Merge into selector
+      const mergeWrap = el('span', { className: 'cosam-shared-banner-merge' });
+      const mergeSelect = el('select', { className: 'cosam-select', 'aria-label': 'Target schedule for merge' });
+      for (const schedName of Object.keys(this.state.schedules)) {
+        mergeSelect.appendChild(el('option', { value: schedName }, schedName));
+      }
+      // Default to matching name if it exists, else active schedule
+      mergeSelect.value = this.state.schedules[name] ? name : this.state.activeScheduleName;
+      const mergeBtn = el('button', {
+        type: 'button',
+        className: 'cosam-btn',
+        onClick: () => {
+          this.state.mergeIntoSchedule(this.state.sharedStarred, mergeSelect.value);
+          this.state.sharedStarred.clear();
+          this.state.filters.sharedOnly = false;
+          this.render();
+        },
+      }, 'Merge into:');
+      mergeWrap.append(mergeBtn, mergeSelect);
+      actions.appendChild(mergeWrap);
+
+      const dismissBtn = el('button', {
+        type: 'button',
+        className: 'cosam-btn cosam-btn-icon',
+        innerHTML: ICONS.x,
+        'aria-label': 'Dismiss shared schedule',
+        title: 'Dismiss shared schedule',
+        onClick: () => {
+          this.state.sharedStarred.clear();
+          this.state.filters.sharedOnly = false;
+          this.render();
+        },
+      });
+      actions.appendChild(dismissBtn);
+
+      banner.appendChild(actions);
+      return banner;
+    }
+
     // ── Toolbar ──
 
     _buildToolbar() {
@@ -700,15 +976,60 @@
       });
       left.appendChild(filterBtn);
 
-      // Starred only toggle
-      const starBtn = el('button', {
+      // Schedule group: filter button + dropdown menu
+      const scheduleGroup = el('div', { className: 'cosam-schedule-group' });
+
+      const schedFilterBtn = el('button', {
         type: 'button',
-        className: 'cosam-btn' + (this.state.filters.starredOnly ? ' active' : ''),
-        innerHTML: ICONS.star + ' My Schedule',
+        className: 'cosam-btn cosam-schedule-filter-btn' + (this.state.filters.starredOnly ? ' active' : ''),
+        innerHTML: ICONS.star + ' ' + escapeHtml(this.state.activeScheduleName),
         'aria-pressed': this.state.filters.starredOnly ? 'true' : 'false',
+        title: 'Filter to ' + this.state.activeScheduleName,
         onClick: () => { this.state.filters.starredOnly = !this.state.filters.starredOnly; this.render(); },
       });
-      left.appendChild(starBtn);
+
+      const schedMenuBtn = el('button', {
+        type: 'button',
+        className: 'cosam-btn cosam-btn-icon cosam-schedule-menu-btn',
+        innerHTML: ICONS.chevronDown,
+        'aria-label': 'Schedule options',
+        'aria-haspopup': 'menu',
+        'aria-expanded': 'false',
+        title: 'Schedule options',
+      });
+
+      const schedMenu = this._buildScheduleMenu();
+      schedMenuBtn.addEventListener('click', (e) => {
+        e.stopPropagation();
+        const isOpen = schedMenu.classList.toggle('open');
+        schedMenuBtn.setAttribute('aria-expanded', isOpen ? 'true' : 'false');
+        if (isOpen) {
+          const close = (ev) => {
+            if (!scheduleGroup.contains(ev.target)) {
+              schedMenu.classList.remove('open');
+              schedMenuBtn.setAttribute('aria-expanded', 'false');
+              document.removeEventListener('click', close);
+            }
+          };
+          document.addEventListener('click', close);
+        }
+      });
+
+      scheduleGroup.append(schedFilterBtn, schedMenuBtn, schedMenu);
+      left.appendChild(scheduleGroup);
+
+      // Shared schedule toggle — only shown when a shared schedule is loaded
+      if (this.state.sharedStarred.size > 0) {
+        const sharedBtn = el('button', {
+          type: 'button',
+          className: 'cosam-btn cosam-btn-shared' + (this.state.filters.sharedOnly ? ' active' : ''),
+          innerHTML: ICONS.people + ' ' + escapeHtml(this.state.sharedScheduleName),
+          'aria-pressed': this.state.filters.sharedOnly ? 'true' : 'false',
+          title: 'Show only events from the shared schedule',
+          onClick: () => { this.state.filters.sharedOnly = !this.state.filters.sharedOnly; this.render(); },
+        });
+        left.appendChild(sharedBtn);
+      }
 
       const right = el('div', { className: 'cosam-toolbar-right' });
 
@@ -1147,9 +1468,10 @@
 
     _buildEventCard(evt) {
       const isStarred = this.state.starred.has(evt.id);
+      const isShared = this.state.sharedStarred.has(evt.id);
       const typeClass = this._panelTypeClass(evt.panelType);
       const card = el('div', {
-        className: 'cosam-event-card' + (isStarred ? ' starred' : ''),
+        className: 'cosam-event-card' + (isStarred ? ' starred' : '') + (isShared ? ' cosam-shared' : ''),
       });
 
       // Color bar
@@ -1202,6 +1524,7 @@
 
       // Badges
       const badges = el('div', { className: 'cosam-event-badges' });
+      if (isShared) badges.appendChild(el('span', { className: 'cosam-badge cosam-badge-shared', 'aria-label': 'In shared schedule' }, 'Shared'));
       if (evt.isWorkshop) badges.appendChild(el('span', { className: 'cosam-badge cosam-badge-workshop' }, 'Workshop'));
       if (evt.cost && evt.isPremium) badges.appendChild(el('span', { className: 'cosam-badge cosam-badge-paid' }, evt.cost));
       if (evt.isFull) badges.appendChild(el('span', { className: 'cosam-badge cosam-badge-full' }, 'Full'));
@@ -1235,20 +1558,40 @@
 
       card.appendChild(body);
 
-      // Star button
+      // Right side: people indicator + star, grouped so they align together.
+      const right = el('div', { className: 'cosam-event-right' });
+
+      // People indicator: shown when event is in any schedule other than (or in
+      // addition to) the active one. Count shows only the "other" schedules so
+      // it's additive to the star, not double-counting the active schedule.
+      const scheduleNames = this.state.schedulesForEvent(evt.id);
+      const otherCount = isStarred ? scheduleNames.length - 1 : scheduleNames.length;
+      const showPeople = otherCount > 0;
+      if (showPeople) {
+        const peopleEl = el('div', {
+          className: 'cosam-event-people',
+          'aria-label': `Also in ${otherCount} other schedule${otherCount === 1 ? '' : 's'}: ${scheduleNames.join(', ')}`,
+          title: `Schedules: ${scheduleNames.join(', ')}`,
+        });
+        peopleEl.innerHTML = ICONS.people + `<span class="cosam-people-count" aria-hidden="true">${otherCount}</span>`;
+        right.appendChild(peopleEl);
+      }
+
       const starBtn = el('button', {
         type: 'button',
         className: 'cosam-event-star' + (isStarred ? ' starred' : ''),
         innerHTML: ICONS.star,
-        title: isStarred ? 'Remove from My Schedule' : 'Add to My Schedule',
-        'aria-label': isStarred ? 'Remove from My Schedule' : 'Add to My Schedule',
+        title: isStarred ? 'Remove from ' + this.state.activeScheduleName : 'Add to ' + this.state.activeScheduleName,
+        'aria-label': isStarred ? 'Remove from ' + this.state.activeScheduleName : 'Add to ' + this.state.activeScheduleName,
         onClick: (e) => {
           e.stopPropagation();
           this.state.toggleStar(evt.id);
           this.render();
         },
       });
-      card.appendChild(starBtn);
+      right.appendChild(starBtn);
+
+      card.appendChild(right);
 
       return card;
     }
@@ -1658,9 +2001,10 @@
 
     _buildGridEvent(evt) {
       const isStarred = this.state.starred.has(evt.id);
+      const isShared = this.state.sharedStarred.has(evt.id);
       const typeClass = this._panelTypeClass(evt.panelType);
       const div = el('div', {
-        className: 'cosam-grid-event' + (isStarred ? ' starred' : '') + (typeClass ? (' ' + typeClass) : ''),
+        className: 'cosam-grid-event' + (isStarred ? ' starred' : '') + (isShared ? ' cosam-shared' : '') + (typeClass ? (' ' + typeClass) : ''),
         role: 'button',
         tabindex: '0',
         onClick: () => { this.state.modalEvent = evt; this._showModal(evt); },
@@ -1673,6 +2017,46 @@
         }
       });
 
+      // Actions float — must be inserted BEFORE the name so text wraps around it.
+      // Star + optional people indicator are stacked in a float:right container.
+      const actionsEl = el('div', { className: 'cosam-grid-event-actions' });
+
+      const starEl = el('span', {
+        role: 'button',
+        tabindex: '0',
+        className: 'cosam-grid-event-star' + (isStarred ? ' starred' : ''),
+        innerHTML: ICONS.star,
+        onClick: (e) => {
+          e.stopPropagation();
+          this.state.toggleStar(evt.id);
+          this.render();
+        },
+      });
+      starEl.addEventListener('keydown', (e) => {
+        if (e.key === 'Enter' || e.key === ' ') {
+          e.preventDefault();
+          e.stopPropagation();
+          this.state.toggleStar(evt.id);
+          this.render();
+        }
+      });
+      actionsEl.appendChild(starEl);
+
+      // People indicator — stacked below the star inside the same float.
+      // Count shows only "other" schedules (not the active one, already shown by the star).
+      const scheduleNames = this.state.schedulesForEvent(evt.id);
+      const otherCount = isStarred ? scheduleNames.length - 1 : scheduleNames.length;
+      if (otherCount > 0) {
+        const peopleEl = el('span', {
+          className: 'cosam-grid-event-people',
+          'aria-label': `Also in ${otherCount} other schedule${otherCount === 1 ? '' : 's'}: ${scheduleNames.join(', ')}`,
+          title: `Schedules: ${scheduleNames.join(', ')}`,
+        });
+        peopleEl.innerHTML = ICONS.people + `<span class="cosam-people-count" aria-hidden="true">${otherCount}</span>`;
+        actionsEl.appendChild(peopleEl);
+      }
+
+      div.appendChild(actionsEl);
       div.appendChild(el('div', { className: 'cosam-grid-event-name' }, evt.name));
 
       // Add room information for mobile view
@@ -1699,28 +2083,6 @@
         div.appendChild(el('div', { className: 'cosam-grid-event-time' }, formatDuration(evt.duration)));
       }
 
-      // Star indicator
-      const starEl = el('span', {
-        role: 'button',
-        tabindex: '0',
-        className: 'cosam-grid-event-star' + (isStarred ? ' starred' : ''),
-        innerHTML: ICONS.star,
-        onClick: (e) => {
-          e.stopPropagation();
-          this.state.toggleStar(evt.id);
-          this.render();
-        },
-      });
-      starEl.addEventListener('keydown', (e) => {
-        if (e.key === 'Enter' || e.key === ' ') {
-          e.preventDefault();
-          e.stopPropagation();
-          this.state.toggleStar(evt.id);
-          this.render();
-        }
-      });
-      div.appendChild(starEl);
-
       return div;
     }
 
@@ -1740,6 +2102,196 @@
       return overlay;
     }
 
+    // ── Schedule Management Modals ──
+
+    _modalClose() {
+      this._modalOverlay.classList.remove('open');
+    }
+
+    _showNewScheduleModal() {
+      const modal = this._modalContent;
+      modal.innerHTML = '';
+      modal.appendChild(el('button', { type: 'button', className: 'cosam-modal-close', innerHTML: ICONS.x, 'aria-label': 'Close', onClick: () => this._modalClose() }));
+      modal.appendChild(el('h2', {}, 'New Schedule'));
+      const nameInput = el('input', { type: 'text', className: 'cosam-share-url-input', placeholder: 'Schedule name...', 'aria-label': 'Schedule name' });
+      modal.appendChild(nameInput);
+      const errDiv = el('div', { className: 'cosam-import-status' });
+      modal.appendChild(errDiv);
+      const createBtn = el('button', {
+        type: 'button', className: 'cosam-btn',
+        onClick: () => {
+          const created = this.state.createSchedule(nameInput.value);
+          if (!created) { errDiv.textContent = 'That name is already taken or invalid.'; return; }
+          this.state.switchSchedule(created);
+          this._modalClose();
+          this.render();
+        },
+      }, 'Create');
+      nameInput.addEventListener('keydown', (e) => { if (e.key === 'Enter') createBtn.click(); });
+      modal.appendChild(el('div', { className: 'cosam-modal-actions' }, createBtn));
+      this._modalOverlay.classList.add('open');
+      nameInput.focus();
+    }
+
+    _showRenameScheduleModal() {
+      const modal = this._modalContent;
+      modal.innerHTML = '';
+      modal.appendChild(el('button', { type: 'button', className: 'cosam-modal-close', innerHTML: ICONS.x, 'aria-label': 'Close', onClick: () => this._modalClose() }));
+      modal.appendChild(el('h2', {}, 'Rename Schedule'));
+      const nameInput = el('input', { type: 'text', className: 'cosam-share-url-input', value: this.state.activeScheduleName, 'aria-label': 'New schedule name' });
+      modal.appendChild(nameInput);
+      const errDiv = el('div', { className: 'cosam-import-status' });
+      modal.appendChild(errDiv);
+      const saveBtn = el('button', {
+        type: 'button', className: 'cosam-btn',
+        onClick: () => {
+          if (!this.state.renameSchedule(this.state.activeScheduleName, nameInput.value)) {
+            errDiv.textContent = 'That name is already taken or invalid.'; return;
+          }
+          this._modalClose();
+          this.render();
+        },
+      }, 'Save');
+      nameInput.addEventListener('keydown', (e) => { if (e.key === 'Enter') saveBtn.click(); });
+      modal.appendChild(el('div', { className: 'cosam-modal-actions' }, saveBtn));
+      this._modalOverlay.classList.add('open');
+      nameInput.select();
+    }
+
+    _showDeleteScheduleModal() {
+      const name = this.state.activeScheduleName;
+      const modal = this._modalContent;
+      modal.innerHTML = '';
+      modal.appendChild(el('button', { type: 'button', className: 'cosam-modal-close', innerHTML: ICONS.x, 'aria-label': 'Close', onClick: () => this._modalClose() }));
+      modal.appendChild(el('h2', {}, 'Delete Schedule'));
+      modal.appendChild(el('p', { className: 'cosam-modal-desc' }, `Delete "${name}"? This cannot be undone.`));
+      const deleteBtn = el('button', {
+        type: 'button', className: 'cosam-btn cosam-btn-danger',
+        onClick: () => {
+          this.state.deleteSchedule(name);
+          this._modalClose();
+          this.render();
+        },
+      }, 'Delete');
+      modal.appendChild(el('div', { className: 'cosam-modal-actions' }, deleteBtn));
+      this._modalOverlay.classList.add('open');
+    }
+
+    _showMergeScheduleModal() {
+      const modal = this._modalContent;
+      modal.innerHTML = '';
+      modal.appendChild(el('button', { type: 'button', className: 'cosam-modal-close', innerHTML: ICONS.x, 'aria-label': 'Close', onClick: () => this._modalClose() }));
+      modal.appendChild(el('h2', {}, 'Merge Schedules'));
+      modal.appendChild(el('p', { className: 'cosam-modal-desc' }, 'Copy all events from one schedule into another.'));
+
+      const fromLabel = el('label', { className: 'cosam-share-option' });
+      fromLabel.appendChild(document.createTextNode('From: '));
+      const fromSelect = el('select', { className: 'cosam-select', 'aria-label': 'Source schedule' });
+      for (const name of Object.keys(this.state.schedules)) {
+        if (name !== this.state.activeScheduleName) {
+          fromSelect.appendChild(el('option', { value: name }, name));
+        }
+      }
+      fromLabel.appendChild(fromSelect);
+      modal.appendChild(fromLabel);
+
+      modal.appendChild(el('p', {}, `Into: "${this.state.activeScheduleName}"`));
+
+      const mergeBtn = el('button', {
+        type: 'button', className: 'cosam-btn',
+        onClick: () => {
+          const src = fromSelect.value;
+          if (!src) return;
+          this.state.mergeIntoSchedule(this.state.schedules[src], this.state.activeScheduleName);
+          this._modalClose();
+          this.render();
+        },
+      }, 'Merge');
+      modal.appendChild(el('div', { className: 'cosam-modal-actions' }, mergeBtn));
+      this._modalOverlay.classList.add('open');
+    }
+
+    _showImportFromUrlModal() {
+      const modal = this._modalContent;
+      modal.innerHTML = '';
+      modal.appendChild(el('button', { type: 'button', className: 'cosam-modal-close', innerHTML: ICONS.x, 'aria-label': 'Close', onClick: () => this._modalClose() }));
+      modal.appendChild(el('h2', {}, 'Import from URL'));
+      modal.appendChild(el('p', { className: 'cosam-modal-desc' }, 'Paste a shared schedule URL to import it.'));
+
+      const urlInput = el('input', { type: 'text', className: 'cosam-share-url-input', placeholder: 'Paste URL...', 'aria-label': 'Shared schedule URL' });
+      modal.appendChild(urlInput);
+
+      const resultDiv = el('div', { className: 'cosam-import-status' });
+      modal.appendChild(resultDiv);
+
+      const parseBtn = el('button', {
+        type: 'button', className: 'cosam-btn',
+        onClick: () => {
+          const url = urlInput.value.trim();
+          const hashIdx = url.indexOf('#');
+          if (hashIdx === -1) { resultDiv.textContent = 'No schedule data found in URL.'; return; }
+          const params = new URLSearchParams(url.substring(hashIdx + 1));
+          const ids = params.has('starred') ? decodeURIComponent(params.get('starred')).split(',').filter(Boolean) : [];
+          const schedName = params.has('scheduleName') ? decodeURIComponent(params.get('scheduleName')) : 'Imported Schedule';
+          if (ids.length === 0) { resultDiv.textContent = 'No starred events found in URL.'; return; }
+
+          resultDiv.innerHTML = '';
+          resultDiv.appendChild(el('p', {}, `Found "${schedName}" with ${ids.length} event${ids.length === 1 ? '' : 's'}.`));
+
+          const actionsDiv = el('div', { className: 'cosam-import-actions' });
+
+          const asNewBtn = el('button', {
+            type: 'button', className: 'cosam-btn',
+            onClick: () => {
+              const n = this.state.importAsNewSchedule(schedName, ids);
+              this.state.switchSchedule(n);
+              this._modalClose();
+              this.render();
+            },
+          }, 'Import as new schedule');
+          actionsDiv.appendChild(asNewBtn);
+
+          const mergeSelect = el('select', { className: 'cosam-select', 'aria-label': 'Schedule to merge into' });
+          for (const n of Object.keys(this.state.schedules)) mergeSelect.appendChild(el('option', { value: n }, n));
+          mergeSelect.value = this.state.activeScheduleName;
+
+          const mergeBtn = el('button', {
+            type: 'button', className: 'cosam-btn',
+            onClick: () => {
+              this.state.mergeIntoSchedule(new Set(ids), mergeSelect.value);
+              this._modalClose();
+              this.render();
+            },
+          }, 'Merge into:');
+          const mergeRow = el('div', { className: 'cosam-import-row' }, mergeBtn, mergeSelect);
+          actionsDiv.appendChild(mergeRow);
+
+          const replaceBtn = el('button', {
+            type: 'button', className: 'cosam-btn',
+            onClick: () => {
+              const target = mergeSelect.value;
+              if (!confirm(`Replace "${target}" with "${schedName}"? This cannot be undone.`)) return;
+              this.state.replaceSchedule(ids, target);
+              this._modalClose();
+              this.render();
+            },
+          }, 'Replace:');
+          const replaceRow = el('div', { className: 'cosam-import-row' });
+          const replaceSelect = el('select', { className: 'cosam-select', 'aria-label': 'Schedule to replace' });
+          for (const n of Object.keys(this.state.schedules)) replaceSelect.appendChild(el('option', { value: n }, n));
+          replaceSelect.value = this.state.activeScheduleName;
+          replaceRow.append(replaceBtn, replaceSelect);
+          actionsDiv.appendChild(replaceRow);
+
+          resultDiv.appendChild(actionsDiv);
+        },
+      }, 'Parse URL');
+      urlInput.addEventListener('keydown', (e) => { if (e.key === 'Enter') parseBtn.click(); });
+      modal.appendChild(el('div', { className: 'cosam-modal-actions' }, parseBtn));
+      this._modalOverlay.classList.add('open');
+      urlInput.focus();
+    }
+
     _showShareModal() {
       const modal = this._modalContent;
       modal.innerHTML = '';
@@ -1753,57 +2305,68 @@
         onClick: () => this._modalOverlay.classList.remove('open'),
       }));
 
-      // Title
       modal.appendChild(el('h2', {}, 'Share Schedule'));
 
-      // Description
-      modal.appendChild(el('p', { className: 'cosam-modal-desc' }, 'Generate a shareable URL for this schedule.'));
+      // ── Upper section: options (left) + QR code (right) ──
+      const upper = el('div', { className: 'cosam-share-upper' });
 
-      // Options
+      // Options column
       const optionsDiv = el('div', { className: 'cosam-share-options' });
 
-      // Include filters checkbox
-      const includeFiltersLabel = el('label', { className: 'cosam-share-option' });
-      const includeFiltersCheckbox = el('input', {
-        type: 'checkbox',
-        id: 'cosam-share-filters',
-        checked: true,
+      // "Include schedule" checkbox (default: on)
+      const inclSchedLabel = el('label', { className: 'cosam-share-option' });
+      const inclSchedCb = el('input', { type: 'checkbox' });
+      inclSchedCb.checked = true;
+      inclSchedLabel.append(inclSchedCb, ' Include schedule');
+      optionsDiv.appendChild(inclSchedLabel);
+
+      // Schedule selector row (indented, hidden when include-schedule is off)
+      const scheduleRow = el('div', { className: 'cosam-share-schedule-row' });
+      scheduleRow.appendChild(document.createTextNode('Schedule: '));
+      const scheduleSelect = el('select', { className: 'cosam-select', 'aria-label': 'Schedule to share' });
+      for (const [name, ids] of Object.entries(this.state.schedules)) {
+        const opt = el('option', { value: name }, `${name} (${ids.size} events)`);
+        if (name === this.state.activeScheduleName) opt.selected = true;
+        scheduleSelect.appendChild(opt);
+      }
+      scheduleRow.appendChild(scheduleSelect);
+      optionsDiv.appendChild(scheduleRow);
+
+      // "Include filters" checkbox (default: off)
+      const inclFiltersLabel = el('label', { className: 'cosam-share-option' });
+      const inclFiltersCb = el('input', { type: 'checkbox' });
+      inclFiltersCb.checked = false;
+      inclFiltersLabel.append(inclFiltersCb, ' Include current filters');
+      optionsDiv.appendChild(inclFiltersLabel);
+
+      upper.appendChild(optionsDiv);
+
+      // QR code column
+      const qrDiv = el('div', {
+        className: 'cosam-share-qr',
+        role: 'img',
+        'aria-label': 'QR code for the share URL',
       });
-      includeFiltersCheckbox.addEventListener('change', () => { this._updateShareUrl(); });
-      includeFiltersLabel.appendChild(includeFiltersCheckbox);
-      includeFiltersLabel.appendChild(document.createTextNode(' Include current filters'));
-      optionsDiv.appendChild(includeFiltersLabel);
+      const qrImg = el('img', { className: 'cosam-share-qr-img', alt: 'QR code' });
+      const qrPlaceholder = el('div', { className: 'cosam-share-qr-placeholder' }, 'Nothing to share');
+      qrDiv.append(qrImg, qrPlaceholder);
+      upper.appendChild(qrDiv);
 
-      // Include my schedule checkbox
-      const includeMyScheduleLabel = el('label', { className: 'cosam-share-option' });
-      const includeMyScheduleCheckbox = el('input', {
-        type: 'checkbox',
-        id: 'cosam-share-myschedule',
-        checked: true,
-      });
-      includeMyScheduleCheckbox.addEventListener('change', () => { this._updateShareUrl(); });
-      includeMyScheduleLabel.appendChild(includeMyScheduleCheckbox);
-      includeMyScheduleLabel.appendChild(document.createTextNode(' Include My Schedule (starred events)'));
-      optionsDiv.appendChild(includeMyScheduleLabel);
+      modal.appendChild(upper);
 
-      modal.appendChild(optionsDiv);
-
-      // URL display
+      // ── URL row ──
       const urlWrapper = el('div', { className: 'cosam-share-url-wrapper' });
       const urlInput = el('input', {
         type: 'text',
         className: 'cosam-share-url-input',
         readOnly: true,
-        value: this.state.getShareUrl({ includeFilters: true, includeMySchedule: true }),
+        'aria-label': 'Share URL',
       });
-      urlWrapper.appendChild(urlInput);
-
-      // Copy button
       const copyBtn = el('button', {
         type: 'button',
         className: 'cosam-btn',
-        innerHTML: 'Copy URL',
         onClick: () => {
+          if (!urlInput.value) return;
           if (navigator.clipboard) {
             navigator.clipboard.writeText(urlInput.value).then(() => {
               copyBtn.textContent = 'Copied!';
@@ -1814,25 +2377,56 @@
           }
         },
       });
-      urlWrapper.appendChild(copyBtn);
+      copyBtn.textContent = 'Copy URL';
+      urlWrapper.append(urlInput, copyBtn);
       modal.appendChild(urlWrapper);
 
-      // Store references for update
+      // Store refs
       this._shareUrlInput = urlInput;
-      this._shareFiltersCheckbox = includeFiltersCheckbox;
-      this._shareMyScheduleCheckbox = includeMyScheduleCheckbox;
+      this._shareFiltersCheckbox = inclFiltersCb;
+      this._shareScheduleSelect = scheduleSelect;
+      this._shareIncludeScheduleCb = inclSchedCb;
+      this._shareScheduleRow = scheduleRow;
+      this._shareQrImg = qrImg;
+      this._shareQrPlaceholder = qrPlaceholder;
 
-      // Open modal
+      // Wire up change handlers
+      inclSchedCb.addEventListener('change', () => {
+        scheduleRow.hidden = !inclSchedCb.checked;
+        this._updateShareUrl();
+      });
+      scheduleSelect.addEventListener('change', () => this._updateShareUrl());
+      inclFiltersCb.addEventListener('change', () => this._updateShareUrl());
+
+      this._updateShareUrl();
       this._modalOverlay.classList.add('open');
     }
 
     _updateShareUrl() {
-      if (!this._shareUrlInput || !this._shareFiltersCheckbox || !this._shareMyScheduleCheckbox) return;
-      const url = this.state.getShareUrl({
-        includeFilters: this._shareFiltersCheckbox.checked,
-        includeMySchedule: this._shareMyScheduleCheckbox.checked,
-      });
+      if (!this._shareUrlInput) return;
+      const includeSchedule = this._shareIncludeScheduleCb ? this._shareIncludeScheduleCb.checked : true;
+      const scheduleName = this._shareScheduleSelect ? this._shareScheduleSelect.value : this.state.activeScheduleName;
+      const includeFilters = this._shareFiltersCheckbox ? this._shareFiltersCheckbox.checked : false;
+      const url = this.state.getShareUrl({ includeSchedule, scheduleName, includeFilters });
       this._shareUrlInput.value = url;
+
+      // QR code
+      if (!this._shareQrImg) return;
+      const hasContent = url !== window.location.href.split('#')[0];
+      if (hasContent) {
+        this._shareQrPlaceholder.hidden = true;
+        QRCode.toDataURL(url, { width: 200, margin: 2 }).then(dataUrl => {
+          this._shareQrImg.src = dataUrl;
+          this._shareQrImg.hidden = false;
+        }).catch(() => {
+          this._shareQrImg.hidden = true;
+          this._shareQrPlaceholder.hidden = false;
+        });
+      } else {
+        this._shareQrImg.hidden = true;
+        this._shareQrImg.src = '';
+        this._shareQrPlaceholder.hidden = false;
+      }
     }
 
     _showModal(evt) {
@@ -1922,23 +2516,41 @@
         modal.appendChild(el('div', { className: 'cosam-modal-actions' }, link));
       }
 
-      // Star action
-      const isStarred = this.state.starred.has(evt.id);
-      const starBtn = el('button', {
-        type: 'button',
-        className: 'cosam-btn' + (isStarred ? ' active' : ''),
-        innerHTML: ICONS.star + (isStarred ? ' Remove from My Schedule' : ' Add to My Schedule'),
-        onClick: () => {
-          this.state.toggleStar(evt.id);
-          this._showModal(evt); // re-render modal
-        },
-      });
-      const existingActions = modal.querySelector('.cosam-modal-actions');
-      if (existingActions) {
-        existingActions.appendChild(starBtn);
-      } else {
-        modal.appendChild(el('div', { className: 'cosam-modal-actions' }, starBtn));
+      // Schedule membership section
+      const schedSection = el('div', { className: 'cosam-modal-schedules' });
+      const schedHeading = el('div', { className: 'cosam-modal-schedules-heading' });
+      schedHeading.innerHTML = ICONS.people + ' Schedules';
+      schedSection.appendChild(schedHeading);
+
+      const checkList = el('div', { className: 'cosam-modal-schedule-list' });
+
+      // One checkbox per named schedule
+      for (const [name, ids] of Object.entries(this.state.schedules)) {
+        const isIn = ids.has(evt.id);
+        const itemLabel = el('label', { className: 'cosam-modal-schedule-item' });
+        const cb = el('input', { type: 'checkbox' });
+        if (isIn) cb.checked = true;
+        cb.addEventListener('change', () => {
+          if (cb.checked) this.state.schedules[name].add(evt.id);
+          else this.state.schedules[name].delete(evt.id);
+          this.state._saveState();
+          this._showModal(evt);
+        });
+        itemLabel.appendChild(cb);
+        itemLabel.appendChild(document.createTextNode(' ' + name));
+        checkList.appendChild(itemLabel);
       }
+
+      // Shared URL schedule as read-only indicator
+      if (this.state.sharedStarred.has(evt.id)) {
+        const sharedRow = el('div', { className: 'cosam-modal-schedule-item cosam-modal-schedule-shared' });
+        sharedRow.innerHTML = ICONS.people;
+        sharedRow.appendChild(document.createTextNode(' ' + this.state.sharedScheduleName + ' (shared, read-only)'));
+        checkList.appendChild(sharedRow);
+      }
+
+      schedSection.appendChild(checkList);
+      modal.appendChild(schedSection);
 
       this._modalOverlay.classList.add('open');
     }

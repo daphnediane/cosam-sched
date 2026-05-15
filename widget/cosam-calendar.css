@@ -1,6 +1,9 @@
 /* ── CosAm Calendar Widget ─────────────────────────────────────────────────── */
 /* All styles scoped under .cosam-calendar to avoid conflicts with host page  */
 
+/* Ensure hidden attribute works even when CSS sets an explicit display value */
+.cosam-calendar [hidden] { display: none !important; }
+
 .cosam-calendar {
   --cosam-accent: #6b21a8;
   --cosam-accent-light: #a855f7;
@@ -139,6 +142,50 @@
   box-sizing: border-box;
 }
 
+/* ── Shared Schedule Banner ───────────────────────────────────────────────── */
+
+.cosam-shared-banner {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 8px;
+  padding: 10px 14px;
+  background: #ecfeff;
+  border: 1px solid #0891b2;
+  border-radius: var(--cosam-radius);
+  margin-bottom: 8px;
+  color: var(--cosam-text);
+}
+
+.cosam-calendar[data-theme="dark"] .cosam-shared-banner {
+  background: #0c2530;
+  border-color: #0e7490;
+}
+
+.cosam-shared-banner-text {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 14px;
+  font-weight: 500;
+}
+
+.cosam-shared-banner-text svg {
+  width: 16px;
+  height: 16px;
+  stroke: #0891b2;
+  stroke-width: 2;
+  fill: none;
+  flex-shrink: 0;
+}
+
+.cosam-shared-banner-actions {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
 /* ── Toolbar ──────────────────────────────────────────────────────────────── */
 
 .cosam-toolbar {
@@ -200,6 +247,264 @@
 
 .cosam-btn-icon {
   padding: 6px 8px;
+}
+
+.cosam-btn-shared.active {
+  background: #0891b2;
+  border-color: #0891b2;
+  color: #fff;
+}
+
+.cosam-btn-danger {
+  background: #fee2e2;
+  border-color: #fca5a5;
+  color: #b91c1c;
+}
+
+.cosam-btn-danger:hover {
+  background: #fecaca;
+  border-color: #f87171;
+}
+
+/* ── Schedule Selector Group ──────────────────────────────────────────────── */
+
+.cosam-schedule-group {
+  position: relative;
+  display: inline-flex;
+  align-items: stretch;
+}
+
+.cosam-schedule-filter-btn {
+  border-top-right-radius: 0;
+  border-bottom-right-radius: 0;
+  border-right: none;
+  max-width: 180px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.cosam-schedule-menu-btn {
+  border-top-left-radius: 0;
+  border-bottom-left-radius: 0;
+  padding: 6px 6px;
+}
+
+.cosam-schedule-menu-btn svg {
+  width: 14px;
+  height: 14px;
+  transition: transform 0.15s;
+}
+
+.cosam-schedule-menu-btn[aria-expanded="true"] svg {
+  transform: rotate(180deg);
+}
+
+.cosam-schedule-menu {
+  display: none;
+  position: absolute;
+  top: calc(100% + 4px);
+  left: 0;
+  z-index: 200;
+  min-width: 220px;
+  background: var(--cosam-bg);
+  border: 1px solid var(--cosam-border);
+  border-radius: var(--cosam-radius);
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
+  padding: 4px 0;
+  overflow: hidden;
+}
+
+.cosam-schedule-menu.open {
+  display: block;
+}
+
+.cosam-schedule-menu-item {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  width: 100%;
+  padding: 8px 14px;
+  background: none;
+  border: none;
+  text-align: left;
+  font-size: 14px;
+  color: var(--cosam-text);
+  cursor: pointer;
+  font-family: var(--cosam-font);
+}
+
+.cosam-schedule-menu-item:hover {
+  background: var(--cosam-accent-bg);
+}
+
+.cosam-schedule-menu-item.active {
+  font-weight: 600;
+  color: var(--cosam-accent);
+}
+
+.cosam-schedule-menu-check {
+  width: 14px;
+  flex-shrink: 0;
+  color: var(--cosam-accent);
+}
+
+.cosam-schedule-menu-count {
+  margin-left: auto;
+  font-size: 12px;
+  color: var(--cosam-text-muted);
+}
+
+.cosam-schedule-menu-divider {
+  height: 1px;
+  background: var(--cosam-border);
+  margin: 4px 0;
+}
+
+.cosam-schedule-menu-danger {
+  color: #b91c1c;
+}
+
+.cosam-schedule-menu-danger:hover {
+  background: #fee2e2;
+}
+
+/* ── People Indicator ─────────────────────────────────────────────────────── */
+
+.cosam-event-right {
+  display: flex;
+  flex-direction: row;
+  align-items: center;
+  align-self: center;
+  flex-shrink: 0;
+}
+
+.cosam-event-people {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  flex-shrink: 0;
+  font-size: 11px;
+  color: var(--cosam-star);
+  padding: 0 4px;
+  cursor: default;
+}
+
+.cosam-event-people svg {
+  width: 14px;
+  height: 14px;
+  stroke: currentColor;
+  stroke-width: 2;
+  fill: none;
+  flex-shrink: 0;
+}
+
+.cosam-people-count {
+  font-weight: 600;
+}
+
+.cosam-grid-event-people {
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+  font-size: 10px;
+  color: var(--cosam-star);
+}
+
+.cosam-grid-event-people svg {
+  width: 11px;
+  height: 11px;
+  stroke: currentColor;
+  stroke-width: 2;
+  fill: none;
+}
+
+/* ── Modal schedule list ──────────────────────────────────────────────────── */
+
+.cosam-modal-schedules {
+  border-top: 1px solid var(--cosam-border);
+  margin-top: 12px;
+  padding-top: 12px;
+}
+
+.cosam-modal-schedules-heading {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--cosam-text-muted);
+  margin-bottom: 8px;
+}
+
+.cosam-modal-schedules-heading svg {
+  width: 14px;
+  height: 14px;
+  stroke: currentColor;
+  stroke-width: 2;
+  fill: none;
+}
+
+.cosam-modal-schedule-list {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.cosam-modal-schedule-item {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 14px;
+  cursor: pointer;
+}
+
+.cosam-modal-schedule-item input[type="checkbox"] {
+  cursor: pointer;
+  width: 15px;
+  height: 15px;
+  flex-shrink: 0;
+}
+
+.cosam-modal-schedule-shared {
+  color: #0891b2;
+  font-size: 13px;
+  cursor: default;
+}
+
+.cosam-modal-schedule-shared svg {
+  width: 13px;
+  height: 13px;
+  stroke: currentColor;
+  stroke-width: 2;
+  fill: none;
+  flex-shrink: 0;
+}
+
+/* ── Import modal ─────────────────────────────────────────────────────────── */
+
+.cosam-import-status {
+  margin-top: 10px;
+  font-size: 14px;
+}
+
+.cosam-import-actions {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin-top: 8px;
+}
+
+.cosam-import-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.cosam-shared-banner-merge {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
 }
 
 .cosam-btn svg {
@@ -534,6 +839,10 @@
   border-left: 3px solid var(--cosam-star);
 }
 
+.cosam-event-card.cosam-shared:not(.starred) {
+  border-left: 3px solid #0891b2;
+}
+
 .cosam-event-color-bar {
   width: 4px;
   min-height: 100%;
@@ -673,6 +982,11 @@
 .cosam-badge-kids {
   background: #fef3c7;
   color: #92400e;
+}
+
+.cosam-badge-shared {
+  background: #cffafe;
+  color: #0e7490;
 }
 
 .cosam-event-star {
@@ -888,6 +1202,19 @@
   border-left-color: var(--cosam-star);
 }
 
+.cosam-grid-event.cosam-shared:not(.starred) {
+  border-left-color: #0891b2;
+}
+
+.cosam-grid-event-actions {
+  float: right;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  margin-left: 4px;
+  margin-bottom: 2px;
+}
+
 .cosam-grid-event-name {
   font-weight: 600;
   overflow: hidden;
@@ -969,9 +1296,6 @@
 }
 
 .cosam-grid-event-star {
-  position: absolute;
-  top: 2px;
-  right: 2px;
   width: 16px;
   height: 16px;
   cursor: pointer;
@@ -1867,11 +2191,19 @@ body.cosam-page-styled a:hover {
 
 /* ── Share Modal ───────────────────────────────────────────────────────────── */
 
+.cosam-share-upper {
+  display: flex;
+  flex-direction: row;
+  gap: 16px;
+  align-items: flex-start;
+  margin-bottom: 12px;
+}
+
 .cosam-share-options {
+  flex: 1;
   display: flex;
   flex-direction: column;
   gap: 10px;
-  margin-bottom: 16px;
   padding: 12px;
   background: var(--cosam-bg-alt);
   border-radius: var(--cosam-radius);
@@ -1893,10 +2225,44 @@ body.cosam-page-styled a:hover {
   accent-color: var(--cosam-accent);
 }
 
+.cosam-share-schedule-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 14px;
+  color: var(--cosam-text);
+  padding-left: 26px;
+}
+
+.cosam-share-qr {
+  flex-shrink: 0;
+  width: 160px;
+  min-height: 160px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border: 1px solid var(--cosam-border);
+  border-radius: var(--cosam-radius);
+  background: #fff;
+  overflow: hidden;
+}
+
+.cosam-share-qr-img {
+  display: block;
+  width: 156px;
+  height: 156px;
+}
+
+.cosam-share-qr-placeholder {
+  font-size: 12px;
+  color: var(--cosam-text-muted);
+  text-align: center;
+  padding: 8px;
+}
+
 .cosam-share-url-wrapper {
   display: flex;
   gap: 8px;
-  margin-top: 16px;
 }
 
 .cosam-share-url-input {

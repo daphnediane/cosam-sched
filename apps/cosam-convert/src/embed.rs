@@ -15,8 +15,11 @@ use std::path::{Path, PathBuf};
 
 use anyhow::{Context, Result};
 
-const BUILTIN_CSS: &str = include_str!("../../../widget/cosam-calendar.css");
-const BUILTIN_JS: &str = include_str!("../../../widget/cosam-calendar.js");
+// Pre-minified by esbuild (via `npm run build` / build.rs).
+// Using the esbuild output avoids minify-html's JS minifier, which
+// double-escapes \uXXXX sequences in string literals.
+const BUILTIN_CSS: &str = include_str!("../../../widget/cosam-calendar.min.css");
+const BUILTIN_JS: &str = include_str!("../../../widget/cosam-calendar.min.js");
 const BUILTIN_TEMPLATE: &str = include_str!("../../../widget/square-template.html");
 
 const COPYRIGHT_COMMENT: &str = "\
@@ -273,8 +276,9 @@ pub fn write_test_html(
 
 fn minify_html_content(html: &str) -> Result<String> {
     let cfg = minify_html::Cfg {
-        minify_css: true,
-        minify_js: true,
+        // JS and CSS are pre-minified by esbuild; only strip HTML whitespace here.
+        minify_css: false,
+        minify_js: false,
         ..Default::default()
     };
     let minified = minify_html::minify(html.as_bytes(), &cfg);

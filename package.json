@@ -1,0 +1,18 @@
+{
+  "name": "cosam-calendar-widget",
+  "version": "0.1.0",
+  "description": "Build tooling for the CosAm Calendar embeddable widget",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "build": "node widget/build.mjs",
+    "watch": "node widget/build.mjs --watch",
+    "serve": "npx --yes serve . --listen 8000 --no-clipboard"
+  },
+  "dependencies": {
+    "qrcode": "^1.5.4"
+  },
+  "devDependencies": {
+    "esbuild": "^0.25.0"
+  }
+}

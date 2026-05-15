@@ -1,0 +1,227 @@
+<!DOCTYPE html>
+<!--
+  Widget Dev Page — CosAm Calendar
+
+  Loads cosam-calendar.min.js / .min.css directly from this directory and
+  fetches schedule data from output/2026/public.json, so you can iterate on
+  the widget without rebuilding the schedule data.
+
+  Workflow:
+    Terminal 1:  npm run watch          (rebuilds widget on every save)
+    Terminal 2:  npm run serve          (serves repo root on http://localhost:8000)
+    Browser:     http://localhost:8000/widget/dev.html
+
+  NOTE: fetch() requires HTTP — opening this file directly via file:// will
+  not work. Use the npm run serve command above.
+-->
+<html lang="en-US">
+
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="initial-scale=1">
+  <title>Widget Dev — CosAm Calendar</title>
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link rel="stylesheet"
+    href="https://fonts.googleapis.com/css2?family=Libre+Franklin:ital,wght@0,400;0,500;0,700;1,400;1,700&family=Fjalla+One:ital,wght@0,400">
+  <link rel="stylesheet" href="cosam-calendar.min.css">
+  <style>
+    *, *::before, *::after { box-sizing: border-box; }
+
+    html {
+      font-size: 16px;
+      -webkit-font-smoothing: antialiased;
+      -moz-osx-font-smoothing: grayscale;
+    }
+
+    body {
+      margin: 0;
+      padding: 0;
+      font-family: 'Libre Franklin', -apple-system, BlinkMacSystemFont, 'Segoe UI',
+        Roboto, Oxygen, Ubuntu, Cantarell, 'Open Sans', 'Helvetica Neue', sans-serif;
+      font-weight: 400;
+      line-height: 1.8em;
+      color: #1a1a1a;
+      background-color: #40c8ed !important;
+    }
+
+    h1, h2, h3, h4, h5, h6 {
+      font-family: 'acumin-pro-extra-condensed', 'Fjalla One', Helvetica, Arial, sans-serif;
+      font-weight: 400;
+      text-transform: uppercase;
+      letter-spacing: 0.0em;
+      line-height: 1.2em;
+    }
+
+    h1 {
+      font-size: 60px;
+      font-weight: 700;
+      text-align: center;
+      margin: 0 0 15px 0;
+    }
+
+    a { color: #1a1a1a; }
+    a:hover { opacity: 0.7; }
+
+    .Site {
+      border: 4px solid #1a1a1a;
+      min-height: 100vh;
+    }
+
+    .Header-nav {
+      background: #d4c5b9;
+      padding: 78px 40px;
+      border-bottom: 1px solid #e0e0e0;
+      display: flex;
+      gap: 20px;
+      flex-wrap: wrap;
+      justify-content: center;
+      align-items: center;
+      font-family: 'Fjalla One', Helvetica, Arial, sans-serif;
+      text-transform: uppercase;
+      letter-spacing: 0.12em;
+      font-size: 13px;
+    }
+
+    .Header-nav a { text-decoration: none; padding: 5px 0; }
+
+    .Main {
+      max-width: 1440px;
+      margin: 0 auto;
+      padding: 20px 40px 40px;
+    }
+
+    .spacer-block { height: 86px; }
+
+    .Footer {
+      border-top: 1px solid #e0e0e0;
+      padding: 40px;
+      text-align: center;
+      font-size: 12px;
+      color: #999;
+    }
+
+    /* Dev toolbar */
+    #dev-toolbar {
+      position: sticky;
+      top: 0;
+      z-index: 9999;
+      background: #0f172a;
+      color: #94a3b8;
+      font-family: ui-monospace, 'Cascadia Code', 'Source Code Pro', monospace;
+      font-size: 12px;
+      padding: 6px 16px;
+      display: flex;
+      align-items: center;
+      gap: 16px;
+      flex-wrap: wrap;
+    }
+
+    #dev-toolbar strong { color: #f8fafc; }
+    #dev-toolbar .dev-hint { color: #64748b; }
+    #dev-toolbar .dev-path { color: #67e8f9; }
+    #dev-status { margin-left: auto; }
+    #dev-status.ok { color: #4ade80; }
+    #dev-status.err { color: #f87171; }
+
+    #dev-error {
+      background: #fef2f2;
+      border-left: 4px solid #ef4444;
+      color: #7f1d1d;
+      margin: 24px 40px;
+      padding: 16px 20px;
+      border-radius: 4px;
+      font-size: 14px;
+      line-height: 1.6;
+    }
+
+    #dev-error code {
+      background: #fee2e2;
+      padding: 1px 5px;
+      border-radius: 3px;
+      font-family: ui-monospace, monospace;
+      font-size: 13px;
+    }
+  </style>
+</head>
+
+<body>
+  <div id="dev-toolbar">
+    <strong>DEV</strong>
+    <span>widget: <span class="dev-path">cosam-calendar.min.js</span></span>
+    <span>data: <span class="dev-path">output/2026/public.json</span></span>
+    <span class="dev-hint">npm run watch &nbsp;|&nbsp; npm run serve</span>
+    <span id="dev-status"></span>
+  </div>
+
+  <div class="Site">
+    <nav class="Header-nav">
+      <a href="#">Home</a>
+      <a href="#">Register</a>
+      <a href="#">Location</a>
+      <a href="#">Guests</a>
+      <a href="#">Programming</a>
+      <a href="#">Schedule</a>
+      <a href="#">Policies &amp; FAQ</a>
+      <a href="#">Contact</a>
+    </nav>
+
+    <main class="Main">
+      <div class="spacer-block"></div>
+      <h1>Programming Schedule</h1>
+      <div class="spacer-block"></div>
+
+      <div id="dev-error" hidden></div>
+      <div id="cosam-calendar-root"></div>
+    </main>
+
+    <footer class="Footer">
+      <p>Cosplay America — Widget Dev Page</p>
+      <p>This is a local development page, not the live site.</p>
+    </footer>
+  </div>
+
+  <script src="cosam-calendar.min.js"></script>
+  <script>
+    var statusEl = document.getElementById('dev-status');
+    var errorEl = document.getElementById('dev-error');
+
+    if (location.protocol === 'file:') {
+      statusEl.className = 'err';
+      statusEl.textContent = 'file:// not supported';
+      errorEl.hidden = false;
+      errorEl.innerHTML =
+        '<strong>Cannot fetch JSON over <code>file://</code>.</strong> ' +
+        'Serve from a local HTTP server instead:<br><br>' +
+        'Run from the repo root:<br>' +
+        '<code>npm run serve</code><br><br>' +
+        'Then open: <code>http://localhost:8000/widget/dev.html</code>';
+    } else {
+      statusEl.textContent = 'loading\u2026';
+
+      fetch('../output/2026/public.json')
+        .then(function (r) {
+          if (!r.ok) throw new Error('HTTP ' + r.status + ' ' + r.statusText);
+          return r.json();
+        })
+        .then(function (data) {
+          statusEl.className = 'ok';
+          statusEl.textContent = 'loaded';
+          CosAmCalendar.init({
+            el: document.getElementById('cosam-calendar-root'),
+            data: data,
+          });
+        })
+        .catch(function (err) {
+          statusEl.className = 'err';
+          statusEl.textContent = 'error';
+          errorEl.hidden = false;
+          errorEl.innerHTML =
+            '<strong>Failed to load schedule data:</strong> ' + err.message + '<br><br>' +
+            'Make sure <code>output/2026/public.json</code> exists. ' +
+            'Run <code>cosam-convert</code> to generate it.';
+        });
+    }
+  </script>
+</body>
+
+</html>
