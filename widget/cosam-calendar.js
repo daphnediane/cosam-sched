@@ -865,7 +865,7 @@
       costGroup.appendChild(costChips);
       row2.appendChild(costGroup);
 
-      // Presenter filter — guests first, then panelists, then groups
+      // Presenter filter — guests first, then groups, then panelists
       const presGroup = el('div', { className: 'cosam-filter-group' });
       presGroup.appendChild(el('label', {}, 'Presenter'));
 
@@ -878,6 +878,11 @@
         else if (p.rank === 'guest') guestPresenters.push(p);
         else panelistPresenters.push(p);
       }
+
+      // Sort presenters alphabetically within each category
+      guestPresenters.sort((a, b) => a.name.localeCompare(b.name));
+      panelistPresenters.sort((a, b) => a.name.localeCompare(b.name));
+      groups.sort((a, b) => a.name.localeCompare(b.name));
 
       const presSelect = el('select', {
         className: 'cosam-select cosam-presenter-select',
@@ -899,6 +904,16 @@
         presSelect.appendChild(guestGroup);
       }
 
+      if (groups.length > 0) {
+        const groupGroup = el('optgroup', { label: 'Presenter Groups' });
+        for (const p of groups) {
+          const opt = el('option', { value: p.name }, p.name);
+          if (this.state.filters.presenter === p.name) opt.selected = true;
+          groupGroup.appendChild(opt);
+        }
+        presSelect.appendChild(groupGroup);
+      }
+
       if (panelistPresenters.length > 0) {
         const panelistGroup = el('optgroup', { label: 'Panelists' });
         for (const p of panelistPresenters) {
@@ -913,15 +928,6 @@
         presSelect.appendChild(panelistGroup);
       }
 
-      if (groups.length > 0) {
-        const groupGroup = el('optgroup', { label: 'Presenter Groups' });
-        for (const p of groups) {
-          const opt = el('option', { value: p.name }, p.name);
-          if (this.state.filters.presenter === p.name) opt.selected = true;
-          groupGroup.appendChild(opt);
-        }
-        presSelect.appendChild(groupGroup);
-      }
 
       presGroup.appendChild(presSelect);
       row2.appendChild(presGroup);
