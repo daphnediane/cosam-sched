@@ -10,6 +10,7 @@
 //! the widget CSS, JS, and schedule JSON. Assets are compiled-in by default;
 //! callers can override via `--widget-css`, `--widget-js`, `--test-template`.
 
+use std::io::Write as _;
 use std::path::{Path, PathBuf};
 
 use anyhow::{Context, Result};
@@ -100,6 +101,34 @@ impl WidgetSources {
     }
 }
 
+// ── Data compression ─────────────────────────────────────────────────────────
+
+/// Compact JSON whitespace, gzip-compress, and base64-encode for embedding.
+///
+/// Returns the base64 string. The caller embeds it in a
+/// `<script type="application/json" data-encoding="gzip-base64">` tag so the
+/// HTML/JS minifier never touches the data, and the browser decompresses it
+/// with the native `DecompressionStream` API before handing it to the widget.
+fn compress_and_encode(json_data: &str) -> Result<String> {
+    use base64::{engine::general_purpose::STANDARD, Engine as _};
+    use flate2::{write::GzEncoder, Compression};
+
+    // Re-serialize without whitespace to maximize compression ratio.
+    let value: serde_json::Value =
+        serde_json::from_str(json_data).context("Failed to parse JSON for embedding")?;
+    let compact = serde_json::to_string(&value).context("Failed to compact JSON")?;
+
+    let mut encoder = GzEncoder::new(Vec::new(), Compression::best());
+    encoder
+        .write_all(compact.as_bytes())
+        .context("Failed to compress schedule data")?;
+    let compressed = encoder
+        .finish()
+        .context("Failed to finalize gzip compression")?;
+
+    Ok(STANDARD.encode(compressed))
+}
+
 // ── HTML generation ───────────────────────────────────────────────────────────
 
 /// Generate embeddable HTML snippet (no outer `<html>` or `<body>`).
@@ -117,30 +146,46 @@ pub fn generate_embed_html(
         Some(false) => "\n            stylePageBody: false,",
         None => "",
     };
+    let encoded_data = compress_and_encode(json_data)?;
     let raw = format!(
         r#"{COPYRIGHT_COMMENT}
 <style>
 {css}
 </style>
 <div id="cosam-calendar-root"></div>
+<script type="application/json" id="cosam-schedule-data">
+{encoded_data}
+</script>
 <script>
 // CosAm Calendar Widget - Embeddable Version
 // Copyright (c) 2026 Daphne Pfister
 // SPDX-License-Identifier: BSD-2-Clause
 // Project: https://github.com/daphnediane/cosam-sched
 
-// Schedule data
-window.cosamScheduleData = {json_data};
-
 // Widget code
 {js}
 
-// Initialize widget
+// Initialize widget — data is gzip+base64 (detected by H4sI signature)
 (function() {{
-    if (typeof CosAmCalendar !== 'undefined' && window.cosamScheduleData) {{
+    var dataEl = document.getElementById('cosam-schedule-data');
+    if (!dataEl || typeof CosAmCalendar === 'undefined') return;
+    var raw = dataEl.textContent.trim();
+    if (raw.substring(0, 4) === 'H4sI') {{
+        var bytes = Uint8Array.from(atob(raw), function(c) {{ return c.charCodeAt(0); }});
+        var ds = new DecompressionStream('gzip');
+        var writer = ds.writable.getWriter();
+        writer.write(bytes);
+        writer.close();
+        new Response(ds.readable).arrayBuffer().then(function(buf) {{
+            CosAmCalendar.init({{
+                el: document.getElementById('cosam-calendar-root'),
+                data: JSON.parse(new TextDecoder().decode(buf)),{style_page_line}
+            }});
+        }});
+    }} else {{
         CosAmCalendar.init({{
             el: document.getElementById('cosam-calendar-root'),
-            data: window.cosamScheduleData,{style_page_line}
+            data: JSON.parse(raw),{style_page_line}
         }});
     }}
 }})();

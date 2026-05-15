@@ -1224,15 +1224,6 @@
         const slotRegular = slotEvents.filter(e => !this.state._isBreakEvent(e));
         const slotBreaks = slotEvents.filter(e => this.state._isBreakEvent(e));
 
-        // Compute time label (grid uses compact format without AM/PM on half hours)
-        let timeLabel;
-        if (slotEvents.length > 0) {
-          timeLabel = formatTimeGrid(slotEvents[0].startTime);
-        } else {
-          const date = new Date(originalKey + ':00');
-          timeLabel = formatTimeGrid(date.toISOString());
-        }
-
         // Determine if this is a half-hour (non-on-the-hour) slot
         const slotDate = new Date(originalKey + ':00');
         const isHalfHour = slotDate.getMinutes() !== 0;

@@ -16,7 +16,9 @@ layout = ["dep:schedule-layout"]
 
 [dependencies]
 anyhow = "1"
+base64 = "0.22"
 chrono = "0.4"
+flate2 = "1"
 minify-html = "0.15"
 serde_json = "1"
 schedule-core = { path = "../../crates/schedule-core" }
