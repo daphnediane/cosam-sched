@@ -133,6 +133,8 @@ pub struct WidgetPresenter {
     pub members: Vec<String>,
     pub groups: Vec<String>,
     pub panel_ids: Vec<String>,
+    #[serde(default)]
+    pub subsumes_members: bool,
 }
 
 /// Complete widget JSON export structure.
@@ -698,6 +700,7 @@ fn export_presenters(
             members,
             groups,
             panel_ids: presenter_panel_ids[p_id].clone(),
+            subsumes_members: p_data.data.subsumes_members,
         });
     }
 

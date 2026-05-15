@@ -337,15 +337,16 @@ When converting from spreadsheet, this array is populated with panels whose pane
 
 `presenters` is a JSON array of DisplayPresenter objects with bidirectional group membership support.
 
-| Field    | Type            | Description                                         |
-| -------- | --------------- | --------------------------------------------------- |
-| name     | String          | Presenter or group name                             |
-| rank     | String          | Presenter rank (guest, staff, fan_panelist, etc.)   |
-| sortKey  | Integer         | Sequential ordering key (0-based)                   |
-| isGroup  | Boolean         | True if this is a group                             |
-| members  | `Array<String>` | Group member names (empty for individuals)          |
-| groups   | `Array<String>` | Groups this presenter belongs to (empty for groups) |
-| panelIds | `Array<String>` | Panel IDs where this presenter/group should appear  |
+| Field           | Type            | Description                                         |
+| --------------- | --------------- | --------------------------------------------------- |
+| name            | String          | Presenter or group name                             |
+| rank            | String          | Presenter rank (guest, staff, fan_panelist, etc.)   |
+| sortKey         | Integer         | Sequential ordering key (0-based)                   |
+| isGroup         | Boolean         | True if this is a group                             |
+| members         | `Array<String>` | Group member names (empty for individuals)          |
+| groups          | `Array<String>` | Groups this presenter belongs to (empty for groups) |
+| panelIds        | `Array<String>` | Panel IDs where this presenter/group should appear  |
+| subsumesMembers | Boolean         | True if this group subsumes its members (tag: ==)   |
 
 ### Bidirectional Group Membership Logic
 
@@ -377,9 +378,8 @@ Only presenters referenced by panels (via `panelIds`) are included in the displa
     "isGroup": false,
     "members": [],
     "groups": ["Example Group"],
-    "alwaysGrouped": false,
-    "alwaysShown": false,
-    "panelIds": ["panel-001", "panel-045"]
+    "panelIds": ["panel-001", "panel-045"],
+    "subsumesMembers": false
   },
   {
     "name": "Example Group",
@@ -388,9 +388,8 @@ Only presenters referenced by panels (via `panelIds`) are included in the displa
     "isGroup": true,
     "members": ["John Doe", "Jane Smith"],
     "groups": [],
-    "alwaysGrouped": false,
-    "alwaysShown": true,
-    "panelIds": ["panel-001", "panel-023", "panel-045"]
+    "panelIds": ["panel-001", "panel-023", "panel-045"],
+    "subsumesMembers": true
   }
 ]
 ```
@@ -472,9 +471,8 @@ The widget performs the following transformations on the raw JSON:
       "isGroup": false,
       "members": [],
       "groups": [],
-      "alwaysGrouped": false,
-      "alwaysShown": false,
-      "panelIds": ["GP001"]
+      "panelIds": ["GP001"],
+      "subsumesMembers": false
     }
   ]
 }

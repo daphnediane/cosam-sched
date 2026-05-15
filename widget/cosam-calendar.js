@@ -865,24 +865,32 @@
       costGroup.appendChild(costChips);
       row2.appendChild(costGroup);
 
-      // Presenter filter — guests first, then groups, then panelists
+      // Presenter filter — guests, guest-ranked groups, other panelists, non-guest-ranked groups
       const presGroup = el('div', { className: 'cosam-filter-group' });
       presGroup.appendChild(el('label', {}, 'Presenter'));
 
       const guestPresenters = [];
       const panelistPresenters = [];
-      const groups = [];
+      const guestGroups = [];
+      const otherGroups = [];
 
       for (const p of this.state.data.presenters) {
-        if (p.isGroup) groups.push(p);
-        else if (p.rank === 'guest') guestPresenters.push(p);
-        else panelistPresenters.push(p);
+        // Treat groups with empty member lists as individuals
+        if (p.isGroup && p.members && p.members.length > 0) {
+          if (p.rank === 'guest') guestGroups.push(p);
+          else otherGroups.push(p);
+        } else if (p.rank === 'guest') {
+          guestPresenters.push(p);
+        } else {
+          panelistPresenters.push(p);
+        }
       }
 
       // Sort presenters alphabetically within each category
       guestPresenters.sort((a, b) => a.name.localeCompare(b.name));
       panelistPresenters.sort((a, b) => a.name.localeCompare(b.name));
-      groups.sort((a, b) => a.name.localeCompare(b.name));
+      guestGroups.sort((a, b) => a.name.localeCompare(b.name));
+      otherGroups.sort((a, b) => a.name.localeCompare(b.name));
 
       const presSelect = el('select', {
         className: 'cosam-select cosam-presenter-select',
@@ -904,28 +912,45 @@
         presSelect.appendChild(guestGroup);
       }
 
-      if (groups.length > 0) {
-        const groupGroup = el('optgroup', { label: 'Presenter Groups' });
-        for (const p of groups) {
+      if (guestGroups.length > 0) {
+        const guestGroupGroup = el('optgroup', { label: 'Guest Groups' });
+        for (const p of guestGroups) {
           const opt = el('option', { value: p.name }, p.name);
           if (this.state.filters.presenter === p.name) opt.selected = true;
-          groupGroup.appendChild(opt);
+          guestGroupGroup.appendChild(opt);
         }
-        presSelect.appendChild(groupGroup);
+        presSelect.appendChild(guestGroupGroup);
       }
 
       if (panelistPresenters.length > 0) {
         const panelistGroup = el('optgroup', { label: 'Panelists' });
         for (const p of panelistPresenters) {
           let displayText = p.name;
+          // Only append group name if the group has subsumes_members: true (defined with ==)
           if (p.groups && p.groups.length > 0) {
-            displayText += ' (' + p.groups.join(', ') + ')';
+            const subsumingGroups = p.groups.filter(groupName => {
+              const group = this.state.data.presenters.find(p => p.name === groupName);
+              return group && group.subsumesMembers;
+            });
+            if (subsumingGroups.length > 0) {
+              displayText += ' (' + subsumingGroups.join(', ') + ')';
+            }
           }
           const opt = el('option', { value: p.name }, displayText);
           if (this.state.filters.presenter === p.name) opt.selected = true;
           panelistGroup.appendChild(opt);
         }
         presSelect.appendChild(panelistGroup);
+      }
+
+      if (otherGroups.length > 0) {
+        const otherGroupGroup = el('optgroup', { label: 'Other Groups' });
+        for (const p of otherGroups) {
+          const opt = el('option', { value: p.name }, p.name);
+          if (this.state.filters.presenter === p.name) opt.selected = true;
+          otherGroupGroup.appendChild(opt);
+        }
+        presSelect.appendChild(otherGroupGroup);
       }
 
 
