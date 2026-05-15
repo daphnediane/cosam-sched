@@ -30,6 +30,7 @@ import QRCode from 'qrcode';
     chevronDown: '<svg viewBox="0 0 24 24"><polyline points="6 9 12 15 18 9"/></svg>',
     clock: '<svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>',
     mappin: '<svg viewBox="0 0 24 24"><path d="M21 10c0 7-9 13-9 13s-9-6-9-13a9 9 0 0 1 18 0z"/><circle cx="12" cy="10" r="3"/></svg>',
+    question: '<svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="10"/><path d="M9.09 9a3 3 0 0 1 5.83 1c0 2-3 3-3 3"/><line x1="12" y1="17" x2="12.01" y2="17"/></svg>',
   };
 
   // ── Helpers ──────────────────────────────────────────────────────────────
@@ -1098,6 +1099,17 @@ import QRCode from 'qrcode';
         onClick: () => this._handlePrint(),
       });
       right.appendChild(printBtn);
+
+      // Help
+      const helpBtn = el('button', {
+        type: 'button',
+        className: 'cosam-btn cosam-btn-icon',
+        title: 'Help / How to use',
+        'aria-label': 'Help',
+        innerHTML: ICONS.question,
+        onClick: () => { this._showHelpModal(); },
+      });
+      right.appendChild(helpBtn);
 
       const toolbar = el('div', { className: 'cosam-toolbar' }, left, right);
       return toolbar;
@@ -2878,6 +2890,85 @@ import QRCode from 'qrcode';
       printWin.document.close();
       printWin.focus();
       setTimeout(() => { printWin.print(); }, 500);
+    }
+
+    // ── Help ──
+
+    _showHelpModal() {
+      const modal = this._modalContent;
+      modal.innerHTML = '';
+
+      modal.appendChild(el('button', {
+        type: 'button',
+        className: 'cosam-modal-close',
+        innerHTML: ICONS.x,
+        'aria-label': 'Close',
+        onClick: () => this._modalClose(),
+      }));
+      modal.appendChild(el('h2', {}, 'How to Use the Schedule'));
+
+      const helpData = [
+        {
+          heading: 'Browsing',
+          items: [
+            { icon: ICONS.list, text: '<strong>List / Grid view</strong> — Switch views with the list or grid buttons. Grid view shows events in a room-by-time layout.' },
+            { icon: ICONS.clock, text: '<strong>Day tabs</strong> — Click a day to see only that day\'s events, or <em>All Days</em> to see the full schedule.' },
+          ],
+        },
+        {
+          heading: 'Searching & Filtering',
+          items: [
+            { icon: ICONS.search, text: '<strong>Search</strong> — Type in the search box to filter events by title, description, or presenter name.' },
+            { icon: ICONS.filter, text: '<strong>Filters</strong> — Click <em>Filters</em> to narrow events by room, event type, pricing (Included / Premium), or presenter.' },
+          ],
+        },
+        {
+          heading: 'My Schedule',
+          items: [
+            { icon: ICONS.star, text: '<strong>Star an event</strong> — Click ★ on any event card to save it to your schedule. Stars are stored in your browser.' },
+            { icon: ICONS.star, text: '<strong>View your schedule</strong> — Click the <em>My Schedule</em> button in the toolbar to show only your starred events.' },
+            { icon: ICONS.chevronDown, text: '<strong>Multiple schedules</strong> — Use the ▾ dropdown next to My Schedule to create, rename, merge, or delete named schedules.' },
+          ],
+        },
+        {
+          heading: 'Sharing',
+          items: [
+            { icon: getShareIcon(), text: '<strong>Share</strong> — Click <em>Share</em> to generate a link and QR code with your starred schedule. Anyone with the link can view your picks.' },
+            { icon: ICONS.people, text: '<strong>Received a shared link?</strong> — A banner appears when you open one. Import it as a new schedule or merge it into an existing one.' },
+          ],
+        },
+        {
+          heading: 'Printing',
+          items: [
+            { icon: ICONS.print, text: '<strong>Print</strong> — Click the print icon to print the schedule. Current filters apply — star your events and filter to My Schedule first to print a personal copy.' },
+          ],
+        },
+      ];
+
+      const sections = el('div', { className: 'cosam-help-sections' });
+
+      for (const section of helpData) {
+        const sec = el('div', { className: 'cosam-help-section' });
+        sec.appendChild(el('h3', {}, section.heading));
+        for (const item of section.items) {
+          const row = el('div', { className: 'cosam-help-item' });
+          const iconEl = el('span', {
+            className: 'cosam-help-icon',
+            'aria-hidden': 'true',
+            innerHTML: item.icon,
+          });
+          const textEl = el('span', {
+            className: 'cosam-help-text',
+            innerHTML: item.text,
+          });
+          row.append(iconEl, textEl);
+          sec.appendChild(row);
+        }
+        sections.appendChild(sec);
+      }
+
+      modal.appendChild(sections);
+      this._modalOverlay.classList.add('open');
     }
 
   }
