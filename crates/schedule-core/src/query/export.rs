@@ -133,7 +133,7 @@ pub struct WidgetPresenter {
     pub members: Vec<String>,
     pub groups: Vec<String>,
     pub panel_ids: Vec<String>,
-    #[serde(default)]
+    #[serde(skip_serializing_if = "is_false")]
     pub subsumes_members: bool,
 }
 

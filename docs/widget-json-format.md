@@ -346,7 +346,7 @@ When converting from spreadsheet, this array is populated with panels whose pane
 | members         | `Array<String>` | Group member names (empty for individuals)          |
 | groups          | `Array<String>` | Groups this presenter belongs to (empty for groups) |
 | panelIds        | `Array<String>` | Panel IDs where this presenter/group should appear  |
-| subsumesMembers | Boolean         | True if this group subsumes its members (tag: ==)   |
+| subsumesMembers | Boolean?        | True if this group subsumes its members (tag: ==)   |
 
 ### Bidirectional Group Membership Logic
 
@@ -378,8 +378,7 @@ Only presenters referenced by panels (via `panelIds`) are included in the displa
     "isGroup": false,
     "members": [],
     "groups": ["Example Group"],
-    "panelIds": ["panel-001", "panel-045"],
-    "subsumesMembers": false
+    "panelIds": ["panel-001", "panel-045"]
   },
   {
     "name": "Example Group",
@@ -471,8 +470,7 @@ The widget performs the following transformations on the raw JSON:
       "isGroup": false,
       "members": [],
       "groups": [],
-      "panelIds": ["GP001"],
-      "subsumesMembers": false
+      "panelIds": ["GP001"]
     }
   ]
 }
