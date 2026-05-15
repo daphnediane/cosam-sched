@@ -22,11 +22,34 @@
     print: '<svg viewBox="0 0 24 24"><polyline points="6 9 6 2 18 2 18 9"/><path d="M6 18H4a2 2 0 0 1-2-2v-5a2 2 0 0 1 2-2h16a2 2 0 0 1 2 2v5a2 2 0 0 1-2 2h-2"/><rect x="6" y="14" width="12" height="8"/></svg>',
     x: '<svg viewBox="0 0 24 24"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>',
     share: '<svg viewBox="0 0 24 24"><circle cx="18" cy="5" r="3"/><circle cx="6" cy="12" r="3"/><circle cx="18" cy="19" r="3"/><line x1="8.59" y1="13.51" x2="15.42" y2="17.49"/><line x1="15.41" y1="6.51" x2="8.59" y2="10.49"/></svg>',
+    shareApple: '<svg viewBox="0 0 24 24"><path d="M4 12v8a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-8"/><polyline points="16 6 12 2 8 6"/><line x1="12" y1="2" x2="12" y2="15"/></svg>',
+    shareWindows: '<svg viewBox="0 0 24 24"><path d="M4 12v8a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-8"/><path d="M16 6l-4-4-4 4"/><line x1="12" y1="2" x2="12" y2="15"/></svg>',
     clock: '<svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>',
     mappin: '<svg viewBox="0 0 24 24"><path d="M21 10c0 7-9 13-9 13s-9-6-9-13a9 9 0 0 1 18 0z"/><circle cx="12" cy="10" r="3"/></svg>',
   };
 
   // ── Helpers ──────────────────────────────────────────────────────────────
+
+  function getShareIcon() {
+    const ua = navigator.userAgent;
+    const platform = navigator.platform;
+
+    // Check for Windows platform
+    if (/Win/.test(platform) ||
+      /Win/.test(ua) ||
+      (navigator.userAgentData && navigator.userAgentData.platform === 'Windows')) {
+      return ICONS.shareWindows;
+    }
+
+    // Check for Android/Chrome/ChromeOS
+    if (/Android|ChromeOS|CrOS/.test(ua) ||
+      (navigator.userAgentData && (navigator.userAgentData.platform === 'Android' || navigator.userAgentData.platform === 'ChromeOS'))) {
+      return ICONS.share;
+    }
+
+    // Default to Apple-style share icon
+    return ICONS.shareApple;
+  }
 
   function el(tag, attrs, ...children) {
     const e = document.createElement(tag);
@@ -178,8 +201,11 @@
       this.modalEvent = null;
       this.stylePageBody = false;
       this._hasRestoredState = false;
+      this._savedView = null; // Saved view state before forced list mode
+      this._renderCallback = null;
       this._loadState();
       this._loadFromHash();
+      this._setupResponsiveView();
     }
 
     _storageKey() { return 'cosam-calendar-starred'; }
@@ -287,41 +313,72 @@
       this._saveState();
     }
 
+    _setupResponsiveView() {
+      const BREAKPOINT = 750;
+
+      const checkWidth = () => {
+        const isNarrow = window.innerWidth < BREAKPOINT;
+        if (isNarrow && this.view === 'grid') {
+          this._savedView = 'grid';
+          this.view = 'list';
+          if (this._renderCallback) this._renderCallback();
+          return true;
+        } else if (!isNarrow && this._savedView === 'grid' && this.view === 'list') {
+          this.view = 'grid';
+          this._savedView = null;
+          if (this._renderCallback) this._renderCallback();
+          return true;
+        }
+        return false;
+      };
+
+      // Check on load
+      checkWidth();
+
+      // Listen for resize
+      window.addEventListener('resize', () => {
+        checkWidth();
+      });
+    }
+
     toggleStar(eventId) {
       if (this.starred.has(eventId)) this.starred.delete(eventId);
       else this.starred.add(eventId);
       this._saveState();
     }
 
-    getShareUrl() {
+    getShareUrl(options = {}) {
+      const { includeFilters = true, includeMySchedule = true } = options;
       const parts = [];
 
-      if (this.starred.size > 0) {
+      if (includeMySchedule && this.starred.size > 0) {
         parts.push('starred=' + encodeURIComponent([...this.starred].join(',')));
       }
-      if (this.view && this.view !== 'list') {
-        parts.push('view=' + this.view);
-      }
-      if (this.activeDay) {
-        parts.push('day=' + encodeURIComponent(this.activeDay));
-      }
-      if (this.filters.search) {
-        parts.push('search=' + encodeURIComponent(this.filters.search));
-      }
-      if (this.filters.rooms.size > 0) {
-        parts.push('rooms=' + encodeURIComponent([...this.filters.rooms].join(',')));
-      }
-      if (this.filters.types.size > 0) {
-        parts.push('types=' + encodeURIComponent([...this.filters.types].join(',')));
-      }
-      if (this.filters.cost && this.filters.cost !== 'all') {
-        parts.push('cost=' + this.filters.cost);
-      }
-      if (this.filters.presenter) {
-        parts.push('presenter=' + encodeURIComponent(this.filters.presenter));
-      }
-      if (this.filters.starredOnly) {
-        parts.push('starredOnly=1');
+      if (includeFilters) {
+        if (this.view && this.view !== 'list') {
+          parts.push('view=' + this.view);
+        }
+        if (this.activeDay) {
+          parts.push('day=' + encodeURIComponent(this.activeDay));
+        }
+        if (this.filters.search) {
+          parts.push('search=' + encodeURIComponent(this.filters.search));
+        }
+        if (this.filters.rooms.size > 0) {
+          parts.push('rooms=' + encodeURIComponent([...this.filters.rooms].join(',')));
+        }
+        if (this.filters.types.size > 0) {
+          parts.push('types=' + encodeURIComponent([...this.filters.types].join(',')));
+        }
+        if (this.filters.cost && this.filters.cost !== 'all') {
+          parts.push('cost=' + this.filters.cost);
+        }
+        if (this.filters.presenter) {
+          parts.push('presenter=' + encodeURIComponent(this.filters.presenter));
+        }
+        if (this.filters.starredOnly) {
+          parts.push('starredOnly=1');
+        }
       }
 
       const base = window.location.href.split('#')[0];
@@ -614,7 +671,7 @@
       // View toggles
       const listBtn = el('button', {
         type: 'button',
-        className: 'cosam-btn cosam-btn-icon' + (this.state.view === 'list' ? ' active' : ''),
+        className: 'cosam-btn cosam-btn-icon cosam-view-toggle' + (this.state.view === 'list' ? ' active' : ''),
         title: 'List View',
         'aria-label': 'List view',
         'aria-pressed': this.state.view === 'list' ? 'true' : 'false',
@@ -623,7 +680,7 @@
       });
       const gridBtn = el('button', {
         type: 'button',
-        className: 'cosam-btn cosam-btn-icon' + (this.state.view === 'grid' ? ' active' : ''),
+        className: 'cosam-btn cosam-btn-icon cosam-view-toggle' + (this.state.view === 'grid' ? ' active' : ''),
         title: 'Grid View',
         'aria-label': 'Grid view',
         'aria-pressed': this.state.view === 'grid' ? 'true' : 'false',
@@ -702,21 +759,11 @@
       // Share
       const shareBtn = el('button', {
         type: 'button',
-        className: 'cosam-btn cosam-btn-icon',
-        title: 'Share starred events',
-        'aria-label': 'Share starred events',
-        innerHTML: ICONS.share,
-        onClick: () => {
-          const url = this.state.getShareUrl();
-          if (navigator.clipboard) {
-            navigator.clipboard.writeText(url).then(() => {
-              shareBtn.textContent = 'Copied!';
-              setTimeout(() => { shareBtn.innerHTML = ICONS.share; }, 1500);
-            });
-          } else {
-            prompt('Copy this URL:', url);
-          }
-        },
+        className: 'cosam-btn',
+        title: 'Share schedule',
+        'aria-label': 'Share schedule',
+        innerHTML: getShareIcon() + ' Share',
+        onClick: () => { this._showShareModal(); },
       });
       right.appendChild(shareBtn);
 
@@ -904,6 +951,9 @@
     // ── Day Tabs ──
 
     _buildDayTabs() {
+      const container = el('div', { className: 'cosam-day-tabs-container' });
+
+      // Tab buttons (shown on larger screens)
       const tabs = el('div', { className: 'cosam-day-tabs' });
 
       // "All" tab
@@ -920,7 +970,32 @@
         }, day.label);
         tabs.appendChild(tab);
       }
-      return tabs;
+      container.appendChild(tabs);
+
+      // Select dropdown (shown on smaller screens)
+      const select = el('select', {
+        className: 'cosam-day-select',
+        'aria-label': 'Select day',
+      });
+
+      const allOption = el('option', { value: '' }, 'All Days');
+      if (!this.state.activeDay) allOption.selected = true;
+      select.appendChild(allOption);
+
+      for (const day of this.state.days) {
+        const option = el('option', { value: day.key }, day.label);
+        if (this.state.activeDay === day.key) option.selected = true;
+        select.appendChild(option);
+      }
+
+      select.addEventListener('change', () => {
+        this.state.activeDay = select.value || null;
+        this.render();
+      });
+
+      container.appendChild(select);
+
+      return container;
     }
 
     // ── List View ──
@@ -1634,6 +1709,101 @@
       return overlay;
     }
 
+    _showShareModal() {
+      const modal = this._modalContent;
+      modal.innerHTML = '';
+
+      // Close button
+      modal.appendChild(el('button', {
+        type: 'button',
+        className: 'cosam-modal-close',
+        innerHTML: ICONS.x,
+        'aria-label': 'Close dialog',
+        onClick: () => this._modalOverlay.classList.remove('open'),
+      }));
+
+      // Title
+      modal.appendChild(el('h2', {}, 'Share Schedule'));
+
+      // Description
+      modal.appendChild(el('p', { className: 'cosam-modal-desc' }, 'Generate a shareable URL for this schedule.'));
+
+      // Options
+      const optionsDiv = el('div', { className: 'cosam-share-options' });
+
+      // Include filters checkbox
+      const includeFiltersLabel = el('label', { className: 'cosam-share-option' });
+      const includeFiltersCheckbox = el('input', {
+        type: 'checkbox',
+        id: 'cosam-share-filters',
+        checked: true,
+      });
+      includeFiltersCheckbox.addEventListener('change', () => { this._updateShareUrl(); });
+      includeFiltersLabel.appendChild(includeFiltersCheckbox);
+      includeFiltersLabel.appendChild(document.createTextNode(' Include current filters'));
+      optionsDiv.appendChild(includeFiltersLabel);
+
+      // Include my schedule checkbox
+      const includeMyScheduleLabel = el('label', { className: 'cosam-share-option' });
+      const includeMyScheduleCheckbox = el('input', {
+        type: 'checkbox',
+        id: 'cosam-share-myschedule',
+        checked: true,
+      });
+      includeMyScheduleCheckbox.addEventListener('change', () => { this._updateShareUrl(); });
+      includeMyScheduleLabel.appendChild(includeMyScheduleCheckbox);
+      includeMyScheduleLabel.appendChild(document.createTextNode(' Include My Schedule (starred events)'));
+      optionsDiv.appendChild(includeMyScheduleLabel);
+
+      modal.appendChild(optionsDiv);
+
+      // URL display
+      const urlWrapper = el('div', { className: 'cosam-share-url-wrapper' });
+      const urlInput = el('input', {
+        type: 'text',
+        className: 'cosam-share-url-input',
+        readOnly: true,
+        value: this.state.getShareUrl({ includeFilters: true, includeMySchedule: true }),
+      });
+      urlWrapper.appendChild(urlInput);
+
+      // Copy button
+      const copyBtn = el('button', {
+        type: 'button',
+        className: 'cosam-btn',
+        innerHTML: 'Copy URL',
+        onClick: () => {
+          if (navigator.clipboard) {
+            navigator.clipboard.writeText(urlInput.value).then(() => {
+              copyBtn.textContent = 'Copied!';
+              setTimeout(() => { copyBtn.textContent = 'Copy URL'; }, 1500);
+            });
+          } else {
+            prompt('Copy this URL:', urlInput.value);
+          }
+        },
+      });
+      urlWrapper.appendChild(copyBtn);
+      modal.appendChild(urlWrapper);
+
+      // Store references for update
+      this._shareUrlInput = urlInput;
+      this._shareFiltersCheckbox = includeFiltersCheckbox;
+      this._shareMyScheduleCheckbox = includeMyScheduleCheckbox;
+
+      // Open modal
+      this._modalOverlay.classList.add('open');
+    }
+
+    _updateShareUrl() {
+      if (!this._shareUrlInput || !this._shareFiltersCheckbox || !this._shareMyScheduleCheckbox) return;
+      const url = this.state.getShareUrl({
+        includeFilters: this._shareFiltersCheckbox.checked,
+        includeMySchedule: this._shareMyScheduleCheckbox.checked,
+      });
+      this._shareUrlInput.value = url;
+    }
+
     _showModal(evt) {
       const modal = this._modalContent;
       modal.innerHTML = '';
@@ -1925,11 +2095,73 @@
     // ── Print ──
 
     _handlePrint() {
+      const BREAKPOINT = 750;
+
+      // If window is narrow, show print options modal
+      if (window.innerWidth < BREAKPOINT) {
+        this._showPrintOptionsModal();
+        return;
+      }
+
+      // Normal print behavior for wide windows
+      this._doPrint();
+    }
+
+    _showPrintOptionsModal() {
+      const modal = this._modalContent;
+      modal.innerHTML = '';
+
+      // Close button
+      const closeBtn = el('button', {
+        type: 'button',
+        className: 'cosam-modal-close',
+        'aria-label': 'Close',
+        innerHTML: '&times;',
+        onClick: () => {
+          this._modalOverlay.classList.remove('open');
+        },
+      });
+      modal.appendChild(closeBtn);
+
+      modal.appendChild(el('h2', {}, 'Print Schedule'));
+
+      const optionsContainer = el('div', { className: 'cosam-print-options' });
+
+      const printListBtn = el('button', {
+        type: 'button',
+        className: 'cosam-btn',
+        innerHTML: ICONS.list + ' Print List View',
+        onClick: () => {
+          this._modalOverlay.classList.remove('open');
+          this._doPrint('list');
+        },
+      });
+      optionsContainer.appendChild(printListBtn);
+
+      const printGridBtn = el('button', {
+        type: 'button',
+        className: 'cosam-btn',
+        innerHTML: ICONS.grid + ' Print Grid View',
+        onClick: () => {
+          this._modalOverlay.classList.remove('open');
+          this._doPrint('grid');
+        },
+      });
+      optionsContainer.appendChild(printGridBtn);
+
+      modal.appendChild(optionsContainer);
+
+      this._modalOverlay.classList.add('open');
+    }
+
+    _doPrint(viewOverride = null) {
       const wasDay = this.state.activeDay;
       const printContainer = el('div', { className: 'cosam-calendar' });
       printContainer.setAttribute('data-theme', this.state.theme || 'cosam');
 
-      if (this.state.view === 'grid') {
+      const viewToPrint = viewOverride || this.state.view;
+
+      if (viewToPrint === 'grid') {
         // Grid print: render each day as a table so <thead> repeats on page breaks
         for (const day of this.state.days) {
           this.state.activeDay = day.key;
@@ -2033,7 +2265,6 @@
     // Only set defaults if no saved/hash state was loaded
     if (!state._hasRestoredState) {
       state.activeDay = null;
-      state.view = window.innerWidth >= 768 ? 'grid' : 'list';
     }
 
     // Validate restored activeDay against available days
@@ -2072,6 +2303,9 @@
         state.stylePageBody = !!opts.stylePageBody;
       }
       const renderer = new CalendarRenderer(rootEl, state);
+
+      // Set up render callback for responsive view changes
+      state._renderCallback = () => renderer.render();
 
       // Show loading
       renderer.render();
