@@ -1,0 +1,814 @@
+/*
+ * Copyright (c) 2026 Daphne Pfister
+ * SPDX-License-Identifier: BSD-2-Clause
+ * cosam-viewer stylesheet — mirrors cosam-calendar widget visual style
+ */
+
+/* -------------------------------------------------------------------------
+ * CSS custom properties — 4 themes
+ * ---------------------------------------------------------------------- */
+
+.theme-cosam {
+  --color-bg: #f5f0eb;
+  --color-surface: #ffffff;
+  --color-surface-alt: #f0ebe5;
+  --color-border: #d4c9be;
+  --color-text: #2a2015;
+  --color-text-secondary: #6b5c4e;
+  --color-accent: #8b3a2e;
+  --color-accent-hover: #6d2c23;
+  --color-accent-fg: #ffffff;
+  --color-tab-active-bg: #8b3a2e;
+  --color-tab-active-fg: #ffffff;
+  --color-toolbar-bg: #3d2b1f;
+  --color-toolbar-fg: #f5f0eb;
+  --color-chip-bg: #e8e0d8;
+  --color-chip-active-bg: #8b3a2e;
+  --color-chip-active-fg: #ffffff;
+  --color-modal-backdrop: rgba(0, 0, 0, 0.55);
+  --color-modal-bg: #ffffff;
+  --color-badge-workshop: #2d6a4f;
+  --color-badge-paid: #6a2d2d;
+  --color-badge-full: #555;
+  --color-badge-kids: #2d4a6a;
+  --color-error-bg: #fdecea;
+  --color-error-fg: #7a1a10;
+  --shadow-card: 0 1px 3px rgba(0, 0, 0, 0.12);
+  --shadow-modal: 0 4px 24px rgba(0, 0, 0, 0.25);
+  --radius: 6px;
+  --font-sans: system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+}
+
+.theme-light {
+  --color-bg: #f8f9fa;
+  --color-surface: #ffffff;
+  --color-surface-alt: #f1f3f5;
+  --color-border: #dee2e6;
+  --color-text: #212529;
+  --color-text-secondary: #6c757d;
+  --color-accent: #0d6efd;
+  --color-accent-hover: #0b5ed7;
+  --color-accent-fg: #ffffff;
+  --color-tab-active-bg: #0d6efd;
+  --color-tab-active-fg: #ffffff;
+  --color-toolbar-bg: #343a40;
+  --color-toolbar-fg: #f8f9fa;
+  --color-chip-bg: #e9ecef;
+  --color-chip-active-bg: #0d6efd;
+  --color-chip-active-fg: #ffffff;
+  --color-modal-backdrop: rgba(0, 0, 0, 0.5);
+  --color-modal-bg: #ffffff;
+  --color-badge-workshop: #198754;
+  --color-badge-paid: #dc3545;
+  --color-badge-full: #6c757d;
+  --color-badge-kids: #0dcaf0;
+  --color-error-bg: #f8d7da;
+  --color-error-fg: #842029;
+  --shadow-card: 0 1px 3px rgba(0, 0, 0, 0.10);
+  --shadow-modal: 0 4px 24px rgba(0, 0, 0, 0.20);
+  --radius: 6px;
+  --font-sans: system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+}
+
+.theme-dark {
+  --color-bg: #1a1a2e;
+  --color-surface: #16213e;
+  --color-surface-alt: #0f3460;
+  --color-border: #2c3e6e;
+  --color-text: #e0e0f0;
+  --color-text-secondary: #9090b0;
+  --color-accent: #e94560;
+  --color-accent-hover: #c73652;
+  --color-accent-fg: #ffffff;
+  --color-tab-active-bg: #e94560;
+  --color-tab-active-fg: #ffffff;
+  --color-toolbar-bg: #0d0d1a;
+  --color-toolbar-fg: #e0e0f0;
+  --color-chip-bg: #0f3460;
+  --color-chip-active-bg: #e94560;
+  --color-chip-active-fg: #ffffff;
+  --color-modal-backdrop: rgba(0, 0, 0, 0.75);
+  --color-modal-bg: #16213e;
+  --color-badge-workshop: #27ae60;
+  --color-badge-paid: #e74c3c;
+  --color-badge-full: #7f8c8d;
+  --color-badge-kids: #3498db;
+  --color-error-bg: #4a1010;
+  --color-error-fg: #ffaaaa;
+  --shadow-card: 0 1px 4px rgba(0, 0, 0, 0.4);
+  --shadow-modal: 0 4px 28px rgba(0, 0, 0, 0.6);
+  --radius: 6px;
+  --font-sans: system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+}
+
+.theme-high-contrast {
+  --color-bg: #000000;
+  --color-surface: #000000;
+  --color-surface-alt: #111111;
+  --color-border: #ffffff;
+  --color-text: #ffffff;
+  --color-text-secondary: #cccccc;
+  --color-accent: #ffff00;
+  --color-accent-hover: #e0e000;
+  --color-accent-fg: #000000;
+  --color-tab-active-bg: #ffff00;
+  --color-tab-active-fg: #000000;
+  --color-toolbar-bg: #000000;
+  --color-toolbar-fg: #ffffff;
+  --color-chip-bg: #222222;
+  --color-chip-active-bg: #ffff00;
+  --color-chip-active-fg: #000000;
+  --color-modal-backdrop: rgba(0, 0, 0, 0.85);
+  --color-modal-bg: #000000;
+  --color-badge-workshop: #00ff00;
+  --color-badge-paid: #ff4444;
+  --color-badge-full: #888888;
+  --color-badge-kids: #00ccff;
+  --color-error-bg: #330000;
+  --color-error-fg: #ff6666;
+  --shadow-card: 0 0 0 2px #ffffff;
+  --shadow-modal: 0 0 0 2px #ffffff;
+  --radius: 4px;
+  --font-sans: system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+}
+
+/* -------------------------------------------------------------------------
+ * Base reset / layout
+ * ---------------------------------------------------------------------- */
+
+*, *::before, *::after {
+  box-sizing: border-box;
+}
+
+body {
+  margin: 0;
+  padding: 0;
+  font-family: var(--font-sans);
+  background: var(--color-bg);
+  color: var(--color-text);
+}
+
+.viewer-root {
+  display: flex;
+  flex-direction: column;
+  min-height: 100vh;
+  background: var(--color-bg);
+  color: var(--color-text);
+  font-family: var(--font-sans);
+}
+
+/* -------------------------------------------------------------------------
+ * Accessibility
+ * ---------------------------------------------------------------------- */
+
+.skip-link {
+  position: absolute;
+  left: -9999px;
+  top: 4px;
+  background: var(--color-accent);
+  color: var(--color-accent-fg);
+  padding: 6px 12px;
+  border-radius: var(--radius);
+  font-size: 0.875rem;
+  font-weight: 600;
+  z-index: 9999;
+  text-decoration: none;
+}
+
+.skip-link:focus {
+  left: 8px;
+}
+
+.sr-only {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  white-space: nowrap;
+  border: 0;
+}
+
+/* -------------------------------------------------------------------------
+ * Toolbar
+ * ---------------------------------------------------------------------- */
+
+.toolbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  background: var(--color-toolbar-bg);
+  color: var(--color-toolbar-fg);
+  padding: 0 16px;
+  height: 48px;
+  gap: 12px;
+  flex-shrink: 0;
+}
+
+.toolbar-left,
+.toolbar-right {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.toolbar-title {
+  font-size: 1rem;
+  font-weight: 600;
+  opacity: 0.9;
+}
+
+.toolbar-btn {
+  background: transparent;
+  border: 1px solid rgba(255, 255, 255, 0.3);
+  color: var(--color-toolbar-fg);
+  padding: 5px 12px;
+  border-radius: var(--radius);
+  cursor: pointer;
+  font-size: 0.875rem;
+  font-weight: 500;
+  transition: background 0.15s, border-color 0.15s;
+}
+
+.toolbar-btn:hover,
+.toolbar-btn:focus-visible {
+  background: rgba(255, 255, 255, 0.15);
+  border-color: rgba(255, 255, 255, 0.6);
+  outline: none;
+}
+
+.toolbar-btn.active {
+  background: rgba(255, 255, 255, 0.2);
+  border-color: rgba(255, 255, 255, 0.7);
+}
+
+.toolbar-select {
+  background: rgba(255, 255, 255, 0.1);
+  border: 1px solid rgba(255, 255, 255, 0.3);
+  color: var(--color-toolbar-fg);
+  padding: 4px 8px;
+  border-radius: var(--radius);
+  font-size: 0.875rem;
+  cursor: pointer;
+}
+
+/* -------------------------------------------------------------------------
+ * Error banner
+ * ---------------------------------------------------------------------- */
+
+.error-banner {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  background: var(--color-error-bg);
+  color: var(--color-error-fg);
+  padding: 10px 16px;
+  font-size: 0.875rem;
+  flex-shrink: 0;
+}
+
+.error-dismiss {
+  background: none;
+  border: none;
+  cursor: pointer;
+  color: var(--color-error-fg);
+  font-size: 1.25rem;
+  line-height: 1;
+  padding: 0 4px;
+}
+
+/* -------------------------------------------------------------------------
+ * Empty state
+ * ---------------------------------------------------------------------- */
+
+.empty-state {
+  flex: 1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.empty-state-inner {
+  text-align: center;
+  padding: 48px 24px;
+}
+
+.empty-title {
+  font-size: 1.75rem;
+  font-weight: 700;
+  margin: 0 0 12px;
+  color: var(--color-text);
+}
+
+.empty-sub {
+  font-size: 1rem;
+  color: var(--color-text-secondary);
+  margin: 0 0 24px;
+}
+
+.empty-state-inline {
+  padding: 48px 24px;
+  text-align: center;
+  color: var(--color-text-secondary);
+  font-size: 0.9375rem;
+}
+
+/* -------------------------------------------------------------------------
+ * Buttons
+ * ---------------------------------------------------------------------- */
+
+.btn-primary {
+  display: inline-block;
+  background: var(--color-accent);
+  color: var(--color-accent-fg);
+  border: none;
+  padding: 10px 24px;
+  border-radius: var(--radius);
+  font-size: 1rem;
+  font-weight: 600;
+  cursor: pointer;
+  transition: background 0.15s;
+}
+
+.btn-primary:hover,
+.btn-primary:focus-visible {
+  background: var(--color-accent-hover);
+  outline: 2px solid var(--color-accent);
+  outline-offset: 2px;
+}
+
+.btn-secondary {
+  display: inline-block;
+  background: transparent;
+  color: var(--color-accent);
+  border: 1px solid var(--color-accent);
+  padding: 6px 16px;
+  border-radius: var(--radius);
+  font-size: 0.875rem;
+  font-weight: 500;
+  cursor: pointer;
+  transition: background 0.15s;
+}
+
+.btn-secondary:hover,
+.btn-secondary:focus-visible {
+  background: var(--color-accent);
+  color: var(--color-accent-fg);
+  outline: none;
+}
+
+/* -------------------------------------------------------------------------
+ * Filter panel
+ * ---------------------------------------------------------------------- */
+
+.filter-panel {
+  background: var(--color-surface-alt);
+  border-bottom: 1px solid var(--color-border);
+  padding: 12px 16px 16px;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 16px;
+  flex-shrink: 0;
+}
+
+.filter-section {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  min-width: 160px;
+  border: none;
+  padding: 0;
+  margin: 0;
+}
+
+.filter-label {
+  font-size: 0.75rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: var(--color-text-secondary);
+}
+
+.filter-search {
+  background: var(--color-surface);
+  border: 1px solid var(--color-border);
+  color: var(--color-text);
+  padding: 6px 10px;
+  border-radius: var(--radius);
+  font-size: 0.875rem;
+  width: 220px;
+}
+
+.filter-search:focus {
+  outline: 2px solid var(--color-accent);
+  outline-offset: 1px;
+}
+
+.filter-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  background: var(--color-chip-bg);
+  color: var(--color-text);
+  border: 1px solid var(--color-border);
+  padding: 4px 10px;
+  border-radius: 999px;
+  font-size: 0.8125rem;
+  cursor: pointer;
+  transition: background 0.12s, color 0.12s;
+  user-select: none;
+}
+
+.chip:hover {
+  background: var(--color-border);
+}
+
+.chip-active {
+  background: var(--color-chip-active-bg);
+  color: var(--color-chip-active-fg);
+  border-color: var(--color-chip-active-bg);
+}
+
+.chip-check {
+  appearance: none;
+  width: 0;
+  height: 0;
+  margin: 0;
+}
+
+/* -------------------------------------------------------------------------
+ * Day tabs
+ * ---------------------------------------------------------------------- */
+
+.day-tabs {
+  display: flex;
+  background: var(--color-surface);
+  border-bottom: 2px solid var(--color-border);
+  padding: 0 12px;
+  overflow-x: auto;
+  flex-shrink: 0;
+  gap: 2px;
+}
+
+.day-tab {
+  background: none;
+  border: none;
+  border-bottom: 3px solid transparent;
+  padding: 12px 16px 9px;
+  cursor: pointer;
+  font-size: 0.9375rem;
+  font-weight: 500;
+  color: var(--color-text-secondary);
+  white-space: nowrap;
+  transition: color 0.12s, border-color 0.12s;
+  margin-bottom: -2px;
+}
+
+.day-tab:hover,
+.day-tab:focus-visible {
+  color: var(--color-text);
+  outline: none;
+}
+
+.day-tab-active {
+  color: var(--color-tab-active-bg);
+  border-bottom-color: var(--color-tab-active-bg);
+  font-weight: 600;
+}
+
+/* -------------------------------------------------------------------------
+ * Panel list
+ * ---------------------------------------------------------------------- */
+
+.panel-list-area {
+  flex: 1;
+  overflow-y: auto;
+  padding: 0 0 24px;
+}
+
+.time-group {
+  margin-top: 0;
+}
+
+.time-header {
+  position: sticky;
+  top: 0;
+  background: var(--color-surface-alt);
+  border-bottom: 1px solid var(--color-border);
+  border-top: 1px solid var(--color-border);
+  padding: 6px 16px;
+  display: flex;
+  align-items: center;
+  z-index: 10;
+}
+
+.time-label {
+  font-size: 0.875rem;
+  font-weight: 700;
+  color: var(--color-text-secondary);
+  letter-spacing: 0.02em;
+}
+
+.panel-cards {
+  display: flex;
+  flex-direction: column;
+  gap: 0;
+}
+
+/* -------------------------------------------------------------------------
+ * Panel card — mirrors widget's .cosam-event structure
+ * ---------------------------------------------------------------------- */
+
+.panel-card {
+  display: flex;
+  align-items: stretch;
+  background: var(--color-surface);
+  border-bottom: 1px solid var(--color-border);
+  cursor: pointer;
+  transition: background 0.1s;
+  text-align: left;
+}
+
+.panel-card:hover,
+.panel-card:focus-visible {
+  background: var(--color-surface-alt);
+  outline: none;
+}
+
+.panel-card:focus-visible {
+  outline: 2px solid var(--color-accent);
+  outline-offset: -2px;
+}
+
+/* Left color bar — matches widget's per-panel-type color strip */
+.card-color-bar {
+  width: 6px;
+  flex-shrink: 0;
+  background: var(--color-border);
+  border-radius: var(--radius) 0 0 var(--radius);
+}
+
+.card-body {
+  flex: 1;
+  padding: 12px 14px;
+  min-width: 0;
+}
+
+.card-header-row {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.card-name {
+  font-size: 0.9375rem;
+  font-weight: 600;
+  color: var(--color-text);
+  margin: 0;
+  flex: 1;
+  min-width: 0;
+}
+
+.card-meta {
+  margin-top: 4px;
+  font-size: 0.8125rem;
+  color: var(--color-text-secondary);
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0;
+  align-items: center;
+}
+
+.card-sep {
+  color: var(--color-border);
+  margin: 0 4px;
+}
+
+.card-badges {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+  flex-shrink: 0;
+}
+
+/* -------------------------------------------------------------------------
+ * Badges
+ * ---------------------------------------------------------------------- */
+
+.badge {
+  display: inline-block;
+  font-size: 0.6875rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  padding: 2px 7px;
+  border-radius: 999px;
+  color: #ffffff;
+}
+
+.badge-workshop { background: var(--color-badge-workshop); }
+.badge-paid     { background: var(--color-badge-paid); }
+.badge-full     { background: var(--color-badge-full); }
+.badge-kids     { background: var(--color-badge-kids); }
+
+/* -------------------------------------------------------------------------
+ * Detail modal
+ * ---------------------------------------------------------------------- */
+
+.modal-backdrop {
+  position: fixed;
+  inset: 0;
+  background: var(--color-modal-backdrop);
+  z-index: 1000;
+  display: flex;
+  align-items: flex-start;
+  justify-content: center;
+  padding: 40px 16px;
+  overflow-y: auto;
+}
+
+.modal-content {
+  background: var(--color-modal-bg);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius);
+  box-shadow: var(--shadow-modal);
+  max-width: 640px;
+  width: 100%;
+  padding: 0;
+  overflow: hidden;
+}
+
+.modal-header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 20px 24px 16px;
+  border-bottom: 1px solid var(--color-border);
+}
+
+.modal-title {
+  font-size: 1.1875rem;
+  font-weight: 700;
+  margin: 0;
+  color: var(--color-text);
+  flex: 1;
+}
+
+.modal-close {
+  background: none;
+  border: none;
+  font-size: 1.5rem;
+  line-height: 1;
+  color: var(--color-text-secondary);
+  cursor: pointer;
+  padding: 0 4px;
+  flex-shrink: 0;
+}
+
+.modal-close:hover,
+.modal-close:focus-visible {
+  color: var(--color-text);
+  outline: 2px solid var(--color-accent);
+  border-radius: 4px;
+}
+
+.modal-meta {
+  padding: 16px 24px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  border-bottom: 1px solid var(--color-border);
+}
+
+.modal-field {
+  font-size: 0.9rem;
+  color: var(--color-text);
+}
+
+.modal-label {
+  font-weight: 600;
+  color: var(--color-text-secondary);
+}
+
+.modal-section {
+  padding: 14px 24px;
+  border-bottom: 1px solid var(--color-border);
+}
+
+.modal-section:last-child {
+  border-bottom: none;
+}
+
+.modal-section-title {
+  font-size: 0.8125rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: var(--color-text-secondary);
+  margin: 0 0 8px;
+}
+
+.modal-text {
+  font-size: 0.9375rem;
+  line-height: 1.6;
+  color: var(--color-text);
+  margin: 0;
+  white-space: pre-wrap;
+}
+
+.modal-ticket-link {
+  display: inline-block;
+  background: var(--color-accent);
+  color: var(--color-accent-fg);
+  padding: 8px 20px;
+  border-radius: var(--radius);
+  text-decoration: none;
+  font-weight: 600;
+  font-size: 0.9375rem;
+  transition: background 0.15s;
+}
+
+.modal-ticket-link:hover,
+.modal-ticket-link:focus-visible {
+  background: var(--color-accent-hover);
+  outline: 2px solid var(--color-accent);
+  outline-offset: 2px;
+}
+
+/* -------------------------------------------------------------------------
+ * Responsive — small screens (phones, narrow windows)
+ * ---------------------------------------------------------------------- */
+
+@media (max-width: 600px) {
+  .toolbar {
+    padding: 0 10px;
+  }
+
+  .toolbar-title {
+    font-size: 0.875rem;
+  }
+
+  .toolbar-btn {
+    padding: 4px 8px;
+    font-size: 0.8125rem;
+  }
+
+  .filter-panel {
+    flex-direction: column;
+    gap: 12px;
+  }
+
+  .filter-search {
+    width: 100%;
+  }
+
+  .day-tab {
+    padding: 10px 10px 7px;
+    font-size: 0.875rem;
+  }
+
+  .card-body {
+    padding: 10px 12px;
+  }
+
+  .modal-backdrop {
+    padding: 16px 8px;
+  }
+
+  .modal-header,
+  .modal-meta,
+  .modal-section {
+    padding-left: 16px;
+    padding-right: 16px;
+  }
+}
+
+/* -------------------------------------------------------------------------
+ * Print
+ * ---------------------------------------------------------------------- */
+
+@media print {
+  .toolbar,
+  .filter-panel,
+  .skip-link {
+    display: none;
+  }
+
+  .panel-card {
+    break-inside: avoid;
+  }
+
+  .modal-backdrop {
+    display: none;
+  }
+}

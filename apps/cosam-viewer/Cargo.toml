@@ -1,0 +1,29 @@
+[package]
+name = "cosam-viewer"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+authors.workspace = true
+description = "Cross-platform schedule viewer (Dioxus)"
+
+[[bin]]
+name = "cosam-viewer"
+path = "src/main.rs"
+
+[features]
+default = ["desktop"]
+# "desktop" activates dioxus desktop + file dialog.
+# For mobile builds use: dx build --platform android|ios (no explicit feature needed).
+desktop = ["dep:dioxus-desktop", "dep:rfd"]
+mobile = []
+
+[dependencies]
+# Always include dioxus with desktop feature for development / cargo check.
+# Mobile builds are driven by the `dx` CLI which manages platform features itself.
+dioxus = { version = "0.7", features = ["desktop"] }
+dioxus-desktop = { version = "0.7", optional = true }
+rfd = { version = "0.17", optional = true }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+chrono = { version = "0.4", features = ["serde"] }
+anyhow = "1"

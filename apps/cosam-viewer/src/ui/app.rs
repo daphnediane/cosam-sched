@@ -1,0 +1,525 @@
+/*
+ * Copyright (c) 2026 Daphne Pfister
+ * SPDX-License-Identifier: BSD-2-Clause
+ * See LICENSE file for full license text
+ */
+
+//! Main viewer UI component.
+
+use dioxus::prelude::*;
+
+use crate::data::ScheduleDoc;
+use crate::state::{Filters, PanelView, Theme, ViewerState};
+
+// ---------------------------------------------------------------------------
+// Helpers
+// ---------------------------------------------------------------------------
+
+fn group_by_time(panels: Vec<PanelView>) -> Vec<(String, Vec<PanelView>)> {
+    let mut groups: Vec<(String, Vec<PanelView>)> = vec![];
+    for panel in panels {
+        let key = panel
+            .start_time
+            .map(|dt| dt.format("%-I:%M %p").to_string())
+            .unwrap_or_default();
+        if let Some(last) = groups.last_mut() {
+            if last.0 == key {
+                last.1.push(panel);
+                continue;
+            }
+        }
+        groups.push((key, vec![panel]));
+    }
+    groups
+}
+
+fn load_doc_from_bytes(bytes: Vec<u8>, name: Option<String>) -> anyhow::Result<(ScheduleDoc, Option<String>)> {
+    let doc = ScheduleDoc::from_json(&bytes)?;
+    Ok((doc, name))
+}
+
+// ---------------------------------------------------------------------------
+// Root App component
+// ---------------------------------------------------------------------------
+
+#[component]
+pub fn App() -> Element {
+    let mut state: Signal<ViewerState> = use_signal(ViewerState::default);
+    let mut error_msg: Signal<Option<String>> = use_signal(|| None);
+
+    // -----------------------------------------------------------------------
+    // Derived data
+    // -----------------------------------------------------------------------
+    let (days, panels, filter_rooms, filter_types, title) = {
+        let s = state.read();
+        let days = s.days.clone();
+        let panels = s.panels_for_day();
+        let filter_rooms = s.doc.as_ref().map(|d| d.visible_rooms().into_iter().cloned().collect::<Vec<_>>()).unwrap_or_default();
+        let filter_types = s.doc.as_ref().map(|d| d.visible_types().into_iter().map(|(k, _)| k.clone()).collect::<Vec<_>>()).unwrap_or_default();
+        let title = s.doc.as_ref().map(|d| d.meta.title.clone()).unwrap_or_else(|| "cosam-viewer".to_string());
+        (days, panels, filter_rooms, filter_types, title)
+    };
+
+    let theme_class = state.read().theme.css_class();
+    let show_filter_panel = state.read().filters.show_filter_panel;
+    let has_doc = state.read().doc.is_some();
+    let selected_day_index = state.read().selected_day_index;
+    let detail_panel = state.read().detail_panel();
+    let time_groups = group_by_time(panels);
+
+    // -----------------------------------------------------------------------
+    // File open handler (desktop only)
+    // -----------------------------------------------------------------------
+    #[cfg(feature = "desktop")]
+    let open_file = move |_| {
+        spawn(async move {
+            let file = rfd::AsyncFileDialog::new()
+                .add_filter("cosam JSON", &["json"])
+                .add_filter("All files", &["*"])
+                .pick_file()
+                .await;
+
+            if let Some(handle) = file {
+                let name = handle.file_name();
+                let bytes = handle.read().await;
+                match load_doc_from_bytes(bytes, Some(name)) {
+                    Ok((doc, fname)) => {
+                        state.write().load_doc(doc, fname);
+                        error_msg.set(None);
+                    }
+                    Err(e) => error_msg.set(Some(format!("Failed to load: {e}"))),
+                }
+            }
+        });
+    };
+
+    #[cfg(not(feature = "desktop"))]
+    let open_file = move |_| {
+        // Mobile: file opening is handled via platform-specific mechanisms.
+        error_msg.set(Some("File open not yet implemented on this platform.".to_string()));
+    };
+
+    // -----------------------------------------------------------------------
+    // Render
+    // -----------------------------------------------------------------------
+    rsx! {
+        style { {include_str!("../style.css")} }
+
+        div { class: "viewer-root {theme_class}",
+            // Skip-nav link for screen readers
+            a { class: "skip-link", href: "#main-content", "Skip to content" }
+
+            // -------------------------------------------------------------------
+            // Toolbar
+            // -------------------------------------------------------------------
+            header { class: "toolbar", role: "banner",
+                div { class: "toolbar-left",
+                    button {
+                        class: "toolbar-btn toolbar-open",
+                        onclick: open_file,
+                        aria_label: "Open schedule file",
+                        "Open"
+                    }
+                    span { class: "toolbar-title", "{title}" }
+                }
+                div { class: "toolbar-right",
+                    // Filter toggle
+                    if has_doc {
+                        button {
+                            class: if show_filter_panel { "toolbar-btn active" } else { "toolbar-btn" },
+                            aria_expanded: if show_filter_panel { "true" } else { "false" },
+                            aria_label: "Toggle filters",
+                            onclick: move |_| {
+                                state.write().filters.show_filter_panel = !show_filter_panel;
+                            },
+                            "Filter"
+                        }
+                    }
+                    // Theme selector
+                    label { class: "sr-only", r#for: "theme-select", "Theme" }
+                    select {
+                        id: "theme-select",
+                        class: "toolbar-select",
+                        aria_label: "Select theme",
+                        onchange: move |e| {
+                            let v = e.value();
+                            let theme = match v.as_str() {
+                                "light" => Theme::Light,
+                                "dark" => Theme::Dark,
+                                "high-contrast" => Theme::HighContrast,
+                                _ => Theme::Cosam,
+                            };
+                            state.write().theme = theme;
+                        },
+                        option { value: "cosam", "Default" }
+                        option { value: "light", "Light" }
+                        option { value: "dark", "Dark" }
+                        option { value: "high-contrast", "High Contrast" }
+                    }
+                }
+            }
+
+            // -------------------------------------------------------------------
+            // Error banner
+            // -------------------------------------------------------------------
+            if let Some(ref msg) = *error_msg.read() {
+                div { class: "error-banner", role: "alert",
+                    span { "{msg}" }
+                    button {
+                        class: "error-dismiss",
+                        aria_label: "Dismiss error",
+                        onclick: move |_| error_msg.set(None),
+                        "×"
+                    }
+                }
+            }
+
+            // -------------------------------------------------------------------
+            // Empty state
+            // -------------------------------------------------------------------
+            if !has_doc {
+                main { id: "main-content", class: "empty-state",
+                    div { class: "empty-state-inner",
+                        h1 { class: "empty-title", "cosam Schedule Viewer" }
+                        p { class: "empty-sub", "Open a cosam widget JSON file to get started." }
+                        button {
+                            class: "btn-primary",
+                            onclick: open_file,
+                            "Open Schedule"
+                        }
+                    }
+                }
+            } else {
+                // ---------------------------------------------------------------
+                // Filter panel
+                // ---------------------------------------------------------------
+                if show_filter_panel {
+                    section { class: "filter-panel", aria_label: "Filters",
+                        // Search
+                        div { class: "filter-section",
+                            label { class: "filter-label", r#for: "search-input", "Search" }
+                            input {
+                                id: "search-input",
+                                class: "filter-search",
+                                r#type: "search",
+                                placeholder: "Name, description, presenter…",
+                                value: "{state.read().filters.search}",
+                                oninput: move |e| {
+                                    state.write().filters.search = e.value();
+                                },
+                                aria_label: "Search panels",
+                            }
+                        }
+
+                        // Room checkboxes
+                        if !filter_rooms.is_empty() {
+                            fieldset { class: "filter-section",
+                                legend { class: "filter-label", "Rooms" }
+                                div { class: "filter-chips",
+                                    for room in &filter_rooms {
+                                        {
+                                            let uid = room.uid;
+                                            let name = room.long_name.clone();
+                                            let checked = state.read().filters.rooms.contains(&uid);
+                                            let cb_id = format!("room-{uid}");
+                                            rsx! {
+                                                label { class: if checked { "chip chip-active" } else { "chip" }, r#for: "{cb_id}",
+                                                    input {
+                                                        id: "{cb_id}",
+                                                        r#type: "checkbox",
+                                                        class: "chip-check",
+                                                        checked: "{checked}",
+                                                        onchange: move |e| {
+                                                            if e.checked() {
+                                                                state.write().filters.rooms.insert(uid);
+                                                            } else {
+                                                                state.write().filters.rooms.remove(&uid);
+                                                            }
+                                                        },
+                                                    }
+                                                    "{name}"
+                                                }
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+                        }
+
+                        // Type checkboxes
+                        if !filter_types.is_empty() {
+                            fieldset { class: "filter-section",
+                                legend { class: "filter-label", "Event Types" }
+                                div { class: "filter-chips",
+                                    for type_key in &filter_types {
+                                        {
+                                            let key = type_key.clone();
+                                            let checked = state.read().filters.types.contains(&key);
+                                            let cb_id = format!("type-{}", key.to_lowercase());
+                                            rsx! {
+                                                label { class: if checked { "chip chip-active" } else { "chip" }, r#for: "{cb_id}",
+                                                    input {
+                                                        id: "{cb_id}",
+                                                        r#type: "checkbox",
+                                                        class: "chip-check",
+                                                        checked: "{checked}",
+                                                        onchange: move |e| {
+                                                            if e.checked() {
+                                                                state.write().filters.types.insert(key.clone());
+                                                            } else {
+                                                                state.write().filters.types.remove(&key);
+                                                            }
+                                                        },
+                                                    }
+                                                    "{key}"
+                                                }
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+                        }
+
+                        // Clear filters button
+                        if !state.read().filters.is_default() {
+                            button {
+                                class: "btn-secondary",
+                                onclick: move |_| {
+                                    let mut s = state.write();
+                                    let show = s.filters.show_filter_panel;
+                                    s.filters = Filters::default();
+                                    s.filters.show_filter_panel = show;
+                                },
+                                "Clear Filters"
+                            }
+                        }
+                    }
+                }
+
+                // ---------------------------------------------------------------
+                // Day tabs
+                // ---------------------------------------------------------------
+                nav { class: "day-tabs", aria_label: "Convention days",
+                    for (i, day) in days.iter().enumerate() {
+                        {
+                            let label = day.format("%A, %b %-d").to_string();
+                            let is_active = i == selected_day_index;
+                            rsx! {
+                                button {
+                                    class: if is_active { "day-tab day-tab-active" } else { "day-tab" },
+                                    aria_selected: if is_active { "true" } else { "false" },
+                                    onclick: move |_| {
+                                        state.write().selected_day_index = i;
+                                        state.write().detail_panel_id = None;
+                                    },
+                                    "{label}"
+                                }
+                            }
+                        }
+                    }
+                }
+
+                // ---------------------------------------------------------------
+                // Panel list (time-grouped)
+                // ---------------------------------------------------------------
+                main { id: "main-content", class: "panel-list-area",
+
+                    if time_groups.is_empty() {
+                        div { class: "empty-state-inline",
+                            "No panels match the current filters."
+                        }
+                    } else {
+                        for (time_label, group_panels) in &time_groups {
+                            section { class: "time-group", aria_label: "Events at {time_label}",
+                                div { class: "time-header", aria_hidden: "true",
+                                    span { class: "time-label", "{time_label}" }
+                                }
+                                div { class: "panel-cards",
+                                    for panel in group_panels {
+                                        {
+                                            let pid = panel.id.clone();
+                                            let pid2 = pid.clone();
+                                            let pname = panel.name.clone();
+                                            let time_str = panel.time_str.clone();
+                                            let rooms = panel.room_names.join(", ");
+                                            let type_key = panel.panel_type.clone();
+                                            let color = panel.type_color.clone();
+                                            let is_workshop = panel.is_workshop;
+                                            let is_premium = panel.is_premium;
+                                            let is_full = panel.is_full;
+                                            let is_kids = panel.is_kids;
+                                            rsx! {
+                                                article {
+                                                    class: "panel-card",
+                                                    "data-panel-type": "{type_key}",
+                                                    tabindex: "0",
+                                                    role: "button",
+                                                    aria_label: "View details for {pname}",
+                                                    onclick: move |_| {
+                                                        state.write().detail_panel_id = Some(pid.clone());
+                                                    },
+                                                    onkeydown: move |e| {
+                                                        if e.key() == Key::Enter || e.key() == Key::Character(" ".to_string()) {
+                                                            state.write().detail_panel_id = Some(pid2.clone());
+                                                        }
+                                                    },
+
+                                                    // Color bar (matches widget's panel-type color bars)
+                                                    div {
+                                                        class: "card-color-bar",
+                                                        style: if let Some(ref c) = color {
+                                                            format!("background:{c}")
+                                                        } else {
+                                                            String::new()
+                                                        },
+                                                    }
+
+                                                    div { class: "card-body",
+                                                        div { class: "card-header-row",
+                                                            h3 { class: "card-name", "{pname}" }
+                                                            // Badges
+                                                            div { class: "card-badges",
+                                                                if is_workshop {
+                                                                    span { class: "badge badge-workshop", "Workshop" }
+                                                                }
+                                                                if is_premium {
+                                                                    span { class: "badge badge-paid", "Paid" }
+                                                                }
+                                                                if is_full {
+                                                                    span { class: "badge badge-full", "Full" }
+                                                                }
+                                                                if is_kids {
+                                                                    span { class: "badge badge-kids", "Kids" }
+                                                                }
+                                                            }
+                                                        }
+                                                        div { class: "card-meta",
+                                                            span { class: "card-time", "{time_str}" }
+                                                            if !rooms.is_empty() {
+                                                                span { class: "card-sep", " · " }
+                                                                span { class: "card-rooms", "{rooms}" }
+                                                            }
+                                                        }
+                                                    }
+                                                }
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+
+                // ---------------------------------------------------------------
+                // Detail modal
+                // ---------------------------------------------------------------
+                if let Some(ref panel) = detail_panel {
+                    {
+                        let pname = panel.name.clone();
+                        let time_str = panel.time_str.clone();
+                        let rooms = panel.room_names.join(", ");
+                        let desc = panel.description.clone();
+                        let note = panel.note.clone();
+                        let prereq = panel.prereq.clone();
+                        let cost = panel.cost.clone();
+                        let ticket_url = panel.ticket_url.clone();
+                        let presenters = panel.presenter_names.clone();
+                        let is_premium = panel.is_premium;
+                        let is_kids = panel.is_kids;
+
+                        rsx! {
+                            div {
+                                class: "modal-backdrop",
+                                role: "dialog",
+                                aria_modal: "true",
+                                aria_label: "Panel details: {pname}",
+                                onclick: move |_| state.write().detail_panel_id = None,
+
+                                div {
+                                    class: "modal-content",
+                                    // Stop click propagation so clicking inside modal doesn't close it.
+                                    onclick: move |e| e.stop_propagation(),
+
+                                    div { class: "modal-header",
+                                        h2 { class: "modal-title", "{pname}" }
+                                        button {
+                                            class: "modal-close",
+                                            aria_label: "Close panel details",
+                                            onclick: move |_| state.write().detail_panel_id = None,
+                                            "×"
+                                        }
+                                    }
+
+                                    div { class: "modal-meta",
+                                        if !time_str.is_empty() {
+                                            div { class: "modal-field",
+                                                span { class: "modal-label", "Time: " }
+                                                span { "{time_str}" }
+                                            }
+                                        }
+                                        if !rooms.is_empty() {
+                                            div { class: "modal-field",
+                                                span { class: "modal-label", "Room: " }
+                                                span { "{rooms}" }
+                                            }
+                                        }
+                                        if !presenters.is_empty() {
+                                            div { class: "modal-field",
+                                                span { class: "modal-label", "Presenters: " }
+                                                span { "{presenters.join(\", \")}" }
+                                            }
+                                        }
+                                        if is_premium {
+                                            if let Some(ref c) = cost {
+                                                div { class: "modal-field",
+                                                    span { class: "modal-label", "Cost: " }
+                                                    span { "{c}" }
+                                                }
+                                            }
+                                        }
+                                        if is_kids {
+                                            div { class: "modal-field",
+                                                span { class: "badge badge-kids", "Kids programming" }
+                                            }
+                                        }
+                                    }
+
+                                    if let Some(ref d) = desc {
+                                        div { class: "modal-section",
+                                            h3 { class: "modal-section-title", "Description" }
+                                            p { class: "modal-text", "{d}" }
+                                        }
+                                    }
+                                    if let Some(ref p) = prereq {
+                                        div { class: "modal-section",
+                                            h3 { class: "modal-section-title", "Prerequisites" }
+                                            p { class: "modal-text", "{p}" }
+                                        }
+                                    }
+                                    if let Some(ref n) = note {
+                                        div { class: "modal-section",
+                                            h3 { class: "modal-section-title", "Notes" }
+                                            p { class: "modal-text", "{n}" }
+                                        }
+                                    }
+                                    if let Some(ref url) = ticket_url {
+                                        div { class: "modal-section",
+                                            a {
+                                                class: "modal-ticket-link",
+                                                href: "{url}",
+                                                target: "_blank",
+                                                rel: "noopener noreferrer",
+                                                "Buy Tickets / Register"
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+}

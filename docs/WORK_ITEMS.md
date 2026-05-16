@@ -1,6 +1,6 @@
 # Cosplay America Schedule - Work Item
 
-Updated on: Sat May 16 14:53:18 2026
+Updated on: Sat May 16 16:36:24 2026
 
 ## Completed
 
@@ -150,12 +150,13 @@ above panelists and groups.
 
 ## Summary of Open Items
 
-**Total open items:** 17
+**Total open items:** 22
 
 * **Meta / Project-Level**
   * [META-001] Meta work item tracking the full multi-phase redesign of the schedule system. (Blocked by [META-007], [META-008])
   * [META-007] Phase tracker for the cosam-editor desktop GUI application. (Blocked by [META-005])
   * [META-008] Phase tracker for peer-to-peer schedule synchronization and conflict resolution. (Blocked by [META-004])
+  * [META-117] Tracker for all cosam-viewer work: initial viewer app and deferred enhancements.
 
 * **High Priority**
   * [FEATURE-084] Implement `update_xlsx` to write schedule changes back into an existing XLSX
@@ -168,6 +169,7 @@ reference and jump-starting new conventions.
 `schedule-layout` and `cosam-convert` with in-process compilation using the
 `typst` Rust crate, eliminating the external `typst-cli` dependency.
   * [FEATURE-115] Separate Timeline Sheet in XLSX
+  * [FEATURE-116] ([META-117]) New Dioxus 0.7 viewer app that reads widget JSON and renders a UI similar to the JS widget.
 
 * **Low Priority**
   * [CLI-100] Add a `--interactive` flag to `cosam-modify` that opens a read-eval-print loop for
@@ -183,6 +185,11 @@ entering commands one at a time.
   * [FEATURE-099] Serialize the `EditHistory` undo/redo stacks into the `.schedule` binary file so that
 undo/redo works across `cosam-modify` invocations.
   * [FEATURE-110] Add Adobe InDesign Markup Language (IDML) as an optional export format for schedule layouts.
+  * [FEATURE-118] ([META-117]) Add a CSS-grid schedule view to cosam-viewer mirroring the JS widget's grid mode.
+  * [FEATURE-119] ([META-117]) Allow attendees to star/bookmark panels and view a personal schedule, mirroring
+the JS widget's named-schedule feature.
+  * [FEATURE-120] ([META-117]) Configure `dx` build targets for Android and iPadOS, including app metadata,
+icons, and CI/CD pipeline integration.
   * [REFACTOR-112] Update the `#[ignore]`d `set_neighbors` tests in `schedule-core/src/edge/map.rs`
 to compile and pass against the current `RawEdgeMap` API.
 
@@ -346,6 +353,25 @@ implementation.
 
 ---
 
+### [FEATURE-116] FEATURE-116: cosam-viewer — cross-platform schedule viewer app (Dioxus)
+
+**Status:** In progress
+
+**Priority:** Medium
+
+**Summary:** New Dioxus 0.7 viewer app that reads widget JSON and renders a UI similar to the JS widget.
+
+**Part of:** [META-117]
+
+**Description:** Create `apps/cosam-viewer/` as a new Dioxus 0.7 app that:
+
+* Reads the cosam widget JSON format (`docs/widget-json-format.md`) directly — no dependency on `schedule-core`
+* Targets macOS (desktop), iPadOS and Android (mobile) via Dioxus feature flags and `dx` build tooling
+* Mirrors the JS widget UX: day tabs, list view with time groups, filter panel (rooms + types +
+  search), panel detail overlay, 4 themes
+
+---
+
 ### [FEATURE-034] Peer-to-Peer Schedule Sync Protocol
 
 **Status:** Open
@@ -487,6 +513,56 @@ IDML is significantly more complex than the current Typst approach, requiring XM
 
 ---
 
+### [FEATURE-118] FEATURE-118: cosam-viewer — grid view (rooms × time slots)
+
+**Status:** Open
+
+**Priority:** Low
+
+**Summary:** Add a CSS-grid schedule view to cosam-viewer mirroring the JS widget's grid mode.
+
+**Part of:** [META-117]
+
+**Description:** Implement a grid view in `apps/cosam-viewer` where columns are rooms and rows are
+time slots, with panels spanning multiple rows based on duration. Mirrors the
+`grid` view mode of the JS widget.
+
+---
+
+### [FEATURE-119] FEATURE-119: cosam-viewer — My Schedule bookmarking
+
+**Status:** Open
+
+**Priority:** Low
+
+**Summary:** Allow attendees to star/bookmark panels and view a personal schedule, mirroring
+the JS widget's named-schedule feature.
+
+**Part of:** [META-117]
+
+**Description:** Add panel bookmarking to cosam-viewer so users can build a personal schedule.
+On desktop, persist to a local file or app-data directory. On mobile, use
+platform storage. Optionally support URL-hash sharing (as in the JS widget).
+
+---
+
+### [FEATURE-120] FEATURE-120: cosam-viewer — mobile build and deploy configuration
+
+**Status:** Open
+
+**Priority:** Low
+
+**Summary:** Configure `dx` build targets for Android and iPadOS, including app metadata,
+icons, and CI/CD pipeline integration.
+
+**Part of:** [META-117]
+
+**Description:** Set up the `Dioxus.toml`, Android manifest, iOS Info.plist, and icon assets
+needed to produce release builds of cosam-viewer for Android and iPadOS via
+`dx build --platform android` and `dx build --platform ios`.
+
+---
+
 ## Open META Items
 
 ### [META-001] Architecture Redesign: CRDT-backed Schedule System
@@ -526,6 +602,26 @@ replacing the old `schedule-field`, `schedule-data`, and `schedule-macro` crates
 * META-006: Phase 5 — CLI Tools
 * META-007: Phase 6 — GUI Editor
 * META-008: Phase 7 — Sync & Multi-User
+
+---
+
+### [META-117] META-117: cosam-viewer — cross-platform schedule viewer
+
+**Status:** In progress
+
+**Priority:** Medium
+
+**Summary:** Tracker for all cosam-viewer work: initial viewer app and deferred enhancements.
+
+**Description:** cosam-viewer is a Dioxus 0.7 app that reads the cosam widget JSON format and
+renders a schedule UI similar to the JS widget, targeting macOS, iPadOS, and Android.
+
+**Work Items:**
+
+* FEATURE-116: Initial cosam-viewer app (list view, filters, day tabs, detail modal, 4 themes)
+* FEATURE-118: Grid view (rooms × time slots)
+* FEATURE-119: My Schedule / bookmarking
+* FEATURE-120: Mobile-specific build and deploy configuration
 
 ---
 
@@ -661,6 +757,10 @@ a `HashMap<NonNilUuid, HashMap<FieldId, Vec<FieldNodeId>>>` layout).
 [FEATURE-113]: work-item/medium/FEATURE-113.md
 [FEATURE-114]: work-item/done/FEATURE-114.md
 [FEATURE-115]: work-item/medium/FEATURE-115.md
+[FEATURE-116]: work-item/medium/FEATURE-116.md
+[FEATURE-118]: work-item/low/FEATURE-118.md
+[FEATURE-119]: work-item/low/FEATURE-119.md
+[FEATURE-120]: work-item/low/FEATURE-120.md
 [META-001]: work-item/meta/META-001.md
 [META-002]: work-item/done/META-002.md
 [META-003]: work-item/done/META-003.md
@@ -671,6 +771,7 @@ a `HashMap<NonNilUuid, HashMap<FieldId, Vec<FieldNodeId>>>` layout).
 [META-008]: work-item/meta/META-008.md
 [META-048]: work-item/done/META-048.md
 [META-102]: work-item/done/META-102.md
+[META-117]: work-item/meta/META-117.md
 [REFACTOR-041]: work-item/done/REFACTOR-041.md
 [REFACTOR-047]: work-item/done/REFACTOR-047.md
 [REFACTOR-049]: work-item/done/REFACTOR-049.md
