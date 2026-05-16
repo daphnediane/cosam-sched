@@ -1,6 +1,6 @@
 # Cosplay America Schedule - Work Item
 
-Updated on: Wed May 13 01:50:43 2026
+Updated on: Sat May 16 14:53:18 2026
 
 ## Completed
 
@@ -29,7 +29,7 @@ load/save infrastructure for `cosam-modify`.
 * [CLI-097] Implement in-memory `undo`, `redo`, and `show-history` subcommands.
 * [CLI-098] Add `--help` output, proper exit codes, integration tests for all commands, and close out
 CLI-031 and CLI-090–098.
-* [EDITOR-033] Implement the main schedule grid view and entity editing UI in cosam-editor.
+* [EDITOR-032] Select the GUI framework for cosam-editor and create the application scaffold.
 * [FEATURE-009] Set up the Cargo workspace root and create skeleton application crates.
 * [FEATURE-010] Implement the universal `FieldValue` enum, error types, and CRDT field type annotation.
 * [FEATURE-011] Implement the field trait hierarchy and generic `FieldDescriptor` type that replaces the old proc-macro's generated per-field unit structs.
@@ -172,7 +172,7 @@ reference and jump-starting new conventions.
 * **Low Priority**
   * [CLI-100] Add a `--interactive` flag to `cosam-modify` that opens a read-eval-print loop for
 entering commands one at a time.
-  * [EDITOR-032] ([META-007]) Select the GUI framework for cosam-editor and create the application scaffold.
+  * [EDITOR-033] ([META-007]) Implement the main schedule grid view and entity editing UI in cosam-editor.
   * [EDITOR-111] Extract the duplicated `schedule_data.rs` UI helper present in both
 `cosam-editor-gpui` and `cosam-editor-dioxus` into a new
 `crates/cosam-editor-shared` crate once the GUI framework is chosen.
@@ -226,18 +226,19 @@ Save your changes? (Y/N)
 
 ## Open EDITOR Items
 
-### [EDITOR-032] cosam-editor: GUI Framework Selection and Scaffold
+### [EDITOR-033] cosam-editor: Schedule Grid View and Entity Editing
 
-**Status:** In progress
+**Status:** Open
 
 **Priority:** Low
 
-**Summary:** Select the GUI framework for cosam-editor and create the application scaffold.
+**Summary:** Implement the main schedule grid view and entity editing UI in cosam-editor.
 
 **Part of:** [META-007]
 
-**Description:** Evaluate and select between GUI framework candidates, then create the initial
-application structure.
+**Description:** The core editing experience for cosam-editor (Dioxus 0.7). The initial
+scaffold delivered a filter-list-detail layout with inline name editing.
+This item tracks the remaining editing features needed for a usable editor.
 
 ---
 
@@ -606,8 +607,8 @@ a `HashMap<NonNilUuid, HashMap<FieldId, Vec<FieldNodeId>>>` layout).
 [CLI-097]: work-item/done/CLI-097.md
 [CLI-098]: work-item/done/CLI-098.md
 [CLI-100]: work-item/low/CLI-100.md
-[EDITOR-032]: work-item/low/EDITOR-032.md
-[EDITOR-033]: work-item/done/EDITOR-033.md
+[EDITOR-032]: work-item/done/EDITOR-032.md
+[EDITOR-033]: work-item/low/EDITOR-033.md
 [EDITOR-111]: work-item/low/EDITOR-111.md
 [FEATURE-009]: work-item/done/FEATURE-009.md
 [FEATURE-010]: work-item/done/FEATURE-010.md

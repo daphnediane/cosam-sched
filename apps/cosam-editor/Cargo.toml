@@ -4,8 +4,16 @@ version.workspace = true
 edition.workspace = true
 license.workspace = true
 authors.workspace = true
-description = "GUI editor for cosam schedules (skeleton)"
+description = "GUI editor for cosam schedules (Dioxus)"
 
 [[bin]]
 name = "cosam-editor"
 path = "src/main.rs"
+
+[dependencies]
+dioxus = { version = "0.7", features = ["desktop"] }
+dioxus-desktop = "0.7"
+anyhow = "1"
+chrono = "0.4"
+rfd = "0.17"
+schedule-core = { path = "../../crates/schedule-core" }

@@ -22,8 +22,10 @@ pub struct PanelDisplayInfo {
     pub name: String,
     pub description: Option<String>,
     pub start_time: NaiveDateTime,
+    #[allow(dead_code)] // reserved for time-slot editing (EDITOR-033)
     pub end_time: NaiveDateTime,
     pub time_range_str: String,
+    #[allow(dead_code)] // reserved for room-assignment editing (EDITOR-033)
     pub room_ids: Vec<EventRoomId>,
     pub room_names: Vec<String>,
     pub change_state: ChangeState,

@@ -6,7 +6,7 @@ Select the GUI framework for cosam-editor and create the application scaffold.
 
 ## Status
 
-In Progress
+Completed
 
 ## Priority
 
@@ -21,22 +21,14 @@ Low
 Evaluate and select between GUI framework candidates, then create the initial
 application structure.
 
-### Framework evaluation
+### Framework decision
 
-Two parallel scaffolds were built for side-by-side comparison:
+**Dioxus 0.7 selected.**
 
-- **`apps/cosam-editor-gpui/`** — GPUI 0.2 scaffold (ported from v9 prototype)
-- **`apps/cosam-editor-dioxus/`** — Dioxus 0.7 scaffold (new implementation)
-
-Note: GPUI and Dioxus have an incompatible `cocoa` crate version conflict
-(`gpui=0.2` pins `cocoa=0.26.0`; `dioxus-desktop=0.7` requires `cocoa>=0.26.1`).
-Both editor apps are standalone workspaces, excluded from the root workspace.
-Build with:
-
-```sh
-cargo build --manifest-path apps/cosam-editor-gpui/Cargo.toml
-cargo build --manifest-path apps/cosam-editor-dioxus/Cargo.toml
-```
+Rationale: React-like component model, pure Rust, WebView-based with iOS/Android
+potential, and no `cocoa` version conflict once GPUI is removed. The Dioxus
+prototype in `apps/cosam-editor-dioxus/` was promoted to `apps/cosam-editor/`
+(integrated back into the root workspace). Both prototype directories deleted.
 
 ### Framework candidates
 
@@ -63,5 +55,5 @@ cargo build --manifest-path apps/cosam-editor-dioxus/Cargo.toml
 - [x] Both show a window with header and placeholder body
 - [x] Menu bars and keyboard shortcuts wired up
 - [x] File open dialogs work (load `.cosam` and `.xlsx`)
-- [ ] Framework decision made and documented (pending evaluation)
-- [ ] Winner renamed/promoted to `apps/cosam-editor`
+- [x] Framework decision made and documented (Dioxus 0.7)
+- [x] Winner renamed/promoted to `apps/cosam-editor`

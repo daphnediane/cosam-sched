@@ -329,7 +329,7 @@ pub fn App() -> Element {
                                                     span { class: "card-code", "{code}" }
                                                 }
                                                 div { class: "card-meta", "{time_room}" }
-                                                if state_class != "" {
+                                                if !state_class.is_empty() {
                                                     div { class: "card-badge {state_class}",
                                                         {match panel.change_state {
                                                             ChangeState::Added => "Added",
