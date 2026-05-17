@@ -13,7 +13,7 @@ use schedule_core::tables::event_room::EventRoomEntityType;
 use schedule_core::tables::panel::PanelEntityType;
 use schedule_core::tables::panel_type::PanelTypeEntityType;
 use schedule_core::tables::presenter::PresenterEntityType;
-use schedule_core::widget_json::export_to_widget_json;
+use schedule_core::widget_json::{export_to_widget_json, load_from_url};
 use schedule_core::xlsx::{export_xlsx, import_xlsx, TableImportMode, TableImportOptions};
 
 mod conflicts;
@@ -74,7 +74,8 @@ enum OutputType {
 
 #[derive(Default)]
 struct CliArgs {
-    input: PathBuf,
+    input: Option<PathBuf>,
+    input_url: Option<String>,
     output_jobs: Vec<OutputJob>,
     check_only: bool,
     table_options: TableImportOptions,
@@ -106,6 +107,7 @@ fn parse_args() -> Result<CliArgs> {
     let mut args = CliArgs::default();
 
     let mut input: Option<PathBuf> = None;
+    let mut input_url: Option<String> = None;
     let mut current_settings = OutputSettings::default();
     // Index of the first setting not yet consumed by an output command.
     let mut first_setting_index: Option<usize> = None;
@@ -119,6 +121,13 @@ fn parse_args() -> Result<CliArgs> {
                     anyhow::bail!("Missing value for --input");
                 }
                 input = Some(PathBuf::from(&arguments[index]));
+            }
+            "--input-url" => {
+                index += 1;
+                if index >= arguments.len() {
+                    anyhow::bail!("Missing value for --input-url");
+                }
+                input_url = Some(arguments[index].clone());
             }
             "--output" | "-o" => {
                 index += 1;
@@ -414,10 +423,16 @@ fn parse_args() -> Result<CliArgs> {
         index += 1;
     }
 
-    let Some(input) = input else {
-        anyhow::bail!("--input is required");
-    };
     args.input = input;
+    args.input_url = input_url;
+
+    if args.input.is_none() && args.input_url.is_none() {
+        anyhow::bail!("--input or --input-url is required");
+    }
+
+    if args.input.is_some() && args.input_url.is_some() {
+        anyhow::bail!("Cannot specify both --input and --input-url");
+    }
 
     if let Some(unused_index) = first_setting_index {
         anyhow::bail!(
@@ -439,10 +454,11 @@ fn parse_args() -> Result<CliArgs> {
 
 fn print_usage() {
     eprintln!(
-        "Usage: cosam-convert --input <file> [options]\n\
+        "Usage: cosam-convert --input <file> | --input-url <url> [options]\n\
          \n\
          Input:\n\
          \x20 --input, -i <file>                   Input file (.xlsx, .schedule, or CSV directory)\n\
+         \x20 --input-url <url>                    Fetch embedded widget JSON from a webpage URL\n\
          \n\
          Output commands (each captures the current settings snapshot):\n\
          \x20 --output, -o <file>                  Save schedule (.xlsx or native binary)\n\
@@ -493,6 +509,7 @@ fn print_usage() {
          \x20 cosam-convert --input schedule.xlsx --export public.json --export-layout output/layout\n\
          \x20 cosam-convert --input csv_dir --export public.json\n\
          \x20 cosam-convert --input schedule.xlsx --export-csv-dir csv_output\n\
+         \x20 cosam-convert --input-url https://example.com/schedule --export public.json\n\
          \x20 cosam-convert --input schedule.xlsx --title \"Event 2026\" \\\n\
          \x20   --minified --export-embed embed.html --no-minified --export-embed debug.html"
     );
@@ -592,32 +609,55 @@ fn main() {
         }
     };
 
-    eprintln!("Reading: {}", cli.input.display());
-
-    let mut schedule = match load_schedule(&cli.input, &cli.table_options) {
-        Ok(s) => s,
-        Err(err) => {
-            eprintln!("Error: {err}");
-            std::process::exit(1);
-        }
+    // Load schedule from file or URL
+    let (mut schedule, widget_export) = if let Some(url) = &cli.input_url {
+        eprintln!("Fetching: {}", url);
+        let widget = match load_from_url(url) {
+            Ok(w) => w,
+            Err(err) => {
+                eprintln!("Error: {err}");
+                std::process::exit(1);
+            }
+        };
+        // When loading from URL, we only have the widget export, not a full Schedule
+        // We'll use the widget export for outputs that support it
+        (None, Some(widget))
+    } else if let Some(path) = &cli.input {
+        eprintln!("Reading: {}", path.display());
+        let sched = match load_schedule(path, &cli.table_options) {
+            Ok(s) => s,
+            Err(err) => {
+                eprintln!("Error: {err}");
+                std::process::exit(1);
+            }
+        };
+        (Some(sched), None)
+    } else {
+        unreachable!()
     };
 
-    print_stats(&schedule);
+    // Print stats only if we have a full Schedule
+    if let Some(ref sched) = schedule {
+        print_stats(sched);
 
-    let scheduling_conflicts = conflicts::detect_conflicts(&schedule);
-    conflicts::print_conflicts(&scheduling_conflicts);
+        let scheduling_conflicts = conflicts::detect_conflicts(sched);
+        conflicts::print_conflicts(&scheduling_conflicts);
 
-    if cli.check_only {
-        if scheduling_conflicts.is_empty() {
-            eprintln!("Validation completed successfully");
-        } else {
-            eprintln!(
-                "Validation failed — {} conflict(s) detected",
-                scheduling_conflicts.len()
-            );
-            std::process::exit(1);
+        if cli.check_only {
+            if scheduling_conflicts.is_empty() {
+                eprintln!("Validation completed successfully");
+            } else {
+                eprintln!(
+                    "Validation failed — {} conflict(s) detected",
+                    scheduling_conflicts.len()
+                );
+                std::process::exit(1);
+            }
+            return;
         }
-        return;
+    } else if cli.check_only {
+        eprintln!("Validation is not supported when loading from URL");
+        std::process::exit(1);
     }
 
     let mut had_error = false;
@@ -626,33 +666,72 @@ fn main() {
         let effective_title = job.settings.title.clone();
 
         let result: Result<()> = match job.job_type {
-            OutputType::Output => write_output(&mut schedule, &job.path).map(|()| {
-                eprintln!("Saved: {}", job.path.display());
-            }),
-            OutputType::Export => write_widget_json(
-                &schedule,
-                &job.path,
-                &effective_title,
-                job.settings.private_export,
-            )
-            .map(|()| {
-                eprintln!("Exported: {}", job.path.display());
-            }),
-            OutputType::ExportCsv => {
-                match export_csv(&schedule, &job.path) {
-                    Ok(_) => {
-                        eprintln!("Exported CSV: {}", job.path.display());
-                    }
-                    Err(err) => {
-                        eprintln!("Error: {:#}", err);
+            OutputType::Output => {
+                if let Some(ref mut sched) = schedule {
+                    write_output(sched, &job.path).map(|()| {
+                        eprintln!("Saved: {}", job.path.display());
+                    })
+                } else {
+                    eprintln!("Error: --output is not supported when loading from URL");
+                    had_error = true;
+                    Ok(())
+                }
+            }
+            OutputType::Export => {
+                if let Some(ref sched) = schedule {
+                    write_widget_json(
+                        sched,
+                        &job.path,
+                        &effective_title,
+                        job.settings.private_export,
+                    )
+                    .map(|()| {
+                        eprintln!("Exported: {}", job.path.display());
+                    })
+                } else if let Some(ref widget) = widget_export {
+                    let json = serde_json::to_string_pretty(widget).unwrap_or_else(|e| {
+                        eprintln!("Error: Failed to serialize widget JSON: {}", e);
                         had_error = true;
+                        String::new()
+                    });
+                    if !had_error {
+                        if let Err(e) = std::fs::write(&job.path, json) {
+                            eprintln!("Error: Failed to write widget JSON: {}", e);
+                            had_error = true;
+                        } else {
+                            eprintln!("Exported: {}", job.path.display());
+                        }
                     }
+                    Ok(())
+                } else {
+                    unreachable!()
+                }
+            }
+            OutputType::ExportCsv => {
+                if let Some(ref sched) = schedule {
+                    match export_csv(sched, &job.path) {
+                        Ok(_) => {
+                            eprintln!("Exported CSV: {}", job.path.display());
+                        }
+                        Err(err) => {
+                            eprintln!("Error: {:#}", err);
+                            had_error = true;
+                        }
+                    }
+                } else {
+                    eprintln!("Error: --export-csv-dir is not supported when loading from URL");
+                    had_error = true;
                 }
                 Ok(())
             }
             #[cfg(feature = "layout")]
             OutputType::ExportLayout => {
-                run_layout_export(&schedule, &effective_title, &job.path, &job.settings);
+                if let Some(ref sched) = schedule {
+                    run_layout_export(sched, &effective_title, &job.path, &job.settings);
+                } else {
+                    eprintln!("Error: --export-layout is not supported when loading from URL");
+                    had_error = true;
+                }
                 Ok(())
             }
             OutputType::ExportEmbed | OutputType::ExportTest => {
@@ -669,17 +748,27 @@ fn main() {
                     }
                 };
 
-                let json_data = match write_widget_json_to_string(
-                    &schedule,
-                    &effective_title,
-                    job.settings.private_export,
-                ) {
-                    Ok(j) => j,
-                    Err(err) => {
-                        eprintln!("Error generating widget JSON: {err}");
-                        had_error = true;
-                        continue;
+                let json_data = if let Some(ref sched) = schedule {
+                    match write_widget_json_to_string(
+                        sched,
+                        &effective_title,
+                        job.settings.private_export,
+                    ) {
+                        Ok(j) => j,
+                        Err(err) => {
+                            eprintln!("Error generating widget JSON: {err}");
+                            had_error = true;
+                            continue;
+                        }
                     }
+                } else if let Some(ref widget) = widget_export {
+                    serde_json::to_string_pretty(widget).unwrap_or_else(|e| {
+                        eprintln!("Error: Failed to serialize widget JSON: {}", e);
+                        had_error = true;
+                        String::new()
+                    })
+                } else {
+                    unreachable!()
                 };
 
                 match job.job_type {
