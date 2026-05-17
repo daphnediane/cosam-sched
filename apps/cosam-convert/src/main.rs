@@ -26,9 +26,9 @@ mod embed;
 
 #[derive(Debug)]
 enum InputType {
-    Schedule(Schedule),
+    Schedule(Box<Schedule>),
     WidgetJson(WidgetExport),
-    ScheduleFromWidget(Schedule, WidgetExport),
+    ScheduleFromWidget(Box<Schedule>, WidgetExport),
 }
 
 impl InputType {
@@ -43,9 +43,8 @@ impl InputType {
                 let sched = import_from_widget_json(widget).map_err(|e| {
                     anyhow::anyhow!("Failed to convert widget JSON to Schedule: {}", e)
                 })?;
-                // Clone widget to preserve it for widget-only outputs
                 let widget_clone = widget.clone();
-                *self = InputType::ScheduleFromWidget(sched, widget_clone);
+                *self = InputType::ScheduleFromWidget(Box::new(sched), widget_clone);
                 match self {
                     InputType::ScheduleFromWidget(ref mut sched, _) => Ok(sched),
                     _ => unreachable!(),
@@ -698,7 +697,7 @@ fn main() {
                     std::process::exit(1);
                 }
             };
-            InputType::Schedule(sched)
+            InputType::Schedule(Box::new(sched))
         }
     } else {
         unreachable!()
