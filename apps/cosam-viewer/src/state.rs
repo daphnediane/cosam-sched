@@ -141,7 +141,8 @@ pub struct ViewerState {
 
     /// All unique scheduled days in the document, sorted.
     pub days: Vec<NaiveDate>,
-    pub selected_day_index: usize,
+    /// `None` means "All Days" mode.
+    pub selected_day_index: Option<usize>,
 
     /// Panel currently shown in detail modal.
     pub detail_panel_id: Option<String>,
@@ -150,32 +151,34 @@ pub struct ViewerState {
 impl ViewerState {
     pub fn load_doc(&mut self, doc: ScheduleDoc, file_name: Option<String>) {
         self.days = collect_days(&doc);
-        self.selected_day_index = 0;
+        self.selected_day_index = Some(0);
         self.filters = Filters::default();
         self.detail_panel_id = None;
         self.file_name = file_name;
         self.doc = Some(doc);
     }
 
-    /// Return panels for the currently selected day, applying active filters.
+    /// Return panels for the currently selected day (or all days), applying active filters.
     pub fn panels_for_day(&self) -> Vec<PanelView> {
         let doc = match &self.doc {
             Some(d) => d,
             None => return vec![],
         };
-        let selected_day = match self.days.get(self.selected_day_index) {
-            Some(d) => *d,
-            None => return vec![],
-        };
+        // None = All Days; Some(i) = specific day
+        let selected_day: Option<NaiveDate> = self
+            .selected_day_index
+            .and_then(|i| self.days.get(i).copied());
 
         let mut panels: Vec<PanelView> = doc
             .panels
             .iter()
             .filter_map(|p| {
-                // Only show panels with a start time on the selected day.
+                // Only show panels with a start time on the selected day (or any day).
                 let start = parse_datetime(p.start_time.as_deref())?;
-                if start.date() != selected_day {
-                    return None;
+                if let Some(day) = selected_day {
+                    if start.date() != day {
+                        return None;
+                    }
                 }
 
                 // Look up panel type — skip hidden and timeline panels.

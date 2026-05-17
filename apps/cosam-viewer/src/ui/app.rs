@@ -87,7 +87,7 @@ pub fn App() -> Element {
     let theme_class = state.read().theme.css_class();
     let show_filter_panel = state.read().filters.show_filter_panel;
     let has_doc = state.read().doc.is_some();
-    let selected_day_index = state.read().selected_day_index;
+    let selected_day_index = state.read().selected_day_index; // None = All Days
     let detail_panel = state.read().detail_panel();
     let active_presenter_filter = state.read().filters.presenter.clone();
     let time_groups = group_by_time(panels);
@@ -135,10 +135,11 @@ pub fn App() -> Element {
             a { class: "skip-link", href: "#main-content", "Skip to content" }
 
             // ---------------------------------------------------------------
-            // Toolbar
+            // Top bar: toolbar controls + day tabs in one row
             // ---------------------------------------------------------------
-            header { class: "toolbar", role: "banner",
-                div { class: "toolbar-left",
+            header { class: "topbar", role: "banner",
+                // Left: open + title
+                div { class: "topbar-start",
                     button {
                         class: "toolbar-btn toolbar-open",
                         onclick: open_file,
@@ -147,7 +148,48 @@ pub fn App() -> Element {
                     }
                     span { class: "toolbar-title", "{title}" }
                 }
-                div { class: "toolbar-right",
+
+                // Centre: day tabs (only when a schedule is loaded)
+                if has_doc {
+                    nav { class: "topbar-days", aria_label: "Convention days",
+                        // All Days tab
+                        {
+                            let is_active = selected_day_index.is_none();
+                            rsx! {
+                                button {
+                                    class: if is_active { "day-tab day-tab-active" } else { "day-tab" },
+                                    aria_selected: if is_active { "true" } else { "false" },
+                                    onclick: move |_| {
+                                        state.write().selected_day_index = None;
+                                        state.write().detail_panel_id = None;
+                                    },
+                                    "All Days"
+                                }
+                            }
+                        }
+                        // Per-day tabs
+                        for (i, day) in days.iter().enumerate() {
+                            {
+                                let label = day.format("%a %-d").to_string();
+                                let is_active = selected_day_index == Some(i);
+                                rsx! {
+                                    button {
+                                        class: if is_active { "day-tab day-tab-active" } else { "day-tab" },
+                                        aria_selected: if is_active { "true" } else { "false" },
+                                        onclick: move |_| {
+                                            state.write().selected_day_index = Some(i);
+                                            state.write().detail_panel_id = None;
+                                        },
+                                        "{label}"
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+
+                // Right: filter toggle + theme picker
+                div { class: "topbar-end",
                     if has_doc {
                         button {
                             class: if show_filter_panel { "toolbar-btn active" } else { "toolbar-btn" },
@@ -348,29 +390,6 @@ pub fn App() -> Element {
                                     s.filters.show_filter_panel = show;
                                 },
                                 "Clear Filters"
-                            }
-                        }
-                    }
-                }
-
-                // -----------------------------------------------------------
-                // Day tabs
-                // -----------------------------------------------------------
-                nav { class: "day-tabs", aria_label: "Convention days",
-                    for (i, day) in days.iter().enumerate() {
-                        {
-                            let label = day.format("%A, %b %-d").to_string();
-                            let is_active = i == selected_day_index;
-                            rsx! {
-                                button {
-                                    class: if is_active { "day-tab day-tab-active" } else { "day-tab" },
-                                    aria_selected: if is_active { "true" } else { "false" },
-                                    onclick: move |_| {
-                                        state.write().selected_day_index = i;
-                                        state.write().detail_panel_id = None;
-                                    },
-                                    "{label}"
-                                }
                             }
                         }
                     }
