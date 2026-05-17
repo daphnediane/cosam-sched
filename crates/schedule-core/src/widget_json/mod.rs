@@ -23,7 +23,7 @@ pub use types::{
 pub use export::{export_to_widget_json, save_to_file, save_to_json};
 
 // Re-export public functions from import module
-pub use import::{load_from_file, load_from_json, load_from_url};
+pub use import::{import_from_widget_json, load_from_file, load_from_json, load_from_url};
 
 // Re-export error type
 pub use export::WidgetJsonError;
