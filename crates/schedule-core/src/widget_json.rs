@@ -4,10 +4,10 @@
  * See LICENSE file for full license text
  */
 
-//! Widget JSON export functionality.
+//! Widget JSON format structures and I/O.
 //!
-//! Converts from the internal CRDT/field-system format to the widget JSON display format
-//! documented in `docs/widget-json-format.md`.
+//! This module provides the widget JSON display format structures documented in
+//! `docs/widget-json-format.md`, along with export and import functionality.
 
 use crate::entity::EntityUuid;
 use crate::schedule::Schedule;
@@ -16,16 +16,17 @@ use crate::tables::hotel_room::HotelRoomEntityType;
 use crate::tables::panel::{self, PanelEntityType, PanelId};
 use crate::tables::panel_type::PanelTypeEntityType;
 use crate::tables::presenter::{self, PresenterEntityType, PresenterId};
-use crate::tables::timeline;
-use crate::tables::timeline::{TimelineEntityType, TimelineId};
+use crate::tables::timeline::{self, TimelineEntityType, TimelineId};
 use chrono::{DateTime, NaiveDateTime, Utc};
 use serde::{Deserialize, Serialize};
 use std::collections::{BTreeMap, HashMap, HashSet};
+use std::path::Path;
+use thiserror::Error;
 
 // ── Widget JSON Structures ───────────────────────────────────────────────────────
 
 /// Top-level metadata for widget JSON export.
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
 #[serde(rename_all = "camelCase")]
 pub struct WidgetMeta {
     pub title: String,
@@ -39,7 +40,7 @@ pub struct WidgetMeta {
 }
 
 /// Panel entry in widget JSON format.
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
 #[serde(rename_all = "camelCase")]
 pub struct WidgetPanel {
     pub id: String,
@@ -51,7 +52,7 @@ pub struct WidgetPanel {
     pub name: String,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub panel_type: Option<String>,
-    #[serde(skip_serializing_if = "Vec::is_empty")]
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub room_ids: Vec<i32>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub start_time: Option<String>,
@@ -72,20 +73,20 @@ pub struct WidgetPanel {
     pub difficulty: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub ticket_url: Option<String>,
-    #[serde(skip_serializing_if = "is_false")]
+    #[serde(default, skip_serializing_if = "is_false")]
     pub is_premium: bool,
-    #[serde(skip_serializing_if = "is_false")]
+    #[serde(default, skip_serializing_if = "is_false")]
     pub is_full: bool,
-    #[serde(skip_serializing_if = "is_false")]
+    #[serde(default, skip_serializing_if = "is_false")]
     pub is_kids: bool,
-    #[serde(skip_serializing_if = "Vec::is_empty")]
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub credits: Vec<String>,
-    #[serde(skip_serializing_if = "Vec::is_empty")]
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub presenters: Vec<String>,
 }
 
 /// Room entry in widget JSON format.
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
 #[serde(rename_all = "camelCase")]
 pub struct WidgetRoom {
     pub uid: i32,
@@ -97,7 +98,7 @@ pub struct WidgetRoom {
 }
 
 /// Panel type entry in widget JSON format.
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
 #[serde(rename_all = "camelCase")]
 pub struct WidgetPanelType {
     pub kind: String,
@@ -112,7 +113,7 @@ pub struct WidgetPanelType {
 }
 
 /// Timeline entry in widget JSON format.
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
 #[serde(rename_all = "camelCase")]
 pub struct WidgetTimeline {
     pub id: String,
@@ -123,7 +124,7 @@ pub struct WidgetTimeline {
 }
 
 /// Presenter entry in widget JSON format (DisplayPresenter).
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
 #[serde(rename_all = "camelCase")]
 pub struct WidgetPresenter {
     pub name: String,
@@ -133,12 +134,12 @@ pub struct WidgetPresenter {
     pub members: Vec<String>,
     pub groups: Vec<String>,
     pub panel_ids: Vec<String>,
-    #[serde(skip_serializing_if = "is_false")]
+    #[serde(default, skip_serializing_if = "is_false")]
     pub subsumes_members: bool,
 }
 
 /// Complete widget JSON export structure.
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
 #[serde(rename_all = "camelCase")]
 pub struct WidgetExport {
     pub meta: WidgetMeta,
@@ -149,7 +150,31 @@ pub struct WidgetExport {
     pub presenters: Vec<WidgetPresenter>,
 }
 
-// ── Export Function ───────────────────────────────────────────────────────────────
+// ── Error Types ─────────────────────────────────────────────────────────────────
+
+/// Errors that can occur during widget JSON export/import.
+#[derive(Debug, Error)]
+pub enum WidgetJsonError {
+    #[error("Failed to access entity: {0}")]
+    EntityAccess(String),
+
+    #[error("Failed to format credits: {0}")]
+    CreditFormatting(String),
+
+    #[error("Failed to synthesize breaks: {0}")]
+    BreakSynthesis(String),
+
+    #[error("Failed to resolve group membership: {0}")]
+    GroupResolution(String),
+
+    #[error("JSON parse error: {0}")]
+    Json(#[from] serde_json::Error),
+
+    #[error("I/O error: {0}")]
+    Io(#[from] std::io::Error),
+}
+
+// ── Export Function ─────────────────────────────────────────────────────────────
 
 /// Export schedule data to widget JSON format.
 ///
@@ -163,7 +188,7 @@ pub fn export_to_widget_json(
     schedule: &Schedule,
     title: &str,
     private_export: bool,
-) -> Result<WidgetExport, ExportError> {
+) -> Result<WidgetExport, WidgetJsonError> {
     let now = Utc::now();
 
     let (rooms, room_uid_map) = build_room_uid_map(schedule);
@@ -217,6 +242,31 @@ pub fn export_to_widget_json(
         timeline,
         presenters,
     })
+}
+
+// ── Import Functions ───────────────────────────────────────────────────────────
+
+/// Import widget JSON from a file.
+pub fn load_from_file(path: &Path) -> Result<WidgetExport, WidgetJsonError> {
+    let json = std::fs::read_to_string(path)?;
+    load_from_json(&json)
+}
+
+/// Import widget JSON from a string.
+pub fn load_from_json(json: &str) -> Result<WidgetExport, WidgetJsonError> {
+    Ok(serde_json::from_str(json)?)
+}
+
+/// Export widget JSON to a file.
+pub fn save_to_file(widget: &WidgetExport, path: &Path) -> Result<(), WidgetJsonError> {
+    let json = serde_json::to_string_pretty(widget)?;
+    std::fs::write(path, json)?;
+    Ok(())
+}
+
+/// Export widget JSON to a string.
+pub fn save_to_json(widget: &WidgetExport) -> Result<String, WidgetJsonError> {
+    Ok(serde_json::to_string_pretty(widget)?)
 }
 
 // ── Room helpers ──────────────────────────────────────────────────────────────
@@ -291,7 +341,7 @@ fn get_hotel_room_name(schedule: &Schedule, event_room_id: EventRoomId) -> Strin
 
 fn export_panel_types(
     schedule: &Schedule,
-) -> Result<BTreeMap<String, WidgetPanelType>, ExportError> {
+) -> Result<BTreeMap<String, WidgetPanelType>, WidgetJsonError> {
     let mut panel_types = BTreeMap::new();
 
     for (_, internal) in schedule.iter_entities::<PanelTypeEntityType>() {
@@ -360,7 +410,7 @@ fn export_timeline(
     schedule: &Schedule,
     panel_types: &BTreeMap<String, WidgetPanelType>,
     private_export: bool,
-) -> Result<Vec<WidgetTimeline>, ExportError> {
+) -> Result<Vec<WidgetTimeline>, WidgetJsonError> {
     let mut timeline = Vec::new();
 
     for (timeline_id, internal) in schedule.iter_entities::<TimelineEntityType>() {
@@ -400,7 +450,7 @@ fn export_panels(
     visible_room_uids: &[i32],
     panel_types: &BTreeMap<String, WidgetPanelType>,
     private_export: bool,
-) -> Result<Vec<WidgetPanel>, ExportError> {
+) -> Result<Vec<WidgetPanel>, WidgetJsonError> {
     let mut panels = Vec::new();
 
     for (panel_id, internal) in schedule.iter_entities::<PanelEntityType>() {
@@ -488,7 +538,7 @@ fn first_room_uid(p: &WidgetPanel) -> i32 {
 fn synthesize_breaks(
     panels: Vec<WidgetPanel>,
     visible_room_uids: &[i32],
-) -> Result<Vec<WidgetPanel>, ExportError> {
+) -> Result<Vec<WidgetPanel>, WidgetJsonError> {
     if visible_room_uids.is_empty() {
         return Ok(panels);
     }
@@ -589,7 +639,7 @@ fn export_presenters(
     schedule: &Schedule,
     panels: &[WidgetPanel],
     private_export: bool,
-) -> Result<Vec<WidgetPresenter>, ExportError> {
+) -> Result<Vec<WidgetPresenter>, WidgetJsonError> {
     // Build panel code → panel ID mapping for schedule lookup
     let code_to_panel_id: HashMap<String, PanelId> = schedule
         .iter_entities::<PanelEntityType>()
@@ -843,25 +893,7 @@ fn is_false(b: &bool) -> bool {
     !b
 }
 
-// ── Error Types ─────────────────────────────────────────────────────────────────
-
-/// Errors that can occur during widget JSON export.
-#[derive(Debug, thiserror::Error)]
-pub enum ExportError {
-    #[error("Failed to access entity: {0}")]
-    EntityAccess(String),
-
-    #[error("Failed to format credits: {0}")]
-    CreditFormatting(String),
-
-    #[error("Failed to synthesize breaks: {0}")]
-    BreakSynthesis(String),
-
-    #[error("Failed to resolve group membership: {0}")]
-    GroupResolution(String),
-}
-
-// ── Tests ───────────────────────────────────────────────────────────────────────
+// ── Tests ─────────────────────────────────────────────────────────────────────
 
 #[cfg(test)]
 mod tests {
@@ -1307,5 +1339,23 @@ mod tests {
             "end_time should contain 15:30:00, got {}",
             export.meta.end_time
         );
+    }
+
+    #[test]
+    fn test_load_save_roundtrip() {
+        let mut sched = Schedule::new();
+        let pt_id = make_panel_type(&mut sched, "GP", "Guest Panel", false);
+        let room_id = make_event_room(&mut sched, "R1", None, 1);
+        let panel_id = make_panel(&mut sched, "GP001", Some((0, 14, 0, 0)), Some(60));
+        link_panel_type(&mut sched, panel_id, pt_id);
+        link_panel_room(&mut sched, panel_id, room_id);
+
+        let export = export_to_widget_json(&sched, "Test", false).unwrap();
+        let json = save_to_json(&export).unwrap();
+        let loaded = load_from_json(&json).unwrap();
+
+        assert_eq!(export.meta.title, loaded.meta.title);
+        assert_eq!(export.panels.len(), loaded.panels.len());
+        assert_eq!(export.rooms.len(), loaded.rooms.len());
     }
 }

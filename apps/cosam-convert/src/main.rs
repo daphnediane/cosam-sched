@@ -8,12 +8,12 @@ use std::path::{Path, PathBuf};
 
 use anyhow::{Context, Result};
 use schedule_core::csv::{export_csv, import_csv};
-use schedule_core::query::export::export_to_widget_json;
 use schedule_core::schedule::Schedule;
 use schedule_core::tables::event_room::EventRoomEntityType;
 use schedule_core::tables::panel::PanelEntityType;
 use schedule_core::tables::panel_type::PanelTypeEntityType;
 use schedule_core::tables::presenter::PresenterEntityType;
+use schedule_core::widget_json::export_to_widget_json;
 use schedule_core::xlsx::{export_xlsx, import_xlsx, TableImportMode, TableImportOptions};
 
 mod conflicts;

@@ -24,6 +24,7 @@ pub mod schedule;
 pub mod sidecar;
 pub mod tables;
 pub mod value;
+pub mod widget_json;
 pub mod xlsx;
 
 // Re-export edge types for external use

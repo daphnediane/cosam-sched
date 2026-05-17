@@ -6,11 +6,9 @@
 
 //! Query and update system for entity field operations.
 //!
-//! This module provides field type mapping, entity matching, and export
-//! functionality for the schedule system.
+//! This module provides field type mapping and entity matching functionality for the schedule system.
 
 pub mod converter;
-pub mod export;
 pub mod lookup;
 
 pub use converter::{
@@ -18,10 +16,6 @@ pub use converter::{
     resolve_one, resolve_optional, AsAdditionalCost, AsBoolean, AsDateTime, AsDuration, AsEntityId,
     AsFloat, AsInteger, AsString, AsText, EntityStringResolver, FieldTypeMapping,
     FieldValueConverter, FieldValueForSchedule,
-};
-pub use export::{
-    export_to_widget_json, ExportError, WidgetExport, WidgetMeta, WidgetPanel, WidgetPanelType,
-    WidgetPresenter, WidgetRoom, WidgetTimeline,
 };
 pub use lookup::{
     lookup, lookup_list, lookup_or_create, lookup_or_create_list, lookup_or_create_single,

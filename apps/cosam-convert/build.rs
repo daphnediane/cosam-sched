@@ -9,7 +9,9 @@ use std::path::PathBuf;
 fn main() {
     // Locate repo root (two levels up from apps/cosam-convert/).
     let manifest_dir = std::env::var("CARGO_MANIFEST_DIR").unwrap();
-    let root = PathBuf::from(&manifest_dir).join("../..").canonicalize()
+    let root = PathBuf::from(&manifest_dir)
+        .join("../..")
+        .canonicalize()
         .expect("Could not resolve repo root from CARGO_MANIFEST_DIR");
 
     // Tell Cargo to re-run this script only when the widget sources change.
@@ -30,9 +32,7 @@ fn main() {
             .arg("install")
             .current_dir(&root)
             .status()
-            .expect(
-                "Failed to run `npm install`. Is Node.js >= 18 installed and on PATH?",
-            );
+            .expect("Failed to run `npm install`. Is Node.js >= 18 installed and on PATH?");
         if !status.success() {
             panic!("npm install failed — cannot build widget assets.");
         }

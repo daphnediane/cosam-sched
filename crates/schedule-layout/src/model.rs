@@ -49,7 +49,7 @@ impl ScheduleData {
         schedule: &schedule_core::schedule::Schedule,
         title: &str,
     ) -> Result<Self, ModelError> {
-        use schedule_core::query::export::export_to_widget_json;
+        use schedule_core::widget_json::export_to_widget_json;
         let export = export_to_widget_json(schedule, title, false)
             .map_err(|e| ModelError::Export(e.to_string()))?;
 

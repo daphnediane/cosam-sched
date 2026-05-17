@@ -21,8 +21,7 @@ fn main() {
                     WindowBuilder::new()
                         .with_title("cosam Schedule Viewer")
                         .with_inner_size(dioxus_desktop::tao::dpi::LogicalSize::new(
-                            1100.0_f64,
-                            800.0_f64,
+                            1100.0_f64, 800.0_f64,
                         )),
                 ),
             )

@@ -81,7 +81,14 @@ pub fn App() -> Element {
             .as_ref()
             .map(|d| d.meta.title.clone())
             .unwrap_or_else(|| "cosam-viewer".to_string());
-        (days, panels, filter_rooms, filter_types, filter_presenters, title)
+        (
+            days,
+            panels,
+            filter_rooms,
+            filter_types,
+            filter_presenters,
+            title,
+        )
     };
 
     let theme_class = state.read().theme.css_class();

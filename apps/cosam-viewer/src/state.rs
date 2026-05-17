@@ -46,12 +46,8 @@ impl Theme {
     }
 
     #[allow(dead_code)]
-    pub const ALL: &'static [Theme] = &[
-        Theme::Cosam,
-        Theme::Light,
-        Theme::Dark,
-        Theme::HighContrast,
-    ];
+    pub const ALL: &'static [Theme] =
+        &[Theme::Cosam, Theme::Light, Theme::Dark, Theme::HighContrast];
 }
 
 // ---------------------------------------------------------------------------
@@ -73,7 +69,7 @@ pub enum ViewMode {
 pub struct Filters {
     pub search: String,
     /// Empty = all rooms shown.
-    pub rooms: HashSet<u32>,
+    pub rooms: HashSet<i32>,
     /// Empty = all types shown.
     pub types: HashSet<String>,
     /// None = all presenters shown.
@@ -182,56 +178,52 @@ impl ViewerState {
                 }
 
                 // Look up panel type — skip hidden and timeline panels.
-                let pt = doc.panel_types.get(&p.panel_type);
+                let panel_type = match p.panel_type.as_ref() {
+                    Some(pt) => pt,
+                    None => return None,
+                };
+                let pt = doc.panel_types.get(panel_type);
                 if let Some(pt) = pt {
                     if pt.is_hidden || pt.is_timeline {
                         return None;
                     }
                 }
 
-                let is_break = pt.map(|t| t.is_break).unwrap_or(false);
-
                 // Break panels bypass content filters (room, type, presenter,
                 // search) — they represent schedule gaps across all rooms and
                 // should always be visible when present.
-                if !is_break {
-                    // Room filter.
-                    if !self.filters.rooms.is_empty()
-                        && !p.room_ids.iter().any(|r| self.filters.rooms.contains(r))
-                    {
+                let is_break = pt.map(|t| t.is_break).unwrap_or(false);
+
+                // Room filter.
+                if !self.filters.rooms.is_empty()
+                    && !p.room_ids.iter().any(|r| self.filters.rooms.contains(r))
+                {
+                    return None;
+                }
+
+                // Type filter.
+                if !self.filters.types.is_empty() && !self.filters.types.contains(panel_type) {
+                    return None;
+                }
+
+                // Presenter filter.
+                if let Some(ref presenter_filter) = self.filters.presenter {
+                    if !p.presenters.iter().any(|name| name == presenter_filter) {
                         return None;
                     }
+                }
 
-                    // Type filter.
-                    if !self.filters.types.is_empty()
-                        && !self.filters.types.contains(&p.panel_type)
-                    {
+                // Search filter — name, description, presenter names.
+                if !self.filters.search.is_empty() {
+                    let needle = self.filters.search.to_lowercase();
+                    let hay = format!(
+                        "{} {} {}",
+                        p.name.to_lowercase(),
+                        p.description.as_deref().unwrap_or("").to_lowercase(),
+                        p.presenters.join(" ").to_lowercase(),
+                    );
+                    if !hay.contains(&needle) {
                         return None;
-                    }
-
-                    // Presenter filter.
-                    if let Some(ref presenter_filter) = self.filters.presenter {
-                        if !p
-                            .presenters
-                            .iter()
-                            .any(|name| name == presenter_filter)
-                        {
-                            return None;
-                        }
-                    }
-
-                    // Search filter — name, description, presenter names.
-                    if !self.filters.search.is_empty() {
-                        let needle = self.filters.search.to_lowercase();
-                        let hay = format!(
-                            "{} {} {}",
-                            p.name.to_lowercase(),
-                            p.description.as_deref().unwrap_or("").to_lowercase(),
-                            p.presenters.join(" ").to_lowercase(),
-                        );
-                        if !hay.contains(&needle) {
-                            return None;
-                        }
                     }
                 }
 
@@ -242,14 +234,12 @@ impl ViewerState {
                     .iter()
                     .filter_map(|uid| doc.room_by_uid(*uid).map(|r| r.long_name.clone()))
                     .collect();
-                let type_color = pt
-                    .and_then(|t| t.colors.as_ref())
-                    .and_then(|c| c.color.clone());
+                let type_color = pt.and_then(|t| t.colors.get("color")).cloned();
 
                 Some(PanelView {
                     id: p.id.clone(),
                     name: p.name.clone(),
-                    panel_type: p.panel_type.clone(),
+                    panel_type: panel_type.clone(),
                     type_color,
                     room_names,
                     start_time: Some(start),
@@ -259,7 +249,7 @@ impl ViewerState {
                     note: p.note.clone(),
                     prereq: p.prereq.clone(),
                     cost: p.cost.clone(),
-                    capacity: p.capacity.map(|c| c.to_string()),
+                    capacity: p.capacity.clone(),
                     difficulty: p.difficulty.clone(),
                     ticket_url: p.ticket_url.clone(),
                     is_premium: p.is_premium,
@@ -297,9 +287,7 @@ impl ViewerState {
 
     pub fn detail_panel(&self) -> Option<PanelView> {
         let id = self.detail_panel_id.as_deref()?;
-        self.panels_for_day()
-            .into_iter()
-            .find(|p| p.id == id)
+        self.panels_for_day().into_iter().find(|p| p.id == id)
     }
 }
 
@@ -336,11 +324,7 @@ fn format_time_range(
 ) -> String {
     match (start, end) {
         (Some(s), Some(e)) => {
-            format!(
-                "{} – {}",
-                s.format("%-I:%M %p"),
-                e.format("%-I:%M %p"),
-            )
+            format!("{} – {}", s.format("%-I:%M %p"), e.format("%-I:%M %p"),)
         }
         (Some(s), None) => s.format("%-I:%M %p").to_string(),
         _ => String::new(),

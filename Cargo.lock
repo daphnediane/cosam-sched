@@ -1064,6 +1064,7 @@ dependencies = [
  "dioxus",
  "dioxus-desktop",
  "rfd",
+ "schedule-core",
  "serde",
  "serde_json",
 ]
