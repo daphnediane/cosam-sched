@@ -645,8 +645,8 @@ fn test_update_drops_presenter_edges_removed_from_panel() {
         .find(|(_, d)| d.code.full_id() == "GP001")
         .map(|(id, _)| id)
         .unwrap();
-    let credited: Vec<_> =
-        schedule.connected_entities::<PresenterEntityType>(gp001_id, panel::EDGE_CREDITED_PRESENTERS);
+    let credited: Vec<_> = schedule
+        .connected_entities::<PresenterEntityType>(gp001_id, panel::EDGE_CREDITED_PRESENTERS);
     assert_eq!(credited.len(), 2, "should have Alice and Bob initially");
 
     // Second import: GP001 credits only Alice.
@@ -670,8 +670,8 @@ fn test_update_drops_presenter_edges_removed_from_panel() {
         .find(|(_, d)| d.code.full_id() == "GP001")
         .map(|(id, _)| id)
         .unwrap();
-    let credited: Vec<_> =
-        schedule.connected_entities::<PresenterEntityType>(gp001_id, panel::EDGE_CREDITED_PRESENTERS);
+    let credited: Vec<_> = schedule
+        .connected_entities::<PresenterEntityType>(gp001_id, panel::EDGE_CREDITED_PRESENTERS);
     assert_eq!(credited.len(), 1, "only Alice should remain credited");
     let name = schedule
         .get_internal::<PresenterEntityType>(credited[0])
@@ -734,7 +734,10 @@ fn test_update_presenter_rank_does_not_exceed_xlsx_highest() {
         .map(|(_, d)| d.data.rank.clone())
         .unwrap();
     // After update the xlsx is the source of truth; rank should be Panelist.
-    assert_eq!(rank, schedule_core::tables::presenter::PresenterRank::Panelist);
+    assert_eq!(
+        rank,
+        schedule_core::tables::presenter::PresenterRank::Panelist
+    );
 }
 
 #[test]
@@ -787,7 +790,79 @@ fn test_update_presenter_name_capitalization_corrected() {
         .map(|(_, d)| d.data.name.clone())
         .collect();
     assert_eq!(names.len(), 1, "should still be exactly one presenter");
-    assert_eq!(names[0], "CamelCase", "name should be updated to correct case");
+    assert_eq!(
+        names[0], "CamelCase",
+        "name should be updated to correct case"
+    );
+}
+
+#[test]
+fn test_untagged_other_cell_gets_column_rank_as_minimum() {
+    // Alice appears untagged in a "P:Other" column only.  No tag prefix on the cell.
+    // The column rank (Panelist) is implicit but is applied inline as the minimum;
+    // it is NOT recorded as an explicit rank in the cache, so it does not block
+    // a later explicit tag such as "F:Alice" in the same xlsx.
+    // Here we just verify that an untagged Other cell produces the column rank
+    // when no other rank information is present.
+    let mut book = umya_spreadsheet::new_file();
+    {
+        let ws = book.get_sheet_mut(&0).unwrap();
+        ws.set_name("Schedule");
+        set_cell(ws, 1, 1, "Uniq ID");
+        set_cell(ws, 2, 1, "Name");
+        set_cell(ws, 3, 1, "P:Other");
+        set_cell(ws, 1, 2, "GP001");
+        set_cell(ws, 2, 2, "A Panel");
+        set_cell(ws, 3, 2, "Alice");
+    }
+    let schedule = import_xlsx(&write_temp(book), &XlsxImportOptions::default()).unwrap();
+
+    let rank = schedule
+        .iter_entities::<PresenterEntityType>()
+        .find(|(_, d)| d.data.name == "Alice")
+        .map(|(_, d)| d.data.rank.clone())
+        .expect("Alice should exist");
+    // No tag prefix and no People-sheet classification → column rank (Panelist) applies.
+    assert_eq!(
+        rank,
+        schedule_core::tables::presenter::PresenterRank::Panelist,
+        "untagged Other-column cell should produce the column rank when no tag is present"
+    );
+}
+
+#[test]
+fn test_untagged_other_cell_then_explicit_fan_panelist_tag() {
+    // Alice appears in a "P:Other" column with no tag prefix (cell = "Alice").
+    // On the same schedule she also appears tagged "F:Alice" in another Other column.
+    // The tagged "F:" provides an explicit FanPanelist rank; the untagged "P:Other"
+    // appearance is implicit and must not override it.
+    let mut book = umya_spreadsheet::new_file();
+    {
+        let ws = book.get_sheet_mut(&0).unwrap();
+        ws.set_name("Schedule");
+        set_cell(ws, 1, 1, "Uniq ID");
+        set_cell(ws, 2, 1, "Name");
+        // P:Other column — Alice appears untagged (no tag prefix on cell)
+        set_cell(ws, 3, 1, "P:Other");
+        // P:Other column — Alice appears with explicit F: tag prefix
+        set_cell(ws, 4, 1, "P:Other");
+        set_cell(ws, 1, 2, "GP001");
+        set_cell(ws, 2, 2, "A Panel");
+        set_cell(ws, 3, 2, "Alice"); // untagged → implicit, no explicit rank from cell
+        set_cell(ws, 4, 2, "F:Alice"); // tagged → explicit FanPanelist from tag
+    }
+    let schedule = import_xlsx(&write_temp(book), &XlsxImportOptions::default()).unwrap();
+
+    let rank = schedule
+        .iter_entities::<PresenterEntityType>()
+        .find(|(_, d)| d.data.name == "Alice")
+        .map(|(_, d)| d.data.rank.clone())
+        .expect("Alice should exist");
+    assert_eq!(
+        rank,
+        schedule_core::tables::presenter::PresenterRank::FanPanelist,
+        "explicit F:Alice tag should win over untagged Other-column appearance"
+    );
 }
 
 #[test]
@@ -815,7 +890,11 @@ fn test_update_drops_group_membership_edge_when_absent() {
         .expect("Alice should exist after first import");
     let groups: Vec<_> =
         schedule.connected_entities::<PresenterEntityType>(alice_id, presenter::EDGE_GROUPS);
-    assert_eq!(groups.len(), 1, "Alice should be in MyBand after first import");
+    assert_eq!(
+        groups.len(),
+        1,
+        "Alice should be in MyBand after first import"
+    );
 
     // Second import: Alice without the group membership.
     let path2 = {

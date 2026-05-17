@@ -8,7 +8,7 @@ but the stored name is never updated to match the xlsx spelling.
 
 ## Status
 
-Open
+Completed
 
 ## Priority
 

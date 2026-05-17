@@ -21,7 +21,9 @@ use crate::sidecar::{EntityOrigin, XlsxSourceInfo};
 use crate::tables::event_room::EventRoomId;
 use crate::tables::panel::{self, PanelEntityType, PanelId};
 use crate::tables::panel_type::PanelTypeId;
-use crate::tables::presenter::{find_or_create_tagged_presenter, PresenterEntityType, PresenterId};
+use crate::tables::presenter::{
+    find_or_create_tagged_presenter, PresenterEntityType, PresenterId, PresenterRank,
+};
 use crate::tables::timeline::{self, TimelineEntityType, TimelineId};
 use crate::value::time::{parse_datetime, parse_duration};
 use crate::value::uniq_id::PanelUniqId;
@@ -30,7 +32,7 @@ use crate::xlsx::columns::schedule as sc;
 use super::{
     build_column_map, find_data_range, get_cell_number, get_cell_str, is_truthy,
     known_field_key_set, parse_presenter_header, route_extra_columns, row_to_map, PresenterColumn,
-    PresenterHeader, TableImportMode,
+    PresenterHeader, PresenterImportCache, TableImportMode,
 };
 
 /// Read the Schedule sheet and create Panel entities with all relationships.
@@ -45,6 +47,7 @@ pub(super) fn read_schedule_into(
     schedule: &mut Schedule,
     room_lookup: &HashMap<String, EventRoomId>,
     panel_type_lookup: &HashMap<String, PanelTypeId>,
+    cache: &mut PresenterImportCache,
 ) -> Result<(HashSet<NonNilUuid>, HashSet<NonNilUuid>)> {
     let mut seen_panels: HashSet<NonNilUuid> = HashSet::new();
     let mut seen_presenters: HashSet<NonNilUuid> = HashSet::new();
@@ -454,7 +457,8 @@ pub(super) fn read_schedule_into(
         }
 
         // Parse presenter columns for this row.
-        let (credited, uncredited, groups) = collect_presenters(ws, row, &presenter_cols, schedule);
+        let (credited, uncredited, groups) =
+            collect_presenters(ws, row, &presenter_cols, schedule, cache);
 
         // Track all seen presenter and group IDs.
         for id in credited
@@ -491,6 +495,7 @@ fn collect_presenters(
     row: u32,
     presenter_cols: &[PresenterColumn],
     schedule: &mut Schedule,
+    cache: &mut PresenterImportCache,
 ) -> (
     Vec<crate::tables::presenter::PresenterId>,
     Vec<crate::tables::presenter::PresenterId>,
@@ -554,6 +559,35 @@ fn collect_presenters(
                 if pc.rank.priority() < d.data.rank.priority() {
                     d.data.rank = pc.rank.clone();
                 }
+            }
+
+            // Record this encounter in the import cache.  The cache tracks the
+            // best explicit rank seen for each presenter this pass and the
+            // canonical name (People-sheet name wins if recorded there first).
+            //
+            // Named columns always carry an explicit rank (the column header).
+            // Other columns only carry an explicit rank when the cell value has
+            // a tag prefix (e.g. "G:Alice"); an untagged "Alice" is implicit
+            // and records None so a later explicit encounter can set any rank.
+            let other_tag_rank = (pc.header == PresenterHeader::Other)
+                .then(|| tag_rank_prefix(lookup))
+                .flatten();
+            let explicit_rank: Option<&PresenterRank> = match &pc.header {
+                PresenterHeader::Named(_) => Some(&pc.rank),
+                PresenterHeader::Other => other_tag_rank.as_ref(),
+            };
+            let presenter_name = schedule
+                .get_internal::<PresenterEntityType>(id)
+                .map(|d| d.data.name.clone())
+                .unwrap_or_else(|| lookup.to_string());
+            cache.record(id, &presenter_name, explicit_rank);
+            // Also record the group so it participates in cache flush.
+            if let Some(gid) = matched.group_id() {
+                let group_name = schedule
+                    .get_internal::<PresenterEntityType>(gid)
+                    .map(|d| d.data.name.clone())
+                    .unwrap_or_default();
+                cache.record(gid, &group_name, explicit_rank);
             }
 
             // Record the presenter's first schedule-sheet position as the sort key
@@ -719,6 +753,22 @@ fn split_presenter_names(text: &str) -> Vec<String> {
         .map(|s| s.trim().to_string())
         .filter(|s| !s.is_empty())
         .collect()
+}
+
+// ── Tag rank extraction ───────────────────────────────────────────────────────
+
+/// If `tag` starts with a recognised single-character rank prefix followed by
+/// `':'` (e.g. `"G:Alice"`, `"F:Alice"`), return the corresponding rank.
+/// Returns `None` for untagged values like `"Alice"`.
+fn tag_rank_prefix(tag: &str) -> Option<PresenterRank> {
+    let tag = tag.trim();
+    let mut chars = tag.chars();
+    let prefix = chars.next()?;
+    if chars.next()? == ':' {
+        PresenterRank::from_prefix_char(prefix)
+    } else {
+        None
+    }
 }
 
 // ── Hyperlink extraction ──────────────────────────────────────────────────────

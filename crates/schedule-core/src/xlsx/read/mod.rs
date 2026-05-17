@@ -33,7 +33,7 @@ use crate::tables::event_room::EventRoomEntityType;
 use crate::tables::hotel_room::HotelRoomEntityType;
 use crate::tables::panel::PanelEntityType;
 use crate::tables::panel_type::PanelTypeEntityType;
-use crate::tables::presenter::{self, PresenterEntityType};
+use crate::tables::presenter::{self, PresenterEntityType, PresenterId, PresenterRank};
 use crate::tables::timeline::TimelineEntityType;
 use crate::xlsx::columns::{FieldDef, FormulaColumnDef};
 
@@ -246,6 +246,92 @@ fn import_csv_to_sheet(book: &mut Spreadsheet, csv_path: &Path, sheet_name: &str
 
 // ── Public entry points ───────────────────────────────────────────────────────
 
+// ── Presenter import cache ────────────────────────────────────────────────────
+
+/// Per-import-pass cache for presenter name and rank resolution.
+///
+/// Collects the canonical name (first-seen spelling, People sheet wins) and the
+/// best *explicit* rank seen for each presenter during a single import pass.
+/// Rank and name are **not** written inline; call [`PresenterImportCache::flush`]
+/// after all sheets are processed to apply them in the same cycle as soft-delete.
+///
+/// **Explicit vs implicit rank:**
+/// Only ranks that are unambiguously declared in the xlsx are recorded:
+/// - Named presenter columns ("G: Alice") → the column rank is explicit.
+/// - People sheet rows with a Classification value → the classification is explicit.
+/// - `Other` column cells with a tag prefix ("G:Alice") → the tag rank is explicit.
+///
+/// `Other` column cells with *no* tag prefix ("Alice") and People rows with *no*
+/// Classification are considered implicit (rank = `None`).  An implicit encounter
+/// records the presenter in the cache (guaranteeing name correction at flush) but
+/// does not set or change the rank, so a subsequent explicit encounter in the same
+/// pass can still set any rank, including one that is lower in the hierarchy than
+/// the default `Panelist`.
+///
+/// **Downgrade semantics:**
+/// On first *explicit* encounter per pass the rank is set fresh (not upgrade-only),
+/// allowing rank downgrades relative to a previous import.  Subsequent explicit
+/// encounters within the same pass use upgrade-only logic (highest rank across all
+/// explicit appearances wins).  Only presenters present in the new file are
+/// affected; absent presenters keep their stored data.
+pub(super) struct PresenterImportCache {
+    /// Maps presenter UUID → (best explicit rank this pass or None, canonical name).
+    entries: HashMap<uuid::NonNilUuid, (Option<PresenterRank>, String)>,
+}
+
+impl PresenterImportCache {
+    pub fn new() -> Self {
+        Self {
+            entries: HashMap::new(),
+        }
+    }
+
+    /// Record a presenter encounter for this import pass.
+    ///
+    /// `rank` is `Some` only when the xlsx carries an unambiguous rank for this
+    /// specific presenter (Named column, explicit tag prefix, or People sheet
+    /// Classification).  Pass `None` for implicit encounters (untagged `Other`
+    /// cell, or People row with no Classification).
+    ///
+    /// - **First encounter** – creates the cache entry.  `rank` is stored as-is,
+    ///   starting fresh (enabling rank downgrades vs previous imports).
+    /// - **Subsequent encounters** – canonical name is preserved; rank is upgraded
+    ///   only when `rank` is `Some` and has higher priority than the current value.
+    pub fn record(&mut self, id: PresenterId, name: &str, rank: Option<&PresenterRank>) {
+        let uuid = id.entity_uuid();
+        if let Some((existing_rank, _)) = self.entries.get_mut(&uuid) {
+            if let Some(new_rank) = rank {
+                match existing_rank {
+                    None => *existing_rank = Some(new_rank.clone()),
+                    Some(old) if new_rank.priority() < old.priority() => {
+                        *existing_rank = Some(new_rank.clone());
+                    }
+                    _ => {}
+                }
+            }
+        } else {
+            self.entries.insert(uuid, (rank.cloned(), name.to_string()));
+        }
+    }
+
+    /// Write the cached canonical name and (if explicit) best rank to the schedule
+    /// for every presenter seen in this pass.
+    pub fn flush(self, schedule: &mut Schedule) {
+        for (uuid, (rank, canonical_name)) in self.entries {
+            // SAFETY: uuid was obtained from a live PresenterId during this pass.
+            let id = unsafe { PresenterId::new_unchecked(uuid) };
+            let mut updates = vec![FieldUpdate::set(
+                &presenter::FIELD_NAME,
+                canonical_name.as_str(),
+            )];
+            if let Some(r) = rank {
+                updates.push(FieldUpdate::set(&presenter::FIELD_RANK, r.as_str()));
+            }
+            let _ = PresenterEntityType::field_set().write_multiple(id, schedule, &updates);
+        }
+    }
+}
+
 /// Update an existing [`Schedule`] from an XLSX spreadsheet (or CSV directory).
 ///
 /// This is the primary import function.  It merges data from the file into the
@@ -306,7 +392,10 @@ pub fn update_schedule_from_xlsx(
     let (room_lookup, seen_rooms, seen_hotel_rooms_from_rooms) =
         rooms::read_rooms_into(&mut ctx, &options.rooms, schedule, &hotel_lookup)?;
 
-    let seen_people = people::read_people_into(&mut ctx, &options.people, schedule)?;
+    let mut presenter_cache = PresenterImportCache::new();
+
+    let seen_people =
+        people::read_people_into(&mut ctx, &options.people, schedule, &mut presenter_cache)?;
 
     let seen_timelines =
         timeline::read_timeline_into(&mut ctx, &options.timeline, schedule, &panel_type_lookup)?;
@@ -317,9 +406,17 @@ pub fn update_schedule_from_xlsx(
         schedule,
         &room_lookup,
         &panel_type_lookup,
+        &mut presenter_cache,
     )?;
 
     normalize_presenter_sort_indices(schedule);
+
+    // ── Flush presenter cache (name + rank) and soft-delete ───────────────────
+    //
+    // Flush is deferred to this point so that rank downgrades only affect
+    // presenters that actually appear in the new file.  Presenters absent from
+    // the new file are soft-deleted below without touching their stored data.
+    presenter_cache.flush(schedule);
 
     // ── Soft-delete entities not seen in this import ──────────────────────────
 

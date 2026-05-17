@@ -8,7 +8,7 @@ The xlsx should be the source of truth on update.
 
 ## Status
 
-Open
+Completed
 
 ## Priority
 

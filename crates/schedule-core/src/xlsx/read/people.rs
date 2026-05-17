@@ -33,7 +33,7 @@ use crate::xlsx::columns::people as pc;
 
 use super::{
     build_column_map, find_data_range, get_field_def, is_truthy, known_field_key_set,
-    route_extra_columns, row_to_map, TableImportMode,
+    route_extra_columns, row_to_map, PresenterImportCache, TableImportMode,
 };
 
 /// Read the People sheet and populate the schedule with Presenter entities.
@@ -50,6 +50,7 @@ pub(super) fn read_people_into(
     ctx: &mut super::ImportContext<'_>,
     mode: &TableImportMode,
     schedule: &mut Schedule,
+    cache: &mut PresenterImportCache,
 ) -> Result<HashSet<NonNilUuid>> {
     let mut seen: HashSet<NonNilUuid> = HashSet::new();
 
@@ -78,9 +79,14 @@ pub(super) fn read_people_into(
             _ => continue,
         };
 
-        let rank = get_field_def(&data, &pc::CLASSIFICATION)
-            .map(|s| parse_classification(s))
-            .unwrap_or_default();
+        // explicit_rank is Some only when the Classification column has a value.
+        // When absent the presenter is unranked in the People sheet; a schedule
+        // column may still assign an explicit rank later in the same pass.
+        let explicit_rank =
+            get_field_def(&data, &pc::CLASSIFICATION).map(|s| parse_classification(s));
+        // Fallback rank used only for new-entity creation (build_entity requires
+        // a concrete rank; the cache flush later replaces it if explicit).
+        let rank = explicit_rank.clone().unwrap_or_default();
 
         let is_explicit_group = get_field_def(&data, &pc::IS_GROUP)
             .map(|s| is_truthy(s))
@@ -97,23 +103,16 @@ pub(super) fn read_people_into(
             .unwrap_or(false);
 
         if let Some(existing_id) = PresenterEntityType::find_by_name(schedule, &name) {
-            // Update flags and rank if People table has higher priority.
-            let existing_rank = schedule
-                .get_internal::<PresenterEntityType>(existing_id)
-                .map(|d| d.data.rank.clone())
-                .unwrap_or_default();
-
-            let mut updates: Vec<FieldUpdate<PresenterEntityType>> = vec![
+            // Update flags; name and rank are handled by the cache flush.
+            let updates: Vec<FieldUpdate<PresenterEntityType>> = vec![
                 FieldUpdate::set(&presenter::FIELD_IS_EXPLICIT_GROUP, is_explicit_group),
                 FieldUpdate::set(&presenter::FIELD_SHOW_INDIVIDUALLY, show_individually),
                 FieldUpdate::set(&presenter::FIELD_SUBSUMES_MEMBERS, subsumes_members),
             ];
-            // People table is authoritative: upgrade rank if it has higher priority.
-            if rank.priority() < existing_rank.priority() {
-                updates.push(FieldUpdate::set(&presenter::FIELD_RANK, rank.as_str()));
-            }
             let _ =
                 PresenterEntityType::field_set().write_multiple(existing_id, schedule, &updates);
+            // People sheet is authoritative for name spelling; rank only if explicit.
+            cache.record(existing_id, &name, explicit_rank.as_ref());
             seen.insert(existing_id.entity_uuid());
         } else {
             // Create new presenter entity.
@@ -130,6 +129,8 @@ pub(super) fn read_people_into(
             match build_entity::<PresenterEntityType>(schedule, uuid_pref, updates) {
                 Ok(id) => {
                     let uuid = id.entity_uuid();
+                    // People sheet is authoritative for name spelling; rank only if explicit.
+                    cache.record(id, &name, explicit_rank.as_ref());
                     seen.insert(uuid);
                     schedule.sidecar_mut().set_origin(
                         uuid,
