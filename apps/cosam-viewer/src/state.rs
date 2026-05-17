@@ -76,12 +76,17 @@ pub struct Filters {
     pub rooms: HashSet<u32>,
     /// Empty = all types shown.
     pub types: HashSet<String>,
+    /// None = all presenters shown.
+    pub presenter: Option<String>,
     pub show_filter_panel: bool,
 }
 
 impl Filters {
     pub fn is_default(&self) -> bool {
-        self.search.is_empty() && self.rooms.is_empty() && self.types.is_empty()
+        self.search.is_empty()
+            && self.rooms.is_empty()
+            && self.types.is_empty()
+            && self.presenter.is_none()
     }
 }
 
@@ -104,13 +109,19 @@ pub struct PanelView {
     pub note: Option<String>,
     pub prereq: Option<String>,
     pub cost: Option<String>,
+    pub capacity: Option<String>,
+    pub difficulty: Option<String>,
     pub ticket_url: Option<String>,
     pub is_premium: bool,
     pub is_full: bool,
     pub is_kids: bool,
     pub is_workshop: bool,
-    #[allow(dead_code)] // reserved for break rendering (FEATURE-116)
     pub is_break: bool,
+    /// Formatted credit strings for display (may include group names).
+    pub credits: Vec<String>,
+    /// Raw individual presenter names for search/filter matching.
+    /// Not rendered directly — credits is used for display.
+    #[allow(dead_code)]
     pub presenter_names: Vec<String>,
 }
 
@@ -167,7 +178,7 @@ impl ViewerState {
                     return None;
                 }
 
-                // Look up panel type — skip break/hidden/timeline panels.
+                // Look up panel type — skip hidden and timeline panels.
                 let pt = doc.panel_types.get(&p.panel_type);
                 if let Some(pt) = pt {
                     if pt.is_hidden || pt.is_timeline {
@@ -175,31 +186,49 @@ impl ViewerState {
                     }
                 }
 
-                // Room filter.
-                if !self.filters.rooms.is_empty()
-                    && !p.room_ids.iter().any(|r| self.filters.rooms.contains(r))
-                {
-                    return None;
-                }
+                let is_break = pt.map(|t| t.is_break).unwrap_or(false);
 
-                // Type filter.
-                if !self.filters.types.is_empty()
-                    && !self.filters.types.contains(&p.panel_type)
-                {
-                    return None;
-                }
-
-                // Search filter — name, description, presenter names.
-                if !self.filters.search.is_empty() {
-                    let needle = self.filters.search.to_lowercase();
-                    let hay = format!(
-                        "{} {} {}",
-                        p.name.to_lowercase(),
-                        p.description.as_deref().unwrap_or("").to_lowercase(),
-                        p.presenters.join(" ").to_lowercase(),
-                    );
-                    if !hay.contains(&needle) {
+                // Break panels bypass content filters (room, type, presenter,
+                // search) — they represent schedule gaps across all rooms and
+                // should always be visible when present.
+                if !is_break {
+                    // Room filter.
+                    if !self.filters.rooms.is_empty()
+                        && !p.room_ids.iter().any(|r| self.filters.rooms.contains(r))
+                    {
                         return None;
+                    }
+
+                    // Type filter.
+                    if !self.filters.types.is_empty()
+                        && !self.filters.types.contains(&p.panel_type)
+                    {
+                        return None;
+                    }
+
+                    // Presenter filter.
+                    if let Some(ref presenter_filter) = self.filters.presenter {
+                        if !p
+                            .presenters
+                            .iter()
+                            .any(|name| name == presenter_filter)
+                        {
+                            return None;
+                        }
+                    }
+
+                    // Search filter — name, description, presenter names.
+                    if !self.filters.search.is_empty() {
+                        let needle = self.filters.search.to_lowercase();
+                        let hay = format!(
+                            "{} {} {}",
+                            p.name.to_lowercase(),
+                            p.description.as_deref().unwrap_or("").to_lowercase(),
+                            p.presenters.join(" ").to_lowercase(),
+                        );
+                        if !hay.contains(&needle) {
+                            return None;
+                        }
                     }
                 }
 
@@ -227,12 +256,15 @@ impl ViewerState {
                     note: p.note.clone(),
                     prereq: p.prereq.clone(),
                     cost: p.cost.clone(),
+                    capacity: p.capacity.map(|c| c.to_string()),
+                    difficulty: p.difficulty.clone(),
                     ticket_url: p.ticket_url.clone(),
                     is_premium: p.is_premium,
                     is_full: p.is_full,
                     is_kids: p.is_kids,
                     is_workshop: pt.map(|t| t.is_workshop).unwrap_or(false),
-                    is_break: pt.map(|t| t.is_break).unwrap_or(false),
+                    is_break,
+                    credits: p.credits.clone(),
                     presenter_names: p.presenters.clone(),
                 })
             })
@@ -240,6 +272,24 @@ impl ViewerState {
 
         panels.sort_by_key(|p| p.start_time);
         panels
+    }
+
+    /// All individual (non-group) presenter names that appear on at least one
+    /// panel, sorted for display in the filter dropdown.
+    pub fn presenter_names_for_filter(&self) -> Vec<String> {
+        let doc = match &self.doc {
+            Some(d) => d,
+            None => return vec![],
+        };
+        let mut names: Vec<String> = doc
+            .presenters
+            .iter()
+            .filter(|p| !p.is_group && !p.panel_ids.is_empty())
+            .map(|p| p.name.clone())
+            .collect();
+        names.sort();
+        names.dedup();
+        names
     }
 
     pub fn detail_panel(&self) -> Option<PanelView> {

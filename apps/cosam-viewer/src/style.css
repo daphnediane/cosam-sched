@@ -401,6 +401,22 @@ body {
   width: 220px;
 }
 
+.filter-select {
+  background: var(--color-surface);
+  border: 1px solid var(--color-border);
+  color: var(--color-text);
+  padding: 6px 10px;
+  border-radius: var(--radius);
+  font-size: 0.875rem;
+  width: 220px;
+  cursor: pointer;
+}
+
+.filter-select:focus {
+  outline: 2px solid var(--color-accent);
+  outline-offset: 1px;
+}
+
 .filter-search:focus {
   outline: 2px solid var(--color-accent);
   outline-offset: 1px;
@@ -524,6 +540,37 @@ body {
 }
 
 /* -------------------------------------------------------------------------
+ * Break banner — replaces a panel card for break/gap entries
+ * Matches the widget's dashed break style.
+ * ---------------------------------------------------------------------- */
+
+.break-banner {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 10px 16px;
+  border-top: 1px dashed var(--color-border);
+  border-bottom: 1px dashed var(--color-border);
+  background: repeating-linear-gradient(
+    -45deg,
+    transparent,
+    transparent 6px,
+    var(--color-surface-alt) 6px,
+    var(--color-surface-alt) 12px
+  );
+}
+
+.break-label {
+  font-size: 0.8125rem;
+  font-weight: 600;
+  color: var(--color-text-secondary);
+  background: var(--color-surface);
+  padding: 2px 10px;
+  border-radius: var(--radius);
+  border: 1px solid var(--color-border);
+}
+
+/* -------------------------------------------------------------------------
  * Panel card — mirrors widget's .cosam-event structure
  * ---------------------------------------------------------------------- */
 
@@ -586,6 +633,14 @@ body {
   flex-wrap: wrap;
   gap: 0;
   align-items: center;
+}
+
+/* Credits line below time/room meta — formatted presenter/group strings */
+.card-credits {
+  margin-top: 3px;
+  font-size: 0.8125rem;
+  color: var(--color-text-secondary);
+  font-style: italic;
 }
 
 .card-sep {
@@ -768,7 +823,8 @@ body {
     gap: 12px;
   }
 
-  .filter-search {
+  .filter-search,
+  .filter-select {
     width: 100%;
   }
 
