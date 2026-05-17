@@ -4,10 +4,11 @@
  * See LICENSE file for full license text
  */
 
-//! Widget JSON format structures and I/O.
+//! Widget JSON export functionality.
 //!
-//! This module provides the widget JSON display format structures documented in
-//! `docs/widget-json-format.md`, along with export and import functionality.
+//! This module provides functions for exporting Schedule data to the widget JSON
+//! display format, including credit formatting, break synthesis, and bidirectional
+//! presenter group membership.
 
 use crate::entity::EntityUuid;
 use crate::schedule::Schedule;
@@ -18,139 +19,14 @@ use crate::tables::panel_type::PanelTypeEntityType;
 use crate::tables::presenter::{self, PresenterEntityType, PresenterId};
 use crate::tables::timeline::{self, TimelineEntityType, TimelineId};
 use chrono::{DateTime, NaiveDateTime, Utc};
-use serde::{Deserialize, Serialize};
 use std::collections::{BTreeMap, HashMap, HashSet};
 use std::path::Path;
 use thiserror::Error;
 
-// ── Widget JSON Structures ───────────────────────────────────────────────────────
-
-/// Top-level metadata for widget JSON export.
-#[derive(Debug, Clone, Serialize, Deserialize, Default)]
-#[serde(rename_all = "camelCase")]
-pub struct WidgetMeta {
-    pub title: String,
-    pub version: i32,
-    pub variant: String,
-    pub generator: String,
-    pub generated: String,
-    pub modified: String,
-    pub start_time: String,
-    pub end_time: String,
-}
-
-/// Panel entry in widget JSON format.
-#[derive(Debug, Clone, Serialize, Deserialize, Default)]
-#[serde(rename_all = "camelCase")]
-pub struct WidgetPanel {
-    pub id: String,
-    pub base_id: String,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub part_num: Option<i32>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub session_num: Option<i32>,
-    pub name: String,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub panel_type: Option<String>,
-    #[serde(default, skip_serializing_if = "Vec::is_empty")]
-    pub room_ids: Vec<i32>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub start_time: Option<String>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub end_time: Option<String>,
-    pub duration: i32,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub description: Option<String>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub note: Option<String>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub prereq: Option<String>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub cost: Option<String>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub capacity: Option<String>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub difficulty: Option<String>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub ticket_url: Option<String>,
-    #[serde(default, skip_serializing_if = "is_false")]
-    pub is_premium: bool,
-    #[serde(default, skip_serializing_if = "is_false")]
-    pub is_full: bool,
-    #[serde(default, skip_serializing_if = "is_false")]
-    pub is_kids: bool,
-    #[serde(default, skip_serializing_if = "Vec::is_empty")]
-    pub credits: Vec<String>,
-    #[serde(default, skip_serializing_if = "Vec::is_empty")]
-    pub presenters: Vec<String>,
-}
-
-/// Room entry in widget JSON format.
-#[derive(Debug, Clone, Serialize, Deserialize, Default)]
-#[serde(rename_all = "camelCase")]
-pub struct WidgetRoom {
-    pub uid: i32,
-    pub short_name: String,
-    pub long_name: String,
-    pub hotel_room: String,
-    pub sort_key: i32,
-    pub is_break: bool,
-}
-
-/// Panel type entry in widget JSON format.
-#[derive(Debug, Clone, Serialize, Deserialize, Default)]
-#[serde(rename_all = "camelCase")]
-pub struct WidgetPanelType {
-    pub kind: String,
-    pub colors: HashMap<String, String>,
-    pub is_break: bool,
-    pub is_cafe: bool,
-    pub is_workshop: bool,
-    pub is_hidden: bool,
-    pub is_room_hours: bool,
-    pub is_timeline: bool,
-    pub is_private: bool,
-}
-
-/// Timeline entry in widget JSON format.
-#[derive(Debug, Clone, Serialize, Deserialize, Default)]
-#[serde(rename_all = "camelCase")]
-pub struct WidgetTimeline {
-    pub id: String,
-    pub start_time: String,
-    pub description: String,
-    pub panel_type: Option<String>,
-    pub note: Option<String>,
-}
-
-/// Presenter entry in widget JSON format (DisplayPresenter).
-#[derive(Debug, Clone, Serialize, Deserialize, Default)]
-#[serde(rename_all = "camelCase")]
-pub struct WidgetPresenter {
-    pub name: String,
-    pub rank: String,
-    pub sort_key: i32,
-    pub is_group: bool,
-    pub members: Vec<String>,
-    pub groups: Vec<String>,
-    pub panel_ids: Vec<String>,
-    #[serde(default, skip_serializing_if = "is_false")]
-    pub subsumes_members: bool,
-}
-
-/// Complete widget JSON export structure.
-#[derive(Debug, Clone, Serialize, Deserialize, Default)]
-#[serde(rename_all = "camelCase")]
-pub struct WidgetExport {
-    pub meta: WidgetMeta,
-    pub panels: Vec<WidgetPanel>,
-    pub rooms: Vec<WidgetRoom>,
-    pub panel_types: BTreeMap<String, WidgetPanelType>,
-    pub timeline: Vec<WidgetTimeline>,
-    pub presenters: Vec<WidgetPresenter>,
-}
-
-// ── Error Types ─────────────────────────────────────────────────────────────────
+use super::types::{
+    WidgetExport, WidgetMeta, WidgetPanel, WidgetPanelType, WidgetPresenter, WidgetRoom,
+    WidgetTimeline,
+};
 
 /// Errors that can occur during widget JSON export/import.
 #[derive(Debug, Error)]
@@ -186,7 +62,17 @@ pub enum WidgetJsonError {
     GzipDecompress(String),
 }
 
-// ── Export Function ─────────────────────────────────────────────────────────────
+/// Export widget JSON to a file.
+pub fn save_to_file(widget: &WidgetExport, path: &Path) -> Result<(), WidgetJsonError> {
+    let json = serde_json::to_string_pretty(widget)?;
+    std::fs::write(path, json)?;
+    Ok(())
+}
+
+/// Export widget JSON to a string.
+pub fn save_to_json(widget: &WidgetExport) -> Result<String, WidgetJsonError> {
+    Ok(serde_json::to_string_pretty(widget)?)
+}
 
 /// Export schedule data to widget JSON format.
 ///
@@ -254,107 +140,6 @@ pub fn export_to_widget_json(
         timeline,
         presenters,
     })
-}
-
-// ── Import Functions ───────────────────────────────────────────────────────────
-
-/// Import widget JSON from a file.
-pub fn load_from_file(path: &Path) -> Result<WidgetExport, WidgetJsonError> {
-    let json = std::fs::read_to_string(path)?;
-    load_from_json(&json)
-}
-
-/// Import widget JSON from a string.
-pub fn load_from_json(json: &str) -> Result<WidgetExport, WidgetJsonError> {
-    Ok(serde_json::from_str(json)?)
-}
-
-/// Export widget JSON to a file.
-pub fn save_to_file(widget: &WidgetExport, path: &Path) -> Result<(), WidgetJsonError> {
-    let json = serde_json::to_string_pretty(widget)?;
-    std::fs::write(path, json)?;
-    Ok(())
-}
-
-/// Export widget JSON to a string.
-pub fn save_to_json(widget: &WidgetExport) -> Result<String, WidgetJsonError> {
-    Ok(serde_json::to_string_pretty(widget)?)
-}
-
-/// Import widget JSON from a URL by extracting embedded gzip+base64 data.
-///
-/// Fetches the webpage, finds the `<script type="application/json" id="cosam-schedule-data">`
-/// tag, extracts the base64-encoded gzip data, decompresses it, and parses the JSON.
-pub fn load_from_url(url: &str) -> Result<WidgetExport, WidgetJsonError> {
-    // Fetch the webpage
-    let response = reqwest::blocking::get(url)?;
-    let html = response.text()?;
-
-    // Parse HTML and extract the embedded data
-    let document = scraper::Html::parse_document(&html);
-    let selector =
-        scraper::Selector::parse(r#"script[type="application/json"][id="cosam-schedule-data"]"#)
-            .map_err(|e| WidgetJsonError::DataExtraction(format!("Invalid selector: {}", e)))?;
-
-    let script_element = document.select(&selector).next().ok_or_else(|| {
-        WidgetJsonError::DataExtraction(
-            "No script tag with id='cosam-schedule-data' found in webpage".to_string(),
-        )
-    })?;
-
-    let encoded_data = script_element
-        .text()
-        .collect::<Vec<_>>()
-        .join("")
-        .trim()
-        .to_string();
-
-    if encoded_data.is_empty() {
-        return Err(WidgetJsonError::DataExtraction(
-            "Script tag is empty".to_string(),
-        ));
-    }
-
-    // Decode and decompress the data
-    let json_data = decode_gzip_base64(&encoded_data)?;
-
-    // Parse the JSON
-    load_from_json(&json_data)
-}
-
-/// Decode gzip+base64 encoded data to a JSON string.
-///
-/// Handles both gzip-compressed base64 data (detected by "H4sI" prefix)
-/// and plain base64-encoded JSON.
-fn decode_gzip_base64(encoded: &str) -> Result<String, WidgetJsonError> {
-    use base64::{engine::general_purpose::STANDARD, Engine as _};
-    use flate2::read::GzDecoder;
-    use std::io::Read as _;
-
-    let encoded = encoded.trim();
-
-    // Decode base64
-    let bytes = STANDARD
-        .decode(encoded)
-        .map_err(|e| WidgetJsonError::Base64Decode(format!("{}", e)))?;
-
-    // Check if it's gzip-compressed (H4sI is the gzip magic number in base64)
-    let json_string = if encoded.starts_with("H4sI") {
-        // Decompress gzip
-        let mut decoder = GzDecoder::new(&bytes[..]);
-        let mut decompressed = Vec::new();
-        decoder
-            .read_to_end(&mut decompressed)
-            .map_err(|e| WidgetJsonError::GzipDecompress(format!("{}", e)))?;
-        String::from_utf8(decompressed)
-            .map_err(|e| WidgetJsonError::GzipDecompress(format!("Invalid UTF-8: {}", e)))?
-    } else {
-        // Plain base64-encoded JSON
-        String::from_utf8(bytes)
-            .map_err(|e| WidgetJsonError::Base64Decode(format!("Invalid UTF-8: {}", e)))?
-    };
-
-    Ok(json_string)
 }
 
 // ── Room helpers ──────────────────────────────────────────────────────────────
@@ -977,12 +762,6 @@ fn format_naive_dt(dt: NaiveDateTime) -> String {
     dt.format("%Y-%m-%dT%H:%M:%S").to_string()
 }
 
-fn is_false(b: &bool) -> bool {
-    !b
-}
-
-// ── Tests ─────────────────────────────────────────────────────────────────────
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -991,48 +770,11 @@ mod tests {
     use crate::tables::panel::PanelInternalData;
     use crate::tables::panel_type::PanelTypeInternalData;
     use crate::tables::presenter::PresenterInternalData;
-
-    #[test]
-    fn test_decode_gzip_base64_plain() {
-        // Test plain base64-encoded JSON (not gzip)
-        let json = r#"{"test":"value"}"#;
-        use base64::{engine::general_purpose::STANDARD, Engine as _};
-        let encoded = STANDARD.encode(json.as_bytes());
-        let decoded = decode_gzip_base64(&encoded).unwrap();
-        assert_eq!(decoded, json);
-    }
-
-    #[test]
-    fn test_decode_gzip_base64_compressed() {
-        // Test gzip+base64 encoded JSON
-        use base64::{engine::general_purpose::STANDARD, Engine as _};
-        use flate2::write::GzEncoder;
-        use flate2::Compression;
-        use std::io::Write as _;
-
-        let json = r#"{"test":"value","nested":{"key":"data"}}"#;
-        let mut encoder = GzEncoder::new(Vec::new(), Compression::default());
-        encoder.write_all(json.as_bytes()).unwrap();
-        let compressed = encoder.finish().unwrap();
-        let encoded = STANDARD.encode(&compressed);
-
-        // Should start with H4sI (gzip magic number in base64)
-        assert!(encoded.starts_with("H4sI"));
-
-        let decoded = decode_gzip_base64(&encoded).unwrap();
-        assert_eq!(decoded, json);
-    }
-
-    #[test]
-    fn test_decode_gzip_base64_invalid_base64() {
-        let result = decode_gzip_base64("invalid!base64");
-        assert!(result.is_err());
-        matches!(result.unwrap_err(), WidgetJsonError::Base64Decode(_));
-    }
     use crate::tables::timeline::TimelineInternalData;
     use crate::tables::TimelineCommonData;
     use crate::value::time::TimeRange;
     use crate::value::uniq_id::PanelUniqId;
+    use crate::widget_json::import::load_from_json;
     use chrono::NaiveDate;
 
     // ── helpers ────────────────────────────────────────────────────────────────
