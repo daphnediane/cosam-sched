@@ -6,12 +6,11 @@
 
 //! Reads the Schedule sheet → [`PanelEntityType`] entities + presenter edges.
 
-use std::collections::{HashMap, HashSet};
+use std::collections::HashMap;
 
 use anyhow::Result;
 use chrono::{Duration, NaiveDateTime};
 use regex::Regex;
-use uuid::NonNilUuid;
 
 use crate::edit::builder::find_or_create_entity;
 use crate::entity::{EntityType, EntityUuid};
@@ -38,14 +37,10 @@ use super::{
 impl super::ImportContext<'_> {
     /// Read the Schedule sheet and create Panel entities with all relationships.
     ///
-    /// Returns:
-    /// - the set of Panel/Timeline UUIDs seen (for soft-delete of removed entries).
-    /// - the set of Presenter UUIDs seen in presenter columns (to be unioned with
-    ///   People-sheet seen set for the final soft-delete pass).
-    pub(super) fn read_schedule(&mut self) -> Result<(HashSet<NonNilUuid>, HashSet<NonNilUuid>)> {
+    /// Accumulates seen Panel/Timeline UUIDs into `self.seen_panels` and seen Presenter
+    /// UUIDs (from presenter columns) into `self.seen_presenters`.
+    pub(super) fn read_schedule(&mut self) -> Result<()> {
         let mode = self.options.schedule.clone();
-        let mut seen_panels: HashSet<NonNilUuid> = HashSet::new();
-        let mut seen_presenters: HashSet<NonNilUuid> = HashSet::new();
         let first_sheet_name = self
             .book
             .get_sheet_collection()
@@ -72,16 +67,16 @@ impl super::ImportContext<'_> {
                     r
                 }
             }
-            None => return Ok((seen_panels, seen_presenters)),
+            None => return Ok(()),
         };
 
         let ws = match self.book.get_sheet_by_name(&range.sheet_name) {
             Some(ws) => ws,
-            None => return Ok((seen_panels, seen_presenters)),
+            None => return Ok(()),
         };
 
         if !range.has_data() {
-            return Ok((seen_panels, seen_presenters));
+            return Ok(());
         }
 
         let (raw_headers, canonical_headers, col_map) = build_column_map(ws, &range);
@@ -376,7 +371,7 @@ impl super::ImportContext<'_> {
                         continue;
                     }
                 };
-                seen_panels.insert(timeline_id.entity_uuid());
+                self.seen_panels.insert(timeline_id.entity_uuid());
                 self.schedule.sidecar_mut().set_origin(
                     timeline_id.entity_uuid(),
                     EntityOrigin::Xlsx(XlsxSourceInfo {
@@ -416,7 +411,7 @@ impl super::ImportContext<'_> {
                 }
             };
             let panel_uuid = panel_id.entity_uuid();
-            seen_panels.insert(panel_uuid);
+            self.seen_panels.insert(panel_uuid);
             self.schedule.sidecar_mut().set_origin(
                 panel_uuid,
                 EntityOrigin::Xlsx(XlsxSourceInfo {
@@ -482,7 +477,7 @@ impl super::ImportContext<'_> {
                 .chain(uncredited.iter())
                 .chain(groups.iter())
             {
-                seen_presenters.insert(id.entity_uuid());
+                self.seen_presenters.insert(id.entity_uuid());
             }
 
             // Replace all presenter edges — XLSX is authoritative for both credited
@@ -508,7 +503,7 @@ impl super::ImportContext<'_> {
             }
         }
 
-        Ok((seen_panels, seen_presenters))
+        Ok(())
     }
 }
 

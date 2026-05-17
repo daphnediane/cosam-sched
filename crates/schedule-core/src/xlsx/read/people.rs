@@ -18,10 +18,7 @@
 //! here; those relationships are established by the `=Group` / `==Group`
 //! syntax on the Schedule sheet's presenter columns.
 
-use std::collections::HashSet;
-
 use anyhow::Result;
-use uuid::NonNilUuid;
 
 use crate::edit::builder::build_entity;
 use crate::entity::{EntityType, EntityUuid, UuidPreference};
@@ -44,11 +41,9 @@ impl super::ImportContext<'_> {
     /// prior pass or earlier in the sheet) is updated if the People sheet carries
     /// a higher-priority rank.
     ///
-    /// Returns the set of presenter UUIDs seen during this import (for soft-delete
-    /// of removed entries when combined with seen presenters from the Schedule sheet).
-    pub(super) fn read_people(&mut self) -> Result<HashSet<NonNilUuid>> {
+    /// Accumulates seen presenter UUIDs into `self.seen_presenters`.
+    pub(super) fn read_people(&mut self) -> Result<()> {
         let mode = self.options.people.clone();
-        let mut seen: HashSet<NonNilUuid> = HashSet::new();
 
         let range = match find_data_range(
             self.book,
@@ -57,16 +52,16 @@ impl super::ImportContext<'_> {
             &["Presenters", "Presenter", "People", "Person"],
         ) {
             Some(r) => r,
-            None => return Ok(seen),
+            None => return Ok(()),
         };
 
         let ws = match self.book.get_sheet_by_name(&range.sheet_name) {
             Some(ws) => ws,
-            None => return Ok(seen),
+            None => return Ok(()),
         };
 
         if !range.has_data() {
-            return Ok(seen);
+            return Ok(());
         }
 
         let (raw_headers, canonical_headers, _col_map) = build_column_map(ws, &range);
@@ -118,7 +113,7 @@ impl super::ImportContext<'_> {
                 // People sheet is authoritative for name spelling; rank only if explicit.
                 self.presenter_cache
                     .record(existing_id, &name, explicit_rank.as_ref());
-                seen.insert(existing_id.entity_uuid());
+                self.seen_presenters.insert(existing_id.entity_uuid());
             } else {
                 // Create new presenter entity.
                 let uuid_pref = UuidPreference::PreferFromV5 {
@@ -137,7 +132,7 @@ impl super::ImportContext<'_> {
                         // People sheet is authoritative for name spelling; rank only if explicit.
                         self.presenter_cache
                             .record(id, &name, explicit_rank.as_ref());
-                        seen.insert(uuid);
+                        self.seen_presenters.insert(uuid);
                         self.schedule.sidecar_mut().set_origin(
                             uuid,
                             EntityOrigin::Xlsx(XlsxSourceInfo {
@@ -171,7 +166,7 @@ impl super::ImportContext<'_> {
             }
         }
 
-        Ok(seen)
+        Ok(())
     }
 }
 

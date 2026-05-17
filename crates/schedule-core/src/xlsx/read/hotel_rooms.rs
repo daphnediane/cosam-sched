@@ -6,10 +6,7 @@
 
 //! Reads the Hotel/Hotel Rooms/HotelMap sheet → [`HotelRoomEntityType`] entities.
 
-use std::collections::HashSet;
-
 use anyhow::Result;
-use uuid::NonNilUuid;
 
 use crate::edit::builder::find_or_create_entity;
 use crate::entity::{EntityType, EntityUuid};
@@ -28,10 +25,9 @@ impl super::ImportContext<'_> {
     /// HotelRoom entities.
     ///
     /// Populates `self.hotel_lookup` (lowercase name → `HotelRoomId`) for use when
-    /// reading the Rooms sheet.  Returns the set of UUIDs seen (for soft-delete).
-    pub(super) fn read_hotel_rooms(&mut self) -> Result<HashSet<NonNilUuid>> {
+    /// reading the Rooms sheet.  Accumulates seen UUIDs into `self.seen_hotel_rooms`.
+    pub(super) fn read_hotel_rooms(&mut self) -> Result<()> {
         let mode = self.options.hotel_rooms.clone();
-        let mut seen: HashSet<NonNilUuid> = HashSet::new();
 
         let range = match find_data_range(
             self.book,
@@ -40,16 +36,16 @@ impl super::ImportContext<'_> {
             &["Hotel", "Hotel Rooms", "HotelMap"],
         ) {
             Some(r) => r,
-            None => return Ok(seen),
+            None => return Ok(()),
         };
 
         let ws = match self.book.get_sheet_by_name(&range.sheet_name) {
             Some(ws) => ws,
-            None => return Ok(seen),
+            None => return Ok(()),
         };
 
         if !range.has_data() {
-            return Ok(seen);
+            return Ok(());
         }
 
         let (raw_headers, canonical_headers, _col_map) = build_column_map(ws, &range);
@@ -91,7 +87,7 @@ impl super::ImportContext<'_> {
             match find_or_create_entity::<HotelRoomEntityType>(self.schedule, &name_key, updates) {
                 Ok(id) => {
                     let uuid = id.entity_uuid();
-                    seen.insert(uuid);
+                    self.seen_hotel_rooms.insert(uuid);
                     self.schedule.sidecar_mut().set_origin(
                         uuid,
                         EntityOrigin::Xlsx(XlsxSourceInfo {
@@ -124,6 +120,6 @@ impl super::ImportContext<'_> {
             }
         }
 
-        Ok(seen)
+        Ok(())
     }
 }

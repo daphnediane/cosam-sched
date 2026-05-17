@@ -107,7 +107,7 @@ pub struct ImportContext<'a> {
     pub schedule: &'a mut Schedule,
     /// Per-table import mode options.
     pub options: &'a TableImportOptions,
-    /// Presenter name/rank cache — populated during the pass, flushed at the end.
+    /// Presenter name/rank cache — populated during the pass, flushed by `finalize`.
     pub presenter_cache: PresenterImportCache,
     /// prefix → PanelTypeId; populated by `read_panel_types`.
     pub panel_type_lookup: HashMap<String, PanelTypeId>,
@@ -115,10 +115,29 @@ pub struct ImportContext<'a> {
     pub room_lookup: HashMap<String, EventRoomId>,
     /// lowercase name → HotelRoomId; populated by `read_hotel_rooms`.
     pub hotel_lookup: HashMap<String, HotelRoomId>,
+    // ── Before-snapshots (captured at construction) ──────────────────────────
+    /// Entity UUIDs present before the import began, per type.
+    pub before_panel_types: HashSet<NonNilUuid>,
+    pub before_hotel_rooms: HashSet<NonNilUuid>,
+    pub before_rooms: HashSet<NonNilUuid>,
+    pub before_presenters: HashSet<NonNilUuid>,
+    pub before_panels: HashSet<NonNilUuid>,
+    pub before_timelines: HashSet<NonNilUuid>,
+    // ── Seen-accumulators (populated by read_* methods) ──────────────────────
+    /// Entity UUIDs observed during this import pass, per type.
+    pub seen_panel_types: HashSet<NonNilUuid>,
+    pub seen_hotel_rooms: HashSet<NonNilUuid>,
+    pub seen_rooms: HashSet<NonNilUuid>,
+    pub seen_presenters: HashSet<NonNilUuid>,
+    pub seen_panels: HashSet<NonNilUuid>,
+    pub seen_timelines: HashSet<NonNilUuid>,
 }
 
 impl<'a> ImportContext<'a> {
     /// Create a new ImportContext for a single import pass.
+    ///
+    /// Snapshots the current entity UUIDs from `schedule` into the `before_*` fields
+    /// so that `finalize` can soft-delete entities removed by the import.
     pub fn new(
         book: &'a mut Spreadsheet,
         file_path: Option<&'a str>,
@@ -127,6 +146,13 @@ impl<'a> ImportContext<'a> {
         schedule: &'a mut Schedule,
         options: &'a TableImportOptions,
     ) -> Self {
+        let before_panel_types = collect_entity_uuids::<PanelTypeEntityType>(schedule);
+        let before_hotel_rooms = collect_entity_uuids::<HotelRoomEntityType>(schedule);
+        let before_rooms = collect_entity_uuids::<EventRoomEntityType>(schedule);
+        let before_presenters = collect_entity_uuids::<PresenterEntityType>(schedule);
+        let before_panels = collect_entity_uuids::<PanelEntityType>(schedule);
+        let before_timelines = collect_entity_uuids::<TimelineEntityType>(schedule);
+
         Self {
             book,
             file_path,
@@ -138,12 +164,31 @@ impl<'a> ImportContext<'a> {
             panel_type_lookup: HashMap::new(),
             room_lookup: HashMap::new(),
             hotel_lookup: HashMap::new(),
+            before_panel_types,
+            before_hotel_rooms,
+            before_rooms,
+            before_presenters,
+            before_panels,
+            before_timelines,
+            seen_panel_types: HashSet::new(),
+            seen_hotel_rooms: HashSet::new(),
+            seen_rooms: HashSet::new(),
+            seen_presenters: HashSet::new(),
+            seen_panels: HashSet::new(),
+            seen_timelines: HashSet::new(),
         }
     }
 
-    /// Flush the presenter import cache: write canonical names and explicit ranks
-    /// to the schedule for every presenter seen in this pass.
-    pub(super) fn flush_presenter_cache(&mut self) {
+    /// Finalize the import: normalize sort indices, flush the presenter cache,
+    /// then soft-delete entities that were present before the import but not seen
+    /// during it.
+    ///
+    /// Call after all `read_*` methods have completed.
+    pub(super) fn finalize(&mut self) {
+        // Assign monotonically increasing sort indices to presenters.
+        normalize_presenter_sort_indices(self.schedule);
+
+        // Flush presenter cache: write canonical names and explicit ranks.
         for (uuid, (rank, canonical_name)) in self.presenter_cache.entries.drain() {
             // SAFETY: uuid was obtained from a live PresenterId during this pass.
             let id = unsafe { PresenterId::new_unchecked(uuid) };
@@ -155,6 +200,63 @@ impl<'a> ImportContext<'a> {
                 updates.push(FieldUpdate::set(&presenter::FIELD_RANK, r.as_str()));
             }
             let _ = PresenterEntityType::field_set().write_multiple(id, self.schedule, &updates);
+        }
+
+        // Soft-delete entities not seen in this import.
+        // Only soft-delete for entity types whose sheet was processed.
+        if self.options.panel_types != TableImportMode::Skip {
+            soft_delete_unseen::<PanelTypeEntityType>(
+                self.schedule,
+                &self.before_panel_types,
+                &self.seen_panel_types,
+            );
+        }
+
+        // Hotel rooms: combined from the Hotels sheet and inline Rooms sheet columns.
+        if self.options.hotel_rooms != TableImportMode::Skip
+            || self.options.rooms != TableImportMode::Skip
+        {
+            soft_delete_unseen::<HotelRoomEntityType>(
+                self.schedule,
+                &self.before_hotel_rooms,
+                &self.seen_hotel_rooms,
+            );
+        }
+
+        if self.options.rooms != TableImportMode::Skip {
+            soft_delete_unseen::<EventRoomEntityType>(
+                self.schedule,
+                &self.before_rooms,
+                &self.seen_rooms,
+            );
+        }
+
+        // Presenters: combined from People sheet and Schedule sheet presenter columns.
+        if self.options.schedule != TableImportMode::Skip {
+            soft_delete_unseen::<PresenterEntityType>(
+                self.schedule,
+                &self.before_presenters,
+                &self.seen_presenters,
+            );
+        }
+
+        // Timelines: from the Timeline sheet and timeline-type rows on the Schedule sheet.
+        if self.options.timeline != TableImportMode::Skip
+            || self.options.schedule != TableImportMode::Skip
+        {
+            soft_delete_unseen::<TimelineEntityType>(
+                self.schedule,
+                &self.before_timelines,
+                &self.seen_timelines,
+            );
+        }
+
+        if self.options.schedule != TableImportMode::Skip {
+            soft_delete_unseen::<PanelEntityType>(
+                self.schedule,
+                &self.before_panels,
+                &self.seen_panels,
+            );
         }
     }
 }
@@ -393,14 +495,6 @@ pub fn update_schedule_from_xlsx(
 
     schedule.metadata.modified_at = resolve_source_modified(&book, path);
 
-    // Snapshot existing entity UUIDs before import so we can soft-delete removals.
-    let before_panel_types = collect_entity_uuids::<PanelTypeEntityType>(schedule);
-    let before_hotel_rooms = collect_entity_uuids::<HotelRoomEntityType>(schedule);
-    let before_rooms = collect_entity_uuids::<EventRoomEntityType>(schedule);
-    let before_presenters = collect_entity_uuids::<PresenterEntityType>(schedule);
-    let before_panels = collect_entity_uuids::<PanelEntityType>(schedule);
-    let before_timelines = collect_entity_uuids::<TimelineEntityType>(schedule);
-
     let file_path = path.to_str().map(str::to_owned);
     let import_time = chrono::Utc::now();
 
@@ -413,74 +507,13 @@ pub fn update_schedule_from_xlsx(
         options,
     );
 
-    let seen_panel_types = ctx.read_panel_types()?;
-    let seen_hotel_rooms_from_sheet = ctx.read_hotel_rooms()?;
-    let (seen_rooms, seen_hotel_rooms_from_rooms) = ctx.read_rooms()?;
-    let seen_people = ctx.read_people()?;
-    let seen_timelines = ctx.read_timeline()?;
-    let (seen_panels, seen_presenters_from_schedule) = ctx.read_schedule()?;
-
-    normalize_presenter_sort_indices(ctx.schedule);
-
-    // ── Flush presenter cache (name + rank) and soft-delete ───────────────────
-    //
-    // Flush is deferred to this point so that rank downgrades only affect
-    // presenters that actually appear in the new file.  Presenters absent from
-    // the new file are soft-deleted below without touching their stored data.
-    ctx.flush_presenter_cache();
-
-    // ── Soft-delete entities not seen in this import ──────────────────────────
-
-    if ctx.options.panel_types != TableImportMode::Skip {
-        soft_delete_unseen::<PanelTypeEntityType>(
-            ctx.schedule,
-            &before_panel_types,
-            &seen_panel_types,
-        );
-    }
-
-    // Hotel rooms: combine seen from Hotels sheet and inline Rooms sheet.
-    let seen_hotel_rooms: HashSet<NonNilUuid> = seen_hotel_rooms_from_sheet
-        .union(&seen_hotel_rooms_from_rooms)
-        .copied()
-        .collect();
-    if ctx.options.hotel_rooms != TableImportMode::Skip
-        || ctx.options.rooms != TableImportMode::Skip
-    {
-        soft_delete_unseen::<HotelRoomEntityType>(
-            ctx.schedule,
-            &before_hotel_rooms,
-            &seen_hotel_rooms,
-        );
-    }
-
-    if ctx.options.rooms != TableImportMode::Skip {
-        soft_delete_unseen::<EventRoomEntityType>(ctx.schedule, &before_rooms, &seen_rooms);
-    }
-
-    // Presenters: combine People sheet and Schedule sheet presenter columns.
-    if ctx.options.schedule != TableImportMode::Skip {
-        let seen_presenters: HashSet<NonNilUuid> = seen_people
-            .union(&seen_presenters_from_schedule)
-            .copied()
-            .collect();
-        soft_delete_unseen::<PresenterEntityType>(
-            ctx.schedule,
-            &before_presenters,
-            &seen_presenters,
-        );
-    }
-
-    // Timelines: from the Timeline sheet AND timelines created via the Schedule sheet.
-    if ctx.options.timeline != TableImportMode::Skip
-        || ctx.options.schedule != TableImportMode::Skip
-    {
-        soft_delete_unseen::<TimelineEntityType>(ctx.schedule, &before_timelines, &seen_timelines);
-    }
-
-    if ctx.options.schedule != TableImportMode::Skip {
-        soft_delete_unseen::<PanelEntityType>(ctx.schedule, &before_panels, &seen_panels);
-    }
+    ctx.read_panel_types()?;
+    ctx.read_hotel_rooms()?;
+    ctx.read_rooms()?;
+    ctx.read_people()?;
+    ctx.read_timeline()?;
+    ctx.read_schedule()?;
+    ctx.finalize();
 
     Ok(())
 }

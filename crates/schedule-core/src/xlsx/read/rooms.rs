@@ -6,10 +6,7 @@
 
 //! Reads the Rooms sheet → [`EventRoomEntityType`] + [`HotelRoomEntityType`] entities.
 
-use std::collections::HashSet;
-
 use anyhow::Result;
-use uuid::NonNilUuid;
 
 use crate::edit::builder::find_or_create_entity;
 use crate::entity::{EntityType, EntityUuid};
@@ -31,14 +28,10 @@ impl super::ImportContext<'_> {
     /// populates `self.room_lookup` (lowercase name → `EventRoomId`) for use when reading
     /// the Schedule sheet.
     ///
-    /// Returns:
-    /// - the set of `EventRoom` UUIDs seen (for soft-delete).
-    /// - the set of `HotelRoom` UUIDs seen from the inline `Hotel Room` column (for
-    ///   soft-delete; unioned with the set returned by `read_hotel_rooms`).
-    pub(super) fn read_rooms(&mut self) -> Result<(HashSet<NonNilUuid>, HashSet<NonNilUuid>)> {
+    /// Accumulates seen `EventRoom` UUIDs into `self.seen_rooms` and hotel rooms
+    /// discovered via the inline `Hotel Room` column into `self.seen_hotel_rooms`.
+    pub(super) fn read_rooms(&mut self) -> Result<()> {
         let mode = self.options.rooms.clone();
-        let mut seen_rooms: HashSet<NonNilUuid> = HashSet::new();
-        let mut seen_hotel_rooms: HashSet<NonNilUuid> = HashSet::new();
 
         let range = match find_data_range(
             self.book,
@@ -47,16 +40,16 @@ impl super::ImportContext<'_> {
             &["RoomMap", "Rooms", "EventRooms"],
         ) {
             Some(r) => r,
-            None => return Ok((seen_rooms, seen_hotel_rooms)),
+            None => return Ok(()),
         };
 
         let ws = match self.book.get_sheet_by_name(&range.sheet_name) {
             Some(ws) => ws,
-            None => return Ok((seen_rooms, seen_hotel_rooms)),
+            None => return Ok(()),
         };
 
         if !range.has_data() {
-            return Ok((seen_rooms, seen_hotel_rooms));
+            return Ok(());
         }
 
         let (raw_headers, canonical_headers, _col_map) = build_column_map(ws, &range);
@@ -113,7 +106,7 @@ impl super::ImportContext<'_> {
                 }
             };
             let room_uuid = room_id.entity_uuid();
-            seen_rooms.insert(room_uuid);
+            self.seen_rooms.insert(room_uuid);
             self.schedule.sidecar_mut().set_origin(
                 room_uuid,
                 EntityOrigin::Xlsx(XlsxSourceInfo {
@@ -147,7 +140,7 @@ impl super::ImportContext<'_> {
             if let Some(ref hr_name) = hotel_room_name {
                 let hr_key = hr_name.to_lowercase();
                 let hr_id = if let Some(&existing) = self.hotel_lookup.get(&hr_key) {
-                    seen_hotel_rooms.insert(existing.entity_uuid());
+                    self.seen_hotel_rooms.insert(existing.entity_uuid());
                     existing
                 } else {
                     match find_or_create_entity::<HotelRoomEntityType>(
@@ -160,7 +153,7 @@ impl super::ImportContext<'_> {
                     ) {
                         Ok(id) => {
                             let uuid = id.entity_uuid();
-                            seen_hotel_rooms.insert(uuid);
+                            self.seen_hotel_rooms.insert(uuid);
                             self.schedule.sidecar_mut().set_origin(
                                 uuid,
                                 EntityOrigin::Xlsx(XlsxSourceInfo {
@@ -193,6 +186,6 @@ impl super::ImportContext<'_> {
             }
         }
 
-        Ok((seen_rooms, seen_hotel_rooms))
+        Ok(())
     }
 }

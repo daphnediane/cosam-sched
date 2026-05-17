@@ -1,6 +1,6 @@
 # Cosplay America Schedule - Work Item
 
-Updated on: Sun May 17 16:31:04 2026
+Updated on: Sun May 17 17:34:12 2026
 
 ## Completed
 
@@ -161,7 +161,7 @@ above panelists and groups.
 
 ## Summary of Open Items
 
-**Total open items:** 24
+**Total open items:** 25
 
 * **Meta / Project-Level**
   * [META-001] Meta work item tracking the full multi-phase redesign of the schedule system. (Blocked by [META-007], [META-008])
@@ -184,6 +184,9 @@ reference and jump-starting new conventions.
   * [FEATURE-126] Add update-mode (upsert + soft-delete) semantics to widget JSON import,
 analogous to what FEATURE-122 did for XLSX, with extra care to preserve
 schedule data that the lossy widget JSON format does not carry.
+  * [FEATURE-127] Re-importing the same XLSX or widget JSON into an existing binary schedule
+should produce a byte-for-byte identical output when nothing in the source
+has changed.
   * [REFACTOR-125] Move schedule, options, per-pass lookups, and PresenterImportCache into
 ImportContext; convert reader free functions to methods on ImportContext.
 
@@ -407,6 +410,29 @@ widget JSON. It cannot be used to update an existing schedule because:
 
 This feature brings widget JSON import up to the same standard as the
 XLSX update-mode added in FEATURE-122:
+
+---
+
+### [FEATURE-127] FEATURE-127: Idempotent XLSX (and widget JSON) re-import
+
+**Status:** Open
+
+**Priority:** Medium
+
+**Summary:** Re-importing the same XLSX or widget JSON into an existing binary schedule
+should produce a byte-for-byte identical output when nothing in the source
+has changed.
+
+**Description:** `update_schedule_from_xlsx` (and the future `update_schedule_from_widget_json`)
+is intended to be used in a pipeline like:
+
+```sh
+cosam-modify input.schedule --import-xlsx source.xlsx -o output.schedule
+```
+
+When `source.xlsx` is unchanged relative to what was last imported into
+`input.schedule`, the output should be bit-for-bit identical to the input —
+including `modified_at` metadata.  Currently it is not, for several reasons:
 
 ---
 
@@ -837,6 +863,7 @@ a `HashMap<NonNilUuid, HashMap<FieldId, Vec<FieldNodeId>>>` layout).
 [FEATURE-121]: work-item/done/FEATURE-121.md
 [FEATURE-122]: work-item/done/FEATURE-122.md
 [FEATURE-126]: work-item/medium/FEATURE-126.md
+[FEATURE-127]: work-item/medium/FEATURE-127.md
 [META-001]: work-item/meta/META-001.md
 [META-002]: work-item/done/META-002.md
 [META-003]: work-item/done/META-003.md

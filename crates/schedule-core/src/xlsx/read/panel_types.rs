@@ -6,10 +6,7 @@
 
 //! Reads the PanelTypes sheet → [`PanelTypeEntityType`] entities.
 
-use std::collections::HashSet;
-
 use anyhow::Result;
-use uuid::NonNilUuid;
 
 use crate::edit::builder::find_or_create_entity;
 use crate::entity::{EntityType, EntityUuid};
@@ -27,25 +24,23 @@ impl super::ImportContext<'_> {
     /// Read the PanelTypes sheet and populate the schedule with PanelType entities.
     ///
     /// Populates `self.panel_type_lookup` (prefix → `PanelTypeId`) for use when
-    /// reading the Schedule sheet.  Returns the set of UUIDs seen during this
-    /// import (for soft-delete of removed entries).
-    pub(super) fn read_panel_types(&mut self) -> Result<HashSet<NonNilUuid>> {
+    /// reading the Schedule sheet.  Accumulates seen UUIDs into `self.seen_panel_types`.
+    pub(super) fn read_panel_types(&mut self) -> Result<()> {
         let mode = self.options.panel_types.clone();
-        let mut seen: HashSet<NonNilUuid> = HashSet::new();
 
         let range = match find_data_range(self.book, self.csv_map, &mode, &["Prefix", "PanelTypes"])
         {
             Some(r) => r,
-            None => return Ok(seen),
+            None => return Ok(()),
         };
 
         let ws = match self.book.get_sheet_by_name(&range.sheet_name) {
             Some(ws) => ws,
-            None => return Ok(seen),
+            None => return Ok(()),
         };
 
         if !range.has_data() {
-            return Ok(seen);
+            return Ok(());
         }
 
         let (raw_headers, canonical_headers, _col_map) = build_column_map(ws, &range);
@@ -132,7 +127,7 @@ impl super::ImportContext<'_> {
             match find_or_create_entity::<PanelTypeEntityType>(self.schedule, &prefix, updates) {
                 Ok(id) => {
                     let uuid = id.entity_uuid();
-                    seen.insert(uuid);
+                    self.seen_panel_types.insert(uuid);
                     self.schedule.sidecar_mut().set_origin(
                         uuid,
                         EntityOrigin::Xlsx(XlsxSourceInfo {
@@ -163,6 +158,6 @@ impl super::ImportContext<'_> {
             }
         }
 
-        Ok(seen)
+        Ok(())
     }
 }
