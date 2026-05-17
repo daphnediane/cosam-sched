@@ -1,6 +1,6 @@
 # Cosplay America Schedule - Work Item
 
-Updated on: Sun May 17 15:45:15 2026
+Updated on: Sun May 17 16:31:04 2026
 
 ## Completed
 
@@ -161,7 +161,7 @@ above panelists and groups.
 
 ## Summary of Open Items
 
-**Total open items:** 22
+**Total open items:** 24
 
 * **Meta / Project-Level**
   * [META-001] Meta work item tracking the full multi-phase redesign of the schedule system. (Blocked by [META-007], [META-008])
@@ -181,6 +181,11 @@ reference and jump-starting new conventions.
 `typst` Rust crate, eliminating the external `typst-cli` dependency.
   * [FEATURE-115] Separate Timeline Sheet in XLSX
   * [FEATURE-116] ([META-117]) New Dioxus 0.7 viewer app that reads widget JSON and renders a UI similar to the JS widget.
+  * [FEATURE-126] Add update-mode (upsert + soft-delete) semantics to widget JSON import,
+analogous to what FEATURE-122 did for XLSX, with extra care to preserve
+schedule data that the lossy widget JSON format does not carry.
+  * [REFACTOR-125] Move schedule, options, per-pass lookups, and PresenterImportCache into
+ImportContext; convert reader free functions to methods on ImportContext.
 
 * **Low Priority**
   * [CLI-100] Add a `--interactive` flag to `cosam-modify` that opens a read-eval-print loop for
@@ -380,6 +385,28 @@ implementation.
 * Targets macOS (desktop), iPadOS and Android (mobile) via Dioxus feature flags and `dx` build tooling
 * Mirrors the JS widget UX: day tabs, list view with time groups, filter panel (rooms + types +
   search), panel detail overlay, 4 themes
+
+---
+
+### [FEATURE-126] FEATURE-126: Widget JSON update-mode import with data preservation
+
+**Status:** Open
+
+**Priority:** Medium
+
+**Summary:** Add update-mode (upsert + soft-delete) semantics to widget JSON import,
+analogous to what FEATURE-122 did for XLSX, with extra care to preserve
+schedule data that the lossy widget JSON format does not carry.
+
+**Description:** `import_from_widget_json` currently creates a fresh `Schedule` from
+widget JSON. It cannot be used to update an existing schedule because:
+
+* it always allocates new UUIDs (losing CRDT history)
+* it does not match or merge entities by natural key
+* it silently drops fields that widget JSON does not carry
+
+This feature brings widget JSON import up to the same standard as the
+XLSX update-mode added in FEATURE-122:
 
 ---
 
@@ -678,6 +705,39 @@ to exchange CRDT changes and reconcile concurrent edits to the same fields.
 
 ## Open REFACTOR Items
 
+### [REFACTOR-125] REFACTOR-125: Consolidate ImportContext to carry import state
+
+**Status:** In progress
+
+**Priority:** Medium
+
+**Summary:** Move schedule, options, per-pass lookups, and PresenterImportCache into
+ImportContext; convert reader free functions to methods on ImportContext.
+
+**Description:** `ImportContext` currently holds only the read-side context (book, file_path,
+import_time, csv_map). Schedule, per-table import modes (via options), and
+inter-stage lookups (panel_type_lookup, room_lookup, hotel_lookup) are passed
+as separate parameters to every reader function, creating long signatures and
+redundant plumbing.
+
+This refactor:
+
+* Adds `schedule`, `options`, `presenter_cache`, `panel_type_lookup`,
+  `room_lookup`, and `hotel_lookup` as fields of `ImportContext`.
+* Changes `find_data_range` / `find_table` / `find_sheet` to take
+  `(book, csv_map, mode, names)` directly, removing the ctx dependency
+  (only book + csv_map are needed) and eliminating the borrow conflict when
+  reading `ctx.options.<table>` alongside `&mut ctx`.
+* Converts each `read_<table>_into` free function to a `pub(super)` method
+  on `ImportContext` via `impl ImportContext<'_>` blocks in the respective
+  module files.
+* Simplifies `update_schedule_from_xlsx` to create the context once and call
+  `ctx.read_panel_types()`, `ctx.read_hotel_rooms()`, etc.
+* `collect_presenters` in schedule.rs retains separate field params because it
+  is called while `ws` (borrowed from `ctx.book`) is alive.
+
+---
+
 ### [REFACTOR-112] REFACTOR-112: Update ignored set_neighbors tests to current RawEdgeMap API
 
 **Status:** Open
@@ -776,6 +836,7 @@ a `HashMap<NonNilUuid, HashMap<FieldId, Vec<FieldNodeId>>>` layout).
 [FEATURE-120]: work-item/low/FEATURE-120.md
 [FEATURE-121]: work-item/done/FEATURE-121.md
 [FEATURE-122]: work-item/done/FEATURE-122.md
+[FEATURE-126]: work-item/medium/FEATURE-126.md
 [META-001]: work-item/meta/META-001.md
 [META-002]: work-item/done/META-002.md
 [META-003]: work-item/done/META-003.md
@@ -807,6 +868,7 @@ a `HashMap<NonNilUuid, HashMap<FieldId, Vec<FieldNodeId>>>` layout).
 [REFACTOR-075]: work-item/done/REFACTOR-075.md
 [REFACTOR-104]: work-item/done/REFACTOR-104.md
 [REFACTOR-112]: work-item/low/REFACTOR-112.md
+[REFACTOR-125]: work-item/medium/REFACTOR-125.md
 [UI-085]: work-item/done/UI-085.md
 [UI-087]: work-item/done/UI-087.md
 [UI-088]: work-item/done/UI-088.md

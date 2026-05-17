@@ -26,143 +26,153 @@ use uuid::NonNilUuid;
 use crate::edit::builder::build_entity;
 use crate::entity::{EntityType, EntityUuid, UuidPreference};
 use crate::field::set::FieldUpdate;
-use crate::schedule::Schedule;
 use crate::sidecar::{EntityOrigin, XlsxSourceInfo};
 use crate::tables::presenter::{self, PresenterEntityType, PresenterRank};
 use crate::xlsx::columns::people as pc;
 
 use super::{
     build_column_map, find_data_range, get_field_def, is_truthy, known_field_key_set,
-    route_extra_columns, row_to_map, PresenterImportCache, TableImportMode,
+    route_extra_columns, row_to_map,
 };
 
-/// Read the People sheet and populate the schedule with Presenter entities.
-///
-/// Presenters created here get their rank, `is_explicit_group`,
-/// `always_grouped`, and `always_shown_in_group` flags set from the explicit
-/// People sheet columns.  Any presenter already in the schedule (created by a
-/// prior pass or earlier in the sheet) is updated if the People sheet carries
-/// a higher-priority rank.
-///
-/// Returns the set of presenter UUIDs seen during this import (for soft-delete
-/// of removed entries when combined with seen presenters from the Schedule sheet).
-pub(super) fn read_people_into(
-    ctx: &mut super::ImportContext<'_>,
-    mode: &TableImportMode,
-    schedule: &mut Schedule,
-    cache: &mut PresenterImportCache,
-) -> Result<HashSet<NonNilUuid>> {
-    let mut seen: HashSet<NonNilUuid> = HashSet::new();
+impl super::ImportContext<'_> {
+    /// Read the People sheet and populate the schedule with Presenter entities.
+    ///
+    /// Presenters created here get their rank, `is_explicit_group`,
+    /// `always_grouped`, and `always_shown_in_group` flags set from the explicit
+    /// People sheet columns.  Any presenter already in the schedule (created by a
+    /// prior pass or earlier in the sheet) is updated if the People sheet carries
+    /// a higher-priority rank.
+    ///
+    /// Returns the set of presenter UUIDs seen during this import (for soft-delete
+    /// of removed entries when combined with seen presenters from the Schedule sheet).
+    pub(super) fn read_people(&mut self) -> Result<HashSet<NonNilUuid>> {
+        let mode = self.options.people.clone();
+        let mut seen: HashSet<NonNilUuid> = HashSet::new();
 
-    let range = match find_data_range(ctx, mode, &["Presenters", "Presenter", "People", "Person"]) {
-        Some(r) => r,
-        None => return Ok(seen),
-    };
-
-    let ws = match ctx.book.get_sheet_by_name(&range.sheet_name) {
-        Some(ws) => ws,
-        None => return Ok(seen),
-    };
-
-    if !range.has_data() {
-        return Ok(seen);
-    }
-
-    let (raw_headers, canonical_headers, _col_map) = build_column_map(ws, &range);
-    let known_keys = known_field_key_set(pc::ALL, &[]);
-
-    for row in (range.header_row + 1)..=range.end_row {
-        let data = row_to_map(ws, row, &range, &raw_headers, &canonical_headers);
-
-        let name = match get_field_def(&data, &pc::NAME) {
-            Some(n) if !n.trim().is_empty() => n.trim().to_string(),
-            _ => continue,
+        let range = match find_data_range(
+            self.book,
+            self.csv_map,
+            &mode,
+            &["Presenters", "Presenter", "People", "Person"],
+        ) {
+            Some(r) => r,
+            None => return Ok(seen),
         };
 
-        // explicit_rank is Some only when the Classification column has a value.
-        // When absent the presenter is unranked in the People sheet; a schedule
-        // column may still assign an explicit rank later in the same pass.
-        let explicit_rank =
-            get_field_def(&data, &pc::CLASSIFICATION).map(|s| parse_classification(s));
-        // Fallback rank used only for new-entity creation (build_entity requires
-        // a concrete rank; the cache flush later replaces it if explicit).
-        let rank = explicit_rank.clone().unwrap_or_default();
+        let ws = match self.book.get_sheet_by_name(&range.sheet_name) {
+            Some(ws) => ws,
+            None => return Ok(seen),
+        };
 
-        let is_explicit_group = get_field_def(&data, &pc::IS_GROUP)
-            .map(|s| is_truthy(s))
-            .unwrap_or(false);
+        if !range.has_data() {
+            return Ok(seen);
+        }
 
-        // "Always Grouped" / "Always Show in Group" column → show_individually on member
-        let show_individually = get_field_def(&data, &pc::ALWAYS_GROUPED)
-            .map(|s| is_truthy(s))
-            .unwrap_or(false);
+        let (raw_headers, canonical_headers, _col_map) = build_column_map(ws, &range);
+        let known_keys = known_field_key_set(pc::ALL, &[]);
 
-        // "Always Shown" / "Group Shown" column → subsumes_members on group
-        let subsumes_members = get_field_def(&data, &pc::ALWAYS_SHOWN)
-            .map(|s| is_truthy(s))
-            .unwrap_or(false);
+        for row in (range.header_row + 1)..=range.end_row {
+            let data = row_to_map(ws, row, &range, &raw_headers, &canonical_headers);
 
-        if let Some(existing_id) = PresenterEntityType::find_by_name(schedule, &name) {
-            // Update flags; name and rank are handled by the cache flush.
-            let updates: Vec<FieldUpdate<PresenterEntityType>> = vec![
-                FieldUpdate::set(&presenter::FIELD_IS_EXPLICIT_GROUP, is_explicit_group),
-                FieldUpdate::set(&presenter::FIELD_SHOW_INDIVIDUALLY, show_individually),
-                FieldUpdate::set(&presenter::FIELD_SUBSUMES_MEMBERS, subsumes_members),
-            ];
-            let _ =
-                PresenterEntityType::field_set().write_multiple(existing_id, schedule, &updates);
-            // People sheet is authoritative for name spelling; rank only if explicit.
-            cache.record(existing_id, &name, explicit_rank.as_ref());
-            seen.insert(existing_id.entity_uuid());
-        } else {
-            // Create new presenter entity.
-            let uuid_pref = UuidPreference::PreferFromV5 {
-                name: name.to_lowercase(),
+            let name = match get_field_def(&data, &pc::NAME) {
+                Some(n) if !n.trim().is_empty() => n.trim().to_string(),
+                _ => continue,
             };
-            let updates = vec![
-                FieldUpdate::set(&presenter::FIELD_NAME, name.as_str()),
-                FieldUpdate::set(&presenter::FIELD_RANK, rank.as_str()),
-                FieldUpdate::set(&presenter::FIELD_IS_EXPLICIT_GROUP, is_explicit_group),
-                FieldUpdate::set(&presenter::FIELD_SHOW_INDIVIDUALLY, show_individually),
-                FieldUpdate::set(&presenter::FIELD_SUBSUMES_MEMBERS, subsumes_members),
-            ];
-            match build_entity::<PresenterEntityType>(schedule, uuid_pref, updates) {
-                Ok(id) => {
-                    let uuid = id.entity_uuid();
-                    // People sheet is authoritative for name spelling; rank only if explicit.
-                    cache.record(id, &name, explicit_rank.as_ref());
-                    seen.insert(uuid);
-                    schedule.sidecar_mut().set_origin(
-                        uuid,
-                        EntityOrigin::Xlsx(XlsxSourceInfo {
-                            file_path: ctx.file_path.map(str::to_owned),
-                            sheet_name: range.sheet_name.clone(),
-                            row_index: row,
-                            import_time: ctx.import_time,
-                        }),
-                    );
-                    // Column 0 = People sheet; row gives relative order.
-                    schedule.sidecar_mut().get_or_insert(uuid).xlsx_sort_key = Some((0, row));
-                    route_extra_columns(
-                        ws,
-                        row,
-                        &range,
-                        &raw_headers,
-                        &canonical_headers,
-                        &known_keys,
-                        &[],
-                        &std::collections::HashSet::new(),
-                        id.entity_uuid(),
-                        PresenterEntityType::TYPE_NAME,
-                        schedule,
-                    );
+
+            // explicit_rank is Some only when the Classification column has a value.
+            // When absent the presenter is unranked in the People sheet; a schedule
+            // column may still assign an explicit rank later in the same pass.
+            let explicit_rank =
+                get_field_def(&data, &pc::CLASSIFICATION).map(|s| parse_classification(s));
+            // Fallback rank used only for new-entity creation (build_entity requires
+            // a concrete rank; the cache flush later replaces it if explicit).
+            let rank = explicit_rank.clone().unwrap_or_default();
+
+            let is_explicit_group = get_field_def(&data, &pc::IS_GROUP)
+                .map(|s| is_truthy(s))
+                .unwrap_or(false);
+
+            // "Always Grouped" / "Always Show in Group" column → show_individually on member
+            let show_individually = get_field_def(&data, &pc::ALWAYS_GROUPED)
+                .map(|s| is_truthy(s))
+                .unwrap_or(false);
+
+            // "Always Shown" / "Group Shown" column → subsumes_members on group
+            let subsumes_members = get_field_def(&data, &pc::ALWAYS_SHOWN)
+                .map(|s| is_truthy(s))
+                .unwrap_or(false);
+
+            if let Some(existing_id) = PresenterEntityType::find_by_name(self.schedule, &name) {
+                // Update flags; name and rank are handled by the cache flush.
+                let updates: Vec<FieldUpdate<PresenterEntityType>> = vec![
+                    FieldUpdate::set(&presenter::FIELD_IS_EXPLICIT_GROUP, is_explicit_group),
+                    FieldUpdate::set(&presenter::FIELD_SHOW_INDIVIDUALLY, show_individually),
+                    FieldUpdate::set(&presenter::FIELD_SUBSUMES_MEMBERS, subsumes_members),
+                ];
+                let _ = PresenterEntityType::field_set().write_multiple(
+                    existing_id,
+                    self.schedule,
+                    &updates,
+                );
+                // People sheet is authoritative for name spelling; rank only if explicit.
+                self.presenter_cache
+                    .record(existing_id, &name, explicit_rank.as_ref());
+                seen.insert(existing_id.entity_uuid());
+            } else {
+                // Create new presenter entity.
+                let uuid_pref = UuidPreference::PreferFromV5 {
+                    name: name.to_lowercase(),
+                };
+                let updates = vec![
+                    FieldUpdate::set(&presenter::FIELD_NAME, name.as_str()),
+                    FieldUpdate::set(&presenter::FIELD_RANK, rank.as_str()),
+                    FieldUpdate::set(&presenter::FIELD_IS_EXPLICIT_GROUP, is_explicit_group),
+                    FieldUpdate::set(&presenter::FIELD_SHOW_INDIVIDUALLY, show_individually),
+                    FieldUpdate::set(&presenter::FIELD_SUBSUMES_MEMBERS, subsumes_members),
+                ];
+                match build_entity::<PresenterEntityType>(self.schedule, uuid_pref, updates) {
+                    Ok(id) => {
+                        let uuid = id.entity_uuid();
+                        // People sheet is authoritative for name spelling; rank only if explicit.
+                        self.presenter_cache
+                            .record(id, &name, explicit_rank.as_ref());
+                        seen.insert(uuid);
+                        self.schedule.sidecar_mut().set_origin(
+                            uuid,
+                            EntityOrigin::Xlsx(XlsxSourceInfo {
+                                file_path: self.file_path.map(str::to_owned),
+                                sheet_name: range.sheet_name.clone(),
+                                row_index: row,
+                                import_time: self.import_time,
+                            }),
+                        );
+                        // Column 0 = People sheet; row gives relative order.
+                        self.schedule
+                            .sidecar_mut()
+                            .get_or_insert(uuid)
+                            .xlsx_sort_key = Some((0, row));
+                        route_extra_columns(
+                            ws,
+                            row,
+                            &range,
+                            &raw_headers,
+                            &canonical_headers,
+                            &known_keys,
+                            &[],
+                            &std::collections::HashSet::new(),
+                            id.entity_uuid(),
+                            PresenterEntityType::TYPE_NAME,
+                            self.schedule,
+                        );
+                    }
+                    Err(e) => eprintln!("xlsx import: skipping presenter {name:?}: {e}"),
                 }
-                Err(e) => eprintln!("xlsx import: skipping presenter {name:?}: {e}"),
             }
         }
-    }
 
-    Ok(seen)
+        Ok(seen)
+    }
 }
 
 /// Map the People sheet's `Classification` column value to a `PresenterRank`.

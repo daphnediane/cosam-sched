@@ -29,10 +29,10 @@ use crate::entity::{EntityId, EntityType, EntityUuid};
 use crate::field::set::FieldUpdate;
 use crate::schedule::Schedule;
 use crate::sidecar::SidecarFormulaField;
-use crate::tables::event_room::EventRoomEntityType;
-use crate::tables::hotel_room::HotelRoomEntityType;
+use crate::tables::event_room::{EventRoomEntityType, EventRoomId};
+use crate::tables::hotel_room::{HotelRoomEntityType, HotelRoomId};
 use crate::tables::panel::PanelEntityType;
-use crate::tables::panel_type::PanelTypeEntityType;
+use crate::tables::panel_type::{PanelTypeEntityType, PanelTypeId};
 use crate::tables::presenter::{self, PresenterEntityType, PresenterId, PresenterRank};
 use crate::tables::timeline::TimelineEntityType;
 use crate::xlsx::columns::{FieldDef, FormulaColumnDef};
@@ -88,34 +88,73 @@ pub type XlsxImportOptions = TableImportOptions;
 
 // ── Import context ───────────────────────────────────────────────────────────────
 
-/// Context structure holding common parameters for XLSX/CSV import operations.
+/// Context structure holding all state for a single XLSX/CSV import pass.
 ///
-/// This struct encapsulates the shared parameters passed to all `read_..._into`
-/// functions to reduce parameter count and improve maintainability.
+/// Encapsulates both the read-side (spreadsheet, file metadata) and the
+/// write-side (schedule, options, inter-stage lookups) so that reader
+/// methods share a single mutable context rather than receiving a long
+/// list of parameters.
 pub struct ImportContext<'a> {
-    /// The spreadsheet being imported (mutated as CSV files are imported as sheets)
+    /// The spreadsheet being imported (mutated as CSV files are imported as sheets).
     pub book: &'a mut Spreadsheet,
-    /// Optional file path for origin tracking
+    /// Optional file path for origin tracking.
     pub file_path: Option<&'a str>,
-    /// Timestamp when the import began
+    /// Timestamp when the import began.
     pub import_time: chrono::DateTime<chrono::Utc>,
-    /// Optional CSV file mapping for directory import mode
+    /// Optional CSV file mapping for directory import mode.
     pub csv_map: &'a Option<CsvFileMap>,
+    /// The schedule being populated.
+    pub schedule: &'a mut Schedule,
+    /// Per-table import mode options.
+    pub options: &'a TableImportOptions,
+    /// Presenter name/rank cache — populated during the pass, flushed at the end.
+    pub presenter_cache: PresenterImportCache,
+    /// prefix → PanelTypeId; populated by `read_panel_types`.
+    pub panel_type_lookup: HashMap<String, PanelTypeId>,
+    /// lowercase name → EventRoomId; populated by `read_rooms`.
+    pub room_lookup: HashMap<String, EventRoomId>,
+    /// lowercase name → HotelRoomId; populated by `read_hotel_rooms`.
+    pub hotel_lookup: HashMap<String, HotelRoomId>,
 }
 
 impl<'a> ImportContext<'a> {
-    /// Create a new ImportContext from the common import parameters.
+    /// Create a new ImportContext for a single import pass.
     pub fn new(
         book: &'a mut Spreadsheet,
         file_path: Option<&'a str>,
         import_time: chrono::DateTime<chrono::Utc>,
         csv_map: &'a Option<CsvFileMap>,
+        schedule: &'a mut Schedule,
+        options: &'a TableImportOptions,
     ) -> Self {
         Self {
             book,
             file_path,
             import_time,
             csv_map,
+            schedule,
+            options,
+            presenter_cache: PresenterImportCache::new(),
+            panel_type_lookup: HashMap::new(),
+            room_lookup: HashMap::new(),
+            hotel_lookup: HashMap::new(),
+        }
+    }
+
+    /// Flush the presenter import cache: write canonical names and explicit ranks
+    /// to the schedule for every presenter seen in this pass.
+    pub(super) fn flush_presenter_cache(&mut self) {
+        for (uuid, (rank, canonical_name)) in self.presenter_cache.entries.drain() {
+            // SAFETY: uuid was obtained from a live PresenterId during this pass.
+            let id = unsafe { PresenterId::new_unchecked(uuid) };
+            let mut updates = vec![FieldUpdate::set(
+                &presenter::FIELD_NAME,
+                canonical_name.as_str(),
+            )];
+            if let Some(r) = rank {
+                updates.push(FieldUpdate::set(&presenter::FIELD_RANK, r.as_str()));
+            }
+            let _ = PresenterEntityType::field_set().write_multiple(id, self.schedule, &updates);
         }
     }
 }
@@ -274,7 +313,8 @@ fn import_csv_to_sheet(book: &mut Spreadsheet, csv_path: &Path, sheet_name: &str
 /// encounters within the same pass use upgrade-only logic (highest rank across all
 /// explicit appearances wins).  Only presenters present in the new file are
 /// affected; absent presenters keep their stored data.
-pub(super) struct PresenterImportCache {
+#[derive(Default)]
+pub struct PresenterImportCache {
     /// Maps presenter UUID → (best explicit rank this pass or None, canonical name).
     entries: HashMap<uuid::NonNilUuid, (Option<PresenterRank>, String)>,
 }
@@ -311,23 +351,6 @@ impl PresenterImportCache {
             }
         } else {
             self.entries.insert(uuid, (rank.cloned(), name.to_string()));
-        }
-    }
-
-    /// Write the cached canonical name and (if explicit) best rank to the schedule
-    /// for every presenter seen in this pass.
-    pub fn flush(self, schedule: &mut Schedule) {
-        for (uuid, (rank, canonical_name)) in self.entries {
-            // SAFETY: uuid was obtained from a live PresenterId during this pass.
-            let id = unsafe { PresenterId::new_unchecked(uuid) };
-            let mut updates = vec![FieldUpdate::set(
-                &presenter::FIELD_NAME,
-                canonical_name.as_str(),
-            )];
-            if let Some(r) = rank {
-                updates.push(FieldUpdate::set(&presenter::FIELD_RANK, r.as_str()));
-            }
-            let _ = PresenterEntityType::field_set().write_multiple(id, schedule, &updates);
         }
     }
 }
@@ -381,47 +404,39 @@ pub fn update_schedule_from_xlsx(
     let file_path = path.to_str().map(str::to_owned);
     let import_time = chrono::Utc::now();
 
-    let mut ctx = ImportContext::new(&mut book, file_path.as_deref(), import_time, &csv_map);
-
-    let (panel_type_lookup, seen_panel_types) =
-        panel_types::read_panel_types_into(&mut ctx, &options.panel_types, schedule)?;
-
-    let (hotel_lookup, seen_hotel_rooms_from_sheet) =
-        hotel_rooms::read_hotel_rooms_into(&mut ctx, &options.hotel_rooms, schedule)?;
-
-    let (room_lookup, seen_rooms, seen_hotel_rooms_from_rooms) =
-        rooms::read_rooms_into(&mut ctx, &options.rooms, schedule, &hotel_lookup)?;
-
-    let mut presenter_cache = PresenterImportCache::new();
-
-    let seen_people =
-        people::read_people_into(&mut ctx, &options.people, schedule, &mut presenter_cache)?;
-
-    let seen_timelines =
-        timeline::read_timeline_into(&mut ctx, &options.timeline, schedule, &panel_type_lookup)?;
-
-    let (seen_panels, seen_presenters_from_schedule) = schedule::read_schedule_into(
-        &mut ctx,
-        &options.schedule,
+    let mut ctx = ImportContext::new(
+        &mut book,
+        file_path.as_deref(),
+        import_time,
+        &csv_map,
         schedule,
-        &room_lookup,
-        &panel_type_lookup,
-        &mut presenter_cache,
-    )?;
+        options,
+    );
 
-    normalize_presenter_sort_indices(schedule);
+    let seen_panel_types = ctx.read_panel_types()?;
+    let seen_hotel_rooms_from_sheet = ctx.read_hotel_rooms()?;
+    let (seen_rooms, seen_hotel_rooms_from_rooms) = ctx.read_rooms()?;
+    let seen_people = ctx.read_people()?;
+    let seen_timelines = ctx.read_timeline()?;
+    let (seen_panels, seen_presenters_from_schedule) = ctx.read_schedule()?;
+
+    normalize_presenter_sort_indices(ctx.schedule);
 
     // ── Flush presenter cache (name + rank) and soft-delete ───────────────────
     //
     // Flush is deferred to this point so that rank downgrades only affect
     // presenters that actually appear in the new file.  Presenters absent from
     // the new file are soft-deleted below without touching their stored data.
-    presenter_cache.flush(schedule);
+    ctx.flush_presenter_cache();
 
     // ── Soft-delete entities not seen in this import ──────────────────────────
 
-    if options.panel_types != TableImportMode::Skip {
-        soft_delete_unseen::<PanelTypeEntityType>(schedule, &before_panel_types, &seen_panel_types);
+    if ctx.options.panel_types != TableImportMode::Skip {
+        soft_delete_unseen::<PanelTypeEntityType>(
+            ctx.schedule,
+            &before_panel_types,
+            &seen_panel_types,
+        );
     }
 
     // Hotel rooms: combine seen from Hotels sheet and inline Rooms sheet.
@@ -429,30 +444,42 @@ pub fn update_schedule_from_xlsx(
         .union(&seen_hotel_rooms_from_rooms)
         .copied()
         .collect();
-    if options.hotel_rooms != TableImportMode::Skip || options.rooms != TableImportMode::Skip {
-        soft_delete_unseen::<HotelRoomEntityType>(schedule, &before_hotel_rooms, &seen_hotel_rooms);
+    if ctx.options.hotel_rooms != TableImportMode::Skip
+        || ctx.options.rooms != TableImportMode::Skip
+    {
+        soft_delete_unseen::<HotelRoomEntityType>(
+            ctx.schedule,
+            &before_hotel_rooms,
+            &seen_hotel_rooms,
+        );
     }
 
-    if options.rooms != TableImportMode::Skip {
-        soft_delete_unseen::<EventRoomEntityType>(schedule, &before_rooms, &seen_rooms);
+    if ctx.options.rooms != TableImportMode::Skip {
+        soft_delete_unseen::<EventRoomEntityType>(ctx.schedule, &before_rooms, &seen_rooms);
     }
 
     // Presenters: combine People sheet and Schedule sheet presenter columns.
-    if options.schedule != TableImportMode::Skip {
+    if ctx.options.schedule != TableImportMode::Skip {
         let seen_presenters: HashSet<NonNilUuid> = seen_people
             .union(&seen_presenters_from_schedule)
             .copied()
             .collect();
-        soft_delete_unseen::<PresenterEntityType>(schedule, &before_presenters, &seen_presenters);
+        soft_delete_unseen::<PresenterEntityType>(
+            ctx.schedule,
+            &before_presenters,
+            &seen_presenters,
+        );
     }
 
     // Timelines: from the Timeline sheet AND timelines created via the Schedule sheet.
-    if options.timeline != TableImportMode::Skip || options.schedule != TableImportMode::Skip {
-        soft_delete_unseen::<TimelineEntityType>(schedule, &before_timelines, &seen_timelines);
+    if ctx.options.timeline != TableImportMode::Skip
+        || ctx.options.schedule != TableImportMode::Skip
+    {
+        soft_delete_unseen::<TimelineEntityType>(ctx.schedule, &before_timelines, &seen_timelines);
     }
 
-    if options.schedule != TableImportMode::Skip {
-        soft_delete_unseen::<PanelEntityType>(schedule, &before_panels, &seen_panels);
+    if ctx.options.schedule != TableImportMode::Skip {
+        soft_delete_unseen::<PanelEntityType>(ctx.schedule, &before_panels, &seen_panels);
     }
 
     Ok(())
@@ -565,10 +592,10 @@ impl DataRange {
 /// Find a named table by name (case-insensitive).
 ///
 /// Returns the table data range if exactly one table matches, otherwise returns None.
-fn find_table(ctx: &ImportContext<'_>, names: &[&str]) -> Option<DataRange> {
+fn find_table(book: &Spreadsheet, names: &[&str]) -> Option<DataRange> {
     let mut matches = Vec::new();
 
-    for sheet in ctx.book.get_sheet_collection() {
+    for sheet in book.get_sheet_collection() {
         for table in sheet.get_tables() {
             let table_lower = table.get_name().to_lowercase();
             for name in names {
@@ -596,15 +623,11 @@ fn find_table(ctx: &ImportContext<'_>, names: &[&str]) -> Option<DataRange> {
 
 /// Find a named sheet by name (case-insensitive).
 ///
-/// If `csv_map` is provided and no matching sheet is found, it will attempt
-/// to import a CSV file with the matching name into the spreadsheet.
-///
 /// Returns the sheet data range if exactly one sheet matches, otherwise returns None.
-#[allow(unused_variables)]
-fn find_sheet(ctx: &mut ImportContext<'_>, names: &[&str]) -> Option<DataRange> {
+fn find_sheet(book: &Spreadsheet, names: &[&str]) -> Option<DataRange> {
     let mut matches = Vec::new();
 
-    for sheet in ctx.book.get_sheet_collection() {
+    for sheet in book.get_sheet_collection() {
         let sheet_lower = sheet.get_name().to_lowercase();
         for name in names {
             if sheet_lower == name.to_lowercase() {
@@ -645,7 +668,8 @@ fn find_sheet(ctx: &mut ImportContext<'_>, names: &[&str]) -> Option<DataRange> 
 /// 4. If `csv_map` is provided and still not found, try to import CSV file
 /// 5. If `TableImportMode::Skip`, return None immediately
 pub(super) fn find_data_range(
-    ctx: &mut ImportContext<'_>,
+    book: &mut Spreadsheet,
+    csv_map: &Option<CsvFileMap>,
     primary_mode: &TableImportMode,
     fallback_table_names: &[&str],
 ) -> Option<DataRange> {
@@ -653,11 +677,11 @@ pub(super) fn find_data_range(
         TableImportMode::Skip => return None,
         TableImportMode::ReadFrom(name) => {
             // Check tables for the specific name first
-            if let Some(range) = find_table(ctx, &[name]) {
+            if let Some(range) = find_table(book, &[name]) {
                 return Some(range);
             }
             // If not found, check sheets for the specific name
-            if let Some(range) = find_sheet(ctx, &[name]) {
+            if let Some(range) = find_sheet(book, &[name]) {
                 return Some(range);
             }
             // If still not found, fall through to fallback names
@@ -668,24 +692,24 @@ pub(super) fn find_data_range(
     }
 
     // Check tables for fallback names
-    if let Some(range) = find_table(ctx, fallback_table_names) {
+    if let Some(range) = find_table(book, fallback_table_names) {
         return Some(range);
     }
 
     // Check sheets for fallback names
-    if let Some(range) = find_sheet(ctx, fallback_table_names) {
+    if let Some(range) = find_sheet(book, fallback_table_names) {
         return Some(range);
     }
 
     // If csv_map is provided and still not found, try to import CSV file
-    if let Some(csv_map) = ctx.csv_map {
+    if let Some(csv_map) = csv_map {
         // Try each fallback name to see if there's a CSV file
         for name in fallback_table_names {
             if let Some(csv_path) = csv_map.get(name) {
                 let csv_path = Path::new(csv_path);
-                if let Ok(()) = import_csv_to_sheet(ctx.book, csv_path, name) {
+                if let Ok(()) = import_csv_to_sheet(book, csv_path, name) {
                     // Try to find the sheet again after importing
-                    if let Some(range) = find_sheet(ctx, &[name]) {
+                    if let Some(range) = find_sheet(book, &[name]) {
                         return Some(range);
                     }
                 }
