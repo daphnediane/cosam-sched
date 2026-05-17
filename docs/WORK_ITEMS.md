@@ -1,6 +1,6 @@
 # Cosplay America Schedule - Work Item
 
-Updated on: Sat May 16 16:36:24 2026
+Updated on: Sat May 16 23:34:20 2026
 
 ## Completed
 
@@ -85,6 +85,8 @@ first-class entity fields, and decide how this interacts with CRDT merge.
 * [FEATURE-107] New CLI binary that consumes `schedule.json` and `config/brand.toml` to produce Typst-compiled PDFs and/or `.typ` source files for all print layout formats.
 * [FEATURE-108] Add an `--export-layout <DIR>` flag to `cosam-convert` that runs a default set of `cosam-layout` outputs after the schedule JSON export.
 * [FEATURE-114] Add one grid-view reference sheet per day to the exported XLSX, mirroring the HTML schedule grid with merged cells for multi-slot and multi-room events.
+* [FEATURE-121] Expand cosam-viewer to open XLSX, binary `.cosam`, and CSV directory schedules, plus
+fetch widget JSON from a webpage URL.
 * [META-002] Phase tracker for project foundation and Cargo workspace setup.
 * [META-003] Phase tracker for the entity/field system and core schedule data model in schedule-core.
 * [META-004] Phase tracker for making an automerge CRDT document the authoritative storage
@@ -761,6 +763,7 @@ a `HashMap<NonNilUuid, HashMap<FieldId, Vec<FieldNodeId>>>` layout).
 [FEATURE-118]: work-item/low/FEATURE-118.md
 [FEATURE-119]: work-item/low/FEATURE-119.md
 [FEATURE-120]: work-item/low/FEATURE-120.md
+[FEATURE-121]: work-item/done/FEATURE-121.md
 [META-001]: work-item/meta/META-001.md
 [META-002]: work-item/done/META-002.md
 [META-003]: work-item/done/META-003.md

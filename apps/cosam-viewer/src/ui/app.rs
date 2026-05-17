@@ -36,12 +36,18 @@ fn group_by_time(
     groups
 }
 
-fn load_doc_from_bytes(
-    bytes: Vec<u8>,
+#[cfg(feature = "desktop")]
+fn load_doc_from_path(
+    path: std::path::PathBuf,
     name: Option<String>,
 ) -> anyhow::Result<(ScheduleDoc, Option<String>)> {
-    let doc = ScheduleDoc::from_json(&bytes)?;
+    let doc = ScheduleDoc::from_path(&path)?;
     Ok((doc, name))
+}
+
+fn load_doc_from_url(url: String) -> anyhow::Result<(ScheduleDoc, Option<String>)> {
+    let doc = ScheduleDoc::from_url(&url)?;
+    Ok((doc, Some(url)))
 }
 
 // ---------------------------------------------------------------------------
@@ -52,6 +58,7 @@ fn load_doc_from_bytes(
 pub fn App() -> Element {
     let mut state: Signal<ViewerState> = use_signal(ViewerState::default);
     let mut error_msg: Signal<Option<String>> = use_signal(|| None);
+    let mut url_input: Signal<String> = use_signal(String::new);
 
     // -----------------------------------------------------------------------
     // Derived data (read once to avoid repeated borrows)
@@ -100,27 +107,72 @@ pub fn App() -> Element {
     let time_groups = group_by_time(panels);
 
     // -----------------------------------------------------------------------
-    // File open handler
+    // File / folder / URL open handlers
     // -----------------------------------------------------------------------
     #[cfg(feature = "desktop")]
     let open_file = move |_| {
         spawn(async move {
             let file = rfd::AsyncFileDialog::new()
-                .add_filter("cosam JSON", &["json"])
+                .add_filter("Schedule files", &["json", "xlsx", "cosam"])
+                .add_filter("Widget JSON", &["json"])
+                .add_filter("XLSX spreadsheet", &["xlsx"])
+                .add_filter("Binary schedule", &["cosam"])
                 .add_filter("All files", &["*"])
                 .pick_file()
                 .await;
 
             if let Some(handle) = file {
                 let name = handle.file_name();
-                let bytes = handle.read().await;
-                match load_doc_from_bytes(bytes, Some(name)) {
-                    Ok((doc, fname)) => {
+                let path = handle.path().to_path_buf();
+                match tokio::task::spawn_blocking(move || load_doc_from_path(path, Some(name)))
+                    .await
+                {
+                    Ok(Ok((doc, fname))) => {
                         state.write().load_doc(doc, fname);
                         error_msg.set(None);
                     }
-                    Err(e) => error_msg.set(Some(format!("Failed to load: {e}"))),
+                    Ok(Err(e)) => error_msg.set(Some(format!("Failed to load: {e}"))),
+                    Err(e) => error_msg.set(Some(format!("Load error: {e}"))),
                 }
+            }
+        });
+    };
+
+    #[cfg(feature = "desktop")]
+    let open_folder = move |_| {
+        spawn(async move {
+            let folder = rfd::AsyncFileDialog::new().pick_folder().await;
+            if let Some(handle) = folder {
+                let name = handle.file_name();
+                let path = handle.path().to_path_buf();
+                match tokio::task::spawn_blocking(move || load_doc_from_path(path, Some(name)))
+                    .await
+                {
+                    Ok(Ok((doc, fname))) => {
+                        state.write().load_doc(doc, fname);
+                        error_msg.set(None);
+                    }
+                    Ok(Err(e)) => error_msg.set(Some(format!("Failed to load folder: {e}"))),
+                    Err(e) => error_msg.set(Some(format!("Load error: {e}"))),
+                }
+            }
+        });
+    };
+
+    let trigger_load_url = move || {
+        let url = url_input.read().trim().to_string();
+        if url.is_empty() {
+            return;
+        }
+        spawn(async move {
+            match tokio::task::spawn_blocking(move || load_doc_from_url(url)).await {
+                Ok(Ok((doc, fname))) => {
+                    state.write().load_doc(doc, fname);
+                    error_msg.set(None);
+                    url_input.set(String::new());
+                }
+                Ok(Err(e)) => error_msg.set(Some(format!("Failed to load URL: {e}"))),
+                Err(e) => error_msg.set(Some(format!("Load error: {e}"))),
             }
         });
     };
@@ -129,6 +181,13 @@ pub fn App() -> Element {
     let open_file = move |_| {
         error_msg.set(Some(
             "File open not yet implemented on this platform.".to_string(),
+        ));
+    };
+
+    #[cfg(not(feature = "desktop"))]
+    let open_folder = move |_| {
+        error_msg.set(Some(
+            "Folder open not yet implemented on this platform.".to_string(),
         ));
     };
 
@@ -151,7 +210,13 @@ pub fn App() -> Element {
                         class: "toolbar-btn toolbar-open",
                         onclick: open_file,
                         aria_label: "Open schedule file",
-                        "Open"
+                        "Open File"
+                    }
+                    button {
+                        class: "toolbar-btn toolbar-open",
+                        onclick: open_folder,
+                        aria_label: "Open CSV schedule folder",
+                        "Open Folder"
                     }
                     span { class: "toolbar-title", "{title}" }
                 }
@@ -253,9 +318,38 @@ pub fn App() -> Element {
                     div { class: "empty-state-inner",
                         h1 { class: "empty-title", "cosam Schedule Viewer" }
                         p { class: "empty-sub",
-                            "Open a cosam widget JSON file to get started."
+                            "Open a schedule to get started. Supported: widget JSON, XLSX, binary .cosam, or a CSV directory."
                         }
-                        button { class: "btn-primary", onclick: open_file, "Open Schedule" }
+                        div { class: "empty-actions",
+                            button { class: "btn-primary", onclick: open_file, "Open File" }
+                            button { class: "btn-secondary", onclick: open_folder, "Open Folder (CSV)" }
+                        }
+                        div { class: "empty-url-section",
+                            p { class: "empty-sub", "Or load from a webpage URL:" }
+                            div { class: "url-input-row",
+                                label { class: "sr-only", r#for: "url-input", "Schedule URL" }
+                                input {
+                                    id: "url-input",
+                                    class: "url-input",
+                                    r#type: "url",
+                                    placeholder: "https://example.com/schedule",
+                                    value: "{url_input.read()}",
+                                    oninput: move |e| url_input.set(e.value()),
+                                    onkeydown: move |e| {
+                                        if e.key() == Key::Enter {
+                                            trigger_load_url();
+                                        }
+                                    },
+                                    aria_label: "Schedule webpage URL",
+                                }
+                                button {
+                                    class: "btn-primary",
+                                    onclick: move |_| trigger_load_url(),
+                                    disabled: url_input.read().trim().is_empty(),
+                                    "Load URL"
+                                }
+                            }
+                        }
                     }
                 }
             } else {

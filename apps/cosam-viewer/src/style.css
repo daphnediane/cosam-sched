@@ -334,6 +334,45 @@ body {
   font-size: 0.9375rem;
 }
 
+.empty-actions {
+  display: flex;
+  gap: 12px;
+  justify-content: center;
+  flex-wrap: wrap;
+  margin-bottom: 32px;
+}
+
+.empty-url-section {
+  border-top: 1px solid var(--color-border);
+  padding-top: 24px;
+  margin-top: 8px;
+}
+
+.url-input-row {
+  display: flex;
+  gap: 8px;
+  justify-content: center;
+  flex-wrap: wrap;
+}
+
+.url-input {
+  flex: 1;
+  min-width: 260px;
+  max-width: 440px;
+  padding: 8px 12px;
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius);
+  font-size: 0.9375rem;
+  background: var(--color-surface);
+  color: var(--color-text);
+}
+
+.url-input:focus {
+  outline: 2px solid var(--color-accent);
+  outline-offset: 1px;
+  border-color: var(--color-accent);
+}
+
 /* -------------------------------------------------------------------------
  * Buttons
  * ---------------------------------------------------------------------- */

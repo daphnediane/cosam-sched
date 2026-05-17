@@ -46,21 +46,37 @@ pub fn load_from_json(json: &str) -> Result<WidgetExport, WidgetJsonError> {
 /// Fetches the webpage, finds the `<script type="application/json" id="cosam-schedule-data">`
 /// tag, extracts the base64-encoded gzip data, decompresses it, and parses the JSON.
 pub fn load_from_url(url: &str) -> Result<WidgetExport, WidgetJsonError> {
-    // Fetch the webpage
-    let response = reqwest::blocking::get(url)?;
+    // Fetch the webpage with a browser-like User-Agent so that CDN/CMS systems
+    // (e.g., Squarespace) serve the full page rather than a stripped bot response.
+    let client = reqwest::blocking::Client::builder()
+        .user_agent(
+            "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) \
+             AppleWebKit/537.36 (KHTML, like Gecko) \
+             Chrome/124.0.0.0 Safari/537.36",
+        )
+        .build()?;
+    let response = client.get(url).send()?;
     let html = response.text()?;
 
-    // Parse HTML and extract the embedded data
+    // Parse HTML and extract the embedded data.
+    // Try the full selector first (with type attribute), then fall back to id-only
+    // in case the host page omits or varies the type attribute.
     let document = scraper::Html::parse_document(&html);
     let selector =
         scraper::Selector::parse(r#"script[type="application/json"][id="cosam-schedule-data"]"#)
             .map_err(|e| WidgetJsonError::DataExtraction(format!("Invalid selector: {}", e)))?;
+    let fallback_selector = scraper::Selector::parse(r#"script#cosam-schedule-data"#)
+        .map_err(|e| WidgetJsonError::DataExtraction(format!("Invalid selector: {}", e)))?;
 
-    let script_element = document.select(&selector).next().ok_or_else(|| {
-        WidgetJsonError::DataExtraction(
-            "No script tag with id='cosam-schedule-data' found in webpage".to_string(),
-        )
-    })?;
+    let script_element = document
+        .select(&selector)
+        .next()
+        .or_else(|| document.select(&fallback_selector).next())
+        .ok_or_else(|| {
+            WidgetJsonError::DataExtraction(
+                "No script tag with id='cosam-schedule-data' found in webpage".to_string(),
+            )
+        })?;
 
     let encoded_data = script_element
         .text()

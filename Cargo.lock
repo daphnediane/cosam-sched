@@ -1083,6 +1083,7 @@ dependencies = [
  "schedule-core",
  "serde",
  "serde_json",
+ "tokio",
 ]
 
 [[package]]

@@ -6,8 +6,14 @@
 
 //! Widget JSON display types, re-exported from schedule-core with convenience wrapper.
 
-use schedule_core::widget_json::{load_from_json, WidgetExport};
+use schedule_core::csv::import_csv;
+use schedule_core::schedule::Schedule;
+use schedule_core::widget_json::{
+    export_to_widget_json, load_from_json, load_from_url, WidgetExport,
+};
+use schedule_core::xlsx::{import_xlsx, XlsxImportOptions};
 use std::ops::Deref;
+use std::path::Path;
 
 pub use schedule_core::widget_json::{WidgetPanelType, WidgetRoom};
 
@@ -31,6 +37,57 @@ impl ScheduleDoc {
     /// Load from a JSON byte slice.
     pub fn from_json(bytes: &[u8]) -> anyhow::Result<Self> {
         Ok(Self(load_from_json(std::str::from_utf8(bytes)?)?))
+    }
+
+    /// Load from any supported file path, detecting format by extension/type.
+    ///
+    /// - Directory → CSV format
+    /// - `.json` → widget JSON
+    /// - `.xlsx` → XLSX spreadsheet
+    /// - Other → binary `.cosam` format
+    pub fn from_path(path: &Path) -> anyhow::Result<Self> {
+        if path.is_dir() {
+            let schedule = import_csv(path, &Default::default())?;
+            let title = path
+                .file_name()
+                .and_then(|n| n.to_str())
+                .unwrap_or_default();
+            return Ok(Self(export_to_widget_json(&schedule, title, false)?));
+        }
+        let ext = path
+            .extension()
+            .and_then(|e| e.to_str())
+            .unwrap_or("")
+            .to_lowercase();
+        match ext.as_str() {
+            "json" => {
+                let bytes = std::fs::read(path)?;
+                Self::from_json(&bytes)
+            }
+            "xlsx" => {
+                let schedule = import_xlsx(path, &XlsxImportOptions::default())?;
+                let title = path
+                    .file_stem()
+                    .and_then(|n| n.to_str())
+                    .unwrap_or_default();
+                Ok(Self(export_to_widget_json(&schedule, title, false)?))
+            }
+            _ => {
+                let bytes = std::fs::read(path)?;
+                let schedule =
+                    Schedule::load_from_file(&bytes).map_err(|e| anyhow::anyhow!("{}", e))?;
+                let title = path
+                    .file_stem()
+                    .and_then(|n| n.to_str())
+                    .unwrap_or_default();
+                Ok(Self(export_to_widget_json(&schedule, title, false)?))
+            }
+        }
+    }
+
+    /// Fetch widget JSON embedded in a webpage at the given URL.
+    pub fn from_url(url: &str) -> anyhow::Result<Self> {
+        Ok(Self(load_from_url(url)?))
     }
 
     /// Look up a room by uid.
