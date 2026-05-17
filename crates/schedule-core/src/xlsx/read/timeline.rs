@@ -6,12 +6,13 @@
 
 //! Reads the Timeline sheet → [`TimelineEntityType`] entities.
 
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 
 use anyhow::Result;
+use uuid::NonNilUuid;
 
-use crate::edit::builder::build_entity;
-use crate::entity::{EntityType, EntityUuid, UuidPreference};
+use crate::edit::builder::find_or_create_entity;
+use crate::entity::{EntityType, EntityUuid};
 use crate::field::set::FieldUpdate;
 use crate::schedule::Schedule;
 use crate::sidecar::{EntityOrigin, XlsxSourceInfo};
@@ -30,24 +31,29 @@ use super::{
 ///
 /// Should be called before the Schedule sheet import so that panel types
 /// are properly resolved.
+///
+/// Returns the set of Timeline UUIDs seen during this import (for soft-delete
+/// of removed entries).
 pub(super) fn read_timeline_into(
     ctx: &mut super::ImportContext<'_>,
     mode: &TableImportMode,
     schedule: &mut Schedule,
     panel_type_lookup: &HashMap<String, PanelTypeId>,
-) -> Result<()> {
+) -> Result<HashSet<NonNilUuid>> {
+    let mut seen: HashSet<NonNilUuid> = HashSet::new();
+
     let range = match find_data_range(ctx, mode, &["Timeline", "KeyTimes"]) {
         Some(r) => r,
-        None => return Ok(()),
+        None => return Ok(seen),
     };
 
     let ws = match ctx.book.get_sheet_by_name(&range.sheet_name) {
         Some(ws) => ws,
-        None => return Ok(()),
+        None => return Ok(seen),
     };
 
     if !range.has_data() {
-        return Ok(());
+        return Ok(seen);
     }
 
     let (raw_headers, canonical_headers, col_map) = build_column_map(ws, &range);
@@ -108,11 +114,8 @@ pub(super) fn read_timeline_into(
 
         // Determine Uniq ID string (synthesize row-based ID if missing).
         let code_str = uniq_id_str.unwrap_or_else(|| format!("XX{row:03}"));
+        let upsert_name = code_str.to_uppercase();
 
-        // Build Timeline entity via field system.
-        let uuid_pref = UuidPreference::PreferFromV5 {
-            name: code_str.to_uppercase(),
-        };
         let mut updates: Vec<FieldUpdate<TimelineEntityType>> = vec![
             FieldUpdate::set(&timeline::FIELD_CODE, code_str.as_str()),
             FieldUpdate::set(&timeline::FIELD_NAME, name.as_str()),
@@ -129,7 +132,7 @@ pub(super) fn read_timeline_into(
         }
 
         let timeline_id: TimelineId =
-            match build_entity::<TimelineEntityType>(schedule, uuid_pref, updates) {
+            match find_or_create_entity::<TimelineEntityType>(schedule, &upsert_name, updates) {
                 Ok(id) => id,
                 Err(e) => {
                     eprintln!("xlsx import: skipping timeline {code_str:?}: {e}");
@@ -137,8 +140,10 @@ pub(super) fn read_timeline_into(
                 }
             };
 
+        let uuid = timeline_id.entity_uuid();
+        seen.insert(uuid);
         schedule.sidecar_mut().set_origin(
-            timeline_id.entity_uuid(),
+            uuid,
             EntityOrigin::Xlsx(XlsxSourceInfo {
                 file_path: ctx.file_path.map(str::to_owned),
                 sheet_name: range.sheet_name.clone(),
@@ -147,9 +152,15 @@ pub(super) fn read_timeline_into(
             }),
         );
 
-        // Wire panel type edge to timeline.
+        // Replace panel type edge (set, not add, to handle changed type).
         if let Some(pt_id) = panel_type_id {
-            let _ = schedule.edge_add(timeline_id, timeline::EDGE_PANEL_TYPES, [pt_id]);
+            let _ = schedule.edge_set(timeline_id, timeline::EDGE_PANEL_TYPES, [pt_id]);
+        } else {
+            let _ = schedule.edge_set(
+                timeline_id,
+                timeline::EDGE_PANEL_TYPES,
+                std::iter::empty::<TimelineId>(),
+            );
         }
 
         route_extra_columns(
@@ -161,11 +172,11 @@ pub(super) fn read_timeline_into(
             &known_keys,
             &[],
             &std::collections::HashSet::new(),
-            timeline_id.entity_uuid(),
+            uuid,
             TimelineEntityType::TYPE_NAME,
             schedule,
         );
     }
 
-    Ok(())
+    Ok(seen)
 }

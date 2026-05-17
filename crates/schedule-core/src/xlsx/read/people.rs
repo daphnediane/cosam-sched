@@ -18,7 +18,10 @@
 //! here; those relationships are established by the `=Group` / `==Group`
 //! syntax on the Schedule sheet's presenter columns.
 
+use std::collections::HashSet;
+
 use anyhow::Result;
+use uuid::NonNilUuid;
 
 use crate::edit::builder::build_entity;
 use crate::entity::{EntityType, EntityUuid, UuidPreference};
@@ -40,23 +43,28 @@ use super::{
 /// People sheet columns.  Any presenter already in the schedule (created by a
 /// prior pass or earlier in the sheet) is updated if the People sheet carries
 /// a higher-priority rank.
+///
+/// Returns the set of presenter UUIDs seen during this import (for soft-delete
+/// of removed entries when combined with seen presenters from the Schedule sheet).
 pub(super) fn read_people_into(
     ctx: &mut super::ImportContext<'_>,
     mode: &TableImportMode,
     schedule: &mut Schedule,
-) -> Result<()> {
+) -> Result<HashSet<NonNilUuid>> {
+    let mut seen: HashSet<NonNilUuid> = HashSet::new();
+
     let range = match find_data_range(ctx, mode, &["Presenters", "Presenter", "People", "Person"]) {
         Some(r) => r,
-        None => return Ok(()),
+        None => return Ok(seen),
     };
 
     let ws = match ctx.book.get_sheet_by_name(&range.sheet_name) {
         Some(ws) => ws,
-        None => return Ok(()),
+        None => return Ok(seen),
     };
 
     if !range.has_data() {
-        return Ok(());
+        return Ok(seen);
     }
 
     let (raw_headers, canonical_headers, _col_map) = build_column_map(ws, &range);
@@ -106,6 +114,7 @@ pub(super) fn read_people_into(
             }
             let _ =
                 PresenterEntityType::field_set().write_multiple(existing_id, schedule, &updates);
+            seen.insert(existing_id.entity_uuid());
         } else {
             // Create new presenter entity.
             let uuid_pref = UuidPreference::PreferFromV5 {
@@ -121,6 +130,7 @@ pub(super) fn read_people_into(
             match build_entity::<PresenterEntityType>(schedule, uuid_pref, updates) {
                 Ok(id) => {
                     let uuid = id.entity_uuid();
+                    seen.insert(uuid);
                     schedule.sidecar_mut().set_origin(
                         uuid,
                         EntityOrigin::Xlsx(XlsxSourceInfo {
@@ -151,7 +161,7 @@ pub(super) fn read_people_into(
         }
     }
 
-    Ok(())
+    Ok(seen)
 }
 
 /// Map the People sheet's `Classification` column value to a `PresenterRank`.

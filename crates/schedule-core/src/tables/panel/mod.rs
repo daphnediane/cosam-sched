@@ -245,6 +245,20 @@ inventory::submit! {
     }
 }
 
+// ── Lookup helpers ───────────────────────────────────────────────────────────────
+
+impl PanelEntityType {
+    /// Find a live panel by its Uniq ID code (case-insensitive).
+    ///
+    /// Returns the first match; in well-formed data each code is unique.
+    pub fn find_by_code(schedule: &crate::schedule::Schedule, code: &str) -> Option<PanelId> {
+        let upper = code.to_uppercase();
+        schedule
+            .iter_entities::<Self>()
+            .find_map(|(id, d)| (d.code.full_id().to_uppercase() == upper).then_some(id))
+    }
+}
+
 // ── EntityBuildable ─────────────────────────────────────────────────────────────
 
 impl crate::edit::builder::EntityBuildable for PanelEntityType {
@@ -255,6 +269,13 @@ impl crate::edit::builder::EntityBuildable for PanelEntityType {
             code: PanelUniqId::default(),
             time_slot: TimeRange::default(),
         }
+    }
+
+    fn find_by_natural_key(
+        schedule: &crate::schedule::Schedule,
+        key: &str,
+    ) -> Option<EntityId<Self>> {
+        Self::find_by_code(schedule, key)
     }
 }
 

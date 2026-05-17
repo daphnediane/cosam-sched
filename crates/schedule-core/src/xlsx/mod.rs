@@ -31,7 +31,8 @@ use crate::schedule::Schedule;
 
 pub use columns::FieldDef;
 pub use read::{
-    canonical_header, import_xlsx, TableImportMode, TableImportOptions, XlsxImportOptions,
+    canonical_header, import_xlsx, update_schedule_from_xlsx, TableImportMode, TableImportOptions,
+    XlsxImportOptions,
 };
 
 /// Export a schedule to an XLSX file.

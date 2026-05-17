@@ -44,6 +44,16 @@ pub trait EntityBuildable: EntityType {
     /// field; the builder re-runs validation after batch writes have been
     /// applied.
     fn default_data(id: EntityId<Self>) -> Self::InternalData;
+
+    /// Find a live entity by its natural key.
+    ///
+    /// Used by [`find_or_create_entity`] before falling back to creation.
+    /// The `key` format is entity-type-specific (e.g. uppercase prefix for
+    /// `PanelTypeEntityType`, lowercase name for room types, uppercase code
+    /// for `PanelEntityType` and `TimelineEntityType`).
+    ///
+    /// Must return `None` for tombstoned entities.
+    fn find_by_natural_key(schedule: &Schedule, key: &str) -> Option<EntityId<Self>>;
 }
 
 /// Errors returned by [`build_entity`] (and therefore by every generated
@@ -67,6 +77,36 @@ pub enum BuildError {
     /// UUID or use a "prefer" variant that allows fallback.
     #[error("UUID {0} already exists for entity type {1}")]
     UuidConflict(uuid::NonNilUuid, &'static str),
+}
+
+/// Find or create an entity by its natural key.
+///
+/// Uses [`EntityBuildable::find_by_natural_key`] to locate an existing entity
+/// by field-based search.  If found, applies `updates` in place and returns
+/// the existing ID (preserving whatever UUID the entity has, including v7).
+/// If not found, creates a new entity with [`UuidPreference::PreferFromV5`]
+/// derived from `key`.
+///
+/// This is the preferred building block for update-mode imports where UUIDs
+/// must be preserved across re-imports, while also handling entities whose UUID
+/// was generated at creation time (v7) rather than derived from a natural key.
+pub fn find_or_create_entity<E: EntityBuildable>(
+    schedule: &mut Schedule,
+    key: &str,
+    updates: Vec<FieldUpdate<E>>,
+) -> Result<EntityId<E>, BuildError> {
+    if let Some(id) = E::find_by_natural_key(schedule, key) {
+        E::field_set().write_multiple(id, schedule, &updates)?;
+        Ok(id)
+    } else {
+        build_entity(
+            schedule,
+            UuidPreference::PreferFromV5 {
+                name: key.to_owned(),
+            },
+            updates,
+        )
+    }
 }
 
 /// Seed, populate, and validate a new entity of type `E`.
@@ -359,6 +399,98 @@ mod tests {
         assert_eq!(id.entity_uuid(), id2.entity_uuid());
         assert_eq!(sched.entity_count::<PanelTypeEntityType>(), 1);
         assert!(!sched.is_entity_deleted(id));
+    }
+
+    #[test]
+    fn find_or_create_entity_creates_when_absent() {
+        let mut sched = Schedule::default();
+        let id = find_or_create_entity::<PanelTypeEntityType>(
+            &mut sched,
+            "GP",
+            valid_panel_type_updates(),
+        )
+        .unwrap();
+        assert_eq!(sched.entity_count::<PanelTypeEntityType>(), 1);
+        let data = sched.get_internal::<PanelTypeEntityType>(id).unwrap();
+        assert_eq!(data.data.prefix, "GP");
+    }
+
+    #[test]
+    fn find_or_create_entity_updates_when_present() {
+        let mut sched = Schedule::default();
+        let id1 = find_or_create_entity::<PanelTypeEntityType>(
+            &mut sched,
+            "GP",
+            valid_panel_type_updates(),
+        )
+        .unwrap();
+
+        let id2 = find_or_create_entity::<PanelTypeEntityType>(
+            &mut sched,
+            "GP",
+            vec![
+                FieldUpdate::set("prefix", "GP"),
+                FieldUpdate::set("panel_kind", "Updated Kind"),
+            ],
+        )
+        .unwrap();
+
+        // Same UUID preserved, count unchanged, field updated.
+        assert_eq!(id1.entity_uuid(), id2.entity_uuid());
+        assert_eq!(sched.entity_count::<PanelTypeEntityType>(), 1);
+        let data = sched.get_internal::<PanelTypeEntityType>(id2).unwrap();
+        assert_eq!(data.data.panel_kind, "Updated Kind");
+    }
+
+    #[test]
+    fn find_or_create_entity_recreates_after_tombstone() {
+        let mut sched = Schedule::default();
+        let id = find_or_create_entity::<PanelTypeEntityType>(
+            &mut sched,
+            "GP",
+            valid_panel_type_updates(),
+        )
+        .unwrap();
+
+        sched.remove_entity::<PanelTypeEntityType>(id);
+        assert_eq!(sched.entity_count::<PanelTypeEntityType>(), 0);
+
+        let id2 = find_or_create_entity::<PanelTypeEntityType>(
+            &mut sched,
+            "GP",
+            valid_panel_type_updates(),
+        )
+        .unwrap();
+        assert_eq!(sched.entity_count::<PanelTypeEntityType>(), 1);
+        let _ = id2;
+    }
+
+    #[test]
+    fn find_or_create_entity_preserves_v7_uuid() {
+        // An entity created with GenerateNew (v7 UUID) must be found by field
+        // scan via find_by_natural_key — its UUID is preserved, not replaced.
+        let mut sched = Schedule::default();
+        let v7_id = build_entity::<PanelTypeEntityType>(
+            &mut sched,
+            UuidPreference::GenerateNew,
+            valid_panel_type_updates(),
+        )
+        .unwrap();
+
+        let found_id = find_or_create_entity::<PanelTypeEntityType>(
+            &mut sched,
+            "GP",
+            vec![
+                FieldUpdate::set("prefix", "GP"),
+                FieldUpdate::set("panel_kind", "Updated Kind"),
+            ],
+        )
+        .unwrap();
+
+        assert_eq!(v7_id.entity_uuid(), found_id.entity_uuid());
+        assert_eq!(sched.entity_count::<PanelTypeEntityType>(), 1);
+        let data = sched.get_internal::<PanelTypeEntityType>(found_id).unwrap();
+        assert_eq!(data.data.panel_kind, "Updated Kind");
     }
 
     #[test]

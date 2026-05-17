@@ -6,12 +6,13 @@
 
 //! Reads the PanelTypes sheet → [`PanelTypeEntityType`] entities.
 
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 
 use anyhow::Result;
+use uuid::NonNilUuid;
 
-use crate::edit::builder::build_entity;
-use crate::entity::{EntityType, EntityUuid, UuidPreference};
+use crate::edit::builder::find_or_create_entity;
+use crate::entity::{EntityType, EntityUuid};
 use crate::field::set::FieldUpdate;
 use crate::schedule::Schedule;
 use crate::sidecar::{EntityOrigin, XlsxSourceInfo};
@@ -26,26 +27,28 @@ use super::{
 /// Read the PanelTypes sheet and populate the schedule with PanelType entities.
 ///
 /// Returns a map from uppercase 2-letter prefix → `PanelTypeId` for use when
-/// reading the Schedule sheet.
+/// reading the Schedule sheet, plus the set of UUIDs seen during this import
+/// (for soft-delete of removed entries).
 pub(super) fn read_panel_types_into(
     ctx: &mut super::ImportContext<'_>,
     mode: &TableImportMode,
     schedule: &mut Schedule,
-) -> Result<HashMap<String, PanelTypeId>> {
+) -> Result<(HashMap<String, PanelTypeId>, HashSet<NonNilUuid>)> {
     let mut panel_type_lookup: HashMap<String, PanelTypeId> = HashMap::new();
+    let mut seen: HashSet<NonNilUuid> = HashSet::new();
 
     let range = match find_data_range(ctx, mode, &["Prefix", "PanelTypes"]) {
         Some(r) => r,
-        None => return Ok(panel_type_lookup),
+        None => return Ok((panel_type_lookup, seen)),
     };
 
     let ws = match ctx.book.get_sheet_by_name(&range.sheet_name) {
         Some(ws) => ws,
-        None => return Ok(panel_type_lookup),
+        None => return Ok((panel_type_lookup, seen)),
     };
 
     if !range.has_data() {
-        return Ok(panel_type_lookup);
+        return Ok((panel_type_lookup, seen));
     }
 
     let (raw_headers, canonical_headers, _col_map) = build_column_map(ws, &range);
@@ -111,9 +114,6 @@ pub(super) fn read_panel_types_into(
             .filter(|s| !s.is_empty())
             .cloned();
 
-        let uuid_pref = UuidPreference::PreferFromV5 {
-            name: prefix.clone(),
-        };
         let mut updates: Vec<FieldUpdate<PanelTypeEntityType>> = vec![
             FieldUpdate::set(&panel_type::FIELD_PREFIX, prefix.as_str()),
             FieldUpdate::set(&panel_type::FIELD_PANEL_KIND, panel_kind.as_str()),
@@ -132,10 +132,12 @@ pub(super) fn read_panel_types_into(
             updates.push(FieldUpdate::set(&panel_type::FIELD_BW, b.as_str()));
         }
 
-        match build_entity::<PanelTypeEntityType>(schedule, uuid_pref, updates) {
+        match find_or_create_entity::<PanelTypeEntityType>(schedule, &prefix, updates) {
             Ok(id) => {
+                let uuid = id.entity_uuid();
+                seen.insert(uuid);
                 schedule.sidecar_mut().set_origin(
-                    id.entity_uuid(),
+                    uuid,
                     EntityOrigin::Xlsx(XlsxSourceInfo {
                         file_path: ctx.file_path.map(str::to_owned),
                         sheet_name: range.sheet_name.clone(),
@@ -152,7 +154,7 @@ pub(super) fn read_panel_types_into(
                     &known_keys,
                     &[],
                     &std::collections::HashSet::new(),
-                    id.entity_uuid(),
+                    uuid,
                     PanelTypeEntityType::TYPE_NAME,
                     schedule,
                 );
@@ -164,5 +166,5 @@ pub(super) fn read_panel_types_into(
         }
     }
 
-    Ok(panel_type_lookup)
+    Ok((panel_type_lookup, seen))
 }

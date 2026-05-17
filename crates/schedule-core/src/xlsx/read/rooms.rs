@@ -6,12 +6,13 @@
 
 //! Reads the Rooms sheet → [`EventRoomEntityType`] + [`HotelRoomEntityType`] entities.
 
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 
 use anyhow::Result;
+use uuid::NonNilUuid;
 
-use crate::edit::builder::build_entity;
-use crate::entity::{EntityType, EntityUuid, UuidPreference};
+use crate::edit::builder::find_or_create_entity;
+use crate::entity::{EntityType, EntityUuid};
 use crate::field::set::FieldUpdate;
 use crate::schedule::Schedule;
 use crate::sidecar::{EntityOrigin, XlsxSourceInfo};
@@ -26,34 +27,43 @@ use super::{
 
 /// Read the Rooms sheet and populate the schedule with EventRoom and HotelRoom entities.
 ///
-/// Returns a map from lowercase room name → `EventRoomId` for use when reading
-/// the Schedule sheet.
+/// Returns:
+/// - a map from lowercase room name → `EventRoomId` for use when reading the Schedule sheet.
+/// - the set of `EventRoom` UUIDs seen (for soft-delete of removed entries).
+/// - the set of `HotelRoom` UUIDs seen from inline `Hotel Room` column (for soft-delete).
 ///
 /// The `hotel_lookup` parameter contains hotel rooms already created from the Hotels sheet.
 /// Event rooms will be linked to these existing hotel rooms, and new hotel rooms will only
 /// be created for hotel room names not found in `hotel_lookup`.
+#[allow(clippy::type_complexity)]
 pub(super) fn read_rooms_into(
     ctx: &mut super::ImportContext<'_>,
     mode: &TableImportMode,
     schedule: &mut Schedule,
     hotel_lookup: &HashMap<String, hotel_room::HotelRoomId>,
-) -> Result<HashMap<String, EventRoomId>> {
+) -> Result<(
+    HashMap<String, EventRoomId>,
+    HashSet<NonNilUuid>,
+    HashSet<NonNilUuid>,
+)> {
     let mut room_lookup: HashMap<String, EventRoomId> = HashMap::new();
+    let mut seen_rooms: HashSet<NonNilUuid> = HashSet::new();
+    let mut seen_hotel_rooms: HashSet<NonNilUuid> = HashSet::new();
     // Clone the hotel_lookup so we can add new hotel rooms found in the Rooms sheet.
     let mut hotel_lookup: HashMap<String, hotel_room::HotelRoomId> = hotel_lookup.clone();
 
     let range = match find_data_range(ctx, mode, &["RoomMap", "Rooms", "EventRooms"]) {
         Some(r) => r,
-        None => return Ok(room_lookup),
+        None => return Ok((room_lookup, seen_rooms, seen_hotel_rooms)),
     };
 
     let ws = match ctx.book.get_sheet_by_name(&range.sheet_name) {
         Some(ws) => ws,
-        None => return Ok(room_lookup),
+        None => return Ok((room_lookup, seen_rooms, seen_hotel_rooms)),
     };
 
     if !range.has_data() {
-        return Ok(room_lookup);
+        return Ok((room_lookup, seen_rooms, seen_hotel_rooms));
     }
 
     let (raw_headers, canonical_headers, _col_map) = build_column_map(ws, &range);
@@ -82,10 +92,8 @@ pub(super) fn read_rooms_into(
         let is_pseudo =
             get_field_def(&data, &room_map::IS_PSEUDO).is_some_and(|s| super::is_truthy(s));
 
-        // Build EventRoom via field system.
-        let uuid_pref = UuidPreference::PreferFromV5 {
-            name: room_name.to_lowercase(),
-        };
+        let name_key = room_name.to_lowercase();
+
         let mut updates: Vec<FieldUpdate<EventRoomEntityType>> = vec![FieldUpdate::set(
             &event_room::FIELD_ROOM_NAME,
             room_name.as_str(),
@@ -100,15 +108,18 @@ pub(super) fn read_rooms_into(
             updates.push(FieldUpdate::set(&event_room::FIELD_IS_PSEUDO, true));
         }
 
-        let room_id = match build_entity::<EventRoomEntityType>(schedule, uuid_pref, updates) {
-            Ok(id) => id,
-            Err(e) => {
-                eprintln!("xlsx import: skipping room {room_name:?}: {e}");
-                continue;
-            }
-        };
+        let room_id =
+            match find_or_create_entity::<EventRoomEntityType>(schedule, &name_key, updates) {
+                Ok(id) => id,
+                Err(e) => {
+                    eprintln!("xlsx import: skipping room {room_name:?}: {e}");
+                    continue;
+                }
+            };
+        let room_uuid = room_id.entity_uuid();
+        seen_rooms.insert(room_uuid);
         schedule.sidecar_mut().set_origin(
-            room_id.entity_uuid(),
+            room_uuid,
             EntityOrigin::Xlsx(XlsxSourceInfo {
                 file_path: ctx.file_path.map(str::to_owned),
                 sheet_name: range.sheet_name.clone(),
@@ -125,36 +136,37 @@ pub(super) fn read_rooms_into(
             &known_keys,
             &[],
             &std::collections::HashSet::new(),
-            room_id.entity_uuid(),
+            room_uuid,
             EventRoomEntityType::TYPE_NAME,
             schedule,
         );
 
         // Register under both room_name (lowercase) and long_name for lookup.
-        room_lookup.insert(room_name.to_lowercase(), room_id);
+        room_lookup.insert(name_key, room_id);
         if let Some(ref ln) = long_name {
             room_lookup.entry(ln.to_lowercase()).or_insert(room_id);
         }
 
         // Create / find HotelRoom and link it.
         if let Some(ref hr_name) = hotel_room_name {
-            let hr_id = if let Some(&existing) = hotel_lookup.get(&hr_name.to_lowercase()) {
+            let hr_key = hr_name.to_lowercase();
+            let hr_id = if let Some(&existing) = hotel_lookup.get(&hr_key) {
+                seen_hotel_rooms.insert(existing.entity_uuid());
                 existing
             } else {
-                let hr_uuid = UuidPreference::PreferFromV5 {
-                    name: hr_name.to_lowercase(),
-                };
-                match build_entity::<HotelRoomEntityType>(
+                match find_or_create_entity::<HotelRoomEntityType>(
                     schedule,
-                    hr_uuid,
+                    &hr_key,
                     vec![FieldUpdate::set(
                         &hotel_room::FIELD_HOTEL_ROOM_NAME,
                         hr_name.as_str(),
                     )],
                 ) {
                     Ok(id) => {
+                        let uuid = id.entity_uuid();
+                        seen_hotel_rooms.insert(uuid);
                         schedule.sidecar_mut().set_origin(
-                            id.entity_uuid(),
+                            uuid,
                             EntityOrigin::Xlsx(XlsxSourceInfo {
                                 file_path: ctx.file_path.map(str::to_owned),
                                 sheet_name: range.sheet_name.clone(),
@@ -162,7 +174,7 @@ pub(super) fn read_rooms_into(
                                 import_time: ctx.import_time,
                             }),
                         );
-                        hotel_lookup.insert(hr_name.to_lowercase(), id);
+                        hotel_lookup.insert(hr_key, id);
                         id
                     }
                     Err(e) => {
@@ -171,9 +183,17 @@ pub(super) fn read_rooms_into(
                     }
                 }
             };
-            let _ = schedule.edge_add(room_id, event_room::EDGE_HOTEL_ROOMS, [hr_id]);
+            // Replace the hotel room link (edge_set replaces, edge_add would duplicate).
+            let _ = schedule.edge_set(room_id, event_room::EDGE_HOTEL_ROOMS, [hr_id]);
+        } else {
+            // No hotel room in this row — clear any existing hotel room link.
+            let _ = schedule.edge_set(
+                room_id,
+                event_room::EDGE_HOTEL_ROOMS,
+                std::iter::empty::<EventRoomId>(),
+            );
         }
     }
 
-    Ok(room_lookup)
+    Ok((room_lookup, seen_rooms, seen_hotel_rooms))
 }

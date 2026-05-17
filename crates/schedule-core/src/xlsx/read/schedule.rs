@@ -6,21 +6,22 @@
 
 //! Reads the Schedule sheet → [`PanelEntityType`] entities + presenter edges.
 
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 
 use anyhow::Result;
 use chrono::{Duration, NaiveDateTime};
 use regex::Regex;
+use uuid::NonNilUuid;
 
-use crate::edit::builder::build_entity;
-use crate::entity::{EntityType, EntityUuid, UuidPreference};
+use crate::edit::builder::find_or_create_entity;
+use crate::entity::{EntityType, EntityUuid};
 use crate::field::set::FieldUpdate;
 use crate::schedule::Schedule;
 use crate::sidecar::{EntityOrigin, XlsxSourceInfo};
 use crate::tables::event_room::EventRoomId;
 use crate::tables::panel::{self, PanelEntityType, PanelId};
 use crate::tables::panel_type::PanelTypeId;
-use crate::tables::presenter::find_or_create_tagged_presenter;
+use crate::tables::presenter::{find_or_create_tagged_presenter, PresenterEntityType, PresenterId};
 use crate::tables::timeline::{self, TimelineEntityType, TimelineId};
 use crate::value::time::{parse_datetime, parse_duration};
 use crate::value::uniq_id::PanelUniqId;
@@ -33,13 +34,20 @@ use super::{
 };
 
 /// Read the Schedule sheet and create Panel entities with all relationships.
+///
+/// Returns:
+/// - the set of Panel/Timeline UUIDs seen (for soft-delete of removed entries).
+/// - the set of Presenter UUIDs seen in presenter columns (to be unioned with
+///   People-sheet seen set for the final soft-delete pass).
 pub(super) fn read_schedule_into(
     ctx: &mut super::ImportContext<'_>,
     mode: &TableImportMode,
     schedule: &mut Schedule,
     room_lookup: &HashMap<String, EventRoomId>,
     panel_type_lookup: &HashMap<String, PanelTypeId>,
-) -> Result<()> {
+) -> Result<(HashSet<NonNilUuid>, HashSet<NonNilUuid>)> {
+    let mut seen_panels: HashSet<NonNilUuid> = HashSet::new();
+    let mut seen_presenters: HashSet<NonNilUuid> = HashSet::new();
     let first_sheet_name = ctx
         .book
         .get_sheet_collection()
@@ -65,16 +73,16 @@ pub(super) fn read_schedule_into(
                 r
             }
         }
-        None => return Ok(()),
+        None => return Ok((seen_panels, seen_presenters)),
     };
 
     let ws = match ctx.book.get_sheet_by_name(&range.sheet_name) {
         Some(ws) => ws,
-        None => return Ok(()),
+        None => return Ok((seen_panels, seen_presenters)),
     };
 
     if !range.has_data() {
-        return Ok(());
+        return Ok((seen_panels, seen_presenters));
     }
 
     let (raw_headers, canonical_headers, col_map) = build_column_map(ws, &range);
@@ -225,11 +233,9 @@ pub(super) fn read_schedule_into(
 
         // Determine Uniq ID string (synthesize row-based ID if missing).
         let code_str = uniq_id_str.unwrap_or_else(|| format!("XX{row:03}"));
+        let upsert_name = code_str.to_uppercase();
 
-        // Build Panel entity via field system.
-        let uuid_pref = UuidPreference::PreferFromV5 {
-            name: code_str.to_uppercase(),
-        };
+        // Upsert Panel entity via field system.
         let mut updates: Vec<FieldUpdate<PanelEntityType>> = vec![
             FieldUpdate::set(&crate::tables::panel::FIELD_CODE, code_str.as_str()),
             FieldUpdate::set(&crate::tables::panel::FIELD_NAME, name.as_str()),
@@ -339,10 +345,8 @@ pub(super) fn read_schedule_into(
             .unwrap_or(false);
 
         if is_timeline {
-            // Create Timeline entity instead of Panel entity
-            let uuid_pref_tl = UuidPreference::PreferFromV5 {
-                name: code_str.to_uppercase(),
-            };
+            // Upsert Timeline entity instead of Panel entity
+            let upsert_name = code_str.to_uppercase();
             let mut tl_updates: Vec<FieldUpdate<TimelineEntityType>> = vec![
                 FieldUpdate::set(&timeline::FIELD_CODE, code_str.as_str()),
                 FieldUpdate::set(&timeline::FIELD_NAME, name.as_str()),
@@ -357,14 +361,18 @@ pub(super) fn read_schedule_into(
                 tl_updates.push(FieldUpdate::set(&timeline::FIELD_TIME, st));
             }
 
-            let timeline_id: TimelineId =
-                match build_entity::<TimelineEntityType>(schedule, uuid_pref_tl, tl_updates) {
-                    Ok(id) => id,
-                    Err(e) => {
-                        eprintln!("xlsx import: skipping timeline {code_str:?}: {e}");
-                        continue;
-                    }
-                };
+            let timeline_id: TimelineId = match find_or_create_entity::<TimelineEntityType>(
+                schedule,
+                &upsert_name,
+                tl_updates,
+            ) {
+                Ok(id) => id,
+                Err(e) => {
+                    eprintln!("xlsx import: skipping timeline {code_str:?}: {e}");
+                    continue;
+                }
+            };
+            seen_panels.insert(timeline_id.entity_uuid());
             schedule.sidecar_mut().set_origin(
                 timeline_id.entity_uuid(),
                 EntityOrigin::Xlsx(XlsxSourceInfo {
@@ -375,25 +383,33 @@ pub(super) fn read_schedule_into(
                 }),
             );
 
-            // Wire panel type edge to timeline
+            // Replace panel type edge (set, not add, to handle changed type).
             if let Some(pt_id) = panel_type_id {
-                let _ = schedule.edge_add(timeline_id, timeline::EDGE_PANEL_TYPES, [pt_id]);
+                let _ = schedule.edge_set(timeline_id, timeline::EDGE_PANEL_TYPES, [pt_id]);
+            } else {
+                let _ = schedule.edge_set(
+                    timeline_id,
+                    timeline::EDGE_PANEL_TYPES,
+                    std::iter::empty::<TimelineId>(),
+                );
             }
 
             // Skip the rest of panel-specific processing for timelines
             continue;
         }
 
-        let panel_id: PanelId = match build_entity::<PanelEntityType>(schedule, uuid_pref, updates)
-        {
-            Ok(id) => id,
-            Err(e) => {
-                eprintln!("xlsx import: skipping panel {code_str:?}: {e}");
-                continue;
-            }
-        };
+        let panel_id: PanelId =
+            match find_or_create_entity::<PanelEntityType>(schedule, &upsert_name, updates) {
+                Ok(id) => id,
+                Err(e) => {
+                    eprintln!("xlsx import: skipping panel {code_str:?}: {e}");
+                    continue;
+                }
+            };
+        let panel_uuid = panel_id.entity_uuid();
+        seen_panels.insert(panel_uuid);
         schedule.sidecar_mut().set_origin(
-            panel_id.entity_uuid(),
+            panel_uuid,
             EntityOrigin::Xlsx(XlsxSourceInfo {
                 file_path: ctx.file_path.map(str::to_owned),
                 sheet_name: range.sheet_name.clone(),
@@ -420,44 +436,52 @@ pub(super) fn read_schedule_into(
             &known_keys,
             sc::FORMULA_COLUMNS,
             &presenter_headers,
-            panel_id.entity_uuid(),
+            panel_uuid,
             PanelEntityType::TYPE_NAME,
             schedule,
         );
 
-        // Wire edges.
-        if !room_ids.is_empty() {
-            let _ = schedule.edge_add(panel_id, panel::EDGE_EVENT_ROOMS, room_ids);
-        }
+        // Replace room and panel-type edges (set, not add, to reflect import authority).
+        let _ = schedule.edge_set(panel_id, panel::EDGE_EVENT_ROOMS, room_ids);
         if let Some(pt_id) = panel_type_id {
-            let _ = schedule.edge_add(panel_id, panel::EDGE_PANEL_TYPE, [pt_id]);
+            let _ = schedule.edge_set(panel_id, panel::EDGE_PANEL_TYPE, [pt_id]);
+        } else {
+            let _ = schedule.edge_set(
+                panel_id,
+                panel::EDGE_PANEL_TYPE,
+                std::iter::empty::<PanelId>(),
+            );
         }
 
         // Parse presenter columns for this row.
-        let (credited, uncredited) = collect_presenters(ws, row, &presenter_cols, schedule);
+        let (credited, uncredited, groups) = collect_presenters(ws, row, &presenter_cols, schedule);
 
-        // If hide_panelist is true, treat all presenters as uncredited
+        // Track all seen presenter and group IDs.
+        for id in credited
+            .iter()
+            .chain(uncredited.iter())
+            .chain(groups.iter())
+        {
+            seen_presenters.insert(id.entity_uuid());
+        }
+
+        // Replace all presenter edges — XLSX is authoritative for both credited
+        // and uncredited presenters.
         if hide_panelist {
-            let _ = schedule.edge_add(
+            let all: Vec<PresenterId> = credited.iter().chain(uncredited.iter()).copied().collect();
+            let _ = schedule.edge_set(
                 panel_id,
-                panel::EDGE_UNCREDITED_PRESENTERS,
-                credited
-                    .iter()
-                    .chain(uncredited.iter())
-                    .copied()
-                    .collect::<Vec<_>>(),
+                panel::EDGE_CREDITED_PRESENTERS,
+                std::iter::empty::<PresenterId>(),
             );
+            let _ = schedule.edge_set(panel_id, panel::EDGE_UNCREDITED_PRESENTERS, all);
         } else {
-            if !credited.is_empty() {
-                let _ = schedule.edge_add(panel_id, panel::EDGE_CREDITED_PRESENTERS, credited);
-            }
-            if !uncredited.is_empty() {
-                let _ = schedule.edge_add(panel_id, panel::EDGE_UNCREDITED_PRESENTERS, uncredited);
-            }
+            let _ = schedule.edge_set(panel_id, panel::EDGE_CREDITED_PRESENTERS, credited);
+            let _ = schedule.edge_set(panel_id, panel::EDGE_UNCREDITED_PRESENTERS, uncredited);
         }
     }
 
-    Ok(())
+    Ok((seen_panels, seen_presenters))
 }
 
 // ── Presenter collection ──────────────────────────────────────────────────────
@@ -470,9 +494,11 @@ fn collect_presenters(
 ) -> (
     Vec<crate::tables::presenter::PresenterId>,
     Vec<crate::tables::presenter::PresenterId>,
+    Vec<crate::tables::presenter::PresenterId>,
 ) {
     let mut credited = Vec::new();
     let mut uncredited = Vec::new();
+    let mut groups: Vec<PresenterId> = Vec::new();
 
     for pc in presenter_cols {
         let cell_str = match get_cell_str(ws, pc.col, row) {
@@ -498,73 +524,67 @@ fn collect_presenters(
                 (chunk, false)
             };
 
-            // Build the tagged string for find_or_create_tagged_presenter.
-            let tagged = match &pc.header {
+            // For Named columns the cell is a presence flag; look up by header name.
+            // For Other columns the cell value is the tagged name itself.
+            let (lookup, force_uncredited) = match &pc.header {
                 PresenterHeader::Named(header_name) => {
-                    // Cell value is a flag; the header carries the name+group info.
-                    // Check for uncredited flags before stripping.
                     let is_unlisted = chunk.eq_ignore_ascii_case("unlisted");
                     let is_uncredited_flag = chunk.eq_ignore_ascii_case("*");
-                    let tag = pc.rank.prefix_char();
-                    let input = format!("{tag}:{header_name}");
-                    if is_unlisted || is_uncredited_flag || is_uncredited {
-                        // Register presenter but mark uncredited.
-                        if let Ok(id) = find_or_create_tagged_presenter(schedule, &input) {
-                            if !uncredited.contains(&id) {
-                                uncredited.push(id);
-                            }
-                        }
+                    let mark_uncredited = is_unlisted || is_uncredited_flag || is_uncredited;
+                    if !mark_uncredited && name_part.is_empty() {
                         continue;
                     }
-                    // Non-empty cell means they are attending.
-                    if name_part.is_empty() {
-                        continue;
-                    }
-                    input
+                    (header_name.as_str(), mark_uncredited)
                 }
-                PresenterHeader::Other => {
-                    format!("{}:{}", pc.rank.prefix_char(), name_part)
+                PresenterHeader::Other => (name_part, is_uncredited),
+            };
+
+            let matched = match find_or_create_tagged_presenter(schedule, lookup) {
+                Ok(m) => m,
+                Err(e) => {
+                    eprintln!("xlsx import: skipping presenter {lookup:?}: {e}");
+                    continue;
                 }
             };
 
-            match find_or_create_tagged_presenter(schedule, &tagged) {
-                Ok(id) => {
-                    // Record the presenter's first schedule-sheet position as
-                    // the sort key if the People sheet didn't already set one.
-                    let uuid = id.entity_uuid();
-                    if schedule
-                        .sidecar()
-                        .get(uuid)
-                        .and_then(|e| e.xlsx_sort_key)
-                        .is_none()
-                    {
-                        schedule.sidecar_mut().get_or_insert(uuid).xlsx_sort_key =
-                            Some((pc.col, row));
-                    }
-                    if is_uncredited {
-                        if !uncredited.contains(&id) {
-                            uncredited.push(id);
-                        }
-                    } else if !credited.contains(&id) {
-                        credited.push(id);
-                    }
+            let id = matched.as_presenter();
+
+            // Apply the column's rank (upgrade only, never downgrade).
+            if let Some(d) = schedule.get_internal_mut::<PresenterEntityType>(id) {
+                if pc.rank.priority() < d.data.rank.priority() {
+                    d.data.rank = pc.rank.clone();
                 }
-                Err(e) => {
-                    eprintln!("xlsx import: skipping presenter {tagged:?}: {e}");
+            }
+
+            // Record the presenter's first schedule-sheet position as the sort key
+            // if the People sheet didn't already set one.
+            let uuid = id.entity_uuid();
+            if schedule
+                .sidecar()
+                .get(uuid)
+                .and_then(|e| e.xlsx_sort_key)
+                .is_none()
+            {
+                schedule.sidecar_mut().get_or_insert(uuid).xlsx_sort_key = Some((pc.col, row));
+            }
+
+            if force_uncredited {
+                if !uncredited.contains(&id) {
+                    uncredited.push(id);
+                }
+            } else if !credited.contains(&id) {
+                credited.push(id);
+            }
+
+            if let Some(gid) = matched.group_id() {
+                if !groups.contains(&gid) {
+                    groups.push(gid);
                 }
             }
         }
     }
 
-    // Fallback: generic Presenter/Presenters column (no presenter columns detected).
-    if credited.is_empty() && uncredited.is_empty() {
-        // This path is only reached when there were no PresenterColumn matches at all;
-        // in that case we would need access to the data HashMap. Since we restructured
-        // to pass `ws` and `row`, we skip the fallback here. Callers that need it
-        // should pre-process the row_data before invoking collect_presenters.
-    }
-
-    (credited, uncredited)
+    (credited, uncredited, groups)
 }
 
 // ── Timing helpers ────────────────────────────────────────────────────────────

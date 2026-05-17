@@ -1,6 +1,6 @@
 # Cosplay America Schedule - Work Item
 
-Updated on: Sat May 16 23:34:20 2026
+Updated on: Sun May 17 15:23:54 2026
 
 ## Completed
 
@@ -87,6 +87,9 @@ first-class entity fields, and decide how this interacts with CRDT merge.
 * [FEATURE-114] Add one grid-view reference sheet per day to the exported XLSX, mirroring the HTML schedule grid with merged cells for multi-slot and multi-room events.
 * [FEATURE-121] Expand cosam-viewer to open XLSX, binary `.cosam`, and CSV directory schedules, plus
 fetch widget JSON from a webpage URL.
+* [FEATURE-122] Replace all "import → new schedule" functions with "update existing schedule"
+variants; the old functions become thin wrappers that create a blank schedule
+and delegate.
 * [META-002] Phase tracker for project foundation and Cargo workspace setup.
 * [META-003] Phase tracker for the entity/field system and core schedule data model in schedule-core.
 * [META-004] Phase tracker for making an automerge CRDT document the authoritative storage
@@ -152,7 +155,7 @@ above panelists and groups.
 
 ## Summary of Open Items
 
-**Total open items:** 22
+**Total open items:** 24
 
 * **Meta / Project-Level**
   * [META-001] Meta work item tracking the full multi-phase redesign of the schedule system. (Blocked by [META-007], [META-008])
@@ -165,6 +168,12 @@ above panelists and groups.
 file, preserving formatting, formulas, extra columns, and non-standard content.
 
 * **Medium Priority**
+  * [BUGFIX-123] When re-importing an XLSX over an existing schedule, a presenter whose name
+differs only in case (e.g. `"camelcase"` → `"CamelCase"`) is matched correctly
+but the stored name is never updated to match the xlsx spelling.
+  * [BUGFIX-124] When re-importing an XLSX over an existing schedule, a presenter whose rank in
+the new xlsx is lower than the historically stored rank is not downgraded.
+The xlsx should be the source of truth on update.
   * [FEATURE-026] Support multiple convention years in a single schedule file for historical
 reference and jump-starting new conventions.
   * [FEATURE-113] Replace the `std::process::Command::new("typst")` subprocess calls in
@@ -202,6 +211,48 @@ to compile and pass against the current `RawEdgeMap` API.
 *No placeholders — all stubs have been promoted.*
 
 Use `perl scripts/work-item-update.pl --create <PREFIX>` to add new stubs.
+
+---
+
+## Open BUGFIX Items
+
+### [BUGFIX-123] BUGFIX-123: Update-mode import does not correct presenter name capitalisation
+
+**Status:** Open
+
+**Priority:** Medium
+
+**Summary:** When re-importing an XLSX over an existing schedule, a presenter whose name
+differs only in case (e.g. `"camelcase"` → `"CamelCase"`) is matched correctly
+but the stored name is never updated to match the xlsx spelling.
+
+**Description:** `find_or_create_presenter_by_name` uses a case-insensitive lookup (`eq_ignore_ascii_case`)
+to find an existing presenter, but on a hit it only potentially upgrades the rank —
+it does not update the stored `name` field.  As a result, if the existing schedule
+stores `"camelcase"` and the xlsx spells it `"CamelCase"`, the name stays wrong
+after an update import.
+
+---
+
+### [BUGFIX-124] BUGFIX-124: Update-mode import does not reset presenter rank to xlsx's highest
+
+**Status:** Open
+
+**Priority:** Medium
+
+**Summary:** When re-importing an XLSX over an existing schedule, a presenter whose rank in
+the new xlsx is lower than the historically stored rank is not downgraded.
+The xlsx should be the source of truth on update.
+
+**Description:** `find_or_create_presenter_by_name` never downgrades a presenter's rank — it only
+upgrades when the new rank has a lower priority number (higher rank).  This is
+correct for a single-pass import, but for an update import the xlsx is the
+authoritative source.  If the previous import had Alice as Guest and the new xlsx
+only lists her as Panelist, her rank should be reset to Panelist.
+
+The desired behaviour: after an update import, each presenter's rank equals the
+highest rank they appear with **in the new xlsx** (People sheet + all presenter
+columns), even if that is lower than what was stored before.
 
 ---
 
@@ -693,6 +744,8 @@ a `HashMap<NonNilUuid, HashMap<FieldId, Vec<FieldNodeId>>>` layout).
 [BUGFIX-076]: work-item/done/BUGFIX-076.md
 [BUGFIX-078]: work-item/done/BUGFIX-078.md
 [BUGFIX-086]: work-item/done/BUGFIX-086.md
+[BUGFIX-123]: work-item/medium/BUGFIX-123.md
+[BUGFIX-124]: work-item/medium/BUGFIX-124.md
 [CLI-030]: work-item/done/CLI-030.md
 [CLI-031]: work-item/done/CLI-031.md
 [CLI-090]: work-item/done/CLI-090.md
@@ -764,6 +817,7 @@ a `HashMap<NonNilUuid, HashMap<FieldId, Vec<FieldNodeId>>>` layout).
 [FEATURE-119]: work-item/low/FEATURE-119.md
 [FEATURE-120]: work-item/low/FEATURE-120.md
 [FEATURE-121]: work-item/done/FEATURE-121.md
+[FEATURE-122]: work-item/done/FEATURE-122.md
 [META-001]: work-item/meta/META-001.md
 [META-002]: work-item/done/META-002.md
 [META-003]: work-item/done/META-003.md

@@ -21,7 +21,7 @@ use schedule_core::tables::hotel_room::HotelRoomEntityType;
 use schedule_core::tables::panel::{self, PanelEntityType};
 use schedule_core::tables::panel_type::PanelTypeEntityType;
 use schedule_core::tables::presenter::{self as presenter, PresenterEntityType};
-use schedule_core::xlsx::{export_xlsx, import_xlsx, XlsxImportOptions};
+use schedule_core::xlsx::{export_xlsx, import_xlsx, update_schedule_from_xlsx, XlsxImportOptions};
 
 // ── Spreadsheet builder helpers ───────────────────────────────────────────────
 
@@ -522,6 +522,327 @@ fn test_import_people_rank_upgraded_by_schedule_presenter_column() {
     assert_eq!(
         janes[0].1.data.rank,
         schedule_core::tables::presenter::PresenterRank::Guest
+    );
+}
+
+// ── Update-mode integration tests ─────────────────────────────────────────────
+
+/// Build a minimal one-panel schedule xlsx and return its path.
+fn make_schedule_xlsx_one_panel(panel_id: &str, panel_name: &str) -> PathBuf {
+    let mut book = umya_spreadsheet::new_file();
+    let ws = book.get_sheet_mut(&0).unwrap();
+    ws.set_name("Schedule");
+    set_cell(ws, 1, 1, "Uniq ID");
+    set_cell(ws, 2, 1, "Name");
+    set_cell(ws, 1, 2, panel_id);
+    set_cell(ws, 2, 2, panel_name);
+    write_temp(book)
+}
+
+#[test]
+fn test_update_soft_deletes_panels_not_in_new_xlsx() {
+    // First import: two panels.
+    let path1 = {
+        let mut book = umya_spreadsheet::new_file();
+        let ws = book.get_sheet_mut(&0).unwrap();
+        ws.set_name("Schedule");
+        set_cell(ws, 1, 1, "Uniq ID");
+        set_cell(ws, 2, 1, "Name");
+        set_cell(ws, 1, 2, "GP001");
+        set_cell(ws, 2, 2, "Panel One");
+        set_cell(ws, 1, 3, "GP002");
+        set_cell(ws, 2, 3, "Panel Two");
+        write_temp(book)
+    };
+    let mut schedule = import_xlsx(&path1, &XlsxImportOptions::default()).unwrap();
+    cleanup(&path1);
+    assert_eq!(schedule.entity_count::<PanelEntityType>(), 2);
+
+    // Second import: only GP001.
+    let path2 = make_schedule_xlsx_one_panel("GP001", "Panel One");
+    update_schedule_from_xlsx(&mut schedule, &path2, &XlsxImportOptions::default()).unwrap();
+    cleanup(&path2);
+
+    // GP002 should be soft-deleted (not visible via iter_entities).
+    assert_eq!(schedule.entity_count::<PanelEntityType>(), 1);
+    let codes: Vec<_> = schedule
+        .iter_entities::<PanelEntityType>()
+        .map(|(_, d)| d.code.full_id().to_string())
+        .collect();
+    assert!(codes.contains(&"GP001".to_string()));
+    assert!(!codes.contains(&"GP002".to_string()));
+}
+
+#[test]
+fn test_update_soft_deletes_presenters_not_in_new_xlsx() {
+    // First import: People sheet with two presenters.
+    let path1 = {
+        let mut book = umya_spreadsheet::new_file();
+        {
+            let ws = book.new_sheet("People").unwrap();
+            set_cell(ws, 1, 1, "Person");
+            set_cell(ws, 1, 2, "Alice");
+            set_cell(ws, 1, 3, "Bob");
+        }
+        {
+            let ws = book.get_sheet_mut(&0).unwrap();
+            ws.set_name("Schedule");
+            set_cell(ws, 1, 1, "Name");
+        }
+        write_temp(book)
+    };
+    let mut schedule = import_xlsx(&path1, &XlsxImportOptions::default()).unwrap();
+    cleanup(&path1);
+    assert_eq!(schedule.entity_count::<PresenterEntityType>(), 2);
+
+    // Second import: only Alice in People.
+    let path2 = {
+        let mut book = umya_spreadsheet::new_file();
+        {
+            let ws = book.new_sheet("People").unwrap();
+            set_cell(ws, 1, 1, "Person");
+            set_cell(ws, 1, 2, "Alice");
+        }
+        {
+            let ws = book.get_sheet_mut(&0).unwrap();
+            ws.set_name("Schedule");
+            set_cell(ws, 1, 1, "Name");
+        }
+        write_temp(book)
+    };
+    update_schedule_from_xlsx(&mut schedule, &path2, &XlsxImportOptions::default()).unwrap();
+    cleanup(&path2);
+
+    assert_eq!(schedule.entity_count::<PresenterEntityType>(), 1);
+    let names: Vec<_> = schedule
+        .iter_entities::<PresenterEntityType>()
+        .map(|(_, d)| d.data.name.clone())
+        .collect();
+    assert!(names.contains(&"Alice".to_string()));
+    assert!(!names.contains(&"Bob".to_string()));
+}
+
+#[test]
+fn test_update_drops_presenter_edges_removed_from_panel() {
+    // First import: GP001 credits Alice and Bob.
+    let path1 = {
+        let mut book = umya_spreadsheet::new_file();
+        let ws = book.get_sheet_mut(&0).unwrap();
+        ws.set_name("Schedule");
+        set_cell(ws, 1, 1, "Uniq ID");
+        set_cell(ws, 2, 1, "Name");
+        set_cell(ws, 3, 1, "P:Other");
+        set_cell(ws, 1, 2, "GP001");
+        set_cell(ws, 2, 2, "A Panel");
+        set_cell(ws, 3, 2, "Alice, Bob");
+        write_temp(book)
+    };
+    let mut schedule = import_xlsx(&path1, &XlsxImportOptions::default()).unwrap();
+    cleanup(&path1);
+
+    let gp001_id = schedule
+        .iter_entities::<PanelEntityType>()
+        .find(|(_, d)| d.code.full_id() == "GP001")
+        .map(|(id, _)| id)
+        .unwrap();
+    let credited: Vec<_> =
+        schedule.connected_entities::<PresenterEntityType>(gp001_id, panel::EDGE_CREDITED_PRESENTERS);
+    assert_eq!(credited.len(), 2, "should have Alice and Bob initially");
+
+    // Second import: GP001 credits only Alice.
+    let path2 = {
+        let mut book = umya_spreadsheet::new_file();
+        let ws = book.get_sheet_mut(&0).unwrap();
+        ws.set_name("Schedule");
+        set_cell(ws, 1, 1, "Uniq ID");
+        set_cell(ws, 2, 1, "Name");
+        set_cell(ws, 3, 1, "P:Other");
+        set_cell(ws, 1, 2, "GP001");
+        set_cell(ws, 2, 2, "A Panel");
+        set_cell(ws, 3, 2, "Alice");
+        write_temp(book)
+    };
+    update_schedule_from_xlsx(&mut schedule, &path2, &XlsxImportOptions::default()).unwrap();
+    cleanup(&path2);
+
+    let gp001_id = schedule
+        .iter_entities::<PanelEntityType>()
+        .find(|(_, d)| d.code.full_id() == "GP001")
+        .map(|(id, _)| id)
+        .unwrap();
+    let credited: Vec<_> =
+        schedule.connected_entities::<PresenterEntityType>(gp001_id, panel::EDGE_CREDITED_PRESENTERS);
+    assert_eq!(credited.len(), 1, "only Alice should remain credited");
+    let name = schedule
+        .get_internal::<PresenterEntityType>(credited[0])
+        .map(|d| d.data.name.as_str());
+    assert_eq!(name, Some("Alice"));
+}
+
+#[test]
+fn test_update_presenter_rank_does_not_exceed_xlsx_highest() {
+    // First import: Alice as Guest (high rank).
+    let path1 = {
+        let mut book = umya_spreadsheet::new_file();
+        {
+            let ws = book.new_sheet("People").unwrap();
+            set_cell(ws, 1, 1, "Person");
+            set_cell(ws, 2, 1, "Classification");
+            set_cell(ws, 1, 2, "Alice");
+            set_cell(ws, 2, 2, "Guest");
+        }
+        {
+            let ws = book.get_sheet_mut(&0).unwrap();
+            ws.set_name("Schedule");
+            set_cell(ws, 1, 1, "Name");
+        }
+        write_temp(book)
+    };
+    let mut schedule = import_xlsx(&path1, &XlsxImportOptions::default()).unwrap();
+    cleanup(&path1);
+
+    let rank = schedule
+        .iter_entities::<PresenterEntityType>()
+        .find(|(_, d)| d.data.name == "Alice")
+        .map(|(_, d)| d.data.rank.clone())
+        .unwrap();
+    assert_eq!(rank, schedule_core::tables::presenter::PresenterRank::Guest);
+
+    // Second import: Alice only appears as Panelist — rank should update down.
+    let path2 = {
+        let mut book = umya_spreadsheet::new_file();
+        {
+            let ws = book.new_sheet("People").unwrap();
+            set_cell(ws, 1, 1, "Person");
+            set_cell(ws, 2, 1, "Classification");
+            set_cell(ws, 1, 2, "Alice");
+            set_cell(ws, 2, 2, "Panelist");
+        }
+        {
+            let ws = book.get_sheet_mut(&0).unwrap();
+            ws.set_name("Schedule");
+            set_cell(ws, 1, 1, "Name");
+        }
+        write_temp(book)
+    };
+    update_schedule_from_xlsx(&mut schedule, &path2, &XlsxImportOptions::default()).unwrap();
+    cleanup(&path2);
+
+    let rank = schedule
+        .iter_entities::<PresenterEntityType>()
+        .find(|(_, d)| d.data.name == "Alice")
+        .map(|(_, d)| d.data.rank.clone())
+        .unwrap();
+    // After update the xlsx is the source of truth; rank should be Panelist.
+    assert_eq!(rank, schedule_core::tables::presenter::PresenterRank::Panelist);
+}
+
+#[test]
+fn test_update_presenter_name_capitalization_corrected() {
+    // First import: presenter named "camelcase" (wrong case).
+    let path1 = {
+        let mut book = umya_spreadsheet::new_file();
+        {
+            let ws = book.new_sheet("People").unwrap();
+            set_cell(ws, 1, 1, "Person");
+            set_cell(ws, 1, 2, "camelcase");
+        }
+        {
+            let ws = book.get_sheet_mut(&0).unwrap();
+            ws.set_name("Schedule");
+            set_cell(ws, 1, 1, "Name");
+        }
+        write_temp(book)
+    };
+    let mut schedule = import_xlsx(&path1, &XlsxImportOptions::default()).unwrap();
+    cleanup(&path1);
+
+    assert!(
+        schedule
+            .iter_entities::<PresenterEntityType>()
+            .any(|(_, d)| d.data.name == "camelcase"),
+        "initial import should have 'camelcase'"
+    );
+
+    // Second import: correct capitalisation "CamelCase".
+    let path2 = {
+        let mut book = umya_spreadsheet::new_file();
+        {
+            let ws = book.new_sheet("People").unwrap();
+            set_cell(ws, 1, 1, "Person");
+            set_cell(ws, 1, 2, "CamelCase");
+        }
+        {
+            let ws = book.get_sheet_mut(&0).unwrap();
+            ws.set_name("Schedule");
+            set_cell(ws, 1, 1, "Name");
+        }
+        write_temp(book)
+    };
+    update_schedule_from_xlsx(&mut schedule, &path2, &XlsxImportOptions::default()).unwrap();
+    cleanup(&path2);
+
+    let names: Vec<_> = schedule
+        .iter_entities::<PresenterEntityType>()
+        .map(|(_, d)| d.data.name.clone())
+        .collect();
+    assert_eq!(names.len(), 1, "should still be exactly one presenter");
+    assert_eq!(names[0], "CamelCase", "name should be updated to correct case");
+}
+
+#[test]
+fn test_update_drops_group_membership_edge_when_absent() {
+    // First import: Alice=MyBand (Alice is a member of MyBand).
+    let path1 = {
+        let mut book = umya_spreadsheet::new_file();
+        let ws = book.get_sheet_mut(&0).unwrap();
+        ws.set_name("Schedule");
+        set_cell(ws, 1, 1, "Uniq ID");
+        set_cell(ws, 2, 1, "Name");
+        set_cell(ws, 3, 1, "P:Other");
+        set_cell(ws, 1, 2, "GP001");
+        set_cell(ws, 2, 2, "A Panel");
+        set_cell(ws, 3, 2, "Alice=MyBand");
+        write_temp(book)
+    };
+    let mut schedule = import_xlsx(&path1, &XlsxImportOptions::default()).unwrap();
+    cleanup(&path1);
+
+    let alice_id = schedule
+        .iter_entities::<PresenterEntityType>()
+        .find(|(_, d)| d.data.name == "Alice")
+        .map(|(id, _)| id)
+        .expect("Alice should exist after first import");
+    let groups: Vec<_> =
+        schedule.connected_entities::<PresenterEntityType>(alice_id, presenter::EDGE_GROUPS);
+    assert_eq!(groups.len(), 1, "Alice should be in MyBand after first import");
+
+    // Second import: Alice without the group membership.
+    let path2 = {
+        let mut book = umya_spreadsheet::new_file();
+        let ws = book.get_sheet_mut(&0).unwrap();
+        ws.set_name("Schedule");
+        set_cell(ws, 1, 1, "Uniq ID");
+        set_cell(ws, 2, 1, "Name");
+        set_cell(ws, 3, 1, "P:Other");
+        set_cell(ws, 1, 2, "GP001");
+        set_cell(ws, 2, 2, "A Panel");
+        set_cell(ws, 3, 2, "Alice");
+        write_temp(book)
+    };
+    update_schedule_from_xlsx(&mut schedule, &path2, &XlsxImportOptions::default()).unwrap();
+    cleanup(&path2);
+
+    let alice_id = schedule
+        .iter_entities::<PresenterEntityType>()
+        .find(|(_, d)| d.data.name == "Alice")
+        .map(|(id, _)| id)
+        .expect("Alice should still exist");
+    let groups: Vec<_> =
+        schedule.connected_entities::<PresenterEntityType>(alice_id, presenter::EDGE_GROUPS);
+    assert!(
+        groups.is_empty(),
+        "Alice's group membership should be cleared when absent from new xlsx"
     );
 }
 

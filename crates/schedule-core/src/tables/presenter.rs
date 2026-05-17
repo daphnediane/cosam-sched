@@ -15,7 +15,9 @@
 //! Groups and group membership are modeled as edges between presenters,
 //! accessed through `Schedule::edges_from` / `Schedule::edges_to`.
 //! Tagged credit-string resolution (`[Kind:]Name[=Group]`) is implemented
-//! by `find_tagged_presenter` and `find_or_create_tagged_presenter`.
+//! by `find_tagged_presenter` and `find_or_create_tagged_presenter`, both of
+//! which return a [`MatchedTagPresenter`] that carries the primary presenter ID
+//! and any associated group ID.
 
 use crate::accessor_field_properties;
 use crate::callback_field_properties;
@@ -381,6 +383,13 @@ impl crate::edit::builder::EntityBuildable for PresenterEntityType {
             data: PresenterCommonData::default(),
         }
     }
+
+    fn find_by_natural_key(
+        schedule: &crate::schedule::Schedule,
+        key: &str,
+    ) -> Option<EntityId<Self>> {
+        Self::find_by_name(schedule, key)
+    }
 }
 
 // ── Tagged presenter lookup functions ─────────────────────────────────────────
@@ -499,6 +508,46 @@ fn find_group_by_name(schedule: &crate::schedule::Schedule, name: &str) -> Optio
         .find_map(|(id, _)| is_group_entity(schedule, id).then_some(id))
 }
 
+/// The result of a tagged presenter lookup or creation.
+///
+/// Carries enough information for callers to track both the primary presenter and
+/// any associated group without a second lookup.
+#[derive(Debug, Clone, PartialEq)]
+pub enum MatchedTagPresenter {
+    /// A presenter who is a member of a named group (e.g. `"Alice=MyBand"`).
+    Member {
+        member: PresenterId,
+        group: PresenterId,
+    },
+    /// A group-only match (e.g. `"=MyBand"` or `"==MyBand"`).
+    GroupOnly(PresenterId),
+    /// An individual presenter with no group association.
+    Presenter(PresenterId),
+}
+
+impl MatchedTagPresenter {
+    /// Returns the primary presenter ID:
+    /// - `Member` → the member's ID
+    /// - `GroupOnly` → the group's ID
+    /// - `Presenter` → the presenter's ID
+    pub fn as_presenter(&self) -> PresenterId {
+        match self {
+            Self::Member { member, .. } => *member,
+            Self::GroupOnly(id) | Self::Presenter(id) => *id,
+        }
+    }
+
+    /// Returns the group ID when the match involves a group, or `None` for bare
+    /// presenters.  For `GroupOnly` the group ID equals `as_presenter()`.
+    pub fn group_id(&self) -> Option<PresenterId> {
+        match self {
+            Self::Member { group, .. } => Some(*group),
+            Self::GroupOnly(id) => Some(*id),
+            Self::Presenter(_) => None,
+        }
+    }
+}
+
 /// Find a presenter by tagged credit string; does not create entities.
 ///
 /// Does not handle UUID strings — callers should resolve UUIDs before calling
@@ -513,7 +562,7 @@ fn find_group_by_name(schedule: &crate::schedule::Schedule, name: &str) -> Optio
 pub fn find_tagged_presenter(
     schedule: &crate::schedule::Schedule,
     tagged: &str,
-) -> Option<PresenterId> {
+) -> Option<MatchedTagPresenter> {
     let tagged = tagged.trim();
     if tagged.is_empty() {
         return None;
@@ -521,42 +570,59 @@ pub fn find_tagged_presenter(
 
     let parsed = parse_tag(tagged);
 
-    let found_id = if parsed.is_group_only() {
+    if parsed.is_group_only() {
         let group_name = parsed
             .group_name
             .or((!parsed.name.is_empty()).then_some(parsed.name))?;
-        find_group_by_name(schedule, group_name)?
-    } else {
-        let id = PresenterEntityType::find_by_name(schedule, parsed.name)?;
-        // Verify group membership if a group suffix is given
-        if let Some(group_name) = parsed.group_name {
-            let in_group = schedule
-                .connected_field_nodes(id, EDGE_GROUPS)
-                .into_iter()
-                .map(|e| unsafe { PresenterId::new_unchecked(e.entity_uuid()) })
-                .any(|gid| {
-                    schedule
-                        .get_internal::<PresenterEntityType>(gid)
-                        .is_some_and(|d| d.data.name.eq_ignore_ascii_case(group_name))
-                });
-            if !in_group {
+        let group_id = find_group_by_name(schedule, group_name)?;
+        if let Some(ref req) = parsed.required_rank {
+            let found_priority = schedule
+                .get_internal::<PresenterEntityType>(group_id)
+                .map_or(u8::MAX, |d| d.data.rank.priority());
+            if found_priority > req.priority() {
                 return None;
             }
         }
-        id
+        return Some(MatchedTagPresenter::GroupOnly(group_id));
+    }
+
+    let id = PresenterEntityType::find_by_name(schedule, parsed.name)?;
+
+    // When a =Group suffix is given, verify membership and capture the group ID.
+    // If the suffix is given but the presenter isn't a member, return None.
+    let group_match: Option<PresenterId> = if let Some(group_name) = parsed.group_name {
+        Some(
+            schedule
+                .connected_field_nodes(id, EDGE_GROUPS)
+                .into_iter()
+                .map(|e| unsafe { PresenterId::new_unchecked(e.entity_uuid()) })
+                .find(|&gid| {
+                    schedule
+                        .get_internal::<PresenterEntityType>(gid)
+                        .is_some_and(|d| d.data.name.eq_ignore_ascii_case(group_name))
+                })?,
+        )
+    } else {
+        None
     };
 
     // Rank gate: found rank must be at least as high as required (lower priority number)
     if let Some(ref req) = parsed.required_rank {
         let found_priority = schedule
-            .get_internal::<PresenterEntityType>(found_id)
+            .get_internal::<PresenterEntityType>(id)
             .map_or(u8::MAX, |d| d.data.rank.priority());
         if found_priority > req.priority() {
             return None;
         }
     }
 
-    Some(found_id)
+    Some(match group_match {
+        Some(gid) => MatchedTagPresenter::Member {
+            member: id,
+            group: gid,
+        },
+        None => MatchedTagPresenter::Presenter(id),
+    })
 }
 
 /// Find or create a presenter by tagged credit string.
@@ -570,7 +636,7 @@ pub fn find_tagged_presenter(
 pub fn find_or_create_tagged_presenter(
     schedule: &mut crate::schedule::Schedule,
     tagged: &str,
-) -> Result<PresenterId, ConversionError> {
+) -> Result<MatchedTagPresenter, ConversionError> {
     let tagged = tagged.trim();
     if tagged.is_empty() {
         return Err(ConversionError::ParseError {
@@ -595,7 +661,7 @@ pub fn find_or_create_tagged_presenter(
                 d.data.subsumes_members = true;
             }
         }
-        return Ok(gid);
+        return Ok(MatchedTagPresenter::GroupOnly(gid));
     }
 
     let pres_id =
@@ -606,7 +672,7 @@ pub fn find_or_create_tagged_presenter(
         }
     }
 
-    if let Some(group_name) = parsed.group_name {
+    let group_id = if let Some(group_name) = parsed.group_name {
         let gid =
             find_or_create_presenter_by_name(schedule, group_name, parsed.required_rank.as_ref());
         if let Some(gd) = schedule.get_internal_mut::<PresenterEntityType>(gid) {
@@ -628,9 +694,18 @@ pub fn find_or_create_tagged_presenter(
                 .edge_add(pres_id, EDGE_GROUPS, std::iter::once(gid))
                 .expect("edge type validation failed");
         }
-    }
+        Some(gid)
+    } else {
+        None
+    };
 
-    Ok(pres_id)
+    Ok(match group_id {
+        Some(gid) => MatchedTagPresenter::Member {
+            member: pres_id,
+            group: gid,
+        },
+        None => MatchedTagPresenter::Presenter(pres_id),
+    })
 }
 
 /// Case-insensitive exact name lookup; creates with `effective_rank` if not found.
@@ -1356,8 +1431,11 @@ impl crate::query::lookup::EntityScannable for PresenterEntityType {
             MatchConsumed::Partial
         };
 
-        if let Some(id) = find_tagged_presenter(schedule, partial) {
-            return Ok(ScanResult(consumed, ScanFound::Entity(id)));
+        if let Some(matched) = find_tagged_presenter(schedule, partial) {
+            return Ok(ScanResult(
+                consumed,
+                ScanFound::Entity(matched.as_presenter()),
+            ));
         }
 
         match Self::can_create(full, partial) {
@@ -1396,11 +1474,11 @@ impl crate::query::lookup::EntityCreatable for PresenterEntityType {
         schedule: &mut crate::schedule::Schedule,
         s: &str,
     ) -> Result<EntityId<Self>, crate::query::lookup::LookupError> {
-        find_or_create_tagged_presenter(schedule, s).map_err(|e| {
-            crate::query::lookup::LookupError::CreateFailed {
+        find_or_create_tagged_presenter(schedule, s)
+            .map(|m| m.as_presenter())
+            .map_err(|e| crate::query::lookup::LookupError::CreateFailed {
                 message: e.to_string(),
-            }
-        })
+            })
     }
 }
 
@@ -1715,7 +1793,10 @@ mod tests {
     fn test_find_tagged_bare_name() {
         let id = make_id();
         let sched = schedule_with(id, make_internal());
-        assert_eq!(find_tagged_presenter(&sched, "Alice Example"), Some(id));
+        assert_eq!(
+            find_tagged_presenter(&sched, "Alice Example").map(|m| m.as_presenter()),
+            Some(id)
+        );
     }
 
     #[test]
@@ -1732,7 +1813,10 @@ mod tests {
         internal.data.rank = PresenterRank::Guest;
         let sched = schedule_with(id, internal);
         // G: = Guest rank required; Alice is Guest → match
-        assert_eq!(find_tagged_presenter(&sched, "G:Alice Example"), Some(id));
+        assert_eq!(
+            find_tagged_presenter(&sched, "G:Alice Example").map(|m| m.as_presenter()),
+            Some(id)
+        );
     }
 
     #[test]
@@ -1741,9 +1825,15 @@ mod tests {
         // Alice is Panelist (priority 4); G: requires Guest (priority 0) → reject
         let sched = schedule_with(id, make_internal()); // rank = Guest
                                                         // make_internal has rank=Guest, so G: passes
-        assert_eq!(find_tagged_presenter(&sched, "G:Alice Example"), Some(id));
+        assert_eq!(
+            find_tagged_presenter(&sched, "G:Alice Example").map(|m| m.as_presenter()),
+            Some(id)
+        );
         // F: requires FanPanelist (priority 5); Guest (0) < 5 → passes (Guest is higher rank)
-        assert_eq!(find_tagged_presenter(&sched, "F:Alice Example"), Some(id));
+        assert_eq!(
+            find_tagged_presenter(&sched, "F:Alice Example").map(|m| m.as_presenter()),
+            Some(id)
+        );
 
         // Create a FanPanelist — requesting G: (priority 0) should fail
         let mut sched2 = Schedule::default();
@@ -1763,8 +1853,14 @@ mod tests {
         group.data.is_explicit_group = true;
         sched.insert(group_id, group);
 
-        assert_eq!(find_tagged_presenter(&sched, "=MyBand"), Some(group_id));
-        assert_eq!(find_tagged_presenter(&sched, "==MyBand"), Some(group_id));
+        assert_eq!(
+            find_tagged_presenter(&sched, "=MyBand").map(|m| m.as_presenter()),
+            Some(group_id)
+        );
+        assert_eq!(
+            find_tagged_presenter(&sched, "==MyBand").map(|m| m.as_presenter()),
+            Some(group_id)
+        );
     }
 
     #[test]
@@ -1791,16 +1887,113 @@ mod tests {
             .expect("edge type validation failed");
 
         assert_eq!(
-            find_tagged_presenter(&sched, "Alice=MyBand"),
+            find_tagged_presenter(&sched, "Alice=MyBand").map(|m| m.as_presenter()),
             Some(alice_id)
         );
         assert_eq!(find_tagged_presenter(&sched, "Alice=OtherGroup"), None);
     }
 
     #[test]
+    fn test_find_tagged_member_variant_carries_group_id() {
+        let mut sched = Schedule::default();
+        let alice_id = make_id();
+        let group_id = make_id();
+        let mut alice = make_presenter("Alice", PresenterRank::Panelist);
+        alice.id = alice_id;
+        let mut group = make_presenter("MyBand", PresenterRank::Panelist);
+        group.id = group_id;
+        group.data.is_explicit_group = true;
+        sched.insert(alice_id, alice);
+        sched.insert(group_id, group);
+        sched
+            .edge_add(alice_id, EDGE_GROUPS, std::iter::once(group_id))
+            .expect("edge type validation failed");
+
+        let result = find_tagged_presenter(&sched, "Alice=MyBand");
+        assert_eq!(
+            result,
+            Some(MatchedTagPresenter::Member {
+                member: alice_id,
+                group: group_id
+            })
+        );
+        assert_eq!(result.as_ref().map(|m| m.group_id()), Some(Some(group_id)));
+    }
+
+    #[test]
+    fn test_find_tagged_group_only_variant() {
+        let mut sched = Schedule::default();
+        let group_id = make_id();
+        let mut group = make_presenter("MyBand", PresenterRank::Panelist);
+        group.id = group_id;
+        group.data.is_explicit_group = true;
+        sched.insert(group_id, group);
+
+        let result = find_tagged_presenter(&sched, "=MyBand");
+        assert_eq!(result, Some(MatchedTagPresenter::GroupOnly(group_id)));
+        assert_eq!(result.as_ref().map(|m| m.group_id()), Some(Some(group_id)));
+    }
+
+    #[test]
+    fn test_find_tagged_bare_presenter_variant() {
+        let id = make_id();
+        let sched = schedule_with(id, make_internal());
+
+        let result = find_tagged_presenter(&sched, "Alice Example");
+        assert_eq!(result, Some(MatchedTagPresenter::Presenter(id)));
+        assert_eq!(result.as_ref().map(|m| m.group_id()), Some(None));
+    }
+
+    #[test]
+    fn test_find_or_create_member_variant_carries_group_id() {
+        let mut sched = Schedule::default();
+        let result = find_or_create_tagged_presenter(&mut sched, "P:Alice=MyBand").unwrap();
+
+        let alice_id = result.as_presenter();
+        let group_id = result.group_id().expect("should have a group id");
+
+        assert_eq!(
+            result,
+            MatchedTagPresenter::Member {
+                member: alice_id,
+                group: group_id
+            }
+        );
+        let alice = sched.get_internal::<PresenterEntityType>(alice_id).unwrap();
+        assert_eq!(alice.data.name, "Alice");
+        let group = sched.get_internal::<PresenterEntityType>(group_id).unwrap();
+        assert_eq!(group.data.name, "MyBand");
+    }
+
+    #[test]
+    fn test_find_or_create_group_only_variant() {
+        let mut sched = Schedule::default();
+        let result = find_or_create_tagged_presenter(&mut sched, "==MyBand").unwrap();
+
+        let group_id = result.as_presenter();
+        assert_eq!(result, MatchedTagPresenter::GroupOnly(group_id));
+        assert_eq!(result.group_id(), Some(group_id));
+        let group = sched.get_internal::<PresenterEntityType>(group_id).unwrap();
+        assert_eq!(group.data.name, "MyBand");
+        assert!(group.data.is_explicit_group);
+    }
+
+    #[test]
+    fn test_find_or_create_presenter_variant_has_no_group() {
+        let mut sched = Schedule::default();
+        let result = find_or_create_tagged_presenter(&mut sched, "Alice").unwrap();
+
+        let id = result.as_presenter();
+        assert_eq!(result, MatchedTagPresenter::Presenter(id));
+        assert_eq!(result.group_id(), None);
+    }
+
+    #[test]
     fn test_find_or_create_bare_name_creates_panelist() {
         let mut sched = Schedule::default();
-        let id = find_or_create_tagged_presenter(&mut sched, "Jane Doe").unwrap();
+        let id = find_or_create_tagged_presenter(&mut sched, "Jane Doe")
+            .unwrap()
+            .as_presenter();
         let d = sched.get_internal::<PresenterEntityType>(id).unwrap();
         assert_eq!(d.data.name, "Jane Doe");
         assert_eq!(d.data.rank, PresenterRank::Panelist);
@@ -1810,8 +2003,12 @@ mod tests {
     #[test]
     fn test_find_or_create_idempotent() {
         let mut sched = Schedule::default();
-        let id1 = find_or_create_tagged_presenter(&mut sched, "Alice").unwrap();
-        let id2 = find_or_create_tagged_presenter(&mut sched, "Alice").unwrap();
+        let id1 = find_or_create_tagged_presenter(&mut sched, "Alice")
+            .unwrap()
+            .as_presenter();
+        let id2 = find_or_create_tagged_presenter(&mut sched, "Alice")
+            .unwrap()
+            .as_presenter();
         assert_eq!(id1, id2);
         assert_eq!(sched.entity_count::<PresenterEntityType>(), 1);
     }
@@ -1819,7 +2016,9 @@ mod tests {
     #[test]
     fn test_find_or_create_rank_upgrade() {
         let mut sched = Schedule::default();
-        let id = find_or_create_tagged_presenter(&mut sched, "P:Alice").unwrap();
+        let id = find_or_create_tagged_presenter(&mut sched, "P:Alice")
+            .unwrap()
+            .as_presenter();
         assert_eq!(
             sched
                 .get_internal::<PresenterEntityType>(id)
@@ -1843,7 +2042,9 @@ mod tests {
     #[test]
     fn test_find_or_create_no_downgrade() {
         let mut sched = Schedule::default();
-        let id = find_or_create_tagged_presenter(&mut sched, "G:Alice").unwrap();
+        let id = find_or_create_tagged_presenter(&mut sched, "G:Alice")
+            .unwrap()
+            .as_presenter();
         // F: = FanPanelist (priority 5 > 0) → no downgrade
         find_or_create_tagged_presenter(&mut sched, "F:Alice").unwrap();
         assert_eq!(
@@ -1869,7 +2070,9 @@ mod tests {
     #[test]
     fn test_find_or_create_group_membership() {
         let mut sched = Schedule::default();
-        let alice_id = find_or_create_tagged_presenter(&mut sched, "P:Alice=MyBand").unwrap();
+        let alice_id = find_or_create_tagged_presenter(&mut sched, "P:Alice=MyBand")
+            .unwrap()
+            .as_presenter();
         let alice = sched.get_internal::<PresenterEntityType>(alice_id).unwrap();
         assert_eq!(alice.data.name, "Alice");
         assert!(!alice.data.is_explicit_group);
@@ -1891,7 +2094,9 @@ mod tests {
     #[test]
     fn test_find_or_create_double_equals_sets_subsumes_members() {
         let mut sched = Schedule::default();
-        let alice_id = find_or_create_tagged_presenter(&mut sched, "P:Alice==MyBand").unwrap();
+        let alice_id = find_or_create_tagged_presenter(&mut sched, "P:Alice==MyBand")
+            .unwrap()
+            .as_presenter();
         let groups = sched
             .connected_field_nodes(alice_id, EDGE_GROUPS)
             .into_iter()
@@ -1906,7 +2111,9 @@ mod tests {
     #[test]
     fn test_find_or_create_less_than_sets_show_individually() {
         let mut sched = Schedule::default();
-        let alice_id = find_or_create_tagged_presenter(&mut sched, "P:<Alice=MyBand").unwrap();
+        let alice_id = find_or_create_tagged_presenter(&mut sched, "P:<Alice=MyBand")
+            .unwrap()
+            .as_presenter();
         let alice = sched.get_internal::<PresenterEntityType>(alice_id).unwrap();
         assert!(alice.data.show_individually);
     }
@@ -1914,7 +2121,9 @@ mod tests {
     #[test]
     fn test_find_or_create_group_only_form() {
         let mut sched = Schedule::default();
-        let gid = find_or_create_tagged_presenter(&mut sched, "P:==MyBand").unwrap();
+        let gid = find_or_create_tagged_presenter(&mut sched, "P:==MyBand")
+            .unwrap()
+            .as_presenter();
         let group = sched.get_internal::<PresenterEntityType>(gid).unwrap();
         assert_eq!(group.data.name, "MyBand");
         assert!(group.data.is_explicit_group);
@@ -1925,7 +2134,9 @@ mod tests {
     #[test]
     fn test_find_or_create_untagged_double_equals_group_only() {
         let mut sched = Schedule::default();
-        let gid = find_or_create_tagged_presenter(&mut sched, "==Troupe").unwrap();
+        let gid = find_or_create_tagged_presenter(&mut sched, "==Troupe")
+            .unwrap()
+            .as_presenter();
         let g = sched.get_internal::<PresenterEntityType>(gid).unwrap();
         assert_eq!(g.data.name, "Troupe");
         assert!(g.data.is_explicit_group);
@@ -1936,7 +2147,9 @@ mod tests {
     fn test_find_or_create_name_equals_group_is_group_only() {
         let mut sched = Schedule::default();
         // "Alice=Alice" — name == group → group-only, creates group
-        let gid = find_or_create_tagged_presenter(&mut sched, "Alice=Alice").unwrap();
+        let gid = find_or_create_tagged_presenter(&mut sched, "Alice=Alice")
+            .unwrap()
+            .as_presenter();
         let g = sched.get_internal::<PresenterEntityType>(gid).unwrap();
         assert!(
             g.data.is_explicit_group,
@@ -1955,7 +2168,9 @@ mod tests {
     fn test_lookup_single_finds_by_tagged() {
         use crate::query::lookup::lookup_single;
         let mut sched = Schedule::default();
-        let id = find_or_create_tagged_presenter(&mut sched, "G:Alice").unwrap();
+        let id = find_or_create_tagged_presenter(&mut sched, "G:Alice")
+            .unwrap()
+            .as_presenter();
         let found = lookup_single::<PresenterEntityType>(&sched, "Alice").unwrap();
         assert_eq!(found, id);
     }
@@ -1973,8 +2188,12 @@ mod tests {
     #[test]
     fn test_is_group_implicit_via_members_edge() {
         let mut sched = Schedule::default();
-        let group_id = find_or_create_tagged_presenter(&mut sched, "MyBand").unwrap();
-        let member_id = find_or_create_tagged_presenter(&mut sched, "Alice").unwrap();
+        let group_id = find_or_create_tagged_presenter(&mut sched, "MyBand")
+            .unwrap()
+            .as_presenter();
+        let member_id = find_or_create_tagged_presenter(&mut sched, "Alice")
+            .unwrap()
+            .as_presenter();
         // Manually add MyBand to Alice's group list
         sched
             .edge_add(member_id, EDGE_GROUPS, std::iter::once(group_id))
@@ -1997,7 +2216,10 @@ mod tests {
         // Now is_group_entity should return true via edges_to check
         assert!(is_group_entity(&sched, group_id));
         // And find_tagged for group-only should find it
-        assert_eq!(find_tagged_presenter(&sched, "=MyBand"), Some(group_id));
+        assert_eq!(
+            find_tagged_presenter(&sched, "=MyBand").map(|m| m.as_presenter()),
+            Some(group_id)
+        );
     }
 
     // ── EntityCreatable ──────────────────────────────────────────────────────

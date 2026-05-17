@@ -14,7 +14,7 @@ mod rooms;
 mod schedule;
 mod timeline;
 
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::fs::{self, File};
 use std::io::Read;
 use std::path::Path;
@@ -23,12 +23,18 @@ use anyhow::{Context, Result};
 use chrono::{DateTime, Utc};
 use umya_spreadsheet::structs::Worksheet;
 use umya_spreadsheet::Spreadsheet;
+use uuid::NonNilUuid;
 
-use crate::entity::{EntityType, EntityUuid};
+use crate::entity::{EntityId, EntityType, EntityUuid};
 use crate::field::set::FieldUpdate;
 use crate::schedule::Schedule;
 use crate::sidecar::SidecarFormulaField;
+use crate::tables::event_room::EventRoomEntityType;
+use crate::tables::hotel_room::HotelRoomEntityType;
+use crate::tables::panel::PanelEntityType;
+use crate::tables::panel_type::PanelTypeEntityType;
 use crate::tables::presenter::{self, PresenterEntityType};
+use crate::tables::timeline::TimelineEntityType;
 use crate::xlsx::columns::{FieldDef, FormulaColumnDef};
 
 pub use headers::canonical_header;
@@ -238,13 +244,15 @@ fn import_csv_to_sheet(book: &mut Spreadsheet, csv_path: &Path, sheet_name: &str
     Ok(())
 }
 
-// ── Public entry point ────────────────────────────────────────────────────────
+// ── Public entry points ───────────────────────────────────────────────────────
 
-/// Import an XLSX spreadsheet and return a populated [`Schedule`].
+/// Update an existing [`Schedule`] from an XLSX spreadsheet (or CSV directory).
 ///
-/// If `path` is a directory, it will be scanned for CSV/TXT files and imported
-/// as if they were sheets in an XLSX file. This allows using the same XLSX import
-/// logic with CSV files.
+/// This is the primary import function.  It merges data from the file into the
+/// schedule with upsert semantics — entities matched by their natural key
+/// (deterministic v5 UUID from code/name) are updated in place; new entities
+/// are created; entities that were present before the import but do not appear
+/// in the file are soft-deleted.
 ///
 /// Read order:
 /// 1. PanelTypes — so panel-type lookups work during schedule import.
@@ -257,60 +265,109 @@ fn import_csv_to_sheet(book: &mut Spreadsheet, csv_path: &Path, sheet_name: &str
 /// 6. Schedule — panels, timing, rooms, panel type, and presenter edges.
 ///    Timeline rows (is_timeline panel type) are skipped if Timeline sheet was processed.
 ///
-/// The returned `Schedule` is a clean slate — all entities and edges are
-/// freshly created.  No existing CRDT state is preserved or merged.
-/// See IDEA-080 for future merge-import support.
-pub fn import_xlsx(path: &Path, options: &XlsxImportOptions) -> Result<Schedule> {
+/// Soft-delete is only applied for entity types whose sheet was processed
+/// (not set to [`TableImportMode::Skip`]).
+pub fn update_schedule_from_xlsx(
+    schedule: &mut Schedule,
+    path: &Path,
+    options: &XlsxImportOptions,
+) -> Result<()> {
     let (mut book, csv_map) = if path.is_dir() {
-        // Directory mode: scan for CSV files and create empty spreadsheet
         let csv_map = CsvFileMap::from_directory(path)?;
         let book = umya_spreadsheet::new_file();
         (book, Some(csv_map))
     } else {
-        // File mode: read XLSX file
         let book = umya_spreadsheet::reader::xlsx::read(path)
             .with_context(|| format!("Failed to open {}", path.display()))?;
         (book, None)
     };
 
-    let mut schedule = Schedule::new();
     schedule.metadata.modified_at = resolve_source_modified(&book, path);
+
+    // Snapshot existing entity UUIDs before import so we can soft-delete removals.
+    let before_panel_types = collect_entity_uuids::<PanelTypeEntityType>(schedule);
+    let before_hotel_rooms = collect_entity_uuids::<HotelRoomEntityType>(schedule);
+    let before_rooms = collect_entity_uuids::<EventRoomEntityType>(schedule);
+    let before_presenters = collect_entity_uuids::<PresenterEntityType>(schedule);
+    let before_panels = collect_entity_uuids::<PanelEntityType>(schedule);
+    let before_timelines = collect_entity_uuids::<TimelineEntityType>(schedule);
 
     let file_path = path.to_str().map(str::to_owned);
     let import_time = chrono::Utc::now();
 
     let mut ctx = ImportContext::new(&mut book, file_path.as_deref(), import_time, &csv_map);
 
-    let panel_type_lookup =
-        panel_types::read_panel_types_into(&mut ctx, &options.panel_types, &mut schedule)?;
+    let (panel_type_lookup, seen_panel_types) =
+        panel_types::read_panel_types_into(&mut ctx, &options.panel_types, schedule)?;
 
-    // Read Hotels sheet first (optional) to populate HotelRoom entities.
-    let hotel_lookup =
-        hotel_rooms::read_hotel_rooms_into(&mut ctx, &options.hotel_rooms, &mut schedule)?;
+    let (hotel_lookup, seen_hotel_rooms_from_sheet) =
+        hotel_rooms::read_hotel_rooms_into(&mut ctx, &options.hotel_rooms, schedule)?;
 
-    let room_lookup =
-        rooms::read_rooms_into(&mut ctx, &options.rooms, &mut schedule, &hotel_lookup)?;
+    let (room_lookup, seen_rooms, seen_hotel_rooms_from_rooms) =
+        rooms::read_rooms_into(&mut ctx, &options.rooms, schedule, &hotel_lookup)?;
 
-    people::read_people_into(&mut ctx, &options.people, &mut schedule)?;
+    let seen_people = people::read_people_into(&mut ctx, &options.people, schedule)?;
 
-    // Read Timeline sheet (optional) to create Timeline entities separately.
-    timeline::read_timeline_into(
-        &mut ctx,
-        &options.timeline,
-        &mut schedule,
-        &panel_type_lookup,
-    )?;
+    let seen_timelines =
+        timeline::read_timeline_into(&mut ctx, &options.timeline, schedule, &panel_type_lookup)?;
 
-    schedule::read_schedule_into(
+    let (seen_panels, seen_presenters_from_schedule) = schedule::read_schedule_into(
         &mut ctx,
         &options.schedule,
-        &mut schedule,
+        schedule,
         &room_lookup,
         &panel_type_lookup,
     )?;
 
-    normalize_presenter_sort_indices(&mut schedule);
+    normalize_presenter_sort_indices(schedule);
 
+    // ── Soft-delete entities not seen in this import ──────────────────────────
+
+    if options.panel_types != TableImportMode::Skip {
+        soft_delete_unseen::<PanelTypeEntityType>(schedule, &before_panel_types, &seen_panel_types);
+    }
+
+    // Hotel rooms: combine seen from Hotels sheet and inline Rooms sheet.
+    let seen_hotel_rooms: HashSet<NonNilUuid> = seen_hotel_rooms_from_sheet
+        .union(&seen_hotel_rooms_from_rooms)
+        .copied()
+        .collect();
+    if options.hotel_rooms != TableImportMode::Skip || options.rooms != TableImportMode::Skip {
+        soft_delete_unseen::<HotelRoomEntityType>(schedule, &before_hotel_rooms, &seen_hotel_rooms);
+    }
+
+    if options.rooms != TableImportMode::Skip {
+        soft_delete_unseen::<EventRoomEntityType>(schedule, &before_rooms, &seen_rooms);
+    }
+
+    // Presenters: combine People sheet and Schedule sheet presenter columns.
+    if options.schedule != TableImportMode::Skip {
+        let seen_presenters: HashSet<NonNilUuid> = seen_people
+            .union(&seen_presenters_from_schedule)
+            .copied()
+            .collect();
+        soft_delete_unseen::<PresenterEntityType>(schedule, &before_presenters, &seen_presenters);
+    }
+
+    // Timelines: from the Timeline sheet AND timelines created via the Schedule sheet.
+    if options.timeline != TableImportMode::Skip || options.schedule != TableImportMode::Skip {
+        soft_delete_unseen::<TimelineEntityType>(schedule, &before_timelines, &seen_timelines);
+    }
+
+    if options.schedule != TableImportMode::Skip {
+        soft_delete_unseen::<PanelEntityType>(schedule, &before_panels, &seen_panels);
+    }
+
+    Ok(())
+}
+
+/// Import an XLSX spreadsheet (or CSV directory) and return a populated [`Schedule`].
+///
+/// Creates a blank schedule and delegates to [`update_schedule_from_xlsx`].
+/// For updating an existing schedule in place, call that function directly.
+pub fn import_xlsx(path: &Path, options: &XlsxImportOptions) -> Result<Schedule> {
+    let mut schedule = Schedule::new();
+    update_schedule_from_xlsx(&mut schedule, path, options)?;
     Ok(schedule)
 }
 
@@ -724,6 +781,31 @@ pub(super) fn route_extra_columns(
         } else if !display_value.is_empty() {
             // Plain value → CRDT __extra (shared, merged between users)
             let _ = schedule.write_extra_field(entity_type_name, entity_uuid, raw, &display_value);
+        }
+    }
+}
+
+// ── Soft-delete helpers ───────────────────────────────────────────────────────
+
+/// Collect all live entity UUIDs of type `E` from the schedule.
+pub(super) fn collect_entity_uuids<E: EntityType>(schedule: &Schedule) -> HashSet<NonNilUuid> {
+    schedule
+        .iter_entities::<E>()
+        .map(|(id, _)| id.entity_uuid())
+        .collect()
+}
+
+/// Soft-delete any entity of type `E` whose UUID was in `before` but not in `seen`.
+pub(super) fn soft_delete_unseen<E: EntityType>(
+    schedule: &mut Schedule,
+    before: &HashSet<NonNilUuid>,
+    seen: &HashSet<NonNilUuid>,
+) {
+    for &uuid in before {
+        if !seen.contains(&uuid) {
+            // SAFETY: uuid came from iter_entities at snapshot time.
+            let id = unsafe { EntityId::<E>::new_unchecked(uuid) };
+            schedule.remove_entity::<E>(id);
         }
     }
 }

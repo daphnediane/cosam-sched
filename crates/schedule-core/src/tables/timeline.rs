@@ -159,6 +159,20 @@ inventory::submit! {
     }
 }
 
+// ── Lookup helpers ───────────────────────────────────────────────────────────────
+
+impl TimelineEntityType {
+    /// Find a live timeline entry by its Uniq ID code (case-insensitive).
+    ///
+    /// Returns the first match; in well-formed data each code is unique.
+    pub fn find_by_code(schedule: &crate::schedule::Schedule, code: &str) -> Option<TimelineId> {
+        let upper = code.to_uppercase();
+        schedule
+            .iter_entities::<Self>()
+            .find_map(|(id, d)| (d.code.full_id().to_uppercase() == upper).then_some(id))
+    }
+}
+
 // ── EntityBuildable ─────────────────────────────────────────────────────────────
 
 impl crate::edit::builder::EntityBuildable for TimelineEntityType {
@@ -168,6 +182,13 @@ impl crate::edit::builder::EntityBuildable for TimelineEntityType {
             data: TimelineCommonData::default(),
             code: PanelUniqId::default(),
         }
+    }
+
+    fn find_by_natural_key(
+        schedule: &crate::schedule::Schedule,
+        key: &str,
+    ) -> Option<EntityId<Self>> {
+        Self::find_by_code(schedule, key)
     }
 }
 

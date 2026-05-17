@@ -174,6 +174,25 @@ impl crate::edit::builder::EntityBuildable for HotelRoomEntityType {
             data: HotelRoomCommonData::default(),
         }
     }
+
+    fn find_by_natural_key(
+        schedule: &crate::schedule::Schedule,
+        key: &str,
+    ) -> Option<EntityId<Self>> {
+        Self::find_by_name(schedule, key)
+    }
+}
+
+// ── Lookup helpers ───────────────────────────────────────────────────────────────
+
+impl HotelRoomEntityType {
+    /// Find a live hotel room by its name (case-insensitive).
+    pub fn find_by_name(schedule: &crate::schedule::Schedule, name: &str) -> Option<HotelRoomId> {
+        let lower = name.to_lowercase();
+        schedule
+            .iter_entities::<Self>()
+            .find_map(|(id, d)| (d.data.hotel_room_name.to_lowercase() == lower).then_some(id))
+    }
 }
 
 // ── EntityStringResolver implementation ─────────────────────────────────────────

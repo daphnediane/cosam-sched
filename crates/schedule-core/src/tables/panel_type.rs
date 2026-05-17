@@ -214,6 +214,28 @@ impl crate::edit::builder::EntityBuildable for PanelTypeEntityType {
             data: PanelTypeCommonData::default(),
         }
     }
+
+    fn find_by_natural_key(
+        schedule: &crate::schedule::Schedule,
+        key: &str,
+    ) -> Option<EntityId<Self>> {
+        Self::find_by_prefix(schedule, key)
+    }
+}
+
+// ── Lookup helpers ───────────────────────────────────────────────────────────────
+
+impl PanelTypeEntityType {
+    /// Find a live panel type by its uppercase prefix (e.g. `"GP"`).
+    pub fn find_by_prefix(
+        schedule: &crate::schedule::Schedule,
+        prefix: &str,
+    ) -> Option<PanelTypeId> {
+        let prefix_upper = prefix.to_uppercase();
+        schedule
+            .iter_entities::<Self>()
+            .find_map(|(id, d)| (d.data.prefix == prefix_upper).then_some(id))
+    }
 }
 
 // ── EntityStringResolver implementation ─────────────────────────────────────────
