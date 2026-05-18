@@ -1,6 +1,6 @@
 # Future Ideas and Design Notes
 
-Updated on: Mon May 11 18:36:31 2026
+Updated on: Sun May 17 20:34:57 2026
 
 Open design questions, unexplored alternatives, and deferred ideas.
 An IDEA item can be promoted to a work item by renaming it to another prefix
@@ -55,6 +55,37 @@ records extensions deferred from the initial implementation:
 **Description:** ### Current State
 
 `FieldDescriptor` has a `required: bool` field, and `FieldSet` tracks `required_fields()` — fields that must have values. Current tests enforce that `PanelType` fields like `prefix` and `panel_kind` are required.
+
+---
+
+### [IDEA-077] IDEA-077: List cardinality support for accessor_field_properties
+
+**Summary:** Implement add/remove operations for list cardinality fields in accessor_field_properties.
+
+**Description:** The accessor_field_properties macro currently sets add_fn and remove_fn to None for all fields, with a TODO comment to revisit if list cardinality support is implemented. This feature implements add/remove operations for accessor fields (computed fields that read/write to underlying storage) with list cardinality.
+
+Currently, add/remove operations are only supported for edge fields through the AddEdge/RemoveEdge variants. Supporting add/remove for accessor list fields would require:
+
+1. **Determine use cases**: Identify which accessor fields with list cardinality should support add/remove operations (e.g., adding to a list field vs. replacing the entire list)
+
+2. **Add new AddFn/RemoveFn variants**: Create new callback variants for accessor field add/remove operations, possibly:
+   * AddFn::BareList - for bare function add operations on lists
+   * AddFn::ScheduleList - for schedule-aware add operations on lists
+   * RemoveFn::BareList - for bare function remove operations on lists
+   * RemoveFn::ScheduleList - for schedule-aware remove operations on lists
+
+3. **Implement AddableField/RemovableField for FieldDescriptor**: The FieldDescriptor already implements these traits, but they would need to handle the new list-specific variants
+
+4. **Update conversion support**: The conversion layer (field_value_to_runtime_entity_ids and similar functions) may need updates to handle list add/remove operations for non-edge types. Currently these conversions are primarily designed for entity IDs in edge contexts.
+
+5. **Update accessor_field_properties macro**: Add logic to generate appropriate add_fn/remove_fn based on:
+   * Field cardinality (Single vs. List)
+   * Whether add/remove operations are desired for the field
+   * The type of callback needed (bare vs. schedule)
+
+6. **Update stored_output.rs**: Modify the macro to conditionally generate add_fn/remove_fn instead of always setting them to None
+
+7. **Testing**: Add comprehensive tests for add/remove operations on accessor list fields
 
 ---
 
@@ -134,6 +165,7 @@ Use `perl scripts/work-item-update.pl --create IDEA` to add new stubs.
 [IDEA-040]: work-item/idea/IDEA-040.md
 [IDEA-042]: work-item/done/IDEA-042.md
 [IDEA-044]: work-item/idea/IDEA-044.md
+[IDEA-077]: work-item/idea/IDEA-077.md
 [IDEA-080]: work-item/idea/IDEA-080.md
 [IDEA-101]: work-item/idea/IDEA-101.md
 [IDEA-109]: work-item/idea/IDEA-109.md

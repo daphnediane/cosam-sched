@@ -6,7 +6,7 @@ Add a dedicated `Hotels` sheet to the XLSX format for richer hotel-room metadata
 
 ## Status
 
-Open
+Completed
 
 ## Priority
 
@@ -27,13 +27,13 @@ Proposed columns:
 - Sort Key — optional integer for ordering
 - Long Name — optional display name
 
-Implementation notes:
+## Implementation notes:
 
-- Import: teach `read/rooms.rs` to look for a Hotels sheet and create `HotelRoomEntityType`
-  entities from it; the `Hotel Room` column in the Rooms sheet would still be accepted as a
-  fallback for files without the separate sheet.
-- Export: add `write_hotel_rooms_sheet()` in `xlsx/write/export.rs` alongside the existing
-  `write_rooms_sheet()`; suppress the `Hotel Room` column from the Rooms sheet when the
-  separate sheet is written.
-- The `EDGE_HOTEL_ROOMS` relationship in `event_room.rs` and `columns::room_map::HOTEL_ROOM`
-  are the key integration points.
+- Sheet name: "Hotel" (singular) - import also accepts "Hotel Rooms" and "HotelMap" as aliases
+- Columns: Hotel Room, Sort Key, Long Name (all three proposed columns implemented)
+- Import: `read/hotel_rooms.rs` reads the Hotel sheet and creates `HotelRoomEntityType` entities
+- Export: `write_hotel_rooms_sheet()` in `xlsx/write/export.rs` writes the Hotel sheet
+- The Hotel Room column in the Rooms sheet is still written (not suppressed as proposed)
+- `HotelRoomEntityType` entity in `tables/hotel_room.rs` with full field and edge support
+- `EDGE_HOTEL_ROOMS` relationship in `event_room.rs` and `HALF_EDGE_HOTEL_ROOMS` in `hotel_room.rs`
+- Column definitions in `xlsx/columns.rs::hotel_rooms` module

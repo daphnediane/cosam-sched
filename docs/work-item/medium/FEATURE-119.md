@@ -11,7 +11,7 @@ Open
 
 ## Priority
 
-Low
+Medium
 
 ## Description
 

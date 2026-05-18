@@ -1064,17 +1064,21 @@ sub is_closed_status ( $status ) {
 
 sub is_completed_status ( $status ) {
     $status = $status->{ status } if ref $status;
+    return 0 unless defined $status;
     $status = lc $status;
     return 0 if $STATUS_TO_OPEN{ $status };
-    return 1 if $STATUS_TO_DIR{ $status } eq $SUBDIR_STATUS_DONE;
+    my $dir = $STATUS_TO_DIR{ $status };
+    return 1 if defined $dir && $dir eq $SUBDIR_STATUS_DONE;
     return 0;
 } ## end sub is_completed_status
 
 sub is_rejected_status ( $status ) {
     $status = $status->{ status } if ref $status;
+    return 0 unless defined $status;
     $status = lc $status;
     return 0 if $STATUS_TO_OPEN{ $status };
-    return 1 if $STATUS_TO_DIR{ $status } eq $SUBDIR_STATUS_REJECTED;
+    my $dir = $STATUS_TO_DIR{ $status };
+    return 1 if defined $dir && $dir eq $SUBDIR_STATUS_REJECTED;
     return 0;
 } ## end sub is_rejected_status
 

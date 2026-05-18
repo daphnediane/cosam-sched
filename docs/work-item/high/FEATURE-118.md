@@ -10,7 +10,7 @@ Open
 
 ## Priority
 
-Low
+High
 
 ## Description
 

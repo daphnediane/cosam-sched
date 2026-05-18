@@ -1,6 +1,6 @@
 # Cosplay America Schedule - Work Item
 
-Updated on: Sun May 17 17:34:12 2026
+Updated on: Sun May 17 20:48:13 2026
 
 ## Completed
 
@@ -85,12 +85,15 @@ cross-partition edge exclusivity declaratively.
 * [FEATURE-081] Implement a UUID-indexed sidecar structure to track where each entity came from (file, sheet, row) separate from the CRDT schedule document.
 * [FEATURE-082] Preserve unknown XLSX columns across import/export without encoding them as
 first-class entity fields, and decide how this interacts with CRDT merge.
+* [FEATURE-083] Add a dedicated `Hotels` sheet to the XLSX format for richer hotel-room metadata.
 * [FEATURE-103] Compare and document the field definitions between the current main branch, v9, v10-try1, and v10-try3 to identify gaps and ensure complete coverage.
 * [FEATURE-105] Improve the widget's browser print output so the grid view prints cleanly with proper column layout, hidden chrome, and expanded descriptions.
 * [FEATURE-106] New shared Rust crate providing layout engine, brand config, Typst codegen, and in-process PDF compilation for print output formats.
 * [FEATURE-107] New CLI binary that consumes `schedule.json` and `config/brand.toml` to produce Typst-compiled PDFs and/or `.typ` source files for all print layout formats.
 * [FEATURE-108] Add an `--export-layout <DIR>` flag to `cosam-convert` that runs a default set of `cosam-layout` outputs after the schedule JSON export.
 * [FEATURE-114] Add one grid-view reference sheet per day to the exported XLSX, mirroring the HTML schedule grid with merged cells for multi-slot and multi-room events.
+* [FEATURE-115] Separate Timeline Sheet in XLSX
+* [FEATURE-116] New Dioxus 0.7 viewer app that reads widget JSON and renders a UI similar to the JS widget.
 * [FEATURE-121] Expand cosam-viewer to open XLSX, binary `.cosam`, and CSV directory schedules, plus
 fetch widget JSON from a webpage URL.
 * [FEATURE-122] Replace all "import → new schedule" functions with "update existing schedule"
@@ -161,56 +164,53 @@ above panelists and groups.
 
 ## Summary of Open Items
 
-**Total open items:** 25
+**Total open items:** 22
 
 * **Meta / Project-Level**
   * [META-001] Meta work item tracking the full multi-phase redesign of the schedule system. (Blocked by [META-007], [META-008])
   * [META-007] Phase tracker for the cosam-editor desktop GUI application. (Blocked by [META-005])
   * [META-008] Phase tracker for peer-to-peer schedule synchronization and conflict resolution. (Blocked by [META-004])
   * [META-117] Tracker for all cosam-viewer work: initial viewer app and deferred enhancements.
+  * [META-128] Review and redesign the undo/redo system to ensure it integrates with all mutation paths and supports the intended checkpoint-based optimization for bulk operations.
 
 * **High Priority**
-  * [FEATURE-084] Implement `update_xlsx` to write schedule changes back into an existing XLSX
-file, preserving formatting, formulas, extra columns, and non-standard content.
+  * [FEATURE-118] ([META-117]) Add a CSS-grid schedule view to cosam-viewer mirroring the JS widget's grid mode.
 
 * **Medium Priority**
-  * [FEATURE-026] Support multiple convention years in a single schedule file for historical
-reference and jump-starting new conventions.
+  * [CLI-100] Add a `--interactive` flag to `cosam-modify` that opens a read-eval-print loop for
+entering commands one at a time.
   * [FEATURE-113] Replace the `std::process::Command::new("typst")` subprocess calls in
 `schedule-layout` and `cosam-convert` with in-process compilation using the
 `typst` Rust crate, eliminating the external `typst-cli` dependency.
-  * [FEATURE-115] Separate Timeline Sheet in XLSX
-  * [FEATURE-116] ([META-117]) New Dioxus 0.7 viewer app that reads widget JSON and renders a UI similar to the JS widget.
+  * [FEATURE-119] ([META-117]) Allow attendees to star/bookmark panels and view a personal schedule, mirroring
+the JS widget's named-schedule feature.
   * [FEATURE-126] Add update-mode (upsert + soft-delete) semantics to widget JSON import,
 analogous to what FEATURE-122 did for XLSX, with extra care to preserve
 schedule data that the lossy widget JSON format does not carry.
   * [FEATURE-127] Re-importing the same XLSX or widget JSON into an existing binary schedule
 should produce a byte-for-byte identical output when nothing in the source
 has changed.
+  * [REFACTOR-112] Update the `#[ignore]`d `set_neighbors` tests in `schedule-core/src/edge/map.rs`
+to compile and pass against the current `RawEdgeMap` API.
   * [REFACTOR-125] Move schedule, options, per-pass lookups, and PresenterImportCache into
 ImportContext; convert reader free functions to methods on ImportContext.
 
 * **Low Priority**
-  * [CLI-100] Add a `--interactive` flag to `cosam-modify` that opens a read-eval-print loop for
-entering commands one at a time.
   * [EDITOR-033] ([META-007]) Implement the main schedule grid view and entity editing UI in cosam-editor.
   * [EDITOR-111] Extract the duplicated `schedule_data.rs` UI helper present in both
 `cosam-editor-gpui` and `cosam-editor-dioxus` into a new
 `crates/cosam-editor-shared` crate once the GUI framework is chosen.
+  * [FEATURE-026] Support multiple convention years in a single schedule file for historical
+reference and jump-starting new conventions.
   * [FEATURE-034] ([META-008]) Define and implement the protocol for synchronizing schedule data between peers.
   * [FEATURE-035] ([META-008]) Provide UI for reviewing and resolving merge conflicts after sync.
-  * [FEATURE-077] Implement add/remove operations for list cardinality fields in accessor_field_properties.
-  * [FEATURE-083] Add a dedicated `Hotels` sheet to the XLSX format for richer hotel-room metadata.
+  * [FEATURE-084] Implement `update_xlsx` to write schedule changes back into an existing XLSX
+file, preserving formatting, formulas, extra columns, and non-standard content.
   * [FEATURE-099] Serialize the `EditHistory` undo/redo stacks into the `.schedule` binary file so that
 undo/redo works across `cosam-modify` invocations.
   * [FEATURE-110] Add Adobe InDesign Markup Language (IDML) as an optional export format for schedule layouts.
-  * [FEATURE-118] ([META-117]) Add a CSS-grid schedule view to cosam-viewer mirroring the JS widget's grid mode.
-  * [FEATURE-119] ([META-117]) Allow attendees to star/bookmark panels and view a personal schedule, mirroring
-the JS widget's named-schedule feature.
   * [FEATURE-120] ([META-117]) Configure `dx` build targets for Android and iPadOS, including app metadata,
 icons, and CI/CD pipeline integration.
-  * [REFACTOR-112] Update the `#[ignore]`d `set_neighbors` tests in `schedule-core/src/edge/map.rs`
-to compile and pass against the current `RawEdgeMap` API.
 
 ---
 
@@ -228,7 +228,7 @@ Use `perl scripts/work-item-update.pl --create <PREFIX>` to add new stubs.
 
 **Status:** Open
 
-**Priority:** Low
+**Priority:** Medium
 
 **Summary:** Add a `--interactive` flag to `cosam-modify` that opens a read-eval-print loop for
 entering commands one at a time.
@@ -291,49 +291,19 @@ target without duplication.
 
 ## Open FEATURE Items
 
-### [FEATURE-084] FEATURE-084: XLSX Spreadsheet Update (In-Place Save)
+### [FEATURE-118] FEATURE-118: cosam-viewer — grid view (rooms × time slots)
 
 **Status:** Open
 
 **Priority:** High
 
-**Summary:** Implement `update_xlsx` to write schedule changes back into an existing XLSX
-file, preserving formatting, formulas, extra columns, and non-standard content.
+**Summary:** Add a CSS-grid schedule view to cosam-viewer mirroring the JS widget's grid mode.
 
-**Blocked By:** [FEATURE-029]
+**Part of:** [META-117]
 
-**Description:** `export_xlsx` (FEATURE-029) always writes a fresh workbook from scratch.
-`update_xlsx` would instead open the original file and patch only the rows that
-changed, preserving:
-
-* Cell formatting (colors, fonts, borders)
-* Formula cells the user has added (e.g., conditional-format helpers)
-* Extra non-standard columns (custom per-convention data)
-* Timestamp and Grid sheets
-* Non-imported sheets that we never touch
-
-This is the workflow convention staff actually uses: import once to seed the
-schedule database, then save back repeatedly as edits accumulate.
-
----
-
-### [FEATURE-026] Multi-Year Schedule Archive Support
-
-**Status:** Open
-
-**Priority:** Medium
-
-**Summary:** Support multiple convention years in a single schedule file for historical
-reference and jump-starting new conventions.
-
-**Blocked By:** [FEATURE-025]
-
-**Description:** A schedule archive contains multiple years of convention data in one file,
-enabling:
-
-* **Jump-start**: Copy entities from a prior year to pre-populate the next
-  convention (recurring panels, returning presenters, same rooms)
-* **Historical reference**: View past schedules alongside the current one
+**Description:** Implement a grid view in `apps/cosam-viewer` where columns are rooms and rows are
+time slots, with panels spanning multiple rows based on duration. Mirrors the
+`grid` view mode of the JS widget.
 
 ---
 
@@ -360,34 +330,20 @@ implementation.
 
 ---
 
-### [FEATURE-115] FEATURE-115: Separate Timeline Sheet in XLSX
+### [FEATURE-119] FEATURE-119: cosam-viewer — My Schedule bookmarking
 
 **Status:** Open
 
 **Priority:** Medium
 
-**Summary:** Separate Timeline Sheet in XLSX
-
-**Description:** Add a dedicated Timeline sheet to the XLSX format to separate timeline events from regular panels. This aligns with the new Timeline entity type and simplifies the data model.
-
----
-
-### [FEATURE-116] FEATURE-116: cosam-viewer — cross-platform schedule viewer app (Dioxus)
-
-**Status:** In progress
-
-**Priority:** Medium
-
-**Summary:** New Dioxus 0.7 viewer app that reads widget JSON and renders a UI similar to the JS widget.
+**Summary:** Allow attendees to star/bookmark panels and view a personal schedule, mirroring
+the JS widget's named-schedule feature.
 
 **Part of:** [META-117]
 
-**Description:** Create `apps/cosam-viewer/` as a new Dioxus 0.7 app that:
-
-* Reads the cosam widget JSON format (`docs/widget-json-format.md`) directly — no dependency on `schedule-core`
-* Targets macOS (desktop), iPadOS and Android (mobile) via Dioxus feature flags and `dx` build tooling
-* Mirrors the JS widget UX: day tabs, list view with time groups, filter panel (rooms + types +
-  search), panel detail overlay, 4 themes
+**Description:** Add panel bookmarking to cosam-viewer so users can build a personal schedule.
+On desktop, persist to a local file or app-data directory. On mobile, use
+platform storage. Optionally support URL-hash sharing (as in the JS widget).
 
 ---
 
@@ -436,6 +392,26 @@ including `modified_at` metadata.  Currently it is not, for several reasons:
 
 ---
 
+### [FEATURE-026] Multi-Year Schedule Archive Support
+
+**Status:** Open
+
+**Priority:** Low
+
+**Summary:** Support multiple convention years in a single schedule file for historical
+reference and jump-starting new conventions.
+
+**Blocked By:** [FEATURE-025]
+
+**Description:** A schedule archive contains multiple years of convention data in one file,
+enabling:
+
+* **Jump-start**: Copy entities from a prior year to pre-populate the next
+  convention (recurring panels, returning presenters, same rooms)
+* **Historical reference**: View past schedules alongside the current one
+
+---
+
 ### [FEATURE-034] Peer-to-Peer Schedule Sync Protocol
 
 **Status:** Open
@@ -467,72 +443,29 @@ override them.
 
 ---
 
-### [FEATURE-077] FEATURE-077: List cardinality support for accessor_field_properties
+### [FEATURE-084] FEATURE-084: XLSX Spreadsheet Update (In-Place Save)
 
 **Status:** Open
 
 **Priority:** Low
 
-**Summary:** Implement add/remove operations for list cardinality fields in accessor_field_properties.
+**Summary:** Implement `update_xlsx` to write schedule changes back into an existing XLSX
+file, preserving formatting, formulas, extra columns, and non-standard content.
 
-**Description:** The accessor_field_properties macro currently sets add_fn and remove_fn to None for all fields, with a TODO comment to revisit if list cardinality support is implemented. This feature implements add/remove operations for accessor fields (computed fields that read/write to underlying storage) with list cardinality.
+**Blocked By:** [FEATURE-029]
 
-Currently, add/remove operations are only supported for edge fields through the AddEdge/RemoveEdge variants. Supporting add/remove for accessor list fields would require:
+**Description:** `export_xlsx` (FEATURE-029) always writes a fresh workbook from scratch.
+`update_xlsx` would instead open the original file and patch only the rows that
+changed, preserving:
 
-1. **Determine use cases**: Identify which accessor fields with list cardinality should support add/remove operations (e.g., adding to a list field vs. replacing the entire list)
+* Cell formatting (colors, fonts, borders)
+* Formula cells the user has added (e.g., conditional-format helpers)
+* Extra non-standard columns (custom per-convention data)
+* Timestamp and Grid sheets
+* Non-imported sheets that we never touch
 
-2. **Add new AddFn/RemoveFn variants**: Create new callback variants for accessor field add/remove operations, possibly:
-   * AddFn::BareList - for bare function add operations on lists
-   * AddFn::ScheduleList - for schedule-aware add operations on lists
-   * RemoveFn::BareList - for bare function remove operations on lists
-   * RemoveFn::ScheduleList - for schedule-aware remove operations on lists
-
-3. **Implement AddableField/RemovableField for FieldDescriptor**: The FieldDescriptor already implements these traits, but they would need to handle the new list-specific variants
-
-4. **Update conversion support**: The conversion layer (field_value_to_runtime_entity_ids and similar functions) may need updates to handle list add/remove operations for non-edge types. Currently these conversions are primarily designed for entity IDs in edge contexts.
-
-5. **Update accessor_field_properties macro**: Add logic to generate appropriate add_fn/remove_fn based on:
-   * Field cardinality (Single vs. List)
-   * Whether add/remove operations are desired for the field
-   * The type of callback needed (bare vs. schedule)
-
-6. **Update stored_output.rs**: Modify the macro to conditionally generate add_fn/remove_fn instead of always setting them to None
-
-7. **Testing**: Add comprehensive tests for add/remove operations on accessor list fields
-
----
-
-### [FEATURE-083] FEATURE-083: Separate Hotel Room sheet in XLSX import/export
-
-**Status:** Open
-
-**Priority:** Low
-
-**Summary:** Add a dedicated `Hotels` sheet to the XLSX format for richer hotel-room metadata.
-
-**Description:** Currently hotel rooms are expressed as a single column (`Hotel Room`) in the Rooms sheet,
-limited to one hotel room name per event room. A dedicated `Hotels` sheet would allow richer
-metadata (sort key, long name, notes) and cleaner round-trips, mirroring how rooms and panel
-types already get their own sheets.
-
-Proposed sheet name: `Hotels` (with `Hotel Rooms` as a fallback alias).
-
-Proposed columns:
-
-* Hotel Room — canonical name (key for linking from the Rooms sheet)
-* Sort Key — optional integer for ordering
-* Long Name — optional display name
-
-Implementation notes:
-
-* Import: teach `read/rooms.rs` to look for a Hotels sheet and create `HotelRoomEntityType`
-  entities from it; the `Hotel Room` column in the Rooms sheet would still be accepted as a
-  fallback for files without the separate sheet.
-* Export: add `write_hotel_rooms_sheet()` in `xlsx/write/export.rs` alongside the existing
-  `write_rooms_sheet()`; suppress the `Hotel Room` column from the Rooms sheet when the
-  separate sheet is written.
-* The `EDGE_HOTEL_ROOMS` relationship in `event_room.rs` and `columns::room_map::HOTEL_ROOM`
-  are the key integration points.
+This is the workflow convention staff actually uses: import once to seed the
+schedule database, then save back repeatedly as edits accumulate.
 
 ---
 
@@ -574,39 +507,6 @@ Implementing cross-invocation undo requires:
 **Description:** Add IDML export as an optional output format in the schedule-layout crate. IDML is Adobe's XML-based format for InDesign documents, packaged as a ZIP archive containing XML files and assets. This would provide an alternative to the Typst/PDF workflow for users who need editable InDesign files or require InDesign-specific features.
 
 IDML is significantly more complex than the current Typst approach, requiring XML generation for multiple components (Stories, Spreads, MasterSpreads, Styles, Resources) and ZIP packaging. This feature should be implemented as an optional format behind a feature flag.
-
----
-
-### [FEATURE-118] FEATURE-118: cosam-viewer — grid view (rooms × time slots)
-
-**Status:** Open
-
-**Priority:** Low
-
-**Summary:** Add a CSS-grid schedule view to cosam-viewer mirroring the JS widget's grid mode.
-
-**Part of:** [META-117]
-
-**Description:** Implement a grid view in `apps/cosam-viewer` where columns are rooms and rows are
-time slots, with panels spanning multiple rows based on duration. Mirrors the
-`grid` view mode of the JS widget.
-
----
-
-### [FEATURE-119] FEATURE-119: cosam-viewer — My Schedule bookmarking
-
-**Status:** Open
-
-**Priority:** Low
-
-**Summary:** Allow attendees to star/bookmark panels and view a personal schedule, mirroring
-the JS widget's named-schedule feature.
-
-**Part of:** [META-117]
-
-**Description:** Add panel bookmarking to cosam-viewer so users can build a personal schedule.
-On desktop, persist to a local file or app-data directory. On mobile, use
-platform storage. Optionally support URL-hash sharing (as in the JS widget).
 
 ---
 
@@ -666,6 +566,18 @@ replacing the old `schedule-field`, `schedule-data`, and `schedule-macro` crates
 * META-006: Phase 5 — CLI Tools
 * META-007: Phase 6 — GUI Editor
 * META-008: Phase 7 — Sync & Multi-User
+
+---
+
+### [META-128] META-128: Undo/redo system design review
+
+**Status:** Open
+
+**Priority:** High
+
+**Summary:** Review and redesign the undo/redo system to ensure it integrates with all mutation paths and supports the intended checkpoint-based optimization for bulk operations.
+
+**Description:** The current undo/redo system has multiple architectural issues that prevent it from working as intended:
 
 ---
 
@@ -731,6 +643,23 @@ to exchange CRDT changes and reconcile concurrent edits to the same fields.
 
 ## Open REFACTOR Items
 
+### [REFACTOR-112] REFACTOR-112: Update ignored set_neighbors tests to current RawEdgeMap API
+
+**Status:** Open
+
+**Priority:** Medium
+
+**Summary:** Update the `#[ignore]`d `set_neighbors` tests in `schedule-core/src/edge/map.rs`
+to compile and pass against the current `RawEdgeMap` API.
+
+**Description:** The test `test_set_neighbors_replaces_and_patches_reverse` (and any related
+`set_neighbors` tests) in `crates/schedule-core/src/edge/map.rs` are marked
+`#[ignore]` with a TODO comment because they were written against an older API
+and no longer compile or reflect the current `RawEdgeMap` structure (which uses
+a `HashMap<NonNilUuid, HashMap<FieldId, Vec<FieldNodeId>>>` layout).
+
+---
+
 ### [REFACTOR-125] REFACTOR-125: Consolidate ImportContext to carry import state
 
 **Status:** In progress
@@ -764,23 +693,6 @@ This refactor:
 
 ---
 
-### [REFACTOR-112] REFACTOR-112: Update ignored set_neighbors tests to current RawEdgeMap API
-
-**Status:** Open
-
-**Priority:** Low
-
-**Summary:** Update the `#[ignore]`d `set_neighbors` tests in `schedule-core/src/edge/map.rs`
-to compile and pass against the current `RawEdgeMap` API.
-
-**Description:** The test `test_set_neighbors_replaces_and_patches_reverse` (and any related
-`set_neighbors` tests) in `crates/schedule-core/src/edge/map.rs` are marked
-`#[ignore]` with a TODO comment because they were written against an older API
-and no longer compile or reflect the current `RawEdgeMap` structure (which uses
-a `HashMap<NonNilUuid, HashMap<FieldId, Vec<FieldNodeId>>>` layout).
-
----
-
 ---
 
 [BUGFIX-072]: work-item/done/BUGFIX-072.md
@@ -801,7 +713,7 @@ a `HashMap<NonNilUuid, HashMap<FieldId, Vec<FieldNodeId>>>` layout).
 [CLI-096]: work-item/done/CLI-096.md
 [CLI-097]: work-item/done/CLI-097.md
 [CLI-098]: work-item/done/CLI-098.md
-[CLI-100]: work-item/low/CLI-100.md
+[CLI-100]: work-item/medium/CLI-100.md
 [EDITOR-032]: work-item/done/EDITOR-032.md
 [EDITOR-033]: work-item/low/EDITOR-033.md
 [EDITOR-111]: work-item/low/EDITOR-111.md
@@ -822,7 +734,7 @@ a `HashMap<NonNilUuid, HashMap<FieldId, Vec<FieldNodeId>>>` layout).
 [FEATURE-023]: work-item/done/FEATURE-023.md
 [FEATURE-024]: work-item/done/FEATURE-024.md
 [FEATURE-025]: work-item/done/FEATURE-025.md
-[FEATURE-026]: work-item/medium/FEATURE-026.md
+[FEATURE-026]: work-item/low/FEATURE-026.md
 [FEATURE-027]: work-item/done/FEATURE-027.md
 [FEATURE-028]: work-item/done/FEATURE-028.md
 [FEATURE-029]: work-item/done/FEATURE-029.md
@@ -840,12 +752,11 @@ a `HashMap<NonNilUuid, HashMap<FieldId, Vec<FieldNodeId>>>` layout).
 [FEATURE-069]: work-item/done/FEATURE-069.md
 [FEATURE-070]: work-item/done/FEATURE-070.md
 [FEATURE-071]: work-item/done/FEATURE-071.md
-[FEATURE-077]: work-item/low/FEATURE-077.md
 [FEATURE-079]: work-item/done/FEATURE-079.md
 [FEATURE-081]: work-item/done/FEATURE-081.md
 [FEATURE-082]: work-item/done/FEATURE-082.md
-[FEATURE-083]: work-item/low/FEATURE-083.md
-[FEATURE-084]: work-item/high/FEATURE-084.md
+[FEATURE-083]: work-item/done/FEATURE-083.md
+[FEATURE-084]: work-item/low/FEATURE-084.md
 [FEATURE-099]: work-item/low/FEATURE-099.md
 [FEATURE-103]: work-item/done/FEATURE-103.md
 [FEATURE-105]: work-item/done/FEATURE-105.md
@@ -855,10 +766,10 @@ a `HashMap<NonNilUuid, HashMap<FieldId, Vec<FieldNodeId>>>` layout).
 [FEATURE-110]: work-item/low/FEATURE-110.md
 [FEATURE-113]: work-item/medium/FEATURE-113.md
 [FEATURE-114]: work-item/done/FEATURE-114.md
-[FEATURE-115]: work-item/medium/FEATURE-115.md
-[FEATURE-116]: work-item/medium/FEATURE-116.md
-[FEATURE-118]: work-item/low/FEATURE-118.md
-[FEATURE-119]: work-item/low/FEATURE-119.md
+[FEATURE-115]: work-item/done/FEATURE-115.md
+[FEATURE-116]: work-item/done/FEATURE-116.md
+[FEATURE-118]: work-item/high/FEATURE-118.md
+[FEATURE-119]: work-item/medium/FEATURE-119.md
 [FEATURE-120]: work-item/low/FEATURE-120.md
 [FEATURE-121]: work-item/done/FEATURE-121.md
 [FEATURE-122]: work-item/done/FEATURE-122.md
@@ -875,6 +786,7 @@ a `HashMap<NonNilUuid, HashMap<FieldId, Vec<FieldNodeId>>>` layout).
 [META-048]: work-item/done/META-048.md
 [META-102]: work-item/done/META-102.md
 [META-117]: work-item/meta/META-117.md
+[META-128]: work-item/meta/META-128.md
 [REFACTOR-041]: work-item/done/REFACTOR-041.md
 [REFACTOR-047]: work-item/done/REFACTOR-047.md
 [REFACTOR-049]: work-item/done/REFACTOR-049.md
@@ -894,7 +806,7 @@ a `HashMap<NonNilUuid, HashMap<FieldId, Vec<FieldNodeId>>>` layout).
 [REFACTOR-074]: work-item/done/REFACTOR-074.md
 [REFACTOR-075]: work-item/done/REFACTOR-075.md
 [REFACTOR-104]: work-item/done/REFACTOR-104.md
-[REFACTOR-112]: work-item/low/REFACTOR-112.md
+[REFACTOR-112]: work-item/medium/REFACTOR-112.md
 [REFACTOR-125]: work-item/medium/REFACTOR-125.md
 [UI-085]: work-item/done/UI-085.md
 [UI-087]: work-item/done/UI-087.md

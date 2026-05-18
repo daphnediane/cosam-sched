@@ -11,7 +11,7 @@ Not Started
 
 ## Priority
 
-Medium
+Low
 
 ## Blocked By
 
