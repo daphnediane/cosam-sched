@@ -15,7 +15,7 @@ pub mod edge;
 pub mod entity;
 
 // Re-exports from submodules
-pub use crdt::{LoadError, ScheduleMetadata, FILE_FORMAT_VERSION, FILE_MAGIC};
+pub use crdt::{ChangeLogEntry, LoadError, ScheduleMetadata, FILE_FORMAT_VERSION, FILE_MAGIC};
 pub use edge::{
     add_edge, add_edge_helper_field, combine_full_edges, entity_ids_to_field_value,
     field_value_to_entity_ids, field_value_to_runtime_entity_ids,

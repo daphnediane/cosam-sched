@@ -13,6 +13,7 @@ use crate::entity::{registered_entity_types, EntityType, EntityUuid};
 use crate::field::NamedField;
 use crate::value::{FieldError, FieldValue};
 use crate::EntityId;
+use automerge::transaction::CommitOptions;
 use automerge::AutoCommit;
 use serde::{Deserialize, Serialize};
 use thiserror::Error;
@@ -50,6 +51,25 @@ pub const FILE_MAGIC: &[u8; 6] = b"COSAM\x00";
 
 /// Current native file format version.
 pub const FILE_FORMAT_VERSION: u16 = 1;
+
+// ── ChangeLogEntry ────────────────────────────────────────────────────────────
+
+/// Summary of a single CRDT commit returned by [`Schedule::change_log`].
+#[derive(Debug, Clone)]
+pub struct ChangeLogEntry {
+    /// First 8 hex characters of the change hash.
+    pub hash_short: String,
+    /// First 8 hex characters of the actor ID (identifies the writing process).
+    pub actor_short: String,
+    /// Unix timestamp in seconds as stored in the change.
+    /// `0` means the committer did not set a timestamp.
+    pub timestamp_secs: i64,
+    /// Number of CRDT operations in this change (`0` for marker commits).
+    pub ops: usize,
+    /// Commit message, if any.  Marker commits written by [`Schedule::commit_marker`]
+    /// always have a message; raw field-write commits generally do not.
+    pub message: Option<String>,
+}
 
 // ── ScheduleMetadata ──────────────────────────────────────────────────────────
 
@@ -267,6 +287,48 @@ impl Schedule {
             .get_changes(have_deps)
             .into_iter()
             .map(|c| c.raw_bytes().to_vec())
+            .collect()
+    }
+
+    /// Write an empty automerge commit with `message` and the current wall-clock
+    /// time as a human-readable bookmark in the change history.
+    ///
+    /// This is used by [`crate::xlsx::update_schedule_from_xlsx`] to record
+    /// which XLSX file was imported, making the history visible via
+    /// `cosam-modify log`.  The commit contains no data operations — it only
+    /// serves as a labelled milestone.
+    pub fn commit_marker(&mut self, message: &str) {
+        let now_secs = chrono::Utc::now().timestamp();
+        self.doc.empty_change(
+            CommitOptions::default()
+                .with_message(message)
+                .with_time(now_secs),
+        );
+    }
+
+    /// Return a summary of every CRDT commit in the document's history,
+    /// oldest first.
+    ///
+    /// Entries with `ops == 0` and a `message` are marker commits written by
+    /// [`Self::commit_marker`]; entries without a message are raw field-write
+    /// commits from import or edit operations.
+    pub fn change_log(&mut self) -> Vec<ChangeLogEntry> {
+        self.doc
+            .get_changes(&[])
+            .into_iter()
+            .map(|c| {
+                let hash_bytes = c.hash().0;
+                let hash_short = hash_bytes[..4].iter().map(|b| format!("{b:02x}")).collect();
+                let actor_full = c.actor_id().to_string();
+                let actor_short = actor_full.chars().take(8).collect();
+                ChangeLogEntry {
+                    hash_short,
+                    actor_short,
+                    timestamp_secs: c.timestamp(),
+                    ops: c.len(),
+                    message: c.message().cloned(),
+                }
+            })
             .collect()
     }
 

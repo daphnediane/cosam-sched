@@ -60,6 +60,7 @@ pub enum StageCommand {
     Undo,
     Redo,
     ShowHistory,
+    Log,
 }
 
 // ── Stage ─────────────────────────────────────────────────────────────────────
@@ -213,6 +214,7 @@ fn is_command_word(s: &str) -> bool {
             | "undo"
             | "redo"
             | "show-history"
+            | "log"
     )
 }
 
@@ -309,6 +311,10 @@ fn parse_stage(args: &[&str]) -> Result<Stage> {
             i += 1;
             StageCommand::ShowHistory
         }
+        "log" => {
+            i += 1;
+            StageCommand::Log
+        }
         other => bail!("Unknown command '{other}'"),
     };
 
@@ -365,6 +371,7 @@ COMMANDS:
     undo                    Undo the most recent edit (in-memory)
     redo                    Redo the most recently undone edit (in-memory)
     show-history            Show undo/redo stack depth
+    log                     Show CRDT commit history (import markers and edits)
 
 EXAMPLES:
     cosam-modify --file sched.cosam --select panel list

@@ -11,6 +11,7 @@ pub mod delete;
 pub mod edge;
 pub mod get;
 pub mod list;
+pub mod log;
 pub mod set;
 pub mod undo;
 
@@ -37,5 +38,6 @@ pub fn run_stage(ctx: &mut EditContext, stage: &Stage, format: &OutputFormat) ->
             undo::run_show_history(ctx, format);
             Ok(())
         }
+        StageCommand::Log => log::run(ctx, format),
     }
 }

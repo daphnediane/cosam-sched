@@ -577,10 +577,15 @@ pub fn update_schedule_from_xlsx(
     // Validate and finalize. If validation fails, restore from checkpoint.
     match finalize_result {
         Ok(()) => {
-            // Only advance modified_at when the document actually gained new
-            // commits — re-importing an identical source is a no-op.
+            // Only advance modified_at and write a history marker when the
+            // document actually gained new commits — re-importing an identical
+            // source is a no-op.
             if schedule.get_heads() != pre_import_heads {
                 schedule.metadata.modified_at = source_modified;
+                // Write a labelled bookmark so `cosam-modify log` can show
+                // which XLSX files were merged and when.
+                let label = path.file_name().and_then(|n| n.to_str()).unwrap_or("xlsx");
+                schedule.commit_marker(&format!("Import {label}"));
             }
             Ok(())
         }
