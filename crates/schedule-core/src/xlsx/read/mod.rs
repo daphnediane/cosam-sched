@@ -184,7 +184,11 @@ impl<'a> ImportContext<'a> {
     /// during it.
     ///
     /// Call after all `read_*` methods have completed.
-    pub(super) fn finalize(&mut self) {
+    ///
+    /// Returns an error if validation detects that entities were created during
+    /// import but not tracked in the seen_* sets. Note that the schedule may be
+    /// in a partially modified state when this error occurs.
+    pub(super) fn finalize(&mut self) -> Result<()> {
         // Assign monotonically increasing sort indices to presenters.
         normalize_presenter_sort_indices(self.schedule);
 
@@ -201,6 +205,46 @@ impl<'a> ImportContext<'a> {
             }
             let _ = PresenterEntityType::field_set().write_multiple(id, self.schedule, &updates);
         }
+
+        // Validate that all entities are properly tracked in before/seen sets.
+        // This detects bugs where entities are created during import but not
+        // added to the corresponding seen_* field.
+        validate_seen_tracking::<PanelTypeEntityType>(
+            self.schedule,
+            &self.before_panel_types,
+            &self.seen_panel_types,
+            "PanelType",
+        )?;
+        validate_seen_tracking::<HotelRoomEntityType>(
+            self.schedule,
+            &self.before_hotel_rooms,
+            &self.seen_hotel_rooms,
+            "HotelRoom",
+        )?;
+        validate_seen_tracking::<EventRoomEntityType>(
+            self.schedule,
+            &self.before_rooms,
+            &self.seen_rooms,
+            "EventRoom",
+        )?;
+        validate_seen_tracking::<PresenterEntityType>(
+            self.schedule,
+            &self.before_presenters,
+            &self.seen_presenters,
+            "Presenter",
+        )?;
+        validate_seen_tracking::<PanelEntityType>(
+            self.schedule,
+            &self.before_panels,
+            &self.seen_panels,
+            "Panel",
+        )?;
+        validate_seen_tracking::<TimelineEntityType>(
+            self.schedule,
+            &self.before_timelines,
+            &self.seen_timelines,
+            "Timeline",
+        )?;
 
         // Soft-delete entities not seen in this import.
         // Only soft-delete for entity types whose sheet was processed.
@@ -258,6 +302,8 @@ impl<'a> ImportContext<'a> {
                 &self.seen_panels,
             );
         }
+
+        Ok(())
     }
 }
 
@@ -483,6 +529,9 @@ pub fn update_schedule_from_xlsx(
     path: &Path,
     options: &XlsxImportOptions,
 ) -> Result<()> {
+    // Create a checkpoint before import so we can roll back on validation error.
+    let checkpoint = schedule.save();
+
     let (mut book, csv_map) = if path.is_dir() {
         let csv_map = CsvFileMap::from_directory(path)?;
         let book = umya_spreadsheet::new_file();
@@ -513,9 +562,18 @@ pub fn update_schedule_from_xlsx(
     ctx.read_people()?;
     ctx.read_timeline()?;
     ctx.read_schedule()?;
-    ctx.finalize();
 
-    Ok(())
+    // Validate and finalize. If validation fails, restore from checkpoint.
+    match ctx.finalize() {
+        Ok(()) => Ok(()),
+        Err(e) => {
+            // Roll back to checkpoint on validation error.
+            *schedule = Schedule::load(&checkpoint).with_context(|| {
+                "Failed to restore schedule from checkpoint after validation error"
+            })?;
+            Err(e)
+        }
+    }
 }
 
 /// Import an XLSX spreadsheet (or CSV directory) and return a populated [`Schedule`].
@@ -947,6 +1005,33 @@ pub(super) fn collect_entity_uuids<E: EntityType>(schedule: &Schedule) -> HashSe
         .iter_entities::<E>()
         .map(|(id, _)| id.entity_uuid())
         .collect()
+}
+
+/// Validate that all entities of type `E` are either in `before` or `seen`.
+///
+/// This detects bugs where entities are created during import but not tracked
+/// in the seen set. Every entity added during import should be added to the
+/// corresponding seen_* field.
+fn validate_seen_tracking<E: EntityType>(
+    schedule: &Schedule,
+    before: &HashSet<NonNilUuid>,
+    seen: &HashSet<NonNilUuid>,
+    type_name: &str,
+) -> Result<()> {
+    let current = collect_entity_uuids::<E>(schedule);
+    let before_or_seen: HashSet<_> = before.iter().chain(seen.iter()).cloned().collect();
+
+    for uuid in &current {
+        if !before_or_seen.contains(uuid) {
+            anyhow::bail!(
+                "Import bug: {} entity {} was created during import but not tracked in seen set. \
+                 Every entity added during import must be added to the corresponding seen_* field.",
+                type_name,
+                uuid
+            );
+        }
+    }
+    Ok(())
 }
 
 /// Soft-delete any entity of type `E` whose UUID was in `before` but not in `seen`.
