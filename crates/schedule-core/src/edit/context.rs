@@ -6,8 +6,10 @@
 
 //! [`EditContext`] facade for edit operations.
 
+use std::borrow::Cow;
+
 use crate::edit::command::{find_registration, EditCommand, EditError};
-use crate::edit::history::EditHistory;
+use crate::edit::history::{EditHistory, UndoEntry};
 use crate::entity::{DynamicEntityId, EntityUuid, RuntimeEntityId};
 use crate::schedule::Schedule;
 use crate::value::FieldValue;
@@ -19,11 +21,20 @@ use crate::value::FieldValue;
 /// All mutations to the schedule must go through this type so that every
 /// change is tracked and reversible.
 ///
+/// ## Undo/redo model
+///
+/// Each [`apply`](Self::apply) snapshots the CRDT document heads before and
+/// after the command and stores a [`UndoEntry`] containing the human-readable
+/// label, the pre-action heads (for `fork_at` on undo), and the raw change
+/// bytes (for `apply_changes` on redo).  This means every code path that
+/// touches the schedule through `EditContext` is automatically undoable,
+/// including bulk operations wrapped via [`run_checkpoint`](Self::run_checkpoint).
+///
 /// ## Dirty state
 ///
 /// [`EditContext`] tracks whether the schedule has unsaved changes via a
-/// simple counter: every successful [`apply`](Self::apply) increments it;
-/// [`mark_clean`](Self::mark_clean) resets it to zero.
+/// simple counter: every successful [`apply`](Self::apply) that produces CRDT
+/// changes increments it; [`mark_clean`](Self::mark_clean) resets it to zero.
 /// [`is_dirty`](Self::is_dirty) returns `true` when the counter is non-zero.
 #[derive(Debug)]
 pub struct EditContext {
@@ -92,27 +103,68 @@ impl EditContext {
         self.history.redo_depth()
     }
 
-    /// Execute a command, push its inverse onto the undo stack, and increment
-    /// the dirty counter.
+    /// Label of the next action that would be undone, if any.
     ///
-    /// On error the schedule is left in whatever state the partial execution
-    /// reached (commands that have already been applied are not rolled back).
-    /// The history is not modified on error.
-    pub fn apply(&mut self, cmd: EditCommand) -> Result<(), EditError> {
-        let inverse = cmd.execute(&mut self.schedule)?;
-        self.history.push_undo(inverse);
-        self.dirty_count += 1;
-        self.schedule.touch_modified();
+    /// Suitable for building "Undo <label>" menu items.
+    #[must_use]
+    pub fn undo_label(&self) -> Option<&str> {
+        self.history.undo_label()
+    }
+
+    /// Label of the next action that would be redone, if any.
+    ///
+    /// Suitable for building "Redo <label>" menu items.
+    #[must_use]
+    pub fn redo_label(&self) -> Option<&str> {
+        self.history.redo_label()
+    }
+
+    /// Execute a command and record an undo entry with the given label.
+    ///
+    /// The label appears in "Undo <label>" / "Redo <label>" menu items.  Pass
+    /// a `&'static str` for compile-time labels, or a `String` for dynamic
+    /// ones (e.g. `format!("Update {field_name}")`).
+    ///
+    /// If the command produces no CRDT changes (a no-op write), no undo entry
+    /// is pushed and the dirty counter is not incremented.
+    ///
+    /// On error the schedule may be in a partially-applied state; the history
+    /// is not modified.
+    pub fn apply(
+        &mut self,
+        cmd: EditCommand,
+        label: impl Into<Cow<'static, str>>,
+    ) -> Result<(), EditError> {
+        let pre_heads = self.schedule.get_heads();
+        cmd.execute(&mut self.schedule)?;
+        let changes = self.schedule.get_changes_since(&pre_heads);
+        if !changes.is_empty() {
+            self.history.clear_redo();
+            self.history.push_undo(UndoEntry {
+                label: label.into(),
+                pre_heads,
+                changes,
+            });
+            self.dirty_count += 1;
+            self.schedule.touch_modified();
+        }
         Ok(())
     }
 
     /// Undo the most recent operation.
     ///
+    /// Forks the CRDT document back to the pre-action state and rebuilds the
+    /// in-memory cache.
+    ///
     /// Returns [`EditError::NothingToUndo`] if the undo stack is empty.
     pub fn undo(&mut self) -> Result<(), EditError> {
-        let undo_cmd = self.history.pop_undo().ok_or(EditError::NothingToUndo)?;
-        let redo_cmd = undo_cmd.execute(&mut self.schedule)?;
-        self.history.push_redo(redo_cmd);
+        let entry = self.history.pop_undo().ok_or(EditError::NothingToUndo)?;
+        let forked = self
+            .schedule
+            .fork_at_heads(&entry.pre_heads)
+            .map_err(|e| EditError::UndoRedo(e.to_string()))?;
+        self.schedule = forked;
+        self.history.push_redo(entry);
         self.dirty_count = self.dirty_count.saturating_sub(1);
         self.schedule.touch_modified();
         Ok(())
@@ -120,13 +172,56 @@ impl EditContext {
 
     /// Redo the most recently undone operation.
     ///
+    /// Reapplies the saved CRDT changes and rebuilds the in-memory cache.
+    ///
     /// Returns [`EditError::NothingToRedo`] if the redo stack is empty.
     pub fn redo(&mut self) -> Result<(), EditError> {
-        let redo_cmd = self.history.pop_redo().ok_or(EditError::NothingToRedo)?;
-        let inverse = redo_cmd.execute(&mut self.schedule)?;
-        self.history.push_undo(inverse);
+        let entry = self.history.pop_redo().ok_or(EditError::NothingToRedo)?;
+        self.schedule
+            .apply_changes(&entry.changes)
+            .map_err(|e| EditError::UndoRedo(e.to_string()))?;
+        self.history.push_undo(entry);
         self.dirty_count += 1;
         self.schedule.touch_modified();
+        Ok(())
+    }
+
+    /// Run a closure against the underlying schedule as a single undoable
+    /// checkpoint.
+    ///
+    /// All CRDT changes produced inside `f` are grouped into one [`UndoEntry`]
+    /// with the given label, regardless of how many individual field writes
+    /// occur.  This is the intended entry point for bulk operations such as
+    /// XLSX import.
+    ///
+    /// If `f` returns an error, no undo entry is pushed.  The schedule may
+    /// still be in a modified state if the error occurred mid-operation; the
+    /// caller is responsible for any rollback (e.g. the XLSX import already
+    /// uses an internal save/load checkpoint for validation errors).
+    ///
+    /// If `f` produces no CRDT changes, no undo entry is pushed and the dirty
+    /// counter is not incremented.
+    pub fn run_checkpoint<F, E>(
+        &mut self,
+        label: impl Into<Cow<'static, str>>,
+        f: F,
+    ) -> Result<(), E>
+    where
+        F: FnOnce(&mut Schedule) -> Result<(), E>,
+    {
+        let pre_heads = self.schedule.get_heads();
+        f(&mut self.schedule)?;
+        let changes = self.schedule.get_changes_since(&pre_heads);
+        if !changes.is_empty() {
+            self.history.clear_redo();
+            self.history.push_undo(UndoEntry {
+                label: label.into(),
+                pre_heads,
+                changes,
+            });
+            self.dirty_count += 1;
+            self.schedule.touch_modified();
+        }
         Ok(())
     }
 
@@ -197,8 +292,7 @@ impl EditContext {
 
     /// Build an `AddToField` command to add items to an edge field.
     ///
-    /// This is a trivial constructor - no pre-read needed. The delta
-    /// (actually added items) is captured during execute.
+    /// This is a trivial constructor - no pre-read needed.
     pub fn add_to_field_cmd(
         &self,
         near: impl DynamicEntityId,
@@ -211,8 +305,7 @@ impl EditContext {
 
     /// Build a `RemoveFromField` command to remove items from an edge field.
     ///
-    /// This is a trivial constructor - no pre-read needed. The delta
-    /// (actually removed items) is captured during execute.
+    /// This is a trivial constructor - no pre-read needed.
     pub fn remove_from_field_cmd(
         &self,
         near: impl DynamicEntityId,

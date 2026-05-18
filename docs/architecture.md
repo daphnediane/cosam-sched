@@ -338,24 +338,28 @@ logic.
 
 ## Edit Command System
 
-`schedule-core::edit` provides a command-based mutation API with full undo/redo
-support. All mutations to the schedule must go through this module.
+`schedule-core::edit` provides a command-based mutation API with CRDT-heads-based
+undo/redo support. All mutations to the schedule must go through this module.
 
 ### `EditCommand`
 
-A `Clone`-able, data-only enum with five variants:
+A data-only enum with variants for each mutation type:
 
-| Variant        | Apply                        | Undo                      |
-| -------------- | ---------------------------- | ------------------------- |
-| `UpdateField`  | Write new value              | Write stored old value    |
-| `AddEntity`    | Build entity from field list | Remove entity             |
-| `RemoveEntity` | Remove entity                | Rebuild from snapshot     |
-| `MovePanel`    | Wraps a `BatchEdit`          | Inverse `BatchEdit`       |
-| `BatchEdit`    | Apply all inner commands     | Apply inverses in reverse |
+| Variant           | Apply                                     |
+| ----------------- | ----------------------------------------- |
+| `UpdateField`     | Write new value to a field                |
+| `AddEntity`       | Build entity from field list              |
+| `RemoveEntity`    | Soft-delete entity                        |
+| `MovePanel`       | Wraps a `BatchEdit` for time/room changes |
+| `BatchEdit`       | Apply all inner commands                  |
+| `AddToField`      | Add items to a list or edge field         |
+| `RemoveFromField` | Remove items from a list or edge field    |
 
 All variants store only `RuntimeEntityId`, `&'static str` field names, and
-`FieldValue` — no closures or `Box<dyn Any>`. This makes `EditCommand: Clone`
-and enables serialization for logging and CRDT broadcast.
+`FieldValue` — no closures or `Box<dyn Any>`. `EditCommand::execute(self, &mut Schedule)`
+returns `Result<(), EditError>` — no inverse is returned. Undo/redo is handled
+entirely at the `EditContext` level via CRDT heads. Each variant implements
+`label(&self) -> &'static str` for use as a default menu label.
 
 ### Field selection for `AddEntity` / `RemoveEntity`
 
@@ -369,23 +373,40 @@ included in entity snapshots. This correctly excludes:
 
 ### `RegisteredEntityType` fn pointers
 
-Five function pointers are added to `RegisteredEntityType` for dynamic
-dispatch in the edit system:
+Five function pointers on `RegisteredEntityType` support dynamic dispatch:
 
-| Field            | Purpose                                             |
-| ---------------- | --------------------------------------------------- |
-| `read_field_fn`  | Read a single field by name (captures old value)    |
-| `write_field_fn` | Write a single field by name (apply / undo)         |
-| `build_fn`       | Build entity from `(name, value)` pairs (redo/undo) |
-| `snapshot_fn`    | Snapshot all read+write fields before removal       |
-| `remove_fn`      | Remove entity and clear its edges                   |
-| `rehydrate_fn`   | Rebuild entity from CRDT document (load path)       |
+| Field            | Purpose                                                            |
+| ---------------- | ------------------------------------------------------------------ |
+| `read_field_fn`  | Read a single field by name (used by convenience constructors)     |
+| `write_field_fn` | Write a single field by name (apply path)                          |
+| `build_fn`       | Build entity from `(name, value)` pairs                            |
+| `snapshot_fn`    | Snapshot all read+write fields before removal                      |
+| `remove_fn`      | Remove entity and clear its edges                                  |
+| `rehydrate_fn`   | Rebuild entity from CRDT document (load path)                      |
+
+### `UndoEntry`
+
+```rust
+pub struct UndoEntry {
+    pub label: Cow<'static, str>,   // human-readable label for menu items
+    pub pre_heads: Vec<ChangeHash>, // CRDT heads before the change
+    pub changes: Vec<Vec<u8>>,      // raw automerge change bytes for redo
+}
+```
+
+**Undo**: `Schedule::fork_at_heads(pre_heads)` forks the document back to the
+pre-change heads and rebuilds the cache. This is local; peers see the original
+changes via normal CRDT sync.
+
+**Redo**: `schedule.apply_changes(&changes)` + cache rebuild.
 
 ### `EditHistory`
 
-Two `VecDeque<EditCommand>` stacks (undo / redo) with a configurable
-`max_depth` (default 100). `apply` drops the oldest entry when at capacity.
-`undo` / `redo` move the top entry between stacks.
+Two `VecDeque<UndoEntry>` stacks (undo / redo) with a configurable `max_depth`
+(default 100). `push_undo` does **not** clear the redo stack — clearing is done
+explicitly only from `apply()` and `run_checkpoint()`, which is required for
+multi-step redo sequences to work correctly. `undo_label()` / `redo_label()`
+return the label of the next entry, suitable for display in menu items.
 
 ### `EditContext`
 
@@ -393,19 +414,33 @@ Two `VecDeque<EditCommand>` stacks (undo / redo) with a configurable
 entry point for all schedule mutations:
 
 ```rust
-ctx.apply(cmd)           // execute + push inverse to undo stack
-ctx.undo()               // reverse most recent change
-ctx.redo()               // re-apply most recently undone change
+ctx.apply(cmd, label)         // execute command + push UndoEntry (snapshots pre/post heads)
+ctx.run_checkpoint(label, f)  // wrap any &mut Schedule closure as a single undoable step
+ctx.undo()                    // fork_at(pre_heads) + cache rebuild
+ctx.redo()                    // apply_changes(changes) + cache rebuild
+ctx.undo_label()              // label of next undoable action (for menu items)
+ctx.redo_label()              // label of next redoable action
 ctx.is_dirty() / ctx.mark_clean()  // dirty-state tracking for save prompts
 ```
 
-Convenience constructors (`update_field_cmd`, `remove_entity_cmd`,
-`move_panel_cmd`) capture old values automatically.
+`run_checkpoint` makes bulk operations (e.g. XLSX import) a single undoable step:
+
+```rust
+ctx.run_checkpoint("Import XLSX", |sched| {
+    update_schedule_from_xlsx(sched, path, options).map_err(Into::into)
+})?;
+```
+
+No-op detection is free: if `get_changes_since(pre_heads)` returns an empty slice,
+no `UndoEntry` is pushed and `dirty_count` is not incremented.
+
+Convenience constructors (`update_field_cmd`, `remove_entity_cmd`, `move_panel_cmd`)
+capture current field values automatically and pass them to `apply`.
 
 ### CRDT integration point
 
-`EditContext::apply` is the natural hook for CRDT operations: every executed command
-generates CRDT operations that are broadcast to peers for sync.
+Every `apply` or `run_checkpoint` call generates CRDT operations in the automerge
+document that are available for broadcast to peers for sync.
 
 ## Sidecar and Extra Fields
 

@@ -386,6 +386,69 @@ for any UUID not in the map (entities that have never been mutated this session)
 The tracker is not persisted; it exists only to let the XLSX update-in-place path and
 the editor UI know what has changed without a full diff.
 
+## Undo / Redo
+
+### Heads-Based Checkpoints
+
+Undo/redo is implemented via CRDT head snapshots rather than by storing inverse
+commands. Every mutation through `EditContext::apply` or `run_checkpoint` captures
+the document heads before and after the change and stores an `UndoEntry`:
+
+```rust
+pub struct UndoEntry {
+    pub label: Cow<'static, str>,   // human-readable label ("Import XLSX", "set name")
+    pub pre_heads: Vec<ChangeHash>, // document heads before the mutation
+    pub changes: Vec<Vec<u8>>,      // raw automerge change bytes introduced by the mutation
+}
+```
+
+**Undo** calls `Schedule::fork_at_heads(pre_heads)`, which forks the automerge
+document at those heads, then rebuilds the in-memory cache from scratch.
+`fork_at` is implemented as:
+
+```rust
+pub fn fork_at_heads(&mut self, heads: &[ChangeHash]) -> Result<Self, LoadError> {
+    let _ = self.doc.get_heads(); // flush any pending ops
+    let forked = self.doc.fork_at(heads)?;
+    // rebuild Schedule from forked doc
+}
+```
+
+**Redo** calls `schedule.apply_changes(&entry.changes)`, re-applying the saved
+change bytes, then rebuilds the cache.
+
+**No-op detection**: if `get_changes_since(pre_heads)` returns an empty slice
+(e.g. an idempotency guard suppressed all writes), no `UndoEntry` is pushed.
+
+### `run_checkpoint` for Bulk Operations
+
+`EditContext::run_checkpoint(label, f)` wraps any `&mut Schedule` closure as a
+single undoable step, regardless of how many individual field writes it makes:
+
+```rust
+ctx.run_checkpoint("Import XLSX", |sched| {
+    update_schedule_from_xlsx(sched, path, options).map_err(Into::into)
+})?;
+```
+
+This is the mechanism that makes an XLSX import — which may touch hundreds of
+entities — a single "Import XLSX" entry in the undo history.
+
+### Local Semantics
+
+`fork_at` is a **local** operation. It does not add new change nodes to the
+automerge DAG. When peers sync, they see the original pre-undo changes, not the
+undone state. Undo is therefore a local editing affordance, not a collaborative one.
+
+### Collaborative Undo (Future Work — IDEA-130)
+
+`EditContext` tracks `clean_heads` (set at save/sync time). An undo that crosses
+the sync horizon (i.e. `pre_heads` is an ancestor of `clean_heads`) could instead
+write **inverse changes** as new automerge ops using the `*_at()` read APIs to
+inspect the target snapshot and re-apply each field's prior value. Such inverse
+writes would propagate to peers via normal CRDT sync. See IDEA-130 for the full
+design, trade-offs (LWW replacement for list/text fields), and open questions.
+
 ## Cache Rehydration
 
 `Schedule::rebuild_cache_from_doc()` discards the in-memory cache and fully

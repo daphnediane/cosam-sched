@@ -17,20 +17,30 @@ Low
 
 - CLI-098: cosam-modify help text, exit codes, integration tests, polish
 - IDEA-101: decide what ScheduleMetadata.version is for
+- IDEA-130: Collaborative undo via inverse writes past sync horizon
 
 ## Description
 
 Currently `EditHistory` is in-memory only. A fresh invocation of `cosam-modify` always
 starts with empty undo/redo stacks even if the previous invocation made changes.
 
+With the heads-based undo/redo system (FEATURE-129), each `UndoEntry` stores only:
+
+- `label: Cow<'static, str>`
+- `pre_heads: Vec<ChangeHash>` (array of 32-byte hashes)
+- `changes: Vec<Vec<u8>>` (raw automerge change bytes already in the document)
+
+This is significantly simpler to serialize than the old `EditCommand` approach.
 Implementing cross-invocation undo requires:
 
-1. A serialization format for `EditCommand` (and thus `FieldValue`, `RuntimeEntityId`, etc.)
-2. A binary file format change — either bumping `FILE_FORMAT_VERSION` and adding an undo
-   section to the envelope, or storing the history inside the automerge document.
-3. Care that CRDT `apply_changes` / `merge` paths do not restore stale undo state from a
-   diverged replica.
-4. A maximum history depth limit for the on-disk representation.
+1. A serialization format for `UndoEntry` — CBOR or JSON for the label and head hashes;
+   the change bytes are already raw bytes.
+2. A binary file format change — bump `FILE_FORMAT_VERSION` and add a history section to
+   the envelope after the automerge document bytes.
+3. On load, validate that all `pre_heads` and change hashes still exist in the loaded
+   document; discard entries whose heads are no longer reachable (handles diverged replicas).
+4. A maximum history depth limit for the on-disk representation (default 100 already in
+   `EditHistory::DEFAULT_MAX_DEPTH`).
 
 ## Acceptance Criteria
 

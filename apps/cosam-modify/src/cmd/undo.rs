@@ -22,17 +22,31 @@ pub fn run_redo(ctx: &mut EditContext) -> Result<()> {
 pub fn run_show_history(ctx: &EditContext, format: &OutputFormat) {
     let undo = ctx.undo_depth();
     let redo = ctx.redo_depth();
+    let undo_label = ctx.undo_label().unwrap_or("");
+    let redo_label = ctx.redo_label().unwrap_or("");
     match format {
         OutputFormat::Text => {
-            println!("undo: {undo}");
-            println!("redo: {redo}");
+            if undo_label.is_empty() {
+                println!("undo: {undo}");
+            } else {
+                println!("undo: {undo} (next: {undo_label})");
+            }
+            if redo_label.is_empty() {
+                println!("redo: {redo}");
+            } else {
+                println!("redo: {redo} (next: {redo_label})");
+            }
         }
         OutputFormat::Json => {
-            println!(r#"{{"undo": {undo}, "redo": {redo}}}"#);
+            println!(
+                r#"{{"undo": {undo}, "undo_label": {undo_label:?}, "redo": {redo}, "redo_label": {redo_label:?}}}"#
+            );
         }
         OutputFormat::Toml => {
             println!("undo = {undo}");
+            println!("undo_label = {undo_label:?}");
             println!("redo = {redo}");
+            println!("redo_label = {redo_label:?}");
         }
     }
 }

@@ -35,6 +35,6 @@ pub fn run(ctx: &mut EditContext, stage: &Stage, query: &str) -> Result<()> {
 fn run_for_type<E: EntityType + EntityScannable>(ctx: &mut EditContext, query: &str) -> Result<()> {
     let id = lookup_single::<E>(ctx.schedule(), query)?;
     let cmd = ctx.remove_entity_cmd(RuntimeEntityId::from_dynamic(id))?;
-    ctx.apply(cmd)?;
+    ctx.apply(cmd, format!("delete {query}"))?;
     Ok(())
 }

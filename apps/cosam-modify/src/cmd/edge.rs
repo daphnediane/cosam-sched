@@ -119,7 +119,12 @@ fn run_edge_op<E: EntityType + EntityScannable>(
     } else {
         ctx.remove_from_field_cmd(near_id, full_edge, items)
     };
-    ctx.apply(cmd)?;
+    let label = if is_add {
+        format!("add {edge_field_name}")
+    } else {
+        format!("remove {edge_field_name}")
+    };
+    ctx.apply(cmd, label)?;
     Ok(())
 }
 

@@ -1,6 +1,6 @@
 # Future Ideas and Design Notes
 
-Updated on: Sun May 17 20:34:57 2026
+Updated on: Sun May 17 22:36:23 2026
 
 Open design questions, unexplored alternatives, and deferred ideas.
 An IDEA item can be promoted to a work item by renaming it to another prefix
@@ -124,6 +124,8 @@ call sites accordingly.
 increasing edit version counter" but the user says it is a file-format/schema version that
 should stay at `0`. There is a discrepancy between the comment and the intended use.
 
+---
+
 ### [IDEA-109] IDEA-109: Color science library for accessibility and contrast
 
 **Summary:** Color science library for accessibility and contrast
@@ -133,6 +135,24 @@ should stay at `0`. There is a discrepancy between the comment and the intended 
 print output. This works for the current use case but leaves several gaps:
 
 ---
+
+### [IDEA-130] IDEA-130: Collaborative undo via inverse writes past sync horizon
+
+**Summary:** When a local undo crosses the last save/sync point, write inverse changes as new
+automerge ops instead of using `fork_at`, so the undo propagates to peers on merge.
+
+**Description:** ### Background
+
+The current undo system (FEATURE-129) uses `Schedule::fork_at_heads(pre_heads)` to
+implement undo. This is a local document fork: the automerge DAG is not modified —
+instead a new `AutoCommit` is created that only knows the subset of changes up to
+`pre_heads`. Because no new changes are added to the DAG, peers never observe the undo
+when they merge.
+
+This is acceptable within a single editing session (the user undoes, then saves, and
+the saved file reflects the undone state), but it breaks down once a schedule has been
+shared: if Alice syncs her changes to Bob and then undoes, Bob will get Alice's original
+changes on the next merge, not the undone result.
 
 ---
 
@@ -169,3 +189,4 @@ Use `perl scripts/work-item-update.pl --create IDEA` to add new stubs.
 [IDEA-080]: work-item/idea/IDEA-080.md
 [IDEA-101]: work-item/idea/IDEA-101.md
 [IDEA-109]: work-item/idea/IDEA-109.md
+[IDEA-130]: work-item/idea/IDEA-130.md

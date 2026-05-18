@@ -32,6 +32,8 @@ This item tracks the remaining editing features needed for a usable editor.
 - [x] Can select panel and edit name field inline
 - [x] Changes go through the edit command system (`EditContext::update_field_cmd` + `apply`)
 - [x] Undo/redo works from the UI (clears selection and rebuilds list)
+- [ ] Undo/Redo menu items show label from `ctx.undo_label()` / `ctx.redo_label()`
+  (infrastructure available via FEATURE-129; menu items not yet wired)
 - [ ] List view scrolls correctly (panel cards compress to fit instead of scrolling — need `flex-shrink: 0` on `.panel-card`)
 
 ### Grid view

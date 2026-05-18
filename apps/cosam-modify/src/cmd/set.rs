@@ -58,13 +58,13 @@ fn run_for_type<E: EntityType + EntityScannable>(
 
     if ids.len() == 1 {
         let cmd = ctx.update_field_cmd(ids[0], static_name, new_value)?;
-        ctx.apply(cmd)?;
+        ctx.apply(cmd, format!("set {static_name}"))?;
     } else {
         let batch: Vec<EditCommand> = ids
             .iter()
             .map(|id| ctx.update_field_cmd(*id, static_name, new_value.clone()))
             .collect::<Result<_, _>>()?;
-        ctx.apply(EditCommand::BatchEdit(batch))?;
+        ctx.apply(EditCommand::BatchEdit(batch), format!("set {static_name}"))?;
     }
 
     Ok(())

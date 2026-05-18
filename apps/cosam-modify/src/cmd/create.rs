@@ -53,6 +53,6 @@ fn run_for_type<E: EntityType + EntityScannable>(
         entity: runtime_id,
         fields,
     };
-    ctx.apply(cmd)?;
+    ctx.apply(cmd, format!("create {}", E::TYPE_NAME))?;
     Ok(())
 }

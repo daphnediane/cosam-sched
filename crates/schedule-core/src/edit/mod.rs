@@ -35,4 +35,4 @@ pub mod history;
 // Re-exports from submodules
 pub use command::{add_entity_cmd, snapshot_entity, EditCommand, EditError};
 pub use context::EditContext;
-pub use history::EditHistory;
+pub use history::{EditHistory, UndoEntry};

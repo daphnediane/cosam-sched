@@ -1,6 +1,6 @@
 # Cosplay America Schedule - Work Item
 
-Updated on: Sun May 17 21:24:08 2026
+Updated on: Sun May 17 22:23:47 2026
 
 ## Completed
 
@@ -102,6 +102,7 @@ and delegate.
 * [FEATURE-127] Re-importing the same XLSX or widget JSON into an existing binary schedule
 should produce a byte-for-byte identical output when nothing in the source
 has changed.
+* [FEATURE-129] Replace EditCommand-returns-inverse undo/redo with CRDT heads checkpoints so that bulk operations (XLSX import) become a single undoable step with a user-visible label.
 * [META-002] Phase tracker for project foundation and Cargo workspace setup.
 * [META-003] Phase tracker for the entity/field system and core schedule data model in schedule-core.
 * [META-004] Phase tracker for making an automerge CRDT document the authoritative storage
@@ -113,6 +114,7 @@ XLSX import/export.
 enums, wire `FieldType` into `FieldDescriptor`, and implement the generic
 `FieldValueConverter` system from IDEA-038.
 * [META-102] Implement sidecar storage for provenance and extra metadata, and enable in-place XLSX updates.
+* [META-128] Review and redesign the undo/redo system to ensure it integrates with all mutation paths and supports the intended checkpoint-based optimization for bulk operations.
 * [REFACTOR-041] Replace the `EntityKind` enum with direct use of `EntityType::TYPE_NAME` strings,
 following the v10-try3 design. This eliminates the central enum that required
 modification for every new entity type.
@@ -167,14 +169,13 @@ above panelists and groups.
 
 ## Summary of Open Items
 
-**Total open items:** 21
+**Total open items:** 20
 
 * **Meta / Project-Level**
   * [META-001] Meta work item tracking the full multi-phase redesign of the schedule system. (Blocked by [META-007], [META-008])
   * [META-007] Phase tracker for the cosam-editor desktop GUI application. (Blocked by [META-005])
   * [META-008] Phase tracker for peer-to-peer schedule synchronization and conflict resolution. (Blocked by [META-004])
   * [META-117] Tracker for all cosam-viewer work: initial viewer app and deferred enhancements.
-  * [META-128] Review and redesign the undo/redo system to ensure it integrates with all mutation paths and supports the intended checkpoint-based optimization for bulk operations.
 
 * **High Priority**
   * [FEATURE-118] ([META-117]) Add a CSS-grid schedule view to cosam-viewer mirroring the JS widget's grid mode.
@@ -460,14 +461,23 @@ undo/redo works across `cosam-modify` invocations.
 **Description:** Currently `EditHistory` is in-memory only. A fresh invocation of `cosam-modify` always
 starts with empty undo/redo stacks even if the previous invocation made changes.
 
+With the heads-based undo/redo system (FEATURE-129), each `UndoEntry` stores only:
+
+* `label: Cow<'static, str>`
+* `pre_heads: Vec<ChangeHash>` (array of 32-byte hashes)
+* `changes: Vec<Vec<u8>>` (raw automerge change bytes already in the document)
+
+This is significantly simpler to serialize than the old `EditCommand` approach.
 Implementing cross-invocation undo requires:
 
-1. A serialization format for `EditCommand` (and thus `FieldValue`, `RuntimeEntityId`, etc.)
-2. A binary file format change — either bumping `FILE_FORMAT_VERSION` and adding an undo
-   section to the envelope, or storing the history inside the automerge document.
-3. Care that CRDT `apply_changes` / `merge` paths do not restore stale undo state from a
-   diverged replica.
-4. A maximum history depth limit for the on-disk representation.
+1. A serialization format for `UndoEntry` — CBOR or JSON for the label and head hashes;
+   the change bytes are already raw bytes.
+2. A binary file format change — bump `FILE_FORMAT_VERSION` and add a history section to
+   the envelope after the automerge document bytes.
+3. On load, validate that all `pre_heads` and change hashes still exist in the loaded
+   document; discard entries whose heads are no longer reachable (handles diverged replicas).
+4. A maximum history depth limit for the on-disk representation (default 100 already in
+   `EditHistory::DEFAULT_MAX_DEPTH`).
 
 ---
 
@@ -543,18 +553,6 @@ replacing the old `schedule-field`, `schedule-data`, and `schedule-macro` crates
 * META-006: Phase 5 — CLI Tools
 * META-007: Phase 6 — GUI Editor
 * META-008: Phase 7 — Sync & Multi-User
-
----
-
-### [META-128] META-128: Undo/redo system design review
-
-**Status:** Open
-
-**Priority:** High
-
-**Summary:** Review and redesign the undo/redo system to ensure it integrates with all mutation paths and supports the intended checkpoint-based optimization for bulk operations.
-
-**Description:** The current undo/redo system has multiple architectural issues that prevent it from working as intended:
 
 ---
 
@@ -752,6 +750,7 @@ This refactor:
 [FEATURE-122]: work-item/done/FEATURE-122.md
 [FEATURE-126]: work-item/medium/FEATURE-126.md
 [FEATURE-127]: work-item/done/FEATURE-127.md
+[FEATURE-129]: work-item/done/FEATURE-129.md
 [META-001]: work-item/meta/META-001.md
 [META-002]: work-item/done/META-002.md
 [META-003]: work-item/done/META-003.md
@@ -763,7 +762,7 @@ This refactor:
 [META-048]: work-item/done/META-048.md
 [META-102]: work-item/done/META-102.md
 [META-117]: work-item/meta/META-117.md
-[META-128]: work-item/meta/META-128.md
+[META-128]: work-item/done/META-128.md
 [REFACTOR-041]: work-item/done/REFACTOR-041.md
 [REFACTOR-047]: work-item/done/REFACTOR-047.md
 [REFACTOR-049]: work-item/done/REFACTOR-049.md

@@ -62,6 +62,10 @@ pub enum EditError {
     #[error("nothing to redo")]
     NothingToRedo,
 
+    /// An undo or redo CRDT operation failed.
+    #[error("undo/redo failed: {0}")]
+    UndoRedo(String),
+
     /// An edge add operation failed.
     #[error("edge add error on {near}: {source}")]
     EdgeAdd {
@@ -73,7 +77,7 @@ pub enum EditError {
 
 // ── EditCommand ───────────────────────────────────────────────────────────────
 
-/// A reversible mutation to a [`Schedule`].
+/// A mutation to a [`Schedule`].
 ///
 /// All variants store only data (IDs, field names, values); no closures or
 /// type-erased heap allocations.  This makes `EditCommand: Clone` and means
@@ -81,12 +85,12 @@ pub enum EditError {
 ///
 /// Construct commands via [`crate::edit::EditContext`] helper methods rather than directly,
 /// so that old values are captured automatically.
+///
+/// Undo/redo is handled at the [`crate::edit::EditContext`] level via CRDT heads
+/// checkpoints — commands no longer return their own inverse.
 #[derive(Debug, Clone)]
 pub enum EditCommand {
     /// Change a single field on an existing entity.
-    ///
-    /// `old_value` is the value read immediately before the write; it is used
-    /// to reverse the change on undo.
     UpdateField {
         entity: RuntimeEntityId,
         field: &'static str,
@@ -121,9 +125,6 @@ pub enum EditCommand {
     BatchEdit(Vec<EditCommand>),
 
     /// Add items to an edge field.
-    ///
-    /// The `items` field stores the requested items. After execute, the inverse
-    /// `RemoveFromField` stores the *actually added* delta.
     AddToField {
         near: RuntimeEntityId,
         edge: crate::edge::id::FullEdge,
@@ -131,9 +132,6 @@ pub enum EditCommand {
     },
 
     /// Remove items from an edge field.
-    ///
-    /// The `items` field stores the requested items. After execute, the inverse
-    /// `AddToField` stores the *actually removed* delta.
     RemoveFromField {
         near: RuntimeEntityId,
         edge: crate::edge::id::FullEdge,
@@ -142,28 +140,40 @@ pub enum EditCommand {
 }
 
 impl EditCommand {
-    /// Apply this command to the given schedule, returning its inverse.
-    pub fn execute(self, schedule: &mut Schedule) -> Result<EditCommand, EditError> {
+    /// A short human-readable label for this command, suitable for use in
+    /// "Undo <label>" / "Redo <label>" menu items when no explicit label is
+    /// provided to [`crate::edit::EditContext::apply`].
+    #[must_use]
+    pub fn label(&self) -> &'static str {
+        match self {
+            EditCommand::UpdateField { .. } => "field update",
+            EditCommand::AddEntity { .. } => "add",
+            EditCommand::RemoveEntity { .. } => "remove",
+            EditCommand::MovePanel(_) => "move panel",
+            EditCommand::BatchEdit(_) => "edit",
+            EditCommand::AddToField { .. } => "add to field",
+            EditCommand::RemoveFromField { .. } => "remove from field",
+        }
+    }
+
+    /// Apply this command to the given schedule.
+    pub fn execute(self, schedule: &mut Schedule) -> Result<(), EditError> {
         match self {
             EditCommand::UpdateField {
                 entity,
                 field,
-                old_value,
                 new_value,
+                ..
             } => {
                 let reg = find_registration(entity)?;
-                (reg.write_field_fn)(schedule, entity.entity_uuid(), field, new_value.clone())
-                    .map_err(|source| EditError::FieldWrite {
+                (reg.write_field_fn)(schedule, entity.entity_uuid(), field, new_value).map_err(
+                    |source| EditError::FieldWrite {
                         entity,
                         field,
                         source: Box::new(source),
-                    })?;
-                Ok(EditCommand::UpdateField {
-                    entity,
-                    field,
-                    old_value: new_value,
-                    new_value: old_value,
-                })
+                    },
+                )?;
+                Ok(())
             }
 
             EditCommand::AddEntity { entity, ref fields } => {
@@ -174,36 +184,22 @@ impl EditCommand {
                         source: Box::new(source),
                     }
                 })?;
-                let fields_snapshot = fields.clone();
-                Ok(EditCommand::RemoveEntity {
-                    entity,
-                    fields: fields_snapshot,
-                })
+                Ok(())
             }
 
-            EditCommand::RemoveEntity { entity, ref fields } => {
+            EditCommand::RemoveEntity { entity, .. } => {
                 let reg = find_registration(entity)?;
-                let fields_snapshot = fields.clone();
                 (reg.remove_fn)(schedule, entity.entity_uuid());
-                Ok(EditCommand::AddEntity {
-                    entity,
-                    fields: fields_snapshot,
-                })
+                Ok(())
             }
 
-            EditCommand::MovePanel(inner) => {
-                let inverse = inner.execute(schedule)?;
-                Ok(EditCommand::MovePanel(Box::new(inverse)))
-            }
+            EditCommand::MovePanel(inner) => inner.execute(schedule),
 
             EditCommand::BatchEdit(cmds) => {
-                let mut inverses: Vec<EditCommand> = Vec::with_capacity(cmds.len());
                 for cmd in cmds {
-                    let inv = cmd.execute(schedule)?;
-                    inverses.push(inv);
+                    cmd.execute(schedule)?;
                 }
-                inverses.reverse();
-                Ok(EditCommand::BatchEdit(inverses))
+                Ok(())
             }
 
             EditCommand::AddToField { near, edge, items } => {
@@ -232,7 +228,6 @@ impl EditCommand {
                         far: edge.far,
                     };
                     let actually_added_runtime: Vec<RuntimeEntityId> = actually_added
-                        .clone()
                         .into_iter()
                         .map(|uuid| unsafe {
                             RuntimeEntityId::new_unchecked(uuid, edge.far.entity_type_name())
@@ -241,23 +236,7 @@ impl EditCommand {
                     let _ = schedule.edge_remove(near, excl_edge, actually_added_runtime);
                 }
 
-                let actually_added_value = FieldValue::List(
-                    actually_added
-                        .into_iter()
-                        .map(|uuid| {
-                            let rid = unsafe {
-                                RuntimeEntityId::new_unchecked(uuid, edge.far.entity_type_name())
-                            };
-                            crate::value::FieldValueItem::EntityIdentifier(rid)
-                        })
-                        .collect(),
-                );
-
-                Ok(EditCommand::RemoveFromField {
-                    near,
-                    edge,
-                    items: actually_added_value,
-                })
+                Ok(())
             }
 
             EditCommand::RemoveFromField { near, edge, items } => {
@@ -267,25 +246,8 @@ impl EditCommand {
                         source: Box::new(e),
                     })?;
 
-                let actually_removed = schedule.edge_remove(near, edge, target_ids);
-
-                let actually_removed_value = FieldValue::List(
-                    actually_removed
-                        .into_iter()
-                        .map(|uuid| {
-                            let rid = unsafe {
-                                RuntimeEntityId::new_unchecked(uuid, edge.far.entity_type_name())
-                            };
-                            crate::value::FieldValueItem::EntityIdentifier(rid)
-                        })
-                        .collect(),
-                );
-
-                Ok(EditCommand::AddToField {
-                    near,
-                    edge,
-                    items: actually_removed_value,
-                })
+                let _ = schedule.edge_remove(near, edge, target_ids);
+                Ok(())
             }
         }
     }

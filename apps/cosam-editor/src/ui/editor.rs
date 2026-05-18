@@ -406,7 +406,7 @@ pub fn App() -> Element {
                                                     "name",
                                                     FieldValue::Single(FieldValueItem::String(new_name.clone())),
                                                 ) {
-                                                    Ok(cmd) => match c.apply(cmd) {
+                                                    Ok(cmd) => match c.apply(cmd, "update name") {
                                                         Ok(()) => {
                                                             status.set(Some(format!("Saved: {new_name}")));
                                                             selected_panel_id.set(None);

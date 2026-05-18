@@ -316,6 +316,36 @@ impl Schedule {
             .collect()
     }
 
+    /// Create a new `Schedule` whose CRDT document is forked at `heads`.
+    ///
+    /// The returned schedule represents the state the document was in when
+    /// `heads` were the current tips — all changes after `heads` are absent.
+    /// The in-memory cache is fully rebuilt from the forked document.
+    ///
+    /// Callers should ensure any pending auto-commit ops are flushed (e.g. by
+    /// calling [`Self::get_heads`]) before invoking this so the fork sees a
+    /// consistent snapshot.
+    ///
+    /// # Errors
+    /// Returns [`LoadError::Codec`] if `heads` are not reachable in the
+    /// document, or [`LoadError::Rehydrate`] if cache rebuild fails.
+    pub fn fork_at_heads(&mut self, heads: &[automerge::ChangeHash]) -> Result<Self, LoadError> {
+        // Flush any pending auto-commit ops so the fork is consistent.
+        let _ = self.doc.get_heads();
+        let forked_doc = self
+            .doc
+            .fork_at(heads)
+            .map_err(|e| LoadError::Codec(e.to_string()))?;
+        let mut sched = Self::new();
+        sched.doc = forked_doc;
+        sched.metadata = self.metadata.clone();
+        sched.rebuild_cache_from_doc()?;
+        // Ephemeral state is not meaningful at a prior point in time.
+        sched.sidecar.clear();
+        sched.change_tracker.clear();
+        Ok(sched)
+    }
+
     /// Merge `other`'s automerge document into this one and rebuild the
     /// cache to the unified state.  Both replicas remain usable — this is
     /// a symmetric join, not a move.
