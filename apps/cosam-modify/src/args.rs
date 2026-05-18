@@ -79,6 +79,8 @@ pub struct CliArgs {
     pub file: PathBuf,
     pub format: OutputFormat,
     pub create_new: bool,
+    /// If set, merge the given XLSX file into the schedule before running stages.
+    pub merge_xlsx: Option<PathBuf>,
     pub stages: Vec<Stage>,
 }
 
@@ -114,6 +116,7 @@ pub fn parse_args() -> Result<CliArgs> {
     let mut file: Option<PathBuf> = None;
     let mut format = OutputFormat::default();
     let mut create_new = false;
+    let mut merge_xlsx: Option<PathBuf> = None;
 
     let mut i = 0;
     while i < global_args.len() {
@@ -134,6 +137,13 @@ pub fn parse_args() -> Result<CliArgs> {
             }
             "--new" => {
                 create_new = true;
+            }
+            "--merge-xlsx" => {
+                i += 1;
+                if i >= global_args.len() {
+                    bail!("Missing value for --merge-xlsx");
+                }
+                merge_xlsx = Some(PathBuf::from(global_args[i]));
             }
             "--help" | "-h" => {
                 print_usage();
@@ -176,6 +186,7 @@ pub fn parse_args() -> Result<CliArgs> {
         file,
         format,
         create_new,
+        merge_xlsx,
         stages,
     })
 }
@@ -332,6 +343,7 @@ USAGE:
 GLOBAL OPTIONS:
     --file, -f <path>       Schedule file to modify (required)
     --new                   Create a new schedule if the file does not exist
+    --merge-xlsx <path>     Merge XLSX spreadsheet into the schedule before running stages
     --format <fmt>          Output format: text (default), json, toml
     --help, -h              Show this help
 

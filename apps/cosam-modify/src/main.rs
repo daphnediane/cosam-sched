@@ -10,7 +10,7 @@ mod load;
 mod output;
 
 use args::parse_args;
-use load::{load_schedule, save_schedule};
+use load::{load_schedule, merge_xlsx_into, save_schedule};
 use schedule_core::edit::context::EditContext;
 
 fn main() {
@@ -36,6 +36,15 @@ fn run_main() -> i32 {
     };
 
     let mut ctx = EditContext::new(schedule);
+
+    // Merge XLSX into the schedule as a single undoable checkpoint before
+    // running any stages.
+    if let Some(ref xlsx_path) = cli.merge_xlsx {
+        if let Err(e) = merge_xlsx_into(&mut ctx, xlsx_path) {
+            eprintln!("error: {e:#}");
+            return 1;
+        }
+    }
 
     for stage in &cli.stages {
         if let Err(e) = cmd::run_stage(&mut ctx, stage, &cli.format) {

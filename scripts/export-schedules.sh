@@ -8,6 +8,7 @@
 #
 # Usage: scripts/export-schedules.sh
 #   Reads from input/<YEAR> Schedule.xlsx
+#   Creates output/<YEAR>/schedule.cosam (via cosam-convert if new, cosam-modify --merge-xlsx if existing)
 #   Writes to output/<YEAR>/{schedule.xlsx,public.json,private.json,embed.html,test.html,style-embed.html,style-page.html}
 #   For current year, also writes CSV files to output/<CURRENT_YEAR>/csv/
 #   Also generates layout to output/<CURRENT_YEAR>/layout/ via schedule-layout (built into cosam-convert)
@@ -29,10 +30,12 @@ echo ""
 mkdir -p "$OUTPUT_DIR"
 
 # Build cosam-convert (schedule-layout is linked in via the 'layout' feature)
-echo "Building cosam-convert..."
+# and cosam-modify (used to merge XLSX into existing .cosam files)
+echo "Building cosam-convert and cosam-modify..."
 cd "$ROOT_DIR"
-cargo build -p cosam-convert --release
+cargo build -p cosam-convert -p cosam-modify --release
 CONVERT_BIN="$ROOT_DIR/target/release/cosam-convert"
+MODIFY_BIN="$ROOT_DIR/target/release/cosam-modify"
 
 declare -a built=()
 declare -a failed=()
@@ -77,6 +80,7 @@ for year in $(seq 2016 "$current_year"); do
     fi
 
     # Output paths for this year
+    cosam_file="$year_dir/schedule.cosam"
     copy="$year_dir/schedule.xlsx"
     dest="$year_dir/public.json"
     private_dest="$year_dir/private.json"
@@ -87,10 +91,29 @@ for year in $(seq 2016 "$current_year"); do
     layout_dir="$year_dir/layout"
     csv_dir="$year_dir/csv"
 
-    echo "  Building ${year} files..."
+    # Create or update the .cosam binary from the XLSX source
+    echo "  Updating ${year} schedule binary..."
+    if [ ! -f "$cosam_file" ]; then
+        echo "    Creating new $cosam_file from xlsx..."
+        if ! "$CONVERT_BIN" --input "$src" --output "$cosam_file"; then
+            echo "    Failed to create $cosam_file"
+            failed+=("$cosam_file")
+            continue
+        fi
+    else
+        echo "    Merging xlsx into existing $cosam_file..."
+        if ! "$MODIFY_BIN" --file "$cosam_file" --merge-xlsx "$src"; then
+            echo "    Failed to merge xlsx into $cosam_file"
+            failed+=("$cosam_file")
+            continue
+        fi
+    fi
+    built+=("$cosam_file")
+
+    echo "  Building ${year} output files..."
 
     args=(
-        --input "$src"
+        --input "$cosam_file"
         --title "Cosplay America ${year} Schedule"
         --output "$copy"
         --export "$dest"

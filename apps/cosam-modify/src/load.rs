@@ -9,8 +9,9 @@
 use std::path::Path;
 
 use anyhow::{Context, Result};
+use schedule_core::edit::context::EditContext;
 use schedule_core::schedule::{Schedule, FILE_MAGIC};
-use schedule_core::xlsx::{import_xlsx, XlsxImportOptions};
+use schedule_core::xlsx::{import_xlsx, update_schedule_from_xlsx, XlsxImportOptions};
 
 /// Load a schedule from `path`, or create a new one.
 ///
@@ -34,6 +35,28 @@ pub fn load_schedule(path: &Path, create_new: bool) -> Result<Schedule> {
         import_xlsx(path, &opts)
             .with_context(|| format!("failed to import xlsx from {}", path.display()))
     }
+}
+
+/// Merge an XLSX spreadsheet into the schedule held by `ctx` as a single
+/// undoable checkpoint.
+///
+/// Uses upsert semantics: entities present in the XLSX are created or updated,
+/// entities previously imported but absent from the XLSX are soft-deleted.
+/// If the XLSX produces no CRDT changes, no undo entry is pushed and the
+/// dirty counter is not incremented.
+pub fn merge_xlsx_into(ctx: &mut EditContext, xlsx_path: &Path) -> Result<()> {
+    let label = format!(
+        "Import {}",
+        xlsx_path
+            .file_name()
+            .and_then(|n| n.to_str())
+            .unwrap_or("xlsx")
+    );
+    let opts = XlsxImportOptions::default();
+    ctx.run_checkpoint(label, |schedule| {
+        update_schedule_from_xlsx(schedule, xlsx_path, &opts)
+            .with_context(|| format!("failed to merge xlsx from {}", xlsx_path.display()))
+    })
 }
 
 /// Save `schedule` to `path` as a native binary file.

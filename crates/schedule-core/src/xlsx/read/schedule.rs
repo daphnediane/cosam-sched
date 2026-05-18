@@ -371,7 +371,7 @@ impl super::ImportContext<'_> {
                         continue;
                     }
                 };
-                self.seen_panels.insert(timeline_id.entity_uuid());
+                self.seen_timelines.insert(timeline_id.entity_uuid());
                 self.schedule.sidecar_mut().set_origin(
                     timeline_id.entity_uuid(),
                     EntityOrigin::Xlsx(XlsxSourceInfo {

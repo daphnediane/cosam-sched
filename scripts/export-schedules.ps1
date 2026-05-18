@@ -9,6 +9,7 @@
 #
 # Usage: scripts/export-schedules.ps1
 #   Reads from input/<YEAR> Schedule.xlsx
+#   Creates output/<YEAR>/schedule.cosam (via cosam-convert if new, cosam-modify --merge-xlsx if existing)
 #   Writes to output/<YEAR>/{schedule.xlsx,public.json,private.json,embed.html,test.html,style-embed.html,style-page.html}
 #   For current year, also writes CSV files to output/<CURRENT_YEAR>/csv/
 #   Also generates layout to output/<CURRENT_YEAR>/layout/ via schedule-layout (built into cosam-convert)
@@ -50,13 +51,15 @@ try {
     }
 
     # Build cosam-convert (schedule-layout is linked in via the 'layout' feature)
-    Write-Status "Building cosam-convert..."
+    # and cosam-modify (used to merge XLSX into existing .cosam files)
+    Write-Status "Building cosam-convert and cosam-modify..."
     Push-Location $RootDir
-    & cargo build -p cosam-convert --release
+    & cargo build -p cosam-convert -p cosam-modify --release
     if ($LASTEXITCODE -ne 0) {
-        throw "Failed to build cosam-convert"
+        throw "Failed to build cosam-convert and cosam-modify"
     }
     $ConvertBin = Join-Path $RootDir "target/release/cosam-convert"
+    $ModifyBin = Join-Path $RootDir "target/release/cosam-modify"
     Pop-Location
 
     $built = @()
@@ -107,8 +110,7 @@ try {
             continue
         }
 
-        Write-Status "Building ${year} files..."
-
+        $cosamFile = Join-Path $yearDir "schedule.cosam"
         $copy = Join-Path $yearDir "schedule.xlsx"
         $dest = Join-Path $yearDir "public.json"
         $privateDest = Join-Path $yearDir "private.json"
@@ -119,8 +121,35 @@ try {
         $layoutDir = Join-Path $yearDir "layout"
         $csvDir = Join-Path $yearDir "csv"
 
-        $args = @(
-            "--input", $srcFile,
+        # Create or update the .cosam binary from the XLSX source
+        Write-Host "  Updating ${year} schedule binary..."
+        try {
+            if (-not (Test-Path $cosamFile)) {
+                Write-Host "    Creating new $cosamFile from xlsx..."
+                & $ConvertBin --input $srcFile --output $cosamFile
+                if ($LASTEXITCODE -ne 0) {
+                    throw "cosam-convert exited with $LASTEXITCODE"
+                }
+            }
+            else {
+                Write-Host "    Merging xlsx into existing $cosamFile..."
+                & $ModifyBin --file $cosamFile --merge-xlsx $srcFile
+                if ($LASTEXITCODE -ne 0) {
+                    throw "cosam-modify exited with $LASTEXITCODE"
+                }
+            }
+            $built += $cosamFile
+        }
+        catch {
+            Write-Warn "Failed to update schedule binary for ${year}: $($_.Exception.Message)"
+            $failed += $cosamFile
+            continue
+        }
+
+        Write-Status "Building ${year} output files..."
+
+        $convertArgs = @(
+            "--input", $cosamFile,
             "--title", "Cosplay America ${year} Schedule",
             "--output", $copy,
             "--export", $dest,
@@ -137,14 +166,14 @@ try {
 
         # For current year, also export layout and CSV in the same pass
         if ($year -eq $currentYear) {
-            $args += "--export-layout", $layoutDir
+            $convertArgs += "--export-layout", $layoutDir
             $files += $layoutDir
-            $args += "--export-csv-dir", $csvDir
+            $convertArgs += "--export-csv-dir", $csvDir
             $files += $csvDir
         }
 
         try {
-            & $ConvertBin @args
+            & $ConvertBin @convertArgs
 
             if ($LASTEXITCODE -eq 0) {
                 $built += $files
