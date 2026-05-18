@@ -561,6 +561,9 @@ fn get_extra_map(doc: &AutoCommit, type_name: &str, uuid: NonNilUuid) -> Option<
 }
 
 /// Write a string value to an extra field, creating `__extra` if needed.
+///
+/// Skips the write when the stored value already matches, so that
+/// re-importing identical data does not add new automerge commits.
 pub fn write_extra_field(
     doc: &mut AutoCommit,
     type_name: &str,
@@ -569,7 +572,14 @@ pub fn write_extra_field(
     value: &str,
 ) -> CrdtResult<()> {
     let extra = ensure_extra_map(doc, type_name, uuid)?;
-    doc.put(&extra, key, ScalarValue::Str(value.into()))?;
+    let new_sv = ScalarValue::Str(value.into());
+    let already_correct = matches!(
+        doc.get(&extra, key)?,
+        Some((Value::Scalar(sv), _)) if sv.as_ref() == &new_sv
+    );
+    if !already_correct {
+        doc.put(&extra, key, new_sv)?;
+    }
     Ok(())
 }
 
@@ -809,6 +819,21 @@ mod tests {
         assert_eq!(
             bytes_after_first, bytes_after_second,
             "soft-deleting an already-deleted entity must not add a new automerge commit"
+        );
+    }
+
+    /// `write_extra_field` with the same value must not add a new commit.
+    #[test]
+    fn test_write_extra_field_idempotent() {
+        let mut doc = AutoCommit::new();
+        let uuid = test_uuid();
+        write_extra_field(&mut doc, "panel", uuid, "notes", "bring cable").unwrap();
+        let bytes_after_first = doc.save();
+        write_extra_field(&mut doc, "panel", uuid, "notes", "bring cable").unwrap();
+        let bytes_after_second = doc.save();
+        assert_eq!(
+            bytes_after_first, bytes_after_second,
+            "re-writing the same extra field value must not add a new automerge commit"
         );
     }
 

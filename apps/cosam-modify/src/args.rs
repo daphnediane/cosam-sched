@@ -60,7 +60,7 @@ pub enum StageCommand {
     Undo,
     Redo,
     ShowHistory,
-    Log,
+    Log { verbose: bool },
 }
 
 // ── Stage ─────────────────────────────────────────────────────────────────────
@@ -313,7 +313,17 @@ fn parse_stage(args: &[&str]) -> Result<Stage> {
         }
         "log" => {
             i += 1;
-            StageCommand::Log
+            let mut verbose = false;
+            while i < args.len() {
+                match args[i] {
+                    "--verbose" | "-v" => {
+                        verbose = true;
+                        i += 1;
+                    }
+                    _ => break,
+                }
+            }
+            StageCommand::Log { verbose }
         }
         other => bail!("Unknown command '{other}'"),
     };
@@ -371,7 +381,8 @@ COMMANDS:
     undo                    Undo the most recent edit (in-memory)
     redo                    Redo the most recently undone edit (in-memory)
     show-history            Show undo/redo stack depth
-    log                     Show CRDT commit history (import markers and edits)
+    log [--verbose]         Show CRDT commit history (import markers and edits)
+                            Use --verbose to show detailed changes
 
 EXAMPLES:
     cosam-modify --file sched.cosam --select panel list

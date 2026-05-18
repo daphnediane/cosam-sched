@@ -38,6 +38,6 @@ pub fn run_stage(ctx: &mut EditContext, stage: &Stage, format: &OutputFormat) ->
             undo::run_show_history(ctx, format);
             Ok(())
         }
-        StageCommand::Log => log::run(ctx, format),
+        StageCommand::Log { verbose } => log::run(ctx, format, *verbose),
     }
 }

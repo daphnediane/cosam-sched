@@ -56,6 +56,7 @@ fn run_main() -> i32 {
     if ctx.is_dirty() {
         ctx.schedule_mut().metadata.generator =
             concat!("cosam-modify ", env!("CARGO_PKG_VERSION")).to_string();
+        println!("Writing updated schedule to {}", cli.file.display());
         if let Err(e) = save_schedule(ctx.schedule_mut(), &cli.file) {
             eprintln!("error: {e:#}");
             return 2;
