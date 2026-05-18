@@ -179,7 +179,7 @@ pub fn list_append_unique(
     for i in 0..len {
         if let Some((Value::Scalar(scalar), _)) = doc.get(&list_id, i)? {
             if let automerge::ScalarValue::Str(s) = scalar.as_ref() {
-                if s.as_ref() == target_rid_str.as_str() {
+                if s.as_str() == target_rid_str.as_str() {
                     return Ok(());
                 }
             }
@@ -222,7 +222,7 @@ pub fn list_remove_uuid(
     for i in (0..len).rev() {
         if let Some((Value::Scalar(scalar), _)) = doc.get(&list_id, i)? {
             if let automerge::ScalarValue::Str(s) = scalar.as_ref() {
-                if s.as_ref() == target_rid_str.as_str() {
+                if s.as_str() == target_rid_str.as_str() {
                     doc.delete(&list_id, i)?;
                 }
             }
