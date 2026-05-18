@@ -1306,6 +1306,160 @@ fn test_reimport_same_xlsx_is_idempotent() {
     );
 }
 
+/// Build a workbook that exercises long-prefix timeline normalization (FEATURE-127 regression):
+///
+/// - PanelTypes: `BR` (Is Break = Yes), `SP` (Is Timeline = Yes), `GP` (regular)
+/// - Schedule sheet: `BREAK001` (BR prefix, is_break), `GP001` (regular panel),
+///   `SPLIT001` (SP prefix, is_timeline — long raw prefix normalized to "SP")
+/// - Timeline sheet: `SPLIT002` (is_timeline from Timeline sheet, long raw prefix)
+///
+/// Re-importing this workbook must be idempotent: the same UUIDs for all entities,
+/// no spurious creates or deletes.
+fn build_long_prefix_timeline_book() -> umya_spreadsheet::Spreadsheet {
+    let mut book = umya_spreadsheet::new_file();
+
+    // PanelTypes sheet
+    {
+        let ws = book.new_sheet("PanelTypes").unwrap();
+        set_cell(ws, 1, 1, "Prefix");
+        set_cell(ws, 2, 1, "Panel Kind");
+        set_cell(ws, 3, 1, "Is Break");
+        set_cell(ws, 4, 1, "Is Timeline");
+        // BR — break type (short prefix, still exercises is_break path)
+        set_cell(ws, 1, 2, "BR");
+        set_cell(ws, 2, 2, "Break");
+        set_cell(ws, 3, 2, "Yes");
+        // SP — timeline type (prefix auto-inferred as is_timeline, but explicit here too)
+        set_cell(ws, 1, 3, "SP");
+        set_cell(ws, 2, 3, "Split Day");
+        set_cell(ws, 4, 3, "Yes");
+        // GP — regular panel type
+        set_cell(ws, 1, 4, "GP");
+        set_cell(ws, 2, 4, "Guest Panel");
+    }
+
+    // Timeline sheet — SPLIT002 lives here (long raw ID)
+    {
+        let ws = book.new_sheet("Timeline").unwrap();
+        set_cell(ws, 1, 1, "Uniq ID");
+        set_cell(ws, 2, 1, "Name");
+        set_cell(ws, 3, 1, "Panel Types");
+        set_cell(ws, 1, 2, "SPLIT002");
+        set_cell(ws, 2, 2, "Split Day Marker 2");
+        set_cell(ws, 3, 2, "SP");
+    }
+
+    // Schedule sheet (default sheet 0 renamed)
+    {
+        let ws = book.get_sheet_mut(&0).unwrap();
+        ws.set_name("Schedule");
+        set_cell(ws, 1, 1, "Uniq ID");
+        set_cell(ws, 2, 1, "Name");
+        // BREAK001 — long raw prefix "BREAK" normalizes to "BR" (is_break panel type)
+        set_cell(ws, 1, 2, "BREAK001");
+        set_cell(ws, 2, 2, "Afternoon Break");
+        // GP001 — regular panel
+        set_cell(ws, 1, 3, "GP001");
+        set_cell(ws, 2, 3, "Opening Ceremony");
+        // SPLIT001 — long raw prefix "SPLIT" normalizes to "SP" (is_timeline panel type)
+        set_cell(ws, 1, 4, "SPLIT001");
+        set_cell(ws, 2, 4, "Split Day Marker 1");
+    }
+
+    book
+}
+
+/// Re-importing a workbook with long-prefix timeline codes (SPLIT*, BREAK*) must
+/// be idempotent: same byte output, no spurious entity creates or deletes.
+///
+/// Regression test for the bug where `code_str.to_uppercase()` ("SPLIT001") was
+/// used as the upsert key instead of `parsed_code.full_id()` ("SP001"), causing
+/// a mismatch against the stored `full_id()` and a new Timeline entity on every
+/// re-import.
+#[test]
+fn test_reimport_long_prefix_timelines_is_idempotent() {
+    use schedule_core::entity::EntityUuid;
+    use schedule_core::tables::timeline::TimelineEntityType;
+
+    let book = build_long_prefix_timeline_book();
+    let path = write_temp(book);
+
+    // First import.
+    let mut schedule = import_xlsx(&path, &XlsxImportOptions::default()).unwrap();
+
+    // Verify the expected entities were created.
+    // BREAK001 is is_break (not is_timeline), so it is a Panel, not a Timeline.
+    assert_eq!(
+        schedule.entity_count::<PanelEntityType>(),
+        2,
+        "BREAK001 and GP001 should be panels (SPLIT001 is a timeline)"
+    );
+    assert_eq!(
+        schedule.entity_count::<TimelineEntityType>(),
+        2,
+        "SPLIT001 and SPLIT002 should be timelines"
+    );
+
+    // Capture the UUIDs before re-import.
+    let split001_uuid_before = schedule
+        .iter_entities::<TimelineEntityType>()
+        .find(|(_, d)| d.code.full_id() == "SP001")
+        .map(|(id, _)| id.entity_uuid())
+        .expect("SP001 (from SPLIT001) should exist");
+    let split002_uuid_before = schedule
+        .iter_entities::<TimelineEntityType>()
+        .find(|(_, d)| d.code.full_id() == "SP002")
+        .map(|(id, _)| id.entity_uuid())
+        .expect("SP002 (from SPLIT002) should exist");
+
+    let bytes_after_first = schedule.save_to_file();
+
+    // Re-import the same file — must be a no-op.
+    update_schedule_from_xlsx(&mut schedule, &path, &XlsxImportOptions::default()).unwrap();
+    let bytes_after_second = schedule.save_to_file();
+
+    cleanup(&path);
+
+    // Entity counts must be unchanged.
+    assert_eq!(
+        schedule.entity_count::<PanelEntityType>(),
+        2,
+        "panel count must not change on re-import"
+    );
+    assert_eq!(
+        schedule.entity_count::<TimelineEntityType>(),
+        2,
+        "timeline count must not change on re-import"
+    );
+
+    // UUIDs must be stable.
+    let split001_uuid_after = schedule
+        .iter_entities::<TimelineEntityType>()
+        .find(|(_, d)| d.code.full_id() == "SP001")
+        .map(|(id, _)| id.entity_uuid())
+        .expect("SP001 must still exist after re-import");
+    let split002_uuid_after = schedule
+        .iter_entities::<TimelineEntityType>()
+        .find(|(_, d)| d.code.full_id() == "SP002")
+        .map(|(id, _)| id.entity_uuid())
+        .expect("SP002 must still exist after re-import");
+
+    assert_eq!(
+        split001_uuid_before, split001_uuid_after,
+        "SPLIT001 must map to the same Timeline UUID on re-import"
+    );
+    assert_eq!(
+        split002_uuid_before, split002_uuid_after,
+        "SPLIT002 must map to the same Timeline UUID on re-import"
+    );
+
+    // Full byte-level idempotency check.
+    assert_eq!(
+        bytes_after_first, bytes_after_second,
+        "re-importing an unchanged XLSX with long-prefix timelines must be byte-for-byte identical"
+    );
+}
+
 /// If source data changes, the output must differ and modified_at must be updated.
 #[test]
 fn test_reimport_changed_xlsx_updates_output() {

@@ -349,8 +349,9 @@ impl super::ImportContext<'_> {
                 .unwrap_or(false);
 
             if is_timeline {
-                // Upsert Timeline entity instead of Panel entity
-                let upsert_name = code_str.to_uppercase();
+                // Upsert Timeline entity instead of Panel entity.
+                // Use the same normalized upsert_name computed above (parsed_code.full_id())
+                // so that long raw prefixes like "SPLIT001" → "SP001" match what is stored.
                 let mut tl_updates: Vec<FieldUpdate<TimelineEntityType>> = vec![
                     FieldUpdate::set(&timeline::FIELD_CODE, code_str.as_str()),
                     FieldUpdate::set(&timeline::FIELD_NAME, name.as_str()),
