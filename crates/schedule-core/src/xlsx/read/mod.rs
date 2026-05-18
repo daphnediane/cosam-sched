@@ -542,30 +542,48 @@ pub fn update_schedule_from_xlsx(
         (book, None)
     };
 
-    schedule.metadata.modified_at = resolve_source_modified(&book, path);
+    // Resolve the source timestamp now but defer writing it until we know
+    // whether any entity data actually changed.
+    let source_modified = resolve_source_modified(&book, path);
 
     let file_path = path.to_str().map(str::to_owned);
     let import_time = chrono::Utc::now();
 
-    let mut ctx = ImportContext::new(
-        &mut book,
-        file_path.as_deref(),
-        import_time,
-        &csv_map,
-        schedule,
-        options,
-    );
+    // Snapshot document heads so we can detect new automerge commits.
+    let pre_import_heads = schedule.get_heads();
 
-    ctx.read_panel_types()?;
-    ctx.read_hotel_rooms()?;
-    ctx.read_rooms()?;
-    ctx.read_people()?;
-    ctx.read_timeline()?;
-    ctx.read_schedule()?;
+    // Run import inside a block so `ctx`'s mutable borrow on `schedule` is
+    // released before we need `schedule` again in the match below.
+    let finalize_result = {
+        let mut ctx = ImportContext::new(
+            &mut book,
+            file_path.as_deref(),
+            import_time,
+            &csv_map,
+            schedule,
+            options,
+        );
+
+        ctx.read_panel_types()?;
+        ctx.read_hotel_rooms()?;
+        ctx.read_rooms()?;
+        ctx.read_people()?;
+        ctx.read_timeline()?;
+        ctx.read_schedule()?;
+
+        ctx.finalize()
+    };
 
     // Validate and finalize. If validation fails, restore from checkpoint.
-    match ctx.finalize() {
-        Ok(()) => Ok(()),
+    match finalize_result {
+        Ok(()) => {
+            // Only advance modified_at when the document actually gained new
+            // commits — re-importing an identical source is a no-op.
+            if schedule.get_heads() != pre_import_heads {
+                schedule.metadata.modified_at = source_modified;
+            }
+            Ok(())
+        }
         Err(e) => {
             // Roll back to checkpoint on validation error.
             *schedule = Schedule::load(&checkpoint).with_context(|| {

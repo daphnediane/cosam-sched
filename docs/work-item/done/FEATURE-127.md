@@ -8,7 +8,7 @@ has changed.
 
 ## Status
 
-Open
+Completed
 
 ## Priority
 

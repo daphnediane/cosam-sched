@@ -125,6 +125,9 @@ pub fn touch_entity(doc: &mut AutoCommit, type_name: &str, uuid: NonNilUuid) -> 
 }
 
 /// Set (or clear) the `__deleted` soft-delete flag on an entity.
+///
+/// Skips the write when the stored value already equals `flag`, so that
+/// re-importing unchanged data does not add new automerge commits.
 pub fn put_deleted(
     doc: &mut AutoCommit,
     type_name: &str,
@@ -132,6 +135,21 @@ pub fn put_deleted(
     flag: bool,
 ) -> CrdtResult<()> {
     let entity = ensure_entity_map(doc, type_name, uuid)?;
+    // Check current value to avoid an unnecessary write.
+    let already_correct = match doc.get(&entity, DELETED_KEY)? {
+        Some((Value::Scalar(sv), _)) => {
+            matches!(sv.as_ref(), ScalarValue::Boolean(b) if *b == flag)
+        }
+        None => !flag, // absent is equivalent to false
+        Some((other, _)) => {
+            return Err(CrdtError::TypeMismatch(format!(
+                "{DELETED_KEY}: expected Boolean scalar, got {other:?}"
+            )));
+        }
+    };
+    if already_correct {
+        return Ok(());
+    }
     doc.put(&entity, DELETED_KEY, ScalarValue::Boolean(flag))?;
     Ok(())
 }
@@ -189,7 +207,15 @@ pub fn write_field(
     let entity = ensure_entity_map(doc, type_name, uuid)?;
     match (crdt_type, value) {
         (CrdtFieldType::Scalar, FieldValue::Single(item)) => {
-            doc.put(&entity, field_name, item_to_scalar(item)?)?;
+            let new_sv = item_to_scalar(item)?;
+            // Skip the write when the stored value already matches.
+            let skip = matches!(
+                doc.get(&entity, field_name)?,
+                Some((Value::Scalar(sv), _)) if sv.as_ref() == &new_sv
+            );
+            if !skip {
+                doc.put(&entity, field_name, new_sv)?;
+            }
             Ok(())
         }
         (CrdtFieldType::Scalar, FieldValue::List(_)) => Err(CrdtError::Unsupported(format!(
@@ -382,21 +408,35 @@ fn write_text(
     // Replace-style bulk write. For character-granular concurrent edits,
     // callers must reach into `splice_text` directly (the edit system can do
     // so once it grows text-diff awareness).
-    let obj = match doc.get(parent, field_name)? {
-        Some((Value::Object(ObjType::Text), id)) => id,
+    match doc.get(parent, field_name)? {
+        Some((Value::Object(ObjType::Text), id)) => {
+            // Text object already exists — compare before writing to avoid
+            // creating an automerge commit when nothing changed.
+            let current_len = doc.length(&id);
+            if current_len > 0 || !text.is_empty() {
+                let current_text = doc.text(&id)?;
+                if current_text != text {
+                    if current_len > 0 {
+                        doc.splice_text(&id, 0, current_len as isize, "")?;
+                    }
+                    if !text.is_empty() {
+                        doc.splice_text(&id, 0, 0, text)?;
+                    }
+                }
+            }
+        }
         Some((other, _)) => {
             return Err(CrdtError::TypeMismatch(format!(
                 "{field_name}: expected Text, got {other:?}"
-            )))
+            )));
         }
-        None => doc.put_object(parent, field_name, ObjType::Text)?,
-    };
-    let current_len = doc.length(&obj);
-    if current_len > 0 {
-        doc.splice_text(&obj, 0, current_len as isize, "")?;
-    }
-    if !text.is_empty() {
-        doc.splice_text(&obj, 0, 0, text)?;
+        None => {
+            // Text object doesn't exist yet — create and write.
+            let id = doc.put_object(parent, field_name, ObjType::Text)?;
+            if !text.is_empty() {
+                doc.splice_text(&id, 0, 0, text)?;
+            }
+        }
     }
     Ok(())
 }
@@ -411,6 +451,23 @@ fn write_list(
     // lists is handled by dedicated edge helpers (FEATURE-023).
     if let Some((Value::Object(ObjType::List), id)) = doc.get(parent, field_name)? {
         let len = doc.length(&id);
+        // Skip the replacement when the list content is already identical.
+        if len == items.len() {
+            let mut already_correct = true;
+            for (i, item) in items.iter().enumerate() {
+                let expected = item_to_scalar(item)?;
+                match doc.get(&id, i)? {
+                    Some((Value::Scalar(sv), _)) if sv.as_ref() == &expected => {}
+                    _ => {
+                        already_correct = false;
+                        break;
+                    }
+                }
+            }
+            if already_correct {
+                return Ok(());
+            }
+        }
         for i in (0..len).rev() {
             doc.delete(&id, i)?;
         }
@@ -647,6 +704,127 @@ mod tests {
         assert_eq!(
             read_extra_field(&doc2, "panel", uuid, "Notes").as_deref(),
             Some("check mic")
+        );
+    }
+
+    // ── Idempotency tests (FEATURE-127) ───────────────────────────────────────
+
+    /// Write a scalar field value twice; the second write should not produce a
+    /// new automerge commit (bytes must be identical).
+    #[test]
+    fn test_write_field_scalar_idempotent() {
+        let mut doc = AutoCommit::new();
+        let uuid = test_uuid();
+        let value = FieldValue::Single(FieldValueItem::String("hello".into()));
+        write_field(
+            &mut doc,
+            "panel",
+            uuid,
+            "title",
+            CrdtFieldType::Scalar,
+            &value,
+        )
+        .unwrap();
+        let bytes_after_first = doc.save();
+        write_field(
+            &mut doc,
+            "panel",
+            uuid,
+            "title",
+            CrdtFieldType::Scalar,
+            &value,
+        )
+        .unwrap();
+        let bytes_after_second = doc.save();
+        assert_eq!(
+            bytes_after_first, bytes_after_second,
+            "re-writing the same scalar must not add a new automerge commit"
+        );
+    }
+
+    /// Write different scalar values; the second write must produce a new commit.
+    #[test]
+    fn test_write_field_scalar_different_value_writes() {
+        let mut doc = AutoCommit::new();
+        let uuid = test_uuid();
+        let v1 = FieldValue::Single(FieldValueItem::String("first".into()));
+        let v2 = FieldValue::Single(FieldValueItem::String("second".into()));
+        write_field(&mut doc, "panel", uuid, "title", CrdtFieldType::Scalar, &v1).unwrap();
+        let bytes1 = doc.save();
+        write_field(&mut doc, "panel", uuid, "title", CrdtFieldType::Scalar, &v2).unwrap();
+        let bytes2 = doc.save();
+        assert_ne!(
+            bytes1, bytes2,
+            "changing a scalar value must produce a new commit"
+        );
+    }
+
+    /// Write text twice with the same content; the second write must not commit.
+    #[test]
+    fn test_write_text_idempotent() {
+        let mut doc = AutoCommit::new();
+        let uuid = test_uuid();
+        let entity = ensure_entity_map(&mut doc, "panel", uuid).unwrap();
+        write_text(&mut doc, &entity, "description", "hello world").unwrap();
+        let bytes_after_first = doc.save();
+        let entity2 = ensure_entity_map(&mut doc, "panel", uuid).unwrap();
+        write_text(&mut doc, &entity2, "description", "hello world").unwrap();
+        let bytes_after_second = doc.save();
+        assert_eq!(
+            bytes_after_first, bytes_after_second,
+            "re-writing the same text must not add a new automerge commit"
+        );
+    }
+
+    /// Write a list twice with the same items; the second write must not commit.
+    #[test]
+    fn test_write_list_idempotent() {
+        let mut doc = AutoCommit::new();
+        let uuid = test_uuid();
+        let entity = ensure_entity_map(&mut doc, "panel", uuid).unwrap();
+        let items = vec![
+            FieldValueItem::String("a".into()),
+            FieldValueItem::String("b".into()),
+        ];
+        write_list(&mut doc, &entity, "tags", &items).unwrap();
+        let bytes_after_first = doc.save();
+        let entity2 = ensure_entity_map(&mut doc, "panel", uuid).unwrap();
+        write_list(&mut doc, &entity2, "tags", &items).unwrap();
+        let bytes_after_second = doc.save();
+        assert_eq!(
+            bytes_after_first, bytes_after_second,
+            "re-writing the same list must not add a new automerge commit"
+        );
+    }
+
+    /// `put_deleted(true)` on an already-deleted entity must not add a commit.
+    #[test]
+    fn test_put_deleted_idempotent() {
+        let mut doc = AutoCommit::new();
+        let uuid = test_uuid();
+        put_deleted(&mut doc, "panel", uuid, true).unwrap();
+        let bytes_after_first = doc.save();
+        put_deleted(&mut doc, "panel", uuid, true).unwrap();
+        let bytes_after_second = doc.save();
+        assert_eq!(
+            bytes_after_first, bytes_after_second,
+            "soft-deleting an already-deleted entity must not add a new automerge commit"
+        );
+    }
+
+    /// `put_deleted(false)` when the flag is absent (default) must not commit.
+    #[test]
+    fn test_put_deleted_false_on_absent_flag_idempotent() {
+        let mut doc = AutoCommit::new();
+        let uuid = test_uuid();
+        // Touch the entity map without setting __deleted.
+        touch_entity(&mut doc, "panel", uuid).unwrap();
+        let bytes_before = doc.save();
+        put_deleted(&mut doc, "panel", uuid, false).unwrap();
+        let bytes_after = doc.save();
+        assert_eq!(
+            bytes_before, bytes_after,
+            "put_deleted(false) on entity with no __deleted flag must not commit"
         );
     }
 }

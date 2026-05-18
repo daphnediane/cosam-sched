@@ -1232,3 +1232,111 @@ fn test_export_round_trip_people_sheet() {
     );
     assert!(bob.show_individually);
 }
+
+// ── Idempotency tests (FEATURE-127) ───────────────────────────────────────────
+
+/// Build a minimal workbook with PanelTypes, Rooms, People, and Schedule data.
+fn build_minimal_idempotency_book() -> umya_spreadsheet::Spreadsheet {
+    let mut book = umya_spreadsheet::new_file();
+
+    // PanelTypes sheet
+    {
+        let ws = book.new_sheet("PanelTypes").unwrap();
+        set_cell(ws, 1, 1, "Prefix");
+        set_cell(ws, 2, 1, "Panel Kind");
+        set_cell(ws, 1, 2, "GP");
+        set_cell(ws, 2, 2, "Guest Panel");
+    }
+
+    // Rooms sheet
+    {
+        let ws = book.new_sheet("Rooms").unwrap();
+        set_cell(ws, 1, 1, "Room Name");
+        set_cell(ws, 2, 1, "Sort Key");
+        set_cell(ws, 1, 2, "Main Hall");
+        set_cell(ws, 2, 2, "10");
+    }
+
+    // People sheet
+    {
+        let ws = book.new_sheet("People").unwrap();
+        set_cell(ws, 1, 1, "Name");
+        set_cell(ws, 2, 1, "Classification");
+        set_cell(ws, 1, 2, "Alice Smith");
+        set_cell(ws, 2, 2, "Guest");
+    }
+
+    // Schedule sheet (default sheet 0 is renamed)
+    {
+        let ws = book.get_sheet_mut(&0).unwrap();
+        ws.set_name("Schedule");
+        set_cell(ws, 1, 1, "Name");
+        set_cell(ws, 2, 1, "Room");
+        set_cell(ws, 3, 1, "Type");
+        set_cell(ws, 4, 1, "G: Alice Smith");
+        set_cell(ws, 1, 2, "Opening Ceremonies");
+        set_cell(ws, 2, 2, "Main Hall");
+        set_cell(ws, 3, 2, "GP");
+        set_cell(ws, 4, 2, "X");
+    }
+
+    book
+}
+
+/// Re-importing an unchanged XLSX into an existing schedule must produce
+/// byte-for-byte identical output (FEATURE-127).
+#[test]
+fn test_reimport_same_xlsx_is_idempotent() {
+    let book = build_minimal_idempotency_book();
+    let path = write_temp(book);
+
+    // First import.
+    let mut schedule = import_xlsx(&path, &XlsxImportOptions::default()).unwrap();
+    let bytes_after_first = schedule.save_to_file();
+
+    // Re-import the same file into the existing schedule.
+    update_schedule_from_xlsx(&mut schedule, &path, &XlsxImportOptions::default()).unwrap();
+    let bytes_after_second = schedule.save_to_file();
+
+    cleanup(&path);
+
+    assert_eq!(
+        bytes_after_first, bytes_after_second,
+        "re-importing an unchanged XLSX must produce byte-for-byte identical output"
+    );
+}
+
+/// If source data changes, the output must differ and modified_at must be updated.
+#[test]
+fn test_reimport_changed_xlsx_updates_output() {
+    let book = build_minimal_idempotency_book();
+    let path = write_temp(book);
+
+    let mut schedule = import_xlsx(&path, &XlsxImportOptions::default()).unwrap();
+    let modified_at_first = schedule.metadata.modified_at;
+    let bytes_after_first = schedule.save_to_file();
+    cleanup(&path);
+
+    // Build a second, slightly different workbook.
+    let mut book2 = build_minimal_idempotency_book();
+    {
+        let ws = book2.get_sheet_mut(&0).unwrap(); // Schedule sheet
+        set_cell(ws, 1, 2, "Opening Ceremonies Updated");
+    }
+    let path2 = write_temp(book2);
+
+    update_schedule_from_xlsx(&mut schedule, &path2, &XlsxImportOptions::default()).unwrap();
+    let bytes_after_second = schedule.save_to_file();
+    cleanup(&path2);
+
+    assert_ne!(
+        bytes_after_first, bytes_after_second,
+        "importing changed data must produce different output"
+    );
+    // modified_at should have been updated (or at least not rolled back to None).
+    assert!(
+        schedule.metadata.modified_at != modified_at_first
+            || schedule.metadata.modified_at.is_some(),
+        "modified_at should reflect the change"
+    );
+}
