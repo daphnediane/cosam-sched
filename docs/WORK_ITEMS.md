@@ -1,6 +1,6 @@
 # Cosplay America Schedule - Work Item
 
-Updated on: Sun May 17 22:23:47 2026
+Updated on: Mon May 18 01:52:22 2026
 
 ## Completed
 
@@ -169,7 +169,7 @@ above panelists and groups.
 
 ## Summary of Open Items
 
-**Total open items:** 20
+**Total open items:** 21
 
 * **Meta / Project-Level**
   * [META-001] Meta work item tracking the full multi-phase redesign of the schedule system. (Blocked by [META-007], [META-008])
@@ -197,6 +197,9 @@ to compile and pass against the current `RawEdgeMap` API.
 ImportContext; convert reader free functions to methods on ImportContext.
 
 * **Low Priority**
+  * [BUGFIX-131] `PanelUniqId::parse("SPLIT001")` normalizes the prefix to `"SP"` and returns
+`full_id()` = `"SP001"`, discarding the original `"SPLIT001"` string. The raw
+form typed in the spreadsheet should be preserved.
   * [EDITOR-033] ([META-007]) Implement the main schedule grid view and entity editing UI in cosam-editor.
   * [EDITOR-111] Extract the duplicated `schedule_data.rs` UI helper present in both
 `cosam-editor-gpui` and `cosam-editor-dioxus` into a new
@@ -220,6 +223,39 @@ icons, and CI/CD pipeline integration.
 *No placeholders — all stubs have been promoted.*
 
 Use `perl scripts/work-item-update.pl --create <PREFIX>` to add new stubs.
+
+---
+
+## Open BUGFIX Items
+
+### [BUGFIX-131] BUGFIX-131: PanelUniqId::parse silently truncates prefixes longer than 2 chars
+
+**Status:** Open
+
+**Priority:** Low
+
+**Summary:** `PanelUniqId::parse("SPLIT001")` normalizes the prefix to `"SP"` and returns
+`full_id()` = `"SP001"`, discarding the original `"SPLIT001"` string. The raw
+form typed in the spreadsheet should be preserved.
+
+**Description:** `PanelUniqId::parse` normalizes any prefix longer than 2 characters to its
+first two letters (e.g. `"SPLIT"` → `"SP"`, `"BREAK"` → `"BR"`). This means
+`full_id()` never returns the original string — `"SPLIT001"` becomes `"SP001"`.
+
+Two consequences:
+
+1. The panel/timeline is stored and displayed under the shorter code, which may
+   confuse coordinators who typed the long form.
+2. Any lookup or export that compares against the raw XLSX value will disagree
+   with what is stored (worked around in FEATURE-127 by normalizing the upsert
+   key via `full_id()`, but the display value is still wrong).
+
+The correct behavior: the stored `code` should round-trip to whatever normalized
+form the parser produces, AND `full_id()` should reflect that canonical form.
+The question is whether `"SPLIT001"` should be stored as `"SP001"` (current) or
+`"SPLIT001"` (raw). Given that the prefix drives panel-type lookup (by 2-char
+prefix), the normalized 2-char form is probably right — but it should at least
+be surfaced as a warning/note rather than silently discarded.
 
 ---
 
@@ -456,7 +492,7 @@ schedule database, then save back repeatedly as edits accumulate.
 **Summary:** Serialize the `EditHistory` undo/redo stacks into the `.schedule` binary file so that
 undo/redo works across `cosam-modify` invocations.
 
-**Blocked By:** [CLI-098], [IDEA-101]
+**Blocked By:** [CLI-098], [IDEA-101], [IDEA-130]
 
 **Description:** Currently `EditHistory` is in-memory only. A fresh invocation of `cosam-modify` always
 starts with empty undo/redo stacks even if the previous invocation made changes.
@@ -677,6 +713,7 @@ This refactor:
 [BUGFIX-086]: work-item/done/BUGFIX-086.md
 [BUGFIX-123]: work-item/done/BUGFIX-123.md
 [BUGFIX-124]: work-item/done/BUGFIX-124.md
+[BUGFIX-131]: work-item/low/BUGFIX-131.md
 [CLI-030]: work-item/done/CLI-030.md
 [CLI-031]: work-item/done/CLI-031.md
 [CLI-090]: work-item/done/CLI-090.md

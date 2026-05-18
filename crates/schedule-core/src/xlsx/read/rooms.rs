@@ -97,6 +97,8 @@ impl super::ImportContext<'_> {
             let room_id = match find_or_create_entity::<EventRoomEntityType>(
                 self.schedule,
                 &name_key,
+                &self.seen_rooms,
+                true,
                 updates,
             ) {
                 Ok(id) => id,
@@ -146,6 +148,8 @@ impl super::ImportContext<'_> {
                     match find_or_create_entity::<HotelRoomEntityType>(
                         self.schedule,
                         &hr_key,
+                        &self.seen_hotel_rooms,
+                        true,
                         vec![FieldUpdate::set(
                             &hotel_room::FIELD_HOTEL_ROOM_NAME,
                             hr_name.as_str(),

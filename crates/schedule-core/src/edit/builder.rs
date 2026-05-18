@@ -18,11 +18,16 @@
 //! in unit tests and any future read-only entity kinds are not forced to
 //! implement it.
 
+use std::collections::HashSet;
+
+use thiserror::Error;
+use uuid::NonNilUuid;
+
 use crate::entity::{EntityId, EntityType, EntityUuid, UuidPreference};
-use crate::field::set::{FieldSetError, FieldUpdate};
+use crate::field::set::{FieldOp, FieldSetError, FieldUpdate};
+use crate::field::NamedField;
 use crate::schedule::Schedule;
 use crate::value::ValidationError;
-use thiserror::Error;
 
 /// Entity types that support building via the `define_entity_builder!` macro.
 ///
@@ -45,15 +50,19 @@ pub trait EntityBuildable: EntityType {
     /// applied.
     fn default_data(id: EntityId<Self>) -> Self::InternalData;
 
-    /// Find a live entity by its natural key.
+    /// Find all live entities matching the given natural key.
     ///
     /// Used by [`find_or_create_entity`] before falling back to creation.
     /// The `key` format is entity-type-specific (e.g. uppercase prefix for
     /// `PanelTypeEntityType`, lowercase name for room types, uppercase code
     /// for `PanelEntityType` and `TimelineEntityType`).
     ///
-    /// Must return `None` for tombstoned entities.
-    fn find_by_natural_key(schedule: &Schedule, key: &str) -> Option<EntityId<Self>>;
+    /// Must not include tombstoned entities.
+    ///
+    /// Returns all matching candidates so that the caller can filter by a
+    /// `seen` set when duplicate natural keys exist in the source data (a
+    /// common human-error in XLSX spreadsheets).
+    fn find_by_natural_key(schedule: &Schedule, key: &str) -> Vec<EntityId<Self>>;
 }
 
 /// Errors returned by [`build_entity`] (and therefore by every generated
@@ -81,21 +90,73 @@ pub enum BuildError {
 
 /// Find or create an entity by its natural key.
 ///
-/// Uses [`EntityBuildable::find_by_natural_key`] to locate an existing entity
-/// by field-based search.  If found, applies `updates` in place and returns
-/// the existing ID (preserving whatever UUID the entity has, including v7).
-/// If not found, creates a new entity with [`UuidPreference::PreferFromV5`]
-/// derived from `key`.
+/// # `seen` and `allow_reuse`
 ///
-/// This is the preferred building block for update-mode imports where UUIDs
-/// must be preserved across re-imports, while also handling entities whose UUID
-/// was generated at creation time (v7) rather than derived from a natural key.
+/// `seen` is the set of UUIDs already consumed during the current import pass.
+/// How `seen` is used depends on `allow_reuse`:
+///
+/// - **`allow_reuse = false`** (panels, timelines): duplicate natural keys in
+///   the source spreadsheet must each bind to a *distinct* entity.  Candidates
+///   already in `seen` are excluded so successive rows with the same code are
+///   assigned to different entities.  Among remaining candidates the one whose
+///   stored field values have the smallest edit distance to the incoming updates
+///   is chosen.  If none remain, a new entity is created.
+///
+/// - **`allow_reuse = true`** (rooms, hotel rooms, panel types): the same name
+///   is expected to appear on many rows and must always resolve to the *same*
+///   entity.  `seen` is ignored entirely — the first (and normally only)
+///   matching entity is reused even if it was already consumed by a previous
+///   row.
+///
+/// Pass `&HashSet::new()` for non-import callers that do not need dedup.
 pub fn find_or_create_entity<E: EntityBuildable>(
     schedule: &mut Schedule,
     key: &str,
+    seen: &HashSet<NonNilUuid>,
+    allow_reuse: bool,
     updates: Vec<FieldUpdate<E>>,
 ) -> Result<EntityId<E>, BuildError> {
-    if let Some(id) = E::find_by_natural_key(schedule, key) {
+    let candidates = E::find_by_natural_key(schedule, key);
+
+    let mut pool: Vec<EntityId<E>> = if allow_reuse {
+        // Reuse mode: prefer candidates already in `seen` (stable binding —
+        // once this import has picked an entity for a name, stick with it).
+        // Fast-path: single candidate is the overwhelmingly common case.
+        if candidates.len() <= 1 {
+            candidates
+        } else {
+            let seen_candidates: Vec<EntityId<E>> = candidates
+                .iter()
+                .copied()
+                .filter(|id| seen.contains(&id.entity_uuid()))
+                .collect();
+            if seen_candidates.is_empty() {
+                candidates
+            } else {
+                seen_candidates
+            }
+        }
+    } else {
+        // Dedup mode: exclude already-seen entities so each duplicate-code row
+        // binds to a distinct entity rather than collapsing onto the first one.
+        candidates
+            .into_iter()
+            .filter(|id| !seen.contains(&id.entity_uuid()))
+            .collect()
+    };
+
+    let chosen = if pool.len() <= 1 {
+        pool.pop()
+    } else {
+        // Multiple candidates remain.  Pick the one whose stored field values
+        // are most similar to the incoming updates using Levenshtein distance
+        // over a concatenated field-value fingerprint.
+        let incoming = updates_fingerprint(&updates);
+        pool.into_iter()
+            .min_by_key(|id| edit_distance(&entity_fingerprint::<E>(schedule, *id), &incoming))
+    };
+
+    if let Some(id) = chosen {
         E::field_set().write_multiple(id, schedule, &updates)?;
         Ok(id)
     } else {
@@ -107,6 +168,61 @@ pub fn find_or_create_entity<E: EntityBuildable>(
             updates,
         )
     }
+}
+
+/// Build a stable fingerprint string from a slice of [`FieldUpdate`]s.
+///
+/// Only `Set` operations are included (Add/Remove are order-sensitive and
+/// uncommon in import paths).  Updates are sorted by field-ref display so
+/// that the fingerprint is stable regardless of the order the caller supplies
+/// them.
+fn updates_fingerprint<E: EntityType>(updates: &[FieldUpdate<E>]) -> String {
+    let mut values: Vec<String> = updates
+        .iter()
+        .filter(|u| u.op == FieldOp::Set)
+        .map(|u| u.value.to_string())
+        .collect();
+    values.sort_unstable();
+    values.join("|")
+}
+
+/// Build a fingerprint from the readable fields of an existing entity.
+fn entity_fingerprint<E: EntityBuildable>(schedule: &Schedule, id: EntityId<E>) -> String {
+    let mut pairs: Vec<String> = E::field_set()
+        .fields()
+        .filter_map(|desc| {
+            let v = desc.read(id, schedule).ok().flatten()?;
+            Some(format!("{}={}", desc.name(), v))
+        })
+        .collect();
+    pairs.sort_unstable();
+    pairs.join("|")
+}
+
+/// Compute the Levenshtein edit distance between two strings.
+///
+/// Used to pick the best-matching candidate when multiple entities share a
+/// natural key.
+pub(crate) fn edit_distance(a: &str, b: &str) -> usize {
+    let a: Vec<char> = a.chars().collect();
+    let b: Vec<char> = b.chars().collect();
+    let n = b.len();
+    // Rolling single-row DP — O(n) space.
+    let mut row: Vec<usize> = (0..=n).collect();
+    for ca in &a {
+        let mut prev = row[0];
+        row[0] += 1;
+        for (j, cb) in b.iter().enumerate() {
+            let next = if ca == cb {
+                prev
+            } else {
+                1 + prev.min(row[j]).min(row[j + 1])
+            };
+            prev = row[j + 1];
+            row[j + 1] = next;
+        }
+    }
+    row[n]
 }
 
 /// Seed, populate, and validate a new entity of type `E`.
@@ -407,6 +523,8 @@ mod tests {
         let id = find_or_create_entity::<PanelTypeEntityType>(
             &mut sched,
             "GP",
+            &HashSet::new(),
+            false,
             valid_panel_type_updates(),
         )
         .unwrap();
@@ -421,6 +539,8 @@ mod tests {
         let id1 = find_or_create_entity::<PanelTypeEntityType>(
             &mut sched,
             "GP",
+            &HashSet::new(),
+            false,
             valid_panel_type_updates(),
         )
         .unwrap();
@@ -428,6 +548,8 @@ mod tests {
         let id2 = find_or_create_entity::<PanelTypeEntityType>(
             &mut sched,
             "GP",
+            &HashSet::new(),
+            false,
             vec![
                 FieldUpdate::set("prefix", "GP"),
                 FieldUpdate::set("panel_kind", "Updated Kind"),
@@ -448,6 +570,8 @@ mod tests {
         let id = find_or_create_entity::<PanelTypeEntityType>(
             &mut sched,
             "GP",
+            &HashSet::new(),
+            false,
             valid_panel_type_updates(),
         )
         .unwrap();
@@ -458,6 +582,8 @@ mod tests {
         let id2 = find_or_create_entity::<PanelTypeEntityType>(
             &mut sched,
             "GP",
+            &HashSet::new(),
+            false,
             valid_panel_type_updates(),
         )
         .unwrap();
@@ -480,6 +606,8 @@ mod tests {
         let found_id = find_or_create_entity::<PanelTypeEntityType>(
             &mut sched,
             "GP",
+            &HashSet::new(),
+            false,
             vec![
                 FieldUpdate::set("prefix", "GP"),
                 FieldUpdate::set("panel_kind", "Updated Kind"),
@@ -519,5 +647,48 @@ mod tests {
         assert_eq!(id.entity_uuid(), id2.entity_uuid());
         assert_eq!(sched.entity_count::<PanelTypeEntityType>(), 1);
         assert!(!sched.is_entity_deleted(id));
+    }
+
+    #[test]
+    fn find_or_create_entity_seen_skips_already_consumed() {
+        // When the single matching entity is in the seen set, a new entity must
+        // be created rather than re-using the seen one.  This mirrors the XLSX
+        // duplicate-code scenario where each row must bind to a distinct entity.
+        let mut sched = Schedule::default();
+
+        let id1 = build_entity::<PanelTypeEntityType>(
+            &mut sched,
+            UuidPreference::GenerateNew,
+            valid_panel_type_updates(),
+        )
+        .unwrap();
+
+        // Mark id1 as already seen.
+        let mut seen = HashSet::new();
+        seen.insert(id1.entity_uuid());
+
+        // The only match is in seen, so a new entity must be created.
+        let id2 = find_or_create_entity::<PanelTypeEntityType>(
+            &mut sched,
+            "GP",
+            &seen,
+            false,
+            valid_panel_type_updates(),
+        )
+        .unwrap();
+
+        assert_ne!(id1.entity_uuid(), id2.entity_uuid());
+        assert_eq!(sched.entity_count::<PanelTypeEntityType>(), 2);
+    }
+
+    #[test]
+    fn edit_distance_basic() {
+        assert_eq!(edit_distance("", ""), 0);
+        assert_eq!(edit_distance("abc", "abc"), 0);
+        assert_eq!(edit_distance("abc", ""), 3);
+        assert_eq!(edit_distance("", "abc"), 3);
+        assert_eq!(edit_distance("kitten", "sitting"), 3);
+        assert_eq!(edit_distance("GP032", "GP032"), 0);
+        assert_eq!(edit_distance("GP032", "GP033"), 1);
     }
 }

@@ -193,7 +193,10 @@ impl<'a> ImportContext<'a> {
         normalize_presenter_sort_indices(self.schedule);
 
         // Flush presenter cache: write canonical names and explicit ranks.
-        for (uuid, (rank, canonical_name)) in self.presenter_cache.entries.drain() {
+        // Sort by UUID for deterministic write order (ensures idempotent imports).
+        let mut cache_entries: Vec<_> = self.presenter_cache.entries.drain().collect();
+        cache_entries.sort_by_key(|(a, _)| *a);
+        for (uuid, (rank, canonical_name)) in cache_entries {
             // SAFETY: uuid was obtained from a live PresenterId during this pass.
             let id = unsafe { PresenterId::new_unchecked(uuid) };
             let mut updates = vec![FieldUpdate::set(
@@ -630,11 +633,28 @@ pub(crate) fn normalize_presenter_sort_indices(schedule: &mut Schedule) {
         .collect();
 
     // Sort: known keys first (People col=0 before schedule cols), None last.
-    keyed.sort_by(|(_, a), (_, b)| match (a, b) {
-        (Some(ka), Some(kb)) => ka.cmp(kb),
+    // Use caseless name as secondary key for deterministic, user-friendly ordering.
+    let name_cmp = |uuid_a: &NonNilUuid, uuid_b: &NonNilUuid| {
+        // SAFETY: uuids came from iter_entities, so they are valid PresenterIds.
+        let id_a =
+            unsafe { crate::entity::EntityId::<PresenterEntityType>::new_unchecked(*uuid_a) };
+        let id_b =
+            unsafe { crate::entity::EntityId::<PresenterEntityType>::new_unchecked(*uuid_b) };
+        let name_a = schedule
+            .get_internal::<PresenterEntityType>(id_a)
+            .map(|d| d.data.name.to_lowercase())
+            .unwrap_or_default();
+        let name_b = schedule
+            .get_internal::<PresenterEntityType>(id_b)
+            .map(|d| d.data.name.to_lowercase())
+            .unwrap_or_default();
+        name_a.cmp(&name_b)
+    };
+    keyed.sort_by(|(uuid_a, a), (uuid_b, b)| match (a, b) {
+        (Some(ka), Some(kb)) => ka.cmp(kb).then_with(|| name_cmp(uuid_a, uuid_b)),
         (Some(_), None) => std::cmp::Ordering::Less,
         (None, Some(_)) => std::cmp::Ordering::Greater,
-        (None, None) => std::cmp::Ordering::Equal,
+        (None, None) => name_cmp(uuid_a, uuid_b),
     });
 
     // Assign sort_index = (rank + 1) * 100.

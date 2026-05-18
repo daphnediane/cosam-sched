@@ -104,8 +104,13 @@ impl super::ImportContext<'_> {
                 });
 
             // Determine Uniq ID string (synthesize row-based ID if missing).
+            // Normalize via PanelUniqId so the upsert key matches what find_by_code
+            // will read back from stored full_id() after parse+normalize.
             let code_str = uniq_id_str.unwrap_or_else(|| format!("XX{row:03}"));
-            let upsert_name = code_str.to_uppercase();
+            let upsert_name = parsed_code
+                .as_ref()
+                .map(|c| c.full_id())
+                .unwrap_or_else(|| code_str.to_uppercase());
 
             let mut updates: Vec<FieldUpdate<TimelineEntityType>> = vec![
                 FieldUpdate::set(&timeline::FIELD_CODE, code_str.as_str()),
@@ -125,6 +130,8 @@ impl super::ImportContext<'_> {
             let timeline_id: TimelineId = match find_or_create_entity::<TimelineEntityType>(
                 self.schedule,
                 &upsert_name,
+                &self.seen_timelines,
+                false,
                 updates,
             ) {
                 Ok(id) => id,

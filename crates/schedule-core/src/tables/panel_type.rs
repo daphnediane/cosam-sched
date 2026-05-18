@@ -215,11 +215,8 @@ impl crate::edit::builder::EntityBuildable for PanelTypeEntityType {
         }
     }
 
-    fn find_by_natural_key(
-        schedule: &crate::schedule::Schedule,
-        key: &str,
-    ) -> Option<EntityId<Self>> {
-        Self::find_by_prefix(schedule, key)
+    fn find_by_natural_key(schedule: &crate::schedule::Schedule, key: &str) -> Vec<EntityId<Self>> {
+        Self::find_by_prefix(schedule, key).into_iter().collect()
     }
 }
 

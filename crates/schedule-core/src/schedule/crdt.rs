@@ -69,6 +69,8 @@ pub struct ChangeLogEntry {
     /// Commit message, if any.  Marker commits written by [`Schedule::commit_marker`]
     /// always have a message; raw field-write commits generally do not.
     pub message: Option<String>,
+    /// Detailed operation descriptions when using change_log_detailed().
+    pub detailed_ops: Option<Vec<String>>,
 }
 
 // ── ScheduleMetadata ──────────────────────────────────────────────────────────
@@ -327,25 +329,322 @@ impl Schedule {
                     timestamp_secs: c.timestamp(),
                     ops: c.len(),
                     message: c.message().cloned(),
+                    detailed_ops: None,
                 }
             })
             .collect()
     }
 
+    /// Get change log with detailed operation information for each change.
+    /// Shows the actual Automerge operations (Put, Insert, Delete, etc.).
+    pub fn change_log_detailed(&mut self) -> Vec<ChangeLogEntry> {
+        // Get all changes with their dependency hashes
+        let changes: Vec<_> = self.doc.get_changes(&[]).into_iter().collect();
+
+        // Collect all change hashes for dependency tracking
+        let change_hashes: std::collections::HashSet<_> =
+            changes.iter().map(|c| c.hash()).collect();
+
+        let mut result = Vec::with_capacity(changes.len());
+
+        for c in changes {
+            let hash_bytes = c.hash().0;
+            let hash_short = hash_bytes[..4].iter().map(|b| format!("{b:02x}")).collect();
+            let actor_full = c.actor_id().to_string();
+            let actor_short = actor_full.chars().take(8).collect();
+
+            // Compute detailed field-level changes by comparing states
+            let detailed_ops = if !c.is_empty() {
+                // Get the dependencies of this change (heads before this change)
+                let deps: Vec<_> = c.deps().to_vec();
+
+                // Build diff by comparing entity states
+                let diffs = self.compute_diff_for_change(&deps, c.hash(), &change_hashes);
+
+                if diffs.is_empty() {
+                    Some(vec![format!(
+                        "{} operations (details unavailable)",
+                        c.len()
+                    )])
+                } else {
+                    Some(diffs)
+                }
+            } else {
+                None
+            };
+
+            result.push(ChangeLogEntry {
+                hash_short,
+                actor_short,
+                timestamp_secs: c.timestamp(),
+                ops: c.len(),
+                message: c.message().cloned(),
+                detailed_ops,
+            });
+        }
+
+        result
+    }
+
+    /// Compute field-level differences introduced by a specific change.
+    /// Compares document state at `before_heads` with state after including this change.
+    fn compute_diff_for_change(
+        &mut self,
+        before_heads: &[automerge::ChangeHash],
+        _change_hash: automerge::ChangeHash,
+        all_hashes: &std::collections::HashSet<automerge::ChangeHash>,
+    ) -> Vec<String> {
+        // Fork at the before state
+        let Ok(before_sched) = self.fork_at_heads(before_heads) else {
+            return Vec::new();
+        };
+
+        // Build current heads (before_heads + this change)
+        // The after state is: all deps that aren't in before_heads, plus any new heads
+        let after_heads: Vec<_> = self
+            .doc
+            .get_heads()
+            .into_iter()
+            .filter(|h| !before_heads.contains(h) || all_hashes.contains(h))
+            .collect();
+
+        let Ok(after_sched) = self.fork_at_heads(&after_heads) else {
+            return Vec::new();
+        };
+
+        // Compare and generate diffs
+        self.diff_schedules(&before_sched, &after_sched)
+    }
+
+    /// Compare two schedule states and generate human-readable differences.
+    fn diff_schedules(&self, before: &Schedule, after: &Schedule) -> Vec<String> {
+        let mut diffs = Vec::new();
+
+        // For each registered entity type, compare entities
+        for reg in crate::entity::registered_entity_types() {
+            let type_name = reg.type_name;
+
+            // Get all UUIDs from both states
+            let before_uuids: std::collections::HashSet<_> =
+                crdt::list_all_uuids(&before.doc, type_name)
+                    .into_iter()
+                    .filter(|u| !crdt::is_deleted(&before.doc, type_name, *u))
+                    .collect();
+            let after_uuids: std::collections::HashSet<_> =
+                crdt::list_all_uuids(&after.doc, type_name)
+                    .into_iter()
+                    .filter(|u| !crdt::is_deleted(&after.doc, type_name, *u))
+                    .collect();
+
+            // Find added entities - show as JSON with field values
+            for uuid in after_uuids.difference(&before_uuids) {
+                if let Some(json) = format_entity_as_json(type_name, *uuid, after) {
+                    diffs.push(format!(
+                        "{type_name}[{}]: created = {json}",
+                        &uuid.to_string()[..8]
+                    ));
+                } else {
+                    diffs.push(format!(
+                        "{type_name}[{}]: (created)",
+                        &uuid.to_string()[..8]
+                    ));
+                }
+            }
+
+            // Find deleted entities - show prior contents as JSON
+            for uuid in before_uuids.difference(&after_uuids) {
+                if let Some(json) = format_entity_as_json(type_name, *uuid, before) {
+                    diffs.push(format!(
+                        "{type_name}[{}]: deleted = {json}",
+                        &uuid.to_string()[..8]
+                    ));
+                } else {
+                    diffs.push(format!(
+                        "{type_name}[{}]: (deleted)",
+                        &uuid.to_string()[..8]
+                    ));
+                }
+            }
+
+            // Find modified entities - compare field values
+            for uuid in before_uuids.intersection(&after_uuids) {
+                if let Some(entity_diffs) = self.diff_entity_fields(type_name, *uuid, before, after)
+                {
+                    diffs.extend(entity_diffs);
+                }
+            }
+        }
+
+        diffs.truncate(50); // Limit to avoid overwhelming output
+        diffs
+    }
+
+    /// Compare field values for a specific entity between two schedules.
+    fn diff_entity_fields(
+        &self,
+        type_name: &'static str,
+        uuid: NonNilUuid,
+        before: &Schedule,
+        after: &Schedule,
+    ) -> Option<Vec<String>> {
+        use automerge::{ReadDoc, Value};
+
+        // Get entity maps from both docs
+        let before_map = crdt::get_entity_map(&before.doc, type_name, uuid)?;
+        let after_map = crdt::get_entity_map(&after.doc, type_name, uuid)?;
+
+        let mut changes = Vec::new();
+
+        // Get all keys from both entity maps
+        let before_keys: std::collections::HashSet<String> = before.doc.keys(&before_map).collect();
+        let after_keys: std::collections::HashSet<String> = after.doc.keys(&after_map).collect();
+
+        // Check all unique keys from both maps
+        let all_keys: std::collections::HashSet<_> =
+            before_keys.union(&after_keys).cloned().collect();
+
+        for key in all_keys {
+            // Skip internal CRDT fields
+            if key.starts_with("__") {
+                continue;
+            }
+
+            let before_val = before.doc.get(&before_map, &key).ok().flatten();
+            let after_val = after.doc.get(&after_map, &key).ok().flatten();
+
+            match (before_val, after_val) {
+                (None, Some((val, _))) => {
+                    changes.push(format!(
+                        "{type_name}[{:.8}].{key}: (none) → {}",
+                        uuid,
+                        format_value(&val)
+                    ));
+                }
+                (Some((Value::Scalar(old), _)), Some((Value::Scalar(new), _))) if old != new => {
+                    changes.push(format!(
+                        "{type_name}[{:.8}].{key}: {} → {}",
+                        uuid,
+                        format_scalar(old.as_ref()),
+                        format_scalar(new.as_ref())
+                    ));
+                }
+                (Some((Value::Scalar(old), _)), Some((Value::Scalar(new), _))) if old == new => {}
+                (Some((old, _)), Some((new, _))) if old != new => {
+                    changes.push(format!(
+                        "{type_name}[{:.8}].{key}: {} → {}",
+                        uuid,
+                        format_value(&old),
+                        format_value(&new)
+                    ));
+                }
+                (Some(_), Some(_)) => {}
+                (Some((old, _)), None) => {
+                    changes.push(format!(
+                        "{type_name}[{:.8}].{key}: {} → (deleted)",
+                        uuid,
+                        format_value(&old)
+                    ));
+                }
+                _ => {}
+            }
+        }
+
+        if changes.is_empty() {
+            None
+        } else {
+            Some(changes)
+        }
+    }
+}
+
+/// Format an Automerge scalar value for display.
+fn format_scalar(sv: &automerge::ScalarValue) -> String {
+    match sv {
+        automerge::ScalarValue::Str(s) => {
+            if s.len() > 40 {
+                format!("\"{}...\"", &s[..40])
+            } else {
+                format!("\"{}\"", s)
+            }
+        }
+        automerge::ScalarValue::Int(i) => i.to_string(),
+        automerge::ScalarValue::Uint(u) => u.to_string(),
+        automerge::ScalarValue::F64(f) => f.to_string(),
+        automerge::ScalarValue::Boolean(b) => b.to_string(),
+        automerge::ScalarValue::Null => "null".to_string(),
+        automerge::ScalarValue::Timestamp(t) => format!("@{}", t),
+        automerge::ScalarValue::Counter(c) => c.to_string(),
+        _ => format!("{:?}", sv),
+    }
+}
+
+/// Format any Automerge value for display.
+fn format_value(val: &automerge::Value) -> String {
+    match val {
+        automerge::Value::Scalar(sv) => format_scalar(sv.as_ref()),
+        automerge::Value::Object(_) => "(object)".to_string(),
+    }
+}
+
+/// Format entity fields as a compact JSON representation.
+fn format_entity_as_json(type_name: &str, uuid: NonNilUuid, schedule: &Schedule) -> Option<String> {
+    use automerge::ReadDoc;
+
+    let entity_map = crdt::get_entity_map(&schedule.doc, type_name, uuid)?;
+
+    // Collect field names and values
+    let mut fields: std::collections::HashMap<String, serde_json::Value> =
+        std::collections::HashMap::new();
+
+    for key in schedule.doc.keys(&entity_map) {
+        // Skip internal CRDT fields
+        if key.starts_with("__") {
+            continue;
+        }
+
+        if let Ok(Some((val, _))) = schedule.doc.get(&entity_map, &key) {
+            let json_val = automerge_value_to_json(&val);
+            fields.insert(key, json_val);
+        }
+    }
+
+    if fields.is_empty() {
+        None
+    } else {
+        serde_json::to_string(&fields).ok()
+    }
+}
+
+/// Convert an Automerge Value to a serde_json::Value.
+fn automerge_value_to_json(val: &automerge::Value) -> serde_json::Value {
+    match val {
+        automerge::Value::Scalar(sv) => match sv.as_ref() {
+            automerge::ScalarValue::Str(s) => serde_json::Value::String(s.to_string()),
+            automerge::ScalarValue::Int(i) => serde_json::Value::Number((*i).into()),
+            automerge::ScalarValue::Uint(u) => serde_json::Value::Number((*u).into()),
+            automerge::ScalarValue::F64(f) => serde_json::json!(*f),
+            automerge::ScalarValue::Boolean(b) => serde_json::Value::Bool(*b),
+            automerge::ScalarValue::Null => serde_json::Value::Null,
+            automerge::ScalarValue::Bytes(b) => serde_json::json!(b),
+            automerge::ScalarValue::Timestamp(t) => serde_json::json!(t),
+            automerge::ScalarValue::Counter(c) => serde_json::json!(c),
+            _ => serde_json::json!(format!("{:?}", sv)),
+        },
+        automerge::Value::Object(_) => serde_json::Value::String("(object)".to_string()),
+    }
+}
+
+impl Schedule {
     /// Surface every concurrent value for a scalar field on `id`.
     ///
-    /// - Returns an empty vec when the field is unset.
-    /// - Returns a single-element vec when there is no conflict — the same
-    ///   value as `read_field_value` would observe.
-    /// - Returns **all** concurrent writers' values when two or more
-    ///   replicas wrote different scalars without either observing the
-    ///   other; the primary read (via `field_set`) continues to return
-    ///   automerge's deterministically-selected LWW winner.
+    /// Returns **all** concurrent writers' values when two or more
+    /// replicas wrote different scalars without either observing the
+    /// other; the primary read (via `field_set`) continues to return
+    /// automerge's deterministically-selected LWW winner.
     ///
     /// Only scalar fields are supported; derived, text, and list fields
     /// yield an empty vec (they have their own per-character or
     /// per-item conflict semantics).
-    #[must_use]
     pub fn conflicts_for<E: EntityType>(
         &self,
         id: EntityId<E>,

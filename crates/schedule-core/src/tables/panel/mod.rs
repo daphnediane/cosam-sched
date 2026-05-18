@@ -248,14 +248,16 @@ inventory::submit! {
 // ── Lookup helpers ───────────────────────────────────────────────────────────────
 
 impl PanelEntityType {
-    /// Find a live panel by its Uniq ID code (case-insensitive).
+    /// Find all live panels with the given Uniq ID code (case-insensitive).
     ///
-    /// Returns the first match; in well-formed data each code is unique.
-    pub fn find_by_code(schedule: &crate::schedule::Schedule, code: &str) -> Option<PanelId> {
+    /// Returns all matches; in well-formed data the list has at most one entry,
+    /// but duplicate codes are possible in human-authored XLSX files.
+    pub fn find_by_code(schedule: &crate::schedule::Schedule, code: &str) -> Vec<PanelId> {
         let upper = code.to_uppercase();
         schedule
             .iter_entities::<Self>()
-            .find_map(|(id, d)| (d.code.full_id().to_uppercase() == upper).then_some(id))
+            .filter_map(|(id, d)| (d.code.full_id().to_uppercase() == upper).then_some(id))
+            .collect()
     }
 }
 
@@ -271,10 +273,7 @@ impl crate::edit::builder::EntityBuildable for PanelEntityType {
         }
     }
 
-    fn find_by_natural_key(
-        schedule: &crate::schedule::Schedule,
-        key: &str,
-    ) -> Option<EntityId<Self>> {
+    fn find_by_natural_key(schedule: &crate::schedule::Schedule, key: &str) -> Vec<EntityId<Self>> {
         Self::find_by_code(schedule, key)
     }
 }

@@ -298,6 +298,14 @@ impl PresenterEntityType {
                     None => true,
                     Some((_, best_p)) => priority > *best_p,
                 };
+                // Use UUID as tiebreaker for deterministic selection when
+                // priorities are equal (prevents non-idempotent imports).
+                let is_better = is_better
+                    || best
+                        .map(|(best_id, best_p)| {
+                            priority == best_p && id.entity_uuid() < best_id.entity_uuid()
+                        })
+                        .unwrap_or(false);
                 if is_better {
                     best = Some((id, priority));
                 }
@@ -384,11 +392,8 @@ impl crate::edit::builder::EntityBuildable for PresenterEntityType {
         }
     }
 
-    fn find_by_natural_key(
-        schedule: &crate::schedule::Schedule,
-        key: &str,
-    ) -> Option<EntityId<Self>> {
-        Self::find_by_name(schedule, key)
+    fn find_by_natural_key(schedule: &crate::schedule::Schedule, key: &str) -> Vec<EntityId<Self>> {
+        Self::find_by_name(schedule, key).into_iter().collect()
     }
 }
 

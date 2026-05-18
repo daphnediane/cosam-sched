@@ -124,7 +124,13 @@ impl super::ImportContext<'_> {
                 updates.push(FieldUpdate::set(&panel_type::FIELD_BW, b.as_str()));
             }
 
-            match find_or_create_entity::<PanelTypeEntityType>(self.schedule, &prefix, updates) {
+            match find_or_create_entity::<PanelTypeEntityType>(
+                self.schedule,
+                &prefix,
+                &self.seen_panel_types,
+                true,
+                updates,
+            ) {
                 Ok(id) => {
                     let uuid = id.entity_uuid();
                     self.seen_panel_types.insert(uuid);

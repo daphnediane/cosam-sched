@@ -230,8 +230,13 @@ impl super::ImportContext<'_> {
                 get_field_def(&data, &sc::PRE_REG_MAX).and_then(|s| s.parse::<i64>().ok());
 
             // Determine Uniq ID string (synthesize row-based ID if missing).
+            // Normalize via PanelUniqId so the upsert key matches what find_by_code
+            // will read back from stored full_id() after parse+normalize.
             let code_str = uniq_id_str.unwrap_or_else(|| format!("XX{row:03}"));
-            let upsert_name = code_str.to_uppercase();
+            let upsert_name = parsed_code
+                .as_ref()
+                .map(|c| c.full_id())
+                .unwrap_or_else(|| code_str.to_uppercase());
 
             // Upsert Panel entity via field system.
             let mut updates: Vec<FieldUpdate<PanelEntityType>> = vec![
@@ -363,6 +368,8 @@ impl super::ImportContext<'_> {
                 let timeline_id: TimelineId = match find_or_create_entity::<TimelineEntityType>(
                     self.schedule,
                     &upsert_name,
+                    &self.seen_timelines,
+                    false,
                     tl_updates,
                 ) {
                     Ok(id) => id,
@@ -402,6 +409,8 @@ impl super::ImportContext<'_> {
             let panel_id: PanelId = match find_or_create_entity::<PanelEntityType>(
                 self.schedule,
                 &upsert_name,
+                &self.seen_panels,
+                false,
                 updates,
             ) {
                 Ok(id) => id,

@@ -84,7 +84,13 @@ impl super::ImportContext<'_> {
                 updates.push(FieldUpdate::set(&hotel_room::FIELD_SORT_KEY, sk));
             }
 
-            match find_or_create_entity::<HotelRoomEntityType>(self.schedule, &name_key, updates) {
+            match find_or_create_entity::<HotelRoomEntityType>(
+                self.schedule,
+                &name_key,
+                &self.seen_hotel_rooms,
+                true,
+                updates,
+            ) {
                 Ok(id) => {
                     let uuid = id.entity_uuid();
                     self.seen_hotel_rooms.insert(uuid);
