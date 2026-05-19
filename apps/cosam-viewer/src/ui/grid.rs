@@ -17,6 +17,14 @@ use crate::state::PanelView;
 /// Slot granularity in minutes.
 const SLOT_MINUTES: i64 = 30;
 
+/// Fallback grid start time when no panels have a known start: 8:00 AM,
+/// expressed as minutes from midnight.
+const DEFAULT_GRID_START_MIN: i64 = 8 * 60;
+
+/// Fallback grid time span when no panels have a known end: 8 hours,
+/// expressed in minutes.
+const DEFAULT_GRID_SPAN_MIN: i64 = 8 * 60;
+
 // ---------------------------------------------------------------------------
 // Internal layout types
 // ---------------------------------------------------------------------------
@@ -77,7 +85,7 @@ pub fn GridView(
         .filter_map(|p| p.start_time)
         .map(|dt| dt.hour() as i64 * 60 + dt.minute() as i64)
         .min()
-        .unwrap_or(8 * 60);
+        .unwrap_or(DEFAULT_GRID_START_MIN);
     let day_start_min = (raw_start / SLOT_MINUTES) * SLOT_MINUTES;
 
     let raw_end = panels
@@ -86,7 +94,7 @@ pub fn GridView(
         .filter_map(|p| p.end_time)
         .map(|dt| dt.hour() as i64 * 60 + dt.minute() as i64)
         .max()
-        .unwrap_or(day_start_min + 8 * 60);
+        .unwrap_or(day_start_min + DEFAULT_GRID_SPAN_MIN);
     let day_end_min = ((raw_end + SLOT_MINUTES - 1) / SLOT_MINUTES) * SLOT_MINUTES;
 
     let total_slots = ((day_end_min - day_start_min) / SLOT_MINUTES).max(1) as usize;
@@ -203,9 +211,12 @@ pub fn GridView(
     // -----------------------------------------------------------------------
     // CSS grid dimensions (inline style on the canvas element)
     // -----------------------------------------------------------------------
+    let time_col_px = super::GRID_TIME_COL_PX as u32;
+    let header_row_px = super::GRID_HEADER_ROW_PX;
+    let slot_row_px = super::GRID_SLOT_ROW_PX;
     let grid_style = format!(
-        "grid-template-columns: 64px repeat({n_rooms}, minmax(140px, 1fr)); \
-         grid-template-rows: 36px repeat({total_slots}, 60px);"
+        "grid-template-columns: {time_col_px}px repeat({n_rooms}, 1fr); \
+         grid-template-rows: {header_row_px}px repeat({total_slots}, {slot_row_px}px);"
     );
 
     // -----------------------------------------------------------------------

@@ -18,6 +18,16 @@ pub const ID_FILE_OPEN: &str = "viewer-open-file";
 pub const ID_FILE_OPEN_FOLDER: &str = "viewer-open-folder";
 
 // ---------------------------------------------------------------------------
+// Window launch dimensions (logical pixels)
+// ---------------------------------------------------------------------------
+
+/// Default launch width of the application window, in logical pixels.
+pub const WINDOW_LAUNCH_WIDTH_PX: f64 = 1100.0;
+
+/// Default launch height of the application window, in logical pixels.
+pub const WINDOW_LAUNCH_HEIGHT_PX: f64 = 800.0;
+
+// ---------------------------------------------------------------------------
 
 #[cfg(feature = "desktop")]
 fn build_app_menu() -> dioxus_desktop::muda::Menu {
@@ -100,7 +110,8 @@ fn main() {
                         WindowBuilder::new()
                             .with_title("cosam Schedule Viewer")
                             .with_inner_size(dioxus_desktop::tao::dpi::LogicalSize::new(
-                                1100.0_f64, 800.0_f64,
+                                WINDOW_LAUNCH_WIDTH_PX,
+                                WINDOW_LAUNCH_HEIGHT_PX,
                             )),
                     )
                     .with_menu(build_app_menu()),

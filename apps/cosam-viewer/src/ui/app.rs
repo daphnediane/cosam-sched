@@ -66,6 +66,12 @@ pub fn App() -> Element {
     let mut trigger_open_file: Signal<bool> = use_signal(|| false);
     #[cfg(feature = "desktop")]
     let mut trigger_open_folder: Signal<bool> = use_signal(|| false);
+    // Width of the main content area (excludes sidebars), updated via onresize on
+    // the content wrapper div.  ResizeObserver fires once on mount and on every
+    // resize, so this is always current without any platform-specific hacks.
+    // Seeded from the launch window width so the initial layout is correct
+    // before the first ResizeObserver callback fires.
+    let mut content_width: Signal<f64> = use_signal(|| crate::WINDOW_LAUNCH_WIDTH_PX);
 
     // -----------------------------------------------------------------------
     // Derived data (read once to avoid repeated borrows)
@@ -200,6 +206,13 @@ pub fn App() -> Element {
         });
     });
 
+    // Too narrow: each room column would be < ~60 px (≈ 5 chars at 0.8125rem).
+    // content_width is updated by the onresize handler on the main content div.
+    // When too_narrow the toggle buttons are hidden and list view is always shown,
+    // but view_mode is NOT changed so the user's preference is restored on widen.
+    let too_narrow = content_width()
+        < super::GRID_TIME_COL_PX + grid_rooms.len() as f64 * super::GRID_MIN_ROOM_COL_PX;
+
     let theme_class = state.read().theme.css_class();
     let show_filter_panel = state.read().filters.show_filter_panel;
     let has_doc = state.read().doc.is_some();
@@ -264,9 +277,9 @@ pub fn App() -> Element {
             // Top bar: view icons (left) + day tabs (center) + filter/theme (right)
             // ---------------------------------------------------------------
             header { class: "topbar", role: "banner",
-                // Left: list/grid icon buttons (only when a schedule is loaded)
+                // Left: list/grid icon buttons (only when loaded and wide enough)
                 div { class: "topbar-start",
-                    if has_doc {
+                    if has_doc && !too_narrow {
                         div { class: "toolbar-view-toggle", role: "group", aria_label: "View mode",
                             // List view icon (horizontal lines)
                             button {
@@ -573,9 +586,19 @@ pub fn App() -> Element {
                 }
 
                 // -----------------------------------------------------------
-                // Main content area — list view or grid view
+                // Main content area — list view or grid view.
+                // The wrapper div is measured by onresize so that future
+                // sidebars reduce content_width automatically.
                 // -----------------------------------------------------------
-                if view_mode == ViewMode::Grid {
+                div {
+                    style: "flex: 1; min-height: 0; display: flex; flex-direction: column;",
+                    onresize: move |data| {
+                        if let Ok(size) = data.get_border_box_size() {
+                            content_width.set(size.width);
+                        }
+                    },
+
+                if view_mode == ViewMode::Grid && !too_narrow {
                     main { id: "main-content", class: "grid-main-area",
                         GridView {
                             panels,
@@ -740,6 +763,8 @@ pub fn App() -> Element {
                     }
                 }
                 } // end else (list view)
+
+                } // end content-area wrapper div
 
                 // -----------------------------------------------------------
                 // Detail modal

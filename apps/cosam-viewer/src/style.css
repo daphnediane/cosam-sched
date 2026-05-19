@@ -900,6 +900,11 @@ body {
   background: rgba(255, 255, 255, 0.2);
 }
 
+.toolbar-icon-btn:disabled {
+  opacity: 0.35;
+  cursor: not-allowed;
+}
+
 /* -------------------------------------------------------------------------
  * Grid view — main layout wrapper
  * ---------------------------------------------------------------------- */
@@ -918,10 +923,12 @@ body {
   background: var(--color-bg);
 }
 
-/* CSS-grid canvas — dimensions set via inline style per render */
+/* CSS-grid canvas — dimensions set via inline style per render.
+ * No min-width: columns use 1fr and fill the container; overflow: auto on the
+ * wrapper handles the rare case where the minimum column size forces overflow. */
 .grid-canvas {
   display: grid;
-  min-width: max-content;
+  width: 100%;
 }
 
 /* -------------------------------------------------------------------------
