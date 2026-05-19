@@ -1,6 +1,6 @@
 # Cosplay America Schedule - Work Item
 
-Updated on: Mon May 18 01:52:22 2026
+Updated on: Tue May 19 00:47:46 2026
 
 ## Completed
 
@@ -94,6 +94,7 @@ first-class entity fields, and decide how this interacts with CRDT merge.
 * [FEATURE-114] Add one grid-view reference sheet per day to the exported XLSX, mirroring the HTML schedule grid with merged cells for multi-slot and multi-room events.
 * [FEATURE-115] Separate Timeline Sheet in XLSX
 * [FEATURE-116] New Dioxus 0.7 viewer app that reads widget JSON and renders a UI similar to the JS widget.
+* [FEATURE-118] Add a CSS-grid schedule view to cosam-viewer mirroring the JS widget's grid mode.
 * [FEATURE-121] Expand cosam-viewer to open XLSX, binary `.cosam`, and CSV directory schedules, plus
 fetch widget JSON from a webpage URL.
 * [FEATURE-122] Replace all "import → new schedule" functions with "update existing schedule"
@@ -169,16 +170,13 @@ above panelists and groups.
 
 ## Summary of Open Items
 
-**Total open items:** 21
+**Total open items:** 20
 
 * **Meta / Project-Level**
   * [META-001] Meta work item tracking the full multi-phase redesign of the schedule system. (Blocked by [META-007], [META-008])
   * [META-007] Phase tracker for the cosam-editor desktop GUI application. (Blocked by [META-005])
   * [META-008] Phase tracker for peer-to-peer schedule synchronization and conflict resolution. (Blocked by [META-004])
   * [META-117] Tracker for all cosam-viewer work: initial viewer app and deferred enhancements.
-
-* **High Priority**
-  * [FEATURE-118] ([META-117]) Add a CSS-grid schedule view to cosam-viewer mirroring the JS widget's grid mode.
 
 * **Medium Priority**
   * [CLI-100] Add a `--interactive` flag to `cosam-modify` that opens a read-eval-print loop for
@@ -327,22 +325,6 @@ target without duplication.
 ---
 
 ## Open FEATURE Items
-
-### [FEATURE-118] FEATURE-118: cosam-viewer — grid view (rooms × time slots)
-
-**Status:** Open
-
-**Priority:** High
-
-**Summary:** Add a CSS-grid schedule view to cosam-viewer mirroring the JS widget's grid mode.
-
-**Part of:** [META-117]
-
-**Description:** Implement a grid view in `apps/cosam-viewer` where columns are rooms and rows are
-time slots, with panels spanning multiple rows based on duration. Mirrors the
-`grid` view mode of the JS widget.
-
----
 
 ### [FEATURE-113] FEATURE-113: In-process Typst PDF compilation (replace typst CLI subprocess)
 
@@ -780,7 +762,7 @@ This refactor:
 [FEATURE-114]: work-item/done/FEATURE-114.md
 [FEATURE-115]: work-item/done/FEATURE-115.md
 [FEATURE-116]: work-item/done/FEATURE-116.md
-[FEATURE-118]: work-item/high/FEATURE-118.md
+[FEATURE-118]: work-item/done/FEATURE-118.md
 [FEATURE-119]: work-item/medium/FEATURE-119.md
 [FEATURE-120]: work-item/low/FEATURE-120.md
 [FEATURE-121]: work-item/done/FEATURE-121.md

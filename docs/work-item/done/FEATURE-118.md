@@ -6,7 +6,7 @@ Add a CSS-grid schedule view to cosam-viewer mirroring the JS widget's grid mode
 
 ## Status
 
-Open
+Completed
 
 ## Priority
 

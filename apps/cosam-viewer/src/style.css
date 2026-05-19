@@ -865,14 +865,39 @@ body {
   overflow: hidden;
 }
 
-.toolbar-view-toggle .toolbar-btn {
+/* Icon-only button used for list/grid toggle */
+.toolbar-icon-btn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 36px;
+  height: 32px;
+  padding: 0;
+  background: transparent;
   border: none;
-  border-radius: 0;
   border-right: 1px solid rgba(255, 255, 255, 0.2);
+  color: inherit;
+  cursor: pointer;
+  line-height: 1;
 }
 
-.toolbar-view-toggle .toolbar-btn:last-child {
+.toolbar-icon-btn:last-child {
   border-right: none;
+}
+
+.toolbar-icon-btn:hover,
+.toolbar-icon-btn:focus-visible {
+  background: rgba(255, 255, 255, 0.15);
+  outline: none;
+}
+
+.toolbar-icon-btn:focus-visible {
+  outline: 2px solid var(--focus-ring, #fff);
+  outline-offset: -2px;
+}
+
+.toolbar-icon-btn.active {
+  background: rgba(255, 255, 255, 0.2);
 }
 
 /* -------------------------------------------------------------------------

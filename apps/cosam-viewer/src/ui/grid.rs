@@ -66,9 +66,14 @@ pub fn GridView(
 
     // -----------------------------------------------------------------------
     // Time bounds (minutes from midnight, snapped to slot boundaries)
+    //
+    // Use non-break panels only so that overnight breaks (which may list an
+    // end time of e.g. 01:00 next day, recorded here as 01:00 = 60 min) do
+    // not push the grid start back to midnight.
     // -----------------------------------------------------------------------
     let raw_start = panels
         .iter()
+        .filter(|p| !p.is_break)
         .filter_map(|p| p.start_time)
         .map(|dt| dt.hour() as i64 * 60 + dt.minute() as i64)
         .min()
@@ -77,6 +82,7 @@ pub fn GridView(
 
     let raw_end = panels
         .iter()
+        .filter(|p| !p.is_break)
         .filter_map(|p| p.end_time)
         .map(|dt| dt.hour() as i64 * 60 + dt.minute() as i64)
         .max()
@@ -126,7 +132,14 @@ pub fn GridView(
                 .map(|dt| dt.hour() as i64 * 60 + dt.minute() as i64);
             let duration_min = end_min.map(|e| e - start_min).unwrap_or(SLOT_MINUTES);
 
-            let row_start = ((start_min - day_start_min) / SLOT_MINUTES) as usize + 2;
+            let row_offset = (start_min - day_start_min) / SLOT_MINUTES;
+            // Panels that start before the grid window (e.g. an overnight break
+            // whose start_time is technically on the previous calendar day) are
+            // skipped to avoid negative row indices.
+            if row_offset < 0 {
+                return None;
+            }
+            let row_start = row_offset as usize + 2;
             let row_span = (duration_min / SLOT_MINUTES).max(1) as usize;
 
             if p.is_break {

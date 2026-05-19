@@ -7,6 +7,8 @@
 //! Main viewer UI component.
 
 use dioxus::prelude::*;
+#[cfg(feature = "desktop")]
+use dioxus_desktop::{use_muda_event_handler, use_window};
 
 use crate::data::ScheduleDoc;
 use crate::state::{Filters, Theme, ViewMode, ViewerState};
@@ -60,11 +62,16 @@ pub fn App() -> Element {
     let mut state: Signal<ViewerState> = use_signal(ViewerState::default);
     let mut error_msg: Signal<Option<String>> = use_signal(|| None);
     let mut url_input: Signal<String> = use_signal(String::new);
+    #[cfg(feature = "desktop")]
+    let mut trigger_open_file: Signal<bool> = use_signal(|| false);
+    #[cfg(feature = "desktop")]
+    let mut trigger_open_folder: Signal<bool> = use_signal(|| false);
 
     // -----------------------------------------------------------------------
     // Derived data (read once to avoid repeated borrows)
     // -----------------------------------------------------------------------
     let (days, panels, grid_rooms, filter_rooms, filter_types, filter_presenters, title) = {
+        use std::collections::HashSet;
         let s = state.read();
         let days = s.days.clone();
         let panels = s.panels_for_day();
@@ -73,8 +80,18 @@ pub fn App() -> Element {
             .as_ref()
             .map(|d| d.visible_rooms().into_iter().cloned().collect::<Vec<_>>())
             .unwrap_or_default();
-        // Grid shows all visible rooms as columns regardless of room filter.
-        let grid_rooms = visible_rooms.clone();
+        // Grid shows only rooms that have at least one non-break panel on the
+        // selected day (empty columns would be confusing).
+        let panel_room_ids: HashSet<i32> = panels
+            .iter()
+            .filter(|p| !p.is_break)
+            .flat_map(|p| p.room_ids.iter().copied())
+            .collect();
+        let grid_rooms = visible_rooms
+            .iter()
+            .filter(|r| panel_room_ids.contains(&r.uid))
+            .cloned()
+            .collect::<Vec<_>>();
         let filter_rooms = visible_rooms;
         let filter_types = s
             .doc
@@ -103,20 +120,34 @@ pub fn App() -> Element {
         )
     };
 
-    let theme_class = state.read().theme.css_class();
-    let show_filter_panel = state.read().filters.show_filter_panel;
-    let has_doc = state.read().doc.is_some();
-    let view_mode = state.read().view_mode;
-    let selected_day_index = state.read().selected_day_index; // None = All Days
-    let detail_panel = state.read().detail_panel();
-    let active_presenter_filter = state.read().filters.presenter.clone();
-    let time_groups = group_by_time(panels.clone());
-
     // -----------------------------------------------------------------------
-    // File / folder / URL open handlers
+    // Desktop-only hooks: menu events + window title
     // -----------------------------------------------------------------------
     #[cfg(feature = "desktop")]
-    let open_file = move |_| {
+    use_muda_event_handler(move |event| {
+        let id = event.id().0.as_str();
+        match id {
+            crate::ID_FILE_OPEN => trigger_open_file.set(true),
+            crate::ID_FILE_OPEN_FOLDER => trigger_open_folder.set(true),
+            _ => {}
+        }
+    });
+
+    #[cfg(feature = "desktop")]
+    {
+        let title_for_effect = title.clone();
+        use_effect(move || {
+            use_window().window.set_title(&title_for_effect);
+        });
+    }
+
+    // Trigger file open dialog (from menu or empty-state button)
+    #[cfg(feature = "desktop")]
+    use_effect(move || {
+        if !*trigger_open_file.read() {
+            return;
+        }
+        trigger_open_file.set(false);
         spawn(async move {
             let file = rfd::AsyncFileDialog::new()
                 .add_filter("Schedule files", &["json", "xlsx", "cosam"])
@@ -126,7 +157,6 @@ pub fn App() -> Element {
                 .add_filter("All files", &["*"])
                 .pick_file()
                 .await;
-
             if let Some(handle) = file {
                 let name = handle.file_name();
                 let path = handle.path().to_path_buf();
@@ -142,10 +172,15 @@ pub fn App() -> Element {
                 }
             }
         });
-    };
+    });
 
+    // Trigger folder open dialog (from menu or empty-state button)
     #[cfg(feature = "desktop")]
-    let open_folder = move |_| {
+    use_effect(move || {
+        if !*trigger_open_folder.read() {
+            return;
+        }
+        trigger_open_folder.set(false);
         spawn(async move {
             let folder = rfd::AsyncFileDialog::new().pick_folder().await;
             if let Some(handle) = folder {
@@ -163,7 +198,26 @@ pub fn App() -> Element {
                 }
             }
         });
-    };
+    });
+
+    let theme_class = state.read().theme.css_class();
+    let show_filter_panel = state.read().filters.show_filter_panel;
+    let has_doc = state.read().doc.is_some();
+    let view_mode = state.read().view_mode;
+    let selected_day_index = state.read().selected_day_index; // None = All Days
+    let detail_panel = state.read().detail_panel();
+    let active_presenter_filter = state.read().filters.presenter.clone();
+    let time_groups = group_by_time(panels.clone());
+
+    // -----------------------------------------------------------------------
+    // File / folder / URL open handlers
+    // -----------------------------------------------------------------------
+    // Desktop: delegate to trigger signals so menu and button share the same path.
+    #[cfg(feature = "desktop")]
+    let open_file = move |_| trigger_open_file.set(true);
+
+    #[cfg(feature = "desktop")]
+    let open_folder = move |_| trigger_open_folder.set(true);
 
     let trigger_load_url = move || {
         let url = url_input.read().trim().to_string();
@@ -207,24 +261,40 @@ pub fn App() -> Element {
             a { class: "skip-link", href: "#main-content", "Skip to content" }
 
             // ---------------------------------------------------------------
-            // Top bar: toolbar controls + day tabs in one row
+            // Top bar: view icons (left) + day tabs (center) + filter/theme (right)
             // ---------------------------------------------------------------
             header { class: "topbar", role: "banner",
-                // Left: open + title
+                // Left: list/grid icon buttons (only when a schedule is loaded)
                 div { class: "topbar-start",
-                    button {
-                        class: "toolbar-btn toolbar-open",
-                        onclick: open_file,
-                        aria_label: "Open schedule file",
-                        "Open File"
+                    if has_doc {
+                        div { class: "toolbar-view-toggle", role: "group", aria_label: "View mode",
+                            // List view icon (horizontal lines)
+                            button {
+                                class: if view_mode == ViewMode::List { "toolbar-icon-btn active" } else { "toolbar-icon-btn" },
+                                aria_pressed: if view_mode == ViewMode::List { "true" } else { "false" },
+                                aria_label: "List view",
+                                title: "List view",
+                                onclick: move |_| state.write().view_mode = ViewMode::List,
+                                dangerous_inner_html: r#"<svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><line x1="8" y1="6" x2="21" y2="6"/><line x1="8" y1="12" x2="21" y2="12"/><line x1="8" y1="18" x2="21" y2="18"/><line x1="3" y1="6" x2="3.01" y2="6"/><line x1="3" y1="12" x2="3.01" y2="12"/><line x1="3" y1="18" x2="3.01" y2="18"/></svg>"#,
+                            }
+                            // Grid view icon (2×2 grid)
+                            button {
+                                class: if view_mode == ViewMode::Grid { "toolbar-icon-btn active" } else { "toolbar-icon-btn" },
+                                aria_pressed: if view_mode == ViewMode::Grid { "true" } else { "false" },
+                                aria_label: "Grid view",
+                                title: "Grid view",
+                                onclick: move |_| {
+                                    let mut s = state.write();
+                                    s.view_mode = ViewMode::Grid;
+                                    // Grid view requires a specific day — auto-select day 0.
+                                    if s.selected_day_index.is_none() && !s.days.is_empty() {
+                                        s.selected_day_index = Some(0);
+                                    }
+                                },
+                                dangerous_inner_html: r#"<svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="3" y="3" width="7" height="7"/><rect x="14" y="3" width="7" height="7"/><rect x="3" y="14" width="7" height="7"/><rect x="14" y="14" width="7" height="7"/></svg>"#,
+                            }
+                        }
                     }
-                    button {
-                        class: "toolbar-btn toolbar-open",
-                        onclick: open_folder,
-                        aria_label: "Open CSV schedule folder",
-                        "Open Folder"
-                    }
-                    span { class: "toolbar-title", "{title}" }
                 }
 
                 // Centre: day tabs (only when a schedule is loaded)
@@ -266,33 +336,9 @@ pub fn App() -> Element {
                     }
                 }
 
-                // Right: view toggle + filter toggle + theme picker
+                // Right: filter toggle + theme picker
                 div { class: "topbar-end",
                     if has_doc {
-                        // View mode toggle: List | Grid
-                        div { class: "toolbar-view-toggle", role: "group", aria_label: "View mode",
-                            button {
-                                class: if view_mode == ViewMode::List { "toolbar-btn active" } else { "toolbar-btn" },
-                                aria_pressed: if view_mode == ViewMode::List { "true" } else { "false" },
-                                aria_label: "List view",
-                                onclick: move |_| state.write().view_mode = ViewMode::List,
-                                "List"
-                            }
-                            button {
-                                class: if view_mode == ViewMode::Grid { "toolbar-btn active" } else { "toolbar-btn" },
-                                aria_pressed: if view_mode == ViewMode::Grid { "true" } else { "false" },
-                                aria_label: "Grid view",
-                                onclick: move |_| {
-                                    let mut s = state.write();
-                                    s.view_mode = ViewMode::Grid;
-                                    // Grid view requires a specific day — auto-select day 0.
-                                    if s.selected_day_index.is_none() && !s.days.is_empty() {
-                                        s.selected_day_index = Some(0);
-                                    }
-                                },
-                                "Grid"
-                            }
-                        }
                         button {
                             class: if show_filter_panel { "toolbar-btn active" } else { "toolbar-btn" },
                             aria_expanded: if show_filter_panel { "true" } else { "false" },
