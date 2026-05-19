@@ -73,7 +73,7 @@ pub struct WidgetPanel {
 }
 
 /// Room entry in widget JSON format.
-#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Default)]
 #[serde(rename_all = "camelCase")]
 pub struct WidgetRoom {
     pub uid: i32,

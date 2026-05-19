@@ -9,7 +9,8 @@
 use dioxus::prelude::*;
 
 use crate::data::ScheduleDoc;
-use crate::state::{Filters, Theme, ViewerState};
+use crate::state::{Filters, Theme, ViewMode, ViewerState};
+use crate::ui::grid::GridView;
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -63,15 +64,18 @@ pub fn App() -> Element {
     // -----------------------------------------------------------------------
     // Derived data (read once to avoid repeated borrows)
     // -----------------------------------------------------------------------
-    let (days, panels, filter_rooms, filter_types, filter_presenters, title) = {
+    let (days, panels, grid_rooms, filter_rooms, filter_types, filter_presenters, title) = {
         let s = state.read();
         let days = s.days.clone();
         let panels = s.panels_for_day();
-        let filter_rooms = s
+        let visible_rooms = s
             .doc
             .as_ref()
             .map(|d| d.visible_rooms().into_iter().cloned().collect::<Vec<_>>())
             .unwrap_or_default();
+        // Grid shows all visible rooms as columns regardless of room filter.
+        let grid_rooms = visible_rooms.clone();
+        let filter_rooms = visible_rooms;
         let filter_types = s
             .doc
             .as_ref()
@@ -91,6 +95,7 @@ pub fn App() -> Element {
         (
             days,
             panels,
+            grid_rooms,
             filter_rooms,
             filter_types,
             filter_presenters,
@@ -101,10 +106,11 @@ pub fn App() -> Element {
     let theme_class = state.read().theme.css_class();
     let show_filter_panel = state.read().filters.show_filter_panel;
     let has_doc = state.read().doc.is_some();
+    let view_mode = state.read().view_mode;
     let selected_day_index = state.read().selected_day_index; // None = All Days
     let detail_panel = state.read().detail_panel();
     let active_presenter_filter = state.read().filters.presenter.clone();
-    let time_groups = group_by_time(panels);
+    let time_groups = group_by_time(panels.clone());
 
     // -----------------------------------------------------------------------
     // File / folder / URL open handlers
@@ -260,9 +266,33 @@ pub fn App() -> Element {
                     }
                 }
 
-                // Right: filter toggle + theme picker
+                // Right: view toggle + filter toggle + theme picker
                 div { class: "topbar-end",
                     if has_doc {
+                        // View mode toggle: List | Grid
+                        div { class: "toolbar-view-toggle", role: "group", aria_label: "View mode",
+                            button {
+                                class: if view_mode == ViewMode::List { "toolbar-btn active" } else { "toolbar-btn" },
+                                aria_pressed: if view_mode == ViewMode::List { "true" } else { "false" },
+                                aria_label: "List view",
+                                onclick: move |_| state.write().view_mode = ViewMode::List,
+                                "List"
+                            }
+                            button {
+                                class: if view_mode == ViewMode::Grid { "toolbar-btn active" } else { "toolbar-btn" },
+                                aria_pressed: if view_mode == ViewMode::Grid { "true" } else { "false" },
+                                aria_label: "Grid view",
+                                onclick: move |_| {
+                                    let mut s = state.write();
+                                    s.view_mode = ViewMode::Grid;
+                                    // Grid view requires a specific day — auto-select day 0.
+                                    if s.selected_day_index.is_none() && !s.days.is_empty() {
+                                        s.selected_day_index = Some(0);
+                                    }
+                                },
+                                "Grid"
+                            }
+                        }
                         button {
                             class: if show_filter_panel { "toolbar-btn active" } else { "toolbar-btn" },
                             aria_expanded: if show_filter_panel { "true" } else { "false" },
@@ -497,8 +527,19 @@ pub fn App() -> Element {
                 }
 
                 // -----------------------------------------------------------
-                // Panel list (time-grouped)
+                // Main content area — list view or grid view
                 // -----------------------------------------------------------
+                if view_mode == ViewMode::Grid {
+                    main { id: "main-content", class: "grid-main-area",
+                        GridView {
+                            panels,
+                            rooms: grid_rooms,
+                            on_panel_click: move |id: String| {
+                                state.write().detail_panel_id = Some(id);
+                            },
+                        }
+                    }
+                } else {
                 main { id: "main-content", class: "panel-list-area",
                     if time_groups.is_empty() {
                         div { class: "empty-state-inline",
@@ -652,6 +693,7 @@ pub fn App() -> Element {
                         }
                     }
                 }
+                } // end else (list view)
 
                 // -----------------------------------------------------------
                 // Detail modal

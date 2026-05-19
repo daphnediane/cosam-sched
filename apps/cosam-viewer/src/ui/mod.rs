@@ -5,5 +5,6 @@
  */
 
 pub mod app;
+pub mod grid;
 
 pub use app::App;

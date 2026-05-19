@@ -58,7 +58,7 @@ impl Theme {
 pub enum ViewMode {
     #[default]
     List,
-    // Grid view is a future work item (FEATURE-116a).
+    Grid,
 }
 
 // ---------------------------------------------------------------------------
@@ -90,15 +90,15 @@ impl Filters {
 // Derived panel info for display
 // ---------------------------------------------------------------------------
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq)]
 pub struct PanelView {
     pub id: String,
     pub name: String,
     pub panel_type: String,
     pub type_color: Option<String>,
+    pub room_ids: Vec<i32>,
     pub room_names: Vec<String>,
     pub start_time: Option<chrono::NaiveDateTime>,
-    #[allow(dead_code)] // reserved for grid view (FEATURE-116a)
     pub end_time: Option<chrono::NaiveDateTime>,
     pub time_str: String,
     pub description: Option<String>,
@@ -117,7 +117,6 @@ pub struct PanelView {
     pub credits: Vec<String>,
     /// Raw individual presenter names for search/filter matching.
     /// Not rendered directly — credits is used for display.
-    #[allow(dead_code)]
     pub presenter_names: Vec<String>,
 }
 
@@ -131,7 +130,6 @@ pub struct ViewerState {
     pub file_name: Option<String>,
 
     pub theme: Theme,
-    #[allow(dead_code)] // reserved for grid view toggle (FEATURE-116a)
     pub view_mode: ViewMode,
     pub filters: Filters,
 
@@ -241,6 +239,7 @@ impl ViewerState {
                     name: p.name.clone(),
                     panel_type: panel_type.clone(),
                     type_color,
+                    room_ids: p.room_ids.clone(),
                     room_names,
                     start_time: Some(start),
                     end_time: end,

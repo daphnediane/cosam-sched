@@ -151,7 +151,8 @@ body {
 .viewer-root {
   display: flex;
   flex-direction: column;
-  min-height: 100vh;
+  height: 100vh;
+  overflow: hidden;
   background: var(--color-bg);
   color: var(--color-text);
   font-family: var(--font-sans);
@@ -203,6 +204,9 @@ body {
   height: 48px;
   flex-shrink: 0;
   overflow: hidden;
+  position: sticky;
+  top: 0;
+  z-index: 100;
 }
 
 .topbar-start,
@@ -847,6 +851,204 @@ body {
   background: var(--color-accent-hover);
   outline: 2px solid var(--color-accent);
   outline-offset: 2px;
+}
+
+/* -------------------------------------------------------------------------
+ * View-mode toggle group (List | Grid buttons in toolbar)
+ * ---------------------------------------------------------------------- */
+
+.toolbar-view-toggle {
+  display: flex;
+  gap: 0;
+  border: 1px solid rgba(255, 255, 255, 0.3);
+  border-radius: var(--radius);
+  overflow: hidden;
+}
+
+.toolbar-view-toggle .toolbar-btn {
+  border: none;
+  border-radius: 0;
+  border-right: 1px solid rgba(255, 255, 255, 0.2);
+}
+
+.toolbar-view-toggle .toolbar-btn:last-child {
+  border-right: none;
+}
+
+/* -------------------------------------------------------------------------
+ * Grid view — main layout wrapper
+ * ---------------------------------------------------------------------- */
+
+.grid-main-area {
+  flex: 1;
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+}
+
+/* Scroll wrapper contains the CSS-grid canvas */
+.grid-scroll-wrapper {
+  flex: 1;
+  overflow: auto;
+  background: var(--color-bg);
+}
+
+/* CSS-grid canvas — dimensions set via inline style per render */
+.grid-canvas {
+  display: grid;
+  min-width: max-content;
+}
+
+/* -------------------------------------------------------------------------
+ * Grid: corner, room headers (sticky top), time labels (sticky left)
+ * ---------------------------------------------------------------------- */
+
+.grid-corner {
+  position: sticky;
+  top: 0;
+  left: 0;
+  z-index: 30;
+  background: var(--color-surface-alt);
+  border-right: 2px solid var(--color-border);
+  border-bottom: 2px solid var(--color-border);
+  grid-column: 1;
+  grid-row: 1;
+}
+
+.grid-room-header {
+  position: sticky;
+  top: 0;
+  z-index: 20;
+  background: var(--color-surface-alt);
+  border-right: 1px solid var(--color-border);
+  border-bottom: 2px solid var(--color-border);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0 8px;
+  font-size: 0.8125rem;
+  font-weight: 700;
+  text-align: center;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--color-text);
+}
+
+.grid-time-label {
+  position: sticky;
+  left: 0;
+  z-index: 10;
+  background: var(--color-surface-alt);
+  border-right: 2px solid var(--color-border);
+  border-bottom: 1px solid var(--color-border);
+  display: flex;
+  align-items: flex-start;
+  justify-content: flex-end;
+  padding: 4px 6px 0;
+  font-size: 0.6875rem;
+  font-weight: 600;
+  color: var(--color-text-secondary);
+  white-space: nowrap;
+}
+
+/* -------------------------------------------------------------------------
+ * Grid: background cells (one per room × slot — provide gridlines via border)
+ * ---------------------------------------------------------------------- */
+
+.grid-bg-cell {
+  background: var(--color-surface);
+  border-right: 1px solid var(--color-border);
+  border-bottom: 1px solid var(--color-border);
+}
+
+/* -------------------------------------------------------------------------
+ * Grid: panel cards
+ * ---------------------------------------------------------------------- */
+
+.grid-panel {
+  display: flex;
+  align-items: stretch;
+  background: var(--color-surface);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius);
+  overflow: hidden;
+  cursor: pointer;
+  transition: background 0.1s;
+  /* inset from cell edges */
+  margin: 2px;
+  /* appear above bg cells */
+  position: relative;
+  z-index: 5;
+}
+
+.grid-panel:hover,
+.grid-panel:focus-visible {
+  background: var(--color-surface-alt);
+  outline: none;
+}
+
+.grid-panel:focus-visible {
+  outline: 2px solid var(--color-accent);
+  outline-offset: -2px;
+}
+
+.grid-panel-body {
+  flex: 1;
+  padding: 4px 6px;
+  overflow: hidden;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.grid-panel-name {
+  font-size: 0.8125rem;
+  font-weight: 600;
+  color: var(--color-text);
+  overflow: hidden;
+  display: -webkit-box;
+  -webkit-line-clamp: 3;
+  -webkit-box-orient: vertical;
+}
+
+.grid-panel-time {
+  font-size: 0.6875rem;
+  color: var(--color-text-secondary);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.grid-panel-credits {
+  font-size: 0.6875rem;
+  color: var(--color-text-secondary);
+  font-style: italic;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* -------------------------------------------------------------------------
+ * Grid: break bands
+ * ---------------------------------------------------------------------- */
+
+.grid-break {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  position: relative;
+  z-index: 5;
+  background: repeating-linear-gradient(
+    -45deg,
+    transparent,
+    transparent 6px,
+    var(--color-surface-alt) 6px,
+    var(--color-surface-alt) 12px
+  );
+  border-top: 1px dashed var(--color-border);
+  border-bottom: 1px dashed var(--color-border);
 }
 
 /* -------------------------------------------------------------------------
