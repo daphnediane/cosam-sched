@@ -1,6 +1,6 @@
 # Cosplay America Schedule - Work Item
 
-Updated on: Fri May 29 00:15:09 2026
+Updated on: Fri May 29 09:13:44 2026
 
 ## Completed
 
@@ -104,6 +104,7 @@ and delegate.
 should produce a byte-for-byte identical output when nothing in the source
 has changed.
 * [FEATURE-129] Replace EditCommand-returns-inverse undo/redo with CRDT heads checkpoints so that bulk operations (XLSX import) become a single undoable step with a user-visible label.
+* [FEATURE-132] Add a hybrid "widget-html" format where structural schedule data (meta, rooms, panelTypes, timeline, presenters) is kept as a compact JSON block but panels are rendered as semantic HTML, enabling SEO crawlability and a no-JS fallback while preserving full widget functionality.
 * [META-002] Phase tracker for project foundation and Cargo workspace setup.
 * [META-003] Phase tracker for the entity/field system and core schedule data model in schedule-core.
 * [META-004] Phase tracker for making an automerge CRDT document the authoritative storage
@@ -170,16 +171,13 @@ above panelists and groups.
 
 ## Summary of Open Items
 
-**Total open items:** 21
+**Total open items:** 20
 
 * **Meta / Project-Level**
   * [META-001] Meta work item tracking the full multi-phase redesign of the schedule system. (Blocked by [META-007], [META-008])
   * [META-007] Phase tracker for the cosam-editor desktop GUI application. (Blocked by [META-005])
   * [META-008] Phase tracker for peer-to-peer schedule synchronization and conflict resolution. (Blocked by [META-004])
   * [META-117] Tracker for all cosam-viewer work: initial viewer app and deferred enhancements.
-
-* **High Priority**
-  * [FEATURE-132] Add a hybrid "widget-html" format where structural schedule data (meta, rooms, panelTypes, timeline, presenters) is kept as a compact JSON block but panels are rendered as semantic HTML, enabling SEO crawlability and a no-JS fallback while preserving full widget functionality.
 
 * **Medium Priority**
   * [CLI-100] Add a `--interactive` flag to `cosam-modify` that opens a read-eval-print loop for
@@ -328,18 +326,6 @@ target without duplication.
 ---
 
 ## Open FEATURE Items
-
-### [FEATURE-132] FEATURE-132: HTML-embedded schedule format (widget-html)
-
-**Status:** In progress
-
-**Priority:** High
-
-**Summary:** Add a hybrid "widget-html" format where structural schedule data (meta, rooms, panelTypes, timeline, presenters) is kept as a compact JSON block but panels are rendered as semantic HTML, enabling SEO crawlability and a no-JS fallback while preserving full widget functionality.
-
-**Description:** The current embed format stores all schedule data as a gzip+base64 JSON blob that is invisible to search engines and shows only "Please enable JavaScript" without JS. The widget-html format replaces the panels JSON array with semantic HTML elements — each panel as an `<article class="cosam-panel">` with `data-*` attributes for machine-readable scalar fields and visible HTML text for names, descriptions, and credits. The remaining structural data (rooms, panelTypes, presenters, timeline) is kept in a compact `<script type="application/json" data-cosam="schedule">` block.
-
----
 
 ### [FEATURE-113] FEATURE-113: In-process Typst PDF compilation (replace typst CLI subprocess)
 
@@ -785,7 +771,7 @@ This refactor:
 [FEATURE-126]: work-item/medium/FEATURE-126.md
 [FEATURE-127]: work-item/done/FEATURE-127.md
 [FEATURE-129]: work-item/done/FEATURE-129.md
-[FEATURE-132]: work-item/high/FEATURE-132.md
+[FEATURE-132]: work-item/done/FEATURE-132.md
 [META-001]: work-item/meta/META-001.md
 [META-002]: work-item/done/META-002.md
 [META-003]: work-item/done/META-003.md

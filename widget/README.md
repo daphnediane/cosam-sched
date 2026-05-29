@@ -16,23 +16,47 @@ This project is a rewrite of and based on the original [schedule-to-html](https:
 
 - `cosam-calendar.js` — calendar logic (IIFE, exposes `CosAmCalendar.init()`)
 - `cosam-calendar.css` — all styling (responsive, print-friendly, scoped under `.cosam-calendar`)
+- `load-json-embed.js` — loader for gzip+base64 JSON embedded via `cosam-convert --embed-as-json`
+- `load-html-embed.js` — loader for widget-html format embedded via `cosam-convert` (default)
+- `load-data-url.js` — loader factory for fetching JSON from a URL
 - `square-template.html` — Squarespace simulation template for test page generation
 
 ## Embedding
 
-Upload `cosam-calendar.css`, `cosam-calendar.js`, and your `schedule.json` to a CDN or file host, then:
+The recommended path is to generate a self-contained HTML snippet with
+`cosam-convert --export-embed` (widget-html format, default). For custom
+hosting, upload `cosam-calendar.css`, `cosam-calendar.js`,
+`load-data-url.js`, and `schedule.json` to a CDN or file host, then:
 
 ```html
 <link rel="stylesheet" href="URL/cosam-calendar.css">
 <div id="cosam-calendar"></div>
 <script src="URL/cosam-calendar.js"></script>
+<script src="URL/load-data-url.js"></script>
 <script>
   CosAmCalendar.init({
     el: '#cosam-calendar',
-    dataUrl: 'URL/schedule.json'
+    loader: CosAmCalendar.DataUrlLoader({ url: 'URL/schedule.json' })
   });
 </script>
 ```
+
+### `CosAmCalendar.init(opts)` options
+
+| Option               | Description                                                                            |
+| -------------------- | -------------------------------------------------------------------------------------- |
+| `opts.el`            | CSS selector string or element reference for the widget root.                          |
+| `opts.loader`        | Loader object with `load(rootEl): Promise<data>` and optional `watch(rootEl, reload)`. |
+| `opts.data`          | Raw schedule data object — skips the loader entirely (useful for testing).             |
+| `opts.stylePageBody` | Boolean — apply Squarespace-compatible body styles.                                    |
+
+### Loader factories
+
+| Factory                                | File                 | Description                                                                                                             |
+| -------------------------------------- | -------------------- | ----------------------------------------------------------------------------------------------------------------------- |
+| `CosAmCalendar.JsonEmbedLoader(opts?)` | `load-json-embed.js` | Reads gzip+base64 JSON from `#cosam-schedule-data`. `opts.dataId` overrides the element ID.                             |
+| `CosAmCalendar.HtmlEmbedLoader(opts?)` | `load-html-embed.js` | Reads widget-html format: structural JSON from `#cosam-schedule-data` and panel articles from `.cosam-static-schedule`. |
+| `CosAmCalendar.DataUrlLoader(opts?)`   | `load-data-url.js`   | Fetches JSON from `opts.url` (default `schedule.json`).                                                                 |
 
 ## Features
 

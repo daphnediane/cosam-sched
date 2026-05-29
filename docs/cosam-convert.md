@@ -26,12 +26,12 @@ treated as the input path (positional shorthand).
 Each output command captures a snapshot of the current settings at the point it
 appears. Multiple commands of any type may be mixed in one invocation.
 
-| Flag                                     | Description                                                                                                                       |
-| ---------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------- |
-| `--output <file>`, `-o <file>`           | Save private schedule. Extension determines format: `.xlsx` → XLSX round-trip; anything else → native CRDT binary.                |
-| `--export <file.json>`, `-e <file.json>` | Export public widget JSON (see [widget-json-format.md](widget-json-format.md)).                                                   |
-| `--export-embed <file.html>`             | Self-contained embeddable HTML snippet — inline CSS, JS, and JSON; no external dependencies. Paste into a Squarespace Code Block. |
-| `--export-test <file.html>`              | Standalone test page simulating a Squarespace Bedford-family site with the widget embedded.                                       |
+| Flag                                     | Description                                                                                                                                                                                            |
+| ---------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| `--output <file>`, `-o <file>`           | Save private schedule. Extension determines format: `.xlsx` → XLSX round-trip; anything else → native CRDT binary.                                                                                     |
+| `--export <file.json>`, `-e <file.json>` | Export public widget JSON (see [widget-json-format.md](widget-json-format.md)).                                                                                                                        |
+| `--export-embed <file.html>`             | Self-contained embeddable HTML snippet — inline CSS, JS, and schedule data; no external dependencies. Paste into a Squarespace Code Block. Format controlled by `--embed-as-html` / `--embed-as-json`. |
+| `--export-test <file.html>`              | Standalone test page simulating a Squarespace Bedford-family site with the widget embedded.                                                                                                            |
 
 ## Validation
 
@@ -84,6 +84,15 @@ these flags to override with files on disk.
 | `--builtin-template` | Test template                                                        |
 | `--builtin`          | CSS, JS, and template                                                |
 | `--default`          | All settings (CSS, JS, template, title, minification, stylePageBody) |
+
+### Embed Format
+
+Controls how schedule data is embedded in `--export-embed` and `--export-test` output.
+
+| Flag              | Description                                                                                                           |
+| ----------------- | --------------------------------------------------------------------------------------------------------------------- |
+| `--embed-as-html` | Embed as widget-html: compact JSON block for structural data plus semantic `<article>` elements for panels (default). |
+| `--embed-as-json` | Embed as gzip+base64 JSON (legacy format, compatible with older widget builds).                                       |
 
 ### Minification
 

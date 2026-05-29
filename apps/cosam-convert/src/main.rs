@@ -126,7 +126,7 @@ impl Default for OutputSettings {
             style_page: None,
             title: String::new(),
             private_export: false,
-            embed_as_html: false,
+            embed_as_html: true,
             #[cfg(feature = "layout")]
             brand_config: None,
         }
@@ -583,8 +583,8 @@ fn print_usage() {
          \x20 --brand-config <file>                Brand config for layout (default: config/brand.toml)\n\
          \x20 --minified                           Minify HTML output (default)\n\
          \x20 --no-minified, --for-debug           Skip minification\n\
-         \x20 --embed-as-json                      Embed schedule as gzip+base64 JSON (default)\n\
-         \x20 --embed-as-html                      Embed schedule as widget-html semantic HTML\n\
+         \x20 --embed-as-json                      Embed schedule as gzip+base64 JSON\n\
+         \x20 --embed-as-html                      Embed schedule as widget-html semantic HTML (default)\n\
          \x20 --style-page                         Set stylePageBody: true in widget init\n\
          \x20 --no-style-page                      Set stylePageBody: false in widget init\n\
          \x20 --public                             Exclude private panels, timeline, and uncredited presenters in export\n\

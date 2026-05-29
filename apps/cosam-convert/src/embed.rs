@@ -8,13 +8,13 @@
 //!
 //! Produces self-contained HTML files (embed or full test page) by inlining
 //! the widget CSS, JS, and schedule data. Two formats are supported:
-//! - JSON format (default): schedule data is gzip+base64-encoded JSON. The
-//!   inlined `load-json-embed.min.js` reads `#cosam-schedule-data` and hands
-//!   it to `CosAmCalendar.JsonEmbedLoader`.
-//! - Widget-html format (`--embed-as-html`): structural data is a compact JSON
-//!   block; panels are semantic HTML outside `#cosam-calendar-root`. The
-//!   inlined `load-html-embed.min.js` reads both and hands them to
+//! - Widget-html format (default): structural data is a compact JSON block;
+//!   panels are semantic HTML outside `#cosam-calendar-root`. The inlined
+//!   `load-html-embed.min.js` reads both and hands them to
 //!   `CosAmCalendar.HtmlEmbedLoader`.
+//! - JSON format (`--embed-as-json`): schedule data is gzip+base64-encoded
+//!   JSON. The inlined `load-json-embed.min.js` reads `#cosam-schedule-data`
+//!   and hands it to `CosAmCalendar.JsonEmbedLoader`.
 //!
 //! Assets are compiled-in by default; callers can override via
 //! `--widget-css`, `--widget-js`, `--test-template`.
@@ -147,10 +147,10 @@ fn compress_and_encode(json_data: &str) -> Result<String> {
 
 // ── HTML generation (JSON format) ─────────────────────────────────────────────
 
-/// Generate embeddable HTML snippet using the gzip+base64 JSON format (default).
+/// Generate embeddable HTML snippet using the gzip+base64 JSON format (`--embed-as-json`).
 ///
 /// Schedule data is compressed and embedded in a `<script>` tag; the widget
-/// decompresses it at runtime via `dataEl`. All CSS, JS, and data are inlined.
+/// decompresses it at runtime. All CSS, JS, and data are inlined.
 /// The result can be pasted into a Squarespace Code Block or any raw-HTML page.
 pub fn generate_embed_html(
     json_data: &str,
@@ -231,11 +231,10 @@ pub fn generate_test_html(
 
 // ── HTML generation (widget-html format) ──────────────────────────────────────
 
-/// Generate embeddable HTML snippet using the widget-html format.
+/// Generate embeddable HTML snippet using the widget-html format (default).
 ///
 /// Schedule data is rendered as a compact JSON block (structural data) plus
-/// semantic `<article>` elements (panels). Requires the widget-html JS parser
-/// (Phase 4). All CSS, JS, and data are inlined.
+/// semantic `<article>` elements (panels). All CSS, JS, and data are inlined.
 pub fn generate_embed_html_widget_html(
     export: &WidgetExport,
     sources: &WidgetSources,
