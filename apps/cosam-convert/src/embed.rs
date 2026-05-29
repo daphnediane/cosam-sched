@@ -155,7 +155,7 @@ pub fn generate_embed_html(
 <style>
 {css}
 </style>
-<div id="cosam-calendar-root"></div>
+<div id="cosam-calendar-root"><p style="padding:40px 20px;text-align:center">Schedule failed to load. Please enable JavaScript and reload the page.</p></div>
 <script type="application/json" id="cosam-schedule-data">
 {encoded_data}
 </script>
@@ -164,34 +164,16 @@ pub fn generate_embed_html(
 // Copyright (c) 2026 Daphne Pfister
 // SPDX-License-Identifier: BSD-2-Clause
 // Project: https://github.com/daphnediane/cosam-sched
+// Includes: qrcode (MIT) https://github.com/soldair/node-qrcode
 
 // Widget code
 {js}
 
-// Initialize widget — data is gzip+base64 (detected by H4sI signature)
-(function() {{
-    var dataEl = document.getElementById('cosam-schedule-data');
-    if (!dataEl || typeof CosAmCalendar === 'undefined') return;
-    var raw = dataEl.textContent.trim();
-    if (raw.substring(0, 4) === 'H4sI') {{
-        var bytes = Uint8Array.from(atob(raw), function(c) {{ return c.charCodeAt(0); }});
-        var ds = new DecompressionStream('gzip');
-        var writer = ds.writable.getWriter();
-        writer.write(bytes);
-        writer.close();
-        new Response(ds.readable).arrayBuffer().then(function(buf) {{
-            CosAmCalendar.init({{
-                el: document.getElementById('cosam-calendar-root'),
-                data: JSON.parse(new TextDecoder().decode(buf)),{style_page_line}
-            }});
-        }});
-    }} else {{
-        CosAmCalendar.init({{
-            el: document.getElementById('cosam-calendar-root'),
-            data: JSON.parse(raw),{style_page_line}
-        }});
-    }}
-}})();
+// Initialize widget
+CosAmCalendar.init({{
+    el: document.getElementById('cosam-calendar-root'),
+    dataEl: document.getElementById('cosam-schedule-data'),{style_page_line}
+}});
 </script>"#,
         css = sources.css,
         js = sources.js,

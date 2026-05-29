@@ -2327,6 +2327,28 @@ body.cosam-page-styled a:hover {
   }
 }
 
+.cosam-loading--error::after {
+  display: none;
+}
+
+.cosam-reload-btn {
+  display: block;
+  margin: 20px auto 0;
+  padding: 8px 24px;
+  background: var(--cosam-accent);
+  color: #fff;
+  border: none;
+  border-radius: 6px;
+  font-size: 14px;
+  font-weight: 600;
+  cursor: pointer;
+  letter-spacing: 0.02em;
+}
+
+.cosam-reload-btn:hover {
+  opacity: 0.85;
+}
+
 /* ── Print Styles ─────────────────────────────────────────────────────────── */
 
 @media print {

@@ -21,6 +21,8 @@ const jsOptions = {
   platform: 'browser',
   format: 'iife',     // keeps global window.CosAmCalendar assignment working
   minify: true,
+  // Preserve license comments from bundled packages (e.g. qrcode).
+  legalComments: 'inline',
   // Preserve non-ASCII characters (emoji, etc.) as UTF-8 rather than escaping them.
   charset: 'utf8',
   outfile: 'widget/cosam-calendar.min.js',

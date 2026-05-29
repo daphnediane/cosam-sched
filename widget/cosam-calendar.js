@@ -629,7 +629,18 @@ import QRCode from 'qrcode';
     render() {
       this.root.innerHTML = '';
       if (!this.state.data) {
-        this.root.appendChild(el('div', { className: 'cosam-loading' }, 'Loading schedule...'));
+        const loadStatus = this.state._loadStatus || 'loading';
+        const isError = loadStatus === 'error';
+        const loadingDiv = el('div', { className: 'cosam-loading' + (isError ? ' cosam-loading--error' : '') });
+        loadingDiv.appendChild(document.createTextNode(
+          isError ? 'Failed to load schedule: ' + (this.state._loadError || 'Unknown error') : 'Loading schedule...'
+        ));
+        if ((loadStatus === 'slow' || isError) && this.state._reloadCallback) {
+          const reloadBtn = el('button', { type: 'button', className: 'cosam-reload-btn' }, 'Reload');
+          reloadBtn.addEventListener('click', this.state._reloadCallback);
+          loadingDiv.appendChild(reloadBtn);
+        }
+        this.root.appendChild(loadingDiv);
         return;
       }
       const theme = this.state.theme || 'cosam';
@@ -3053,16 +3064,75 @@ import QRCode from 'qrcode';
         return;
       }
 
-      // Fetch data
+      if (opts.dataEl) {
+        const dataEl = typeof opts.dataEl === 'string' ? document.querySelector(opts.dataEl) : opts.dataEl;
+        state._reloadCallback = () => location.reload();
+        if (!dataEl) {
+          state._loadStatus = 'error';
+          state._loadError = 'Data element not found';
+          renderer.render();
+          return;
+        }
+        const raw = dataEl.textContent.trim();
+        if (raw.substring(0, 4) === 'H4sI') {
+          try {
+            const bytes = Uint8Array.from(atob(raw), c => c.charCodeAt(0));
+            const ds = new DecompressionStream('gzip');
+            const writer = ds.writable.getWriter();
+            writer.write(bytes);
+            writer.close();
+            new Response(ds.readable).arrayBuffer()
+              .then(buf => { applyData(JSON.parse(new TextDecoder().decode(buf)), state, renderer, rootEl); })
+              .catch(err => { state._loadStatus = 'error'; state._loadError = err.message; renderer.render(); });
+          } catch (err) {
+            state._loadStatus = 'error';
+            state._loadError = err.message;
+            renderer.render();
+          }
+        } else {
+          try {
+            applyData(JSON.parse(raw), state, renderer, rootEl);
+          } catch (err) {
+            state._loadStatus = 'error';
+            state._loadError = err.message;
+            renderer.render();
+          }
+        }
+        return;
+      }
+
       const dataUrl = opts.dataUrl || 'schedule.json';
-      fetch(dataUrl)
-        .then(r => { if (!r.ok) throw new Error('HTTP ' + r.status); return r.json(); })
-        .then(rawData => {
-          applyData(rawData, state, renderer, rootEl);
-        })
-        .catch(err => {
-          rootEl.innerHTML = '<div class="cosam-calendar"><div class="cosam-empty">Failed to load schedule: ' + escapeHtml(err.message) + '</div></div>';
-        });
+
+      function loadData(isRetry) {
+        if (isRetry) {
+          state._loadStatus = 'loading';
+          state._loadError = null;
+          renderer.render();
+        }
+
+        const slowTimer = setTimeout(() => {
+          if (!state.data) {
+            state._loadStatus = 'slow';
+            renderer.render();
+          }
+        }, 5000);
+
+        fetch(dataUrl)
+          .then(r => { if (!r.ok) throw new Error('HTTP ' + r.status); return r.json(); })
+          .then(rawData => {
+            clearTimeout(slowTimer);
+            applyData(rawData, state, renderer, rootEl);
+          })
+          .catch(err => {
+            clearTimeout(slowTimer);
+            state._loadStatus = 'error';
+            state._loadError = err.message;
+            renderer.render();
+          });
+      }
+
+      state._reloadCallback = () => loadData(true);
+      loadData(false);
     }
   };
 })();
