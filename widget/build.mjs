@@ -29,6 +29,21 @@ const jsOptions = {
   logLevel: 'info',
 };
 
+// Loader files: plain scripts that extend window.CosAmCalendar.
+// Built as IIFE so esbuild can minify; no npm imports.
+const loaderNames = ['load-json-embed', 'load-html-embed', 'load-data-url'];
+const loaderOptionsList = loaderNames.map(name => /** @type {esbuild.BuildOptions} */({
+  entryPoints: [`widget/${name}.js`],
+  bundle: true,
+  platform: 'browser',
+  format: 'iife',
+  minify: true,
+  legalComments: 'inline',
+  charset: 'utf8',
+  outfile: `widget/${name}.min.js`,
+  logLevel: 'info',
+}));
+
 /** @type {esbuild.BuildOptions} */
 const cssOptions = {
   entryPoints: ['widget/cosam-calendar.css'],
@@ -40,15 +55,17 @@ const cssOptions = {
 };
 
 if (watch) {
-  const [jsCtx, cssCtx] = await Promise.all([
+  const contexts = await Promise.all([
     esbuild.context(jsOptions),
     esbuild.context(cssOptions),
+    ...loaderOptionsList.map(o => esbuild.context(o)),
   ]);
-  await Promise.all([jsCtx.watch(), cssCtx.watch()]);
+  await Promise.all(contexts.map(ctx => ctx.watch()));
   console.log('Watching widget/ for changes...');
 } else {
   await Promise.all([
     esbuild.build(jsOptions),
     esbuild.build(cssOptions),
+    ...loaderOptionsList.map(o => esbuild.build(o)),
   ]);
 }

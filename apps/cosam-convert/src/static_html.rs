@@ -6,14 +6,18 @@
 
 //! Static HTML generation for the widget-html embedded format.
 //!
-//! Produces the inner HTML for `#cosam-calendar-root` following the
-//! widget-html format documented in `docs/widget-html-format.md`:
-//! - A compact `<script type="application/json" data-cosam="schedule">` block
+//! Produces the static schedule fragments for the widget-html embed format,
+//! documented in `docs/widget-html-format.md`. Both fragments are placed
+//! **outside** `#cosam-calendar-root` so they survive the widget's initial
+//! render (which clears `rootEl.innerHTML`):
+//! - A compact `<script id="cosam-schedule-data" data-cosam="schedule">` block
 //!   carrying structural data (meta, rooms, panelTypes, timeline, presenters)
 //!   with `meta.variant` set to `"html-embedded"`.
 //! - A `<section class="cosam-static-schedule">` containing one
 //!   `<article class="cosam-panel">` per panel, with `data-*` attributes for
 //!   machine-readable scalar fields and visible HTML children for text content.
+//!   Hidden by CSS (`.cosam-calendar ~ .cosam-static-schedule { display:none }`)
+//!   once the widget JS initializes.
 
 use anyhow::{Context, Result};
 use chrono::NaiveDateTime;
@@ -21,18 +25,19 @@ use schedule_core::widget_json::{WidgetExport, WidgetMeta, WidgetRoom};
 
 const HTML_EMBEDDED_VARIANT: &str = "html-embedded";
 
-/// Generate the inner HTML for `#cosam-calendar-root` in the widget-html format.
+/// Generate the static schedule fragments for the widget-html embed format.
 ///
-/// Returns a string containing the structural JSON block followed by the
-/// `<section>` of panel articles. Intended to replace the placeholder `<p>`
-/// and the `<script id="cosam-schedule-data">` JSON blob in `embed.html`.
+/// Returns a string containing the structural JSON script block followed by
+/// the `<section>` of panel articles. Both elements are placed **outside**
+/// `#cosam-calendar-root` by the caller (`embed.rs`).
 #[must_use = "generated HTML must be embedded in the output document"]
 pub fn generate_static_schedule_html(export: &WidgetExport) -> Result<String> {
     let json_block = build_structural_json(export)?;
     let panels_html = build_panels_html(export)?;
 
     Ok(format!(
-        "<script type=\"application/json\" data-cosam=\"schedule\">\n{json_block}\n</script>\n\
+        "<script type=\"application/json\" id=\"cosam-schedule-data\" data-cosam=\"schedule\">\n\
+         {json_block}\n</script>\n\
          <section class=\"cosam-static-schedule\" aria-label=\"Schedule\">\n{panels_html}</section>"
     ))
 }

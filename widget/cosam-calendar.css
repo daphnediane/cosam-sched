@@ -2,7 +2,9 @@
 /* All styles scoped under .cosam-calendar to avoid conflicts with host page  */
 
 /* Ensure hidden attribute works even when CSS sets an explicit display value */
-.cosam-calendar [hidden] { display: none !important; }
+.cosam-calendar [hidden] {
+  display: none !important;
+}
 
 .cosam-calendar {
   --cosam-accent: #6b21a8;
@@ -2790,4 +2792,12 @@ body.cosam-page-styled a:hover {
   stroke-linejoin: round;
   fill: none;
   flex-shrink: 0;
+}
+
+/* ── Static schedule fallback (widget-html format) ──────────────────────────
+ * The .cosam-static-schedule section is a no-JS fallback rendered outside
+ * #cosam-calendar-root. Hide it once the widget initializes (.cosam-calendar
+ * is added to rootEl by CalendarRenderer). */
+.cosam-calendar~.cosam-static-schedule {
+  display: none;
 }

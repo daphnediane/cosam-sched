@@ -8,11 +8,13 @@
 //!
 //! Produces self-contained HTML files (embed or full test page) by inlining
 //! the widget CSS, JS, and schedule data. Two formats are supported:
-//! - JSON format (default): schedule data is gzip+base64-encoded JSON, loaded
-//!   via `dataEl`. Compatible with the current widget without JS changes.
-//! - Widget-html format (`--embed-as-html`): schedule data is a compact JSON
-//!   block plus semantic HTML panel elements. Requires the widget-html JS
-//!   parser (Phase 4, not yet deployed).
+//! - JSON format (default): schedule data is gzip+base64-encoded JSON. The
+//!   inlined `load-json-embed.min.js` reads `#cosam-schedule-data` and hands
+//!   it to `CosAmCalendar.JsonEmbedLoader`.
+//! - Widget-html format (`--embed-as-html`): structural data is a compact JSON
+//!   block; panels are semantic HTML outside `#cosam-calendar-root`. The
+//!   inlined `load-html-embed.min.js` reads both and hands them to
+//!   `CosAmCalendar.HtmlEmbedLoader`.
 //!
 //! Assets are compiled-in by default; callers can override via
 //! `--widget-css`, `--widget-js`, `--test-template`.
@@ -30,6 +32,8 @@ use crate::static_html;
 // double-escapes \uXXXX sequences in string literals.
 const BUILTIN_CSS: &str = include_str!("../../../widget/cosam-calendar.min.css");
 const BUILTIN_JS: &str = include_str!("../../../widget/cosam-calendar.min.js");
+const BUILTIN_JSON_EMBED_LOADER: &str = include_str!("../../../widget/load-json-embed.min.js");
+const BUILTIN_HTML_EMBED_LOADER: &str = include_str!("../../../widget/load-html-embed.min.js");
 const BUILTIN_TEMPLATE: &str = include_str!("../../../widget/square-template.html");
 
 const COPYRIGHT_COMMENT: &str = "\
@@ -160,6 +164,7 @@ pub fn generate_embed_html(
         None => "",
     };
     let encoded_data = compress_and_encode(json_data)?;
+    let json_loader = BUILTIN_JSON_EMBED_LOADER;
     let raw = format!(
         r#"{COPYRIGHT_COMMENT}
 <style>
@@ -179,10 +184,13 @@ pub fn generate_embed_html(
 // Widget code
 {js}
 
+// JSON embed loader
+{json_loader}
+
 // Initialize widget
 CosAmCalendar.init({{
     el: document.getElementById('cosam-calendar-root'),
-    dataEl: document.getElementById('cosam-schedule-data'),{style_page_line}
+    loader: CosAmCalendar.JsonEmbedLoader(),{style_page_line}
 }});
 </script>"#,
         css = sources.css,
@@ -240,14 +248,14 @@ pub fn generate_embed_html_widget_html(
         None => "",
     };
     let schedule_html = static_html::generate_static_schedule_html(export)?;
+    let html_loader = BUILTIN_HTML_EMBED_LOADER;
     let raw = format!(
         r#"{COPYRIGHT_COMMENT}
 <style>
 {css}
 </style>
-<div id="cosam-calendar-root">
+<div id="cosam-calendar-root"></div>
 {schedule_html}
-</div>
 <script>
 // CosAm Calendar Widget - Embeddable Version
 // Copyright (c) 2026 Daphne Pfister
@@ -258,9 +266,13 @@ pub fn generate_embed_html_widget_html(
 // Widget code
 {js}
 
+// HTML embed loader
+{html_loader}
+
 // Initialize widget
 CosAmCalendar.init({{
-    el: document.getElementById('cosam-calendar-root'),{style_page_line}
+    el: document.getElementById('cosam-calendar-root'),
+    loader: CosAmCalendar.HtmlEmbedLoader(),{style_page_line}
 }});
 </script>"#,
         css = sources.css,

@@ -3021,23 +3021,6 @@ import QRCode from 'qrcode';
     renderer.render();
   }
 
-  function startFileWatcher() {
-    var meta = document.querySelector('meta[name="cosam-generation"]');
-    if (!meta) return;
-    var currentGeneration = meta.getAttribute('content');
-    setInterval(function () {
-      fetch(location.href, { cache: 'no-store' })
-        .then(function (r) { return r.text(); })
-        .then(function (html) {
-          var match = html.match(/name="cosam-generation"\s+content="([^"]+)"/);
-          if (match && match[1] !== currentGeneration) {
-            location.reload();
-          }
-        })
-        .catch(function () { });
-    }, 2000);
-  }
-
   window.CosAmCalendar = {
     init: function (opts) {
       const rootEl = typeof opts.el === 'string' ? document.querySelector(opts.el) : opts.el;
@@ -3055,84 +3038,33 @@ import QRCode from 'qrcode';
       // Show loading
       renderer.render();
 
-      if (opts.watchForChanges) {
-        startFileWatcher();
-      }
-
       if (opts.data) {
         applyData(opts.data, state, renderer, rootEl);
         return;
       }
 
-      if (opts.dataEl) {
-        const dataEl = typeof opts.dataEl === 'string' ? document.querySelector(opts.dataEl) : opts.dataEl;
-        state._reloadCallback = () => location.reload();
-        if (!dataEl) {
-          state._loadStatus = 'error';
-          state._loadError = 'Data element not found';
-          renderer.render();
-          return;
+      if (opts.loader) {
+        const doLoad = () => {
+          opts.loader.load(rootEl)
+            .then(data => applyData(data, state, renderer, rootEl))
+            .catch(err => {
+              state._loadStatus = 'error';
+              state._loadError = err.message;
+              renderer.render();
+            });
+        };
+        state._reloadCallback = doLoad;
+        if (opts.loader.watch) {
+          opts.loader.watch(rootEl, doLoad);
         }
-        const raw = dataEl.textContent.trim();
-        if (raw.substring(0, 4) === 'H4sI') {
-          try {
-            const bytes = Uint8Array.from(atob(raw), c => c.charCodeAt(0));
-            const ds = new DecompressionStream('gzip');
-            const writer = ds.writable.getWriter();
-            writer.write(bytes);
-            writer.close();
-            new Response(ds.readable).arrayBuffer()
-              .then(buf => { applyData(JSON.parse(new TextDecoder().decode(buf)), state, renderer, rootEl); })
-              .catch(err => { state._loadStatus = 'error'; state._loadError = err.message; renderer.render(); });
-          } catch (err) {
-            state._loadStatus = 'error';
-            state._loadError = err.message;
-            renderer.render();
-          }
-        } else {
-          try {
-            applyData(JSON.parse(raw), state, renderer, rootEl);
-          } catch (err) {
-            state._loadStatus = 'error';
-            state._loadError = err.message;
-            renderer.render();
-          }
-        }
+        doLoad();
         return;
       }
 
-      const dataUrl = opts.dataUrl || 'schedule.json';
-
-      function loadData(isRetry) {
-        if (isRetry) {
-          state._loadStatus = 'loading';
-          state._loadError = null;
-          renderer.render();
-        }
-
-        const slowTimer = setTimeout(() => {
-          if (!state.data) {
-            state._loadStatus = 'slow';
-            renderer.render();
-          }
-        }, 5000);
-
-        fetch(dataUrl)
-          .then(r => { if (!r.ok) throw new Error('HTTP ' + r.status); return r.json(); })
-          .then(rawData => {
-            clearTimeout(slowTimer);
-            applyData(rawData, state, renderer, rootEl);
-          })
-          .catch(err => {
-            clearTimeout(slowTimer);
-            state._loadStatus = 'error';
-            state._loadError = err.message;
-            renderer.render();
-          });
-      }
-
-      state._reloadCallback = () => loadData(true);
-      loadData(false);
+      console.error('CosAmCalendar: no data source configured (opts.data or opts.loader required)');
+      state._loadStatus = 'error';
+      state._loadError = 'No data source configured';
+      renderer.render();
     }
   };
 })();

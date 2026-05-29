@@ -18,6 +18,9 @@ fn main() {
     for path in [
         "widget/cosam-calendar.js",
         "widget/cosam-calendar.css",
+        "widget/load-json-embed.js",
+        "widget/load-html-embed.js",
+        "widget/load-data-url.js",
         "widget/build.mjs",
         "package.json",
     ] {
