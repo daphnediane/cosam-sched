@@ -7,13 +7,23 @@
 //! HTML widget embedding for cosam-convert.
 //!
 //! Produces self-contained HTML files (embed or full test page) by inlining
-//! the widget CSS, JS, and schedule JSON. Assets are compiled-in by default;
-//! callers can override via `--widget-css`, `--widget-js`, `--test-template`.
+//! the widget CSS, JS, and schedule data. Two formats are supported:
+//! - JSON format (default): schedule data is gzip+base64-encoded JSON, loaded
+//!   via `dataEl`. Compatible with the current widget without JS changes.
+//! - Widget-html format (`--embed-as-html`): schedule data is a compact JSON
+//!   block plus semantic HTML panel elements. Requires the widget-html JS
+//!   parser (Phase 4, not yet deployed).
+//!
+//! Assets are compiled-in by default; callers can override via
+//! `--widget-css`, `--widget-js`, `--test-template`.
 
 use std::io::Write as _;
 use std::path::{Path, PathBuf};
 
 use anyhow::{Context, Result};
+use schedule_core::widget_json::WidgetExport;
+
+use crate::static_html;
 
 // Pre-minified by esbuild (via `npm run build` / build.rs).
 // Using the esbuild output avoids minify-html's JS minifier, which
@@ -104,19 +114,18 @@ impl WidgetSources {
     }
 }
 
-// ── Data compression ─────────────────────────────────────────────────────────
+// ── Data compression (JSON format) ────────────────────────────────────────────
 
 /// Compact JSON whitespace, gzip-compress, and base64-encode for embedding.
 ///
 /// Returns the base64 string. The caller embeds it in a
-/// `<script type="application/json" data-encoding="gzip-base64">` tag so the
+/// `<script type="application/json" id="cosam-schedule-data">` tag so the
 /// HTML/JS minifier never touches the data, and the browser decompresses it
 /// with the native `DecompressionStream` API before handing it to the widget.
 fn compress_and_encode(json_data: &str) -> Result<String> {
     use base64::{engine::general_purpose::STANDARD, Engine as _};
     use flate2::{write::GzEncoder, Compression};
 
-    // Re-serialize without whitespace to maximize compression ratio.
     let value: serde_json::Value =
         serde_json::from_str(json_data).context("Failed to parse JSON for embedding")?;
     let compact = serde_json::to_string(&value).context("Failed to compact JSON")?;
@@ -132,12 +141,13 @@ fn compress_and_encode(json_data: &str) -> Result<String> {
     Ok(STANDARD.encode(compressed))
 }
 
-// ── HTML generation ───────────────────────────────────────────────────────────
+// ── HTML generation (JSON format) ─────────────────────────────────────────────
 
-/// Generate embeddable HTML snippet (no outer `<html>` or `<body>`).
+/// Generate embeddable HTML snippet using the gzip+base64 JSON format (default).
 ///
-/// All CSS, JS, and schedule JSON are inlined. The result can be pasted
-/// into a Squarespace Code Block or any page that supports raw HTML.
+/// Schedule data is compressed and embedded in a `<script>` tag; the widget
+/// decompresses it at runtime via `dataEl`. All CSS, JS, and data are inlined.
+/// The result can be pasted into a Squarespace Code Block or any raw-HTML page.
 pub fn generate_embed_html(
     json_data: &str,
     sources: &WidgetSources,
@@ -186,7 +196,8 @@ CosAmCalendar.init({{
     }
 }
 
-/// Generate a standalone test page with the widget embedded in the template.
+/// Generate a standalone test page with the widget embedded in the template
+/// using the gzip+base64 JSON format.
 ///
 /// The template must contain `{WIDGET_BLOCK}` and `{TITLE}` placeholders.
 pub fn generate_test_html(
@@ -196,8 +207,84 @@ pub fn generate_test_html(
     minified: bool,
     style_page: Option<bool>,
 ) -> Result<String> {
-    // Generate the embed block unminified; the outer minification covers it.
     let embed_block = generate_embed_html(json_data, sources, false, style_page)?;
+
+    let raw = sources
+        .template
+        .replace("{WIDGET_BLOCK}", &embed_block)
+        .replace("{TITLE}", title);
+
+    if minified {
+        minify_html_content(&raw)
+    } else {
+        Ok(raw)
+    }
+}
+
+// ── HTML generation (widget-html format) ──────────────────────────────────────
+
+/// Generate embeddable HTML snippet using the widget-html format.
+///
+/// Schedule data is rendered as a compact JSON block (structural data) plus
+/// semantic `<article>` elements (panels). Requires the widget-html JS parser
+/// (Phase 4). All CSS, JS, and data are inlined.
+pub fn generate_embed_html_widget_html(
+    export: &WidgetExport,
+    sources: &WidgetSources,
+    minified: bool,
+    style_page: Option<bool>,
+) -> Result<String> {
+    let style_page_line = match style_page {
+        Some(true) => "\n    stylePageBody: true,",
+        Some(false) => "\n    stylePageBody: false,",
+        None => "",
+    };
+    let schedule_html = static_html::generate_static_schedule_html(export)?;
+    let raw = format!(
+        r#"{COPYRIGHT_COMMENT}
+<style>
+{css}
+</style>
+<div id="cosam-calendar-root">
+{schedule_html}
+</div>
+<script>
+// CosAm Calendar Widget - Embeddable Version
+// Copyright (c) 2026 Daphne Pfister
+// SPDX-License-Identifier: BSD-2-Clause
+// Project: https://github.com/daphnediane/cosam-sched
+// Includes: qrcode (MIT) https://github.com/soldair/node-qrcode
+
+// Widget code
+{js}
+
+// Initialize widget
+CosAmCalendar.init({{
+    el: document.getElementById('cosam-calendar-root'),{style_page_line}
+}});
+</script>"#,
+        css = sources.css,
+        js = sources.js,
+    );
+
+    if minified {
+        minify_html_content(&raw)
+    } else {
+        Ok(raw)
+    }
+}
+
+/// Generate a standalone test page using the widget-html format.
+///
+/// The template must contain `{WIDGET_BLOCK}` and `{TITLE}` placeholders.
+pub fn generate_test_html_widget_html(
+    export: &WidgetExport,
+    title: &str,
+    sources: &WidgetSources,
+    minified: bool,
+    style_page: Option<bool>,
+) -> Result<String> {
+    let embed_block = generate_embed_html_widget_html(export, sources, false, style_page)?;
 
     let raw = sources
         .template
@@ -221,16 +308,7 @@ pub fn write_embed_html(
     style_page: Option<bool>,
 ) -> Result<()> {
     let html = generate_embed_html(json_data, sources, minified, style_page)?;
-    if let Some(parent) = path.parent() {
-        if !parent.as_os_str().is_empty() {
-            std::fs::create_dir_all(parent)
-                .with_context(|| format!("Failed to create directory: {}", parent.display()))?;
-        }
-    }
-    std::fs::write(path, html.as_bytes())
-        .with_context(|| format!("Failed to write embed HTML: {}", path.display()))?;
-    eprintln!("Written: {} ({})", path.display(), format_size(html.len()));
-    Ok(())
+    write_html_file(path, &html, "embed HTML")
 }
 
 pub fn write_test_html(
@@ -242,6 +320,33 @@ pub fn write_test_html(
     style_page: Option<bool>,
 ) -> Result<()> {
     let html = generate_test_html(json_data, title, sources, minified, style_page)?;
+    write_html_file(path, &html, "test HTML")
+}
+
+pub fn write_embed_html_widget_html(
+    path: &Path,
+    export: &WidgetExport,
+    sources: &WidgetSources,
+    minified: bool,
+    style_page: Option<bool>,
+) -> Result<()> {
+    let html = generate_embed_html_widget_html(export, sources, minified, style_page)?;
+    write_html_file(path, &html, "embed HTML (widget-html)")
+}
+
+pub fn write_test_html_widget_html(
+    path: &Path,
+    export: &WidgetExport,
+    title: &str,
+    sources: &WidgetSources,
+    minified: bool,
+    style_page: Option<bool>,
+) -> Result<()> {
+    let html = generate_test_html_widget_html(export, title, sources, minified, style_page)?;
+    write_html_file(path, &html, "test HTML (widget-html)")
+}
+
+fn write_html_file(path: &Path, html: &str, label: &str) -> Result<()> {
     if let Some(parent) = path.parent() {
         if !parent.as_os_str().is_empty() {
             std::fs::create_dir_all(parent)
@@ -249,7 +354,7 @@ pub fn write_test_html(
         }
     }
     std::fs::write(path, html.as_bytes())
-        .with_context(|| format!("Failed to write test HTML: {}", path.display()))?;
+        .with_context(|| format!("Failed to write {label}: {}", path.display()))?;
     eprintln!("Written: {} ({})", path.display(), format_size(html.len()));
     Ok(())
 }

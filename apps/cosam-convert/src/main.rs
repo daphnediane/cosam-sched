@@ -21,6 +21,7 @@ use schedule_core::xlsx::{export_xlsx, import_xlsx, TableImportMode, TableImport
 
 mod conflicts;
 mod embed;
+mod static_html;
 
 // ── Input type tracking ───────────────────────────────────────────────────────
 
@@ -110,6 +111,7 @@ struct OutputSettings {
     style_page: Option<bool>,
     title: String,
     private_export: bool,
+    embed_as_html: bool,
     #[cfg(feature = "layout")]
     brand_config: Option<PathBuf>,
 }
@@ -124,6 +126,7 @@ impl Default for OutputSettings {
             style_page: None,
             title: String::new(),
             private_export: false,
+            embed_as_html: false,
             #[cfg(feature = "layout")]
             brand_config: None,
         }
@@ -464,6 +467,18 @@ fn parse_args() -> Result<CliArgs> {
                 }
                 current_settings.minified = false;
             }
+            "--embed-as-html" => {
+                if first_setting_index.is_none() {
+                    first_setting_index = Some(index);
+                }
+                current_settings.embed_as_html = true;
+            }
+            "--embed-as-json" => {
+                if first_setting_index.is_none() {
+                    first_setting_index = Some(index);
+                }
+                current_settings.embed_as_html = false;
+            }
             "--style-page" => {
                 if first_setting_index.is_none() {
                     first_setting_index = Some(index);
@@ -543,7 +558,7 @@ fn print_usage() {
          Output commands (each captures the current settings snapshot):\n\
          \x20 --output, -o <file>                  Save schedule (.xlsx or native binary)\n\
          \x20 --export, -e <file.json>             Export widget JSON\n\
-         \x20 --export-embed <file.html>           Export embeddable HTML (inline CSS/JS/JSON)\n\
+         \x20 --export-embed <file.html>           Export embeddable HTML (inline CSS/JS + schedule data)\n\
          \x20 --export-test <file.html>            Export standalone test page (Squarespace sim)\n\
          \x20 --export-csv-dir <dir>               Export CSV files to directory (UTF-8 comma-delimited)\n\
          \x20 --export-layout <dir>                Run cosam-layout; write PDFs to <dir> (requires cosam-layout on PATH)\n\
@@ -568,6 +583,8 @@ fn print_usage() {
          \x20 --brand-config <file>                Brand config for layout (default: config/brand.toml)\n\
          \x20 --minified                           Minify HTML output (default)\n\
          \x20 --no-minified, --for-debug           Skip minification\n\
+         \x20 --embed-as-json                      Embed schedule as gzip+base64 JSON (default)\n\
+         \x20 --embed-as-html                      Embed schedule as widget-html semantic HTML\n\
          \x20 --style-page                         Set stylePageBody: true in widget init\n\
          \x20 --no-style-page                      Set stylePageBody: false in widget init\n\
          \x20 --public                             Exclude private panels, timeline, and uncredited presenters in export\n\
@@ -820,13 +837,9 @@ fn main() {
                     }
                 };
 
-                let json_data =
+                let widget =
                     match input_type.as_widget(&effective_title, job.settings.private_export) {
-                        Ok(widget) => serde_json::to_string_pretty(&widget).unwrap_or_else(|e| {
-                            eprintln!("Error: Failed to serialize widget JSON: {}", e);
-                            had_error = true;
-                            String::new()
-                        }),
+                        Ok(w) => w,
                         Err(e) => {
                             eprintln!("Error: {e}");
                             had_error = true;
@@ -834,23 +847,49 @@ fn main() {
                         }
                     };
 
-                match job.job_type {
-                    OutputType::ExportEmbed => embed::write_embed_html(
-                        &job.path,
-                        &json_data,
-                        &sources,
-                        job.settings.minified,
-                        job.settings.style_page,
-                    ),
-                    OutputType::ExportTest => embed::write_test_html(
-                        &job.path,
-                        &json_data,
-                        &effective_title,
-                        &sources,
-                        job.settings.minified,
-                        job.settings.style_page,
-                    ),
-                    _ => unreachable!(),
+                if job.settings.embed_as_html {
+                    match job.job_type {
+                        OutputType::ExportEmbed => embed::write_embed_html_widget_html(
+                            &job.path,
+                            &widget,
+                            &sources,
+                            job.settings.minified,
+                            job.settings.style_page,
+                        ),
+                        OutputType::ExportTest => embed::write_test_html_widget_html(
+                            &job.path,
+                            &widget,
+                            &effective_title,
+                            &sources,
+                            job.settings.minified,
+                            job.settings.style_page,
+                        ),
+                        _ => unreachable!(),
+                    }
+                } else {
+                    let json_data = serde_json::to_string_pretty(&widget).unwrap_or_else(|e| {
+                        eprintln!("Error: Failed to serialize widget JSON: {e}");
+                        had_error = true;
+                        String::new()
+                    });
+                    match job.job_type {
+                        OutputType::ExportEmbed => embed::write_embed_html(
+                            &job.path,
+                            &json_data,
+                            &sources,
+                            job.settings.minified,
+                            job.settings.style_page,
+                        ),
+                        OutputType::ExportTest => embed::write_test_html(
+                            &job.path,
+                            &json_data,
+                            &effective_title,
+                            &sources,
+                            job.settings.minified,
+                            job.settings.style_page,
+                        ),
+                        _ => unreachable!(),
+                    }
                 }
             }
         };

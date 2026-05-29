@@ -19,10 +19,11 @@ The current embed format stores all schedule data as a gzip+base64 JSON blob tha
 ## Implementation Details
 
 - **Phase 1**: `docs/widget-html-format.md` — full format spec
-- **Phase 2**: `apps/cosam-convert/src/static_html.rs` — Rust HTML generator
-- **Phase 3**: `apps/cosam-convert/src/embed.rs` — replace gzip path
+- **Phase 2** ✓: `apps/cosam-convert/src/static_html.rs` — Rust HTML generator
+- **Phase 3** ✓: `apps/cosam-convert/src/embed.rs` — dual-format: `--embed-as-json` (default, gzip+base64) and `--embed-as-html` (widget-html)
 - **Phase 4**: `widget/cosam-calendar.js` — `_parseHtmlData()` + auto-detection
 - **Phase 5**: Build, test, verify
+- **Phase 6**: Remove old embed format infrastructure and dual-format flags
 
 ## Acceptance Criteria
 
