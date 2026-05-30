@@ -193,6 +193,8 @@ mod tests {
             start_time: None,
             end_time: None,
             duration: None,
+            part_num: None,
+            session_num: None,
             description: None,
             note: None,
             prereq: None,

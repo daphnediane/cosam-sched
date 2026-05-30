@@ -1031,6 +1031,8 @@ fn run_layout_export(
                 .unwrap_or_default();
             let status = std::process::Command::new("typst")
                 .arg("compile")
+                .arg("--root")
+                .arg("/")
                 .args(&font_args)
                 .arg(&typ_path)
                 .arg(&pdf_path)

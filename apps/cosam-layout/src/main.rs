@@ -193,6 +193,8 @@ fn compile_typst(typ_src: &str, output_dir: &Path, stem: &str, brand: &BrandConf
 
     let status = Command::new("typst")
         .arg("compile")
+        .arg("--root")
+        .arg("/")
         .args(&font_args)
         .arg(&typ_path)
         .arg(&pdf_path)

@@ -35,8 +35,11 @@ impl BrandConfig {
     pub fn load(path: &Path) -> Result<Self, BrandError> {
         let text = std::fs::read_to_string(path)?;
         let mut config: BrandConfig = toml::from_str(&text)?;
-        // Resolve relative paths against the config file's directory
-        if let Some(dir) = path.parent() {
+        // Resolve relative paths against the config file's directory.
+        // Canonicalize first so that relative config paths (e.g. `config/brand.toml`)
+        // produce absolute asset paths in the output.
+        let abs_path = std::fs::canonicalize(path).unwrap_or_else(|_| path.to_path_buf());
+        if let Some(dir) = abs_path.parent() {
             if let Some(logo) = &config.meta.logo_path {
                 if !logo.is_absolute() {
                     config.meta.logo_path = Some(dir.join(logo));

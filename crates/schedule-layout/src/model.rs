@@ -76,6 +76,8 @@ impl ScheduleData {
                 start_time: p.start_time,
                 end_time: p.end_time,
                 duration: p.duration.try_into().ok(),
+                part_num: p.part_num,
+                session_num: p.session_num,
                 description: p.description,
                 note: p.note,
                 prereq: p.prereq,
@@ -227,7 +229,7 @@ pub struct Meta {
     pub end_time: Option<String>,
 }
 
-#[derive(Debug, Clone, Deserialize, Serialize)]
+#[derive(Debug, Clone, Default, Deserialize, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct Panel {
     pub id: String,
@@ -245,6 +247,10 @@ pub struct Panel {
     pub end_time: Option<String>,
     #[serde(default)]
     pub duration: Option<u32>,
+    #[serde(default)]
+    pub part_num: Option<i32>,
+    #[serde(default)]
+    pub session_num: Option<i32>,
     #[serde(default)]
     pub description: Option<String>,
     #[serde(default)]

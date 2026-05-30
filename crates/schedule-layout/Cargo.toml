@@ -17,6 +17,7 @@ serde_json = "1"
 schedule-core = { path = "../schedule-core" }
 toml = "0.8"
 thiserror = "2"
+chrono = { version = "0.4" }
 image = { version = "0.25", default-features = false, features = ["png"] }
 qrcode = "0.14"
 

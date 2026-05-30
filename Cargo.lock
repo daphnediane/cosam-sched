@@ -5758,6 +5758,7 @@ dependencies = [
 name = "schedule-layout"
 version = "0.1.0"
 dependencies = [
+ "chrono",
  "comemo",
  "image",
  "qrcode",
