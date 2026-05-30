@@ -954,39 +954,69 @@ fn run_layout_export(
         return;
     }
 
-    // Default job set matching the old dump_flyers defaults
+    // Default job set — one entry per format/paper combination.
+    // Outputs are placed in layout_dir/{paper-dir-name}/ subdirectories.
     let default_jobs: &[(LayoutFormat, PaperSize, SplitMode, LayoutFilter)] = &[
+        // Full schedule grid — tabloid landscape, split by half-day
         (
             LayoutFormat::Schedule,
             PaperSize::Tabloid,
             SplitMode::HalfDay,
             LayoutFilter::default(),
         ),
+        // Combined workshops listing — tabloid
         (
             LayoutFormat::WorkshopsListing,
             PaperSize::Tabloid,
             SplitMode::Day,
             LayoutFilter::default(),
         ),
+        // Room door signs — tabloid landscape with grid + descriptions
         (
             LayoutFormat::RoomSigns,
             PaperSize::Tabloid,
             SplitMode::Day,
             LayoutFilter::default(),
         ),
+        // Guest personal schedule postcards — 4×6 postcard
         (
             LayoutFormat::GuestPostcards,
             PaperSize::Postcard4x6,
             SplitMode::HalfDay,
             LayoutFilter::default(),
         ),
+        // Panel descriptions — tabloid landscape (wide multi-column)
         (
             LayoutFormat::Descriptions,
             PaperSize::Tabloid,
             SplitMode::Day,
             LayoutFilter::default(),
         ),
+        // Panel descriptions — letter portrait (take-home copy)
+        (
+            LayoutFormat::Descriptions,
+            PaperSize::Letter,
+            SplitMode::Day,
+            LayoutFilter::default(),
+        ),
     ];
+
+    let font_args: Vec<String> = brand
+        .fonts
+        .font_dir
+        .as_ref()
+        .and_then(|d| d.to_str())
+        .map(|d| vec!["--font-path".to_string(), d.to_string()])
+        .unwrap_or_default();
+
+    // All Typst source files share a single typ/ subdirectory.
+    let typ_dir = layout_dir.join("typ");
+    if let Err(e) = fs::create_dir_all(&typ_dir) {
+        eprintln!(
+            "warning: creating {:?}: {e}; .typ files may not be written",
+            typ_dir
+        );
+    }
 
     for (format, paper, split_by, filter) in default_jobs {
         let config = LayoutConfig {
@@ -995,6 +1025,17 @@ fn run_layout_export(
             split_by: *split_by,
             filter: filter.clone(),
         };
+
+        // PDFs go into a per-paper-size subdirectory; typ sources share typ/.
+        let paper_dir = layout_dir.join(paper.dir_name());
+        if let Err(e) = fs::create_dir_all(&paper_dir) {
+            eprintln!(
+                "warning: creating {:?}: {e}; skipping {:?}",
+                paper_dir, format
+            );
+            continue;
+        }
+
         let outputs = match format {
             LayoutFormat::Schedule => {
                 formats::schedule::generate(&data, &brand, &config, ColorMode::Color)
@@ -1012,20 +1053,14 @@ fn run_layout_export(
                 formats::descriptions::generate(&data, &brand, &config, ColorMode::Color)
             }
         };
+
         for (stem, typ_src) in &outputs {
-            let typ_path = layout_dir.join(format!("{stem}.typ"));
-            let pdf_path = layout_dir.join(format!("{stem}.pdf"));
+            let typ_path = typ_dir.join(format!("{stem}.typ"));
+            let pdf_path = paper_dir.join(format!("{stem}.pdf"));
             if let Err(e) = fs::write(&typ_path, typ_src) {
                 eprintln!("warning: writing {:?}: {e}", typ_path);
                 continue;
             }
-            let font_args: Vec<String> = brand
-                .fonts
-                .font_dir
-                .as_ref()
-                .and_then(|d| d.to_str())
-                .map(|d| vec!["--font-path".to_string(), d.to_string()])
-                .unwrap_or_default();
             let status = std::process::Command::new("typst")
                 .arg("compile")
                 .arg("--root")

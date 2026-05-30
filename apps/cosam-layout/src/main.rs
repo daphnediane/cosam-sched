@@ -157,14 +157,16 @@ fn run_job(
             .and_then(|s| s.to_str())
             .unwrap_or(stem.as_str());
 
+        let typ_path = output_dir.join(format!("{out_stem}.typ"));
+        let pdf_path = output_dir.join(format!("{out_stem}.pdf"));
+
         if write_typ || no_compile {
-            let typ_path = output_dir.join(format!("{out_stem}.typ"));
             fs::write(&typ_path, typ_src).with_context(|| format!("writing {:?}", typ_path))?;
             eprintln!("wrote {}", typ_path.display());
         }
 
         if !no_compile {
-            compile_typst(typ_src, output_dir, out_stem, brand)?;
+            compile_typst(typ_src, &typ_path, &pdf_path, brand)?;
         }
     }
 
@@ -173,15 +175,20 @@ fn run_job(
 
 /// Invoke the Typst compiler to produce a PDF.
 ///
-/// Currently writes the source to a temp `.typ` file and calls `typst compile`
-/// via the system. A future feature flag will link `typst` as a library.
-fn compile_typst(typ_src: &str, output_dir: &Path, stem: &str, brand: &BrandConfig) -> Result<()> {
+/// Writes `typ_src` to `typ_path` (creating parent directories as needed),
+/// then calls `typst compile` to produce `pdf_path`.
+fn compile_typst(
+    typ_src: &str,
+    typ_path: &Path,
+    pdf_path: &Path,
+    brand: &BrandConfig,
+) -> Result<()> {
     use std::process::Command;
 
-    let typ_path = output_dir.join(format!("{stem}.typ"));
-    let pdf_path = output_dir.join(format!("{stem}.pdf"));
-
-    fs::write(&typ_path, typ_src).with_context(|| format!("writing {:?}", typ_path))?;
+    if let Some(parent) = typ_path.parent() {
+        fs::create_dir_all(parent).with_context(|| format!("creating {:?}", parent))?;
+    }
+    fs::write(typ_path, typ_src).with_context(|| format!("writing {:?}", typ_path))?;
 
     let font_args: Vec<String> = brand
         .fonts
@@ -196,8 +203,8 @@ fn compile_typst(typ_src: &str, output_dir: &Path, stem: &str, brand: &BrandConf
         .arg("--root")
         .arg("/")
         .args(&font_args)
-        .arg(&typ_path)
-        .arg(&pdf_path)
+        .arg(typ_path)
+        .arg(pdf_path)
         .status()
         .with_context(|| "invoking `typst compile` (is typst installed?)")?;
 

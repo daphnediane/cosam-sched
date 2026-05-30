@@ -1,6 +1,6 @@
 # Cosplay America Schedule - Work Item
 
-Updated on: Fri May 29 09:13:44 2026
+Updated on: Sat May 30 13:58:32 2026
 
 ## Completed
 
@@ -171,7 +171,7 @@ above panelists and groups.
 
 ## Summary of Open Items
 
-**Total open items:** 20
+**Total open items:** 21
 
 * **Meta / Project-Level**
   * [META-001] Meta work item tracking the full multi-phase redesign of the schedule system. (Blocked by [META-007], [META-008])
@@ -182,6 +182,9 @@ above panelists and groups.
 * **Medium Priority**
   * [CLI-100] Add a `--interactive` flag to `cosam-modify` that opens a read-eval-print loop for
 entering commands one at a time.
+  * [CLI-133] Redesign `cosam-layout` to accept `--output <file>` (explicit file path) rather
+than `--output-dir <dir>`, mirroring the old `dump_flyers` / `schedule_html`
+pattern where each job spec points to a specific output file or directory.
   * [FEATURE-113] Replace the `std::process::Command::new("typst")` subprocess calls in
 `schedule-layout` and `cosam-convert` with in-process compilation using the
 `typst` Rust crate, eliminating the external `typst-cli` dependency.
@@ -283,6 +286,37 @@ cosam-modify --file myfile.schedule --interactive
 > quit
 Save your changes? (Y/N)
 ```
+
+---
+
+### [CLI-133] CLI-133: cosam-layout output as file paths, not directories
+
+**Status:** Open
+
+**Priority:** Medium
+
+**Summary:** Redesign `cosam-layout` to accept `--output <file>` (explicit file path) rather
+than `--output-dir <dir>`, mirroring the old `dump_flyers` / `schedule_html`
+pattern where each job spec points to a specific output file or directory.
+
+**Description:** The current `cosam-layout` global `--output-dir` flag writes all job outputs
+into a single directory, deriving filenames from format-generated stems.
+The old `schedule_html` tool (see `schedule-to-html/dump_flyers`) accepted
+`--output <path>` per job, where the path was either:
+
+* A file path (e.g. `output/flyers/poster17x11_grid.html`) → single output
+* A directory path (trailing `/` or existing dir) → one file per day/room/guest
+
+`cosam-layout` should adopt the same pattern:
+
+* Remove global `--output-dir`; replace with per-job `--output <path>`
+* If the path looks like a directory (trailing `/`, or is an existing dir),
+  write multiple files into it using generated stems
+* If the path looks like a file, use it as the output path; warn if the format
+  produces multiple files and only the first is written (or error out)
+* `--typ` / `--no-compile` flags remain global
+* `compile_typst` already accepts explicit `typ_path` and `pdf_path` after
+  the Phase 4 refactor — just need to wire paths correctly
 
 ---
 
@@ -709,6 +743,7 @@ This refactor:
 [CLI-097]: work-item/done/CLI-097.md
 [CLI-098]: work-item/done/CLI-098.md
 [CLI-100]: work-item/medium/CLI-100.md
+[CLI-133]: work-item/medium/CLI-133.md
 [EDITOR-032]: work-item/done/EDITOR-032.md
 [EDITOR-033]: work-item/low/EDITOR-033.md
 [EDITOR-111]: work-item/low/EDITOR-111.md
