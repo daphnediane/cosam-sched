@@ -10,7 +10,7 @@ use crate::brand::BrandConfig;
 use crate::color::ColorMode;
 use crate::grid::{LayoutConfig, SplitMode};
 use crate::model::ScheduleData;
-use crate::typst_gen;
+use crate::typst_gen::{self, day_label_to_stem, make_day_label};
 
 /// Generate one or more Typst source documents for the full schedule.
 ///
@@ -26,12 +26,17 @@ pub fn generate(
         return vec![];
     }
 
-    let days = split_by_day(&panels);
+    let day_dates = split_by_day(&panels);
+
+    // Collect all date strings (owned) for smart weekday-label computation
+    let all_date_strs: Vec<String> = day_dates.iter().map(|(d, _)| d.clone()).collect();
+    let all_dates: Vec<&str> = all_date_strs.iter().map(String::as_str).collect();
 
     match config.split_by {
-        SplitMode::Day => days
+        SplitMode::Day => day_dates
             .into_iter()
-            .map(|(day_label, day_panels)| {
+            .map(|(date_str, day_panels)| {
+                let day_label = make_day_label(&date_str, &all_dates);
                 let source = typst_gen::generate_schedule_typ(
                     data,
                     brand,
@@ -40,12 +45,14 @@ pub fn generate(
                     &day_label,
                     &day_panels,
                 );
-                (day_label_to_stem(&day_label), source)
+                let stem = format!("grid-{}", day_label_to_stem(&day_label));
+                (stem, source)
             })
             .collect(),
-        SplitMode::HalfDay => days
+        SplitMode::HalfDay => day_dates
             .into_iter()
-            .flat_map(|(day_label, day_panels)| {
+            .flat_map(|(date_str, day_panels)| {
+                let day_label = make_day_label(&date_str, &all_dates);
                 split_halves(&day_label, &day_panels)
                     .into_iter()
                     .map(|(label, half_panels)| {
@@ -57,7 +64,8 @@ pub fn generate(
                             &label,
                             &half_panels,
                         );
-                        (day_label_to_stem(&label), source)
+                        let stem = format!("grid-{}", day_label_to_stem(&label));
+                        (stem, source)
                     })
                     .collect::<Vec<_>>()
             })
@@ -123,22 +131,14 @@ fn split_halves<'a>(
     out
 }
 
-fn day_label_to_stem(label: &str) -> String {
-    label
-        .to_lowercase()
-        .replace(' ', "-")
-        .chars()
-        .filter(|c| c.is_alphanumeric() || *c == '-')
-        .collect()
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
 
     #[test]
     fn test_day_label_to_stem() {
-        assert_eq!(day_label_to_stem("2026-06-26"), "2026-06-26");
-        assert_eq!(day_label_to_stem("2026-06-26 AM"), "2026-06-26-am");
+        assert_eq!(day_label_to_stem("Friday"), "friday");
+        assert_eq!(day_label_to_stem("Friday AM"), "friday-am");
+        assert_eq!(day_label_to_stem("Saturday 27"), "saturday-27");
     }
 }

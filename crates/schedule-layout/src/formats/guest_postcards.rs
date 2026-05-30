@@ -6,9 +6,12 @@
 
 //! Guest postcard layout builder.
 //!
-//! Produces one 4×6 postcard per presenter (guest) per half-day listing
-//! only the panels they appear in.  Optionally filtered to a single guest
-//! via `config.filter.guest_name`.
+//! Produces one 4×6 postcard per presenter per half-day listing only the
+//! panels they appear in.  Only guest, judge, staff, and invited presenters
+//! receive postcards (i.e. ranks with priority ≤ 3 in `PresenterRank`);
+//! panelists and fan-panelists are excluded.
+//!
+//! Optionally filtered to a single presenter via `config.filter.guest_name`.
 
 use crate::brand::BrandConfig;
 use crate::color::{ColorMode, PanelColor};
@@ -33,6 +36,12 @@ pub fn generate(
     let mut out = vec![];
 
     for presenter in &data.presenters {
+        // Only guest/judge/staff/invited presenters receive postcards.
+        // Panelists and fan-panelists are excluded.
+        if !postcard_rank_eligible(&presenter.rank) {
+            continue;
+        }
+
         if let Some(filter) = &config.filter.guest_name {
             if !presenter.name.eq_ignore_ascii_case(filter) {
                 continue;
@@ -198,9 +207,30 @@ fn format_time_short(s: &str) -> String {
     }
 }
 
+/// Returns `true` if the presenter rank string qualifies for a postcard.
+///
+/// Eligible ranks mirror `PresenterRank` priority ≤ 3:
+/// `guest`, `judge`, `staff`, and any `invited_*` variants (including the
+/// default `invited_panelist`). Panelists and fan-panelists are excluded.
+fn postcard_rank_eligible(rank: &str) -> bool {
+    matches!(rank, "guest" | "judge" | "staff") || rank.starts_with("invited") || rank.is_empty()
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn test_postcard_rank_eligible() {
+        assert!(postcard_rank_eligible("guest"));
+        assert!(postcard_rank_eligible("judge"));
+        assert!(postcard_rank_eligible("staff"));
+        assert!(postcard_rank_eligible("invited_panelist"));
+        assert!(postcard_rank_eligible("invited_author"));
+        assert!(postcard_rank_eligible(""));
+        assert!(!postcard_rank_eligible("panelist"));
+        assert!(!postcard_rank_eligible("fan_panelist"));
+    }
 
     #[test]
     fn test_generate_no_presenters_empty() {

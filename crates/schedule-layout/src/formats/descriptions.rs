@@ -8,18 +8,18 @@
 //!
 //! Produces one Typst document per day listing all scheduled panels with
 //! their time, room, title, description, workshop notices, and cross-references
-//! in a two-column landscape layout.
+//! in a multi-column layout. Letter-sized output is portrait; all other paper
+//! sizes are landscape.
 
 use std::collections::HashMap;
 
-use chrono::NaiveDate;
 use schedule_core::value::uniq_id::PanelUniqId;
 
 use crate::brand::BrandConfig;
 use crate::color::{ColorMode, PanelColor};
-use crate::grid::LayoutConfig;
+use crate::grid::{LayoutConfig, PaperSize};
 use crate::model::{Panel, ScheduleData};
-use crate::typst_gen::{escape_typst, preamble};
+use crate::typst_gen::{day_label_to_stem, escape_typst, make_day_label, preamble};
 
 /// Generate Typst source for the full panel descriptions listing.
 ///
@@ -54,55 +54,13 @@ pub fn generate(
 
     days.into_iter()
         .map(|(day, day_panels)| {
-            let stem = day
-                .to_lowercase()
-                .chars()
-                .filter(|c| c.is_alphanumeric() || *c == '-')
-                .collect::<String>();
-            let stem = format!("descriptions-{}", stem);
             let label = make_day_label(&day, &all_day_refs);
+            let stem = format!("description-{}", day_label_to_stem(&label));
             let source =
                 generate_day_typ(data, brand, config, color_mode, &label, &day, &day_panels);
             (stem, source)
         })
         .collect()
-}
-
-// ---------------------------------------------------------------------------
-// Day label
-// ---------------------------------------------------------------------------
-
-/// Compute a human-friendly day label from a YYYY-MM-DD string.
-///
-/// - All days in the same ISO week → `"Thursday"`
-/// - Multiple weeks, same calendar month → `"Thursday 25"`
-/// - Spans multiple months → `"Thursday Jun 25"`
-fn make_day_label(date_str: &str, all_days: &[&str]) -> String {
-    use chrono::Datelike;
-
-    let Ok(date) = NaiveDate::parse_from_str(date_str, "%Y-%m-%d") else {
-        return date_str.to_string();
-    };
-    let weekday = date.format("%A").to_string();
-
-    let parsed: Vec<NaiveDate> = all_days
-        .iter()
-        .filter_map(|s| NaiveDate::parse_from_str(s, "%Y-%m-%d").ok())
-        .collect();
-
-    let min_date = parsed.iter().copied().min().unwrap_or(date);
-    let max_date = parsed.iter().copied().max().unwrap_or(date);
-
-    let same_week = min_date.iso_week() == max_date.iso_week();
-    let same_month = min_date.year() == max_date.year() && min_date.month() == max_date.month();
-
-    if same_week {
-        weekday
-    } else if same_month {
-        format!("{} {}", weekday, date.day())
-    } else {
-        format!("{} {} {}", weekday, date.format("%b"), date.day())
-    }
 }
 
 // ---------------------------------------------------------------------------
@@ -118,7 +76,11 @@ fn generate_day_typ(
     day_date: &str,
     panels: &[&Panel],
 ) -> String {
-    let mut doc = preamble(config, brand, true);
+    // Letter uses portrait; all other paper sizes use landscape.
+    let landscape = config.paper != PaperSize::Letter;
+    let num_cols = config.paper.description_columns(landscape);
+
+    let mut doc = preamble(config, brand, landscape);
 
     // Build base_id → panels lookup for cross-reference resolution
     let mut by_base: HashMap<&str, Vec<&Panel>> = HashMap::new();
@@ -138,8 +100,11 @@ fn generate_day_typ(
         format!("= {}\n\n", escape_typst(heading))
     };
 
-    // Two-column layout
-    doc.push_str("#set columns(2)\n#columns(2)[\n");
+    // Multi-column layout (count driven by paper size)
+    doc.push_str(&format!(
+        "#set columns({n})\n#columns({n})[\n",
+        n = num_cols
+    ));
     doc.push_str(&banner);
 
     // Group panels by start-time slot, deduplicate by id
@@ -516,6 +481,8 @@ fn format_time_range(start: Option<&str>, end: Option<&str>) -> String {
 /// When the cross-reference is on the same day as `current_day_date`, the
 /// weekday is omitted (returns just the time).
 fn format_weekday_time(datetime_str: &str, current_day_date: &str) -> String {
+    use chrono::NaiveDate;
+
     let date_str = datetime_str.get(..10).unwrap_or("");
     let time_str = format_time_only(datetime_str);
 
