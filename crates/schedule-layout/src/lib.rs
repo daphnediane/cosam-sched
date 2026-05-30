@@ -15,6 +15,7 @@
 //! - [`typst_gen`] — Typst `.typ` source generation
 //! - [`formats`] — per-format layout builders (schedule, workshop poster, etc.)
 
+pub mod blocks;
 pub mod brand;
 pub mod color;
 pub mod formats;

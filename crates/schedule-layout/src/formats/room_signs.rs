@@ -15,9 +15,9 @@
 //!
 //! Optionally filtered to a single room UID via `config.filter.room_uid`.
 
+use crate::blocks::panels::render_description_blocks;
 use crate::brand::BrandConfig;
 use crate::color::ColorMode;
-use crate::formats::descriptions::render_description_blocks;
 use crate::grid::{GridLayout, LayoutConfig, PaperSize};
 use crate::model::ScheduleData;
 use crate::typst_gen::{day_label_to_stem, escape_typst, make_day_label, preamble, schedule_grid};
@@ -170,7 +170,8 @@ fn generate_sign_typ(
         "", // heading suppressed — banner above handles it
         Some(room.uid),
     );
-    let desc_content = render_description_blocks(data, color_mode, room_panels, day_date);
+    let desc_content =
+        render_description_blocks(data, color_mode, room_panels, day_date, day_label);
 
     doc.push_str("#grid(columns: (38%, 1fr), gutter: 0.25in,\n");
     doc.push('['); // left cell: grid
