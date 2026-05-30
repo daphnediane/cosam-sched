@@ -11,7 +11,7 @@
 //! in a multi-column layout. Letter-sized output is portrait; all other paper
 //! sizes are landscape.
 
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 
 use schedule_core::value::uniq_id::PanelUniqId;
 
@@ -140,6 +140,61 @@ fn generate_day_typ(
 
     doc.push_str("]\n");
     doc
+}
+
+// ---------------------------------------------------------------------------
+// Shared block renderer (used by room_signs and other composing formats)
+// ---------------------------------------------------------------------------
+
+/// Generate Typst content for a slice of panels' description blocks.
+///
+/// Returns raw Typst markup (no document wrapper, no column or page setup)
+/// suitable for embedding inside a `#grid()` cell or `#columns()` section.
+/// Panels are deduplicated by `id` and grouped by time slot with a sub-heading.
+///
+/// `day_date` is the `YYYY-MM-DD` string for the day, used to suppress the
+/// weekday prefix on same-day cross-references.
+pub(crate) fn render_description_blocks<'a>(
+    data: &'a ScheduleData,
+    color_mode: ColorMode,
+    panels: &[&'a Panel],
+    day_date: &str,
+) -> String {
+    let mut by_base: HashMap<&'a str, Vec<&'a Panel>> = HashMap::new();
+    for p in panels.iter().copied() {
+        by_base.entry(p.base_id.as_str()).or_default().push(p);
+    }
+
+    let mut time_groups: Vec<(String, Vec<&Panel>)> = vec![];
+    let mut seen_ids: HashSet<&str> = HashSet::new();
+    for panel in panels.iter().copied() {
+        if !seen_ids.insert(panel.id.as_str()) {
+            continue;
+        }
+        let key = panel
+            .start_time
+            .as_deref()
+            .and_then(|s| s.get(..16))
+            .unwrap_or("")
+            .to_string();
+        if let Some(group) = time_groups.iter_mut().find(|(k, _)| k == &key) {
+            group.1.push(panel);
+        } else {
+            time_groups.push((key, vec![panel]));
+        }
+    }
+
+    let mut out = String::new();
+    for (time_key, group) in &time_groups {
+        let slot_label = format_time_only(time_key);
+        if !slot_label.is_empty() {
+            out.push_str(&format!("== {}\n\n", escape_typst(&slot_label)));
+        }
+        for panel in group {
+            out.push_str(&panel_block(data, color_mode, panel, day_date, &by_base));
+        }
+    }
+    out
 }
 
 // ---------------------------------------------------------------------------

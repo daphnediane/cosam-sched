@@ -70,7 +70,14 @@ pub fn preamble(config: &LayoutConfig, brand: &BrandConfig, landscape: bool) -> 
     )
 }
 
-/// Generate a simple grid schedule Typst document for one day's panels.
+/// Generate a schedule grid table for one day's panels.
+///
+/// When `highlight_room_uid` is `Some(uid)`, that room's column header is
+/// rendered with the brand-primary fill and its body cells get a light tint,
+/// making it easy to spot on a room door sign.
+///
+/// If `day_label` is empty the heading line is suppressed (useful when the
+/// grid is embedded inside a larger layout that already has a header).
 pub fn schedule_grid(
     layout: &GridLayout,
     data: &ScheduleData,
@@ -78,11 +85,14 @@ pub fn schedule_grid(
     _config: &LayoutConfig,
     color_mode: ColorMode,
     day_label: &str,
+    highlight_room_uid: Option<i64>,
 ) -> String {
     let mut out = String::new();
 
-    // Day heading
-    out.push_str(&format!("= {}\n\n", escape_typst(day_label)));
+    // Day heading (suppressed when label is empty)
+    if !day_label.is_empty() {
+        out.push_str(&format!("= {}\n\n", escape_typst(day_label)));
+    }
 
     if layout.room_order.is_empty() || layout.time_slots.is_empty() {
         out.push_str("_(No events scheduled)_\n");
@@ -100,13 +110,23 @@ pub fn schedule_grid(
         .collect();
     out.push_str(&format!("  columns: ({}),\n", cols_spec.join(", ")));
 
-    // Header cells
+    // Header cells — highlighted room gets brand-primary fill with white text
     out.push_str(&format!(
         "  table.header([], {}),\n",
         layout
             .room_order
             .iter()
-            .map(|uid| format!("[*{}*]", escape_typst(layout.room_name(*uid, &data.rooms))))
+            .map(|uid| {
+                let name = escape_typst(layout.room_name(*uid, &data.rooms));
+                if highlight_room_uid == Some(*uid) {
+                    format!(
+                        "[#table.cell(fill: brand-primary)[#text(fill: white)[*{}*]]]",
+                        name
+                    )
+                } else {
+                    format!("[*{}*]", name)
+                }
+            })
             .collect::<Vec<_>>()
             .join(", ")
     ));
@@ -121,7 +141,9 @@ pub fn schedule_grid(
         out.push_str(&format!("  {},\n", time_cell));
 
         for col_idx in 0..layout.room_order.len() {
-            let _room_id = layout.room_order[col_idx];
+            let room_id = layout.room_order[col_idx];
+            let is_highlighted = highlight_room_uid == Some(room_id);
+
             // Find cell starting at this slot and column
             let cell = layout
                 .cells
@@ -139,11 +161,20 @@ pub fn schedule_grid(
                     .map(|c| c.hex)
                     .unwrap_or_default();
 
-                let border_color = if color_str.is_empty() {
+                let stroke = if color_str.is_empty() {
                     String::new()
                 } else {
-                    format!(", stroke: (left: 3pt + rgb(\"{}\"))", color_str)
+                    format!("stroke: (left: 3pt + rgb(\"{}\"))", color_str)
                 };
+                let fill = if is_highlighted {
+                    "fill: brand-primary.lighten(85%)".to_string()
+                } else {
+                    String::new()
+                };
+                let cell_args = [fill, stroke]
+                    .into_iter()
+                    .filter(|s| !s.is_empty())
+                    .collect::<Vec<_>>();
 
                 let name = escape_typst(&panel.name);
                 let dur = panel
@@ -151,19 +182,22 @@ pub fn schedule_grid(
                     .map(|d| format!(" _{} min_", d))
                     .unwrap_or_default();
 
-                if rowspan > 1 {
-                    out.push_str(&format!(
-                        "  table.cell(rowspan: {}{})[*{}*{}],\n",
-                        rowspan, border_color, name, dur
-                    ));
+                let rowspan_arg = if rowspan > 1 {
+                    format!("rowspan: {}", rowspan)
+                } else {
+                    String::new()
+                };
+                let all_args = std::iter::once(rowspan_arg)
+                    .chain(cell_args)
+                    .filter(|s| !s.is_empty())
+                    .collect::<Vec<_>>();
+
+                if all_args.is_empty() {
+                    out.push_str(&format!("  [*{}*{}],\n", name, dur));
                 } else {
                     out.push_str(&format!(
                         "  table.cell({})[*{}*{}],\n",
-                        if border_color.is_empty() {
-                            String::new()
-                        } else {
-                            border_color[2..].to_string()
-                        },
+                        all_args.join(", "),
                         name,
                         dur
                     ));
@@ -186,9 +220,13 @@ pub fn schedule_grid(
                         let name = escape_typst(&brk.panel.name);
                         out.push_str(&format!(
                             "  table.cell(colspan: {}, rowspan: {}, fill: luma(240))[#align(center)[_{}_ ]],\n",
-                            layout.room_order.len(), rowspan, name
+                            layout.room_order.len() + 1,
+                            rowspan,
+                            name
                         ));
                     }
+                } else if is_highlighted {
+                    out.push_str("  table.cell(fill: brand-primary.lighten(85%))[],\n");
                 } else {
                     out.push_str("  [],\n");
                 }
@@ -212,7 +250,7 @@ pub fn generate_schedule_typ(
     let layout = GridLayout::compute(panels, data);
     let mut doc = preamble(config, brand, true);
     doc.push_str(&schedule_grid(
-        &layout, data, brand, config, color_mode, day_label,
+        &layout, data, brand, config, color_mode, day_label, None,
     ));
     doc
 }

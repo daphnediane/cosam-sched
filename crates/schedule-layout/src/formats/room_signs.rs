@@ -6,15 +6,21 @@
 
 //! Room signs layout builder.
 //!
-//! Produces one Typst document per room per day listing that room's panels
-//! in chronological order.  Optionally filtered to a single room UID via
-//! `config.filter.room_uid`.
+//! Produces one landscape-tabloid Typst document per room per day.  Each
+//! page has a full-width branded header (room name + date), then a side-by-side
+//! layout: the full conference schedule grid on the left (with this room's
+//! column highlighted in the brand primary color) and description blocks for
+//! this room's own events on the right.  Only generated for tabloid paper;
+//! room-sign jobs on other paper sizes are silently skipped.
+//!
+//! Optionally filtered to a single room UID via `config.filter.room_uid`.
 
 use crate::brand::BrandConfig;
-use crate::color::{ColorMode, PanelColor};
-use crate::grid::LayoutConfig;
+use crate::color::ColorMode;
+use crate::formats::descriptions::render_description_blocks;
+use crate::grid::{GridLayout, LayoutConfig, PaperSize};
 use crate::model::ScheduleData;
-use crate::typst_gen::{escape_typst, preamble};
+use crate::typst_gen::{day_label_to_stem, escape_typst, make_day_label, preamble, schedule_grid};
 
 /// Generate Typst source for room door signs.
 ///
@@ -47,42 +53,57 @@ pub fn generate(
         })
         .collect();
 
+    // Room signs only make sense on tabloid paper.
+    if config.paper != PaperSize::Tabloid {
+        return vec![];
+    }
+
+    // Group ALL panels by calendar day — the full grid requires all rooms.
+    let mut by_day: Vec<(String, Vec<&crate::model::Panel>)> = vec![];
+    for panel in &panels {
+        if let Some(start) = &panel.start_time {
+            let date = start.get(..10).unwrap_or("unknown").to_string();
+            if let Some(entry) = by_day.iter_mut().find(|(d, _)| d == &date) {
+                entry.1.push(panel);
+            } else {
+                by_day.push((date, vec![panel]));
+            }
+        }
+    }
+
+    // Collect owned date strings for smart weekday-label computation
+    let all_date_strs: Vec<String> = by_day.iter().map(|(d, _)| d.clone()).collect();
+    let all_dates: Vec<&str> = all_date_strs.iter().map(String::as_str).collect();
+
     let mut out = vec![];
 
     for room in &rooms {
-        // Panels in this room, grouped by day
-        let mut days: Vec<(String, Vec<&crate::model::Panel>)> = vec![];
-        for panel in &panels {
-            if !panel.room_ids.contains(&room.uid) {
+        let room_slug = room_name_slug(&room.short_name);
+
+        for (date_str, day_panels) in &by_day {
+            // Only generate a sign if this room has events on this day.
+            let room_panels: Vec<&crate::model::Panel> = day_panels
+                .iter()
+                .copied()
+                .filter(|p| p.room_ids.contains(&room.uid))
+                .collect();
+            if room_panels.is_empty() {
                 continue;
             }
-            if let Some(start) = &panel.start_time {
-                let day = start.get(..10).unwrap_or("unknown").to_string();
-                if let Some(entry) = days.iter_mut().find(|(d, _)| d == &day) {
-                    entry.1.push(panel);
-                } else {
-                    days.push((day, vec![panel]));
-                }
-            }
-        }
 
-        for (day, day_panels) in &days {
-            let room_slug = room
-                .short_name
-                .to_lowercase()
-                .chars()
-                .map(|c| if c.is_alphanumeric() { c } else { '-' })
-                .collect::<String>()
-                .split('-')
-                .filter(|s| !s.is_empty())
-                .collect::<Vec<_>>()
-                .join("-");
-            let day_slug = day
-                .chars()
-                .filter(|c| c.is_alphanumeric() || *c == '-')
-                .collect::<String>();
-            let stem = format!("room-sign-{}-{}", room_slug, day_slug);
-            let source = generate_sign_typ(data, brand, config, color_mode, room, day, day_panels);
+            let day_label = make_day_label(date_str, &all_dates);
+            let stem = format!("room-sign-{}-{}", room_slug, day_label_to_stem(&day_label));
+            let source = generate_sign_typ(
+                data,
+                brand,
+                config,
+                color_mode,
+                room,
+                &day_label,
+                date_str,
+                day_panels,
+                &room_panels,
+            );
             out.push((stem, source));
         }
     }
@@ -90,6 +111,19 @@ pub fn generate(
     out
 }
 
+fn room_name_slug(short_name: &str) -> String {
+    short_name
+        .to_lowercase()
+        .chars()
+        .map(|c| if c.is_alphanumeric() { c } else { '-' })
+        .collect::<String>()
+        .split('-')
+        .filter(|s| !s.is_empty())
+        .collect::<Vec<_>>()
+        .join("-")
+}
+
+#[allow(clippy::too_many_arguments)]
 fn generate_sign_typ(
     data: &ScheduleData,
     brand: &BrandConfig,
@@ -97,9 +131,12 @@ fn generate_sign_typ(
     color_mode: ColorMode,
     room: &crate::model::Room,
     day_label: &str,
-    panels: &[&crate::model::Panel],
+    day_date: &str,
+    all_day_panels: &[&crate::model::Panel],
+    room_panels: &[&crate::model::Panel],
 ) -> String {
-    let mut doc = preamble(config, brand, false);
+    // Always landscape for room signs
+    let mut doc = preamble(config, brand, true);
 
     let room_name = if !room.long_name.is_empty() {
         &room.long_name
@@ -107,82 +144,43 @@ fn generate_sign_typ(
         &room.short_name
     };
 
-    // Room header
+    // Full-width branded header: room name (large) on left, day label on right
     doc.push_str(&format!(
-        "#rect(fill: rgb(\"{color}\"), width: 100%, inset: 10pt)[\n\
-         #text(size: 18pt, fill: white, font: \"{heading}\")[*{room}*]\n\
-         #v(2pt)\n\
-         #text(size: 11pt, fill: white)[{day}]\n\
+        "#block(fill: rgb(\"{color}\"), width: 100%, inset: (x: 14pt, y: 10pt))[\n\
+         #grid(columns: (1fr, auto), align: (left + horizon, right + horizon),\n\
+         [#text(size: 28pt, fill: white, font: \"{heading}\")[*{room}*]],\n\
+         [#text(size: 18pt, fill: white)[{day}]])\n\
          ]\n\
-         #v(1em)\n",
+         #v(0.5em)\n",
         color = brand.colors.primary,
         heading = brand.fonts.heading_or_default(),
         room = escape_typst(room_name),
         day = escape_typst(day_label),
     ));
 
-    // Panel table
-    doc.push_str("#table(columns: (0.8in, 1fr), align: left,\n");
-    doc.push_str("  table.header([*Time*], [*Event*]),\n");
+    // Side-by-side: grid (~38%) | descriptions (~62%)
+    // The grid uses schedule_grid with this room's column highlighted.
+    let layout = GridLayout::compute(all_day_panels, data);
+    let grid_content = schedule_grid(
+        &layout,
+        data,
+        brand,
+        config,
+        color_mode,
+        "", // heading suppressed — banner above handles it
+        Some(room.uid),
+    );
+    let desc_content = render_description_blocks(data, color_mode, room_panels, day_date);
 
-    for panel in panels {
-        let time = panel
-            .start_time
-            .as_deref()
-            .map(format_time_short)
-            .unwrap_or_default();
-
-        let color_str = panel
-            .panel_type
-            .as_ref()
-            .and_then(|pt| data.panel_types.get(pt.as_str()))
-            .and_then(|pt| PanelColor::resolve(&pt.colors, color_mode))
-            .map(|c| c.hex)
-            .unwrap_or_default();
-
-        let accent = if color_str.is_empty() {
-            String::new()
-        } else {
-            format!(
-                "#rect(fill: rgb(\"{}\"), width: 3pt, height: 0.7em)#h(3pt)",
-                color_str
-            )
-        };
-
-        doc.push_str(&format!(
-            "  [{}], [{}*{}*],\n",
-            escape_typst(&time),
-            accent,
-            escape_typst(&panel.name),
-        ));
-    }
-
+    doc.push_str("#grid(columns: (38%, 1fr), gutter: 0.25in,\n");
+    doc.push('['); // left cell: grid
+    doc.push_str(&grid_content);
+    doc.push_str("],\n");
+    doc.push('['); // right cell: descriptions
+    doc.push_str(&desc_content);
+    doc.push_str("]\n");
     doc.push_str(")\n");
     doc
-}
-
-fn format_time_short(s: &str) -> String {
-    let time_part = s.get(11..).unwrap_or(s);
-    let parts: Vec<&str> = time_part.splitn(2, ':').collect();
-    if parts.len() < 2 {
-        return time_part.to_string();
-    }
-    let hour: u32 = parts[0].parse().unwrap_or(0);
-    let min: u32 = parts[1].get(..2).unwrap_or("0").parse().unwrap_or(0);
-    let (h12, suffix) = if hour == 0 {
-        (12u32, "AM")
-    } else if hour < 12 {
-        (hour, "AM")
-    } else if hour == 12 {
-        (12, "PM")
-    } else {
-        (hour - 12, "PM")
-    };
-    if min == 0 {
-        format!("{} {}", h12, suffix)
-    } else {
-        format!("{}:{:02}", h12, min)
-    }
 }
 
 #[cfg(test)]
@@ -190,12 +188,39 @@ mod tests {
     use super::*;
 
     #[test]
-    fn test_format_time_short_noon() {
-        assert_eq!(format_time_short("2026-06-26T12:00:00"), "12 PM");
+    fn test_room_name_slug() {
+        assert_eq!(room_name_slug("Salon A"), "salon-a");
+        assert_eq!(room_name_slug("Main Stage!"), "main-stage");
+        assert_eq!(room_name_slug("  Room 101  "), "room-101");
     }
 
     #[test]
-    fn test_format_time_short_half() {
-        assert_eq!(format_time_short("2026-06-26T14:30:00"), "2:30");
+    fn test_generate_non_tabloid_returns_empty() {
+        use crate::grid::{LayoutConfig, PaperSize};
+        use crate::model::{Meta, ScheduleData};
+        use std::collections::HashMap;
+        let data = ScheduleData {
+            meta: Meta {
+                title: "T".into(),
+                version: 0,
+                variant: String::new(),
+                generator: String::new(),
+                generated: String::new(),
+                modified: String::new(),
+                start_time: None,
+                end_time: None,
+            },
+            panels: vec![],
+            rooms: vec![],
+            panel_types: HashMap::new(),
+            timeline: vec![],
+            presenters: vec![],
+        };
+        let config = LayoutConfig {
+            paper: PaperSize::Letter,
+            ..LayoutConfig::default()
+        };
+        let out = generate(&data, &BrandConfig::default(), &config, ColorMode::Color);
+        assert!(out.is_empty());
     }
 }
