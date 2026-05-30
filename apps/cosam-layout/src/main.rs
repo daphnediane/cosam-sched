@@ -129,8 +129,8 @@ fn run_job(
 
     let outputs: Vec<(String, String)> = match job.format {
         FormatArg::Schedule => formats::schedule::generate(data, brand, &config, color_mode),
-        FormatArg::WorkshopPoster => {
-            formats::workshop_poster::generate(data, brand, &config, color_mode)
+        FormatArg::WorkshopsListing => {
+            formats::workshops_listing::generate(data, brand, &config, color_mode)
         }
         FormatArg::RoomSigns => formats::room_signs::generate(data, brand, &config, color_mode),
         FormatArg::GuestPostcards => {
@@ -211,9 +211,11 @@ fn compile_typst(typ_src: &str, output_dir: &Path, stem: &str, brand: &BrandConf
 
 fn map_paper(p: PaperArg) -> PaperSize {
     match p {
+        PaperArg::Letter => PaperSize::Letter,
         PaperArg::Legal => PaperSize::Legal,
         PaperArg::Tabloid => PaperSize::Tabloid,
         PaperArg::SuperB => PaperSize::SuperB,
+        PaperArg::Poster => PaperSize::Poster,
         PaperArg::Postcard4x6 => PaperSize::Postcard4x6,
     }
 }
@@ -221,7 +223,7 @@ fn map_paper(p: PaperArg) -> PaperSize {
 fn map_format(f: FormatArg) -> LayoutFormat {
     match f {
         FormatArg::Schedule => LayoutFormat::Schedule,
-        FormatArg::WorkshopPoster => LayoutFormat::WorkshopPoster,
+        FormatArg::WorkshopsListing => LayoutFormat::WorkshopsListing,
         FormatArg::RoomSigns => LayoutFormat::RoomSigns,
         FormatArg::GuestPostcards => LayoutFormat::GuestPostcards,
         FormatArg::Descriptions => LayoutFormat::Descriptions,

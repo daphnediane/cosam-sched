@@ -11,10 +11,13 @@ use crate::model::{Panel, Room, ScheduleData};
 /// Paper size for output.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub enum PaperSize {
+    Letter,
     Legal,
     #[default]
     Tabloid,
     SuperB,
+    /// Custom 30"×20" poster (landscape only).
+    Poster,
     Postcard4x6,
 }
 
@@ -22,19 +25,81 @@ impl PaperSize {
     /// Returns `(width_mm, height_mm)` in portrait orientation.
     pub fn dimensions_mm(&self) -> (f64, f64) {
         match self {
+            PaperSize::Letter => (215.9, 279.4),
             PaperSize::Legal => (215.9, 355.6),
             PaperSize::Tabloid => (279.4, 431.8),
             PaperSize::SuperB => (330.2, 482.6),
+            PaperSize::Poster => (508.0, 762.0), // 20"×30" portrait basis
             PaperSize::Postcard4x6 => (101.6, 152.4),
         }
     }
 
-    pub fn typst_name(&self) -> &'static str {
+    /// Typst paper name used in `#set page(paper: ...)`.
+    /// Returns `None` for sizes that require explicit `width`/`height` dimensions
+    /// (e.g. `Poster`).
+    pub fn typst_name(&self) -> Option<&'static str> {
         match self {
-            PaperSize::Legal => "us-legal",
-            PaperSize::Tabloid => "us-tabloid",
-            PaperSize::SuperB => "iso-b3",
-            PaperSize::Postcard4x6 => "a6",
+            PaperSize::Letter => Some("us-letter"),
+            PaperSize::Legal => Some("us-legal"),
+            PaperSize::Tabloid => Some("us-tabloid"),
+            PaperSize::SuperB => Some("iso-b3"),
+            PaperSize::Poster => None,
+            PaperSize::Postcard4x6 => Some("a6"),
+        }
+    }
+
+    /// Subdirectory name used under the layout output root.
+    pub fn dir_name(&self) -> &'static str {
+        match self {
+            PaperSize::Letter => "letter",
+            PaperSize::Legal => "legal",
+            PaperSize::Tabloid => "tabloid",
+            PaperSize::SuperB => "super-b",
+            PaperSize::Poster => "poster",
+            PaperSize::Postcard4x6 => "postcard",
+        }
+    }
+
+    /// Number of columns for a description/workshops listing on this paper.
+    ///
+    /// Column counts match the legacy `schedule-to-html` CSS files, targeting
+    /// a fixed ~3-inch column width across paper sizes.
+    pub fn description_columns(&self, landscape: bool) -> u32 {
+        match self {
+            PaperSize::Letter => {
+                if landscape {
+                    4
+                } else {
+                    3
+                }
+            }
+            PaperSize::Legal => {
+                if landscape {
+                    4
+                } else {
+                    3
+                }
+            }
+            PaperSize::Tabloid | PaperSize::SuperB => {
+                if landscape {
+                    5
+                } else {
+                    4
+                }
+            }
+            PaperSize::Poster => 5,
+            PaperSize::Postcard4x6 => 1,
+        }
+    }
+
+    /// Base font size (as a Typst length string) for body text on this paper.
+    ///
+    /// The `Poster` size uses a larger base font so that panels are legible at
+    /// reading distance from a printed 30"×20" sheet.
+    pub fn base_font_pt(&self) -> &'static str {
+        match self {
+            PaperSize::Poster => "10pt",
+            _ => "9pt",
         }
     }
 }
@@ -44,7 +109,8 @@ impl PaperSize {
 pub enum LayoutFormat {
     #[default]
     Schedule,
-    WorkshopPoster,
+    /// Combined workshops listing (all workshops across all days, one document).
+    WorkshopsListing,
     RoomSigns,
     GuestPostcards,
     Descriptions,
@@ -303,6 +369,51 @@ mod tests {
         let (w, h) = PaperSize::Tabloid.dimensions_mm();
         assert!(w > 0.0 && h > 0.0);
         assert!(h > w); // portrait: height > width
+    }
+
+    #[test]
+    fn test_paper_size_letter_dimensions() {
+        let (w, h) = PaperSize::Letter.dimensions_mm();
+        assert!(w > 0.0 && h > 0.0);
+        assert!(h > w); // portrait
+    }
+
+    #[test]
+    fn test_paper_size_poster_dimensions() {
+        let (w, h) = PaperSize::Poster.dimensions_mm();
+        // 20"×30" in portrait basis → 508mm × 762mm
+        assert!((w - 508.0).abs() < 1.0);
+        assert!((h - 762.0).abs() < 1.0);
+    }
+
+    #[test]
+    fn test_paper_size_typst_name() {
+        assert_eq!(PaperSize::Letter.typst_name(), Some("us-letter"));
+        assert_eq!(PaperSize::Tabloid.typst_name(), Some("us-tabloid"));
+        assert_eq!(PaperSize::Poster.typst_name(), None);
+    }
+
+    #[test]
+    fn test_paper_size_dir_name() {
+        assert_eq!(PaperSize::Letter.dir_name(), "letter");
+        assert_eq!(PaperSize::Legal.dir_name(), "legal");
+        assert_eq!(PaperSize::Tabloid.dir_name(), "tabloid");
+        assert_eq!(PaperSize::Poster.dir_name(), "poster");
+        assert_eq!(PaperSize::Postcard4x6.dir_name(), "postcard");
+    }
+
+    #[test]
+    fn test_paper_size_description_columns() {
+        assert_eq!(PaperSize::Letter.description_columns(false), 3);
+        assert_eq!(PaperSize::Letter.description_columns(true), 4);
+        assert_eq!(PaperSize::Tabloid.description_columns(true), 5);
+        assert_eq!(PaperSize::Poster.description_columns(true), 5);
+    }
+
+    #[test]
+    fn test_paper_size_base_font_pt() {
+        assert_eq!(PaperSize::Letter.base_font_pt(), "9pt");
+        assert_eq!(PaperSize::Poster.base_font_pt(), "10pt");
     }
 
     #[test]

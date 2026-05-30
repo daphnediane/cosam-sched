@@ -82,7 +82,7 @@ impl Default for LayoutJob {
 #[derive(Debug, Clone, Copy, PartialEq, Eq, ValueEnum)]
 pub enum FormatArg {
     Schedule,
-    WorkshopPoster,
+    WorkshopsListing,
     RoomSigns,
     GuestPostcards,
     Descriptions,
@@ -90,9 +90,11 @@ pub enum FormatArg {
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, ValueEnum)]
 pub enum PaperArg {
+    Letter,
     Legal,
     Tabloid,
     SuperB,
+    Poster,
     Postcard4x6,
 }
 
@@ -129,7 +131,7 @@ pub fn parse_layout_jobs(raw: &[String]) -> anyhow::Result<Vec<LayoutJob>> {
                     .ok_or_else(|| anyhow::anyhow!("--format requires a value"))?;
                 current.format = match val.as_str() {
                     "schedule" => FormatArg::Schedule,
-                    "workshop-poster" => FormatArg::WorkshopPoster,
+                    "workshops-listing" => FormatArg::WorkshopsListing,
                     "room-signs" => FormatArg::RoomSigns,
                     "guest-postcards" => FormatArg::GuestPostcards,
                     "descriptions" => FormatArg::Descriptions,
@@ -141,9 +143,11 @@ pub fn parse_layout_jobs(raw: &[String]) -> anyhow::Result<Vec<LayoutJob>> {
                     .next()
                     .ok_or_else(|| anyhow::anyhow!("--paper requires a value"))?;
                 current.paper = match val.as_str() {
+                    "letter" => PaperArg::Letter,
                     "legal" => PaperArg::Legal,
                     "tabloid" => PaperArg::Tabloid,
                     "super-b" => PaperArg::SuperB,
+                    "poster" => PaperArg::Poster,
                     "postcard-4x6" => PaperArg::Postcard4x6,
                     other => anyhow::bail!("unknown --paper value: {}", other),
                 };

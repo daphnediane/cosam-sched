@@ -149,6 +149,7 @@ impl ScheduleData {
                 uid: p.name.clone(),
                 name: p.name,
                 short_name: None,
+                rank: p.rank,
             })
             .collect();
 
@@ -345,6 +346,9 @@ pub struct Presenter {
     pub name: String,
     #[serde(default)]
     pub short_name: Option<String>,
+    /// Presenter rank string (e.g. `"guest"`, `"staff"`, `"invited_panelist"`).
+    #[serde(default)]
+    pub rank: String,
 }
 
 #[cfg(test)]

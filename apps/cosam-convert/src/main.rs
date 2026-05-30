@@ -963,13 +963,10 @@ fn run_layout_export(
             LayoutFilter::default(),
         ),
         (
-            LayoutFormat::WorkshopPoster,
+            LayoutFormat::WorkshopsListing,
             PaperSize::Tabloid,
             SplitMode::Day,
-            LayoutFilter {
-                premium_only: true,
-                ..LayoutFilter::default()
-            },
+            LayoutFilter::default(),
         ),
         (
             LayoutFormat::RoomSigns,
@@ -1002,8 +999,8 @@ fn run_layout_export(
             LayoutFormat::Schedule => {
                 formats::schedule::generate(&data, &brand, &config, ColorMode::Color)
             }
-            LayoutFormat::WorkshopPoster => {
-                formats::workshop_poster::generate(&data, &brand, &config, ColorMode::Color)
+            LayoutFormat::WorkshopsListing => {
+                formats::workshops_listing::generate(&data, &brand, &config, ColorMode::Color)
             }
             LayoutFormat::RoomSigns => {
                 formats::room_signs::generate(&data, &brand, &config, ColorMode::Color)

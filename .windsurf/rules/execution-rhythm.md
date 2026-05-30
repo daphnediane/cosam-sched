@@ -4,7 +4,7 @@ description: When implementing multi-phase plan artifacts or work items
 ---
 # Execution Rhythm for Plan Implementation
 
-For each work item or phase/entity in a plan artifact:
+For each work item or logic group of phase/entity in a plan artifact:
 
 1. Mark item/phase/entity as `In Progress`
 2. Implement only that scope (no other phases/entities)
@@ -16,8 +16,6 @@ For each work item or phase/entity in a plan artifact:
 8. Follow `.windsurf/rules/prepare-comment.md`, create `next_commit.tmp`, if in doubt ask user for AI model.
 9. Run `git commit -F ./next_commit.tmp`
 10. State next step and wait for approval
-
-**One phase/entity/work item per commit. Always wait for user approval.**
 
 ## Phase Boundary Flexibility
 

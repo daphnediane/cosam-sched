@@ -10,4 +10,4 @@ pub mod descriptions;
 pub mod guest_postcards;
 pub mod room_signs;
 pub mod schedule;
-pub mod workshop_poster;
+pub mod workshops_listing;
