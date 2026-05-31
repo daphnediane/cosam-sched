@@ -32,7 +32,7 @@ pub fn escape_typst(s: &str) -> String {
 /// For the `Poster` paper size the page is set with explicit `width`/`height`
 /// instead of a named `paper:` key, because 30"×20" is not a standard Typst
 /// paper name.
-pub fn preamble(config: &LayoutConfig, brand: &BrandConfig, landscape: bool) -> String {
+pub fn preamble(config: &LayoutConfig, brand: &BrandConfig) -> String {
     use crate::grid::PaperSize;
 
     let heading_font = brand.fonts.heading_or_default();
@@ -41,15 +41,16 @@ pub fn preamble(config: &LayoutConfig, brand: &BrandConfig, landscape: bool) -> 
     let dark_grey = &brand.colors.dark_grey;
     let font_size = config.paper.base_font_pt();
 
+    let landscape = config.orientation.is_landscape();
     let page_spec = match config.paper {
         PaperSize::Poster => {
-            // 30"×20" landscape — always landscape, no flipped flag needed.
+            // 30"×20" — dimensions encode landscape; orientation field is ignored.
             "width: 30in, height: 20in".to_string()
         }
         _ => {
             let name = config.paper.typst_name().unwrap_or("us-letter");
-            let orientation = if landscape { ", flipped: true" } else { "" };
-            format!("paper: \"{name}\"{orientation}")
+            let flip = if landscape { ", flipped: true" } else { "" };
+            format!("paper: \"{name}\"{flip}")
         }
     };
 
@@ -248,7 +249,7 @@ pub fn generate_schedule_typ(
     panels: &[&crate::model::Panel],
 ) -> String {
     let layout = GridLayout::compute(panels, data);
-    let mut doc = preamble(config, brand, true);
+    let mut doc = preamble(config, brand);
     doc.push_str(&schedule_grid(
         &layout, data, brand, config, color_mode, day_label, None,
     ));
@@ -322,30 +323,45 @@ mod tests {
 
     #[test]
     fn test_preamble_contains_paper() {
-        let config = LayoutConfig::default();
+        let config = LayoutConfig::default(); // default orientation is Landscape
         let brand = BrandConfig::default();
-        let pre = preamble(&config, &brand, true);
+        let pre = preamble(&config, &brand);
         assert!(pre.contains("us-tabloid"));
         assert!(pre.contains("flipped: true"));
+    }
+
+    #[test]
+    fn test_preamble_portrait_no_flip() {
+        use crate::grid::{Orientation, PaperSize};
+        let config = LayoutConfig {
+            paper: PaperSize::Letter,
+            orientation: Orientation::Portrait,
+            ..LayoutConfig::default()
+        };
+        let brand = BrandConfig::default();
+        let pre = preamble(&config, &brand);
+        assert!(pre.contains("us-letter"));
+        assert!(!pre.contains("flipped"), "portrait should not add flipped");
     }
 
     #[test]
     fn test_preamble_contains_brand_color() {
         let config = LayoutConfig::default();
         let brand = BrandConfig::default();
-        let pre = preamble(&config, &brand, true);
+        let pre = preamble(&config, &brand);
         assert!(pre.contains("#00BCDD"));
     }
 
     #[test]
     fn test_preamble_poster_custom_dimensions() {
-        use crate::grid::PaperSize;
+        use crate::grid::{Orientation, PaperSize};
         let config = LayoutConfig {
             paper: PaperSize::Poster,
+            orientation: Orientation::Landscape,
             ..LayoutConfig::default()
         };
         let brand = BrandConfig::default();
-        let pre = preamble(&config, &brand, true);
+        let pre = preamble(&config, &brand);
         assert!(pre.contains("width: 30in"), "should use custom width");
         assert!(pre.contains("height: 20in"), "should use custom height");
         assert!(!pre.contains("paper:"), "should not use paper: key");

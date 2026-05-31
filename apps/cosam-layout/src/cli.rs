@@ -59,6 +59,10 @@ pub struct LayoutJob {
     pub format: FormatArg,
     pub paper: PaperArg,
     pub split: SplitArg,
+    pub orientation: OrientationArg,
+    /// Base filename stem (no extension). Split qualifiers are appended with `-`.
+    /// Defaults to `None`; callers fall back to a `{format}-{paper}` slug.
+    pub stem: Option<String>,
     pub filter_premium: bool,
     pub filter_room: Option<u32>,
     pub filter_guest: Option<String>,
@@ -71,6 +75,8 @@ impl Default for LayoutJob {
             format: FormatArg::Schedule,
             paper: PaperArg::Tabloid,
             split: SplitArg::Day,
+            orientation: OrientationArg::Landscape,
+            stem: None,
             filter_premium: false,
             filter_room: None,
             filter_guest: None,
@@ -102,6 +108,13 @@ pub enum PaperArg {
 pub enum SplitArg {
     Day,
     HalfDay,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, ValueEnum)]
+pub enum OrientationArg {
+    #[default]
+    Landscape,
+    Portrait,
 }
 
 /// Parse the trailing `layout_args` into a list of `LayoutJob`s.
@@ -162,6 +175,22 @@ pub fn parse_layout_jobs(raw: &[String]) -> anyhow::Result<Vec<LayoutJob>> {
                     other => anyhow::bail!("unknown --split value: {}", other),
                 };
             }
+            "--orientation" => {
+                let val = iter
+                    .next()
+                    .ok_or_else(|| anyhow::anyhow!("--orientation requires a value"))?;
+                current.orientation = match val.as_str() {
+                    "landscape" => OrientationArg::Landscape,
+                    "portrait" => OrientationArg::Portrait,
+                    other => anyhow::bail!("unknown --orientation value: {}", other),
+                };
+            }
+            "--stem" => {
+                let val = iter
+                    .next()
+                    .ok_or_else(|| anyhow::anyhow!("--stem requires a value"))?;
+                current.stem = Some(val.clone());
+            }
             "--filter-premium" => {
                 current.filter_premium = true;
             }
@@ -213,6 +242,27 @@ mod tests {
         assert_eq!(jobs[0].format, FormatArg::Schedule);
         assert_eq!(jobs[0].paper, PaperArg::Tabloid);
         assert_eq!(jobs[0].split, SplitArg::Day);
+        assert_eq!(jobs[0].orientation, OrientationArg::Landscape);
+    }
+
+    #[test]
+    fn test_parse_layout_jobs_orientation() {
+        let args: Vec<String> = vec!["--format", "descriptions", "--orientation", "portrait"]
+            .into_iter()
+            .map(String::from)
+            .collect();
+        let jobs = parse_layout_jobs(&args).unwrap();
+        assert_eq!(jobs[0].orientation, OrientationArg::Portrait);
+    }
+
+    #[test]
+    fn test_parse_layout_jobs_stem() {
+        let args: Vec<String> = vec!["--format", "descriptions", "--stem", "desc-tabloid"]
+            .into_iter()
+            .map(String::from)
+            .collect();
+        let jobs = parse_layout_jobs(&args).unwrap();
+        assert_eq!(jobs[0].stem, Some("desc-tabloid".to_string()));
     }
 
     #[test]

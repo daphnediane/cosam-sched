@@ -8,19 +8,20 @@
 //!
 //! Produces one Typst document per day listing all scheduled panels with
 //! their time, room, title, description, workshop notices, and cross-references
-//! in a multi-column layout. Letter-sized output is portrait; all other paper
-//! sizes are landscape.
+//! in a multi-column layout. Orientation is determined by `LayoutConfig::orientation`.
 
 use crate::blocks::{banner, panels};
 use crate::brand::BrandConfig;
 use crate::color::ColorMode;
-use crate::grid::{LayoutConfig, PaperSize};
+use crate::grid::LayoutConfig;
 use crate::model::{Panel, ScheduleData};
 use crate::typst_gen::{day_label_to_stem, make_day_label, preamble};
 
 /// Generate Typst source for the full panel descriptions listing.
 ///
-/// Returns `(filename_stem, typ_source)` pairs, one per day.
+/// Returns `(split_qualifier, typ_source)` pairs, one per day.
+/// The qualifier is a day slug (e.g. `"friday"`) that the caller appends
+/// to its chosen base stem.
 pub fn generate(
     data: &ScheduleData,
     brand: &BrandConfig,
@@ -52,10 +53,10 @@ pub fn generate(
     days.into_iter()
         .map(|(day, day_panels)| {
             let label = make_day_label(&day, &all_day_refs);
-            let stem = format!("description-{}", day_label_to_stem(&label));
+            let qualifier = day_label_to_stem(&label);
             let source =
                 generate_day_typ(data, brand, config, color_mode, &label, &day, &day_panels);
-            (stem, source)
+            (qualifier, source)
         })
         .collect()
 }
@@ -73,11 +74,9 @@ fn generate_day_typ(
     day_date: &str,
     day_panels: &[&Panel],
 ) -> String {
-    // Letter uses portrait; all other paper sizes use landscape.
-    let landscape = config.paper != PaperSize::Letter;
-    let num_cols = config.paper.description_columns(landscape);
+    let num_cols = config.paper.description_columns(config.orientation);
 
-    let mut doc = preamble(config, brand, landscape);
+    let mut doc = preamble(config, brand);
     doc.push_str(&banner::page_header(brand, heading));
     doc.push_str(&format!("#columns({n})[\n", n = num_cols));
 

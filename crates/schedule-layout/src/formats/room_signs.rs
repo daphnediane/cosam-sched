@@ -24,7 +24,8 @@ use crate::typst_gen::{day_label_to_stem, escape_typst, make_day_label, preamble
 
 /// Generate Typst source for room door signs.
 ///
-/// Returns `(filename_stem, typ_source)` pairs, one per room per day.
+/// Returns `(split_qualifier, typ_source)` pairs, one per room per day.
+/// The qualifier is `"{room-slug}-{day-slug}"` that the caller appends to its base stem.
 pub fn generate(
     data: &ScheduleData,
     brand: &BrandConfig,
@@ -92,7 +93,7 @@ pub fn generate(
             }
 
             let day_label = make_day_label(date_str, &all_dates);
-            let stem = format!("room-sign-{}-{}", room_slug, day_label_to_stem(&day_label));
+            let qualifier = format!("{}-{}", room_slug, day_label_to_stem(&day_label));
             let source = generate_sign_typ(
                 data,
                 brand,
@@ -104,7 +105,7 @@ pub fn generate(
                 day_panels,
                 &room_panels,
             );
-            out.push((stem, source));
+            out.push((qualifier, source));
         }
     }
 
@@ -135,8 +136,7 @@ fn generate_sign_typ(
     all_day_panels: &[&crate::model::Panel],
     room_panels: &[&crate::model::Panel],
 ) -> String {
-    // Always landscape for room signs
-    let mut doc = preamble(config, brand, true);
+    let mut doc = preamble(config, brand);
 
     let room_name = if !room.long_name.is_empty() {
         &room.long_name

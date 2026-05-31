@@ -25,5 +25,7 @@ pub mod typst_gen;
 
 pub use brand::BrandConfig;
 pub use color::{ColorMode, PanelColor};
-pub use grid::{GridLayout, LayoutConfig, LayoutFilter, LayoutFormat, PaperSize, SplitMode};
+pub use grid::{
+    GridLayout, LayoutConfig, LayoutFilter, LayoutFormat, Orientation, PaperSize, SplitMode,
+};
 pub use model::ScheduleData;

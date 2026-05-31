@@ -21,7 +21,8 @@ use crate::typst_gen::{escape_typst, preamble};
 
 /// Generate Typst source for guest personal schedule postcards.
 ///
-/// Returns `(filename_stem, typ_source)` pairs, one per guest per half-day.
+/// Returns `(split_qualifier, typ_source)` pairs, one per guest per half-day.
+/// The qualifier is `"{guest-slug}-{half-slug}"` that the caller appends to its base stem.
 pub fn generate(
     data: &ScheduleData,
     brand: &BrandConfig,
@@ -94,7 +95,7 @@ pub fn generate(
                 .chars()
                 .filter(|c| c.is_alphanumeric() || *c == '-')
                 .collect::<String>();
-            let stem = format!("postcard-{}-{}", guest_slug, half_slug);
+            let qualifier = format!("{}-{}", guest_slug, half_slug);
             let source = generate_postcard_typ(
                 data,
                 brand,
@@ -104,7 +105,7 @@ pub fn generate(
                 half_label,
                 half_panels,
             );
-            out.push((stem, source));
+            out.push((qualifier, source));
         }
     }
 
@@ -120,7 +121,7 @@ fn generate_postcard_typ(
     half_label: &str,
     panels: &[&crate::model::Panel],
 ) -> String {
-    let mut doc = preamble(config, brand, false);
+    let mut doc = preamble(config, brand);
 
     // Header
     doc.push_str(&format!(

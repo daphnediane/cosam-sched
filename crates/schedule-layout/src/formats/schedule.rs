@@ -14,7 +14,9 @@ use crate::typst_gen::{self, day_label_to_stem, make_day_label};
 
 /// Generate one or more Typst source documents for the full schedule.
 ///
-/// Returns a `Vec` of `(filename_stem, typ_source)` pairs.
+/// Returns a `Vec` of `(split_qualifier, typ_source)` pairs.
+/// The qualifier is a day or half-day slug (e.g. `"friday"`, `"friday-am"`)
+/// that the caller appends to its chosen base stem.
 pub fn generate(
     data: &ScheduleData,
     brand: &BrandConfig,
@@ -45,8 +47,8 @@ pub fn generate(
                     &day_label,
                     &day_panels,
                 );
-                let stem = format!("grid-{}", day_label_to_stem(&day_label));
-                (stem, source)
+                let qualifier = day_label_to_stem(&day_label);
+                (qualifier, source)
             })
             .collect(),
         SplitMode::HalfDay => day_dates
@@ -64,8 +66,8 @@ pub fn generate(
                             &label,
                             &half_panels,
                         );
-                        let stem = format!("grid-{}", day_label_to_stem(&label));
-                        (stem, source)
+                        let qualifier = day_label_to_stem(&label);
+                        (qualifier, source)
                     })
                     .collect::<Vec<_>>()
             })

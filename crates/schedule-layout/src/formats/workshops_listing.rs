@@ -20,7 +20,8 @@ use crate::typst_gen::{escape_typst, make_day_label, preamble};
 
 /// Generate Typst source for the combined workshops listing.
 ///
-/// Returns a single `(filename_stem, typ_source)` pair: `("workshops", …)`.
+/// Returns a single `(split_qualifier, typ_source)` pair with an empty qualifier.
+/// The caller uses its base stem directly as the filename.
 /// Returns an empty `Vec` if there are no workshop panels.
 pub fn generate(
     data: &ScheduleData,
@@ -58,7 +59,7 @@ pub fn generate(
     }
 
     let all_day_refs: Vec<&str> = day_strs.iter().map(String::as_str).collect();
-    let num_cols = config.paper.description_columns(true); // workshops listing is always landscape
+    let num_cols = config.paper.description_columns(config.orientation);
 
     let source = generate_listing_typ(
         data,
@@ -71,7 +72,7 @@ pub fn generate(
         num_cols,
     );
 
-    vec![("workshops".to_string(), source)]
+    vec![(String::new(), source)]
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -85,7 +86,7 @@ fn generate_listing_typ(
     all_day_refs: &[&str],
     num_cols: u32,
 ) -> String {
-    let mut doc = preamble(config, brand, true);
+    let mut doc = preamble(config, brand);
     doc.push_str(&banner::page_header(brand, "Workshops"));
     doc.push_str(&format!("#columns({n})[\n", n = num_cols));
 

@@ -19,11 +19,11 @@ use schedule_layout::{
     brand::BrandConfig,
     color::ColorMode,
     formats,
-    grid::{LayoutConfig, LayoutFilter, LayoutFormat, PaperSize, SplitMode},
+    grid::{LayoutConfig, LayoutFilter, LayoutFormat, Orientation, PaperSize, SplitMode},
     model::ScheduleData,
 };
 
-use cli::{Args, ColorModeArg, FormatArg, LayoutJob, PaperArg, SplitArg};
+use cli::{Args, ColorModeArg, FormatArg, LayoutJob, OrientationArg, PaperArg, SplitArg};
 
 fn main() {
     if let Err(e) = run() {
@@ -125,6 +125,7 @@ fn run_job(
         format: map_format(job.format),
         split_by: map_split(job.split),
         filter: build_filter(job),
+        orientation: map_orientation(job.orientation),
     };
 
     let outputs: Vec<(String, String)> = match job.format {
@@ -149,16 +150,39 @@ fn run_job(
         return Ok(());
     }
 
-    for (stem, typ_src) in &outputs {
-        let out_stem = job
+    // Determine base stem: explicit --stem > output_override file stem > format+paper default.
+    let base_stem: String = job
+        .stem
+        .clone()
+        .or_else(|| {
+            job.output_override
+                .as_ref()
+                .filter(|p| p.extension().is_some())
+                .and_then(|p| p.file_stem())
+                .and_then(|s| s.to_str())
+                .map(|s| s.to_string())
+        })
+        .unwrap_or_else(|| default_stem(job.format));
+
+    for (qualifier, typ_src) in &outputs {
+        let file_stem = [
+            base_stem.as_str(),
+            config.paper.dir_name(),
+            qualifier.as_str(),
+        ]
+        .iter()
+        .copied()
+        .filter(|s| !s.is_empty())
+        .collect::<Vec<_>>()
+        .join("-");
+
+        let typ_path = output_dir.join(format!("{file_stem}.typ"));
+        let pdf_path = job
             .output_override
             .as_ref()
-            .and_then(|p| p.file_stem())
-            .and_then(|s| s.to_str())
-            .unwrap_or(stem.as_str());
-
-        let typ_path = output_dir.join(format!("{out_stem}.typ"));
-        let pdf_path = output_dir.join(format!("{out_stem}.pdf"));
+            .filter(|p| p.extension().is_some() && outputs.len() == 1)
+            .cloned()
+            .unwrap_or_else(|| output_dir.join(format!("{file_stem}.pdf")));
 
         if write_typ || no_compile {
             fs::write(&typ_path, typ_src).with_context(|| format!("writing {:?}", typ_path))?;
@@ -242,6 +266,26 @@ fn map_split(s: SplitArg) -> SplitMode {
         SplitArg::Day => SplitMode::Day,
         SplitArg::HalfDay => SplitMode::HalfDay,
     }
+}
+
+fn map_orientation(o: OrientationArg) -> Orientation {
+    match o {
+        OrientationArg::Landscape => Orientation::Landscape,
+        OrientationArg::Portrait => Orientation::Portrait,
+    }
+}
+
+/// Derive a default filename stem from format when the caller provides none.
+/// Paper size and split qualifier are appended automatically during filename assembly.
+fn default_stem(format: FormatArg) -> String {
+    match format {
+        FormatArg::Schedule => "schedule",
+        FormatArg::WorkshopsListing => "workshops",
+        FormatArg::RoomSigns => "room-signs",
+        FormatArg::GuestPostcards => "postcards",
+        FormatArg::Descriptions => "desc",
+    }
+    .to_string()
 }
 
 fn build_filter(job: &LayoutJob) -> LayoutFilter {

@@ -8,6 +8,21 @@
 
 use crate::model::{Panel, Room, ScheduleData};
 
+/// Page orientation.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum Orientation {
+    #[default]
+    Landscape,
+    Portrait,
+}
+
+impl Orientation {
+    /// Returns `true` for landscape orientation.
+    pub fn is_landscape(self) -> bool {
+        matches!(self, Orientation::Landscape)
+    }
+}
+
 /// Paper size for output.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub enum PaperSize {
@@ -64,24 +79,24 @@ impl PaperSize {
     ///
     /// Column counts match the legacy `schedule-to-html` CSS files, targeting
     /// a fixed ~3-inch column width across paper sizes.
-    pub fn description_columns(&self, landscape: bool) -> u32 {
+    pub fn description_columns(&self, orientation: Orientation) -> u32 {
         match self {
             PaperSize::Letter => {
-                if landscape {
+                if orientation.is_landscape() {
                     4
                 } else {
                     3
                 }
             }
             PaperSize::Legal => {
-                if landscape {
+                if orientation.is_landscape() {
                     4
                 } else {
                     3
                 }
             }
             PaperSize::Tabloid | PaperSize::SuperB => {
-                if landscape {
+                if orientation.is_landscape() {
                     5
                 } else {
                     4
@@ -142,6 +157,7 @@ pub struct LayoutConfig {
     pub format: LayoutFormat,
     pub split_by: SplitMode,
     pub filter: LayoutFilter,
+    pub orientation: Orientation,
 }
 
 /// A computed time slot in the grid.
@@ -404,10 +420,26 @@ mod tests {
 
     #[test]
     fn test_paper_size_description_columns() {
-        assert_eq!(PaperSize::Letter.description_columns(false), 3);
-        assert_eq!(PaperSize::Letter.description_columns(true), 4);
-        assert_eq!(PaperSize::Tabloid.description_columns(true), 5);
-        assert_eq!(PaperSize::Poster.description_columns(true), 5);
+        assert_eq!(
+            PaperSize::Letter.description_columns(Orientation::Portrait),
+            3
+        );
+        assert_eq!(
+            PaperSize::Letter.description_columns(Orientation::Landscape),
+            4
+        );
+        assert_eq!(
+            PaperSize::Legal.description_columns(Orientation::Portrait),
+            3
+        );
+        assert_eq!(
+            PaperSize::Tabloid.description_columns(Orientation::Landscape),
+            5
+        );
+        assert_eq!(
+            PaperSize::Poster.description_columns(Orientation::Landscape),
+            5
+        );
     }
 
     #[test]
