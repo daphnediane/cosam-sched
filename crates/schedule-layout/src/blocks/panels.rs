@@ -35,77 +35,137 @@ type TimeGroups<'a> = (
 
 /// Render time-grouped panel blocks for use inside a `#columns()` section.
 ///
-/// Emits a `#show` rule to make level-2 headings sticky, then iterates through
-/// panels grouped by start-time slot. For slots with more than one panel, a
-/// Typst `state`-based context block repeats the slot heading whenever a panel
-/// lands in a different column or page than the heading.
+/// Handles both single-day (descriptions) and multi-day (workshops) cases.
+/// Panels are grouped by day first, then by time slot. Day headings are
+/// automatically inserted when the date changes.
 ///
-/// `state_counter` must be unique across the whole Typst document. Pass a
-/// `&mut u32` that persists across multiple calls within the same document
-/// (e.g., when iterating over days in a single workshops listing).
+/// For slots with more than one panel, a Typst `state`-based context block
+/// repeats the slot heading whenever a panel lands in a different column or page.
 pub(crate) fn render_time_grouped_panels<'a>(
     data: &'a ScheduleData,
     color_mode: ColorMode,
-    day_panels: &[&'a Panel],
-    day_date: &str,
-    day_label: &str,
-    state_counter: &mut u32,
+    panels: &[&'a Panel],
+    base_font_pt: &str,
 ) -> String {
-    let (by_base, time_groups) = build_time_groups(day_panels);
+    let secondary_size = calc_secondary_size(base_font_pt);
+    let (by_base, time_groups) = build_time_groups(panels);
 
     let mut out = String::new();
+    let mut state_counter = 0u32;
+    let mut current_day: Option<String> = None;
+
+    // Collect unique days for smart label generation
+    let all_days: Vec<&str> = panels
+        .iter()
+        .filter_map(|p| p.start_time.as_deref().and_then(|s| s.get(..10)))
+        .collect::<std::collections::HashSet<_>>()
+        .into_iter()
+        .collect();
 
     // Sticky show rule so level-2 headings never orphan at a column bottom.
     out.push_str("#show heading.where(level: 2): set block(sticky: true)\n\n");
 
     for (time_key, group) in &time_groups {
-        let slot_label = format_slot_heading(day_label, time_key);
+        // Extract day from time_key (YYYY-MM-DDTHH:MM)
+        let day_str = time_key.get(..10).unwrap_or("");
+        let day_label = crate::typst_gen::make_day_label(day_str, &all_days);
+
+        // Add day heading when day changes
+        if Some(day_str.to_string()) != current_day {
+            if current_day.is_some() {
+                out.push_str("\n"); // Extra space between days
+            }
+            out.push_str(&format!("= {}\n\n", escape_typst(&day_label)));
+            current_day = Some(day_str.to_string());
+        }
+
+        // Extract time portion for the slot label
+        let slot_label = format_time_only(time_key);
         if slot_label.is_empty() {
             for panel in group {
-                out.push_str(&panel_block(data, color_mode, panel, day_date, &by_base));
+                out.push_str(&panel_block(
+                    data,
+                    color_mode,
+                    panel,
+                    day_str,
+                    &by_base,
+                    &secondary_size,
+                ));
             }
             continue;
         }
 
+        let full_slot_label = format!("{} {}", day_label, slot_label);
+
         if group.len() == 1 {
-            out.push_str(&format!("== {}\n\n", escape_typst(&slot_label)));
-            out.push_str(&panel_block(data, color_mode, group[0], day_date, &by_base));
+            out.push_str(&format!("== {}\n\n", escape_typst(&full_slot_label)));
+            out.push_str(&panel_block(
+                data,
+                color_mode,
+                group[0],
+                day_str,
+                &by_base,
+                &secondary_size,
+            ));
         } else {
-            // Use a Typst state variable to detect column / page breaks and
-            // re-emit the heading when the next panel is in a different column.
-            let sv = format!("_s{}", *state_counter);
-            *state_counter += 1;
+            // Use a Typst state variable to detect column / page breaks
+            let sv = format!("_s{}", state_counter);
+            state_counter += 1;
             out.push_str(&format!(
                 "#let {sv} = state(\"{sv}\", none)\n\
                  == {lbl}\n\n\
                  #context {sv}.update(here().position())\n\n",
                 sv = sv,
-                lbl = escape_typst(&slot_label),
+                lbl = escape_typst(&full_slot_label),
             ));
             for (i, panel) in group.iter().enumerate() {
                 if i > 0 {
-                    // x-shift > 50pt (≈0.7in) detects a different column on the
-                    // same page; page mismatch catches cross-page breaks.
+                    let cont_label = format!(
+                        "#text(size: {secondary_size}, style: \"italic\")[(continued)]",
+                        secondary_size = secondary_size
+                    );
                     out.push_str(&format!(
                         "#context {{\n  \
                            let p = here().position()\n  \
                            let s = {sv}.get()\n  \
                            if s != none and \
                               (p.page != s.page or calc.abs((p.x - s.x).pt()) > 50) [\n    \
-                             == {lbl}\n    \
+                             == {lbl} {cont}\n    \
                              #{sv}.update(p)\n  \
                            ]\n\
                          }}\n\n",
                         sv = sv,
-                        lbl = escape_typst(&slot_label),
+                        lbl = escape_typst(&full_slot_label),
+                        cont = cont_label,
                     ));
                 }
-                out.push_str(&panel_block(data, color_mode, panel, day_date, &by_base));
+                out.push_str(&panel_block(
+                    data,
+                    color_mode,
+                    panel,
+                    day_str,
+                    &by_base,
+                    &secondary_size,
+                ));
             }
         }
     }
 
     out
+}
+
+/// Calculate the secondary text size based on base font size.
+/// Returns a string like "8pt" for captions and metadata.
+/// Secondary text is slightly smaller than base (0.9x multiplier).
+fn calc_secondary_size(base_font_pt: &str) -> String {
+    let base = base_font_pt
+        .trim_end_matches("pt")
+        .trim_end_matches("px")
+        .parse::<f64>()
+        .unwrap_or(9.0);
+    // Secondary text is 0.9x the base size (credits, metadata)
+    let secondary = (base * 0.9).round();
+    format!("{}pt", secondary.max(7.0))
 }
 
 /// Render time-grouped panel blocks for embedding in a grid cell or similar
@@ -119,7 +179,9 @@ pub(crate) fn render_description_blocks<'a>(
     day_panels: &[&'a Panel],
     day_date: &str,
     day_label: &str,
+    base_font_pt: &str,
 ) -> String {
+    let secondary_size = calc_secondary_size(base_font_pt);
     let (by_base, time_groups) = build_time_groups(day_panels);
 
     let mut out = String::new();
@@ -129,7 +191,14 @@ pub(crate) fn render_description_blocks<'a>(
             out.push_str(&format!("== {}\n\n", escape_typst(&slot_label)));
         }
         for panel in group {
-            out.push_str(&panel_block(data, color_mode, panel, day_date, &by_base));
+            out.push_str(&panel_block(
+                data,
+                color_mode,
+                panel,
+                day_date,
+                &by_base,
+                &secondary_size,
+            ));
         }
     }
     out
@@ -177,6 +246,7 @@ fn panel_block<'a>(
     panel: &'a Panel,
     day_date: &str,
     by_base: &HashMap<&'a str, Vec<&'a Panel>>,
+    secondary_size: &str,
 ) -> String {
     let color_str = panel
         .panel_type
@@ -218,7 +288,7 @@ fn panel_block<'a>(
     // Credits on their own line below the panel name
     let credits_line = if !panel.credits.is_empty() {
         format!(
-            "\\\n#text(size: 8pt, style: \"italic\")[{}]",
+            "\\\n#text(size: {secondary_size}, style: \"italic\")[{}]",
             escape_typst(&panel.credits.join(", "))
         )
     } else {
@@ -230,24 +300,22 @@ fn panel_block<'a>(
         "#block(breakable: false{block_attrs})[\n\
          #grid(columns: (1fr, auto), align: (top + left, top + right),\n\
            [*{name}*{credits}],\n\
-           [#text(size: 8pt)[{right}]],\n\
+           [#text(size: {secondary_size})[{right}]],\n\
          )\n",
         block_attrs = block_attrs,
         name = escape_typst(&panel.name),
         credits = credits_line,
         right = right_items,
+        secondary_size = secondary_size,
     );
 
-    // Description
+    // Description - uses base font size (inherited from preamble)
     let desc_text = panel
         .description
         .as_deref()
         .filter(|s| !s.is_empty())
         .unwrap_or("Description pending");
-    block.push_str(&format!(
-        "\n#text(size: 8pt)[{}]\n",
-        escape_typst(desc_text)
-    ));
+    block.push_str(&format!("\n{}\n", escape_typst(desc_text)));
 
     // Notes / workshop notice block
     let notice = workshop_cap_notice(data, panel);
@@ -270,19 +338,20 @@ fn panel_block<'a>(
         if let Some(diff) = panel.difficulty.as_deref().filter(|d| !d.is_empty()) {
             note_parts.push(escape_typst(&format!("Difficulty level: {}", diff)));
         }
-        block.push_str(&format!("\n#text(size: 8pt)[{}]\n", note_parts.join(" ")));
+        // Notes use base font size
+        block.push_str(&format!("\n{}\n", note_parts.join(" ")));
     }
 
-    // Prereq block
+    // Prereq block - uses base font size
     if let Some(prereq) = panel.prereq.as_deref().filter(|p| !p.is_empty()) {
         let prereq_content = resolve_prereq(prereq, day_date, &data.panels);
-        block.push_str(&format!("\n#text(size: 8pt)[{}]\n", prereq_content));
+        block.push_str(&format!("\n{}\n", prereq_content));
     }
 
-    // Cross-references (parts and reruns)
+    // Cross-references (parts and reruns) - use base font size
     let xrefs = build_cross_refs(panel, by_base);
     for xref in &xrefs {
-        block.push_str(&format!("\n#text(size: 8pt)[{}]\n", escape_typst(xref)));
+        block.push_str(&format!("\n{}\n", escape_typst(xref)));
     }
 
     block.push_str("]\n\n");

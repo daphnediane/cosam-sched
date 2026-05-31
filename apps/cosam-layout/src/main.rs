@@ -126,6 +126,7 @@ fn run_job(
         split_by: map_split(job.split),
         filter: build_filter(job),
         orientation: map_orientation(job.orientation),
+        base_font_pt: None,
     };
 
     let outputs: Vec<(String, String)> = match job.format {

@@ -16,7 +16,7 @@ use crate::brand::BrandConfig;
 use crate::color::ColorMode;
 use crate::grid::LayoutConfig;
 use crate::model::{Panel, ScheduleData};
-use crate::typst_gen::{escape_typst, make_day_label, preamble};
+use crate::typst_gen::preamble;
 
 /// Generate Typst source for the combined workshops listing.
 ///
@@ -47,79 +47,33 @@ pub fn generate(
         return vec![];
     }
 
-    // Collect unique day strings (YYYY-MM-DD) in order
-    let mut day_strs: Vec<String> = vec![];
-    for p in &workshop_panels {
-        if let Some(start) = &p.start_time {
-            let day = start.get(..10).unwrap_or("unknown").to_string();
-            if !day_strs.contains(&day) {
-                day_strs.push(day);
-            }
-        }
-    }
-
-    let all_day_refs: Vec<&str> = day_strs.iter().map(String::as_str).collect();
     let num_cols = config.paper.description_columns(config.orientation);
 
-    let source = generate_listing_typ(
-        data,
-        brand,
-        config,
-        color_mode,
-        &workshop_panels,
-        &day_strs,
-        &all_day_refs,
-        num_cols,
-    );
+    let source = generate_listing_typ(data, brand, config, color_mode, &workshop_panels, num_cols);
 
     vec![(String::new(), source)]
 }
 
-#[allow(clippy::too_many_arguments)]
 fn generate_listing_typ(
     data: &ScheduleData,
     brand: &BrandConfig,
     config: &LayoutConfig,
     color_mode: ColorMode,
     workshop_panels: &[&Panel],
-    day_strs: &[String],
-    all_day_refs: &[&str],
     num_cols: u32,
 ) -> String {
     let mut doc = preamble(config, brand);
     doc.push_str(&banner::page_header(brand, "Workshops"));
+    doc.push_str("\n#v(0.25in)\n");
     doc.push_str(&format!("#columns({n})[\n", n = num_cols));
 
-    let mut state_counter = 0u32;
-
-    for day_str in day_strs {
-        let day_panels: Vec<&Panel> = workshop_panels
-            .iter()
-            .copied()
-            .filter(|p| {
-                p.start_time
-                    .as_deref()
-                    .and_then(|s| s.get(..10))
-                    .map(|d| d == day_str.as_str())
-                    .unwrap_or(false)
-            })
-            .collect();
-
-        if day_panels.is_empty() {
-            continue;
-        }
-
-        let day_label = make_day_label(day_str, all_day_refs);
-        doc.push_str(&format!("= {}\n\n", escape_typst(&day_label)));
-        doc.push_str(&panels::render_time_grouped_panels(
-            data,
-            color_mode,
-            &day_panels,
-            day_str,
-            &day_label,
-            &mut state_counter,
-        ));
-    }
+    let font_pt = config.effective_font_pt();
+    doc.push_str(&panels::render_time_grouped_panels(
+        data,
+        color_mode,
+        &workshop_panels,
+        font_pt,
+    ));
 
     doc.push_str("]\n");
     doc

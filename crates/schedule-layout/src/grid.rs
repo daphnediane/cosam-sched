@@ -158,6 +158,26 @@ pub struct LayoutConfig {
     pub split_by: SplitMode,
     pub filter: LayoutFilter,
     pub orientation: Orientation,
+    /// Override for base font size (e.g., "14pt"). If None, uses paper's default.
+    pub base_font_pt: Option<String>,
+}
+
+impl LayoutConfig {
+    /// Get the effective base font size for this layout.
+    pub fn effective_font_pt(&self) -> &str {
+        self.base_font_pt
+            .as_deref()
+            .unwrap_or_else(|| self.paper.base_font_pt())
+    }
+
+    /// Parse the base font size as an f64 value.
+    pub fn base_font_value(&self) -> f64 {
+        self.effective_font_pt()
+            .trim_end_matches("pt")
+            .trim_end_matches("px")
+            .parse::<f64>()
+            .unwrap_or(9.0)
+    }
 }
 
 /// A computed time slot in the grid.

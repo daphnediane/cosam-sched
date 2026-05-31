@@ -170,8 +170,9 @@ fn generate_sign_typ(
         "", // heading suppressed — banner above handles it
         Some(room.uid),
     );
+    let font_pt = config.effective_font_pt();
     let desc_content =
-        render_description_blocks(data, color_mode, room_panels, day_date, day_label);
+        render_description_blocks(data, color_mode, room_panels, day_date, day_label, font_pt);
 
     doc.push_str("#grid(columns: (38%, 1fr), gutter: 0.25in,\n");
     doc.push('['); // left cell: grid

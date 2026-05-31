@@ -54,8 +54,7 @@ pub fn generate(
         .map(|(day, day_panels)| {
             let label = make_day_label(&day, &all_day_refs);
             let qualifier = day_label_to_stem(&label);
-            let source =
-                generate_day_typ(data, brand, config, color_mode, &label, &day, &day_panels);
+            let source = generate_day_typ(data, brand, config, color_mode, &label, &day_panels);
             (qualifier, source)
         })
         .collect()
@@ -71,23 +70,18 @@ fn generate_day_typ(
     config: &LayoutConfig,
     color_mode: ColorMode,
     heading: &str,
-    day_date: &str,
     day_panels: &[&Panel],
 ) -> String {
     let num_cols = config.paper.description_columns(config.orientation);
 
     let mut doc = preamble(config, brand);
     doc.push_str(&banner::page_header(brand, heading));
+    doc.push_str("\n#v(0.25in)\n");
     doc.push_str(&format!("#columns({n})[\n", n = num_cols));
 
-    let mut state_counter = 0u32;
+    let font_pt = config.effective_font_pt();
     doc.push_str(&panels::render_time_grouped_panels(
-        data,
-        color_mode,
-        day_panels,
-        day_date,
-        heading,
-        &mut state_counter,
+        data, color_mode, day_panels, font_pt,
     ));
 
     doc.push_str("]\n");

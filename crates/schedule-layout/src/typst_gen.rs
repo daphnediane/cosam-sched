@@ -39,7 +39,7 @@ pub fn preamble(config: &LayoutConfig, brand: &BrandConfig) -> String {
     let body_font = brand.fonts.body_or_default();
     let primary = &brand.colors.primary;
     let dark_grey = &brand.colors.dark_grey;
-    let font_size = config.paper.base_font_pt();
+    let font_size = config.effective_font_pt();
 
     let landscape = config.orientation.is_landscape();
     let page_spec = match config.paper {
@@ -55,7 +55,7 @@ pub fn preamble(config: &LayoutConfig, brand: &BrandConfig) -> String {
     };
 
     format!(
-        r#"#set page({page_spec}, margin: (top: 0.5in, bottom: 0.5in, left: 0.4in, right: 0.4in))
+        r#"#set page({page_spec}, margin: (top: 0.5in, bottom: 0.125in, left: 0.125in, right: 0.125in), header-ascent: 0in)
 #set text(font: "{body_font}", size: {font_size})
 #show heading: set text(font: "{heading_font}")
 
