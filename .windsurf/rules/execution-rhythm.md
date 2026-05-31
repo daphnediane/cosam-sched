@@ -1,41 +1,39 @@
 ---
 trigger: model_decision
-description: When implementing multi-phase plan artifacts or work items
+description: Guidelines for implementing work items and plan phases
 ---
-# Execution Rhythm for Plan Implementation
 
-For each work item or logic group of phase/entity in a plan artifact:
+# Execution Rhythm
 
-1. Mark item/phase/entity as `In Progress`
-2. Implement only that scope (no other phases/entities)
-3. Add/update tests and run `cargo test`
-4. Run `cargo fmt` to format code
-5. Update documentation (see `docs/doc-index.md` for complete list; also inline rust docs)
-6. Mark item/phase/entity as `Completed`
-7. Per `.windsurf/rules/track_work_item.md`, run `scripts/work-item-update.pl` to update `docs/WORK_ITEMS.md` and reorganize work-item files
-8. Follow `.windsurf/rules/prepare-comment.md`, create `next_commit.tmp`, if in doubt ask user for AI model.
-9. Run `git commit -F ./next_commit.tmp`
-10. State next step and wait for approval
+## Core Principles
+
+- **Work in complete units**: Finish one item/phase before starting the next
+- **Scope discipline**: Implement only the current item/phase; resist scope creep
+- **Always green**: `cargo test` must pass at every commit
+- **Document as you go**: Update inline docs and relevant documentation files
+
+## Tracking Work
+
+- Mark items `In Progress` when starting, `Completed` when done
+- Prefer work item files over plan artifacts when both exist for a phase
+- Child work items require separate commits; parent completes only when all children done
+- Run `scripts/work-item-update.pl` after completing work to regenerate `docs/WORK_ITEMS.md`
 
 ## Phase Boundary Flexibility
 
-When a phase removes infrastructure that future phases depend on for testing (e.g.,
-removing an edge storage layer that tests still rely on), it is **explicitly allowed**
-to pull in the minimum necessary scope from a future phase to keep `cargo test` green
-at the end of the current phase's commit. Specifically:
+When Phase N removes infrastructure that Phase N+1 depends on for testing, you may pull in **minimum necessary** scope from Phase N+1:
 
-- If Phase N deletes infrastructure that Phase N+1 was going to replace with new tests,
-  those test rewrites may be done as part of Phase N.
-- If Phase N+1 would start by updating call-sites that Phase N just made invalid,
-  those call-site updates may be folded into Phase N.
-- When pulling in future work, note the absorbed scope clearly in the commit message
-  and update the affected work items (mark the absorbed sub-tasks as done in the
-  work item file for the future phase).
+- Test rewrites needed to replace deleted infrastructure
+- Call-site updates made invalid by Phase N changes
 
-Do **not** pull in future design work or unrelated new features — only the minimum
-required to leave the repository in a clean, compilable, tested state after the commit.
+**Requirements when absorbing future work:**
 
-Some plan artifacts have have work items that are associated with individual phases, in that case
-use the work items not the plan artifact to track the status. Some work items may have several
-child work items, those should be done in separate commits, and the main work items should be
-marked as completed only when all child work items are done.
+- Note absorbed scope in commit message
+- Mark absorbed sub-tasks as done in the future phase's work item
+- Do NOT pull in design work or unrelated features
+
+## Committing
+
+Follow `.windsurf/workflows/commit-changes.md` for commit workflow. See `.windsurf/rules/comment-file.md` for format and `.windsurf/rules/attribution.md` for AI attribution.
+
+Always propose the commit command for user approval rather than auto-running.

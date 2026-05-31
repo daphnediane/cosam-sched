@@ -24,12 +24,14 @@
 !/.windsurf
 /.windsurf/*
 !/.windsurf/rules
+!/.windsurf/workflows
 
 # Keep some config files
 !/.devcontainer
 !.git*[^~]
 !.perlcriticrc
 !.perltidyrc
+!.markdownlint.json
 
 # Ignore target directory
 /target
@@ -49,3 +51,10 @@
 # Brand config is private; only the sample is committed
 /config/brand.toml
 /config/brand
+
+# Commit templates
+next[-_]commit*.txt
+next[-_]amend*.txt
+!.templates/
+!.templates/next[-_]commit*.txt
+!.templates/next[-_]amend*.txt
