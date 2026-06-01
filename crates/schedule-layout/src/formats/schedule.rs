@@ -6,11 +6,13 @@
 
 //! Schedule grid layout builder.
 
+use crate::blocks::banner;
+use crate::blocks::grid::{render_schedule_grid, GridRenderConfig};
 use crate::brand::BrandConfig;
 use crate::color::ColorMode;
-use crate::grid::{LayoutConfig, SplitMode};
+use crate::grid::{GridLayout, LayoutConfig, SplitMode};
 use crate::model::ScheduleData;
-use crate::typst_gen::{self, day_label_to_stem, make_day_label};
+use crate::typst_gen::{day_label_to_stem, make_day_label, preamble};
 
 /// Generate one or more Typst source documents for the full schedule.
 ///
@@ -39,14 +41,8 @@ pub fn generate(
             .into_iter()
             .map(|(date_str, day_panels)| {
                 let day_label = make_day_label(&date_str, &all_dates);
-                let source = typst_gen::generate_schedule_typ(
-                    data,
-                    brand,
-                    config,
-                    color_mode,
-                    &day_label,
-                    &day_panels,
-                );
+                let source =
+                    generate_schedule_typ(data, brand, config, color_mode, &day_label, &day_panels);
                 let qualifier = day_label_to_stem(&day_label);
                 (qualifier, source)
             })
@@ -58,7 +54,7 @@ pub fn generate(
                 split_halves(&day_label, &day_panels)
                     .into_iter()
                     .map(|(label, half_panels)| {
-                        let source = typst_gen::generate_schedule_typ(
+                        let source = generate_schedule_typ(
                             data,
                             brand,
                             config,
@@ -73,6 +69,23 @@ pub fn generate(
             })
             .collect(),
     }
+}
+
+/// Generate a full Typst document for a schedule grid.
+fn generate_schedule_typ(
+    data: &ScheduleData,
+    brand: &BrandConfig,
+    config: &LayoutConfig,
+    color_mode: ColorMode,
+    day_label: &str,
+    panels: &[&crate::model::Panel],
+) -> String {
+    let layout = GridLayout::compute(panels, data);
+    let grid_cfg = GridRenderConfig::full_page("", None).with_base_font(config.grid_font_value());
+    let mut doc = preamble(config, brand);
+    doc.push_str(&banner::page_header(brand, None, Some(day_label)));
+    doc.push_str(&render_schedule_grid(&layout, data, color_mode, &grid_cfg));
+    doc
 }
 
 /// Split panels by calendar day (YYYY-MM-DD prefix of startTime).

@@ -7,7 +7,9 @@
 //! Shared Typst block generators for print layouts.
 //!
 //! - [`banner`] — compact brand-color page header (repeats on every page)
+//! - [`grid`] — schedule grid rendering (CSS-grid-style Typst grid)
 //! - [`panels`] — panel description blocks, time-grouped rendering
 
 pub(crate) mod banner;
+pub(crate) mod grid;
 pub(crate) mod panels;

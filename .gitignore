@@ -50,9 +50,11 @@
 /docs-to-be-added
 
 # Brand config is private; only the sample is committed
-/config/brand.toml
+/config/brand*.toml
+!/config/brand.sample.toml
 /config/brand
-/config/layout.toml
+/config/layout*.toml
+!/config/layout-default.toml
 
 # Commit templates
 next[-_]commit*.txt

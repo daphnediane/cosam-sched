@@ -16,11 +16,11 @@
 
 use std::collections::{HashMap, HashSet};
 
-use chrono::NaiveDate;
 use schedule_core::value::uniq_id::PanelUniqId;
 
 use crate::color::{ColorMode, PanelColor};
 use crate::model::{Panel, ScheduleData};
+use crate::time_fmt;
 use crate::typst_gen::escape_typst;
 
 /// Return type of [`build_time_groups`]: base-id lookup + ordered time groups.
@@ -70,7 +70,7 @@ pub(crate) fn render_time_grouped_panels<'a>(
         let day_label = crate::typst_gen::make_day_label(day_str, &all_days);
 
         // Extract time portion for the slot label
-        let slot_label = format_time_only(time_key);
+        let slot_label = time_fmt::format_time(time_key);
         if slot_label.is_empty() {
             for panel in group {
                 out.push_str(&panel_block(
@@ -176,7 +176,7 @@ pub(crate) fn render_description_blocks<'a>(
 
     let mut out = String::new();
     for (time_key, group) in &time_groups {
-        let slot_label = format_slot_heading(day_label, time_key);
+        let slot_label = time_fmt::format_slot_heading(day_label, time_key);
         if !slot_label.is_empty() {
             out.push_str(&format!("== {}\n\n", escape_typst(&slot_label)));
         }
@@ -246,7 +246,8 @@ fn panel_block<'a>(
         .map(|c| c.hex)
         .unwrap_or_default();
 
-    let time_range = format_time_range(panel.start_time.as_deref(), panel.end_time.as_deref());
+    let time_range =
+        time_fmt::format_time_range(panel.start_time.as_deref(), panel.end_time.as_deref());
 
     let room_str = panel
         .room_ids
@@ -421,7 +422,7 @@ fn resolve_prereq(prereq: &str, day_date: &str, all_panels: &[Panel]) -> String 
                 let time_label = p
                     .start_time
                     .as_deref()
-                    .map(|t| format_weekday_time(t, day_date))
+                    .map(|t| time_fmt::format_weekday_time(t, day_date))
                     .unwrap_or_default();
                 resolved.push(escape_typst(&format!("Prereq: {}: {}", p.name, time_label)));
             } else {
@@ -485,7 +486,7 @@ fn build_cross_refs<'a>(
                 let time_str = p
                     .start_time
                     .as_deref()
-                    .map(|t| format_weekday_time(t, ""))
+                    .map(|t| time_fmt::format_weekday_time(t, ""))
                     .unwrap_or_default();
                 refs.push(format!("{}: {}", label, time_str));
             }
@@ -497,96 +498,13 @@ fn build_cross_refs<'a>(
             let time_str = p
                 .start_time
                 .as_deref()
-                .map(|t| format_weekday_time(t, ""))
+                .map(|t| time_fmt::format_weekday_time(t, ""))
                 .unwrap_or_default();
             refs.push(format!("Rerun at: {}", time_str));
         }
     }
 
     refs
-}
-
-// ---------------------------------------------------------------------------
-// Time formatting
-// ---------------------------------------------------------------------------
-
-/// Format a datetime or time string's time component as `"5 PM"`, `"Noon"`, etc.
-fn format_time_only(datetime_str: &str) -> String {
-    let time_part = datetime_str.get(11..).unwrap_or(datetime_str);
-    let parts: Vec<&str> = time_part.splitn(2, ':').collect();
-    if parts.len() < 2 {
-        return String::new();
-    }
-    let hour: u32 = parts[0].parse().unwrap_or(0);
-    let min: u32 = parts[1].get(..2).unwrap_or("0").parse().unwrap_or(0);
-    let (h12, suffix) = if hour == 0 {
-        (12u32, "AM")
-    } else if hour < 12 {
-        (hour, "AM")
-    } else if hour == 12 {
-        (12u32, "PM")
-    } else {
-        (hour - 12, "PM")
-    };
-    if h12 == 12 && min == 0 {
-        return if suffix == "PM" {
-            "Noon".to_string()
-        } else {
-            "Midnight".to_string()
-        };
-    }
-    if min == 0 {
-        format!("{} {}", h12, suffix)
-    } else {
-        format!("{}:{:02} {}", h12, min, suffix)
-    }
-}
-
-/// Build a time-slot heading: `"Friday Noon"`, `"Friday 1:30 PM"`, etc.
-///
-/// When `day_label` is empty the time is returned on its own.
-fn format_slot_heading(day_label: &str, time_key: &str) -> String {
-    let t = format_time_only(time_key);
-    if t.is_empty() {
-        return String::new();
-    }
-    if day_label.is_empty() {
-        t
-    } else {
-        format!("{} {}", day_label, t)
-    }
-}
-
-/// Format start–end as `"5 PM – 6 PM"` or `"5:30 PM – 7 PM"`.
-fn format_time_range(start: Option<&str>, end: Option<&str>) -> String {
-    match (start, end) {
-        (Some(s), Some(e)) => format!("{} – {}", format_time_only(s), format_time_only(e)),
-        (Some(s), None) => format_time_only(s),
-        _ => String::new(),
-    }
-}
-
-/// Format a datetime as `"Saturday 2 PM"` for cross-reference labels.
-///
-/// When the reference is on the same day as `current_day_date`, the weekday
-/// is omitted (returns just the time).
-fn format_weekday_time(datetime_str: &str, current_day_date: &str) -> String {
-    let date_str = datetime_str.get(..10).unwrap_or("");
-    let time_str = format_time_only(datetime_str);
-
-    if date_str.is_empty() || date_str == current_day_date {
-        return time_str;
-    }
-
-    let weekday = NaiveDate::parse_from_str(date_str, "%Y-%m-%d")
-        .map(|d| d.format("%A").to_string())
-        .unwrap_or_default();
-
-    if weekday.is_empty() {
-        time_str
-    } else {
-        format!("{} {}", weekday, time_str)
-    }
 }
 
 // ---------------------------------------------------------------------------
@@ -622,43 +540,6 @@ mod tests {
             timeline: vec![],
             presenters: vec![],
         }
-    }
-
-    #[test]
-    fn test_format_time_range() {
-        assert_eq!(
-            format_time_range(Some("2026-06-25T17:00:00"), Some("2026-06-25T18:00:00")),
-            "5 PM – 6 PM"
-        );
-        assert_eq!(
-            format_time_range(Some("2026-06-25T21:30:00"), Some("2026-06-25T23:00:00")),
-            "9:30 PM – 11 PM"
-        );
-        assert_eq!(
-            format_time_range(Some("2026-06-26T14:00:00"), Some("2026-06-26T15:00:00")),
-            "2 PM – 3 PM"
-        );
-        assert_eq!(
-            format_time_range(Some("2026-06-25T00:00:00"), None),
-            "Midnight"
-        );
-        assert_eq!(format_time_range(Some("2026-06-25T12:00:00"), None), "Noon");
-    }
-
-    #[test]
-    fn test_format_weekday_time_cross_day() {
-        assert_eq!(
-            format_weekday_time("2026-06-27T14:00:00", "2026-06-26"),
-            "Saturday 2 PM"
-        );
-    }
-
-    #[test]
-    fn test_format_weekday_time_same_day() {
-        assert_eq!(
-            format_weekday_time("2026-06-27T14:00:00", "2026-06-27"),
-            "2 PM"
-        );
     }
 
     #[test]

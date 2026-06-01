@@ -7,8 +7,12 @@
 # Split modes: day, half_day
 # Orientations: portrait, landscape
 #
-# To override font size for a specific job, add base_font_pt to that job:
-#   base_font_pt = "12pt"
+# Per-job optional overrides:
+#   base_font_pt = "12pt"       # Override base font size (descriptions, etc.)
+#   grid_font_pt = "8pt"        # Override grid event text size (schedule + room_signs)
+#
+# Grid rendering uses grid_font_pt as the event-name size; secondary text and
+# headers scale proportionally.  Falls back to base_font_pt if not set.
 [[jobs]]
 format = "schedule"
 paper = "tabloid"

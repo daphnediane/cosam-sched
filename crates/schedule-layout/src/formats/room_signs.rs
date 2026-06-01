@@ -10,17 +10,17 @@
 //! page has a full-width branded header (room name + date), then a side-by-side
 //! layout: the full conference schedule grid on the left (with this room's
 //! column highlighted in the brand primary color) and description blocks for
-//! this room's own events on the right.  Only generated for tabloid paper;
-//! room-sign jobs on other paper sizes are silently skipped.
+//! this room's own events on the right.
 //!
 //! Optionally filtered to a single room UID via `config.filter.room_uid`.
 
+use crate::blocks::grid::{render_schedule_grid, GridRenderConfig};
 use crate::blocks::{banner, panels::render_description_blocks};
 use crate::brand::BrandConfig;
 use crate::color::ColorMode;
-use crate::grid::{GridLayout, LayoutConfig, PaperSize};
+use crate::grid::{GridLayout, LayoutConfig};
 use crate::model::ScheduleData;
-use crate::typst_gen::{day_label_to_stem, make_day_label, preamble, schedule_grid};
+use crate::typst_gen::{day_label_to_stem, make_day_label, preamble};
 
 /// Generate Typst source for room door signs.
 ///
@@ -53,11 +53,6 @@ pub fn generate(
                     .unwrap_or(true)
         })
         .collect();
-
-    // Room signs only make sense on tabloid paper.
-    if config.paper != PaperSize::Tabloid {
-        return vec![];
-    }
 
     // Group ALL panels by calendar day — the full grid requires all rooms.
     let mut by_day: Vec<(String, Vec<&crate::model::Panel>)> = vec![];
@@ -145,30 +140,47 @@ fn generate_sign_typ(
     };
 
     // Page header: room name on left, logo (center), day label on right
-    doc.push_str(&banner::page_header(brand, Some(room_name), Some(day_label)));
-
-    // Side-by-side: grid (~38%) | descriptions (~62%)
-    // The grid uses schedule_grid with this room's column highlighted.
-    let layout = GridLayout::compute(all_day_panels, data);
-    let grid_content = schedule_grid(
-        &layout,
-        data,
+    doc.push_str(&banner::page_header(
         brand,
-        config,
-        color_mode,
-        "", // heading suppressed — banner above handles it
-        Some(room.uid),
-    );
+        Some(room_name),
+        Some(day_label),
+    ));
+
+    // Column layout: use same total columns as descriptions/workshops.
+    // Grid spans the left half (rounded up), descriptions fill the rest.
+    let total_cols = config.paper.description_columns(config.orientation);
+    let grid_cols = total_cols.div_ceil(2);
+    let desc_cols = total_cols - grid_cols;
+
+    // Proportional widths based on column split
+    let grid_pct = (grid_cols as f64 / total_cols as f64 * 100.0).round() as u32;
+
+    // Build the CSS-grid-style schedule
+    let layout = GridLayout::compute(all_day_panels, data);
+    let grid_cfg = GridRenderConfig::compact(room.uid).with_base_font(config.grid_font_value());
+    let grid_content = render_schedule_grid(&layout, data, color_mode, &grid_cfg);
+
     let font_pt = config.effective_font_pt();
     let desc_content =
         render_description_blocks(data, color_mode, room_panels, day_date, day_label, font_pt);
 
-    doc.push_str("#grid(columns: (38%, 1fr), gutter: 0.25in,\n");
+    // Side-by-side layout using proportional widths
+    doc.push_str(&format!(
+        "#grid(columns: ({}%, 1fr), gutter: 0.2in,\n",
+        grid_pct
+    ));
     doc.push('['); // left cell: grid
     doc.push_str(&grid_content);
     doc.push_str("],\n");
+    // Right cell: descriptions in sub-columns if >1 column allocated
     doc.push('['); // right cell: descriptions
-    doc.push_str(&desc_content);
+    if desc_cols > 1 {
+        doc.push_str(&format!("#columns({})[\n", desc_cols));
+        doc.push_str(&desc_content);
+        doc.push_str("]\n");
+    } else {
+        doc.push_str(&desc_content);
+    }
     doc.push_str("]\n");
     doc.push_str(")\n");
     doc

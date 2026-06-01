@@ -21,6 +21,7 @@ pub mod color;
 pub mod formats;
 pub mod grid;
 pub mod model;
+pub mod time_fmt;
 pub mod typst_gen;
 
 pub use brand::BrandConfig;

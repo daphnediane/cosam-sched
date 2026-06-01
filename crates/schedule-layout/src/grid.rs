@@ -7,6 +7,7 @@
 //! Time-grid layout computation: time slots, room columns, cell spans.
 
 use crate::model::{Panel, Room, ScheduleData};
+use crate::time_fmt;
 
 /// Page orientation.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
@@ -160,6 +161,8 @@ pub struct LayoutConfig {
     pub orientation: Orientation,
     /// Override for base font size (e.g., "14pt"). If None, uses paper's default.
     pub base_font_pt: Option<String>,
+    /// Override for grid event text size (e.g., "8pt"). If None, uses base_font_pt.
+    pub grid_font_pt: Option<String>,
 }
 
 impl LayoutConfig {
@@ -177,6 +180,18 @@ impl LayoutConfig {
             .trim_end_matches("px")
             .parse::<f64>()
             .unwrap_or(9.0)
+    }
+
+    /// Get the effective grid font size for this layout.
+    /// Falls back to base_font_pt if grid_font_pt is not set.
+    pub fn grid_font_value(&self) -> f64 {
+        self.grid_font_pt
+            .as_deref()
+            .unwrap_or_else(|| self.effective_font_pt())
+            .trim_end_matches("pt")
+            .trim_end_matches("px")
+            .parse::<f64>()
+            .unwrap_or_else(|_| self.base_font_value())
     }
 }
 
@@ -285,7 +300,7 @@ impl GridLayout {
                     !key.ends_with(":30") && !key.ends_with(":15") && !key.ends_with(":45");
                 TimeSlot {
                     key: key.clone(),
-                    label: format_time_label(key),
+                    label: time_fmt::format_time(key),
                     is_major,
                     day_label: None,
                 }
@@ -371,31 +386,6 @@ impl GridLayout {
     }
 }
 
-fn format_time_label(key: &str) -> String {
-    // key is "YYYY-MM-DDTHH:MM"
-    let time_part = key.get(11..).unwrap_or(key);
-    let parts: Vec<&str> = time_part.splitn(2, ':').collect();
-    if parts.len() < 2 {
-        return time_part.to_string();
-    }
-    let hour: u32 = parts[0].parse().unwrap_or(0);
-    let min: u32 = parts[1].parse().unwrap_or(0);
-    let (h12, suffix) = if hour == 0 {
-        (12, "AM")
-    } else if hour < 12 {
-        (hour, "AM")
-    } else if hour == 12 {
-        (12, "PM")
-    } else {
-        (hour - 12, "PM")
-    };
-    if min == 0 {
-        format!("{} {}", h12, suffix)
-    } else {
-        format!("{}:{:02}", h12, min)
-    }
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -466,25 +456,5 @@ mod tests {
     fn test_paper_size_base_font_pt() {
         assert_eq!(PaperSize::Letter.base_font_pt(), "9pt");
         assert_eq!(PaperSize::Poster.base_font_pt(), "10pt");
-    }
-
-    #[test]
-    fn test_format_time_label_noon() {
-        assert_eq!(format_time_label("2026-06-26T12:00"), "12 PM");
-    }
-
-    #[test]
-    fn test_format_time_label_midnight() {
-        assert_eq!(format_time_label("2026-06-26T00:00"), "12 AM");
-    }
-
-    #[test]
-    fn test_format_time_label_half_hour() {
-        assert_eq!(format_time_label("2026-06-26T14:30"), "2:30");
-    }
-
-    #[test]
-    fn test_format_time_label_pm() {
-        assert_eq!(format_time_label("2026-06-26T13:00"), "1 PM");
     }
 }

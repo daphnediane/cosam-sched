@@ -115,6 +115,8 @@ struct OutputSettings {
     embed_as_html: bool,
     #[cfg(feature = "layout")]
     brand_config: Option<PathBuf>,
+    #[cfg(feature = "layout")]
+    layout_config: Option<PathBuf>,
 }
 
 impl Default for OutputSettings {
@@ -130,6 +132,8 @@ impl Default for OutputSettings {
             embed_as_html: true,
             #[cfg(feature = "layout")]
             brand_config: None,
+            #[cfg(feature = "layout")]
+            layout_config: None,
         }
     }
 }
@@ -350,6 +354,17 @@ fn parse_args() -> Result<CliArgs> {
                     anyhow::bail!("Missing value for --brand-config");
                 }
                 current_settings.brand_config = Some(PathBuf::from(&arguments[index]));
+            }
+            #[cfg(feature = "layout")]
+            "--layout-config" => {
+                if first_setting_index.is_none() {
+                    first_setting_index = Some(index);
+                }
+                index += 1;
+                if index >= arguments.len() {
+                    anyhow::bail!("Missing value for --layout-config");
+                }
+                current_settings.layout_config = Some(PathBuf::from(&arguments[index]));
             }
             "--check" | "--validate" => {
                 args.check_only = true;
@@ -582,6 +597,7 @@ fn print_usage() {
          \x20 --widget-js <path>                   Override JS source (default: builtin)\n\
          \x20 --test-template <path>               Override test page template (default: builtin)\n\
          \x20 --brand-config <file>                Brand config for layout (default: config/brand.toml)\n\
+         \x20 --layout-config <file>               Layout config for jobs (default: config/layout.toml)\n\
          \x20 --minified                           Minify HTML output (default)\n\
          \x20 --no-minified, --for-debug           Skip minification\n\
          \x20 --embed-as-json                      Embed schedule as gzip+base64 JSON\n\
@@ -1015,6 +1031,7 @@ fn run_layout_export(
                     orientation: parse_orientation(&job.orientation),
                     filter: LayoutFilter::default(),
                     base_font_pt: job.base_font_pt.clone(),
+                    grid_font_pt: job.grid_font_pt.clone(),
                 },
                 stem: job.stem.clone(),
             })
@@ -1022,12 +1039,14 @@ fn run_layout_export(
     }
 
     // Load optional user overrides from config/layout.toml
-    let layout_defaults_path = settings
-        .brand_config
-        .as_ref()
-        .and_then(|b| b.parent())
-        .map(|p| p.join("layout.toml"))
-        .unwrap_or_else(|| PathBuf::from("config/layout.toml"));
+    let layout_defaults_path = settings.layout_config.clone().unwrap_or_else(|| {
+        settings
+            .brand_config
+            .as_ref()
+            .and_then(|b| b.parent())
+            .map(|p| p.join("layout.toml"))
+            .unwrap_or_else(|| PathBuf::from("config/layout.toml"))
+    });
     let user_defaults = LayoutDefaults::load(&layout_defaults_path).unwrap_or_default();
 
     // Determine which jobs to run:

@@ -47,6 +47,8 @@ pub struct JobConfig {
     pub stem: String,
     /// Optional font size override (e.g., "13.2pt"). Uses defaults if not specified.
     pub base_font_pt: Option<String>,
+    /// Optional grid event text size override (e.g., "8pt"). If not set, uses base_font_pt.
+    pub grid_font_pt: Option<String>,
 }
 
 impl LayoutDefaults {

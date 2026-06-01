@@ -17,6 +17,7 @@ use crate::brand::BrandConfig;
 use crate::color::{ColorMode, PanelColor};
 use crate::grid::LayoutConfig;
 use crate::model::ScheduleData;
+use crate::time_fmt;
 use crate::typst_gen::{escape_typst, preamble};
 
 /// Generate Typst source for guest personal schedule postcards.
@@ -141,7 +142,7 @@ fn generate_postcard_typ(
         let time = panel
             .start_time
             .as_deref()
-            .map(format_time_short)
+            .map(time_fmt::format_time)
             .unwrap_or_default();
         let room = panel
             .room_ids
@@ -182,30 +183,6 @@ fn generate_postcard_typ(
     }
 
     doc
-}
-
-fn format_time_short(s: &str) -> String {
-    let time_part = s.get(11..).unwrap_or(s);
-    let parts: Vec<&str> = time_part.splitn(2, ':').collect();
-    if parts.len() < 2 {
-        return time_part.to_string();
-    }
-    let hour: u32 = parts[0].parse().unwrap_or(0);
-    let min: u32 = parts[1].get(..2).unwrap_or("0").parse().unwrap_or(0);
-    let (h12, suffix) = if hour == 0 {
-        (12u32, "AM")
-    } else if hour < 12 {
-        (hour, "AM")
-    } else if hour == 12 {
-        (12, "PM")
-    } else {
-        (hour - 12, "PM")
-    };
-    if min == 0 {
-        format!("{} {}", h12, suffix)
-    } else {
-        format!("{}:{:02}", h12, min)
-    }
 }
 
 /// Returns `true` if the presenter rank string qualifies for a postcard.
