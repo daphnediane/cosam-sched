@@ -97,6 +97,12 @@ pub struct BrandFonts {
     /// Heading font weight (e.g., `"regular"`, `"bold"`, or numeric like `"500"`).
     /// For Trend Sans: "200"=One, "300"=Two, "400"=Three, "500"=Four, "700"=Five
     pub heading_weight: Option<String>,
+    /// Banner font family (page-header bars). Falls back to `heading`.
+    pub banner: Option<String>,
+    /// Banner font style. Falls back to `heading_style`.
+    pub banner_style: Option<String>,
+    /// Banner font weight. Falls back to `heading_weight`, then `"bold"`.
+    pub banner_weight: Option<String>,
     /// Subheading font family name (e.g. `"Bebas Neue"`).
     pub subheading: Option<String>,
     /// Body font family name (e.g. `"Avenir Next"`).
@@ -131,6 +137,24 @@ impl BrandFonts {
     /// Heading font weight, if specified.
     pub fn heading_weight(&self) -> Option<&str> {
         self.heading_weight.as_deref()
+    }
+
+    /// Banner font family, falling back to `heading_or_default()`.
+    pub fn banner_or_default(&self) -> &str {
+        self.banner.as_deref().unwrap_or_else(|| self.heading_or_default())
+    }
+
+    /// Banner font style, falling back to `heading_style`.
+    pub fn banner_style(&self) -> Option<&str> {
+        self.banner_style.as_deref().or(self.heading_style.as_deref())
+    }
+
+    /// Banner font weight, falling back to `heading_weight`, then `"bold"`.
+    pub fn banner_weight_or_default(&self) -> &str {
+        self.banner_weight
+            .as_deref()
+            .or(self.heading_weight.as_deref())
+            .unwrap_or("bold")
     }
 
     /// Subheading font, falling back to `"Liberation Sans"`.

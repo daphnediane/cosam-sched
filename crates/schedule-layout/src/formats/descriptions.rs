@@ -75,7 +75,7 @@ fn generate_day_typ(
     let num_cols = config.paper.description_columns(config.orientation);
 
     let mut doc = preamble(config, brand);
-    doc.push_str(&banner::page_header(brand, heading));
+    doc.push_str(&banner::page_header(brand, None, Some(heading)));
     doc.push_str(&format!("#columns({n})[\n", n = num_cols));
 
     let font_pt = config.effective_font_pt();

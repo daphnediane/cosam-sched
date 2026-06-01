@@ -15,12 +15,12 @@
 //!
 //! Optionally filtered to a single room UID via `config.filter.room_uid`.
 
-use crate::blocks::panels::render_description_blocks;
+use crate::blocks::{banner, panels::render_description_blocks};
 use crate::brand::BrandConfig;
 use crate::color::ColorMode;
 use crate::grid::{GridLayout, LayoutConfig, PaperSize};
 use crate::model::ScheduleData;
-use crate::typst_gen::{day_label_to_stem, escape_typst, make_day_label, preamble, schedule_grid};
+use crate::typst_gen::{day_label_to_stem, make_day_label, preamble, schedule_grid};
 
 /// Generate Typst source for room door signs.
 ///
@@ -144,19 +144,8 @@ fn generate_sign_typ(
         &room.short_name
     };
 
-    // Full-width branded header: room name (large) on left, day label on right
-    doc.push_str(&format!(
-        "#block(fill: rgb(\"{color}\"), width: 100%, inset: (x: 14pt, y: 10pt))[\n\
-         #grid(columns: (1fr, auto), align: (left + horizon, right + horizon),\n\
-         [#text(size: 28pt, fill: white, font: \"{heading}\")[*{room}*]],\n\
-         [#text(size: 18pt, fill: white)[{day}]])\n\
-         ]\n\
-         #v(0.5em)\n",
-        color = brand.colors.primary,
-        heading = brand.fonts.heading_or_default(),
-        room = escape_typst(room_name),
-        day = escape_typst(day_label),
-    ));
+    // Page header: room name on left, logo (center), day label on right
+    doc.push_str(&banner::page_header(brand, Some(room_name), Some(day_label)));
 
     // Side-by-side: grid (~38%) | descriptions (~62%)
     // The grid uses schedule_grid with this room's column highlighted.

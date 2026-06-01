@@ -18,6 +18,7 @@
 !/.claude
 /.claude/*
 !/.claude/rules
+!/.claude/workflows
 !/.claude/settings.json
 
 # Keep windsurf rules

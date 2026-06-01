@@ -20,6 +20,9 @@ white = "#FFFFFF"
 # heading = "Trend Sans"
 # heading_style = "One"        # Optional: style name (e.g., "One", "Bold", "Italic")
 # heading_weight = "200"       # Optional: weight (e.g., "200"=One, "300"=Two, "400"=Three, "500"=Four, "700"=Five)
+# banner = "Trend Sans"        # Optional: page-header bar font; falls back to heading
+# banner_style = "One"         # Optional: banner font style; falls back to heading_style
+# banner_weight = "200"        # Optional: banner font weight; falls back to heading_weight, then "bold"
 # subheading = "Bebas Neue"
 # body = "Avenir Next"
 # body_style = "Regular"       # Optional: style name (e.g., "Regular", "Medium")

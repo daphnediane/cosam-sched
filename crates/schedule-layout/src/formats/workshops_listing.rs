@@ -63,7 +63,7 @@ fn generate_listing_typ(
     num_cols: u32,
 ) -> String {
     let mut doc = preamble(config, brand);
-    doc.push_str(&banner::page_header(brand, "Workshops"));
+    doc.push_str(&banner::page_header(brand, None, Some("Workshops")));
     doc.push_str(&format!("#columns({n})[\n", n = num_cols));
 
     let font_pt = config.effective_font_pt();

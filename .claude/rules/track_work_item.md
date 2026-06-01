@@ -1,88 +1,52 @@
 ---
 trigger: model_decision
-description: When implementing new features, or when limitations or bugs are discovered but not in scope
+description: When implementing new features or discovering out-of-scope issues
 globs: docs/work-item/**/*.md,docs/WORK_ITEMS.md
 ---
-# Work Item Tracking Rules
+
+# Work Item Tracking
 
 ## Structure
 
-Work items are in `docs/work-item/` as `<PREFIX>-<###>.md` files, automatically organized into subdirectories:
+Work items live in `docs/work-item/<PREFIX>-<###>.md`, auto-organized into subdirectories:
 
-- **new/** - Placeholder stubs not yet ready to work (auto-created by `--create`)
-- **done/** - Completed items
-- **rejected/** - Superseded or Rejected items
-- **meta/** - Meta/project-level items (META prefix, any priority)
-- **idea/** - Open design questions and deferred ideas (IDEA prefix)
-- **high/** - High priority open items
-- **medium/** - Medium priority open items
-- **low/** - Low priority open items
+| Directory          | Contents                         |
+| ------------------ | -------------------------------- |
+| `new/`             | Placeholder stubs (auto-created) |
+| `done/`            | Completed items                  |
+| `rejected/`        | Superseded/rejected items        |
+| `meta/`            | META prefix items                |
+| `idea/`            | IDEA prefix items                |
+| `high/medium/low/` | Priority-sorted open items       |
 
 ### Prefixes
 
-- **META** - Project-level meta items and phase trackers (always in meta/)
-- **FEATURE** - New functionality
-- **BUGFIX** - Fixes for defects
-- **UI** - Interface improvements
-- **EDITOR** - Desktop editor app
-- **CLI** - Command-line interface (cosam-convert, cosam-modify)
-- **DEPLOY** - Packaging, deployment, and distribution
-- **CLEANUP** - Repository cleanup
-- **PERFORMANCE** - Optimizations
-- **DOCS** - Documentation
-- **REFACTOR** - Code restructuring
-- **TEST** - Test additions
-- **IDEA** - Open design questions, unexplored alternatives, deferred ideas (always in idea/)
+META, FEATURE, BUGFIX, UI, EDITOR, CLI, DEPLOY, CLEANUP, PERFORMANCE, DOCS, REFACTOR, TEST, IDEA
 
 ### Statuses
 
-- **Placeholder** - Newly created stub in `new/`; fill in and promote to Open
-- **Open** - Ready to be worked
-- **Not Started** - Acknowledged but not yet scheduled
-- **In Progress** - Actively being worked
-- **Blocked** - Waiting on another item (list in Blocked By section)
-- **Completed** - Done; moved to `done/`
-- **Superseded** - Replaced by another item; moved to `rejected/`
-- **Rejected** - Will not be done; moved to `rejected/`
-
-### Templates
-
-Per-prefix templates are in `docs/work-item/template/`:
-
-- **`default-template.md`** - Used for any prefix without a specific template
-- **`BUGFIX-template.md`** - Adds How Found, Reproduction, Steps to Fix, Testing sections
-- **`META-template.md`** - Adds Work Items section; defaults to High priority
-- **`IDEA-template.md`** - Minimal; starts as Placeholder/Low
+Placeholder → Open → In Progress → Completed (→ done/)
 
 ## Workflow
 
-1. Run `perl scripts/work-item-update.pl --create <PREFIX>` to create a properly
-   numbered placeholder file and print its path; edit the file to fill in details
-   and change status from `Placeholder` to `Open`
-   - Multiple tags: `--create FEATURE --create BUGFIX` or `--create FEATURE,BUGFIX`
-2. Edit the file directly to update status as work progresses
-3. Run `perl scripts/work-item-update.pl` to reorganize files and regenerate
-   `docs/WORK_ITEMS.md` / `docs/FUTURE_IDEAS.md`
+1. **Create:** `perl scripts/work-item-update.pl --create <PREFIX>` — creates numbered stub in `new/`
+2. **Fill in:** Edit file, change status from `Placeholder` to `Open`
+3. **Progress:** Update status as work proceeds
+4. **Finalize:** Run `scripts/work-item-update.pl` to reorganize and regenerate `docs/WORK_ITEMS.md`
 
-`Placeholder` status is for newly created stubs not yet ready to be worked; they
-live in `new/` until status is changed, then the tool moves them automatically
-the next time it is run.
+## Documentation
 
-## Documentation Updates
+Update relevant docs when completing work:
 
-When completing work items, update relevant documentation, see docs/doc-index.md for the complete list.
+- `docs/architecture.md` — design changes
+- `docs/json-schedule/*.md` — schema changes
+- Inline rustdocs for public APIs
 
-Cross-reference between documents when changes affect multiple areas.
+## Completion Checklist
 
-## Commit Messages
+- [ ] Work item marked `Completed`
+- [ ] `scripts/work-item-update.pl` run to reorganize
+- [ ] Relevant documentation updated
+- [ ] Commit message references work item
 
-See `prepare-comment.md` for the full commit message format, template, and process.
-
-When saving progress mid-refactor at logic breakpoints (without requiring
-builds or tests to pass), write to `next_amend.tmp` instead of
-`next_commit.tmp` — this signals a `git commit --amend` checkpoint rather
-than a normal commit.
-
-## Formatting
-
-All files must follow markdown lint rules. For Cascade agents: suggest user run formatting on `docs/work-item/` directory if lint errors occur.
+See `.claude/workflows/execution-rhythm.md` for the full development workflow.

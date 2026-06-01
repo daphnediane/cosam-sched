@@ -27,6 +27,34 @@ pub fn escape_typst(s: &str) -> String {
         .replace('>', "\\>")
 }
 
+/// Build a Typst `font:` argument fragment with optional style and weight.
+///
+/// Typst's `weight` parameter accepts either an integer (100–900) or a named
+/// keyword (`"thin"`, `"extralight"`, `"light"`, `"regular"`, `"medium"`,
+/// `"semibold"`, `"bold"`, `"extrabold"`, `"black"`).  Numeric strings from
+/// `brand.toml` (e.g. `"200"`) are emitted without quotes; named strings are
+/// quoted.  `style` is filtered to the three values Typst accepts
+/// (`"normal"`, `"italic"`, `"oblique"`); anything else is ignored.
+///
+/// Returns a fragment like `font: "Trend Sans", weight: 200` that can be
+/// embedded in any Typst `#text(…)` or `#set text(…)` call.
+pub(crate) fn build_font_spec(font: &str, style: Option<&str>, weight: Option<&str>) -> String {
+    let style_part = style
+        .filter(|s| matches!(*s, "normal" | "italic" | "oblique"))
+        .map(|s| format!(", style: \"{s}\""))
+        .unwrap_or_default();
+    let weight_part = weight
+        .map(|w| {
+            if w.chars().all(|c| c.is_ascii_digit()) {
+                format!(", weight: {w}")
+            } else {
+                format!(", weight: \"{w}\"")
+            }
+        })
+        .unwrap_or_default();
+    format!("font: \"{font}\"{style_part}{weight_part}")
+}
+
 /// Generate the Typst document preamble with paper size, fonts, and brand colors.
 ///
 /// For the `Poster` paper size the page is set with explicit `width`/`height`
@@ -57,30 +85,6 @@ pub fn preamble(config: &LayoutConfig, brand: &BrandConfig) -> String {
             format!("paper: \"{name}\"{flip}")
         }
     };
-
-    // Build font specifications with optional style and weight
-    // Note: Typst's `style` parameter only accepts "normal", "italic", or "oblique".
-    // Weight can be numeric (100-900) or named ("thin", "extralight", "light", "regular",
-    // "medium", "semibold", "bold", "extrabold", "black").
-    fn build_font_spec(font: &str, style: Option<&str>, weight: Option<&str>) -> String {
-        let style_part = style
-            .filter(|s| matches!(*s, "normal" | "italic" | "oblique"))
-            .map(|s| format!(", style: \"{s}\""))
-            .unwrap_or_default();
-        // Weight: numeric values as integers, named weights as quoted strings
-        let weight_part = weight
-            .map(|w| {
-                if w.chars().all(|c| c.is_ascii_digit()) {
-                    // Numeric weight (e.g., "200" -> 200)
-                    format!(", weight: {w}")
-                } else {
-                    // Named weight (e.g., "bold" -> "bold")
-                    format!(", weight: \"{w}\"")
-                }
-            })
-            .unwrap_or_default();
-        format!("font: \"{font}\"{style_part}{weight_part}")
-    }
 
     let body_font_spec = build_font_spec(body_font, body_style, body_weight);
     let heading_font_spec = build_font_spec(heading_font, heading_style, heading_weight);
