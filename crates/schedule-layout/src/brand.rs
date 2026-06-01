@@ -90,12 +90,21 @@ impl Default for BrandColors {
 #[derive(Debug, Clone, Default, Deserialize, Serialize)]
 #[serde(default)]
 pub struct BrandFonts {
-    /// Heading font family name (e.g. `"Trend Sans One"`).
+    /// Heading font family name (e.g. `"Trend Sans"`).
     pub heading: Option<String>,
+    /// Heading font style (e.g. `"normal"`, `"italic"`, `"oblique"`). If None, uses family default.
+    pub heading_style: Option<String>,
+    /// Heading font weight (e.g., `"regular"`, `"bold"`, or numeric like `"500"`).
+    /// For Trend Sans: "200"=One, "300"=Two, "400"=Three, "500"=Four, "700"=Five
+    pub heading_weight: Option<String>,
     /// Subheading font family name (e.g. `"Bebas Neue"`).
     pub subheading: Option<String>,
     /// Body font family name (e.g. `"Avenir Next"`).
     pub body: Option<String>,
+    /// Body font style (e.g. `"normal"`, `"italic"`, `"oblique"`). If None, uses family default.
+    pub body_style: Option<String>,
+    /// Body font weight (e.g., `"regular"`, `"bold"`, or numeric like `"400"`).
+    pub body_weight: Option<String>,
     /// Path to a directory containing font files (TTF/OTF).
     pub font_dir: Option<PathBuf>,
 }
@@ -114,6 +123,16 @@ impl BrandFonts {
         self.heading.as_deref().unwrap_or("Liberation Sans")
     }
 
+    /// Heading font style, if specified.
+    pub fn heading_style(&self) -> Option<&str> {
+        self.heading_style.as_deref()
+    }
+
+    /// Heading font weight, if specified.
+    pub fn heading_weight(&self) -> Option<&str> {
+        self.heading_weight.as_deref()
+    }
+
     /// Subheading font, falling back to `"Liberation Sans"`.
     pub fn subheading_or_default(&self) -> &str {
         self.subheading.as_deref().unwrap_or("Liberation Sans")
@@ -122,6 +141,16 @@ impl BrandFonts {
     /// Body font, falling back to `"Liberation Sans"`.
     pub fn body_or_default(&self) -> &str {
         self.body.as_deref().unwrap_or("Liberation Sans")
+    }
+
+    /// Body font style, if specified.
+    pub fn body_style(&self) -> Option<&str> {
+        self.body_style.as_deref()
+    }
+
+    /// Body font weight, if specified.
+    pub fn body_weight(&self) -> Option<&str> {
+        self.body_weight.as_deref()
     }
 }
 

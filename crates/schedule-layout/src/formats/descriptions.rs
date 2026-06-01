@@ -76,7 +76,6 @@ fn generate_day_typ(
 
     let mut doc = preamble(config, brand);
     doc.push_str(&banner::page_header(brand, heading));
-    doc.push_str("\n#v(0.25in)\n");
     doc.push_str(&format!("#columns({n})[\n", n = num_cols));
 
     let font_pt = config.effective_font_pt();

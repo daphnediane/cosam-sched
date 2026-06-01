@@ -36,7 +36,11 @@ pub fn preamble(config: &LayoutConfig, brand: &BrandConfig) -> String {
     use crate::grid::PaperSize;
 
     let heading_font = brand.fonts.heading_or_default();
+    let heading_style = brand.fonts.heading_style();
+    let heading_weight = brand.fonts.heading_weight();
     let body_font = brand.fonts.body_or_default();
+    let body_style = brand.fonts.body_style();
+    let body_weight = brand.fonts.body_weight();
     let primary = &brand.colors.primary;
     let dark_grey = &brand.colors.dark_grey;
     let font_size = config.effective_font_pt();
@@ -54,18 +58,45 @@ pub fn preamble(config: &LayoutConfig, brand: &BrandConfig) -> String {
         }
     };
 
+    // Build font specifications with optional style and weight
+    // Note: Typst's `style` parameter only accepts "normal", "italic", or "oblique".
+    // Weight can be numeric (100-900) or named ("thin", "extralight", "light", "regular",
+    // "medium", "semibold", "bold", "extrabold", "black").
+    fn build_font_spec(font: &str, style: Option<&str>, weight: Option<&str>) -> String {
+        let style_part = style
+            .filter(|s| matches!(*s, "normal" | "italic" | "oblique"))
+            .map(|s| format!(", style: \"{s}\""))
+            .unwrap_or_default();
+        // Weight: numeric values as integers, named weights as quoted strings
+        let weight_part = weight
+            .map(|w| {
+                if w.chars().all(|c| c.is_ascii_digit()) {
+                    // Numeric weight (e.g., "200" -> 200)
+                    format!(", weight: {w}")
+                } else {
+                    // Named weight (e.g., "bold" -> "bold")
+                    format!(", weight: \"{w}\"")
+                }
+            })
+            .unwrap_or_default();
+        format!("font: \"{font}\"{style_part}{weight_part}")
+    }
+
+    let body_font_spec = build_font_spec(body_font, body_style, body_weight);
+    let heading_font_spec = build_font_spec(heading_font, heading_style, heading_weight);
+
     format!(
-        r#"#set page({page_spec}, margin: (top: 0.5in, bottom: 0.125in, left: 0.125in, right: 0.125in), header-ascent: 0in)
-#set text(font: "{body_font}", size: {font_size})
-#show heading: set text(font: "{heading_font}")
+        r#"#set page({page_spec}, margin: (top: 0.625in, bottom: 0.125in, left: 0.125in, right: 0.125in), header-ascent: 0.125in)
+#set text({body_font_spec}, size: {font_size})
+#show heading: set text({heading_font_spec})
 
 #let brand-primary = rgb("{primary}")
 #let brand-dark = rgb("{dark_grey}")
 "#,
         page_spec = page_spec,
-        body_font = body_font,
+        body_font_spec = body_font_spec,
         font_size = font_size,
-        heading_font = heading_font,
+        heading_font_spec = heading_font_spec,
         primary = primary,
         dark_grey = dark_grey,
     )

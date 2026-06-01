@@ -19,13 +19,13 @@ pub(crate) fn page_header(brand: &BrandConfig, heading: &str) -> String {
         format!(
             "#grid(columns: (auto, 1fr), align: (left + horizon, right + horizon), \
              image(\"{path}\", height: 0.3in), \
-             [#text(fill: white, weight: \"bold\", size: 11pt)[{heading}]])",
+             [#text(fill: white, weight: \"bold\", size: 14pt)[{heading}]])",
             path = path.replace('\\', "/"),
             heading = escape_typst(heading),
         )
     } else {
         format!(
-            "#text(fill: white, weight: \"bold\", size: 11pt)[{heading}]",
+            "#text(fill: white, weight: \"bold\", size: 14pt)[{heading}]",
             heading = escape_typst(heading),
         )
     };

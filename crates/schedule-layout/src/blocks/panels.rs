@@ -52,7 +52,6 @@ pub(crate) fn render_time_grouped_panels<'a>(
 
     let mut out = String::new();
     let mut state_counter = 0u32;
-    let mut current_day: Option<String> = None;
 
     // Collect unique days for smart label generation
     let all_days: Vec<&str> = panels
@@ -69,15 +68,6 @@ pub(crate) fn render_time_grouped_panels<'a>(
         // Extract day from time_key (YYYY-MM-DDTHH:MM)
         let day_str = time_key.get(..10).unwrap_or("");
         let day_label = crate::typst_gen::make_day_label(day_str, &all_days);
-
-        // Add day heading when day changes
-        if Some(day_str.to_string()) != current_day {
-            if current_day.is_some() {
-                out.push_str("\n"); // Extra space between days
-            }
-            out.push_str(&format!("= {}\n\n", escape_typst(&day_label)));
-            current_day = Some(day_str.to_string());
-        }
 
         // Extract time portion for the slot label
         let slot_label = format_time_only(time_key);

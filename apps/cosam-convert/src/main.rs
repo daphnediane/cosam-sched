@@ -21,6 +21,7 @@ use schedule_core::xlsx::{export_xlsx, import_xlsx, TableImportMode, TableImport
 
 mod conflicts;
 mod embed;
+mod layout_defaults;
 mod static_html;
 
 // ── Input type tracking ───────────────────────────────────────────────────────
@@ -922,6 +923,9 @@ fn run_layout_export(
         model::ScheduleData,
     };
     use std::fs;
+    use std::path::PathBuf;
+
+    use crate::layout_defaults::LayoutDefaults;
 
     let brand_path = settings
         .brand_config
@@ -955,122 +959,85 @@ fn run_layout_export(
     }
 
     /// A single default layout job: layout config + output filename base stem.
+    #[derive(Clone)]
     struct LayoutOutputJob {
         config: LayoutConfig,
         /// Base filename stem (no extension). Split qualifiers are appended with `-`.
-        stem: &'static str,
+        stem: String,
     }
 
-    let default_jobs: &[LayoutOutputJob] = &[
-        // Full schedule grid — tabloid landscape, split by half-day
-        LayoutOutputJob {
-            config: LayoutConfig {
-                format: LayoutFormat::Schedule,
-                paper: PaperSize::Tabloid,
-                split_by: SplitMode::HalfDay,
-                orientation: Orientation::Landscape,
-                filter: LayoutFilter::default(),
-                base_font_pt: None,
-            },
-            stem: "schedule",
-        },
-        // Combined workshops listing — tabloid landscape
-        LayoutOutputJob {
-            config: LayoutConfig {
-                format: LayoutFormat::WorkshopsListing,
-                paper: PaperSize::Tabloid,
-                split_by: SplitMode::Day,
-                orientation: Orientation::Landscape,
-                filter: LayoutFilter::default(),
-                base_font_pt: None,
-            },
-            stem: "workshops",
-        },
-        // Combined workshops listing — poster landscape
-        LayoutOutputJob {
-            config: LayoutConfig {
-                format: LayoutFormat::WorkshopsListing,
-                paper: PaperSize::Poster,
-                split_by: SplitMode::Day,
-                orientation: Orientation::Landscape,
-                filter: LayoutFilter::default(),
-                base_font_pt: None,
-            },
-            stem: "workshops",
-        },
-        // Room door signs — tabloid landscape with grid + descriptions
-        LayoutOutputJob {
-            config: LayoutConfig {
-                format: LayoutFormat::RoomSigns,
-                paper: PaperSize::Tabloid,
-                split_by: SplitMode::Day,
-                orientation: Orientation::Landscape,
-                filter: LayoutFilter::default(),
-                base_font_pt: None,
-            },
-            stem: "room-signs",
-        },
-        // Guest personal schedule postcards — 4×6 postcard portrait
-        LayoutOutputJob {
-            config: LayoutConfig {
-                format: LayoutFormat::GuestPostcards,
-                paper: PaperSize::Postcard4x6,
-                split_by: SplitMode::HalfDay,
-                orientation: Orientation::Portrait,
-                filter: LayoutFilter::default(),
-                base_font_pt: None,
-            },
-            stem: "postcards",
-        },
-        // Panel descriptions — tabloid landscape (wide multi-column)
-        LayoutOutputJob {
-            config: LayoutConfig {
-                format: LayoutFormat::Descriptions,
-                paper: PaperSize::Tabloid,
-                split_by: SplitMode::Day,
-                orientation: Orientation::Landscape,
-                filter: LayoutFilter::default(),
-                base_font_pt: None,
-            },
-            stem: "desc",
-        },
-        // Panel descriptions — letter portrait (take-home copy)
-        LayoutOutputJob {
-            config: LayoutConfig {
-                format: LayoutFormat::Descriptions,
-                paper: PaperSize::Letter,
-                split_by: SplitMode::Day,
-                orientation: Orientation::Portrait,
-                filter: LayoutFilter::default(),
-                base_font_pt: None,
-            },
-            stem: "desc",
-        },
-        // Panel descriptions — legal portrait (taller take-home copy)
-        LayoutOutputJob {
-            config: LayoutConfig {
-                format: LayoutFormat::Descriptions,
-                paper: PaperSize::Legal,
-                split_by: SplitMode::Day,
-                orientation: Orientation::Portrait,
-                filter: LayoutFilter::default(),
-                base_font_pt: None,
-            },
-            stem: "desc",
-        },
-        // Panel descriptions — poster landscape (30"×20" wall display)
-        LayoutOutputJob {
-            config: LayoutConfig {
-                format: LayoutFormat::Descriptions,
-                paper: PaperSize::Poster,
-                split_by: SplitMode::Day,
-                orientation: Orientation::Landscape,
-                filter: LayoutFilter::default(),
-                base_font_pt: Some("11pt".to_string()),
-            },
-            stem: "desc",
-        },
-    ];
+    // Helper functions to parse layout configuration strings
+    fn parse_format(s: &str) -> LayoutFormat {
+        match s {
+            "schedule" => LayoutFormat::Schedule,
+            "descriptions" => LayoutFormat::Descriptions,
+            "workshops_listing" | "workshops" => LayoutFormat::WorkshopsListing,
+            "room_signs" | "room-signs" => LayoutFormat::RoomSigns,
+            "guest_postcards" | "postcards" => LayoutFormat::GuestPostcards,
+            _ => LayoutFormat::Schedule,
+        }
+    }
+
+    fn parse_paper(s: &str) -> PaperSize {
+        match s {
+            "letter" => PaperSize::Letter,
+            "legal" => PaperSize::Legal,
+            "tabloid" => PaperSize::Tabloid,
+            "super_b" | "superb" => PaperSize::SuperB,
+            "poster" => PaperSize::Poster,
+            "postcard" => PaperSize::Postcard4x6,
+            _ => PaperSize::Tabloid,
+        }
+    }
+
+    fn parse_split(s: &str) -> SplitMode {
+        match s {
+            "half_day" | "half" => SplitMode::HalfDay,
+            _ => SplitMode::Day,
+        }
+    }
+
+    fn parse_orientation(s: &str) -> Orientation {
+        match s {
+            "portrait" => Orientation::Portrait,
+            _ => Orientation::Landscape,
+        }
+    }
+
+    /// Convert JobConfig from layout.toml to LayoutOutputJob.
+    fn convert_jobs(jobs: &[layout_defaults::JobConfig]) -> Vec<LayoutOutputJob> {
+        jobs.iter()
+            .map(|job| LayoutOutputJob {
+                config: LayoutConfig {
+                    format: parse_format(&job.format),
+                    paper: parse_paper(&job.paper),
+                    split_by: parse_split(&job.split_by),
+                    orientation: parse_orientation(&job.orientation),
+                    filter: LayoutFilter::default(),
+                    base_font_pt: job.base_font_pt.clone(),
+                },
+                stem: job.stem.clone(),
+            })
+            .collect()
+    }
+
+    // Load optional user overrides from config/layout.toml
+    let layout_defaults_path = settings
+        .brand_config
+        .as_ref()
+        .and_then(|b| b.parent())
+        .map(|p| p.join("layout.toml"))
+        .unwrap_or_else(|| PathBuf::from("config/layout.toml"));
+    let user_defaults = LayoutDefaults::load(&layout_defaults_path).unwrap_or_default();
+
+    // Determine which jobs to run:
+    // - If user provides jobs in layout.toml, use those
+    // - Otherwise use embedded default jobs from LayoutDefaults::default_layout()
+    let jobs_to_run: Vec<LayoutOutputJob> = if user_defaults.jobs.is_empty() {
+        convert_jobs(&LayoutDefaults::default_layout().jobs)
+    } else {
+        convert_jobs(&user_defaults.jobs)
+    };
 
     let font_args: Vec<String> = brand
         .fonts
@@ -1089,7 +1056,7 @@ fn run_layout_export(
         );
     }
 
-    for job in default_jobs {
+    for job in jobs_to_run {
         let outputs = match job.config.format {
             LayoutFormat::Schedule => {
                 formats::schedule::generate(&data, &brand, &job.config, ColorMode::Color)
@@ -1119,12 +1086,16 @@ fn run_layout_export(
         }
 
         for (qualifier, typ_src) in &outputs {
-            let file_stem = [job.stem, job.config.paper.dir_name(), qualifier.as_str()]
-                .iter()
-                .copied()
-                .filter(|s| !s.is_empty())
-                .collect::<Vec<_>>()
-                .join("-");
+            let file_stem = [
+                job.stem.as_str(),
+                job.config.paper.dir_name(),
+                qualifier.as_str(),
+            ]
+            .iter()
+            .copied()
+            .filter(|s| !s.is_empty())
+            .collect::<Vec<_>>()
+            .join("-");
             let typ_path = typ_dir.join(format!("{file_stem}.typ"));
             let pdf_path = paper_dir.join(format!("{file_stem}.pdf"));
             if let Err(e) = fs::write(&typ_path, typ_src) {

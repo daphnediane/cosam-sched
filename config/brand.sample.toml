@@ -17,7 +17,11 @@ dark_grey = "#18191C"
 white = "#FFFFFF"
 
 [fonts]
-# heading = "Trend Sans One"
+# heading = "Trend Sans"
+# heading_style = "One"        # Optional: style name (e.g., "One", "Bold", "Italic")
+# heading_weight = "200"       # Optional: weight (e.g., "200"=One, "300"=Two, "400"=Three, "500"=Four, "700"=Five)
 # subheading = "Bebas Neue"
 # body = "Avenir Next"
-# font_dir = "brand/fonts"   # directory with TTF/OTF files, relative to this file
+# body_style = "Regular"       # Optional: style name (e.g., "Regular", "Medium")
+# body_weight = "400"          # Optional: weight (e.g., "400"=Regular, "700"=Bold)
+# font_dir = "brand/fonts"     # directory with TTF/OTF files, relative to this file

@@ -64,14 +64,13 @@ fn generate_listing_typ(
 ) -> String {
     let mut doc = preamble(config, brand);
     doc.push_str(&banner::page_header(brand, "Workshops"));
-    doc.push_str("\n#v(0.25in)\n");
     doc.push_str(&format!("#columns({n})[\n", n = num_cols));
 
     let font_pt = config.effective_font_pt();
     doc.push_str(&panels::render_time_grouped_panels(
         data,
         color_mode,
-        &workshop_panels,
+        workshop_panels,
         font_pt,
     ));
 

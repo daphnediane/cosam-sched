@@ -1,0 +1,74 @@
+# Layout defaults configuration
+# Copy to config/layout.toml (gitignored) to customize layout defaults.
+# This file is embedded in cosam-convert and serves as the default configuration.
+#
+# Paper keys: letter, legal, tabloid, super_b, poster, postcard
+# Format keys: schedule, descriptions, workshops_listing, room_signs, guest_postcards
+# Split modes: day, half_day
+# Orientations: portrait, landscape
+#
+# To override font size for a specific job, add base_font_pt to that job:
+#   base_font_pt = "12pt"
+[[jobs]]
+format = "schedule"
+paper = "tabloid"
+split_by = "half_day"
+orientation = "landscape"
+stem = "schedule"
+
+[[jobs]]
+format = "workshops_listing"
+paper = "tabloid"
+split_by = "day"
+orientation = "landscape"
+stem = "workshops"
+
+[[jobs]]
+format = "workshops_listing"
+paper = "poster"
+split_by = "day"
+orientation = "landscape"
+stem = "workshops"
+
+[[jobs]]
+format = "room_signs"
+paper = "tabloid"
+split_by = "day"
+orientation = "landscape"
+stem = "room-signs"
+
+[[jobs]]
+format = "guest_postcards"
+paper = "postcard"
+split_by = "half_day"
+orientation = "portrait"
+stem = "postcards"
+
+[[jobs]]
+format = "descriptions"
+paper = "tabloid"
+split_by = "day"
+orientation = "landscape"
+stem = "desc"
+
+[[jobs]]
+format = "descriptions"
+paper = "letter"
+split_by = "day"
+orientation = "portrait"
+stem = "desc"
+
+[[jobs]]
+format = "descriptions"
+paper = "legal"
+split_by = "day"
+orientation = "portrait"
+stem = "desc"
+
+[[jobs]]
+format = "descriptions"
+paper = "poster"
+split_by = "day"
+orientation = "landscape"
+stem = "desc"
+# base_font_pt = "12.0pt"  # Override default font size for poster descriptions
