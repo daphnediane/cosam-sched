@@ -777,11 +777,127 @@ fn is_workshop(
 // ── Name splitting ────────────────────────────────────────────────────────────
 
 fn split_presenter_names(text: &str) -> Vec<String> {
-    let re = Regex::new(r"\s*(?:,\s*(?:and\s+)?|\band\s+)").expect("valid regex");
-    re.split(text)
-        .map(|s| s.trim().to_string())
-        .filter(|s| !s.is_empty())
-        .collect()
+    let mut results: Vec<String> = Vec::new();
+    let mut current = String::new();
+    let mut padding = String::new();
+    let mut chars = text.chars().peekable();
+    let mut quote_char: Option<char> = None;
+    let mut paren_depth: u32 = 0;
+
+    while let Some(ch) = chars.next() {
+        match ch {
+            // Parentheses handling - track depth
+            '(' if quote_char.is_none() => {
+                paren_depth += 1;
+                current.push_str(&padding);
+                padding.clear();
+                current.push(ch);
+            }
+            ')' if quote_char.is_none() => {
+                paren_depth = paren_depth.saturating_sub(1);
+                current.push_str(&padding);
+                padding.clear();
+                current.push(ch);
+            }
+            // Quote handling - track state but don't include quotes in output
+            '\'' | '"' => {
+                if quote_char == Some(ch) {
+                    // Ending quote - exit quote mode (don't add to output)
+                    quote_char = None;
+                } else if quote_char.is_some() {
+                    // Different quote type inside quoted string - add it
+                    current.push_str(&padding);
+                    padding.clear();
+                    current.push(ch);
+                } else {
+                    // Check if this quote should start quote mode:
+                    // - At start of chunk (current empty)
+                    // - After whitespace (padding not empty)
+                    // - After assignment operators = or :
+                    let can_start_quote = current.is_empty()
+                        || !padding.is_empty()
+                        || current
+                            .chars()
+                            .last()
+                            .map(|c| c == '=' || c == ':')
+                            .unwrap_or(false);
+                    if can_start_quote {
+                        // Starting quote - enter quote mode (don't add to output)
+                        quote_char = Some(ch);
+                    } else {
+                        // Quote in middle of name (e.g., possessive "Same's") - add it
+                        current.push_str(&padding);
+                        padding.clear();
+                        current.push(ch);
+                    }
+                }
+            }
+            // Comma delimiter (only when not in quotes or parens)
+            ',' if quote_char.is_none() && paren_depth == 0 => {
+                if !current.is_empty() {
+                    results.push(current.to_string());
+                }
+                current.clear();
+                padding.clear();
+                // Skip whitespace after comma
+                while chars.peek().map(|c| c.is_whitespace()).unwrap_or(false) {
+                    chars.next();
+                }
+            }
+            // 'a' might start "and " delimiter (only when not in quotes or parens)
+            // Requires word boundary: "Alice and Bob" splits, "Pros and Cons" doesn't
+            'a' | 'A' if quote_char.is_none() && paren_depth == 0 => {
+                let next_three: String = chars.clone().take(3).collect();
+                if format!("{ch}{next_three}").to_lowercase() == "and " {
+                    // Check word boundary before 'a':
+                    // - If padding is not empty, previous char was whitespace (boundary)
+                    // - If current is empty, we're at start of string (boundary)
+                    let has_boundary_before = !padding.is_empty() || current.is_empty();
+                    if has_boundary_before {
+                        for _ in 0..3 {
+                            chars.next();
+                        }
+                        if !current.is_empty() {
+                            results.push(current.to_string());
+                        }
+                        current.clear();
+                        padding.clear();
+                        // Skip whitespace after "and"
+                        while chars.peek().map(|c| c.is_whitespace()).unwrap_or(false) {
+                            chars.next();
+                        }
+                    } else {
+                        // "and" not at word boundary - add as normal text
+                        current.push_str(&padding);
+                        padding.clear();
+                        current.push(ch);
+                    }
+                } else {
+                    current.push_str(&padding);
+                    padding.clear();
+                    current.push(ch);
+                }
+            }
+            // Any other character
+            _ => {
+                if !ch.is_whitespace() {
+                    current.push_str(&padding);
+                    padding.clear();
+                    current.push(ch);
+                } else if !current.is_empty() {
+                    padding.push(ch);
+                }
+            }
+        }
+    }
+
+    // Flush final chunk
+    let trimmed = current.trim();
+    if !trimmed.is_empty() {
+        results.push(trimmed.to_string());
+    }
+
+    results
 }
 
 // ── Tag rank extraction ───────────────────────────────────────────────────────
@@ -930,6 +1046,94 @@ mod tests {
             vec!["Alice", "Bob", "Charlie"]
         );
         assert_eq!(split_presenter_names("Single Name"), vec!["Single Name"]);
+    }
+
+    #[test]
+    fn test_split_presenter_names_quoted() {
+        // Quoted strings prevent splitting on "and"
+        assert_eq!(
+            split_presenter_names("\"Ari and Bee Cosplay\""),
+            vec!["Ari and Bee Cosplay"]
+        );
+        assert_eq!(
+            split_presenter_names("'Ari and Bee Cosplay'"),
+            vec!["Ari and Bee Cosplay"]
+        );
+        // Mixed with other names
+        assert_eq!(
+            split_presenter_names("Alice and \"Ari and Bee Cosplay\""),
+            vec!["Alice", "Ari and Bee Cosplay"]
+        );
+        assert_eq!(
+            split_presenter_names("\"Ari and Bee Cosplay\" and Bob"),
+            vec!["Ari and Bee Cosplay", "Bob"]
+        );
+        // Multiple quoted groups
+        assert_eq!(
+            split_presenter_names("\"Group A and B\" and \"Group C and D\""),
+            vec!["Group A and B", "Group C and D"]
+        );
+        // Quoted with comma delimiter
+        assert_eq!(
+            split_presenter_names("\"Ari and Bee Cosplay\", Alice"),
+            vec!["Ari and Bee Cosplay", "Alice"]
+        );
+    }
+
+    #[test]
+    fn test_split_presenter_names_quoted_edge_cases() {
+        // Adjacent quoted strings with space between - space should be trimmed
+        assert_eq!(
+            split_presenter_names("   \"First1\" ' Second1'   , \"Third1\""),
+            vec!["First1  Second1", "Third1"]
+        );
+        // Mixed quote types with space between
+        assert_eq!(
+            split_presenter_names("'First2 ' \"Second2\""),
+            vec!["First2  Second2"]
+        );
+        // Leading and trailing whitespace should be trimmed
+        assert_eq!(
+            split_presenter_names("  \"Ari and Bee Cosplay\"  "),
+            vec!["Ari and Bee Cosplay"]
+        );
+        // Internal spaces preserved, outer trimmed
+        assert_eq!(
+            split_presenter_names("  Alice   and   Bob  "),
+            vec!["Alice", "Bob"]
+        );
+        // 2016 data examples - verify comma splits correctly
+        assert_eq!(
+            split_presenter_names("Darth Claire Cosplay, G.C. Kinsey"),
+            vec!["Darth Claire Cosplay", "G.C. Kinsey"]
+        );
+        // Test "and" delimiter alone (no comma)
+        assert_eq!(split_presenter_names("Alice and Bob"), vec!["Alice", "Bob"]);
+        // Test comma with "and" (Oxford comma style)
+        assert_eq!(
+            split_presenter_names("Alice, Bob, and Charlie"),
+            vec!["Alice", "Bob", "Charlie"]
+        );
+        // Parentheses protect internal 'and'
+        assert_eq!(
+            split_presenter_names(
+                "Ayla Craft Cosplay (Ayla & Jacob), That's So Cosplay (Abbi & Ace)"
+            ),
+            vec![
+                "Ayla Craft Cosplay (Ayla & Jacob)",
+                "That's So Cosplay (Abbi & Ace)"
+            ]
+        );
+        // Possessive apostrophe in middle of name (not treated as quote)
+        assert_eq!(
+            split_presenter_names("Sam's Cosplay and Alice's Workshop"),
+            vec!["Sam's Cosplay", "Alice's Workshop"]
+        );
+        // "and" inside a word shouldn't split - requires word boundary
+        assert_eq!(
+            split_presenter_names("Band Ampersand And Andrew"),
+            vec!["Band Ampersand", "Andrew"]
+        );
     }
 
     #[test]
