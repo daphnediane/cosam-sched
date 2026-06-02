@@ -323,7 +323,8 @@ fn render_header_row(
         } else {
             "brand-primary.lighten(15%)"
         };
-        let weight = if is_highlighted {
+        // Bold the highlighted room, or every room when none is focused.
+        let weight = if is_highlighted || config.highlight_room_uid.is_none() {
             ", weight: \"bold\""
         } else {
             ""

@@ -111,6 +111,12 @@ pub(crate) fn render_time_grouped_panels<'a>(
             // Before panel i (i > 0) we query <_slot_n_{i}> (the previous element)
             // to detect column/page breaks. Because we never call `state.update()`
             // inside a `context` block, layout converges without oscillation.
+            //
+            // The query is scoped with `.before(here())` and takes the *last*
+            // match so that callers which invoke this builder more than once per
+            // document (e.g. the flyer, one call per day) — and therefore reuse
+            // the `_slot_n` tags — resolve to the current section's element
+            // rather than an identically-tagged one from an earlier section.
             let slot_tag = format!("_slot_{}", slot_counter);
             slot_counter += 1;
 
@@ -132,9 +138,9 @@ pub(crate) fn render_time_grouped_panels<'a>(
                     let prev_tag = format!("{slot_tag}_{i}");
                     out.push_str(&format!(
                         "#context {{\n  \
-                           let _hits = query(label(\"{prev_tag}\"))\n  \
+                           let _hits = query(selector(label(\"{prev_tag}\")).before(here()))\n  \
                            if _hits.len() > 0 {{\n    \
-                             let _hp = _hits.first().location().position()\n    \
+                             let _hp = _hits.last().location().position()\n    \
                              let _p = here().position()\n    \
                              if _p.page != _hp.page or calc.abs((_p.x - _hp.x).pt()) > 50 [\n      \
                                == {lbl} {cont}\n    \

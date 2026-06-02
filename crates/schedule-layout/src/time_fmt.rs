@@ -146,10 +146,7 @@ mod tests {
 
     #[test]
     fn test_format_time_range_start_only() {
-        assert_eq!(
-            format_time_range(Some("2026-06-25T12:00:00"), None),
-            "Noon"
-        );
+        assert_eq!(format_time_range(Some("2026-06-25T12:00:00"), None), "Noon");
     }
 
     #[test]

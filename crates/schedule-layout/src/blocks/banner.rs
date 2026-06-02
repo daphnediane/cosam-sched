@@ -29,11 +29,7 @@ use crate::typst_gen::{build_font_spec, escape_typst};
 ///
 /// Must be emitted after `preamble()` so that `brand-primary` is already
 /// defined in the document scope.
-pub(crate) fn page_header(
-    brand: &BrandConfig,
-    left: Option<&str>,
-    right: Option<&str>,
-) -> String {
+pub(crate) fn page_header(brand: &BrandConfig, left: Option<&str>, right: Option<&str>) -> String {
     let logo_path = brand
         .meta
         .logo_path
@@ -220,10 +216,10 @@ mod tests {
     #[test]
     fn test_page_footer_has_page_counter_and_labels() {
         let brand = BrandConfig::default();
-        let out = page_footer(&brand, "Modified: Jun 15 4:00 PM", "cosplay-america.com");
+        let out = page_footer(&brand, "Modified: Jun 15 4:00 PM", "cosplayamerica.com");
         assert!(out.contains("counter(page)"));
         assert!(out.contains("Modified: Jun 15 4:00 PM"));
-        assert!(out.contains("cosplay-america.com"));
+        assert!(out.contains("cosplayamerica.com"));
         assert!(out.contains("footer:"));
     }
 

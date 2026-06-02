@@ -141,12 +141,16 @@ impl BrandFonts {
 
     /// Banner font family, falling back to `heading_or_default()`.
     pub fn banner_or_default(&self) -> &str {
-        self.banner.as_deref().unwrap_or_else(|| self.heading_or_default())
+        self.banner
+            .as_deref()
+            .unwrap_or_else(|| self.heading_or_default())
     }
 
     /// Banner font style, falling back to `heading_style`.
     pub fn banner_style(&self) -> Option<&str> {
-        self.banner_style.as_deref().or(self.heading_style.as_deref())
+        self.banner_style
+            .as_deref()
+            .or(self.heading_style.as_deref())
     }
 
     /// Banner font weight, falling back to `heading_weight`, then `"bold"`.
@@ -184,7 +188,7 @@ impl BrandFonts {
 pub struct BrandMeta {
     /// Organization name (e.g. `"Cosplay America"`).
     pub name: Option<String>,
-    /// Public site URL (e.g. `"https://cosplay-america.com"`).
+    /// Public site URL (e.g. `"https://cosplayamerica.com"`).
     pub site_url: Option<String>,
     /// Path to logo image (SVG or PNG). Resolved relative to config file.
     pub logo_path: Option<PathBuf>,

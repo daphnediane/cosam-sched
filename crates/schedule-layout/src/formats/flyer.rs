@@ -243,9 +243,18 @@ mod tests {
     #[test]
     fn test_flyer_columns_split() {
         // Letter landscape: 4 cols → grid 2, desc 2.
-        assert_eq!(PaperSize::Letter.flyer_columns(crate::grid::Orientation::Landscape), 4);
+        assert_eq!(
+            PaperSize::Letter.flyer_columns(crate::grid::Orientation::Landscape),
+            4
+        );
         // Legal+ landscape: 6 cols → grid 3, desc 3.
-        assert_eq!(PaperSize::Legal.flyer_columns(crate::grid::Orientation::Landscape), 6);
-        assert_eq!(PaperSize::Tabloid.flyer_columns(crate::grid::Orientation::Landscape), 6);
+        assert_eq!(
+            PaperSize::Legal.flyer_columns(crate::grid::Orientation::Landscape),
+            6
+        );
+        assert_eq!(
+            PaperSize::Tabloid.flyer_columns(crate::grid::Orientation::Landscape),
+            6
+        );
     }
 }
