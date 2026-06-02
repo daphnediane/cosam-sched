@@ -7,7 +7,7 @@ description: Commit message format and structure
 
 ## Output File
 
-Write commit messages to `./next_commit.txt` in the repository root.
+Write commit messages to `./next-commit.txt` in the repository root.
 
 **Important:** This file may already exist from previous sessions. Use the `edit` tool to replace its contents rather than `write_to_file`.
 
