@@ -39,8 +39,12 @@ type TimeGroups<'a> = (
 /// Panels are grouped by day first, then by time slot. Day headings are
 /// automatically inserted when the date changes.
 ///
-/// For slots with more than one panel, a Typst `state`-based context block
-/// repeats the slot heading whenever a panel lands in a different column or page.
+/// For slots with more than one panel, each heading and panel block receives a
+/// Typst label. Before each non-first panel, a `#context` block queries the
+/// previous element's label to detect column/page breaks and inserts a
+/// "(continued)" heading when needed. Using labels + `query` (read-only) instead
+/// of `state.update()` (read-write) avoids the layout-convergence feedback loop
+/// that caused "layout did not converge" warnings.
 pub(crate) fn render_time_grouped_panels<'a>(
     data: &'a ScheduleData,
     color_mode: ColorMode,
@@ -51,7 +55,7 @@ pub(crate) fn render_time_grouped_panels<'a>(
     let (by_base, time_groups) = build_time_groups(panels);
 
     let mut out = String::new();
-    let mut state_counter = 0u32;
+    let mut slot_counter = 0u32;
 
     // Collect unique days for smart label generation
     let all_days: Vec<&str> = panels
@@ -80,6 +84,7 @@ pub(crate) fn render_time_grouped_panels<'a>(
                     day_str,
                     &by_base,
                     &secondary_size,
+                    None,
                 ));
             }
             continue;
@@ -96,39 +101,52 @@ pub(crate) fn render_time_grouped_panels<'a>(
                 day_str,
                 &by_base,
                 &secondary_size,
+                None,
             ));
         } else {
-            // Use a Typst state variable to detect column / page breaks
-            let sv = format!("_s{}", state_counter);
-            state_counter += 1;
+            // Label scheme for this slot (n = slot_counter):
+            //   heading  → <_slot_n_0>  (sticky, moves with first panel)
+            //   panel i  → <_slot_n_{i+1}>
+            //
+            // Before panel i (i > 0) we query <_slot_n_{i}> (the previous element)
+            // to detect column/page breaks. Because we never call `state.update()`
+            // inside a `context` block, layout converges without oscillation.
+            let slot_tag = format!("_slot_{}", slot_counter);
+            slot_counter += 1;
+
             out.push_str(&format!(
-                "#let {sv} = state(\"{sv}\", none)\n\
-                 == {lbl}\n\n\
-                 #context {sv}.update(here().position())\n\n",
-                sv = sv,
+                "== {lbl} <{tag}_0>\n\n",
                 lbl = escape_typst(&full_slot_label),
+                tag = slot_tag,
             ));
+
+            let cont_label = format!(
+                "#text(size: {secondary_size}, style: \"italic\")[(continued)]",
+                secondary_size = secondary_size,
+            );
+
             for (i, panel) in group.iter().enumerate() {
                 if i > 0 {
-                    let cont_label = format!(
-                        "#text(size: {secondary_size}, style: \"italic\")[(continued)]",
-                        secondary_size = secondary_size
-                    );
+                    // Label of the immediately preceding element (heading when i==1,
+                    // previous panel block when i>1).
+                    let prev_tag = format!("{slot_tag}_{i}");
                     out.push_str(&format!(
                         "#context {{\n  \
-                           let p = here().position()\n  \
-                           let s = {sv}.get()\n  \
-                           if s != none and \
-                              (p.page != s.page or calc.abs((p.x - s.x).pt()) > 50) [\n    \
-                             == {lbl} {cont}\n    \
-                             #{sv}.update(p)\n  \
-                           ]\n\
+                           let _hits = query(label(\"{prev_tag}\"))\n  \
+                           if _hits.len() > 0 {{\n    \
+                             let _hp = _hits.first().location().position()\n    \
+                             let _p = here().position()\n    \
+                             if _p.page != _hp.page or calc.abs((_p.x - _hp.x).pt()) > 50 [\n      \
+                               == {lbl} {cont}\n    \
+                             ]\n  \
+                           }}\n\
                          }}\n\n",
-                        sv = sv,
+                        prev_tag = prev_tag,
                         lbl = escape_typst(&full_slot_label),
                         cont = cont_label,
                     ));
                 }
+                let panel_label = format!("{slot_tag}_{}", i + 1);
                 out.push_str(&panel_block(
                     data,
                     color_mode,
@@ -136,6 +154,7 @@ pub(crate) fn render_time_grouped_panels<'a>(
                     day_str,
                     &by_base,
                     &secondary_size,
+                    Some(&panel_label),
                 ));
             }
         }
@@ -188,6 +207,7 @@ pub(crate) fn render_description_blocks<'a>(
                 day_date,
                 &by_base,
                 &secondary_size,
+                None,
             ));
         }
     }
@@ -230,6 +250,10 @@ fn build_time_groups<'a>(panels: &[&'a Panel]) -> TimeGroups<'a> {
 }
 
 /// Render a single panel as a Typst block.
+///
+/// `typst_label` is an optional Typst label name (without angle brackets) to
+/// attach to the block element, used by the column-break detection in
+/// [`render_time_grouped_panels`].
 fn panel_block<'a>(
     data: &'a ScheduleData,
     color_mode: ColorMode,
@@ -237,6 +261,7 @@ fn panel_block<'a>(
     day_date: &str,
     by_base: &HashMap<&'a str, Vec<&'a Panel>>,
     secondary_size: &str,
+    typst_label: Option<&str>,
 ) -> String {
     let color_str = panel
         .panel_type
@@ -345,7 +370,11 @@ fn panel_block<'a>(
         block.push_str(&format!("\n{}\n", escape_typst(xref)));
     }
 
-    block.push_str("]\n\n");
+    if let Some(lbl) = typst_label {
+        block.push_str(&format!("] <{}>\n\n", lbl));
+    } else {
+        block.push_str("]\n\n");
+    }
     block
 }
 
