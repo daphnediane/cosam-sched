@@ -3,7 +3,7 @@
 # This file is embedded in cosam-convert and serves as the default configuration.
 #
 # Paper keys: letter, legal, tabloid, super_b, poster, postcard
-# Format keys: schedule, descriptions, workshops_listing, room_signs, guest_postcards
+# Format keys: schedule, descriptions, workshops_listing, room_signs, guest_postcards, flyer
 # Split modes: day, half_day
 # Orientations: portrait, landscape
 #
@@ -76,3 +76,19 @@ split_by = "day"
 orientation = "landscape"
 stem = "desc"
 # base_font_pt = "12.0pt"  # Override default font size for poster descriptions
+
+# Flyer: single double-sided document, schedule grid + descriptions per day,
+# each day starting on an odd page. split_by is ignored (always whole-day).
+[[jobs]]
+format = "flyer"
+paper = "letter"
+split_by = "day"
+orientation = "landscape"
+stem = "flyer"
+
+[[jobs]]
+format = "flyer"
+paper = "legal"
+split_by = "day"
+orientation = "landscape"
+stem = "flyer"

@@ -22,6 +22,10 @@ pub(crate) struct GridRenderConfig {
     pub highlight_room_uid: Option<i64>,
     /// Day heading printed above the grid (empty = suppressed).
     pub day_label: String,
+    /// Label shown in the top-left corner cell, above the time column (empty =
+    /// blank corner). When set, the time column widens to fit the larger of
+    /// this label and `"Midnight"`.
+    pub corner_label: String,
     /// Maximum height for the grid block (e.g. `"8.5in"`).
     /// If `None`, the grid flows naturally without a height constraint.
     pub max_height: Option<String>,
@@ -96,6 +100,7 @@ impl GridRenderConfig {
             ..Self {
                 highlight_room_uid: self.highlight_room_uid,
                 day_label: self.day_label,
+                corner_label: self.corner_label,
                 max_height: self.max_height,
                 time_col_width: self.time_col_width,
                 credits_max_chars: self.credits_max_chars,
@@ -120,6 +125,7 @@ impl GridRenderConfig {
         Self {
             highlight_room_uid: None,
             day_label: String::new(),
+            corner_label: String::new(),
             max_height: None,
             time_col_width: String::new(),
             name_font_size: format!("{:.1}pt", name),
@@ -209,14 +215,29 @@ pub(crate) fn render_schedule_grid(
         cost = config.cost_font_size,
     ));
 
-    // Compute time-column width via measure (only when inside context).
+    // Compute time-column width via measure (only when inside context). When a
+    // corner label is present, the column must also fit it, so widen to the
+    // larger of the "Midnight" time cell and the corner label.
     if use_measured_width {
-        out.push_str(
-            "let _time_col_w = {\n\
-             \x20 let sz = measure(text(size: _time_size, weight: \"bold\")[Midnight])\n\
-             \x20 sz.width + _time_inset.left + _time_inset.right\n\
-             }\n",
-        );
+        if config.corner_label.is_empty() {
+            out.push_str(
+                "let _time_col_w = {\n\
+                 \x20 let sz = measure(text(size: _time_size, weight: \"bold\")[Midnight])\n\
+                 \x20 sz.width + _time_inset.left + _time_inset.right\n\
+                 }\n",
+            );
+        } else {
+            out.push_str(&format!(
+                "let _time_col_w = {{\n\
+                 \x20 let mw = measure(text(size: _time_size, weight: \"bold\")[Midnight]).width \
+                   + _time_inset.left + _time_inset.right\n\
+                 \x20 let dw = measure(text(size: _hdr_size, weight: \"bold\")[{label}]).width \
+                   + _hdr_inset.x * 2\n\
+                 \x20 calc.max(mw, dw)\n\
+                 }}\n",
+                label = escape_typst(&config.corner_label),
+            ));
+        }
     }
 
     let time_col_expr = if use_measured_width {
@@ -279,8 +300,16 @@ fn render_header_row(
     data: &ScheduleData,
     config: &GridRenderConfig,
 ) {
-    // Corner cell
-    out.push_str("  grid.cell(fill: brand-primary, inset: _hdr_inset)[],\n");
+    // Corner cell — blank, or the day label when configured.
+    if config.corner_label.is_empty() {
+        out.push_str("  grid.cell(fill: brand-primary, inset: _hdr_inset)[],\n");
+    } else {
+        out.push_str(&format!(
+            "  grid.cell(fill: brand-primary, inset: _hdr_inset)\
+             [#align(center + horizon)[#text(fill: white, size: _hdr_size, weight: \"bold\")[{label}]]],\n",
+            label = escape_typst(&config.corner_label),
+        ));
+    }
 
     // Room header cells
     for &uid in &layout.room_order {
@@ -559,7 +588,7 @@ mod tests {
     fn test_grid_render_config_compact() {
         let cfg = GridRenderConfig::compact(42);
         assert_eq!(cfg.highlight_room_uid, Some(42));
-        assert_eq!(cfg.max_height, Some("8.5in".to_string()));
+        assert_eq!(cfg.max_height, Some("100%".to_string()));
         assert_eq!(cfg.credits_max_chars, 40);
     }
 

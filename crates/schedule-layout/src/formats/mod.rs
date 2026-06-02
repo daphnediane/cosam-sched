@@ -7,6 +7,7 @@
 //! Per-format layout builders.
 
 pub mod descriptions;
+pub mod flyer;
 pub mod guest_postcards;
 pub mod room_signs;
 pub mod schedule;

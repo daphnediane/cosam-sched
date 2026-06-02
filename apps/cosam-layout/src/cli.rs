@@ -92,6 +92,7 @@ pub enum FormatArg {
     RoomSigns,
     GuestPostcards,
     Descriptions,
+    Flyer,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, ValueEnum)]
@@ -148,6 +149,7 @@ pub fn parse_layout_jobs(raw: &[String]) -> anyhow::Result<Vec<LayoutJob>> {
                     "room-signs" => FormatArg::RoomSigns,
                     "guest-postcards" => FormatArg::GuestPostcards,
                     "descriptions" => FormatArg::Descriptions,
+                    "flyer" => FormatArg::Flyer,
                     other => anyhow::bail!("unknown --format value: {}", other),
                 };
             }

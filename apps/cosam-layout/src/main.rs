@@ -142,6 +142,7 @@ fn run_job(
         FormatArg::Descriptions => {
             formats::descriptions::generate(data, brand, &config, color_mode)
         }
+        FormatArg::Flyer => formats::flyer::generate(data, brand, &config, color_mode),
     };
 
     if outputs.is_empty() {
@@ -260,6 +261,7 @@ fn map_format(f: FormatArg) -> LayoutFormat {
         FormatArg::RoomSigns => LayoutFormat::RoomSigns,
         FormatArg::GuestPostcards => LayoutFormat::GuestPostcards,
         FormatArg::Descriptions => LayoutFormat::Descriptions,
+        FormatArg::Flyer => LayoutFormat::Flyer,
     }
 }
 
@@ -286,6 +288,7 @@ fn default_stem(format: FormatArg) -> String {
         FormatArg::RoomSigns => "room-signs",
         FormatArg::GuestPostcards => "postcards",
         FormatArg::Descriptions => "desc",
+        FormatArg::Flyer => "flyer",
     }
     .to_string()
 }

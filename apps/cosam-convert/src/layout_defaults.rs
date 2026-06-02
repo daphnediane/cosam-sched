@@ -35,7 +35,7 @@ pub struct LayoutDefaults {
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
 #[serde(default)]
 pub struct JobConfig {
-    /// Output format type: "schedule", "descriptions", "workshops_listing", "room_signs", "guest_postcards"
+    /// Output format type: "schedule", "descriptions", "workshops_listing", "room_signs", "guest_postcards", "flyer"
     pub format: String,
     /// Paper size: "letter", "legal", "tabloid", "super_b", "poster", "postcard"
     pub paper: String,

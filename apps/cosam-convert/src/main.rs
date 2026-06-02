@@ -990,6 +990,7 @@ fn run_layout_export(
             "workshops_listing" | "workshops" => LayoutFormat::WorkshopsListing,
             "room_signs" | "room-signs" => LayoutFormat::RoomSigns,
             "guest_postcards" | "postcards" => LayoutFormat::GuestPostcards,
+            "flyer" => LayoutFormat::Flyer,
             _ => LayoutFormat::Schedule,
         }
     }
@@ -1091,6 +1092,9 @@ fn run_layout_export(
             }
             LayoutFormat::Descriptions => {
                 formats::descriptions::generate(&data, &brand, &job.config, ColorMode::Color)
+            }
+            LayoutFormat::Flyer => {
+                formats::flyer::generate(&data, &brand, &job.config, ColorMode::Color)
             }
         };
 

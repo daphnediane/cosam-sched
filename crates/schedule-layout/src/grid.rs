@@ -108,6 +108,32 @@ impl PaperSize {
         }
     }
 
+    /// Number of columns for a flyer-schedule page on this paper.
+    ///
+    /// The flyer format devotes the left half of the first page (rounded up) to
+    /// the day grid and flows descriptions through the remaining columns, so the
+    /// total must be even-friendly: letter uses 4 columns, legal and larger use
+    /// 6.  Portrait falls back to narrower counts.
+    pub fn flyer_columns(&self, orientation: Orientation) -> u32 {
+        match self {
+            PaperSize::Letter => {
+                if orientation.is_landscape() {
+                    4
+                } else {
+                    2
+                }
+            }
+            PaperSize::Legal | PaperSize::Tabloid | PaperSize::SuperB | PaperSize::Poster => {
+                if orientation.is_landscape() {
+                    6
+                } else {
+                    4
+                }
+            }
+            PaperSize::Postcard4x6 => 2,
+        }
+    }
+
     /// Base font size (as a Typst length string) for body text on this paper.
     ///
     /// The `Poster` size uses a larger base font so that panels are legible at
@@ -130,6 +156,10 @@ pub enum LayoutFormat {
     RoomSigns,
     GuestPostcards,
     Descriptions,
+    /// Double-sided per-day flyer: schedule grid on the left half of each day's
+    /// first page, descriptions flowing through the remaining columns and onto
+    /// following full-width pages.  Produces one multi-day document.
+    Flyer,
 }
 
 /// How to split the schedule output.

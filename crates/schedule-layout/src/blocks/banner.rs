@@ -49,6 +49,73 @@ pub(crate) fn page_header(
     )
 }
 
+/// Generate a `#set page(header: …)` directive whose right-hand label is *raw
+/// Typst content* (e.g. a `context` expression for a running header) rather than
+/// a literal string.
+///
+/// The logo (when configured) sits on the left and the content is right-aligned;
+/// with no logo the content is centered.  Styling matches [`page_header`]
+/// (ALL CAPS, banner font, 28 pt).  `right_content` is inserted verbatim, so the
+/// caller is responsible for it being valid Typst.
+pub(crate) fn page_header_running(brand: &BrandConfig, right_content: &str) -> String {
+    let logo_path = brand
+        .meta
+        .logo_path
+        .as_ref()
+        .and_then(|p| p.to_str())
+        .map(|p| p.replace('\\', "/"));
+
+    let font_spec = build_font_spec(
+        brand.fonts.banner_or_default(),
+        brand.fonts.banner_style(),
+        Some(brand.fonts.banner_weight_or_default()),
+    );
+    let label = format!("#text(fill: white, size: 28pt, {font_spec})[#upper[{right_content}]]");
+
+    let inner = match logo_path {
+        Some(p) => format!(
+            "#grid(columns: (auto, 1fr), align: (left + horizon, right + horizon), \
+             image(\"{p}\", height: 0.3in), [{label}])",
+        ),
+        None => format!("#align(center)[{label}]"),
+    };
+
+    format!(
+        "#set page(header: block(fill: brand-primary, width: 100%, \
+         inset: (x: 10pt, y: 5pt))[\n  {inner}\n])\n",
+    )
+}
+
+/// Generate a `#set page(footer: …)` directive showing timestamps, a centered
+/// page number, and the organization/site on the right.
+///
+/// `timestamps` is a pre-formatted string such as
+/// `"Modified: Jun 15 4:00 PM | Generated: Jun 15 4:05 PM"` (empty to omit).
+/// `site` is the right-hand label (site URL or org name; empty to omit).
+///
+/// The page number uses Typst's `counter(page)` so it reflects the final page
+/// count across the whole document, including blank odd-page padding.
+///
+/// Must be emitted after `preamble()` so `brand-primary`/`brand-dark` exist.
+pub(crate) fn page_footer(brand: &BrandConfig, timestamps: &str, site: &str) -> String {
+    let _ = brand; // colors come from document-scope brand-* variables
+    let left = escape_typst(timestamps);
+    let right = escape_typst(site);
+    format!(
+        "#set page(footer: context [\n  \
+           #set text(size: 8pt, fill: brand-dark)\n  \
+           #line(length: 100%, stroke: 0.5pt + brand-primary)\n  \
+           #v(2pt)\n  \
+           #grid(columns: (1fr, auto, 1fr), \
+             align: (left + horizon, center + horizon, right + horizon),\n    \
+             [{left}],\n    \
+             [Page #counter(page).display() of #counter(page).final().first()],\n    \
+             [{right}],\n  \
+           )\n\
+         ])\n",
+    )
+}
+
 // ---------------------------------------------------------------------------
 // Helpers
 // ---------------------------------------------------------------------------
@@ -148,6 +215,16 @@ mod tests {
         assert!(out.contains("grid"));
         assert!(out.contains("ROOM A") || out.contains("upper"));
         assert!(out.contains("brand-primary"));
+    }
+
+    #[test]
+    fn test_page_footer_has_page_counter_and_labels() {
+        let brand = BrandConfig::default();
+        let out = page_footer(&brand, "Modified: Jun 15 4:00 PM", "cosplay-america.com");
+        assert!(out.contains("counter(page)"));
+        assert!(out.contains("Modified: Jun 15 4:00 PM"));
+        assert!(out.contains("cosplay-america.com"));
+        assert!(out.contains("footer:"));
     }
 
     #[test]

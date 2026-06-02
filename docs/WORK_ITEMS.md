@@ -1,6 +1,6 @@
 # Cosplay America Schedule - Work Item
 
-Updated on: Sat May 30 13:58:32 2026
+Updated on: Tue Jun  2 00:07:07 2026
 
 ## Completed
 
@@ -105,6 +105,7 @@ should produce a byte-for-byte identical output when nothing in the source
 has changed.
 * [FEATURE-129] Replace EditCommand-returns-inverse undo/redo with CRDT heads checkpoints so that bulk operations (XLSX import) become a single undoable step with a user-visible label.
 * [FEATURE-132] Add a hybrid "widget-html" format where structural schedule data (meta, rooms, panelTypes, timeline, presenters) is kept as a compact JSON block but panels are rendered as semantic HTML, enabling SEO crawlability and a no-JS fallback while preserving full widget functionality.
+* [FEATURE-134] Add a double-sided per-day "flyer" print layout that places the day's schedule grid on the left half of each day's first page with panel descriptions flowing through the remaining columns and onto following full-width pages, one multi-day document with a page-number/timestamp footer.
 * [META-002] Phase tracker for project foundation and Cargo workspace setup.
 * [META-003] Phase tracker for the entity/field system and core schedule data model in schedule-core.
 * [META-004] Phase tracker for making an automerge CRDT document the authoritative storage
@@ -807,6 +808,7 @@ This refactor:
 [FEATURE-127]: work-item/done/FEATURE-127.md
 [FEATURE-129]: work-item/done/FEATURE-129.md
 [FEATURE-132]: work-item/done/FEATURE-132.md
+[FEATURE-134]: work-item/done/FEATURE-134.md
 [META-001]: work-item/meta/META-001.md
 [META-002]: work-item/done/META-002.md
 [META-003]: work-item/done/META-003.md
