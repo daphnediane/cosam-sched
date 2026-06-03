@@ -20,15 +20,14 @@ use schedule_layout::{
     color::ColorMode,
     formats,
     grid::{
-        ContentMode, FooterMode, LayoutConfig, LayoutFilter, LayoutFormat, Orientation, PaperSize,
-        SplitMode,
+        ContentMode, FooterMode, LayoutConfig, Orientation, PanelFilter, PaperSize, SplitMode,
     },
     model::ScheduleData,
 };
 
 use cli::{
-    Args, ColorModeArg, ContentArg, FooterArg, FormatArg, LayoutJob, OrientationArg, PaperArg,
-    SplitArg,
+    Args, ColorModeArg, ContentArg, FooterArg, LayoutJob, OrientationArg, PaperArg,
+    PanelFilterArg, SplitArg,
 };
 
 fn main() {
@@ -128,36 +127,29 @@ fn run_job(
 ) -> Result<()> {
     let config = LayoutConfig {
         paper: map_paper(job.paper),
-        format: map_format(job.format),
-        split_by: map_split(job.split),
-        filter: build_filter(job),
+        content: build_content(job.content, job.split),
+        panel_filter: map_panel_filter(job.panel_filter),
         orientation: map_orientation(job.orientation),
         color_mode,
         columns: job.columns,
         footer: map_footer(job.footer),
-        content: map_content(job.content),
+        double_sided: job.double_sided,
+        header_text: job.header_text.clone(),
         base_font_pt: None,
         grid_font_pt: None,
     };
 
-    let outputs: Vec<(String, String)> = match job.format {
-        FormatArg::WorkshopsListing => {
-            formats::workshops_listing::generate(data, brand, &config)
-        }
-        FormatArg::RoomSigns => formats::room_signs::generate(data, brand, &config),
-        FormatArg::GuestPostcards => formats::guest_postcards::generate(data, brand, &config),
-        FormatArg::Flyer => formats::flyer::generate(data, brand, &config),
-    };
+    let outputs: Vec<(String, String)> = formats::flyer::generate(data, brand, &config);
 
     if outputs.is_empty() {
         eprintln!(
-            "warning: format {:?} produced no output (stub or no matching panels)",
-            job.format
+            "warning: content {:?} produced no output (no matching panels)",
+            job.content
         );
         return Ok(());
     }
 
-    // Determine base stem: explicit --stem > output_override file stem > format+paper default.
+    // Determine base stem: explicit --stem > output_override file stem > content+paper default.
     let base_stem: String = job
         .stem
         .clone()
@@ -169,7 +161,7 @@ fn run_job(
                 .and_then(|s| s.to_str())
                 .map(|s| s.to_string())
         })
-        .unwrap_or_else(|| default_stem(job.format));
+        .unwrap_or_else(|| default_stem(job.content));
 
     for (qualifier, typ_src) in &outputs {
         let file_stem = [
@@ -258,20 +250,34 @@ fn map_paper(p: PaperArg) -> PaperSize {
     }
 }
 
-fn map_format(f: FormatArg) -> LayoutFormat {
-    match f {
-        FormatArg::WorkshopsListing => LayoutFormat::WorkshopsListing,
-        FormatArg::RoomSigns => LayoutFormat::RoomSigns,
-        FormatArg::GuestPostcards => LayoutFormat::GuestPostcards,
-        FormatArg::Flyer => LayoutFormat::Flyer,
+fn map_split(s: SplitArg) -> SplitMode {
+    match s {
+        SplitArg::None => SplitMode::None,
+        SplitArg::Day => SplitMode::Day,
+        SplitArg::HalfDay => SplitMode::HalfDay,
+        SplitArg::Room => SplitMode::Room,
+        SplitArg::RoomDay => SplitMode::RoomDay,
+        SplitArg::Presenter => SplitMode::Presenter,
+        SplitArg::PresenterDay => SplitMode::PresenterDay,
     }
 }
 
-fn map_content(c: ContentArg) -> ContentMode {
+/// Combine the content choice with its split into a `ContentMode`.
+fn build_content(c: ContentArg, split: SplitArg) -> ContentMode {
+    let s = map_split(split);
     match c {
-        ContentArg::Both => ContentMode::Both,
-        ContentArg::GridOnly => ContentMode::GridOnly,
-        ContentArg::DescriptionOnly => ContentMode::DescriptionOnly,
+        ContentArg::Both => ContentMode::Both(s),
+        ContentArg::GridOnly => ContentMode::GridOnly(s),
+        ContentArg::DescriptionOnly => ContentMode::DescriptionOnly(s),
+        ContentArg::PanelList => ContentMode::PanelList(s),
+    }
+}
+
+fn map_panel_filter(f: PanelFilterArg) -> PanelFilter {
+    match f {
+        PanelFilterArg::All => PanelFilter::All,
+        PanelFilterArg::Workshops => PanelFilter::Workshops,
+        PanelFilterArg::Premium => PanelFilter::Premium,
     }
 }
 
@@ -283,13 +289,6 @@ fn map_footer(f: FooterArg) -> FooterMode {
     }
 }
 
-fn map_split(s: SplitArg) -> SplitMode {
-    match s {
-        SplitArg::Day => SplitMode::Day,
-        SplitArg::HalfDay => SplitMode::HalfDay,
-    }
-}
-
 fn map_orientation(o: OrientationArg) -> Orientation {
     match o {
         OrientationArg::Landscape => Orientation::Landscape,
@@ -297,22 +296,14 @@ fn map_orientation(o: OrientationArg) -> Orientation {
     }
 }
 
-/// Derive a default filename stem from format when the caller provides none.
-/// Paper size and split qualifier are appended automatically during filename assembly.
-fn default_stem(format: FormatArg) -> String {
-    match format {
-        FormatArg::WorkshopsListing => "workshops",
-        FormatArg::RoomSigns => "room-signs",
-        FormatArg::GuestPostcards => "postcards",
-        FormatArg::Flyer => "flyer",
+/// Derive a default filename stem from content when the caller provides none.
+/// Paper size is appended automatically during filename assembly.
+fn default_stem(content: ContentArg) -> String {
+    match content {
+        ContentArg::Both => "flyer",
+        ContentArg::GridOnly => "schedule",
+        ContentArg::DescriptionOnly => "desc",
+        ContentArg::PanelList => "list",
     }
     .to_string()
-}
-
-fn build_filter(job: &LayoutJob) -> LayoutFilter {
-    LayoutFilter {
-        premium_only: job.filter_premium,
-        room_uid: job.filter_room.map(i64::from),
-        guest_name: job.filter_guest.clone(),
-    }
 }

@@ -56,59 +56,63 @@ pub enum ColorModeArg {
 /// A single resolved layout job derived from `--layout_args`.
 #[derive(Debug, Clone)]
 pub struct LayoutJob {
-    pub format: FormatArg,
     pub paper: PaperArg,
+    /// What to render.
+    pub content: ContentArg,
+    /// How to split into sections.
     pub split: SplitArg,
     pub orientation: OrientationArg,
-    /// Base filename stem (no extension). Split qualifiers are appended with `-`.
-    /// Defaults to `None`; callers fall back to a `{format}-{paper}` slug.
+    /// Base filename stem (no extension). Defaults to `None`; callers fall back
+    /// to a `{content}-{paper}` slug.
     pub stem: Option<String>,
-    /// Flyer content sections.
-    pub content: ContentArg,
+    /// Which panels to include.
+    pub panel_filter: PanelFilterArg,
     /// Page-footer content.
     pub footer: FooterArg,
-    /// Column-count override (`None` uses the format/paper default).
+    /// Column-count override (`None` uses the content/paper default).
     pub columns: Option<u32>,
-    pub filter_premium: bool,
-    pub filter_room: Option<u32>,
-    pub filter_guest: Option<String>,
+    /// Pad each section onto an odd page (double-sided booklet).
+    pub double_sided: bool,
+    /// Optional header text (left for 1-D splits, right for `none`).
+    pub header_text: Option<String>,
     pub output_override: Option<PathBuf>,
 }
 
 impl Default for LayoutJob {
     fn default() -> Self {
         Self {
-            format: FormatArg::Flyer,
             paper: PaperArg::Tabloid,
+            content: ContentArg::Both,
             split: SplitArg::Day,
             orientation: OrientationArg::Landscape,
             stem: None,
-            content: ContentArg::Both,
+            panel_filter: PanelFilterArg::All,
             footer: FooterArg::Full,
             columns: None,
-            filter_premium: false,
-            filter_room: None,
-            filter_guest: None,
+            double_sided: false,
+            header_text: None,
             output_override: None,
         }
     }
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, ValueEnum)]
-pub enum FormatArg {
-    WorkshopsListing,
-    RoomSigns,
-    GuestPostcards,
-    Flyer,
-}
-
-/// Which content sections a flyer renders.
+/// What content to render.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default, ValueEnum)]
 pub enum ContentArg {
     #[default]
     Both,
     GridOnly,
     DescriptionOnly,
+    PanelList,
+}
+
+/// Which panels to include.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, ValueEnum)]
+pub enum PanelFilterArg {
+    #[default]
+    All,
+    Workshops,
+    Premium,
 }
 
 /// Page-footer content.
@@ -130,10 +134,16 @@ pub enum PaperArg {
     Postcard4x6,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, ValueEnum)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, ValueEnum)]
 pub enum SplitArg {
+    None,
+    #[default]
     Day,
     HalfDay,
+    Room,
+    RoomDay,
+    Presenter,
+    PresenterDay,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default, ValueEnum)]
@@ -164,18 +174,6 @@ pub fn parse_layout_jobs(raw: &[String]) -> anyhow::Result<Vec<LayoutJob>> {
         }
         has_content = true;
         match token.as_str() {
-            "--format" => {
-                let val = iter
-                    .next()
-                    .ok_or_else(|| anyhow::anyhow!("--format requires a value"))?;
-                current.format = match val.as_str() {
-                    "workshops-listing" => FormatArg::WorkshopsListing,
-                    "room-signs" => FormatArg::RoomSigns,
-                    "guest-postcards" => FormatArg::GuestPostcards,
-                    "flyer" => FormatArg::Flyer,
-                    other => anyhow::bail!("unknown --format value: {}", other),
-                };
-            }
             "--paper" => {
                 let val = iter
                     .next()
@@ -195,8 +193,13 @@ pub fn parse_layout_jobs(raw: &[String]) -> anyhow::Result<Vec<LayoutJob>> {
                     .next()
                     .ok_or_else(|| anyhow::anyhow!("--split requires a value"))?;
                 current.split = match val.as_str() {
+                    "none" => SplitArg::None,
                     "day" => SplitArg::Day,
                     "half-day" => SplitArg::HalfDay,
+                    "room" => SplitArg::Room,
+                    "room-day" => SplitArg::RoomDay,
+                    "presenter" => SplitArg::Presenter,
+                    "presenter-day" => SplitArg::PresenterDay,
                     other => anyhow::bail!("unknown --split value: {}", other),
                 };
             }
@@ -224,8 +227,29 @@ pub fn parse_layout_jobs(raw: &[String]) -> anyhow::Result<Vec<LayoutJob>> {
                     "both" => ContentArg::Both,
                     "grid-only" => ContentArg::GridOnly,
                     "description-only" => ContentArg::DescriptionOnly,
+                    "panel-list" => ContentArg::PanelList,
                     other => anyhow::bail!("unknown --content value: {}", other),
                 };
+            }
+            "--panel-filter" => {
+                let val = iter
+                    .next()
+                    .ok_or_else(|| anyhow::anyhow!("--panel-filter requires a value"))?;
+                current.panel_filter = match val.as_str() {
+                    "all" => PanelFilterArg::All,
+                    "workshops" => PanelFilterArg::Workshops,
+                    "premium" => PanelFilterArg::Premium,
+                    other => anyhow::bail!("unknown --panel-filter value: {}", other),
+                };
+            }
+            "--double-sided" => {
+                current.double_sided = true;
+            }
+            "--header-text" => {
+                let val = iter
+                    .next()
+                    .ok_or_else(|| anyhow::anyhow!("--header-text requires a value"))?;
+                current.header_text = Some(val.clone());
             }
             "--footer" => {
                 let val = iter
@@ -246,24 +270,6 @@ pub fn parse_layout_jobs(raw: &[String]) -> anyhow::Result<Vec<LayoutJob>> {
                     val.parse::<u32>()
                         .map_err(|_| anyhow::anyhow!("--columns must be a positive integer"))?,
                 );
-            }
-            "--filter-premium" => {
-                current.filter_premium = true;
-            }
-            "--filter-room" => {
-                let val = iter
-                    .next()
-                    .ok_or_else(|| anyhow::anyhow!("--filter-room requires a value"))?;
-                current.filter_room =
-                    Some(val.parse::<u32>().map_err(|_| {
-                        anyhow::anyhow!("--filter-room must be a room UID integer")
-                    })?);
-            }
-            "--filter-guest" => {
-                let val = iter
-                    .next()
-                    .ok_or_else(|| anyhow::anyhow!("--filter-guest requires a value"))?;
-                current.filter_guest = Some(val.clone());
             }
             "--output" => {
                 let val = iter
@@ -295,7 +301,7 @@ mod tests {
     fn test_parse_layout_jobs_defaults() {
         let jobs = parse_layout_jobs(&[]).unwrap();
         assert_eq!(jobs.len(), 1);
-        assert_eq!(jobs[0].format, FormatArg::Flyer);
+        assert_eq!(jobs[0].content, ContentArg::Both);
         assert_eq!(jobs[0].paper, PaperArg::Tabloid);
         assert_eq!(jobs[0].split, SplitArg::Day);
         assert_eq!(jobs[0].orientation, OrientationArg::Landscape);
@@ -303,7 +309,7 @@ mod tests {
 
     #[test]
     fn test_parse_layout_jobs_orientation() {
-        let args: Vec<String> = vec!["--format", "flyer", "--orientation", "portrait"]
+        let args: Vec<String> = vec!["--content", "grid-only", "--orientation", "portrait"]
             .into_iter()
             .map(String::from)
             .collect();
@@ -312,53 +318,59 @@ mod tests {
     }
 
     #[test]
-    fn test_parse_layout_jobs_stem() {
-        let args: Vec<String> = vec!["--format", "flyer", "--stem", "flyer-tabloid"]
-            .into_iter()
-            .map(String::from)
-            .collect();
+    fn test_parse_layout_jobs_content_split_filter() {
+        let args: Vec<String> = vec![
+            "--content",
+            "panel-list",
+            "--split",
+            "presenter",
+            "--panel-filter",
+            "workshops",
+            "--double-sided",
+            "--header-text",
+            "Cosplay America",
+        ]
+        .into_iter()
+        .map(String::from)
+        .collect();
         let jobs = parse_layout_jobs(&args).unwrap();
-        assert_eq!(jobs[0].stem, Some("flyer-tabloid".to_string()));
+        assert_eq!(jobs[0].content, ContentArg::PanelList);
+        assert_eq!(jobs[0].split, SplitArg::Presenter);
+        assert_eq!(jobs[0].panel_filter, PanelFilterArg::Workshops);
+        assert!(jobs[0].double_sided);
+        assert_eq!(jobs[0].header_text.as_deref(), Some("Cosplay America"));
     }
 
     #[test]
     fn test_parse_layout_jobs_single() {
         let args: Vec<String> = vec![
-            "--format",
-            "room-signs",
+            "--content",
+            "both",
+            "--split",
+            "room-day",
             "--paper",
             "super-b",
-            "--split",
-            "day",
         ]
         .into_iter()
         .map(String::from)
         .collect();
         let jobs = parse_layout_jobs(&args).unwrap();
         assert_eq!(jobs.len(), 1);
-        assert_eq!(jobs[0].format, FormatArg::RoomSigns);
+        assert_eq!(jobs[0].split, SplitArg::RoomDay);
         assert_eq!(jobs[0].paper, PaperArg::SuperB);
     }
 
     #[test]
     fn test_parse_layout_jobs_two_jobs() {
-        let args: Vec<String> = vec!["--format", "flyer", "--", "--format", "room-signs"]
-            .into_iter()
-            .map(String::from)
-            .collect();
+        let args: Vec<String> =
+            vec!["--content", "both", "--", "--content", "grid-only", "--split", "half-day"]
+                .into_iter()
+                .map(String::from)
+                .collect();
         let jobs = parse_layout_jobs(&args).unwrap();
         assert_eq!(jobs.len(), 2);
-        assert_eq!(jobs[0].format, FormatArg::Flyer);
-        assert_eq!(jobs[1].format, FormatArg::RoomSigns);
-    }
-
-    #[test]
-    fn test_parse_layout_jobs_filter_room() {
-        let args: Vec<String> = vec!["--format", "room-signs", "--filter-room", "42"]
-            .into_iter()
-            .map(String::from)
-            .collect();
-        let jobs = parse_layout_jobs(&args).unwrap();
-        assert_eq!(jobs[0].filter_room, Some(42));
+        assert_eq!(jobs[0].content, ContentArg::Both);
+        assert_eq!(jobs[1].content, ContentArg::GridOnly);
+        assert_eq!(jobs[1].split, SplitArg::HalfDay);
     }
 }

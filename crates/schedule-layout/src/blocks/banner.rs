@@ -277,8 +277,10 @@ fn build_inner(
              {img}, {})",
             banner_cell(brand, r),
         ),
-        // Logo only → centered
-        (None, None, Some(img)) => format!("#align(center)[{img}]"),
+        // Logo only → centered. `img` is a bare `image(..)` call, so it must be
+        // invoked with a leading `#` in this markup context (the grid branches
+        // above already sit in code context).
+        (None, None, Some(img)) => format!("#align(center)[#{img}]"),
         // Only left, no logo → centered
         (Some(l), None, None) => {
             format!("#align(center)[{}]", banner_text(brand, &escape_typst(l)))
@@ -328,6 +330,20 @@ mod tests {
         assert!(out.contains("Modified: Jun 15 4:00 PM"));
         assert!(out.contains("cosplayamerica.com"));
         assert!(out.contains("footer:"));
+    }
+
+    #[test]
+    fn test_page_header_logo_only_invokes_image() {
+        // No labels + a configured logo (the split=none / no header_text case):
+        // the logo must be invoked as `#image(...)`, not printed as literal text.
+        let mut brand = BrandConfig::default();
+        brand.meta.logo_path = Some(std::path::PathBuf::from("logo.svg"));
+        let out = page_header(&brand, None, None);
+        assert!(out.contains("#image("), "logo must be invoked: {out}");
+        assert!(
+            !out.contains("[image("),
+            "logo must not be bare markup text: {out}"
+        );
     }
 
     #[test]

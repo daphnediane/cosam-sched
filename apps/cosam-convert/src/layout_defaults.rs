@@ -35,23 +35,28 @@ pub struct LayoutDefaults {
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
 #[serde(default)]
 pub struct JobConfig {
-    /// Output format type: "workshops_listing", "room_signs", "guest_postcards", "flyer"
-    pub format: String,
     /// Paper size: "letter", "legal", "tabloid", "super_b", "poster", "postcard"
     pub paper: String,
-    /// How to split output: "day" or "half_day"
-    pub split_by: String,
+    /// Content: "both" (default), "grid_only", "description_only", "panel_list"
+    pub content: Option<String>,
+    /// How to split: "none", "day", "half_day", "room", "room_day", "presenter", "presenter_day"
+    #[serde(alias = "split_by")]
+    pub split: String,
     /// Orientation: "portrait" or "landscape"
     pub orientation: String,
     /// File stem prefix (e.g., "schedule", "desc", "workshops")
     pub stem: String,
+    /// Panel filter: "all" (default), "workshops", "premium". Optional.
+    pub panel_filter: Option<String>,
     /// Color mode: "color" (default) or "bw". Optional.
     pub color_mode: Option<String>,
-    /// Flyer content sections: "both" (default), "grid_only", "description_only". Optional.
-    pub content: Option<String>,
     /// Page footer: "full" (default), "timestamp_only", "none". Optional.
     pub footer: Option<String>,
-    /// Column-count override. If unset, the format/paper default is used.
+    /// Insert blank pages so each section starts on an odd page. Optional.
+    pub double_sided: Option<bool>,
+    /// Header text (left for 1-D splits, right for "none"). Optional.
+    pub header_text: Option<String>,
+    /// Column-count override. If unset, the content/paper default is used.
     pub columns: Option<u32>,
     /// Optional font size override (e.g., "13.2pt"). Uses defaults if not specified.
     pub base_font_pt: Option<String>,
@@ -107,21 +112,25 @@ mod tests {
     fn test_parse_toml_jobs() {
         let toml = r#"
 [[jobs]]
-format = "flyer"
 content = "grid_only"
 paper = "tabloid"
 split_by = "half_day"
 orientation = "landscape"
 stem = "schedule"
+panel_filter = "workshops"
 color_mode = "bw"
+double_sided = true
 columns = 5
 base_font_pt = "10pt"
 "#;
         let defaults = LayoutDefaults::from_str(toml).unwrap();
         assert_eq!(defaults.jobs.len(), 1);
-        assert_eq!(defaults.jobs[0].format, "flyer");
         assert_eq!(defaults.jobs[0].content, Some("grid_only".to_string()));
+        // `split_by` is accepted as an alias for `split`.
+        assert_eq!(defaults.jobs[0].split, "half_day");
+        assert_eq!(defaults.jobs[0].panel_filter, Some("workshops".to_string()));
         assert_eq!(defaults.jobs[0].color_mode, Some("bw".to_string()));
+        assert_eq!(defaults.jobs[0].double_sided, Some(true));
         assert_eq!(defaults.jobs[0].columns, Some(5));
         assert_eq!(defaults.jobs[0].base_font_pt, Some("10pt".to_string()));
     }

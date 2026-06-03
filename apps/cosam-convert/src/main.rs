@@ -967,8 +967,7 @@ fn run_layout_export(
         color::ColorMode,
         formats,
         grid::{
-            ContentMode, FooterMode, LayoutConfig, LayoutFilter, LayoutFormat, Orientation,
-            PaperSize, SplitMode,
+            ContentMode, FooterMode, LayoutConfig, Orientation, PanelFilter, PaperSize, SplitMode,
         },
         model::ScheduleData,
     };
@@ -1017,15 +1016,6 @@ fn run_layout_export(
     }
 
     // Helper functions to parse layout configuration strings
-    fn parse_format(s: &str) -> LayoutFormat {
-        match s {
-            "workshops_listing" | "workshops" => LayoutFormat::WorkshopsListing,
-            "room_signs" | "room-signs" => LayoutFormat::RoomSigns,
-            "guest_postcards" | "postcards" => LayoutFormat::GuestPostcards,
-            _ => LayoutFormat::Flyer,
-        }
-    }
-
     fn parse_color_mode(s: Option<&str>) -> ColorMode {
         match s {
             Some("bw") | Some("grayscale") => ColorMode::Bw,
@@ -1033,11 +1023,34 @@ fn run_layout_export(
         }
     }
 
-    fn parse_content(s: Option<&str>) -> ContentMode {
+    fn parse_split(s: &str) -> SplitMode {
         match s {
-            Some("grid_only") | Some("grid-only") => ContentMode::GridOnly,
-            Some("description_only") | Some("description-only") => ContentMode::DescriptionOnly,
-            _ => ContentMode::Both,
+            "none" => SplitMode::None,
+            "half_day" | "half" => SplitMode::HalfDay,
+            "room" => SplitMode::Room,
+            "room_day" | "room-day" => SplitMode::RoomDay,
+            "presenter" => SplitMode::Presenter,
+            "presenter_day" | "presenter-day" => SplitMode::PresenterDay,
+            _ => SplitMode::Day,
+        }
+    }
+
+    fn parse_content(s: Option<&str>, split: SplitMode) -> ContentMode {
+        match s {
+            Some("grid_only") | Some("grid-only") => ContentMode::GridOnly(split),
+            Some("description_only") | Some("description-only") => {
+                ContentMode::DescriptionOnly(split)
+            }
+            Some("panel_list") | Some("panel-list") => ContentMode::PanelList(split),
+            _ => ContentMode::Both(split),
+        }
+    }
+
+    fn parse_panel_filter(s: Option<&str>) -> PanelFilter {
+        match s {
+            Some("workshops") => PanelFilter::Workshops,
+            Some("premium") => PanelFilter::Premium,
+            _ => PanelFilter::All,
         }
     }
 
@@ -1061,13 +1074,6 @@ fn run_layout_export(
         }
     }
 
-    fn parse_split(s: &str) -> SplitMode {
-        match s {
-            "half_day" | "half" => SplitMode::HalfDay,
-            _ => SplitMode::Day,
-        }
-    }
-
     fn parse_orientation(s: &str) -> Orientation {
         match s {
             "portrait" => Orientation::Portrait,
@@ -1080,15 +1086,15 @@ fn run_layout_export(
         jobs.iter()
             .map(|job| LayoutOutputJob {
                 config: LayoutConfig {
-                    format: parse_format(&job.format),
                     paper: parse_paper(&job.paper),
-                    split_by: parse_split(&job.split_by),
+                    content: parse_content(job.content.as_deref(), parse_split(&job.split)),
+                    panel_filter: parse_panel_filter(job.panel_filter.as_deref()),
                     orientation: parse_orientation(&job.orientation),
-                    filter: LayoutFilter::default(),
                     color_mode: parse_color_mode(job.color_mode.as_deref()),
                     columns: job.columns,
                     footer: parse_footer(job.footer.as_deref()),
-                    content: parse_content(job.content.as_deref()),
+                    double_sided: job.double_sided.unwrap_or(false),
+                    header_text: job.header_text.clone(),
                     base_font_pt: job.base_font_pt.clone(),
                     grid_font_pt: job.grid_font_pt.clone(),
                 },
@@ -1135,25 +1141,14 @@ fn run_layout_export(
     }
 
     for job in jobs_to_run {
-        let outputs = match job.config.format {
-            LayoutFormat::WorkshopsListing => {
-                formats::workshops_listing::generate(&data, &brand, &job.config)
-            }
-            LayoutFormat::RoomSigns => {
-                formats::room_signs::generate(&data, &brand, &job.config)
-            }
-            LayoutFormat::GuestPostcards => {
-                formats::guest_postcards::generate(&data, &brand, &job.config)
-            }
-            LayoutFormat::Flyer => formats::flyer::generate(&data, &brand, &job.config),
-        };
+        let outputs = formats::flyer::generate(&data, &brand, &job.config);
 
         // PDFs go into a per-paper-size subdirectory.
         let paper_dir = layout_dir.join(job.config.paper.dir_name());
         if let Err(e) = fs::create_dir_all(&paper_dir) {
             eprintln!(
                 "warning: creating {:?}: {e}; skipping {:?}",
-                paper_dir, job.config.format
+                paper_dir, job.config.content
             );
             continue;
         }

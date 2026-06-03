@@ -168,6 +168,103 @@ pub(crate) fn render_time_grouped_panels<'a>(
     out
 }
 
+/// Render a compact panel list (name + time + room) for a section, inserting a
+/// small day heading whenever the date changes. Used by the `PanelList` content
+/// mode (formerly the guest-postcard layout). Designed to flow inside a
+/// `#columns()` block like [`render_time_grouped_panels`].
+pub(crate) fn render_panel_list<'a>(
+    data: &'a ScheduleData,
+    color_mode: ColorMode,
+    panels: &[&'a Panel],
+    base_font_pt: &str,
+) -> String {
+    let secondary_size = calc_secondary_size(base_font_pt);
+
+    // Stable chronological order.
+    let mut ordered: Vec<&Panel> = panels.to_vec();
+    ordered.sort_by(|a, b| {
+        a.start_time
+            .as_deref()
+            .unwrap_or("")
+            .cmp(b.start_time.as_deref().unwrap_or(""))
+    });
+
+    let all_days: Vec<&str> = ordered
+        .iter()
+        .filter_map(|p| p.start_time.as_deref().and_then(|s| s.get(..10)))
+        .collect::<HashSet<_>>()
+        .into_iter()
+        .collect();
+
+    let mut out = String::new();
+    out.push_str("#show heading.where(level: 2): set block(sticky: true)\n\n");
+
+    let mut current_day = "";
+    for panel in &ordered {
+        let day_str = panel
+            .start_time
+            .as_deref()
+            .and_then(|s| s.get(..10))
+            .unwrap_or("");
+        if day_str != current_day {
+            current_day = day_str;
+            let label = crate::typst_gen::make_day_label(day_str, &all_days);
+            out.push_str(&format!("== {}\n\n", escape_typst(&label)));
+        }
+
+        let time = panel
+            .start_time
+            .as_deref()
+            .map(time_fmt::format_time)
+            .unwrap_or_default();
+        let room = panel
+            .room_ids
+            .first()
+            .and_then(|uid| data.rooms.iter().find(|r| r.uid == *uid))
+            .map(|r| {
+                if !r.short_name.is_empty() {
+                    r.short_name.as_str()
+                } else {
+                    r.long_name.as_str()
+                }
+            })
+            .unwrap_or("");
+        let color_str = panel
+            .panel_type
+            .as_ref()
+            .and_then(|pt| data.panel_types.get(pt.as_str()))
+            .and_then(|pt| PanelColor::resolve(&pt.colors, color_mode))
+            .map(|c| c.hex)
+            .unwrap_or_default();
+        let accent = if color_str.is_empty() {
+            String::new()
+        } else {
+            format!("#rect(fill: rgb(\"{}\"), width: 3pt, height: 0.6em)#h(3pt)", color_str)
+        };
+
+        let meta = {
+            let mut parts: Vec<String> = vec![];
+            if !time.is_empty() {
+                parts.push(escape_typst(&time));
+            }
+            if !room.is_empty() {
+                parts.push(escape_typst(room));
+            }
+            parts.join(" · ")
+        };
+
+        out.push_str(&format!(
+            "#block(breakable: false)[{accent}*{name}* #h(1fr) #text(size: {sz})[{meta}]]\n#v(0.3em)\n",
+            accent = accent,
+            name = escape_typst(&panel.name),
+            sz = secondary_size,
+            meta = meta,
+        ));
+    }
+
+    out
+}
+
 /// Calculate the secondary text size based on base font size.
 /// Returns a string like "8pt" for captions and metadata.
 /// Secondary text is slightly smaller than base (0.9x multiplier).

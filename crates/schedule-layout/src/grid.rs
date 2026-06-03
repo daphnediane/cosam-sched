@@ -147,28 +147,37 @@ impl PaperSize {
     }
 }
 
-/// Output layout format.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
-pub enum LayoutFormat {
-    /// Combined workshops listing (all workshops across all days, one document).
-    WorkshopsListing,
-    RoomSigns,
-    GuestPostcards,
-    /// Double-sided flyer producing one multi-day document. By default the
-    /// schedule grid sits on the left half of each section's first page with
-    /// descriptions flowing through the remaining columns, but [`ContentMode`]
-    /// can restrict it to grid-only (replacing the old `Schedule` format) or
-    /// description-only (replacing the old `Descriptions` format) output.
-    #[default]
-    Flyer,
-}
-
-/// How to split the schedule output.
+/// How to split the layout into sections.
+///
+/// Each section becomes a page (or page run). 2-D variants (`RoomDay`,
+/// `PresenterDay`) split by an entity *and* by day; `Room`/`Presenter` collapse
+/// to their `*Day` form for grid-bearing content (see
+/// [`ContentMode::effective_split`]).
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub enum SplitMode {
+    /// No split — one continuous document.
+    None,
+    /// One section per calendar day.
     #[default]
     Day,
+    /// One section per AM/PM half-day.
     HalfDay,
+    /// One section per room (all days).
+    Room,
+    /// One section per room per day.
+    RoomDay,
+    /// One section per presenter (all days).
+    Presenter,
+    /// One section per presenter per day.
+    PresenterDay,
+}
+
+impl SplitMode {
+    /// Whether this split carries a second (per-day) dimension alongside an
+    /// entity — i.e. uses the two-slot running header (entity left / day right).
+    pub fn is_two_dim(self) -> bool {
+        matches!(self, SplitMode::RoomDay | SplitMode::PresenterDay)
+    }
 }
 
 /// Page-footer content.
@@ -184,47 +193,101 @@ pub enum FooterMode {
     None,
 }
 
-/// Which content sections a flyer renders.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+/// Which content a section renders, carrying the [`SplitMode`] for that content.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum ContentMode {
-    /// Schedule grid and panel descriptions (the default).
-    #[default]
-    Both,
+    /// Schedule grid and panel descriptions side by side.
+    Both(SplitMode),
     /// Schedule grid only — no descriptions.
-    GridOnly,
-    /// Panel descriptions only — no grid. Always rendered as one continuous
-    /// flow (`split_by` is ignored).
-    DescriptionOnly,
+    GridOnly(SplitMode),
+    /// Panel descriptions only — no grid.
+    DescriptionOnly(SplitMode),
+    /// Compact panel list (name + time + room), the former guest-postcard layout.
+    PanelList(SplitMode),
 }
 
-/// Filter criteria for layout generation.
-#[derive(Debug, Clone, Default)]
-pub struct LayoutFilter {
-    /// Workshop poster: include premium-only workshops.
-    pub premium_only: bool,
-    /// Room signs: filter to specific room UID.
-    pub room_uid: Option<i64>,
-    /// Guest postcards: filter to specific presenter name.
-    pub guest_name: Option<String>,
+impl Default for ContentMode {
+    fn default() -> Self {
+        ContentMode::Both(SplitMode::Day)
+    }
+}
+
+impl ContentMode {
+    /// The split as configured.
+    pub fn split(self) -> SplitMode {
+        match self {
+            ContentMode::Both(s)
+            | ContentMode::GridOnly(s)
+            | ContentMode::DescriptionOnly(s)
+            | ContentMode::PanelList(s) => s,
+        }
+    }
+
+    /// The split actually used for sectioning. Grid-bearing content cannot span
+    /// multiple days in one grid, so `Presenter`/`Room` collapse to their
+    /// per-day form.
+    pub fn effective_split(self) -> SplitMode {
+        let s = self.split();
+        if self.shows_grid() {
+            match s {
+                SplitMode::Presenter => SplitMode::PresenterDay,
+                SplitMode::Room => SplitMode::RoomDay,
+                other => other,
+            }
+        } else {
+            s
+        }
+    }
+
+    /// Whether this content draws the schedule grid.
+    pub fn shows_grid(self) -> bool {
+        matches!(self, ContentMode::Both(_) | ContentMode::GridOnly(_))
+    }
+
+    /// Whether this content draws panel text (descriptions or list).
+    pub fn shows_text(self) -> bool {
+        matches!(
+            self,
+            ContentMode::Both(_) | ContentMode::DescriptionOnly(_) | ContentMode::PanelList(_)
+        )
+    }
+}
+
+/// Which panels to include in the layout.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum PanelFilter {
+    /// Every scheduled panel (the default).
+    #[default]
+    All,
+    /// Workshop panels only (premium workshops included; cafe excluded).
+    Workshops,
+    /// Premium workshops only.
+    Premium,
 }
 
 /// Complete configuration for a single layout job.
 #[derive(Debug, Clone, Default)]
 pub struct LayoutConfig {
     pub paper: PaperSize,
-    pub format: LayoutFormat,
-    pub split_by: SplitMode,
-    pub filter: LayoutFilter,
+    /// What to render and how to split it.
+    pub content: ContentMode,
+    /// Which panels to include.
+    pub panel_filter: PanelFilter,
     pub orientation: Orientation,
     /// Color or black-and-white output.
     pub color_mode: ColorMode,
-    /// Override for the number of layout columns. If `None`, each format uses its
-    /// own per-paper default (e.g. [`PaperSize::flyer_columns`]).
+    /// Override for the number of layout columns. If `None`, each content mode
+    /// uses its own per-paper default (e.g. [`PaperSize::flyer_columns`]).
     pub columns: Option<u32>,
     /// Page-footer content.
     pub footer: FooterMode,
-    /// Which content sections to render (flyer only).
-    pub content: ContentMode,
+    /// Insert a blank page so each section starts on an odd page (double-sided
+    /// booklet printing).
+    pub double_sided: bool,
+    /// Optional header text: shown on the left for 1-D splits, on the right for
+    /// [`SplitMode::None`], and omitted for 2-D splits (where both header slots
+    /// carry the running entity/day labels).
+    pub header_text: Option<String>,
     /// Override for base font size (e.g., "14pt"). If None, uses paper's default.
     pub base_font_pt: Option<String>,
     /// Override for grid event text size (e.g., "8pt"). If None, uses base_font_pt.

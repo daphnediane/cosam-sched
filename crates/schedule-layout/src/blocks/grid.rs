@@ -10,6 +10,8 @@
 //! light-grey empty slots.  Used by both the schedule format (full page)
 //! and room signs (embedded in a side-by-side layout).
 
+use std::collections::HashSet;
+
 use crate::color::{ColorMode, PanelColor};
 use crate::grid::GridLayout;
 use crate::model::ScheduleData;
@@ -20,6 +22,9 @@ use crate::typst_gen::escape_typst;
 pub(crate) struct GridRenderConfig {
     /// If set, highlight this room's column with brand-primary tint.
     pub highlight_room_uid: Option<i64>,
+    /// If set, highlight individual event cells whose `panel.id` is in this set
+    /// (used for presenter schedules). Independent of the column highlight.
+    pub highlight_panel_ids: Option<HashSet<String>>,
     /// Day heading printed above the grid (empty = suppressed).
     pub day_label: String,
     /// Label shown in the top-left corner cell, above the time column (empty =
@@ -85,6 +90,7 @@ impl GridRenderConfig {
         Self {
             ..Self {
                 highlight_room_uid: self.highlight_room_uid,
+                highlight_panel_ids: self.highlight_panel_ids.clone(),
                 day_label: self.day_label,
                 corner_label: self.corner_label,
                 max_height: self.max_height,
@@ -110,6 +116,7 @@ impl GridRenderConfig {
         let cost = secondary * 1.05;
         Self {
             highlight_room_uid: None,
+            highlight_panel_ids: None,
             day_label: String::new(),
             corner_label: String::new(),
             max_height: None,
@@ -373,7 +380,20 @@ fn render_room_cells(
             .find(|c| c.row_start == row_idx && c.col == col_idx);
 
         if let Some(cell) = cell {
-            render_event_cell(out, cell, data, color_mode, config, is_highlighted);
+            // An event cell is highlighted by its room column OR when its panel
+            // id is in the per-panel highlight set (presenter schedules).
+            let panel_highlighted = config
+                .highlight_panel_ids
+                .as_ref()
+                .is_some_and(|ids| ids.contains(&cell.panel.id));
+            render_event_cell(
+                out,
+                cell,
+                data,
+                color_mode,
+                config,
+                is_highlighted || panel_highlighted,
+            );
         } else {
             render_empty_or_spanned_cell(
                 out,
