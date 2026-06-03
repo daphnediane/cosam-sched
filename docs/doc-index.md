@@ -31,7 +31,7 @@ Complete index of cosam-sched documentation, including current documents and pla
 ### JSON Format Documentation
 
 * **widget-json-format.md** - Standalone widget JSON display format (public-facing format consumed by the calendar widget)
-* **widget-html-format.md** - Hybrid widget-html embedded format: structural JSON block (meta, rooms, panelTypes, timeline, presenters) plus semantic HTML panel elements for SEO crawlability and no-JS progressive enhancement
+* **widget-html-format.md** - Hybrid widget-html embedded format: structural JSON block (meta, rooms, panelTypes, timeline, presenters) plus semantic HTML panel elements for search engine visibility and no-JS progressive enhancement
 
 ### Work Item System
 
@@ -91,4 +91,4 @@ The following documents are stubs to be expanded as the project progresses.
 
 When completing work items, update relevant documentation listed in this index. Always cross-reference between documents when changes affect multiple areas.
 
-See `.windsurf/rules/track_work_item.md` or `.claude/rules/track_work_item.md` for the work item tracking workflow and documentation update guidelines.
+See `.devin/rules/track_work_item.md` or `.claude/rules/track_work_item.md` for the work item tracking workflow and documentation update guidelines.

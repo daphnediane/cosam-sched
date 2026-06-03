@@ -2,7 +2,7 @@
 
 Embeddable vanilla JS/CSS calendar widget. No framework dependencies — designed to work inside Squarespace Code Blocks.
 
-Interactive event calendar for Cosplay America. This is a complete rewrite of the [schedule-to-html](https://github.com/daphnediane/schedule-to-html) project, adapted for modern web embedding with enhanced interactivity.
+Interactive event calendar for Cosplay America. This is a complete rewrite of the [schedule-to-html] project, adapted for modern web embedding with enhanced interactivity.
 
 ## License
 
@@ -10,7 +10,7 @@ Copyright (c) 2026 Daphne Pfister. Licensed under the [BSD-2-Clause License](LIC
 
 ## Attribution
 
-This project is a rewrite of and based on the original [schedule-to-html](https://github.com/daphnediane/schedule-to-html) project. Development assisted by [Windsurf](https://windsurf.com/) AI.
+This project is a rewrite of and based on the original [schedule-to-html] project. Development assisted by [Devin] AI formerly known as Windsurf and [Claude Code].
 
 ## Files
 
@@ -101,3 +101,7 @@ Rebuild all years at once:
 ```bash
 ./scripts/export-schedules.sh
 ```
+
+[schedule-to-html]: https://github.com/daphnediane/schedule-to-html
+[Devin]: https://www.devin.ai/
+[Claude Code]: https://claude.com/code

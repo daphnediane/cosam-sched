@@ -10,13 +10,13 @@ The native schedule file format is a versioned binary envelope wrapping an
 
 ### Binary Layout (Format Version 1)
 
-| Offset | Width | Type       | Description                              |
-|--------|-------|------------|------------------------------------------|
-| 0      | 6     | bytes      | Magic: `COSAM\x00` (ASCII + NUL)         |
-| 6      | 2     | `u16` LE   | Format version (currently `1`)           |
-| 8      | 4     | `u32` LE   | Metadata JSON byte length (`N`)          |
-| 12     | N     | UTF-8 JSON | [`ScheduleMetadata`](#schedulemetadata)  |
-| 12+N   | …     | bytes      | Automerge binary document                |
+| Offset | Width | Type       | Description                             |
+| ------ | ----- | ---------- | --------------------------------------- |
+| 0      | 6     | bytes      | Magic: `COSAM\x00` (ASCII + NUL)        |
+| 6      | 2     | `u16` LE   | Format version (currently `1`)          |
+| 8      | 4     | `u32` LE   | Metadata JSON byte length (`N`)         |
+| 12     | N     | UTF-8 JSON | [`ScheduleMetadata`](#schedulemetadata) |
+| 12+N   | …     | bytes      | Automerge binary document               |
 
 All multi-byte integers are little-endian.
 
@@ -24,12 +24,12 @@ All multi-byte integers are little-endian.
 
 The metadata section is a JSON object with the following fields:
 
-| Field         | JSON type | Description                                           |
-|---------------|-----------|-------------------------------------------------------|
-| `schedule_id` | string    | UUID v7 uniquely identifying this schedule document   |
-| `created_at`  | string    | ISO 8601 UTC timestamp of original creation           |
+| Field         | JSON type | Description                                             |
+| ------------- | --------- | ------------------------------------------------------- |
+| `schedule_id` | string    | UUID v7 uniquely identifying this schedule document     |
+| `created_at`  | string    | ISO 8601 UTC timestamp of original creation             |
 | `generator`   | string    | Tool that created the file (e.g. `"cosam-convert 0.1"`) |
-| `version`     | number    | Monotonically increasing edit counter (`u32`)         |
+| `version`     | number    | Monotonically increasing edit counter (`u32`)           |
 
 ### Automerge Payload
 
@@ -52,7 +52,7 @@ on the canonical owner entity. See `edge_crdt.rs` for the ownership table.
 
 - Format version `1` is the initial release.
 - The `load_from_file` function returns `LoadError::Format` for any
-  unrecognised version, preserving forward-error safety.
+  unrecognized version, preserving forward-error safety.
 - Future versions will increment the version field; old readers will
   report a clear error rather than silently misreading data.
 

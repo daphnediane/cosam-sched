@@ -23,7 +23,7 @@ Write commit messages to `./next-commit.txt` in the repository root.
   - <Nested details>
 - <More work>
 
-Written with assistance from Windsurf AI
+Written with assistance from Devin AI
 [model]
 ```
 
@@ -62,9 +62,9 @@ Implement a structured work item system for tracking tasks.
 
 - Add docs/work-item/ with per-item markdown files [META-001]
 - Add scripts/work-item-update.pl to generate docs/WORK_ITEMS.md
-- Update .gitignore to preserve .windsurf/rules/
+- Update .gitignore to preserve .devin/rules/
 
-Written with assistance from Windsurf AI
+Written with assistance from Devin AI
 Claude Opus 4.6 Thinking
 ```
 

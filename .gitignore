@@ -21,11 +21,11 @@
 !/.claude/workflows
 !/.claude/settings.json
 
-# Keep windsurf rules
-!/.windsurf
-/.windsurf/*
-!/.windsurf/rules
-!/.windsurf/workflows
+# Keep devin rules
+!/.devin
+/.devin/*
+!/.devin/rules
+!/.devin/workflows
 
 # Keep some config files
 !/.devcontainer

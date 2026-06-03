@@ -10,7 +10,7 @@ description: AI assistance attribution for commit messages
 All commit messages must include an AI assistance declaration at the end:
 
 ```
-Written with assistance from Windsurf AI
+Written with assistance from Devin AI
 [model]
 ```
 
@@ -23,12 +23,12 @@ Written with assistance from Windsurf AI
 ## Examples
 
 ```
-Written with assistance from Windsurf AI
+Written with assistance from Devin AI
 Claude Opus 4.6 Thinking
 ```
 
 ```
-Written with assistance from Windsurf AI
+Written with assistance from Devin AI
 Claude Sonnet 4.5
 ```
 

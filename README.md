@@ -4,7 +4,7 @@ Embeddable interactive event schedule system for conventions and multi-track eve
 Imports schedule data from XLSX spreadsheets, exports public-facing JSON for the
 calendar widget, and produces self-contained HTML pages ready to embed or test.
 
-Originally developed for [Cosplay America](https://cosplayamerica.com/), and
+Originally developed for [Cosplay America], and
 open to use by any event that fits the spreadsheet format.
 
 ## Quick Start
@@ -25,14 +25,14 @@ cosam-convert --input "My Event.xlsx" \
 - `--export-embed` writes a self-contained HTML snippet for embedding
 - `--export-test` writes a standalone page for local testing
 
-See [docs/cosam-convert.md](docs/cosam-convert.md) for the full CLI reference.
+See [docs/cosam-convert.md] for the full CLI reference.
 
 ## Using with Your Own Event
 
 The schedule format is a multi-sheet XLSX spreadsheet — the same format as the
-original [schedule-to-html](https://github.com/daphnediane/schedule-to-html) project.
+original [schedule-to-html] project.
 If you want to run this for your own convention or multi-track event, start with
-[docs/spreadsheet-format.md](docs/spreadsheet-format.md).
+[docs/spreadsheet-format.md].
 
 A desktop editor for creating and collaborating on schedules is planned (see
 `cosam-editor` in the component list below).
@@ -50,12 +50,12 @@ scripts/export-schedules.ps1       # PowerShell / Windows
 
 ## Components
 
-| Component       | Description                                       |
-| --------------- | ------------------------------------------------- |
-| `cosam-convert` | CLI for importing XLSX and exporting JSON / HTML  |
-| `cosam-modify`  | CLI for editing schedule data                     |
-| `cosam-editor`  | Desktop GUI editor (in development)               |
-| `widget/`       | Embeddable JavaScript calendar widget             |
+| Component       | Description                                      |
+| --------------- | ------------------------------------------------ |
+| `cosam-convert` | CLI for importing XLSX and exporting JSON / HTML |
+| `cosam-modify`  | CLI for editing schedule data                    |
+| `cosam-editor`  | Desktop GUI editor (in development)              |
+| `widget/`       | Embeddable JavaScript calendar widget            |
 
 ## Spreadsheet Format
 
@@ -67,35 +67,35 @@ The schedule is defined across up to four sheets in an XLSX workbook:
 - **Prefix** / **PanelTypes**: panel type definitions with colors and flags
 - **Presenters** / **People**: presenter classifications and group memberships
 
-See [docs/spreadsheet-format.md](docs/spreadsheet-format.md) for the full column
+See [docs/spreadsheet-format.md] for the full column
 reference.
 
 ## Widget
 
 The calendar widget is a self-contained JavaScript/CSS package that renders the
 exported JSON as an interactive filterable schedule grid. See
-[widget/README.md](widget/README.md) for embedding instructions.
+[widget/README.md] for embedding instructions.
 
 ## Documentation
 
-User and developer documentation lives in [docs/doc-index.md](docs/doc-index.md).
+User and developer documentation lives in [docs/doc-index.md].
 
 ## License
 
 Copyright (c) 2026 Daphne Pfister. Licensed under the
-[BSD-2-Clause License](LICENSE).
+[BSD-2-Clause License].
 
 ## Attribution
 
 This project is a rewrite of and based on the original
-[schedule-to-html](https://github.com/daphnediane/schedule-to-html) project.
+[schedule-to-html] project.
 
 ## AI Coding Declaration
 
 Development of this project has been assisted by AI coding tools:
 
-- [Windsurf](https://windsurf.com/)
-- [Claude Code](https://claude.ai/code)
+- [Devin] (formerly [Windsurf])
+- [Claude Code]
 
 ### A note of my goals, or why AI
 
@@ -124,3 +124,15 @@ I'd normally toss a few em-dashes in something like this, but that would
 make this part sound like it was written by AI—instead of by me.
 
 AI did in fact write most of this README, but this note section all me.
+
+Update:
+Devin also tried to replace Windsurf above with "Devin" in my comments
+above, but when I when I wrote this note it was Windsurf so leaving it
+alone. So easy to hit accept all, but I *have* to read all the changes.
+
+[BSD-2-Clause License]: LICENSE
+[Claude Code]: https://claude.ai/code
+[Cosplay America]: https://cosplayamerica.com/
+[Devin]: https://www.devin.ai/
+[schedule-to-html]: https://github.com/daphnediane/schedule-to-html
+[Windsurf]: https://windsurf.com/

@@ -13,5 +13,5 @@ Prompt: [note if summarized or verbatim]
 Followup: [note if summarized or verbatim]
 [followup]
 
-Written with assistance from Windsurf AI
+Written with assistance from Devin AI
 [model]

@@ -49,4 +49,4 @@ Update relevant docs when completing work:
 - [ ] Relevant documentation updated
 - [ ] Commit message references work item
 
-See `.windsurf/workflows/execution-rhythm.md` for the full development workflow.
+See `.devin/workflows/execution-rhythm.md` for the full development workflow.

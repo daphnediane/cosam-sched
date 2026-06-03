@@ -34,6 +34,6 @@ When Phase N removes infrastructure that Phase N+1 depends on for testing, you m
 
 ## Committing
 
-Follow `.windsurf/workflows/commit-changes.md` for commit workflow. See `.windsurf/rules/comment-file.md` for format and `.windsurf/rules/attribution.md` for AI attribution.
+Follow `.devin/workflows/commit-changes.md` for commit workflow. See `.devin/rules/comment-file.md` for format and `.devin/rules/attribution.md` for AI attribution.
 
 Always propose the commit command for user approval rather than auto-running.

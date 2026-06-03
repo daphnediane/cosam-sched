@@ -4,7 +4,7 @@ description: Execute a work item or plan phase with proper tracking
 
 # Execution Rhythm
 
-Execute a single work item or plan phase. See `.windsurf/rules/execution-rhythm.md` for principles and guidelines.
+Execute a single work item or plan phase. See `.devin/rules/execution-rhythm.md` for principles and guidelines.
 
 ## Prerequisites
 
@@ -43,9 +43,9 @@ cargo clippy  # fix warnings
 
 ### 6. Commit or Amend
 
-**New work:** Follow `.windsurf/workflows/commit-changes.md` — creates new commit from `./next-commit.txt`
+**New work:** Follow `.devin/workflows/commit-changes.md` — creates new commit from `./next-commit.txt`
 
-**Fixes to same work item:** Follow `.windsurf/workflows/amend-changes.md` — amends previous commit using `./next-amend.txt`
+**Fixes to same work item:** Follow `.devin/workflows/amend-changes.md` — amends previous commit using `./next-amend.txt`
 
 ### 7. Next Steps
 
@@ -61,4 +61,4 @@ If current phase breaks infrastructure that future phases fix:
 - Document absorbed scope in commit message
 - Mark absorbed sub-tasks done in future work item
 
-See `.windsurf/rules/execution-rhythm.md` for detailed flexibility guidelines.
+See `.devin/rules/execution-rhythm.md` for detailed flexibility guidelines.
