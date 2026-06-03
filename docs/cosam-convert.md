@@ -32,6 +32,7 @@ appears. Multiple commands of any type may be mixed in one invocation.
 | `--export <file.json>`, `-e <file.json>` | Export public widget JSON (see [widget-json-format.md](widget-json-format.md)).                                                                                                                        |
 | `--export-embed <file.html>`             | Self-contained embeddable HTML snippet — inline CSS, JS, and schedule data; no external dependencies. Paste into a Squarespace Code Block. Format controlled by `--embed-as-html` / `--embed-as-json`. |
 | `--export-test <file.html>`              | Standalone test page simulating a Squarespace Bedford-family site with the widget embedded.                                                                                                            |
+| `--export-xlsx-grid <file.xlsx>`         | Export only the per-day grid reference sheets (one sheet per logical day), omitting the data tables that `--output <file>.xlsx` includes.                                                              |
 
 ## Validation
 

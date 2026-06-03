@@ -17,7 +17,9 @@ use schedule_core::widget_json::{
     export_to_widget_json, import_from_widget_json, load_from_file, load_from_url, WidgetExport,
     WidgetJsonError,
 };
-use schedule_core::xlsx::{export_xlsx, import_xlsx, TableImportMode, TableImportOptions};
+use schedule_core::xlsx::{
+    export_xlsx, export_xlsx_grid, import_xlsx, TableImportMode, TableImportOptions,
+};
 
 mod conflicts;
 mod embed;
@@ -154,6 +156,7 @@ enum OutputType {
     ExportEmbed,
     ExportTest,
     ExportCsv,
+    ExportXlsxGrid,
     #[cfg(feature = "layout")]
     ExportLayout,
 }
@@ -326,6 +329,20 @@ fn parse_args() -> Result<CliArgs> {
                     path,
                     settings: current_settings.clone(),
                     job_type: OutputType::ExportCsv,
+                });
+                first_setting_index = None;
+            }
+            "--export-xlsx-grid" => {
+                index += 1;
+                if index >= arguments.len() {
+                    anyhow::bail!("Missing value for --export-xlsx-grid");
+                }
+                let path = PathBuf::from(&arguments[index]);
+                check_duplicate_output(&args.output_jobs, &path)?;
+                args.output_jobs.push(OutputJob {
+                    path,
+                    settings: current_settings.clone(),
+                    job_type: OutputType::ExportXlsxGrid,
                 });
                 first_setting_index = None;
             }
@@ -556,7 +573,7 @@ fn parse_args() -> Result<CliArgs> {
     if args.output_jobs.is_empty() && !args.check_only {
         anyhow::bail!(
             "At least one output option is required \
-             (--output, --export, --export-embed, --export-test, --export-csv-dir) unless --check is specified"
+             (--output, --export, --export-embed, --export-test, --export-csv-dir, --export-xlsx-grid) unless --check is specified"
         );
     }
 
@@ -577,6 +594,7 @@ fn print_usage() {
          \x20 --export-embed <file.html>           Export embeddable HTML (inline CSS/JS + schedule data)\n\
          \x20 --export-test <file.html>            Export standalone test page (Squarespace sim)\n\
          \x20 --export-csv-dir <dir>               Export CSV files to directory (UTF-8 comma-delimited)\n\
+         \x20 --export-xlsx-grid <file.xlsx>       Export grid reference sheets only (no data tables)\n\
          \x20 --export-layout <dir>                Run cosam-layout; write PDFs to <dir> (requires cosam-layout on PATH)\n\
          \n\
          Validation:\n\
@@ -824,6 +842,19 @@ fn main() {
                     }
                 }
                 Ok(())
+            }
+            OutputType::ExportXlsxGrid => {
+                // ExportXlsxGrid needs Schedule
+                match input_type.as_schedule() {
+                    Ok(sched) => export_xlsx_grid(sched, &job.path).map(|()| {
+                        eprintln!("Exported grid XLSX: {}", job.path.display());
+                    }),
+                    Err(e) => {
+                        eprintln!("Error: {e}");
+                        had_error = true;
+                        Ok(())
+                    }
+                }
             }
             #[cfg(feature = "layout")]
             OutputType::ExportLayout => {

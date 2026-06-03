@@ -194,24 +194,64 @@ pub fn build_spreadsheet(schedule: &Schedule) -> Result<umya_spreadsheet::Spread
     }
 
     // ── Grid reference sheets (one per logical day) ─────────────────────────
-    {
-        let mut used_sheet_names: HashSet<String> = HashSet::new();
-        for (day_label, day_panels) in split_panels_by_logical_day(schedule) {
-            let base = grid_sheet_name(&day_label);
-            let sheet_name = unique_sheet_name(base, &used_sheet_names);
-            used_sheet_names.insert(sheet_name.clone());
+    write_grid_sheets(&mut book, schedule, false)?;
+
+    Ok(book)
+}
+
+/// Build a spreadsheet containing only the grid reference sheets (one per
+/// logical day), omitting the data tables produced by [`build_spreadsheet`].
+pub fn build_grid_spreadsheet(schedule: &Schedule) -> Result<umya_spreadsheet::Spreadsheet> {
+    let mut book = umya_spreadsheet::new_file();
+    write_grid_sheets(&mut book, schedule, true)?;
+    Ok(book)
+}
+
+/// Write one grid reference sheet per logical day into `book`.
+///
+/// When `reuse_default` is true the first day reuses the workbook's existing
+/// sheet 0 (renaming it in place); otherwise every day is written to a freshly
+/// created sheet. Reuse is appropriate for a grid-only workbook where the
+/// default sheet would otherwise be left empty.
+fn write_grid_sheets(
+    book: &mut umya_spreadsheet::Spreadsheet,
+    schedule: &Schedule,
+    reuse_default: bool,
+) -> Result<()> {
+    let mut used_sheet_names: HashSet<String> = HashSet::new();
+    let mut reuse = reuse_default;
+    for (day_label, day_panels) in split_panels_by_logical_day(schedule) {
+        let base = grid_sheet_name(&day_label);
+        let sheet_name = unique_sheet_name(base, &used_sheet_names);
+        used_sheet_names.insert(sheet_name.clone());
+        if reuse {
+            let ws = book
+                .get_sheet_mut(&0)
+                .ok_or_else(|| anyhow::anyhow!("No default sheet in new workbook"))?;
+            ws.set_name(&sheet_name);
+            write_grid_sheet(ws, schedule, &day_label, &day_panels);
+            reuse = false;
+        } else {
             let ws = book
                 .new_sheet(&sheet_name)
                 .map_err(|e| anyhow::anyhow!("Cannot create grid sheet '{sheet_name}': {e}"))?;
             write_grid_sheet(ws, schedule, &day_label, &day_panels);
         }
     }
-
-    Ok(book)
+    Ok(())
 }
 
 pub fn export_xlsx(schedule: &Schedule, path: &Path) -> Result<()> {
     let book = build_spreadsheet(schedule)?;
+    umya_spreadsheet::writer::xlsx::write(&book, path)
+        .map_err(|e| anyhow::anyhow!("Failed to write XLSX {}: {e}", path.display()))?;
+    Ok(())
+}
+
+/// Export only the grid reference sheets to an XLSX file, omitting the data
+/// tables. See [`build_grid_spreadsheet`].
+pub fn export_xlsx_grid(schedule: &Schedule, path: &Path) -> Result<()> {
+    let book = build_grid_spreadsheet(schedule)?;
     umya_spreadsheet::writer::xlsx::write(&book, path)
         .map_err(|e| anyhow::anyhow!("Failed to write XLSX {}: {e}", path.display()))?;
     Ok(())

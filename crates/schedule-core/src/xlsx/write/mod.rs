@@ -9,4 +9,4 @@
 pub mod common;
 mod export;
 
-pub use export::{build_spreadsheet, export_xlsx};
+pub use export::{build_grid_spreadsheet, build_spreadsheet, export_xlsx, export_xlsx_grid};

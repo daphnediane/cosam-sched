@@ -183,7 +183,11 @@ fn fmt_stamp(s: &str) -> Option<String> {
         return None;
     }
     let dt = DateTime::parse_from_rfc3339(s).ok()?;
-    Some(dt.with_timezone(&Local).format("%b %-d %-I:%M %p").to_string())
+    Some(
+        dt.with_timezone(&Local)
+            .format("%b %-d %-I:%M %p")
+            .to_string(),
+    )
 }
 
 #[cfg(test)]
@@ -233,7 +237,10 @@ mod tests {
             .with_timezone(&Local)
             .format("%b %-d %-I:%M %p")
             .to_string();
-        assert_eq!(fmt_stamp("2026-06-15T16:00:00Z").as_deref(), Some(expected.as_str()));
+        assert_eq!(
+            fmt_stamp("2026-06-15T16:00:00Z").as_deref(),
+            Some(expected.as_str())
+        );
         assert_eq!(fmt_stamp("").as_deref(), None);
         assert_eq!(fmt_stamp("not-a-date").as_deref(), None);
     }

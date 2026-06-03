@@ -21,7 +21,9 @@ use schedule_core::tables::hotel_room::HotelRoomEntityType;
 use schedule_core::tables::panel::{self, PanelEntityType};
 use schedule_core::tables::panel_type::PanelTypeEntityType;
 use schedule_core::tables::presenter::{self as presenter, PresenterEntityType};
-use schedule_core::xlsx::{export_xlsx, import_xlsx, update_schedule_from_xlsx, XlsxImportOptions};
+use schedule_core::xlsx::{
+    export_xlsx, export_xlsx_grid, import_xlsx, update_schedule_from_xlsx, XlsxImportOptions,
+};
 
 // ── Spreadsheet builder helpers ───────────────────────────────────────────────
 
@@ -1493,4 +1495,76 @@ fn test_reimport_changed_xlsx_updates_output() {
             || schedule.metadata.modified_at.is_some(),
         "modified_at should reflect the change"
     );
+}
+
+/// `export_xlsx_grid` writes only the per-day grid reference sheets, omitting
+/// the data tables (Schedule, Rooms, PanelTypes, People, …) that
+/// `export_xlsx` produces.
+#[test]
+fn test_export_xlsx_grid_only_grid_sheets() {
+    let mut book = umya_spreadsheet::new_file();
+
+    {
+        let ws = book.new_sheet("Rooms").unwrap();
+        set_cell(ws, 1, 1, "Room Name");
+        set_cell(ws, 1, 2, "Panel Room 1");
+    }
+
+    {
+        let ws = book.get_sheet_mut(&0).unwrap();
+        ws.set_name("Schedule");
+        set_cell(ws, 1, 1, "Uniq ID");
+        set_cell(ws, 2, 1, "Name");
+        set_cell(ws, 3, 1, "Start Time");
+        set_cell(ws, 4, 1, "Duration");
+        set_cell(ws, 5, 1, "Room");
+        // One timed panel in a room → produces a single logical-day grid sheet.
+        set_cell(ws, 1, 2, "GP001");
+        set_cell(ws, 2, 2, "Opening Ceremony");
+        set_cell(ws, 3, 2, "6/27/2026 10:00");
+        set_cell(ws, 4, 2, "60");
+        set_cell(ws, 5, 2, "Panel Room 1");
+    }
+
+    let path = write_temp(book);
+    let schedule = import_xlsx(&path, &XlsxImportOptions::default()).unwrap();
+    cleanup(&path);
+
+    let nanos = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .unwrap()
+        .as_nanos();
+    let grid_path = std::env::temp_dir().join(format!("cosam_grid_test_{nanos}.xlsx"));
+    export_xlsx_grid(&schedule, &grid_path).expect("export_xlsx_grid should succeed");
+
+    let book = umya_spreadsheet::reader::xlsx::read(&grid_path).expect("re-read grid xlsx");
+    let sheet_names: Vec<String> = book
+        .get_sheet_collection()
+        .iter()
+        .map(|s| s.get_name().to_string())
+        .collect();
+    cleanup(&grid_path);
+
+    assert!(
+        !sheet_names.is_empty(),
+        "grid workbook should contain at least one sheet"
+    );
+    assert!(
+        sheet_names.iter().all(|n| n.starts_with("Grid - ")),
+        "grid workbook should contain only grid sheets, got: {sheet_names:?}"
+    );
+    // None of the data-table sheets should be present.
+    for data_sheet in [
+        "Schedule",
+        "Timeline",
+        "Rooms",
+        "Hotel",
+        "PanelTypes",
+        "People",
+    ] {
+        assert!(
+            !sheet_names.iter().any(|n| n == data_sheet),
+            "grid workbook must not contain the {data_sheet} data sheet"
+        );
+    }
 }

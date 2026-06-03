@@ -43,3 +43,15 @@ pub use read::{
 pub fn export_xlsx(schedule: &Schedule, path: &Path) -> Result<()> {
     write::export_xlsx(schedule, path)
 }
+
+/// Export only the grid reference sheets of a schedule to an XLSX file.
+///
+/// Unlike [`export_xlsx`], this omits the data tables (Schedule, Rooms,
+/// PanelTypes, People, …) and writes one grid sheet per logical day.
+///
+/// # Errors
+///
+/// Returns an error if the file cannot be created or written.
+pub fn export_xlsx_grid(schedule: &Schedule, path: &Path) -> Result<()> {
+    write::export_xlsx_grid(schedule, path)
+}

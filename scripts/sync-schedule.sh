@@ -7,8 +7,8 @@
 #
 # Usage: scripts/sync-schedule.sh [--dry-run|-n] [--year YYYY]
 #   Reads from input/<YEAR> Schedule.xlsx
-#   Builds into a temporary <tmp>/{pdf,data}/ tree (ramdisk preferred)
-#   Syncs both pdf/ and data/ to the OneDrive CosAm schedule folder in one
+#   Builds into a temporary <tmp>/{pdf,generated}/ tree (ramdisk preferred)
+#   Syncs both pdf/ and generated/ to the OneDrive CosAm schedule folder in one
 #   rsync (--relative), leaving any sibling files in that folder untouched
 
 set -eo pipefail
@@ -97,8 +97,8 @@ main() {
 
     # Subdir names match the OneDrive destination so --relative maps cleanly
     local pdf_dir="${WORK_DIR}/pdf"
-    local data_dir="${WORK_DIR}/data"
-    cmd mkdir -p "${pdf_dir}" "${data_dir}"
+    local generated_dir="${WORK_DIR}/generated"
+    cmd mkdir -p "${pdf_dir}" "${generated_dir}"
 
     # Generate the public schedule layout PDFs and data files
     cmd cargo run --release -p cosam-convert -- \
@@ -106,18 +106,19 @@ main() {
         --title "Cosplay America ${YEAR} Schedule" \
         --public \
         --embed-as-html \
-        --output "${data_dir}/cos${YEAR}.xlsx" \
-        --export-embed "${data_dir}/embed.html" \
-        --export-test "${data_dir}/preview.html" \
+        --output "${generated_dir}/cos${YEAR}.xlsx" \
+        --export-xlsx-grid "${generated_dir}/cos${YEAR}grid.xlsx" \
+        --export-embed "${generated_dir}/embed.html" \
+        --export-test "${generated_dir}/preview.html" \
         --layout-config config/layout.toml \
         --export-layout "${pdf_dir}" ||
         fail "cosam-convert failed"
 
-    # Sync pdf/ and data/ to OneDrive in one pass. --relative preserves the
-    # pdf/ and data/ path components at the destination; --delete-after only
+    # Sync pdf/ and generated/ to OneDrive in one pass. --relative preserves the
+    # pdf/ and generated/ path components at the destination; --delete-after only
     # prunes within those two trees, leaving other files in sched_base alone.
     cmd rsync -aPHAX --relative --checksum --delete-after \
-        "${WORK_DIR}/./pdf" "${WORK_DIR}/./data" \
+        "${WORK_DIR}/./pdf" "${WORK_DIR}/./generated" \
         "${sched_base}/" ||
         fail "rsync to ${sched_base} failed"
 }
