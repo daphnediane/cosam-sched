@@ -362,11 +362,18 @@ mod tests {
 
     #[test]
     fn test_parse_layout_jobs_two_jobs() {
-        let args: Vec<String> =
-            vec!["--content", "both", "--", "--content", "grid-only", "--split", "half-day"]
-                .into_iter()
-                .map(String::from)
-                .collect();
+        let args: Vec<String> = vec![
+            "--content",
+            "both",
+            "--",
+            "--content",
+            "grid-only",
+            "--split",
+            "half-day",
+        ]
+        .into_iter()
+        .map(String::from)
+        .collect();
         let jobs = parse_layout_jobs(&args).unwrap();
         assert_eq!(jobs.len(), 2);
         assert_eq!(jobs[0].content, ContentArg::Both);

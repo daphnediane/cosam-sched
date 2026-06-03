@@ -967,7 +967,8 @@ fn run_layout_export(
         color::ColorMode,
         formats,
         grid::{
-            ContentMode, FooterMode, LayoutConfig, Orientation, PanelFilter, PaperSize, SplitMode,
+            ContentMode, FooterMode, LayoutConfig, Orientation, PanelFilter, PaperSize,
+            SectionSplit, TimeSplit,
         },
         model::ScheduleData,
     };
@@ -1023,26 +1024,38 @@ fn run_layout_export(
         }
     }
 
-    fn parse_split(s: &str) -> SplitMode {
+    fn parse_content(s: Option<&str>, split: &str) -> ContentMode {
+        let section = match split {
+            "room" | "room_day" | "room-day" => Some(SectionSplit::Room),
+            "presenter" | "presenter_day" | "presenter-day" => Some(SectionSplit::Presenter),
+            _ => None,
+        };
+        let time_req = match split {
+            "half_day" | "half" => TimeSplit::HalfDay,
+            _ => TimeSplit::Day,
+        };
+        let time_opt = match split {
+            "none" => None,
+            "half_day" | "half" => Some(TimeSplit::HalfDay),
+            _ => Some(TimeSplit::Day),
+        };
         match s {
-            "none" => SplitMode::None,
-            "half_day" | "half" => SplitMode::HalfDay,
-            "room" => SplitMode::Room,
-            "room_day" | "room-day" => SplitMode::RoomDay,
-            "presenter" => SplitMode::Presenter,
-            "presenter_day" | "presenter-day" => SplitMode::PresenterDay,
-            _ => SplitMode::Day,
-        }
-    }
-
-    fn parse_content(s: Option<&str>, split: SplitMode) -> ContentMode {
-        match s {
-            Some("grid_only") | Some("grid-only") => ContentMode::GridOnly(split),
-            Some("description_only") | Some("description-only") => {
-                ContentMode::DescriptionOnly(split)
-            }
-            Some("panel_list") | Some("panel-list") => ContentMode::PanelList(split),
-            _ => ContentMode::Both(split),
+            Some("grid_only") | Some("grid-only") => ContentMode::GridOnly {
+                section,
+                time: time_req,
+            },
+            Some("description_only") | Some("description-only") => ContentMode::DescriptionOnly {
+                section,
+                time: time_opt,
+            },
+            Some("panel_list") | Some("panel-list") => ContentMode::PanelList {
+                section,
+                time: time_opt,
+            },
+            _ => ContentMode::Both {
+                section,
+                time: time_req,
+            },
         }
     }
 
@@ -1087,7 +1100,7 @@ fn run_layout_export(
             .map(|job| LayoutOutputJob {
                 config: LayoutConfig {
                     paper: parse_paper(&job.paper),
-                    content: parse_content(job.content.as_deref(), parse_split(&job.split)),
+                    content: parse_content(job.content.as_deref(), &job.split),
                     panel_filter: parse_panel_filter(job.panel_filter.as_deref()),
                     orientation: parse_orientation(&job.orientation),
                     color_mode: parse_color_mode(job.color_mode.as_deref()),

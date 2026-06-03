@@ -111,9 +111,8 @@ pub(crate) fn page_header_running_split(
         brand.fonts.banner_style(),
         Some(brand.fonts.banner_weight_or_default()),
     );
-    let wrap = |content: &str| {
-        format!("#text(fill: white, size: 28pt, {font_spec})[#upper[{content}]]")
-    };
+    let wrap =
+        |content: &str| format!("#text(fill: white, size: 28pt, {font_spec})[#upper[{content}]]");
     let left = wrap(left_content);
     let right = wrap(right_content);
 

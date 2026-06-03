@@ -239,7 +239,10 @@ pub(crate) fn render_panel_list<'a>(
         let accent = if color_str.is_empty() {
             String::new()
         } else {
-            format!("#rect(fill: rgb(\"{}\"), width: 3pt, height: 0.6em)#h(3pt)", color_str)
+            format!(
+                "#rect(fill: rgb(\"{}\"), width: 3pt, height: 0.6em)#h(3pt)",
+                color_str
+            )
         };
 
         let meta = {

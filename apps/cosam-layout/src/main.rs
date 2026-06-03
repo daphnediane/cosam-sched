@@ -20,14 +20,15 @@ use schedule_layout::{
     color::ColorMode,
     formats,
     grid::{
-        ContentMode, FooterMode, LayoutConfig, Orientation, PanelFilter, PaperSize, SplitMode,
+        ContentMode, FooterMode, LayoutConfig, Orientation, PanelFilter, PaperSize, SectionSplit,
+        TimeSplit,
     },
     model::ScheduleData,
 };
 
 use cli::{
-    Args, ColorModeArg, ContentArg, FooterArg, LayoutJob, OrientationArg, PaperArg,
-    PanelFilterArg, SplitArg,
+    Args, ColorModeArg, ContentArg, FooterArg, LayoutJob, OrientationArg, PanelFilterArg, PaperArg,
+    SplitArg,
 };
 
 fn main() {
@@ -250,26 +251,49 @@ fn map_paper(p: PaperArg) -> PaperSize {
     }
 }
 
-fn map_split(s: SplitArg) -> SplitMode {
+fn map_section_split(s: SplitArg) -> Option<SectionSplit> {
     match s {
-        SplitArg::None => SplitMode::None,
-        SplitArg::Day => SplitMode::Day,
-        SplitArg::HalfDay => SplitMode::HalfDay,
-        SplitArg::Room => SplitMode::Room,
-        SplitArg::RoomDay => SplitMode::RoomDay,
-        SplitArg::Presenter => SplitMode::Presenter,
-        SplitArg::PresenterDay => SplitMode::PresenterDay,
+        SplitArg::Room | SplitArg::RoomDay => Some(SectionSplit::Room),
+        SplitArg::Presenter | SplitArg::PresenterDay => Some(SectionSplit::Presenter),
+        _ => None,
+    }
+}
+
+fn map_time_split_required(s: SplitArg) -> TimeSplit {
+    match s {
+        SplitArg::HalfDay => TimeSplit::HalfDay,
+        _ => TimeSplit::Day,
+    }
+}
+
+fn map_time_split_optional(s: SplitArg) -> Option<TimeSplit> {
+    match s {
+        SplitArg::None => None,
+        SplitArg::HalfDay => Some(TimeSplit::HalfDay),
+        _ => Some(TimeSplit::Day),
     }
 }
 
 /// Combine the content choice with its split into a `ContentMode`.
 fn build_content(c: ContentArg, split: SplitArg) -> ContentMode {
-    let s = map_split(split);
+    let section = map_section_split(split);
     match c {
-        ContentArg::Both => ContentMode::Both(s),
-        ContentArg::GridOnly => ContentMode::GridOnly(s),
-        ContentArg::DescriptionOnly => ContentMode::DescriptionOnly(s),
-        ContentArg::PanelList => ContentMode::PanelList(s),
+        ContentArg::Both => ContentMode::Both {
+            section,
+            time: map_time_split_required(split),
+        },
+        ContentArg::GridOnly => ContentMode::GridOnly {
+            section,
+            time: map_time_split_required(split),
+        },
+        ContentArg::DescriptionOnly => ContentMode::DescriptionOnly {
+            section,
+            time: map_time_split_optional(split),
+        },
+        ContentArg::PanelList => ContentMode::PanelList {
+            section,
+            time: map_time_split_optional(split),
+        },
     }
 }
 

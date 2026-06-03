@@ -100,8 +100,8 @@ and overflow continues full-width on following pages — unlike a fixed
 
 ### `schedule`
 
-The time × room grid. One document **per day** (`SplitMode::Day`) or **per
-half-day** (`SplitMode::HalfDay`); qualifier is the day/half slug. Landscape on
+The time × room grid. One document **per day** (`TimeSplit::Day`) or **per
+half-day** (`TimeSplit::HalfDay`); qualifier is the day/half slug. Landscape on
 tabloid is the common choice.
 
 ### `descriptions`

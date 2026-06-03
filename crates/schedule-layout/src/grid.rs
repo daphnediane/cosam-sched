@@ -147,37 +147,22 @@ impl PaperSize {
     }
 }
 
-/// How to split the layout into sections.
-///
-/// Each section becomes a page (or page run). 2-D variants (`RoomDay`,
-/// `PresenterDay`) split by an entity *and* by day; `Room`/`Presenter` collapse
-/// to their `*Day` form for grid-bearing content (see
-/// [`ContentMode::effective_split`]).
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
-pub enum SplitMode {
-    /// No split — one continuous document.
-    None,
+/// How to split sections by entity (room or presenter).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum SectionSplit {
+    /// One section per room.
+    Room,
+    /// One section per presenter.
+    Presenter,
+}
+
+/// How to split sections by time.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum TimeSplit {
     /// One section per calendar day.
-    #[default]
     Day,
     /// One section per AM/PM half-day.
     HalfDay,
-    /// One section per room (all days).
-    Room,
-    /// One section per room per day.
-    RoomDay,
-    /// One section per presenter (all days).
-    Presenter,
-    /// One section per presenter per day.
-    PresenterDay,
-}
-
-impl SplitMode {
-    /// Whether this split carries a second (per-day) dimension alongside an
-    /// entity — i.e. uses the two-slot running header (entity left / day right).
-    pub fn is_two_dim(self) -> bool {
-        matches!(self, SplitMode::RoomDay | SplitMode::PresenterDay)
-    }
 }
 
 /// Page-footer content.
@@ -193,62 +178,84 @@ pub enum FooterMode {
     None,
 }
 
-/// Which content a section renders, carrying the [`SplitMode`] for that content.
+/// Which content a section renders, with how to split it.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum ContentMode {
     /// Schedule grid and panel descriptions side by side.
-    Both(SplitMode),
+    Both {
+        section: Option<SectionSplit>,
+        time: TimeSplit,
+    },
     /// Schedule grid only — no descriptions.
-    GridOnly(SplitMode),
+    GridOnly {
+        section: Option<SectionSplit>,
+        time: TimeSplit,
+    },
     /// Panel descriptions only — no grid.
-    DescriptionOnly(SplitMode),
+    DescriptionOnly {
+        section: Option<SectionSplit>,
+        time: Option<TimeSplit>,
+    },
     /// Compact panel list (name + time + room), the former guest-postcard layout.
-    PanelList(SplitMode),
+    PanelList {
+        section: Option<SectionSplit>,
+        time: Option<TimeSplit>,
+    },
 }
 
 impl Default for ContentMode {
     fn default() -> Self {
-        ContentMode::Both(SplitMode::Day)
+        ContentMode::Both {
+            section: None,
+            time: TimeSplit::Day,
+        }
     }
 }
 
 impl ContentMode {
-    /// The split as configured.
-    pub fn split(self) -> SplitMode {
+    /// The section (entity) split, if any.
+    pub fn section_split(self) -> Option<SectionSplit> {
         match self {
-            ContentMode::Both(s)
-            | ContentMode::GridOnly(s)
-            | ContentMode::DescriptionOnly(s)
-            | ContentMode::PanelList(s) => s,
+            ContentMode::Both { section, .. }
+            | ContentMode::GridOnly { section, .. }
+            | ContentMode::DescriptionOnly { section, .. }
+            | ContentMode::PanelList { section, .. } => section,
         }
     }
 
-    /// The split actually used for sectioning. Grid-bearing content cannot span
-    /// multiple days in one grid, so `Presenter`/`Room` collapse to their
-    /// per-day form.
-    pub fn effective_split(self) -> SplitMode {
-        let s = self.split();
-        if self.shows_grid() {
-            match s {
-                SplitMode::Presenter => SplitMode::PresenterDay,
-                SplitMode::Room => SplitMode::RoomDay,
-                other => other,
-            }
-        } else {
-            s
+    /// The time split, if any.
+    pub fn time_split(self) -> Option<TimeSplit> {
+        match self {
+            ContentMode::Both { time, .. } | ContentMode::GridOnly { time, .. } => Some(time),
+            ContentMode::DescriptionOnly { time, .. } | ContentMode::PanelList { time, .. } => time,
         }
+    }
+
+    /// Whether any split is active (section or time).
+    pub fn has_split(self) -> bool {
+        self.section_split().is_some() || self.time_split().is_some()
+    }
+
+    /// Whether both a section split and a time split are active (two-slot running header).
+    pub fn is_two_dim(self) -> bool {
+        self.section_split().is_some() && self.time_split().is_some()
     }
 
     /// Whether this content draws the schedule grid.
     pub fn shows_grid(self) -> bool {
-        matches!(self, ContentMode::Both(_) | ContentMode::GridOnly(_))
+        matches!(
+            self,
+            ContentMode::Both { .. } | ContentMode::GridOnly { .. }
+        )
     }
 
     /// Whether this content draws panel text (descriptions or list).
     pub fn shows_text(self) -> bool {
         matches!(
             self,
-            ContentMode::Both(_) | ContentMode::DescriptionOnly(_) | ContentMode::PanelList(_)
+            ContentMode::Both { .. }
+                | ContentMode::DescriptionOnly { .. }
+                | ContentMode::PanelList { .. }
         )
     }
 }
@@ -284,8 +291,8 @@ pub struct LayoutConfig {
     /// Insert a blank page so each section starts on an odd page (double-sided
     /// booklet printing).
     pub double_sided: bool,
-    /// Optional header text: shown on the left for 1-D splits, on the right for
-    /// [`SplitMode::None`], and omitted for 2-D splits (where both header slots
+    /// Optional header text: shown on the left for 1-D splits, on the right when
+    /// there is no split, and omitted for 2-D splits (where both header slots
     /// carry the running entity/day labels).
     pub header_text: Option<String>,
     /// Override for base font size (e.g., "14pt"). If None, uses paper's default.

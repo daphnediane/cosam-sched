@@ -33,7 +33,9 @@ use crate::blocks::grid::{render_schedule_grid, GridRenderConfig};
 use crate::blocks::panels::{render_panel_list, render_time_grouped_panels};
 use crate::brand::BrandConfig;
 use crate::color::ColorMode;
-use crate::grid::{ContentMode, FooterMode, GridLayout, LayoutConfig, PanelFilter, SplitMode};
+use crate::grid::{
+    ContentMode, FooterMode, GridLayout, LayoutConfig, PanelFilter, SectionSplit, TimeSplit,
+};
 use crate::model::{Panel, ScheduleData};
 use crate::typst_gen::{make_day_label, preamble};
 
@@ -77,7 +79,6 @@ pub fn generate(
     }
 
     let content = config.content;
-    let split = content.effective_split();
     let font_pt = config.effective_font_pt();
 
     let mut doc = preamble(config, brand);
@@ -114,7 +115,7 @@ pub fn generate(
 
     // Header: static for `None`, otherwise a running header fed by `<section>`
     // markers emitted at each section start.
-    doc.push_str(&build_header(brand, config, split));
+    doc.push_str(&build_header(brand, config));
 
     for (i, section) in sections.iter().enumerate() {
         if i > 0 {
@@ -125,15 +126,15 @@ pub fn generate(
             }
         }
 
-        if split != SplitMode::None {
+        if config.content.has_split() {
             doc.push_str(&section_marker(&section.left_label, &section.right_label));
         }
 
         match content {
-            ContentMode::GridOnly(_) => {
+            ContentMode::GridOnly { .. } => {
                 doc.push_str(&render_grid(section, data, config, color_mode));
             }
-            ContentMode::Both(_) => {
+            ContentMode::Both { .. } => {
                 let total_cols =
                     config.effective_columns(config.paper.flyer_columns(config.orientation));
                 let grid_cols = total_cols.div_ceil(2);
@@ -158,9 +159,9 @@ pub fn generate(
                 ));
                 doc.push_str("]\n");
             }
-            ContentMode::DescriptionOnly(_) => {
-                let total_cols = config
-                    .effective_columns(config.paper.description_columns(config.orientation));
+            ContentMode::DescriptionOnly { .. } => {
+                let total_cols =
+                    config.effective_columns(config.paper.description_columns(config.orientation));
                 doc.push_str(&format!("#columns({}, gutter: 0.2in)[\n", total_cols));
                 doc.push_str(&render_time_grouped_panels(
                     data,
@@ -170,9 +171,9 @@ pub fn generate(
                 ));
                 doc.push_str("]\n");
             }
-            ContentMode::PanelList(_) => {
-                let total_cols = config
-                    .effective_columns(config.paper.description_columns(config.orientation));
+            ContentMode::PanelList { .. } => {
+                let total_cols =
+                    config.effective_columns(config.paper.description_columns(config.orientation));
                 doc.push_str(&format!("#columns({}, gutter: 0.2in)[\n", total_cols));
                 doc.push_str(&render_panel_list(
                     data,
@@ -204,13 +205,13 @@ fn render_grid(
 }
 
 /// Build the page header directive for the chosen split.
-fn build_header(brand: &BrandConfig, config: &LayoutConfig, split: SplitMode) -> String {
-    if split == SplitMode::None {
+fn build_header(brand: &BrandConfig, config: &LayoutConfig) -> String {
+    if !config.content.has_split() {
         // Static header; header_text on the right.
         return banner::page_header(brand, None, config.header_text.as_deref());
     }
     let right = running_field("right");
-    if split.is_two_dim() {
+    if config.content.is_two_dim() {
         // Entity left, day right; header_text omitted (both slots taken).
         banner::page_header_running_split(brand, &running_field("left"), &right)
     } else if let Some(text) = config.header_text.as_deref() {
@@ -272,6 +273,27 @@ fn is_workshop(data: &ScheduleData, panel: &Panel) -> bool {
         .is_some_and(|pt| pt.is_workshop)
 }
 
+/// Flatten `by_day` into time-labeled panel slices for `time`.
+fn time_sections<'a>(
+    time: TimeSplit,
+    by_day: &[(String, Vec<&'a Panel>)],
+    all_dates: &[&str],
+) -> Vec<(String, Vec<&'a Panel>)> {
+    match time {
+        TimeSplit::Day => by_day
+            .iter()
+            .map(|(date, panels)| (make_day_label(date, all_dates), panels.clone()))
+            .collect(),
+        TimeSplit::HalfDay => by_day
+            .iter()
+            .flat_map(|(date, panels)| {
+                let day_label = make_day_label(date, all_dates);
+                split_halves(&day_label, panels)
+            })
+            .collect(),
+    }
+}
+
 /// Build the document's sections for the configured split.
 fn build_sections<'a>(
     config: &LayoutConfig,
@@ -282,8 +304,8 @@ fn build_sections<'a>(
     let all_dates: Vec<&str> = all_date_strs.iter().map(String::as_str).collect();
     let by_day = group_by_day(panels);
 
-    match config.content.effective_split() {
-        SplitMode::None => vec![Section {
+    match (config.content.section_split(), config.content.time_split()) {
+        (None, None) => vec![Section {
             content_panels: panels.to_vec(),
             grid_panels: panels.to_vec(),
             highlight_room: None,
@@ -293,42 +315,20 @@ fn build_sections<'a>(
             corner_label: String::new(),
         }],
 
-        SplitMode::Day => by_day
-            .iter()
-            .map(|(date, day_panels)| {
-                let label = make_day_label(date, &all_dates);
-                Section {
-                    content_panels: day_panels.clone(),
-                    grid_panels: day_panels.clone(),
-                    highlight_room: None,
-                    highlight_panel_ids: None,
-                    left_label: String::new(),
-                    right_label: label.clone(),
-                    corner_label: label,
-                }
+        (None, Some(time)) => time_sections(time, &by_day, &all_dates)
+            .into_iter()
+            .map(|(label, time_panels)| Section {
+                content_panels: time_panels.clone(),
+                grid_panels: time_panels,
+                highlight_room: None,
+                highlight_panel_ids: None,
+                left_label: String::new(),
+                right_label: label.clone(),
+                corner_label: label,
             })
             .collect(),
 
-        SplitMode::HalfDay => by_day
-            .iter()
-            .flat_map(|(date, day_panels)| {
-                let day_label = make_day_label(date, &all_dates);
-                split_halves(&day_label, day_panels)
-                    .into_iter()
-                    .map(|(label, half_panels)| Section {
-                        content_panels: half_panels.clone(),
-                        grid_panels: half_panels,
-                        highlight_room: None,
-                        highlight_panel_ids: None,
-                        left_label: String::new(),
-                        right_label: label.clone(),
-                        corner_label: label,
-                    })
-                    .collect::<Vec<_>>()
-            })
-            .collect(),
-
-        SplitMode::Room => data
+        (Some(SectionSplit::Room), None) => data
             .sorted_rooms()
             .iter()
             .filter_map(|room| {
@@ -353,15 +353,15 @@ fn build_sections<'a>(
             })
             .collect(),
 
-        SplitMode::RoomDay => data
+        (Some(SectionSplit::Room), Some(time)) => data
             .sorted_rooms()
             .iter()
             .flat_map(|room| {
                 let name = room_name(room);
-                by_day
-                    .iter()
-                    .filter_map(|(date, day_panels)| {
-                        let room_panels: Vec<&Panel> = day_panels
+                time_sections(time, &by_day, &all_dates)
+                    .into_iter()
+                    .filter_map(move |(time_label, time_panels)| {
+                        let room_panels: Vec<&Panel> = time_panels
                             .iter()
                             .copied()
                             .filter(|p| p.room_ids.contains(&room.uid))
@@ -369,22 +369,21 @@ fn build_sections<'a>(
                         if room_panels.is_empty() {
                             return None;
                         }
-                        let day_label = make_day_label(date, &all_dates);
                         Some(Section {
                             content_panels: room_panels,
-                            grid_panels: day_panels.clone(),
+                            grid_panels: time_panels,
                             highlight_room: Some(room.uid),
                             highlight_panel_ids: None,
                             left_label: name.clone(),
-                            right_label: day_label.clone(),
-                            corner_label: day_label,
+                            right_label: time_label.clone(),
+                            corner_label: time_label,
                         })
                     })
                     .collect::<Vec<_>>()
             })
             .collect(),
 
-        SplitMode::Presenter => data
+        (Some(SectionSplit::Presenter), None) => data
             .presenters
             .iter()
             .filter(|p| postcard_rank_eligible(&p.rank))
@@ -409,15 +408,15 @@ fn build_sections<'a>(
             })
             .collect(),
 
-        SplitMode::PresenterDay => data
+        (Some(SectionSplit::Presenter), Some(time)) => data
             .presenters
             .iter()
             .filter(|p| postcard_rank_eligible(&p.rank))
             .flat_map(|presenter| {
-                by_day
-                    .iter()
-                    .filter_map(|(date, day_panels)| {
-                        let his: Vec<&Panel> = day_panels
+                time_sections(time, &by_day, &all_dates)
+                    .into_iter()
+                    .filter_map(move |(time_label, time_panels)| {
+                        let his: Vec<&Panel> = time_panels
                             .iter()
                             .copied()
                             .filter(|p| p.presenters.iter().any(|n| n == &presenter.name))
@@ -426,15 +425,14 @@ fn build_sections<'a>(
                             return None;
                         }
                         let ids: HashSet<String> = his.iter().map(|p| p.id.clone()).collect();
-                        let day_label = make_day_label(date, &all_dates);
                         Some(Section {
                             content_panels: his,
-                            grid_panels: day_panels.clone(),
+                            grid_panels: time_panels,
                             highlight_room: None,
                             highlight_panel_ids: Some(ids),
                             left_label: presenter.name.clone(),
-                            right_label: day_label.clone(),
-                            corner_label: day_label,
+                            right_label: time_label.clone(),
+                            corner_label: time_label,
                         })
                     })
                     .collect::<Vec<_>>()
@@ -591,7 +589,7 @@ mod tests {
         }];
         d.panels = vec![
             panel("P1", "26T09", 1, "Ada"), // Fri AM, room A, Ada
-            panel("P2", "26T14", 2, ""),     // Fri PM, room B
+            panel("P2", "26T14", 2, ""),    // Fri PM, room B
             panel("P3", "27T10", 1, "Ada"), // Sat AM, room A, Ada
         ];
         d
@@ -617,7 +615,10 @@ mod tests {
     #[test]
     fn test_sections_day() {
         let d = two_day_schedule();
-        let c = cfg(ContentMode::DescriptionOnly(SplitMode::Day));
+        let c = cfg(ContentMode::DescriptionOnly {
+            section: None,
+            time: Some(TimeSplit::Day),
+        });
         let panels = filter_panels(&d, d.scheduled_panels(), PanelFilter::All);
         let secs = build_sections(&c, &d, &panels);
         assert_eq!(secs.len(), 2); // two days
@@ -626,7 +627,10 @@ mod tests {
     #[test]
     fn test_sections_room_day_uses_full_day_grid() {
         let d = two_day_schedule();
-        let c = cfg(ContentMode::Both(SplitMode::RoomDay));
+        let c = cfg(ContentMode::Both {
+            section: Some(SectionSplit::Room),
+            time: TimeSplit::Day,
+        });
         let panels = filter_panels(&d, d.scheduled_panels(), PanelFilter::All);
         let secs = build_sections(&c, &d, &panels);
         // Room A: Fri + Sat (2), Room B: Fri (1) => 3 sections.
@@ -639,10 +643,12 @@ mod tests {
     }
 
     #[test]
-    fn test_sections_presenter_collapses_to_day_with_grid() {
+    fn test_sections_presenter_day_with_grid() {
         let d = two_day_schedule();
-        // Presenter split + grid content collapses to PresenterDay.
-        let c = cfg(ContentMode::Both(SplitMode::Presenter));
+        let c = cfg(ContentMode::Both {
+            section: Some(SectionSplit::Presenter),
+            time: TimeSplit::Day,
+        });
         let panels = filter_panels(&d, d.scheduled_panels(), PanelFilter::All);
         let secs = build_sections(&c, &d, &panels);
         // Ada appears Fri + Sat => 2 sections.
@@ -657,7 +663,10 @@ mod tests {
     fn test_sections_presenter_listing_spans_days() {
         let d = two_day_schedule();
         // Presenter split with non-grid content stays multi-day per presenter.
-        let c = cfg(ContentMode::PanelList(SplitMode::Presenter));
+        let c = cfg(ContentMode::PanelList {
+            section: Some(SectionSplit::Presenter),
+            time: None,
+        });
         let panels = filter_panels(&d, d.scheduled_panels(), PanelFilter::All);
         let secs = build_sections(&c, &d, &panels);
         assert_eq!(secs.len(), 1); // one section for Ada, both days

@@ -20,9 +20,10 @@
 #   base_font_pt = "12pt"       # override base font size (descriptions, etc.)
 #   grid_font_pt = "8pt"        # override grid event text size
 #
-# Grid-bearing content (both/grid_only) treats `room`/`presenter` splits as
-# their per-day form. `room`/`room_day` highlight the room column; `presenter`/
-# `presenter_day` highlight that guest's own cells in the day grid.
+# `room`/`room_day` highlight the room column; `presenter`/`presenter_day`
+# highlight that guest's own cells in the day grid.
+# Grid-bearing content (both/grid_only) requires a time split; `room`/`presenter`
+# without an explicit day component default to `day`.
 
 # Schedule grids (former "schedule"): grid only, split per half-day.
 [[jobs]]

@@ -28,6 +28,6 @@ pub use brand::BrandConfig;
 pub use color::{ColorMode, PanelColor};
 pub use grid::{
     ContentMode, FooterMode, GridLayout, LayoutConfig, Orientation, PanelFilter, PaperSize,
-    SplitMode,
+    SectionSplit, TimeSplit,
 };
 pub use model::ScheduleData;
