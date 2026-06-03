@@ -48,9 +48,9 @@ pub(crate) fn render_time_grouped_panels<'a>(
     data: &'a ScheduleData,
     color_mode: ColorMode,
     panels: &[&'a Panel],
-    base_font_pt: &str,
 ) -> String {
-    let secondary_size = calc_secondary_size(base_font_pt);
+    // Global `#let` from the preamble (`fonts::typst_lets`).
+    let secondary_size = "_desc-secondary-size";
     let (by_base, time_groups) = build_time_groups(panels);
 
     let mut out = String::new();
@@ -82,7 +82,7 @@ pub(crate) fn render_time_grouped_panels<'a>(
                     panel,
                     day_str,
                     &by_base,
-                    &secondary_size,
+                    secondary_size,
                     None,
                 ));
             }
@@ -99,7 +99,7 @@ pub(crate) fn render_time_grouped_panels<'a>(
                 group[0],
                 day_str,
                 &by_base,
-                &secondary_size,
+                secondary_size,
                 None,
             ));
         } else {
@@ -159,7 +159,7 @@ pub(crate) fn render_time_grouped_panels<'a>(
                     panel,
                     day_str,
                     &by_base,
-                    &secondary_size,
+                    secondary_size,
                     Some(&panel_label),
                 ));
             }
@@ -177,9 +177,9 @@ pub(crate) fn render_panel_list<'a>(
     data: &'a ScheduleData,
     color_mode: ColorMode,
     panels: &[&'a Panel],
-    base_font_pt: &str,
 ) -> String {
-    let secondary_size = calc_secondary_size(base_font_pt);
+    // Global `#let` from the preamble (`fonts::typst_lets`).
+    let secondary_size = "_desc-secondary-size";
 
     // Stable chronological order.
     let mut ordered: Vec<&Panel> = panels.to_vec();
@@ -269,29 +269,9 @@ pub(crate) fn render_panel_list<'a>(
     out
 }
 
-/// Secondary text (credits, metadata) size as a multiple of the base size.
-const SECONDARY_SCALE: f64 = 0.9;
-/// Floor for the secondary text size, in points.
-const MIN_SECONDARY_PT: f64 = 7.0;
-/// Fallback base font size when the configured value cannot be parsed, in points.
-const DEFAULT_BASE_PT: f64 = 9.0;
-
 /// Horizontal shift (points) past which a panel is considered to have moved to a
 /// new column, triggering a repeated "(continued)" slot heading.
 const COLBREAK_THRESHOLD_PT: u32 = 50;
-
-/// Calculate the secondary text size based on base font size.
-/// Returns a string like "8pt" for captions and metadata.
-/// Secondary text is slightly smaller than base ([`SECONDARY_SCALE`]).
-fn calc_secondary_size(base_font_pt: &str) -> String {
-    let base = base_font_pt
-        .trim_end_matches("pt")
-        .trim_end_matches("px")
-        .parse::<f64>()
-        .unwrap_or(DEFAULT_BASE_PT);
-    let secondary = (base * SECONDARY_SCALE).round();
-    format!("{}pt", secondary.max(MIN_SECONDARY_PT))
-}
 
 // ---------------------------------------------------------------------------
 // Internal helpers

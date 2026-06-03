@@ -50,10 +50,6 @@ pub const LOGO_HEIGHT_IN: f64 = 0.3;
 pub const BANNER_INSET_X_PT: f64 = 10.0;
 /// Banner block inner padding — vertical (points).
 pub const BANNER_INSET_Y_PT: f64 = 5.0;
-/// Banner label text size (points).
-pub const BANNER_TEXT_SIZE_PT: f64 = 28.0;
-/// Footer text size (points).
-pub const FOOTER_TEXT_SIZE_PT: f64 = 8.0;
 /// Footer rule (horizontal line) thickness (points).
 pub const FOOTER_RULE_PT: f64 = 0.5;
 /// Vertical spacing below the footer rule (points).
@@ -79,8 +75,6 @@ pub(crate) fn typst_lets() -> String {
          #let _col-gutter = {gutter}in\n\
          #let _logo-height = {logo}in\n\
          #let _banner-inset = (x: {inset_x}pt, y: {inset_y}pt)\n\
-         #let _banner-text-size = {banner_text}pt\n\
-         #let _footer-text-size = {footer_text}pt\n\
          #let _footer-rule = {footer_rule}pt\n\
          #let _footer-rule-gap = {footer_gap}pt\n",
         page_edge = PAGE_EDGE_IN,
@@ -93,8 +87,6 @@ pub(crate) fn typst_lets() -> String {
         logo = LOGO_HEIGHT_IN,
         inset_x = BANNER_INSET_X_PT,
         inset_y = BANNER_INSET_Y_PT,
-        banner_text = BANNER_TEXT_SIZE_PT,
-        footer_text = FOOTER_TEXT_SIZE_PT,
         footer_rule = FOOTER_RULE_PT,
         footer_gap = FOOTER_RULE_GAP_PT,
     )
@@ -117,7 +109,6 @@ mod tests {
         assert!(lets.contains("#let _content-top = _page-edge + _banner-height + _banner-gap"));
         assert!(lets.contains("#let _col-gutter = 0.2in"));
         assert!(lets.contains("#let _banner-inset = (x: 10pt, y: 5pt)"));
-        assert!(lets.contains("#let _banner-text-size = 28pt"));
         assert!(lets.contains("#let _footer-rule = 0.5pt"));
     }
 }

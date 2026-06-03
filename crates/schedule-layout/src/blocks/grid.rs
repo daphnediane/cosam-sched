@@ -36,40 +36,16 @@ pub(crate) struct GridRenderConfig {
     pub max_height: Option<String>,
     /// Time column width (e.g. `"0.55in"` for compact, `"0.7in"` for full).
     pub time_col_width: String,
-    /// Base font size for event names (e.g. `"6.5pt"` for compact, `"7.5pt"` for full).
-    pub name_font_size: String,
-    /// Font size for secondary text (credits, duration).
-    pub secondary_font_size: String,
-    /// Font size for header room names.
-    pub header_font_size: String,
-    /// Font size for hotel room names below headers.
-    pub hotel_font_size: String,
-    /// Font size for time labels.
-    pub time_font_size: String,
-    /// Font size for minor (half-hour) time labels.
-    pub time_minor_font_size: String,
     /// Maximum characters before credits are truncated. `0` = no truncation.
     pub credits_max_chars: usize,
     /// Whether to show hotel room name below the short name in headers.
     pub show_hotel_room: bool,
     /// Whether to show cost in event cells.
     pub show_cost: bool,
-    /// Font size for cost labels.
-    pub cost_font_size: String,
 }
 
-/// Default grid font size (pt) used when no override is provided.
-const DEFAULT_GRID_FONT_PT: f64 = 7.5;
-
-// --- Font scaling (see `scaled_fonts`) ---
-/// Floor for the smallest grid text (secondary/duration) in points.
-const MIN_SECONDARY_PT: f64 = 4.0;
-/// Header text size as a multiple of the secondary size.
-const HEADER_SCALE: f64 = 1.15;
-/// Major (on-the-hour) time-label size as a multiple of the secondary size.
-const TIME_MAJOR_SCALE: f64 = 1.1;
-/// Cost-label size as a multiple of the secondary size.
-const COST_SCALE: f64 = 1.05;
+// Grid text-role sizes (`_name_size`, `_hdr_size`, …) are emitted globally by
+// `fonts::typst_lets` in the preamble; the renderer just references them.
 
 // --- Gridline / cell styling (emitted into the Typst `#grid`) ---
 /// Grey level of the grid's hairline stroke.
@@ -104,65 +80,14 @@ impl GridRenderConfig {
     pub fn full_page(day_label: &str, highlight_room_uid: Option<i64>) -> Self {
         Self {
             highlight_room_uid,
+            highlight_panel_ids: None,
             day_label: day_label.to_string(),
+            corner_label: String::new(),
             max_height: None,
             time_col_width: String::new(),
             credits_max_chars: 0,
             show_hotel_room: true,
             show_cost: true,
-            ..Self::scaled_fonts(DEFAULT_GRID_FONT_PT)
-        }
-    }
-
-    /// Override font sizes based on the grid font point value from layout config.
-    ///
-    /// The provided value becomes the event name size; secondary and header
-    /// sizes are derived proportionally from it.
-    pub fn with_base_font(self, grid_font_pt: f64) -> Self {
-        Self {
-            ..Self {
-                highlight_room_uid: self.highlight_room_uid,
-                highlight_panel_ids: self.highlight_panel_ids.clone(),
-                day_label: self.day_label,
-                corner_label: self.corner_label,
-                max_height: self.max_height,
-                time_col_width: self.time_col_width,
-                credits_max_chars: self.credits_max_chars,
-                show_hotel_room: self.show_hotel_room,
-                show_cost: self.show_cost,
-                ..Self::scaled_fonts(grid_font_pt)
-            }
-        }
-    }
-
-    /// Compute font sizes from the minimum grid font size value.
-    /// `grid_font_pt` is the smallest text (secondary/duration); name and
-    /// header scale up from it.
-    fn scaled_fonts(grid_font_pt: f64) -> Self {
-        let secondary = grid_font_pt.max(MIN_SECONDARY_PT);
-        let name = secondary;
-        let header = secondary * HEADER_SCALE;
-        let hotel = secondary;
-        let time_major = secondary * TIME_MAJOR_SCALE;
-        let time_minor = secondary;
-        let cost = secondary * COST_SCALE;
-        Self {
-            highlight_room_uid: None,
-            highlight_panel_ids: None,
-            day_label: String::new(),
-            corner_label: String::new(),
-            max_height: None,
-            time_col_width: String::new(),
-            name_font_size: format!("{:.1}pt", name),
-            secondary_font_size: format!("{:.1}pt", secondary),
-            header_font_size: format!("{:.1}pt", header),
-            hotel_font_size: format!("{:.1}pt", hotel),
-            time_font_size: format!("{:.1}pt", time_major),
-            time_minor_font_size: format!("{:.1}pt", time_minor),
-            credits_max_chars: 0,
-            show_hotel_room: false,
-            show_cost: false,
-            cost_font_size: format!("{:.1}pt", cost),
         }
     }
 }
@@ -212,32 +137,14 @@ pub(crate) fn render_schedule_grid(
 
     // Grid-cell inset variables (defined once so values stay in sync).
     // Inside context we're in code mode (plain `let`), otherwise markup (`#let`).
+    // The `_*_size` font variables are global `#let`s from the preamble
+    // (`fonts::typst_lets`), in scope here and inside the `#context` block.
     let let_kw = if use_measured_width { "let" } else { "#let" };
     out.push_str(&format!(
         "{kw} _hdr_inset = (x: 2pt, y: 4pt)\n\
          {kw} _time_inset = (top: 2pt, bottom: 1pt, left: 2pt, right: 6pt)\n\
          {kw} _cell_inset = (x: 3pt, y: 2pt)\n",
         kw = let_kw,
-    ));
-
-    // Font-size / weight variables for each text role so that the Typst
-    // measure call and the actual rendering always use the same values.
-    out.push_str(&format!(
-        "{kw} _name_size = {name}\n\
-         {kw} _secondary_size = {secondary}\n\
-         {kw} _hdr_size = {hdr}\n\
-         {kw} _hotel_size = {hotel}\n\
-         {kw} _time_size = {time}\n\
-         {kw} _time_minor_size = {time_minor}\n\
-         {kw} _cost_size = {cost}\n",
-        kw = let_kw,
-        name = config.name_font_size,
-        secondary = config.secondary_font_size,
-        hdr = config.header_font_size,
-        hotel = config.hotel_font_size,
-        time = config.time_font_size,
-        time_minor = config.time_minor_font_size,
-        cost = config.cost_font_size,
     ));
 
     // Compute time-column width via measure (only when inside context). When a

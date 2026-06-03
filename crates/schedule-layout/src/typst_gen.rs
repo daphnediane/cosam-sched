@@ -25,34 +25,6 @@ pub fn escape_typst(s: &str) -> String {
         .replace('>', "\\>")
 }
 
-/// Build a Typst `font:` argument fragment with optional style and weight.
-///
-/// Typst's `weight` parameter accepts either an integer (100–900) or a named
-/// keyword (`"thin"`, `"extralight"`, `"light"`, `"regular"`, `"medium"`,
-/// `"semibold"`, `"bold"`, `"extrabold"`, `"black"`).  Numeric strings from
-/// `brand.toml` (e.g. `"200"`) are emitted without quotes; named strings are
-/// quoted.  `style` is filtered to the three values Typst accepts
-/// (`"normal"`, `"italic"`, `"oblique"`); anything else is ignored.
-///
-/// Returns a fragment like `font: "Trend Sans", weight: 200` that can be
-/// embedded in any Typst `#text(…)` or `#set text(…)` call.
-pub(crate) fn build_font_spec(font: &str, style: Option<&str>, weight: Option<&str>) -> String {
-    let style_part = style
-        .filter(|s| matches!(*s, "normal" | "italic" | "oblique"))
-        .map(|s| format!(", style: \"{s}\""))
-        .unwrap_or_default();
-    let weight_part = weight
-        .map(|w| {
-            if w.chars().all(|c| c.is_ascii_digit()) {
-                format!(", weight: {w}")
-            } else {
-                format!(", weight: \"{w}\"")
-            }
-        })
-        .unwrap_or_default();
-    format!("font: \"{font}\"{style_part}{weight_part}")
-}
-
 /// Generate the Typst document preamble with paper size, fonts, and brand colors.
 ///
 /// For the `Poster` paper size the page is set with explicit `width`/`height`
@@ -61,15 +33,8 @@ pub(crate) fn build_font_spec(font: &str, style: Option<&str>, weight: Option<&s
 pub fn preamble(config: &LayoutConfig, brand: &BrandConfig) -> String {
     use crate::config::PaperSize;
 
-    let heading_font = brand.fonts.heading_or_default();
-    let heading_style = brand.fonts.heading_style();
-    let heading_weight = brand.fonts.heading_weight();
-    let body_font = brand.fonts.body_or_default();
-    let body_style = brand.fonts.body_style();
-    let body_weight = brand.fonts.body_weight();
     let primary = &brand.colors.primary;
     let dark_grey = &brand.colors.dark_grey;
-    let font_size = config.effective_font_pt();
 
     let landscape = config.orientation.is_landscape();
     let page_spec = match config.paper {
@@ -84,25 +49,22 @@ pub fn preamble(config: &LayoutConfig, brand: &BrandConfig) -> String {
         }
     };
 
-    let body_font_spec = build_font_spec(body_font, body_style, body_weight);
-    let heading_font_spec = build_font_spec(heading_font, heading_style, heading_weight);
-
-    // Geometry `#let`s come first so the `#set page` margins can reference them.
+    // Geometry and font `#let`s come first so `#set page` margins and `#set text`
+    // can reference them. Typefaces are dicts spread into the text calls.
     let geometry_lets = crate::geometry::typst_lets();
+    let font_lets = crate::fonts::typst_lets(config, brand);
 
     format!(
-        r#"{geometry_lets}#set page({page_spec}, margin: (top: _content-top, bottom: _page-edge, left: _page-edge, right: _page-edge), header-ascent: _header-ascent)
-#set text({body_font_spec}, size: {font_size})
-#show heading: set text({heading_font_spec})
+        r#"{geometry_lets}{font_lets}#set page({page_spec}, margin: (top: _content-top, bottom: _page-edge, left: _page-edge, right: _page-edge), header-ascent: _header-ascent)
+#set text(.._body-font, size: _body-size)
+#show heading: set text(.._heading-font)
 
 #let brand-primary = rgb("{primary}")
 #let brand-dark = rgb("{dark_grey}")
 "#,
         geometry_lets = geometry_lets,
+        font_lets = font_lets,
         page_spec = page_spec,
-        body_font_spec = body_font_spec,
-        font_size = font_size,
-        heading_font_spec = heading_font_spec,
         primary = primary,
         dark_grey = dark_grey,
     )

@@ -13,6 +13,7 @@
 //! - [`color`] — color mode, panel type color resolution, grayscale fallback
 //! - [`config`] — layout configuration: paper, orientation, content/split modes
 //! - [`geometry`] — page/banner/footer dimension constants and Typst `#let` emitter
+//! - [`fonts`] — font sizes, typeface specs, and the Typst `#let` font emitter
 //! - [`timegrid`] — time-grid layout computation (time slots, room columns, cell spans)
 //! - [`typst_gen`] — Typst `.typ` source generation
 //! - [`document`] — the unified multi-section layout builder
@@ -22,6 +23,7 @@ pub mod brand;
 pub mod color;
 pub mod config;
 pub mod document;
+pub mod fonts;
 pub mod geometry;
 pub mod model;
 pub mod time_fmt;

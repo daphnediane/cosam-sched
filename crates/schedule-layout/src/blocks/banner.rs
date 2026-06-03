@@ -9,7 +9,7 @@
 use chrono::{DateTime, Local};
 
 use crate::brand::BrandConfig;
-use crate::typst_gen::{build_font_spec, escape_typst};
+use crate::typst_gen::escape_typst;
 
 /// Generate a `#set page(header: …)` Typst directive for all layout formats.
 ///
@@ -39,7 +39,7 @@ pub(crate) fn page_header(brand: &BrandConfig, left: Option<&str>, right: Option
         .and_then(|p| p.to_str())
         .map(|p| p.replace('\\', "/"));
 
-    let inner = build_inner(brand, left, right, logo_path.as_deref());
+    let inner = build_inner(left, right, logo_path.as_deref());
 
     format!(
         "#set page(header: block(fill: brand-primary, width: 100%, \
@@ -63,13 +63,8 @@ pub(crate) fn page_header_running(brand: &BrandConfig, right_content: &str) -> S
         .and_then(|p| p.to_str())
         .map(|p| p.replace('\\', "/"));
 
-    let font_spec = build_font_spec(
-        brand.fonts.banner_or_default(),
-        brand.fonts.banner_style(),
-        Some(brand.fonts.banner_weight_or_default()),
-    );
     let label = format!(
-        "#text(fill: white, size: _banner-text-size, {font_spec})[#upper[{right_content}]]"
+        "#text(fill: white, size: _banner-text-size, .._banner-font)[#upper[{right_content}]]"
     );
 
     let inner = match logo_path {
@@ -108,13 +103,8 @@ pub(crate) fn page_header_running_split(
         .and_then(|p| p.to_str())
         .map(|p| p.replace('\\', "/"));
 
-    let font_spec = build_font_spec(
-        brand.fonts.banner_or_default(),
-        brand.fonts.banner_style(),
-        Some(brand.fonts.banner_weight_or_default()),
-    );
     let wrap = |content: &str| {
-        format!("#text(fill: white, size: _banner-text-size, {font_spec})[#upper[{content}]]")
+        format!("#text(fill: white, size: _banner-text-size, .._banner-font)[#upper[{content}]]")
     };
     let left = wrap(left_content);
     let right = wrap(right_content);
@@ -226,26 +216,19 @@ fn fmt_stamp(s: &str) -> Option<String> {
 // ---------------------------------------------------------------------------
 
 /// Bare Typst content for a banner label (no surrounding brackets).
-fn banner_text(brand: &BrandConfig, escaped: &str) -> String {
-    let font_spec = build_font_spec(
-        brand.fonts.banner_or_default(),
-        brand.fonts.banner_style(),
-        Some(brand.fonts.banner_weight_or_default()),
-    );
-    format!("#text(fill: white, size: _banner-text-size, {font_spec})[#upper[{escaped}]]")
+///
+/// The banner typeface is the global `_banner-font` dict from the preamble
+/// (`fonts::typst_lets`), spread into the text call.
+fn banner_text(escaped: &str) -> String {
+    format!("#text(fill: white, size: _banner-text-size, .._banner-font)[#upper[{escaped}]]")
 }
 
 /// Banner label wrapped in a grid-cell content block.
-fn banner_cell(brand: &BrandConfig, raw: &str) -> String {
-    format!("[{}]", banner_text(brand, &escape_typst(raw)))
+fn banner_cell(raw: &str) -> String {
+    format!("[{}]", banner_text(&escape_typst(raw)))
 }
 
-fn build_inner(
-    brand: &BrandConfig,
-    left: Option<&str>,
-    right: Option<&str>,
-    logo_path: Option<&str>,
-) -> String {
+fn build_inner(left: Option<&str>, right: Option<&str>, logo_path: Option<&str>) -> String {
     let logo = logo_path.map(|p| format!("image(\"{p}\", height: _logo-height)"));
 
     match (left, right, logo.as_deref()) {
@@ -254,30 +237,30 @@ fn build_inner(
             "#grid(columns: (1fr, auto, 1fr), \
              align: (left + horizon, center + horizon, right + horizon), \
              {}, {img}, {})",
-            banner_cell(brand, l),
-            banner_cell(brand, r),
+            banner_cell(l),
+            banner_cell(r),
         ),
         // Both labels, no logo → L | R
         (Some(l), Some(r), None) => format!(
             "#grid(columns: (1fr, auto), \
              align: (left + horizon, right + horizon), \
              {}, {})",
-            banner_cell(brand, l),
-            banner_cell(brand, r),
+            banner_cell(l),
+            banner_cell(r),
         ),
         // Only left + logo → L | logo
         (Some(l), None, Some(img)) => format!(
             "#grid(columns: (1fr, auto), \
              align: (left + horizon, right + horizon), \
              {}, {img})",
-            banner_cell(brand, l),
+            banner_cell(l),
         ),
         // Only right + logo → logo | R
         (None, Some(r), Some(img)) => format!(
             "#grid(columns: (auto, 1fr), \
              align: (left + horizon, right + horizon), \
              {img}, {})",
-            banner_cell(brand, r),
+            banner_cell(r),
         ),
         // Logo only → centered. `img` is a bare `image(..)` call, so it must be
         // invoked with a leading `#` in this markup context (the grid branches
@@ -285,11 +268,11 @@ fn build_inner(
         (None, None, Some(img)) => format!("#align(center)[#{img}]"),
         // Only left, no logo → centered
         (Some(l), None, None) => {
-            format!("#align(center)[{}]", banner_text(brand, &escape_typst(l)))
+            format!("#align(center)[{}]", banner_text(&escape_typst(l)))
         }
         // Only right, no logo → centered
         (None, Some(r), None) => {
-            format!("#align(center)[{}]", banner_text(brand, &escape_typst(r)))
+            format!("#align(center)[{}]", banner_text(&escape_typst(r)))
         }
         // Nothing → empty bar
         (None, None, None) => String::new(),

@@ -78,7 +78,6 @@ pub fn generate(
     }
 
     let content = config.content;
-    let font_pt = config.effective_font_pt();
 
     let mut doc = preamble(config, brand);
 
@@ -131,7 +130,7 @@ pub fn generate(
 
         match content {
             ContentMode::GridOnly { .. } => {
-                doc.push_str(&render_grid(section, data, config, color_mode));
+                doc.push_str(&render_grid(section, data, color_mode));
             }
             ContentMode::Both { .. } => {
                 let total_cols =
@@ -143,7 +142,7 @@ pub fn generate(
                     "#place(top + left, box(width: {:.2}%)[\n",
                     grid_pct
                 ));
-                doc.push_str(&render_grid(section, data, config, color_mode));
+                doc.push_str(&render_grid(section, data, color_mode));
                 doc.push_str("])\n");
 
                 doc.push_str(&format!("#columns({}, gutter: _col-gutter)[\n", total_cols));
@@ -154,7 +153,6 @@ pub fn generate(
                     data,
                     color_mode,
                     &section.content_panels,
-                    font_pt,
                 ));
                 doc.push_str("]\n");
             }
@@ -166,7 +164,6 @@ pub fn generate(
                     data,
                     color_mode,
                     &section.content_panels,
-                    font_pt,
                 ));
                 doc.push_str("]\n");
             }
@@ -178,7 +175,6 @@ pub fn generate(
                     data,
                     color_mode,
                     &section.content_panels,
-                    font_pt,
                 ));
                 doc.push_str("]\n");
             }
@@ -189,14 +185,9 @@ pub fn generate(
 }
 
 /// Render the schedule grid for a section, applying both highlight kinds.
-fn render_grid(
-    section: &Section,
-    data: &ScheduleData,
-    config: &LayoutConfig,
-    color_mode: ColorMode,
-) -> String {
-    let mut cfg = GridRenderConfig::full_page("", section.highlight_room)
-        .with_base_font(config.grid_font_value());
+fn render_grid(section: &Section, data: &ScheduleData, color_mode: ColorMode) -> String {
+    // Grid font sizes are global `#let`s from the preamble (`fonts::typst_lets`).
+    let mut cfg = GridRenderConfig::full_page("", section.highlight_room);
     cfg.corner_label = section.corner_label.clone();
     cfg.highlight_panel_ids = section.highlight_panel_ids.clone();
     let layout = GridLayout::compute(&section.grid_panels, data);
