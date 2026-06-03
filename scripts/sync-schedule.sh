@@ -51,10 +51,16 @@ is_mount_point() {
 # Echo the first usable temp root: a mounted ramdisk, else the standard
 # tmpfs/temp locations.
 pick_tmproot() {
-    is_mount_point /Volumes/ramdisk && { printf '%s\n' /Volumes/ramdisk; return 0; }
+    is_mount_point /Volumes/ramdisk && {
+        printf '%s\n' /Volumes/ramdisk
+        return 0
+    }
     local d
     for d in "${XDG_RUNTIME_DIR:-}" "${TMPDIR:-}" /tmp /var/tmp; do
-        [[ -n "$d" && -d "$d" && -w "$d" ]] && { printf '%s\n' "${d%/}"; return 0; }
+        [[ -n "$d" && -d "$d" && -w "$d" ]] && {
+            printf '%s\n' "${d%/}"
+            return 0
+        }
     done
     return 1
 }
@@ -95,10 +101,9 @@ main() {
     trap cleanup EXIT
     echo "Working in ${WORK_DIR}"
 
-    # Subdir names match the OneDrive destination so --relative maps cleanly
-    local pdf_dir="${WORK_DIR}/pdf"
+    # Subdir name matches the OneDrive destination so --relative maps cleanly
     local generated_dir="${WORK_DIR}/generated"
-    cmd mkdir -p "${pdf_dir}" "${generated_dir}"
+    cmd mkdir -p "${generated_dir}"
 
     # Generate the public schedule layout PDFs and data files
     cmd cargo run --release -p cosam-convert -- \
@@ -111,14 +116,14 @@ main() {
         --export-embed "${generated_dir}/embed.html" \
         --export-test "${generated_dir}/preview.html" \
         --layout-config config/layout.toml \
-        --export-layout "${pdf_dir}" ||
+        --export-layout "${generated_dir}" ||
         fail "cosam-convert failed"
 
-    # Sync pdf/ and generated/ to OneDrive in one pass. --relative preserves the
-    # pdf/ and generated/ path components at the destination; --delete-after only
-    # prunes within those two trees, leaving other files in sched_base alone.
-    cmd rsync -aPHAX --relative --checksum --delete-after \
-        "${WORK_DIR}/./pdf" "${WORK_DIR}/./generated" \
+    # Sync generated/ to OneDrive. --relative preserves the generated/ path
+    # component at the destination; --delete-after only prunes within that tree,
+    # leaving other files in sched_base alone. Exclude typ/ directory.
+    cmd rsync -aPHAX --relative --checksum --delete-after --exclude 'typ' \
+        "${WORK_DIR}/./generated" \
         "${sched_base}/" ||
         fail "rsync to ${sched_base} failed"
 }
