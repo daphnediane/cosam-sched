@@ -63,20 +63,6 @@ impl Default for GridRenderConfig {
 }
 
 impl GridRenderConfig {
-    /// Compact configuration for room-sign embedded grids.
-    pub fn compact(highlight_room_uid: i64) -> Self {
-        Self {
-            highlight_room_uid: Some(highlight_room_uid),
-            day_label: String::new(),
-            max_height: Some("100%".to_string()),
-            time_col_width: String::new(),
-            credits_max_chars: 40,
-            show_hotel_room: true,
-            show_cost: true,
-            ..Self::scaled_fonts(DEFAULT_GRID_FONT_PT)
-        }
-    }
-
     /// Full-page configuration for standalone schedule grids.
     pub fn full_page(day_label: &str, highlight_room_uid: Option<i64>) -> Self {
         Self {
@@ -583,14 +569,6 @@ mod tests {
     #[test]
     fn test_truncate_str_long() {
         assert_eq!(truncate_str("hello world", 8), "hello...");
-    }
-
-    #[test]
-    fn test_grid_render_config_compact() {
-        let cfg = GridRenderConfig::compact(42);
-        assert_eq!(cfg.highlight_room_uid, Some(42));
-        assert_eq!(cfg.max_height, Some("100%".to_string()));
-        assert_eq!(cfg.credits_max_chars, 40);
     }
 
     #[test]

@@ -1,6 +1,6 @@
 # Cosplay America Schedule - Work Item
 
-Updated on: Tue Jun  2 21:28:36 2026
+Updated on: Tue Jun  2 23:06:05 2026
 
 ## Completed
 
@@ -108,6 +108,8 @@ has changed.
 * [FEATURE-134] Add a double-sided per-day "flyer" print layout that places the day's schedule grid on the left half of each day's first page with panel descriptions flowing through the remaining columns and onto following full-width pages, one multi-day document with a page-number/timestamp footer.
 * [FEATURE-135] Add a `--export-xlsx-grid` option to `cosam-convert` that writes only the
 per-day grid reference sheets, and wire it into `sync-schedule.sh`.
+* [FEATURE-136] Combine all room signs into one multi-page document and adopt the flyer's
+`place`-plus-column-break grid mixing instead of the rigid side-by-side grid.
 * [META-002] Phase tracker for project foundation and Cargo workspace setup.
 * [META-003] Phase tracker for the entity/field system and core schedule data model in schedule-core.
 * [META-004] Phase tracker for making an automerge CRDT document the authoritative storage
@@ -812,6 +814,7 @@ This refactor:
 [FEATURE-132]: work-item/done/FEATURE-132.md
 [FEATURE-134]: work-item/done/FEATURE-134.md
 [FEATURE-135]: work-item/done/FEATURE-135.md
+[FEATURE-136]: work-item/done/FEATURE-136.md
 [META-001]: work-item/meta/META-001.md
 [META-002]: work-item/done/META-002.md
 [META-003]: work-item/done/META-003.md

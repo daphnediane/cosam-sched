@@ -6,13 +6,12 @@
 
 //! Shared panel description block rendering for description and workshop listings.
 //!
-//! ## Primary entry points
+//! ## Primary entry point
 //!
 //! - [`render_time_grouped_panels`] — full column-document rendering with sticky
 //!   level-2 headings and Typst-state-based repeated headers at column breaks.
-//!   Use this for `descriptions` and `workshops_listing` formats.
-//! - [`render_description_blocks`] — lightweight rendering without sticky/continued
-//!   logic, suitable for embedding inside a `#grid()` cell (e.g., room signs).
+//!   Used by the `descriptions`, `workshops_listing`, `flyer`, and `room_signs`
+//!   formats.
 
 use std::collections::{HashMap, HashSet};
 
@@ -181,43 +180,6 @@ fn calc_secondary_size(base_font_pt: &str) -> String {
     // Secondary text is 0.9x the base size (credits, metadata)
     let secondary = (base * 0.9).round();
     format!("{}pt", secondary.max(7.0))
-}
-
-/// Render time-grouped panel blocks for embedding in a grid cell or similar
-/// context where sticky headings and continued-header state are not needed.
-///
-/// Used by room signs, where descriptions are placed inside a `#grid()` column
-/// rather than a multi-column page layout.
-pub(crate) fn render_description_blocks<'a>(
-    data: &'a ScheduleData,
-    color_mode: ColorMode,
-    day_panels: &[&'a Panel],
-    day_date: &str,
-    day_label: &str,
-    base_font_pt: &str,
-) -> String {
-    let secondary_size = calc_secondary_size(base_font_pt);
-    let (by_base, time_groups) = build_time_groups(day_panels);
-
-    let mut out = String::new();
-    for (time_key, group) in &time_groups {
-        let slot_label = time_fmt::format_slot_heading(day_label, time_key);
-        if !slot_label.is_empty() {
-            out.push_str(&format!("== {}\n\n", escape_typst(&slot_label)));
-        }
-        for panel in group {
-            out.push_str(&panel_block(
-                data,
-                color_mode,
-                panel,
-                day_date,
-                &by_base,
-                &secondary_size,
-                None,
-            ));
-        }
-    }
-    out
 }
 
 // ---------------------------------------------------------------------------

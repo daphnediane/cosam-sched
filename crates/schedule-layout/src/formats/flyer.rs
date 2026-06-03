@@ -21,8 +21,6 @@
 //! carries a branded header and a footer with the page number plus the modified
 //! and generated timestamps (mirroring the widget's grid footer).
 
-use chrono::{DateTime, Local};
-
 use crate::blocks::banner;
 use crate::blocks::grid::{render_schedule_grid, GridRenderConfig};
 use crate::blocks::panels::render_time_grouped_panels;
@@ -85,7 +83,7 @@ pub fn generate(
 
     // Page footer: timestamps + page number + site. Set before the header so
     // both `#set page` directives apply document-wide.
-    let timestamps = footer_timestamps(&data.meta.modified, &data.meta.generated);
+    let timestamps = banner::footer_timestamps(&data.meta.modified, &data.meta.generated);
     let site = brand
         .meta
         .site_url
@@ -154,42 +152,6 @@ pub fn generate(
     vec![(String::new(), doc)]
 }
 
-/// Build the footer timestamp string, mirroring the widget's grid footer:
-/// `"Modified: Jun 15 4:00 PM | Generated: Jun 15 4:05 PM"` (times shown in the
-/// local zone).
-///
-/// `generated` is shown only when it differs from `modified`. Returns an empty
-/// string when neither timestamp parses.
-fn footer_timestamps(modified: &str, generated: &str) -> String {
-    let mut parts: Vec<String> = vec![];
-    if let Some(m) = fmt_stamp(modified) {
-        parts.push(format!("Modified: {m}"));
-    }
-    if generated != modified {
-        if let Some(g) = fmt_stamp(generated) {
-            parts.push(format!("Generated: {g}"));
-        }
-    }
-    parts.join(" | ")
-}
-
-/// Format an RFC 3339 timestamp as `"Jun 15 4:00 PM"` in the local time zone,
-/// or `None` if unparseable.
-///
-/// The stored timestamps are UTC; converting to the system's local zone matches
-/// what the widget shows (it renders in the viewer's local zone).
-fn fmt_stamp(s: &str) -> Option<String> {
-    if s.is_empty() {
-        return None;
-    }
-    let dt = DateTime::parse_from_rfc3339(s).ok()?;
-    Some(
-        dt.with_timezone(&Local)
-            .format("%b %-d %-I:%M %p")
-            .to_string(),
-    )
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -226,36 +188,6 @@ mod tests {
             ColorMode::Color,
         );
         assert!(out.is_empty());
-    }
-
-    #[test]
-    fn test_fmt_stamp_rfc3339() {
-        // Formats in the local zone, so build the expectation the same way to
-        // stay independent of the machine's time zone.
-        let expected = DateTime::parse_from_rfc3339("2026-06-15T16:00:00Z")
-            .unwrap()
-            .with_timezone(&Local)
-            .format("%b %-d %-I:%M %p")
-            .to_string();
-        assert_eq!(
-            fmt_stamp("2026-06-15T16:00:00Z").as_deref(),
-            Some(expected.as_str())
-        );
-        assert_eq!(fmt_stamp("").as_deref(), None);
-        assert_eq!(fmt_stamp("not-a-date").as_deref(), None);
-    }
-
-    #[test]
-    fn test_footer_timestamps_dedups_generated() {
-        // Generated == modified → only Modified shown.
-        let same = footer_timestamps("2026-06-15T16:00:00Z", "2026-06-15T16:00:00Z");
-        assert!(same.starts_with("Modified: "));
-        assert!(!same.contains("Generated:"));
-
-        // Differing → both shown, joined with " | ".
-        let both = footer_timestamps("2026-06-15T16:00:00Z", "2026-06-15T16:05:00Z");
-        assert!(both.starts_with("Modified: "));
-        assert!(both.contains(" | Generated: "));
     }
 
     #[test]

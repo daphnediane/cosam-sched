@@ -16,6 +16,7 @@ Complete index of cosam-sched documentation, including current documents and pla
 ### Architecture and Design
 
 * **architecture.md** - Overall system architecture, crate layout (schedule-core, schedule-macro), entity/field system overview, Schedule container design, UUID identity, and design decisions.
+* **layout-formats.md** - Print layout formats (`schedule-layout` crate): the `generate` contract and filename conventions, shared building blocks (preamble, banner, grid, panel blocks, the `place`+`colbreak` grid/column mixing), each format (schedule, descriptions, workshops, room signs, flyer, guest postcards), and per-paper column counts.
 
 ### Data Model
 

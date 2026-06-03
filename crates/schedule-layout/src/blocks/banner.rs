@@ -6,6 +6,8 @@
 
 //! Branded page-header bar used by all layout formats.
 
+use chrono::{DateTime, Local};
+
 use crate::brand::BrandConfig;
 use crate::typst_gen::{build_font_spec, escape_typst};
 
@@ -82,6 +84,57 @@ pub(crate) fn page_header_running(brand: &BrandConfig, right_content: &str) -> S
     )
 }
 
+/// Generate a `#set page(header: …)` directive with *two* raw-Typst content
+/// slots — a left label and a right label — for running headers that vary per
+/// page (e.g. room signs, where each page shows its room on the left and day on
+/// the right).
+///
+/// Layout mirrors [`page_header`]'s both-labels case: with a logo, the slots sit
+/// either side of a centered logo (L | logo | R); without one, they split the
+/// bar evenly (L | R).  Both contents are styled like the other banners (ALL
+/// CAPS, banner font, 28 pt) and inserted verbatim, so the caller is responsible
+/// for them being valid Typst (typically `context` expressions).
+pub(crate) fn page_header_running_split(
+    brand: &BrandConfig,
+    left_content: &str,
+    right_content: &str,
+) -> String {
+    let logo_path = brand
+        .meta
+        .logo_path
+        .as_ref()
+        .and_then(|p| p.to_str())
+        .map(|p| p.replace('\\', "/"));
+
+    let font_spec = build_font_spec(
+        brand.fonts.banner_or_default(),
+        brand.fonts.banner_style(),
+        Some(brand.fonts.banner_weight_or_default()),
+    );
+    let wrap = |content: &str| {
+        format!("#text(fill: white, size: 28pt, {font_spec})[#upper[{content}]]")
+    };
+    let left = wrap(left_content);
+    let right = wrap(right_content);
+
+    let inner = match logo_path {
+        Some(p) => format!(
+            "#grid(columns: (1fr, auto, 1fr), \
+             align: (left + horizon, center + horizon, right + horizon), \
+             [{left}], image(\"{p}\", height: 0.3in), [{right}])",
+        ),
+        None => format!(
+            "#grid(columns: (1fr, 1fr), align: (left + horizon, right + horizon), \
+             [{left}], [{right}])",
+        ),
+    };
+
+    format!(
+        "#set page(header: block(fill: brand-primary, width: 100%, \
+         inset: (x: 10pt, y: 5pt))[\n  {inner}\n])\n",
+    )
+}
+
 /// Generate a `#set page(footer: …)` directive showing timestamps, a centered
 /// page number, and the organization/site on the right.
 ///
@@ -109,6 +162,42 @@ pub(crate) fn page_footer(brand: &BrandConfig, timestamps: &str, site: &str) -> 
              [{right}],\n  \
            )\n\
          ])\n",
+    )
+}
+
+/// Build the footer timestamp string for the page footer, mirroring the
+/// widget's grid footer: `"Modified: Jun 15 4:00 PM | Generated: Jun 15 4:05 PM"`
+/// (times shown in the local zone).
+///
+/// `generated` is shown only when it differs from `modified`. Returns an empty
+/// string when neither timestamp parses.
+pub(crate) fn footer_timestamps(modified: &str, generated: &str) -> String {
+    let mut parts: Vec<String> = vec![];
+    if let Some(m) = fmt_stamp(modified) {
+        parts.push(format!("Modified: {m}"));
+    }
+    if generated != modified {
+        if let Some(g) = fmt_stamp(generated) {
+            parts.push(format!("Generated: {g}"));
+        }
+    }
+    parts.join(" | ")
+}
+
+/// Format an RFC 3339 timestamp as `"Jun 15 4:00 PM"` in the local time zone,
+/// or `None` if unparseable.
+///
+/// The stored timestamps are UTC; converting to the system's local zone matches
+/// what the widget shows (it renders in the viewer's local zone).
+fn fmt_stamp(s: &str) -> Option<String> {
+    if s.is_empty() {
+        return None;
+    }
+    let dt = DateTime::parse_from_rfc3339(s).ok()?;
+    Some(
+        dt.with_timezone(&Local)
+            .format("%b %-d %-I:%M %p")
+            .to_string(),
     )
 }
 
@@ -229,5 +318,46 @@ mod tests {
         let out = page_header(&brand, None, Some("Friday"));
         assert!(out.contains("align(center)"));
         assert!(!out.contains("grid"));
+    }
+
+    #[test]
+    fn test_page_header_running_split_no_logo() {
+        let brand = BrandConfig::default();
+        let out = page_header_running_split(&brand, "[L]", "[R]");
+        // No logo configured by default → two-cell grid, no centered logo column.
+        assert!(out.contains("grid(columns: (1fr, 1fr)"));
+        assert!(out.contains("[L]"));
+        assert!(out.contains("[R]"));
+        assert!(out.contains("brand-primary"));
+    }
+
+    #[test]
+    fn test_fmt_stamp_rfc3339() {
+        // Formats in the local zone, so build the expectation the same way to
+        // stay independent of the machine's time zone.
+        let expected = DateTime::parse_from_rfc3339("2026-06-15T16:00:00Z")
+            .unwrap()
+            .with_timezone(&Local)
+            .format("%b %-d %-I:%M %p")
+            .to_string();
+        assert_eq!(
+            fmt_stamp("2026-06-15T16:00:00Z").as_deref(),
+            Some(expected.as_str())
+        );
+        assert_eq!(fmt_stamp("").as_deref(), None);
+        assert_eq!(fmt_stamp("not-a-date").as_deref(), None);
+    }
+
+    #[test]
+    fn test_footer_timestamps_dedups_generated() {
+        // Generated == modified → only Modified shown.
+        let same = footer_timestamps("2026-06-15T16:00:00Z", "2026-06-15T16:00:00Z");
+        assert!(same.starts_with("Modified: "));
+        assert!(!same.contains("Generated:"));
+
+        // Differing → both shown, joined with " | ".
+        let both = footer_timestamps("2026-06-15T16:00:00Z", "2026-06-15T16:05:00Z");
+        assert!(both.starts_with("Modified: "));
+        assert!(both.contains(" | Generated: "));
     }
 }
