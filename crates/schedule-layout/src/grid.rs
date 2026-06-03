@@ -6,6 +6,7 @@
 
 //! Time-grid layout computation: time slots, room columns, cell spans.
 
+use crate::color::ColorMode;
 use crate::model::{Panel, Room, ScheduleData};
 use crate::time_fmt;
 
@@ -149,16 +150,16 @@ impl PaperSize {
 /// Output layout format.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub enum LayoutFormat {
-    #[default]
-    Schedule,
     /// Combined workshops listing (all workshops across all days, one document).
     WorkshopsListing,
     RoomSigns,
     GuestPostcards,
-    Descriptions,
-    /// Double-sided per-day flyer: schedule grid on the left half of each day's
-    /// first page, descriptions flowing through the remaining columns and onto
-    /// following full-width pages.  Produces one multi-day document.
+    /// Double-sided flyer producing one multi-day document. By default the
+    /// schedule grid sits on the left half of each section's first page with
+    /// descriptions flowing through the remaining columns, but [`ContentMode`]
+    /// can restrict it to grid-only (replacing the old `Schedule` format) or
+    /// description-only (replacing the old `Descriptions` format) output.
+    #[default]
     Flyer,
 }
 
@@ -168,6 +169,32 @@ pub enum SplitMode {
     #[default]
     Day,
     HalfDay,
+}
+
+/// Page-footer content.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum FooterMode {
+    /// Modified/generated timestamps, a centered page number, and the site/org
+    /// label (the default).
+    #[default]
+    Full,
+    /// Modified/generated timestamps only — no page number or site label.
+    TimestampOnly,
+    /// No footer at all.
+    None,
+}
+
+/// Which content sections a flyer renders.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum ContentMode {
+    /// Schedule grid and panel descriptions (the default).
+    #[default]
+    Both,
+    /// Schedule grid only — no descriptions.
+    GridOnly,
+    /// Panel descriptions only — no grid. Always rendered as one continuous
+    /// flow (`split_by` is ignored).
+    DescriptionOnly,
 }
 
 /// Filter criteria for layout generation.
@@ -189,6 +216,15 @@ pub struct LayoutConfig {
     pub split_by: SplitMode,
     pub filter: LayoutFilter,
     pub orientation: Orientation,
+    /// Color or black-and-white output.
+    pub color_mode: ColorMode,
+    /// Override for the number of layout columns. If `None`, each format uses its
+    /// own per-paper default (e.g. [`PaperSize::flyer_columns`]).
+    pub columns: Option<u32>,
+    /// Page-footer content.
+    pub footer: FooterMode,
+    /// Which content sections to render (flyer only).
+    pub content: ContentMode,
     /// Override for base font size (e.g., "14pt"). If None, uses paper's default.
     pub base_font_pt: Option<String>,
     /// Override for grid event text size (e.g., "8pt"). If None, uses base_font_pt.
@@ -196,6 +232,12 @@ pub struct LayoutConfig {
 }
 
 impl LayoutConfig {
+    /// Resolve the column count, honoring the [`columns`](Self::columns)
+    /// override and falling back to `default` (clamped to at least 1).
+    pub fn effective_columns(&self, default: u32) -> u32 {
+        self.columns.unwrap_or(default).max(1)
+    }
+
     /// Get the effective base font size for this layout.
     pub fn effective_font_pt(&self) -> &str {
         self.base_font_pt

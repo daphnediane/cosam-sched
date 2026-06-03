@@ -966,7 +966,10 @@ fn run_layout_export(
         brand::BrandConfig,
         color::ColorMode,
         formats,
-        grid::{LayoutConfig, LayoutFilter, LayoutFormat, Orientation, PaperSize, SplitMode},
+        grid::{
+            ContentMode, FooterMode, LayoutConfig, LayoutFilter, LayoutFormat, Orientation,
+            PaperSize, SplitMode,
+        },
         model::ScheduleData,
     };
     use std::fs;
@@ -1016,13 +1019,33 @@ fn run_layout_export(
     // Helper functions to parse layout configuration strings
     fn parse_format(s: &str) -> LayoutFormat {
         match s {
-            "schedule" => LayoutFormat::Schedule,
-            "descriptions" => LayoutFormat::Descriptions,
             "workshops_listing" | "workshops" => LayoutFormat::WorkshopsListing,
             "room_signs" | "room-signs" => LayoutFormat::RoomSigns,
             "guest_postcards" | "postcards" => LayoutFormat::GuestPostcards,
-            "flyer" => LayoutFormat::Flyer,
-            _ => LayoutFormat::Schedule,
+            _ => LayoutFormat::Flyer,
+        }
+    }
+
+    fn parse_color_mode(s: Option<&str>) -> ColorMode {
+        match s {
+            Some("bw") | Some("grayscale") => ColorMode::Bw,
+            _ => ColorMode::Color,
+        }
+    }
+
+    fn parse_content(s: Option<&str>) -> ContentMode {
+        match s {
+            Some("grid_only") | Some("grid-only") => ContentMode::GridOnly,
+            Some("description_only") | Some("description-only") => ContentMode::DescriptionOnly,
+            _ => ContentMode::Both,
+        }
+    }
+
+    fn parse_footer(s: Option<&str>) -> FooterMode {
+        match s {
+            Some("timestamp_only") | Some("timestamp-only") => FooterMode::TimestampOnly,
+            Some("none") => FooterMode::None,
+            _ => FooterMode::Full,
         }
     }
 
@@ -1062,6 +1085,10 @@ fn run_layout_export(
                     split_by: parse_split(&job.split_by),
                     orientation: parse_orientation(&job.orientation),
                     filter: LayoutFilter::default(),
+                    color_mode: parse_color_mode(job.color_mode.as_deref()),
+                    columns: job.columns,
+                    footer: parse_footer(job.footer.as_deref()),
+                    content: parse_content(job.content.as_deref()),
                     base_font_pt: job.base_font_pt.clone(),
                     grid_font_pt: job.grid_font_pt.clone(),
                 },
@@ -1109,24 +1136,16 @@ fn run_layout_export(
 
     for job in jobs_to_run {
         let outputs = match job.config.format {
-            LayoutFormat::Schedule => {
-                formats::schedule::generate(&data, &brand, &job.config, ColorMode::Color)
-            }
             LayoutFormat::WorkshopsListing => {
-                formats::workshops_listing::generate(&data, &brand, &job.config, ColorMode::Color)
+                formats::workshops_listing::generate(&data, &brand, &job.config)
             }
             LayoutFormat::RoomSigns => {
-                formats::room_signs::generate(&data, &brand, &job.config, ColorMode::Color)
+                formats::room_signs::generate(&data, &brand, &job.config)
             }
             LayoutFormat::GuestPostcards => {
-                formats::guest_postcards::generate(&data, &brand, &job.config, ColorMode::Color)
+                formats::guest_postcards::generate(&data, &brand, &job.config)
             }
-            LayoutFormat::Descriptions => {
-                formats::descriptions::generate(&data, &brand, &job.config, ColorMode::Color)
-            }
-            LayoutFormat::Flyer => {
-                formats::flyer::generate(&data, &brand, &job.config, ColorMode::Color)
-            }
+            LayoutFormat::Flyer => formats::flyer::generate(&data, &brand, &job.config),
         };
 
         // PDFs go into a per-paper-size subdirectory.

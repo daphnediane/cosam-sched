@@ -19,11 +19,17 @@ use schedule_layout::{
     brand::BrandConfig,
     color::ColorMode,
     formats,
-    grid::{LayoutConfig, LayoutFilter, LayoutFormat, Orientation, PaperSize, SplitMode},
+    grid::{
+        ContentMode, FooterMode, LayoutConfig, LayoutFilter, LayoutFormat, Orientation, PaperSize,
+        SplitMode,
+    },
     model::ScheduleData,
 };
 
-use cli::{Args, ColorModeArg, FormatArg, LayoutJob, OrientationArg, PaperArg, SplitArg};
+use cli::{
+    Args, ColorModeArg, ContentArg, FooterArg, FormatArg, LayoutJob, OrientationArg, PaperArg,
+    SplitArg,
+};
 
 fn main() {
     if let Err(e) = run() {
@@ -126,23 +132,21 @@ fn run_job(
         split_by: map_split(job.split),
         filter: build_filter(job),
         orientation: map_orientation(job.orientation),
+        color_mode,
+        columns: job.columns,
+        footer: map_footer(job.footer),
+        content: map_content(job.content),
         base_font_pt: None,
         grid_font_pt: None,
     };
 
     let outputs: Vec<(String, String)> = match job.format {
-        FormatArg::Schedule => formats::schedule::generate(data, brand, &config, color_mode),
         FormatArg::WorkshopsListing => {
-            formats::workshops_listing::generate(data, brand, &config, color_mode)
+            formats::workshops_listing::generate(data, brand, &config)
         }
-        FormatArg::RoomSigns => formats::room_signs::generate(data, brand, &config, color_mode),
-        FormatArg::GuestPostcards => {
-            formats::guest_postcards::generate(data, brand, &config, color_mode)
-        }
-        FormatArg::Descriptions => {
-            formats::descriptions::generate(data, brand, &config, color_mode)
-        }
-        FormatArg::Flyer => formats::flyer::generate(data, brand, &config, color_mode),
+        FormatArg::RoomSigns => formats::room_signs::generate(data, brand, &config),
+        FormatArg::GuestPostcards => formats::guest_postcards::generate(data, brand, &config),
+        FormatArg::Flyer => formats::flyer::generate(data, brand, &config),
     };
 
     if outputs.is_empty() {
@@ -256,12 +260,26 @@ fn map_paper(p: PaperArg) -> PaperSize {
 
 fn map_format(f: FormatArg) -> LayoutFormat {
     match f {
-        FormatArg::Schedule => LayoutFormat::Schedule,
         FormatArg::WorkshopsListing => LayoutFormat::WorkshopsListing,
         FormatArg::RoomSigns => LayoutFormat::RoomSigns,
         FormatArg::GuestPostcards => LayoutFormat::GuestPostcards,
-        FormatArg::Descriptions => LayoutFormat::Descriptions,
         FormatArg::Flyer => LayoutFormat::Flyer,
+    }
+}
+
+fn map_content(c: ContentArg) -> ContentMode {
+    match c {
+        ContentArg::Both => ContentMode::Both,
+        ContentArg::GridOnly => ContentMode::GridOnly,
+        ContentArg::DescriptionOnly => ContentMode::DescriptionOnly,
+    }
+}
+
+fn map_footer(f: FooterArg) -> FooterMode {
+    match f {
+        FooterArg::Full => FooterMode::Full,
+        FooterArg::TimestampOnly => FooterMode::TimestampOnly,
+        FooterArg::None => FooterMode::None,
     }
 }
 
@@ -283,11 +301,9 @@ fn map_orientation(o: OrientationArg) -> Orientation {
 /// Paper size and split qualifier are appended automatically during filename assembly.
 fn default_stem(format: FormatArg) -> String {
     match format {
-        FormatArg::Schedule => "schedule",
         FormatArg::WorkshopsListing => "workshops",
         FormatArg::RoomSigns => "room-signs",
         FormatArg::GuestPostcards => "postcards",
-        FormatArg::Descriptions => "desc",
         FormatArg::Flyer => "flyer",
     }
     .to_string()

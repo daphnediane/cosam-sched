@@ -28,8 +28,8 @@ pub fn generate(
     data: &ScheduleData,
     brand: &BrandConfig,
     config: &LayoutConfig,
-    color_mode: ColorMode,
 ) -> Vec<(String, String)> {
+    let color_mode = config.color_mode;
     let panels = data.scheduled_panels();
     if panels.is_empty() || data.presenters.is_empty() {
         return vec![];
@@ -231,12 +231,7 @@ mod tests {
             timeline: vec![],
             presenters: vec![],
         };
-        let out = generate(
-            &data,
-            &BrandConfig::default(),
-            &LayoutConfig::default(),
-            ColorMode::Color,
-        );
+        let out = generate(&data, &BrandConfig::default(), &LayoutConfig::default());
         assert!(out.is_empty());
     }
 }

@@ -27,8 +27,8 @@ pub fn generate(
     data: &ScheduleData,
     brand: &BrandConfig,
     config: &LayoutConfig,
-    color_mode: ColorMode,
 ) -> Vec<(String, String)> {
+    let color_mode = config.color_mode;
     let panels = data.scheduled_panels();
 
     // Filter to workshops (and cafe/premium types)
@@ -47,7 +47,7 @@ pub fn generate(
         return vec![];
     }
 
-    let num_cols = config.paper.description_columns(config.orientation);
+    let num_cols = config.effective_columns(config.paper.description_columns(config.orientation));
 
     let source = generate_listing_typ(data, brand, config, color_mode, &workshop_panels, num_cols);
 
@@ -116,7 +116,6 @@ mod tests {
             &empty_schedule(),
             &BrandConfig::default(),
             &LayoutConfig::default(),
-            ColorMode::Color,
         );
         assert!(out.is_empty());
     }

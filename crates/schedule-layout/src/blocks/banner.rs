@@ -165,6 +165,24 @@ pub(crate) fn page_footer(brand: &BrandConfig, timestamps: &str, site: &str) -> 
     )
 }
 
+/// Generate a `#set page(footer: …)` directive showing only the
+/// modified/generated timestamps, centered, with no page number or site label.
+///
+/// `timestamps` is a pre-formatted string (empty to render an empty footer).
+///
+/// Must be emitted after `preamble()` so `brand-primary`/`brand-dark` exist.
+pub(crate) fn page_footer_timestamps_only(timestamps: &str) -> String {
+    let center = escape_typst(timestamps);
+    format!(
+        "#set page(footer: context [\n  \
+           #set text(size: 8pt, fill: brand-dark)\n  \
+           #line(length: 100%, stroke: 0.5pt + brand-primary)\n  \
+           #v(2pt)\n  \
+           #align(center)[{center}]\n\
+         ])\n",
+    )
+}
+
 /// Build the footer timestamp string for the page footer, mirroring the
 /// widget's grid footer: `"Modified: Jun 15 4:00 PM | Generated: Jun 15 4:05 PM"`
 /// (times shown in the local zone).

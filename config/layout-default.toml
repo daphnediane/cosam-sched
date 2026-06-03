@@ -3,18 +3,30 @@
 # This file is embedded in cosam-convert and serves as the default configuration.
 #
 # Paper keys: letter, legal, tabloid, super_b, poster, postcard
-# Format keys: schedule, descriptions, workshops_listing, room_signs, guest_postcards, flyer
+# Format keys: flyer, workshops_listing, room_signs, guest_postcards
 # Split modes: day, half_day
 # Orientations: portrait, landscape
 #
+# The flyer format produces one multi-day document and subsumes the old
+# schedule-grid and descriptions listings via the `content` option:
+#   content = "both"             # grid + descriptions (default)
+#   content = "grid_only"        # schedule grid only (former "schedule")
+#   content = "description_only" # descriptions only   (former "descriptions")
+#
 # Per-job optional overrides:
+#   color_mode = "color"        # "color" (default) or "bw"
+#   footer = "full"             # "full" (default), "timestamp_only", "none"
+#   columns = 4                 # override the format/paper default column count
 #   base_font_pt = "12pt"       # Override base font size (descriptions, etc.)
-#   grid_font_pt = "8pt"        # Override grid event text size (schedule + room_signs)
+#   grid_font_pt = "8pt"        # Override grid event text size (grid + room_signs)
 #
 # Grid rendering uses grid_font_pt as the event-name size; secondary text and
 # headers scale proportionally.  Falls back to base_font_pt if not set.
+
+# Schedule grids (former "schedule" format): flyer, grid-only, split per half-day.
 [[jobs]]
-format = "schedule"
+format = "flyer"
+content = "grid_only"
 paper = "tabloid"
 split_by = "half_day"
 orientation = "landscape"
@@ -48,29 +60,35 @@ split_by = "half_day"
 orientation = "portrait"
 stem = "postcards"
 
+# Panel descriptions (former "descriptions" format): flyer, description-only.
+# Description-only is always one continuous flow (split_by is ignored).
 [[jobs]]
-format = "descriptions"
+format = "flyer"
+content = "description_only"
 paper = "tabloid"
 split_by = "day"
 orientation = "landscape"
 stem = "desc"
 
 [[jobs]]
-format = "descriptions"
+format = "flyer"
+content = "description_only"
 paper = "letter"
 split_by = "day"
 orientation = "portrait"
 stem = "desc"
 
 [[jobs]]
-format = "descriptions"
+format = "flyer"
+content = "description_only"
 paper = "legal"
 split_by = "day"
 orientation = "portrait"
 stem = "desc"
 
 [[jobs]]
-format = "descriptions"
+format = "flyer"
+content = "description_only"
 paper = "poster"
 split_by = "day"
 orientation = "landscape"
@@ -78,7 +96,7 @@ stem = "desc"
 # base_font_pt = "12.0pt"  # Override default font size for poster descriptions
 
 # Flyer: single double-sided document, schedule grid + descriptions per day,
-# each day starting on an odd page. split_by is ignored (always whole-day).
+# each day starting on an odd page. split_by may be day or half_day.
 [[jobs]]
 format = "flyer"
 paper = "letter"

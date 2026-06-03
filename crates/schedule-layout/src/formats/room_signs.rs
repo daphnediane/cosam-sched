@@ -28,7 +28,6 @@ use crate::blocks::banner;
 use crate::blocks::grid::{render_schedule_grid, GridRenderConfig};
 use crate::blocks::panels::render_time_grouped_panels;
 use crate::brand::BrandConfig;
-use crate::color::ColorMode;
 use crate::grid::{GridLayout, LayoutConfig};
 use crate::model::{Panel, Room, ScheduleData};
 use crate::typst_gen::{make_day_label, preamble};
@@ -42,8 +41,8 @@ pub fn generate(
     data: &ScheduleData,
     brand: &BrandConfig,
     config: &LayoutConfig,
-    color_mode: ColorMode,
 ) -> Vec<(String, String)> {
+    let color_mode = config.color_mode;
     let panels = data.scheduled_panels();
     if panels.is_empty() {
         return vec![];
@@ -77,7 +76,7 @@ pub fn generate(
     let all_dates: Vec<&str> = all_date_strs.iter().map(String::as_str).collect();
 
     // Column split: left half (rounded up) is the grid, the rest are descriptions.
-    let total_cols = config.paper.description_columns(config.orientation);
+    let total_cols = config.effective_columns(config.paper.description_columns(config.orientation));
     let grid_cols = total_cols.div_ceil(2);
     let grid_pct = grid_cols as f64 / total_cols as f64 * 100.0;
 
@@ -239,12 +238,7 @@ mod tests {
             paper: PaperSize::Tabloid,
             ..LayoutConfig::default()
         };
-        let out = generate(
-            &empty_schedule(),
-            &BrandConfig::default(),
-            &config,
-            ColorMode::Color,
-        );
+        let out = generate(&empty_schedule(), &BrandConfig::default(), &config);
         assert!(out.is_empty());
     }
 
