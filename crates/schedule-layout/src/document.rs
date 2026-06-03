@@ -9,8 +9,8 @@
 //! Produces a *single* multi-section Typst document. Every print artifact —
 //! schedule grids, description booklets, workshop listings, room signs, and
 //! guest panel lists — is one configuration of this builder, selected by
-//! [`ContentMode`] (what to draw) and [`SplitMode`] (how to break it into
-//! sections):
+//! [`ContentMode`] (what to draw) plus a [`SectionSplit`]/[`TimeSplit`] pair
+//! (how to break it into sections):
 //!
 //! - [`ContentMode::Both`]: grid on the left half of each section, descriptions
 //!   flowing through the remaining columns.
@@ -20,10 +20,10 @@
 //! - [`ContentMode::PanelList`]: compact name + time + room list (former guest
 //!   postcards).
 //!
-//! Grid-bearing content collapses `Room`/`Presenter` splits to their per-day
-//! form (a grid spans a single day). `Room`/`RoomDay` highlight the section's
-//! room column; `Presenter`/`PresenterDay` highlight the guest's own cells in
-//! the day grid. [`LayoutConfig::double_sided`] pads each section onto an odd
+//! Grid-bearing content collapses room/presenter splits to their per-day form (a
+//! grid spans a single day): a [`SectionSplit::Room`] section highlights its room
+//! column, a [`SectionSplit::Presenter`] section highlights the guest's own cells
+//! in the day grid. [`LayoutConfig::double_sided`] pads each section onto an odd
 //! page; [`LayoutConfig::header_text`] and [`FooterMode`] drive the banners.
 
 use std::collections::HashSet;
@@ -33,10 +33,9 @@ use crate::blocks::grid::{render_schedule_grid, GridRenderConfig};
 use crate::blocks::panels::{render_panel_list, render_time_grouped_panels};
 use crate::brand::BrandConfig;
 use crate::color::ColorMode;
-use crate::grid::{
-    ContentMode, FooterMode, GridLayout, LayoutConfig, PanelFilter, SectionSplit, TimeSplit,
-};
+use crate::config::{ContentMode, FooterMode, LayoutConfig, PanelFilter, SectionSplit, TimeSplit};
 use crate::model::{Panel, ScheduleData};
+use crate::timegrid::GridLayout;
 use crate::typst_gen::{make_day_label, preamble};
 
 /// One renderable section of the document.
@@ -85,15 +84,15 @@ pub fn generate(
 
     // The header bar is always present (fixed top margin); widen the bottom only
     // when a footer is shown (the preamble's bottom margin is tuned for
-    // edge-to-edge grids).
+    // edge-to-edge grids). Geometry `#let`s come from the preamble.
     let bottom = if matches!(config.footer, FooterMode::None) {
-        "0.125in"
+        "_page-edge"
     } else {
-        "0.5in"
+        "_footer-bottom"
     };
     doc.push_str(&format!(
-        "#set page(margin: (top: 0.625in, bottom: {bottom}, left: 0.125in, right: 0.125in), \
-         footer-descent: 0.15in)\n",
+        "#set page(margin: (top: _content-top, bottom: {bottom}, left: _page-edge, right: _page-edge), \
+         footer-descent: _footer-descent)\n",
     ));
 
     // Footer (selected by FooterMode), set before the header so both `#set page`
@@ -147,7 +146,7 @@ pub fn generate(
                 doc.push_str(&render_grid(section, data, config, color_mode));
                 doc.push_str("])\n");
 
-                doc.push_str(&format!("#columns({}, gutter: 0.2in)[\n", total_cols));
+                doc.push_str(&format!("#columns({}, gutter: _col-gutter)[\n", total_cols));
                 for _ in 0..grid_cols {
                     doc.push_str("#colbreak()\n");
                 }
@@ -162,7 +161,7 @@ pub fn generate(
             ContentMode::DescriptionOnly { .. } => {
                 let total_cols =
                     config.effective_columns(config.paper.description_columns(config.orientation));
-                doc.push_str(&format!("#columns({}, gutter: 0.2in)[\n", total_cols));
+                doc.push_str(&format!("#columns({}, gutter: _col-gutter)[\n", total_cols));
                 doc.push_str(&render_time_grouped_panels(
                     data,
                     color_mode,
@@ -174,7 +173,7 @@ pub fn generate(
             ContentMode::PanelList { .. } => {
                 let total_cols =
                     config.effective_columns(config.paper.description_columns(config.orientation));
-                doc.push_str(&format!("#columns({}, gutter: 0.2in)[\n", total_cols));
+                doc.push_str(&format!("#columns({}, gutter: _col-gutter)[\n", total_cols));
                 doc.push_str(&render_panel_list(
                     data,
                     color_mode,
@@ -522,7 +521,7 @@ fn postcard_rank_eligible(rank: &str) -> bool {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::grid::{LayoutConfig, PaperSize};
+    use crate::config::{LayoutConfig, PaperSize};
     use crate::model::{Meta, Panel, Presenter, Room, ScheduleData};
     use std::collections::HashMap;
 
@@ -685,11 +684,11 @@ mod tests {
     #[test]
     fn test_flyer_columns_split() {
         assert_eq!(
-            PaperSize::Letter.flyer_columns(crate::grid::Orientation::Landscape),
+            PaperSize::Letter.flyer_columns(crate::config::Orientation::Landscape),
             4
         );
         assert_eq!(
-            PaperSize::Legal.flyer_columns(crate::grid::Orientation::Landscape),
+            PaperSize::Legal.flyer_columns(crate::config::Orientation::Landscape),
             6
         );
     }

@@ -18,11 +18,11 @@ use clap::Parser;
 use schedule_layout::{
     brand::BrandConfig,
     color::ColorMode,
-    formats,
-    grid::{
+    config::{
         ContentMode, FooterMode, LayoutConfig, Orientation, PanelFilter, PaperSize, SectionSplit,
         TimeSplit,
     },
+    document,
     model::ScheduleData,
 };
 
@@ -140,7 +140,7 @@ fn run_job(
         grid_font_pt: None,
     };
 
-    let outputs: Vec<(String, String)> = formats::flyer::generate(data, brand, &config);
+    let outputs: Vec<(String, String)> = document::generate(data, brand, &config);
 
     if outputs.is_empty() {
         eprintln!(

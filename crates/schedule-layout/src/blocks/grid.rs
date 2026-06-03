@@ -13,8 +13,8 @@
 use std::collections::HashSet;
 
 use crate::color::{ColorMode, PanelColor};
-use crate::grid::GridLayout;
 use crate::model::ScheduleData;
+use crate::timegrid::GridLayout;
 use crate::typst_gen::escape_typst;
 
 /// Configuration for grid rendering.
@@ -60,6 +60,38 @@ pub(crate) struct GridRenderConfig {
 
 /// Default grid font size (pt) used when no override is provided.
 const DEFAULT_GRID_FONT_PT: f64 = 7.5;
+
+// --- Font scaling (see `scaled_fonts`) ---
+/// Floor for the smallest grid text (secondary/duration) in points.
+const MIN_SECONDARY_PT: f64 = 4.0;
+/// Header text size as a multiple of the secondary size.
+const HEADER_SCALE: f64 = 1.15;
+/// Major (on-the-hour) time-label size as a multiple of the secondary size.
+const TIME_MAJOR_SCALE: f64 = 1.1;
+/// Cost-label size as a multiple of the secondary size.
+const COST_SCALE: f64 = 1.05;
+
+// --- Gridline / cell styling (emitted into the Typst `#grid`) ---
+/// Grey level of the grid's hairline stroke.
+const GRIDLINE_LUMA: u16 = 210;
+/// Grid hairline thickness in points.
+const GRIDLINE_THICKNESS_PT: f64 = 0.4;
+/// Grey level of the per-cell bottom rule under event text.
+const CELL_RULE_LUMA: u16 = 200;
+/// Per-cell bottom rule thickness in points.
+const CELL_RULE_PT: f64 = 0.3;
+/// Width of the panel-type colour accent on the left of an event cell, in points.
+const ACCENT_WIDTH_PT: f64 = 2.5;
+/// Italic text size for a break row spanning all rooms, in points.
+const BREAK_TEXT_PT: f64 = 5.5;
+/// Grey level of an empty (no-event) slot.
+const EMPTY_SLOT_LUMA: u16 = 245;
+/// Grey level of a break row's fill.
+const BREAK_FILL_LUMA: u16 = 235;
+/// Lighten percentage for a highlighted event cell's fill.
+const HIGHLIGHT_FILL_LIGHTEN: u16 = 90;
+/// Lighten percentage for an empty slot in the highlighted room column.
+const HIGHLIGHT_EMPTY_LIGHTEN: u16 = 78;
 
 impl Default for GridRenderConfig {
     fn default() -> Self {
@@ -107,13 +139,13 @@ impl GridRenderConfig {
     /// `grid_font_pt` is the smallest text (secondary/duration); name and
     /// header scale up from it.
     fn scaled_fonts(grid_font_pt: f64) -> Self {
-        let secondary = grid_font_pt.max(4.0);
+        let secondary = grid_font_pt.max(MIN_SECONDARY_PT);
         let name = secondary;
-        let header = secondary * 1.15;
+        let header = secondary * HEADER_SCALE;
         let hotel = secondary;
-        let time_major = secondary * 1.1;
+        let time_major = secondary * TIME_MAJOR_SCALE;
         let time_minor = secondary;
-        let cost = secondary * 1.05;
+        let cost = secondary * COST_SCALE;
         Self {
             highlight_room_uid: None,
             highlight_panel_ids: None,
@@ -255,10 +287,12 @@ pub(crate) fn render_schedule_grid(
     out.push_str(&format!(
         "{prefix}(\n  columns: ({cols}),\n  rows: ({rows}),\n  \
          column-gutter: 0pt,\n  row-gutter: 0pt,\n  \
-         stroke: (paint: luma(210), thickness: 0.4pt),\n",
+         stroke: (paint: luma({gridline_luma}), thickness: {gridline_pt}pt),\n",
         prefix = grid_prefix,
         cols = cols_spec,
         rows = rows_spec,
+        gridline_luma = GRIDLINE_LUMA,
+        gridline_pt = GRIDLINE_THICKNESS_PT,
     ));
 
     // --- Header row ---
@@ -344,7 +378,11 @@ fn render_header_row(
     }
 }
 
-fn render_time_cell(out: &mut String, slot: &crate::grid::TimeSlot, _config: &GridRenderConfig) {
+fn render_time_cell(
+    out: &mut String,
+    slot: &crate::timegrid::TimeSlot,
+    _config: &GridRenderConfig,
+) {
     let (time_var, time_weight) = if slot.is_major {
         ("_time_size", ", weight: \"bold\"")
     } else {
@@ -410,7 +448,7 @@ fn render_room_cells(
 
 fn render_event_cell(
     out: &mut String,
-    cell: &crate::grid::GridCell,
+    cell: &crate::timegrid::GridCell,
     data: &ScheduleData,
     color_mode: ColorMode,
     config: &GridRenderConfig,
@@ -427,17 +465,18 @@ fn render_event_cell(
         .unwrap_or_default();
 
     let fill = if is_highlighted {
-        "brand-primary.lighten(90%)"
+        format!("brand-primary.lighten({}%)", HIGHLIGHT_FILL_LIGHTEN)
     } else {
-        "white"
+        "white".to_string()
     };
 
     let left_stroke = if color_str.is_empty() {
         String::new()
     } else {
         format!(
-            ", stroke: (left: 2.5pt + rgb(\"{}\"), rest: none)",
-            color_str
+            ", stroke: (left: {accent}pt + rgb(\"{color}\"), rest: none)",
+            accent = ACCENT_WIDTH_PT,
+            color = color_str,
         )
     };
 
@@ -504,11 +543,13 @@ fn render_event_cell(
     out.push_str(&format!(
         "  grid.cell(fill: {fill}{rowspan}{stroke})\
          [#block(clip: true, width: 100%, height: 100%, inset: _cell_inset, \
-         stroke: (bottom: 0.3pt + luma(200)))[\
+         stroke: (bottom: {rule_pt}pt + luma({rule_luma})))[\
          #text(size: _name_size, weight: \"bold\")[{name}]{cost}\n{credits}\n{dur}]],\n",
         fill = fill,
         rowspan = rowspan_arg,
         stroke = left_stroke,
+        rule_pt = CELL_RULE_PT,
+        rule_luma = CELL_RULE_LUMA,
         name = name,
         cost = cost_suffix,
         credits = credits_str,
@@ -541,20 +582,28 @@ fn render_empty_or_spanned_cell(
             let rowspan = (brk.row_end - brk.row_start).max(1);
             let name = escape_typst(&brk.panel.name);
             out.push_str(&format!(
-                "  grid.cell(colspan: {}, rowspan: {}, fill: luma(235))\
+                "  grid.cell(colspan: {}, rowspan: {}, fill: luma({break_luma}))\
                  [#align(center + horizon)\
-                 [#text(size: 5.5pt, style: \"italic\")[{}]]],\n",
+                 [#text(size: {break_pt}pt, style: \"italic\")[{}]]],\n",
                 n_rooms + 1,
                 rowspan,
-                name
+                name,
+                break_luma = BREAK_FILL_LUMA,
+                break_pt = BREAK_TEXT_PT,
             ));
         }
     } else if is_highlighted {
         // Empty slot in highlighted room — darker muted tint to fade behind panels
-        out.push_str("  grid.cell(fill: brand-primary.lighten(78%))[],\n");
+        out.push_str(&format!(
+            "  grid.cell(fill: brand-primary.lighten({}%))[],\n",
+            HIGHLIGHT_EMPTY_LIGHTEN
+        ));
     } else {
         // Empty slot — light grey background
-        out.push_str("  grid.cell(fill: luma(245))[],\n");
+        out.push_str(&format!(
+            "  grid.cell(fill: luma({}))[],\n",
+            EMPTY_SLOT_LUMA
+        ));
     }
 }
 

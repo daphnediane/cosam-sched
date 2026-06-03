@@ -9,7 +9,7 @@
 use chrono::NaiveDate;
 
 use crate::brand::BrandConfig;
-use crate::grid::LayoutConfig;
+use crate::config::LayoutConfig;
 
 /// Escape a string for use as Typst content (inside `[]` or `""`).
 pub fn escape_typst(s: &str) -> String {
@@ -59,7 +59,7 @@ pub(crate) fn build_font_spec(font: &str, style: Option<&str>, weight: Option<&s
 /// instead of a named `paper:` key, because 30"×20" is not a standard Typst
 /// paper name.
 pub fn preamble(config: &LayoutConfig, brand: &BrandConfig) -> String {
-    use crate::grid::PaperSize;
+    use crate::config::PaperSize;
 
     let heading_font = brand.fonts.heading_or_default();
     let heading_style = brand.fonts.heading_style();
@@ -87,14 +87,18 @@ pub fn preamble(config: &LayoutConfig, brand: &BrandConfig) -> String {
     let body_font_spec = build_font_spec(body_font, body_style, body_weight);
     let heading_font_spec = build_font_spec(heading_font, heading_style, heading_weight);
 
+    // Geometry `#let`s come first so the `#set page` margins can reference them.
+    let geometry_lets = crate::geometry::typst_lets();
+
     format!(
-        r#"#set page({page_spec}, margin: (top: 0.625in, bottom: 0.125in, left: 0.125in, right: 0.125in), header-ascent: 0.125in)
+        r#"{geometry_lets}#set page({page_spec}, margin: (top: _content-top, bottom: _page-edge, left: _page-edge, right: _page-edge), header-ascent: _header-ascent)
 #set text({body_font_spec}, size: {font_size})
 #show heading: set text({heading_font_spec})
 
 #let brand-primary = rgb("{primary}")
 #let brand-dark = rgb("{dark_grey}")
 "#,
+        geometry_lets = geometry_lets,
         page_spec = page_spec,
         body_font_spec = body_font_spec,
         font_size = font_size,
@@ -180,7 +184,7 @@ mod tests {
 
     #[test]
     fn test_preamble_portrait_no_flip() {
-        use crate::grid::{Orientation, PaperSize};
+        use crate::config::{Orientation, PaperSize};
         let config = LayoutConfig {
             paper: PaperSize::Letter,
             orientation: Orientation::Portrait,
@@ -202,7 +206,7 @@ mod tests {
 
     #[test]
     fn test_preamble_poster_custom_dimensions() {
-        use crate::grid::{Orientation, PaperSize};
+        use crate::config::{Orientation, PaperSize};
         let config = LayoutConfig {
             paper: PaperSize::Poster,
             orientation: Orientation::Landscape,

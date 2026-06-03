@@ -43,7 +43,7 @@ pub(crate) fn page_header(brand: &BrandConfig, left: Option<&str>, right: Option
 
     format!(
         "#set page(header: block(fill: brand-primary, width: 100%, \
-         inset: (x: 10pt, y: 5pt))[\n  {inner}\n])\n",
+         inset: _banner-inset)[\n  {inner}\n])\n",
     )
 }
 
@@ -68,19 +68,21 @@ pub(crate) fn page_header_running(brand: &BrandConfig, right_content: &str) -> S
         brand.fonts.banner_style(),
         Some(brand.fonts.banner_weight_or_default()),
     );
-    let label = format!("#text(fill: white, size: 28pt, {font_spec})[#upper[{right_content}]]");
+    let label = format!(
+        "#text(fill: white, size: _banner-text-size, {font_spec})[#upper[{right_content}]]"
+    );
 
     let inner = match logo_path {
         Some(p) => format!(
             "#grid(columns: (auto, 1fr), align: (left + horizon, right + horizon), \
-             image(\"{p}\", height: 0.3in), [{label}])",
+             image(\"{p}\", height: _logo-height), [{label}])",
         ),
         None => format!("#align(center)[{label}]"),
     };
 
     format!(
         "#set page(header: block(fill: brand-primary, width: 100%, \
-         inset: (x: 10pt, y: 5pt))[\n  {inner}\n])\n",
+         inset: _banner-inset)[\n  {inner}\n])\n",
     )
 }
 
@@ -111,8 +113,9 @@ pub(crate) fn page_header_running_split(
         brand.fonts.banner_style(),
         Some(brand.fonts.banner_weight_or_default()),
     );
-    let wrap =
-        |content: &str| format!("#text(fill: white, size: 28pt, {font_spec})[#upper[{content}]]");
+    let wrap = |content: &str| {
+        format!("#text(fill: white, size: _banner-text-size, {font_spec})[#upper[{content}]]")
+    };
     let left = wrap(left_content);
     let right = wrap(right_content);
 
@@ -120,7 +123,7 @@ pub(crate) fn page_header_running_split(
         Some(p) => format!(
             "#grid(columns: (1fr, auto, 1fr), \
              align: (left + horizon, center + horizon, right + horizon), \
-             [{left}], image(\"{p}\", height: 0.3in), [{right}])",
+             [{left}], image(\"{p}\", height: _logo-height), [{right}])",
         ),
         None => format!(
             "#grid(columns: (1fr, 1fr), align: (left + horizon, right + horizon), \
@@ -130,7 +133,7 @@ pub(crate) fn page_header_running_split(
 
     format!(
         "#set page(header: block(fill: brand-primary, width: 100%, \
-         inset: (x: 10pt, y: 5pt))[\n  {inner}\n])\n",
+         inset: _banner-inset)[\n  {inner}\n])\n",
     )
 }
 
@@ -151,9 +154,9 @@ pub(crate) fn page_footer(brand: &BrandConfig, timestamps: &str, site: &str) -> 
     let right = escape_typst(site);
     format!(
         "#set page(footer: context [\n  \
-           #set text(size: 8pt, fill: brand-dark)\n  \
-           #line(length: 100%, stroke: 0.5pt + brand-primary)\n  \
-           #v(2pt)\n  \
+           #set text(size: _footer-text-size, fill: brand-dark)\n  \
+           #line(length: 100%, stroke: _footer-rule + brand-primary)\n  \
+           #v(_footer-rule-gap)\n  \
            #grid(columns: (1fr, auto, 1fr), \
              align: (left + horizon, center + horizon, right + horizon),\n    \
              [{left}],\n    \
@@ -174,9 +177,9 @@ pub(crate) fn page_footer_timestamps_only(timestamps: &str) -> String {
     let center = escape_typst(timestamps);
     format!(
         "#set page(footer: context [\n  \
-           #set text(size: 8pt, fill: brand-dark)\n  \
-           #line(length: 100%, stroke: 0.5pt + brand-primary)\n  \
-           #v(2pt)\n  \
+           #set text(size: _footer-text-size, fill: brand-dark)\n  \
+           #line(length: 100%, stroke: _footer-rule + brand-primary)\n  \
+           #v(_footer-rule-gap)\n  \
            #align(center)[{center}]\n\
          ])\n",
     )
@@ -229,7 +232,7 @@ fn banner_text(brand: &BrandConfig, escaped: &str) -> String {
         brand.fonts.banner_style(),
         Some(brand.fonts.banner_weight_or_default()),
     );
-    format!("#text(fill: white, size: 28pt, {font_spec})[#upper[{escaped}]]")
+    format!("#text(fill: white, size: _banner-text-size, {font_spec})[#upper[{escaped}]]")
 }
 
 /// Banner label wrapped in a grid-cell content block.
@@ -243,7 +246,7 @@ fn build_inner(
     right: Option<&str>,
     logo_path: Option<&str>,
 ) -> String {
-    let logo = logo_path.map(|p| format!("image(\"{p}\", height: 0.3in)"));
+    let logo = logo_path.map(|p| format!("image(\"{p}\", height: _logo-height)"));
 
     match (left, right, logo.as_deref()) {
         // Both labels + logo → L | logo | R

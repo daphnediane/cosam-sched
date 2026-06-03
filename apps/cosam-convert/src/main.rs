@@ -119,6 +119,10 @@ struct OutputSettings {
     brand_config: Option<PathBuf>,
     #[cfg(feature = "layout")]
     layout_config: Option<PathBuf>,
+    /// Test affordance: use the schedule's modified time as the generated time so
+    /// layout output (the page footer) is reproducible across runs.
+    #[cfg(feature = "layout")]
+    stable_timestamps: bool,
 }
 
 impl Default for OutputSettings {
@@ -136,6 +140,8 @@ impl Default for OutputSettings {
             brand_config: None,
             #[cfg(feature = "layout")]
             layout_config: None,
+            #[cfg(feature = "layout")]
+            stable_timestamps: false,
         }
     }
 }
@@ -383,6 +389,13 @@ fn parse_args() -> Result<CliArgs> {
                 }
                 current_settings.layout_config = Some(PathBuf::from(&arguments[index]));
             }
+            #[cfg(feature = "layout")]
+            "--stable-timestamps" => {
+                if first_setting_index.is_none() {
+                    first_setting_index = Some(index);
+                }
+                current_settings.stable_timestamps = true;
+            }
             "--check" | "--validate" => {
                 args.check_only = true;
             }
@@ -616,6 +629,7 @@ fn print_usage() {
          \x20 --test-template <path>               Override test page template (default: builtin)\n\
          \x20 --brand-config <file>                Brand config for layout (default: config/brand.toml)\n\
          \x20 --layout-config <file>               Layout config for jobs (default: config/layout.toml)\n\
+         \x20 --stable-timestamps                  Use modified time as generated time (reproducible layout output)\n\
          \x20 --minified                           Minify HTML output (default)\n\
          \x20 --no-minified, --for-debug           Skip minification\n\
          \x20 --embed-as-json                      Embed schedule as gzip+base64 JSON\n\
@@ -965,11 +979,11 @@ fn run_layout_export(
     use schedule_layout::{
         brand::BrandConfig,
         color::ColorMode,
-        formats,
-        grid::{
+        config::{
             ContentMode, FooterMode, LayoutConfig, Orientation, PanelFilter, PaperSize,
             SectionSplit, TimeSplit,
         },
+        document,
         model::ScheduleData,
     };
     use std::fs;
@@ -993,7 +1007,14 @@ fn run_layout_export(
     };
 
     let data = match ScheduleData::from_schedule(schedule, title) {
-        Ok(d) => d,
+        Ok(mut d) => {
+            // For reproducible test output, pin the generated time to the
+            // (stable) modified time so the footer no longer varies per run.
+            if settings.stable_timestamps {
+                d.meta.generated = d.meta.modified.clone();
+            }
+            d
+        }
         Err(e) => {
             eprintln!("warning: building layout data: {e}; skipping layout export");
             return;
@@ -1154,7 +1175,7 @@ fn run_layout_export(
     }
 
     for job in jobs_to_run {
-        let outputs = formats::flyer::generate(&data, &brand, &job.config);
+        let outputs = document::generate(&data, &brand, &job.config);
 
         // PDFs go into a per-paper-size subdirectory.
         let paper_dir = layout_dir.join(job.config.paper.dir_name());

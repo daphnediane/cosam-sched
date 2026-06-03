@@ -141,12 +141,13 @@ pub(crate) fn render_time_grouped_panels<'a>(
                            if _hits.len() > 0 {{\n    \
                              let _hp = _hits.last().location().position()\n    \
                              let _p = here().position()\n    \
-                             if _p.page != _hp.page or calc.abs((_p.x - _hp.x).pt()) > 50 [\n      \
+                             if _p.page != _hp.page or calc.abs((_p.x - _hp.x).pt()) > {threshold} [\n      \
                                == {lbl} {cont}\n    \
                              ]\n  \
                            }}\n\
                          }}\n\n",
                         prev_tag = prev_tag,
+                        threshold = COLBREAK_THRESHOLD_PT,
                         lbl = escape_typst(&full_slot_label),
                         cont = cont_label,
                     ));
@@ -268,18 +269,28 @@ pub(crate) fn render_panel_list<'a>(
     out
 }
 
+/// Secondary text (credits, metadata) size as a multiple of the base size.
+const SECONDARY_SCALE: f64 = 0.9;
+/// Floor for the secondary text size, in points.
+const MIN_SECONDARY_PT: f64 = 7.0;
+/// Fallback base font size when the configured value cannot be parsed, in points.
+const DEFAULT_BASE_PT: f64 = 9.0;
+
+/// Horizontal shift (points) past which a panel is considered to have moved to a
+/// new column, triggering a repeated "(continued)" slot heading.
+const COLBREAK_THRESHOLD_PT: u32 = 50;
+
 /// Calculate the secondary text size based on base font size.
 /// Returns a string like "8pt" for captions and metadata.
-/// Secondary text is slightly smaller than base (0.9x multiplier).
+/// Secondary text is slightly smaller than base ([`SECONDARY_SCALE`]).
 fn calc_secondary_size(base_font_pt: &str) -> String {
     let base = base_font_pt
         .trim_end_matches("pt")
         .trim_end_matches("px")
         .parse::<f64>()
-        .unwrap_or(9.0);
-    // Secondary text is 0.9x the base size (credits, metadata)
-    let secondary = (base * 0.9).round();
-    format!("{}pt", secondary.max(7.0))
+        .unwrap_or(DEFAULT_BASE_PT);
+    let secondary = (base * SECONDARY_SCALE).round();
+    format!("{}pt", secondary.max(MIN_SECONDARY_PT))
 }
 
 // ---------------------------------------------------------------------------

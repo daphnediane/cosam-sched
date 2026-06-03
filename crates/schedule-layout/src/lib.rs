@@ -11,23 +11,28 @@
 //! - [`model`] — widget JSON data model (deserialization)
 //! - [`brand`] — brand configuration (colors, fonts, logo, site URL)
 //! - [`color`] — color mode, panel type color resolution, grayscale fallback
-//! - [`grid`] — time-grid layout computation (time slots, room columns, cell spans)
+//! - [`config`] — layout configuration: paper, orientation, content/split modes
+//! - [`geometry`] — page/banner/footer dimension constants and Typst `#let` emitter
+//! - [`timegrid`] — time-grid layout computation (time slots, room columns, cell spans)
 //! - [`typst_gen`] — Typst `.typ` source generation
-//! - [`formats`] — per-format layout builders (schedule, workshop poster, etc.)
+//! - [`document`] — the unified multi-section layout builder
 
 pub mod blocks;
 pub mod brand;
 pub mod color;
-pub mod formats;
-pub mod grid;
+pub mod config;
+pub mod document;
+pub mod geometry;
 pub mod model;
 pub mod time_fmt;
+pub mod timegrid;
 pub mod typst_gen;
 
 pub use brand::BrandConfig;
 pub use color::{ColorMode, PanelColor};
-pub use grid::{
-    ContentMode, FooterMode, GridLayout, LayoutConfig, Orientation, PanelFilter, PaperSize,
-    SectionSplit, TimeSplit,
+pub use config::{
+    ContentMode, FooterMode, LayoutConfig, Orientation, PanelFilter, PaperSize, SectionSplit,
+    TimeSplit,
 };
 pub use model::ScheduleData;
+pub use timegrid::GridLayout;
