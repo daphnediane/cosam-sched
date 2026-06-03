@@ -1,148 +1,167 @@
 # Print Layout Formats
 
 The `schedule-layout` crate turns a schedule (the widget JSON data model) into
-[Typst](https://typst.app/) source, which is then compiled to PDF. This document
-describes the available formats, the shared building blocks they compose, and
-the output-file conventions.
+[Typst](https://typst.app/) source, which is then compiled to PDF. Every print
+artifact — schedule grids, description booklets, workshop listings, room signs,
+guest lists — is one configuration of a **single** builder, selected by a
+[`ContentMode`](#contentmode--splits) (what to draw) plus a section/time split
+(how to break it into pages). This document describes that builder, its
+configuration, and the output-file conventions.
 
 ## Front-ends
 
-Two binaries drive the layout engine; both share the same `formats::*::generate`
-functions and the same filename assembly:
+Two binaries drive the layout engine; both call `document::generate` and share
+the same filename assembly:
 
 - **`cosam-layout`** — standalone CLI. Takes a schedule JSON plus repeatable
-  per-job specs (`--format`, `--paper`, `--orientation`, `--split`, `--stem`,
-  `--filter-*`). See `apps/cosam-layout`.
+  per-job specs (`--content`, `--paper`, `--orientation`, `--split`,
+  `--panel-filter`, `--footer`, `--columns`, `--stem`, `--header-text`), jobs
+  separated by a bare `--`. See `apps/cosam-layout`.
 - **`cosam-convert --export-layout <dir>`** — runs the jobs configured in
-  `config/layout-default.toml` end-to-end from an XLSX/JSON input. This is the
-  path `scripts/sync-schedule.sh` uses for publishing.
+  `config/layout.toml` (falling back to the embedded `config/layout-default.toml`)
+  end-to-end from an XLSX/JSON input. This is the path `scripts/sync-schedule.sh`
+  uses for publishing.
 
-Both require the `typst` binary on `PATH` to compile PDFs (use `--no-compile` /
-`--typ` with `cosam-layout` to emit `.typ` source only).
+Both require the `typst` binary on `PATH` to compile PDFs (`cosam-layout --typ`
+also writes `.typ`; `--no-compile` emits `.typ` only). For reproducible test
+output, `cosam-convert --stable-timestamps` pins the generated time to the
+modified time so the footer no longer varies per run. See `.claude/rules/layout.md`
+for the testing workflow.
 
 ## The `generate` contract
 
-Every format exposes:
+The builder exposes a single entry point:
 
 ```rust
 pub fn generate(
     data: &ScheduleData,
     brand: &BrandConfig,
     config: &LayoutConfig,
-    color_mode: ColorMode,
 ) -> Vec<(String, String)>
 ```
 
-It returns a list of `(qualifier, typ_source)` pairs. Each pair becomes one
-output document. The **qualifier** is a slug the caller appends to the base
-stem; an **empty** qualifier means "this format is a single document, use the
-stem as-is."
+It returns **one** `(qualifier, typ_source)` pair — the whole multi-section
+document (all days/rooms/presenters, separated by page breaks) lives in a single
+file — or an empty vec when no panels match. The qualifier is always empty; pages
+are extracted from the compiled PDF afterward if individual sheets are needed.
 
 ### Filename assembly
 
 The caller joins the non-empty parts with `-`:
 
-```
-{stem}-{paper_dir}-{qualifier}
+```text
+{stem}-{paper_dir}
 ```
 
-- `stem` — from `--stem`, the output override's file stem, or a per-format
-  default (`schedule`, `desc`, `workshops`, `room-signs`, `postcards`, `flyer`).
+- `stem` — from `--stem`, the output override's file stem, or a per-content
+  default (`flyer`, `schedule`, `desc`, `list`).
 - `paper_dir` — `letter`, `legal`, `tabloid`, `super-b`, `poster`, `postcard`.
-- `qualifier` — the per-pair slug (e.g. `friday`, `friday-am`, `salon-a-friday`),
-  or omitted when empty.
 
 PDFs are written under a per-paper-size subdirectory of the output dir; all
 `.typ` sources share a single `typ/` subdirectory.
 
 ## Configuration (`LayoutConfig`)
 
-| Field          | Meaning                                                           |
-| -------------- | ----------------------------------------------------------------- |
-| `paper`        | `Letter`, `Legal`, `Tabloid`, `SuperB`, `Poster`, `Postcard4x6`   |
-| `format`       | Which builder to run (see below)                                  |
-| `split_by`     | `Day` or `HalfDay` (schedule grid only)                           |
-| `orientation`  | `Landscape` or `Portrait`                                         |
-| `filter`       | `room_uid` (room signs), `guest_name` (postcards), `premium_only` |
-| `base_font_pt` | Override body font; defaults to the paper's base size             |
-| `grid_font_pt` | Override grid event-text size                                     |
+| Field          | Meaning                                                             |
+| -------------- | ------------------------------------------------------------------- |
+| `paper`        | `Letter`, `Legal`, `Tabloid`, `SuperB`, `Poster`, `Postcard4x6`     |
+| `content`      | [`ContentMode`](#contentmode--splits) — what to draw + how to split |
+| `panel_filter` | `All`, `Workshops`, `Premium`                                       |
+| `orientation`  | `Landscape` or `Portrait`                                           |
+| `color_mode`   | Color or black-and-white output                                     |
+| `columns`      | Override the per-content/per-paper default column count             |
+| `footer`       | `Full` (timestamps + page number + site), `TimestampOnly`, `None`   |
+| `double_sided` | Pad each section onto an odd page (booklet printing)                |
+| `header_text`  | Optional banner label (left for 1-D splits, right for no split)     |
+| `base_font_pt` | Override body font; defaults to the paper's base size               |
+| `grid_font_pt` | Override grid event-text size                                       |
 
-## Shared building blocks (`blocks/`)
+### `ContentMode` + splits
 
-- **`typst_gen::preamble`** — page setup, brand color variables, font specs.
+`ContentMode` chooses what each section draws; a `SectionSplit`
+(`Room` / `Presenter`) and `TimeSplit` (`Day` / `HalfDay`) choose how the content
+is broken into sections (one page-break-separated section per split value):
+
+| `ContentMode`     | Draws                                                                  |
+| ----------------- | ---------------------------------------------------------------------- |
+| `Both`            | schedule grid on the left half + descriptions in the remaining columns |
+| `GridOnly`        | full-width schedule grid                                               |
+| `DescriptionOnly` | multi-column panel descriptions                                        |
+| `PanelList`       | compact name + time + room list                                        |
+
+Grid-bearing content (`Both`, `GridOnly`) requires a time split and renders the
+**full day's** grid per section: a `Room` section highlights its room column, a
+`Presenter` section highlights that guest's own cells. Text-only content
+(`DescriptionOnly`, `PanelList`) may use either, both, or no split (`None` =
+one continuous flow).
+
+The former hard-coded formats are now these recipes (see
+`config/layout-default.toml`):
+
+| Former format     | `content`          | `split`     | notes                    |
+| ----------------- | ------------------ | ----------- | ------------------------ |
+| schedule grid     | `grid_only`        | `half_day`  |                          |
+| descriptions      | `description_only` | `day`       |                          |
+| workshops listing | `description_only` | `none`      | `panel_filter=workshops` |
+| room signs        | `both`             | `room_day`  |                          |
+| flyer             | `both`             | `day`       | `double_sided=true`      |
+| guest postcards   | `panel_list`       | `presenter` | `paper=postcard`         |
+
+## Crate modules
+
+- **`config`** — `LayoutConfig` and the paper / orientation / content / split /
+  footer / filter enums.
+- **`timegrid`** — time-grid *computation*: `GridLayout`, `TimeSlot`, `GridCell`
+  (time slots, room columns, cell spans). No Typst.
+- **`geometry`** — page/banner/footer dimension constants and a `#let` emitter;
+  the preamble defines `_content-top`, `_page-edge`, `_col-gutter`,
+  `_banner-inset`, etc. (`_content-top = _page-edge + _banner-height +
+  _banner-gap`), and the generators reference them instead of inline literals.
+- **`fonts`** — font sizes and typeface specs plus a `#let` emitter. Typefaces
+  are dictionaries (`_body-font`, `_heading-font`, `_banner-font`) spread into
+  text calls; grid text-role sizes (`_name_size`, …) are emitted only when a
+  grid is drawn, the description size (`_desc-secondary-size`) only when panel
+  text is drawn, both for the side-by-side layout.
+- **`typst_gen`** — `preamble` (page setup, geometry/font `#let`s, brand colors),
+  `escape_typst`, and the day-label helpers.
+- **`document`** — the unified builder (`generate`): assembles the preamble,
+  footer, running header, and one section per split value.
+
+### Building blocks (`blocks/`)
+
 - **`banner`** — the branded header bar and footer:
-  - `page_header(left, right)` — static labels (single page documents).
+  - `page_header(left, right)` — static labels (no split).
   - `page_header_running(right)` / `page_header_running_split(left, right)` —
-    per-page running headers resolved from `<…>` metadata markers via `context`
-    + `query` (read-only, so layout converges). The `_split` variant fills both
-    sides — used by room signs for room (left) / day (right).
-  - `page_footer(timestamps, site)` — timestamps, centered `Page N of M`, site.
+    per-page running headers resolved from `<section>` metadata markers via
+    `context` + `query` (read-only, so layout converges). The `_split` variant
+    fills both sides — entity (left) / day (right) for 2-D splits.
+  - `page_footer(timestamps, site)` — timestamps, centered `Page N of M`, site;
+    `page_footer_timestamps_only` for `FooterMode::TimestampOnly`.
   - `footer_timestamps(modified, generated)` — formats the modified/generated
     stamps in local time, mirroring the widget footer.
-- **`grid`** — `render_schedule_grid` plus `GridRenderConfig` (font scaling,
-  per-room column highlight, corner label, optional max height).
-- **`panels::render_time_grouped_panels`** — the description column flow:
+- **`grid`** — `render_schedule_grid` plus `GridRenderConfig` (per-room column
+  highlight, per-panel highlight set, corner label, optional max height). Font
+  sizes come from the global `#let`s emitted by `fonts`.
+- **`panels`** — `render_time_grouped_panels` (the description column flow:
   time-slot headings, per-panel accent bar, room/time/cost, credits, workshop
-  notices, prerequisites, and part/rerun cross-references. Uses sticky headings
-  and label-`query`-based "(continued)" headers across column/page breaks.
+  notices, prerequisites, part/rerun cross-references; sticky headings and
+  label-`query`-based "(continued)" headers across breaks) and `render_panel_list`
+  (the compact `PanelList` flow).
 
 ### Grid + column mixing (`place` + `colbreak`)
 
-The flyer and room signs share a technique for setting a schedule grid beside a
-reflowing description column flow. The grid is `place`d (which reserves no
-space) over a box covering the left half of the columns, then a full-width
-`#columns(N)` block emits leading `#colbreak()`s to skip the columns the grid
-covers. Descriptions therefore start in the right-hand columns on the first page
-and overflow continues full-width on following pages — unlike a fixed
-`#grid(columns: (X%, 1fr))`, which cannot let text reflow past the grid.
-
-## Formats
-
-### `schedule`
-
-The time × room grid. One document **per day** (`TimeSplit::Day`) or **per
-half-day** (`TimeSplit::HalfDay`); qualifier is the day/half slug. Landscape on
-tabloid is the common choice.
-
-### `descriptions`
-
-Full panel-description listing in a multi-column flow. One document **per day**;
-qualifier is the day slug. Column count from `description_columns` (see table).
-
-### `workshops_listing`
-
-Like `descriptions` but filtered to workshop/premium panels and spanning **all
-days in one document** (empty qualifier), with a day heading inserted when the
-date changes. Returns empty when there are no workshops.
-
-### `room_signs`
-
-Door signs for every room. A **single multi-page document** (empty qualifier).
-Each room/day starts on a fresh page laid out like the flyer's first page: the
-full schedule grid is `place`d over the left half with this room's column
-highlighted and the day label in the corner, while the room's own descriptions
-flow through the right-hand columns and overflow full-width onto following
-pages. Every page carries a running header (room left, day right, from
-`<room-sign>` markers) and the timestamp/page-number footer. Honors
-`filter.room_uid` to emit a single room's signs.
-
-### `flyer`
-
-Double-sided per-day booklet, **one multi-day document** (empty qualifier). Each
-day begins on an odd page; the day's grid occupies the left half of the first
-page (descriptions flow through the remaining columns and onto following
-full-width pages), with a running per-day header and the timestamp/page-number
-footer. Column count from `flyer_columns` (4 on letter, 6 on legal+, landscape).
-
-### `guest_postcards`
-
-A 4×6 postcard **per presenter per half-day** (qualifier
-`{guest-slug}-{half-slug}`) listing only that presenter's panels. Limited to
-guest/judge/staff/invited ranks (priority ≤ 3). Honors `filter.guest_name`.
+`Both` content sets a schedule grid beside a reflowing description column flow.
+The grid is `place`d (which reserves no space) over a box covering the left half
+of the columns, then a full-width `#columns(N)` block emits leading `#colbreak()`s
+to skip the columns the grid covers. Descriptions therefore start in the
+right-hand columns on the first page and overflow continues full-width on
+following pages — unlike a fixed `#grid(columns: (X%, 1fr))`, which cannot let
+text reflow past the grid.
 
 ## Column counts by paper
 
-`description_columns` (descriptions, workshops, room signs):
+`description_columns` (`DescriptionOnly`, `PanelList`, and the descriptions half
+of `Both` when no override is given):
 
 | Paper            | Landscape | Portrait |
 | ---------------- | --------- | -------- |
@@ -152,7 +171,7 @@ guest/judge/staff/invited ranks (priority ≤ 3). Honors `filter.guest_name`.
 | Poster           | 5         | 5        |
 | Postcard 4×6     | 1         | 1        |
 
-`flyer_columns` (flyer; total must be even-friendly for the half-split):
+`flyer_columns` (`Both`; total must be even-friendly for the half-split):
 
 | Paper                             | Landscape | Portrait |
 | --------------------------------- | --------- | -------- |
@@ -160,5 +179,5 @@ guest/judge/staff/invited ranks (priority ≤ 3). Honors `filter.guest_name`.
 | Legal / Tabloid / SuperB / Poster | 6         | 4        |
 | Postcard 4×6                      | 2         | 2        |
 
-For the half-page grid formats (flyer, room signs) the grid spans the left
-`ceil(total / 2)` columns; descriptions take the rest.
+For `Both` content the grid spans the left `ceil(total / 2)` columns;
+descriptions take the rest.

@@ -55,18 +55,20 @@ npm run serve   # localhost:8000
 ```bash
 cargo run -p cosam-convert -- \
   --input "input/2026 Schedule.xlsx" \
-  --export-test output/2026-test.html \
+  --export-test scratch/2026-test.html \
   --widget widget/ --no-minified \
   --title "Cosplay America 2026 Schedule"
 ```
 
-Open `output/2026-test.html` or use `browser_preview` on `http://localhost:8000`.
+Open `scratch/2026-test.html` or use `browser_preview` on `http://localhost:8000`.
 
 ### Workflow
 
 - `--widget widget/` iterates without Rust rebuild
-- Test files go in `output/` (gitignored)
+- Test files go in `scratch/` (gitignored) — not `output/`
 - `browser_preview` for layout/rendering debugging
+
+For print layout (Typst → PDF) testing, see `layout.md`.
 
 ### Pre-Commit Checklist
 
