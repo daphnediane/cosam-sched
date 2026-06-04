@@ -154,7 +154,12 @@ pub fn generate(
 
         match content {
             ContentMode::GridOnly { .. } => {
-                doc.push_str(&render_grid(section, data, color_mode, empty_grid_fill.as_deref()));
+                doc.push_str(&render_grid(
+                    section,
+                    data,
+                    color_mode,
+                    empty_grid_fill.as_deref(),
+                ));
             }
             ContentMode::Both { .. } => {
                 let total_cols =
@@ -166,7 +171,12 @@ pub fn generate(
                     "#place(top + left, box(width: {:.2}%)[\n",
                     grid_pct
                 ));
-                doc.push_str(&render_grid(section, data, color_mode, empty_grid_fill.as_deref()));
+                doc.push_str(&render_grid(
+                    section,
+                    data,
+                    color_mode,
+                    empty_grid_fill.as_deref(),
+                ));
                 doc.push_str("])\n");
 
                 doc.push_str(&format!("#columns({}, gutter: _col-gutter)[\n", total_cols));

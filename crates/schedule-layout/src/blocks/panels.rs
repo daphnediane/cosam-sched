@@ -88,13 +88,7 @@ pub(crate) fn render_time_grouped_panels<'a>(
         if slot_label.is_empty() {
             for panel in group {
                 out.push_str(&panel_block(
-                    data,
-                    color_mode,
-                    panel,
-                    day_str,
-                    &by_base,
-                    style,
-                    None,
+                    data, color_mode, panel, day_str, &by_base, style, None,
                 ));
             }
             continue;
@@ -105,13 +99,7 @@ pub(crate) fn render_time_grouped_panels<'a>(
         if group.len() == 1 {
             out.push_str(&format!("== {}\n\n", escape_typst(&full_slot_label)));
             out.push_str(&panel_block(
-                data,
-                color_mode,
-                group[0],
-                day_str,
-                &by_base,
-                style,
-                None,
+                data, color_mode, group[0], day_str, &by_base, style, None,
             ));
         } else {
             // Label scheme for this slot (n = slot_counter):

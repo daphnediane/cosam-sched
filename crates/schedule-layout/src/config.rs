@@ -384,12 +384,7 @@ impl LayoutConfig {
     pub fn card_gap_expr(&self) -> String {
         match self.card_gap.as_deref().map(str::trim) {
             None => "_col-gutter".to_string(),
-            Some(s)
-                if matches!(
-                    s.to_ascii_lowercase().as_str(),
-                    "column" | "col" | "gutter"
-                ) =>
-            {
+            Some(s) if matches!(s.to_ascii_lowercase().as_str(), "column" | "col" | "gutter") => {
                 "_col-gutter".to_string()
             }
             Some(s) => sanitize_length(s).unwrap_or_else(|| "_col-gutter".to_string()),
@@ -529,8 +524,14 @@ mod tests {
 
     #[test]
     fn test_sanitize_color_forms() {
-        assert_eq!(sanitize_color("#F2F2F2").as_deref(), Some("rgb(\"#f2f2f2\")"));
-        assert_eq!(sanitize_color("f2f2f2").as_deref(), Some("rgb(\"#f2f2f2\")"));
+        assert_eq!(
+            sanitize_color("#F2F2F2").as_deref(),
+            Some("rgb(\"#f2f2f2\")")
+        );
+        assert_eq!(
+            sanitize_color("f2f2f2").as_deref(),
+            Some("rgb(\"#f2f2f2\")")
+        );
         assert_eq!(sanitize_color("luma(95%)").as_deref(), Some("luma(95%)"));
         assert_eq!(sanitize_color("luma( 230 )").as_deref(), Some("luma(230)"));
         assert_eq!(sanitize_color("white").as_deref(), Some("white"));
