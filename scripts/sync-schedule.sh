@@ -121,8 +121,8 @@ main() {
 
     # Sync generated/ to OneDrive. --relative preserves the generated/ path
     # component at the destination; --delete-after only prunes within that tree,
-    # leaving other files in sched_base alone. Exclude typ/ directory.
-    cmd rsync -aPHAX --relative --checksum --delete-after --exclude 'typ' \
+    # leaving other files in sched_base alone.
+    cmd rsync -aPHAX --relative --checksum --delete-after \
         "${WORK_DIR}/./generated" \
         "${sched_base}/" ||
         fail "rsync to ${sched_base} failed"
