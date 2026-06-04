@@ -42,6 +42,10 @@ pub(crate) struct GridRenderConfig {
     pub show_hotel_room: bool,
     /// Whether to show cost in event cells.
     pub show_cost: bool,
+    /// Fill for empty (no-event) cells as a Typst color expression. `None` uses
+    /// the built-in light gray ([`EMPTY_SLOT_LUMA`]); set it to keep empty cells
+    /// from blending into a tinted page background.
+    pub empty_fill: Option<String>,
 }
 
 // Grid text-role sizes (`_name_size`, `_hdr_size`, …) are emitted globally by
@@ -88,6 +92,7 @@ impl GridRenderConfig {
             credits_max_chars: 0,
             show_hotel_room: true,
             show_cost: true,
+            empty_fill: None,
         }
     }
 }
@@ -467,7 +472,7 @@ fn render_event_cell(
 fn render_empty_or_spanned_cell(
     out: &mut String,
     layout: &GridLayout,
-    _config: &GridRenderConfig,
+    config: &GridRenderConfig,
     row_idx: usize,
     col_idx: usize,
     n_rooms: usize,
@@ -506,11 +511,12 @@ fn render_empty_or_spanned_cell(
             HIGHLIGHT_EMPTY_LIGHTEN
         ));
     } else {
-        // Empty slot — light grey background
-        out.push_str(&format!(
-            "  grid.cell(fill: luma({}))[],\n",
-            EMPTY_SLOT_LUMA
-        ));
+        // Empty slot — configurable fill, defaulting to the built-in light grey.
+        let fill = config
+            .empty_fill
+            .clone()
+            .unwrap_or_else(|| format!("luma({})", EMPTY_SLOT_LUMA));
+        out.push_str(&format!("  grid.cell(fill: {fill})[],\n"));
     }
 }
 

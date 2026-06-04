@@ -28,6 +28,18 @@ type TimeGroups<'a> = (
     Vec<(String, Vec<&'a Panel>)>,
 );
 
+/// Visual style for description panel blocks.
+pub(crate) struct PanelStyle {
+    /// Render as a bordered card (colored left spine + light border) instead of
+    /// the original full-height left accent bar.
+    pub card: bool,
+    /// Card background as a Typst color expression (used when [`card`](Self::card)).
+    pub card_fill: String,
+    /// When `Some`, emit `below: <expr>` on each panel block to set the
+    /// inter-panel gap; `None` keeps Typst's default block spacing.
+    pub gap: Option<String>,
+}
+
 // ---------------------------------------------------------------------------
 // Public API
 // ---------------------------------------------------------------------------
@@ -48,9 +60,8 @@ pub(crate) fn render_time_grouped_panels<'a>(
     data: &'a ScheduleData,
     color_mode: ColorMode,
     panels: &[&'a Panel],
+    style: &PanelStyle,
 ) -> String {
-    // Global `#let` from the preamble (`fonts::typst_lets`).
-    let secondary_size = "_desc-secondary-size";
     let (by_base, time_groups) = build_time_groups(panels);
 
     let mut out = String::new();
@@ -82,7 +93,7 @@ pub(crate) fn render_time_grouped_panels<'a>(
                     panel,
                     day_str,
                     &by_base,
-                    secondary_size,
+                    style,
                     None,
                 ));
             }
@@ -99,7 +110,7 @@ pub(crate) fn render_time_grouped_panels<'a>(
                 group[0],
                 day_str,
                 &by_base,
-                secondary_size,
+                style,
                 None,
             ));
         } else {
@@ -127,7 +138,7 @@ pub(crate) fn render_time_grouped_panels<'a>(
 
             let cont_label = format!(
                 "#text(size: {secondary_size}, style: \"italic\")[(continued)]",
-                secondary_size = secondary_size,
+                secondary_size = SECONDARY_SIZE,
             );
 
             for (i, panel) in group.iter().enumerate() {
@@ -159,7 +170,7 @@ pub(crate) fn render_time_grouped_panels<'a>(
                     panel,
                     day_str,
                     &by_base,
-                    secondary_size,
+                    style,
                     Some(&panel_label),
                 ));
             }
@@ -178,9 +189,6 @@ pub(crate) fn render_panel_list<'a>(
     color_mode: ColorMode,
     panels: &[&'a Panel],
 ) -> String {
-    // Global `#let` from the preamble (`fonts::typst_lets`).
-    let secondary_size = "_desc-secondary-size";
-
     // Stable chronological order.
     let mut ordered: Vec<&Panel> = panels.to_vec();
     ordered.sort_by(|a, b| {
@@ -261,7 +269,7 @@ pub(crate) fn render_panel_list<'a>(
             "#block(breakable: false)[{accent}*{name}* #h(1fr) #text(size: {sz})[{meta}]]\n#v(0.3em)\n",
             accent = accent,
             name = escape_typst(&panel.name),
-            sz = secondary_size,
+            sz = SECONDARY_SIZE,
             meta = meta,
         ));
     }
@@ -272,6 +280,10 @@ pub(crate) fn render_panel_list<'a>(
 /// Horizontal shift (points) past which a panel is considered to have moved to a
 /// new column, triggering a repeated "(continued)" slot heading.
 const COLBREAK_THRESHOLD_PT: u32 = 50;
+
+/// Font-size `#let` (from the preamble's `fonts::typst_lets`) used for secondary
+/// text — credits, the right-hand room/time/cost stack, and "(continued)" tags.
+const SECONDARY_SIZE: &str = "_desc-secondary-size";
 
 // ---------------------------------------------------------------------------
 // Internal helpers
@@ -319,7 +331,7 @@ fn panel_block<'a>(
     panel: &'a Panel,
     day_date: &str,
     by_base: &HashMap<&'a str, Vec<&'a Panel>>,
-    secondary_size: &str,
+    style: &PanelStyle,
     typst_label: Option<&str>,
 ) -> String {
     let color_str = panel
@@ -347,8 +359,23 @@ fn panel_block<'a>(
         .collect::<Vec<_>>()
         .join(", ");
 
-    // Left accent bar as a block left-stroke (draws cleanly outside the text flow)
-    let block_attrs = if color_str.is_empty() {
+    // Block style: either a bordered card (colored left spine + light border, so
+    // header and body share one region) or the original full-height left accent
+    // bar drawn as the block's left stroke. The inter-panel `below` gap is applied
+    // only when `style.gap` is set (cards, or an explicit `panel_gap`).
+    let style_attrs = if style.card {
+        let spine = if color_str.is_empty() {
+            "0.5pt + luma(80%)".to_string()
+        } else {
+            format!("2.5pt + rgb(\"{}\")", color_str)
+        };
+        format!(
+            ", fill: {fill}, stroke: (left: {spine}, rest: 0.5pt + luma(80%)), \
+             inset: (left: 8pt, rest: 6pt), radius: 2pt",
+            fill = style.card_fill,
+            spine = spine,
+        )
+    } else if color_str.is_empty() {
         String::new()
     } else {
         format!(
@@ -356,6 +383,11 @@ fn panel_block<'a>(
             color_str
         )
     };
+    let gap_attr = style
+        .gap
+        .as_deref()
+        .map(|g| format!(", below: {g}"))
+        .unwrap_or_default();
 
     // Right column: room \ time \ cost (Typst line-break inside cell)
     let right_items = build_right_column(&room_str, &time_range, panel.cost.as_deref());
@@ -363,7 +395,7 @@ fn panel_block<'a>(
     // Credits on their own line below the panel name
     let credits_line = if !panel.credits.is_empty() {
         format!(
-            "\\\n#text(size: {secondary_size}, style: \"italic\")[{}]",
+            "\\\n#text(size: {SECONDARY_SIZE}, style: \"italic\")[{}]",
             escape_typst(&panel.credits.join(", "))
         )
     } else {
@@ -372,16 +404,17 @@ fn panel_block<'a>(
 
     // Header grid: 1fr left (name + credits), auto right (room/time/cost stacked)
     let mut block = format!(
-        "#block(breakable: false{block_attrs})[\n\
+        "#block(breakable: false{style_attrs}{gap_attr})[\n\
          #grid(columns: (1fr, auto), align: (top + left, top + right),\n\
            [*{name}*{credits}],\n\
            [#text(size: {secondary_size})[{right}]],\n\
          )\n",
-        block_attrs = block_attrs,
+        style_attrs = style_attrs,
+        gap_attr = gap_attr,
         name = escape_typst(&panel.name),
         credits = credits_line,
         right = right_items,
-        secondary_size = secondary_size,
+        secondary_size = SECONDARY_SIZE,
     );
 
     // Description - uses base font size (inherited from preamble)

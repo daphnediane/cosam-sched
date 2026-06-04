@@ -138,6 +138,7 @@ fn run_job(
         header_text: job.header_text.clone(),
         base_font_pt: None,
         grid_font_pt: None,
+        ..LayoutConfig::default()
     };
 
     let outputs: Vec<(String, String)> = document::generate(data, brand, &config);

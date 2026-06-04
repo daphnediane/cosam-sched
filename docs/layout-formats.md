@@ -76,6 +76,27 @@ PDFs are written under a per-paper-size subdirectory of the output dir; all
 | `base_font_pt` | Override body font; defaults to the paper's base size               |
 | `grid_font_pt` | Override grid event-text size                                       |
 
+### Style options
+
+These per-job keys are opt-in; unset, every job renders exactly as before.
+Colors accept hex (`#f2f2f2`), `luma(95%)`, or a named Typst color (`white`,
+`silver`, …); lengths accept `<number><unit>`. Invalid values fall back to the
+default rather than emitting broken Typst.
+
+| Field             | Meaning                   | Default       |
+| ----------------- | ------------------------- | ------------- |
+| `page_fill`       | Page background           | white         |
+| `empty_grid_fill` | Empty grid-cell fill      | `luma(245)`   |
+| `cards`           | Cards vs. left accent bar | `false`       |
+| `card_fill`       | Card background           | `white`       |
+| `column_gap`      | Body-column gutter        | `0.2in`       |
+| `card_gap`        | Gap between cards         | column gutter |
+
+Set `empty_grid_fill` when `page_fill` is tinted, so empty cells stay distinct
+from the background. `card_gap` accepts a length or the literal `"column"`
+(match the column gutter) and applies only when `cards` is set; the default
+(bar) style keeps Typst's block spacing between panels.
+
 ### `ContentMode` + splits
 
 `ContentMode` chooses what each section draws; a `SectionSplit`
@@ -140,13 +161,13 @@ The former hard-coded formats are now these recipes (see
   - `footer_timestamps(modified, generated)` — formats the modified/generated
     stamps in local time, mirroring the widget footer.
 - **`grid`** — `render_schedule_grid` plus `GridRenderConfig` (per-room column
-  highlight, per-panel highlight set, corner label, optional max height). Font
-  sizes come from the global `#let`s emitted by `fonts`.
+  highlight, per-panel highlight set, corner label, optional max height, empty-cell
+  fill override). Font sizes come from the global `#let`s emitted by `fonts`.
 - **`panels`** — `render_time_grouped_panels` (the description column flow:
-  time-slot headings, per-panel accent bar, room/time/cost, credits, workshop
-  notices, prerequisites, part/rerun cross-references; sticky headings and
-  label-`query`-based "(continued)" headers across breaks) and `render_panel_list`
-  (the compact `PanelList` flow).
+  time-slot headings, the per-panel left accent bar or bordered card (`PanelStyle`),
+  room/time/cost, credits, workshop notices, prerequisites, part/rerun
+  cross-references; sticky headings and label-`query`-based "(continued)" headers
+  across breaks) and `render_panel_list` (the compact `PanelList` flow).
 
 ### Grid + column mixing (`place` + `colbreak`)
 

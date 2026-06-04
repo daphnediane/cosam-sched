@@ -298,6 +298,24 @@ pub struct LayoutConfig {
     pub base_font_pt: Option<String>,
     /// Override for grid event text size (e.g., "8pt"). If None, uses base_font_pt.
     pub grid_font_pt: Option<String>,
+    /// Page background color (hex, `luma(...)`, or a named Typst color). `None` =
+    /// the default white page.
+    pub page_fill: Option<String>,
+    /// Fill for empty (no-event) grid cells. Set this to keep empties from
+    /// blending into a tinted [`page_fill`]. `None` = the built-in light gray.
+    pub empty_grid_fill: Option<String>,
+    /// Render description panels as bordered cards (colored left spine + border)
+    /// instead of the original full-height left accent bar.
+    pub cards: bool,
+    /// Card background color when [`cards`](Self::cards) is set. `None` = white.
+    pub card_fill: Option<String>,
+    /// Override the gutter between body-text columns (e.g. `"0.25in"`). `None` =
+    /// the default `_col-gutter` (0.2in).
+    pub column_gap: Option<String>,
+    /// Gap between cards (e.g. `"10pt"`); applies when [`cards`](Self::cards) is
+    /// set. The literal `"column"` (also `"col"`/`"gutter"`) means "match the
+    /// column gutter". `None` also matches the column gutter.
+    pub card_gap: Option<String>,
 }
 
 impl LayoutConfig {
@@ -334,6 +352,107 @@ impl LayoutConfig {
             .parse::<f64>()
             .unwrap_or_else(|_| self.base_font_value())
     }
+
+    /// Page background as a Typst color expression, if a valid [`page_fill`] is
+    /// set; `None` leaves the page white.
+    pub fn page_fill_expr(&self) -> Option<String> {
+        self.page_fill.as_deref().and_then(sanitize_color)
+    }
+
+    /// Empty grid-cell fill as a Typst color expression, if a valid
+    /// [`empty_grid_fill`] is set; `None` keeps the grid's built-in gray.
+    pub fn empty_grid_fill_expr(&self) -> Option<String> {
+        self.empty_grid_fill.as_deref().and_then(sanitize_color)
+    }
+
+    /// Card background as a Typst color expression (defaults to `white`).
+    pub fn card_fill_expr(&self) -> String {
+        self.card_fill
+            .as_deref()
+            .and_then(sanitize_color)
+            .unwrap_or_else(|| "white".to_string())
+    }
+
+    /// Column-gutter override as a Typst length, if a valid [`column_gap`] is
+    /// set; `None` leaves the default `_col-gutter` in place.
+    pub fn column_gap_expr(&self) -> Option<String> {
+        self.column_gap.as_deref().and_then(sanitize_length)
+    }
+
+    /// The expression assigned to `_card-gap`: a Typst length, or
+    /// `_col-gutter` when unset / `"column"` / invalid.
+    pub fn card_gap_expr(&self) -> String {
+        match self.card_gap.as_deref().map(str::trim) {
+            None => "_col-gutter".to_string(),
+            Some(s)
+                if matches!(
+                    s.to_ascii_lowercase().as_str(),
+                    "column" | "col" | "gutter"
+                ) =>
+            {
+                "_col-gutter".to_string()
+            }
+            Some(s) => sanitize_length(s).unwrap_or_else(|| "_col-gutter".to_string()),
+        }
+    }
+}
+
+/// Sanitize a user-supplied color into a Typst color expression, or `None` if it
+/// is not a recognized form. Accepts:
+///
+/// - hex: `#rgb`, `#rrggbb`, `#rrggbbaa` (the leading `#` is optional)
+/// - grayscale: `luma(230)` or `luma(95%)`
+/// - a named Typst color (`white`, `silver`, `gray`, `teal`, …)
+///
+/// Anything else returns `None` so the caller falls back to its default rather
+/// than emitting invalid Typst.
+pub fn sanitize_color(s: &str) -> Option<String> {
+    let t = s.trim();
+
+    // Hex, with or without a leading '#'.
+    let hex = t.strip_prefix('#').unwrap_or(t);
+    if matches!(hex.len(), 3 | 6 | 8) && hex.chars().all(|c| c.is_ascii_hexdigit()) {
+        return Some(format!("rgb(\"#{}\")", hex.to_ascii_lowercase()));
+    }
+
+    // luma(<number>) or luma(<number>%).
+    if let Some(inner) = t.strip_prefix("luma(").and_then(|r| r.strip_suffix(')')) {
+        let raw = inner.trim();
+        let (num, pct) = match raw.strip_suffix('%') {
+            Some(n) => (n.trim(), "%"),
+            None => (raw, ""),
+        };
+        if num.parse::<f64>().is_ok() {
+            return Some(format!("luma({num}{pct})"));
+        }
+    }
+
+    // Named Typst colors (the standard palette).
+    const NAMED: &[&str] = &[
+        "black", "gray", "silver", "white", "navy", "blue", "aqua", "teal", "eastern", "purple",
+        "fuchsia", "maroon", "red", "orange", "yellow", "olive", "green", "lime",
+    ];
+    let lower = t.to_ascii_lowercase();
+    if NAMED.contains(&lower.as_str()) {
+        return Some(lower);
+    }
+
+    None
+}
+
+/// Sanitize a user-supplied length into a Typst length, or `None` if it does not
+/// match `<number><unit>` with an allowed absolute/relative unit.
+pub fn sanitize_length(s: &str) -> Option<String> {
+    let t = s.trim();
+    for unit in ["pt", "in", "mm", "cm", "em"] {
+        if let Some(num) = t.strip_suffix(unit) {
+            let num = num.trim();
+            if num.parse::<f64>().is_ok() {
+                return Some(format!("{num}{unit}"));
+            }
+        }
+    }
+    None
 }
 
 #[cfg(test)]
@@ -406,5 +525,41 @@ mod tests {
     fn test_paper_size_base_font_pt() {
         assert_eq!(PaperSize::Letter.base_font_pt(), "9pt");
         assert_eq!(PaperSize::Poster.base_font_pt(), "10pt");
+    }
+
+    #[test]
+    fn test_sanitize_color_forms() {
+        assert_eq!(sanitize_color("#F2F2F2").as_deref(), Some("rgb(\"#f2f2f2\")"));
+        assert_eq!(sanitize_color("f2f2f2").as_deref(), Some("rgb(\"#f2f2f2\")"));
+        assert_eq!(sanitize_color("luma(95%)").as_deref(), Some("luma(95%)"));
+        assert_eq!(sanitize_color("luma( 230 )").as_deref(), Some("luma(230)"));
+        assert_eq!(sanitize_color("white").as_deref(), Some("white"));
+        assert_eq!(sanitize_color("Teal").as_deref(), Some("teal"));
+        // Rejected: injection, unknown names, malformed hex.
+        assert_eq!(sanitize_color("red); #set page(fill: black"), None);
+        assert_eq!(sanitize_color("chartreuse"), None);
+        assert_eq!(sanitize_color("#12345"), None);
+        assert_eq!(sanitize_color("luma(abc)"), None);
+    }
+
+    #[test]
+    fn test_sanitize_length_forms() {
+        assert_eq!(sanitize_length("0.2in").as_deref(), Some("0.2in"));
+        assert_eq!(sanitize_length(" 14pt ").as_deref(), Some("14pt"));
+        assert_eq!(sanitize_length("3mm").as_deref(), Some("3mm"));
+        assert_eq!(sanitize_length("10px"), None);
+        assert_eq!(sanitize_length("pt"), None);
+    }
+
+    #[test]
+    fn test_card_gap_expr_defaults_to_gutter() {
+        let mut cfg = LayoutConfig::default();
+        assert_eq!(cfg.card_gap_expr(), "_col-gutter");
+        cfg.card_gap = Some("column".to_string());
+        assert_eq!(cfg.card_gap_expr(), "_col-gutter");
+        cfg.card_gap = Some("12pt".to_string());
+        assert_eq!(cfg.card_gap_expr(), "12pt");
+        cfg.card_gap = Some("bogus".to_string());
+        assert_eq!(cfg.card_gap_expr(), "_col-gutter");
     }
 }

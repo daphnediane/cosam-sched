@@ -79,6 +79,7 @@
         "localtime",
         "LOGNAME",
         "Lstart",
+        "luma",
         "Makerspace",
         "mappin",
         "memchr",

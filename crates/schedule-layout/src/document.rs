@@ -30,7 +30,7 @@ use std::collections::HashSet;
 
 use crate::blocks::banner;
 use crate::blocks::grid::{render_schedule_grid, GridRenderConfig};
-use crate::blocks::panels::{render_panel_list, render_time_grouped_panels};
+use crate::blocks::panels::{render_panel_list, render_time_grouped_panels, PanelStyle};
 use crate::brand::BrandConfig;
 use crate::color::ColorMode;
 use crate::config::{ContentMode, FooterMode, LayoutConfig, PanelFilter, SectionSplit, TimeSplit};
@@ -81,6 +81,26 @@ pub fn generate(
 
     let mut doc = preamble(config, brand);
 
+    // Re-bind `_col-gutter` when the job overrides the column gutter (this must
+    // come before `_card-gap`, which may reference the resolved `_col-gutter`).
+    if let Some(gap) = config.column_gap_expr() {
+        doc.push_str(&format!("#let _col-gutter = {gap}\n"));
+    }
+
+    // Panel rendering style (card vs. left-bar). Cards get an explicit inter-card
+    // `below` gap (default = the column gutter); the bar style keeps Typst's
+    // default block spacing, so non-card jobs emit no extra `#let`.
+    let card_gap = config.cards.then(|| {
+        doc.push_str(&format!("#let _card-gap = {}\n", config.card_gap_expr()));
+        "_card-gap".to_string()
+    });
+    let panel_style = PanelStyle {
+        card: config.cards,
+        card_fill: config.card_fill_expr(),
+        gap: card_gap,
+    };
+    let empty_grid_fill = config.empty_grid_fill_expr();
+
     // The header bar is always present (fixed top margin); widen the bottom only
     // when a footer is shown (the preamble's bottom margin is tuned for
     // edge-to-edge grids). Geometry `#let`s come from the preamble.
@@ -89,8 +109,12 @@ pub fn generate(
     } else {
         "_footer-bottom"
     };
+    let page_fill_attr = config
+        .page_fill_expr()
+        .map(|c| format!("fill: {c}, "))
+        .unwrap_or_default();
     doc.push_str(&format!(
-        "#set page(margin: (top: _content-top, bottom: {bottom}, left: _page-edge, right: _page-edge), \
+        "#set page({page_fill_attr}margin: (top: _content-top, bottom: {bottom}, left: _page-edge, right: _page-edge), \
          footer-descent: _footer-descent)\n",
     ));
 
@@ -130,7 +154,7 @@ pub fn generate(
 
         match content {
             ContentMode::GridOnly { .. } => {
-                doc.push_str(&render_grid(section, data, color_mode));
+                doc.push_str(&render_grid(section, data, color_mode, empty_grid_fill.as_deref()));
             }
             ContentMode::Both { .. } => {
                 let total_cols =
@@ -142,7 +166,7 @@ pub fn generate(
                     "#place(top + left, box(width: {:.2}%)[\n",
                     grid_pct
                 ));
-                doc.push_str(&render_grid(section, data, color_mode));
+                doc.push_str(&render_grid(section, data, color_mode, empty_grid_fill.as_deref()));
                 doc.push_str("])\n");
 
                 doc.push_str(&format!("#columns({}, gutter: _col-gutter)[\n", total_cols));
@@ -153,6 +177,7 @@ pub fn generate(
                     data,
                     color_mode,
                     &section.content_panels,
+                    &panel_style,
                 ));
                 doc.push_str("]\n");
             }
@@ -164,6 +189,7 @@ pub fn generate(
                     data,
                     color_mode,
                     &section.content_panels,
+                    &panel_style,
                 ));
                 doc.push_str("]\n");
             }
@@ -185,11 +211,17 @@ pub fn generate(
 }
 
 /// Render the schedule grid for a section, applying both highlight kinds.
-fn render_grid(section: &Section, data: &ScheduleData, color_mode: ColorMode) -> String {
+fn render_grid(
+    section: &Section,
+    data: &ScheduleData,
+    color_mode: ColorMode,
+    empty_fill: Option<&str>,
+) -> String {
     // Grid font sizes are global `#let`s from the preamble (`fonts::typst_lets`).
     let mut cfg = GridRenderConfig::full_page("", section.highlight_room);
     cfg.corner_label = section.corner_label.clone();
     cfg.highlight_panel_ids = section.highlight_panel_ids.clone();
+    cfg.empty_fill = empty_fill.map(str::to_string);
     let layout = GridLayout::compute(&section.grid_panels, data);
     render_schedule_grid(&layout, data, color_mode, &cfg)
 }

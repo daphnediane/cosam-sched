@@ -1,6 +1,6 @@
 # Cosplay America Schedule - Work Item
 
-Updated on: Tue Jun  2 23:06:05 2026
+Updated on: Wed Jun  3 22:26:16 2026
 
 ## Completed
 
@@ -110,6 +110,9 @@ has changed.
 per-day grid reference sheets, and wire it into `sync-schedule.sh`.
 * [FEATURE-136] Combine all room signs into one multi-page document and adopt the flyer's
 `place`-plus-column-break grid mixing instead of the rigid side-by-side grid.
+* [FEATURE-137] Add per-job layout options for a bordered "card" panel style, page background
+tint, empty grid-cell fill, card fill, and column/panel gaps — all controllable
+from `config/layout.toml`.
 * [META-002] Phase tracker for project foundation and Cargo workspace setup.
 * [META-003] Phase tracker for the entity/field system and core schedule data model in schedule-core.
 * [META-004] Phase tracker for making an automerge CRDT document the authoritative storage
@@ -815,6 +818,7 @@ This refactor:
 [FEATURE-134]: work-item/done/FEATURE-134.md
 [FEATURE-135]: work-item/done/FEATURE-135.md
 [FEATURE-136]: work-item/done/FEATURE-136.md
+[FEATURE-137]: work-item/done/FEATURE-137.md
 [META-001]: work-item/meta/META-001.md
 [META-002]: work-item/done/META-002.md
 [META-003]: work-item/done/META-003.md

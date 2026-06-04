@@ -1131,6 +1131,12 @@ fn run_layout_export(
                     header_text: job.header_text.clone(),
                     base_font_pt: job.base_font_pt.clone(),
                     grid_font_pt: job.grid_font_pt.clone(),
+                    page_fill: job.page_fill.clone(),
+                    empty_grid_fill: job.empty_grid_fill.clone(),
+                    cards: job.cards.unwrap_or(false),
+                    card_fill: job.card_fill.clone(),
+                    column_gap: job.column_gap.clone(),
+                    card_gap: job.card_gap.clone(),
                 },
                 stem: job.stem.clone(),
             })

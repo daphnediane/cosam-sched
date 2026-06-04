@@ -62,6 +62,18 @@ pub struct JobConfig {
     pub base_font_pt: Option<String>,
     /// Optional grid event text size override (e.g., "8pt"). If not set, uses base_font_pt.
     pub grid_font_pt: Option<String>,
+    /// Page background color: hex (`"#f2f2f2"`), `"luma(95%)"`, or a named color.
+    pub page_fill: Option<String>,
+    /// Fill for empty grid cells (keeps them from blending into a tinted page).
+    pub empty_grid_fill: Option<String>,
+    /// Render description panels as bordered cards instead of the left-bar style.
+    pub cards: Option<bool>,
+    /// Card background color when `cards` is set (defaults to white).
+    pub card_fill: Option<String>,
+    /// Override the gutter between body-text columns (e.g. `"0.25in"`).
+    pub column_gap: Option<String>,
+    /// Gap between cards (with `cards`); `"column"` means "match the column gutter".
+    pub card_gap: Option<String>,
 }
 
 impl LayoutDefaults {
