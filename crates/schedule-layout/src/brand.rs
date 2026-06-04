@@ -4,11 +4,35 @@
  * See LICENSE file for full license text
  */
 
-//! Brand configuration: colors, fonts, logo path, and site URL.
+//! Brand configuration: colors, fonts, logos, and site metadata.
 //!
 //! Load from `config/brand.toml` (gitignored); use `config/brand.sample.toml`
 //! as the committed template.
+//!
+//! ## Logo lookup
+//!
+//! Logos are configured in the `[logos]` section.  `logo_dir` sets the
+//! directory (default: auto-detect `brand/logos` then `brand/logo` relative to
+//! the config file).  Named aliases map short names to filenames within that
+//! directory:
+//!
+//! ```toml
+//! [logos]
+//! logo_dir = "brand/logo"
+//! brand    = "COSLogoAltWhite2026.svg"
+//! small    = "COSLogoAltWhite.svg"
+//! ```
+//!
+//! A layout job may then set `logo = "small"` to use the alias, or
+//! `logo = "COSLogoAltBlue.svg"` to use a bare filename directly.
+//! `logo = "none"` (or omitting the field) suppresses the logo entirely.
+//!
+//! Resolution order for a name `N`:
+//! 1. Named alias in `[logos]` → `logo_dir / filename`
+//! 2. Bare filename → `logo_dir / N`
+//! 3. Neither found → `None` + warning printed to stderr.
 
+use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 
 use serde::{Deserialize, Serialize};
@@ -25,8 +49,13 @@ pub enum BrandError {
 /// Brand configuration loaded from `config/brand.toml`.
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
 pub struct BrandConfig {
+    #[serde(default)]
     pub colors: BrandColors,
+    #[serde(default)]
     pub fonts: BrandFonts,
+    #[serde(default)]
+    pub logos: BrandLogos,
+    #[serde(default)]
     pub meta: BrandMeta,
 }
 
@@ -40,11 +69,7 @@ impl BrandConfig {
         // produce absolute asset paths in the output.
         let abs_path = std::fs::canonicalize(path).unwrap_or_else(|_| path.to_path_buf());
         if let Some(dir) = abs_path.parent() {
-            if let Some(logo) = &config.meta.logo_path {
-                if !logo.is_absolute() {
-                    config.meta.logo_path = Some(dir.join(logo));
-                }
-            }
+            config.logos.resolve_paths(dir);
             config.fonts.resolve_paths(dir);
         }
         Ok(config)
@@ -60,6 +85,88 @@ impl BrandConfig {
         toml::to_string_pretty(self).unwrap_or_default()
     }
 }
+
+// ---------------------------------------------------------------------------
+// Logo configuration
+// ---------------------------------------------------------------------------
+
+/// Logo registry: a directory of logo files with optional named aliases.
+///
+/// Deserialized from the `[logos]` section of `brand.toml`.
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+#[serde(default)]
+pub struct BrandLogos {
+    /// Directory containing logo files. Relative paths are resolved against
+    /// the brand.toml file's directory at load time. When absent, the loader
+    /// auto-detects `brand/logos` then `brand/logo` relative to brand.toml.
+    pub logo_dir: Option<PathBuf>,
+
+    /// Named logo aliases, e.g. `brand = "COSLogoAltWhite2026.svg"`.
+    /// Any key not listed here can still be used as a bare filename.
+    #[serde(flatten)]
+    pub aliases: HashMap<String, String>,
+}
+
+/// Candidate subdirectory names to probe when `logo_dir` is not explicit.
+const LOGO_DIR_CANDIDATES: &[&str] = &["brand/logos", "brand/logo"];
+
+impl BrandLogos {
+    /// Resolve `logo_dir` and alias paths to absolute paths.
+    ///
+    /// Called by [`BrandConfig::load`] after deserialization.
+    pub(crate) fn resolve_paths(&mut self, config_dir: &Path) {
+        if let Some(dir) = &self.logo_dir {
+            if !dir.is_absolute() {
+                self.logo_dir = Some(config_dir.join(dir));
+            }
+        } else {
+            // Auto-detect: probe candidates relative to the config file dir.
+            for candidate in LOGO_DIR_CANDIDATES {
+                let p = config_dir.join(candidate);
+                if p.exists() {
+                    self.logo_dir = Some(p);
+                    break;
+                }
+            }
+        }
+    }
+
+    /// Resolve a logo name to an absolute path, or `None` if unresolvable.
+    ///
+    /// `name` is checked against the named aliases first, then used as a
+    /// bare filename within `logo_dir`.  A warning is printed to stderr when
+    /// the name cannot be resolved.
+    ///
+    /// Returns `None` when `logo_dir` is unset or the file does not exist.
+    pub fn resolve_logo(&self, name: &str) -> Option<PathBuf> {
+        let dir = match &self.logo_dir {
+            Some(d) => d,
+            None => {
+                eprintln!(
+                    "warning: logo \"{name}\" requested but no logo_dir is configured \
+                     (add [logos] logo_dir to brand.toml)"
+                );
+                return None;
+            }
+        };
+
+        // 1. Named alias → filename in logo_dir.
+        // 2. Bare filename → directly in logo_dir.
+        let filename = self.aliases.get(name).map(String::as_str).unwrap_or(name);
+        let path = dir.join(filename);
+
+        if path.exists() {
+            Some(path)
+        } else {
+            eprintln!("warning: logo \"{name}\" not found at {}", path.display());
+            None
+        }
+    }
+}
+
+// ---------------------------------------------------------------------------
+// Colors
+// ---------------------------------------------------------------------------
 
 /// Brand color palette.
 #[derive(Debug, Clone, Deserialize, Serialize)]
@@ -85,6 +192,10 @@ impl Default for BrandColors {
         }
     }
 }
+
+// ---------------------------------------------------------------------------
+// Fonts
+// ---------------------------------------------------------------------------
 
 /// Font configuration. Paths are optional; if absent, Typst uses system fonts.
 #[derive(Debug, Clone, Default, Deserialize, Serialize)]
@@ -116,7 +227,7 @@ pub struct BrandFonts {
 }
 
 impl BrandFonts {
-    fn resolve_paths(&mut self, base: &Path) {
+    pub(crate) fn resolve_paths(&mut self, base: &Path) {
         if let Some(dir) = &self.font_dir {
             if !dir.is_absolute() {
                 self.font_dir = Some(base.join(dir));
@@ -182,7 +293,11 @@ impl BrandFonts {
     }
 }
 
-/// Brand metadata: organization name, site URL, optional logo.
+// ---------------------------------------------------------------------------
+// Metadata
+// ---------------------------------------------------------------------------
+
+/// Brand metadata: organization name and site URL.
 #[derive(Debug, Clone, Default, Deserialize, Serialize)]
 #[serde(default)]
 pub struct BrandMeta {
@@ -190,9 +305,11 @@ pub struct BrandMeta {
     pub name: Option<String>,
     /// Public site URL (e.g. `"https://cosplayamerica.com"`).
     pub site_url: Option<String>,
-    /// Path to logo image (SVG or PNG). Resolved relative to config file.
-    pub logo_path: Option<PathBuf>,
 }
+
+// ---------------------------------------------------------------------------
+// Tests
+// ---------------------------------------------------------------------------
 
 #[cfg(test)]
 mod tests {
@@ -226,5 +343,46 @@ mod tests {
         let fonts = BrandFonts::default();
         assert_eq!(fonts.heading_or_default(), "Liberation Sans");
         assert_eq!(fonts.body_or_default(), "Liberation Sans");
+    }
+
+    #[test]
+    fn test_logos_resolve_missing_dir() {
+        // No logo_dir set and no auto-detect path available → None + warning.
+        let logos = BrandLogos::default();
+        assert!(logos.resolve_logo("brand").is_none());
+    }
+
+    #[test]
+    fn test_logos_alias_resolution() {
+        use std::collections::HashMap;
+        let mut aliases = HashMap::new();
+        aliases.insert("brand".to_string(), "logo.svg".to_string());
+        let logos = BrandLogos {
+            // Use a tempdir so the file "exists" check can pass.
+            logo_dir: Some(std::env::temp_dir()),
+            aliases,
+        };
+        // The alias resolves to temp_dir/logo.svg; file won't exist so None + warning.
+        // Just confirm we don't panic and the path composition is attempted.
+        let _ = logos.resolve_logo("brand");
+    }
+
+    #[test]
+    fn test_logos_parse_from_toml() {
+        let toml = r#"
+[logos]
+brand = "logo-white.svg"
+small = "logo-small.svg"
+"#;
+        let config: BrandConfig = toml::from_str(toml).unwrap();
+        assert_eq!(
+            config.logos.aliases.get("brand").map(String::as_str),
+            Some("logo-white.svg")
+        );
+        assert_eq!(
+            config.logos.aliases.get("small").map(String::as_str),
+            Some("logo-small.svg")
+        );
+        assert!(config.logos.logo_dir.is_none());
     }
 }

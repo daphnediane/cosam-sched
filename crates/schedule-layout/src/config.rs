@@ -316,6 +316,15 @@ pub struct LayoutConfig {
     /// set. The literal `"column"` (also `"col"`/`"gutter"`) means "match the
     /// column gutter". `None` also matches the column gutter.
     pub card_gap: Option<String>,
+    /// Logo to show in the page header. `None` suppresses the logo entirely.
+    /// `Some("brand")` (the default) resolves the `"brand"` alias from
+    /// `[logos]` in `brand.toml`. Any other string is looked up as a named
+    /// alias first, then as a bare filename within `logo_dir`.
+    pub logo: Option<String>,
+    /// Override the banner text size (e.g. `"18pt"`). `None` uses the
+    /// built-in default ([`crate::fonts::BANNER_TEXT_SIZE_PT`] = 28 pt).
+    /// Useful for postcards or jobs with long presenter names.
+    pub banner_text_pt: Option<String>,
 }
 
 impl LayoutConfig {

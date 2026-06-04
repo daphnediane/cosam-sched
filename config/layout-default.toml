@@ -18,6 +18,8 @@
 #   columns      = 4            # override the content/paper default column count
 #   base_font_pt = "12pt"       # override base font size (descriptions, etc.)
 #   grid_font_pt = "8pt"        # override grid event text size
+#   logo         = "brand"      # logo alias/filename from [logos]; "none" suppresses logo
+#   banner_text_pt = "18pt"     # override banner text size (default: 28pt)
 #
 # Style keys (colors accept hex "#f2f2f2", "luma(95%)", or names like "white"):
 #   page_fill       = "luma(95%)"  # page background tint (default: white)
@@ -127,6 +129,7 @@ orientation = "portrait"
 columns = 1
 stem = "postcards"
 footer = "timestamp_only"
+logo = "small"
 
 # ─────────────────────────────────────────────────────────────────────────────
 # Description Jobs

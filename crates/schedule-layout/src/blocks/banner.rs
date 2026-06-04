@@ -13,8 +13,11 @@ use crate::typst_gen::escape_typst;
 
 /// Generate a `#set page(header: …)` Typst directive for all layout formats.
 ///
-/// Logo placement follows these rules (logo is used when `brand.meta.logo_path`
-/// is configured):
+/// `logo_path` is the already-resolved absolute path to the logo image, or
+/// `None` to suppress the logo.  Pass the result of
+/// [`crate::document::resolve_logo`] here.
+///
+/// Logo placement follows these rules:
 ///
 /// | `left`  | `right` | logo placement              |
 /// |---------|---------|-----------------------------|
@@ -31,16 +34,14 @@ use crate::typst_gen::escape_typst;
 ///
 /// Must be emitted after `preamble()` so that `brand-primary` is already
 /// defined in the document scope.
-pub(crate) fn page_header(brand: &BrandConfig, left: Option<&str>, right: Option<&str>) -> String {
-    let logo_path = brand
-        .meta
-        .logo_path
-        .as_ref()
-        .and_then(|p| p.to_str())
-        .map(|p| p.replace('\\', "/"));
-
-    let inner = build_inner(left, right, logo_path.as_deref());
-
+pub(crate) fn page_header(
+    brand: &BrandConfig,
+    logo_path: Option<&str>,
+    left: Option<&str>,
+    right: Option<&str>,
+) -> String {
+    let _ = brand; // styling uses document-scope brand-* variables
+    let inner = build_inner(left, right, logo_path);
     format!(
         "#set page(header: block(fill: brand-primary, width: 100%, \
          inset: _banner-inset)[\n  {inner}\n])\n",
@@ -48,21 +49,20 @@ pub(crate) fn page_header(brand: &BrandConfig, left: Option<&str>, right: Option
 }
 
 /// Generate a `#set page(header: …)` directive whose right-hand label is *raw
-/// Typst content* (e.g. a `context` expression for a running header) rather than
-/// a literal string.
+/// Typst content* (e.g. a `context` expression for a running header) rather
+/// than a literal string.
 ///
-/// The logo (when configured) sits on the left and the content is right-aligned;
-/// with no logo the content is centered.  Styling matches [`page_header`]
-/// (ALL CAPS, banner font, 28 pt).  `right_content` is inserted verbatim, so the
-/// caller is responsible for it being valid Typst.
-pub(crate) fn page_header_running(brand: &BrandConfig, right_content: &str) -> String {
-    let logo_path = brand
-        .meta
-        .logo_path
-        .as_ref()
-        .and_then(|p| p.to_str())
-        .map(|p| p.replace('\\', "/"));
-
+/// `logo_path` is the already-resolved absolute path to the logo image, or
+/// `None` to suppress it.  When a logo is given it sits on the left and the
+/// content is right-aligned; without a logo the content is centered.  Styling
+/// matches [`page_header`] (ALL CAPS, banner font, 28 pt).  `right_content` is
+/// inserted verbatim, so the caller is responsible for it being valid Typst.
+pub(crate) fn page_header_running(
+    brand: &BrandConfig,
+    logo_path: Option<&str>,
+    right_content: &str,
+) -> String {
+    let _ = brand;
     let label = format!(
         "#text(fill: white, size: _banner-text-size, .._banner-font)[#upper[{right_content}]]"
     );
@@ -86,23 +86,18 @@ pub(crate) fn page_header_running(brand: &BrandConfig, right_content: &str) -> S
 /// page (e.g. room signs, where each page shows its room on the left and day on
 /// the right).
 ///
-/// Layout mirrors [`page_header`]'s both-labels case: with a logo, the slots sit
-/// either side of a centered logo (L | logo | R); without one, they split the
-/// bar evenly (L | R).  Both contents are styled like the other banners (ALL
-/// CAPS, banner font, 28 pt) and inserted verbatim, so the caller is responsible
-/// for them being valid Typst (typically `context` expressions).
+/// `logo_path` is the already-resolved absolute path to the logo image, or
+/// `None` to suppress it.  With a logo the slots sit either side of a centered
+/// logo (L | logo | R); without one, they split the bar evenly (L | R).  Both
+/// contents are styled like the other banners (ALL CAPS, banner font, 28 pt)
+/// and inserted verbatim.
 pub(crate) fn page_header_running_split(
     brand: &BrandConfig,
+    logo_path: Option<&str>,
     left_content: &str,
     right_content: &str,
 ) -> String {
-    let logo_path = brand
-        .meta
-        .logo_path
-        .as_ref()
-        .and_then(|p| p.to_str())
-        .map(|p| p.replace('\\', "/"));
-
+    let _ = brand;
     let wrap = |content: &str| {
         format!("#text(fill: white, size: _banner-text-size, .._banner-font)[#upper[{content}]]")
     };
@@ -301,7 +296,7 @@ mod tests {
     #[test]
     fn test_page_header_both_no_logo() {
         let brand = BrandConfig::default();
-        let out = page_header(&brand, Some("Room A"), Some("Friday"));
+        let out = page_header(&brand, None, Some("Room A"), Some("Friday"));
         assert!(out.contains("grid"));
         assert!(out.contains("ROOM A") || out.contains("upper"));
         assert!(out.contains("brand-primary"));
@@ -319,11 +314,10 @@ mod tests {
 
     #[test]
     fn test_page_header_logo_only_invokes_image() {
-        // No labels + a configured logo (the split=none / no header_text case):
-        // the logo must be invoked as `#image(...)`, not printed as literal text.
-        let mut brand = BrandConfig::default();
-        brand.meta.logo_path = Some(std::path::PathBuf::from("logo.svg"));
-        let out = page_header(&brand, None, None);
+        // No labels + a logo path supplied: the logo must be invoked as `#image(...)`,
+        // not printed as literal text.
+        let brand = BrandConfig::default();
+        let out = page_header(&brand, Some("logo.svg"), None, None);
         assert!(out.contains("#image("), "logo must be invoked: {out}");
         assert!(
             !out.contains("[image("),
@@ -334,7 +328,7 @@ mod tests {
     #[test]
     fn test_page_header_single_centered() {
         let brand = BrandConfig::default();
-        let out = page_header(&brand, None, Some("Friday"));
+        let out = page_header(&brand, None, None, Some("Friday"));
         assert!(out.contains("align(center)"));
         assert!(!out.contains("grid"));
     }
@@ -342,8 +336,8 @@ mod tests {
     #[test]
     fn test_page_header_running_split_no_logo() {
         let brand = BrandConfig::default();
-        let out = page_header_running_split(&brand, "[L]", "[R]");
-        // No logo configured by default → two-cell grid, no centered logo column.
+        let out = page_header_running_split(&brand, None, "[L]", "[R]");
+        // No logo → two-cell grid, no centered logo column.
         assert!(out.contains("grid(columns: (1fr, 1fr)"));
         assert!(out.contains("[L]"));
         assert!(out.contains("[R]"));

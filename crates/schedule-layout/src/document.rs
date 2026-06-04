@@ -236,22 +236,50 @@ fn render_grid(
     render_schedule_grid(&layout, data, color_mode, &cfg)
 }
 
+/// Resolve the logo for a layout job to a forward-slash path string, or `None`
+/// to suppress the logo.
+///
+/// - `config.logo` == `None` or `Some("none")` → `None` (no logo)
+/// - `config.logo` == `Some(name)` → looked up via [`BrandLogos::resolve_logo`]
+/// - When `config.logo` is not set the field defaults to `None`, which means
+///   no logo unless the caller has set `Some("brand")` explicitly.
+fn resolve_logo(brand: &BrandConfig, config: &LayoutConfig) -> Option<String> {
+    let name = config.logo.as_deref()?;
+    if name.eq_ignore_ascii_case("none") {
+        return None;
+    }
+    brand
+        .logos
+        .resolve_logo(name)
+        .and_then(|p| p.into_os_string().into_string().ok())
+        .map(|s| s.replace('\\', "/"))
+}
+
 /// Build the page header directive for the chosen split.
 fn build_header(brand: &BrandConfig, config: &LayoutConfig) -> String {
+    // Resolve the logo path once; all banner variants accept Option<&str>.
+    let logo_str = resolve_logo(brand, config);
+    let logo = logo_str.as_deref();
+
     if !config.content.has_split() {
         // Static header; header_text on the right.
-        return banner::page_header(brand, None, config.header_text.as_deref());
+        return banner::page_header(brand, logo, None, config.header_text.as_deref());
     }
     let right = running_field("right");
     if config.content.is_two_dim() {
         // Entity left, day right; header_text omitted (both slots taken).
-        banner::page_header_running_split(brand, &running_field("left"), &right)
+        banner::page_header_running_split(brand, logo, &running_field("left"), &right)
     } else if let Some(text) = config.header_text.as_deref() {
         // header_text literal on the left, running section label on the right.
-        banner::page_header_running_split(brand, &format!("[{}]", escape_literal(text)), &right)
+        banner::page_header_running_split(
+            brand,
+            logo,
+            &format!("[{}]", escape_literal(text)),
+            &right,
+        )
     } else {
-        // Logo left, running section label right.
-        banner::page_header_running(brand, &right)
+        // Logo (if any) left, running section label right.
+        banner::page_header_running(brand, logo, &right)
     }
 }
 

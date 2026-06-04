@@ -121,6 +121,15 @@ pub struct JobConfig {
     pub import: Vec<String>,
     /// Custom brand.toml path for this job. If not set, uses the global brand config.
     pub brand_config: Option<String>,
+    /// Logo to show in the page header.
+    /// - `"brand"` (default when unset) — resolves the `"brand"` alias from `[logos]`.
+    /// - `"none"` — suppress the logo entirely.
+    /// - Any other string — looked up as a named alias in `[logos]`, then as a bare
+    ///   filename within `logo_dir`.
+    pub logo: Option<String>,
+    /// Override the banner text size (e.g. `"18pt"`). Defaults to 28 pt when unset.
+    /// Useful for postcards or jobs with long presenter names.
+    pub banner_text_pt: Option<String>,
 }
 
 impl JobConfig {
@@ -186,6 +195,12 @@ impl JobConfig {
         }
         if other.brand_config.is_some() {
             self.brand_config = other.brand_config.clone();
+        }
+        if other.logo.is_some() {
+            self.logo = other.logo.clone();
+        }
+        if other.banner_text_pt.is_some() {
+            self.banner_text_pt = other.banner_text_pt.clone();
         }
     }
 

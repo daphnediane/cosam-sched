@@ -1,6 +1,6 @@
 # Cosplay America Schedule - Work Item
 
-Updated on: Wed Jun  3 22:26:16 2026
+Updated on: Thu Jun  4 20:46:33 2026
 
 ## Completed
 
@@ -179,7 +179,7 @@ above panelists and groups.
 
 ## Summary of Open Items
 
-**Total open items:** 21
+**Total open items:** 22
 
 * **Meta / Project-Level**
   * [META-001] Meta work item tracking the full multi-phase redesign of the schedule system. (Blocked by [META-007], [META-008])
@@ -205,6 +205,9 @@ schedule data that the lossy widget JSON format does not carry.
 to compile and pass against the current `RawEdgeMap` API.
   * [REFACTOR-125] Move schedule, options, per-pass lookups, and PresenterImportCache into
 ImportContext; convert reader free functions to methods on ImportContext.
+  * [REFACTOR-138] Separate the layout `split` key into independent `section_split` and
+`time_split` options, default time split to none, error on unknown keywords,
+and move panel-list geometry constants into `geometry.rs`.
 
 * **Low Priority**
   * [BUGFIX-131] `PanelUniqId::parse("SPLIT001")` normalizes the prefix to `"SP"` and returns
@@ -729,6 +732,29 @@ This refactor:
 
 ---
 
+### [REFACTOR-138] REFACTOR-138: Split section/time layout options; reject unknown keywords
+
+**Status:** Open
+
+**Priority:** Medium
+
+**Summary:** Separate the layout `split` key into independent `section_split` and
+`time_split` options, default time split to none, error on unknown keywords,
+and move panel-list geometry constants into `geometry.rs`.
+
+**Description:** The layout config currently encodes both the entity (section) split and the
+time split in one `split` string with seven combined values (`none`, `day`,
+`half_day`, `room`, `room_day`, `presenter`, `presenter_day`). `parse_content`
+in `apps/cosam-convert/src/main.rs` decodes that single key into a
+`SectionSplit` + `TimeSplit`, and silently falls back to defaults for
+unrecognized values. Two latent bugs came from this coupling (fixed in the
+parent commit): bare `presenter`/`room` wrongly defaulted the time split to
+`Day`, splitting guest postcards per day and forcing a two-dimensional banner.
+
+Make the split dimensions explicit and fail loudly on bad input.
+
+---
+
 ---
 
 [BUGFIX-072]: work-item/done/BUGFIX-072.md
@@ -852,6 +878,7 @@ This refactor:
 [REFACTOR-104]: work-item/done/REFACTOR-104.md
 [REFACTOR-112]: work-item/medium/REFACTOR-112.md
 [REFACTOR-125]: work-item/medium/REFACTOR-125.md
+[REFACTOR-138]: work-item/medium/REFACTOR-138.md
 [UI-085]: work-item/done/UI-085.md
 [UI-087]: work-item/done/UI-087.md
 [UI-088]: work-item/done/UI-088.md

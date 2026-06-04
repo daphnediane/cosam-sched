@@ -1055,8 +1055,11 @@ fn run_layout_export(
             "half_day" | "half" => TimeSplit::HalfDay,
             _ => TimeSplit::Day,
         };
+        // Bare entity splits ("room"/"presenter") carry no time split, so
+        // text-only content (descriptions, panel lists) spans all days in one
+        // section. Only the explicit "*_day" forms add a per-day split.
         let time_opt = match split {
-            "none" => None,
+            "none" | "room" | "presenter" => None,
             "half_day" | "half" => Some(TimeSplit::HalfDay),
             _ => Some(TimeSplit::Day),
         };
@@ -1142,6 +1145,10 @@ fn run_layout_export(
                             card_fill: job.card_fill.clone(),
                             column_gap: job.column_gap.clone(),
                             card_gap: job.card_gap.clone(),
+                            // Default to "brand" so jobs without an explicit
+                            // `logo` key still show the brand logo.
+                            logo: Some(job.logo.clone().unwrap_or_else(|| "brand".to_string())),
+                            banner_text_pt: job.banner_text_pt.clone(),
                         },
                         stem: job.stem.clone(),
                     },

@@ -158,10 +158,13 @@ pub(crate) fn typst_lets(config: &LayoutConfig, brand: &BrandConfig) -> String {
         "#let _body-size = {}\n",
         config.effective_font_pt()
     ));
-    out.push_str(&format!(
-        "#let _banner-text-size = {}pt\n",
-        BANNER_TEXT_SIZE_PT
-    ));
+    // Banner text size: use the job override if set, otherwise the built-in default.
+    let banner_size_default = format!("{BANNER_TEXT_SIZE_PT}pt");
+    let banner_size = config
+        .banner_text_pt
+        .as_deref()
+        .unwrap_or(&banner_size_default);
+    out.push_str(&format!("#let _banner-text-size = {banner_size}\n"));
     out.push_str(&format!(
         "#let _footer-text-size = {}pt\n",
         FOOTER_TEXT_SIZE_PT

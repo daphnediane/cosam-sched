@@ -4,7 +4,19 @@
 [meta]
 # name = "Cosplay America"
 # site_url = "https://cosplayamerica.com"
-# logo_path = "brand/logo.png"   # relative to this file
+
+# ── Logos ──────────────────────────────────────────────────────────────────
+# Named logo aliases.  Each value is a filename within logo_dir.
+# logo_dir defaults to the first of "brand/logos" or "brand/logo" that exists
+# next to this file; set it explicitly to override.
+#
+# The "brand" alias is the default logo used when a job does not specify `logo`.
+# Add as many aliases as you like; layout jobs reference them by name.
+#
+# [logos]
+# logo_dir = "brand/logo"          # relative to this file (auto-detected if absent)
+# brand    = "logo-white.svg"      # used when job sets logo = "brand" (the default)
+# small    = "logo-small.svg"      # used when job sets logo = "small"
 
 [colors]
 # Primary accent color
