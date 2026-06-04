@@ -1,5 +1,4 @@
 # Layout defaults configuration
-# Copy to config/layout.toml (gitignored) to customize layout defaults.
 # This file is embedded in cosam-convert and serves as the default configuration.
 #
 # Every job is a configuration of the unified layout builder (one multi-section
@@ -20,48 +19,106 @@
 #   base_font_pt = "12pt"       # override base font size (descriptions, etc.)
 #   grid_font_pt = "8pt"        # override grid event text size
 #
-# `room`/`room_day` highlight the room column; `presenter`/`presenter_day`
-# highlight that guest's own cells in the day grid.
-# Grid-bearing content (both/grid_only) requires a time split; `room`/`presenter`
-# without an explicit day component default to `day`.
+# Style keys (colors accept hex "#f2f2f2", "luma(95%)", or names like "white"):
+#   page_fill       = "luma(95%)"  # page background tint (default: white)
+#   empty_grid_fill = "white"      # empty grid-cell fill
+#   cards           = true         # description panels as bordered cards
+#   card_fill       = "white"      # card background when cards = true
+#   column_gap      = "0.25in"     # gutter between body-text columns
+#   card_gap        = "column"     # gap between cards ("column" = column_gap)
+#
+# Preset and Import System:
+#   Presets are reusable configuration blocks defined with [presets.name].
+#   Jobs and other presets can import them using import = ["preset1", "preset2"].
+#   Later imports override earlier ones; job settings override all imports.
+#
+#   Custom Brand Per Job:
+#   brand_config = "path/to/brand.toml"  # Use different branding for this job
 
-# Schedule grids (former "schedule"): grid only, split per half-day.
+# ─────────────────────────────────────────────────────────────────────────────
+# Preset Definitions
+# ─────────────────────────────────────────────────────────────────────────────
+
+# Workshop preset: descriptions only, workshops filter, no split
+[presets.workshops]
+content = "description_only"
+split = "none"
+panel_filter = "workshops"
+header_text = "Workshops"
+
+# Card style preset: bordered panels with tinted page background
+[presets.card_style]
+cards = true
+page_fill = "luma(95%)"
+card_fill = "white"
+
+# Flyer preset: both content (grid + descriptions), day split, double-sided
+[presets.flyer]
+content = "both"
+split = "day"
+double_sided = true
+orientation = "landscape"
+
+# Tabloid landscape preset for large format output
+[presets.tabloid_landscape]
+paper = "tabloid"
+orientation = "landscape"
+
+# Poster landscape preset for wall mounting
+[presets.poster_landscape]
+paper = "poster"
+orientation = "landscape"
+
+# Minimal footer preset (timestamp only)
+[presets.minimal_footer]
+footer = "timestamp_only"
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Schedule Jobs
+# ─────────────────────────────────────────────────────────────────────────────
+
+# Schedule grids: grid only, split per half-day, tabloid portrait
 [[jobs]]
 content = "grid_only"
 split = "half_day"
 paper = "tabloid"
-orientation = "landscape"
+orientation = "portrait"
 stem = "schedule"
 
-# Workshops listing (former "workshops_listing"): descriptions, no split, workshop-only.
+# ─────────────────────────────────────────────────────────────────────────────
+# Workshop Jobs
+# ─────────────────────────────────────────────────────────────────────────────
+
+# Workshops listing: tabloid landscape
 [[jobs]]
-content = "description_only"
-split = "none"
-panel_filter = "workshops"
-header_text = "Workshops"
-paper = "tabloid"
-orientation = "landscape"
+import = ["workshops", "tabloid_landscape"]
 stem = "workshops"
 
+# Workshops listing: poster size
 [[jobs]]
-content = "description_only"
-split = "none"
-panel_filter = "workshops"
-header_text = "Workshops"
-paper = "poster"
-orientation = "landscape"
+import = ["workshops", "poster_landscape"]
 stem = "workshops"
 
-# Room signs (former "room_signs"): full day grid with the room column highlighted
-# plus that room's descriptions, one section per room per day.
+# ─────────────────────────────────────────────────────────────────────────────
+# Room Sign Jobs
+# ─────────────────────────────────────────────────────────────────────────────
+
+# Room signs: full day grid (room column highlighted) + that room's descriptions
 [[jobs]]
+import = ["card_style", "minimal_footer"]
 content = "both"
 split = "room_day"
 paper = "tabloid"
 orientation = "landscape"
 stem = "room-signs"
+card_fill = "luma(95%)"
+columns = 5
 
-# Guest cards (former "guest_postcards"): compact panel list, one section per guest.
+# ─────────────────────────────────────────────────────────────────────────────
+# Guest Card Jobs
+# ─────────────────────────────────────────────────────────────────────────────
+
+# Guest cards: compact panel list, one section per guest
 [[jobs]]
 content = "panel_list"
 split = "presenter"
@@ -69,50 +126,60 @@ paper = "postcard"
 orientation = "portrait"
 columns = 1
 stem = "postcards"
+footer = "timestamp_only"
 
-# Panel descriptions (former "descriptions"): description only, page break per day.
+# ─────────────────────────────────────────────────────────────────────────────
+# Description Jobs
+# ─────────────────────────────────────────────────────────────────────────────
+
+# Panel descriptions: tabloid landscape with card style
 [[jobs]]
+import = ["card_style"]
 content = "description_only"
 split = "day"
 paper = "tabloid"
 orientation = "landscape"
 stem = "desc"
 
+# Panel descriptions: letter portrait
 [[jobs]]
+import = ["card_style"]
 content = "description_only"
 split = "day"
 paper = "letter"
 orientation = "portrait"
 stem = "desc"
 
+# Panel descriptions: legal portrait
 [[jobs]]
+import = ["card_style"]
 content = "description_only"
 split = "day"
 paper = "legal"
 orientation = "portrait"
 stem = "desc"
 
+# Panel descriptions: poster landscape with minimal footer
 [[jobs]]
+import = ["card_style", "minimal_footer"]
 content = "description_only"
 split = "day"
 paper = "poster"
 orientation = "landscape"
 stem = "desc"
-# base_font_pt = "12.0pt"  # Override default font size for poster descriptions
 
-# Flyer: grid + descriptions per day, double-sided (each day starts on an odd page).
+# ─────────────────────────────────────────────────────────────────────────────
+# Flyer Jobs
+# ─────────────────────────────────────────────────────────────────────────────
+
+# Flyer: letter size, double-sided
 [[jobs]]
-content = "both"
-split = "day"
-double_sided = true
+import = ["flyer"]
 paper = "letter"
-orientation = "landscape"
 stem = "flyer"
 
+# Flyer: legal size, double-sided
 [[jobs]]
-content = "both"
-split = "day"
-double_sided = true
+import = ["flyer"]
 paper = "legal"
-orientation = "landscape"
 stem = "flyer"

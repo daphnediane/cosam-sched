@@ -1116,29 +1116,37 @@ fn run_layout_export(
     }
 
     /// Convert JobConfig from layout.toml to LayoutOutputJob.
-    fn convert_jobs(jobs: &[layout_defaults::JobConfig]) -> Vec<LayoutOutputJob> {
+    /// Returns (LayoutOutputJob, optional_brand_config_path).
+    fn convert_jobs(
+        jobs: &[(layout_defaults::JobConfig, Option<String>)],
+    ) -> Vec<(LayoutOutputJob, Option<String>)> {
         jobs.iter()
-            .map(|job| LayoutOutputJob {
-                config: LayoutConfig {
-                    paper: parse_paper(&job.paper),
-                    content: parse_content(job.content.as_deref(), &job.split),
-                    panel_filter: parse_panel_filter(job.panel_filter.as_deref()),
-                    orientation: parse_orientation(&job.orientation),
-                    color_mode: parse_color_mode(job.color_mode.as_deref()),
-                    columns: job.columns,
-                    footer: parse_footer(job.footer.as_deref()),
-                    double_sided: job.double_sided.unwrap_or(false),
-                    header_text: job.header_text.clone(),
-                    base_font_pt: job.base_font_pt.clone(),
-                    grid_font_pt: job.grid_font_pt.clone(),
-                    page_fill: job.page_fill.clone(),
-                    empty_grid_fill: job.empty_grid_fill.clone(),
-                    cards: job.cards.unwrap_or(false),
-                    card_fill: job.card_fill.clone(),
-                    column_gap: job.column_gap.clone(),
-                    card_gap: job.card_gap.clone(),
-                },
-                stem: job.stem.clone(),
+            .map(|(job, brand_override)| {
+                (
+                    LayoutOutputJob {
+                        config: LayoutConfig {
+                            paper: parse_paper(&job.paper),
+                            content: parse_content(job.content.as_deref(), &job.split),
+                            panel_filter: parse_panel_filter(job.panel_filter.as_deref()),
+                            orientation: parse_orientation(&job.orientation),
+                            color_mode: parse_color_mode(job.color_mode.as_deref()),
+                            columns: job.columns,
+                            footer: parse_footer(job.footer.as_deref()),
+                            double_sided: job.double_sided.unwrap_or(false),
+                            header_text: job.header_text.clone(),
+                            base_font_pt: job.base_font_pt.clone(),
+                            grid_font_pt: job.grid_font_pt.clone(),
+                            page_fill: job.page_fill.clone(),
+                            empty_grid_fill: job.empty_grid_fill.clone(),
+                            cards: job.cards.unwrap_or(false),
+                            card_fill: job.card_fill.clone(),
+                            column_gap: job.column_gap.clone(),
+                            card_gap: job.card_gap.clone(),
+                        },
+                        stem: job.stem.clone(),
+                    },
+                    brand_override.clone(),
+                )
             })
             .collect()
     }
@@ -1155,12 +1163,45 @@ fn run_layout_export(
     let user_defaults = LayoutDefaults::load(&layout_defaults_path).unwrap_or_default();
 
     // Determine which jobs to run:
-    // - If user provides jobs in layout.toml, use those
+    // - If user provides jobs in layout.toml, use those (with preset resolution)
     // - Otherwise use embedded default jobs from LayoutDefaults::default_layout()
-    let jobs_to_run: Vec<LayoutOutputJob> = if user_defaults.jobs.is_empty() {
-        convert_jobs(&LayoutDefaults::default_layout().jobs)
+    let jobs_to_run: Vec<(LayoutOutputJob, Option<String>)> = if user_defaults.jobs.is_empty() {
+        // For default layout, use the global brand config
+        convert_jobs(
+            &LayoutDefaults::default_layout()
+                .resolve_jobs()
+                .unwrap_or_default()
+                .into_iter()
+                .map(|(j, b)| {
+                    (
+                        j,
+                        b.or_else(|| {
+                            settings
+                                .brand_config
+                                .clone()
+                                .map(|p| p.to_string_lossy().to_string())
+                        }),
+                    )
+                })
+                .collect::<Vec<_>>(),
+        )
     } else {
-        convert_jobs(&user_defaults.jobs)
+        // Resolve jobs with presets and per-job brand configs
+        let resolved = user_defaults.resolve_jobs().unwrap_or_default();
+        // If a job doesn't have a brand_config, use the global one
+        let with_global_fallback: Vec<_> = resolved
+            .into_iter()
+            .map(|(job, brand)| {
+                let brand = brand.or_else(|| {
+                    settings
+                        .brand_config
+                        .as_ref()
+                        .map(|p| p.to_string_lossy().to_string())
+                });
+                (job, brand)
+            })
+            .collect();
+        convert_jobs(&with_global_fallback)
     };
 
     let font_args: Vec<String> = brand
@@ -1180,8 +1221,26 @@ fn run_layout_export(
         );
     }
 
-    for job in jobs_to_run {
-        let outputs = document::generate(&data, &brand, &job.config);
+    for (job, brand_override) in jobs_to_run {
+        // Load brand config - use job-specific if provided, otherwise global
+        let job_brand = if let Some(brand_path_str) = brand_override {
+            let brand_path = PathBuf::from(brand_path_str);
+            match BrandConfig::load(&brand_path) {
+                Ok(b) => b,
+                Err(e) => {
+                    eprintln!(
+                        "warning: job '{}' brand config {:?}: {e}; using defaults",
+                        job.stem, brand_path
+                    );
+                    BrandConfig::default()
+                }
+            }
+        } else {
+            // Clone the global brand (we'll need to clone here since brand is used across iterations)
+            brand.clone()
+        };
+
+        let outputs = document::generate(&data, &job_brand, &job.config);
 
         // PDFs go into a per-paper-size subdirectory.
         let paper_dir = layout_dir.join(job.config.paper.dir_name());
