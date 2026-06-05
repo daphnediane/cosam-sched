@@ -48,7 +48,8 @@ fn run() -> Result<()> {
 
     let jobs = cli::parse_layout_jobs(&args.layout_args)?;
 
-    let data = load_schedule_data(&args.input, &args.brand_config)?;
+    let needs_private = jobs.iter().any(|j| j.include_private);
+    let (data, data_private) = load_schedule_data(&args.input, &args.brand_config, needs_private)?;
 
     let brand = load_brand(&args.brand_config);
 
@@ -61,8 +62,15 @@ fn run() -> Result<()> {
         .with_context(|| format!("creating output dir {:?}", args.output_dir))?;
 
     for job in &jobs {
+        // Private jobs render the private view when available; widget-JSON
+        // inputs have no private data, so they fall back to the public view.
+        let job_data = if job.include_private {
+            data_private.as_ref().unwrap_or(&data)
+        } else {
+            &data
+        };
         run_job(
-            &data,
+            job_data,
             &brand,
             color_mode,
             job,
@@ -77,7 +85,16 @@ fn run() -> Result<()> {
 
 /// Load schedule data from either a widget JSON file or an internal `.schedule`
 /// binary, detected by file extension.
-fn load_schedule_data(input: &Path, brand_config: &Path) -> Result<ScheduleData> {
+///
+/// Returns the public dataset and, when `want_private` is set and the input is a
+/// `.schedule`, the private dataset (private panels + unlisted presenters).
+/// Widget JSON inputs carry no private data, so the private slot is always
+/// `None` for them.
+fn load_schedule_data(
+    input: &Path,
+    brand_config: &Path,
+    want_private: bool,
+) -> Result<(ScheduleData, Option<ScheduleData>)> {
     let ext = input
         .extension()
         .and_then(|e| e.to_str())
@@ -94,14 +111,25 @@ fn load_schedule_data(input: &Path, brand_config: &Path) -> Result<ScheduleData>
             .file_stem()
             .and_then(|s| s.to_str())
             .unwrap_or("Schedule");
-        ScheduleData::from_schedule(&schedule, title)
+        let public = ScheduleData::from_schedule(&schedule, title, false)
             .map_err(|e| anyhow::anyhow!("{e}"))
-            .with_context(|| "building layout data from schedule")
+            .with_context(|| "building layout data from schedule")?;
+        let private = if want_private {
+            Some(
+                ScheduleData::from_schedule(&schedule, title, true)
+                    .map_err(|e| anyhow::anyhow!("{e}"))
+                    .with_context(|| "building private layout data from schedule")?,
+            )
+        } else {
+            None
+        };
+        Ok((public, private))
     } else {
         let _ = brand_config;
         let json =
             fs::read_to_string(input).with_context(|| format!("reading JSON file {:?}", input))?;
-        ScheduleData::from_json(&json).map_err(|e| anyhow::anyhow!("{e}"))
+        let data = ScheduleData::from_json(&json).map_err(|e| anyhow::anyhow!("{e}"))?;
+        Ok((data, None))
     }
 }
 
@@ -130,6 +158,7 @@ fn run_job(
         paper: map_paper(job.paper),
         content: build_content(job.content, job.split),
         panel_filter: map_panel_filter(job.panel_filter),
+        include_private: job.include_private,
         orientation: map_orientation(job.orientation),
         color_mode,
         columns: job.columns,

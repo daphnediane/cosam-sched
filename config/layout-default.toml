@@ -11,6 +11,9 @@
 #
 # Per-job optional keys:
 #   panel_filter = "all"        # "all" (default), "workshops", "premium"
+#   include_private = false     # true = private view: private panels + unlisted
+#                               # presenters in per-presenter splits (bylines stay
+#                               # credited-only). Default false (public view).
 #   color_mode   = "color"      # "color" (default) or "bw"
 #   footer       = "full"       # "full" (default), "timestamp_only", "none"
 #   double_sided = false        # pad each section onto an odd page
@@ -120,7 +123,9 @@ columns = 5
 # Guest Card Jobs
 # ─────────────────────────────────────────────────────────────────────────────
 
-# Guest cards: compact panel list, one section per guest
+# Guest cards: compact panel list, one section per guest.
+# Private view so a guest's personal schedule includes panels where they are
+# unlisted/uncredited (bylines still show credited presenters only).
 [[jobs]]
 content = "panel_list"
 split = "presenter"
@@ -130,6 +135,7 @@ columns = 1
 stem = "postcards"
 footer = "timestamp_only"
 logo = "small"
+include_private = true
 
 # ─────────────────────────────────────────────────────────────────────────────
 # Description Jobs

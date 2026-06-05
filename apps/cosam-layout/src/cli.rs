@@ -75,6 +75,9 @@ pub struct LayoutJob {
     pub double_sided: bool,
     /// Optional header text (left for 1-D splits, right for `none`).
     pub header_text: Option<String>,
+    /// Include private panels and unlisted (uncredited) presenters. Only has an
+    /// effect for `.schedule` inputs (widget JSON carries no private data).
+    pub include_private: bool,
     pub output_override: Option<PathBuf>,
 }
 
@@ -91,6 +94,7 @@ impl Default for LayoutJob {
             columns: None,
             double_sided: false,
             header_text: None,
+            include_private: false,
             output_override: None,
         }
     }
@@ -244,6 +248,9 @@ pub fn parse_layout_jobs(raw: &[String]) -> anyhow::Result<Vec<LayoutJob>> {
             }
             "--double-sided" => {
                 current.double_sided = true;
+            }
+            "--include-private" => {
+                current.include_private = true;
             }
             "--header-text" => {
                 let val = iter

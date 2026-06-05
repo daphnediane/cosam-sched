@@ -43,14 +43,21 @@ pub struct ScheduleData {
 
 impl ScheduleData {
     /// Build directly from a [`schedule_core::schedule::Schedule`] with no
-    /// JSON serialization round-trip. Uses the public-export view (no private
-    /// panels/presenters).
+    /// JSON serialization round-trip.
+    ///
+    /// When `private` is false this uses the public-export view (no private
+    /// panels, timeline entries, or unlisted presenters). When `private` is
+    /// true it includes private panels and surfaces unlisted (uncredited)
+    /// presenters on their panels, so per-presenter sections can attribute
+    /// unlisted guests. Break synthesis runs over whichever panel set is
+    /// visible, so each visibility level is internally consistent.
     pub fn from_schedule(
         schedule: &schedule_core::schedule::Schedule,
         title: &str,
+        private: bool,
     ) -> Result<Self, ModelError> {
         use schedule_core::widget_json::export_to_widget_json;
-        let export = export_to_widget_json(schedule, title, false)
+        let export = export_to_widget_json(schedule, title, private)
             .map_err(|e| ModelError::Export(e.to_string()))?;
 
         let meta = Meta {

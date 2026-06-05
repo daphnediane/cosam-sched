@@ -348,7 +348,10 @@ fn export_panels(
             .collect();
 
         let credits = panel::compute_credits(schedule, panel_id);
-        let presenter_names = individual_presenter_names(schedule, panel_id);
+        // Under a private export, surface uncredited (unlisted) presenters on the
+        // panel itself so consumers (e.g. print layout) can attribute panels to
+        // them. Public exports keep credited-only, as before.
+        let presenter_names = individual_presenter_names(schedule, panel_id, private_export);
 
         let code = &internal.code;
         let start_time = internal.time_slot.start_time().map(format_naive_dt);
@@ -702,8 +705,15 @@ fn inclusive_presenter_ids(
 }
 
 /// Individual (non-group) presenter names for the panel's `presenters` search field.
-fn individual_presenter_names(schedule: &Schedule, panel_id: PanelId) -> Vec<String> {
-    let ids = inclusive_presenter_ids(schedule, panel_id, false);
+///
+/// When `include_uncredited` is true, also includes uncredited (unlisted)
+/// presenters; otherwise only credited presenters are returned.
+fn individual_presenter_names(
+    schedule: &Schedule,
+    panel_id: PanelId,
+    include_uncredited: bool,
+) -> Vec<String> {
+    let ids = inclusive_presenter_ids(schedule, panel_id, include_uncredited);
     let mut names: Vec<String> = ids
         .into_iter()
         .filter_map(|p_id| {
@@ -935,7 +945,52 @@ mod tests {
         let _ = sched.edge_add(panel_id, panel::EDGE_CREDITED_PRESENTERS, [presenter_id]);
     }
 
+    fn link_uncredited_presenter(
+        sched: &mut Schedule,
+        panel_id: PanelId,
+        presenter_id: PresenterId,
+    ) {
+        let _ = sched.edge_add(panel_id, panel::EDGE_UNCREDITED_PRESENTERS, [presenter_id]);
+    }
+
     // ── tests ──────────────────────────────────────────────────────────────────
+
+    #[test]
+    fn test_uncredited_presenter_only_in_private_export() {
+        // A panel with one credited and one uncredited (unlisted) presenter.
+        let mut sched = Schedule::new();
+        let pt_id = make_panel_type(&mut sched, "GP", "Guest Panel", false);
+        let panel_id = make_panel(&mut sched, "GP001", Some((0, 14, 0, 0)), Some(60));
+        let listed = make_presenter(&mut sched, "Listed Guest");
+        let unlisted = make_presenter(&mut sched, "Unlisted Guest");
+        link_panel_type(&mut sched, panel_id, pt_id);
+        link_credited_presenter(&mut sched, panel_id, listed);
+        link_uncredited_presenter(&mut sched, panel_id, unlisted);
+
+        let (_, uid_map) = build_room_uid_map(&sched);
+        let panel_types = export_panel_types(&sched).unwrap();
+
+        // Public export: only the credited presenter is on the panel.
+        let public = export_panels(&sched, &uid_map, &[], &panel_types, false).unwrap();
+        let pub_panel = public.iter().find(|p| p.id == "GP001").unwrap();
+        assert!(pub_panel.presenters.contains(&"Listed Guest".to_string()));
+        assert!(!pub_panel.presenters.contains(&"Unlisted Guest".to_string()));
+
+        // Private export: the unlisted presenter is surfaced on the panel's
+        // `presenters` (split/search) field so print layout can attribute the
+        // panel to them in per-presenter sections...
+        let private = export_panels(&sched, &uid_map, &[], &panel_types, true).unwrap();
+        let priv_panel = private.iter().find(|p| p.id == "GP001").unwrap();
+        assert!(priv_panel.presenters.contains(&"Listed Guest".to_string()));
+        assert!(priv_panel
+            .presenters
+            .contains(&"Unlisted Guest".to_string()));
+
+        // ...but the visible `credits` byline stays credited-only, even in the
+        // private export.
+        assert!(priv_panel.credits.contains(&"Listed Guest".to_string()));
+        assert!(!priv_panel.credits.contains(&"Unlisted Guest".to_string()));
+    }
 
     #[test]
     fn test_export_creates_valid_structure() {

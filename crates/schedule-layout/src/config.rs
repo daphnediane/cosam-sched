@@ -280,6 +280,15 @@ pub struct LayoutConfig {
     /// Which panels to include.
     pub panel_filter: PanelFilter,
     pub orientation: Orientation,
+    /// Include private panels and unlisted (uncredited) presenters in this job.
+    ///
+    /// This selects the *private* schedule view: the data must have been built
+    /// with [`ScheduleData::from_schedule`]`(.., private = true)`. The renderer
+    /// draws whatever data it is handed, so callers pair this flag with the
+    /// matching dataset. `false` (the default) is the public view.
+    ///
+    /// [`ScheduleData::from_schedule`]: crate::model::ScheduleData::from_schedule
+    pub include_private: bool,
     /// Color or black-and-white output.
     pub color_mode: ColorMode,
     /// Override for the number of layout columns. If `None`, each content mode

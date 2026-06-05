@@ -1006,17 +1006,30 @@ fn run_layout_export(
         }
     };
 
-    let data = match ScheduleData::from_schedule(schedule, title) {
-        Ok(mut d) => {
-            // For reproducible test output, pin the generated time to the
-            // (stable) modified time so the footer no longer varies per run.
-            if settings.stable_timestamps {
-                d.meta.generated = d.meta.modified.clone();
+    // Build a layout dataset at a given visibility. Break synthesis runs over
+    // whichever panel set is visible, so the public and private views are each
+    // internally consistent (the public view is byte-identical to before).
+    let build_data = |private: bool| -> Option<ScheduleData> {
+        match ScheduleData::from_schedule(schedule, title, private) {
+            Ok(mut d) => {
+                // For reproducible test output, pin the generated time to the
+                // (stable) modified time so the footer no longer varies per run.
+                if settings.stable_timestamps {
+                    d.meta.generated = d.meta.modified.clone();
+                }
+                Some(d)
             }
-            d
+            Err(e) => {
+                eprintln!("warning: building layout data (private={private}): {e}");
+                None
+            }
         }
-        Err(e) => {
-            eprintln!("warning: building layout data: {e}; skipping layout export");
+    };
+
+    let data = match build_data(false) {
+        Some(d) => d,
+        None => {
+            eprintln!("skipping layout export");
             return;
         }
     };
@@ -1131,6 +1144,7 @@ fn run_layout_export(
                             paper: parse_paper(&job.paper),
                             content: parse_content(job.content.as_deref(), &job.split),
                             panel_filter: parse_panel_filter(job.panel_filter.as_deref()),
+                            include_private: job.include_private.unwrap_or(false),
                             orientation: parse_orientation(&job.orientation),
                             color_mode: parse_color_mode(job.color_mode.as_deref()),
                             columns: job.columns,
@@ -1211,6 +1225,17 @@ fn run_layout_export(
         convert_jobs(&with_global_fallback)
     };
 
+    // Build the private view only when a job asks for it. Jobs that request
+    // private data fall back to the public view if the private build failed.
+    let needs_private = jobs_to_run
+        .iter()
+        .any(|(job, _)| job.config.include_private);
+    let data_private = if needs_private {
+        build_data(true)
+    } else {
+        None
+    };
+
     let font_args: Vec<String> = brand
         .fonts
         .font_dir
@@ -1247,7 +1272,15 @@ fn run_layout_export(
             brand.clone()
         };
 
-        let outputs = document::generate(&data, &job_brand, &job.config);
+        // Private jobs render the private view; fall back to public if it is
+        // unavailable (private build failed).
+        let job_data = if job.config.include_private {
+            data_private.as_ref().unwrap_or(&data)
+        } else {
+            &data
+        };
+
+        let outputs = document::generate(job_data, &job_brand, &job.config);
 
         // PDFs go into a per-paper-size subdirectory.
         let paper_dir = layout_dir.join(job.config.paper.dir_name());

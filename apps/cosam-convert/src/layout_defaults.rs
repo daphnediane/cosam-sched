@@ -34,6 +34,21 @@
 //! Later imports override earlier ones, and job-specific settings override
 //! all imported values.
 //!
+//! # Private (staff) jobs
+//!
+//! A job may set `include_private = true` to render the private view: private
+//! panels and unlisted (uncredited) presenters are included, so per-presenter
+//! sections produce postcards for unlisted guests. The default (`false`) is the
+//! public view. cosam-convert builds whichever views the configured jobs need.
+//!
+//! ```toml
+//! [[jobs]]
+//! stem = "staff-postcards"
+//! content = "panel_list"
+//! split = "presenter"
+//! include_private = true
+//! ```
+//!
 //! # Custom Brand Configuration
 //!
 //! Individual jobs can specify a different brand.toml file:
@@ -91,6 +106,9 @@ pub struct JobConfig {
     pub stem: String,
     /// Panel filter: "all" (default), "workshops", "premium". Optional.
     pub panel_filter: Option<String>,
+    /// Include private panels and unlisted (uncredited) presenters in this job.
+    /// Defaults to `false` (public view). Optional.
+    pub include_private: Option<bool>,
     /// Color mode: "color" (default) or "bw". Optional.
     pub color_mode: Option<String>,
     /// Page footer: "full" (default), "timestamp_only", "none". Optional.
@@ -153,6 +171,9 @@ impl JobConfig {
         }
         if other.panel_filter.is_some() {
             self.panel_filter = other.panel_filter.clone();
+        }
+        if other.include_private.is_some() {
+            self.include_private = other.include_private;
         }
         if other.color_mode.is_some() {
             self.color_mode = other.color_mode.clone();

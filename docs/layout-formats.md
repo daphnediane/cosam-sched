@@ -62,19 +62,20 @@ PDFs are written under a per-paper-size subdirectory of the output dir; all
 
 ## Configuration (`LayoutConfig`)
 
-| Field          | Meaning                                                             |
-| -------------- | ------------------------------------------------------------------- |
-| `paper`        | `Letter`, `Legal`, `Tabloid`, `SuperB`, `Poster`, `Postcard4x6`     |
-| `content`      | [`ContentMode`](#contentmode--splits) — what to draw + how to split |
-| `panel_filter` | `All`, `Workshops`, `Premium`                                       |
-| `orientation`  | `Landscape` or `Portrait`                                           |
-| `color_mode`   | Color or black-and-white output                                     |
-| `columns`      | Override the per-content/per-paper default column count             |
-| `footer`       | `Full` (timestamps + page number + site), `TimestampOnly`, `None`   |
-| `double_sided` | Pad each section onto an odd page (booklet printing)                |
-| `header_text`  | Optional banner label (left for 1-D splits, right for no split)     |
-| `base_font_pt` | Override body font; defaults to the paper's base size               |
-| `grid_font_pt` | Override grid event-text size                                       |
+| Field             | Meaning                                                                                                                                    |
+| ----------------- | ------------------------------------------------------------------------------------------------------------------------------------------ |
+| `paper`           | `Letter`, `Legal`, `Tabloid`, `SuperB`, `Poster`, `Postcard4x6`                                                                            |
+| `content`         | [`ContentMode`](#contentmode--splits) — what to draw + how to split                                                                        |
+| `panel_filter`    | `All`, `Workshops`, `Premium`                                                                                                              |
+| `include_private` | Render the private view: private panels + unlisted presenters in per-presenter splits (byline credits stay credited-only). Default `false` |
+| `orientation`     | `Landscape` or `Portrait`                                                                                                                  |
+| `color_mode`      | Color or black-and-white output                                                                                                            |
+| `columns`         | Override the per-content/per-paper default column count                                                                                    |
+| `footer`          | `Full` (timestamps + page number + site), `TimestampOnly`, `None`                                                                          |
+| `double_sided`    | Pad each section onto an odd page (booklet printing)                                                                                       |
+| `header_text`     | Optional banner label (left for 1-D splits, right for no split)                                                                            |
+| `base_font_pt`    | Override body font; defaults to the paper's base size                                                                                      |
+| `grid_font_pt`    | Override grid event-text size                                                                                                              |
 
 ### Style options
 
