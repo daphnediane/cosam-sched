@@ -1,4 +1,4 @@
-# Brand configuration sample for cosam-layout.
+# Brand configuration sample for cosam-convert layout output.
 # Copy to config/brand.toml and customize. brand.toml is gitignored.
 
 [meta]

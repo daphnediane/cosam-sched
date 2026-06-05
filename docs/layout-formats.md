@@ -8,25 +8,32 @@ guest lists — is one configuration of a **single** builder, selected by a
 (how to break it into pages). This document describes that builder, its
 configuration, and the output-file conventions.
 
-## Front-ends
+## Front-end
 
-Two binaries drive the layout engine; both call `document::generate` and share
-the same filename assembly:
+`cosam-convert` drives the layout engine end-to-end from an XLSX/JSON input,
+calling `document::generate` and handling the filename assembly. It has two
+modes:
 
-- **`cosam-layout`** — standalone CLI. Takes a schedule JSON plus repeatable
-  per-job specs (`--content`, `--paper`, `--orientation`, `--split`,
-  `--panel-filter`, `--footer`, `--columns`, `--stem`, `--header-text`), jobs
-  separated by a bare `--`. See `apps/cosam-layout`.
-- **`cosam-convert --export-layout <dir>`** — runs the jobs configured in
+- **`--export-layout <dir>`** — renders the jobs configured in
   `config/layout.toml` (falling back to the embedded `config/layout-default.toml`)
-  end-to-end from an XLSX/JSON input. This is the path `scripts/sync-schedule.sh`
-  uses for publishing.
+  into per-paper-size subdirectories of `<dir>`. This is the path
+  `scripts/sync-schedule.sh` uses for publishing.
+- **`--layout.<key>[=<value>]` … `--export-layout <file>`** — defines a single
+  layout job on the command line and renders it to `<file>`. Keys mirror the
+  TOML field names (`--layout.paper=letter`, `--layout.content=grid_only`,
+  `--layout.cards`, …); repeat `--layout.import=<preset>` to stack presets, which
+  resolve against the presets from **both** `layout-default.toml` and the user's
+  `layout.toml` (the user's win on name clashes). A boolean key with no `=value`
+  (e.g. `--layout.cards`) means `true`. When `<file>` has an extension it is
+  written verbatim; otherwise its stem and parent directory seed the output
+  name. `--layout-config <file>`, `--default-layouts`, and `--default` discard
+  any accumulated `--layout.*` and revert to the TOML jobs.
 
-Both require the `typst` binary on `PATH` to compile PDFs (`cosam-layout --typ`
-also writes `.typ`; `--no-compile` emits `.typ` only). For reproducible test
-output, `cosam-convert --stable-timestamps` pins the generated time to the
-modified time so the footer no longer varies per run. See `.claude/rules/layout.md`
-for the testing workflow.
+It requires the `typst` binary on `PATH` to compile PDFs; the `.typ` source is
+written either way. For reproducible test output, `cosam-convert
+--stable-timestamps` pins the generated time to the modified time so the footer
+no longer varies per run. See `.claude/rules/layout.md` for the testing
+workflow.
 
 ## The `generate` contract
 
@@ -53,12 +60,14 @@ The caller joins the non-empty parts with `-`:
 {stem}-{paper_dir}
 ```
 
-- `stem` — from `--stem`, the output override's file stem, or a per-content
-  default (`flyer`, `schedule`, `desc`, `list`).
+- `stem` — the job's `stem` (TOML jobs), or the `--export-layout` path's file
+  stem (a command-line `--layout.*` job).
 - `paper_dir` — `letter`, `legal`, `tabloid`, `super-b`, `poster`, `postcard`.
 
-PDFs are written under a per-paper-size subdirectory of the output dir; all
-`.typ` sources share a single `typ/` subdirectory.
+For TOML jobs, PDFs are written under a per-paper-size subdirectory of the output
+dir and all `.typ` sources share a single `typ/` subdirectory. A command-line
+`--layout.*` job writes its PDF and `.typ` next to the `--export-layout` path; if
+that path has an extension, the PDF is written to it verbatim.
 
 ## Configuration (`LayoutConfig`)
 

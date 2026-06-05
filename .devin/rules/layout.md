@@ -1,7 +1,7 @@
 ---
 description: Testing print layouts (schedule-layout / Typst → PDF)
 trigger: glob
-globs: crates/schedule-layout/**/*.rs,apps/cosam-layout/**/*.rs,config/layout*.toml
+globs: crates/schedule-layout/**/*.rs,apps/cosam-convert/**/layout*.rs,config/layout*.toml
 ---
 
 # Print Layout Testing

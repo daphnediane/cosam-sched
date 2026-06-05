@@ -119,6 +119,12 @@ struct OutputSettings {
     brand_config: Option<PathBuf>,
     #[cfg(feature = "layout")]
     layout_config: Option<PathBuf>,
+    /// A single layout job assembled from `--layout.<key>=<value>` flags. When
+    /// set, `--export-layout` renders just this one job (using the export path as
+    /// the output file name) instead of the jobs from the layout TOML. Cleared by
+    /// `--default`, `--default-layouts`, and `--layout-config`.
+    #[cfg(feature = "layout")]
+    layout: Option<layout_defaults::JobConfig>,
     /// Test affordance: use the schedule's modified time as the generated time so
     /// layout output (the page footer) is reproducible across runs.
     #[cfg(feature = "layout")]
@@ -140,6 +146,8 @@ impl Default for OutputSettings {
             brand_config: None,
             #[cfg(feature = "layout")]
             layout_config: None,
+            #[cfg(feature = "layout")]
+            layout: None,
             #[cfg(feature = "layout")]
             stable_timestamps: false,
         }
@@ -190,6 +198,75 @@ fn parse_table_mode(arg: &str) -> Result<TableImportMode> {
         "ignore" | "skip" => Ok(TableImportMode::Skip),
         _ => Ok(TableImportMode::ReadFrom(arg.to_string())),
     }
+}
+
+/// Parse a `--layout.<bool-key>` flag value: an explicit `true`/`false`
+/// (`yes`/`no`, `1`/`0`) or, for a bare flag with no `=value`, `true`.
+#[cfg(feature = "layout")]
+fn parse_layout_bool(key: &str, value: Option<&str>) -> Result<bool> {
+    match value {
+        None => Ok(true),
+        Some(v) => match v.trim().to_ascii_lowercase().as_str() {
+            "true" | "yes" | "1" | "on" => Ok(true),
+            "false" | "no" | "0" | "off" => Ok(false),
+            other => anyhow::bail!("--layout.{key} expects a boolean, got '{other}'"),
+        },
+    }
+}
+
+/// Apply one `--layout.<key>[=<value>]` flag to the in-progress layout job.
+///
+/// `key` is the part after `--layout.` and `value` is the part after the first
+/// `=` (absent for bare boolean flags). Keys mirror the TOML field names in
+/// `config/layout.toml`; hyphens are accepted as a synonym for underscores.
+#[cfg(feature = "layout")]
+fn apply_layout_arg(
+    job: &mut layout_defaults::JobConfig,
+    key: &str,
+    value: Option<&str>,
+) -> Result<()> {
+    // Keys that take a string value require one.
+    let str_val = || -> Result<String> {
+        value
+            .map(|v| v.to_string())
+            .ok_or_else(|| anyhow::anyhow!("--layout.{key} requires a value (--layout.{key}=...)"))
+    };
+
+    let normalized = key.replace('-', "_");
+    match normalized.as_str() {
+        "paper" => job.paper = str_val()?,
+        "content" => job.content = Some(str_val()?),
+        "split" | "split_by" => job.split = str_val()?,
+        "orientation" => job.orientation = str_val()?,
+        "stem" => job.stem = str_val()?,
+        "panel_filter" => job.panel_filter = Some(str_val()?),
+        "include_private" => job.include_private = Some(parse_layout_bool(key, value)?),
+        "color_mode" => job.color_mode = Some(str_val()?),
+        "footer" => job.footer = Some(str_val()?),
+        "double_sided" => job.double_sided = Some(parse_layout_bool(key, value)?),
+        "header_text" => job.header_text = Some(str_val()?),
+        "columns" => {
+            job.columns = Some(
+                str_val()?
+                    .parse::<u32>()
+                    .map_err(|_| anyhow::anyhow!("--layout.columns must be a positive integer"))?,
+            )
+        }
+        "base_font_pt" => job.base_font_pt = Some(str_val()?),
+        "grid_font_pt" => job.grid_font_pt = Some(str_val()?),
+        "page_fill" => job.page_fill = Some(str_val()?),
+        "empty_grid_fill" => job.empty_grid_fill = Some(str_val()?),
+        "cards" => job.cards = Some(parse_layout_bool(key, value)?),
+        "card_fill" => job.card_fill = Some(str_val()?),
+        "column_gap" => job.column_gap = Some(str_val()?),
+        "card_gap" => job.card_gap = Some(str_val()?),
+        "import" => job.import.push(str_val()?),
+        "brand_config" => job.brand_config = Some(str_val()?),
+        "logo" => job.logo = Some(str_val()?),
+        "banner_text_pt" => job.banner_text_pt = Some(str_val()?),
+        other => anyhow::bail!("unknown --layout.{other} key"),
+    }
+    Ok(())
 }
 
 fn check_duplicate_output(output_jobs: &[OutputJob], path: &PathBuf) -> Result<()> {
@@ -388,6 +465,30 @@ fn parse_args() -> Result<CliArgs> {
                     anyhow::bail!("Missing value for --layout-config");
                 }
                 current_settings.layout_config = Some(PathBuf::from(&arguments[index]));
+                // Selecting a config file means "render its jobs", so discard any
+                // command-line layout accumulated so far.
+                current_settings.layout = None;
+            }
+            #[cfg(feature = "layout")]
+            "--default-layouts" => {
+                if first_setting_index.is_none() {
+                    first_setting_index = Some(index);
+                }
+                // Revert to rendering the jobs from the layout TOML.
+                current_settings.layout = None;
+            }
+            #[cfg(feature = "layout")]
+            arg if arg.starts_with("--layout.") => {
+                if first_setting_index.is_none() {
+                    first_setting_index = Some(index);
+                }
+                let rest = &arg["--layout.".len()..];
+                let (key, value) = match rest.split_once('=') {
+                    Some((k, v)) => (k, Some(v)),
+                    None => (rest, None),
+                };
+                let job = current_settings.layout.get_or_insert_with(Default::default);
+                apply_layout_arg(job, key, value)?;
             }
             #[cfg(feature = "layout")]
             "--stable-timestamps" => {
@@ -608,7 +709,9 @@ fn print_usage() {
          \x20 --export-test <file.html>            Export standalone test page (Squarespace sim)\n\
          \x20 --export-csv-dir <dir>               Export CSV files to directory (UTF-8 comma-delimited)\n\
          \x20 --export-xlsx-grid <file.xlsx>       Export grid reference sheets only (no data tables)\n\
-         \x20 --export-layout <dir>                Run cosam-layout; write PDFs to <dir> (requires cosam-layout on PATH)\n\
+         \x20 --export-layout <dir|file>           Render print layouts via Typst (requires typst on PATH).\n\
+         \x20                                      Without --layout.*, writes the layout-TOML jobs as PDFs under <dir>.\n\
+         \x20                                      With --layout.*, renders that one job to <file>.\n\
          \n\
          Validation:\n\
          \x20 --check, --validate                  Report conflicts; exit non-zero if any found\n\
@@ -628,7 +731,12 @@ fn print_usage() {
          \x20 --widget-js <path>                   Override JS source (default: builtin)\n\
          \x20 --test-template <path>               Override test page template (default: builtin)\n\
          \x20 --brand-config <file>                Brand config for layout (default: config/brand.toml)\n\
-         \x20 --layout-config <file>               Layout config for jobs (default: config/layout.toml)\n\
+         \x20 --layout-config <file>               Use the jobs from <file> (reverts any --layout.* to TOML jobs)\n\
+         \x20 --layout.<key>[=<value>]             Define a single layout job on the command line; --export-layout\n\
+         \x20                                      writes it to its path. Keys mirror layout.toml fields, e.g.\n\
+         \x20                                      --layout.import=flyer --layout.paper=letter --layout.cards.\n\
+         \x20                                      Repeat --layout.import to stack presets.\n\
+         \x20 --default-layouts                    Revert to rendering the jobs from the layout TOML\n\
          \x20 --stable-timestamps                  Use modified time as generated time (reproducible layout output)\n\
          \x20 --minified                           Minify HTML output (default)\n\
          \x20 --no-minified, --for-debug           Skip minification\n\
@@ -653,6 +761,7 @@ fn print_usage() {
          \x20 cosam-convert --input schedule.xlsx --check --export public.json\n\
          \x20 cosam-convert --input schedule.xlsx --output full.schedule --export public.json\n\
          \x20 cosam-convert --input schedule.xlsx --export public.json --export-layout output/layout\n\
+         \x20 cosam-convert --input schedule.xlsx --layout.import=flyer --layout.paper=letter --export-layout output/flyer.pdf\n\
          \x20 cosam-convert --input csv_dir --export public.json\n\
          \x20 cosam-convert --input schedule.xlsx --export-csv-dir csv_output\n\
          \x20 cosam-convert --input-url https://example.com/schedule --export public.json\n\
@@ -1034,20 +1143,16 @@ fn run_layout_export(
         }
     };
 
-    if let Err(e) = fs::create_dir_all(layout_dir) {
-        eprintln!(
-            "warning: creating layout dir {:?}: {e}; skipping layout export",
-            layout_dir
-        );
-        return;
-    }
-
     /// A single default layout job: layout config + output filename base stem.
     #[derive(Clone)]
     struct LayoutOutputJob {
         config: LayoutConfig,
         /// Base filename stem (no extension). Split qualifiers are appended with `-`.
         stem: String,
+        /// Explicit output path from `--export-layout` when a command-line layout
+        /// was configured. `None` for jobs from the layout TOML (which write into
+        /// the export directory under per-paper subdirectories).
+        output_override: Option<PathBuf>,
     }
 
     // Helper functions to parse layout configuration strings
@@ -1165,6 +1270,7 @@ fn run_layout_export(
                             banner_text_pt: job.banner_text_pt.clone(),
                         },
                         stem: job.stem.clone(),
+                        output_override: None,
                     },
                     brand_override.clone(),
                 )
@@ -1183,10 +1289,39 @@ fn run_layout_export(
     });
     let user_defaults = LayoutDefaults::load(&layout_defaults_path).unwrap_or_default();
 
+    let global_brand = || {
+        settings
+            .brand_config
+            .clone()
+            .map(|p| p.to_string_lossy().to_string())
+    };
+
     // Determine which jobs to run:
-    // - If user provides jobs in layout.toml, use those (with preset resolution)
-    // - Otherwise use embedded default jobs from LayoutDefaults::default_layout()
-    let jobs_to_run: Vec<(LayoutOutputJob, Option<String>)> = if user_defaults.jobs.is_empty() {
+    // - A command-line layout (`--layout.*`) renders a single job; the export
+    //   path is used as the output file name. Imports resolve against the presets
+    //   from both layout-default.toml and the user's layout.toml (user wins).
+    // - Otherwise, if layout.toml defines jobs, use those (with preset resolution).
+    // - Otherwise use the embedded default jobs from `default_layout()`.
+    let jobs_to_run: Vec<(LayoutOutputJob, Option<String>)> = if let Some(cli_job) =
+        settings.layout.clone()
+    {
+        let mut presets = LayoutDefaults::default_layout().presets;
+        presets.extend(user_defaults.presets.clone());
+        let resolved = match cli_job.resolve(&presets, &mut Vec::new()) {
+            Ok(r) => r,
+            Err(e) => {
+                eprintln!("warning: resolving --layout.* job: {e}; skipping layout export");
+                return;
+            }
+        };
+        let brand = resolved.brand_config.clone().or_else(global_brand);
+        let mut converted = convert_jobs(&[(resolved, brand)]);
+        // Use the export path as the output file name for this single job.
+        if let Some((job, _)) = converted.first_mut() {
+            job.output_override = Some(layout_dir.to_path_buf());
+        }
+        converted
+    } else if user_defaults.jobs.is_empty() {
         // For default layout, use the global brand config
         convert_jobs(
             &LayoutDefaults::default_layout()
@@ -1236,23 +1371,6 @@ fn run_layout_export(
         None
     };
 
-    let font_args: Vec<String> = brand
-        .fonts
-        .font_dir
-        .as_ref()
-        .and_then(|d| d.to_str())
-        .map(|d| vec!["--font-path".to_string(), d.to_string()])
-        .unwrap_or_default();
-
-    // All Typst source files share a single typ/ subdirectory.
-    let typ_dir = layout_dir.join("typ");
-    if let Err(e) = fs::create_dir_all(&typ_dir) {
-        eprintln!(
-            "warning: creating {:?}: {e}; .typ files may not be written",
-            typ_dir
-        );
-    }
-
     for (job, brand_override) in jobs_to_run {
         // Load brand config - use job-specific if provided, otherwise global
         let job_brand = if let Some(brand_path_str) = brand_override {
@@ -1282,19 +1400,63 @@ fn run_layout_export(
 
         let outputs = document::generate(job_data, &job_brand, &job.config);
 
-        // PDFs go into a per-paper-size subdirectory.
-        let paper_dir = layout_dir.join(job.config.paper.dir_name());
-        if let Err(e) = fs::create_dir_all(&paper_dir) {
+        let font_args: Vec<String> = job_brand
+            .fonts
+            .font_dir
+            .as_ref()
+            .and_then(|d| d.to_str())
+            .map(|d| vec!["--font-path".to_string(), d.to_string()])
+            .unwrap_or_default();
+
+        // Determine the base filename stem and the .typ / .pdf directories.
+        //
+        // A command-line layout (`output_override` set) writes next to the
+        // requested export path, using its file stem as the base. Jobs from the
+        // layout TOML write into a per-paper-size subdirectory of the export dir,
+        // with a shared `typ/` directory.
+        let base_stem = match &job.output_override {
+            Some(path) => path
+                .file_stem()
+                .and_then(|s| s.to_str())
+                .map(|s| s.to_string())
+                .unwrap_or_else(|| job.stem.clone()),
+            None => job.stem.clone(),
+        };
+        let (typ_dir, pdf_dir): (PathBuf, PathBuf) = match &job.output_override {
+            Some(path) => {
+                let dir = path
+                    .parent()
+                    .filter(|p| !p.as_os_str().is_empty())
+                    .map(|p| p.to_path_buf())
+                    .unwrap_or_else(|| PathBuf::from("."));
+                (dir.clone(), dir)
+            }
+            None => (
+                layout_dir.join("typ"),
+                layout_dir.join(job.config.paper.dir_name()),
+            ),
+        };
+
+        if let Err(e) = fs::create_dir_all(&pdf_dir) {
             eprintln!(
                 "warning: creating {:?}: {e}; skipping {:?}",
-                paper_dir, job.config.content
+                pdf_dir, job.config.content
             );
             continue;
         }
+        if typ_dir != pdf_dir {
+            if let Err(e) = fs::create_dir_all(&typ_dir) {
+                eprintln!(
+                    "warning: creating {:?}: {e}; .typ files may not be written",
+                    typ_dir
+                );
+            }
+        }
 
+        let single_output = outputs.len() == 1;
         for (qualifier, typ_src) in &outputs {
             let file_stem = [
-                job.stem.as_str(),
+                base_stem.as_str(),
                 job.config.paper.dir_name(),
                 qualifier.as_str(),
             ]
@@ -1304,7 +1466,14 @@ fn run_layout_export(
             .collect::<Vec<_>>()
             .join("-");
             let typ_path = typ_dir.join(format!("{file_stem}.typ"));
-            let pdf_path = paper_dir.join(format!("{file_stem}.pdf"));
+            // A command-line layout that produces a single output and was given an
+            // explicit file path (with extension) writes that path verbatim.
+            let pdf_path = job
+                .output_override
+                .as_ref()
+                .filter(|p| p.extension().is_some() && single_output)
+                .cloned()
+                .unwrap_or_else(|| pdf_dir.join(format!("{file_stem}.pdf")));
             if let Err(e) = fs::write(&typ_path, typ_src) {
                 eprintln!("warning: writing {:?}: {e}", typ_path);
                 continue;
