@@ -1302,63 +1302,62 @@ fn run_layout_export(
     //   from both layout-default.toml and the user's layout.toml (user wins).
     // - Otherwise, if layout.toml defines jobs, use those (with preset resolution).
     // - Otherwise use the embedded default jobs from `default_layout()`.
-    let jobs_to_run: Vec<(LayoutOutputJob, Option<String>)> = if let Some(cli_job) =
-        settings.layout.clone()
-    {
-        let mut presets = LayoutDefaults::default_layout().presets;
-        presets.extend(user_defaults.presets.clone());
-        let resolved = match cli_job.resolve(&presets, &mut Vec::new()) {
-            Ok(r) => r,
-            Err(e) => {
-                eprintln!("warning: resolving --layout.* job: {e}; skipping layout export");
-                return;
+    let jobs_to_run: Vec<(LayoutOutputJob, Option<String>)> =
+        if let Some(cli_job) = settings.layout.clone() {
+            let mut presets = LayoutDefaults::default_layout().presets;
+            presets.extend(user_defaults.presets.clone());
+            let resolved = match cli_job.resolve(&presets, &mut Vec::new()) {
+                Ok(r) => r,
+                Err(e) => {
+                    eprintln!("warning: resolving --layout.* job: {e}; skipping layout export");
+                    return;
+                }
+            };
+            let brand = resolved.brand_config.clone().or_else(global_brand);
+            let mut converted = convert_jobs(&[(resolved, brand)]);
+            // Use the export path as the output file name for this single job.
+            if let Some((job, _)) = converted.first_mut() {
+                job.output_override = Some(layout_dir.to_path_buf());
             }
-        };
-        let brand = resolved.brand_config.clone().or_else(global_brand);
-        let mut converted = convert_jobs(&[(resolved, brand)]);
-        // Use the export path as the output file name for this single job.
-        if let Some((job, _)) = converted.first_mut() {
-            job.output_override = Some(layout_dir.to_path_buf());
-        }
-        converted
-    } else if user_defaults.jobs.is_empty() {
-        // For default layout, use the global brand config
-        convert_jobs(
-            &LayoutDefaults::default_layout()
-                .resolve_jobs()
-                .unwrap_or_default()
+            converted
+        } else if user_defaults.jobs.is_empty() {
+            // For default layout, use the global brand config
+            convert_jobs(
+                &LayoutDefaults::default_layout()
+                    .resolve_jobs()
+                    .unwrap_or_default()
+                    .into_iter()
+                    .map(|(j, b)| {
+                        (
+                            j,
+                            b.or_else(|| {
+                                settings
+                                    .brand_config
+                                    .clone()
+                                    .map(|p| p.to_string_lossy().to_string())
+                            }),
+                        )
+                    })
+                    .collect::<Vec<_>>(),
+            )
+        } else {
+            // Resolve jobs with presets and per-job brand configs
+            let resolved = user_defaults.resolve_jobs().unwrap_or_default();
+            // If a job doesn't have a brand_config, use the global one
+            let with_global_fallback: Vec<_> = resolved
                 .into_iter()
-                .map(|(j, b)| {
-                    (
-                        j,
-                        b.or_else(|| {
-                            settings
-                                .brand_config
-                                .clone()
-                                .map(|p| p.to_string_lossy().to_string())
-                        }),
-                    )
+                .map(|(job, brand)| {
+                    let brand = brand.or_else(|| {
+                        settings
+                            .brand_config
+                            .as_ref()
+                            .map(|p| p.to_string_lossy().to_string())
+                    });
+                    (job, brand)
                 })
-                .collect::<Vec<_>>(),
-        )
-    } else {
-        // Resolve jobs with presets and per-job brand configs
-        let resolved = user_defaults.resolve_jobs().unwrap_or_default();
-        // If a job doesn't have a brand_config, use the global one
-        let with_global_fallback: Vec<_> = resolved
-            .into_iter()
-            .map(|(job, brand)| {
-                let brand = brand.or_else(|| {
-                    settings
-                        .brand_config
-                        .as_ref()
-                        .map(|p| p.to_string_lossy().to_string())
-                });
-                (job, brand)
-            })
-            .collect();
-        convert_jobs(&with_global_fallback)
-    };
+                .collect();
+            convert_jobs(&with_global_fallback)
+        };
 
     // Build the private view only when a job asks for it. Jobs that request
     // private data fall back to the public view if the private build failed.

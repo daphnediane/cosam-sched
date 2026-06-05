@@ -199,11 +199,13 @@ pub struct PresenterCommonData {
     #[serde(default)]
     pub is_explicit_group: bool,
 
-    /// Member appears individually, not subsumed by group (tag: <Name).
+    /// Member appears individually, not subsumed by group (tag: `<Name`;
+    /// People sheet column: `Show Individually`).
     #[serde(default)]
     pub show_individually: bool,
 
-    /// Group appears in credits and subsumes its members (tag: ==Group).
+    /// Group appears in credits and subsumes its members (tag: `==Group`;
+    /// People sheet column: `Subsumes Members`).
     #[serde(default)]
     pub subsumes_members: bool,
 

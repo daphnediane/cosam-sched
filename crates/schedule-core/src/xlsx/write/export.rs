@@ -797,8 +797,8 @@ fn write_people_sheet(ws: &mut Worksheet, schedule: &Schedule, extra_keys: &[Str
     let c_person = c(&people::NAME);
     let c_classification = c(&people::CLASSIFICATION);
     let c_is_group = c(&people::IS_GROUP);
-    let c_always_grouped = c(&people::ALWAYS_GROUPED);
-    let c_always_shown = c(&people::ALWAYS_SHOWN);
+    let c_subsumes_members = c(&people::SUBSUMES_MEMBERS);
+    let c_show_individually = c(&people::SHOW_INDIVIDUALLY);
     let extra_start_col = people::ALL.len() as u32 + 1;
 
     let mut row = 2u32;
@@ -808,11 +808,11 @@ fn write_people_sheet(ws: &mut Worksheet, schedule: &Schedule, extra_keys: &[Str
         if presenter.data.is_explicit_group {
             set_str(ws, c_is_group, row, "Yes");
         }
-        if presenter.data.show_individually {
-            set_str(ws, c_always_grouped, row, "Yes");
-        }
         if presenter.data.subsumes_members {
-            set_str(ws, c_always_shown, row, "Yes");
+            set_str(ws, c_subsumes_members, row, "Yes");
+        }
+        if presenter.data.show_individually {
+            set_str(ws, c_show_individually, row, "Yes");
         }
         write_extra_fields(
             ws,

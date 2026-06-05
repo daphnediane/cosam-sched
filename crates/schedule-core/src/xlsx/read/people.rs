@@ -88,13 +88,13 @@ impl super::ImportContext<'_> {
                 .map(|s| is_truthy(s))
                 .unwrap_or(false);
 
-            // "Always Grouped" / "Always Show in Group" column → show_individually on member
-            let show_individually = get_field_def(&data, &pc::ALWAYS_GROUPED)
+            // "Subsumes Members" column → subsumes_members on group
+            let subsumes_members = get_field_def(&data, &pc::SUBSUMES_MEMBERS)
                 .map(|s| is_truthy(s))
                 .unwrap_or(false);
 
-            // "Always Shown" / "Group Shown" column → subsumes_members on group
-            let subsumes_members = get_field_def(&data, &pc::ALWAYS_SHOWN)
+            // "Show Individually" column → show_individually on member
+            let show_individually = get_field_def(&data, &pc::SHOW_INDIVIDUALLY)
                 .map(|s| is_truthy(s))
                 .unwrap_or(false);
 

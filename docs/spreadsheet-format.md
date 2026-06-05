@@ -298,6 +298,47 @@ A sheet named **PanelTypes** maps Uniq ID prefixes to panel kinds.
 |               | hashmap under the key `"color"` in v7+.                                 |
 | BW            | Alternate color for monochrome output. Stored in `colors` under `"bw"`. |
 
+## People / Presenters Sheet
+
+A sheet named **Presenters**, **Presenter**, **People**, or **Person** carries
+explicit metadata about individual presenters and groups.  It is read before
+the Schedule sheet so that rank and flag information is available when
+presenter columns are processed.
+
+| Column            | Required? | Description                                                                                                                                              |
+| ----------------- | --------- | -------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Person            | Yes       | Display name. Matched case-insensitively to names used in presenter columns. Older sheets may use `Name`.                                                |
+| Classification    |           | Rank label: `Guest`, `Judge`, `Staff`, `Invited`, `Panelist`, `Fan`, or a custom sponsor label. Defaults to `Panelist` if absent.                        |
+| Is Group          |           | Non-blank if this row represents a group entity rather than an individual presenter.                                                                     |
+| Subsumes Members  |           | Non-blank if this group should appear in credits and subsume its members (equivalent to `==Group` tag on Schedule presenter columns).                    |
+| Show Individually |           | Non-blank if this member should always appear individually and not be subsumed by their group (equivalent to `<Name` tag on Schedule presenter columns). |
+
+Group membership should be importable from either the People sheet or the
+Schedule sheet presenter column headers — whichever source defines the
+relationship.  The **Members** column (on a group row: comma-separated list
+of member names) and the **Groups** column (on a member row: comma-separated
+list of group names) express the same edges as the `=Group` / `==Group` tag
+syntax on the Schedule sheet, and edges declared in either place should be
+merged.
+
+> **Known limitation:** The `Members` and `Groups` columns are not yet
+> imported.  Group membership is currently only established via the
+> `=Group` / `==Group` tag syntax on the Schedule sheet's presenter column
+> headers.
+
+### Accepted aliases
+
+Older spreadsheets may use the following alternative header names, which are
+accepted as aliases during import:
+
+| Canonical header  | Accepted aliases                                                              |
+| ----------------- | ----------------------------------------------------------------------------- |
+| Person            | `Name`, `Presenter`, `Panelist`, `Speaker`                                    |
+| Classification    | `Rank`, `Type`, `Role`, `Level`                                               |
+| Is Group          | `IsGroup`, `Group`                                                            |
+| Subsumes Members  | `SubsumesMembers`, `Always Shown`, `AlwaysShown`, `Group Shown`               |
+| Show Individually | `ShowIndividually`, `Always Grouped`, `AlwaysGrouped`, `Always Show in Group` |
+
 ## Sample Column Layouts by Year
 
 The following sections document the column order used in each year's

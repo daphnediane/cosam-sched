@@ -517,22 +517,38 @@ pub mod people {
         aliases: &["IsGroup", "Group"],
     };
 
-    /// Maps to `show_individually` on member - member appears individually.
-    pub const ALWAYS_GROUPED: FieldDef = FieldDef {
-        export: "Always Grouped",
-        canonical: "Always_Grouped",
-        aliases: &["AlwaysGrouped", "Always_Show_in_Group"],
+    /// Maps to `subsumes_members` on group — group appears in credits and subsumes its members.
+    pub const SUBSUMES_MEMBERS: FieldDef = FieldDef {
+        export: "Subsumes Members",
+        canonical: "Subsumes_Members",
+        aliases: &[
+            "SubsumesMembers",
+            "Always_Shown",
+            "AlwaysShown",
+            "Group_Shown",
+        ],
     };
 
-    /// Maps to `subsumes_members` on group - group subsumes its members.
-    pub const ALWAYS_SHOWN: FieldDef = FieldDef {
-        export: "Always Shown",
-        canonical: "Always_Shown",
-        aliases: &["AlwaysShown", "Group_Shown"],
+    /// Maps to `show_individually` on member — member appears individually, not subsumed by group.
+    pub const SHOW_INDIVIDUALLY: FieldDef = FieldDef {
+        export: "Show Individually",
+        canonical: "Show_Individually",
+        aliases: &[
+            "ShowIndividually",
+            "Always_Grouped",
+            "AlwaysGrouped",
+            "Always_Show_in_Group",
+        ],
     };
 
     /// All primary column definitions in export order.
-    pub const ALL: &[FieldDef] = &[NAME, CLASSIFICATION, IS_GROUP, ALWAYS_GROUPED, ALWAYS_SHOWN];
+    pub const ALL: &[FieldDef] = &[
+        NAME,
+        CLASSIFICATION,
+        IS_GROUP,
+        SUBSUMES_MEMBERS,
+        SHOW_INDIVIDUALLY,
+    ];
 }
 
 #[cfg(test)]
