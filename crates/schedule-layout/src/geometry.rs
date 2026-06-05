@@ -55,6 +55,22 @@ pub const FOOTER_RULE_PT: f64 = 0.5;
 /// Vertical spacing below the footer rule (points).
 pub const FOOTER_RULE_GAP_PT: f64 = 2.0;
 
+// --- Panel list (guest postcard) layout ---
+/// Width of the panel-list color accent bar / its column (points).
+pub const PL_ACCENT_COL_PT: f64 = 3.0;
+/// Column gutter inside the panel-list time/name grid (points).
+pub const PL_COL_GUTTER_PT: f64 = 2.0;
+/// Vertical gutter between panel-list rows (ems).
+pub const PL_ROW_GUTTER_EM: f64 = 0.8;
+/// Space above a panel-list day-separator heading (ems).
+pub const PL_HEADING_ABOVE_EM: f64 = 0.8;
+/// Space below a panel-list day-separator heading (ems).
+pub const PL_HEADING_BELOW_EM: f64 = 0.3;
+
+/// Horizontal shift past which a description panel is treated as having moved to
+/// a new column (points), triggering a repeated "(continued)" heading.
+pub const COLBREAK_THRESHOLD_PT: f64 = 50.0;
+
 /// Emit the `#let` geometry block for the document preamble.
 ///
 /// Defines all dimensional variables the generators reference. `#let` bindings
@@ -76,7 +92,13 @@ pub(crate) fn typst_lets() -> String {
          #let _logo-height = {logo}in\n\
          #let _banner-inset = (x: {inset_x}pt, y: {inset_y}pt)\n\
          #let _footer-rule = {footer_rule}pt\n\
-         #let _footer-rule-gap = {footer_gap}pt\n",
+         #let _footer-rule-gap = {footer_gap}pt\n\
+         #let _pl-accent-col = {pl_accent}pt\n\
+         #let _pl-col-gutter = {pl_col_gutter}pt\n\
+         #let _pl-row-gutter = {pl_row}em\n\
+         #let _pl-heading-above = {pl_h_above}em\n\
+         #let _pl-heading-below = {pl_h_below}em\n\
+         #let _colbreak-threshold = {colbreak}\n",
         page_edge = PAGE_EDGE_IN,
         banner_h = BANNER_HEIGHT_IN,
         banner_gap = BANNER_GAP_IN,
@@ -89,6 +111,12 @@ pub(crate) fn typst_lets() -> String {
         inset_y = BANNER_INSET_Y_PT,
         footer_rule = FOOTER_RULE_PT,
         footer_gap = FOOTER_RULE_GAP_PT,
+        pl_accent = PL_ACCENT_COL_PT,
+        pl_col_gutter = PL_COL_GUTTER_PT,
+        pl_row = PL_ROW_GUTTER_EM,
+        pl_h_above = PL_HEADING_ABOVE_EM,
+        pl_h_below = PL_HEADING_BELOW_EM,
+        colbreak = COLBREAK_THRESHOLD_PT,
     )
 }
 

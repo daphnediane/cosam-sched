@@ -46,6 +46,11 @@ pub const BANNER_TEXT_SIZE_PT: f64 = 28.0;
 /// Footer text size (points).
 pub const FOOTER_TEXT_SIZE_PT: f64 = 8.0;
 
+/// Name of the preamble `#let` holding the description/secondary text size
+/// (credits, the panel-list time/room text, "(continued)" tags). Emitted by
+/// [`typst_lets`] when panel text is drawn; generators reference it by name.
+pub const DESC_SECONDARY_SIZE_VAR: &str = "_desc-secondary-size";
+
 /// Build a Typst `font:` argument fragment with optional style and weight.
 ///
 /// Typst's `weight` parameter accepts either an integer (100–900) or a named

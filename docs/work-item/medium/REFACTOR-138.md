@@ -43,12 +43,13 @@ Make the split dimensions explicit and fail loudly on bad input.
   catch-all `_ =>` arms that map unknown strings to a default. Return a
   `Result`/collected error (or at minimum a `warn!`) listing the offending key
   and the valid values, instead of silently degrading.
-- **Geometry constants.** Move the panel-list layout string constants from
-  `crates/schedule-layout/src/blocks/panels.rs`
-  (`ACCENT_COL_WIDTH`, `TIME_HOUR_COL`, `TIME_SUFFIX_COL`,
-  `PANEL_LIST_HEADING_ABOVE`, `PANEL_LIST_HEADING_BELOW`,
-  `PANEL_LIST_ROW_BELOW`) into `crates/schedule-layout/src/geometry.rs`
-  alongside the other dimensional constants, and reference them from there.
+- **Geometry constants.** *(Done in the parent commit.)* The panel-list layout
+  dimensions moved from `crates/schedule-layout/src/blocks/panels.rs` into
+  `crates/schedule-layout/src/geometry.rs` (`PL_ACCENT_COL_PT`,
+  `PL_COL_GUTTER_PT`, `PL_HOUR_COL_EM`, `PL_ROW_GUTTER_EM`,
+  `PL_HEADING_ABOVE_EM`, `PL_HEADING_BELOW_EM`, `COLBREAK_THRESHOLD_PT`),
+  emitted as preamble `#let`s; the secondary-size var name moved to
+  `fonts.rs::DESC_SECONDARY_SIZE_VAR`.
 - Update `config/layout-default.toml` and `config/layout.toml` to the new keys.
 - Update the `cosam-layout` CLI (`apps/cosam-layout/src/cli.rs`,
   `apps/cosam-layout/src/main.rs`) if it exposes the combined split.
@@ -59,7 +60,7 @@ Make the split dimensions explicit and fail loudly on bad input.
 - [ ] Time split defaults to none; grid modes error when no time split is given
 - [ ] Unknown split/content/paper/footer keywords produce a warning or error,
       not a silent default
-- [ ] Panel-list geometry constants live in `geometry.rs`
+- [x] Panel-list geometry constants live in `geometry.rs` (done in parent commit)
 - [ ] Sample/default config files updated; `cargo test` green
 
 ## Notes

@@ -156,6 +156,8 @@ The former hard-coded formats are now these recipes (see
     per-page running headers resolved from `<section>` metadata markers via
     `context` + `query` (read-only, so layout converges). The `_split` variant
     fills both sides — entity (left) / day (right) for 2-D splits.
+    `page_header_running` auto-shrinks its label (via `layout` + `measure`) so a
+    long running value (e.g. a guest name on a postcard) stays on one line.
   - `page_footer(timestamps, site)` — timestamps, centered `Page N of M`, site;
     `page_footer_timestamps_only` for `FooterMode::TimestampOnly`.
   - `footer_timestamps(modified, generated)` — formats the modified/generated
@@ -167,7 +169,9 @@ The former hard-coded formats are now these recipes (see
   time-slot headings, the per-panel left accent bar or bordered card (`PanelStyle`),
   room/time/cost, credits, workshop notices, prerequisites, part/rerun
   cross-references; sticky headings and label-`query`-based "(continued)" headers
-  across breaks) and `render_panel_list` (the compact `PanelList` flow).
+  across breaks) and `render_panel_list` (the compact `PanelList` flow — one
+  shared grid of `time range | accent bar | name | room`, with day headings as
+  full-width spanning rows so every name aligns).
 
 ### Grid + column mixing (`place` + `colbreak`)
 

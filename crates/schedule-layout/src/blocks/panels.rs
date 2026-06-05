@@ -140,13 +140,12 @@ pub(crate) fn render_time_grouped_panels<'a>(
                            if _hits.len() > 0 {{\n    \
                              let _hp = _hits.last().location().position()\n    \
                              let _p = here().position()\n    \
-                             if _p.page != _hp.page or calc.abs((_p.x - _hp.x).pt()) > {threshold} [\n      \
+                             if _p.page != _hp.page or calc.abs((_p.x - _hp.x).pt()) > _colbreak-threshold [\n      \
                                == {lbl} {cont}\n    \
                              ]\n  \
                            }}\n\
                          }}\n\n",
                         prev_tag = prev_tag,
-                        threshold = COLBREAK_THRESHOLD_PT,
                         lbl = escape_typst(&full_slot_label),
                         cont = cont_label,
                     ));
@@ -168,61 +167,34 @@ pub(crate) fn render_time_grouped_panels<'a>(
     out
 }
 
-// ---------------------------------------------------------------------------
-// panel-list layout constants
-// ---------------------------------------------------------------------------
-
-/// Vertical space *above* a panel-list day heading (em units).
-/// Emitted as a Typst literal — not a bare number — so changes here
-/// propagate to the generated source without scattering magic strings.
-const PANEL_LIST_HEADING_ABOVE: &str = "0.8em";
-
-/// Vertical space *below* a panel-list day heading (em units).
-const PANEL_LIST_HEADING_BELOW: &str = "0.3em";
-
-/// Width of the accent bar column. The cell is filled with the panel color, so
-/// the column width *is* the bar width; the grid's `column-gutter` supplies the
-/// breathing room to the time column.
-const ACCENT_COL_WIDTH: &str = "3pt";
-
-/// Vertical gap between consecutive panel-list rows.
-const PANEL_LIST_ROW_BELOW: &str = "0.4em";
-
-/// Width of the right-aligned hour column in the time sub-grid.
-/// Large enough for two digits ("10") in the secondary font.
-const TIME_HOUR_COL: &str = "1.4em";
-
-/// Width of the left-aligned suffix column in the time sub-grid.
-/// Large enough for ":30 PM" (the widest suffix) on a single line.
-const TIME_SUFFIX_COL: &str = "3.4em";
+// Panel-list layout dimensions live in [`crate::geometry`] and are emitted as
+// the preamble `#let`s referenced below (`_pl-accent-col`, `_pl-hour-col`,
+// `_pl-col-gutter`, `_pl-row-gutter`, `_pl-heading-above`, `_pl-heading-below`).
 
 // ---------------------------------------------------------------------------
 // render_panel_list
 // ---------------------------------------------------------------------------
 
-/// Render a compact panel list (name + stacked time range + room) for a
+/// Render a compact panel list (name + single-line time range + room) for a
 /// section, inserting a small day heading whenever the date changes.
 ///
 /// Used by the `PanelList` content mode (guest-postcard layout).
 ///
-/// ## Grid layout (5 columns, up to 3 rows per panel)
+/// ## Grid layout (one shared grid: 4 columns, one row per panel)
 ///
 /// ```text
-/// col 0: accent bar (ACCENT_COL_WIDTH, filled rect or empty)
-/// col 1: hour       (TIME_HOUR_COL,    right-aligned)
-/// col 2: suffix     (TIME_SUFFIX_COL,  left-aligned)
-/// col 3: name       (1fr,              left + top, rowspan 1–3)
-/// col 4: room       (auto,             right + top, rowspan 1–3)
+/// col 0: time range  (auto,           left + top: "start – end")
+/// col 1: accent bar  (_pl-accent-col, filled cell or empty)
+/// col 2: name        (1fr,            left + top)
+/// col 3: room        (auto,           right + top)
 /// ```
 ///
-/// Rows per panel:
-/// - row 1: accent (rowspan) | start-hour | start-suffix | name (rowspan) | room (rowspan)
-/// - row 2: (accent cont.)  | separator spanning cols 1–2 (center)
-/// - row 3: (accent cont.)  | end-hour   | end-suffix
-///
-/// All cell contents are plain Typst values in code context — no `[…]`
-/// wrapper is placed around the whole grid, so there is no markup/code
-/// context confusion and no need for `#` prefixes inside cell bodies.
+/// The whole list is one grid (day separators are `colspan: 4` heading rows),
+/// so all columns are shared tracks and every panel name aligns regardless of
+/// time width. The time range is a single left-aligned `format_time` string
+/// (so noon/midnight keep their labels). Cells are plain Typst values in code
+/// context — no `[…]` wraps the whole grid, so there is no markup/code context
+/// confusion in the cell args.
 ///
 /// ## Day headings
 ///
@@ -253,14 +225,17 @@ pub(crate) fn render_panel_list<'a>(
 
     // Day headings: breakable: false keeps them attached to the next row
     // without ever forcing a column/page break (unlike `sticky: true`).
-    out.push_str(&format!(
+    out.push_str(
         "#show heading.where(level: 2): it => \
-         block(breakable: false, above: {above}, below: {below})[#it.body]\n\n",
-        above = PANEL_LIST_HEADING_ABOVE,
-        below = PANEL_LIST_HEADING_BELOW,
-    ));
+         block(breakable: false, above: _pl-heading-above, below: _pl-heading-below)[#it.body]\n\n",
+    );
 
+    // A single grid for the whole list. Day separators are full-width spanning
+    // rows; each panel is one row. Sharing one grid means the `auto` time column
+    // is a single track, so every panel name aligns no matter how wide its time
+    // range is. (Per-panel grids each sized their own column and misaligned.)
     let mut current_day = "";
+    let mut rows = String::new();
     for panel in &ordered {
         let day_str = panel
             .start_time
@@ -270,7 +245,11 @@ pub(crate) fn render_panel_list<'a>(
         if day_str != current_day {
             current_day = day_str;
             let label = crate::typst_gen::make_day_label(day_str, &all_days);
-            out.push_str(&format!("== {}\n\n", escape_typst(&label)));
+            // Day separator: a heading spanning all four columns.
+            rows.push_str(&format!(
+                "  grid.cell(colspan: 4, align: left)[#heading(level: 2)[{}]],\n",
+                escape_typst(&label),
+            ));
         }
 
         let room = panel
@@ -294,151 +273,72 @@ pub(crate) fn render_panel_list<'a>(
             .map(|c| c.hex)
             .unwrap_or_default();
 
-        // Split start and end times into (hour, suffix) for digit alignment.
-        let (start_hour, start_suffix) = panel
+        // Plain time strings ("2 PM", "1:30 PM", "Noon"), joined into a single
+        // "2 PM – 3 PM" range in one left-aligned cell.
+        let start = panel
             .start_time
             .as_deref()
-            .map(time_fmt::format_time_split)
+            .map(time_fmt::format_time)
             .unwrap_or_default();
-        let (end_hour, end_suffix) = panel
+        let end = panel
             .end_time
             .as_deref()
-            .map(time_fmt::format_time_split)
+            .map(time_fmt::format_time)
             .unwrap_or_default();
-        let has_end = !end_hour.is_empty();
-        let row_count = if has_end { 3 } else { 1 };
 
         let sz = SECONDARY_SIZE;
         let name_esc = escape_typst(&panel.name);
 
-        // ── Build cell fragments ──────────────────────────────────────────
-        //
-        // Typst bracket-parser rules governing all choices below:
-        //   • `#block(…)[body]`    → `[body]` is MARKUP context.
-        //   • `#grid(…)` in markup → the `(…)` args are CODE context.
-        //   • `grid.cell(…)[body]` → `[body]` is MARKUP context.
-        //   • In markup `[body]`, a bare `[` opens a NEW content block, so
-        //     `text(size:sz)[val]` always breaks — the inner `]` closes the
-        //     cell before the outer one can. This is true even when `val`
-        //     has no brackets, because the `[` after `text(…)` is the issue.
-        //   • `#text(size:sz)[val]` WITH the `#` prefix works: `#` switches
-        //     to code mode for that call, so `[val]` is its content arg, and
-        //     the parser correctly matches the brackets as a pair.
-        //   • Direct grid args (`text(sz)[val]` NOT inside a cell `[body]`)
-        //     are in code context — always fine.
-        //
-        // Rule: inside any `grid.cell(…)[BODY]`, use `#text(…)[val]`.
-        //       As a direct grid arg (code context), use `text(…)[val]`.
+        // Time-range column: "<start> – <end>", or just the start when there is
+        // no end. The en-dash is literal markup; the times are escaped.
+        let range = if end.is_empty() {
+            escape_typst(&start)
+        } else {
+            format!("{} – {}", escape_typst(&start), escape_typst(&end))
+        };
 
-        // col 0 – accent bar (rowspan). A filled `grid.cell` paints the panel
-        // color across the cell's full height (all spanned rows + their inner
-        // gutters), which is what we want. A `#rect(height: 100%)` would resolve
-        // its height against the page/column, not the row, and stretch to the
-        // page bottom — the same bug the description accent bars once had.
+        // Typst bracket-parser rules: direct grid args are CODE context, so
+        // `text(size: sz)[val]` is valid; inside a `grid.cell(...)[body]` the
+        // body is MARKUP and a styled value needs the `#text(...)` form.
+
+        // Accent bar: a filled cell paints the panel color across the row's full
+        // height. A `#rect(height: 100%)` would resolve against the page, not
+        // the row, and stretch to the page bottom — the description accent bug.
         let accent_cell = if color_str.is_empty() {
-            format!("grid.cell(rowspan: {row_count})[],")
+            "grid.cell[],".to_string()
         } else {
-            format!(
-                "grid.cell(rowspan: {row_count}, fill: rgb(\"{color}\"))[],",
-                color = color_str,
-            )
+            format!("grid.cell(fill: rgb(\"{color}\"))[],", color = color_str)
         };
 
-        // row 1 – start time.
-        // Normal: direct code-context grid args — `text(sz)[val]` is fine.
-        // Noon/Midnight: inside a cell body → must use `#text(sz)[val]`.
-        let start_cells = if start_suffix.is_empty() {
-            format!(
-                "grid.cell(colspan: 2, align: center)[#text(size: {sz})[{hour}]],",
-                sz = sz,
-                hour = escape_typst(&start_hour),
-            )
-        } else {
-            format!(
-                "text(size: {sz})[{hour}], text(size: {sz})[{suffix}],",
-                sz = sz,
-                hour = escape_typst(&start_hour),
-                suffix = escape_typst(&start_suffix),
-            )
-        };
-
-        // col 3 – panel name (rowspan): plain markup text — no function call
-        // with `[…]` content, so no bracket nesting issue.
-        let name_cell = format!(
-            "grid.cell(rowspan: {row_count}, align: left + top)[{name}],",
-            name = name_esc,
-        );
-
-        // col 4 – room (rowspan): inside cell body → `#text(sz)[val]`.
-        let room_cell = format!(
-            "grid.cell(rowspan: {row_count}, align: right + top)[#text(size: {sz})[{room}]],",
+        // One row per panel: time range | accent | name (1fr) | room.
+        rows.push_str(&format!(
+            "  text(size: {sz})[{range}], {accent_cell} \
+             grid.cell(align: left + top)[{name}], \
+             grid.cell(align: right + top)[#text(size: {sz})[{room}]],\n",
             sz = sz,
-            room = escape_typst(room),
-        );
-
-        // rows 2+3 – separator and end time (only when end time is present).
-        let extra_rows = if has_end {
-            // Separator: inside cell body → `#text`.
-            let sep = format!(
-                "grid.cell(colspan: 2, align: center)[#text(size: {sz})[|]],",
-                sz = sz,
-            );
-            // End time: same rules as start time.
-            let end_cells = if end_suffix.is_empty() {
-                format!(
-                    "grid.cell(colspan: 2, align: center)[#text(size: {sz})[{hour}]],",
-                    sz = sz,
-                    hour = escape_typst(&end_hour),
-                )
-            } else {
-                format!(
-                    "text(size: {sz})[{hour}], text(size: {sz})[{suffix}],",
-                    sz = sz,
-                    hour = escape_typst(&end_hour),
-                    suffix = escape_typst(&end_suffix),
-                )
-            };
-            format!("\n  {sep}\n  {end_cells}")
-        } else {
-            String::new()
-        };
-
-        // ── emit: #block(breakable: false, below: …)[#grid(…)] ──────────
-        // `#block` keeps all rows of this panel together and provides the
-        // correct inter-panel gap inside `#columns`. `#grid` sits inside
-        // the block's markup `[body]` so it needs the `#` prefix.
-        out.push_str(&format!(
-            "#block(breakable: false, below: {row_below})[#grid(\
-             columns: ({acol}, {hcol}, {scol}, 1fr, auto), \
-             align: (left, right, left, left + top, right + top), \
-             column-gutter: 2pt, row-gutter: 1pt, \
-             {accent_cell}\n  \
-             {start_cells}\n  \
-             {name_cell}\n  \
-             {room_cell}\
-             {extra_rows})]\n",
-            row_below = PANEL_LIST_ROW_BELOW,
-            acol = ACCENT_COL_WIDTH,
-            hcol = TIME_HOUR_COL,
-            scol = TIME_SUFFIX_COL,
+            range = range,
             accent_cell = accent_cell,
-            start_cells = start_cells,
-            name_cell = name_cell,
-            room_cell = room_cell,
-            extra_rows = extra_rows,
+            name = name_esc,
+            room = escape_typst(room),
+        ));
+    }
+
+    if !rows.is_empty() {
+        out.push_str(&format!(
+            "#grid(columns: (auto, _pl-accent-col, 1fr, auto), \
+             align: (left + top, left, left + top, right + top), \
+             column-gutter: _pl-col-gutter, row-gutter: _pl-row-gutter,\n{rows})\n",
+            rows = rows,
         ));
     }
 
     out
 }
 
-/// Horizontal shift (points) past which a panel is considered to have moved to a
-/// new column, triggering a repeated "(continued)" slot heading.
-const COLBREAK_THRESHOLD_PT: u32 = 50;
-
-/// Font-size `#let` (from the preamble's `fonts::typst_lets`) used for secondary
-/// text — credits, the right-hand room/time/cost stack, and "(continued)" tags.
-const SECONDARY_SIZE: &str = "_desc-secondary-size";
+/// Font-size `#let` (from [`crate::fonts`]) used for secondary text — credits,
+/// the right-hand room/time/cost stack, the panel-list time/room, and
+/// "(continued)" tags.
+const SECONDARY_SIZE: &str = crate::fonts::DESC_SECONDARY_SIZE_VAR;
 
 // ---------------------------------------------------------------------------
 // Internal helpers

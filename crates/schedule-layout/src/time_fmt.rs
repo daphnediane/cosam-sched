@@ -51,54 +51,6 @@ pub fn format_time(datetime_str: &str) -> String {
     }
 }
 
-/// Split a time into `(hour_part, suffix_part)` for widget-style aligned display.
-///
-/// Mirrors `formatTimeSplit` in `cosam-calendar.js`:
-/// - The **hour part** is right-aligned (just the digit(s), e.g. `"2"` or `"10"`).
-/// - The **suffix part** is left-aligned (` AM` / ` PM` for on-the-hour, or
-///   `:MM AM`/`:MM PM` for minute-precision times).
-/// - Special cases `Noon` and `Midnight` return `("Noon"/"Midnight", "")` so the
-///   caller can span both columns and center the label.
-///
-/// Returns `("", "")` if the input cannot be parsed.
-pub fn format_time_split(datetime_str: &str) -> (String, String) {
-    let time_part = datetime_str.get(11..).unwrap_or(datetime_str);
-    let parts: Vec<&str> = time_part.splitn(2, ':').collect();
-    if parts.len() < 2 {
-        return (String::new(), String::new());
-    }
-    let hour: u32 = parts[0].parse().unwrap_or(0);
-    let min: u32 = parts[1].get(..2).unwrap_or("0").parse().unwrap_or(0);
-
-    // Special whole-hour cases
-    if hour == 0 && min == 0 {
-        return ("Midnight".to_string(), String::new());
-    }
-    if hour == 12 && min == 0 {
-        return ("Noon".to_string(), String::new());
-    }
-
-    let (h12, ampm) = if hour == 0 {
-        (12u32, "AM")
-    } else if hour < 12 {
-        (hour, "AM")
-    } else if hour == 12 {
-        (12u32, "PM")
-    } else {
-        (hour - 12, "PM")
-    };
-
-    let hour_str = h12.to_string();
-    let suffix = if min == 0 {
-        format!("\u{00A0}{ampm}") // non-breaking space before AM/PM, matching widget
-    } else {
-        // Non-breaking space here too so ":30 PM" never wraps to two lines in a
-        // narrow column (e.g. the panel-list time grid).
-        format!(":{:02}\u{00A0}{ampm}", min)
-    };
-    (hour_str, suffix)
-}
-
 /// Format start–end as `"5 PM – 6 PM"` or `"5:30 PM – 7 PM"`.
 ///
 /// Returns only the start time if end is `None`, or empty if both are `None`.
@@ -151,41 +103,6 @@ pub fn format_slot_heading(day_label: &str, time_key: &str) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
-
-    #[test]
-    fn test_format_time_split_on_hour() {
-        let (h, s) = format_time_split("2026-06-26T14:00:00");
-        assert_eq!(h, "2");
-        assert_eq!(s, "\u{00A0}PM");
-    }
-
-    #[test]
-    fn test_format_time_split_with_minutes() {
-        let (h, s) = format_time_split("2026-06-26T14:30:00");
-        assert_eq!(h, "2");
-        assert_eq!(s, ":30\u{00A0}PM");
-    }
-
-    #[test]
-    fn test_format_time_split_double_digit_hour() {
-        let (h, s) = format_time_split("2026-06-26T22:00:00");
-        assert_eq!(h, "10");
-        assert_eq!(s, "\u{00A0}PM");
-    }
-
-    #[test]
-    fn test_format_time_split_noon() {
-        let (h, s) = format_time_split("2026-06-26T12:00:00");
-        assert_eq!(h, "Noon");
-        assert_eq!(s, "");
-    }
-
-    #[test]
-    fn test_format_time_split_midnight() {
-        let (h, s) = format_time_split("2026-06-26T00:00:00");
-        assert_eq!(h, "Midnight");
-        assert_eq!(s, "");
-    }
 
     #[test]
     fn test_format_time_noon() {

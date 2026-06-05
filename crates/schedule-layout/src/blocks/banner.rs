@@ -63,9 +63,12 @@ pub(crate) fn page_header_running(
     right_content: &str,
 ) -> String {
     let _ = brand;
-    let label = format!(
-        "#text(fill: white, size: _banner-text-size, .._banner-font)[#upper[{right_content}]]"
-    );
+    // Auto-fit: measure the upper-cased label at the nominal banner size and, if
+    // it is wider than the space the layout gives it (the 1fr cell beside the
+    // logo, or the full bar when centered), shrink the font just enough to keep
+    // it on one line. `right_content` resolves the running per-page label, so the
+    // sizing happens per page inside the `layout`/`measure` context.
+    let label = fit_banner_label(right_content);
 
     let inner = match logo_path {
         Some(p) => format!(
@@ -221,6 +224,27 @@ fn banner_text(escaped: &str) -> String {
 /// Banner label wrapped in a grid-cell content block.
 fn banner_cell(raw: &str) -> String {
     format!("[{}]", banner_text(&escape_typst(raw)))
+}
+
+/// Build an auto-shrinking banner label from raw Typst content.
+///
+/// `content` is inserted verbatim (a literal string or a `#context` expression
+/// that resolves a running per-page label). The returned Typst measures the
+/// upper-cased label at `_banner-text-size` and, if it is wider than the width
+/// the surrounding layout offers, scales the font down by exactly the overflow
+/// ratio so the label stays on a single line. Labels that already fit keep the
+/// nominal size.
+fn fit_banner_label(content: &str) -> String {
+    format!(
+        "#layout(_sz => {{\n    \
+           let _b = upper[#text(.._banner-font)[{content}]]\n    \
+           let _m = measure(text(size: _banner-text-size)[#_b])\n    \
+           let _s = if _m.width > _sz.width and _m.width > 0pt {{ \
+             _banner-text-size * (_sz.width / _m.width) \
+           }} else {{ _banner-text-size }}\n    \
+           text(fill: white, size: _s)[#_b]\n  \
+         }})",
+    )
 }
 
 fn build_inner(left: Option<&str>, right: Option<&str>, logo_path: Option<&str>) -> String {
