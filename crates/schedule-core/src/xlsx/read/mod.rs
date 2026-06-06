@@ -189,9 +189,6 @@ impl<'a> ImportContext<'a> {
     /// import but not tracked in the seen_* sets. Note that the schedule may be
     /// in a partially modified state when this error occurs.
     pub(super) fn finalize(&mut self) -> Result<()> {
-        // Assign monotonically increasing sort indices to presenters.
-        normalize_presenter_sort_indices(self.schedule);
-
         // Flush presenter cache: write canonical names and explicit ranks.
         // Sort by UUID for deterministic write order (ensures idempotent imports).
         let mut cache_entries: Vec<_> = self.presenter_cache.entries.drain().collect();
@@ -609,74 +606,6 @@ pub fn import_xlsx(path: &Path, options: &XlsxImportOptions) -> Result<Schedule>
     let mut schedule = Schedule::new();
     update_schedule_from_xlsx(&mut schedule, path, options)?;
     Ok(schedule)
-}
-
-// ── Presenter sort normalization ──────────────────────────────────────────────
-
-/// After all sheets are imported, assign monotonically increasing `sort_index`
-/// values (multiples of 100) to each presenter based on their sidecar
-/// `xlsx_sort_key` (column, row, sub_col).
-///
-/// Sort order:
-/// 1. People-sheet entries (col=0) first, ordered by (row, sub_col).
-///    sub_col=0 is the primary People-sheet entry; sub_col≥1 are members/groups
-///    derived from `Members`/`Groups` cells on that row.
-/// 2. Schedule-sheet entries next, ordered by (col, row, sub_col).
-///    sub_col=0 is the named presenter; sub_col=1 is the group in the same header.
-/// 3. Presenters with no sidecar key appended last.
-///
-/// Gaps of 100 allow future manual insertions.
-pub(crate) fn normalize_presenter_sort_indices(schedule: &mut Schedule) {
-    // Collect (uuid, sort_key) for all presenters.
-    let mut keyed: Vec<(uuid::NonNilUuid, Option<crate::sidecar::XlsxSortKey>)> = schedule
-        .iter_entities::<PresenterEntityType>()
-        .map(|(id, _)| {
-            let uuid = id.entity_uuid();
-            let key = schedule.sidecar().get(uuid).and_then(|e| e.xlsx_sort_key);
-            (uuid, key)
-        })
-        .collect();
-
-    // Sort: known keys first (People col=0 before schedule cols), None last.
-    // Use caseless name as secondary key for deterministic, user-friendly ordering.
-    let name_cmp = |uuid_a: &NonNilUuid, uuid_b: &NonNilUuid| {
-        // SAFETY: uuids came from iter_entities, so they are valid PresenterIds.
-        let id_a =
-            unsafe { crate::entity::EntityId::<PresenterEntityType>::new_unchecked(*uuid_a) };
-        let id_b =
-            unsafe { crate::entity::EntityId::<PresenterEntityType>::new_unchecked(*uuid_b) };
-        let name_a = schedule
-            .get_internal::<PresenterEntityType>(id_a)
-            .map(|d| d.data.name.to_lowercase())
-            .unwrap_or_default();
-        let name_b = schedule
-            .get_internal::<PresenterEntityType>(id_b)
-            .map(|d| d.data.name.to_lowercase())
-            .unwrap_or_default();
-        name_a.cmp(&name_b)
-    };
-    keyed.sort_by(|(uuid_a, a), (uuid_b, b)| match (a, b) {
-        (Some(ka), Some(kb)) => ka.cmp(kb).then_with(|| name_cmp(uuid_a, uuid_b)),
-        (Some(_), None) => std::cmp::Ordering::Less,
-        (None, Some(_)) => std::cmp::Ordering::Greater,
-        (None, None) => name_cmp(uuid_a, uuid_b),
-    });
-
-    // Assign sort_index = (rank + 1) * 100.
-    // Collect (uuid, idx) pairs first, then apply in a separate pass to avoid
-    // borrowing `schedule` while iterating over it.
-    let assignments: Vec<(uuid::NonNilUuid, i64)> = keyed
-        .iter()
-        .enumerate()
-        .map(|(rank, (uuid, _))| (*uuid, (rank as i64 + 1) * 100))
-        .collect();
-
-    for (uuid, idx) in assignments {
-        // SAFETY: uuid came from iter_entities, so the entity exists.
-        let id = unsafe { crate::entity::EntityId::<PresenterEntityType>::new_unchecked(uuid) };
-        let update = FieldUpdate::set(&presenter::FIELD_SORT_INDEX, idx);
-        let _ = PresenterEntityType::field_set().write_multiple(id, schedule, &[update]);
-    }
 }
 
 // ── Modified-time resolution ──────────────────────────────────────────────────

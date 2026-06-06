@@ -562,7 +562,7 @@ fn export_presenters(
         .collect();
 
     // Canonical presenter display order: rank tier (Guest first, FanPanelist
-    // last), then import position, then name.
+    // last), then alphabetically by name.
     presenters_with_data.sort_by(|(_, a), (_, b)| a.data.cmp_for_display(&b.data));
 
     let mut widget_presenters = Vec::new();

@@ -74,20 +74,6 @@ pub struct SidecarFormulaField {
 
 // ── EntitySidecar ─────────────────────────────────────────────────────────────
 
-/// Original XLSX position of a presenter, `(column_index, row_index,
-/// sub_column_index)`, recorded at import time and used to normalize
-/// `sort_index` after all presenters are imported.
-///
-/// - `column_index`: 0 for People-sheet entries (always sorted first); 1-based
-///   XLSX column number for schedule-sheet presenter columns.
-/// - `row_index`: 1-based row on the People sheet (0 for implied presenters
-///   first seen on the schedule sheet).
-/// - `sub_column_index`: 0 for the primary presenter or group in a row/column;
-///   1+ for members or groups listed inside a `Members`/`Groups` cell, ordered
-///   left-to-right within the cell; 1 for a group named in a schedule panel
-///   header (`Name=Group`).
-pub type XlsxSortKey = (u32, u32, u32);
-
 /// All ephemeral sidecar data associated with one entity UUID.
 #[derive(Debug, Clone, Default)]
 pub struct EntitySidecar {
@@ -95,9 +81,6 @@ pub struct EntitySidecar {
     pub origin: Option<EntityOrigin>,
     /// Preserved formula-column cells keyed by column name.
     pub formula_extras: HashMap<String, SidecarFormulaField>,
-    /// Original XLSX position used to normalize `sort_index` after import
-    /// (see [`XlsxSortKey`]).
-    pub xlsx_sort_key: Option<XlsxSortKey>,
 }
 
 // ── ScheduleSidecar ───────────────────────────────────────────────────────────

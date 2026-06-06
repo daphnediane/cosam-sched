@@ -348,12 +348,6 @@ pub struct PresenterCommonData {
     /// People sheet column: `Subsumes Members`).
     #[serde(default)]
     pub subsumes_members: bool,
-
-    /// Import ordering key assigned after XLSX import (multiples of 100, gaps
-    /// allow future insertions). Persisted to CRDT so sort order survives
-    /// save/load.  `None` means the presenter was created without a sort position.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub sort_index: Option<i64>,
 }
 
 impl PresenterCommonData {
@@ -366,8 +360,7 @@ impl PresenterCommonData {
     }
 
     /// Canonical display ordering for presenters: by effective rank priority
-    /// (guests first, fan panelists last), then by import position
-    /// (`sort_index`, `None` last), then by name for stability.
+    /// (guests first, fan panelists last), then alphabetically by name.
     ///
     /// Shared by the widget JSON export and the XLSX People-sheet export so both
     /// list presenters in the same order.
@@ -377,12 +370,6 @@ impl PresenterCommonData {
             .effective()
             .priority()
             .cmp(&other.rank.effective().priority())
-            .then_with(|| match (self.sort_index, other.sort_index) {
-                (Some(a), Some(b)) => a.cmp(&b),
-                (Some(_), None) => std::cmp::Ordering::Less,
-                (None, Some(_)) => std::cmp::Ordering::Greater,
-                (None, None) => std::cmp::Ordering::Equal,
-            })
             .then_with(|| self.name.cmp(&other.name))
     }
 }
@@ -1101,28 +1088,6 @@ pub static FIELD_SUBSUMES_MEMBERS: FieldDescriptor<PresenterEntityType> = {
 };
 inventory::submit! { CollectedField(&FIELD_SUBSUMES_MEMBERS) }
 
-pub static FIELD_SORT_INDEX: FieldDescriptor<PresenterEntityType> = {
-    let (data, crdt_type, cb) = accessor_field_properties! {
-        PresenterEntityType,
-        sort_index,
-        name: "sort_index",
-        display: "Sort Index",
-        description: "Import ordering key (multiples of 100; gaps allow future insertions).",
-        aliases: &[],
-        cardinality: Optional,
-        item: Integer,
-        example: "100",
-        order: 600,
-    };
-    FieldDescriptor {
-        data,
-        crdt_type,
-        required: false,
-        cb,
-    }
-};
-inventory::submit! { CollectedField(&FIELD_SORT_INDEX) }
-
 // ── Computed / edge-backed fields ─────────────────────────────────────────────
 
 /// `is_group` — `true` if `is_explicit_group` is set OR this presenter has
@@ -1705,7 +1670,6 @@ mod tests {
                 is_explicit_group: false,
                 show_individually: false,
                 subsumes_members: false,
-                sort_index: Some(300),
             },
             id: make_id(),
         }
@@ -1828,29 +1792,27 @@ mod tests {
     }
 
     #[test]
-    fn test_cmp_for_display_rank_then_sort_index_then_name() {
-        let mk = |name: &str, rank: RankSource, sort: Option<i64>| PresenterCommonData {
+    fn test_cmp_for_display_rank_then_name_alphabetical() {
+        let mk = |name: &str, rank: RankSource| PresenterCommonData {
             name: name.into(),
             rank,
-            sort_index: sort,
             ..Default::default()
         };
-        let guest_a = mk("Zoe", RankSource::Declared(PresenterRank::Guest), Some(200));
-        let guest_b = mk("Amy", RankSource::Declared(PresenterRank::Guest), Some(100));
-        let fan = mk("Aaron", RankSource::Declared(PresenterRank::FanPanelist), Some(1));
-        let no_idx = mk("Bea", RankSource::Declared(PresenterRank::Guest), None);
+        let guest_a = mk("Zoe", RankSource::Declared(PresenterRank::Guest));
+        let guest_b = mk("Amy", RankSource::Declared(PresenterRank::Guest));
+        let fan = mk("Aaron", RankSource::Declared(PresenterRank::FanPanelist));
 
-        // Rank dominates: a guest sorts before a fan panelist regardless of index.
+        // Rank dominates: a guest sorts before a fan panelist regardless of name.
         assert!(fan.cmp_for_display(&guest_a) == std::cmp::Ordering::Greater);
-        // Within a rank, lower sort_index wins even when names sort the other way.
+        // Within a rank, ordering is alphabetical by name.
         assert!(guest_b.cmp_for_display(&guest_a) == std::cmp::Ordering::Less);
-        // None sort_index sorts after any present index within the same rank.
-        assert!(no_idx.cmp_for_display(&guest_a) == std::cmp::Ordering::Greater);
+        assert_eq!(guest_a.cmp_for_display(&guest_a), std::cmp::Ordering::Equal);
 
-        let mut v = [&fan, &no_idx, &guest_a, &guest_b];
+        let mut v = [&fan, &guest_a, &guest_b];
         v.sort_by(|a, b| a.cmp_for_display(b));
         let order: Vec<&str> = v.iter().map(|d| d.name.as_str()).collect();
-        assert_eq!(order, vec!["Amy", "Zoe", "Bea", "Aaron"]);
+        // Amy and Zoe (guests, alphabetical) before Aaron (fan panelist).
+        assert_eq!(order, vec!["Amy", "Zoe", "Aaron"]);
     }
 
     #[test]
@@ -1882,7 +1844,7 @@ mod tests {
     #[test]
     fn test_field_set_count_and_required() {
         let fs = PresenterEntityType::field_set();
-        assert_eq!(fs.fields().count(), 13);
+        assert_eq!(fs.fields().count(), 12);
         assert_eq!(fs.half_edges().count(), 3);
         let required: Vec<_> = fs.required_fields().map(|d| d.name()).collect();
         assert_eq!(required, vec!["name"]);
@@ -2035,7 +1997,6 @@ mod tests {
             is_explicit_group: true,
             show_individually: false,
             subsumes_members: true,
-            sort_index: Some(500),
         };
         let json = serde_json::to_string(&original).unwrap();
         let back: PresenterCommonData = serde_json::from_str(&json).unwrap();
@@ -2048,29 +2009,6 @@ mod tests {
         let errors = data.validate();
         assert_eq!(errors.len(), 1);
         assert!(matches!(errors[0], ValidationError::Required { field } if field == "name"));
-    }
-
-    #[test]
-    fn test_sort_index_serde_roundtrip() {
-        let data = PresenterCommonData {
-            name: "Alice".into(),
-            sort_index: Some(300),
-            ..PresenterCommonData::default()
-        };
-        let json = serde_json::to_string(&data).unwrap();
-        assert!(json.contains("sortIndex"));
-        let back: PresenterCommonData = serde_json::from_str(&json).unwrap();
-        assert_eq!(back.sort_index, Some(300));
-    }
-
-    #[test]
-    fn test_sort_index_absent_when_none() {
-        let data = PresenterCommonData {
-            name: "Bob".into(),
-            ..PresenterCommonData::default()
-        };
-        let json = serde_json::to_string(&data).unwrap();
-        assert!(!json.contains("sortIndex"));
     }
 
     #[test]

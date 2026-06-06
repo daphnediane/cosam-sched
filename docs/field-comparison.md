@@ -85,7 +85,7 @@ the fields that main tracks.
 | Always Grouped  | ✓      | ✓        | ✓                            | ✓                               |                                                                           |
 | Always Shown    | ✓      | ✓        | ✓ `always_shown_in_group`    | ✓ `subsumes_members`            |                                                                           |
 | Bio             | —      | —        | —                            | ✓                               | **New in main** — not in any XLSX column                                  |
-| Sort rank/index | struct | struct   | `sort_rank` (col/row/member) | ✓ `sort_index` (u32 normalized) | v9/v10-try1: struct never populated from XLSX; main: assigned post-import |
+| Sort rank/index | struct | struct   | `sort_rank` (col/row/member) | —                               | Removed in main; presenters order by rank then name (REFACTOR-141)        |
 | Members         | col    | col      | edge                         | edge `members`                  | In XLSX as column; in main as CRDT edge list                              |
 | Groups          | col    | col      | edge                         | edge `groups`                   |                                                                           |
 
@@ -383,8 +383,8 @@ become important enough, adding a `FieldDescriptor` for them (and removing the
 ## Key Gaps: Fields in main Not Carried Forward from Older Branches
 
 - **`bio`** (Presenter) — not an XLSX column in any year; editor-only field in main.
-- **`sort_index`** (Presenter) — replaces the multi-field `PresenterSortRank` struct
-  that existed in v10-try3. In v9/v10-try1 the sort rank fields were populated on the
-  data struct but never serialized or round-tripped through XLSX.
+- **Presenter ordering** — older branches carried a `PresenterSortRank` /
+  `sort_index` field to preserve spreadsheet position; main has no stored sort
+  field. Presenters order deterministically by rank then name (REFACTOR-141).
 - **Transitive edge fields** (`inclusive_groups`, `inclusive_members`, `hotel_rooms`
   on Panel) — computed in main via the transitive edge cache; not modeled elsewhere.

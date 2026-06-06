@@ -615,33 +615,6 @@ fn collect_presenters(
                 cache.record(gid, &group_name, group_source);
             }
 
-            // Record the presenter's first schedule-sheet position as the sort key
-            // if the People sheet didn't already set one.
-            let uuid = id.entity_uuid();
-            if schedule
-                .sidecar()
-                .get(uuid)
-                .and_then(|e| e.xlsx_sort_key)
-                .is_none()
-            {
-                // sub_col=0: this is the primary presenter for this column.
-                schedule.sidecar_mut().get_or_insert(uuid).xlsx_sort_key = Some((pc.col, row, 0));
-            }
-            // Set sort key for associated group if not already set.
-            // sub_col=1: the group is secondary to the named member in this column.
-            if let Some(gid) = matched.group_id() {
-                let guuid = gid.entity_uuid();
-                if schedule
-                    .sidecar()
-                    .get(guuid)
-                    .and_then(|e| e.xlsx_sort_key)
-                    .is_none()
-                {
-                    schedule.sidecar_mut().get_or_insert(guuid).xlsx_sort_key =
-                        Some((pc.col, row, 1));
-                }
-            }
-
             if force_uncredited {
                 if !uncredited.contains(&id) {
                     uncredited.push(id);

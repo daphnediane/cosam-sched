@@ -98,8 +98,8 @@ traversal required.
 | ----------------------------------------------------------------------------- | ------------- |
 | `name`                                                                        | `Scalar`      |
 | `bio`                                                                         | `Text`        |
-| `rank`, `sort_index`                                                          | `Scalar`      |
-| `is_explicit_group`, `show_individually`, `subsumes_members`                   | `Scalar`      |
+| `rank`                                                                        | `Scalar`      |
+| `is_explicit_group`, `show_individually`, `subsumes_members`                  | `Scalar`      |
 | `members` (CRDT owner, target = `FIELD_GROUPS`)                               | `Derived`     |
 | `groups` (non-owner lookup side)                                              | `Derived`     |
 | `panels` (derived union of credited/uncredited panels, non-owner lookup side) | `Derived`     |
@@ -353,7 +353,6 @@ pub struct ScheduleSidecar {
 pub struct EntitySidecar {
     pub origin: Option<EntityOrigin>,
     pub formula_extras: HashMap<String, SidecarFormulaField>,
-    pub xlsx_sort_key: Option<(u32, u32)>,
 }
 ```
 
@@ -361,7 +360,6 @@ pub struct EntitySidecar {
 | ---------------- | ------------------------------------------------------------------------------------- |
 | `origin`         | Where the entity came from: `Xlsx { file_path, sheet, row, time }` or `Editor { at }` |
 | `formula_extras` | Formula-cell columns from import (formula string + display value)                     |
-| `xlsx_sort_key`  | Original sheet position `(col, row)` used to assign `sort_index`                      |
 
 `ScheduleSidecar` is cleared on `load_from_file` and on `load`. It is NOT cleared on
 `save_to_file` — the sidecar must survive an in-session save to support the same-session

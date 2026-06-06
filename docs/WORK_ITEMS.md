@@ -1,6 +1,6 @@
 # Cosplay America Schedule - Work Item
 
-Updated on: Fri Jun  5 21:07:45 2026
+Updated on: Fri Jun  5 22:04:54 2026
 
 ## Completed
 
@@ -171,6 +171,9 @@ and a separate `for_kids: bool` flag, making invalid cost states unrepresentable
 * [REFACTOR-140] Introduce a `RankSource` tier model for presenter rank, route all presenter
 creation through the single tagged API with deterministic v5 UUIDs, and clean up
 `presenter.rs` visibility and People-sheet membership helpers.
+* [REFACTOR-141] Remove the presenter `sort_index` field and the XLSX `xlsx_sort_key` sidecar
+infrastructure that fed it, so presenters order deterministically by rank then
+name with nothing carried over from spreadsheet column/row position.
 * [UI-085] Audit and update the calendar widget to handle the format differences between
 the v9 JSON output and the format produced by `cosam-convert` (CLI-030).
 * [UI-087] The Event Type filter shows all non-hidden panel types even when none of that
@@ -860,6 +863,7 @@ Make the split dimensions explicit and fail loudly on bad input.
 [REFACTOR-125]: work-item/medium/REFACTOR-125.md
 [REFACTOR-138]: work-item/medium/REFACTOR-138.md
 [REFACTOR-140]: work-item/done/REFACTOR-140.md
+[REFACTOR-141]: work-item/done/REFACTOR-141.md
 [UI-085]: work-item/done/UI-085.md
 [UI-087]: work-item/done/UI-087.md
 [UI-088]: work-item/done/UI-088.md

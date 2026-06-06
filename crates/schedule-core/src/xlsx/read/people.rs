@@ -131,7 +131,7 @@ impl super::ImportContext<'_> {
                 ],
             );
 
-            self.record_presenter(id, &name, row_source, (0, row, 0));
+            self.record_presenter(id, &name, row_source);
 
             // Set origin + route extra columns the first time this presenter is
             // seen from its own People row (members listed elsewhere get no
@@ -170,15 +170,15 @@ impl super::ImportContext<'_> {
 
             // Members column: each listed entry is a member of this (group) row.
             if let Some(members) = members {
-                for (sub, entry) in split_names_for_membership(members).into_iter().enumerate() {
-                    self.import_member(&entry, id, classification.as_ref(), (0, row, sub as u32 + 1));
+                for entry in split_names_for_membership(members) {
+                    self.import_member(&entry, id, classification.as_ref());
                 }
             }
 
             // Groups column: each listed entry is a group this row belongs to.
             if let Some(groups) = groups {
-                for (sub, entry) in split_names_for_membership(groups).into_iter().enumerate() {
-                    self.import_group(id, &entry, classification.as_ref(), (0, row, sub as u32 + 1));
+                for entry in split_names_for_membership(groups) {
+                    self.import_group(id, &entry, classification.as_ref());
                 }
             }
         }
@@ -187,35 +187,16 @@ impl super::ImportContext<'_> {
     }
 
     /// Record a presenter encounter for the import: cache its rank claim and
-    /// canonical name, mark it seen, and note its XLSX sort key.  The lowest
-    /// `(column, row, sub_column)` key wins, so a primary entry (`sub_column = 0`)
-    /// beats any secondary appearance of the same presenter.
-    fn record_presenter(
-        &mut self,
-        id: PresenterId,
-        name: &str,
-        source: RankSource,
-        key: (u32, u32, u32),
-    ) {
+    /// canonical name, and mark it seen.
+    fn record_presenter(&mut self, id: PresenterId, name: &str, source: RankSource) {
         self.presenter_cache.record(id, name, source);
-        let uuid = id.entity_uuid();
-        self.seen_presenters.insert(uuid);
-        let sidecar = self.schedule.sidecar_mut().get_or_insert(uuid);
-        if sidecar.xlsx_sort_key.is_none_or(|cur| key < cur) {
-            sidecar.xlsx_sort_key = Some(key);
-        }
+        self.seen_presenters.insert(id.entity_uuid());
     }
 
     /// Resolve (creating if needed) a `Members`-cell `entry` and link it as a
     /// member of `group_id`.  `inherited` supplies the implied rank when the
     /// entry carries no tag prefix of its own.
-    fn import_member(
-        &mut self,
-        entry: &str,
-        group_id: PresenterId,
-        inherited: Option<&PresenterRank>,
-        key: (u32, u32, u32),
-    ) {
+    fn import_member(&mut self, entry: &str, group_id: PresenterId, inherited: Option<&PresenterRank>) {
         let member_id = match find_or_create_tagged_presenter(self.schedule, entry) {
             Ok(m) => m.as_presenter(),
             Err(e) => {
@@ -224,7 +205,7 @@ impl super::ImportContext<'_> {
             }
         };
         let name = self.presenter_name(member_id, entry);
-        self.record_presenter(member_id, &name, entry_rank_source(entry, inherited), key);
+        self.record_presenter(member_id, &name, entry_rank_source(entry, inherited));
         self.link_member_to_group(member_id, group_id);
     }
 
@@ -232,13 +213,7 @@ impl super::ImportContext<'_> {
     /// `member_id` belongs to.  A leading `==` marks the group as subsuming its
     /// members.  `inherited` supplies the implied rank when the entry carries no
     /// tag prefix of its own.
-    fn import_group(
-        &mut self,
-        member_id: PresenterId,
-        entry: &str,
-        inherited: Option<&PresenterRank>,
-        key: (u32, u32, u32),
-    ) {
+    fn import_group(&mut self, member_id: PresenterId, entry: &str, inherited: Option<&PresenterRank>) {
         let (clean, subsumes) = split_subsumes(entry);
         let group_id = match find_or_create_tagged_presenter(self.schedule, clean) {
             Ok(g) => g.as_presenter(),
@@ -256,7 +231,7 @@ impl super::ImportContext<'_> {
         let _ = PresenterEntityType::field_set().write_multiple(group_id, self.schedule, &flags);
 
         let name = self.presenter_name(group_id, clean);
-        self.record_presenter(group_id, &name, entry_rank_source(clean, inherited), key);
+        self.record_presenter(group_id, &name, entry_rank_source(clean, inherited));
         self.link_member_to_group(member_id, group_id);
     }
 

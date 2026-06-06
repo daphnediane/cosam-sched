@@ -375,14 +375,14 @@ included in entity snapshots. This correctly excludes:
 
 Five function pointers on `RegisteredEntityType` support dynamic dispatch:
 
-| Field            | Purpose                                                            |
-| ---------------- | ------------------------------------------------------------------ |
-| `read_field_fn`  | Read a single field by name (used by convenience constructors)     |
-| `write_field_fn` | Write a single field by name (apply path)                          |
-| `build_fn`       | Build entity from `(name, value)` pairs                            |
-| `snapshot_fn`    | Snapshot all read+write fields before removal                      |
-| `remove_fn`      | Remove entity and clear its edges                                  |
-| `rehydrate_fn`   | Rebuild entity from CRDT document (load path)                      |
+| Field            | Purpose                                                        |
+| ---------------- | -------------------------------------------------------------- |
+| `read_field_fn`  | Read a single field by name (used by convenience constructors) |
+| `write_field_fn` | Write a single field by name (apply path)                      |
+| `build_fn`       | Build entity from `(name, value)` pairs                        |
+| `snapshot_fn`    | Snapshot all read+write fields before removal                  |
+| `remove_fn`      | Remove entity and clear its edges                              |
+| `rehydrate_fn`   | Rebuild entity from CRDT document (load path)                  |
 
 ### `UndoEntry`
 
@@ -448,10 +448,10 @@ The system separates per-entity metadata into three storage tiers:
 
 | Tier                        | Module             | Persisted? | Shared? | Examples                                             |
 | --------------------------- | ------------------ | ---------- | ------- | ---------------------------------------------------- |
-| `FieldDescriptor` field     | `tables/`          | ✓ CRDT     | ✓       | `av_notes`, `simpletix_link`, `sort_index`           |
+| `FieldDescriptor` field     | `tables/`          | ✓ CRDT     | ✓       | `av_notes`, `simpletix_link`, `rank`                 |
 | `ExtraFieldDescriptor` data | `extra_field/`     | ✓ CRDT     | ✓       | Declared-but-lightweight columns routed to `__extra` |
 | Unknown data extra          | CRDT `__extra` map | ✓ CRDT     | ✓       | Any unrecognized plain-value XLSX column             |
-| `ScheduleSidecar`           | `sidecar/`         | ✗          | ✗       | SourceInfo, formula-cell strings, xlsx_sort_key      |
+| `ScheduleSidecar`           | `sidecar/`         | ✗          | ✗       | SourceInfo, formula-cell strings                     |
 
 ### ScheduleSidecar
 
@@ -460,7 +460,6 @@ CRDT document. It is keyed by `NonNilUuid` and holds:
 
 - **`origin: Option<EntityOrigin>`** — where an entity came from: `Xlsx { file_path, sheet_name, row_index, import_time }` or `Editor { at }`.
 - **`formula_extras: HashMap<String, SidecarFormulaField>`** — formula-cell columns captured at import time (formula string + evaluated display value). Used by `update_xlsx` to write back formulas.
-- **`xlsx_sort_key: Option<(u32, u32)>`** — the entity's `(col, row)` position in the source XLSX, used during import to assign a normalized `sort_index`.
 
 The sidecar is cleared on `load_from_file` / `load` but is NOT cleared on `save_to_file`.
 This allows the same-session `import → edit → save → update_xlsx` workflow without

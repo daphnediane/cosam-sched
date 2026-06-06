@@ -385,10 +385,6 @@ fn import_presenters(
             &crate::tables::presenter::FIELD_RANK,
             wp.rank.as_str(),
         ));
-        updates.push(FieldUpdate::set(
-            &crate::tables::presenter::FIELD_SORT_INDEX,
-            wp.sort_key as i64,
-        ));
 
         let p_id: PresenterId = build_entity(schedule, uuid_pref, updates).map_err(|e| {
             WidgetJsonError::EntityAccess(format!("Failed to create presenter {}: {}", wp.name, e))
