@@ -46,7 +46,9 @@ Add `schedule-layout/src/idml_gen.rs` module with:
 
 Add to `LayoutFormat` enum: `Idml`
 Add to `formats/` subdirectory: `idml.rs` submodule
-Add CLI option to cosam-layout: `--format idml`
+Expose via `cosam-convert` layout config (e.g. a `format = "idml"` job key,
+selectable on the command line as `--layout.format=idml`); `cosam-layout` was
+removed in CLI-139
 
 ### IDML Structure
 
@@ -78,7 +80,8 @@ IDML requires understanding of:
 - Generated IDML can be opened in Adobe InDesign without errors
 - Basic schedule layout (panels, rooms, times) renders correctly
 - Feature flag allows building without IDML dependencies
-- CLI option `--format idml` produces .idml file
+- `cosam-convert` layout option `format = "idml"` (`--layout.format=idml`)
+  produces a .idml file
 
 ## Notes
 

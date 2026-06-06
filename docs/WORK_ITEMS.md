@@ -1,6 +1,6 @@
 # Cosplay America Schedule - Work Item
 
-Updated on: Fri Jun  5 22:04:54 2026
+Updated on: Sat Jun  6 08:36:43 2026
 
 ## Completed
 
@@ -206,9 +206,9 @@ pattern where each job spec points to a specific output file or directory.
 * **Medium Priority**
   * [CLI-100] Add a `--interactive` flag to `cosam-modify` that opens a read-eval-print loop for
 entering commands one at a time.
-  * [FEATURE-113] Replace the `std::process::Command::new("typst")` subprocess calls in
-`schedule-layout` and `cosam-convert` with in-process compilation using the
-`typst` Rust crate, eliminating the external `typst-cli` dependency.
+  * [FEATURE-113] Replace the `std::process::Command::new("typst")` subprocess call in
+`cosam-convert` with in-process compilation using the `typst` Rust crate,
+eliminating the external `typst-cli` dependency.
   * [FEATURE-119] ([META-117]) Allow attendees to star/bookmark panels and view a personal schedule, mirroring
 the JS widget's named-schedule feature.
   * [FEATURE-126] Add update-mode (upsert + soft-delete) semantics to widget JSON import,
@@ -360,14 +360,15 @@ target without duplication.
 
 **Priority:** Medium
 
-**Summary:** Replace the `std::process::Command::new("typst")` subprocess calls in
-`schedule-layout` and `cosam-convert` with in-process compilation using the
-`typst` Rust crate, eliminating the external `typst-cli` dependency.
+**Summary:** Replace the `std::process::Command::new("typst")` subprocess call in
+`cosam-convert` with in-process compilation using the `typst` Rust crate,
+eliminating the external `typst-cli` dependency.
 
-**Description:** Both `apps/cosam-convert/src/main.rs` (`run_layout_export`) and
-`apps/cosam-layout/src/main.rs` (`compile_typst`) currently shell out to the
-`typst compile` CLI binary to produce PDFs. This requires `typst-cli` to be
+**Description:** `apps/cosam-convert/src/main.rs` (`run_layout_export`) currently shells out to
+the `typst compile` CLI binary to produce PDFs. This requires `typst-cli` to be
 installed separately and on `PATH`, which is inconvenient and fragile.
+(`cosam-layout` was removed in CLI-139; layout rendering now lives entirely in
+`cosam-convert`.)
 
 The `typst` Rust crate provides a `compile()` API that can do this in-process,
 but it requires implementing the `World` trait (file I/O, font loading, date,

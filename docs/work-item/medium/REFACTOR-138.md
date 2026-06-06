@@ -51,8 +51,9 @@ Make the split dimensions explicit and fail loudly on bad input.
   emitted as preamble `#let`s; the secondary-size var name moved to
   `fonts.rs::DESC_SECONDARY_SIZE_VAR`.
 - Update `config/layout-default.toml` and `config/layout.toml` to the new keys.
-- Update the `cosam-layout` CLI (`apps/cosam-layout/src/cli.rs`,
-  `apps/cosam-layout/src/main.rs`) if it exposes the combined split.
+- Update the `cosam-convert` `--layout.<key>=<value>` flags and their
+  `parse_*` helpers in `apps/cosam-convert/src/main.rs` to expose the two new
+  keys instead of the combined `split` (`cosam-layout` was removed in CLI-139).
 
 ## Acceptance Criteria
 

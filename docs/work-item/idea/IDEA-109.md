@@ -40,6 +40,6 @@ contrast requirements against white/dark-grey brand backgrounds).
 
 ### When to act
 
-When implementing full `cosam-layout` PDF output or when adding
+When implementing full `cosam-convert` layout PDF output or when adding
 accessibility-verified palette enforcement to `schedule-layout`. Not needed for
 the current Typst codegen work.

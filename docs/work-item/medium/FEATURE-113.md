@@ -2,9 +2,9 @@
 
 ## Summary
 
-Replace the `std::process::Command::new("typst")` subprocess calls in
-`schedule-layout` and `cosam-convert` with in-process compilation using the
-`typst` Rust crate, eliminating the external `typst-cli` dependency.
+Replace the `std::process::Command::new("typst")` subprocess call in
+`cosam-convert` with in-process compilation using the `typst` Rust crate,
+eliminating the external `typst-cli` dependency.
 
 ## Status
 
@@ -16,10 +16,11 @@ Medium
 
 ## Description
 
-Both `apps/cosam-convert/src/main.rs` (`run_layout_export`) and
-`apps/cosam-layout/src/main.rs` (`compile_typst`) currently shell out to the
-`typst compile` CLI binary to produce PDFs. This requires `typst-cli` to be
+`apps/cosam-convert/src/main.rs` (`run_layout_export`) currently shells out to
+the `typst compile` CLI binary to produce PDFs. This requires `typst-cli` to be
 installed separately and on `PATH`, which is inconvenient and fragile.
+(`cosam-layout` was removed in CLI-139; layout rendering now lives entirely in
+`cosam-convert`.)
 
 The `typst` Rust crate provides a `compile()` API that can do this in-process,
 but it requires implementing the `World` trait (file I/O, font loading, date,
@@ -38,16 +39,16 @@ implementation.
   - `font()` — use `typst-kit` font searcher seeded with `brand.fonts.font_dir`
   - `today()` — return current UTC date
   - `library()` / `book()` — delegate to `typst-library` defaults
-- Replace the `Command::new("typst")` block in both binaries with a call to the
-  new in-process function; keep subprocess as fallback when feature is disabled
+- Replace the `Command::new("typst")` block in `cosam-convert` with a call to
+  the new in-process function; keep subprocess as fallback when feature is
+  disabled
 - Enable the `compile` feature by default in `schedule-layout/Cargo.toml`
 - Note: `typst-kit` version must match the `typst` version in use (0.13.x)
 
 ## Acceptance Criteria
 
 - `cargo build -p schedule-layout --features compile` succeeds
-- `cosam-layout --input schedule.json --format schedule --paper tabloid` produces
-  a PDF without `typst-cli` installed
 - `cosam-convert --export-layout <dir>` produces PDFs without `typst-cli`
+  installed
 - `cargo build -p schedule-layout` (no `compile` feature) still compiles cleanly
   and falls back to the subprocess path
