@@ -33,7 +33,7 @@ use crate::tables::event_room::{EventRoomEntityType, EventRoomId};
 use crate::tables::hotel_room::{HotelRoomEntityType, HotelRoomId};
 use crate::tables::panel::PanelEntityType;
 use crate::tables::panel_type::{PanelTypeEntityType, PanelTypeId};
-use crate::tables::presenter::{self, PresenterEntityType, PresenterId, PresenterRank};
+use crate::tables::presenter::{self, PresenterEntityType, PresenterId, RankSource};
 use crate::tables::timeline::TimelineEntityType;
 use crate::xlsx::columns::{FieldDef, FormulaColumnDef};
 
@@ -196,16 +196,28 @@ impl<'a> ImportContext<'a> {
         // Sort by UUID for deterministic write order (ensures idempotent imports).
         let mut cache_entries: Vec<_> = self.presenter_cache.entries.drain().collect();
         cache_entries.sort_by_key(|(a, _)| *a);
-        for (uuid, (rank, canonical_name)) in cache_entries {
+        for (uuid, (claim, canonical_name)) in cache_entries {
             // SAFETY: uuid was obtained from a live PresenterId during this pass.
             let id = unsafe { PresenterId::new_unchecked(uuid) };
-            let mut updates = vec![FieldUpdate::set(
-                &presenter::FIELD_NAME,
-                canonical_name.as_str(),
-            )];
-            if let Some(r) = rank {
-                updates.push(FieldUpdate::set(&presenter::FIELD_RANK, r.as_str()));
-            }
+
+            // Reconcile the pass's accumulated claim with the stored rank.  A
+            // `Declared` claim from the file is authoritative (it may lower a
+            // previously stored rank); `Implied`/`None` claims promote but never
+            // lower a stored declaration.
+            let stored = self
+                .schedule
+                .get_internal::<PresenterEntityType>(id)
+                .map(|d| d.data.rank.clone())
+                .unwrap_or_default();
+            let resolved = match claim {
+                RankSource::Declared(_) => claim,
+                other => stored.resolve(other),
+            };
+
+            let updates = vec![
+                FieldUpdate::set(&presenter::FIELD_NAME, canonical_name.as_str()),
+                FieldUpdate::set(&presenter::FIELD_RANK, resolved.as_field_str().as_str()),
+            ];
             let _ = PresenterEntityType::field_set().write_multiple(id, self.schedule, &updates);
         }
 
@@ -445,29 +457,25 @@ fn import_csv_to_sheet(book: &mut Spreadsheet, csv_path: &Path, sheet_name: &str
 /// Rank and name are **not** written inline; call [`PresenterImportCache::flush`]
 /// after all sheets are processed to apply them in the same cycle as soft-delete.
 ///
-/// **Explicit vs implicit rank:**
-/// Only ranks that are unambiguously declared in the xlsx are recorded:
-/// - Named presenter columns ("G: Alice") → the column rank is explicit.
-/// - People sheet rows with a Classification value → the classification is explicit.
-/// - `Other` column cells with a tag prefix ("G:Alice") → the tag rank is explicit.
+/// **Rank tiers ([`RankSource`]):**
+/// Each encounter contributes a [`RankSource`] claim describing both the rank
+/// and the authority behind it:
+/// - Named presenter columns and People-sheet `Classification` values are
+///   [`RankSource::Declared`].
+/// - `Other` cells / membership entries with a tag prefix are `Declared`;
+///   without one they are [`RankSource::Implied`] (inherited rank) or
+///   [`RankSource::None`] (no rank information).
 ///
-/// `Other` column cells with *no* tag prefix ("Alice") and People rows with *no*
-/// Classification are considered implicit (rank = `None`).  An implicit encounter
-/// records the presenter in the cache (guaranteeing name correction at flush) but
-/// does not set or change the rank, so a subsequent explicit encounter in the same
-/// pass can still set any rank, including one that is lower in the hierarchy than
-/// the default `Panelist`.
-///
-/// **Downgrade semantics:**
-/// On first *explicit* encounter per pass the rank is set fresh (not upgrade-only),
-/// allowing rank downgrades relative to a previous import.  Subsequent explicit
-/// encounters within the same pass use upgrade-only logic (highest rank across all
-/// explicit appearances wins).  Only presenters present in the new file are
-/// affected; absent presenters keep their stored data.
+/// Within a pass, claims accumulate via [`RankSource::resolve`] (higher tier
+/// wins; equal tier promotes to the higher rank).  At flush the accumulated
+/// claim is reconciled with the stored value: a `Declared` claim from the file
+/// is authoritative and may lower a previously stored rank, while `Implied` /
+/// `None` claims promote but never lower a stored declaration.  Only presenters
+/// present in the new file are affected; absent presenters keep their data.
 #[derive(Default)]
 pub struct PresenterImportCache {
-    /// Maps presenter UUID → (best explicit rank this pass or None, canonical name).
-    entries: HashMap<uuid::NonNilUuid, (Option<PresenterRank>, String)>,
+    /// Maps presenter UUID → (accumulated rank claim this pass, canonical name).
+    entries: HashMap<uuid::NonNilUuid, (RankSource, String)>,
 }
 
 impl PresenterImportCache {
@@ -479,29 +487,20 @@ impl PresenterImportCache {
 
     /// Record a presenter encounter for this import pass.
     ///
-    /// `rank` is `Some` only when the xlsx carries an unambiguous rank for this
-    /// specific presenter (Named column, explicit tag prefix, or People sheet
-    /// Classification).  Pass `None` for implicit encounters (untagged `Other`
-    /// cell, or People row with no Classification).
-    ///
-    /// - **First encounter** – creates the cache entry.  `rank` is stored as-is,
-    ///   starting fresh (enabling rank downgrades vs previous imports).
-    /// - **Subsequent encounters** – canonical name is preserved; rank is upgraded
-    ///   only when `rank` is `Some` and has higher priority than the current value.
-    pub fn record(&mut self, id: PresenterId, name: &str, rank: Option<&PresenterRank>) {
+    /// `source` is the rank claim for this encounter (see [`RankSource`]); pass
+    /// [`RankSource::None`] for an encounter that carries no rank information but
+    /// should still guarantee name correction at flush.  The canonical name from
+    /// the first encounter is preserved; the rank claim accumulates across
+    /// encounters via [`RankSource::resolve`].
+    pub fn record(&mut self, id: PresenterId, name: &str, source: RankSource) {
         let uuid = id.entity_uuid();
-        if let Some((existing_rank, _)) = self.entries.get_mut(&uuid) {
-            if let Some(new_rank) = rank {
-                match existing_rank {
-                    None => *existing_rank = Some(new_rank.clone()),
-                    Some(old) if new_rank.priority() < old.priority() => {
-                        *existing_rank = Some(new_rank.clone());
-                    }
-                    _ => {}
-                }
+        match self.entries.get_mut(&uuid) {
+            Some((claim, _)) => {
+                *claim = std::mem::take(claim).resolve(source);
             }
-        } else {
-            self.entries.insert(uuid, (rank.cloned(), name.to_string()));
+            None => {
+                self.entries.insert(uuid, (source, name.to_string()));
+            }
         }
     }
 }
@@ -616,14 +615,20 @@ pub fn import_xlsx(path: &Path, options: &XlsxImportOptions) -> Result<Schedule>
 
 /// After all sheets are imported, assign monotonically increasing `sort_index`
 /// values (multiples of 100) to each presenter based on their sidecar
-/// `xlsx_sort_key` (column, row).
+/// `xlsx_sort_key` (column, row, sub_col).
 ///
-/// Sort order: People-sheet entries (col=0) first in row order, then
-/// schedule-sheet entries by (col, row). Presenters with no sidecar key are
-/// appended last. Gaps of 100 allow future manual insertions.
+/// Sort order:
+/// 1. People-sheet entries (col=0) first, ordered by (row, sub_col).
+///    sub_col=0 is the primary People-sheet entry; sub_col≥1 are members/groups
+///    derived from `Members`/`Groups` cells on that row.
+/// 2. Schedule-sheet entries next, ordered by (col, row, sub_col).
+///    sub_col=0 is the named presenter; sub_col=1 is the group in the same header.
+/// 3. Presenters with no sidecar key appended last.
+///
+/// Gaps of 100 allow future manual insertions.
 pub(crate) fn normalize_presenter_sort_indices(schedule: &mut Schedule) {
     // Collect (uuid, sort_key) for all presenters.
-    let mut keyed: Vec<(uuid::NonNilUuid, Option<(u32, u32)>)> = schedule
+    let mut keyed: Vec<(uuid::NonNilUuid, Option<crate::sidecar::XlsxSortKey>)> = schedule
         .iter_entities::<PresenterEntityType>()
         .map(|(id, _)| {
             let uuid = id.entity_uuid();

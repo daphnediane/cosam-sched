@@ -21,7 +21,7 @@ use crate::tables::event_room::EventRoomId;
 use crate::tables::panel::{self, PanelEntityType, PanelId};
 use crate::tables::panel_type::PanelTypeId;
 use crate::tables::presenter::{
-    find_or_create_tagged_presenter, PresenterEntityType, PresenterId, PresenterRank,
+    find_or_create_tagged_presenter, PresenterEntityType, PresenterId, PresenterRank, RankSource,
 };
 use crate::tables::timeline::{self, TimelineEntityType, TimelineId};
 use crate::value::time::{parse_datetime, parse_duration};
@@ -583,40 +583,36 @@ fn collect_presenters(
 
             let id = matched.as_presenter();
 
-            // Apply the column's rank (upgrade only, never downgrade).
-            if let Some(d) = schedule.get_internal_mut::<PresenterEntityType>(id) {
-                if pc.rank.priority() < d.data.rank.priority() {
-                    d.data.rank = pc.rank.clone();
+            // Build the rank claim for this encounter.  A Named column declares
+            // its header rank; an `Other` cell declares a rank only when the cell
+            // value carries a tag prefix ("G:Alice"), otherwise it makes no claim.
+            // The column rank applies to the named presenter; a group named via a
+            // `=Group` suffix only inherits it (Implied).  The cache reconciles
+            // these claims with the stored rank at flush — see PresenterImportCache.
+            let member_source = match &pc.header {
+                PresenterHeader::Named(_) => RankSource::Declared(pc.rank.clone()),
+                PresenterHeader::Other => {
+                    tag_rank_prefix(lookup).map_or(RankSource::None, RankSource::Declared)
                 }
-            }
-
-            // Record this encounter in the import cache.  The cache tracks the
-            // best explicit rank seen for each presenter this pass and the
-            // canonical name (People-sheet name wins if recorded there first).
-            //
-            // Named columns always carry an explicit rank (the column header).
-            // Other columns only carry an explicit rank when the cell value has
-            // a tag prefix (e.g. "G:Alice"); an untagged "Alice" is implicit
-            // and records None so a later explicit encounter can set any rank.
-            let other_tag_rank = (pc.header == PresenterHeader::Other)
-                .then(|| tag_rank_prefix(lookup))
-                .flatten();
-            let explicit_rank: Option<&PresenterRank> = match &pc.header {
-                PresenterHeader::Named(_) => Some(&pc.rank),
-                PresenterHeader::Other => other_tag_rank.as_ref(),
             };
+            let group_source = member_source
+                .rank()
+                .map_or(RankSource::None, |r| RankSource::Implied(r.clone()));
+
+            // The cache also pins the canonical name (People-sheet name wins if
+            // recorded there first).
             let presenter_name = schedule
                 .get_internal::<PresenterEntityType>(id)
                 .map(|d| d.data.name.clone())
                 .unwrap_or_else(|| lookup.to_string());
-            cache.record(id, &presenter_name, explicit_rank);
+            cache.record(id, &presenter_name, member_source);
             // Also record the group so it participates in cache flush.
             if let Some(gid) = matched.group_id() {
                 let group_name = schedule
                     .get_internal::<PresenterEntityType>(gid)
                     .map(|d| d.data.name.clone())
                     .unwrap_or_default();
-                cache.record(gid, &group_name, explicit_rank);
+                cache.record(gid, &group_name, group_source);
             }
 
             // Record the presenter's first schedule-sheet position as the sort key
@@ -628,7 +624,22 @@ fn collect_presenters(
                 .and_then(|e| e.xlsx_sort_key)
                 .is_none()
             {
-                schedule.sidecar_mut().get_or_insert(uuid).xlsx_sort_key = Some((pc.col, row));
+                // sub_col=0: this is the primary presenter for this column.
+                schedule.sidecar_mut().get_or_insert(uuid).xlsx_sort_key = Some((pc.col, row, 0));
+            }
+            // Set sort key for associated group if not already set.
+            // sub_col=1: the group is secondary to the named member in this column.
+            if let Some(gid) = matched.group_id() {
+                let guuid = gid.entity_uuid();
+                if schedule
+                    .sidecar()
+                    .get(guuid)
+                    .and_then(|e| e.xlsx_sort_key)
+                    .is_none()
+                {
+                    schedule.sidecar_mut().get_or_insert(guuid).xlsx_sort_key =
+                        Some((pc.col, row, 1));
+                }
             }
 
             if force_uncredited {

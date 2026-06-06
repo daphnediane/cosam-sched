@@ -561,21 +561,9 @@ fn export_presenters(
         })
         .collect();
 
-    // Sort by rank tier (Guest first, FanPanelist last), then sort_index
-    // within the tier (None last), then by name for stability.
-    presenters_with_data.sort_by(|(_, a), (_, b)| {
-        a.data
-            .rank
-            .priority()
-            .cmp(&b.data.rank.priority())
-            .then_with(|| match (a.data.sort_index, b.data.sort_index) {
-                (Some(ia), Some(ib)) => ia.cmp(&ib),
-                (Some(_), None) => std::cmp::Ordering::Less,
-                (None, Some(_)) => std::cmp::Ordering::Greater,
-                (None, None) => std::cmp::Ordering::Equal,
-            })
-            .then_with(|| a.data.name.cmp(&b.data.name))
-    });
+    // Canonical presenter display order: rank tier (Guest first, FanPanelist
+    // last), then import position, then name.
+    presenters_with_data.sort_by(|(_, a), (_, b)| a.data.cmp_for_display(&b.data));
 
     let mut widget_presenters = Vec::new();
 
@@ -620,7 +608,7 @@ fn export_presenters(
 
         widget_presenters.push(WidgetPresenter {
             name: p_data.data.name.clone(),
-            rank: p_data.data.rank.as_str().to_string(),
+            rank: p_data.data.rank.effective().as_str().to_string(),
             sort_key: sort_key as i32,
             is_group,
             members,

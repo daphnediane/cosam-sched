@@ -312,19 +312,18 @@ presenter columns are processed.
 | Is Group          |           | Non-blank if this row represents a group entity rather than an individual presenter.                                                                     |
 | Subsumes Members  |           | Non-blank if this group should appear in credits and subsume its members (equivalent to `==Group` tag on Schedule presenter columns).                    |
 | Show Individually |           | Non-blank if this member should always appear individually and not be subsumed by their group (equivalent to `<Name` tag on Schedule presenter columns). |
+| Members           |           | On a group row: comma-separated list of member names. Each entry may itself be tagged (rank prefix, `<` show-individually, `==` subsumes marker).         |
+| Groups            |           | On a member row: comma-separated list of group names. A leading `==` on an entry sets `Subsumes Members` on that group.                                   |
 
-Group membership should be importable from either the People sheet or the
-Schedule sheet presenter column headers — whichever source defines the
-relationship.  The **Members** column (on a group row: comma-separated list
-of member names) and the **Groups** column (on a member row: comma-separated
-list of group names) express the same edges as the `=Group` / `==Group` tag
-syntax on the Schedule sheet, and edges declared in either place should be
-merged.
-
-> **Known limitation:** The `Members` and `Groups` columns are not yet
-> imported.  Group membership is currently only established via the
-> `=Group` / `==Group` tag syntax on the Schedule sheet's presenter column
-> headers.
+Group membership is imported from either the People sheet or the Schedule sheet
+presenter column headers — whichever source defines the relationship.  The
+**Members** column (on a group row) and the **Groups** column (on a member row)
+express the same edges as the `=Group` / `==Group` tag syntax on the Schedule
+sheet.  Both sides are deduplicated, so declaring the same membership in more
+than one place (a `Members` cell, a `Groups` cell, and/or a Schedule tag) yields
+a single edge.  Every presenter named in a `Members`/`Groups` cell is created
+through the same tagged find-or-create path as the row's own entity, so a name
+resolves to one stable v5 identity regardless of where it first appears.
 
 ### Accepted aliases
 

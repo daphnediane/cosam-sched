@@ -107,7 +107,7 @@ The `credits` array is computed by the exporter using the PanelEntityType's `cre
 
 The credit formatting logic implements:
 
-- Group resolution with `always_shown_in_group` and `always_grouped` flags
+- Group resolution with `subsumes_members` and `show_individually` flags
 - Partial group attendance with "Member of Group" format (e.g., "Alice of Group Name")
 - Two-pass algorithm: groups first, then individual presenters
 - Handles both explicit groups and implicit group membership

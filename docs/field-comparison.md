@@ -83,7 +83,7 @@ the fields that main tracks.
 | Classification  | ✓      | ✓        | ✓ `rank`                     | ✓ `rank`                        | Stored as enum                                                            |
 | Is Group        | ✓      | ✓        | ✓                            | ✓ `is_explicit_group`           |                                                                           |
 | Always Grouped  | ✓      | ✓        | ✓                            | ✓                               |                                                                           |
-| Always Shown    | ✓      | ✓        | ✓ `always_shown_in_group`    | ✓ `always_shown_in_group`       |                                                                           |
+| Always Shown    | ✓      | ✓        | ✓ `always_shown_in_group`    | ✓ `subsumes_members`            |                                                                           |
 | Bio             | —      | —        | —                            | ✓                               | **New in main** — not in any XLSX column                                  |
 | Sort rank/index | struct | struct   | `sort_rank` (col/row/member) | ✓ `sort_index` (u32 normalized) | v9/v10-try1: struct never populated from XLSX; main: assigned post-import |
 | Members         | col    | col      | edge                         | edge `members`                  | In XLSX as column; in main as CRDT edge list                              |
@@ -224,8 +224,8 @@ flat names without prefixes; all other years use the prefix notation.
 | Is Group                            | ✓    | ✓    | ✓    | —    | ✓    | —    | ✓    | ✓    | ✓    | `is_explicit_group`     |
 | Members                             | ✓    | ✓    | ✓    | —    | ✓    | —    | ✓    | ✓    | ✓    | edge `members`          |
 | Groups                              | ✓    | ✓    | ✓    | —    | ✓    | —    | ✓    | ✓    | ✓    | edge `groups`           |
-| Group Shown / Always Grouped        | —    | —    | —    | —    | ✓    | —    | ✓    | —    | ✓    | `always_grouped`        |
-| Always Shown / Always Show in Group | —    | —    | —    | —    | ✓    | —    | ✓    | —    | ✓    | `always_shown_in_group` |
+| Group Shown / Subsumes Members      | —    | —    | —    | —    | ✓    | —    | ✓    | —    | ✓    | `subsumes_members`      |
+| Show Individually / Always Grouped  | —    | —    | —    | —    | ✓    | —    | ✓    | —    | ✓    | `show_individually`     |
 | Year column (e.g. `2022`)           | —    | —    | —    | —    | ✓    | ✓    | ✓    | ✓    | —    | extra field             |
 | Notes                               | —    | —    | —    | —    | ✓    | —    | —    | —    | —    | extra field             |
 
@@ -326,11 +326,12 @@ case-insensitive. **Unknown columns are silently ignored.**
 Presenter columns are discovered dynamically by pattern-matching header names:
 
 ```text
-G:Name          → Guest (rank 0)
-J:Name          → Judge (rank 1)
-S:Name          → Staff (rank 2)
-I:Name          → Invited panelist (rank 3)
-P:Name          → Fan panelist (rank 4)
+G:Name          → Guest (priority 0)
+J:Name          → Judge (priority 1)
+S:Name          → Staff (priority 2)
+I:Name          → Invited panelist (priority 3)
+P:Name          → Panelist (priority 4)
+F:Name          → Fan panelist (priority 5)
 G:Base==Sub     → sub-presenter within a group
 Kind:Other      → catch-all bucket for that rank
 ```

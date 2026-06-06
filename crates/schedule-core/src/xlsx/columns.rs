@@ -541,6 +541,23 @@ pub mod people {
         ],
     };
 
+    /// Members of this group (on a group row): comma-separated list of member names.
+    /// Member names might be tagged, including rank prefixes and show individually flags.
+    pub const MEMBERS: FieldDef = FieldDef {
+        export: "Members",
+        canonical: "Members",
+        aliases: &["Member"],
+    };
+
+    /// Groups this presenter belongs to (on a member row): comma-separated list of
+    /// group names.  Member names might be tagged with rank prefixes and
+    /// subsumed member flags.
+    pub const GROUPS: FieldDef = FieldDef {
+        export: "Groups",
+        canonical: "Groups",
+        aliases: &["Group"],
+    };
+
     /// All primary column definitions in export order.
     pub const ALL: &[FieldDef] = &[
         NAME,
@@ -548,6 +565,8 @@ pub mod people {
         IS_GROUP,
         SUBSUMES_MEMBERS,
         SHOW_INDIVIDUALLY,
+        MEMBERS,
+        GROUPS,
     ];
 }
 

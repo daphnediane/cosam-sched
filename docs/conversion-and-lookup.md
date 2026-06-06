@@ -517,17 +517,26 @@ to support the full tagged credit-string format:
 | `P:Alice`         | Alice with Panelist rank                                        |
 | `G:Alice`         | Alice with Guest rank                                           |
 | `Alice=MyBand`    | Alice in group MyBand                                           |
-| `P:Alice==MyBand` | Alice in MyBand; group sets `always_shown_in_group`             |
-| `P:<Alice=MyBand` | Alice (always_grouped) in MyBand                                |
-| `==MyBand`        | Group-only: create/find MyBand as explicit group (always_shown) |
+| `P:Alice==MyBand` | Alice in MyBand; group sets `subsumes_members`                  |
+| `P:<Alice=MyBand` | Alice (`show_individually`) in MyBand                            |
+| `==MyBand`        | Group-only: create/find MyBand as explicit group (subsumes)     |
 | `=MyBand`         | Group-only: find group named MyBand                             |
-| `P:==MyBand`      | Create MyBand as explicit always-shown group with Panelist rank |
+| `P:==MyBand`      | Create MyBand as explicit subsuming group with Panelist rank    |
 
 - **Kind prefix**: one or more chars from `G/J/S/I/P/F`; highest-priority (lowest
   number) rank among them is applied.
-- **Rank upgrade**: existing presenters are upgraded when the requested rank is
-  higher (lower priority number); ranks are never downgraded; bare names (no `Kind:`)
-  never change an existing presenter's rank.
+- **Rank tiers** (`RankSource`): every rank claim carries an authority —
+  `Declared` (a `Kind:` prefix on the named token, or the People-sheet
+  `Classification` column) outranks `Implied` (a `=Group` reference, or a rank
+  inherited from group membership) which outranks `None` (a bare name). Claims
+  merge via `RankSource::resolve`: a higher tier wins outright, equal tiers
+  promote to the higher rank. A `Declared` claim from the file is authoritative
+  and *may lower* a stored rank; `Implied`/`None` claims only ever promote. See
+  `presenter.rs` for the full model.
+- **Stable identity**: `find_or_create_tagged_presenter` creates new presenters
+  with a deterministic v5 UUID derived from the lower-cased name
+  (`UuidPreference::PreferFromV5`), so the same name resolves to the same entity
+  across repeated imports and merges.
 - **Group detection** (`=Group` and group-only forms): a presenter is treated as
   a group if `is_explicit_group` is set **or** it has at least one member edge.
 

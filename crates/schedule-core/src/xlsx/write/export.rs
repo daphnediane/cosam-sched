@@ -22,7 +22,8 @@ use crate::tables::hotel_room::HotelRoomEntityType;
 use crate::tables::panel::{self, compute_credits, PanelEntityType, PanelInternalData};
 use crate::tables::panel_type::PanelTypeEntityType;
 use crate::tables::presenter::{
-    PresenterEntityType, PresenterId, PresenterInternalData, EDGE_GROUPS,
+    PresenterCommonData, PresenterEntityType, PresenterId, PresenterInternalData, EDGE_GROUPS,
+    EDGE_MEMBERS,
 };
 use crate::tables::timeline::{TimelineEntityType, TimelineInternalData};
 use crate::xlsx::columns::{
@@ -288,7 +289,9 @@ fn build_presenter_columns(schedule: &Schedule) -> Vec<ExportPresenterColumn> {
 
         let mut rank_presenters: Vec<(PresenterId, &PresenterInternalData)> = schedule
             .iter_entities::<PresenterEntityType>()
-            .filter(|(_, p)| p.data.rank.prefix_char() == prefix_char && !p.data.is_explicit_group)
+            .filter(|(_, p)| {
+                p.data.rank.effective().prefix_char() == prefix_char && !p.data.is_explicit_group
+            })
             .collect();
 
         // Sort by name for stable column ordering.
@@ -304,7 +307,7 @@ fn build_presenter_columns(schedule: &Schedule) -> Vec<ExportPresenterColumn> {
             // Other ranks only get named columns if they have >= MIN_PANELS_FOR_NAMED_COLUMN.
             let show_individually = p.data.show_individually;
             let is_guest_or_staff = matches!(
-                p.data.rank,
+                p.data.rank.effective(),
                 crate::tables::presenter::PresenterRank::Guest
                     | crate::tables::presenter::PresenterRank::Staff
             );
@@ -604,7 +607,7 @@ fn write_schedule_sheet(
                     }
                     schedule
                         .get_internal::<PresenterEntityType>(pid)
-                        .map(|p| p.data.rank.prefix_char() == col.rank_prefix)
+                        .map(|p| p.data.rank.effective().prefix_char() == col.rank_prefix)
                         .unwrap_or(false)
                 })
                 .map(|&pid| {
@@ -776,6 +779,29 @@ fn write_rooms_sheet(ws: &mut Worksheet, schedule: &Schedule, extra_keys: &[Stri
     row - 1
 }
 
+/// Comma-separated names of the presenters connected to `id` along `edge`, in
+/// canonical display order, for a deterministic cell value.
+fn connected_presenter_names(
+    schedule: &Schedule,
+    id: PresenterId,
+    edge: crate::edge::FullEdge,
+) -> String {
+    let mut data: Vec<PresenterCommonData> = schedule
+        .connected_entities::<PresenterEntityType>(id, edge)
+        .into_iter()
+        .filter_map(|nid| {
+            schedule
+                .get_internal::<PresenterEntityType>(nid)
+                .map(|d| d.data.clone())
+        })
+        .collect();
+    data.sort_by(|a, b| a.cmp_for_display(b));
+    data.into_iter()
+        .map(|d| d.name)
+        .collect::<Vec<_>>()
+        .join(", ")
+}
+
 fn write_people_sheet(ws: &mut Worksheet, schedule: &Schedule, extra_keys: &[String]) -> u32 {
     let mut headers: Vec<&str> = people::ALL.iter().map(|f| f.export).collect();
     for k in extra_keys {
@@ -783,15 +809,9 @@ fn write_people_sheet(ws: &mut Worksheet, schedule: &Schedule, extra_keys: &[Str
     }
     set_headers(ws, &headers);
 
-    // Sort by rank priority (ascending), then name.
+    // Canonical presenter display order (rank, then import position, then name).
     let mut presenters: Vec<_> = schedule.iter_entities::<PresenterEntityType>().collect();
-    presenters.sort_by(|(_, a), (_, b)| {
-        a.data
-            .rank
-            .priority()
-            .cmp(&b.data.rank.priority())
-            .then_with(|| a.data.name.cmp(&b.data.name))
-    });
+    presenters.sort_by(|(_, a), (_, b)| a.data.cmp_for_display(&b.data));
 
     let c = |f: &FieldDef| col_of(people::ALL, f);
     let c_person = c(&people::NAME);
@@ -799,12 +819,14 @@ fn write_people_sheet(ws: &mut Worksheet, schedule: &Schedule, extra_keys: &[Str
     let c_is_group = c(&people::IS_GROUP);
     let c_subsumes_members = c(&people::SUBSUMES_MEMBERS);
     let c_show_individually = c(&people::SHOW_INDIVIDUALLY);
+    let c_members = c(&people::MEMBERS);
+    let c_groups = c(&people::GROUPS);
     let extra_start_col = people::ALL.len() as u32 + 1;
 
     let mut row = 2u32;
     for (presenter_id, presenter) in &presenters {
         set_str(ws, c_person, row, &presenter.data.name);
-        set_str(ws, c_classification, row, presenter.data.rank.as_str());
+        set_str(ws, c_classification, row, presenter.data.rank.effective().as_str());
         if presenter.data.is_explicit_group {
             set_str(ws, c_is_group, row, "Yes");
         }
@@ -813,6 +835,17 @@ fn write_people_sheet(ws: &mut Worksheet, schedule: &Schedule, extra_keys: &[Str
         }
         if presenter.data.show_individually {
             set_str(ws, c_show_individually, row, "Yes");
+        }
+        // Direct members (this entity as a group) and groups (this entity as a
+        // member).  Membership flags round-trip via each entity's own row, so
+        // these cells carry plain, sort-ordered name lists.
+        let members = connected_presenter_names(schedule, *presenter_id, EDGE_MEMBERS);
+        if !members.is_empty() {
+            set_str(ws, c_members, row, &members);
+        }
+        let groups = connected_presenter_names(schedule, *presenter_id, EDGE_GROUPS);
+        if !groups.is_empty() {
+            set_str(ws, c_groups, row, &groups);
         }
         write_extra_fields(
             ws,

@@ -20,6 +20,7 @@ use schedule_core::tables::event_room::{self as event_room, EventRoomEntityType}
 use schedule_core::tables::hotel_room::HotelRoomEntityType;
 use schedule_core::tables::panel::{self, PanelEntityType};
 use schedule_core::tables::panel_type::PanelTypeEntityType;
+use schedule_core::entity::EntityUuid;
 use schedule_core::tables::presenter::{self as presenter, PresenterEntityType};
 use schedule_core::xlsx::{
     export_xlsx, export_xlsx_grid, import_xlsx, update_schedule_from_xlsx, XlsxImportOptions,
@@ -469,7 +470,7 @@ fn test_import_people_sheet_creates_presenters_with_rank() {
         .map(|(_, d)| d.data.clone())
         .expect("Alice should exist");
     assert_eq!(
-        alice.rank,
+        alice.rank.effective(),
         schedule_core::tables::presenter::PresenterRank::Guest
     );
 
@@ -479,7 +480,7 @@ fn test_import_people_sheet_creates_presenters_with_rank() {
         .map(|(_, d)| d.data.clone())
         .expect("UNC Staff should exist");
     assert_eq!(
-        unc.rank,
+        unc.rank.effective(),
         schedule_core::tables::presenter::PresenterRank::Staff
     );
     assert!(unc.is_explicit_group);
@@ -522,7 +523,7 @@ fn test_import_people_rank_upgraded_by_schedule_presenter_column() {
         .collect();
     assert_eq!(janes.len(), 1, "Jane should appear exactly once");
     assert_eq!(
-        janes[0].1.data.rank,
+        janes[0].1.data.rank.effective(),
         schedule_core::tables::presenter::PresenterRank::Guest
     );
 }
@@ -706,7 +707,7 @@ fn test_update_presenter_rank_does_not_exceed_xlsx_highest() {
     let rank = schedule
         .iter_entities::<PresenterEntityType>()
         .find(|(_, d)| d.data.name == "Alice")
-        .map(|(_, d)| d.data.rank.clone())
+        .map(|(_, d)| d.data.rank.effective())
         .unwrap();
     assert_eq!(rank, schedule_core::tables::presenter::PresenterRank::Guest);
 
@@ -733,7 +734,7 @@ fn test_update_presenter_rank_does_not_exceed_xlsx_highest() {
     let rank = schedule
         .iter_entities::<PresenterEntityType>()
         .find(|(_, d)| d.data.name == "Alice")
-        .map(|(_, d)| d.data.rank.clone())
+        .map(|(_, d)| d.data.rank.effective())
         .unwrap();
     // After update the xlsx is the source of truth; rank should be Panelist.
     assert_eq!(
@@ -822,7 +823,7 @@ fn test_untagged_other_cell_gets_column_rank_as_minimum() {
     let rank = schedule
         .iter_entities::<PresenterEntityType>()
         .find(|(_, d)| d.data.name == "Alice")
-        .map(|(_, d)| d.data.rank.clone())
+        .map(|(_, d)| d.data.rank.effective())
         .expect("Alice should exist");
     // No tag prefix and no People-sheet classification → column rank (Panelist) applies.
     assert_eq!(
@@ -858,7 +859,7 @@ fn test_untagged_other_cell_then_explicit_fan_panelist_tag() {
     let rank = schedule
         .iter_entities::<PresenterEntityType>()
         .find(|(_, d)| d.data.name == "Alice")
-        .map(|(_, d)| d.data.rank.clone())
+        .map(|(_, d)| d.data.rank.effective())
         .expect("Alice should exist");
     assert_eq!(
         rank,
@@ -1212,7 +1213,7 @@ fn test_export_round_trip_people_sheet() {
         .map(|(_, d)| d.data.clone())
         .expect("Alice should survive round-trip");
     assert_eq!(
-        alice.rank,
+        alice.rank.effective(),
         schedule_core::tables::presenter::PresenterRank::Guest
     );
 
@@ -1229,7 +1230,7 @@ fn test_export_round_trip_people_sheet() {
         .map(|(_, d)| d.data.clone())
         .expect("Bob Fan should survive round-trip");
     assert_eq!(
-        bob.rank,
+        bob.rank.effective(),
         schedule_core::tables::presenter::PresenterRank::FanPanelist
     );
     assert!(bob.show_individually);
@@ -1567,4 +1568,143 @@ fn test_export_xlsx_grid_only_grid_sheets() {
             "grid workbook must not contain the {data_sheet} data sheet"
         );
     }
+}
+
+/// A presenter that appears only on the Schedule sheet (created through the
+/// tagged-credit path, never the People sheet) must get a *deterministic* v5
+/// UUID — two independent fresh imports of the same file must agree on its
+/// identity, otherwise a CRDT merge of the two would duplicate the presenter.
+/// (REFACTOR-140 regression.)
+#[test]
+fn test_schedule_only_presenter_uuid_is_deterministic() {
+    fn build() -> umya_spreadsheet::Spreadsheet {
+        let mut book = umya_spreadsheet::new_file();
+        {
+            let ws = book.new_sheet("PanelTypes").unwrap();
+            set_cell(ws, 1, 1, "Prefix");
+            set_cell(ws, 2, 1, "Panel Kind");
+            set_cell(ws, 1, 2, "GP");
+            set_cell(ws, 2, 2, "Guest Panel");
+        }
+        {
+            let ws = book.new_sheet("Rooms").unwrap();
+            set_cell(ws, 1, 1, "Room Name");
+            set_cell(ws, 2, 1, "Sort Key");
+            set_cell(ws, 1, 2, "Main Hall");
+            set_cell(ws, 2, 2, "10");
+        }
+        // People sheet lists only Alice — Bob exists solely on the Schedule.
+        {
+            let ws = book.new_sheet("People").unwrap();
+            set_cell(ws, 1, 1, "Name");
+            set_cell(ws, 2, 1, "Classification");
+            set_cell(ws, 1, 2, "Alice Smith");
+            set_cell(ws, 2, 2, "Guest");
+        }
+        {
+            let ws = book.get_sheet_mut(&0).unwrap();
+            ws.set_name("Schedule");
+            set_cell(ws, 1, 1, "Name");
+            set_cell(ws, 2, 1, "Room");
+            set_cell(ws, 3, 1, "Type");
+            set_cell(ws, 4, 1, "G: Alice Smith");
+            set_cell(ws, 5, 1, "P: Bob Jones");
+            set_cell(ws, 1, 2, "Opening Ceremonies");
+            set_cell(ws, 2, 2, "Main Hall");
+            set_cell(ws, 3, 2, "GP");
+            set_cell(ws, 4, 2, "X");
+            set_cell(ws, 5, 2, "X");
+        }
+        book
+    }
+
+    let bob_uuid = |schedule: &schedule_core::schedule::Schedule| {
+        schedule
+            .iter_entities::<PresenterEntityType>()
+            .find(|(_, d)| d.data.name == "Bob Jones")
+            .map(|(id, _)| id.entity_uuid())
+            .expect("Bob Jones should exist")
+    };
+
+    let path_a = write_temp(build());
+    let path_b = write_temp(build());
+    let schedule_a = import_xlsx(&path_a, &XlsxImportOptions::default()).unwrap();
+    let schedule_b = import_xlsx(&path_b, &XlsxImportOptions::default()).unwrap();
+    cleanup(&path_a);
+    cleanup(&path_b);
+
+    assert_eq!(
+        bob_uuid(&schedule_a),
+        bob_uuid(&schedule_b),
+        "a schedule-only presenter must get the same UUID across independent imports"
+    );
+}
+
+/// Group membership declared on the People sheet must round-trip through export
+/// and re-import: the exported People sheet populates the `Members`/`Groups`
+/// columns, so the group edge survives. (REFACTOR-140 regression.)
+#[test]
+fn test_people_membership_round_trips_through_export() {
+    let mut book = umya_spreadsheet::new_file();
+    {
+        let ws = book.new_sheet("PanelTypes").unwrap();
+        set_cell(ws, 1, 1, "Prefix");
+        set_cell(ws, 2, 1, "Panel Kind");
+        set_cell(ws, 1, 2, "GP");
+        set_cell(ws, 2, 2, "Guest Panel");
+    }
+    // People sheet: "Trio" is a group whose Members are Alice and Bob.
+    {
+        let ws = book.new_sheet("People").unwrap();
+        set_cell(ws, 1, 1, "Person");
+        set_cell(ws, 2, 1, "Classification");
+        set_cell(ws, 3, 1, "Is Group");
+        set_cell(ws, 4, 1, "Members");
+        set_cell(ws, 1, 2, "Trio");
+        set_cell(ws, 2, 2, "Guest");
+        set_cell(ws, 3, 2, "Yes");
+        set_cell(ws, 4, 2, "Alice, Bob");
+        set_cell(ws, 1, 3, "Alice");
+        set_cell(ws, 2, 3, "Guest");
+        set_cell(ws, 1, 4, "Bob");
+        set_cell(ws, 2, 4, "Guest");
+    }
+    {
+        let ws = book.get_sheet_mut(&0).unwrap();
+        ws.set_name("Schedule");
+        set_cell(ws, 1, 1, "Name");
+        set_cell(ws, 2, 1, "Type");
+        set_cell(ws, 3, 1, "G: Trio");
+        set_cell(ws, 1, 2, "Group Panel");
+        set_cell(ws, 2, 2, "GP");
+        set_cell(ws, 3, 2, "X");
+    }
+    let path = write_temp(book);
+    let schedule = import_xlsx(&path, &XlsxImportOptions::default()).unwrap();
+    cleanup(&path);
+
+    let members_of = |s: &schedule_core::schedule::Schedule| -> Vec<String> {
+        let trio = s
+            .iter_entities::<PresenterEntityType>()
+            .find(|(_, d)| d.data.name == "Trio")
+            .map(|(id, _)| id)
+            .expect("Trio should exist");
+        let mut names: Vec<String> = s
+            .connected_entities::<PresenterEntityType>(trio, presenter::EDGE_MEMBERS)
+            .into_iter()
+            .filter_map(|m| s.get_internal::<PresenterEntityType>(m).map(|d| d.data.name.clone()))
+            .collect();
+        names.sort();
+        names
+    };
+
+    assert_eq!(members_of(&schedule), vec!["Alice", "Bob"]);
+
+    // Export → re-import; the membership edge must survive via the People sheet.
+    let rt = round_trip(schedule);
+    assert_eq!(
+        members_of(&rt),
+        vec!["Alice", "Bob"],
+        "group members must round-trip through the exported People Members column"
+    );
 }

@@ -175,6 +175,145 @@ impl<'de> Deserialize<'de> for PresenterRank {
     }
 }
 
+// ── RankSource ──────────────────────────────────────────────────────────────────
+
+/// A presenter rank together with the authority by which it was assigned.
+///
+/// Resolution precedence is `Declared > Implied > None`; within a tier the
+/// higher rank (lower [`PresenterRank::priority`]) wins.  The *effective* rank
+/// of [`RankSource::None`] is [`PresenterRank::Panelist`] (the default).
+///
+/// - **Declared** — stated authoritatively: the People-sheet `Classification`
+///   column, a schedule Named-column header, or a rank prefix on the named token
+///   of a credit (`G:member`).
+/// - **Implied** — inherited from context: an untagged credit, a member's rank
+///   inherited from its group, or the group referenced by `G:member=group` (the
+///   `G` is declared for the member but only implied for the group).
+/// - **None** — no rank information; effective rank is `Panelist`.
+///
+/// The field/CRDT string encoding round-trips the tier so save/load preserves
+/// it: `None`→`""`, `Implied(r)`→`"~{r}"`, `Declared(r)`→`"{r}"`.  JSON export of
+/// a presenter always emits the single effective rank string (see the custom
+/// `Serialize` impl).
+#[derive(Debug, Clone, PartialEq, Eq, Default)]
+pub enum RankSource {
+    /// No rank information; effective rank is [`PresenterRank::Panelist`].
+    #[default]
+    None,
+    /// Rank inherited from context (group membership, untagged credit, etc.).
+    Implied(PresenterRank),
+    /// Rank stated authoritatively (Classification column, named column header,
+    /// or a rank prefix on the named token).
+    Declared(PresenterRank),
+}
+
+impl RankSource {
+    /// Tier ordinal used for precedence: `None`=0, `Implied`=1, `Declared`=2.
+    #[must_use]
+    pub fn tier(&self) -> u8 {
+        match self {
+            RankSource::None => 0,
+            RankSource::Implied(_) => 1,
+            RankSource::Declared(_) => 2,
+        }
+    }
+
+    /// The carried rank, or `None` for the [`RankSource::None`] tier.
+    #[must_use]
+    pub fn rank(&self) -> Option<&PresenterRank> {
+        match self {
+            RankSource::None => Option::None,
+            RankSource::Implied(r) | RankSource::Declared(r) => Some(r),
+        }
+    }
+
+    /// The effective rank: the carried rank, or `Panelist` for `None`.
+    #[must_use]
+    pub fn effective(&self) -> PresenterRank {
+        self.rank().cloned().unwrap_or_default()
+    }
+
+    /// Whether this rank source satisfies a `required` rank expectation coming
+    /// from a query prefix (e.g. the `G:` in `"G:Alice"`).
+    ///
+    /// A [`RankSource::Declared`] rank is authoritative: it always satisfies the
+    /// expectation, even when its priority is lower than `required` (a presenter
+    /// the spreadsheet declares as a fan panelist still *is* that named person,
+    /// regardless of an optimistic prefix).  Lower-tier ranks
+    /// ([`RankSource::Implied`] / [`RankSource::None`]) must be at least as high
+    /// as `required` (lower or equal [`PresenterRank::priority`]).
+    #[must_use]
+    pub fn satisfies(&self, required: &PresenterRank) -> bool {
+        matches!(self, RankSource::Declared(_))
+            || self.effective().priority() <= required.priority()
+    }
+
+    /// Resolve `self` against an `incoming` claim, returning the winner.
+    ///
+    /// Higher tier wins outright; equal tier promotes to the higher rank
+    /// (lower [`PresenterRank::priority`]); lower tier is ignored.  This is the
+    /// monotonic merge used when accumulating rank claims (e.g. across the
+    /// columns/cells of a single import pass).
+    #[must_use]
+    pub fn resolve(self, incoming: RankSource) -> RankSource {
+        use std::cmp::Ordering;
+        match incoming.tier().cmp(&self.tier()) {
+            Ordering::Greater => incoming,
+            Ordering::Less => self,
+            Ordering::Equal => match (self.rank(), incoming.rank()) {
+                (Some(a), Some(b)) if b.priority() < a.priority() => incoming,
+                _ => self,
+            },
+        }
+    }
+
+    /// Canonical field/CRDT string encoding that preserves the tier.
+    ///
+    /// Inverse of [`RankSource::parse_field_str`].
+    #[must_use]
+    pub fn as_field_str(&self) -> String {
+        match self {
+            RankSource::None => String::new(),
+            RankSource::Implied(r) => format!("~{}", r.as_str()),
+            RankSource::Declared(r) => r.as_str().to_string(),
+        }
+    }
+
+    /// Parse the field/CRDT string encoding produced by
+    /// [`RankSource::as_field_str`].  A leading `~` marks an implied rank; an
+    /// empty string is `None`; anything else is a declared rank.
+    #[must_use]
+    pub fn parse_field_str(s: &str) -> Self {
+        let s = s.trim();
+        if s.is_empty() {
+            RankSource::None
+        } else if let Some(rest) = s.strip_prefix('~') {
+            RankSource::Implied(PresenterRank::parse(rest))
+        } else {
+            RankSource::Declared(PresenterRank::parse(s))
+        }
+    }
+}
+
+impl Serialize for RankSource {
+    /// Serializes the **effective** rank as a single string; the tier is not
+    /// exposed in JSON.  CRDT/field round-tripping uses
+    /// [`RankSource::as_field_str`] instead, which preserves the tier.
+    fn serialize<S: Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
+        serializer.serialize_str(self.effective().as_str())
+    }
+}
+
+impl<'de> Deserialize<'de> for RankSource {
+    /// Reads a single rank string as a [`RankSource::Declared`] value (external
+    /// input is treated as authoritative).  Tier information is not present in
+    /// the JSON form.
+    fn deserialize<D: Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
+        let s = String::deserialize(deserializer)?;
+        Ok(RankSource::Declared(PresenterRank::parse(&s)))
+    }
+}
+
 // ── PresenterCommonData ───────────────────────────────────────────────────────
 
 /// User-facing presenter fields. Serializable and represents the data as
@@ -185,9 +324,10 @@ pub struct PresenterCommonData {
     /// Full display name (required, indexed).
     pub name: String,
 
-    /// Presenter classification tier.
+    /// Presenter rank together with the authority by which it was assigned
+    /// (see [`RankSource`]).  Serializes as the single effective rank string.
     #[serde(default)]
-    pub rank: PresenterRank,
+    pub rank: RankSource,
 
     /// Biography or description.
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -223,6 +363,27 @@ impl PresenterCommonData {
             errors.push(ValidationError::Required { field: "name" });
         }
         errors
+    }
+
+    /// Canonical display ordering for presenters: by effective rank priority
+    /// (guests first, fan panelists last), then by import position
+    /// (`sort_index`, `None` last), then by name for stability.
+    ///
+    /// Shared by the widget JSON export and the XLSX People-sheet export so both
+    /// list presenters in the same order.
+    #[must_use]
+    pub fn cmp_for_display(&self, other: &Self) -> std::cmp::Ordering {
+        self.rank
+            .effective()
+            .priority()
+            .cmp(&other.rank.effective().priority())
+            .then_with(|| match (self.sort_index, other.sort_index) {
+                (Some(a), Some(b)) => a.cmp(&b),
+                (Some(_), None) => std::cmp::Ordering::Less,
+                (None, Some(_)) => std::cmp::Ordering::Greater,
+                (None, None) => std::cmp::Ordering::Equal,
+            })
+            .then_with(|| self.name.cmp(&other.name))
     }
 }
 
@@ -496,6 +657,17 @@ fn parse_tag(input: &str) -> ParsedTag<'_> {
     }
 }
 
+/// The rank declared by a credit string's `Kind:` prefix, if any.
+///
+/// Returns `Some(rank)` for tagged strings like `"G:Alice"` or `"GOH:Bob"` (the
+/// highest-priority rank among the prefix chars), and `None` for untagged names
+/// like `"Alice"`.  Importers use this to decide whether a presenter encounter
+/// carries a [`RankSource::Declared`] claim or only an inherited one.
+#[must_use]
+pub fn tag_prefix_rank(tagged: &str) -> Option<PresenterRank> {
+    parse_tag(tagged).required_rank
+}
+
 /// Return `true` if `id` acts as a group: either `is_explicit_group` flag is set
 /// or the presenter has at least one member via the homogeneous edge map.
 fn is_group_entity(schedule: &crate::schedule::Schedule, id: PresenterId) -> bool {
@@ -583,10 +755,11 @@ pub fn find_tagged_presenter(
             .or((!parsed.name.is_empty()).then_some(parsed.name))?;
         let group_id = find_group_by_name(schedule, group_name)?;
         if let Some(ref req) = parsed.required_rank {
-            let found_priority = schedule
+            let found = schedule
                 .get_internal::<PresenterEntityType>(group_id)
-                .map_or(u8::MAX, |d| d.data.rank.priority());
-            if found_priority > req.priority() {
+                .map(|d| d.data.rank.clone())
+                .unwrap_or_default();
+            if !found.satisfies(req) {
                 return None;
             }
         }
@@ -615,10 +788,11 @@ pub fn find_tagged_presenter(
 
     // Rank gate: found rank must be at least as high as required (lower priority number)
     if let Some(ref req) = parsed.required_rank {
-        let found_priority = schedule
+        let found = schedule
             .get_internal::<PresenterEntityType>(id)
-            .map_or(u8::MAX, |d| d.data.rank.priority());
-        if found_priority > req.priority() {
+            .map(|d| d.data.rank.clone())
+            .unwrap_or_default();
+        if !found.satisfies(req) {
             return None;
         }
     }
@@ -634,9 +808,11 @@ pub fn find_tagged_presenter(
 
 /// Find or create a presenter by tagged credit string.
 ///
-/// Creates entities as needed. Existing presenter ranks are upgraded when the
-/// `Kind:` prefix specifies a higher rank (lower priority number); they are
-/// never downgraded, and bare-name (no `Kind:`) calls never change rank.
+/// Creates entities as needed.  A `Kind:` prefix is treated as a [`RankSource::Declared`]
+/// claim on the named token and a [`RankSource::Implied`] claim on the group
+/// referenced by a `=Group` suffix; ranks are resolved via [`RankSource::resolve`]
+/// (promoted within a tier, never silently downgraded).  Bare-name calls make no
+/// rank claim.
 ///
 /// Does not handle UUID strings — callers should resolve UUIDs before calling
 /// (see `lookup_or_create` in the `lookup` module).
@@ -653,6 +829,17 @@ pub fn find_or_create_tagged_presenter(
 
     let parsed = parse_tag(tagged);
 
+    // The prefix rank is declared for the named token and merely implied for a
+    // group named via a `=Group` suffix.
+    let declared = parsed
+        .required_rank
+        .clone()
+        .map_or(RankSource::None, RankSource::Declared);
+    let implied = parsed
+        .required_rank
+        .clone()
+        .map_or(RankSource::None, RankSource::Implied);
+
     if parsed.is_group_only() {
         let group_name = parsed
             .group_name
@@ -660,8 +847,7 @@ pub fn find_or_create_tagged_presenter(
             .ok_or_else(|| ConversionError::ParseError {
                 message: "empty group name".to_string(),
             })?;
-        let gid =
-            find_or_create_presenter_by_name(schedule, group_name, parsed.required_rank.as_ref());
+        let gid = find_or_create_presenter_by_name(schedule, group_name, declared);
         if let Some(d) = schedule.get_internal_mut::<PresenterEntityType>(gid) {
             d.data.is_explicit_group = true;
             if parsed.subsumes_members {
@@ -671,8 +857,7 @@ pub fn find_or_create_tagged_presenter(
         return Ok(MatchedTagPresenter::GroupOnly(gid));
     }
 
-    let pres_id =
-        find_or_create_presenter_by_name(schedule, parsed.name, parsed.required_rank.as_ref());
+    let pres_id = find_or_create_presenter_by_name(schedule, parsed.name, declared);
     if parsed.show_individually {
         if let Some(d) = schedule.get_internal_mut::<PresenterEntityType>(pres_id) {
             d.data.show_individually = true;
@@ -680,8 +865,7 @@ pub fn find_or_create_tagged_presenter(
     }
 
     let group_id = if let Some(group_name) = parsed.group_name {
-        let gid =
-            find_or_create_presenter_by_name(schedule, group_name, parsed.required_rank.as_ref());
+        let gid = find_or_create_presenter_by_name(schedule, group_name, implied);
         if let Some(gd) = schedule.get_internal_mut::<PresenterEntityType>(gid) {
             gd.data.is_explicit_group = true;
             if parsed.subsumes_members {
@@ -715,37 +899,43 @@ pub fn find_or_create_tagged_presenter(
     })
 }
 
-/// Case-insensitive exact name lookup; creates with `effective_rank` if not found.
-/// Upgrades rank only when `rank` is `Some` and is higher (lower priority number).
+/// Case-insensitive exact name lookup; creates the presenter if not found.
+///
+/// New presenters are created with a deterministic v5 UUID derived from the
+/// lower-cased name ([`UuidPreference::PreferFromV5`]), so the same name resolves
+/// to the same identity across imports and merges.  The `source` rank claim is
+/// merged into the (new or existing) presenter via [`RankSource::resolve`], so
+/// rank is promoted within a tier and never silently downgraded here.
 fn find_or_create_presenter_by_name(
     schedule: &mut crate::schedule::Schedule,
     name: &str,
-    rank: Option<&PresenterRank>,
+    source: RankSource,
 ) -> PresenterId {
     let existing = schedule
         .iter_entities::<PresenterEntityType>()
         .find_map(|(id, d)| d.data.name.eq_ignore_ascii_case(name).then_some(id));
 
     if let Some(id) = existing {
-        if let Some(new_rank) = rank {
-            if let Some(d) = schedule.get_internal_mut::<PresenterEntityType>(id) {
-                if new_rank.priority() < d.data.rank.priority() {
-                    d.data.rank = new_rank.clone();
-                }
-            }
+        if let Some(d) = schedule.get_internal_mut::<PresenterEntityType>(id) {
+            d.data.rank = std::mem::take(&mut d.data.rank).resolve(source);
         }
         return id;
     }
 
-    let effective_rank = rank.cloned().unwrap_or(PresenterRank::Panelist);
-    let id = EntityId::generate();
+    // Deterministic v5 identity from the name; falls back to a fresh UUID only
+    // on the (impossible-by-construction) hash collision with a live entity.
+    let id = schedule
+        .try_resolve_entity_id::<PresenterEntityType>(crate::entity::UuidPreference::PreferFromV5 {
+            name: name.to_lowercase(),
+        })
+        .expect("PreferFromV5 always resolves to an id");
     schedule.insert(
         id,
         PresenterInternalData {
             id,
             data: PresenterCommonData {
                 name: name.to_string(),
-                rank: effective_rank,
+                rank: source,
                 ..Default::default()
             },
         },
@@ -788,9 +978,10 @@ pub static FIELD_NAME: FieldDescriptor<PresenterEntityType> = {
 };
 inventory::submit! { CollectedField(&FIELD_NAME) }
 
-/// Presenter rank — stored as `PresenterRank`, exposed as `FieldValue::String`
-/// using the canonical tag (`guest`, `judge`, `staff`, `invited_panelist`,
-/// `fan_panelist`, or a custom invited-guest label).
+/// Presenter rank — stored as [`RankSource`], exposed as `FieldValue::String`
+/// using the tier-preserving encoding (`""` for none, `"~rank"` for an implied
+/// rank, or the bare canonical tag for a declared rank — e.g. `guest`, `staff`,
+/// `~fan_panelist`, or a custom invited-guest label).
 pub static FIELD_RANK: FieldDescriptor<PresenterEntityType> = {
     let (data, crdt_type, cb) = callback_field_properties! {
         PresenterEntityType,
@@ -803,10 +994,10 @@ pub static FIELD_RANK: FieldDescriptor<PresenterEntityType> = {
         example: "guest",
         order: 100,
         read: |d: &PresenterInternalData| {
-            Some(field_value!(d.data.rank.as_str()))
+            Some(field_value!(d.data.rank.as_field_str()))
         },
         write: |d: &mut PresenterInternalData, v: FieldValue| {
-            d.data.rank = PresenterRank::parse(&v.into_string()?);
+            d.data.rank = RankSource::parse_field_str(&v.into_string()?);
             Ok(())
         }
     };
@@ -1509,7 +1700,7 @@ mod tests {
         PresenterInternalData {
             data: PresenterCommonData {
                 name: "Alice Example".into(),
-                rank: PresenterRank::Guest,
+                rank: RankSource::Declared(PresenterRank::Guest),
                 bio: Some("Long-time guest.".into()),
                 is_explicit_group: false,
                 show_individually: false,
@@ -1542,6 +1733,124 @@ mod tests {
             let back: PresenterRank = serde_json::from_str(&json).unwrap();
             assert_eq!(&back, rank);
         }
+    }
+
+    #[test]
+    fn test_rank_source_field_str_roundtrip() {
+        let values = [
+            RankSource::None,
+            RankSource::Implied(PresenterRank::Guest),
+            RankSource::Implied(PresenterRank::InvitedGuest(Some("Sponsor".into()))),
+            RankSource::Declared(PresenterRank::FanPanelist),
+            RankSource::Declared(PresenterRank::Staff),
+        ];
+        for v in &values {
+            let s = v.as_field_str();
+            assert_eq!(&RankSource::parse_field_str(&s), v, "round-trip {s:?}");
+        }
+        // Concrete encodings.
+        assert_eq!(RankSource::None.as_field_str(), "");
+        assert_eq!(
+            RankSource::Implied(PresenterRank::Guest).as_field_str(),
+            "~guest"
+        );
+        assert_eq!(
+            RankSource::Declared(PresenterRank::Guest).as_field_str(),
+            "guest"
+        );
+    }
+
+    #[test]
+    fn test_rank_source_effective_and_tier() {
+        assert_eq!(RankSource::None.effective(), PresenterRank::Panelist);
+        assert_eq!(
+            RankSource::Implied(PresenterRank::Guest).effective(),
+            PresenterRank::Guest
+        );
+        assert!(RankSource::None.tier() < RankSource::Implied(PresenterRank::FanPanelist).tier());
+        assert!(
+            RankSource::Implied(PresenterRank::Guest).tier()
+                < RankSource::Declared(PresenterRank::FanPanelist).tier()
+        );
+    }
+
+    #[test]
+    fn test_rank_source_resolve_precedence() {
+        // Higher tier wins outright, even at a lower rank.
+        assert_eq!(
+            RankSource::Implied(PresenterRank::Guest)
+                .resolve(RankSource::Declared(PresenterRank::FanPanelist)),
+            RankSource::Declared(PresenterRank::FanPanelist)
+        );
+        // Lower tier is ignored, even at a higher rank.
+        assert_eq!(
+            RankSource::Declared(PresenterRank::FanPanelist)
+                .resolve(RankSource::Implied(PresenterRank::Guest)),
+            RankSource::Declared(PresenterRank::FanPanelist)
+        );
+        // Equal tier promotes to the higher rank (lower priority number).
+        assert_eq!(
+            RankSource::Declared(PresenterRank::FanPanelist)
+                .resolve(RankSource::Declared(PresenterRank::Guest)),
+            RankSource::Declared(PresenterRank::Guest)
+        );
+        // Equal tier keeps the higher rank when the incoming one is lower.
+        assert_eq!(
+            RankSource::Declared(PresenterRank::Guest)
+                .resolve(RankSource::Declared(PresenterRank::FanPanelist)),
+            RankSource::Declared(PresenterRank::Guest)
+        );
+        // None resolves to whatever comes in, and vice versa.
+        assert_eq!(
+            RankSource::None.resolve(RankSource::Implied(PresenterRank::Staff)),
+            RankSource::Implied(PresenterRank::Staff)
+        );
+        assert_eq!(
+            RankSource::Declared(PresenterRank::Staff).resolve(RankSource::None),
+            RankSource::Declared(PresenterRank::Staff)
+        );
+    }
+
+    #[test]
+    fn test_rank_source_serializes_effective_string() {
+        // JSON export is the single effective string; tier is not exposed.
+        assert_eq!(
+            serde_json::to_string(&RankSource::Implied(PresenterRank::Guest)).unwrap(),
+            "\"guest\""
+        );
+        assert_eq!(
+            serde_json::to_string(&RankSource::None).unwrap(),
+            "\"panelist\""
+        );
+        // Deserialization treats external input as declared.
+        let back: RankSource = serde_json::from_str("\"staff\"").unwrap();
+        assert_eq!(back, RankSource::Declared(PresenterRank::Staff));
+    }
+
+    #[test]
+    fn test_cmp_for_display_rank_then_sort_index_then_name() {
+        let mk = |name: &str, rank: RankSource, sort: Option<i64>| PresenterCommonData {
+            name: name.into(),
+            rank,
+            sort_index: sort,
+            ..Default::default()
+        };
+        let guest_a = mk("Zoe", RankSource::Declared(PresenterRank::Guest), Some(200));
+        let guest_b = mk("Amy", RankSource::Declared(PresenterRank::Guest), Some(100));
+        let fan = mk("Aaron", RankSource::Declared(PresenterRank::FanPanelist), Some(1));
+        let no_idx = mk("Bea", RankSource::Declared(PresenterRank::Guest), None);
+
+        // Rank dominates: a guest sorts before a fan panelist regardless of index.
+        assert!(fan.cmp_for_display(&guest_a) == std::cmp::Ordering::Greater);
+        // Within a rank, lower sort_index wins even when names sort the other way.
+        assert!(guest_b.cmp_for_display(&guest_a) == std::cmp::Ordering::Less);
+        // None sort_index sorts after any present index within the same rank.
+        assert!(no_idx.cmp_for_display(&guest_a) == std::cmp::Ordering::Greater);
+
+        let mut v = [&fan, &no_idx, &guest_a, &guest_b];
+        v.sort_by(|a, b| a.cmp_for_display(b));
+        let order: Vec<&str> = v.iter().map(|d| d.name.as_str()).collect();
+        assert_eq!(order, vec!["Amy", "Zoe", "Bea", "Aaron"]);
     }
 
     #[test]
@@ -1721,7 +2030,7 @@ mod tests {
     fn test_common_data_serde_roundtrip() {
         let original = PresenterCommonData {
             name: "Group One".into(),
-            rank: PresenterRank::InvitedGuest(Some("105th".into())),
+            rank: RankSource::Declared(PresenterRank::InvitedGuest(Some("105th".into()))),
             bio: None,
             is_explicit_group: true,
             show_individually: false,
@@ -1790,7 +2099,7 @@ mod tests {
             id,
             data: PresenterCommonData {
                 name: name.to_string(),
-                rank,
+                rank: RankSource::Declared(rank),
                 ..Default::default()
             },
         }
@@ -1817,7 +2126,7 @@ mod tests {
     fn test_find_tagged_kind_prefix_match() {
         let id = make_id();
         let mut internal = make_internal();
-        internal.data.rank = PresenterRank::Guest;
+        internal.data.rank = RankSource::Declared(PresenterRank::Guest);
         let sched = schedule_with(id, internal);
         // G: = Guest rank required; Alice is Guest → match
         assert_eq!(
@@ -1827,28 +2136,40 @@ mod tests {
     }
 
     #[test]
-    fn test_find_tagged_rank_gate_rejects_lower_rank() {
+    fn test_find_tagged_rank_gate_respects_tier() {
         let id = make_id();
-        // Alice is Panelist (priority 4); G: requires Guest (priority 0) → reject
-        let sched = schedule_with(id, make_internal()); // rank = Guest
-                                                        // make_internal has rank=Guest, so G: passes
+        let sched = schedule_with(id, make_internal()); // rank = Declared(Guest)
+        // Declared(Guest) satisfies the G: expectation.
         assert_eq!(
             find_tagged_presenter(&sched, "G:Alice Example").map(|m| m.as_presenter()),
             Some(id)
         );
-        // F: requires FanPanelist (priority 5); Guest (0) < 5 → passes (Guest is higher rank)
+        // …and also the lower F: expectation (declared is authoritative).
         assert_eq!(
             find_tagged_presenter(&sched, "F:Alice Example").map(|m| m.as_presenter()),
             Some(id)
         );
 
-        // Create a FanPanelist — requesting G: (priority 0) should fail
-        let mut sched2 = Schedule::default();
-        let id2 = make_id();
-        let mut fan = make_presenter("Bob", PresenterRank::FanPanelist);
-        fan.id = id2;
-        sched2.insert(id2, fan);
-        assert_eq!(find_tagged_presenter(&sched2, "G:Bob"), None);
+        // A *declared* lower rank still satisfies a higher prefix — the
+        // spreadsheet's declaration is authoritative regardless of the prefix.
+        let mut declared = Schedule::default();
+        let dec_id = make_id();
+        let mut fan = make_presenter("Bob", PresenterRank::FanPanelist); // Declared(FanPanelist)
+        fan.id = dec_id;
+        declared.insert(dec_id, fan);
+        assert_eq!(
+            find_tagged_presenter(&declared, "G:Bob").map(|m| m.as_presenter()),
+            Some(dec_id)
+        );
+
+        // An *implied* lower rank is gated: it does not satisfy a higher prefix.
+        let mut implied = Schedule::default();
+        let imp_id = make_id();
+        let mut imp = make_presenter("Cara", PresenterRank::FanPanelist);
+        imp.id = imp_id;
+        imp.data.rank = RankSource::Implied(PresenterRank::FanPanelist);
+        implied.insert(imp_id, imp);
+        assert_eq!(find_tagged_presenter(&implied, "G:Cara"), None);
     }
 
     #[test]
@@ -2003,7 +2324,7 @@ mod tests {
             .as_presenter();
         let d = sched.get_internal::<PresenterEntityType>(id).unwrap();
         assert_eq!(d.data.name, "Jane Doe");
-        assert_eq!(d.data.rank, PresenterRank::Panelist);
+        assert_eq!(d.data.rank.effective(), PresenterRank::Panelist);
         assert!(!d.data.is_explicit_group);
     }
 
@@ -2031,7 +2352,8 @@ mod tests {
                 .get_internal::<PresenterEntityType>(id)
                 .unwrap()
                 .data
-                .rank,
+                .rank
+                .effective(),
             PresenterRank::Panelist
         );
         // G: = Guest (priority 0 < 4) → upgrade
@@ -2041,7 +2363,8 @@ mod tests {
                 .get_internal::<PresenterEntityType>(id)
                 .unwrap()
                 .data
-                .rank,
+                .rank
+                .effective(),
             PresenterRank::Guest
         );
     }
@@ -2059,7 +2382,8 @@ mod tests {
                 .get_internal::<PresenterEntityType>(id)
                 .unwrap()
                 .data
-                .rank,
+                .rank
+                .effective(),
             PresenterRank::Guest
         );
         // Bare name also must not downgrade
@@ -2069,7 +2393,8 @@ mod tests {
                 .get_internal::<PresenterEntityType>(id)
                 .unwrap()
                 .data
-                .rank,
+                .rank
+                .effective(),
             PresenterRank::Guest
         );
     }
@@ -2265,7 +2590,7 @@ mod tests {
         let id = PresenterEntityType::create_from_string(&mut sched, "G:Alice").unwrap();
         let data = sched.get_internal(id).unwrap();
         assert_eq!(data.data.name, "Alice");
-        assert_eq!(data.data.rank, PresenterRank::Guest);
+        assert_eq!(data.data.rank.effective(), PresenterRank::Guest);
     }
 
     #[test]

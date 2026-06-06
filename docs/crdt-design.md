@@ -99,10 +99,17 @@ traversal required.
 | `name`                                                                        | `Scalar`      |
 | `bio`                                                                         | `Text`        |
 | `rank`, `sort_index`                                                          | `Scalar`      |
-| `is_explicit_group`, `always_grouped`, `always_shown_in_group`                | `Scalar`      |
+| `is_explicit_group`, `show_individually`, `subsumes_members`                   | `Scalar`      |
 | `members` (CRDT owner, target = `FIELD_GROUPS`)                               | `Derived`     |
 | `groups` (non-owner lookup side)                                              | `Derived`     |
 | `panels` (derived union of credited/uncredited panels, non-owner lookup side) | `Derived`     |
+
+The `rank` scalar stores a `RankSource` using a tier-preserving string encoding
+so the assigning authority survives save/load: `""` for `None`, `"~rank"` for an
+`Implied` rank, and the bare canonical rank (e.g. `"guest"`) for a `Declared`
+rank. JSON export instead emits only the single effective rank string; the tier
+is not exposed there. See `presenter.rs` (`RankSource::as_field_str` /
+`parse_field_str`) for the model.
 
 ### EventRoom
 

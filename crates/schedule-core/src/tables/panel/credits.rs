@@ -394,13 +394,8 @@ impl<'a> CreditCalculator<'a> {
             })
             .collect();
 
-        // Sort by presenter rank and name
-        credit_presenters.sort_by(|a, b| {
-            a.1.rank
-                .priority()
-                .cmp(&b.1.rank.priority())
-                .then_with(|| a.1.name.cmp(&b.1.name))
-        });
+        // Canonical presenter display order (rank, then import position, then name).
+        credit_presenters.sort_by(|a, b| a.1.cmp_for_display(b.1));
 
         // Generate credits in sorted order
         credit_presenters
