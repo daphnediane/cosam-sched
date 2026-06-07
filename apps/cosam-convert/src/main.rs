@@ -235,6 +235,7 @@ fn apply_layout_arg(
     let normalized = key.replace('-', "_");
     match normalized.as_str() {
         "paper" => job.paper = str_val()?,
+        "format" => job.format = Some(str_val()?),
         "content" => job.content = Some(str_val()?),
         "split" | "split_by" => job.split = str_val()?,
         "orientation" => job.orientation = str_val()?,
@@ -762,6 +763,7 @@ fn print_usage() {
          \x20 cosam-convert --input schedule.xlsx --output full.schedule --export public.json\n\
          \x20 cosam-convert --input schedule.xlsx --export public.json --export-layout output/layout\n\
          \x20 cosam-convert --input schedule.xlsx --layout.import=flyer --layout.paper=letter --export-layout output/flyer.pdf\n\
+         \x20 cosam-convert --input schedule.xlsx --layout.format=idml --export-layout output/sched.idml  (requires --features idml)\n\
          \x20 cosam-convert --input csv_dir --export public.json\n\
          \x20 cosam-convert --input schedule.xlsx --export-csv-dir csv_output\n\
          \x20 cosam-convert --input-url https://example.com/schedule --export public.json\n\
@@ -1217,6 +1219,14 @@ fn run_layout_export(
         }
     }
 
+    fn parse_format(s: Option<&str>) -> schedule_layout::config::LayoutFormat {
+        use schedule_layout::config::LayoutFormat;
+        match s.map(str::trim) {
+            Some("idml") => LayoutFormat::Idml,
+            _ => LayoutFormat::Typst,
+        }
+    }
+
     fn parse_paper(s: &str) -> PaperSize {
         match s {
             "letter" => PaperSize::Letter,
@@ -1247,6 +1257,7 @@ fn run_layout_export(
                     LayoutOutputJob {
                         config: LayoutConfig {
                             paper: parse_paper(&job.paper),
+                            format: parse_format(job.format.as_deref()),
                             content: parse_content(job.content.as_deref(), &job.split),
                             panel_filter: parse_panel_filter(job.panel_filter.as_deref()),
                             include_private: job.include_private.unwrap_or(false),
@@ -1396,6 +1407,60 @@ fn run_layout_export(
         } else {
             &data
         };
+
+        // IDML export is a separate path: one package per job, no Typst compile.
+        if matches!(
+            job.config.format,
+            schedule_layout::config::LayoutFormat::Idml
+        ) {
+            #[cfg(feature = "idml")]
+            {
+                let base_stem = match &job.output_override {
+                    Some(path) => path
+                        .file_stem()
+                        .and_then(|s| s.to_str())
+                        .map(|s| s.to_string())
+                        .unwrap_or_else(|| job.stem.clone()),
+                    None => job.stem.clone(),
+                };
+                // A command-line export path with an extension is written verbatim;
+                // otherwise the package lands beside the (per-paper) PDF output.
+                let out_path = match &job.output_override {
+                    Some(path) if path.extension().is_some() => path.clone(),
+                    Some(path) => path
+                        .parent()
+                        .filter(|p| !p.as_os_str().is_empty())
+                        .map(|p| p.to_path_buf())
+                        .unwrap_or_else(|| PathBuf::from("."))
+                        .join(format!("{base_stem}-{}.idml", job.config.paper.dir_name())),
+                    None => layout_dir
+                        .join(job.config.paper.dir_name())
+                        .join(format!("{base_stem}-{}.idml", job.config.paper.dir_name())),
+                };
+                if let Some(dir) = out_path.parent().filter(|p| !p.as_os_str().is_empty()) {
+                    if let Err(e) = fs::create_dir_all(dir) {
+                        eprintln!("warning: creating {:?}: {e}; skipping IDML job", dir);
+                        continue;
+                    }
+                }
+                match schedule_layout::idml::generate_idml(job_data, &job_brand, &job.config) {
+                    Ok(bytes) => match fs::write(&out_path, bytes) {
+                        Ok(()) => eprintln!("wrote {}", out_path.display()),
+                        Err(e) => eprintln!("warning: writing {:?}: {e}", out_path),
+                    },
+                    Err(e) => eprintln!("warning: IDML generation for '{}': {e}", job.stem),
+                }
+            }
+            #[cfg(not(feature = "idml"))]
+            {
+                eprintln!(
+                    "warning: job '{}' requests format=idml but cosam-convert was built \
+                     without the `idml` feature; skipping (rebuild with --features idml)",
+                    job.stem
+                );
+            }
+            continue;
+        }
 
         let outputs = document::generate(job_data, &job_brand, &job.config);
 

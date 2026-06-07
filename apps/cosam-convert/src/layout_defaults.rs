@@ -95,6 +95,9 @@ pub struct LayoutDefaults {
 pub struct JobConfig {
     /// Paper size: "letter", "legal", "tabloid", "super_b", "poster", "postcard"
     pub paper: String,
+    /// Output format: "typst" (default, PDF via Typst) or "idml" (Adobe InDesign).
+    /// IDML requires building with the `idml` feature. Optional.
+    pub format: Option<String>,
     /// Content: "both" (default), "grid_only", "description_only", "panel_list"
     pub content: Option<String>,
     /// How to split: "none", "day", "half_day", "room", "room_day", "presenter", "presenter_day"
@@ -156,6 +159,9 @@ impl JobConfig {
     fn merge_from(&mut self, other: &JobConfig) {
         if !other.paper.is_empty() {
             self.paper = other.paper.clone();
+        }
+        if other.format.is_some() {
+            self.format = other.format.clone();
         }
         if other.content.is_some() {
             self.content = other.content.clone();

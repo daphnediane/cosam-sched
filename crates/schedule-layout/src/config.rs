@@ -164,6 +164,17 @@ pub enum TimeSplit {
     HalfDay,
 }
 
+/// Output file format for a layout job.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum LayoutFormat {
+    /// Typst source compiled to PDF (the default pipeline).
+    #[default]
+    Typst,
+    /// Adobe InDesign Markup Language package (`.idml`). Feature-gated behind the
+    /// `idml` crate feature; see [`crate::idml`].
+    Idml,
+}
+
 /// Page-footer content.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub enum FooterMode {
@@ -275,6 +286,9 @@ pub enum PanelFilter {
 #[derive(Debug, Clone, Default)]
 pub struct LayoutConfig {
     pub paper: PaperSize,
+    /// Output file format. Defaults to [`LayoutFormat::Typst`], so existing
+    /// Typst/PDF behavior is unchanged unless a job opts into IDML.
+    pub format: LayoutFormat,
     /// What to render and how to split it.
     pub content: ContentMode,
     /// Which panels to include.

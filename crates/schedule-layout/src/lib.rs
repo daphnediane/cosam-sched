@@ -17,6 +17,7 @@
 //! - [`timegrid`] — time-grid layout computation (time slots, room columns, cell spans)
 //! - [`typst_gen`] — Typst `.typ` source generation
 //! - [`document`] — the unified multi-section layout builder
+//! - [`idml`] — Adobe IDML package generation (feature `idml`)
 
 pub mod blocks;
 pub mod brand;
@@ -25,6 +26,8 @@ pub mod config;
 pub mod document;
 pub mod fonts;
 pub mod geometry;
+#[cfg(feature = "idml")]
+pub mod idml;
 pub mod model;
 pub mod time_fmt;
 pub mod timegrid;
@@ -33,8 +36,8 @@ pub mod typst_gen;
 pub use brand::BrandConfig;
 pub use color::{ColorMode, PanelColor};
 pub use config::{
-    ContentMode, FooterMode, LayoutConfig, Orientation, PanelFilter, PaperSize, SectionSplit,
-    TimeSplit,
+    ContentMode, FooterMode, LayoutConfig, LayoutFormat, Orientation, PanelFilter, PaperSize,
+    SectionSplit, TimeSplit,
 };
 pub use model::ScheduleData;
 pub use timegrid::GridLayout;

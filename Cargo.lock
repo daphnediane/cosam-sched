@@ -5655,6 +5655,7 @@ dependencies = [
  "typst",
  "typst-library",
  "typst-pdf",
+ "zip",
 ]
 
 [[package]]

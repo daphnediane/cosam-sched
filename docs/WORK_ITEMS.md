@@ -1,6 +1,6 @@
 # Cosplay America Schedule - Work Item
 
-Updated on: Sat Jun  6 08:36:43 2026
+Updated on: Sat Jun  6 20:14:34 2026
 
 ## Completed
 
@@ -93,6 +93,7 @@ first-class entity fields, and decide how this interacts with CRDT merge.
 * [FEATURE-106] New shared Rust crate providing layout engine, brand config, Typst codegen, and in-process PDF compilation for print output formats.
 * [FEATURE-107] New CLI binary that consumes `schedule.json` and `config/brand.toml` to produce Typst-compiled PDFs and/or `.typ` source files for all print layout formats.
 * [FEATURE-108] Add an `--export-layout <DIR>` flag to `cosam-convert` that runs a default set of `cosam-layout` outputs after the schedule JSON export.
+* [FEATURE-110] Add Adobe InDesign Markup Language (IDML) as an optional export format for schedule layouts.
 * [FEATURE-114] Add one grid-view reference sheet per day to the exported XLSX, mirroring the HTML schedule grid with merged cells for multi-slot and multi-room events.
 * [FEATURE-115] Separate Timeline Sheet in XLSX
 * [FEATURE-116] New Dioxus 0.7 viewer app that reads widget JSON and renders a UI similar to the JS widget.
@@ -238,9 +239,10 @@ reference and jump-starting new conventions.
 file, preserving formatting, formulas, extra columns, and non-standard content.
   * [FEATURE-099] Serialize the `EditHistory` undo/redo stacks into the `.schedule` binary file so that
 undo/redo works across `cosam-modify` invocations.
-  * [FEATURE-110] Add Adobe InDesign Markup Language (IDML) as an optional export format for schedule layouts.
   * [FEATURE-120] ([META-117]) Configure `dx` build targets for Android and iPadOS, including app metadata,
 icons, and CI/CD pipeline integration.
+  * [FEATURE-142] Bring the IDML export toward Typst/PDF parity: schedule grid as an InDesign
+table, page-header banners, multi-column body text, and page footers.
 
 ---
 
@@ -528,22 +530,6 @@ Implementing cross-invocation undo requires:
 
 ---
 
-### [FEATURE-110] FEATURE-110: Add IDML export format option
-
-**Status:** Open
-
-**Priority:** Low
-
-**Summary:** Add Adobe InDesign Markup Language (IDML) as an optional export format for schedule layouts.
-
-**Blocked By:** [FEATURE-106]
-
-**Description:** Add IDML export as an optional output format in the schedule-layout crate. IDML is Adobe's XML-based format for InDesign documents, packaged as a ZIP archive containing XML files and assets. This would provide an alternative to the Typst/PDF workflow for users who need editable InDesign files or require InDesign-specific features.
-
-IDML is significantly more complex than the current Typst approach, requiring XML generation for multiple components (Stories, Spreads, MasterSpreads, Styles, Resources) and ZIP packaging. This feature should be implemented as an optional format behind a feature flag.
-
----
-
 ### [FEATURE-120] FEATURE-120: cosam-viewer — mobile build and deploy configuration
 
 **Status:** Open
@@ -558,6 +544,30 @@ icons, and CI/CD pipeline integration.
 **Description:** Set up the `Dioxus.toml`, Android manifest, iOS Info.plist, and icon assets
 needed to produce release builds of cosam-viewer for Android and iPadOS via
 `dx build --platform android` and `dx build --platform ios`.
+
+---
+
+### [FEATURE-142] FEATURE-142: Expand IDML export (grid, banners, columns, footers)
+
+**Status:** Open
+
+**Priority:** Low
+
+**Summary:** Bring the IDML export toward Typst/PDF parity: schedule grid as an InDesign
+table, page-header banners, multi-column body text, and page footers.
+
+**Blocked By:** [FEATURE-110]
+
+**Description:** FEATURE-110 shipped a v1 IDML export: a threaded text listing of panels grouped
+by day and time slot, with brand-driven paragraph styles. It deliberately
+deferred the richer layout features that the Typst pipeline already produces.
+This item closes that gap so an `.idml` job approaches the fidelity of its
+`.pdf` counterpart for the same `LayoutConfig`.
+
+The work builds on the existing `schedule-layout/src/idml.rs` module and reuses
+the layout computations already feeding the Typst path
+(`timegrid::GridLayout::compute`, `document::build_sections`,
+`blocks::banner`/`blocks::grid`), emitting IDML XML instead of Typst source.
 
 ---
 
@@ -811,7 +821,7 @@ Make the split dimensions explicit and fail loudly on bad input.
 [FEATURE-106]: work-item/done/FEATURE-106.md
 [FEATURE-107]: work-item/done/FEATURE-107.md
 [FEATURE-108]: work-item/done/FEATURE-108.md
-[FEATURE-110]: work-item/low/FEATURE-110.md
+[FEATURE-110]: work-item/done/FEATURE-110.md
 [FEATURE-113]: work-item/medium/FEATURE-113.md
 [FEATURE-114]: work-item/done/FEATURE-114.md
 [FEATURE-115]: work-item/done/FEATURE-115.md
@@ -829,6 +839,7 @@ Make the split dimensions explicit and fail loudly on bad input.
 [FEATURE-135]: work-item/done/FEATURE-135.md
 [FEATURE-136]: work-item/done/FEATURE-136.md
 [FEATURE-137]: work-item/done/FEATURE-137.md
+[FEATURE-142]: work-item/low/FEATURE-142.md
 [META-001]: work-item/meta/META-001.md
 [META-002]: work-item/done/META-002.md
 [META-003]: work-item/done/META-003.md

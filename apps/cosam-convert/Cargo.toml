@@ -13,6 +13,9 @@ path = "src/main.rs"
 [features]
 default = ["layout"]
 layout = ["dep:schedule-layout", "dep:serde", "dep:toml", "dep:thiserror"]
+# Enable IDML (.idml) layout export (pulls in schedule-layout's `idml` feature).
+# Not in `default`, so the standard build needs no IDML/zip dependencies.
+idml = ["layout", "schedule-layout/idml"]
 
 [dependencies]
 anyhow = "1"

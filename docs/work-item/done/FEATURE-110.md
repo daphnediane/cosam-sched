@@ -6,7 +6,7 @@ Add Adobe InDesign Markup Language (IDML) as an optional export format for sched
 
 ## Status
 
-Open
+Completed
 
 ## Priority
 
@@ -73,15 +73,45 @@ IDML requires understanding of:
 - Color space definitions (CMYK, RGB)
 - Page geometry and master page application
 
+## v1 Implementation (delivered)
+
+Shipped a **threaded text listing** export (the work item's "initial
+implementation focused on text frames, simple styles"):
+
+- `schedule-layout/src/idml.rs` — `generate_idml(data, brand, config) -> Vec<u8>`
+  produces the full `.idml` ZIP. Parts are emitted as hand-built XML strings
+  (no `quick-xml`/`serde-xml` dependency), modeled on a real InDesign-authored
+  package: `mimetype` (stored, first), `designmap.xml`, `META-INF/`,
+  `Resources/{Fonts,Styles,Graphic,Preferences}.xml`, one `MasterSpreads/` part,
+  N `Spreads/` (one page + one text frame each, threaded), one `Stories/` part,
+  and `XML/{BackingStory,Tags}.xml`. Output is deterministic.
+- Panels are grouped day → time slot; `panel_list` content is compact, other
+  modes full. Paragraph styles (Day/Slot/Title/Meta/Body) are driven by the
+  brand config; `heading_idml_style` / `body_idml_style` give the font's exact
+  InDesign style name (overriding the numeric Typst weight).
+- `LayoutFormat { Typst, Idml }` on `LayoutConfig`; wired through `cosam-convert`
+  as `format = "idml"` / `--layout.format=idml`, behind the `idml` cargo feature.
+
+### Deferred to follow-up work items
+
+- The schedule **grid** as an InDesign `<Table>` (built from `GridLayout`), for
+  `grid_only` / `both`, with room/presenter section splits.
+- Embedded fonts/logos and per-panel-type CMYK swatches.
+- True overflow-driven pagination (v1 estimates page count heuristically).
+
 ## Acceptance Criteria
 
-- `cargo test -p schedule-layout` passes with `idml` feature
-- `IdmlBuilder` creates valid IDML package structure
-- Generated IDML can be opened in Adobe InDesign without errors
-- Basic schedule layout (panels, rooms, times) renders correctly
-- Feature flag allows building without IDML dependencies
-- `cosam-convert` layout option `format = "idml"` (`--layout.format=idml`)
-  produces a .idml file
+- [x] `cargo test -p schedule-layout` passes with `idml` feature
+- [x] `generate_idml` creates a valid IDML package structure (ZIP + parts,
+      verified well-formed in tests)
+- [x] Generated IDML opens in Adobe InDesign (confirmed by the user; only a
+      normal missing-font *substitution* prompt when brand fonts aren't installed
+      — not a document error)
+- [x] Basic schedule layout (panels, rooms, times) renders correctly
+- [x] Feature flag allows building without IDML dependencies (`idml` not in
+      `default` for either crate)
+- [x] `cosam-convert` layout option `format = "idml"` (`--layout.format=idml`)
+      produces a `.idml` file
 
 ## Notes
 

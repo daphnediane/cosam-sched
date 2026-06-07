@@ -208,6 +208,11 @@ pub struct BrandFonts {
     /// Heading font weight (e.g., `"regular"`, `"bold"`, or numeric like `"500"`).
     /// For Trend Sans: "200"=One, "300"=Two, "400"=Three, "500"=Four, "700"=Five
     pub heading_weight: Option<String>,
+    /// Exact InDesign style name for the heading font (e.g. `"One"` for Trend
+    /// Sans). When set, used verbatim as the IDML `FontStyle`, overriding the
+    /// numeric-weight mapping. Has no effect on Typst/PDF output, which uses the
+    /// numeric [`heading_weight`](Self::heading_weight).
+    pub heading_idml_style: Option<String>,
     /// Banner font family (page-header bars). Falls back to `heading`.
     pub banner: Option<String>,
     /// Banner font style. Falls back to `heading_style`.
@@ -222,6 +227,10 @@ pub struct BrandFonts {
     pub body_style: Option<String>,
     /// Body font weight (e.g., `"regular"`, `"bold"`, or numeric like `"400"`).
     pub body_weight: Option<String>,
+    /// Exact InDesign style name for the body font (e.g. `"Regular"`). When set,
+    /// used verbatim as the IDML `FontStyle`, overriding the numeric-weight
+    /// mapping. Has no effect on Typst/PDF output.
+    pub body_idml_style: Option<String>,
     /// Path to a directory containing font files (TTF/OTF).
     pub font_dir: Option<PathBuf>,
 }
@@ -248,6 +257,11 @@ impl BrandFonts {
     /// Heading font weight, if specified.
     pub fn heading_weight(&self) -> Option<&str> {
         self.heading_weight.as_deref()
+    }
+
+    /// Explicit InDesign style name for the heading font, if specified.
+    pub fn heading_idml_style(&self) -> Option<&str> {
+        self.heading_idml_style.as_deref()
     }
 
     /// Banner font family, falling back to `heading_or_default()`.
@@ -290,6 +304,11 @@ impl BrandFonts {
     /// Body font weight, if specified.
     pub fn body_weight(&self) -> Option<&str> {
         self.body_weight.as_deref()
+    }
+
+    /// Explicit InDesign style name for the body font, if specified.
+    pub fn body_idml_style(&self) -> Option<&str> {
+        self.body_idml_style.as_deref()
     }
 }
 

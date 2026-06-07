@@ -32,6 +32,8 @@ white = "#FFFFFF"
 # heading = "Trend Sans"
 # heading_style = "One"        # Optional: style name (e.g., "One", "Bold", "Italic")
 # heading_weight = "200"       # Optional: weight (e.g., "200"=One, "300"=Two, "400"=Three, "500"=Four, "700"=Five)
+# heading_idml_style = "One"   # Optional: exact InDesign style name for IDML export (overrides the
+#                              #   numeric-weight mapping; Typst/PDF keeps using heading_weight)
 # banner = "Trend Sans"        # Optional: page-header bar font; falls back to heading
 # banner_style = "One"         # Optional: banner font style; falls back to heading_style
 # banner_weight = "200"        # Optional: banner font weight; falls back to heading_weight, then "bold"
@@ -39,4 +41,6 @@ white = "#FFFFFF"
 # body = "Avenir Next"
 # body_style = "Regular"       # Optional: style name (e.g., "Regular", "Medium")
 # body_weight = "400"          # Optional: weight (e.g., "400"=Regular, "700"=Bold)
+# body_idml_style = "Regular"  # Optional: exact InDesign style name for IDML export (overrides the
+#                              #   numeric-weight mapping; Typst/PDF keeps using body_weight)
 # font_dir = "brand/fonts"     # directory with TTF/OTF files, relative to this file

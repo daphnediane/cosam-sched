@@ -10,6 +10,8 @@ description = "Layout engine, brand config, and Typst/PDF generation for cosam-s
 default = []
 # Enable in-process Typst PDF compilation
 compile = ["dep:typst", "dep:typst-library", "dep:typst-pdf", "dep:comemo"]
+# Enable Adobe IDML package export (adds the `zip` dependency)
+idml = ["dep:zip"]
 
 [dependencies]
 serde = { version = "1", features = ["derive"] }
@@ -26,6 +28,9 @@ typst = { version = "0.13", optional = true }
 typst-library = { version = "0.13", optional = true }
 typst-pdf = { version = "0.13", optional = true }
 comemo = { version = "0.4", optional = true }
+
+# Optional: IDML (.idml) package generation
+zip = { version = "2", optional = true, default-features = false, features = ["deflate"] }
 
 [dev-dependencies]
 serde_json = "1"

@@ -74,6 +74,7 @@ that path has an extension, the PDF is written to it verbatim.
 | Field             | Meaning                                                                                                                                    |
 | ----------------- | ------------------------------------------------------------------------------------------------------------------------------------------ |
 | `paper`           | `Letter`, `Legal`, `Tabloid`, `SuperB`, `Poster`, `Postcard4x6`                                                                            |
+| `format`          | `Typst` (default, → PDF) or `Idml` (Adobe InDesign; see [IDML export](#idml-export))                                                       |
 | `content`         | [`ContentMode`](#contentmode--splits) — what to draw + how to split                                                                        |
 | `panel_filter`    | `All`, `Workshops`, `Premium`                                                                                                              |
 | `include_private` | Render the private view: private panels + unlisted presenters in per-presenter splits (byline credits stay credited-only). Default `false` |
@@ -137,6 +138,46 @@ The former hard-coded formats are now these recipes (see
 | room signs        | `both`             | `room_day`  |                          |
 | flyer             | `both`             | `day`       | `double_sided=true`      |
 | guest postcards   | `panel_list`       | `presenter` | `paper=postcard`         |
+
+## IDML export
+
+The `idml` module (feature-gated behind the `idml` crate feature) emits an Adobe
+**IDML** package (`.idml`) — a ZIP of XML parts InDesign can open and hand-edit —
+as an alternative to the Typst/PDF pipeline. Select it per job with
+`format = "idml"` (TOML) or `--layout.format=idml` (CLI). The package is written
+as `<stem>.idml` instead of a `.typ`/`.pdf` pair; no `typst` binary is needed.
+
+Build with the feature enabled (it is **not** in the default build, so the
+standard binary needs no IDML/`zip` dependencies):
+
+```bash
+cargo run --release -p cosam-convert --features idml -- \
+  --input "input/2026 Schedule.xlsx" \
+  --layout.content=description_only --layout.split=none \
+  --layout.format=idml --export-layout scratch/sched.idml
+```
+
+A job that requests `format=idml` from a binary built without the feature prints
+a warning and is skipped.
+
+### Scope (v1) and limitations
+
+- Renders a **threaded text listing**: panels grouped by day → time slot, flowed
+  through linked text frames across as many pages as needed. `panel_list` content
+  is compact (name / time / room); other modes are full (title, time · room(s) ·
+  presenters, description).
+- The schedule **grid** is not yet emitted — `grid_only` / `both` produce only
+  the text portion. The grid maps onto an InDesign `<Table>` (built from
+  `GridLayout`) and is planned as a follow-up.
+- Section splits beyond day/time (room/presenter) are not yet specialized.
+- **Fonts** are referenced, not embedded (IDML never embeds fonts). Headings use
+  the brand heading font; set `heading_idml_style` / `body_idml_style` in
+  `brand.toml` to the font's exact InDesign style name (e.g. Trend Sans's
+  `"One"`) — these override the numeric `*_weight` mapping used for Typst. When a
+  font is not installed, InDesign substitutes it on open (a normal warning, not a
+  document error).
+- Page count is estimated heuristically (with slack), not driven by true text
+  overflow.
 
 ## Crate modules
 
