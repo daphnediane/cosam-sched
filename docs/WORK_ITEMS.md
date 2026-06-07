@@ -1,6 +1,6 @@
 # Cosplay America Schedule - Work Item
 
-Updated on: Sat Jun  6 20:14:34 2026
+Updated on: Sun Jun  7 16:49:55 2026
 
 ## Completed
 
@@ -183,6 +183,7 @@ type appear in the loaded schedule.
 above panelists and groups.
 * [UI-089] The cost filter has too many options; collapse "Additional Cost" and
 "Workshops" into a single "Premium" option.
+* [UI-143] Make the day stay visible in list and grid views while scrolling, and show the date in the event detail modal.
 
 ---
 
@@ -880,3 +881,4 @@ Make the split dimensions explicit and fail loudly on bad input.
 [UI-087]: work-item/done/UI-087.md
 [UI-088]: work-item/done/UI-088.md
 [UI-089]: work-item/done/UI-089.md
+[UI-143]: work-item/done/UI-143.md

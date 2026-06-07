@@ -15,7 +15,13 @@
   --cosam-widget-bg: transparent;
   --cosam-page-bg: inherit;
   --cosam-page-text: #1f2937;
-  --cosam-time-header-bg: transparent;
+  /* Sticky list headers must be opaque to occlude panels scrolling under them.
+     In the transparent default theme the widget sits on the host page, so the
+     headers should take the host's page color. The widget JS detects the
+     effective page background and sets --cosam-page-bg; we fall back to the
+     surface color when no opaque ancestor background is found. */
+  --cosam-time-header-bg: var(--cosam-page-bg, var(--cosam-bg));
+  --cosam-day-header-h: 34px;
   --cosam-border: #e5e7eb;
   --cosam-text: #1f2937;
   --cosam-text-muted: #6b7280;
@@ -743,33 +749,46 @@
   gap: 2px;
 }
 
+.cosam-day-section {
+  margin-bottom: 8px;
+}
+
+/* Sticky day banner: pins to the top of the viewport for the whole day so the
+   date is never lost while scrolling. Solid background so panels scroll under
+   it, not through it. */
+.cosam-day-header {
+  position: -webkit-sticky;
+  position: sticky;
+  top: 0;
+  z-index: 6;
+  box-sizing: border-box;
+  height: var(--cosam-day-header-h);
+  display: flex;
+  align-items: center;
+  font-size: 16px;
+  font-weight: 800;
+  color: var(--cosam-text);
+  background: var(--cosam-time-header-bg);
+  border-bottom: 2px solid var(--cosam-accent);
+}
+
 .cosam-time-group {
   margin-bottom: 16px;
 }
 
+/* Time header pins just beneath the day banner and swaps as you scroll.
+   Solid background so it stays readable over scrolling content. */
 .cosam-time-header {
   font-size: 14px;
   font-weight: 600;
   color: var(--cosam-accent);
-  padding: 6px 16px;
-  border-bottom: 1px solid var(--cosam-border);
+  padding: 6px 0;
   margin-bottom: 8px;
+  position: -webkit-sticky;
   position: sticky;
-  top: 0;
-  background: var(--cosam-time-header-bg, var(--cosam-bg));
-  z-index: 2;
-}
-
-/* Time headers: transparent background, no left padding, no border for cleaner look */
-.cosam-time-header {
-  background: transparent;
-  padding-left: 0;
-  border-bottom: none;
-}
-
-.cosam-time-header-day {
-  font-size: 15px;
-  font-weight: 700;
+  top: var(--cosam-day-header-h);
+  background: var(--cosam-time-header-bg);
+  z-index: 5;
 }
 
 .cosam-time-header-time {
@@ -911,6 +930,13 @@
   white-space: nowrap;
 }
 
+/* Day in the detail modal: emphasized so screenshots of a panel keep the date. */
+.cosam-modal-meta .cosam-meta-day {
+  white-space: nowrap;
+  font-weight: 700;
+  color: var(--cosam-text);
+}
+
 .cosam-meta-room {
   display: inline-flex;
   align-items: flex-start;
@@ -1030,16 +1056,20 @@
 /* ── Grid View ────────────────────────────────────────────────────────────── */
 
 .cosam-grid-view {
-  overflow-x: auto;
-  -webkit-overflow-scrolling: touch;
+  /* Let the page scroll the grid (rather than trapping the scroll in an inner
+     box): the toolbar/tabs scroll up to the top, then the sticky header cells
+     (position: sticky; top: 0) pin to the viewport for the rest of the day.
+     Room columns are flexible (minmax(0, 1fr)) so the grid fits the widget
+     width without needing its own horizontal scroll. */
+  overflow: visible;
+  border: 2px solid var(--cosam-grid-border);
+  border-radius: 8px;
+  position: relative;
 }
 
 /* Grey background for the entire grid */
 .cosam-grid {
   display: grid;
-  border: 2px solid var(--cosam-grid-border);
-  border-radius: 8px;
-  overflow: hidden;
   z-index: 1;
   position: relative;
   gap: 0;
@@ -1075,17 +1105,42 @@
   font-size: 13px;
   font-weight: 600;
   text-align: center;
+  /* Pin the day's header row (day/date corner + room names) to the top so the
+     columns stay labeled no matter how far down the day you scroll. Each day's
+     header row swaps the previous one cleanly as you cross a day boundary.
+     z-index sits above scrolling events (20) and breaks (10). */
+  position: -webkit-sticky;
   position: sticky;
   top: 0;
-  z-index: 3;
-  position: relative;
-  z-index: 4;
+  z-index: 25;
   border-right: 1px solid var(--cosam-grid-border-soft);
   border-bottom: 1px solid var(--cosam-grid-border-soft);
 }
 
 .cosam-grid-header-cell:last-child {
   border-right: none;
+}
+
+/* Day/date in the time-column corner of each day's header row: weekday over
+   date, mirroring the room name / hotel room split. */
+.cosam-grid-time-header-day {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  line-height: 1.15;
+}
+
+.cosam-grid-time-header-weekday {
+  font-size: 13px;
+  font-weight: 800;
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
+}
+
+.cosam-grid-time-header-date {
+  font-size: 12px;
+  font-weight: 600;
+  opacity: 0.85;
 }
 
 .cosam-grid-time-header {
@@ -1106,18 +1161,8 @@
   align-items: center;
   width: 100%;
   padding: 4px 0 !important;
-}
-
-.cosam-grid-day-label {
-  font-size: 10px;
-  font-weight: 700;
-  text-transform: uppercase;
-  letter-spacing: 0.04em;
-  margin-bottom: 2px;
-  padding-top: 4px;
-  text-align: center;
-  width: 100%;
-  display: block;
+  /* Keep the sticky corner above scrolling time labels in the same column. */
+  z-index: 25;
 }
 
 .cosam-grid-time-major {
@@ -2431,6 +2476,12 @@ body.cosam-page-styled a:hover {
     page-break-after: avoid;
   }
 
+  .cosam-day-header {
+    position: static;
+    break-after: avoid;
+    page-break-after: avoid;
+  }
+
   /* Use normal break styling for overnight breaks in print */
   .cosam-implicit-overnight-break {
     background: repeating-linear-gradient(-45deg, #e0e0e0, #e0e0e0 8px, #d5d5d5 8px, #d5d5d5 16px) !important;
@@ -2521,12 +2572,6 @@ body.cosam-page-styled a:hover {
     opacity: 0.8;
   }
 
-  .cosam-grid-day-label {
-    font-size: 7px;
-    font-weight: 700;
-    text-transform: uppercase;
-    color: #333;
-  }
 
   /* Grid events: no overflow, break-inside avoid */
   .cosam-grid-event {
@@ -2591,16 +2636,19 @@ body.cosam-page-styled a:hover {
     font-size: 8px;
   }
 
-  /* Day-change label row inside grid */
-  .cosam-grid-time-header .cosam-grid-day-label {
-    break-before: page;
-    page-break-before: always;
-    display: block;
+  /* Day/date in each repeated header-row corner stays visible in print. */
+  .cosam-grid-time-header-day {
+    color: #000 !important;
   }
 
-  .cosam-grid-time-header:first-of-type .cosam-grid-day-label {
-    break-before: avoid;
-    page-break-before: avoid;
+  .cosam-grid-time-header-weekday {
+    font-size: 8px;
+    font-weight: 700;
+    text-transform: uppercase;
+  }
+
+  .cosam-grid-time-header-date {
+    font-size: 7px;
   }
 
   /* Hide responsive overrides during print */

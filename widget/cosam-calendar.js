@@ -30,6 +30,7 @@ import QRCode from 'qrcode';
     chevronDown: '<svg viewBox="0 0 24 24"><polyline points="6 9 12 15 18 9"/></svg>',
     clock: '<svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>',
     mappin: '<svg viewBox="0 0 24 24"><path d="M21 10c0 7-9 13-9 13s-9-6-9-13a9 9 0 0 1 18 0z"/><circle cx="12" cy="10" r="3"/></svg>',
+    calendar: '<svg viewBox="0 0 24 24"><rect x="3" y="4" width="18" height="18" rx="2" ry="2"/><line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/></svg>',
     question: '<svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="10"/><path d="M9.09 9a3 3 0 0 1 5.83 1c0 2-3 3-3 3"/><line x1="12" y1="17" x2="12.01" y2="17"/></svg>',
   };
 
@@ -646,6 +647,7 @@ import QRCode from 'qrcode';
       const theme = this.state.theme || 'cosam';
       this.root.setAttribute('data-theme', theme);
       this._applyPageStyling(theme);
+      this._applyHeaderPageColor(theme);
       this.state._saveState();
       this._ensurePanelTypeThemeStyles();
       this.root.appendChild(el('a', { className: 'cosam-skip-link', href: '#' + this._eventsRegionId }, 'Skip to events'));
@@ -686,6 +688,48 @@ import QRCode from 'qrcode';
         document.body.classList.remove('cosam-page-styled');
         document.body.removeAttribute('data-cosam-theme');
       }
+    }
+
+    // Sticky list-view day/time headers need an opaque background to occlude
+    // panels scrolling under them. The default (transparent) theme sits on the
+    // host page, so the headers should take the host's page color rather than a
+    // fixed surface color that reads as white. Detect the effective page
+    // background and expose it as --cosam-page-bg; the CSS falls back to the
+    // surface color when nothing opaque is found. Named themes ship their own
+    // opaque --cosam-time-header-bg, so we clear any detected value for them.
+    _applyHeaderPageColor(theme) {
+      if (theme && theme !== 'cosam') {
+        this.root.style.removeProperty('--cosam-page-bg');
+        return;
+      }
+      const color = this._resolveOpaquePageColor(this.root);
+      if (color) {
+        this.root.style.setProperty('--cosam-page-bg', color);
+      } else {
+        this.root.style.removeProperty('--cosam-page-bg');
+      }
+    }
+
+    // Walk ancestors from the widget root outward, returning the first fully
+    // opaque computed background color (skipping the transparent widget itself).
+    // Returns null if none is found, so the CSS fallback applies.
+    _resolveOpaquePageColor(startEl) {
+      let node = startEl ? startEl.parentElement : null;
+      while (node) {
+        const bg = window.getComputedStyle(node).backgroundColor;
+        if (this._isOpaqueColor(bg)) return bg;
+        node = node.parentElement;
+      }
+      return null;
+    }
+
+    _isOpaqueColor(color) {
+      if (!color || color === 'transparent') return false;
+      const m = color.match(/^rgba?\(([^)]+)\)$/i);
+      if (!m) return true; // named/hex value: assume opaque
+      const parts = m[1].split(',').map((s) => s.trim());
+      if (parts.length < 4) return true; // rgb() with no alpha is opaque
+      return parseFloat(parts[3]) >= 0.999;
     }
 
     _panelTypeClass(panelTypeUid) {
@@ -1386,29 +1430,32 @@ import QRCode from 'qrcode';
         groups.get(key).push(evt);
       }
 
-      const showAllDays = !this.state.activeDay;
-      let lastDayKey = null;
-
       // Sort time keys chronologically for proper day transition detection
       const sortedTimeKeys = Array.from(groups.keys()).sort();
 
+      // Each day becomes a sticky section: the day header pins to the top of the
+      // viewport for the whole day, with the time header pinning just beneath it.
+      let currentDayKey = null;
+      let daySection = container;
+
       for (const timeKey of sortedTimeKeys) {
         const evts = groups.get(timeKey);
+
+        const daySource = evts && evts.length > 0 ? evts[0].startTime : timeKey + ':00';
+        const dayKey = getDayKey(daySource);
+        if (dayKey !== currentDayKey) {
+          currentDayKey = dayKey;
+          daySection = el('div', { className: 'cosam-day-section' });
+          daySection.appendChild(el('div', {
+            className: 'cosam-day-header',
+            role: 'heading',
+            'aria-level': '2',
+          }, getDayLabel(daySource)));
+          container.appendChild(daySection);
+        }
+
         const group = el('div', { className: 'cosam-time-group' });
-        const timeLabel = evts[0] ? formatTime(evts[0].startTime) : timeKey;
-        // Day transition handling
-        let dayLabel = null;
-        if (showAllDays && evts && evts.length > 0) {
-          const dayKey = getDayKey(evts[0].startTime);
-          if (dayKey !== lastDayKey) {
-            dayLabel = getDayLabel(evts[0].startTime);
-            lastDayKey = dayKey;
-          }
-        }
         const timeHeader = el('div', { className: 'cosam-time-header' });
-        if (dayLabel) {
-          timeHeader.appendChild(el('div', { className: 'cosam-time-header-day' }, dayLabel));
-        }
         // Use split time format for aligned display with accessibility
         const timeSplit = formatTimeSplit(evts[0] ? evts[0].startTime : null);
         if (timeSplit.isSpecial) {
@@ -1446,7 +1493,7 @@ import QRCode from 'qrcode';
             group.appendChild(this._buildEventCard(evt));
           }
         }
-        container.appendChild(group);
+        daySection.appendChild(group);
       }
 
       return container;
@@ -1664,7 +1711,43 @@ import QRCode from 'qrcode';
 
       // Create grid template styles
       const gridColumns = `[time] minmax(80px, 120px) ` + roomOrder.map(roomId => `[room-${roomId}] minmax(0, 1fr)`).join(' ');
-      const gridRows = `[header] auto ` + timeSlots.map(timeSlot => `[${timeSlot}] minmax(60px, auto)`).join(' ') + ` [footer] auto`;
+
+      // A sticky header row repeats at each new day: its time-column corner
+      // shows the day (weekday over date) and the room columns repeat. Because
+      // every day's header row is identical in shape, they swap cleanly as you
+      // scroll across a day boundary — no awkward partial overlap of the rooms.
+      // The global-max time key is an event END that nothing starts on (e.g. the
+      // overnight break's next-day end), so a track for it would render as an
+      // empty trailing slot — and at a day boundary, a spurious day header too.
+      // Don't emit a track or header for such trailing end-only keys; instead
+      // fold their grid-line names onto the [footer] line so event/break spans
+      // ending there still resolve.
+      const startKeys = new Set(events.map(e => getTimeSlotKey(e.startTime)));
+      let lastStartIdx = -1;
+      for (let i = 0; i < allTimeKeys.length; i++) {
+        if (startKeys.has(allTimeKeys[i])) lastStartIdx = i;
+      }
+
+      const dayHeaders = [];
+      const rowParts = [];
+      const trailingLineNames = [];
+      let hdrLastDayKey = null;
+      for (let i = 0; i < timeSlots.length; i++) {
+        if (i > lastStartIdx) {
+          trailingLineNames.push(timeSlots[i]);
+          continue;
+        }
+        const dayKey = getDayKey(allTimeKeys[i] + ':00');
+        if (dayKey !== hdrLastDayKey) {
+          hdrLastDayKey = dayKey;
+          const rowName = 'dayhdr-' + dayKey.replace(/[^0-9a-z]/gi, '');
+          dayHeaders.push({ rowName, source: allTimeKeys[i] + ':00' });
+          rowParts.push(`[${rowName}] auto`);
+        }
+        rowParts.push(`[${timeSlots[i]}] minmax(60px, auto)`);
+      }
+      const footerLine = `[${trailingLineNames.concat(['footer']).join(' ')}] auto`;
+      const gridRows = (dayHeaders.length > 0 ? rowParts.join(' ') : '[header] auto') + ` ${footerLine}`;
 
       // Build CSS grid
       const grid = el('div', {
@@ -1680,15 +1763,13 @@ import QRCode from 'qrcode';
       grid.style.gridTemplateColumns = gridColumns;
       grid.style.gridTemplateRows = gridRows;
 
-      // Add header row
-      const header = this._buildGridHeader(roomOrder);
-      header.style.gridRow = 'header';
-      grid.appendChild(header);
+      // Add a sticky header row per day (corner = day/date, room columns repeat).
+      const headerSpecs = dayHeaders.length > 0 ? dayHeaders : [{ rowName: 'header', source: null }];
+      for (const dh of headerSpecs) {
+        grid.appendChild(this._buildGridHeader(roomOrder, dh.source, dh.rowName));
+      }
 
       // Add time slots and events
-      const showAllDays = !this.state.activeDay;
-      let lastDayKey = null;
-
       for (let i = 0; i < timeSlots.length; i++) {
         const timeSlot = timeSlots[i];
         const originalKey = allTimeKeys[i];
@@ -1700,20 +1781,6 @@ import QRCode from 'qrcode';
         const slotDate = new Date(originalKey + ':00');
         const isHalfHour = slotDate.getMinutes() !== 0;
 
-        // Day transition handling
-        let dayLabel = null;
-        if (showAllDays) {
-          const dayKey = slotEvents.length > 0
-            ? getDayKey(slotEvents[0].startTime)
-            : getDayKey(originalKey + ':00');
-          if (dayKey !== lastDayKey) {
-            const daySource = slotEvents.length > 0 ? slotEvents[0].startTime : originalKey + ':00';
-            const eventTime = new Date(daySource);
-            dayLabel = eventTime.toLocaleDateString('en-US', { weekday: 'long' });
-            lastDayKey = dayKey;
-          }
-        }
-
         // Build time header with split time format for aligned display
         const timeHeader = el('div', {
           className: 'cosam-grid-time-header' + (isHalfHour ? ' cosam-grid-time-half' : ''),
@@ -1722,10 +1789,6 @@ import QRCode from 'qrcode';
             gridRow: timeSlot,
           }
         });
-
-        if (dayLabel) {
-          timeHeader.appendChild(el('div', { className: 'cosam-grid-day-label' }, dayLabel));
-        }
 
         // Use split time format for accessibility and aligned display
         const timeSource = slotEvents.length > 0 ? slotEvents[0].startTime : originalKey + ':00';
@@ -1874,13 +1937,14 @@ import QRCode from 'qrcode';
       }
 
       // Add subtle background gridlines
-      // Horizontal row lines at each time slot
-      for (const ts of timeSlots) {
+      // Horizontal row lines at each visible time slot (trailing end-only keys
+      // have no track — their line is folded onto [footer] — so skip them).
+      for (let i = 0; i <= lastStartIdx; i++) {
         const rowLine = el('div', {
           className: 'cosam-grid-row-line',
           style: {
             gridColumn: `room-${roomOrder[0]} / -1`,
-            gridRow: ts
+            gridRow: timeSlots[i]
           }
         });
         grid.appendChild(rowLine);
@@ -1950,19 +2014,35 @@ import QRCode from 'qrcode';
       return container;
     }
 
-    _buildGridHeader(roomOrder) {
+    _buildGridHeader(roomOrder, daySource, rowName) {
       const header = el('div', { className: 'cosam-grid-header' });
+      const cellRow = rowName || 'header';
 
-      // Time header - centered across split columns
+      // Time-column corner: shows this day's weekday over its date (like the
+      // room name / hotel room split) so the day rides along with the sticky
+      // header row. Falls back to a plain "Time" label when no day is given.
       const timeHeader = el('div', {
         className: 'cosam-grid-header-cell cosam-grid-time-header',
-        style: { gridColumn: 'time' }
+        style: { gridColumn: 'time', gridRow: cellRow }
       });
-      const timeLabel = el('div', {
-        className: 'cosam-grid-time-split cosam-grid-time-special',
-        'aria-label': 'Time column',
-      }, 'Time');
-      timeHeader.appendChild(timeLabel);
+      if (daySource) {
+        const d = new Date(daySource);
+        const dayCell = el('div', {
+          className: 'cosam-grid-time-header-day',
+          role: 'heading',
+          'aria-level': '2',
+        });
+        dayCell.appendChild(el('span', { className: 'cosam-grid-time-header-weekday' },
+          d.toLocaleDateString('en-US', { weekday: 'long' })));
+        dayCell.appendChild(el('span', { className: 'cosam-grid-time-header-date' },
+          d.toLocaleDateString('en-US', { month: 'short', day: 'numeric' })));
+        timeHeader.appendChild(dayCell);
+      } else {
+        timeHeader.appendChild(el('div', {
+          className: 'cosam-grid-time-split cosam-grid-time-special',
+          'aria-label': 'Time column',
+        }, 'Time'));
+      }
       header.appendChild(timeHeader);
 
       // Room headers
@@ -1975,7 +2055,7 @@ import QRCode from 'qrcode';
         }
         const roomHeader = el('div', {
           className: 'cosam-grid-header-cell',
-          style: { gridColumn: `room-${roomId}` }
+          style: { gridColumn: `room-${roomId}`, gridRow: cellRow }
         });
         roomHeader.innerHTML = roomDisplay;
         header.appendChild(roomHeader);
@@ -2470,6 +2550,12 @@ import QRCode from 'qrcode';
 
       // Meta
       const meta = el('div', { className: 'cosam-modal-meta' });
+      if (evt.startTime) {
+        // Day first, so screenshots of the detail view always carry the date.
+        const ds = el('span', { className: 'cosam-meta-day' });
+        ds.innerHTML = ICONS.calendar + ' ' + escapeHtml(getDayLabel(evt.startTime));
+        meta.appendChild(ds);
+      }
       if (evt.startTime) {
         const ts = el('span', { className: 'cosam-meta-time' });
         ts.innerHTML = ICONS.clock + ' ' + escapeHtml(formatTimeRange(evt.startTime, evt.endTime));
