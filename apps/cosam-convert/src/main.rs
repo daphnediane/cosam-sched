@@ -23,7 +23,7 @@ use schedule_core::xlsx::{
 
 mod conflicts;
 mod embed;
-mod layout_defaults;
+mod layout_config;
 mod static_html;
 
 // ── Input type tracking ───────────────────────────────────────────────────────
@@ -124,7 +124,7 @@ struct OutputSettings {
     /// the output file name) instead of the jobs from the layout TOML. Cleared by
     /// `--default`, `--default-layouts`, and `--layout-config`.
     #[cfg(feature = "layout")]
-    layout: Option<layout_defaults::JobConfig>,
+    layout: Option<layout_config::JobConfig>,
     /// Test affordance: use the schedule's modified time as the generated time so
     /// layout output (the page footer) is reproducible across runs.
     #[cfg(feature = "layout")]
@@ -198,79 +198,6 @@ fn parse_table_mode(arg: &str) -> Result<TableImportMode> {
         "ignore" | "skip" => Ok(TableImportMode::Skip),
         _ => Ok(TableImportMode::ReadFrom(arg.to_string())),
     }
-}
-
-/// Parse a `--layout.<bool-key>` flag value: an explicit `true`/`false`
-/// (`yes`/`no`, `1`/`0`) or, for a bare flag with no `=value`, `true`.
-#[cfg(feature = "layout")]
-fn parse_layout_bool(key: &str, value: Option<&str>) -> Result<bool> {
-    match value {
-        None => Ok(true),
-        Some(v) => match v.trim().to_ascii_lowercase().as_str() {
-            "true" | "yes" | "1" | "on" => Ok(true),
-            "false" | "no" | "0" | "off" => Ok(false),
-            other => anyhow::bail!("--layout.{key} expects a boolean, got '{other}'"),
-        },
-    }
-}
-
-/// Apply one `--layout.<key>[=<value>]` flag to the in-progress layout job.
-///
-/// `key` is the part after `--layout.` and `value` is the part after the first
-/// `=` (absent for bare boolean flags). Keys mirror the TOML field names in
-/// `config/layout.toml`; hyphens are accepted as a synonym for underscores.
-#[cfg(feature = "layout")]
-fn apply_layout_arg(
-    job: &mut layout_defaults::JobConfig,
-    key: &str,
-    value: Option<&str>,
-) -> Result<()> {
-    // Keys that take a string value require one.
-    let str_val = || -> Result<String> {
-        value
-            .map(|v| v.to_string())
-            .ok_or_else(|| anyhow::anyhow!("--layout.{key} requires a value (--layout.{key}=...)"))
-    };
-
-    let normalized = key.replace('-', "_");
-    match normalized.as_str() {
-        "paper" => job.paper = str_val()?,
-        "format" => job.format = Some(str_val()?),
-        "content" => job.content = Some(str_val()?),
-        "section_split" | "section-split" => job.section_split = Some(str_val()?),
-        "time_split" | "time-split" => job.time_split = Some(str_val()?),
-        // Deprecated combined split key: kept for backward compatibility.
-        "split" | "split_by" => job.split = Some(str_val()?),
-        "orientation" => job.orientation = str_val()?,
-        "stem" => job.stem = str_val()?,
-        "panel_filter" => job.panel_filter = Some(str_val()?),
-        "include_private" => job.include_private = Some(parse_layout_bool(key, value)?),
-        "color_mode" => job.color_mode = Some(str_val()?),
-        "footer" => job.footer = Some(str_val()?),
-        "double_sided" => job.double_sided = Some(parse_layout_bool(key, value)?),
-        "header_text" => job.header_text = Some(str_val()?),
-        "columns" => {
-            job.columns = Some(
-                str_val()?
-                    .parse::<u32>()
-                    .map_err(|_| anyhow::anyhow!("--layout.columns must be a positive integer"))?,
-            )
-        }
-        "base_font_pt" => job.base_font_pt = Some(str_val()?),
-        "grid_font_pt" => job.grid_font_pt = Some(str_val()?),
-        "page_fill" => job.page_fill = Some(str_val()?),
-        "empty_grid_fill" => job.empty_grid_fill = Some(str_val()?),
-        "cards" => job.cards = Some(parse_layout_bool(key, value)?),
-        "card_fill" => job.card_fill = Some(str_val()?),
-        "column_gap" => job.column_gap = Some(str_val()?),
-        "card_gap" => job.card_gap = Some(str_val()?),
-        "import" => job.import.push(str_val()?),
-        "brand_config" => job.brand_config = Some(str_val()?),
-        "logo" => job.logo = Some(str_val()?),
-        "banner_text_pt" => job.banner_text_pt = Some(str_val()?),
-        other => anyhow::bail!("unknown --layout.{other} key"),
-    }
-    Ok(())
 }
 
 fn check_duplicate_output(output_jobs: &[OutputJob], path: &PathBuf) -> Result<()> {
@@ -492,7 +419,7 @@ fn parse_args() -> Result<CliArgs> {
                     None => (rest, None),
                 };
                 let job = current_settings.layout.get_or_insert_with(Default::default);
-                apply_layout_arg(job, key, value)?;
+                layout_config::apply_layout_arg(job, key, value)?;
             }
             #[cfg(feature = "layout")]
             "--stable-timestamps" => {
@@ -1091,19 +1018,12 @@ fn run_layout_export(
     settings: &OutputSettings,
 ) {
     use schedule_layout::{
-        brand::BrandConfig,
-        color::ColorMode,
-        config::{
-            ContentMode, FooterMode, LayoutConfig, Orientation, PanelFilter, PaperSize,
-            SectionSplit, TimeSplit,
-        },
-        document,
-        model::ScheduleData,
+        brand::BrandConfig, config::LayoutConfig, document, model::ScheduleData,
     };
     use std::fs;
     use std::path::PathBuf;
 
-    use crate::layout_defaults::LayoutDefaults;
+    use crate::layout_config::LayoutDefaults;
 
     let brand_path = settings
         .brand_config
@@ -1160,257 +1080,17 @@ fn run_layout_export(
         output_override: Option<PathBuf>,
     }
 
-    // Helper functions to parse layout configuration strings
-
-    fn parse_color_mode(s: Option<&str>) -> ColorMode {
-        match s {
-            Some("bw") | Some("grayscale") => ColorMode::Bw,
-            Some("color") | None => ColorMode::Color,
-            Some(other) => {
-                eprintln!(
-                    "warning: unknown color_mode '{other}'; expected one of: color, bw — using 'color'"
-                );
-                ColorMode::Color
-            }
-        }
-    }
-
-    /// Parse `section_split` key: "none", "room", "presenter".
-    fn parse_section_split(s: Option<&str>) -> Option<SectionSplit> {
-        match s {
-            Some("none") | None => None,
-            Some("room") => Some(SectionSplit::Room),
-            Some("presenter") => Some(SectionSplit::Presenter),
-            Some(other) => {
-                eprintln!(
-                    "warning: unknown section_split '{other}'; expected one of: none, room, \
-                     presenter — ignoring"
-                );
-                None
-            }
-        }
-    }
-
-    /// Parse `time_split` key: "none", "day", "half_day", "timeline".
-    /// Returns `None` on "none"/absent, or the `TimeSplit` variant.
-    fn parse_time_split(s: Option<&str>) -> Option<TimeSplit> {
-        match s {
-            Some("none") | None => None,
-            Some("day") => Some(TimeSplit::Day),
-            Some("half_day") | Some("half-day") => Some(TimeSplit::HalfDay),
-            // "timeline" splits on the schedule's actual timeline/SPLIT panel entries.
-            Some("timeline") => Some(TimeSplit::Timeline),
-            Some(other) => {
-                eprintln!(
-                    "warning: unknown time_split '{other}'; expected one of: none, day, half_day, \
-                     timeline — ignoring"
-                );
-                None
-            }
-        }
-    }
-
-    /// Expand the deprecated combined `split` key into (section_split, time_split) strings.
-    /// Emits a deprecation warning. The caller merges these with the explicit fields
-    /// (explicit fields take priority over the deprecated split expansion).
-    fn expand_deprecated_split(split: &str) -> (Option<&'static str>, Option<&'static str>) {
-        match split {
-            "none" => (None, None),
-            "day" => (None, Some("day")),
-            "half_day" | "half-day" => (None, Some("half_day")),
-            "room" => (Some("room"), None),
-            "room_day" | "room-day" => (Some("room"), Some("day")),
-            "presenter" => (Some("presenter"), None),
-            "presenter_day" | "presenter-day" => (Some("presenter"), Some("day")),
-            other => {
-                eprintln!(
-                    "warning: unknown split '{other}'; expected one of: none, day, half_day, \
-                     room, room_day, presenter, presenter_day — ignoring"
-                );
-                (None, None)
-            }
-        }
-    }
-
-    /// Resolve a job's section and time split, handling the deprecated `split` key.
-    /// The explicit `section_split`/`time_split` fields take priority over the
-    /// expanded `split` value.
-    fn resolve_splits(
-        job: &layout_defaults::JobConfig,
-    ) -> (Option<SectionSplit>, Option<TimeSplit>) {
-        // Start from the deprecated combined key (if present), then override with
-        // the explicit independent keys.
-        let (dep_section, dep_time) = match &job.split {
-            Some(s) => {
-                eprintln!(
-                    "warning: job '{}': 'split' is deprecated; use 'section_split' and \
-                     'time_split' instead",
-                    job.stem
-                );
-                expand_deprecated_split(s)
-            }
-            None => (None, None),
-        };
-        let section_str = job.section_split.as_deref().or(dep_section);
-        let time_str = job.time_split.as_deref().or(dep_time);
-        (parse_section_split(section_str), parse_time_split(time_str))
-    }
-
-    /// Build a `ContentMode` from the resolved section/time splits and the content key.
-    /// Returns an error string for grid modes that have no time split.
-    fn build_content_mode(
-        content: Option<&str>,
-        section: Option<SectionSplit>,
-        time: Option<TimeSplit>,
-        stem: &str,
-    ) -> ContentMode {
-        // Grid-bearing modes require a time split.
-        let needs_time = matches!(
-            content,
-            Some("grid_only") | Some("grid-only") | Some("both") | None
-        );
-        if needs_time && time.is_none() {
-            eprintln!(
-                "error: job '{stem}': content mode '{}' requires a time split \
-                 (day, half_day, or timeline); falling back to 'day'",
-                content.unwrap_or("both")
-            );
-        }
-        let time_req = time.unwrap_or(TimeSplit::Day);
-        match content {
-            Some("grid_only") | Some("grid-only") => ContentMode::GridOnly {
-                section,
-                time: time_req,
-            },
-            Some("description_only") | Some("description-only") => {
-                ContentMode::DescriptionOnly { section, time }
-            }
-            Some("panel_list") | Some("panel-list") => ContentMode::PanelList { section, time },
-            None | Some("both") => ContentMode::Both {
-                section,
-                time: time_req,
-            },
-            Some(other) => {
-                eprintln!(
-                    "warning: job '{stem}': unknown content '{other}'; expected one of: both, \
-                     grid_only, description_only, panel_list — using 'both'"
-                );
-                ContentMode::Both {
-                    section,
-                    time: time_req,
-                }
-            }
-        }
-    }
-
-    fn parse_panel_filter(s: Option<&str>) -> PanelFilter {
-        match s {
-            Some("workshops") => PanelFilter::Workshops,
-            Some("premium") => PanelFilter::Premium,
-            None | Some("all") => PanelFilter::All,
-            Some(other) => {
-                eprintln!(
-                    "warning: unknown panel_filter '{other}'; expected one of: all, workshops, \
-                     premium — using 'all'"
-                );
-                PanelFilter::All
-            }
-        }
-    }
-
-    fn parse_footer(s: Option<&str>) -> FooterMode {
-        match s {
-            Some("timestamp_only") | Some("timestamp-only") => FooterMode::TimestampOnly,
-            Some("none") => FooterMode::None,
-            None | Some("full") => FooterMode::Full,
-            Some(other) => {
-                eprintln!(
-                    "warning: unknown footer '{other}'; expected one of: full, timestamp_only, \
-                     none — using 'full'"
-                );
-                FooterMode::Full
-            }
-        }
-    }
-
-    fn parse_format(s: Option<&str>) -> schedule_layout::config::LayoutFormat {
-        use schedule_layout::config::LayoutFormat;
-        match s.map(str::trim) {
-            Some("idml") => LayoutFormat::Idml,
-            _ => LayoutFormat::Typst,
-        }
-    }
-
-    fn parse_paper(s: &str) -> PaperSize {
-        match s {
-            "letter" => PaperSize::Letter,
-            "legal" => PaperSize::Legal,
-            "tabloid" => PaperSize::Tabloid,
-            "super_b" | "superb" => PaperSize::SuperB,
-            "poster" => PaperSize::Poster,
-            "postcard" => PaperSize::Postcard4x6,
-            "" => PaperSize::Tabloid,
-            other => {
-                eprintln!(
-                    "warning: unknown paper '{other}'; expected one of: letter, legal, tabloid, \
-                     super_b, poster, postcard — using 'tabloid'"
-                );
-                PaperSize::Tabloid
-            }
-        }
-    }
-
-    fn parse_orientation(s: &str) -> Orientation {
-        match s {
-            "portrait" => Orientation::Portrait,
-            "landscape" | "" => Orientation::Landscape,
-            other => {
-                eprintln!(
-                    "warning: unknown orientation '{other}'; expected one of: portrait, landscape \
-                     — using 'landscape'"
-                );
-                Orientation::Landscape
-            }
-        }
-    }
-
-    /// Convert JobConfig from layout.toml to LayoutOutputJob.
-    /// Returns (LayoutOutputJob, optional_brand_config_path).
+    /// Convert resolved `JobConfig`s to `LayoutOutputJob`s.
     fn convert_jobs(
-        jobs: &[(layout_defaults::JobConfig, Option<String>)],
+        jobs: &[(layout_config::JobConfig, Option<String>)],
     ) -> Vec<(LayoutOutputJob, Option<String>)> {
         jobs.iter()
             .map(|(job, brand_override)| {
-                let (section, time) = resolve_splits(job);
-                let content = build_content_mode(job.content.as_deref(), section, time, &job.stem);
+                let (config, stem) = job.to_layout_config();
                 (
                     LayoutOutputJob {
-                        config: LayoutConfig {
-                            paper: parse_paper(&job.paper),
-                            format: parse_format(job.format.as_deref()),
-                            content,
-                            panel_filter: parse_panel_filter(job.panel_filter.as_deref()),
-                            include_private: job.include_private.unwrap_or(false),
-                            orientation: parse_orientation(&job.orientation),
-                            color_mode: parse_color_mode(job.color_mode.as_deref()),
-                            columns: job.columns,
-                            footer: parse_footer(job.footer.as_deref()),
-                            double_sided: job.double_sided.unwrap_or(false),
-                            header_text: job.header_text.clone(),
-                            base_font_pt: job.base_font_pt.clone(),
-                            grid_font_pt: job.grid_font_pt.clone(),
-                            page_fill: job.page_fill.clone(),
-                            empty_grid_fill: job.empty_grid_fill.clone(),
-                            cards: job.cards.unwrap_or(false),
-                            card_fill: job.card_fill.clone(),
-                            column_gap: job.column_gap.clone(),
-                            card_gap: job.card_gap.clone(),
-                            // Default to "brand" so jobs without an explicit
-                            // `logo` key still show the brand logo.
-                            logo: Some(job.logo.clone().unwrap_or_else(|| "brand".to_string())),
-                            banner_text_pt: job.banner_text_pt.clone(),
-                        },
-                        stem: job.stem.clone(),
+                        config,
+                        stem,
                         output_override: None,
                     },
                     brand_override.clone(),
