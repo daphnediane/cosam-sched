@@ -12,7 +12,7 @@ Open
 
 ## Priority
 
-Low
+Medium
 
 ## Blocked By (optional)
 

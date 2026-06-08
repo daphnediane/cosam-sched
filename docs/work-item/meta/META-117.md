@@ -6,7 +6,7 @@ Tracker for all cosam-viewer work: initial viewer app and deferred enhancements.
 
 ## Status
 
-In Progress
+Blocked
 
 ## Priority
 

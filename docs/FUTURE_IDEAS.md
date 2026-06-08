@@ -1,6 +1,6 @@
 # Future Ideas and Design Notes
 
-Updated on: Sun May 17 22:36:23 2026
+Updated on: Mon Jun  8 09:36:35 2026
 
 Open design questions, unexplored alternatives, and deferred ideas.
 An IDEA item can be promoted to a work item by renaming it to another prefix
@@ -8,17 +8,17 @@ An IDEA item can be promoted to a work item by renaming it to another prefix
 
 ## Open Ideas
 
-### [IDEA-036] Per-Membership Edge Flags (always_grouped / always_shown_in_group)
+### [IDEA-036] Per-Membership Edge Flags (subsumes_members / show_individually)
 
-**Summary:** Explore restoring per-membership granularity for `always_grouped` and
-`always_shown_in_group` if entity-level flags prove insufficient.
+**Summary:** Explore restoring per-membership granularity for `subsumes_members` and
+`show_individually` if entity-level flags prove insufficient.
 
-**Description:** Currently `always_grouped` and `always_shown_in_group` are entity-level fields
+**Description:** Currently `subsumes_members` and `show_individually` are entity-level fields
 on `Presenter`, meaning they apply to **all** of a presenter's group memberships
 equally. This matches the old `schedule-to-html` Perl implementation behavior.
 
 The old `PresenterToGroup` edge stored these as per-edge flags, allowing a
-presenter to be `always_grouped` with respect to Group A but not Group B. This
+presenter to be `subsumes_members` with respect to Group A but not Group B. This
 distinction was not actually used in the spreadsheet data, but the model
 supported it.
 

@@ -12,7 +12,7 @@ Open
 
 ## Priority
 
-Medium
+High
 
 ## Description
 

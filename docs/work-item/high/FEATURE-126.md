@@ -12,7 +12,7 @@ Open
 
 ## Priority
 
-Medium
+High
 
 ## Blocked By (optional)
 
@@ -57,7 +57,7 @@ Known fields to preserve (not present in widget JSON):
 - `ticket_url`, `difficulty`, `prereq`
 - `for_kids`, `additional_cost`
 - Formula-cell sidecar data
-- `is_explicit_group`, `always_grouped`, `always_shown_in_group` on presenters
+- `is_explicit_group`, `subsumes_members`, `show_individually` on presenters
 - Hotel room metadata beyond the room name string
 - Credited vs uncredited presenter distinction (widget JSON flattens
   all to credited; do not demote existing uncredited presenters)

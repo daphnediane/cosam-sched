@@ -1,6 +1,6 @@
 # Cosplay America Schedule - Work Item
 
-Updated on: Sun Jun  7 16:49:55 2026
+Updated on: Mon Jun  8 09:45:31 2026
 
 ## Completed
 
@@ -169,6 +169,8 @@ and improve `FieldId` conversions with a global registry and type-safe downcasti
 * [REFACTOR-075] Update edit_integration.rs tests to work with new WriteFn::Schedule edge write mechanism used by HALF_EDGE_* fields
 * [REFACTOR-104] Replace `PanelCommonData.cost: Option<String>` with a typed `AdditionalCost` enum
 and a separate `for_kids: bool` flag, making invalid cost states unrepresentable.
+* [REFACTOR-125] Move schedule, options, per-pass lookups, and PresenterImportCache into
+ImportContext; convert reader free functions to methods on ImportContext.
 * [REFACTOR-140] Introduce a `RankSource` tier model for presenter rank, route all presenter
 creation through the single tagged API with deterministic v5 UUIDs, and clean up
 `presenter.rs` visibility and People-sheet membership helpers.
@@ -197,7 +199,7 @@ pattern where each job spec points to a specific output file or directory.
 
 ## Summary of Open Items
 
-**Total open items:** 21
+**Total open items:** 20
 
 * **Meta / Project-Level**
   * [META-001] Meta work item tracking the full multi-phase redesign of the schedule system. (Blocked by [META-007], [META-008])
@@ -205,29 +207,27 @@ pattern where each job spec points to a specific output file or directory.
   * [META-008] Phase tracker for peer-to-peer schedule synchronization and conflict resolution. (Blocked by [META-004])
   * [META-117] Tracker for all cosam-viewer work: initial viewer app and deferred enhancements.
 
-* **Medium Priority**
-  * [CLI-100] Add a `--interactive` flag to `cosam-modify` that opens a read-eval-print loop for
-entering commands one at a time.
+* **High Priority**
   * [FEATURE-113] Replace the `std::process::Command::new("typst")` subprocess call in
 `cosam-convert` with in-process compilation using the `typst` Rust crate,
 eliminating the external `typst-cli` dependency.
-  * [FEATURE-119] ([META-117]) Allow attendees to star/bookmark panels and view a personal schedule, mirroring
-the JS widget's named-schedule feature.
   * [FEATURE-126] Add update-mode (upsert + soft-delete) semantics to widget JSON import,
 analogous to what FEATURE-122 did for XLSX, with extra care to preserve
 schedule data that the lossy widget JSON format does not carry.
-  * [REFACTOR-112] Update the `#[ignore]`d `set_neighbors` tests in `schedule-core/src/edge/map.rs`
-to compile and pass against the current `RawEdgeMap` API.
-  * [REFACTOR-125] Move schedule, options, per-pass lookups, and PresenterImportCache into
-ImportContext; convert reader free functions to methods on ImportContext.
+  * [FEATURE-142] Bring the IDML export toward Typst/PDF parity: schedule grid as an InDesign
+table, page-header banners, multi-column body text, and page footers.
   * [REFACTOR-138] Separate the layout `split` key into independent `section_split` and
 `time_split` options, default time split to none, error on unknown keywords,
 and move panel-list geometry constants into `geometry.rs`.
 
-* **Low Priority**
+* **Medium Priority**
   * [BUGFIX-131] `PanelUniqId::parse("SPLIT001")` normalizes the prefix to `"SP"` and returns
 `full_id()` = `"SP001"`, discarding the original `"SPLIT001"` string. The raw
 form typed in the spreadsheet should be preserved.
+
+* **Low Priority**
+  * [CLI-100] Add a `--interactive` flag to `cosam-modify` that opens a read-eval-print loop for
+entering commands one at a time.
   * [EDITOR-033] ([META-007]) Implement the main schedule grid view and entity editing UI in cosam-editor.
   * [EDITOR-111] Extract the duplicated `schedule_data.rs` UI helper present in both
 `cosam-editor-gpui` and `cosam-editor-dioxus` into a new
@@ -240,10 +240,12 @@ reference and jump-starting new conventions.
 file, preserving formatting, formulas, extra columns, and non-standard content.
   * [FEATURE-099] Serialize the `EditHistory` undo/redo stacks into the `.schedule` binary file so that
 undo/redo works across `cosam-modify` invocations.
+  * [FEATURE-119] ([META-117]) Allow attendees to star/bookmark panels and view a personal schedule, mirroring
+the JS widget's named-schedule feature.
   * [FEATURE-120] ([META-117]) Configure `dx` build targets for Android and iPadOS, including app metadata,
 icons, and CI/CD pipeline integration.
-  * [FEATURE-142] Bring the IDML export toward Typst/PDF parity: schedule grid as an InDesign
-table, page-header banners, multi-column body text, and page footers.
+  * [REFACTOR-112] Update the `#[ignore]`d `set_neighbors` tests in `schedule-core/src/edge/map.rs`
+to compile and pass against the current `RawEdgeMap` API.
 
 ---
 
@@ -261,7 +263,7 @@ Use `perl scripts/work-item-update.pl --create <PREFIX>` to add new stubs.
 
 **Status:** Open
 
-**Priority:** Low
+**Priority:** Medium
 
 **Summary:** `PanelUniqId::parse("SPLIT001")` normalizes the prefix to `"SP"` and returns
 `full_id()` = `"SP001"`, discarding the original `"SPLIT001"` string. The raw
@@ -294,7 +296,7 @@ be surfaced as a warning/note rather than silently discarded.
 
 **Status:** Open
 
-**Priority:** Medium
+**Priority:** Low
 
 **Summary:** Add a `--interactive` flag to `cosam-modify` that opens a read-eval-print loop for
 entering commands one at a time.
@@ -361,7 +363,7 @@ target without duplication.
 
 **Status:** Open
 
-**Priority:** Medium
+**Priority:** High
 
 **Summary:** Replace the `std::process::Command::new("typst")` subprocess call in
 `cosam-convert` with in-process compilation using the `typst` Rust crate,
@@ -381,28 +383,11 @@ implementation.
 
 ---
 
-### [FEATURE-119] FEATURE-119: cosam-viewer — My Schedule bookmarking
-
-**Status:** Open
-
-**Priority:** Medium
-
-**Summary:** Allow attendees to star/bookmark panels and view a personal schedule, mirroring
-the JS widget's named-schedule feature.
-
-**Part of:** [META-117]
-
-**Description:** Add panel bookmarking to cosam-viewer so users can build a personal schedule.
-On desktop, persist to a local file or app-data directory. On mobile, use
-platform storage. Optionally support URL-hash sharing (as in the JS widget).
-
----
-
 ### [FEATURE-126] FEATURE-126: Widget JSON update-mode import with data preservation
 
 **Status:** Open
 
-**Priority:** Medium
+**Priority:** High
 
 **Summary:** Add update-mode (upsert + soft-delete) semantics to widget JSON import,
 analogous to what FEATURE-122 did for XLSX, with extra care to preserve
@@ -417,6 +402,30 @@ widget JSON. It cannot be used to update an existing schedule because:
 
 This feature brings widget JSON import up to the same standard as the
 XLSX update-mode added in FEATURE-122:
+
+---
+
+### [FEATURE-142] FEATURE-142: Expand IDML export (grid, banners, columns, footers)
+
+**Status:** Open
+
+**Priority:** High
+
+**Summary:** Bring the IDML export toward Typst/PDF parity: schedule grid as an InDesign
+table, page-header banners, multi-column body text, and page footers.
+
+**Blocked By:** [FEATURE-110]
+
+**Description:** FEATURE-110 shipped a v1 IDML export: a threaded text listing of panels grouped
+by day and time slot, with brand-driven paragraph styles. It deliberately
+deferred the richer layout features that the Typst pipeline already produces.
+This item closes that gap so an `.idml` job approaches the fidelity of its
+`.pdf` counterpart for the same `LayoutConfig`.
+
+The work builds on the existing `schedule-layout/src/idml.rs` module and reuses
+the layout computations already feeding the Typst path
+(`timegrid::GridLayout::compute`, `document::build_sections`,
+`blocks::banner`/`blocks::grid`), emitting IDML XML instead of Typst source.
 
 ---
 
@@ -531,6 +540,23 @@ Implementing cross-invocation undo requires:
 
 ---
 
+### [FEATURE-119] FEATURE-119: cosam-viewer — My Schedule bookmarking
+
+**Status:** Open
+
+**Priority:** Low
+
+**Summary:** Allow attendees to star/bookmark panels and view a personal schedule, mirroring
+the JS widget's named-schedule feature.
+
+**Part of:** [META-117]
+
+**Description:** Add panel bookmarking to cosam-viewer so users can build a personal schedule.
+On desktop, persist to a local file or app-data directory. On mobile, use
+platform storage. Optionally support URL-hash sharing (as in the JS widget).
+
+---
+
 ### [FEATURE-120] FEATURE-120: cosam-viewer — mobile build and deploy configuration
 
 **Status:** Open
@@ -545,30 +571,6 @@ icons, and CI/CD pipeline integration.
 **Description:** Set up the `Dioxus.toml`, Android manifest, iOS Info.plist, and icon assets
 needed to produce release builds of cosam-viewer for Android and iPadOS via
 `dx build --platform android` and `dx build --platform ios`.
-
----
-
-### [FEATURE-142] FEATURE-142: Expand IDML export (grid, banners, columns, footers)
-
-**Status:** Open
-
-**Priority:** Low
-
-**Summary:** Bring the IDML export toward Typst/PDF parity: schedule grid as an InDesign
-table, page-header banners, multi-column body text, and page footers.
-
-**Blocked By:** [FEATURE-110]
-
-**Description:** FEATURE-110 shipped a v1 IDML export: a threaded text listing of panels grouped
-by day and time slot, with brand-driven paragraph styles. It deliberately
-deferred the richer layout features that the Typst pipeline already produces.
-This item closes that gap so an `.idml` job approaches the fidelity of its
-`.pdf` counterpart for the same `LayoutConfig`.
-
-The work builds on the existing `schedule-layout/src/idml.rs` module and reuses
-the layout computations already feeding the Typst path
-(`timegrid::GridLayout::compute`, `document::build_sections`,
-`blocks::banner`/`blocks::grid`), emitting IDML XML instead of Typst source.
 
 ---
 
@@ -616,7 +618,7 @@ replacing the old `schedule-field`, `schedule-data`, and `schedule-macro` crates
 
 ### [META-117] META-117: cosam-viewer — cross-platform schedule viewer
 
-**Status:** In progress
+**Status:** Open
 
 **Priority:** Medium
 
@@ -676,61 +678,11 @@ to exchange CRDT changes and reconcile concurrent edits to the same fields.
 
 ## Open REFACTOR Items
 
-### [REFACTOR-112] REFACTOR-112: Update ignored set_neighbors tests to current RawEdgeMap API
-
-**Status:** Open
-
-**Priority:** Medium
-
-**Summary:** Update the `#[ignore]`d `set_neighbors` tests in `schedule-core/src/edge/map.rs`
-to compile and pass against the current `RawEdgeMap` API.
-
-**Description:** The test `test_set_neighbors_replaces_and_patches_reverse` (and any related
-`set_neighbors` tests) in `crates/schedule-core/src/edge/map.rs` are marked
-`#[ignore]` with a TODO comment because they were written against an older API
-and no longer compile or reflect the current `RawEdgeMap` structure (which uses
-a `HashMap<NonNilUuid, HashMap<FieldId, Vec<FieldNodeId>>>` layout).
-
----
-
-### [REFACTOR-125] REFACTOR-125: Consolidate ImportContext to carry import state
-
-**Status:** In progress
-
-**Priority:** Medium
-
-**Summary:** Move schedule, options, per-pass lookups, and PresenterImportCache into
-ImportContext; convert reader free functions to methods on ImportContext.
-
-**Description:** `ImportContext` currently holds only the read-side context (book, file_path,
-import_time, csv_map). Schedule, per-table import modes (via options), and
-inter-stage lookups (panel_type_lookup, room_lookup, hotel_lookup) are passed
-as separate parameters to every reader function, creating long signatures and
-redundant plumbing.
-
-This refactor:
-
-* Adds `schedule`, `options`, `presenter_cache`, `panel_type_lookup`,
-  `room_lookup`, and `hotel_lookup` as fields of `ImportContext`.
-* Changes `find_data_range` / `find_table` / `find_sheet` to take
-  `(book, csv_map, mode, names)` directly, removing the ctx dependency
-  (only book + csv_map are needed) and eliminating the borrow conflict when
-  reading `ctx.options.<table>` alongside `&mut ctx`.
-* Converts each `read_<table>_into` free function to a `pub(super)` method
-  on `ImportContext` via `impl ImportContext<'_>` blocks in the respective
-  module files.
-* Simplifies `update_schedule_from_xlsx` to create the context once and call
-  `ctx.read_panel_types()`, `ctx.read_hotel_rooms()`, etc.
-* `collect_presenters` in schedule.rs retains separate field params because it
-  is called while `ws` (borrowed from `ctx.book`) is alive.
-
----
-
 ### [REFACTOR-138] REFACTOR-138: Split section/time layout options; reject unknown keywords
 
 **Status:** Open
 
-**Priority:** Medium
+**Priority:** High
 
 **Summary:** Separate the layout `split` key into independent `section_split` and
 `time_split` options, default time split to none, error on unknown keywords,
@@ -749,6 +701,23 @@ Make the split dimensions explicit and fail loudly on bad input.
 
 ---
 
+### [REFACTOR-112] REFACTOR-112: Update ignored set_neighbors tests to current RawEdgeMap API
+
+**Status:** Open
+
+**Priority:** Low
+
+**Summary:** Update the `#[ignore]`d `set_neighbors` tests in `schedule-core/src/edge/map.rs`
+to compile and pass against the current `RawEdgeMap` API.
+
+**Description:** The test `test_set_neighbors_replaces_and_patches_reverse` (and any related
+`set_neighbors` tests) in `crates/schedule-core/src/edge/map.rs` are marked
+`#[ignore]` with a TODO comment because they were written against an older API
+and no longer compile or reflect the current `RawEdgeMap` structure (which uses
+a `HashMap<NonNilUuid, HashMap<FieldId, Vec<FieldNodeId>>>` layout).
+
+---
+
 ---
 
 [BUGFIX-072]: work-item/done/BUGFIX-072.md
@@ -758,7 +727,7 @@ Make the split dimensions explicit and fail loudly on bad input.
 [BUGFIX-086]: work-item/done/BUGFIX-086.md
 [BUGFIX-123]: work-item/done/BUGFIX-123.md
 [BUGFIX-124]: work-item/done/BUGFIX-124.md
-[BUGFIX-131]: work-item/low/BUGFIX-131.md
+[BUGFIX-131]: work-item/medium/BUGFIX-131.md
 [CLI-030]: work-item/done/CLI-030.md
 [CLI-031]: work-item/done/CLI-031.md
 [CLI-090]: work-item/done/CLI-090.md
@@ -770,7 +739,7 @@ Make the split dimensions explicit and fail loudly on bad input.
 [CLI-096]: work-item/done/CLI-096.md
 [CLI-097]: work-item/done/CLI-097.md
 [CLI-098]: work-item/done/CLI-098.md
-[CLI-100]: work-item/medium/CLI-100.md
+[CLI-100]: work-item/low/CLI-100.md
 [CLI-133]: work-item/rejected/CLI-133.md
 [CLI-139]: work-item/done/CLI-139.md
 [EDITOR-032]: work-item/done/EDITOR-032.md
@@ -823,16 +792,16 @@ Make the split dimensions explicit and fail loudly on bad input.
 [FEATURE-107]: work-item/done/FEATURE-107.md
 [FEATURE-108]: work-item/done/FEATURE-108.md
 [FEATURE-110]: work-item/done/FEATURE-110.md
-[FEATURE-113]: work-item/medium/FEATURE-113.md
+[FEATURE-113]: work-item/high/FEATURE-113.md
 [FEATURE-114]: work-item/done/FEATURE-114.md
 [FEATURE-115]: work-item/done/FEATURE-115.md
 [FEATURE-116]: work-item/done/FEATURE-116.md
 [FEATURE-118]: work-item/done/FEATURE-118.md
-[FEATURE-119]: work-item/medium/FEATURE-119.md
+[FEATURE-119]: work-item/low/FEATURE-119.md
 [FEATURE-120]: work-item/low/FEATURE-120.md
 [FEATURE-121]: work-item/done/FEATURE-121.md
 [FEATURE-122]: work-item/done/FEATURE-122.md
-[FEATURE-126]: work-item/medium/FEATURE-126.md
+[FEATURE-126]: work-item/high/FEATURE-126.md
 [FEATURE-127]: work-item/done/FEATURE-127.md
 [FEATURE-129]: work-item/done/FEATURE-129.md
 [FEATURE-132]: work-item/done/FEATURE-132.md
@@ -840,7 +809,7 @@ Make the split dimensions explicit and fail loudly on bad input.
 [FEATURE-135]: work-item/done/FEATURE-135.md
 [FEATURE-136]: work-item/done/FEATURE-136.md
 [FEATURE-137]: work-item/done/FEATURE-137.md
-[FEATURE-142]: work-item/low/FEATURE-142.md
+[FEATURE-142]: work-item/high/FEATURE-142.md
 [META-001]: work-item/meta/META-001.md
 [META-002]: work-item/done/META-002.md
 [META-003]: work-item/done/META-003.md
@@ -872,9 +841,9 @@ Make the split dimensions explicit and fail loudly on bad input.
 [REFACTOR-074]: work-item/done/REFACTOR-074.md
 [REFACTOR-075]: work-item/done/REFACTOR-075.md
 [REFACTOR-104]: work-item/done/REFACTOR-104.md
-[REFACTOR-112]: work-item/medium/REFACTOR-112.md
-[REFACTOR-125]: work-item/medium/REFACTOR-125.md
-[REFACTOR-138]: work-item/medium/REFACTOR-138.md
+[REFACTOR-112]: work-item/low/REFACTOR-112.md
+[REFACTOR-125]: work-item/done/REFACTOR-125.md
+[REFACTOR-138]: work-item/high/REFACTOR-138.md
 [REFACTOR-140]: work-item/done/REFACTOR-140.md
 [REFACTOR-141]: work-item/done/REFACTOR-141.md
 [UI-085]: work-item/done/UI-085.md

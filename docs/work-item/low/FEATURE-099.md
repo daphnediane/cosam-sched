@@ -7,7 +7,7 @@ undo/redo works across `cosam-modify` invocations.
 
 ## Status
 
-Not Started
+Open
 
 ## Priority
 
