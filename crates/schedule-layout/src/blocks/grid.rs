@@ -127,6 +127,21 @@ pub(crate) fn render_schedule_grid(
     let n_rooms = layout.room_order.len();
     let n_slots = layout.time_slots.len();
 
+    // The global-max time key is an event END that nothing extends past (e.g.
+    // the last event's end or an overnight break's next-day end). A full `1fr`
+    // track for such trailing end-only slots would render as an empty row at the
+    // foot of the grid. Cells occupy rows `[row_start, row_end)`, so any slot at
+    // or beyond the deepest `row_end` is touched by no event or break; drop those
+    // trailing rows entirely so the grid ends flush with the last event (matching
+    // the widget grid).
+    let body_slots = layout
+        .cells
+        .iter()
+        .chain(layout.break_cells.iter())
+        .map(|c| c.row_end)
+        .max()
+        .unwrap_or(n_slots);
+
     // Optional height-constrained wrapper block
     if let Some(ref h) = config.max_height {
         out.push_str(&format!("#block(height: {}, clip: true)[\n", h));
@@ -189,9 +204,10 @@ pub(crate) fn render_schedule_grid(
         .collect::<Vec<_>>()
         .join(", ");
 
-    // Row spec: header auto + slot rows equal
+    // Row spec: header auto + one equal (1fr) row per rendered slot (trailing
+    // end-only slots are dropped).
     let rows_spec: String = std::iter::once("auto".to_string())
-        .chain(std::iter::repeat_n("1fr".to_string(), n_slots))
+        .chain(std::iter::repeat_n("1fr".to_string(), body_slots))
         .collect::<Vec<_>>()
         .join(", ");
 
@@ -210,8 +226,8 @@ pub(crate) fn render_schedule_grid(
     // --- Header row ---
     render_header_row(&mut out, layout, data, config);
 
-    // --- Time slot rows ---
-    for (row_idx, slot) in layout.time_slots.iter().enumerate() {
+    // --- Time slot rows (trailing end-only slots dropped) ---
+    for (row_idx, slot) in layout.time_slots.iter().take(body_slots).enumerate() {
         render_time_cell(&mut out, slot, config);
         render_room_cells(&mut out, layout, data, color_mode, config, row_idx, n_rooms);
     }
