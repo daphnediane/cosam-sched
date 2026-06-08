@@ -826,7 +826,12 @@ fn write_people_sheet(ws: &mut Worksheet, schedule: &Schedule, extra_keys: &[Str
     let mut row = 2u32;
     for (presenter_id, presenter) in &presenters {
         set_str(ws, c_person, row, &presenter.data.name);
-        set_str(ws, c_classification, row, presenter.data.rank.effective().as_str());
+        set_str(
+            ws,
+            c_classification,
+            row,
+            presenter.data.rank.effective().as_str(),
+        );
         if presenter.data.is_explicit_group {
             set_str(ws, c_is_group, row, "Yes");
         }

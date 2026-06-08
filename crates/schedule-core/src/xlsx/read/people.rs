@@ -152,7 +152,10 @@ impl super::ImportContext<'_> {
                         import_time: self.import_time,
                     }),
                 );
-                let ws = self.book.get_sheet_by_name(&range.sheet_name).expect("sheet present");
+                let ws = self
+                    .book
+                    .get_sheet_by_name(&range.sheet_name)
+                    .expect("sheet present");
                 route_extra_columns(
                     ws,
                     row,
@@ -196,7 +199,12 @@ impl super::ImportContext<'_> {
     /// Resolve (creating if needed) a `Members`-cell `entry` and link it as a
     /// member of `group_id`.  `inherited` supplies the implied rank when the
     /// entry carries no tag prefix of its own.
-    fn import_member(&mut self, entry: &str, group_id: PresenterId, inherited: Option<&PresenterRank>) {
+    fn import_member(
+        &mut self,
+        entry: &str,
+        group_id: PresenterId,
+        inherited: Option<&PresenterRank>,
+    ) {
         let member_id = match find_or_create_tagged_presenter(self.schedule, entry) {
             Ok(m) => m.as_presenter(),
             Err(e) => {
@@ -213,7 +221,12 @@ impl super::ImportContext<'_> {
     /// `member_id` belongs to.  A leading `==` marks the group as subsuming its
     /// members.  `inherited` supplies the implied rank when the entry carries no
     /// tag prefix of its own.
-    fn import_group(&mut self, member_id: PresenterId, entry: &str, inherited: Option<&PresenterRank>) {
+    fn import_group(
+        &mut self,
+        member_id: PresenterId,
+        entry: &str,
+        inherited: Option<&PresenterRank>,
+    ) {
         let (clean, subsumes) = split_subsumes(entry);
         let group_id = match find_or_create_tagged_presenter(self.schedule, clean) {
             Ok(g) => g.as_presenter(),

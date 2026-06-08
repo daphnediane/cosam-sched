@@ -2077,7 +2077,7 @@ mod tests {
     fn test_find_tagged_rank_gate_respects_tier() {
         let id = make_id();
         let sched = schedule_with(id, make_internal()); // rank = Declared(Guest)
-        // Declared(Guest) satisfies the G: expectation.
+                                                        // Declared(Guest) satisfies the G: expectation.
         assert_eq!(
             find_tagged_presenter(&sched, "G:Alice Example").map(|m| m.as_presenter()),
             Some(id)

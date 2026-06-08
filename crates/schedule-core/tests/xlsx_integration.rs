@@ -16,11 +16,11 @@
 
 use std::path::PathBuf;
 
+use schedule_core::entity::EntityUuid;
 use schedule_core::tables::event_room::{self as event_room, EventRoomEntityType};
 use schedule_core::tables::hotel_room::HotelRoomEntityType;
 use schedule_core::tables::panel::{self, PanelEntityType};
 use schedule_core::tables::panel_type::PanelTypeEntityType;
-use schedule_core::entity::EntityUuid;
 use schedule_core::tables::presenter::{self as presenter, PresenterEntityType};
 use schedule_core::xlsx::{
     export_xlsx, export_xlsx_grid, import_xlsx, update_schedule_from_xlsx, XlsxImportOptions,
@@ -1692,7 +1692,10 @@ fn test_people_membership_round_trips_through_export() {
         let mut names: Vec<String> = s
             .connected_entities::<PresenterEntityType>(trio, presenter::EDGE_MEMBERS)
             .into_iter()
-            .filter_map(|m| s.get_internal::<PresenterEntityType>(m).map(|d| d.data.name.clone()))
+            .filter_map(|m| {
+                s.get_internal::<PresenterEntityType>(m)
+                    .map(|d| d.data.name.clone())
+            })
             .collect();
         names.sort();
         names

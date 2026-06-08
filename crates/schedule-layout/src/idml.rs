@@ -216,7 +216,10 @@ fn capitalize(s: &str) -> String {
     let mut chars = s.chars();
     match chars.next() {
         None => String::new(),
-        Some(first) => first.to_uppercase().chain(chars.flat_map(char::to_lowercase)).collect(),
+        Some(first) => first
+            .to_uppercase()
+            .chain(chars.flat_map(char::to_lowercase))
+            .collect(),
     }
 }
 
@@ -272,7 +275,11 @@ pub fn generate_idml(
         master_spread_xml(master_id, page_w, page_h),
     );
     for i in 0..page_count {
-        let prev = if i == 0 { "n".to_string() } else { frame_ids[i - 1].clone() };
+        let prev = if i == 0 {
+            "n".to_string()
+        } else {
+            frame_ids[i - 1].clone()
+        };
         let next = if i + 1 == page_count {
             "n".to_string()
         } else {
@@ -313,8 +320,7 @@ pub fn generate_idml(
     {
         let mut zip = ZipWriter::new(std::io::Cursor::new(&mut buf));
         let stored = SimpleFileOptions::default().compression_method(CompressionMethod::Stored);
-        let deflated =
-            SimpleFileOptions::default().compression_method(CompressionMethod::Deflated);
+        let deflated = SimpleFileOptions::default().compression_method(CompressionMethod::Deflated);
 
         zip.start_file("mimetype", stored)?;
         zip.write_all(b"application/vnd.adobe.indesign-idml-package")?;
@@ -425,8 +431,7 @@ fn day_heading(date: &str) -> String {
 /// The meta line: `time · room(s)` (compact) or `time · room(s) · presenters`.
 fn panel_meta(data: &ScheduleData, panel: &Panel, compact: bool) -> String {
     let mut parts: Vec<String> = Vec::new();
-    let time =
-        time_fmt::format_time_range(panel.start_time.as_deref(), panel.end_time.as_deref());
+    let time = time_fmt::format_time_range(panel.start_time.as_deref(), panel.end_time.as_deref());
     if !time.is_empty() {
         parts.push(time);
     }
@@ -460,7 +465,11 @@ fn room_names(data: &ScheduleData, panel: &Panel) -> String {
 /// Body text: description, then note, when present.
 fn panel_body(panel: &Panel) -> Option<String> {
     let mut parts: Vec<String> = Vec::new();
-    if let Some(d) = panel.description.as_deref().filter(|s| !s.trim().is_empty()) {
+    if let Some(d) = panel
+        .description
+        .as_deref()
+        .filter(|s| !s.trim().is_empty())
+    {
         parts.push(d.trim().to_string());
     }
     if let Some(n) = panel.note.as_deref().filter(|s| !s.trim().is_empty()) {
@@ -862,7 +871,9 @@ fn designmap_xml(
         "\t<idPkg:MasterSpread src=\"MasterSpreads/MasterSpread_{master_id}.xml\" />\n"
     ));
     for sid in spread_ids {
-        s.push_str(&format!("\t<idPkg:Spread src=\"Spreads/Spread_{sid}.xml\" />\n"));
+        s.push_str(&format!(
+            "\t<idPkg:Spread src=\"Spreads/Spread_{sid}.xml\" />\n"
+        ));
     }
     s.push_str("\t<idPkg:BackingStory src=\"XML/BackingStory.xml\" />\n");
     s.push_str(&format!(
@@ -1096,7 +1107,10 @@ mod tests {
         assert_eq!(indesign_font_style(Some("200"), None), "Light");
         assert_eq!(indesign_font_style(Some("700"), None), "Bold");
         assert_eq!(indesign_font_style(Some("400"), Some("italic")), "Italic");
-        assert_eq!(indesign_font_style(Some("700"), Some("italic")), "Bold Italic");
+        assert_eq!(
+            indesign_font_style(Some("700"), Some("italic")),
+            "Bold Italic"
+        );
         assert_eq!(indesign_font_style(None, None), "Regular");
         // A non-numeric weight passes through capitalized (font's own style name).
         assert_eq!(indesign_font_style(Some("One"), None), "One");
