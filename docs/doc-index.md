@@ -11,6 +11,7 @@ Complete index of cosam-sched documentation, including current documents and pla
 ### Core Documentation
 
 * **WORK_ITEMS.md** - Master index of all work items, organized by priority and status. Automatically generated from work-item/ directory.
+* **work-item-system.md** - Documentation of the work item system: organization, prefixes, workflow, and automation.
 * **spreadsheet-format.md** - Documentation of the XLSX spreadsheet format used for schedule data import/export.
 
 ### Architecture and Design
@@ -33,54 +34,6 @@ Complete index of cosam-sched documentation, including current documents and pla
 * **widget-json-format.md** - Standalone widget JSON display format (public-facing format consumed by the calendar widget)
 * **widget-html-format.md** - Hybrid widget-html embedded format: structural JSON block (meta, rooms, panelTypes, timeline, presenters) plus semantic HTML panel elements for search engine visibility and no-JS progressive enhancement
 
-### Work Item System
-
-The work item system tracks all planned and in-progress work for the cosam-sched project.
-
-#### Organization
-
-Work items are stored in `work-item/` (project root) as `<PREFIX>-<###>.md` files, automatically organized into subdirectories:
-
-* **open/1-HIGH/** - High priority open items
-* **open/2-MEDIUM/** - Medium priority open items
-* **open/3-LOW/** - Low priority open items
-* **open/4-NEW/** - Placeholder stubs awaiting details
-* **idea/** - IDEA prefix items
-* **meta/** - Project-level meta items and phase trackers (META prefix)
-* **closed/done/** - Completed items
-* **closed/rejected/** - Rejected items
-* **closed/superseded/** - Superseded items
-* **template/** - Per-prefix and default templates
-
-#### Prefixes
-
-* **META** - Project-level meta items and phase trackers
-* **FEATURE** - New functionality
-* **BUGFIX** - Fixes for defects
-* **UI** - Interface improvements
-* **EDITOR** - Desktop editor app
-* **CLI** - Command-line interface
-* **DEPLOY** - Packaging, deployment, and distribution
-* **CLEANUP** - Repository cleanup
-* **PERFORMANCE** - Optimizations
-* **DOCS** - Documentation
-* **REFACTOR** - Code restructuring
-* **TEST** - Test additions
-
-#### Workflow
-
-1. Create work item file with `perl scripts/work-item-update.pl --create <PREFIX>`
-2. Fill in the stub: edit status from `Placeholder` to `Open`, add description
-3. Set priority appropriately
-4. Run `perl scripts/work-item-update.pl` to organize and regenerate WORK_ITEMS.md
-
-The combine script automatically:
-
-* Moves files to subdirectories based on status/priority
-* Generates `docs/WORK_ITEMS.md` with reference-style links
-* Adds headerless link glossary at end
-* Preserves leading zeros and uses LF line endings
-
 ## Placeholder Documentation
 
 The following documents are stubs to be expanded as the project progresses.
@@ -92,9 +45,3 @@ The following documents are stubs to be expanded as the project progresses.
 ### Development Guides
 
 * **builders.md** - Entity builder pattern guide for creating and modifying entities. (TODO: Create — see FEATURE-017)
-
-## Documentation Maintenance
-
-When completing work items, update relevant documentation listed in this index. Always cross-reference between documents when changes affect multiple areas.
-
-See `.devin/rules/track_work_item.md` or `.claude/rules/track_work_item.md` for the work item tracking workflow and documentation update guidelines.
