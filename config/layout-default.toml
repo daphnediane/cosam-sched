@@ -4,24 +4,28 @@
 # Every job is a configuration of the unified layout builder (one multi-section
 # document per job). The legacy `format` key is no longer recognized.
 #
-# Paper keys:   letter, legal, tabloid, super_b, poster, postcard
-# Content keys: both (grid + descriptions), grid_only, description_only, panel_list
-# Split keys:   none, day, half_day, room, room_day, presenter, presenter_day
-# Orientations: portrait, landscape
+# Paper keys:        letter, legal, tabloid, super_b, poster, postcard
+# Content keys:      both (grid + descriptions), grid_only, description_only, panel_list
+# Section split keys: none (default), room, presenter
+# Time split keys:   none (default), day, half_day, timeline (split on SPLIT/timeline entries)
+# Orientations:      portrait, landscape
+#
+# Note: the old combined `split` key (none, day, half_day, room, room_day,
+#       presenter, presenter_day) is still accepted as a deprecated alias.
 #
 # Per-job optional keys:
-#   panel_filter = "all"        # "all" (default), "workshops", "premium"
+#   panel_filter   = "all"      # "all" (default), "workshops", "premium"
 #   include_private = false     # true = private view: private panels + unlisted
 #                               # presenters in per-presenter splits (bylines stay
 #                               # credited-only). Default false (public view).
-#   color_mode   = "color"      # "color" (default) or "bw"
-#   footer       = "full"       # "full" (default), "timestamp_only", "none"
-#   double_sided = false        # pad each section onto an odd page
-#   header_text  = "..."        # left label (1-D split) / right label (split=none)
-#   columns      = 4            # override the content/paper default column count
-#   base_font_pt = "12pt"       # override base font size (descriptions, etc.)
-#   grid_font_pt = "8pt"        # override grid event text size
-#   logo         = "brand"      # logo alias/filename from [logos]; "none" suppresses logo
+#   color_mode     = "color"    # "color" (default) or "bw"
+#   footer         = "full"     # "full" (default), "timestamp_only", "none"
+#   double_sided   = false      # pad each section onto an odd page
+#   header_text    = "..."      # left label (section split) / right label (no split)
+#   columns        = 4          # override the content/paper default column count
+#   base_font_pt   = "12pt"     # override base font size (descriptions, etc.)
+#   grid_font_pt   = "8pt"      # override grid event text size
+#   logo           = "brand"    # logo alias/filename from [logos]; "none" suppresses logo
 #   banner_text_pt = "18pt"     # override banner text size (default: 28pt)
 #
 # Style keys (colors accept hex "#f2f2f2", "luma(95%)", or names like "white"):
@@ -47,7 +51,6 @@
 # Workshop preset: descriptions only, workshops filter, no split
 [presets.workshops]
 content = "description_only"
-split = "none"
 panel_filter = "workshops"
 header_text = "Workshops"
 
@@ -60,7 +63,7 @@ card_fill = "white"
 # Flyer preset: both content (grid + descriptions), day split, double-sided
 [presets.flyer]
 content = "both"
-split = "day"
+time_split = "day"
 double_sided = true
 orientation = "landscape"
 
@@ -85,7 +88,7 @@ footer = "timestamp_only"
 # Schedule grids: grid only, split per half-day, tabloid portrait
 [[jobs]]
 content = "grid_only"
-split = "half_day"
+time_split = "half_day"
 paper = "tabloid"
 orientation = "portrait"
 stem = "schedule"
@@ -112,7 +115,8 @@ stem = "workshops"
 [[jobs]]
 import = ["card_style", "minimal_footer"]
 content = "both"
-split = "room_day"
+section_split = "room"
+time_split = "day"
 paper = "tabloid"
 orientation = "landscape"
 stem = "room-signs"
@@ -128,7 +132,7 @@ columns = 5
 # unlisted/uncredited (bylines still show credited presenters only).
 [[jobs]]
 content = "panel_list"
-split = "presenter"
+section_split = "presenter"
 paper = "postcard"
 orientation = "portrait"
 columns = 1
@@ -145,7 +149,7 @@ include_private = true
 [[jobs]]
 import = ["card_style"]
 content = "description_only"
-split = "day"
+time_split = "day"
 paper = "tabloid"
 orientation = "landscape"
 stem = "desc"
@@ -154,7 +158,7 @@ stem = "desc"
 [[jobs]]
 import = ["card_style"]
 content = "description_only"
-split = "day"
+time_split = "day"
 paper = "letter"
 orientation = "portrait"
 stem = "desc"
@@ -163,7 +167,7 @@ stem = "desc"
 [[jobs]]
 import = ["card_style"]
 content = "description_only"
-split = "day"
+time_split = "day"
 paper = "legal"
 orientation = "portrait"
 stem = "desc"
@@ -172,7 +176,7 @@ stem = "desc"
 [[jobs]]
 import = ["card_style", "minimal_footer"]
 content = "description_only"
-split = "day"
+time_split = "day"
 paper = "poster"
 orientation = "landscape"
 stem = "desc"

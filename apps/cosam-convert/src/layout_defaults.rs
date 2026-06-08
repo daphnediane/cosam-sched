@@ -16,7 +16,7 @@
 //! ```toml
 //! [presets.workshop_base]
 //! content = "description_only"
-//! split = "none"
+//! section_split = "none"
 //! panel_filter = "workshops"
 //! cards = true
 //!
@@ -45,7 +45,7 @@
 //! [[jobs]]
 //! stem = "staff-postcards"
 //! content = "panel_list"
-//! split = "presenter"
+//! section_split = "presenter"
 //! include_private = true
 //! ```
 //!
@@ -100,9 +100,21 @@ pub struct JobConfig {
     pub format: Option<String>,
     /// Content: "both" (default), "grid_only", "description_only", "panel_list"
     pub content: Option<String>,
-    /// How to split: "none", "day", "half_day", "room", "room_day", "presenter", "presenter_day"
-    #[serde(alias = "split_by")]
-    pub split: String,
+    /// Entity (section) split: "none" (default), "room", "presenter".
+    pub section_split: Option<String>,
+    /// Time split: "none" (default), "day", "half_day", "timeline".
+    /// - "none": no time split (one section, or one per entity if section_split is set)
+    /// - "day": one section per calendar day
+    /// - "half_day": one section per AM/PM half (geometric noon boundary)
+    /// - "timeline": one section per timeline/SPLIT entry in the schedule data
+    /// Grid-bearing modes (`both`, `grid_only`) require an explicit time split.
+    pub time_split: Option<String>,
+    /// Deprecated combined split key kept for backward compatibility.
+    /// Expands to `section_split` + `time_split`; prefer the two new keys.
+    /// Accepted values: "none", "day", "half_day", "room", "room_day",
+    ///                  "presenter", "presenter_day".
+    #[serde(alias = "split_by", skip_serializing)]
+    pub split: Option<String>,
     /// Orientation: "portrait" or "landscape"
     pub orientation: String,
     /// File stem prefix (e.g., "schedule", "desc", "workshops")
@@ -166,7 +178,13 @@ impl JobConfig {
         if other.content.is_some() {
             self.content = other.content.clone();
         }
-        if !other.split.is_empty() {
+        if other.section_split.is_some() {
+            self.section_split = other.section_split.clone();
+        }
+        if other.time_split.is_some() {
+            self.time_split = other.time_split.clone();
+        }
+        if other.split.is_some() {
             self.split = other.split.clone();
         }
         if !other.orientation.is_empty() {
@@ -332,7 +350,7 @@ mod tests {
 [[jobs]]
 content = "grid_only"
 paper = "tabloid"
-split_by = "half_day"
+time_split = "half_day"
 orientation = "landscape"
 stem = "schedule"
 panel_filter = "workshops"
@@ -344,8 +362,7 @@ base_font_pt = "10pt"
         let defaults = LayoutDefaults::from_str(toml).unwrap();
         assert_eq!(defaults.jobs.len(), 1);
         assert_eq!(defaults.jobs[0].content, Some("grid_only".to_string()));
-        // `split_by` is accepted as an alias for `split`.
-        assert_eq!(defaults.jobs[0].split, "half_day");
+        assert_eq!(defaults.jobs[0].time_split, Some("half_day".to_string()));
         assert_eq!(defaults.jobs[0].panel_filter, Some("workshops".to_string()));
         assert_eq!(defaults.jobs[0].color_mode, Some("bw".to_string()));
         assert_eq!(defaults.jobs[0].double_sided, Some(true));
@@ -354,11 +371,45 @@ base_font_pt = "10pt"
     }
 
     #[test]
+    fn test_parse_toml_deprecated_split_alias() {
+        // The old combined `split_by` / `split` keys must still be accepted.
+        let toml = r#"
+[[jobs]]
+content = "grid_only"
+paper = "tabloid"
+split_by = "half_day"
+orientation = "landscape"
+stem = "schedule"
+"#;
+        let defaults = LayoutDefaults::from_str(toml).unwrap();
+        // Deprecated key is parsed into `split` field.
+        assert_eq!(defaults.jobs[0].split, Some("half_day".to_string()));
+        // The explicit independent keys are absent.
+        assert_eq!(defaults.jobs[0].time_split, None);
+    }
+
+    #[test]
+    fn test_parse_toml_independent_splits() {
+        let toml = r#"
+[[jobs]]
+content = "both"
+paper = "tabloid"
+section_split = "room"
+time_split = "day"
+orientation = "landscape"
+stem = "room-signs"
+"#;
+        let defaults = LayoutDefaults::from_str(toml).unwrap();
+        assert_eq!(defaults.jobs[0].section_split, Some("room".to_string()));
+        assert_eq!(defaults.jobs[0].time_split, Some("day".to_string()));
+        assert_eq!(defaults.jobs[0].split, None);
+    }
+
+    #[test]
     fn test_preset_parsing() {
         let toml = r#"
 [presets.workshop_base]
 content = "description_only"
-split = "none"
 panel_filter = "workshops"
 cards = true
 paper = "letter"
@@ -383,7 +434,7 @@ paper = "tabloid"
 paper = "letter"
 orientation = "portrait"
 stem = "base"
-split = "day"
+time_split = "day"
 content = "both"
 
 [presets.large]
@@ -400,8 +451,8 @@ orientation = "landscape"
 
         assert_eq!(resolved.len(), 1);
         let (job, _) = &resolved[0];
-        // From base: split, content
-        assert_eq!(job.split, "day");
+        // From base: time_split, content
+        assert_eq!(job.time_split, Some("day".to_string()));
         assert_eq!(job.content, Some("both".to_string()));
         // From large (overrides base): paper, base_font_pt
         assert_eq!(job.paper, "tabloid");

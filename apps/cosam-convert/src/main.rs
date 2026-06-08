@@ -237,7 +237,10 @@ fn apply_layout_arg(
         "paper" => job.paper = str_val()?,
         "format" => job.format = Some(str_val()?),
         "content" => job.content = Some(str_val()?),
-        "split" | "split_by" => job.split = str_val()?,
+        "section_split" | "section-split" => job.section_split = Some(str_val()?),
+        "time_split" | "time-split" => job.time_split = Some(str_val()?),
+        // Deprecated combined split key: kept for backward compatibility.
+        "split" | "split_by" => job.split = Some(str_val()?),
         "orientation" => job.orientation = str_val()?,
         "stem" => job.stem = str_val()?,
         "panel_filter" => job.panel_filter = Some(str_val()?),
@@ -1158,48 +1161,145 @@ fn run_layout_export(
     }
 
     // Helper functions to parse layout configuration strings
+
     fn parse_color_mode(s: Option<&str>) -> ColorMode {
         match s {
             Some("bw") | Some("grayscale") => ColorMode::Bw,
-            _ => ColorMode::Color,
+            Some("color") | None => ColorMode::Color,
+            Some(other) => {
+                eprintln!(
+                    "warning: unknown color_mode '{other}'; expected one of: color, bw — using 'color'"
+                );
+                ColorMode::Color
+            }
         }
     }
 
-    fn parse_content(s: Option<&str>, split: &str) -> ContentMode {
-        let section = match split {
-            "room" | "room_day" | "room-day" => Some(SectionSplit::Room),
-            "presenter" | "presenter_day" | "presenter-day" => Some(SectionSplit::Presenter),
-            _ => None,
-        };
-        let time_req = match split {
-            "half_day" | "half" => TimeSplit::HalfDay,
-            _ => TimeSplit::Day,
-        };
-        // Bare entity splits ("room"/"presenter") carry no time split, so
-        // text-only content (descriptions, panel lists) spans all days in one
-        // section. Only the explicit "*_day" forms add a per-day split.
-        let time_opt = match split {
-            "none" | "room" | "presenter" => None,
-            "half_day" | "half" => Some(TimeSplit::HalfDay),
-            _ => Some(TimeSplit::Day),
-        };
+    /// Parse `section_split` key: "none", "room", "presenter".
+    fn parse_section_split(s: Option<&str>) -> Option<SectionSplit> {
         match s {
+            Some("none") | None => None,
+            Some("room") => Some(SectionSplit::Room),
+            Some("presenter") => Some(SectionSplit::Presenter),
+            Some(other) => {
+                eprintln!(
+                    "warning: unknown section_split '{other}'; expected one of: none, room, \
+                     presenter — ignoring"
+                );
+                None
+            }
+        }
+    }
+
+    /// Parse `time_split` key: "none", "day", "half_day", "timeline".
+    /// Returns `None` on "none"/absent, or the `TimeSplit` variant.
+    fn parse_time_split(s: Option<&str>) -> Option<TimeSplit> {
+        match s {
+            Some("none") | None => None,
+            Some("day") => Some(TimeSplit::Day),
+            Some("half_day") | Some("half-day") => Some(TimeSplit::HalfDay),
+            // "timeline" splits on the schedule's actual timeline/SPLIT panel entries.
+            Some("timeline") => Some(TimeSplit::Timeline),
+            Some(other) => {
+                eprintln!(
+                    "warning: unknown time_split '{other}'; expected one of: none, day, half_day, \
+                     timeline — ignoring"
+                );
+                None
+            }
+        }
+    }
+
+    /// Expand the deprecated combined `split` key into (section_split, time_split) strings.
+    /// Emits a deprecation warning. The caller merges these with the explicit fields
+    /// (explicit fields take priority over the deprecated split expansion).
+    fn expand_deprecated_split(split: &str) -> (Option<&'static str>, Option<&'static str>) {
+        match split {
+            "none" => (None, None),
+            "day" => (None, Some("day")),
+            "half_day" | "half-day" => (None, Some("half_day")),
+            "room" => (Some("room"), None),
+            "room_day" | "room-day" => (Some("room"), Some("day")),
+            "presenter" => (Some("presenter"), None),
+            "presenter_day" | "presenter-day" => (Some("presenter"), Some("day")),
+            other => {
+                eprintln!(
+                    "warning: unknown split '{other}'; expected one of: none, day, half_day, \
+                     room, room_day, presenter, presenter_day — ignoring"
+                );
+                (None, None)
+            }
+        }
+    }
+
+    /// Resolve a job's section and time split, handling the deprecated `split` key.
+    /// The explicit `section_split`/`time_split` fields take priority over the
+    /// expanded `split` value.
+    fn resolve_splits(
+        job: &layout_defaults::JobConfig,
+    ) -> (Option<SectionSplit>, Option<TimeSplit>) {
+        // Start from the deprecated combined key (if present), then override with
+        // the explicit independent keys.
+        let (dep_section, dep_time) = match &job.split {
+            Some(s) => {
+                eprintln!(
+                    "warning: job '{}': 'split' is deprecated; use 'section_split' and \
+                     'time_split' instead",
+                    job.stem
+                );
+                expand_deprecated_split(s)
+            }
+            None => (None, None),
+        };
+        let section_str = job.section_split.as_deref().or(dep_section);
+        let time_str = job.time_split.as_deref().or(dep_time);
+        (parse_section_split(section_str), parse_time_split(time_str))
+    }
+
+    /// Build a `ContentMode` from the resolved section/time splits and the content key.
+    /// Returns an error string for grid modes that have no time split.
+    fn build_content_mode(
+        content: Option<&str>,
+        section: Option<SectionSplit>,
+        time: Option<TimeSplit>,
+        stem: &str,
+    ) -> ContentMode {
+        // Grid-bearing modes require a time split.
+        let needs_time = matches!(
+            content,
+            Some("grid_only") | Some("grid-only") | Some("both") | None
+        );
+        if needs_time && time.is_none() {
+            eprintln!(
+                "error: job '{stem}': content mode '{}' requires a time split \
+                 (day, half_day, or timeline); falling back to 'day'",
+                content.unwrap_or("both")
+            );
+        }
+        let time_req = time.unwrap_or(TimeSplit::Day);
+        match content {
             Some("grid_only") | Some("grid-only") => ContentMode::GridOnly {
                 section,
                 time: time_req,
             },
-            Some("description_only") | Some("description-only") => ContentMode::DescriptionOnly {
-                section,
-                time: time_opt,
-            },
-            Some("panel_list") | Some("panel-list") => ContentMode::PanelList {
-                section,
-                time: time_opt,
-            },
-            _ => ContentMode::Both {
+            Some("description_only") | Some("description-only") => {
+                ContentMode::DescriptionOnly { section, time }
+            }
+            Some("panel_list") | Some("panel-list") => ContentMode::PanelList { section, time },
+            None | Some("both") => ContentMode::Both {
                 section,
                 time: time_req,
             },
+            Some(other) => {
+                eprintln!(
+                    "warning: job '{stem}': unknown content '{other}'; expected one of: both, \
+                     grid_only, description_only, panel_list — using 'both'"
+                );
+                ContentMode::Both {
+                    section,
+                    time: time_req,
+                }
+            }
         }
     }
 
@@ -1207,7 +1307,14 @@ fn run_layout_export(
         match s {
             Some("workshops") => PanelFilter::Workshops,
             Some("premium") => PanelFilter::Premium,
-            _ => PanelFilter::All,
+            None | Some("all") => PanelFilter::All,
+            Some(other) => {
+                eprintln!(
+                    "warning: unknown panel_filter '{other}'; expected one of: all, workshops, \
+                     premium — using 'all'"
+                );
+                PanelFilter::All
+            }
         }
     }
 
@@ -1215,7 +1322,14 @@ fn run_layout_export(
         match s {
             Some("timestamp_only") | Some("timestamp-only") => FooterMode::TimestampOnly,
             Some("none") => FooterMode::None,
-            _ => FooterMode::Full,
+            None | Some("full") => FooterMode::Full,
+            Some(other) => {
+                eprintln!(
+                    "warning: unknown footer '{other}'; expected one of: full, timestamp_only, \
+                     none — using 'full'"
+                );
+                FooterMode::Full
+            }
         }
     }
 
@@ -1235,14 +1349,28 @@ fn run_layout_export(
             "super_b" | "superb" => PaperSize::SuperB,
             "poster" => PaperSize::Poster,
             "postcard" => PaperSize::Postcard4x6,
-            _ => PaperSize::Tabloid,
+            "" => PaperSize::Tabloid,
+            other => {
+                eprintln!(
+                    "warning: unknown paper '{other}'; expected one of: letter, legal, tabloid, \
+                     super_b, poster, postcard — using 'tabloid'"
+                );
+                PaperSize::Tabloid
+            }
         }
     }
 
     fn parse_orientation(s: &str) -> Orientation {
         match s {
             "portrait" => Orientation::Portrait,
-            _ => Orientation::Landscape,
+            "landscape" | "" => Orientation::Landscape,
+            other => {
+                eprintln!(
+                    "warning: unknown orientation '{other}'; expected one of: portrait, landscape \
+                     — using 'landscape'"
+                );
+                Orientation::Landscape
+            }
         }
     }
 
@@ -1253,12 +1381,14 @@ fn run_layout_export(
     ) -> Vec<(LayoutOutputJob, Option<String>)> {
         jobs.iter()
             .map(|(job, brand_override)| {
+                let (section, time) = resolve_splits(job);
+                let content = build_content_mode(job.content.as_deref(), section, time, &job.stem);
                 (
                     LayoutOutputJob {
                         config: LayoutConfig {
                             paper: parse_paper(&job.paper),
                             format: parse_format(job.format.as_deref()),
-                            content: parse_content(job.content.as_deref(), &job.split),
+                            content,
                             panel_filter: parse_panel_filter(job.panel_filter.as_deref()),
                             include_private: job.include_private.unwrap_or(false),
                             orientation: parse_orientation(&job.orientation),

@@ -34,7 +34,7 @@ use crate::blocks::panels::{render_panel_list, render_time_grouped_panels, Panel
 use crate::brand::BrandConfig;
 use crate::color::ColorMode;
 use crate::config::{ContentMode, FooterMode, LayoutConfig, PanelFilter, SectionSplit, TimeSplit};
-use crate::model::{Panel, ScheduleData};
+use crate::model::{Panel, ScheduleData, TimelineEntry};
 use crate::timegrid::GridLayout;
 use crate::typst_gen::{make_day_label, preamble};
 
@@ -338,6 +338,7 @@ fn time_sections<'a>(
     time: TimeSplit,
     by_day: &[(String, Vec<&'a Panel>)],
     all_dates: &[&str],
+    timeline: &[TimelineEntry],
 ) -> Vec<(String, Vec<&'a Panel>)> {
     match time {
         TimeSplit::Day => by_day
@@ -351,7 +352,97 @@ fn time_sections<'a>(
                 split_halves(&day_label, panels)
             })
             .collect(),
+        TimeSplit::Timeline => split_on_timeline(by_day, all_dates, timeline),
     }
+}
+
+/// Split panels into sections using the schedule's timeline entries as boundaries.
+///
+/// Timeline entries (SPLIT panels) carry a `start_time`; each one opens a new
+/// section whose label is the entry's name. Panels that fall before the first
+/// timeline entry in a day are grouped into a section named after the day itself.
+fn split_on_timeline<'a>(
+    by_day: &[(String, Vec<&'a Panel>)],
+    all_dates: &[&str],
+    timeline: &[TimelineEntry],
+) -> Vec<(String, Vec<&'a Panel>)> {
+    // Build a sorted list of (date, start_time_str, label) from timeline entries
+    // that have a start_time. Entries without a time are skipped.
+    let mut tl_boundaries: Vec<(&str, &str, &str)> = timeline
+        .iter()
+        .filter_map(|t| {
+            let start = t.start_time.as_deref()?;
+            let date = start.get(..10)?;
+            Some((date, start, t.name.as_str()))
+        })
+        .collect();
+    // Sort by start_time so boundaries are in chronological order.
+    tl_boundaries.sort_by_key(|(_, start, _)| *start);
+
+    let mut out: Vec<(String, Vec<&'a Panel>)> = vec![];
+
+    for (date, panels) in by_day {
+        let day_label = make_day_label(date, all_dates);
+        // Collect the timeline boundaries that fall on this day.
+        let day_boundaries: Vec<(&str, &str)> = tl_boundaries
+            .iter()
+            .filter(|(d, _, _)| *d == date.as_str())
+            .map(|(_, start, name)| (*start, *name))
+            .collect();
+
+        if day_boundaries.is_empty() {
+            // No timeline entries for this day — fall back to a single day section.
+            if !panels.is_empty() {
+                out.push((day_label, panels.clone()));
+            }
+            continue;
+        }
+
+        // Assign each panel to the latest boundary whose start_time ≤ panel start_time.
+        // Panels before the first boundary fall into a catch-all keyed by the day label.
+        let section_label_for = |panel: &&'a Panel| -> String {
+            let panel_start = match panel.start_time.as_deref() {
+                Some(s) => s,
+                None => return day_label.clone(),
+            };
+            // Walk boundaries in reverse to find the last one that starts ≤ panel.
+            day_boundaries
+                .iter()
+                .rev()
+                .find(|(bstart, _)| *bstart <= panel_start)
+                .map(|(_, name)| name.to_string())
+                .unwrap_or_else(|| day_label.clone())
+        };
+
+        // Group panels preserving the boundary order: day-label bucket first,
+        // then each boundary in chronological order.
+        let mut section_keys: Vec<String> = vec![day_label.clone()];
+        for (_, name) in &day_boundaries {
+            let key = name.to_string();
+            if !section_keys.contains(&key) {
+                section_keys.push(key);
+            }
+        }
+
+        let mut buckets: std::collections::HashMap<String, Vec<&'a Panel>> =
+            std::collections::HashMap::new();
+        for panel in panels {
+            buckets
+                .entry(section_label_for(panel))
+                .or_default()
+                .push(panel);
+        }
+
+        for key in section_keys {
+            if let Some(bucket) = buckets.remove(&key) {
+                if !bucket.is_empty() {
+                    out.push((key, bucket));
+                }
+            }
+        }
+    }
+
+    out
 }
 
 /// Build the document's sections for the configured split.
@@ -375,7 +466,7 @@ fn build_sections<'a>(
             corner_label: String::new(),
         }],
 
-        (None, Some(time)) => time_sections(time, &by_day, &all_dates)
+        (None, Some(time)) => time_sections(time, &by_day, &all_dates, &data.timeline)
             .into_iter()
             .map(|(label, time_panels)| Section {
                 content_panels: time_panels.clone(),
@@ -418,7 +509,7 @@ fn build_sections<'a>(
             .iter()
             .flat_map(|room| {
                 let name = room_name(room);
-                time_sections(time, &by_day, &all_dates)
+                time_sections(time, &by_day, &all_dates, &data.timeline)
                     .into_iter()
                     .filter_map(move |(time_label, time_panels)| {
                         let room_panels: Vec<&Panel> = time_panels
@@ -473,7 +564,7 @@ fn build_sections<'a>(
             .iter()
             .filter(|p| postcard_rank_eligible(&p.rank))
             .flat_map(|presenter| {
-                time_sections(time, &by_day, &all_dates)
+                time_sections(time, &by_day, &all_dates, &data.timeline)
                     .into_iter()
                     .filter_map(move |(time_label, time_panels)| {
                         let his: Vec<&Panel> = time_panels

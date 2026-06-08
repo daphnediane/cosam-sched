@@ -160,8 +160,11 @@ pub enum SectionSplit {
 pub enum TimeSplit {
     /// One section per calendar day.
     Day,
-    /// One section per AM/PM half-day.
+    /// One section per AM/PM half-day (geometric noon boundary).
     HalfDay,
+    /// One section per timeline entry (data-driven: splits on the schedule's
+    /// SPLIT/timeline panels, e.g. "Friday Morning", "Friday Afternoon").
+    Timeline,
 }
 
 /// Output file format for a layout job.
