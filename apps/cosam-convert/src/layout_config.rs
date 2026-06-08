@@ -98,6 +98,48 @@ pub enum LayoutConfigError {
 
 // ── TOML schema ───────────────────────────────────────────────────────────────
 
+/// A single time slot within a custom timeline.
+///
+/// Slots run from `time` until `end` (if set) or the next slot's start time.
+///
+/// If `time` uses a bare weekday name (e.g., `"Friday Noon"`), the slot **recurs weekly**
+/// across the schedule range — one section is generated per occurrence.
+/// Use a full date prefix (`"June 12 Noon"` or `"2026-06-12T12:00"`) to pin to one date.
+///
+/// # Examples
+/// ```toml
+/// # Weekly recurring slot with a 3-hour window
+/// { label = "{date}", time = "Friday Noon", end = "Friday 3 pm" }
+///
+/// # One-off pinned slot
+/// { label = "Thursday Lunch", time = "June 25 Noon", end = "3 pm" }
+///
+/// # Open-ended slot (no end — runs until the next slot, even across a day boundary)
+/// { label = "Thursday", time = "June 25" }
+/// ```
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+pub struct CustomTimeSlot {
+    /// Display label template. Supports `{date}` (e.g. "Jun 12") and `{time}` (e.g. "Noon").
+    pub label: String,
+    /// Start time: ISO 8601, or loose format (`"Fri Noon"`, `"June 26 2 pm"`).
+    /// A bare weekday name (`"Friday Noon"`) causes the slot to recur weekly.
+    pub time: String,
+    /// Optional explicit end time. Panels at or after this time are excluded from this slot.
+    /// Loose format accepted; when the `time` is recurring, `end` is re-anchored to the
+    /// same week as each occurrence.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub end: Option<String>,
+}
+
+/// A named custom timeline consisting of time slots.
+/// Used with `time_split = "timeline_name"` to split sections at specific times.
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+pub struct CustomTimeline {
+    /// Ordered list of time slots. Panels are assigned to the slot they fall within.
+    /// Panels outside any slot are excluded from output.
+    pub slots: Vec<CustomTimeSlot>,
+}
+
 /// Layout configuration loaded from `config/layout.toml`.
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
 #[serde(default)]
@@ -106,6 +148,10 @@ pub struct LayoutDefaults {
     pub jobs: Vec<JobConfig>,
     /// Named presets that can be imported by jobs or other presets.
     pub presets: HashMap<String, JobConfig>,
+    /// Named custom timelines that can be referenced by `time_split`.
+    /// Accepts both `[timeline.name]` (preferred) and `[timelines.name]` in TOML.
+    #[serde(alias = "timeline")]
+    pub timelines: HashMap<String, CustomTimeline>,
 }
 
 /// Layout job configuration for generating a specific output.
@@ -413,21 +459,55 @@ fn parse_section_split(s: Option<&str>) -> Option<SectionSplit> {
     }
 }
 
-/// Parse `time_split` key: "none", "day", "half_day", "timeline".
+/// Parse `time_split` key into a resolved `TimeSplit`.
+///
+/// Custom timeline names are looked up in `timelines`, expanded using
+/// `schedule_range`, and embedded directly into `TimeSplit::Custom(timeline)`.
+/// Unknown names fall back to `TimeSplit::Day` with a warning.
 #[cfg(feature = "layout")]
-fn parse_time_split(s: Option<&str>) -> Option<TimeSplit> {
+fn parse_time_split(
+    s: Option<&str>,
+    stem: &str,
+    timelines: &HashMap<String, CustomTimeline>,
+    schedule_range: Option<(&str, &str)>,
+) -> Option<TimeSplit> {
     match s {
         Some("none") | None => None,
         Some("day") => Some(TimeSplit::Day),
         Some("half_day") | Some("half-day") => Some(TimeSplit::HalfDay),
         // "timeline" splits on the schedule's actual timeline/SPLIT panel entries.
         Some("timeline") => Some(TimeSplit::Timeline),
-        Some(other) => {
-            eprintln!(
-                "warning: unknown time_split '{other}'; expected one of: none, day, half_day, \
-                 timeline — ignoring"
-            );
-            None
+        // Any other value is treated as a custom timeline name.
+        Some(name) => {
+            if let Some(toml_tl) = timelines.get(name) {
+                use schedule_layout::config::CustomTimeSlot as LayoutSlot;
+                use schedule_layout::time_fmt::expand_slot;
+                let (sched_start, sched_end) = schedule_range.unwrap_or(("", ""));
+                let slots: Vec<LayoutSlot> = toml_tl
+                    .slots
+                    .iter()
+                    .flat_map(|s| {
+                        expand_slot(&s.label, &s.time, s.end.as_deref(), sched_start, sched_end)
+                            .into_iter()
+                            .map(|occ| LayoutSlot {
+                                label: occ.label,
+                                time: occ.start.format("%Y-%m-%dT%H:%M:%S").to_string(),
+                                end_time: occ
+                                    .end
+                                    .map(|e| e.format("%Y-%m-%dT%H:%M:%S").to_string()),
+                            })
+                    })
+                    .collect();
+                Some(TimeSplit::Custom(schedule_layout::config::CustomTimeline {
+                    slots,
+                }))
+            } else {
+                eprintln!(
+                    "warning: job '{stem}': custom timeline '{name}' not found; \
+                     falling back to 'day'"
+                );
+                Some(TimeSplit::Day)
+            }
         }
     }
 }
@@ -457,8 +537,16 @@ fn expand_deprecated_split(split: &str) -> (Option<&'static str>, Option<&'stati
 
 /// Resolve a job's section and time split, honouring the deprecated `split` key
 /// as a fallback when the explicit independent keys are absent.
+///
+/// Custom timelines are looked up, expanded with `schedule_range`, and embedded
+/// directly into `TimeSplit::Custom(timeline)`. Unknown names fall back to
+/// `TimeSplit::Day` with a warning.
 #[cfg(feature = "layout")]
-fn resolve_splits(job: &JobConfig) -> (Option<SectionSplit>, Option<TimeSplit>) {
+fn resolve_splits(
+    job: &JobConfig,
+    timelines: &HashMap<String, CustomTimeline>,
+    schedule_range: Option<(&str, &str)>,
+) -> (Option<SectionSplit>, Option<TimeSplit>) {
     let (dep_section, dep_time) = match &job.split {
         Some(s) => {
             eprintln!(
@@ -472,7 +560,11 @@ fn resolve_splits(job: &JobConfig) -> (Option<SectionSplit>, Option<TimeSplit>) 
     };
     let section_str = job.section_split.as_deref().or(dep_section);
     let time_str = job.time_split.as_deref().or(dep_time);
-    (parse_section_split(section_str), parse_time_split(time_str))
+
+    let section = parse_section_split(section_str);
+    let time = parse_time_split(time_str, &job.stem, timelines, schedule_range);
+
+    (section, time)
 }
 
 /// Build a `ContentMode` from the resolved splits and the `content` key string.
@@ -496,7 +588,7 @@ fn build_content_mode(
             content.unwrap_or("both")
         );
     }
-    let time_req = time.unwrap_or(TimeSplit::Day);
+    let time_req = time.clone().unwrap_or(TimeSplit::Day);
     match content {
         Some("grid_only") | Some("grid-only") => ContentMode::GridOnly {
             section,
@@ -531,9 +623,19 @@ impl JobConfig {
     ///
     /// Returns `(LayoutConfig, stem)`.  The stem is the base filename (no
     /// extension) for the output file; callers append qualifiers as needed.
-    pub fn to_layout_config(&self) -> (LayoutConfig, String) {
-        let (section, time) = resolve_splits(self);
-        let content = build_content_mode(self.content.as_deref(), section, time, &self.stem);
+    ///
+    /// `timelines` provides custom timeline definitions referenced by name in
+    /// `time_split`. Custom timelines are expanded and embedded directly into
+    /// `TimeSplit::Custom(timeline)`. Unknown names fall back to `TimeSplit::Day`.
+    pub fn to_layout_config(
+        &self,
+        timelines: &HashMap<String, CustomTimeline>,
+        schedule_range: Option<(&str, &str)>,
+    ) -> (LayoutConfig, String) {
+        let (section, time) = resolve_splits(self, timelines, schedule_range);
+        let content =
+            build_content_mode(self.content.as_deref(), section, time.clone(), &self.stem);
+
         let config = LayoutConfig {
             paper: parse_paper(&self.paper),
             format: parse_format(self.format.as_deref()),

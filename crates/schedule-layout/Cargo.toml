@@ -22,6 +22,7 @@ thiserror = "2"
 chrono = { version = "0.4" }
 image = { version = "0.25", default-features = false, features = ["png"] }
 qrcode = "0.14"
+regex = "1"
 
 # Optional: in-process Typst compilation
 typst = { version = "0.13", optional = true }

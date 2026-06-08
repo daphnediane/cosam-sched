@@ -5647,6 +5647,7 @@ dependencies = [
  "comemo",
  "image",
  "qrcode",
+ "regex",
  "schedule-core",
  "serde",
  "serde_json",

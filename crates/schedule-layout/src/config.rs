@@ -32,7 +32,7 @@ pub enum PaperSize {
     #[default]
     Tabloid,
     SuperB,
-    /// Custom 30"×20" poster (landscape only).
+    /// Custom 30"×20" poster. Supports both portrait and landscape orientations.
     Poster,
     Postcard4x6,
 }
@@ -155,8 +155,32 @@ pub enum SectionSplit {
     Presenter,
 }
 
+/// A single time slot within a custom timeline.
+/// Slots run from their `time` until either `end_time` (if set) or the next slot's time.
+#[derive(Debug, Clone, PartialEq, Eq, Default)]
+pub struct CustomTimeSlot {
+    /// Display label for this slot (e.g., "Slot A", "Friday Morning Workshop").
+    pub label: String,
+    /// Start time in ISO 8601 format (e.g., "2026-06-26T12:00").
+    pub time: String,
+    /// Optional explicit end time. Panels at or after this time are excluded from this slot.
+    /// When absent, the slot runs until the next slot's start time (which may be on a later
+    /// day). The last slot in the timeline has no upper bound.
+    pub end_time: Option<String>,
+}
+
+/// A named custom timeline consisting of time slots.
+#[derive(Debug, Clone, PartialEq, Eq, Default)]
+pub struct CustomTimeline {
+    /// Ordered list of time slots in chronological order.
+    /// Each slot runs from its `time` until the next slot's time.
+    /// Panels before the first slot get a "Before <label>" section unless the first
+    /// slot has an explicit `end_time` (windowed), in which case they are excluded.
+    pub slots: Vec<CustomTimeSlot>,
+}
+
 /// How to split sections by time.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub enum TimeSplit {
     /// One section per calendar day.
     Day,
@@ -165,6 +189,10 @@ pub enum TimeSplit {
     /// One section per timeline entry (data-driven: splits on the schedule's
     /// SPLIT/timeline panels, e.g. "Friday Morning", "Friday Afternoon").
     Timeline,
+    /// One section per custom time slot. The timeline is fully resolved and
+    /// embedded — `schedule-layout` does not need to know about other timelines
+    /// or the config file structure.
+    Custom(CustomTimeline),
 }
 
 /// Output file format for a layout job.
@@ -192,7 +220,7 @@ pub enum FooterMode {
 }
 
 /// Which content a section renders, with how to split it.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub enum ContentMode {
     /// Schedule grid and panel descriptions side by side.
     Both {
@@ -227,8 +255,8 @@ impl Default for ContentMode {
 
 impl ContentMode {
     /// The section (entity) split, if any.
-    pub fn section_split(self) -> Option<SectionSplit> {
-        match self {
+    pub fn section_split(&self) -> Option<SectionSplit> {
+        match *self {
             ContentMode::Both { section, .. }
             | ContentMode::GridOnly { section, .. }
             | ContentMode::DescriptionOnly { section, .. }
@@ -237,35 +265,39 @@ impl ContentMode {
     }
 
     /// The time split, if any.
-    pub fn time_split(self) -> Option<TimeSplit> {
+    pub fn time_split(&self) -> Option<TimeSplit> {
         match self {
-            ContentMode::Both { time, .. } | ContentMode::GridOnly { time, .. } => Some(time),
-            ContentMode::DescriptionOnly { time, .. } | ContentMode::PanelList { time, .. } => time,
+            ContentMode::Both { time, .. } | ContentMode::GridOnly { time, .. } => {
+                Some(time.clone())
+            }
+            ContentMode::DescriptionOnly { time, .. } | ContentMode::PanelList { time, .. } => {
+                time.clone()
+            }
         }
     }
 
     /// Whether any split is active (section or time).
-    pub fn has_split(self) -> bool {
+    pub fn has_split(&self) -> bool {
         self.section_split().is_some() || self.time_split().is_some()
     }
 
     /// Whether both a section split and a time split are active (two-slot running header).
-    pub fn is_two_dim(self) -> bool {
+    pub fn is_two_dim(&self) -> bool {
         self.section_split().is_some() && self.time_split().is_some()
     }
 
     /// Whether this content draws the schedule grid.
-    pub fn shows_grid(self) -> bool {
+    pub fn shows_grid(&self) -> bool {
         matches!(
-            self,
+            *self,
             ContentMode::Both { .. } | ContentMode::GridOnly { .. }
         )
     }
 
     /// Whether this content draws panel text (descriptions or list).
-    pub fn shows_text(self) -> bool {
+    pub fn shows_text(&self) -> bool {
         matches!(
-            self,
+            *self,
             ContentMode::Both { .. }
                 | ContentMode::DescriptionOnly { .. }
                 | ContentMode::PanelList { .. }

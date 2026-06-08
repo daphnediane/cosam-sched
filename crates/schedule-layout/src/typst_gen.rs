@@ -29,7 +29,7 @@ pub fn escape_typst(s: &str) -> String {
 ///
 /// For the `Poster` paper size the page is set with explicit `width`/`height`
 /// instead of a named `paper:` key, because 30"×20" is not a standard Typst
-/// paper name.
+/// paper name. Both portrait (20"×30") and landscape (30"×20") are supported.
 pub fn preamble(config: &LayoutConfig, brand: &BrandConfig) -> String {
     use crate::config::PaperSize;
 
@@ -39,8 +39,12 @@ pub fn preamble(config: &LayoutConfig, brand: &BrandConfig) -> String {
     let landscape = config.orientation.is_landscape();
     let page_spec = match config.paper {
         PaperSize::Poster => {
-            // 30"×20" — dimensions encode landscape; orientation field is ignored.
-            "width: 30in, height: 20in".to_string()
+            // 30"×20" base dimensions — swap for landscape orientation.
+            if landscape {
+                "width: 30in, height: 20in".to_string()
+            } else {
+                "width: 20in, height: 30in".to_string()
+            }
         }
         _ => {
             let name = config.paper.typst_name().unwrap_or("us-letter");
@@ -167,7 +171,7 @@ mod tests {
     }
 
     #[test]
-    fn test_preamble_poster_custom_dimensions() {
+    fn test_preamble_poster_landscape() {
         use crate::config::{Orientation, PaperSize};
         let config = LayoutConfig {
             paper: PaperSize::Poster,
@@ -176,10 +180,37 @@ mod tests {
         };
         let brand = BrandConfig::default();
         let pre = preamble(&config, &brand);
-        assert!(pre.contains("width: 30in"), "should use custom width");
-        assert!(pre.contains("height: 20in"), "should use custom height");
+        assert!(
+            pre.contains("width: 30in"),
+            "landscape: wide dimension first"
+        );
+        assert!(
+            pre.contains("height: 20in"),
+            "landscape: short dimension second"
+        );
         assert!(!pre.contains("paper:"), "should not use paper: key");
         assert!(pre.contains("10pt"), "poster should use 10pt font");
+    }
+
+    #[test]
+    fn test_preamble_poster_portrait() {
+        use crate::config::{Orientation, PaperSize};
+        let config = LayoutConfig {
+            paper: PaperSize::Poster,
+            orientation: Orientation::Portrait,
+            ..LayoutConfig::default()
+        };
+        let brand = BrandConfig::default();
+        let pre = preamble(&config, &brand);
+        assert!(
+            pre.contains("width: 20in"),
+            "portrait: narrow dimension first"
+        );
+        assert!(
+            pre.contains("height: 30in"),
+            "portrait: tall dimension second"
+        );
+        assert!(!pre.contains("paper:"), "should not use paper: key");
     }
 
     #[test]

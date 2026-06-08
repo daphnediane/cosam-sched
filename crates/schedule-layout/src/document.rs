@@ -77,7 +77,7 @@ pub fn generate(
         return vec![];
     }
 
-    let content = config.content;
+    let content = &config.content;
 
     let mut doc = preamble(config, brand);
 
@@ -335,10 +335,12 @@ fn is_workshop(data: &ScheduleData, panel: &Panel) -> bool {
 
 /// Flatten `by_day` into time-labeled panel slices for `time`.
 fn time_sections<'a>(
-    time: TimeSplit,
+    time: &TimeSplit,
     by_day: &[(String, Vec<&'a Panel>)],
     all_dates: &[&str],
     timeline: &[TimelineEntry],
+    schedule_start: Option<&str>,
+    schedule_end: Option<&str>,
 ) -> Vec<(String, Vec<&'a Panel>)> {
     match time {
         TimeSplit::Day => by_day
@@ -353,6 +355,17 @@ fn time_sections<'a>(
             })
             .collect(),
         TimeSplit::Timeline => split_on_timeline(by_day, all_dates, timeline),
+        TimeSplit::Custom(ct) => {
+            if let (Some(start), Some(end)) = (schedule_start, schedule_end) {
+                split_on_custom_timeline(by_day, start, end, ct)
+            } else {
+                // Fallback to day split if no schedule range available
+                by_day
+                    .iter()
+                    .map(|(date, panels)| (make_day_label(date, all_dates), panels.clone()))
+                    .collect()
+            }
+        }
     }
 }
 
@@ -445,6 +458,143 @@ fn split_on_timeline<'a>(
     out
 }
 
+/// Split panels into sections using a custom timeline's slots as boundaries.
+///
+/// Panels that fall before the first slot are handled based on whether that
+/// first slot has an explicit `end_time`:
+/// - If the first slot is **windowed** (has `end_time`), panels before it are
+///   excluded — the slot represents a specific time window, not "from the start".
+/// - If the first slot is **open-ended** (no `end_time`), panels before it get
+///   their own section labelled `"Before <first_label>"`, so nothing is lost.
+///
+/// Slot windows chain globally across day boundaries: a slot with no `end_time`
+/// runs until the next slot's start time regardless of the calendar date.
+fn split_on_custom_timeline<'a>(
+    by_day: &[(String, Vec<&'a Panel>)],
+    schedule_start: &str,
+    schedule_end: &str,
+    custom_timeline: &crate::config::CustomTimeline,
+) -> Vec<(String, Vec<&'a Panel>)> {
+    use crate::config::CustomTimeSlot;
+
+    // Slots are already fully expanded with ISO 8601 times (done in `parse_time_split`).
+    // Build a globally sorted list of (start_iso, explicit_end_iso_or_empty, label).
+    let mut all_slots: Vec<(String, String, &str)> = custom_timeline
+        .slots
+        .iter()
+        .filter_map(|s: &CustomTimeSlot| {
+            let dt = crate::time_fmt::parse_loose_datetime(&s.time, schedule_start, schedule_end)?;
+            let start_iso = dt.format("%Y-%m-%dT%H:%M:%S").to_string();
+            let end_iso = s
+                .end_time
+                .as_deref()
+                .and_then(|e| {
+                    crate::time_fmt::parse_loose_datetime(e, schedule_start, schedule_end)
+                })
+                .map(|e| e.format("%Y-%m-%dT%H:%M:%S").to_string())
+                .unwrap_or_default();
+            Some((start_iso, end_iso, s.label.as_str()))
+        })
+        .collect();
+    all_slots.sort_by(|a, b| a.0.cmp(&b.0));
+
+    // Resolve effective end for each slot globally:
+    // - explicit end_time wins if set
+    // - otherwise the next slot's start (across any day boundary)
+    // - the last slot has no upper bound
+    let slot_windows: Vec<(&str, Option<&str>, &str)> = all_slots
+        .iter()
+        .enumerate()
+        .map(|(i, (start, end, label))| {
+            let effective_end = if !end.is_empty() {
+                Some(end.as_str())
+            } else if let Some((next_start, _, _)) = all_slots.get(i + 1) {
+                Some(next_start.as_str())
+            } else {
+                None // last slot: no upper bound
+            };
+            (start.as_str(), effective_end, *label)
+        })
+        .collect();
+
+    if slot_windows.is_empty() {
+        return vec![];
+    }
+
+    // Determine whether panels before the first slot should be collected.
+    // The first slot is "windowed" if it has an explicit end_time (the raw end
+    // string in all_slots[0].1 is non-empty). Windowed first slots imply the
+    // timeline covers only specific windows; anything before is intentionally
+    // excluded. Open-ended first slots imply the timeline covers the whole
+    // schedule; panels before it get a "Before <label>" catch-all section.
+    let first_slot_is_windowed = !all_slots[0].1.is_empty();
+    let before_label: Option<String> = if first_slot_is_windowed {
+        None
+    } else {
+        let first_label = all_slots[0].2;
+        if first_label.is_empty() {
+            None
+        } else {
+            Some(format!("Before {}", first_label))
+        }
+    };
+    let first_slot_start = all_slots[0].0.as_str();
+
+    // Assign a panel to the slot whose window it falls within, or to the
+    // before-section if the panel precedes the first slot.
+    let section_label_for = |panel: &&'a Panel| -> Option<String> {
+        let panel_start = panel.start_time.as_deref()?;
+        if panel_start < first_slot_start {
+            return before_label.clone();
+        }
+        // Find the latest slot whose start ≤ panel_start and end bound not exceeded.
+        slot_windows
+            .iter()
+            .rev()
+            .find(|(slot_start, slot_end, _)| {
+                *slot_start <= panel_start && slot_end.is_none_or(|e| panel_start < e)
+            })
+            .map(|(_, _, label)| label.to_string())
+    };
+
+    // Group all panels across all days into labelled buckets.
+    let mut buckets: std::collections::HashMap<String, Vec<&'a Panel>> =
+        std::collections::HashMap::new();
+    for (_date, panels) in by_day {
+        for panel in panels {
+            if let Some(label) = section_label_for(panel) {
+                buckets.entry(label).or_default().push(panel);
+            }
+            // Panels outside all slot windows are silently excluded
+        }
+    }
+
+    let mut out: Vec<(String, Vec<&'a Panel>)> = vec![];
+
+    // Prepend the "Before <label>" section if there are panels before the first slot.
+    if let Some(ref bl) = before_label {
+        if let Some(bucket) = buckets.remove(bl.as_str()) {
+            if !bucket.is_empty() {
+                out.push((bl.clone(), bucket));
+            }
+        }
+    }
+
+    // Output sections in slot order (skip empty-label sentinels, skip empty sections).
+    for (_, _, label) in &slot_windows {
+        if label.is_empty() {
+            continue;
+        }
+        if let Some(bucket) = buckets.remove(*label) {
+            if !bucket.is_empty() {
+                out.push((label.to_string(), bucket));
+            }
+        }
+    }
+
+    out
+}
+
 /// Build the document's sections for the configured split.
 fn build_sections<'a>(
     config: &LayoutConfig,
@@ -466,18 +616,25 @@ fn build_sections<'a>(
             corner_label: String::new(),
         }],
 
-        (None, Some(time)) => time_sections(time, &by_day, &all_dates, &data.timeline)
-            .into_iter()
-            .map(|(label, time_panels)| Section {
-                content_panels: time_panels.clone(),
-                grid_panels: time_panels,
-                highlight_room: None,
-                highlight_panel_ids: None,
-                left_label: String::new(),
-                right_label: label.clone(),
-                corner_label: label,
-            })
-            .collect(),
+        (None, Some(time)) => time_sections(
+            &time,
+            &by_day,
+            &all_dates,
+            &data.timeline,
+            data.meta.start_time.as_deref(),
+            data.meta.end_time.as_deref(),
+        )
+        .into_iter()
+        .map(|(label, time_panels)| Section {
+            content_panels: time_panels.clone(),
+            grid_panels: time_panels,
+            highlight_room: None,
+            highlight_panel_ids: None,
+            left_label: String::new(),
+            right_label: label.clone(),
+            corner_label: label,
+        })
+        .collect(),
 
         (Some(SectionSplit::Room), None) => data
             .sorted_rooms()
@@ -509,28 +666,35 @@ fn build_sections<'a>(
             .iter()
             .flat_map(|room| {
                 let name = room_name(room);
-                time_sections(time, &by_day, &all_dates, &data.timeline)
-                    .into_iter()
-                    .filter_map(move |(time_label, time_panels)| {
-                        let room_panels: Vec<&Panel> = time_panels
-                            .iter()
-                            .copied()
-                            .filter(|p| p.room_ids.contains(&room.uid))
-                            .collect();
-                        if room_panels.is_empty() {
-                            return None;
-                        }
-                        Some(Section {
-                            content_panels: room_panels,
-                            grid_panels: time_panels,
-                            highlight_room: Some(room.uid),
-                            highlight_panel_ids: None,
-                            left_label: name.clone(),
-                            right_label: time_label.clone(),
-                            corner_label: time_label,
-                        })
+                time_sections(
+                    &time,
+                    &by_day,
+                    &all_dates,
+                    &data.timeline,
+                    data.meta.start_time.as_deref(),
+                    data.meta.end_time.as_deref(),
+                )
+                .into_iter()
+                .filter_map(move |(time_label, time_panels)| {
+                    let room_panels: Vec<&Panel> = time_panels
+                        .iter()
+                        .copied()
+                        .filter(|p| p.room_ids.contains(&room.uid))
+                        .collect();
+                    if room_panels.is_empty() {
+                        return None;
+                    }
+                    Some(Section {
+                        content_panels: room_panels,
+                        grid_panels: time_panels,
+                        highlight_room: Some(room.uid),
+                        highlight_panel_ids: None,
+                        left_label: name.clone(),
+                        right_label: time_label.clone(),
+                        corner_label: time_label,
                     })
-                    .collect::<Vec<_>>()
+                })
+                .collect::<Vec<_>>()
             })
             .collect(),
 
@@ -564,29 +728,36 @@ fn build_sections<'a>(
             .iter()
             .filter(|p| postcard_rank_eligible(&p.rank))
             .flat_map(|presenter| {
-                time_sections(time, &by_day, &all_dates, &data.timeline)
-                    .into_iter()
-                    .filter_map(move |(time_label, time_panels)| {
-                        let his: Vec<&Panel> = time_panels
-                            .iter()
-                            .copied()
-                            .filter(|p| p.presenters.iter().any(|n| n == &presenter.name))
-                            .collect();
-                        if his.is_empty() {
-                            return None;
-                        }
-                        let ids: HashSet<String> = his.iter().map(|p| p.id.clone()).collect();
-                        Some(Section {
-                            content_panels: his,
-                            grid_panels: time_panels,
-                            highlight_room: None,
-                            highlight_panel_ids: Some(ids),
-                            left_label: presenter.name.clone(),
-                            right_label: time_label.clone(),
-                            corner_label: time_label,
-                        })
+                time_sections(
+                    &time,
+                    &by_day,
+                    &all_dates,
+                    &data.timeline,
+                    data.meta.start_time.as_deref(),
+                    data.meta.end_time.as_deref(),
+                )
+                .into_iter()
+                .filter_map(move |(time_label, time_panels)| {
+                    let his: Vec<&Panel> = time_panels
+                        .iter()
+                        .copied()
+                        .filter(|p| p.presenters.iter().any(|n| n == &presenter.name))
+                        .collect();
+                    if his.is_empty() {
+                        return None;
+                    }
+                    let ids: HashSet<String> = his.iter().map(|p| p.id.clone()).collect();
+                    Some(Section {
+                        content_panels: his,
+                        grid_panels: time_panels,
+                        highlight_room: None,
+                        highlight_panel_ids: Some(ids),
+                        left_label: presenter.name.clone(),
+                        right_label: time_label.clone(),
+                        corner_label: time_label,
                     })
-                    .collect::<Vec<_>>()
+                })
+                .collect::<Vec<_>>()
             })
             .collect(),
     }

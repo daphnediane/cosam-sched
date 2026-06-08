@@ -1083,10 +1083,12 @@ fn run_layout_export(
     /// Convert resolved `JobConfig`s to `LayoutOutputJob`s.
     fn convert_jobs(
         jobs: &[(layout_config::JobConfig, Option<String>)],
+        timelines: &std::collections::HashMap<String, layout_config::CustomTimeline>,
+        schedule_range: Option<(&str, &str)>,
     ) -> Vec<(LayoutOutputJob, Option<String>)> {
         jobs.iter()
             .map(|(job, brand_override)| {
-                let (config, stem) = job.to_layout_config();
+                let (config, stem) = job.to_layout_config(timelines, schedule_range);
                 (
                     LayoutOutputJob {
                         config,
@@ -1117,6 +1119,13 @@ fn run_layout_export(
             .map(|p| p.to_string_lossy().to_string())
     };
 
+    // Schedule date range for resolving loose/recurring time expressions.
+    let sched_range: Option<(&str, &str)> = data
+        .meta
+        .start_time
+        .as_deref()
+        .zip(data.meta.end_time.as_deref());
+
     // Determine which jobs to run:
     // - A command-line layout (`--layout.*`) renders a single job; the export
     //   path is used as the output file name. Imports resolve against the presets
@@ -1135,7 +1144,8 @@ fn run_layout_export(
                 }
             };
             let brand = resolved.brand_config.clone().or_else(global_brand);
-            let mut converted = convert_jobs(&[(resolved, brand)]);
+            let mut converted =
+                convert_jobs(&[(resolved, brand)], &user_defaults.timelines, sched_range);
             // Use the export path as the output file name for this single job.
             if let Some((job, _)) = converted.first_mut() {
                 job.output_override = Some(layout_dir.to_path_buf());
@@ -1160,6 +1170,8 @@ fn run_layout_export(
                         )
                     })
                     .collect::<Vec<_>>(),
+                &user_defaults.timelines,
+                sched_range,
             )
         } else {
             // Resolve jobs with presets and per-job brand configs
@@ -1177,7 +1189,7 @@ fn run_layout_export(
                     (job, brand)
                 })
                 .collect();
-            convert_jobs(&with_global_fallback)
+            convert_jobs(&with_global_fallback, &user_defaults.timelines, sched_range)
         };
 
     // Build the private view only when a job asks for it. Jobs that request
