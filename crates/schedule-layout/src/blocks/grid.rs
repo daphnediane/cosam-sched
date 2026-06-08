@@ -535,7 +535,7 @@ fn render_event_cell(
         let orig_start = panel
             .start_time
             .as_deref()
-            .map(|s| time_fmt::format_time(s))
+            .map(time_fmt::format_time)
             .unwrap_or_default();
         if orig_start.is_empty() {
             String::new()
