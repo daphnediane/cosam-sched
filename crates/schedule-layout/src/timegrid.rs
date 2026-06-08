@@ -32,6 +32,10 @@ pub struct GridCell {
     pub row_start: usize,
     /// Exclusive end row index.
     pub row_end: usize,
+    /// The panel started before the window's first time slot (visual zig-zag on top edge).
+    pub truncated_start: bool,
+    /// The panel ends after the window's last time slot (visual zig-zag on bottom edge).
+    pub truncated_end: bool,
 }
 
 /// Computed grid layout for a set of panels.
@@ -41,11 +45,28 @@ pub struct GridLayout {
     pub time_slots: Vec<TimeSlot>,
     pub cells: Vec<GridCell>,
     pub break_cells: Vec<GridCell>,
+    /// ISO 8601 datetime string marking the start of the visible window, if any.
+    pub window_start: Option<String>,
+    /// ISO 8601 datetime string marking the end of the visible window, if any.
+    pub window_end: Option<String>,
 }
 
 impl GridLayout {
     /// Compute the grid layout for the given panels and room list.
-    pub fn compute(panels: &[&Panel], data: &ScheduleData) -> Self {
+    ///
+    /// `window_start` / `window_end` are optional ISO 8601 datetime strings that
+    /// describe the visible time window for this section (used when the section was
+    /// produced by a time-split).  When set:
+    /// - Panels whose `start_time` precedes `window_start` are included but their
+    ///   `row_start` is clamped to the first slot and `truncated_start` is set.
+    /// - Panels whose `end_time` extends past `window_end` are included but their
+    ///   `row_end` is clamped to the last rendered slot and `truncated_end` is set.
+    pub fn compute(
+        panels: &[&Panel],
+        data: &ScheduleData,
+        window_start: Option<&str>,
+        window_end: Option<&str>,
+    ) -> Self {
         let regular: Vec<&&Panel> = panels
             .iter()
             .filter(|p| {
@@ -89,8 +110,15 @@ impl GridLayout {
             }
         }
 
-        // Collect all unique time keys (start + end) and sort
-        let mut time_keys: Vec<String> = panels
+        // Normalize the optional window bounds to 16-char ISO keys.
+        let win_start: Option<String> = window_start.map(|s| s[..16.min(s.len())].to_string());
+        let win_end: Option<String> = window_end.map(|s| s[..16.min(s.len())].to_string());
+
+        // Collect all unique time keys (start + end) and sort.
+        // When a window is set, include its boundaries so the grid always
+        // opens/closes exactly at the window edge even if no panel starts or
+        // ends there.
+        let mut time_key_set: std::collections::HashSet<String> = panels
             .iter()
             .flat_map(|p| {
                 let mut keys = vec![];
@@ -102,10 +130,24 @@ impl GridLayout {
                 }
                 keys
             })
-            .collect::<std::collections::HashSet<_>>()
-            .into_iter()
             .collect();
+        if let Some(ref ws) = win_start {
+            time_key_set.insert(ws.clone());
+        }
+        if let Some(ref we) = win_end {
+            time_key_set.insert(we.clone());
+        }
+        let mut time_keys: Vec<String> = time_key_set.into_iter().collect();
         time_keys.sort();
+
+        // Drop time keys that are strictly outside [win_start, win_end].
+        // Keys equal to win_start or win_end are kept as boundary markers.
+        if win_start.is_some() || win_end.is_some() {
+            time_keys.retain(|k| {
+                win_start.as_deref().is_none_or(|ws| k.as_str() >= ws)
+                    && win_end.as_deref().is_none_or(|we| k.as_str() <= we)
+            });
+        }
 
         let time_slots: Vec<TimeSlot> = time_keys
             .iter()
@@ -121,7 +163,12 @@ impl GridLayout {
             })
             .collect();
 
-        // Build cells
+        // Helper: look up a time key in the slot list, clamped to [0, len-1].
+        let slot_idx =
+            |key: &str| -> usize { time_slots.iter().position(|ts| ts.key == key).unwrap_or(0) };
+        let n_slots = time_slots.len();
+
+        // Build cells, clamping rows to [0, n_slots) and recording truncation.
         let mut cells = vec![];
         for panel in &regular {
             let start_key = panel
@@ -133,11 +180,32 @@ impl GridLayout {
                 .as_ref()
                 .map(|s| s[..16.min(s.len())].to_string());
             if let (Some(sk), Some(ek)) = (start_key, end_key) {
-                let row_start = time_slots.iter().position(|ts| ts.key == sk).unwrap_or(0);
+                // Detect truncation before doing any clamping.
+                let truncated_start = win_start.as_deref().is_some_and(|ws| sk.as_str() < ws);
+                let truncated_end = win_end.as_deref().is_some_and(|we| ek.as_str() > we);
+
+                // Clamp the effective start/end keys to the visible window.
+                let eff_sk = if truncated_start {
+                    win_start.as_deref().unwrap()
+                } else {
+                    sk.as_str()
+                };
+                let eff_ek = if truncated_end {
+                    win_end.as_deref().unwrap()
+                } else {
+                    ek.as_str()
+                };
+
+                let row_start = slot_idx(eff_sk);
                 let row_end = time_slots
                     .iter()
-                    .position(|ts| ts.key == ek)
-                    .unwrap_or(row_start + 1);
+                    .position(|ts| ts.key == eff_ek)
+                    .unwrap_or((row_start + 1).min(n_slots));
+
+                if row_end <= row_start {
+                    continue; // panel is entirely outside the window
+                }
+
                 for room_id in &panel.room_ids {
                     if let Some(col) = room_order.iter().position(|r| r == room_id) {
                         cells.push(GridCell {
@@ -145,6 +213,8 @@ impl GridLayout {
                             col,
                             row_start,
                             row_end,
+                            truncated_start,
+                            truncated_end,
                         });
                     }
                 }
@@ -162,16 +232,37 @@ impl GridLayout {
                 .as_ref()
                 .map(|s| s[..16.min(s.len())].to_string());
             if let (Some(sk), Some(ek)) = (start_key, end_key) {
-                let row_start = time_slots.iter().position(|ts| ts.key == sk).unwrap_or(0);
+                let truncated_start = win_start.as_deref().is_some_and(|ws| sk.as_str() < ws);
+                let truncated_end = win_end.as_deref().is_some_and(|we| ek.as_str() > we);
+
+                let eff_sk = if truncated_start {
+                    win_start.as_deref().unwrap()
+                } else {
+                    sk.as_str()
+                };
+                let eff_ek = if truncated_end {
+                    win_end.as_deref().unwrap()
+                } else {
+                    ek.as_str()
+                };
+
+                let row_start = slot_idx(eff_sk);
                 let row_end = time_slots
                     .iter()
-                    .position(|ts| ts.key == ek)
-                    .unwrap_or(row_start + 1);
+                    .position(|ts| ts.key == eff_ek)
+                    .unwrap_or((row_start + 1).min(n_slots));
+
+                if row_end <= row_start {
+                    continue;
+                }
+
                 break_cells.push(GridCell {
                     panel: (**panel).clone(),
                     col: 0,
                     row_start,
                     row_end,
+                    truncated_start,
+                    truncated_end,
                 });
             }
         }
@@ -179,6 +270,8 @@ impl GridLayout {
         GridLayout {
             room_order,
             time_slots,
+            window_start: win_start,
+            window_end: win_end,
             cells,
             break_cells,
         }

@@ -14,6 +14,7 @@ use std::collections::HashSet;
 
 use crate::color::{ColorMode, PanelColor};
 use crate::model::ScheduleData;
+use crate::time_fmt;
 use crate::timegrid::GridLayout;
 use crate::typst_gen::escape_typst;
 
@@ -72,6 +73,16 @@ const BREAK_FILL_LUMA: u16 = 235;
 const HIGHLIGHT_FILL_LIGHTEN: u16 = 90;
 /// Lighten percentage for an empty slot in the highlighted room column.
 const HIGHLIGHT_EMPTY_LIGHTEN: u16 = 78;
+/* Zig-zag constants - currently unused, reserved for future torn-edge effect:
+const ZIGZAG_TOOTH_PT: f64 = 8.0;
+const ZIGZAG_HEIGHT_PT: f64 = 6.0;
+const ZIGZAG_LUMA: u16 = 140;
+const ZIGZAG_STROKE_PT: f64 = 1.2;
+*/
+/// Dotted stroke width (pt) for truncated cell borders (top/bottom).
+const TRUNC_STROKE_PT: f64 = 1.5;
+/// Grey level of the dotted truncation border.
+const TRUNC_STROKE_LUMA: u16 = 140;
 
 impl Default for GridRenderConfig {
     fn default() -> Self {
@@ -166,6 +177,53 @@ pub(crate) fn render_schedule_grid(
          {kw} _cell_inset = (x: 3pt, y: 2pt)\n",
         kw = let_kw,
     ));
+
+    // Zig-zag / torn-edge logic for panels truncated at time-split boundaries.
+    // Currently using a simple dotted border stroke instead of the full zig-zag
+    // polygon overlay (which had issues with polygon closing edges and background
+    // fill not matching the torn shape).
+    //
+    // To re-enable zig-zag in the future, uncomment below and update the
+    // truncated border logic in render_event_cell to call _zigzag().
+    /*
+    // Zig-zag constants: tooth=8pt, height=6pt, stroke=1.2pt, luma=140
+    out.push_str(&format!(
+        "{kw} _zz_tooth = 8pt\n\
+         {kw} _zz_h     = 6pt\n\
+         {kw} _zz_sw    = 1.2pt\n\
+         {kw} _zz_seed  = 1234.5678\n\
+         {kw} _zigzag = (at-top: true, col: luma(140)) => layout(avail => {{\n\
+         \x20 let w = avail.width\n\
+         \x20 let n = calc.max(1, calc.ceil(w / _zz_tooth))\n\
+         \x20 let actual_tooth = w / n\n\
+         \x20 let pts = ()\n\
+         \x20 let dir = if at-top {{ 1 }} else {{ -1 }}\n\
+         \x20 for i in range(n) {{\n\
+         \x20   let x0 = i * actual_tooth\n\
+         \x20   let x1 = (i + 0.25) * actual_tooth\n\
+         \x20   let x2 = (i + 0.5) * actual_tooth\n\
+         \x20   let x3 = (i + 0.75) * actual_tooth\n\
+         \x20   let x4 = (i + 1) * actual_tooth\n\
+         \x20   let r1 = calc.sin(i * 123.456 + _zz_seed) * 0.5 + 0.5\n\
+         \x20   let r2 = calc.sin(i * 789.012 + _zz_seed) * 0.5 + 0.5\n\
+         \x20   let r3 = calc.sin(i * 345.678 + _zz_seed) * 0.5 + 0.5\n\
+         \x20   let h_up = _zz_h * r1 * dir\n\
+         \x20   let h_dn = -_zz_h * r2 * dir\n\
+         \x20   let h_mid = _zz_h * (r3 - 0.5) * dir * 2\n\
+         \x20   pts.push((x0, 0pt))\n\
+         \x20   pts.push((x1, h_up))\n\
+         \x20   pts.push((x2, h_mid))\n\
+         \x20   pts.push((x3, h_dn))\n\
+         \x20   pts.push((x4, 0pt))\n\
+         \x20 }}\n\
+         \x20 place(\n\
+         \x20   if at-top {{ top }} else {{ bottom }},\n\
+         \x20   polygon(fill: none, stroke: _zz_sw + col, ..pts)\n\
+         \x20 )\n\
+         }})\n",
+        kw = let_kw,
+    ));
+    */
 
     // Compute time-column width via measure (only when inside context). When a
     // corner label is present, the column must also fit it, so widen to the
@@ -468,16 +526,72 @@ fn render_event_cell(
         format!(" \\ #text(size: _secondary_size)[{}]", dur_label)
     };
 
+    // Zig-zag overlays for panels truncated at a time-split boundary are placed
+    // outside the block (see top_zz_outside / bot_zz_outside below) so they sit at
+    // the cell border rather than inside the inset content area.
+
+    // "↑ cont from X PM" label shown as the first text line of a top-truncated cell.
+    let cont_from_str = if cell.truncated_start {
+        let orig_start = panel
+            .start_time
+            .as_deref()
+            .map(|s| time_fmt::format_time(s))
+            .unwrap_or_default();
+        if orig_start.is_empty() {
+            String::new()
+        } else {
+            format!(
+                "#text(size: _secondary_size, style: \"italic\")[\u{2191} cont from {}]\n",
+                escape_typst(&orig_start)
+            )
+        }
+    } else {
+        String::new()
+    };
+
+    // Build stroke for truncated edges (top/bottom) using dotted line.
+    // The left accent stroke is handled separately in left_stroke.
+    let trunc_stroke = if cell.truncated_start || cell.truncated_end {
+        let mut parts = vec![];
+        if cell.truncated_start {
+            parts.push(format!(
+                "top: (thickness: {STROKE_PT}pt, paint: luma({STROKE_LUMA}), dash: \"dotted\")",
+                STROKE_PT = TRUNC_STROKE_PT,
+                STROKE_LUMA = TRUNC_STROKE_LUMA
+            ));
+        }
+        if cell.truncated_end {
+            parts.push(format!(
+                "bottom: (thickness: {STROKE_PT}pt, paint: luma({STROKE_LUMA}), dash: \"dotted\")",
+                STROKE_PT = TRUNC_STROKE_PT,
+                STROKE_LUMA = TRUNC_STROKE_LUMA
+            ));
+        }
+        // Add the left accent if present
+        if !color_str.is_empty() {
+            parts.push(format!(
+                "left: {accent}pt + rgb(\"{color}\")",
+                accent = ACCENT_WIDTH_PT,
+                color = color_str
+            ));
+        }
+        format!(", stroke: ({})", parts.join(", "))
+    } else {
+        left_stroke
+    };
+
     out.push_str(&format!(
         "  grid.cell(fill: {fill}{rowspan}{stroke})\
          [#block(clip: true, width: 100%, height: 100%, inset: _cell_inset, \
          stroke: (bottom: {rule_pt}pt + luma({rule_luma})))[\
+         {cont_from}\
          #text(size: _name_size, weight: \"bold\")[{name}]{cost}\n{credits}\n{dur}]],\n",
         fill = fill,
         rowspan = rowspan_arg,
-        stroke = left_stroke,
+        stroke = trunc_stroke,
         rule_pt = CELL_RULE_PT,
         rule_luma = CELL_RULE_LUMA,
+        cont_from = cont_from_str,
         name = name,
         cost = cost_suffix,
         credits = credits_str,

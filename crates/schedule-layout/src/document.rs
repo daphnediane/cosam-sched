@@ -54,6 +54,10 @@ struct Section<'a> {
     right_label: String,
     /// Grid corner-cell text.
     corner_label: String,
+    /// Start of the visible time window for this section (ISO 8601), if any.
+    window_start: Option<String>,
+    /// End of the visible time window for this section (ISO 8601), if any.
+    window_end: Option<String>,
 }
 
 /// Generate the unified layout document.
@@ -232,7 +236,12 @@ fn render_grid(
     cfg.corner_label = section.corner_label.clone();
     cfg.highlight_panel_ids = section.highlight_panel_ids.clone();
     cfg.empty_fill = empty_fill.map(str::to_string);
-    let layout = GridLayout::compute(&section.grid_panels, data);
+    let layout = GridLayout::compute(
+        &section.grid_panels,
+        data,
+        section.window_start.as_deref(),
+        section.window_end.as_deref(),
+    );
     render_schedule_grid(&layout, data, color_mode, &cfg)
 }
 
@@ -333,6 +342,12 @@ fn is_workshop(data: &ScheduleData, panel: &Panel) -> bool {
         .is_some_and(|pt| pt.is_workshop)
 }
 
+/// A labelled slice of panels with an optional visible time window.
+///
+/// `(label, panels, window_start, window_end)` where the window fields are
+/// ISO 8601 datetime strings used to clamp the grid to the section boundary.
+type TimedSection<'a> = (String, Vec<&'a Panel>, Option<String>, Option<String>);
+
 /// Flatten `by_day` into time-labeled panel slices for `time`.
 fn time_sections<'a>(
     time: &TimeSplit,
@@ -341,17 +356,17 @@ fn time_sections<'a>(
     timeline: &[TimelineEntry],
     schedule_start: Option<&str>,
     schedule_end: Option<&str>,
-) -> Vec<(String, Vec<&'a Panel>)> {
+) -> Vec<TimedSection<'a>> {
     match time {
         TimeSplit::Day => by_day
             .iter()
-            .map(|(date, panels)| (make_day_label(date, all_dates), panels.clone()))
+            .map(|(date, panels)| (make_day_label(date, all_dates), panels.clone(), None, None))
             .collect(),
         TimeSplit::HalfDay => by_day
             .iter()
             .flat_map(|(date, panels)| {
                 let day_label = make_day_label(date, all_dates);
-                split_halves(&day_label, panels)
+                split_halves(&day_label, date, panels)
             })
             .collect(),
         TimeSplit::Timeline => split_on_timeline(by_day, all_dates, timeline),
@@ -362,7 +377,9 @@ fn time_sections<'a>(
                 // Fallback to day split if no schedule range available
                 by_day
                     .iter()
-                    .map(|(date, panels)| (make_day_label(date, all_dates), panels.clone()))
+                    .map(|(date, panels)| {
+                        (make_day_label(date, all_dates), panels.clone(), None, None)
+                    })
                     .collect()
             }
         }
@@ -374,11 +391,15 @@ fn time_sections<'a>(
 /// Timeline entries (SPLIT panels) carry a `start_time`; each one opens a new
 /// section whose label is the entry's name. Panels that fall before the first
 /// timeline entry in a day are grouped into a section named after the day itself.
+///
+/// Each returned section includes the window `[win_start, win_end)` that defines
+/// the visible time range, so the grid can clamp and mark panels that span the
+/// boundary.
 fn split_on_timeline<'a>(
     by_day: &[(String, Vec<&'a Panel>)],
     all_dates: &[&str],
     timeline: &[TimelineEntry],
-) -> Vec<(String, Vec<&'a Panel>)> {
+) -> Vec<TimedSection<'a>> {
     // Build a sorted list of (date, start_time_str, label) from timeline entries
     // that have a start_time. Entries without a time are skipped.
     let mut tl_boundaries: Vec<(&str, &str, &str)> = timeline
@@ -392,7 +413,7 @@ fn split_on_timeline<'a>(
     // Sort by start_time so boundaries are in chronological order.
     tl_boundaries.sort_by_key(|(_, start, _)| *start);
 
-    let mut out: Vec<(String, Vec<&'a Panel>)> = vec![];
+    let mut out: Vec<TimedSection<'a>> = vec![];
 
     for (date, panels) in by_day {
         let day_label = make_day_label(date, all_dates);
@@ -406,7 +427,7 @@ fn split_on_timeline<'a>(
         if day_boundaries.is_empty() {
             // No timeline entries for this day — fall back to a single day section.
             if !panels.is_empty() {
-                out.push((day_label, panels.clone()));
+                out.push((day_label, panels.clone(), None, None));
             }
             continue;
         }
@@ -429,11 +450,20 @@ fn split_on_timeline<'a>(
 
         // Group panels preserving the boundary order: day-label bucket first,
         // then each boundary in chronological order.
-        let mut section_keys: Vec<String> = vec![day_label.clone()];
-        for (_, name) in &day_boundaries {
+        // section_keys[i] -> (key, win_start, win_end)
+        // The day-label bucket's window is [None, first_boundary).
+        // Each timeline-boundary bucket's window is [boundary_start, next_boundary_start).
+        // The last bucket has no upper bound.
+        let mut section_keys: Vec<(String, Option<String>, Option<String>)> = vec![(
+            day_label.clone(),
+            None,
+            Some(day_boundaries[0].0.to_string()),
+        )];
+        for (i, (bstart, name)) in day_boundaries.iter().enumerate() {
             let key = name.to_string();
-            if !section_keys.contains(&key) {
-                section_keys.push(key);
+            let win_end = day_boundaries.get(i + 1).map(|(next, _)| next.to_string());
+            if !section_keys.iter().any(|(k, _, _)| k == &key) {
+                section_keys.push((key, Some(bstart.to_string()), win_end));
             }
         }
 
@@ -446,10 +476,10 @@ fn split_on_timeline<'a>(
                 .push(panel);
         }
 
-        for key in section_keys {
+        for (key, win_start, win_end) in section_keys {
             if let Some(bucket) = buckets.remove(&key) {
                 if !bucket.is_empty() {
-                    out.push((key, bucket));
+                    out.push((key, bucket, win_start, win_end));
                 }
             }
         }
@@ -474,7 +504,7 @@ fn split_on_custom_timeline<'a>(
     schedule_start: &str,
     schedule_end: &str,
     custom_timeline: &crate::config::CustomTimeline,
-) -> Vec<(String, Vec<&'a Panel>)> {
+) -> Vec<TimedSection<'a>> {
     use crate::config::CustomTimeSlot;
 
     // Slots are already fully expanded with ISO 8601 times (done in `parse_time_split`).
@@ -569,30 +599,56 @@ fn split_on_custom_timeline<'a>(
         }
     }
 
-    let mut out: Vec<(String, Vec<&'a Panel>)> = vec![];
+    let mut out: Vec<TimedSection<'a>> = vec![];
 
     // Prepend the "Before <label>" section if there are panels before the first slot.
+    // Its window is [None, first_slot_start) — no lower bound, ends at first slot.
     if let Some(ref bl) = before_label {
         if let Some(bucket) = buckets.remove(bl.as_str()) {
             if !bucket.is_empty() {
-                out.push((bl.clone(), bucket));
+                out.push((bl.clone(), bucket, None, Some(first_slot_start.to_string())));
             }
         }
     }
 
     // Output sections in slot order (skip empty-label sentinels, skip empty sections).
-    for (_, _, label) in &slot_windows {
+    // Carry the resolved (win_start, win_end) from slot_windows.
+    for (win_start, win_end, label) in &slot_windows {
         if label.is_empty() {
             continue;
         }
         if let Some(bucket) = buckets.remove(*label) {
             if !bucket.is_empty() {
-                out.push((label.to_string(), bucket));
+                out.push((
+                    label.to_string(),
+                    bucket,
+                    Some(win_start.to_string()),
+                    win_end.map(str::to_string),
+                ));
             }
         }
     }
 
     out
+}
+
+/// Return panels from `all_panels` that start before `window_start` but end
+/// after it — i.e. panels that were not assigned to this section (because they
+/// started earlier) but whose time range overlaps into the window.  These are
+/// added to `grid_panels` only so the grid can show them with a truncated-start
+/// visual; they are deliberately excluded from `content_panels` to avoid
+/// duplicating descriptions in sections where the panel did not begin.
+fn spanning_into<'a>(all_panels: &[&'a Panel], window_start: &str) -> Vec<&'a Panel> {
+    all_panels
+        .iter()
+        .copied()
+        .filter(|p| {
+            let start = p.start_time.as_deref().unwrap_or("");
+            let end = p.end_time.as_deref().unwrap_or("");
+            // Panel started before the window and ends after it begins.
+            start < window_start && end > window_start
+        })
+        .collect()
 }
 
 /// Build the document's sections for the configured split.
@@ -614,6 +670,8 @@ fn build_sections<'a>(
             left_label: String::new(),
             right_label: String::new(),
             corner_label: String::new(),
+            window_start: None,
+            window_end: None,
         }],
 
         (None, Some(time)) => time_sections(
@@ -625,14 +683,25 @@ fn build_sections<'a>(
             data.meta.end_time.as_deref(),
         )
         .into_iter()
-        .map(|(label, time_panels)| Section {
-            content_panels: time_panels.clone(),
-            grid_panels: time_panels,
-            highlight_room: None,
-            highlight_panel_ids: None,
-            left_label: String::new(),
-            right_label: label.clone(),
-            corner_label: label,
+        .map(|(label, time_panels, win_start, win_end)| {
+            let grid_panels = if let Some(ref ws) = win_start {
+                let mut gp = spanning_into(panels, ws);
+                gp.extend_from_slice(&time_panels);
+                gp
+            } else {
+                time_panels.clone()
+            };
+            Section {
+                content_panels: time_panels,
+                grid_panels,
+                highlight_room: None,
+                highlight_panel_ids: None,
+                left_label: String::new(),
+                right_label: label.clone(),
+                corner_label: label,
+                window_start: win_start,
+                window_end: win_end,
+            }
         })
         .collect(),
 
@@ -657,6 +726,8 @@ fn build_sections<'a>(
                     left_label: String::new(),
                     right_label: name.clone(),
                     corner_label: name,
+                    window_start: None,
+                    window_end: None,
                 })
             })
             .collect(),
@@ -675,7 +746,7 @@ fn build_sections<'a>(
                     data.meta.end_time.as_deref(),
                 )
                 .into_iter()
-                .filter_map(move |(time_label, time_panels)| {
+                .filter_map(move |(time_label, time_panels, win_start, win_end)| {
                     let room_panels: Vec<&Panel> = time_panels
                         .iter()
                         .copied()
@@ -684,14 +755,27 @@ fn build_sections<'a>(
                     if room_panels.is_empty() {
                         return None;
                     }
+                    // grid_panels: time section panels + spanning ones for this room.
+                    let grid_panels = if let Some(ref ws) = win_start {
+                        let mut gp: Vec<&Panel> = spanning_into(panels, ws)
+                            .into_iter()
+                            .filter(|p| p.room_ids.contains(&room.uid))
+                            .collect();
+                        gp.extend_from_slice(&time_panels);
+                        gp
+                    } else {
+                        time_panels.clone()
+                    };
                     Some(Section {
                         content_panels: room_panels,
-                        grid_panels: time_panels,
+                        grid_panels,
                         highlight_room: Some(room.uid),
                         highlight_panel_ids: None,
                         left_label: name.clone(),
                         right_label: time_label.clone(),
                         corner_label: time_label,
+                        window_start: win_start,
+                        window_end: win_end,
                     })
                 })
                 .collect::<Vec<_>>()
@@ -719,6 +803,8 @@ fn build_sections<'a>(
                     left_label: String::new(),
                     right_label: presenter.name.clone(),
                     corner_label: presenter.name.clone(),
+                    window_start: None,
+                    window_end: None,
                 })
             })
             .collect(),
@@ -737,7 +823,7 @@ fn build_sections<'a>(
                     data.meta.end_time.as_deref(),
                 )
                 .into_iter()
-                .filter_map(move |(time_label, time_panels)| {
+                .filter_map(move |(time_label, time_panels, win_start, win_end)| {
                     let his: Vec<&Panel> = time_panels
                         .iter()
                         .copied()
@@ -747,14 +833,27 @@ fn build_sections<'a>(
                         return None;
                     }
                     let ids: HashSet<String> = his.iter().map(|p| p.id.clone()).collect();
+                    // grid_panels: time section panels + spanning ones for this presenter.
+                    let grid_panels = if let Some(ref ws) = win_start {
+                        let mut gp: Vec<&Panel> = spanning_into(panels, ws)
+                            .into_iter()
+                            .filter(|p| p.presenters.iter().any(|n| n == &presenter.name))
+                            .collect();
+                        gp.extend_from_slice(&time_panels);
+                        gp
+                    } else {
+                        time_panels.clone()
+                    };
                     Some(Section {
                         content_panels: his,
-                        grid_panels: time_panels,
+                        grid_panels,
                         highlight_room: None,
                         highlight_panel_ids: Some(ids),
                         left_label: presenter.name.clone(),
                         right_label: time_label.clone(),
                         corner_label: time_label,
+                        window_start: win_start,
+                        window_end: win_end,
                     })
                 })
                 .collect::<Vec<_>>()
@@ -803,13 +902,19 @@ fn group_by_day<'a>(panels: &[&'a Panel]) -> Vec<(String, Vec<&'a Panel>)> {
 }
 
 /// Split a day's panels into AM and PM halves, dropping empty halves.
-fn split_halves<'a>(day_label: &str, panels: &[&'a Panel]) -> Vec<(String, Vec<&'a Panel>)> {
+///
+/// `date` is the `YYYY-MM-DD` string for the day being split; it is used to
+/// build the noon window boundary (`YYYY-MM-DDT12:00`) so that panels which
+/// span the AM/PM boundary are visually clamped in each half's grid.
+fn split_halves<'a>(day_label: &str, date: &str, panels: &[&'a Panel]) -> Vec<TimedSection<'a>> {
     let hour_of = |p: &&'a Panel| -> Option<u32> {
         p.start_time
             .as_ref()
             .and_then(|s| s.get(11..13))
             .and_then(|h| h.parse::<u32>().ok())
     };
+
+    let noon = format!("{}T12:00", date);
 
     let am: Vec<&'a Panel> = panels
         .iter()
@@ -824,10 +929,12 @@ fn split_halves<'a>(day_label: &str, panels: &[&'a Panel]) -> Vec<(String, Vec<&
 
     let mut out = vec![];
     if !am.is_empty() {
-        out.push((format!("{} AM", day_label), am));
+        // AM window: no lower bound (starts at first event), ends at noon.
+        out.push((format!("{} AM", day_label), am, None, Some(noon.clone())));
     }
     if !pm.is_empty() {
-        out.push((format!("{} PM", day_label), pm));
+        // PM window: starts at noon, no upper bound.
+        out.push((format!("{} PM", day_label), pm, Some(noon), None));
     }
     out
 }
