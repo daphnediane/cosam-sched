@@ -1,23 +1,27 @@
 ---
 trigger: model_decision
 description: When implementing new features or discovering out-of-scope issues
-globs: docs/work-item/**/*.md,docs/WORK_ITEMS.md
+globs: work-item/**/*.md,docs/WORK_ITEMS.md
 ---
 
 # Work Item Tracking
 
 ## Structure
 
-Work items live in `docs/work-item/<PREFIX>-<###>.md`, auto-organized into subdirectories:
+Work items live at the project root under `work-item/`, auto-organized into subdirectories:
 
-| Directory          | Contents                         |
-| ------------------ | -------------------------------- |
-| `new/`             | Placeholder stubs (auto-created) |
-| `done/`            | Completed items                  |
-| `rejected/`        | Superseded/rejected items        |
-| `meta/`            | META prefix items                |
-| `idea/`            | IDEA prefix items                |
-| `high/medium/low/` | Priority-sorted open items       |
+| Directory            | Contents                         |
+| -------------------- | -------------------------------- |
+| `open/1-HIGH/`       | High-priority open items         |
+| `open/2-MEDIUM/`     | Medium-priority open items       |
+| `open/3-LOW/`        | Low-priority open items          |
+| `open/4-NEW/`        | Placeholder stubs (auto-created) |
+| `idea/`              | IDEA prefix items                |
+| `meta/`              | META prefix items                |
+| `closed/done/`       | Completed items                  |
+| `closed/rejected/`   | Rejected items                   |
+| `closed/superseded/` | Superseded items                 |
+| `template/`          | Per-prefix and default templates |
 
 ### Prefixes
 
@@ -25,11 +29,11 @@ META, FEATURE, BUGFIX, UI, EDITOR, CLI, DEPLOY, CLEANUP, PERFORMANCE, DOCS, REFA
 
 ### Statuses
 
-Placeholder → Open → In Progress → Completed (→ done/)
+Placeholder → Open → In Progress → Completed (→ `closed/done/`)
 
 ## Workflow
 
-1. **Create:** `perl scripts/work-item-update.pl --create <PREFIX>` — creates numbered stub in `new/`
+1. **Create:** `perl scripts/work-item-update.pl --create <PREFIX>` — creates numbered stub in `open/4-NEW/`
 2. **Fill in:** Edit file, change status from `Placeholder` to `Open`
 3. **Progress:** Update status as work proceeds
 4. **Finalize:** Run `scripts/work-item-update.pl` to reorganize and regenerate `docs/WORK_ITEMS.md`

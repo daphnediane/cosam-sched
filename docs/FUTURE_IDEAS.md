@@ -1,6 +1,6 @@
 # Future Ideas and Design Notes
 
-Updated on: Mon Jun  8 09:36:35 2026
+Updated on: Mon Jun  8 10:32:15 2026
 
 Open design questions, unexplored alternatives, and deferred ideas.
 An IDEA item can be promoted to a work item by renaming it to another prefix
@@ -160,9 +160,6 @@ changes on the next merge, not the undone result.
 
 * [IDEA-037] (Superseded) Add read-only `lookup_*` variants to entity resolution that take `&EntityStorage`
 instead of `&mut EntityStorage`.
-* [IDEA-042] (Completed) `EntityId::new(Uuid)` and `UuidPreference::Exact(NonNilUuid)` both accept a
-UUID without verifying it belongs to entity type `E`. Investigate whether these
-can be tightened so that `unsafe` search covers all type-membership trust points.
 * [IDEA-042] (Superseded) `EntityId::new(Uuid)` and `UuidPreference::Exact(NonNilUuid)` both accept a
 UUID without verifying it belongs to entity type `E`. Investigate whether these
 can be tightened so that `unsafe` search covers all type-membership trust points.
@@ -179,14 +176,14 @@ Use `perl scripts/work-item-update.pl --create IDEA` to add new stubs.
 
 ---
 
-[IDEA-036]: work-item/idea/IDEA-036.md
-[IDEA-037]: work-item/superseded/IDEA-037.md
-[IDEA-039]: work-item/idea/IDEA-039.md
-[IDEA-040]: work-item/idea/IDEA-040.md
-[IDEA-042]: work-item/done/IDEA-042.md
-[IDEA-044]: work-item/idea/IDEA-044.md
-[IDEA-077]: work-item/idea/IDEA-077.md
-[IDEA-080]: work-item/idea/IDEA-080.md
-[IDEA-101]: work-item/idea/IDEA-101.md
-[IDEA-109]: work-item/idea/IDEA-109.md
-[IDEA-130]: work-item/idea/IDEA-130.md
+[IDEA-036]: ../work-item/idea/IDEA-036.md
+[IDEA-037]: ../work-item/closed/superseded/IDEA-037.md
+[IDEA-039]: ../work-item/idea/IDEA-039.md
+[IDEA-040]: ../work-item/idea/IDEA-040.md
+[IDEA-042]: ../work-item/closed/superseded/IDEA-042.md
+[IDEA-044]: ../work-item/idea/IDEA-044.md
+[IDEA-077]: ../work-item/idea/IDEA-077.md
+[IDEA-080]: ../work-item/idea/IDEA-080.md
+[IDEA-101]: ../work-item/idea/IDEA-101.md
+[IDEA-109]: ../work-item/idea/IDEA-109.md
+[IDEA-130]: ../work-item/idea/IDEA-130.md

@@ -39,12 +39,18 @@ The work item system tracks all planned and in-progress work for the cosam-sched
 
 #### Organization
 
-Work items are stored in `docs/work-item/` as `<PREFIX>-<###>.md` files, automatically organized into subdirectories:
+Work items are stored in `work-item/` (project root) as `<PREFIX>-<###>.md` files, automatically organized into subdirectories:
 
+* **open/1-HIGH/** - High priority open items
+* **open/2-MEDIUM/** - Medium priority open items
+* **open/3-LOW/** - Low priority open items
+* **open/4-NEW/** - Placeholder stubs awaiting details
+* **idea/** - IDEA prefix items
 * **meta/** - Project-level meta items and phase trackers (META prefix)
-* **high/** - High priority open items
-* **medium/** - Medium priority open items
-* **low/** - Low priority open items
+* **closed/done/** - Completed items
+* **closed/rejected/** - Rejected items
+* **closed/superseded/** - Superseded items
+* **template/** - Per-prefix and default templates
 
 #### Prefixes
 
@@ -63,10 +69,10 @@ Work items are stored in `docs/work-item/` as `<PREFIX>-<###>.md` files, automat
 
 #### Workflow
 
-1. Create work item file in `docs/work-item/` with next available number
-2. Follow the template structure (Summary, Status, Priority, Description, etc.)
-3. Set status and priority appropriately
-4. Run `perl scripts/combine-workitems.pl` to organize and regenerate WORK_ITEMS.md
+1. Create work item file with `perl scripts/work-item-update.pl --create <PREFIX>`
+2. Fill in the stub: edit status from `Placeholder` to `Open`, add description
+3. Set priority appropriately
+4. Run `perl scripts/work-item-update.pl` to organize and regenerate WORK_ITEMS.md
 
 The combine script automatically:
 

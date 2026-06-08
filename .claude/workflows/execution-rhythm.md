@@ -8,7 +8,7 @@ Execute a single work item or plan phase. See `.claude/rules/execution-rhythm.md
 
 ## Prerequisites
 
-- Plan artifact or work item file exists in `docs/work-item/`
+- Plan artifact or work item file exists in `work-item/`
 - Item/phase marked ready to start
 
 ## Steps

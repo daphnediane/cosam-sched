@@ -13,6 +13,7 @@ use File::Find;
 use File::Copy qw[ move ];
 use FindBin;
 use File::Spec;
+use File::Spec::Unix;
 use File::Path   qw[ make_path ];
 use Getopt::Long qw[ GetOptions ];
 use Readonly;
@@ -23,23 +24,22 @@ Readonly my $ROOT_DIR =>
     File::Spec->catdir( $SCRIPT_DIR, File::Spec->updir() );
 
 # Configuration
-Readonly my $WORKITEM_DIR =>
-    File::Spec->catdir( $ROOT_DIR, qw[ docs work-item ] );
+Readonly my $WORKITEM_DIR => File::Spec->catdir( $ROOT_DIR, qw[ work-item ] );
 Readonly my $OUTPUT_FILE_WORK =>
     File::Spec->catdir( $ROOT_DIR, qw[ docs WORK_ITEMS.md ] );
 Readonly my $OUTPUT_FILE_IDEAS =>
     File::Spec->catdir( $ROOT_DIR, qw[ docs FUTURE_IDEAS.md ] );
 
-# All valid subdirectories
-Readonly my $SUBDIR_STATUS_DONE        => q{done};
-Readonly my $SUBDIR_STATUS_REJECTED    => q{rejected};
-Readonly my $SUBDIR_STATUS_SUPERSEDED  => q{superseded};
-Readonly my $SUBDIR_STATUS_PLACEHOLDER => q{new};
+# All valid subdirectories (relative to $WORKITEM_DIR)
+Readonly my $SUBDIR_STATUS_DONE        => q{closed/done};
+Readonly my $SUBDIR_STATUS_REJECTED    => q{closed/rejected};
+Readonly my $SUBDIR_STATUS_SUPERSEDED  => q{closed/superseded};
+Readonly my $SUBDIR_STATUS_PLACEHOLDER => q{open/4-NEW};
 Readonly my $SUBDIR_PREFIX_META        => q{meta};
 Readonly my $SUBDIR_PREFIX_IDEA        => q{idea};
-Readonly my $SUBDIR_PRIORITY_HIGH      => q{high};
-Readonly my $SUBDIR_PRIORITY_MEDIUM    => q{medium};
-Readonly my $SUBDIR_PRIORITY_LOW       => q{low};
+Readonly my $SUBDIR_PRIORITY_HIGH      => q{open/1-HIGH};
+Readonly my $SUBDIR_PRIORITY_MEDIUM    => q{open/2-MEDIUM};
+Readonly my $SUBDIR_PRIORITY_LOW       => q{open/3-LOW};
 
 Readonly::Hash my %SUBDIR_RANK => (
     $SUBDIR_STATUS_REJECTED    => 8,
@@ -169,13 +169,15 @@ if ( @unknown ) {
 my $newest_mtime = ( stat( $0 ) )[ 9 ];    # Start with script's own mtime
 
 # Calculate relative path from output file to workitem directory
-my $relative_workitem_path = File::Spec->abs2rel(
-    $WORKITEM_DIR,
-    File::Spec->catdir( $ROOT_DIR, qw[ docs ] )
+# (output files live in docs/, work-item/ is at project root).
+# Reassemble with File::Spec::Unix so the result always uses forward
+# slashes regardless of platform (it is used in markdown content).
+my $relative_workitem_path = File::Spec::Unix->catdir(
+    File::Spec->splitdir( File::Spec->abs2rel(
+        $WORKITEM_DIR,
+        File::Spec->catdir( $ROOT_DIR, qw[ docs ] )
+    ) )
 );
-
-# Convert forward slashes to forward slashes for markdown consistency
-$relative_workitem_path =~ s/\\/\//g;
 
 # Create placeholder work item files if --create was requested
 create_placeholders( @create_tags ) if @create_tags;
@@ -185,23 +187,26 @@ my @files;
 find(
     sub {
         # Skip the template directory entirely
-        if ( -d && $_ eq 'template' ) {
+        if ( -d && $_ eq q{template} ) {
             $File::Find::prune = 1;
             return;
         }
-        return unless -f && /\.md$/;
+        return unless -f && m{ \.md \z }xms;
 
         # Track newest modification time
         my $mtime = ( stat( $File::Find::name ) )[ 9 ];
         $newest_mtime = $mtime if $mtime > $newest_mtime;
 
-        # Determine which subdirectory this file is in
-        my $relative_path = $File::Find::name;
-        $relative_path =~ s/^\Q$WORKITEM_DIR\E//;
-        my $subdir = '';
-        if ( $relative_path =~ m{^[/\\]([^/\\]+)} ) {
-            $subdir = $1;
-        }
+        # Determine which subdirectory this file is in (may be two levels,
+        # e.g. open/1-HIGH or closed/done).
+        # Use File::Spec->abs2rel + splitdir so this works on Windows too.
+        # Reassemble with File::Spec::Unix so the stored key always uses
+        # forward slashes and matches the SUBDIR_* constants.
+        my $rel = File::Spec->abs2rel( $File::Find::name, $WORKITEM_DIR );
+        my ( undef, $dirs, undef ) = File::Spec->splitpath( $rel );
+        my @parts = grep { length $_ }
+            File::Spec->splitdir( File::Spec->catdir( $dirs ) );
+        my $subdir = @parts ? File::Spec::Unix->catdir( @parts ) : q{};
 
         # Store the subdirectory info for later use
         push @files, {
@@ -260,7 +265,8 @@ for my $file_info ( sort { $a->{ path } cmp $b->{ path } } @files ) {
     $priority = normalize_priority( $priority );
 
     # Extract prefix and number from filename
-    my ( $prefix, $num ) = $file =~ m{/([^/]+)-(\d+)\.md$};
+    my ( undef, undef, $basename ) = File::Spec->splitpath( $file );
+    my ( $prefix, $num ) = $basename =~ m{ \A ([^-]+) - (\d+) \.md \z }xms;
 
     push @items, {
         file           => $file,
@@ -459,10 +465,18 @@ sub create_placeholders {
     make_path( $WORKITEM_DIR ) unless -d $WORKITEM_DIR;
 
     # Ensure subdirs exist
-    for my $dir ( qw(done rejected meta idea new high medium low) ) {
-        my $full_dir = "$WORKITEM_DIR/$dir";
+    for my $dir ( qw(
+        closed/done closed/rejected closed/superseded
+        meta idea
+        open/1-HIGH open/2-MEDIUM open/3-LOW open/4-NEW
+        template
+    ) ) {
+        my $full_dir = File::Spec->catdir(
+            $WORKITEM_DIR,
+            File::Spec::Unix->splitdir( $dir )
+        );
         make_path( $full_dir ) unless -d $full_dir;
-    }
+    } ## end for my $dir ( qw( closed/done closed/rejected closed/superseded...))
 
     my @created;
     for my $tag ( @tags ) {
@@ -476,10 +490,13 @@ sub create_placeholders {
         my $num_str  = sprintf( q{%03d}, $next_id );
         my $filename = qq{$tag-$num_str.md};
 
-        # All placeholders start in new/ regardless of prefix
-        my $subdir = q{new};
-        my $target_path
-            = File::Spec->catfile( $WORKITEM_DIR, $subdir, $filename );
+        # All placeholders start in open/4-NEW/ regardless of prefix
+        my $subdir      = $SUBDIR_STATUS_PLACEHOLDER;
+        my $target_path = File::Spec->catfile(
+            $WORKITEM_DIR,
+            File::Spec::Unix->splitdir( $subdir ),
+            $filename
+        );
 
         if ( -f $target_path ) {
             print STDERR qq{WARNING: $target_path already exists, skipping\n};
@@ -549,19 +566,30 @@ sub reorganize_files {
     print STDERR qq{Reorganizing files to correct directories...\n};
 
     # Ensure target directories exist
-    for my $dir ( qw{done rejected meta idea new high medium low} ) {
-        my $full_dir = File::Spec->catdir( $WORKITEM_DIR, $dir );
+    for my $dir ( qw(
+        closed/done closed/rejected closed/superseded
+        meta idea
+        open/1-HIGH open/2-MEDIUM open/3-LOW open/4-NEW
+        template
+    ) ) {
+        my $full_dir = File::Spec->catdir(
+            $WORKITEM_DIR,
+            File::Spec::Unix->splitdir( $dir )
+        );
         unless ( -d $full_dir ) {
             make_path( $full_dir )
                 or die qq{Cannot create directory $full_dir: $!};
             print STDERR qq{Created directory: $full_dir\n};
         }
-    } ## end for my $dir ( qw{done rejected meta idea new high medium low})
+    } ## end for my $dir ( qw( closed/done closed/rejected closed/superseded...))
 
     # Process each item and move if needed
     for my $item ( @items ) {
         my $target_subdir = determine_target_directory( $item );
-        my $target_dir = File::Spec->catdir( $WORKITEM_DIR, $target_subdir );
+        my $target_dir    = File::Spec->catdir(
+            $WORKITEM_DIR,
+            File::Spec::Unix->splitdir( $target_subdir )
+        );
 
         # Skip if already in correct location
         if ( $item->{ current_subdir } eq $target_subdir ) {
@@ -747,7 +775,7 @@ sub generate_work_item_content {
     $content .= qq{## Placeholders\n\n};
     if ( @placeholders ) {
         $content
-            .= qq{Stub items in `docs/work-item/new/` awaiting details:\n\n};
+            .= qq{Stub items in `work-item/open/4-NEW/` awaiting details:\n\n};
         for my $item (
             sort {
                        $a->{ prefix } cmp $b->{ prefix }
@@ -950,7 +978,7 @@ sub generate_ideas_content {
         .= qq{Rename `IDEA-###.md` to another prefix to promote an idea.\n\n};
     if ( @idea_placeholders ) {
         $content
-            .= qq{Stub ideas in `docs/work-item/new/` awaiting details:\n\n};
+            .= qq{Stub ideas in `work-item/open/4-NEW/` awaiting details:\n\n};
         for my $item ( sort { $a->{ num } <=> $b->{ num } }
             @idea_placeholders ) {
             $content .= get_item_summary( $item, \%idea_links ) . qq{\n};
@@ -976,13 +1004,18 @@ sub generate_ideas_content {
 sub get_relative_path {
     my ( $item ) = @_;
 
-    # Build relative path based on current subdirectory
+    # Produce a forward-slash href suitable for markdown links.
+    # The output files live in docs/; work-item/ is at the project root.
+    # File::Spec::Unix ensures forward slashes on all platforms.
     my $filename = qq{$item->{prefix}-$item->{num}.md};
     if ( $item->{ current_subdir } ) {
-        return qq{work-item/$item->{current_subdir}/$filename};
-    }
+        return File::Spec::Unix->catfile(
+            q{..},                     q{work-item},
+            $item->{ current_subdir }, $filename
+        );
+    } ## end if ( $item->{ current_subdir...})
     else {
-        return qq{work-item/$filename};
+        return File::Spec::Unix->catfile( q{..}, q{work-item}, $filename );
     }
 } ## end sub get_relative_path
 
@@ -1037,7 +1070,12 @@ sub determine_target_directory {
         $STATUS_TO_DIR{ $item->{ status } },
         $PRIORITY_TO_DIR{ $item->{ priority } },
     );
-    push @check_dirs, $STATUS_PLACEHOLDER unless @check_dirs;
+    unless ( @check_dirs ) {
+        my $id = join q{-}, $item->{ prefix }, $item->{ num };
+        print STDERR qq{WARNING: cannot determine target directory for $id }
+            . qq{(status="$item->{status}", priority="$item->{priority}") — leaving in place\n};
+        return $item->{ current_subdir };
+    } ## end unless ( @check_dirs )
     my ( $dir )
         = sort { $SUBDIR_RANK{ $b } <=> $SUBDIR_RANK{ $a } } @check_dirs;
     return $dir;
