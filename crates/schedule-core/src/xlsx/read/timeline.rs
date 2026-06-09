@@ -82,7 +82,7 @@ impl super::ImportContext<'_> {
             let parsed_code = uniq_id_str.as_deref().and_then(PanelUniqId::parse);
             let panel_type_id = parsed_code
                 .as_ref()
-                .and_then(|c| self.panel_type_lookup.get(&c.prefix))
+                .and_then(|c| self.panel_type_lookup.get(c.type_prefix()))
                 .copied()
                 .or_else(|| {
                     get_field_def(&data, &tl_cols::PANEL_TYPES).and_then(|pt| {

@@ -7,8 +7,9 @@
 //! [`PanelUniqId`] — parsed representation of a spreadsheet "Uniq ID" value.
 //!
 //! The raw string (e.g. `"GW093P1AS4B"`) is parsed into its structural
-//! components: a two-letter prefix, a numeric base, optional part/session
-//! numbers, and optional trailing-alpha suffix characters.
+//! components: an uppercase prefix (preserved verbatim), a numeric base,
+//! optional part/session numbers, and optional trailing-alpha suffix
+//! characters.
 
 use regex::Regex;
 use serde::{Deserialize, Serialize};
@@ -21,8 +22,9 @@ use serde::{Deserialize, Serialize};
 /// <PREFIX><NUM>[P<part>][S<session>][<suffix>]
 /// ```
 ///
-/// - `PREFIX` — two or more uppercase letters, **normalized to 2 characters**
-///   (e.g. `SPLIT` → `SP`, `BREAK` → `BR`).
+/// - `PREFIX` — one or more uppercase letters, preserved **verbatim** (e.g.
+///   `SPLIT`, `BREAK`, `GP`). Use [`PanelUniqId::type_prefix`] for the
+///   normalized 2-character panel-type lookup key.
 /// - `NUM` — one or more digits (the base number for the panel series).
 /// - `P<n>` — optional part number.
 /// - `S<n>` — optional session number (repeat / re-run).
@@ -30,7 +32,8 @@ use serde::{Deserialize, Serialize};
 ///   (e.g. the `"AB"` from `"GW093P1AS4B"`).
 #[derive(Debug, Clone, Default, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub struct PanelUniqId {
-    /// Normalized 2-letter uppercase prefix (e.g. `"GP"`, `"SP"`, `"BR"`).
+    /// Raw uppercase prefix as typed in the spreadsheet (e.g. `"GP"`, `"SPLIT"`,
+    /// `"BREAK"`). The normalized 2-character lookup key is [`Self::type_prefix`].
     pub prefix: String,
     /// Numeric portion of the base ID.
     pub prefix_num: u32,
@@ -53,12 +56,9 @@ impl PanelUniqId {
         let head_re = Regex::new(r"^([A-Z]+)(\d+)([A-Z0-9]*)$").ok()?;
         let caps = head_re.captures(&id_upper)?;
 
-        let raw_prefix = caps.get(1)?.as_str();
-        let prefix = if raw_prefix.len() > 2 {
-            raw_prefix[..2].to_string()
-        } else {
-            raw_prefix.to_string()
-        };
+        // Preserve the raw prefix verbatim; `type_prefix()` derives the
+        // normalized 2-character panel-type lookup key on demand.
+        let prefix = caps.get(1)?.as_str().to_string();
         let prefix_num: u32 = caps.get(2)?.as_str().parse().ok()?;
 
         let mut tail = caps.get(3).map(|m| m.as_str()).unwrap_or("").to_string();
@@ -94,9 +94,22 @@ impl PanelUniqId {
         })
     }
 
-    /// Canonical base ID: normalized prefix + zero-padded 3-digit number.
+    /// Normalized 2-character panel-type lookup key derived from the raw
+    /// [`prefix`](Self::prefix) (e.g. `"SPLIT"` → `"SP"`, `"BR"` → `"BR"`).
     ///
-    /// e.g. `"GW"` + `97` → `"GW097"`.
+    /// Prefixes shorter than two characters are returned unchanged.
+    #[must_use]
+    pub fn type_prefix(&self) -> &str {
+        if self.prefix.len() > 2 {
+            &self.prefix[..2]
+        } else {
+            &self.prefix
+        }
+    }
+
+    /// Canonical base ID: raw prefix + zero-padded 3-digit number.
+    ///
+    /// e.g. `"GW"` + `97` → `"GW097"`, `"SPLIT"` + `1` → `"SPLIT001"`.
     #[must_use]
     pub fn base_id(&self) -> String {
         format!("{}{:03}", self.prefix, self.prefix_num)
@@ -164,11 +177,33 @@ mod tests {
     }
 
     #[test]
-    fn parse_long_prefix_normalized() {
+    fn parse_long_prefix_preserved() {
         let pid = PanelUniqId::parse("SPLIT01").unwrap();
-        assert_eq!(pid.prefix, "SP");
+        // Raw prefix is preserved verbatim (BUGFIX-131); only the panel-type
+        // lookup key is normalized to two characters.
+        assert_eq!(pid.prefix, "SPLIT");
+        assert_eq!(pid.type_prefix(), "SP");
         assert_eq!(pid.prefix_num, 1);
-        assert_eq!(pid.base_id(), "SP001");
+        assert_eq!(pid.base_id(), "SPLIT001");
+    }
+
+    #[test]
+    fn long_prefix_full_id_round_trips() {
+        // BUGFIX-131 reproduction: the raw spreadsheet value must round-trip.
+        let pid = PanelUniqId::parse("SPLIT001").unwrap();
+        assert_eq!(pid.full_id(), "SPLIT001");
+        assert_eq!(pid.type_prefix(), "SP");
+
+        let pid = PanelUniqId::parse("BREAK001").unwrap();
+        assert_eq!(pid.full_id(), "BREAK001");
+        assert_eq!(pid.type_prefix(), "BR");
+    }
+
+    #[test]
+    fn type_prefix_passthrough_for_two_char() {
+        let pid = PanelUniqId::parse("GP002").unwrap();
+        assert_eq!(pid.prefix, "GP");
+        assert_eq!(pid.type_prefix(), "GP");
     }
 
     #[test]

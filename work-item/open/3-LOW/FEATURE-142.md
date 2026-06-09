@@ -11,7 +11,7 @@ Open
 
 ## Priority
 
-High
+Low
 
 ## Blocked By
 

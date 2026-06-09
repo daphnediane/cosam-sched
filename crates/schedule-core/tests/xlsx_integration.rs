@@ -1313,7 +1313,7 @@ fn test_reimport_same_xlsx_is_idempotent() {
 ///
 /// - PanelTypes: `BR` (Is Break = Yes), `SP` (Is Timeline = Yes), `GP` (regular)
 /// - Schedule sheet: `BREAK001` (BR prefix, is_break), `GP001` (regular panel),
-///   `SPLIT001` (SP prefix, is_timeline — long raw prefix normalized to "SP")
+///   `SPLIT001` (raw prefix kept, "SP" lookup key, is_timeline)
 /// - Timeline sheet: `SPLIT002` (is_timeline from Timeline sheet, long raw prefix)
 ///
 /// Re-importing this workbook must be idempotent: the same UUIDs for all entities,
@@ -1358,13 +1358,13 @@ fn build_long_prefix_timeline_book() -> umya_spreadsheet::Spreadsheet {
         ws.set_name("Schedule");
         set_cell(ws, 1, 1, "Uniq ID");
         set_cell(ws, 2, 1, "Name");
-        // BREAK001 — long raw prefix "BREAK" normalizes to "BR" (is_break panel type)
+        // BREAK001 — raw prefix "BREAK" kept; "BR" lookup key (is_break panel type)
         set_cell(ws, 1, 2, "BREAK001");
         set_cell(ws, 2, 2, "Afternoon Break");
         // GP001 — regular panel
         set_cell(ws, 1, 3, "GP001");
         set_cell(ws, 2, 3, "Opening Ceremony");
-        // SPLIT001 — long raw prefix "SPLIT" normalizes to "SP" (is_timeline panel type)
+        // SPLIT001 — raw prefix "SPLIT" kept; "SP" lookup key (is_timeline panel type)
         set_cell(ws, 1, 4, "SPLIT001");
         set_cell(ws, 2, 4, "Split Day Marker 1");
     }
@@ -1376,9 +1376,10 @@ fn build_long_prefix_timeline_book() -> umya_spreadsheet::Spreadsheet {
 /// be idempotent: same byte output, no spurious entity creates or deletes.
 ///
 /// Regression test for the bug where `code_str.to_uppercase()` ("SPLIT001") was
-/// used as the upsert key instead of `parsed_code.full_id()` ("SP001"), causing
-/// a mismatch against the stored `full_id()` and a new Timeline entity on every
-/// re-import.
+/// used as the upsert key instead of `parsed_code.full_id()`, causing a mismatch
+/// against the stored `full_id()` and a new Timeline entity on every re-import.
+/// Since BUGFIX-131, `full_id()` round-trips the raw prefix ("SPLIT001"), so the
+/// upsert key and the stored id agree on the verbatim spreadsheet value.
 #[test]
 fn test_reimport_long_prefix_timelines_is_idempotent() {
     use schedule_core::entity::EntityUuid;
@@ -1406,14 +1407,14 @@ fn test_reimport_long_prefix_timelines_is_idempotent() {
     // Capture the UUIDs before re-import.
     let split001_uuid_before = schedule
         .iter_entities::<TimelineEntityType>()
-        .find(|(_, d)| d.code.full_id() == "SP001")
+        .find(|(_, d)| d.code.full_id() == "SPLIT001")
         .map(|(id, _)| id.entity_uuid())
-        .expect("SP001 (from SPLIT001) should exist");
+        .expect("SPLIT001 should exist");
     let split002_uuid_before = schedule
         .iter_entities::<TimelineEntityType>()
-        .find(|(_, d)| d.code.full_id() == "SP002")
+        .find(|(_, d)| d.code.full_id() == "SPLIT002")
         .map(|(id, _)| id.entity_uuid())
-        .expect("SP002 (from SPLIT002) should exist");
+        .expect("SPLIT002 should exist");
 
     let bytes_after_first = schedule.save_to_file();
 
@@ -1438,14 +1439,14 @@ fn test_reimport_long_prefix_timelines_is_idempotent() {
     // UUIDs must be stable.
     let split001_uuid_after = schedule
         .iter_entities::<TimelineEntityType>()
-        .find(|(_, d)| d.code.full_id() == "SP001")
+        .find(|(_, d)| d.code.full_id() == "SPLIT001")
         .map(|(id, _)| id.entity_uuid())
-        .expect("SP001 must still exist after re-import");
+        .expect("SPLIT001 must still exist after re-import");
     let split002_uuid_after = schedule
         .iter_entities::<TimelineEntityType>()
-        .find(|(_, d)| d.code.full_id() == "SP002")
+        .find(|(_, d)| d.code.full_id() == "SPLIT002")
         .map(|(id, _)| id.entity_uuid())
-        .expect("SP002 must still exist after re-import");
+        .expect("SPLIT002 must still exist after re-import");
 
     assert_eq!(
         split001_uuid_before, split001_uuid_after,

@@ -187,7 +187,7 @@ impl super::ImportContext<'_> {
             let schedule_ref = &*self.schedule;
             let panel_type_id: Option<PanelTypeId> = parsed_code
                 .as_ref()
-                .and_then(|c| panel_type_lookup.get(&c.prefix))
+                .and_then(|c| panel_type_lookup.get(c.type_prefix()))
                 .copied()
                 .or_else(|| {
                     get_field_def(&data, &sc::KIND).and_then(|kind| {

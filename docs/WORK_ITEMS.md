@@ -1,6 +1,6 @@
 # Cosplay America Schedule - Work Item
 
-Updated on: Mon Jun  8 10:10:13 2026
+Updated on: Tue Jun  9 11:03:21 2026
 
 ## Completed
 
@@ -21,6 +21,9 @@ but the stored name is never updated to match the xlsx spelling.
 * [BUGFIX-124] When re-importing an XLSX over an existing schedule, a presenter whose rank in
 the new xlsx is lower than the historically stored rank is not downgraded.
 The xlsx should be the source of truth on update.
+* [BUGFIX-131] `PanelUniqId::parse("SPLIT001")` normalizes the prefix to `"SP"` and returns
+`full_id()` = `"SP001"`, discarding the original `"SPLIT001"` string. The raw
+form typed in the spreadsheet should be preserved.
 * [CLI-030] CLI tool for converting between schedule file formats (XLSX, native binary, widget JSON, HTML).
 * [CLI-031] CLI tool for making batch edits to schedule data from the command line.
 * [CLI-090] Add `Schedule::touch_modified()` and `EditContext::schedule_mut()` to schedule-core;
@@ -214,16 +217,13 @@ eliminating the external `typst-cli` dependency.
   * [FEATURE-126] Add update-mode (upsert + soft-delete) semantics to widget JSON import,
 analogous to what FEATURE-122 did for XLSX, with extra care to preserve
 schedule data that the lossy widget JSON format does not carry.
-  * [FEATURE-142] Bring the IDML export toward Typst/PDF parity: schedule grid as an InDesign
-table, page-header banners, multi-column body text, and page footers.
   * [REFACTOR-138] Separate the layout `split` key into independent `section_split` and
 `time_split` options, default time split to none, error on unknown keywords,
 and move panel-list geometry constants into `geometry.rs`.
 
 * **Medium Priority**
-  * [BUGFIX-131] `PanelUniqId::parse("SPLIT001")` normalizes the prefix to `"SP"` and returns
-`full_id()` = `"SP001"`, discarding the original `"SPLIT001"` string. The raw
-form typed in the spreadsheet should be preserved.
+  * [FEATURE-144] Model convention-wide breaks as a first-class `Break` entity (like `Timeline`),
+carrying duration, instead of `Panel` entities flagged `is_break`.
 
 * **Low Priority**
   * [CLI-100] Add a `--interactive` flag to `cosam-modify` that opens a read-eval-print loop for
@@ -244,6 +244,8 @@ undo/redo works across `cosam-modify` invocations.
 the JS widget's named-schedule feature.
   * [FEATURE-120] ([META-117]) Configure `dx` build targets for Android and iPadOS, including app metadata,
 icons, and CI/CD pipeline integration.
+  * [FEATURE-142] Bring the IDML export toward Typst/PDF parity: schedule grid as an InDesign
+table, page-header banners, multi-column body text, and page footers.
   * [REFACTOR-112] Update the `#[ignore]`d `set_neighbors` tests in `schedule-core/src/edge/map.rs`
 to compile and pass against the current `RawEdgeMap` API.
 
@@ -254,39 +256,6 @@ to compile and pass against the current `RawEdgeMap` API.
 *No placeholders — all stubs have been promoted.*
 
 Use `perl scripts/work-item-update.pl --create <PREFIX>` to add new stubs.
-
----
-
-## Open BUGFIX Items
-
-### [BUGFIX-131] BUGFIX-131: PanelUniqId::parse silently truncates prefixes longer than 2 chars
-
-**Status:** Open
-
-**Priority:** Medium
-
-**Summary:** `PanelUniqId::parse("SPLIT001")` normalizes the prefix to `"SP"` and returns
-`full_id()` = `"SP001"`, discarding the original `"SPLIT001"` string. The raw
-form typed in the spreadsheet should be preserved.
-
-**Description:** `PanelUniqId::parse` normalizes any prefix longer than 2 characters to its
-first two letters (e.g. `"SPLIT"` → `"SP"`, `"BREAK"` → `"BR"`). This means
-`full_id()` never returns the original string — `"SPLIT001"` becomes `"SP001"`.
-
-Two consequences:
-
-1. The panel/timeline is stored and displayed under the shorter code, which may
-   confuse coordinators who typed the long form.
-2. Any lookup or export that compares against the raw XLSX value will disagree
-   with what is stored (worked around in FEATURE-127 by normalizing the upsert
-   key via `full_id()`, but the display value is still wrong).
-
-The correct behavior: the stored `code` should round-trip to whatever normalized
-form the parser produces, AND `full_id()` should reflect that canonical form.
-The question is whether `"SPLIT001"` should be stored as `"SP001"` (current) or
-`"SPLIT001"` (raw). Given that the prefix drives panel-type lookup (by 2-char
-prefix), the normalized 2-char form is probably right — but it should at least
-be surfaced as a warning/note rather than silently discarded.
 
 ---
 
@@ -405,27 +374,25 @@ XLSX update-mode added in FEATURE-122:
 
 ---
 
-### [FEATURE-142] FEATURE-142: Expand IDML export (grid, banners, columns, footers)
+### [FEATURE-144] FEATURE-144: Pull breaks into their own table (parallel to Timeline)
 
 **Status:** Open
 
-**Priority:** High
+**Priority:** Medium
 
-**Summary:** Bring the IDML export toward Typst/PDF parity: schedule grid as an InDesign
-table, page-header banners, multi-column body text, and page footers.
+**Summary:** Model convention-wide breaks as a first-class `Break` entity (like `Timeline`),
+carrying duration, instead of `Panel` entities flagged `is_break`.
 
-**Blocked By:** [FEATURE-110]
+**Description:** Breaks are currently regular `Panel` entities whose panel type has
+`is_break: true`, assigned to a pseudo `BREAK` room and excluded from the public
+room list. They are not panels in any real sense, but they carry more data than
+a `Timeline` (which is a single time point) — notably a **duration** (a
+`TimeRange`). This item promotes breaks to their own entity/table, paralleling
+the existing `Timeline` table (`crates/schedule-core/src/tables/timeline.rs`),
+while keeping the import path that extracts them from the main Schedule sheet.
 
-**Description:** FEATURE-110 shipped a v1 IDML export: a threaded text listing of panels grouped
-by day and time slot, with brand-driven paragraph styles. It deliberately
-deferred the richer layout features that the Typst pipeline already produces.
-This item closes that gap so an `.idml` job approaches the fidelity of its
-`.pdf` counterpart for the same `LayoutConfig`.
-
-The work builds on the existing `schedule-layout/src/idml.rs` module and reuses
-the layout computations already feeding the Typst path
-(`timegrid::GridLayout::compute`, `document::build_sections`,
-`blocks::banner`/`blocks::grid`), emitting IDML XML instead of Typst source.
+Spun out of BUGFIX-131 (raw-prefix preservation), which removed the immediate
+data-loss problem but left breaks structurally tangled with panels.
 
 ---
 
@@ -571,6 +538,30 @@ icons, and CI/CD pipeline integration.
 **Description:** Set up the `Dioxus.toml`, Android manifest, iOS Info.plist, and icon assets
 needed to produce release builds of cosam-viewer for Android and iPadOS via
 `dx build --platform android` and `dx build --platform ios`.
+
+---
+
+### [FEATURE-142] FEATURE-142: Expand IDML export (grid, banners, columns, footers)
+
+**Status:** Open
+
+**Priority:** Low
+
+**Summary:** Bring the IDML export toward Typst/PDF parity: schedule grid as an InDesign
+table, page-header banners, multi-column body text, and page footers.
+
+**Blocked By:** [FEATURE-110]
+
+**Description:** FEATURE-110 shipped a v1 IDML export: a threaded text listing of panels grouped
+by day and time slot, with brand-driven paragraph styles. It deliberately
+deferred the richer layout features that the Typst pipeline already produces.
+This item closes that gap so an `.idml` job approaches the fidelity of its
+`.pdf` counterpart for the same `LayoutConfig`.
+
+The work builds on the existing `schedule-layout/src/idml.rs` module and reuses
+the layout computations already feeding the Typst path
+(`timegrid::GridLayout::compute`, `document::build_sections`,
+`blocks::banner`/`blocks::grid`), emitting IDML XML instead of Typst source.
 
 ---
 
@@ -727,7 +718,7 @@ a `HashMap<NonNilUuid, HashMap<FieldId, Vec<FieldNodeId>>>` layout).
 [BUGFIX-086]: ../work-item/closed/done/BUGFIX-086.md
 [BUGFIX-123]: ../work-item/closed/done/BUGFIX-123.md
 [BUGFIX-124]: ../work-item/closed/done/BUGFIX-124.md
-[BUGFIX-131]: ../work-item/open/2-MEDIUM/BUGFIX-131.md
+[BUGFIX-131]: ../work-item/closed/done/BUGFIX-131.md
 [CLI-030]: ../work-item/closed/done/CLI-030.md
 [CLI-031]: ../work-item/closed/done/CLI-031.md
 [CLI-090]: ../work-item/closed/done/CLI-090.md
@@ -809,7 +800,8 @@ a `HashMap<NonNilUuid, HashMap<FieldId, Vec<FieldNodeId>>>` layout).
 [FEATURE-135]: ../work-item/closed/done/FEATURE-135.md
 [FEATURE-136]: ../work-item/closed/done/FEATURE-136.md
 [FEATURE-137]: ../work-item/closed/done/FEATURE-137.md
-[FEATURE-142]: ../work-item/open/1-HIGH/FEATURE-142.md
+[FEATURE-142]: ../work-item/open/3-LOW/FEATURE-142.md
+[FEATURE-144]: ../work-item/open/2-MEDIUM/FEATURE-144.md
 [META-001]: ../work-item/meta/META-001.md
 [META-002]: ../work-item/closed/done/META-002.md
 [META-003]: ../work-item/closed/done/META-003.md

@@ -8,7 +8,7 @@ form typed in the spreadsheet should be preserved.
 
 ## Status
 
-Open
+Completed
 
 ## Priority
 
@@ -69,6 +69,17 @@ Option C (reject long prefixes): return `None` from `parse` for prefixes longer
 than 2 chars, requiring the spreadsheet to use correct 2-char prefixes.
 
 Option A is the lowest-risk fix; Option C enforces data quality at import time.
+
+## Resolution
+
+Implemented Option B (preserve raw). `PanelUniqId::parse` now keeps the raw
+uppercase prefix verbatim, so `full_id()` round-trips `"SPLIT001"`/`"BREAK001"`.
+A new `PanelUniqId::type_prefix()` returns the normalized 2-character lookup key
+(`"SP"`, `"BR"`); the two panel-type lookups (`xlsx/read/schedule.rs`,
+`xlsx/read/timeline.rs`) route through it. Real 2-char panel ids are unchanged,
+so widget "my schedule" localStorage data is unaffected. Pulling breaks into
+their own table (paralleling Timeline, with duration + a dedicated widget
+`breaks` array) is tracked separately as a FEATURE.
 
 ## Testing
 
