@@ -136,17 +136,15 @@ impl super::ImportContext<'_> {
                 None => continue,
             };
 
-            // Parse Uniq ID; skip soft-deleted rows (leading `*`).
+            // A `*` anywhere on the Uniq ID marks the panel as *unscheduled*: it
+            // still imports (the code is not required), but with no start time.
+            // Deleting a panel is done by removing its row from the sheet, which
+            // soft-deletes it as "not seen on re-import".
             let raw_uniq_id = get_field_def(&data, &sc::UNIQ_ID).cloned();
-            let (uniq_id_str, is_deleted) = match raw_uniq_id {
-                Some(ref s) if s.starts_with('*') => {
-                    (Some(s.trim_start_matches('*').to_string()), true)
-                }
-                other => (other, false),
-            };
-            if is_deleted {
-                continue; // Soft-deleted rows are excluded from import.
-            }
+            let force_unscheduled = raw_uniq_id.as_deref().is_some_and(|s| s.contains('*'));
+            let uniq_id_str = raw_uniq_id
+                .map(|s| s.replace('*', "").trim().to_string())
+                .filter(|s| !s.is_empty());
 
             // Parse timing.
             let start_time = parse_cell_datetime(
@@ -165,6 +163,13 @@ impl super::ImportContext<'_> {
             // Resolve effective duration from whatever combination we have.
             let (effective_start, effective_duration) =
                 resolve_timing(start_time, end_time_raw, duration_minutes);
+            // A `*`-marked panel is unscheduled: drop any start time (keeping the
+            // duration as metadata). With no start it sorts last in the export.
+            let effective_start = if force_unscheduled {
+                None
+            } else {
+                effective_start
+            };
 
             // Look up rooms (comma-separated).
             let room_ids: Vec<EventRoomId> = get_field_def(&data, &sc::ROOM)

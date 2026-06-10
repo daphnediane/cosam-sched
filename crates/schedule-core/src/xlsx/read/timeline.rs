@@ -61,22 +61,23 @@ impl super::ImportContext<'_> {
                 _ => continue,
             };
 
-            // Parse Uniq ID; skip soft-deleted rows (leading `*`).
+            // A `*` anywhere on the Uniq ID marks the entry as *unscheduled*: it
+            // still imports (the code is not required), but with no time.
+            // Deletion is done by removing the row from the sheet.
             let raw_uniq_id = get_field_def(&data, &tl_cols::UNIQ_ID).cloned();
-            let (uniq_id_str, is_deleted) = match raw_uniq_id {
-                Some(ref s) if s.starts_with('*') => {
-                    (Some(s.trim_start_matches('*').to_string()), true)
-                }
-                other => (other, false),
-            };
-            if is_deleted {
-                continue; // Soft-deleted rows are excluded from import.
-            }
+            let force_unscheduled = raw_uniq_id.as_deref().is_some_and(|s| s.contains('*'));
+            let uniq_id_str = raw_uniq_id
+                .map(|s| s.replace('*', "").trim().to_string())
+                .filter(|s| !s.is_empty());
 
-            // Parse time.
-            let time = time_col
-                .and_then(|c| get_cell_str(ws, c, row))
-                .and_then(|s| parse_datetime(&s));
+            // Parse time (cleared for unscheduled entries).
+            let time = if force_unscheduled {
+                None
+            } else {
+                time_col
+                    .and_then(|c| get_cell_str(ws, c, row))
+                    .and_then(|s| parse_datetime(&s))
+            };
 
             // Determine panel type from prefix or Panel Types column.
             let parsed_code = uniq_id_str.as_deref().and_then(PanelUniqId::parse);

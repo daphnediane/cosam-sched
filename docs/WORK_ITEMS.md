@@ -1,6 +1,6 @@
 # Cosplay America Schedule - Work Item
 
-Updated on: Tue Jun  9 11:03:21 2026
+Updated on: Tue Jun  9 20:01:25 2026
 
 ## Completed
 
@@ -24,6 +24,12 @@ The xlsx should be the source of truth on update.
 * [BUGFIX-131] `PanelUniqId::parse("SPLIT001")` normalizes the prefix to `"SP"` and returns
 `full_id()` = `"SP001"`, discarding the original `"SPLIT001"` string. The raw
 form typed in the spreadsheet should be preserved.
+* [BUGFIX-145] Two import paths silently drop rows that should be kept. (1) A non-blank Uniq ID
+that doesn't match the strict grammar (typos, hyphens, numberless codes) makes
+`FIELD_CODE`'s write error, so the whole upsert fails and the row vanishes.
+(2) A leading `*` on the Uniq ID is treated as a soft-delete and skipped. Per
+design intent there are no required fields, so such rows must import — the
+`*` form as an *unscheduled* panel.
 * [CLI-030] CLI tool for converting between schedule file formats (XLSX, native binary, widget JSON, HTML).
 * [CLI-031] CLI tool for making batch edits to schedule data from the command line.
 * [CLI-090] Add `Schedule::touch_modified()` and `EditContext::schedule_mut()` to schedule-core;
@@ -719,6 +725,7 @@ a `HashMap<NonNilUuid, HashMap<FieldId, Vec<FieldNodeId>>>` layout).
 [BUGFIX-123]: ../work-item/closed/done/BUGFIX-123.md
 [BUGFIX-124]: ../work-item/closed/done/BUGFIX-124.md
 [BUGFIX-131]: ../work-item/closed/done/BUGFIX-131.md
+[BUGFIX-145]: ../work-item/closed/done/BUGFIX-145.md
 [CLI-030]: ../work-item/closed/done/CLI-030.md
 [CLI-031]: ../work-item/closed/done/CLI-031.md
 [CLI-090]: ../work-item/closed/done/CLI-090.md

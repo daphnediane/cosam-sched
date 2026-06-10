@@ -270,6 +270,50 @@ fn test_import_panels_basic_fields() {
     );
 }
 
+/// BUGFIX-145: a non-blank but "invalid" Uniq ID (typo / uniquifying suffix)
+/// must still import — the code field is not required, so the row is preserved
+/// with the raw code rather than being dropped.
+#[test]
+fn test_import_typo_uniq_id_is_not_dropped() {
+    let mut book = umya_spreadsheet::new_file();
+
+    {
+        let ws = book.get_sheet_mut(&0).unwrap();
+        ws.set_name("Schedule");
+        set_cell(ws, 1, 1, "Uniq ID");
+        set_cell(ws, 2, 1, "Name");
+        // Uniquifying "-01" suffix — rejected by the old strict grammar.
+        set_cell(ws, 1, 2, "GP001-01");
+        set_cell(ws, 2, 2, "Disambiguated Panel");
+        // A genuine typo with a stray symbol.
+        set_cell(ws, 1, 3, "GW19#");
+        set_cell(ws, 2, 3, "Typo Panel");
+    }
+
+    let path = write_temp(book);
+    let schedule = import_xlsx(&path, &XlsxImportOptions::default()).unwrap();
+    cleanup(&path);
+
+    // Both rows import — neither is dropped.
+    assert_eq!(schedule.entity_count::<PanelEntityType>(), 2);
+
+    let suffixed = schedule
+        .iter_entities::<PanelEntityType>()
+        .find(|(_, d)| d.code.full_id() == "GP001-01")
+        .map(|(_, d)| d.clone())
+        .expect("GP001-01 should import with its code preserved");
+    assert_eq!(suffixed.data.name, "Disambiguated Panel");
+    // The "GP" prefix is still recovered for panel-type lookup.
+    assert_eq!(suffixed.code.type_prefix(), "GP");
+
+    assert!(
+        schedule
+            .iter_entities::<PanelEntityType>()
+            .any(|(_, d)| d.data.name == "Typo Panel"),
+        "the typo'd row must import too"
+    );
+}
+
 #[test]
 fn test_import_presenter_columns_tagged() {
     let mut book = umya_spreadsheet::new_file();
@@ -407,8 +451,10 @@ fn test_import_idempotent() {
     );
 }
 
+/// A `*` on the Uniq ID marks a panel as *unscheduled* — it still imports (the
+/// code is not required), but with no start time. Deletion is by row removal.
 #[test]
-fn test_import_soft_deleted_rows_skipped() {
+fn test_import_asterisk_marks_unscheduled_not_dropped() {
     let mut book = umya_spreadsheet::new_file();
 
     {
@@ -416,21 +462,44 @@ fn test_import_soft_deleted_rows_skipped() {
         ws.set_name("Schedule");
         set_cell(ws, 1, 1, "Uniq ID");
         set_cell(ws, 2, 1, "Name");
+        set_cell(ws, 3, 1, "Start Time");
         set_cell(ws, 1, 2, "GP001");
         set_cell(ws, 2, 2, "Active Panel");
-        set_cell(ws, 1, 3, "*GP002"); // soft-deleted
-        set_cell(ws, 2, 3, "Deleted Panel");
+        set_cell(ws, 3, 2, "6/27/2026 10:00");
+        // `*` marks this one unscheduled — note it even carries a start time,
+        // which the asterisk overrides.
+        set_cell(ws, 1, 3, "*GP002");
+        set_cell(ws, 2, 3, "Unscheduled Panel");
+        set_cell(ws, 3, 3, "6/27/2026 11:00");
     }
 
     let path = write_temp(book);
     let schedule = import_xlsx(&path, &XlsxImportOptions::default()).unwrap();
     cleanup(&path);
 
-    assert_eq!(schedule.entity_count::<PanelEntityType>(), 1);
-    let exists = schedule
+    // Both panels import — the `*` row is not dropped.
+    assert_eq!(schedule.entity_count::<PanelEntityType>(), 2);
+
+    let scheduled = schedule
         .iter_entities::<PanelEntityType>()
-        .any(|(_, d)| d.code.full_id() == "GP001");
-    assert!(exists);
+        .find(|(_, d)| d.code.full_id() == "GP001")
+        .map(|(_, d)| d.clone())
+        .expect("GP001 should exist");
+    assert!(
+        scheduled.time_slot.start_time().is_some(),
+        "GP001 stays scheduled"
+    );
+
+    // The `*` is stripped from the code, and the panel is unscheduled (no start).
+    let unscheduled = schedule
+        .iter_entities::<PanelEntityType>()
+        .find(|(_, d)| d.code.full_id() == "GP002")
+        .map(|(_, d)| d.clone())
+        .expect("*GP002 should import as GP002");
+    assert!(
+        unscheduled.time_slot.start_time().is_none(),
+        "asterisk forces the panel unscheduled (no start time)"
+    );
 }
 
 #[test]

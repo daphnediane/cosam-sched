@@ -76,6 +76,11 @@ will still work if IDs are shared. The Uniq ID format consists of:
   - `P` or `S` followed by a number (for parts or sessions)
   - Any letter besides `P` or `S`
 
+A `*` anywhere in the Uniq ID marks the panel as **unscheduled**: it still
+imports, but the `*` is stripped and any start time is dropped (it sorts after
+scheduled panels). To remove a panel, delete its row — absent rows are
+soft-deleted on the next import.
+
 The first two characters (prefix) are used to determine the panel type.
 All panels with the same prefix and number are considered related, even if they
 have different suffixes. Note that the ID is considered case-insensitive and

@@ -46,29 +46,52 @@ pub struct PanelUniqId {
 }
 
 impl PanelUniqId {
-    /// Parse a raw Uniq ID string into its components.
+    /// Parse a raw Uniq ID string into its components, best-effort.
     ///
-    /// Returns `None` if the string does not match the expected format.
+    /// Returns `None` only for blank input (empty or whitespace-only). Any other
+    /// string parses: a code is never required and must never cause a row to be
+    /// dropped (see BUGFIX-145 and the "no required fields" principle in
+    /// FEATURE-043). Each structural part is optional —
+    ///
+    /// - `prefix` — leading run of ASCII letters (may be empty).
+    /// - `prefix_num` — the digit run that follows, or `0` if absent.
+    /// - `suffix` — whatever remains after pulling `P<n>`/`S<n>` tags, preserved
+    ///   verbatim (it may contain non-alphanumeric characters, e.g. `"-01"`).
+    ///
+    /// e.g. `"123A"` → prefix `""`, num `123`, suffix `"A"`; `"BREAK"` → prefix
+    /// `"BREAK"`, num `0`, no suffix; `"GP001-01"` → prefix `"GP"`, num `1`,
+    /// suffix `"-01"`.
     #[must_use]
     pub fn parse(id: &str) -> Option<Self> {
-        let id_upper = id.to_uppercase();
+        let trimmed = id.trim();
+        if trimmed.is_empty() {
+            return None;
+        }
+        let id_upper = trimmed.to_uppercase();
 
-        let head_re = Regex::new(r"^([A-Z]+)(\d+)([A-Z0-9]*)$").ok()?;
-        let caps = head_re.captures(&id_upper)?;
+        // Leading letters → prefix (verbatim; `type_prefix()` normalizes to the
+        // 2-char lookup key). The digit run that follows → number (0 if absent).
+        // Everything else is the tail, parsed for P/S tags below. ASCII letters
+        // and digits are single-byte, so these byte slices land on char bounds.
+        let prefix: String = id_upper
+            .chars()
+            .take_while(|c| c.is_ascii_alphabetic())
+            .collect();
+        let after_prefix = &id_upper[prefix.len()..];
+        let num_str: String = after_prefix
+            .chars()
+            .take_while(|c| c.is_ascii_digit())
+            .collect();
+        let prefix_num: u32 = num_str.parse().unwrap_or(0);
+        let mut tail = after_prefix[num_str.len()..].to_string();
 
-        // Preserve the raw prefix verbatim; `type_prefix()` derives the
-        // normalized 2-character panel-type lookup key on demand.
-        let prefix = caps.get(1)?.as_str().to_string();
-        let prefix_num: u32 = caps.get(2)?.as_str().parse().ok()?;
-
-        let mut tail = caps.get(3).map(|m| m.as_str()).unwrap_or("").to_string();
         let mut part_num: Option<u32> = None;
         let mut session_num: Option<u32> = None;
         let ps_re = Regex::new(r"[PS]\d+").ok()?;
         while let Some(m) = ps_re.find(&tail) {
             let matched = m.as_str();
             let (tag, num_str) = matched.split_at(1);
-            let num: u32 = num_str.parse().ok()?;
+            let num: u32 = num_str.parse().unwrap_or(0);
             match tag {
                 "P" => part_num = Some(num),
                 "S" => session_num = Some(num),
@@ -77,13 +100,7 @@ impl PanelUniqId {
             tail = format!("{}{}", &tail[..m.start()], &tail[m.end()..]);
         }
 
-        let suffix = if tail.is_empty() {
-            None
-        } else if tail.chars().all(|c| c.is_ascii_alphabetic()) {
-            Some(tail)
-        } else {
-            return None;
-        };
+        let suffix = if tail.is_empty() { None } else { Some(tail) };
 
         Some(PanelUniqId {
             prefix,
@@ -214,11 +231,52 @@ mod tests {
     }
 
     #[test]
-    fn parse_invalid_returns_none() {
+    fn parse_blank_returns_none() {
+        // Only blank input is rejected — a code is never required (BUGFIX-145).
         assert!(PanelUniqId::parse("").is_none());
-        assert!(PanelUniqId::parse("INVALID").is_none());
-        assert!(PanelUniqId::parse("123").is_none());
-        assert!(PanelUniqId::parse("GP001-1").is_none());
+        assert!(PanelUniqId::parse("   ").is_none());
+        assert!(PanelUniqId::parse("\t\n").is_none());
+    }
+
+    #[test]
+    fn parse_is_total_for_nonblank() {
+        // "Invalid"-looking codes still parse best-effort and round-trip, so the
+        // import never drops the row (BUGFIX-145).
+
+        // All letters, no number → prefix kept, num defaults to 0.
+        let pid = PanelUniqId::parse("INVALID").unwrap();
+        assert_eq!(pid.prefix, "INVALID");
+        assert_eq!(pid.prefix_num, 0);
+        assert!(pid.suffix.is_none());
+        assert_eq!(pid.full_id(), "INVALID000");
+
+        // Numberless break marker → type_prefix "BR".
+        let pid = PanelUniqId::parse("BREAK").unwrap();
+        assert_eq!(pid.prefix, "BREAK");
+        assert_eq!(pid.type_prefix(), "BR");
+        assert_eq!(pid.prefix_num, 0);
+        assert_eq!(pid.full_id(), "BREAK000");
+
+        // No prefix → empty prefix, number, then alpha suffix.
+        let pid = PanelUniqId::parse("123A").unwrap();
+        assert_eq!(pid.prefix, "");
+        assert_eq!(pid.prefix_num, 123);
+        assert_eq!(pid.suffix, Some("A".to_string()));
+        assert_eq!(pid.full_id(), "123A");
+
+        // Bare number.
+        let pid = PanelUniqId::parse("123").unwrap();
+        assert_eq!(pid.prefix, "");
+        assert_eq!(pid.prefix_num, 123);
+        assert!(pid.suffix.is_none());
+        assert_eq!(pid.full_id(), "123");
+
+        // Uniquifying "-NN" suffix is preserved verbatim and round-trips.
+        let pid = PanelUniqId::parse("GP001-01").unwrap();
+        assert_eq!(pid.prefix, "GP");
+        assert_eq!(pid.prefix_num, 1);
+        assert_eq!(pid.suffix, Some("-01".to_string()));
+        assert_eq!(pid.full_id(), "GP001-01");
     }
 
     #[test]

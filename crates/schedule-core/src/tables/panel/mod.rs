@@ -1674,11 +1674,23 @@ mod tests {
     }
 
     #[test]
-    fn write_wrong_variant_is_error() {
+    fn write_code_coerces_variant_and_rejects_blank() {
         let id = new_panel_id();
         let mut s = sched_with(id, sample_internal(id));
         let fs = PanelEntityType::field_set();
-        let r = fs.write_field_value("code", id, &mut s, field_value!(1));
+
+        // A non-string variant coerces to its string form (AsString) and then
+        // parses leniently — any non-blank code is accepted (BUGFIX-145).
+        fs.write_field_value("code", id, &mut s, field_value!(1))
+            .unwrap();
+        // "1" → prefix "", num 1; base_id zero-pads the number to 3 digits.
+        assert_eq!(
+            fs.read_field_value("code", id, &s).unwrap(),
+            Some(field_value!("001"))
+        );
+
+        // Blank is the one value `parse` still rejects.
+        let r = fs.write_field_value("code", id, &mut s, field_value!(""));
         assert!(matches!(r, Err(FieldError::Conversion(_))));
     }
 
