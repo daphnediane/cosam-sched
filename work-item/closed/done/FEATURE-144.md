@@ -7,7 +7,7 @@ carrying duration, instead of `Panel` entities flagged `is_break`.
 
 ## Status
 
-Open
+Completed
 
 ## Priority
 

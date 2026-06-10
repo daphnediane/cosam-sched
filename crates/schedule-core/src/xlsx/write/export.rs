@@ -17,6 +17,7 @@ use umya_spreadsheet::structs::{
 
 use crate::entity::{EntityType, EntityUuid};
 use crate::schedule::Schedule;
+use crate::tables::breaks::BreakEntityType;
 use crate::tables::event_room::{self, EventRoomEntityType};
 use crate::tables::hotel_room::HotelRoomEntityType;
 use crate::tables::panel::{self, compute_credits, PanelEntityType, PanelInternalData};
@@ -27,8 +28,8 @@ use crate::tables::presenter::{
 };
 use crate::tables::timeline::{TimelineEntityType, TimelineInternalData};
 use crate::xlsx::columns::{
-    hotel_rooms, panel_types, people, room_map, schedule as sched_cols, timeline as tl_cols,
-    FieldDef,
+    breaks as br_cols, hotel_rooms, panel_types, people, room_map, schedule as sched_cols,
+    timeline as tl_cols, FieldDef,
 };
 
 use super::common::{add_table, set_headers, set_opt, set_str};
@@ -105,6 +106,7 @@ pub fn build_spreadsheet(schedule: &Schedule) -> Result<umya_spreadsheet::Spread
     let panel_type_extra_keys = collect_extra_keys::<PanelTypeEntityType>(schedule);
     let hotel_room_extra_keys = collect_extra_keys::<HotelRoomEntityType>(schedule);
     let timeline_extra_keys = collect_extra_keys::<TimelineEntityType>(schedule);
+    let break_extra_keys = collect_extra_keys::<BreakEntityType>(schedule);
 
     // ── Schedule sheet ────────────────────────────────────────────────────────
     {
@@ -140,6 +142,19 @@ pub fn build_spreadsheet(schedule: &Schedule) -> Result<umya_spreadsheet::Spread
             headers.push(k.as_str());
         }
         add_table(ws, "Timeline", &headers, last_row);
+    }
+
+    // ── Breaks sheet ────────────────────────────────────────────────────────────
+    {
+        let ws = book
+            .new_sheet("Breaks")
+            .map_err(|e| anyhow::anyhow!("Cannot create Breaks sheet: {e}"))?;
+        let last_row = write_breaks_sheet(ws, schedule, &break_extra_keys);
+        let mut headers: Vec<&str> = br_cols::ALL.iter().map(|f| f.export).collect();
+        for k in &break_extra_keys {
+            headers.push(k.as_str());
+        }
+        add_table(ws, "Breaks", &headers, last_row);
     }
 
     // ── Rooms sheet ───────────────────────────────────────────────────────────
@@ -462,7 +477,6 @@ fn write_schedule_sheet(
     let c_room = c(&sched_cols::ROOM);
     let c_start_time = c(&sched_cols::START_TIME);
     let c_duration = c(&sched_cols::DURATION);
-    let c_end_time = c(&sched_cols::END_TIME);
     let c_description = c(&sched_cols::DESCRIPTION);
     let c_prereq = c(&sched_cols::PREREQ);
     let c_note = c(&sched_cols::NOTE);
@@ -507,9 +521,7 @@ fn write_schedule_sheet(
         if let Some(dur) = panel.time_slot.duration() {
             set_str(ws, c_duration, row, &dur.num_minutes().to_string());
         }
-        if let Some(end) = panel.time_slot.end_time() {
-            set_str(ws, c_end_time, row, &end.format(TIME_FMT).to_string());
-        }
+        // End time is intentionally not written: start + duration is canonical.
 
         // Text fields.
         set_opt(ws, c_description, row, &panel.data.description);
@@ -1034,6 +1046,67 @@ fn write_timeline_sheet(ws: &mut Worksheet, schedule: &Schedule, extra_keys: &[S
             row,
             TimelineEntityType::TYPE_NAME,
             timeline_id.entity_uuid(),
+            extra_keys,
+            extra_start_col,
+            schedule,
+        );
+
+        row += 1;
+    }
+    row - 1
+}
+
+/// Write the Breaks sheet. Mirrors the Timeline sheet but carries a duration
+/// (start + end/duration) since a break is an interval, not a single time point.
+fn write_breaks_sheet(ws: &mut Worksheet, schedule: &Schedule, extra_keys: &[String]) -> u32 {
+    let mut headers: Vec<&str> = br_cols::ALL.iter().map(|f| f.export).collect();
+    for k in extra_keys {
+        headers.push(k.as_str());
+    }
+    set_headers(ws, &headers);
+
+    // Sort breaks by start time (None last), then by code.
+    let mut breaks: Vec<_> = schedule.iter_entities::<BreakEntityType>().collect();
+    breaks.sort_by(|(_, a), (_, b)| {
+        match (a.time_slot.start_time(), b.time_slot.start_time()) {
+            (Some(ta), Some(tb)) => ta
+                .cmp(&tb)
+                .then_with(|| a.code.full_id().cmp(&b.code.full_id())),
+            (Some(_), None) => std::cmp::Ordering::Less,
+            (None, Some(_)) => std::cmp::Ordering::Greater,
+            (None, None) => a.code.full_id().cmp(&b.code.full_id()),
+        }
+    });
+
+    let c = |f: &FieldDef| col_of(br_cols::ALL, f);
+    let c_uniq_id = c(&br_cols::UNIQ_ID);
+    let c_name = c(&br_cols::NAME);
+    let c_description = c(&br_cols::DESCRIPTION);
+    let c_note = c(&br_cols::NOTE);
+    let c_start = c(&br_cols::START_TIME);
+    let c_duration = c(&br_cols::DURATION);
+    let extra_start_col = br_cols::ALL.len() as u32 + 1;
+
+    let mut row = 2u32;
+    for (break_id, brk) in &breaks {
+        set_str(ws, c_uniq_id, row, &brk.code.full_id());
+        set_str(ws, c_name, row, &brk.data.name);
+        set_opt(ws, c_description, row, &brk.data.description);
+        set_opt(ws, c_note, row, &brk.data.note);
+        if let Some(start) = brk.time_slot.start_time() {
+            set_str(ws, c_start, row, &start.format(TIME_FMT).to_string());
+        }
+        if let Some(dur) = brk.time_slot.duration() {
+            set_str(ws, c_duration, row, &dur.num_minutes().to_string());
+        }
+        // End time is intentionally not written: start + duration is canonical.
+        // No Panel Types column: a break's type is encoded in its Uniq ID prefix.
+
+        write_extra_fields(
+            ws,
+            row,
+            BreakEntityType::TYPE_NAME,
+            break_id.entity_uuid(),
             extra_keys,
             extra_start_col,
             schedule,

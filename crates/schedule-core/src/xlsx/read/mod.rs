@@ -6,6 +6,7 @@
 
 //! XLSX import: shared utilities and the top-level [`import_xlsx`] entry point.
 
+mod breaks;
 pub mod headers;
 mod hotel_rooms;
 mod panel_types;
@@ -29,6 +30,7 @@ use crate::entity::{EntityId, EntityType, EntityUuid};
 use crate::field::set::FieldUpdate;
 use crate::schedule::Schedule;
 use crate::sidecar::SidecarFormulaField;
+use crate::tables::breaks::BreakEntityType;
 use crate::tables::event_room::{EventRoomEntityType, EventRoomId};
 use crate::tables::hotel_room::{HotelRoomEntityType, HotelRoomId};
 use crate::tables::panel::PanelEntityType;
@@ -81,6 +83,8 @@ pub struct TableImportOptions {
     pub hotel_rooms: TableImportMode,
     /// Mode for timelines (default: Process).
     pub timeline: TableImportMode,
+    /// Mode for the optional Breaks sheet (default: Process).
+    pub breaks: TableImportMode,
 }
 
 /// Type alias for XLSX import options (for backward compatibility).
@@ -123,6 +127,7 @@ pub struct ImportContext<'a> {
     pub before_presenters: HashSet<NonNilUuid>,
     pub before_panels: HashSet<NonNilUuid>,
     pub before_timelines: HashSet<NonNilUuid>,
+    pub before_breaks: HashSet<NonNilUuid>,
     // ── Seen-accumulators (populated by read_* methods) ──────────────────────
     /// Entity UUIDs observed during this import pass, per type.
     pub seen_panel_types: HashSet<NonNilUuid>,
@@ -131,6 +136,7 @@ pub struct ImportContext<'a> {
     pub seen_presenters: HashSet<NonNilUuid>,
     pub seen_panels: HashSet<NonNilUuid>,
     pub seen_timelines: HashSet<NonNilUuid>,
+    pub seen_breaks: HashSet<NonNilUuid>,
 }
 
 impl<'a> ImportContext<'a> {
@@ -152,6 +158,7 @@ impl<'a> ImportContext<'a> {
         let before_presenters = collect_entity_uuids::<PresenterEntityType>(schedule);
         let before_panels = collect_entity_uuids::<PanelEntityType>(schedule);
         let before_timelines = collect_entity_uuids::<TimelineEntityType>(schedule);
+        let before_breaks = collect_entity_uuids::<BreakEntityType>(schedule);
 
         Self {
             book,
@@ -170,12 +177,14 @@ impl<'a> ImportContext<'a> {
             before_presenters,
             before_panels,
             before_timelines,
+            before_breaks,
             seen_panel_types: HashSet::new(),
             seen_hotel_rooms: HashSet::new(),
             seen_rooms: HashSet::new(),
             seen_presenters: HashSet::new(),
             seen_panels: HashSet::new(),
             seen_timelines: HashSet::new(),
+            seen_breaks: HashSet::new(),
         }
     }
 
@@ -257,6 +266,12 @@ impl<'a> ImportContext<'a> {
             &self.seen_timelines,
             "Timeline",
         )?;
+        validate_seen_tracking::<BreakEntityType>(
+            self.schedule,
+            &self.before_breaks,
+            &self.seen_breaks,
+            "Break",
+        )?;
 
         // Soft-delete entities not seen in this import.
         // Only soft-delete for entity types whose sheet was processed.
@@ -312,6 +327,17 @@ impl<'a> ImportContext<'a> {
                 self.schedule,
                 &self.before_panels,
                 &self.seen_panels,
+            );
+        }
+
+        // Breaks: from the optional Breaks sheet and break-type rows on the Schedule sheet.
+        if self.options.breaks != TableImportMode::Skip
+            || self.options.schedule != TableImportMode::Skip
+        {
+            soft_delete_unseen::<BreakEntityType>(
+                self.schedule,
+                &self.before_breaks,
+                &self.seen_breaks,
             );
         }
 
@@ -568,6 +594,7 @@ pub fn update_schedule_from_xlsx(
         ctx.read_rooms()?;
         ctx.read_people()?;
         ctx.read_timeline()?;
+        ctx.read_breaks()?;
         ctx.read_schedule()?;
 
         ctx.finalize()

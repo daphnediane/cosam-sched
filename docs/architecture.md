@@ -105,6 +105,9 @@ determine what type a field expects without calling read/write.
 - **EventRoom** — a logical room where panels take place
 - **HotelRoom** — a physical hotel space that one or more event rooms occupy
 - **Timeline** — a timeline event with a specific time point (not a duration range)
+- **Break** — a convention-wide break period; like Timeline but carries a
+  duration (a `TimeRange`, not a single time point), and is not assigned to
+  rooms or presenters
 
 ## Schedule Container
 

@@ -126,6 +126,14 @@ Some versions of the spreadsheet included an `End Time` column possibly
 in addition to a `Duration` column. One of the columns might have a
 Excel formula that computed it based on the other columns.
 
+On **import**, an `End Time` column is still accepted (and combined with the
+start time to derive a duration). On **export**, only `Start Time` + `Duration`
+are written — `End Time` is never emitted. Start + duration is the single
+canonical timing pair, so the exported file can't drift into a state where
+`start + duration != end` after edits. (A grid-only `LEND` *formula* column is
+still written for the day-grid reference sheets; that is a computed display
+value, not editable data.)
+
 ### Presenter Columns
 
 Presenter attendance is encoded in **separate columns** — one per named
@@ -279,8 +287,10 @@ referencing them can still be read. However they do not appear in the
 `rooms` array of the exported widget JSON, and panels assigned to
 them export with `roomIds: []`.
 
-Break panels (meals, day-end breaks, etc.) should use a panel type
-with **Is Break = Yes** (e.g. prefix `BR`) rather than a pseudo room.
+Breaks (meals, day-end breaks, etc.) should use a panel type with
+**Is Break = Yes** (e.g. prefix `BR`) rather than a pseudo room. A row on the
+Schedule sheet whose type is a break is imported as a **Break** entity (see the
+Breaks Sheet below), not a panel — it is not assigned to rooms or presenters.
 
 ## PanelTypes Sheet
 
@@ -302,6 +312,28 @@ A sheet named **PanelTypes** maps Uniq ID prefixes to panel kinds.
 | Color         | CSS color for the panel type (e.g. `#db2777`). Stored in the `colors`   |
 |               | hashmap under the key `"color"` in v7+.                                 |
 | BW            | Alternate color for monochrome output. Stored in `colors` under `"bw"`. |
+
+## Breaks Sheet
+
+An optional sheet named **Breaks** (or **Break**) holds convention-wide break
+periods as their own entity, paralleling the Timeline sheet but carrying a
+duration (a break is an interval, not a single time point). Breaks are also
+detected inline on the Schedule sheet (any row whose type has **Is Break =
+Yes**); both sources feed the same Break table.
+
+| Column      | Description                                                          |
+| ----------- | ------------------------------------------------------------------- |
+| Uniq ID     | Break code; the type is derived from its prefix (e.g. `BREAK001`).  |
+| Name        | Break name / title (e.g. `Lunch Break`).                            |
+| Description | Optional description.                                               |
+| Note        | Optional note displayed verbatim.                                   |
+| Start Time  | Break start time.                                                   |
+| End Time    | Break end time (alternative to Duration).                           |
+| Duration    | Break length in minutes (alternative to End Time).                  |
+
+There is no `Panel Types`/`Kind` column: a break's type always comes from its
+Uniq ID prefix. On export, breaks are written to this sheet; in the widget JSON
+they ride in the `panels` array as break-typed entries (no rooms/presenters).
 
 ## People / Presenters Sheet
 

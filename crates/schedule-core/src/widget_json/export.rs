@@ -12,6 +12,7 @@
 
 use crate::entity::EntityUuid;
 use crate::schedule::Schedule;
+use crate::tables::breaks::{self, BreakEntityType, BreakId};
 use crate::tables::event_room::{self, EventRoomEntityType, EventRoomId};
 use crate::tables::hotel_room::HotelRoomEntityType;
 use crate::tables::panel::{self, PanelEntityType, PanelId};
@@ -390,6 +391,57 @@ fn export_panels(
         });
     }
 
+    // Breaks are a separate entity (FEATURE-144) but are serialized into the
+    // panels array as break-typed entries (no rooms/presenters) so the widget
+    // and print layout can keep rendering breaks inline. Including them here —
+    // before the sort and break synthesis below — means real breaks fill gaps,
+    // so %IB/%NB are only synthesized in the gaps that remain.
+    for (break_id, internal) in schedule.iter_entities::<BreakEntityType>() {
+        let prefix = get_break_type_prefix(schedule, break_id);
+
+        // Private breaks are excluded from public export (unless private export).
+        let is_private = prefix
+            .as_deref()
+            .and_then(|p| panel_types.get(p))
+            .is_some_and(|pt| pt.is_private);
+        if is_private && !private_export {
+            continue;
+        }
+
+        let code = &internal.code;
+        let start_time = internal.time_slot.start_time().map(format_naive_dt);
+        let end_time = internal.time_slot.end_time().map(format_naive_dt);
+        let duration = internal
+            .time_slot
+            .duration()
+            .map_or(0, |d| d.num_minutes() as i32);
+
+        panels.push(WidgetPanel {
+            id: code.full_id(),
+            base_id: code.base_id(),
+            part_num: code.part_num.map(|n| n as i32),
+            session_num: code.session_num.map(|n| n as i32),
+            name: internal.data.name.clone(),
+            panel_type: prefix,
+            room_ids: Vec::new(),
+            start_time,
+            end_time,
+            duration,
+            description: internal.data.description.clone(),
+            note: internal.data.note.clone(),
+            prereq: None,
+            cost: None,
+            capacity: None,
+            difficulty: None,
+            ticket_url: None,
+            is_premium: false,
+            is_full: false,
+            is_kids: false,
+            credits: Vec::new(),
+            presenters: Vec::new(),
+        });
+    }
+
     // Sort: scheduled before unscheduled, then within scheduled:
     //   earliest start → longest duration → lowest room uid → id → name
     panels.sort_by(|a, b| match (&a.start_time, &b.start_time) {
@@ -642,6 +694,21 @@ fn get_panel_type_prefix(schedule: &Schedule, panel_id: PanelId) -> Option<Strin
 fn get_timeline_type_prefix(schedule: &Schedule, timeline_id: TimelineId) -> Option<String> {
     schedule
         .connected_field_nodes(timeline_id, timeline::EDGE_PANEL_TYPES)
+        .into_iter()
+        .next()
+        .and_then(|e| {
+            let pt_id =
+                unsafe { crate::tables::panel_type::PanelTypeId::new_unchecked(e.entity_uuid()) };
+            schedule
+                .get_internal::<PanelTypeEntityType>(pt_id)
+                .map(|d| d.data.prefix.clone())
+        })
+}
+
+/// Return the first panel type prefix string for the given break, if one is linked.
+fn get_break_type_prefix(schedule: &Schedule, break_id: BreakId) -> Option<String> {
+    schedule
+        .connected_field_nodes(break_id, breaks::EDGE_PANEL_TYPES)
         .into_iter()
         .next()
         .and_then(|e| {

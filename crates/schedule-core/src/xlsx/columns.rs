@@ -65,7 +65,7 @@ pub mod schedule {
     pub const UNIQ_ID: FieldDef = FieldDef {
         export: "Uniq ID",
         canonical: "Uniq_ID",
-        aliases: &["UniqID", "ID", "Id"],
+        aliases: &["UniqID", "ID", "Id", "Code"],
     };
 
     pub const OLD_UNIQ_ID: FieldDef = FieldDef {
@@ -242,7 +242,10 @@ pub mod schedule {
         ROOM,
         START_TIME,
         DURATION,
-        END_TIME,
+        // END_TIME is intentionally excluded: it is *accepted* on import (an
+        // author may give an end instead of a duration) but never written —
+        // start + duration is the only canonical timing pair exported. Writing
+        // a redundant end risks `start + duration != end` after edits.
         DESCRIPTION,
         PREREQ,
         NOTE,
@@ -265,6 +268,13 @@ pub mod schedule {
         KIND,
         FULL,
     ];
+
+    /// Columns accepted on import but **never written** on export.
+    ///
+    /// These are recognized so they aren't routed to the sidecar as unknown
+    /// extra fields, but they carry no canonical data: `END_TIME` is folded into
+    /// the start + duration pair (see [`ALL`]).
+    pub const READ_ONLY: &[FieldDef] = &[END_TIME];
 
     /// Formula-only columns appended after all data columns on export.
     ///
@@ -451,28 +461,17 @@ pub mod hotel_rooms {
 pub mod timeline {
     use super::FieldDef;
 
-    pub const UNIQ_ID: FieldDef = FieldDef {
-        export: "Uniq ID",
-        canonical: "Uniq_ID",
-        aliases: &["UniqID", "ID", "Id", "Code"],
-    };
+    // UNIQ_ID/DESCRIPTION/NOTE are identical to the Schedule sheet's, so reuse
+    // them (a `FieldDef` is a plain `const`). Only NAME and TIME differ — a
+    // timeline is a single time point titled differently than a panel — and
+    // PANEL_TYPES is timeline-specific (header "Panel Types", the timeline
+    // analog of the Schedule sheet's "Kind" column).
+    pub use super::schedule::{DESCRIPTION, NOTE, UNIQ_ID};
 
     pub const NAME: FieldDef = FieldDef {
         export: "Name",
         canonical: "Name",
         aliases: &["Title", "Event"],
-    };
-
-    pub const DESCRIPTION: FieldDef = FieldDef {
-        export: "Description",
-        canonical: "Description",
-        aliases: &["Desc"],
-    };
-
-    pub const NOTE: FieldDef = FieldDef {
-        export: "Note",
-        canonical: "Note",
-        aliases: &["Notes"],
     };
 
     pub const TIME: FieldDef = FieldDef {
@@ -489,6 +488,38 @@ pub mod timeline {
 
     /// All column definitions in export order.
     pub const ALL: &[FieldDef] = &[UNIQ_ID, NAME, DESCRIPTION, NOTE, TIME, PANEL_TYPES];
+}
+
+// ─── Breaks table ────────────────────────────────────────────────────────────
+
+/// Column definitions for the optional **Breaks** sheet.
+///
+/// Breaks parallel timelines but carry a duration (start + end/duration), so the
+/// sheet has the extra timing columns a single-time-point timeline lacks.
+pub mod breaks {
+    use super::FieldDef;
+
+    // A break's columns are a blend of two existing sheets, and a `FieldDef` is
+    // a plain `const`, so reuse them rather than redeclaring:
+    //   - non-timing columns are identical to the Timeline sheet's;
+    //   - the timing trio (start/end/duration) is identical to the Schedule
+    //     sheet's (e.g. `Begin` is a start alias; duration is just `Length`).
+    //
+    // There is intentionally no `Panel Types`/`Kind` column: a break's type is
+    // always derived from its Uniq ID prefix (e.g. `BREAK001` → `BR`).
+    //
+    // `END_TIME` is *accepted* on import (authors may give an end instead of a
+    // duration) but is **not** in `ALL`, so it is never written: start + duration
+    // is the only canonical pair exported. Writing a redundant end time risks
+    // `start + duration != end` after edits, with no clean way to reconcile.
+    pub use super::schedule::{DURATION, END_TIME, START_TIME};
+    pub use super::timeline::{DESCRIPTION, NAME, NOTE, UNIQ_ID};
+
+    /// Column definitions written on export, in order.
+    pub const ALL: &[FieldDef] = &[UNIQ_ID, NAME, DESCRIPTION, NOTE, START_TIME, DURATION];
+
+    /// Columns accepted on import but never written (see [`super::schedule::READ_ONLY`]).
+    pub const READ_ONLY: &[FieldDef] = &[END_TIME];
 }
 
 // ─── People / Presenters table ───────────────────────────────────────────────

@@ -1,6 +1,6 @@
 # Cosplay America Schedule - Work Item
 
-Updated on: Tue Jun  9 20:14:24 2026
+Updated on: Tue Jun  9 21:14:06 2026
 
 ## Completed
 
@@ -125,6 +125,8 @@ per-day grid reference sheets, and wire it into `sync-schedule.sh`.
 * [FEATURE-137] Add per-job layout options for a bordered "card" panel style, page background
 tint, empty grid-cell fill, card fill, and column/panel gaps — all controllable
 from `config/layout.toml`.
+* [FEATURE-144] Model convention-wide breaks as a first-class `Break` entity (like `Timeline`),
+carrying duration, instead of `Panel` entities flagged `is_break`.
 * [META-002] Phase tracker for project foundation and Cargo workspace setup.
 * [META-003] Phase tracker for the entity/field system and core schedule data model in schedule-core.
 * [META-004] Phase tracker for making an automerge CRDT document the authoritative storage
@@ -211,7 +213,7 @@ pattern where each job spec points to a specific output file or directory.
 
 ## Summary of Open Items
 
-**Total open items:** 19
+**Total open items:** 18
 
 * **Meta / Project-Level**
   * [META-001] Meta work item tracking the full multi-phase redesign of the schedule system. (Blocked by [META-007], [META-008])
@@ -226,10 +228,6 @@ eliminating the external `typst-cli` dependency.
   * [FEATURE-126] Add update-mode (upsert + soft-delete) semantics to widget JSON import,
 analogous to what FEATURE-122 did for XLSX, with extra care to preserve
 schedule data that the lossy widget JSON format does not carry.
-
-* **Medium Priority**
-  * [FEATURE-144] Model convention-wide breaks as a first-class `Break` entity (like `Timeline`),
-carrying duration, instead of `Panel` entities flagged `is_break`.
 
 * **Low Priority**
   * [CLI-100] Add a `--interactive` flag to `cosam-modify` that opens a read-eval-print loop for
@@ -377,28 +375,6 @@ widget JSON. It cannot be used to update an existing schedule because:
 
 This feature brings widget JSON import up to the same standard as the
 XLSX update-mode added in FEATURE-122:
-
----
-
-### [FEATURE-144] FEATURE-144: Pull breaks into their own table (parallel to Timeline)
-
-**Status:** Open
-
-**Priority:** Medium
-
-**Summary:** Model convention-wide breaks as a first-class `Break` entity (like `Timeline`),
-carrying duration, instead of `Panel` entities flagged `is_break`.
-
-**Description:** Breaks are currently regular `Panel` entities whose panel type has
-`is_break: true`, assigned to a pseudo `BREAK` room and excluded from the public
-room list. They are not panels in any real sense, but they carry more data than
-a `Timeline` (which is a single time point) — notably a **duration** (a
-`TimeRange`). This item promotes breaks to their own entity/table, paralleling
-the existing `Timeline` table (`crates/schedule-core/src/tables/timeline.rs`),
-while keeping the import path that extracts them from the main Schedule sheet.
-
-Spun out of BUGFIX-131 (raw-prefix preservation), which removed the immediate
-data-loss problem but left breaks structurally tangled with panels.
 
 ---
 
@@ -785,7 +761,7 @@ a `HashMap<NonNilUuid, HashMap<FieldId, Vec<FieldNodeId>>>` layout).
 [FEATURE-136]: ../work-item/closed/done/FEATURE-136.md
 [FEATURE-137]: ../work-item/closed/done/FEATURE-137.md
 [FEATURE-142]: ../work-item/open/3-LOW/FEATURE-142.md
-[FEATURE-144]: ../work-item/open/2-MEDIUM/FEATURE-144.md
+[FEATURE-144]: ../work-item/closed/done/FEATURE-144.md
 [META-001]: ../work-item/meta/META-001.md
 [META-002]: ../work-item/closed/done/META-002.md
 [META-003]: ../work-item/closed/done/META-003.md

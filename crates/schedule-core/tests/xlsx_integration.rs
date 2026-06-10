@@ -1021,6 +1021,112 @@ fn round_trip(schedule: schedule_core::schedule::Schedule) -> schedule_core::sch
     reimported
 }
 
+// ── Break round-trip tests (FEATURE-144) ──────────────────────────────────────
+
+/// Build a workbook with a break authored on the Schedule sheet (is_break panel
+/// type), carrying a start time and duration, plus one regular panel.
+fn build_break_book() -> umya_spreadsheet::Spreadsheet {
+    let mut book = umya_spreadsheet::new_file();
+    {
+        let ws = book.new_sheet("PanelTypes").unwrap();
+        set_cell(ws, 1, 1, "Prefix");
+        set_cell(ws, 2, 1, "Panel Kind");
+        set_cell(ws, 3, 1, "Is Break");
+        set_cell(ws, 1, 2, "BR");
+        set_cell(ws, 2, 2, "Break");
+        set_cell(ws, 3, 2, "Yes");
+        set_cell(ws, 1, 3, "GP");
+        set_cell(ws, 2, 3, "Guest Panel");
+    }
+    {
+        let ws = book.get_sheet_mut(&0).unwrap();
+        ws.set_name("Schedule");
+        set_cell(ws, 1, 1, "Uniq ID");
+        set_cell(ws, 2, 1, "Name");
+        set_cell(ws, 3, 1, "Start Time");
+        set_cell(ws, 4, 1, "Duration");
+        set_cell(ws, 5, 1, "Description");
+        // BREAK001 — is_break → Break entity, start + 60 min duration.
+        set_cell(ws, 1, 2, "BREAK001");
+        set_cell(ws, 2, 2, "Lunch Break");
+        set_cell(ws, 3, 2, "2026-06-26T12:00:00");
+        set_cell(ws, 4, 2, "60");
+        set_cell(ws, 5, 2, "Lunch on your own");
+        // GP001 — regular panel.
+        set_cell(ws, 1, 3, "GP001");
+        set_cell(ws, 2, 3, "Opening");
+        set_cell(ws, 3, 3, "2026-06-26T13:00:00");
+        set_cell(ws, 4, 3, "30");
+    }
+    book
+}
+
+/// A break authored on the Schedule sheet becomes a Break entity (not a Panel)
+/// carrying its duration, and round-trips through xlsx export → re-import (now
+/// via the dedicated Breaks sheet) with timing preserved.
+#[test]
+fn test_break_round_trips_through_xlsx_with_duration() {
+    use schedule_core::tables::breaks::BreakEntityType;
+
+    let path = write_temp(build_break_book());
+    let schedule = import_xlsx(&path, &XlsxImportOptions::default()).unwrap();
+    cleanup(&path);
+
+    // BREAK001 is a Break, not a Panel; only GP001 is a Panel.
+    assert_eq!(schedule.entity_count::<BreakEntityType>(), 1);
+    assert_eq!(schedule.entity_count::<PanelEntityType>(), 1);
+    let (_, brk) = schedule.iter_entities::<BreakEntityType>().next().unwrap();
+    assert_eq!(brk.code.full_id(), "BREAK001");
+    assert_eq!(brk.data.name, "Lunch Break");
+    assert_eq!(brk.data.description.as_deref(), Some("Lunch on your own"));
+    assert_eq!(brk.time_slot.duration().map(|d| d.num_minutes()), Some(60));
+
+    // Round-trip through xlsx export (Breaks sheet) → re-import.
+    let reimported = round_trip(schedule);
+    assert_eq!(reimported.entity_count::<BreakEntityType>(), 1);
+    assert_eq!(reimported.entity_count::<PanelEntityType>(), 1);
+    let (_, brk2) = reimported.iter_entities::<BreakEntityType>().next().unwrap();
+    assert_eq!(brk2.code.full_id(), "BREAK001");
+    assert_eq!(brk2.data.description.as_deref(), Some("Lunch on your own"));
+    assert_eq!(brk2.time_slot.duration().map(|d| d.num_minutes()), Some(60));
+}
+
+/// Breaks serialize into the widget JSON `panels` array as break-typed entries
+/// (no rooms/presenters) and round-trip back into a Break entity on import.
+#[test]
+fn test_break_widget_json_round_trip() {
+    use schedule_core::tables::breaks::BreakEntityType;
+    use schedule_core::widget_json::{export_to_widget_json, import_from_widget_json};
+
+    let path = write_temp(build_break_book());
+    let schedule = import_xlsx(&path, &XlsxImportOptions::default()).unwrap();
+    cleanup(&path);
+
+    let export = export_to_widget_json(&schedule, "Test", false).unwrap();
+
+    // The break rides in panels[] as a break-typed entry with no rooms.
+    let brk = export
+        .panels
+        .iter()
+        .find(|p| p.id == "BREAK001")
+        .expect("break should appear in panels[]");
+    assert_eq!(brk.panel_type.as_deref(), Some("BR"));
+    assert_eq!(brk.duration, 60);
+    assert!(brk.room_ids.is_empty());
+    assert!(brk.presenters.is_empty());
+    assert!(
+        export.panel_types.get("BR").is_some_and(|pt| pt.is_break),
+        "BR panel type must be is_break"
+    );
+
+    // Re-importing the widget JSON reconstructs the Break entity.
+    let reimported = import_from_widget_json(&export).unwrap();
+    assert_eq!(reimported.entity_count::<BreakEntityType>(), 1);
+    let (_, brk2) = reimported.iter_entities::<BreakEntityType>().next().unwrap();
+    assert_eq!(brk2.code.full_id(), "BREAK001");
+    assert_eq!(brk2.time_slot.duration().map(|d| d.num_minutes()), Some(60));
+}
+
 // ── Export / round-trip tests (FEATURE-029) ───────────────────────────────────
 
 #[test]
@@ -1461,11 +1567,17 @@ fn test_reimport_long_prefix_timelines_is_idempotent() {
     let mut schedule = import_xlsx(&path, &XlsxImportOptions::default()).unwrap();
 
     // Verify the expected entities were created.
-    // BREAK001 is is_break (not is_timeline), so it is a Panel, not a Timeline.
+    // BREAK001 is is_break, so it is a Break entity (FEATURE-144), not a Panel;
+    // only GP001 is a Panel. SPLIT001/SPLIT002 are timelines (is_timeline).
     assert_eq!(
         schedule.entity_count::<PanelEntityType>(),
-        2,
-        "BREAK001 and GP001 should be panels (SPLIT001 is a timeline)"
+        1,
+        "only GP001 should be a panel (BREAK001 is a break, SPLIT001 a timeline)"
+    );
+    assert_eq!(
+        schedule.entity_count::<schedule_core::tables::breaks::BreakEntityType>(),
+        1,
+        "BREAK001 should be a break"
     );
     assert_eq!(
         schedule.entity_count::<TimelineEntityType>(),
@@ -1496,8 +1608,13 @@ fn test_reimport_long_prefix_timelines_is_idempotent() {
     // Entity counts must be unchanged.
     assert_eq!(
         schedule.entity_count::<PanelEntityType>(),
-        2,
+        1,
         "panel count must not change on re-import"
+    );
+    assert_eq!(
+        schedule.entity_count::<schedule_core::tables::breaks::BreakEntityType>(),
+        1,
+        "break count must not change on re-import"
     );
     assert_eq!(
         schedule.entity_count::<TimelineEntityType>(),

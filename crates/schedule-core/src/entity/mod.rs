@@ -213,7 +213,7 @@ mod tests {
     use super::*;
 
     #[test]
-    fn test_registered_entity_types_contains_all_six() {
+    fn test_registered_entity_types_contains_all() {
         let names: Vec<&'static str> = registered_entity_types().map(|r| r.type_name).collect();
         for expected in &[
             "panel",
@@ -222,12 +222,13 @@ mod tests {
             "hotel_room",
             "panel_type",
             "timeline",
+            "break",
         ] {
             assert!(
                 names.contains(expected),
                 "registered_entity_types() missing \"{expected}\"; got {names:?}"
             );
         }
-        assert_eq!(names.len(), 6, "expected exactly 6 registered entity types");
+        assert_eq!(names.len(), 7, "expected exactly 7 registered entity types");
     }
 }

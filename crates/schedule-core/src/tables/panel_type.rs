@@ -22,6 +22,7 @@ use crate::field::set::FieldSet;
 use crate::field::{CollectedField, CollectedHalfEdge, FieldDescriptor, NamedField};
 use crate::field_value;
 use crate::query::converter::EntityStringResolver;
+use crate::tables::breaks;
 use crate::tables::panel::{self, PanelEntityType, PanelId};
 use crate::tables::timeline::{self, TimelineEntityType};
 use crate::value::ValidationError;
@@ -582,6 +583,35 @@ pub const EDGE_TIMELINES: crate::edge::FullEdge = crate::edge::FullEdge {
     far: &timeline::HALF_EDGE_PANEL_TYPES,
 };
 
+// Breaks associated with this panel type.
+pub static HALF_EDGE_BREAKS: crate::edge::HalfEdgeDescriptor = {
+    crate::edge::HalfEdgeDescriptor {
+        data: crate::field::CommonFieldData {
+            name: "breaks",
+            display: "Breaks",
+            description: "Breaks associated with this panel type.",
+            aliases: &["break"],
+            field_type: crate::value::FieldType(
+                crate::value::FieldCardinality::List,
+                crate::value::FieldTypeItem::EntityIdentifier(breaks::BreakEntityType::TYPE_NAME),
+            ),
+            example: "[]",
+            order: 1400,
+        },
+        edge_kind: crate::edge::EdgeKind::Target {
+            source_fields: &[&breaks::HALF_EDGE_PANEL_TYPES],
+        },
+        entity_name: PanelTypeEntityType::TYPE_NAME,
+    }
+};
+inventory::submit! { CollectedHalfEdge(&HALF_EDGE_BREAKS) }
+
+/// Full edge from panel type breaks to break panel types
+pub const EDGE_BREAKS: crate::edge::FullEdge = crate::edge::FullEdge {
+    near: &HALF_EDGE_BREAKS,
+    far: &breaks::HALF_EDGE_PANEL_TYPES,
+};
+
 // ── FieldSet ────────────────────────────────────────────────────────────────────
 
 static PANEL_TYPE_FIELD_SET: LazyLock<FieldSet<PanelTypeEntityType>> =
@@ -759,7 +789,7 @@ mod tests {
         let fs = PanelTypeEntityType::field_set();
         let fields: Vec<_> = fs.fields().collect();
         assert_eq!(fields.len(), 12);
-        assert_eq!(fs.half_edges().count(), 2);
+        assert_eq!(fs.half_edges().count(), 3);
     }
 
     #[test]

@@ -9,6 +9,7 @@
 //! Each entity type (Panel, Presenter, EventRoom, etc.) has its own module
 //! defining the data structures, field descriptors, and entity type implementation.
 
+pub mod breaks;
 pub mod event_room;
 pub mod hotel_room;
 pub mod panel;
@@ -17,6 +18,7 @@ pub mod presenter;
 pub mod timeline;
 
 // Re-exports for convenience
+pub use breaks::{BreakCommonData, BreakEntityType, BreakId};
 pub use event_room::{EventRoomCommonData, EventRoomEntityType, EventRoomId};
 pub use hotel_room::{HotelRoomCommonData, HotelRoomEntityType, HotelRoomId};
 pub use panel::{PanelCommonData, PanelEntityType, PanelId};

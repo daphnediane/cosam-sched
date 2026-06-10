@@ -13,9 +13,10 @@ use crate::edit::builder::build_entity;
 use crate::entity::{EntityType, UuidPreference};
 use crate::field::set::FieldUpdate;
 use crate::schedule::Schedule;
+use crate::tables::breaks::{self, BreakId};
 use crate::tables::event_room::{self, EventRoomId};
 use crate::tables::panel::{self, PanelEntityType, PanelId};
-use crate::tables::panel_type::PanelTypeId;
+use crate::tables::panel_type::{PanelTypeEntityType, PanelTypeId};
 use crate::tables::presenter::{self, PresenterId};
 use crate::tables::timeline::{self, TimelineId};
 use crate::value::cost::parse_additional_cost;
@@ -468,6 +469,51 @@ fn import_timeline(
     Ok(())
 }
 
+/// Import a single break entry (a break-typed panel) into the Break table.
+fn import_break(
+    wp: &WidgetPanel,
+    panel_type_map: &HashMap<String, PanelTypeId>,
+    schedule: &mut Schedule,
+) -> Result<(), WidgetJsonError> {
+    let uuid_pref = UuidPreference::PreferFromV5 {
+        name: wp.id.to_uppercase(),
+    };
+
+    let mut updates = vec![
+        FieldUpdate::set(&breaks::FIELD_CODE, wp.id.as_str()),
+        FieldUpdate::set(&breaks::FIELD_NAME, wp.name.as_str()),
+    ];
+
+    if let Some(st) = wp.start_time.as_ref().and_then(|s| parse_datetime(s)) {
+        updates.push(FieldUpdate::set(&breaks::FIELD_START_TIME, st));
+    }
+    if wp.duration > 0 {
+        updates.push(FieldUpdate::set(
+            &breaks::FIELD_DURATION,
+            Duration::minutes(wp.duration as i64),
+        ));
+    }
+    if let Some(ref desc) = wp.description {
+        updates.push(FieldUpdate::set(&breaks::FIELD_DESCRIPTION, desc.as_str()));
+    }
+    if let Some(ref note) = wp.note {
+        updates.push(FieldUpdate::set(&breaks::FIELD_NOTE, note.as_str()));
+    }
+
+    let break_id: BreakId = build_entity(schedule, uuid_pref, updates).map_err(|e| {
+        WidgetJsonError::EntityAccess(format!("Failed to create break {}: {}", wp.id, e))
+    })?;
+
+    // Link to panel type if present
+    if let Some(ref prefix) = wp.panel_type {
+        if let Some(&pt_id) = panel_type_map.get(prefix) {
+            let _ = schedule.edge_add(break_id, breaks::EDGE_PANEL_TYPES, [pt_id]);
+        }
+    }
+
+    Ok(())
+}
+
 /// Import panels from widget JSON, reconstructing edges and detecting alt_panelist.
 fn import_panels(
     panels: &[WidgetPanel],
@@ -477,8 +523,22 @@ fn import_panels(
     schedule: &mut Schedule,
 ) -> Result<(), WidgetJsonError> {
     for wp in panels {
-        // Skip synthesized break panels
+        // Skip synthesized break panels (%IB/%NB) - they're regenerated on export.
         if wp.id.starts_with('%') {
+            continue;
+        }
+
+        // Real breaks ride in the panels array but are stored as their own
+        // entity (FEATURE-144); route break-typed entries into the Break table.
+        let is_break = wp
+            .panel_type
+            .as_deref()
+            .and_then(|p| panel_type_map.get(p))
+            .and_then(|&pt_id| schedule.get_internal::<PanelTypeEntityType>(pt_id))
+            .map(|d| d.data.is_break)
+            .unwrap_or(false);
+        if is_break {
+            import_break(wp, panel_type_map, schedule)?;
             continue;
         }
 

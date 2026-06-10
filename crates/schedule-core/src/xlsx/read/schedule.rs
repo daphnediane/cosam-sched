@@ -17,6 +17,7 @@ use crate::entity::{EntityType, EntityUuid};
 use crate::field::set::FieldUpdate;
 use crate::schedule::Schedule;
 use crate::sidecar::{EntityOrigin, XlsxSourceInfo};
+use crate::tables::breaks::{self, BreakEntityType, BreakId};
 use crate::tables::event_room::EventRoomId;
 use crate::tables::panel::{self, PanelEntityType, PanelId};
 use crate::tables::panel_type::PanelTypeId;
@@ -80,7 +81,9 @@ impl super::ImportContext<'_> {
         }
 
         let (raw_headers, canonical_headers, col_map) = build_column_map(ws, &range);
-        let known_keys = known_field_key_set(sc::ALL, &[sc::OLD_UNIQ_ID]);
+        // `READ_ONLY` columns (e.g. END_TIME) are accepted as input but never
+        // exported; include them so they aren't routed to the sidecar.
+        let known_keys = known_field_key_set(sc::ALL, sc::READ_ONLY);
 
         // Identify presenter columns.
         let presenter_cols: Vec<PresenterColumn> = raw_headers
@@ -409,6 +412,76 @@ impl super::ImportContext<'_> {
                 }
 
                 // Skip the rest of panel-specific processing for timelines
+                continue;
+            }
+
+            // Check if this is a break row (has an is_break panel type). Breaks
+            // are their own entity (FEATURE-144) — not panels — so route them
+            // into the Break table, mirroring the is_timeline handling above.
+            let is_break = panel_type_id
+                .and_then(|pt_id| {
+                    self.schedule
+                        .get_internal::<crate::tables::panel_type::PanelTypeEntityType>(pt_id)
+                })
+                .map(|pt| pt.data.is_break)
+                .unwrap_or(false);
+
+            if is_break {
+                let mut br_updates: Vec<FieldUpdate<BreakEntityType>> = vec![
+                    FieldUpdate::set(&breaks::FIELD_CODE, code_str.as_str()),
+                    FieldUpdate::set(&breaks::FIELD_NAME, name.as_str()),
+                ];
+                if let Some(ref d) = get_field_def(&data, &sc::DESCRIPTION).cloned() {
+                    br_updates.push(FieldUpdate::set(&breaks::FIELD_DESCRIPTION, d.as_str()));
+                }
+                if let Some(ref n) = get_field_def(&data, &sc::NOTE).cloned() {
+                    br_updates.push(FieldUpdate::set(&breaks::FIELD_NOTE, n.as_str()));
+                }
+                if let Some(st) = effective_start {
+                    br_updates.push(FieldUpdate::set(&breaks::FIELD_START_TIME, st));
+                }
+                if let Some(dur) = effective_duration {
+                    br_updates.push(FieldUpdate::set(&breaks::FIELD_DURATION, dur));
+                }
+
+                let break_id: BreakId = match find_or_create_entity::<BreakEntityType>(
+                    self.schedule,
+                    &upsert_name,
+                    &self.seen_breaks,
+                    false,
+                    br_updates,
+                ) {
+                    Ok(id) => id,
+                    Err(e) => {
+                        eprintln!("xlsx import: skipping break {code_str:?}: {e}");
+                        continue;
+                    }
+                };
+                self.seen_breaks.insert(break_id.entity_uuid());
+                self.schedule.sidecar_mut().set_origin(
+                    break_id.entity_uuid(),
+                    EntityOrigin::Xlsx(XlsxSourceInfo {
+                        file_path: self.file_path.map(str::to_owned),
+                        sheet_name: range.sheet_name.clone(),
+                        row_index: row,
+                        import_time: self.import_time,
+                    }),
+                );
+
+                // Replace panel type edge (set, not add, to handle changed type).
+                if let Some(pt_id) = panel_type_id {
+                    let _ = self
+                        .schedule
+                        .edge_set(break_id, breaks::EDGE_PANEL_TYPES, [pt_id]);
+                } else {
+                    let _ = self.schedule.edge_set(
+                        break_id,
+                        breaks::EDGE_PANEL_TYPES,
+                        std::iter::empty::<BreakId>(),
+                    );
+                }
+
+                // Skip the rest of panel-specific processing for breaks.
                 continue;
             }
 
