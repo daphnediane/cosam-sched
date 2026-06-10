@@ -12,13 +12,13 @@
 
 use crate::entity::EntityUuid;
 use crate::schedule::Schedule;
-use crate::tables::breaks::{self, BreakEntityType, BreakId};
+use crate::tables::breaks::BreakEntityType;
 use crate::tables::event_room::{self, EventRoomEntityType, EventRoomId};
 use crate::tables::hotel_room::HotelRoomEntityType;
 use crate::tables::panel::{self, PanelEntityType, PanelId};
 use crate::tables::panel_type::PanelTypeEntityType;
 use crate::tables::presenter::{self, PresenterEntityType, PresenterId};
-use crate::tables::timeline::{self, TimelineEntityType, TimelineId};
+use crate::tables::timeline::TimelineEntityType;
 use chrono::{DateTime, NaiveDateTime, Utc};
 use std::collections::{BTreeMap, HashMap, HashSet};
 use std::path::Path;
@@ -287,8 +287,11 @@ fn export_timeline(
 ) -> Result<Vec<WidgetTimeline>, WidgetJsonError> {
     let mut timeline = Vec::new();
 
-    for (timeline_id, internal) in schedule.iter_entities::<TimelineEntityType>() {
-        let prefix = get_timeline_type_prefix(schedule, timeline_id);
+    for (_timeline_id, internal) in schedule.iter_entities::<TimelineEntityType>() {
+        let prefix = {
+            let p = internal.code.type_prefix();
+            (!p.is_empty()).then(|| p.to_string())
+        };
 
         // Private timeline panels are excluded unless private_export
         let is_private = prefix
@@ -328,7 +331,10 @@ fn export_panels(
     let mut panels = Vec::new();
 
     for (panel_id, internal) in schedule.iter_entities::<PanelEntityType>() {
-        let prefix = get_panel_type_prefix(schedule, panel_id);
+        let prefix = {
+            let p = internal.code.type_prefix();
+            (!p.is_empty()).then(|| p.to_string())
+        };
 
         // Private panels are excluded from public export (unless private export)
         let is_private = prefix
@@ -396,8 +402,11 @@ fn export_panels(
     // and print layout can keep rendering breaks inline. Including them here —
     // before the sort and break synthesis below — means real breaks fill gaps,
     // so %IB/%NB are only synthesized in the gaps that remain.
-    for (break_id, internal) in schedule.iter_entities::<BreakEntityType>() {
-        let prefix = get_break_type_prefix(schedule, break_id);
+    for (_break_id, internal) in schedule.iter_entities::<BreakEntityType>() {
+        let prefix = {
+            let p = internal.code.type_prefix();
+            (!p.is_empty()).then(|| p.to_string())
+        };
 
         // Private breaks are excluded from public export (unless private export).
         let is_private = prefix
@@ -676,50 +685,6 @@ fn export_presenters(
 // ── Private helpers ───────────────────────────────────────────────────────────
 
 /// Return the panel type prefix string for the given panel, if one is linked.
-fn get_panel_type_prefix(schedule: &Schedule, panel_id: PanelId) -> Option<String> {
-    schedule
-        .connected_field_nodes(panel_id, panel::EDGE_PANEL_TYPE)
-        .into_iter()
-        .next()
-        .and_then(|e| {
-            let pt_id =
-                unsafe { crate::tables::panel_type::PanelTypeId::new_unchecked(e.entity_uuid()) };
-            schedule
-                .get_internal::<PanelTypeEntityType>(pt_id)
-                .map(|d| d.data.prefix.clone())
-        })
-}
-
-/// Return the first panel type prefix string for the given timeline, if one is linked.
-fn get_timeline_type_prefix(schedule: &Schedule, timeline_id: TimelineId) -> Option<String> {
-    schedule
-        .connected_field_nodes(timeline_id, timeline::EDGE_PANEL_TYPES)
-        .into_iter()
-        .next()
-        .and_then(|e| {
-            let pt_id =
-                unsafe { crate::tables::panel_type::PanelTypeId::new_unchecked(e.entity_uuid()) };
-            schedule
-                .get_internal::<PanelTypeEntityType>(pt_id)
-                .map(|d| d.data.prefix.clone())
-        })
-}
-
-/// Return the first panel type prefix string for the given break, if one is linked.
-fn get_break_type_prefix(schedule: &Schedule, break_id: BreakId) -> Option<String> {
-    schedule
-        .connected_field_nodes(break_id, breaks::EDGE_PANEL_TYPES)
-        .into_iter()
-        .next()
-        .and_then(|e| {
-            let pt_id =
-                unsafe { crate::tables::panel_type::PanelTypeId::new_unchecked(e.entity_uuid()) };
-            schedule
-                .get_internal::<PanelTypeEntityType>(pt_id)
-                .map(|d| d.data.prefix.clone())
-        })
-}
-
 /// All presenter IDs reachable from a panel via credited+uncredited edges,
 /// including transitive groups and transitive members.
 ///
@@ -835,7 +800,7 @@ mod tests {
     use crate::tables::panel::PanelInternalData;
     use crate::tables::panel_type::PanelTypeInternalData;
     use crate::tables::presenter::PresenterInternalData;
-    use crate::tables::timeline::TimelineInternalData;
+    use crate::tables::timeline::{self, TimelineId, TimelineInternalData};
     use crate::tables::TimelineCommonData;
     use crate::value::time::TimeRange;
     use crate::value::uniq_id::PanelUniqId;
@@ -938,14 +903,11 @@ mod tests {
     ) -> TimelineId {
         let code = PanelUniqId::parse(code_str).unwrap();
         let id = crate::entity::EntityId::generate();
-        let time = match start_hms {
-            Some((day_offset, h, m, s)) => {
-                let base = NaiveDate::from_ymd_opt(2026, 6, 1).unwrap();
-                let date = base + chrono::Duration::days(day_offset as i64);
-                Some(date.and_hms_opt(h, m, s).unwrap())
-            }
-            _ => None,
-        };
+        let time = start_hms.map(|(day_offset, h, m, s)| {
+            let base = NaiveDate::from_ymd_opt(2026, 6, 1).unwrap();
+            let date = base + chrono::Duration::days(day_offset as i64);
+            date.and_hms_opt(h, m, s).unwrap()
+        });
         sched.insert(
             id,
             TimelineInternalData {

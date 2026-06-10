@@ -24,14 +24,15 @@ use crate::crdt::CrdtFieldType;
 use crate::entity::{EntityId, EntityType, EntityUuid, FieldSet};
 use crate::field::{CollectedField, CollectedHalfEdge, FieldDescriptor, NamedField};
 use crate::field_value;
-use crate::query::converter::EntityStringResolver;
+use crate::query::converter::{AsText, EntityStringResolver};
 use crate::schedule::Schedule;
 use crate::tables::event_room::{self, EventRoomEntityType, EventRoomId};
 use crate::tables::hotel_room::{HotelRoomEntityType, HotelRoomId};
+use crate::tables::panel_like::{self, EventKind, PanelLike, PanelLikeTimed};
 use crate::tables::panel_type::{self, PanelTypeEntityType, PanelTypeId};
 use crate::tables::presenter::{self, PresenterEntityType, PresenterId};
 use crate::value::cost::{additional_cost_to_string, AdditionalCost};
-use crate::value::time::{parse_datetime, parse_duration, TimeRange};
+use crate::value::time::TimeRange;
 use crate::value::uniq_id::PanelUniqId;
 use crate::value::{FieldValue, FieldValueItem, ValidationError};
 use chrono::Duration;
@@ -193,6 +194,46 @@ impl EntityType for PanelEntityType {
     }
 }
 
+// ── PanelLike ───────────────────────────────────────────────────────────────────
+
+impl PanelLike for PanelEntityType {
+    const KIND: EventKind = EventKind::Panel;
+
+    fn name(d: &Self::InternalData) -> &String {
+        &d.data.name
+    }
+    fn name_mut(d: &mut Self::InternalData) -> &mut String {
+        &mut d.data.name
+    }
+    fn description(d: &Self::InternalData) -> &Option<String> {
+        &d.data.description
+    }
+    fn description_mut(d: &mut Self::InternalData) -> &mut Option<String> {
+        &mut d.data.description
+    }
+    fn note(d: &Self::InternalData) -> &Option<String> {
+        &d.data.note
+    }
+    fn note_mut(d: &mut Self::InternalData) -> &mut Option<String> {
+        &mut d.data.note
+    }
+    fn code(d: &Self::InternalData) -> &PanelUniqId {
+        &d.code
+    }
+    fn code_mut(d: &mut Self::InternalData) -> &mut PanelUniqId {
+        &mut d.code
+    }
+}
+
+impl PanelLikeTimed for PanelEntityType {
+    fn time_slot(d: &Self::InternalData) -> TimeRange {
+        d.time_slot.clone()
+    }
+    fn set_time_slot(d: &mut Self::InternalData, time_slot: TimeRange) {
+        d.time_slot = time_slot;
+    }
+}
+
 inventory::submit! {
     crate::entity::RegisteredEntityType {
         type_name: PanelEntityType::TYPE_NAME,
@@ -298,109 +339,22 @@ impl EntityStringResolver for PanelEntityType {
 /// Note: changing a panel's code prefix may reassign it to a different
 /// `PanelType`; the write path parses and mutates only — callers that change
 /// the prefix should also update the `panel_type` edge accordingly.
-pub static FIELD_CODE: FieldDescriptor<PanelEntityType> = {
-    let (data, crdt_type, cb) = callback_field_properties! {
-        PanelEntityType,
-        name: "code",
-        display: "Uniq ID",
-        description: "Panel Uniq ID (e.g. \"GP032\"), parsed from the Schedule sheet.",
-        aliases: &["uid", "uniq_id", "id"],
-        cardinality: Single,
-        item: String,
-        example: "GP032",
-        order: 0,
-        read: |d: &PanelInternalData| {
-            Some(field_value!(d.code.full_id()))
-        },
-        write: |d: &mut PanelInternalData, v: FieldValue| {
-            let s = v.into_string()?;
-            // Callers that change the prefix should update the panel_type edge.
-            match PanelUniqId::parse(&s) {
-                Some(parsed) => {
-                    d.code = parsed;
-                    Ok(())
-                }
-                None => Err(crate::value::ConversionError::ParseError {
-                    message: format!("could not parse panel Uniq ID {s:?}"),
-                }
-                .into()),
-            }
-        }
-    };
-    FieldDescriptor {
-        data,
-        crdt_type,
-        required: true,
-        cb,
-    }
-};
+// Shared panel-like field descriptors — defined once in [`panel_like`] and
+// instantiated here with panel-specific `order` / `aliases`. Panel's
+// `description` / `note` are long prose (`AsText`), unlike Break/Timeline.
+pub static FIELD_CODE: FieldDescriptor<PanelEntityType> = panel_like::code_field(0);
 inventory::submit! { CollectedField(&FIELD_CODE) }
 
-// @todo: Name can be empty, should be optional
-pub static FIELD_NAME: FieldDescriptor<PanelEntityType> = {
-    let (data, crdt_type, cb) = accessor_field_properties! {
-        PanelEntityType,
-        name,
-        name: "name",
-        display: "Name",
-        description: "Panel name / title.",
-        aliases: &["title", "panel_name"],
-        cardinality: Single,
-        item: String,
-        example: "Cosplay Foam Armor 101",
-        order: 100,
-    };
-    FieldDescriptor {
-        data,
-        crdt_type,
-        required: true,
-        cb,
-    }
-};
+pub static FIELD_NAME: FieldDescriptor<PanelEntityType> =
+    panel_like::name_field(100, &["title", "panel_name"]);
 inventory::submit! { CollectedField(&FIELD_NAME) }
 
-pub static FIELD_DESCRIPTION: FieldDescriptor<PanelEntityType> = {
-    let (data, crdt_type, cb) = accessor_field_properties! {
-        PanelEntityType,
-        description,
-        name: "description",
-        display: "Description",
-        description: "Event description shown to attendees.",
-        aliases: &["desc"],
-        cardinality: Optional,
-        item: Text,
-        example: "Learn the basics of foam armor construction",
-        order: 200,
-    };
-    FieldDescriptor {
-        data,
-        crdt_type,
-        required: false,
-        cb,
-    }
-};
+pub static FIELD_DESCRIPTION: FieldDescriptor<PanelEntityType> =
+    panel_like::description_field::<PanelEntityType, AsText>(200, &["desc"]);
 inventory::submit! { CollectedField(&FIELD_DESCRIPTION) }
 
-pub static FIELD_NOTE: FieldDescriptor<PanelEntityType> = {
-    let (data, crdt_type, cb) = accessor_field_properties! {
-        PanelEntityType,
-        note,
-        name: "note",
-        display: "Note",
-        description: "Extra note displayed verbatim.",
-        aliases: &[],
-        cardinality: Optional,
-        item: Text,
-        example: "Bring your own materials",
-        order: 300,
-    };
-    FieldDescriptor {
-        data,
-        crdt_type,
-        required: false,
-        cb,
-    }
-};
+pub static FIELD_NOTE: FieldDescriptor<PanelEntityType> =
+    panel_like::note_field::<PanelEntityType, AsText>(300, &[]);
 inventory::submit! { CollectedField(&FIELD_NOTE) }
 
 pub static FIELD_NOTES_NON_PRINTING: FieldDescriptor<PanelEntityType> = {
@@ -893,162 +847,13 @@ inventory::submit! { CollectedField(&FIELD_ALT_PANELIST) }
 // ── Computed time projections ─────────────────────────────────────────────────
 
 /// Start time — projected from `time_slot`.
-pub static FIELD_START_TIME: FieldDescriptor<PanelEntityType> = {
-    let (data, crdt_type, cb) = callback_field_properties! {
-        PanelEntityType,
-        name: "start_time",
-        display: "Start Time",
-        description: "Panel start time.",
-        aliases: &["start"],
-        cardinality: Optional,
-        item: DateTime,
-        example: "2023-06-25T19:00:00",
-        order: 2400,
-        read: |d: &PanelInternalData| {
-            d.time_slot.start_time().map(|dt| field_value!(dt))
-        },
-        write: |d: &mut PanelInternalData, v: FieldValue| {
-            match v {
-                FieldValue::List(_) | FieldValue::Single(FieldValueItem::Text(_)) => {
-                    d.time_slot.remove_start_time()
-                }
-                FieldValue::Single(FieldValueItem::DateTime(dt)) => {
-                    d.time_slot.add_start_time(dt)
-                }
-                FieldValue::Single(FieldValueItem::String(s)) => match parse_datetime(&s) {
-                    Some(dt) => d.time_slot.add_start_time(dt),
-                    None => {
-                        return Err(crate::value::ConversionError::ParseError {
-                            message: format!("could not parse datetime {s:?}"),
-                        }
-                        .into())
-                    }
-                },
-                _ => {
-                    return Err(crate::value::ConversionError::WrongVariant {
-                        expected: "DateTime or String",
-                        got: "other",
-                    }
-                    .into());
-                }
-            }
-            Ok(())
-        },
-    };
-    FieldDescriptor {
-        data,
-        crdt_type,
-        required: false,
-        cb,
-    }
-};
+pub static FIELD_START_TIME: FieldDescriptor<PanelEntityType> = panel_like::start_time_field(2400);
 inventory::submit! { CollectedField(&FIELD_START_TIME) }
 
-/// End time — projected from `time_slot`.
-pub static FIELD_END_TIME: FieldDescriptor<PanelEntityType> = {
-    let (data, crdt_type, cb) = callback_field_properties! {
-        PanelEntityType,
-        name: "end_time",
-        display: "End Time",
-        description: "Panel end time.",
-        aliases: &["end"],
-        cardinality: Optional,
-        item: DateTime,
-        example: "2023-06-25T20:30:00",
-        order: 2500,
-        read: |d: &PanelInternalData| {
-            d.time_slot.end_time().map(|dt| field_value!(dt))
-        },
-        write: |d: &mut PanelInternalData, v: FieldValue| {
-            match v {
-                FieldValue::List(_) | FieldValue::Single(FieldValueItem::Text(_)) => {
-                    d.time_slot.remove_end_time()
-                }
-                FieldValue::Single(FieldValueItem::DateTime(dt)) => {
-                    d.time_slot.add_end_time(dt)
-                }
-                FieldValue::Single(FieldValueItem::String(s)) => match parse_datetime(&s) {
-                    Some(dt) => d.time_slot.add_end_time(dt),
-                    None => {
-                        return Err(crate::value::ConversionError::ParseError {
-                            message: format!("could not parse datetime {s:?}"),
-                        }
-                        .into())
-                    }
-                },
-                _ => {
-                    return Err(crate::value::ConversionError::WrongVariant {
-                        expected: "DateTime or String",
-                        got: "other",
-                    }
-                    .into());
-                }
-            }
-            Ok(())
-        },
-    };
-    FieldDescriptor {
-        data,
-        crdt_type,
-        required: false,
-        cb,
-    }
-};
+pub static FIELD_END_TIME: FieldDescriptor<PanelEntityType> = panel_like::end_time_field(2500);
 inventory::submit! { CollectedField(&FIELD_END_TIME) }
 
-/// Duration — projected from `time_slot`.
-pub static FIELD_DURATION: FieldDescriptor<PanelEntityType> = {
-    let (data, crdt_type, cb) = callback_field_properties! {
-        PanelEntityType,
-        name: "duration",
-        display: "Duration",
-        description: "Panel duration.",
-        aliases: &[],
-        cardinality: Optional,
-        item: Duration,
-        example: "90",
-        order: 2600,
-        read: |d: &PanelInternalData| {
-            d.time_slot.duration().map(|dur| field_value!(dur))
-        },
-        write: |d: &mut PanelInternalData, v: FieldValue| {
-            match v {
-                FieldValue::List(_) | FieldValue::Single(FieldValueItem::Text(_)) => {
-                    d.time_slot.remove_duration()
-                }
-                FieldValue::Single(FieldValueItem::Duration(dur)) => {
-                    d.time_slot.add_duration(dur)
-                }
-                FieldValue::Single(FieldValueItem::Integer(m)) => {
-                    d.time_slot.add_duration(Duration::minutes(m))
-                }
-                FieldValue::Single(FieldValueItem::String(s)) => match parse_duration(&s) {
-                    Some(dur) => d.time_slot.add_duration(dur),
-                    None => {
-                        return Err(crate::value::ConversionError::ParseError {
-                            message: format!("could not parse duration {s:?}"),
-                        }
-                        .into())
-                    }
-                },
-                _ => {
-                    return Err(crate::value::ConversionError::WrongVariant {
-                        expected: "Duration, Integer, or String",
-                        got: "other",
-                    }
-                    .into());
-                }
-            }
-            Ok(())
-        },
-    };
-    FieldDescriptor {
-        data,
-        crdt_type,
-        required: false,
-        cb,
-    }
-};
+pub static FIELD_DURATION: FieldDescriptor<PanelEntityType> = panel_like::duration_field(2600);
 inventory::submit! { CollectedField(&FIELD_DURATION) }
 
 // ── Edge-backed computed fields ───────────────────────────────────────────────

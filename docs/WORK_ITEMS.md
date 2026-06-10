@@ -1,6 +1,6 @@
 # Cosplay America Schedule - Work Item
 
-Updated on: Tue Jun  9 21:25:23 2026
+Updated on: Wed Jun 10 09:57:12 2026
 
 ## Completed
 
@@ -191,6 +191,9 @@ creation through the single tagged API with deterministic v5 UUIDs, and clean up
 * [REFACTOR-141] Remove the presenter `sort_index` field and the XLSX `xlsx_sort_key` sidecar
 infrastructure that fed it, so presenters order deterministically by rank then
 name with nothing carried over from spreadsheet column/row position.
+* [REFACTOR-147] Share field definitions and lookup across Panel, Break, and Timeline via a
+`PanelLike` trait and generic `const fn` field builders, keeping the three
+entity types distinct.
 * [UI-085] Audit and update the calendar widget to handle the format differences between
 the v9 JSON output and the format produced by `cosam-convert` (CLI-030).
 * [UI-087] The Event Type filter shows all non-hidden panel types even when none of that
@@ -829,6 +832,7 @@ a `HashMap<NonNilUuid, HashMap<FieldId, Vec<FieldNodeId>>>` layout).
 [REFACTOR-138]: ../work-item/closed/done/REFACTOR-138.md
 [REFACTOR-140]: ../work-item/closed/done/REFACTOR-140.md
 [REFACTOR-141]: ../work-item/closed/done/REFACTOR-141.md
+[REFACTOR-147]: ../work-item/closed/done/REFACTOR-147.md
 [UI-085]: ../work-item/closed/done/UI-085.md
 [UI-087]: ../work-item/closed/done/UI-087.md
 [UI-088]: ../work-item/closed/done/UI-088.md

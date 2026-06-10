@@ -15,14 +15,14 @@
 //! Timelines are distinct from panels in that they have a specific time point
 //! rather than a duration range.
 
-use crate::accessor_field_properties;
-use crate::callback_field_properties;
 use crate::entity::{EntityId, EntityType, EntityUuid, FieldSet};
 use crate::field::{CollectedField, CollectedHalfEdge, FieldDescriptor, NamedField};
-use crate::field_value;
+use crate::query::converter::AsString;
+use crate::tables::panel_like::{self, EventKind, PanelLike, PanelLikeTimed};
 use crate::tables::panel_type::{self, PanelTypeEntityType};
+use crate::value::time::TimeRange;
 use crate::value::uniq_id::PanelUniqId;
-use crate::value::{FieldCardinality, FieldType, FieldTypeItem, FieldValue, ValidationError};
+use crate::value::{FieldCardinality, FieldType, FieldTypeItem, ValidationError};
 use serde::{Deserialize, Serialize};
 use std::sync::LazyLock;
 
@@ -31,9 +31,11 @@ use std::sync::LazyLock;
 /// Type-safe identifier for Timeline entities.
 pub type TimelineId = EntityId<TimelineEntityType>;
 
-// ── TimelineCommonData ─────────────────────────────────────────────────────────
-
-/// User-facing fields for timeline events.
+/// User-facing fields for timeline events. The shared `name` / `description` /
+/// `note` are exposed uniformly through [`PanelLike`]. A timeline is a single
+/// instant, so it stores `time` directly (an `Option<NaiveDateTime>`);
+/// [`PanelLikeTimed`] presents it as a virtual start-only [`TimeRange`] so the
+/// shared timing field logic applies.
 #[derive(Debug, Clone, PartialEq, Eq, Default, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct TimelineCommonData {
@@ -41,12 +43,6 @@ pub struct TimelineCommonData {
     pub description: Option<String>,
     pub note: Option<String>,
     pub time: Option<chrono::NaiveDateTime>,
-}
-
-impl TimelineCommonData {
-    fn validate(&self) -> Vec<ValidationError> {
-        Vec::new()
-    }
 }
 
 // ── TimelineInternalData ───────────────────────────────────────────────────────
@@ -102,8 +98,54 @@ impl EntityType for TimelineEntityType {
         }
     }
 
-    fn validate(internal: &Self::InternalData) -> Vec<ValidationError> {
-        internal.data.validate()
+    fn validate(_internal: &Self::InternalData) -> Vec<ValidationError> {
+        Vec::new()
+    }
+}
+
+// ── PanelLike ───────────────────────────────────────────────────────────────────
+
+impl PanelLike for TimelineEntityType {
+    const KIND: EventKind = EventKind::Timeline;
+
+    fn name(d: &Self::InternalData) -> &String {
+        &d.data.name
+    }
+    fn name_mut(d: &mut Self::InternalData) -> &mut String {
+        &mut d.data.name
+    }
+    fn description(d: &Self::InternalData) -> &Option<String> {
+        &d.data.description
+    }
+    fn description_mut(d: &mut Self::InternalData) -> &mut Option<String> {
+        &mut d.data.description
+    }
+    fn note(d: &Self::InternalData) -> &Option<String> {
+        &d.data.note
+    }
+    fn note_mut(d: &mut Self::InternalData) -> &mut Option<String> {
+        &mut d.data.note
+    }
+    fn code(d: &Self::InternalData) -> &PanelUniqId {
+        &d.code
+    }
+    fn code_mut(d: &mut Self::InternalData) -> &mut PanelUniqId {
+        &mut d.code
+    }
+}
+
+impl PanelLikeTimed for TimelineEntityType {
+    /// Present the stored instant as a start-only [`TimeRange`].
+    fn time_slot(d: &Self::InternalData) -> TimeRange {
+        let mut ts = TimeRange::default();
+        if let Some(t) = d.data.time {
+            ts.add_start_time(t);
+        }
+        ts
+    }
+    /// Project a [`TimeRange`] back to the stored instant (start only).
+    fn set_time_slot(d: &mut Self::InternalData, time_slot: TimeRange) {
+        d.data.time = time_slot.start_time();
     }
 }
 
@@ -193,133 +235,26 @@ impl crate::edit::builder::EntityBuildable for TimelineEntityType {
 
 // ── Stored field descriptors ──────────────────────────────────────────────────
 
-/// Timeline `code` (Uniq ID) — stored as the parsed [`PanelUniqId`] on
-/// [`TimelineInternalData`], exposed to the field system as a string.
-pub static FIELD_CODE: FieldDescriptor<TimelineEntityType> = {
-    let (data, crdt_type, cb) = callback_field_properties! {
-        TimelineEntityType,
-        name: "code",
-        display: "Code",
-        description: "Timeline code (e.g. \"TL01\"), parsed from the Schedule sheet.",
-        aliases: &["uid", "uniq_id", "id"],
-        cardinality: Single,
-        item: String,
-        example: "TL01",
-        order: 0,
-        read: |d: &TimelineInternalData| {
-            Some(field_value!(d.code.full_id()))
-        },
-        write: |d: &mut TimelineInternalData, v: FieldValue| {
-            let s = v.into_string()?;
-            // Callers that change the prefix should update the panel_type edge.
-            match PanelUniqId::parse(&s) {
-                Some(parsed) => {
-                    d.code = parsed;
-                    Ok(())
-                }
-                None => Err(crate::value::ConversionError::ParseError {
-                    message: format!("could not parse timeline code {s:?}"),
-                }
-                .into()),
-            }
-        }
-    };
-    FieldDescriptor {
-        data,
-        crdt_type,
-        required: true,
-        cb,
-    }
-};
+/// Timeline field descriptors — all defined once in [`panel_like`] and
+/// instantiated here with timeline-specific `order` / `aliases`. `time` maps to
+/// the start of the `time_slot` backing field (a timeline carries no duration).
+pub static FIELD_CODE: FieldDescriptor<TimelineEntityType> = panel_like::code_field(0);
 inventory::submit! { CollectedField(&FIELD_CODE) }
 
-// @todo: Name can be empty, should be optional
-pub static FIELD_NAME: FieldDescriptor<TimelineEntityType> = {
-    let (data, crdt_type, cb) = accessor_field_properties! {
-        TimelineEntityType,
-        name,
-        name: "name",
-        display: "Name",
-        description: "Timeline name / title.",
-        aliases: &["title", "timeline_name"],
-        cardinality: Single,
-        item: String,
-        example: "Thursday Morning",
-        order: 100,
-    };
-    FieldDescriptor {
-        data,
-        crdt_type,
-        required: true,
-        cb,
-    }
-};
+pub static FIELD_NAME: FieldDescriptor<TimelineEntityType> =
+    panel_like::name_field(100, &["title", "timeline_name"]);
 inventory::submit! { CollectedField(&FIELD_NAME) }
 
-pub static FIELD_DESCRIPTION: FieldDescriptor<TimelineEntityType> = {
-    let (data, crdt_type, cb) = accessor_field_properties! {
-        TimelineEntityType,
-        description,
-        name: "description",
-        display: "Description",
-        description: "Timeline description.",
-        aliases: &["desc"],
-        cardinality: Optional,
-        item: String,
-        example: "Mark the start of stuff on Thursday",
-        order: 200,
-    };
-    FieldDescriptor {
-        data,
-        crdt_type,
-        required: false,
-        cb,
-    }
-};
+pub static FIELD_DESCRIPTION: FieldDescriptor<TimelineEntityType> =
+    panel_like::description_field::<TimelineEntityType, AsString>(200, &["desc"]);
 inventory::submit! { CollectedField(&FIELD_DESCRIPTION) }
 
-pub static FIELD_NOTE: FieldDescriptor<TimelineEntityType> = {
-    let (data, crdt_type, cb) = accessor_field_properties! {
-        TimelineEntityType,
-        note,
-        name: "note",
-        display: "Note",
-        description: "Extra note displayed verbatim.",
-        aliases: &[],
-        cardinality: Optional,
-        item: String,
-        example: "Used for generating schedule cards for guests",
-        order: 300,
-    };
-    FieldDescriptor {
-        data,
-        crdt_type,
-        required: false,
-        cb,
-    }
-};
+pub static FIELD_NOTE: FieldDescriptor<TimelineEntityType> =
+    panel_like::note_field::<TimelineEntityType, AsString>(300, &[]);
 inventory::submit! { CollectedField(&FIELD_NOTE) }
 
-pub static FIELD_TIME: FieldDescriptor<TimelineEntityType> = {
-    let (data, crdt_type, cb) = accessor_field_properties! {
-        TimelineEntityType,
-        time,
-        name: "time",
-        display: "Time",
-        description: "Timeline time point.",
-        aliases: &["start_time", "start"],
-        cardinality: Optional,
-        item: DateTime,
-        example: "2026-01-01T09:00:00",
-        order: 400,
-    };
-    FieldDescriptor {
-        data,
-        crdt_type,
-        required: false,
-        cb,
-    }
-};
+pub static FIELD_TIME: FieldDescriptor<TimelineEntityType> =
+    panel_like::time_field(400, &["start_time", "start"]);
 inventory::submit! { CollectedField(&FIELD_TIME) }
 
 // Panel types associated with this timeline.
@@ -483,20 +418,10 @@ mod tests {
     }
 
     #[test]
-    fn test_validate_missing_name() {
-        let data = TimelineCommonData::default();
-        let errors = data.validate();
-        // Timelines do not require names
-        assert_eq!(errors.len(), 0);
-    }
-
-    #[test]
     fn test_validate_valid_data() {
-        let data = TimelineCommonData {
-            name: "Test Timeline".into(),
-            ..Default::default()
-        };
-        let errors = data.validate();
+        // Timelines have no constraints; validation always passes.
+        let data = make_test_internal_data();
+        let errors = TimelineEntityType::validate(&data);
         assert!(errors.is_empty());
     }
 

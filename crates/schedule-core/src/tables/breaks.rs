@@ -19,17 +19,14 @@
 //! [`PanelEntityType`](crate::tables::panel). Breaks are not panels: they are
 //! not assigned to rooms and are excluded from per-room rendering.
 
-use crate::accessor_field_properties;
-use crate::callback_field_properties;
 use crate::entity::{EntityId, EntityType, EntityUuid, FieldSet};
 use crate::field::{CollectedField, CollectedHalfEdge, FieldDescriptor, NamedField};
-use crate::field_value;
+use crate::query::converter::AsString;
+use crate::tables::panel_like::{self, EventKind, PanelLike, PanelLikeTimed};
 use crate::tables::panel_type::{self, PanelTypeEntityType};
-use crate::value::time::{parse_datetime, parse_duration, TimeRange};
+use crate::value::time::TimeRange;
 use crate::value::uniq_id::PanelUniqId;
-use crate::value::{
-    FieldCardinality, FieldType, FieldTypeItem, FieldValue, FieldValueItem, ValidationError,
-};
+use crate::value::{FieldCardinality, FieldType, FieldTypeItem, ValidationError};
 use chrono::Duration;
 use serde::{Deserialize, Serialize};
 use std::sync::LazyLock;
@@ -39,21 +36,15 @@ use std::sync::LazyLock;
 /// Type-safe identifier for Break entities.
 pub type BreakId = EntityId<BreakEntityType>;
 
-// ── BreakCommonData ────────────────────────────────────────────────────────────
-
-/// User-facing fields for break periods.
+/// User-facing fields for break periods. The shared `name` / `description` /
+/// `note` are exposed uniformly through [`PanelLike`], but each panel-like
+/// entity owns its own common-data struct.
 #[derive(Debug, Clone, PartialEq, Eq, Default, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct BreakCommonData {
     pub name: String,
     pub description: Option<String>,
     pub note: Option<String>,
-}
-
-impl BreakCommonData {
-    fn validate(&self) -> Vec<ValidationError> {
-        Vec::new()
-    }
 }
 
 // ── BreakInternalData ──────────────────────────────────────────────────────────
@@ -144,7 +135,7 @@ impl EntityType for BreakEntityType {
     }
 
     fn validate(internal: &Self::InternalData) -> Vec<ValidationError> {
-        let mut errors = internal.data.validate();
+        let mut errors = Vec::new();
         if let Err(msg) = internal.time_slot.validate() {
             errors.push(ValidationError::Constraint {
                 field: "time_slot",
@@ -152,6 +143,46 @@ impl EntityType for BreakEntityType {
             });
         }
         errors
+    }
+}
+
+// ── PanelLike ───────────────────────────────────────────────────────────────────
+
+impl PanelLike for BreakEntityType {
+    const KIND: EventKind = EventKind::Break;
+
+    fn name(d: &Self::InternalData) -> &String {
+        &d.data.name
+    }
+    fn name_mut(d: &mut Self::InternalData) -> &mut String {
+        &mut d.data.name
+    }
+    fn description(d: &Self::InternalData) -> &Option<String> {
+        &d.data.description
+    }
+    fn description_mut(d: &mut Self::InternalData) -> &mut Option<String> {
+        &mut d.data.description
+    }
+    fn note(d: &Self::InternalData) -> &Option<String> {
+        &d.data.note
+    }
+    fn note_mut(d: &mut Self::InternalData) -> &mut Option<String> {
+        &mut d.data.note
+    }
+    fn code(d: &Self::InternalData) -> &PanelUniqId {
+        &d.code
+    }
+    fn code_mut(d: &mut Self::InternalData) -> &mut PanelUniqId {
+        &mut d.code
+    }
+}
+
+impl PanelLikeTimed for BreakEntityType {
+    fn time_slot(d: &Self::InternalData) -> TimeRange {
+        d.time_slot.clone()
+    }
+    fn set_time_slot(d: &mut Self::InternalData, time_slot: TimeRange) {
+        d.time_slot = time_slot;
     }
 }
 
@@ -242,269 +273,31 @@ impl crate::edit::builder::EntityBuildable for BreakEntityType {
 
 // ── Stored field descriptors ──────────────────────────────────────────────────
 
-/// Break `code` (Uniq ID) — stored as the parsed [`PanelUniqId`] on
-/// [`BreakInternalData`], exposed to the field system as a string.
-pub static FIELD_CODE: FieldDescriptor<BreakEntityType> = {
-    let (data, crdt_type, cb) = callback_field_properties! {
-        BreakEntityType,
-        name: "code",
-        display: "Code",
-        description: "Break code (e.g. \"BREAK001\"), parsed from the Schedule sheet.",
-        aliases: &["uid", "uniq_id", "id"],
-        cardinality: Single,
-        item: String,
-        example: "BREAK001",
-        order: 0,
-        read: |d: &BreakInternalData| {
-            Some(field_value!(d.code.full_id()))
-        },
-        write: |d: &mut BreakInternalData, v: FieldValue| {
-            let s = v.into_string()?;
-            // Callers that change the prefix should update the panel_type edge.
-            match PanelUniqId::parse(&s) {
-                Some(parsed) => {
-                    d.code = parsed;
-                    Ok(())
-                }
-                None => Err(crate::value::ConversionError::ParseError {
-                    message: format!("could not parse break code {s:?}"),
-                }
-                .into()),
-            }
-        }
-    };
-    FieldDescriptor {
-        data,
-        crdt_type,
-        required: true,
-        cb,
-    }
-};
+/// Break field descriptors — defined once in [`panel_like`] and instantiated here
+/// with break-specific `order` / `aliases`. See that module for the read/write
+/// logic shared across all panel-like entities.
+pub static FIELD_CODE: FieldDescriptor<BreakEntityType> = panel_like::code_field(0);
 inventory::submit! { CollectedField(&FIELD_CODE) }
 
-pub static FIELD_NAME: FieldDescriptor<BreakEntityType> = {
-    let (data, crdt_type, cb) = accessor_field_properties! {
-        BreakEntityType,
-        name,
-        name: "name",
-        display: "Name",
-        description: "Break name / title.",
-        aliases: &["title", "break_name"],
-        cardinality: Single,
-        item: String,
-        example: "Lunch Break",
-        order: 100,
-    };
-    FieldDescriptor {
-        data,
-        crdt_type,
-        required: true,
-        cb,
-    }
-};
+pub static FIELD_NAME: FieldDescriptor<BreakEntityType> =
+    panel_like::name_field(100, &["title", "break_name"]);
 inventory::submit! { CollectedField(&FIELD_NAME) }
 
-pub static FIELD_DESCRIPTION: FieldDescriptor<BreakEntityType> = {
-    let (data, crdt_type, cb) = accessor_field_properties! {
-        BreakEntityType,
-        description,
-        name: "description",
-        display: "Description",
-        description: "Break description.",
-        aliases: &["desc"],
-        cardinality: Optional,
-        item: String,
-        example: "Lunch on your own",
-        order: 200,
-    };
-    FieldDescriptor {
-        data,
-        crdt_type,
-        required: false,
-        cb,
-    }
-};
+pub static FIELD_DESCRIPTION: FieldDescriptor<BreakEntityType> =
+    panel_like::description_field::<BreakEntityType, AsString>(200, &["desc"]);
 inventory::submit! { CollectedField(&FIELD_DESCRIPTION) }
 
-pub static FIELD_NOTE: FieldDescriptor<BreakEntityType> = {
-    let (data, crdt_type, cb) = accessor_field_properties! {
-        BreakEntityType,
-        note,
-        name: "note",
-        display: "Note",
-        description: "Extra note displayed verbatim.",
-        aliases: &[],
-        cardinality: Optional,
-        item: String,
-        example: "Vendor hall stays open",
-        order: 300,
-    };
-    FieldDescriptor {
-        data,
-        crdt_type,
-        required: false,
-        cb,
-    }
-};
+pub static FIELD_NOTE: FieldDescriptor<BreakEntityType> =
+    panel_like::note_field::<BreakEntityType, AsString>(300, &[]);
 inventory::submit! { CollectedField(&FIELD_NOTE) }
 
-/// Start time — projected from `time_slot`.
-pub static FIELD_START_TIME: FieldDescriptor<BreakEntityType> = {
-    let (data, crdt_type, cb) = callback_field_properties! {
-        BreakEntityType,
-        name: "start_time",
-        display: "Start Time",
-        description: "Break start time.",
-        aliases: &["start", "time"],
-        cardinality: Optional,
-        item: DateTime,
-        example: "2026-06-26T12:00:00",
-        order: 400,
-        read: |d: &BreakInternalData| {
-            d.time_slot.start_time().map(|dt| field_value!(dt))
-        },
-        write: |d: &mut BreakInternalData, v: FieldValue| {
-            match v {
-                FieldValue::List(_) | FieldValue::Single(FieldValueItem::Text(_)) => {
-                    d.time_slot.remove_start_time()
-                }
-                FieldValue::Single(FieldValueItem::DateTime(dt)) => {
-                    d.time_slot.add_start_time(dt)
-                }
-                FieldValue::Single(FieldValueItem::String(s)) => match parse_datetime(&s) {
-                    Some(dt) => d.time_slot.add_start_time(dt),
-                    None => {
-                        return Err(crate::value::ConversionError::ParseError {
-                            message: format!("could not parse datetime {s:?}"),
-                        }
-                        .into())
-                    }
-                },
-                _ => {
-                    return Err(crate::value::ConversionError::WrongVariant {
-                        expected: "DateTime or String",
-                        got: "other",
-                    }
-                    .into());
-                }
-            }
-            Ok(())
-        },
-    };
-    FieldDescriptor {
-        data,
-        crdt_type,
-        required: false,
-        cb,
-    }
-};
+pub static FIELD_START_TIME: FieldDescriptor<BreakEntityType> = panel_like::start_time_field(400);
 inventory::submit! { CollectedField(&FIELD_START_TIME) }
 
-/// End time — projected from `time_slot`.
-pub static FIELD_END_TIME: FieldDescriptor<BreakEntityType> = {
-    let (data, crdt_type, cb) = callback_field_properties! {
-        BreakEntityType,
-        name: "end_time",
-        display: "End Time",
-        description: "Break end time.",
-        aliases: &["end"],
-        cardinality: Optional,
-        item: DateTime,
-        example: "2026-06-26T13:00:00",
-        order: 500,
-        read: |d: &BreakInternalData| {
-            d.time_slot.end_time().map(|dt| field_value!(dt))
-        },
-        write: |d: &mut BreakInternalData, v: FieldValue| {
-            match v {
-                FieldValue::List(_) | FieldValue::Single(FieldValueItem::Text(_)) => {
-                    d.time_slot.remove_end_time()
-                }
-                FieldValue::Single(FieldValueItem::DateTime(dt)) => {
-                    d.time_slot.add_end_time(dt)
-                }
-                FieldValue::Single(FieldValueItem::String(s)) => match parse_datetime(&s) {
-                    Some(dt) => d.time_slot.add_end_time(dt),
-                    None => {
-                        return Err(crate::value::ConversionError::ParseError {
-                            message: format!("could not parse datetime {s:?}"),
-                        }
-                        .into())
-                    }
-                },
-                _ => {
-                    return Err(crate::value::ConversionError::WrongVariant {
-                        expected: "DateTime or String",
-                        got: "other",
-                    }
-                    .into());
-                }
-            }
-            Ok(())
-        },
-    };
-    FieldDescriptor {
-        data,
-        crdt_type,
-        required: false,
-        cb,
-    }
-};
+pub static FIELD_END_TIME: FieldDescriptor<BreakEntityType> = panel_like::end_time_field(500);
 inventory::submit! { CollectedField(&FIELD_END_TIME) }
 
-/// Duration — projected from `time_slot`.
-pub static FIELD_DURATION: FieldDescriptor<BreakEntityType> = {
-    let (data, crdt_type, cb) = callback_field_properties! {
-        BreakEntityType,
-        name: "duration",
-        display: "Duration",
-        description: "Break duration.",
-        aliases: &[],
-        cardinality: Optional,
-        item: Duration,
-        example: "60",
-        order: 600,
-        read: |d: &BreakInternalData| {
-            d.time_slot.duration().map(|dur| field_value!(dur))
-        },
-        write: |d: &mut BreakInternalData, v: FieldValue| {
-            match v {
-                FieldValue::List(_) | FieldValue::Single(FieldValueItem::Text(_)) => {
-                    d.time_slot.remove_duration()
-                }
-                FieldValue::Single(FieldValueItem::Duration(dur)) => {
-                    d.time_slot.add_duration(dur)
-                }
-                FieldValue::Single(FieldValueItem::Integer(m)) => {
-                    d.time_slot.add_duration(Duration::minutes(m))
-                }
-                FieldValue::Single(FieldValueItem::String(s)) => match parse_duration(&s) {
-                    Some(dur) => d.time_slot.add_duration(dur),
-                    None => {
-                        return Err(crate::value::ConversionError::ParseError {
-                            message: format!("could not parse duration {s:?}"),
-                        }
-                        .into())
-                    }
-                },
-                _ => {
-                    return Err(crate::value::ConversionError::WrongVariant {
-                        expected: "Duration, Integer, or String",
-                        got: "other",
-                    }
-                    .into());
-                }
-            }
-            Ok(())
-        },
-    };
-    FieldDescriptor {
-        data,
-        crdt_type,
-        required: false,
-        cb,
-    }
-};
+pub static FIELD_DURATION: FieldDescriptor<BreakEntityType> = panel_like::duration_field(600);
 inventory::submit! { CollectedField(&FIELD_DURATION) }
 
 // Panel types associated with this break.
@@ -573,6 +366,7 @@ mod tests {
     use super::*;
     use crate::field_value;
     use crate::schedule::Schedule;
+    use crate::value::time::parse_datetime;
     use uuid::Uuid;
 
     fn make_break_id() -> BreakId {

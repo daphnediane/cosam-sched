@@ -111,14 +111,17 @@ impl PanelUniqId {
         })
     }
 
-    /// Normalized 2-character panel-type lookup key derived from the raw
+    /// Normalized panel-type lookup key derived from the raw
     /// [`prefix`](Self::prefix) (e.g. `"SPLIT"` → `"SP"`, `"BR"` → `"BR"`).
     ///
-    /// Prefixes shorter than two characters are returned unchanged.
+    /// Normally the first two characters; for `%`-sentinel prefixes (e.g.
+    /// `"%IB"`, `"%NB"`) the first three, so the sentinel-plus-code is kept
+    /// intact. Prefixes shorter than the limit are returned unchanged.
     #[must_use]
     pub fn type_prefix(&self) -> &str {
-        if self.prefix.len() > 2 {
-            &self.prefix[..2]
+        let max = if self.prefix.starts_with('%') { 3 } else { 2 };
+        if self.prefix.len() > max {
+            &self.prefix[..max]
         } else {
             &self.prefix
         }
@@ -221,6 +224,27 @@ mod tests {
         let pid = PanelUniqId::parse("GP002").unwrap();
         assert_eq!(pid.prefix, "GP");
         assert_eq!(pid.type_prefix(), "GP");
+    }
+
+    #[test]
+    fn type_prefix_takes_three_chars_for_percent_sentinel() {
+        // `%`-sentinel prefixes (e.g. implicit/overnight break markers) keep the
+        // sentinel plus a two-char code. (`parse` does not yet emit such a
+        // prefix; constructed directly here / by FEATURE-146.)
+        let pid = PanelUniqId {
+            prefix: "%IBX".into(),
+            prefix_num: 0,
+            part_num: None,
+            session_num: None,
+            suffix: None,
+        };
+        assert_eq!(pid.type_prefix(), "%IB");
+
+        let exact = PanelUniqId {
+            prefix: "%NB".into(),
+            ..pid.clone()
+        };
+        assert_eq!(exact.type_prefix(), "%NB");
     }
 
     #[test]
