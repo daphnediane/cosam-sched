@@ -49,6 +49,7 @@ fn make_panel() -> (PanelId, PanelInternalData) {
             name: "Test Panel".into(),
             ..Default::default()
         },
+        notes: schedule_core::tables::fields::note::NoteBag::default(),
         code: PanelUniqId::parse("GP001").unwrap(),
         time_slot: TimeRange::Unspecified,
     };

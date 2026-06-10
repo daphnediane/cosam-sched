@@ -18,7 +18,9 @@
 use crate::entity::{EntityId, EntityType, EntityUuid, FieldSet};
 use crate::field::{CollectedField, CollectedHalfEdge, FieldDescriptor, NamedField};
 use crate::query::converter::AsString;
-use crate::tables::panel_like::{self, EventKind, PanelLike, PanelLikeTimed};
+use crate::tables::fields;
+use crate::tables::fields::note::{NoteBag, NoteKind, PublicNote};
+use crate::tables::panel_like::{EventKind, PanelLike, PanelLikeTimed};
 use crate::tables::panel_type::{self, PanelTypeEntityType};
 use crate::value::time::TimeRange;
 use crate::value::uniq_id::PanelUniqId;
@@ -41,7 +43,6 @@ pub type TimelineId = EntityId<TimelineEntityType>;
 pub struct TimelineCommonData {
     pub name: String,
     pub description: Option<String>,
-    pub note: Option<String>,
     pub time: Option<chrono::NaiveDateTime>,
 }
 
@@ -52,6 +53,9 @@ pub struct TimelineCommonData {
 pub struct TimelineInternalData {
     pub id: TimelineId,
     pub data: TimelineCommonData,
+    /// Notes keyed by [`NoteKind`]; a timeline supports only
+    /// [`NoteKind::Public`]. See [`PanelLike::SUPPORTED_NOTES`].
+    pub notes: NoteBag,
     /// Parsed Uniq ID (e.g. `TL01`). Structurally valid by construction;
     /// callers parse via [`PanelUniqId::parse`] before building this struct.
     pub code: PanelUniqId,
@@ -67,6 +71,9 @@ pub struct TimelineData {
     pub code: String,
     #[serde(flatten)]
     pub data: TimelineCommonData,
+    /// Public note ([`NoteKind::Public`]), projected from the note bag.
+    #[serde(skip_serializing_if = "Option::is_none", default)]
+    pub note: Option<String>,
 }
 
 // ── TimelineEntityType ───────────────────────────────────────────────────────
@@ -95,6 +102,7 @@ impl EntityType for TimelineEntityType {
         TimelineData {
             code: internal.code.full_id(),
             data: internal.data.clone(),
+            note: internal.notes.get_owned(NoteKind::Public),
         }
     }
 
@@ -107,6 +115,7 @@ impl EntityType for TimelineEntityType {
 
 impl PanelLike for TimelineEntityType {
     const KIND: EventKind = EventKind::Timeline;
+    const SUPPORTED_NOTES: &'static [NoteKind] = &[NoteKind::Public];
 
     fn name(d: &Self::InternalData) -> &String {
         &d.data.name
@@ -120,11 +129,11 @@ impl PanelLike for TimelineEntityType {
     fn description_mut(d: &mut Self::InternalData) -> &mut Option<String> {
         &mut d.data.description
     }
-    fn note(d: &Self::InternalData) -> &Option<String> {
-        &d.data.note
+    fn notes(d: &Self::InternalData) -> &NoteBag {
+        &d.notes
     }
-    fn note_mut(d: &mut Self::InternalData) -> &mut Option<String> {
-        &mut d.data.note
+    fn notes_mut(d: &mut Self::InternalData) -> &mut NoteBag {
+        &mut d.notes
     }
     fn code(d: &Self::InternalData) -> &PanelUniqId {
         &d.code
@@ -224,6 +233,7 @@ impl crate::edit::builder::EntityBuildable for TimelineEntityType {
         TimelineInternalData {
             id,
             data: TimelineCommonData::default(),
+            notes: NoteBag::default(),
             code: PanelUniqId::default(),
         }
     }
@@ -235,26 +245,27 @@ impl crate::edit::builder::EntityBuildable for TimelineEntityType {
 
 // ── Stored field descriptors ──────────────────────────────────────────────────
 
-/// Timeline field descriptors — all defined once in [`panel_like`] and
-/// instantiated here with timeline-specific `order` / `aliases`. `time` maps to
-/// the start of the `time_slot` backing field (a timeline carries no duration).
-pub static FIELD_CODE: FieldDescriptor<TimelineEntityType> = panel_like::code_field(0);
+/// Timeline field descriptors — all defined once in [`crate::tables::fields`]
+/// and instantiated here with timeline-specific `order` / `aliases`. `time` maps
+/// to the start of the `time_slot` backing field (a timeline carries no
+/// duration).
+pub static FIELD_CODE: FieldDescriptor<TimelineEntityType> = fields::code::code_field(0);
 inventory::submit! { CollectedField(&FIELD_CODE) }
 
 pub static FIELD_NAME: FieldDescriptor<TimelineEntityType> =
-    panel_like::name_field(100, &["title", "timeline_name"]);
+    fields::name::name_field(100, &["title", "timeline_name"]);
 inventory::submit! { CollectedField(&FIELD_NAME) }
 
 pub static FIELD_DESCRIPTION: FieldDescriptor<TimelineEntityType> =
-    panel_like::description_field::<TimelineEntityType, AsString>(200, &["desc"]);
+    fields::description::description_field::<TimelineEntityType, AsString>(200, &["desc"]);
 inventory::submit! { CollectedField(&FIELD_DESCRIPTION) }
 
 pub static FIELD_NOTE: FieldDescriptor<TimelineEntityType> =
-    panel_like::note_field::<TimelineEntityType, AsString>(300, &[]);
+    fields::note::note_field::<TimelineEntityType, PublicNote, AsString>(300);
 inventory::submit! { CollectedField(&FIELD_NOTE) }
 
 pub static FIELD_TIME: FieldDescriptor<TimelineEntityType> =
-    panel_like::time_field(400, &["start_time", "start"]);
+    fields::time::time_field(400, &["start_time", "start"]);
 inventory::submit! { CollectedField(&FIELD_TIME) }
 
 // Panel types associated with this timeline.
@@ -333,8 +344,12 @@ mod tests {
             data: TimelineCommonData {
                 name: "Opening Ceremony".into(),
                 description: Some("Opening ceremony for the convention".into()),
-                note: Some("Main ballroom".into()),
                 time: None,
+            },
+            notes: {
+                let mut notes = NoteBag::default();
+                notes.set(NoteKind::Public, Some("Main ballroom".into()));
+                notes
             },
             code: PanelUniqId {
                 prefix: "TL".into(),
@@ -409,7 +424,6 @@ mod tests {
         let original = TimelineCommonData {
             name: "Opening Ceremony".into(),
             description: Some("Opening ceremony for the convention".into()),
-            note: Some("Main ballroom".into()),
             time: None,
         };
         let json = serde_json::to_string(&original).unwrap();
@@ -439,7 +453,7 @@ mod tests {
             exported.data.description,
             Some("Opening ceremony for the convention".into())
         );
-        assert_eq!(exported.data.note, Some("Main ballroom".into()));
+        assert_eq!(exported.note, Some("Main ballroom".into()));
         assert_eq!(exported.data.time, None);
     }
 }

@@ -1,6 +1,6 @@
 # Cosplay America Schedule - Work Item
 
-Updated on: Wed Jun 10 09:57:12 2026
+Updated on: Wed Jun 10 18:55:49 2026
 
 ## Completed
 
@@ -216,7 +216,7 @@ pattern where each job spec points to a specific output file or directory.
 
 ## Summary of Open Items
 
-**Total open items:** 19
+**Total open items:** 20
 
 * **Meta / Project-Level**
   * [META-001] Meta work item tracking the full multi-phase redesign of the schedule system. (Blocked by [META-007], [META-008])
@@ -260,6 +260,9 @@ icons, and CI/CD pipeline integration.
 table, page-header banners, multi-column body text, and page footers.
   * [REFACTOR-112] Update the `#[ignore]`d `set_neighbors` tests in `schedule-core/src/edge/map.rs`
 to compile and pass against the current `RawEdgeMap` API.
+  * [REFACTOR-148] Let common fields (name, description, notes, etc.) be defined once and reused by
+any entity type, without per-type `CommonData` edits — extending beyond the
+panel-like trio.
 
 ---
 
@@ -701,6 +704,36 @@ a `HashMap<NonNilUuid, HashMap<FieldId, Vec<FieldNodeId>>>` layout).
 
 ---
 
+### [REFACTOR-148] REFACTOR-148: Generalize common fields across all entity types
+
+**Status:** In progress
+
+**Priority:** Low
+
+**Summary:** Let common fields (name, description, notes, etc.) be defined once and reused by
+any entity type, without per-type `CommonData` edits — extending beyond the
+panel-like trio.
+
+**Blocked By:** [REFACTOR-147]
+
+**Description:** REFACTOR-147 made Panel/Break/Timeline share field *logic* via the `PanelLike`
+trait + generic `const fn` field builders. But adding a new shared field still
+requires, per type: a trait accessor method and a field on each `*CommonData`
+struct. And the sharing stops at the three panel-like types — yet many fields are
+common much more broadly:
+
+* `name` — panel, presenter, event_room (room_name), hotel_room, panel_type
+  (panel_kind), timeline, break
+* `description` — panel, timeline, break (and plausibly others)
+* assorted notes — panel has `note`, `notes_non_printing`, `workshop_notes`,
+  `av_notes`; the "internal vs printing" note distinction recurs elsewhere
+
+The goal: make a common field definable once and attachable to any entity type
+that opts in, with near-zero per-type boilerplate, so the set of common fields
+can grow freely.
+
+---
+
 ---
 
 [BUGFIX-072]: ../work-item/closed/done/BUGFIX-072.md
@@ -833,6 +866,7 @@ a `HashMap<NonNilUuid, HashMap<FieldId, Vec<FieldNodeId>>>` layout).
 [REFACTOR-140]: ../work-item/closed/done/REFACTOR-140.md
 [REFACTOR-141]: ../work-item/closed/done/REFACTOR-141.md
 [REFACTOR-147]: ../work-item/closed/done/REFACTOR-147.md
+[REFACTOR-148]: ../work-item/open/3-LOW/REFACTOR-148.md
 [UI-085]: ../work-item/closed/done/UI-085.md
 [UI-087]: ../work-item/closed/done/UI-087.md
 [UI-088]: ../work-item/closed/done/UI-088.md

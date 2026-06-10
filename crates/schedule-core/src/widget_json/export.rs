@@ -14,6 +14,7 @@ use crate::entity::EntityUuid;
 use crate::schedule::Schedule;
 use crate::tables::breaks::BreakEntityType;
 use crate::tables::event_room::{self, EventRoomEntityType, EventRoomId};
+use crate::tables::fields::note::NoteKind;
 use crate::tables::hotel_room::HotelRoomEntityType;
 use crate::tables::panel::{self, PanelEntityType, PanelId};
 use crate::tables::panel_type::PanelTypeEntityType;
@@ -311,7 +312,7 @@ fn export_timeline(
             start_time: format_naive_dt(start),
             description: internal.data.name.clone(),
             panel_type: prefix,
-            note: internal.data.note.clone(),
+            note: internal.notes.get_owned(NoteKind::Public),
         });
     }
 
@@ -380,7 +381,7 @@ fn export_panels(
             end_time,
             duration,
             description: internal.data.description.clone(),
-            note: internal.data.note.clone(),
+            note: internal.notes.get_owned(NoteKind::Public),
             prereq: internal.data.prereq.clone(),
             cost: crate::value::cost::additional_cost_to_string(&internal.data.additional_cost),
             capacity: internal.data.capacity.map(|c| c.to_string()),
@@ -437,7 +438,7 @@ fn export_panels(
             end_time,
             duration,
             description: internal.data.description.clone(),
-            note: internal.data.note.clone(),
+            note: internal.notes.get_owned(NoteKind::Public),
             prereq: None,
             cost: None,
             capacity: None,
@@ -890,6 +891,7 @@ mod tests {
                     name: format!("Panel {code_str}"),
                     ..Default::default()
                 },
+                notes: crate::tables::fields::note::NoteBag::default(),
                 time_slot,
             },
         );
@@ -918,6 +920,7 @@ mod tests {
                     time,
                     ..Default::default()
                 },
+                notes: crate::tables::fields::note::NoteBag::default(),
             },
         );
         id

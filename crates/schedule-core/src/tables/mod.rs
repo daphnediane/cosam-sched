@@ -11,6 +11,7 @@
 
 pub mod breaks;
 pub mod event_room;
+pub mod fields;
 pub mod hotel_room;
 pub mod panel;
 pub mod panel_like;

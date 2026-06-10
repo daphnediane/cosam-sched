@@ -19,6 +19,7 @@ use crate::entity::{EntityType, EntityUuid};
 use crate::schedule::Schedule;
 use crate::tables::breaks::BreakEntityType;
 use crate::tables::event_room::{self, EventRoomEntityType};
+use crate::tables::fields::note::NoteKind;
 use crate::tables::hotel_room::HotelRoomEntityType;
 use crate::tables::panel::{self, compute_credits, PanelEntityType, PanelInternalData};
 use crate::tables::panel_type::PanelTypeEntityType;
@@ -526,14 +527,24 @@ fn write_schedule_sheet(
         // Text fields.
         set_opt(ws, c_description, row, &panel.data.description);
         set_opt(ws, c_prereq, row, &panel.data.prereq);
-        set_opt(ws, c_note, row, &panel.data.note);
-        set_opt(ws, c_notes_np, row, &panel.data.notes_non_printing);
-        set_opt(ws, c_workshop_notes, row, &panel.data.workshop_notes);
+        set_opt(ws, c_note, row, &panel.notes.get_owned(NoteKind::Public));
+        set_opt(
+            ws,
+            c_notes_np,
+            row,
+            &panel.notes.get_owned(NoteKind::NonPrinting),
+        );
+        set_opt(
+            ws,
+            c_workshop_notes,
+            row,
+            &panel.notes.get_owned(NoteKind::Workshop),
+        );
         set_opt(ws, c_power_needs, row, &panel.data.power_needs);
         if panel.data.sewing_machines {
             set_str(ws, c_sewing_machines, row, "Yes");
         }
-        set_opt(ws, c_av_notes, row, &panel.data.av_notes);
+        set_opt(ws, c_av_notes, row, &panel.notes.get_owned(NoteKind::Av));
         set_opt(ws, c_difficulty, row, &panel.data.difficulty);
 
         // Cost: synthesize display value from typed fields.
@@ -694,7 +705,7 @@ fn write_schedule_sheet(
         // Text fields.
         set_opt(ws, c_description, row, &timeline.data.description);
         // Prereq: blank for timelines
-        set_opt(ws, c_note, row, &timeline.data.note);
+        set_opt(ws, c_note, row, &timeline.notes.get_owned(NoteKind::Public));
         // Notes non-printing: blank for timelines
         // Workshop notes: blank for timelines
         // Power needs: blank for timelines
@@ -1022,7 +1033,7 @@ fn write_timeline_sheet(ws: &mut Worksheet, schedule: &Schedule, extra_keys: &[S
         set_str(ws, c_uniq_id, row, &timeline.code.full_id());
         set_str(ws, c_name, row, &timeline.data.name);
         set_opt(ws, c_description, row, &timeline.data.description);
-        set_opt(ws, c_note, row, &timeline.data.note);
+        set_opt(ws, c_note, row, &timeline.notes.get_owned(NoteKind::Public));
         if let Some(time) = timeline.data.time {
             set_str(ws, c_time, row, &time.format(TIME_FMT).to_string());
         }
@@ -1067,16 +1078,16 @@ fn write_breaks_sheet(ws: &mut Worksheet, schedule: &Schedule, extra_keys: &[Str
 
     // Sort breaks by start time (None last), then by code.
     let mut breaks: Vec<_> = schedule.iter_entities::<BreakEntityType>().collect();
-    breaks.sort_by(|(_, a), (_, b)| {
-        match (a.time_slot.start_time(), b.time_slot.start_time()) {
+    breaks.sort_by(
+        |(_, a), (_, b)| match (a.time_slot.start_time(), b.time_slot.start_time()) {
             (Some(ta), Some(tb)) => ta
                 .cmp(&tb)
                 .then_with(|| a.code.full_id().cmp(&b.code.full_id())),
             (Some(_), None) => std::cmp::Ordering::Less,
             (None, Some(_)) => std::cmp::Ordering::Greater,
             (None, None) => a.code.full_id().cmp(&b.code.full_id()),
-        }
-    });
+        },
+    );
 
     let c = |f: &FieldDef| col_of(br_cols::ALL, f);
     let c_uniq_id = c(&br_cols::UNIQ_ID);
@@ -1092,7 +1103,7 @@ fn write_breaks_sheet(ws: &mut Worksheet, schedule: &Schedule, extra_keys: &[Str
         set_str(ws, c_uniq_id, row, &brk.code.full_id());
         set_str(ws, c_name, row, &brk.data.name);
         set_opt(ws, c_description, row, &brk.data.description);
-        set_opt(ws, c_note, row, &brk.data.note);
+        set_opt(ws, c_note, row, &brk.notes.get_owned(NoteKind::Public));
         if let Some(start) = brk.time_slot.start_time() {
             set_str(ws, c_start, row, &start.format(TIME_FMT).to_string());
         }

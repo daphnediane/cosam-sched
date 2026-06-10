@@ -22,7 +22,9 @@
 use crate::entity::{EntityId, EntityType, EntityUuid, FieldSet};
 use crate::field::{CollectedField, CollectedHalfEdge, FieldDescriptor, NamedField};
 use crate::query::converter::AsString;
-use crate::tables::panel_like::{self, EventKind, PanelLike, PanelLikeTimed};
+use crate::tables::fields;
+use crate::tables::fields::note::{NoteBag, NoteKind, PublicNote};
+use crate::tables::panel_like::{EventKind, PanelLike, PanelLikeTimed};
 use crate::tables::panel_type::{self, PanelTypeEntityType};
 use crate::value::time::TimeRange;
 use crate::value::uniq_id::PanelUniqId;
@@ -44,7 +46,6 @@ pub type BreakId = EntityId<BreakEntityType>;
 pub struct BreakCommonData {
     pub name: String,
     pub description: Option<String>,
-    pub note: Option<String>,
 }
 
 // ── BreakInternalData ──────────────────────────────────────────────────────────
@@ -54,6 +55,9 @@ pub struct BreakCommonData {
 pub struct BreakInternalData {
     pub id: BreakId,
     pub data: BreakCommonData,
+    /// Notes keyed by [`NoteKind`]; a break supports only
+    /// [`NoteKind::Public`]. See [`PanelLike::SUPPORTED_NOTES`].
+    pub notes: NoteBag,
     /// Parsed Uniq ID (e.g. `BREAK001`). Structurally valid by construction;
     /// callers parse via [`PanelUniqId::parse`] before building this struct.
     pub code: PanelUniqId,
@@ -71,6 +75,9 @@ pub struct BreakData {
     pub code: String,
     #[serde(flatten)]
     pub data: BreakCommonData,
+    /// Public note ([`NoteKind::Public`]), projected from the note bag.
+    #[serde(skip_serializing_if = "Option::is_none", default)]
+    pub note: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none", default)]
     pub start_time: Option<chrono::NaiveDateTime>,
     #[serde(skip_serializing_if = "Option::is_none", default)]
@@ -128,6 +135,7 @@ impl EntityType for BreakEntityType {
         BreakData {
             code: internal.code.full_id(),
             data: internal.data.clone(),
+            note: internal.notes.get_owned(NoteKind::Public),
             start_time: internal.time_slot.start_time(),
             end_time: internal.time_slot.end_time(),
             duration: internal.time_slot.duration(),
@@ -150,6 +158,7 @@ impl EntityType for BreakEntityType {
 
 impl PanelLike for BreakEntityType {
     const KIND: EventKind = EventKind::Break;
+    const SUPPORTED_NOTES: &'static [NoteKind] = &[NoteKind::Public];
 
     fn name(d: &Self::InternalData) -> &String {
         &d.data.name
@@ -163,11 +172,11 @@ impl PanelLike for BreakEntityType {
     fn description_mut(d: &mut Self::InternalData) -> &mut Option<String> {
         &mut d.data.description
     }
-    fn note(d: &Self::InternalData) -> &Option<String> {
-        &d.data.note
+    fn notes(d: &Self::InternalData) -> &NoteBag {
+        &d.notes
     }
-    fn note_mut(d: &mut Self::InternalData) -> &mut Option<String> {
-        &mut d.data.note
+    fn notes_mut(d: &mut Self::InternalData) -> &mut NoteBag {
+        &mut d.notes
     }
     fn code(d: &Self::InternalData) -> &PanelUniqId {
         &d.code
@@ -261,6 +270,7 @@ impl crate::edit::builder::EntityBuildable for BreakEntityType {
         BreakInternalData {
             id,
             data: BreakCommonData::default(),
+            notes: NoteBag::default(),
             code: PanelUniqId::default(),
             time_slot: TimeRange::default(),
         }
@@ -273,31 +283,31 @@ impl crate::edit::builder::EntityBuildable for BreakEntityType {
 
 // ── Stored field descriptors ──────────────────────────────────────────────────
 
-/// Break field descriptors — defined once in [`panel_like`] and instantiated here
-/// with break-specific `order` / `aliases`. See that module for the read/write
-/// logic shared across all panel-like entities.
-pub static FIELD_CODE: FieldDescriptor<BreakEntityType> = panel_like::code_field(0);
+/// Break field descriptors — defined once in [`crate::tables::fields`] and
+/// instantiated here with break-specific `order` / `aliases`. See those modules
+/// for the read/write logic shared across all panel-like entities.
+pub static FIELD_CODE: FieldDescriptor<BreakEntityType> = fields::code::code_field(0);
 inventory::submit! { CollectedField(&FIELD_CODE) }
 
 pub static FIELD_NAME: FieldDescriptor<BreakEntityType> =
-    panel_like::name_field(100, &["title", "break_name"]);
+    fields::name::name_field(100, &["title", "break_name"]);
 inventory::submit! { CollectedField(&FIELD_NAME) }
 
 pub static FIELD_DESCRIPTION: FieldDescriptor<BreakEntityType> =
-    panel_like::description_field::<BreakEntityType, AsString>(200, &["desc"]);
+    fields::description::description_field::<BreakEntityType, AsString>(200, &["desc"]);
 inventory::submit! { CollectedField(&FIELD_DESCRIPTION) }
 
 pub static FIELD_NOTE: FieldDescriptor<BreakEntityType> =
-    panel_like::note_field::<BreakEntityType, AsString>(300, &[]);
+    fields::note::note_field::<BreakEntityType, PublicNote, AsString>(300);
 inventory::submit! { CollectedField(&FIELD_NOTE) }
 
-pub static FIELD_START_TIME: FieldDescriptor<BreakEntityType> = panel_like::start_time_field(400);
+pub static FIELD_START_TIME: FieldDescriptor<BreakEntityType> = fields::time::start_time_field(400);
 inventory::submit! { CollectedField(&FIELD_START_TIME) }
 
-pub static FIELD_END_TIME: FieldDescriptor<BreakEntityType> = panel_like::end_time_field(500);
+pub static FIELD_END_TIME: FieldDescriptor<BreakEntityType> = fields::time::end_time_field(500);
 inventory::submit! { CollectedField(&FIELD_END_TIME) }
 
-pub static FIELD_DURATION: FieldDescriptor<BreakEntityType> = panel_like::duration_field(600);
+pub static FIELD_DURATION: FieldDescriptor<BreakEntityType> = fields::time::duration_field(600);
 inventory::submit! { CollectedField(&FIELD_DURATION) }
 
 // Panel types associated with this break.
@@ -381,7 +391,11 @@ mod tests {
             data: BreakCommonData {
                 name: "Lunch Break".into(),
                 description: Some("Lunch on your own".into()),
-                note: Some("Vendor hall stays open".into()),
+            },
+            notes: {
+                let mut notes = NoteBag::default();
+                notes.set(NoteKind::Public, Some("Vendor hall stays open".into()));
+                notes
             },
             code: PanelUniqId {
                 prefix: "BREAK".into(),
@@ -452,7 +466,6 @@ mod tests {
         let original = BreakCommonData {
             name: "Lunch Break".into(),
             description: Some("Lunch on your own".into()),
-            note: Some("Vendor hall stays open".into()),
         };
         let json = serde_json::to_string(&original).unwrap();
         let back: BreakCommonData = serde_json::from_str(&json).unwrap();

@@ -1,7 +1,2 @@
 {
-  "permissions": {
-    "allow": [
-      "Bash(perl /Volumes/CaseSens/Repositories/mine/cosam-sched/main/scripts/work-item-update.pl)"
-    ]
-  }
 }

@@ -1085,7 +1085,10 @@ fn test_break_round_trips_through_xlsx_with_duration() {
     let reimported = round_trip(schedule);
     assert_eq!(reimported.entity_count::<BreakEntityType>(), 1);
     assert_eq!(reimported.entity_count::<PanelEntityType>(), 1);
-    let (_, brk2) = reimported.iter_entities::<BreakEntityType>().next().unwrap();
+    let (_, brk2) = reimported
+        .iter_entities::<BreakEntityType>()
+        .next()
+        .unwrap();
     assert_eq!(brk2.code.full_id(), "BREAK001");
     assert_eq!(brk2.data.description.as_deref(), Some("Lunch on your own"));
     assert_eq!(brk2.time_slot.duration().map(|d| d.num_minutes()), Some(60));
@@ -1122,7 +1125,10 @@ fn test_break_widget_json_round_trip() {
     // Re-importing the widget JSON reconstructs the Break entity.
     let reimported = import_from_widget_json(&export).unwrap();
     assert_eq!(reimported.entity_count::<BreakEntityType>(), 1);
-    let (_, brk2) = reimported.iter_entities::<BreakEntityType>().next().unwrap();
+    let (_, brk2) = reimported
+        .iter_entities::<BreakEntityType>()
+        .next()
+        .unwrap();
     assert_eq!(brk2.code.full_id(), "BREAK001");
     assert_eq!(brk2.time_slot.duration().map(|d| d.num_minutes()), Some(60));
 }
@@ -1272,7 +1278,13 @@ fn test_export_round_trip_panels() {
         panel.1.data.description.as_deref(),
         Some("Welcome to the con")
     );
-    assert_eq!(panel.1.data.note.as_deref(), Some("A note"));
+    assert_eq!(
+        panel
+            .1
+            .notes
+            .get(schedule_core::tables::fields::note::NoteKind::Public),
+        Some("A note")
+    );
     assert_eq!(
         panel.1.time_slot.duration().map(|d| d.num_minutes()),
         Some(60)

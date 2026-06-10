@@ -27,8 +27,12 @@ use crate::field_value;
 use crate::query::converter::{AsText, EntityStringResolver};
 use crate::schedule::Schedule;
 use crate::tables::event_room::{self, EventRoomEntityType, EventRoomId};
+use crate::tables::fields;
+use crate::tables::fields::note::{
+    AvNote, NonPrintingNote, NoteBag, NoteKind, PublicNote, WorkshopNote,
+};
 use crate::tables::hotel_room::{HotelRoomEntityType, HotelRoomId};
-use crate::tables::panel_like::{self, EventKind, PanelLike, PanelLikeTimed};
+use crate::tables::panel_like::{EventKind, PanelLike, PanelLikeTimed};
 use crate::tables::panel_type::{self, PanelTypeEntityType, PanelTypeId};
 use crate::tables::presenter::{self, PresenterEntityType, PresenterId};
 use crate::value::cost::{additional_cost_to_string, AdditionalCost};
@@ -53,12 +57,8 @@ pub type PanelId = EntityId<PanelEntityType>;
 pub struct PanelCommonData {
     pub name: String,
     pub description: Option<String>,
-    pub note: Option<String>,
-    pub notes_non_printing: Option<String>,
-    pub workshop_notes: Option<String>,
     pub power_needs: Option<String>,
     pub sewing_machines: bool,
-    pub av_notes: Option<String>,
     pub difficulty: Option<String>,
     pub prereq: Option<String>,
     pub additional_cost: AdditionalCost,
@@ -84,6 +84,10 @@ impl PanelCommonData {
 pub struct PanelInternalData {
     pub id: PanelId,
     pub data: PanelCommonData,
+    /// Notes keyed by [`NoteKind`]. A panel supports the full set
+    /// (public / non-printing / workshop / A/V); see
+    /// [`PanelLike::SUPPORTED_NOTES`].
+    pub notes: NoteBag,
     /// Parsed Uniq ID (e.g. `GP032`). Structurally valid by construction;
     /// callers parse via [`PanelUniqId::parse`] before building this struct.
     pub code: PanelUniqId,
@@ -100,6 +104,15 @@ pub struct PanelData {
     pub code: String,
     #[serde(flatten)]
     pub data: PanelCommonData,
+    /// Notes, projected from the note bag into discrete keys for export.
+    #[serde(skip_serializing_if = "Option::is_none", default)]
+    pub note: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none", default)]
+    pub notes_non_printing: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none", default)]
+    pub workshop_notes: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none", default)]
+    pub av_notes: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none", default)]
     pub start_time: Option<chrono::NaiveDateTime>,
     #[serde(skip_serializing_if = "Option::is_none", default)]
@@ -171,6 +184,10 @@ impl EntityType for PanelEntityType {
         PanelData {
             code: internal.code.full_id(),
             data: internal.data.clone(),
+            note: internal.notes.get_owned(NoteKind::Public),
+            notes_non_printing: internal.notes.get_owned(NoteKind::NonPrinting),
+            workshop_notes: internal.notes.get_owned(NoteKind::Workshop),
+            av_notes: internal.notes.get_owned(NoteKind::Av),
             start_time: internal.time_slot.start_time(),
             end_time: internal.time_slot.end_time(),
             duration: internal.time_slot.duration(),
@@ -198,6 +215,12 @@ impl EntityType for PanelEntityType {
 
 impl PanelLike for PanelEntityType {
     const KIND: EventKind = EventKind::Panel;
+    const SUPPORTED_NOTES: &'static [NoteKind] = &[
+        NoteKind::Public,
+        NoteKind::NonPrinting,
+        NoteKind::Workshop,
+        NoteKind::Av,
+    ];
 
     fn name(d: &Self::InternalData) -> &String {
         &d.data.name
@@ -211,11 +234,11 @@ impl PanelLike for PanelEntityType {
     fn description_mut(d: &mut Self::InternalData) -> &mut Option<String> {
         &mut d.data.description
     }
-    fn note(d: &Self::InternalData) -> &Option<String> {
-        &d.data.note
+    fn notes(d: &Self::InternalData) -> &NoteBag {
+        &d.notes
     }
-    fn note_mut(d: &mut Self::InternalData) -> &mut Option<String> {
-        &mut d.data.note
+    fn notes_mut(d: &mut Self::InternalData) -> &mut NoteBag {
+        &mut d.notes
     }
     fn code(d: &Self::InternalData) -> &PanelUniqId {
         &d.code
@@ -309,6 +332,7 @@ impl crate::edit::builder::EntityBuildable for PanelEntityType {
         PanelInternalData {
             id,
             data: PanelCommonData::default(),
+            notes: NoteBag::default(),
             code: PanelUniqId::default(),
             time_slot: TimeRange::default(),
         }
@@ -342,63 +366,31 @@ impl EntityStringResolver for PanelEntityType {
 // Shared panel-like field descriptors — defined once in [`panel_like`] and
 // instantiated here with panel-specific `order` / `aliases`. Panel's
 // `description` / `note` are long prose (`AsText`), unlike Break/Timeline.
-pub static FIELD_CODE: FieldDescriptor<PanelEntityType> = panel_like::code_field(0);
+pub static FIELD_CODE: FieldDescriptor<PanelEntityType> = fields::code::code_field(0);
 inventory::submit! { CollectedField(&FIELD_CODE) }
 
 pub static FIELD_NAME: FieldDescriptor<PanelEntityType> =
-    panel_like::name_field(100, &["title", "panel_name"]);
+    fields::name::name_field(100, &["title", "panel_name"]);
 inventory::submit! { CollectedField(&FIELD_NAME) }
 
 pub static FIELD_DESCRIPTION: FieldDescriptor<PanelEntityType> =
-    panel_like::description_field::<PanelEntityType, AsText>(200, &["desc"]);
+    fields::description::description_field::<PanelEntityType, AsText>(200, &["desc"]);
 inventory::submit! { CollectedField(&FIELD_DESCRIPTION) }
 
+// Panel's notes are long prose stored as CRDT text fields (`AsText`). All four
+// kinds share one definition in [`fields::note`]; the kind is selected by the
+// marker type (`PublicNote`, `NonPrintingNote`, …) and the storage is the
+// shared [`NoteBag`].
 pub static FIELD_NOTE: FieldDescriptor<PanelEntityType> =
-    panel_like::note_field::<PanelEntityType, AsText>(300, &[]);
+    fields::note::note_field::<PanelEntityType, PublicNote, AsText>(300);
 inventory::submit! { CollectedField(&FIELD_NOTE) }
 
-pub static FIELD_NOTES_NON_PRINTING: FieldDescriptor<PanelEntityType> = {
-    let (data, crdt_type, cb) = accessor_field_properties! {
-        PanelEntityType,
-        notes_non_printing,
-        name: "notes_non_printing",
-        display: "Notes (Non Printing)",
-        description: "Internal notes not shown to the public.",
-        aliases: &["internal_notes"],
-        cardinality: Optional,
-        item: Text,
-        example: "Internal note for staff",
-        order: 400,
-    };
-    FieldDescriptor {
-        data,
-        crdt_type,
-        required: false,
-        cb,
-    }
-};
+pub static FIELD_NOTES_NON_PRINTING: FieldDescriptor<PanelEntityType> =
+    fields::note::note_field::<PanelEntityType, NonPrintingNote, AsText>(400);
 inventory::submit! { CollectedField(&FIELD_NOTES_NON_PRINTING) }
 
-pub static FIELD_WORKSHOP_NOTES: FieldDescriptor<PanelEntityType> = {
-    let (data, crdt_type, cb) = accessor_field_properties! {
-        PanelEntityType,
-        workshop_notes,
-        name: "workshop_notes",
-        display: "Workshop Notes",
-        description: "Notes for workshop staff.",
-        aliases: &[],
-        cardinality: Optional,
-        item: Text,
-        example: "Staff notes for workshop",
-        order: 500,
-    };
-    FieldDescriptor {
-        data,
-        crdt_type,
-        required: false,
-        cb,
-    }
-};
+pub static FIELD_WORKSHOP_NOTES: FieldDescriptor<PanelEntityType> =
+    fields::note::note_field::<PanelEntityType, WorkshopNote, AsText>(500);
 inventory::submit! { CollectedField(&FIELD_WORKSHOP_NOTES) }
 
 pub static FIELD_POWER_NEEDS: FieldDescriptor<PanelEntityType> = {
@@ -446,26 +438,8 @@ pub static FIELD_SEWING_MACHINES: FieldDescriptor<PanelEntityType> = {
 };
 inventory::submit! { CollectedField(&FIELD_SEWING_MACHINES) }
 
-pub static FIELD_AV_NOTES: FieldDescriptor<PanelEntityType> = {
-    let (data, crdt_type, cb) = accessor_field_properties! {
-        PanelEntityType,
-        av_notes,
-        name: "av_notes",
-        display: "AV Notes",
-        description: "Audio/visual setup notes.",
-        aliases: &["av"],
-        cardinality: Optional,
-        item: Text,
-        example: "Projector needed",
-        order: 800,
-    };
-    FieldDescriptor {
-        data,
-        crdt_type,
-        required: false,
-        cb,
-    }
-};
+pub static FIELD_AV_NOTES: FieldDescriptor<PanelEntityType> =
+    fields::note::note_field::<PanelEntityType, AvNote, AsText>(800);
 inventory::submit! { CollectedField(&FIELD_AV_NOTES) }
 
 pub static FIELD_DIFFICULTY: FieldDescriptor<PanelEntityType> = {
@@ -847,13 +821,14 @@ inventory::submit! { CollectedField(&FIELD_ALT_PANELIST) }
 // ── Computed time projections ─────────────────────────────────────────────────
 
 /// Start time — projected from `time_slot`.
-pub static FIELD_START_TIME: FieldDescriptor<PanelEntityType> = panel_like::start_time_field(2400);
+pub static FIELD_START_TIME: FieldDescriptor<PanelEntityType> =
+    fields::time::start_time_field(2400);
 inventory::submit! { CollectedField(&FIELD_START_TIME) }
 
-pub static FIELD_END_TIME: FieldDescriptor<PanelEntityType> = panel_like::end_time_field(2500);
+pub static FIELD_END_TIME: FieldDescriptor<PanelEntityType> = fields::time::end_time_field(2500);
 inventory::submit! { CollectedField(&FIELD_END_TIME) }
 
-pub static FIELD_DURATION: FieldDescriptor<PanelEntityType> = panel_like::duration_field(2600);
+pub static FIELD_DURATION: FieldDescriptor<PanelEntityType> = fields::time::duration_field(2600);
 inventory::submit! { CollectedField(&FIELD_DURATION) }
 
 // ── Edge-backed computed fields ───────────────────────────────────────────────
@@ -1238,12 +1213,8 @@ mod tests {
         PanelCommonData {
             name: "Panel Name".into(),
             description: Some("A description".into()),
-            note: None,
-            notes_non_printing: None,
-            workshop_notes: None,
             power_needs: Some("two outlets".into()),
             sewing_machines: false,
-            av_notes: Some("mic".into()),
             difficulty: None,
             prereq: None,
             additional_cost: AdditionalCost::Premium(3500),
@@ -1261,6 +1232,11 @@ mod tests {
         PanelInternalData {
             id,
             data: sample_common(),
+            notes: {
+                let mut notes = NoteBag::default();
+                notes.set(NoteKind::Av, Some("mic".into()));
+                notes
+            },
             time_slot: TimeRange::ScheduledWithDuration {
                 start_time: NaiveDate::from_ymd_opt(2026, 6, 26)
                     .unwrap()
@@ -1670,6 +1646,7 @@ mod tests {
         let internal = PanelInternalData {
             id,
             data: PanelCommonData::default(),
+            notes: NoteBag::default(),
             code: PanelUniqId::parse("GP001").expect("valid"),
             time_slot: TimeRange::Unspecified,
         };

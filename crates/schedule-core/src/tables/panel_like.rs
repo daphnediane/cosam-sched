@@ -20,21 +20,15 @@
 //!   common-data each entity already stores — no shared storage struct is
 //!   imposed — so a single field descriptor can be **defined once and used by
 //!   every panel-like entity type**.
-//! - The `*_field` `const fn`s below each build one [`FieldDescriptor`] generic
-//!   over the entity type; entity modules instantiate them as per-type statics
-//!   (with their own `order`/`aliases`) and register them through the usual
-//!   `inventory::submit!`.
+//! - The shared field *definitions* themselves live in [`crate::tables::fields`]
+//!   (one `const fn` builder per field, generic over these traits); entity
+//!   modules instantiate them as per-type statics (with their own
+//!   `order`/`aliases`) and register them through the usual `inventory::submit!`.
 
 use crate::entity::EntityType;
-use crate::field::{CommonFieldData, FieldCallbacks, FieldDescriptor, ReadFn, WriteFn};
-use crate::field_value;
-use crate::query::converter::{convert_optional, convert_required, AsString, FieldTypeMapping};
-use crate::value::time::{parse_datetime, parse_duration, TimeRange};
+use crate::tables::fields::note::{NoteBag, NoteKind};
+use crate::value::time::TimeRange;
 use crate::value::uniq_id::PanelUniqId;
-use crate::value::{
-    ConversionError, FieldCardinality, FieldType, FieldTypeItem, FieldValue, FieldValueItem,
-};
-use chrono::Duration;
 
 // ── EventKind ──────────────────────────────────────────────────────────────────
 
@@ -63,14 +57,27 @@ pub trait PanelLike: EntityType {
     /// Which kind of panel-like entity this is.
     const KIND: EventKind;
 
+    /// The note kinds this entity type supports. Panel carries the full set;
+    /// Break/Timeline carry only [`NoteKind::Public`]. Used to scope which
+    /// [`note_field`](crate::tables::fields::note::note_field)s an entity wires
+    /// up (and, in future, to validate writes).
+    const SUPPORTED_NOTES: &'static [NoteKind];
+
     fn name(d: &Self::InternalData) -> &String;
     fn name_mut(d: &mut Self::InternalData) -> &mut String;
     fn description(d: &Self::InternalData) -> &Option<String>;
     fn description_mut(d: &mut Self::InternalData) -> &mut Option<String>;
-    fn note(d: &Self::InternalData) -> &Option<String>;
-    fn note_mut(d: &mut Self::InternalData) -> &mut Option<String>;
+    /// All notes for this entity, keyed by [`NoteKind`].
+    fn notes(d: &Self::InternalData) -> &NoteBag;
+    fn notes_mut(d: &mut Self::InternalData) -> &mut NoteBag;
     fn code(d: &Self::InternalData) -> &PanelUniqId;
     fn code_mut(d: &mut Self::InternalData) -> &mut PanelUniqId;
+
+    /// Whether `kind` is in [`Self::SUPPORTED_NOTES`].
+    #[must_use]
+    fn supports_note(kind: NoteKind) -> bool {
+        Self::SUPPORTED_NOTES.contains(&kind)
+    }
 }
 
 /// Extension of [`PanelLike`] that exposes timing as a *virtual* [`TimeRange`].
@@ -85,370 +92,6 @@ pub trait PanelLikeTimed: PanelLike {
     fn time_slot(d: &Self::InternalData) -> TimeRange;
     /// Replace the timing from a [`TimeRange`] (projected back to storage).
     fn set_time_slot(d: &mut Self::InternalData, time_slot: TimeRange);
-}
-
-// ── Shared field builders ──────────────────────────────────────────────────────
-//
-// Each returns a `FieldDescriptor<E>` for one shared field. They are `const fn`
-// so the result can be assigned to a per-type `static`, keeping the existing
-// `inventory::submit!` registration. Conversion semantics mirror
-// `accessor_field_properties!` / `callback_field_properties!` exactly.
-
-/// `code` (Uniq ID) — stored as a parsed [`PanelUniqId`], exposed as a string.
-#[must_use]
-pub const fn code_field<E: PanelLike>(order: u32) -> FieldDescriptor<E> {
-    FieldDescriptor {
-        data: CommonFieldData {
-            name: "code",
-            display: "Code",
-            description: "Uniq ID code (e.g. \"GP032\"), parsed from the Schedule sheet.",
-            aliases: &["uid", "uniq_id", "id"],
-            field_type: FieldType(FieldCardinality::Single, FieldTypeItem::String),
-            example: "GP032",
-            order,
-        },
-        crdt_type: <AsString as FieldTypeMapping>::CRDT_TYPE,
-        required: true,
-        cb: FieldCallbacks {
-            read_fn: Some(ReadFn::Bare(|d| Some(field_value!(E::code(d).full_id())))),
-            write_fn: Some(WriteFn::Bare(|d, v| {
-                let s = v.into_string()?;
-                match PanelUniqId::parse(&s) {
-                    Some(parsed) => {
-                        *E::code_mut(d) = parsed;
-                        Ok(())
-                    }
-                    None => Err(ConversionError::ParseError {
-                        message: format!("could not parse code {s:?}"),
-                    }
-                    .into()),
-                }
-            })),
-            add_fn: None,
-            remove_fn: None,
-        },
-    }
-}
-
-/// `name` — required, single string.
-#[must_use]
-pub const fn name_field<E: PanelLike>(
-    order: u32,
-    aliases: &'static [&'static str],
-) -> FieldDescriptor<E> {
-    FieldDescriptor {
-        data: CommonFieldData {
-            name: "name",
-            display: "Name",
-            description: "Name / title.",
-            aliases,
-            field_type: FieldType(FieldCardinality::Single, FieldTypeItem::String),
-            example: "Opening Ceremony",
-            order,
-        },
-        crdt_type: <AsString as FieldTypeMapping>::CRDT_TYPE,
-        required: true,
-        cb: FieldCallbacks {
-            read_fn: Some(ReadFn::Bare(|d| {
-                Some(FieldValue::Single(
-                    <AsString as FieldTypeMapping>::to_field_value_item(E::name(d).clone()),
-                ))
-            })),
-            write_fn: Some(WriteFn::Bare(|d, v| {
-                *E::name_mut(d) = convert_required::<AsString>(v)?;
-                Ok(())
-            })),
-            add_fn: None,
-            remove_fn: None,
-        },
-    }
-}
-
-/// `description` — optional text. The marker `M` selects the value flavour:
-/// [`AsString`] for Break/Timeline, [`AsText`](crate::query::converter::AsText)
-/// for Panel (long prose, stored as a CRDT text field).
-#[must_use]
-pub const fn description_field<E: PanelLike, M: FieldTypeMapping<Output = String>>(
-    order: u32,
-    aliases: &'static [&'static str],
-) -> FieldDescriptor<E> {
-    FieldDescriptor {
-        data: CommonFieldData {
-            name: "description",
-            display: "Description",
-            description: "Description.",
-            aliases,
-            field_type: FieldType(FieldCardinality::Optional, M::FIELD_TYPE_ITEM),
-            example: "Mark the start of stuff on Thursday",
-            order,
-        },
-        crdt_type: M::CRDT_TYPE,
-        required: false,
-        cb: FieldCallbacks {
-            read_fn: Some(ReadFn::Bare(|d| {
-                E::description(d)
-                    .as_ref()
-                    .map(|x| FieldValue::Single(M::to_field_value_item(x.clone())))
-            })),
-            write_fn: Some(WriteFn::Bare(|d, v| {
-                *E::description_mut(d) = convert_optional::<M>(v)?;
-                Ok(())
-            })),
-            add_fn: None,
-            remove_fn: None,
-        },
-    }
-}
-
-/// `note` — optional text displayed verbatim. `M` selects the value flavour as
-/// for [`description_field`].
-#[must_use]
-pub const fn note_field<E: PanelLike, M: FieldTypeMapping<Output = String>>(
-    order: u32,
-    aliases: &'static [&'static str],
-) -> FieldDescriptor<E> {
-    FieldDescriptor {
-        data: CommonFieldData {
-            name: "note",
-            display: "Note",
-            description: "Extra note displayed verbatim.",
-            aliases,
-            field_type: FieldType(FieldCardinality::Optional, M::FIELD_TYPE_ITEM),
-            example: "Vendor hall stays open",
-            order,
-        },
-        crdt_type: M::CRDT_TYPE,
-        required: false,
-        cb: FieldCallbacks {
-            read_fn: Some(ReadFn::Bare(|d| {
-                E::note(d)
-                    .as_ref()
-                    .map(|x| FieldValue::Single(M::to_field_value_item(x.clone())))
-            })),
-            write_fn: Some(WriteFn::Bare(|d, v| {
-                *E::note_mut(d) = convert_optional::<M>(v)?;
-                Ok(())
-            })),
-            add_fn: None,
-            remove_fn: None,
-        },
-    }
-}
-
-/// `time` — a single instant, projected from the `start_time` of the virtual
-/// [`TimeRange`]. Used by Timeline, which stores only an `Option<NaiveDateTime>`
-/// and synthesises a start-only range; it carries no end or duration.
-#[must_use]
-pub const fn time_field<E: PanelLikeTimed>(
-    order: u32,
-    aliases: &'static [&'static str],
-) -> FieldDescriptor<E> {
-    FieldDescriptor {
-        data: CommonFieldData {
-            name: "time",
-            display: "Time",
-            description: "Time point.",
-            aliases,
-            field_type: FieldType(FieldCardinality::Optional, FieldTypeItem::DateTime),
-            example: "2026-01-01T09:00:00",
-            order,
-        },
-        crdt_type: crate::crdt::CrdtFieldType::Scalar,
-        required: false,
-        cb: FieldCallbacks {
-            read_fn: Some(ReadFn::Bare(|d| {
-                E::time_slot(d).start_time().map(|dt| field_value!(dt))
-            })),
-            write_fn: Some(WriteFn::Bare(|d, v| {
-                let mut ts = E::time_slot(d);
-                match v {
-                    FieldValue::List(_) | FieldValue::Single(FieldValueItem::Text(_)) => {
-                        ts.remove_start_time()
-                    }
-                    FieldValue::Single(FieldValueItem::DateTime(dt)) => ts.add_start_time(dt),
-                    FieldValue::Single(FieldValueItem::String(s)) => match parse_datetime(&s) {
-                        Some(dt) => ts.add_start_time(dt),
-                        None => {
-                            return Err(ConversionError::ParseError {
-                                message: format!("could not parse datetime {s:?}"),
-                            }
-                            .into())
-                        }
-                    },
-                    _ => {
-                        return Err(ConversionError::WrongVariant {
-                            expected: "DateTime or String",
-                            got: "other",
-                        }
-                        .into())
-                    }
-                }
-                E::set_time_slot(d, ts);
-                Ok(())
-            })),
-            add_fn: None,
-            remove_fn: None,
-        },
-    }
-}
-
-/// `start_time` — projected from the virtual [`TimeRange`].
-#[must_use]
-pub const fn start_time_field<E: PanelLikeTimed>(order: u32) -> FieldDescriptor<E> {
-    FieldDescriptor {
-        data: CommonFieldData {
-            name: "start_time",
-            display: "Start Time",
-            description: "Start time.",
-            aliases: &["start", "time"],
-            field_type: FieldType(FieldCardinality::Optional, FieldTypeItem::DateTime),
-            example: "2026-06-26T12:00:00",
-            order,
-        },
-        crdt_type: crate::crdt::CrdtFieldType::Scalar,
-        required: false,
-        cb: FieldCallbacks {
-            read_fn: Some(ReadFn::Bare(|d| {
-                E::time_slot(d).start_time().map(|dt| field_value!(dt))
-            })),
-            write_fn: Some(WriteFn::Bare(|d, v| {
-                let mut ts = E::time_slot(d);
-                match v {
-                    FieldValue::List(_) | FieldValue::Single(FieldValueItem::Text(_)) => {
-                        ts.remove_start_time()
-                    }
-                    FieldValue::Single(FieldValueItem::DateTime(dt)) => ts.add_start_time(dt),
-                    FieldValue::Single(FieldValueItem::String(s)) => match parse_datetime(&s) {
-                        Some(dt) => ts.add_start_time(dt),
-                        None => {
-                            return Err(ConversionError::ParseError {
-                                message: format!("could not parse datetime {s:?}"),
-                            }
-                            .into())
-                        }
-                    },
-                    _ => {
-                        return Err(ConversionError::WrongVariant {
-                            expected: "DateTime or String",
-                            got: "other",
-                        }
-                        .into())
-                    }
-                }
-                E::set_time_slot(d, ts);
-                Ok(())
-            })),
-            add_fn: None,
-            remove_fn: None,
-        },
-    }
-}
-
-/// `end_time` — projected from the virtual [`TimeRange`].
-#[must_use]
-pub const fn end_time_field<E: PanelLikeTimed>(order: u32) -> FieldDescriptor<E> {
-    FieldDescriptor {
-        data: CommonFieldData {
-            name: "end_time",
-            display: "End Time",
-            description: "End time.",
-            aliases: &["end"],
-            field_type: FieldType(FieldCardinality::Optional, FieldTypeItem::DateTime),
-            example: "2026-06-26T13:00:00",
-            order,
-        },
-        crdt_type: crate::crdt::CrdtFieldType::Scalar,
-        required: false,
-        cb: FieldCallbacks {
-            read_fn: Some(ReadFn::Bare(|d| {
-                E::time_slot(d).end_time().map(|dt| field_value!(dt))
-            })),
-            write_fn: Some(WriteFn::Bare(|d, v| {
-                let mut ts = E::time_slot(d);
-                match v {
-                    FieldValue::List(_) | FieldValue::Single(FieldValueItem::Text(_)) => {
-                        ts.remove_end_time()
-                    }
-                    FieldValue::Single(FieldValueItem::DateTime(dt)) => ts.add_end_time(dt),
-                    FieldValue::Single(FieldValueItem::String(s)) => match parse_datetime(&s) {
-                        Some(dt) => ts.add_end_time(dt),
-                        None => {
-                            return Err(ConversionError::ParseError {
-                                message: format!("could not parse datetime {s:?}"),
-                            }
-                            .into())
-                        }
-                    },
-                    _ => {
-                        return Err(ConversionError::WrongVariant {
-                            expected: "DateTime or String",
-                            got: "other",
-                        }
-                        .into())
-                    }
-                }
-                E::set_time_slot(d, ts);
-                Ok(())
-            })),
-            add_fn: None,
-            remove_fn: None,
-        },
-    }
-}
-
-/// `duration` — projected from the virtual [`TimeRange`].
-#[must_use]
-pub const fn duration_field<E: PanelLikeTimed>(order: u32) -> FieldDescriptor<E> {
-    FieldDescriptor {
-        data: CommonFieldData {
-            name: "duration",
-            display: "Duration",
-            description: "Duration.",
-            aliases: &[],
-            field_type: FieldType(FieldCardinality::Optional, FieldTypeItem::Duration),
-            example: "60",
-            order,
-        },
-        crdt_type: crate::crdt::CrdtFieldType::Scalar,
-        required: false,
-        cb: FieldCallbacks {
-            read_fn: Some(ReadFn::Bare(|d| {
-                E::time_slot(d).duration().map(|dur| field_value!(dur))
-            })),
-            write_fn: Some(WriteFn::Bare(|d, v| {
-                let mut ts = E::time_slot(d);
-                match v {
-                    FieldValue::List(_) | FieldValue::Single(FieldValueItem::Text(_)) => {
-                        ts.remove_duration()
-                    }
-                    FieldValue::Single(FieldValueItem::Duration(dur)) => ts.add_duration(dur),
-                    FieldValue::Single(FieldValueItem::Integer(m)) => {
-                        ts.add_duration(Duration::minutes(m))
-                    }
-                    FieldValue::Single(FieldValueItem::String(s)) => match parse_duration(&s) {
-                        Some(dur) => ts.add_duration(dur),
-                        None => {
-                            return Err(ConversionError::ParseError {
-                                message: format!("could not parse duration {s:?}"),
-                            }
-                            .into())
-                        }
-                    },
-                    _ => {
-                        return Err(ConversionError::WrongVariant {
-                            expected: "Duration, Integer, or String",
-                            got: "other",
-                        }
-                        .into())
-                    }
-                }
-                E::set_time_slot(d, ts);
-                Ok(())
-            })),
-            add_fn: None,
-            remove_fn: None,
-        },
-    }
 }
 
 // ── Unified panel-like view & lookup ─────────────────────────────────────────
@@ -512,14 +155,20 @@ impl PanelLikeRef<'_> {
         }
     }
 
-    /// The shared optional `note`.
+    /// All notes for this entity, keyed by [`NoteKind`].
+    #[must_use]
+    pub fn notes(&self) -> &NoteBag {
+        match self {
+            Self::Panel(d) => PanelEntityType::notes(d),
+            Self::Break(d) => BreakEntityType::notes(d),
+            Self::Timeline(d) => TimelineEntityType::notes(d),
+        }
+    }
+
+    /// The shared optional public ([`NoteKind::Public`]) note.
     #[must_use]
     pub fn note(&self) -> Option<&str> {
-        match self {
-            Self::Panel(d) => PanelEntityType::note(d).as_deref(),
-            Self::Break(d) => BreakEntityType::note(d).as_deref(),
-            Self::Timeline(d) => TimelineEntityType::note(d).as_deref(),
-        }
+        self.notes().get(NoteKind::Public)
     }
 
     /// Timing as a [`TimeRange`]. All three kinds expose this (Timeline as a
@@ -556,9 +205,8 @@ impl Schedule {
     #[must_use]
     pub fn find_panel_like_by_code(&self, code: &str) -> Option<RuntimeEntityId> {
         let upper = code.to_uppercase();
-        self.iter_panel_like().find_map(|(id, r)| {
-            (r.code().full_id().to_uppercase() == upper).then_some(id)
-        })
+        self.iter_panel_like()
+            .find_map(|(id, r)| (r.code().full_id().to_uppercase() == upper).then_some(id))
     }
 }
 
