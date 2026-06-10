@@ -1,6 +1,6 @@
 # Cosplay America Schedule - Work Item
 
-Updated on: Tue Jun  9 20:01:25 2026
+Updated on: Tue Jun  9 20:14:24 2026
 
 ## Completed
 
@@ -180,6 +180,9 @@ and improve `FieldId` conversions with a global registry and type-safe downcasti
 and a separate `for_kids: bool` flag, making invalid cost states unrepresentable.
 * [REFACTOR-125] Move schedule, options, per-pass lookups, and PresenterImportCache into
 ImportContext; convert reader free functions to methods on ImportContext.
+* [REFACTOR-138] Separate the layout `split` key into independent `section_split` and
+`time_split` options, default time split to none, error on unknown keywords,
+and move panel-list geometry constants into `geometry.rs`.
 * [REFACTOR-140] Introduce a `RankSource` tier model for presenter rank, route all presenter
 creation through the single tagged API with deterministic v5 UUIDs, and clean up
 `presenter.rs` visibility and People-sheet membership helpers.
@@ -208,7 +211,7 @@ pattern where each job spec points to a specific output file or directory.
 
 ## Summary of Open Items
 
-**Total open items:** 20
+**Total open items:** 19
 
 * **Meta / Project-Level**
   * [META-001] Meta work item tracking the full multi-phase redesign of the schedule system. (Blocked by [META-007], [META-008])
@@ -223,9 +226,6 @@ eliminating the external `typst-cli` dependency.
   * [FEATURE-126] Add update-mode (upsert + soft-delete) semantics to widget JSON import,
 analogous to what FEATURE-122 did for XLSX, with extra care to preserve
 schedule data that the lossy widget JSON format does not carry.
-  * [REFACTOR-138] Separate the layout `split` key into independent `section_split` and
-`time_split` options, default time split to none, error on unknown keywords,
-and move panel-list geometry constants into `geometry.rs`.
 
 * **Medium Priority**
   * [FEATURE-144] Model convention-wide breaks as a first-class `Break` entity (like `Timeline`),
@@ -675,29 +675,6 @@ to exchange CRDT changes and reconcile concurrent edits to the same fields.
 
 ## Open REFACTOR Items
 
-### [REFACTOR-138] REFACTOR-138: Split section/time layout options; reject unknown keywords
-
-**Status:** Open
-
-**Priority:** High
-
-**Summary:** Separate the layout `split` key into independent `section_split` and
-`time_split` options, default time split to none, error on unknown keywords,
-and move panel-list geometry constants into `geometry.rs`.
-
-**Description:** The layout config currently encodes both the entity (section) split and the
-time split in one `split` string with seven combined values (`none`, `day`,
-`half_day`, `room`, `room_day`, `presenter`, `presenter_day`). `parse_content`
-in `apps/cosam-convert/src/main.rs` decodes that single key into a
-`SectionSplit` + `TimeSplit`, and silently falls back to defaults for
-unrecognized values. Two latent bugs came from this coupling (fixed in the
-parent commit): bare `presenter`/`room` wrongly defaulted the time split to
-`Day`, splitting guest postcards per day and forcing a two-dimensional banner.
-
-Make the split dimensions explicit and fail loudly on bad input.
-
----
-
 ### [REFACTOR-112] REFACTOR-112: Update ignored set_neighbors tests to current RawEdgeMap API
 
 **Status:** Open
@@ -842,7 +819,7 @@ a `HashMap<NonNilUuid, HashMap<FieldId, Vec<FieldNodeId>>>` layout).
 [REFACTOR-104]: ../work-item/closed/done/REFACTOR-104.md
 [REFACTOR-112]: ../work-item/open/3-LOW/REFACTOR-112.md
 [REFACTOR-125]: ../work-item/closed/done/REFACTOR-125.md
-[REFACTOR-138]: ../work-item/open/1-HIGH/REFACTOR-138.md
+[REFACTOR-138]: ../work-item/closed/done/REFACTOR-138.md
 [REFACTOR-140]: ../work-item/closed/done/REFACTOR-140.md
 [REFACTOR-141]: ../work-item/closed/done/REFACTOR-141.md
 [UI-085]: ../work-item/closed/done/UI-085.md

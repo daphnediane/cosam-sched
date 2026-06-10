@@ -8,7 +8,7 @@ and move panel-list geometry constants into `geometry.rs`.
 
 ## Status
 
-Open
+Completed
 
 ## Priority
 
@@ -57,12 +57,12 @@ Make the split dimensions explicit and fail loudly on bad input.
 
 ## Acceptance Criteria
 
-- [ ] `section_split` and `time_split` are independent config keys
-- [ ] Time split defaults to none; grid modes error when no time split is given
-- [ ] Unknown split/content/paper/footer keywords produce a warning or error,
+- [x] `section_split` and `time_split` are independent config keys
+- [x] Time split defaults to none; grid modes error when no time split is given
+- [x] Unknown split/content/paper/footer keywords produce a warning or error,
       not a silent default
 - [x] Panel-list geometry constants live in `geometry.rs` (done in parent commit)
-- [ ] Sample/default config files updated; `cargo test` green
+- [x] Sample/default config files updated; `cargo test` green
 
 ## Notes
 
