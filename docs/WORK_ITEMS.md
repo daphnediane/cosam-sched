@@ -1,6 +1,6 @@
 # Cosplay America Schedule - Work Item
 
-Updated on: Tue Jun  9 21:14:06 2026
+Updated on: Tue Jun  9 21:25:23 2026
 
 ## Completed
 
@@ -213,7 +213,7 @@ pattern where each job spec points to a specific output file or directory.
 
 ## Summary of Open Items
 
-**Total open items:** 18
+**Total open items:** 19
 
 * **Meta / Project-Level**
   * [META-001] Meta work item tracking the full multi-phase redesign of the schedule system. (Blocked by [META-007], [META-008])
@@ -228,6 +228,11 @@ eliminating the external `typst-cli` dependency.
   * [FEATURE-126] Add update-mode (upsert + soft-delete) semantics to widget JSON import,
 analogous to what FEATURE-122 did for XLSX, with extra care to preserve
 schedule data that the lossy widget JSON format does not carry.
+
+* **Medium Priority**
+  * [FEATURE-146] Drop the `Kind`/`Panel Types` type columns from export and make a row's type
+come solely from its Uniq ID prefix, reassigning the code (with an old-id
+history) when an entity's type no longer matches its prefix.
 
 * **Low Priority**
   * [CLI-100] Add a `--interactive` flag to `cosam-modify` that opens a read-eval-print loop for
@@ -375,6 +380,31 @@ widget JSON. It cannot be used to update an existing schedule because:
 
 This feature brings widget JSON import up to the same standard as the
 XLSX update-mode added in FEATURE-122:
+
+---
+
+### [FEATURE-146] FEATURE-146: Make Uniq ID prefix authoritative for type; reassign on type change
+
+**Status:** Open
+
+**Priority:** Medium
+
+**Summary:** Drop the `Kind`/`Panel Types` type columns from export and make a row's type
+come solely from its Uniq ID prefix, reassigning the code (with an old-id
+history) when an entity's type no longer matches its prefix.
+
+**Description:** After FEATURE-144, breaks/timelines/panels all derive their type from the Uniq
+ID prefix on import (prefix → panel type). The `Kind` column (Schedule sheet)
+and `Panel Types` column (Timeline/Break) are now redundant *fallbacks*. We want
+the prefix to be the single source of truth for type, and to drop those columns
+from export.
+
+To do that safely, whenever an entity's associated panel type stops matching its
+Uniq ID prefix (e.g. the type edge is changed, or a legacy row was typed via
+`Kind`), the entity's code must be **reassigned** so its prefix matches the new
+type — preserving the previous code(s) in an `Old Uniq Id` history.
+
+Applies to **Panel, Timeline, and Break**.
 
 ---
 
@@ -762,6 +792,7 @@ a `HashMap<NonNilUuid, HashMap<FieldId, Vec<FieldNodeId>>>` layout).
 [FEATURE-137]: ../work-item/closed/done/FEATURE-137.md
 [FEATURE-142]: ../work-item/open/3-LOW/FEATURE-142.md
 [FEATURE-144]: ../work-item/closed/done/FEATURE-144.md
+[FEATURE-146]: ../work-item/open/2-MEDIUM/FEATURE-146.md
 [META-001]: ../work-item/meta/META-001.md
 [META-002]: ../work-item/closed/done/META-002.md
 [META-003]: ../work-item/closed/done/META-003.md
