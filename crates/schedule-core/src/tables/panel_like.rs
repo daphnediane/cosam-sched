@@ -15,7 +15,9 @@
 //! *differences* stay virtual:
 //!
 //! - [`EventKind`] is the internal "mode" (Panel / Break / Timeline).
-//! - [`PanelLike`] (and [`PanelLikeTimed`] for the duration-carrying kinds)
+//! - [`PanelLike`] and the per-field capability traits it builds on
+//!   ([`HasName`], [`HasDescription`], [`HasNotes`], plus [`HasStartTime`] /
+//!   [`HasDuration`] for timing)
 //!   expose the shared fields generically by redirecting into whatever
 //!   common-data each entity already stores — no shared storage struct is
 //!   imposed — so a single field descriptor can be **defined once and used by
@@ -25,8 +27,11 @@
 //!   modules instantiate them as per-type statics (with their own
 //!   `order`/`aliases`) and register them through the usual `inventory::submit!`.
 
-use crate::entity::EntityType;
-use crate::tables::fields::note::{NoteBag, NoteKind};
+use crate::tables::fields::description::HasDescription;
+use crate::tables::fields::duration::HasDuration;
+use crate::tables::fields::name::HasName;
+use crate::tables::fields::note::{HasNotes, NoteBag, NoteKind};
+use crate::tables::fields::time::HasStartTime;
 use crate::value::time::TimeRange;
 use crate::value::uniq_id::PanelUniqId;
 
@@ -35,7 +40,7 @@ use crate::value::uniq_id::PanelUniqId;
 /// The "mode" of a panel-like entity — which of the three kinds it is.
 ///
 /// Each [`PanelLike`] type reports its kind as [`PanelLike::KIND`]. Generic code
-/// that handles all three uniformly can branch on this when behaviour must
+/// that handles all three uniformly can branch on this when behavior must
 /// differ (e.g. Timeline is a single instant, Break/Panel carry a duration).
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum EventKind {
@@ -49,49 +54,25 @@ pub enum EventKind {
 /// Common interface over the three panel-like entity types.
 ///
 /// Implemented by `PanelEntityType`, `BreakEntityType`, and `TimelineEntityType`.
-/// The accessors redirect into whatever common-data each type already stores
-/// (each owns its own `*CommonData` struct), so the generic `*_field` builders
-/// below can read/write the shared fields without knowing the concrete type —
-/// and without forcing any type into a shared storage struct.
-pub trait PanelLike: EntityType {
+/// The shared accessors live on focused capability traits that any entity can
+/// implement: [`HasName`] / [`HasDescription`] / [`HasNotes`], plus
+/// [`HasStartTime`] — every panel-like entity is placed at a start instant.
+/// `PanelLike` is their intersection plus what is genuinely panel-like-only: the
+/// [`EventKind`] discriminant and the parsed Uniq ID (`code`). (Duration is *not*
+/// here: a Timeline is a single instant, so [`HasDuration`] stays an opt-in that
+/// only Panel and Break implement.) The accessors redirect into whatever
+/// common-data each type already stores, so the generic `*_field` builders can
+/// read/write the shared fields without knowing the concrete type — and without
+/// forcing any type into a shared storage struct.
+pub trait PanelLike: HasName + HasDescription + HasNotes + HasStartTime {
     /// Which kind of panel-like entity this is.
     const KIND: EventKind;
 
-    /// The note kinds this entity type supports. Panel carries the full set;
-    /// Break/Timeline carry only [`NoteKind::Public`]. Used to scope which
-    /// [`note_field`](crate::tables::fields::note::note_field)s an entity wires
-    /// up (and, in future, to validate writes).
-    const SUPPORTED_NOTES: &'static [NoteKind];
-
-    fn name(d: &Self::InternalData) -> &String;
-    fn name_mut(d: &mut Self::InternalData) -> &mut String;
-    fn description(d: &Self::InternalData) -> &Option<String>;
-    fn description_mut(d: &mut Self::InternalData) -> &mut Option<String>;
-    /// All notes for this entity, keyed by [`NoteKind`].
-    fn notes(d: &Self::InternalData) -> &NoteBag;
-    fn notes_mut(d: &mut Self::InternalData) -> &mut NoteBag;
+    /// The parsed Uniq ID (`code`) — panel-like entities are identified by a
+    /// [`PanelUniqId`]; other entity types are not.
     fn code(d: &Self::InternalData) -> &PanelUniqId;
+    /// Mutable access to the parsed Uniq ID.
     fn code_mut(d: &mut Self::InternalData) -> &mut PanelUniqId;
-
-    /// Whether `kind` is in [`Self::SUPPORTED_NOTES`].
-    #[must_use]
-    fn supports_note(kind: NoteKind) -> bool {
-        Self::SUPPORTED_NOTES.contains(&kind)
-    }
-}
-
-/// Extension of [`PanelLike`] that exposes timing as a *virtual* [`TimeRange`].
-///
-/// Implementors store time however is natural — Break/Panel hold a real
-/// `TimeRange`, Timeline holds a single `Option<NaiveDateTime>` and
-/// wraps/unwraps it here — and the get/set pair presents a uniform interface.
-/// The timing field builders read–modify–write through these, so no type is
-/// forced to store a `TimeRange` it does not want.
-pub trait PanelLikeTimed: PanelLike {
-    /// The current timing as a [`TimeRange`] (synthesised if stored otherwise).
-    fn time_slot(d: &Self::InternalData) -> TimeRange;
-    /// Replace the timing from a [`TimeRange`] (projected back to storage).
-    fn set_time_slot(d: &mut Self::InternalData, time_slot: TimeRange);
 }
 
 // ── Unified panel-like view & lookup ─────────────────────────────────────────
@@ -171,14 +152,21 @@ impl PanelLikeRef<'_> {
         self.notes().get(NoteKind::Public)
     }
 
-    /// Timing as a [`TimeRange`]. All three kinds expose this (Timeline as a
-    /// start-only range); see [`PanelLikeTimed`].
+    /// Timing as a [`TimeRange`]. Panel/Break expose their full range
+    /// ([`HasDuration`]); a Timeline has no duration, so its single instant
+    /// ([`HasStartTime`]) is presented here as a start-only range.
     #[must_use]
     pub fn time_slot(&self) -> TimeRange {
         match self {
-            Self::Panel(d) => PanelEntityType::time_slot(d),
-            Self::Break(d) => BreakEntityType::time_slot(d),
-            Self::Timeline(d) => TimelineEntityType::time_slot(d),
+            Self::Panel(d) => PanelEntityType::time_range(d),
+            Self::Break(d) => BreakEntityType::time_range(d),
+            Self::Timeline(d) => {
+                let mut ts = TimeRange::default();
+                if let Some(t) = TimelineEntityType::start_time(d) {
+                    ts.add_start_time(t);
+                }
+                ts
+            }
         }
     }
 }

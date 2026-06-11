@@ -21,10 +21,13 @@
 
 use crate::entity::{EntityId, EntityType, EntityUuid, FieldSet};
 use crate::field::{CollectedField, CollectedHalfEdge, FieldDescriptor, NamedField};
-use crate::query::converter::AsString;
 use crate::tables::fields;
-use crate::tables::fields::note::{NoteBag, NoteKind, PublicNote};
-use crate::tables::panel_like::{EventKind, PanelLike, PanelLikeTimed};
+use crate::tables::fields::description::HasDescription;
+use crate::tables::fields::name::HasName;
+use crate::tables::fields::duration::HasDuration;
+use crate::tables::fields::note::{HasNotes, NoteBag, NoteKind, PublicNote};
+use crate::tables::fields::time::HasStartTime;
+use crate::tables::panel_like::{EventKind, PanelLike};
 use crate::tables::panel_type::{self, PanelTypeEntityType};
 use crate::value::time::TimeRange;
 use crate::value::uniq_id::PanelUniqId;
@@ -56,7 +59,7 @@ pub struct BreakInternalData {
     pub id: BreakId,
     pub data: BreakCommonData,
     /// Notes keyed by [`NoteKind`]; a break supports only
-    /// [`NoteKind::Public`]. See [`PanelLike::SUPPORTED_NOTES`].
+    /// [`NoteKind::Public`]. See [`HasNotes::SUPPORTED_NOTES`].
     pub notes: NoteBag,
     /// Parsed Uniq ID (e.g. `BREAK001`). Structurally valid by construction;
     /// callers parse via [`PanelUniqId::parse`] before building this struct.
@@ -156,28 +159,36 @@ impl EntityType for BreakEntityType {
 
 // ── PanelLike ───────────────────────────────────────────────────────────────────
 
-impl PanelLike for BreakEntityType {
-    const KIND: EventKind = EventKind::Break;
-    const SUPPORTED_NOTES: &'static [NoteKind] = &[NoteKind::Public];
-
+impl HasName for BreakEntityType {
     fn name(d: &Self::InternalData) -> &String {
         &d.data.name
     }
     fn name_mut(d: &mut Self::InternalData) -> &mut String {
         &mut d.data.name
     }
+}
+
+impl HasDescription for BreakEntityType {
     fn description(d: &Self::InternalData) -> &Option<String> {
         &d.data.description
     }
     fn description_mut(d: &mut Self::InternalData) -> &mut Option<String> {
         &mut d.data.description
     }
+}
+
+impl HasNotes for BreakEntityType {
+    const SUPPORTED_NOTES: &'static [NoteKind] = &[NoteKind::Public];
     fn notes(d: &Self::InternalData) -> &NoteBag {
         &d.notes
     }
     fn notes_mut(d: &mut Self::InternalData) -> &mut NoteBag {
         &mut d.notes
     }
+}
+
+impl PanelLike for BreakEntityType {
+    const KIND: EventKind = EventKind::Break;
     fn code(d: &Self::InternalData) -> &PanelUniqId {
         &d.code
     }
@@ -186,12 +197,24 @@ impl PanelLike for BreakEntityType {
     }
 }
 
-impl PanelLikeTimed for BreakEntityType {
-    fn time_slot(d: &Self::InternalData) -> TimeRange {
+impl HasStartTime for BreakEntityType {
+    fn start_time(d: &Self::InternalData) -> Option<chrono::NaiveDateTime> {
+        d.time_slot.start_time()
+    }
+    fn set_start_time(d: &mut Self::InternalData, start: Option<chrono::NaiveDateTime>) {
+        match start {
+            Some(t) => d.time_slot.add_start_time(t),
+            None => d.time_slot.remove_start_time(),
+        }
+    }
+}
+
+impl HasDuration for BreakEntityType {
+    fn time_range(d: &Self::InternalData) -> TimeRange {
         d.time_slot.clone()
     }
-    fn set_time_slot(d: &mut Self::InternalData, time_slot: TimeRange) {
-        d.time_slot = time_slot;
+    fn set_time_range(d: &mut Self::InternalData, time_range: TimeRange) {
+        d.time_slot = time_range;
     }
 }
 
@@ -294,20 +317,22 @@ pub static FIELD_NAME: FieldDescriptor<BreakEntityType> =
 inventory::submit! { CollectedField(&FIELD_NAME) }
 
 pub static FIELD_DESCRIPTION: FieldDescriptor<BreakEntityType> =
-    fields::description::description_field::<BreakEntityType, AsString>(200, &["desc"]);
+    fields::description::description_field(200, &["desc"]);
 inventory::submit! { CollectedField(&FIELD_DESCRIPTION) }
 
 pub static FIELD_NOTE: FieldDescriptor<BreakEntityType> =
-    fields::note::note_field::<BreakEntityType, PublicNote, AsString>(300);
+    fields::note::note_field::<BreakEntityType, PublicNote>(300);
 inventory::submit! { CollectedField(&FIELD_NOTE) }
 
 pub static FIELD_START_TIME: FieldDescriptor<BreakEntityType> = fields::time::start_time_field(400);
 inventory::submit! { CollectedField(&FIELD_START_TIME) }
 
-pub static FIELD_END_TIME: FieldDescriptor<BreakEntityType> = fields::time::end_time_field(500);
+pub static FIELD_END_TIME: FieldDescriptor<BreakEntityType> =
+    fields::duration::end_time_field(500);
 inventory::submit! { CollectedField(&FIELD_END_TIME) }
 
-pub static FIELD_DURATION: FieldDescriptor<BreakEntityType> = fields::time::duration_field(600);
+pub static FIELD_DURATION: FieldDescriptor<BreakEntityType> =
+    fields::duration::duration_field(600);
 inventory::submit! { CollectedField(&FIELD_DURATION) }
 
 // Panel types associated with this break.

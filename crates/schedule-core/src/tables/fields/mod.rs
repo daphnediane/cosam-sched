@@ -10,11 +10,12 @@
 //! callbacks, sets, builders-of-builders) what [`crate::tables`] is to
 //! [`crate::entity`]: the concrete instances built on top of the
 //! infrastructure. Each submodule defines one common field as a generic
-//! `const fn` builder (`name_field`, `description_field<M>`, `note_field<K, M>`,
-//! …) that returns a [`FieldDescriptor`](crate::field::FieldDescriptor) for any
-//! entity type that opts into the relevant accessor trait
-//! ([`PanelLike`](crate::tables::panel_like::PanelLike) /
-//! [`PanelLikeTimed`](crate::tables::panel_like::PanelLikeTimed)).
+//! `const fn` builder (`name_field`, `description_field`, `note_field<K>`, …)
+//! that returns a [`FieldDescriptor`](crate::field::FieldDescriptor) for any
+//! entity type that opts into the relevant capability trait — each defined
+//! alongside its builder: [`HasName`](name::HasName),
+//! [`HasDescription`](description::HasDescription), [`HasNotes`](note::HasNotes),
+//! [`HasStartTime`](time::HasStartTime), [`HasDuration`](duration::HasDuration).
 //!
 //! Entity modules instantiate these as per-type `static`s — choosing their own
 //! `order`/`aliases` and value flavour — and register them through the usual
@@ -23,6 +24,7 @@
 
 pub mod code;
 pub mod description;
+pub mod duration;
 pub mod name;
 pub mod note;
 pub mod time;

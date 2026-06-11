@@ -1,6 +1,6 @@
 # Cosplay America Schedule - Work Item
 
-Updated on: Wed Jun 10 18:55:49 2026
+Updated on: Wed Jun 10 21:09:32 2026
 
 ## Completed
 
@@ -194,6 +194,9 @@ name with nothing carried over from spreadsheet column/row position.
 * [REFACTOR-147] Share field definitions and lookup across Panel, Break, and Timeline via a
 `PanelLike` trait and generic `const fn` field builders, keeping the three
 entity types distinct.
+* [REFACTOR-148] Let common fields (name, description, notes, etc.) be defined once and reused by
+any entity type, without per-type `CommonData` edits — extending beyond the
+panel-like trio.
 * [UI-085] Audit and update the calendar widget to handle the format differences between
 the v9 JSON output and the format produced by `cosam-convert` (CLI-030).
 * [UI-087] The Event Type filter shows all non-hidden panel types even when none of that
@@ -260,9 +263,9 @@ icons, and CI/CD pipeline integration.
 table, page-header banners, multi-column body text, and page footers.
   * [REFACTOR-112] Update the `#[ignore]`d `set_neighbors` tests in `schedule-core/src/edge/map.rs`
 to compile and pass against the current `RawEdgeMap` API.
-  * [REFACTOR-148] Let common fields (name, description, notes, etc.) be defined once and reused by
-any entity type, without per-type `CommonData` edits — extending beyond the
-panel-like trio.
+  * [REFACTOR-149] Carry the REFACTOR-148 capability-trait pattern to completion: generalize the
+remaining broadly-shared fields, collapse `*CommonData` into `*InternalData`, and
+investigate whether `FieldDescriptor` still needs its `EntityType` bound.
 
 ---
 
@@ -704,33 +707,22 @@ a `HashMap<NonNilUuid, HashMap<FieldId, Vec<FieldNodeId>>>` layout).
 
 ---
 
-### [REFACTOR-148] REFACTOR-148: Generalize common fields across all entity types
+### [REFACTOR-149] REFACTOR-149: Finish field generalization — remaining fields, CommonData/InternalData merge, FieldDescriptor bound
 
-**Status:** In progress
+**Status:** Open
 
 **Priority:** Low
 
-**Summary:** Let common fields (name, description, notes, etc.) be defined once and reused by
-any entity type, without per-type `CommonData` edits — extending beyond the
-panel-like trio.
+**Summary:** Carry the REFACTOR-148 capability-trait pattern to completion: generalize the
+remaining broadly-shared fields, collapse `*CommonData` into `*InternalData`, and
+investigate whether `FieldDescriptor` still needs its `EntityType` bound.
 
-**Blocked By:** [REFACTOR-147]
+**Blocked By:** [REFACTOR-148]
 
-**Description:** REFACTOR-147 made Panel/Break/Timeline share field *logic* via the `PanelLike`
-trait + generic `const fn` field builders. But adding a new shared field still
-requires, per type: a trait accessor method and a field on each `*CommonData`
-struct. And the sharing stops at the three panel-like types — yet many fields are
-common much more broadly:
-
-* `name` — panel, presenter, event_room (room_name), hotel_room, panel_type
-  (panel_kind), timeline, break
-* `description` — panel, timeline, break (and plausibly others)
-* assorted notes — panel has `note`, `notes_non_printing`, `workshop_notes`,
-  `av_notes`; the "internal vs printing" note distinction recurs elsewhere
-
-The goal: make a common field definable once and attachable to any entity type
-that opts in, with near-zero per-type boilerplate, so the set of common fields
-can grow freely.
+**Description:** REFACTOR-148 decoupled the shared field builders from the bundled `PanelLike`
+trait and unified `name` (all seven name-bearing entities), `description` /
+`notes` (uniform `AsText`), and the timing fields (`HasStartTime` /
+`HasDuration`). Three threads remain, each independent and incremental.
 
 ---
 
@@ -866,7 +858,8 @@ can grow freely.
 [REFACTOR-140]: ../work-item/closed/done/REFACTOR-140.md
 [REFACTOR-141]: ../work-item/closed/done/REFACTOR-141.md
 [REFACTOR-147]: ../work-item/closed/done/REFACTOR-147.md
-[REFACTOR-148]: ../work-item/open/3-LOW/REFACTOR-148.md
+[REFACTOR-148]: ../work-item/closed/done/REFACTOR-148.md
+[REFACTOR-149]: ../work-item/open/3-LOW/REFACTOR-149.md
 [UI-085]: ../work-item/closed/done/UI-085.md
 [UI-087]: ../work-item/closed/done/UI-087.md
 [UI-088]: ../work-item/closed/done/UI-088.md

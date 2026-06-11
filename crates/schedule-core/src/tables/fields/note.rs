@@ -4,7 +4,7 @@
  * See LICENSE file for full license text
  */
 
-//! The shared `note` fields, parameterised by [`NoteKind`].
+//! The shared `note` fields, parameterized by [`NoteKind`].
 //!
 //! Several entities carry notes that are *structurally identical* but differ in
 //! audience: a public note shown to attendees, internal staff notes, workshop
@@ -17,13 +17,13 @@
 //! the read/write callbacks are non-capturing function pointers and can only
 //! see *generic parameters*, not a runtime `kind` argument. Each entity type
 //! declares the subset it supports via
-//! [`PanelLike::SUPPORTED_NOTES`](crate::tables::panel_like::PanelLike::SUPPORTED_NOTES).
+//! [`HasNotes::SUPPORTED_NOTES`].
 
 use std::collections::HashMap;
 
+use crate::entity::EntityType;
 use crate::field::{CommonFieldData, FieldCallbacks, FieldDescriptor, ReadFn, WriteFn};
-use crate::query::converter::{convert_optional, FieldTypeMapping};
-use crate::tables::panel_like::PanelLike;
+use crate::query::converter::{convert_optional, AsText, FieldTypeMapping};
 use crate::value::{FieldCardinality, FieldType, FieldValue};
 
 // ── NoteKind ─────────────────────────────────────────────────────────────────
@@ -192,18 +192,41 @@ impl NoteBag {
     }
 }
 
+// ── HasNotes ──────────────────────────────────────────────────────────────────
+
+/// Entity types that carry a [`NoteBag`] of notes.
+///
+/// A note is always long prose stored as a CRDT text field ([`AsText`]), so
+/// [`note_field`] hardcodes that flavour. An entity declares only the supported
+/// subset of kinds via [`SUPPORTED_NOTES`](Self::SUPPORTED_NOTES) and the two
+/// accessors.
+pub trait HasNotes: EntityType {
+    /// The note kinds this entity type supports. Panel carries the full set;
+    /// Break/Timeline carry only [`NoteKind::Public`]. Used to scope which
+    /// [`note_field`]s an entity wires up (and, in future, to validate writes).
+    const SUPPORTED_NOTES: &'static [NoteKind];
+
+    /// All notes for this entity, keyed by [`NoteKind`].
+    fn notes(d: &Self::InternalData) -> &NoteBag;
+    /// Mutable access to all notes for this entity.
+    fn notes_mut(d: &mut Self::InternalData) -> &mut NoteBag;
+
+    /// Whether `kind` is in [`Self::SUPPORTED_NOTES`].
+    #[must_use]
+    fn supports_note(kind: NoteKind) -> bool {
+        Self::SUPPORTED_NOTES.contains(&kind)
+    }
+}
+
 // ── note_field builder ──────────────────────────────────────────────────────────
 
-/// One note field, selected by the [`NoteSlot`] marker `K`. The marker `M`
-/// chooses the value flavour: [`AsString`](crate::query::converter::AsString)
-/// for plain notes (Break/Timeline), [`AsText`](crate::query::converter::AsText)
-/// for long prose stored as a CRDT text field (Panel).
+/// One note field, selected by the [`NoteSlot`] marker `K`. A note is long prose
+/// stored as a CRDT text field ([`AsText`]).
 #[must_use]
-pub const fn note_field<E, K, M>(order: u32) -> FieldDescriptor<E>
+pub const fn note_field<E, K>(order: u32) -> FieldDescriptor<E>
 where
-    E: PanelLike,
+    E: HasNotes,
     K: NoteSlot,
-    M: FieldTypeMapping<Output = String>,
 {
     FieldDescriptor {
         data: CommonFieldData {
@@ -211,20 +234,25 @@ where
             display: K::KIND.display(),
             description: K::KIND.description(),
             aliases: K::KIND.aliases(),
-            field_type: FieldType(FieldCardinality::Optional, M::FIELD_TYPE_ITEM),
+            field_type: FieldType(
+                FieldCardinality::Optional,
+                <AsText as FieldTypeMapping>::FIELD_TYPE_ITEM,
+            ),
             example: K::KIND.example(),
             order,
         },
-        crdt_type: M::CRDT_TYPE,
+        crdt_type: <AsText as FieldTypeMapping>::CRDT_TYPE,
         required: false,
         cb: FieldCallbacks {
             read_fn: Some(ReadFn::Bare(|d| {
-                E::notes(d)
-                    .get(K::KIND)
-                    .map(|s| FieldValue::Single(M::to_field_value_item(s.to_string())))
+                E::notes(d).get(K::KIND).map(|s| {
+                    FieldValue::Single(<AsText as FieldTypeMapping>::to_field_value_item(
+                        s.to_string(),
+                    ))
+                })
             })),
             write_fn: Some(WriteFn::Bare(|d, v| {
-                let value = convert_optional::<M>(v)?;
+                let value = convert_optional::<AsText>(v)?;
                 E::notes_mut(d).set(K::KIND, value);
                 Ok(())
             })),

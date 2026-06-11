@@ -28,6 +28,8 @@ use crate::field_value;
 use crate::query::converter::EntityStringResolver;
 use crate::query::lookup::{EntityMatcher, MatchPriority};
 use crate::schedule::Schedule;
+use crate::tables::fields;
+use crate::tables::fields::name::HasName;
 use crate::tables::panel::{self, PanelEntityType, PanelId};
 use crate::value::{ConversionError, FieldValue, ValidationError};
 use serde::{Deserialize, Deserializer, Serialize, Serializer};
@@ -431,6 +433,17 @@ impl EntityType for PresenterEntityType {
 
     fn validate(internal: &Self::InternalData) -> Vec<ValidationError> {
         internal.data.validate()
+    }
+}
+
+// ── HasName ───────────────────────────────────────────────────────────────────
+
+impl HasName for PresenterEntityType {
+    fn name(d: &Self::InternalData) -> &String {
+        &d.data.name
+    }
+    fn name_mut(d: &mut Self::InternalData) -> &mut String {
+        &mut d.data.name
     }
 }
 
@@ -943,26 +956,17 @@ impl EntityStringResolver for PresenterEntityType {
 
 // ── Stored field descriptors ──────────────────────────────────────────────────
 
-pub static FIELD_NAME: FieldDescriptor<PresenterEntityType> = {
-    let (data, crdt_type, cb) = accessor_field_properties! {
-        PresenterEntityType,
-        name,
-        name: "name",
-        display: "Name",
-        description: "Presenter or group display name.",
-        aliases: &["presenter_name", "display_name"],
-        cardinality: Single,
-        item: String,
-        example: "Alice Example",
-        order: 0,
-    };
-    FieldDescriptor {
-        data,
-        crdt_type,
-        required: true,
-        cb,
-    }
-};
+/// Presenter `name` — the one shared [`name_field`](fields::name::name_field)
+/// definition, with presenter-specific aliases and help text. Demonstrates the
+/// field reuse generalizing past the panel-like trio: presenter opts in by
+/// implementing only [`HasName`].
+pub static FIELD_NAME: FieldDescriptor<PresenterEntityType> = fields::name::name_field_described(
+    0,
+    &["presenter_name", "display_name"],
+    "Name",
+    "Presenter or group display name.",
+    "Alice Example",
+);
 inventory::submit! { CollectedField(&FIELD_NAME) }
 
 /// Presenter rank — stored as [`RankSource`], exposed as `FieldValue::String`

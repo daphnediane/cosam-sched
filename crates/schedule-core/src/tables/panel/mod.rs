@@ -24,15 +24,19 @@ use crate::crdt::CrdtFieldType;
 use crate::entity::{EntityId, EntityType, EntityUuid, FieldSet};
 use crate::field::{CollectedField, CollectedHalfEdge, FieldDescriptor, NamedField};
 use crate::field_value;
-use crate::query::converter::{AsText, EntityStringResolver};
+use crate::query::converter::EntityStringResolver;
 use crate::schedule::Schedule;
 use crate::tables::event_room::{self, EventRoomEntityType, EventRoomId};
 use crate::tables::fields;
+use crate::tables::fields::description::HasDescription;
+use crate::tables::fields::name::HasName;
 use crate::tables::fields::note::{
-    AvNote, NonPrintingNote, NoteBag, NoteKind, PublicNote, WorkshopNote,
+    AvNote, HasNotes, NonPrintingNote, NoteBag, NoteKind, PublicNote, WorkshopNote,
 };
 use crate::tables::hotel_room::{HotelRoomEntityType, HotelRoomId};
-use crate::tables::panel_like::{EventKind, PanelLike, PanelLikeTimed};
+use crate::tables::fields::duration::HasDuration;
+use crate::tables::fields::time::HasStartTime;
+use crate::tables::panel_like::{EventKind, PanelLike};
 use crate::tables::panel_type::{self, PanelTypeEntityType, PanelTypeId};
 use crate::tables::presenter::{self, PresenterEntityType, PresenterId};
 use crate::value::cost::{additional_cost_to_string, AdditionalCost};
@@ -86,7 +90,7 @@ pub struct PanelInternalData {
     pub data: PanelCommonData,
     /// Notes keyed by [`NoteKind`]. A panel supports the full set
     /// (public / non-printing / workshop / A/V); see
-    /// [`PanelLike::SUPPORTED_NOTES`].
+    /// [`HasNotes::SUPPORTED_NOTES`].
     pub notes: NoteBag,
     /// Parsed Uniq ID (e.g. `GP032`). Structurally valid by construction;
     /// callers parse via [`PanelUniqId::parse`] before building this struct.
@@ -213,33 +217,41 @@ impl EntityType for PanelEntityType {
 
 // ── PanelLike ───────────────────────────────────────────────────────────────────
 
-impl PanelLike for PanelEntityType {
-    const KIND: EventKind = EventKind::Panel;
-    const SUPPORTED_NOTES: &'static [NoteKind] = &[
-        NoteKind::Public,
-        NoteKind::NonPrinting,
-        NoteKind::Workshop,
-        NoteKind::Av,
-    ];
-
+impl HasName for PanelEntityType {
     fn name(d: &Self::InternalData) -> &String {
         &d.data.name
     }
     fn name_mut(d: &mut Self::InternalData) -> &mut String {
         &mut d.data.name
     }
+}
+
+impl HasDescription for PanelEntityType {
     fn description(d: &Self::InternalData) -> &Option<String> {
         &d.data.description
     }
     fn description_mut(d: &mut Self::InternalData) -> &mut Option<String> {
         &mut d.data.description
     }
+}
+
+impl HasNotes for PanelEntityType {
+    const SUPPORTED_NOTES: &'static [NoteKind] = &[
+        NoteKind::Public,
+        NoteKind::NonPrinting,
+        NoteKind::Workshop,
+        NoteKind::Av,
+    ];
     fn notes(d: &Self::InternalData) -> &NoteBag {
         &d.notes
     }
     fn notes_mut(d: &mut Self::InternalData) -> &mut NoteBag {
         &mut d.notes
     }
+}
+
+impl PanelLike for PanelEntityType {
+    const KIND: EventKind = EventKind::Panel;
     fn code(d: &Self::InternalData) -> &PanelUniqId {
         &d.code
     }
@@ -248,12 +260,24 @@ impl PanelLike for PanelEntityType {
     }
 }
 
-impl PanelLikeTimed for PanelEntityType {
-    fn time_slot(d: &Self::InternalData) -> TimeRange {
+impl HasStartTime for PanelEntityType {
+    fn start_time(d: &Self::InternalData) -> Option<chrono::NaiveDateTime> {
+        d.time_slot.start_time()
+    }
+    fn set_start_time(d: &mut Self::InternalData, start: Option<chrono::NaiveDateTime>) {
+        match start {
+            Some(t) => d.time_slot.add_start_time(t),
+            None => d.time_slot.remove_start_time(),
+        }
+    }
+}
+
+impl HasDuration for PanelEntityType {
+    fn time_range(d: &Self::InternalData) -> TimeRange {
         d.time_slot.clone()
     }
-    fn set_time_slot(d: &mut Self::InternalData, time_slot: TimeRange) {
-        d.time_slot = time_slot;
+    fn set_time_range(d: &mut Self::InternalData, time_range: TimeRange) {
+        d.time_slot = time_range;
     }
 }
 
@@ -364,8 +388,7 @@ impl EntityStringResolver for PanelEntityType {
 /// `PanelType`; the write path parses and mutates only — callers that change
 /// the prefix should also update the `panel_type` edge accordingly.
 // Shared panel-like field descriptors — defined once in [`panel_like`] and
-// instantiated here with panel-specific `order` / `aliases`. Panel's
-// `description` / `note` are long prose (`AsText`), unlike Break/Timeline.
+// instantiated here with panel-specific `order` / `aliases`.
 pub static FIELD_CODE: FieldDescriptor<PanelEntityType> = fields::code::code_field(0);
 inventory::submit! { CollectedField(&FIELD_CODE) }
 
@@ -374,23 +397,22 @@ pub static FIELD_NAME: FieldDescriptor<PanelEntityType> =
 inventory::submit! { CollectedField(&FIELD_NAME) }
 
 pub static FIELD_DESCRIPTION: FieldDescriptor<PanelEntityType> =
-    fields::description::description_field::<PanelEntityType, AsText>(200, &["desc"]);
+    fields::description::description_field(200, &["desc"]);
 inventory::submit! { CollectedField(&FIELD_DESCRIPTION) }
 
-// Panel's notes are long prose stored as CRDT text fields (`AsText`). All four
-// kinds share one definition in [`fields::note`]; the kind is selected by the
-// marker type (`PublicNote`, `NonPrintingNote`, …) and the storage is the
-// shared [`NoteBag`].
+// Notes are long prose stored as CRDT text fields. All four kinds share one
+// definition in [`fields::note`]; the kind is selected by the marker type
+// (`PublicNote`, `NonPrintingNote`, …) and the storage is the shared [`NoteBag`].
 pub static FIELD_NOTE: FieldDescriptor<PanelEntityType> =
-    fields::note::note_field::<PanelEntityType, PublicNote, AsText>(300);
+    fields::note::note_field::<PanelEntityType, PublicNote>(300);
 inventory::submit! { CollectedField(&FIELD_NOTE) }
 
 pub static FIELD_NOTES_NON_PRINTING: FieldDescriptor<PanelEntityType> =
-    fields::note::note_field::<PanelEntityType, NonPrintingNote, AsText>(400);
+    fields::note::note_field::<PanelEntityType, NonPrintingNote>(400);
 inventory::submit! { CollectedField(&FIELD_NOTES_NON_PRINTING) }
 
 pub static FIELD_WORKSHOP_NOTES: FieldDescriptor<PanelEntityType> =
-    fields::note::note_field::<PanelEntityType, WorkshopNote, AsText>(500);
+    fields::note::note_field::<PanelEntityType, WorkshopNote>(500);
 inventory::submit! { CollectedField(&FIELD_WORKSHOP_NOTES) }
 
 pub static FIELD_POWER_NEEDS: FieldDescriptor<PanelEntityType> = {
@@ -439,7 +461,7 @@ pub static FIELD_SEWING_MACHINES: FieldDescriptor<PanelEntityType> = {
 inventory::submit! { CollectedField(&FIELD_SEWING_MACHINES) }
 
 pub static FIELD_AV_NOTES: FieldDescriptor<PanelEntityType> =
-    fields::note::note_field::<PanelEntityType, AvNote, AsText>(800);
+    fields::note::note_field::<PanelEntityType, AvNote>(800);
 inventory::submit! { CollectedField(&FIELD_AV_NOTES) }
 
 pub static FIELD_DIFFICULTY: FieldDescriptor<PanelEntityType> = {
@@ -825,10 +847,12 @@ pub static FIELD_START_TIME: FieldDescriptor<PanelEntityType> =
     fields::time::start_time_field(2400);
 inventory::submit! { CollectedField(&FIELD_START_TIME) }
 
-pub static FIELD_END_TIME: FieldDescriptor<PanelEntityType> = fields::time::end_time_field(2500);
+pub static FIELD_END_TIME: FieldDescriptor<PanelEntityType> =
+    fields::duration::end_time_field(2500);
 inventory::submit! { CollectedField(&FIELD_END_TIME) }
 
-pub static FIELD_DURATION: FieldDescriptor<PanelEntityType> = fields::time::duration_field(2600);
+pub static FIELD_DURATION: FieldDescriptor<PanelEntityType> =
+    fields::duration::duration_field(2600);
 inventory::submit! { CollectedField(&FIELD_DURATION) }
 
 // ── Edge-backed computed fields ───────────────────────────────────────────────

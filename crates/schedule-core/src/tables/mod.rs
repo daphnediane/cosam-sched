@@ -24,7 +24,7 @@ pub use breaks::{BreakCommonData, BreakEntityType, BreakId};
 pub use event_room::{EventRoomCommonData, EventRoomEntityType, EventRoomId};
 pub use hotel_room::{HotelRoomCommonData, HotelRoomEntityType, HotelRoomId};
 pub use panel::{PanelCommonData, PanelEntityType, PanelId};
-pub use panel_like::{EventKind, PanelLike, PanelLikeTimed};
+pub use panel_like::{EventKind, PanelLike};
 pub use panel_type::{PanelTypeCommonData, PanelTypeEntityType, PanelTypeId};
 pub use presenter::{PresenterCommonData, PresenterEntityType, PresenterId};
 pub use timeline::{TimelineCommonData, TimelineEntityType, TimelineId};

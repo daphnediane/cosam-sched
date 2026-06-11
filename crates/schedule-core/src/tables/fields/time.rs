@@ -4,70 +4,87 @@
  * See LICENSE file for full license text
  */
 
-//! The shared timing fields (`time`, `start_time`, `end_time`, `duration`).
+//! The shared start-instant fields (`time`, `start_time`) and the
+//! [`HasStartTime`] capability trait.
 //!
-//! All four read and write through the virtual [`TimeRange`] exposed by
-//! [`PanelLikeTimed`], so the backing storage (a real `TimeRange`, or a single
-//! `Option<NaiveDateTime>` for Timeline) is irrelevant to the field logic.
+//! These read and write a single start instant as an `Option<NaiveDateTime>` —
+//! the narrowest timing capability. Timeline stores exactly that natively;
+//! Panel/Break project it through their backing [`TimeRange`]. The `end_time` /
+//! `duration` fields, which need the full range, live in [`super::duration`].
+//!
+//! [`TimeRange`]: crate::value::time::TimeRange
 
+use crate::entity::EntityType;
 use crate::field::{CommonFieldData, FieldCallbacks, FieldDescriptor, ReadFn, WriteFn};
 use crate::field_value;
-use crate::tables::panel_like::PanelLikeTimed;
-use crate::value::time::{parse_datetime, parse_duration};
+use crate::value::time::parse_datetime;
 use crate::value::{
-    ConversionError, FieldCardinality, FieldType, FieldTypeItem, FieldValue, FieldValueItem,
+    ConversionError, FieldCardinality, FieldError, FieldType, FieldTypeItem, FieldValue,
+    FieldValueItem,
 };
-use chrono::Duration;
+use chrono::NaiveDateTime;
 
-/// `time` — a single instant, projected from the `start_time` of the virtual
-/// [`TimeRange`]. Used by Timeline, which stores only an `Option<NaiveDateTime>`
-/// and synthesises a start-only range; it carries no end or duration.
+/// Entity types that carry a start instant.
+///
+/// The accessor is a plain `Option<NaiveDateTime>`: an entity that stores a
+/// single instant (Timeline) exposes it directly, while an entity backed by a
+/// [`TimeRange`](crate::value::time::TimeRange) (Panel, Break) projects the
+/// range's start. Both [`time_field`] and [`start_time_field`] build on this.
+pub trait HasStartTime: EntityType {
+    /// The start instant, if set.
+    fn start_time(d: &Self::InternalData) -> Option<NaiveDateTime>;
+    /// Set (or, with `None`, clear) the start instant.
+    fn set_start_time(d: &mut Self::InternalData, start: Option<NaiveDateTime>);
+}
+
+/// Coerce a field value into an optional start instant. A list or text value
+/// clears it; a `DateTime` or parseable `String` sets it.
+fn value_to_opt_datetime(v: FieldValue) -> Result<Option<NaiveDateTime>, FieldError> {
+    match v {
+        FieldValue::List(_) | FieldValue::Single(FieldValueItem::Text(_)) => Ok(None),
+        FieldValue::Single(FieldValueItem::DateTime(dt)) => Ok(Some(dt)),
+        FieldValue::Single(FieldValueItem::String(s)) => match parse_datetime(&s) {
+            Some(dt) => Ok(Some(dt)),
+            None => Err(ConversionError::ParseError {
+                message: format!("could not parse datetime {s:?}"),
+            }
+            .into()),
+        },
+        _ => Err(ConversionError::WrongVariant {
+            expected: "DateTime or String",
+            got: "other",
+        }
+        .into()),
+    }
+}
+
+/// Shared builder for the start-instant fields; `time_field` / `start_time_field`
+/// differ only in their metadata.
 #[must_use]
-pub const fn time_field<E: PanelLikeTimed>(
-    order: u32,
+const fn start_instant_field<E: HasStartTime>(
+    name: &'static str,
+    display: &'static str,
+    description: &'static str,
     aliases: &'static [&'static str],
+    example: &'static str,
+    order: u32,
 ) -> FieldDescriptor<E> {
     FieldDescriptor {
         data: CommonFieldData {
-            name: "time",
-            display: "Time",
-            description: "Time point.",
+            name,
+            display,
+            description,
             aliases,
             field_type: FieldType(FieldCardinality::Optional, FieldTypeItem::DateTime),
-            example: "2026-01-01T09:00:00",
+            example,
             order,
         },
         crdt_type: crate::crdt::CrdtFieldType::Scalar,
         required: false,
         cb: FieldCallbacks {
-            read_fn: Some(ReadFn::Bare(|d| {
-                E::time_slot(d).start_time().map(|dt| field_value!(dt))
-            })),
+            read_fn: Some(ReadFn::Bare(|d| E::start_time(d).map(|dt| field_value!(dt)))),
             write_fn: Some(WriteFn::Bare(|d, v| {
-                let mut ts = E::time_slot(d);
-                match v {
-                    FieldValue::List(_) | FieldValue::Single(FieldValueItem::Text(_)) => {
-                        ts.remove_start_time()
-                    }
-                    FieldValue::Single(FieldValueItem::DateTime(dt)) => ts.add_start_time(dt),
-                    FieldValue::Single(FieldValueItem::String(s)) => match parse_datetime(&s) {
-                        Some(dt) => ts.add_start_time(dt),
-                        None => {
-                            return Err(ConversionError::ParseError {
-                                message: format!("could not parse datetime {s:?}"),
-                            }
-                            .into())
-                        }
-                    },
-                    _ => {
-                        return Err(ConversionError::WrongVariant {
-                            expected: "DateTime or String",
-                            got: "other",
-                        }
-                        .into())
-                    }
-                }
-                E::set_time_slot(d, ts);
+                E::set_start_time(d, value_to_opt_datetime(v)?);
                 Ok(())
             })),
             add_fn: None,
@@ -76,161 +93,32 @@ pub const fn time_field<E: PanelLikeTimed>(
     }
 }
 
-/// `start_time` — projected from the virtual [`TimeRange`].
+/// `time` — a single instant. Used by Timeline, which stores only an
+/// `Option<NaiveDateTime>`; it carries no end or duration.
 #[must_use]
-pub const fn start_time_field<E: PanelLikeTimed>(order: u32) -> FieldDescriptor<E> {
-    FieldDescriptor {
-        data: CommonFieldData {
-            name: "start_time",
-            display: "Start Time",
-            description: "Start time.",
-            aliases: &["start", "time"],
-            field_type: FieldType(FieldCardinality::Optional, FieldTypeItem::DateTime),
-            example: "2026-06-26T12:00:00",
-            order,
-        },
-        crdt_type: crate::crdt::CrdtFieldType::Scalar,
-        required: false,
-        cb: FieldCallbacks {
-            read_fn: Some(ReadFn::Bare(|d| {
-                E::time_slot(d).start_time().map(|dt| field_value!(dt))
-            })),
-            write_fn: Some(WriteFn::Bare(|d, v| {
-                let mut ts = E::time_slot(d);
-                match v {
-                    FieldValue::List(_) | FieldValue::Single(FieldValueItem::Text(_)) => {
-                        ts.remove_start_time()
-                    }
-                    FieldValue::Single(FieldValueItem::DateTime(dt)) => ts.add_start_time(dt),
-                    FieldValue::Single(FieldValueItem::String(s)) => match parse_datetime(&s) {
-                        Some(dt) => ts.add_start_time(dt),
-                        None => {
-                            return Err(ConversionError::ParseError {
-                                message: format!("could not parse datetime {s:?}"),
-                            }
-                            .into())
-                        }
-                    },
-                    _ => {
-                        return Err(ConversionError::WrongVariant {
-                            expected: "DateTime or String",
-                            got: "other",
-                        }
-                        .into())
-                    }
-                }
-                E::set_time_slot(d, ts);
-                Ok(())
-            })),
-            add_fn: None,
-            remove_fn: None,
-        },
-    }
+pub const fn time_field<E: HasStartTime>(
+    order: u32,
+    aliases: &'static [&'static str],
+) -> FieldDescriptor<E> {
+    start_instant_field(
+        "time",
+        "Time",
+        "Time point.",
+        aliases,
+        "2026-01-01T09:00:00",
+        order,
+    )
 }
 
-/// `end_time` — projected from the virtual [`TimeRange`].
+/// `start_time` — the start instant of a duration-carrying entity.
 #[must_use]
-pub const fn end_time_field<E: PanelLikeTimed>(order: u32) -> FieldDescriptor<E> {
-    FieldDescriptor {
-        data: CommonFieldData {
-            name: "end_time",
-            display: "End Time",
-            description: "End time.",
-            aliases: &["end"],
-            field_type: FieldType(FieldCardinality::Optional, FieldTypeItem::DateTime),
-            example: "2026-06-26T13:00:00",
-            order,
-        },
-        crdt_type: crate::crdt::CrdtFieldType::Scalar,
-        required: false,
-        cb: FieldCallbacks {
-            read_fn: Some(ReadFn::Bare(|d| {
-                E::time_slot(d).end_time().map(|dt| field_value!(dt))
-            })),
-            write_fn: Some(WriteFn::Bare(|d, v| {
-                let mut ts = E::time_slot(d);
-                match v {
-                    FieldValue::List(_) | FieldValue::Single(FieldValueItem::Text(_)) => {
-                        ts.remove_end_time()
-                    }
-                    FieldValue::Single(FieldValueItem::DateTime(dt)) => ts.add_end_time(dt),
-                    FieldValue::Single(FieldValueItem::String(s)) => match parse_datetime(&s) {
-                        Some(dt) => ts.add_end_time(dt),
-                        None => {
-                            return Err(ConversionError::ParseError {
-                                message: format!("could not parse datetime {s:?}"),
-                            }
-                            .into())
-                        }
-                    },
-                    _ => {
-                        return Err(ConversionError::WrongVariant {
-                            expected: "DateTime or String",
-                            got: "other",
-                        }
-                        .into())
-                    }
-                }
-                E::set_time_slot(d, ts);
-                Ok(())
-            })),
-            add_fn: None,
-            remove_fn: None,
-        },
-    }
-}
-
-/// `duration` — projected from the virtual [`TimeRange`].
-#[must_use]
-pub const fn duration_field<E: PanelLikeTimed>(order: u32) -> FieldDescriptor<E> {
-    FieldDescriptor {
-        data: CommonFieldData {
-            name: "duration",
-            display: "Duration",
-            description: "Duration.",
-            aliases: &[],
-            field_type: FieldType(FieldCardinality::Optional, FieldTypeItem::Duration),
-            example: "60",
-            order,
-        },
-        crdt_type: crate::crdt::CrdtFieldType::Scalar,
-        required: false,
-        cb: FieldCallbacks {
-            read_fn: Some(ReadFn::Bare(|d| {
-                E::time_slot(d).duration().map(|dur| field_value!(dur))
-            })),
-            write_fn: Some(WriteFn::Bare(|d, v| {
-                let mut ts = E::time_slot(d);
-                match v {
-                    FieldValue::List(_) | FieldValue::Single(FieldValueItem::Text(_)) => {
-                        ts.remove_duration()
-                    }
-                    FieldValue::Single(FieldValueItem::Duration(dur)) => ts.add_duration(dur),
-                    FieldValue::Single(FieldValueItem::Integer(m)) => {
-                        ts.add_duration(Duration::minutes(m))
-                    }
-                    FieldValue::Single(FieldValueItem::String(s)) => match parse_duration(&s) {
-                        Some(dur) => ts.add_duration(dur),
-                        None => {
-                            return Err(ConversionError::ParseError {
-                                message: format!("could not parse duration {s:?}"),
-                            }
-                            .into())
-                        }
-                    },
-                    _ => {
-                        return Err(ConversionError::WrongVariant {
-                            expected: "Duration, Integer, or String",
-                            got: "other",
-                        }
-                        .into())
-                    }
-                }
-                E::set_time_slot(d, ts);
-                Ok(())
-            })),
-            add_fn: None,
-            remove_fn: None,
-        },
-    }
+pub const fn start_time_field<E: HasStartTime>(order: u32) -> FieldDescriptor<E> {
+    start_instant_field(
+        "start_time",
+        "Start Time",
+        "Start time.",
+        &["start", "time"],
+        "2026-06-26T12:00:00",
+        order,
+    )
 }

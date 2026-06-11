@@ -22,6 +22,8 @@ use crate::field::set::FieldSet;
 use crate::field::{CollectedField, CollectedHalfEdge, FieldDescriptor, NamedField};
 use crate::query::converter::EntityStringResolver;
 use crate::tables::event_room::{self, EventRoomEntityType, EventRoomId};
+use crate::tables::fields;
+use crate::tables::fields::name::HasName;
 use crate::value::ValidationError;
 use serde::{Deserialize, Serialize};
 use std::sync::LazyLock;
@@ -203,28 +205,29 @@ impl EntityStringResolver for HotelRoomEntityType {
     }
 }
 
+// ── HasName ───────────────────────────────────────────────────────────────────
+
+impl HasName for HotelRoomEntityType {
+    fn name(d: &Self::InternalData) -> &String {
+        &d.data.hotel_room_name
+    }
+    fn name_mut(d: &mut Self::InternalData) -> &mut String {
+        &mut d.data.hotel_room_name
+    }
+}
+
 // ── Field descriptors ─────────────────────────────────────────────────────────
 
-pub static FIELD_HOTEL_ROOM_NAME: crate::field::FieldDescriptor<HotelRoomEntityType> = {
-    let (data, crdt_type, cb) = accessor_field_properties! {
-        HotelRoomEntityType,
-        hotel_room_name,
-        name: "hotel_room_name",
-        display: "Hotel Room Name",
-        description: "Physical hotel room name / identifier.",
-        aliases: &["name", "room_name"],
-        cardinality: Single,
-        item: String,
-        example: "Ballroom East",
-        order: 0,
-    };
-    FieldDescriptor {
-        data,
-        crdt_type,
-        required: true,
-        cb,
-    }
-};
+/// Hotel-room name — the shared [`name_field`](fields::name) under the canonical
+/// key `"name"`, with the legacy `hotel_room_name` key kept as an alias.
+pub static FIELD_HOTEL_ROOM_NAME: crate::field::FieldDescriptor<HotelRoomEntityType> =
+    fields::name::name_field_described(
+        0,
+        &["hotel_room_name", "room_name"],
+        "Hotel Room Name",
+        "Physical hotel room name / identifier.",
+        "Ballroom East",
+    );
 inventory::submit! { CollectedField(&FIELD_HOTEL_ROOM_NAME) }
 
 pub static FIELD_SORT_KEY: FieldDescriptor<HotelRoomEntityType> = {
@@ -402,7 +405,7 @@ mod tests {
         assert_eq!(fs.fields().count(), 3);
         assert_eq!(fs.half_edges().count(), 1);
         let required: Vec<_> = fs.required_fields().map(|d| d.name()).collect();
-        assert_eq!(required, vec!["hotel_room_name"]);
+        assert_eq!(required, vec!["name"]);
     }
 
     #[test]

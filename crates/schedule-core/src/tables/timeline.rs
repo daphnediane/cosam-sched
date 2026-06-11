@@ -17,12 +17,13 @@
 
 use crate::entity::{EntityId, EntityType, EntityUuid, FieldSet};
 use crate::field::{CollectedField, CollectedHalfEdge, FieldDescriptor, NamedField};
-use crate::query::converter::AsString;
 use crate::tables::fields;
-use crate::tables::fields::note::{NoteBag, NoteKind, PublicNote};
-use crate::tables::panel_like::{EventKind, PanelLike, PanelLikeTimed};
+use crate::tables::fields::description::HasDescription;
+use crate::tables::fields::name::HasName;
+use crate::tables::fields::note::{HasNotes, NoteBag, NoteKind, PublicNote};
+use crate::tables::fields::time::HasStartTime;
+use crate::tables::panel_like::{EventKind, PanelLike};
 use crate::tables::panel_type::{self, PanelTypeEntityType};
-use crate::value::time::TimeRange;
 use crate::value::uniq_id::PanelUniqId;
 use crate::value::{FieldCardinality, FieldType, FieldTypeItem, ValidationError};
 use serde::{Deserialize, Serialize};
@@ -35,9 +36,9 @@ pub type TimelineId = EntityId<TimelineEntityType>;
 
 /// User-facing fields for timeline events. The shared `name` / `description` /
 /// `note` are exposed uniformly through [`PanelLike`]. A timeline is a single
-/// instant, so it stores `time` directly (an `Option<NaiveDateTime>`);
-/// [`PanelLikeTimed`] presents it as a virtual start-only [`TimeRange`] so the
-/// shared timing field logic applies.
+/// instant, so it stores `time` directly (an `Option<NaiveDateTime>`) and
+/// implements only [`HasStartTime`] — not the duration capability — so the
+/// shared `time` field logic applies without synthesising a range.
 #[derive(Debug, Clone, PartialEq, Eq, Default, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct TimelineCommonData {
@@ -54,7 +55,7 @@ pub struct TimelineInternalData {
     pub id: TimelineId,
     pub data: TimelineCommonData,
     /// Notes keyed by [`NoteKind`]; a timeline supports only
-    /// [`NoteKind::Public`]. See [`PanelLike::SUPPORTED_NOTES`].
+    /// [`NoteKind::Public`]. See [`HasNotes::SUPPORTED_NOTES`].
     pub notes: NoteBag,
     /// Parsed Uniq ID (e.g. `TL01`). Structurally valid by construction;
     /// callers parse via [`PanelUniqId::parse`] before building this struct.
@@ -113,28 +114,36 @@ impl EntityType for TimelineEntityType {
 
 // ── PanelLike ───────────────────────────────────────────────────────────────────
 
-impl PanelLike for TimelineEntityType {
-    const KIND: EventKind = EventKind::Timeline;
-    const SUPPORTED_NOTES: &'static [NoteKind] = &[NoteKind::Public];
-
+impl HasName for TimelineEntityType {
     fn name(d: &Self::InternalData) -> &String {
         &d.data.name
     }
     fn name_mut(d: &mut Self::InternalData) -> &mut String {
         &mut d.data.name
     }
+}
+
+impl HasDescription for TimelineEntityType {
     fn description(d: &Self::InternalData) -> &Option<String> {
         &d.data.description
     }
     fn description_mut(d: &mut Self::InternalData) -> &mut Option<String> {
         &mut d.data.description
     }
+}
+
+impl HasNotes for TimelineEntityType {
+    const SUPPORTED_NOTES: &'static [NoteKind] = &[NoteKind::Public];
     fn notes(d: &Self::InternalData) -> &NoteBag {
         &d.notes
     }
     fn notes_mut(d: &mut Self::InternalData) -> &mut NoteBag {
         &mut d.notes
     }
+}
+
+impl PanelLike for TimelineEntityType {
+    const KIND: EventKind = EventKind::Timeline;
     fn code(d: &Self::InternalData) -> &PanelUniqId {
         &d.code
     }
@@ -143,18 +152,15 @@ impl PanelLike for TimelineEntityType {
     }
 }
 
-impl PanelLikeTimed for TimelineEntityType {
-    /// Present the stored instant as a start-only [`TimeRange`].
-    fn time_slot(d: &Self::InternalData) -> TimeRange {
-        let mut ts = TimeRange::default();
-        if let Some(t) = d.data.time {
-            ts.add_start_time(t);
-        }
-        ts
+impl HasStartTime for TimelineEntityType {
+    /// A timeline stores its instant directly — no [`TimeRange`] projection.
+    ///
+    /// [`TimeRange`]: crate::value::time::TimeRange
+    fn start_time(d: &Self::InternalData) -> Option<chrono::NaiveDateTime> {
+        d.data.time
     }
-    /// Project a [`TimeRange`] back to the stored instant (start only).
-    fn set_time_slot(d: &mut Self::InternalData, time_slot: TimeRange) {
-        d.data.time = time_slot.start_time();
+    fn set_start_time(d: &mut Self::InternalData, start: Option<chrono::NaiveDateTime>) {
+        d.data.time = start;
     }
 }
 
@@ -257,11 +263,11 @@ pub static FIELD_NAME: FieldDescriptor<TimelineEntityType> =
 inventory::submit! { CollectedField(&FIELD_NAME) }
 
 pub static FIELD_DESCRIPTION: FieldDescriptor<TimelineEntityType> =
-    fields::description::description_field::<TimelineEntityType, AsString>(200, &["desc"]);
+    fields::description::description_field(200, &["desc"]);
 inventory::submit! { CollectedField(&FIELD_DESCRIPTION) }
 
 pub static FIELD_NOTE: FieldDescriptor<TimelineEntityType> =
-    fields::note::note_field::<TimelineEntityType, PublicNote, AsString>(300);
+    fields::note::note_field::<TimelineEntityType, PublicNote>(300);
 inventory::submit! { CollectedField(&FIELD_NOTE) }
 
 pub static FIELD_TIME: FieldDescriptor<TimelineEntityType> =

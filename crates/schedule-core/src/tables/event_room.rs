@@ -20,6 +20,8 @@ use crate::accessor_field_properties;
 use crate::entity::{EntityId, EntityType, EntityUuid, FieldSet, UuidPreference};
 use crate::field::{CollectedField, CollectedHalfEdge, FieldDescriptor, NamedField};
 use crate::query::converter::EntityStringResolver;
+use crate::tables::fields;
+use crate::tables::fields::name::HasName;
 use crate::tables::hotel_room::{self, HotelRoomEntityType, HotelRoomId};
 use crate::tables::panel::{self, PanelEntityType, PanelId};
 use crate::value::ValidationError;
@@ -214,28 +216,28 @@ impl EntityStringResolver for EventRoomEntityType {
     }
 }
 
+// ── HasName ───────────────────────────────────────────────────────────────────
+
+impl HasName for EventRoomEntityType {
+    fn name(d: &Self::InternalData) -> &String {
+        &d.data.room_name
+    }
+    fn name_mut(d: &mut Self::InternalData) -> &mut String {
+        &mut d.data.room_name
+    }
+}
+
 // ── Stored field descriptors ──────────────────────────────────────────────────
 
-pub static FIELD_ROOM_NAME: FieldDescriptor<EventRoomEntityType> = {
-    let (data, crdt_type, cb) = accessor_field_properties! {
-        EventRoomEntityType,
-        room_name,
-        name: "room_name",
-        display: "Room Name",
-        description: "Room code as it appears in the Schedule sheet's Room column.",
-        aliases: &["room", "name"],
-        cardinality: Single,
-        item: String,
-        example: "Panel 1",
-        order: 0,
-    };
-    FieldDescriptor {
-        data,
-        crdt_type,
-        required: true,
-        cb,
-    }
-};
+/// Event-room name — the shared [`name_field`](fields::name) under the canonical
+/// key `"name"`, with the legacy `room_name` key kept as an alias.
+pub static FIELD_ROOM_NAME: FieldDescriptor<EventRoomEntityType> = fields::name::name_field_described(
+    0,
+    &["room_name", "room"],
+    "Room Name",
+    "Room code as it appears in the Schedule sheet's Room column.",
+    "Panel 1",
+);
 inventory::submit! { CollectedField(&FIELD_ROOM_NAME) }
 
 /// Optional display name shown in the widget / public schedule.
@@ -492,14 +494,14 @@ mod tests {
         assert_eq!(fs.fields().count(), 4);
         assert_eq!(fs.half_edges().count(), 2);
         let required: Vec<_> = fs.required_fields().map(|d| d.name()).collect();
-        assert_eq!(required, vec!["room_name"]);
+        assert_eq!(required, vec!["name"]);
     }
 
     #[test]
     fn test_field_set_aliases() {
         let fs = EventRoomEntityType::field_set();
         assert!(fs.get_by_name("room").is_some());
-        assert!(fs.get_by_name("name").is_some()); // room_name alias
+        assert!(fs.get_by_name("room_name").is_some()); // legacy key, now a name alias
         assert!(fs.get_by_name("display_name").is_some()); // long_name alias
         assert!(fs.get_by_name("sort").is_some());
     }

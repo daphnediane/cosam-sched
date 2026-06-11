@@ -15,14 +15,13 @@
 //! Field descriptors are static values assembled into a [`FieldSet`] inside a [`LazyLock`].
 
 use crate::accessor_field_properties;
-use crate::callback_field_properties;
-use crate::crdt::CrdtFieldType;
 use crate::entity::{EntityId, EntityType, EntityUuid, UuidPreference};
 use crate::field::set::FieldSet;
 use crate::field::{CollectedField, CollectedHalfEdge, FieldDescriptor, NamedField};
-use crate::field_value;
 use crate::query::converter::EntityStringResolver;
 use crate::tables::breaks;
+use crate::tables::fields;
+use crate::tables::fields::name::HasName;
 use crate::tables::panel::{self, PanelEntityType, PanelId};
 use crate::tables::timeline::{self, TimelineEntityType};
 use crate::value::ValidationError;
@@ -271,26 +270,25 @@ pub static FIELD_PREFIX: FieldDescriptor<PanelTypeEntityType> = {
 };
 inventory::submit! { CollectedField(&FIELD_PREFIX) }
 
-pub static FIELD_PANEL_KIND: FieldDescriptor<PanelTypeEntityType> = {
-    let (data, crdt_type, cb) = accessor_field_properties! {
-        PanelTypeEntityType,
-        panel_kind,
-        name: "panel_kind",
-        display: "Panel Kind",
-        description: "Human-readable kind name for this panel type.",
-        aliases: &["kind", "type_name"],
-        cardinality: Single,
-        item: String,
-        example: "Guest Panel",
-        order: 100,
-    };
-    FieldDescriptor {
-        data,
-        crdt_type,
-        required: true,
-        cb,
+impl HasName for PanelTypeEntityType {
+    fn name(d: &Self::InternalData) -> &String {
+        &d.data.panel_kind
     }
-};
+    fn name_mut(d: &mut Self::InternalData) -> &mut String {
+        &mut d.data.panel_kind
+    }
+}
+
+/// Panel-type name (the "Panel Kind" column) — the shared
+/// [`name_field`](fields::name) under the canonical key `"name"`, with the legacy
+/// `panel_kind` key kept as an alias.
+pub static FIELD_PANEL_KIND: FieldDescriptor<PanelTypeEntityType> = fields::name::name_field_described(
+    100,
+    &["panel_kind", "kind", "type_name"],
+    "Panel Kind",
+    "Human-readable kind name for this panel type.",
+    "Guest Panel",
+);
 inventory::submit! { CollectedField(&FIELD_PANEL_KIND) }
 
 pub static FIELD_HIDDEN: FieldDescriptor<PanelTypeEntityType> = {
@@ -491,40 +489,6 @@ pub static FIELD_BW: FieldDescriptor<PanelTypeEntityType> = {
 };
 inventory::submit! { CollectedField(&FIELD_BW) }
 
-/// Computed display name — derived from `panel_kind` and `prefix`.
-///
-/// Read-only computed field that produces a human-readable identifier.
-pub static FIELD_DISPLAY_NAME: FieldDescriptor<PanelTypeEntityType> = {
-    let (data, _, cb) = callback_field_properties! {
-        PanelTypeEntityType,
-        name: "display_name",
-        display: "Display Name",
-        description: "Human-readable display name combining kind and prefix.",
-        aliases: &["name"],
-        cardinality: Single,
-        item: String,
-        example: "Guest Panel (GP)",
-        order: 1100,
-        read: |d: &PanelTypeInternalData| {
-            let name = if d.data.prefix.is_empty() {
-                d.data.panel_kind.clone()
-            } else if d.data.panel_kind.is_empty() {
-                d.data.prefix.clone()
-            } else {
-                format!("{} ({})", d.data.panel_kind, d.data.prefix)
-            };
-            Some(field_value!(name))
-        }
-    };
-    FieldDescriptor {
-        data,
-        crdt_type: CrdtFieldType::Derived,
-        required: false,
-        cb,
-    }
-};
-inventory::submit! { CollectedField(&FIELD_DISPLAY_NAME) }
-
 // Panels of this type — reverse heterogeneous edge from Panel → PanelType.
 pub static HALF_EDGE_PANELS: crate::edge::HalfEdgeDescriptor = {
     crate::edge::HalfEdgeDescriptor {
@@ -716,9 +680,9 @@ impl crate::query::lookup::EntityCreatable for PanelTypeEntityType {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::field_value;
     use crate::query::lookup::{match_priority, EntityMatcher};
     use crate::schedule::Schedule;
-    use crate::value::FieldError;
     use uuid::Uuid;
 
     fn make_panel_type_id() -> PanelTypeId {
@@ -758,21 +722,19 @@ mod tests {
     fn test_field_set_lookup_by_canonical_name() {
         let fs = PanelTypeEntityType::field_set();
         assert!(fs.get_by_name("prefix").is_some());
-        assert!(fs.get_by_name("panel_kind").is_some());
+        assert!(fs.get_by_name("name").is_some()); // panel-kind name, canonical "name"
         assert!(fs.get_by_name("hidden").is_some());
-        assert!(fs.get_by_name("display_name").is_some());
     }
 
     #[test]
     fn test_field_set_lookup_by_alias() {
         let fs = PanelTypeEntityType::field_set();
-        // panel_kind aliases
+        // name (panel-kind) aliases — incl. the legacy `panel_kind` key
+        assert!(fs.get_by_name("panel_kind").is_some());
         assert!(fs.get_by_name("kind").is_some());
         assert!(fs.get_by_name("type_name").is_some());
         // prefix alias
         assert!(fs.get_by_name("uniq_id_prefix").is_some());
-        // display_name alias
-        assert!(fs.get_by_name("name").is_some());
         // bw aliases
         assert!(fs.get_by_name("bw_color").is_some());
         assert!(fs.get_by_name("monochrome").is_some());
@@ -788,7 +750,7 @@ mod tests {
     fn test_field_set_fields_count() {
         let fs = PanelTypeEntityType::field_set();
         let fields: Vec<_> = fs.fields().collect();
-        assert_eq!(fields.len(), 12);
+        assert_eq!(fields.len(), 11);
         assert_eq!(fs.half_edges().count(), 3);
     }
 
@@ -797,7 +759,7 @@ mod tests {
         let fs = PanelTypeEntityType::field_set();
         let required: Vec<_> = fs.required_fields().map(|d| d.name()).collect();
         assert!(required.contains(&"prefix"));
-        assert!(required.contains(&"panel_kind"));
+        assert!(required.contains(&"name")); // panel-kind name
         assert_eq!(required.len(), 2);
     }
 
@@ -848,25 +810,21 @@ mod tests {
     }
 
     #[test]
-    fn test_read_display_name_computed() {
+    fn test_read_name_via_legacy_panel_kind_key() {
         let id = make_panel_type_id();
         let data = make_test_internal_data();
         let sched = make_schedule_with_panel_type(id, data);
 
         let fs = PanelTypeEntityType::field_set();
-        let value = fs.read_field_value("display_name", id, &sched).unwrap();
-        assert_eq!(value, Some(field_value!("Guest Panel (GP)")));
-    }
-
-    #[test]
-    fn test_read_display_name_from_alias() {
-        let id = make_panel_type_id();
-        let data = make_test_internal_data();
-        let sched = make_schedule_with_panel_type(id, data);
-
-        let fs = PanelTypeEntityType::field_set();
-        let value = fs.read_field_value("name", id, &sched).unwrap(); // alias
-        assert_eq!(value, Some(field_value!("Guest Panel (GP)")));
+        // Canonical "name" and the legacy "panel_kind" alias both read the kind.
+        assert_eq!(
+            fs.read_field_value("name", id, &sched).unwrap(),
+            Some(field_value!("Guest Panel"))
+        );
+        assert_eq!(
+            fs.read_field_value("panel_kind", id, &sched).unwrap(),
+            Some(field_value!("Guest Panel"))
+        );
     }
 
     #[test]
@@ -954,17 +912,6 @@ mod tests {
 
     #[test]
     fn test_write_color_to_value() {}
-
-    #[test]
-    fn test_write_readonly_display_name_fails() {
-        let id = make_panel_type_id();
-        let data = make_test_internal_data();
-        let mut sched = make_schedule_with_panel_type(id, data);
-
-        let fs = PanelTypeEntityType::field_set();
-        let result = fs.write_field_value("display_name", id, &mut sched, field_value!("X"));
-        assert!(matches!(result, Err(FieldError::ReadOnly { .. })));
-    }
 
     #[test]
     fn test_write_wrong_type_converts_with_cross_type_support() {
