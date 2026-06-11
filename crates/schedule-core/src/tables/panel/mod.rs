@@ -28,20 +28,20 @@ use crate::query::converter::EntityStringResolver;
 use crate::schedule::Schedule;
 use crate::tables::event_room::{self, EventRoomEntityType, EventRoomId};
 use crate::tables::fields;
+use crate::tables::fields::code::{CodeHistory, HasCode};
 use crate::tables::fields::description::HasDescription;
+use crate::tables::fields::duration::HasDuration;
 use crate::tables::fields::name::HasName;
 use crate::tables::fields::note::{
     AvNote, HasNotes, NonPrintingNote, NoteBag, NoteKind, PublicNote, WorkshopNote,
 };
-use crate::tables::hotel_room::{HotelRoomEntityType, HotelRoomId};
-use crate::tables::fields::duration::HasDuration;
 use crate::tables::fields::time::HasStartTime;
+use crate::tables::hotel_room::{HotelRoomEntityType, HotelRoomId};
 use crate::tables::panel_like::{EventKind, PanelLike};
 use crate::tables::panel_type::{self, PanelTypeEntityType, PanelTypeId};
 use crate::tables::presenter::{self, PresenterEntityType, PresenterId};
 use crate::value::cost::{additional_cost_to_string, AdditionalCost};
 use crate::value::time::TimeRange;
-use crate::value::uniq_id::PanelUniqId;
 use crate::value::{FieldValue, FieldValueItem, ValidationError};
 use chrono::Duration;
 use serde::{Deserialize, Serialize};
@@ -92,9 +92,9 @@ pub struct PanelInternalData {
     /// (public / non-printing / workshop / A/V); see
     /// [`HasNotes::SUPPORTED_NOTES`].
     pub notes: NoteBag,
-    /// Parsed Uniq ID (e.g. `GP032`). Structurally valid by construction;
-    /// callers parse via [`PanelUniqId::parse`] before building this struct.
-    pub code: PanelUniqId,
+    /// Current Uniq ID (e.g. `GP032`) plus the history of previously-held codes;
+    /// see [`HasCode`](crate::tables::fields::code::HasCode).
+    pub code: CodeHistory,
     pub time_slot: TimeRange,
 }
 
@@ -106,6 +106,9 @@ pub struct PanelInternalData {
 pub struct PanelData {
     /// Canonical Uniq ID string (e.g. `"GP032"`), from `code.full_id()`.
     pub code: String,
+    /// Previously-held Uniq ID strings (history).
+    #[serde(skip_serializing_if = "Vec::is_empty", default)]
+    pub old_codes: Vec<String>,
     #[serde(flatten)]
     pub data: PanelCommonData,
     /// Notes, projected from the note bag into discrete keys for export.
@@ -187,6 +190,7 @@ impl EntityType for PanelEntityType {
         // Schedule access. They are populated by the Schedule::export_panel method.
         PanelData {
             code: internal.code.full_id(),
+            old_codes: internal.code.old_codes().to_vec(),
             data: internal.data.clone(),
             note: internal.notes.get_owned(NoteKind::Public),
             notes_non_printing: internal.notes.get_owned(NoteKind::NonPrinting),
@@ -252,10 +256,13 @@ impl HasNotes for PanelEntityType {
 
 impl PanelLike for PanelEntityType {
     const KIND: EventKind = EventKind::Panel;
-    fn code(d: &Self::InternalData) -> &PanelUniqId {
+}
+
+impl HasCode for PanelEntityType {
+    fn code(d: &Self::InternalData) -> &CodeHistory {
         &d.code
     }
-    fn code_mut(d: &mut Self::InternalData) -> &mut PanelUniqId {
+    fn code_mut(d: &mut Self::InternalData) -> &mut CodeHistory {
         &mut d.code
     }
 }
@@ -357,7 +364,7 @@ impl crate::edit::builder::EntityBuildable for PanelEntityType {
             id,
             data: PanelCommonData::default(),
             notes: NoteBag::default(),
-            code: PanelUniqId::default(),
+            code: CodeHistory::default(),
             time_slot: TimeRange::default(),
         }
     }
@@ -380,7 +387,8 @@ impl EntityStringResolver for PanelEntityType {
 
 // ── Stored field descriptors ──────────────────────────────────────────────────
 
-/// Panel `code` (Uniq ID) — stored as the parsed [`PanelUniqId`] on
+/// Panel `code` (Uniq ID) — stored as the parsed
+/// [`PanelUniqId`](crate::value::uniq_id::PanelUniqId) on
 /// [`PanelInternalData`], exposed to the field system as a string.
 ///
 /// Hand-written because the storage type is not a plain `String`.
@@ -1052,6 +1060,10 @@ pub const EDGE_PANEL_TYPE: crate::edge::FullEdge = crate::edge::FullEdge {
     far: &panel_type::HALF_EDGE_PANELS,
 };
 
+/// `old_codes` — history of previously-held Uniq IDs (FEATURE-146).
+pub static FIELD_OLD_CODES: FieldDescriptor<PanelEntityType> = fields::code::old_codes_field(50);
+inventory::submit! { CollectedField(&FIELD_OLD_CODES) }
+
 // ── Read-only computed fields ─────────────────────────────────────────────────────
 
 /// Hotel rooms for this panel (traverses event_rooms => hotel room edges).
@@ -1223,6 +1235,7 @@ impl crate::query::lookup::EntityMatcher for PanelEntityType {
 mod tests {
     use super::*;
     use crate::schedule::Schedule;
+    use crate::value::uniq_id::PanelUniqId;
     use crate::value::FieldError;
     use chrono::NaiveDate;
     use uuid::Uuid;
@@ -1268,7 +1281,7 @@ mod tests {
                     .unwrap(),
                 duration: Duration::minutes(60),
             },
-            code: PanelUniqId::parse("GP001").expect("GP001 is a valid Uniq ID"),
+            code: CodeHistory::new(PanelUniqId::parse("GP001").expect("GP001 is a valid Uniq ID")),
         }
     }
 
@@ -1284,7 +1297,7 @@ mod tests {
     fn field_set_contains_all_declared_fields() {
         let fs = PanelEntityType::field_set();
         let count = fs.fields().count();
-        assert_eq!(count, 30);
+        assert_eq!(count, 31);
         assert_eq!(fs.half_edges().count(), 4);
     }
 
@@ -1671,7 +1684,7 @@ mod tests {
             id,
             data: PanelCommonData::default(),
             notes: NoteBag::default(),
-            code: PanelUniqId::parse("GP001").expect("valid"),
+            code: CodeHistory::new(PanelUniqId::parse("GP001").expect("valid")),
             time_slot: TimeRange::Unspecified,
         };
         let errors = PanelEntityType::validate(&internal);

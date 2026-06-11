@@ -18,13 +18,13 @@
 use crate::entity::{EntityId, EntityType, EntityUuid, FieldSet};
 use crate::field::{CollectedField, CollectedHalfEdge, FieldDescriptor, NamedField};
 use crate::tables::fields;
+use crate::tables::fields::code::{CodeHistory, HasCode};
 use crate::tables::fields::description::HasDescription;
 use crate::tables::fields::name::HasName;
 use crate::tables::fields::note::{HasNotes, NoteBag, NoteKind, PublicNote};
 use crate::tables::fields::time::HasStartTime;
 use crate::tables::panel_like::{EventKind, PanelLike};
 use crate::tables::panel_type::{self, PanelTypeEntityType};
-use crate::value::uniq_id::PanelUniqId;
 use crate::value::{FieldCardinality, FieldType, FieldTypeItem, ValidationError};
 use serde::{Deserialize, Serialize};
 use std::sync::LazyLock;
@@ -57,9 +57,9 @@ pub struct TimelineInternalData {
     /// Notes keyed by [`NoteKind`]; a timeline supports only
     /// [`NoteKind::Public`]. See [`HasNotes::SUPPORTED_NOTES`].
     pub notes: NoteBag,
-    /// Parsed Uniq ID (e.g. `TL01`). Structurally valid by construction;
-    /// callers parse via [`PanelUniqId::parse`] before building this struct.
-    pub code: PanelUniqId,
+    /// Current Uniq ID (e.g. `TL01`) plus the history of previously-held codes;
+    /// see [`HasCode`](crate::tables::fields::code::HasCode).
+    pub code: CodeHistory,
 }
 
 // ── TimelineData ─────────────────────────────────────────────────────────────
@@ -70,6 +70,9 @@ pub struct TimelineInternalData {
 pub struct TimelineData {
     /// Canonical Uniq ID string (e.g. `"TL01"`), from `code.full_id()`.
     pub code: String,
+    /// Previously-held Uniq ID strings (history).
+    #[serde(skip_serializing_if = "Vec::is_empty", default)]
+    pub old_codes: Vec<String>,
     #[serde(flatten)]
     pub data: TimelineCommonData,
     /// Public note ([`NoteKind::Public`]), projected from the note bag.
@@ -102,6 +105,7 @@ impl EntityType for TimelineEntityType {
     fn export(internal: &Self::InternalData) -> Self::Data {
         TimelineData {
             code: internal.code.full_id(),
+            old_codes: internal.code.old_codes().to_vec(),
             data: internal.data.clone(),
             note: internal.notes.get_owned(NoteKind::Public),
         }
@@ -144,10 +148,13 @@ impl HasNotes for TimelineEntityType {
 
 impl PanelLike for TimelineEntityType {
     const KIND: EventKind = EventKind::Timeline;
-    fn code(d: &Self::InternalData) -> &PanelUniqId {
+}
+
+impl HasCode for TimelineEntityType {
+    fn code(d: &Self::InternalData) -> &CodeHistory {
         &d.code
     }
-    fn code_mut(d: &mut Self::InternalData) -> &mut PanelUniqId {
+    fn code_mut(d: &mut Self::InternalData) -> &mut CodeHistory {
         &mut d.code
     }
 }
@@ -240,7 +247,7 @@ impl crate::edit::builder::EntityBuildable for TimelineEntityType {
             id,
             data: TimelineCommonData::default(),
             notes: NoteBag::default(),
-            code: PanelUniqId::default(),
+            code: CodeHistory::default(),
         }
     }
 
@@ -304,6 +311,10 @@ pub const EDGE_PANEL_TYPES: crate::edge::FullEdge = crate::edge::FullEdge {
     far: &panel_type::HALF_EDGE_TIMELINES,
 };
 
+/// `old_codes` — history of previously-held Uniq IDs (FEATURE-146).
+pub static FIELD_OLD_CODES: FieldDescriptor<TimelineEntityType> = fields::code::old_codes_field(50);
+inventory::submit! { CollectedField(&FIELD_OLD_CODES) }
+
 // ── FieldSet ───────────────────────────────────────────────────────────────────
 
 static TIMELINE_FIELD_SET: LazyLock<FieldSet<TimelineEntityType>> =
@@ -336,6 +347,7 @@ mod tests {
     use super::*;
     use crate::field_value;
     use crate::schedule::Schedule;
+    use crate::value::uniq_id::PanelUniqId;
     use uuid::Uuid;
 
     fn make_timeline_id() -> TimelineId {
@@ -357,13 +369,13 @@ mod tests {
                 notes.set(NoteKind::Public, Some("Main ballroom".into()));
                 notes
             },
-            code: PanelUniqId {
+            code: CodeHistory::new(PanelUniqId {
                 prefix: "TL".into(),
                 prefix_num: 1,
                 part_num: None,
                 session_num: None,
                 suffix: None,
-            },
+            }),
         }
     }
 
@@ -380,9 +392,9 @@ mod tests {
         let fs = TimelineEntityType::field_set();
 
         // Test that half-edges are included
-        let half_edges: Vec<_> = fs.half_edges().collect();
-        assert_eq!(half_edges.len(), 1);
-        assert_eq!(half_edges[0].data.name, "panel_types");
+        let names: Vec<_> = fs.half_edges().map(|he| he.data.name).collect();
+        assert_eq!(names.len(), 1);
+        assert!(names.contains(&"panel_types"));
     }
 
     // ── Field Read/Write ─────────────────────────────────────────────────────

@@ -282,13 +282,14 @@ impl HasName for PanelTypeEntityType {
 /// Panel-type name (the "Panel Kind" column) — the shared
 /// [`name_field`](fields::name) under the canonical key `"name"`, with the legacy
 /// `panel_kind` key kept as an alias.
-pub static FIELD_PANEL_KIND: FieldDescriptor<PanelTypeEntityType> = fields::name::name_field_described(
-    100,
-    &["panel_kind", "kind", "type_name"],
-    "Panel Kind",
-    "Human-readable kind name for this panel type.",
-    "Guest Panel",
-);
+pub static FIELD_PANEL_KIND: FieldDescriptor<PanelTypeEntityType> =
+    fields::name::name_field_described(
+        100,
+        &["panel_kind", "kind", "type_name"],
+        "Panel Kind",
+        "Human-readable kind name for this panel type.",
+        "Guest Panel",
+    );
 inventory::submit! { CollectedField(&FIELD_PANEL_KIND) }
 
 pub static FIELD_HIDDEN: FieldDescriptor<PanelTypeEntityType> = {
@@ -751,6 +752,7 @@ mod tests {
         let fs = PanelTypeEntityType::field_set();
         let fields: Vec<_> = fs.fields().collect();
         assert_eq!(fields.len(), 11);
+        // panels, timelines, breaks.
         assert_eq!(fs.half_edges().count(), 3);
     }
 

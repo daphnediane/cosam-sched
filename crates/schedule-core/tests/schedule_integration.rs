@@ -13,6 +13,7 @@ use schedule_core::schedule::{
 use schedule_core::tables::event_room::{
     EventRoomCommonData, EventRoomEntityType, EventRoomInternalData,
 };
+use schedule_core::tables::fields::code::CodeHistory;
 use schedule_core::tables::hotel_room::{
     HotelRoomCommonData, HotelRoomEntityType, HotelRoomInternalData,
 };
@@ -50,7 +51,7 @@ fn make_panel() -> (PanelId, PanelInternalData) {
             ..Default::default()
         },
         notes: schedule_core::tables::fields::note::NoteBag::default(),
-        code: PanelUniqId::parse("GP001").unwrap(),
+        code: CodeHistory::new(PanelUniqId::parse("GP001").unwrap()),
         time_slot: TimeRange::Unspecified,
     };
     (id, data)

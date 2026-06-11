@@ -82,7 +82,9 @@ const fn start_instant_field<E: HasStartTime>(
         crdt_type: crate::crdt::CrdtFieldType::Scalar,
         required: false,
         cb: FieldCallbacks {
-            read_fn: Some(ReadFn::Bare(|d| E::start_time(d).map(|dt| field_value!(dt)))),
+            read_fn: Some(ReadFn::Bare(|d| {
+                E::start_time(d).map(|dt| field_value!(dt))
+            })),
             write_fn: Some(WriteFn::Bare(|d, v| {
                 E::set_start_time(d, value_to_opt_datetime(v)?);
                 Ok(())

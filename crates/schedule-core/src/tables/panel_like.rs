@@ -27,13 +27,13 @@
 //!   modules instantiate them as per-type statics (with their own
 //!   `order`/`aliases`) and register them through the usual `inventory::submit!`.
 
+use crate::tables::fields::code::{CodeHistory, HasCode};
 use crate::tables::fields::description::HasDescription;
 use crate::tables::fields::duration::HasDuration;
 use crate::tables::fields::name::HasName;
 use crate::tables::fields::note::{HasNotes, NoteBag, NoteKind};
 use crate::tables::fields::time::HasStartTime;
 use crate::value::time::TimeRange;
-use crate::value::uniq_id::PanelUniqId;
 
 // ── EventKind ──────────────────────────────────────────────────────────────────
 
@@ -64,15 +64,9 @@ pub enum EventKind {
 /// common-data each type already stores, so the generic `*_field` builders can
 /// read/write the shared fields without knowing the concrete type — and without
 /// forcing any type into a shared storage struct.
-pub trait PanelLike: HasName + HasDescription + HasNotes + HasStartTime {
+pub trait PanelLike: HasName + HasDescription + HasNotes + HasStartTime + HasCode {
     /// Which kind of panel-like entity this is.
     const KIND: EventKind;
-
-    /// The parsed Uniq ID (`code`) — panel-like entities are identified by a
-    /// [`PanelUniqId`]; other entity types are not.
-    fn code(d: &Self::InternalData) -> &PanelUniqId;
-    /// Mutable access to the parsed Uniq ID.
-    fn code_mut(d: &mut Self::InternalData) -> &mut PanelUniqId;
 }
 
 // ── Unified panel-like view & lookup ─────────────────────────────────────────
@@ -106,9 +100,9 @@ impl PanelLikeRef<'_> {
         }
     }
 
-    /// The parsed Uniq ID.
+    /// The entity's code history (current Uniq ID + previously-held codes).
     #[must_use]
-    pub fn code(&self) -> &PanelUniqId {
+    pub fn code(&self) -> &CodeHistory {
         match self {
             Self::Panel(d) => PanelEntityType::code(d),
             Self::Break(d) => BreakEntityType::code(d),

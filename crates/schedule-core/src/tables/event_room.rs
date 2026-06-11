@@ -231,13 +231,14 @@ impl HasName for EventRoomEntityType {
 
 /// Event-room name — the shared [`name_field`](fields::name) under the canonical
 /// key `"name"`, with the legacy `room_name` key kept as an alias.
-pub static FIELD_ROOM_NAME: FieldDescriptor<EventRoomEntityType> = fields::name::name_field_described(
-    0,
-    &["room_name", "room"],
-    "Room Name",
-    "Room code as it appears in the Schedule sheet's Room column.",
-    "Panel 1",
-);
+pub static FIELD_ROOM_NAME: FieldDescriptor<EventRoomEntityType> =
+    fields::name::name_field_described(
+        0,
+        &["room_name", "room"],
+        "Room Name",
+        "Room code as it appears in the Schedule sheet's Room column.",
+        "Panel 1",
+    );
 inventory::submit! { CollectedField(&FIELD_ROOM_NAME) }
 
 /// Optional display name shown in the widget / public schedule.

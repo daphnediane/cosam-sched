@@ -49,7 +49,13 @@ No `type Id` — use `EntityId<E>` directly everywhere a compile-time typed ID
 is needed. `RuntimeEntityId` covers the untyped/dynamic case.
 
 Entity types: `PanelTypeEntityType`, `PanelEntityType`, `PresenterEntityType`,
-`EventRoomEntityType`, `HotelRoomEntityType`, `TimelineEntityType`.
+`EventRoomEntityType`, `HotelRoomEntityType`, `TimelineEntityType`,
+`BreakEntityType`.
+
+A panel-like entity's type is determined by its Uniq ID **prefix**: the prefix
+(e.g. `GP` in `GP001`) selects the matching `PanelTypeEntityType`. There is no
+intermediate entity — the prefix → panel-type resolution is a direct lookup
+(FEATURE-146).
 
 ## Entity Identity
 

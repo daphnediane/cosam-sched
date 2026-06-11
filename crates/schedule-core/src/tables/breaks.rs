@@ -22,15 +22,15 @@
 use crate::entity::{EntityId, EntityType, EntityUuid, FieldSet};
 use crate::field::{CollectedField, CollectedHalfEdge, FieldDescriptor, NamedField};
 use crate::tables::fields;
+use crate::tables::fields::code::{CodeHistory, HasCode};
 use crate::tables::fields::description::HasDescription;
-use crate::tables::fields::name::HasName;
 use crate::tables::fields::duration::HasDuration;
+use crate::tables::fields::name::HasName;
 use crate::tables::fields::note::{HasNotes, NoteBag, NoteKind, PublicNote};
 use crate::tables::fields::time::HasStartTime;
 use crate::tables::panel_like::{EventKind, PanelLike};
 use crate::tables::panel_type::{self, PanelTypeEntityType};
 use crate::value::time::TimeRange;
-use crate::value::uniq_id::PanelUniqId;
 use crate::value::{FieldCardinality, FieldType, FieldTypeItem, ValidationError};
 use chrono::Duration;
 use serde::{Deserialize, Serialize};
@@ -61,9 +61,8 @@ pub struct BreakInternalData {
     /// Notes keyed by [`NoteKind`]; a break supports only
     /// [`NoteKind::Public`]. See [`HasNotes::SUPPORTED_NOTES`].
     pub notes: NoteBag,
-    /// Parsed Uniq ID (e.g. `BREAK001`). Structurally valid by construction;
-    /// callers parse via [`PanelUniqId::parse`] before building this struct.
-    pub code: PanelUniqId,
+    /// Uniq ID (e.g. `BREAK001`) plus the history of codes this break has held.
+    pub code: CodeHistory,
     /// Break timing — start plus duration or end (a [`TimeRange`]).
     pub time_slot: TimeRange,
 }
@@ -76,6 +75,9 @@ pub struct BreakInternalData {
 pub struct BreakData {
     /// Canonical Uniq ID string (e.g. `"BREAK001"`), from `code.full_id()`.
     pub code: String,
+    /// Previously-held Uniq ID strings (history).
+    #[serde(skip_serializing_if = "Vec::is_empty", default)]
+    pub old_codes: Vec<String>,
     #[serde(flatten)]
     pub data: BreakCommonData,
     /// Public note ([`NoteKind::Public`]), projected from the note bag.
@@ -137,6 +139,7 @@ impl EntityType for BreakEntityType {
     fn export(internal: &Self::InternalData) -> Self::Data {
         BreakData {
             code: internal.code.full_id(),
+            old_codes: internal.code.old_codes().to_vec(),
             data: internal.data.clone(),
             note: internal.notes.get_owned(NoteKind::Public),
             start_time: internal.time_slot.start_time(),
@@ -189,10 +192,13 @@ impl HasNotes for BreakEntityType {
 
 impl PanelLike for BreakEntityType {
     const KIND: EventKind = EventKind::Break;
-    fn code(d: &Self::InternalData) -> &PanelUniqId {
+}
+
+impl HasCode for BreakEntityType {
+    fn code(d: &Self::InternalData) -> &CodeHistory {
         &d.code
     }
-    fn code_mut(d: &mut Self::InternalData) -> &mut PanelUniqId {
+    fn code_mut(d: &mut Self::InternalData) -> &mut CodeHistory {
         &mut d.code
     }
 }
@@ -294,7 +300,7 @@ impl crate::edit::builder::EntityBuildable for BreakEntityType {
             id,
             data: BreakCommonData::default(),
             notes: NoteBag::default(),
-            code: PanelUniqId::default(),
+            code: CodeHistory::default(),
             time_slot: TimeRange::default(),
         }
     }
@@ -327,12 +333,10 @@ inventory::submit! { CollectedField(&FIELD_NOTE) }
 pub static FIELD_START_TIME: FieldDescriptor<BreakEntityType> = fields::time::start_time_field(400);
 inventory::submit! { CollectedField(&FIELD_START_TIME) }
 
-pub static FIELD_END_TIME: FieldDescriptor<BreakEntityType> =
-    fields::duration::end_time_field(500);
+pub static FIELD_END_TIME: FieldDescriptor<BreakEntityType> = fields::duration::end_time_field(500);
 inventory::submit! { CollectedField(&FIELD_END_TIME) }
 
-pub static FIELD_DURATION: FieldDescriptor<BreakEntityType> =
-    fields::duration::duration_field(600);
+pub static FIELD_DURATION: FieldDescriptor<BreakEntityType> = fields::duration::duration_field(600);
 inventory::submit! { CollectedField(&FIELD_DURATION) }
 
 // Panel types associated with this break.
@@ -364,6 +368,10 @@ pub const EDGE_PANEL_TYPES: crate::edge::FullEdge = crate::edge::FullEdge {
     near: &HALF_EDGE_PANEL_TYPES,
     far: &panel_type::HALF_EDGE_BREAKS,
 };
+
+/// `old_codes` — history of previously-held Uniq IDs (FEATURE-146).
+pub static FIELD_OLD_CODES: FieldDescriptor<BreakEntityType> = fields::code::old_codes_field(50);
+inventory::submit! { CollectedField(&FIELD_OLD_CODES) }
 
 // ── FieldSet ───────────────────────────────────────────────────────────────────
 
@@ -402,6 +410,7 @@ mod tests {
     use crate::field_value;
     use crate::schedule::Schedule;
     use crate::value::time::parse_datetime;
+    use crate::value::uniq_id::PanelUniqId;
     use uuid::Uuid;
 
     fn make_break_id() -> BreakId {
@@ -422,13 +431,13 @@ mod tests {
                 notes.set(NoteKind::Public, Some("Vendor hall stays open".into()));
                 notes
             },
-            code: PanelUniqId {
+            code: CodeHistory::new(PanelUniqId {
                 prefix: "BREAK".into(),
                 prefix_num: 1,
                 part_num: None,
                 session_num: None,
                 suffix: None,
-            },
+            }),
             time_slot: TimeRange::ScheduledWithDuration {
                 start_time: parse_datetime("2026-06-26T12:00:00").unwrap(),
                 duration: Duration::minutes(60),
@@ -445,9 +454,9 @@ mod tests {
     #[test]
     fn test_field_set_half_edges() {
         let fs = BreakEntityType::field_set();
-        let half_edges: Vec<_> = fs.half_edges().collect();
-        assert_eq!(half_edges.len(), 1);
-        assert_eq!(half_edges[0].data.name, "panel_types");
+        let names: Vec<_> = fs.half_edges().map(|he| he.data.name).collect();
+        assert_eq!(names.len(), 1);
+        assert!(names.contains(&"panel_types"));
     }
 
     #[test]

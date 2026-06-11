@@ -372,8 +372,8 @@ fn export_panels(
         panels.push(WidgetPanel {
             id: code.full_id(),
             base_id: code.base_id(),
-            part_num: code.part_num.map(|n| n as i32),
-            session_num: code.session_num.map(|n| n as i32),
+            part_num: code.part_num().map(|n| n as i32),
+            session_num: code.session_num().map(|n| n as i32),
             name: internal.data.name.clone(),
             panel_type: prefix,
             room_ids,
@@ -429,8 +429,8 @@ fn export_panels(
         panels.push(WidgetPanel {
             id: code.full_id(),
             base_id: code.base_id(),
-            part_num: code.part_num.map(|n| n as i32),
-            session_num: code.session_num.map(|n| n as i32),
+            part_num: code.part_num().map(|n| n as i32),
+            session_num: code.session_num().map(|n| n as i32),
             name: internal.data.name.clone(),
             panel_type: prefix,
             room_ids: Vec::new(),
@@ -798,6 +798,7 @@ mod tests {
     use super::*;
     use crate::schedule::Schedule;
     use crate::tables::event_room::EventRoomInternalData;
+    use crate::tables::fields::code::CodeHistory;
     use crate::tables::panel::PanelInternalData;
     use crate::tables::panel_type::PanelTypeInternalData;
     use crate::tables::presenter::PresenterInternalData;
@@ -886,7 +887,7 @@ mod tests {
             id,
             PanelInternalData {
                 id,
-                code,
+                code: CodeHistory::new(code),
                 data: crate::tables::panel::PanelCommonData {
                     name: format!("Panel {code_str}"),
                     ..Default::default()
@@ -914,7 +915,7 @@ mod tests {
             id,
             TimelineInternalData {
                 id,
-                code,
+                code: CodeHistory::new(code),
                 data: TimelineCommonData {
                     name: format!("Timeline {code_str}"),
                     time,
