@@ -16,7 +16,7 @@
 //! rather than a duration range.
 
 use crate::entity::{EntityId, EntityType, EntityUuid, FieldSet};
-use crate::field::{CollectedField, CollectedHalfEdge, FieldDescriptor, NamedField};
+use crate::field::{CollectedField, FieldDescriptor, NamedField};
 use crate::tables::fields;
 use crate::tables::fields::code::{CodeHistory, HasCode};
 use crate::tables::fields::description::HasDescription;
@@ -24,8 +24,7 @@ use crate::tables::fields::name::HasName;
 use crate::tables::fields::note::{HasNotes, NoteBag, NoteKind, PublicNote};
 use crate::tables::fields::time::HasStartTime;
 use crate::tables::panel_like::{EventKind, PanelLike};
-use crate::tables::panel_type::{self, PanelTypeEntityType};
-use crate::value::{FieldCardinality, FieldType, FieldTypeItem, ValidationError};
+use crate::value::ValidationError;
 use serde::{Deserialize, Serialize};
 use std::sync::LazyLock;
 
@@ -281,36 +280,6 @@ pub static FIELD_TIME: FieldDescriptor<TimelineEntityType> =
     fields::time::time_field(400, &["start_time", "start"]);
 inventory::submit! { CollectedField(&FIELD_TIME) }
 
-// Panel types associated with this timeline.
-pub static HALF_EDGE_PANEL_TYPES: crate::edge::HalfEdgeDescriptor = {
-    crate::edge::HalfEdgeDescriptor {
-        data: crate::field::CommonFieldData {
-            name: "panel_types",
-            display: "Panel Types",
-            description: "Panel types associated with this timeline.",
-            aliases: &[],
-            field_type: FieldType(
-                FieldCardinality::List,
-                FieldTypeItem::EntityIdentifier(PanelTypeEntityType::TYPE_NAME),
-            ),
-            example: "[]",
-            order: 500,
-        },
-        edge_kind: crate::edge::EdgeKind::Owner {
-            target_field: &panel_type::HALF_EDGE_TIMELINES,
-            exclusive_with: None,
-        },
-        entity_name: TimelineEntityType::TYPE_NAME,
-    }
-};
-inventory::submit! { CollectedHalfEdge(&HALF_EDGE_PANEL_TYPES) }
-
-/// Full edge from timeline panel types to panel type timelines
-pub const EDGE_PANEL_TYPES: crate::edge::FullEdge = crate::edge::FullEdge {
-    near: &HALF_EDGE_PANEL_TYPES,
-    far: &panel_type::HALF_EDGE_TIMELINES,
-};
-
 /// `old_codes` — history of previously-held Uniq IDs (FEATURE-146).
 pub static FIELD_OLD_CODES: FieldDescriptor<TimelineEntityType> = fields::code::old_codes_field(50);
 inventory::submit! { CollectedField(&FIELD_OLD_CODES) }
@@ -335,8 +304,6 @@ crate::field::macros::define_entity_builder! {
         with_note        => FIELD_NOTE,
         /// Set the timeline time point.
         with_time        => FIELD_TIME,
-        /// Set the panel types associated with this timeline.
-        with_panel_types => HALF_EDGE_PANEL_TYPES,
     }
 }
 
@@ -391,10 +358,9 @@ mod tests {
     fn test_field_set_half_edges() {
         let fs = TimelineEntityType::field_set();
 
-        // Test that half-edges are included
+        // Timeline has no edges: its panel type is derived from the code prefix.
         let names: Vec<_> = fs.half_edges().map(|he| he.data.name).collect();
-        assert_eq!(names.len(), 1);
-        assert!(names.contains(&"panel_types"));
+        assert!(names.is_empty());
     }
 
     // ── Field Read/Write ─────────────────────────────────────────────────────

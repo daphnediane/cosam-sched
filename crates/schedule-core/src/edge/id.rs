@@ -225,7 +225,7 @@ mod tests {
     #[test]
     fn test_full_edge_serialize_round_trip() {
         // FullEdge from the panel -> panel_type edge
-        let edge = panel::EDGE_PANEL_TYPE;
+        let edge = panel::EDGE_EVENT_ROOMS;
 
         // Serialize to JSON
         let json = serde_json::to_string(&edge).expect("Failed to serialize FullEdge");
@@ -240,26 +240,26 @@ mod tests {
 
     #[test]
     fn test_full_edge_proxy_from() {
-        let edge = panel::EDGE_PANEL_TYPE;
+        let edge = panel::EDGE_EVENT_ROOMS;
         let proxy = FullEdgeProxy::from(edge);
 
-        assert_eq!(proxy.owner_field, "panel:panel_type");
+        assert_eq!(proxy.owner_field, "panel:event_rooms");
         assert!(proxy.near_is_owner);
     }
 
     #[test]
     fn test_full_edge_proxy_from_flipped() {
-        let canonical = panel::EDGE_PANEL_TYPE;
+        let canonical = panel::EDGE_EVENT_ROOMS;
         let flipped = canonical.flip();
         let proxy = FullEdgeProxy::from(flipped);
 
-        assert_eq!(proxy.owner_field, "panel:panel_type");
+        assert_eq!(proxy.owner_field, "panel:event_rooms");
         assert!(!proxy.near_is_owner);
     }
 
     #[test]
     fn test_full_edge_proxy_try_from() {
-        let edge = panel::EDGE_PANEL_TYPE;
+        let edge = panel::EDGE_EVENT_ROOMS;
         let proxy = FullEdgeProxy::from(edge);
 
         let reconstructed = FullEdge::try_from(proxy).expect("Failed to reconstruct FullEdge");
@@ -270,7 +270,7 @@ mod tests {
 
     #[test]
     fn test_full_edge_proxy_try_from_flipped() {
-        let canonical = panel::EDGE_PANEL_TYPE;
+        let canonical = panel::EDGE_EVENT_ROOMS;
         let flipped = canonical.flip();
         let proxy = FullEdgeProxy::from(flipped);
 

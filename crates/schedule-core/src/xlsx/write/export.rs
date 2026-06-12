@@ -578,11 +578,11 @@ fn write_schedule_sheet(
         }
         set_opt(ws, c_alt_panelist, row, &panel.data.alt_panelist);
 
-        // Kind: panel type prefix (two-letter code).
-        let kind_prefix = schedule
-            .connected_entities::<PanelTypeEntityType>(*panel_id, panel::EDGE_PANEL_TYPE)
-            .into_iter()
-            .next()
+        // Kind: panel type prefix (two-letter code), derived from the Uniq ID.
+        let kind_prefix = panel
+            .code
+            .current()
+            .and_then(|code| PanelTypeEntityType::find_by_code(schedule, code))
             .and_then(|pt_id| schedule.get_internal::<PanelTypeEntityType>(pt_id))
             .map(|pt| pt.data.prefix.clone());
         set_opt(ws, c_kind, row, &kind_prefix);
@@ -717,14 +717,11 @@ fn write_schedule_sheet(
         // Hide panelist: blank for timelines
         // Alt panelist: blank for timelines
 
-        // Panel type kind.
-        let kind = schedule
-            .connected_entities::<PanelTypeEntityType>(
-                *_timeline_id,
-                crate::tables::timeline::EDGE_PANEL_TYPES,
-            )
-            .into_iter()
-            .next()
+        // Panel type kind, derived from the Uniq ID prefix.
+        let kind = timeline
+            .code
+            .current()
+            .and_then(|code| PanelTypeEntityType::find_by_code(schedule, code))
             .and_then(|pt_id| schedule.get_internal::<PanelTypeEntityType>(pt_id))
             .map(|pt| pt.data.panel_kind.clone());
         set_opt(ws, c_kind, row, &kind);
@@ -1038,15 +1035,14 @@ fn write_timeline_sheet(ws: &mut Worksheet, schedule: &Schedule, extra_keys: &[S
             set_str(ws, c_time, row, &time.format(TIME_FMT).to_string());
         }
 
-        // Panel types: comma-join of connected panel type prefixes.
-        let panel_type_prefixes: Vec<String> = schedule
-            .connected_entities::<PanelTypeEntityType>(
-                *timeline_id,
-                crate::tables::timeline::EDGE_PANEL_TYPES,
-            )
-            .into_iter()
-            .filter_map(|pt_id| schedule.get_internal::<PanelTypeEntityType>(pt_id))
+        // Panel types: the panel type prefix, derived from the Uniq ID.
+        let panel_type_prefixes: Vec<String> = timeline
+            .code
+            .current()
+            .and_then(|code| PanelTypeEntityType::find_by_code(schedule, code))
+            .and_then(|pt_id| schedule.get_internal::<PanelTypeEntityType>(pt_id))
             .map(|pt| pt.data.prefix.clone())
+            .into_iter()
             .collect();
         if !panel_type_prefixes.is_empty() {
             set_str(ws, c_panel_types, row, &panel_type_prefixes.join(", "));
@@ -1212,10 +1208,10 @@ fn collect_grid_panels(schedule: &Schedule) -> Vec<GridPanel> {
             _ => continue,
         };
 
-        let panel_type_data = schedule
-            .connected_entities::<PanelTypeEntityType>(panel_id, panel::EDGE_PANEL_TYPE)
-            .into_iter()
-            .next()
+        let panel_type_data = internal
+            .code
+            .current()
+            .and_then(|code| PanelTypeEntityType::find_by_code(schedule, code))
             .and_then(|pt_id| schedule.get_internal::<PanelTypeEntityType>(pt_id))
             .map(|pt| (pt.data.is_break, pt.data.is_timeline, pt.data.color.clone()));
 

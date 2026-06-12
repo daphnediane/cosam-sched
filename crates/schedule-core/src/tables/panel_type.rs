@@ -17,13 +17,10 @@
 use crate::accessor_field_properties;
 use crate::entity::{EntityId, EntityType, EntityUuid, UuidPreference};
 use crate::field::set::FieldSet;
-use crate::field::{CollectedField, CollectedHalfEdge, FieldDescriptor, NamedField};
+use crate::field::{CollectedField, FieldDescriptor, NamedField};
 use crate::query::converter::EntityStringResolver;
-use crate::tables::breaks;
 use crate::tables::fields;
 use crate::tables::fields::name::HasName;
-use crate::tables::panel::{self, PanelEntityType, PanelId};
-use crate::tables::timeline::{self, TimelineEntityType};
 use crate::value::ValidationError;
 use serde::{Deserialize, Serialize};
 use std::sync::LazyLock;
@@ -111,9 +108,6 @@ pub struct PanelTypeInternalData {
 pub struct PanelTypeData {
     #[serde(flatten)]
     pub data: PanelTypeCommonData,
-    /// Panels of this type — assembled from edge maps.
-    #[serde(skip_serializing_if = "Vec::is_empty", default)]
-    pub panels: Vec<PanelId>,
 }
 
 // ── PanelTypeEntityType ─────────────────────────────────────────────────────────
@@ -144,7 +138,6 @@ impl EntityType for PanelTypeEntityType {
     fn export(internal: &Self::InternalData) -> Self::Data {
         PanelTypeData {
             data: internal.data.clone(),
-            panels: Vec::new(), // Edge-backed; read via field system
         }
     }
 
@@ -232,6 +225,17 @@ impl PanelTypeEntityType {
         schedule
             .iter_entities::<Self>()
             .find_map(|(id, d)| (d.data.prefix == prefix_upper).then_some(id))
+    }
+
+    /// Resolve the panel type for a Uniq ID — the authoritative derivation: a
+    /// panel-like entity's type comes solely from its code's prefix (FEATURE-146).
+    /// Returns `None` when no live panel type matches the prefix.
+    #[must_use]
+    pub fn find_by_code(
+        schedule: &crate::schedule::Schedule,
+        code: &crate::value::uniq_id::PanelUniqId,
+    ) -> Option<PanelTypeId> {
+        Self::find_by_prefix(schedule, code.type_prefix())
     }
 }
 
@@ -490,93 +494,6 @@ pub static FIELD_BW: FieldDescriptor<PanelTypeEntityType> = {
 };
 inventory::submit! { CollectedField(&FIELD_BW) }
 
-// Panels of this type — reverse heterogeneous edge from Panel → PanelType.
-pub static HALF_EDGE_PANELS: crate::edge::HalfEdgeDescriptor = {
-    crate::edge::HalfEdgeDescriptor {
-        data: crate::field::CommonFieldData {
-            name: "panels",
-            display: "Panels",
-            description: "Panels of this type.",
-            aliases: &[],
-            field_type: crate::value::FieldType(
-                crate::value::FieldCardinality::List,
-                crate::value::FieldTypeItem::EntityIdentifier(PanelEntityType::TYPE_NAME),
-            ),
-            example: "[]",
-            order: 1200,
-        },
-        edge_kind: crate::edge::EdgeKind::Target {
-            source_fields: &[&panel::HALF_EDGE_PANEL_TYPE],
-        },
-        entity_name: PanelTypeEntityType::TYPE_NAME,
-    }
-};
-inventory::submit! { CollectedHalfEdge(&HALF_EDGE_PANELS) }
-
-/// Full edge from panel type panels to panel panel type
-pub const EDGE_PANELS: crate::edge::FullEdge = crate::edge::FullEdge {
-    near: &HALF_EDGE_PANELS,
-    far: &panel::HALF_EDGE_PANEL_TYPE,
-};
-
-// Timelines associated with this panel type.
-pub static HALF_EDGE_TIMELINES: crate::edge::HalfEdgeDescriptor = {
-    crate::edge::HalfEdgeDescriptor {
-        data: crate::field::CommonFieldData {
-            name: "timelines",
-            display: "Timelines",
-            description: "Timelines associated with this panel type.",
-            aliases: &["timeline"],
-            field_type: crate::value::FieldType(
-                crate::value::FieldCardinality::List,
-                crate::value::FieldTypeItem::EntityIdentifier(TimelineEntityType::TYPE_NAME),
-            ),
-            example: "[]",
-            order: 1300,
-        },
-        edge_kind: crate::edge::EdgeKind::Target {
-            source_fields: &[&timeline::HALF_EDGE_PANEL_TYPES],
-        },
-        entity_name: PanelTypeEntityType::TYPE_NAME,
-    }
-};
-inventory::submit! { CollectedHalfEdge(&HALF_EDGE_TIMELINES) }
-
-/// Full edge from panel type timelines to timeline panel types
-pub const EDGE_TIMELINES: crate::edge::FullEdge = crate::edge::FullEdge {
-    near: &HALF_EDGE_TIMELINES,
-    far: &timeline::HALF_EDGE_PANEL_TYPES,
-};
-
-// Breaks associated with this panel type.
-pub static HALF_EDGE_BREAKS: crate::edge::HalfEdgeDescriptor = {
-    crate::edge::HalfEdgeDescriptor {
-        data: crate::field::CommonFieldData {
-            name: "breaks",
-            display: "Breaks",
-            description: "Breaks associated with this panel type.",
-            aliases: &["break"],
-            field_type: crate::value::FieldType(
-                crate::value::FieldCardinality::List,
-                crate::value::FieldTypeItem::EntityIdentifier(breaks::BreakEntityType::TYPE_NAME),
-            ),
-            example: "[]",
-            order: 1400,
-        },
-        edge_kind: crate::edge::EdgeKind::Target {
-            source_fields: &[&breaks::HALF_EDGE_PANEL_TYPES],
-        },
-        entity_name: PanelTypeEntityType::TYPE_NAME,
-    }
-};
-inventory::submit! { CollectedHalfEdge(&HALF_EDGE_BREAKS) }
-
-/// Full edge from panel type breaks to break panel types
-pub const EDGE_BREAKS: crate::edge::FullEdge = crate::edge::FullEdge {
-    near: &HALF_EDGE_BREAKS,
-    far: &breaks::HALF_EDGE_PANEL_TYPES,
-};
-
 // ── FieldSet ────────────────────────────────────────────────────────────────────
 
 static PANEL_TYPE_FIELD_SET: LazyLock<FieldSet<PanelTypeEntityType>> =
@@ -752,8 +669,8 @@ mod tests {
         let fs = PanelTypeEntityType::field_set();
         let fields: Vec<_> = fs.fields().collect();
         assert_eq!(fields.len(), 11);
-        // panels, timelines, breaks.
-        assert_eq!(fs.half_edges().count(), 3);
+        // No reverse edges: panel-like types derive from the code prefix.
+        assert_eq!(fs.half_edges().count(), 0);
     }
 
     #[test]
@@ -827,17 +744,6 @@ mod tests {
             fs.read_field_value("panel_kind", id, &sched).unwrap(),
             Some(field_value!("Guest Panel"))
         );
-    }
-
-    #[test]
-    fn test_read_panels_edge_field() {
-        let id = make_panel_type_id();
-        let data = make_test_internal_data();
-        let sched = make_schedule_with_panel_type(id, data);
-
-        let fs = PanelTypeEntityType::field_set();
-        let value = fs.read_field_value("panels", id, &sched).unwrap();
-        assert_eq!(value, Some(crate::field_empty_list!()));
     }
 
     // ── Field Write ────────────────────────────────────────────────────────────

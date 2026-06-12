@@ -20,7 +20,7 @@
 //! not assigned to rooms and are excluded from per-room rendering.
 
 use crate::entity::{EntityId, EntityType, EntityUuid, FieldSet};
-use crate::field::{CollectedField, CollectedHalfEdge, FieldDescriptor, NamedField};
+use crate::field::{CollectedField, FieldDescriptor, NamedField};
 use crate::tables::fields;
 use crate::tables::fields::code::{CodeHistory, HasCode};
 use crate::tables::fields::description::HasDescription;
@@ -29,9 +29,8 @@ use crate::tables::fields::name::HasName;
 use crate::tables::fields::note::{HasNotes, NoteBag, NoteKind, PublicNote};
 use crate::tables::fields::time::HasStartTime;
 use crate::tables::panel_like::{EventKind, PanelLike};
-use crate::tables::panel_type::{self, PanelTypeEntityType};
 use crate::value::time::TimeRange;
-use crate::value::{FieldCardinality, FieldType, FieldTypeItem, ValidationError};
+use crate::value::ValidationError;
 use chrono::Duration;
 use serde::{Deserialize, Serialize};
 use std::sync::LazyLock;
@@ -339,36 +338,6 @@ inventory::submit! { CollectedField(&FIELD_END_TIME) }
 pub static FIELD_DURATION: FieldDescriptor<BreakEntityType> = fields::duration::duration_field(600);
 inventory::submit! { CollectedField(&FIELD_DURATION) }
 
-// Panel types associated with this break.
-pub static HALF_EDGE_PANEL_TYPES: crate::edge::HalfEdgeDescriptor = {
-    crate::edge::HalfEdgeDescriptor {
-        data: crate::field::CommonFieldData {
-            name: "panel_types",
-            display: "Panel Types",
-            description: "Panel types associated with this break.",
-            aliases: &[],
-            field_type: FieldType(
-                FieldCardinality::List,
-                FieldTypeItem::EntityIdentifier(PanelTypeEntityType::TYPE_NAME),
-            ),
-            example: "[]",
-            order: 700,
-        },
-        edge_kind: crate::edge::EdgeKind::Owner {
-            target_field: &panel_type::HALF_EDGE_BREAKS,
-            exclusive_with: None,
-        },
-        entity_name: BreakEntityType::TYPE_NAME,
-    }
-};
-inventory::submit! { CollectedHalfEdge(&HALF_EDGE_PANEL_TYPES) }
-
-/// Full edge from break panel types to panel type breaks
-pub const EDGE_PANEL_TYPES: crate::edge::FullEdge = crate::edge::FullEdge {
-    near: &HALF_EDGE_PANEL_TYPES,
-    far: &panel_type::HALF_EDGE_BREAKS,
-};
-
 /// `old_codes` — history of previously-held Uniq IDs (FEATURE-146).
 pub static FIELD_OLD_CODES: FieldDescriptor<BreakEntityType> = fields::code::old_codes_field(50);
 inventory::submit! { CollectedField(&FIELD_OLD_CODES) }
@@ -397,8 +366,6 @@ crate::field::macros::define_entity_builder! {
         with_end_time    => FIELD_END_TIME,
         /// Set the break duration.
         with_duration    => FIELD_DURATION,
-        /// Set the panel types associated with this break.
-        with_panel_types => HALF_EDGE_PANEL_TYPES,
     }
 }
 
@@ -454,9 +421,9 @@ mod tests {
     #[test]
     fn test_field_set_half_edges() {
         let fs = BreakEntityType::field_set();
+        // Break has no edges: its panel type is derived from the code prefix.
         let names: Vec<_> = fs.half_edges().map(|he| he.data.name).collect();
-        assert_eq!(names.len(), 1);
-        assert!(names.contains(&"panel_types"));
+        assert!(names.is_empty());
     }
 
     #[test]

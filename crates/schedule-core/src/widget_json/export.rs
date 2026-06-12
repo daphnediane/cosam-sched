@@ -802,7 +802,7 @@ mod tests {
     use crate::tables::panel::PanelInternalData;
     use crate::tables::panel_type::PanelTypeInternalData;
     use crate::tables::presenter::PresenterInternalData;
-    use crate::tables::timeline::{self, TimelineId, TimelineInternalData};
+    use crate::tables::timeline::{TimelineId, TimelineInternalData};
     use crate::tables::TimelineCommonData;
     use crate::value::time::TimeRange;
     use crate::value::uniq_id::PanelUniqId;
@@ -942,20 +942,21 @@ mod tests {
         id
     }
 
+    // Panel type is derived from the Uniq ID prefix (FEATURE-146); these test
+    // fixtures use codes whose prefix matches the intended panel type, so no
+    // explicit edge link is needed. Kept as no-ops to preserve test structure.
     fn link_panel_type(
-        sched: &mut Schedule,
-        panel_id: PanelId,
-        pt_id: crate::tables::panel_type::PanelTypeId,
+        _sched: &mut Schedule,
+        _panel_id: PanelId,
+        _pt_id: crate::tables::panel_type::PanelTypeId,
     ) {
-        let _ = sched.edge_set(panel_id, panel::EDGE_PANEL_TYPE, [pt_id]);
     }
 
     fn link_timeline_panel_type(
-        sched: &mut Schedule,
-        timeline_id: TimelineId,
-        pt_id: crate::tables::panel_type::PanelTypeId,
+        _sched: &mut Schedule,
+        _timeline_id: TimelineId,
+        _pt_id: crate::tables::panel_type::PanelTypeId,
     ) {
-        let _ = sched.edge_set(timeline_id, timeline::EDGE_PANEL_TYPES, [pt_id]);
     }
 
     fn link_panel_room(sched: &mut Schedule, panel_id: PanelId, room_id: EventRoomId) {

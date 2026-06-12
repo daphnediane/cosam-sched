@@ -18,7 +18,7 @@ use crate::tables::event_room::{self, EventRoomId};
 use crate::tables::panel::{self, PanelEntityType, PanelId};
 use crate::tables::panel_type::{PanelTypeEntityType, PanelTypeId};
 use crate::tables::presenter::{self, PresenterId};
-use crate::tables::timeline::{self, TimelineId};
+use crate::tables::timeline::TimelineId;
 use crate::value::cost::parse_additional_cost;
 use crate::value::time::parse_datetime;
 use crate::value::AdditionalCost;
@@ -197,7 +197,7 @@ pub fn import_from_widget_json(widget: &WidgetExport) -> Result<Schedule, Widget
     let presenter_map = import_presenters(&widget.presenters, &mut schedule)?;
 
     // Import timeline entries
-    import_timeline(&widget.timeline, &panel_type_map, &mut schedule)?;
+    import_timeline(&widget.timeline, &mut schedule)?;
 
     // Import panels and reconstruct edges
     import_panels(
@@ -421,10 +421,10 @@ fn import_presenters(
     Ok(presenter_map)
 }
 
-/// Import timeline entries from widget JSON.
+/// Import timeline entries from widget JSON. Panel type is derived from the
+/// Uniq ID prefix, so no panel-type map is needed.
 fn import_timeline(
     timeline: &[WidgetTimeline],
-    panel_type_map: &HashMap<String, PanelTypeId>,
     schedule: &mut Schedule,
 ) -> Result<(), WidgetJsonError> {
     for wt in timeline {
@@ -454,27 +454,18 @@ fn import_timeline(
             }
         }
 
-        let tl_id: TimelineId = build_entity(schedule, uuid_pref, updates).map_err(|e| {
+        let _tl_id: TimelineId = build_entity(schedule, uuid_pref, updates).map_err(|e| {
             WidgetJsonError::EntityAccess(format!("Failed to create timeline {}: {}", wt.id, e))
         })?;
 
-        // Link to panel type if present
-        if let Some(ref prefix) = wt.panel_type {
-            if let Some(&pt_id) = panel_type_map.get(prefix) {
-                let _ = schedule.edge_add(tl_id, timeline::EDGE_PANEL_TYPES, [pt_id]);
-            }
-        }
+        // Panel type is derived from the Uniq ID prefix — no edge to link.
     }
 
     Ok(())
 }
 
 /// Import a single break entry (a break-typed panel) into the Break table.
-fn import_break(
-    wp: &WidgetPanel,
-    panel_type_map: &HashMap<String, PanelTypeId>,
-    schedule: &mut Schedule,
-) -> Result<(), WidgetJsonError> {
+fn import_break(wp: &WidgetPanel, schedule: &mut Schedule) -> Result<(), WidgetJsonError> {
     let uuid_pref = UuidPreference::PreferFromV5 {
         name: wp.id.to_uppercase(),
     };
@@ -500,16 +491,11 @@ fn import_break(
         updates.push(FieldUpdate::set(&breaks::FIELD_NOTE, note.as_str()));
     }
 
-    let break_id: BreakId = build_entity(schedule, uuid_pref, updates).map_err(|e| {
+    let _break_id: BreakId = build_entity(schedule, uuid_pref, updates).map_err(|e| {
         WidgetJsonError::EntityAccess(format!("Failed to create break {}: {}", wp.id, e))
     })?;
 
-    // Link to panel type if present
-    if let Some(ref prefix) = wp.panel_type {
-        if let Some(&pt_id) = panel_type_map.get(prefix) {
-            let _ = schedule.edge_add(break_id, breaks::EDGE_PANEL_TYPES, [pt_id]);
-        }
-    }
+    // Panel type is derived from the Uniq ID prefix — no edge to link.
 
     Ok(())
 }
@@ -538,7 +524,7 @@ fn import_panels(
             .map(|d| d.data.is_break)
             .unwrap_or(false);
         if is_break {
-            import_break(wp, panel_type_map, schedule)?;
+            import_break(wp, schedule)?;
             continue;
         }
 
@@ -627,12 +613,7 @@ fn import_panels(
             WidgetJsonError::EntityAccess(format!("Failed to create panel {}: {}", wp.id, e))
         })?;
 
-        // Link to panel type
-        if let Some(ref prefix) = wp.panel_type {
-            if let Some(&pt_id) = panel_type_map.get(prefix) {
-                let _ = schedule.edge_add(panel_id, panel::EDGE_PANEL_TYPE, [pt_id]);
-            }
-        }
+        // Panel type is derived from the Uniq ID prefix — no edge to link.
 
         // Link to rooms
         if !wp.room_ids.is_empty() {

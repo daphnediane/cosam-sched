@@ -398,18 +398,7 @@ impl super::ImportContext<'_> {
                     }),
                 );
 
-                // Replace panel type edge (set, not add, to handle changed type).
-                if let Some(pt_id) = panel_type_id {
-                    let _ =
-                        self.schedule
-                            .edge_set(timeline_id, timeline::EDGE_PANEL_TYPES, [pt_id]);
-                } else {
-                    let _ = self.schedule.edge_set(
-                        timeline_id,
-                        timeline::EDGE_PANEL_TYPES,
-                        std::iter::empty::<TimelineId>(),
-                    );
-                }
+                // Panel type is derived from the Uniq ID prefix — no edge to set.
 
                 // Skip the rest of panel-specific processing for timelines
                 continue;
@@ -468,18 +457,7 @@ impl super::ImportContext<'_> {
                     }),
                 );
 
-                // Replace panel type edge (set, not add, to handle changed type).
-                if let Some(pt_id) = panel_type_id {
-                    let _ = self
-                        .schedule
-                        .edge_set(break_id, breaks::EDGE_PANEL_TYPES, [pt_id]);
-                } else {
-                    let _ = self.schedule.edge_set(
-                        break_id,
-                        breaks::EDGE_PANEL_TYPES,
-                        std::iter::empty::<BreakId>(),
-                    );
-                }
+                // Panel type is derived from the Uniq ID prefix — no edge to set.
 
                 // Skip the rest of panel-specific processing for breaks.
                 continue;
@@ -532,21 +510,11 @@ impl super::ImportContext<'_> {
                 self.schedule,
             );
 
-            // Replace room and panel-type edges (set, not add, to reflect import authority).
+            // Replace room edges (set, not add, to reflect import authority).
+            // Panel type is derived from the Uniq ID prefix — no edge to set.
             let _ = self
                 .schedule
                 .edge_set(panel_id, panel::EDGE_EVENT_ROOMS, room_ids);
-            if let Some(pt_id) = panel_type_id {
-                let _ = self
-                    .schedule
-                    .edge_set(panel_id, panel::EDGE_PANEL_TYPE, [pt_id]);
-            } else {
-                let _ = self.schedule.edge_set(
-                    panel_id,
-                    panel::EDGE_PANEL_TYPE,
-                    std::iter::empty::<PanelId>(),
-                );
-            }
 
             // Parse presenter columns for this row.
             // collect_presenters takes schedule + cache as separate field refs because

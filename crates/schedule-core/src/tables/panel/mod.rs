@@ -38,7 +38,7 @@ use crate::tables::fields::note::{
 use crate::tables::fields::time::HasStartTime;
 use crate::tables::hotel_room::{HotelRoomEntityType, HotelRoomId};
 use crate::tables::panel_like::{EventKind, PanelLike};
-use crate::tables::panel_type::{self, PanelTypeEntityType, PanelTypeId};
+use crate::tables::panel_type::{PanelTypeEntityType, PanelTypeId};
 use crate::tables::presenter::{self, PresenterEntityType, PresenterId};
 use crate::value::cost::{additional_cost_to_string, AdditionalCost};
 use crate::value::time::TimeRange;
@@ -593,21 +593,15 @@ pub static FIELD_FOR_KIDS: FieldDescriptor<PanelEntityType> = {
 };
 inventory::submit! { CollectedField(&FIELD_FOR_KIDS) }
 
-/// Traverses `EDGE_PANEL_TYPE` for `panel_id` and returns whether the linked
-/// panel type is marked as a workshop. Returns `false` if no panel type is set.
+/// Returns whether `panel_id`'s derived panel type (resolved from its Uniq ID
+/// prefix) is marked as a workshop. Returns `false` if no panel type matches.
 pub fn panel_type_is_workshop(sched: &Schedule, panel_id: PanelId) -> bool {
     sched
-        .connected_field_nodes(panel_id, EDGE_PANEL_TYPE)
-        .into_iter()
-        .next()
-        .and_then(|node| {
-            let pt_id = unsafe {
-                crate::tables::panel_type::PanelTypeId::new_unchecked(node.entity_uuid())
-            };
-            sched
-                .get_internal::<crate::tables::panel_type::PanelTypeEntityType>(pt_id)
-                .map(|d| d.data.is_workshop)
-        })
+        .get_internal::<PanelEntityType>(panel_id)
+        .and_then(|d| d.code.current().cloned())
+        .and_then(|code| PanelTypeEntityType::find_by_code(sched, &code))
+        .and_then(|pt_id| sched.get_internal::<PanelTypeEntityType>(pt_id))
+        .map(|d| d.data.is_workshop)
         .unwrap_or(false)
 }
 
@@ -1013,29 +1007,6 @@ pub static HALF_EDGE_EVENT_ROOMS: crate::edge::HalfEdgeDescriptor = {
 };
 inventory::submit! { CollectedHalfEdge(&HALF_EDGE_EVENT_ROOMS) }
 
-pub static HALF_EDGE_PANEL_TYPE: crate::edge::HalfEdgeDescriptor = {
-    crate::edge::HalfEdgeDescriptor {
-        data: crate::field::CommonFieldData {
-            name: "panel_type",
-            display: "Panel Type",
-            description: "Type of panel (e.g. panel, workshop, roundtable).",
-            aliases: &["type", "kind", "category"],
-            field_type: crate::value::FieldType(
-                crate::value::FieldCardinality::Optional,
-                crate::value::FieldTypeItem::EntityIdentifier(PanelTypeEntityType::TYPE_NAME),
-            ),
-            example: "panel_type_id",
-            order: 3200,
-        },
-        edge_kind: crate::edge::EdgeKind::Owner {
-            target_field: &panel_type::HALF_EDGE_PANELS,
-            exclusive_with: None,
-        },
-        entity_name: PanelEntityType::TYPE_NAME,
-    }
-};
-inventory::submit! { CollectedHalfEdge(&HALF_EDGE_PANEL_TYPE) }
-
 /// Full edge from panel credited presenters to presenter panels
 pub const EDGE_CREDITED_PRESENTERS: crate::edge::FullEdge = crate::edge::FullEdge {
     near: &HALF_EDGE_CREDITED_PRESENTERS,
@@ -1052,12 +1023,6 @@ pub const EDGE_UNCREDITED_PRESENTERS: crate::edge::FullEdge = crate::edge::FullE
 pub const EDGE_EVENT_ROOMS: crate::edge::FullEdge = crate::edge::FullEdge {
     near: &HALF_EDGE_EVENT_ROOMS,
     far: &event_room::HALF_EDGE_PANELS,
-};
-
-/// Full edge from panel panel type to panel type panels
-pub const EDGE_PANEL_TYPE: crate::edge::FullEdge = crate::edge::FullEdge {
-    near: &HALF_EDGE_PANEL_TYPE,
-    far: &panel_type::HALF_EDGE_PANELS,
 };
 
 /// `old_codes` — history of previously-held Uniq IDs (FEATURE-146).
@@ -1202,8 +1167,6 @@ crate::field::macros::define_entity_builder! {
         with_uncredited_presenters => HALF_EDGE_UNCREDITED_PRESENTERS,
         /// Replace the set of event rooms where this panel takes place.
         with_event_rooms         => HALF_EDGE_EVENT_ROOMS,
-        /// Set the panel-type / kind edge.
-        with_panel_type          => HALF_EDGE_PANEL_TYPE,
     }
 }
 
@@ -1298,7 +1261,7 @@ mod tests {
         let fs = PanelEntityType::field_set();
         let count = fs.fields().count();
         assert_eq!(count, 31);
-        assert_eq!(fs.half_edges().count(), 4);
+        assert_eq!(fs.half_edges().count(), 3);
     }
 
     #[test]
@@ -1307,7 +1270,6 @@ mod tests {
         assert!(fs.get_by_name("id").is_some());
         assert!(fs.get_by_name("title").is_some());
         assert!(fs.get_by_name("rooms").is_some());
-        assert!(fs.get_by_name("kind").is_some());
     }
 
     #[test]
@@ -1598,10 +1560,6 @@ mod tests {
         );
         assert_eq!(
             fs.read_field_value("rooms", id, &s).unwrap(),
-            Some(crate::field_empty_list!())
-        );
-        assert_eq!(
-            fs.read_field_value("panel_type", id, &s).unwrap(),
             Some(crate::field_empty_list!())
         );
         assert_eq!(

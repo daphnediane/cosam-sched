@@ -79,30 +79,8 @@ impl super::ImportContext<'_> {
                     .and_then(|s| parse_datetime(&s))
             };
 
-            // Determine panel type from prefix or Panel Types column.
+            // A timeline's panel type is derived from its Uniq ID prefix.
             let parsed_code = uniq_id_str.as_deref().and_then(PanelUniqId::parse);
-            let panel_type_id = parsed_code
-                .as_ref()
-                .and_then(|c| self.panel_type_lookup.get(c.type_prefix()))
-                .copied()
-                .or_else(|| {
-                    get_field_def(&data, &tl_cols::PANEL_TYPES).and_then(|pt| {
-                        self.panel_type_lookup
-                            .values()
-                            .find(|&&pt_id| {
-                                self.schedule
-                                    .get_internal::<crate::tables::panel_type::PanelTypeEntityType>(
-                                        pt_id,
-                                    )
-                                    .map(|d| {
-                                        d.data.prefix.to_lowercase() == pt.to_lowercase()
-                                            || d.data.panel_kind.to_lowercase() == pt.to_lowercase()
-                                    })
-                                    .unwrap_or(false)
-                            })
-                            .copied()
-                    })
-                });
 
             // Determine Uniq ID string (synthesize row-based ID if missing).
             // Normalize via PanelUniqId so the upsert key matches what find_by_code
@@ -154,18 +132,7 @@ impl super::ImportContext<'_> {
                 }),
             );
 
-            // Replace panel type edge (set, not add, to handle changed type).
-            if let Some(pt_id) = panel_type_id {
-                let _ = self
-                    .schedule
-                    .edge_set(timeline_id, timeline::EDGE_PANEL_TYPES, [pt_id]);
-            } else {
-                let _ = self.schedule.edge_set(
-                    timeline_id,
-                    timeline::EDGE_PANEL_TYPES,
-                    std::iter::empty::<TimelineId>(),
-                );
-            }
+            // Panel type is derived from the Uniq ID prefix — no edge to set.
 
             route_extra_columns(
                 ws,

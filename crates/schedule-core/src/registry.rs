@@ -188,9 +188,9 @@ mod tests {
 
     #[test]
     fn test_get_named_field_canonical() {
-        let field = get_named_field("panel", "panel_type");
+        let field = get_named_field("panel", "event_rooms");
         assert!(field.is_some());
-        assert_eq!(field.unwrap().name(), "panel_type");
+        assert_eq!(field.unwrap().name(), "event_rooms");
         assert_eq!(field.unwrap().entity_type_name(), "panel");
     }
 
@@ -206,18 +206,18 @@ mod tests {
 
     #[test]
     fn test_get_full_edge_by_owner_known() {
-        let edge = get_full_edge_by_owner("panel:panel_type");
+        let edge = get_full_edge_by_owner("panel:event_rooms");
         assert!(edge.is_some());
         let edge = edge.unwrap();
         assert_eq!(edge.near.entity_type_name(), "panel");
-        assert_eq!(edge.near.name(), "panel_type");
-        assert_eq!(edge.far.entity_type_name(), "panel_type");
+        assert_eq!(edge.near.name(), "event_rooms");
+        assert_eq!(edge.far.entity_type_name(), "event_room");
         assert_eq!(edge.far.name(), "panels");
     }
 
     #[test]
     fn test_get_full_edge_by_owner_target_is_not_owner() {
-        assert!(get_full_edge_by_owner("panel_type:panels").is_none());
+        assert!(get_full_edge_by_owner("event_room:panels").is_none());
     }
 
     #[test]
@@ -227,18 +227,17 @@ mod tests {
 
     #[test]
     fn test_get_full_edge_flip() {
-        let edge = get_full_edge_by_owner("panel:panel_type").unwrap();
+        let edge = get_full_edge_by_owner("panel:event_rooms").unwrap();
         let flipped = edge.flip();
-        assert_eq!(flipped.near.entity_type_name(), "panel_type");
+        assert_eq!(flipped.near.entity_type_name(), "event_room");
         assert_eq!(flipped.near.name(), "panels");
         assert_eq!(flipped.far.entity_type_name(), "panel");
-        assert_eq!(flipped.far.name(), "panel_type");
+        assert_eq!(flipped.far.name(), "event_rooms");
     }
 
     #[test]
     fn test_all_owner_edges_indexed() {
         let owners = [
-            "panel:panel_type",
             "panel:credited_presenters",
             "panel:uncredited_presenters",
             "panel:event_rooms",

@@ -69,8 +69,13 @@ intermediate entity. The prefix (`GP` in `GP001`) selects the matching
    `tables/fields/code.rs`; added the `old_codes` field (CRDT list, set/add/remove)
    to Panel, Break, Timeline. (Superseded the earlier `PanelCode` entity +
    `panel_code` edge work, now removed.)
-2. **[TODO] Derived `panel_type`.** Replace the direct `panel_like → panel_type`
-   edge with a derived read resolving `PanelType` by the code's prefix.
+2. **[DONE] Derived `panel_type`.** Removed the direct `panel_like → panel_type`
+   owner edges (and the reverse `panels`/`timelines`/`breaks` edges on
+   `PanelType`). Added `PanelTypeEntityType::find_by_code` (prefix lookup);
+   repointed every reader (workshop flag, xlsx export Kind/Panel-Types columns,
+   grid type lookup) through it, and dropped the edge-set calls from xlsx and
+   widget import. `Kind`/`Panel Types` remain accepted import columns but no
+   longer override the prefix per row.
 3. **[TODO] Drop export columns + `Old Uniq Id` round-trip.** Stop writing
    `Kind`/`Panel Types` on export (still imported as fallbacks); write the
    `Old Uniq Id` history column. **xlsx read/write currently ignore `Old Uniq Id`**
@@ -89,9 +94,24 @@ intermediate entity. The prefix (`GP` in `GP001`) selects the matching
 
 ## Deferred (follow-up)
 
-- **Renumber-on-set:** renumbering a base (e.g. `GP001` → `GP002`) re-points every
-  entity sharing that base, prefers prior forms, and may consult `old_codes`. This
-  is where a lightweight `(prefix, number)`-keyed in-memory index would be built.
+**Reassign-on-type-change / renumber.** The feature's namesake but its heavier
+half — deferred until the derived `panel_type` + column work lands. When an
+entity's type is changed so its prefix no longer matches its code (or a legacy
+row was typed via `Kind`), the code is reassigned to a prefix-matching one.
+
+- **Trigger:** reassign when the user changes an entity's type, with an
+  export-time safety net that reassigns any remaining prefix/type mismatch.
+- **Reclaim** (already implemented in `CodeHistory::set_current`): if the target
+  prefix matches one of *this* entity's own `old_codes`, restore that id instead
+  of allocating a new number — a clean round-trip when toggling a type back.
+- **Allocation** (when no reclaimable old code exists): pick a free number under
+  the target prefix, avoiding all *live* codes. Allocation does **not** avoid
+  other entities' `old_codes` — `old_codes` is history, not a reservation. (This
+  reverses the original FEATURE-146 draft, which reserved every historical id.)
+- **Group consistency:** parts/sessions sharing a base (`<prefix><num>` differing
+  only in `P`/`S`/suffix) must all receive the **same** new number, keeping the
+  group intact. This is where the lightweight `(prefix, number)`-keyed in-memory
+  base index would be built — to find and re-point every member of a base.
 
 ## Notes
 
@@ -101,3 +121,7 @@ This item went through two superseded designs: an `old_codes`-only field, then a
 first-class `PanelCode` entity. Both were dropped in favor of deriving the type
 directly from the prefix — `PanelCode` was UUID/entity machinery for what is
 purely derived state, and users never see it.
+
+**Open design question** (from the original draft, still open): whether
+reassignment should also run as a model-normalization pass on load, or only on
+type-change plus the export-time safety net.

@@ -92,10 +92,6 @@ impl super::ImportContext<'_> {
             // A break's panel type is always derived from its Uniq ID prefix
             // (e.g. `BREAK001` → `BR`); there is no Panel Types column.
             let parsed_code = uniq_id_str.as_deref().and_then(PanelUniqId::parse);
-            let panel_type_id = parsed_code
-                .as_ref()
-                .and_then(|c| self.panel_type_lookup.get(c.type_prefix()))
-                .copied();
 
             // Determine Uniq ID string (synthesize row-based ID if missing).
             let code_str = uniq_id_str.unwrap_or_else(|| format!("BREAK{row:03}"));
@@ -152,18 +148,7 @@ impl super::ImportContext<'_> {
                 }),
             );
 
-            // Replace panel type edge (set, not add, to handle changed type).
-            if let Some(pt_id) = panel_type_id {
-                let _ = self
-                    .schedule
-                    .edge_set(break_id, breaks::EDGE_PANEL_TYPES, [pt_id]);
-            } else {
-                let _ = self.schedule.edge_set(
-                    break_id,
-                    breaks::EDGE_PANEL_TYPES,
-                    std::iter::empty::<BreakId>(),
-                );
-            }
+            // Panel type is derived from the Uniq ID prefix — no edge to set.
 
             route_extra_columns(
                 ws,
