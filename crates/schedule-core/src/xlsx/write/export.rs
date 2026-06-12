@@ -52,6 +52,12 @@ fn col_of(all: &[FieldDef], field: &FieldDef) -> u32 {
         + 1
 }
 
+/// Format an entity's `old_codes` history for the `Old Uniq Id` cell — a
+/// comma-joined list of prior Uniq IDs, or `None` when there is no history.
+fn old_codes_cell(old_codes: &[String]) -> Option<String> {
+    (!old_codes.is_empty()).then(|| old_codes.join(", "))
+}
+
 /// Collect all unique extra-field keys across all entities of type `E`,
 /// in stable insertion order (first key seen wins ordering).
 fn collect_extra_keys<E: EntityType>(schedule: &Schedule) -> Vec<String> {
@@ -494,14 +500,14 @@ fn write_schedule_sheet(
     let c_ticket_url = c(&sched_cols::TICKET_URL);
     let c_hide_panelist = c(&sched_cols::HIDE_PANELIST);
     let c_alt_panelist = c(&sched_cols::ALT_PANELIST);
-    let c_kind = c(&sched_cols::KIND);
+    let c_old_uniq = c(&sched_cols::OLD_UNIQ_ID);
     let c_full = c(&sched_cols::FULL);
 
     let mut row = 2u32;
     for (panel_id, panel) in &panels {
         // ── Fixed data columns ────────────────────────────────────────────────
         set_str(ws, c_uniq_id, row, &panel.code.full_id());
-        // OLD_UNIQ_ID: no old_code field in this data model; leave blank.
+        set_opt(ws, c_old_uniq, row, &old_codes_cell(panel.code.old_codes()));
         set_str(ws, c_name, row, &panel.data.name);
 
         // Room: comma-join of connected event room names.
@@ -578,14 +584,8 @@ fn write_schedule_sheet(
         }
         set_opt(ws, c_alt_panelist, row, &panel.data.alt_panelist);
 
-        // Kind: panel type prefix (two-letter code), derived from the Uniq ID.
-        let kind_prefix = panel
-            .code
-            .current()
-            .and_then(|code| PanelTypeEntityType::find_by_code(schedule, code))
-            .and_then(|pt_id| schedule.get_internal::<PanelTypeEntityType>(pt_id))
-            .map(|pt| pt.data.prefix.clone());
-        set_opt(ws, c_kind, row, &kind_prefix);
+        // Kind is no longer exported: a panel's type derives from its Uniq ID
+        // prefix (FEATURE-146).
 
         if panel.data.is_full {
             set_str(ws, c_full, row, "Yes");
@@ -692,6 +692,12 @@ fn write_schedule_sheet(
     // ── Timeline rows ─────────────────────────────────────────────────────────
     for (_timeline_id, timeline) in &timelines {
         set_str(ws, c_uniq_id, row, &timeline.code.full_id());
+        set_opt(
+            ws,
+            c_old_uniq,
+            row,
+            &old_codes_cell(timeline.code.old_codes()),
+        );
         set_str(ws, c_name, row, &timeline.data.name);
 
         // Room: blank for timelines
@@ -717,14 +723,8 @@ fn write_schedule_sheet(
         // Hide panelist: blank for timelines
         // Alt panelist: blank for timelines
 
-        // Panel type kind, derived from the Uniq ID prefix.
-        let kind = timeline
-            .code
-            .current()
-            .and_then(|code| PanelTypeEntityType::find_by_code(schedule, code))
-            .and_then(|pt_id| schedule.get_internal::<PanelTypeEntityType>(pt_id))
-            .map(|pt| pt.data.panel_kind.clone());
-        set_opt(ws, c_kind, row, &kind);
+        // Kind is no longer exported: a timeline's type derives from its Uniq ID
+        // prefix (FEATURE-146).
 
         // Full flag: blank for timelines
 
@@ -1022,12 +1022,18 @@ fn write_timeline_sheet(ws: &mut Worksheet, schedule: &Schedule, extra_keys: &[S
     let c_description = c(&tl_cols::DESCRIPTION);
     let c_note = c(&tl_cols::NOTE);
     let c_time = c(&tl_cols::TIME);
-    let c_panel_types = c(&tl_cols::PANEL_TYPES);
+    let c_old_uniq = c(&tl_cols::OLD_UNIQ_ID);
     let extra_start_col = tl_cols::ALL.len() as u32 + 1;
 
     let mut row = 2u32;
     for (timeline_id, timeline) in &timelines {
         set_str(ws, c_uniq_id, row, &timeline.code.full_id());
+        set_opt(
+            ws,
+            c_old_uniq,
+            row,
+            &old_codes_cell(timeline.code.old_codes()),
+        );
         set_str(ws, c_name, row, &timeline.data.name);
         set_opt(ws, c_description, row, &timeline.data.description);
         set_opt(ws, c_note, row, &timeline.notes.get_owned(NoteKind::Public));
@@ -1035,18 +1041,8 @@ fn write_timeline_sheet(ws: &mut Worksheet, schedule: &Schedule, extra_keys: &[S
             set_str(ws, c_time, row, &time.format(TIME_FMT).to_string());
         }
 
-        // Panel types: the panel type prefix, derived from the Uniq ID.
-        let panel_type_prefixes: Vec<String> = timeline
-            .code
-            .current()
-            .and_then(|code| PanelTypeEntityType::find_by_code(schedule, code))
-            .and_then(|pt_id| schedule.get_internal::<PanelTypeEntityType>(pt_id))
-            .map(|pt| pt.data.prefix.clone())
-            .into_iter()
-            .collect();
-        if !panel_type_prefixes.is_empty() {
-            set_str(ws, c_panel_types, row, &panel_type_prefixes.join(", "));
-        }
+        // Panel Types is no longer exported: a timeline's type derives from its
+        // Uniq ID prefix (FEATURE-146).
 
         write_extra_fields(
             ws,
@@ -1087,6 +1083,7 @@ fn write_breaks_sheet(ws: &mut Worksheet, schedule: &Schedule, extra_keys: &[Str
 
     let c = |f: &FieldDef| col_of(br_cols::ALL, f);
     let c_uniq_id = c(&br_cols::UNIQ_ID);
+    let c_old_uniq = c(&br_cols::OLD_UNIQ_ID);
     let c_name = c(&br_cols::NAME);
     let c_description = c(&br_cols::DESCRIPTION);
     let c_note = c(&br_cols::NOTE);
@@ -1097,6 +1094,7 @@ fn write_breaks_sheet(ws: &mut Worksheet, schedule: &Schedule, extra_keys: &[Str
     let mut row = 2u32;
     for (break_id, brk) in &breaks {
         set_str(ws, c_uniq_id, row, &brk.code.full_id());
+        set_opt(ws, c_old_uniq, row, &old_codes_cell(brk.code.old_codes()));
         set_str(ws, c_name, row, &brk.data.name);
         set_opt(ws, c_description, row, &brk.data.description);
         set_opt(ws, c_note, row, &brk.notes.get_owned(NoteKind::Public));
@@ -1199,6 +1197,18 @@ fn split_panels_by_logical_day(schedule: &Schedule) -> Vec<(String, Vec<GridPane
 fn collect_grid_panels(schedule: &Schedule) -> Vec<GridPanel> {
     let mut out = Vec::new();
 
+    // Build the prefix→type flags cache once (avoids an O(types) scan per panel
+    // when deriving each panel's type from its Uniq ID prefix).
+    let type_by_prefix: HashMap<String, (bool, bool, Option<String>)> = schedule
+        .iter_entities::<PanelTypeEntityType>()
+        .map(|(_, d)| {
+            (
+                d.data.prefix.to_uppercase(),
+                (d.data.is_break, d.data.is_timeline, d.data.color.clone()),
+            )
+        })
+        .collect();
+
     for (panel_id, internal) in schedule.iter_entities::<PanelEntityType>() {
         let (start, end) = match (
             internal.time_slot.start_time(),
@@ -1211,13 +1221,11 @@ fn collect_grid_panels(schedule: &Schedule) -> Vec<GridPanel> {
         let panel_type_data = internal
             .code
             .current()
-            .and_then(|code| PanelTypeEntityType::find_by_code(schedule, code))
-            .and_then(|pt_id| schedule.get_internal::<PanelTypeEntityType>(pt_id))
-            .map(|pt| (pt.data.is_break, pt.data.is_timeline, pt.data.color.clone()));
+            .and_then(|code| type_by_prefix.get(&code.type_prefix().to_uppercase()));
 
-        let is_break = panel_type_data.as_ref().map(|d| d.0).unwrap_or(false);
-        let is_timeline = panel_type_data.as_ref().map(|d| d.1).unwrap_or(false);
-        let type_color = panel_type_data.and_then(|d| d.2);
+        let is_break = panel_type_data.map(|d| d.0).unwrap_or(false);
+        let is_timeline = panel_type_data.map(|d| d.1).unwrap_or(false);
+        let type_color = panel_type_data.and_then(|d| d.2.clone());
 
         // Timeline panels are scheduling artifacts; skip them in the grid.
         if is_timeline {

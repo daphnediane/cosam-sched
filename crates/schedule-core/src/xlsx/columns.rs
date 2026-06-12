@@ -218,10 +218,16 @@ pub mod schedule {
         aliases: &["AltPanelist", "Alt_Presenter", "Alt"],
     };
 
+    /// Legacy panel-type *name* column. `Kind` never set a row's type — that has
+    /// always been the Uniq ID prefix — it only gave that prefix's panel type a
+    /// readable name (e.g. code `WS012` with `Kind = "Workshop"` names the `WS`
+    /// prefix). Imported as a type name when one isn't already defined (see
+    /// `READ_ONLY`); no longer exported, since the name lives on the panel type
+    /// (written via the PanelTypes sheet).
     pub const KIND: FieldDef = FieldDef {
         export: "Kind",
         canonical: "Kind",
-        aliases: &["Type", "Panel_Type", "PanelType", "Prefix"],
+        aliases: &["Panel_Type", "PanelType"],
     };
 
     pub const FULL: FieldDef = FieldDef {
@@ -265,16 +271,16 @@ pub mod schedule {
         TICKET_URL,
         HIDE_PANELIST,
         ALT_PANELIST,
-        KIND,
         FULL,
     ];
 
     /// Columns accepted on import but **never written** on export.
     ///
     /// These are recognized so they aren't routed to the sidecar as unknown
-    /// extra fields, but they carry no canonical data: `END_TIME` is folded into
-    /// the start + duration pair (see [`ALL`]).
-    pub const READ_ONLY: &[FieldDef] = &[END_TIME];
+    /// extra fields, but they are not (re)written: [`END_TIME`] is folded into
+    /// the start + duration pair (see [`ALL`]); [`KIND`] is a panel-type *name*
+    /// hint (see its definition).
+    pub const READ_ONLY: &[FieldDef] = &[END_TIME, KIND];
 
     /// Formula-only columns appended after all data columns on export.
     ///
@@ -461,12 +467,11 @@ pub mod hotel_rooms {
 pub mod timeline {
     use super::FieldDef;
 
-    // UNIQ_ID/DESCRIPTION/NOTE are identical to the Schedule sheet's, so reuse
-    // them (a `FieldDef` is a plain `const`). Only NAME and TIME differ — a
-    // timeline is a single time point titled differently than a panel — and
-    // PANEL_TYPES is timeline-specific (header "Panel Types", the timeline
-    // analog of the Schedule sheet's "Kind" column).
-    pub use super::schedule::{DESCRIPTION, NOTE, UNIQ_ID};
+    // UNIQ_ID/OLD_UNIQ_ID/DESCRIPTION/NOTE are identical to the Schedule sheet's,
+    // so reuse them (a `FieldDef` is a plain `const`). Only NAME and TIME differ
+    // — a timeline is a single time point titled differently than a panel — plus
+    // the timeline-specific PANEL_TYPES column (documented below).
+    pub use super::schedule::{DESCRIPTION, NOTE, OLD_UNIQ_ID, UNIQ_ID};
 
     pub const NAME: FieldDef = FieldDef {
         export: "Name",
@@ -480,6 +485,10 @@ pub mod timeline {
         aliases: &["Start_Time", "StartTime", "Start"],
     };
 
+    /// The timeline analog of the Schedule sheet's [`super::schedule::KIND`]: a
+    /// panel-type *name* hint, never the type itself (that is the Uniq ID
+    /// prefix). Imported as a type name when one isn't already defined (see
+    /// `READ_ONLY`); no longer exported.
     pub const PANEL_TYPES: FieldDef = FieldDef {
         export: "Panel Types",
         canonical: "Panel_Types",
@@ -487,7 +496,11 @@ pub mod timeline {
     };
 
     /// All column definitions in export order.
-    pub const ALL: &[FieldDef] = &[UNIQ_ID, NAME, DESCRIPTION, NOTE, TIME, PANEL_TYPES];
+    pub const ALL: &[FieldDef] = &[UNIQ_ID, OLD_UNIQ_ID, NAME, DESCRIPTION, NOTE, TIME];
+
+    /// Columns accepted on import but never written — [`PANEL_TYPES`] is a
+    /// panel-type *name* hint (see its definition).
+    pub const READ_ONLY: &[FieldDef] = &[PANEL_TYPES];
 }
 
 // ─── Breaks table ────────────────────────────────────────────────────────────
@@ -512,11 +525,19 @@ pub mod breaks {
     // duration) but is **not** in `ALL`, so it is never written: start + duration
     // is the only canonical pair exported. Writing a redundant end time risks
     // `start + duration != end` after edits, with no clean way to reconcile.
-    pub use super::schedule::{DURATION, END_TIME, START_TIME};
+    pub use super::schedule::{DURATION, END_TIME, OLD_UNIQ_ID, START_TIME};
     pub use super::timeline::{DESCRIPTION, NAME, NOTE, UNIQ_ID};
 
     /// Column definitions written on export, in order.
-    pub const ALL: &[FieldDef] = &[UNIQ_ID, NAME, DESCRIPTION, NOTE, START_TIME, DURATION];
+    pub const ALL: &[FieldDef] = &[
+        UNIQ_ID,
+        OLD_UNIQ_ID,
+        NAME,
+        DESCRIPTION,
+        NOTE,
+        START_TIME,
+        DURATION,
+    ];
 
     /// Columns accepted on import but never written (see [`super::schedule::READ_ONLY`]).
     pub const READ_ONLY: &[FieldDef] = &[END_TIME];

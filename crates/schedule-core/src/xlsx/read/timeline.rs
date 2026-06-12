@@ -19,7 +19,7 @@ use crate::xlsx::columns::timeline as tl_cols;
 
 use super::{
     build_column_map, find_data_range, get_cell_str, get_field_def, known_field_key_set,
-    route_extra_columns, row_to_map,
+    parse_old_codes, route_extra_columns, row_to_map,
 };
 
 impl super::ImportContext<'_> {
@@ -48,7 +48,7 @@ impl super::ImportContext<'_> {
         }
 
         let (raw_headers, canonical_headers, col_map) = build_column_map(ws, &range);
-        let known_keys = known_field_key_set(tl_cols::ALL, &[]);
+        let known_keys = known_field_key_set(tl_cols::ALL, tl_cols::READ_ONLY);
 
         let time_col = col_map.get(tl_cols::TIME.canonical).copied();
 
@@ -101,6 +101,10 @@ impl super::ImportContext<'_> {
             }
             if let Some(ref n) = get_field_def(&data, &tl_cols::NOTE).cloned() {
                 updates.push(FieldUpdate::set(&timeline::FIELD_NOTE, n.as_str()));
+            }
+            let old_codes = parse_old_codes(&data, &tl_cols::OLD_UNIQ_ID);
+            if !old_codes.is_empty() {
+                updates.push(FieldUpdate::set(&timeline::FIELD_OLD_CODES, old_codes));
             }
             if let Some(t) = time {
                 updates.push(FieldUpdate::set(&timeline::FIELD_TIME, t));

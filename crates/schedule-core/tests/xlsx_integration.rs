@@ -1910,3 +1910,69 @@ fn test_people_membership_round_trips_through_export() {
         "group members must round-trip through the exported People Members column"
     );
 }
+
+// ── Old Uniq Id history + Kind-as-name (FEATURE-146) ──────────────────────────
+
+#[test]
+fn test_old_uniq_id_imports_and_round_trips() {
+    let mut book = umya_spreadsheet::new_file();
+    {
+        let ws = book.get_sheet_mut(&0).unwrap();
+        ws.set_name("Schedule");
+        set_cell(ws, 1, 1, "Uniq ID");
+        set_cell(ws, 2, 1, "Old Uniq Id");
+        set_cell(ws, 3, 1, "Name");
+        set_cell(ws, 1, 2, "GP001");
+        set_cell(ws, 2, 2, "GP005, GP009");
+        set_cell(ws, 3, 2, "Panel One");
+    }
+    let path = write_temp(book);
+    let schedule = import_xlsx(&path, &XlsxImportOptions::default()).unwrap();
+    cleanup(&path);
+
+    let old: Vec<String> = schedule
+        .iter_entities::<PanelEntityType>()
+        .find(|(_, d)| d.code.full_id() == "GP001")
+        .map(|(_, d)| d.code.old_codes().to_vec())
+        .expect("GP001 panel should import");
+    assert_eq!(old, vec!["GP005".to_string(), "GP009".to_string()]);
+
+    // The history survives an export → re-import round-trip.
+    let rt = round_trip(schedule);
+    let old_rt: Vec<String> = rt
+        .iter_entities::<PanelEntityType>()
+        .find(|(_, d)| d.code.full_id() == "GP001")
+        .map(|(_, d)| d.code.old_codes().to_vec())
+        .expect("GP001 panel should survive round-trip");
+    assert_eq!(old_rt, vec!["GP005".to_string(), "GP009".to_string()]);
+}
+
+#[test]
+fn test_kind_column_names_panel_type_for_prefix() {
+    // A legacy sheet with no PanelTypes sheet: the Kind column names the panel
+    // type that the code prefix implies.
+    let mut book = umya_spreadsheet::new_file();
+    {
+        let ws = book.get_sheet_mut(&0).unwrap();
+        ws.set_name("Schedule");
+        set_cell(ws, 1, 1, "Uniq ID");
+        set_cell(ws, 2, 1, "Name");
+        set_cell(ws, 3, 1, "Kind");
+        set_cell(ws, 1, 2, "GP001");
+        set_cell(ws, 2, 2, "Panel One");
+        set_cell(ws, 3, 2, "Guest Panel");
+    }
+    let path = write_temp(book);
+    let schedule = import_xlsx(&path, &XlsxImportOptions::default()).unwrap();
+    cleanup(&path);
+
+    let kind = schedule
+        .iter_entities::<PanelTypeEntityType>()
+        .find(|(_, d)| d.data.prefix == "GP")
+        .map(|(_, d)| d.data.panel_kind.clone())
+        .expect("a GP panel type should be created from the code prefix");
+    assert_eq!(
+        kind, "Guest Panel",
+        "Kind column should name the panel type"
+    );
+}

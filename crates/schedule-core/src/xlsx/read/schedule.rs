@@ -31,9 +31,80 @@ use crate::xlsx::columns::schedule as sc;
 
 use super::{
     build_column_map, find_data_range, get_cell_number, get_cell_str, is_truthy,
-    known_field_key_set, parse_presenter_header, route_extra_columns, row_to_map, PresenterColumn,
-    PresenterHeader, PresenterImportCache,
+    known_field_key_set, parse_old_codes, parse_presenter_header, route_extra_columns, row_to_map,
+    PresenterColumn, PresenterHeader, PresenterImportCache,
 };
+
+/// Resolve the panel type for a code's `prefix`, **creating** it when absent.
+///
+/// A panel-like entity's type is its Uniq ID prefix (FEATURE-146), so every
+/// non-empty prefix gets a panel type. Legacy sheets without a PanelTypes sheet
+/// name their types via the `Kind` / `Panel Types` column: when `kind` is given
+/// and the resolved type's name is still a placeholder (empty or equal to the
+/// prefix), the type adopts `kind` as its name. The resolved type is tracked in
+/// `seen_panel_types` and the `prefix_cache`.
+///
+/// Takes the importer's fields individually (not `&mut self`) so it can run
+/// while the worksheet borrow on `self.book` is live.
+fn ensure_panel_type(
+    schedule: &mut Schedule,
+    prefix_cache: &mut HashMap<String, PanelTypeId>,
+    seen_panel_types: &mut std::collections::HashSet<uuid::NonNilUuid>,
+    prefix: &str,
+    kind: Option<&str>,
+) -> Option<PanelTypeId> {
+    use crate::tables::panel_type::{self, PanelTypeEntityType};
+
+    let prefix = prefix.trim().to_uppercase();
+    if prefix.is_empty() {
+        return None;
+    }
+    let kind = kind.map(str::trim).filter(|k| !k.is_empty());
+
+    // `prefix_cache` is the prefix→type cache (seeded from the PanelTypes
+    // sheet); consult it before scanning, and keep it current.
+    let id = match prefix_cache.get(&prefix).copied() {
+        Some(id) => id,
+        None => match PanelTypeEntityType::find_by_prefix(schedule, &prefix) {
+            Some(id) => id,
+            None => crate::edit::builder::build_entity::<PanelTypeEntityType>(
+                schedule,
+                crate::entity::UuidPreference::PreferFromV5 {
+                    name: prefix.clone(),
+                },
+                vec![
+                    FieldUpdate::set(&panel_type::FIELD_PREFIX, prefix.as_str()),
+                    FieldUpdate::set(&panel_type::FIELD_PANEL_KIND, kind.unwrap_or(&prefix)),
+                ],
+            )
+            .ok()?,
+        },
+    };
+
+    seen_panel_types.insert(id.entity_uuid());
+    prefix_cache.entry(prefix.clone()).or_insert(id);
+
+    // Adopt the Kind as the type's name when the stored name is still a
+    // placeholder (empty, or equal to the prefix).
+    if let Some(kind) = kind {
+        let is_placeholder = schedule
+            .get_internal::<PanelTypeEntityType>(id)
+            .map(|d| {
+                d.data.panel_kind.is_empty() || d.data.panel_kind.eq_ignore_ascii_case(&prefix)
+            })
+            .unwrap_or(false);
+        if is_placeholder {
+            let _ = PanelTypeEntityType::field_set().write_field_value(
+                "panel_kind",
+                id,
+                schedule,
+                crate::field_value!(kind),
+            );
+        }
+    }
+
+    Some(id)
+}
 
 impl super::ImportContext<'_> {
     /// Read the Schedule sheet and create Panel entities with all relationships.
@@ -187,33 +258,21 @@ impl super::ImportContext<'_> {
                 })
                 .unwrap_or_default();
 
-            // Determine panel type from prefix or Kind column.
-            // Use local re-borrows so the immutable borrows don't conflict with
-            // the mutable schedule borrow held by the for-loop body.
+            // Determine the panel type from the code's prefix, creating it (and
+            // naming it from the Kind column) when absent — the prefix is the
+            // authoritative source of type (FEATURE-146).
             let parsed_code = uniq_id_str.as_deref().and_then(PanelUniqId::parse);
-            let panel_type_lookup = &self.panel_type_lookup;
-            let schedule_ref = &*self.schedule;
-            let panel_type_id: Option<PanelTypeId> = parsed_code
-                .as_ref()
-                .and_then(|c| panel_type_lookup.get(c.type_prefix()))
-                .copied()
-                .or_else(|| {
-                    get_field_def(&data, &sc::KIND).and_then(|kind| {
-                        panel_type_lookup
-                            .values()
-                            .find(|&&pt_id| {
-                                schedule_ref
-                                    .get_internal::<crate::tables::panel_type::PanelTypeEntityType>(
-                                        pt_id,
-                                    )
-                                    .map(|d| {
-                                        d.data.panel_kind.to_lowercase() == kind.to_lowercase()
-                                    })
-                                    .unwrap_or(false)
-                            })
-                            .copied()
-                    })
-                });
+            let kind = get_field_def(&data, &sc::KIND).cloned();
+            let panel_type_id: Option<PanelTypeId> = match parsed_code.as_ref() {
+                Some(c) => ensure_panel_type(
+                    self.schedule,
+                    &mut self.panel_type_lookup,
+                    &mut self.seen_panel_types,
+                    c.type_prefix(),
+                    kind.as_deref(),
+                ),
+                None => None,
+            };
 
             // Parse cost string into typed fields.
             // Blank on a workshop means the cost hasn't been set yet (TBD).
@@ -257,6 +316,14 @@ impl super::ImportContext<'_> {
                     sewing_machines,
                 ),
             ];
+
+            let old_codes = parse_old_codes(&data, &sc::OLD_UNIQ_ID);
+            if !old_codes.is_empty() {
+                updates.push(FieldUpdate::set(
+                    &crate::tables::panel::FIELD_OLD_CODES,
+                    old_codes,
+                ));
+            }
 
             updates.push(FieldUpdate::set(
                 &crate::tables::panel::FIELD_ADDITIONAL_COST,
@@ -373,6 +440,10 @@ impl super::ImportContext<'_> {
                 if let Some(st) = effective_start {
                     tl_updates.push(FieldUpdate::set(&timeline::FIELD_TIME, st));
                 }
+                let tl_old_codes = parse_old_codes(&data, &sc::OLD_UNIQ_ID);
+                if !tl_old_codes.is_empty() {
+                    tl_updates.push(FieldUpdate::set(&timeline::FIELD_OLD_CODES, tl_old_codes));
+                }
 
                 let timeline_id: TimelineId = match find_or_create_entity::<TimelineEntityType>(
                     self.schedule,
@@ -431,6 +502,10 @@ impl super::ImportContext<'_> {
                 }
                 if let Some(dur) = effective_duration {
                     br_updates.push(FieldUpdate::set(&breaks::FIELD_DURATION, dur));
+                }
+                let br_old_codes = parse_old_codes(&data, &sc::OLD_UNIQ_ID);
+                if !br_old_codes.is_empty() {
+                    br_updates.push(FieldUpdate::set(&breaks::FIELD_OLD_CODES, br_old_codes));
                 }
 
                 let break_id: BreakId = match find_or_create_entity::<BreakEntityType>(

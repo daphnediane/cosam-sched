@@ -893,6 +893,22 @@ pub(super) fn get_field_def<'a>(
     None
 }
 
+/// Parse an `Old Uniq Id` cell into a list of prior codes.
+///
+/// The cell is a comma-separated history (as written on export); blank entries
+/// are dropped. Returns an empty vec when the column is absent or blank.
+pub(super) fn parse_old_codes(row_data: &HashMap<String, String>, field: &FieldDef) -> Vec<String> {
+    get_field_def(row_data, field)
+        .map(|s| {
+            s.split(',')
+                .map(str::trim)
+                .filter(|s| !s.is_empty())
+                .map(str::to_string)
+                .collect()
+        })
+        .unwrap_or_default()
+}
+
 /// Return `true` for any non-blank, non-falsy string value.
 pub(super) fn is_truthy(value: &str) -> bool {
     let lower = value.trim().to_lowercase();

@@ -20,14 +20,16 @@ Medium
 
 After FEATURE-144, breaks/timelines/panels all derive their type from the Uniq
 ID prefix on import (prefix → panel type). The `Kind` column (Schedule sheet)
-and `Panel Types` column (Timeline/Break) are now redundant *fallbacks*. We want
-the prefix to be the single source of truth for type, and to drop those columns
-from export.
+and `Panel Types` column (Timeline/Break) never set a row's *type* — that has
+always been the prefix; they only gave the prefix's panel type a readable
+*name* (e.g. code `WS012` with `Kind = "Workshop"` names the `WS` prefix). We
+want the prefix to be the single source of truth for type, keep `Kind` only as
+a type *name* on import, and drop those columns from export.
 
-To do that safely, whenever an entity's associated panel type stops matching its
-Uniq ID prefix (e.g. the type edge is changed, or a legacy row was typed via
-`Kind`), the entity's code must be **reassigned** so its prefix matches the new
-type — preserving the previous code(s) in an `Old Uniq Id` history.
+To do that safely, whenever an entity's type is changed so it no longer matches
+its Uniq ID prefix, the entity's code must be **reassigned** so its prefix
+matches the new type — preserving the previous code(s) in an `Old Uniq Id`
+history.
 
 Applies to **Panel, Timeline, and Break**.
 
@@ -76,10 +78,20 @@ intermediate entity. The prefix (`GP` in `GP001`) selects the matching
    grid type lookup) through it, and dropped the edge-set calls from xlsx and
    widget import. `Kind`/`Panel Types` remain accepted import columns but no
    longer override the prefix per row.
-3. **[TODO] Drop export columns + `Old Uniq Id` round-trip.** Stop writing
-   `Kind`/`Panel Types` on export (still imported as fallbacks); write the
-   `Old Uniq Id` history column. **xlsx read/write currently ignore `Old Uniq Id`**
-   — read should populate `old_codes`, write should emit the column.
+3. **[DONE] Drop export columns + `Old Uniq Id` round-trip.**
+   - Moved `Kind` (Schedule sheet) and `Panel Types` (Timeline sheet) from each
+     sheet's `ALL` to `READ_ONLY` — still imported as fallbacks, no longer
+     exported.
+   - Added an `Old Uniq Id` column to all three panel-like sheets (Schedule /
+     Timeline / Breaks); export writes the comma-joined `old_codes` history,
+     import parses it back into `old_codes`.
+   - **Kind-as-name:** on import, the code's prefix resolves (and, when absent,
+     **creates**) its `PanelType`; for legacy sheets without a PanelTypes table,
+     the `Kind` / `Panel Types` cell names that type when its name is still a
+     placeholder (empty or equal to the prefix). Created types are tracked in
+     `seen_panel_types`.
+   - Added a prefix→type cache for the hot import/export paths (the importer's
+     `panel_type_lookup`; an export-side `type_by_prefix` map for the grid).
 
 ## Acceptance Criteria
 
@@ -96,8 +108,8 @@ intermediate entity. The prefix (`GP` in `GP001`) selects the matching
 
 **Reassign-on-type-change / renumber.** The feature's namesake but its heavier
 half — deferred until the derived `panel_type` + column work lands. When an
-entity's type is changed so its prefix no longer matches its code (or a legacy
-row was typed via `Kind`), the code is reassigned to a prefix-matching one.
+entity's type is changed so its prefix no longer matches its code, the code is
+reassigned to a prefix-matching one.
 
 - **Trigger:** reassign when the user changes an entity's type, with an
   export-time safety net that reassigns any remaining prefix/type mismatch.

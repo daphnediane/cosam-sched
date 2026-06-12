@@ -23,7 +23,7 @@ use crate::xlsx::columns::breaks as br_cols;
 
 use super::{
     build_column_map, find_data_range, get_cell_str, get_field_def, known_field_key_set,
-    route_extra_columns, row_to_map,
+    parse_old_codes, route_extra_columns, row_to_map,
 };
 
 impl super::ImportContext<'_> {
@@ -120,6 +120,10 @@ impl super::ImportContext<'_> {
                 updates.push(FieldUpdate::set(&breaks::FIELD_END_TIME, et));
             } else if let Some(dur) = duration {
                 updates.push(FieldUpdate::set(&breaks::FIELD_DURATION, dur));
+            }
+            let old_codes = parse_old_codes(&data, &br_cols::OLD_UNIQ_ID);
+            if !old_codes.is_empty() {
+                updates.push(FieldUpdate::set(&breaks::FIELD_OLD_CODES, old_codes));
             }
 
             let break_id: BreakId = match find_or_create_entity::<BreakEntityType>(
