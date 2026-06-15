@@ -14,6 +14,13 @@ fn main() {
         .canonicalize()
         .expect("Could not resolve repo root from CARGO_MANIFEST_DIR");
 
+    // On Windows, use the full path to npm to avoid PATH issues.
+    let npm = if cfg!(windows) {
+        "npm.cmd"
+    } else {
+        "npm"
+    };
+
     // Tell Cargo to re-run this script only when the widget sources change.
     for path in [
         "widget/cosam-calendar.js",
@@ -31,7 +38,7 @@ fn main() {
     let node_modules = root.join("node_modules");
     if !node_modules.exists() {
         eprintln!("cargo:warning=node_modules not found; running npm install...");
-        let status = std::process::Command::new("npm")
+        let status = std::process::Command::new(npm)
             .arg("install")
             .current_dir(&root)
             .status()
@@ -42,7 +49,7 @@ fn main() {
     }
 
     // Build the widget.
-    let status = std::process::Command::new("npm")
+    let status = std::process::Command::new(npm)
         .args(["run", "build"])
         .current_dir(&root)
         .status()

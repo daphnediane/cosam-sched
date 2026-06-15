@@ -20,6 +20,7 @@ ROOT_DIR="$(cd "$SCRIPT_DIR/.." && pwd)"
 # Globals
 declare DRYRUN=""
 declare YEAR="2026"
+declare OUTPUT_DIR=""
 declare WORK_DIR=""
 
 # Functions
@@ -29,7 +30,7 @@ fail() {
 }
 
 usage() {
-    echo "Usage: $0 [--dry-run|-n] [--year YYYY]"
+    echo "Usage: $0 [--dry-run|-n] [--year YYYY] [--output-dir DIR]"
     exit 1
 }
 
@@ -81,6 +82,11 @@ main() {
             YEAR="$2"
             shift 2
             ;;
+        --output-dir)
+            [[ -n "${2:-}" ]] || usage
+            OUTPUT_DIR="$2"
+            shift 2
+            ;;
         *)
             usage
             ;;
@@ -91,6 +97,11 @@ main() {
 
     local input="input/${YEAR} Schedule.xlsx"
     local sched_base="${HOME}/Library/CloudStorage/OneDrive-Personal/Cosplay America - CosAm/CosAm - Schedule/${YEAR} - CosAm - Schedule"
+
+    # Use custom output directory if specified
+    if [[ -n "${OUTPUT_DIR:-}" ]]; then
+        sched_base="${OUTPUT_DIR}"
+    fi
 
     [[ -f "${input}" ]] || fail "input not found: ${input}"
 
