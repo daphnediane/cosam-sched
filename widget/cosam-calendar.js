@@ -304,6 +304,16 @@ import QRCode from 'qrcode';
     setTimeout(() => URL.revokeObjectURL(url), 1000);
   }
 
+  // iOS/iPadOS Safari ignores the <a download> attribute for blob URLs and will
+  // not hand a generated .ics to Calendar — those devices need a data: URL.
+  function isAppleMobile() {
+    const nav = window.navigator || {};
+    const ua = nav.userAgent || '';
+    return /iP(hone|ad|od)/.test(ua) ||
+      // iPadOS 13+ reports as desktop Safari but exposes touch points.
+      (nav.platform === 'MacIntel' && (nav.maxTouchPoints || 0) > 1);
+  }
+
   // Filesystem-safe slug for filenames.
   function slugify(s) {
     return String(s || 'event').toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '').slice(0, 60) || 'event';
@@ -2366,6 +2376,11 @@ import QRCode from 'qrcode';
         div.appendChild(el('div', { className: 'cosam-grid-event-time' }, formatDuration(evt.duration)));
       }
 
+      // Premium cost — shown as a compact pill, mirroring the list/detail badge.
+      if (evt.cost && evt.isPremium) {
+        div.appendChild(el('span', { className: 'cosam-grid-event-cost' }, evt.cost));
+      }
+
       return div;
     }
 
@@ -2818,7 +2833,7 @@ import QRCode from 'qrcode';
           title: 'Add this event to your calendar',
           'aria-label': 'Add to calendar',
           innerHTML: ICONS.calendar + ' Add to Calendar',
-          onClick: () => this._downloadEventIcs(evt),
+          onClick: () => this._addEventToCalendar(evt),
         });
         actions.appendChild(calBtn);
       }
@@ -2850,6 +2865,10 @@ import QRCode from 'qrcode';
           if (cb.checked) this.state.schedules[name].add(evt.id);
           else this.state.schedules[name].delete(evt.id);
           this.state._saveState();
+          // Re-render the whole view so the underlying grid/list stars reflect
+          // the change immediately, then re-open the modal (render() rebuilds a
+          // fresh, closed modal overlay).
+          this.render();
           this._showModal(evt);
         });
         itemLabel.appendChild(cb);
@@ -2884,8 +2903,8 @@ import QRCode from 'qrcode';
       return names;
     }
 
-    // Build and download a single-event .ics file for the user's calendar app.
-    _downloadEventIcs(evt) {
+    // Build a single-event .ics and hand it to the user's calendar app.
+    _addEventToCalendar(evt) {
       const rooms = this._eventRoomNames(evt);
       const descLines = [];
       if (evt.description) descLines.push(evt.description);
@@ -2904,6 +2923,14 @@ import QRCode from 'qrcode';
         tzid: meta.timezone || '',
         vtimezone: meta.vtimezone || '',
       });
+      // iOS/iPadOS won't open a downloaded blob in Calendar; navigating to a
+      // data: URL lets the OS detect the calendar payload and prompt to add
+      // the event. Desktop browsers block top-level data: navigation, so there
+      // we fall back to a normal file download (opened by the default app).
+      if (isAppleMobile()) {
+        window.location.href = 'data:text/calendar;charset=utf-8,' + encodeURIComponent(ics);
+        return;
+      }
       downloadFile(slugify(evt.name) + '.ics', ics, 'text/calendar;charset=utf-8');
     }
 
