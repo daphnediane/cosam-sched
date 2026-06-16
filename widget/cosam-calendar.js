@@ -249,12 +249,9 @@ import QRCode from 'qrcode';
     return out;
   }
 
-  // Build an iCalendar document string for a single event.
-  //
-  // When `tzid` is supplied the event times are emitted as DATE-TIME values
-  // qualified with `;TZID=<tzid>` and the matching `vtimezone` block (if any) is
-  // embedded; otherwise they are emitted as floating local DATE-TIME values.
-  function buildIcs(evt, { rooms = [], descriptionLines = [], url = '', tzid = '', vtimezone = '' } = {}) {
+  // Build the VEVENT component lines for a single event. `tzParam` is the
+  // pre-computed `;TZID=<tzid>` suffix (empty for floating local times).
+  function _icsVeventLines(evt, { rooms = [], descriptionLines = [], url = '', tzParam = '' } = {}) {
     const startIso = evt.startTime;
     let endIso = evt.endTime;
     if (!endIso && startIso && evt.duration) {
@@ -266,6 +263,31 @@ import QRCode from 'qrcode';
       }
     }
 
+    const lines = [
+      'BEGIN:VEVENT',
+      'UID:' + icsEscape((evt.id || 'event') + '@cosam-calendar'),
+      'DTSTAMP:' + icsStampUtc(new Date()),
+    ];
+    const dtStart = icsDateLocal(startIso);
+    if (dtStart) lines.push('DTSTART' + tzParam + ':' + dtStart);
+    const dtEnd = icsDateLocal(endIso);
+    if (dtEnd) lines.push('DTEND' + tzParam + ':' + dtEnd);
+    lines.push('SUMMARY:' + icsEscape(evt.name || 'Event'));
+    if (rooms.length > 0) lines.push('LOCATION:' + icsEscape(rooms.join(', ')));
+    const desc = descriptionLines.filter(Boolean).join('\n');
+    if (desc) lines.push('DESCRIPTION:' + icsEscape(desc));
+    if (url) lines.push('URL:' + icsEscape(url));
+    lines.push('END:VEVENT');
+    return lines;
+  }
+
+  // Build an iCalendar document string from one or more event entries. Each
+  // entry is `{ evt, rooms, descriptionLines, url }`.
+  //
+  // When `tzid` is supplied the event times are emitted as DATE-TIME values
+  // qualified with `;TZID=<tzid>` and the matching `vtimezone` block (if any) is
+  // embedded; otherwise they are emitted as floating local DATE-TIME values.
+  function buildIcsDoc(entries, { tzid = '', vtimezone = '' } = {}) {
     const lines = [
       'BEGIN:VCALENDAR',
       'VERSION:2.0',
@@ -281,21 +303,11 @@ import QRCode from 'qrcode';
     }
     // A TZID parameter is only valid if a matching VTIMEZONE is present.
     const tzParam = (tzid && vtimezone) ? ';TZID=' + tzid : '';
-    lines.push(
-      'BEGIN:VEVENT',
-      'UID:' + icsEscape((evt.id || 'event') + '@cosam-calendar'),
-      'DTSTAMP:' + icsStampUtc(new Date())
-    );
-    const dtStart = icsDateLocal(startIso);
-    if (dtStart) lines.push('DTSTART' + tzParam + ':' + dtStart);
-    const dtEnd = icsDateLocal(endIso);
-    if (dtEnd) lines.push('DTEND' + tzParam + ':' + dtEnd);
-    lines.push('SUMMARY:' + icsEscape(evt.name || 'Event'));
-    if (rooms.length > 0) lines.push('LOCATION:' + icsEscape(rooms.join(', ')));
-    const desc = descriptionLines.filter(Boolean).join('\n');
-    if (desc) lines.push('DESCRIPTION:' + icsEscape(desc));
-    if (url) lines.push('URL:' + icsEscape(url));
-    lines.push('END:VEVENT', 'END:VCALENDAR');
+    for (const entry of entries) {
+      const opts = Object.assign({ tzParam }, entry);
+      lines.push(..._icsVeventLines(entry.evt, opts));
+    }
+    lines.push('END:VCALENDAR');
 
     return lines.map(icsFold).join('\r\n') + '\r\n';
   }
@@ -2711,6 +2723,21 @@ import QRCode from 'qrcode';
       urlWrapper.append(urlInput, copyBtn);
       modal.appendChild(urlWrapper);
 
+      // ── Add-to-calendar row ──
+      // Downloads a multi-event .ics for the selected schedule so every starred
+      // event lands in the viewer's own calendar app.
+      const calRow = el('div', { className: 'cosam-share-calendar-row' });
+      const calBtn = el('button', {
+        type: 'button',
+        className: 'cosam-btn',
+        title: 'Add every event in this schedule to your calendar',
+        'aria-label': 'Add schedule to calendar',
+        innerHTML: ICONS.calendar + ' Add Schedule to Calendar',
+        onClick: () => this._addScheduleToCalendar(this._shareScheduleSelect.value),
+      });
+      calRow.appendChild(calBtn);
+      modal.appendChild(calRow);
+
       // Store refs
       this._shareUrlInput = urlInput;
       this._shareFiltersCheckbox = inclFiltersCb;
@@ -2719,6 +2746,7 @@ import QRCode from 'qrcode';
       this._shareScheduleRow = scheduleRow;
       this._shareQrImg = qrImg;
       this._shareQrPlaceholder = qrPlaceholder;
+      this._shareCalendarBtn = calBtn;
 
       // Wire up change handlers
       inclSchedCb.addEventListener('change', () => {
@@ -2739,6 +2767,12 @@ import QRCode from 'qrcode';
       const includeFilters = this._shareFiltersCheckbox ? this._shareFiltersCheckbox.checked : false;
       const url = this.state.getShareUrl({ includeSchedule, scheduleName, includeFilters });
       this._shareUrlInput.value = url;
+
+      // Add-to-calendar only makes sense when the selected schedule has events.
+      if (this._shareCalendarBtn) {
+        const ids = this.state.schedules[scheduleName];
+        this._shareCalendarBtn.disabled = !ids || ids.size === 0;
+      }
 
       // QR code
       if (!this._shareQrImg) return;
@@ -2947,8 +2981,8 @@ import QRCode from 'qrcode';
       return names;
     }
 
-    // Build a single-event .ics and hand it to the user's calendar app.
-    _addEventToCalendar(evt) {
+    // Per-event entry ({ evt, rooms, descriptionLines, url }) for buildIcsDoc.
+    _eventIcsEntry(evt) {
       const rooms = this._eventRoomNames(evt);
       const descLines = [];
       if (evt.description) descLines.push(evt.description);
@@ -2966,23 +3000,47 @@ import QRCode from 'qrcode';
       if (evt.prereq) descLines.push('Prerequisite: ' + evt.prereq);
       const shareUrl = this.state.getPanelShareUrl(evt.id);
       descLines.push(shareUrl);
-      const meta = (this.state.data && this.state.data.meta) || {};
-      const ics = buildIcs(evt, {
-        rooms,
-        descriptionLines: descLines,
-        url: shareUrl,
-        tzid: meta.timezone || '',
-        vtimezone: meta.vtimezone || '',
-      });
-      // iOS/iPadOS won't open a downloaded blob in Calendar; navigating to a
-      // data: URL lets the OS detect the calendar payload and prompt to add
-      // the event. Desktop browsers block top-level data: navigation, so there
-      // we fall back to a normal file download (opened by the default app).
+      return { evt, rooms, descriptionLines: descLines, url: shareUrl };
+    }
+
+    // Hand an .ics document to the user's calendar app.
+    // iOS/iPadOS won't open a downloaded blob in Calendar; navigating to a
+    // data: URL lets the OS detect the calendar payload and prompt to add the
+    // event(s). Desktop browsers block top-level data: navigation, so there we
+    // fall back to a normal file download (opened by the default app).
+    _deliverIcs(filename, ics) {
       if (isAppleMobile()) {
         window.location.href = 'data:text/calendar;charset=utf-8,' + encodeURIComponent(ics);
         return;
       }
-      downloadFile(slugify(evt.name) + '.ics', ics, 'text/calendar;charset=utf-8');
+      downloadFile(filename, ics, 'text/calendar;charset=utf-8');
+    }
+
+    // Build a single-event .ics and hand it to the user's calendar app.
+    _addEventToCalendar(evt) {
+      const meta = (this.state.data && this.state.data.meta) || {};
+      const ics = buildIcsDoc([this._eventIcsEntry(evt)], {
+        tzid: meta.timezone || '',
+        vtimezone: meta.vtimezone || '',
+      });
+      this._deliverIcs(slugify(evt.name) + '.ics', ics);
+    }
+
+    // Build a multi-event .ics for every event in a named schedule (in time
+    // order) and hand it to the user's calendar app.
+    _addScheduleToCalendar(scheduleName) {
+      const ids = this.state.schedules[scheduleName];
+      if (!ids || ids.size === 0) return;
+      const events = ((this.state.data && this.state.data.panels) || [])
+        .filter(e => ids.has(e.id) && e.startTime)
+        .sort((a, b) => String(a.startTime).localeCompare(String(b.startTime)));
+      if (events.length === 0) return;
+      const meta = (this.state.data && this.state.data.meta) || {};
+      const ics = buildIcsDoc(events.map(e => this._eventIcsEntry(e)), {
+        tzid: meta.timezone || '',
+        vtimezone: meta.vtimezone || '',
+      });
+      this._deliverIcs(slugify(scheduleName) + '-schedule.ics', ics);
     }
 
     // Share modal for a single event: link + QR. Closing returns to the detail

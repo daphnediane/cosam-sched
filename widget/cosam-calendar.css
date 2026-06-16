@@ -2375,6 +2375,24 @@ body.cosam-page-styled a:hover {
   box-shadow: 0 0 0 2px var(--cosam-accent-bg);
 }
 
+.cosam-share-calendar-row {
+  margin-top: 12px;
+}
+
+.cosam-share-calendar-row .cosam-btn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  width: 100%;
+  padding: 10px 16px;
+}
+
+.cosam-share-calendar-row .cosam-btn:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
 /* Print options modal */
 .cosam-print-options {
   display: flex;
