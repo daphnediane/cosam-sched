@@ -9,7 +9,9 @@
 # Usage: scripts/export-schedules.sh
 #   Reads from input/<YEAR> Schedule.xlsx
 #   Creates output/<YEAR>/schedule.cosam (via cosam-convert if new, cosam-modify --merge-xlsx if existing)
-#   Writes to output/<YEAR>/{schedule.xlsx,public.json,private.json,embed.html,test.html,style-embed.html,style-page.html}
+#   Writes to output/<YEAR>/{schedule.xlsx,public.json,private.json,embed.html,embed-head.html,embed-body.html,test.html,style-embed.html,style-page.html}
+#   embed-head.html / embed-body.html are the split form for Ajax-navigation hosts
+#   (Squarespace 7.0): paste embed-head.html into site-wide Code Injection Header, embed-body.html into the page Code Block
 #   For current year, also writes CSV files to output/<CURRENT_YEAR>/csv/
 #   Also generates layout to output/<CURRENT_YEAR>/layout/ via schedule-layout (built into cosam-convert)
 
@@ -85,6 +87,8 @@ for year in $(seq 2016 "$current_year"); do
     dest="$year_dir/public.json"
     private_dest="$year_dir/private.json"
     embed="$year_dir/embed.html"
+    embed_head="$year_dir/embed-head.html"
+    embed_body="$year_dir/embed-body.html"
     test_html="$year_dir/test.html"
     style_embed="$year_dir/style-embed.html"
     style_page="$year_dir/style-page.html"
@@ -121,6 +125,8 @@ for year in $(seq 2016 "$current_year"); do
         --export "$private_dest"
         --public
         --export-embed "$embed"
+        --export-embed-head "$embed_head"
+        --export-embed-body "$embed_body"
         --export-test "$test_html"
         --style-page
         --export-embed "$style_embed"
@@ -131,6 +137,8 @@ for year in $(seq 2016 "$current_year"); do
         "$dest"
         "$private_dest"
         "$embed"
+        "$embed_head"
+        "$embed_body"
         "$test_html"
         "$style_embed"
         "$style_page"

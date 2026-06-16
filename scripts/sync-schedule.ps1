@@ -132,6 +132,8 @@ try {
         "--output", "${generatedDir}/cos${Year}.xlsx",
         "--export-xlsx-grid", "${generatedDir}/cos${Year}grid.xlsx",
         "--export-embed", "${generatedDir}/embed.html",
+        "--export-embed-head", "${generatedDir}/embed-head.html",
+        "--export-embed-body", "${generatedDir}/embed-body.html",
         "--export-test", "${generatedDir}/preview.html",
         "--layout-config", "config/layout.toml",
         "--export-layout", $generatedDir

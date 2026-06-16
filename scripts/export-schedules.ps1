@@ -10,7 +10,9 @@
 # Usage: scripts/export-schedules.ps1
 #   Reads from input/<YEAR> Schedule.xlsx
 #   Creates output/<YEAR>/schedule.cosam (via cosam-convert if new, cosam-modify --merge-xlsx if existing)
-#   Writes to output/<YEAR>/{schedule.xlsx,public.json,private.json,embed.html,test.html,style-embed.html,style-page.html}
+#   Writes to output/<YEAR>/{schedule.xlsx,public.json,private.json,embed.html,embed-head.html,embed-body.html,test.html,style-embed.html,style-page.html}
+#   embed-head.html / embed-body.html are the split form for Ajax-navigation hosts
+#   (Squarespace 7.0): paste embed-head.html into site-wide Code Injection Header, embed-body.html into the page Code Block
 #   For current year, also writes CSV files to output/<CURRENT_YEAR>/csv/
 #   Also generates layout to output/<CURRENT_YEAR>/layout/ via schedule-layout (built into cosam-convert)
 
@@ -115,6 +117,8 @@ try {
         $dest = Join-Path $yearDir "public.json"
         $privateDest = Join-Path $yearDir "private.json"
         $embed = Join-Path $yearDir "embed.html"
+        $embedHead = Join-Path $yearDir "embed-head.html"
+        $embedBody = Join-Path $yearDir "embed-body.html"
         $testHtml = Join-Path $yearDir "test.html"
         $styleEmbed = Join-Path $yearDir "style-embed.html"
         $stylePage = Join-Path $yearDir "style-page.html"
@@ -157,12 +161,14 @@ try {
             "--export", $privateDest,
             "--public",
             "--export-embed", $embed,
+            "--export-embed-head", $embedHead,
+            "--export-embed-body", $embedBody,
             "--export-test", $testHtml,
             "--style-page",
             "--export-embed", $styleEmbed,
             "--export-test", $stylePage
         )
-        $files = @($copy, $dest, $privateDest, $embed, $testHtml, $styleEmbed, $stylePage)
+        $files = @($copy, $dest, $privateDest, $embed, $embedHead, $embedBody, $testHtml, $styleEmbed, $stylePage)
 
         # For current year, also export layout and CSV in the same pass
         if ($year -eq $currentYear) {

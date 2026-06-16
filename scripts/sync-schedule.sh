@@ -125,6 +125,8 @@ main() {
         --output "${generated_dir}/cos${YEAR}.xlsx" \
         --export-xlsx-grid "${generated_dir}/cos${YEAR}grid.xlsx" \
         --export-embed "${generated_dir}/embed.html" \
+        --export-embed-head "${generated_dir}/embed-head.html" \
+        --export-embed-body "${generated_dir}/embed-body.html" \
         --export-test "${generated_dir}/preview.html" \
         --layout-config config/layout.toml \
         --export-layout "${generated_dir}" ||

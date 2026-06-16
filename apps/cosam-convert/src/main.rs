@@ -168,6 +168,8 @@ enum OutputType {
     Output,
     Export,
     ExportEmbed,
+    ExportEmbedHead,
+    ExportEmbedBody,
     ExportTest,
     ExportCsv,
     ExportXlsxGrid,
@@ -273,6 +275,34 @@ fn parse_args() -> Result<CliArgs> {
                     path,
                     settings: current_settings.clone(),
                     job_type: OutputType::ExportEmbed,
+                });
+                first_setting_index = None;
+            }
+            "--export-embed-head" => {
+                index += 1;
+                if index >= arguments.len() {
+                    anyhow::bail!("Missing value for --export-embed-head");
+                }
+                let path = PathBuf::from(&arguments[index]);
+                check_duplicate_output(&args.output_jobs, &path)?;
+                args.output_jobs.push(OutputJob {
+                    path,
+                    settings: current_settings.clone(),
+                    job_type: OutputType::ExportEmbedHead,
+                });
+                first_setting_index = None;
+            }
+            "--export-embed-body" => {
+                index += 1;
+                if index >= arguments.len() {
+                    anyhow::bail!("Missing value for --export-embed-body");
+                }
+                let path = PathBuf::from(&arguments[index]);
+                check_duplicate_output(&args.output_jobs, &path)?;
+                args.output_jobs.push(OutputJob {
+                    path,
+                    settings: current_settings.clone(),
+                    job_type: OutputType::ExportEmbedBody,
                 });
                 first_setting_index = None;
             }
@@ -637,6 +667,8 @@ fn print_usage() {
          \x20 --output, -o <file>                  Save schedule (.xlsx or native binary)\n\
          \x20 --export, -e <file.json>             Export widget JSON\n\
          \x20 --export-embed <file.html>           Export embeddable HTML (inline CSS/JS + schedule data)\n\
+         \x20 --export-embed-head <file.html>      Export engine half (CSS/JS + resident bootstrap) for site-wide Code Injection Header\n\
+         \x20 --export-embed-body <file.html>      Export content half (root + data) for the page code block; pairs with --export-embed-head\n\
          \x20 --export-test <file.html>            Export standalone test page (Squarespace sim)\n\
          \x20 --export-csv-dir <dir>               Export CSV files to directory (UTF-8 comma-delimited)\n\
          \x20 --export-xlsx-grid <file.xlsx>       Export grid reference sheets only (no data tables)\n\
@@ -925,7 +957,10 @@ fn main() {
                 }
                 Ok(())
             }
-            OutputType::ExportEmbed | OutputType::ExportTest => {
+            OutputType::ExportEmbed
+            | OutputType::ExportEmbedHead
+            | OutputType::ExportEmbedBody
+            | OutputType::ExportTest => {
                 // ExportEmbed/ExportTest can use either Schedule or WidgetJson
                 let sources = match embed::WidgetSources::resolve(
                     job.settings.widget_css.as_deref(),
@@ -959,6 +994,17 @@ fn main() {
                             job.settings.minified,
                             job.settings.style_page,
                         ),
+                        OutputType::ExportEmbedHead => embed::write_embed_head_widget_html(
+                            &job.path,
+                            &sources,
+                            job.settings.minified,
+                            job.settings.style_page,
+                        ),
+                        OutputType::ExportEmbedBody => embed::write_embed_body_widget_html(
+                            &job.path,
+                            &widget,
+                            job.settings.minified,
+                        ),
                         OutputType::ExportTest => embed::write_test_html_widget_html(
                             &job.path,
                             &widget,
@@ -982,6 +1028,17 @@ fn main() {
                             &sources,
                             job.settings.minified,
                             job.settings.style_page,
+                        ),
+                        OutputType::ExportEmbedHead => embed::write_embed_head_json(
+                            &job.path,
+                            &sources,
+                            job.settings.minified,
+                            job.settings.style_page,
+                        ),
+                        OutputType::ExportEmbedBody => embed::write_embed_body_json(
+                            &job.path,
+                            &json_data,
+                            job.settings.minified,
                         ),
                         OutputType::ExportTest => embed::write_test_html(
                             &job.path,

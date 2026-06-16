@@ -40,6 +40,57 @@ const COPYRIGHT_COMMENT: &str = "\
 <!-- CosAm Calendar Widget | Copyright (c) 2026 Daphne Pfister | BSD-2-Clause | \
 https://github.com/daphnediane/cosam-sched -->";
 
+/// Build the widget bootstrap that mounts `#cosam-calendar-root`.
+///
+/// A bare one-shot `init()` only fires on a full page parse. Squarespace 7.0
+/// (and other Ajax-navigation hosts) swap page content over XHR without firing
+/// `DOMContentLoaded`, so a one-shot init never re-runs and the widget stays
+/// blank when the page is reached via the site nav. This bootstrap mounts on
+/// first parse and re-mounts on every signal the active template might emit:
+/// `DOMContentLoaded`/`load`, Squarespace's `mercury:load` event, the official
+/// `Squarespace.onInitialize` hook, and a `MutationObserver` fallback. A
+/// `data-cosam-mounted` marker keeps it idempotent across all of them.
+///
+/// `loader_expr` is the JS expression producing the loader (e.g.
+/// `CosAmCalendar.HtmlEmbedLoader()`); `style_page_line` is the optional
+/// `stylePageBody` opt line (already indented, or empty).
+fn init_bootstrap(loader_expr: &str, style_page_line: &str) -> String {
+    format!(
+        r#"// Initialize widget — resilient to Squarespace 7.0 Ajax navigation.
+// Direct loads parse this inline, but in-site nav swaps content via XHR without
+// firing DOMContentLoaded, so we (re)mount on every signal the template emits.
+(function () {{
+    function mount() {{
+        if (!window.CosAmCalendar) return;
+        var el = document.getElementById('cosam-calendar-root');
+        if (!el || el.getAttribute('data-cosam-mounted') === '1') return;
+        el.setAttribute('data-cosam-mounted', '1');
+        CosAmCalendar.init({{
+            el: el,
+            loader: {loader_expr},{style_page_line}
+        }});
+    }}
+    document.addEventListener('DOMContentLoaded', mount);
+    window.addEventListener('load', mount);
+    // Squarespace 7.0 fires mercury:load after each Ajax page transition.
+    window.addEventListener('mercury:load', mount);
+    // Official Squarespace hook — runs on initial load and after every Ajax
+    // transition. Needs the YUI instance, which may not be in scope; guard it.
+    try {{
+        if (window.Squarespace && typeof window.Squarespace.onInitialize === 'function') {{
+            window.Squarespace.onInitialize(typeof Y !== 'undefined' ? Y : window.Y, mount);
+        }}
+    }} catch (e) {{ /* Y unavailable — the other triggers cover it */ }}
+    // Fallback: mount as soon as the root lands in the DOM, regardless of which
+    // (if any) navigation event the active template dispatches.
+    if (window.MutationObserver) {{
+        new MutationObserver(mount).observe(document.documentElement, {{ childList: true, subtree: true }});
+    }}
+    mount();
+}})();"#
+    )
+}
+
 // ── WidgetSources ─────────────────────────────────────────────────────────────
 
 #[derive(Debug)]
@@ -187,14 +238,11 @@ pub fn generate_embed_html(
 // JSON embed loader
 {json_loader}
 
-// Initialize widget
-CosAmCalendar.init({{
-    el: document.getElementById('cosam-calendar-root'),
-    loader: CosAmCalendar.JsonEmbedLoader(),{style_page_line}
-}});
+{bootstrap}
 </script>"#,
         css = sources.css,
         js = sources.js,
+        bootstrap = init_bootstrap("CosAmCalendar.JsonEmbedLoader()", style_page_line),
     );
 
     if minified {
@@ -268,14 +316,11 @@ pub fn generate_embed_html_widget_html(
 // HTML embed loader
 {html_loader}
 
-// Initialize widget
-CosAmCalendar.init({{
-    el: document.getElementById('cosam-calendar-root'),
-    loader: CosAmCalendar.HtmlEmbedLoader(),{style_page_line}
-}});
+{bootstrap}
 </script>"#,
         css = sources.css,
         js = sources.js,
+        bootstrap = init_bootstrap("CosAmCalendar.HtmlEmbedLoader()", style_page_line),
     );
 
     if minified {
@@ -301,6 +346,225 @@ pub fn generate_test_html_widget_html(
         .template
         .replace("{WIDGET_BLOCK}", &embed_block)
         .replace("{TITLE}", title);
+
+    if minified {
+        minify_html_content(&raw)
+    } else {
+        Ok(raw)
+    }
+}
+
+// ── Split embed (head engine + page content) ──────────────────────────────────
+//
+// Squarespace 7.0 (Mercury) and similar Ajax-navigation hosts load pages over
+// XHR and do NOT execute inline `<script>` in injected page content — so a
+// single all-in-one embed mounts only on a direct hit and stays blank when the
+// page is reached via in-site navigation. The split form fixes this:
+// - The **head engine** (CSS + widget JS + loader + resident bootstrap) goes in
+//   site-wide **Code Injection → Header**. It runs once on the first full page
+//   load and stays resident in `window` across every Ajax transition.
+// - The **page content** (root div + schedule data + panels) goes in the page's
+//   Code Block. Mercury reloads this region, so the data is always present.
+//
+// The resident bootstrap mounts idempotently and re-mounts after each navigation
+// via events, `Squarespace.onInitialize`, and a MutationObserver fallback.
+
+/// Build the resident bootstrap for the head engine.
+///
+/// Unlike [`init_bootstrap`], this lives in the page `<head>` and tolerates the
+/// page content arriving later (initial load) or being swapped in by an Ajax
+/// navigation. It waits until the page data is fully present (`ready_expr` — a
+/// JS expression truthy only once the loader has everything it needs), guards
+/// against double-mount, debounces so a multi-step content insertion settles
+/// before reading it, and listens on every plausible signal.
+///
+/// `ready_expr` must be format-specific: the widget-html loader reads separate
+/// `<article>` panels that Mercury inserts after the structural data script, so
+/// mounting on the data script alone yields an empty schedule — gate on the
+/// panels instead.
+fn resident_bootstrap(loader_expr: &str, style_page_line: &str, ready_expr: &str) -> String {
+    format!(
+        r#"// Resident widget bootstrap — site-wide Code Injection (Header).
+// The host swaps page content over XHR without re-running inline scripts in the
+// code block, so the engine loads once here and stays resident. mount() is
+// idempotent (data-cosam-mounted guard), waits for the page data to be fully
+// present, and fires on first load and after every Ajax transition via
+// navigation events, Squarespace.onInitialize, and a MutationObserver fallback.
+(function () {{
+    var pending = false;
+    // Truthy only once the loader has everything it needs in the DOM. Mercury
+    // inserts content in steps, so mounting too early reads an empty schedule.
+    function dataReady() {{ return {ready_expr}; }}
+    function mount() {{
+        if (!window.CosAmCalendar) return;
+        var el = document.getElementById('cosam-calendar-root');
+        if (!el || el.getAttribute('data-cosam-mounted') === '1') return;
+        if (!dataReady()) return;
+        el.setAttribute('data-cosam-mounted', '1');
+        CosAmCalendar.init({{
+            el: el,
+            loader: {loader_expr},{style_page_line}
+        }});
+    }}
+    // Debounce: let an in-flight content insertion settle, then try to mount.
+    // If it is still not ready, mount() no-ops and a later signal retries.
+    function schedule() {{
+        if (pending) return;
+        pending = true;
+        setTimeout(function () {{ pending = false; mount(); }}, 60);
+    }}
+    document.addEventListener('DOMContentLoaded', schedule);
+    window.addEventListener('load', schedule);
+    // Squarespace 7.0 fires mercury:load after each Ajax page transition.
+    window.addEventListener('mercury:load', schedule);
+    // Official Squarespace hook — runs on initial load and after every Ajax
+    // transition. Needs the YUI instance, which may not be in scope; guard it.
+    try {{
+        if (window.Squarespace && typeof window.Squarespace.onInitialize === 'function') {{
+            window.Squarespace.onInitialize(typeof Y !== 'undefined' ? Y : window.Y, schedule);
+        }}
+    }} catch (e) {{ /* Y unavailable — the other triggers cover it */ }}
+    // Fallback: re-check whenever the DOM changes, regardless of which (if any)
+    // navigation event the active template dispatches.
+    if (window.MutationObserver) {{
+        new MutationObserver(schedule).observe(document.documentElement, {{ childList: true, subtree: true }});
+    }}
+    schedule();
+}})();"#
+    )
+}
+
+/// Generate the head engine snippet for the widget-html format.
+///
+/// Contains the CSS, widget JS, HTML embed loader, and resident bootstrap — but
+/// no schedule data. Paste once into site-wide Code Injection → Header.
+pub fn generate_embed_head_widget_html(
+    sources: &WidgetSources,
+    minified: bool,
+    style_page: Option<bool>,
+) -> Result<String> {
+    let style_page_line = match style_page {
+        Some(true) => "\n            stylePageBody: true,",
+        Some(false) => "\n            stylePageBody: false,",
+        None => "",
+    };
+    let html_loader = BUILTIN_HTML_EMBED_LOADER;
+    let raw = format!(
+        r#"{COPYRIGHT_COMMENT}
+<style>
+{css}
+</style>
+<script>
+// CosAm Calendar Widget - Engine (site-wide Code Injection: Header)
+// Copyright (c) 2026 Daphne Pfister
+// SPDX-License-Identifier: BSD-2-Clause
+// Project: https://github.com/daphnediane/cosam-sched
+// Includes: qrcode (MIT) https://github.com/soldair/node-qrcode
+
+// Widget code
+{js}
+
+// HTML embed loader
+{html_loader}
+
+{bootstrap}
+</script>"#,
+        css = sources.css,
+        js = sources.js,
+        bootstrap = resident_bootstrap(
+            "CosAmCalendar.HtmlEmbedLoader()",
+            style_page_line,
+            // Panels are separate <article> elements inserted after the data
+            // script; wait for at least one so we never mount an empty schedule.
+            "!!document.querySelector('.cosam-static-schedule article.cosam-panel')",
+        ),
+    );
+
+    if minified {
+        minify_html_content(&raw)
+    } else {
+        Ok(raw)
+    }
+}
+
+/// Generate the page content snippet for the widget-html format.
+///
+/// Contains the root div, schedule data, and static panels — but no CSS or JS.
+/// Paste into the page's Code Block; pairs with [`generate_embed_head_widget_html`].
+pub fn generate_embed_body_widget_html(export: &WidgetExport, minified: bool) -> Result<String> {
+    let schedule_html = static_html::generate_static_schedule_html(export)?;
+    let raw = format!(
+        r#"{COPYRIGHT_COMMENT}
+<div id="cosam-calendar-root"></div>
+{schedule_html}"#
+    );
+
+    if minified {
+        minify_html_content(&raw)
+    } else {
+        Ok(raw)
+    }
+}
+
+/// Generate the head engine snippet for the gzip+base64 JSON format.
+pub fn generate_embed_head_json(
+    sources: &WidgetSources,
+    minified: bool,
+    style_page: Option<bool>,
+) -> Result<String> {
+    let style_page_line = match style_page {
+        Some(true) => "\n            stylePageBody: true,",
+        Some(false) => "\n            stylePageBody: false,",
+        None => "",
+    };
+    let json_loader = BUILTIN_JSON_EMBED_LOADER;
+    let raw = format!(
+        r#"{COPYRIGHT_COMMENT}
+<style>
+{css}
+</style>
+<script>
+// CosAm Calendar Widget - Engine (site-wide Code Injection: Header)
+// Copyright (c) 2026 Daphne Pfister
+// SPDX-License-Identifier: BSD-2-Clause
+// Project: https://github.com/daphnediane/cosam-sched
+// Includes: qrcode (MIT) https://github.com/soldair/node-qrcode
+
+// Widget code
+{js}
+
+// JSON embed loader
+{json_loader}
+
+{bootstrap}
+</script>"#,
+        css = sources.css,
+        js = sources.js,
+        bootstrap = resident_bootstrap(
+            "CosAmCalendar.JsonEmbedLoader()",
+            style_page_line,
+            // All data (including panels) lives in the single base64 script tag.
+            "!!(document.getElementById('cosam-schedule-data') && document.getElementById('cosam-schedule-data').textContent.trim())",
+        ),
+    );
+
+    if minified {
+        minify_html_content(&raw)
+    } else {
+        Ok(raw)
+    }
+}
+
+/// Generate the page content snippet for the gzip+base64 JSON format.
+pub fn generate_embed_body_json(json_data: &str, minified: bool) -> Result<String> {
+    let encoded_data = compress_and_encode(json_data)?;
+    let raw = format!(
+        r#"{COPYRIGHT_COMMENT}
+<div id="cosam-calendar-root"><p style="padding:40px 20px;text-align:center">Schedule failed to load. Please enable JavaScript and reload the page.</p></div>
+<script type="application/json" id="cosam-schedule-data">
+{encoded_data}
+</script>"#
+    );
 
     if minified {
         minify_html_content(&raw)
@@ -355,6 +619,40 @@ pub fn write_test_html_widget_html(
 ) -> Result<()> {
     let html = generate_test_html_widget_html(export, title, sources, minified, style_page)?;
     write_html_file(path, &html, "test HTML (widget-html)")
+}
+
+pub fn write_embed_head_widget_html(
+    path: &Path,
+    sources: &WidgetSources,
+    minified: bool,
+    style_page: Option<bool>,
+) -> Result<()> {
+    let html = generate_embed_head_widget_html(sources, minified, style_page)?;
+    write_html_file(path, &html, "embed head engine (widget-html)")
+}
+
+pub fn write_embed_body_widget_html(
+    path: &Path,
+    export: &WidgetExport,
+    minified: bool,
+) -> Result<()> {
+    let html = generate_embed_body_widget_html(export, minified)?;
+    write_html_file(path, &html, "embed page content (widget-html)")
+}
+
+pub fn write_embed_head_json(
+    path: &Path,
+    sources: &WidgetSources,
+    minified: bool,
+    style_page: Option<bool>,
+) -> Result<()> {
+    let html = generate_embed_head_json(sources, minified, style_page)?;
+    write_html_file(path, &html, "embed head engine (json)")
+}
+
+pub fn write_embed_body_json(path: &Path, json_data: &str, minified: bool) -> Result<()> {
+    let html = generate_embed_body_json(json_data, minified)?;
+    write_html_file(path, &html, "embed page content (json)")
 }
 
 fn write_html_file(path: &Path, html: &str, label: &str) -> Result<()> {
