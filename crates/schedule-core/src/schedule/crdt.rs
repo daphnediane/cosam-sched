@@ -90,6 +90,27 @@ pub struct ScheduleMetadata {
     /// `None` means the timestamp was not determinable at import time.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub modified_at: Option<chrono::DateTime<chrono::Utc>>,
+    /// IANA timezone name (e.g. `"America/New_York"`) the schedule's naive
+    /// wall-clock timestamps are expressed in.
+    ///
+    /// Any timestamp in the schedule that lacks an explicit zone is interpreted
+    /// as being in this timezone.  `None` means no timezone has been resolved
+    /// yet; tooling fills it in at import time (source meta → CLI default →
+    /// system local).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub timezone: Option<String>,
+    /// Optional schedule-wide start of the event window.
+    ///
+    /// Acts as a default lower bound that real panels can extend earlier.
+    /// `None` falls back to the earliest scheduled panel.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub start_time: Option<chrono::NaiveDateTime>,
+    /// Optional schedule-wide end of the event window.
+    ///
+    /// Acts as a default upper bound that real panels can extend later.
+    /// `None` falls back to the latest scheduled panel.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub end_time: Option<chrono::NaiveDateTime>,
     /// Human-readable generator identifier (e.g. `"cosam-convert 0.1"`).
     pub generator: String,
     /// Monotonically increasing edit version counter.

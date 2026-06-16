@@ -375,6 +375,36 @@ accepted as aliases during import:
 | Subsumes Members  | `SubsumesMembers`, `Always Shown`, `AlwaysShown`, `Group Shown`               |
 | Show Individually | `ShowIndividually`, `Always Grouped`, `AlwaysGrouped`, `Always Show in Group` |
 
+## Meta / Timestamp Sheet
+
+A small row-oriented table carries schedule-level metadata that has no natural
+home in the entity sheets. The importer looks for a sheet **or** table named
+**Meta** or **Timestamp** (case-insensitive): one header row naming the fields,
+then a single data row of values.
+
+| Column     | Maps to     | Description                                                  |
+| ---------- | ----------- | ------------------------------------------------------------ |
+| Time Zone  | `timezone`  | IANA name (`America/New_York`) or abbreviation (`EDT`, `UTC`) |
+| Start Time | `start_time`| Official schedule-window start                               |
+| End Time   | `end_time`  | Official schedule-window end                                 |
+
+On **export** two extra, read-only columns are written for reference:
+**Earliest Panel Start** and **Latest Panel End**, the actual extent of all
+scheduled panels. These can fall outside the official window (e.g. a private
+post-convention dinner ending after `End Time`); they are informational and are
+ignored on import.
+
+Header matching is case-insensitive and ignores spaces/underscores (`Time Zone`,
+`timezone`, and `tz` all match). **Unrecognized columns are ignored** — notably
+`Last Change Added`, a legacy auto-generated timestamp that is no longer
+authoritative (canonical schedules now live in Google Sheets, not OneDrive).
+
+Values found here are authoritative; the `cosam-convert --default-timezone` /
+`--default-start-time` / `--default-end-time` options only fill fields this
+table leaves unset. When no timezone is supplied anywhere, the user's local
+system timezone is used. Export writes this table back (as **Meta**) so the
+values round-trip.
+
 ## Sample Column Layouts by Year
 
 The following sections document the column order used in each year's

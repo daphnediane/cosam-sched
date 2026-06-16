@@ -774,7 +774,10 @@ fn resolve_timing(
     }
 }
 
-fn parse_cell_datetime(str_val: Option<String>, num_val: Option<f64>) -> Option<NaiveDateTime> {
+pub(super) fn parse_cell_datetime(
+    str_val: Option<String>,
+    num_val: Option<f64>,
+) -> Option<NaiveDateTime> {
     if let Some(s) = str_val {
         if let Some(dt) = parse_datetime(&s) {
             return Some(dt);

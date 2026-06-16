@@ -1,6 +1,6 @@
 # Cosplay America Schedule - Work Item
 
-Updated on: Wed Jun 10 21:09:32 2026
+Updated on: Tue Jun 16 09:32:57 2026
 
 ## Completed
 
@@ -127,6 +127,8 @@ tint, empty grid-cell fill, card fill, and column/panel gaps — all controllabl
 from `config/layout.toml`.
 * [FEATURE-144] Model convention-wide breaks as a first-class `Break` entity (like `Timeline`),
 carrying duration, instead of `Panel` entities flagged `is_break`.
+* [FEATURE-150] Record a timezone (and overridable start/end bounds) in schedule metadata and
+thread it through every export so .ics calendar files anchor correctly.
 * [META-002] Phase tracker for project foundation and Cargo workspace setup.
 * [META-003] Phase tracker for the entity/field system and core schedule data model in schedule-core.
 * [META-004] Phase tracker for making an automerge CRDT document the authoritative storage
@@ -394,7 +396,7 @@ XLSX update-mode added in FEATURE-122:
 
 ### [FEATURE-146] FEATURE-146: Make Uniq ID prefix authoritative for type; reassign on type change
 
-**Status:** Open
+**Status:** In progress
 
 **Priority:** Medium
 
@@ -404,14 +406,16 @@ history) when an entity's type no longer matches its prefix.
 
 **Description:** After FEATURE-144, breaks/timelines/panels all derive their type from the Uniq
 ID prefix on import (prefix → panel type). The `Kind` column (Schedule sheet)
-and `Panel Types` column (Timeline/Break) are now redundant *fallbacks*. We want
-the prefix to be the single source of truth for type, and to drop those columns
-from export.
+and `Panel Types` column (Timeline/Break) never set a row's *type* — that has
+always been the prefix; they only gave the prefix's panel type a readable
+*name* (e.g. code `WS012` with `Kind = "Workshop"` names the `WS` prefix). We
+want the prefix to be the single source of truth for type, keep `Kind` only as
+a type *name* on import, and drop those columns from export.
 
-To do that safely, whenever an entity's associated panel type stops matching its
-Uniq ID prefix (e.g. the type edge is changed, or a legacy row was typed via
-`Kind`), the entity's code must be **reassigned** so its prefix matches the new
-type — preserving the previous code(s) in an `Old Uniq Id` history.
+To do that safely, whenever an entity's type is changed so it no longer matches
+its Uniq ID prefix, the entity's code must be **reassigned** so its prefix
+matches the new type — preserving the previous code(s) in an `Old Uniq Id`
+history.
 
 Applies to **Panel, Timeline, and Break**.
 
@@ -821,6 +825,7 @@ trait and unified `name` (all seven name-bearing entities), `description` /
 [FEATURE-142]: ../work-item/open/3-LOW/FEATURE-142.md
 [FEATURE-144]: ../work-item/closed/done/FEATURE-144.md
 [FEATURE-146]: ../work-item/open/2-MEDIUM/FEATURE-146.md
+[FEATURE-150]: ../work-item/closed/done/FEATURE-150.md
 [META-001]: ../work-item/meta/META-001.md
 [META-002]: ../work-item/closed/done/META-002.md
 [META-003]: ../work-item/closed/done/META-003.md

@@ -34,8 +34,14 @@ Metadata describing the schedule file.
 | generator | String  | Generator software and version                                         |
 | generated | String  | ISO 8601 timestamp when file was generated                             |
 | modified  | String  | Excel last modified timestamp                                          |
-| startTime | String  | Schedule start time (ISO 8601)                                         |
-| endTime   | String  | Schedule end time (ISO 8601)                                           |
+| startTime | String  | Schedule start time (ISO 8601, naive — in `timezone`)                  |
+| endTime   | String  | Schedule end time (ISO 8601, naive — in `timezone`)                    |
+| timezone  | String  | IANA timezone name the naive timestamps are expressed in ("" if unknown) |
+| vtimezone | String  | Precomputed iCalendar `VTIMEZONE` component for `timezone` ("" if none) |
+
+All naive timestamps in the file (`startTime`, `endTime`, and panel/timeline
+times) are wall-clock values in `timezone`. The widget uses `timezone` +
+`vtimezone` to emit correctly-anchored `.ics` (Add to Calendar) downloads.
 
 ### Example
 
@@ -48,7 +54,9 @@ Metadata describing the schedule file.
   "generated": "2026-03-26T22:00:00Z",
   "modified": "2026-03-26T21:45:00Z",
   "startTime": "2026-05-29T17:00:00",
-  "endTime": "2026-06-01T15:00:00"
+  "endTime": "2026-06-01T15:00:00",
+  "timezone": "America/New_York",
+  "vtimezone": "BEGIN:VTIMEZONE\r\nTZID:America/New_York\r\n...END:VTIMEZONE"
 }
 ```
 

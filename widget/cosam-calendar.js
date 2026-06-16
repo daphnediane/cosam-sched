@@ -194,8 +194,11 @@ import QRCode from 'qrcode';
   }
 
   // ── iCalendar (.ics) helpers ─────────────────────────────────────────────
-  // Schedule times are floating local wall-clock (no timezone), so we emit them
-  // as floating DATE-TIME values; the user's calendar app shows them as-is.
+  // Schedule times are wall-clock in the schedule's timezone (meta.timezone).
+  // When a timezone is known we emit DTSTART/DTEND with a TZID parameter and
+  // embed the matching VTIMEZONE (meta.vtimezone) so calendar apps anchor the
+  // event to the correct instant regardless of the viewer's local zone. When no
+  // timezone is available we fall back to floating local DATE-TIME values.
 
   function _pad2(n) { return String(n).padStart(2, '0'); }
 
@@ -237,7 +240,11 @@ import QRCode from 'qrcode';
   }
 
   // Build an iCalendar document string for a single event.
-  function buildIcs(evt, { rooms = [], descriptionLines = [], url = '' } = {}) {
+  //
+  // When `tzid` is supplied the event times are emitted as DATE-TIME values
+  // qualified with `;TZID=<tzid>` and the matching `vtimezone` block (if any) is
+  // embedded; otherwise they are emitted as floating local DATE-TIME values.
+  function buildIcs(evt, { rooms = [], descriptionLines = [], url = '', tzid = '', vtimezone = '' } = {}) {
     const startIso = evt.startTime;
     let endIso = evt.endTime;
     if (!endIso && startIso && evt.duration) {
@@ -255,14 +262,24 @@ import QRCode from 'qrcode';
       'PRODID:-//Cosplay America//Schedule Widget//EN',
       'CALSCALE:GREGORIAN',
       'METHOD:PUBLISH',
+    ];
+    // Embed the timezone definition before any component that references it.
+    if (tzid && vtimezone) {
+      for (const vtzLine of vtimezone.split(/\r?\n/)) {
+        if (vtzLine) lines.push(vtzLine);
+      }
+    }
+    // A TZID parameter is only valid if a matching VTIMEZONE is present.
+    const tzParam = (tzid && vtimezone) ? ';TZID=' + tzid : '';
+    lines.push(
       'BEGIN:VEVENT',
       'UID:' + icsEscape((evt.id || 'event') + '@cosam-calendar'),
-      'DTSTAMP:' + icsStampUtc(new Date()),
-    ];
+      'DTSTAMP:' + icsStampUtc(new Date())
+    );
     const dtStart = icsDateLocal(startIso);
-    if (dtStart) lines.push('DTSTART:' + dtStart);
+    if (dtStart) lines.push('DTSTART' + tzParam + ':' + dtStart);
     const dtEnd = icsDateLocal(endIso);
-    if (dtEnd) lines.push('DTEND:' + dtEnd);
+    if (dtEnd) lines.push('DTEND' + tzParam + ':' + dtEnd);
     lines.push('SUMMARY:' + icsEscape(evt.name || 'Event'));
     if (rooms.length > 0) lines.push('LOCATION:' + icsEscape(rooms.join(', ')));
     const desc = descriptionLines.filter(Boolean).join('\n');
@@ -2879,7 +2896,14 @@ import QRCode from 'qrcode';
       if (evt.prereq) descLines.push('Prerequisite: ' + evt.prereq);
       const shareUrl = this.state.getPanelShareUrl(evt.id);
       descLines.push(shareUrl);
-      const ics = buildIcs(evt, { rooms, descriptionLines: descLines, url: shareUrl });
+      const meta = (this.state.data && this.state.data.meta) || {};
+      const ics = buildIcs(evt, {
+        rooms,
+        descriptionLines: descLines,
+        url: shareUrl,
+        tzid: meta.timezone || '',
+        vtimezone: meta.vtimezone || '',
+      });
       downloadFile(slugify(evt.name) + '.ics', ics, 'text/calendar;charset=utf-8');
     }
 

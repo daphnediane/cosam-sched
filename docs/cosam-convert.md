@@ -52,6 +52,25 @@ tries the given name first, then falls back to common aliases.
 | `--prefix-table <name>`    | `Prefix`     | `PanelTypes`     |
 | `--presenter-table <name>` | `Presenters` | `People`         |
 
+## Timezone and Schedule Window
+
+The schedule's timezone and event-window bounds are read from the source's
+**Meta** / **Timestamp** sheet when present (see
+[spreadsheet-format.md](spreadsheet-format.md#meta--timestamp-sheet)). These
+flags supply *defaults* used only for fields the source leaves unset.
+
+| Flag                            | Description                                                                                  |
+| ------------------------------- | -------------------------------------------------------------------------------------------- |
+| `--default-timezone <name>`     | IANA name (`America/New_York`) or abbreviation (`EDT`, `UTC`). Defaults to the system local zone. |
+| `--default-start-time <dt>`     | Schedule-window start; extended earlier by any panel scheduled before it.                    |
+| `--default-end-time <dt>`       | Schedule-window end; extended later by any panel scheduled after it.                         |
+
+All naive timestamps in the schedule are interpreted as wall-clock in the
+resolved timezone, which is embedded in exported widget JSON/HTML metadata and
+used to anchor `.ics` (Add to Calendar) downloads. To set these values
+authoritatively on a `.schedule` file (rather than as defaults), use
+`cosam-modify --set-timezone` / `--set-start-time` / `--set-end-time`.
+
 ## Output Settings
 
 Settings apply to all subsequent output commands until overridden or reset.

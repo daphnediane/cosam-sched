@@ -82,6 +82,12 @@ pub struct CliArgs {
     pub create_new: bool,
     /// If set, merge the given XLSX file into the schedule before running stages.
     pub merge_xlsx: Option<PathBuf>,
+    /// If set, overwrite the schedule's metadata timezone (IANA name).
+    pub set_timezone: Option<String>,
+    /// If set, overwrite the schedule-window start in metadata.
+    pub set_start_time: Option<chrono::NaiveDateTime>,
+    /// If set, overwrite the schedule-window end in metadata.
+    pub set_end_time: Option<chrono::NaiveDateTime>,
     pub stages: Vec<Stage>,
 }
 
@@ -118,6 +124,9 @@ pub fn parse_args() -> Result<CliArgs> {
     let mut format = OutputFormat::default();
     let mut create_new = false;
     let mut merge_xlsx: Option<PathBuf> = None;
+    let mut set_timezone: Option<String> = None;
+    let mut set_start_time: Option<chrono::NaiveDateTime> = None;
+    let mut set_end_time: Option<chrono::NaiveDateTime> = None;
 
     let mut i = 0;
     while i < global_args.len() {
@@ -145,6 +154,38 @@ pub fn parse_args() -> Result<CliArgs> {
                     bail!("Missing value for --merge-xlsx");
                 }
                 merge_xlsx = Some(PathBuf::from(global_args[i]));
+            }
+            "--set-timezone" => {
+                i += 1;
+                if i >= global_args.len() {
+                    bail!("Missing value for --set-timezone");
+                }
+                let name = global_args[i];
+                let tz = schedule_core::value::timezone::parse_tz(name)
+                    .ok_or_else(|| anyhow::anyhow!("Unknown timezone: {name}"))?;
+                set_timezone = Some(tz.name().to_string());
+            }
+            "--set-start-time" => {
+                i += 1;
+                if i >= global_args.len() {
+                    bail!("Missing value for --set-start-time");
+                }
+                set_start_time = Some(
+                    schedule_core::value::time::parse_datetime(global_args[i]).ok_or_else(
+                        || anyhow::anyhow!("Could not parse datetime: {}", global_args[i]),
+                    )?,
+                );
+            }
+            "--set-end-time" => {
+                i += 1;
+                if i >= global_args.len() {
+                    bail!("Missing value for --set-end-time");
+                }
+                set_end_time = Some(
+                    schedule_core::value::time::parse_datetime(global_args[i]).ok_or_else(
+                        || anyhow::anyhow!("Could not parse datetime: {}", global_args[i]),
+                    )?,
+                );
             }
             "--help" | "-h" => {
                 print_usage();
@@ -188,6 +229,9 @@ pub fn parse_args() -> Result<CliArgs> {
         format,
         create_new,
         merge_xlsx,
+        set_timezone,
+        set_start_time,
+        set_end_time,
         stages,
     })
 }
@@ -360,6 +404,9 @@ GLOBAL OPTIONS:
     --file, -f <path>       Schedule file to modify (required)
     --new                   Create a new schedule if the file does not exist
     --merge-xlsx <path>     Merge XLSX spreadsheet into the schedule before running stages
+    --set-timezone <name>   Set the schedule timezone (IANA name or abbreviation, e.g. EDT)
+    --set-start-time <dt>   Set the schedule-window start time
+    --set-end-time <dt>     Set the schedule-window end time
     --format <fmt>          Output format: text (default), json, toml
     --help, -h              Show this help
 

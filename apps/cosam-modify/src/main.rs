@@ -46,6 +46,23 @@ fn run_main() -> i32 {
         }
     }
 
+    // Apply metadata overrides (timezone / schedule window). These mutate
+    // metadata directly, which bypasses the edit-history dirty counter, so
+    // track the change ourselves to force a save.
+    let mut meta_changed = false;
+    if let Some(ref tz) = cli.set_timezone {
+        ctx.schedule_mut().metadata.timezone = Some(tz.clone());
+        meta_changed = true;
+    }
+    if let Some(start) = cli.set_start_time {
+        ctx.schedule_mut().metadata.start_time = Some(start);
+        meta_changed = true;
+    }
+    if let Some(end) = cli.set_end_time {
+        ctx.schedule_mut().metadata.end_time = Some(end);
+        meta_changed = true;
+    }
+
     for stage in &cli.stages {
         if let Err(e) = cmd::run_stage(&mut ctx, stage, &cli.format) {
             eprintln!("error: {e:#}");
@@ -53,7 +70,7 @@ fn run_main() -> i32 {
         }
     }
 
-    if ctx.is_dirty() {
+    if ctx.is_dirty() || meta_changed {
         ctx.schedule_mut().metadata.generator =
             concat!("cosam-modify ", env!("CARGO_PKG_VERSION")).to_string();
         println!("Writing updated schedule to {}", cli.file.display());

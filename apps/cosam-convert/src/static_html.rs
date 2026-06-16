@@ -296,6 +296,8 @@ mod tests {
                 modified: "2026-01-01T00:00:00Z".to_string(),
                 start_time: "2026-06-26T10:00:00".to_string(),
                 end_time: "2026-06-28T18:00:00".to_string(),
+                timezone: "America/New_York".to_string(),
+                vtimezone: String::new(),
             },
             rooms: vec![WidgetRoom {
                 uid: 1,

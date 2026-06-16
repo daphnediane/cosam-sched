@@ -15,11 +15,7 @@ fn main() {
         .expect("Could not resolve repo root from CARGO_MANIFEST_DIR");
 
     // On Windows, use the full path to npm to avoid PATH issues.
-    let npm = if cfg!(windows) {
-        "npm.cmd"
-    } else {
-        "npm"
-    };
+    let npm = if cfg!(windows) { "npm.cmd" } else { "npm" };
 
     // Tell Cargo to re-run this script only when the widget sources change.
     for path in [

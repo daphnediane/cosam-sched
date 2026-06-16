@@ -724,6 +724,45 @@ fn save_to_file_load_from_file_preserves_metadata() {
 }
 
 #[test]
+fn save_to_file_load_from_file_preserves_timezone_and_bounds() {
+    use chrono::NaiveDate;
+
+    let mut sched = Schedule::new();
+    sched.metadata.timezone = Some("America/New_York".into());
+    let start = NaiveDate::from_ymd_opt(2026, 6, 26)
+        .unwrap()
+        .and_hms_opt(9, 0, 0)
+        .unwrap();
+    let end = NaiveDate::from_ymd_opt(2026, 6, 28)
+        .unwrap()
+        .and_hms_opt(18, 0, 0)
+        .unwrap();
+    sched.metadata.start_time = Some(start);
+    sched.metadata.end_time = Some(end);
+
+    let bytes = sched.save_to_file();
+    let loaded = Schedule::load_from_file(&bytes).expect("load_from_file");
+
+    assert_eq!(
+        loaded.metadata.timezone.as_deref(),
+        Some("America/New_York")
+    );
+    assert_eq!(loaded.metadata.start_time, Some(start));
+    assert_eq!(loaded.metadata.end_time, Some(end));
+}
+
+#[test]
+fn metadata_timezone_fields_default_to_none() {
+    // A schedule saved without timezone fields must still load (older files).
+    let mut sched = Schedule::new();
+    let bytes = sched.save_to_file();
+    let loaded = Schedule::load_from_file(&bytes).expect("load_from_file");
+    assert_eq!(loaded.metadata.timezone, None);
+    assert_eq!(loaded.metadata.start_time, None);
+    assert_eq!(loaded.metadata.end_time, None);
+}
+
+#[test]
 fn save_to_file_load_from_file_preserves_edges() {
     let mut sched = Schedule::new();
     let (panel_id, panel_data) = make_panel();

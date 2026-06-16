@@ -32,6 +32,7 @@ use crate::xlsx::columns::{
     breaks as br_cols, hotel_rooms, panel_types, people, room_map, schedule as sched_cols,
     timeline as tl_cols, FieldDef,
 };
+use crate::xlsx::meta as meta_keys;
 
 use super::common::{add_table, set_headers, set_opt, set_str};
 
@@ -216,10 +217,87 @@ pub fn build_spreadsheet(schedule: &Schedule) -> Result<umya_spreadsheet::Spread
         add_table(ws, "Presenters", &headers, last_row);
     }
 
+    // ── Meta sheet (timezone + schedule window) ─────────────────────────────
+    {
+        let sheet_name = meta_keys::TABLE_NAMES[0];
+        let headers = [
+            meta_keys::TIMEZONE_HEADER,
+            meta_keys::START_TIME_HEADER,
+            meta_keys::END_TIME_HEADER,
+            meta_keys::EARLIEST_PANEL_START_HEADER,
+            meta_keys::LATEST_PANEL_END_HEADER,
+        ];
+        let ws = book
+            .new_sheet(sheet_name)
+            .map_err(|e| anyhow::anyhow!("Cannot create Meta sheet: {e}"))?;
+        let last_row = write_meta_sheet(ws, schedule, &headers);
+        add_table(ws, sheet_name, &headers, last_row);
+    }
+
     // ── Grid reference sheets (one per logical day) ─────────────────────────
     write_grid_sheets(&mut book, schedule, false)?;
 
     Ok(book)
+}
+
+/// Write the row-oriented metadata sheet (one header row, one value row) from
+/// schedule metadata. Returns the last data row written (1 = header only).
+///
+/// Columns: timezone, the configured window (`start_time`/`end_time`), and the
+/// computed earliest panel start / latest panel end. The computed columns are
+/// informational (read-back ignores them) and reflect the actual extent of
+/// scheduled panels, independent of the configured window.
+fn write_meta_sheet(ws: &mut Worksheet, schedule: &Schedule, headers: &[&str]) -> u32 {
+    set_headers(ws, headers);
+
+    let tz = schedule.metadata.timezone.as_deref();
+    let start = schedule.metadata.start_time;
+    let end = schedule.metadata.end_time;
+    let (panel_start, panel_end) = compute_panel_bounds(schedule);
+
+    // Nothing to write — leave just the header row so no table is added.
+    if tz.is_none()
+        && start.is_none()
+        && end.is_none()
+        && panel_start.is_none()
+        && panel_end.is_none()
+    {
+        return 1;
+    }
+
+    if let Some(tz) = tz {
+        set_str(ws, 1, 2, tz);
+    }
+    if let Some(start) = start {
+        set_str(ws, 2, 2, &start.format(TIME_FMT).to_string());
+    }
+    if let Some(end) = end {
+        set_str(ws, 3, 2, &end.format(TIME_FMT).to_string());
+    }
+    if let Some(ps) = panel_start {
+        set_str(ws, 4, 2, &ps.format(TIME_FMT).to_string());
+    }
+    if let Some(pe) = panel_end {
+        set_str(ws, 5, 2, &pe.format(TIME_FMT).to_string());
+    }
+    2
+}
+
+/// Compute the earliest panel start and latest panel end across all scheduled
+/// panels, ignoring unscheduled ones. Returns `(None, None)` when no panel has
+/// a time.
+fn compute_panel_bounds(schedule: &Schedule) -> (Option<NaiveDateTime>, Option<NaiveDateTime>) {
+    let mut start: Option<NaiveDateTime> = None;
+    let mut end: Option<NaiveDateTime> = None;
+    for (_, panel) in schedule.iter_entities::<PanelEntityType>() {
+        if let Some(st) = panel.time_slot.start_time() {
+            start = Some(start.map_or(st, |cur| cur.min(st)));
+        }
+        if let Some(et) = panel.time_slot.end_time() {
+            end = Some(end.map_or(et, |cur| cur.max(et)));
+        }
+    }
+    (start, end)
 }
 
 /// Build a spreadsheet containing only the grid reference sheets (one per

@@ -20,6 +20,7 @@
 //! enabling round-trip with the import.
 
 pub mod columns;
+pub mod meta;
 pub mod read;
 pub mod write;
 

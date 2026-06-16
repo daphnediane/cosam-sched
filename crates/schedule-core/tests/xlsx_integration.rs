@@ -1423,6 +1423,95 @@ fn test_export_round_trip_people_sheet() {
     assert!(bob.show_individually);
 }
 
+#[test]
+fn test_timestamp_sheet_reads_serial_dates_and_ignores_last_change() {
+    use chrono::NaiveDate;
+
+    // Mirror the canonical Google "Timestamp" table: header row + one data row,
+    // with Start/End Time stored as Excel serial numbers and a legacy
+    // "Last Change Added" column that must be ignored.
+    let mut book = umya_spreadsheet::new_file();
+    {
+        let ws = book.get_sheet_mut(&0).unwrap();
+        ws.set_name("Schedule");
+        set_cell(ws, 1, 1, "Name");
+    }
+    {
+        let ws = book.new_sheet("Timestamp").unwrap();
+        set_cell(ws, 1, 1, "Last Change Added");
+        set_cell(ws, 2, 1, "Time Zone");
+        set_cell(ws, 3, 1, "Start Time");
+        set_cell(ws, 4, 1, "End Time");
+        // 46198.708333... = 2026-06-25 17:00, 46201.75 = 2026-06-28 18:00.
+        ws.get_cell_mut((1u32, 2u32)).set_value_number(46104.86);
+        set_cell(ws, 2, 2, "America/New_York");
+        ws.get_cell_mut((3u32, 2u32))
+            .set_value_number(46198.708333333336);
+        ws.get_cell_mut((4u32, 2u32)).set_value_number(46201.75);
+    }
+
+    let path = write_temp(book);
+    let schedule = import_xlsx(&path, &XlsxImportOptions::default()).unwrap();
+    cleanup(&path);
+
+    assert_eq!(
+        schedule.metadata.timezone.as_deref(),
+        Some("America/New_York")
+    );
+    assert_eq!(
+        schedule.metadata.start_time,
+        Some(
+            NaiveDate::from_ymd_opt(2026, 6, 25)
+                .unwrap()
+                .and_hms_opt(17, 0, 0)
+                .unwrap()
+        )
+    );
+    assert_eq!(
+        schedule.metadata.end_time,
+        Some(
+            NaiveDate::from_ymd_opt(2026, 6, 28)
+                .unwrap()
+                .and_hms_opt(18, 0, 0)
+                .unwrap()
+        )
+    );
+}
+
+#[test]
+fn test_meta_sheet_round_trips_timezone_and_window() {
+    use chrono::NaiveDate;
+
+    // Start from an empty imported schedule, then stamp metadata and export.
+    let mut book = umya_spreadsheet::new_file();
+    {
+        let ws = book.get_sheet_mut(&0).unwrap();
+        ws.set_name("Schedule");
+        set_cell(ws, 1, 1, "Name");
+    }
+    let path = write_temp(book);
+    let mut schedule = import_xlsx(&path, &XlsxImportOptions::default()).unwrap();
+    cleanup(&path);
+
+    schedule.metadata.timezone = Some("America/New_York".into());
+    let start = NaiveDate::from_ymd_opt(2026, 6, 26)
+        .unwrap()
+        .and_hms_opt(9, 0, 0)
+        .unwrap();
+    let end = NaiveDate::from_ymd_opt(2026, 6, 28)
+        .unwrap()
+        .and_hms_opt(18, 0, 0)
+        .unwrap();
+    schedule.metadata.start_time = Some(start);
+    schedule.metadata.end_time = Some(end);
+
+    let rt = round_trip(schedule);
+
+    assert_eq!(rt.metadata.timezone.as_deref(), Some("America/New_York"));
+    assert_eq!(rt.metadata.start_time, Some(start));
+    assert_eq!(rt.metadata.end_time, Some(end));
+}
+
 // ── Idempotency tests (FEATURE-127) ───────────────────────────────────────────
 
 /// Build a minimal workbook with PanelTypes, Rooms, People, and Schedule data.

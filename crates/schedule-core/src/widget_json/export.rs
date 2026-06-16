@@ -117,7 +117,14 @@ pub fn export_to_widget_json(
         .filter(|(k, v)| used_prefixes.contains(k) && (private_export || !v.is_private))
         .collect();
 
-    let (start_time, end_time) = compute_schedule_bounds(&panels, &now);
+    let (start_dt, end_dt) = compute_schedule_bounds(&panels, &schedule.metadata, &now);
+
+    // Timezone: name comes straight from metadata; the VTIMEZONE block is
+    // precomputed over the resolved window so the widget can emit anchored .ics.
+    let timezone = schedule.metadata.timezone.clone().unwrap_or_default();
+    let vtimezone = crate::value::timezone::parse_tz(&timezone)
+        .map(|tz| crate::value::timezone::build_vtimezone(tz, start_dt, end_dt))
+        .unwrap_or_default();
 
     let meta = WidgetMeta {
         title: title.to_string(),
@@ -130,8 +137,10 @@ pub fn export_to_widget_json(
             .modified_at
             .unwrap_or(schedule.metadata.created_at)
             .to_rfc3339_opts(chrono::SecondsFormat::Secs, true),
-        start_time,
-        end_time,
+        start_time: format_naive_dt(start_dt),
+        end_time: format_naive_dt(end_dt),
+        timezone,
+        vtimezone,
     };
 
     Ok(WidgetExport {
@@ -757,36 +766,44 @@ fn individual_presenter_names(
     names
 }
 
-/// Compute schedule-wide start/end times from real (non-break) scheduled panels.
-fn compute_schedule_bounds(panels: &[WidgetPanel], now: &DateTime<Utc>) -> (String, String) {
-    let mut start: Option<String> = None;
-    let mut end: Option<String> = None;
+/// Compute the schedule-wide event window as `NaiveDateTime` bounds.
+///
+/// The metadata `start_time`/`end_time` (if set) seed the window; real
+/// (non-break) scheduled panels then *extend* it earlier/later as needed. When
+/// neither metadata nor any panel supplies a bound, falls back to `now`.
+fn compute_schedule_bounds(
+    panels: &[WidgetPanel],
+    metadata: &crate::schedule::ScheduleMetadata,
+    now: &DateTime<Utc>,
+) -> (NaiveDateTime, NaiveDateTime) {
+    let mut start: Option<NaiveDateTime> = metadata.start_time;
+    let mut end: Option<NaiveDateTime> = metadata.end_time;
 
     for panel in panels {
         if panel.id.starts_with('%') {
             continue;
         }
-        if let Some(ref st) = panel.start_time {
+        if let Some(st) = panel.start_time.as_deref().and_then(parse_storage_dt) {
             start = Some(match start {
-                None => st.clone(),
-                Some(ref s) if st < s => st.clone(),
-                Some(s) => s,
+                Some(s) if s <= st => s,
+                _ => st,
             });
         }
-        if let Some(ref et) = panel.end_time {
+        if let Some(et) = panel.end_time.as_deref().and_then(parse_storage_dt) {
             end = Some(match end {
-                None => et.clone(),
-                Some(ref e) if et > e => et.clone(),
-                Some(e) => e,
+                Some(e) if e >= et => e,
+                _ => et,
             });
         }
     }
 
-    let fallback = now.to_rfc3339_opts(chrono::SecondsFormat::Secs, true);
-    (
-        start.unwrap_or_else(|| fallback.clone()),
-        end.unwrap_or(fallback),
-    )
+    let fallback = now.naive_utc();
+    (start.unwrap_or(fallback), end.unwrap_or(fallback))
+}
+
+/// Parse a naive datetime previously formatted by [`format_naive_dt`].
+fn parse_storage_dt(s: &str) -> Option<NaiveDateTime> {
+    NaiveDateTime::parse_from_str(s, crate::value::time::STORAGE_FMT).ok()
 }
 
 fn format_naive_dt(dt: NaiveDateTime) -> String {

@@ -9,6 +9,7 @@
 mod breaks;
 pub mod headers;
 mod hotel_rooms;
+mod meta;
 mod panel_types;
 mod people;
 mod rooms;
@@ -589,6 +590,7 @@ pub fn update_schedule_from_xlsx(
             options,
         );
 
+        ctx.read_meta()?;
         ctx.read_panel_types()?;
         ctx.read_hotel_rooms()?;
         ctx.read_rooms()?;
@@ -829,6 +831,16 @@ pub(super) fn get_cell_str(ws: &Worksheet, col: u32, row: u32) -> Option<String>
 /// Return the numeric value of a cell if it has one.
 pub(super) fn get_cell_number(ws: &Worksheet, col: u32, row: u32) -> Option<f64> {
     ws.get_value_number((col, row))
+}
+
+/// Return a cell's datetime, accepting both ISO-8601 text and Excel serial
+/// numbers (the form spreadsheets use for real date/time cells).
+pub(super) fn get_cell_datetime(
+    ws: &Worksheet,
+    col: u32,
+    row: u32,
+) -> Option<chrono::NaiveDateTime> {
+    schedule::parse_cell_datetime(get_cell_str(ws, col, row), get_cell_number(ws, col, row))
 }
 
 /// Build header maps for a data range.

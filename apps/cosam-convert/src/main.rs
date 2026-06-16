@@ -186,6 +186,12 @@ struct CliArgs {
     output_jobs: Vec<OutputJob>,
     check_only: bool,
     table_options: TableImportOptions,
+    /// Default IANA timezone, used only when the source supplies no timezone.
+    default_timezone: Option<String>,
+    /// Default schedule-window start, used only when the source supplies none.
+    default_start_time: Option<chrono::NaiveDateTime>,
+    /// Default schedule-window end, used only when the source supplies none.
+    default_end_time: Option<chrono::NaiveDateTime>,
 }
 
 // ── Argument parsing ──────────────────────────────────────────────────────────
@@ -235,6 +241,36 @@ fn parse_args() -> Result<CliArgs> {
                     anyhow::bail!("Missing value for --input-url");
                 }
                 input_url = Some(arguments[index].clone());
+            }
+            "--default-timezone" => {
+                index += 1;
+                if index >= arguments.len() {
+                    anyhow::bail!("Missing value for --default-timezone");
+                }
+                let name = &arguments[index];
+                let tz = schedule_core::value::timezone::parse_tz(name)
+                    .with_context(|| format!("Unknown timezone: {name}"))?;
+                args.default_timezone = Some(tz.name().to_string());
+            }
+            "--default-start-time" => {
+                index += 1;
+                if index >= arguments.len() {
+                    anyhow::bail!("Missing value for --default-start-time");
+                }
+                let raw = &arguments[index];
+                let dt = schedule_core::value::time::parse_datetime(raw)
+                    .with_context(|| format!("Could not parse datetime: {raw}"))?;
+                args.default_start_time = Some(dt);
+            }
+            "--default-end-time" => {
+                index += 1;
+                if index >= arguments.len() {
+                    anyhow::bail!("Missing value for --default-end-time");
+                }
+                let raw = &arguments[index];
+                let dt = schedule_core::value::time::parse_datetime(raw)
+                    .with_context(|| format!("Could not parse datetime: {raw}"))?;
+                args.default_end_time = Some(dt);
             }
             "--output" | "-o" => {
                 index += 1;
@@ -687,6 +723,12 @@ fn print_usage() {
          \x20 --hotel-table <mode|name>             Hotel table: 'default', 'skip', or custom name\n\
          \x20 --timeline-table <mode|name>          Timeline table: 'default', 'skip', or custom name\n\
          \n\
+         Timezone / schedule window (defaults; the source Meta sheet wins if present):\n\
+         \x20 --default-timezone <name>            IANA name or abbreviation (e.g. America/New_York, EDT, UTC);\n\
+         \x20                                      falls back to the system local zone when unset\n\
+         \x20 --default-start-time <datetime>      Schedule-window start (extended by panels scheduled earlier)\n\
+         \x20 --default-end-time <datetime>        Schedule-window end (extended by panels scheduled later)\n\
+         \n\
          Output settings (apply to all subsequent output commands until overridden):\n\
          \x20 --title <string>                     Event title for widget JSON and test pages\n\
          \x20 --widget <basename>                  Set CSS and JS to <basename>.css and <basename>.js\n\
@@ -732,6 +774,27 @@ fn print_usage() {
          \x20 cosam-convert --input schedule.xlsx --title \"Event 2026\" \\\n\
          \x20   --minified --export-embed embed.html --no-minified --export-embed debug.html"
     );
+}
+
+// ── Timezone / window resolution ────────────────────────────────────────────
+
+/// Fill in any schedule-window metadata the source didn't already provide.
+///
+/// The source (e.g. an XLSX `Meta` sheet) is authoritative; the CLI `--default-*`
+/// options only apply to fields still unset after loading. The timezone always
+/// ends up populated: CLI default → system local → `"UTC"`.
+fn apply_timezone_defaults(schedule: &mut Schedule, cli: &CliArgs) {
+    if schedule.metadata.timezone.is_none() {
+        let resolved =
+            schedule_core::value::timezone::resolve_timezone(&[cli.default_timezone.as_deref()]);
+        schedule.metadata.timezone = Some(resolved);
+    }
+    if schedule.metadata.start_time.is_none() {
+        schedule.metadata.start_time = cli.default_start_time;
+    }
+    if schedule.metadata.end_time.is_none() {
+        schedule.metadata.end_time = cli.default_end_time;
+    }
 }
 
 // ── Schedule loading ──────────────────────────────────────────────────────────
@@ -829,13 +892,14 @@ fn main() {
             InputType::WidgetJson(widget)
         } else {
             // Load as Schedule
-            let sched = match load_schedule(path, &cli.table_options) {
+            let mut sched = match load_schedule(path, &cli.table_options) {
                 Ok(s) => s,
                 Err(err) => {
                     eprintln!("Error: {err}");
                     std::process::exit(1);
                 }
             };
+            apply_timezone_defaults(&mut sched, &cli);
             InputType::Schedule(Box::new(sched))
         }
     } else {

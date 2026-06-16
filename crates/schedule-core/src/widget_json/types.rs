@@ -24,6 +24,15 @@ pub struct WidgetMeta {
     pub modified: String,
     pub start_time: String,
     pub end_time: String,
+    /// IANA timezone name the naive `startTime`/`endTime` and panel times are
+    /// expressed in. Empty when unknown.
+    #[serde(default)]
+    pub timezone: String,
+    /// Precomputed iCalendar `VTIMEZONE` component for `timezone`, covering the
+    /// schedule window, so the widget can emit correctly-anchored `.ics` files.
+    /// Empty when there is no timezone or it needs no `VTIMEZONE` (e.g. UTC).
+    #[serde(default)]
+    pub vtimezone: String,
 }
 
 /// Panel entry in widget JSON format.
