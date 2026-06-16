@@ -51,6 +51,14 @@ https://github.com/daphnediane/cosam-sched -->";
 /// `Squarespace.onInitialize` hook, and a `MutationObserver` fallback. A
 /// `data-cosam-mounted` marker keeps it idempotent across all of them.
 ///
+/// Init line offsetting sticky headers below a host fixed top bar. Squarespace's
+/// mobile nav (`[data-nc-base="mobile-bar"]` / `.Mobile-bar--top`) is
+/// `position: fixed; top: 0` under its mobile breakpoint, so without this the
+/// widget's sticky day/time headers pin behind it. The selector is harmless on
+/// non-Squarespace hosts (it simply matches nothing → 0 offset).
+const STICKY_OFFSET_LINE: &str =
+    "\n            stickyOffsetSelector: '[data-nc-base=\"mobile-bar\"], .Mobile-bar--top',";
+
 /// `loader_expr` is the JS expression producing the loader (e.g.
 /// `CosAmCalendar.HtmlEmbedLoader()`); `style_page_line` is the optional
 /// `stylePageBody` opt line (already indented, or empty).
@@ -67,7 +75,7 @@ fn init_bootstrap(loader_expr: &str, style_page_line: &str) -> String {
         el.setAttribute('data-cosam-mounted', '1');
         CosAmCalendar.init({{
             el: el,
-            loader: {loader_expr},{style_page_line}
+            loader: {loader_expr},{STICKY_OFFSET_LINE}{style_page_line}
         }});
     }}
     document.addEventListener('DOMContentLoaded', mount);
@@ -403,7 +411,7 @@ fn resident_bootstrap(loader_expr: &str, style_page_line: &str, ready_expr: &str
         el.setAttribute('data-cosam-mounted', '1');
         CosAmCalendar.init({{
             el: el,
-            loader: {loader_expr},{style_page_line}
+            loader: {loader_expr},{STICKY_OFFSET_LINE}{style_page_line}
         }});
     }}
     // Debounce: let an in-flight content insertion settle, then try to mount.

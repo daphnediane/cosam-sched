@@ -186,6 +186,112 @@ import QRCode from 'qrcode';
     return div.innerHTML;
   }
 
+  // Normalized, non-empty capacity string for an event, or '' when absent.
+  function capacityText(evt) {
+    if (evt.capacity === undefined || evt.capacity === null) return '';
+    const c = String(evt.capacity).trim();
+    return c;
+  }
+
+  // ── iCalendar (.ics) helpers ─────────────────────────────────────────────
+  // Schedule times are floating local wall-clock (no timezone), so we emit them
+  // as floating DATE-TIME values; the user's calendar app shows them as-is.
+
+  function _pad2(n) { return String(n).padStart(2, '0'); }
+
+  // Floating local DATE-TIME (YYYYMMDDTHHMMSS, no trailing Z) from an ISO string.
+  function icsDateLocal(iso) {
+    if (!iso) return '';
+    const d = new Date(iso);
+    if (isNaN(d.getTime())) return '';
+    return `${d.getFullYear()}${_pad2(d.getMonth() + 1)}${_pad2(d.getDate())}T` +
+      `${_pad2(d.getHours())}${_pad2(d.getMinutes())}${_pad2(d.getSeconds())}`;
+  }
+
+  // UTC DATE-TIME with trailing Z, for DTSTAMP.
+  function icsStampUtc(d) {
+    return `${d.getUTCFullYear()}${_pad2(d.getUTCMonth() + 1)}${_pad2(d.getUTCDate())}T` +
+      `${_pad2(d.getUTCHours())}${_pad2(d.getUTCMinutes())}${_pad2(d.getUTCSeconds())}Z`;
+  }
+
+  // Escape TEXT values per RFC 5545 (backslash, semicolon, comma, newlines).
+  function icsEscape(s) {
+    return String(s == null ? '' : s)
+      .replace(/\\/g, '\\\\')
+      .replace(/;/g, '\\;')
+      .replace(/,/g, '\\,')
+      .replace(/\r?\n/g, '\\n');
+  }
+
+  // Fold a content line to <=75 octets with CRLF + single-space continuation.
+  // Approximated by character count, which is safe for the common ASCII case.
+  function icsFold(line) {
+    if (line.length <= 75) return line;
+    let out = line.slice(0, 75);
+    let idx = 75;
+    while (idx < line.length) {
+      out += '\r\n ' + line.slice(idx, idx + 74);
+      idx += 74;
+    }
+    return out;
+  }
+
+  // Build an iCalendar document string for a single event.
+  function buildIcs(evt, { rooms = [], descriptionLines = [], url = '' } = {}) {
+    const startIso = evt.startTime;
+    let endIso = evt.endTime;
+    if (!endIso && startIso && evt.duration) {
+      // Derive an end from start + duration, kept as a local floating ISO value.
+      const d = new Date(startIso);
+      if (!isNaN(d.getTime())) {
+        d.setMinutes(d.getMinutes() + evt.duration);
+        endIso = `${d.getFullYear()}-${_pad2(d.getMonth() + 1)}-${_pad2(d.getDate())}T${_pad2(d.getHours())}:${_pad2(d.getMinutes())}:${_pad2(d.getSeconds())}`;
+      }
+    }
+
+    const lines = [
+      'BEGIN:VCALENDAR',
+      'VERSION:2.0',
+      'PRODID:-//Cosplay America//Schedule Widget//EN',
+      'CALSCALE:GREGORIAN',
+      'METHOD:PUBLISH',
+      'BEGIN:VEVENT',
+      'UID:' + icsEscape((evt.id || 'event') + '@cosam-calendar'),
+      'DTSTAMP:' + icsStampUtc(new Date()),
+    ];
+    const dtStart = icsDateLocal(startIso);
+    if (dtStart) lines.push('DTSTART:' + dtStart);
+    const dtEnd = icsDateLocal(endIso);
+    if (dtEnd) lines.push('DTEND:' + dtEnd);
+    lines.push('SUMMARY:' + icsEscape(evt.name || 'Event'));
+    if (rooms.length > 0) lines.push('LOCATION:' + icsEscape(rooms.join(', ')));
+    const desc = descriptionLines.filter(Boolean).join('\n');
+    if (desc) lines.push('DESCRIPTION:' + icsEscape(desc));
+    if (url) lines.push('URL:' + icsEscape(url));
+    lines.push('END:VEVENT', 'END:VCALENDAR');
+
+    return lines.map(icsFold).join('\r\n') + '\r\n';
+  }
+
+  // Trigger a client-side download of text content as a named file.
+  function downloadFile(filename, content, mime) {
+    const blob = new Blob([content], { type: mime || 'text/plain;charset=utf-8' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = filename;
+    a.style.display = 'none';
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    setTimeout(() => URL.revokeObjectURL(url), 1000);
+  }
+
+  // Filesystem-safe slug for filenames.
+  function slugify(s) {
+    return String(s || 'event').toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '').slice(0, 60) || 'event';
+  }
+
   // ── State ───────────────────────────────────────────────────────────────
 
   class CalendarState {
@@ -200,6 +306,9 @@ import QRCode from 'qrcode';
       // Transient: starred events from a shared URL (never persisted)
       this.sharedStarred = new Set();
       this.sharedScheduleName = 'Shared Schedule';
+      // Transient: a single panel id from a share URL whose detail sheet should
+      // auto-open on first render. Consumed (cleared) when opened.
+      this.pendingPanelId = null;
       this.filters = {
         search: '',
         rooms: new Set(),
@@ -212,6 +321,9 @@ import QRCode from 'qrcode';
       this.filtersOpen = false;
       this.modalEvent = null;
       this.stylePageBody = false;
+      // Sticky-header top offset config (see CosAmCalendar.init).
+      this.stickyOffset = 0;
+      this.stickyOffsetSelector = null;
       this._hasRestoredState = false;
       this._savedView = null; // Saved view state before forced list mode
       this._renderCallback = null;
@@ -329,6 +441,10 @@ import QRCode from 'qrcode';
       if (!hash || hash.length < 2) return;
       const params = new URLSearchParams(hash.substring(1));
 
+      if (params.has('panel')) {
+        const pid = decodeURIComponent(params.get('panel')).trim();
+        if (pid) this.pendingPanelId = pid;
+      }
       if (params.has('starred')) {
         const ids = decodeURIComponent(params.get('starred')).split(',').filter(Boolean);
         if (ids.length > 0) {
@@ -475,6 +591,13 @@ import QRCode from 'qrcode';
       this.schedules[n] = new Set(ids);
       this._saveState();
       return n;
+    }
+
+    // Share URL for a single panel. Opening it auto-pops the detail sheet for
+    // this panel (see _loadFromHash / render auto-open).
+    getPanelShareUrl(eventId) {
+      const base = window.location.href.split('#')[0];
+      return base + '#panel=' + encodeURIComponent(eventId);
     }
 
     getShareUrl(options = {}) {
@@ -648,6 +771,7 @@ import QRCode from 'qrcode';
       this.root.setAttribute('data-theme', theme);
       this._applyPageStyling(theme);
       this._applyHeaderPageColor(theme);
+      this._applyStickyOffset();
       this.state._saveState();
       this._ensurePanelTypeThemeStyles();
       this.root.appendChild(el('a', { className: 'cosam-skip-link', href: '#' + this._eventsRegionId }, 'Skip to events'));
@@ -678,6 +802,40 @@ import QRCode from 'qrcode';
 
       // Apply color bar styles after rendering
       this._updateColorBarStyles();
+
+      // Auto-open the detail sheet for a shared single panel (one-shot).
+      if (this.state.pendingPanelId) {
+        const pid = this.state.pendingPanelId;
+        this.state.pendingPanelId = null;
+        const evt = this.state.data.panels.find(p => p.id === pid);
+        if (evt) {
+          this.state.modalEvent = evt;
+          this._showModal(evt);
+        }
+      }
+    }
+
+    // Set --cosam-sticky-offset so sticky headers pin below a host-page fixed
+    // top bar (e.g. a Squarespace mobile nav). Uses the configured fixed pixel
+    // offset and/or the measured height of a fixed bar matched by selector.
+    _applyStickyOffset() {
+      let px = this.state.stickyOffset || 0;
+      const sel = this.state.stickyOffsetSelector;
+      if (sel) {
+        try {
+          const bar = document.querySelector(sel);
+          if (bar) {
+            const cs = window.getComputedStyle(bar);
+            const pinnedTop = (cs.position === 'fixed' || cs.position === 'sticky');
+            if (pinnedTop && cs.display !== 'none' && cs.visibility !== 'hidden') {
+              const r = bar.getBoundingClientRect();
+              // Only count a bar actually pinned at/near the viewport top.
+              if (r.height > 0 && r.top <= 1) px = Math.max(px, Math.round(r.bottom));
+            }
+          }
+        } catch (e) { /* invalid selector — ignore */ }
+      }
+      this.root.style.setProperty('--cosam-sticky-offset', px + 'px');
     }
 
     _applyPageStyling(theme) {
@@ -1597,6 +1755,11 @@ import QRCode from 'qrcode';
       if (isShared) badges.appendChild(el('span', { className: 'cosam-badge cosam-badge-shared', 'aria-label': 'In shared schedule' }, 'Shared'));
       if (evt.isWorkshop) badges.appendChild(el('span', { className: 'cosam-badge cosam-badge-workshop' }, 'Workshop'));
       if (evt.cost && evt.isPremium) badges.appendChild(el('span', { className: 'cosam-badge cosam-badge-paid' }, evt.cost));
+      const cardCap = capacityText(evt);
+      if (cardCap) badges.appendChild(el('span', {
+        className: 'cosam-badge cosam-badge-capacity',
+        'aria-label': 'Capacity ' + cardCap,
+      }, 'Capacity: ' + cardCap));
       if (evt.isFull) badges.appendChild(el('span', { className: 'cosam-badge cosam-badge-full' }, 'Full'));
       if (evt.isKids) badges.appendChild(el('span', { className: 'cosam-badge cosam-badge-kids' }, 'Kids'));
       if (badges.children.length > 0) body.appendChild(badges);
@@ -2595,6 +2758,11 @@ import QRCode from 'qrcode';
       const badges = el('div', { className: 'cosam-event-badges' });
       if (evt.isWorkshop) badges.appendChild(el('span', { className: 'cosam-badge cosam-badge-workshop' }, 'Workshop'));
       if (evt.cost && evt.isPremium) badges.appendChild(el('span', { className: 'cosam-badge cosam-badge-paid' }, evt.cost));
+      const modalCap = capacityText(evt);
+      if (modalCap) badges.appendChild(el('span', {
+        className: 'cosam-badge cosam-badge-capacity',
+        'aria-label': 'Capacity ' + modalCap,
+      }, 'Capacity: ' + modalCap));
       if (evt.isFull) badges.appendChild(el('span', { className: 'cosam-badge cosam-badge-full' }, 'Full'));
       if (evt.isKids) badges.appendChild(el('span', { className: 'cosam-badge cosam-badge-kids' }, 'Kids'));
       if (badges.children.length > 0) modal.appendChild(badges);
@@ -2619,11 +2787,33 @@ import QRCode from 'qrcode';
         modal.appendChild(el('div', { className: 'cosam-modal-note' }, 'Prerequisite: ' + evt.prereq));
       }
 
-      // Ticket link
+      // Action buttons: tickets (when present), add-to-calendar, share panel.
+      const actions = el('div', { className: 'cosam-modal-actions' });
       if (evt.ticketUrl) {
-        const link = el('a', { href: evt.ticketUrl, target: '_blank', className: 'cosam-btn', style: { textDecoration: 'none', display: 'inline-flex' } }, 'Get Tickets');
-        modal.appendChild(el('div', { className: 'cosam-modal-actions' }, link));
+        actions.appendChild(el('a', {
+          href: evt.ticketUrl, target: '_blank', rel: 'noopener',
+          className: 'cosam-btn', style: { textDecoration: 'none', display: 'inline-flex' },
+        }, 'Get Tickets'));
       }
+      if (evt.startTime) {
+        const calBtn = el('button', {
+          type: 'button', className: 'cosam-btn',
+          title: 'Add this event to your calendar',
+          'aria-label': 'Add to calendar',
+          innerHTML: ICONS.calendar + ' Add to Calendar',
+          onClick: () => this._downloadEventIcs(evt),
+        });
+        actions.appendChild(calBtn);
+      }
+      const sharePanelBtn = el('button', {
+        type: 'button', className: 'cosam-btn',
+        title: 'Share a link to this event',
+        'aria-label': 'Share this event',
+        innerHTML: getShareIcon() + ' Share',
+        onClick: () => this._showSharePanelModal(evt),
+      });
+      actions.appendChild(sharePanelBtn);
+      modal.appendChild(actions);
 
       // Schedule membership section
       const schedSection = el('div', { className: 'cosam-modal-schedules' });
@@ -2660,6 +2850,90 @@ import QRCode from 'qrcode';
 
       schedSection.appendChild(checkList);
       modal.appendChild(schedSection);
+
+      this._modalOverlay.classList.add('open');
+    }
+
+    // Display room names (with hotel room in parens) for an event.
+    _eventRoomNames(evt) {
+      if (!evt.roomIds || !this.state.data) return [];
+      const names = [];
+      for (const roomId of evt.roomIds) {
+        const room = this.state.data.rooms.find(r => r.uid === roomId);
+        if (!room) continue;
+        const rn = room.longName || room.shortName;
+        names.push(room.hotelRoom && room.hotelRoom !== rn ? `${rn} (${room.hotelRoom})` : rn);
+      }
+      return names;
+    }
+
+    // Build and download a single-event .ics file for the user's calendar app.
+    _downloadEventIcs(evt) {
+      const rooms = this._eventRoomNames(evt);
+      const descLines = [];
+      if (evt.description) descLines.push(evt.description);
+      if (evt.credits && evt.credits.length > 0) descLines.push('Presenters: ' + evt.credits.join(', '));
+      if (evt.isPremium) descLines.push('Premium — requires a separate purchase' + (evt.cost ? ' (' + evt.cost + ')' : ''));
+      const cap = capacityText(evt);
+      if (cap) descLines.push('Capacity: ' + cap);
+      if (evt.prereq) descLines.push('Prerequisite: ' + evt.prereq);
+      const shareUrl = this.state.getPanelShareUrl(evt.id);
+      descLines.push(shareUrl);
+      const ics = buildIcs(evt, { rooms, descriptionLines: descLines, url: shareUrl });
+      downloadFile(slugify(evt.name) + '.ics', ics, 'text/calendar;charset=utf-8');
+    }
+
+    // Share modal for a single event: link + QR. Closing returns to the detail
+    // sheet it was opened from.
+    _showSharePanelModal(evt) {
+      const modal = this._modalContent;
+      modal.innerHTML = '';
+
+      modal.appendChild(el('button', {
+        type: 'button',
+        className: 'cosam-modal-close',
+        innerHTML: ICONS.x,
+        'aria-label': 'Back to event details',
+        onClick: () => this._showModal(evt),
+      }));
+
+      modal.appendChild(el('h2', {}, 'Share Event'));
+      modal.appendChild(el('p', { className: 'cosam-modal-desc' }, evt.name));
+
+      const url = this.state.getPanelShareUrl(evt.id);
+
+      const upper = el('div', { className: 'cosam-share-upper' });
+      const optionsDiv = el('div', { className: 'cosam-share-options' });
+      optionsDiv.appendChild(el('p', {}, 'Anyone who opens this link will see this event’s details pop up.'));
+      upper.appendChild(optionsDiv);
+
+      const qrDiv = el('div', { className: 'cosam-share-qr', role: 'img', 'aria-label': 'QR code for the event link' });
+      const qrImg = el('img', { className: 'cosam-share-qr-img', alt: 'QR code' });
+      qrDiv.appendChild(qrImg);
+      upper.appendChild(qrDiv);
+      modal.appendChild(upper);
+
+      const urlWrapper = el('div', { className: 'cosam-share-url-wrapper' });
+      const urlInput = el('input', { type: 'text', className: 'cosam-share-url-input', readOnly: true, value: url, 'aria-label': 'Event share URL' });
+      const copyBtn = el('button', {
+        type: 'button', className: 'cosam-btn',
+        onClick: () => {
+          if (navigator.clipboard) {
+            navigator.clipboard.writeText(url).then(() => {
+              copyBtn.textContent = 'Copied!';
+              setTimeout(() => { copyBtn.textContent = 'Copy URL'; }, 1500);
+            });
+          } else {
+            prompt('Copy this URL:', url);
+          }
+        },
+      }, 'Copy URL');
+      urlWrapper.append(urlInput, copyBtn);
+      modal.appendChild(urlWrapper);
+
+      QRCode.toDataURL(url, { width: 200, margin: 2 })
+        .then(dataUrl => { qrImg.src = dataUrl; })
+        .catch(() => { qrImg.hidden = true; });
 
       this._modalOverlay.classList.add('open');
     }
@@ -3116,7 +3390,27 @@ import QRCode from 'qrcode';
       if (opts.stylePageBody !== undefined) {
         state.stylePageBody = !!opts.stylePageBody;
       }
+      // Sticky-header top offset, so headers pin below a host-page fixed bar
+      // (e.g. a Squarespace mobile nav). `stickyOffset` is a fixed pixel value;
+      // `stickyOffsetSelector` auto-measures a fixed top bar by selector and
+      // tracks it across resizes/orientation changes.
+      if (typeof opts.stickyOffset === 'number' && isFinite(opts.stickyOffset)) {
+        state.stickyOffset = Math.max(0, opts.stickyOffset);
+      }
+      if (typeof opts.stickyOffsetSelector === 'string') {
+        state.stickyOffsetSelector = opts.stickyOffsetSelector;
+      }
       const renderer = new CalendarRenderer(rootEl, state);
+
+      // Keep the sticky offset in sync with viewport changes.
+      if (state.stickyOffset || state.stickyOffsetSelector) {
+        const applyOffset = () => renderer._applyStickyOffset();
+        window.addEventListener('resize', applyOffset);
+        window.addEventListener('orientationchange', applyOffset);
+        // Recompute shortly after load: host fixed bars may mount late.
+        setTimeout(applyOffset, 250);
+        setTimeout(applyOffset, 1000);
+      }
 
       // Set up render callback for responsive view changes
       state._renderCallback = () => renderer.render();

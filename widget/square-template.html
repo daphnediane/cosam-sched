@@ -131,10 +131,45 @@
       font-size: 12px;
       color: #999;
     }
+
+    /* Squarespace mobile nav bar — fixed at the top of the viewport on mobile.
+       Shown only below 640px (Squarespace hides it at >=640px), so it overlaps
+       the widget's sticky headers exactly as the live site does. */
+    [data-nc-base="mobile-bar"] {
+      position: fixed;
+      top: 0;
+      left: 0;
+      right: 0;
+      z-index: 1001;
+      height: 52px;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding: 0 16px;
+      background: #1a1a1a;
+      color: #fff;
+      font-family: 'Fjalla One', Helvetica, Arial, sans-serif;
+      text-transform: uppercase;
+      letter-spacing: 0.04em;
+    }
+
+    @media screen and (min-width: 640px) {
+      [data-nc-base="mobile-bar"] {
+        display: none;
+      }
+    }
   </style>
 </head>
 
 <body>
+  <!-- Squarespace mobile nav bar: fixed to the top of the viewport below 640px,
+       mirroring the live site (`.tweak-mobile-bar-top-fixed .Mobile-bar--top`).
+       Reproduces the widget's sticky-header overlap so the stickyOffsetSelector
+       fix can be verified at narrow widths. -->
+  <div data-nc-base="mobile-bar" class="Mobile-bar--top" aria-hidden="true">
+    <span class="Mobile-bar-menu">☰ Menu</span>
+    <span class="Mobile-bar-title">Cosplay America</span>
+  </div>
   <div class="Site">
     <!-- Simplified header -->
     <header class="Header">

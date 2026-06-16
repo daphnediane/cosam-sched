@@ -49,6 +49,14 @@ hosting, upload `cosam-calendar.css`, `cosam-calendar.js`,
 | `opts.loader`        | Loader object with `load(rootEl): Promise<data>` and optional `watch(rootEl, reload)`. |
 | `opts.data`          | Raw schedule data object — skips the loader entirely (useful for testing).             |
 | `opts.stylePageBody` | Boolean — apply Squarespace-compatible body styles.                                    |
+| `opts.stickyOffset`  | Number (px) — fixed extra top offset for sticky day/time headers.                       |
+| `opts.stickyOffsetSelector` | CSS selector of a host-page fixed top bar (e.g. a Squarespace mobile nav). The widget measures its height and offsets sticky headers below it, re-measuring on resize/orientation change. |
+
+> **Sticky headers behind a fixed bar?** If the host page has a fixed top bar
+> (Squarespace's mobile nav uses `.Mobile-bar--top` with `position: fixed; top:
+> 0`), the widget's sticky day/time headers pin *behind* it. Pass
+> `stickyOffsetSelector: '.Mobile-bar--top'` (or set `--cosam-sticky-offset` in
+> CSS) so they pin just below it instead.
 
 ### Loader factories
 
