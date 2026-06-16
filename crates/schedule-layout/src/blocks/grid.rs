@@ -474,8 +474,25 @@ fn render_event_cell(
 
     let name = escape_typst(&panel.name);
 
-    // Cost suffix (inline after title on the first line)
-    let cost_suffix = if config.show_cost {
+    // Cost suffix (inline after title on the first line). For a multi-part
+    // series the price is rendered plainly on the lead part and faded, italic,
+    // and parenthesized on continuation parts so it never reads as an extra
+    // per-part charge while still showing what the series covers.
+    let cost_suffix = if !config.show_cost {
+        String::new()
+    } else if panel.is_premium && panel.is_series_continuation() {
+        panel
+            .cost
+            .as_deref()
+            .filter(|c| !c.is_empty())
+            .map(|c| {
+                format!(
+                    " #h(1fr) #text(size: _cost_size, fill: luma(150), style: \"italic\")[({})]",
+                    escape_typst(c)
+                )
+            })
+            .unwrap_or_default()
+    } else {
         panel
             .cost
             .as_deref()
@@ -487,8 +504,6 @@ fn render_event_cell(
                 )
             })
             .unwrap_or_default()
-    } else {
-        String::new()
     };
 
     // Presenters / credits line

@@ -45,6 +45,19 @@ pub struct WidgetPanel {
     pub part_num: Option<i32>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub session_num: Option<i32>,
+    /// Number of distinct parts in this panel's multi-part series, set only when
+    /// the panel belongs to a series with more than one part. Drives "Part N of
+    /// M" labeling and signals that a single cost covers every part. Absent for
+    /// standalone panels and for plain multi-session reruns (where each session
+    /// carries its own cost).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub total_parts: Option<i32>,
+    /// True on the single "lead" instance of a multi-part series (lowest part
+    /// number, then earliest start time — normally Part 1). The lead bears the
+    /// shared series cost; continuation parts suppress the price to avoid
+    /// implying a separate charge per part.
+    #[serde(default, skip_serializing_if = "is_false")]
+    pub is_series_lead: bool,
     pub name: String,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub panel_type: Option<String>,

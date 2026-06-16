@@ -85,6 +85,8 @@ impl ScheduleData {
                 duration: p.duration.try_into().ok(),
                 part_num: p.part_num,
                 session_num: p.session_num,
+                total_parts: p.total_parts,
+                is_series_lead: p.is_series_lead,
                 description: p.description,
                 note: p.note,
                 prereq: p.prereq,
@@ -259,6 +261,12 @@ pub struct Panel {
     pub part_num: Option<i32>,
     #[serde(default)]
     pub session_num: Option<i32>,
+    /// Number of distinct parts when this panel is in a multi-part series.
+    #[serde(default)]
+    pub total_parts: Option<i32>,
+    /// True on the lead instance that bears the shared series cost.
+    #[serde(default)]
+    pub is_series_lead: bool,
     #[serde(default)]
     pub description: Option<String>,
     #[serde(default)]
@@ -283,6 +291,16 @@ pub struct Panel {
     pub credits: Vec<String>,
     #[serde(default)]
     pub presenters: Vec<String>,
+}
+
+impl Panel {
+    /// A continuation part of a multi-part series (i.e. a member that is not the
+    /// cost-bearing lead). The shared price is shown only on the lead, so these
+    /// suppress the cost and display "Part N of M" instead.
+    #[must_use]
+    pub fn is_series_continuation(&self) -> bool {
+        self.total_parts.is_some() && !self.is_series_lead
+    }
 }
 
 #[derive(Debug, Clone, Deserialize, Serialize)]

@@ -444,8 +444,12 @@ fn panel_block<'a>(
         .map(|g| format!(", below: {g}"))
         .unwrap_or_default();
 
-    // Right column: room \ time \ cost (Typst line-break inside cell)
-    let right_items = build_right_column(&room_str, &time_range, panel.cost.as_deref());
+    // Right column: room \ time \ cost (Typst line-break inside cell). A
+    // continuation part of a multi-part premium series shows the price faded and
+    // parenthesized — the full notice below explains it covers the whole series.
+    let parenthesize_cost = panel.is_premium && panel.is_series_continuation();
+    let right_items =
+        build_right_column(&room_str, &time_range, panel.cost.as_deref(), parenthesize_cost);
 
     // Credits on their own line below the panel name
     let credits_line = if !panel.credits.is_empty() {
@@ -528,7 +532,12 @@ fn panel_block<'a>(
 /// Build the stacked right-column content for the panel header grid.
 ///
 /// Items are joined with Typst's `\ ` line-break so they stack vertically.
-fn build_right_column(room: &str, time_range: &str, cost: Option<&str>) -> String {
+fn build_right_column(
+    room: &str,
+    time_range: &str,
+    cost: Option<&str>,
+    parenthesize_cost: bool,
+) -> String {
     let mut parts: Vec<String> = vec![];
     if !room.is_empty() {
         parts.push(escape_typst(room));
@@ -537,7 +546,14 @@ fn build_right_column(room: &str, time_range: &str, cost: Option<&str>) -> Strin
         parts.push(escape_typst(time_range));
     }
     if let Some(c) = cost.filter(|c| !c.is_empty()) {
-        parts.push(format!("*{}*", escape_typst(c)));
+        if parenthesize_cost {
+            parts.push(format!(
+                "#text(fill: luma(120), style: \"italic\")[({})]",
+                escape_typst(c)
+            ));
+        } else {
+            parts.push(format!("*{}*", escape_typst(c)));
+        }
     }
     parts.join(" \\ \n")
 }
@@ -558,10 +574,27 @@ fn workshop_cap_notice(data: &ScheduleData, panel: &Panel) -> Option<String> {
         .is_some_and(|pt| pt.is_workshop);
 
     if panel.is_premium {
-        Some(format!(
-            "*Premium workshop:*{} Requires a separate purchase.",
-            cap_suffix
-        ))
+        if let Some(total) = panel.total_parts {
+            // Multi-part premium series — every part states the same shared price
+            // so it is clear one purchase covers the whole series.
+            let series = match panel.cost.as_deref().filter(|c| !c.is_empty()) {
+                Some(c) => format!(
+                    " {} for the full series (Parts 1\u{2013}{}).",
+                    escape_typst(c),
+                    total
+                ),
+                None => format!(" One price covers all {} parts.", total),
+            };
+            Some(format!(
+                "*Premium workshop:*{} Requires a separate purchase.{}",
+                cap_suffix, series
+            ))
+        } else {
+            Some(format!(
+                "*Premium workshop:*{} Requires a separate purchase.",
+                cap_suffix
+            ))
+        }
     } else if is_workshop {
         Some(format!("*Workshop:*{}", cap_suffix))
     } else if panel.capacity.as_deref().is_some_and(|c| !c.is_empty()) {

@@ -128,14 +128,16 @@ Each panel is an `<article class="cosam-panel">` element.
 
 #### Optional `data-*` Attributes
 
-| Attribute          | Type    | Description                                 |
-| ------------------ | ------- | ------------------------------------------- |
-| `data-part-num`    | integer | Part number (omitted when absent)           |
-| `data-session-num` | integer | Session number (omitted when absent)        |
-| `data-cost`        | string  | Cost string (see Cost Values documentation) |
-| `data-capacity`    | string  | Seat capacity (e.g. `"15"`)                 |
-| `data-difficulty`  | string  | Skill level indicator                       |
-| `data-ticket-url`  | string  | Ticket purchase URL                         |
+| Attribute             | Type    | Description                                                                     |
+| --------------------- | ------- | ------------------------------------------------------------------------------- |
+| `data-part-num`       | integer | Part number (omitted when absent)                                               |
+| `data-session-num`    | integer | Session number (omitted when absent)                                            |
+| `data-total-parts`    | integer | Distinct part count for a multi-part series (omitted unless >1 part)            |
+| `data-is-series-lead` | boolean | `"true"` on the lead part that bears the shared series cost (omitted otherwise) |
+| `data-cost`           | string  | Cost string (see Cost Values documentation)                                     |
+| `data-capacity`       | string  | Seat capacity (e.g. `"15"`)                                                     |
+| `data-difficulty`     | string  | Skill level indicator                                                           |
+| `data-ticket-url`     | string  | Ticket purchase URL                                                             |
 
 #### Required Child Elements
 

@@ -193,6 +193,16 @@ import QRCode from 'qrcode';
     return c;
   }
 
+  // Explanatory sentence for a premium multi-part series, or '' when not
+  // applicable. Every part states the same shared price so it is clear one
+  // purchase covers the whole series. Mirrors the Typst premium-workshop notice.
+  function seriesCostNote(evt) {
+    if (!evt.totalParts || !evt.isPremium) return '';
+    return evt.cost
+      ? evt.cost + ' for the full series (Parts 1–' + evt.totalParts + ').'
+      : 'One price covers all ' + evt.totalParts + ' parts.';
+  }
+
   // ── iCalendar (.ics) helpers ─────────────────────────────────────────────
   // Schedule times are wall-clock in the schedule's timezone (meta.timezone).
   // When a timezone is known we emit DTSTART/DTEND with a TZID parameter and
@@ -1781,7 +1791,15 @@ import QRCode from 'qrcode';
       const badges = el('div', { className: 'cosam-event-badges' });
       if (isShared) badges.appendChild(el('span', { className: 'cosam-badge cosam-badge-shared', 'aria-label': 'In shared schedule' }, 'Shared'));
       if (evt.isWorkshop) badges.appendChild(el('span', { className: 'cosam-badge cosam-badge-workshop' }, 'Workshop'));
-      if (evt.cost && evt.isPremium) badges.appendChild(el('span', { className: 'cosam-badge cosam-badge-paid' }, evt.cost));
+      // Multi-part continuation parts show the price as a faded, italic pill;
+      // the series note (below) explains one purchase covers every part.
+      if (evt.cost && evt.isPremium) {
+        if (evt.totalParts && !evt.isSeriesLead) {
+          badges.appendChild(el('span', { className: 'cosam-badge cosam-badge-paid cosam-badge-series' }, evt.cost));
+        } else {
+          badges.appendChild(el('span', { className: 'cosam-badge cosam-badge-paid' }, evt.cost));
+        }
+      }
       const cardCap = capacityText(evt);
       if (cardCap) badges.appendChild(el('span', {
         className: 'cosam-badge cosam-badge-capacity',
@@ -1790,6 +1808,10 @@ import QRCode from 'qrcode';
       if (evt.isFull) badges.appendChild(el('span', { className: 'cosam-badge cosam-badge-full' }, 'Full'));
       if (evt.isKids) badges.appendChild(el('span', { className: 'cosam-badge cosam-badge-kids' }, 'Kids'));
       if (badges.children.length > 0) body.appendChild(badges);
+
+      // Multi-part series cost note
+      const cardSeriesNote = seriesCostNote(evt);
+      if (cardSeriesNote) body.appendChild(el('div', { className: 'cosam-event-series-note' }, cardSeriesNote));
 
       // Presenters/Credits
       if (evt.credits && evt.credits.length > 0) {
@@ -2377,8 +2399,18 @@ import QRCode from 'qrcode';
       }
 
       // Premium cost — shown as a compact pill, mirroring the list/detail badge.
+      // For a multi-part series the shared price is shown only on the lead part;
+      // continuation parts show "Part N of M" so the price never reads as a
+      // separate per-part charge.
       if (evt.cost && evt.isPremium) {
-        div.appendChild(el('span', { className: 'cosam-grid-event-cost' }, evt.cost));
+        if (evt.totalParts && !evt.isSeriesLead) {
+          // Continuation part — faded, italic price pill; the series note (in
+          // the detail view) explains one purchase covers every part.
+          div.appendChild(el('span', { className: 'cosam-grid-event-cost cosam-grid-event-cost-series' }, evt.cost));
+        } else {
+          const costText = evt.totalParts ? evt.cost + ' (full series)' : evt.cost;
+          div.appendChild(el('span', { className: 'cosam-grid-event-cost' }, costText));
+        }
       }
 
       return div;
@@ -2789,7 +2821,15 @@ import QRCode from 'qrcode';
       // Badges
       const badges = el('div', { className: 'cosam-event-badges' });
       if (evt.isWorkshop) badges.appendChild(el('span', { className: 'cosam-badge cosam-badge-workshop' }, 'Workshop'));
-      if (evt.cost && evt.isPremium) badges.appendChild(el('span', { className: 'cosam-badge cosam-badge-paid' }, evt.cost));
+      // Multi-part continuation parts show the price as a faded, italic pill;
+      // the series note (below) explains one purchase covers every part.
+      if (evt.cost && evt.isPremium) {
+        if (evt.totalParts && !evt.isSeriesLead) {
+          badges.appendChild(el('span', { className: 'cosam-badge cosam-badge-paid cosam-badge-series' }, evt.cost));
+        } else {
+          badges.appendChild(el('span', { className: 'cosam-badge cosam-badge-paid' }, evt.cost));
+        }
+      }
       const modalCap = capacityText(evt);
       if (modalCap) badges.appendChild(el('span', {
         className: 'cosam-badge cosam-badge-capacity',
@@ -2798,6 +2838,10 @@ import QRCode from 'qrcode';
       if (evt.isFull) badges.appendChild(el('span', { className: 'cosam-badge cosam-badge-full' }, 'Full'));
       if (evt.isKids) badges.appendChild(el('span', { className: 'cosam-badge cosam-badge-kids' }, 'Kids'));
       if (badges.children.length > 0) modal.appendChild(badges);
+
+      // Multi-part series cost note
+      const modalSeriesNote = seriesCostNote(evt);
+      if (modalSeriesNote) modal.appendChild(el('div', { className: 'cosam-event-series-note' }, modalSeriesNote));
 
       // Description
       if (evt.description) {
@@ -2909,7 +2953,14 @@ import QRCode from 'qrcode';
       const descLines = [];
       if (evt.description) descLines.push(evt.description);
       if (evt.credits && evt.credits.length > 0) descLines.push('Presenters: ' + evt.credits.join(', '));
-      if (evt.isPremium) descLines.push('Premium — requires a separate purchase' + (evt.cost ? ' (' + evt.cost + ')' : ''));
+      if (evt.isPremium) {
+        const seriesNote = seriesCostNote(evt);
+        if (seriesNote) {
+          descLines.push('Premium — ' + seriesNote);
+        } else {
+          descLines.push('Premium — requires a separate purchase' + (evt.cost ? ' (' + evt.cost + ')' : ''));
+        }
+      }
       const cap = capacityText(evt);
       if (cap) descLines.push('Capacity: ' + cap);
       if (evt.prereq) descLines.push('Prerequisite: ' + evt.prereq);

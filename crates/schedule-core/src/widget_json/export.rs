@@ -383,6 +383,8 @@ fn export_panels(
             base_id: code.base_id(),
             part_num: code.part_num().map(|n| n as i32),
             session_num: code.session_num().map(|n| n as i32),
+            total_parts: None,
+            is_series_lead: false,
             name: internal.data.name.clone(),
             panel_type: prefix,
             room_ids,
@@ -440,6 +442,8 @@ fn export_panels(
             base_id: code.base_id(),
             part_num: code.part_num().map(|n| n as i32),
             session_num: code.session_num().map(|n| n as i32),
+            total_parts: None,
+            is_series_lead: false,
             name: internal.data.name.clone(),
             panel_type: prefix,
             room_ids: Vec::new(),
@@ -461,6 +465,9 @@ fn export_panels(
         });
     }
 
+    // Annotate multi-part series so a single shared cost is shown only once.
+    annotate_multipart_series(&mut panels);
+
     // Sort: scheduled before unscheduled, then within scheduled:
     //   earliest start → longest duration → lowest room uid → id → name
     panels.sort_by(|a, b| match (&a.start_time, &b.start_time) {
@@ -480,6 +487,59 @@ fn export_panels(
 
 fn first_room_uid(p: &WidgetPanel) -> i32 {
     p.room_ids.first().copied().unwrap_or(i32::MAX)
+}
+
+/// Mark multi-part panel series so a single shared cost is presented once.
+///
+/// Panels sharing a `base_id` and carrying a `part_num` form a series. When a
+/// series spans more than one distinct part, every member gets `total_parts`
+/// set, and exactly one "lead" instance — the lowest part number, breaking ties
+/// by earliest start time (normally Part 1) — gets `is_series_lead = true`. The
+/// lead displays the price (which covers the whole series); continuation parts
+/// suppress it. Plain multi-session reruns (a single part repeated) are left
+/// untouched, since their cost applies per session.
+fn annotate_multipart_series(panels: &mut [WidgetPanel]) {
+    use std::collections::HashMap;
+
+    let mut groups: HashMap<String, Vec<usize>> = HashMap::new();
+    for (i, p) in panels.iter().enumerate() {
+        if p.part_num.is_some() {
+            groups.entry(p.base_id.clone()).or_default().push(i);
+        }
+    }
+
+    for idxs in groups.into_values() {
+        let mut distinct: Vec<i32> = idxs.iter().filter_map(|&i| panels[i].part_num).collect();
+        distinct.sort_unstable();
+        distinct.dedup();
+        if distinct.len() < 2 {
+            // A single part, possibly with reruns — not a multi-part series.
+            continue;
+        }
+        let total = distinct.len() as i32;
+
+        // Lead: lowest part number, then earliest start, then id for stability.
+        // Missing start times sort last so a scheduled instance leads.
+        let lead = *idxs
+            .iter()
+            .min_by(|&&a, &&b| {
+                let pa = panels[a].part_num.unwrap_or(i32::MAX);
+                let pb = panels[b].part_num.unwrap_or(i32::MAX);
+                pa.cmp(&pb)
+                    .then_with(|| {
+                        let ta = panels[a].start_time.as_deref().unwrap_or("\u{7f}");
+                        let tb = panels[b].start_time.as_deref().unwrap_or("\u{7f}");
+                        ta.cmp(tb)
+                    })
+                    .then_with(|| panels[a].id.cmp(&panels[b].id))
+            })
+            .expect("group is non-empty");
+
+        for &i in &idxs {
+            panels[i].total_parts = Some(total);
+            panels[i].is_series_lead = i == lead;
+        }
+    }
 }
 
 fn synthesize_breaks(
@@ -559,6 +619,8 @@ fn make_break_panel(
         id,
         part_num: None,
         session_num: None,
+        total_parts: None,
+        is_series_lead: false,
         name: "Break".to_string(),
         panel_type: Some(panel_type.to_string()),
         room_ids: room_uids.to_vec(),
@@ -1319,5 +1381,50 @@ mod tests {
         assert_eq!(export.meta.title, loaded.meta.title);
         assert_eq!(export.panels.len(), loaded.panels.len());
         assert_eq!(export.rooms.len(), loaded.rooms.len());
+    }
+
+    fn part_panel(id: &str, base: &str, part: i32, start: &str) -> WidgetPanel {
+        WidgetPanel {
+            id: id.to_string(),
+            base_id: base.to_string(),
+            part_num: Some(part),
+            start_time: Some(start.to_string()),
+            ..Default::default()
+        }
+    }
+
+    #[test]
+    fn test_annotate_multipart_marks_lead_and_total() {
+        // GP001 has two parts; part 1 also has a rerun. The lead is the lowest
+        // part number, earliest start — here the 2pm Part 1.
+        let mut panels = vec![
+            part_panel("GP001P2", "GP001", 2, "2026-06-01T16:00:00"),
+            part_panel("GP001P1S2", "GP001", 1, "2026-06-01T18:00:00"),
+            part_panel("GP001P1", "GP001", 1, "2026-06-01T14:00:00"),
+        ];
+        annotate_multipart_series(&mut panels);
+
+        for p in &panels {
+            assert_eq!(p.total_parts, Some(2), "{} total_parts", p.id);
+        }
+        let lead: Vec<&str> = panels
+            .iter()
+            .filter(|p| p.is_series_lead)
+            .map(|p| p.id.as_str())
+            .collect();
+        assert_eq!(lead, vec!["GP001P1"], "exactly the earliest Part 1 leads");
+    }
+
+    #[test]
+    fn test_annotate_single_part_reruns_not_multipart() {
+        // A single part repeated (reruns) is not a multi-part series — cost is
+        // per session, so nothing is annotated.
+        let mut panels = vec![
+            part_panel("GP002P1", "GP002", 1, "2026-06-01T14:00:00"),
+            part_panel("GP002P1S2", "GP002", 1, "2026-06-01T16:00:00"),
+        ];
+        annotate_multipart_series(&mut panels);
+        assert!(panels.iter().all(|p| p.total_parts.is_none()));
+        assert!(panels.iter().all(|p| !p.is_series_lead));
     }
 }

@@ -1311,6 +1311,30 @@
   font-weight: 600;
 }
 
+/* Continuation part of a multi-part series — the price is shown as a faded,
+   italic pill so it never reads as an additional charge. The lead part shows
+   the same price with a "(full series)" suffix in the normal cost pill. */
+.cosam-grid-event-cost-series {
+  background: var(--cosam-surface-muted, #f3f4f6);
+  color: var(--cosam-text-muted, #6b7280);
+  font-style: italic;
+  font-weight: 500;
+}
+
+.cosam-badge.cosam-badge-series {
+  background: var(--cosam-surface-muted, #f3f4f6);
+  color: var(--cosam-text-muted, #6b7280);
+  font-style: italic;
+}
+
+/* Explanatory line that a single price covers an entire multi-part series. */
+.cosam-event-series-note {
+  margin-top: 6px;
+  font-size: 13px;
+  color: var(--cosam-paid);
+  font-weight: 600;
+}
+
 @media screen and (max-width: 768px) {
   .cosam-grid-event-room {
     display: block;

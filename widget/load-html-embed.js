@@ -29,6 +29,8 @@ function _parsePanelElement(el) {
   if (d.endTime) panel.endTime = d.endTime;
   if (d.partNum !== undefined) panel.partNum = parseInt(d.partNum, 10);
   if (d.sessionNum !== undefined) panel.sessionNum = parseInt(d.sessionNum, 10);
+  if (d.totalParts !== undefined) panel.totalParts = parseInt(d.totalParts, 10);
+  if (d.isSeriesLead === 'true') panel.isSeriesLead = true;
   if (d.cost !== undefined) panel.cost = d.cost;
   if (d.capacity !== undefined) panel.capacity = d.capacity;
   if (d.difficulty !== undefined) panel.difficulty = d.difficulty;

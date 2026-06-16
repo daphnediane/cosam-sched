@@ -128,6 +128,12 @@ fn build_panel_attrs(panel: &schedule_core::widget_json::WidgetPanel) -> String 
     if let Some(sn) = panel.session_num {
         attrs.push_str(&format!(" data-session-num=\"{sn}\""));
     }
+    if let Some(tp) = panel.total_parts {
+        attrs.push_str(&format!(" data-total-parts=\"{tp}\""));
+    }
+    if panel.is_series_lead {
+        attrs.push_str(" data-is-series-lead=\"true\"");
+    }
     if let Some(cost) = &panel.cost {
         attrs.push_str(&format!(" data-cost=\"{}\"", escape_attr(cost)));
     }
@@ -358,6 +364,31 @@ mod tests {
         assert!(
             html.contains("data-is-premium=\"false\""),
             "is-premium attribute"
+        );
+    }
+
+    #[test]
+    fn test_generate_html_multipart_series_attributes() {
+        let mut export = minimal_export();
+        export.panels[0].total_parts = Some(3);
+        export.panels[0].is_series_lead = true;
+        let html = generate_static_schedule_html(&export).unwrap();
+        assert!(
+            html.contains("data-total-parts=\"3\""),
+            "total-parts attribute"
+        );
+        assert!(
+            html.contains("data-is-series-lead=\"true\""),
+            "is-series-lead attribute"
+        );
+
+        // A continuation part omits the lead flag.
+        export.panels[0].is_series_lead = false;
+        let html = generate_static_schedule_html(&export).unwrap();
+        assert!(html.contains("data-total-parts=\"3\""));
+        assert!(
+            !html.contains("data-is-series-lead"),
+            "lead flag omitted on continuation parts"
         );
     }
 
