@@ -3462,9 +3462,23 @@ import QRCode from 'qrcode';
           ],
         },
         {
+          heading: 'Event Details',
+          items: [
+            { icon: ICONS.list, text: '<strong>Open an event</strong> — Click any event to open its details, including description, room, presenters, and pricing.' },
+          ],
+        },
+        {
+          heading: 'Add to Calendar',
+          items: [
+            { icon: ICONS.calendar, text: '<strong>Add one event</strong> — Open an event and click <em>Add to Calendar</em> to send it to your phone or computer\'s calendar app.' },
+            { icon: ICONS.calendar, text: '<strong>Add your whole schedule</strong> — In the <em>Share</em> dialog, click <em>Add Schedule to Calendar</em> to add every event in the selected schedule at once.' },
+          ],
+        },
+        {
           heading: 'Sharing',
           items: [
-            { icon: getShareIcon(), text: '<strong>Share</strong> — Click <em>Share</em> to generate a link and QR code with your starred schedule. Anyone with the link can view your picks.' },
+            { icon: getShareIcon(), text: '<strong>Share your schedule</strong> — Click <em>Share</em> to generate a link and QR code with your starred schedule. Anyone with the link can view your picks.' },
+            { icon: getShareIcon(), text: '<strong>Share a single event</strong> — Open an event and click <em>Share</em> to get a link and QR code for just that event. Opening it pops up the event\'s details.' },
             { icon: ICONS.people, text: '<strong>Received a shared link?</strong> — A banner appears when you open one. Import it as a new schedule or merge it into an existing one.' },
           ],
         },
