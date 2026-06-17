@@ -32,6 +32,7 @@ Complete index of cosam-sched documentation, including current documents and pla
 ### JSON Format Documentation
 
 * **widget-json-format.md** - Standalone widget JSON display format (public-facing format consumed by the calendar widget)
+* **widget-config-format.md** - Presentation configuration format (branding and print formats) that can be loaded independently from schedule data
 * **widget-html-format.md** - Hybrid widget-html embedded format: structural JSON block (meta, rooms, panelTypes, timeline, presenters) plus semantic HTML panel elements for search engine visibility and no-JS progressive enhancement
 
 ## Placeholder Documentation

@@ -13,6 +13,7 @@
 //! documented in `docs/widget-json-format.md`.
 
 pub use schedule_widget_format::{
-    WidgetExport, WidgetMeta, WidgetPanel, WidgetPanelColors, WidgetPanelType, WidgetPresenter,
-    WidgetRoom, WidgetTimeline,
+    ScheduleBrand, ScheduleBrandColors, ScheduleBrandMeta, ScheduleConfig, SchedulePrintFont,
+    SchedulePrintFontSizes, SchedulePrintFonts, SchedulePrintFormat, WidgetExport, WidgetMeta,
+    WidgetPanel, WidgetPanelColors, WidgetPanelType, WidgetPresenter, WidgetRoom, WidgetTimeline,
 };

@@ -27,7 +27,7 @@ widget-html format consists of two parts:
 ```html
 <div id="cosam-calendar-root">
   <!-- Part 1: Structural metadata (no panels) -->
-  <script type="application/json" data-cosam="schedule">
+  <script type="application/json" id="cosam-schedule-data" data-cosam="schedule">
     { "meta": {…}, "rooms": […], "panelTypes": {…}, "timeline": […], "presenters": […] }
   </script>
 
@@ -39,16 +39,21 @@ widget-html format consists of two parts:
 </div>
 ```
 
+**Note:** Presentation configuration (branding and print formats) lives in a separate
+`ScheduleConfig` structure that is emitted in the page head (via `--embed-head`), not
+in the body. This allows multiple schedule pages to share the same branding and print
+format configuration while having different schedule data.
+
 The widget detects this format automatically when it finds a
 `script[data-cosam="schedule"]` element inside the root element and no separate
 `dataEl` or `data` option is provided.
 
-## Part 1: JSON Block
+## Part 1: Structural JSON Block
 
-### Detection
+### Schedule Block Detection
 
 ```html
-<script type="application/json" data-cosam="schedule">
+<script type="application/json" id="cosam-schedule-data" data-cosam="schedule">
   { … }
 </script>
 ```

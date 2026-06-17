@@ -1,0 +1,75 @@
+# Widget print-format defaults.
+#
+# These seed the embedded calendar widget's "Print format" dropdown. Copy to
+# config/widget.toml (gitignored) to customize; a present widget.toml replaces
+# this list wholesale. This file is embedded into cosam-convert at build time.
+#
+# Each [[print_formats]] entry combines layout choices with brand references
+# (logo alias + font roles), resolved against config/brand.toml at export time.
+#
+# Keys (snake_case, mirroring layout.toml where they overlap):
+#   name          display name in the dropdown (required)
+#   content       "both" | "grid_only" | "description_only" | "panel_list"
+#   color_mode    "color" (default) | "bw"
+#   columns       0 = per-mode auto; 1..6 to override (description/list regions)
+#   header_text   text shown in the print header band
+#   footer_text   extra text shown in the print footer
+#   footer        "full" (default) | "timestamp_only" | "none"
+#   logo          brand logo alias ("brand", "small") or "none"
+#   page_fill     page background CSS color (e.g. "#f7f7f7"); empty = white
+#   cards         true = render descriptions as bordered cards
+#   panel_filter  "all" (default) | "workshops" | "premium"
+#   brand_fonts   true = use brand web fonts for all four roles
+#   base_font_pt / grid_font_pt / banner_text_pt   point-size overrides
+#
+#   [print_formats.fonts] per-role brand font references (override brand_fonts):
+#     heading / banner / subheading / body = "<role>" or "" for the system font
+
+# Room/time grid — the classic at-a-glance schedule.
+[[print_formats]]
+name = "Schedule Grid"
+content = "grid_only"
+color_mode = "color"
+logo = "brand"
+footer = "full"
+brand_fonts = true
+
+# Full panel descriptions in columns, as bordered cards.
+[[print_formats]]
+name = "Panel Descriptions"
+content = "description_only"
+columns = 2
+cards = true
+page_fill = "#f7f7f7"
+logo = "brand"
+footer = "full"
+brand_fonts = true
+
+# Workshops only — a handout for the workshop track.
+[[print_formats]]
+name = "Workshop Handout"
+content = "description_only"
+panel_filter = "workshops"
+columns = 2
+cards = true
+header_text = "Workshops"
+logo = "brand"
+footer = "timestamp_only"
+brand_fonts = true
+
+# Grid plus descriptions together — a one-stop flyer.
+[[print_formats]]
+name = "Flyer (Grid + Details)"
+content = "both"
+columns = 2
+logo = "brand"
+footer = "full"
+brand_fonts = true
+
+# Compact, ink-light list for black-and-white printers.
+[[print_formats]]
+name = "Compact List (B&W)"
+content = "panel_list"
+color_mode = "bw"
+logo = "none"
+footer = "timestamp_only"

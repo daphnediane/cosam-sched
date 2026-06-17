@@ -233,6 +233,62 @@ pub struct BrandFonts {
     pub body_idml_style: Option<String>,
     /// Path to a directory containing font files (TTF/OTF).
     pub font_dir: Option<PathBuf>,
+
+    // ── Web-equivalent fonts (widget print) ─────────────────────────────────
+    //
+    // The print/IDML fonts above are not generally available in a browser, so
+    // each role may declare a *web* substitute used by the widget's print
+    // formats (e.g. Trend Sans One → "Montserrat" weight "600"). These have no
+    // effect on Typst/IDML output. `{role}_web` is the CSS family; the optional
+    // weight/style/google fields refine it. `{role}_web_google` is a Google
+    // Fonts stylesheet URL the print window loads via `<link>`.
+    /// Web-equivalent heading family (e.g. `"Montserrat"`).
+    pub heading_web: Option<String>,
+    /// CSS weight for the web heading font (e.g. `"600"`).
+    pub heading_web_weight: Option<String>,
+    /// CSS style for the web heading font (e.g. `"italic"`).
+    pub heading_web_style: Option<String>,
+    /// Google Fonts stylesheet URL for the web heading font.
+    pub heading_web_google: Option<String>,
+    /// Web-equivalent banner family. Falls back to `heading_web`.
+    pub banner_web: Option<String>,
+    /// CSS weight for the web banner font.
+    pub banner_web_weight: Option<String>,
+    /// CSS style for the web banner font.
+    pub banner_web_style: Option<String>,
+    /// Google Fonts stylesheet URL for the web banner font.
+    pub banner_web_google: Option<String>,
+    /// Web-equivalent subheading family.
+    pub subheading_web: Option<String>,
+    /// CSS weight for the web subheading font.
+    pub subheading_web_weight: Option<String>,
+    /// CSS style for the web subheading font.
+    pub subheading_web_style: Option<String>,
+    /// Google Fonts stylesheet URL for the web subheading font.
+    pub subheading_web_google: Option<String>,
+    /// Web-equivalent body family.
+    pub body_web: Option<String>,
+    /// CSS weight for the web body font.
+    pub body_web_weight: Option<String>,
+    /// CSS style for the web body font.
+    pub body_web_style: Option<String>,
+    /// Google Fonts stylesheet URL for the web body font.
+    pub body_web_google: Option<String>,
+}
+
+/// A resolved web-font substitute for one role, for the widget print path.
+#[derive(Debug, Clone, PartialEq)]
+pub struct WebFontSpec {
+    /// Role key: `"heading"`, `"banner"`, `"subheading"`, or `"body"`.
+    pub role: String,
+    /// CSS font-family to apply.
+    pub family: String,
+    /// CSS font-weight, if specified.
+    pub weight: Option<String>,
+    /// CSS font-style, if specified.
+    pub style: Option<String>,
+    /// Google Fonts stylesheet URL to load via `<link>`, if specified.
+    pub google_url: Option<String>,
 }
 
 impl BrandFonts {
@@ -309,6 +365,69 @@ impl BrandFonts {
     /// Explicit InDesign style name for the body font, if specified.
     pub fn body_idml_style(&self) -> Option<&str> {
         self.body_idml_style.as_deref()
+    }
+
+    /// Resolved web-font substitutes for the widget print path, one per role
+    /// that declares a `{role}_web` family. `banner` falls back to the heading
+    /// web font (family, weight, style, and Google URL together) when it has no
+    /// dedicated web family, mirroring the print/IDML banner fallback.
+    pub fn web_font_specs(&self) -> Vec<WebFontSpec> {
+        let mut specs = Vec::new();
+        let mut push = |role: &str,
+                        family: &Option<String>,
+                        weight: &Option<String>,
+                        style: &Option<String>,
+                        google: &Option<String>| {
+            if let Some(family) = family {
+                specs.push(WebFontSpec {
+                    role: role.to_string(),
+                    family: family.clone(),
+                    weight: weight.clone(),
+                    style: style.clone(),
+                    google_url: google.clone(),
+                });
+            }
+        };
+        push(
+            "heading",
+            &self.heading_web,
+            &self.heading_web_weight,
+            &self.heading_web_style,
+            &self.heading_web_google,
+        );
+        // Banner falls back to the heading web font as a unit.
+        if self.banner_web.is_some() {
+            push(
+                "banner",
+                &self.banner_web,
+                &self.banner_web_weight,
+                &self.banner_web_style,
+                &self.banner_web_google,
+            );
+        } else {
+            push(
+                "banner",
+                &self.heading_web,
+                &self.heading_web_weight,
+                &self.heading_web_style,
+                &self.heading_web_google,
+            );
+        }
+        push(
+            "subheading",
+            &self.subheading_web,
+            &self.subheading_web_weight,
+            &self.subheading_web_style,
+            &self.subheading_web_google,
+        );
+        push(
+            "body",
+            &self.body_web,
+            &self.body_web_weight,
+            &self.body_web_style,
+            &self.body_web_google,
+        );
+        specs
     }
 }
 

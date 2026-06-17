@@ -15,6 +15,10 @@ This document describes the JSON format used by the Cosplay America calendar wid
 }
 ```
 
+This is the core schedule data structure. Presentation configuration (branding,
+print formats) lives in a separate `ScheduleConfig` structure documented in
+[Widget Config Format](widget-config-format.md).
+
 ## Version Information
 
 - **Format Version**: 1
@@ -164,18 +168,18 @@ Entries are ordered chronologically by `startTime`. Unscheduled sessions (null `
 defines a category of panels. Only panel types that are referenced by at least one
 panel or timeline entry are included in the export.
 
-| Field         | Type    | Description                                                   |
-| ------------- | ------- | ------------------------------------------------------------- |
+| Field         | Type    | Description                                                                                                                                           |
+| ------------- | ------- | ----------------------------------------------------------------------------------------------------------------------------------------------------- |
 | `prefix`      | string  | Type prefix, identical to this entry's key in `panelTypes` (carried inline so list-oriented consumers need not reconstruct identity from the map key) |
-| `kind`        | string  | Human-readable category name                                  |
-| `colors`      | object  | Named color sets (see Color Sets below)                       |
-| `isBreak`     | boolean | True for break-type panels                                    |
-| `isCafe`      | boolean | True for café/social panels                                   |
-| `isWorkshop`  | boolean | True for workshop panels                                      |
-| `isHidden`    | boolean | True for hidden panel types (staff-only)                      |
-| `isRoomHours` | boolean | True for room-hours panels (e.g. Market Expo operating hours) |
-| `isTimeline`  | boolean | True for timeline/split panel types                           |
-| `isPrivate`   | boolean | True for private panel types (e.g. Staff Meal)                |
+| `kind`        | string  | Human-readable category name                                                                                                                          |
+| `colors`      | object  | Named color sets (see Color Sets below)                                                                                                               |
+| `isBreak`     | boolean | True for break-type panels                                                                                                                            |
+| `isCafe`      | boolean | True for café/social panels                                                                                                                           |
+| `isWorkshop`  | boolean | True for workshop panels                                                                                                                              |
+| `isHidden`    | boolean | True for hidden panel types (staff-only)                                                                                                              |
+| `isRoomHours` | boolean | True for room-hours panels (e.g. Market Expo operating hours)                                                                                         |
+| `isTimeline`  | boolean | True for timeline/split panel types                                                                                                                   |
+| `isPrivate`   | boolean | True for private panel types (e.g. Staff Meal)                                                                                                        |
 
 ### Key Format
 
@@ -305,13 +309,13 @@ by room membership.
 
 `timeline` is a JSON array of key time markers used for layout, navigation, and formatting.
 
-| Field         | Type           | Description                                                  |
-| ------------- | -------------- | ------------------------------------------------------------ |
-| `id`          | string         | Unique identifier for the time marker                        |
-| `startTime`   | string         | ISO 8601 local datetime (no timezone suffix, same as panels) |
-| `name`        | string         | Display label of the time marker (was `description` before format version 1; readers should accept the old key) |
-| `panelType`   | string \| null | Panel type prefix, references panelTypes hash key            |
-| `note`        | string \| null | Additional notes for the marker                              |
+| Field       | Type           | Description                                                                                                     |
+| ----------- | -------------- | --------------------------------------------------------------------------------------------------------------- |
+| `id`        | string         | Unique identifier for the time marker                                                                           |
+| `startTime` | string         | ISO 8601 local datetime (no timezone suffix, same as panels)                                                    |
+| `name`      | string         | Display label of the time marker (was `description` before format version 1; readers should accept the old key) |
+| `panelType` | string \| null | Panel type prefix, references panelTypes hash key                                                               |
+| `note`      | string \| null | Additional notes for the marker                                                                                 |
 
 ### Panel Type References
 
@@ -492,6 +496,7 @@ The widget performs the following transformations on the raw JSON:
 
 ## Related Documentation
 
+- [Widget Config Format](widget-config-format.md) - Presentation configuration (branding, print formats)
 - [Widget README](../widget/README.md) - Widget usage and embedding instructions
 - [Field System](field-system.md) - Internal CRDT-based storage format
 - [Conversion and Lookup](conversion-and-lookup.md) - Type conversion and entity resolution

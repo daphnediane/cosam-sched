@@ -44,3 +44,15 @@ white = "#FFFFFF"
 # body_idml_style = "Regular"  # Optional: exact InDesign style name for IDML export (overrides the
 #                              #   numeric-weight mapping; Typst/PDF keeps using body_weight)
 # font_dir = "brand/fonts"     # directory with TTF/OTF files, relative to this file
+#
+# ── Web-equivalent fonts (widget print) ──────────────────────────────────────
+# The print/IDML fonts above are not available in a browser, so each role may
+# declare a web substitute the widget's print formats use. `{role}_web` is the
+# CSS family; `{role}_web_weight`/`{role}_web_style` refine it; `{role}_web_google`
+# is a Google Fonts stylesheet URL the print window loads via <link>. Banner
+# falls back to the heading web font. These have no effect on Typst/IDML output.
+# heading_web = "Montserrat"          # e.g. a web stand-in for Trend Sans One
+# heading_web_weight = "600"
+# heading_web_google = "https://fonts.googleapis.com/css2?family=Montserrat:wght@600&display=swap"
+# subheading_web = "Bebas Neue"
+# body_web = "Nunito Sans"

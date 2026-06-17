@@ -15,8 +15,9 @@ mod types;
 
 // Re-export public types
 pub use types::{
-    WidgetExport, WidgetMeta, WidgetPanel, WidgetPanelColors, WidgetPanelType, WidgetPresenter,
-    WidgetRoom, WidgetTimeline,
+    ScheduleBrand, ScheduleBrandColors, ScheduleBrandMeta, ScheduleConfig, SchedulePrintFont,
+    SchedulePrintFontSizes, SchedulePrintFonts, SchedulePrintFormat, WidgetExport, WidgetMeta,
+    WidgetPanel, WidgetPanelColors, WidgetPanelType, WidgetPresenter, WidgetRoom, WidgetTimeline,
 };
 
 // Re-export public functions from export module

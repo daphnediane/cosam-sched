@@ -20,7 +20,7 @@
 
 use anyhow::{Context, Result};
 use chrono::NaiveDateTime;
-use schedule_core::widget_json::{WidgetExport, WidgetRoom};
+use schedule_core::widget_json::{ScheduleConfig, WidgetExport, WidgetRoom};
 
 /// Generate the static schedule fragments for the widget-html embed format.
 ///
@@ -36,6 +36,19 @@ pub fn generate_static_schedule_html(export: &WidgetExport) -> Result<String> {
         "<script type=\"application/json\" id=\"cosam-schedule-data\" data-cosam=\"schedule\">\n\
          {json_block}\n</script>\n\
          <section class=\"cosam-static-schedule\" aria-label=\"Schedule\">\n{panels_html}</section>"
+    ))
+}
+
+/// Generate the config script block for the widget-html embed format.
+///
+/// Returns a string containing the config JSON script block with branding and
+/// print formats. This is placed **outside** `#cosam-calendar-root` by the caller.
+#[must_use = "generated HTML must be embedded in the output document"]
+pub fn generate_config_html(config: &ScheduleConfig) -> Result<String> {
+    let json = serde_json::to_string_pretty(config).context("Failed to serialize config")?;
+    Ok(format!(
+        "<script type=\"application/json\" id=\"cosam-config-data\" data-cosam=\"config\">\n\
+         {json}\n</script>"
     ))
 }
 

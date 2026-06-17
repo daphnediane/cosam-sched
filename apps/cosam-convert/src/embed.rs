@@ -23,7 +23,7 @@ use std::io::Write as _;
 use std::path::{Path, PathBuf};
 
 use anyhow::{Context, Result};
-use schedule_core::widget_json::WidgetExport;
+use schedule_core::widget_json::{ScheduleConfig, WidgetExport};
 
 use crate::static_html;
 
@@ -447,6 +447,7 @@ fn resident_bootstrap(loader_expr: &str, style_page_line: &str, ready_expr: &str
 /// Contains the CSS, widget JS, HTML embed loader, and resident bootstrap — but
 /// no schedule data. Paste once into site-wide Code Injection → Header.
 pub fn generate_embed_head_widget_html(
+    config: Option<&ScheduleConfig>,
     sources: &WidgetSources,
     minified: bool,
     style_page: Option<bool>,
@@ -456,12 +457,19 @@ pub fn generate_embed_head_widget_html(
         Some(false) => "\n            stylePageBody: false,",
         None => "",
     };
+    let config_html = if let Some(cfg) = config {
+        static_html::generate_config_html(cfg)?
+    } else {
+        String::new()
+    };
     let html_loader = BUILTIN_HTML_EMBED_LOADER;
     let raw = format!(
         r#"{COPYRIGHT_COMMENT}
 <style>
 {css}
 </style>
+{config_html}
+<script>
 <script>
 // CosAm Calendar Widget - Engine (site-wide Code Injection: Header)
 // Copyright (c) 2026 Daphne Pfister
@@ -631,11 +639,12 @@ pub fn write_test_html_widget_html(
 
 pub fn write_embed_head_widget_html(
     path: &Path,
+    config: Option<&ScheduleConfig>,
     sources: &WidgetSources,
     minified: bool,
     style_page: Option<bool>,
 ) -> Result<()> {
-    let html = generate_embed_head_widget_html(sources, minified, style_page)?;
+    let html = generate_embed_head_widget_html(config, sources, minified, style_page)?;
     write_html_file(path, &html, "embed head engine (widget-html)")
 }
 

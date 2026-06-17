@@ -14,17 +14,21 @@ use schedule_core::tables::panel::PanelEntityType;
 use schedule_core::tables::panel_type::PanelTypeEntityType;
 use schedule_core::tables::presenter::PresenterEntityType;
 use schedule_core::widget_json::{
-    export_to_widget_json, import_from_widget_json, load_from_file, load_from_url, WidgetExport,
-    WidgetJsonError,
+    export_to_widget_json, import_from_widget_json, load_from_file, load_from_url, ScheduleConfig,
+    WidgetExport, WidgetJsonError,
 };
 use schedule_core::xlsx::{
     export_xlsx, export_xlsx_grid, import_xlsx, TableImportMode, TableImportOptions,
 };
 
+#[cfg(feature = "layout")]
+mod brand_bridge;
 mod conflicts;
 mod embed;
 mod layout_config;
 mod static_html;
+#[cfg(feature = "layout")]
+mod widget_config;
 
 // ── Input type tracking ───────────────────────────────────────────────────────
 
@@ -1049,6 +1053,26 @@ fn main() {
                         }
                     };
 
+                // Build the presentation config (branding + print formats) so the
+                // widget's print formats can match the printed house style.
+                let config: Option<ScheduleConfig> = {
+                    #[cfg(feature = "layout")]
+                    {
+                        let brand =
+                            brand_bridge::load_widget_brand(job.settings.brand_config.as_deref());
+                        let print_formats = widget_config::load_print_formats(None);
+                        Some(ScheduleConfig {
+                            version: 1,
+                            brand,
+                            print_formats,
+                        })
+                    }
+                    #[cfg(not(feature = "layout"))]
+                    {
+                        None
+                    }
+                };
+
                 if job.settings.embed_as_html {
                     match job.job_type {
                         OutputType::ExportEmbed => embed::write_embed_html_widget_html(
@@ -1060,6 +1084,7 @@ fn main() {
                         ),
                         OutputType::ExportEmbedHead => embed::write_embed_head_widget_html(
                             &job.path,
+                            config.as_ref(),
                             &sources,
                             job.settings.minified,
                             job.settings.style_page,
