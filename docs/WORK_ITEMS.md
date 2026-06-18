@@ -1,6 +1,6 @@
 # Cosplay America Schedule - Work Item
 
-Updated on: Tue Jun 16 09:32:57 2026
+Updated on: Thu Jun 18 10:56:48 2026
 
 ## Completed
 
@@ -221,7 +221,7 @@ pattern where each job spec points to a specific output file or directory.
 
 ## Summary of Open Items
 
-**Total open items:** 20
+**Total open items:** 22
 
 * **Meta / Project-Level**
   * [META-001] Meta work item tracking the full multi-phase redesign of the schedule system. (Blocked by [META-007], [META-008])
@@ -241,6 +241,11 @@ schedule data that the lossy widget JSON format does not carry.
   * [FEATURE-146] Drop the `Kind`/`Panel Types` type columns from export and make a row's type
 come solely from its Uniq ID prefix, reassigning the code (with an old-id
 history) when an entity's type no longer matches its prefix.
+  * [FEATURE-151] Carry branding and shipped print-format presets from config into the embedded
+widget, and add custom, user-managed print formats to the widget.
+  * [FEATURE-152] Compile `schedule-layout` + an in-process Typst engine to WebAssembly and expose
+it as a lazy-loaded widget plugin, so the widget can produce the real Typst
+house-style PDF in the browser without paying the wasm cost during normal use.
 
 * **Low Priority**
   * [CLI-100] Add a `--interactive` flag to `cosam-modify` that opens a read-eval-print loop for
@@ -418,6 +423,64 @@ matches the new type — preserving the previous code(s) in an `Old Uniq Id`
 history.
 
 Applies to **Panel, Timeline, and Break**.
+
+---
+
+### [FEATURE-151] FEATURE-151: Brand bridge and widget print formats
+
+**Status:** Open
+
+**Priority:** Medium
+
+**Summary:** Carry branding and shipped print-format presets from config into the embedded
+widget, and add custom, user-managed print formats to the widget.
+
+**Description:** The project has two output formatters: the powerful Typst-based PDF formatter
+(`schedule-layout`, driven by `LayoutConfig` + `BrandConfig`) and the widget's
+browser print, which previously offered only a hard-coded grid-vs-list choice
+with system fonts and no branding.
+
+This feature brings much of the Typst layout power into the widget's print path:
+a dropdown to create/manage custom print formats (mirroring the schedules UX)
+exposing the subset of layout options that map to browser print, plus a branding
+bridge so `cosam-convert` makes brand logos, colors, and web-equivalent print
+fonts from `config/brand.toml` available to the widget. Web fonts load via a
+Google Fonts `<link>` in the print window (e.g. Trend Sans One → Montserrat
+SemiBold 600). On-screen widget fonts are out of scope.
+
+---
+
+### [FEATURE-152] FEATURE-152: WASM Typst PDF export plugin for the widget
+
+**Status:** Open
+
+**Priority:** Medium
+
+**Summary:** Compile `schedule-layout` + an in-process Typst engine to WebAssembly and expose
+it as a lazy-loaded widget plugin, so the widget can produce the real Typst
+house-style PDF in the browser without paying the wasm cost during normal use.
+
+**Description:** The widget's browser-print path (FEATURE-151) reimplements the Typst house style
+in CSS and can only approximate it — pagination, running footers with page
+numbers, and full panel metadata are hard or impossible in native
+`window.print()`. The authoritative layout lives in `schedule-layout`
+(`document::generate` → Typst `.typ`), today compiled to PDF only by shelling out
+to the `typst` binary in `cosam-convert`.
+
+This feature brings that real pipeline into the browser: a WebAssembly module
+that reuses `schedule-layout`'s `.typ` generation and then compiles it to a PDF
+**in-process** via the `typst` crate (the same engine the CLI uses, no external
+binary). The widget gets a "Download Typst PDF" action that produces the
+house-style output, not a CSS approximation.
+
+Because the wasm blob is large (the Typst engine + std), it must **not** load
+during normal widget usage. It ships as a separate, lazy-loaded plugin file
+(mirroring the existing opt-in widget loaders) that imports the wasm only when
+the user invokes the PDF action.
+
+This is explicitly a **rough first pass**: prove the pipeline end-to-end
+(schedule JSON in → house-style PDF out, in the browser), accept known fidelity
+gaps, and iterate afterward.
 
 ---
 
@@ -826,6 +889,8 @@ trait and unified `name` (all seven name-bearing entities), `description` /
 [FEATURE-144]: ../work-item/closed/done/FEATURE-144.md
 [FEATURE-146]: ../work-item/open/2-MEDIUM/FEATURE-146.md
 [FEATURE-150]: ../work-item/closed/done/FEATURE-150.md
+[FEATURE-151]: ../work-item/open/2-MEDIUM/FEATURE-151.md
+[FEATURE-152]: ../work-item/open/2-MEDIUM/FEATURE-152.md
 [META-001]: ../work-item/meta/META-001.md
 [META-002]: ../work-item/closed/done/META-002.md
 [META-003]: ../work-item/closed/done/META-003.md
